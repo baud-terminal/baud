@@ -181,7 +181,8 @@ fn all_flags() -> KeyState {
 /// **The longest key is 40 bytes, and it comes back whole.** A `MAX_LEN` below
 /// 40 drops it, and this is the assertion that sees the drop. The witness is a
 /// repeat, `:2`: associated text is embedded for "key events that generate
-/// text", which a held text key does. A release, `:3`, is as long.
+/// text", which a held text key does. A release, `:3`, carries no text and is
+/// shorter.
 #[test]
 fn the_longest_key_is_forty_bytes_and_comes_back_whole() {
     assert_eq!(kitty_longest(), 40);

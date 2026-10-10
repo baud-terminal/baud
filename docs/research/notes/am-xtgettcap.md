@@ -553,8 +553,9 @@ ANSI and VT52, both encodings, and kitty flags 0-31.
     pass 256. The base layer's longest is 14 B (D0 in
     `keymax-output.txt`).
   * It needs what a simulated press never carries: associated text
-    (flag 16), both alternate keys (flag 4), a repeat or release with event
-    types (flag 2), and a three-digit modifier.
+    (flag 16), both alternate keys (flag 4), a repeat with event types
+    (flag 2) -- a release carries no text since 2026-10-10 -- and a
+    three-digit modifier.
   * D0 samples text keys at every decimal length, 1 to 7 digits; U+0000,
     U+0007 and U+0009 are the one-digit samples. Its kitty half holds the
     other fields at their defaults. A kitty-flagged key that falls through to
@@ -993,8 +994,8 @@ What follows:
     domains measured (11 B, 12 B).
   * `encode_key`'s global maximum (40 B) is not, and neither is
     `KeyBytes::MAX_LEN` (48 B). The 40 B is not a simulated press: it needs
-    associated text, both alternate keys, a repeat or release, and a
-    three-digit modifier (section 7.1).
+    associated text, both alternate keys, a repeat, and a three-digit
+    modifier (section 7.1).
   * The limits are for two-character names, which fill a body with the most
     copies. A longer name may answer more: 58 B (R1) or 55 B (R2) for a
     four-character name, 85 B or 82 B for a six-character one (**C**,

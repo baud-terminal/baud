@@ -319,6 +319,47 @@ fn associated_text_matches_the_worked_example() {
     );
 }
 
+/// **A release carries no associated text; a repeat does.** `[[source:
+/// kitty-keyboard]]` embeds the text only for "key events that generate text"
+/// (html 1663-1666), and divides key events into "those that produce text and
+/// those that do not" (1382), the first sent as their text in the legacy
+/// encoding, where "only key press and repeat events are sent" (1691). A
+/// release is never sent there, so it produces no text, and the field is
+/// absent even when the platform hands the release the character it would
+/// have typed. The repeat is the control: the same key, the same flags, a
+/// text-generating event that keeps its field.
+#[test]
+fn a_release_carries_no_associated_text_and_a_repeat_does() {
+    // flags = event types | all-keys | associated text = 2 | 8 | 16 = 26.
+    let key = text_key('a', Modifiers::NONE, Some('a'), None, None);
+    let repeat = KeyEvent {
+        kind: KeyEventKind::Repeat,
+        ..key
+    };
+    let release = KeyEvent {
+        kind: KeyEventKind::Release,
+        ..key
+    };
+    assert_eq!(pressed(b"\x1b[=26u", key), b"\x1b[97;1;97u", "the press");
+    assert_eq!(
+        pressed(b"\x1b[=26u", repeat),
+        b"\x1b[97;1:2;97u",
+        "the repeat"
+    );
+    assert_eq!(
+        pressed(b"\x1b[=26u", release),
+        b"\x1b[97;1:3u",
+        "the release"
+    );
+    // And with alternate keys and a modifier, only the text field goes.
+    let shifted = text_key('a', Modifiers::SHIFT, Some('A'), Some('A'), None);
+    let release = KeyEvent {
+        kind: KeyEventKind::Release,
+        ..shifted
+    };
+    assert_eq!(pressed(b"\x1b[=30u", release), b"\x1b[97:65;2:3u");
+}
+
 /// **Alternate keys (flag 4): shifted only under shift, base as an empty-slot
 /// third sub-field.** `[[source: kitty-keyboard]]`: the shifted key "must be
 /// present only if shift is also present", and a base-only report uses an

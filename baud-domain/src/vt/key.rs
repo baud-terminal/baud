@@ -499,8 +499,12 @@ fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     let base = alt.then_some(e.base_layout).flatten().map(|c| c.value());
     // Associated text (flag 16): the produced codepoint, embedded in the escape
     // code. Without the flag, an all-keys report carries the key event only.
-    let text = flags
-        .has(KittyFlags::ASSOCIATED_TEXT)
+    // **Never on a release**, whatever text the platform attached to it: the
+    // field is for "key events that generate text" (html 1663-1666), key
+    // events are "those that produce text and those that do not" (1382), and
+    // the legacy encoding, which sends exactly the produced text, sends "only
+    // key press and repeat events" (1691) -- a release produces none.
+    let text = (flags.has(KittyFlags::ASSOCIATED_TEXT) && e.kind != KeyEventKind::Release)
         .then_some(e.text)
         .flatten()
         .map(|c| c.value());
