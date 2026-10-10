@@ -110,11 +110,15 @@ is sent whole, and the app drains after every read"); the rest are open.
   (`baud-domain/src/vt/osc.rs`), where [[source: ctlseqs]] says "Any number of
   c/spec pairs may be given"; and `OSC 10;?;?` answers only 10, where ctlseqs
   says "Each successive parameter changes the next color".
-- **Keys stay seven-bit after `S8C1T`**, found correcting the comments: every
-  reply follows `S7C1T`/`S8C1T` and `Term::key` passes `C1Transmit::SevenBit`,
-  so after `ESC SP G` a DA answers `9B` and an arrow key sends `ESC [`.
-  [[source: ctlseqs]]: xterm "generates 7-bit controls (by default) or 8-bit if
-  S8C1T is enabled". Whether keys follow is a conformance call, not made.
+- **Fixed (2026-10-10): keys stayed seven-bit after `S8C1T`**, found
+  correcting the comments: every reply followed `S7C1T`/`S8C1T` and `Term::key`
+  passed `C1Transmit::SevenBit`, so after `ESC SP G` a DA answered `9B` and an
+  arrow key sent `ESC [`. [[source: ctlseqs]]: xterm "generates 7-bit controls
+  (by default) or 8-bit if S8C1T is enabled"; xterm's keyboard writes through
+  the `unparseseq` its replies use ([[source: xterm-input]]), one
+  `control_eight_bits` switch for both ([[source: xterm-reset]], charproc.c
+  9356-9373). `Term::key` reads `cold.c1`; `a_key_follows_s8c1t_as_a_reply_does`
+  holds it with DA as the control.
 - **Fixed:** the comment in `baud-core/src/paint.rs` calling `want_reply` "the
   only way bytes reach the reply buffer" was false: `dcs.rs`'s emitter and
   `Term::queue`/`Term::key` write it too. Its paragraph on seven-bit

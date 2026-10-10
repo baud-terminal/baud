@@ -2669,19 +2669,21 @@ impl<'b> Term<'b> {
     /// lines and having two spellings of the input protocol, which is what a
     /// hand-written CSI recogniser beside the table cost this repo once.
     ///
-    /// **One of `KeyState`'s eight fields is a constant here, and it used to be
-    /// two.**
+    /// **Every one of `KeyState`'s eight fields is read off `Term`, and two
+    /// used to be constants.**
     ///
-    /// * **`C1Transmit::SevenBit`.** This said the core does not implement
-    ///   `S8C1T` and that `want_reply` passes the same constant, so a key and
-    ///   a `DA` could not disagree about how wide a `CSI` is. Both stopped
-    ///   being true when `S8C1T` landed: every reply follows `cold.c1` and a
-    ///   key does not, so after `ESC SP G` a `DA` answers with `9B` and an
-    ///   arrow key still sends `ESC [`. `[[source: ctlseqs]]` says xterm
-    ///   "generates 7-bit controls (by default) or 8-bit if S8C1T is
-    ///   enabled", which reads as covering keys too; whether to follow it is
-    ///   an open conformance call (note AG, section 1.3), and the constant
-    ///   stays until it is made.
+    /// * **`c1` was `C1Transmit::SevenBit`**, on the grounds that the core did
+    ///   not implement `S8C1T` and `want_reply` passed the same constant, so a
+    ///   key and a `DA` could not disagree about how wide a `CSI` is. When
+    ///   `S8C1T` landed every reply followed `cold.c1` and a key did not: after
+    ///   `ESC SP G` a `DA` answered with `9B` and an arrow key still sent
+    ///   `ESC [`. `[[source: ctlseqs]]` says xterm "generates 7-bit controls
+    ///   (by default) or 8-bit if S8C1T is enabled", and xterm's keyboard
+    ///   writes its `CSI` and `SS3` through the same `unparseseq` its replies
+    ///   use (`[[source: xterm-input]]`), whose introducer goes through
+    ///   `unparseputc1` and the one `control_eight_bits` switch
+    ///   (`[[source: xterm-reset]]`, charproc.c 9356-9373). So it reads the
+    ///   mode, and a key and a reply cannot disagree again.
     /// * `terminal` was `TerminalMode::Ansi` on the grounds that "this core
     ///   has no VT52 sub-graph and no DECANM to leave ANSI with". It has both
     ///   now, so it reads the mode. Leaving the constant would have made every
@@ -2699,7 +2701,7 @@ impl<'b> Term<'b> {
         let s = KeyState {
             modes: self.cold.modes,
             keypad: self.cold.keypad,
-            c1: C1Transmit::SevenBit,
+            c1: self.cold.c1,
             terminal: self.cold.terminal,
             encoding: self.cold.encoding,
             other_keys: self.cold.other_keys,

@@ -7062,6 +7062,27 @@ group  = "C"
 # || (xw->flags & NATIONAL) != 0)` (1929): xterm designates an NRC set only in national
 # mode, DECNRCM. **Cited as xterm's**, practice beside DEC's text.
 
+# xterm's keyboard, read 2026-10-10 for `Term::key` following `S8C1T`. Every
+# `CSI` and `SS3` a key sends goes through `unparseseq` -- the cursor keys at
+# 1400-1411, the keypad at 1391-1396, the `~` keys at 1350-1380 -- the function
+# its replies use, whose introducer `unparseputc1` writes as `ESC` and the byte
+# less 0x40 only while `control_eight_bits` is off (`[[source: xterm-reset]]`,
+# charproc.c 9356-9373). **Cited as xterm's**, the reference implementation
+# `[[source: ctlseqs]]` describes. `external`: read and hash-verified against a
+# fetch of the url at the same commit as `xterm-reset`, not committed.
+[sources.xterm-input]
+key    = "xterm-input"
+title  = "xterm patch #411, input.c -- Input, every CSI and SS3 key reply written through unparseseq"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/input.c"
+file   = ""
+sha256 = "8b78c08a8b0ed1598185b5aebe0d48c166bc09ab2033cafa453e461ba7af5905"
+bytes  = 62870
+status = "external"
+group  = "C"
+
 # alacritty's full reset. `reset_state` (term/mod.rs 1835) swaps back from the
 # alternate screen, resets both grids (1841-1842) and drops the selection
 # (1847); `Grid::reset` (grid/mod.rs 336) calls `clear_history` (341) and puts

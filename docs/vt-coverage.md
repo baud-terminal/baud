@@ -353,7 +353,7 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | `ESC % @` — select ISO 8859-1 | done — switches the live input encoding |
 | `CSI ? 1020 $ p` — DECRQM on xterm's `utf8` resource | done — mirrors the **live** encoding, `1` or `2`, as xterm does |
 | `ESC SP F` — S7C1T, send 7-bit controls | done — the default |
-| `ESC SP G` — S8C1T, send 8-bit controls | done — replies switch to `9B` / `90` / `9C` |
+| `ESC SP G` — S8C1T, send 8-bit controls | done — replies switch to `9B` / `90` / `9C`, and keys to `9B` / `8F` (`a_key_follows_s8c1t_as_a_reply_does`) |
 | GR bytes `A0-FF` treated as GL `20-7F` inside a sequence — **in UTF-8** | **out** — they are UTF-8 lead and continuation bytes. This row said `out` for both encodings until 2026-10-10, on a reason that holds under UTF-8 alone |
 | the same under `ESC % @` (ISO 8859-1) | **partial** — in a DCS prefix since 2026-10-10, `dcs_entry`, `dcs_param` and `dcs_intermediate` reading each GR byte as its 7-bit byte (`dcs_entry` above). **The gap**: an escape or control sequence does not. `escape` ends at a GR byte and drops it, so `ESC A8 B` designates nothing and draws `B`; `csi_entry` and `csi_intermediate` ignore the sequence and `csi_param` drops the byte, so `CSI 1 B2 m` is `CSI 1 m`; and `csi_ignore` waits for a 7-bit final. `[[source: williams]]` treats GR as GL "in all states" (462) and in DEC's notes for both (760, 847, 900); `[[source: ecma48]]` §9 names "Parameter Bytes, Intermediate Bytes, and Final Bytes of a control sequence"; `[[source: dec-std-070]]` 3.5.4.5 calls its DCS rule "the same way 8-bit graphic characters are handled within control sequences"; and xterm's `csi_table` gives `A0-FF` the cases of `20-7F` (`[[source: xterm-vtprstbl-c]]` 679-798). The texts agree and it is unbuilt: `CsiFinal`, `Inter`, `Marker` and `EscFinal` read their byte, so it changes actions, not only table content. **And in a control string's body**: an `OSC` keeps a GR byte as it is, a title's among them, where `[[source: dec-std-070]]` 3.5.4.5 says "GR (8-bit) graphic characters in APC, OSC, and PM control strings will be treated as their 7-bit equivalent (the eighth bit will be ignored)" and ECMA-48 §9 gives "the contents of the command string" the same rule; an `APC` or `PM` body no handler reads, and a DCS body's GR bytes are the open call `dcs_passthrough` names. |
 | ISO 8859-1 input, switched by `ESC % @` / `ESC % G` | done — `InputEncoding`; one byte, one character, no decoder state |
@@ -371,7 +371,9 @@ reply is not UTF-8 text, it is a control stream the application asked for by
 sending S8C1T, and an application that asks is prepared to read it. baud still
 cannot *parse* an 8-bit introducer — that half is forced by UTF-8 and stands —
 but there was never a reason it could not *emit* one. `C1Transmit` carries the
-choice and CSI, DCS and ST introducers all follow it.
+choice and CSI, DCS and ST introducers all follow it, a key's `CSI` and `SS3`
+included: xterm writes both through the `unparseseq` its replies use
+(`[[source: xterm-input]]`, `[[source: xterm-reset]]` charproc.c 9356-9373).
 
 **`?1020` mirrors the live encoding, and that is a correction.** It answered
 `3` — permanently set — for as long as `ESC % @` was refused, which was true

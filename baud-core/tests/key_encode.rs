@@ -479,6 +479,56 @@ fn feed(t: &mut Term, bytes: &[u8]) {
     t.feed(BytePos::ZERO, ReadLen::from_index((bytes).len()));
 }
 
+/// **After `S8C1T` a key sends its C1 introducer as one byte, as a reply
+/// does.**
+///
+/// `[[source: ctlseqs]]` line 159: xterm "generates 7-bit controls (by
+/// default) or 8-bit if S8C1T is enabled", and `[[source: vt510-s8c1t]]`
+/// makes the mode "send C1 control characters to the host" without
+/// separating keys from reports. xterm's keyboard writes every `CSI` and `SS3`
+/// through `unparseseq` (`[[source: xterm-input]]`, the cursor keys at
+/// 1400-1411), and `unparseseq` puts its introducer through `unparseputc1`,
+/// which spells `ESC` and the byte less `0x40` only when
+/// `control_eight_bits` is off (`[[source: xterm-reset]]`, charproc.c
+/// 9356-9373) -- one switch for both. `DA` is the control: the same terminal,
+/// the same mode, a reply that already followed it.
+#[test]
+fn a_key_follows_s8c1t_as_a_reply_does() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    feed(&mut t, b"\x1b G\x1b[c");
+    assert_eq!(
+        t.reply().first(),
+        Some(&0x9b),
+        "the control: DA after S8C1T opens with 9B, got {:02x?}",
+        t.reply()
+    );
+    let press = |t: &mut Term, code| {
+        t.clear_reply();
+        assert!(t.key(KeyEvent::press(code, Modifiers::NONE)));
+        t.reply().to_vec()
+    };
+    assert_eq!(press(&mut t, KeyCode::Up), b"\x9bA", "CSI A as 9B A");
+    assert_eq!(
+        press(&mut t, KeyCode::Function(FnKey::new(5).unwrap())),
+        b"\x9b15~",
+        "CSI 15 ~"
+    );
+    feed(&mut t, b"\x1b[?1h");
+    assert_eq!(
+        press(&mut t, KeyCode::Up),
+        b"\x8fA",
+        "DECCKM: SS3 A as 8F A"
+    );
+    feed(&mut t, b"\x1b F");
+    assert_eq!(
+        press(&mut t, KeyCode::Up),
+        b"\x1bOA",
+        "S7C1T: seven-bit again"
+    );
+}
+
 /// **`?1036` and `?1039` are two modes, and were one bit under a third number.**
 ///
 /// `[[source: ctlseqs]]` line 995 gives `?1034` as `eightBitInput` -- add 128 --
@@ -987,8 +1037,8 @@ fn any_key() -> impl Strategy<Value = KeyCode> {
 }
 
 /// Every mode combination a key can be encoded under, as the bytes that select
-/// them. Modes are not independent of the encoder: DECCKM, DECKPAM, LNM, VT52
-/// and the two `ESC`-prefix modes each change what some key sends.
+/// them. Modes are not independent of the encoder: DECCKM, DECKPAM, LNM, VT52,
+/// `S8C1T` and the two `ESC`-prefix modes each change what some key sends.
 fn any_modes() -> impl Strategy<Value = Vec<&'static [u8]>> {
     proptest::collection::vec(
         prop_oneof![
@@ -998,11 +1048,40 @@ fn any_modes() -> impl Strategy<Value = Vec<&'static [u8]>> {
             Just(&b"\x1b[?1036l"[..]),
             Just(&b"\x1b[?1039l"[..]),
             Just(&b"\x1b[?1034h"[..]),
+            Just(&b"\x1b G"[..]),   // S8C1T
             Just(&b"\x1b%@"[..]),   // ISO 8859-1
             Just(&b"\x1b[?2l"[..]), // VT52
         ],
         0..5,
     )
+}
+
+/// Whether a key's bytes open with `SS3`, in either C1 form: `ESC O`, or `8F`
+/// under `S8C1T` -- but only with a final after it. A lone `8F` is a
+/// character: `Ctrl+Meta+O` under `?1034` and ISO 8859-1 is `0x0F` shifted by
+/// 128 (`[[source: ctlseqs]]` line 2331), and an `SS3` is never one byte.
+fn is_ss3(out: &[u8]) -> bool {
+    out.starts_with(b"\x1bO") || (out.len() >= 2 && out[0] == 0x8f)
+}
+
+/// **A one-byte `8F` is a character, not `SS3`.** The generator can build it --
+/// `?1036l ?1034h ESC % @` and `Ctrl+Meta+O` -- but `any_key` draws `o` from
+/// over a million codepoints, so with a predicate reading only the first byte
+/// `a_modifier_never_leaves_ss3_in_front` passed 20,000 cases without meeting
+/// it. This test is the case the property almost never reaches.
+#[test]
+fn a_lone_8f_is_a_character_and_not_ss3() {
+    let setup: &[&[u8]] = &[b"\x1b[?1036l", b"\x1b[?1034h", b"\x1b%@"];
+    let o = KeyCode::Char(Codepoint::from_char('o'));
+    let (sent, out) = encode(o, Modifiers::CTRL.with(Modifiers::META), setup);
+    assert!(sent);
+    assert_eq!(out, [0x8f], "Ctrl+Meta+O shifted by 128");
+    assert!(!is_ss3(&out), "one byte is not an introducer and a final");
+    let (_, up) = encode(KeyCode::Up, Modifiers::NONE, &[b"\x1b G", b"\x1b[?1h"]);
+    assert!(
+        is_ss3(&up),
+        "the positive control: 8F A under S8C1T and DECCKM"
+    );
 }
 
 fn encode(code: KeyCode, mods: Modifiers, setup: &[&[u8]]) -> (bool, Vec<u8>) {
@@ -1122,8 +1201,7 @@ proptest! {
         // one. This property found that by failing on `Shift` + keypad `=`,
         // and the answer was to narrow the property, not the encoder.
         let exempt = matches!(code, KeyCode::Keypad(_));
-        let is_ss3 = out.starts_with(b"\x1bO");
-        prop_assert!(exempt || !is_ss3, "modified key emitted SS3: {:?}", out);
+        prop_assert!(exempt || !is_ss3(&out), "modified key emitted SS3: {:?}", out);
     }
 
     /// The reply buffer is bounded and a key must never be able to overflow it.
@@ -1141,7 +1219,7 @@ proptest! {
         // parameter and never takes Alt's `ESC` prefix; the prefix goes only on
         // a character key, which is at most `ESC` and four bytes of UTF-8. The
         // generator sets neither `modifyOtherKeys` nor a kitty flag, and
-        // `Term::key` sends 7-bit controls; those layers reach 14 and 40
+        // `S8C1T` only shortens an introducer; those layers reach 14 and 40
         // bytes, and `baud-domain/tests/key_bytes.rs` measures both.
         prop_assert!(out.len() <= 8, "{} bytes: {:?}", out.len(), out);
     }

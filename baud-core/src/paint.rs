@@ -1115,8 +1115,8 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// **The introducers follow `S7C1T` and `S8C1T`.** `cold.c1` is what
     /// `ESC SP F` and `ESC SP G` last set, and `report_status` and
     /// `Term::queue` read it too. This said seven-bit always, on the grounds
-    /// that the core implemented neither; it implements both. Keys are the
-    /// exception: `Term::key` passes `C1Transmit::SevenBit`.
+    /// that the core implemented neither; it implements both. `Term::key`
+    /// reads it as well, so a key and a reply open with the same introducer.
     #[cold]
     #[inline(never)]
     pub(crate) fn want_reply(&mut self, r: Report) {
