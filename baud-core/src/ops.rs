@@ -1537,8 +1537,8 @@ impl Paint<'_, '_> {
         // operational" (`[[source: ecma48]]`), and nothing is saved then.
         // `DECSTR` keeps it, as its list does not name it. xterm keeps it
         // across both -- `ReallyReset` never touches `save_modes`
-        // (`[[source: xterm-reset]]`) -- which departs from the text: the
-        // owner's call.
+        // (`[[source: xterm-reset]]`) -- which departs from the text; Jev
+        // decided for the text on 2026-10-10 (XT-8), open to the owner's veto.
         self.cold.xtsave = SavedModes::NONE;
         self.cold.mouse = MouseTracking::Off;
         self.cold.mouse_encoding = MouseEncoding::X10;

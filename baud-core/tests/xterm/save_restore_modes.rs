@@ -19,12 +19,13 @@
 //! from that text in places. Where Jev decided for the text on 2026-10-10,
 //! each listed for the owner's veto, baud follows the text: xterm ignores
 //! `?2` and `?8` and saves `?3` only under the `c132` resource `?40` sets
-//! (XT-3), and restores `?1049` without the cursor or the clear (XT-6); and
-//! where the text is silent, xterm re-applies `?6`, and `?3` under `c132`, at
-//! a value already in force, and baud changes nothing (XT-7). The rest are the
-//! owner's call rather than followed here: it saves one tracking level under
-//! all four mouse modes and one encoding under all four encodings, restores a
-//! never-saved mode from a zeroed array, and keeps the cache across `RIS`.
+//! (XT-3), restores `?1049` without the cursor or the clear (XT-6), and
+//! keeps the cache across `RIS` (XT-8); and where the text is silent, xterm
+//! re-applies `?6`, and `?3` under `c132`, at a value already in force, and
+//! baud changes nothing (XT-7). The rest are the owner's call rather than
+//! followed here: it saves one tracking level under all four mouse modes and
+//! one encoding under all four encodings, and restores a never-saved mode
+//! from a zeroed array.
 
 use crate::support;
 use baud_core::*;
@@ -372,8 +373,9 @@ fn the_question_mark_keeps_them_apart_from_scosc_decstbm_and_decslrm() {
 /// "RIS causes a device to be reset to its initial state, i.e. the state it
 /// has after it is made operational" (`[[source: ecma48]]`), and at power-on
 /// nothing is saved. DECSTR's list does not name it. xterm keeps it across
-/// both -- `ReallyReset` never touches `save_modes` -- which is the owner's
-/// call.
+/// both -- `ReallyReset` never touches `save_modes` -- which departs from the
+/// text; baud follows the text, decided 2026-10-10 by Jev at 0.94 and 0.94
+/// (XT-8), listed for the owner's veto.
 #[test]
 fn ris_empties_the_cache_and_decstr_keeps_it() {
     support::with_corpus(|t| {
