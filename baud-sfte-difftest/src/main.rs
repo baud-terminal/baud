@@ -137,6 +137,22 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
             b"main\x1b[?1049halt\x1b[?1049l".to_vec(),
         ),
         ("BEL-terminated OSC", b"\x1b]0;title\x07AFTER".to_vec()),
+        // A BEL ends an OSC and no other string ([[source: ctlseqs]] 2023-2024):
+        // [[source: williams]] puts it in a DCS body (388) and ignores it in an
+        // APC or PM (426), so the `X` after it is body and only `ESC \` ends the
+        // string. sfte's `VT_DCS` is all three, and patch 0001 must leave it
+        // alone: when it let a BEL through there too, sfte ended each string at
+        // the BEL and drew the `X`. No SOS, because sfte has no `ESC X` and
+        // prints the body; no 8-bit introducer, because sfte decodes `>= 0x80`
+        // as UTF-8; no `+q`, the one DCS sfte answers, because baud does not.
+        // DECRQSS is in `MUST_DIFFER`.
+        (
+            "BEL in a DCS body",
+            b"\x1bP0;1|17/31\x07X\x1b\\AFTER".to_vec(),
+        ),
+        ("BEL in DECRQSS", b"\x1bP$qm\x07X\x1b\\AFTER".to_vec()),
+        ("BEL in an APC", b"\x1b_a\x07X\x1b\\AFTER".to_vec()),
+        ("BEL in a PM", b"\x1b^a\x07X\x1b\\AFTER".to_vec()),
         // `?1049 h` while already on the alternate screen. xterm's set arm is
         // `CursorSave; ToAlternate; ClearScreen`, and `ClearScreen` runs
         // whatever buffer is up, so a second enter clears -- which sfte does
@@ -230,6 +246,17 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
 ///   answers the override it holds; sfte's reply buffer stays empty. It is
 ///   what makes the two reset cases a gate on baud's side only: sfte is
 ///   silent there whatever its reset does.
+/// * **`BEL in DECRQSS` -- sfte answers no DECRQSS.** Its DCS dispatch
+///   answers only `+q`, so its reply is empty however the string ends, and
+///   the reply carries no evidence from sfte's side. baud answers `0 $ r`,
+///   invalid, because the string ran on past the BEL to ST and its `Pt` holds
+///   the `X`; had the BEL ended it, `Pt` would be `m` and baud would answer
+///   `1 $ r 0 m`. That the BEL itself stays in the payload, as
+///   [[source: williams]]'s put has it (388), is true of baud, but this reply
+///   cannot show it: the `X` alone makes the request invalid. What sfte does
+///   say is in the cells: pinned as a reply, any cell differing is
+///   off the pin, and when patch 0001 let a BEL end sfte's `VT_DCS`, sfte drew
+///   the `X` after it.
 /// * **The seven `ESC` cases -- sfte does not abandon a sequence on `ESC`.**
 ///   Its CSI entry and parameter states ignore `1B`, a `[` final is a no-op,
 ///   its charset state eats any byte and its `#` state goes to ground on
@@ -270,6 +297,7 @@ const MUST_DIFFER: &[(&str, Control)] = &[
         "OSC 4 set then query",
         Control::Reply(b"\x1b]4;1;rgb:1212/3434/5656\x07", b""),
     ),
+    ("BEL in DECRQSS", Control::Reply(b"\x1bP0$r\x1b\\", b"")),
     (
         "ESC in CSI params",
         Control::Cells(&[(0, 0, 'X', '2'), (0, 1, ' ', 'm'), (0, 2, ' ', 'X')]),
@@ -686,8 +714,10 @@ mod tests {
         // three `OSC 4` fixtures: `OSC 4 set then query` and the `DECSTR` case
         // add a screen each; the `RIS` case adds none, measured by removing it
         // (the count stays 330,301) -- inferred to be sfte's reset writing
-        // every cell, which was not read in its source.
-        assert_eq!(norm.blanks.get(), 330_301, "zero-rune blanks normalised");
+        // every cell, which was not read in its source. 370,281 since the
+        // four `BEL in ...` fixtures, measured: 39,980 more, four screens less
+        // the five cells of `AFTER` on each.
+        assert_eq!(norm.blanks.get(), 370_281, "zero-rune blanks normalised");
     }
 
     /// The geometry assert can fire: the shim refuses a context at any other

@@ -53,13 +53,23 @@ the state switch and returns in every state (`:6261-6263`), so the terminator
 arms in `VT_OSC` and `VT_DCS` (`:6330`) are unreachable and `ESC ] 0 ; title
 BEL` swallows every byte until the next `ESC`. That is the commonest
 window-title spelling in the wild. `baud-sfte-difftest/patches/0001` guards
-the arm on the two string states -- one condition -- and `build.rs` applies
+the arm on `VT_OSC` alone -- one condition -- and `build.rs` applies
 it into `OUT_DIR` as an exact-anchor replacement that fails the build if the
 anchor is found zero or several times; the pristine header stays hashed in
 the manifest. The `BEL-terminated OSC` fixture is the live control: with the
 patch removed, five cells and the cursor diverge. The corpus could not have
 shown it -- `cava.raw`'s one such OSC swallows only its own title and agrees
 at all 156 boundaries either way -- which is why the fixture exists.
+
+The patch's first version guarded `VT_DCS` as well, and sfte's `VT_DCS` is
+the state `ESC P`, `ESC _` and `ESC ^` all enter: a DCS, an APC and a PM, none
+of which a BEL ends. `[[source: ctlseqs]]` gives BEL as a terminator for OSC
+alone (2023-2024), and `[[source: williams]]` puts it in a DCS body (388) and
+ignores it in an APC or PM (426). baud-core ended all of them on BEL too until
+83fee5d, so the two agreed in the departure; once baud followed the texts, the
+patch was narrowed to the OSC, and four fixtures, a BEL inside a DCS, a
+DECRQSS, an APC and a PM, hold it there. Under the old condition sfte drew the
+byte after the BEL in each.
 
 ## The controls
 

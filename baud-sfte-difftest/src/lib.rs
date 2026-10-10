@@ -35,7 +35,10 @@
 //! fixture is the live control that the patch is applied: with it removed,
 //! five cells and the cursor diverge. The corpus itself could not show the
 //! defect -- `cava.raw`'s one such OSC swallows only its own title -- which
-//! is why the fixture exists.
+//! is why the fixture exists. The patch lets a BEL end an OSC and nothing
+//! else, because an OSC is the one string a BEL ends; the four `BEL in ...`
+//! fixtures, a BEL inside a DCS, a DECRQSS, an APC and a PM, are what hold it
+//! there.
 use baud_core::*;
 use std::ffi::CStr;
 
