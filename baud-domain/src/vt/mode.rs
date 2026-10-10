@@ -440,11 +440,11 @@ impl PrivateMode {
     /// permanent here. An unnamed mode has none, and DECSET counts it, as a
     /// save and a restore of it are counted.
     ///
-    /// xterm saves a different set -- not `?2` or `?8`, `?3` only under the
-    /// `c132` resource `?40` sets, and one slot for all four tracking levels
-    /// and one for all
-    /// four encodings (`savemodes`, `[[source: xterm-reset]]`) -- which is a
-    /// departure from the text, and the owner's question.
+    /// xterm saves a different set (`savemodes`, `[[source: xterm-reset]]`):
+    /// not `?2` or `?8`, and `?3` only under the `c132` resource `?40` sets,
+    /// where baud follows the text, decided 2026-10-10 (Jev, XT-3); and one
+    /// slot for all four tracking levels and one for all four encodings,
+    /// still the owner's question (XT-4, XT-5).
     pub const fn slot(self) -> Option<ModeSlot> {
         let n = match self {
             PrivateMode::CursorKeys => 0,

@@ -16,12 +16,14 @@
 //! DECSET counts it.
 //!
 //! xterm's `savemodes` and `restoremodes` (`[[source: xterm-reset]]`) depart
-//! from that text in places, and each is the owner's call rather than
-//! followed here: it saves one tracking level under all four mouse modes and
-//! one encoding under all four encodings, restores `?1049` without the
-//! cursor or the clear, ignores `?2` and `?8`, saves `?3` only under the
-//! `c132` resource `?40` sets, restores a never-saved mode from a zeroed
-//! array, and keeps the cache across `RIS`.
+//! from that text in places. Where Jev decided for the text on 2026-10-10,
+//! each listed for the owner's veto, baud follows the text: xterm ignores
+//! `?2` and `?8` and saves `?3` only under the `c132` resource `?40` sets
+//! (XT-3). The rest are the owner's call rather than followed here: it saves
+//! one tracking level under all four mouse modes and one encoding under all
+//! four encodings, restores `?1049` without the cursor or the clear,
+//! restores a never-saved mode from a zeroed array, and keeps the cache
+//! across `RIS`.
 
 use crate::support;
 use baud_core::*;
