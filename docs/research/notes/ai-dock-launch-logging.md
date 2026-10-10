@@ -8,7 +8,9 @@ the scratch path and process ids are replaced, and `PATH` was elided at
 capture; times keep their zone (MDT). The unredacted originals and the fetched
 copies of external sources stay untracked under `.claude/research/logging/`.
 [[source: ai-obs-index]] says what each holds. **Not put to Jev** when written;
-Jev is asked before the questions go to the owner.
+Jev is asked before the questions go to the owner. Jev was asked on
+2026-10-09 (decision log 353-354): question 1 is decided (§7), and question
+2's C shim cleared 0.9 both times but is held as conditional.
 
 Evidence tags:
 - **M**: measured on this Mac (macOS 27.0 build 26A5425a, Xcode 27.0 27A266a,
@@ -911,6 +913,27 @@ baud's lines is one. ghostty maps warn to Error and err to Fault (§3).
    - (a) conforms to the current guidance. (b) is practice an older text
      allows. (c) is both, with both costs. (d), stderr at a higher level, does
      not reach a Dock launch at all.
+   - **Decided: (a), the unified log** (Jev, 2026-10-09, 0.97 and 1.0 on the
+     original and on a replicate with the options reordered, decision log
+     lines 353-354; to be listed on the review page for the owner's veto).
+     It conforms: Apple's text names the unified log as superseding ASL and
+     Syslog (§2.2). A launched baud's lines go to the unified log under
+     subsystem `dev.baud.terminal` (§5 (a)), and a terminal launch keeps
+     stderr; whether a terminal launch also writes the unified log is asked
+     by no question.
+   - **Unbuilt, and why.** The emitter needs three answers that are open:
+     the route (question 2; Jev picked the C shim at 0.97 and 1.0, held as
+     conditional because it would be the first C object in the shipping
+     binary), the type `warn` takes (question 4; 0.12 and 0.6) and each
+     value's privacy, which is the shim's format specifier (question 5;
+     0.27 and 0.22). How the level is set (question 6; 0.24 and 0.4) is open
+     too. Telling a launched baud from a terminal launch, by fd 2 being
+     `/dev/null` (§1.3), needs none of them, but on its own it changes nothing
+     a user can see: the line still has nowhere to go. So the choice of sink
+     lands with the emitter, with its unit test (the unified log is chosen
+     when stderr is `/dev/null`) red first, and the manual check that a
+     launched baud's `warn` line is found by `log show --predicate
+     'subsystem == "dev.baud.terminal"'`.
 2. **If the unified log, by which route?**
    - **A C shim.**
      - For: it stays on the documented surface; it gives subsystem and
