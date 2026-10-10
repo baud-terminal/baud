@@ -240,7 +240,9 @@ cancels, closes nothing, and neither does an `ESC \` there. williams draws
 9C" (972-973). baud does nothing and counts nothing for either; both fell to
 `Esc::Unsupported` and were counted as a function baud lacks until 2026-10-09,
 after the sequence half above (`a_bare_st_closes_nothing_and_is_counted_nowhere`).
-An ST that closes a string is the string node's, and is unchanged.
+An ST that closes a string is the string node's, and is unchanged. A `9C` under
+`ESC % @` in VT52 ground takes its ANSI edge (note AE's D3) and so is uncounted
+too; VT52 has no control strings for it to close.
 
 **The basis this row gave was wrong, and what SUB displays is open.**
 

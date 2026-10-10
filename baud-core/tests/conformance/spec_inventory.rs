@@ -469,7 +469,14 @@ fn plain_esc(seq: &str) -> Option<u8> {
     let b = toks[0].as_bytes()[0];
     // Introducers: these open CSI, OSC, DCS, SOS, PM and APC. Feeding one
     // alone leaves the parser mid-sequence, which is not "silently consumed".
-    if matches!(b, b'[' | b']' | b'P' | b'X' | b'^' | b'_' | b'\\') {
+    if matches!(b, b'[' | b']' | b'P' | b'X' | b'^' | b'_') {
+        return None;
+    }
+    // `ESC \` is ST, not an introducer: it closes a control string, and with
+    // none open it closes nothing and is counted nowhere by design, which
+    // `a_bare_st_closes_nothing_and_is_counted_nowhere` holds. It is left out
+    // here for that reason, not as an opener.
+    if b == b'\\' {
         return None;
     }
     (0x30..=0x7e).contains(&b).then_some(b)
