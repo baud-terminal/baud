@@ -1,13 +1,11 @@
 //! `[[source: kitty-keyboard]]`'s four negotiation forms parse to named
 //! operations with the right values.
 //!
-//! This is the grammar layer only: the core still refuses the query and
-//! ignores the flags, because the protocol's support detection is whether
-//! `CSI ? u` is answered at all, and answering before every enhancement is
-//! honoured claims support baud does not have. Naming the forms here is what
-//! the stack and the encoder are built on -- and a form parsed wrong is a
-//! sequence that would act on the wrong flags the moment they are honoured, so
-//! it is pinned before then.
+//! This is the grammar layer only. The core keeps the stack, honours the flags
+//! and answers the query (`baud-core/tests/kitty_keyboard.rs` and
+//! `kitty_encode.rs`), and all of it is built on the forms named here -- so a
+//! form parsed wrong is a sequence that acts on the wrong flags, and it is
+//! pinned at this layer.
 
 use baud_domain::*;
 

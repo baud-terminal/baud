@@ -698,7 +698,10 @@ impl<'a, 'b> Paint<'a, 'b> {
         //
         // Worth knowing because the change it argued for -- a different grid
         // representation, with readers checking the preceding cell -- is
-        // invasive and shared with `baud-core2`, and it would have bought 3%.
+        // invasive, and it would have bought 3%. The readers are outside this
+        // crate too: `baud-domain`'s grid and reflow, `baud-render`'s cell
+        // map, overlay and selection, and both difftests find a wide
+        // character's second column by its `WIDE_TAIL` cell.
         #[cfg(feature = "ceiling-implicit-tail")]
         let tail: Option<PackedCell> = None;
         #[cfg(not(feature = "ceiling-implicit-tail"))]

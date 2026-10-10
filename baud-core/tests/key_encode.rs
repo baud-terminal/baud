@@ -1135,9 +1135,15 @@ proptest! {
     ) {
         let mods = Modifiers::from_wire(bits + 1).expect("1..=16");
         let (_, out) = encode(code, mods, &setup);
-        // The longest form is `CSI <param> ; <mod> ~` with a two-digit
-        // parameter and a two-digit modifier, plus an ESC prefix from Alt.
-        prop_assert!(out.len() <= 12, "{} bytes: {:?}", out.len(), out);
+        // The longest this generator reaches is `CSI <param> ; <mod> ~` with a
+        // two-digit parameter (F5-F20) and a two-digit modifier (10-16), such
+        // as `CSI 34 ; 16 ~`: 8 bytes. A tilde key carries its modifier as a
+        // parameter and never takes Alt's `ESC` prefix; the prefix goes only on
+        // a character key, which is at most `ESC` and four bytes of UTF-8. The
+        // generator sets neither `modifyOtherKeys` nor a kitty flag, and
+        // `Term::key` sends 7-bit controls; those layers reach 14 and 40
+        // bytes, and `baud-domain/tests/key_bytes.rs` measures both.
+        prop_assert!(out.len() <= 8, "{} bytes: {:?}", out.len(), out);
     }
 }
 
@@ -1147,7 +1153,8 @@ proptest! {
 /// `Term::key` reads `self.cold.encoding` and nothing wrote it, so the core
 /// was always UTF-8 and the Latin-1 rows could not pass. They closed when
 /// `ESC % @` was routed, without touching the encoder -- which is the point of
-/// `baud_domain::encode_key` being one function both cores call.
+/// `baud_domain::encode_key` being a pure function of the state `Term::key`
+/// hands it.
 #[test]
 fn the_known_key_gaps() {
     support::ignores_are(".", &["key_encode.rs"], &[]);

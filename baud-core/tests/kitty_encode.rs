@@ -1,6 +1,7 @@
 #![deny(dead_code)]
-//! `[[source: kitty-keyboard]]`'s progressive-enhancement **encoding** for the
-//! functional keys, under the disambiguate, event-type and all-keys flags.
+//! `[[source: kitty-keyboard]]`'s progressive-enhancement **encoding**, under
+//! all five flags: disambiguate, event types, alternate keys, all-keys and
+//! associated text.
 //!
 //! The table of key numbers is gated against `scripts/extract-kitty-keys.py`
 //! through the encoded output rather than by inspecting a private function: for
@@ -9,9 +10,11 @@
 //! transcription slip in the encoder then fails against the source, the same
 //! discipline the base layer keeps against `extract-keys.py`.
 //!
-//! `Char` reports its unshifted codepoint and the keypad its dedicated kitty
-//! numbers; the remaining gap is the media and individual-modifier keys, which
-//! `KeyCode` does not model yet.
+//! `Char` reports its unshifted codepoint; the keypad reports its dedicated
+//! kitty numbers and the Private Use Area keys -- the locks, F21-F35, the media
+//! and the individual modifier keys -- theirs, both gated against the source. The
+//! one key family not modelled is the keypad's navigation keys (`KP_LEFT` to
+//! `KP_BEGIN`), because baud's keypad is digit-based.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -411,14 +414,26 @@ fn keypad_keys_match_the_source() {
         assert_eq!(got, want, "{name}");
     }
 
-    // PF1 shares F1's form -- `CSI P`, number omitted with no modifiers.
-    assert_eq!(
-        pressed(
-            b"\x1b[=8u",
-            KeyEvent::press(KeyCode::Keypad(KeypadKey::Pf1), Modifiers::NONE)
-        ),
-        b"\x1b[P"
-    );
+    // PF1-PF4 share F1-F4's forms from the table. With no modifier a letter
+    // final omits its number, 1, so they are `CSI P`, `CSI Q`, `CSI 13 ~` and
+    // `CSI S`; with ctrl held the number is written.
+    let pf: [(KeypadKey, &str, &[u8]); 4] = [
+        (KeypadKey::Pf1, "F1", b"\x1b[P"),
+        (KeypadKey::Pf2, "F2", b"\x1b[Q"),
+        (KeypadKey::Pf3, "F3", b"\x1b[13~"),
+        (KeypadKey::Pf4, "F4", b"\x1b[S"),
+    ];
+    for (k, name, bare) in pf {
+        let (number, fin) = table[name];
+        assert_eq!(bare.last(), Some(&fin), "{name}'s final in the source");
+        let key = |m| pressed(b"\x1b[=8u", KeyEvent::press(KeyCode::Keypad(k), m));
+        assert_eq!(key(Modifiers::NONE), bare, "{k:?}");
+        assert_eq!(
+            key(Modifiers::CTRL),
+            csi_u(number, fin, 5),
+            "{k:?} with ctrl"
+        );
+    }
     // The keypad Space and Tab have no form in the table, so they send nothing.
     for k in [KeypadKey::Space, KeypadKey::Tab] {
         assert!(

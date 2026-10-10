@@ -1,15 +1,17 @@
 //! Encoding a key press into the bytes an application reads.
 //!
 //! **Here rather than in a core, because it is a pure function of the key and
-//! five pieces of mode state.** It lived in `baud-core2` and nothing in it
+//! the mode state in [`KeyState`].** It lived in `baud-core2` and nothing in it
 //! touched the grid, the arena or the cursor; porting it into `baud-core`
 //! would have been a second spelling of the input protocol, which is what a
 //! hand-written CSI recogniser beside the table already cost this repo once.
-//! Both cores call this, the way both call [`Csi::parse_with`].
+//! `baud-core`'s `Term::key` calls this, the way its parser calls
+//! [`Csi::parse_with`].
 //!
 //! The output is a value rather than a sink, mirroring [`Report::encode`]: a
-//! key is at most a dozen bytes, so returning them lets the caller put them
-//! wherever its replies already go and keeps this crate free of the borrow.
+//! key is at most 40 bytes ([`KeyBytes::MAX_LEN`] has the measurement), so
+//! returning them lets the caller put them wherever its replies already go and
+//! keeps this crate free of the borrow.
 
 use crate::*;
 
@@ -18,14 +20,6 @@ use crate::*;
 /// 8-bit forms to move it to.
 const ESC: u8 = 0x1b;
 
-/// Everything the encoder reads, and nothing else.
-///
-/// **Five fields and not eight, because `Modes` already carries four of
-/// them.** DECCKM, LNM, `?1036` metaSendsEscape, `?1039` altSendsEscape and
-/// `?1034` eightBitInput are all `ModeBit`s, so they travel as one word and
-/// this struct needs no `bool` -- which `audit_all.sh` gates this crate at
-/// **zero** of, on the grounds that a `bool` field is always a missing
-/// two-state enum.
 /// `modifyOtherKeys`, the resource that decides whether an ordinary key with
 /// modifiers is sent as an escape sequence instead of as a character.
 ///
@@ -78,13 +72,19 @@ pub enum OtherKeysFormat {
 /// The five progressive enhancements of `[[source: kitty-keyboard]]`, as the
 /// bitfield `CSI = flags ; mode u` carries them.
 ///
-/// **Masked to the five defined bits on the way in.** The specification says a
-/// terminal ignores bits it does not define, so a stored `KittyFlags` is always
-/// valid by construction and the encoder never has to guard against a sixth
-/// bit. The protocol is all-or-nothing -- its support detection is whether the
-/// terminal answers `CSI ? u` at all -- so these are recorded and, until every
-/// enhancement is honoured, the query stays unanswered (see the kitty section
-/// of `CLAUDE.md`).
+/// **Masked to the five defined bits on the way in.** The specification's
+/// table defines five bits (html 1536-1556) and gives no rule for any other,
+/// so the mask is baud's choice: a bit kept and never acted on is a mode
+/// recorded and not acted on, which CLAUDE.md refuses, and `CSI ? u`, which
+/// writes the stored bits as they are, would report it back. A stored
+/// `KittyFlags` is therefore valid by construction and the encoder never has
+/// to guard against a sixth bit. The protocol is all-or-nothing because its
+/// support detection is whether the terminal answers `CSI ? u` at all: "If an
+/// answer for the device attributes is received without getting back an
+/// answer for the progressive enhancement the terminal does not support this
+/// protocol." The core answers it with these flags, `CSI ? flags u`, since the
+/// encoder honours all five (`docs/record.md`, "kitty's protocol is
+/// all-or-nothing, and its own detection mechanism says so").
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct KittyFlags(u8);
 
@@ -95,7 +95,8 @@ impl KittyFlags {
     pub const ALTERNATE_KEYS: KittyFlags = KittyFlags(0b100);
     pub const ALL_AS_ESCAPES: KittyFlags = KittyFlags(0b1000);
     pub const ASSOCIATED_TEXT: KittyFlags = KittyFlags(0b1_0000);
-    /// Every defined bit set. `CSI ? u`'s reply is masked against this.
+    /// Every defined bit set. [`KittyFlags::from_param`] masks against this,
+    /// so `CSI ? u`'s reply carries no other bit.
     pub const ALL: KittyFlags = KittyFlags(0b1_1111);
 
     /// The `flags` parameter of a set or push, with undefined bits dropped.
@@ -222,6 +223,17 @@ impl KittyStack {
     }
 }
 
+/// The mode state the encoder reads. [`encode_key`] reads the key, this and
+/// nothing else, and it reads every field.
+///
+/// **Eight fields and not twelve, because `Modes` carries five of them.**
+/// DECCKM, LNM, `?1036` metaSendsEscape, `?1039` altSendsEscape and `?1034`
+/// eightBitInput are the five `ModeBit`s the encoder reads, so they travel as
+/// one word and this struct needs no `bool` -- which `audit_all.sh` gates this
+/// crate at **zero** of, on the grounds that a `bool` field is always a missing
+/// two-state enum. `baud-core`'s `Term::key` hands over its whole `Modes`, so
+/// the word carries every other mode bit as well, and the encoder reads none
+/// of them.
 #[derive(Clone, Copy)]
 pub struct KeyState {
     pub modes: Modes,
@@ -272,16 +284,28 @@ pub enum Fit {
 }
 
 impl KeyBytes {
-    /// The longest key this can produce, with the arithmetic rather than a
-    /// guess. The base layer's worst is `CSI 65535 ; 16 ~` at 11, or `ESC` plus
-    /// a four-byte UTF-8 character at 5. `[[source: kitty-keyboard]]`'s CSI-u
-    /// form is longer: `CSI` (2) + a 5-digit key number + `;` + a 3-digit
-    /// modifier + `:` + a 1-digit event + the final -- `CSI 57383 ; 128 : 3 u`
-    /// is 15. The alternate-key and associated-text sub-fields will grow it
-    /// again and this bound is re-derived when they land; 48 covers the CSI-u
-    /// forms this encoder produces today with room to spare. A key that would
-    /// overflow is dropped whole rather than half-sent, which is the
-    /// [`Fit::Overflowed`] contract.
+    /// The longest key this can produce is 40 bytes, measured, and 48 bounds it.
+    ///
+    /// The longest is `[[source: kitty-keyboard]]`'s CSI-u form with every field
+    /// at its widest, `CSI 1114111:1114111:1114111 ; 256:2 ; 1114111 u`: `CSI`
+    /// (2), a key number, a shifted key and a base-layout key of up to seven
+    /// digits each (U+10FFFF), a three-digit modifier (1 + 255) with a one-digit
+    /// event type, a seven-digit associated text, five separators and the final.
+    /// The base layer's longest is `modifyOtherKeys`' `CSI 27 ; 16 ; 65535 ~`, at
+    /// 14. `baud-domain/tests/key_bytes.rs` holds each to the sum it writes out:
+    /// the kitty layer over every key, all 256 modifier masks, every event kind,
+    /// every flag set and both C1 transmissions; the base layer over every key,
+    /// the modifier classes it distinguishes and presses, in full product with
+    /// every state it reads.
+    ///
+    /// **The 8 bytes over 40 are what let that test see a longer key.** A key
+    /// that would overflow is dropped whole rather than half-sent, which is the
+    /// [`Fit::Overflowed`] contract, and comes back `None`, the answer a key that
+    /// sends nothing gives -- so a key that outgrew this would vanish from the
+    /// sweep rather than fail it, while one that grows into the headroom moves
+    /// the measured maximum and fails it. The specification's colon-separated
+    /// multi-codepoint associated text, the later widening [`KeyEvent::text`]
+    /// names, adds up to 8 bytes a codepoint, so it re-derives this bound.
     pub const MAX_LEN: usize = 48;
 
     fn new() -> KeyBytes {
@@ -366,10 +390,10 @@ impl KeyBytes {
 /// flags set it is the base layer -- what every terminal sends, and what an
 /// application that has not negotiated an enhancement must receive.
 /// `[[source: kitty-keyboard]]`'s progressive enhancement routes here when a
-/// flag is set. The core still refuses `CSI ? u`, so no support is claimed
-/// while the encoding is incomplete; a conforming application therefore never
-/// enables the flags, and one that sets them blindly gets the kitty form it
-/// asked for.
+/// flag is set. The core sets them only on an application's request (`CSI =`,
+/// `CSI >` and `CSI <` with final `u`), and answers `CSI ? u` with the flags in
+/// force -- the protocol's support claim, made since this encoder honours all
+/// five enhancements.
 pub fn encode_key(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     if s.kitty.is_none() {
         encode_base(e, s)
@@ -407,16 +431,22 @@ fn encode_base(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     }
 }
 
-/// `[[source: kitty-keyboard]]`'s progressive-enhancement encoding.
+/// `[[source: kitty-keyboard]]`'s progressive-enhancement encoding, all five
+/// enhancements.
 ///
-/// **This increment covers the functional keys under the disambiguate, event-
-/// type and all-keys enhancements.** `Char` and the keypad need the key's
-/// *unshifted* codepoint as the primary number -- the spec is explicit that
-/// `ctrl+shift+a` is `97`, not `65` -- which the current `KeyEvent` does not
-/// carry, so they arrive with the `KeyEvent` extension alongside the alternate-
-/// key and associated-text sub-fields. Until then this returns `None` for them
-/// rather than the wrong number, and the query stays refused so no conforming
-/// application is in this mode.
+/// A key the flags route (`kitty_disambiguated`, or all-keys) takes the CSI-u
+/// form. Its number is a text key's unshifted codepoint, which
+/// [`KeyCode::Char`] carries -- "the codepoint used is *always* the lower-case
+/// (or more technically, un-shifted) version of the key", so `ctrl+shift+a` is
+/// `97` -- a keypad key's from the table's `KP_*` rows (`PF1`-`PF4` take
+/// F1-F4's forms), a Private Use Area key's its own, and any other key's from
+/// the functional table. When their flags ask, the alternate keys ride as `:`
+/// sub-fields of the number and the associated text as a third `;` field --
+/// "Fields are separated by the semi-colon and sub-fields by the colon" (html
+/// 1396-1397). A key the flags leave alone keeps its
+/// base-layer bytes. `None` for a release without the event-types flag, for
+/// the keypad's `Space` and `Tab`, which have no number in the table, and
+/// wherever the base layer sends nothing.
 fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     let flags = s.kitty;
     // Event type: without `Report event types` only presses are reported, a
@@ -436,8 +466,8 @@ fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
         return encode_base(e, s);
     }
     // A text key's number is its unshifted codepoint, `KeyCode::Char` itself;
-    // a functional key's is from the table. The keypad's kitty PUA numbers
-    // arrive with the alternate-key work, so it still sends nothing.
+    // a functional key's is from the table, and a keypad key's from the
+    // table's `KP_*` rows.
     let (number, final_byte) = match e.code {
         KeyCode::Char(cp) => (cp.value(), b'u'),
         // The PUA keys -- locks, F21-F35, media, individual modifiers -- carry
@@ -585,10 +615,16 @@ fn kitty_keypad(k: KeypadKey) -> Option<(u32, u8)> {
     Some((n, b'u'))
 }
 
-/// Emit `CSI number [; mods[:event]] final`, in the two shapes
-/// `[[source: kitty-keyboard]]` defines.
+/// Emit `CSI number[:[shifted][:base]] [; mods[:event] [; text]] final`, in
+/// the two shapes `[[source: kitty-keyboard]]` defines.
 ///
-/// The `u`/`~` finals carry the key number; a letter final uses number `1` and
+/// The alternate keys are `number:shifted`, `number:shifted:base`, or, with a
+/// base-layout key and no shifted key, `number::base`: "If the terminal wants
+/// to send only a base layout key but no shifted key, it must use an empty
+/// sub-field for the shifted key" (html 1422-1425).
+///
+/// The `u`/`~` finals carry the key number, with the alternate keys attached to
+/// it, so a letter final never sends them; a letter final uses number `1` and
 /// omits it entirely when there are no parameters, giving `CSI A` for an
 /// unmodified arrow -- the same bytes the legacy form sends, which is why
 /// disambiguation leaves an unmodified cursor key alone. The event sub-field is
@@ -611,8 +647,8 @@ fn kitty_csi_u(
     let has_alt = shifted.is_some() || base.is_some();
     // The modifier field is present, as an explicit `1` when nothing is held,
     // whenever a modifier, an event sub-field or associated text has to be
-    // carried -- `[[source: kitty-keyboard]]` line 938: "the modifiers field
-    // must have the value 1".
+    // carried -- `[[source: kitty-keyboard]]` lines 1466-1467: "the modifiers
+    // field must have the value 1".
     let params = !mods.is_none() || event != 1 || text.is_some();
 
     // The key-number field, with the alternate-key sub-fields. A letter final

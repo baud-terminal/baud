@@ -72,7 +72,10 @@ fn set_push_pop_are_consumed_not_counted() {
 
         assert!(!drawn(&t), "the request must be consumed, not drawn");
         assert_eq!(t.unsupported, 0, "a stack op is acted on, not refused");
-        assert!(t.reply().is_empty(), "no reply: support is not claimed");
+        assert!(
+            t.reply().is_empty(),
+            "no reply: a stack op answers nothing, only the query does"
+        );
     }
 }
 

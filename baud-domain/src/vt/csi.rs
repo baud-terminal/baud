@@ -622,9 +622,10 @@ pub enum Csi {
         flags: KittyFlags,
         mode: KittySetMode,
     },
-    /// `[[source: kitty-keyboard]]` query, `CSI ? u` -- reply with the current
-    /// flags. Answering is the protocol's support claim, so it stays refused
-    /// until every enhancement is honoured.
+    /// `[[source: kitty-keyboard]]` query, `CSI ? u` -- "The terminal will
+    /// reply with: CSI ? flags u", which [`Report::KittyFlags`] encodes.
+    /// Answering is the protocol's support claim, and the core makes it, since
+    /// every enhancement is honoured.
     KittyQuery,
     /// `[[source: kitty-keyboard]]` push, `CSI > flags u` -- save the current
     /// flags on the stack and set them to `flags` (default zero).

@@ -466,10 +466,10 @@ pub struct Cold {
     /// active screen's and `kitty_alt` the parked one; the `?1049` transition
     /// swaps them, which is the specification's separate main/alternate stacks
     /// -- an editor changes the mode in the alternate screen without touching
-    /// the shell's. Written by the negotiation forms and, until the encoder
-    /// honours them, read by nothing but the tests: the protocol's support
-    /// detection is whether `CSI ? u` is answered, so it stays refused and no
-    /// support is claimed while the flags are merely tracked.
+    /// the shell's. Written by the negotiation forms, and read by `Term::key`,
+    /// which hands the active flags to the encoder, and by `CSI ? u`, which
+    /// replies with them -- `[[source: kitty-keyboard]]`: "The terminal will
+    /// reply with: CSI ? flags u".
     pub(crate) kitty: KittyStack,
     pub(crate) kitty_alt: KittyStack,
     /// What `OSC 133` has said about the live screen: which half of its
@@ -1838,12 +1838,11 @@ impl<'b> Term<'b> {
     /// The `[[source: kitty-keyboard]]` enhancement flags in force on the
     /// active screen.
     ///
-    /// **Tracked, not yet honoured.** The negotiation forms maintain this, but
-    /// the encoder does not read it and `CSI ? u` is refused, so baud claims no
-    /// support: the protocol detects support by whether the query is answered,
-    /// and answering before every enhancement is honoured would be a false
-    /// claim. Exposed so the negotiation state machine can be tested before the
-    /// encoder lands.
+    /// The negotiation forms maintain this; [`Term::key`] encodes through it
+    /// and `CSI ? u` replies with it, `CSI ? flags u`. The protocol detects
+    /// support by whether that query is answered, so the reply is the support
+    /// claim, made since the encoder honours every enhancement. Exposed so an
+    /// embedder and the tests can read the negotiation's state.
     pub fn kitty_flags(&self) -> KittyFlags {
         self.cold.kitty.current()
     }
@@ -2631,14 +2630,15 @@ impl<'b> Term<'b> {
     /// with a shape no application asked for, which this core already refuses
     /// to do on the output side.
     ///
-    /// **The encoding is `baud_domain::encode_key`, shared with
-    /// `baud-core2`.** What is here is the part that belongs to a terminal
+    /// **The encoding is `baud_domain::encode_key`, kept in the domain crate
+    /// rather than ported in.** What is here is the part that belongs to a terminal
     /// rather than to the protocol: reading the modes off `Term` and putting
     /// the bytes where the replies already go. The alternative was porting 485
     /// lines and having two spellings of the input protocol, which is what a
     /// hand-written CSI recogniser beside the table cost this repo once.
     ///
-    /// **One of the five inputs is a constant here, and it used to be two.**
+    /// **One of `KeyState`'s eight fields is a constant here, and it used to be
+    /// two.**
     ///
     /// * **`C1Transmit::SevenBit`.** This said the core does not implement
     ///   `S8C1T` and that `want_reply` passes the same constant, so a key and

@@ -1669,8 +1669,9 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // is answered.** Set, push and pop maintain the active screen's stack,
         // and `CSI ? u` replies with the current flags -- which is the
         // protocol's support claim, made only now that `Term::key` honours all
-        // five enhancements for every key it can represent. See the kitty
-        // section of `CLAUDE.md`.
+        // five enhancements for every key it can represent. See
+        // `docs/record.md`, "kitty's protocol is all-or-nothing, and its own
+        // detection mechanism says so".
         DomCsi::KittySet { flags, mode } => p.cold.kitty.set(flags, mode),
         DomCsi::KittyPush { flags } => p.cold.kitty.push(flags),
         DomCsi::KittyPop { count } => p.cold.kitty.pop(count),
