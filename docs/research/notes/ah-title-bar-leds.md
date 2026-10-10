@@ -1300,7 +1300,7 @@ cost is **unmeasured**.
 
 `[titlebar] leds = true | false` follows the `[screen] transition` idiom, a
 two-state enum. Per-LED keys, for example `leds = ["rd", "sd", "cd", "dk"]`,
-are a later choice (Q2).
+were the other option; Q2 decided one switch (8).
 
 What `leds = false` is meant to mean:
 
@@ -1379,6 +1379,19 @@ every-question-has-a-visual rule).
   - DK (one LED, or read and write), CPU and MEM.
   - Which state LEDs from 5.4.
   - One switch, `[titlebar] leds`, or one key per LED?
+    - **Decided: one switch** (Jev, 2026-10-09, 0.98 and 0.98 on the
+      original and on a replicate with the options reordered, decision log
+      lines 355-356; to be listed on the review page for the owner's veto).
+      No text governs; it matches the owner's "again option in config to
+      turn it off".
+    - **Unbuilt, and why.** The key is `[titlebar] leds = true | false`, a
+      two-state enum in the `[screen] transition` idiom (6.5), and off means
+      none of 6.5's list. But no light exists: which ones (the rest of Q2)
+      and where they are drawn (Q7) are open. A key read and acted on by
+      nothing is the config counterpart of the "parsed" state CLAUDE.md
+      calls worse than unbuilt, and section 7's zero-cost test would pass
+      vacuously today, since nothing calls `proc_*`. So the key lands with
+      the first light, and its test with it.
 - **Q3. Replies nobody typed: inside SD, or their own LED (AA)?**
 - **Q4. The sampling interval for process LEDs.**
   - The kernel trigger polls every 100 ms (2.1).
