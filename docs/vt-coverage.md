@@ -53,7 +53,7 @@ a handler for every operation this table claims. It does **not** prove the
 handler is correct — that is what the per-protocol suites are for, and no
 mechanism can prove it in general.
 
-**No row carries `parsed` or `todo`. Nine carry `**partial**`, and
+**No row carries `parsed` or `todo`. Ten carry `**partial**`, and
 `no_row_is_unfinished` in `baud-core/tests/coverage.rs` does not see them.**
 This paragraph said no row carried any of the three and that the test fails if
 one ever does. The test matches a status cell that starts with the bare word,
@@ -61,8 +61,8 @@ and these start with `**`, so it passes with DECSC, DECRC and the DEC Special
 Graphics glyph table all at `**partial**`, the `dcs_passthrough` state
 since 2026-10-09, and since 2026-10-10 GR bytes under `ESC % @`, the `escape`
 and `escape_intermediate` states, `DEL` in `csi_entry` or
-`csi_intermediate`, and `3A` in the `dcs_param` state. A check that saw them
-would fail on all nine, and that is
+`csi_intermediate`, `3A` in the `dcs_param` state, and SGR 6's rapid blink. A check that saw them
+would fail on all ten, and that is
 the right answer: each row names work that is not finished. `out` is the only status that
 means "not implemented", and `every_out_row_states_a_reason` requires each one
 to say why **in the row** — because otherwise "nothing is partial" would be a
@@ -772,7 +772,7 @@ Enumerated against `[[source: ecma48]]` § 8.3.117 and, for the extensions,
 | 1, 2 bold/dim · 22 neither | done |
 | 3 italic · 23 not | done |
 | 4 underline, 21 double, **4:1..4:5** styled · 24 / 4:0 not | done — five styles, exactly one in force: straight, double, and `[[source: kitty-underlines]]`'s curly, dotted and dashed, each its own `Attrs` bit and drawn by the software compositor and the cell shader. A `4:n` *replaces* the family, and so do a bare 4 (the spec's backward-compatible 4:1) and 21 (`[[source: ecma48]]`'s "doubly underlined", the state 4:2 names), so 4:3 then 21 is double alone and 21 and 4:2 are one rendition (practice departs three ways and is not followed: vte reads 21 as bold off, `[[source: alacritty-vte-sgr]]`; the Linux console as a single underline, `[[source: linux-vt-sgr]]`; xterm holds 4 and 21 as two bits, `[[source: xterm-sgr]]`); 24 and 4:0 clear all five; an unknown n clears rather than aborts the walk. **4:3 is not 4;3** -- sfte flattens the colon and gets underline-plus-italic, measured -- and DECRQSS reports the three colon styles as 4:n so the reply round-trips. `each_colon_style_sets_exactly_its_own_bit`, `the_colon_form_is_not_the_semicolon_form`, `a_style_replaces_the_family_and_4_0_clears_it`, `twenty_one_replaces_the_family_in_either_order`, `twenty_one_and_4_2_are_one_rendition`, `a_colon_underline_style_round_trips`, `a_double_underline_after_another_style_reports_alone_and_round_trips` |
-| 5, 6 blink · 25 steady | done — no timer, so rapid and slow are the same bit |
+| 5, 6 blink · 25 steady | **partial** — **5 is drawn to the spec**: the app blinks `Attrs::BLINK` at 75 a minute (0.4 s shown, 0.4 s hidden, `BLINK_HALF` on the display link's clock), inside `[[source: ecma48]]` § 8.3.117's "slowly blinking (less then 150 per minute)", which a const assertion beside `BLINK_HALF` holds; the CPU path draws both phases (`hidden_blinking_text_is_the_frame_of_its_spaces`, `a_blinking_row_keeps_blinking_through_incremental_frames`) and the cell shader is held to it (`the_cell_arm_draws_what_the_instance_arm_draws`). This row said "no timer", which expired when the display link began driving the phase. **The gap is 6**: it sets the same bit and blinks at the same rate, where the text asks "rapidly blinking (150 per minute or more)" -- a departure until a rapid rate is chosen, which no text or owner decision fixes (for Jev), and with it whether 5 and 6 exclude each other (§ 8.3.117: "The usable combinations of parameter values are determined by the implementation"). Until then 6 is 5's rendition (`rapid_blink_is_blink`) and DECRQSS answers `5` for it, the rendition drawn (`decrqss_answers_5_for_rapid_blink_while_it_blinks_slowly`). 25 clears the bit. The Linux driver blinks nothing yet, and Reduce Motion and Dim Flashing Lights do not reach text blink |
 | 7 reverse · 27 positive | done |
 | 8 conceal · 28 reveal | done |
 | 9 strike · 29 not | done |
@@ -794,12 +794,12 @@ never had to grow, and the eight-byte cell was never the constraint. "A bit set
 and never read" resolved the way it did for charset designations: baud records
 the selection and `Term::style_of` is where a renderer reads it.
 
-Every SGR parameter above is **done** or **out**; none is partial. `CSI m` used
+Every SGR parameter above is **done** or **out** but 6, **partial** since 2026-10-10 because it blinks at 5's slow rate where § 8.3.117 asks 150 a minute or more. `CSI m` used
 to be listed as `partial` on the strength of that last row, which conflated two
 different things. `out` is a scope decision with a reason — storing a font
 selection no renderer can read would be a bit set and never used, which is the
 failure this table exists to catch. `partial` means the row claims something it
-does not do. Nothing here does.
+does not do. Only the 5, 6 row does, and it says what.
 
 **This was the largest `parsed` gap in the codebase and the table did not show
 it.** `SgrAttr::fold` handled `Reset` and foreground only, falling through to "no

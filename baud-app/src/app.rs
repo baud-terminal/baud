@@ -75,8 +75,16 @@ enum Pending {
 /// stalled update is not a frozen window. Two display-link periods at 60 Hz.
 const SYNC_MAX: Duration = Duration::from_millis(33);
 /// Half a blink cycle, seconds: text with `SGR 5` shows for this long, then
-/// hides for this long. ~1.2 Hz, the middle of what terminals use.
+/// hides for this long -- 75 blinks a minute. `[[source: ecma48]]` § 8.3.117
+/// gives 5 as "slowly blinking (less then 150 per minute)" and 6 as "rapidly
+/// blinking (150 per minute or more)"; the assertion below holds the first
+/// bound. `SGR 6` blinks at this rate too, a departure `docs/vt-coverage.md`
+/// states until a rapid rate is chosen.
 const BLINK_HALF: f64 = 0.4;
+const _: () = assert!(
+    60.0 / (2.0 * BLINK_HALF) < 150.0,
+    "SGR 5 is slow blink: fewer than 150 a minute"
+);
 /// How long a cursor trail's ghost takes to sweep from the old cell to the
 /// new, seconds -- short and snappy, and only paid when the trail is on.
 const TRAIL_S: f64 = 0.1;

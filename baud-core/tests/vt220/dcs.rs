@@ -78,6 +78,21 @@ fn decrqss_reports_sgr() {
     );
 }
 
+/// **Rapid blink answers `5`, the rendition drawn.** `SGR 6` sets slow
+/// blink's bit and blinks at its 75 a minute, a departure from
+/// `[[source: ecma48]]`'s "150 per minute or more" that `docs/vt-coverage.md`
+/// states; answering `6` would claim a rate nothing draws. Giving 6 its own
+/// bit and phase has to change this and the row together.
+#[test]
+fn decrqss_answers_5_for_rapid_blink_while_it_blinks_slowly() {
+    assert_eq!(replies(b"\x1b[6m\x1bP$qm\x1b\\"), b"\x1bP1$r0;5m\x1b\\");
+    assert_eq!(
+        replies(b"\x1b[6;25m\x1bP$qm\x1b\\"),
+        b"\x1bP1$r0m\x1b\\",
+        "25 clears it"
+    );
+}
+
 /// The SGR reply round-trips: sending it back reproduces the rendition.
 ///
 /// This is the property that makes the report useful rather than merely

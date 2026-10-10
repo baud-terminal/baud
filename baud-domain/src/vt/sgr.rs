@@ -206,8 +206,14 @@ impl SgrAttr {
             // `4:3` is a straight underline and not a curly-and-straight one.
             4 => (SgrAttr::UnderlineStyle(Attrs::UNDERLINE), ParamCount(1)),
             // 5 slow blink, 6 rapid blink. `[[source: ecma48]]` § 8.3.117
-            // distinguishes them by rate; a terminal core has no timer and
-            // nothing downstream can use the distinction, so both set BLINK.
+            // distinguishes them by rate, "less then 150 per minute" and "150
+            // per minute or more". Both set BLINK, which the app blinks at 75
+            // a minute: right for 5 and a stated departure for 6
+            // (`docs/vt-coverage.md`, the SGR 5/6 row). This said "a terminal
+            // core has no timer", which expired when the app's display link
+            // began blinking the bit; a second bit waits on a rapid rate, which
+            // no text or decision fixes, and until then DECRQSS answers 5, the
+            // rendition drawn.
             5 | 6 => (SgrAttr::Set(Attrs::BLINK), ParamCount(1)),
             7 => (SgrAttr::Set(Attrs::REVERSE), ParamCount(1)),
             8 => (SgrAttr::Set(Attrs::HIDDEN), ParamCount(1)),

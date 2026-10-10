@@ -61,8 +61,11 @@ fn blink_conceal_and_strike_are_settable() {
     }
 }
 
-/// Rapid blink (6) is the same bit as slow blink (5): baud has no timer, and
-/// nothing downstream can use the distinction.
+/// Rapid blink (6) is the same bit as slow blink (5), and blinks at slow
+/// blink's 75 a minute: a departure from `[[source: ecma48]]`'s "150 per
+/// minute or more" that `docs/vt-coverage.md` states until a rapid rate is
+/// chosen. This test holds the stated behaviour, so giving 6 its own bit has
+/// to change it and the row together.
 #[test]
 fn rapid_blink_is_blink() {
     assert_eq!(grid(b"\x1b[6mx"), grid(b"\x1b[5mx"));
