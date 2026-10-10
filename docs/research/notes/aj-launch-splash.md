@@ -649,6 +649,15 @@ How it measures:
 
   Until that is done the effect is not called safe, and the splash should
   not reuse it.
+- **Measured, 2026-10-09** (docs/record.md, "The cursor trails' flashes,
+  counted on the frames they draw: at 32 pt the fire and the orb fail WCAG
+  2.3.1"; [[source: aj-obs-flash-census]]). At the default 13 pt every effect
+  passes every case; the plasma's worst flashing area is 8,274 pt², 38% of
+  21,824. At 32 pt the plasma passes (20,071 pt²), and the fire, the default
+  trail, and the orb fail on a light ground under back-and-forth retargets. At
+  72 pt (`ZOOM_MAX`) the plasma fails 30 of 192 cases. So the plasma as built
+  is not safe at every size, and a splash that reuses it inherits that; what
+  to change is the owner's call.
 
 **This is a finding about existing code, not an edit made here.**
 
