@@ -44,6 +44,15 @@ pub(crate) enum Update {
     Held,
 }
 
+/// What `REP` wrote: its copies, or nothing, when there was no graphic
+/// character to repeat. `csi_final` moves the parser to `Node::Ground` only
+/// after copies, since only they told the cluster machine anything.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Wrote {
+    Nothing,
+    Copies,
+}
+
 impl Paint<'_, '_> {
     /// Where row 1 is. DECOM makes the scrolling region's top the origin.
     pub(crate) fn origin_row(&self) -> Row {
@@ -840,13 +849,35 @@ impl Paint<'_, '_> {
 
     /// REP: repeat the last graphic character. Bounded by the row, so
     /// `CSI 65535 b` cannot spin.
-    pub(crate) fn repeat(&mut self, c: Count) {
+    ///
+    /// **Each copy is a cell of its own and the machine is told the last
+    /// one went past**, from the state a control leaves, since `CSI b` is
+    /// one: `glyph` writes without asking it, so without this a continuation
+    /// after `ab CSI b` broke from the copy it follows, where GB9 and GB9a
+    /// join it, and `csi_final` leaves the parser in `Node::Ground` after it
+    /// so `Act::EndCluster` does not undo it (`after_rep_the_cluster_goes_on`).
+    /// The copy never joins what came before it, a choice for Jev (note AB,
+    /// Q24).
+    ///
+    /// **Says whether it wrote**: with no last graphic character, after `RIS`
+    /// or before any text, it writes nothing and tells the machine nothing, so
+    /// the control before it must stay in force
+    /// (`a_rep_with_nothing_to_repeat_leaves_the_control_before_it_in_force`).
+    pub(crate) fn repeat(&mut self, c: Count) -> Wrote {
         let Some((cp, w)) = self.last_cp else {
-            return;
+            return Wrote::Nothing;
         };
         for _ in 0..c.at_least_one().min(self.cols.index()) {
             self.glyph(cp, w);
         }
+        // Through `Classified::of`, the table `glyph` asks: `is_break` takes
+        // the class from a trie of its own, which nothing else on the write
+        // path reads, and calling it here linked 32 KB more `__const` into
+        // the binary for an operation that runs once per `REP`.
+        let cl = Classified::of(cp);
+        self.cluster = ClusterBreak::after_control();
+        let _ = self.cluster.is_break_classified(cl.class, cl.lookback);
+        Wrote::Copies
     }
 
     // ---- tabs -----------------------------------------------------------
@@ -1291,8 +1322,8 @@ impl Paint<'_, '_> {
                     ModeChange::Reset => TerminalMode::Vt52,
                 };
                 *node = match self.cold.terminal {
-                    TerminalMode::Ansi => crate::graph::Node::Ground,
-                    TerminalMode::Vt52 => crate::graph::Node::Vt52Ground,
+                    TerminalMode::Ansi => crate::graph::Node::AfterControl,
+                    TerminalMode::Vt52 => crate::graph::Node::Vt52AfterControl,
                 };
             }
             PrivateMode::AltScreen => self.set_alt_screen(change, AltSwitch::SaveAndClear),

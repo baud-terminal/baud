@@ -55,7 +55,7 @@ impl Paint<'_, '_> {
             Vt52::Identify => self.want_reply(Report::Vt52Identity),
             Vt52::ExitVt52 => {
                 self.cold.terminal = TerminalMode::Ansi;
-                *node = crate::graph::Node::Ground;
+                *node = crate::graph::Node::AfterControl;
             }
             Vt52::KeypadApplication => self.cold.keypad = KeypadMode::Application,
             Vt52::KeypadNumeric => self.cold.keypad = KeypadMode::Numeric,

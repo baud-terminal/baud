@@ -580,7 +580,7 @@ All file:line citations are at e138e34 on `smooth-scroll` [source] unless tagged
 | marks | paint.rs:669-672, 762-808; write.rs:1333-1336; width_data.rs:21-23 | Characters of class Mn, Me and Cf attach to the previous cell's cluster. Reordering whole cells therefore keeps each mark with its base, which is terminal-wg's combining rule and the effect FriBidi's REORDER_NSM flag produces. |
 | bidi controls | as above; UCD 17.0.0 unicode-derivedgeneralcategory.txt:3543, 3549, 3552 and unicode-graphemebreakproperty.txt:58, 61, 64, 67 | LRM, RLM, ALM, the embeddings and the isolates are Cf with GCB=Control. baud therefore *stores* them as marks today rather than discarding them. `attach` drops a control at column 0 (paint.rs:766-769), after an empty cell (783-786, as when a TUI addresses columns over erased cells [inferred]), when the cluster already holds 8 continuations (797-801), and when the store refuses (805-808). Level 2 needs each path handled. |
 | cluster capacity | cell.rs:498-502, 575-646; docs/vt-coverage.md:362-367; paint.rs:803-808 | 63 slots; new clusters are refused, and slots are freed only by RIS. See 7.2. |
-| Arabic Prepend | paint.rs:669-672 with write.rs:1333-1336; unicode-graphemebreakproperty.txt:21-25 | U+0600-0605, U+06DD, U+0890-0891 and U+08E2 are Cf with GCB=Prepend, so they attach to the previous cell. Under GB9b the next character may then attach too, for example a digit after ARABIC NUMBER SIGN [inferred; needs a red test]. |
+| Arabic Prepend | paint.rs:669-672 with write.rs:1333-1336; unicode-graphemebreakproperty.txt:21-25 | U+0600-0605, U+06DD, U+0890-0891 and U+08E2 are Cf with GCB=Prepend, so they attach to the previous cell. *Measured 2026-10-10* by `every_line_of_the_suite_clusters_through_the_terminal` (baud-core/tests/encoding/graphemes.rs), which feeds every line of GraphemeBreakTest.txt through `Term`: GB9b joins the Prepend to what follows, and baud does the reverse. Printable ASCII after a Prepend is never put to the cluster machine, so it takes a cell of its own: `÷ 0061 ÷ 0600 × 0062 ÷` (line 764) renders `a` with U+0600 attached and `b` beside it, and `÷ 06DD × 0020 ÷` (line 365) after a letter the same. So a digit after ARABIC NUMBER SIGN is not swallowed; it is split from the sign it belongs to, which joins the cell before. A character after a Prepend that is not printable ASCII continues it and joins that same cell, the letter's: the `06DD × X` lines among 337-368, after a letter, inside the test's pin of clusters that start zero-width [measured]. Both are open departures. |
 | paragraphs | paint.rs:1033, 1095; baud-domain/src/grid.rs:303-308, 533-544; history.rs (Wrap) | Already exist. `RowExtent`'s WRAP bit is exactly terminal-wg's soft/hard row end. |
 | per-paragraph properties | baud-domain/src/store.rs:161-191 | Cannot ride in `RowExtent`. Its 15 low bits all belong to the mark, and `reached()` takes one unmasked max over the whole word, so a flag bit would win the max and freeze the mark. The masked alternative measured 3% on cat-cjk (store.rs:176-183). |
 | new storage | baud-core/src/storage.rs:100, 322-401, 754-770; grid.rs:550-556, 719-761, 1843-1930; grid/reflow.rs:53-60, 141-198; term.rs:~1124-1161 | A per-physical-row slice parallel to `used`, on both surfaces. Every operation that moves `used` must move it too: copy_row, insert_lines_in and delete_lines_in, erase_ring, fill_row and fill_at, reflow, swap_surface, and the viewport un-rotation. |
@@ -1021,6 +1021,35 @@ The tests are `baud-render/tests/mark_coverage.rs` and
     - Apple Color Emoji forms the ligature, and nothing spills.
     - HEAD was not run on this case.
 
+**Q24. A cluster that starts after a control, for Jev.** (Open departures, found 2026-10-10 while making every control end the cluster before it; `docs/record.md`, "A control ends the grapheme cluster before it".)
+
+Since that change a control ends the cluster before it for every continuation that **takes a column**: a SpacingMark (GB9a), or an Extend with a width such as `U+09BE` or `U+1F3FF` (GB9), after a line feed, a tab, a cursor move, an erase, `NUL`, `DEL`, any escape or control sequence or control string, takes a cell of its own, as GB4 and GB5 give it ([[source: uax29]]). Two cases still depart, and both are pinned by `every_line_of_the_suite_clusters_through_the_terminal` and `a_control_function_ends_the_cluster_before_it` (baud-core/tests/encoding/graphemes.rs).
+
+**1. A zero-width codepoint after a control.** `Paint::glyph` sends every codepoint of width 0 to `Paint::attach` whatever the break decision, because a zero-width codepoint has no cell to take. So after a control a combining mark, a ZWJ, a variation selector or a Prepend still goes where it went before the change:
+
+- after `BS`, `CUB` or `CHA` back over a letter it joins that letter: `ab BS U+0301` puts the acute on the `a`;
+- after a control that moves nothing (`NUL`, `DEL`, `BEL`, a mode change, an `OSC`) or that lands beside a letter (`CUP`, a C1) it joins the cell before the cursor: `ab NUL U+0308` puts the diaeresis on the `b`;
+- after `LF`, `HT`, `CUF`, `ED 2` or `EL 1`, where the cell before the cursor is empty, it is dropped and counted in `marks_dropped`; so is a width-1 SpacingMark that follows it in the same cluster (suite line 84 after a letter: `LF U+0308 U+0903` drops both).
+
+GB4 and GB5 make each of these a cluster of its own, and the Unicode Standard names the case: "Defective combining character sequences occur when a sequence of combining characters appears at the start of a string or follows a control or format character" (D57, [[source: unicode18-ch3]]), and "Defective combining character sequences should be rendered as if they had a no-break space as a base character" (§ 5.13, [[source: unicode18-ch5]]). So NUL and DEL, which end the cluster for a continuation with a width, do not end it for a zero-width one.
+
+- (a) **Its own cell, with a placeholder base.** The mark takes the cursor's cell on a base the core supplies and stores it as a cluster of its own, so it renders as § 5.13 recommends. The base is U+00A0, § 5.13's text, or U+25CC DOTTED CIRCLE, the "Show Hidden" fallback § 5.13 describes ("the nonspacing mark positioned on a dotted circle"). D52 allows the mark to be drawn "as if it were a base character" instead, which a cell can do with no base at all. *Conforms* to GB4/GB5 and § 5.13 (a recommendation). *Costs:* a cell write and a cluster-store slot per defective sequence, on the cold `attach` path, and a decision about what copy returns for the base (C7 reaches copy, note AD § 2.6); the placeholder must not be mistaken for text the application wrote.
+- (b) **Attach as today.** *Departs* from GB4/GB5 and from § 5.13's recommendation; the mark lands on a letter the application did not put it on, or vanishes. Nothing new is written.
+
+Note AD § 2.6 records the same refusal at column 0 and on an empty cell for selectors and tags, and its options apply here too.
+
+**2. REP.** `Paint::repeat` writes its copies through `Paint::glyph`, which asks the machine nothing, and then tells the machine one copy went past, starting it from the state a control leaves. So a copy never joins what came before it, and a continuation joins the last copy:
+
+- `U+1F1E6 CSI b U+1F1E7` writes A, A and B, and pairs the B with the copy: A, then the flag AB. Read as the text it expands to, A A B, GB12/13 pair the first two and leave B alone.
+- `U+1100 CSI b U+1161` writes two cells, L, then the copy L with V; GB6 makes L L V one cluster.
+- `ab CSI b U+0903` is `a`, `b`, and the copy `b` with the visarga, which both readings agree on.
+
+GB4 read on the `ESC` of `CSI b` breaks before the copy, which is what baud does; read on the expanded text it would not. [[source: ecma48]] 8.3.103 says REP indicates that "the preceding character in the data stream, if it is a graphic character ... is to be repeated n times", which says what is written and not how it clusters. *For Jev:* (a) keep the break before the copy, GB4 on the sequence; (b) treat the copies as the text they expand to, joining a copy to the cluster before it where the rules say so, which needs the machine walked across each copy rather than started again.
+
+**3. Whether NUL and DEL end the cluster at all.** Both are Control to GB4 and GB5, and `[[source: gbtest]]` line 121 is `÷ 0000 ÷ 0903 ÷`, so baud ends the cluster at them, for a continuation that takes a column. Against that, [[source: ecma48]] 8.3.88 says NUL characters "may be inserted into, or removed from, a data stream without affecting the information content of that stream", and the parser discards both; read that way the visarga after `x NUL` joins the `x`. Implemented at face value of both texts: NUL changes nothing on the screen and is still a Control. For a zero-width codepoint they already do not end it (item 1): `ab NUL U+0308` puts the diaeresis on the `b`.
+
+A plain SGR, which an earlier draft of the change left joining, ends the cluster like every other control sequence: its `ESC` is a Control to GB4, so leaving it joining would be a departure, not a choice. What conforming costs: against the same change with SGR left joining, `btop` 2.0% lower on the medians, ranges overlapping, and the other four recordings within 1% (`docs/record.md`, the same section).
+
 ## 9. Sources to pin
 
 ### 9.0 Repairs to existing manifest entries
@@ -1281,7 +1310,7 @@ Pages that are not files in a repository, in full:
 ### Still open
 
 1. **The UTC Text Terminal Working Group.** L2/23-153 is unread. The group's drafts are private; its public reports through 2025-10 neither adopt nor reject L2/23-107's visual cursor model.
-2. **Arabic Prepend characters.** They may swallow the digit that follows them (7.1). This needs a red test.
+2. **Arabic Prepend characters.** Tested 2026-10-10 (7.1): a Prepend joins the cell before it, printable ASCII after it takes a cell of its own, and any other character after it joins the cell before the Prepend. The standard joins the Prepend to what follows; both are open departures, pinned by line in the test.
 3. **Terminal.app's behaviour.** Known only second-hand, and the two reports disagree. It could be captured on this Mac in minutes.
 4. **The owner's own workload.** Claude Code and other agent CLIs, and TUI popups, have not been tested under any reordering terminal.
 5. **Terminals not read at source.** PuTTY (its current source), cosmic-term/cosmic-text, hterm, Rio, Warp, JediTerm, Termux and QTerminal/qtermwidget. The multiplexers and proxies Zellij and mosh may swallow BDSM/SCP as tmux does; not checked.

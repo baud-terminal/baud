@@ -245,8 +245,9 @@ impl Csi {
 /// what keeps the vectored writers -- `put_ascii_run` and `put_wide_run` both
 /// write eight cells to one store -- on a loop that dispatches per character.
 ///
-/// Zero only for [`Act::Resync`], which leaves the node at `Ground` where the
-/// same byte cannot produce it again.
+/// Zero only for [`Act::Resync`], [`Act::Again`] and [`Act::EndCluster`],
+/// each of which leaves the node somewhere the same byte cannot produce it
+/// again: `Ground` for the first and the last, `Escape` for `Again`.
 ///
 /// Nine parameters because nine things vary per step and every one of them is
 /// either read or written by the dispatch. `act` is `#[inline(always)]` into
@@ -281,7 +282,7 @@ pub(crate) fn act(
             Act::Char2 => ReadLen::from_index(2 * run_of(p, from, left, ByteLen::TWO).index()),
             Act::Char3 => ReadLen::from_index(3 * run_of(p, from, left, ByteLen::THREE).index()),
             Act::Char4 => ReadLen::from_index(4 * run_of(p, from, left, ByteLen::FOUR).index()),
-            Act::Resync => ReadLen::ZERO,
+            Act::Resync | Act::EndCluster => ReadLen::ZERO,
             _ => ReadLen::of_bytes(a.width()),
         };
     }
@@ -340,6 +341,16 @@ pub(crate) fn act(
         // two bytes that end every line -- and 15% of `cat-cjk.raw`'s. The
         // pair is the commonest two-byte sequence in any line-oriented stream,
         // and it costs one lookahead to fold, exactly as `ESC [` did.
+        //
+        // **`CR` leads to the ground, not to `Node::AfterControl`.** It leaves
+        // the cursor at column 0, where `glyph` writes the next character in a
+        // cell of its own whatever the machine says, and starts the machine
+        // again from `after_control` when it said the character continued
+        // something (`Paint::restart_cluster`); where it said a cluster starts,
+        // `a_break_forgets_the_state_before_it` is why the successor is the one
+        // a control leaves. The fold below performs the `LF` of a `CR LF`
+        // without reaching the `Index` arm, and leaves the cursor at column 0
+        // too.
         Act::Return => {
             p.cx = Col::ZERO;
             match left.index() >= 2 && p.arena[from.index() + 1] == 0x0a {
@@ -448,8 +459,17 @@ pub(crate) fn act(
         // successor bytes themselves constitute part of a well-formed" one. So
         // the partial character becomes a replacement and this byte is
         // re-dispatched from `Ground` rather than swallowed with it.
+        //
+        // The replacement is written without asking the cluster machine, so
+        // the machine is told what it is: class Other with no lookback, the
+        // state an ASCII letter leaves (`[[source: uax29]]` GB9a joins a
+        // SpacingMark to it, GB11 does not reach across it). Without the
+        // store the machine judged the next character from whatever came
+        // before -- a control, an indicator, a pictographic
+        // (`a_replacement_character_is_class_other_to_the_cluster_after_it`).
         Act::Resync => {
             p.glyph(Codepoint::REPLACEMENT, Width::NARROW);
+            p.cluster = ClusterBreak::after_ascii_run();
             ReadLen::ZERO
         }
         // **The whole escape surface, and every arm is one byte.** Before
@@ -608,6 +628,16 @@ pub(crate) fn act(
             p.bells += 1;
             ReadLen::ONE
         }
+        // **A control went past, and this is where the machine is told**:
+        // `Node::AfterControl` names it only for a byte that writes through
+        // the machine, which the ground then decodes and writes on the next
+        // trip round the loop. One store and one trip per control followed by
+        // a character that is not printable ASCII, in place of a store in
+        // every control's arm (the node's doc has what each cost).
+        Act::EndCluster => {
+            p.cluster = ClusterBreak::after_control();
+            ReadLen::ZERO
+        }
         Act::Vt52Dispatch => {
             let b = StreamByte::from_stream(p.arena[from.index()]);
             p.vt52(Vt52::parse(b), node);
@@ -691,8 +721,11 @@ pub(crate) fn act(
             ReadLen::ONE
         }
         Act::Again => ReadLen::ZERO,
+        // A byte that is no character: a replacement, which the machine is
+        // told is class Other, as `Resync`'s is.
         Act::Bad => {
             p.glyph(Codepoint::REPLACEMENT, Width::NARROW);
+            p.cluster = ClusterBreak::after_ascii_run();
             ReadLen::ONE
         }
     }
@@ -799,10 +832,14 @@ fn chars(p: &mut Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> R
     // cannot continue `E2`. So one `U+FFFD` for the lead and the byte after it
     // is re-dispatched -- which is `Act::Bad`'s behaviour, reached by a
     // different route.
+    //
+    // The machine is told the replacement is class Other, as `Bad`'s and
+    // `Resync`'s are.
     if k.index() == 0 {
         let s = StreamByte::slice_from(&p.arena[from.index()..from.index() + left.index()]);
         let n = maximal_subpart(s, len);
         p.glyph(Codepoint::REPLACEMENT, Width::NARROW);
+        p.cluster = ClusterBreak::after_ascii_run();
         return n;
     }
     match k.index() {
@@ -1355,9 +1392,14 @@ fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
             let mut c = p.cluster;
             core::hint::black_box(c.is_break_classified(cl.class, cl.lookback));
         }
-        if !p.cluster.is_break_classified(cl.class, cl.lookback) && p.cx != Col::ZERO {
-            p.attach(cp);
-            return;
+        if !p.cluster.is_break_classified(cl.class, cl.lookback) {
+            if p.cx != Col::ZERO {
+                p.attach(cp);
+                return;
+            }
+            // At column 0 a continuation takes a cell of its own, so the
+            // machine was wrong to continue: start it again there.
+            p.restart_cluster(cl);
         }
         w
     };
@@ -1551,7 +1593,15 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::SelectiveEraseDisplay(e) => p.selective_erase_display(e),
         DomCsi::EraseSavedLines => p.erase_saved_lines(),
         DomCsi::SelectiveEraseSavedLines => p.selective_erase_saved_lines(),
-        DomCsi::Repeat(c) => p.repeat(c),
+        // **REP's copy is written, so the cluster goes on from it**: the node
+        // goes back to the ground the edge left, and `Paint::repeat` has told
+        // the machine what the copy leaves. With nothing to repeat it wrote
+        // nothing, and the node stays where the edge put it.
+        DomCsi::Repeat(c) => {
+            if let crate::ops::Wrote::Copies = p.repeat(c) {
+                *node = Node::Ground;
+            }
+        }
         DomCsi::SoftReset => p.soft_reset(),
         DomCsi::InsertColumns(c) => p.insert_columns(c),
         DomCsi::DeleteColumns(c) => p.delete_columns(c),
@@ -2170,11 +2220,17 @@ fn fast_csi(
     let f = FinalByte::of_final(s[off]);
     // **Commit the node here, before the dispatch, so the dispatch can
     // override it.** `DECANM` leaves ANSI, and leaving is a parser transition:
-    // the next byte has to be read by the VT52 graph. Setting `Node::Ground`
+    // the next byte has to be read by the VT52 graph. Setting the node
     // *after* `csi_final` -- which is where it used to live, in the
     // `Act::CsiStart` arm -- would undo the switch and the very next byte
     // would be parsed by the protocol the application just left.
-    *node = Node::Ground;
+    //
+    // **`Node::AfterControl`, the node the graph's `CsiFinal` edge leads to**,
+    // for an `SGR` too: every control sequence ends the grapheme cluster
+    // before it (`[[source: uax29]]` GB4), and this is where a sequence taken
+    // whole says so. The same one-byte store as `Node::Ground`, with another
+    // immediate; `REP` puts `Node::Ground` back in `csi_final`.
+    *node = Node::AfterControl;
     match csi.is_plain_sgr(f) {
         true => {
             // **Insert on the miss, from the parse that just happened.**
@@ -2250,7 +2306,7 @@ fn fast_esc(
                     // nothing at all. The node stayed `Escape` and the next
                     // byte was parsed as an escape continuation -- charset
                     // designation and both CJK recordings went red at once.
-                    *node = Node::Ground;
+                    *node = Node::AfterControl;
                     esc_final(p, csi, b2, enc);
                     Some(ReadLen::from_index(3))
                 }
@@ -2261,7 +2317,7 @@ fn fast_esc(
         // introducers**: `P`, `X`, `]`, `^`, `_` open a control string whose
         // body the graph has to walk.
         0x30..=0x4f | 0x51..=0x57 | 0x59 | 0x5a | 0x5c | 0x60..=0x7e => {
-            *node = Node::Ground;
+            *node = Node::AfterControl;
             esc_final(p, csi, b1, enc);
             Some(ReadLen::from_index(2))
         }

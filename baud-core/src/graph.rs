@@ -112,14 +112,43 @@ pub enum Node {
     Vt52Utf8One,
     Vt52Utf8Two,
     Vt52Utf8Three,
+    /// `Ground`, after a control function: **the parser's record that a
+    /// control went past, which ends the grapheme cluster before it**
+    /// (`[[source: uax29]]` GB4 and GB5). Every edge that performs a control
+    /// or ends a sequence or a string leads here rather than to `Ground`, and
+    /// its row is `Ground`'s but for the bytes that would write a character
+    /// through the cluster machine: those take `Act::EndCluster`, which tells
+    /// the machine a control went past and hands the byte back to `Ground`.
+    ///
+    /// **A node, not a store in every control's arm.** `step` writes the node
+    /// on every byte already, so which node a control leaves costs nothing
+    /// per control; what it costs is one more trip round the loop where a
+    /// control is followed by a character that is not printable ASCII, 16% of
+    /// `vim`'s iterations, a `CUP` before each run of its two-byte text. A
+    /// store of the machine's state in each control's arm, seventeen sites,
+    /// measured `cat` 2.9% and `vim` 1.9% below the parent on the medians and
+    /// this `cat` 1.5% above and `vim` 1.4% below, `vim`'s range clear of the
+    /// parent's and `cat`'s overlapping (a second set read `vim` 1.9% below,
+    /// its range clear, and `cat` between 2.9% below and 0.8% above, ranges
+    /// overlapping, as `main`, unchanged, moved 64 bytes); doing the
+    /// character's write in `EndCluster`'s own step, inlined or out of line,
+    /// cost `cat` more (`docs/record.md`, "A control ends the grapheme
+    /// cluster before it"). Printable ASCII leaves for
+    /// `Ground` without the reset, because `Paint::piece` tells the machine
+    /// what a run of it leaves; `CR` leads to `Ground` too, because the cursor
+    /// is at column 0, where `Paint::restart_cluster` starts the machine again,
+    /// and sending it here measured `cat` and `vim` lower.
+    AfterControl,
+    /// The same in VT52, whose commands and C0 controls end a cluster too.
+    Vt52AfterControl,
 }
 
-pub(crate) const NNODE: usize = 22;
+pub(crate) const NNODE: usize = 24;
 
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 38;
+pub(crate) const NACT: usize = 39;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -145,6 +174,8 @@ impl Node {
         Node::Vt52Utf8One,
         Node::Vt52Utf8Two,
         Node::Vt52Utf8Three,
+        Node::AfterControl,
+        Node::Vt52AfterControl,
     ];
 }
 
@@ -230,6 +261,17 @@ pub enum Act {
     /// and `Consume` in the `DCS` prefix and in an `SOS`, `PM` or `APC`. The
     /// node is what tells them apart.
     Bell,
+    /// A control went past since the machine was last told anything: tell it
+    /// so, and dispatch the byte again from the ground, consuming nothing.
+    ///
+    /// **Only `Node::AfterControl`'s row names it, and only for the bytes that
+    /// write through the cluster machine**: a UTF-8 lead, and a graphic byte
+    /// under ISO 8859-1. `[[source: uax29]]` GB4 and GB5 break after and before
+    /// Control, CR and LF, and the terminal performs a control rather than
+    /// writing it, so the machine never sees one; the node remembers it and
+    /// this tells the machine, once, where it would be read. The other zero-
+    /// width action, beside `Again` and `Resync`.
+    EndCluster,
     /// A VT52 command byte, handed to `Vt52::parse` at run time.
     ///
     /// **One action for fifteen commands**, because a stride-k table is
@@ -327,6 +369,8 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
         Node::Vt52Utf8One => 19,
         Node::Vt52Utf8Two => 20,
         Node::Vt52Utf8Three => 21,
+        Node::AfterControl => 22,
+        Node::Vt52AfterControl => 23,
     }] += 1;
 }
 
@@ -366,6 +410,8 @@ const fn node_name(n: Node) -> &'static str {
         Node::Vt52Utf8One => "Vt52Utf8One",
         Node::Vt52Utf8Two => "Vt52Utf8Two",
         Node::Vt52Utf8Three => "Vt52Utf8Three",
+        Node::AfterControl => "AfterControl",
+        Node::Vt52AfterControl => "Vt52AfterControl",
     }
 }
 
@@ -394,6 +440,7 @@ const fn act_name(a: Act) -> &'static str {
         Act::StrStart => "StrStart",
         Act::StrPut => "StrPut",
         Act::Bell => "Bell",
+        Act::EndCluster => "EndCluster",
         Act::Vt52Dispatch => "Vt52Dispatch",
         Act::Vt52SetRow => "Vt52SetRow",
         Act::Vt52Address => "Vt52Address",
@@ -438,6 +485,7 @@ const ALL_ACTS: [Act; NACT] = [
     Act::StrStart,
     Act::StrPut,
     Act::Bell,
+    Act::EndCluster,
     Act::Vt52Dispatch,
     Act::Vt52SetRow,
     Act::Vt52Address,
@@ -562,6 +610,7 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::Vt52Address => 35,
         Act::DcsQuery => 36,
         Act::SixelStart => 37,
+        Act::EndCluster => 38,
     }] += 1;
 }
 
@@ -608,10 +657,12 @@ impl<T> Bytes<T> {
 
 /// The graph, built at compile time: `[node][byte] -> edge`.
 ///
-/// 22 x 256 x 2 bytes = **11 KB of rodata per encoding, 22 KB for both**, no
-/// initialiser and nothing to load. (Was 2 KB when there were 4 nodes, and 10
-/// KB at 20, before the string body split three ways on `BEL`; a row is read
-/// only while the parser stands in its node.)
+/// 24 x 256 x 2 bytes = **12 KB of rodata per encoding, 24 KB for both**, no
+/// initialiser and nothing to load. (Was 2 KB when there were 4 nodes, 10 KB
+/// at 20, before the string body split three ways on `BEL`, and 11 KB at 22,
+/// before the two grounds after a control; a row is read only while the
+/// parser stands in its node, so `Node::AfterControl`'s 512 bytes are read
+/// once per control, for the byte after it.)
 static UTF8: Nodes<Bytes<Edge>> = build(InputEncoding::Utf8);
 static LATIN1: Nodes<Bytes<Edge>> = build(InputEncoding::Latin1);
 
@@ -646,7 +697,9 @@ const fn build(enc: InputEncoding) -> Nodes<Bytes<Edge>> {
 
 /// Which operation a C0 byte performs. **Decided once, at build time, for all
 /// thirty-two of them** -- the ones that do nothing share `Consume` with every
-/// other byte this parser eats and ignores.
+/// other byte this parser eats and ignores. In a ground each one leads to
+/// `Node::AfterControl` but `CR` (`one`), since a control ends a cluster
+/// whether or not it moves anything.
 const fn c0(b: StreamByte) -> Act {
     match b.raw_byte() {
         0x0a..=0x0c => Act::Index,
@@ -686,6 +739,8 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     let ground_like = matches!(
         node,
         Node::Ground
+            | Node::AfterControl
+            | Node::Vt52AfterControl
             | Node::Utf8One
             | Node::Utf8Two
             | Node::Utf8Three
@@ -698,7 +753,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // VT52 escape cancels the escape; it does not switch protocols, and
     // `ground_of` is what says so in one place rather than at each return.
     if !ground_like && (b.is(StreamByte::CAN) || b.is(StreamByte::SUB)) {
-        return edge(Act::Consume, ground_of(node));
+        return edge(Act::Consume, after_control_of(node));
     }
     // **The same block's `1B`: an `ESC` abandons the sequence in progress
     // and starts a new one**, whose entry *clears* -- williams' reason is
@@ -754,7 +809,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     if in_string {
         if let Some(e) = latin1_c1(enc, b) {
             return match b.raw_byte() {
-                0x9c => edge(Act::StrEnd, Node::Ground),
+                0x9c => edge(Act::StrEnd, Node::AfterControl),
                 _ => e,
             };
         }
@@ -939,10 +994,11 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // assumed the byte after `ESC` was the backslash swallowed a `NEL`.
         Node::StrEsc => {
             return match b.is(StreamByte::from_stream(0x5c)) {
-                true => edge(Act::StrEnd, Node::Ground),
+                true => edge(Act::StrEnd, Node::AfterControl),
                 false => edge(Act::Again, Node::Escape),
             };
         }
+        Node::AfterControl | Node::Vt52AfterControl => return after_control(enc, node, b),
         Node::Ground | Node::Vt52Ground => {}
     }
 
@@ -967,8 +1023,20 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // second source of truth for "which route does this byte take", and the
     // run scanner would then be agreeing with a different function from the
     // one that dispatched to it.
+    //
+    // **A C0 control leads to `Node::AfterControl`, and `CR` to the ground.**
+    // Every control ends the grapheme cluster before it, and the node is what
+    // says so (`Node::AfterControl`). `CR` leaves the cursor at column 0, where
+    // `Paint::glyph` writes the next character in a cell of its own whatever the
+    // machine says and starts the machine again if it said otherwise
+    // (`Paint::restart_cluster`); a `CR LF`, which the `Return` arm folds,
+    // leaves it there too. So the line ending every line-oriented stream sends
+    // never visits the twin row.
     if matches!(Route::of(b), Route::Control) {
-        return edge(c0(b), g);
+        return match c0(b) {
+            Act::Return => edge(Act::Return, g),
+            a => edge(a, after_control_of(g)),
+        };
     }
     if matches!(Route::of(b), Route::Text) {
         return edge(Act::Text, g);
@@ -982,7 +1050,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // makes 0x7F a character of the set (ECMA-35 8.3.1), which waits on note
     // AE's 96-set work.
     if matches!(Route::of(b), Route::Del) {
-        return edge(Act::Consume, g);
+        return edge(Act::Consume, after_control_of(g));
     }
     if matches!(enc, InputEncoding::Latin1) {
         // ISO 8859-1: one byte, one character, no decoder state. **Not
@@ -1081,8 +1149,8 @@ const fn escape(b: StreamByte) -> Edge {
         // and `ESC B` does not exist; dropping the `(` made every charset
         // designation land on the same arm as its final byte alone.
         0x20..=0x2f => edge(Act::Inter, Node::Escape),
-        0x30..=0x7e => edge(Act::EscFinal, Node::Ground),
-        _ => edge(Act::Consume, Node::Ground),
+        0x30..=0x7e => edge(Act::EscFinal, Node::AfterControl),
+        _ => edge(Act::Consume, Node::AfterControl),
     }
 }
 
@@ -1098,7 +1166,7 @@ const fn csi_entry(b: StreamByte) -> Edge {
         0x3b => edge(Act::Sep, Node::CsiParam),
         0x3c..=0x3f => edge(Act::Marker, Node::CsiParam),
         0x20..=0x2f => edge(Act::Inter, Node::CsiInter),
-        0x40..=0x7e => edge(Act::CsiFinal, Node::Ground),
+        0x40..=0x7e => edge(Act::CsiFinal, Node::AfterControl),
         _ => edge(Act::Consume, Node::CsiIgnore),
     }
 }
@@ -1115,7 +1183,7 @@ const fn csi_param(b: StreamByte) -> Edge {
         // `3C-3F` in `csi_param` to `csi_ignore`.
         0x3c..=0x3f => edge(Act::Consume, Node::CsiIgnore),
         0x20..=0x2f => edge(Act::Inter, Node::CsiInter),
-        0x40..=0x7e => edge(Act::CsiFinal, Node::Ground),
+        0x40..=0x7e => edge(Act::CsiFinal, Node::AfterControl),
         _ => edge(Act::Consume, Node::CsiParam),
     }
 }
@@ -1127,7 +1195,7 @@ const fn csi_inter(b: StreamByte) -> Edge {
     }
     match b.raw_byte() {
         0x20..=0x2f => edge(Act::Inter, Node::CsiInter),
-        0x40..=0x7e => edge(Act::CsiFinal, Node::Ground),
+        0x40..=0x7e => edge(Act::CsiFinal, Node::AfterControl),
         _ => edge(Act::Consume, Node::CsiIgnore),
     }
 }
@@ -1138,7 +1206,9 @@ const fn csi_ignore(b: StreamByte) -> Edge {
         return edge(c0(b), Node::CsiIgnore);
     }
     match b.raw_byte() {
-        0x40..=0x7e => edge(Act::Consume, Node::Ground),
+        // **Still a control sequence, and it ends the cluster before it**:
+        // nothing is performed, and the sequence is a control all the same.
+        0x40..=0x7e => edge(Act::Consume, Node::AfterControl),
         _ => edge(Act::Consume, Node::CsiIgnore),
     }
 }
@@ -1158,8 +1228,40 @@ pub(crate) const fn ground_of(node: Node) -> Node {
         | Node::Vt52Col
         | Node::Vt52Utf8One
         | Node::Vt52Utf8Two
-        | Node::Vt52Utf8Three => Node::Vt52Ground,
+        | Node::Vt52Utf8Three
+        | Node::Vt52AfterControl => Node::Vt52Ground,
         _ => Node::Ground,
+    }
+}
+
+/// The ground a node returns to when a control ends what it was in, and so
+/// the cluster with it: `Node::AfterControl`, or its VT52 twin.
+pub(crate) const fn after_control_of(node: Node) -> Node {
+    match ground_of(node) {
+        Node::Vt52Ground => Node::Vt52AfterControl,
+        _ => Node::AfterControl,
+    }
+}
+
+/// `Node::AfterControl`'s row, and its VT52 twin's: **the ground's row, but
+/// for the bytes that write through the cluster machine.**
+///
+/// A UTF-8 lead and an ISO 8859-1 graphic take `Act::EndCluster` back to the
+/// ground, which tells the machine a control went past and dispatches the
+/// byte again from there, so the character is decoded and written by the
+/// ground's own edge and the machine breaks before it (GB4, GB5). Printable
+/// ASCII takes the ground's edge as it is: `Paint::piece` tells the machine
+/// what a run of it leaves, which does not depend on what came before. A
+/// byte that is no character, `Act::Bad`, takes the ground's edge as it is
+/// too: it writes a replacement, `U+FFFD`, class Other, and tells the machine
+/// so, which does not depend on what came before either. Every other byte is
+/// the ground's edge, and a control there leads back here.
+const fn after_control(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
+    let g = ground_of(node);
+    let e = one(enc, g, b);
+    match e.act {
+        Act::Char2 | Act::Char3 | Act::Char4 | Act::Latin1 => edge(Act::EndCluster, g),
+        _ => e,
     }
 }
 
@@ -1173,13 +1275,13 @@ const fn vt52(node: Node, b: StreamByte) -> Edge {
         Node::Vt52Escape => match b.raw_byte() {
             0x1b => edge(Act::Consume, Node::Vt52Escape),
             b'Y' => edge(Act::Consume, Node::Vt52Row),
-            _ => edge(Act::Vt52Dispatch, Node::Vt52Ground),
+            _ => edge(Act::Vt52Dispatch, Node::Vt52AfterControl),
         },
         // `ESC Y <row> <col>`, each biased by `0x20`. Two nodes because the
         // pair is a parser sub-state nothing else in either protocol reaches,
         // and because a read can fall between them.
         Node::Vt52Row => edge(Act::Vt52SetRow, Node::Vt52Col),
-        _ => edge(Act::Vt52Address, Node::Vt52Ground),
+        _ => edge(Act::Vt52Address, Node::Vt52AfterControl),
     }
 }
 
@@ -1216,7 +1318,7 @@ const fn string(node: Node, b: StreamByte) -> Edge {
         // before the decoder (`Paint::str_put`): the decoder reads a number
         // up to its first non-digit, so a `BEL` put inside one split it.
         0x07 => match node {
-            Node::OscStr => edge(Act::StrEnd, Node::Ground),
+            Node::OscStr => edge(Act::StrEnd, Node::AfterControl),
             Node::DcsStr => edge(Act::StrPut, Node::DcsStr),
             _ => edge(Act::Consume, node),
         },
@@ -1370,6 +1472,7 @@ extern crate std;
 mod classes {
     use super::*;
     use std::collections::HashMap;
+    use std::format;
     use std::vec::Vec;
 
     /// What a `k`-byte word does, seen from one starting node: the actions it
@@ -1531,6 +1634,8 @@ mod classes {
         // | `BEL` ends only an `OSC`: three string bodies | **36/1,075/27,628/663,126** | **+19.5%** |
         // | a DCS body puts `08-0D` and ignores `7F` | **36/1,075/27,634/663,397** | +0.04% |
         // | a GR byte in a DCS prefix is its 7-bit byte (Latin-1) | **41/1,313/35,570/893,413** | **+34.7%** |
+        // | the grounds after a control, `Node::AfterControl` | **41/1,313/34,972/852,113** | **-4.6%** |
+        // | ... and `Bad` there takes the ground's edge | **41/1,313/34,972/856,965** | +0.6% |
         //
         // **The GR prefix row is a prefix's cost again, and stride 1 moves for
         // the first time since the `BEL` split, for DECRQSS's reason**, 36 ->
@@ -1552,6 +1657,26 @@ mod classes {
         // both in 7. Strides 3 and 4 compound the same and were not
         // decomposed. A prefix's bytes are told apart by the edges they take
         // there, and fifteen more of them now are under ISO 8859-1.
+        //
+        // **The grounds after a control move only stride 3 and 4, and down.**
+        // Two nodes and one action, `EndCluster`, and every edge that left a
+        // control for a ground now leaves it for a twin. Stride 1 cannot move:
+        // the twin's row tells bytes apart exactly where its ground's does,
+        // and the edges that changed their next node changed it for whole
+        // classes at once. Stride 2 is the old count. Strides 3 and 4 fall by
+        // 598 and 41,300, and neither fall was decomposed. The likely reason,
+        // not checked against a dump: the twin's row sends every UTF-8 lead to
+        // the one `EndCluster`, where the ground's tells two-, three- and
+        // four-byte leads apart, so words that perform a control and then
+        // meet a lead, and differed only in the lead's length, can merge.
+        //
+        // **`Bad` on the twin moves only stride 4, and up**, 852,113 ->
+        // 856,965. 154 edges changed, the 77 bytes UTF-8 calls no character
+        // in each twin, `Bad` back to the twin becoming `Bad` to its ground
+        // (the table test's count with the old edge put back); the Latin-1
+        // table has no `Bad` there. Strides 1 to 3 keep their counts, and the
+        // table the parser runs, 256 edges a node, keeps its size. Not
+        // decomposed.
         //
         // **The DCS body's two classes move only stride 3 and 4.** Fourteen
         // edges changed, `08-0D` from `Consume` to `StrPut` and `7F` from
@@ -1727,8 +1852,8 @@ mod classes {
         // adds pays.
         assert_eq!(one.len(), CLASSES, "stride 1");
         assert_eq!(two.len(), 1_313, "stride 2");
-        assert_eq!(three.len(), 35_570, "stride 3");
-        assert_eq!(four.len(), 893_413, "stride 4");
+        assert_eq!(three.len(), 34_972, "stride 3");
+        assert_eq!(four.len(), 856_965, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -1828,9 +1953,9 @@ mod classes {
     /// pushed the test back into the node functions would leave four nodes
     /// broken and every test green.
     ///
-    /// This is exhaustive over both encodings and every node, twenty-two
-    /// since the string body split, so the claim is a gate rather than a
-    /// comment.
+    /// This is exhaustive over both encodings and every node, twenty-four
+    /// since the two grounds after a control, so the claim is a gate rather
+    /// than a comment.
     #[test]
     fn can_and_sub_cancel_from_every_node_that_is_not_ground_like() {
         for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
@@ -1845,6 +1970,8 @@ mod classes {
                 let ground_like = matches!(
                     node,
                     Node::Ground
+                        | Node::AfterControl
+                        | Node::Vt52AfterControl
                         | Node::Utf8One
                         | Node::Utf8Two
                         | Node::Utf8Three
@@ -1857,14 +1984,19 @@ mod classes {
                     let got = Edge::of(enc, node, b);
                     match ground_like {
                         // Nothing to cancel: `Ground` consumes it as an
-                        // unrouted C0, and mid-character it is a byte that
-                        // cannot continue the character, so the partial one
-                        // becomes a replacement and the byte is re-dispatched
-                        // from `Ground` without being swallowed.
+                        // unrouted C0, a control all the same, and mid-character
+                        // it is a byte that cannot continue the character, so
+                        // the partial one becomes a replacement and the byte is
+                        // re-dispatched from `Ground` without being swallowed.
                         true => assert_eq!(
                             got,
                             match node {
-                                Node::Ground | Node::Vt52Ground => edge(Act::Consume, g),
+                                Node::Ground
+                                | Node::Vt52Ground
+                                | Node::AfterControl
+                                | Node::Vt52AfterControl => {
+                                    edge(Act::Consume, after_control_of(node))
+                                }
                                 _ => edge(Act::Resync, g),
                             },
                             "{node:?} {enc:?} byte {:#04x}",
@@ -1872,7 +2004,7 @@ mod classes {
                         ),
                         false => assert_eq!(
                             got,
-                            edge(Act::Consume, g),
+                            edge(Act::Consume, after_control_of(node)),
                             "{node:?} {enc:?} byte {:#04x} does not cancel",
                             b.raw_byte()
                         ),
@@ -1880,6 +2012,114 @@ mod classes {
                 }
             }
         }
+    }
+
+    /// **Every control ends the grapheme cluster before it, and the table is
+    /// what says so**: an edge that leaves a control function, sequence or
+    /// string leads to `Node::AfterControl` or its VT52 twin, never to a
+    /// ground, so `Act::EndCluster` tells the cluster machine before the next
+    /// character it would be asked about (`[[source: uax29]]` GB4, GB5).
+    ///
+    /// Exhaustive over both encodings, all twenty-four nodes and all 256
+    /// bytes, three ways:
+    ///
+    /// * **an edge into a ground is text**: printable ASCII, whose run tells
+    ///   the machine what it leaves; a character's lead and an ISO 8859-1
+    ///   graphic, which go through the machine; a byte that is no character,
+    ///   whose replacement tells the machine it is class Other; and the end or the
+    ///   abandoning of a character split across reads. Anything else into a
+    ///   ground skipped the reset, as `csi_ignore`'s exit did and `ESC DEL`'s;
+    /// * **a control performed in a ground leaves for the twin**, and one
+    ///   performed inside a sequence stays in it, whose own end then does;
+    /// * **the twin's row is its ground's**, but for the bytes that would
+    ///   write through the machine, which take `EndCluster` back to the
+    ///   ground.
+    #[test]
+    fn every_way_out_of_a_control_leads_to_the_ground_after_a_control() {
+        let grounds = [Node::Ground, Node::Vt52Ground];
+        let twins = [Node::AfterControl, Node::Vt52AfterControl];
+        let performs = |a: Act| {
+            matches!(
+                a,
+                Act::Index
+                    | Act::Backspace
+                    | Act::Tab
+                    | Act::ShiftOut
+                    | Act::ShiftIn
+                    | Act::Bell
+                    | Act::CsiFinal
+                    | Act::EscFinal
+                    | Act::StrEnd
+                    | Act::Vt52Dispatch
+                    | Act::Vt52Address
+            )
+        };
+        let mut wrong = Vec::new();
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            for node in Node::FROM_INDEX {
+                for b in StreamByte::ALL {
+                    let e = Edge::of(enc, node, b);
+                    let utf8 = matches!(
+                        node,
+                        Node::Utf8One
+                            | Node::Utf8Two
+                            | Node::Utf8Three
+                            | Node::Vt52Utf8One
+                            | Node::Vt52Utf8Two
+                            | Node::Vt52Utf8Three
+                    );
+                    let into_ground = grounds.contains(&e.next);
+                    let text = match e.act {
+                        Act::Text => grounds.contains(&node) || twins.contains(&node),
+                        Act::Char2 | Act::Char3 | Act::Char4 | Act::Latin1 => {
+                            grounds.contains(&node)
+                        }
+                        Act::Bad => grounds.contains(&node) || twins.contains(&node),
+                        Act::EndCluster => twins.contains(&node),
+                        Act::ContEnd | Act::Resync => utf8,
+                        // `CR`: the cursor is at column 0, where `glyph`
+                        // starts the machine again (`Paint::restart_cluster`).
+                        Act::Return => grounds.contains(&node) || twins.contains(&node),
+                        _ => false,
+                    };
+                    if into_ground && !text {
+                        wrong.push(format!(
+                            "{enc:?} {node:?} {:#04x}: {e:?} into a ground",
+                            b.raw_byte()
+                        ));
+                    }
+                    let in_ground = grounds.contains(&node) || twins.contains(&node);
+                    if performs(e.act) && in_ground && !twins.contains(&e.next) {
+                        wrong.push(format!(
+                            "{enc:?} {node:?} {:#04x}: {e:?} performs a control and leaves no twin",
+                            b.raw_byte()
+                        ));
+                    }
+                    if twins.contains(&node) {
+                        let g = ground_of(node);
+                        let plain = Edge::of(enc, g, b);
+                        let want = match plain.act {
+                            Act::Char2 | Act::Char3 | Act::Char4 | Act::Latin1 => {
+                                edge(Act::EndCluster, g)
+                            }
+                            _ => plain,
+                        };
+                        if e != want {
+                            wrong.push(format!(
+                                "{enc:?} {node:?} {:#04x}: {e:?}, its ground's row says {want:?}",
+                                b.raw_byte()
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "{} edges:\n  {}",
+            wrong.len(),
+            wrong.join("\n  ")
+        );
     }
 
     /// **`ESC` abandons an escape or control sequence from every node that
@@ -1909,6 +2149,7 @@ mod classes {
             for node in Node::FROM_INDEX {
                 let want = match node {
                     Node::Ground
+                    | Node::AfterControl
                     | Node::Escape
                     | Node::CsiEntry
                     | Node::CsiParam
@@ -1924,9 +2165,11 @@ mod classes {
                         edge(Act::Consume, Node::StrEsc)
                     }
                     Node::StrEsc => edge(Act::Again, Node::Escape),
-                    Node::Vt52Ground | Node::Vt52Escape => edge(Act::Consume, Node::Vt52Escape),
+                    Node::Vt52Ground | Node::Vt52AfterControl | Node::Vt52Escape => {
+                        edge(Act::Consume, Node::Vt52Escape)
+                    }
                     Node::Vt52Row => edge(Act::Vt52SetRow, Node::Vt52Col),
-                    Node::Vt52Col => edge(Act::Vt52Address, Node::Vt52Ground),
+                    Node::Vt52Col => edge(Act::Vt52Address, Node::Vt52AfterControl),
                 };
                 assert_eq!(
                     Edge::of(enc, node, StreamByte::ESC),
@@ -1954,7 +2197,11 @@ mod classes {
         // Positive control: the Ground row compared against is the C1 row,
         // not a row of `Bad` that every node could agree with by accident.
         let ground = |v: usize| Edge::of(InputEncoding::Latin1, Node::Ground, StreamByte::ALL[v]);
-        assert_eq!(ground(0x85), edge(Act::EscFinal, Node::Ground), "85 NEL");
+        assert_eq!(
+            ground(0x85),
+            edge(Act::EscFinal, Node::AfterControl),
+            "85 NEL"
+        );
         assert_eq!(ground(0x9b), edge(Act::CsiStart, Node::CsiEntry), "9B CSI");
         assert_eq!(ground(0x90), edge(Act::StrStart, Node::Dcs), "90 DCS");
         assert_eq!(ground(0x9d), edge(Act::StrStart, Node::OscStr), "9D OSC");
@@ -1968,7 +2215,7 @@ mod classes {
             for v in 0x80..=0x9fusize {
                 let b = StreamByte::ALL[v];
                 let want = match v {
-                    0x9c => edge(Act::StrEnd, Node::Ground),
+                    0x9c => edge(Act::StrEnd, Node::AfterControl),
                     _ => ground(v),
                 };
                 assert_eq!(
@@ -2033,7 +2280,7 @@ mod classes {
             }
             assert_eq!(
                 bel(walk(b"\x1b]")),
-                edge(Act::StrEnd, Node::Ground),
+                edge(Act::StrEnd, Node::AfterControl),
                 "{enc:?}: OSC"
             );
             for prefix in [b"\x1bP".as_slice(), b"\x1bP$", b"\x1bP1;2"] {
@@ -2233,12 +2480,20 @@ mod classes {
     fn a_latin1_c1_cancels_every_escape_and_control_sequence_and_a_utf8_one_does_not() {
         // Positive control: the Ground row compared against is the C1 row.
         let ground = |v: usize| Edge::of(InputEncoding::Latin1, Node::Ground, StreamByte::ALL[v]);
-        assert_eq!(ground(0x84), edge(Act::EscFinal, Node::Ground), "84 IND");
+        assert_eq!(
+            ground(0x84),
+            edge(Act::EscFinal, Node::AfterControl),
+            "84 IND"
+        );
         assert_eq!(ground(0x9b), edge(Act::CsiStart, Node::CsiEntry), "9B CSI");
         assert_eq!(ground(0x98), edge(Act::StrStart, Node::SosStr), "98 SOS");
-        assert_eq!(ground(0x9c), edge(Act::EscFinal, Node::Ground), "9C ST");
+        assert_eq!(
+            ground(0x9c),
+            edge(Act::EscFinal, Node::AfterControl),
+            "9C ST"
+        );
         for (node, utf8) in [
-            (Node::Escape, edge(Act::Consume, Node::Ground)),
+            (Node::Escape, edge(Act::Consume, Node::AfterControl)),
             (Node::CsiEntry, edge(Act::Consume, Node::CsiIgnore)),
             (Node::CsiParam, edge(Act::Consume, Node::CsiParam)),
             (Node::CsiInter, edge(Act::Consume, Node::CsiIgnore)),

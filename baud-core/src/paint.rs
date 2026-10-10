@@ -510,12 +510,14 @@ impl<'a, 'b> Paint<'a, 'b> {
         // wrongly continue a base that text has already scrolled past.
         //
         // One store per **run**, not per byte, so it is off the per-byte path
-        // this file is careful about. `new` rather than `after_ascii_run`,
-        // although the truthful state is `prev = Some(Other)`: the two were
-        // argued observationally equivalent, and a SpacingMark after ASCII
-        // shows they are not -- `ClusterBreak::after_ascii_run`'s doc has the
-        // GB9a case, an open departure.
-        self.cluster = ClusterBreak::new();
+        // this file is careful about. **The state the run leaves, not
+        // `ClusterBreak::new`**, which says nothing came before: GB9 and GB9a
+        // join a continuation to the letter only if the machine knows a
+        // letter is there, and under `new` GB1 broke first, so `a U+0903` put
+        // the visarga in a cell of its own. `ClusterBreak::after_ascii_run`'s
+        // doc has the cases, and `docs/record.md`, "After printable ASCII the
+        // cluster machine is told a letter went past", the cost.
+        self.cluster = ClusterBreak::after_ascii_run();
         let k = n.index();
         // **No gap here.** `piece` is a router: it hands the run to `glyph`
         // per character or to `blit` whole, and both open their own. Opening
@@ -545,7 +547,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // Only `glyph` set it, which is the short-run path above, so whether
         // `REP` worked depended on how long the run before it was.
         //
-        // One store per run is the same placement the `ClusterBreak` reset
+        // One store per run is the same placement the `ClusterBreak` store
         // above already has, and for the same reason: this is a router, and
         // per-byte is what this file is careful about.
         let last = StreamByte::from_stream(self.arena[from.index() + n.index() - 1]);
@@ -572,7 +574,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[inline(always)]
     fn blit(&mut self, from: BytePos, n: ByteLen) {
         // Told for the same reason `piece` is, and once per run.
-        self.cluster = ClusterBreak::new();
+        self.cluster = ClusterBreak::after_ascii_run();
         // No clip: `text` sized the piece to the row before calling. Clipping
         // here is what silently dropped the tail of a long line.
         let k = n.index();
@@ -735,6 +737,27 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.overwrite_images(start, Col::at_index(start.index() + need));
         self.advance(Count::of(need));
         self.row_written = self.row_written.max(self.cx);
+    }
+
+    /// Start the cluster machine again at column 0, from the state a control
+    /// leaves, and put `cl` to it: the machine said `cl` continued a cluster,
+    /// and at column 0 there is nothing on the row for it to continue, so
+    /// `glyph` writes it in a cell of its own.
+    ///
+    /// **This is what a carriage return leaves the machine**, without a store
+    /// in the `CR` arm: after `CR`, and after the `CR LF` the arm folds, the
+    /// cursor is at column 0, and every character written there either breaks
+    /// -- whose successor forgets the state before it,
+    /// `a_break_forgets_the_state_before_it` -- or comes here. Without it,
+    /// `U+1F1E6 CR U+1F1E7 U+1F1E8` paired the `B` with the `A` it overwrote
+    /// and left the `C` alone
+    /// (`a_carriage_return_ends_a_regional_indicator_pair`). `#[cold]` like
+    /// `attach`, beside which `glyph` calls it.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn restart_cluster(&mut self, cl: Classified) {
+        self.cluster = ClusterBreak::after_control();
+        let _ = self.cluster.is_break_classified(cl.class, cl.lookback);
     }
 
     /// Attach a zero-width codepoint to the cell that owns the column before

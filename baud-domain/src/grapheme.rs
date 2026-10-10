@@ -232,6 +232,28 @@ impl ClusterBreak {
         ClusterBreak::default()
     }
 
+    /// The state a control leaves: nothing for the next character to join.
+    ///
+    /// `[[source: uax29]]` GB4 breaks after Control, CR and LF and GB5
+    /// before them, so whatever follows a control starts a cluster, and every
+    /// lookback -- GB9c's, GB11's, GB12/13's parity -- ends at it. The
+    /// terminal acts on a control rather than writing it, so the machine is
+    /// never fed one; this is what feeding it one would leave, said rather
+    /// than computed, by `baud-core`'s `Act::EndCluster` where a character
+    /// the machine is asked about follows a control.
+    ///
+    /// **It is `new()`, and that is checked rather than argued.**
+    /// `the_state_after_a_control_is_the_state_before_any_text` feeds the
+    /// table a Control from `new()` and compares the two rows on all 256
+    /// inputs, break bit and successor alike, and walks the rules the same
+    /// way. The state ids differ -- `prev` is `None` in one and `Control` in
+    /// the other -- and no input can tell them apart, since GB1 at the start
+    /// of text and GB4 after a control both break and both leave the next
+    /// state to the character alone.
+    pub fn after_control() -> ClusterBreak {
+        ClusterBreak::new()
+    }
+
     /// The machine's whole state as nine bits, for tooling that has to
     /// enumerate it. `prev` is 15 values, `ri` 2, `pict` 3, `incb` 3.
     pub fn to_bits(self) -> u16 {
@@ -287,19 +309,18 @@ impl ClusterBreak {
     /// the state one ordinary character leaves.
     ///
     /// Printable ASCII never reaches the cluster machine: `Paint::piece` and
-    /// `Paint::blit` write it without asking, and tell the machine by
-    /// resetting to `new()`. That says `prev = None`, while printable ASCII is
-    /// class `Other`, so the truthful state is this one. Every other field
-    /// agrees with `new()` for good reasons: an ASCII character is not
-    /// pictographic, not a regional indicator and not `InCB`. `put_run` uses
-    /// this one, after a run of ordinary multi-byte characters it writes in
+    /// `Paint::blit` write it without asking, and tell the machine with this.
+    /// Printable ASCII is class `Other`, and an ASCII character is not
+    /// pictographic, not a regional indicator and not `InCB`, so `prev =
+    /// Other` with no lookback live is what any run of it leaves. `put_run`
+    /// uses it too, after a run of ordinary multi-byte characters it writes in
     /// bulk, as the machine's advance across the whole run.
     ///
-    /// **The two were argued observationally equivalent, and they are not.**
-    /// `baud-core2` kept the reset because the truthful state cost 1.5% --
-    /// cat-cjk 401.5-403.7 against 407.3-411.3, every test and 56 properties
-    /// at 20,000 cases identical, `cells_written` byte-identical -- and
-    /// because every rule that reads `prev` looked closed:
+    /// **They told it `new()` until 2026-10-10, and that was a departure.**
+    /// `baud-core2` kept the reset, `prev = None`, because the truthful state
+    /// cost 1.5% -- cat-cjk 401.5-403.7 against 407.3-411.3, every test and 56
+    /// properties at 20,000 cases identical, `cells_written` byte-identical --
+    /// and because every rule that reads `prev` looked closed:
     ///
     /// * a zero-width mark after ASCII attaches either way, because
     ///   `Paint::glyph` routes `Width::ZERO` to `Paint::attach` whatever the
@@ -314,16 +335,21 @@ impl ClusterBreak {
     /// `[[source: uax29]]`'s GB9 `× (Extend | ZWJ)` and GB9a `× SpacingMark`
     /// hold after `prev = Other`, but after `prev = None` GB1 breaks first, and
     /// only a `Width::ZERO` codepoint reaches `Paint::attach` whatever the
-    /// break decision. So after printable ASCII a SpacingMark takes a cell of
-    /// its own (GB9a: `a U+0903` puts the visarga beside the `a`), and so does
+    /// break decision. So after printable ASCII a SpacingMark took a cell of
+    /// its own (GB9a: `a U+0903` put the visarga beside the `a`), and so did
     /// an Extend that has a width (GB9: `a U+09BE`, a vowel sign of category
-    /// `Mc`, and `a U+1F3FF`, an emoji modifier two columns wide). The rules
-    /// make each one cluster, and four lines of `[[source: gbtest]]` fail
-    /// through the terminal for this reason: 691 (`÷ 0020 × 0903 ÷`), 763
-    /// (`÷ 0061 × 0903 ÷ 0062 ÷`), 766 (`÷ 0061 × 1F3FF ÷ 1F476 ÷`) and 767,
-    /// which begins the same way; it has no `U+09BE` case. After `é`, which is
-    /// class `Other` too but goes through the machine, both `U+0903` and
-    /// `U+1F3FF` attach. An open departure, not a settled trade.
+    /// `Mc`, and `a U+1F3FF`, an emoji modifier two columns wide), where the
+    /// rules make each one cluster. After `é`, class `Other` too but written
+    /// through the machine, each attached. Four lines of `[[source: gbtest]]`
+    /// failed through the terminal for this reason -- 691 (`÷ 0020 × 0903 ÷`),
+    /// 763 (`÷ 0061 × 0903 ÷ 0062 ÷`), 766 (`÷ 0061 × 1F3FF ÷ 1F476 ÷`) and
+    /// 767 -- and with a letter written before them, so did the file's 32
+    /// control-free lines that begin with `U+0903`.
+    /// `every_line_of_the_suite_clusters_through_the_terminal` holds them all,
+    /// and `a_continuation_with_a_width_joins_the_ascii_letter_before_it` the
+    /// `U+09BE` case the file does not have. What the truthful state costs on
+    /// this core is in `docs/record.md`, "After printable ASCII the cluster
+    /// machine is told a letter went past".
     pub fn after_ascii_run() -> ClusterBreak {
         ClusterBreak {
             // `prev = Other` with no lookback live is exactly the one

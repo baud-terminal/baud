@@ -40,7 +40,11 @@ fn dump_ppm(c: &Canvas, path: &str) {
 /// flag's second regional indicator and a Devanagari conjunct's tail. 61 and
 /// 77 cells changed, as many as codepoints were left out, every one in or just
 /// right of a cell whose marks were; with the drop disabled both frames are
-/// their old pins again.
+/// their old pins again. vim-unicode moved again when a cursor move began
+/// ending a grapheme cluster: vim writes each regional indicator of the JP
+/// flag at a position of its own, so the eleven on its final screen draw as
+/// the two cells vim addressed rather than as one flag beside a gap
+/// (`baud-core/tests/golden/recordings.txt`).
 const GOLDEN: [(&str, u64); 9] = [
     ("ascii/asciiquarium.raw", 0xac3842702a843af5),
     ("utf8/btop.raw", 0x378fe94215f0d9b5),
@@ -50,7 +54,7 @@ const GOLDEN: [(&str, u64); 9] = [
     ("utf8/cat-cjk.raw", 0x786d9146ab908ecd),
     ("utf8/cava.raw", 0x5428b240a6ca62e5),
     ("utf8/less-cjk.raw", 0x08602238a4813a25),
-    ("utf8/vim-unicode.raw", 0x89a42c53798a4c46),
+    ("utf8/vim-unicode.raw", 0x815f9ce9bf960756),
 ];
 
 #[test]
