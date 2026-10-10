@@ -710,7 +710,6 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // Under UTF-8 `latin1_c1` answers `None` for every byte, so these nodes'
     // rows there are what they were: `80-9F` are continuation bytes of the
     // payload's characters (`a_latin1_c1_leaves_every_control_string_and_a_utf8_one_stays`).
-    // `Escape` and the `CSI` nodes do not yet take this rule.
     let in_string = matches!(node, Node::Dcs | Node::DcsDollar | Node::Str);
     if in_string {
         if let Some(e) = latin1_c1(enc, b) {
@@ -718,6 +717,32 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 0x9c => edge(Act::StrEnd, Node::Ground),
                 _ => e,
             };
+        }
+    }
+    // **And from an escape or control sequence**, the rule's other half: the
+    // same five nodes the `1B` edge above cancels from, `Escape` standing for
+    // williams' `escape` and `escape intermediate` both, whose intermediates
+    // `csi` holds. Of `csi entry` and the states after it williams says it
+    // again (534-537): "C1 controls will cancel the sequence and then be
+    // executed", so that the 8-bit form acts as the 7-bit one, whose `ESC`
+    // cancels it. `escape()` sent every C1 to `Consume` and `Ground`, so
+    // `ESC 85` ended the escape and lost the NEL, and the `csi_*` rows
+    // consumed it, `csi param` staying put, so `CSI 2 ; 85 H` moved the
+    // cursor. `9C` takes its ground edge, not `StrEnd`: there is no string to
+    // end, and the diagram draws it to ground (268). The actions need nothing
+    // new: `EscFinal` maps a C1 through `c1_as_escape` and clears `csi`, which
+    // drops the sequence's parameters and intermediates, and `CsiStart` and
+    // `StrStart` clear it on entry, as williams' `clear` does.
+    //
+    // So every ANSI node a Latin-1 C1 can arrive in now acts on it: `Ground`,
+    // the three string nodes, these five, and `StrEsc`, whose `Again` hands
+    // the byte to `Escape`. The UTF-8 continuation nodes cannot be reached
+    // under Latin-1, whose every character is one byte wide, and VT52 is note
+    // AE's D3, waiting on the DEC text for that mode
+    // (`a_latin1_c1_cancels_every_escape_and_control_sequence_and_a_utf8_one_does_not`).
+    if in_sequence {
+        if let Some(e) = latin1_c1(enc, b) {
+            return e;
         }
     }
 
@@ -937,8 +962,9 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
 /// less `0x40`.** `9B` is `CSI`, `9D` is `OSC`, `90` is `DCS`, `9C` is `ST`,
 /// `84` is `IND` -- so the row is not a special case at all, it is the
 /// `Escape` row read at a different offset, and delegating is what keeps one
-/// definition of what each final means. Ground and the control strings both
-/// ask here, so the two cannot disagree on which byte is which control.
+/// definition of what each final means. Ground, the control strings and the
+/// escape and control sequences all ask here, so they cannot disagree on
+/// which byte is which control.
 ///
 /// They are controls *under ISO 8859-1 and not under UTF-8*, which is not an
 /// inconsistency: in UTF-8 `9B` is a continuation byte and cannot begin
@@ -1338,6 +1364,29 @@ mod classes {
         // | `ESC` abandons a sequence (the anywhere `1B` edge) | **34/964/24,373/572,642** | **-2.1%** |
         // | `DEL` ignored in ground, not drawn as U+FFFD (D4) | **34/963/24,272/568,022** | **-0.8%** |
         // | a Latin-1 C1 cancels a control string and acts | **34/955/23,735/549,546** | **-3.3%** |
+        // | ... and an escape or control sequence | **34/955/23,743/555,038** | +1.0% |
+        //
+        // **The sequence half grows it a little, and again only the Latin-1
+        // table moved**: the UTF-8 edges hash as they did, and exactly 160
+        // Latin-1 edges changed, the thirty-two C1 bytes in each of `Escape`
+        // and the four `CSI` nodes, each now the ground edge. Stride 1 stays
+        // at 34, for the reason the string row gave. Stride 2 does not move
+        // at all, class for class, taken against a dump of the old partition:
+        // a C1 after `ESC` or `9B` was already told apart by start nodes that
+        // never enter the sequence. The signature reads `Resync` out of a
+        // UTF-8 continuation node as landing in ground, so `1B 9B` from
+        // `Utf8One` reached the C1's ground row; and from `Vt52Col` the `ESC`
+        // is a coordinate and lands in VT52 ground, where note AE's D3 leaves
+        // a Latin-1 C1 its ANSI edge. At stride 3 two old classes split five
+        // ways and none merge: `CAN` or `SUB`, then `ESC` or `9B`, then a
+        // byte the sequence consumed, which is now one of an executing C1,
+        // `90`, the other string introducers, `9B`, or still consumed (`7F`
+        // and `A0-FF`). The `CAN` or `SUB` first is what makes them new: it
+        // sends every start node to its ground, `Vt52Row` and the
+        // continuation nodes included, so the second byte reaches a sequence
+        // node by no path that told the C1s apart before. After any other
+        // first byte `Vt52Row` still did. Stride 4 compounds the same and was
+        // not decomposed.
         //
         // **The C1 row shrinks it too, and it moved only the Latin-1 table**:
         // a hash of all 5,120 UTF-8 edges is the same before and after. A C1
@@ -1452,8 +1501,8 @@ mod classes {
         // adds pays.
         assert_eq!(one.len(), CLASSES, "stride 1");
         assert_eq!(two.len(), 955, "stride 2");
-        assert_eq!(three.len(), 23_735, "stride 3");
-        assert_eq!(four.len(), 549_546, "stride 4");
+        assert_eq!(three.len(), 23_743, "stride 3");
+        assert_eq!(four.len(), 555_038, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -1699,6 +1748,60 @@ mod classes {
                     Edge::of(InputEncoding::Utf8, node, b),
                     kept,
                     "{node:?} Utf8 byte {v:#04x}"
+                );
+            }
+        }
+    }
+
+    /// **Under ISO 8859-1 a C1 byte cancels an escape or control sequence and
+    /// takes the edge it takes from ground; under UTF-8 each of these nodes
+    /// keeps the row it had.** Exhaustive over `80-9F`, the five sequence
+    /// nodes and both encodings, and checked against the shipped table.
+    ///
+    /// `[[source: williams]]` (612-615): "All C1 controls cancel any escape
+    /// sequence, control sequence or control string in progress and are
+    /// executed." `escape()` sent all thirty-two to `Consume` and `Ground`,
+    /// so `ESC 85` lost its NEL, and the `csi_*` rows consumed them, `csi
+    /// param` staying where it was. `9C` takes the ground edge here rather
+    /// than `StrEnd`: there is no string to end, and williams draws it to
+    /// ground with no action (268). `StrEsc`, the `ESC` inside a string,
+    /// sends every byte but `\` back through `Escape` with `Again`, so it
+    /// takes this rule through that row and its own edge does not move.
+    #[test]
+    fn a_latin1_c1_cancels_every_escape_and_control_sequence_and_a_utf8_one_does_not() {
+        // Positive control: the Ground row compared against is the C1 row.
+        let ground = |v: usize| Edge::of(InputEncoding::Latin1, Node::Ground, StreamByte::ALL[v]);
+        assert_eq!(ground(0x84), edge(Act::EscFinal, Node::Ground), "84 IND");
+        assert_eq!(ground(0x9b), edge(Act::CsiStart, Node::CsiEntry), "9B CSI");
+        assert_eq!(ground(0x98), edge(Act::StrStart, Node::Str), "98 SOS");
+        assert_eq!(ground(0x9c), edge(Act::EscFinal, Node::Ground), "9C ST");
+        for (node, utf8) in [
+            (Node::Escape, edge(Act::Consume, Node::Ground)),
+            (Node::CsiEntry, edge(Act::Consume, Node::CsiIgnore)),
+            (Node::CsiParam, edge(Act::Consume, Node::CsiParam)),
+            (Node::CsiInter, edge(Act::Consume, Node::CsiIgnore)),
+            (Node::CsiIgnore, edge(Act::Consume, Node::CsiIgnore)),
+        ] {
+            for v in 0x80..=0x9fusize {
+                let b = StreamByte::ALL[v];
+                assert_eq!(
+                    Edge::of(InputEncoding::Latin1, node, b),
+                    ground(v),
+                    "{node:?} Latin1 byte {v:#04x}"
+                );
+                assert_eq!(
+                    Edge::of(InputEncoding::Utf8, node, b),
+                    utf8,
+                    "{node:?} Utf8 byte {v:#04x}"
+                );
+            }
+        }
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            for v in 0x80..=0x9fusize {
+                assert_eq!(
+                    Edge::of(enc, Node::StrEsc, StreamByte::ALL[v]),
+                    edge(Act::Again, Node::Escape),
+                    "StrEsc {enc:?} byte {v:#04x}"
                 );
             }
         }

@@ -378,29 +378,41 @@ fn same_outcome_as_seven_bit(what: &str, eight: &[u8], seven: &[u8]) {
     fed(seven, seven.len(), |want| {
         for size in 1..=eight.len() {
             fed(eight, size, |got| {
-                let at = format!("{what}, read size {size}");
-                assert_eq!(got.title(), want.title(), "{at}: title");
-                assert_eq!(got.icon_name(), want.icon_name(), "{at}: icon name");
-                assert_eq!(got.reply(), want.reply(), "{at}: reply");
-                assert_eq!(
-                    got.images().generation(),
-                    want.images().generation(),
-                    "{at}: image store"
-                );
-                assert_eq!(got.bells, want.bells, "{at}: bells");
-                assert_eq!(
-                    got.strings_ignored, want.strings_ignored,
-                    "{at}: strings ignored"
-                );
-                assert_eq!(got.unsupported, want.unsupported, "{at}: unsupported");
-                assert_eq!(got.cursor(), want.cursor(), "{at}: cursor");
-                assert!(
-                    support::screen(got) == support::screen(want),
-                    "{at}: screen"
-                );
+                assert_same_outcome(&format!("{what}, read size {size}"), got, want);
             });
         }
     });
+}
+
+/// Everything a control string, a control sequence or a control that cancels
+/// either can change, held equal between two terminals: the screen and
+/// cursor, the two strings an `OSC` sets, the reply a DECRQSS queues, the
+/// image store a Sixel writes, and the counters a string, a designation or a
+/// control bumps.
+fn assert_same_outcome(at: &str, got: &Term<'_>, want: &Term<'_>) {
+    assert_eq!(got.title(), want.title(), "{at}: title");
+    assert_eq!(got.icon_name(), want.icon_name(), "{at}: icon name");
+    assert_eq!(got.reply(), want.reply(), "{at}: reply");
+    assert_eq!(
+        got.images().generation(),
+        want.images().generation(),
+        "{at}: image store"
+    );
+    assert_eq!(got.bells, want.bells, "{at}: bells");
+    assert_eq!(
+        got.strings_ignored, want.strings_ignored,
+        "{at}: strings ignored"
+    );
+    assert_eq!(got.unsupported, want.unsupported, "{at}: unsupported");
+    assert_eq!(
+        got.charset_unsupported, want.charset_unsupported,
+        "{at}: designations not named"
+    );
+    assert_eq!(got.cursor(), want.cursor(), "{at}: cursor");
+    assert!(
+        support::screen(got) == support::screen(want),
+        "{at}: screen"
+    );
 }
 
 /// **A C1 control inside an `OSC` acts under ISO 8859-1, and is not stored.**
@@ -546,4 +558,224 @@ fn a_c1_in_any_control_string_acts_as_its_seven_bit_form_under_latin1() {
             }
         }
     }
+}
+
+/// A terminal fed `bytes` in two reads, the second starting at byte `at`.
+///
+/// A read size puts a boundary at each of its multiples, and one-byte reads
+/// put one everywhere at once; a split leaves the rest of each read whole,
+/// which is the shape the fast paths see, since a one-byte read gives
+/// `fast_esc` and `fast_csi` nothing to look ahead at.
+fn fed_split<R>(bytes: &[u8], at: usize, f: impl FnOnce(&Term<'_>) -> R) -> R {
+    let ws = WinSize {
+        ws_row: 6,
+        ws_col: 40,
+    };
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    let (head, rest) = bytes.split_at(at);
+    for chunk in [head, rest] {
+        t.write_at(BytePos::ZERO, chunk);
+        t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+    }
+    f(&t)
+}
+
+/// Holds `eight` against `seven` at every read size from one byte to the
+/// whole program, and at every split into two reads.
+fn same_outcome_at_every_split(what: &str, eight: &[u8], seven: &[u8]) {
+    fed(seven, seven.len(), |want| {
+        for size in 1..=eight.len() {
+            fed(eight, size, |got| {
+                assert_same_outcome(&format!("{what}, read size {size}"), got, want);
+            });
+        }
+        for at in 1..eight.len() {
+            fed_split(eight, at, |got| {
+                assert_same_outcome(&format!("{what}, split at byte {at}"), got, want);
+            });
+        }
+    });
+}
+
+/// **A C1 control after `ESC`, or inside a `CSI`, acts under ISO 8859-1, and
+/// the sequence it interrupts is cancelled.**
+///
+/// `[[source: williams]]` (lines 612-615): "All C1 controls cancel any escape
+/// sequence, control sequence or control string in progress and are executed.
+/// Control functions special to this parser, i.e. DCS, SOS, CSI, OSC, PM and
+/// APC, cause a transition to their appropriate states. All other C1 control
+/// functions (even those with no defined meaning), cause a transition to
+/// ground state." The diagram draws those edges from *anywhere* (268, 301,
+/// 349, 402, 421), so from `escape`, `escape intermediate` and the `csi`
+/// states as well. `escape()` sent every byte in `80-9F` to `Ground` and
+/// consumed it, so `ESC 85` ended the escape and lost the NEL; the `csi_*`
+/// rows consumed it too, and from `csi param` the sequence carried on, so
+/// `CSI 2 ; 85 H` moved the cursor.
+#[test]
+fn a_c1_after_esc_or_inside_a_csi_acts_under_latin1() {
+    // NEL after a bare `ESC`: `cd` at the start of the next line.
+    fed(b"\x1b%@X\x1b\x85cd", usize::MAX, |t| {
+        assert_eq!(
+            t.cursor(),
+            (Row::from_index(1), Col::at_index(2)),
+            "ESC 85: the NEL ran"
+        );
+    });
+
+    // IND after an intermediate keeps the column and designates nothing. A
+    // C1 that kept the `(` would be read as `ESC ( D`, a set baud does not
+    // name, and counted.
+    fed(b"\x1b%@X\x1b(\x84q", usize::MAX, |t| {
+        assert_eq!(
+            t.cursor(),
+            (Row::from_index(1), Col::at_index(2)),
+            "ESC ( 84: the IND ran and `q` printed under the cell after `X`"
+        );
+        assert_eq!(t.charset_unsupported, 0, "ESC ( 84: nothing designated");
+    });
+
+    // `9B` after `ESC`: a CSI, so `Y` prints red, as after `ESC [ 31 m`.
+    let red = fed(b"\x1b%@\x1b[31mY", usize::MAX, support::screen);
+    fed(b"\x1b%@\x1b\x9b31mY", usize::MAX, |t| {
+        assert!(support::screen(t) == red, "ESC 9B: the CSI ran");
+    });
+
+    // `85` inside a CSI's parameters: the CSI is cancelled, so no CUP, and
+    // the NEL runs and `H` prints at the start of the next line.
+    fed(b"\x1b%@X\x1b[2;\x85H", usize::MAX, |t| {
+        assert_eq!(
+            t.cursor(),
+            (Row::from_index(1), Col::at_index(1)),
+            "CSI 2 ; 85 H: the NEL ran and `H` printed"
+        );
+    });
+
+    // `9B` inside a CSI's parameters begins a fresh one, whose entry clears:
+    // `Y` is red, not bold and red as `CSI 1 ; 31 m` would make it.
+    fed(b"\x1b%@\x1b[1;\x9b31mY", usize::MAX, |t| {
+        assert!(
+            support::screen(t) == red,
+            "CSI 1 ; 9B: the second CSI alone"
+        );
+    });
+
+    // `9D` inside a CSI: the CSI is cancelled and an OSC sets the title.
+    fed(b"\x1b%@\x1b[1;\x9d0;t\x07", usize::MAX, |t| {
+        assert_eq!(t.title(), b"t", "CSI 1 ; 9D: the OSC set the title");
+        assert_eq!(t.cursor().1, Col::ZERO, "CSI 1 ; 9D: nothing printed");
+    });
+}
+
+/// **Every C1 byte, from every state of an escape or control sequence, acts
+/// as its 7-bit form would from ground.**
+///
+/// `[[source: williams]]` (lines 534-537), of `csi entry` and the states
+/// after it: "C1 controls will cancel the sequence and then be executed. I
+/// imagine this treatment of C1 controls is prompted by the consideration
+/// that the 7-bit (ESC Fe) and 8-bit representations of C1 controls should
+/// act in the same way. When the first character of the 7-bit
+/// representation, ESC, is received, it will cancel the control sequence, so
+/// the 8-bit representation should do so as well." So the 7-bit twin is one
+/// oracle, the C1 replaced where it stands by `ESC Fe`, whose `ESC` the
+/// anywhere `1B` edge takes; and the 7-bit form alone is the other, with the
+/// interrupted sequence left out, since a cancelled sequence "will have no
+/// effect" (498-500). Each 8-bit program is held against its twin at every
+/// read size and every split into two reads, and the twin against the form
+/// alone in one read, so each program at every split acts as its control
+/// would from ground.
+///
+/// Exhaustive over `80-9F` and over every state a sequence passes through:
+/// `escape` bare and after each kind of intermediate (`(`, `SP`, `#`, `%`,
+/// and two of them), `csi entry` opened by `ESC [` and by `9B`, `csi param`
+/// after a separator, after a digit (where the two-byte parameter step reads
+/// the C1 as the byte after the digit) and after a private marker, `csi
+/// intermediate` and `csi ignore`; and an `ESC` inside a control string,
+/// which cancels the string and leaves the C1 to `escape`.
+///
+/// The three tails are read by whatever the C1 began, as in the string test
+/// above, and each ends in `[}`, which a national set designated by a stale
+/// intermediate would draw as other letters.
+#[test]
+fn a_c1_in_any_escape_or_control_sequence_acts_as_its_seven_bit_form_under_latin1() {
+    let states: [(&str, &[u8]); 16] = [
+        ("escape", b"\x1b"),
+        ("escape intermediate (", b"\x1b("),
+        ("escape intermediate SP", b"\x1b "),
+        ("escape intermediate #", b"\x1b#"),
+        ("escape intermediate %", b"\x1b%"),
+        ("escape, two intermediates", b"\x1b(%"),
+        ("csi entry, ESC [", b"\x1b["),
+        ("csi entry, 9B", b"\x9b"),
+        ("csi param, after a separator", b"\x1b[1;"),
+        ("csi param, after a digit", b"\x1b[12"),
+        ("csi param, after a marker", b"\x1b[?"),
+        ("csi intermediate", b"\x1b[1 "),
+        ("csi ignore", b"\x1b[1?"),
+        ("ESC inside an OSC", b"\x1b]0;ab\x1b"),
+        ("ESC inside a DECRQSS", b"\x1bP$qm\x1b"),
+        ("ESC inside an APC", b"\x1b_ab\x1b"),
+    ];
+    let tails: [&[u8]; 3] = [b"5mY\x07\r\tZ[}", b"0;T\x07\r\tZ[}", b"$qm\x1b\\\r\tZ[}"];
+    for (name, open) in states {
+        for c in 0x80u8..=0x9f {
+            for tail in tails {
+                let what = format!("{c:#04x} in {name}, then {}", tail.escape_ascii());
+                let eight = [b"\x1b%@X".as_slice(), open, &[c], tail].concat();
+                let twin = [b"\x1b%@X".as_slice(), open, &[0x1b, c - 0x40], tail].concat();
+                let alone = [b"\x1b%@X".as_slice(), &[0x1b, c - 0x40], tail].concat();
+                same_outcome_at_every_split(&what, &eight, &twin);
+                fed(&alone, alone.len(), |want| {
+                    fed(&twin, twin.len(), |got| {
+                        assert_same_outcome(&format!("{what}: the twin, from ground"), got, want);
+                    });
+                });
+            }
+        }
+    }
+}
+
+/// **Under UTF-8 the same bytes inside a sequence are what they were.**
+///
+/// `80-9F` are continuation bytes there (`docs/vt-coverage.md`, "Encoding"),
+/// so the anywhere rule's C1 half cannot apply and none of the thirty-two
+/// executes. Each is held, at every split, to the program it has always been
+/// equivalent to: after `ESC`, bare or past an intermediate, it ends the
+/// escape and is dropped; inside a `CSI`'s parameters it is dropped and the
+/// sequence carries on; straight after the introducer it sends the sequence
+/// to `csi ignore`, which swallows it to the final. The control, last so that
+/// an unfixed tree runs every UTF-8 case before it, is the first case under
+/// Latin-1, where the same bytes run a NEL.
+#[test]
+fn under_utf8_a_c1_byte_in_a_sequence_is_what_it_was() {
+    for c in 0x80u8..=0x9f {
+        let cases: [(&str, Vec<u8>, &[u8]); 4] = [
+            ("after ESC", [b"\x1b".as_slice(), &[c], b"X"].concat(), b"X"),
+            (
+                "after ESC (",
+                [b"\x1b(".as_slice(), &[c], b"X"].concat(),
+                b"X",
+            ),
+            (
+                "inside CSI parameters",
+                [b"\x1b[31".as_slice(), &[c], b"mX"].concat(),
+                b"\x1b[31mX",
+            ),
+            (
+                "after CSI",
+                [b"\x1b[".as_slice(), &[c], b"31mX"].concat(),
+                b"X",
+            ),
+        ];
+        for (name, eight, seven) in cases {
+            same_outcome_at_every_split(&format!("{c:#04x} {name}, under UTF-8"), &eight, seven);
+        }
+    }
+    fed(b"\x1b%@\x1b\x85X", usize::MAX, |t| {
+        assert_eq!(
+            t.cursor(),
+            (Row::from_index(1), Col::at_index(1)),
+            "positive control: under Latin-1, ESC 85 is a NEL"
+        );
+    });
 }

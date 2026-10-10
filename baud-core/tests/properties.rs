@@ -2,7 +2,7 @@
 //! a language.
 //!
 //! **The alphabet is the whole design.** `baud-core2`'s generator has 79
-//! operations and reaches the *protocol*; this one has twenty-three atoms and
+//! operations and reaches the *protocol*; this one has twenty-six atoms and
 //! reaches the **fast paths**, which is where this core's defects have lived.
 //! Those paths key on a cross product -- encoded length, width, grapheme class
 //! and *run length* -- and two of the entries below exist because a run of
@@ -262,6 +262,30 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **C1 controls inside escape and control sequences, under ISO 8859-1**:
+    // the anywhere rule's other half, each atom entering and leaving Latin-1
+    // as the three above do. `85` after a bare `ESC` cancels it and is NEL;
+    // `9B` after `ESC (` cancels the designation and opens a `CSI` that
+    // colours the `u`; `9D` inside a `CSI`'s parameters cancels it and begins
+    // a title, which the drivers compare.
+    Atom {
+        name: "latin1-esc-nel",
+        bytes: b"\x1b%@\x1b\x85u\x1b%G",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "latin1-esc-inter-csi",
+        bytes: b"\x1b%@\x1b(\x9b31mu\x1b%G",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "latin1-csi-osc",
+        bytes: b"\x1b%@\x1b[1;\x9d2;w\x07\x1b%G",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 fn program() -> impl Strategy<Value = Vec<usize>> {
@@ -373,24 +397,9 @@ fn the_alphabet_emits_what_it_claims() {
 /// title keeps it.
 #[test]
 fn the_c1_atoms_reach_the_string_arms() {
-    let atom = |name: &str| {
-        ALPHABET
-            .iter()
-            .position(|a| a.name == name)
-            .unwrap_or_else(|| panic!("no atom {name}"))
-    };
     let (_, _, title) = drive(&bytes_of(&[atom("osc-c1-utf8")]), 4096);
     assert_eq!(title, b"t\x85u", "UTF-8: the 85 is payload");
 
-    let fed = |name: &str, f: &dyn Fn(&Term<'_>)| {
-        let bytes = bytes_of(&[atom(name)]);
-        let w = ws();
-        let mut owned = Owned::new(&w);
-        let mut t = Term::new(owned.storage(), &w);
-        t.write_at(BytePos::ZERO, &bytes);
-        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
-        f(&t);
-    };
     fed("latin1-osc-nel", &|t| {
         assert_eq!(t.title(), b"", "NEL: the title was cancelled");
         assert_eq!(
@@ -412,6 +421,56 @@ fn the_c1_atoms_reach_the_string_arms() {
         assert_eq!(t.title(), b"v", "OSC: the DECRQSS gave way to a title");
         assert!(t.reply().is_empty(), "OSC: the DECRQSS did not answer");
     });
+}
+
+/// **The sequence C1 atoms reach theirs**, for the same reason: a C1 the
+/// escape or the `CSI` swallowed would be swallowed in both chunkings.
+///
+/// `latin1-esc-nel`'s `85` cancels the escape and is NEL, so `u` prints at
+/// the start of the next line; `latin1-esc-inter-csi`'s `9B` cancels the
+/// designation and colours the `u`, and designates nothing; and
+/// `latin1-csi-osc`'s `9D` cancels the `CSI` and sets a title.
+#[test]
+fn the_c1_atoms_reach_the_sequence_arms() {
+    fed("latin1-esc-nel", &|t| {
+        assert_eq!(
+            t.cursor(),
+            (Row::from_index(1), Col::at_index(1)),
+            "ESC 85: NEL ran and `u` printed"
+        );
+    });
+    fed("latin1-esc-inter-csi", &|t| {
+        assert_eq!(t.cursor().1, Col::at_index(1), "ESC ( 9B: `u` printed");
+        assert_ne!(
+            t.viewport().iter().next().map(|c| c.style),
+            Some(baud_domain::StyleId::DEFAULT),
+            "ESC ( 9B: the SGR coloured the `u`"
+        );
+        assert_eq!(t.charset_unsupported, 0, "ESC ( 9B: nothing designated");
+    });
+    fed("latin1-csi-osc", &|t| {
+        assert_eq!(t.title(), b"w", "CSI 1 ; 9D: the OSC set the title");
+        assert_eq!(t.cursor().1, Col::ZERO, "CSI 1 ; 9D: nothing printed");
+    });
+}
+
+/// Where the atom called `name` sits in the alphabet.
+fn atom(name: &str) -> usize {
+    ALPHABET
+        .iter()
+        .position(|a| a.name == name)
+        .unwrap_or_else(|| panic!("no atom {name}"))
+}
+
+/// The atom called `name` fed alone, in one read, handed to `f`.
+fn fed(name: &str, f: &dyn Fn(&Term<'_>)) {
+    let bytes = bytes_of(&[atom(name)]);
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    t.write_at(BytePos::ZERO, &bytes);
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    f(&t);
 }
 
 proptest! {

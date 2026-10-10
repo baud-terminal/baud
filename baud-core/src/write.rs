@@ -667,10 +667,13 @@ pub(crate) fn act(
         // IND, NEL, HTS, RI, SS2 and SS3 as unsupported. `c1_as_escape` maps
         // it, as `[[source: ctlseqs]]` pairs the two forms, and is `None` for
         // every byte an `ESC` row leads here and under UTF-8. And a C1 byte is
-        // reached from Ground, or from a control string it cancels, without
-        // `EscStart`, where `csi` is cleared, so it inherited the last
-        // escape's intermediate: `ESC ( 0 q 84` was read as `ESC ( D` and
-        // replaced G0 (`a_c1_control_does_not_inherit_the_last_escapes_intermediate`).
+        // reached from Ground, or from a control string or sequence it
+        // cancels, without `EscStart`, where `csi` is cleared, so it inherited
+        // the last escape's intermediate: `ESC ( 0 q 84` was read as `ESC ( D`
+        // and replaced G0 (`a_c1_control_does_not_inherit_the_last_escapes_intermediate`).
+        // From a sequence it cancels the intermediate is that sequence's own,
+        // so `ESC ( 84` would designate where williams runs an IND, and a
+        // `CSI`'s parameters would linger.
         Act::EscFinal => {
             let raw = StreamByte::from_stream(p.arena[from.index()]);
             let b = match enc.c1_as_escape(raw) {
