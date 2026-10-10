@@ -8,17 +8,22 @@
 //! reader thread and a waker because its run loop cannot wait on a
 //! descriptor.
 //!
-//! **Written and type-checked on a Mac against the Linux target, and not
-//! yet run.** No compositor has shown this window; the protocol, the
-//! keymap compiler and the window are tested here over a socket pair,
-//! and this file is the wiring between them and the core. Until a Linux
-//! box runs it, it is unverified, and it says so at startup.
+//! **Type-checked on a Mac against the Linux target, and run only on a
+//! headless compositor.** weston's headless backend accepted its frames, a
+//! shell on its pty answered `stty size`, and the grid followed the
+//! configure (`docs/record.md`, "The Linux app is wired and type-checked,
+//! and it has not run"). A headless backend has no display, so nobody has
+//! looked at its pixels, and nothing has typed into it on a compositor;
+//! the protocol, the keymap compiler and the window are tested here over
+//! a socket pair, and this file is the wiring between them and the core.
+//! It says so at startup.
 //!
 //! What the macOS app has and this does not, yet: the GPU paths, `SGR 5`
 //! text blink, the system caret's rate (this keeps xterm's 600/300 until
-//! the desktop's settings are read), the wheel onto the scrollback, a backing scale other than one -- the
-//! window binds no fractional-scale global -- and the report every five
-//! seconds.
+//! the desktop's settings are read), a pointer -- the seat binds only the
+//! keyboard, so there is no wheel onto the scrollback, no mouse report and
+//! no selection -- a backing scale other than one -- the window binds no
+//! fractional-scale global -- and the report every five seconds.
 
 use crate::bell::{Bell, Update, UpdateClock};
 use crate::caret::{Blinks, Caret, Cycle, Gate, NonBlinking, Owes};
@@ -98,7 +103,9 @@ struct Driver {
 }
 
 pub fn run() {
-    crate::warn!("baud on Wayland: type-checked against Linux and not yet run on a compositor");
+    crate::warn!(
+        "baud on Wayland: run only on a headless compositor, so nobody has looked at its pixels or typed into it, and it has no pointer: no wheel, mouse reports or selection"
+    );
     let cfg = Config::load();
     startup_mark("config");
     match &cfg.source {

@@ -881,16 +881,22 @@ impl App {
         let trace = Trace::open(&ws);
         // Said at startup, because the one time it mattered the variable
         // was spelled `AUD_TRACE` and nothing said the files were not
-        // being written.
+        // being written. Said through `BAUD_LOG`, as every startup line is:
+        // the off and writing lines are diagnostics, `info` beside
+        // `renderer:`, so a misspelling shows under `BAUD_LOG=info` and a
+        // default launch stays quiet; a `BAUD_TRACE` that could not be
+        // acted on is a `warn`, as a `BAUD_GPU` baud cannot read is.
         match (&trace, std::env::var_os("BAUD_TRACE")) {
             (Some(_), Some(p)) => {
-                eprintln!("trace: writing {}.raw and .steps", p.to_string_lossy())
+                crate::info!("trace: writing {}.raw and .steps", p.to_string_lossy())
             }
-            (None, Some(p)) => eprintln!(
+            (None, Some(p)) => crate::warn!(
                 "trace: BAUD_TRACE={} but the files could not be created",
                 p.to_string_lossy()
             ),
-            (None, None) => eprintln!("trace: off (set BAUD_TRACE=<prefix> to record the session)"),
+            (None, None) => {
+                crate::info!("trace: off (set BAUD_TRACE=<prefix> to record the session)")
+            }
             (Some(_), None) => {}
         }
         // The smooth-scroll slide caps its offset at one row, so it needs the
@@ -6303,6 +6309,67 @@ mod tests {
             assert_eq!(px.y.index() / 40, r.index(), "y at {p}");
             assert_eq!((r, c), cell_under((p, p * 0.3), scale, cell, grid, pad));
         }
+    }
+
+    /// **`BAUD_LOG` governs the trace lines.** They were bare `eprintln!`s,
+    /// so `trace: off …` printed on every launch and `BAUD_LOG=err` did not
+    /// silence it (note AI, section 8). The off and writing lines are
+    /// startup diagnostics, at `info` beside `renderer:`; a `BAUD_TRACE`
+    /// that could not be acted on is a `warn`, as `BAUD_GPU`'s is. Read from
+    /// the source, because the macros write to stderr, where a test cannot
+    /// look; the level each macro carries is the log module's own, asked
+    /// through `log::shows`.
+    #[test]
+    fn baud_log_governs_the_trace_lines() {
+        use crate::log::{Level, named, shows};
+        // The file less its own test module, which holds these literals
+        // too; code follows the module, so both sides are kept.
+        let src = include_str!("app.rs");
+        let (before, rest) = src
+            .split_once("#[cfg(test)]\nmod tests {")
+            .expect("the test module");
+        let after = rest.split_once("\n}\n").map_or("", |(_, a)| a);
+        let code = format!("{before}{after}");
+        // The macro a literal is the format string of: the nearest `!(`
+        // before it, and the path that names it. `None` is a bare
+        // `eprintln!`, which no threshold silences.
+        let level = |text: &str| -> Option<Level> {
+            assert_eq!(code.matches(text).count(), 1, "one site for {text}");
+            let at = code.find(text).expect(text);
+            let open = code[..at].rfind("!(").expect("a macro");
+            let name = code[..open]
+                .rsplit(|c: char| !(c.is_alphanumeric() || c == '_' || c == ':'))
+                .next();
+            match name {
+                Some("crate::err") => Some(Level::Err),
+                Some("crate::warn") => Some(Level::Warn),
+                Some("crate::info") => Some(Level::Info),
+                Some("crate::debug") => Some(Level::Debug),
+                Some("crate::verbose") => Some(Level::Verbose),
+                Some("eprintln") => None,
+                other => panic!("{text} is in {other:?}"),
+            }
+        };
+        let shown = |text: &str, threshold: Level| level(text).is_none_or(|l| shows(l, threshold));
+        // The control: a line known to be `info` and one known to be
+        // `warn` read as such, so a matcher that resolves nothing cannot
+        // pass.
+        assert_eq!(level("\"renderer: {wanted:?}{}\""), Some(Level::Info));
+        assert_eq!(
+            level("\"BAUD_GPU={v:?} is not 0, 1 or cells; choosing automatically\""),
+            Some(Level::Warn)
+        );
+        let off = "\"trace: off (set BAUD_TRACE=<prefix> to record the session)\"";
+        let writing = "\"trace: writing {}.raw and .steps\"";
+        let failed = "\"trace: BAUD_TRACE={} but the files could not be created\"";
+        let (quiet, at_default, info) = (named(Some("err")), named(None), named(Some("info")));
+        assert!(!shown(off, at_default), "trace: off is silent by default");
+        assert!(!shown(off, quiet), "and under BAUD_LOG=err");
+        assert!(shown(off, info), "and said under BAUD_LOG=info");
+        assert!(!shown(writing, at_default), "writing is a diagnostic");
+        assert!(shown(writing, info), "said under BAUD_LOG=info");
+        assert!(shown(failed, at_default), "a failed BAUD_TRACE is said");
+        assert!(!shown(failed, quiet), "unless BAUD_LOG=err");
     }
 }
 

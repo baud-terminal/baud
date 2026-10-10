@@ -1001,14 +1001,23 @@ baud's lines is one. ghostty maps warn to Error and err to Fault (§3).
 
 ## 8. Found on the way, decided by no question
 
-- **`trace: off (set BAUD_TRACE=<prefix> to record the session)` prints on
-  every launch** through a bare `eprintln!` (app.rs:893). It ignores
-  `BAUD_LOG`, so `BAUD_LOG=err` does not silence it (C). It belongs behind
-  `info!`.
-- **linux.rs:101 says at `warn`, on every launch, that the driver has "not yet
-  run on a compositor".** CLAUDE.md says the Linux port "has run only
-  headless", and calls that "the headless weston run", so the sentence is stale
-  (C).
+The first two are fixed (2026-10-09, `docs/record.md`, "`BAUD_LOG` governs
+the trace lines, and the Linux driver says what is still unverified"); the
+rest are open.
+
+- **Fixed: `trace: off (set BAUD_TRACE=<prefix> to record the session)`
+  printed on every launch** through a bare `eprintln!` (app.rs:893). It
+  ignored `BAUD_LOG`, so `BAUD_LOG=err` did not silence it (C). It belonged
+  behind `info!`, and is there now, with `trace: writing …`; `trace:
+  BAUD_TRACE=… but the files could not be created` is `warn!`, as `BAUD_GPU`'s
+  unreadable value is. The nine `eprintln!` sites under their own variables
+  (§1.2) are unchanged.
+- **Fixed: linux.rs:101 said at `warn`, on every launch, that the driver had
+  "not yet run on a compositor".** CLAUDE.md says the Linux port "has run only
+  headless", and calls that "the headless weston run", so the sentence was
+  stale (C). It now says the driver has run only on a headless compositor,
+  that nobody has looked at its pixels or typed into it, and that it has no
+  pointer.
 - **`placements_refused` is counted and never said.** `docs/record.md` already
   lists it as open (§1.4). If it takes the refusal line's form, no question
   decides it; if its level is in doubt, it is question 7.
