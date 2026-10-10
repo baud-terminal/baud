@@ -29,10 +29,10 @@ impl Paint<'_, '_> {
             // count of one -- spelling them a second way here is the "one
             // write path knowing a rule the other did not" shape this repo
             // records four times, and `confine` is exactly such a rule.
-            Vt52::CursorUp => self.cy = self.confine(self.cy.up(Count::ONE)),
+            Vt52::CursorUp => self.set_row(self.confine(self.cy.up(Count::ONE))),
             Vt52::CursorDown => {
                 let rows = self.rows;
-                self.cy = self.confine(self.cy.down(Count::ONE, rows));
+                self.set_row(self.confine(self.cy.down(Count::ONE, rows)));
             }
             Vt52::CursorRight => self.cx = self.cx.forward(Count::ONE, self.cols),
             Vt52::CursorLeft => self.cx = self.cx.back(Count::ONE),

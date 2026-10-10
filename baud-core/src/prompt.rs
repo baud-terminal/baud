@@ -126,12 +126,12 @@ impl Paint<'_, '_> {
                 self.expire_primary_images(None);
             }
         }
-        self.cy = Row::from_index(cy.saturating_sub(d));
         let blank = PackedCell::empty_with(self.style);
         for k in 0..=d {
             let n = self.view.fill_at(start.advance(k, ring), blank);
             self.cells = self.cells.plus(n.index());
         }
+        self.set_row(Row::from_index(cy.saturating_sub(d)));
         self.prompt_erases += 1;
     }
 }

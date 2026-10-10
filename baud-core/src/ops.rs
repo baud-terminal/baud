@@ -976,7 +976,7 @@ impl Paint<'_, '_> {
         self.cold.left = Col::at_index(l);
         self.cold.right = Col::at_index(r);
         self.cx = Col::ZERO;
-        self.cy = Row::ZERO;
+        self.set_row(Row::ZERO);
     }
 
     /// Is the cursor inside the scrolling region, in **both** axes?
@@ -1028,6 +1028,8 @@ impl Paint<'_, '_> {
             }
             self.cells = self.cells.plus(to.index() - self.cx.index());
         }
+        // DECIC moved the cursor's row right under it, past the mark.
+        self.row_changed_to(self.cy);
     }
 
     // ---- modes ----------------------------------------------------------
@@ -1176,9 +1178,9 @@ impl Paint<'_, '_> {
                 self.cold.modes.apply(ModeBit::Column132, on);
                 self.cold.top = Row::ZERO;
                 self.cold.bot = Row::from_index(self.rows.index() - 1);
-                self.cy = Row::ZERO;
                 self.cx = Col::ZERO;
                 self.clear_screen();
+                self.set_row(Row::ZERO);
             }
             // **`?4` and `?8` are recorded and exposed, which is what acting
             // on them means here.** Smooth scroll is renderer policy and
@@ -1422,6 +1424,9 @@ impl Paint<'_, '_> {
                 // back, which was the one thing standing between the grid
                 // and being the GPU's in place on both screens.
                 self.view.swap_surface(&mut self.other);
+                // The cursor's row is the other screen's now, and under `?47`
+                // it keeps whatever that screen held.
+                self.row_changed_to(self.cy);
                 // `?1049` clears the alternate screen on entry, so a rotation
                 // left from the last time an application was in it describes
                 // nothing. Blanks rotate to blanks, so this is tidiness rather
@@ -1463,6 +1468,7 @@ impl Paint<'_, '_> {
                 // share (`Term::primary_cursor`) -- so there is nothing to
                 // catch up on here.
                 self.view.swap_surface(&mut self.other);
+                self.row_changed_to(self.cy);
                 // **`?47` restores nothing, and leaves the save alone.** A
                 // cursor `?1049 h` saved outlives a `?47 l` exit, as the
                 // cursor xterm saves outlives `FromAlternate`.

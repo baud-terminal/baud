@@ -190,14 +190,8 @@ const ALPHABET: &[Atom] = &[
     // alphabet, and what the drivers below compare beside the cells. A save
     // or a restore whose sequence a read boundary splits, or a restore that
     // fires where nothing was saved, leaves the cursor shown where it should
-    // be hidden or the reverse. A mode that moves the cursor or changes the
-    // wrap would put the cache on the screen itself, and both were tried
-    // first: `?7l` and `?6h` each broke the two chunk properties at once on
-    // defects of the write path's own, not of the cache -- an ASCII write
-    // over a wide character's right half at the last column under DECAWM
-    // reset, and a base and its mark over a wide character's left half from
-    // a new read, each of which leaves the other half on one path and blanks
-    // it on another. Recorded; each fix is a write-path change of its own.
+    // be hidden or the reverse. The modes that move the cursor or change the
+    // wrap are the atoms after these four.
     Atom {
         name: "cursor-hide",
         bytes: b"\x1b[?25l",
@@ -222,6 +216,62 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **The modes that move the cursor or change the wrap, and the moves
+    // that reach a written row.** `?7l` and `?6h` were tried with the four
+    // above and dropped: each broke both chunk properties on a write-path
+    // defect -- a write over one half of a wide character, from a read that
+    // began on its row or after a move onto it, kept the other half on one
+    // path and blanked it on another. `Paint`'s mark of how far the cursor's
+    // row is written was zero at every read and kept stale on most row
+    // changes (`tests/wide_halves.rs`). Fixed, `?6h` is here, with `CUP`
+    // home and `CUU` so a program lands on rows it has written. **`?7l` is
+    // still out**: it found two more defects at once, `[?7l, ascii, e
+    // U+0301]` -- a letter written into the last column under `DECAWM` reset
+    // pins the cursor there, so a mark after it attaches to the column
+    // before, and a run that ends at the margin leaves the cursor past it
+    // where one character does not.
+    Atom {
+        name: "decom-set",
+        bytes: b"\x1b[?6h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decom-reset",
+        bytes: b"\x1b[?6l",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "cup-home",
+        bytes: b"\x1b[H",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "cuu",
+        bytes: b"\x1b[A",
+        stride: 0,
+        count: 0,
+    },
+    // **The bare encoding switches.** `ESC % @` leaves every later atom read
+    // as ISO 8859-1, where `zwj-family`'s bytes carry `8D`, an RI. It was
+    // tried and dropped for the same defect: `ESC [ 2 ; 1 H`, four wide
+    // characters, `ESC [ 1 ; 20 H b © ~the` lost the `©` or kept a tail
+    // depending on the reads, a non-ASCII character wrapping onto a wide
+    // character's lead. `ESC % G` comes back.
+    Atom {
+        name: "latin1-enter",
+        bytes: b"\x1b%@",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "utf8-enter",
+        bytes: b"\x1b%G",
+        stride: 0,
+        count: 0,
+    },
     // **C1 controls inside control strings, under ISO 8859-1 and under
     // UTF-8.** Each Latin-1 atom enters with `ESC % @` and leaves with
     // `ESC % G`, the shape the VT52 op had in `baud-core2`'s generator, so the
@@ -231,14 +281,7 @@ const ALPHABET: &[Atom] = &[
     // beside the cells for them: an `OSC` a C1 cancelled, or one it began,
     // changes nothing else.
     //
-    // **A bare `ESC % @` atom was tried and dropped.** It leaves every later
-    // atom read as Latin-1, where `zwj-family`'s bytes carry `8D`, an RI, and
-    // that reached a write-path defect of its own with no control string in
-    // it: `ESC [ 2 ; 1 H`, four wide characters, `ESC [ 1 ; 20 H b © ~`, then
-    // `the` in the next read, leaves column 0 of row 1 blank where the same
-    // bytes in one read keep the `©`. A non-ASCII character wrapping onto a
-    // wide character's left half, then ASCII; recorded, and the fix is the
-    // write path's.
+    // The bare switches are the two atoms after these.
     Atom {
         name: "latin1-osc-nel",
         bytes: b"\x1b%@\x1b]0;t\x85u\x07\x1b%G",

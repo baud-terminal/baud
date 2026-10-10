@@ -380,7 +380,7 @@ pub(crate) fn act(
                 p.cx = Col::at_index(p.cx.index() - 1);
             } else if p.cold.modes.is_set(ModeBit::ReverseWrap) && p.cy.index() > p.cold.top.index()
             {
-                p.cy = Row::from_index(p.cy.index() - 1);
+                p.set_row(Row::from_index(p.cy.index() - 1));
                 p.cx = p.cold.right;
             }
             ReadLen::ONE
@@ -1542,26 +1542,26 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             let want = Row::from_index(base + row.to_row(p.rows).index());
             p.goto(p.confine(want), col.to_col(p.cols));
         }
-        DomCsi::CursorUp(c) => p.cy = p.confine(p.cy.up(c)),
-        DomCsi::CursorDown(c) => p.cy = p.confine(p.cy.down(c, p.rows)),
+        DomCsi::CursorUp(c) => p.set_row(p.confine(p.cy.up(c))),
+        DomCsi::CursorDown(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
         DomCsi::CursorForward(c) => p.cx = p.cx.forward(c, p.cols),
         DomCsi::CursorBack(c) => p.cx = p.cx.back(c),
         DomCsi::CursorNextLine(c) => {
-            p.cy = p.confine(p.cy.down(c, p.rows));
+            p.set_row(p.confine(p.cy.down(c, p.rows)));
             p.cx = Col::ZERO;
         }
         DomCsi::CursorPrevLine(c) => {
-            p.cy = p.confine(p.cy.up(c));
+            p.set_row(p.confine(p.cy.up(c)));
             p.cx = Col::ZERO;
         }
         DomCsi::ColumnAbsolute(c) => p.cx = c.to_col(p.cols),
         DomCsi::LineAbsolute(r) => {
             let base = p.origin_row().index();
             let want = Row::from_index(base + r.to_row(p.rows).index());
-            p.cy = p.confine(want);
+            p.set_row(p.confine(want));
         }
         DomCsi::ColumnRelative(c) => p.cx = p.cx.forward(c, p.cols),
-        DomCsi::LineRelative(c) => p.cy = p.confine(p.cy.down(c, p.rows)),
+        DomCsi::LineRelative(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
         DomCsi::EraseInLine(e) => p.erase_line(e),
         DomCsi::EraseInDisplay(e) => p.erase_display(e),
         DomCsi::EraseChars(c) => p.erase_chars(c),
@@ -1569,8 +1569,15 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::InsertBlanks(c) => p.insert_blanks(c),
         DomCsi::InsertLines(c) => p.insert_lines(c),
         DomCsi::DeleteLines(c) => p.delete_lines(c),
-        DomCsi::ScrollUp(c) => p.scroll_region_up(c),
-        DomCsi::ScrollDown(c) => p.scroll_region_down(c),
+        // The cursor stays and its row's text moves under it.
+        DomCsi::ScrollUp(c) => {
+            p.scroll_region_up(c);
+            p.row_changed_to(p.cy);
+        }
+        DomCsi::ScrollDown(c) => {
+            p.scroll_region_down(c);
+            p.row_changed_to(p.cy);
+        }
         DomCsi::SetScrollRegion { top, bottom } => p.set_scroll_region(top, bottom),
         DomCsi::Sgr => p.apply_sgr(csi),
         DomCsi::SaveCursor => p.cold.saved = Some(p.save()),

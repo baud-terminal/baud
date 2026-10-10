@@ -199,19 +199,29 @@ pub(crate) struct Paint<'a, 'b> {
     /// how the same idea measured *slower* in the previous core. Held here it
     /// is a compare against a value already in flight.
     ///
-    /// **Zero on a row change means the *fresh* path, not the probing one**,
-    /// and an earlier version of this comment claimed the opposite -- a zero
-    /// makes `cx >= row_written` true, which is the branch that skips the
-    /// repair. It is safe here only because of what this core can do: the
-    /// cursor moves between rows by `LF`/`VT`/`FF` and by wrapping, never
-    /// upward and never by absolute address, so the row it lands on is either
-    /// one nothing has written or one the scroll has just blanked.
+    /// **It must never be below the row's real extent**, because a zero makes
+    /// `cx >= row_written` true, which is the branch that skips the repair.
+    /// Above it is only slower: the probing path on cells that are blank.
     ///
-    /// **`CUP` breaks that.** The first operation that moves the cursor to an
-    /// arbitrary row lands it on text, and the first write there will orphan
-    /// whatever wide character it half-covers. Whoever adds cursor addressing
-    /// has to make this a real per-row extent -- `View::extent` already holds
-    /// one -- rather than a per-read high-water mark.
+    /// So it is the cursor row's `View::extent`, read wherever the cursor
+    /// lands on a row or a row moves under it: on every move to another row
+    /// ([`Paint::set_row`]), after a scroll, a screen swap or a `DECIC`. It is
+    /// zero only where the row has just been blanked -- the rotation at the
+    /// bottom and a region scrolled up under its last row. It used to be zero
+    /// at every read and every row change, on the argument that the cursor
+    /// reached a row only by `LF` or a wrap onto one nothing had written,
+    /// which stopped being true with the first `CUP` and was never true of a
+    /// read starting where the last one stopped: a letter after `U+1100 CR`
+    /// in a read of its own kept the tail (`tests/wide_halves.rs`).
+    ///
+    /// **At the start of a read it is past every column, `MAX_COLS`, not the
+    /// row's extent**: too high is only slower, so the writes on the read's
+    /// first row take the repairing path until the cursor changes rows. The
+    /// extent, read in `Term::feed` and passed in, was the same screen and
+    /// cost `cat` 4.4% at the same instructions retired; a constant, as the
+    /// zero was, reads 1-2% below the parent there with the ranges
+    /// overlapping (`docs/record.md`, "A write over half a wide character
+    /// blanks the other half, at every read size").
     row_written: Col,
     /// How many runs of each character count the loop took, and of each
     /// encoded length. **Do not read a bulk path as covering a character class
@@ -405,7 +415,9 @@ impl<'a, 'b> Paint<'a, 'b> {
             style_raw,
             last_cp,
             cells: Cells::ZERO,
-            row_written: Col::ZERO,
+            // Past every column, so the read's first row repairs until the
+            // cursor leaves it: see the field.
+            row_written: Col::at_index(crate::storage::MAX_COLS),
             #[cfg(feature = "diag")]
             runs: [0; 8],
             #[cfg(feature = "diag")]
@@ -645,8 +657,10 @@ impl<'a, 'b> Paint<'a, 'b> {
             }
         }
         self.cells = self.cells.plus(need);
+        // Where the write ended, not where the cursor stops: see `glyph`.
+        let end = Col::at_index(self.cx.index() + need);
         self.advance(Count::of(need));
-        self.row_written = self.row_written.max(self.cx);
+        self.row_written = self.row_written.max(end);
     }
 
     /// One glyph under the cursor, wrapping first if it will not fit.
@@ -734,9 +748,14 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
         self.cells = self.cells.plus(need);
         let start = self.cx;
-        self.overwrite_images(start, Col::at_index(start.index() + need));
+        let end = Col::at_index(start.index() + need);
+        self.overwrite_images(start, end);
         self.advance(Count::of(need));
-        self.row_written = self.row_written.max(self.cx);
+        // **Where the write ended, not where the cursor stops.** With
+        // `DECAWM` reset the cursor pins to the last column, one short of a
+        // wide character written into the last two, and a mark at the cursor
+        // put the next write there -- onto the tail -- on the fresh path.
+        self.row_written = self.row_written.max(end);
     }
 
     /// Start the cluster machine again at column 0, from the state a control
@@ -882,6 +901,8 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.cells = self.cells.plus(1);
             self.overwrite_images(Col::at_index(x + 1), Col::at_index(x + 2));
             self.advance(Count::ONE);
+            // The new tail, which a pinned cursor stops short of.
+            self.row_written = self.row_written.max(Col::at_index(x + 2));
         } else if o == self.cold.right && self.cold.right > self.cold.left {
             self.view.put_glyph(r, o, blank, None, blank);
             self.wrap();
@@ -961,19 +982,16 @@ impl<'a, 'b> Paint<'a, 'b> {
 
     /// Move the cursor anywhere on the screen.
     ///
-    /// **`row_written` is re-read from the grid here, and that is the whole
-    /// reason this function is not two assignments.** It is a per-*read* high
-    /// water mark that selects the probe-free write path, and it was safe only
-    /// while the cursor could not move upward or by absolute address. `CUP`
-    /// breaks exactly that: it lands on a row holding text, and a first write
-    /// there would take `put_glyph_fresh` and orphan whatever wide character
-    /// it half-covers. `View::extent` already holds the real per-row mark.
+    /// **Through [`Paint::set_row`], which re-reads `row_written` from the
+    /// grid**: `CUP` lands on a row holding text, and a first write there on
+    /// the fresh path would orphan whatever wide character it half-covers.
+    /// This was the one move that re-read the mark, and the others kept the
+    /// row they left (`tests/wide_halves.rs`).
     pub(crate) fn goto(&mut self, r: Row, c: Col) {
         let r = Row::from_index(r.index().min(self.rows.index() - 1));
-        self.cy = r;
         self.cx = Col::at_index(c.index().min(self.cols.index() - 1));
         self.deferred_reset();
-        self.row_written = Col::at_index(self.view.extent(r).index());
+        self.set_row(r);
     }
 
     /// Erase within the cursor's row. 0 to the end, 1 from the start, 2 all.
@@ -1072,13 +1090,12 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// One row up, scrolling the region when the cursor is on its first row.
     pub(crate) fn reverse_index(&mut self) {
         if self.cy == self.cold.top {
-            self.row_changed();
             self.scroll_region_down(Count::ONE);
+            self.row_changed_to(self.cy);
             return;
         }
         if self.cy.index() > 0 {
-            self.row_changed();
-            self.cy = Row::from_index(self.cy.index() - 1);
+            self.set_row(Row::from_index(self.cy.index() - 1));
         }
     }
 
@@ -1097,8 +1114,26 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[inline(always)]
     fn deferred_reset(&mut self) {}
 
-    fn row_changed(&mut self) {
+    /// The cursor's row has just been blanked whole, so nothing on it can be
+    /// cut: the rotation at the bottom and a region scrolled up under it.
+    /// **Only there** -- a row the cursor moves onto may hold text, and that
+    /// is [`Paint::set_row`].
+    fn row_blanked(&mut self) {
         self.row_written = Col::ZERO;
+    }
+
+    /// Move the cursor to row `r`, and read how far `r` is written.
+    ///
+    /// **The one spelling of a row change.** `CUU`, `CUD`, `CNL`, `CPL`,
+    /// `VPA`, `VPR`, `LF` and `RI` without a scroll, a reverse wrap, VT52's
+    /// cursor keys and `DECSLRM`'s home each assigned `cy` and kept the mark
+    /// of the row they left, so a write on the row they reached took the
+    /// fresh path over text and orphaned the half it covered. `SU`, `SD`,
+    /// the screen swap and `DECIC` keep the cursor's row and move its text,
+    /// and re-read through [`Paint::row_changed_to`].
+    pub(crate) fn set_row(&mut self, r: Row) {
+        self.cy = r;
+        self.row_changed_to(r);
     }
 
     /// The cursor now sits on `r`, whose contents an operation has just
@@ -1157,24 +1192,24 @@ impl<'a, 'b> Paint<'a, 'b> {
         // row that is (`[[source: foot-linefeed]]`, `term_linefeed`).
         if self.cy == self.cold.bot {
             if self.cold.top != Row::ZERO || self.cold.bot.index() != last {
-                self.row_changed();
                 self.scroll_region_up(Count::ONE);
+                self.row_changed_to(self.cy);
                 return self.view.rot();
             }
         } else {
-            self.row_changed();
             // **Below the region on the last row there is nothing to do.**
             // The cursor is outside the region, so nothing scrolls, and it is
             // on the last row, so it cannot move: foot's `term_cursor_down`
             // clamps to the screen, and alacritty does the same. This fell
             // through to the rotation and scrolled the whole screen, status
-            // line and all.
+            // line and all. **And the row keeps its mark**: it holds whatever
+            // it held, where this zeroed it.
             if self.cy.index() < last {
-                self.cy = Row::from_index(self.cy.index() + 1);
+                self.set_row(Row::from_index(self.cy.index() + 1));
             }
             return self.view.rot();
         }
-        self.row_changed();
+        self.row_blanked();
         debug_assert!(
             self.cold.top == Row::ZERO && self.cold.bot.index() == last,
             "only a full-screen region rotates the whole screen"
