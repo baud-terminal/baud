@@ -72,6 +72,15 @@ DEC_OVERRIDES = {
     ),
 }
 
+# DEC's error character: what a DEC text says is "printed" or "displayed" for
+# SUB, a reserved position or A0 with a 94-set in GR. DEC names no codepoint
+# (070-3 §3.4.3: "usually imaged as a REVERSE QUESTION MARK"); U+2426 is note
+# AE's AE8.1, decided by Jev at 1.00 twice, the second with the options
+# reordered. It is emitted beside the tables so every consumer takes it from
+# one place, and `the_dec_error_character_is_symbol_for_substitute_form_two`
+# holds it to its name in the pinned UnicodeData.txt.
+ERROR_CHARACTER = 0x2426
+
 ENTRY = re.compile(r"\b(MAP|UNI|XXX)\(")
 MAP = re.compile(r"MAP\(0x([0-9A-Fa-f]{2}),\s*(XK_\w+)\)(?:\s*/\*(.*?)\*/)?")
 UNI = re.compile(r"UNI\(0x([0-9A-Fa-f]{2}),\s*0x([0-9A-Fa-f]{4,6})\)(?:\s*/\*.*?\*/)?")
@@ -212,8 +221,24 @@ lines = ['''//! National Replacement Character Sets, generated from the sources 
 //! says that the character set is formed by replacing some of the characters
 //! with more useful ones for a given language". Everything not listed is ASCII.
 
-use crate::Nrcs;
+use crate::{Codepoint, Nrcs};
 ''']
+lines.append(f"/// DEC's error character, stored as U+{ERROR_CHARACTER:04X} SYMBOL FOR SUBSTITUTE FORM TWO.")
+lines.append("///")
+lines.append("/// DEC names no codepoint for it: `[[source: dec-std-070]]` §3.4.3 has it")
+lines.append('/// "usually imaged as a REVERSE QUESTION MARK", and `[[source: dec-pplv2-pm]]`')
+lines.append('/// p. 6-4 calls it "a reverse question mark". U+2426 is ISO 2047\'s picture of')
+lines.append("/// SUB, the control DEC ties it to, and its reference glyph is a reversed")
+lines.append("/// question mark (`[[source: unicode18-chart-2400]]`). U+FFFD, one of the")
+lines.append("/// three other options asked (with U+2E2E and U+2592), departs from that")
+lines.append("/// description by name and by glyph (note AF, Q-UNDEF). Note AE's AE8.1,")
+lines.append("/// decided by Jev at 1.00 twice, the second with the options reordered.")
+lines.append("///")
+lines.append("/// **Nothing draws it yet.** Where it is drawn waits on open questions: A0")
+lines.append("/// with a 94-set in GR (note AE, AE8), SUB's display (`docs/vt-coverage.md`)")
+lines.append("/// and the positions a set leaves undefined (note AF, Q-UNDEF).")
+lines.append(f"pub const DEC_ERROR_CHARACTER: Codepoint = Codepoint(0x{ERROR_CHARACTER:04x});")
+lines.append("")
 for name, pairs in sets.items():
     const = WANTED[name].upper()
     overrides = sorted((b, v) for (s, b), v in DEC_OVERRIDES.items() if s == name)

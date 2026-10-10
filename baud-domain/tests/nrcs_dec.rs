@@ -17,7 +17,7 @@
 //! `Charset::from_final`, which takes the byte and nothing else -- so the
 //! content of a set and the set a final names are what can be checked now,
 //! and all this file checks.
-use baud_domain::{Charset, Nrcs, StreamByte, nrcs_table, uk_table};
+use baud_domain::{Charset, DEC_ERROR_CHARACTER, Nrcs, StreamByte, nrcs_table, uk_table};
 use std::collections::{BTreeMap, BTreeSet};
 
 const CHAPTER2: &str = include_str!(concat!(
@@ -27,6 +27,10 @@ const CHAPTER2: &str = include_str!(concat!(
 const CHAPTER4: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../docs/research/sources/vt220-rm-chapter4.html"
+));
+const UNICODE_DATA: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../docs/research/sources/unicode-unicodedata.txt"
 ));
 
 /// The VT220's national sets, by DEC's name as Table 4-4 and each table's
@@ -439,4 +443,43 @@ fn each_vt220_national_final_names_the_set_checked() {
         }
     }
     assert_eq!(asserted, b"A4C5RQKYZH7=", "the finals asserted");
+}
+
+/// The name `[[source: unicode-data]]` gives a scalar value, read from the
+/// pinned file rather than typed here.
+fn unicode_name(v: u32) -> Option<&'static str> {
+    let key = format!("{v:04X};");
+    UNICODE_DATA
+        .lines()
+        .find(|l| l.starts_with(&key))
+        .and_then(|l| l.split(';').nth(1))
+}
+
+/// DEC's error character is stored as U+2426 SYMBOL FOR SUBSTITUTE FORM TWO
+/// (note AE's AE8.1, decided by Jev at 1.00 twice, the second asking with the
+/// options reordered). DEC names no codepoint: 070-3 §3.4.3 has the character
+/// "usually imaged as a REVERSE QUESTION MARK", and U+2426 is ISO 2047's
+/// picture of SUB, the control DEC ties it to, with a reversed question mark
+/// for its reference glyph (`[[source: unicode18-chart-2400]]`, note AF
+/// Q-UNDEF).
+///
+/// The value is checked by its name in the pinned database, so a constant
+/// moved to any of the three other options asked -- U+FFFD, which departs
+/// from DEC's description by name and by glyph, U+2E2E or U+2592 -- goes red
+/// here, not only in review.
+/// The `FFFD` lookup is the positive control: a probe that could find no
+/// line at all would read as a mismatch.
+#[test]
+fn the_dec_error_character_is_symbol_for_substitute_form_two() {
+    assert_eq!(
+        unicode_name(0xFFFD),
+        Some("REPLACEMENT CHARACTER"),
+        "the positive control: the pinned database must be searchable"
+    );
+    assert_eq!(
+        unicode_name(DEC_ERROR_CHARACTER.value()),
+        Some("SYMBOL FOR SUBSTITUTE FORM TWO"),
+        "DEC's error character is U+2426 (note AE's AE8.1), not U+{:04X}",
+        DEC_ERROR_CHARACTER.value()
+    );
 }

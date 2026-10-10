@@ -1920,7 +1920,7 @@ confidence 0.9.
 | Q6, status after `SS2 SO x` | SO acts | 0.64 | owner |
 | Q7 | (a) strip bit 8 | 0.82 | owner |
 | Q8 | (d) 070: A0 the error character, FF ignored | 0.99 | owner, whatever Jev says |
-| Q8, the error character's codepoint | U+2426 | 0.26 | owner; Jev did not lean |
+| Q8, the error character's codepoint | U+2426 | 0.26; re-asked, **1.00 and 1.00** | **decided** on the re-asking (below), AE8.1 |
 | Q9 | (a) ungated | 0.62 | owner, whatever Jev says |
 | Q10 | the per-area reading | 0.54 | owner |
 | Q11 | slots | 0.74 | owner, whatever Jev says |
@@ -1940,8 +1940,26 @@ picks cannot hold. They go to the owner flagged, as note AD's AD1 conflict did.
 **Where Jev did not lean.** A confidence under about 0.3 is close to a coin
 flip, and it is shown so rather than as a pick: Q6's how-many sub-point (0.12),
 Q13 (0.18), Q17 (0.16, and its pick is the departing option) and Q8's codepoint
-(0.26).
+(0.26, since decided on a re-asking, below).
 
 **What the two decisions change.** Q4(a) is what §5 and tests 3-10 already
 assume. Q16(a) reverses this note's recommendation: §4's Q16, §5's flags
 sentence and test 12 are corrected above.
+
+### Re-asked since
+
+The owner's rule of 2026-10-10 ("Jev decides departures too", TODO.md): a pick
+at or above 0.9 on the original asking and on a replicate with the options
+reordered is built and listed for the owner's veto.
+
+- **AE8.1, the error character's codepoint: U+2426, decided.** Asked again
+  with both code charts read and every option marked (note AF's Q-UNDEF), Jev
+  picked U+2426 at 1.00, and at 1.00 again on a re-sending with the options
+  permuted (decision log lines 337 and 340; 338-339 were cache hits). It
+  conforms: 070-3 §3.4.3 leaves the image open ("usually imaged as"). Built as
+  `baud_domain::DEC_ERROR_CHARACTER`, emitted beside the national tables by
+  `scripts/gen-nrcs-tables.py` and held to its Unicode name by
+  `the_dec_error_character_is_symbol_for_substitute_form_two`
+  (`baud-domain/tests/nrcs_dec.rs`). Only the codepoint is decided: Q8 itself
+  (what A0 and FF do with a 94-set in GR, AE8), SUB's display and note AF's
+  Q-UNDEF still decide where it is drawn, and nothing draws it yet.

@@ -12,7 +12,23 @@
 //! says that the character set is formed by replacing some of the characters
 //! with more useful ones for a given language". Everything not listed is ASCII.
 
-use crate::Nrcs;
+use crate::{Codepoint, Nrcs};
+
+/// DEC's error character, stored as U+2426 SYMBOL FOR SUBSTITUTE FORM TWO.
+///
+/// DEC names no codepoint for it: `[[source: dec-std-070]]` §3.4.3 has it
+/// "usually imaged as a REVERSE QUESTION MARK", and `[[source: dec-pplv2-pm]]`
+/// p. 6-4 calls it "a reverse question mark". U+2426 is ISO 2047's picture of
+/// SUB, the control DEC ties it to, and its reference glyph is a reversed
+/// question mark (`[[source: unicode18-chart-2400]]`). U+FFFD, one of the
+/// three other options asked (with U+2E2E and U+2592), departs from that
+/// description by name and by glyph (note AF, Q-UNDEF). Note AE's AE8.1,
+/// decided by Jev at 1.00 twice, the second with the options reordered.
+///
+/// **Nothing draws it yet.** Where it is drawn waits on open questions: A0
+/// with a 94-set in GR (note AE, AE8), SUB's display (`docs/vt-coverage.md`)
+/// and the positions a set leaves undefined (note AF, Q-UNDEF).
+pub const DEC_ERROR_CHARACTER: Codepoint = Codepoint(0x2426);
 
 /// `[[source: xterm-charsets]]`'s `map_NRCS_Dutch`.
 static DUTCH: [(u8, u32); 9] = [

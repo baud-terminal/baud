@@ -4,13 +4,15 @@
 (docs/record.md, "Swedish É and Turkish ı, and the national tables checked
 against DEC's own"); researched 2026-10-08, corrected against its first check
 and again against its second (round 2) on 2026-10-09.** Every question in
-section 4 is open; the error character's codepoint now carries a Jev
-recommendation of U+2426 at 1.00, repeated (Q-UNDEF).
+section 4 is open; the error character's codepoint is decided, U+2426 by Jev
+at 1.00 twice, and built as a constant on 2026-10-10 (Q-UNDEF; note AE's
+AE8.1).
 
-- **Owner's call, whatever Jev says:** Q-UNDEF, Q-Greek, Q-ND-backtick,
-  Q-DECNRCM, Q-SCS-Russian, Q-JIS-Roman, and Q-Technical's layout half. In
-  each, every option departs from some DEC text, rests on a text nobody has
-  read, or (Q-UNDEF) is an identification DEC does not make.
+- **Owner's call, whatever Jev says:** Q-UNDEF (but for its codepoint,
+  decided under the owner's 2026-10-10 rule as note AE's AE8.1), Q-Greek,
+  Q-ND-backtick, Q-DECNRCM, Q-SCS-Russian, Q-JIS-Roman, and Q-Technical's
+  layout half. In each, every option departs from some DEC text, rests on a
+  text nobody has read, or (Q-UNDEF) is an identification DEC does not make.
 - **Jev first, at confidence 0.9 or better:** Q-Unlisted, Q-French-f,
   Q-Technical's hook half, and Q-Order. Each has an option that departs from
   no DEC text, and the note recommends it: for Q-French-f that is (b2),
@@ -1490,22 +1492,26 @@ punctuation. (a)'s reference glyph is the same shape ([[source:
 unicode18-chart-2400]]), and it is ISO 2047's symbol for SUB, the control DEC
 ties the error character to. Asked once more with both charts read and every
 option marked, Jev picked (a) at 1.00 and again at 1.00 on a repeat
-(2026-10-09; `.claude/research/errchar/`). The codepoint stays the owner's to
-confirm, with that recommendation.
+(2026-10-09; `.claude/research/errchar/`); the repeat re-sent the request with
+the options permuted (decision log lines 337 and 340; note AE §10, "Re-asked
+since"). Under the owner's
+2026-10-10 rule that decides the codepoint, listed for the owner's veto:
+`baud_domain::DEC_ERROR_CHARACTER` is U+2426, and
+`the_dec_error_character_is_symbol_for_substitute_form_two` holds it to its
+name. What a reserved position draws, and whether SUB draws it, stay open
+here; nothing draws the constant yet.
 
 **One codepoint serves three places.** This is the same codepoint as:
 
 - note AE §10's row "Q8, the error character's codepoint". Jev answered U+2426
-  at 0.26 and did not lean. That row is the AE "Q8.1" this note was asked to
-  tie to; AE numbers no Q8.1. AE's Q8 offers U+2426 or U+FFFD, and does not
-  list U+2E2E. Option (d), and this note's finding that U+FFFD departs from
-  DEC's description and VT382 Figure 2-10's drawing by the glyph TUS
-  §23.8.4 prints, bear on that row too;
-- the SUB row at `docs/vt-coverage.md:190` (text at `:192-198`), which keeps
-  the display `out` on a stated basis that this note finds misstated (D5,
-  §5).
+  at 0.26 and did not lean; re-asked with all four options marked, it picked
+  U+2426 at 1.00 twice, and the codepoint is decided (note AE §10, "Re-asked
+  since"; AE8.1). That row is the AE "Q8.1" this note was asked to tie to;
+- the SUB row at `docs/vt-coverage.md:202`, which keeps the display `out` on a
+  stated basis that this note finds misstated (D5, §5).
 
-Decide all three together.
+The codepoint is settled for all three; what each place draws, and whether it
+draws anything, is decided together.
 
 ### Q-Greek. The Greek NRC set has no DEC table (owner)
 

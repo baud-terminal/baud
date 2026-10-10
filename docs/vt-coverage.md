@@ -199,7 +199,7 @@ direct address takes one as a coordinate, as xterm's does.
 | `7F` DEL in `csi_param` | done — ignored, and the sequence goes on, as `[[source: williams]]`'s `csi param` ignores it (315): `CSI 5 DEL C` moves the cursor as `CSI 5 C` does, under both encodings and at every read size (`a_del_in_csi_param_is_ignored_and_the_sequence_goes_on`) |
 | `7F` DEL in `csi_entry` or `csi_intermediate` | **partial** — the `DEL` draws nothing, but the sequence is ignored with it: each node takes `7F` to `Consume` into `csi_ignore`, which consumes to the final and dispatches nothing, so `CSI DEL 5 C` moves nothing and `CSI ! DEL p` is no DECSTR, where williams' `csi entry` and `csi intermediate` ignore the `DEL` and stay (306, 328). Found 2026-10-10 and not built (the record, "A GR byte in a DCS prefix is its 7-bit byte under ISO 8859-1") |
 | `7F` DEL in ground, ANSI and VT52 | done — ignored: no cell and no cursor move, as `[[source: dec-std-070]]` 070-3 §3.4.2 says for a 94-character set in GL ("shall be ignored"), with `[[source: vt510-ch7]]` § 7.2.5 and `[[source: williams]]`'s ground. Until 2026-10-08 it drew U+FFFD, a decoding error for a byte that is well-formed in UTF-8 (`del_in_ground_is_ignored`, at every read size). A 96-character set in GL makes it a character of the set, which waits on note AE |
-| SUB additionally displaying the DEC error character `␦` | **out** — baud cancels and writes nothing. The basis this row gave, that xterm writes no glyph and baud follows it as for DECAWM, was wrong: xterm 411 writes one, under conditions read from its source (below). Whether SUB displays the error character, and which codepoint that is, is open with the owner: note AF's Q-UNDEF, with note AE's error-character codepoint (its Q8). Detail below |
+| SUB additionally displaying the DEC error character `␦` | **out** — baud cancels and writes nothing. The basis this row gave, that xterm writes no glyph and baud follows it as for DECAWM, was wrong: xterm 411 writes one, under conditions read from its source (below). Whether SUB displays the error character is open with the owner: note AF's Q-UNDEF. **Which codepoint it is, is decided**: U+2426, `baud_domain::DEC_ERROR_CHARACTER`, note AE's AE8.1, Jev at 1.00 twice under the owner's 2026-10-10 rule and listed for their veto (`the_dec_error_character_is_symbol_for_substitute_form_two`); nothing draws it yet. Detail below |
 
 **The C1 controls are the block's third rule, and baud takes it from every
 ANSI state.** `[[source: williams]]` (lines 612-615): "All C1
@@ -297,10 +297,16 @@ defined, and then defines it as 0 if nothing has set it
 So "baud follows xterm" was wrong as written: under those conditions xterm
 writes a glyph, and following xterm, the DECAWM precedent, would not give
 "writes nothing". The status stays **out** because changing it is the decision, and the
-decision is the owner's: whether SUB displays the error character, and which
-codepoint that is, is note AF's Q-UNDEF, decided with note AE's
-error-character codepoint (its Q8) and the codepoint of every DEC set's
-reserved positions.
+decision is the owner's: whether SUB displays the error character is note AF's
+Q-UNDEF, decided with what every DEC set's reserved positions draw. Which
+codepoint the error character is no longer waits: U+2426 SYMBOL FOR SUBSTITUTE
+FORM TWO, note AE's AE8.1, picked by Jev at 1.00 on an asking and on a
+re-asking with the options reordered, which the owner's 2026-10-10 rule builds
+and lists for their veto. It is `baud_domain::DEC_ERROR_CHARACTER`, emitted
+beside the national tables by `scripts/gen-nrcs-tables.py`, and
+`the_dec_error_character_is_symbol_for_substitute_form_two` holds it to its
+name in `[[source: unicode-data]]`. Nothing draws it until SUB's display, A0
+with a 94-set in GR (note AE's AE8) or Q-UNDEF is answered.
 
 The reason given before that one was that this was "a rendering decision made
 where no renderer exists". That was wrong too, and its correction stands: baud
