@@ -4419,7 +4419,7 @@ with cells identical.
   - a recorded session shows a real Adam7 share;
   - you relax "no engine dependencies".
 - **Depends on:** your unpark; a recorded `kitten icat` session; your
-  confirmation of ARGB storage (t-images lines 308-312), which becomes ARGB
+  confirmation of ARGB storage (t-images.md, "The storage fork is decided ARGB in this register"), which becomes ARGB
   with alpha; and a new image budget. It is independent of V18.
 
 ## Part 7. Platform, process and the record

@@ -99,7 +99,11 @@ still that many rows; and a separate type from the live `RowRot`, so the
 one cannot be passed where the other is meant. A reflow renumbers that
 line with the rows it re-cuts, so across a change of width the measure is
 the renumbering of the window's top, not the rows between it and the live
-screen -- a gap that predates this and is recorded rather than closed.
+screen. ~~-- a gap that predates this and is recorded rather than closed.~~
+The measure is still a renumbering across a reflow, and nothing reads it
+there: a resize anchors the window with `Term::resize_holding` (`1413048`,
+note U), which is the "anchors by the primary alone through a read and a
+resize" the tests below hold (corrected 2026-10-10).
 
 **A switch is the core's epoch, not the screen at a read's two ends.** A
 read that leaves the alternate screen and enters it again ends where it

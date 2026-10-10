@@ -228,9 +228,9 @@ not a small win here, byte classes are flat as predicted but for a reason the
 prediction did not name, and the shift-packed form is not worth building for
 *this* graph.
 
-**The reason is that this graph is not on the hot path.** `control` sees 2.6%
-of cat-cjk's bytes, 0.2% of btop's and 9.7% of asciiquarium's; the rest go
-through the run scanner, `fast_utf8`, or `fast_csi`/`fast_esc`. No
+**The reason is that this graph is not on the hot path.** `control` saw 2.6%
+of cat-cjk's bytes, 0.2% of btop's and 9.7% of asciiquarium's in this
+measurement (2026-08-29, on the core later renamed `baud-core2`); the rest went through the run scanner, `fast_utf8`, or `fast_csi`/`fast_esc`. No
 representation of a machine that handles a twentieth of the bytes can move the
 total.
 
@@ -243,12 +243,16 @@ different.
 
 ## Gaps and open questions
 
-* **The table flip is unmeasured and should be the first thing tried**, because
-  it is a layout change with no size change, no new type, and a named mechanism.
-* **Byte classes are unmeasured**, and the prediction is *flat throughput and a
-  92% smaller table* — worth taking for rule #2 alone, and worth stating as a
-  prediction so a throughput win would be a surprise to explain rather than a
-  result to claim.
+* **~~The table flip is unmeasured and should be the first thing tried~~**,
+  ~~because it is a layout change with no size change, no new type, and a named
+  mechanism.~~ Measured, and indistinguishable from the other two layouts
+  ("What it measured, which was nothing", above; corrected 2026-10-10, this
+  bullet having said "unmeasured" since that section answered it on
+  2026-08-29).
+* **~~Byte classes are unmeasured~~**, and the prediction was *flat throughput
+  and a 92% smaller table*. Measured flat, as predicted but for a reason the
+  prediction did not name: the graph is not on the hot path (the same section;
+  corrected 2026-10-10).
 * **~~The 128-bit shift-DFA is unmeasured~~ -- measured, ~13% slower on this
   arm64 core** (`scripts/shift-dfa-microbench.rs`). It was the only candidate
   that *shortens the critical path*, but the critical path was not the load:
