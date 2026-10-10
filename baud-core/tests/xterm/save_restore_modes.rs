@@ -19,11 +19,12 @@
 //! from that text in places. Where Jev decided for the text on 2026-10-10,
 //! each listed for the owner's veto, baud follows the text: xterm ignores
 //! `?2` and `?8` and saves `?3` only under the `c132` resource `?40` sets
-//! (XT-3), and restores `?1049` without the cursor or the clear (XT-6). The
-//! rest are the owner's call rather than followed here: it saves one
-//! tracking level under all four mouse modes and one encoding under all four
-//! encodings, restores a never-saved mode from a zeroed array, and keeps the
-//! cache across `RIS`.
+//! (XT-3), and restores `?1049` without the cursor or the clear (XT-6); and
+//! where the text is silent, xterm re-applies `?6`, and `?3` under `c132`, at
+//! a value already in force, and baud changes nothing (XT-7). The rest are the
+//! owner's call rather than followed here: it saves one tracking level under
+//! all four mouse modes and one encoding under all four encodings, restores a
+//! never-saved mode from a zeroed array, and keeps the cache across `RIS`.
 
 use crate::support;
 use baud_core::*;
@@ -182,7 +183,10 @@ fn xtrestore_has_the_side_effects_of_setting_the_mode() {
 /// was saved, in either order -- a reset of `?1003` restored while `?1002`
 /// is in force is no change to make. A mode restored to a value it already
 /// has keeps every effect it has: `?1049 r` saved set, on the alternate
-/// screen, does not clear it.
+/// screen, does not clear it. The text is silent on a value already in
+/// force; xterm re-applies `?6` whatever its value, and `?3` too under its
+/// `c132` resource, and baud's no change was decided 2026-10-10 by Jev at
+/// 0.96 and 0.94 (XT-7), listed for the owner's veto.
 #[test]
 fn a_restore_changes_only_what_differs_from_the_saved_value() {
     for restore in [&b"\x1b[?1000;1002;1003r"[..], b"\x1b[?1003;1002;1000r"] {
@@ -218,6 +222,30 @@ fn a_restore_changes_only_what_differs_from_the_saved_value() {
     support::with_corpus(|t| {
         feed(t, b"\x1b[?1049h\x1b[2;2Hkept\x1b[?1049s\x1b[?1049r");
         assert_eq!(text_of(t.row(Row::from_index(1))), " kept", "not cleared");
+    });
+}
+
+/// **A value already in force is not set again, at the modes xterm sets
+/// again.** xterm's `restoremodes` homes on `?6` whatever the saved value,
+/// and on `?3`, under its `c132` resource only, clears and homes
+/// (`[[source: xterm-reset]]`); baud changes nothing (XT-7).
+#[test]
+fn a_restore_at_the_value_in_force_neither_homes_nor_clears() {
+    support::with_corpus(|t| {
+        feed(t, b"\x1b[?6h\x1b[?6s\x1b[3;4H\x1b[?6r");
+        assert_eq!(
+            t.cursor(),
+            (Row::from_index(2), Col::at_index(3)),
+            "?6 did not home"
+        );
+    });
+    support::with_corpus(|t| {
+        feed(t, b"\x1b[?3h\x1b[?3s\x1b[2;2Hkept\x1b[?3r");
+        assert_eq!(
+            text_of(t.row(Row::from_index(1))),
+            " kept",
+            "?3 did not clear"
+        );
     });
 }
 

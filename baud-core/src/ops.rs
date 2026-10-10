@@ -1053,9 +1053,9 @@ impl Paint<'_, '_> {
     /// tracking off, so restoring `?1000` reset under `?1002` would drop the
     /// `?1002` restored before it -- and would clear an alternate screen that
     /// is already up. **A mode never saved restores nothing**: there is no
-    /// value "previously saved". xterm restores from bespoke code and a
-    /// zeroed array (`restoremodes`, `[[source: xterm-reset]]`); Jev decided
-    /// `?1049` for the text on 2026-10-10 (XT-6), the rest is the owner's.
+    /// value "previously saved". Where xterm's bespoke code and zeroed array
+    /// differ (`restoremodes`, `[[source: xterm-reset]]`), Jev kept `?1049`
+    /// and an equal value as here (XT-6, XT-7); the rest is the owner's call.
     pub(crate) fn restore_private_modes(
         &mut self,
         csi: &crate::write::Csi,
