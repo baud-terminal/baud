@@ -52,7 +52,10 @@ full lines.
 
 Two rules the tests pin, because both failure modes are worse than silence:
 
-* **DA under-claims.** baud answers `CSI ? 6 c` (VT102). It now implements
+* **DA under-claims.** baud answers `CSI ? 6 c` (VT102), with attribute `4`
+  added, `CSI ? 6 ; 4 c`, only when the embedder has provisioned image memory
+  and claims Sixel (`Term::set_sixel_claim`; `baud-app`'s `[images]
+  advertise_sixel`, off by default). It now implements
   selective erase, which is a VT220 feature, and the answer still does not move
   -- a DA identity is a promise about *everything* in that level, and baud has
   no UDKs: DECUDK is under "Out of scope, with reasons" in
@@ -157,6 +160,18 @@ neither.
 designate G0-G3, SO and SI invoke G1 and G0 into GL, and a byte written under a
 set that replaces it becomes the character that set puts there.
 
+**In a UTF-8 stream none of this is conforming, and no standard chooses
+between the ways of doing it.** ISO/IEC 10646 says code extension control
+functions "(such as designation escape sequences, single shift, and locking
+shift) **shall not** be used with this coded character set"
+(`[[source: iso10646-fcd]]` §11), and UTF-8 is reached by leaving ISO 2022
+through `ESC % G` (`[[source: ecma35]]` §15.4, 10646 §12.2), not as a mode
+inside it. So SCS, SO/SI and SS2/SS3 under UTF-8 are extensions: xterm's
+translation, baud's, and the `CellFlags::GRAPHICS` provenance baud keeps
+beside the translated codepoint. They are argued against xterm's practice
+and ncurses', not against ECMA-35, which does not reach them
+([note G](research/notes/g-text-encoding.md)).
+
 **DEC Special Graphics: the positions are DEC's and the codepoints are foot's.**
 `[[source: vt100-ug-ch3]]` names the set's glyphs in text, Table 3-9, for "ASCII
 codes 137 through 176" octal: 32 positions, `0x5F..0x7E`.
@@ -196,10 +211,10 @@ translation, not a source. That is open.
 an OSC is attacker-controlled -- a window title is whatever the far end of an
 ssh session sent -- and a `no_std` core cannot grow a buffer to meet it. A
 payload over `OSC_MAX` is truncated and the truncation is *counted*
-(`osc_truncations`), because dropping the sequence instead would leave the
+(`string_truncations`), because dropping the sequence instead would leave the
 previous title showing with nothing to say why.
 
-Four OSC decisions are refusals, and each is deliberate rather than a gap:
+Four OSC decisions are refusals or limits, and each is deliberate rather than a gap:
 
 * **`OSC 52` clipboard reads get no answer.** A hostile program on the far end
   of an ssh session could otherwise read back whatever the user last copied,
@@ -207,10 +222,15 @@ Four OSC decisions are refusals, and each is deliberate rather than a gap:
   payload -- tells it the feature works, so the refusal is silence.
 * **Colour *names* are not resolved.** `[[source: ctlseqs]]` allows a name "as
   per XParseColor", which needs X11's `rgb.txt`; baud has no citable copy, and
-  approximating it would be inventing a protocol. The entry is left alone.
-* **A query for a colour nothing overrode says nothing.** The core holds no
-  built-in palette, because index-to-pixels belongs to the renderer, and a
-  second copy here would be one to keep in step.
+  approximating it would be inventing a protocol. The entry is left alone and
+  the request is counted as unsupported.
+* **A colour query answers a colour something set, and nothing else.**
+  `OSC 4 ; c ; ?` answers a program's override, else the entry the embedder
+  handed over (`Term::set_theme`, or `Term::set_default_palette` alone), else
+  nothing: the core holds no palette of its own, because index-to-pixels
+  belongs to the renderer. `baud-app` hands it the theme's 256 entries. This
+  said a query for a colour nothing overrode got no answer, which was true
+  before the embedder could hand the table over.
 * **A hyperlink is never re-pointed, and a click opens four schemes.** The
   `OSC 8` table refuses a colliding link rather than evicting the occupant,
   because a later run that writes no cell could otherwise retarget a link
@@ -220,23 +240,21 @@ Four OSC decisions are refusals, and each is deliberate rather than a gap:
   -- every other scheme is a registered application the opener would launch,
   on output an attacker controls.
 
-**Two modes are recorded for an embedder rather than acted on internally.**
-Bracketed paste (`?2004`) and synchronised output (`?2026`) are real state that
-this core cannot itself use -- it has no renderer, and its input path encodes
-keys rather than consuming these. They are
-recorded because `Term::bracketed_paste()` and `Term::synchronized_output()`
-give an embedder the only channel through which either mode can be honoured,
-which is what separates them from the "set and never read" failure. Bracketed
+**Two modes are the embedder's to act on, and `baud-app` acts on both.**
+Bracketed paste (`?2004`) and synchronised output (`?2026`) are state
+`baud-core` cannot use itself -- it draws nothing, and a paste does not pass
+through it -- so it records them and `Term::bracketed_paste()` and
+`Term::synchronized_output()` are the channel. On macOS `baud-app` brackets a
+paste while `?2004` is set; the Linux driver has no paste. Both drivers hold
+frames while an update is open, for 33 ms at most, so a program that dies
+inside one does not freeze the window. Bracketed
 paste is a security mode, not a cosmetic one: without it a pasted newline is
 delivered as typed input and runs.
 
 **~~No tab stop table.~~** Resolved. `Storage.tabs` is one flag per column,
 defaulted every eight and restored by RIS; `HT`, `HTS`, `TBC`, `CHT` and `CBT`
-all go through it. Whether this closes the differential failures the README
-names is **unverified** -- that needs a differential run, which needs an
-alacritty checkout.
-
----
+all go through it. `baud-difftest` needs no checkout, and its tab case, plain
+`HT`, agrees with alacritty.
 
 ---
 
@@ -247,28 +265,49 @@ Declining is a decision and belongs in the record.
 | protocol | why not |
 |---|---|
 | **ReGIS** | Vector graphics. No modern application emits it. |
-| **Kitty graphics** (`APC G`) | `f=100` hands the terminal a PNG, which needs zlib, and `baud-core` decodes into caller memory with no allocator and no dependency. Note baud already consumes `APC` payloads without executing them, which was a real bug before Tier 0 landed — the protocol is *safe to ignore*, which is the bar. |
-| **DECUDK**, user-defined keys | It redefines what a key sends, which needs a table of user-programmable strings and a policy for who may set them. Out on scope; baud has an input path. |
+| **DECUDK**, user-defined keys | It redefines what a key sends, which needs a table of user-programmable strings and a policy for who may set them. Out on scope, not for want of an input path: `Term::key` is one. |
 | **DECNRCM**, the national replacement mode | Superseded by UTF-8. Documented here because `[[source: ctlseqs]]` carries it and a reader will ask. The national *sets* are not declined: each is designated and translated (above). |
 | **Tektronix mode** (`ESC [ ? 3 8 h`) | A different terminal emulated inside this one. Historical. |
 
-Two rows that stood here were built anyway, and their rows in
-`docs/vt-coverage.md` are done. **Highlight tracking** (`CSI ? 1001`) is
-recorded, with the region, and not drawn: the "xterm will hang" warning
-describes an event loop, and `baud-core` has none. **Sixel** is decoded into
-caller memory with no external decoder and drawn by all three render paths.
-
----
+Three rows that stood here are no longer declined. **Highlight tracking**
+(`CSI ? 1001`) is recorded, with the region, and not drawn: the "xterm will
+hang" warning describes an event loop, and `baud-core` has none. **Sixel** is
+decoded into caller memory with no external decoder and drawn by all three
+render paths. **Kitty graphics** (`APC G`) is out today, consumed without
+being executed and counted; the owner's call is to build it (below).
 
 ---
 
 ## Still open
 
-**~~Kitty keyboard protocol~~** — built: `encode_key` in `baud-domain`, with
-all five progressive-enhancement flags and the query answered (its row in
-`docs/vt-coverage.md` is done). The blocker this named was an input path, and
-`Term::key` is one. On macOS, key releases still wait on the window crate.
-[spec](https://sw.kovidgoyal.net/kitty/keyboard-protocol/)
+**Decided by the owner on 2026-09-25 and not built**
+(`docs/research/notes/v-open-decisions.md`, under its standing rule: "A
+half-built protocol feature is finished to the spec, not switched off"):
+
+* **V10, side margins finished.** DECSLRM binds the wrap, ICH, DCH and
+  DECIC/DECDC (above), and the vertical scrolls ignore them: `SU`, `SD`, `IND`,
+  `RI`, `LF`, `IL` and `DL` move whole rows, where `[[source: vt510-decslrm]]`
+  makes the scrolling region the rectangle.
+* **V11, `OSC 52` writes on by default**, with a config key to turn them off.
+  Today every write is dropped and counted in `clipboard_writes_dropped`.
+  Reads stay refused either way.
+* **V12, `?1001` drawn**: the region through the selection's highlight, and
+  the release reports.
+* **V14, an ambiguous-width switch with `?1021`**: a config key to draw East
+  Asian Ambiguous characters two columns wide, and `?1021` built to the spec.
+  Neither exists today: `Term::set_ambiguous_width` is the core's channel,
+  `baud-app` never calls it, and `?1021` is not named.
+* **V17, `OSC 4`, `10` and `11` acting on the colour shown under `?5`**, as
+  xterm does. Today an `OSC 11` query on a reversed screen answers the
+  background the theme set, which is the colour drawn as text.
+* **V18, the Sixel modes `?80` and `?1070`**, built to the spec. Neither is
+  named today, so DECSET counts both in `unsupported_param` and DECRQM
+  answers `0`.
+* **V19, kitty graphics.** The reason this file gave against it was that
+  `f=100` hands the terminal a PNG, which needs zlib, and the core decodes
+  with no allocator and no dependency. The workspace already has such a
+  decoder: `baud-font`'s, with its own inflate and no allocation, for colour
+  emoji (`baud-font/src/png.rs`).
 
 **DEC Special Graphics `0x5F`** — Blank, U+0020 or U+00A0, the owner's call
 (above).
