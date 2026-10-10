@@ -800,3 +800,66 @@ fn claude_md_stays_within_its_budget() {
          that says why"
     );
 }
+
+/// **Every research note is in `docs/README.md`'s index, and so is every
+/// group the source manifest files a source under.**
+///
+/// The index said "it is 1/6 built" and listed four groups missing for weeks
+/// after all of them had notes, and while the directory grew to dozens: a
+/// list written once by hand, of a directory every research session adds to,
+/// and nothing compared the two. The control is the count: a scanner that
+/// stopped matching would find no note and no group, and pass.
+#[test]
+fn every_research_note_and_source_group_is_in_the_index() {
+    let root = root();
+    let index = fs::read_to_string(root.join("docs/README.md")).expect("docs/README.md");
+
+    let mut notes = Vec::new();
+    for e in fs::read_dir(root.join("docs/research/notes"))
+        .expect("docs/research/notes")
+        .flatten()
+    {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.ends_with(".md") {
+            notes.push(name);
+        }
+    }
+    notes.sort();
+    assert!(
+        notes.len() > 20,
+        "only {} notes found -- the scanner stopped matching",
+        notes.len()
+    );
+    let unlisted: Vec<_> = notes
+        .iter()
+        .filter(|n| !index.contains(&format!("](research/notes/{n})")))
+        .collect();
+
+    let manifest = fs::read_to_string(root.join("docs/research/sources/MANIFEST.toml"))
+        .expect("MANIFEST.toml");
+    let mut groups = BTreeSet::new();
+    for line in manifest.lines() {
+        let Some(rest) = line.strip_prefix("group") else {
+            continue;
+        };
+        let Some(v) = rest.trim_start().strip_prefix('=') else {
+            continue;
+        };
+        groups.insert(v.trim().trim_matches('"').to_string());
+    }
+    assert!(
+        groups.len() > 10,
+        "only {} manifest groups found -- the scanner stopped matching",
+        groups.len()
+    );
+    let ungrouped: Vec<_> = groups
+        .iter()
+        .filter(|g| !index.contains(&format!("\n| {g} |")))
+        .collect();
+
+    assert!(
+        unlisted.is_empty() && ungrouped.is_empty(),
+        "docs/README.md's research index is behind:\n  notes not linked: {unlisted:?}\n  \
+         manifest groups with no row: {ungrouped:?}"
+    );
+}

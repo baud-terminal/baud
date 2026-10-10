@@ -8,7 +8,7 @@ question got answered inline.
 
 | | for | read when |
 |---|---|---|
-| [architecture.md](architecture.md) | contributors | before touching code — the crates, the constraints and the invariants; its data path is `baud-core2`'s, kept until someone writes this core's |
+| [architecture.md](architecture.md) | contributors | before touching code — the data path, the two core crates and the constraints that shaped both |
 | [protocols/](protocols/) | anyone | **start here for a protocol** — one document per level (VT52, VT100, VT220, VT420, xterm), mirroring the code and tests |
 | [vt-coverage.md](vt-coverage.md) | anyone | checking whether a specific operation works. One row per operation |
 | [protocol-decisions.md](protocol-decisions.md) | contributors | something looks like a gap and you want to know if it is deliberate |
@@ -27,24 +27,99 @@ and `scripts/check-sources.sh` re-hashes them, so a citation to a key the
 manifest does not carry — or one recorded as `gated`, meaning never obtained —
 fails the build.
 
-`research/notes/` is where a source gets turned into an argument about baud.
+`research/notes/` is where a source gets turned into an argument about baud:
+each carries its own status line, and many are a dated record of what was
+decided. A note's letter is its filename's prefix, and several notes share
+one.
 
-**It is 1/6 built, and that is a known gap rather than an oversight.**
-`MANIFEST.toml` declares six groups and the notes directory holds one:
+| note | title |
+|---|---|
+| [a-byte-at-a-time.md](research/notes/a-byte-at-a-time.md) | What the kernel and an ATMega do — and why it is not a throughput idea |
+| [a-simd-parsing.md](research/notes/a-simd-parsing.md) | SIMD parsing — the decoder is the part with a known better algorithm |
+| [aa-shell-locale.md](research/notes/aa-shell-locale.md) | AA. The shell's locale, and Hebrew |
+| [ab-right-to-left.md](research/notes/ab-right-to-left.md) | AB. Right-to-left text |
+| [ac-built-font.md](research/notes/ac-built-font.md) | AC. The embedded font, built from parts |
+| [ad-unrenderable-in-a-cell.md](research/notes/ad-unrenderable-in-a-cell.md) | AD. What a cell draws for a code point no face draws |
+| [ae-code-extension.md](research/notes/ae-code-extension.md) | AE. Code extension: the four G slots, GL and GR, and the shifts |
+| [af-character-sets.md](research/notes/af-character-sets.md) | AF. Character sets against DEC's own tables: the national replacement sets and the DEC sets baud designates but does not translate |
+| [ag-replies-and-images-under-load.md](research/notes/ag-replies-and-images-under-load.md) | AG. Under load: the reply buffer and the Sixel body |
+| [ah-title-bar-leds.md](research/notes/ah-title-bar-leds.md) | AH. Lights on the title bar: what each LED may honestly light for |
+| [ai-dock-launch-logging.md](research/notes/ai-dock-launch-logging.md) | AI. Where a Dock-launched baud's warnings go |
+| [aj-launch-splash.md](research/notes/aj-launch-splash.md) | AJ. The launch splash: the colour logo, and the plasma it vanishes in |
+| [ak-window-title.md](research/notes/ak-window-title.md) | AK. The window title: what a program sets, what baud derives, and where it shows |
+| [al-trail-flashes.md](research/notes/al-trail-flashes.md) | AL. The cursor trails' flashes: what the texts require, and four ways to bound them |
+| [am-xtgettcap.md](research/notes/am-xtgettcap.md) | AM. XTGETTCAP: what baud says about its own capabilities |
+| [an-dcs-bodies-and-sixel.md](research/notes/an-dcs-bodies-and-sixel.md) | AN. DCS bodies and Sixel: what the texts say per byte |
+| [b-data-parallel-fsm.md](research/notes/b-data-parallel-fsm.md) | Data-parallel finite-state machines — vectorising the parser itself |
+| [b-parser-as-a-graph.md](research/notes/b-parser-as-a-graph.md) | The parser as a graph — how to store 20 nodes and 5,120 edges |
+| [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified |
+| [d-memory-hierarchy.md](research/notes/d-memory-hierarchy.md) | Memory hierarchy — why a read cost 2.5× where a write did not |
+| [e-tty-layer.md](research/notes/e-tty-layer.md) | The tty layer — why a PTY read is 1024 bytes on Darwin and 4095 on Linux |
+| [f-cluster-storage.md](research/notes/f-cluster-storage.md) | Where a multi-codepoint cluster lives — three terminals, three answers |
+| [f-row-extent.md](research/notes/f-row-extent.md) | The per-row used extent — how four terminals decide what to blank |
+| [f-scrollback-ring.md](research/notes/f-scrollback-ring.md) | F — Where a retired line lives: the grid as a ring, checked against the field |
+| [g-property-lookup.md](research/notes/g-property-lookup.md) | Two lookups a character, unconditionally — and the design that does fewer |
+| [g-text-encoding.md](research/notes/g-text-encoding.md) | G — text encoding, width and grapheme clustering |
+| [h-session-context-budget.md](research/notes/h-session-context-budget.md) | H. Every session starts half full, and one edit to CLAUDE.md overflows it |
+| [i-isa-dispatch.md](research/notes/i-isa-dispatch.md) | Instruction-set dispatch — why the seam is a trait and not a crate |
+| [j-colour-bitmap-limits.md](research/notes/j-colour-bitmap-limits.md) | J: colour-bitmap limits -- a presence index, its bound, CBLC subtables, flip chains |
+| [j-rendering-evidence.md](research/notes/j-rendering-evidence.md) | Rendering -- the evidence behind the register |
+| [j-rendering.md](research/notes/j-rendering.md) | Rendering — the decisions register |
+| [j-text-antialiasing.md](research/notes/j-text-antialiasing.md) | J. Text anti-aliasing: weight, blend, hinting and placement |
+| [k-selection.md](research/notes/k-selection.md) | K. Selection, copy and paste |
+| [l-scrollbar.md](research/notes/l-scrollbar.md) | L. The scrollbar |
+| [m-resize-and-reflow.md](research/notes/m-resize-and-reflow.md) | M. Resize, reflow, and the prompt the shell redraws |
+| [n-make-faster.md](research/notes/n-make-faster.md) | N. What baud can make faster, as a makefaster checklist |
+| [o-keystroke-latency.md](research/notes/o-keystroke-latency.md) | O. Keystroke to pixel: the instrument, and what it read first |
+| [p-shader-cache.md](research/notes/p-shader-cache.md) | P. The shader cache at launch: 350 ms cold, 12 warm, and what each remedy would buy |
+| [q-local-echo.md](research/notes/q-local-echo.md) | Q. Local echo prediction: what row 9 draws before the pty answers, and what judges it |
+| [r-sfte.md](research/notes/r-sfte.md) | R. sfte as the second oracle |
+| [s-sixel.md](research/notes/s-sixel.md) | S. Sixel graphics |
+| [t-images.md](research/notes/t-images.md) | T. Images: the phase register for Sixel and Kitty graphics |
+| [u-resize-and-the-window.md](research/notes/u-resize-and-the-window.md) | U. Who holds the window over the history across a resize |
+| [v-open-decisions.md](research/notes/v-open-decisions.md) | V. The owner's open decisions, researched |
+| [w-fallback-fonts.md](research/notes/w-fallback-fonts.md) | W. Fallback fonts: what other terminals do, and what baud could bundle |
+| [x-cursor-motion-and-blink.md](research/notes/x-cursor-motion-and-blink.md) | X. The cursor's motion and blink: the designs as reviewed |
+| [y-palettes.md](research/notes/y-palettes.md) | Y. Palettes: the light/dark pair, the scheme type, the floor, and what the terminal reports |
+| [z-variable-fonts.md](research/notes/z-variable-fonts.md) | Z. Variable fonts in baud-font |
 
-| group | topic | note |
-|---|---|---|
-| A | SIMD parsing and vectorised classification | missing |
-| B | data-parallel finite-state machines | [b-data-parallel-fsm.md](research/notes/b-data-parallel-fsm.md) |
-| C | the terminal parser as specified | [c-vt-parser.md](research/notes/c-vt-parser.md) |
-| D | memory hierarchy and write amplification | missing |
-| E | the tty layer and syscall batching | missing |
-| F | text sequence data structures | missing |
+The manifest files each source under a group. Its header comment names the
+groups' topics, and two groups it has no line for are described here from
+their entries' titles:
 
-A, D and E each underpin a claim made elsewhere without a note to cite: A is
-the SIMD scanner argument, D is the write-amplification thesis the whole
-project rests on, E is the tty-tax story. They are listed here so the gap is
-visible rather than implied by an empty directory.
+| group | sources on |
+|---|---|
+| A | SIMD parsing and vectorised classification |
+| B | data-parallel finite-state machines |
+| C | the terminal parser as specified |
+| D | memory hierarchy and write amplification |
+| E | the tty layer and syscall batching |
+| F | text sequence data structures |
+| G | text encoding, width and grapheme clustering |
+| H | terminal input: key encoding and the extensions to it |
+| I | instruction-set dispatch and how per-ISA code is organised |
+| J | rendering: font formats, shaping, rasterisation, compositing, memory placement, presentation |
+| L | the scrollbar, and the window over the history it indicates |
+| O | keystroke to pixel: the clocks on the path, and how typing latency has been measured |
+| P | the shader cache at launch: binary archives, precompiled libraries, the Metal toolchain |
+| Q | Mosh's local echo prediction: its paper and its prediction engine (no line in the header) |
+| R | sfte: a second external implementation, as an oracle and a feature catalogue |
+| U | who holds the window over the history across a resize: the re-cut, the viewport, the anchors |
+| V | cursor trails and cursors drawn by programs: kitty, Neovide and helix (no line in the header) |
+| Y | palettes: light/dark pairs, scheme formats, colour-scheme notifications, contrast floors |
+| AH | title-bar activity lights: the tty LED trigger, modem panels, per-process counters |
+| AI | where a launched terminal's log lines go: unified logging, files, the journal |
+| AJ | a launch splash: launch guidance, flashing, splash prior art |
+| AK | the window title: OSC titles, derived facts, platform conventions |
+| AL | the cursor trails' flashes: WCAG 2.3.1, broadcast flash rules, OS settings, trail prior art |
+| AM | XTGETTCAP: what a terminal reports about its own capabilities |
+
+A group's letter and a note's need not match: group H's sources are key
+encoding, and note H is the session context budget. Both tables are held to
+the directory and the manifest by
+`every_research_note_and_source_group_is_in_the_index`
+(`baud-core/tests/docs.rs`), which fails when a note has no row or a group
+has none.
 
 ## The rule these documents follow
 
@@ -65,17 +140,17 @@ coverage it does not have.
 
 ## How these documents are kept true
 
-Nothing here is trusted because someone read it carefully. Four mechanisms fail
+Nothing here is trusted because someone read it carefully. These checks fail
 the build instead:
 
 | check | what it holds |
 |---|---|
-| `baud-core/tests/coverage.rs` | every **done** row names an operation some test mentions; no row is `partial`, `parsed` or `todo`; **every `out` row states a reason**; the operation counts quoted in README, CLAUDE.md and MEASUREMENTS.md match the table |
+| `baud-core/tests/coverage.rs` | every **done** row names an operation some test mentions; no row is a plain `partial`, `parsed` or `todo`, though a bold `**partial**` passes it, an open defect CLAUDE.md records; **every `out` row states a reason**; the operation counts quoted in README, CLAUDE.md and MEASUREMENTS.md match the table |
 | `baud-core/tests/conformance/enumerated.rs` | every **done** row's sequence, synthesised from the table and fed to a real `Term`, reaches a handler rather than being counted unsupported |
 | `baud-core/tests/conformance/spec_inventory.rs` | the reverse direction: every plain CSI final, every CSI *form* (markers and intermediates), every `ESC Fe`, **every `ESC` form with an intermediate — including all four G-slots × every charset final**, every `OSC Ps` and every `DCS` form that **`[[source: ctlseqs]]` defines** is either acted on or counted; and a final byte the specification gives two *arities* means two things — so an operation baud never enumerated cannot be silently swallowed |
 | `baud-core/tests/encoding/graphemes.rs` | all 766 cases of Unicode's `GraphemeBreakTest.txt`, and the generated tables still match the pinned data |
 | `baud-core/tests/encoding/width.rs` | the generated width tables still match the pinned `EastAsianWidth.txt` and general category |
-| `baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists; **nothing listed as absent is also marked done** |
+| `baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists; **nothing listed as absent is also marked done**; every research note and every manifest group has a row in the index above |
 | `scripts/check-sources.sh` | every `[[source: …]]` citation — in the docs **and** in the code — resolves to a document pinned by SHA-256 in `MANIFEST.toml` |
 | `baud-core/tests/readme.rs` | the README's usage example is compiled, and is byte-identical to the block in the file |
 
