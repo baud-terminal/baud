@@ -557,7 +557,7 @@ impl Owned {
     /// builds it *without* `cell-table` and reads the slice directly -- so the
     /// write path is the computing one and the table is the thing under test.
     /// `Owned::new` declines it because nothing else reads it: the only read is
-    /// in `put_run` behind the feature, and passing 2 MiB otherwise buys
+    /// in `put_one` behind the feature, and passing 2 MiB otherwise buys
     /// 262,144 property-table lookups and 2 MiB of stores at construction for
     /// a table no read will consult.
     pub fn with_cell_table(ws: &WinSize) -> Owned {

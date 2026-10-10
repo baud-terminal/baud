@@ -147,11 +147,12 @@ fn scosc_and_decsc_share_a_slot() {
 /// **With DECAWM reset the cursor stops on the last column, not past it.**
 ///
 /// The column one past the last is the *pending wrap* sentinel, and it is only
-/// a legal place for the cursor when there is a wrap to pend. `put_run` knew
-/// that and `put_glyph` did not, so text written a byte at a time -- which is
-/// every non-ASCII character -- left the cursor one column further along than
-/// the same text taken by the run scanner. Invisible in `cursor()`, which
-/// clamps; visible to the next operation that acts at the cursor.
+/// a legal place for the cursor when there is a wrap to pend. `baud-core2`'s
+/// `put_run` knew that and its `put_glyph` did not, so text written a byte
+/// at a time -- which on that core was every non-ASCII character -- left
+/// the cursor one column further along than the same text taken by the run
+/// scanner. Invisible in `cursor()`, which clamps; visible to the next
+/// operation that acts at the cursor.
 #[test]
 fn autowrap_off_leaves_the_cursor_on_the_last_column() {
     // DECAWM off, cursor to the last column, more text than fits, then `ICH` --

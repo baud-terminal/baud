@@ -336,7 +336,7 @@ impl PackedCell {
     /// Written (f297b21) for the core since retired as `baud-core2`, whose
     /// `promote` replayed stored runs with their flags. Nothing in this core
     /// calls it. The bulk path translates through `with_charset` in
-    /// `Grid::put_ascii_run` and the per-byte path through `translate`, both
+    /// `View::put_ascii_run` and the per-byte path through `translate`, both
     /// with the set `Term` has invoked. The flags name only the line-drawing
     /// set (`Charset::from_flags`), so this would leave a national set's byte
     /// untranslated.
@@ -382,7 +382,7 @@ impl PackedCell {
     /// An ASCII byte under a named character set.
     ///
     /// **Every set that substitutes anything goes through here**, from
-    /// `Grid::put_ascii_run` and from `translate`, so a path cannot honour DEC
+    /// `View::put_ascii_run` and from `translate`, so a path cannot honour DEC
     /// graphics and forget Finnish -- the shape `baud-core2`'s `promote` had
     /// before `from_wire` existed. This doc sat on `translate` from 01b11dc,
     /// which inserted `translate` between the two.

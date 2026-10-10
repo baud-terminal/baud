@@ -163,13 +163,16 @@ fn grapheme_tables_match_the_pinned_data() {
 
 /// **A combining mark is attached, not discarded.**
 ///
-/// `put_cp` returned early on `Width::ZERO`, so every combining mark was
-/// silently thrown away: `e` + U+0301 stored `e` and the accent was *gone* —
-/// not mis-measured, absent, and unrecoverable by a renderer, a selection or a
-/// copy. A terminal must not lose a character it was sent.
+/// `baud-core2`'s `put_cp` returned early on `Width::ZERO`, so every combining
+/// mark was silently thrown away: `e` + U+0301 stored `e` and the accent was
+/// *gone* — not mis-measured, absent, and unrecoverable by a renderer, a
+/// selection or a copy. A terminal must not lose a character it was sent.
 ///
-/// The cell keeps the base and the marks live beside the grid, found by
-/// position, because `PackedCell` is eight measured bytes with no room.
+/// The cell keeps the base and the marks live beside the grid, because
+/// `PackedCell` is eight measured bytes with no room: `Paint::attach` puts
+/// them in `ClusterStore`, keyed on the cluster's own content, and the slot's
+/// index rides in the cell's `CellFlags`. Found by position was `baud-core2`'s
+/// design.
 #[test]
 fn where_a_combining_mark_ends_up() {
     let ws = support::CORPUS;

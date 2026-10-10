@@ -283,33 +283,47 @@ impl ClusterBreak {
         }
     }
 
-    /// The truthful state after a run of **printable ASCII**, and a record of
-    /// why `put_run` does not use it.
+    /// The truthful state after a run of **printable ASCII**, which is also
+    /// the state one ordinary character leaves.
     ///
-    /// A blitted ASCII run never reaches `put_cp`, so the machine has to be
-    /// told about it, and `put_run` tells it by resetting to `new()`. That
-    /// says `prev = None`, while printable ASCII is class `Other`, so the
-    /// truthful state is this one. Every other field agrees with `new()` for
-    /// good reasons: an ASCII character is not pictographic, not a regional
-    /// indicator and not `InCB`.
+    /// Printable ASCII never reaches the cluster machine: `Paint::piece` and
+    /// `Paint::blit` write it without asking, and tell the machine by
+    /// resetting to `new()`. That says `prev = None`, while printable ASCII is
+    /// class `Other`, so the truthful state is this one. Every other field
+    /// agrees with `new()` for good reasons: an ASCII character is not
+    /// pictographic, not a regional indicator and not `InCB`. `put_run` uses
+    /// this one, after a run of ordinary multi-byte characters it writes in
+    /// bulk, as the machine's advance across the whole run.
     ///
-    /// **The two are observationally equivalent, and using the truthful one
-    /// costs 1.5%.** The difference could only show through a rule that reads
-    /// `prev`, and every path that could is closed:
+    /// **The two were argued observationally equivalent, and they are not.**
+    /// `baud-core2` kept the reset because the truthful state cost 1.5% --
+    /// cat-cjk 401.5-403.7 against 407.3-411.3, every test and 56 properties
+    /// at 20,000 cases identical, `cells_written` byte-identical -- and
+    /// because every rule that reads `prev` looked closed:
     ///
-    /// * a combining mark after ASCII attaches either way, because `put_cp`
-    ///   routes `Width::ZERO` to `attach_mark` whatever the break decision
-    ///   was;
+    /// * a zero-width mark after ASCII attaches either way, because
+    ///   `Paint::glyph` routes `Width::ZERO` to `Paint::attach` whatever the
+    ///   break decision was (`baud-core2`'s `put_cp` routed it to
+    ///   `attach_mark`);
     /// * a `ZWJ` after ASCII opens no GB11 lookback in either state, because
     ///   GB11 needs a pictographic *before* the joiner;
     /// * a regional indicator after ASCII starts with `RiParity::Even` in
     ///   both.
     ///
-    /// Measured with the truthful state: cat-cjk 401.5-403.7 against
-    /// 407.3-411.3, every test and 56 properties at 20,000 cases identical,
-    /// `cells_written` byte-identical. So the reset is not a shortcut that
-    /// happens to work -- it is equivalent, and this function exists so the
-    /// next reader does not have to re-derive that, or "fix" it for 1.5%.
+    /// What the argument missed is every continuation that is not zero-width.
+    /// `[[source: uax29]]`'s GB9 `× (Extend | ZWJ)` and GB9a `× SpacingMark`
+    /// hold after `prev = Other`, but after `prev = None` GB1 breaks first, and
+    /// only a `Width::ZERO` codepoint reaches `Paint::attach` whatever the
+    /// break decision. So after printable ASCII a SpacingMark takes a cell of
+    /// its own (GB9a: `a U+0903` puts the visarga beside the `a`), and so does
+    /// an Extend that has a width (GB9: `a U+09BE`, a vowel sign of category
+    /// `Mc`, and `a U+1F3FF`, an emoji modifier two columns wide). The rules
+    /// make each one cluster, and four lines of `[[source: gbtest]]` fail
+    /// through the terminal for this reason: 691 (`÷ 0020 × 0903 ÷`), 763
+    /// (`÷ 0061 × 0903 ÷ 0062 ÷`), 766 (`÷ 0061 × 1F3FF ÷ 1F476 ÷`) and 767,
+    /// which begins the same way; it has no `U+09BE` case. After `é`, which is
+    /// class `Other` too but goes through the machine, both `U+0903` and
+    /// `U+1F3FF` attach. An open departure, not a settled trade.
     pub fn after_ascii_run() -> ClusterBreak {
         ClusterBreak {
             // `prev = Other` with no lookback live is exactly the one

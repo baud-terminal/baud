@@ -353,7 +353,7 @@ impl<'a, 'b> Paint<'a, 'b> {
                 },
             ),
         };
-        // The three-byte cell table is read only by `put_run` under
+        // The three-byte cell table is read only by `put_one` under
         // `cell-table`; the default build must not carry a borrow of it.
         #[cfg(not(feature = "cell-table"))]
         let _ = cells3;
@@ -510,10 +510,11 @@ impl<'a, 'b> Paint<'a, 'b> {
         // wrongly continue a base that text has already scrolled past.
         //
         // One store per **run**, not per byte, so it is off the per-byte path
-        // this file is careful about. `new` rather than `after_ascii_run`: the
-        // truthful state is `prev = Some(Other)` and the two are
-        // observationally equivalent here, which is the argument
-        // `ClusterBreak::after_ascii_run` exists to carry.
+        // this file is careful about. `new` rather than `after_ascii_run`,
+        // although the truthful state is `prev = Some(Other)`: the two were
+        // argued observationally equivalent, and a SpacingMark after ASCII
+        // shows they are not -- `ClusterBreak::after_ascii_run`'s doc has the
+        // GB9a case, an open departure.
         self.cluster = ClusterBreak::new();
         let k = n.index();
         // **No gap here.** `piece` is a router: it hands the run to `glyph`

@@ -906,11 +906,12 @@ impl<'b> Term<'b> {
     ///
     /// This is the compile step of a compiled database that happens to run at
     /// startup, because 2 MiB is more than a `const fn` should evaluate and
-    /// nothing in it depends on the terminal. `the_cell_table_agrees_with_the_
-    /// decoder` walks all 65,536 against the path it replaces.
+    /// nothing in it depends on the terminal.
+    /// `the_cell_table_is_what_the_write_path_writes` walks all 65,536 against
+    /// the path it replaces.
     ///
     /// **An empty slice is how a caller declines it, and that is the whole
-    /// switch.** The only read is in `put_run` behind `cell-table`, so a
+    /// switch.** The only read is in `put_one` behind `cell-table`, so a
     /// default build that passes 2 MiB here spends 262,144 property-table
     /// lookups and 2 MiB of stores at construction on a table nothing will
     /// consult. `ingest2` and `multibench` were doing exactly that. Gating

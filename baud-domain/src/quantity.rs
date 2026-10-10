@@ -190,13 +190,13 @@ impl Col {
     /// The same, against a **margin** rather than the screen edge.
     ///
     /// DECSLRM's right margin is where autowrap happens when one is set, and
-    /// the two spellings of that rule disagreed: `put_run` asked
-    /// `room_until(cx, right_margin.after())` and `put_glyph` asked
+    /// `baud-core2`'s two spellings of that rule disagreed: its `put_run`
+    /// asked `room_until(cx, right_margin.after())` and its `put_glyph` asked
     /// `try_advance(w, cols)`, so ASCII wrapped at the margin and every
     /// non-ASCII character wrapped at the screen edge instead.
     ///
     /// The limit is `min(edge, cols)` unconditionally, which is exactly what
-    /// `Cols::room_until` computes for the bulk path -- including for a cursor
+    /// `Cols::room_until` computed for that bulk path -- including for a cursor
     /// *past* the right margin, where the room is zero and the next character
     /// wraps. Adding a "outside the margins uses the screen edge" rule here
     /// was tried and is a third behaviour neither path had.

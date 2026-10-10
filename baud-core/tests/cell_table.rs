@@ -5,14 +5,14 @@
 //! computing it, and it used to be made against `baud-core2`: feed every
 //! permutation through the reference core and read off what it rendered. That
 //! oracle is gone, and the question it answered was the weaker one. The table
-//! lives in *this* crate and is read by *this* crate's `put_run`, so what has
+//! lives in *this* crate and is read by *this* crate's `put_one`, so what has
 //! to hold is that **turning `cell-table` on cannot change the screen** --
 //! which is a statement about two paths in one program, not about agreement
 //! with another one.
 //!
 //! It runs with the feature **off**, which is what makes it a comparison at
 //! all: `Term::new` fills the table whenever the slice is non-empty, while the
-//! read in `put_run` is gated. So the rendering below comes from the computing
+//! read in `put_one` is gated. So the rendering below comes from the computing
 //! path and the table is inert data beside it. Gating `fill_cells3` on the
 //! feature instead would make this test compare the table against itself, and
 //! `storage.rs` says so where the switch is.

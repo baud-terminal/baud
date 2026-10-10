@@ -906,10 +906,16 @@ fn no_operation_splits_a_double_width_character() {
 /// characters, but a write has its own length and cannot. The partner is
 /// cleared instead.
 ///
-/// Both write paths, because they are different code and only one of them is
-/// the common one. ASCII never reaches `put_cp` at all -- it goes through
-/// `blit` and `put_ascii_run` -- so fixing the per-codepoint path alone would
-/// have fixed the rare case and left essentially all real text broken.
+/// Written for `baud-core2`, whose ASCII never reached `put_cp` -- it went
+/// through `blit` and `put_ascii_run` -- so fixing the per-codepoint path
+/// alone would have fixed the rare case and left essentially all real text
+/// broken. In this core every case here writes one character: `Paint::piece`
+/// hands a run of up to `SHORT_TEXT` (two) bytes to `Paint::glyph`, and
+/// `put_one` passes `Ａ` to `write.rs`'s `glyph` and so to `Paint::glyph`, or
+/// under `cell-table` straight to `Paint::indexed`. Every case lands before
+/// the row's written mark, so all four end in `View::put_glyph`. A run of
+/// three or more takes `Paint::blit` into `View::put_ascii_run`, whose own
+/// orphan repair this test does not reach.
 #[test]
 fn overwriting_half_a_wide_character_clears_the_other_half() {
     const BASE: &str = "\x1b[1;1H日本語ab";

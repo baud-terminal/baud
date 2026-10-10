@@ -59,9 +59,10 @@ impl Classified {
                 code: (v >> 8) as u8,
             };
         }
-        // ASCII never reaches the per-character path -- `put_ascii_run` takes
-        // it -- but `Codepoint` allows it and the tries answer for it, so this
-        // must too.
+        // The write path never asks this of ASCII -- `Paint::piece` writes it
+        // at a known narrow width, through `View::put_ascii_run` or, for a run
+        // of one or two bytes, `Paint::glyph` -- but `Codepoint` allows it and
+        // the tries answer for it, so this must too.
         let block = MERGED_INDEX[(cp >> 8) as usize] as usize;
         let id = MERGED_BLOCKS[block * 256 + (cp as usize & 0xff)] as usize;
         Classified {

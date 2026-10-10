@@ -895,14 +895,16 @@ impl<'a> View<'a> {
         let start = at.index();
         let n = src.len().min(self.cols.index().saturating_sub(start));
         // **Clear whatever this run is about to orphan**, inline against the
-        // `base` already computed rather than through `Grid::clear_partners`.
-        // Calling that from `blit` needed a second `self.view()` per run and
-        // measured **-6 to -9%** on every payload; here it is two loads and two
-        // compares against a pointer that already exists, per ~32-byte run.
+        // `base` already computed rather than through `View::clear_partners`.
+        // Calling that from `baud-core2`'s `blit` needed a second `self.view()`
+        // per run and measured **-6 to -9%** on every payload; here it is two
+        // loads and two compares against a pointer that already exists, per
+        // ~32-byte run.
         //
         // A run starting on a tail orphans the lead in front of it; a run
-        // ending on a lead orphans the tail after it. ASCII never reaches
-        // `put_cp`, so without this the common path keeps the bug.
+        // ending on a lead orphans the tail after it. A run that `Paint::blit`
+        // sends here never passes through `put_glyph`, which repairs one
+        // character at a time, so without this the common path keeps the bug.
         //
         // The blank is built **inside** the guard. Constructing it
         // unconditionally cost measurably more than the two loads did: a run
@@ -1051,10 +1053,11 @@ impl<'a> View<'a> {
     ///
     /// The counterpart of `put_ascii_run` for text that is multi-byte but one
     /// column: Latin-1, Greek, Cyrillic, box drawing, and the CJK punctuation
-    /// East Asian Width calls Ambiguous. `opcost` priced that shape at
-    /// **266 MB/s against a wide character's 1155** -- half the cells for five
-    /// times the cost, an inversion whose only available mechanism was that it
-    /// had no bulk path and paid `put_cp` per character.
+    /// East Asian Width calls Ambiguous. `opcost` priced that shape on
+    /// `baud-core2` at **266 MB/s against a wide character's 1155** -- half
+    /// the cells for five times the cost, an inversion whose only available
+    /// mechanism was that it had no bulk path there and paid `put_cp` per
+    /// character.
     ///
     /// Simpler than `put_wide_run`: one cell per codepoint means no interleave
     /// and no pair to keep together, so only the two edges of the run can cut
@@ -1338,10 +1341,16 @@ impl<'a> View<'a> {
     ///
     /// This was `clear_partners`, then `put`, then `put` again: three `phys`
     /// computations, two bounds checks and three read-modify-writes of the
-    /// used extent, for a character that occupies two cells. It runs once per
-    /// **non-ASCII codepoint** -- ASCII goes through `put_ascii_run` -- so it
-    /// is most of what the CJK path is made of, and `cat-cjk.raw` is where baud
-    /// is furthest behind another implementation.
+    /// used extent, for a character that occupies two cells. On `baud-core2`
+    /// it ran once per **non-ASCII codepoint** -- ASCII went through
+    /// `put_ascii_run` -- so it was most of what the CJK path was made of, and
+    /// `cat-cjk.raw` was where baud was furthest behind another
+    /// implementation. In this core `Paint::glyph`, and `Paint::indexed`
+    /// under the `cell-table` feature, call it for a character landing before
+    /// the row's written mark, and `put_glyph_fresh` past it; that character
+    /// may be ASCII in a run of one or two bytes, and a multi-byte run that
+    /// `put_run` admits, of one width and fitting the row, goes to
+    /// `put_wide_run` or `put_narrow_run` instead. `Paint::widen` calls it too.
     ///
     /// The orphan repair is the same rule as everywhere else, against the base
     /// already computed: a write starting on a tail orphans the lead in front

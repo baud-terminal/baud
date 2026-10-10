@@ -155,7 +155,7 @@ fn overwriting_a_cell_does_not_inherit_its_old_marks() {
 }
 
 /// A base in the last column still owns what follows it. The `Col::ZERO`
-/// guard in `attach_mark` is about start-of-line, and the cursor parked at
+/// guard in `Paint::attach` is about start-of-line, and the cursor parked at
 /// the right margin must not read as one.
 #[test]
 fn a_mark_attaches_to_a_base_in_the_last_column() {

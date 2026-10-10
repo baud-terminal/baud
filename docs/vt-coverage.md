@@ -336,7 +336,7 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | character width from East Asian Width + general category, generated from pinned Unicode data | done — `AmbiguousWidth` is embedder policy, `[[source: uax11]]` § 5 |
 | UAX #29 extended grapheme cluster segmentation | done — `ClusterBreak`, and all **766** cases of Unicode's own conformance suite pass |
 | combining marks stored against their base cell | done — `Term::marks`, bounded and evicting; they used to be **discarded** |
-| one cluster per cell — ZWJ sequences, flags and Indic conjuncts as a single cluster | done — `ClusterBreak` consulted in `put_cp`; continuations attach to the base cell |
+| one cluster per cell — ZWJ sequences, flags and Indic conjuncts as a single cluster | done — `ClusterBreak` consulted in `write.rs`'s `glyph`; continuations attach to the base cell, except a continuation that is not zero-width straight after printable ASCII, which takes a cell of its own: a SpacingMark (GB9a) or an Extend with a width, such as `U+09BE` or `U+1F3FF` (GB9). An open departure; `ClusterBreak::after_ascii_run` |
 | `Emoji_Presentation=Yes` is two columns | done — regional indicators are EAW `N`, so a flag measured from East Asian Width alone is half-width |
 | DECRQM `?2027` — grapheme clustering | done — answers `3`, permanently set, and it is true: a `U+FE0F` after a base `[[source: emoji-variation-sequences]]` lists widens it to two cells (keycap bases excepted); configured to one cell it answers `4`; no sequence changes it |
 | `ESC % G` — select UTF-8, ISO 2022 | done — satisfied; baud already decodes UTF-8 |
@@ -412,25 +412,25 @@ a *correct description of the old behaviour* that outlived it. Nothing flagged
 it — `no_row_is_unfinished` reads table rows, not prose, so a paragraph can
 claim the opposite of the paragraph after it indefinitely.
 
-**Combining marks used to be discarded outright.** `put_cp` returned early on
-`Width::ZERO`, so `e` + `U+0301` stored `e` and the accent was gone — not
-mis-measured, *absent*, and unrecoverable by a renderer, a selection or a copy.
-A terminal must not lose a character it was sent. They are stored now, in
-`ClusterStore`: **keyed on the cluster's own content**, with its index riding in
-the cell's `CellFlags`, so it moves with the cell through every rotation,
-reflow and screen switch. ~~Keyed on the cell they attach to, in a table that
-evicts on collision~~ was `baud-core2`'s design, and one `viewport()` call made
-it lose a cell's marks (CLAUDE.md, "The cluster store is content-keyed, and the
-index rides in the cell"). It is bounded at 63 clusters and **refuses** rather
-than evicts, because a wrong cluster puts somebody else's accent on your
-character; repeats share a slot. `Term::cluster_marks` is what a renderer
-reads, and `marks_dropped` counts the refusals.
+**Combining marks used to be discarded outright.** `baud-core2`'s `put_cp`
+returned early on `Width::ZERO`, so `e` + `U+0301` stored `e` and the accent was
+gone — not mis-measured, *absent*, and unrecoverable by a renderer, a selection
+or a copy. A terminal must not lose a character it was sent. They are stored
+now, in `ClusterStore`: **keyed on the cluster's own content**, with its index
+riding in the cell's `CellFlags`, so it moves with the cell through every
+rotation, reflow and screen switch. ~~Keyed on the cell they attach to, in a
+table that evicts on collision~~ was `baud-core2`'s design, and one `viewport()`
+call made it lose a cell's marks (CLAUDE.md, "The cluster store is
+content-keyed, and the index rides in the cell"). It is bounded at 63 clusters
+and **refuses** rather than evicts, because a wrong cluster puts somebody else's
+accent on your character; repeats share a slot. `Term::cluster_marks` is what a
+renderer reads, and `marks_dropped` counts the refusals.
 
 **And the same table answers full cluster semantics, which needed no cell bits
-at all.** The reasoning that said otherwise was looking at the wrong
-constraint: a continuation does not need the *cell* to identify its cluster, it
-needs somewhere to live, and the marks table already is that. `put_cp` asks
-`ClusterBreak` whether a codepoint continues what came before it, and a
+at all.** The reasoning that said otherwise was looking at the wrong constraint:
+a continuation does not need the *cell* to identify its cluster, it needs
+somewhere to live, and the marks table already is that. `write.rs`'s `glyph`
+asks `ClusterBreak` whether a codepoint continues what came before it, and a
 continuation attaches to the base cell instead of taking one of its own. So
 `U+1F469 U+200D U+1F4BB` is two columns rather than four, and a flag is two
 rather than four.
