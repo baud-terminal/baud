@@ -648,9 +648,11 @@ fn mixed_line_movement_in_the_alternate_screen_agrees_with_the_model() {
 /// and rotation in `other` until the exit swaps them back, so this fails if
 /// any of those line-moves writes through to the parked surface. It reads the
 /// rendered rows only. The primary never scrolls here, so its rotation is
-/// zero on both sides of the trip and a restore that dropped it would pass;
-/// nor does it read the primary's history, which `retire` leaves alone while
-/// the alternate screen is up.
+/// zero on both sides of the trip and a restore that dropped or reset it (to
+/// zero) would pass; nor does it read the primary's history, which `retire`
+/// leaves alone while the alternate screen is up.
+/// `a_scrolled_primary_comes_back_in_the_order_it_left` (`xterm/alt_screen.rs`)
+/// scrolls the primary first and reads both.
 ///
 /// It was written for a `baud-core2` bug in a run table this core does not
 /// have: every copying line-move in core2 ran its run-table invalidation
@@ -769,7 +771,10 @@ fn erases_on_the_alternate_screen_are_not_swallowed_by_the_span_path() {
 /// rendered rows, as the round trip above is, and
 /// `scrolling_the_alt_screen_does_not_disturb_the_primary`
 /// (`xterm/alt_screen.rs`) asks the same of 900 lines fed through the
-/// alternate screen, comparing the whole primary before and after.
+/// alternate screen, comparing the whole primary before and after. The
+/// primary never scrolls in either, so its rotation is zero on both sides;
+/// `a_scrolled_primary_comes_back_in_the_order_it_left` is a trip that
+/// scrolls it first.
 ///
 /// It was written for a `baud-core2` bug. core2's `index` (IND, in
 /// `baud-core2/src/cursor.rs`) cleared the

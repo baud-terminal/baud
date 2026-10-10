@@ -83,6 +83,18 @@ fn the_primary_screen_is_restored_intact() {
 
 /// Including when the alt screen scrolled, which is where a shared buffer would
 /// destroy history rather than merely overwrite a line.
+///
+/// **Only the alternate screen scrolls here**: 900 lines through it, and three
+/// on the primary, which never scrolls, so the primary's rotation is zero on
+/// both sides of the trip and a restore that dropped or reset it -- either
+/// way to zero -- would pass. One that left the primary under the alternate
+/// screen's rotation fails: that is not zero after 900 lines, and so this
+/// test catches a `View::swap_surface` that swaps no rotation.
+/// `docs/record.md` ("The alternate screen: park the primary, and the copy is
+/// the cheap half") describes this test as scrolling the primary sixty lines
+/// and the alternate eighty-three; that was a test deleted with `baud-core2`,
+/// and `a_scrolled_primary_comes_back_in_the_order_it_left` below is this
+/// file's test that scrolls the primary first.
 #[test]
 fn scrolling_the_alt_screen_does_not_disturb_the_primary() {
     let before = grid(b"line one\r\nline two\r\nline three");
@@ -93,6 +105,279 @@ fn scrolling_the_alt_screen_does_not_disturb_the_primary() {
     }
     v.extend_from_slice(b"\x1b[?1049l");
     assert_eq!(grid(&v), before);
+}
+
+/// How a trip's bytes reach the terminal. The phases are the primary's
+/// lines, the switch in, the alternate screen's work and the switch out.
+#[derive(Clone, Copy, Debug)]
+enum Reads {
+    /// One read ends after each phase listed and holds every phase since the
+    /// last. `[3]` is the whole trip in one read, whose switches happen
+    /// inside one `Paint` and swap the surfaces there and nowhere else;
+    /// `[2, 3]` ends a read on the alternate screen after the primary
+    /// scrolled in it, so `Term::set_rots` has to hand back the rotation the
+    /// primary reached in that read.
+    After(&'static [usize]),
+    /// Each phase in reads of this many bytes, so reads end while the
+    /// alternate screen is up and each hands the rotations back to `Term`
+    /// with the screens swapped.
+    Bytes(usize),
+}
+
+/// Where the cursor is after the exit.
+#[derive(Clone, Copy, Debug)]
+enum Exit {
+    /// `?1049 l`: "restore cursor as in DECRC", so where `?1049 h` saved it.
+    Restores,
+    /// `?47 l`: "Use Normal Screen Buffer", and nothing about the cursor, so
+    /// it stays where the alternate screen left it.
+    Stays,
+}
+
+/// `count` numbered lines, `tag` and three digits each, joined by `CR LF`
+/// and not ended by one, so every row of a full screen holds a line.
+fn numbered(tag: char, count: usize) -> String {
+    (0..count)
+        .map(|i| format!("{tag}{i:03}"))
+        .collect::<Vec<_>>()
+        .join("\r\n")
+}
+
+/// Cells as text, a blank as `.`: `Content::EMPTY` is not U+0020, and a
+/// projection that dropped blanks would read a short row as a whole one.
+fn shown(cells: &[PackedCell]) -> String {
+    cells
+        .iter()
+        .map(|c| {
+            c.content
+                .as_codepoint()
+                .and_then(|x| char::from_u32(x.value()))
+                .unwrap_or('.')
+        })
+        .collect()
+}
+
+/// The primary's history through `Term::scrollback`, newest first, each line
+/// with its wrap.
+fn history(t: &Term<'_>) -> Vec<(Vec<PackedCell>, Wrap)> {
+    let sb = t.scrollback();
+    (0..sb.len())
+        .map(|n| {
+            let (cells, wrap) = sb.line(Back::of(n)).expect("a retained line");
+            (cells.to_vec(), wrap)
+        })
+        .collect()
+}
+
+/// The first screen row on which two terminals differ, as the text each
+/// shows there, for a failure that says where rather than only that.
+fn first_difference(a: &Term<'_>, b: &Term<'_>) -> Option<(usize, String, String)> {
+    let rows = a.geometry().1.index();
+    (0..rows).find_map(|y| {
+        let (x, w) = (a.row(Row::from_index(y)), b.row(Row::from_index(y)));
+        (x != w).then(|| (y, shown(&x[..8]), shown(&w[..8])))
+    })
+}
+
+/// **A primary that has scrolled comes back in the order it left.**
+///
+/// Every other round trip in this file and in `vt100/scrolling.rs` leaves a
+/// primary that never scrolled, so its rotation is zero on both sides, and a
+/// restore that dropped or reset it (to zero) would pass them: screen row `y`
+/// is physical row `y` either way. A wrong rotation that is not zero does
+/// not pass: the alternate screen's, handed back in its place, fails three of
+/// them (P2 and P7 in the record section named below). Here the primary
+/// scrolls first -- to 24, and to an odd 33,
+/// on a ring of the screen alone; to 11 and to 111, the second past the
+/// alternate screen's ring of fifty, with that many lines in the history; and
+/// to 57 on a ring of seventy rows it has wrapped, so the window crosses the
+/// ring's end -- and the alternate screen then scrolls, writes and moves its
+/// cursor, to a rotation of 12 that is none of those.
+///
+/// After the exit the primary is compared whole, cell for cell, with a twin
+/// fed the same primary bytes that never switched: every row, the history
+/// through `Term::scrollback` (read on the alternate screen as well, where it
+/// is still the primary's), and the cursor. `?1049 l` restores it "as in
+/// DECRC", where `?1049 h` saved it; `?47 l` says nothing about it, so it
+/// stays where the alternate screen left it (`[[source: ctlseqs]]`). `?1047`
+/// and `?1048` are not implemented (`docs/vt-coverage.md`'s `?47` row), so
+/// they have no case. Then rows 42-50 are erased on both and the screens
+/// compared again: the rows above test the order, and the rows erased test
+/// that each row's extent came back with it, since an erase stops at the
+/// extent it trusts.
+///
+/// **The reads are part of the instrument.** A trip inside one read swaps the
+/// surfaces within one `Paint` and never hands a rotation back to `Term`
+/// with the alternate screen up; a read that ends there does, through
+/// `Term::set_rots`. So each case runs in six cuts: the whole trip in one
+/// read; one read for the primary's lines, the switch and the alternate
+/// screen's work, which ends on the alternate screen after the primary
+/// scrolled in it; the primary alone, then the rest; a read a phase; and
+/// every phase at one byte and at seven bytes a read.
+///
+/// Six tests elsewhere also cross the alternate screen from a scrolled
+/// primary, and each fails if the exit resets the primary's rotation:
+/// `a_mark_on_the_alternate_screen_after_the_primary_scrolled` and
+/// `a_block_opened_on_the_alternate_screen_is_not_redrawn_on_the_primary`
+/// (`semantic.rs`), `a_shrink_under_47_anchors_the_primary_on_the_shared_cursor`
+/// and `a_recut_under_47_anchors_the_primary_on_the_shared_cursor`
+/// (`legacy_alt_screen.rs`),
+/// `erase_saved_lines_on_the_alternate_screen_empties_the_primarys_history`
+/// (`xterm/erase_saved_lines.rs`) and
+/// `a_resize_on_the_alternate_screen_reshapes_the_primary_too`
+/// (`xterm/soft_reset_scope.rs`). None of
+/// them fails when a read that ends on the alternate screen leaves `Term`
+/// with the primary's rotation from before the read -- `Term::set_rots`
+/// dropping it, which bites only where the primary scrolled in that read --
+/// and nor does any other test in `baud-core`. This one does, at the second
+/// cut (`docs/record.md`, "A scrolled primary across the alternate screen,
+/// and the hand-back no test held").
+///
+/// The twin is held to absolute values first -- its rotation, its top and
+/// bottom rows, its history line by line and its cursor -- so a case cannot
+/// pass by being a different case from the one it names.
+#[test]
+fn a_scrolled_primary_comes_back_in_the_order_it_left() {
+    // (case, history depth, primary lines, the rotation they leave, lines kept)
+    let cases: &[(&str, Depth, usize, usize, usize)] = &[
+        ("an even rotation, no history", Depth::NONE, 74, 24, 0),
+        ("an odd rotation, no history", Depth::NONE, 83, 33, 0),
+        ("history retired", Depth::DEFAULT, 61, 11, 11),
+        ("past a screenful of history", Depth::DEFAULT, 161, 111, 111),
+        ("a ring it has wrapped", Depth::of(20), 177, 57, 20),
+    ];
+    let modes: &[(&str, &[u8], &[u8], Exit)] = &[
+        ("?1049", b"\x1b[?1049h", b"\x1b[?1049l", Exit::Restores),
+        ("?47", b"\x1b[?47h", b"\x1b[?47l", Exit::Stays),
+    ];
+    let ws = support::CORPUS;
+    let rows = usize::from(ws.ws_row);
+    // The alternate screen's phase: sixty lines from the top scroll ten, `SU`
+    // three more and `RI` at the top one back, then a region's scroll, which
+    // copies and leaves the rotation, and text where the cursor is left.
+    let alt = format!(
+        "\x1b[1;1H{}\x1b[3S\x1b[1;1H\x1bM\x1b[5;40r\x1b[2S\x1b[r\x1b[6;10Halt\x1b[6;10H",
+        numbered('A', 60)
+    );
+    const ERASE: &[u8] = b"\x1b[42;1H\x1b[J!";
+    for &(case, depth, lines, rot, kept) in cases {
+        let scrolled = lines - rows;
+        let primary = format!("{}\x1b[17;23H", numbered('P', lines));
+        let want = {
+            let mut owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, depth);
+            let mut twin = Term::new(owned.storage(), &ws);
+            support::feed(&mut twin, primary.as_bytes());
+            assert_eq!(twin.rotation().index(), rot, "{case}: the twin's rotation");
+            assert_eq!(
+                shown(&twin.row(Row::ZERO)[..4]),
+                format!("P{scrolled:03}"),
+                "{case}: the twin's top row"
+            );
+            assert_eq!(
+                shown(&twin.row(Row::from_index(rows - 1))[..4]),
+                format!("P{:03}", lines - 1),
+                "{case}: the twin's bottom row"
+            );
+            let (r, c) = twin.cursor();
+            assert_eq!(
+                (r.index(), c.index()),
+                (16, 22),
+                "{case}: the twin's cursor"
+            );
+            let want = history(&twin);
+            assert_eq!(want.len(), kept, "{case}: the lines the twin keeps");
+            for (n, (cells, wrap)) in want.iter().enumerate() {
+                assert_eq!(
+                    (shown(&cells[..4]), *wrap),
+                    (format!("P{:03}", scrolled - 1 - n), Wrap::Ended),
+                    "{case}: the twin's history, {n} back"
+                );
+            }
+            want
+        };
+        for &(mode, enter, leave, exit) in modes {
+            let phases: [&[u8]; 4] = [primary.as_bytes(), enter, alt.as_bytes(), leave];
+            for reads in [
+                Reads::After(&[3]),
+                Reads::After(&[2, 3]),
+                Reads::After(&[0, 3]),
+                Reads::After(&[0, 1, 2, 3]),
+                Reads::Bytes(1),
+                Reads::Bytes(7),
+            ] {
+                let at = format!("{case}, {mode}, {reads:?}");
+                let mut twin_owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, depth);
+                let mut twin = Term::new(twin_owned.storage(), &ws);
+                support::feed(&mut twin, primary.as_bytes());
+                let mut owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, depth);
+                let mut t = Term::new(owned.storage(), &ws);
+                match reads {
+                    Reads::After(ends) => {
+                        let mut from = 0;
+                        for &to in ends {
+                            let read = phases[from..=to].concat();
+                            assert!(read.len() <= READ_CHUNK, "{at}: one read holds it");
+                            support::feed(&mut t, &read);
+                            if to == 2 {
+                                on_the_alternate_screen(&t, &want, &at);
+                            }
+                            from = to + 1;
+                        }
+                    }
+                    Reads::Bytes(n) => {
+                        for (i, phase) in phases.iter().enumerate() {
+                            for piece in phase.chunks(n) {
+                                support::feed(&mut t, piece);
+                            }
+                            if i == 2 {
+                                on_the_alternate_screen(&t, &want, &at);
+                            }
+                        }
+                    }
+                }
+                assert_eq!(t.screen(), Screen::Normal, "{at}: back on the primary");
+                assert_eq!(
+                    first_difference(&t, &twin),
+                    None,
+                    "{at}: (row, what came back, what was left)"
+                );
+                assert!(support::screen(&t) == support::screen(&twin), "{at}");
+                assert!(history(&t) == want, "{at}: the history read back");
+                let (r, c) = t.cursor();
+                let cursor = match exit {
+                    Exit::Restores => (16, 22),
+                    Exit::Stays => (5, 9),
+                };
+                assert_eq!((r.index(), c.index()), cursor, "{at}: the cursor");
+                support::feed(&mut t, ERASE);
+                support::feed(&mut twin, ERASE);
+                assert_eq!(
+                    first_difference(&t, &twin),
+                    None,
+                    "{at}: after erasing rows 42-50 on both"
+                );
+            }
+        }
+    }
+}
+
+/// The rotation the alternate screen's phase leaves: sixty lines from its top
+/// row scroll ten, `SU 3` three more and `RI` at the top one back.
+const ALT_ROT: usize = 12;
+
+/// What a read that ends on the alternate screen leaves: that screen up,
+/// under a rotation of its own, and the history still the primary's.
+fn on_the_alternate_screen(t: &Term<'_>, want: &[(Vec<PackedCell>, Wrap)], at: &str) {
+    assert_eq!(t.screen(), Screen::Alternate, "{at}: the control");
+    assert_eq!(
+        t.rotation().index(),
+        ALT_ROT,
+        "{at}: the alternate screen's own rotation, not the primary's"
+    );
+    assert!(
+        history(t) == want,
+        "{at}: the history read on the alternate screen is the primary's"
+    );
 }
 
 /// The cursor is saved on the way in and restored on the way out.

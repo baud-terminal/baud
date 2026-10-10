@@ -922,8 +922,9 @@ and dropped.
 ### An operation is done on *both screens*, or it is not done
 
 `EL` and `ED` sat at **done**, with tests, and did **nothing at all** on the
-alternate screen in `OpMode::Runs`. `erase_line`'s span-truncation fast path
-read the `promoted` flag raw; that flag belongs to the primary screen, so on
+alternate screen in `baud-core2`'s `OpMode::Runs`. `erase_line`'s
+span-truncation fast path read the `promoted` flag raw; that flag belonged to
+the primary screen, so on
 the alternate one it was false for every row, the erase took the span path, and
 it returned without touching a cell. `HELLO WORLD` survived an erase-to-end
 from column 6.
@@ -935,23 +936,45 @@ the cost.
 **The enumeration was complete in the wrong dimension.** This file lists the
 operations and `coverage.rs` checks each is mentioned; neither asks *in which
 state* it was exercised. The alternate screen is not an operation and so has no
-row here, but it changes the behaviour of the ones that do — it is where the
-run table stops applying, and every full-screen application spends its whole
-life there.
+row here, but it changes the behaviour of the ones that do — in `baud-core2`
+it was where the run table stopped applying — and every full-screen
+application spends its whole life there.
 
-Two things came from that and both are gates rather than notes:
+Two gates came from that in `baud-core2`, and neither survives as it was
+written: the run table and the op modes went with that core (bcefaae), and
+this one has neither. Here each screen is a surface of its own -- cells,
+extents, ring and rotation -- and `set_alt_screen` swaps the view onto the
+other (`View::swap_surface`), so an operation reaches whichever screen is up
+through the one view. What stands now:
 
-* `erases_on_the_alternate_screen_are_not_swallowed_by_the_span_path` runs six
-  erases in both op modes on the alternate screen. The mode pair is the point:
-  `Computed` was always right, so a fix that broke it to satisfy `Runs` shows
-  up instead of passing.
-* `baud-core/tests/xterm/alt_screen.rs` requires every function touching the
-  run table to be screen-aware. It is structural because the state is
-  **invisible**: in `Runs` nothing renders spans, so a wrongly-zeroed run count
-  cannot be seen through any public accessor, and the first attempt at a
-  behavioural test reproduced the harness trap instead — every case came back
-  empty, including one that did nothing.
+* `erases_on_the_alternate_screen_are_not_swallowed_by_the_span_path`
+  (`baud-core/tests/vt100/scrolling.rs`) runs six erases on the alternate
+  screen, once each: there is one mode, and what it pins is that the surface
+  erased is the surface shown. core2 ran each in `Computed` as well as `Runs`.
+* core2's `screen_isolation.rs` required every function touching its run
+  table to be screen-aware, structurally, because a wrongly zeroed run count
+  showed through no public accessor. It was deleted with that core, and this
+  file then named `baud-core/tests/xterm/alt_screen.rs` in its place, which
+  holds no structural check. A write through to the parked primary, or a
+  primary back under a wrong rotation, shows in its rows, so the checks read
+  rows. A wrong extent does not, until something trusts it: with
+  `View::swap_surface` swapping no extents, every row of
+  `a_scrolled_primary_comes_back_in_the_order_it_left`'s trip compared
+  equal, and the test caught it through what trusts the extents -- the
+  history read back, the erase, and an exit that indexed past the screen.
+  `a_round_trip_through_the_alternate_screen_preserves_the_primary` and
+  `index_on_the_alternate_screen_leaves_the_primary_intact` scroll the
+  alternate screen over a primary that never scrolled, so they fail when the
+  primary comes back under the alternate's rotation and pass when it comes
+  back reset to zero, the rotation it started from.
+  `a_scrolled_primary_comes_back_in_the_order_it_left` scrolls the primary
+  first, to rotations of 24, 33, 11, 111 and 57 (the last three over
+  history), then crosses `?1049` and `?47` and holds every row, the history
+  and the cursor to a twin that never switched, at six ways of cutting the
+  reads; then it erases rows 42-50 on both and compares again, for the
+  extents.
 
 The reviewer's question for a new operation is therefore not only "is there a
-test" but "does it run where applications will run it": both op modes, and the
-alternate screen as well as the primary.
+test" but "does it run where applications will run it": on the alternate
+screen as well as the primary, and over a primary that has scrolled as well
+as one that has not.
