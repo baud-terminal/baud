@@ -1,0 +1,15 @@
+base rows: O1 4080, O2 3696, O3 9600, O4 2418, census 7700
+O1 vs O2: 2880 shared cases, 2880 equal on 10 verdict columns; fnv on 0, 0 equal
+O1 vs O3: 4080 shared cases, 4080 equal on 10 verdict columns; fnv on 0, 0 equal
+O1 vs O4: 1952 shared cases, 1952 equal on 10 verdict columns; fnv on 0, 0 equal
+O1 vs census: 2496 shared cases, 2496 equal on 10 verdict columns; fnv on 0, 0 equal
+O2 vs O3: 3168 shared cases, 3168 equal on 10 verdict columns; fnv on 576, 576 equal
+O2 vs O4: 1568 shared cases, 1568 equal on 10 verdict columns; fnv on 576, 576 equal
+O2 vs census: 1872 shared cases, 1872 equal on 10 verdict columns; fnv on 0, 0 equal
+O3 vs O4: 2096 shared cases, 2096 equal on 10 verdict columns; fnv on 1392, 1392 equal
+O3 vs census: 4608 shared cases, 4608 equal on 10 verdict columns; fnv on 0, 0 equal
+O4 vs census: 884 shared cases, 884 equal on 10 verdict columns; fnv on 0, 0 equal
+O1: 4080 of 4080 base rows are also in another source
+O2: 3168 of 3696 base rows are also in another source
+O3: 6432 of 9600 base rows are also in another source
+O4: 2120 of 2418 base rows are also in another source

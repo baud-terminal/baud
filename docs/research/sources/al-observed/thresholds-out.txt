@@ -1,0 +1,64 @@
+Least opacity for a transition, ink over ground (encoded blend, byte-rounded)
+ground   ink       ground L   ink L  general a*   red a*
+dark     default     0.0052  0.6867      0.3775    never
+dark     white       0.0052  1.0000      0.3160    never
+dark     black       0.0052  0.0000       never    never
+dark     red         0.0052  0.2126      0.7095   0.2450
+light    default     0.8632  0.0203      0.0625    never
+light    white       0.8632  1.0000       never    never
+light    black       0.8632  0.0000      0.0525    never
+light    red         0.8632  0.2126      0.0695   0.7345
+red      default     0.1298  0.6867      0.4470   0.6460
+red      white       0.1298  1.0000      0.3395   0.6060
+red      black       0.1298  0.0000      0.4905   0.9980
+red      red         0.1298  0.2126       never    never
+darkred  default     0.0022  0.6867      0.4005   0.1505
+darkred  white       0.0022  1.0000      0.3385   0.1275
+darkred  black       0.0022  0.0000       never   0.9810
+darkred  red         0.0022  0.2126      0.6925    never
+
+Per term, at the least general opacity of four pairs (cells from the edge):
+
+  black on light: a* = 0.0525
+    fire halo, outside the quad                          0.331 cells
+    fire body inside the quad, n=0.3: opacity            0.693  (flashes)
+    fire body inside the quad, n=0.5: opacity            0.846  (flashes)
+    fire body inside the quad, n=0.7: opacity            0.977  (flashes)
+    fire tongue tip reach above the quad, n=0.6          1.507 cells
+    fire tongue tip reach above the quad, n=0.85         1.562 cells
+    orb halo reach past its radius (0.40)                0.482 cells
+    orb comet peak                                       0.550  (flashes)
+    orb body rim                                         0.450  (flashes)
+
+  default on light: a* = 0.0625
+    fire halo, outside the quad                          0.261 cells
+    fire body inside the quad, n=0.3: opacity            0.693  (flashes)
+    fire body inside the quad, n=0.5: opacity            0.846  (flashes)
+    fire body inside the quad, n=0.7: opacity            0.977  (flashes)
+    fire tongue tip reach above the quad, n=0.6          1.481 cells
+    fire tongue tip reach above the quad, n=0.85         1.539 cells
+    orb halo reach past its radius (0.40)                0.459 cells
+    orb comet peak                                       0.550  (flashes)
+    orb body rim                                         0.450  (flashes)
+
+  white on dark: a* = 0.3160
+    fire halo, outside the quad                          never
+    fire body inside the quad, n=0.3: opacity            0.693  (flashes)
+    fire body inside the quad, n=0.5: opacity            0.846  (flashes)
+    fire body inside the quad, n=0.7: opacity            0.977  (flashes)
+    fire tongue tip reach above the quad, n=0.6          1.047 cells
+    fire tongue tip reach above the quad, n=0.85         1.168 cells
+    orb halo reach past its radius (0.40)                0.112 cells
+    orb comet peak                                       0.550  (flashes)
+    orb body rim                                         0.450  (flashes)
+
+  default on dark: a* = 0.3775
+    fire halo, outside the quad                          never
+    fire body inside the quad, n=0.3: opacity            0.693  (flashes)
+    fire body inside the quad, n=0.5: opacity            0.846  (flashes)
+    fire body inside the quad, n=0.7: opacity            0.977  (flashes)
+    fire tongue tip reach above the quad, n=0.6          0.965 cells
+    fire tongue tip reach above the quad, n=0.85         1.098 cells
+    orb halo reach past its radius (0.40)                never
+    orb comet peak                                       0.550  (flashes)
+    orb body rim                                         0.450  (flashes)

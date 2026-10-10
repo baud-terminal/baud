@@ -1,0 +1,274 @@
+=== O1: 10560 build-cases
+  grid 13x1@60: grounds dark,light; 960 option build-cases
+  grid 24x1@60: grounds dark,light; 960 option build-cases
+  grid 26x1@60: grounds dark,light; 480 option build-cases
+  grid 32x1@120: grounds light; 240 option build-cases
+  grid 32x1@60: grounds dark,light; 960 option build-cases
+  grid 72x1@120: grounds dark,darkred,light,red; 1440 option build-cases
+  grid 72x1@60: grounds dark,darkred,light,red; 1440 option build-cases
+  build  size  | cases | FAIL drawn/apart | strict drawn/apart | worst drawn / apart (case of the drawn) | max fl/s
+  base   13x1 |   480 |    0 / 0    |    0 / 0    |  8,824 /  8,688 (fire 13x1 60Hz black/light every-100ms-across) | 14
+  base   24x1 |   480 |    0 / 0    |    0 / 0    | 16,445 / 15,985 (fire 24x1 60Hz black/light every-100ms-across) | 15
+  base   26x1 |   480 |    0 / 0    |    1 / 1    | 17,445 / 17,090 (orb 26x1 60Hz black/light every-100ms-diag) | 15
+  base   32x1 |   720 |   17 / 14   |   51 / 47   | 26,942 / 26,517 (orb 32x1 120Hz black/light every-100ms-diag) | 17
+  base   72x1 |  1920 |  272 / 240  |  514 / 462  | 56,430 / 54,433 (fire 72x1 120Hz black/light every-100ms-across) | 18
+  o1     13x1 |   480 |    0 / 0    |    0 / 0    |  8,824 /  8,688 (fire 13x1 60Hz black/light every-100ms-across) | 14
+  o1     24x1 |   480 |    0 / 0    |    0 / 0    | 13,646 / 13,088 (fire 24x1 60Hz black/light every-100ms-across) | 15
+  o1     26x1 |   480 |    0 / 0    |    0 / 0    | 13,851 / 13,182 (fire 26x1 60Hz black/light every-100ms-across) | 15
+  o1     32x1 |   720 |    0 / 0    |    0 / 0    | 15,979 / 15,319 (fire 32x1 120Hz black/light every-100ms-diag) | 18
+  o1     72x1 |  1920 |    0 / 0    |    0 / 0    | 16,785 / 14,658 (fire 72x1 120Hz black/light every-100ms-across) | 17
+  o1-29  13x1 |   480 |    0 / 0    |    0 / 0    |  8,824 /  8,688 (fire 13x1 60Hz black/light every-100ms-across) | 14
+  o1-29  24x1 |   480 |    0 / 0    |    0 / 0    | 14,930 / 14,424 (fire 24x1 60Hz black/light every-100ms-across) | 15
+  o1-29  32x1 |   480 |    0 / 0    |    0 / 0    | 15,517 / 14,719 (fire 32x1 60Hz black/light every-100ms-across) | 15
+  o1-29  72x1 |   960 |    0 / 0    |    2 / 0    | 18,730 / 16,989 (orb 72x1 120Hz black/light every-100ms-diag) | 18
+  per effect at 32 and 72 pt, 1x (option builds): FAIL drawn/apart, worst drawn/apart, max fl/s
+    base   fire      32: n=  72 FAIL 6/4 worst 24,944/24,366 strict 24/24 fl/s 15
+    base   fire      72: n= 192 FAIL 64/62 worst 56,430/52,345 strict 96/93 fl/s 15
+    base   ice       32: n=  72 FAIL 0/0 worst 8,668/8,086 strict 0/0 fl/s 11
+    base   ice       72: n= 192 FAIL 0/0 worst 15,479/13,020 strict 27/24 fl/s 10
+    base   lightning 32: n=  72 FAIL 0/0 worst 1,993/1,195 strict 0/0 fl/s 6
+    base   lightning 72: n= 192 FAIL 0/0 worst 10,453/6,368 strict 0/0 fl/s 8
+    base   liquid    32: n=  72 FAIL 0/0 worst 14,087/13,289 strict 0/0 fl/s 17
+    base   liquid    72: n= 192 FAIL 7/2 worst 25,678/22,235 strict 47/38 fl/s 15
+    base   off       32: n=  72 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    base   off       72: n= 192 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    base   orb       32: n=  72 FAIL 11/10 worst 26,942/26,517 strict 21/19 fl/s 11
+    base   orb       72: n= 192 FAIL 61/53 worst 55,801/54,433 strict 86/76 fl/s 12
+    base   plasma    32: n=  72 FAIL 0/0 worst 20,071/19,568 strict 6/4 fl/s 14
+    base   plasma    72: n= 192 FAIL 30/25 worst 41,812/40,293 strict 44/42 fl/s 14
+    base   quad      32: n=  72 FAIL 0/0 worst 17,626/17,140 strict 0/0 fl/s 10
+    base   quad      72: n= 192 FAIL 78/78 worst 36,003/34,682 strict 104/104 fl/s 10
+    base   sweep     32: n=  72 FAIL 0/0 worst 14,322/13,566 strict 0/0 fl/s 10
+    base   sweep     72: n= 192 FAIL 22/20 worst 32,395/28,595 strict 46/42 fl/s 10
+    base   ufo       32: n=  72 FAIL 0/0 worst 6,793/5,995 strict 0/0 fl/s 16
+    base   ufo       72: n= 192 FAIL 10/0 worst 25,007/20,962 strict 64/43 fl/s 18
+    o1     fire      32: n=  72 FAIL 0/0 worst 15,979/15,319 strict 0/0 fl/s 15
+    o1     fire      72: n= 192 FAIL 0/0 worst 16,785/14,658 strict 0/0 fl/s 16
+    o1     ice       32: n=  72 FAIL 0/0 worst 6,820/6,117 strict 0/0 fl/s 11
+    o1     ice       72: n= 192 FAIL 0/0 worst 9,382/6,196 strict 0/0 fl/s 10
+    o1     lightning 32: n=  72 FAIL 0/0 worst 917/119 strict 0/0 fl/s 7
+    o1     lightning 72: n= 192 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 8
+    o1     liquid    32: n=  72 FAIL 0/0 worst 8,219/7,588 strict 0/0 fl/s 18
+    o1     liquid    72: n= 192 FAIL 0/0 worst 10,680/6,884 strict 0/0 fl/s 17
+    o1     off       32: n=  72 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o1     off       72: n= 192 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o1     orb       32: n=  72 FAIL 0/0 worst 14,970/14,172 strict 0/0 fl/s 11
+    o1     orb       72: n= 192 FAIL 0/0 worst 16,737/14,574 strict 0/0 fl/s 11
+    o1     plasma    32: n=  72 FAIL 0/0 worst 12,673/12,172 strict 0/0 fl/s 15
+    o1     plasma    72: n= 192 FAIL 0/0 worst 13,696/11,638 strict 0/0 fl/s 16
+    o1     quad      32: n=  72 FAIL 0/0 worst 11,332/10,848 strict 0/0 fl/s 10
+    o1     quad      72: n= 192 FAIL 0/0 worst 12,158/10,320 strict 0/0 fl/s 10
+    o1     sweep     32: n=  72 FAIL 0/0 worst 9,170/8,398 strict 0/0 fl/s 10
+    o1     sweep     72: n= 192 FAIL 0/0 worst 12,131/8,127 strict 0/0 fl/s 10
+    o1     ufo       32: n=  72 FAIL 0/0 worst 3,246/2,448 strict 0/0 fl/s 16
+    o1     ufo       72: n= 192 FAIL 0/0 worst 6,509/2,481 strict 0/0 fl/s 16
+    o1-29  fire      32: n=  48 FAIL 0/0 worst 15,517/14,719 strict 0/0 fl/s 13
+    o1-29  fire      72: n=  96 FAIL 0/0 worst 18,590/16,017 strict 2/0 fl/s 16
+    o1-29  ice       32: n=  48 FAIL 0/0 worst 4,241/3,521 strict 0/0 fl/s 9
+    o1-29  ice       72: n=  96 FAIL 0/0 worst 9,765/6,670 strict 0/0 fl/s 11
+    o1-29  lightning 32: n=  48 FAIL 0/0 worst 1,010/212 strict 0/0 fl/s 6
+    o1-29  lightning 72: n=  96 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 7
+    o1-29  liquid    32: n=  48 FAIL 0/0 worst 7,800/7,129 strict 0/0 fl/s 15
+    o1-29  liquid    72: n=  96 FAIL 0/0 worst 11,543/7,747 strict 0/0 fl/s 18
+    o1-29  off       32: n=  48 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o1-29  off       72: n=  96 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o1-29  orb       32: n=  48 FAIL 0/0 worst 13,709/12,911 strict 0/0 fl/s 11
+    o1-29  orb       72: n=  96 FAIL 0/0 worst 18,730/16,989 strict 0/0 fl/s 11
+    o1-29  plasma    32: n=  48 FAIL 0/0 worst 12,684/12,176 strict 0/0 fl/s 13
+    o1-29  plasma    72: n=  96 FAIL 0/0 worst 14,880/12,962 strict 0/0 fl/s 15
+    o1-29  quad      32: n=  48 FAIL 0/0 worst 11,993/11,504 strict 0/0 fl/s 10
+    o1-29  quad      72: n=  96 FAIL 0/0 worst 13,233/11,432 strict 0/0 fl/s 10
+    o1-29  sweep     32: n=  48 FAIL 0/0 worst 10,458/9,690 strict 0/0 fl/s 10
+    o1-29  sweep     72: n=  96 FAIL 0/0 worst 12,727/8,729 strict 0/0 fl/s 10
+    o1-29  ufo       32: n=  48 FAIL 0/0 worst 2,223/1,425 strict 0/0 fl/s 11
+    o1-29  ufo       72: n=  96 FAIL 0/0 worst 7,048/3,023 strict 0/0 fl/s 16
+
+=== O2: 7392 build-cases
+  grid 13x1@60: grounds dark,light; 336 option build-cases
+  grid 24x1@60: grounds dark,light; 336 option build-cases
+  grid 26x1@60: grounds dark,light; 336 option build-cases
+  grid 32x1@120: grounds light; 168 option build-cases
+  grid 32x1@60: grounds dark,darkred,light,red; 896 option build-cases
+  grid 72x1@120: grounds dark,darkred,light,red; 728 option build-cases
+  grid 72x1@60: grounds dark,darkred,light,red; 896 option build-cases
+  build  size  | cases | FAIL drawn/apart | strict drawn/apart | worst drawn / apart (case of the drawn) | max fl/s
+  base   13x1 |   336 |    0 / 0    |    0 / 0    |  8,824 /  8,688 (fire 13x1 60Hz black/light every-100ms-across) | 13
+  base   24x1 |   336 |    0 / 0    |    0 / 0    | 16,445 / 15,985 (fire 24x1 60Hz black/light every-100ms-across) | 13
+  base   26x1 |   336 |    0 / 0    |    1 / 1    | 17,445 / 17,090 (orb 26x1 60Hz black/light every-100ms-diag) | 13
+  base   32x1 |  1064 |   17 / 14   |   52 / 47   | 26,942 / 26,517 (orb 32x1 120Hz black/light every-100ms-diag) | 15
+  base   72x1 |  1624 |  309 / 258  |  548 / 470  | 56,430 / 54,433 (fire 72x1 120Hz black/light every-100ms-across) | 18
+  o2     13x1 |   336 |    0 / 0    |    0 / 0    |  8,824 /  8,688 (fire 13x1 60Hz black/light every-100ms-across) | 13
+  o2     24x1 |   336 |    0 / 0    |    0 / 0    | 16,445 / 15,985 (fire 24x1 60Hz black/light every-100ms-across) | 13
+  o2     26x1 |   336 |    0 / 0    |    0 / 0    |  1,088 /    179 (plasma 26x1 60Hz black/light tri-100ms) | 7
+  o2     32x1 |  1064 |    0 / 0    |    0 / 0    |  1,837 /    515 (orb 32x1 120Hz black/light tri-100ms) | 7
+  o2     72x1 |  1624 |    0 / 0    |    0 / 0    | 10,968 /    569 (orb 72x1 120Hz default/light tri-100ms) | 7
+  per effect at 32 and 72 pt, 1x (option builds): FAIL drawn/apart, worst drawn/apart, max fl/s
+    base   fire      32: n= 140 FAIL 6/4 worst 24,944/24,366 strict 24/24 fl/s 15
+    base   fire      72: n= 224 FAIL 73/67 worst 56,430/52,345 strict 119/108 fl/s 15
+    base   ice       32: n=  56 FAIL 0/0 worst 5,084/4,368 strict 0/0 fl/s 8
+    base   ice       72: n=  56 FAIL 0/0 worst 12,066/8,028 strict 12/12 fl/s 9
+    base   lightning 32: n=  56 FAIL 0/0 worst 1,990/1,192 strict 0/0 fl/s 6
+    base   lightning 72: n=  56 FAIL 0/0 worst 10,453/6,368 strict 3/0 fl/s 6
+    base   liquid    32: n=  56 FAIL 0/0 worst 12,128/11,330 strict 0/0 fl/s 13
+    base   liquid    72: n=  84 FAIL 7/2 worst 25,678/22,235 strict 31/24 fl/s 15
+    base   off       32: n= 140 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    base   off       72: n= 224 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    base   orb       32: n= 140 FAIL 11/10 worst 26,942/26,517 strict 22/19 fl/s 11
+    base   orb       72: n= 224 FAIL 77/62 worst 55,801/54,433 strict 108/88 fl/s 12
+    base   plasma    32: n= 140 FAIL 0/0 worst 20,071/19,568 strict 6/4 fl/s 14
+    base   plasma    72: n= 224 FAIL 36/29 worst 41,812/40,293 strict 54/48 fl/s 14
+    base   quad      32: n= 140 FAIL 0/0 worst 17,626/17,140 strict 0/0 fl/s 10
+    base   quad      72: n= 224 FAIL 91/78 worst 36,003/34,682 strict 130/130 fl/s 10
+    base   sweep     32: n= 140 FAIL 0/0 worst 14,322/13,566 strict 0/0 fl/s 10
+    base   sweep     72: n= 224 FAIL 22/20 worst 32,395/28,595 strict 58/42 fl/s 10
+    base   ufo       32: n=  56 FAIL 0/0 worst 3,583/2,785 strict 0/0 fl/s 12
+    base   ufo       72: n=  84 FAIL 3/0 worst 25,007/20,962 strict 33/18 fl/s 18
+    o2     fire      32: n= 140 FAIL 0/0 worst 1,227/515 strict 0/0 fl/s 7
+    o2     fire      72: n= 224 FAIL 0/0 worst 6,941/569 strict 0/0 fl/s 7
+    o2     ice       32: n=  56 FAIL 0/0 worst 1,368/55 strict 0/0 fl/s 6
+    o2     ice       72: n=  56 FAIL 0/0 worst 7,334/53 strict 0/0 fl/s 6
+    o2     lightning 32: n=  56 FAIL 0/0 worst 798/0 strict 0/0 fl/s 6
+    o2     lightning 72: n=  56 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 6
+    o2     liquid    32: n=  56 FAIL 0/0 worst 798/438 strict 0/0 fl/s 6
+    o2     liquid    72: n=  84 FAIL 0/0 worst 4,130/45 strict 0/0 fl/s 5
+    o2     off       32: n= 140 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o2     off       72: n= 224 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o2     orb       32: n= 140 FAIL 0/0 worst 1,837/4 strict 0/0 fl/s 6
+    o2     orb       72: n= 224 FAIL 0/0 worst 10,968/28 strict 0/0 fl/s 7
+    o2     plasma    32: n= 140 FAIL 0/0 worst 1,608/53 strict 0/0 fl/s 7
+    o2     plasma    72: n= 224 FAIL 0/0 worst 8,170/5 strict 0/0 fl/s 7
+    o2     quad      32: n= 140 FAIL 0/0 worst 1,503/0 strict 0/0 fl/s 6
+    o2     quad      72: n= 224 FAIL 0/0 worst 7,810/0 strict 0/0 fl/s 6
+    o2     sweep     32: n= 140 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o2     sweep     72: n= 224 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o2     ufo       32: n=  56 FAIL 0/0 worst 798/20 strict 0/0 fl/s 5
+    o2     ufo       72: n=  84 FAIL 0/0 worst 4,126/172 strict 0/0 fl/s 6
+
+=== O3: 19200 build-cases
+  grid 13x1@120: grounds dark,darkred,light,red; 960 option build-cases
+  grid 13x1@60: grounds dark,darkred,light,red; 960 option build-cases
+  grid 24x1@120: grounds dark,darkred,light,red; 960 option build-cases
+  grid 24x1@60: grounds dark,darkred,light,red; 960 option build-cases
+  grid 26x1@120: grounds dark,darkred,light,red; 960 option build-cases
+  grid 26x1@60: grounds dark,darkred,light,red; 960 option build-cases
+  grid 32x1@120: grounds dark,darkred,light,red; 960 option build-cases
+  grid 32x1@60: grounds dark,darkred,light,red; 960 option build-cases
+  grid 72x1@120: grounds dark,darkred,light,red; 960 option build-cases
+  grid 72x1@60: grounds dark,darkred,light,red; 960 option build-cases
+  build  size  | cases | FAIL drawn/apart | strict drawn/apart | worst drawn / apart (case of the drawn) | max fl/s
+  base   13x1 |  1920 |    0 / 0    |    0 / 0    | 10,115 /  9,979 (fire 13x1 120Hz black/light every-100ms-diag) | 18
+  base   24x1 |  1920 |    0 / 0    |    5 / 3    | 18,675 / 18,288 (fire 24x1 120Hz black/light every-100ms-diag) | 17
+  base   26x1 |  1920 |    0 / 0    |   14 / 11   | 19,970 / 19,751 (orb 26x1 120Hz black/light every-100ms-diag) | 17
+  base   32x1 |  1920 |   17 / 14   |   58 / 51   | 26,942 / 26,517 (orb 32x1 120Hz black/light every-100ms-diag) | 17
+  base   72x1 |  1920 |  272 / 240  |  514 / 462  | 56,430 / 54,433 (fire 72x1 120Hz black/light every-100ms-across) | 18
+  o3     13x1 |  1920 |    0 / 0    |    0 / 0    | 10,115 /  9,979 (fire 13x1 120Hz black/light every-100ms-diag) | 18
+  o3     24x1 |  1920 |    0 / 0    |    5 / 3    | 18,675 / 18,288 (fire 24x1 120Hz black/light every-100ms-diag) | 17
+  o3     26x1 |  1920 |    0 / 0    |    0 / 0    |  5,469 /  4,925 (orb 26x1 120Hz black/light every-100ms-diag) | 9
+  o3     32x1 |  1920 |    0 / 0    |    0 / 0    |  6,425 /  5,627 (orb 32x1 120Hz black/light every-100ms-diag) | 11
+  o3     72x1 |  1920 |    0 / 0    |   54 / 30   | 16,535 / 12,531 (ufo 72x1 120Hz black/light every-100ms-diag) | 9
+  per effect at 32 and 72 pt, 1x (option builds): FAIL drawn/apart, worst drawn/apart, max fl/s
+    base   fire      32: n= 192 FAIL 6/4 worst 24,944/24,366 strict 26/24 fl/s 15
+    base   fire      72: n= 192 FAIL 64/62 worst 56,430/52,345 strict 96/93 fl/s 15
+    base   ice       32: n= 192 FAIL 0/0 worst 8,668/8,086 strict 0/0 fl/s 11
+    base   ice       72: n= 192 FAIL 0/0 worst 15,479/13,020 strict 27/24 fl/s 10
+    base   lightning 32: n= 192 FAIL 0/0 worst 1,993/1,195 strict 0/0 fl/s 6
+    base   lightning 72: n= 192 FAIL 0/0 worst 10,453/6,368 strict 0/0 fl/s 8
+    base   liquid    32: n= 192 FAIL 0/0 worst 14,087/13,289 strict 0/0 fl/s 17
+    base   liquid    72: n= 192 FAIL 7/2 worst 25,678/22,235 strict 47/38 fl/s 15
+    base   off       32: n= 192 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    base   off       72: n= 192 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    base   orb       32: n= 192 FAIL 11/10 worst 26,942/26,517 strict 26/23 fl/s 11
+    base   orb       72: n= 192 FAIL 61/53 worst 55,801/54,433 strict 86/76 fl/s 12
+    base   plasma    32: n= 192 FAIL 0/0 worst 20,071/19,568 strict 6/4 fl/s 14
+    base   plasma    72: n= 192 FAIL 30/25 worst 41,812/40,293 strict 44/42 fl/s 14
+    base   quad      32: n= 192 FAIL 0/0 worst 17,626/17,140 strict 0/0 fl/s 10
+    base   quad      72: n= 192 FAIL 78/78 worst 36,003/34,682 strict 104/104 fl/s 10
+    base   sweep     32: n= 192 FAIL 0/0 worst 14,322/13,566 strict 0/0 fl/s 10
+    base   sweep     72: n= 192 FAIL 22/20 worst 32,395/28,595 strict 46/42 fl/s 10
+    base   ufo       32: n= 192 FAIL 0/0 worst 6,793/5,995 strict 0/0 fl/s 16
+    base   ufo       72: n= 192 FAIL 10/0 worst 25,007/20,962 strict 64/43 fl/s 18
+    o3     fire      32: n= 192 FAIL 0/0 worst 4,570/3,807 strict 0/0 fl/s 9
+    o3     fire      72: n= 192 FAIL 0/0 worst 12,021/7,936 strict 17/12 fl/s 8
+    o3     ice       32: n= 192 FAIL 0/0 worst 1,025/238 strict 0/0 fl/s 9
+    o3     ice       72: n= 192 FAIL 0/0 worst 4,377/292 strict 0/0 fl/s 9
+    o3     lightning 32: n= 192 FAIL 0/0 worst 798/0 strict 0/0 fl/s 6
+    o3     lightning 72: n= 192 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 6
+    o3     liquid    32: n= 192 FAIL 0/0 worst 5,747/4,949 strict 0/0 fl/s 8
+    o3     liquid    72: n= 192 FAIL 0/0 worst 4,852/774 strict 0/0 fl/s 5
+    o3     off       32: n= 192 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o3     off       72: n= 192 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o3     orb       32: n= 192 FAIL 0/0 worst 6,425/5,627 strict 0/0 fl/s 7
+    o3     orb       72: n= 192 FAIL 0/0 worst 9,151/5,113 strict 20/12 fl/s 7
+    o3     plasma    32: n= 192 FAIL 0/0 worst 4,525/3,727 strict 0/0 fl/s 8
+    o3     plasma    72: n= 192 FAIL 0/0 worst 10,867/7,469 strict 12/6 fl/s 8
+    o3     quad      32: n= 192 FAIL 0/0 worst 798/0 strict 0/0 fl/s 6
+    o3     quad      72: n= 192 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 6
+    o3     sweep     32: n= 192 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o3     sweep     72: n= 192 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o3     ufo       32: n= 192 FAIL 0/0 worst 3,084/2,286 strict 0/0 fl/s 11
+    o3     ufo       72: n= 192 FAIL 0/0 worst 16,535/12,531 strict 5/0 fl/s 9
+
+=== O4: 5346 build-cases
+  grid 13x1@60: grounds dark,light; 480 option build-cases
+  grid 24x1@120: grounds light; 144 option build-cases
+  grid 24x1@60: grounds dark,light; 480 option build-cases
+  grid 24x2@120: grounds light; 40 option build-cases
+  grid 24x2@60: grounds dark,light; 192 option build-cases
+  grid 25x1@60: grounds dark,light; 288 option build-cases
+  grid 26x1@60: grounds dark,light; 288 option build-cases
+  grid 32x1@120: grounds light; 20 option build-cases
+  grid 32x1@60: grounds dark,light; 480 option build-cases
+  grid 32x2@60: grounds light; 24 option build-cases
+  grid 72x1@120: grounds dark,light; 108 option build-cases
+  grid 72x1@60: grounds dark,light; 384 option build-cases
+  build  size  | cases | FAIL drawn/apart | strict drawn/apart | worst drawn / apart (case of the drawn) | max fl/s
+  base   13x1 |   480 |    0 / 0    |    0 / 0    |  8,824 /  8,688 (fire 13x1 60Hz black/light every-100ms-across) | 14
+  base   24x1 |   624 |    0 / 0    |    5 / 3    | 18,675 / 18,288 (fire 24x1 120Hz black/light every-100ms-diag) | 16
+  base   24x2 |    10 |    0 / 0    |    2 / 2    | 19,124 / 18,700 (fire 24x2 120Hz black/light every-100ms-diag) | 17
+  base   25x1 |   288 |    0 / 0    |    1 / 1    | 17,370 / 16,875 (fire 25x1 60Hz black/light every-100ms-across) | 13
+  base   26x1 |   288 |    0 / 0    |    1 / 1    | 17,445 / 17,090 (orb 26x1 60Hz black/light every-100ms-diag) | 13
+  base   32x1 |   308 |   14 / 11   |   35 / 33   | 26,942 / 26,517 (orb 32x1 120Hz black/light every-100ms-diag) | 15
+  base   32x2 |    24 |    2 / 2    |   15 / 13   | 24,066 / 23,629 (orb 32x2 60Hz black/light every-100ms-diag) | 13
+  base   72x1 |   396 |  146 / 141  |  183 / 177  | 56,430 / 54,433 (fire 72x1 120Hz black/light every-100ms-across) | 15
+  o4     13x1 |   480 |    0 / 0    |    0 / 0    |  8,824 /  8,688 (fire 13x1 60Hz black/light every-100ms-across) | 14
+  o4     24x1 |   624 |    0 / 0    |    5 / 3    | 18,675 / 18,288 (fire 24x1 120Hz black/light every-100ms-diag) | 16
+  o4     24x2 |   232 |    0 / 0    |    6 / 3    | 19,124 / 18,700 (fire 24x2 120Hz black/light every-100ms-diag) | 17
+  o4     25x1 |   288 |    0 / 0    |    0 / 0    |    495 /      0 (fire 25x1 60Hz default/dark every-100ms-across) | 5
+  o4     26x1 |   288 |    0 / 0    |    0 / 0    |    714 /      0 (fire 26x1 60Hz default/dark every-100ms-across) | 5
+  o4     32x1 |   500 |    0 / 0    |    0 / 0    |    798 /      0 (fire 32x1 60Hz default/dark every-100ms-across) | 5
+  o4     32x2 |    24 |    0 / 0    |    0 / 0    |    798 /      0 (fire 32x2 60Hz black/light every-100ms-across) | 5
+  o4     72x1 |   492 |    0 / 0    |    0 / 0    |  4,085 /      0 (fire 72x1 60Hz default/dark every-100ms-across) | 5
+  per effect at 32 and 72 pt, 1x (option builds): FAIL drawn/apart, worst drawn/apart, max fl/s
+    base   fire      32: n=  54 FAIL 6/4 worst 24,944/24,366 strict 18/18 fl/s 15
+    base   fire      72: n=  66 FAIL 36/36 worst 56,430/52,345 strict 42/42 fl/s 15
+    base   off       32: n=  54 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    base   off       72: n=  72 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    base   orb       32: n=  54 FAIL 8/7 worst 26,942/26,517 strict 15/13 fl/s 11
+    base   orb       72: n=  66 FAIL 36/33 worst 55,801/54,433 strict 42/40 fl/s 12
+    base   plasma    32: n=  50 FAIL 0/0 worst 20,071/19,568 strict 2/2 fl/s 14
+    base   plasma    72: n=  60 FAIL 24/24 worst 41,812/40,293 strict 26/25 fl/s 14
+    base   quad      32: n=  48 FAIL 0/0 worst 16,924/16,430 strict 0/0 fl/s 10
+    base   quad      72: n=  72 FAIL 36/36 worst 36,003/34,682 strict 48/48 fl/s 10
+    base   sweep     32: n=  48 FAIL 0/0 worst 14,322/13,566 strict 0/0 fl/s 10
+    base   sweep     72: n=  60 FAIL 14/12 worst 32,395/28,595 strict 25/22 fl/s 10
+    o4     fire      32: n=  54 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o4     fire      72: n=  66 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o4     ice       32: n=  48 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o4     ice       72: n=  24 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o4     lightning 32: n=  48 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o4     lightning 72: n=  24 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o4     liquid    32: n=  48 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o4     liquid    72: n=  24 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o4     off       32: n=  54 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o4     off       72: n=  72 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o4     orb       32: n=  54 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o4     orb       72: n=  66 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o4     plasma    32: n=  50 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o4     plasma    72: n=  60 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o4     quad      32: n=  48 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o4     quad      72: n=  72 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o4     sweep     32: n=  48 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o4     sweep     72: n=  60 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+    o4     ufo       32: n=  48 FAIL 0/0 worst 798/0 strict 0/0 fl/s 5
+    o4     ufo       72: n=  24 FAIL 0/0 worst 4,085/0 strict 0/0 fl/s 5
+

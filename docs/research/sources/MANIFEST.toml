@@ -36,6 +36,7 @@
 #   AI  where a launched terminal's log lines go: unified logging, files, the journal
 #   AJ  a launch splash: launch guidance, flashing, splash prior art
 #   AK  the window title: OSC titles, derived facts, platform conventions
+#   AL  the cursor trails' flashes: WCAG 2.3.1, broadcast flash rules, OS settings, trail prior art
 
 [sources.simdjson]
 key    = "simdjson"
@@ -17444,3 +17445,2235 @@ sha256 = "e93dead3d7b677bac53813f66e01a6a13a8ec2092f9a1afc555c3fc7b0d14850"
 bytes  = 372
 status = "retrieved"
 group  = "AJ"
+
+# Group AL, note AL (2026-10-09): the cursor trails' flashes and four ways to bound them. WCAG 2.2
+# and its Understanding pages and Techniques, WCAG2ICT, EN 301 549, ITU-R BT.1702, Ofcom, ISO 9241-391
+# (gated), Apple's flashing-lights and motion settings, other software's cursor animations (external).
+# The al-obs-* entries are the four prototypes' census files, the analysis scripts and outputs, and
+# the PNG frames.
+
+[sources.wcag22-understanding-three-flashes-aaa]
+key    = "wcag22-understanding-three-flashes-aaa"
+title  = "Understanding SC 2.3.2 Three Flashes (Level AAA) -- 'regardless of brightness or size'; 'even a single flashing pixel would violate this criterion'; 'an unknown amount of magnification' (page dated Updated 09 March 2026)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Understanding WCAG 2.2"
+url    = "https://www.w3.org/WAI/WCAG22/Understanding/three-flashes.html"
+file   = "wcag22-understanding-three-flashes-aaa.html"
+sha256 = "8a829b6d15982b7ff206658d23c44602a49570ad851ef5e413fee9b6f33dad0a"
+bytes  = 48873
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.wcag22-understanding-seizures]
+key    = "wcag22-understanding-seizures"
+title  = "Understanding Guideline 2.3 Seizures and Physical Reactions -- 'Warnings do not work well because they are often missed'; 'even for a second or two' (page dated Updated 12 January 2026)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Understanding WCAG 2.2"
+url    = "https://www.w3.org/WAI/WCAG22/Understanding/seizures-and-physical-reactions.html"
+file   = "wcag22-understanding-seizures-and-physical-reactions.html"
+sha256 = "74c698da36c1a93eaf40385cd792a9e7e04b89db72ca9cd147ebe519f90341aa"
+bytes  = 29838
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.wcag22-technique-g19]
+key    = "wcag22-technique-g19"
+title  = "Technique G19: Ensuring that no component of the content flashes more than three times in any 1-second period -- seven transitions are 3.5 flashes; the light/dark state at the end of the second matches the start (Updated 15 July 2025)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2025
+venue  = "W3C WAI, Techniques for WCAG 2.2 (informative)"
+url    = "https://www.w3.org/WAI/WCAG22/Techniques/general/G19"
+file   = "wcag22-technique-g19.html"
+sha256 = "64c6c7c72009fcf9984c411a4c407f04dfee23699a7d2ff9691166b94166399f"
+bytes  = 31006
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.wcag22-technique-g176]
+key    = "wcag22-technique-g176"
+title  = "Technique G176: Keeping the flashing area small enough -- 'smaller than a contiguous area of 21,824 sq pixels (any shape)'; 'only one area of the screen is flashing at any time'; enlarging users need G19 (Updated 15 July 2025)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2025
+venue  = "W3C WAI, Techniques for WCAG 2.2 (informative)"
+url    = "https://www.w3.org/WAI/WCAG22/Techniques/general/G176"
+file   = "wcag22-technique-g176.html"
+sha256 = "9f982583616b6baeed01c1de815cf72db91edc02ab017099fdd0bf3cd86ce99b"
+bytes  = 35951
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.wcag22-technique-g15]
+key    = "wcag22-technique-g15"
+title  = "Technique G15: Using a tool to ensure that content does not violate the general flash threshold or red flash threshold -- 'a short pause after each pair of lightning flashes' (Updated 15 July 2025)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2025
+venue  = "W3C WAI, Techniques for WCAG 2.2 (informative)"
+url    = "https://www.w3.org/WAI/WCAG22/Techniques/general/G15"
+file   = "wcag22-technique-g15.html"
+sha256 = "dd42a517982c73dff31ae5a66d53da0e49b41418005f74cf16ca906ab097cef9"
+bytes  = 31035
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.wcag22-errata]
+key    = "wcag22-errata"
+title  = "WCAG 2.2 Errata -- 2025-06-27 editorial: motion animation amended 'to not exclude blurring'; no substantive erratum to the flash thresholds (Last modified 2026/10/01)"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C"
+url    = "https://www.w3.org/WAI/WCAG22/errata/"
+file   = "wcag22-errata.html"
+sha256 = "791f1655a8e2e82a9b0a4a60657d3ad06a1eb5a262243f12ae4476e9c4054ed3"
+bytes  = 13026
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.etsi-en-301549-v4-1-1]
+key    = "etsi-en-301549-v4-1-1"
+title  = "EN 301 549 V4.1.1 (2026-09), Accessibility requirements for ICT products and services -- 11.2.3.1 non-web software shall satisfy Table 11.8 (WCAG 2.3.1); 4.2.9 'at least one mode of operation, that is the default mode, that minimizes the potential for triggering photosensitive seizures'; adopted 24 August 2026"
+author = "ETSI TC Human Factors (HF), CEN, CENELEC"
+year   = 2026
+venue  = "Harmonised European Standard (ETSI)"
+url    = "https://www.etsi.org/deliver/etsi_en/301500_301599/301549/04.01.01_60/en_301549v040101p.pdf"
+file   = ""
+sha256 = "636914c5c18dc58cf7716b8935502f1471de05caf5e1e6ae32469eed929cb824"
+bytes  = 3971655
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.etsi-en-301549-v3-2-1]
+key    = "etsi-en-301549-v3-2-1"
+title  = "EN 301 549 V3.2.1 (2021-03), Accessibility requirements for ICT products and services -- 4.2.9 'the ICT provides at least one mode of operation that minimizes the potential for triggering photosensitive seizures' (no default-mode clause)"
+author = "ETSI TC Human Factors (HF), CEN, CENELEC"
+year   = 2021
+venue  = "Harmonised European Standard (ETSI)"
+url    = "https://www.etsi.org/deliver/etsi_en/301500_301599/301549/03.02.01_60/en_301549v030201p.pdf"
+file   = ""
+sha256 = "1eee3a1841a94567da8e59f3b19a782ce9ab081c386b6a2a763b8cde13ff5b49"
+bytes  = 2285361
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.itu-r-bt1702-3]
+key    = "itu-r-bt1702-3"
+title  = "Recommendation ITU-R BT.1702-3 (11/2023), Guidance for the reduction of photosensitive epileptic seizures caused by television -- 20 cd/m2 below 160 cd/m2; saturated red 'irrespective of luminance'; >25% of screen and >3 flashes a second; leading edges 360 ms (50 Hz) / 334 ms (60 Hz) apart acceptable; >5 s; Annex 4 temporal filtering"
+author = "ITU Radiocommunication Sector (ITU-R), Study Group 6"
+year   = 2023
+venue  = "ITU-R Recommendations, BT Series"
+url    = "https://www.itu.int/dms_pubrec/itu-r/rec/bt/R-REC-BT.1702-3-202311-I!!PDF-E.pdf"
+file   = ""
+sha256 = "9d1167de5553a82c633020a44b5f729118e90ff6536a3b519f1813e235437bf2"
+bytes  = 737512
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.itu-r-bt1702-index]
+key    = "itu-r-bt1702-index"
+title  = "ITU-R Recommendation BT.1702 index -- BT.1702-3 (11/2023) 'In force (Main)'; -2 (10/2019), -1 (07/2018), -0 (02/2005) 'Superseded' (read 2026-10-09)"
+author = "ITU Radiocommunication Sector (ITU-R)"
+year   = 2026
+venue  = "itu.int"
+url    = "https://www.itu.int/rec/R-REC-BT.1702/en"
+file   = ""
+sha256 = "aa4afac174ca96e65cac13b3c41853ba24ec15b85b47e527cb09e1fd956e7b0b"
+bytes  = 12557
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.ofcom-section-2-guidance-notes]
+key    = "ofcom-section-2-guidance-notes"
+title  = "Ofcom Guidance Notes, Section 2: Harm and offence, Issue Twelve (18 July 2017) -- Rule 2.12 Flashing Images; Annex 1, Guidance Note on Flashing Images and Regular Patterns in Television: 20 cd/m2 below 160 cd/m2, saturated red, more than one quarter of the screen and more than three flashes, leading edges '9 frames or more' apart acceptable, more than 5 seconds"
+author = "Ofcom"
+year   = 2017
+venue  = "Ofcom broadcast guidance (via the Internet Archive)"
+url    = "https://web.archive.org/web/20260813153717id_/https://www.ofcom.org.uk/siteassets/resources/documents/tv-radio-and-on-demand/broadcast-guidance/programme-guidance/broadcast-code-guidance/section-2-guidance-notes.pdf?v=322622"
+file   = ""
+sha256 = "3d31a66925fde099ff554dac0defefdfa5b4bdff81120ac0551454cf874e545a"
+bytes  = 186493
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.ofcom-itc-gn-flash-2001]
+key    = "ofcom-itc-gn-flash-2001"
+title  = "ITC Guidance Note for Licensees on Flashing Images and Regular Patterns in Television, revised and re-issued July 2001, editorial amendment June 2002 -- LEGACY DOCUMENT, superseded by Ofcom Guidance Notes Section 2 Annex 1"
+author = "Independent Television Commission"
+year   = 2001
+venue  = "Ofcom legacy documents (via the Internet Archive)"
+url    = "https://web.archive.org/web/20261001040859id_/https://www.ofcom.org.uk/siteassets/resources/documents/tv-radio-and-on-demand/broadcast-guidance/gn_flash.pdf?v=324195"
+file   = ""
+sha256 = "e5b858967a2c0476a49fcf6e06e766ce1f0fe49c4f3bd1aee947a2fad7774ffa"
+bytes  = 636043
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.iso-9241-391-2016-catalogue]
+key    = "iso-9241-391-2016-catalogue"
+title  = "ISO 9241-391:2016 catalogue page -- abstract: requirements and recommendations 'for reducing photosensitive seizures (PSS), while viewing images on electronic displays', applied to 'image contents'; stage 90.92 'to be revised' since 2024-12-16; ISO/CD 9241-391 under development"
+author = "ISO/TC 159/SC 4"
+year   = 2016
+venue  = "iso.org"
+url    = "https://www.iso.org/standard/56350.html"
+file   = ""
+sha256 = "58554f7706f629180258bacc31e82328a701e02406727aa825c8cafc8a9c1e53"
+bytes  = 91708
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.efa-2005-consensus-pubmed]
+key    = "efa-2005-consensus-pubmed"
+title  = "PubMed 16146438: Harding et al., 'Photic- and pattern-induced seizures: expert consensus of the Epilepsy Foundation of America Working Group', Epilepsia 46(9):1423-5 (2005) -- abstract: a flash is a hazard at >=20 cd/m2, >=3 Hz, >=0.006 sr; saturated red a risk"
+author = "G. Harding, A. J. Wilkins, G. Erba, G. L. Barkley, R. S. Fisher"
+year   = 2005
+venue  = "Epilepsia 46(9) (record from NCBI PubMed)"
+url    = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=16146438&retmode=xml"
+file   = ""
+sha256 = "442e1e92f8176973d81a5bbcc9e2ab0b1381d23409637caa5759bb67adc8b381"
+bytes  = 6488
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.trace-peat]
+key    = "trace-peat"
+title  = "Photosensitive Epilepsy Analysis Tool (PEAT) -- free Windows tool for web content and software on WCAG 2.0's thresholds; general flash, red flash, extended flash warnings; commercial broadcast/film/games use prohibited, HardingFPA for those"
+author = "TRACE RERC, University of Maryland"
+year   = 2026
+venue  = "trace.umd.edu"
+url    = "https://trace.umd.edu/peat/"
+file   = ""
+sha256 = "d7b8baf510ceee3acf1186878b648ea0054da0cc4ad2b6a88639dca43ffc6866"
+bytes  = 63156
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.trace-peat-user-guide]
+key    = "trace-peat-user-guide"
+title  = "PEAT User Guide, Version 1.6 -- section 8 'How Seizure Risk is Determined': failure definitions; 'Extended Flash Warning' (any 5 s at one third of ITC/Ofcom failure in 80% of images); red as 'R/(R+G+B) >= 0.8' and '(R-G-B)x320 is > 20'"
+author = "TRACE RERC, University of Maryland"
+year   = 2026
+venue  = "trace.umd.edu"
+url    = "https://trace.umd.edu/photosensitive-epilepsy-analysis-tool-peat-user-guide/"
+file   = ""
+sha256 = "3ba0d25700b5538027e5c547614c3a7bbb81fadcca7f3888ea2bd904eae7afe0"
+bytes  = 103443
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.apple-mediaaccessibility-flashing-lights]
+key    = "apple-mediaaccessibility-flashing-lights"
+title  = "MediaAccessibility, Flashing lights -- the Dim Flashing Lights setting; 'If you have an animation sequence with flashing lights in a game or app that you can control programmatically, adjust the animation accordingly' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/mediaaccessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/flashing-lights.json"
+file   = "apple-mediaaccessibility-flashing-lights.json"
+sha256 = "8990eb147c6407f0b680b751ca2fd6acedaeb573e62d5c484f30caa881dc5f76"
+bytes  = 11779
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.apple-responding-to-flashing-lights-setting]
+key    = "apple-responding-to-flashing-lights-setting"
+title  = "Responding to changes in the flashing lights setting -- 'the device automatically dims video content when the system detects flashing or strobing effects'; Settings > Accessibility > Motion > Dim Flashing Lights (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/mediaaccessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/responding-to-changes-in-the-flashing-lights-setting.json"
+file   = "apple-responding-to-flashing-lights-setting.json"
+sha256 = "60242c8cad593bfbb6db992b37d3d024086da1777f20bbf6f034f6f4c3b3257c"
+bytes  = 18143
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.apple-madimflashinglightsenabled]
+key    = "apple-madimflashinglightsenabled"
+title  = "MADimFlashingLightsEnabled() -- whether the flashing lights setting is enabled; macOS 13.3 (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/mediaaccessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/madimflashinglightsenabled().json"
+file   = "apple-madimflashinglightsenabled.json"
+sha256 = "7b6cfe6401bd6fd9560fa6e5344fd1a0c1e6bfcd2978e2a5ce969d9a9e974e15"
+bytes  = 11227
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.apple-kmadimflashinglightschangednotification]
+key    = "apple-kmadimflashinglightschangednotification"
+title  = "kMADimFlashingLightsChangedNotification -- posts when a person changes the flashing lights setting; macOS 13.3 (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/mediaaccessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/kmadimflashinglightschangednotification.json"
+file   = "apple-kmadimflashinglightschangednotification.json"
+sha256 = "94cad2093749e03a280e90f97047b1804df2905b0183394c822f251953a17614"
+bytes  = 11900
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.apple-maflashinglightsprocessor]
+key    = "apple-maflashinglightsprocessor"
+title  = "MAFlashingLightsProcessor -- 'processes a framebuffer object to detect and dim sequences of flashing lights' in video content drawn without AVFoundation; macOS 14.0 (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/mediaaccessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/maflashinglightsprocessor.json"
+file   = "apple-maflashinglightsprocessor.json"
+sha256 = "3b910b9569ecd27557868b12bcb3a3c1ace3012e1c11564200ec2ae06e32ef4a"
+bytes  = 29863
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.apple-maflashinglightsprocessor-processsurface]
+key    = "apple-maflashinglightsprocessor-processsurface"
+title  = "MAFlashingLightsProcessor.processSurface(_:outSurface:timestamp:options:) -- analyses pixels for sequences of flashing lights and dims; the timestamp sets the real-time frame rate (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/mediaaccessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/maflashinglightsprocessor/processsurface(_:outsurface:timestamp:options:).json"
+file   = "apple-maflashinglightsprocessor-processsurface.json"
+sha256 = "70d4273361bd2c9c2ef7b4dd504a9bcc6b4d4aff388bf33151213d4f59e8f134"
+bytes  = 15839
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.apple-maflashinglightsprocessor-result]
+key    = "apple-maflashinglightsprocessor-result"
+title  = "MAFlashingLightsProcessor.Result -- surfaceProcessed, intensityLevel, mitigationLevel (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/mediaaccessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/maflashinglightsprocessor/result.json"
+file   = "apple-maflashinglightsprocessor-result.json"
+sha256 = "521b8def36b860b3993a2d8de1fd3bf81be5748075cd3f78c1c95031027f84ba"
+bytes  = 12623
+status = "retrieved"
+# Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+group  = "AL"
+
+[sources.macos-sdk-mavideoaccommodations-h]
+key    = "macos-sdk-mavideoaccommodations-h"
+title  = "MAVideoAccommodations.h -- MADimFlashingLightsEnabled CF_AVAILABLE(13_3, 16_4) (23); kMADimFlashingLightsChangedNotification 'CFNotification sent to local notification center' (27)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/MediaAccessibility.framework/Headers/MAVideoAccommodations.h"
+file   = ""
+sha256 = "a366cf750468eeb30ee2fc0cfa6b63b10cf44e6dd5455f0fa41d042efc3da9d8"
+bytes  = 1000
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.macos-sdk-maflashinglightsprocessing-h]
+key    = "macos-sdk-maflashinglightsprocessing-h"
+title  = "MAFlashingLightsProcessing.h -- MAFlashingLightsProcessor API_AVAILABLE(macos(14.0)) (30); 'false on unsupported hardware or unsupported color spaces' (34-35); mitigationLevel and intensityLevel 'Range is [0-100]' (20, 23)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/MediaAccessibility.framework/Headers/MAFlashingLightsProcessing.h"
+file   = ""
+sha256 = "255facd025bdc991b03d367a76f3ce78013fb4562d06206aa7e910727f164eba"
+bytes  = 2331
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.iso-9241-391-2016]
+key    = "iso-9241-391-2016"
+title  = "ISO 9241-391:2016, Ergonomics of human-system interaction -- Part 391: Requirements, analysis and compliance test methods for the reduction of photosensitive seizures (full text, 16 pp.)"
+author = "ISO/TC 159/SC 4"
+year   = 2016
+venue  = "International Standard"
+url    = "https://www.iso.org/standard/56350.html"
+file   = ""
+sha256 = ""
+bytes  = 0
+status = "gated"
+access = "sold by ISO and national bodies; only the catalogue abstract was read (iso-9241-391-2016-catalogue)"
+# Never obtained for note AL; no note may cite it (check-sources.sh check 4).
+group  = "AL"
+
+[sources.efa-2005-consensus]
+key    = "efa-2005-consensus"
+title  = "Photic- and pattern-induced seizures: expert consensus of the Epilepsy Foundation of America Working Group (full text)"
+author = "G. Harding, A. J. Wilkins, G. Erba, G. L. Barkley, R. S. Fisher"
+year   = 2005
+venue  = "Epilepsia 46(9):1423-1425, doi:10.1111/j.1528-1167.2005.31305.x"
+url    = "https://onlinelibrary.wiley.com/doi/full/10.1111/j.1528-1167.2005.31305.x"
+file   = ""
+sha256 = ""
+bytes  = 0
+status = "gated"
+access = "not obtained: Wiley answers curl with a Cloudflare 403; only the PubMed abstract was read (efa-2005-consensus-pubmed)"
+# Never obtained for note AL; no note may cite it (check-sources.sh check 4).
+group  = "AL"
+
+[sources.ofcom-broadcasting-code-section-2]
+key    = "ofcom-broadcasting-code-section-2"
+title  = "The Ofcom Broadcasting Code, Section Two: Harm and Offence (the rule text on photosensitive epilepsy)"
+author = "Ofcom"
+year   = 2026
+venue  = "Ofcom"
+url    = "https://www.ofcom.org.uk/__data/assets/pdf_file/0020/132077/Broadcast-Code-Section-2.pdf"
+file   = ""
+sha256 = ""
+bytes  = 0
+status = "gated"
+access = "ofcom.org.uk answers curl with a Cloudflare challenge (HTTP 403); not sought in the Internet Archive; its rule number (2.12 in the Guidance Notes, 2.13 in a search snippet) is unverified"
+# Never obtained for note AL; no note may cite it (check-sources.sh check 4).
+group  = "AL"
+
+[sources.kitty-cursor-trail-851cb80]
+key    = "kitty-cursor-trail-851cb80"
+title  = "kitty 851cb80, cursor_trail.c -- the dwell gate (189), the start threshold and its exemption for a change of window (79-80), the move history shaders read (62-71, 196)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/cursor_trail.c"
+file   = ""
+sha256 = "b092dfea2e6830b1676af9e6382016b8fc6d6f9b17f83c04c02ace90ac3b1c98"
+bytes  = 8868
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.kitty-trail-lightning-851cb80]
+key    = "kitty-trail-lightning-851cb80"
+title  = "kitty 851cb80, cursor-trail-lightning.slang -- a 0.14 s bolt per move: 'Flash hard', flicker 0.82 + 0.18 sin(age * 95) with age normalised to the bolt (13, 94, 122-127)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/shaders/custom/cursor-trail-lightning.slang"
+file   = ""
+sha256 = "30f53f91be7d41c08e11c0e9e4e533185e14190cf9128d55fb45f0049934ac72"
+bytes  = 5585
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.kitty-trail-lightning-pipeline-851cb80]
+key    = "kitty-trail-lightning-pipeline-851cb80"
+title  = "kitty 851cb80, cursor-trail-lightning.pipeline -- animation_start cursor-trail-move, animation_stop cursor-trail-stop, no animation_step"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/shaders/custom/cursor-trail-lightning.pipeline"
+file   = ""
+sha256 = "16be17bf7f5fec2e19df743a02fdf65811011f13439ef3fe01351d751d6b146b"
+bytes  = 130
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.kitty-trail-particles-851cb80]
+key    = "kitty-trail-particles-851cb80"
+title  = "kitty 851cb80, cursor-trail-particles.slang -- railgun, torpedo, pixiedust 'in the style of the cursor effects in neovide'; pixiedust glitter 0.55 + 0.45 sin(t * 40), t in seconds (5, 55-65, 137, 150-151)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/shaders/custom/cursor-trail-particles.slang"
+file   = ""
+sha256 = "6bdace9186922b05cd7513b7701e39701c9b8fb857853bc1cc921bfdaf794f04"
+bytes  = 8950
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.kitty-trail-railgun-pipeline-851cb80]
+key    = "kitty-trail-railgun-pipeline-851cb80"
+title  = "kitty 851cb80, cursor-trail-railgun.pipeline -- animation_start cursor-trail-move, animation_stop 1000, animation_step 16"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/shaders/custom/cursor-trail-railgun.pipeline"
+file   = ""
+sha256 = "4328fb8a48942c7a6204d0c9b987f29100e340a5652f424fdb29f9cf2cacc3c7"
+bytes  = 179
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.kitty-custom-shader-types-851cb80]
+key    = "kitty-custom-shader-types-851cb80"
+title  = "kitty 851cb80, shaders/custom/types.slang -- cursor_trail_age and cursor_trail_history_age are in seconds (73-75, 104-105)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/shaders/custom/types.slang"
+file   = ""
+sha256 = "60266566747d2d7b2300e10825d37bde661b5636796590bb284764e452cf5652"
+bytes  = 9887
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.kitty-custom-shaders-doc-851cb80]
+key    = "kitty-custom-shaders-doc-851cb80"
+title  = "kitty 851cb80, docs/custom-shaders.rst -- the cursor-trail-move event replaces the built-in trail (455-466); animation_step defaults to 50 ms (284-289)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/docs/custom-shaders.rst"
+file   = ""
+sha256 = "56c2f08a6fcd7cca1820caa09f016b184c2a21ebba7cc3a4afb8ef1287aaeb9d"
+bytes  = 19035
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.kitty-glfw-851cb80]
+key    = "kitty-glfw-851cb80"
+title  = "kitty 851cb80, glfw.c -- a negative cursor_blink_interval takes the platform's, half the macOS period (43-48)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/glfw.c"
+file   = ""
+sha256 = "15fdc0e8fb834194009faa3df0039aa69fa3713b1a1ee0fe31440b40bbd896a2"
+bytes  = 177226
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.kitty-child-monitor-851cb80]
+key    = "kitty-child-monitor-851cb80"
+title  = "kitty 851cb80, child-monitor.c -- cursor-trail-move fires only while target_updated survives both gates (905-917)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/child-monitor.c"
+file   = ""
+sha256 = "7ff90a6719000732ff4524fcd1b518db318575bedd70a3b3a0f28e7569450502"
+bytes  = 103232
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.kitty-shaders-c-851cb80]
+key    = "kitty-shaders-c-851cb80"
+title  = "kitty 851cb80, shaders.c -- cursor_trail_age = seconds since cursor_changed_at (2783-2788); cursor-trail-move suppresses the built-in trail (476, 3288)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/shaders.c"
+file   = ""
+sha256 = "dc71ad10367e8502a45189bc54e749b881c92e43bebd2ac13f7cba379b464678"
+bytes  = 174055
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.kitty-cocoa-window-851cb80]
+key    = "kitty-cocoa-window-851cb80"
+title  = "kitty 851cb80, cocoa_window.m -- cocoa_cursor_blink_interval reads NSTextInsertionPointBlinkPeriodOn/Off/Period from NSUserDefaults (1050-1065)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/kitty/cocoa_window.m"
+file   = ""
+sha256 = "5a81695768b2c47b9d38cbce58d3f53b4f7116783b7caf0e9c95213d4f027115"
+bytes  = 62727
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.neovide-cursor-vfx-c1370a8]
+key    = "neovide-cursor-vfx-c1370a8"
+title  = "Neovide c1370a8, cursor_vfx.rs -- sonicboom, ripple and wireframe restart on every cursor_jumped (179-180), alpha eased from vfx_opacity to 0 (199), up to 3 cell heights across (205-206); trails spawn by distance (310-320)"
+author = "Neovide contributors"
+year   = 2026
+venue  = "neovide/neovide @ c1370a8 (MIT)"
+url    = "https://raw.githubusercontent.com/neovide/neovide/c1370a81517e447c9efe4924dbecf7cc0ada1248/src/renderer/cursor_renderer/cursor_vfx.rs"
+file   = ""
+sha256 = "e3f0967b1fcc77970d276e098622011e55f1ae53ecf090550f777b77ef1a6fd4"
+bytes  = 16676
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.neovide-configuration-c1370a8]
+key    = "neovide-configuration-c1370a8"
+title  = "Neovide c1370a8, website/docs/configuration.md -- animation_length, trail_size, smooth_blink, vfx_mode 'The default, no particles at all' (1259), vfx_opacity 200, particle lifetimes (1366-1399)"
+author = "Neovide contributors"
+year   = 2026
+venue  = "neovide/neovide @ c1370a8 (MIT)"
+url    = "https://raw.githubusercontent.com/neovide/neovide/c1370a81517e447c9efe4924dbecf7cc0ada1248/website/docs/configuration.md"
+file   = ""
+sha256 = "f34e756118904d76aa6c7da9cb1fb09bddb92d7ce8c4a3484a9d924168134395"
+bytes  = 33963
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.ghostty-renderer-thread-246f702]
+key    = "ghostty-renderer-thread-246f702"
+title  = "ghostty 246f702, renderer/Thread.zig -- const CURSOR_BLINK_INTERVAL = 600 (20), not read from the OS (734-746)"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty @ 246f702 (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/246f702876b924a1cb7cade1e99274d1470302fc/src/renderer/Thread.zig"
+file   = ""
+sha256 = "3421a71a216dab2b9c63081ae779bb9a3d883c32d34c9cffb3cbc0580034f724"
+bytes  = 28745
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.vscode-viewcursors-css-ec01053]
+key    = "vscode-viewcursors-css-ec01053"
+title  = "VS Code ec01053, viewCursors.css -- smooth caret is 'transition: all 80ms' (17-18); smooth, phase and expand blink 0.5 s x 20 alternate, then stop (75-85)"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/vscode @ ec01053 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/vscode/ec010535075cfdf90e82862dfe0af2f508012c91/src/vs/editor/browser/viewParts/viewCursors/viewCursors.css"
+file   = ""
+sha256 = "61eb3783f991266e63f49401223d7ef1e6c389816b75b20cbd871df50733b994"
+bytes  = 1809
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.vscode-viewcursors-ts-ec01053]
+key    = "vscode-viewcursors-ts-ec01053"
+title  = "VS Code ec01053, viewCursors.ts -- BLINK_INTERVAL 500 (32), 'explicit' pauses the caret animation for non-explicit moves (130-134), flat blink on an interval with no stop (262-270)"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/vscode @ ec01053 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/vscode/ec010535075cfdf90e82862dfe0af2f508012c91/src/vs/editor/browser/viewParts/viewCursors/viewCursors.ts"
+file   = ""
+sha256 = "b4f2e15e8600c3cf188b35bd3f99a0c8912046dd7d538f3dbb2a22fa6ffee1eb"
+bytes  = 14627
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.vscode-editoroptions-ec01053]
+key    = "vscode-editoroptions-ec01053"
+title  = "VS Code ec01053, editorOptions.ts -- cursorBlinking blink/smooth/phase/expand/solid (6250-6256), cursorSmoothCaretAnimation off/explicit/on (6257-6269)"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/vscode @ ec01053 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/vscode/ec010535075cfdf90e82862dfe0af2f508012c91/src/vs/editor/common/config/editorOptions.ts"
+file   = ""
+sha256 = "2a09e8e63a4d35eb961169d595fee3c0ceff34316c7d19a279776eb74fc7a4b7"
+bytes  = 256048
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.vscode-accessibilityservice-ec01053]
+key    = "vscode-accessibilityservice-ec01053"
+title  = "VS Code ec01053, accessibilityService.ts -- isMotionReduced from workbench.reduceMotion and the prefers-reduced-motion media query (60-96, 169-172)"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/vscode @ ec01053 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/vscode/ec010535075cfdf90e82862dfe0af2f508012c91/src/vs/platform/accessibility/browser/accessibilityService.ts"
+file   = ""
+sha256 = "c345cbe1040210a09357866da8645c240e6970fb8b447d04f81966591fe3fa06"
+bytes  = 8441
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.vscode-workbench-contribution-ec01053]
+key    = "vscode-workbench-contribution-ec01053"
+title  = "VS Code ec01053, workbench.contribution.ts -- workbench.reduceMotion on/off/auto, default auto, 'based on OS configuration' (771-782)"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/vscode @ ec01053 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/vscode/ec010535075cfdf90e82862dfe0af2f508012c91/src/vs/workbench/browser/workbench.contribution.ts"
+file   = ""
+sha256 = "dd332cad67357176396633eaefd55e622b7c782daae2445abbee3695ab5eadda"
+bytes  = 74743
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.wt-renderer-7d06b26]
+key    = "wt-renderer-7d06b26"
+title  = "Windows Terminal 7d06b26, renderer/base/renderer.cpp -- the SGR 5 blink timer repeats every 1 s (34-37, 849-864); the cursor stays on while typing and when the OS disables blinking (1578-1622)"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/terminal @ 7d06b26 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/7d06b26f73ef4bcb78b56647c395251eeee4c2bc/src/renderer/base/renderer.cpp"
+file   = ""
+sha256 = "3ff4ec5cb8b95949b09d8cecfcdfdf8651fae0faebe1baf85be23785c56129fa"
+bytes  = 73317
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.wt-terminalrenderdata-7d06b26]
+key    = "wt-terminalrenderdata-7d06b26"
+title  = "Windows Terminal 7d06b26, TerminalCore/terminalrenderdata.cpp -- cursor blink from SM_CARETBLINKINGENABLED and GetCaretBlinkTime, over 10 s means no blink (41-53)"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/terminal @ 7d06b26 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/7d06b26f73ef4bcb78b56647c395251eeee4c2bc/src/cascadia/TerminalCore/terminalrenderdata.cpp"
+file   = ""
+sha256 = "37d2ec8740fb9df3fb4f1d1a5bf090c7e4b0b4dc3b4c8de228010a0f520d8126"
+bytes  = 6689
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.wt-islandwindow-7d06b26]
+key    = "wt-islandwindow-7d06b26"
+title  = "Windows Terminal 7d06b26, WindowsTerminal/IslandWindow.cpp -- the quake dropdown slide is dropped when SPI_GETCLIENTAREAANIMATION is off (1253-1272)"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/terminal @ 7d06b26 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/7d06b26f73ef4bcb78b56647c395251eeee4c2bc/src/cascadia/WindowsTerminal/IslandWindow.cpp"
+file   = ""
+sha256 = "81092db1e43f5fb55ef7bb56e4cdc658445fc104ccc8ab7e13c96ea752694a3e"
+bytes  = 71408
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.wt-pane-7d06b26]
+key    = "wt-pane-7d06b26"
+title  = "Windows Terminal 7d06b26, TerminalApp/Pane.cpp -- pane animations skipped unless UISettings.AnimationsEnabled and the app setting both allow them (1599-1608, 1929-1937)"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/terminal @ 7d06b26 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/7d06b26f73ef4bcb78b56647c395251eeee4c2bc/src/cascadia/TerminalApp/Pane.cpp"
+file   = ""
+sha256 = "b0384d7c51f442e600a16f54082f557b4d20f1a3b42761996858ed383fc8f1e7"
+bytes  = 122722
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.wt-custom-shader-ps-7d06b26]
+key    = "wt-custom-shader-ps-7d06b26"
+title  = "Windows Terminal 7d06b26, atlas/custom_shader_ps.hlsl -- the retro effect: blur plus fixed scanlines, the time constant declared and unused"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/terminal @ 7d06b26 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/7d06b26f73ef4bcb78b56647c395251eeee4c2bc/src/renderer/atlas/custom_shader_ps.hlsl"
+file   = ""
+sha256 = "f97249a71bd8f26e12705c9d83dd3ac9ce869f879e72570afccd7afa98c283c2"
+bytes  = 2191
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.wt-mtsmsettings-7d06b26]
+key    = "wt-mtsmsettings-7d06b26"
+title  = "Windows Terminal 7d06b26, MTSMSettings.h -- disableAnimations (68), experimental.retroTerminalEffect and experimental.pixelShaderPath (150-152)"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "microsoft/terminal @ 7d06b26 (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/7d06b26f73ef4bcb78b56647c395251eeee4c2bc/src/cascadia/TerminalSettingsModel/MTSMSettings.h"
+file   = ""
+sha256 = "ae1e34c0618df4a30b7cad58ea8a485b5f25eaaa5608275bcfe95c25e487be30"
+bytes  = 22537
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.wt-docs-profile-appearance-c341a63]
+key    = "wt-docs-profile-appearance-c341a63"
+title  = "Windows Terminal docs c341a63, profile-appearance.md -- experimental.retroTerminalEffect (175-188), experimental.pixelShaderPath (535-556)"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "MicrosoftDocs/terminal @ c341a63 (CC-BY-4.0)"
+url    = "https://raw.githubusercontent.com/MicrosoftDocs/terminal/c341a6362f9f0346a17ecc5e1e74d2cd9372c8f9/TerminalDocs/customize-settings/profile-appearance.md"
+file   = ""
+sha256 = "f6414997e1de06f0ef95129d4e314f37e5436d266486fd547e5d0f4a7ae6abe7"
+bytes  = 17901
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.wt-docs-appearance-c341a63]
+key    = "wt-docs-appearance-c341a63"
+title  = "Windows Terminal docs c341a63, appearance.md -- 'Disable pane animations': disableAnimations, default false (207-217)"
+author = "Microsoft Corporation"
+year   = 2026
+venue  = "MicrosoftDocs/terminal @ c341a63 (CC-BY-4.0)"
+url    = "https://raw.githubusercontent.com/MicrosoftDocs/terminal/c341a6362f9f0346a17ecc5e1e74d2cd9372c8f9/TerminalDocs/customize-settings/appearance.md"
+file   = ""
+sha256 = "e4f90d95f5f7c4a694cf612adfc7a99cba0efff1edbc8e856fc7a37b5318df04"
+bytes  = 12929
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.ms-systemparametersinfow-656e965]
+key    = "ms-systemparametersinfow-656e965"
+title  = "SystemParametersInfoW -- SPI_GETCLIENTAREAANIMATION: 'flashing, blinking, flickering, and moving content can cause seizures in users with photo-sensitive epilepsy' (120-130)"
+author = "Microsoft"
+year   = 2024
+venue  = "MicrosoftDocs/sdk-api @ 656e965 (CC-BY-4.0; ms.date 03/27/2024)"
+url    = "https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/656e9656bfaef34dd29cd7ee9e1146aec17e924c/sdk-api-src/content/winuser/nf-winuser-systemparametersinfow.md"
+file   = ""
+sha256 = "a8eedc4f2755f5be3ccaa55715db2213075ad793533a2f976a9fc60f72e2f595"
+bytes  = 144843
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.ms-getcaretblinktime-656e965]
+key    = "ms-getcaretblinktime-656e965"
+title  = "GetCaretBlinkTime -- the user-set caret blink time; INFINITE means the caret does not blink (57-69)"
+author = "Microsoft"
+year   = 2026
+venue  = "MicrosoftDocs/sdk-api @ 656e965 (CC-BY-4.0)"
+url    = "https://raw.githubusercontent.com/MicrosoftDocs/sdk-api/656e9656bfaef34dd29cd7ee9e1146aec17e924c/sdk-api-src/content/winuser/nf-winuser-getcaretblinktime.md"
+file   = ""
+sha256 = "cdecf28a855870a42d2130d1bd712a019500bfe75e1e86a0ef408171b308c513"
+bytes  = 2463
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.ms-uisettings-animationsenabled-8448d5e]
+key    = "ms-uisettings-animationsenabled-8448d5e"
+title  = "UISettings.AnimationsEnabled -- 'Gets whether animations are enabled for the user interface' (13)"
+author = "Microsoft"
+year   = 2026
+venue  = "MicrosoftDocs/winrt-api @ 8448d5e (CC-BY-4.0)"
+url    = "https://raw.githubusercontent.com/MicrosoftDocs/winrt-api/8448d5eecfbc2ed903f659f350841dcb4888bc8b/windows.ui.viewmanagement/uisettings_animationsenabled.md"
+file   = ""
+sha256 = "21ce8a1aeb3f81ba099c65eafc576d4b164cb801ccb0f4b5cf2e071cbfd7fd78"
+bytes  = 415
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.ms-client-area-animation-ca8274d]
+key    = "ms-client-area-animation-ca8274d"
+title  = "Client area animation parameter -- disables flashing, blinking, flickering and moving content for photo-sensitive epilepsy (11-13)"
+author = "Microsoft"
+year   = 2025
+venue  = "MicrosoftDocs/win32 @ ca8274d (CC-BY-4.0; ms.date 07/14/2025)"
+url    = "https://raw.githubusercontent.com/MicrosoftDocs/win32/ca8274decead49403d70ceeed4af8d4ca74eaf11/desktop-src/WinAuto/client-area-animation.md"
+file   = ""
+sha256 = "e993856715374159d8ea7ecfabb93912f2ed16dfeac707fb62acbbe9f7f7307c"
+bytes  = 852
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.gnome-interface-schema-2417a27]
+key    = "gnome-interface-schema-2417a27"
+title  = "gsettings-desktop-schemas 2417a27, org.gnome.desktop.interface -- enable-animations (11-18), cursor-blink, cursor-blink-time 100-2500 ms default 1200, cursor-blink-timeout default 10 s (63-85)"
+author = "the GNOME project"
+year   = 2026
+venue  = "GNOME/gsettings-desktop-schemas @ 2417a27 (LGPL)"
+url    = "https://raw.githubusercontent.com/GNOME/gsettings-desktop-schemas/2417a2727f3551d2da405b7fde1d12f7e4fd3d58/schemas/org.gnome.desktop.interface.gschema.xml.in"
+file   = ""
+sha256 = "ff7b0f1f22c85ee8a134ca4ce78eb293f416409032efefdde9a5923f1bc2d478"
+bytes  = 13555
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.gnome-a11y-interface-schema-2417a27]
+key    = "gnome-a11y-interface-schema-2417a27"
+title  = "gsettings-desktop-schemas 2417a27, org.gnome.desktop.a11y.interface -- reduced-motion, default no-preference (18-24)"
+author = "the GNOME project"
+year   = 2026
+venue  = "GNOME/gsettings-desktop-schemas @ 2417a27 (LGPL)"
+url    = "https://raw.githubusercontent.com/GNOME/gsettings-desktop-schemas/2417a2727f3551d2da405b7fde1d12f7e4fd3d58/schemas/org.gnome.desktop.a11y.interface.gschema.xml.in"
+file   = ""
+sha256 = "4c5fd28b1cd931d09d07594435b344e1c9cde4496bd6c3141e3bdf00d5f03e6a"
+bytes  = 1311
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.gnome-desktop-enums-2417a27]
+key    = "gnome-desktop-enums-2417a27"
+title  = "gsettings-desktop-schemas 2417a27, gdesktop-enums.h -- GDesktopReducedMotion: NO_PREFERENCE, REDUCE (303-306)"
+author = "the GNOME project"
+year   = 2026
+venue  = "GNOME/gsettings-desktop-schemas @ 2417a27 (LGPL)"
+url    = "https://raw.githubusercontent.com/GNOME/gsettings-desktop-schemas/2417a2727f3551d2da405b7fde1d12f7e4fd3d58/headers/gdesktop-enums.h"
+file   = ""
+sha256 = "f6051c4c68623016fcbdbeb1bad6d3c1798483b10fa9768e8096bbb6c97a64ec"
+bytes  = 8348
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.gnome-wm-preferences-schema-2417a27]
+key    = "gnome-wm-preferences-schema-2417a27"
+title  = "gsettings-desktop-schemas 2417a27, org.gnome.desktop.wm.preferences -- visual-bell default false (216-217); visual-bell-type default fullscreen-flash, 'a fullscreen white-black flash' (225-241)"
+author = "the GNOME project"
+year   = 2026
+venue  = "GNOME/gsettings-desktop-schemas @ 2417a27 (LGPL)"
+url    = "https://raw.githubusercontent.com/GNOME/gsettings-desktop-schemas/2417a2727f3551d2da405b7fde1d12f7e4fd3d58/schemas/org.gnome.desktop.wm.preferences.gschema.xml.in"
+file   = ""
+sha256 = "cccc86360fb6fbe451e8b27c97d756c711d85dc21bc191075dab2b8613b055a1"
+bytes  = 12393
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.gtk-macos-settings-e92c46b]
+key    = "gtk-macos-settings-e92c46b"
+title  = "GTK e92c46b, gdk/macos/gdkmacosdisplay-settings.c -- reduced motion from NSWorkspace accessibilityDisplayShouldReduceMotion (66, 133-139)"
+author = "the GTK team"
+year   = 2026
+venue  = "GNOME/gtk @ e92c46b (LGPL)"
+url    = "https://raw.githubusercontent.com/GNOME/gtk/e92c46bf0c891ecf47d371020cdab9568b15c676/gdk/macos/gdkmacosdisplay-settings.c"
+file   = ""
+sha256 = "ed6c29106c25dd93ab62e47324a9199296de9c2d0218c8f5e5633b2cd41aeeed"
+bytes  = 7654
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.gtk-win32-misc-e92c46b]
+key    = "gtk-win32-misc-e92c46b"
+title  = "GTK e92c46b, gdk/win32/gdkwin32misc.c -- reduced motion from SPI_GETCLIENTAREAANIMATION, off means reduce (511-521)"
+author = "the GTK team"
+year   = 2026
+venue  = "GNOME/gtk @ e92c46b (LGPL)"
+url    = "https://raw.githubusercontent.com/GNOME/gtk/e92c46bf0c891ecf47d371020cdab9568b15c676/gdk/win32/gdkwin32misc.c"
+file   = ""
+sha256 = "e75370d12d1e626b810e7912639c2baadbc59a22a96190a06d3f0fe9861a455a"
+bytes  = 17417
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.gtk-wayland-settings-e92c46b]
+key    = "gtk-wayland-settings-e92c46b"
+title  = "GTK e92c46b, gdk/wayland/gdksettings-wayland.c -- enable-animations from org.gnome.desktop.interface (279), reduced-motion from the portal's org.freedesktop.appearance (311, 364-365)"
+author = "the GTK team"
+year   = 2026
+venue  = "GNOME/gtk @ e92c46b (LGPL)"
+url    = "https://raw.githubusercontent.com/GNOME/gtk/e92c46bf0c891ecf47d371020cdab9568b15c676/gdk/wayland/gdksettings-wayland.c"
+file   = ""
+sha256 = "601835cfa729761bb02039f91de4e4e7703c422800d4e29722930389452704f4"
+bytes  = 23827
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.apple-prefersnonblinkingtextinsertionindicator]
+key    = "apple-prefersnonblinkingtextinsertionindicator"
+title  = "AccessibilitySettings.prefersNonBlinkingTextInsertionIndicator -- Prefer Non-Blinking Cursor, 'relevant for apps that draw custom insertion indicators'; macOS 15 (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/accessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/accessibility/accessibilitysettings/prefersnonblinkingtextinsertionindicator.json"
+file   = ""
+sha256 = "a19fe071527b0ed7ba13acfe965a0c625618bce3d07e08b473e3b88dbc6e3819"
+bytes  = 10554
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.apple-prefersnonblinking-didchange]
+key    = "apple-prefersnonblinking-didchange"
+title  = "AccessibilitySettings.prefersNonBlinkingTextInsertionIndicatorDidChangeNotification (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/accessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/accessibility/accessibilitysettings/prefersnonblinkingtextinsertionindicatordidchangenotification.json"
+file   = ""
+sha256 = "45f62cff89e6ddccf0b670e657edf760db8e018236136adb056a415e807de30b"
+bytes  = 13066
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.apple-isreducehighlightingeffectsenabled]
+key    = "apple-isreducehighlightingeffectsenabled"
+title  = "AccessibilitySettings.isReduceHighlightingEffectsEnabled -- macOS 26.4, no abstract (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/accessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/accessibility/accessibilitysettings/isreducehighlightingeffectsenabled.json"
+file   = ""
+sha256 = "5525b0a4c2d2b2b913545276a48de613264967d41422523083a7e73926ad05cb"
+bytes  = 9425
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.apple-reducehighlightingeffects-didchange]
+key    = "apple-reducehighlightingeffects-didchange"
+title  = "AccessibilitySettings.reduceHighlightingEffectsEnabledDidChangeNotification -- macOS 26.4, no abstract (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/accessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/accessibility/accessibilitysettings/reducehighlightingeffectsenableddidchangenotification.json"
+file   = ""
+sha256 = "72112f8076baf7eb7ab8f59cf7b2168d57f4c499ab69565ecba064992f540f17"
+bytes  = 11374
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.apple-animatedimagesenabled]
+key    = "apple-animatedimagesenabled"
+title  = "AccessibilitySettings.animatedImagesEnabled -- the Animated Images setting (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/accessibility"
+url    = "https://developer.apple.com/tutorials/data/documentation/accessibility/accessibilitysettings/animatedimagesenabled.json"
+file   = ""
+sha256 = "25c18e2ebd314a6e5fac4d555a562b7c614452009f263812af64b267c124a123"
+bytes  = 9797
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.apple-swiftui-accessibilitydimflashinglights]
+key    = "apple-swiftui-accessibilitydimflashinglights"
+title  = "EnvironmentValues.accessibilityDimFlashingLights -- 'reduce flashing or strobing lights in video content' (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/swiftui"
+url    = "https://developer.apple.com/tutorials/data/documentation/swiftui/environmentvalues/accessibilitydimflashinglights.json"
+file   = ""
+sha256 = "07ba6eb719dced1f02cd65c855ea0f8fbe7d778eaf63e2c06853b97c560ebeab"
+bytes  = 8296
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.apple-swiftui-accessibilityreducehighlightingeffects]
+key    = "apple-swiftui-accessibilityreducehighlightingeffects"
+title  = "EnvironmentValues.accessibilityReduceHighlightingEffects -- Reduce Bright Effects: draw controls to minimise 'highlighting and flashing of onscreen elements'; macOS 26.4 (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/swiftui"
+url    = "https://developer.apple.com/tutorials/data/documentation/swiftui/environmentvalues/accessibilityreducehighlightingeffects.json"
+file   = ""
+sha256 = "8ef4b7961bc12ab8c06d04bc3de9a890415ace26e116f481938e5f61af2cb74d"
+bytes  = 6215
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.apple-support-mac-motion-settings]
+key    = "apple-support-mac-motion-settings"
+title  = "Mac User Guide, Change Motion settings for accessibility on Mac -- Reduce motion, Dim flashing lights ('For compatible media'; Apple silicon only), Auto-play animated images, Prefer non-blinking cursor (HTML, retrieved 2026-10-09)"
+author = "Apple"
+year   = 2026
+venue  = "support.apple.com/guide/mac-help (macOS 27)"
+url    = "https://support.apple.com/guide/mac-help/change-motion-settings-for-accessibility-mchla3c4f1da/mac"
+file   = ""
+sha256 = "f3d6efe8a99ffe4a7ac3b480ef2244f505cbd4441f6b2029e923b3b87c2bf781"
+bytes  = 720575
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.macos-sdk-axsettings-h]
+key    = "macos-sdk-axsettings-h"
+title  = "AXSettings.h -- AXPrefersNonBlinkingTextInsertionIndicator, 'Apps that draw custom insertion indicators should honor this setting' (32-34); AXReduceHighlightingEffectsEnabled, 'reduce bright effects', macos(26.4) (44-46)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/Accessibility.framework/Headers/AXSettings.h"
+file   = ""
+sha256 = "389bfc220b3cd6b5a670df70f5d7c0d24f86881d5c3577d8480bafc30d841ede"
+bytes  = 7063
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.macos-sdk-nsaccessibility-h]
+key    = "macos-sdk-nsaccessibility-h"
+title  = "NSAccessibility.h -- accessibilityDisplayShouldReduceMotion: 'UI should avoid large animations, especially those that simulate the third dimension' (102-103)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/AppKit.framework/Headers/NSAccessibility.h"
+file   = ""
+sha256 = "03a754431b25b24a2a732a3c9bba3856ddccdbaa5523c0912bd7b5da3b63ef50"
+bytes  = 14733
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.macos-sdk-mediaaccessibility-swiftinterface]
+key    = "macos-sdk-mediaaccessibility-swiftinterface"
+title  = "MediaAccessibility arm64e-apple-macos.swiftinterface -- the refined Swift processSurface and Result (17-31)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/MediaAccessibility.framework/Modules/MediaAccessibility.swiftmodule/arm64e-apple-macos.swiftinterface"
+file   = ""
+sha256 = "5215eaa04845059105c3a4f4d4f25ae75e6da7863cdb8a96bf9c387433bf8f8c"
+bytes  = 1623
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.macos-sdk-swiftuicore-swiftinterface]
+key    = "macos-sdk-swiftuicore-swiftinterface"
+title  = "SwiftUICore arm64e-apple-macos.swiftinterface -- EnvironmentValues.accessibilityDimFlashingLights (23519) and accessibilityReduceHighlightingEffects, macOS 26.4 (23537-23541)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/SwiftUICore.framework/Modules/SwiftUICore.swiftmodule/arm64e-apple-macos.swiftinterface"
+file   = ""
+sha256 = "4fb89ff3d972d507faee2bde0a7e81761a2cb9c744eaf94df810235918c7ac13"
+bytes  = 1472347
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.macos-27-a11y-settings-pse-loctable]
+key    = "macos-27-a11y-settings-pse-loctable"
+title  = "System Settings, AccessibilitySettingsExtension Localizable-PSE.loctable -- photosensitiveMitigation.title = 'Dim flashing lights'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (build 26A5425a), this Mac"
+url    = "/System/Library/ExtensionKit/Extensions/AccessibilitySettingsExtension.appex/Contents/Resources/Localizable-PSE.loctable"
+file   = ""
+sha256 = "8979823f2b80bba38a0922750f566165d64902addf0728dcddd73931b20f2b9d"
+bytes  = 2299
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.macos-27-a11y-settings-loctable]
+key    = "macos-27-a11y-settings-loctable"
+title  = "System Settings, AccessibilitySettingsExtension Localizable.loctable -- 1121 en strings; display.reduceMotion and display.preferNonBlinkingCursor present, no 'Reduce Bright Effects'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (build 26A5425a), this Mac"
+url    = "/System/Library/ExtensionKit/Extensions/AccessibilitySettingsExtension.appex/Contents/Resources/Localizable.loctable"
+file   = ""
+sha256 = "b8ce657504ba95bb0a8cccee6e90959a4456abdc180e64b82a83346dba70d1f5"
+bytes  = 2188050
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.macos-27-a11y-settings-searchterms]
+key    = "macos-27-a11y-settings-searchterms"
+title  = "System Settings, AccessibilitySettingsExtension en.lproj/UniversalAccess.searchTerms -- AX_DIM_FLASHING, 'video, repeated flashing, strobing lights, dimmed'"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (build 26A5425a), this Mac"
+url    = "/System/Library/ExtensionKit/Extensions/AccessibilitySettingsExtension.appex/Contents/Resources/en.lproj/UniversalAccess.searchTerms"
+file   = ""
+sha256 = "44ea1d25e76d059da48173f34c0d9ec835be2df97a321b9d5c9364ec0e7c960a"
+bytes  = 159067
+status = "external"
+# Read for note AL (2026-10-09); hash-verified, not committed -- a vendor page, a
+# copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
+group  = "AL"
+
+[sources.al-obs-o1-census]
+key    = "al-obs-o1-census"
+title  = "Prototype O1 (f5725ab: every trail's footprint capped at its 26 pt or 29 pt cell size): the flash census per case, base beside both caps, 4,080 cases"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench on f5725ab with and without features flash-o1 and flash-o1-29, joined by o1-analyze.py"
+file   = "al-observed/o1-census.tsv"
+sha256 = "1162a4cde65de439ee7c74b7f60a36711a43127b0b4a7ff1c8e441dbafec55e8"
+bytes  = 728273
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o2-census]
+key    = "al-obs-o2-census"
+title  = "Prototype O2 (4ccd622: repeat passes above a 32 pt cell drawn under the flash thresholds): the flash census per case with the pixel check's columns, base beside O2, 3,696 cases"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench on 4ccd622 with and without feature flash-o2, joined by o2-analyze.py"
+file   = "al-observed/o2-census.tsv"
+sha256 = "525b31b3f23b68020f8561c54c4429f986d734cdd74b6e07b28d3fda27db86e7"
+bytes  = 679180
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o3-census]
+key    = "al-obs-o3-census"
+title  = "Prototype O3 (dc2fce3: one ignition or sweep a second above a 32 pt cell): the flash census per case on the full 1x grid, quad and sweep included, base beside O3, 9,600 cases"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench on dc2fce3 with and without feature flash-o3, joined by o3-analyse.py"
+file   = "al-observed/o3-census.tsv"
+sha256 = "d20da6e7c09c3db5d04fa65c61bfc42671d4d9b8a315cc0b666992faa489a81c"
+bytes  = 1469280
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o4-census]
+key    = "al-obs-o4-census"
+title  = "Prototype O4 (43b72d7: no trail above a 32 pt cell, and Dim Flashing Lights read): the flash census per case, base beside O4, 2,928 cases"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench on 43b72d7 with and without feature flash-o4, joined by o4-analyze.py"
+file   = "al-observed/o4-census.tsv"
+sha256 = "eccca9e0fe9f9924f84e617a7bcb268759f6105e56b14dce19d9f7e2f561ccc4"
+bytes  = 459131
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-options-table-tool]
+key    = "al-obs-options-table-tool"
+title  = "options_table.py: note AL's results tables, grouped from the four prototypes' census files, each figure scoped to the grid its option ran"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for note AL"
+file   = "al-observed/options_table.py"
+sha256 = "2c08bd7549455c7a5f125222e289e6c7286642d8f1e6fb2924094ff3d364ae15"
+bytes  = 5617
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-options-table]
+key    = "al-obs-options-table"
+title  = "options_table.py's output: per build and size, FAIL drawn and apart, strict, worst area and most flashes a second at a pixel"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 -I options_table.py"
+file   = "al-observed/options_table-out.txt"
+sha256 = "1ff0c9e2a3d7bd1d89d5bb17f3a22f09fd6d4901bbb98a84d36e8900995419d2"
+bytes  = 22547
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-base-frames-tool]
+key    = "al-obs-base-frames-tool"
+title  = "base_frames.py: are the base frames that more than one prototype rendered byte-identical across them (the control for the shared scratch binary overwritten during the runs)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for note AL"
+file   = "al-observed/base_frames.py"
+sha256 = "2c1d46210e17022a1b127955cfc73312d7ea9a3098018151c640e3152abe8683"
+bytes  = 1541
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-base-frames]
+key    = "al-obs-base-frames"
+title  = "base_frames.py's output: 288 base frames rendered by two or more prototypes, all byte-identical"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 -I base_frames.py .claude/research/flash-fix"
+file   = "al-observed/base_frames-out.txt"
+sha256 = "2217aa653e00ed66bb82ad068bb48e5b024c4a5e7bccaf4606915cd1712bd3f4"
+bytes  = 130
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-cross-base-tool]
+key    = "al-obs-cross-base-tool"
+title  = "cross_base.py: joins the four prototypes' base rows with each other and with the committed census, comparing the verdict columns and the frame hashes"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for note AL"
+file   = "al-observed/cross_base.py"
+sha256 = "000ad8ce5feffd1cb2c76a00ed6bec5a2ca9fb023a0c85f38b40b03d60af771e"
+bytes  = 4058
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-cross-base]
+key    = "al-obs-cross-base"
+title  = "cross_base.py's output: every shared base row equal on ten verdict columns across the four prototypes and the committed census, and every shared frame hash equal"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 -I cross_base.py . docs/research/sources/aj-observed/flash-census.tsv"
+file   = "al-observed/cross_base-out.txt"
+sha256 = "1c865e21271fd0fb5bb602550f4eb9ac355a4f7b69c65ee1ee8ec8a070df5ff1"
+bytes  = 1113
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-gates-tool]
+key    = "al-obs-gates-tool"
+title  = "gates.py: note AL's harness gates recomputed from the four prototypes' raw runs -- the bench's controls, the A/A frame hashes, cmp of the binaries kept, which harness wrote each run, the shared scratch bin/ as found, and base rows by provenance"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for note AL"
+file   = "al-observed/gates.py"
+sha256 = "d2a2ef763d6b10ffb040dcea1049c98ee1cd149afd8ab807e224a87933191003"
+bytes  = 9167
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-gates]
+key    = "al-obs-gates"
+title  = "gates.py's output, 2026-10-09: the controls as required in every run file of all four prototypes, the A/A hashes equal in all four, base and option binaries different where both were kept (O1, O3), O2's and O4's binaries not kept and the shared bin/'s flash-base carrying O2's harness, and O1's base rows split 1,969 run and 2,111 copied from the committed census; section 5 read the scratch bin/, which a reboot wipes, so a rerun cannot repeat it and differs in its read-at line"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 -I gates.py .claude/research/flash-fix <scratchpad>/bin docs/research/sources/aj-observed/flash-census.tsv"
+file   = "al-observed/gates-out.txt"
+sha256 = "6e733a8f5adef1f1067dd1a627f35ccab3db9325a60f2ce7dbcbc3df8d659fc8"
+bytes  = 6554
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o2-drop-dark]
+key    = "al-obs-o2-drop-dark"
+title  = "Prototype O2's attribution arm (FLASH_DROP_PARTICLES=1, wrong by construction: particle records left out), 72 pt on the dark page: the pixel check over repeat frames"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench on 4ccd622 with flash-o2 and FLASH_DROP_PARTICLES=1"
+file   = "al-observed/o2-drop-particles-72x1-dark.tsv"
+sha256 = "d710d5d2e5eabc695679dab47823a02c7a9c1c5c8277dbc64f658ea1d359cf61"
+bytes  = 8551
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o2-drop-light]
+key    = "al-obs-o2-drop-light"
+title  = "Prototype O2's attribution arm (particle records left out), 72 pt on the light page: the pixel check over repeat frames"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench on 4ccd622 with flash-o2 and FLASH_DROP_PARTICLES=1"
+file   = "al-observed/o2-drop-particles-72x1-light.tsv"
+sha256 = "0df742eabde83b9658a6bedd01a4919f9166617765e4c46bbf1d22f42ce43180"
+bytes  = 8616
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o4-live]
+key    = "al-obs-o4-live"
+title  = "Prototype O4's live check: baud launched with scratch configs at 13, 24, 25 and 32 pt and BAUD_FLASHING unset, full or dim; each launch's info lines, including motion, flashing, cell and trail"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "BAUD_LOG=info BAUD_CONFIG=<scratch> baud, on 43b72d7; the files concatenated by head with their names"
+file   = "al-observed/o4-live.txt"
+sha256 = "f3f4696e883ab8d46533aa94455d24396a2236594e494c9ae1c1b0635b74084c"
+bytes  = 14463
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o1-analyze-tool]
+key    = "al-obs-o1-analyze-tool"
+title  = "Prototype O1's analysis script: gates, hash controls and totals"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written by the O1 prototype"
+file   = "al-observed/o1-analyze.py"
+sha256 = "72268cff9c0ea5b4034f06fd165b3278179b1a074f2e75e27c32ccfd41070785"
+bytes  = 8496
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o1-analyze]
+key    = "al-obs-o1-analyze"
+title  = "Prototype O1's analysis output: the census gate row, the 13 pt hash controls, burn-time changes and totals per size"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 o1-analyze.py"
+file   = "al-observed/o1-analyze-out.txt"
+sha256 = "944a0baedab0024d23fcabe5f1ddc34dd5bed30b6848725f55d3ad83b1b56837"
+bytes  = 4227
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o2-analyze-tool]
+key    = "al-obs-o2-analyze-tool"
+title  = "Prototype O2's analysis script"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written by the O2 prototype"
+file   = "al-observed/o2-analyze.py"
+sha256 = "af51e18adc18262db56d9fbc2229a28a57dce8126067da60492963807ca28842"
+bytes  = 5345
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o2-astar-tool]
+key    = "al-obs-o2-astar-tool"
+title  = "Prototype O2's caps: the largest byte alpha under which each ink over each ground makes no general or red transition, less one step"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written by the O2 prototype"
+file   = "al-observed/o2-astar.py"
+sha256 = "246655bd7c6bf752541350d630c13c0131bbf76a9f85f0178100702a32e5f1a6"
+bytes  = 2706
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o2-summary]
+key    = "al-obs-o2-summary"
+title  = "Prototype O2's summary per effect, size, rate and ground, with the pixel check (largest |dL| over repeat frames, transitions, records over the cap)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 o2-analyze.py"
+file   = "al-observed/o2-summary.tsv"
+sha256 = "4b07fe9b498b7884954e50c53cb78cf5d45382b24abaf961651495d1e5bd1156"
+bytes  = 10937
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o3-analyse-tool]
+key    = "al-obs-o3-analyse-tool"
+title  = "Prototype O3's analysis script"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written by the O3 prototype"
+file   = "al-observed/o3-analyse.py"
+sha256 = "7753cc99914b838af662985af576734270fab7d37f5689f614e322be7a1561c5"
+bytes  = 9534
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o3-analysis]
+key    = "al-obs-o3-analysis"
+title  = "Prototype O3's analysis output: the census gate, hash controls, base and O3 per arm and size, and the comparison with the replica's v4"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 o3-analyse.py"
+file   = "al-observed/o3-analysis.txt"
+sha256 = "0d2a34080fdf45dfc77b8eb516d8a00146db903e59ac8092e0c62a379be8d487"
+bytes  = 17706
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o4-analyze-tool]
+key    = "al-obs-o4-analyze-tool"
+title  = "Prototype O4's analysis script"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written by the O4 prototype"
+file   = "al-observed/o4-analyze.py"
+sha256 = "4aa7ee0158f07c4a3c5b9c1df08c93a85a00ae55d847eaae3f679e4c1cede8ae"
+bytes  = 5976
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o4-summary-tool]
+key    = "al-obs-o4-summary-tool"
+title  = "Prototype O4's summary script"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written by the O4 prototype"
+file   = "al-observed/o4-summary.py"
+sha256 = "af5f5afe250d253049225c83d0fee5b0609ee1b23d901c3cca0783c6b668dc3a"
+bytes  = 4889
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o4-summary]
+key    = "al-obs-o4-summary"
+title  = "Prototype O4's summary per effect, size and rate, base beside O4 (a Markdown table, kept as .txt)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 o4-summary.py"
+file   = "al-observed/o4-summary.txt"
+sha256 = "29b63e6f18e8faefd3a1796f393122e61884080bdf97537a1684c0b569ae6b59"
+bytes  = 10267
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-o4-pollcost-tool]
+key    = "al-obs-o4-pollcost-tool"
+title  = "Prototype O4's standalone probe timing dim_flashing_lights() against reduce_motion() (its output was not kept)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written by the O4 prototype"
+file   = "al-observed/o4-pollcost-main.rs"
+sha256 = "5d06a63d92ce1c761c678e70723321ff0fca77034a30ed1ff11e6e63b053f4ab"
+bytes  = 1718
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-cell-sizes]
+key    = "al-obs-cell-sizes"
+title  = "The flash bench's cell lines at 24 and 25 pt, 1x and 2x: 24 pt at 1x is a 32 px (32 pt) cell, on the 32 pt gate"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench stderr, prototype O4's base binary"
+file   = "al-observed/cell-sizes.txt"
+sha256 = "d6aeba6823a3690c4c278e8e829f5ae2db88227067b5f8591a26720accd404bd"
+bytes  = 724
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-census-tool]
+key    = "al-obs-census-tool"
+title  = "census.py: reproduces the d098cb7 census's tables from flash-census.tsv and fits flashing area against cell height"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for the flash-fix analysis"
+file   = "al-observed/census.py"
+sha256 = "179007879518d62bea3897d2c540ca671a389b061d98c8b2174a83387b20acea"
+bytes  = 13569
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-census-out]
+key    = "al-obs-census-out"
+title  = "census.py's output"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 census.py"
+file   = "al-observed/census-out.txt"
+sha256 = "3e539d15a4d569aa598832cb828f1cdb07bc021fa8aca55b0e5b5819b1f9e48b"
+bytes  = 19237
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-thresholds-tool]
+key    = "al-obs-thresholds-tool"
+title  = "thresholds.py: the least opacity at which each cursor colour over each ground makes a 2.3.1 transition, on the census's encoded byte-rounded blend"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for the flash-fix analysis"
+file   = "al-observed/thresholds.py"
+sha256 = "d48e657bbed50f7122b9ed403efe5d84e8f8d9c3d4eab1780797bd1c768e651e"
+bytes  = 6073
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-thresholds]
+key    = "al-obs-thresholds"
+title  = "thresholds.py's output"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 thresholds.py"
+file   = "al-observed/thresholds-out.txt"
+sha256 = "e2b5681c95650182cae7b15679c4e6a57ebacb2d6a7ad0f38869561dff4145a9"
+bytes  = 3816
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-cargo]
+key    = "al-obs-replica-cargo"
+title  = "The CPU replica of the flash bench: its scratch crate's Cargo.toml (renamed so cargo never reads it from the sources tree)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for the flash-fix analysis"
+file   = "al-observed/replica-Cargo.toml"
+sha256 = "d1dac1c121959d7499560073dcd9be1a88f65fad8f683564ed2284b0936b47fa"
+bytes  = 412
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-main]
+key    = "al-obs-replica-main"
+title  = "The CPU replica of the flash bench: main.rs, driving the shipped trail.rs and flash.rs by #[path]"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for the flash-fix analysis"
+file   = "al-observed/replica-main.rs"
+sha256 = "d1d4293817d30889b19f9e87c94d755278161e641f2e121b3726373cb476b0e0"
+bytes  = 13890
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-refs]
+key    = "al-obs-replica-refs"
+title  = "The CPU replica: the pixel oracle's references for shading, with the ceiling arms"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for the flash-fix analysis"
+file   = "al-observed/replica-refs.rs"
+sha256 = "fdfc4e585c4dc29a08cf3d7972e5d08b7cd6b985e057694b1fc90845aee3123c"
+bytes  = 12369
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-trailx]
+key    = "al-obs-replica-trailx"
+title  = "The CPU replica: a scratch copy of trail.rs with the retarget variants v1-v4"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for the flash-fix analysis"
+file   = "al-observed/replica-trailx.rs"
+sha256 = "614e1ae663f7f6737ae8547ec25c16e4e5c2a597434a13524ebab7491bb4f089"
+bytes  = 20208
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-gate-tool]
+key    = "al-obs-replica-gate-tool"
+title  = "The replica's gate against the census rows"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for the flash-fix analysis"
+file   = "al-observed/replica-gate.py"
+sha256 = "5d957263f16508e8ead5d0f8d68906143af0c2aaaa13811e709d0b87eae7a273"
+bytes  = 1132
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-tab-tool]
+key    = "al-obs-replica-tab-tool"
+title  = "The replica's tabulator"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for the flash-fix analysis"
+file   = "al-observed/replica-tab.py"
+sha256 = "2e8d9feb5304d5c36ae30c5cbb5c3fa9dabf9dea5940526f8dd76056741b0c8a"
+bytes  = 1182
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-matrix-tool]
+key    = "al-obs-replica-matrix-tool"
+title  = "The replica's variant matrix: 7 effects x 4 retarget motions x 2 rates x 11 ink/ground pairs per variant and size"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for the flash-fix analysis"
+file   = "al-observed/replica-matrix.py"
+sha256 = "2ec9ee7b70283d9e8677dd22ad68210432004f1eb7d9f03cfc49dba737ee6b0e"
+bytes  = 3415
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-matrix]
+key    = "al-obs-replica-matrix"
+title  = "The replica's gate (528 census rows, 0 verdicts different) and its variant matrix: v1, v3 and v4 at 32 and 72 pt"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 replica-matrix.py"
+file   = "al-observed/replica-matrix-out.txt"
+sha256 = "39991aad7f5bbb75a75aa261fea90a1ef8ba4414403f69abc04fac41a240c75a"
+bytes  = 4989
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-out1]
+key    = "al-obs-replica-out1"
+title  = "Replica run 1: ceiling arms per shading term (no halo, no particles, no tongues, the quad body only, outside only; the orb's body, comet and halo), fire and orb, 32 and 72 pt"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "replica, jobs1"
+file   = "al-observed/replica-out1.tsv"
+sha256 = "38685fc359ddc96b25992980a8e69f06ba45aba3e00a3fd81f4956be5f3b2f58"
+bytes  = 30749
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-out2]
+key    = "al-obs-replica-out2"
+title  = "Replica run 2: one opacity factor on every record (50%, 25%, 10%), the driver variants v0-v3 and the smear arms, on the worst cases"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "replica, jobs2"
+file   = "al-observed/replica-out2.tsv"
+sha256 = "d4ed20b5b97555a40d9031e6dc0675b3c3af4a1907e77764b79771f6e72d54c7"
+bytes  = 13272
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-out3]
+key    = "al-obs-replica-out3"
+title  = "Replica run 3: the size crossings, 16-64 pt"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "replica, jobs3"
+file   = "al-observed/replica-out3.tsv"
+sha256 = "005a3544bbe1268ddd2bb3d52c85b2d059f290e3715b2d9f1946a2f78dfaf3cb"
+bytes  = 29406
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-out4]
+key    = "al-obs-replica-out4"
+title  = "Replica run 4: the driver variants v1, v3 and v4 at 13, 32 and 72 pt, with two ceiling arms"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "replica, jobs4"
+file   = "al-observed/replica-out4.tsv"
+sha256 = "f43f78c78bc54837f401fe5a5e59017fef147738fe523356419ceb227e1f3a95"
+bytes  = 4425
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-out7]
+key    = "al-obs-replica-out7"
+title  = "Replica run 7: ceiling arms over the fire's failures at 32 pt, and sizes near the crossings"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "replica, jobs7"
+file   = "al-observed/replica-out7.tsv"
+sha256 = "15be6dbfc0ab68c0c4df0d3adff9d3d4bb5c81cc3295baf49c882d2508aff7c7"
+bytes  = 29905
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-replica-out56]
+key    = "al-obs-replica-out56"
+title  = "Replica runs 5-6: the variant matrix's cases"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "replica, jobs56"
+file   = "al-observed/replica-out56.tsv"
+sha256 = "245c8ca5e35aeaf328535a9b9b8cd34b75270e38df762e5b8afd31247442f175"
+bytes  = 1031383
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-base-fire32-f39]
+key    = "al-obs-png-base-fire32-f39"
+title  = "Frame 39 (0.650 s) of the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, the shipped trail (base); byte-identical in all four prototypes"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build"
+file   = "al-observed/base-fire32-f39.png"
+sha256 = "70c89006fb5a7aac5952827772b8cca4450cecc3b8c057c810232e0c4148ef28"
+bytes  = 67770
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-base-fire32-footprint]
+key    = "al-obs-png-base-fire32-footprint"
+title  = "footprint: each pixel's value farthest in relative luminance from the first frame, over the whole run: the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, the shipped trail (base); byte-identical in all four prototypes"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build"
+file   = "al-observed/base-fire32-footprint.png"
+sha256 = "53739a1767eef56e6a001d92b42d4c738d7d26bd1ad7a4865e0223841e62b010"
+bytes  = 159137
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-o1-fire32-f39]
+key    = "al-obs-png-o1-fire32-f39"
+title  = "Frame 39 (0.650 s) of the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, under O1 (26 pt cap)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1"
+file   = "al-observed/o1-fire32-f39.png"
+sha256 = "c130bf98c3889d06aa1d4a5d906d9b6a6bf02c843ed371424b5d04e4052e9dd5"
+bytes  = 53573
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-o1-fire32-footprint]
+key    = "al-obs-png-o1-fire32-footprint"
+title  = "footprint: each pixel's value farthest in relative luminance from the first frame, over the whole run: the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, under O1 (26 pt cap)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1"
+file   = "al-observed/o1-fire32-footprint.png"
+sha256 = "de349fc575019c08d9ac5a9d406d7b37f10e1eb588924b1012fe0a9d872464ce"
+bytes  = 111661
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-base-fire72-f31]
+key    = "al-obs-png-base-fire72-f31"
+title  = "Frame 31 (0.517 s) of the fire, 72 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, the shipped trail (base)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build"
+file   = "al-observed/base-fire72-f31.png"
+sha256 = "a280bd1fb7388a3d09d8ec122c072f0230bb0cf162edd2905954ef5119152ce1"
+bytes  = 90027
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-o1-fire72-f31]
+key    = "al-obs-png-o1-fire72-f31"
+title  = "Frame 31 (0.517 s) of the fire, 72 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, under O1 (26 pt cap)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1"
+file   = "al-observed/o1-fire72-f31.png"
+sha256 = "eebb3e1b410a167bb1431053813de3eeaa2306afc77cba5e31d234e46bf10774"
+bytes  = 66640
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-base-fire72-footprint]
+key    = "al-obs-png-base-fire72-footprint"
+title  = "footprint: each pixel's value farthest in relative luminance from the first frame, over the whole run: the fire, 72 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, the shipped trail (base)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build"
+file   = "al-observed/base-fire72-footprint.png"
+sha256 = "cf32e5fbe395b04a174b79a0ac1b767645a0dee22bde836de41dad031790ce35"
+bytes  = 323057
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-o1-fire72-footprint]
+key    = "al-obs-png-o1-fire72-footprint"
+title  = "footprint: each pixel's value farthest in relative luminance from the first frame, over the whole run: the fire, 72 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, under O1 (26 pt cap)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, f5725ab flash-o1"
+file   = "al-observed/o1-fire72-footprint.png"
+sha256 = "20ade3005c19061da21aef771e2093aab6ff4f1bbf21b05c30c48257b55e3f25"
+bytes  = 141762
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-base-fire32-f19]
+key    = "al-obs-png-base-fire32-f19"
+title  = "Frame 19 (0.317 s, the second move) of the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, the shipped trail (base)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build"
+file   = "al-observed/base-fire32-f19.png"
+sha256 = "8f590fc747814696f8da7c641313e8e7cc9d9550823f4c2a927d114a35c77e8e"
+bytes  = 49819
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-o2-fire32-f19]
+key    = "al-obs-png-o2-fire32-f19"
+title  = "Frame 19 (0.317 s, the second move, where O2 first draws a repeat) of the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, under O2"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 4ccd622 flash-o2"
+file   = "al-observed/o2-fire32-f19.png"
+sha256 = "e9fe5c3c3b1ba65f5601b1438c4f1671d1e6d1c7fcf0b340df5184e860f232c1"
+bytes  = 27184
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-o2-fire32-f39]
+key    = "al-obs-png-o2-fire32-f39"
+title  = "Frame 39 (0.650 s) of the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, under O2"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 4ccd622 flash-o2"
+file   = "al-observed/o2-fire32-f39.png"
+sha256 = "8cf57e214402c1ec6f355e7fdc214a973b753e3657873eef8b8ec448c188d8f6"
+bytes  = 30726
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-o2-fire32-footprint]
+key    = "al-obs-png-o2-fire32-footprint"
+title  = "footprint: each pixel's value farthest in relative luminance from the first frame, over the whole run: the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, under O2"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 4ccd622 flash-o2"
+file   = "al-observed/o2-fire32-footprint.png"
+sha256 = "8d8c274359c8b9ea83b9a398ff63a7fc3cbfd8277740400c6d465d67c5aeb0e7"
+bytes  = 149751
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-o3-fire32-f39]
+key    = "al-obs-png-o3-fire32-f39"
+title  = "Frame 39 (0.650 s) of the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, under O3"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, dc2fce3 flash-o3"
+file   = "al-observed/o3-fire32-f39.png"
+sha256 = "5443dce9a9150b6c70a52c4f8c0f80dd52c30d255d3f727699f1925b3529cc85"
+bytes  = 22383
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-o3-fire32-footprint]
+key    = "al-obs-png-o3-fire32-footprint"
+title  = "footprint: each pixel's value farthest in relative luminance from the first frame, over the whole run: the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, under O3"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, dc2fce3 flash-o3"
+file   = "al-observed/o3-fire32-footprint.png"
+sha256 = "03fc793746f8337729c313b5ab133f2524e2a2afd8053b0bdcc853528119e50e"
+bytes  = 192430
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-base-fire32-f43]
+key    = "al-obs-png-base-fire32-f43"
+title  = "Frame 43 (0.717 s, after the shipped trail relights at 0.6 s) of the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, the shipped trail (base)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build"
+file   = "al-observed/base-fire32-f43.png"
+sha256 = "ad17b923b793f4ee5b953f323d47e5bf0d6abbd4037f1c06b3eb6865e64fca3c"
+bytes  = 52563
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-o3-fire32-f43]
+key    = "al-obs-png-o3-fire32-f43"
+title  = "Frame 43 (0.717 s) of the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, under O3, which lights nothing new there"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, dc2fce3 flash-o3"
+file   = "al-observed/o3-fire32-f43.png"
+sha256 = "a45b2d4702212f106ee9ac8f097a01ad7f9bb5cf72396ae79b605f0ea18faf0a"
+bytes  = 21325
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-o4-fire32-footprint]
+key    = "al-obs-png-o4-fire32-footprint"
+title  = "footprint: each pixel's value farthest in relative luminance from the first frame, over the whole run: the fire, 32 pt at 1x, 60 Hz, black cursor on the light page #EFEFEF, jumping every 100 ms on the diagonal, under O4 (no trail above the gate); frame 39 of the same run is byte-identical to it"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 43b72d7 flash-o4"
+file   = "al-observed/o4-fire32-footprint.png"
+sha256 = "e29d14130b2cd32cfaab8b7ff85722af1185a954df4efc9121867541010ab350"
+bytes  = 18801
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-base-fire13-f39]
+key    = "al-obs-png-base-fire13-f39"
+title  = "Frame 39 (0.650 s) of the fire, 13 pt at 1x, 60 Hz, the theme cursor #272727 on the light page #EFEFEF, jumping every 100 ms on the diagonal, the shipped default trail at the default size"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build"
+file   = "al-observed/base-fire13-f39.png"
+sha256 = "83c5b36d72b8c4538ce0d1c230c4ad02a227bb46c3947bf3b21e47121727d861"
+bytes  = 33270
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-png-o4-dim13-f39]
+key    = "al-obs-png-o4-dim13-f39"
+title  = "Frame 39 (0.650 s) of the fire, 13 pt at 1x, 60 Hz, the theme cursor #272727 on the light page #EFEFEF, jumping every 100 ms on the diagonal with the trail off: what O4 draws for the default trail under Dim Flashing Lights (the off arm; the bench does not read the setting)"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, 43b72d7 flash-o4, off arm"
+file   = "al-observed/o4-dim13-f39.png"
+sha256 = "01334094b93a87badd824bd45723d2b2dbb58731076c0ef665585aadc449de03"
+bytes  = 8298
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
+# the url says how it was made. Committed because the scratch directory it came from
+# does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"

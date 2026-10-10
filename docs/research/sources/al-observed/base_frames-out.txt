@@ -1,0 +1,2 @@
+base frames rendered by 2+ prototypes: 288; byte-identical across them: 288
+by how many prototypes rendered each: {2: 96, 4: 192}

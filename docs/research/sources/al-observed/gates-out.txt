@@ -1,0 +1,104 @@
+== 1. the bench's controls, every run file (4 Hz block must FAIL, 2 Hz block must pass)
+  proto-O1: 139 run files carry the controls; block-2hz as required: 146, block-4hz as required: 146
+  proto-O2: 48 run files carry the controls; block-2hz as required: 51, block-4hz as required: 51
+  proto-O3: 47 run files carry the controls; block-2hz as required: 94, block-4hz as required: 94
+  proto-O4: 53 run files carry the controls; block-2hz as required: 56, block-4hz as required: 56
+
+== 2. A/A: the base at 13 pt 1x run twice, frame hashes compared case by case
+  proto-O1: base-13x1-60-hashA.tsv vs base-13x1-60-hashB.tsv: 482 rows hashed in both (480 cases and 2 control blocks), 482 equal
+  proto-O2: base-13x1-a.tsv vs base-13x1-b.tsv: 338 rows hashed in both (336 cases and 2 control blocks), 338 equal
+  proto-O3: base-13x1-dark.tsv base-13x1-darkred.tsv base-13x1-light.tsv base-13x1-red.tsv vs base-aa-13x1-dark.tsv base-aa-13x1-darkred.tsv base-aa-13x1-light.tsv base-aa-13x1-red.tsv: 1924 rows hashed in both (1920 cases and 4 control blocks), 1924 equal
+  proto-O4: min-base-13x1.tsv vs again-base-13x1.tsv: 290 rows hashed in both (288 cases and 2 control blocks), 290 equal
+
+== 3. cmp of the base and option binaries, where both were kept
+  proto-O1: bin/flash-base vs bin/flash-o1: differ (3860320 and 3860320 bytes)
+  proto-O1: bin/flash-base vs bin/flash-o1-29: differ (3860320 and 3860336 bytes)
+  proto-O3: runs/flash-base vs runs/flash-o3: differ (3861504 and 3861504 bytes)
+  proto-O2, proto-O4: no binary kept in the prototype's directory; they built into the shared scratch bin/ (section 5), where later builds replaced earlier ones
+
+== 4. which harness wrote each run file (O2's harness adds over_cap, repeat, under_dl, under_over, under_red)
+  proto-O1: 139 run files: none of them 139
+  proto-O2: 48 run files: O2's columns 48
+  proto-O3: 47 run files: none of them 47
+  proto-O4: 60 run files: none of them 60
+
+== 5. the shared scratch bin/, as found when this ran
+  read at 2026-10-09T23:13:38-06:00
+  flash-base       3859696 bytes  modified 2026-10-09T20:35:32-06:00  sha256 d56985c71f68c9055bb391d6b5c5f33105dd18cb0e91826ed2ee2037248bc34d  carries "under_dl": yes
+  flash-o2         3861376 bytes  modified 2026-10-09T20:36:10-06:00  sha256 e8e78025688936a00e83bfb966939de4cda7eb1f94e76cf4fe79b7a50b203428  carries "under_dl": yes
+  flash-o4         3862048 bytes  modified 2026-10-09T20:35:55-06:00  sha256 f5a5b092743286b3df3e4c5910e0288f51e0941dc5870a2a96eb676d816b407c  carries "under_dl": no
+  flash-pristine   3754464 bytes  modified 2026-10-09T20:16:52-06:00  sha256 883a9dd5db77d045823286bbf486ebd11dde13be5ad594c5ec2e5b4434f94bc3  carries "under_dl": no
+  negative control proto-O1/bin/flash-base: carries "under_dl": no
+  negative control proto-O3/runs/flash-base: carries "under_dl": no
+
+== 6. base rows by provenance
+  O1: 4080 base rows; 1969 from O1's own base runs, 2111 not run by O1 (2111 of them taken from the committed census)
+  O2's base rows by build: first build 24 pt 336, first build 32 pt 336, first build 72 pt 336, d9ed4bd 32 pt 728, d9ed4bd 72 pt 952, 4ccd622 13 pt 336, 4ccd622 26 pt 336, 4ccd622 72 pt 336
+  O2's option rows by build: d9ed4bd 13 pt 336, d9ed4bd 24 pt 336, d9ed4bd 32 pt 1064, d9ed4bd 72 pt 1288, 4ccd622 26 pt 336, 4ccd622 72 pt 336
+  O1-own: 1969 base rows, 1969 shared with another prototype's own run, 0 not shared
+  O2: 3696 base rows, 3168 shared with another prototype's own run or the census, 528 not shared
+      13x1 60 Hz light/dark effect or off tri-100ms: 32
+      13x1 60 Hz light/dark quad tri-100ms: 8
+      13x1 60 Hz light/dark sweep tri-100ms: 8
+      24x1 60 Hz light/dark effect or off tri-100ms: 32
+      24x1 60 Hz light/dark quad tri-100ms: 8
+      24x1 60 Hz light/dark sweep tri-100ms: 8
+      26x1 60 Hz light/dark effect or off tri-100ms: 32
+      26x1 60 Hz light/dark quad tri-100ms: 8
+      26x1 60 Hz light/dark sweep tri-100ms: 8
+      32x1 120 Hz light/dark effect or off tri-100ms: 16
+      32x1 120 Hz light/dark quad tri-100ms: 4
+      32x1 120 Hz light/dark sweep tri-100ms: 4
+      32x1 60 Hz light/dark effect or off tri-100ms: 64
+      32x1 60 Hz light/dark quad tri-100ms: 8
+      32x1 60 Hz light/dark sweep tri-100ms: 8
+      32x1 60 Hz red grounds effect or off tri-100ms: 32
+      32x1 60 Hz red grounds quad tri-100ms: 8
+      32x1 60 Hz red grounds sweep tri-100ms: 8
+      72x1 120 Hz light/dark effect or off tri-100ms: 40
+      72x1 120 Hz light/dark quad tri-100ms: 8
+      72x1 120 Hz light/dark sweep tri-100ms: 8
+      72x1 120 Hz red grounds effect or off tri-100ms: 32
+      72x1 120 Hz red grounds quad tri-100ms: 8
+      72x1 120 Hz red grounds sweep tri-100ms: 8
+      72x1 60 Hz light/dark effect or off tri-100ms: 64
+      72x1 60 Hz light/dark quad tri-100ms: 8
+      72x1 60 Hz light/dark sweep tri-100ms: 8
+      72x1 60 Hz red grounds effect or off tri-100ms: 32
+      72x1 60 Hz red grounds quad tri-100ms: 8
+      72x1 60 Hz red grounds sweep tri-100ms: 8
+  O3: 9600 base rows, 6432 shared with another prototype's own run or the census, 3168 not shared
+      13x1 120 Hz light/dark quad: 48
+      13x1 120 Hz light/dark sweep: 48
+      13x1 120 Hz red grounds quad: 48
+      13x1 120 Hz red grounds sweep: 48
+      13x1 60 Hz red grounds quad: 48
+      13x1 60 Hz red grounds sweep: 48
+      24x1 120 Hz light/dark effect or off: 288
+      24x1 120 Hz light/dark quad: 24
+      24x1 120 Hz light/dark sweep: 24
+      24x1 120 Hz red grounds effect or off: 384
+      24x1 120 Hz red grounds quad: 48
+      24x1 120 Hz red grounds sweep: 48
+      24x1 60 Hz red grounds effect or off: 384
+      24x1 60 Hz red grounds quad: 48
+      24x1 60 Hz red grounds sweep: 48
+      26x1 120 Hz light/dark effect or off: 384
+      26x1 120 Hz light/dark quad: 48
+      26x1 120 Hz light/dark sweep: 48
+      26x1 120 Hz red grounds effect or off: 384
+      26x1 120 Hz red grounds quad: 48
+      26x1 120 Hz red grounds sweep: 48
+      26x1 60 Hz red grounds effect or off: 384
+      26x1 60 Hz red grounds quad: 48
+      26x1 60 Hz red grounds sweep: 48
+      32x1 120 Hz light/dark quad: 24
+      32x1 120 Hz light/dark sweep: 24
+      32x1 120 Hz red grounds quad: 48
+      32x1 120 Hz red grounds sweep: 48
+  O4: 2418 base rows, 2120 shared with another prototype's own run or the census, 298 not shared
+      24x2 120 Hz light/dark effect or off: 2
+      24x2 60 Hz light/dark effect or off: 8
+      25x1 60 Hz light/dark effect or off: 192
+      25x1 60 Hz light/dark quad: 48
+      25x1 60 Hz light/dark sweep: 48
