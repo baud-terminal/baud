@@ -215,7 +215,7 @@ A frame stays a pure function of what the driver hands the renderer. baud-render
 
 **L1. Config** (config.rs; every platform)
 - `reduce_motion_turns_the_default_off_and_leaves_a_named_trail`: `Default` and every `Named`, crossed with `Full` and `Reduced`. Red against an `effective` that ignores the motion.
-- `the_cursor_trail_is_the_fire_unless_named` (config.rs:916-955), updated:
+- `the_cursor_trail_is_the_plasma_unless_named` (config.rs:916-955), updated:
   - named values map to `Named(..)`;
   - `true` and `yes` map to `Default`;
   - `yes` still produces one complaint.

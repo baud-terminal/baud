@@ -1,6 +1,7 @@
 //! **The fire trail**: a procedural flame rising off kitty's collapsing quad,
 //! and embers the emitter sheds along its path -- the research's "burning
-//! fuse", the owner's default trail since 2026-09-25 (note V). One effect of
+//! fuse", the owner's default trail from 2026-09-25 until 2026-10-10, when
+//! the plasma replaced it (their call of 2026-09-29; note V). One effect of
 //! the family in [`crate::effect`], which holds what every effect shares: the
 //! ignition, the records and the uniform. This is the fire's own: its
 //! numbers, its life and its embers.

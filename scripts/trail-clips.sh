@@ -16,7 +16,7 @@
 #
 # It checks what it made rather than trusting it:
 #   - baud read the generated config without a complaint, so a clip labelled
-#     "quad" cannot silently be the default fire;
+#     "quad" cannot silently be the default plasma;
 #   - the recorder refuses a window that was not frontmost, a clip under its
 #     frame floor, or one whose writer dropped more than 1% of the frames,
 #     and the first and last are retried;

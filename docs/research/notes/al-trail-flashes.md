@@ -56,13 +56,15 @@ reading unless it says strict. Two other counts disagree with it (section
 ## 0. In plain words
 
 - **What fails today.** At the default 13 pt every trail passes WCAG 2.3.1 in
-  every case counted. At 32 pt the fire, the shipped default trail, and the
-  orb fail when the cursor jumps back and forth on the light theme's page.
-  At 72 pt, the View menu's zoom limit, five effects fail, and so do the
-  plain quad and the sweep (**M**, section 3). The plasma, which the owner
-  made the default on 2026-09-29 and which is not yet built as the default,
-  passes at 32 pt (92% of the limit) and fails at 72 pt. A configured font
-  size can go above 72 pt, and no size above 72 pt was counted.
+  every case counted. At 32 pt the fire, the shipped default trail at this
+  note's date, and the orb fail when the cursor jumps back and forth on the
+  light theme's page. At 72 pt, the View menu's zoom limit, five effects
+  fail, and so do the plain quad and the sweep (**M**, section 3). The
+  plasma, which the owner made the default on 2026-09-29 and which has
+  shipped as the default since 2026-10-10 (the record, "The plasma is the
+  default trail, and the fire stays by name"), passes at 32 pt (92% of the
+  limit) and fails at 72 pt. A configured font size can go above 72 pt,
+  and no size above 72 pt was counted.
 - **Why.** `REIGNITE` limits how often an effect is lit, not how often the
   same pixels light up. Each jump inside it sweeps the burning effect back
   over the same band, so one pixel can flash many times in one second: 15
@@ -1176,7 +1178,10 @@ put with the same measures, from section 4.6.
 4. **The default trail.** The owner made the plasma the default on
    2026-09-29, replacing the fire; it is not built, and the decision is
    kept only in `TODO.md` (gitignored), whose P4 item 3 note AJ's section
-   3.2 cites. So the shipped default is still the fire. Both, on the
+   3.2 cites. So the shipped default is still the fire. (Built since,
+   2026-10-10: the plasma is the shipped default, the fire kept by name, the
+   flash bounding unchanged; the record, "The plasma is the default trail,
+   and the fire stays by name". The questions below stand.) Both, on the
    shipped driver (**M**; disjoint drawn/apart, then strict):
 
    | size | fire | plasma |
@@ -1190,10 +1195,11 @@ put with the same measures, from section 4.6.
    Under the options at 72 pt the plasma fails nothing on the disjoint
    reading; on the strict reading O3 leaves 12 (6 apart) and the others
    none. The questions: does the 2026-09-29 decision stand with these
-   figures; does the option chosen in Q1 apply to the default as built (the
-   fire) or as decided (the plasma); and does it also cover note AJ's
-   launch splash, which reuses the plasma over a logo-sized area that no
-   option measured? EN 301 549 4.2.9 asks for a default mode that
+   figures; does the option chosen in Q1 apply to the default as built at
+   this note's date (the fire) or as decided (the plasma, built since
+   2026-10-10); and does it also cover note AJ's launch splash, which
+   reuses the plasma over a logo-sized area that no option measured?
+   EN 301 549 4.2.9 asks for a default mode that
    "minimizes the potential for triggering photosensitive seizures";
    whether that means passing 2.3.1 or no trail by default is not said.
 5. **Which sizes must pass?** Two separate questions, since the

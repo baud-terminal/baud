@@ -104,6 +104,7 @@ pub struct Config {
     /// [`TrailPick`]. **On by default**, the owner's call on 2026-09-25,
     /// where sfte ships its own `SFTE_CURSOR_TRAIL` off: an idle terminal
     /// pays nothing for it, because only a cursor that moved spawns one.
+    /// The default is the plasma, the owner's call of 2026-09-29.
     /// `false` turns it off, and the default goes off under Reduce Motion
     /// where a named trail does not.
     pub cursor_trail: TrailPick,
@@ -284,21 +285,23 @@ pub enum ThemeChoice {
     Light,
 }
 
-/// Which trail a cursor move leaves, from `[cursor] trail`: a fire rising
-/// off kitty's quad -- the default, the owner's call, drawn as the quad on
-/// the CPU path -- kitty's quad, whose four corners chase the cursor's,
-/// sfte's sweep, a box swept from a tail chasing the cursor and fading out
-/// toward it, baud's first trail, a one-cell ghost sweeping between the
-/// cells, or none. `true` is the default and `false` is `off`, so a config
-/// written when the key was a switch reads as it did.
+/// Which trail a cursor move leaves, from `[cursor] trail`: a plasma over
+/// kitty's quad -- the default, the owner's call of 2026-09-29, replacing
+/// the fire of 2026-09-25, and drawn as the quad on the CPU path -- a fire
+/// rising off the quad and the rest of the effect family, kitty's quad,
+/// whose four corners chase the cursor's, sfte's sweep, a box swept from a
+/// tail chasing the cursor and fading out toward it, baud's first trail, a
+/// one-cell ghost sweeping between the cells, or none. `true` is the
+/// default and `false` is `off`, so a config written when the key was a
+/// switch reads as it did.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum CursorTrail {
     Off,
     Ghost,
     Sweep,
     Quad,
-    #[default]
     Fire,
+    #[default]
     Plasma,
     Lightning,
     Ice,
@@ -358,7 +361,7 @@ pub enum SystemMotion {
 #[cfg(any(target_os = "macos", test))]
 impl TrailPick {
     /// The trail drawn: a named one whatever the system says, and the
-    /// default one -- the fire -- unless the system asked for reduced
+    /// default one -- the plasma -- unless the system asked for reduced
     /// motion, when none.
     pub fn effective(self, motion: SystemMotion) -> CursorTrail {
         match (self, motion) {
@@ -1293,7 +1296,7 @@ mod reader {
         );
         assert_eq!(
             TrailPick::Default.effective(SystemMotion::Full),
-            CursorTrail::Fire
+            CursorTrail::Plasma
         );
         for t in TRAILS {
             for m in [SystemMotion::Full, SystemMotion::Reduced] {
@@ -1363,17 +1366,18 @@ mod reader {
         }
     }
 
-    /// The cursor trail is the fire unless `[cursor] trail` names another,
-    /// quoted or not; `true` and `false` read as they did when the key was a
-    /// switch -- the default and none -- and a value that names no trail
-    /// leaves the default with a warning rather than being read as one.
+    /// The cursor trail is the plasma unless `[cursor] trail` names another,
+    /// quoted or not -- the owner's call of 2026-09-29, replacing the fire.
+    /// `true` and `false` read as they did when the key was a switch -- the
+    /// default and none -- and a value that names no trail leaves the
+    /// default with a warning rather than being read as one.
     #[test]
-    fn the_cursor_trail_is_the_fire_unless_named() {
+    fn the_cursor_trail_is_the_plasma_unless_named() {
         assert_eq!(Config::defaults().cursor_trail, TrailPick::Default);
         assert_eq!(
             TrailPick::Default.effective(SystemMotion::Full),
-            CursorTrail::Fire,
-            "the default is the fire"
+            CursorTrail::Plasma,
+            "the default is the plasma"
         );
         let n = TrailPick::Named;
         for (value, want) in [
@@ -2186,6 +2190,17 @@ shadow     = "never"
         // it under Reduce Motion -- so the section's landing is the shape and
         // blink below, which are named.
         assert_eq!(c.cursor_trail, TrailPick::Default);
+        // What it says the default is, it is: the prose and the commented
+        // line both name the trail the reader runs by default.
+        let default = trail_name(CursorTrail::default());
+        assert!(
+            text.contains(&format!("\"{default}\", the default,")),
+            "config.toml.example calls another trail the default"
+        );
+        assert!(
+            text.contains(&format!("\n# trail = \"{default}\"\n")),
+            "config.toml.example's commented trail is not the default"
+        );
         assert_eq!(
             (
                 c.cursor_shape,

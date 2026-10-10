@@ -133,15 +133,15 @@ floor = 1.2
 # output. `stop_blinking_after` stops it, shown, after that many seconds
 # without a key, a click or a paste -- output does not count; 0 is never.
 #
-# `trail`: what a cursor move leaves behind. "fire", the default, is a flame
-# in the cursor's colour rising off kitty's trail as it collapses onto the
-# cursor, burning out from the tail and shedding embers along the path; on the
-# CPU path it draws kitty's trail alone. "plasma" is a faint tube over the
-# same trail with three filaments braided into the cursor and ions curling off
-# the path, dimming out over about half a second; it too is kitty's trail
-# alone on the CPU path. "lightning" is a jagged bolt from the old cell to the
-# cursor that draws itself in, holds and fades in a third of a second, with
-# forks, a corona and falling sparks; kitty's trail alone on the CPU path.
+# `trail`: what a cursor move leaves behind. "plasma", the default, is a faint
+# tube in the cursor's colour over kitty's trail as it collapses onto the
+# cursor, with three filaments braided into the cursor and ions curling off
+# the path, dimming out over about half a second; on the CPU path it draws
+# kitty's trail alone. "fire" is a flame rising off the same trail, burning
+# out from the tail and shedding embers along the path; it too is kitty's
+# trail alone on the CPU path. "lightning" is a jagged bolt from the old cell
+# to the cursor that draws itself in, holds and fades in a third of a second,
+# with forks, a corona and falling sparks; kitty's trail alone on the CPU path.
 # "ice" lays a lace of frost crystals along the path that holds, glints and
 # melts tail first into falling hexagonal platelets, in about 0.7 s; kitty's
 # trail alone on the CPU path. "ufo" is a flying saucer that swoops along the
@@ -178,7 +178,7 @@ shape = "block"
 blink = "auto"
 stop_blinking_after = 0
 trail_scroll = "ride"
-# trail = "fire"
+# trail = "plasma"
 
 # Whether switching to or from the alternate screen (opening or leaving a
 # full-screen program like vim or less) fades the new screen in from the

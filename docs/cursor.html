@@ -234,23 +234,23 @@
 
   <section class="grid" aria-label="Trails">
     <article class="trail is-default">
-      <div class="head"><h2>fire</h2><span class="key">trail = "fire"</span><span class="pill">default</span></div>
-      <div class="screen"><video src="cursor/fire.mp4" poster="cursor/fire.png" muted loop playsinline preload="auto" aria-label="The fire trail following six cursor jumps" tabindex="0"></video></div>
-      <p>A flame rises off a collapsing quad, burns out from the tail toward the cursor and sheds embers along the path. It is drawn in the cursor's own colour, with heat as opacity, and keeps burning at the cursor after the corners land.</p>
-      <dl class="facts">
-        <dt>Lasts</dt><dd>0.45–0.85 s, until the last ember dies</dd>
-        <dt>Built on</dt><dd>kitty's quad, plus a noise-driven flame and embers</dd>
-        <dt>Limits</dt><dd>At most three ignitions a second; GPU only (the CPU path draws the quad)</dd>
-      </dl>
-    </article>
-
-    <article class="trail">
-      <div class="head"><h2>plasma</h2><span class="key">trail = "plasma"</span></div>
+      <div class="head"><h2>plasma</h2><span class="key">trail = "plasma"</span><span class="pill">default</span></div>
       <div class="screen"><video src="cursor/plasma.mp4" poster="cursor/plasma.png" muted loop playsinline preload="auto" aria-label="The plasma trail following six cursor jumps" tabindex="0"></video></div>
       <p>A faint tube of ionised gas fills the collapsing quad, with three thin filaments braided along it and crawling into the cursor, and ions curling off the path in tight spirals. It starves rather than burns: everything dims and thins together.</p>
       <dl class="facts">
         <dt>Lasts</dt><dd>0.55 s, the last ion gone by 0.65 s</dd>
         <dt>Built on</dt><dd>kitty's quad, plus a braid along the move and closed-form ion spirals</dd>
+        <dt>Limits</dt><dd>At most three ignitions a second; GPU only (the CPU path draws the quad)</dd>
+      </dl>
+    </article>
+
+    <article class="trail">
+      <div class="head"><h2>fire</h2><span class="key">trail = "fire"</span></div>
+      <div class="screen"><video src="cursor/fire.mp4" poster="cursor/fire.png" muted loop playsinline preload="auto" aria-label="The fire trail following six cursor jumps" tabindex="0"></video></div>
+      <p>A flame rises off a collapsing quad, burns out from the tail toward the cursor and sheds embers along the path. It is drawn in the cursor's own colour, with heat as opacity, and keeps burning at the cursor after the corners land.</p>
+      <dl class="facts">
+        <dt>Lasts</dt><dd>0.45–0.85 s, until the last ember dies</dd>
+        <dt>Built on</dt><dd>kitty's quad, plus a noise-driven flame and embers</dd>
         <dt>Limits</dt><dd>At most three ignitions a second; GPU only (the CPU path draws the quad)</dd>
       </dl>
     </article>
@@ -360,8 +360,8 @@
       <h3>Choose one</h3>
       <pre><span class="c"># ~/.config/baud/config.toml, after every top-level key</span>
 [cursor]
-trail = <span class="s">"fire"</span>   <span class="c"># fire | plasma | lightning | ice | ufo | orb | liquid | quad | sweep | ghost | off</span></pre>
-      <p class="note"><code>true</code> reads as the default (fire) and <code>false</code> as <code>off</code>. The clips capture only baud's window, so the glass shows as flat dark rather than your wallpaper. Recorded with <code>scripts/trail-clips.sh</code>.</p>
+trail = <span class="s">"plasma"</span>   <span class="c"># plasma | fire | lightning | ice | ufo | orb | liquid | quad | sweep | ghost | off</span></pre>
+      <p class="note"><code>true</code> reads as the default (plasma) and <code>false</code> as <code>off</code>. The clips capture only baud's window, so the glass shows as flat dark rather than your wallpaper. Recorded with <code>scripts/trail-clips.sh</code>.</p>
     </div>
   </section>
 </div>

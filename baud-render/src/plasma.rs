@@ -3,6 +3,7 @@
 //! the cursor, and ions peeling off the path in cyclotron spirals. It starves
 //! rather than burns: the tube, the sheath and the filaments dim together as
 //! `(1 - k)^2` and the filaments thin, where the fire burns out from the tail.
+//! The default trail, the owner's call of 2026-09-29, replacing the fire.
 //! Designed in the effect-trail research (the plasma spec and its critique),
 //! and built with the critique's fixes:
 //!

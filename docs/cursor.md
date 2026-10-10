@@ -10,12 +10,12 @@ HTML file's source rather than the page.
 [cursor]
 shape = "block"   # block | underline | bar
 blink = "auto"    # auto | true | false
-trail = "fire"    # fire | plasma | lightning | ice | ufo | orb | liquid | quad | sweep | ghost | off
+trail = "plasma"  # plasma | fire | lightning | ice | ufo | orb | liquid | quad | sweep | ghost | off
 ```
 
 `[cursor]` goes after every top-level key: a section header opens a namespace,
 and a top-level key below it is read as the section's. `true` reads as the
-default, `trail = "fire"`, and `false` as `trail = "off"`, so a config written
+default, `trail = "plasma"`, and `false` as `trail = "off"`, so a config written
 when the key was a switch reads as it did.
 [config.toml.example](../config.toml.example) documents every key.
 
@@ -23,7 +23,7 @@ Each still below is the frame of its clip with the most trail on screen, on the
 fifth move: the diagonal from the top-left `+` to the bottom-right one, where
 the cursor has arrived.
 
-## fire, the default
+## fire
 
 `trail = "fire"`
 
@@ -43,7 +43,7 @@ about any flame, a wrong one included; what holds the shader is a port of the
 flame to Rust, which the pixel oracle requires both paths to match to within
 one step of 255.
 
-## plasma
+## plasma, the default
 
 `trail = "plasma"`
 
@@ -60,7 +60,9 @@ The braid lies along the move the quad is making, which the driver hands on,
 so it follows a retarget and does not turn when the corners land. It is as
 wide as the cursor across the move, so a bar or underline cursor narrows it
 to one line. GPU only, like the fire, and held to a Rust port of its shader
-the same way.
+the same way. The owner chose it as the default on 2026-09-29, over the
+fire, which was the default before it; it has shipped as the default since
+2026-10-10.
 
 ## lightning
 
@@ -238,7 +240,7 @@ the distance. At full speed it reads as a flicker; the page's ¼× shows it.
   trail, and one that has ended asks for no more frames.
 - Under macOS's Reduce Motion (System Settings, Accessibility, Display) the
   default trail is off. A trail named in the config is kept -- `trail =
-  "fire"` included -- and `trail = true` means the default, so it goes off
+  "plasma"` included -- and `trail = true` means the default, so it goes off
   too. Turning the setting on cuts a trail in flight.
 
 ## Not built

@@ -3282,13 +3282,14 @@ mod trail_cursor_tests {
     /// the bottom margin holds it. Fed a helix frame every 300 ms, the
     /// capture's key delay, with the trail drawn through the chase the app
     /// runs on a 120 Hz link, no corner of what is drawn ever moves up once
-    /// the scroll has begun. The default fire jumped: a flame that had landed
-    /// was drawn on the cursor's new cell through the move's dwell and back
-    /// on the old one when the move was taken. The controls: the capture
-    /// carries the cursor in three-row steps, and under the fire at least one
-    /// of those steps begins from a flame that has landed and still burns,
-    /// the state the jump came from -- on this schedule the step from row 11
-    /// to row 14; the others begin with the quad in flight or the flame out.
+    /// the scroll has begun. The fire, then the default, jumped: a flame
+    /// that had landed was drawn on the cursor's new cell through the move's
+    /// dwell and back on the old one when the move was taken. The controls:
+    /// the capture carries the cursor in three-row steps, and under the fire
+    /// at least one of those steps begins from a flame that has landed and
+    /// still burns, the state the jump came from -- on this schedule the step
+    /// from row 11 to row 14; the others begin with the quad in flight or the
+    /// flame out.
     #[test]
     fn a_wheel_scroll_back_in_helix_moves_every_trail_only_down() {
         use super::{Path, chase_style};
@@ -3629,10 +3630,13 @@ mod motion_tests {
     /// changes, and an unchanged trail is no change.
     #[test]
     fn motion_change_follows_only_the_default() {
-        assert_eq!(motion_change(P::Default, T::Fire, M::Reduced), Some(T::Off));
-        assert_eq!(motion_change(P::Default, T::Off, M::Full), Some(T::Fire));
         assert_eq!(
-            motion_change(P::Default, T::Fire, M::Full),
+            motion_change(P::Default, T::Plasma, M::Reduced),
+            Some(T::Off)
+        );
+        assert_eq!(motion_change(P::Default, T::Off, M::Full), Some(T::Plasma));
+        assert_eq!(
+            motion_change(P::Default, T::Plasma, M::Full),
             None,
             "unchanged"
         );

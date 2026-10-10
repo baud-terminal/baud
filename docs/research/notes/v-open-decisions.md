@@ -44,7 +44,9 @@ the builds that follow them:
 - **Every trail style is config**: kitty's four-corner quad, sfte's fading
   swept box, baud's first ghost, and a fire trail drawn on the GPU, which is
   **the default** -- chosen over the recommended quad. On the CPU path, Linux
-  today, `fire` draws the quad.
+  today, `fire` draws the quad. **Superseded on 2026-09-29**: the owner made
+  the plasma the default, replacing the fire (built 2026-10-10; the record,
+  "The plasma is the default trail, and the fire stays by name").
 - **The flame is opaque over glass**, and the light theme gets a darker
   variant that is not additive.
 - **Reduce Motion means no trail**, unless the config names one.
@@ -57,9 +59,10 @@ the builds that follow them:
   in baud's own idiom, then the trail styles one commit each.
 
 Built since: the rendition cache (`fe776c9`), the quad trail, sfte's swept
-box (`trail = "sweep"`), and the fire trail, now the default -- drawn in the
-cursor's colour, the owner's word mid-build: "the flame should not use a
-special color, we use the cursor color, default color". Then plasma,
+box (`trail = "sweep"`), and the fire trail, the default until the plasma
+replaced it -- drawn in the cursor's colour, the owner's word mid-build:
+"the flame should not use a special color, we use the cursor color, default
+color". Then plasma,
 lightning, ice, ufo, orb and liquid, and Reduce Motion: the default trail is
 off under it and a named one is kept (CLAUDE.md, "Reduce Motion means no
 trail, unless the config names one"). Then the blink from the OS, with the
