@@ -3274,6 +3274,124 @@ mod trail_cursor_tests {
         feed(&mut t, b"\x1b[5;5Hab\x1b[?25l");
         assert!(!fire(&t, 210), "a cursor not placed puts it out");
     }
+
+    /// **A wheel scroll back in helix moves every trail only down**, on
+    /// every path. `tests/trail/helix-wheel.raw` is helix scrolled back a
+    /// line at a time from the top of its window: each wheel line scrolls the
+    /// view three lines and carries the placed cursor three rows down, until
+    /// the bottom margin holds it. Fed a helix frame every 300 ms, the
+    /// capture's key delay, with the trail drawn through the chase the app
+    /// runs on a 120 Hz link, no corner of what is drawn ever moves up once
+    /// the scroll has begun. The default fire jumped: a flame that had landed
+    /// was drawn on the cursor's new cell through the move's dwell and back
+    /// on the old one when the move was taken. The controls: the capture
+    /// carries the cursor in three-row steps, and under the fire at least one
+    /// of those steps begins from a flame that has landed and still burns,
+    /// the state the jump came from -- on this schedule the step from row 11
+    /// to row 14; the others begin with the quad in flight or the flame out.
+    #[test]
+    fn a_wheel_scroll_back_in_helix_moves_every_trail_only_down() {
+        use super::{Path, chase_style};
+        use crate::config::CursorTrail;
+        const RAW: &[u8] = include_bytes!("../../tests/trail/helix-wheel.raw");
+        const HIDE: &[u8] = b"\x1b[?25l";
+        let ws = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let feed = |t: &mut Term<'_>, bytes: &[u8]| {
+            for c in bytes.chunks(1024) {
+                t.write_at(BytePos::ZERO, c);
+                t.feed(BytePos::ZERO, ReadLen::from_index(c.len()));
+            }
+        };
+        // Helix's frames: each ends at its hide.
+        let mut frames = Vec::new();
+        let mut start = 0;
+        for i in 0..=RAW.len() - HIDE.len() {
+            if &RAW[i..i + HIDE.len()] == HIDE {
+                frames.push(&RAW[start..i + HIDE.len()]);
+                start = i + HIDE.len();
+            }
+        }
+        let tick = Duration::from_micros(8_333);
+        let trails = [
+            CursorTrail::Quad,
+            CursorTrail::Sweep,
+            CursorTrail::Fire,
+            CursorTrail::Plasma,
+            CursorTrail::Lightning,
+            CursorTrail::Ice,
+            CursorTrail::Ufo,
+            CursorTrail::Orb,
+            CursorTrail::Liquid,
+        ];
+        for trail in trails {
+            for path in [Path::Cpu, Path::Instances, Path::Cells] {
+                let case = format!("{trail:?} on {path:?}");
+                let mut owned = Owned::new(&ws);
+                let mut t = Term::new(owned.storage(), &ws);
+                let mut chase: Chase<Instant> = Chase::new(chase_style(trail.style(), path));
+                let t0 = Instant::now();
+                let (mut rows, mut wheel, mut from_landed) = (Vec::new(), false, 0);
+                let mut last: Option<(TrailLook, Rect)> = None;
+                for (k, bytes) in frames.iter().enumerate() {
+                    feed(&mut t, bytes);
+                    let cell = trail_cursor(&t, Rows::ZERO).map(|f| f.cell());
+                    let (r, c) = cell.unwrap_or_else(|| panic!("{case}: frame {k} placed nothing"));
+                    assert_eq!(c.index(), 7, "{case}: frame {k}");
+                    if rows.last() == Some(&5) && r.index() > 5 {
+                        wheel = true;
+                    }
+                    // A step from a landed flame: the last frame drew the
+                    // emitter on the cell the cursor has now left.
+                    if let Some((TrailLook::Vfx(v), was)) = last {
+                        if rows.last().is_some_and(|&p| r.index() >= p + 3)
+                            && v.emitter.corners == was.corners()
+                        {
+                            from_landed += 1;
+                        }
+                    }
+                    rows.push(r.index());
+                    for n in 0..36u32 {
+                        let now = t0 + tick * (u32::try_from(k).unwrap() * 36 + n);
+                        let rect = trail_cursor(&t, Rows::ZERO).map(|f| block(f.cell()));
+                        let look = chase.frame(rect, now, CELL);
+                        let corners = |l: &TrailLook| match l {
+                            TrailLook::Smear(s) => Some(s.corners),
+                            TrailLook::Vfx(v) => Some(v.emitter.corners),
+                            TrailLook::Ghost(_) => None,
+                        };
+                        if let (true, Some(a), Some(b)) = (
+                            wheel,
+                            last.as_ref().and_then(|(l, _)| corners(l)),
+                            look.as_ref().and_then(corners),
+                        ) {
+                            for (p, q) in a.0.iter().zip(b.0) {
+                                assert!(
+                                    q.y >= p.y - 1.0,
+                                    "{case}: frame {k}, tick {n}: a corner went up from {p:?} \
+                                     to {q:?} while helix scrolled back"
+                                );
+                            }
+                        }
+                        last = look.zip(rect);
+                    }
+                }
+                assert_eq!(
+                    rows,
+                    [0, 0, 16, 16, 16, 5, 8, 8, 11, 14, 16, 16, 16],
+                    "{case}: the capture's placements -- the start, ge, gt, then the wheel"
+                );
+                if trail == CursorTrail::Fire && path != Path::Cpu {
+                    assert!(
+                        from_landed >= 1,
+                        "{case}: {from_landed} steps began from a landed flame"
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

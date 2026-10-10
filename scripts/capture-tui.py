@@ -42,6 +42,14 @@ def main() -> int:
     # region actually get used.
     ap.add_argument("--keys", default="")
     ap.add_argument("--key-delay", type=float, default=0.35)
+    # What to split --keys on, so that each piece is written whole. A mouse
+    # report sent a byte a delay arrives in pieces, and the program reads its
+    # ESC as the Escape key.
+    ap.add_argument("--key-sep", default="")
+    # Seconds before the first key, --key-delay when not given. A program that
+    # waits out its start-up queries reads the keys sent before then in one
+    # burst.
+    ap.add_argument("--first-key", type=float, default=None)
     ap.add_argument("cmd", nargs=argparse.REMAINDER)
     args = ap.parse_args()
 
@@ -63,8 +71,13 @@ def main() -> int:
     # full-screen programs refuse to render at all.
     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", args.rows, args.cols, 0, 0))
 
-    keys = args.keys.encode().decode("unicode_escape").encode("latin-1")
-    next_key = time.monotonic() + args.key_delay
+    raw = args.keys.encode().decode("unicode_escape").encode("latin-1")
+    if args.key_sep:
+        keys = [k for k in raw.split(args.key_sep.encode()) if k]
+    else:
+        keys = [raw[i : i + 1] for i in range(len(raw))]
+    first = args.key_delay if args.first_key is None else args.first_key
+    next_key = time.monotonic() + first
     ki = 0
 
     sel = selectors.DefaultSelector()
@@ -74,10 +87,13 @@ def main() -> int:
     with open(args.out, "wb") as f:
         while time.monotonic() < end:
             if ki < len(keys) and time.monotonic() >= next_key:
-                os.write(master, keys[ki : ki + 1])
+                os.write(master, keys[ki])
                 ki += 1
                 next_key = time.monotonic() + args.key_delay
-            for _ in sel.select(timeout=0.2):
+            # Wake for the next key as well as for output, so a key is not
+            # sent up to a whole timeout late.
+            wait = 0.2 if ki >= len(keys) else max(0.0, min(0.2, next_key - time.monotonic()))
+            for _ in sel.select(timeout=wait):
                 try:
                     chunk = os.read(master, 65536)
                 except OSError:
