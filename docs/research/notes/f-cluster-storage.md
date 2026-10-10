@@ -2,10 +2,23 @@
 
 > **Group:** F · **Sources:** `[[source: kitty-text-cache]]`, `[[source: kitty-line]]`, `[[source: ghostty-page]]`, `[[source: uax29]]` · **Status:** partial
 
+**Dated 2026-10-10.** Written on 2026-08-29 against the core then named
+`baud-core`, renamed `baud-core2` later that day and deleted in `bcefaae`
+(2026-09-10). Every "baud" below that keys on position, holds `MarkSlot`s or
+truncates is that core. `baud-core` took this note's direction:
+`ClusterStore` (`6d727ec`, 2026-09-09; `baud-domain/src/cell.rs`) is keyed on
+the cluster's content, a cell finds its cluster by the index in its
+`CellFlags`, and the store is 63 usable slots probed twice that **refuses**
+rather than evicts, so a cluster that finds no slot, or has more than
+`ClusterSlot::CAPACITY` (8) continuations, keeps its base and loses its tail,
+counted in `marks_dropped`. The record has it as "The cluster store is
+content-keyed, and the index rides in the cell". The sentences below that
+said "today" are put in the past where they stand.
+
 ## Why this note exists
 
 A grapheme cluster can be more codepoints than a cell can hold, so every
-terminal that segments text needs somewhere else to put the rest. baud puts
+terminal that segments text needs somewhere else to put the rest. baud put
 them in a table **keyed on the cell's position**. This note is what the others
 do, and it exists because the position key produced four correctness bugs in
 one session and a measurable tax on top.
@@ -21,7 +34,7 @@ fits the problem does not charge for correctness.
 
 | | where the extra codepoints live | keyed on | how a cell finds them |
 |---|---|---|---|
-| **baud** | `[MarkSlot; 512]`, each a fixed `[u32; 8]` | **position** — surface, physical row, column, row generation | hash the position, probe |
+| **baud** (`baud-core2`, as written) | `[MarkSlot; 512]`, each a fixed `[u32; 8]` | **position** — surface, physical row, column, row generation | hash the position, probe |
 | **kitty** | `TextCache`: a monotonic arena of codepoint runs | **content** | the cell's `ch_or_idx` **is** the index |
 | **ghostty** | `grapheme_alloc`, a chunked slice allocator | position (cell offset within a page) | `grapheme_map`, after `Cell.content_tag` says there is one |
 
@@ -46,7 +59,7 @@ sharing. Every read is an array index. That is the distinction worth carrying:
 O(1) by hashing and O(1) by indexing are not the same O(1), and the hot path
 here is reads.
 
-baud today does the opposite. It hashes on **every** attachment, and a ZWJ
+baud did the opposite when this was written. It hashed on **every** attachment, and a ZWJ
 family is six attachments to one cell — six position rebuilds, six hashes, six
 probes, six read-modify-writes of the same cell. Measured by rebuilding that
 prefix once more per attachment: **2.5% on cat-cjk, 3% on less-cjk**, and zero
@@ -63,7 +76,7 @@ each is measured or was a bug:
 | a cell rewritten in place kept its predecessor's marks | fixed by `CellFlags::MARKED` |
 | marks on a wide base landed on the `WIDE_TAIL` | fixed by `LeadCol` |
 | identical emoji cannot share a slot | 512 slots × 44 bytes, probed at random |
-| `MarkSlot::CAPACITY` is a fixed 8 | a four-person family with skin tones is 11 codepoints and **is truncated today** |
+| `MarkSlot::CAPACITY` is a fixed 8 | a four-person family with skin tones is 11 codepoints and **was truncated** (`baud-core`'s `ClusterSlot::CAPACITY` is 8 too, and refuses such a cluster: the status above) |
 
 The last row is the one a content-keyed arena removes outright rather than
 raising: kitty's arena stores runs of the length they happen to be, so there is
@@ -79,9 +92,9 @@ the entries that survive.
 
 baud cannot copy that cheaply. It has no allocator, `Storage` is caller-provided
 and fixed, and the roots are the viewport **and** the scrollback spans. But it
-does not need the same answer: the style table and the `OSC 8` link table are
-both bounded, content-addressed and **evict on collision**, and the contract is
-already written down — a cell that loses its entry keeps its base character.
+does not need the same answer: the style table and the `OSC 8` link table
+were both bounded, content-addressed and **evicted on collision**, and the
+contract was already written down — a cell that loses its entry keeps its base character.
 
 What differs is the consequence. A cell that loses its style renders in the
 wrong colour; a cell that loses its cluster would render the wrong *text*, and

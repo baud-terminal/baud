@@ -101,10 +101,14 @@ not the only route to the PMCs. `[[source: apple-cpu-guide]]` § 6.1–6.2
 documents Xcode Instruments and a list of performance-monitoring events as the
 supported way to read them.
 
-That path is untested here for a boring reason: `xcrun xctrace` is absent on
+~~That path is untested here for a boring reason: `xcrun xctrace` is absent on
 this box, because only the Command Line Tools are installed and not Xcode. So
 the blocker is **an install, not an architecture** — and whether Instruments
-needs SIP disabled is a question this note does not answer and should not guess.
+needs SIP disabled is a question this note does not answer and should not guess.~~
+That path went untested when this was written (2026-08-27) because `xcrun
+xctrace` looked absent. It was not, and it records with no `sudo` on this box,
+whose SIP still blocks dtrace's `cpc`, as the paragraph below records (struck
+2026-10-10).
 
 **Answered since.** `dc0eed4` (2026-08-29) found that `xctrace record
 --template 'CPU Counters'` records with no `sudo`. A later record found the

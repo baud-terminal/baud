@@ -52,12 +52,18 @@ to come before any implementation.
 ## Nothing here is implemented yet
 
 Worth stating plainly, because the sections above read like a design. **baud
-vectorises scanning, not the state machine.** The `Scan` trait is three
-functions -- `run`, `final_byte`, `st` -- and every one of them answers "where
-is the next interesting byte". `feed_with` uses them to skip ahead and then
-falls back to `control(byte)`, one byte at a time, for everything they cannot
-skip. That is the same thing ghostty and simdjson do, and it is the 10-27% of
-real bytes measured above.
+vectorises scanning, not the state machine.** When this was written
+(2026-08-27), in the core later renamed `baud-core2` and deleted in `bcefaae`,
+the `Scan` trait was three functions -- `run`, `final_byte`, `st` -- and every
+one of them answered "where is the next interesting byte". `feed_with` used
+them to skip ahead and then fell back to `control(byte)`, one byte at a time,
+for everything they could not skip. That is the same thing ghostty and
+simdjson do, and it is the 10-27% of real bytes measured above, on that core.
+In `baud-core` the trait is `run`, `stride_three` and `stride_four`
+(`baud-isa/src/lib.rs`), each still a scan for how far a run goes, and what
+they do not consume goes to the parser graph (`baud-core/src/graph.rs`), one
+table lookup a character rather than a byte. The state machine is still not
+vectorised (dated 2026-10-10).
 
 The enumerative method is a proposal. Its two preconditions are now measured
 and favourable; no line of it exists.

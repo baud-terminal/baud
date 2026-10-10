@@ -2,17 +2,30 @@
 
 > **Group:** G · **Sources:** `[[source: ugrapheme]]`, `[[source: uax29]]`, `[[source: uax11]]`, `[[source: lemire-transcoding]]` · **Status:** partial
 
+**Dated 2026-10-10.** Written on 2026-08-29 against the core then named
+`baud-core`, renamed `baud-core2` later that day and deleted in `bcefaae`
+(2026-09-10); the 410 MB/s below is that core's. Step 1 of "What to try" was
+built the same day, `670d0ef`, as a palette rather than the packed leaf this
+note describes, one two-stage lookup into 37,204 bytes, measured 1.5% slower
+and kept as smaller and correct. `Classified::of`
+(`baud-domain/src/merged.rs`) has since become one load for the Basic
+Multilingual Plane, from a flat table, and the two-stage lookup above it, and
+`baud-core` calls it on the per-character path (`baud-core/src/write.rs`). So
+baud no longer performs two trie walks a character. Steps 2 and 3 are not
+built. The sentences below that said what baud does now are put in the past
+where they stand.
+
 ## Why this note exists
 
-baud asks Unicode two questions about every non-ASCII character, always, in
+baud asked Unicode two questions about every non-ASCII character, always, in
 this order: `Width::of` for the column count and
 `GraphemeClass::of_with_lookback` for the break decision. Each is a two-stage
 trie, so each is two dependent loads, and together the tables are **44,480
 bytes** -- `WIDTH_INDEX` 4,352, `WIDTH_BLOCKS` 7,360, `BREAK_INDEX` 4,352,
 `BREAK_BLOCKS` 28,416.
 
-Priced against `cat-cjk.raw`, that is ~21% of the per-character path, and one
-extra `Width::of` costs **5.5%**. The question this note answers is whether
+Priced against `cat-cjk.raw`, that was ~21% of the per-character path, and
+one extra `Width::of` cost **5.5%**. The question this note answers is whether
 anyone does it for less.
 
 ## `ugrapheme` does, and states how
@@ -35,8 +48,8 @@ UAX #29 suggests, it parses the rules as an LL(1) grammar with few states, and
 decide on a state transition", with "an unsigned comparison used as an early
 Bloom filter for properties".
 
-That last sentence is the structural difference. **baud performs both lookups
-before it knows whether either matters.** A DFA in a state that can only be
+That last sentence is the structural difference. **baud performed both lookups
+before it knew whether either mattered.** A DFA in a state that can only be
 left by one class needs one property, sometimes none.
 
 ## What is and is not comparable
@@ -44,8 +57,8 @@ left by one class needs one property, sometimes none.
 `ugrapheme`'s figure is segmentation *alone* -- no grid, no scroll region, no
 VT parsing, no cell writes -- so it is not a throughput comparison with baud's
 410 MB/s and this note is not claiming one. What compares is the
-classification component, and there baud is doing two unconditional trie walks
-where the prior art does the minimum the state requires.
+classification component, and there baud was doing two unconditional trie
+walks where the prior art does the minimum the state requires.
 
 Two of baud's own measurements say the same thing from inside:
 

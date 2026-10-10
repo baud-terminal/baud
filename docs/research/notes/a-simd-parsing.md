@@ -2,6 +2,20 @@
 
 > **Group:** A · **Sources:** `[[source: utf8-lookup]]`, `[[source: simdjson]]` · **Status:** partial
 
+**Dated 2026-10-10.** Written on 2026-08-27 and 2026-08-28 against the core
+then named `baud-core`, renamed `baud-core2` on 2026-08-29 and deleted in
+`bcefaae` (2026-09-10). Its `Term::blit`, `feed`/`feed_avx2` split,
+`feed_with` and `fast_utf8` were that core's. In `baud-core` an ASCII run
+goes through `Paint::blit` to `View::put_ascii_run`, the vector scan is
+reached from `run_of_text` (`baud-core/src/write.rs`): `Neon::run` under
+`neon-scan`, the default, and `Avx2::run` under `avx2-scan` on a build that
+targets AVX2 -- each the safe inherent surface over its `Scan` impl in
+`baud-isa` -- and `baud-domain`'s `core::simd` otherwise; `scan_avx2` lives on
+in `baud-isa-x86-64`. The lookup decoder this note proposes is implemented in
+neither core. `baud-isa`'s `Decode::block` is a table-driven block decoder,
+not the lookup validator, and `baud-core` does not call it. Present-tense
+sentences below that named the old core are put in the past where they stand.
+
 ## Why this note exists, and why now
 
 Group A has been declared since the corpus was set up with `simdjson` in it and
@@ -25,7 +39,7 @@ recovery eating a valid successor"*:
 **That 5% is almost certainly not decoder work, and this note said it was.**
 The first draft argued "unlike the width tables this is not a layout ghost,
 because an ASCII byte goes through the decoder on every pass". It does not.
-`Term::blit` hands `&arena[..]` straight to `View::put_ascii_run`, which writes
+`Term::blit` handed `&arena[..]` straight to `View::put_ascii_run`, which writes
 cells from raw bytes -- no `Codepoint`, no `Utf8Acc`, no decoding at all -- and
 that is the path 95% of streaming bytes take. The decoder sees the other 5%.
 
@@ -56,10 +70,11 @@ for this 5%, and the two must not be welded together.
 over every byte — that is why it costs 7.0 even on ASCII, "whatever the input".
 baud does two things that machine does not:
 
-* **ASCII never reaches the decoder.** `S::run` takes printable ASCII into
-  `put_ascii_run` before the state machine sees it, which is what `utf8_share`
-  reporting **0.0%** on `payload::streaming` measures. The 7.0-on-ASCII column
-  describes work baud does not do.
+* **ASCII never reaches the decoder.** In `baud-core2` `S::run` took printable
+  ASCII into `put_ascii_run` before the state machine saw it, which is what
+  that core's `utf8_share` reporting **0.0%** on `payload::streaming`
+  measured; in `baud-core` `run_of_text` and `Paint::blit` do the same. The
+  7.0-on-ASCII column describes work baud does not do.
 * **Validation is fused with decoding.** baud does not validate and then
   decode; `utf8_continuation` and `finish`'s floor check happen once, as part
   of producing the codepoint. The paper's validators produce a yes/no and no
@@ -89,9 +104,11 @@ correctness with a different instruction count.
 
 * **The instruction class is already here.** The algorithm is built on
   `pshufb` / `vpshufb`, and `scan_avx2` already lives in the `_mm256`
-  neighbourhood -- its movemask is the one point where an intrinsic's result
-  enters the type system. The `Scan` trait and the `feed`/`feed_avx2` split are
-  the structure a vectorised decoder would slot into.
+  neighbourhood, in `baud-isa-x86-64` since `76b5769` -- its movemask is the one
+  point where an intrinsic's result enters the type system. The `Scan` trait
+  and `baud-core2`'s `feed`/`feed_avx2` split were the structure a vectorised
+  decoder would slot into; in `baud-core` it is `baud-isa`'s `Decode` trait
+  beside `Scan`, which `baud-core` does not call.
 * **The correctness bar is already met and tested.** Overlong rejection,
   surrogate rejection and the error-recovery rule are pinned by tests against
   the standard's own vectors. A replacement has an oracle to differ against
@@ -100,24 +117,26 @@ correctness with a different instruction count.
 
 ## What the scalar half already bought
 
-`fast_utf8` decodes one complete sequence in place instead of paying three or
-four `control` dispatches. Measured, non-overlapping: **btop +7.5%, vim +7.1%**
+`baud-core2`'s `fast_utf8` decoded one complete sequence in place instead of
+paying three or four `control` dispatches. Measured, non-overlapping: **btop +7.5%, vim +7.1%**
 (`MEASUREMENTS.md`). That is not the lookup algorithm -- it removes
 dispatch overhead, not decode instructions -- but it establishes the shape a
-vectorised version needs: a place in `feed_with` where a run of text is handled
-outside the state machine.
+vectorised version needs: a place in `feed_with`, that core's loop, where a run
+of text is handled outside the state machine.
 
 **What is left is unsized, and smaller than this note claimed.** The dispatch
-overhead was the large, measurable part and `fast_utf8` has taken it. What a
+overhead was the large, measurable part and `fast_utf8` took it. What a
 block validator could still remove is the per-character validation *inside* the
 fused decode -- a handful of masks and one floor comparison -- while
 `Width::of`, the cluster break and the cell write are untouched by any UTF-8
 algorithm and are plausibly the larger share of what remains.
 
-Sizing that needs a profile of the **recordings alone**, and the harness cannot
-currently produce one: `baud-bench` runs the synthetic payloads in the same
-process, so a `dtrace` sample is dominated by `put_ascii_run` and everything of
-interest is inlined into `feed_with`. Until that exists, the remaining upside
+Sizing that needs a profile of the **recordings alone**, and the harness could
+not produce one when this was written: `baud-bench` ran the synthetic payloads
+in the same process, so a `dtrace` sample was dominated by `put_ascii_run` and
+everything of interest was inlined into `feed_with`. `ingest2` runs one payload
+a process now (`cargo bench -p baud-bench --bench ingest2 -- <payload> <reps>`),
+so the profile can be taken; this note has not taken it (dated 2026-10-10). Until that exists, the remaining upside
 is **unmeasured, and this note will not estimate it** -- estimating it from a
 payload that does not exercise it is the mistake made here once already.
 
@@ -150,7 +169,8 @@ Two things stand between here and there, and neither is fatal:
   The algorithm needs `pshufb`; `core::simd`'s `swizzle_dyn` is that operation
   and lowers to NEON `tbl` on aarch64 and SSSE3 on x86-64. So this can be one
   portable implementation behind the existing `Scan` trait rather than a third
-  entry point beside `feed` and `feed_avx2`, and -- unlike `scan_avx2` -- it
+  entry point beside `baud-core2`'s `feed` and `feed_avx2`, and -- unlike
+  `scan_avx2` -- it
   would be *testable on the machine this project is developed on*.
 
 ## What this note does not claim
@@ -163,8 +183,9 @@ Two things stand between here and there, and neither is fatal:
 * **The paper's numbers are x86 and this box is arm64.** Table 13 is AMD Rome.
   `pshufb` has a NEON counterpart (`tbl`) and simdutf ships both, but the
   instruction counts here are not measured on Apple silicon and must not be
-  quoted as if they were. Note D records that this box cannot read counters
-  without an Xcode install.
+  quoted as if they were. Note D recorded that this box could not read
+  counters without an Xcode install; it could, through Xcode's own `xctrace`
+  (note D, "Answered since"), and none were read for this note.
 * **`[[source: simdjson]]` is cited in this group and is about structural
   scanning, not decoding.** baud already does the scanning half. The decoding
   half is what this note is about, and they should not be conflated the way
@@ -227,17 +248,18 @@ Two things stand between here and there, and neither is fatal:
   beside the thing it checks -- over **all 10,321,920 complete three-byte
   strings**, every complete one- and two-byte string, and 122,496 four-byte
   boundary combinations. Strings ending mid-sequence are excluded and counted,
-  because the block validator is not responsible for them: that is what
-  `State::Utf8` carries across a read boundary and what `fast_utf8` declines.
+  because the block validator is not responsible for them: in `baud-core2`
+  that was what `State::Utf8` carried across a read boundary and what
+  `fast_utf8` declined.
 
-  What remains before code: deciding where a block validator sits relative to
-  `fast_utf8`. Validation is not decoding, and baud needs the codepoint, the
-  width and a cell out the other side.
+  What remained before code, in that core: deciding where a block validator
+  sat relative to `fast_utf8`. Validation is not decoding, and baud needs the
+  codepoint, the width and a cell out the other side.
 - **NEON.** Whether the arm64 form carries the same ratio is unmeasured here,
   and this box is the one the project measures on.
 - **~~How many bytes reach the decoder, per payload.~~** Measured.
-  `Term::utf8_share` counts bytes entering a multi-byte lead or continuation --
-  not `bytes_slow`, which is mostly control sequences:
+  `baud-core2`'s `Term::utf8_share` counted bytes entering a multi-byte lead
+  or continuation -- not `bytes_slow`, which was mostly control sequences:
 
   | payload | reaches the decoder |
   |---|---|

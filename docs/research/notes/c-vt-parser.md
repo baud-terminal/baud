@@ -78,5 +78,7 @@ compiled.
 
 - `docs/vt-coverage.md` Tier 0: "all thirteen states" plus the `Utf8` addition.
 - `baud-core/tests/conformance/enumerated.rs`: the cancel and terminator rules.
-- `baud-core/tests/properties.rs::ingest_is_chunk_invariant`: the property the
-  state-as-state choice exists to make provable.
+- `baud-core/tests/properties.rs`'s `the_screen_does_not_depend_on_where_the_reads_fell`:
+  the property the state-as-state choice exists to make provable. This line
+  named `baud-core2`'s chunk-invariance property, deleted with that core in
+  `bcefaae` (corrected 2026-10-10).
