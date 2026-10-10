@@ -862,8 +862,31 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // **`BEL` is one of them.** Both rows ended the string on it, an
         // `OSC`'s terminator (`[[source: ctlseqs]]` 2023-2024) where no text
         // puts one, so `ESC P BEL $ q m ST` lost its reply and drew `$qm`.
+        //
+        // **Under ISO 8859-1 a GR byte is read as its 7-bit byte, in both
+        // rows.** `[[source: dec-std-070]]` 3.5.4.5: GR graphic characters
+        // "in the introducer sequence to a Device Control String, the eighth
+        // bit will be ignored, and they will be treated as their 7-bit
+        // equivalent"; `[[source: williams]]` (462): "In all states, these
+        // codes are treated identically to GL codes 20-7F"; and
+        // `[[source: ecma48]]` §9 gives `10/00` to `15/14` in a control
+        // string "the same meanings" as `02/00` to `07/14`. xterm agrees in
+        // practice, keeping `AsciiOf` of each string byte (`[[source:
+        // xterm-reset]]`'s file, 3454-3456) and finding the `$ q` there.
+        // Both rows sent every GR byte to the body, so `ESC P A4 F1 m ST`
+        // was an ignored string and not a DECRQSS. `FF`, which §9 stops
+        // short of and williams reads as `7F`, is ignored where `7F` is, and
+        // `A0` leads to the body as `20` does. Under UTF-8 `gr_as_gl` maps
+        // nothing: the bytes are a character's, and these rows are what they
+        // were. The body keeps a GR byte as it is, the owner's call
+        // (`dcs_passthrough`, `docs/vt-coverage.md`).
+        //
+        // **The rows delegate rather than respell the ranges**, as
+        // `latin1_c1` does, so `B0-B9` are whatever `30-39` are. The one
+        // action that reads its byte is `Digit`, and the parameter table
+        // gives a GR digit's lead the row its GL digit's has.
         Node::Dcs => {
-            return match b.raw_byte() {
+            return match enc.gr_as_gl(b).raw_byte() {
                 b'$' => edge(Act::Consume, Node::DcsDollar),
                 // A bare `q` (no `$` before it) is a Sixel: rename the string
                 // kind and route the body through the `StrPut`/`StrEnd` path,
@@ -902,7 +925,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
             };
         }
         Node::DcsDollar => {
-            return match b.raw_byte() {
+            return match enc.gr_as_gl(b).raw_byte() {
                 b'q' => edge(Act::DcsQuery, Node::DcsStr),
                 0x1b => edge(Act::Consume, Node::StrEsc),
                 0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => edge(Act::Consume, Node::DcsDollar),
@@ -1507,6 +1530,28 @@ mod classes {
         // | ... and an escape or control sequence | **34/955/23,743/555,038** | +1.0% |
         // | `BEL` ends only an `OSC`: three string bodies | **36/1,075/27,628/663,126** | **+19.5%** |
         // | a DCS body puts `08-0D` and ignores `7F` | **36/1,075/27,634/663,397** | +0.04% |
+        // | a GR byte in a DCS prefix is its 7-bit byte (Latin-1) | **41/1,313/35,570/893,413** | **+34.7%** |
+        //
+        // **The GR prefix row is a prefix's cost again, and stride 1 moves for
+        // the first time since the `BEL` split, for DECRQSS's reason**, 36 ->
+        // 41. Seventeen edges changed, fifteen bytes in two nodes, all
+        // in the Latin-1 table, against a dump of every edge before and after:
+        // in `Dcs`, `A4` now leads to `DcsDollar`, `B0-B9` are `Digit`, `BA BB`
+        // are `Sep`, `F1` is `SixelStart` and `FF` is ignored in place, where
+        // all fifteen led to the body; in `DcsDollar`, `F1` is `DcsQuery` and
+        // `FF` is ignored in place. The UTF-8 table is the same edge for edge.
+        // `A0` moved nothing, `20` and `A0` both leading to the body. At
+        // stride 1 the class `A0-BF` splits four ways, `A4`, `B0-B9`, `BA BB`
+        // and the rest; `FF` leaves `C0 C1 F5-FF`, the bytes that cannot lead
+        // a UTF-8 character; and `F1` leaves `F0-F4`, the four-byte leads: +5,
+        // and no class merges. `BA` and `BB` stay one class where `3A` and
+        // `3B` are two, because a `CSI` tells `:` from `;` and a GR byte
+        // never reaches one. At stride 2, against a dump of the old
+        // partition, 117 old classes split into 355 and none merge, each
+        // holding one of the fifteen bytes: first in 79, second in 31 and
+        // both in 7. Strides 3 and 4 compound the same and were not
+        // decomposed. A prefix's bytes are told apart by the edges they take
+        // there, and fifteen more of them now are under ISO 8859-1.
         //
         // **The DCS body's two classes move only stride 3 and 4.** Fourteen
         // edges changed, `08-0D` from `Consume` to `StrPut` and `7F` from
@@ -1681,9 +1726,9 @@ mod classes {
         // Sixel stated as arithmetic, the same shape every action this file
         // adds pays.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 1_075, "stride 2");
-        assert_eq!(three.len(), 27_634, "stride 3");
-        assert_eq!(four.len(), 663_397, "stride 4");
+        assert_eq!(two.len(), 1_313, "stride 2");
+        assert_eq!(three.len(), 35_570, "stride 3");
+        assert_eq!(four.len(), 893_413, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2091,6 +2136,85 @@ mod classes {
         }
     }
 
+    /// **Under ISO 8859-1 a GR byte in the DCS prefix takes the edge its 7-bit
+    /// byte takes; under UTF-8 the prefix rows are what they were**, and the
+    /// body keeps every GR byte in both. Exhaustive over `A0-FF` and both
+    /// prefix nodes, checked against the shipped table, with each node
+    /// reached by its introducers first.
+    ///
+    /// `[[source: dec-std-070]]` 3.5.4.5: in "the introducer sequence to a
+    /// Device Control String, the eighth bit will be ignored"; `[[source:
+    /// williams]]` (462) and `[[source: ecma48]]` §9 read GR as GL there too.
+    /// Both nodes sent every GR byte to the body. The edges are named as well
+    /// as compared, so the comparison cannot pass with both sides moved: `A4`
+    /// leads to `DcsDollar`, `B0-B9` are `Digit`, `BA BB` are `Sep`, `F1` is
+    /// the Sixel or DECRQSS `q`, and `FF`, `DEL`'s twin, is ignored in place.
+    #[test]
+    fn a_gr_byte_in_a_dcs_prefix_takes_its_seven_bit_edge_under_latin1() {
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            let walk = |bytes: &[u8]| {
+                let mut n = Node::Ground;
+                for b in bytes {
+                    n = Edge::of(enc, n, StreamByte::from_stream(*b)).next;
+                }
+                n
+            };
+            let at = |n: Node, v: usize| Edge::of(enc, n, StreamByte::ALL[v]);
+            let mut prefixes: Vec<(&[u8], Node)> = std::vec![
+                (b"\x1bP", Node::Dcs),
+                (b"\x1bP1;2", Node::Dcs),
+                (b"\x1bP$", Node::DcsDollar),
+                (b"\x1bP1$", Node::DcsDollar),
+            ];
+            let latin1 = matches!(enc, InputEncoding::Latin1);
+            if latin1 {
+                prefixes.extend([
+                    (b"\x90".as_slice(), Node::Dcs),
+                    (b"\x90$", Node::DcsDollar),
+                    (b"\x1bP\xb1\xbb\xb2", Node::Dcs),
+                    (b"\x90\xa4", Node::DcsDollar),
+                ]);
+            }
+            // Positive control: each introducer leaves the parser in the node
+            // whose row is checked below.
+            for (intro, node) in &prefixes {
+                assert_eq!(walk(intro), *node, "{enc:?} {intro:?}");
+            }
+            for node in [Node::Dcs, Node::DcsDollar] {
+                for v in 0xa0..=0xffusize {
+                    let want = match latin1 {
+                        true => at(node, v & 0x7f),
+                        false => edge(Act::Consume, Node::DcsStr),
+                    };
+                    assert_eq!(at(node, v), want, "{enc:?} {node:?} {v:#04x}");
+                }
+            }
+            if latin1 {
+                assert_eq!(at(Node::Dcs, 0xa4), edge(Act::Consume, Node::DcsDollar));
+                for v in 0xb0..=0xb9 {
+                    assert_eq!(at(Node::Dcs, v), edge(Act::Digit, Node::Dcs), "{v:#04x}");
+                }
+                for v in [0xba, 0xbb] {
+                    assert_eq!(at(Node::Dcs, v), edge(Act::Sep, Node::Dcs), "{v:#04x}");
+                }
+                assert_eq!(at(Node::Dcs, 0xf1), edge(Act::SixelStart, Node::DcsStr));
+                assert_eq!(at(Node::DcsDollar, 0xf1), edge(Act::DcsQuery, Node::DcsStr));
+                assert_eq!(at(Node::Dcs, 0xff), edge(Act::Consume, Node::Dcs));
+                assert_eq!(
+                    at(Node::DcsDollar, 0xff),
+                    edge(Act::Consume, Node::DcsDollar)
+                );
+            }
+            for v in 0xa0..=0xffusize {
+                assert_eq!(
+                    at(Node::DcsStr, v),
+                    edge(Act::StrPut, Node::DcsStr),
+                    "{enc:?} body {v:#04x}"
+                );
+            }
+        }
+    }
+
     /// **Under ISO 8859-1 a C1 byte cancels an escape or control sequence and
     /// takes the edge it takes from ground; under UTF-8 each of these nodes
     /// keeps the row it had.** Exhaustive over `80-9F`, the five sequence
@@ -2163,12 +2287,14 @@ mod classes {
     /// A number that moves this way is the table growing to fit the protocol,
     /// not a regression -- and the assertion is here so that growth is a
     /// decision rather than a discovery.
-    // 36, not the 26 the paragraph above narrates: HT, CAN/SUB, SO/SI and the
+    // 41, not the 26 the paragraph above narrates: HT, CAN/SUB, SO/SI and the
     // 8-bit C1 routing each split more bytes apart after that prose was
     // written, which made 34, and the `OSC` body parting from the `SOS`, `PM`
     // and `APC` one on `BEL` split `5D` from `58 5E 5F` and `9D` from
-    // `98 9E 9F`, which made 36.
-    const CLASSES: usize = 36;
+    // `98 9E 9F`, which made 36. A GR byte in a DCS prefix read as its 7-bit
+    // byte under ISO 8859-1 split `A4`, `B0-B9`, `BA BB`, `F1` and `FF` from
+    // the classes they shared, which made 41.
+    const CLASSES: usize = 41;
     /// **The loop always advances**, and it is a table property rather than a
     /// hope.
     ///

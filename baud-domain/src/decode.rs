@@ -784,6 +784,34 @@ impl InputEncoding {
             .then(|| StreamByte::from_stream(v - 0x40))
     }
 
+    /// The 7-bit byte a GR byte stands for in a sequence's prefix, in a
+    /// single-byte encoding: `A0-FF` with its eighth bit cleared, and every
+    /// other byte, and every byte under UTF-8, as it is.
+    ///
+    /// **The rule is the texts', where a byte is part of a sequence rather
+    /// than a character.** `[[source: dec-std-070]]` 3.5.4.5: GR graphic
+    /// characters "in the introducer sequence to a Device Control String, the
+    /// eighth bit will be ignored, and they will be treated as their 7-bit
+    /// equivalent". `[[source: williams]]` (462): "In all states, these codes
+    /// are treated identically to GL codes 20-7F". `[[source: ecma48]]` §9
+    /// gives `10/00` to `15/14` "the same meanings" as `02/00` to `07/14` and
+    /// stops there. `FF` reads as `7F`, as williams reads it: DEC's recovery
+    /// for a byte X3.64 calls an error and leaves unspecified. Under UTF-8 the
+    /// same bytes are lead and continuation bytes of a character, so nothing
+    /// maps.
+    ///
+    /// A `const fn`, because its one caller is the graph, which is built at
+    /// compile time; the DCS prefix nodes are the only ones that ask.
+    pub const fn gr_as_gl(self, b: StreamByte) -> StreamByte {
+        match self {
+            InputEncoding::Utf8 => b,
+            InputEncoding::Latin1 => match b.raw_byte() {
+                v @ 0xa0..=0xff => StreamByte::from_stream(v & 0x7f),
+                _ => b,
+            },
+        }
+    }
+
     /// The character a byte stands for, in a single-byte encoding.
     ///
     /// `None` for every byte under UTF-8, which is not one, and under ISO

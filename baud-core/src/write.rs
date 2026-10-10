@@ -509,7 +509,9 @@ pub(crate) fn act(
         // **Two bytes, one lookup.** The edge is named only for
         // `0x30..=0x39`, so the first byte is known to be a digit and the
         // table answers what the *pair* means -- two digits, a digit and a
-        // separator, or a digit and something that is not ours. On `btop.raw`
+        // separator, or a digit and something that is not ours. (And for
+        // `0xb0..=0xb9` in a DCS prefix under ISO 8859-1, the same digits in
+        // GR, whose rows in the table are the GL digits' rows.) On `btop.raw`
         // `Digit` and `Sep` are **69.8% of every iteration the loop takes**,
         // and the mean digit run is 2.01 bytes.
         Act::Digit => {

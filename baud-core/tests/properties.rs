@@ -2,7 +2,7 @@
 //! a language.
 //!
 //! **The alphabet is the whole design.** `baud-core2`'s generator had 79
-//! operations and reached the *protocol*; this one has twenty-nine atoms and
+//! operations and reached the *protocol*; this one has thirty atoms and
 //! reaches the **fast paths**, which is where this core's defects have lived.
 //! Those paths key on a cross product -- encoded length, width, grapheme class
 //! and *run length* -- and two of the entries below exist because a run of
@@ -320,6 +320,17 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **GR bytes in a DCS prefix, under ISO 8859-1**: `90`, then `B1 BB B2`
+    // for the parameters `1;2`, `A4` for `$` and `F1` for `q`, so the string
+    // is a DECRQSS for `m`, closed by `9C`. Each GR byte is read as its
+    // 7-bit byte, and a split can fall between any two of them, where the
+    // node a prefix byte left the parser in is all that carries across.
+    Atom {
+        name: "latin1-dcs-gr",
+        bytes: b"\x1b%@\x90\xb1\xbb\xb2\xa4\xf1m\x9c\x1b%G",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 fn program() -> impl Strategy<Value = Vec<usize>> {
@@ -537,6 +548,19 @@ fn the_dcs_lf_del_atom_reaches_the_handler() {
             (Row::ZERO, Col::ZERO),
             "DCS: the LF ran nothing"
         );
+    });
+}
+
+/// **The GR prefix atom reaches DECRQSS**: the request answers, so `B1 BB B2
+/// A4 F1` was read as `1;2$q`, and nothing was drawn. A prefix that sent its
+/// first GR byte to the body would leave the string ignored and unanswered in
+/// both chunkings, and every property would stay green.
+#[test]
+fn the_latin1_dcs_gr_atom_reaches_decrqss() {
+    fed("latin1-dcs-gr", &|t| {
+        assert_eq!(t.reply(), b"\x1bP1$r0m\x1b\\", "DCS: GR $ q names SGR");
+        assert_eq!(t.cursor(), (Row::ZERO, Col::ZERO), "DCS: nothing drawn");
+        assert_eq!(t.strings_ignored, 0, "DCS: the string was answered");
     });
 }
 

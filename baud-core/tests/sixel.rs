@@ -903,3 +903,129 @@ fn a_refused_opaque_sixel_is_not_counted() {
         );
     });
 }
+
+/// A Sixel introducer with GR bytes, beside its GL spelling and whether its
+/// `P2` asks for an opaque background.
+type Gr = (&'static str, &'static [u8], &'static [u8], usize);
+
+/// 1-by-6 red Sixels whose introducers carry GR bytes, each beside its GL
+/// spelling and the count its `P2` makes.
+const GR_SIXELS: [Gr; 8] = [
+    (
+        "B0 BB B1 F1: 0;1 q",
+        b"\x1bP\xb0\xbb\xb1\xf1#0;2;100;0;0~\x1b\\Z",
+        b"\x1bP0;1q#0;2;100;0;0~\x1b\\Z",
+        0,
+    ),
+    (
+        "B0 BB B2 F1: 0;2 q",
+        b"\x1bP\xb0\xbb\xb2\xf1#0;2;100;0;0~\x1b\\Z",
+        b"\x1bP0;2q#0;2;100;0;0~\x1b\\Z",
+        1,
+    ),
+    (
+        "B0 BB B1 B2 F1: 0;12 q",
+        b"\x1bP\xb0\xbb\xb1\xb2\xf1#0;2;100;0;0~\x1b\\Z",
+        b"\x1bP0;12q#0;2;100;0;0~\x1b\\Z",
+        0,
+    ),
+    (
+        "B0 BB 2 B0 F1: 0;20 q, GL then GR",
+        b"\x1bP\xb0\xbb2\xb0\xf1#0;2;100;0;0~\x1b\\Z",
+        b"\x1bP0;20q#0;2;100;0;0~\x1b\\Z",
+        0,
+    ),
+    (
+        "B0 BB B2 0 F1: 0;20 q, GR then GL",
+        b"\x1bP\xb0\xbb\xb20\xf1#0;2;100;0;0~\x1b\\Z",
+        b"\x1bP0;20q#0;2;100;0;0~\x1b\\Z",
+        0,
+    ),
+    (
+        "0 BB B2 q: 0;2 q, GR between GL",
+        b"\x1bP0\xbb\xb2q#0;2;100;0;0~\x1b\\Z",
+        b"\x1bP0;2q#0;2;100;0;0~\x1b\\Z",
+        1,
+    ),
+    (
+        "F1: a bare q",
+        b"\x1bP\xf1#0;2;100;0;0~\x1b\\Z",
+        b"\x1bPq#0;2;100;0;0~\x1b\\Z",
+        0,
+    ),
+    (
+        "B0 BB B2 FF F1: FF ignored",
+        b"\x1bP\xb0\xbb\xb2\xff\xf1#0;2;100;0;0~\x1b\\Z",
+        b"\x1bP0;2q#0;2;100;0;0~\x1b\\Z",
+        1,
+    ),
+];
+
+/// **Under ISO 8859-1 a GR byte in a Sixel's introducer is read as its 7-bit
+/// byte**: `B0-B9` are the digits of `Pa;Pb;Ph`, `BB` is `;`, `F1` is the
+/// final `q`, and `FF`, `DEL`'s twin, is ignored where `DEL` is.
+/// `[[source: dec-std-070]]` 3.5.4.5 (PDF p. 135): in "the introducer sequence
+/// to a Device Control String, the eighth bit will be ignored, and they will
+/// be treated as their 7-bit equivalent"; `[[source: williams]]` (462) and
+/// `[[source: ecma48]]` §9 read GR as GL there too. The prefix nodes sent the
+/// first GR byte to the body, so no image was drawn and its data were
+/// discarded.
+///
+/// The values are what only `sixel_p2_ignored` can see: `P2` of 0 or 2 is
+/// counted and 1, 12 or 20 is not, so a GR digit folded as anything but its
+/// own value moves the count -- `0;1` read as `0;0` would count one. Each
+/// program is held to its GL spelling in all four framings at every read
+/// size, the image pixel for pixel, the screen and the cursor; the control is
+/// that the GL spelling draws its image and counts what it should.
+#[test]
+fn a_gr_byte_in_a_sixel_introducer_is_read_as_its_seven_bit_byte_under_latin1() {
+    for (name, gr, gl, p2) in GR_SIXELS {
+        for ((frame, gr), (_, gl)) in support::latin1_framings(gr)
+            .into_iter()
+            .zip(support::latin1_framings(gl))
+        {
+            let mut want = None;
+            run(&gl, gl.len(), ample(), |t| {
+                assert_eq!(
+                    t.images().sixel_p2_ignored,
+                    p2,
+                    "control: {name}, {frame}, the GL spelling's P2"
+                );
+                want = Some(drawn(t));
+            });
+            let want = want.unwrap();
+            assert_eq!(
+                want.0.as_ref().map(|i| (i.0, i.1)),
+                Some((1, 6)),
+                "control: {name}, {frame}, the GL spelling draws 1 by 6"
+            );
+            for read in 1..=gr.len() {
+                run(&gr, read, ample(), |t| {
+                    let at = format!("{name}, {frame}, read size {read}");
+                    assert_eq!(drawn(t), want, "{at}");
+                    assert_eq!(t.images().sixel_p2_ignored, p2, "{at}: P2");
+                });
+            }
+        }
+    }
+}
+
+/// **Under UTF-8 the same introducers draw nothing**, the guard beside the
+/// test above, green before the change and after it: the GR bytes are a
+/// character's there, nothing reads them as a prefix, and the string and its
+/// Sixel data are ignored. Only the `Z` after it is drawn, and nothing is
+/// refused, so no decoder saw the data.
+#[test]
+fn a_gr_byte_in_a_sixel_introducer_under_utf8_draws_nothing() {
+    let mut z = None;
+    run(b"Z", 1, ample(), |t| z = Some(drawn(t)));
+    let z = z.unwrap();
+    for (name, gr, _, _) in GR_SIXELS {
+        for read in 1..=gr.len() {
+            run(gr, read, ample(), |t| {
+                assert_eq!(drawn(t), z, "UTF-8, {name}, read size {read}");
+                assert_eq!(t.images().images_refused, 0, "UTF-8, {name}");
+            });
+        }
+    }
+}

@@ -25,7 +25,9 @@
 //! 65,536 entries x 2 bytes = **128 KB of rodata**, no initialiser and nothing
 //! to run at startup. Only the digit rows are ever touched -- `b0` is always
 //! one of ten bytes -- so the resident set is 10 x 256 x 2 = **5 KB**, which is
-//! what rule #2 bounds rather than the table's size.
+//! what rule #2 bounds rather than the table's size. (Twenty bytes can lead,
+//! counting the GR digits a DCS prefix reads under ISO 8859-1; no recording
+//! holds one, so the ten rows are what is resident.)
 
 use crate::*;
 
@@ -127,8 +129,18 @@ impl ParamStep {
 }
 
 /// The table. `b0` is always a digit -- a parser names this action only for
-/// `0x30..=0x39` -- so every other row is unreachable and costs nothing but
-/// address space.
+/// `0x30..=0x39`, and for `0xb0..=0xb9`, the same digits in GR, where a DCS
+/// prefix under ISO 8859-1 reads a GR byte as its 7-bit byte
+/// (`[[source: dec-std-070]]` 3.5.4.5) -- so every other row is unreachable
+/// and costs nothing but address space.
+///
+/// **A GR digit's row is its GL digit's, and only the row.** The second byte
+/// is the same column for both, so a GR byte after a digit is "not ours"
+/// and takes its own iteration through the graph: widening the column would
+/// make `CSI 1 B2` under UTF-8, where `B2` is a continuation byte, read it
+/// as a digit. The GR rows are reached only by a GR digit in a DCS prefix
+/// under ISO 8859-1, which no recording holds, so the touched set is the 5
+/// KB it was.
 static PARAM: [ParamStep; 1 << 16] = build();
 
 const fn build() -> [ParamStep; 1 << 16] {
@@ -150,6 +162,8 @@ const fn build() -> [ParamStep; 1 << 16] {
                 0x3a => ParamStep::new(hi, false, After::SubSep, true),
                 _ => ParamStep::new(hi, false, After::Nothing, false),
             };
+            // The same digit in GR leads the same row.
+            t[k | 0x80] = t[k];
             b1 += 1;
         }
         b0 += 1;
@@ -215,6 +229,37 @@ mod tests {
         }
     }
 
+    /// **A GR digit leads the row its GL digit leads, and no other row
+    /// moved.** Under ISO 8859-1 a DCS prefix reads `B0-B9` as the digits,
+    /// `[[source: dec-std-070]]` 3.5.4.5's "the eighth bit will be ignored",
+    /// so the graph names `Digit` for them there and the step reads this
+    /// table with a GR lead. Only the lead is copied: the second byte's
+    /// column serves every `CSI` under UTF-8 too, where `B2` after a digit is
+    /// a continuation byte, so a GR second byte stays "not ours" and takes an
+    /// iteration of its own through the graph. Every row a digit does not
+    /// lead is the default, as it was.
+    #[test]
+    fn a_gr_digit_leads_its_gl_digits_row_and_no_other_row_moved() {
+        let none = ParamStep::new(0, false, After::Nothing, false);
+        for b0 in 0..256usize {
+            let gl = b0 & 0x7f;
+            for b1 in 0..256usize {
+                let e = ParamStep::of(StreamByte::ALL[b0], StreamByte::ALL[b1]);
+                match gl {
+                    0x30..=0x39 => assert_eq!(
+                        e,
+                        ParamStep::of(StreamByte::ALL[gl], StreamByte::ALL[b1]),
+                        "b0={b0:#x} b1={b1:#x}"
+                    ),
+                    _ => assert_eq!(e, none, "b0={b0:#x} b1={b1:#x}"),
+                }
+            }
+        }
+        // The column is not widened: a GR digit after a digit is not one.
+        let e = ParamStep::of(StreamByte::ALL[0x31], StreamByte::ALL[0xb2]);
+        assert_eq!((e.value(), e.width().index()), (1, 1));
+    }
+
     /// **Every step consumes at least its own byte.** A zero-width step would
     /// stall the ingest loop on malformed input, which is the one failure this
     /// loop is structured to make impossible.
@@ -236,7 +281,7 @@ mod tests {
 /// This edge takes a whole one.
 ///
 /// **The key stays a perfect index by compacting only the lead.** `b0` is
-/// always a digit, so `(b0 - 0x30)` is 0..=9 and the table is
+/// always a digit, GL or GR, so its low nibble is 0..=9 and the table is
 /// `10 x 256 x 256 = 655,360` entries at two bytes = **1.31 MB** of rodata,
 /// against 16.7M entries and 33 MB for a raw three-byte key. The touched set is
 /// ten leads by about fifteen live second bytes by fifteen third bytes --
@@ -264,10 +309,16 @@ impl ParamStep3 {
         )
     }
 
-    /// The step three bytes name. One load, one subtract on the lead.
+    /// The step three bytes name. One load, one mask on the lead.
+    ///
+    /// **The lead's low nibble, not the lead less `0x30`.** A lead is a digit,
+    /// `30-39`, or under ISO 8859-1 in a DCS prefix the same digit in GR,
+    /// `B0-B9` (`[[source: dec-std-070]]` 3.5.4.5), and both have the digit's
+    /// value in their low nibble. Less `0x30`, a GR lead indexed past the
+    /// table and panicked.
     #[inline(always)]
     pub fn of(b0: StreamByte, b1: StreamByte, b2: StreamByte) -> ParamStep3 {
-        PARAM3[(b0.index() - 0x30) << 16 | b1.index() << 8 | b2.index()]
+        PARAM3[(b0.index() & 0x0f) << 16 | b1.index() << 8 | b2.index()]
     }
 
     pub const fn value(self) -> u16 {
@@ -384,6 +435,26 @@ mod three {
                         };
                         assert_eq!(e.width().index(), want, "{b0:#x} {b1:#x} {b2:#x}");
                     }
+                }
+            }
+        }
+    }
+
+    /// **A GR digit leads as its GL digit does**, as in the two-byte table:
+    /// a DCS prefix under ISO 8859-1 reads `B0-B9` as the digits, so the
+    /// lead is compacted to its low nibble rather than less `0x30`, which
+    /// indexed past the table and panicked on a GR lead.
+    #[test]
+    fn a_gr_lead_is_its_gl_lead() {
+        for b0 in 0x30..=0x39usize {
+            for b1 in 0..256usize {
+                for b2 in 0..256usize {
+                    let (s1, s2) = (StreamByte::ALL[b1], StreamByte::ALL[b2]);
+                    assert_eq!(
+                        ParamStep3::of(StreamByte::ALL[b0 | 0x80], s1, s2),
+                        ParamStep3::of(StreamByte::ALL[b0], s1, s2),
+                        "{b0:#x} {b1:#x} {b2:#x}"
+                    );
                 }
             }
         }

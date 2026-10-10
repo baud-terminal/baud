@@ -685,3 +685,127 @@ fn an_osc_and_an_apc_keep_their_rows_for_a_format_effector_and_a_del() {
         }
     }
 }
+
+/// Each program with GR bytes in its prefix beside its GL spelling, held to
+/// it under ISO 8859-1 in all four framings at every read size: the reply,
+/// the screen and the cursor. The control is that the GL spelling answers
+/// `want`, so a harness that saw no reply could not pass.
+fn same_as_gl(cases: &[(&str, &[u8], &[u8])], want: &[u8]) {
+    for (name, gr, gl) in cases {
+        for ((frame, gr), (_, gl)) in support::latin1_framings(gr)
+            .into_iter()
+            .zip(support::latin1_framings(gl))
+        {
+            let base = left(&gl, gl.len());
+            assert_eq!(
+                base.reply, want,
+                "control: {name}, {frame}, the GL spelling"
+            );
+            for size in 1..=gr.len() {
+                let got = left(&gr, size);
+                let at = format!("{name}, {frame}, read size {size}");
+                assert_eq!(got.reply, base.reply, "{at}: reply");
+                assert_eq!(got.screen, base.screen, "{at}: screen");
+                assert_eq!(got.cursor, base.cursor, "{at}: cursor");
+            }
+        }
+    }
+}
+
+/// **Under ISO 8859-1 a GR byte in a DCS prefix is read as its 7-bit
+/// byte, so `ESC P A4 F1 m ST` is a DECRQSS.**
+///
+/// `[[source: dec-std-070]]` 3.5.4.5 (PDF p. 135): GR graphic characters
+/// "in the introducer sequence to a Device Control String, the eighth bit
+/// will be ignored, and they will be treated as their 7-bit equivalent".
+/// `[[source: williams]]` (462): "In all states, these codes are treated
+/// identically to GL codes 20-7F". `[[source: ecma48]]` §9: in an 8-bit code
+/// the bit combinations of columns 10 to 15 may represent the contents of a
+/// control string, and "the bit combinations in the range 10/00 to 15/14
+/// shall have the same meanings as the corresponding bit combinations in the
+/// range 02/00 to 07/14". xterm keeps `AsciiOf` of each string byte
+/// (`[[source: xterm-reset]]`'s file, 3454-3456) and finds the `$ q` there
+/// (`[[source: xterm-misc]]`'s file, 4896-4900). The prefix nodes sent every
+/// GR byte to the body, where the string was ignored and the request got no
+/// answer.
+///
+/// `A4` is `$`, `F1` is `q`, `B0-B9` are the digits and `BB` is `;`. `FF`,
+/// `7F`'s twin, which `[[source: ecma48]]` §9 stops short of and williams
+/// and `[[source: dec-std-070]]` 3.5.4.5 read as `DEL`, is ignored where
+/// `DEL` is.
+#[test]
+fn a_gr_byte_in_a_dcs_prefix_is_read_as_its_seven_bit_byte_under_latin1() {
+    same_as_gl(&GR_SGR, b"\x1bP1$r0m\x1b\\");
+    same_as_gl(
+        &[(
+            "A4 F1 \" q: DECSCA",
+            b"\x1bP\xa4\xf1\"q\x1b\\Y",
+            b"\x1bP$q\"q\x1b\\Y",
+        )],
+        b"\x1bP1$r0\"q\x1b\\",
+    );
+}
+
+/// DECRQSS requests for `m` with GR bytes in their prefixes, each beside its
+/// GL spelling.
+const GR_SGR: [(&str, &[u8], &[u8]); 7] = [
+    (
+        "A4 F1: $ and q",
+        b"\x1bP\xa4\xf1m\x1b\\Y",
+        b"\x1bP$qm\x1b\\Y",
+    ),
+    ("$ F1: q", b"\x1bP$\xf1m\x1b\\Y", b"\x1bP$qm\x1b\\Y"),
+    ("A4 q: $", b"\x1bP\xa4qm\x1b\\Y", b"\x1bP$qm\x1b\\Y"),
+    (
+        "B1 BB B2 A4 F1: the parameters 1;2",
+        b"\x1bP\xb1\xbb\xb2\xa4\xf1m\x1b\\Y",
+        b"\x1bP1;2$qm\x1b\\Y",
+    ),
+    (
+        "1 BB B2 $ F1: GL and GR mixed",
+        b"\x1bP1\xbb\xb2$\xf1m\x1b\\Y",
+        b"\x1bP1;2$qm\x1b\\Y",
+    ),
+    (
+        "FF before A4, ignored",
+        b"\x1bP\xff\xa4\xf1m\x1b\\Y",
+        b"\x1bP$qm\x1b\\Y",
+    ),
+    (
+        "FF between A4 and F1, ignored",
+        b"\x1bP\xa4\xff\xf1m\x1b\\Y",
+        b"\x1bP$qm\x1b\\Y",
+    ),
+];
+
+/// **A GR byte in a DCS body, and the same prefixes under UTF-8, are what
+/// they were**, the guard beside the test above, green before the change and
+/// after it. The body is not the prefix: a GR byte in a `Pt` is stored as
+/// it was, the owner's call (`dcs_passthrough`), so `$ q ED` answers
+/// invalid. Under UTF-8 the GR bytes are a character's, nothing reads them
+/// as a prefix, and each string is ignored: no reply, and only the `Y` drawn.
+#[test]
+fn a_gr_byte_in_a_dcs_body_or_under_utf8_is_what_it_was() {
+    for (frame, bytes) in support::latin1_framings(b"\x1bP$q\xed\x1b\\Y") {
+        for size in 1..=bytes.len() {
+            assert_eq!(
+                left(&bytes, size).reply,
+                INVALID,
+                "$ q ED, {frame}, read size {size}"
+            );
+        }
+    }
+    let want = left(b"Y", 1);
+    for (name, gr, _) in GR_SGR {
+        for size in 1..=gr.len() {
+            let got = left(gr, size);
+            let at = format!("UTF-8, {name}, read size {size}");
+            assert_eq!(got.reply, b"", "{at}: reply");
+            assert_eq!(got.screen, want.screen, "{at}: screen");
+            assert_eq!(got.cursor, want.cursor, "{at}: cursor");
+            fed(gr, size, |t| {
+                assert_eq!(t.strings_ignored, 1, "{at}: one string")
+            });
+        }
+    }
+}

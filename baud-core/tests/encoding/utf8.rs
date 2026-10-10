@@ -302,3 +302,42 @@ fn del_in_ground_is_ignored() {
         }
     }
 }
+
+/// **A DEL in `csi_param` is ignored and the sequence goes on.**
+///
+/// `[[source: williams]]`'s `csi param` has "event 7F / ignore" and stays
+/// (315), so `CSI 5 DEL C X` is `CSI 5 C X`: the cursor moves five and the
+/// `X` lands at column 5. The `docs/vt-coverage.md` row "`7F` DEL in
+/// `csi_param`" is `done` on this test. Held under both encodings, at every
+/// read size, against the same program without the DEL, and at the column.
+#[test]
+fn a_del_in_csi_param_is_ignored_and_the_sequence_goes_on() {
+    for (what, with, without) in [
+        ("UTF-8", b"\x1b[5\x7fCX".as_slice(), b"\x1b[5CX".as_slice()),
+        ("ISO 8859-1", b"\x1b%@\x1b[5\x7fCX", b"\x1b%@\x1b[5CX"),
+    ] {
+        let want = state_after(without, without.len());
+        assert_eq!(
+            want.0[5].content.as_codepoint().map(|c| c.value()),
+            Some(u32::from(b'X')),
+            "{what}: the control puts X at column 5"
+        );
+        for size in 1..=with.len() {
+            let got = state_after(with, size);
+            assert_eq!(
+                got.0[5].content.as_codepoint().map(|c| c.value()),
+                Some(u32::from(b'X')),
+                "{what}: X is not at column 5 at read size {size}"
+            );
+            assert_eq!(got.1, want.1, "{what}: cursor differs at read size {size}");
+            assert_eq!(
+                got.2, want.2,
+                "{what}: unsupported moved at read size {size}"
+            );
+            assert!(
+                got.0 == want.0,
+                "{what}: screen differs at read size {size}"
+            );
+        }
+    }
+}

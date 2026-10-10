@@ -80,6 +80,22 @@ pub fn feed(t: &mut Term<'_>, bytes: &[u8]) {
     }
 }
 
+/// A 7-bit DCS program, `ESC P ... ESC \ ...`, under ISO 8859-1 in each of
+/// the four spellings its introducer and terminator have there: `ESC P` or
+/// `90`, and `ESC \` or `9C`. The program holds one `ESC \`.
+pub fn latin1_framings(seven: &[u8]) -> [(&'static str, Vec<u8>); 4] {
+    let body = seven.strip_prefix(b"\x1bP").expect("a 7-bit DCS");
+    let st = body.windows(2).position(|w| w == b"\x1b\\").expect("an ST");
+    let (inner, tail) = (&body[..st], &body[st + 2..]);
+    let frame = |intro: &[u8], end: &[u8]| [b"\x1b%@".as_slice(), intro, inner, end, tail].concat();
+    [
+        ("ESC P and ESC \\", frame(b"\x1bP", b"\x1b\\")),
+        ("90 and 9C", frame(b"\x90", b"\x9c")),
+        ("ESC P and 9C", frame(b"\x1bP", b"\x9c")),
+        ("90 and ESC \\", frame(b"\x90", b"\x1b\\")),
+    ]
+}
+
 /// Boot at `ws`, feed `bytes`, and hand the terminal to `f`.
 pub fn render<R>(ws: &WinSize, bytes: &[u8], f: impl FnOnce(&mut Term<'_>) -> R) -> R {
     with_term(ws, |t| {
