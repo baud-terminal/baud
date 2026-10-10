@@ -1,0 +1,29 @@
+# xtgettcap-controls.rs, run 2026-10-09 in a git-archive copy of baud at 5477bf7 (HEAD), placed at
+# baud-core/tests/xtgettcap_controls.rs. Command, from the copy's root:
+#   cargo test -p baud-core --test xtgettcap_controls -- --nocapture
+# Output below is the test's stdout, unedited. Re-run 2026-10-10 from the formatted harness
+# (treefmt's rustfmt, which changed layout only) in a fresh copy at 5477bf7: the same lines but
+# for the elapsed time (0.03s).
+
+
+running 1 test
+Q1 CSI ? u: reply "ESC [?0u" with no flags; after CSI > 1 u: "ESC [?1u"; unsupported 0
+Q2 base layer: F21 key() -> false, bytes ""
+Q2 base layer: F35 key() -> false, bytes ""
+Q2 base layer: F13 key() -> true, bytes "ESC [25~" (control)
+Q2 after CSI > 1 u: F21 key() -> true, bytes "ESC [57384u"
+Q2 after CSI > 1 u: F35 key() -> true, bytes "ESC [57398u"
+Q2 after CSI > 1 u: F13 key() -> true, bytes "ESC [57376u" (control)
+Q3 DCS + q + 509 B: string_truncations 0 -> 0, strings_ignored 1
+Q3 DCS + q + 510 B: string_truncations 0 -> 0, strings_ignored 1
+Q3 DCS + q + 511 B: string_truncations 0 -> 0, strings_ignored 1
+Q3 DCS + q + 512 B: string_truncations 0 -> 1, strings_ignored 1
+Q3 DCS + q + 513 B: string_truncations 0 -> 2, strings_ignored 1
+Q3 control DCS $ q + 512 B: string_truncations 0
+Q3 control DCS $ q + 513 B: string_truncations 1
+Q4 BEL after a DCS + q body: strings_ignored 0 -> 1, cursor after QQ (Row(0), Col(2))
+Q4 control, no BEL: strings_ignored 0, cursor after QQ (Row(0), Col(0))
+test controls ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

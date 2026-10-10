@@ -1,0 +1,126 @@
+# keyprobe-main.rs (with keyprobe-Cargo.toml), built against baud-domain in a git-archive copy of
+# baud at 5477bf7 (HEAD): cargo run --offline --release. The output is byte-identical to the
+# run at e2c3b24 against the working tree. Re-run 2026-10-10 from the formatted harness, which
+# takes the two entries' paths relative to the directory it runs in and baud-domain's relative to
+# target/keyprobe/: built and run from the root of a fresh git-archive copy at 5477bf7, as
+# keyprobe-Cargo.toml says, it printed these lines byte for byte again. Output below is the
+# program's stdout, unedited.
+
+khome   pin reset \E[H         smkx \EOH         agrees (smkx)
+kHOM    pin reset \E[1;2H      smkx \E[1;2H      agrees (smkx)
+kend    pin reset \E[F         smkx \EOF         agrees (smkx)
+kEND    pin reset \E[1;2F      smkx \E[1;2F      agrees (smkx)
+kcub1   pin reset \E[D         smkx \EOD         agrees (smkx)
+kcuf1   pin reset \E[C         smkx \EOC         agrees (smkx)
+kcuu1   pin reset \E[A         smkx \EOA         agrees (smkx)
+kcud1   pin reset \E[B         smkx \EOB         agrees (smkx)
+kLFT    pin reset \E[1;2D      smkx \E[1;2D      agrees (smkx)
+kRIT    pin reset \E[1;2C      smkx \E[1;2C      agrees (smkx)
+kind    pin reset \E[1;2B      smkx \E[1;2B      agrees (smkx)
+kri     pin reset \E[1;2A      smkx \E[1;2A      agrees (smkx)
+kcbt    pin reset \E[Z         smkx \E[Z         agrees (smkx)
+kdch1   pin reset \E[3~        smkx \E[3~        agrees (smkx)
+kich1   pin reset \E[2~        smkx \E[2~        agrees (smkx)
+knp     pin reset \E[6~        smkx \E[6~        agrees (smkx)
+kpp     pin reset \E[5~        smkx \E[5~        agrees (smkx)
+kNXT    pin reset \E[6;2~      smkx \E[6;2~      agrees (smkx)
+kPRV    pin reset \E[5;2~      smkx \E[5;2~      agrees (smkx)
+kbs     pin reset ^?           smkx ^?           DIFFERS: entry ^H
+kent    pin reset ^M           smkx \EOM         agrees (smkx)
+kUP     -x  reset \E[1;2A      smkx \E[1;2A      agrees (smkx)
+kDN     -x  reset \E[1;2B      smkx \E[1;2B      agrees (smkx)
+kDC     pin reset \E[3;2~      smkx \E[3;2~      agrees (smkx)
+kIC     pin reset \E[2;2~      smkx \E[2;2~      agrees (smkx)
+kf1     pin reset \EOP         smkx \EOP         agrees (smkx)
+kf2     pin reset \EOQ         smkx \EOQ         agrees (smkx)
+kf3     pin reset \EOR         smkx \EOR         agrees (smkx)
+kf4     pin reset \EOS         smkx \EOS         agrees (smkx)
+kf5     pin reset \E[15~       smkx \E[15~       agrees (smkx)
+kf6     pin reset \E[17~       smkx \E[17~       agrees (smkx)
+kf7     pin reset \E[18~       smkx \E[18~       agrees (smkx)
+kf8     pin reset \E[19~       smkx \E[19~       agrees (smkx)
+kf9     pin reset \E[20~       smkx \E[20~       agrees (smkx)
+kf10    pin reset \E[21~       smkx \E[21~       agrees (smkx)
+kf11    pin reset \E[23~       smkx \E[23~       agrees (smkx)
+kf12    pin reset \E[24~       smkx \E[24~       agrees (smkx)
+kf13    pin reset \E[25~       smkx \E[25~       DIFFERS: entry \E[1;2P
+kf14    pin reset \E[26~       smkx \E[26~       DIFFERS: entry \E[1;2Q
+kf15    pin reset \E[28~       smkx \E[28~       DIFFERS: entry \E[1;2R
+kf16    pin reset \E[29~       smkx \E[29~       DIFFERS: entry \E[1;2S
+kf17    pin reset \E[31~       smkx \E[31~       DIFFERS: entry \E[15;2~
+kf18    pin reset \E[32~       smkx \E[32~       DIFFERS: entry \E[17;2~
+kf19    pin reset \E[33~       smkx \E[33~       DIFFERS: entry \E[18;2~
+kf20    pin reset \E[34~       smkx \E[34~       DIFFERS: entry \E[19;2~
+kDN3    -x  reset \E[1;3B      smkx \E[1;3B      agrees (smkx)
+kDN4    -x  reset \E[1;4B      smkx \E[1;4B      agrees (smkx)
+kDN5    -x  reset \E[1;5B      smkx \E[1;5B      agrees (smkx)
+kDN6    -x  reset \E[1;6B      smkx \E[1;6B      agrees (smkx)
+kDN7    -x  reset \E[1;7B      smkx \E[1;7B      agrees (smkx)
+kDN8    --  reset \E[1;8B      smkx \E[1;8B      not in either entry
+kLFT3   -x  reset \E[1;3D      smkx \E[1;3D      agrees (smkx)
+kLFT4   -x  reset \E[1;4D      smkx \E[1;4D      agrees (smkx)
+kLFT5   -x  reset \E[1;5D      smkx \E[1;5D      agrees (smkx)
+kLFT6   -x  reset \E[1;6D      smkx \E[1;6D      agrees (smkx)
+kLFT7   -x  reset \E[1;7D      smkx \E[1;7D      agrees (smkx)
+kLFT8   --  reset \E[1;8D      smkx \E[1;8D      not in either entry
+kRIT3   -x  reset \E[1;3C      smkx \E[1;3C      agrees (smkx)
+kRIT4   -x  reset \E[1;4C      smkx \E[1;4C      agrees (smkx)
+kRIT5   -x  reset \E[1;5C      smkx \E[1;5C      agrees (smkx)
+kRIT6   -x  reset \E[1;6C      smkx \E[1;6C      agrees (smkx)
+kRIT7   -x  reset \E[1;7C      smkx \E[1;7C      agrees (smkx)
+kRIT8   --  reset \E[1;8C      smkx \E[1;8C      not in either entry
+kUP3    -x  reset \E[1;3A      smkx \E[1;3A      agrees (smkx)
+kUP4    -x  reset \E[1;4A      smkx \E[1;4A      agrees (smkx)
+kUP5    -x  reset \E[1;5A      smkx \E[1;5A      agrees (smkx)
+kUP6    -x  reset \E[1;6A      smkx \E[1;6A      agrees (smkx)
+kUP7    -x  reset \E[1;7A      smkx \E[1;7A      agrees (smkx)
+kUP8    --  reset \E[1;8A      smkx \E[1;8A      not in either entry
+kDC3    -x  reset \E[3;3~      smkx \E[3;3~      agrees (smkx)
+kDC4    -x  reset \E[3;4~      smkx \E[3;4~      agrees (smkx)
+kDC5    -x  reset \E[3;5~      smkx \E[3;5~      agrees (smkx)
+kDC6    -x  reset \E[3;6~      smkx \E[3;6~      agrees (smkx)
+kDC7    -x  reset \E[3;7~      smkx \E[3;7~      agrees (smkx)
+kDC8    --  reset \E[3;8~      smkx \E[3;8~      not in either entry
+kEND3   -x  reset \E[1;3F      smkx \E[1;3F      agrees (smkx)
+kEND4   -x  reset \E[1;4F      smkx \E[1;4F      agrees (smkx)
+kEND5   -x  reset \E[1;5F      smkx \E[1;5F      agrees (smkx)
+kEND6   -x  reset \E[1;6F      smkx \E[1;6F      agrees (smkx)
+kEND7   -x  reset \E[1;7F      smkx \E[1;7F      agrees (smkx)
+kEND8   --  reset \E[1;8F      smkx \E[1;8F      not in either entry
+kHOM3   -x  reset \E[1;3H      smkx \E[1;3H      agrees (smkx)
+kHOM4   -x  reset \E[1;4H      smkx \E[1;4H      agrees (smkx)
+kHOM5   -x  reset \E[1;5H      smkx \E[1;5H      agrees (smkx)
+kHOM6   -x  reset \E[1;6H      smkx \E[1;6H      agrees (smkx)
+kHOM7   -x  reset \E[1;7H      smkx \E[1;7H      agrees (smkx)
+kHOM8   --  reset \E[1;8H      smkx \E[1;8H      not in either entry
+kIC3    -x  reset \E[2;3~      smkx \E[2;3~      agrees (smkx)
+kIC4    -x  reset \E[2;4~      smkx \E[2;4~      agrees (smkx)
+kIC5    -x  reset \E[2;5~      smkx \E[2;5~      agrees (smkx)
+kIC6    -x  reset \E[2;6~      smkx \E[2;6~      agrees (smkx)
+kIC7    -x  reset \E[2;7~      smkx \E[2;7~      agrees (smkx)
+kIC8    --  reset \E[2;8~      smkx \E[2;8~      not in either entry
+kNXT3   -x  reset \E[6;3~      smkx \E[6;3~      agrees (smkx)
+kNXT4   -x  reset \E[6;4~      smkx \E[6;4~      agrees (smkx)
+kNXT5   -x  reset \E[6;5~      smkx \E[6;5~      agrees (smkx)
+kNXT6   -x  reset \E[6;6~      smkx \E[6;6~      agrees (smkx)
+kNXT7   -x  reset \E[6;7~      smkx \E[6;7~      agrees (smkx)
+kNXT8   --  reset \E[6;8~      smkx \E[6;8~      not in either entry
+kPRV3   -x  reset \E[5;3~      smkx \E[5;3~      agrees (smkx)
+kPRV4   -x  reset \E[5;4~      smkx \E[5;4~      agrees (smkx)
+kPRV5   -x  reset \E[5;5~      smkx \E[5;5~      agrees (smkx)
+kPRV6   -x  reset \E[5;6~      smkx \E[5;6~      agrees (smkx)
+kPRV7   -x  reset \E[5;7~      smkx \E[5;7~      agrees (smkx)
+kPRV8   --  reset \E[5;8~      smkx \E[5;8~      not in either entry
+rows 105 agree 86 differ 9 absent 10; comparable 95; longest encoded 6 B
+-- the differing entry values: which key baud sends each for (smkx state; reset is the same for these)
+kf13    entry \E[1;2P    shift-F1   reset \E[1;2P    smkx \E[1;2P    same bytes as the entry
+kf14    entry \E[1;2Q    shift-F2   reset \E[1;2Q    smkx \E[1;2Q    same bytes as the entry
+kf15    entry \E[1;2R    shift-F3   reset \E[1;2R    smkx \E[1;2R    same bytes as the entry
+kf16    entry \E[1;2S    shift-F4   reset \E[1;2S    smkx \E[1;2S    same bytes as the entry
+kf17    entry \E[15;2~   shift-F5   reset \E[15;2~   smkx \E[15;2~   same bytes as the entry
+kf18    entry \E[17;2~   shift-F6   reset \E[17;2~   smkx \E[17;2~   same bytes as the entry
+kf19    entry \E[18;2~   shift-F7   reset \E[18;2~   smkx \E[18;2~   same bytes as the entry
+kf20    entry \E[19;2~   shift-F8   reset \E[19;2~   smkx \E[19;2~   same bytes as the entry
+kbs     entry ^H         ctrl-h     reset ^H         smkx ^H         same bytes as the entry
+kbs     entry ^H         Backspace  reset ^?         smkx ^?         differs from the entry
+convention keys probed 10, sending the entry's bytes 9

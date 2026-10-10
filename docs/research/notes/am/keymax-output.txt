@@ -1,0 +1,103 @@
+# keymax-main.rs, run 2026-10-09 in a git-archive copy of baud at 5477bf7 (HEAD), placed at
+# baud-domain/examples/xtgettcap_keymax.rs. Command, from the copy's root:
+#   cargo build --offline --release -p baud-domain --example xtgettcap_keymax
+#   ./target/release/examples/xtgettcap_keymax
+# 2.0 s wall on this Mac (18 logical CPUs, one thread each). Output below is the program's stdout, unedited.
+# This run adds, over the previous one: the rows ka1, kc1, ka3 and kc3 (as Home, End, PageUp and
+# PageDown, input.c 1186-1188), so D1 is 190 rows; the one-digit codepoints U+0000, U+0007 and
+# U+0009 in D0's text keys; and the kcbt, D1b and D1corners sections at the end. Every maximum
+# the previous run printed is unchanged.
+# Re-run 2026-10-10 from the formatted harness (treefmt's rustfmt, which changed layout only) in a
+# fresh git-archive copy at 5477bf7, with the same commands: stdout byte-identical, 2.0 s wall.
+
+codes 128 (D0), xterm table rows baud can name 190 over 64 distinct keys; base-layer states 3072, all states 98304
+-- positive controls
+  F13 shift, kitty 1: Some("ESC [57376;2u") (expect ESC [57376;2u)
+  kcuu1 reset: Some("ESC [A") (expect ESC [A); Backspace: Some("DEL") (expect DEL)
+  key.rs 279's case CSI 57383;128:3u: ESC [57383;128:3u = 14 B (the comment says 15)
+D0a: base layer (kitty 0), every KeyCode, every modifier byte, every kind, text absent/own/U+10FFFF, every base KeyState
+  encodes 905969664  max 14 B: ESC [27;10;19968~
+  at: Char(Codepoint(19968)) mods=9 Press text=None kitty=0 modes=[?1039,?1036] keypad=Numeric other_keys=Level1/Xterm c1=SevenBit terminal=Ansi encoding=Utf8
+  length histogram (B:count, Some only): 1:62477824 2:40766208 3:31714560 4:5402624 5:27057408 6:40899840 7:35390976 8:12549888 9:4632576 10:5664000 11:4123392 12:1889280 13:1201920 14:516096
+D0b: kitty layer (flags 1-31, both C1 forms), every KeyCode, every modifier byte, every kind, text/shifted/base absent or present
+  encodes 73138176  max 40 B: ESC [1114109:1114111:1114111;100:2;1114109u
+  at: Char(Codepoint(1114109)) mods=75 Repeat text=Some(Codepoint(1114109)) shifted=Some(Codepoint(1114111)) base=Some(Codepoint(1114111)) kitty=22 modes=[?1039,?1036] keypad=Numeric other_keys=Off/Xterm c1=SevenBit terminal=Ansi encoding=Utf8
+  length histogram (B:count, Some only): 1:537600 2:89952 3:76548 4:206376 5:65640 6:777630 7:2424912 8:3121832 9:3021520 10:4447382 11:6959150 12:5797844 13:4535158 14:3120248 15:874614 16:1295234 17:1483754 18:1988452 19:3332038 20:3849908 21:3016330 22:2141094 23:996514 24:369974 25:397448 26:599154 27:1064766 28:1094128 29:845920 30:584130 31:207708 32:65438 33:56194 34:81934 35:141330 36:115694 37:85632 38:55740 39:4328 40:2400
+D0: encode_key's global maximum over D0a and D0b: 40 B (KeyBytes::MAX_LEN = 48)
+D1: xterm's table rows baud can name, each with its own modifiers; presses, no text, no alternates; every KeyState (kitty 0-31)
+  encodes 18677760  max 10 B: ESC [57413;2u
+  at: kpADD = Keypad(Add) param 2 kitty=1 modes=[?1039,?1036] keypad=Numeric other_keys=Off/Xterm c1=SevenBit terminal=Ansi encoding=Utf8
+  length histogram (B:count, Some only): 1:163584 2:616832 3:894080 4:731904 5:4368128 6:3927296 7:1571328 8:1573376 9:2335232 10:2333184
+D2: the table's keys, any shift/alt/ctrl combination (params 1-8); presses, no text, no alternates; every KeyState
+  encodes 50331648  max 11 B: ESC [27;3;127~
+  at: Backspace param 3 kitty=0 modes=[?1039,?1036] keypad=Numeric other_keys=Level1/Xterm c1=SevenBit terminal=Ansi encoding=Utf8
+  length histogram (B:count, Some only): 1:759808 2:537216 3:806016 4:660480 5:5097856 6:7742848 7:5185024 8:2121728 9:13355008 10:13355008 11:22528
+D2k: as D2, kitty flags 1-31 and both C1 forms only, every other KeyState field at its default
+  encodes 31744  max 10 B: ESC [57414;2u
+  at: Keypad(Enter) param 2 kitty=1 modes=[?1039,?1036] keypad=Numeric other_keys=Off/Xterm c1=SevenBit terminal=Ansi encoding=Utf8
+  length histogram (B:count, Some only): 1:360 2:339 3:479 4:419 5:3228 6:4902 7:3305 8:1352 9:8680 10:8680
+D2b: as D2, base layer only (kitty 0), every base KeyState
+  encodes 1572864  max 11 B: ESC [27;3;127~
+  at: Backspace param 3 kitty=0 modes=[?1039,?1036] keypad=Numeric other_keys=Level1/Xterm c1=SevenBit terminal=Ansi encoding=Utf8
+  length histogram (B:count, Some only): 1:237568 2:85632 3:139392 4:16896 5:118528 6:192256 7:87424 8:2816 9:1408 10:1408 11:1408
+D3: the table's keys, all 256 modifier bytes; presses, no text, no alternates; every KeyState
+  encodes 1610612736  max 12 B: ESC [27;10;127~
+  at: Backspace mods=9 kitty=0 modes=[?1039,?1036] keypad=Numeric other_keys=Level1/Xterm c1=SevenBit terminal=Ansi encoding=Utf8
+  length histogram (B:count, Some only): 1:23019520 2:3453568 3:5246080 4:660480 5:8212352 6:73015680 7:208790016 8:213954560 9:89963008 10:191428608 11:471361536 12:299487232
+D3b: as D3, base layer only (kitty 0)
+  encodes 50331648  max 12 B: ESC [27;10;127~
+  at: Backspace mods=9 kitty=0 modes=[?1039,?1036] keypad=Numeric other_keys=Level1/Xterm c1=SevenBit terminal=Ansi encoding=Utf8
+  length histogram (B:count, Some only): 1:7521280 2:2410624 3:3988096 4:16896 5:2182400 6:5633280 7:4867968 8:1462016 9:85888 10:57216 11:57216 12:28672
+-- F21-F35 (KeyCode::Pua), unmodified press, 7-bit, every other field default
+  kitty  0: None | None | None | None | None | None | None | None | None | None | None | None | None | None | None
+  kitty  1: ESC [57384u | ESC [57385u | ESC [57386u | ESC [57387u | ESC [57388u | ESC [57389u | ESC [57390u | ESC [57391u | ESC [57392u | ESC [57393u | ESC [57394u | ESC [57395u | ESC [57396u | ESC [57397u | ESC [57398u
+  kitty  2: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty  3: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty  4: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty  5: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty  6: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty  7: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty  8: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty  9: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 10: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 11: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 12: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 13: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 14: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 15: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 16: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 17: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 18: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 19: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 20: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 21: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 22: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 23: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 24: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 25: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 26: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 27: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 28: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 29: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 30: F21 ESC [57384u  F35 ESC [57398u  (15 distinct)
+  kitty 31: ESC [57384u | ESC [57385u | ESC [57386u | ESC [57387u | ESC [57388u | ESC [57389u | ESC [57390u | ESC [57391u | ESC [57392u | ESC [57393u | ESC [57394u | ESC [57395u | ESC [57396u | ESC [57397u | ESC [57398u
+  F21 over every KeyState: kitty 0 gives ["None"]; kitty 1-31 gives {"<9B>57384u", "ESC [57384u"}
+-- kcbt as baud's Shift-Tab, unmodified state otherwise, 7-bit, kitty 0
+  modifyOtherKeys Off/Xterm: ESC [Z (3 B)
+  modifyOtherKeys Off/CsiU: ESC [Z (3 B)
+  modifyOtherKeys Level1/Xterm: ESC [Z (3 B)
+  modifyOtherKeys Level1/CsiU: ESC [Z (3 B)
+  modifyOtherKeys Level2/Xterm: ESC [27;2;9~ (9 B)
+  modifyOtherKeys Level2/CsiU: ESC [9;2u (6 B)
+D1b: as D1, base layer only (kitty 0), every base KeyState
+  encodes 583680  max 9 B: ESC [27;2;9~
+  at: kcbt = Tab param 2 kitty=0 modes=[?1039,?1036] keypad=Numeric other_keys=Level2/Xterm c1=SevenBit terminal=Ansi encoding=Utf8
+  length histogram (B:count, Some only): 1:94464 2:85376 3:76928 4:17664 5:79232 6:66944 8:128 9:128
+D1corners: ka1/kc1/ka3/kc3 (4 rows) as Home/End/PageUp/PageDown, presses, every KeyState
+  encodes 393216  max 4 B: ESC [5~
+  at: ka3 = PageUp param 1 kitty=0 modes=[?1039,?1036] keypad=Numeric other_keys=Off/Xterm c1=SevenBit terminal=Ansi encoding=Utf8
+  length histogram (B:count, Some only): 2:96768 3:193536 4:96768
+  ka1: reset ESC [H, DECCKM ESC OH
+  kc1: reset ESC [F, DECCKM ESC OF
+  ka3: reset ESC [5~, DECCKM ESC [5~
+  kc3: reset ESC [6~, DECCKM ESC [6~

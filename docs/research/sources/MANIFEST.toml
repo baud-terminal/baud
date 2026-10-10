@@ -37,6 +37,7 @@
 #   AJ  a launch splash: launch guidance, flashing, splash prior art
 #   AK  the window title: OSC titles, derived facts, platform conventions
 #   AL  the cursor trails' flashes: WCAG 2.3.1, broadcast flash rules, OS settings, trail prior art
+#   AM  XTGETTCAP: what a terminal reports about its own capabilities
 
 [sources.simdjson]
 key    = "simdjson"
@@ -15688,7 +15689,7 @@ group  = "C"
 
 [sources.wezterm-b09b56c-terminalstate-mod]
 key    = "wezterm-b09b56c-terminalstate-mod"
-title  = "wezterm b09b56c, term/src/terminalstate/mod.rs -- CSI 21 t answers the program's own title when enabled"
+title  = "wezterm b09b56c, term/src/terminalstate/mod.rs -- CSI 21 t answers the program's own title when enabled -- and xt_get_tcap, 1307-1370"
 author = "Wez Furlong"
 year   = 2026
 venue  = "wezterm"
@@ -15701,7 +15702,7 @@ group  = "C"
 
 [sources.ghostty-d9840f3-stream-handler]
 key    = "ghostty-d9840f3-stream-handler"
-title  = "ghostty d9840f3, src/termio/stream_handler.zig -- windowTitle (>=256 bytes dropped), reportPwd (OSC 7 host must be local; the pwd as title until a program sets one), title_push/pop unimplemented"
+title  = "ghostty d9840f3, src/termio/stream_handler.zig -- windowTitle (>=256 bytes dropped), reportPwd (OSC 7 host must be local; the pwd as title until a program sets one), title_push/pop unimplemented -- and the XTGETTCAP lookup, 475-481"
 author = "Mitchell Hashimoto and the Ghostty contributors"
 year   = 2026
 venue  = "ghostty"
@@ -19677,3 +19678,402 @@ status = "retrieved"
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
 group  = "AL"
+
+# Group AM, note AM (2026-10-10): XTGETTCAP, what a terminal reports about its own capabilities.
+# xterm's xtermcap.c (committed), input.c and xstrings.c, Xlib's Xutil.h, ncurses' user_caps(5) and
+# terminfo source, a local `infocmp -x -1` capture of xterm-256color (committed), and the code of
+# neovim, vim, tmux, kitty, foot, wezterm and ghostty (external). The note's harnesses and their
+# outputs are beside it, in docs/research/notes/am/.
+
+# `retrieved` (committed) rather than `external`, because a build-time table of
+# xterm's 319 names would be generated from it. xterm's licence permits it, as
+# for xterm-charproc.c and xterm-misc.c already committed.
+[sources.xterm-xtermcap-c]
+key    = "xterm-xtermcap-c"
+title  = "xterm 411, xtermcap.c -- the XTGETTCAP table (110 rows, 17 modifier groups), lookupTcapByName -2, xtermcapKeycode -1 (keyIsDistinct and the Sun-keyboard branch), set_termcap"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xtermcap.c"
+file   = "xterm-xtermcap.c"
+sha256 = "4b41264cbbc480e0a41acf2989617e0395fd45c3b7eae226f54bd9f07954bc40"
+bytes  = 16921
+status = "retrieved"
+group  = "AM"
+
+[sources.xterm-input-c]
+key    = "xterm-input-c"
+title  = "xterm 411, input.c -- lookupKeyData under tc_query_code, KAM's early return, xtermDeleteIsDEL, the keypad navigation remap, the keyboardIsTermcap branch, the ISO_Left_Tab branch, decfuncvalue (F13 is CSI 25 ~)"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/input.c"
+file   = ""
+sha256 = "8b78c08a8b0ed1598185b5aebe0d48c166bc09ab2033cafa453e461ba7af5905"
+bytes  = 62870
+status = "external"
+group  = "AM"
+
+[sources.xterm-xstrings-c]
+key    = "xterm-xstrings-c"
+title  = "xterm 411, xstrings.c -- x_decode_hex: either case, an odd digit count refused"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xstrings.c"
+file   = ""
+sha256 = "2dae87b10814d2e8119bc6a68a3264d856bb2ba1915517c91fe6481a4ed35492"
+bytes  = 12185
+status = "external"
+group  = "AM"
+
+# input.c uses IsCursorKey, IsKeypadKey, IsPFKey, IsFunctionKey and
+# IsMiscFunctionKey and defines none of them; they are Xlib's (239-255). The
+# note rests two findings on them: Undo is a miscellaneous function key and
+# Clear is in no class, so xterm's simulated press of either sends nothing;
+# and ka1/kc1 reach the cursor-key branch once input.c 1186-1188 has moved the
+# keypad's navigation keysyms onto Home/End. The keysym values themselves are
+# [[source: xorg-keysymdef]], already in the manifest.
+[sources.xlib-xutil-h]
+key    = "xlib-xutil-h"
+title  = "libX11 1.8.13, include/X11/Xutil.h -- IsKeypadKey, IsCursorKey, IsPFKey, IsFunctionKey, IsMiscFunctionKey"
+author = "The Open Group and the X.Org contributors"
+year   = 2026
+venue  = "libX11, freedesktop.org GitLab, tag libX11-1.8.13 @ 6c75545a (MIT/X11 licence)"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/6c75545a1deb51f5903992c52af6bc35cc9bc103/include/X11/Xutil.h"
+file   = ""
+sha256 = "cb4d55a41d9fa470f780d747b65ef6ef1df28f79334b5d2ed9c1b673a41708e4"
+bytes  = 21355
+status = "external"
+group  = "AM"
+
+[sources.ncurses-user-caps-5]
+key    = "ncurses-user-caps-5"
+title  = "user_caps(5): user-defined terminfo capabilities -- AX, E3, RGB (Boolean, numeric or string), XM"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "ncurses-snapshots v6_6_20260926 @ 41553966"
+url    = "https://raw.githubusercontent.com/ThomasDickey/ncurses-snapshots/41553966d3ac468f9fff0b63f98841aefb0cb04e/man/user_caps.5"
+file   = ""
+sha256 = "63f751bb213c4be36318fa1b21b4dc92055bfd7fc1b6dbec70d9c81cfd2c0aff"
+bytes  = 18690
+status = "external"
+group  = "AM"
+
+[sources.ncurses-terminfo-src]
+key    = "ncurses-terminfo-src"
+title  = "ncurses terminfo.src -- xterm-256color, xterm+direct, xterm+tmux (Ms, Ss, Se, Cr, Cs), kitty+setal, the Setulc and Tc notes"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "ncurses-snapshots v6_6_20260926 @ 41553966"
+url    = "https://raw.githubusercontent.com/ThomasDickey/ncurses-snapshots/41553966d3ac468f9fff0b63f98841aefb0cb04e/misc/terminfo.src"
+file   = ""
+sha256 = "a3744d5463e70a37cc5ede622ea13cd42278a5cdeed7a90fd22cd23832c6de2e"
+bytes  = 1180222
+status = "external"
+group  = "AM"
+
+# The entry programs in baud read, with its user-defined capabilities: the
+# same file as terminfo-xterm-256color, captured with -x. `retrieved` like the
+# other .ti files, and pinned as a source only: it is not a conformance
+# profile. Added as an eleventh `profile!` at dedd796 it fails on `Cs` alone,
+# 1 of 88 output capabilities: the suite's `expand` writes the digit 1 for
+# every %d, %c and %s (baud-core/tests/conformance/terminfo.rs 96-97), so
+# `Cs=\E]12;%p1%s\007` replays as an OSC 12 whose colour is `1`, which names
+# no colour. The fault is the replayed value's; the same OSC 12 carrying
+# rgb:ff/00/00 leaves Term::unsupported at 0. Note AM, section 9.
+#
+# If a later change made it join the profiles, these would move with it in
+# the same commit:
+#   - baud-core/tests/conformance/main.rs's `profile!` list and
+#     docs/protocols/profiles/ (ten each), and input_caps.rs's list of ten
+#     profiles;
+#   - `expand`, or the profile's treatment of `Cs`, for the failure above;
+#   - baud-core/tests/conformance/main.rs 16 and terminfo.rs 3, which call the
+#     fixtures `infocmp -1` output; this one is `infocmp -x -1`.
+# Pinned as a source only, one statement already leaves it out:
+# baud-domain/tests/terminfo.rs's "Every pinned `.ti` is a positive control"
+# runs over a hard-coded list of 11 cases (ten .ti and terminfo.5), and this
+# file is not among them. Nothing in note AM moves either way: its section 8.4
+# and question 5 count the ten entries besides the capture and the capture
+# apart, and bounds.py leaves the capture out of its ten-entry count by name.
+[sources.terminfo-xterm-256color-x]
+key    = "terminfo-xterm-256color-x"
+title  = "terminfo entry: xterm-256color, with user-defined capabilities (infocmp -x -1)"
+author = "ncurses 6.0.20150808 (infocmp -x -1)"
+year   = 2015
+venue  = "ncurses terminfo database, /usr/share/terminfo/78/xterm-256color on macOS"
+url    = "https://invisible-island.net/ncurses/"
+file   = "terminfo/xterm-256color-x.ti"
+sha256 = "3efe945da1810e50a82ce8bd1564dd6eb9615082f2f0459c5c94d7cdf335e0e7"
+bytes  = 3960
+status = "retrieved"
+group  = "AM"
+
+[sources.neovim-tty-lua]
+key    = "neovim-tty-lua"
+title  = "neovim fc3f004, runtime/lua/vim/tty.lua -- vim.tty.query: one DCS for every name, only P1+r parsed, the first pair read"
+author = "the Neovim contributors"
+year   = 2026
+venue  = "neovim (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/runtime/lua/vim/tty.lua"
+file   = ""
+sha256 = "68dfa183fba34290f8fecdb624aac2bca95a45a55ee8fc5088072e1eb45f90f4"
+bytes  = 7278
+status = "external"
+group  = "AM"
+
+[sources.neovim-core-defaults-lua]
+key    = "neovim-core-defaults-lua"
+title  = "neovim fc3f004, runtime/lua/vim/_core/defaults.lua -- Tc;RGB;setrgbf;setrgbb asked only without COLORTERM, and the DECRQSS 48:2 probe"
+author = "the Neovim contributors"
+year   = 2026
+venue  = "neovim (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/runtime/lua/vim/_core/defaults.lua"
+file   = ""
+sha256 = "351c47fc23bf3e27a44c67fc722a850ef245d3379f9b34a06583b652709e6c71"
+bytes  = 40643
+status = "external"
+group  = "AM"
+
+[sources.neovim-plugin-osc52-lua]
+key    = "neovim-plugin-osc52-lua"
+title  = "neovim fc3f004, runtime/plugin/osc52.lua -- XTGETTCAP Ms after a DA1 without 52"
+author = "the Neovim contributors"
+year   = 2026
+venue  = "neovim (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/runtime/plugin/osc52.lua"
+file   = ""
+sha256 = "aedaedcadf26b0140fb159dc29aaa5ed720fa0bf33b2257db2cc9b25cbe96112"
+bytes  = 3566
+status = "external"
+group  = "AM"
+
+[sources.neovim-ui-clipboard-osc52-lua]
+key    = "neovim-ui-clipboard-osc52-lua"
+title  = "neovim fc3f004, runtime/lua/vim/ui/clipboard/osc52.lua -- paste waits 1 s, then 9 s, for an OSC 52 read"
+author = "the Neovim contributors"
+year   = 2026
+venue  = "neovim (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/runtime/lua/vim/ui/clipboard/osc52.lua"
+file   = ""
+sha256 = "4208c0fff8b3f1ca44ca8e750be585d379f73adc24ce3366917e963a89aef241"
+bytes  = 2175
+status = "external"
+group  = "AM"
+
+[sources.neovim-provider-clipboard-vim]
+key    = "neovim-provider-clipboard-vim"
+title  = "neovim fc3f004, runtime/autoload/provider/clipboard.vim -- pbcopy on macOS first; OSC 52 last, only with termfeatures.osc52 and an empty 'clipboard'"
+author = "the Neovim contributors"
+year   = 2026
+venue  = "neovim (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/runtime/autoload/provider/clipboard.vim"
+file   = ""
+sha256 = "7a15f98ee5567be286475a87d30d9d7173b4c77d6698a1bd585f8e553fc5899b"
+bytes  = 11652
+status = "external"
+group  = "AM"
+
+# The documentation of the same commit, for what the provider is reached by:
+# the "+" and "*" registers, or every operation under 'clipboard'
+# unnamed/unnamedplus; and OSC 52 only "when 'clipboard' is unset".
+[sources.neovim-runtime-doc-provider-txt]
+key    = "neovim-runtime-doc-provider-txt"
+title  = "neovim fc3f004, runtime/doc/provider.txt -- the clipboard tools in order, the + and * registers, clipboard-osc52 only when 'clipboard' is unset, g:clipboard = 'osc52'"
+author = "the Neovim contributors"
+year   = 2026
+venue  = "neovim (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/runtime/doc/provider.txt"
+file   = ""
+sha256 = "1d579fe553cefe0a23020c49ee3e58898900d88fa0fac590988dfe67abb313c8"
+bytes  = 13982
+status = "external"
+group  = "AM"
+
+[sources.vim-term-c]
+key    = "vim-term-c"
+title  = "vim b2b47bd, src/term.c -- XTGETTCAP for 37 termcap names, one per DCS, only after DA2 reports xterm >= 141"
+author = "Bram Moolenaar and the Vim contributors"
+year   = 2026
+venue  = "vim (Vim licence)"
+url    = "https://raw.githubusercontent.com/vim/vim/b2b47bdf9401c865780dd4c47b1dbafb0463c75a/src/term.c"
+file   = ""
+sha256 = "6af9fe9d5d1b95269c26f3a60cbafe9de10d6307c2a65d5516889d909a11a805"
+bytes  = 212939
+status = "external"
+group  = "AM"
+
+# tmux is cited for an absence: no file in the tree at 94796f6 (210 .c/.h/.y)
+# sends or answers XTGETTCAP, and the same holds at 95c1c3d. The per-file
+# hashes of both trees are in docs/research/notes/am/tmux-*-tree.sha256, and
+# the grep with its positive control in tmux-grep.log beside them. This entry
+# pins the file that shows what tmux reads instead: the XTVERSION name.
+[sources.tmux-tty-keys-c]
+key    = "tmux-tty-keys-c"
+title  = "tmux 94796f6, tty-keys.c -- outer-terminal features from the XTVERSION name; no XTGETTCAP"
+author = "Nicholas Marriott and the tmux contributors"
+year   = 2026
+venue  = "tmux (ISC)"
+url    = "https://raw.githubusercontent.com/tmux/tmux/94796f6b1182507efac8a272fc309a79e22e58a5/tty-keys.c"
+file   = ""
+sha256 = "5db4fce4abe255a326145f3683bf35304a6201179041ad66006d35b0d77e5f39"
+bytes  = 48942
+status = "external"
+group  = "AM"
+
+[sources.kitty-9710eb4-terminfo-py]
+key    = "kitty-9710eb4-terminfo-py"
+title  = "kitty 9710eb4, kitty/terminfo.py -- get_capabilities: one DCS per name, 0+r echoes, %-strings as terminfo source"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/terminfo.py"
+file   = ""
+sha256 = "675e94eb014e0ac177d040078fc631e05c03ae6df295f651e68bfd6fe005f5f7"
+bytes  = 18209
+status = "external"
+group  = "AM"
+
+[sources.kitty-9710eb4-window-py]
+key    = "kitty-9710eb4-window-py"
+title  = "kitty 9710eb4, kitty/window.py -- request_capabilities sends each result as its own DCS"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/window.py"
+file   = ""
+sha256 = "b372875bd2816f9bd0bd9f5cf95d9257480e8479861f1fb5251b010f662009ed"
+bytes  = 117217
+status = "external"
+group  = "AM"
+
+[sources.kitty-9710eb4-vt-parser-c]
+key    = "kitty-9710eb4-vt-parser-c"
+title  = "kitty 9710eb4, kitty/vt-parser.c -- DCS + q and DCS $ q dispatched to screen_request_capabilities"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/vt-parser.c"
+file   = ""
+sha256 = "f6319e02f491170521ee0acbdd533fb7000c570a80f81d6b616a37a2da80e33f"
+bytes  = 68340
+status = "external"
+group  = "AM"
+
+[sources.foot-dcs-c]
+key    = "foot-dcs-c"
+title  = "foot 1.21.0, dcs.c -- xtgettcap: a sorted built-in table, one DCS per name, 0+r echoes, an empty body 0+r"
+author = "Daniel Eklöf and the foot contributors"
+year   = 2025
+venue  = "foot (MIT), tag 1.21.0 @ 68f5eab0"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/68f5eab0b0fa08becebbed412947ba19246c2518/dcs.c"
+file   = ""
+sha256 = "4110904e6a7bac8faa8db6d7b9bb76fcd927a6cf2490dd95ad66478b2ecc3ef2"
+bytes  = 14179
+status = "external"
+group  = "AM"
+
+[sources.foot-generate-builtin-terminfo-py]
+key    = "foot-generate-builtin-terminfo-py"
+title  = "foot 1.21.0, scripts/generate-builtin-terminfo.py -- foot.info compiled at build time; Co, TN, name and RGB=8 added"
+author = "Daniel Eklöf and the foot contributors"
+year   = 2025
+venue  = "foot (MIT), tag 1.21.0 @ 68f5eab0"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/68f5eab0b0fa08becebbed412947ba19246c2518/scripts/generate-builtin-terminfo.py"
+file   = ""
+sha256 = "42519e093ed817e4ddcbeb32fc8f6ee80a86fa4e208b163e524b4fb3d09a63f1"
+bytes  = 5871
+status = "external"
+group  = "AM"
+
+[sources.foot-info]
+key    = "foot-info"
+title  = "foot 1.21.0, foot.info -- the entry its XTGETTCAP answers from (RGB, Su, Tc, Ms, Setulc, Smulx, Sync)"
+author = "Daniel Eklöf and the foot contributors"
+year   = 2025
+venue  = "foot (MIT), tag 1.21.0 @ 68f5eab0"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/68f5eab0b0fa08becebbed412947ba19246c2518/foot.info"
+file   = ""
+sha256 = "40a23508a2ab5c9eadf979ec639b51805440d0c0a322cfee54c9b48e456b8a41"
+bytes  = 5884
+status = "external"
+group  = "AM"
+
+[sources.foot-meson-build]
+key    = "foot-meson-build"
+title  = "foot 1.21.0, meson.build -- the custom target that makes foot-terminfo.h"
+author = "Daniel Eklöf and the foot contributors"
+year   = 2025
+venue  = "foot (MIT), tag 1.21.0 @ 68f5eab0"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/68f5eab0b0fa08becebbed412947ba19246c2518/meson.build"
+file   = ""
+sha256 = "e8308c3f70bf0855b492376d15da910f28c14ffa4ac9d38f3b79f4af14a28e7d"
+bytes  = 13042
+status = "external"
+group  = "AM"
+
+[sources.wezterm-b09b56c-escape-parser]
+key    = "wezterm-b09b56c-escape-parser"
+title  = "wezterm b09b56c, wezterm-escape-parser/src/parser/mod.rs -- GetTcapBuilder: DCS + q names hex-decoded at ';'"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/wezterm-escape-parser/src/parser/mod.rs"
+file   = ""
+sha256 = "5cb4d2c694f682234d0bfcfe46c81442bed27677cf127eb60b6b03f6a737b987"
+bytes  = 40055
+status = "external"
+group  = "AM"
+
+[sources.wezterm-b09b56c-terminfo]
+key    = "wezterm-b09b56c-terminfo"
+title  = "wezterm b09b56c, termwiz/data/wezterm.terminfo -- Tc, Su, Ms, Smulx, Setulc, Sync"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/termwiz/data/wezterm.terminfo"
+file   = ""
+sha256 = "5e386fb149b2a16b71b4d9a373c54737c9e5694eb67fe38d93b24705b93437ed"
+bytes  = 4555
+status = "external"
+group  = "AM"
+
+[sources.ghostty-d9840f3-terminfo-source]
+key    = "ghostty-d9840f3-terminfo-source"
+title  = "ghostty d9840f3, src/terminfo/Source.zig -- xtgettcapMap: a comptime map from hex name to the whole prebuilt reply"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminfo/Source.zig"
+file   = ""
+sha256 = "d928b56daed3d0863aad849842b49fffc510a408c4dc8d66e1e3139f39c9aa52"
+bytes  = 9354
+status = "external"
+group  = "AM"
+
+[sources.ghostty-d9840f3-terminfo-ghostty]
+key    = "ghostty-d9840f3-terminfo-ghostty"
+title  = "ghostty d9840f3, src/terminfo/ghostty.zig -- the entry its XTGETTCAP answers from (Tc, Su, colors, Smulx, Setulc, Ms)"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminfo/ghostty.zig"
+file   = ""
+sha256 = "75e9b0d0b4e5cff4b050a0abbd7f7ae5b87095a5c75c11aab1967ce83cda6b9d"
+bytes  = 22730
+status = "external"
+group  = "AM"
+
+[sources.ghostty-d9840f3-dcs]
+key    = "ghostty-d9840f3-dcs"
+title  = "ghostty d9840f3, src/terminal/dcs.zig -- DCS + q collected, upper-cased, split at ';'"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/dcs.zig"
+file   = ""
+sha256 = "aded403ee01e27d10b0831278eecf46e2bc8ab36119826cd0fabead331d4364a"
+bytes  = 18115
+status = "external"
+group  = "AM"
