@@ -129,7 +129,7 @@ fn a_program_that_sets_a_steady_cursor_and_leaves_hands_back_the_shells() {
 /// alternate screen for its whole session and sends the outer `Se` -- `2 q`
 /// here -- when a pane returns to the default style. Nothing leaves that
 /// screen, so the steady block stays. A terminfo entry whose `Se` is `0 q`
-/// is what would move this (TODO, the owner's call).
+/// is what would move this (the owner's call, still open).
 #[test]
 fn a_steady_block_on_a_screen_that_stays_up_is_steady() {
     each_read_size(

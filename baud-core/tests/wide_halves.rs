@@ -17,7 +17,7 @@
 //! and VT52's cursor keys all landed the cursor on a written row with the
 //! mark at zero, and the next write orphaned what it half covered.
 //!
-//! The read-start case is the chunk-invariance defect the TODO recorded --
+//! The read-start case is the chunk-invariance defect found first --
 //! `U+1100 CR a` keeps the tail at reads 1 to 4 -- and the others are the
 //! same mark going stale inside one read, so the whole read was no oracle:
 //! `ESC [ 2 ; 1 H`, four wide characters, `ESC [ 1 ; 20 H b © ~the` lost
@@ -53,7 +53,7 @@ const EIGHT: WinSize = WinSize {
     ws_row: 4,
     ws_col: 8,
 };
-/// The TODO's geometry for its own cases.
+/// Twenty columns, for the cases that need a wider row than `EIGHT`.
 const TWENTY: WinSize = WinSize {
     ws_row: 4,
     ws_col: 20,
@@ -129,7 +129,7 @@ fn at_every_read_size(
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
 
-/// The TODO's first case: `CR` and then `a` over a wide lead, which kept the
+/// The first case found: `CR` and then `a` over a wide lead, which kept the
 /// tail at reads 1 to 4 -- every split that put the `a` in a read of its own
 /// or behind the `CR`.
 #[test]
@@ -144,7 +144,7 @@ fn a_letter_after_cr_blanks_the_tail_it_cuts() {
     );
 }
 
-/// The TODO's second case: `CUB 2` and a two-byte letter, `é` as `C3 A9`
+/// The second case found: `CUB 2` and a two-byte letter, `é` as `C3 A9`
 /// under UTF-8 and `E9` under ISO 8859-1, so the narrow non-ASCII writer
 /// takes the cut in both.
 #[test]

@@ -1604,7 +1604,7 @@ impl Paint<'_, '_> {
         // embedder should do across a reset -- drop a selection, bring a
         // scrolled-back window to the live screen -- is not a count of rows.
         // (baud-app dropped the selection only by that accident, reading a
-        // rotation under half the ring as rows restored; see the TODO.)
+        // rotation under half the ring as rows restored; note V, V1.)
         self.book.hist = Rows::ZERO;
         self.book.hidden = Rows::ZERO;
         // The history was erased, which an embedder's window over it reads

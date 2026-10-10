@@ -12,8 +12,11 @@ in this note, for one measured reason rather than as a matter of order:
 Kitty's transmission formats include `f=100` PNG, which reaches a PNG +
 zlib decoder over untrusted bytes, and baud-core is `no_std`, `alloc`-free
 and `#![forbid(unsafe_code)]`. The shape of an image decoder under that
-contract is a research-scale question the owner has not settled, and it is
-recorded as such in `TODO.md`'s Research-scale section. Sixel needs *no*
+contract was a research-scale question the owner had not settled when this
+was written. The Kitty note this paragraph asks for, `t-images.md`, takes up
+the decoder seam, and the owner's answer to note V's V19 (2026-09-25) is to
+build Kitty graphics to the spec; it is unbuilt (this cited the gitignored
+`TODO.md` until 2026-10-10). Sixel needs *no*
 external decoder -- it is a self-contained run-length format with no
 compression -- so it is the tractable half and the sane first one. Nothing
 here builds toward Kitty; a Kitty note settles the decoder question first.

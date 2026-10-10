@@ -79,6 +79,14 @@ trail in flight moves up with the text under a smooth scroll, and `[cursor]
 trail_scroll = "stay"` keeps it put (CLAUDE.md, "A trail rides a smooth
 scroll, two rows at most").
 
+**On the `TODO.md` citations below (2026-10-10).** `TODO.md` is the owner's
+work list, gitignored and never committed, so no reader of this note can open
+it, and its line numbers have moved since. The seven citations that gave it
+by line now name the committed document that holds the finding where one
+exists; where one named a step on the work list, the step is described and
+the line numbers dropped. The plain mentions of "the TODO list" record what
+the list said on 2026-09-25 and stay as written.
+
 ## What this is
 
 The TODO list and the research notes leave these twenty-five decisions to
@@ -4200,7 +4208,7 @@ You parked Kitty graphics on 2026-09-23.
   not on baud-font.
 - **Kitty today:** `APC G` is consumed and counted (`docs/vt-coverage.md` line
   712). There is no base64 decoder (base64 turns 4 text characters back into 3
-  bytes). It is parked (`TODO.md` lines 747-748).
+  bytes). It is parked (`docs/vt-coverage.md`'s Kitty graphics row, `out`).
 - **Image pixels have no alpha (partial transparency), and that is the real
   gap:**
   - `ColorWord` (`baud-domain/src/style.rs`) holds a 24-bit colour or
@@ -4226,7 +4234,7 @@ You parked Kitty graphics on 2026-09-23.
     `baud-font/tests/oracle.rs` when the count lives in
     `baud-font/tests/bitmap.rs`.
 
-  `TODO.md` (lines 1207-1211) is already correct and needs no change.
+  The work list's entry for these was already correct and needed no change.
 
 **What others do**
 
@@ -4920,7 +4928,7 @@ report that as a bug. It is not a reason for scale-font.
 **Design**
 
 - **For A, a doc edit:**
-  - close the resize item in TODO.md (lines 907-910);
+  - close the work list's resize item;
   - in CLAUDE.md's resize section, change "lies to TUIs" to "gives programs no
     room";
   - name PuTTY and mintty as opt-in precedents where CLAUDE.md says "no
@@ -5084,8 +5092,8 @@ corpus?** If yes:
 **Design**
 
 - **For C+:** edit CLAUDE.md's long-session section (a status line, a pointer
-  to the row-7 table, and the scoped sentence), and close TODO.md lines
-  911-915.
+  to the row-7 table, and the scoped sentence), and close the work list's
+  entry for the two lost recordings.
 - **If captured:**
   - **Pin the input first.** Either generate the paged text with a committed
     script at a named commit, or commit the text itself, as `cjk-corpus.txt`
@@ -5235,8 +5243,9 @@ itself. The check works because HEAD (`smooth-scroll`) contains `master`.
 
 Separately, a docs commit for stale text found along the way:
 
-- TODO.md lines 858-864 say both "Pushed 2026-09-25" and "`smooth-scroll` is
-  local only, with no branch on origin".
+- The work list said both "Pushed 2026-09-25" and "`smooth-scroll` is
+  local only, with no branch on origin", a contradiction in a file no commit
+  carries.
 - README.md's status table, found by reading it while writing this note:
   - "Grid: two storage representations" (line 41) describes the deleted core's
     two storage modes;
@@ -5307,8 +5316,8 @@ performance-sensitive code. Pursuing it would target a step that measures at
   - `put_run`'s vector decode has no such probe.
   - The `ceiling-no-decode` arm changes the screen, so CLAUDE.md records it as
     pricing nothing.
-- **TODO.md** (lines 1195-1199) asks for a re-price on the current build
-  before any proposal.
+- **The work list** asked for a re-price on the current build before any
+  proposal.
 
 **What others do**
 
@@ -5354,7 +5363,7 @@ recordings (cat-cjk and less-cjk).
 **Design**
 
 - **For A, a doc edit:**
-  - strike TODO.md lines 1195-1199;
+  - strike that work-list entry;
   - annotate CLAUDE.md lines 5532-5535 as baud-core2's proposal, superseded by
     `put_run`'s decode-then-write shape and by the 0-0.9% figures.
 - **For B, if taken:**

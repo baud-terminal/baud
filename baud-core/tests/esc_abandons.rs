@@ -48,8 +48,8 @@ fn at(y: usize, x: usize) -> (Row, Col) {
     (Row::from_index(y), Col::at_index(x))
 }
 
-/// `CsiParam`: the TODO's own example, and the one `docs/vt-coverage.md`'s
-/// `1B` row gives. The `SGR 1` that was abandoned applies nothing; the `SGR 2`
+/// `CsiParam`: the example `docs/vt-coverage.md`'s anywhere block gives for
+/// the `1B` row, `CSI 1 ESC [ 2 m`. The `SGR 1` that was abandoned applies nothing; the `SGR 2`
 /// that follows is a sequence of its own.
 #[test]
 fn an_esc_in_the_parameters_starts_a_new_sequence() {
@@ -114,7 +114,7 @@ fn an_esc_in_an_escape_sequence_restarts_it() {
 
 /// `Escape` again, with a final that means something alone: `ESC # ESC 8` is
 /// `DECRC`, not `DECALN`. The cursor is saved at home first, because what
-/// `DECRC` does with nothing saved is its own question (`TODO.md`).
+/// `DECRC` does with nothing saved is its own question (note AE, Q13).
 #[test]
 fn an_esc_after_hash_is_not_decaln() {
     each_read_size(b"\x1b7\x1b[5;5H\x1b#\x1b8X", |t| {
