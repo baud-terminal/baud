@@ -2326,11 +2326,21 @@ sets it. What changes is only what a program is told if it asks.
   `docs/input-coverage.md` say done/recorded. `SECURITY.md` says not
   implemented, for the hang risk. `docs/protocol-decisions.md` lists it as
   recommended against.
+  - *Corrected 2026-10-10:* they agree now. `SECURITY.md`, and
+    `docs/protocols/xterm.md`, which listed it as declined, say it is
+    recorded and not drawn, and that nothing waits on the program's answer.
+    `docs/protocol-decisions.md` had already moved it out of its declined
+    table, among the rows "built anyway".
 - **The house convention for DECRQM:** every mode baud counts and refuses
   (`?1047`, `?1048`, `?9`) answers 0 through the catch-all arm in
   `baud-core/src/ops.rs`. Nothing answers 4 today. The `ModeState` doc in
   `baud-domain/src/vt/mode.rs` and CLAUDE.md both say 0 is the right answer
   for a mode baud does not implement.
+  - *Corrected 2026-10-10:* `?9` is no longer among them. It is X10
+    compatibility tracking since 2026-10-09, and DECRQM answers it from the
+    tracking level (`decrqm_answers_every_mouse_mode`); `?1047` and `?1048`
+    still answer 0. And something answers 4: `?2027` with VS16 configured to
+    one cell (`one_cell_is_a_configuration_and_decrqm_reports_it`).
 
 **What others do**
 
@@ -2368,8 +2378,12 @@ sets it. What changes is only what a program is told if it asks.
   doing nothing. That is `SECURITY.md`'s own reportable class and CLAUDE.md's
   "never record a mode you do not act on", and the three docs keep
   disagreeing.
+  - *Corrected 2026-10-10:* the docs agree now (the correction to **Today**'s
+    contradiction bullet); the rest of B stands.
 - **C. Withdraw, and answer 4** (foot's answer). S. A one-off: nothing else in
   baud answers 4.
+  - *Corrected 2026-10-10:* not a one-off: `?2027` with VS16 configured to
+    one cell answers 4 (the correction to **Today**'s DECRQM bullet).
 - **D. Withdraw, and answer 0** (the house convention). S, and consistent with
   every other mode baud counts and refuses.
 - **E. The embedder-claim pattern, as `set_sixel_claim` does.** Keep the flag
@@ -2379,6 +2393,8 @@ sets it. What changes is only what a program is told if it asks.
 - **F. Change the convention for every mode baud recognises and refuses**
   (`?1001`, `?1047`, `?1048`, `?9`, ...) to 4. A repo-wide decision, not this
   item's.
+  - *Corrected 2026-10-10:* `?9` is not among them: it is a tracking level
+    since 2026-10-09 (the correction to **Today**'s DECRQM bullet).
 
 **Recommendation**
 

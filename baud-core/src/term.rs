@@ -2279,7 +2279,6 @@ impl<'b> Term<'b> {
         }
     }
 
-    /// What tracking the application asked for: `?1000`, `?1002`, `?1003`.
     /// The attached codepoints of `cell` itself, wherever on the ring it
     /// was read: the store is keyed by the cell's cluster id and content,
     /// not by a screen position, so a reader walking a view scrolled back
@@ -2293,6 +2292,11 @@ impl<'b> Term<'b> {
             .flat_map(|s| s.marks())
     }
 
+    /// What tracking the application asked for: `?9`, `?1000`, `?1002` or
+    /// `?1003`, one level at a time, and off after a reset of any of them.
+    /// It decides which events `Term::mouse_report` lets through; the
+    /// encoding a report is written in has no accessor, because
+    /// `mouse_report` reads it.
     pub fn mouse_tracking(&self) -> MouseTracking {
         self.cold.mouse
     }

@@ -120,27 +120,38 @@ is counted in `links_refused` and its cells are plain text. This said the link
 took fourteen bits, and that the table evicts on collision and an evicted link
 renders as an ordinary cell.
 
-**Mouse reports go in the encoding the application chose, and a position X10
-cannot name is refused.** `?1000`, `?1002` and `?1003` select which events an
-application hears about; `?1006` selects SGR, which has no ordinate limit, and
-without it baud sends X10 (`ESC [ M Cb Cx Cy`).
+**Mouse reports go in the encoding the application chose, and a position the
+encoding cannot name is refused.** `?9`, `?1000`, `?1002` and `?1003` select
+which events an application hears about. `?1005` (UTF-8 coordinates), `?1006`
+(SGR), `?1015` (urxvt's decimal) and `?1016` (SGR in pixels) select how a
+report is written, one at a time -- a set replaces the one in force and a reset
+undoes only its own -- and without any of them baud sends X10
+(`ESC [ M Cb Cx Cy`). Only X10 and `?1005` cap the ordinate below the grid's.
 
 X10 puts each ordinate in one byte at `value + 32`, capping it at 223. baud's
 grid goes to 2048 columns. A report from column 400 in that scheme is not a
 truncated answer — it names a different cell, and the application acts on it.
 So that position is refused and counted in `mouse_unencodable`, and every
-position that fits is sent. That is the wrong-shaped-answer rule applied to a
-report the terminal *sends*, and it is why the counter exists: an application
-that enables tracking and hears silence should be diagnosable from outside.
+position that fits is sent. `?1005` writes the same values as UTF-8, which
+reaches 2015, and refuses past it the same way. That is the wrong-shaped-answer
+rule applied to a report the terminal *sends*, and it is why the counter
+exists: an application that enables tracking and hears silence should be
+diagnosable from outside.
 
 This said reporting was SGR-only and that without `?1006` baud reported
 nothing. The reason covered column 400, and the refusal covered every report:
 an application speaking X10 on an 80x24 screen got silence where every byte was
-encodable.
+encodable. It then named `?1000`-`?1003` and `?1006` alone: `?9`, `?1005`,
+`?1015` and `?1016` were counted and dropped until 2026-10-09.
 
 The core has no input device, so `Term::mouse_report` takes an event in
 `Col`/`Row` and returns whether it was queued. Pixel-to-cell division stays with
-the embedder, which is where the off-by-one would otherwise hide.
+the embedder, which is where the off-by-one would otherwise hide. **Under
+`?1016` the embedder gives the pixel too**, on `MouseEvent::px`, and an event
+without one is refused and counted rather than made up from the cell, whose
+corner is a pixel the pointer was probably not at. The macOS app derives the
+cell and the pixel in one function; the Linux app has no pointer and gives
+neither.
 
 **Character sets are designated, invoked and translated.** `ESC ( ) * + C`
 designate G0-G3, SO and SI invoke G1 and G0 into GL, and a byte written under a

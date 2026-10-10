@@ -74,9 +74,14 @@ report them as gaps; if you think one is wrong, the reasoning is in
 - **Bracketed paste (`?2004`) is implemented as a security mode.** Without it a
   pasted string containing a newline is delivered to the shell as typed input
   and runs. That is the paste-jacking class.
-- **`?1001` highlight tracking is not implemented.** It "requires a cooperating
-  program, else xterm will hang". A terminal a sequence can hang is worse than
-  one that ignores the sequence.
+- **`?1001` highlight tracking cannot hang baud.** `[[source: ctlseqs]]` warns
+  that it "requires a cooperating program, else xterm will hang": xterm ignores
+  every event until the program answers. baud records the mode and the region
+  the program sends, answers DECRQM from the flag, and waits on nothing --
+  `baud-core` has no event loop to block. Drawing the region and sending the
+  release reports are unbuilt (note V's V12,
+  `docs/research/notes/v-open-decisions.md`). This said `?1001` was not
+  implemented until 2026-10-10.
 - **Queries are never answered with the wrong shape.** An application parses
   whatever arrives as the report it asked for, so a wrong answer is worse than
   silence — DA under-claims as a VT102, and an unimplemented DSR gets no reply.
