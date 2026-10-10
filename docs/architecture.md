@@ -1,46 +1,55 @@
 # Architecture
 
-The data path, the two crates, and the constraints that shaped both. Read this
-before changing anything in `baud-core/`.
+The data path, the two core crates, and the constraints that shaped both, as
+of 2026-10-10. Read this before changing anything in `baud-core/`.
+[CLAUDE.md](../CLAUDE.md) holds the rules and [the record](record.md) every
+measured change behind them.
 
-**The data path below is `baud-core2`'s, deleted in bcefaae (2026-09-10).**
-`baud-core` has one representation -- it always materialises cells, and the
-grid is a ring the screen is a window into -- forbids `unsafe`, and takes its
-run scan by build feature rather than by a choice at startup. The data path is
-kept as that core's until someone writes this one's. The two crates, the filing
-table, the constraints and the invariants below were re-read against the code
-on 2026-10-08, and [CLAUDE.md](../CLAUDE.md) and [the record](record.md) hold
-the current design and its history.
-
-Much of what follows lived only in `CLAUDE.md`, a file addressed to agents. A
-human contributor could not learn why `PackedCell` is eight bytes without
-opening it.
-
-## The data path, as `baud-core2` had it
+## The data path
 
 ```
-read(2) ──▶ arena ──▶ scan ──▶ parse ──▶ runs or cells ──▶ viewport
-            1 MiB     SIMD     state       storage          projection
-                               machine
+pty ──▶ embedder's ──▶ arena ──▶ graph ──▶ action ──▶ grid ring ──▶ frame copy
+read(2)  buffer      write_at   one lookup   Paint     screen is     renderer
+                                a character            a window
 ```
 
-1. **`read(2)` writes directly into the arena.** Not into a scratch buffer that
-   is then copied — the arena *is* the read destination, which is what keeps
-   write amplification at 1. `Term::read_slot()` hands out the destination;
-   `commit_read` says how much arrived.
-2. **The scan finds the next interesting byte** — end of a printable run, a CSI
-   final byte, a string terminator — vectorised. Three backends behind one
-   trait (`scan/`), chosen once at startup because `no_std` has no runtime
-   feature detection.
-3. **The parser** is Williams' 13-state DEC ANSI machine plus a `Utf8` state
-   ([why](research/notes/c-vt-parser.md)). A fast path handles whole sequences
-   that lie inside one read; anything crossing a read boundary falls back to
-   the byte-at-a-time machine, which is what makes chunk-invariance hold.
-4. **Storage is one of two shapes**, chosen by `OpMode` at startup:
-   - `Runs` keeps byte *spans* into the arena — the text is never copied.
-   - `Computed`/`Templated` materialise `PackedCell`s.
-5. **The viewport is a projection, not storage.** It is derived from the lines;
-   it is never the source of truth.
+1. **The embedder reads; the core never does.** `baud-core` is `no_std` with no
+   I/O. `baud-app` reads the pty into its own buffer, and `Term::write_at`
+   copies each read into the arena at `BytePos::ZERO` (`baud-app/src/reads.rs`).
+   `write_at` is the seam that would let a caller hand the kernel the arena
+   itself; no caller does. The arena is 1 MiB (`ARENA`), a ceiling on one read.
+2. **`Term::feed` parses the read in place, one table lookup a character.**
+   The protocol is a graph compiled at build time (`baud-core/src/graph.rs`):
+   an edge names the action and the next node, and the action says how many
+   bytes it eats, so a three-byte UTF-8 character is one lookup. The nodes
+   follow Williams' DEC ANSI parser ([why](research/notes/c-vt-parser.md)),
+   plus the UTF-8 continuations a character split across two reads leaves
+   owed and a disjoint VT52 sub-graph from `Node::Vt52Ground`. The node, the UTF-8
+   accumulator and the CSI parameters live on `Term` between reads, which is
+   why the screen does not depend on where the reads fell.
+3. **A printable run is found by a vector scan.** `run_of_text`
+   (`baud-core/src/write.rs`) takes four bytes scalar, then sixteen a step
+   through `core::simd` -- or NEON from `baud-isa-aarch64` under `neon-scan`,
+   the default, or AVX2 from `baud-isa-x86-64` under `avx2-scan` on a build
+   that targets AVX2.
+4. **Actions write through `Paint`**, the one borrow of the grid a read takes
+   (`baud-core/src/paint.rs`); `write.rs` performs what the table named and
+   `ops.rs` what a control sequence does. Every character becomes an
+   eight-byte `PackedCell`, and its rendition is interned in the style table.
+   There is one representation: the core always materialises cells.
+5. **The grid is a ring and the screen is a window into it.** A full-screen
+   scroll moves the window (`retire` in `baud-core/src/ops.rs`) and copies
+   nothing, `Term::scrollback` reads the lines behind it, and `Term::resize`
+   reflows the primary in place. The alternate screen is a ring of its own
+   (`AltBuf`) and keeps no history. Rows sit at a fixed pitch from
+   `grid_stride`, chosen from the cache geometry.
+6. **What the core owes the host goes in `Storage.reply`**, 256 bytes
+   (`REPLY`), drained with `Term::reply` and `Term::clear_reply`; an overflow
+   is counted in `reply_overflows`.
+7. **The frame is the embedder's.** On macOS `baud-app` copies the screen
+   into a slot per frame in flight (research decision D4), and `baud-render`
+   builds what `baud-present-macos` draws on Metal; the Linux driver has
+   `baud-render` draw on the CPU.
 
 ## The two crates
 
@@ -61,6 +70,10 @@ wrappers, under the `neon-scan` (default) and `avx2-scan` features.
 They are separate crates so the boundary is enforced by the compiler rather
 than by discipline: `baud-domain` cannot reach into the core's state because it
 does not know it exists.
+
+Everything else -- the font stack, the renderer, the two presenters, the
+Wayland and XKB crates and the app -- sits on these two and is listed in
+[README's layout](../README.md#layout).
 
 ## Why each layer is filed differently
 
