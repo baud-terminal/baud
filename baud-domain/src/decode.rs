@@ -85,6 +85,12 @@ impl StreamByte {
     pub const fn is_c0(self) -> bool {
         self.0 < 0x20
     }
+    /// `08-0D`, `BS HT LF VT FF CR`: the six C0 format effectors, and the
+    /// only C0 a command string may hold -- `[[source: ecma48]]` 5.6, "in
+    /// the range 00/08 to 00/13 and 02/00 to 07/14".
+    pub const fn is_format_effector(self) -> bool {
+        self.0 >= 0x08 && self.0 <= 0x0d
+    }
     pub fn is_continuation(self) -> bool {
         self.0 & 0xc0 == 0x80
     }

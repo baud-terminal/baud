@@ -2,7 +2,7 @@
 //! a language.
 //!
 //! **The alphabet is the whole design.** `baud-core2`'s generator had 79
-//! operations and reached the *protocol*; this one has twenty-eight atoms and
+//! operations and reached the *protocol*; this one has twenty-nine atoms and
 //! reaches the **fast paths**, which is where this core's defects have lived.
 //! Those paths key on a cross product -- encoded length, width, grapheme class
 //! and *run length* -- and two of the entries below exist because a run of
@@ -309,6 +309,17 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **A format effector and a `DEL` inside a DCS body**: the `LF` is put
+    // to the DECRQSS handler, which gives it no meaning, and the `DEL` is
+    // ignored by the graph, so the `Pt` is `m` and the request answers. A
+    // split can fall on either side of each byte; an `LF` that ran would
+    // move the cursor, and a `DEL` that stayed would make the answer invalid.
+    Atom {
+        name: "dcs-lf-del",
+        bytes: b"\x1bP$q\nm\x7f\x1b\\",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 fn program() -> impl Strategy<Value = Vec<usize>> {
@@ -509,6 +520,23 @@ fn the_bel_atoms_reach_the_string_bodies() {
         assert_eq!(t.cursor().1, Col::ZERO, "APC: the `v` is body");
         assert_eq!(t.strings_ignored, 1, "APC: one ignored string");
         assert_eq!(t.bells, 0, "APC: no bell");
+    });
+}
+
+/// **The DCS atom with an `LF` and a `DEL` reaches the handler it was added
+/// for**: the request answers valid, so neither byte is in the `Pt`, and the
+/// cursor has not moved, so the `LF` was not executed. A `DEL` the graph
+/// stored would answer invalid in both chunkings and every property would
+/// stay green.
+#[test]
+fn the_dcs_lf_del_atom_reaches_the_handler() {
+    fed("dcs-lf-del", &|t| {
+        assert_eq!(t.reply(), b"\x1bP1$r0m\x1b\\", "DCS: LF m DEL names SGR");
+        assert_eq!(
+            t.cursor(),
+            (Row::ZERO, Col::ZERO),
+            "DCS: the LF ran nothing"
+        );
     });
 }
 

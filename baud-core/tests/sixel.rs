@@ -144,33 +144,36 @@ fn latin1(seven: &[u8]) -> Vec<u8> {
 /// image size without it.
 type Split = (&'static str, &'static [u8], &'static [u8], (u16, u16));
 
-/// **A `BEL` or `DEL` inside a Sixel number splits nothing: the Sixel
-/// handler drops every C0 and `DEL` before the decoder.** Each program must
-/// leave what the same program without the byte leaves -- the image pixel
-/// for pixel, the screen, the cursor -- at every read size, in both
-/// encodings, and ring nothing.
+/// **A C0 or `DEL` inside a Sixel number splits nothing: the Sixel handler
+/// drops every C0 it is put before the decoder, and the graph ignores a
+/// `DEL`.** Each program must leave what the same program without the byte
+/// leaves -- the image pixel for pixel, the screen, the cursor -- at every
+/// read size, in both encodings, and ring nothing.
 ///
 /// The decoder reads a number up to its first non-digit. The graph puts a
-/// `BEL` in a DCS body, `[[source: williams]]`'s `dcs passthrough` (388), and
-/// stores a `DEL`, which that row ignores, so before the handler dropped
-/// them `!1 BEL 0~` drew one column where `!10~` draws ten,
-/// `#1;2;10 BEL 0;0;0` made register 1 10% red where it is 100%, and
-/// `#1 BEL 2` selected register 1 for 12. `[[source: vt3xx-sixel]]` says
-/// nothing of C0 in the data. xterm hands its Sixel parser only
-/// `CASE_IGNORE` bytes (`[[source: xterm-reset]]`'s file, 3408-3412), and
-/// `BEL` is not one, so it never sees the `BEL`; `DEL` is one, and its
-/// parser ends a number on it (`[[source: xterm-graphics-sixel]]` 541-555),
-/// a departure from williams' ignore that is not followed.
+/// DCS body's `BEL` and its format effectors `08-0D`, `[[source: williams]]`'s
+/// `dcs passthrough` (388), so before the handler dropped them `!1 BEL 0~`
+/// drew one column where `!10~` draws ten, `#1;2;10 BEL 0;0;0` made register
+/// 1 10% red where it is 100%, and `#1 BEL 2` selected register 1 for 12.
+/// DEC's Sixel text gives the format effectors no meaning,
+/// `[[source: dec-std-070]]` 070-9 §9.1: "These codes shall have no effect
+/// on the interpretation of Sixel Control strings"; and its §9.2 lists
+/// "7/15 (DELETE) Ignored", as williams' row does, which is where the graph
+/// drops it. A `DEL` was stored until 2026-10-10, and this handler dropped
+/// it; the format effectors were ignored by the graph, so these cases held
+/// before that change too. xterm hands its Sixel parser only `CASE_IGNORE`
+/// bytes (`[[source: xterm-reset]]`'s file, 3408-3412), so not the `BEL`,
+/// skips `HT LF VT FF CR` as white space, and ends a number on a `BS` and on
+/// the `DEL` it hands it (`[[source: xterm-graphics-sixel]]` 541-555),
+/// departures that are not followed.
 ///
-/// Two kinds of control. The bytes between two tokens -- after the data
-/// byte, and between a repeat count and the byte it repeats -- were skipped
-/// by the decoder before the handler dropped them, so they pass either way
-/// and show the harness is not what changed. A `CR` inside the repeat count
-/// is ignored by the graph before the handler sees it, so it passes either
-/// way too, and is the positive control for "the same program without it".
+/// The controls are the bytes between two tokens -- after the data byte,
+/// and between a repeat count and the byte it repeats -- which the decoder
+/// skipped before the handler dropped anything, so they pass either way and
+/// show the harness is not what changed.
 #[test]
 fn a_c0_or_del_inside_a_sixel_number_splits_nothing() {
-    let cases: [Split; 13] = [
+    let cases: [Split; 19] = [
         (
             "BEL inside the repeat count",
             b"\x1bP0;1q#1;2;100;0;0#1!1\x070~\x1b\\Z",
@@ -244,10 +247,46 @@ fn a_c0_or_del_inside_a_sixel_number_splits_nothing() {
             (10, 6),
         ),
         (
-            "control: CR inside the repeat count",
+            "CR inside the repeat count",
             b"\x1bP0;1q#1;2;100;0;0#1!1\r0~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
             (10, 6),
+        ),
+        (
+            "LF inside a colour component",
+            b"\x1bP0;1q#1;2;10\n0;0;0#1~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "HT inside a register number",
+            b"\x1bP0;1q#12;2;0;100;0#1\t2~~\x1b\\Z",
+            b"\x1bP0;1q#12;2;0;100;0#12~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "BS inside the repeat count",
+            b"\x1bP0;1q#1;2;100;0;0#1!1\x080~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
+            (10, 6),
+        ),
+        (
+            "VT between # and its number",
+            b"\x1bP0;1q#1;2;100;0;0#\x0b1~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "FF inside a colour component",
+            b"\x1bP0;1q#1;2;1\x0c00;0;0#1~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "CR LF between two rows",
+            b"\x1bP0;1q#1;2;100;0;0#1~~-\r\n~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~-~~\x1b\\Z",
+            (2, 12),
         ),
     ];
     let budget = ImageBudget::of(64 * 48 + 64, 8192);

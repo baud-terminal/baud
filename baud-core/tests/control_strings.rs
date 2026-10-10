@@ -459,3 +459,229 @@ fn a_bel_still_ends_an_osc() {
         }
     }
 }
+
+/// The same program under ISO 8859-1: `ESC % @` first, `90` for `ESC P` and
+/// `9C` for `ESC \`. Each program here opens with `ESC P` and holds one
+/// `ESC \`.
+fn latin1_dcs(seven: &[u8]) -> Vec<u8> {
+    let body = seven.strip_prefix(b"\x1bP").expect("a 7-bit DCS");
+    let st = body.windows(2).position(|w| w == b"\x1b\\").expect("an ST");
+    [
+        b"\x1b%@\x90".as_slice(),
+        &body[..st],
+        b"\x9c",
+        &body[st + 2..],
+    ]
+    .concat()
+}
+
+/// Each program beside its ISO 8859-1 twin, both held to the same program
+/// without the byte under test, at every read size: the reply, the screen
+/// and the cursor. The control is that the program without the byte answers
+/// `want`, so a harness that saw no reply at all could not pass.
+fn same_as_without(cases: &[(&str, &[u8], &[u8])], want: &[u8]) {
+    for (name, with, without) in cases {
+        for (enc, with, without) in [
+            ("UTF-8", with.to_vec(), without.to_vec()),
+            ("ISO 8859-1", latin1_dcs(with), latin1_dcs(without)),
+        ] {
+            let base = left(&without, without.len());
+            assert_eq!(base.reply, want, "control: {name}, {enc}, without the byte");
+            for size in 1..=with.len() {
+                let got = left(&with, size);
+                assert_eq!(
+                    got.reply, base.reply,
+                    "{name}, {enc}: reply, read size {size}"
+                );
+                assert_eq!(
+                    got.screen, base.screen,
+                    "{name}, {enc}: screen, read size {size}"
+                );
+                assert_eq!(
+                    got.cursor, base.cursor,
+                    "{name}, {enc}: cursor, read size {size}"
+                );
+            }
+        }
+    }
+}
+
+/// **A `DEL` in a DECRQSS `Pt` is ignored, and the request answers.**
+///
+/// `[[source: williams]]`'s `dcs passthrough` ignores `7F` (line 388).
+/// `[[source: dec-std-070]]` 3.5.4.4 recommends that control codes not used
+/// in a command string be ignored, and 3.3.4.1 counts `DEL` a control
+/// character; its 3.4.2 and `[[source: vt510-rm-b]]` Table 4-1 ignore it on
+/// receipt. `[[source: ecma48]]` F.8.1: it "may be inserted into, or removed
+/// from, a CC-data-element without affecting its information content". The
+/// DCS body stored it, so `m DEL` named nothing and the answer was
+/// `DCS 0 $ r ST`; xterm stores it too, and its `strcmp` fails the same way.
+/// Before the `m`, after it, around it, and between the two bytes of `" q`,
+/// each at every read size and in both encodings, against the same request
+/// without it.
+#[test]
+fn a_del_in_a_decrqss_pt_is_ignored() {
+    let sgr = b"\x1bP$qm\x1b\\Y".as_slice();
+    same_as_without(
+        &[
+            ("DEL after m", b"\x1bP$qm\x7f\x1b\\Y", sgr),
+            ("DEL before m", b"\x1bP$q\x7fm\x1b\\Y", sgr),
+            ("two DELs around m", b"\x1bP$q\x7fm\x7f\x1b\\Y", sgr),
+        ],
+        b"\x1bP1$r0m\x1b\\",
+    );
+    same_as_without(
+        &[(
+            "DEL inside \" q",
+            b"\x1bP$q\"\x7fq\x1b\\Y",
+            b"\x1bP$q\"q\x1b\\Y",
+        )],
+        b"\x1bP1$r0\"q\x1b\\",
+    );
+}
+
+/// **A format effector in a DECRQSS `Pt` changes nothing.** The six bytes
+/// `08-0D` are put to the handler now, `[[source: williams]]`'s `put` (line
+/// 388), where the graph ignored them; the DECRQSS handler gives them no
+/// meaning, as `[[source: dec-std-070]]` 3.5.4 recommends ("that these
+/// characters not affect the interpretation of the control string"), so the
+/// answer is the one the graph's drop gave. A guard, green before the change
+/// and after it: what it holds is that moving the drop from the graph to the
+/// handler moved no reply, and that none of the six is executed -- a `CR`,
+/// `LF` or `BS` that ran would move the cursor. xterm answers invalid, its
+/// `strcmp` failing on the byte, practice not followed.
+#[test]
+fn a_format_effector_in_a_decrqss_pt_changes_nothing() {
+    let sgr = b"\x1bP$qm\x1b\\Y".as_slice();
+    let mut owned: Vec<(String, Vec<u8>)> = Vec::new();
+    for v in [0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d] {
+        owned.push((
+            format!("{v:#04x} after m"),
+            [b"\x1bP$qm".as_slice(), &[v], b"\x1b\\Y"].concat(),
+        ));
+        owned.push((
+            format!("{v:#04x} before m"),
+            [b"\x1bP$q".as_slice(), &[v], b"m\x1b\\Y"].concat(),
+        ));
+    }
+    let cases: Vec<(&str, &[u8], &[u8])> = owned
+        .iter()
+        .map(|(n, b)| (n.as_str(), b.as_slice(), sgr))
+        .collect();
+    same_as_without(&cases, b"\x1bP1$r0m\x1b\\");
+    same_as_without(
+        &[(
+            "CR LF inside \" q",
+            b"\x1bP$q\"\r\nq\x1b\\Y",
+            b"\x1bP$q\"q\x1b\\Y",
+        )],
+        b"\x1bP1$r0\"q\x1b\\",
+    );
+}
+
+/// A DCS opened by `intro` whose `OSC_MAX` printable bytes fill the
+/// accumulator, then `tail`, `ST` and `AFTER`, in the encoding asked for,
+/// beside what it should draw.
+fn full_dcs(intro: &[u8], tail: &[u8], latin1: bool) -> (Vec<u8>, Vec<u8>) {
+    let mut body = intro.to_vec();
+    body.extend(std::iter::repeat_n(b'x', OSC_MAX));
+    body.extend_from_slice(tail);
+    body.extend_from_slice(b"\x1b\\AFTER");
+    match latin1 {
+        false => (body, b"AFTER".to_vec()),
+        true => (latin1_dcs(&body), b"\x1b%@AFTER".to_vec()),
+    }
+}
+
+/// **A format effector in a DCS body reaches the handler, and a `DEL` does
+/// not.** No handler here gives either a meaning, so only the accumulator
+/// can tell: a DCS this core ignores (`StrKind::Other`, here DECUDK-shaped)
+/// whose `OSC_MAX` printable bytes fill it counts one truncation for a byte
+/// put after them and none for a byte ignored.
+///
+/// `[[source: ecma48]]` 8.3.27: DCS's command string "may consist of bit
+/// combinations in the range 00/08 to 00/13 and 02/00 to 07/14";
+/// `[[source: williams]]`'s `dcs passthrough` puts `00-17,19,1C-1F,20-7E`
+/// and ignores `7F` (line 388), and "C0 controls are also passed to the
+/// handler" (726). The graph ignored the six and put the `DEL`, the
+/// `osc string` row, so a handler could never see the first and always saw
+/// the second.
+///
+/// The control is one more printable byte, which counts one, so the counter
+/// is live for this string. The classes the texts conflict on keep their
+/// rows and are held here too: a `BEL` is put (one) and `SOH` ignored
+/// (none). None of them is executed: the screen and cursor are `AFTER`'s.
+#[test]
+fn a_format_effector_in_a_dcs_body_reaches_the_handler_and_a_del_does_not() {
+    let mut cases: Vec<(String, Vec<u8>, usize)> = vec![
+        ("control: one more printable byte".into(), b"x".to_vec(), 1),
+        ("DEL".into(), b"\x7f".to_vec(), 0),
+        ("BEL, put as before".into(), b"\x07".to_vec(), 1),
+        ("SOH, ignored as before".into(), b"\x01".to_vec(), 0),
+    ];
+    for v in [0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d] {
+        cases.push((format!("{v:#04x}"), vec![v], 1));
+    }
+    for (name, tail, truncated) in &cases {
+        for latin1 in [false, true] {
+            let (bytes, drawn) = full_dcs(b"\x1bP0;1|", tail, latin1);
+            let want = left(&drawn, drawn.len());
+            for size in [1, 2, 7, bytes.len()] {
+                let got = left(&bytes, size);
+                let at = format!("{name}, latin1 {latin1}, read size {size}");
+                assert_eq!(got.screen, want.screen, "{at}: screen");
+                assert_eq!(got.cursor, want.cursor, "{at}: cursor");
+                fed(&bytes, size, |t| {
+                    assert_eq!(
+                        (t.string_truncations, t.strings_ignored),
+                        (*truncated, 1),
+                        "{at}: truncations, strings ignored"
+                    );
+                });
+            }
+        }
+    }
+}
+
+/// **An `OSC` and an `APC` keep their rows**, the positive control for the
+/// three tests above: the DCS body's `08-0D` and `7F` moved, and the other
+/// two bodies did not. `[[source: williams]]`'s `osc string` ignores
+/// `00-17` and puts `20-7F` (line 407), so a title drops a `CR` and keeps a
+/// `DEL`; an APC, williams' `sos/pm/apc string` (426), still ignores the
+/// `CR` and stores the `DEL` it then discards, so only `string_truncations`
+/// sees the second. Every read size, both encodings.
+#[test]
+fn an_osc_and_an_apc_keep_their_rows_for_a_format_effector_and_a_del() {
+    let cases: [(&str, &[u8], &[u8]); 2] = [
+        ("ESC ]", b"\x1b]0;ti\rt\x7fle\x07X", b"X"),
+        (
+            "9D under ISO 8859-1",
+            b"\x1b%@\x9d0;ti\rt\x7fle\x07X",
+            b"\x1b%@X",
+        ),
+    ];
+    for (name, bytes, drawn) in cases {
+        let want = left(drawn, drawn.len());
+        for size in 1..=bytes.len() {
+            let got = left(bytes, size);
+            assert_eq!(got.title, b"tit\x7fle", "{name}: title, read size {size}");
+            assert_eq!(got.screen, want.screen, "{name}: screen, read size {size}");
+            assert_eq!(got.cursor, want.cursor, "{name}: cursor, read size {size}");
+        }
+    }
+    for (tail, truncated) in [(b"\r".as_slice(), 0), (b"\x7f", 1)] {
+        let mut apc = b"\x1b_".to_vec();
+        apc.extend(std::iter::repeat_n(b'x', OSC_MAX));
+        apc.extend_from_slice(tail);
+        apc.extend_from_slice(b"\x1b\\AFTER");
+        for size in [1, 2, 7, apc.len()] {
+            fed(&apc, size, |t| {
+                assert_eq!(
+                    (t.string_truncations, t.strings_ignored),
+                    (truncated, 1),
+                    "APC and {tail:?}: read size {size}"
+                );
+            });
+        }
+    }
+}

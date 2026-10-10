@@ -52,24 +52,27 @@ impl Paint<'_, '_> {
         // terminator (`sixel_len > sixel_body.len()`) and the image is refused
         // whole rather than decoded from a truncated body.
         if self.cold.str_kind == StrKind::Sixel {
-            // **A C0 or `DEL` is dropped here, before the decoder.** The graph
-            // puts a `BEL` in a DCS body, `[[source: williams]]`'s `dcs
-            // passthrough` row (388), and stores `7F`, which that row ignores.
-            // The decoder reads a number up to its first non-digit, so either
-            // byte inside one split it: `!1 BEL 0~` drew one column where
-            // `!10~` draws ten, and `#1;2;10 BEL 0;0;0` set red to 10%.
-            // `[[source: vt3xx-sixel]]` defines the data and says nothing of
-            // C0. xterm withholds a `BEL` the same way: its Sixel parser is
-            // handed only bytes its string table calls `CASE_IGNORE`
-            // (`[[source: xterm-reset]]`'s file, 3408-3412), and `BEL` is
-            // `CASE_BELL` (`[[source: xterm-vtprstbl-c]]` 7630). `DEL` is
-            // `CASE_IGNORE` there, and its parser ends a number on it, as on
-            // any byte that is not a digit or white space
-            // (`[[source: xterm-graphics-sixel]]` 541-555): its departure from
-            // williams' ignore, not followed. The other C0 never get here --
-            // the graph ignores them, the open `dcs_passthrough` gap -- so the
-            // image stays what it is whichever way that is decided.
-            if b.is_c0() || b.is_del() {
+            // **A C0 is dropped here, before the decoder.** The graph puts a DCS
+            // body's `BEL` and its format effectors `08-0D`,
+            // `[[source: williams]]`'s `dcs passthrough` row (388), and the
+            // decoder reads a number up to its first non-digit, so any of them
+            // inside one split it: `!1 BEL 0~` drew one column where `!10~` draws
+            // ten, and `#1;2;10 BEL 0;0;0` set red to 10%. DEC's own Sixel text
+            // gives the format effectors no meaning: `[[source: dec-std-070]]`
+            // 070-9 §9.1, "These codes shall have no effect on the interpretation
+            // of Sixel Control strings" (PDF p. 925). `[[source: vt3xx-sixel]]`
+            // says nothing of C0. xterm skips `HT LF VT FF CR` as white space and
+            // ends a number on `BS`, its departure
+            // (`[[source: xterm-graphics-sixel]]` 541-555), and never sees a
+            // `BEL`: its Sixel parser is handed only bytes its string table calls
+            // `CASE_IGNORE` (`[[source: xterm-reset]]`'s file, 3408-3412), and
+            // `BEL` is `CASE_BELL` (`[[source: xterm-vtprstbl-c]]` 7630). The
+            // other C0 never get here, the graph ignoring them, and neither does
+            // `DEL`, which the graph ignores in a DCS body as williams' row does
+            // and as 070-9 §9.2 lists for Sixel, "7/15 (DELETE) Ignored" (926).
+            // The `DEL` was stored until 2026-10-10 and this arm dropped it; xterm
+            // hands its parser one, which ends a number there, its departure.
+            if b.is_c0() {
                 return;
             }
             let n = self.cold.sixel_len.index();
@@ -77,6 +80,24 @@ impl Paint<'_, '_> {
                 self.sixel_body[n] = b.raw_byte();
             }
             self.cold.sixel_len = ReadLen::from_index(n + 1);
+            return;
+        }
+        // **A DECRQSS drops a format effector, `08-0D`, before its `Pt` is
+        // kept.** The graph puts them in a DCS body for the handler to judge
+        // (`graph::string`), and this one gives them no meaning:
+        // `[[source: dec-std-070]]` 3.5.4 says their inclusion "is intended
+        // for convenience in formatting and storing control strings" and
+        // recommends "that these characters not affect the interpretation of
+        // the control string" (PDF p. 133), and of DEC's practice
+        // `[[source: williams]]` says a C0 with no meaning to the device
+        // function is "silently ignored" (818-822). So `m CR` names SGR, as
+        // it did while the graph dropped the byte, and the answer is
+        // unchanged. xterm's `strcmp` against `m` fails on it
+        // (`[[source: xterm-misc]]`'s file, 4935), practice and not followed;
+        // `[[source: ctlseqs]]` leaves error recovery to the implementation
+        // (133-137). The other C0 the graph puts, `BEL`, stays in the `Pt`,
+        // and the request then names nothing, which is the owner's open call.
+        if self.cold.str_kind == StrKind::Decrqss && b.is_format_effector() {
             return;
         }
         let n = self.cold.str_len.index();

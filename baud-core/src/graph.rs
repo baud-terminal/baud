@@ -63,21 +63,24 @@ pub enum Node {
     /// (2023-2024) where williams ignores it.
     ///
     /// **Three body nodes, for williams' `osc string`, `dcs passthrough` and
-    /// `sos/pm/apc string`, and the only byte their rows differ in is
-    /// `BEL`.** They were one node, and so a `BEL` ended all five strings,
-    /// where every text that speaks of it ends only the `OSC`:
-    /// `[[source: ecma48]]` 5.6 closes a control string with `ST` alone, and
-    /// williams puts the byte in a DCS and ignores it in the other three.
+    /// `sos/pm/apc string`, and their rows differ in eight bytes: `BEL`,
+    /// the six format effectors `08-0D` and `DEL`.** They were one node, and
+    /// so a `BEL` ended all five strings, where every text that speaks of it
+    /// ends only the `OSC`: `[[source: ecma48]]` 5.6 closes a control string
+    /// with `ST` alone, and williams puts the byte in a DCS and ignores it in
+    /// the other three. `08-0D` and `7F` are the DCS body's own, below.
     OscStr,
     /// The body of a `DCS`, past its prefix: williams' `dcs passthrough`,
     /// whose row puts a `BEL` (388), so it is payload and the string goes on.
+    /// It puts the format effectors `08-0D` and ignores `7F` too, the two
+    /// classes every text agrees on (`string`).
     ///
     /// **It is williams' `dcs ignore` as well**, which this graph has no node
     /// for: a prefix williams sends there, `ESC P 1 ?` or `ESC P $ 1`, leads
-    /// here too, and its body is put -- `20-7F` before this node split,
-    /// `BEL` as well now -- then discarded as `StrKind::Other`, where
-    /// williams ignores every byte of it. Only `string_truncations` can see
-    /// the difference, on such a string longer than the accumulator.
+    /// here too, and its body is put -- `20-7E`, `BEL` and `08-0D` -- then
+    /// discarded as `StrKind::Other`, where williams ignores every byte of
+    /// it. Only `string_truncations` can see the difference, on such a string
+    /// longer than the accumulator.
     DcsStr,
     /// The body of an `SOS`, `PM` or `APC`: williams' `sos/pm/apc string`,
     /// whose row ignores a `BEL` (426), so it goes nowhere and the string
@@ -1186,7 +1189,7 @@ const fn string(node: Node, b: StreamByte) -> Edge {
         // case is reached, as put does here, so a DECRQSS with one fails its
         // `strcmp` (`[[source: xterm-misc]]`'s file, 4935), and its Sixel
         // parser is handed only `CASE_IGNORE` bytes (3408-3412), so never the
-        // `BEL`. Here the Sixel handler drops it, with every C0 and `DEL`,
+        // `BEL`. Here the Sixel handler drops it, with every C0 it is put,
         // before the decoder (`Paint::str_put`): the decoder reads a number
         // up to its first non-digit, so a `BEL` put inside one split it.
         0x07 => match node {
@@ -1195,7 +1198,35 @@ const fn string(node: Node, b: StreamByte) -> Edge {
             _ => edge(Act::Consume, node),
         },
         0x1b => edge(Act::Consume, Node::StrEsc),
-        // **A C0 in the payload is ignored, not stored.**
+        // **The six format effectors, `BS HT LF VT FF CR`, are payload in a
+        // DCS body, where every text puts them or leaves them to the
+        // handler.** `[[source: ecma48]]` 8.3.27: DCS's command string "may
+        // consist of bit combinations in the range 00/08 to 00/13 and 02/00
+        // to 07/14", and 5.6: its interpretation "requires prior agreement
+        // between the sender and the recipient".
+        // `[[source: williams]]`'s `dcs passthrough` puts them (388), and "C0
+        // controls are also passed to the handler" (726). `[[source: dec-std-070]]`
+        // 3.5.4.4: "The receipt of the control characters 0/8 through 0/13
+        // is valid within control strings", and 3.5.4 recommends "that these
+        // characters not affect the interpretation" -- the interpretation is
+        // the handler's, and of DEC's practice williams says a C0 with "no
+        // meaning for the device function" is "silently ignored" by it, and
+        // one that has, as in ReGIS, "acted upon" (818-822). The X3.64 text
+        // williams quotes calls them "error conditions whose recovery is not
+        // specified" (804-811), and a handler that ignores them is such a
+        // recovery. This row ignored them, the `osc string` row, so no
+        // handler could have seen one. Both handlers here give them no
+        // meaning and drop them (`Paint::str_put`), so DECRQSS answers and a
+        // Sixel draws as before; only a string longer than the accumulator
+        // can tell, by `string_truncations`.
+        //
+        // In an `OSC` and an `SOS`, `PM` or `APC` they stay ignored: williams'
+        // `osc string` and `sos/pm/apc string` rows (407, 426).
+        0x08..=0x0d => match node {
+            Node::DcsStr => edge(Act::StrPut, node),
+            _ => edge(Act::Consume, node),
+        },
+        // **The other C0 in the payload are ignored, not stored.**
         // `[[source: williams]]`'s `osc_string` makes only `20-7F` `osc_put`;
         // `00-06`, `08-17`, `19` and `1C-1F` take the *ignore* action, so the
         // byte is dropped and the string continues rather than ending or
@@ -1209,17 +1240,41 @@ const fn string(node: Node, b: StreamByte) -> Edge {
         // `ESC ] 0 ; t i <01> t l e BEL` set the title to `ti\x01tle` where
         // `baud-core2` set it to `title`.
         //
-        // **In a DCS body this row departs from williams, and it is open.**
-        // `dcs passthrough` puts every C0 here and ignores `7F` (388); this
-        // row, the `osc string` one, ignores the C0 and stores `7F`, so a
-        // DECRQSS reads a `CR` in its `Pt` as absent where williams' handler,
-        // and xterm's buffer, would see it, and keeps a `7F` williams drops.
-        // A stored `7F` reached the Sixel decoder too and split a number in
-        // it, `!1 DEL 0~` drawing one column for ten, until the Sixel handler
-        // dropped C0 and `DEL` itself (`Paint::str_put`); DECRQSS is the
-        // consumer the gap is left in. Whether to follow the passthrough row
-        // whole is the owner's call; only `BEL` moved here.
-        0x00..=0x06 | 0x08..=0x17 | 0x19 | 0x1c..=0x1f => edge(Act::Consume, node),
+        // **In a DCS body this row departs from williams, and it is the
+        // owner's call.** `dcs passthrough` puts these too (388), where
+        // `[[source: dec-std-070]]` 3.5.4.4 recommends "that all other control
+        // codes not used within a command string be ignored by hardware", and
+        // `[[source: vt510-rm-b]]` Table 4-1 says the terminal ignores NUL.
+        // `[[source: ecma48]]` puts them outside a command string, an error
+        // whose recovery the implementation picks (Annex D, item 10). The
+        // texts conflict, so the row stays what it was; `BEL` alone is put,
+        // above.
+        0x00..=0x06 | 0x0e..=0x17 | 0x19 | 0x1c..=0x1f => edge(Act::Consume, node),
+        // **`DEL` is ignored in a DCS body and kept in the other two.** For a
+        // DCS every text that speaks of it drops it or lets it be dropped:
+        // `[[source: williams]]`'s `dcs passthrough` ignores `7F` with no
+        // condition (388); `[[source: dec-std-070]]` 3.5.4.4 recommends that
+        // control codes not used in a command string be ignored, and 3.3.4.1
+        // counts `DEL` among them, "also a control character, although it is
+        // not a member of the C0 or C1 sets"; its 3.4.2 and `[[source: vt510-rm-b]]`
+        // Table 4-1 ignore it on receipt with a 94-character set in GL, and
+        // `[[source: ecma48]]` F.8.1 says it "may be inserted into, or removed
+        // from, a CC-data-element without affecting its information content".
+        // Only xterm stores it: `CASE_IGNORE` in `sos_table`
+        // (`[[source: xterm-vtprstbl-c]]` 7780), after the byte is appended
+        // (`[[source: xterm-reset]]`'s file, 3454), practice and not followed. The
+        // 96-set condition cannot arise here: a command string is bit
+        // combinations, not characters of a set GL invokes, `[[source: ecma48]]`
+        // §9 saying SO and SI "have no effect on the interpretation" of one,
+        // and baud has no 96-character set in GL. This row stored it, the
+        // `osc string` row, so `DCS $ q m DEL ST` answered invalid.
+        //
+        // `osc string` puts `7F` (`20-7F`, 407), so an `OSC` keeps it; an
+        // `SOS`, `PM` or `APC` stores it and discards the string whole.
+        0x7f => match node {
+            Node::DcsStr => edge(Act::Consume, node),
+            _ => edge(Act::StrPut, node),
+        },
         _ => edge(Act::StrPut, node),
     }
 }
@@ -1451,6 +1506,23 @@ mod classes {
         // | a Latin-1 C1 cancels a control string and acts | **34/955/23,735/549,546** | **-3.3%** |
         // | ... and an escape or control sequence | **34/955/23,743/555,038** | +1.0% |
         // | `BEL` ends only an `OSC`: three string bodies | **36/1,075/27,628/663,126** | **+19.5%** |
+        // | a DCS body puts `08-0D` and ignores `7F` | **36/1,075/27,634/663,397** | +0.04% |
+        //
+        // **The DCS body's two classes move only stride 3 and 4.** Fourteen
+        // edges changed, `08-0D` from `Consume` to `StrPut` and `7F` from
+        // `StrPut` to `Consume`, in `DcsStr` under both encodings, and no
+        // other. Stride 1 cannot move: each of the seven bytes was already
+        // told apart by its ground row, and `LF`, `VT` and `FF`, one class,
+        // moved together. Stride 2 is the old partition word for word,
+        // against a dump of it that reproduced 1,075 and 27,628. At stride 3,
+        // 8 old classes split in two and 4 merge in pairs, +6: a byte that
+        // leaves `Dcs` for the body (`20`, an intermediate other than `$`)
+        // and `$`, which leaves it for `DcsDollar`, then a format effector,
+        // put in the body and ignored in `DcsDollar`, now differ where they
+        // were alike, and the same with `7F` agree where they differed --
+        // seen only when a third byte, `CAN`, `SUB` or `ESC`, sends both
+        // nodes to one, since any other already tells `DcsStr` from
+        // `DcsDollar`. Stride 4 compounds the same and was not decomposed.
         //
         // **The `BEL` row is a prefix's cost, the shape DECRQSS paid.** Eight
         // edges changed what they do, taken against a dump of every edge
@@ -1610,8 +1682,8 @@ mod classes {
         // adds pays.
         assert_eq!(one.len(), CLASSES, "stride 1");
         assert_eq!(two.len(), 1_075, "stride 2");
-        assert_eq!(three.len(), 27_628, "stride 3");
-        assert_eq!(four.len(), 663_126, "stride 4");
+        assert_eq!(three.len(), 27_634, "stride 3");
+        assert_eq!(four.len(), 663_397, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -1930,6 +2002,91 @@ mod classes {
             for body in [b"\x1bX".as_slice(), b"\x1b^", b"\x1b_"] {
                 let n = walk(body);
                 assert_eq!(bel(n), edge(Act::Consume, n), "{enc:?} {body:?}");
+            }
+        }
+    }
+
+    /// **A DCS body puts the six format effectors `08-0D` and ignores `DEL`;
+    /// an `OSC`, an `SOS`, `PM` or `APC` and the DCS prefix keep their rows**,
+    /// checked against the shipped table in both encodings, at the node each
+    /// introducer reaches -- the 8-bit introducers too, under ISO 8859-1.
+    ///
+    /// `[[source: williams]]`'s `dcs passthrough` puts `00-17,19,1C-1F,20-7E`
+    /// and ignores `7F` (388); `[[source: ecma48]]` 8.3.27 lets DCS's command
+    /// string hold `00/08` to `00/13`, and F.8.1 lets a `DEL` be removed
+    /// without changing its content. The DCS body took the `osc string` row
+    /// for both classes, ignoring the six and putting the `DEL`. The classes
+    /// the texts conflict on are held where they were, so a change that
+    /// followed williams' row whole would fail here: `00-06`, `0E-17`, `19`
+    /// and `1C-1F` ignored and `BEL` put in the body, and every C0 and `DEL`
+    /// ignored in the prefix (354-368).
+    #[test]
+    fn a_dcs_body_puts_the_format_effectors_and_ignores_del() {
+        let other_c0 = || {
+            (0x00..=0x06usize)
+                .chain(0x0e..=0x17)
+                .chain([0x19])
+                .chain(0x1c..=0x1f)
+        };
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            let walk = |bytes: &[u8]| {
+                let mut n = Node::Ground;
+                for b in bytes {
+                    n = Edge::of(enc, n, StreamByte::from_stream(*b)).next;
+                }
+                n
+            };
+            let at = |n: Node, v: usize| Edge::of(enc, n, StreamByte::ALL[v]);
+            let mut bodies: Vec<&[u8]> = std::vec![
+                b"\x1bP$q",
+                b"\x1bPq",
+                b"\x1bP1;2q",
+                b"\x1bP0;1|",
+                b"\x1bP1?"
+            ];
+            let mut others: Vec<&[u8]> = std::vec![b"\x1b]", b"\x1bX", b"\x1b^", b"\x1b_"];
+            let mut prefixes: Vec<&[u8]> = std::vec![b"\x1bP", b"\x1bP$", b"\x1bP1;2"];
+            if matches!(enc, InputEncoding::Latin1) {
+                bodies.extend([b"\x90$q".as_slice(), b"\x90q"]);
+                others.extend([b"\x9d".as_slice(), b"\x98", b"\x9e", b"\x9f"]);
+                prefixes.extend([b"\x90".as_slice(), b"\x90$"]);
+            }
+            // Positive control: each walk ends inside a string, where an
+            // `ESC` is the first half of `ST`, and not back in ground.
+            for intro in bodies.iter().chain(&others).chain(&prefixes) {
+                assert_eq!(
+                    at(walk(intro), 0x1b),
+                    edge(Act::Consume, Node::StrEsc),
+                    "{enc:?} {intro:?}: not inside a string"
+                );
+            }
+            for body in &bodies {
+                let n = walk(body);
+                for v in 0x08..=0x0d {
+                    assert_eq!(at(n, v), edge(Act::StrPut, n), "{enc:?} {body:?} {v:#04x}");
+                }
+                assert_eq!(at(n, 0x7f), edge(Act::Consume, n), "{enc:?} {body:?} DEL");
+                assert_eq!(at(n, 0x07), edge(Act::StrPut, n), "{enc:?} {body:?} BEL");
+                for v in other_c0() {
+                    assert_eq!(at(n, v), edge(Act::Consume, n), "{enc:?} {body:?} {v:#04x}");
+                }
+            }
+            for body in &others {
+                let n = walk(body);
+                for v in (0x08..=0x0d).chain(other_c0()) {
+                    assert_eq!(at(n, v), edge(Act::Consume, n), "{enc:?} {body:?} {v:#04x}");
+                }
+                assert_eq!(at(n, 0x7f), edge(Act::StrPut, n), "{enc:?} {body:?} DEL");
+            }
+            for prefix in &prefixes {
+                let n = walk(prefix);
+                for v in (0x00..=0x17).chain([0x19]).chain(0x1c..=0x1f).chain([0x7f]) {
+                    assert_eq!(
+                        at(n, v),
+                        edge(Act::Consume, n),
+                        "{enc:?} {prefix:?} {v:#04x}"
+                    );
+                }
             }
         }
     }
