@@ -100,8 +100,11 @@ addition, not a substitution.
 | `osc_string` | done | payload captured, bounded, and dispatched. **The one string `BEL` ends**, by `[[source: ctlseqs]]` ("XTerm accepts either BEL or ST for terminating OSC sequences", 2023-2024) where williams ignores it (407) (`a_bel_still_ends_an_osc`). Under `ESC % @` a GR byte is stored as it is, where `[[source: dec-std-070]]` 3.5.4.5 drops its eighth bit in an OSC: the ISO 8859-1 row's gap (below) |
 | `sos_pm_apc_string` | done | payload consumed, never executed. **`BEL` is ignored and ends nothing**, williams' row (426) and ctlseqs' "Pt need not be printable characters" (432-433, 2278-2279); it ended the string until 2026-10-09 (`a_bel_in_sos_pm_or_apc_is_ignored_and_only_st_ends_it`). STD 070 3.5.4.5 drops a GR byte's eighth bit in an APC or PM too, and baud does not; no handler reads these bodies, so nothing moves yet (the ISO 8859-1 row, below) |
 
-~~`sos_pm_apc_string` is a correctness and security gap.~~ Resolved: DCS, SOS,
-PM and APC payloads are consumed by `StringIgnore` and never executed. Note the
+~~`sos_pm_apc_string` is a correctness and security gap.~~ Resolved: SOS, PM
+and APC payloads are consumed by the graph's `SosStr` node and never executed,
+and a DCS body by `DcsStr`, which hands it only to the DECRQSS and Sixel
+handlers (the `dcs_passthrough` row above). Until 2026-10-10 this named a
+`StringIgnore`, which `baud-core` does not have. Note the
 specified limit, which is not a hole: `[[source: williams]]` says a bare `ESC`
 *cancels* a control string, and so does a C1 control (its anywhere rule, lines
 612-615), so the guarantee is precisely that a payload containing no ESC, and
@@ -345,11 +348,11 @@ and picking UTF-8 makes the choice for every byte at once. So:
 | 8-bit `84` IND, `85` NEL, `88` HTS, `8D` RI under `ESC % @` | done — each acts as its 7-bit form, `[[source: ctlseqs]]` pairing the two, at every read split (`eight_bit_ind_nel_hts_and_ri_match_their_seven_bit_forms`), and none inherits the last escape's intermediate (`a_c1_control_does_not_inherit_the_last_escapes_intermediate`). Until 2026-10-08 all four were counted as unsupported, and `84` after `ESC ( 0` replaced G0. `8E` and `8F` map to `ESC N` and `ESC O`, counted as those are until note AE's single shifts are built |
 | character width from East Asian Width + general category, generated from pinned Unicode data | done — `AmbiguousWidth` is embedder policy, `[[source: uax11]]` § 5 |
 | UAX #29 extended grapheme cluster segmentation | done — `ClusterBreak`, and all **766** cases of Unicode's own conformance suite pass |
-| combining marks stored against their base cell | done — `Term::marks`, bounded and evicting; they used to be **discarded** |
+| combining marks stored against their base cell | done — `Term::marks`, in `ClusterStore`: bounded at 63 clusters and **refusing** rather than evicting, a refused cluster keeping its base and counted in `marks_dropped` (the combining-marks prose below). They used to be **discarded**. This row said "evicting", `baud-core2`'s table, until 2026-10-10 |
 | one cluster per cell — ZWJ sequences, flags and Indic conjuncts as a single cluster | done — `ClusterBreak` consulted in `write.rs`'s `glyph`; continuations attach to the base cell, after printable ASCII too. Until 2026-10-10 a continuation that is not zero-width took a cell of its own there, a SpacingMark (GB9a) or an Extend with a width such as `U+09BE` or `U+1F3FF` (GB9), because `Paint::piece` and `Paint::blit` told the machine nothing came before the run; they tell it `ClusterBreak::after_ascii_run` now. And a control ends the cluster before it (GB4, GB5) **for a continuation that takes a column**: every edge that performs a C0 control but `CR`, `NUL` and `DEL` included, or ends an escape sequence, a control sequence (an SGR and a malformed one that `csi ignore` swallows included) or a control string, leads to `Node::AfterControl`, whose row tells the machine (`Act::EndCluster`) before the next character it is asked about; `CR` leaves the cursor at column 0, where `glyph` restarts the machine. Before, such a continuation after a line feed, a tab, a cursor move or an erase was dropped on an empty cell or joined a letter the cursor had stepped back over (`a_control_function_ends_the_cluster_before_it`, `every_way_out_of_a_control_leads_to_the_ground_after_a_control`). A `U+FFFD` the decoder writes for an ill-formed sequence tells the machine it is class Other, so GB9a joins a SpacingMark to it and GB11 and GB12/13 do not reach across it, after a control too (`a_replacement_character_is_class_other_to_the_cluster_after_it`). `every_line_of_the_suite_clusters_through_the_terminal` feeds every line of `[[source: gbtest]]` through `Term` at every read size, its 211 with NUL, LF and CR as the terminal receives them, and pins what still departs, four open departures: **a zero-width codepoint after a control** still joins the cell before the cursor or is dropped where that cell is empty, where GB4/GB5 give it a cluster of its own, a defective combining character sequence (D57) that TUS § 5.13 would render on a no-break space (note AB, Q24, for Jev); **REP's copy** never joins what came before it, `CSI b` being a control, where the text it expands to would (note AB, Q24); a Prepend joins the cell before it and printable ASCII after it takes its own (GB9b; note AB §7.1); and a cluster the store refuses loses its tail (note AB §7.2). Whether `NUL` and `DEL` end the cluster at all is for Jev too (note AB, Q24) |
 | `Emoji_Presentation=Yes` is two columns | done — regional indicators are EAW `N`, so a flag measured from East Asian Width alone is half-width |
 | DECRQM `?2027` — grapheme clustering | done — answers `3`, permanently set, and it is true: a `U+FE0F` after a base `[[source: emoji-variation-sequences]]` lists widens it to two cells (keycap bases excepted); configured to one cell it answers `4`; no sequence changes it |
-| `ESC % G` — select UTF-8, ISO 2022 | done — satisfied; baud already decodes UTF-8 |
+| `ESC % G` — select UTF-8, ISO 2022 | done — switches the live input encoding back to UTF-8 after `ESC % @`, and changes nothing while UTF-8 is live. This row said "satisfied; baud already decodes UTF-8", from before `ESC % @` was built, until 2026-10-10 |
 | `ESC % @` — select ISO 8859-1 | done — switches the live input encoding |
 | `CSI ? 1020 $ p` — DECRQM on xterm's `utf8` resource | done — mirrors the **live** encoding, `1` or `2`, as xterm does |
 | `ESC SP F` — S7C1T, send 7-bit controls | done — the default |
@@ -369,8 +372,9 @@ this document made first.** S8C1T was refused here on the grounds that emitting
 `9B` would make baud's own output invalid UTF-8. That reasoning does not hold: a
 reply is not UTF-8 text, it is a control stream the application asked for by
 sending S8C1T, and an application that asks is prepared to read it. baud still
-cannot *parse* an 8-bit introducer — that half is forced by UTF-8 and stands —
-but there was never a reason it could not *emit* one. `C1Transmit` carries the
+cannot *parse* an 8-bit introducer in UTF-8 — that half is forced by UTF-8 and
+stands — and under `ESC % @` it parses all of them (the rows above); there was
+never a reason it could not *emit* one. `C1Transmit` carries the
 choice and CSI, DCS and ST introducers all follow it, a key's `CSI` and `SS3`
 included: xterm writes both through the `unparseseq` its replies use
 (`[[source: xterm-input]]`, `[[source: xterm-reset]]` charproc.c 9356-9373).
@@ -598,23 +602,29 @@ A CSI may carry more parameters than a fixed array holds, and discarding the
 excess is a legitimate limit -- every terminal has one, and xterm's `NPARAM` is
 30. What is not legitimate is the two feeds discarding it *differently*.
 
-They did. `fast.rs` accumulates a parameter into a local and stores it only
-under the capacity bound, so an over-capacity parameter was parsed and dropped.
-`machine.rs` wrote each digit straight into `params[nparam - 1]` with `nparam`
-pinned *at* capacity, so the separator was swallowed and the next parameter's
-digits appended to the last stored one: `CSI ...;61;62;63 m` stored 6263 where
-the fast path stored 62. The result therefore depended on where a read boundary
-fell, which is a chunk-invariance bug. core2's ingest property did not find
-it because its generator does not emit sequences that long.
+They did, in `baud-core2`. Its fast path accumulated a parameter into a local
+and stored it only under the capacity bound, so an over-capacity parameter was
+parsed and dropped. Its state machine wrote each digit straight into
+`params[nparam - 1]` with `nparam` pinned *at* capacity, so the separator was
+swallowed and the next parameter's digits appended to the last stored one:
+`CSI ...;61;62;63 m` stored 6263 where the fast path stored 62. The result
+therefore depended on where a read boundary fell, which is a chunk-invariance
+bug. core2's ingest property did not find it because its generator did not
+emit sequences that long.
 
 | | one read | byte at a time |
 |---|---|---|
 | `CSI 0;0;...;0;1;4 m` | `BOLD` | nothing |
 | `CSI 1;2;...;63;64 m` | `0xffff` | `0x7fff` |
 
-`ParamIdx::next_capped` now saturates one *past* `CAPACITY`, so "capacity
-reached" and "capacity exceeded" stay distinguishable and the digit branch knows
-to stop; `Term::nparams` clamps on the way out. See `tests/sgr/param_overflow.rs`.
+core2's repair was `ParamIdx::next_capped`, which saturates one *past*
+`CAPACITY` so that "capacity reached" and "capacity exceeded" stay
+distinguishable; it is still in `baud-domain` and nothing calls it. `baud-core`
+has one parameter store for both paths, `Csi` in `baud-core/src/write.rs`, with
+one slot past the capacity: its `sep` stops advancing there, so every later
+parameter folds into a slot nothing reads and is dropped, and its `count`
+clamps to the capacity on the way out. See `tests/sgr/param_overflow.rs`. This
+paragraph named core2's mechanism as the current one until 2026-10-10.
 
 The capacity itself is `1 + Attrs::WIRE.len() + 1 + 3 * 5` = **35**, which is
 the longest parameter list baud emits: the DECRQSS SGR reply. Since DECRQSS
@@ -638,13 +648,16 @@ landed in the title — and OSC payloads are attacker-supplied, which is why thi
 one is in the threat model rather than only in the conformance table.
 
 **This block broke chunk-invariance the moment it landed, and the property
-caught it.** `fast_esc` scans an OSC straight to its terminator, so it could not
-see a cancel in between while the state machine could — the same bytes set a
-title or did not, depending on whether they fit inside one `read(2)`. The fast
-path now declines any OSC payload containing a C0 byte at all — it cannot
-reproduce either rule, since it scans to the terminator (so it cannot see a
-cancel) and copies the payload wholesale (so it would keep bytes that should be
-dropped).
+caught it.** `baud-core2`'s fast path scanned an OSC straight to its
+terminator, so it could not see a cancel in between while the state machine
+could — the same bytes set a title or did not, depending on whether they fit
+inside one `read(2)`. Its repair declined any OSC payload containing a C0
+byte at all, since a path that scans to the terminator cannot see a cancel
+and one that copies the payload wholesale keeps bytes that should be dropped.
+`baud-core`'s `fast_esc` takes no control string at all: it folds `ESC [`,
+an intermediate and a final, and a bare two-byte `ESC`, and leaves `P`, `X`,
+`]`, `^` and `_` to the graph, which walks every string byte by byte (this
+said the fast path scans an OSC until 2026-10-10).
 `a_c0_in_an_osc_payload_is_ignored` pins it deterministically
 rather than leaving it to a saved seed.
 
@@ -946,16 +959,16 @@ and dropped.
 ### An operation is done on *both screens*, or it is not done
 
 `EL` and `ED` sat at **done**, with tests, and did **nothing at all** on the
-alternate screen in `baud-core2`'s `OpMode::Runs`. `erase_line`'s
-span-truncation fast path read the `promoted` flag raw; that flag belonged to
+alternate screen in `baud-core2`'s `OpMode::Runs`. That core's `erase_line`
+had a span-truncation fast path that read the `promoted` flag raw; that flag belonged to
 the primary screen, so on
 the alternate one it was false for every row, the erase took the span path, and
 it returned without touching a cell. `HELLO WORLD` survived an erase-to-end
 from column 6.
 
-Every erase test ran on the primary. So did every scrolling test — full-screen
-scrolling in the alternate screen was copying rows for the same reason, at 26x
-the cost.
+Every erase test in `baud-core2` ran on the primary. So did every scrolling
+test — full-screen scrolling in that core's alternate screen was copying rows
+for the same reason, at 26x the cost.
 
 **The enumeration was complete in the wrong dimension.** This file lists the
 operations and `coverage.rs` checks each is mentioned; neither asks *in which

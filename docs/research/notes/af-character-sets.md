@@ -1507,8 +1507,9 @@ here; nothing draws the constant yet.
   at 0.26 and did not lean; re-asked with all four options marked, it picked
   U+2426 at 1.00 twice, and the codepoint is decided (note AE §10, "Re-asked
   since"; AE8.1). That row is the AE "Q8.1" this note was asked to tie to;
-- the SUB row at `docs/vt-coverage.md:202`, which keeps the display `out` on a
-  stated basis that this note finds misstated (D5, §5).
+- the SUB row at `docs/vt-coverage.md`'s row "SUB additionally displaying the
+  DEC error character", which keeps the display `out` on a stated basis that
+  this note finds misstated (D5, §5).
 
 The codepoint is settled for all three; what each place draws, and whether it
 draws anything, is decided together.
