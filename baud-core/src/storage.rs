@@ -216,6 +216,13 @@ pub struct AltBuf<'b> {
 pub struct Book<'b> {
     pub(crate) hist: Rows,
     pub(crate) hidden: Rows,
+    /// **Which full reset the terminal is at** ([`crate::Term::resets`]),
+    /// bumped by `RIS` beside `hist`, which it zeroes. Here rather than in
+    /// `Cold`, whose size is pinned at 464 and had no padding left for a
+    /// `u32` (its assert refused it), and beside the history counts a reset
+    /// is the other half of (note V, V1). `Paint` carries this word by
+    /// reference, so the per-byte loop carries nothing more for it.
+    pub(crate) resets: crate::term::Resets,
     /// **The absolute line at the top of the primary window.** It moves with
     /// the rotation both ways -- up one for every row the window retires,
     /// down one for every row it takes back -- and a reflow renumbers it with
@@ -950,6 +957,7 @@ impl<'b> Storage<'b> {
             book: Book {
                 hist: Rows::ZERO,
                 hidden: Rows::ZERO,
+                resets: crate::term::Resets::FIRST,
                 top: LineIdx::FIRST,
                 alt_top: LineIdx::FIRST,
                 reach: Cols::of_index(0),

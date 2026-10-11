@@ -2294,6 +2294,7 @@ struct Before {
     epoch: baud_core::ScreenEpoch,
     region: baud_core::RegionScrolls,
     erased: baud_core::HistoryErasures,
+    resets: baud_core::Resets,
     rows: baud_core::RowMoves,
     /// The scrolling region, top and bottom, for a read that sets another
     /// after copying in this one.
@@ -2308,6 +2309,7 @@ impl Before {
             epoch: term.screen_epoch(),
             region: term.region_scrolls(),
             erased: term.history_erasures(),
+            resets: term.resets(),
             rows: term.row_moves(),
             band: term.scroll_region(),
         }
@@ -2717,6 +2719,97 @@ fn snapped(term: &Term<'_>, back: Rows) -> Rows {
         Screen::Normal => Rows::ZERO,
         Screen::Alternate => back,
     }
+}
+
+/// What the app keeps over the screen and a read can leave naming cells
+/// that are gone: the selection, the echoes drawn ahead of the shell and
+/// their frame, the slide, the wheel's travel not yet a line, and the
+/// instrument the guesses' verdicts go to. Borrowed from `App` for one call,
+/// so the rule is a plain function a test runs over a real `Term`.
+struct Kept<'a> {
+    selection: &'a mut Option<Selection>,
+    predictions: &'a mut Vec<Prediction>,
+    guess: &'a mut Guess,
+    slide: &'a mut Slide,
+    travel: &'a mut Travel,
+    latency: &'a mut Latency,
+}
+
+/// Whether a read put another surface up, for what follows the cursor and
+/// the fade the pump runs on one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Surface {
+    Switched,
+    Same,
+}
+
+/// Whether the scrollbar's thumb is revealed after a read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Thumb {
+    Reveal,
+    Leave,
+}
+
+/// Whether a read reset the terminal -- `RIS`, from either screen -- by the
+/// core's count, because nothing else across a read says so: a reset scrolls
+/// nothing and keeps the rotation, so on a terminal with no history both ends
+/// of the read look alike, and [`erased`] moves on `CSI 3 J` too, which keeps
+/// the screen and a selection on it (note V, V1).
+fn reset_in(term: &Term<'_>, before: Before) -> bool {
+    term.resets() != before.resets
+}
+
+/// **What a read that put another surface up, or reset the terminal, owes
+/// `kept`**, and what the pump does after: `shown` is the window as drawn
+/// before the read and `now` the one drawn after it, each through
+/// [`looking`].
+///
+/// Note V's V1, the owner's answer of 2026-09-25: when the reset count moves,
+/// the selection goes -- it names cells the power-on state does not have, as
+/// foot's hard reset and xterm's `RIS` both drop theirs -- the guesses drawn
+/// ahead of the shell are dropped as contradicted, the wheel's part-line
+/// settles, and a window over the history that came to the live screen
+/// reveals its thumb, as a key's snap does (V1's first fork). The window and
+/// the slide are [`after_read`]'s and the pump's erase arm, which `RIS` moves
+/// too. **No fade on a primary reset** (V1's second fork): it is not a switch,
+/// so [`Surface`] stays the epoch's; a reset from the alternate screen is
+/// both, and fades as a switch does.
+fn restart(
+    term: &Term<'_>,
+    before: Before,
+    shown: Rows,
+    now: Rows,
+    kept: Kept<'_>,
+) -> (Surface, Thumb) {
+    let surface = match switched(term, before) {
+        true => Surface::Switched,
+        false => Surface::Same,
+    };
+    let reset = reset_in(term, before);
+    if surface == Surface::Switched || reset {
+        *kept.selection = None;
+        // Each with its verdict, as `judge` gives one: a bare clear left a
+        // key's record under `BAUD_KEYLAT` waiting for the instrument's own
+        // timeout.
+        for p in kept.predictions.drain(..) {
+            if let Some(seq) = p.seq {
+                kept.latency.judged(seq, Judged::Contradicted);
+            }
+        }
+        *kept.guess = Guess::None;
+        kept.travel.settle();
+    }
+    if surface == Surface::Switched {
+        // A surface switch: the slide's offset names a row the new surface
+        // does not have (the alternate screen keeps no ring), so settle it
+        // rather than carry it across. A reset's slide is the erase arm's.
+        kept.slide.snap();
+    }
+    let thumb = match reset && shown.index() != 0 && now.index() == 0 {
+        true => Thumb::Reveal,
+        false => Thumb::Leave,
+    };
+    (surface, thumb)
 }
 
 /// **A window over the history is the primary screen's.** The alternate
@@ -3517,6 +3610,364 @@ mod alt_window_tests {
                 assert_eq!(erased(t, before), want, "{bytes:?}");
             }
         });
+    }
+}
+
+/// **What a full reset owes the app** (note V, V1, the owner's 2026-09-25
+/// answer): when the core's reset count moves across a read, the selection
+/// goes, the echoes drawn ahead of the shell are dropped as contradicted, the
+/// wheel's part-line settles, and a window over the history comes to the live
+/// screen with its thumb revealed -- and no screen-switch fade runs, because
+/// a reset on the primary puts no other surface up. The window and the slide
+/// already follow `Term::history_erasures`, which `RIS` moves; these hold
+/// what only the reset count can say, and `CSI 3 J` -- which moves the
+/// erasure count and keeps the screen -- is the control that tells the two
+/// apart. Each read here is the pump's: `Before`, the feed, `after_read`,
+/// then `restart`.
+#[cfg(test)]
+mod restart_tests {
+    use super::{Before, Guess, Kept, Prediction, Surface, Thumb, after_read, looking, restart};
+    use crate::latency::{Judged, Latency, Switch};
+    use crate::wheel::{Delta, Travel};
+    use baud_core::{Owned, Screen, Term};
+    use baud_domain::{BytePos, Codepoint, Col, HostTime, ReadLen, Row, Rows, WinSize};
+    use baud_font::Px;
+    use baud_render::{Grain, Scrolled, Selection, Slide, Span};
+    use std::time::{Duration, Instant};
+
+    const WS: WinSize = WinSize {
+        ws_col: 20,
+        ws_row: 10,
+    };
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// What the app keeps over the screen, owned, as `App` holds it.
+    struct State {
+        back: Rows,
+        selection: Option<Selection>,
+        predictions: Vec<Prediction>,
+        guess: Guess,
+        slide: Slide,
+        travel: Travel,
+        latency: Latency,
+    }
+
+    impl State {
+        fn new() -> State {
+            State {
+                back: Rows::ZERO,
+                selection: None,
+                predictions: Vec::new(),
+                guess: Guess::None,
+                slide: Slide::new(Px::of(20)),
+                travel: Travel::default(),
+                latency: Latency::new(Switch::On),
+            }
+        }
+
+        /// One read, as the pump takes it.
+        fn read(&mut self, t: &mut Term<'_>, bytes: &[u8]) -> (Surface, Thumb) {
+            let before = Before::of(t);
+            let shown = looking(t, self.back);
+            feed(t, bytes);
+            self.back = after_read(t, self.back, before);
+            restart(
+                t,
+                before,
+                shown,
+                looking(t, self.back),
+                Kept {
+                    selection: &mut self.selection,
+                    predictions: &mut self.predictions,
+                    guess: &mut self.guess,
+                    slide: &mut self.slide,
+                    travel: &mut self.travel,
+                    latency: &mut self.latency,
+                },
+            )
+        }
+
+        /// A selection of screen row `r`'s first cell.
+        fn select(&mut self, t: &Term<'_>, r: Row) {
+            let line = Scrolled::START.line(Rows::ZERO, r);
+            self.selection = Some(Selection::at(
+                Span::cell(t.row(r), line, Col::ZERO),
+                Grain::Cell,
+            ));
+        }
+
+        /// A key's echo drawn at `(row, col)` ahead of the shell, with its
+        /// record open in the instrument: the record's seq.
+        fn predict(&mut self, t: &Term<'_>, (row, col): (Row, Col)) -> baud_render::Tally {
+            let at = |us| HostTime::of_nanos(1_000_000_000).plus(Duration::from_micros(us));
+            self.latency.key(|| Some(at(0)), || at(10));
+            self.latency.written(|| at(20));
+            let seq = self
+                .latency
+                .predicted(|| at(30))
+                .expect("a record to carry it");
+            self.predictions.push(Prediction {
+                row,
+                col,
+                cp: Codepoint::new(u32::from('l')).expect("a codepoint"),
+                seq: Some(seq),
+                at: Instant::now(),
+                rot: t.rotation(),
+            });
+            self.guess = Guess::Owed;
+            seq
+        }
+    }
+
+    fn with_term(ws: &WinSize, f: impl FnOnce(&mut Term<'_>)) {
+        let mut owned = Owned::new(ws);
+        let mut t = Term::new(owned.storage(), ws);
+        f(&mut t);
+    }
+
+    /// Forty lines on a ten-row screen: thirty-one behind it.
+    fn with_history(f: impl FnOnce(&mut Term<'_>)) {
+        with_term(&WS, |t| {
+            let lines: Vec<u8> = (0..40)
+                .flat_map(|i| format!("line {i}\r\n").into_bytes())
+                .collect();
+            feed(t, &lines);
+            assert_eq!(t.scrollback().len(), 31);
+            f(t);
+        });
+    }
+
+    /// **A reset drops a selection, with or without a history**: on a fresh
+    /// terminal nothing else across the read moves -- no line scrolled, no
+    /// history to erase -- so only the reset count can say it. `DECSTR`,
+    /// `ED 2` and `CSI 3 J` keep it: the screen it names is still the screen.
+    #[test]
+    fn a_reset_drops_a_selection_even_with_no_history() {
+        with_term(&WS, |t| {
+            let mut s = State::new();
+            feed(t, b"$ echo word\r\nword\r\n$ ");
+            s.select(t, Row::from_index(1));
+            s.read(t, b"\x1b[!p");
+            assert!(s.selection.is_some(), "DECSTR kept it");
+            s.read(t, b"\x1bc");
+            assert!(s.selection.is_none(), "a reset with no history dropped it");
+        });
+        with_history(|t| {
+            let mut s = State::new();
+            s.select(t, Row::from_index(4));
+            for (bytes, what) in [
+                (&b"\x1b[!p"[..], "DECSTR"),
+                (b"\x1b[2J", "ED 2"),
+                (b"\x1b[3J", "ED 3, which erased the history"),
+            ] {
+                s.read(t, bytes);
+                assert!(s.selection.is_some(), "{what} dropped it");
+            }
+            assert_eq!(t.scrollback().len(), 0, "the control: ED 3 erased it");
+            s.read(t, b"\x1bc");
+            assert!(s.selection.is_none(), "a reset dropped it");
+        });
+    }
+
+    /// **However the reset falls into reads**: the captured `reset(1)`, 20
+    /// rows by 60 columns, fed whole up to its `ESC c` with a selection made
+    /// there, and the rest in reads of 1, 2, 3, 4, 5, 8, 17 and 4096 bytes --
+    /// one-byte reads put the `ESC` and the `c` in two.
+    #[test]
+    fn a_captured_reset_drops_the_selection_at_every_read_size() {
+        const CAPTURE: &[u8] = include_bytes!("../../tests/reset/seq-reset.raw");
+        let ws = WinSize {
+            ws_col: 60,
+            ws_row: 20,
+        };
+        let at = CAPTURE
+            .windows(2)
+            .position(|w| w == b"\x1bc")
+            .expect("the capture's reset");
+        for size in [1, 2, 3, 4, 5, 8, 17, 4096] {
+            with_term(&ws, |t| {
+                let mut s = State::new();
+                s.read(t, &CAPTURE[..at]);
+                assert_eq!(t.scrollback().len(), 26, "the control: it scrolled");
+                s.select(t, Row::from_index(3));
+                for chunk in CAPTURE[at..].chunks(size) {
+                    s.read(t, chunk);
+                }
+                assert!(s.selection.is_none(), "read size {size} kept it");
+                assert_eq!(s.back, Rows::ZERO, "read size {size}");
+            });
+        }
+    }
+
+    /// **The guesses go as contradicted**, on a reset and on a switch, each
+    /// with its verdict in the instrument -- a bare clear left a key's record
+    /// waiting for its timeout -- and stay pending across a read that does
+    /// neither.
+    #[test]
+    fn a_reset_drops_outstanding_predictions_as_contradicted() {
+        with_term(&WS, |t| {
+            let mut s = State::new();
+            feed(t, b"$ ");
+            let seq = s.predict(t, (Row::from_index(0), Col::at_index(2)));
+            s.read(t, b"\x1b[m");
+            assert_eq!(
+                s.predictions.len(),
+                1,
+                "the control: a read that resets nothing"
+            );
+            assert_eq!(s.latency.verdict(seq), Some(Judged::Unjudged));
+            s.read(t, b"\x1bc");
+            assert!(s.predictions.is_empty(), "the reset kept a guess");
+            assert!(s.guess == Guess::None, "and its frame");
+            assert_eq!(s.latency.verdict(seq), Some(Judged::Contradicted));
+        });
+    }
+
+    #[test]
+    fn a_switch_drops_predictions_with_a_verdict() {
+        with_term(&WS, |t| {
+            let mut s = State::new();
+            feed(t, b"$ ");
+            let seq = s.predict(t, (Row::from_index(0), Col::at_index(2)));
+            s.read(t, b"\x1b[?1049h");
+            assert!(s.predictions.is_empty(), "the switch kept a guess");
+            assert_eq!(s.latency.verdict(seq), Some(Judged::Contradicted));
+        });
+    }
+
+    /// **A switch drops the rest as a reset does, and settles the slide**,
+    /// whose offset names a row the other surface does not have; a reset's
+    /// slide is the pump's erase arm's, so `restart` leaves it -- the
+    /// control.
+    #[test]
+    fn a_switch_drops_the_selection_and_settles_the_slide_and_the_travel() {
+        with_history(|t| {
+            let mut s = State::new();
+            s.select(t, Row::from_index(4));
+            s.slide.retire(Rows::of_count(1));
+            let _ = s.travel.lines(Delta::Lines(0.5));
+            assert_eq!(s.read(t, b"\x1b[?1049h").0, Surface::Switched);
+            assert!(s.selection.is_none(), "the switch kept the selection");
+            assert!(!s.slide.active(), "the switch kept the slide");
+            assert_eq!(s.travel, Travel::default(), "the switch kept the travel");
+            s.read(t, b"\x1b[?1049l");
+            s.slide.retire(Rows::of_count(1));
+            s.read(t, b"\x1bc");
+            assert!(
+                s.slide.active(),
+                "the control: the reset's slide is the erase arm's"
+            );
+        });
+    }
+
+    /// **The wheel's part-line settles on a reset**, as a key's snap settles
+    /// it, so the first turn after it does not carry travel from a window
+    /// the reset ended.
+    #[test]
+    fn a_reset_settles_the_wheels_travel() {
+        with_history(|t| {
+            let mut s = State::new();
+            s.back = Rows::of_count(5);
+            let _ = s.travel.lines(Delta::Lines(0.5));
+            s.read(t, b"x");
+            assert_ne!(s.travel, Travel::default(), "the control: a read keeps it");
+            s.read(t, b"\x1bc");
+            assert_eq!(s.travel, Travel::default(), "the reset kept it");
+        });
+    }
+
+    /// **A reset that brings a window over the history to the live screen
+    /// reveals the thumb** (V1's first fork, yes), as a key's snap does: a
+    /// programmatic scroll, which AppKit reveals. Not from the live screen,
+    /// where nothing moved; not from the alternate screen, where the window
+    /// drawn was the live one and the reset is a switch, which fades; and
+    /// not on `CSI 3 J`'s snap, which V1 does not decide.
+    #[test]
+    fn a_reset_from_a_window_over_the_history_reveals_the_thumb() {
+        with_history(|t| {
+            let mut s = State::new();
+            s.back = Rows::of_count(5);
+            assert_eq!(s.read(t, b"\x1bc"), (Surface::Same, Thumb::Reveal));
+            assert_eq!(s.back, Rows::ZERO, "the control: it came live");
+        });
+        with_history(|t| {
+            let mut s = State::new();
+            assert_eq!(s.read(t, b"\x1bc").1, Thumb::Leave, "from the live screen");
+        });
+        with_history(|t| {
+            let mut s = State::new();
+            s.back = Rows::of_count(5);
+            assert_eq!(s.read(t, b"\x1b[3J").1, Thumb::Leave, "on ED 3");
+            assert_eq!(s.back, Rows::ZERO, "the control: ED 3 brought it live");
+        });
+        with_history(|t| {
+            let mut s = State::new();
+            s.back = Rows::of_count(5);
+            s.read(t, b"\x1b[?1049h");
+            assert_eq!(s.back.index(), 5, "the control: the primary's window kept");
+            assert_eq!(s.read(t, b"\x1bc"), (Surface::Switched, Thumb::Leave));
+            assert_eq!(t.screen(), Screen::Normal);
+            assert_eq!(s.back, Rows::ZERO);
+        });
+    }
+
+    /// **A reset on the primary is not a switch**, so the fade and what
+    /// follows the cursor across one stay keyed on the screen epoch (V1's
+    /// second fork, no); a reset from the alternate screen is both.
+    #[test]
+    fn a_reset_on_the_primary_runs_no_fade() {
+        with_history(|t| {
+            let mut s = State::new();
+            assert_eq!(s.read(t, b"\x1bc").0, Surface::Same);
+            s.read(t, b"\x1b[?1049h");
+            assert_eq!(s.read(t, b"\x1bc").0, Surface::Switched);
+        });
+    }
+
+    /// **The pump takes the read as these tests do.** It is AppKit-bound,
+    /// so the source is held: the window drawn is read before the feed;
+    /// `restart` runs after the `Retired` arm, which can start a slide, and
+    /// after the erased snap, so neither undoes what it settles, and before
+    /// the clip; and the reveal and the switch's fade follow what it says.
+    #[test]
+    fn the_pump_restarts_after_the_reads_bookkeeping() {
+        const SRC: &str = include_str!("app.rs");
+        // Spelled apart, so this test's own text is not what it finds.
+        const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
+        assert_eq!(SRC.matches(PUMP).count(), 1, "one pump");
+        let pump = SRC.split(PUMP).nth(1).expect("the pump");
+        let pump = &pump[..pump.find("\n    }\n").expect("the pump ends")];
+        let at = |needle: &str| {
+            assert_eq!(
+                pump.matches(needle).count(),
+                1,
+                "once in the pump: {needle}"
+            );
+            pump.find(needle).expect("found")
+        };
+        let call = at("let (surface, thumb) = restart(");
+        assert!(
+            at("let shown = looking(&self.app.term, self.app.back);") < at("crate::reads::feed(")
+        );
+        assert!(at("Ring::Restored(_) => self.app.selection = None,") < call);
+        assert!(at("if erased(&self.app.term, before) {") < call);
+        assert!(call < at("if thumb == Thumb::Reveal {"));
+        let reveal = &pump[at("if thumb == Thumb::Reveal {")..];
+        let reveal = &reveal[..reveal.find("\n        }\n").expect("the arm ends")];
+        assert!(
+            reveal.contains("self.app.reveal.reveal(now);"),
+            "the reveal arm reveals the thumb"
+        );
+        assert!(call < at("if surface == Surface::Switched {"));
+        assert!(at("if surface == Surface::Switched {") < at("let oldest = oldest(&self.app.term"));
+        assert!(
+            !pump.contains("if switched("),
+            "the switch is `restart`'s to say"
+        );
     }
 }
 
@@ -4918,6 +5369,8 @@ impl Driver {
                 .echoed(drained.chunks.iter().map(|chunk| chunk.at));
         }
         let before = Before::of(&self.app.term);
+        // The window as drawn before the read, for the thumb a reset reveals.
+        let shown = looking(&self.app.term, self.app.back);
         let refused = self.app.term.images().refusals;
         // Each read's answers go to the outbox before the next read is fed,
         // or every read after the first few lost its answers to the 256-byte
@@ -5047,20 +5500,38 @@ impl Driver {
         // row there instead -- so a slide settles, whichever way the erase
         // and the lines fell in the read. The selection needs nothing here:
         // the clip below drops what named an erased line, because the lines
-        // that refill the history are numbered after them.
+        // that refill the history are numbered after them. A selection on
+        // the screen a reset cleared is `restart`'s, below.
         if erased(&self.app.term, before) {
             self.app.slide.snap();
         }
-        if switched(&self.app.term, before) {
-            self.app.selection = None;
-            self.app.predictions.clear();
-            self.app.guess = Guess::None;
-            // A surface switch: the slide's offset names a row the new
-            // surface does not have (the alternate screen keeps no ring), so
-            // settle it rather than carry it across.
-            self.app.slide.snap();
-            // Nor does a trail cross it: the cursor it would come from was
-            // the other screen's. The ghost forgets its last cell and any
+        // A switch of surface, or a full reset: what the app keeps over the
+        // screen names cells that are gone (note V, V1).
+        let (surface, thumb) = restart(
+            &self.app.term,
+            before,
+            shown,
+            looking(&self.app.term, self.app.back),
+            Kept {
+                selection: &mut self.app.selection,
+                predictions: &mut self.app.predictions,
+                guess: &mut self.app.guess,
+                slide: &mut self.app.slide,
+                travel: &mut self.app.travel,
+                latency: &mut self.app.latency,
+            },
+        );
+        if thumb == Thumb::Reveal {
+            // A programmatic scroll, which AppKit reveals, as `snap_to_live`
+            // does for a key.
+            self.app.pending = Pending::Dirty;
+            if let Some(now) = HostTime::of_secs(self.app.tick_target) {
+                self.app.reveal.reveal(now);
+            }
+        }
+        if surface == Surface::Switched {
+            // A trail does not cross a switch: the cursor it would come from
+            // was the other screen's. The ghost forgets its last cell and any
             // sweep in flight for the same reason; it never did, and a
             // placement made helix reach it from the prompt.
             self.app.chase.snap();

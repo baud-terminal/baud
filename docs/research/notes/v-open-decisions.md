@@ -301,6 +301,21 @@ however the bytes fell into reads (`after_read`, `erased` in
 screen and the stale guess -- are V1's still: the screen's rows are not saved
 lines, so the clip that drops a selection in the history keeps one on them.
 
+*Built 2026-10-11:* effects 1 and 4, and the two forks as answered. The core
+counts every `RIS` and nothing else (`Term::resets`, a `Resets` count in
+`Book`, because `Cold`'s pinned 464 bytes had no padding left), and the app's
+`restart` (`baud-app/src/app.rs`), called by the pump after the erase arm,
+drops the selection, drops the guesses as contradicted -- the switch's bare
+clear with them -- clears their frame and settles the wheel's part-line when
+it or the screen epoch moves, and reveals the thumb when the reset took a
+window over the history to the live screen; the fade stays the switch's. The
+window and the slide stay with the erasure count, which `RIS` moves too, so no
+line of `restart` repeats them. Not built: the recorded level's new capture
+(the window half it was for is the erasure count's, held at every read size
+already), and the candidate below, a slide settled on a `Restored` read. The
+record has the tests and the measurement: "A full reset drops what the app
+keeps over the screen".
+
 After the change: a reset leaves a clean slate, with no highlight, no slide,
 the live screen and no stale guess. It does so however the bytes fall into
 reads.

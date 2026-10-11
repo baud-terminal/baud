@@ -403,6 +403,14 @@ impl Latency {
         }
     }
 
+    /// The verdict the open record with `seq` carries, for a test of the
+    /// app's rules, which reaches no printed line.
+    #[cfg(test)]
+    pub fn verdict(&self, seq: Tally) -> Option<Judged> {
+        let j = self.on.as_ref()?;
+        j.records.iter().find(|r| r.seq == seq).map(|r| r.judged)
+    }
+
     /// The core has been fed the reads: every record with `echo` and no
     /// `fed`.
     pub fn fed(&mut self, at: impl FnOnce() -> HostTime) {

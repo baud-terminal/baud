@@ -1863,10 +1863,25 @@ impl Paint<'_, '_> {
         // it read as a row count the short way round the ring, and what an
         // embedder should do across a reset -- drop a selection, bring a
         // scrolled-back window to the live screen -- is not a count of rows.
-        // (baud-app dropped the selection only by that accident, reading a
-        // rotation under half the ring as rows restored; note V, V1.)
+        // baud-app dropped the selection only by that accident, reading a
+        // rotation under half the ring as rows restored, and lost it when
+        // the rotation stayed; it reads the reset itself now, from the count
+        // below (note V, V1).
         self.book.hist = Rows::ZERO;
         self.book.hidden = Rows::ZERO;
+        // **The reset is counted, for an embedder's state over the screen**
+        // (`Term::resets`, note V, V1): its selection and the echoes it drew
+        // ahead of the shell name cells the power-on state does not have,
+        // and nothing else across a read says a reset came -- the rotation
+        // stayed, a terminal with no history reads the same at both ends,
+        // and the erasure count below moves on `CSI 3 J` too, which keeps
+        // the screen. foot's hard reset cancels the selection
+        // (`selection_cancel` in `term_reset`'s hard path,
+        // `[[source: foot-term-reset]]`), and xterm's `RIS` reaches
+        // `ClearScreen`, which disowns it (`[[source: xterm-reset]]`,
+        // `[[source: xterm-scroll]]`); neither does so on `DECSTR`, and
+        // `soft_reset` does not count.
+        self.book.resets = self.book.resets.next();
         // The history was erased, which an embedder's window over it reads
         // here as it reads `CSI 3 J` (`Term::history_erasures`): nothing
         // above moved the rotation or the top line, so no other reading says

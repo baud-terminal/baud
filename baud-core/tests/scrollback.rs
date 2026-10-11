@@ -1976,6 +1976,99 @@ fn the_screen_epoch_moves_on_every_switch_and_nothing_else() {
     });
 }
 
+/// **The reset count moves on a full reset and on nothing else** (note V,
+/// V1): `ESC c` from the primary, from the alternate screen, and on a fresh
+/// terminal with no history -- where nothing an embedder reads across a read
+/// changes, the case an inference from the history cannot see -- and once
+/// for each of two resets in one read. Not on `DECSTR`, `ED 2`, `CSI ? 3 J`,
+/// a `?1049` round trip, a whole-screen or a region scroll, a resize, or
+/// `CSI 3 J`, which moves the erasure count and leaves the screen as it was:
+/// the one operation that tells this count from that one.
+#[test]
+fn the_reset_count_moves_on_a_full_reset_and_nothing_else() {
+    support::with_corpus(|t| {
+        let fresh = t.resets();
+        support::feed(t, b"\x1bc");
+        assert!(t.scrollback().is_empty(), "the control: no history at all");
+        let first = t.resets();
+        assert_ne!(first, fresh, "a reset with no history moves it");
+        let mut lines = Vec::new();
+        for i in 0..80 {
+            lines.extend_from_slice(format!("line {i}\r\n").as_bytes());
+        }
+        support::feed(t, &lines);
+        assert!(!t.scrollback().is_empty(), "the control: a history");
+        let erasures = t.history_erasures();
+        for (bytes, what) in [
+            (&b"\x1b[!p"[..], "DECSTR"),
+            (b"\x1b[2J", "ED 2"),
+            (b"\x1b[?3J", "DECSED 3"),
+            (
+                b"\x1b[?1049h\x1b[?1049l",
+                "a round trip to the alternate screen",
+            ),
+            (b"\x1b[50;1Hx\r\ny\r\n", "a whole-screen scroll"),
+            (b"\x1b[1;5r\x1b[5;1Hx\r\ny\r\n\x1b[r", "a region scroll"),
+        ] {
+            support::feed(t, bytes);
+            assert_eq!(t.resets(), first, "{what} moved it");
+        }
+        assert_eq!(
+            t.history_erasures(),
+            erasures,
+            "the control: nothing erased yet"
+        );
+        support::feed(t, b"\x1b[3J");
+        assert_ne!(
+            t.history_erasures(),
+            erasures,
+            "the control: ED 3 erased the history"
+        );
+        assert_eq!(t.resets(), first, "ED 3 moved it");
+        support::feed(t, &lines);
+        support::feed(t, b"\x1bc");
+        let second = t.resets();
+        assert_ne!(second, first, "a reset with a history moves it");
+        support::feed(t, b"\x1b[?1049h\x1b[Hvi");
+        assert_eq!(t.resets(), second, "entering the alternate screen");
+        support::feed(t, b"\x1bc");
+        assert_eq!(t.screen(), Screen::Normal, "the control: RIS left it");
+        assert_ne!(
+            t.resets(),
+            second,
+            "a reset from the alternate screen moves it"
+        );
+    });
+    // Two resets in one read move it twice: as far as two reads of one each,
+    // and further than one.
+    let after = |reads: &[&[u8]]| {
+        support::with_corpus(|t| {
+            for r in reads {
+                support::feed(t, r);
+            }
+            t.resets()
+        })
+    };
+    let one = after(&[b"\x1bc"]);
+    let two = after(&[b"\x1bc\x1bc"]);
+    assert_eq!(two, after(&[b"\x1bc", b"\x1bc"]), "two in one read are two");
+    assert_ne!(two, one, "and not one");
+    // A read that splits `ESC` from `c` is still one reset.
+    assert_eq!(after(&[b"\x1b", b"c"]), one, "split across two reads");
+    // A resize, both ways, moves it neither way.
+    support::with_room(60, |t| {
+        let before = t.resets();
+        for rows in [60, 20, 50] {
+            let ws = WinSize {
+                ws_row: rows,
+                ws_col: support::CORPUS.ws_col,
+            };
+            assert_eq!(t.resize(&ws), Resized::Ok, "the control: {rows} rows fit");
+            assert_eq!(t.resets(), before, "a resize to {rows} rows moved it");
+        }
+    });
+}
+
 // **A full reset clears the history, and leaves nothing to reveal below the
 // window.** `RIS` reset the primary's rotation and left its history counts,
 // so the scrollback read rows the reset had not written at the old length --

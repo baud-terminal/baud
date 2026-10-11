@@ -230,6 +230,29 @@ impl HistoryErasures {
     }
 }
 
+/// Which full reset the terminal is at: it moves on every `RIS` (`ESC c`),
+/// from either screen and with or without a history, and on nothing else --
+/// not `DECSTR`, `ED 2` or `CSI 3 J`. ECMA-48 § 8.3.105 has `RIS` put the
+/// device "to its initial state, i.e. the state it has after it is made
+/// operational" (`[[source: ecma48]]`), and an embedder's own state over the
+/// screen -- a selection, a guess drawn ahead of an echo -- names cells that
+/// state does not have. Nothing else across a read says one happened: a
+/// reset scrolls nothing and keeps the rotation, so a terminal with no
+/// history reads the same at both ends, and [`HistoryErasures`] moves on
+/// `CSI 3 J` too, which leaves the screen as it was. Two equal readings saw
+/// no reset; a count rather than a flag, because one read can hold two and a
+/// flag would need clearing (note V, V1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Resets(u32);
+
+impl Resets {
+    pub(crate) const FIRST: Resets = Resets(0);
+
+    pub(crate) fn next(self) -> Resets {
+        Resets(self.0.wrapping_add(1))
+    }
+}
+
 /// A count of `?5` DECSCNM changes, as a reading to compare. The core keeps
 /// two: the changes made where a frame could show them
 /// ([`Term::reverse_flips`]), and the changes made inside a synchronised
@@ -2253,6 +2276,15 @@ impl<'b> Term<'b> {
     /// on, and belongs on the live screen.
     pub fn history_erasures(&self) -> HistoryErasures {
         self.cold.history_erasures
+    }
+
+    /// Which full reset this is: it moves on every `RIS`, from either screen,
+    /// and on nothing else. A read whose two ends carry one reading reset
+    /// nothing; across one that moved it, whatever an embedder keeps over
+    /// the screen -- a selection, a guess drawn ahead of an echo -- names
+    /// cells the power-on state does not have. See [`Resets`].
+    pub fn resets(&self) -> Resets {
+        self.store.book.resets
     }
 
     /// The scrolling region DECSTBM set, as its first and last screen row:

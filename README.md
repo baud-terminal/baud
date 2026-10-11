@@ -77,9 +77,9 @@ In the order [CLAUDE.md](CLAUDE.md) leaves it ("Next"):
 2. **macOS key releases and modifier keys.** They wait on `keyUp:` and
    `flagsChanged:` in the window crate; the core's side, kitty's event types,
    is done.
-3. **A reset count the app acts on, then the core keeps the window over the
-   history** — V1 and V2 of the owner's decided list,
-   `docs/research/notes/v-open-decisions.md`.
+3. **The core keeps the window over the history** — V2 of the owner's
+   decided list, `docs/research/notes/v-open-decisions.md`; V1, the reset
+   count the app acts on, is built.
 
 The open departures below are not on this list because each is the owner's
 call, with the options set out in the note it names.
