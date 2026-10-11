@@ -763,8 +763,10 @@ fn the_advance_keeps_the_column_where_the_image_started() {
     // CUP to a non-zero column first, so "the column is unchanged" is
     // distinguishable from "the column happened to start at zero": the cursor
     // stays at the image's left margin (column 10), not carriage-returned to
-    // column 0. The DEC source for the exact column is unread; this pins the
-    // behaviour baud chose so a reader sees a decision, not an accident.
+    // column 0. `[[source: dec-std-070]]` 070-9 §11.3 is the text: "The
+    // Horizontal Active position of the ANSI text is not affected by Sixel
+    // mode and set exactly to what is was when Sixel mode was entered" (PDF
+    // p. 928).
     let mut bytes = Vec::from(b"\x1b[1;11H".as_slice()); // row 1, column 11 -> index 10
     bytes.extend_from_slice(SWIRL);
     advanced(&bytes, bytes.len(), 16, |t| {

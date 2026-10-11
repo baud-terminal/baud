@@ -102,6 +102,22 @@ fn the_repeat_introducer_draws_the_next_byte_that_many_columns() {
 }
 
 #[test]
+fn a_zero_repeat_draws_one_column() {
+    // `[[source: vt3xx-sixel]]` says only that the count "can be any decimal
+    // value"; `[[source: dec-std-070]]` 070-9 §8.1.1 settles zero: "A repeat
+    // count of zero implies a repeat count of 1" (PDF p. 920). So `!0~` is
+    // one column, as `!1~` and a bare `~` are, and not none.
+    for body in [
+        b"#0;2;0;0;100!0~".as_slice(),
+        b"#0;2;0;0;100!1~",
+        b"#0;2;0;0;100~",
+    ] {
+        let report = Sixel::extent(body);
+        assert_eq!(report.width, SixelPx::of(1), "{body:?} is one column wide");
+    }
+}
+
+#[test]
 fn graphics_new_line_drops_one_six_pixel_band() {
     // `~` (red band), `-` (new line), `~` (green band): a 1x12 image with the
     // top band red and the bottom band green. `$` would return to the left of

@@ -110,9 +110,12 @@ impl Paint<'_, '_> {
         // Advance the cursor below the image, through the scroll path so a
         // bottom-of-screen image scrolls and the window's top line moves with
         // it -- the anchor of the next image reads the moved line. `index` does
-        // not carriage-return, so the column stays where the image started; the
-        // DEC source for the exact column is unread, and the test pins this
-        // choice. Only when the embedder has said how tall a cell is; zero
+        // not carriage-return, so the column stays where the image started, as
+        // `[[source: dec-std-070]]` 070-9 §11.3 requires: "The Horizontal
+        // Active position of the ANSI text is not affected by Sixel mode and
+        // set exactly to what is was when Sixel mode was entered" (PDF p. 928,
+        // as note AN quotes it). Only when the embedder has said how tall a
+        // cell is; zero
         // leaves the cursor where the image is, the headless default. `h` was
         // refused when zero three branches up and `cell_height` is non-zero
         // here, so the row count is at least one without a guard.

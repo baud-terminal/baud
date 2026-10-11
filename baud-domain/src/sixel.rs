@@ -202,8 +202,9 @@ impl Sixel {
                     repeat = 1;
                 }
                 // Repeat introducer: the next data byte is drawn `Pn` times.
-                // `[[source: vt3xx-sixel]]` is silent on `Pn = 0`; it is
-                // treated as one, which is a guess the source does not settle.
+                // `[[source: vt3xx-sixel]]` is silent on `Pn = 0`;
+                // `[[source: dec-std-070]]` 070-9 §8.1.1 settles it: "A repeat
+                // count of zero implies a repeat count of 1" (PDF p. 920).
                 b'!' => {
                     let (pn, j) = number(data, i + 1);
                     repeat = pn.max(1);
@@ -266,8 +267,10 @@ impl Sixel {
                     i += 1;
                     repeat = 1;
                 }
-                // Everything else -- newlines an encoder wrapped the data with,
-                // stray whitespace -- is not part of the grammar and is skipped.
+                // Everything else is skipped. No C0 reaches here -- the Sixel
+                // arm of `str_put` drops each one before the body is stored --
+                // so what does is `SPACE`, a byte in `80-FF`, and a command this
+                // decoder does not recognise (note AN, section 11).
                 _ => {
                     i += 1;
                 }

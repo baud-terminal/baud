@@ -169,7 +169,10 @@ and "never record a mode you do not act on" says to count it
 (`SixelReport::unapplied_registers`) rather than paint a wrong colour. Pinning
 the VT330/VT340 manual's chapter 2 "Output Mapping" and implementing the
 conversion is the follow-on. `!0` (a zero repeat, which the source does not
-define) is treated as one and flagged in the source as a guess.
+define) is treated as one ~~and flagged in the source as a guess~~: since
+2026-10-11 that is sourced, `[[source: dec-std-070]]` 070-9 §8.1.1, "A
+repeat count of zero implies a repeat count of 1" (PDF p. 920; note AN,
+section 8), and `a_zero_repeat_draws_one_column` holds it.
 
 ## What is also built: the storage value types
 
@@ -323,8 +326,11 @@ than below -- is not implemented and falls through to the unsupported-mode
 counter. Gates in `baud-core/tests/sixel.rs`: the below-advance, the
 bottom-of-screen scroll (which pins the scroll-path route, perturbed to a `cy`
 assignment), the column staying at the image's left (`CUP` to a non-zero column
-first, so an unchanged column is a decision and not an accident -- the DEC
-source for the exact column is unread and the test pins the choice), the
+first, so an unchanged column is a decision and not an accident -- ~~the DEC
+source for the exact column is unread and the test pins the choice~~ since
+2026-10-11 sourced to `[[source: dec-std-070]]` 070-9 §11.3, "The Horizontal
+Active position of the ANSI text is not affected by Sixel mode and set
+exactly to what is was when Sixel mode was entered", PDF p. 928), the
 sentinel, and chunk invariance.
 
 **The `Term` field and the `Paint::new` argument cost nothing, measured.** They
