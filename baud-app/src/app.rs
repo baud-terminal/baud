@@ -28,7 +28,7 @@ use baud_present_macos::{
 use baud_render::Place;
 use baud_render::{
     AbsLine, Blend, Blink, Blinking, Candidate, Clip, Composition, Damage, Frame, GlyphMap, Grain,
-    Instance, Look, MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene,
+    Highlight, Instance, Look, MapEntry, Overlay, Point, Press, PxSize, Renderer, Resolved, Scene,
     Scroll as ScrollBar, Scrolled, Scroller, Selection, Slide, Span, StyleStamp, Tally, Target,
     Theme, Trail, TrailLook, Transition, Window, back_for, gutter, place, thumb,
 };
@@ -1131,13 +1131,19 @@ impl App {
         // terminal first; the cell path never converts and would otherwise
         // keep the grid it started with.
         self.renderer.fit(&self.term);
-        // The selection's share of this view, for every path's one rule.
+        // The selection's share of this view, for every path's one rule --
+        // or, while a program's `?1001` region tracks the mouse, that region
+        // in its place (`tracked_highlight`).
         let highlight = {
             let back = looking(&self.term, self.back);
             let view = self.term.view(back);
             let top = self.scrolled.top(back);
-            self.selection
-                .and_then(|s| s.highlight(top, view.rows(), view.cols()))
+            match self.term.highlight() {
+                Some(_) => tracked_highlight(&self.term, self.scrolled, back),
+                None => self
+                    .selection
+                    .and_then(|s| s.highlight(top, view.rows(), view.cols())),
+            }
         };
         self.renderer.set_highlight(highlight);
         // The scrollbar's thumb, where the window sits in the ring, seen as
@@ -2191,6 +2197,9 @@ struct Driver {
     /// release are then the scrollbar's too, so neither the selection nor a
     /// tracking program sees a release without its press.
     grab: Grab,
+    /// Who owns the press in progress, the child or the selection, decided
+    /// at the press and kept to its release (`pointer_route`).
+    owner: Owner,
     /// What a resize or a zoom asked for while a frame was in flight,
     /// applied by the next `pump` the completion wakes.
     deferred: Deferred,
@@ -2434,6 +2443,172 @@ fn live_moved(term: &Term<'_>, before: Before) -> Ring {
 /// agree with what is drawn, rather than with a count that is the primary's.
 fn looking(term: &Term<'_>, back: Rows) -> Rows {
     term.looking_back(back)
+}
+
+/// **`?1001`'s region, through the selection's highlight**, on the view
+/// `back` lines up: `[[source: ctlseqs]]`'s highlight tracking "highlights
+/// the region covered by the mouse within that range until button
+/// release", and the core says what that region is (`Term::highlight`).
+/// Its cells are the live screen's, numbered as a selection's are, and the
+/// region is a stream from the earlier of its two ends to the later -- the
+/// core keeps them in the order the program and the mouse gave them. `None`
+/// when nothing is tracked or none of it is on this view. Drawn in place of
+/// the selection while it lasts and never stored as one, so Cmd-C still
+/// copies the user's selection and the user's selection is back after the
+/// release.
+fn tracked_highlight(term: &Term<'_>, scrolled: Scrolled, back: Rows) -> Option<Highlight> {
+    let h = term.highlight()?;
+    let point = |c: baud_core::CellAt| Point::new(scrolled.line(Rows::ZERO, c.row), c.col);
+    let (a, b) = (point(h.start), point(h.end));
+    let span = Span {
+        start: a.min(b),
+        end: a.max(b),
+    };
+    let view = term.view(back);
+    Selection::at(span, Grain::Cell).highlight(scrolled.top(back), view.rows(), view.cols())
+}
+
+/// `?1001`'s region on screen: the core's handshake drawn through the
+/// selection's highlight (`tracked_highlight`).
+#[cfg(test)]
+mod highlight_tests {
+    use super::tracked_highlight;
+    use baud_core::{CellAt, MouseButton, MouseEvent, MouseKind, MouseMods, Owned, Term};
+    use baud_domain::{BytePos, Col, ReadLen, Row, Rows, WinSize};
+    use baud_render::{Highlight, Region, Scrolled};
+
+    const WS: WinSize = WinSize {
+        ws_col: 20,
+        ws_row: 10,
+    };
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// A cell by column and row, zero-based.
+    const fn at(col: Col, row: Row) -> CellAt {
+        CellAt { col, row }
+    }
+
+    fn left(t: &mut Term<'_>, kind: MouseKind, at: CellAt) {
+        t.mouse_report(MouseEvent {
+            button: MouseButton::Left,
+            mods: MouseMods::NONE,
+            kind,
+            col: at.col,
+            row: at.row,
+            px: None,
+        });
+        t.clear_reply();
+    }
+
+    /// The stream highlight from one cell to another, as the view draws it.
+    fn drawn(from: CellAt, to: CellAt) -> Option<Highlight> {
+        Some(Highlight {
+            from: (from.row, from.col),
+            to: (to.row, to.col),
+            region: Region::Stream,
+        })
+    }
+
+    /// **From the answer to the release, the region is what is drawn**, a
+    /// stream from the earlier end to the later, whichever way the mouse
+    /// went; nothing before the answer and nothing after the release.
+    #[test]
+    fn the_program_s_region_is_drawn_through_the_selection_highlight() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let live = |t: &Term<'_>| tracked_highlight(t, Scrolled::START, Rows::ZERO);
+        feed(&mut t, b"\x1b[?1001h");
+        left(
+            &mut t,
+            MouseKind::Press,
+            at(Col::at_index(3), Row::from_index(2)),
+        );
+        assert_eq!(live(&t), None, "nothing while the answer is owed");
+        feed(&mut t, b"\x1b[1;4;3;1;10T");
+        left(
+            &mut t,
+            MouseKind::Motion,
+            at(Col::at_index(7), Row::from_index(5)),
+        );
+        assert_eq!(
+            live(&t),
+            drawn(
+                at(Col::at_index(3), Row::from_index(2)),
+                at(Col::at_index(7), Row::from_index(5))
+            )
+        );
+        left(
+            &mut t,
+            MouseKind::Motion,
+            at(Col::at_index(1), Row::from_index(1)),
+        );
+        assert_eq!(
+            live(&t),
+            drawn(
+                at(Col::at_index(1), Row::from_index(1)),
+                at(Col::at_index(3), Row::from_index(2))
+            ),
+            "sorted for drawing"
+        );
+        left(
+            &mut t,
+            MouseKind::Release,
+            at(Col::at_index(1), Row::from_index(1)),
+        );
+        assert_eq!(live(&t), None, "gone at the release");
+    }
+
+    /// **On a view scrolled back it sits where the live rows are drawn**,
+    /// and what falls below the view is clipped to it.
+    #[test]
+    fn on_a_view_scrolled_back_it_moves_down_with_the_live_rows() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let lines: Vec<u8> = (0..40)
+            .flat_map(|i| format!("line {i}\r\n").into_bytes())
+            .collect();
+        feed(&mut t, &lines);
+        assert_eq!(t.scrollback().len(), 31);
+        // The count the driver keeps: the live top is line 31.
+        let scrolled = Scrolled::START.advanced(Rows::of_count(31));
+        feed(&mut t, b"\x1b[?1001h");
+        left(
+            &mut t,
+            MouseKind::Press,
+            at(Col::at_index(3), Row::from_index(2)),
+        );
+        feed(&mut t, b"\x1b[1;4;3;1;10T");
+        left(
+            &mut t,
+            MouseKind::Motion,
+            at(Col::at_index(7), Row::from_index(4)),
+        );
+        assert_eq!(
+            tracked_highlight(&t, scrolled, Rows::of_count(3)),
+            drawn(
+                at(Col::at_index(3), Row::from_index(5)),
+                at(Col::at_index(7), Row::from_index(7))
+            ),
+            "three lines back, three rows down"
+        );
+        left(
+            &mut t,
+            MouseKind::Motion,
+            at(Col::at_index(7), Row::from_index(8)),
+        );
+        assert_eq!(
+            tracked_highlight(&t, scrolled, Rows::of_count(3)),
+            drawn(
+                at(Col::at_index(3), Row::from_index(5)),
+                at(Col::at_index(19), Row::from_index(9))
+            ),
+            "the end below the view is clipped to its last cell"
+        );
+    }
 }
 
 /// Where the window sits in the ring, for the scrollback's thumb.
@@ -4359,6 +4534,144 @@ enum Took {
     No,
 }
 
+/// Where a pointer event goes once the scrollbar and links have passed it:
+/// to the child, which tracks the mouse, or to the selection.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum To {
+    Child,
+    Select,
+}
+
+/// Whether Shift is held at a pointer event.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Shift {
+    Held,
+    Up,
+}
+
+/// Who owns the press in progress, decided at the press. `Free` between
+/// presses.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Owner {
+    Free,
+    Pressed(To),
+}
+
+/// **Where one pointer event goes, and who owns the press after it.** The
+/// child's when it tracks the mouse, unless Shift is held, which is a
+/// selection whatever the child asked for: xterm's default, ctlseqs'
+/// XTSHIFTESCAPE at 0. **Decided at the press and kept to its release**, as
+/// the scrollbar's grab and a link's arming are: Shift pressed or let go
+/// mid-drag moves neither the drag nor the release, so the child never sees
+/// a press without its release -- under `?1001` that release is the one
+/// that ends the drawn region and sends the report (`[[source: ctlseqs]]`,
+/// "until button release, and then sends the program the release
+/// coordinates") -- and a selection never loses the release that ends it.
+/// A move with no button held has no press to follow and is decided as it
+/// comes, as is a drag or release whose press nothing here saw. A second
+/// button pressed mid-drag decides again, so a press whose release was lost
+/// cannot hold the next gesture.
+fn pointer_route(
+    owner: Owner,
+    kind: ViewMouseKind,
+    tracking: MouseTracking,
+    shift: Shift,
+) -> (To, Owner) {
+    let now = match (tracking, shift) {
+        (MouseTracking::Off, _) | (_, Shift::Held) => To::Select,
+        _ => To::Child,
+    };
+    match (kind, owner) {
+        (ViewMouseKind::Down, _) => (now, Owner::Pressed(now)),
+        (ViewMouseKind::Dragged, Owner::Pressed(to)) => (to, owner),
+        (ViewMouseKind::Up, Owner::Pressed(to)) => (to, Owner::Free),
+        (ViewMouseKind::Up, Owner::Free) => (now, Owner::Free),
+        _ => (now, owner),
+    }
+}
+
+/// `pointer_route`: the press decides, and Shift mid-drag does not.
+#[cfg(test)]
+mod route_tests {
+    use super::{Owner, Shift, To, ViewMouseKind as K, pointer_route};
+    use baud_domain::MouseTracking;
+
+    /// Feed `events` (kind, Shift held) from `Free`, and say where each went.
+    fn routed(tracking: MouseTracking, events: &[(K, Shift)]) -> (Vec<To>, Owner) {
+        let mut owner = Owner::Free;
+        let mut to = Vec::new();
+        for &(kind, shift) in events {
+            let (t, next) = pointer_route(owner, kind, tracking, shift);
+            to.push(t);
+            owner = next;
+        }
+        (to, owner)
+    }
+
+    /// **Shift pressed mid-drag keeps the release the child's.** Under
+    /// `?1001` that release ends the drawn region and sends the report; per
+    /// event, the selection took it and the region stayed drawn.
+    #[test]
+    fn shift_pressed_mid_drag_leaves_the_release_with_the_child() {
+        let (to, owner) = routed(
+            MouseTracking::Highlight,
+            &[
+                (K::Down, Shift::Up),
+                (K::Dragged, Shift::Held),
+                (K::Up, Shift::Held),
+            ],
+        );
+        assert_eq!(to, [To::Child, To::Child, To::Child]);
+        assert_eq!(owner, Owner::Free, "the release frees it");
+    }
+
+    /// **Shift let go mid-drag keeps a selection the selection's**, to the
+    /// release that ends it.
+    #[test]
+    fn shift_let_go_mid_drag_leaves_the_selection_its_release() {
+        let (to, owner) = routed(
+            MouseTracking::Normal,
+            &[
+                (K::Down, Shift::Held),
+                (K::Dragged, Shift::Up),
+                (K::Up, Shift::Up),
+            ],
+        );
+        assert_eq!(to, [To::Select, To::Select, To::Select]);
+        assert_eq!(owner, Owner::Free);
+    }
+
+    /// **Tracking switched on or off mid-drag moves nothing either**: the
+    /// press decided.
+    #[test]
+    fn a_tracking_change_mid_drag_leaves_the_press_s_owner() {
+        let mut owner = Owner::Free;
+        let (t, next) = pointer_route(owner, K::Down, MouseTracking::Off, Shift::Up);
+        owner = next;
+        assert_eq!(t, To::Select);
+        let (t, next) = pointer_route(owner, K::Up, MouseTracking::Normal, Shift::Up);
+        assert_eq!((t, next), (To::Select, Owner::Free));
+    }
+
+    /// **A move with no press is decided as it comes**, so `?1003` hover
+    /// reaches the child and Shift hover does not, and it leaves the owner.
+    #[test]
+    fn a_move_with_no_press_is_decided_as_it_comes() {
+        for (shift, want) in [(Shift::Up, To::Child), (Shift::Held, To::Select)] {
+            let (t, next) = pointer_route(Owner::Free, K::Moved, MouseTracking::AnyEvent, shift);
+            assert_eq!((t, next), (want, Owner::Free));
+        }
+    }
+
+    /// **A press decides again**, even over an owner whose release was lost.
+    #[test]
+    fn a_press_decides_again() {
+        let stale = Owner::Pressed(To::Child);
+        let (t, next) = pointer_route(stale, K::Down, MouseTracking::Normal, Shift::Held);
+        assert_eq!((t, next), (To::Select, Owner::Pressed(To::Select)));
+    }
+}
+
 impl Driver {
     /// A key the user pressed: sent to the core and on to the child, with
     /// the instrument's first two stamps around it -- the key event's own
@@ -4992,8 +5305,19 @@ impl Responder for Driver {
         }
         // The child's, when it tracks the mouse -- unless Shift is held,
         // which is a selection whatever the child asked for: xterm's
-        // default, ctlseqs' XTSHIFTESCAPE at 0.
-        if self.app.term.mouse_tracking() == MouseTracking::Off || event.modifiers.shift {
+        // default, ctlseqs' XTSHIFTESCAPE at 0. Decided at the press, so
+        // Shift mid-drag cannot hand the release to the other side.
+        let (to, owner) = pointer_route(
+            self.owner,
+            event.kind,
+            self.app.term.mouse_tracking(),
+            match event.modifiers.shift {
+                true => Shift::Held,
+                false => Shift::Up,
+            },
+        );
+        self.owner = owner;
+        if to == To::Select {
             self.select(event);
             return;
         }
@@ -5025,8 +5349,16 @@ impl Responder for Driver {
             row,
             px: Some(px),
         };
+        // A drag under `?1001` moves the end of the region the program's
+        // answer started, and its release ends it, with no report of the move:
+        // the frame follows the core's region, not the reply.
+        let tracked = self.app.term.highlight();
         if self.app.term.mouse_report(e) {
             self.app.flush_reply();
+        }
+        if self.app.term.highlight() != tracked {
+            self.app.pending = Pending::Dirty;
+            self.pump(Trigger::Wake);
         }
     }
 
@@ -5606,6 +5938,7 @@ pub fn run() {
         armed: None,
         bar_drag: None,
         grab: Grab::Free,
+        owner: Owner::Free,
         deferred: Deferred::Nothing,
         style: style.clone(),
         theme_choice,

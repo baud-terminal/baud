@@ -1107,7 +1107,7 @@ LED, held on while set:
 | synchronized output (`?2026`) held open | `synchronized_output()` | 1665 |
 | alternate screen | `screen()` | 1656 |
 | VT52 mode | `terminal_mode()` | 2496 |
-| highlight tracking (`?1001`) | `highlight_tracking()` | 2318 |
+| highlight tracking (`?1001`) | `mouse_tracking()` (`Highlight`), `highlight()` since 2026-10-11 | 2318 |
 | alternate scroll (`?1007`) | `alternate_scroll()` | 2307 |
 | application cursor keys, keypad | `cursor_keys_application()`, `keypad()` | 2707, 2712 |
 | an image placed on screen | `images().any_placed()` | term.rs 2248; `baud-domain/src/image.rs:724` |

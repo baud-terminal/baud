@@ -83,10 +83,11 @@ pub use baud_domain::Focus;
 pub use baud_domain::TerminalMode;
 /// Mouse reporting's vocabulary: an embedder that cannot name a
 /// `MouseEvent` cannot call [`Term::mouse_report`] -- and since `?1016` an
-/// event carries its pixel position, a `PointerPx` of two `ImagePx`.
+/// event carries its pixel position, a `PointerPx` of two `ImagePx`. And
+/// `?1001`'s: what [`Term::highlight`] says to draw, in `CellAt`s.
 pub use baud_domain::{
-    AlternateScroll, HighlightRegion, HighlightTracking, ImagePx, MouseButton, MouseEncoding,
-    MouseEvent, MouseKind, MouseMods, MouseTracking, PointerPx,
+    AlternateScroll, CellAt, Highlighted, ImagePx, MouseButton, MouseEncoding, MouseEvent,
+    MouseKind, MouseMods, MouseTracking, PointerPx,
 };
 /// The clustering and width vocabulary the encoding suites name. All of it is
 /// `baud-domain`'s -- this crate owns neither UAX #29 nor East Asian Width.

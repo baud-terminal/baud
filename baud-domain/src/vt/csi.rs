@@ -679,13 +679,14 @@ pub enum Csi {
     /// XTRESTORE, `CSI ? Pm r`: "The value of Ps previously saved is
     /// restored." The `?` keeps it from DECSTBM, `CSI Ps ; Ps r`.
     RestoreModes,
-    /// `CSI Ps ; Ps ; Ps ; Ps ; Ps T` — XTHIMOUSE.
+    /// `CSI Ps ; Ps ; Ps ; Ps ; Ps T` — XTHIMOUSE, the program's answer to a
+    /// `?1001` press ([`Handshake::answered`]).
     ///
-    /// Recognised so it cannot be mistaken for SD, and not acted on:
-    /// highlighting a region needs a selection model baud does not have. The
-    /// hazard `?1001` carries is xterm's rather than baud's — "all X events are
-    /// ignored until the proper escape sequence is received" describes an event
-    /// loop, and baud has none to block. What baud must not do is *scroll*.
+    /// Told from SD by its arity, so it can never *scroll*. The hazard `?1001`
+    /// carries is xterm's rather than baud's — "all X events are ignored until
+    /// the proper escape sequence is received" describes an event loop, and
+    /// baud has none to block: an answer that never comes leaves the next
+    /// release a normal one.
     HighlightMouseTracking(HighlightRegion),
     /// XTWINOPS, `CSI Ps ; Ps ; Ps t`. Three forms are *questions* about the
     /// text area's size, answered with [`Report::TextAreaPixels`],

@@ -443,7 +443,7 @@ impl PrivateMode {
     /// xterm saves a different set (`savemodes`, `[[source: xterm-reset]]`):
     /// not `?2` or `?8`, and `?3` only under the `c132` resource `?40` sets,
     /// where baud follows the text, decided 2026-10-10 (Jev, XT-3); and one
-    /// slot for all four tracking levels and one for all four encodings,
+    /// slot for all five tracking levels and one for all four encodings,
     /// still the owner's question (XT-4, XT-5).
     pub const fn slot(self) -> Option<ModeSlot> {
         let n = match self {

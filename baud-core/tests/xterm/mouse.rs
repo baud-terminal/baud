@@ -355,52 +355,33 @@ fn five_parameter_t_is_not_scroll_down() {
     let before = rows(&term);
     feed(&mut term, b"\x1b[1;2;3;4;5T");
     assert_eq!(rows(&term), before, "XTHIMOUSE must not scroll");
-    assert_eq!(
-        term.highlight_region(),
-        HighlightRegion {
-            func: 1,
-            start_x: 2,
-            start_y: 3,
-            first_row: 4,
-            last_row: 5,
-        },
-        "the region is recorded for an embedder that can highlight"
-    );
+    // And with no `?1001` press owed an answer it starts nothing either:
+    // `tests/xterm/highlight.rs` holds the handshake.
+    assert_eq!(term.highlight(), None, "no press is owed an answer");
 }
 
-/// **`?1001` is recorded, with an accessor, like every input-side mode.**
+/// **`?1001` is a tracking level, and DECRQM tells the truth about it.**
 ///
 /// It was refused outright, on the reading that highlight tracking "requires a
-/// cooperating program, else xterm will hang". The hang is an event loop
-/// ignoring events until a reply arrives, and baud has no event loop -- so
-/// whether to wait is the embedder's decision, not baud's to pre-empt.
-///
-/// What baud lacks is a selection model to highlight *with*. That is a reason
-/// not to draw the region, not a reason to discard the request: recording it is
-/// the only channel a `no_std` core with no renderer has, and it is what every
-/// other input-side mode gets.
+/// cooperating program, else xterm will hang"; then recorded as a flag beside
+/// the level and drawn by nothing. The hang is an event loop ignoring events
+/// until a reply arrives, and baud has none; the handshake, the drawing and
+/// the release reports are built (`tests/xterm/highlight.rs`), and the mode is
+/// the fifth of `[[source: ctlseqs]]`' exclusive protocol modes.
 #[test]
-fn highlight_tracking_is_recorded_and_reported() {
+fn highlight_tracking_is_a_level_and_decrqm_reports_it() {
     let mut t = T {
         s: Owned::new(&support::CORPUS),
     };
     let mut term = Term::new(t.s.storage(), &support::CORPUS);
-    assert_eq!(term.highlight_tracking(), HighlightTracking::Off, "default");
-
     feed(&mut term, b"\x1b[?1001h");
-    assert_eq!(term.highlight_tracking(), HighlightTracking::On);
-    // `baud-core` counts unsupported *finals*, behind `diag`, and `?1001` is
-    // a private mode rather than a final -- so there is no counter to read.
-    // What the assertion was for is the line above: the mode is recorded,
-    // which is the difference between recognised and refused.
-
-    // DECRQM tells the truth about it.
+    assert_eq!(term.mouse_tracking(), MouseTracking::Highlight);
     feed(&mut term, b"\x1b[?1001$p");
     assert_eq!(term.reply(), b"\x1b[?1001;1$y", "DECRQM reports it set");
     term.clear_reply();
 
     feed(&mut term, b"\x1b[?1001l");
-    assert_eq!(term.highlight_tracking(), HighlightTracking::Off);
+    assert_eq!(term.mouse_tracking(), MouseTracking::Off);
     feed(&mut term, b"\x1b[?1001$p");
     assert_eq!(term.reply(), b"\x1b[?1001;2$y", "and reset");
 }

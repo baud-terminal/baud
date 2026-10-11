@@ -359,11 +359,13 @@ pub struct Cold {
     /// `alternateScroll` (no `ReallyReset` path names it, `[[source:
     /// xterm-reset]]`'s file). Read by the embedder's wheel, never here.
     pub(crate) alternate_scroll: AlternateScroll,
-    /// `?1001`. Recorded and exposed, because a core with no selection model
-    /// has no other way to act on it -- and answering `DECRQM` truthfully
-    /// requires knowing.
-    pub(crate) highlight: HighlightTracking,
-    pub(crate) highlight_region: HighlightRegion,
+    /// **`?1001`'s handshake**: idle, a button-1 press owed the program's
+    /// answer, or the region tracking the mouse until the release. The level
+    /// is `mouse`'s, [`MouseTracking::Highlight`]; this is only where a
+    /// press stands. Back to idle on any tracking change and on both resets,
+    /// so a release is never reported against a region the program now
+    /// listening did not give (`Term::mouse_report`).
+    pub(crate) handshake: Handshake,
     /// **The dynamic colours -- `OSC 10`, `11` and `12` -- as three pairs**,
     /// indexed by [`DynamicColor::index`] (foreground, background, cursor).
     /// `defaults` is what the embedder's theme says the foreground and
@@ -593,10 +595,15 @@ pub struct Cold {
 // rows moved in place landed in padding beside `history_erasures`, so 464
 // held: a `u32` bumped by `IL`, `DL` and a region scroll that copies -- a
 // control sequence or a scroll, never a glyph -- and read by the embedder
-// after a read.
+// after a read. `?1001`'s handshake took it to 512, replacing the flag and
+// the stored region (eleven bytes) with a `Handshake` of 56: two `CellAt`s
+// and two `Row`s while tracking, `usize`-backed as every coordinate is.
+// Written by a pointer event under `?1001`, by XTHIMOUSE -- an arm of the
+// dispatch -- and by a mode change and the resets; read by
+// `Term::mouse_report` and `Term::highlight`. None of it on the write path.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 464);
+const _: () = assert!(core::mem::size_of::<Cold>() == 512);
 
 impl Cold {
     /// What `OSC 10`/`11`/`12 ; ?` answers for `which`: the application's
@@ -636,8 +643,7 @@ impl Cold {
             alternate_scroll: AlternateScroll::On,
             defaults: [ColorWord::DEFAULT; 3],
             dynamic: [ColorWord::DEFAULT; 3],
-            highlight: HighlightTracking::Off,
-            highlight_region: HighlightRegion::default(),
+            handshake: Handshake::Idle,
             terminal: TerminalMode::Ansi,
             vt52_row: Vt52Coord::ZERO,
             str_kind: StrKind::Other,
@@ -2449,7 +2455,7 @@ impl<'b> Term<'b> {
             .flat_map(|s| s.marks())
     }
 
-    /// What tracking the application asked for: `?9`, `?1000`, `?1002` or
+    /// What tracking the application asked for: `?9`, `?1000`, `?1001`, `?1002` or
     /// `?1003`, one level at a time, and off after a reset of any of them.
     /// It decides which events `Term::mouse_report` lets through; the
     /// encoding a report is written in has no accessor, because
@@ -2470,20 +2476,22 @@ impl<'b> Term<'b> {
         self.cold.alternate_scroll
     }
 
-    /// Whether `?1001` highlight tracking is on.
+    /// **What `?1001` highlights now, for the embedder to draw**: from the
+    /// start the program answered with to the end that tracks the mouse,
+    /// in live-screen cells, or `None` when nothing is tracked.
     ///
-    /// An embedder with a selection model can implement it; this core records
-    /// the request and does nothing else. `[[source: ctlseqs]]`'s warning that
-    /// it "requires a cooperating program, else xterm will hang" describes an
-    /// event loop blocking on a reply, and this core has none -- so whether to
-    /// wait is a decision it does not make.
-    pub fn highlight_tracking(&self) -> HighlightTracking {
-        self.cold.highlight
-    }
-
-    /// The region from the last `CSI Ps ; Ps ; Ps ; Ps ; Ps T`.
-    pub fn highlight_region(&self) -> HighlightRegion {
-        self.cold.highlight_region
+    /// `[[source: ctlseqs]]`: highlight tracking "highlights the region
+    /// covered by the mouse within that range until button release". The
+    /// core keeps the handshake -- the press, the program's answer, the end
+    /// held to the program's rows, the release report -- and the embedder
+    /// draws this through its selection highlight; it is `Some` from the
+    /// answer to the release and never otherwise. Clamped to the screen as
+    /// it is now, so a resize mid-drag cannot hand out a cell off it.
+    pub fn highlight(&self) -> Option<Highlighted> {
+        self.cold
+            .handshake
+            .within(self.cols, self.rows)
+            .highlighted()
     }
 
     /// Queue a mouse report, if the application asked for this kind of event.
@@ -2515,9 +2523,82 @@ impl<'b> Term<'b> {
     /// in [`Term::mouse_unencodable`]; everything that fits is sent, which is
     /// every position on a terminal anyone actually runs.
     ///
+    /// **`?1001` is normal tracking with button 1's handshake**
+    /// (`[[source: ctlseqs]]`, "Highlight tracking"): a press is reported
+    /// as `?1000` reports it and leaves the program's answer owed; a drag
+    /// moves the end of the region the answer started, held to the
+    /// program's rows, and is not reported; and the release of a tracked
+    /// region is reported as `CSI t` or `CSI T` in place of a release --
+    /// refused whole, and counted, where the encoding cannot name one of
+    /// its positions. A release with no region tracked -- before the
+    /// answer, after an abort -- is normal tracking's. Every other button
+    /// is normal tracking's: "Highlighting is performed only for button 1,
+    /// though other button events can be received."
+    ///
     /// **Input-side and cold**: an embedder calls this per pointer event;
     /// the per-byte loop never does.
     pub fn mouse_report(&mut self, e: MouseEvent) -> bool {
+        if self.cold.mouse != MouseTracking::Highlight {
+            return self.tracking_report(e);
+        }
+        let at = CellAt::new(e.col, e.row);
+        let now = self.cold.handshake.within(self.cols, self.rows);
+        match (e.kind, e.button) {
+            (MouseKind::Press, MouseButton::Left) => {
+                // Owed an answer only if the program heard the press.
+                let sent = self.tracking_report(e);
+                self.cold.handshake = match sent {
+                    true => Handshake::pressed(at),
+                    false => Handshake::Idle,
+                };
+                sent
+            }
+            (MouseKind::Motion, MouseButton::Left) => {
+                self.cold.handshake = now.moved(at);
+                false
+            }
+            (MouseKind::Release, MouseButton::Left) => {
+                let (next, region) = now.released(at);
+                self.cold.handshake = next;
+                match region {
+                    Some(region) => self.highlight_report(region, at, e.px),
+                    None => self.tracking_report(e),
+                }
+            }
+            _ => self.tracking_report(e),
+        }
+    }
+
+    /// `?1001`'s release report for `region`, the mouse over `mouse` and
+    /// at the pixel `px` when the embedder gave one, refused and counted in
+    /// [`Term::mouse_unencodable`] when the encoding cannot name one of its
+    /// positions -- the whole report, as a mouse report past X10's 223 is
+    /// refused whole rather than sent naming a different cell -- or, under
+    /// `?1016`, when the long form's mouse pixel is missing, as a `?1016`
+    /// press with none is ([`HighlightEnd::of`]).
+    fn highlight_report(
+        &mut self,
+        region: Highlighted,
+        mouse: CellAt,
+        px: Option<PointerPx>,
+    ) -> bool {
+        let encoding = self.cold.mouse_encoding;
+        let end = HighlightEnd::of(region.start, region.end, mouse, px, encoding);
+        let Some(end) = end.filter(|end| {
+            encoding
+                .max_ordinate()
+                .is_none_or(|max| end.max_ordinate() <= max)
+        }) else {
+            self.mouse_unencodable += 1;
+            return false;
+        };
+        self.queue(Report::Highlight(end, encoding))
+    }
+
+    /// Normal tracking's report and the levels' gates: `mouse_report` for
+    /// every level but `?1001`, and for every event of `?1001`'s that is
+    /// not button 1's handshake.
+    fn tracking_report(&mut self, e: MouseEvent) -> bool {
         use MouseButton::{Left, Middle, Right, WheelDown, WheelUp};
         let wanted = match (self.cold.mouse, e.kind, e.button) {
             (MouseTracking::Off, ..) => false,
@@ -2528,7 +2609,8 @@ impl<'b> Term<'b> {
             (MouseTracking::X10Compat, ..) => false,
             // "Release events for the wheel buttons are not reported."
             (_, MouseKind::Release, WheelUp | WheelDown) => false,
-            (MouseTracking::Normal, MouseKind::Motion, _) => false,
+            // `?1001` reports what `?1000` does: no motion.
+            (MouseTracking::Normal | MouseTracking::Highlight, MouseKind::Motion, _) => false,
             (MouseTracking::ButtonEvent, MouseKind::Motion, b) => b != MouseButton::None,
             _ => true,
         };

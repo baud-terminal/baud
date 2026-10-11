@@ -183,7 +183,35 @@ pub enum Report {
     /// carries none is refused before it gets here, so this variant cannot
     /// be built without one.
     MouseSgrPixels(MouseEvent, PointerPx),
+    /// `?1001`'s release report, in the encoding in force.
+    /// `[[source: ctlseqs]]`: `CSI t CxCy` when the start and the end are
+    /// the same location, else `CSI T CxCyCxCyCxCy` -- each position "as
+    /// value+32" in one byte, which `?1005` writes as UTF-8 "under all
+    /// tracking modes". Under `?1006` "The highlight tracking responses are
+    /// also modified to an SGR-like format, using the same SGR-style
+    /// scheme": `CSI <`, decimal positions separated by `;`, and the same
+    /// final byte -- the text names the scheme and not the bytes, and these
+    /// are xterm's (`EndExtend`, `[[source: xterm-button]]`). `?1015` is
+    /// decimal with no `<`, the form ctlseqs warns "can be mistaken for SD".
+    /// `?1016` writes the region's four fields in cells and the mouse's two
+    /// in pixels: the highlight paragraph calls startx, starty, endx and
+    /// endy "character positions" and mousex, mousey "the location of the
+    /// mouse at button up, which may not be over a character", and the 1016
+    /// paragraph reports "position in pixels rather than character cells" --
+    /// the one reading that satisfies both ([`MouseAt`]; xterm writes all
+    /// six in cells). The caller refuses an ordinate the encoding cannot
+    /// name.
+    Highlight(HighlightEnd, MouseEncoding),
 }
+
+// **`Report` is 40 bytes, and a wider variant is a cost on every control
+// sequence**: the enum is built on the stack wherever a reply is, `csi_final`
+// among them, and `?1001`'s first report, at 64 bytes with `usize` cells,
+// put two more register saves into `csi_final`'s prologue. `WireCell` and
+// `MouseAt` keep the highlight report to `u16`s, and this pins the size, so
+// a variant that widens it fails here rather than in a disassembly.
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(core::mem::size_of::<Report>() == 40);
 
 /// Whether the Primary DA advertises Sixel graphics (attribute `4`). A typed
 /// flag rather than a `bool` so the call site reads as what it is, and so the
@@ -363,13 +391,13 @@ impl Report {
         }
     }
 
-    /// Longest possible encoding: the `?2048` report with its pixel fields,
-    /// `ESC [ 48` then four five-digit fields, four separators and a final
-    /// byte -- 29 bytes. It took the title from the palette reply at 22 when
-    /// the pixel fields stopped being zero. `report_encodings_fit` pins it,
-    /// and `ReportBytes::push` drops past it in silence, which is why that
-    /// test names every variant.
-    pub const MAX_LEN: usize = 29;
+    /// Longest possible encoding: `?1001`'s long release report under SGR,
+    /// `ESC [ <` then six five-digit fields, five separators and `T` -- 39
+    /// bytes. It took the title from the `?2048` report at 29, which took
+    /// it from the palette reply at 22 when the pixel fields stopped being
+    /// zero. `report_encodings_fit` pins it, and `ReportBytes::push` drops
+    /// past it in silence, which is why that test names every variant.
+    pub const MAX_LEN: usize = 39;
 
     /// Render the report to bytes.
     ///
@@ -527,6 +555,51 @@ impl Report {
                     MouseKind::Release => b'm',
                     _ => b'M',
                 });
+            }
+            Report::Highlight(end, encoding) => {
+                let (fin, wire, n) = match end {
+                    HighlightEnd::Same(at) => (b't', [[at.col.get(), at.row.get()]; 3], 1),
+                    HighlightEnd::Moved { start, end, mouse } => (
+                        b'T',
+                        [
+                            [start.col.get(), start.row.get()],
+                            [end.col.get(), end.row.get()],
+                            mouse.wire(),
+                        ],
+                        3,
+                    ),
+                };
+                let values = wire[..n].iter().flatten().copied();
+                match encoding {
+                    // `CSI t` or `CSI T`, then each value `+ 32` in a byte;
+                    // the caller has refused anything past 223.
+                    MouseEncoding::X10 => {
+                        e.push(fin);
+                        for v in values {
+                            e.push((v as u8).wrapping_add(32));
+                        }
+                    }
+                    // The same, each `+ 32` written as UTF-8 once it passes
+                    // 127; the caller has refused anything past 2015.
+                    MouseEncoding::Utf8 => {
+                        e.push(fin);
+                        for v in values {
+                            e.push_utf8(v + 32);
+                        }
+                    }
+                    MouseEncoding::Sgr | MouseEncoding::SgrPixels | MouseEncoding::Urxvt => {
+                        if encoding != MouseEncoding::Urxvt {
+                            e.push(b'<');
+                        }
+                        for (i, v) in values.enumerate() {
+                            if i > 0 {
+                                e.push(b';');
+                            }
+                            e.push_num(v);
+                        }
+                        e.push(fin);
+                    }
+                }
             }
             Report::Vt52Identity => {
                 e.len = ByteLen::ZERO;

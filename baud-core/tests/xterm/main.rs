@@ -12,6 +12,7 @@ mod alt_screen;
 mod embedder_modes;
 mod erase_saved_lines;
 mod focus;
+mod highlight;
 mod hyperlinks;
 mod keypad_version;
 mod mouse;

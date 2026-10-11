@@ -236,10 +236,12 @@ fn the_handler_check_can_actually_fail() {
 /// `CLAUDE.md` called six of these load-bearing. Four were closed once the
 /// stated reason was read against its *scope* rather than as a settled fact —
 /// the DEC glyph table, X10 mouse reports, counting the `OSC 52` request, and
-/// `?1001` highlight tracking. In every case the reason survived and the scope
+/// `?1001` highlight tracking. In three the reason survived and the scope
 /// shrank to fit it: baud still does not guess a glyph, still refuses a
-/// position X10 cannot name, still answers a clipboard read with silence, and
-/// still does not draw a highlight.
+/// position X10 cannot name, and still answers a clipboard read with silence.
+/// The fourth outlived its reason: `?1001` is built to the spec, the region
+/// drawn and the release reported, and nothing waits on the program's answer
+/// (`tests/xterm/highlight.rs`).
 ///
 /// The two that remain are not absences at all. DECRQM and DECRQSS are
 /// implemented; what each refuses is a particular *answer*, and refusing it is

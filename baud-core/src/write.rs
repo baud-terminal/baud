@@ -1705,13 +1705,10 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             // knowing, and the conformance inventory asks exactly that.
             _ => p.unsupported_param += 1,
         },
-        // **Recorded, not acted on, and those are different things.** The
-        // region is what an application asks the terminal to highlight, and
-        // nothing in baud draws it yet: drawing it through the selection's
-        // highlight is unbuilt (note V's V12, and the `?1001` row of
-        // `docs/vt-coverage.md`). That is a reason not to draw it and not a
-        // reason to discard the request. An embedder reads it from
-        // [`Term::highlight_region`].
+        // **The program's answer to a `?1001` press**: it starts the region
+        // the embedder draws (`Term::highlight`) and the release reports, or
+        // `func` 0 aborts it. An answer no press is owed changes nothing
+        // (`Handshake::answered`).
         //
         // It is also the arity trap. `CSI Ps T` is SD and `CSI Ps ; Ps ; Ps ;
         // Ps ; Ps T` is this, and reading the five-parameter form as SD makes
@@ -1720,7 +1717,9 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // `baud_domain::Csi` splits them on `p.len() >= 5`, so the two cannot
         // be confused here; the arity is the discriminator, and it lives in
         // the domain's grammar rather than in this dispatch.
-        DomCsi::HighlightMouseTracking(r) => p.cold.highlight_region = r,
+        DomCsi::HighlightMouseTracking(r) => {
+            p.cold.handshake = p.cold.handshake.answered(r, p.cols, p.rows)
+        }
         DomCsi::CursorStyle(CursorPick::Style(c)) => p.cold.cursor_style = c,
         DomCsi::CursorStyle(CursorPick::Initial) => p.cold.cursor_style = p.cold.initial_cursor,
         // **DECRQM, answered from the modes this core actually stores.**

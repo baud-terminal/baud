@@ -10,10 +10,10 @@
 //! because zerocopy rejects implicit padding. `PackedCell` never had to grow,
 //! and the eight-byte cell was never the constraint.
 //!
-//! And "never read" resolves the way it did for charset designations and
-//! `?1001`: baud records the selection and a renderer reads it off the cell's
-//! style. Choosing a face needs font machinery a `no_std` core with no
-//! allocator does not have; recording which face was asked for does not.
+//! And "never read" resolves the way it did for charset designations: baud
+//! records the selection and a renderer reads it off the cell's style.
+//! Choosing a face needs font machinery a `no_std` core with no allocator
+//! does not have; recording which face was asked for does not.
 
 use crate::support;
 use baud_core::*;

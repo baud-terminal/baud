@@ -357,12 +357,28 @@ fn report_encodings_fit() {
         width: ImagePx::of(u16::MAX),
     });
     assert_eq!(inband, b"\x1b[48;65535;65535;65535;65535t");
+
+    // **And then `?1001`'s long release report under SGR**: six positions
+    // where the `?2048` report has four fields, every one at the widest a
+    // `Col` or `Row` can write.
+    let far = WireCell::of(CellAt::new(Col::at_index(65534), Row::from_index(65534)));
+    let highlight = enc(Report::Highlight(
+        HighlightEnd::Moved {
+            start: far,
+            end: far,
+            mouse: MouseAt::Cell(far),
+        },
+        MouseEncoding::Sgr,
+    ));
+    assert_eq!(highlight, b"\x1b[<65535;65535;65535;65535;65535;65535T");
     assert_eq!(
-        inband.len(),
+        highlight.len(),
         Report::MAX_LEN,
         "the widest report is this one"
     );
 
+    let x10_far = WireCell::of(CellAt::new(Col::at_index(222), Row::from_index(222)));
+    let utf8_far = WireCell::of(CellAt::new(Col::at_index(2014), Row::from_index(2014)));
     // Every variant, at its widest, ending in the byte that terminates it.
     // A variant absent from this list is a variant nothing bounds.
     for (name, r, last) in [
@@ -500,6 +516,77 @@ fn report_encodings_fit() {
             ),
             b'm',
         ),
+        // `?1001`'s release reports, each at the widest its encoding names.
+        (
+            "highlight, sgr, long",
+            Report::Highlight(
+                HighlightEnd::Moved {
+                    start: far,
+                    end: far,
+                    mouse: MouseAt::Cell(far),
+                },
+                MouseEncoding::Sgr,
+            ),
+            b'T',
+        ),
+        (
+            "highlight, sgr, short",
+            Report::Highlight(HighlightEnd::Same(far), MouseEncoding::Sgr),
+            b't',
+        ),
+        (
+            "highlight, urxvt, long",
+            Report::Highlight(
+                HighlightEnd::Moved {
+                    start: far,
+                    end: far,
+                    mouse: MouseAt::Cell(far),
+                },
+                MouseEncoding::Urxvt,
+            ),
+            b'T',
+        ),
+        // Under `?1016` the mouse is a pixel, the widest one a press can
+        // carry: `u16::MAX - 1`, written `+ 1`, five digits like a cell.
+        (
+            "highlight, sgr-pixels, long",
+            Report::Highlight(
+                HighlightEnd::Moved {
+                    start: far,
+                    end: far,
+                    mouse: MouseAt::Px(PointerPx {
+                        x: ImagePx::of(u16::MAX - 1),
+                        y: ImagePx::of(u16::MAX - 1),
+                    }),
+                },
+                MouseEncoding::SgrPixels,
+            ),
+            b'T',
+        ),
+        (
+            "highlight, x10, long",
+            Report::Highlight(
+                HighlightEnd::Moved {
+                    start: x10_far,
+                    end: x10_far,
+                    mouse: MouseAt::Cell(x10_far),
+                },
+                MouseEncoding::X10,
+            ),
+            b' ' + 223,
+        ),
+        (
+            "highlight, utf-8, long",
+            Report::Highlight(
+                HighlightEnd::Moved {
+                    start: utf8_far,
+                    end: utf8_far,
+                    mouse: MouseAt::Cell(utf8_far),
+                },
+                MouseEncoding::Utf8,
+            ),
+            0xbf,
+        ),
     ] {
         // **Exhaustive, so this list cannot fall behind the enum again.** A
         // new `Report` variant stops this match compiling, and the edit it
@@ -524,7 +611,8 @@ fn report_encodings_fit() {
             | Report::MouseX10(_)
             | Report::MouseUtf8(_)
             | Report::MouseUrxvt(_)
-            | Report::MouseSgrPixels(..) => {}
+            | Report::MouseSgrPixels(..)
+            | Report::Highlight(..) => {}
         }
         let b = enc(r);
         assert!(
@@ -535,4 +623,59 @@ fn report_encodings_fit() {
         );
         assert_eq!(*b.last().unwrap(), last, "{name}: the final byte survived");
     }
+}
+
+/// **Under `?1016` the long highlight report's mouse is a pixel and the
+/// region is cells**: `[[source: ctlseqs]]` calls startx, starty, endx and
+/// endy "character positions" and mousex, mousey "the location of the mouse
+/// at button up", which SGR-Pixels reports "in pixels rather than character
+/// cells". `HighlightEnd::of` picks the unit from the encoding, refuses a
+/// long form whose pixel is missing or at `u16::MAX`, and writes the short
+/// form, which has no mouse field, without one.
+#[test]
+fn a_highlight_report_s_mouse_is_a_pixel_under_sgr_pixels_alone() {
+    let cell = |c, r| CellAt::new(Col::at_index(c), Row::from_index(r));
+    let px = |x, y| {
+        Some(PointerPx {
+            x: ImagePx::of(x),
+            y: ImagePx::of(y),
+        })
+    };
+    let (start, end, mouse) = (cell(4, 2), cell(9, 4), cell(9, 4));
+    let of = |px, encoding| HighlightEnd::of(start, end, mouse, px, encoding);
+    let pixels = of(px(95, 50), MouseEncoding::SgrPixels).unwrap();
+    assert_eq!(
+        enc(Report::Highlight(pixels, MouseEncoding::SgrPixels)),
+        b"\x1b[<5;3;10;5;96;51T"
+    );
+    // Under 1006 the same release writes the mouse's cell, pixel or not.
+    let cells = of(px(95, 50), MouseEncoding::Sgr).unwrap();
+    assert_eq!(
+        enc(Report::Highlight(cells, MouseEncoding::Sgr)),
+        b"\x1b[<5;3;10;5;10;5T"
+    );
+    for missing in [None, px(u16::MAX, 50), px(95, u16::MAX)] {
+        assert_eq!(of(missing, MouseEncoding::SgrPixels), None, "{missing:?}");
+    }
+    let short = HighlightEnd::of(start, start, mouse, None, MouseEncoding::SgrPixels).unwrap();
+    assert_eq!(
+        enc(Report::Highlight(short, MouseEncoding::SgrPixels)),
+        b"\x1b[<5;3t"
+    );
+    // The widest pixel a press can carry is five digits on the wire, as
+    // the widest cell is, so `MAX_LEN` holds.
+    let far = WireCell::of(cell(65534, 65534));
+    let widest = enc(Report::Highlight(
+        HighlightEnd::Moved {
+            start: far,
+            end: far,
+            mouse: MouseAt::Px(PointerPx {
+                x: ImagePx::of(u16::MAX - 1),
+                y: ImagePx::of(u16::MAX - 1),
+            }),
+        },
+        MouseEncoding::SgrPixels,
+    ));
+    assert_eq!(widest, b"\x1b[<65535;65535;65535;65535;65535;65535T");
+    assert_eq!(widest.len(), Report::MAX_LEN);
 }

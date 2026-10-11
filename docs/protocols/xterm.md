@@ -21,29 +21,29 @@ the alternate screen moves nothing of the primary's history.
 cursor. `?1049` exists because applications kept getting that wrong, so the two
 are not aliases.
 
-## Mouse: four tracking levels, five encodings
+## Mouse: five tracking levels, five encodings
 
 `[[source: ctlseqs]]`, "Mouse Tracking": "There are two sets of mutually
 exclusive modes", the mouse protocol and the protocol encoding. The first says
 which pointer events become reports and the second how a report is written;
 `Term::mouse_report` applies both to each event an embedder gives it.
 
-**The tracking level** (`Term::mouse_tracking`) is one of four, or off:
+**The tracking level** (`Term::mouse_tracking`) is one of five, or off:
 
 | mode | what is reported |
 |---|---|
 | `?9` X10 compatibility | a press of button 1, 2 or 3 and nothing else: no release, no motion, no wheel and no modifiers ("only on button press", "Cb is button-1, where button is 1, 2 or 3") |
 | `?1000` normal | presses and releases, with the modifiers; a wheel press, never its release ("Release events for the wheel buttons are not reported") |
+| `?1001` highlight | `?1000`'s, except that button 1's release after the program's answer is the region's report, `CSI t` or `CSI T` (below) |
 | `?1002` button-event | `?1000`'s, and motion with a button held |
 | `?1003` any-event | `?1000`'s, and all motion |
 
 Motion is reported only into a cell other than the last report's, "only if the
 mouse pointer has moved to a different character cell". A set selects its level
-whatever was in force, and a reset of any of the four turns tracking off, as
+whatever was in force, and a reset of any of the five turns tracking off, as
 xterm's `really_set_mousemode` does (`[[source: xterm-reset]]`'s file).
-ctlseqs counts five mouse protocols, `?1001` among them; baud records `?1001`
-beside the level rather than as a fifth one (below), an open departure that is
-V12's to build (`docs/research/notes/v-open-decisions.md`).
+ctlseqs counts five mouse protocols, `?1001` among them, and `?1001` is the
+fifth level (below); until 2026-10-11 it was a flag beside the level.
 
 **The encoding** is one of five. It has no accessor: `mouse_report` reads it.
 
@@ -53,7 +53,7 @@ V12's to build (`docs/research/notes/v-open-decisions.md`).
 | `?1005` UTF-8 | X10's bytes, each UTF-8 encoded past 127 | 2015 |
 | `?1006` SGR | `CSI < Cb ; Cx ; Cy M`, decimal with no 32 added, and `m` for a release | the grid's |
 | `?1015` urxvt | `CSI Cb ; Cx ; Cy M`: X10's button value, its 32 and its release code, in decimal | the grid's |
-| `?1016` SGR-Pixels | `?1006`'s, with the position in pixels, one-based, from the event's `MouseEvent::px` | a pixel below 65535; an event without one is refused |
+| `?1016` SGR-Pixels | `?1006`'s, with the position in pixels, one-based, from the event's `MouseEvent::px` | a pixel below 65535; an event without one is refused, but for `?1001`'s short release report, which writes no mouse position |
 
 ctlseqs makes the encodings "mutually exclusive" and says nothing of which wins.
 baud takes xterm's rule: **a set replaces the encoding in force, and a reset
@@ -70,7 +70,8 @@ columns, and a report from column 400 written in X10 is not a truncated answer
 the report is dropped and counted in `mouse_unencodable`, where xterm clamps and
 sends a `0` byte (`EmitMousePosition`, `[[source: xterm-button]]`), and under
 `?1016` an event with no pixel is counted the same way rather than made up from
-the cell. Every position that fits is sent.
+the cell -- except `?1001`'s short release report, `CSI t`, which writes the
+region's one cell and no mouse position. Every position that fits is sent.
 
 **`?1007` alternate scroll** (`Term::alternate_scroll`): on the alternate
 screen, with no tracking to take the wheel, set sends cursor up and down through
@@ -130,18 +131,22 @@ what separates it from the "set and never read" failure. Who acts on each:
 Bracketed paste is a **security** mode, not a cosmetic one: without it a pasted
 newline is delivered to the shell as typed input and runs.
 
-`?1001` highlight tracking is recorded the same way (`Term::highlight_tracking`),
-with the region from the application's answer, `CSI Ps ; Ps ; Ps ; Ps ; Ps T`
-(`Term::highlight_region`), which is told from SD by its five parameters and so
-never scrolls; DECRQM answers from the flag. Nothing more is built: the region
-is not drawn, no release report is sent, and `?1001` alone sends no press,
-where ctlseqs has "the same information as for normal tracking" generated.
-Building it to the spec is the owner's V12
-(`docs/research/notes/v-open-decisions.md`). ctlseqs' warning that "this mode
-requires a cooperating program, else xterm will hang" describes an event loop
--- "All X events are ignored until the proper escape sequence is received" --
-and `baud-core` has none to block, so whether to wait is the embedder's
-decision.
+`?1001` highlight tracking is built to ctlseqs' "Highlight tracking": the
+fifth tracking level, whose presses and releases are normal tracking's. Button
+1's press is owed the program's answer, `CSI Ps ; Ps ; Ps ; Ps ; Ps T`, told
+from SD by its five parameters so it never scrolls; the region it starts runs
+from the program's start to an end that tracks the mouse within the program's
+rows, `Term::highlight`, which the macOS app draws through the selection's
+highlight; and the release is reported as `CSI t CxCy` or `CSI T` with six
+positions, in the encoding in force -- under `?1016` the region's four in
+cells, "character positions", and the mouse's two in pixels, "the location of
+the mouse", where xterm writes all six in cells. ctlseqs' warning that "this
+mode requires a cooperating program, else xterm will hang" describes an event
+loop -- "All X events are ignored until the proper escape sequence is
+received" -- and `baud-core` has none to block: an event before the answer is
+normal tracking's. Where xterm's `button.c` departs from the text, and where
+the text is silent, is in the record, "`?1001` highlight tracking is built to
+the text", with the questions it leaves for Jev.
 
 ## Declined
 

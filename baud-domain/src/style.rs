@@ -487,7 +487,7 @@ pub struct StyleWord {
 /// records the selection and does not resolve it: choosing a face is a
 /// renderer's job, and there is no font machinery in a `no_std` core with no
 /// allocator. Recording it is the channel -- the same one charset designations
-/// and `?1001` use -- and it is read wherever a cell's rendition is read.
+/// use -- and it is read wherever a cell's rendition is read.
 ///
 /// A newtype rather than a bare `u16`, and `repr(transparent)` so it adds its
 /// two bytes and no more.

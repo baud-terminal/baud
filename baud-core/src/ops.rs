@@ -1512,12 +1512,12 @@ impl Paint<'_, '_> {
                 }
             }
             PrivateMode::ReverseVideo => self.set_reverse_video(change),
-            // **Mouse tracking is a level, not four flags.** `[[source:
+            // **Mouse tracking is a level, not five flags.** `[[source:
             // ctlseqs]]` has xterm treat each DECSET as *selecting* one, and
             // `?1003` is a superset of `?1002` which is a superset of `?1000`
             // -- so resetting any of them turns tracking off, which is what an
-            // application expects from `?1000 l`. `?9` is the fourth level and
-            // follows the same rule: xterm's `really_set_mousemode` stores
+            // application expects from `?1000 l`. `?9` and `?1001` are levels and
+            // follow the same rule: xterm's `really_set_mousemode` stores
             // `enabled ? mode : MOUSE_OFF` for all of them.
             PrivateMode::MouseX10Compat => self.set_tracking(MouseTracking::X10Compat, change),
             PrivateMode::MouseNormal => self.set_tracking(MouseTracking::Normal, change),
@@ -1543,12 +1543,11 @@ impl Paint<'_, '_> {
                     ModeChange::Reset => AlternateScroll::Off,
                 }
             }
-            PrivateMode::HighlightTracking => {
-                self.cold.highlight = match on {
-                    true => HighlightTracking::On,
-                    false => HighlightTracking::Off,
-                }
-            }
+            // `?1001` is the fifth level: "The remaining five modes of the
+            // mouse protocols are each enabled (or disabled) by a different
+            // parameter", exclusive with the other four (`[[source:
+            // ctlseqs]]`). It was a flag beside the level until 2026-10-11.
+            PrivateMode::HighlightTracking => self.set_tracking(MouseTracking::Highlight, change),
             // `[[source: ctlseqs]]` for `?1049 h`: save the cursor as DECSC,
             // switch to the alternate buffer, clear it. For `?1049 l`: use the
             // normal buffer and restore as DECRC.
@@ -1605,6 +1604,10 @@ impl Paint<'_, '_> {
         // xterm-reset]]`'s file), which is practice the text's "moved to a
         // different character cell" does not ask for.
         self.cold.mouse_at = None;
+        // And `?1001`'s handshake ends: a press owed an answer, or a region
+        // tracking the mouse, belongs to the level that took the press, and
+        // its release is reported by whatever is in force now.
+        self.cold.handshake = Handshake::Idle;
     }
 
     /// The encoding after `change` of the mode selecting `mode`; the rule is
@@ -1823,7 +1826,6 @@ impl Paint<'_, '_> {
         self.cold.xtsave = SavedModes::NONE;
         self.cold.mouse = MouseTracking::Off;
         self.cold.mouse_encoding = MouseEncoding::X10;
-        self.cold.highlight = HighlightTracking::Off;
         self.cold.terminal = TerminalMode::Ansi;
         self.cold.vt52_row = Vt52Coord::ZERO;
         // The open hyperlink is content rather than mode: a `RIS` clears the
@@ -1959,8 +1961,11 @@ impl Paint<'_, '_> {
         // tracking level and the encoding, and the program recovering with
         // `CSI ! p` is told where the pointer is at its next move rather than
         // relying on a report it may have discarded. `RIS` reaches this
-        // through `hard_reset`, and turns tracking off besides.
+        // through `hard_reset`, and turns tracking off besides. `?1001`'s
+        // handshake ends with it, for the same reason: the program recovering
+        // has not answered, nor asked for, the press it was owed for.
         self.cold.mouse_at = None;
+        self.cold.handshake = Handshake::Idle;
         self.reset_side_margins();
         self.cold.top = Row::ZERO;
         self.cold.bot = Row::from_index(self.rows.index() - 1);
@@ -2090,10 +2095,9 @@ impl Paint<'_, '_> {
                 TerminalMode::Ansi => ModeState::Set,
                 TerminalMode::Vt52 => ModeState::Reset,
             },
-            PrivateMode::HighlightTracking => match self.cold.highlight {
-                HighlightTracking::On => ModeState::Set,
-                HighlightTracking::Off => ModeState::Reset,
-            },
+            PrivateMode::HighlightTracking => {
+                tracking_state(self.cold.mouse, MouseTracking::Highlight)
+            }
             PrivateMode::MouseX10Compat => {
                 tracking_state(self.cold.mouse, MouseTracking::X10Compat)
             }

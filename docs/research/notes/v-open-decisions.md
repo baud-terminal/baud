@@ -2299,6 +2299,17 @@ fixtures cover.
 
 ### V12. ?1001 highlight tracking: stop claiming it
 
+**Built 2026-10-11, to the spec, as the owner answered** ("built to the spec",
+overriding the recommendation below). `?1001` is the fifth tracking level,
+exclusive with the other four as ctlseqs' "five modes of the mouse protocols"
+are; a press is normal tracking's; button 1's press is owed the program's
+XTHIMOUSE answer, which starts a region from the program's start to an end
+that tracks the mouse within the program's rows; the macOS app draws it
+through the selection's highlight; and the release is reported as `CSI t` or
+`CSI T` in the encoding in force. Nothing waits on the answer. The record has
+it, "`?1001` highlight tracking is built to the text", with the questions the
+text leaves for Jev. What follows is the question as it was asked.
+
 **The question**
 
 `?1001` is an early-xterm mouse handshake. You press the mouse, and the
@@ -2322,8 +2333,9 @@ sets it. What changes is only what a program is told if it asks.
 - `CSI ? 1001 h/l` sets a flag in `Cold` (`baud-core/src/ops.rs`, 1066-1069),
   and **RIS** (a full reset) clears it at 1310.
 - DECRQM answers from that flag (1530-1533).
-  `highlight_tracking_is_recorded_and_reported` in
-  `baud-core/tests/xterm/mouse.rs` pins the answer as `?1001;1$y`.
+  The test then named highlight_tracking_is_recorded_and_reported in
+  `baud-core/tests/xterm/mouse.rs` pins the answer as `?1001;1$y` (since
+  2026-10-11, `highlight_tracking_is_a_level_and_decrqm_reports_it`).
 - It does not change mouse reporting. In xterm `?1001` is a mouse mode. In
   baud, a program that sets only `?1001` gets no reports.
 - **XTHIMOUSE**, the program's answer (`CSI Ps;Ps;Ps;Ps;Ps T`), is told apart
@@ -2446,7 +2458,7 @@ decide to move every counted mode to 4 (option F).
 
 **Tests and measurement**
 
-- **Red first**: rewrite `highlight_tracking_is_recorded_and_reported` as a
+- **Red first**: rewrite highlight_tracking_is_recorded_and_reported as a
   refusal test.
   - After `?1001h`, DECRQM replies `?1001;0$y` (red today: `;1$y`).
   - `unsupported_param` moves by one, and mouse tracking stays off.

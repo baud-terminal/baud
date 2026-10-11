@@ -275,8 +275,9 @@ Declining is a decision and belongs in the record.
 | **Tektronix mode** (`ESC [ ? 3 8 h`) | A different terminal emulated inside this one. Historical. |
 
 Three rows that stood here are no longer declined. **Highlight tracking**
-(`CSI ? 1001`) is recorded, with the region, and not drawn: the "xterm will
-hang" warning describes an event loop, and `baud-core` has none. **Sixel** is
+(`CSI ? 1001`) is built to the spec, the region drawn and the release
+reported (V12): the "xterm will hang" warning describes an event loop, and
+`baud-core` has none. **Sixel** is
 decoded into caller memory with no external decoder and drawn by all three
 render paths. **Kitty graphics** (`APC G`) is out today, consumed without
 being executed and counted; the owner's call is to build it (below).
@@ -293,8 +294,6 @@ half-built protocol feature is finished to the spec, not switched off"):
   DECIC/DECDC (above), and the vertical scrolls ignore them: `SU`, `SD`, `IND`,
   `RI`, `LF`, `IL` and `DL` move whole rows, where `[[source: vt510-decslrm]]`
   makes the scrolling region the rectangle.
-* **V12, `?1001` drawn**: the region through the selection's highlight, and
-  the release reports.
 * **V14, an ambiguous-width switch with `?1021`**: a config key to draw East
   Asian Ambiguous characters two columns wide, and `?1021` built to the spec.
   Neither exists today: `Term::set_ambiguous_width` is the core's channel,

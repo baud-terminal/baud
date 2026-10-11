@@ -114,10 +114,13 @@ report them as gaps; if you think one is wrong, the reasoning is in
   and runs. That is the paste-jacking class.
 - **`?1001` highlight tracking cannot hang baud.** `[[source: ctlseqs]]` warns
   that it "requires a cooperating program, else xterm will hang": xterm ignores
-  every event until the program answers. baud records the mode and the region
-  the program sends, answers DECRQM from the flag, and waits on nothing --
-  `baud-core` has no event loop to block. Drawing the region and sending the
-  release reports are unbuilt (note V's V12).
+  every event until the program answers. baud reports the press, takes the
+  program's answer when it arrives, and waits on nothing -- `baud-core` has no
+  event loop to block: an event before the answer is handled as normal
+  tracking handles it, a release before it is a normal release, and an answer
+  no press is owed changes nothing. A release report with a position the
+  encoding cannot name is refused whole and counted, never written naming a
+  different cell.
 - **Queries are never answered with the wrong shape.** An application parses
   whatever arrives as the report it asked for, so a wrong answer is worse than
   silence — DA under-claims as a VT102, and an unimplemented DSR gets no reply.

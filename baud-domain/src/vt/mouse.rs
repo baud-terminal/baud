@@ -49,28 +49,16 @@ pub enum MouseEncoding {
     SgrPixels,
 }
 
-/// `?1001` — whether the application asked for highlight tracking.
-///
-/// A two-state enum for the reason `baud-domain` is gated at zero `bool`
-/// fields, and a `Term` field rather than a `ModeBit` because the bitset has
-/// one bit left and this does not need to spend it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum HighlightTracking {
-    #[default]
-    Off,
-    On,
-}
-
-/// The region an application gave in `CSI Ps ; Ps ; Ps ; Ps ; Ps T`.
+/// The program's answer to a highlight-tracking press: `CSI Ps ; Ps ; Ps ;
+/// Ps ; Ps T`, XTHIMOUSE.
 ///
 /// `[[source: ctlseqs]]`: "The parameters are func, startx, starty, firstrow,
-/// and lastrow" — `func` non-zero initiates and zero aborts.
-///
-/// Recorded rather than acted on. Highlighting the region needs a selection
-/// model and a renderer, neither of which baud has; recording it is what lets
-/// an embedder that *does* have them implement the mode. The hazard ctlseqs
-/// warns about — "all X events are ignored until the proper escape sequence is
-/// received" — is an event loop blocking, and baud has none.
+/// and lastrow" -- `func` "is non-zero to initiate highlight tracking and zero
+/// to abort", the start is "the starting x and y location for the
+/// highlighted region", and "The ending location tracks the mouse, but will
+/// never be above row firstrow and will always be above row lastrow. (The top
+/// of the screen is row 1.)" The values as they arrived, one-based; what they
+/// mean is [`Handshake::answered`]'s.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct HighlightRegion {
     pub func: u16,
@@ -80,13 +68,338 @@ pub struct HighlightRegion {
     pub last_row: u16,
 }
 
+/// A cell of the live screen, as highlight tracking names one: the start the
+/// program gave, the end that tracks the mouse, and the mouse.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CellAt {
+    pub col: Col,
+    pub row: Row,
+}
+
+impl CellAt {
+    pub fn new(col: Col, row: Row) -> CellAt {
+        CellAt { col, row }
+    }
+}
+
+/// What `?1001` highlights while button 1 is held: "highlights the region
+/// covered by the mouse within that range until button release"
+/// (`[[source: ctlseqs]]`). From the start the program gave to the end that
+/// tracks the mouse, **in that order and not sorted**: the text names a start
+/// and an end, not a top and a bottom, and the release report writes them as
+/// they are. A drawer sorts them for itself.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Highlighted {
+    pub start: CellAt,
+    pub end: CellAt,
+}
+
+/// A cell as a highlight report writes it: one-based, column then row.
+///
+/// **Two `u16`s and not a [`CellAt`]**, whose `usize` coordinates made the
+/// report the widest [`Report`] variant -- 64 bytes against 40 -- and the
+/// enum is built on the stack wherever a reply is, `csi_final` among them,
+/// which saved two more registers on every control sequence to carry it.
+/// [`Col::one_based`] and [`Row::one_based`] saturate at `u16::MAX`, past
+/// any grid baud provisions.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WireCell {
+    pub col: OneBased,
+    pub row: OneBased,
+}
+
+impl WireCell {
+    pub fn of(c: CellAt) -> WireCell {
+        WireCell {
+            col: c.col.one_based(),
+            row: c.row.one_based(),
+        }
+    }
+
+    /// The larger of the two ordinates.
+    fn max_ordinate(self) -> u16 {
+        self.col.get().max(self.row.get())
+    }
+}
+
+/// Where the mouse was at button up, as the long release report writes it:
+/// its cell, or under `?1016` its pixel.
+///
+/// `[[source: ctlseqs]]`: "mousex and mousey give the location of the mouse
+/// at button up, which may not be over a character" -- a location, where
+/// the other four fields are "character positions" of the region -- and
+/// SGR-Pixels (1016) has the 1006 format "report position in pixels rather
+/// than character cells". So under 1016 these two fields alone are pixels.
+/// **Built in baud by [`HighlightEnd::of`] alone**, which picks the variant
+/// from the encoding; the variants are public, so a caller building one by
+/// hand can pair a pixel with a cell encoding.
+/// Narrow, two `u16`s either way: a `usize` here is what took [`Report`] to
+/// 64 bytes (see [`WireCell`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MouseAt {
+    /// One-based, column then row.
+    Cell(WireCell),
+    /// Zero-based as the embedder gave it, and never at `u16::MAX`, whose
+    /// one-based form the field cannot carry: the report writes each `+ 1`,
+    /// as a `?1016` press writes its pixel.
+    Px(PointerPx),
+}
+
+impl MouseAt {
+    /// The larger of the two values the report writes.
+    fn max_ordinate(self) -> u16 {
+        match self {
+            MouseAt::Cell(c) => c.max_ordinate(),
+            MouseAt::Px(p) => p.x.raw().max(p.y.raw()).saturating_add(1),
+        }
+    }
+
+    /// The two values the report writes, x then y, one-based.
+    pub fn wire(self) -> [u16; 2] {
+        match self {
+            MouseAt::Cell(c) => [c.col.get(), c.row.get()],
+            MouseAt::Px(p) => [p.x.raw().saturating_add(1), p.y.raw().saturating_add(1)],
+        }
+    }
+}
+
+/// The report a tracked release sends: `[[source: ctlseqs]]`, "When the
+/// button is released, xterm reports the ending position one of two ways".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HighlightEnd {
+    /// "if the start and end coordinates are the same locations: `CSI t
+    /// CxCy`" -- the one location.
+    ///
+    /// **The plain reading**: the region's start and its end are one cell.
+    /// xterm's `EndExtend` (`[[source: xterm-button]]`) tests something else
+    /// -- the region's start is the program's start *and* its end is the
+    /// mouse's cell, after sorting the two -- and sends nothing at all for a
+    /// region of one cell. Which reading the text means is an open question
+    /// for Jev (the record, "`?1001` highlight tracking is built to the
+    /// text").
+    Same(WireCell),
+    /// "otherwise: `CSI T CxCyCxCyCxCy`. The parameters are startx, starty,
+    /// endx, endy, mousex, and mousey" -- "mousex and mousey give the
+    /// location of the mouse at button up, which may not be over a
+    /// character" of the region, where the rows the program allowed held the
+    /// end back. The mouse is a pixel under `?1016` ([`MouseAt`]).
+    Moved {
+        start: WireCell,
+        end: WireCell,
+        mouse: MouseAt,
+    },
+}
+
+impl HighlightEnd {
+    /// The report for a region from `start` to `end`, released with the
+    /// mouse over the cell `mouse` and at the pixel `px` when the embedder
+    /// knows it, in `encoding`.
+    ///
+    /// **`None` when the report would write a pixel it does not have**: the
+    /// long form under `?1016` with no pixel, or one at `u16::MAX`, refused
+    /// as a `?1016` press with none is. The short form writes only the
+    /// region's one location, a character position, and needs none.
+    pub fn of(
+        start: CellAt,
+        end: CellAt,
+        mouse: CellAt,
+        px: Option<PointerPx>,
+        encoding: MouseEncoding,
+    ) -> Option<HighlightEnd> {
+        if start == end {
+            return Some(HighlightEnd::Same(WireCell::of(start)));
+        }
+        let mouse = match (encoding, px) {
+            (MouseEncoding::SgrPixels, Some(p)) if p.x.raw() < u16::MAX && p.y.raw() < u16::MAX => {
+                MouseAt::Px(p)
+            }
+            (MouseEncoding::SgrPixels, _) => return None,
+            _ => MouseAt::Cell(WireCell::of(mouse)),
+        };
+        Some(HighlightEnd::Moved {
+            start: WireCell::of(start),
+            end: WireCell::of(end),
+            mouse,
+        })
+    }
+
+    /// The largest one-based ordinate the report writes, which an encoding
+    /// with a ceiling has to be able to name -- the whole report or none of
+    /// it, as a mouse report past X10's 223 is refused whole.
+    pub fn max_ordinate(self) -> u16 {
+        match self {
+            HighlightEnd::Same(at) => at.max_ordinate(),
+            HighlightEnd::Moved { start, end, mouse } => start
+                .max_ordinate()
+                .max(end.max_ordinate())
+                .max(mouse.max_ordinate()),
+        }
+    }
+}
+
+/// Where `?1001`'s handshake stands, between a press and its release.
+///
+/// `[[source: ctlseqs]]`: "On button press, the same information as for
+/// normal tracking is generated; xterm then waits for the program to send
+/// mouse tracking information. All X events are ignored until the proper
+/// escape sequence is received from the pty". **Nothing waits here**: the
+/// ignoring is xterm's X event loop blocking, and baud has no event loop to
+/// block. The state records that a press is owed an answer, and every event
+/// that arrives meanwhile is handled as normal tracking handles it -- a
+/// release before the answer is a normal release ([`Handshake::released`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Handshake {
+    /// No press is waiting and nothing is highlighted.
+    #[default]
+    Idle,
+    /// A button-1 press was reported and its answer has not arrived; the
+    /// pointer is last seen at `pointer`, where the end starts if the answer
+    /// initiates.
+    Awaiting { pointer: CellAt },
+    /// The program answered and the end tracks the mouse within the rows it
+    /// gave, `first` to `last` inclusive, zero-based.
+    Tracking {
+        start: CellAt,
+        end: CellAt,
+        first: Row,
+        last: Row,
+    },
+}
+
+impl Handshake {
+    /// A button-1 press was reported at `at`: its answer is owed.
+    pub fn pressed(at: CellAt) -> Handshake {
+        Handshake::Awaiting { pointer: at }
+    }
+
+    /// The pointer moved to `at` with the button held: "The ending location
+    /// tracks the mouse", held to the program's rows.
+    pub fn moved(self, at: CellAt) -> Handshake {
+        match self {
+            Handshake::Idle => Handshake::Idle,
+            Handshake::Awaiting { .. } => Handshake::Awaiting { pointer: at },
+            Handshake::Tracking {
+                start, first, last, ..
+            } => Handshake::Tracking {
+                start,
+                end: hold(at, first, last),
+                first,
+                last,
+            },
+        }
+    }
+
+    /// The program's answer, on a screen of `cols` by `rows`.
+    ///
+    /// **Only an owed answer is one.** With no press waiting there is nothing
+    /// to answer -- the text has the program answer a press -- and the
+    /// sequence changes nothing; xterm drops it the same way, behind
+    /// `waitingForTrackInfo` (`TrackMouse`, `[[source: xterm-button]]`).
+    /// `func` 0 aborts. Otherwise the start is the program's, clamped to the
+    /// screen because a cell off it can be neither drawn nor reported, and
+    /// the rows are "never above row firstrow" and "always above row
+    /// lastrow": one-based `firstrow` to `lastrow - 1`, so zero-based
+    /// `firstrow - 1` to `lastrow - 2`, which is xterm's `GetParam(3) - 1,
+    /// GetParam(4) - 2` (`CASE_TRACK_MOUSE`, `[[source: xterm-reset]]`'s
+    /// file). The end starts where the pointer was last seen, since it
+    /// "tracks the mouse".
+    ///
+    /// **When no row satisfies both** -- `lastrow` at or above `firstrow` --
+    /// the text gives the end nowhere to be, and `firstrow` holds it: a
+    /// provisional choice, among the questions the record leaves for Jev.
+    pub fn answered(self, r: HighlightRegion, cols: Cols, rows: Rows) -> Handshake {
+        let Handshake::Awaiting { pointer } = self else {
+            return self;
+        };
+        if r.func == 0 {
+            return Handshake::Idle;
+        }
+        let start = CellAt::new(
+            OneBased(r.start_x.max(1)).to_col(cols),
+            OneBased(r.start_y.max(1)).to_row(rows),
+        );
+        let first = OneBased(r.first_row.max(1)).to_row(rows);
+        let last = match r.last_row.checked_sub(1) {
+            Some(above) if above >= 1 => OneBased(above).to_row(rows),
+            _ => first,
+        };
+        Handshake::Tracking {
+            start,
+            end: hold(pointer, first, last),
+            first,
+            last,
+        }
+    }
+
+    /// Button 1 was released with the mouse over `mouse`: the region it
+    /// ends, when the program's answer started tracking, and `Idle` after
+    /// either way. A release before the answer, or after an abort, is `None`
+    /// -- normal tracking's release, the caller's to send -- and an answer
+    /// arriving after it finds nothing owed. [`HighlightEnd::of`] writes the
+    /// region's report.
+    pub fn released(self, mouse: CellAt) -> (Handshake, Option<Highlighted>) {
+        match self {
+            Handshake::Tracking {
+                start, first, last, ..
+            } => (
+                Handshake::Idle,
+                Some(Highlighted {
+                    start,
+                    end: hold(mouse, first, last),
+                }),
+            ),
+            _ => (Handshake::Idle, None),
+        }
+    }
+
+    /// Every cell held on a screen of `cols` by `rows`: a resize under a drag
+    /// leaves no cell off the screen to draw or report.
+    pub fn within(self, cols: Cols, rows: Rows) -> Handshake {
+        let row = |r: Row| Row(r.0.min(rows.raw().saturating_sub(1)));
+        let cell =
+            |c: CellAt| CellAt::new(Col(c.col.0.min(cols.raw().saturating_sub(1))), row(c.row));
+        match self {
+            Handshake::Idle => Handshake::Idle,
+            Handshake::Awaiting { pointer } => Handshake::Awaiting {
+                pointer: cell(pointer),
+            },
+            Handshake::Tracking {
+                start,
+                end,
+                first,
+                last,
+            } => Handshake::Tracking {
+                start: cell(start),
+                end: cell(end),
+                first: row(first),
+                last: row(last),
+            },
+        }
+    }
+
+    /// What is highlighted now: the region while tracking, else nothing.
+    pub fn highlighted(self) -> Option<Highlighted> {
+        match self {
+            Handshake::Tracking { start, end, .. } => Some(Highlighted { start, end }),
+            _ => None,
+        }
+    }
+}
+
+/// `at` with its row held to `first ..= last`; `first` wins when the range is
+/// empty, [`Handshake::answered`]'s provisional choice.
+fn hold(at: CellAt, first: Row, last: Row) -> CellAt {
+    CellAt::new(at.col, Row(at.row.0.min(last.0).max(first.0)))
+}
+
 impl MouseEncoding {
     /// The largest cell ordinate this encoding can name, one-based.
     ///
     /// X10 writes `ordinate + 32` in one byte, so 223; `?1005` writes it as
     /// UTF-8 in at most two, whose largest is U+07FF, so 2015 -- ctlseqs'
     /// "from 223 to 2015". `None` for the decimal encodings, whose limit is
-    /// the grid's, and for `?1016`, which writes no cell at all.
+    /// the grid's, and for `?1016`, which writes pixels -- and cells only for
+    /// `?1001`'s region, in decimal.
     pub fn max_ordinate(self) -> Option<u16> {
         match self {
             MouseEncoding::X10 => Some(223),
@@ -245,7 +558,9 @@ pub struct MouseEvent {
     /// cell's corner times the cell size is a pixel the pointer was probably
     /// not at, and an application that asked for pixels asked because cells
     /// were too coarse -- so under `?1016` an event without it is refused and
-    /// counted in `mouse_unencodable`, the way X10 refuses column 224.
+    /// counted in `mouse_unencodable`, the way X10 refuses column 224; only
+    /// `?1001`'s short release report, which writes no mouse position, goes
+    /// out without one ([`HighlightEnd::of`]).
     pub px: Option<PointerPx>,
 }
 
@@ -288,8 +603,9 @@ impl MouseEvent {
 /// ctlseqs' two exclusive sets, "mouse protocol".
 ///
 /// `[[source: ctlseqs]]`: 9 is X10 compatibility (press only), 1000 is normal
-/// tracking (press and release), 1002 adds button-motion, 1003 reports "all
-/// motion events, even if no mouse button is down". A level, not four flags:
+/// tracking (press and release), 1001 is normal tracking with highlight
+/// tracking's handshake, 1002 adds button-motion, 1003 reports "all
+/// motion events, even if no mouse button is down". A level, not five flags:
 /// each DECSET selects one and **any** DECRST turns tracking off, as xterm's
 /// `really_set_mousemode` stores `enabled ? mode : MOUSE_OFF` for every one
 /// (`[[source: xterm-reset]]`'s file).
@@ -304,6 +620,14 @@ pub enum MouseTracking {
     X10Compat,
     /// `?1000`
     Normal,
+    /// `?1001`, highlight tracking: normal tracking's presses and releases,
+    /// with button 1's handshake ([`Handshake`]). `[[source: ctlseqs]]`
+    /// lists it among "the remaining five modes of the mouse protocols",
+    /// exclusive with the other four, and xterm's `set_mousemode` stores
+    /// `VT200_HIGHLIGHT_MOUSE` in the one field that holds them all
+    /// (`[[source: xterm-reset]]`'s file). It was a flag beside the level
+    /// until 2026-10-11, so `?1001` alone reported nothing.
+    Highlight,
     /// `?1002`
     ButtonEvent,
     /// `?1003`
