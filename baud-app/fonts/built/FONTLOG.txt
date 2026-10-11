@@ -171,12 +171,15 @@ repository's licence. anchors-400.json and anchors-700.json are data read out of
 Cascadia Mono; hebrew/SOURCE states them under OFL.txt, as the font is, and the
 licence call should confirm it.
 
-The repository's LICENSE is CC BY-NC-SA 4.0 (Cargo.toml: license = "CC-BY-NC-SA-4.0")
-and makes no exception for baud-app/fonts/**. OFL condition 5: "The Font Software,
-modified or unmodified, in part or in whole, must be distributed entirely under this
-license, and must not be distributed under any other license." The repository's
-licence must carve these files out, or otherwise be reconciled with the OFL, before
-anything is pushed. This holds for the stock fonts as well as for these.
+The repository's LICENSE is CC BY-NC-SA 4.0 (Cargo.toml: license = "CC-BY-NC-SA-4.0").
+OFL condition 5: "The Font Software, modified or unmodified, in part or in whole, must
+be distributed entirely under this license, and must not be distributed under any
+other license." So LICENSE carves the fonts out, in its section "Files this licence
+does not cover": Regular.ttf and Bold.ttf with this file, OFL.txt and AUTHORS.txt
+beside them; CascadiaMono.ttf and the two anchors files; and the stock fonts. It
+names the two questions above as open and assigns the build modules to neither
+licence. baud-font/tests/licences.rs fails if a font in the tree is neither baud's
+own nor named there with its licence beside it.
 
 Name. Decision 11 in note AC is the family's name. It may not use the Reserved Font
 Name Cascadia Code, nor either of its words (SIL's OFL-FAQ 1.1-update7, Q5.4: "You may

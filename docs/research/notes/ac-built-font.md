@@ -734,9 +734,12 @@ font ... Any other use is prohibited".
 
 **Push blockers:**
 
-- The repository LICENSE (CC BY-NC-SA 4.0) has no exception for
-  `baud-app/fonts/**`. OFL condition 5 requires the fonts be "distributed
-  entirely under this license", and this holds for the stock fonts too.
+- ~~The repository LICENSE (CC BY-NC-SA 4.0) has no exception for
+  `baud-app/fonts/**`.~~ LICENSE now carves the fonts out, built and stock,
+  in its section "Files this licence does not cover", because OFL condition 5
+  requires them to be "distributed entirely under this license";
+  `baud-font/tests/licences.rs` holds every font in the tree to it. The
+  Hebrew build modules are named there as undecided, not assigned.
 - Nothing packages the OFL for Linux.
 
 ## 6. Open decisions

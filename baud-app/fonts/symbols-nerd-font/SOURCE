@@ -10,4 +10,6 @@ Fetched:   2026-09-29
 
 LICENSE (MIT, the Nerd Fonts project) and README.md (the icon sets it
 carries, each with its upstream and licence) are the archive's own,
-unmodified. scripts/bundle-macos.sh copies them into the bundle.
+unmodified. icon-licences/ holds the icon sets' own licence texts, from the
+nerd-fonts repository at the same tag; its SOURCE gives each file's URL and
+sha256. scripts/bundle-macos.sh copies all of them into the bundle.

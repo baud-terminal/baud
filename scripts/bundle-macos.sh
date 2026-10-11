@@ -49,8 +49,8 @@ cp "$BIN" "$APP/Contents/MacOS/baud"
 
 # The embedded fonts' licences travel with the binary that carries them, as
 # the upstream archives ship them: JetBrains Mono's OFL and AUTHORS, and the
-# Nerd Fonts icon face's MIT licence and its icon-set licence table, and STIX
-# Two Math's OFL. The built Regular and Bold -- JetBrains Mono with baud's
+# Nerd Fonts icon face's MIT licence, its icon-set licence table and the
+# icon sets' own licence texts (icon-licences/), and STIX Two Math's OFL. The built Regular and Bold -- JetBrains Mono with baud's
 # Hebrew -- carry their own OFL, FONTLOG, AUTHORS and MANIFEST, and the
 # Hebrew's source, Cascadia Mono, its OFL and SOURCE.
 for DIR in jetbrains-mono symbols-nerd-font stix-two-math built glyphs/languages/hebrew; do
@@ -71,6 +71,8 @@ cp "$ROOT/baud-app/fonts/jetbrains-mono/OFL.txt" \
 cp "$ROOT/baud-app/fonts/symbols-nerd-font/LICENSE" \
   "$ROOT/baud-app/fonts/symbols-nerd-font/README.md" \
   "$ROOT/baud-app/fonts/symbols-nerd-font/SOURCE" \
+  "$APP/Contents/Resources/fonts/symbols-nerd-font/"
+cp -R "$ROOT/baud-app/fonts/symbols-nerd-font/icon-licences" \
   "$APP/Contents/Resources/fonts/symbols-nerd-font/"
 cp "$ROOT/baud-app/fonts/stix-two-math/OFL.txt" \
   "$ROOT/baud-app/fonts/stix-two-math/SOURCE" \

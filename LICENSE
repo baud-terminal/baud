@@ -17,3 +17,81 @@ Under the following terms:
     distribute your contributions under the same license as the original.
 
 Full license text: https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
+
+----------------------------------------------------------------------------
+
+Files this licence does not cover
+
+The files named below are fonts, and the data and documents that travel
+with them. They are not licensed under CC BY-NC-SA 4.0. Each is distributed
+under its own licence, which sits beside it in the same directory. The SIL
+Open Font License 1.1 requires this: "The Font Software, modified or
+unmodified, in part or in whole, must be distributed entirely under this
+license, and must not be distributed under any other license" (condition 5).
+
+Fonts embedded in the baud application:
+
+  baud-app/fonts/jetbrains-mono/
+      JetBrains Mono 2.304, unmodified: SIL Open Font License 1.1
+      (OFL.txt, AUTHORS.txt).
+  baud-app/fonts/stix-two-math/
+      STIX Two Math 2.13 b171, unmodified: SIL Open Font License 1.1
+      (OFL.txt).
+  baud-app/fonts/symbols-nerd-font/
+      Symbols Nerd Font Mono 3.5.1, unmodified: MIT (LICENSE), with the icon
+      sets it carries under their own licences, which README.md lists and
+      icon-licences/ holds, copied from nerd-fonts v3.5.1 src/glyphs/: SIL
+      Open Font License 1.1 (Pomicons, Weather Icons, and Font Awesome, whose
+      licence applies the OFL to its icons packaged as fonts), Apache 2.0
+      (Material Design), CC BY 4.0 (Codicons), the Unlicense (Font Logos)
+      and MIT (Octicons and the rest).
+  baud-app/fonts/built/Regular.ttf
+  baud-app/fonts/built/Bold.ttf
+      and OFL.txt, FONTLOG.txt and AUTHORS.txt beside them: JetBrains Mono
+      with Hebrew drawn from Cascadia Mono, a Modified Version under the SIL
+      Open Font License 1.1 (OFL.txt, which carries both copyright lines).
+  baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf
+  baud-app/fonts/glyphs/languages/hebrew/anchors-400.json
+  baud-app/fonts/glyphs/languages/hebrew/anchors-700.json
+      Cascadia Mono from Cascadia Code v2407.24, and data read out of it
+      (the anchors files under OFL.txt as SOURCE states, pending the call
+      below): SIL Open Font License 1.1, as its repository's LICENSE states
+      (OFL.txt, SOURCE).
+
+  Three questions about these files are open, and this section does not
+  answer them; baud-app/fonts/built/FONTLOG.txt records the first two. The
+  Cascadia release binary's own name table carries a notice that differs from
+  its repository's licence. Whether the Hebrew build modules (the files under
+  baud-app/fonts/glyphs/languages/hebrew/build/, and casanchors.py beside
+  them) are Font Software under the OFL or code under this licence has not
+  been decided, nor whether anchors-400.json and anchors-700.json, data read
+  out of Cascadia Mono, are: hebrew/SOURCE states them under OFL.txt and the
+  licence call is to confirm it. And baud-font/tests/var/outlines.txt,
+  outlines of JetBrains Mono's and Fira Code's variable fonts written by
+  scripts/gvar-oracle.py, may be part of the Font Software under OFL
+  condition 5; this section names it under neither licence.
+
+Fonts the tests read:
+
+  baud-font/tests/fonts/BungeeTint-Regular.ttf
+      SIL Open Font License 1.1 (BungeeTint-LICENSE.txt).
+  baud-font/tests/fonts/FiraCode-Regular.ttf
+  baud-font/tests/fonts/FiraCode-VF.ttf
+      SIL Open Font License 1.1 (FiraCode-LICENSE.txt).
+  baud-font/tests/fonts/JetBrainsMono-Regular.ttf
+  baud-font/tests/fonts/JetBrainsMono-Variable.ttf
+  baud-font/tests/fonts/JetBrainsMono-Italic-Variable.ttf
+      SIL Open Font License 1.1 (JetBrainsMono-LICENSE.txt).
+  baud-font/tests/fonts/NotoColorEmoji-subset.ttf
+      A subset of Noto Color Emoji, a Modified Version under the SIL Open
+      Font License 1.1 (NotoColorEmoji-LICENSE.txt).
+  baud-font/tests/var/bake/JetBrainsMono-Variable-400.ttf
+  baud-font/tests/var/bake/JetBrainsMono-Variable-700.ttf
+  baud-font/tests/var/bake/JetBrainsMono-Italic-Variable-400.ttf
+  baud-font/tests/var/bake/JetBrainsMono-Italic-Variable-700.ttf
+      Instances of JetBrains Mono's variable fonts, Modified Versions under
+      the SIL Open Font License 1.1 (JetBrainsMono-LICENSE.txt).
+
+The other fonts under baud-font/tests/ were written from nothing by baud's
+own scripts and are under this licence: sbix-strikes.ttf, cblc-cases.ttf,
+gvar-cases.ttf, the cases fonts in var/bake/ and everything in var/hvar/.
