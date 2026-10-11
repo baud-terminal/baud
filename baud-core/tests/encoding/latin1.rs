@@ -583,7 +583,7 @@ fn fed_split<R>(bytes: &[u8], at: usize, f: impl FnOnce(&Term<'_>) -> R) -> R {
 
 /// Holds `eight` against `seven` at every read size from one byte to the
 /// whole program, and at every split into two reads.
-fn same_outcome_at_every_split(what: &str, eight: &[u8], seven: &[u8]) {
+pub(super) fn same_outcome_at_every_split(what: &str, eight: &[u8], seven: &[u8]) {
     fed(seven, seven.len(), |want| {
         for size in 1..=eight.len() {
             fed(eight, size, |got| {

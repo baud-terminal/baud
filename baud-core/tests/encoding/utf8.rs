@@ -342,6 +342,125 @@ fn a_del_in_csi_param_is_ignored_and_the_sequence_goes_on() {
     }
 }
 
+/// **A DEL in any state of an escape or control sequence is ignored, and the
+/// sequence goes on**, under both encodings.
+///
+/// `[[source: williams]]` gives `7F` the *ignore* action, the state staying
+/// where it is, in `escape` (286), `escape intermediate` (293), `csi entry`
+/// (306), `csi param` (315), `csi intermediate` (328) and `csi ignore`. baud's
+/// one `Escape` node is both escape states, and `StrEsc`, the `ESC` inside a
+/// control string, is williams' `escape` reached from a string, so `ESC DEL \`
+/// there is the `ST` it ends. Three rows of `docs/vt-coverage.md` were
+/// `partial` on this: `escape`, `escape_intermediate`, and "`7F` DEL in
+/// `csi_entry` or `csi_intermediate`". `escape` ended the sequence at the
+/// `DEL`, so `ab ESC DEL 7 cd ESC 8 X` lost its DECSC and drew the `7`;
+/// `ESC ( DEL 0` designated nothing; and `csi_entry` and `csi_intermediate`
+/// sent the sequence to `csi_ignore`, so `CSI DEL 5 C` moved nothing and
+/// `CSI ! DEL p` was no DECSTR.
+///
+/// Each state is opened, given a `DEL`, and held at every read size and every
+/// split into two reads against the same program without it, on four tails
+/// that read differently wherever the `DEL` ends something: an escape final
+/// and an `SGR` (`5m`), a parameter list (`0;T`), a DECRQSS (`$qm ST`), and
+/// a `\`, the `ST` after an `ESC` in a string. The named cases below say what
+/// the `DEL` used to cost.
+#[test]
+fn a_del_in_any_escape_or_control_sequence_is_ignored_and_the_sequence_goes_on() {
+    let states: [(&str, &[u8]); 15] = [
+        ("escape", b"\x1b"),
+        ("escape intermediate (", b"\x1b("),
+        ("escape intermediate SP", b"\x1b "),
+        ("escape intermediate #", b"\x1b#"),
+        ("escape intermediate %", b"\x1b%"),
+        ("escape, two intermediates", b"\x1b(%"),
+        ("csi entry", b"\x1b["),
+        ("csi param, after a separator", b"\x1b[1;"),
+        ("csi param, after a digit", b"\x1b[12"),
+        ("csi param, after a marker", b"\x1b[?"),
+        ("csi intermediate", b"\x1b[1 "),
+        ("csi ignore", b"\x1b[1?"),
+        ("ESC inside an OSC", b"\x1b]0;ab\x1b"),
+        ("ESC inside a DECRQSS", b"\x1bP$qm\x1b"),
+        ("ESC inside an APC", b"\x1b_ab\x1b"),
+    ];
+    let tails: [&[u8]; 4] = [
+        b"5mY\x07\r\tZ[}",
+        b"0;T\x07\r\tZ[}",
+        b"$qm\x1b\\\r\tZ[}",
+        b"\\Y\r\tZ[}",
+    ];
+    for (enc, pre) in [("UTF-8", b"".as_slice()), ("ISO 8859-1", b"\x1b%@")] {
+        for (name, open) in states {
+            for tail in tails {
+                let what = format!("{enc}: DEL in {name}, then {}", tail.escape_ascii());
+                let with = [pre, b"X", open, b"\x7f", tail].concat();
+                let without = [pre, b"X", open, tail].concat();
+                super::latin1::same_outcome_at_every_split(&what, &with, &without);
+            }
+        }
+    }
+    // What each departure cost, against its control.
+    let named: [(&str, &[u8], &[u8]); 6] = [
+        (
+            "escape: the DECSC holds",
+            b"ab\x1b\x7f7cd\x1b8X",
+            b"ab\x1b7cd\x1b8X",
+        ),
+        (
+            "escape intermediate: G0 designated",
+            b"\x1b(\x7f0q",
+            b"\x1b(0q",
+        ),
+        ("csi entry: the cursor moves", b"\x1b[\x7f5CX", b"\x1b[5CX"),
+        (
+            "csi entry: a marker after the DEL",
+            b"\x1b[\x7f?25lX",
+            b"\x1b[?25lX",
+        ),
+        (
+            "csi intermediate: DECSTR",
+            b"\x1b[31m\x1b[!\x7fpY",
+            b"\x1b[31m\x1b[!pY",
+        ),
+        (
+            "string ESC: ESC DEL \\ ends the OSC",
+            b"\x1b]0;t\x1b\x7f\\Y",
+            b"\x1b]0;t\x1b\\Y",
+        ),
+    ];
+    for (what, with, without) in named {
+        super::latin1::same_outcome_at_every_split(what, with, without);
+    }
+    // Positive controls: each named program without the DEL does what its
+    // name says, so the comparison above is against a working function.
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"ab\x1b7cd\x1b8X");
+    assert_eq!(decode_of(&t), [0x61, 0x62, 0x58, 0x64], "DECSC: abXd");
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"\x1b[?25lX");
+    assert!(!t.cursor_visible(), "CSI ? 25 l hides the cursor");
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"\x1b]0;t\x1b\\Y");
+    assert_eq!(t.title(), b"t", "ESC \\ ends the OSC");
+}
+
+/// The first row's characters up to the last written cell, as codepoints.
+fn decode_of(t: &Term<'_>) -> Vec<u32> {
+    let row = &t.viewport()[..usize::from(support::CORPUS.ws_col)];
+    let end = row
+        .iter()
+        .rposition(|c| c.content.as_codepoint().is_some())
+        .map_or(0, |i| i + 1);
+    row[..end]
+        .iter()
+        .map(|c| c.content.as_codepoint().map_or(0, |c| c.value()))
+        .collect()
+}
+
 /// The designations that load a slot a right half could hold: `ESC ) * +`
 /// load G1-G3, with DEC Special Graphics (`0`) and the United Kingdom set
 /// (`A`), two of the sets baud translates; the national sets, which it also

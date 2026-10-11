@@ -1104,8 +1104,11 @@ fn a_control_function_ends_the_cluster_before_it() {
         ansi("CSI 1 < m", b"\x1b[1<m", Effect::Stays),
         ansi("CSI SP 1 m", b"\x1b[ 1m", Effect::Stays),
         ansi("CSI : m", b"\x1b[:m", Effect::Stays),
-        // An escape sequence whose second byte is no final: `ESC DEL`.
-        ansi("ESC DEL", b"\x1b\x7f", Effect::Stays),
+        // An escape sequence with a `DEL` in it, which it ignores and goes
+        // on (`[[source: williams]]` 286): `ESC DEL ( B` designates ASCII.
+        // `ESC DEL` alone ended the sequence until 2026-10-11, and now leaves
+        // it open for the continuation's lead byte.
+        ansi("ESC DEL ( B", b"\x1b\x7f(B", Effect::Stays),
         // VT52, entered before the letters so that nothing but the function
         // stands between them and the continuation: cursor right, and a
         // direct address to the first row and the sixth column.

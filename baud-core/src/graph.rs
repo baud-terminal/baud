@@ -993,10 +993,17 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // `[[source: williams]]`: `ESC \` is the *only* string terminator, and
         // a bare `ESC` cancels the string rather than continuing it. Code that
         // assumed the byte after `ESC` was the backslash swallowed a `NEL`.
+        //
+        // **A `DEL` after that `ESC` is ignored and the node stays**, so
+        // `ESC DEL \` is the `ST` it would be without it: this node is
+        // williams' `escape` reached from a string, which ignores `7F` (286).
+        // It went to `Escape` with `Again`, which ended the string there and
+        // took the `\` for a bare `ST`.
         Node::StrEsc => {
-            return match b.is(StreamByte::from_stream(0x5c)) {
-                true => edge(Act::StrEnd, Node::AfterControl),
-                false => edge(Act::Again, Node::Escape),
+            return match b.raw_byte() {
+                0x5c => edge(Act::StrEnd, Node::AfterControl),
+                0x7f => edge(Act::Consume, Node::StrEsc),
+                _ => edge(Act::Again, Node::Escape),
             };
         }
         Node::AfterControl | Node::Vt52AfterControl => return after_control(enc, node, b),
@@ -1151,6 +1158,12 @@ const fn escape(b: StreamByte) -> Edge {
         // designation land on the same arm as its final byte alone.
         0x20..=0x2f => edge(Act::Inter, Node::Escape),
         0x30..=0x7e => edge(Act::EscFinal, Node::AfterControl),
+        // **`DEL` is ignored and the sequence goes on.** `[[source:
+        // williams]]` gives `7F` the *ignore* action in `escape` (286) and in
+        // `escape intermediate` (293), and this node is both. It fell to the
+        // arm below, which ended the sequence, so `ESC DEL 7` drew the `7`
+        // and lost the DECSC, and `ESC ( DEL 0` designated nothing.
+        0x7f => edge(Act::Consume, Node::Escape),
         _ => edge(Act::Consume, Node::AfterControl),
     }
 }
@@ -1167,6 +1180,11 @@ const fn csi_entry(b: StreamByte) -> Edge {
         0x3c..=0x3f => edge(Act::Marker, Node::CsiParam),
         0x20..=0x2f => edge(Act::Inter, Node::CsiInter),
         0x40..=0x7e => edge(Act::CsiFinal, Node::AfterControl),
+        // **`DEL` is ignored here, and a marker is still legal after it**:
+        // `[[source: williams]]`'s `csi entry` ignores `7F` and stays (306).
+        // It sent the sequence to `csi_ignore`, so `CSI DEL 5 C` moved
+        // nothing.
+        0x7f => edge(Act::Consume, Node::CsiEntry),
         _ => edge(Act::Consume, Node::CsiIgnore),
     }
 }
@@ -1197,6 +1215,10 @@ const fn csi_inter(b: StreamByte) -> Edge {
     match b.raw_byte() {
         0x20..=0x2f => edge(Act::Inter, Node::CsiInter),
         0x40..=0x7e => edge(Act::CsiFinal, Node::AfterControl),
+        // `[[source: williams]]`'s `csi intermediate` ignores `7F` and stays
+        // (328). It sent the sequence to `csi_ignore`, so `CSI ! DEL p` was
+        // no DECSTR.
+        0x7f => edge(Act::Consume, Node::CsiInter),
         _ => edge(Act::Consume, Node::CsiIgnore),
     }
 }
@@ -1637,6 +1659,18 @@ mod classes {
         // | a GR byte in a DCS prefix is its 7-bit byte (Latin-1) | **41/1,313/35,570/893,413** | **+34.7%** |
         // | the grounds after a control, `Node::AfterControl` | **41/1,313/34,972/852,113** | **-4.6%** |
         // | ... and `Bad` there takes the ground's edge | **41/1,313/34,972/856,965** | +0.6% |
+        // | `DEL` ignored in `escape`, `csi entry`, `csi intermediate` and a string's `ESC` | **41/1,314/35,265/869,631** | +1.5% |
+        //
+        // **The `DEL` row moves eight edges and splits one pair.** Against a
+        // dump of every edge before and after, exactly eight changed: `7F` in
+        // `Escape`, `CsiEntry`, `CsiInter` and `StrEsc`, under both encodings,
+        // each now `Consume` in place, where the first ended the sequence, the
+        // `CSI` two led to `CsiIgnore` and `StrEsc` went to `Escape` with
+        // `Again`. Stride 1 stays at 41, class for class: `7F` was a class of
+        // its own already. At stride 2 one old class splits in two and none
+        // merge: `7F` then `5C` leaves `7F` then the other finals, because
+        // from `StrEsc` the `DEL` now stays and the `\` ends the string. Strides
+        // 3 and 4 compound the same and were not decomposed.
         //
         // **The GR prefix row is a prefix's cost again, and stride 1 moves for
         // the first time since the `BEL` split, for DECRQSS's reason**, 36 ->
@@ -1852,9 +1886,9 @@ mod classes {
         // Sixel stated as arithmetic, the same shape every action this file
         // adds pays.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 1_313, "stride 2");
-        assert_eq!(three.len(), 34_972, "stride 3");
-        assert_eq!(four.len(), 856_965, "stride 4");
+        assert_eq!(two.len(), 1_314, "stride 2");
+        assert_eq!(three.len(), 35_265, "stride 3");
+        assert_eq!(four.len(), 869_631, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2520,6 +2554,35 @@ mod classes {
                     Edge::of(enc, Node::StrEsc, StreamByte::ALL[v]),
                     edge(Act::Again, Node::Escape),
                     "StrEsc {enc:?} byte {v:#04x}"
+                );
+            }
+        }
+    }
+
+    /// **A `DEL` in every node of an escape or control sequence is ignored and
+    /// the node stays, under both encodings.** `[[source: williams]]` gives
+    /// `7F` the *ignore* action in `escape` (286), `escape intermediate`
+    /// (293), `csi entry` (306), `csi param` (315), `csi intermediate` (328)
+    /// and `csi ignore`. `Escape` is both escape states, and `StrEsc` is
+    /// williams' `escape` reached from a string. `Escape` and `StrEsc` led
+    /// out of the sequence on it, and `CsiEntry` and `CsiInter` to
+    /// `CsiIgnore`. Named edges, so a comparison cannot pass with both sides
+    /// moved, and checked against the shipped table.
+    #[test]
+    fn a_del_in_an_escape_or_control_sequence_is_ignored_and_the_node_stays() {
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            for node in [
+                Node::Escape,
+                Node::CsiEntry,
+                Node::CsiParam,
+                Node::CsiInter,
+                Node::CsiIgnore,
+                Node::StrEsc,
+            ] {
+                assert_eq!(
+                    Edge::of(enc, node, StreamByte::DEL),
+                    edge(Act::Consume, node),
+                    "{enc:?} {node:?}"
                 );
             }
         }
