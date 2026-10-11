@@ -251,9 +251,11 @@ impl UpdatesOpened {
 /// and the field cannot be confused with a flag.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SixelBg {
-    /// `P2` = 1, or absent: unpainted pixels are transparent, which baud does.
+    /// `P2` = 1: unpainted pixels are transparent, which baud does; and a
+    /// value past 2, which neither DEC text lists.
     Transparent,
-    /// `P2` = 0 or 2: an opaque background baud does not fill; counted.
+    /// `P2` = 0 or 2, or absent or empty, which is 0: an opaque background
+    /// baud does not fill; counted.
     Opaque,
 }
 

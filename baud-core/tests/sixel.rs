@@ -809,6 +809,7 @@ const P2_OPAQUE: &[u8] = b"\x1bP0;0;0q#0;2;100;0;0~\x1b\\"; // P2 = 0, opaque ba
 const P2_MODE2: &[u8] = b"\x1bP0;2;0q#0;2;100;0;0~\x1b\\"; // P2 = 2, also opaque for a display
 const P2_TRANSPARENT: &[u8] = b"\x1bP0;1;0q#0;2;100;0;0~\x1b\\"; // P2 = 1, what baud does
 const P2_NONE: &[u8] = b"\x1bPq#0;2;100;0;0~\x1b\\"; // no parameters at all
+const P2_EMPTY: &[u8] = b"\x1bP0;;0q#0;2;100;0;0~\x1b\\"; // P2 present and empty
 
 #[test]
 fn an_opaque_p2_is_counted_and_the_image_still_draws() {
@@ -833,17 +834,33 @@ fn an_opaque_p2_is_counted_and_the_image_still_draws() {
 }
 
 #[test]
-fn a_transparent_or_absent_p2_is_not_counted() {
-    // P2 = 1 is exactly baud's behaviour, and an absent P2 is no explicit
-    // request -- neither is a gap, so neither is counted.
+fn a_transparent_p2_is_not_counted() {
+    // P2 = 1 is exactly baud's behaviour, so it is no gap and is not counted.
     run(P2_TRANSPARENT, P2_TRANSPARENT.len(), ample(), |t| {
         assert_eq!(t.images().sixel_p2_ignored, 0, "P2 = 1 is honoured");
         assert_eq!(t.images().placements().count(), 1);
     });
-    run(P2_NONE, P2_NONE.len(), ample(), |t| {
-        assert_eq!(t.images().sixel_p2_ignored, 0, "no P2 is no request");
-        assert_eq!(t.images().placements().count(), 1);
-    });
+}
+
+/// **An absent or empty `P2` is `P2 = 0`, and is counted as 0 is.**
+/// `[[source: vt3xx-sixel]]` lists `P2` "0 or 2 (default)", "Pixel positions
+/// specified as 0 are set to the current background color", and of an
+/// omitted parameter says "If there is no number before the separator, the
+/// terminal assumes that parameter is 0"; `[[source: dec-std-070]]` 070-9
+/// §7.2 makes 0 the "device default action". So `ESC P q` asks what
+/// `ESC P 0;0;0 q` asks. It was not counted until 2026-10-11 while the
+/// explicit 0 was, so the number the fill's decision reads missed every
+/// `ESC P q` stream, libsixel's among them.
+#[test]
+fn an_absent_or_empty_p2_is_counted_as_zero_is() {
+    for (name, body) in [("absent", P2_NONE), ("empty", P2_EMPTY)] {
+        for chunk in [1usize, 2, body.len()] {
+            run(body, chunk, ample(), |t| {
+                assert_eq!(t.images().sixel_p2_ignored, 1, "{name}, chunk {chunk}");
+                assert_eq!(t.images().placements().count(), 1, "{name}: placed");
+            });
+        }
+    }
 }
 
 #[test]
@@ -953,7 +970,7 @@ const GR_SIXELS: [Gr; 8] = [
         "F1: a bare q",
         b"\x1bP\xf1#0;2;100;0;0~\x1b\\Z",
         b"\x1bPq#0;2;100;0;0~\x1b\\Z",
-        0,
+        1,
     ),
     (
         "B0 BB B2 FF F1: FF ignored",

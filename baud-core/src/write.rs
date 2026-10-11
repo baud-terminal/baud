@@ -666,9 +666,12 @@ pub(crate) fn act(
             // background where baud renders unpainted pixels transparent. Record
             // which it is for `sixel_end` to count *after* the image stores --
             // a refused Sixel drew nothing, so it is not a request the fill
-            // would have helped. An absent or empty second parameter is
-            // transparent: `for_each_param` yields only the parameters present,
-            // so fewer than two leaves `p2` `None`.
+            // would have helped. An absent or empty second parameter is 0,
+            // so it asks too: `[[source: vt3xx-sixel]]` lists `P2` "0 or 2
+            // (default)" and reads a missing parameter as 0. `for_each_param`
+            // yields only the parameters present, so fewer than two leaves
+            // `p2` `None`, and an empty one is `None` as well. A value the
+            // texts do not list, past 2, is not counted.
             //
             // `P1`, the first, is the macro parameter, which sets the pixel
             // aspect ratio the decode starts at (`SixelAspect::from_macro`);
@@ -686,7 +689,7 @@ pub(crate) fn act(
             });
             p.cold.sixel_aspect = SixelAspect::from_macro(p1.map(|v| v.value()));
             p.cold.sixel_bg = match p2.map(|v| v.value()) {
-                Some(0) | Some(2) => crate::term::SixelBg::Opaque,
+                None | Some(0) | Some(2) => crate::term::SixelBg::Opaque,
                 _ => crate::term::SixelBg::Transparent,
             };
             csi.reset();

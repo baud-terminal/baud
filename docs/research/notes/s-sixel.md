@@ -658,6 +658,24 @@ if the operation regressed.
   counts +0.6% at stride 4 (the pinned `the_alphabet_reduces_as_the_stride_doubles`
   trade), and the DECRQSS path (`DCS $ q`, and `DCS 1 $ q` with a digit before
   the `$`) is unchanged, which the conformance suite confirms.
+  **Since 2026-10-11 an absent or empty `P2` is counted as 0 is**:
+  `[[source: vt3xx-sixel]]` lists "0 or 2 (default)" and reads a missing
+  parameter as 0, so `ESC P q` asks what `ESC P 0;0;0 q` asks, where the
+  counter missed it. The fill is still not built, for Jev. The colour's texts
+  are read now: `[[source: dec-std-070]]` 070-9 §7.2 calls it "device
+  dependent" and §10 initialises it to the "Device default background";
+  `[[source: vt3xx-sixel]]` says "the current background color", and on the
+  VT340 that is an output-map location, chosen by ReGIS's `S(I...)`
+  (`[[source: vt3xx-screen-control]]`), in the one map its Sixel registers
+  also write -- which xterm follows as the image's register 0 (practice),
+  where baud's registers are private to each image. The region is the
+  image's rectangle, which `[[source: vt3xx-sixel]]` erases with `Ph` and
+  `Pv` and 070-9 allows. And no text says how a background pixel draws on
+  baud's translucent window, where every background carries the window's
+  alpha and an image is composited over the glyphs: at the window's alpha
+  the glyphs under the image show through, and opaque it is a slab the rest
+  of the window is not. The record, "An absent Sixel P2 is P2 = 0, and the
+  fill is for Jev", sets out the options.
 
 ## What this note does not cover
 
