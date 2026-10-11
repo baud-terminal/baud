@@ -12,7 +12,7 @@
 //! than passing, because a comparison that skips itself reads as a pass.
 #![cfg(target_os = "macos")]
 
-use baud_core::{DynamicColor, Owned, Term};
+use baud_core::{Owned, Term};
 use baud_domain::CacheGeometry;
 use baud_domain::{
     BytePos, Chan, Col, Cols, Depth, ImageBudget, PackedCell, ReadLen, Row, RowRot, Rows, WinSize,
@@ -236,7 +236,7 @@ impl Arms<'_, '_> {
             rotation: view.rotation(),
             ring: t.ring(),
             cursor,
-            cursor_color: t.dynamic_color(DynamicColor::Cursor),
+            cursor_color: t.cursor_color_in(self.renderer.video()),
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
@@ -320,7 +320,7 @@ impl Arms<'_, '_> {
             rotation: RowRot::NONE,
             ring: Rows::of_index(ring),
             cursor,
-            cursor_color: t.dynamic_color(DynamicColor::Cursor),
+            cursor_color: t.cursor_color_in(self.renderer.video()),
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
@@ -2123,7 +2123,29 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         0,
         "a flash draws what reverse video draws"
     );
+    // **Again with an `OSC 12` cursor colour equal to the text**, and the
+    // theme's colours told to the core as the app tells them: the flash
+    // draws the colour one flip would leave, the page, on both arms -- a
+    // cell arm that read the stored colour instead of `cursor_color_in`
+    // would draw the text and disagree with the instance arm -- and it is
+    // the frame a real `?5 h` then draws with the colour the flip moved.
+    t.set_default_colors((0xd8, 0xd8, 0xd8), (0x10, 0x10, 0x10));
+    feed(&mut t, b"\x1b]12;rgb:d8/d8/d8\x07");
+    let (flash_a, flash_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&flash_a, &flash_b),
+        0,
+        "the arms disagree under a flash with an OSC 12 equal to the text"
+    );
     arms.renderer.set_flash(VideoFlash::Off);
+    feed(&mut t, b"\x1b[?5h");
+    let (moved_a, _) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&flash_a, &moved_a),
+        0,
+        "a flash draws the cursor colour ?5 h moves it to"
+    );
+    feed(&mut t, b"\x1b[?5l\x1b]112\x07");
     // The positive control: moving the cursor makes the arms disagree, so
     // an equal pair above is two identical drawings and not two blanks.
     let (a, _) = arms.draw(&mut t);

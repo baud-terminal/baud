@@ -1372,9 +1372,23 @@ impl Paint<'_, '_> {
     /// change of the bit goes through here -- `hard_reset`'s `Modes::default`
     /// after it writes the value this has already set -- and a change made
     /// around this would be a flash nothing could see.
+    ///
+    /// **And the cursor colour, before the bit moves**: one equal to the text
+    /// shown becomes the page shown, which the flip then shows as the text
+    /// ([`Video::cursor_across`], xterm's `ReverseVideo`). Here because every
+    /// change of `?5` comes through here, as every one of xterm's calls
+    /// `ReverseVideo` -- `DECSCNM`, XTRESTORE and `RIS` alike.
     fn flip_reverse_video(&mut self, change: ModeChange, during: Update) {
         let was = self.cold.modes.is_set(ModeBit::ReverseVideo);
         let on = change == ModeChange::Set;
+        if was != on {
+            let at = DynamicColor::Cursor.index();
+            self.cold.dynamic[at] = Video::cursor_across(
+                self.cold.dynamic[at],
+                self.cold.shown(DynamicColor::Foreground),
+                self.cold.shown(DynamicColor::Background),
+            );
+        }
         self.cold.modes.apply(ModeBit::ReverseVideo, on);
         if was != on {
             match during {

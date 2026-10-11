@@ -3879,7 +3879,8 @@ already draws like xterm and A is the only consistent completion of that.
   and the reset gap. xterm's DECSTR and RIS reset every OSC 4 entry; baud's
   keep every colour override. That gap exists today and is its own item.
   *(Since closed: both resets clear every OSC 4 override as of 38f0247,
-  2026-09-29.)*
+  2026-09-29; and the cursor-colour rule is built, 2026-10-11, the record's
+  "A cursor colour equal to the text keeps its colour across `?5`".)*
 
 **Built, 2026-10-11, for `OSC 10` and `11`** (the record, "`OSC 10` and
 `11` under `?5` act on the colour shown"): option A, as recommended, in the

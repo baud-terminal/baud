@@ -102,10 +102,11 @@ pub use baud_domain::{
     GSlot, Level, Marker, ModeState, Nrcs, Params,
 };
 /// Control strings' vocabulary: `Chan` names a palette entry and `LinkId`
-/// an `OSC 8` hyperlink, and both are what the accessors return.
+/// an `OSC 8` hyperlink, and both are what the accessors return; `Video` is
+/// the video a frame is drawn in, which `Term::cursor_color_in` takes.
 pub use baud_domain::{
     Chan, ClipboardBudget, ClipboardContent, ClipboardRefusals, ClipboardWrite, ColorWord,
-    DynamicColor, LinkId, Osc, Selection, Selections, StringTerm, XColor,
+    DynamicColor, LinkId, Osc, Selection, Selections, StringTerm, Video, XColor,
 };
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
 /// A reading of how many `OSC 52` writes have been published.

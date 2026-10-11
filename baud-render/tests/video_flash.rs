@@ -93,6 +93,65 @@ fn a_flash_draws_the_other_video() {
     );
 }
 
+/// **An `OSC 12` cursor colour equal to the text is drawn as a flip would
+/// leave it**, under a flash as under `?5`: xterm moves such a colour to the
+/// background on each change of video (`[[source: xterm-scroll]]` util.c
+/// 3293-3295), so the cursor keeps the colour of the text. Without it the
+/// flash drew the cursor in the colour of the page it flashed to.
+#[test]
+fn a_flash_draws_the_cursor_colour_a_flip_would_leave() {
+    let theme = dim_theme();
+    let triple = |c: Argb| {
+        let [_, r, g, b] = c.0.to_be_bytes();
+        (r, g, b)
+    };
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).expect("parse")];
+    let frame = |bytes: &[u8], flash: VideoFlash| {
+        let mut r = renderer(&faces, &WS);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_default_colors(triple(theme.fg), triple(theme.bg));
+        feed(&mut t, bytes);
+        r.set_flash(flash);
+        let mut c = support::Canvas::for_renderer(&r);
+        support::paint(&mut r, &mut t, &mut c, Damage::Full);
+        c.digest()
+    };
+    let (r, g, b) = triple(theme.fg);
+    let cursor = format!("\x1b]12;rgb:{r:02x}/{g:02x}/{b:02x}\x07");
+    let plain = [cursor.as_bytes(), SCENE].concat();
+    let reversed = [cursor.as_bytes(), b"\x1b[?5h", SCENE].concat();
+    assert_ne!(
+        frame(
+            &[b"\x1b]12;rgb:ff/00/00\x07", SCENE].concat(),
+            VideoFlash::On
+        ),
+        frame(&plain, VideoFlash::On),
+        "the control: the frame shows the cursor's colour"
+    );
+    // Under `?5` such a cursor is drawn as one nobody coloured, in the text
+    // shown -- where before it took the page's colour and vanished.
+    assert_eq!(
+        frame(&reversed, VideoFlash::Off),
+        frame(&[b"\x1b[?5h", SCENE].concat(), VideoFlash::Off),
+        "under ?5 the cursor keeps the colour of the text"
+    );
+    assert_eq!(
+        frame(&plain, VideoFlash::On),
+        frame(&reversed, VideoFlash::Off),
+        "a flash over a normal screen draws the cursor ?5 would"
+    );
+    assert_eq!(
+        frame(&reversed, VideoFlash::On),
+        frame(
+            &[reversed.as_slice(), b"\x1b[?5l"].concat(),
+            VideoFlash::Off
+        ),
+        "and over a reversed one, the cursor ?5l would"
+    );
+}
+
 /// The cell path's colour table is resolved by the same rule, so a flash
 /// reaches the shader the way `?5` does.
 #[test]

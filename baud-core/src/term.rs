@@ -2799,6 +2799,26 @@ impl<'b> Term<'b> {
         self.cold.dynamic[which.index()].as_rgb()
     }
 
+    /// The `OSC 12` cursor colour as a frame drawn in `video` shows it: the
+    /// stored one when `video` is the screen's own, and when it is the other
+    /// -- a flash ([`Term::reverse_flips`]) shows the video `?5` did not
+    /// stay in -- the colour the flip into it would have left
+    /// ([`Video::cursor_across`]), so a cursor equal to the text does not
+    /// vanish into the page for the length of a visual bell.
+    pub fn cursor_color_in(&self, video: Video) -> Option<(u8, u8, u8)> {
+        let own = self.cold.dynamic[DynamicColor::Cursor.index()];
+        let word = if video == self.cold.video() {
+            own
+        } else {
+            Video::cursor_across(
+                own,
+                self.cold.shown(DynamicColor::Foreground),
+                self.cold.shown(DynamicColor::Background),
+            )
+        };
+        word.as_rgb()
+    }
+
     /// Tell the core what the embedder's theme draws the default foreground
     /// and background as, so an `OSC 10 ; ?` or `OSC 11 ; ?` on a fresh
     /// terminal can be answered. Every theme-aware program asks `OSC 11` to

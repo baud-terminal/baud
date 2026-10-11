@@ -12,7 +12,7 @@ use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
 use crate::reveal::{Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes};
 use crate::wheel::{Delta, Route, Travel};
-use baud_core::{Depth, DynamicColor, Owned, Screen, Term, Zone, grid_stride};
+use baud_core::{Depth, Owned, Screen, Term, Zone, grid_stride};
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
     KeyEventKind, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking,
@@ -1623,7 +1623,7 @@ impl App {
                     // One more row when sliding: the appended leaving row.
                     ring: Rows::of_index(if sliding { vrows + 1 } else { vrows }),
                     cursor,
-                    cursor_color: self.term.dynamic_color(DynamicColor::Cursor),
+                    cursor_color: self.term.cursor_color_in(self.renderer.video()),
                     highlight,
                     overlay: &cell.overlay[set],
                     records: &cell.records,

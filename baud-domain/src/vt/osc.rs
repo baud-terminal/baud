@@ -156,6 +156,25 @@ impl Video {
             (_, w) => w,
         }
     }
+
+    /// The cursor colour after a change of video, given the text and the
+    /// page shown *before* it: a colour equal to the text becomes the page,
+    /// which the change then shows as the text. xterm's `ReverseVideo` does
+    /// exactly that before its swap (`[[source: xterm-scroll]]` util.c
+    /// 3293-3295), and `ReverseOldColors` to the copy `OSC 12 ; ?` answers
+    /// from (`[[source: xterm-misc]]` misc.c 6418-6431), so the cursor keeps
+    /// the text's colour instead of vanishing into the page.
+    ///
+    /// A cursor colour nobody set ([`ColorWord::DEFAULT`]) is drawn in the
+    /// text colour already, and stays unset; so does one whose page is not
+    /// known, which is a core no embedder told its colours.
+    pub fn cursor_across(cursor: ColorWord, text: ColorWord, page: ColorWord) -> ColorWord {
+        if !cursor.is_default() && cursor == text && !page.is_default() {
+            page
+        } else {
+            cursor
+        }
+    }
 }
 
 /// The mark an `OSC 133` carries.

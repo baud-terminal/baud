@@ -23,8 +23,8 @@ use crate::units::{Band, Tally};
 use baud_core::Term;
 use baud_domain::contrast::CurveRow;
 use baud_domain::{
-    Attrs, Chan, ClusterSlot, Codepoint, Col, Cols, CursorStyle, DynamicColor, GlyphId, ImageGen,
-    ImageId, PackedCell, Row, Rows,
+    Attrs, Chan, ClusterSlot, Codepoint, Col, Cols, CursorStyle, GlyphId, ImageGen, ImageId,
+    PackedCell, Row, Rows,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -1136,6 +1136,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.flash = flash;
     }
 
+    /// The video the last convert or resolve drew in: `?5`'s, or under a
+    /// flash the other one. What a caller that draws the cursor itself -- the
+    /// cell path -- reads the `OSC 12` colour in ([`Term::cursor_color_in`]).
+    pub fn video(&self) -> Video {
+        self.video
+    }
+
     /// Replace the palette every rendition resolves against.
     ///
     /// **Every cell's colour changes, so the damage cache has to go**: row
@@ -1169,7 +1176,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.video = video_of(term, self.flash);
         let defaults = self.theme.defaults(self.video, |d| term.dynamic_color(d));
         let fill = term
-            .dynamic_color(DynamicColor::Cursor)
+            .cursor_color_in(self.video)
             .map_or(defaults.0, |(r, g, b)| {
                 Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
             });
@@ -2215,9 +2222,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // `OSC 12` cursor colour, if the application set one. Read once for the
         // row -- it is terminal-global -- and used where the cursor draws: the
         // block cursor fills with it (rather than the reverse-video swap) and
-        // the bar or underline cursor's shape takes it.
+        // the bar or underline cursor's shape takes it. As this frame's video
+        // shows it, which under a flash is the colour a flip would leave.
         let cursor_color = term
-            .dynamic_color(DynamicColor::Cursor)
+            .cursor_color_in(self.video)
             .map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)));
         let mut blinks = Blinking::Unseen;
         for (c, cell) in row.iter().enumerate() {
