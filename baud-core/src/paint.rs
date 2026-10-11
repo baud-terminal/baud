@@ -908,11 +908,63 @@ impl<'a, 'b> Paint<'a, 'b> {
     }
 
     /// A zero-width codepoint the cluster machine did not join to anything:
-    /// it goes to the cell before the cursor, the policy `glyph` documents.
+    /// it goes to the character the last write put down, the policy `glyph`
+    /// documents, found as [`Paint::attach_continuing`] finds it -- before the
+    /// cursor, **or under it** while a write in the last column with `DECAWM`
+    /// reset has it pinned there. Reading `cx - 1` here put a mark after an
+    /// `SGR`, a `BEL` or an `OSC`, and a `U+200B`, which the machine breaks
+    /// before with nothing between, on the letter left of that character with
+    /// autowrap reset and on the character with it set
+    /// (`tests/margin_pin.rs`).
+    ///
+    /// **Here a control can have come between**, so the pin is kept fresh by
+    /// what moves the cursor: every horizontal move goes through
+    /// [`Paint::set_col`], which ends it, and a `?7h` or `?7l` ends it too, as
+    /// does a resize that clamps the cursor. A vertical move keeps it, as it
+    /// keeps the pending-wrap column with `DECAWM` set, so the mark goes to the
+    /// last column of the row the cursor is on under both modes. Where a mark
+    /// after a control belongs at all is note AB's Q24: GB4 and GB5 end the
+    /// cluster there, a defective combining character sequence
+    /// (`[[source: unicode18-ch3]]` D57).
     #[cold]
     #[inline(never)]
     pub(crate) fn attach(&mut self, cp: Codepoint) {
-        self.attach_before(cp, self.cx)
+        self.attach_before(cp, self.after_last_write())
+    }
+
+    /// The column after the character the last write put down: the cursor's,
+    /// or one past it where that write ended in the last column with `DECAWM`
+    /// reset and nothing has moved the cursor across since
+    /// ([`crate::term::Pinned`]).
+    fn after_last_write(&self) -> Col {
+        let on_last = !self.cold.modes.is_set(ModeBit::AutoWrap)
+            && self.cold.pinned == crate::term::Pinned::OnLast;
+        match on_last {
+            true => Col::at_index(self.cx.index() + 1),
+            false => self.cx,
+        }
+    }
+
+    /// Move the cursor to column `c` without writing there, which ends a pin:
+    /// the character the last write put down is no longer under the cursor
+    /// or before it ([`crate::term::Pinned`], [`Paint::attach`]). Every
+    /// horizontal move but a write's comes here; a write sets the pin itself,
+    /// in [`Paint::end_at`].
+    ///
+    /// **The pin is cleared only where it is set**, which is only ever with
+    /// `DECAWM` reset, so with autowrap set a move writes no byte for it
+    /// (rule 1). Paired by round it counts 1.7-4.2 instructions a move above
+    /// the parent, and a plain store 1.5-2.2; these are medians whose ranges
+    /// touch the parent's, so neither is a result; the store form read `cat` below the parent in
+    /// every round paired and this form level, a lead and not a result,
+    /// since the ranges touch (`docs/record.md`, "A zero-width character
+    /// after a control goes where it goes with autowrap set").
+    #[inline(always)]
+    pub(crate) fn set_col(&mut self, c: Col) {
+        self.cx = c;
+        if self.cold.pinned != crate::term::Pinned::Before {
+            self.cold.pinned = crate::term::Pinned::Before;
+        }
     }
 
     /// A codepoint the cluster machine joined to the character before it:
@@ -932,13 +984,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     pub(crate) fn attach_continuing(&mut self, cp: Codepoint) {
-        let on_last = !self.cold.modes.is_set(ModeBit::AutoWrap)
-            && self.cold.pinned == crate::term::Pinned::OnLast;
-        let after = match on_last {
-            true => Col::at_index(self.cx.index() + 1),
-            false => self.cx,
-        };
-        self.attach_before(cp, after)
+        self.attach_before(cp, self.after_last_write())
     }
 
     /// Make the narrow character at `(r, o)` two cells wide, as its `U+FE0F`
@@ -1062,7 +1108,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// row they left (`tests/wide_halves.rs`).
     pub(crate) fn goto(&mut self, r: Row, c: Col) {
         let r = Row::from_index(r.index().min(self.rows.index() - 1));
-        self.cx = Col::at_index(c.index().min(self.cols.index() - 1));
+        self.set_col(Col::at_index(c.index().min(self.cols.index() - 1)));
         self.deferred_reset();
         self.set_row(r);
     }
@@ -1234,7 +1280,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.view.set_ended(self.cy);
         self.index();
         if self.cold.modes.is_set(ModeBit::LineFeedNewLine) {
-            self.cx = Col::ZERO;
+            self.set_col(Col::ZERO);
         }
     }
 

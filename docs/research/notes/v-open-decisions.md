@@ -3073,6 +3073,13 @@ Two existing problems the review found, both found by reading:
   So an accent sent there joins the neighbour. It is wrong today for combining
   marks; no test covers a mark after `?7l`. Pinned ghostty checks whether the
   cursor's own cell holds the base (Terminal.zig:1242-1246).
+  **Fixed in two halves**: the joined mark on 2026-10-10 (`docs/record.md`,
+  "With `DECAWM` reset the character just written is under the cursor"), and
+  the policy path, a mark after a control or a `U+200B`, on 2026-10-11 ("A
+  zero-width character after a control goes where it goes with autowrap
+  set"), by the pin kept fresh across controls rather than by ghostty's
+  content check, which cannot tell a cell just written from one the cursor
+  moved onto.
 - **`ModeBit::LAST` is stale.** It names `AltSendsEscape` (mode.rs:219), but
   `Column132`, `SynchronizedOutput` and `InbandResize` are declared after it,
   so the guard against overflowing the 32-bit mode word checks the wrong

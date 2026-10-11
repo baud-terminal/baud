@@ -288,10 +288,12 @@ pub(crate) enum SixelBg {
 /// before it, and a continuation has to know which (`Paint::attach_continuing`,
 /// `tests/margin_pin.rs`).
 ///
-/// Written only where `DECAWM` is reset, and read only on a continuation the
-/// cluster machine accepted with `DECAWM` still reset: a continuation means no
-/// control came between, so the character it continues is the last one
-/// written, and that write set this.
+/// Written only where `DECAWM` is reset, and read only while it still is, by
+/// `Paint::attach_continuing` and `Paint::attach` through
+/// `Paint::after_last_write`. A zero-width codepoint after a control can
+/// follow any control, so every horizontal move ends the pin
+/// (`Paint::set_col`), as do `?7h`, `?7l` and a resize that clamps the
+/// cursor; a vertical move keeps it.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Pinned {
     /// The character ended before the last column; the cursor is after it.
@@ -1587,7 +1589,13 @@ impl<'b> Term<'b> {
         };
         book.swept = book.top;
         self.cy = Row::from_index(self.cy.index().min(rows.index() - 1));
-        self.cx = Col::at_index(self.cx.index().min(cols.index() - 1));
+        // A clamp is a horizontal move, so it ends the pin as `Paint::set_col`
+        // does: the cursor is no longer after the character written last.
+        let clamped = Col::at_index(self.cx.index().min(cols.index() - 1));
+        if clamped != self.cx {
+            self.cold.pinned = Pinned::Before;
+        }
+        self.cx = clamped;
         self.cold.top = Row::ZERO;
         self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
         self.cold.left = Col::ZERO;

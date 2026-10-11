@@ -34,8 +34,8 @@ impl Paint<'_, '_> {
                 let rows = self.rows;
                 self.set_row(self.confine(self.cy.down(Count::ONE, rows)));
             }
-            Vt52::CursorRight => self.cx = self.cx.forward(Count::ONE, self.cols),
-            Vt52::CursorLeft => self.cx = self.cx.back(Count::ONE),
+            Vt52::CursorRight => self.set_col(self.cx.forward(Count::ONE, self.cols)),
+            Vt52::CursorLeft => self.set_col(self.cx.back(Count::ONE)),
             // `[[source: ctlseqs]]` maps `ESC F`/`ESC G` onto the DEC special
             // graphics set, which this core already has for `ESC ( 0` -- so
             // this is a designation into the active slot rather than a second

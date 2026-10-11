@@ -1139,7 +1139,7 @@ impl Paint<'_, '_> {
                     break;
                 }
             }
-            self.cx = Col::at_index(x);
+            self.set_col(Col::at_index(x));
         }
     }
 
@@ -1155,7 +1155,7 @@ impl Paint<'_, '_> {
                     break;
                 }
             }
-            self.cx = Col::at_index(x);
+            self.set_col(Col::at_index(x));
         }
     }
 
@@ -1212,7 +1212,7 @@ impl Paint<'_, '_> {
         }
         self.cold.left = Col::at_index(l);
         self.cold.right = Col::at_index(r);
-        self.cx = Col::ZERO;
+        self.set_col(Col::ZERO);
         self.set_row(Row::ZERO);
     }
 
@@ -1403,7 +1403,14 @@ impl Paint<'_, '_> {
                 };
                 self.goto(r, Col::ZERO);
             }
-            PrivateMode::AutoWrap => self.cold.modes.apply(ModeBit::AutoWrap, on),
+            // **The pin goes with the mode it was written under.** With
+            // `DECAWM` set a write does not touch `Cold::pinned`, so a pin left
+            // from before a `?7h` would name a character long since passed by
+            // the time a `?7l` makes it readable again.
+            PrivateMode::AutoWrap => {
+                self.cold.modes.apply(ModeBit::AutoWrap, on);
+                self.cold.pinned = crate::term::Pinned::Before;
+            }
             // **`?3` DECCOLM is not just a bit.** `[[source: ctlseqs]]` has it
             // reset the scrolling region, home the cursor and **clear the
             // screen**, either way -- an application uses it to get a known
@@ -1415,7 +1422,7 @@ impl Paint<'_, '_> {
                 self.cold.modes.apply(ModeBit::Column132, on);
                 self.cold.top = Row::ZERO;
                 self.cold.bot = Row::from_index(self.rows.index() - 1);
-                self.cx = Col::ZERO;
+                self.set_col(Col::ZERO);
                 self.clear_screen();
                 self.set_row(Row::ZERO);
             }

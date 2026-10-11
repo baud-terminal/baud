@@ -356,7 +356,7 @@ pub(crate) fn act(
         // without reaching the `Index` arm, and leaves the cursor at column 0
         // too.
         Act::Return => {
-            p.cx = Col::ZERO;
+            p.set_col(Col::ZERO);
             match left.index() >= 2 && p.arena[from.index() + 1] == 0x0a {
                 true => {
                     p.index();
@@ -381,11 +381,11 @@ pub(crate) fn act(
         // told the terminal it is not drawing.
         Act::Backspace => {
             if p.cx.index() > p.cold.left.index() {
-                p.cx = Col::at_index(p.cx.index() - 1);
+                p.set_col(Col::at_index(p.cx.index() - 1));
             } else if p.cold.modes.is_set(ModeBit::ReverseWrap) && p.cy.index() > p.cold.top.index()
             {
                 p.set_row(Row::from_index(p.cy.index() - 1));
-                p.cx = p.cold.right;
+                p.set_col(p.cold.right);
             }
             ReadLen::ONE
         }
@@ -1586,23 +1586,23 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         }
         DomCsi::CursorUp(c) => p.set_row(p.confine(p.cy.up(c))),
         DomCsi::CursorDown(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
-        DomCsi::CursorForward(c) => p.cx = p.cx.forward(c, p.cols),
-        DomCsi::CursorBack(c) => p.cx = p.cx.back(c),
+        DomCsi::CursorForward(c) => p.set_col(p.cx.forward(c, p.cols)),
+        DomCsi::CursorBack(c) => p.set_col(p.cx.back(c)),
         DomCsi::CursorNextLine(c) => {
             p.set_row(p.confine(p.cy.down(c, p.rows)));
-            p.cx = Col::ZERO;
+            p.set_col(Col::ZERO);
         }
         DomCsi::CursorPrevLine(c) => {
             p.set_row(p.confine(p.cy.up(c)));
-            p.cx = Col::ZERO;
+            p.set_col(Col::ZERO);
         }
-        DomCsi::ColumnAbsolute(c) => p.cx = c.to_col(p.cols),
+        DomCsi::ColumnAbsolute(c) => p.set_col(c.to_col(p.cols)),
         DomCsi::LineAbsolute(r) => {
             let base = p.origin_row().index();
             let want = Row::from_index(base + r.to_row(p.rows).index());
             p.set_row(p.confine(want));
         }
-        DomCsi::ColumnRelative(c) => p.cx = p.cx.forward(c, p.cols),
+        DomCsi::ColumnRelative(c) => p.set_col(p.cx.forward(c, p.cols)),
         DomCsi::LineRelative(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
         DomCsi::EraseInLine(e) => p.erase_line(e),
         DomCsi::EraseInDisplay(e) => p.erase_display(e),
@@ -1898,7 +1898,7 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         }
         Esc::NextLine => {
             p.index();
-            p.cx = Col::ZERO;
+            p.set_col(Col::ZERO);
         }
         Esc::TabSet => {
             let x = p.cx.index();
