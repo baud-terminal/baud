@@ -30,9 +30,9 @@ use baud_render::orb;
 use baud_render::plasma;
 use baud_render::ufo;
 use baud_render::{
-    Argb, Blend, Blink, Candidate, Corners, Damage, FaceRole, FaceStyle, GlyphMap, Highlight,
-    Hover, Instance, Kind, Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved, Scene,
-    Scroll, Scroller, Segment, Shape, Smear, Stack, StyleStamp, Theme, Trail, TrailLook,
+    Argb, Blend, Blink, Candidate, Composition, Corners, Damage, FaceRole, FaceStyle, GlyphMap,
+    Highlight, Hover, Instance, Kind, Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved,
+    Scene, Scroll, Scroller, Segment, Shape, Smear, Stack, StyleStamp, Theme, Trail, TrailLook,
     Transition, VideoFlash, Widths, Window, quad_coverage,
 };
 
@@ -119,6 +119,8 @@ struct Arms<'f, 'a> {
     trail: Option<TrailLook>,
     /// The alternate-screen fade both arms draw, or none.
     fade: Option<Transition>,
+    /// An input method's composition both arms draw, or none.
+    composition: Option<Composition>,
     /// The window copied flat, in screen order -- research decision D4's
     /// buffer, and what the app binds. Held here so a third arm can draw
     /// from it and be compared against the two that read the live grid.
@@ -156,6 +158,7 @@ impl Arms<'_, '_> {
         self.renderer.set_scrollbar(self.window);
         self.renderer.set_trail(self.trail);
         self.renderer.set_screen_fade(self.fade);
+        self.renderer.set_composition(self.composition.clone());
         // Both arms draw the same image placements: computed once here, read by
         // `draw` and `draw_cells` alike.
         self.renderer.set_images(t, self.back);
@@ -166,8 +169,13 @@ impl Arms<'_, '_> {
         // The app's rule: the window by the core's clamp, so the alternate
         // screen -- which keeps no history -- has its cursor whatever
         // window the scene carries.
-        let shown = (t.cursor_visible() && t.looking_back(self.back).index() == 0).then(|| {
-            let (r, c) = t.cursor();
+        let live = t.looking_back(self.back).index() == 0;
+        let composition = self.composition.clone().filter(|_| live);
+        let shown = (t.cursor_visible() && live).then(|| {
+            let (r, c) = match &composition {
+                Some(c) => c.cursor(view.cols()),
+                None => t.cursor(),
+            };
             (r, c, t.cursor_style())
         });
         self.map.ensure(
@@ -190,11 +198,32 @@ impl Arms<'_, '_> {
                 // the `slide` handed to the CellInput below, so the marked
                 // and ligatured slide gate compares like against like.
                 pan: self.slide.unwrap_or(Px::of(0)),
+                composition: composition.as_ref(),
             },
             &mut self.renderer,
             self.overlay_mem,
             &mut self.records,
         );
+        // The composition as the app draws it on the cell path: its cells
+        // masked, its records after the walk's.
+        if let Some(c) = &composition {
+            let under = view
+                .row(c.row)
+                .get(c.col.index())
+                .copied()
+                .unwrap_or(PackedCell::EMPTY);
+            self.exceptions.composed(
+                &mut self.renderer,
+                c,
+                under,
+                self.styles_mem,
+                cursor,
+                view.cols(),
+                self.slide.unwrap_or(Px::of(0)),
+                self.overlay_mem,
+                &mut self.records,
+            );
+        }
         self.records.extend_from_slice(self.renderer.trail());
         self.records.extend_from_slice(self.renderer.scrollbar());
         self.records.extend_from_slice(self.renderer.screen_fade());
@@ -272,9 +301,13 @@ impl Arms<'_, '_> {
         // The app's rule: the window by the core's clamp, so the alternate
         // screen -- which keeps no history -- has its cursor whatever
         // window the scene carries.
-        let cursor = (t.cursor_visible() && t.looking_back(self.back).index() == 0)
+        let live = t.looking_back(self.back).index() == 0;
+        let cursor = (t.cursor_visible() && live)
             .then(|| {
-                let (r, c) = t.cursor();
+                let (r, c) = match self.composition.as_ref().filter(|_| live) {
+                    Some(c) => c.cursor(view.cols()),
+                    None => t.cursor(),
+                };
                 (r, c, t.cursor_style())
             })
             .filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
@@ -1206,6 +1239,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         window: None,
         trail: None,
         fade: None,
+        composition: None,
         copy,
         copy_mem,
         slide: None,
@@ -1734,6 +1768,37 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // trail compared against it differed at the watches whether or not the
     // trail drew anything: the ghost's "reached the pixels" could not fail.
     let (plain, _) = arms.draw(&mut t);
+    // **An input method's composition**, at the cursor and over the text
+    // there: a narrow run and the wide U+231A, which the Noto subset draws.
+    // The cell arm masks the cells and draws records; the instance arm
+    // converts them blank and draws the same records over the row. Both
+    // put the cursor after it, and both must change the pixels.
+    let (cr, cc) = t.cursor();
+    arms.composition = Some(Composition {
+        row: cr,
+        col: cc,
+        text: "ime\u{231a}"
+            .chars()
+            .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
+            .collect(),
+    });
+    let (comp_a, comp_b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&comp_a, &comp_b),
+        0,
+        "the arms disagree over an input method's composition"
+    );
+    assert!(
+        differing(&comp_a, &plain) > 0,
+        "the composition reached the pixels"
+    );
+    let comp_c = arms.draw_copied(&mut t);
+    assert_eq!(
+        differing(&comp_b, &comp_c),
+        0,
+        "the copy disagrees with the live grid under a composition"
+    );
+    arms.composition = None;
     // The cursor trail: a fading ghost mid-sweep between two cells, drawn
     // by both arms -- one translucent solid on the instance list and on the
     // cell path's records -- and a change to the pixels. `plain` has the
@@ -2065,6 +2130,89 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     feed(&mut t, b"\x1b[1;1H");
     let (_, b) = arms.draw(&mut t);
     assert!(differing(&a, &b) > 0, "the comparison can fail");
+
+    // **A composition over a ligature**: JetBrains Mono's `->`, covered
+    // whole and in part. The instance arm blanks the covered cells before
+    // it shapes, so the pair is gone and an uncovered half draws alone; the
+    // cell arm's window walk must not have drawn the pair already, or its
+    // glyph stays under the composition's. Each is held to the text written
+    // under `SGR 4` with the cursor where the composition leaves it.
+    let (cr, cc) = t.cursor();
+    for (at, text, written) in [
+        (14, "zz", &b"xyyy\x1b[4mzz\x1b[24mb\x1b[6;16H"[..]),
+        (14, "z", &b"xyyy\x1b[4mz\x1b[24m>b\x1b[6;15H"[..]),
+        (13, "zz", &b"xyy\x1b[4mzz\x1b[24m>b\x1b[6;15H"[..]),
+    ] {
+        feed(&mut t, b"\x1b[6;10H\x1b[Kxyyy->b");
+        feed(&mut t, format!("\x1b[6;{at}H").as_bytes());
+        let (row, col) = t.cursor();
+        arms.composition = Some(Composition {
+            row,
+            col,
+            text: text
+                .chars()
+                .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
+                .collect(),
+        });
+        // `draw` returns the instance arm first and the cell arm second.
+        let (inst, cell) = arms.draw(&mut t);
+        let copied = arms.draw_copied(&mut t);
+        arms.composition = None;
+        feed(&mut t, b"\x1b[6;10H\x1b[K");
+        feed(&mut t, written);
+        let (ref_inst, ref_cell) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&ref_inst, &ref_cell),
+            0,
+            "{text:?} at {at}: the arms disagree over the written text"
+        );
+        assert_eq!(
+            differing(&inst, &ref_inst),
+            0,
+            "{text:?} at {at}: the instance arm's composition is not the written text"
+        );
+        assert_eq!(
+            differing(&cell, &inst),
+            0,
+            "{text:?} at {at}: the cell arm draws the ligature under the composition"
+        );
+        assert_eq!(
+            differing(&copied, &cell),
+            0,
+            "{text:?} at {at}: the copy disagrees under a composition over a ligature"
+        );
+    }
+    // A marked cell under a composition: the walk leaves it to the
+    // composition, or its mark's records stay under the composition's glyph.
+    {
+        feed(&mut t, "\x1b[6;10H\x1b[Kxe\u{301}y\x1b[6;11H".as_bytes());
+        let (row, col) = t.cursor();
+        arms.composition = Some(Composition {
+            row,
+            col,
+            text: vec![baud_domain::Codepoint::new(u32::from('z')).unwrap()],
+        });
+        let (inst, cell) = arms.draw(&mut t);
+        arms.composition = None;
+        feed(&mut t, b"\x1b[6;10H\x1b[K");
+        feed(&mut t, b"x\x1b[4mz\x1b[24my\x1b[6;12H");
+        let (ref_inst, _) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&inst, &ref_inst),
+            0,
+            "the instance arm's composition over a mark is not the written text"
+        );
+        assert_eq!(
+            differing(&cell, &inst),
+            0,
+            "the cell arm draws a mark under the composition"
+        );
+    }
+    feed(&mut t, b"\x1b[6;10H\x1b[K");
+    feed(
+        &mut t,
+        format!("\x1b[{};{}H", cr.index() + 1, cc.index() + 1).as_bytes(),
+    );
 
     // Smooth scroll. Hide the cursor -- the settled `back = 1` reference
     // below cannot show it and the slid `back = 0` frame would. Plain digit

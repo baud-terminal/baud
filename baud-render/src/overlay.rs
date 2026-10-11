@@ -25,7 +25,10 @@ use crate::renderer::{Blink, Blinking, ClusterGlyph, Renderer};
 use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
-use baud_domain::{Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row, Viewport};
+use baud_domain::{
+    AmbiguousWidth, Classified, Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row,
+    Viewport, Width,
+};
 use baud_font::Px;
 use std::collections::HashMap;
 
@@ -84,6 +87,12 @@ pub struct Scene<'s, 't> {
     /// the shared record pipeline -- the coupling the first smooth-scroll
     /// withdrawal was about -- is not reintroduced.
     pub pan: Px,
+    /// An input method's composition on this view, or none. The walk reads
+    /// the cells it covers as empty, as the instance path's convert blanks
+    /// them before it shapes: a ligature it covers is not drawn, and the
+    /// half of one it leaves draws alone. [`Overlay::composed`] then masks
+    /// them and draws the composition's own records.
+    pub composition: Option<&'s Composition>,
 }
 
 /// The cluster map and the walk that fills the overlay from it.
@@ -110,6 +119,25 @@ struct Geom {
     /// The downward pixel shift a smooth scroll applies to every record on
     /// the cell path, matching the grid passes' `u.pan`.
     pan: Px,
+}
+
+/// The cells a composition covers on the view, `row` and `start..end`, or
+/// none: what the walk reads as empty.
+#[derive(Clone, Copy)]
+struct Covered(Option<(usize, usize, usize)>);
+
+impl Covered {
+    fn of(c: Option<&Composition>, cols: Cols) -> Covered {
+        Covered(c.map(|c| {
+            let (start, end) = c.columns(cols);
+            (c.row.index(), start, end)
+        }))
+    }
+
+    fn holds(self, y: Row, x: Col) -> bool {
+        self.0
+            .is_some_and(|(row, start, end)| y.index() == row && (start..end).contains(&x.index()))
+    }
 }
 
 /// What colours a record: the resolved rendition table, the selection and
@@ -263,6 +291,7 @@ impl Overlay {
         };
         let block = cursor
             .filter(|(_, _, s)| matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock));
+        let covered = Covered::of(scene.composition, view.cols());
         if self.windows.len() > WINDOWS_MAX {
             self.windows.clear();
         }
@@ -302,6 +331,7 @@ impl Overlay {
                     (lo, hi),
                     &geom,
                     block,
+                    covered,
                     mask,
                     records,
                 );
@@ -323,7 +353,10 @@ impl Overlay {
                 {
                     seen = Blinking::Seen;
                 }
-                if !cell.flags.is_marked() || mask[y * cols + x] & MASK_RECORD != 0 {
+                if !cell.flags.is_marked()
+                    || mask[y * cols + x] & MASK_RECORD != 0
+                    || covered.holds(Row::from_index(y), Col::at_index(x))
+                {
                     continue;
                 }
                 let Some(cp) = cell.content.as_codepoint() else {
@@ -385,6 +418,7 @@ impl Overlay {
         range: (usize, usize),
         geom: &Geom,
         block: Option<(Row, Col, CursorStyle)>,
+        covered: Covered,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
     ) {
@@ -490,7 +524,14 @@ impl Overlay {
             if cell.content == Content::WIDE_TAIL {
                 continue;
             }
-            let mut entry = cell.content.as_codepoint().and_then(|cp| {
+            // A cell under the composition is empty to the walk, and cuts
+            // the window as an empty cell does.
+            let content = if covered.holds(y, Col::at_index(x)) {
+                Content::EMPTY
+            } else {
+                cell.content
+            };
+            let mut entry = content.as_codepoint().and_then(|cp| {
                 scene
                     .map
                     .probe(
@@ -612,6 +653,33 @@ impl Overlay {
         );
     }
 
+    /// An input method's composition, for the cell path: the cells it covers
+    /// masked off the shader, and its records -- glyphs and the underline
+    /// -- appended, the same records the instance and CPU paths draw
+    /// ([`composition_records`]). `block` is the cursor the frame draws,
+    /// which [`Composition::cursor`] put after it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn composed(
+        &mut self,
+        r: &mut Renderer<'_, '_>,
+        c: &Composition,
+        under: PackedCell,
+        styles: &[Resolved],
+        block: Option<(Row, Col, CursorStyle)>,
+        cols: Cols,
+        pan: Px,
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+    ) {
+        let (start, end) = c.columns(cols);
+        for x in start..end {
+            if let Some(slot) = mask.get_mut(c.row.index() * cols.index() + x) {
+                *slot |= MASK_RECORD;
+            }
+        }
+        composition_records(r, c, under, styles, block, cols, pan, records);
+    }
+
     /// A window's cells that the map does not draw: masked, counted and
     /// drawn by records.
     #[allow(clippy::too_many_arguments)]
@@ -704,5 +772,173 @@ impl Overlay {
                 curve,
             });
         }
+    }
+}
+
+/// An input method's composition -- `NSTextInputClient`'s marked text: a
+/// dead key's accent, an IME's unconverted kana -- and the cell it starts
+/// at, which is the cursor's.
+///
+/// **Drawn, never written.** The core never sees it: the child has been sent
+/// nothing until the input manager commits, so it lives here, over the grid,
+/// for as long as the input manager holds it. `[[source:
+/// apple-nstextinputclient]]`'s `setMarkedText` expects marked text drawn
+/// "with distinguishing appearance", and `NSTextView`'s
+/// `markedTextAttributes` names the three it supports: text colour,
+/// background colour and underline. baud's is the underline, in the text's
+/// own colour -- what the same text written under `SGR 4` would draw -- with
+/// the cursor after it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Composition {
+    pub row: Row,
+    pub col: Col,
+    pub text: Vec<Codepoint>,
+}
+
+/// One cluster of a composition: the column it starts at, its codepoints
+/// and how many cells it takes.
+struct Piece {
+    col: Col,
+    cps: Vec<Codepoint>,
+    span: CellSpan,
+}
+
+impl Composition {
+    /// Its clusters laid on a screen `cols` wide from its cell, by the
+    /// width tables the core writes by: a character of no width joins the
+    /// cluster before it, a wide one takes two cells, and one that would
+    /// cross the right edge is not drawn, nor anything after it -- a
+    /// composition is shown on its line, as `NSTextView` shows marked text
+    /// at the insertion point. Ambiguous characters are narrow, the core's
+    /// default and the app's.
+    fn pieces(&self, cols: Cols) -> Vec<Piece> {
+        let mut out: Vec<Piece> = Vec::new();
+        let mut x = self.col.index();
+        for &cp in &self.text {
+            let w = Classified::of(cp).width(AmbiguousWidth::Narrow);
+            if w == Width::ZERO {
+                if let Some(last) = out.last_mut() {
+                    last.cps.push(cp);
+                }
+                continue;
+            }
+            let span = if w == Width::WIDE {
+                CellSpan::Two
+            } else {
+                CellSpan::One
+            };
+            let n = if span == CellSpan::Two { 2 } else { 1 };
+            if x + n > cols.index() {
+                break;
+            }
+            out.push(Piece {
+                col: Col::at_index(x),
+                cps: vec![cp],
+                span,
+            });
+            x += n;
+        }
+        out
+    }
+
+    /// The columns it covers, `start..end`.
+    pub fn columns(&self, cols: Cols) -> (usize, usize) {
+        let start = self.col.index();
+        let end = self.pieces(cols).last().map_or(start, |p| {
+            p.col.index() + if p.span == CellSpan::Two { 2 } else { 1 }
+        });
+        (start, end)
+    }
+
+    /// Where the cursor is drawn while it is held: the cell after its last,
+    /// or the last column when it runs to the edge, where a write of the
+    /// same text would leave the cursor.
+    pub fn cursor(&self, cols: Cols) -> (Row, Col) {
+        let (_, end) = self.columns(cols);
+        (
+            self.row,
+            Col::at_index(end.min(cols.index().saturating_sub(1))),
+        )
+    }
+}
+
+/// The records that draw a composition: each cluster's glyphs in the
+/// rendition of `under`, the cell at the composition's start, coloured as
+/// `Overlay::emit` colours any record -- the block cursor's swap included --
+/// and one underline across the cells, at the face's underline position and
+/// thickness, in the colour the text takes. The instance and CPU paths draw
+/// these after their rows; the cell path after its passes.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn composition_records(
+    r: &mut Renderer<'_, '_>,
+    c: &Composition,
+    under: PackedCell,
+    styles: &[Resolved],
+    block: Option<(Row, Col, CursorStyle)>,
+    cols: Cols,
+    pan: Px,
+    records: &mut Vec<Instance>,
+) {
+    let geom = Geom {
+        m: r.metrics(),
+        cols,
+        pan,
+    };
+    let paint = Paint {
+        styles,
+        block,
+        highlight: None,
+        blink: r.blink(),
+    };
+    let face = crate::cellmap::face_of(styles, under);
+    let y = c.row.index();
+    for p in c.pieces(cols) {
+        let glyphs = r.cluster(&p.cps, face, p.span);
+        let cell = PackedCell {
+            content: Content::codepoint(p.cps[0]),
+            style: under.style,
+            flags: baud_domain::CellFlags::NONE,
+        };
+        Overlay::emit(records, (p.col.index(), y), &glyphs, cell, &paint, &geom);
+    }
+    // One underline a cell, as `Renderer::convert_row` draws `SGR 4`: each
+    // in its cell's colour after the swaps, so the cell under a block cursor
+    // -- the last column, when the composition runs to the edge -- takes the
+    // swapped one there as the written text would.
+    let resolved = styles.get(under.style.index()).copied().unwrap_or_default();
+    let m = geom.m;
+    let cell_w = i32::try_from(m.cell_w.value()).unwrap_or(0);
+    let cell_h = i32::try_from(m.cell_h.value()).unwrap_or(0);
+    let top = i32::try_from(y).unwrap_or(0) * cell_h
+        + i32::try_from(m.underline.value()).unwrap_or(0)
+        + i32::try_from(pan.value()).unwrap_or(0);
+    let (start, end) = c.columns(cols);
+    for x in start..end {
+        let under_cursor = block.is_some_and(|(br, bc, _)| br == c.row && bc.index() == x);
+        let d = resolved.drawn(Swaps {
+            pictured: Pictured::No,
+            selected: Selected::No,
+            block: if under_cursor {
+                BlockCursor::Yes(None)
+            } else {
+                BlockCursor::No
+            },
+            blink: r.blink(),
+        });
+        if d.text == Text::Hidden {
+            continue;
+        }
+        let left = i32::try_from(x).unwrap_or(0) * cell_w;
+        records.push(Instance {
+            x: Screen(i16::try_from(left).unwrap_or(i16::MAX)),
+            y: Screen(i16::try_from(top).unwrap_or(i16::MAX)),
+            w: crate::atlas::Tex(u16::try_from(m.cell_w.value()).unwrap_or(u16::MAX)),
+            h: crate::atlas::Tex(u16::try_from(m.thickness.value()).unwrap_or(u16::MAX)),
+            u: crate::atlas::Tex(0),
+            v: crate::atlas::Tex(0),
+            color: d.fg,
+            kind: crate::atlas::Kind::Solid,
+            curve: baud_domain::contrast::CurveRow::default(),
+        });
     }
 }

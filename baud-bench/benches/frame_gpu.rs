@@ -450,6 +450,7 @@ fn main() {
                             // frame's records do not slide, and folding a
                             // zero pan costs what folding a real one does.
                             pan: Px::of(0),
+                            composition: None,
                         },
                         &mut r,
                         overlay_mem,

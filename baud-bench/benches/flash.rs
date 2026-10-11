@@ -364,6 +364,7 @@ fn main() {
                     map: &self.map,
                     candidates: &self.candidates,
                     pan: Px::of(0),
+                    composition: None,
                 },
                 &mut self.renderer,
                 self.overlay_mem,

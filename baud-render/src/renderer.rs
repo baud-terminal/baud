@@ -11,6 +11,7 @@ use crate::composite::{Blend, Target};
 use crate::effect::Vfx;
 use crate::instance::{Instance, Screen};
 use crate::metrics::{Metrics, PxSize};
+use crate::overlay::Composition;
 use crate::picture::Pictures;
 use crate::scrollbar::{self, Bar, Scroll};
 use crate::select::Highlight;
@@ -558,6 +559,12 @@ pub struct Renderer<'f, 'a> {
     trail: Option<Drawn>,
     last_trail: Option<Drawn>,
     trail_inst: Vec<Instance>,
+    /// An input method's composition on this frame and the last, and its
+    /// records: the rows under either are dirty, and the cells under it are
+    /// converted blank so its own glyphs replace theirs ([`Composition`]).
+    composition: Option<Composition>,
+    last_composition: Option<Composition>,
+    compose_inst: Vec<Instance>,
     /// What the cursor is filled with, which a quad trail is drawn in: the
     /// application's `OSC 12` colour, else the default foreground a block
     /// cursor's reversed cell fills with.
@@ -715,6 +722,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             trail: None,
             last_trail: None,
             trail_inst: Vec::new(),
+            composition: None,
+            last_composition: None,
+            compose_inst: Vec::new(),
             cursor_fill: Argb::default(),
             fade: None,
             last_fade: None,
@@ -931,6 +941,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// The scrollbar's instances, for a path that draws records of its own.
     pub fn scrollbar(&self) -> &[Instance] {
         &self.bar_inst
+    }
+
+    /// An input method's composition for the next frame, or none: drawn at
+    /// its cell by the instance and CPU paths' next convert, with the cursor
+    /// after it ([`Composition::cursor`]), on the live view only. The cell
+    /// path draws it through [`crate::Overlay::composed`].
+    pub fn set_composition(&mut self, c: Option<Composition>) {
+        self.composition = c;
     }
 
     /// The cursor trail for the next frame, or none: a fading ghost
@@ -1542,6 +1560,29 @@ impl<'f, 'a> Renderer<'f, 'a> {
         for r in 0..rows.index() {
             self.cur[r * ncols..(r + 1) * ncols].copy_from_slice(vp.row(Row::from_index(r)));
         }
+        // An input method's composition, on the live view: the cells under it
+        // converted blank in their own renditions, so their backgrounds stay
+        // and their glyphs give way to its records, built below. The cell it
+        // starts on lends the records its rendition.
+        let composition = self
+            .composition
+            .clone()
+            .filter(|c| back.index() == 0 && c.row.index() < rows.index());
+        let mut under = PackedCell::EMPTY;
+        if let Some(c) = &composition {
+            let (start, end) = c.columns(cols);
+            let at = c.row.index() * ncols;
+            if let Some(&cell) = self.cur.get(at + start) {
+                under = cell;
+            }
+            for cell in &mut self.cur[at + start..at + end] {
+                *cell = PackedCell {
+                    content: baud_domain::Content::EMPTY,
+                    style: cell.style,
+                    flags: baud_domain::CellFlags::NONE,
+                };
+            }
+        }
         if self.theme.finds_pictures() {
             self.pictures.find(term, &vp);
         } else {
@@ -1552,7 +1593,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let cursor: Cursor =
             (term.cursor_visible() && back.index() == 0 && self.cursor_drawn(term.cursor_style()))
                 .then(|| {
-                    let (r, c) = term.cursor();
+                    let (r, c) = match &composition {
+                        Some(c) => c.cursor(cols),
+                        None => term.cursor(),
+                    };
                     (r, c, term.cursor_style())
                 });
         // Every slot resolved again -- a theme, a video or a palette changed
@@ -1592,6 +1636,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // A picture is the block's, so a row can move in or out of one
             // without a cell of its own changing.
             let pictured = self.pictures.row_changed(row);
+            // A composition that appeared, changed or went: the row it is on
+            // and the row it was on, whether or not a cell word moved -- a
+            // composition over the same text changes none.
+            let on = |c: &Option<Composition>| c.as_ref().is_some_and(|c| c.row == row);
+            let composed = (on(&composition) || on(&self.last_composition))
+                && composition != self.last_composition;
             // An image the CPU path blitted over this row last frame is not
             // there now: see `render_at`.
             let imaged = images == ImageRows::Repainted
@@ -1603,10 +1653,27 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || bar_moved
                 || trail_moved
                 || pictured
-                || imaged;
+                || imaged
+                || composed;
         }
         if images == ImageRows::Repainted {
             self.last_image_places.clone_from(&self.image_places);
+        }
+        self.compose_inst.clear();
+        if let Some(c) = &composition {
+            let styles = core::mem::take(&mut self.styles);
+            let mut records = core::mem::take(&mut self.compose_inst);
+            crate::overlay::composition_records(
+                self,
+                c,
+                under,
+                &styles,
+                cursor,
+                cols,
+                Px::of(0),
+                &mut records,
+            );
+            (self.styles, self.compose_inst) = (styles, records);
         }
         for r in 0..rows.index() {
             if self.dirty[r] {
@@ -1626,6 +1693,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_bar = self.bar;
         self.last_trail = self.trail;
         self.last_fade = self.fade;
+        self.last_composition = composition;
         Converted {
             rows_dirty,
             rows: Tally::of(rows.index()),
@@ -1674,6 +1742,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             for inst in &self.per_row[r] {
                 target.over(inst, &self.atlas, self.blend, band);
             }
+            // The composition's records, over its row: `instances()` hands
+            // the GPU instance path them in the same place.
+            for inst in &self.compose_inst {
+                target.over(inst, &self.atlas, self.blend, band);
+            }
             // On the CPU an effect is its emitter, the quad it rides: the
             // effect is the GPU's.
             match self.trail {
@@ -1703,6 +1776,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.per_row
             .iter()
             .flatten()
+            .chain(self.compose_inst.iter())
             .chain(self.trail_inst.iter())
             .chain(self.bar_inst.iter())
             .chain(self.fade_inst.iter())

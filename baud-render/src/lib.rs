@@ -66,7 +66,7 @@ pub use color::{
 pub use composite::{Blend, Target};
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
-pub use overlay::{MASK_PICTURE, MASK_RECORD, Overlay, OverlayStats, Scene};
+pub use overlay::{Composition, MASK_PICTURE, MASK_RECORD, Overlay, OverlayStats, Scene};
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use renderer::{
     Blink, Blinking, ClusterGlyph, Converted, Damage, Evicted, Exceptions, Frame, GlyphSource,

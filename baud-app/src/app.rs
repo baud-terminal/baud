@@ -27,10 +27,10 @@ use baud_present_macos::{
 };
 use baud_render::Place;
 use baud_render::{
-    AbsLine, Blend, Blink, Blinking, Candidate, Clip, Damage, Frame, GlyphMap, Grain, Instance,
-    Look, MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene, Scroll as ScrollBar,
-    Scrolled, Scroller, Selection, Slide, Span, StyleStamp, Tally, Target, Theme, Trail, TrailLook,
-    Transition, Window, back_for, gutter, place, thumb,
+    AbsLine, Blend, Blink, Blinking, Candidate, Clip, Composition, Damage, Frame, GlyphMap, Grain,
+    Instance, Look, MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene,
+    Scroll as ScrollBar, Scrolled, Scroller, Selection, Slide, Span, StyleStamp, Tally, Target,
+    Theme, Trail, TrailLook, Transition, Window, back_for, gutter, place, thumb,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -458,6 +458,12 @@ struct App {
     /// so the next prompt is seen opening.
     predictions: Vec<Prediction>,
     guess: Guess,
+    /// The input manager's composition -- `marked_text`'s marked text: a
+    /// dead key's accent, an IME's unconverted text -- drawn at the cursor
+    /// until it is committed or cancelled, and whether a frame is owed for a
+    /// change to it.
+    composing: Vec<Codepoint>,
+    marked: Marked,
     hold: Hold,
     last_zone: Zone,
     last_tick: Option<f64>,
@@ -963,6 +969,8 @@ impl App {
             echo: Echo::Drawn,
             predictions: Vec::new(),
             guess: Guess::None,
+            composing: Vec::new(),
+            marked: Marked::Drawn,
             hold: Hold::Open,
             last_zone: Zone::Output,
             last_tick: None,
@@ -1209,6 +1217,20 @@ impl App {
             None => None,
         };
         self.renderer.set_screen_fade(veil);
+        // The input manager's composition, at the cursor of the live view:
+        // the instance and CPU paths draw it in their convert, the cell path
+        // through its overlay below.
+        let composition = (!self.composing.is_empty()
+            && looking(&self.term, self.back).index() == 0)
+            .then(|| {
+                let (row, col) = self.term.cursor();
+                Composition {
+                    row,
+                    col,
+                    text: self.composing.clone(),
+                }
+            });
+        self.renderer.set_composition(composition.clone());
         // The frame -- the grid, and a legacy scroller's gutter beside it --
         // and the whole surface it is centred in; the letterbox margin
         // between them is the gap.
@@ -1406,6 +1428,15 @@ impl App {
                     (Some((_, _, style)), Some(p)) => Some((p.row, p.col.after(), style)),
                     (c, _) => c,
                 };
+                // A composition puts the drawn cursor after itself, as the
+                // instance and CPU paths do in their convert.
+                let cursor_at = match (cursor_at, &composition) {
+                    (Some((_, _, style)), Some(c)) => {
+                        let (r, col) = c.cursor(view.cols());
+                        Some((r, col, style))
+                    }
+                    (c, _) => c,
+                };
                 cell.maps.live.ensure(
                     view,
                     &cell.styles_mem[set][..],
@@ -1453,6 +1484,7 @@ impl App {
                         // gated on the same `sliding` as the grid's own pan
                         // so a mark or a ligature never lags a settled frame.
                         pan: if sliding { pan } else { Px::of(0) },
+                        composition: composition.as_ref(),
                     },
                     &mut self.renderer,
                     &mut cell.overlay_mem[set][..],
@@ -1496,6 +1528,27 @@ impl App {
                             &mut cell.records,
                         );
                     }
+                }
+                // The composition: its cells masked off the shader and its
+                // records -- glyphs and underline -- after the walk's, the
+                // same records the instance and CPU paths draw.
+                if let Some(c) = &composition {
+                    let under = view
+                        .row(c.row)
+                        .get(c.col.index())
+                        .copied()
+                        .unwrap_or(PackedCell::EMPTY);
+                    cell.exceptions.composed(
+                        &mut self.renderer,
+                        c,
+                        under,
+                        &cell.styles_mem[set][..],
+                        cursor,
+                        view.cols(),
+                        if sliding { pan } else { Px::of(0) },
+                        &mut cell.overlay_mem[set][..],
+                        &mut cell.records,
+                    );
                 }
                 // The trail, thumb and screen fade ride with the records,
                 // drawn after the cell passes: the trail under the thumb, and
@@ -1643,6 +1696,7 @@ impl App {
             self.echo = Echo::Drawn;
         }
         self.guess = Guess::None;
+        self.marked = Marked::Drawn;
         self.frames.bump();
     }
 
@@ -3954,6 +4008,27 @@ enum Guess {
     None,
 }
 
+/// Whether a change to the composition is owed a frame: the reason a frame
+/// is due now, beside a fed echo and a prediction.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Marked {
+    Owed,
+    Drawn,
+}
+
+/// Whether a key goes to the input manager before baud reads it: **every
+/// key while a composition is held**, Command chords aside, which are the
+/// menu's. The input manager edits and commits its composition with Return,
+/// Delete, Escape and the arrows, and `special` sends those to the child
+/// outright -- so with a composition up, Return wrote a newline to the shell
+/// and left the kana marked, and Delete erased the shell's line instead of
+/// the composition's last character. `[[source: apple-nstextinputclient]]`:
+/// the input manager is handed the key, and the client hears back through
+/// `insertText`, `setMarkedText` and `doCommandBySelector`.
+fn composing_first(key: &KeyPress, composing: &[Codepoint]) -> bool {
+    !key.modifiers.command && !composing.is_empty()
+}
+
 /// Whether the app may predict: open, or held until the shell's next
 /// prompt after a prediction the echo contradicted.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -4447,6 +4522,7 @@ impl Driver {
         let due = trigger == Trigger::Tick
             || self.app.echo == Echo::Fed
             || self.app.guess == Guess::Owed
+            || self.app.marked == Marked::Owed
             || self.app.last_commit.elapsed() >= self.app.interval;
         if due && !busy {
             let view = self.view.clone();
@@ -4464,6 +4540,9 @@ impl Responder for Driver {
             return Handled::Consumed;
         }
         self.snap_to_live();
+        if composing_first(key, &self.app.composing) {
+            return Handled::Interpret;
+        }
         let m = mods(key.modifiers);
         let e = if let Some(code) = special(key) {
             KeyEvent::press(code, m)
@@ -4559,7 +4638,23 @@ impl Responder for Driver {
         self.typed(KeyEvent::press(code, m));
     }
 
-    fn marked_text(&mut self, _text: &str) {}
+    /// The input manager's composition changed: drawn at the cursor now,
+    /// not at the next read, and gone when it is committed or cancelled --
+    /// the crate calls this with "" before it hands the committed text to
+    /// `text`.
+    fn marked_text(&mut self, text: &str) {
+        let composing: Vec<Codepoint> = text
+            .chars()
+            .filter_map(|c| Codepoint::new(u32::from(c)))
+            .collect();
+        if composing == self.app.composing {
+            return;
+        }
+        self.app.composing = composing;
+        self.app.marked = Marked::Owed;
+        self.app.pending = Pending::Dirty;
+        self.pump(Trigger::Wake);
+    }
 
     /// A press, release or motion, reported to the application when it
     /// asked for that kind: the core keeps the tracking level and the
@@ -6349,6 +6444,94 @@ mod tests {
         };
         assert_eq!(kind_of(&key(true)), KeyEventKind::Repeat);
         assert_eq!(kind_of(&key(false)), KeyEventKind::Press);
+    }
+
+    /// **While the input manager holds a composition, its keys are its**:
+    /// Return commits, Delete edits, Escape cancels and the arrows move
+    /// through it, and none of them may reach the child first. With no
+    /// composition the same keys are the child's, and a Command chord is the
+    /// menu's either way.
+    #[test]
+    fn a_held_composition_takes_every_key_but_the_menus() {
+        use macos_liquid_glass::drawable::Modifiers;
+        let key = |code, modifiers| KeyPress {
+            key_code: code,
+            characters: String::new(),
+            unmodified: String::new(),
+            modifiers,
+            repeat: false,
+        };
+        let none = Modifiers::default();
+        let option = Modifiers {
+            option: true,
+            ..none
+        };
+        let command = Modifiers {
+            command: true,
+            ..none
+        };
+        let kana: Vec<Codepoint> = "にほ"
+            .chars()
+            .map(|c| Codepoint::new(u32::from(c)).unwrap())
+            .collect();
+        // Return, Delete, Escape, Tab, the four arrows, a letter, an Option
+        // chord.
+        for code in [0x24, 0x33, 0x35, 0x30, 0x7B, 0x7C, 0x7D, 0x7E, 0x00] {
+            assert!(composing_first(&key(code, none), &kana), "{code:#x}");
+            assert!(
+                composing_first(&key(code, option), &kana),
+                "{code:#x} + option"
+            );
+            assert!(
+                !composing_first(&key(code, none), &[]),
+                "{code:#x} uncomposed"
+            );
+            assert!(
+                !composing_first(&key(code, command), &kana),
+                "{code:#x} + command"
+            );
+        }
+    }
+
+    /// The pump's caller is AppKit, so this holds the source: `key` asks
+    /// `composing_first` before `special` names a key for the child.
+    #[test]
+    fn key_asks_the_composition_before_naming_a_special_key() {
+        const SRC: &str = include_str!("app.rs");
+        const KEY: &str = concat!("    fn key(&mut self, ", "key: &KeyPress) -> Handled {");
+        let body = SRC.split(KEY).nth(1).expect("the key handler");
+        let body = &body[..body.find("\n    }\n").expect("its end")];
+        let ask = body
+            .find(concat!("composing_first(key, ", "&self.app.composing)"))
+            .expect("key asks composing_first");
+        let special = body
+            .find(concat!("special(", "key)"))
+            .expect("key names special keys");
+        assert!(ask < special, "the composition is asked first");
+    }
+
+    /// A changed composition is owed a frame, and the pump draws an owed
+    /// one now: `marked_text` marks it `Owed` and `pump`'s `due` reads it.
+    /// Without either, a dead key's accent waits for the next tick or read.
+    #[test]
+    fn a_changed_composition_makes_a_frame_due() {
+        const SRC: &str = include_str!("app.rs");
+        let body = |head: &str| {
+            let b = SRC.split(head).nth(1).expect("the function");
+            b[..b.find("\n    }\n").expect("its end")].to_string()
+        };
+        let marked = body(concat!("    fn marked_text(&mut self, ", "text: &str) {"));
+        assert!(
+            marked.contains(concat!("self.app.marked = ", "Marked::Owed;")),
+            "marked_text owes a frame"
+        );
+        let pump = body(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"));
+        let due = &pump[pump.find("let due = ").expect("pump's due")..];
+        let due = &due[..due.find(';').expect("its end")];
+        assert!(
+            due.contains(concat!("self.app.marked == ", "Marked::Owed")),
+            "an owed composition makes a frame due"
+        );
     }
 
     #[test]
