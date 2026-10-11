@@ -320,6 +320,14 @@ the research gives a discipline rather than a value.
   the PNG seam as a separate owner-gated slice, then U+10EEEE last.** Whether
   Kitty ships at all, and whether the PNG seam is worth an embedder decoder, is
   the owner's.
+
+  **Answered 2026-09-25**: note V's V19 put this to the owner, and its
+  "Decisions taken, 2026-09-25" records: "**V12, V14, V18, V19: built to the
+  spec**, overriding their recommendations. `?1001` highlight tracking, the
+  ambiguous-width switch with `?1021`, the Sixel modes `?80` and `?1070`, and
+  the kitty graphics protocol." Kitty graphics is unbuilt (the status above).
+  That answers whether Kitty ships; the order of its slices is not in it,
+  and stays open.
 * **The storage fork is decided ARGB in this register** on the shader-sampling
   ground above; the owner's confirmation is the point at which it moves from
   recommended to settled, and the 4x memory cost is the thing to weigh it

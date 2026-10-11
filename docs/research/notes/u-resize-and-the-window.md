@@ -544,28 +544,59 @@ the owner (Q5).
 
 ## 5. Decisions that are the owner's
 
+**Answered 2026-09-25, through note V.** Note V
+(`docs/research/notes/v-open-decisions.md`) put these nine to the owner as
+its V2 to V9: questions 1 and 2 as V2, then question *n* as V*n*. Its
+"Decisions taken, 2026-09-25" records the answer: "**Every other decision:
+as recommended.** V1-V9, V11, V15, V17, V20-V22 and V25." Under each
+question is the recommendation that answer took, quoted from note V's
+section for it.
+
 1. **Should the core own the scrollback window (B)?** For: one anchoring
    rule, an end to the recorded class of anchoring bugs, and a Linux window
    for free. Against: view state enters a core described as "VT finished",
    an API change, and a normalization step on `feed` that the differential
    has to prove.
+
+   *Answered: note V's V2, as recommended.* "**Yes to B: the core keeps the
+   view as an absolute line (or `Live`), and the app keeps only the policy of
+   when a key snaps it live. No public tracked-point array yet.**"
 2. **One window, or tracked anchors (B+)?** B+ supports two views on one
    session, selections that survive a resize, and a DECSC that follows. It
    costs a bounded array and a registration API.
+
+   *Answered: note V's V2, as recommended.* The recommendation under question
+   1, whose last sentence answers this one: "No public tracked-point array
+   yet."
 3. **A selection across a width change: clear or remap?** Clearing is what
    alacritty, kitty and baud do today, and it is simple. Remapping is what
    foot, ghostty and VTE do; it needs B+. wezterm leaves it stale, which is
    the outcome to avoid.
+
+   *Answered: note V's V3, as recommended.* "**Yes: on the main screen, keep
+   the selection across a height-only resize by renumbering it. Clear it on
+   any column change, on any resize while the alternate screen is up, and when
+   it touches rows the shrink cut (lean; clipping is the alternative). No
+   remap through a re-cut for now.**"
 4. **DECSC across a re-cut: remap or clamp? (G3)** foot, ghostty and VTE
    remap it, and kitty remaps the main screen's. baud and alacritty clamp.
    With clamping, a restored cursor can overwrite the output the shell wrote
    (wezterm #6669). Remapping needs B+, or an ad-hoc marker through
    `Follow`.
+
+   *Answered: note V's V4, as recommended.* "**Yes: the ESC 7 position should
+   follow its text through a resize. Then a fork, (i) or (ii). My lean is (i),
+   provided xterm's cursor.c, pinned first, agrees with ghostty and alacritty;
+   if xterm keeps the ?1049 save separate, take (ii).**"
 5. **Depth against eagerness, and loss through narrow widths.** A bounded
    default depth keeps the eager re-cut cheap. A much deeper or infinite
    history would eventually push toward lazy wrapping (D), which nobody
    ships. Separately: accept that a drag through a narrow width drops old
    lines, as every eager terminal does, or pursue C4.
+
+   *Answered: note V's V5, as recommended.* "**Yes: keep the re-cut eager and
+   the depth at 2,000 lines (fixed by the L2 scroll cost), count the rows a
+   re-cut drops, and commit a full-ring fixture that measures a drag step.**"
 6. **Which rule governs the top line across a resize?** The record carries
    a sequence, the code follows the last, and the record calls the last the
    owner's rule for the primary since 2026-09-18. Confirm it.
@@ -586,14 +617,26 @@ the owner (Q5).
    first, had never been able to fail, and rewrote it to the third, which
    its record calls the owner's rule for the primary since 2026-09-18. If
    the owner means the first, that test is the one to flip.
+
+   *Answered: note V's V6, as recommended.* "**Yes: confirm rule 3. Rule 1
+   survives as the rule for a scrolled-back view: a view up in the history
+   holds its line, and a live view stays live.**" Note V's design for it: "No
+   code."
 7. **Re-cut by prompt scope (E2)?** It re-wraps long lines of finished
    output while the user sits at a prompt, and it narrows the D2 seam. It
    costs a new in-place ordering proof.
+
+   *Answered: note V's V7, as recommended.* '**Not now: keep "no re-cut at a
+   marked prompt", and revisit after V2, V9 and V5's full-ring bench.**'
 8. **Resize cadence.** The rule of no debounce and a SIGWINCH per step
    stands on a measured freeze, while four of the six prior-art terminals
    coalesce in some form. Confirm the rule knowing what it costs: an eager
    re-cut at every step (unmeasured at full depth) and loss through
    intermediate widths (Q5).
+
+   *Answered: note V's V8, as recommended.* "**Yes: confirm no debounce, and a
+   SIGWINCH plus a resize on every drag step that changes the grid.**" Note
+   V's design for it: "No code."
 9. **What does a cut row have to hold to count when a growth reveals it?**
    This was found after the draft, when `27afdd9` made the marks honest. The
    height step reveals the cut rows "as far as the last one that holds
@@ -612,3 +655,9 @@ the owner (Q5).
    would also stop counting rows of written spaces, which the mark counts
    today. So it needs its own sweep over the seven recorded gestures before
    it is chosen.
+
+   *Answered: note V's V9, as recommended.* "**Yes to B: a cut row comes back
+   when it holds a written character (a space counts, colour alone does not),
+   tested by the same function the prompt retreat uses -- after the
+   seven-gesture comparison below confirms which of your recorded resizes
+   change.**" "Below" is note V's V9 section.

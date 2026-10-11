@@ -643,9 +643,20 @@ if the operation regressed.
   which is both the de-facto default and the safer isolation. (An earlier
   version of this line said xterm defaults to shared; that was wrong, caught
   by the prior-art survey and corrected in the Images register.)
+
+  **Answered 2026-09-25, unbuilt**: note V's V18 put this mode and DECSDM to
+  the owner, and its "Decisions taken, 2026-09-25" records: "**V12, V14, V18,
+  V19: built to the spec**, overriding their recommendations. `?1001`
+  highlight tracking, the ambiguous-width switch with `?1021`, the Sixel modes
+  `?80` and `?1070`, and the kitty graphics protocol." Neither mode is built:
+  `PrivateMode::from_wire` names neither 80 nor 1070.
 * **DECSDM** (mode 80). Its meaning inverted between VT330 and later xterm,
   and `[[source: ctlseqs]]` documents both. baud picks one and records the
   choice with the source conflict named, the DECAWM precedent.
+
+  **Answered in part 2026-09-25, unbuilt**: note V's V18 decides that `?80`
+  is to be built to the spec, with `?1070` (the bullet above). Which of the
+  two meanings it takes is not in that answer, and stays open.
 * **`Pb`/`P2` opaque background: counted, not built.** `P2` = 0 or 2 asks that
   unpainted pixels be drawn in an opaque background rather than left
   transparent. baud draws them transparent -- the `P2` = 1 behaviour, and the

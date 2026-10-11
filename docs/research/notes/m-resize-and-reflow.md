@@ -174,6 +174,12 @@ What it would buy is a long line in finished output re-wrapping while
 the user sits at a prompt; today that waits until the next command's
 output, which is in the output zone and re-cuts.
 
+**Answered 2026-09-25**, as note V's V7
+(`docs/research/notes/v-open-decisions.md`, "Decisions taken, 2026-09-25": V7
+is among those taken "as recommended"), whose recommendation reads: '**Not
+now: keep "no re-cut at a marked prompt", and revisit after V2, V9 and V5's
+full-ring bench.**'
+
 ## The contract, from the shell's own author
 
 Everything above was reasoned from what the screen did. The shell says
