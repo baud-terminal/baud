@@ -28,6 +28,14 @@ it only to the extent that they carry little non-ASCII -- `vim-unicode` and
 
 ## Against other implementations, on real capture
 
+**Taken before `multibench` aligned every function to 128 bytes**, as is
+every `multibench` table in this file: this one, sfte's, cava's and the
+generated payloads'. Before it, baud-core's `cat-scroll` row moved by as
+much as 10% with where the linker put three functions, for no reason in the
+source (`docs/record.md`, "The cat row was a code-placement lottery, and
+multibench now aligns to 128 bytes"). A table taken after the alignment is
+not comparable to these.
+
 `bench-others/multibench`, `TRANSPORT=memory`, medians of 9, interleaved and
 rotated. Every core is driven with the same bytes through the same 4096-byte
 reads, and every core is configured with **10,000 lines of scrollback** --
@@ -114,6 +122,9 @@ it.
 
 ## sfte, and the row a screen gate is for
 
+**Taken before `multibench` aligned every function to 128 bytes**, like the
+table above.
+
 `nihiL7331/sfte` -- a 10.2k-line single-file C11 terminal, pinned at
 `5d7ac25`, driven through `baud-sfte-difftest`'s shim -- is `multibench`'s
 eighth core since 2026-09-20. Same sweep as the table above: `TRANSPORT=
@@ -199,6 +210,9 @@ different screens.
 
 ## cava, and every implementation on it
 
+**Taken before `multibench` aligned every function to 128 bytes**, like the
+first table in this file.
+
 `utf8/cava.raw` -- a spectrum analyser, 636 KB, one escape per 12.1 bytes,
 19.5% non-ASCII block glyphs, and **the only recording in the corpus that
 scrolls inside a scrolling region it set** (51 copied scrolls a rep against
@@ -238,6 +252,9 @@ asciiquarium**, and behind on cat-scroll, btop and vim. This sentence used to
 say cava alone, against the table's own asciiquarium row.
 
 ## Against other implementations, on generated payloads
+
+**Taken before `multibench` aligned every function to 128 bytes**, like the
+first table in this file.
 
 Same harness and statistic. The streaming payload models `cat`, logs and build
 output, with an SGR every 37 bytes; the TUI payload models a full-screen redraw.

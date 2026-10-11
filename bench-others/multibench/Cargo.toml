@@ -1,3 +1,7 @@
+# A profile's `rustflags` need this, as in the workspace's `Cargo.toml`. This
+# crate is its own workspace root, so the workspace profile never reached it.
+cargo-features = ["profile-rustflags"]
+
 [package]
 name = "multibench"
 version = "0.1.0"
@@ -26,3 +30,26 @@ tattoy-wezterm-term = "0.1.0-fork.5"
 opt-level = 3
 lto = true
 codegen-units = 1
+# **Every function starts on a 128-byte boundary, so the cat row measures the
+# change and not where the linker put three functions.** On this M5 Max the
+# cat row's rate follows the 128-byte phase of the harness's `baud_rep`
+# closure, `Paint::index` and `put_ascii_run` against each other: with the
+# instructions byte for byte the same and only their addresses moved, the
+# branch mispredicts nearly double. At 64-byte alignment, in an exploration
+# build of this harness (a patch that skips cores and shifts baud's stack),
+# appending 88 unread bytes to `Storage` moved 183 functions by 64 bytes and
+# cost 9-13%. Which size is unlucky depends on the build: in this harness as
+# committed, at 64 bytes, +88 overlaps base and +64 reads 10% below +24.
+#
+# As committed, every core run, median MB/s over six rounds, ghostty at
+# 472-475 throughout: at 128 bytes base, +88 and 7213e37 read 1482-1518 in two
+# sessions, every pair of ranges overlapping. Base at 128 reads 4.7% below
+# the lucky 64-byte arm. This steadies the instrument, not the product: the
+# workspace stays at 64, where 128 cost ingest2's `cat` 3.6%.
+#
+# **An environment `RUSTFLAGS` carrying `-align-all-functions=6` overrides
+# this, silently**: a build so made came out at 64 bytes (1,843 of 3,741
+# functions at 0 mod 128, against 3,671 without it). Leave it out.
+# See the record, "The cat row was a code-placement lottery, and multibench
+# now aligns to 128 bytes".
+rustflags = ["-C", "llvm-args=-align-all-functions=7"]
