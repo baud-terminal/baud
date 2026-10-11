@@ -60,9 +60,16 @@ case where a wide character lands against the last column.
 `scripts/capture-tui.py` is how these were made and is kept for provenance, not
 because CI runs it. **A capture is not reproducible**: btop draws live CPU
 figures, so a second run of the same command produces different bytes and a
-different hash. That is why these are committed rather than regenerated, and
-why `replay.rs` pins each file's length and FNV-1a -- a recording that changes
-is a recording that is no longer the thing the assertions were written against.
+different hash. That is why these are committed rather than regenerated: a
+recording that changes is a recording that is no longer the thing the
+assertions were written against. `every_recording_renders_to_its_pinned_digest`
+(`baud-core/tests/golden.rs`) pins what each `ascii/` and `utf8/` recording
+renders to -- a digest of its final screen, the cells' content and resolved
+rendition folded a word at a time with FNV-1a's constants, and its count of
+non-blank cells, both in `baud-core/tests/golden/recordings.txt` -- so it sees
+a change only where the change reaches the final screen. Each file's own length
+and FNV-1a were pinned by `replay.rs`, which went with `baud-core2` in
+`bcefaae`; nothing pins the bytes themselves now.
 
 `btop.raw` is the first 512 KiB of a 2.48 MB capture. The whole thing was 10
 seconds and 147,492 escape sequences; the tail is more of the same, and a

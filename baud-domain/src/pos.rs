@@ -1,11 +1,25 @@
 use crate::*;
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
-/// Absolute offset in the total byte stream. Monotonic, never reused.
+/// Where a byte sits in the caller's arena: an index, not a stream offset.
 ///
-/// No public field and no arithmetic: you cannot accidentally treat it as a
-/// ring offset. Converting to one is [`Store::resolve`]'s job, and it is the
-/// only place that knows about `ARENA`.
+/// **`baud-core` uses it as an arena index and nothing more.** `Term::write_at`
+/// places a read at `arena[base..]` and `Term::feed` parses it from there, so
+/// a position names a byte only until the next read lands on it. It is neither
+/// monotonic nor unique: the app, the benches and the tests' `support::feed`
+/// place every read at [`BytePos::ZERO`], and the look-back that finds a
+/// placing hide (`baud-core`'s `placed.rs`) subtracts the read's base to tell
+/// the read's own bytes from the stream's tail before it.
+///
+/// **An absolute stream offset is the model's meaning, and the model is not
+/// built.** [`Store`], [`Run`] and the [`Source`] slots read it as an offset
+/// into the whole stream, monotonic and never reused, and nothing constructs
+/// any of them; [`Store::resolve`], which was to map such an offset to the
+/// arena, is a stub that returns `None`.
+///
+/// No public field and no arithmetic operators, so nothing adds one position
+/// to another: a move is named ([`BytePos::advance`],
+/// [`BytePos::advance_read`]) and so is a distance ([`BytePos::gap`]).
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, FromBytes, IntoBytes, Immutable, KnownLayout,
 )]
@@ -14,8 +28,7 @@ pub struct BytePos(pub(crate) u64);
 
 impl BytePos {
     pub const ZERO: BytePos = BytePos(0);
-    /// Absolute stream position from an arena offset. The arena is the only
-    /// thing that knows the mapping, so this is where it is stated.
+    /// The position of byte `n` of the arena.
     pub fn from_index(n: usize) -> BytePos {
         BytePos(n as u64)
     }
