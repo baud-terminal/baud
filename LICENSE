@@ -22,12 +22,13 @@ Full license text: https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
 
 Files this licence does not cover
 
-The files named below are fonts, and the data and documents that travel
-with them. They are not licensed under CC BY-NC-SA 4.0. Each is distributed
-under its own licence, which sits beside it in the same directory. The SIL
-Open Font License 1.1 requires this: "The Font Software, modified or
-unmodified, in part or in whole, must be distributed entirely under this
-license, and must not be distributed under any other license" (condition 5).
+The files named below are fonts with the data and documents that travel
+with them, and copies of other projects' code. They are not licensed under
+CC BY-NC-SA 4.0. Each is distributed under its own licence, which sits
+beside it in the same directory. For the fonts the SIL Open Font License 1.1
+requires this: "The Font Software, modified or unmodified, in part or in
+whole, must be distributed entirely under this license, and must not be
+distributed under any other license" (condition 5).
 
 Fonts embedded in the baud application:
 
@@ -95,3 +96,11 @@ Fonts the tests read:
 The other fonts under baud-font/tests/ were written from nothing by baud's
 own scripts and are under this licence: sbix-strikes.ttf, cblc-cases.ttf,
 gvar-cases.ttf, the cases fonts in var/bake/ and everything in var/hvar/.
+
+Other projects' code:
+
+  bench-others/ghostty-bench/tbuild_options.zig
+  bench-others/ghostty-bench/uucode_config.zig
+      Byte-identical copies of ghostty's src/terminal/build_options.zig and
+      src/build/uucode_config.zig at commit d9840f3: MIT, Copyright (c) 2024
+      Mitchell Hashimoto, Ghostty contributors (NOTICE, beside them).

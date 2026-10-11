@@ -45,7 +45,10 @@ build of ghostty is a like-for-like comparison. See MEASUREMENTS.md.
 
 `ghostty-bench/` is the old Zig harness, kept only until someone confirms
 nothing else wants it. It measured through a second PTY implementation, which
-was itself the cross-harness confound MEASUREMENTS.md warns about.
+was itself the cross-harness confound MEASUREMENTS.md warns about. Two of its
+files, `tbuild_options.zig` and `uucode_config.zig`, are ghostty's own,
+unmodified and under MIT; its `NOTICE` names them and carries ghostty's
+licence, which has to go with every copy.
 
 ## kitty
 
