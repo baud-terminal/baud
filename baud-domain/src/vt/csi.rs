@@ -232,18 +232,25 @@ pub enum Marker {
 }
 
 impl Marker {
-    /// The private-namespace bytes, `3C-3F`.
+    /// The private-namespace bytes, `3C-3F`, and their GR spellings `BC-BF`.
     ///
     /// `[[source: williams]]` collects these in `csi_entry` and **only** there:
     /// `csi_param` sends the same bytes to `csi_ignore`, because a marker is
     /// legal only immediately after `CSI`. Both of baud's feed paths call this,
     /// so the rule has one definition and the two paths cannot drift.
+    ///
+    /// **`BC-BF` are the same markers in GR**, which under ISO 8859-1 a
+    /// parser reads as their 7-bit bytes, williams' "In all states, these
+    /// codes are treated identically to GL codes 20-7F" (462). Named here
+    /// rather than masked by the caller, whose arm is inlined into a per-byte
+    /// loop; `Act::Inter`, which stores its byte and has no match to widen,
+    /// masks instead. Under UTF-8 no parser names a marker for either.
     pub const fn from_private(b: StreamByte) -> Option<Marker> {
         Some(match b.raw_byte() {
-            b'<' => Marker::Lt,
-            b'=' => Marker::Equals,
-            b'>' => Marker::Gt,
-            b'?' => Marker::Private,
+            b'<' | 0xbc => Marker::Lt,
+            b'=' | 0xbd => Marker::Equals,
+            b'>' | 0xbe => Marker::Gt,
+            b'?' | 0xbf => Marker::Private,
             _ => return None,
         })
     }

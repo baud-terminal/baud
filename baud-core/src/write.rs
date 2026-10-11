@@ -158,7 +158,13 @@ impl Csi {
         self.marker == Marker::Standard && self.inter.is_none() && f == FinalByte::SGR
     }
 
-    /// The intermediate byte, if the sequence carried one.
+    /// The intermediate byte, if the sequence carried one, **as the graph
+    /// read it**, and read as stored: under ISO 8859-1 a GR intermediate is
+    /// its 7-bit byte (`[[source: williams]]` 462), and `Act::Inter`, the one
+    /// path a GR intermediate takes, stores the 7-bit byte, since `fast_esc`
+    /// and `fast_csi` collect only `20-2F`. A mask here and in the other two
+    /// readers ran in `csi_final` on every non-SGR `CSI` (the record, "A GR
+    /// byte in an escape or control sequence").
     pub(crate) fn intermediate(&self) -> Option<StreamByte> {
         self.inter
     }
@@ -528,7 +534,7 @@ pub(crate) fn act(
         // `0x30..=0x39`, so the first byte is known to be a digit and the
         // table answers what the *pair* means -- two digits, a digit and a
         // separator, or a digit and something that is not ours. (And for
-        // `0xb0..=0xb9` in a DCS prefix under ISO 8859-1, the same digits in
+        // `0xb0..=0xb9` in a DCS prefix or a `CSI` under ISO 8859-1, the same digits in
         // GR, whose rows in the table are the GL digits' rows.) On `btop.raw`
         // `Digit` and `Sep` are **69.8% of every iteration the loop takes**,
         // and the mean digit run is 2.01 bytes.
@@ -591,6 +597,23 @@ pub(crate) fn act(
         }
         // The graph names these only where the grammar allows them, so
         // neither arm re-tests the byte range it was found by.
+        //
+        // **Each byte is read as the graph read it.** Under ISO 8859-1 the
+        // graph reads a GR byte in a sequence as its 7-bit byte (`graph::one`,
+        // `[[source: williams]]` 462), so `BF` is named `Marker` as `?` is and
+        // `A1` `Inter` as `!` is, and these arms read the arena:
+        // `Marker::from_private` names `BC-BF` beside `3C-3F`, and `Inter`
+        // stores the 7-bit byte, the one path a GR intermediate takes, since
+        // `fast_esc` and `fast_csi` collect only `20-2F`, so `Csi`'s readers
+        // read it as stored. A mask in each of those readers instead ran in
+        // `csi_final` on every non-SGR `CSI`, and a mask in each of four arms
+        // read `cat` about 6% lower on the medians, ranges overlapping in both
+        // sessions, which is no result (the record, "A GR byte in an escape
+        // or control sequence"). `EscFinal` masks the byte the C1 map passes
+        // through, and `CsiFinal`, whose final is typed before the call, keeps
+        // one mask. `StrStart`'s `StrKind::of` names the GR spelling of `]`
+        // beside the C1 one, and `Digit`'s table gives a GR digit's lead its
+        // GL digit's row.
         Act::Marker => {
             let b = StreamByte::from_stream(p.arena[from.index()]);
             if let Some(m) = Marker::from_private(b) {
@@ -599,7 +622,7 @@ pub(crate) fn act(
             ReadLen::ONE
         }
         Act::Inter => {
-            csi.set_inter(StreamByte::from_stream(p.arena[from.index()]));
+            csi.set_inter(StreamByte::from_stream(p.arena[from.index()]).seven_bit());
             ReadLen::ONE
         }
         // The three control-string arms. Each body is `#[cold]
@@ -613,7 +636,7 @@ pub(crate) fn act(
             // holding the last CSI's parameters; harmless for an OSC, which
             // reads none.
             csi.reset();
-            p.str_start(StreamByte::from_stream(p.arena[from.index()]));
+            p.str_start(StreamByte::from_stream(p.arena[from.index()]), *enc);
             ReadLen::ONE
         }
         Act::StrPut => {
@@ -699,8 +722,11 @@ pub(crate) fn act(
         }
         Act::CsiFinal => {
             // The graph only names `CsiFinal` for `0x40..=0x7e`, and
-            // `FinalByte` is the type that carries that proof.
-            let b = StreamByte::from_stream(p.arena[from.index()]);
+            // `FinalByte` is the type that carries that proof -- or, under
+            // ISO 8859-1, for `C0-FE`, the same finals in GR, which the mask
+            // reads as the graph did. `of_final` saturates any other byte into
+            // the space, so `ED` read raw was a final, and the wrong one.
+            let b = StreamByte::from_stream(p.arena[from.index()]).seven_bit();
             csi_final(p, csi, FinalByte::of_final(b), node, from);
             ReadLen::ONE
         }
@@ -717,6 +743,13 @@ pub(crate) fn act(
         // From a sequence it cancels the intermediate is that sequence's own,
         // so `ESC ( 84` would designate where williams runs an IND, and a
         // `CSI`'s parameters would linger.
+        //
+        // **A GR final is its 7-bit final**, under ISO 8859-1 where the graph
+        // read it so: `ESC B7` is a DECSC. This arm clears the eighth bit of a
+        // byte the C1 map passes through, and not of a C1 byte, which is no GR
+        // byte and whose 7-bit form is not its low seven bits. It is the one
+        // path a GR final takes: `fast_esc` hands `esc_final` only `30-7E`, so
+        // the mask is here, once, and not in `esc_final` on every `ESC ( B`.
         Act::EscFinal => {
             let raw = StreamByte::from_stream(p.arena[from.index()]);
             let b = match enc.c1_as_escape(raw) {
@@ -724,7 +757,7 @@ pub(crate) fn act(
                     csi.reset();
                     b
                 }
-                None => raw,
+                None => raw.seven_bit(),
             };
             esc_final(p, csi, b, enc);
             ReadLen::ONE
@@ -1774,6 +1807,11 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
 #[cold]
 #[inline(never)]
 fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEncoding) {
+    // **The final as the graph read it, and 7-bit.** Under ISO 8859-1 a GR
+    // final is its 7-bit final (`graph::one`, `[[source: williams]]` 462);
+    // the `EscFinal` arm, the one caller a GR final reaches, clears its
+    // eighth bit, and `fast_esc` passes only `30-7E`. The intermediate is
+    // 7-bit as stored (`Csi::intermediate`).
     // A designator is an *intermediate plus* a final: `ESC ( B` selects
     // USASCII into G0 and `ESC B` is a different sequence entirely.
     if let Some(i) = csi.intermediate() {

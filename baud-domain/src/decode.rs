@@ -336,6 +336,20 @@ impl StreamByte {
     pub const fn raw_byte(self) -> u8 {
         self.0
     }
+    /// The byte with its eighth bit cleared: a GR byte's GL twin, `A0-FF`
+    /// to `20-7F`, and a GL byte as it is.
+    ///
+    /// **For a byte the graph has already read as GL.** An action the graph
+    /// names only for a GL byte, or under ISO 8859-1 for a GR byte it read
+    /// as its 7-bit byte ([`InputEncoding::gr_as_gl`]), reads its byte back
+    /// out of the arena and must see what the graph saw. A mask does that
+    /// with no branch on the encoding, which the action never needs: under
+    /// UTF-8 the graph names these actions for no byte past `7F`. Not for a
+    /// C1 byte, whose 7-bit form is `ESC` and another byte
+    /// ([`InputEncoding::c1_as_escape`]), and which the caller maps first.
+    pub const fn seven_bit(self) -> StreamByte {
+        StreamByte(self.0 & 0x7f)
+    }
     /// Reinterpret a byte slice as a stream. No copy and no `unsafe`:
     /// `repr(transparent)` plus zerocopy's `FromBytes` make this a checked
     /// no-op. This is the crate's one entry point for wire data.
@@ -801,12 +815,14 @@ impl InputEncoding {
     /// maps.
     ///
     /// A `const fn`, because its one caller is the graph, which is built at
-    /// compile time; the DCS prefix nodes are the only ones that ask.
+    /// compile time. The nodes that ask are the DCS prefix's, an escape or
+    /// control sequence's, and the `ESC` inside a control string; the bodies
+    /// do not, and an `OSC`'s handler asks of the bytes it keeps.
     pub const fn gr_as_gl(self, b: StreamByte) -> StreamByte {
         match self {
             InputEncoding::Utf8 => b,
             InputEncoding::Latin1 => match b.raw_byte() {
-                v @ 0xa0..=0xff => StreamByte::from_stream(v & 0x7f),
+                0xa0..=0xff => b.seven_bit(),
                 _ => b,
             },
         }

@@ -26,8 +26,8 @@
 //! to run at startup. Only the digit rows are ever touched -- `b0` is always
 //! one of ten bytes -- so the resident set is 10 x 256 x 2 = **5 KB**, which is
 //! what rule #2 bounds rather than the table's size. (Twenty bytes can lead,
-//! counting the GR digits a DCS prefix reads under ISO 8859-1; no recording
-//! holds one, so the ten rows are what is resident.)
+//! counting the GR digits a DCS prefix or a control sequence reads under ISO
+//! 8859-1; no recording holds one, so the ten rows are what is resident.)
 
 use crate::*;
 
@@ -130,17 +130,19 @@ impl ParamStep {
 
 /// The table. `b0` is always a digit -- a parser names this action only for
 /// `0x30..=0x39`, and for `0xb0..=0xb9`, the same digits in GR, where a DCS
-/// prefix under ISO 8859-1 reads a GR byte as its 7-bit byte
-/// (`[[source: dec-std-070]]` 3.5.4.5) -- so every other row is unreachable
+/// prefix or a control sequence under ISO 8859-1 reads a GR byte as its
+/// 7-bit byte (`[[source: dec-std-070]]` 3.5.4.5, `[[source: williams]]`
+/// 462) -- so every other row is unreachable
 /// and costs nothing but address space.
 ///
 /// **A GR digit's row is its GL digit's, and only the row.** The second byte
 /// is the same column for both, so a GR byte after a digit is "not ours"
 /// and takes its own iteration through the graph: widening the column would
 /// make `CSI 1 B2` under UTF-8, where `B2` is a continuation byte, read it
-/// as a digit. The GR rows are reached only by a GR digit in a DCS prefix
-/// under ISO 8859-1, which no recording holds, so the touched set is the 5
-/// KB it was.
+/// as a digit. Under ISO 8859-1 the graph names that GR byte `Digit` in its
+/// own right, in a DCS prefix or a `CSI`, so a run of GR digits folds one
+/// step at a time. The GR rows are reached only there, which no recording
+/// holds, so the touched set is the 5 KB it was.
 static PARAM: [ParamStep; 1 << 16] = build();
 
 const fn build() -> [ParamStep; 1 << 16] {
@@ -312,7 +314,7 @@ impl ParamStep3 {
     /// The step three bytes name. One load, one mask on the lead.
     ///
     /// **The lead's low nibble, not the lead less `0x30`.** A lead is a digit,
-    /// `30-39`, or under ISO 8859-1 in a DCS prefix the same digit in GR,
+    /// `30-39`, or under ISO 8859-1 in a DCS prefix or a `CSI` the same digit in GR,
     /// `B0-B9` (`[[source: dec-std-070]]` 3.5.4.5), and both have the digit's
     /// value in their low nibble. Less `0x30`, a GR lead indexed past the
     /// table and panicked.

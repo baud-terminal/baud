@@ -292,6 +292,39 @@ fn a_published_copy_survives_the_strings_after_it() {
     });
 }
 
+/// **Under ISO 8859-1 an `OSC 52` spelled in GR is the one spelled in GL**:
+/// `[[source: dec-std-070]]` 3.5.4.5, "GR (8-bit) graphic characters in APC,
+/// OSC, and PM control strings will be treated as their 7-bit equivalent (the
+/// eighth bit will be ignored)", and `[[source: ecma48]]` §9 for "the contents
+/// of the command string". So `B5 B2 BB` is `52;`, which routes the body to
+/// the clipboard, and `aGk=` in GR is `hi`. The body kept its GR bytes, so
+/// the `52;` was not seen and the write was a refused `OSC`. Every read size
+/// in `READS`; the GL spelling first, as the control.
+#[test]
+fn an_osc_52_spelled_in_gr_is_the_one_spelled_in_gl_under_latin1() {
+    let gl = [b"\x1b%@".as_slice(), &osc52(b"c", b"hi")].concat();
+    let gr: Vec<u8> = gl
+        .iter()
+        .enumerate()
+        .map(|(i, b)| match (i >= 5 && i < gl.len() - 2, *b) {
+            (true, v @ 0x21..=0x7e) => v | 0x80,
+            (_, v) => v,
+        })
+        .collect();
+    assert_eq!(&gr[5..10], b"\xb5\xb2\xbb\xe3\xbb", "52;c; in GR");
+    for (what, data) in [("GL", &gl), ("GR", &gr)] {
+        for chunk in READS {
+            run(data, chunk, Some(64), |_, seen| {
+                assert_eq!(
+                    seen,
+                    vec![(clipboard(), Some(b"hi".to_vec()))],
+                    "{what}, reads of {chunk}"
+                );
+            });
+        }
+    }
+}
+
 #[test]
 fn the_refusals_start_at_none() {
     let ws = support::CORPUS;

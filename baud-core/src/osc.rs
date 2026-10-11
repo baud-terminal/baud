@@ -36,10 +36,16 @@ impl Paint<'_, '_> {
     /// invariance: a value carried between two functions and consumed by a
     /// later, different one, because the path has more exits than it looks
     /// like it has.
+    ///
+    /// **And the encoding it began under**, which `str_put` reads to keep an
+    /// `OSC`'s GR byte as its 7-bit byte under ISO 8859-1: taken once here,
+    /// in the introducer's arm, rather than passed in the body's arm on
+    /// every byte of every string, a Sixel's included.
     #[cold]
     #[inline(never)]
-    pub(crate) fn str_start(&mut self, b: StreamByte) {
+    pub(crate) fn str_start(&mut self, b: StreamByte, enc: InputEncoding) {
         self.cold.str_kind = StrKind::of(b);
+        self.cold.str_enc = enc;
         self.cold.str_len = ByteLen::ZERO;
     }
 
@@ -100,6 +106,26 @@ impl Paint<'_, '_> {
         if self.cold.str_kind == StrKind::Decrqss && b.is_format_effector() {
             return;
         }
+        // **Under ISO 8859-1 an `OSC` keeps a GR byte as its 7-bit byte**,
+        // its clipboard body included. `[[source: dec-std-070]]` 3.5.4.5: "GR
+        // (8-bit) graphic characters in APC, OSC, and PM control strings will
+        // be treated as their 7-bit equivalent (the eighth bit will be
+        // ignored)"; `[[source: ecma48]]` §9 gives "the contents of the
+        // command string" "the same meanings" as `02/00` to `07/14`; and
+        // `[[source: williams]]` treats GR as GL "in all states" (462). The
+        // body kept the byte as it came, so `ESC ] B0 BB t BEL` named no
+        // `OSC`, a title in GR was stored in GR, and `B5 B2 BB` was not the
+        // `52;` that routes a copy below. Above this, the two DCS bodies a
+        // handler reads keep theirs, the owner's open call
+        // (`dcs_passthrough`, `docs/vt-coverage.md`). Below it, `Other` is a
+        // DCS no handler reads or an `APC`, `PM` or `SOS`, kept and dropped
+        // unread at the terminator, so a strip there would move nothing; an
+        // `APC` or `PM` that gains a reader takes the rule then. Under UTF-8
+        // `gr_as_gl` maps nothing: the bytes are a character's.
+        let b = match self.cold.str_kind {
+            StrKind::Osc | StrKind::Clipboard => self.cold.str_enc.gr_as_gl(b),
+            _ => b,
+        };
         // An `OSC 52` body past its `52;`: decoded into the clipboard areas,
         // not kept in `pending`, whose 512 bytes hold under 400 of text.
         if self.cold.str_kind == StrKind::Clipboard {
@@ -455,7 +481,13 @@ impl StrKind {
             //
             // The graph's delegation is what makes one row serve both, and
             // this is the one place downstream that still had to be told.
-            0x5d | 0x9d => StrKind::Osc,
+            //
+            // **And `DD`, the same `]` in GR under ISO 8859-1**, where the
+            // escape state reads a GR byte as its 7-bit byte (`graph::one`,
+            // `[[source: williams]]` 462): `ESC DD` is `ESC ]`, and this read
+            // `Other` for it, consuming the string and dropping its title.
+            // Under UTF-8 the graph names `StrStart` for no `DD`.
+            0x5d | 0x9d | 0xdd => StrKind::Osc,
             _ => StrKind::Other,
         }
     }

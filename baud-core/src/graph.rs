@@ -918,12 +918,34 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 None => edge(Act::Resync, Node::Vt52Ground),
             };
         }
-        Node::Escape => return escape(b),
-        Node::EscInter => return esc_inter(b),
-        Node::CsiEntry => return csi_entry(b),
-        Node::CsiParam => return csi_param(b),
-        Node::CsiInter => return csi_inter(b),
-        Node::CsiIgnore => return csi_ignore(b),
+        // **Under ISO 8859-1 a GR byte in an escape or control sequence is
+        // read as its 7-bit byte**, in all six rows. `[[source: williams]]`
+        // (462): "In all states, these codes are treated identically to GL
+        // codes 20-7F", after X3.64's Appendix H, which lets GR represent
+        // "parameters, intermediates, and finals of a control sequence";
+        // `[[source: ecma48]]` §9 names the "Parameter Bytes, Intermediate
+        // Bytes, and Final Bytes of a control sequence", "the same meanings"
+        // as `02/00` to `07/14`; and `[[source: dec-std-070]]` 3.5.4.5 calls
+        // its DCS rule "the same way 8-bit graphic characters are handled
+        // within control sequences". xterm's `csi_table` gives `A0-FF` the
+        // cases of `20-7F` (`[[source: xterm-vtprstbl-c]]` 679-798). `escape`
+        // ended at a GR byte and dropped it, `csi_entry` and `csi_intermediate`
+        // sent the sequence to `csi_ignore`, `csi_param` dropped the byte, and
+        // `csi_ignore` waited for a 7-bit final. The DCS prefix took the rule
+        // first and these rows delegate the same way, so `C0-FE` are whatever
+        // `40-7E` are, `A0` an intermediate as `20` is and `FF` ignored as
+        // `7F` is. Under UTF-8 `gr_as_gl` maps nothing and the rows are what
+        // they were. The rule reaches each byte here after the `CAN`, `SUB`,
+        // `ESC` and C1 edges above, none of which is a GR byte, and maps none
+        // to a C0. The actions that read their byte, `Marker`, `Inter`,
+        // `CsiFinal`, `EscFinal`, `StrStart` and `Digit`, read it through the
+        // same rule (`write::act`).
+        Node::Escape => return escape(enc.gr_as_gl(b)),
+        Node::EscInter => return esc_inter(enc.gr_as_gl(b)),
+        Node::CsiEntry => return csi_entry(enc.gr_as_gl(b)),
+        Node::CsiParam => return csi_param(enc.gr_as_gl(b)),
+        Node::CsiInter => return csi_inter(enc.gr_as_gl(b)),
+        Node::CsiIgnore => return csi_ignore(enc.gr_as_gl(b)),
         // **Both rows are `Act::Consume` with a different next node**, which
         // is the cheapest kind of edge this graph has: it costs table content
         // and nothing in the dispatch, the way `CAN`/`SUB` did. Anything that
@@ -1027,8 +1049,12 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // williams' `escape` reached from a string, which ignores `7F` (286).
         // It went to `Escape` with `Again`, which ended the string there and
         // took the `\` for a bare `ST`.
+        //
+        // **And under ISO 8859-1 `DC` is the `\`, `FF` the `DEL`**, the
+        // escape state's GR rule (above), so `ESC DC` ends the string as
+        // `ESC \` does. It led to `Escape`, which cancelled the string.
         Node::StrEsc => {
-            return match b.raw_byte() {
+            return match enc.gr_as_gl(b).raw_byte() {
                 0x5c => edge(Act::StrEnd, Node::AfterControl),
                 0x7f => edge(Act::Consume, Node::StrEsc),
                 _ => edge(Act::Again, Node::Escape),
@@ -1713,6 +1739,21 @@ mod classes {
         // | ... and `Bad` there takes the ground's edge | **41/1,313/34,972/856,965** | +0.6% |
         // | `DEL` ignored in `escape`, `csi entry`, `csi intermediate` and a string's `ESC` | **41/1,314/35,265/869,631** | +1.5% |
         // | `escape intermediate` its own node, `EscInter` | **41/1,314/35,053/860,128** | **-1.1%** |
+        // | a GR byte in an escape or control sequence is its 7-bit byte (Latin-1) | **48/1,841/54,641/1,450,886** | **+68.7%** |
+        //
+        // **The GR sequence row is the prefix row's cost again, six nodes
+        // wide.** Against a dump of every edge before and after, 528 changed,
+        // all in the Latin-1 table: 96 in each of `Escape`, `EscInter` and
+        // `CsiEntry`, 95 in `CsiParam`, 80 in `CsiInter`, 63 in `CsiIgnore`
+        // and 2 in `StrEsc` (`DC` and `FF`), each GR byte now its GL twin's
+        // edge. The UTF-8 table is the same edge for edge. At stride 1 three
+        // old classes split into ten and none merge: `BC-BF`, the markers in
+        // GR, leave `A0-AF`; `BA` leaves `BB`, because a `CSI` tells `:` from
+        // `;`; and `D0`, `D8 DE DF`, `DB`, `DC` and `DD`, the introducers and
+        // `\` in GR, leave the two-byte leads. At stride 2, 202 old classes
+        // split into 729 and none merge. Strides 3 and 4 compound the same and
+        // were not decomposed. Like the prefix row, this is the analysis's
+        // alphabet; the shipped tables keep their 25 rows of 256.
         //
         // **The `EscInter` row adds a node and shrinks the ladder.** Against a
         // dump of every edge before and after, 32 edges changed, `20-2F` out
@@ -1949,9 +1990,9 @@ mod classes {
         // Sixel stated as arithmetic, the same shape every action this file
         // adds pays.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 1_314, "stride 2");
-        assert_eq!(three.len(), 35_053, "stride 3");
-        assert_eq!(four.len(), 860_128, "stride 4");
+        assert_eq!(two.len(), 1_841, "stride 2");
+        assert_eq!(three.len(), 54_641, "stride 3");
+        assert_eq!(four.len(), 1_450_886, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2699,6 +2740,95 @@ mod classes {
         }
     }
 
+    /// **Under ISO 8859-1 a GR byte in an escape or control sequence takes
+    /// the edge its 7-bit byte takes; under UTF-8 each of these nodes keeps
+    /// the row it had, and the string bodies keep theirs in both.**
+    /// Exhaustive over `A0-FF`, the six sequence nodes and `StrEsc`, and
+    /// both encodings, against the shipped table.
+    ///
+    /// `[[source: williams]]` (462): "In all states, these codes are treated
+    /// identically to GL codes 20-7F"; `[[source: ecma48]]` §9 names the
+    /// "Parameter Bytes, Intermediate Bytes, and Final Bytes of a control
+    /// sequence". `escape` dropped a GR byte and ended the sequence,
+    /// `csi_entry` and `csi_intermediate` sent the sequence to `csi_ignore`,
+    /// `csi_param` dropped the byte, `csi_ignore` waited for a 7-bit final,
+    /// and `StrEsc` took `DC` for no `\`. The edges are named as well as
+    /// compared, so the comparison cannot pass with both sides moved.
+    #[test]
+    fn a_gr_byte_in_an_escape_or_control_sequence_takes_its_seven_bit_edge_under_latin1() {
+        let l1 = |n: Node, v: usize| Edge::of(InputEncoding::Latin1, n, StreamByte::ALL[v]);
+        let u8_ = |n: Node, v: usize| Edge::of(InputEncoding::Utf8, n, StreamByte::ALL[v]);
+        for (node, utf8) in [
+            (Node::Escape, edge(Act::Consume, Node::AfterControl)),
+            (Node::EscInter, edge(Act::Consume, Node::AfterControl)),
+            (Node::CsiEntry, edge(Act::Consume, Node::CsiIgnore)),
+            (Node::CsiParam, edge(Act::Consume, Node::CsiParam)),
+            (Node::CsiInter, edge(Act::Consume, Node::CsiIgnore)),
+            (Node::CsiIgnore, edge(Act::Consume, Node::CsiIgnore)),
+            (Node::StrEsc, edge(Act::Again, Node::Escape)),
+        ] {
+            for v in 0xa0..=0xffusize {
+                assert_eq!(l1(node, v), l1(node, v & 0x7f), "{node:?} Latin1 {v:#04x}");
+                assert_eq!(u8_(node, v), utf8, "{node:?} Utf8 {v:#04x}");
+            }
+        }
+        // Named: what each mechanism's GR byte now does under ISO 8859-1.
+        let named = [
+            (Node::Escape, 0xa8, edge(Act::Inter, Node::EscInter)),
+            (Node::EscInter, 0xa5, edge(Act::Inter, Node::EscInter)),
+            (
+                Node::EscInter,
+                0xd0,
+                edge(Act::EscFinal, Node::AfterControl),
+            ),
+            (Node::EscInter, 0xff, edge(Act::Consume, Node::EscInter)),
+            (Node::Escape, 0xb7, edge(Act::EscFinal, Node::AfterControl)),
+            (Node::Escape, 0xdb, edge(Act::CsiStart, Node::CsiEntry)),
+            (Node::Escape, 0xdd, edge(Act::StrStart, Node::OscStr)),
+            (Node::Escape, 0xd0, edge(Act::StrStart, Node::Dcs)),
+            (Node::Escape, 0xff, edge(Act::Consume, Node::Escape)),
+            (Node::CsiEntry, 0xbf, edge(Act::Marker, Node::CsiParam)),
+            (Node::CsiEntry, 0xb5, edge(Act::Digit, Node::CsiParam)),
+            (Node::CsiEntry, 0xa1, edge(Act::Inter, Node::CsiInter)),
+            (Node::CsiEntry, 0xff, edge(Act::Consume, Node::CsiEntry)),
+            (Node::CsiParam, 0xbb, edge(Act::Sep, Node::CsiParam)),
+            (Node::CsiParam, 0xba, edge(Act::SubSep, Node::CsiParam)),
+            (
+                Node::CsiParam,
+                0xed,
+                edge(Act::CsiFinal, Node::AfterControl),
+            ),
+            (
+                Node::CsiInter,
+                0xf0,
+                edge(Act::CsiFinal, Node::AfterControl),
+            ),
+            (
+                Node::CsiIgnore,
+                0xed,
+                edge(Act::Consume, Node::AfterControl),
+            ),
+            (Node::StrEsc, 0xdc, edge(Act::StrEnd, Node::AfterControl)),
+            (Node::StrEsc, 0xff, edge(Act::Consume, Node::StrEsc)),
+        ];
+        for (node, v, want) in named {
+            assert_eq!(l1(node, v), want, "{node:?} Latin1 {v:#04x}");
+        }
+        // The bodies: every GR byte is put, under both encodings, as before;
+        // what an `OSC` keeps of it is `Paint::str_put`'s.
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            for node in [Node::OscStr, Node::SosStr] {
+                for v in 0xa0..=0xffusize {
+                    assert_eq!(
+                        Edge::of(enc, node, StreamByte::ALL[v]),
+                        edge(Act::StrPut, node),
+                        "{enc:?} {node:?} {v:#04x}"
+                    );
+                }
+            }
+        }
+    }
+
     /// The measured count, pinned. `CLASSES^4` is what a four-byte window
     /// costs as a perfect index.
     ///
@@ -2717,14 +2847,17 @@ mod classes {
     /// A number that moves this way is the table growing to fit the protocol,
     /// not a regression -- and the assertion is here so that growth is a
     /// decision rather than a discovery.
-    // 41, not the 26 the paragraph above narrates: HT, CAN/SUB, SO/SI and the
+    // 48, not the 26 the paragraph above narrates: HT, CAN/SUB, SO/SI and the
     // 8-bit C1 routing each split more bytes apart after that prose was
     // written, which made 34, and the `OSC` body parting from the `SOS`, `PM`
     // and `APC` one on `BEL` split `5D` from `58 5E 5F` and `9D` from
     // `98 9E 9F`, which made 36. A GR byte in a DCS prefix read as its 7-bit
     // byte under ISO 8859-1 split `A4`, `B0-B9`, `BA BB`, `F1` and `FF` from
-    // the classes they shared, which made 41.
-    const CLASSES: usize = 41;
+    // the classes they shared, which made 41. A GR byte in an escape or
+    // control sequence read so split `BC-BF` from `A0-AF`, `BA` from `BB`,
+    // and `D0`, `D8 DE DF`, `DB`, `DC` and `DD` from the other two-byte
+    // leads, which made 48.
+    const CLASSES: usize = 48;
     /// What `write::act` consumes, which is **not** `Act::width()`.
     ///
     /// `width` is the byte length of the *character* an act writes; two acts

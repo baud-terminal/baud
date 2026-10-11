@@ -386,6 +386,11 @@ pub struct Cold {
     /// nothing to the loads the loop already makes. They are state that outlives a `feed`,
     /// because a string spans reads.
     pub(crate) str_kind: StrKind,
+    /// The input encoding the control string began under, which says what
+    /// an `OSC` keeps of a GR byte (`Paint::str_put`). Taken at the
+    /// introducer, so the body's per-byte arm passes nothing; the encoding
+    /// cannot change inside a string, because the `ESC` of an `ESC %` ends it.
+    pub(crate) str_enc: InputEncoding,
     pub(crate) str_len: ByteLen,
     /// A Sixel body's length, `ReadLen` rather than `ByteLen` because a Sixel
     /// body runs to tens of kilobytes where `str_len` is a `u16`. It counts the
@@ -634,6 +639,7 @@ impl Cold {
             terminal: TerminalMode::Ansi,
             vt52_row: Vt52Coord::ZERO,
             str_kind: StrKind::Other,
+            str_enc: InputEncoding::Utf8,
             str_len: ByteLen::ZERO,
             sixel_len: ReadLen::ZERO,
             sixel_bg: SixelBg::Transparent,

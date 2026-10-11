@@ -779,3 +779,257 @@ fn under_utf8_a_c1_byte_in_a_sequence_is_what_it_was() {
         );
     });
 }
+
+/// **Under ISO 8859-1 a GR byte, from every state of an escape or control
+/// sequence, acts as its 7-bit byte.**
+///
+/// `[[source: williams]]` (462): "There are no explicit actions shown for
+/// incoming codes in the GR area (A0-FF). In all states, these codes are
+/// treated identically to GL codes 20-7F", after X3.64's Appendix H, which it
+/// quotes: in an 8-bit code GR may represent "parameters, intermediates, and
+/// finals of a control sequence". `[[source: ecma48]]` §9 names the
+/// "Parameter Bytes, Intermediate Bytes, and Final Bytes of a control
+/// sequence", where "the bit combinations in the range 10/00 to 15/14 shall
+/// have the same meanings as the corresponding bit combinations in the range
+/// 02/00 to 07/14"; `[[source: dec-std-070]]` 3.5.4.5 calls its DCS rule "the
+/// same way 8-bit graphic characters are handled within control sequences".
+/// The `docs/vt-coverage.md` row "the same under `ESC % @` (ISO 8859-1)" was
+/// `partial` on this: `escape` dropped a GR byte and ended the sequence,
+/// `csi_entry` and `csi_intermediate` sent it to `csi_ignore`, `csi_param`
+/// dropped the byte, and `csi_ignore` waited for a 7-bit final.
+///
+/// Exhaustive over `A0-FF` and the sixteen states of the C1 test above, each
+/// GR byte held against the program with its 7-bit twin in its place, at
+/// every read size and every split into two reads. `FF`'s twin is `DEL`,
+/// which williams reads it as and every sequence state ignores, and `A0`'s is
+/// `SP`, an intermediate. An `ESC` inside a string hands its next byte to the
+/// escape state, so `ESC DC` is the `ST` that ends it.
+#[test]
+fn a_gr_byte_in_any_escape_or_control_sequence_acts_as_its_seven_bit_byte_under_latin1() {
+    let states: [(&str, &[u8]); 16] = [
+        ("escape", b"\x1b"),
+        ("escape intermediate (", b"\x1b("),
+        ("escape intermediate SP", b"\x1b "),
+        ("escape intermediate #", b"\x1b#"),
+        ("escape intermediate %", b"\x1b%"),
+        ("escape, two intermediates", b"\x1b(%"),
+        ("csi entry, ESC [", b"\x1b["),
+        ("csi entry, 9B", b"\x9b"),
+        ("csi param, after a separator", b"\x1b[1;"),
+        ("csi param, after a digit", b"\x1b[12"),
+        ("csi param, after a marker", b"\x1b[?"),
+        ("csi intermediate", b"\x1b[1 "),
+        ("csi ignore", b"\x1b[1?"),
+        ("ESC inside an OSC", b"\x1b]0;ab\x1b"),
+        ("ESC inside a DECRQSS", b"\x1bP$qm\x1b"),
+        ("ESC inside an APC", b"\x1b_ab\x1b"),
+    ];
+    let tails: [&[u8]; 3] = [b"5mY\x07\r\tZ[}", b"0;T\x07\r\tZ[}", b"$qm\x1b\\\r\tZ[}"];
+    for (name, open) in states {
+        for v in 0xa0u8..=0xff {
+            for tail in tails {
+                let what = format!("{v:#04x} in {name}, then {}", tail.escape_ascii());
+                let gr = [b"\x1b%@X".as_slice(), open, &[v], tail].concat();
+                let gl = [b"\x1b%@X".as_slice(), open, &[v & 0x7f], tail].concat();
+                same_outcome_at_every_split(&what, &gr, &gl);
+            }
+        }
+    }
+}
+
+/// **Each place a GR byte is read in a sequence, by what it does**, under ISO
+/// 8859-1, each beside its 7-bit spelling and with a positive control on the
+/// 7-bit side. The exhaustive test above holds every byte against its twin;
+/// this one says what each mechanism used to lose: a GR final (`ED`, `m`), a
+/// GR intermediate in a control sequence (`A1`, `!`; `A0`, `SP`) and in an
+/// escape sequence (`A8`, `(`; `A5`, `%`), a GR marker (`BF`, `?`), GR
+/// parameters (`B2 B5`, `25`), GR escape finals (`B7`, `B8`), the GR
+/// introducers (`DB`, `[`; `DD`, `]`), `ESC DC` as the `ST` of an `OSC` and
+/// a DECRQSS, and a GR final ending `csi ignore`.
+#[test]
+fn each_gr_byte_in_a_sequence_does_what_its_seven_bit_byte_does_under_latin1() {
+    let cases: [(&str, &[u8], &[u8]); 12] = [
+        ("GR final: SGR 1", b"\x1b[1\xedY", b"\x1b[1mY"),
+        (
+            "GR intermediate in a CSI: DECSTR",
+            b"\x1b[31m\x1b[\xa1\xf0Y",
+            b"\x1b[31m\x1b[!pY",
+        ),
+        (
+            "GR marker and parameters: DECTCEM off",
+            b"\x1b[\xbf\xb2\xb5\xecY",
+            b"\x1b[?25lY",
+        ),
+        (
+            "GR escape finals: DECSC, DECRC",
+            b"ab\x1b\xb7cd\x1b\xb8X",
+            b"ab\x1b7cd\x1b8X",
+        ),
+        (
+            "GR escape intermediate: G0 DEC graphics",
+            b"\x1b\xa8\xb0q",
+            b"\x1b(0q",
+        ),
+        ("GR CSI introducer", b"\x1b\xdb31mY", b"\x1b[31mY"),
+        ("GR OSC introducer", b"\x1b\xdd0;t\x07Y", b"\x1b]0;t\x07Y"),
+        (
+            "ESC DC ends an OSC",
+            b"\x1b]0;t\x1b\xdcY",
+            b"\x1b]0;t\x1b\\Y",
+        ),
+        (
+            "ESC DC ends a DECRQSS",
+            b"\x1bP$qm\x1b\xdcY",
+            b"\x1bP$qm\x1b\\Y",
+        ),
+        ("a GR final ends csi ignore", b"\x1b[1?\xedX", b"\x1b[1?mX"),
+        (
+            "CSI GR intermediate, GL final: DECSCUSR",
+            b"\x1b[2\xa0qY",
+            b"\x1b[2 qY",
+        ),
+        (
+            "ESC A5 C7 selects UTF-8",
+            b"\x1b\xa5\xc7\xc3\xa9",
+            b"\x1b%G\xc3\xa9",
+        ),
+    ];
+    for (what, gr, gl) in cases {
+        let gr = [b"\x1b%@".as_slice(), gr].concat();
+        let gl = [b"\x1b%@".as_slice(), gl].concat();
+        same_outcome_at_every_split(what, &gr, &gl);
+    }
+    // Positive controls, on the 7-bit side.
+    fed(b"\x1b%@\x1b[?25lY", usize::MAX, |t| {
+        assert!(!t.cursor_visible(), "CSI ? 25 l hides the cursor");
+    });
+    fed(b"\x1b%@\x1b]0;t\x1b\\Y", usize::MAX, |t| {
+        assert_eq!(t.title(), b"t", "ESC \\ ends the OSC");
+    });
+    fed(b"\x1b%@\x1bP$qm\x1b\\Y", usize::MAX, |t| {
+        assert_eq!(t.reply(), b"\x1bP1$r0m\x1b\\", "the DECRQSS answers");
+    });
+    fed(b"\x1b%@\x1b%G\xc3\xa9", usize::MAX, |t| {
+        assert_eq!(
+            t.input_encoding(),
+            InputEncoding::Utf8,
+            "ESC % G selects UTF-8"
+        );
+        assert_eq!(t.cursor().1, Col::at_index(1), "one character, é");
+    });
+    fed(b"\x1b%@ab\x1b7cd\x1b8X", usize::MAX, |t| {
+        let row: Vec<u32> = support::screen(t)[..4]
+            .iter()
+            .map(|c| c.content.as_codepoint().map_or(0, |c| c.value()))
+            .collect();
+        assert_eq!(row, [0x61, 0x62, 0x58, 0x64], "DECSC, DECRC: abXd");
+    });
+}
+
+/// **Under ISO 8859-1 a GR byte in an `OSC` body is its 7-bit byte**, so a
+/// title or a parameter spelled in GR is the one spelled in GL.
+///
+/// `[[source: dec-std-070]]` 3.5.4.5: "GR (8-bit) graphic characters in APC,
+/// OSC, and PM control strings will be treated as their 7-bit equivalent (the
+/// eighth bit will be ignored)". `[[source: ecma48]]` §9 gives "the contents
+/// of the command string or the character string as part of a control
+/// string" the same rule as a control sequence's bytes. The `OSC` kept every
+/// GR byte as it came, so `ESC ] B0 BB t BEL` set no title, its `Ps` not a
+/// number, and a title's letters in GR were stored as GR. An `APC` or `PM`
+/// body no handler reads, so there is nothing of theirs to hold here.
+///
+/// Every framing, `ESC ]` or `9D` and `BEL`, `ESC \` or `9C`, every read size
+/// and every split. Under UTF-8 the same bytes are a character's and the
+/// title keeps them, the guard after.
+#[test]
+fn a_gr_byte_in_an_osc_body_is_its_seven_bit_byte_under_latin1() {
+    let bodies: [(&str, &[u8], &[u8]); 3] = [
+        ("Ps in GR", b"\xb0\xbbtitle", b"0;title"),
+        ("the title in GR", b"0;\xf4\xe9\xf4\xec\xe5", b"0;title"),
+        (
+            "both, and FF, DEL's twin",
+            b"\xb2\xbb\xe1\xff\xe2",
+            b"2;a\x7fb",
+        ),
+    ];
+    let intros: [&[u8]; 2] = [b"\x1b]", b"\x9d"];
+    let ends: [&[u8]; 3] = [b"\x07", b"\x1b\\", b"\x9c"];
+    for (name, gr, gl) in bodies {
+        for intro in intros {
+            for end in ends {
+                let what = format!("{name}, {} .. {}", intro.escape_ascii(), end.escape_ascii());
+                let gr = [b"\x1b%@".as_slice(), intro, gr, end, b"Y"].concat();
+                let gl = [b"\x1b%@".as_slice(), intro, gl, end, b"Y"].concat();
+                same_outcome_at_every_split(&what, &gr, &gl);
+            }
+        }
+    }
+    fed(b"\x1b%@\x1b]0;title\x07", usize::MAX, |t| {
+        assert_eq!(t.title(), b"title", "positive control: the GL spelling");
+    });
+    // Under UTF-8 a GR byte in a title is a character's and is kept.
+    for size in 1..=12 {
+        fed(b"\x1b]0;caf\xc3\xa9\x07", size, |t| {
+            assert_eq!(t.title(), b"caf\xc3\xa9", "UTF-8, read size {size}");
+        });
+    }
+}
+
+/// **Under UTF-8 a GR byte inside a sequence is what it was**, the guard
+/// beside the tests above, green before the change and after it. `A0-FF`
+/// are lead and continuation bytes there, so nothing reads one as GL: after
+/// `ESC`, bare or past an intermediate, it ends the escape and is dropped;
+/// inside a `CSI`'s parameters it is dropped and the sequence goes on;
+/// straight after the introducer or an intermediate it sends the sequence to
+/// `csi ignore`, which swallows it and waits for a final; and after an `ESC`
+/// inside a string it ends the escape the string's `ESC` began. Each is held
+/// at every split to the program it has always been equal to. The control,
+/// last, is the first case under Latin-1, where `ESC B7` is a DECSC.
+#[test]
+fn under_utf8_a_gr_byte_in_a_sequence_is_what_it_was() {
+    for v in 0xa0u8..=0xff {
+        let cases: [(&str, Vec<u8>, &[u8]); 7] = [
+            ("after ESC", [b"\x1b".as_slice(), &[v], b"X"].concat(), b"X"),
+            (
+                "after ESC (",
+                [b"\x1b(".as_slice(), &[v], b"X"].concat(),
+                b"X",
+            ),
+            (
+                "inside CSI parameters",
+                [b"\x1b[31".as_slice(), &[v], b"mX"].concat(),
+                b"\x1b[31mX",
+            ),
+            (
+                "after CSI",
+                [b"\x1b[".as_slice(), &[v], b"31mX"].concat(),
+                b"X",
+            ),
+            (
+                "after a CSI intermediate",
+                [b"\x1b[1 ".as_slice(), &[v], b"qX"].concat(),
+                b"X",
+            ),
+            (
+                "in csi ignore",
+                [b"\x1b[1?".as_slice(), &[v], b"mX"].concat(),
+                b"X",
+            ),
+            (
+                "after an ESC inside an OSC",
+                [b"\x1b]0;t\x1b".as_slice(), &[v], b"X"].concat(),
+                b"X",
+            ),
+        ];
+        for (name, gr, gl) in cases {
+            same_outcome_at_every_split(&format!("{v:#04x} {name}, under UTF-8"), &gr, gl);
+        }
+    }
+    fed(b"\x1b%@ab\x1b\xb7cd\x1b\xb8X", usize::MAX, |t| {
+        assert_eq!(
+            t.cursor(),
+            (Row::ZERO, Col::at_index(3)),
+            "positive control: under Latin-1, ESC B7 and ESC B8 are DECSC and DECRC"
+        );
+    });
+}
