@@ -167,6 +167,12 @@ from    = "https://raw.githubusercontent.com/Chlumsky/msdfgen/1c106ed8117893bf94
 how     = "fetched"
 sha256  = "32a94b25ad7072a78457d35019b32d73d2c265c806b0b76e9638fe800330bbe4"
 
+[text."msdos-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/microsoft/MS-DOS/80ab2fddfdf30f09f0a0a637654cbb3cd5c7baa6/LICENSE.md"
+how     = "fetched"
+sha256  = "51c6e2eb6150b70581e0c77808c3a48c95bc5573f680c164c0001940a40e4064"
+
 [text."ncurses-COPYING.txt"]
 licence = "X11"
 from    = "https://raw.githubusercontent.com/ThomasDickey/ncurses-snapshots/6c26c1f46499e2fbedfb2c69c9463eceeab62ca5/COPYING"
@@ -883,6 +889,15 @@ notice  = "LICENSES/msdfgen-MIT.txt"
 status  = "kept"
 files   = [
   "msdfgen-README.md",
+]
+
+[upstream.msdos]
+name    = "MS-DOS 1.25 and 2.0 source (Microsoft); the file carries no notice, so the repository's is beside"
+licence = "MIT"
+notice  = "LICENSES/msdos-MIT.txt"
+status  = "kept"
+files   = [
+  "msdos-2.0-ANSI.DOC",
 ]
 
 [upstream.neovide]

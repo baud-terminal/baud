@@ -1886,10 +1886,12 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
     }
     match Esc::parse(b) {
         Esc::SaveCursor => p.cold.saved = Some(p.save()),
-        Esc::RestoreCursor => {
-            let s = p.cold.saved;
-            p.restore(s);
-        }
+        // `DECRC` with nothing saved has its own list (`Paint::restore_unsaved`);
+        // `SCORC` keeps `restore`'s, which does nothing then.
+        Esc::RestoreCursor => match p.cold.saved {
+            Some(s) => p.restore(Some(s)),
+            None => p.restore_unsaved(),
+        },
         Esc::ReverseIndex => p.reverse_index(),
         Esc::Index => {
             p.index();

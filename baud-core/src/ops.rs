@@ -132,6 +132,40 @@ impl Paint<'_, '_> {
             .apply(ModeBit::Origin, s.origin == ModeChange::Set);
     }
 
+    /// `DECRC` with nothing saved. `[[source: vt510-decrc]]`: "If nothing was
+    /// saved by DECSC, then DECRC performs the following actions: Moves the
+    /// cursor to the home position (upper left of screen). Resets origin mode
+    /// (DECOM). Turns all character attributes off (normal setting). Maps the
+    /// ASCII character set into GL, and the DEC Supplemental Graphic set into
+    /// GR." `[[source: vt220-rm-ch4]]` § 4.7 ends the same list "the default
+    /// character set mapping is established", so the four slots go back to
+    /// this core's power-on sets, all ASCII (DEC's G2/G3 default, the
+    /// supplemental set, is note AE's Q2), and not only G0. GR is not
+    /// modelled.
+    ///
+    /// **The selective erase attribute goes off too**, which neither vt510's
+    /// list nor `[[source: vt220-rm-ch4]]` § 4.7's names and the reset save
+    /// buffer holds: `[[source: dec-std-070]]` clears the save buffer's
+    /// `attribute.selective erase` to `FALSE` on reset (DECSC note 3,
+    /// p. 5-187), and `[[source: vt220-rm-ch4]]` Table 4-10
+    /// gives the state `DECSTR` saves as "Selective erase attribute bit write
+    /// state Off". `DECSTR` and `RIS` leave `saved` empty here, so this is the
+    /// state a `DECRC` after either must restore.
+    ///
+    /// **`DECAWM` stays**: 070's buffer has no wrap flag and vt510's list does
+    /// not reset it. `SCORC` does not come here (`scorc_without_a_save_is_inert`,
+    /// note AE's Q13).
+    pub(crate) fn restore_unsaved(&mut self) {
+        self.cold.modes.apply(ModeBit::Origin, false);
+        self.goto(Row::ZERO, Col::ZERO);
+        self.style_raw = StyleWord::DEFAULT;
+        self.style = StyleId::DEFAULT;
+        self.cold.protect = CellFlags::NONE;
+        self.cold.g = [Charset::Ascii; 4];
+        self.cold.gl = GSlot::G0;
+        self.invoke();
+    }
+
     pub(crate) fn blank(&self) -> PackedCell {
         PackedCell::empty_with(self.style)
     }

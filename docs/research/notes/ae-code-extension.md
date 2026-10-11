@@ -362,7 +362,7 @@ Both fast paths reach that count:
 | Power-up (`Cold::new`, term.rs:507-508) | G0 = G1 = ASCII; G2 = G3 = UPSS (its value is Q2); GL = G0; GR = G2; no single shift; save buffer per the DECRC row | 070-3 §3.6.4.2/§3.6.4.3; vt220-rm-ch4 §4.4; vt510-rm-ch4 §4.4.1; 070-4 p. 15 `single_shift = NO_SINGLE_SHIFT` | All four slots ASCII, GL = G0, no GR |
 | DECSC `ESC 7` | Position, rendition, `flags`, G0-G3, GL, **GR**, protection, the wrap item(s) Q12 picks, DECOM, and a pending single shift only under Q6(b) | vt510-decsc; 070-5 §5.13.1; vt220-rm-ch4 §4.7; 070-5 DECCIR pp. 5-200 to 5-202; vt510-deccir | `Saved` (term.rs:55-89) lacks GR, pending wrap and the single shift. `save()` is at ops.rs:69-81 |
 | DECRC `ESC 8` | Restores the above and calls `invoke()` | The same | `restore()` (ops.rs:97-123) clamps `cx` to `cols-1` (ops.rs:99-100). That loses pending wrap, which is `cx == cols` (term.rs:2089-2090) |
-| DECRC, nothing saved | Home; DECOM reset; attributes off; the default character-set mapping (GL = G0, GR = G2, default slots) | vt220-rm-ch4 §4.7; vt510-decrc; 070-5 p. 5-187 item 3 | `restore(None)` returns (ops.rs:98). DEPARTS. SCORC: Q13 |
+| DECRC, nothing saved | Home; DECOM reset; attributes off; the default character-set mapping (GL = G0, GR = G2, default slots) | vt220-rm-ch4 §4.7; vt510-decrc; 070-5 p. 5-187 item 3 | Built 2026-10-11 as `Paint::restore_unsaved` from `ESC 8`, with the selective erase attribute off as 070's buffer holds it; no GR. Until then `restore(None)` returned (ops.rs:98), which DEPARTED. SCORC: Q13 |
 | DECSTR `CSI ! p` | G0-G3, GL and GR to defaults; no single shift ("no shifts"); save buffer to defaults, cursor home | 070-4 p. 31; vt220-rm-ch4 Table 4-10; vt510-decstr Table 5-9 | `soft_reset` resets `g` and `gl` (ops.rs:1511-1512) and sets `saved = None` (ops.rs:1509). That DEPARTS from "Save cursor state … Home position" |
 | RIS `ESC c` | As DECSTR, plus single shift NONE | ECMA-48 8.3.105; vt220-rm-ch4 §4.18.2; vt510-ris; 070-4 p. 15 (its "Device Initialization", which 070-4 p. 39 names as where RIS's algorithm now lives). 070-D p. D-7 is a guideline only (D.1) | `hard_reset` → `soft_reset` (ops.rs:1360). The same departure |
 
@@ -1048,6 +1048,43 @@ Options:
 - **Recommend (ii)**, departure stated. It changes only what a text read
   requires. Revisit once SCORC's text is read; until then TODO.md:323's SCORC
   half stays open.
+- **2026-10-11: DECRC's half is built, the part both options share; SCORC's
+  half and the model stay open.**
+  - 070 read first-hand: the pinned PDF (sha256 `d30c2ace…`, from the
+    bitsavers mirror at trailing-edge.com, the www host answering 403), text
+    layer through PDFKit, positive control p. 5-115 = PDF 370 matching AF's
+    page map. § 5.13.1 (p. 5-186) lists what the buffer holds. DECSC note 3
+    (p. 5-187): "On initialization or reset the values of the save buffer are
+    cleared to the following state: position. line = 1; position. column = 1;
+    ... rendition.bold = FALSE; ... attribute. selective erase = FALSE; origin
+    mode = ABSOLUTE; left = in use table.gl; right = in use table.gr; gO =
+    designated graphic sets[O]; ..." [text]; note 4: "Execution of Soft
+    Terminal Reset (DECSTR) also causes the Save Buffer to be set to the
+    default values as given above." DECRC's algorithm (pp. 5-190-5-191)
+    restores exactly those fields; neither holds a wrap flag.
+  - So every DEC text agrees on what a DECRC with nothing saved since a reset
+    does: home, DECOM reset, SGR off, the default sets in G0-G3 and GL (and GR),
+    and, in 070 and vt220-rm-ch4 Table 4-10 though not vt510-decrc's list,
+    the selective erase attribute off. Option (ii)'s arm with that fifth item
+    is option (i)'s DECRC observably, but for DECAWM: (i)'s snapshot would
+    hold baud's `Saved::autowrap`, which no text puts in a reset buffer. Built
+    as `Paint::restore_unsaved`, `ESC 8` only (`tests/decrc_unsaved.rs`).
+  - SCORC's own text is now pinned, `[[source: msdos2-ansi-doc]]`: "RCP -
+    Restore cursor position ... Restores the cursor position to the value it
+    had when the console driver received the SCP sequence." It is silent on a
+    restore before any SCP, and it restores the position alone. xterm's
+    `CASE_ANSI_RC` falls through to `CursorRestore` on a slot `CursorSave`
+    filled at start-up. **Open for Jev**, the choice narrowed to SCORC:
+    - (a) inert, as today: conforms to ANSI.SYS, which is silent;
+      departs from xterm's practice.
+    - (b) DECRC's nothing-saved arm: conforms to ANSI.SYS (silent) and
+      matches xterm, whose start-up snapshot holds the same values; restores
+      more than ANSI.SYS's RCP restores, as `CSI u` already does with a save.
+    - (c) the position alone, home: conforms to ANSI.SYS's scope (position
+      only), matches neither xterm nor today.
+    No text decides between them. (b), like `CSI u` with a save today,
+    restores more than RCP's "cursor position"; whether that is a departure
+    from ANSI.SYS's scope is part of the question.
 
 ### Q14. What `<` designates (C13) (Jev, then the owner)
 
@@ -1410,6 +1447,11 @@ DECRC's `None` arm does four things:
    `invoke()`.
 
 SCORC keeps calling the current `restore`, unchanged.
+
+**As built (2026-10-11), five**: these four, with GR still unmodelled, and
+`protect` cleared, the selective erase attribute 070's reset buffer and
+vt220-rm-ch4 Table 4-10 hold off (Q13's 2026-10-11 entry). The `style` is
+set to `StyleId::DEFAULT`, slot 0, rather than re-interned.
 
 ---
 
@@ -1877,6 +1919,10 @@ decided; Q7 for the part it governs). LS2/LS3 also wait for the owner's Q9.**
 - **(b') After the owner answers Q13** (Jev did not lean, §10): DECRC's `None`
   arm (tests 19-21), without GR.
   It is independent of the graph.
+  **Built 2026-10-11 without waiting**, because both Q13 options give DECRC
+  the same result but for DECAWM, which it leaves alone, and every DEC text
+  read agrees on the rest (Q13's 2026-10-11 entry); what the owner's answer
+  still decides is SCORC.
 - **`ESC SP N`, if Q18 is (a):** ASCII into G0 and G0 into GL, in `esc_final`'s
   intermediate branch, with no GR and no 96-set needed. It may land with (b)
   or on its own, after the owner answers Q18. `ESC SP L` and `M` wait for

@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 8 | an open question, recorded where the file is; the owner's call |
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 223 | 16 | redistributable, and its notice is satisfied |
+| kept | 224 | 16 | redistributable, and its notice is satisfied |
 | own | 186 | 0 | the owner's work |
-| total | 651 | 26 | |
+| total | 652 | 26 | |
 
 ## Licence texts in LICENSES/
 
@@ -54,6 +54,7 @@ they were built from.
 | [macos-man-notices.txt](LICENSES/macos-man-notices.txt) | APSL-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSD-4-Clause-UC | built: $SDKROOT/usr/share/man/{man2/kqueue.2,man3/clock_gettime.3,man3/tcgetpgrp.3}, macOS 27.0 SDK | 8f831f5ead7d9f05 |
 | [MPL-2.0.txt](LICENSES/MPL-2.0.txt) | MPL-2.0 | fetched: https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/MPL-2.0.txt | 66a3107d5ad6a058 |
 | [msdfgen-MIT.txt](LICENSES/msdfgen-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/Chlumsky/msdfgen/1c106ed8117893bf943e577f62eb0665fb271e46/LICENSE.txt | 32a94b25ad7072a7 |
+| [msdos-MIT.txt](LICENSES/msdos-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/microsoft/MS-DOS/80ab2fddfdf30f09f0a0a637654cbb3cd5c7baa6/LICENSE.md | 51c6e2eb6150b705 |
 | [ncurses-COPYING.txt](LICENSES/ncurses-COPYING.txt) | X11 | fetched: https://raw.githubusercontent.com/ThomasDickey/ncurses-snapshots/6c26c1f46499e2fbedfb2c69c9463eceeab62ca5/COPYING | a85ca5bef8ce71f0 |
 | [neovide-MIT.txt](LICENSES/neovide-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/neovide/neovide/105fd640f83616501d7c6bfedb0b4c15ab9515e1/LICENSE | 60c7b5e1d0b3daee |
 | [neovim-LICENSE.txt](LICENSES/neovim-LICENSE.txt) | Apache-2.0 AND Vim | fetched: https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/LICENSE.txt | de23202ef9a51f5e |
@@ -1109,6 +1110,17 @@ notice is, and the URL each file was copied from.
 | [macos-man-clock_gettime.txt](docs/research/sources/macos-man-clock_gettime.txt) | $SDKROOT/usr/share/man/man3/clock_gettime.3 |
 | [macos-man-kqueue.txt](docs/research/sources/macos-man-kqueue.txt) | $SDKROOT/usr/share/man/man2/kqueue.2 |
 | [macos-man-tcgetpgrp.txt](docs/research/sources/macos-man-tcgetpgrp.txt) | $SDKROOT/usr/share/man/man3/tcgetpgrp.3 |
+
+### MS-DOS 1.25 and 2.0 source (Microsoft); the file carries no notice, so the repository's is beside
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** [LICENSES/msdos-MIT.txt](LICENSES/msdos-MIT.txt)
+- **Files:** 1
+
+| file | copied from |
+|---|---|
+| [msdos-2.0-ANSI.DOC](docs/research/sources/msdos-2.0-ANSI.DOC) | https://raw.githubusercontent.com/microsoft/MS-DOS/80ab2fddfdf30f09f0a0a637654cbb3cd5c7baa6/v2.0/bin/ANSI.DOC |
 
 ### msdfgen
 

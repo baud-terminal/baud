@@ -20188,3 +20188,21 @@ sha256 = "aded403ee01e27d10b0831278eecf46e2bc8ab36119826cd0fabead331d4364a"
 bytes  = 18115
 status = "external"
 group  = "AM"
+
+[sources.msdos2-ansi-doc]
+key    = "msdos2-ansi-doc"
+title  = "MS-DOS 2.0, ANSI.DOC -- the ANSI.SYS console driver's sequences, SCP ESC [ s and RCP ESC [ u among them"
+author = "Microsoft Corporation"
+year   = 1983
+venue  = "github.com/microsoft/MS-DOS @ 80ab2fd, v2.0/bin (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/MS-DOS/80ab2fddfdf30f09f0a0a637654cbb3cd5c7baa6/v2.0/bin/ANSI.DOC"
+file   = "msdos-2.0-ANSI.DOC"
+sha256 = "bc19719c34a94d451fe7afbc090e3576ba2dc64074e0e5254c07e4eed773b352"
+bytes  = 6784
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-11: SCORC's own text, which ctlseqs names ("SCORC, also
+# ANSI.SYS") and dates to "DOS 2.00 (January 1983)". RCP "Restores the cursor
+# position to the value it had when the console driver received the SCP
+# sequence", and says nothing of a restore with no save. v2.0/source/ANSI.txt
+# at the same commit is byte-identical.
