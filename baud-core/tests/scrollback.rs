@@ -217,6 +217,62 @@ fn the_region_count_moves_only_when_a_region_advances_the_ring() {
     });
 }
 
+/// **The row count moves on every move of rows that advances no ring, and
+/// on nothing that does.** A region in the middle, or a short top region
+/// under side margins or on the alternate screen, scrolls by copying its
+/// rows; `SD` and `RI` copy in any region smaller than the screen; `IL` and
+/// `DL` copy wherever they act. Each leaves the rings where they were, so
+/// nothing else across a read says the text on those rows moved. The whole
+/// screen scrolling, and a top region rotating, advance a ring and say so
+/// through the history and `region_scrolls`; they leave this alone.
+#[test]
+fn the_row_count_moves_when_rows_move_and_no_ring_does() {
+    support::with_corpus(|t| {
+        let moved = |t: &mut Term<'_>, bytes: &[u8]| {
+            let before = t.row_moves();
+            support::feed(t, bytes);
+            t.row_moves() != before
+        };
+        // The controls.
+        let lines: Vec<u8> = (0..60).flat_map(|_| b"x\r\n".to_vec()).collect();
+        assert!(!moved(t, &lines), "the whole screen scrolling");
+        assert!(
+            !moved(t, b"\x1b[1;5r\x1b[5;1H\n\n\x1b[r"),
+            "a top region rotating on the primary"
+        );
+        assert!(
+            !moved(t, b"\x1b[1;1H\x1bM"),
+            "RI at the top of the whole screen"
+        );
+        assert!(!moved(t, b"\x1b[5;7r\x1b[r"), "setting a region alone");
+        // The copies.
+        assert!(
+            moved(t, b"\x1b[5;7r\x1b[7;1H\n\x1b[r"),
+            "LF at the bottom of a middle region"
+        );
+        assert!(moved(t, b"\x1b[5;7r\x1b[S\x1b[r"), "SU in a middle region");
+        assert!(moved(t, b"\x1b[5;7r\x1b[T\x1b[r"), "SD in a middle region");
+        assert!(moved(t, b"\x1b[1;5r\x1b[T\x1b[r"), "SD in a top region");
+        assert!(
+            moved(t, b"\x1b[5;7r\x1b[5;1H\x1bM\x1b[r"),
+            "RI at the top of a middle region"
+        );
+        assert!(moved(t, b"\x1b[10;1H\x1b[L"), "IL");
+        assert!(moved(t, b"\x1b[10;1H\x1b[M"), "DL");
+        assert!(
+            moved(
+                t,
+                b"\x1b[?69h\x1b[1;100s\x1b[1;5r\x1b[5;1H\n\x1b[r\x1b[s\x1b[?69l"
+            ),
+            "LF at the bottom of a short top region under side margins"
+        );
+        assert!(
+            moved(t, b"\x1b[?1049h\x1b[1;3r\x1b[3;1H\n\x1b[r"),
+            "LF at the bottom of a short top region on the alternate screen"
+        );
+    });
+}
+
 /// **On the alternate screen a short top region still copies**, because
 /// nothing there is kept and the copy moves the region's rows where the
 /// rotation would move every row under it. Both render the same screen, so

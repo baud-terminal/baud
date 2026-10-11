@@ -189,6 +189,28 @@ impl RegionScrolls {
     }
 }
 
+/// Which move of rows inside the live screen the terminal is at, of the
+/// moves that advance no ring: it moves on every `IL` and `DL`, and on every
+/// scroll of a region that copies its rows rather than rotating the ring --
+/// `SU`, a line feed or `IND` at the bottom of a region in the middle of the
+/// screen, of a short top region under side margins or on the alternate
+/// screen, and `SD` or `RI` at the top of any region smaller than the
+/// screen -- on either screen, and on nothing else. Rows moved that way keep
+/// their screen rows and move their text, and nothing else across a read
+/// says so: the ring did not move, so [`Term::history_moved_since`] and
+/// [`Term::region_scrolls`] read nothing. An embedder holding a selection on
+/// the live screen asks this, and finds the text under it may have moved.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RowMoves(u32);
+
+impl RowMoves {
+    pub(crate) const FIRST: RowMoves = RowMoves(0);
+
+    pub(crate) fn next(self) -> RowMoves {
+        RowMoves(self.0.wrapping_add(1))
+    }
+}
+
 /// Which erasure of the primary's history the terminal is at: it moves on
 /// every `CSI 3 J` and every `RIS`, the two operations that empty the saved
 /// lines, and on nothing else -- not `CSI ? 3 J`, whose lines stay. A window
@@ -469,6 +491,8 @@ pub struct Cold {
     /// Moves on every erasure of the primary's history:
     /// [`Term::history_erasures`].
     pub(crate) history_erasures: HistoryErasures,
+    /// Moves on every move of rows that advances no ring: [`Term::row_moves`].
+    pub(crate) row_moves: RowMoves,
     /// Moves on every change of `?5` outside a synchronised update, and
     /// inside one: [`Term::reverse_flips`], [`Term::reverse_flips_held`].
     pub(crate) flips: ReverseFlips,
@@ -558,7 +582,11 @@ pub struct Cold {
 // the write path**, but only in `Paint::pin`, `end_at`'s `DECAWM`-reset arm,
 // once a character or a run, and read by a continuation the cluster machine
 // joined (`tests/margin_pin.rs`). The `OSC 52` state does not live here but
-// in `StrBuf`, which only a control string reaches (`clip.rs`).
+// in `StrBuf`, which only a control string reaches (`clip.rs`). The count of
+// rows moved in place landed in padding beside `history_erasures`, so 464
+// held: a `u32` bumped by `IL`, `DL` and a region scroll that copies -- a
+// control sequence or a scroll, never a glyph -- and read by the embedder
+// after a read.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 464);
@@ -633,6 +661,7 @@ impl Cold {
             bot: Row::from_index(rows.index() - 1),
             region_scrolls: RegionScrolls::FIRST,
             history_erasures: HistoryErasures::FIRST,
+            row_moves: RowMoves::FIRST,
             flips: ReverseFlips::FIRST,
             flips_held: ReverseFlips::FIRST,
             updates_opened: UpdatesOpened::FIRST,
@@ -2126,6 +2155,17 @@ impl<'b> Term<'b> {
     /// through a region, and the rows under that region did not move.
     pub fn region_scrolls(&self) -> RegionScrolls {
         self.cold.region_scrolls
+    }
+
+    /// Which move of rows inside the live screen that advances no ring this
+    /// is: it moves on every `IL` and `DL` and every region scroll that
+    /// copies its rows, on either screen, and on nothing else. A read whose
+    /// two ends carry one reading moved no row in place; across one that
+    /// moved it, the text on the rows of the scrolling region -- or of the
+    /// whole screen, for `IL` and `DL` without one -- may not be where it
+    /// was, though no ring advanced. See [`RowMoves`].
+    pub fn row_moves(&self) -> RowMoves {
+        self.cold.row_moves
     }
 
     /// Which erasure of the primary's history this is: it moves on every

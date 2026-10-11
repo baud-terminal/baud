@@ -412,6 +412,9 @@ impl Paint<'_, '_> {
         {
             self.scroll_copy += k;
         }
+        // **The rows moved and no ring did**: what a reader holding a
+        // selection on them has to learn (`Term::row_moves`).
+        self.cold.row_moves = self.cold.row_moves.next();
         // **Ceiling arm: the region move, priced.** Incorrect by construction --
         // a region that never scrolls leaves stale rows on the screen -- but
         // the cell accounting below still runs, so both arms attribute the
@@ -514,6 +517,7 @@ impl Paint<'_, '_> {
         {
             self.scroll_copy += k;
         }
+        self.cold.row_moves = self.cold.row_moves.next();
         let b = self.blank();
         self.view.insert_lines_in(top, n, bot, b);
         if self.images.any_placed() {
@@ -546,6 +550,7 @@ impl Paint<'_, '_> {
         }
         let (at, bot) = (self.cy, self.cold.bot);
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
+        self.cold.row_moves = self.cold.row_moves.next();
         let b = self.blank();
         self.view.insert_lines_in(at, n, bot, b);
         if self.images.any_placed() {
@@ -562,6 +567,7 @@ impl Paint<'_, '_> {
         }
         let (at, bot) = (self.cy, self.cold.bot);
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
+        self.cold.row_moves = self.cold.row_moves.next();
         let b = self.blank();
         self.view.delete_lines_in(at, n, bot, b);
         if self.images.any_placed() {

@@ -2285,6 +2285,10 @@ struct Before {
     epoch: baud_core::ScreenEpoch,
     region: baud_core::RegionScrolls,
     erased: baud_core::HistoryErasures,
+    rows: baud_core::RowMoves,
+    /// The scrolling region, top and bottom, for a read that sets another
+    /// after copying in this one.
+    band: (Row, Row),
 }
 
 impl Before {
@@ -2295,6 +2299,8 @@ impl Before {
             epoch: term.screen_epoch(),
             region: term.region_scrolls(),
             erased: term.history_erasures(),
+            rows: term.row_moves(),
+            band: term.scroll_region(),
         }
     }
 }
@@ -2336,6 +2342,47 @@ fn stale_under_region(
         scrolled.line(Rows::ZERO, first),
         scrolled.line(Rows::ZERO, last),
     )
+}
+
+/// Whether a read moved, in place, rows of the live screen that `sel` names:
+/// an `IL` or `DL`, or a region scroll that copies its rows -- a region in
+/// the middle of the screen, a short top region under side margins or on
+/// the alternate screen, `SD` and `RI` in any partial region. No ring moves,
+/// so the selection's lines still name the same screen rows while the text
+/// on them has moved, and it would copy what took their place.
+fn stale_in_moved_rows(
+    sel: &Selection,
+    term: &Term<'_>,
+    before: Before,
+    scrolled: Scrolled,
+    moved: Ring,
+) -> bool {
+    if term.row_moves() == before.rows {
+        return false;
+    }
+    // The rows a copy can move: the region in force at the read's end, which
+    // is every live row once a read reset it -- `IL` and `DL` act from the
+    // cursor to its bottom, inside it. Lines from the region's top as the
+    // read found them to its bottom as the read left them, since a read can
+    // retire lines through the whole screen around the copy.
+    //
+    // **Every live row when the read's two regions differ.** A read can copy
+    // in one region and then set another -- stacked panes, each drawn under
+    // its own -- and the region it ends in never moved. A region set and set
+    // back within one read still reads as one; only a count of the rows each
+    // copy moved would see it.
+    let (top, bot) = match term.scroll_region() {
+        r if r == before.band => r,
+        _ => (
+            Row::ZERO,
+            Row::from_index(term.geometry().1.index().saturating_sub(1)),
+        ),
+    };
+    let after = match moved {
+        Ring::Retired(n) => scrolled.advanced(n),
+        Ring::Restored(_) => scrolled,
+    };
+    sel.touches(scrolled.line(Rows::ZERO, top), after.line(Rows::ZERO, bot))
 }
 
 /// Whether every line a read retired left with the whole screen: no scroll
@@ -2506,8 +2553,8 @@ fn snapped(term: &Term<'_>, back: Rows) -> Rows {
 mod alt_window_tests {
     use super::{
         Before, Hold, Ring, after_read, erased, hold_after, live_cursor, live_moved, looking,
-        oldest, resized_window, snapped, stale_under_region, switched, whole_screen_scrolled,
-        window_of,
+        oldest, resized_window, snapped, stale_in_moved_rows, stale_under_region, switched,
+        whole_screen_scrolled, window_of,
     };
     use baud_core::Zone;
     use baud_core::{Owned, Term};
@@ -2743,6 +2790,126 @@ mod alt_window_tests {
             );
             assert!(stale_under_region(&under, t, before, scrolled), "under it");
             assert!(!stale_under_region(&pane, t, before, scrolled), "in it");
+        });
+    }
+
+    /// **Rows a region moved in place drop a selection on them, and only
+    /// there.** A region in the middle of the screen scrolls by copying its
+    /// rows, so no ring moves and nothing renumbers the selection: one on the
+    /// region's rows named the same screen rows while their text went up a
+    /// row. Above the region and under it nothing moved, and the history is
+    /// not the live screen. A read that set a region, scrolled it and reset
+    /// it leaves none to read, so every live row counts; `IL` with no region
+    /// moves the rows from the cursor down.
+    #[test]
+    fn rows_moved_in_place_drop_a_selection_on_them_and_only_there() {
+        use baud_domain::{Col, Row};
+        use baud_render::{Grain, Selection, Span};
+        with_history(|t| {
+            feed(t, b"\x1b[3;1Habove\x1b[5;1Hpane\x1b[8;1Hunder\x1b[4;6r");
+            // Numbered as the driver would have it after the thirty-one
+            // lines the history holds, so a line behind the screen has a
+            // number of its own rather than the floor's.
+            let scrolled = Scrolled::START.advanced(Rows::of_count(31));
+            let at = |t: &Term<'_>, back: usize, y: usize| {
+                let r = Row::from_index(y);
+                Selection::at(
+                    Span::cell(t.row(r), scrolled.line(Rows::of_count(back), r), Col::ZERO),
+                    Grain::Cell,
+                )
+            };
+            let (above, pane, under) = (at(t, 0, 2), at(t, 0, 4), at(t, 0, 7));
+            let history = at(t, 5, 0);
+            let stale = |t: &Term<'_>, before: Before, sel: &Selection| {
+                stale_in_moved_rows(sel, t, before, scrolled, live_moved(t, before))
+            };
+            let before = Before::of(t);
+            feed(t, b"\x1b[6;1H\n");
+            assert_eq!(
+                live_moved(t, before),
+                Ring::Retired(Rows::ZERO),
+                "the control: no ring moved"
+            );
+            assert_eq!(
+                t.row(Row::from_index(3))[0]
+                    .content
+                    .as_codepoint()
+                    .map(|c| c.value()),
+                Some(u32::from(b'p')),
+                "and the text did: the pane's line is a row up"
+            );
+            assert!(stale(t, before, &pane), "in the region");
+            assert!(!stale(t, before, &above), "above it");
+            assert!(!stale(t, before, &under), "under it");
+            assert!(!stale(t, before, &history), "in the history");
+            let before = Before::of(t);
+            feed(t, b"x");
+            assert!(!stale(t, before, &pane), "a read that moved no row");
+            let before = Before::of(t);
+            feed(t, b"\x1b[6;1H\n\x1b[r");
+            assert!(stale(t, before, &above), "no region left: every live row");
+            assert!(!stale(t, before, &history), "and still not the history");
+            let before = Before::of(t);
+            feed(t, b"\x1b[9;1H\x1b[L");
+            assert!(stale(t, before, &under), "IL");
+            // Lines retired through the whole screen before the copy, in the
+            // same read: row 8 was under the region when the read began, and
+            // two lines later it was the region's last row when the copy
+            // moved it. The read begins and ends in the one region, so it is
+            // the numbering and not the change of region that reaches it.
+            feed(t, b"\x1b[4;6r");
+            let before = Before::of(t);
+            feed(t, b"\x1b[r\x1b[10;1H\n\n\x1b[4;6r\x1b[6;1H\n");
+            assert_eq!(live_moved(t, before), Ring::Retired(Rows::of_count(2)));
+            assert!(
+                stale(t, before, &under),
+                "a row the retired lines carried into the region"
+            );
+        });
+    }
+
+    /// **A region set after the copy does not hide it.** A read that copies
+    /// in one region and then sets another -- stacked panes, each drawn
+    /// under its own -- ends with a region that never moved, so the rows of
+    /// the region in force at the read's end missed the pane's line that
+    /// went up a row under the selection. The read's two regions differ, so
+    /// the rows it can have moved are every live row; the history is still
+    /// not the live screen.
+    #[test]
+    fn a_region_set_after_the_copy_still_drops_a_selection_it_moved() {
+        use baud_domain::{Col, Row};
+        use baud_render::{Grain, Selection, Span};
+        with_history(|t| {
+            feed(t, b"\x1b[5;1Hpane");
+            let scrolled = Scrolled::START.advanced(Rows::of_count(31));
+            let at = |t: &Term<'_>, back: usize, y: usize| {
+                let r = Row::from_index(y);
+                Selection::at(
+                    Span::cell(t.row(r), scrolled.line(Rows::of_count(back), r), Col::ZERO),
+                    Grain::Cell,
+                )
+            };
+            let (pane, history) = (at(t, 0, 4), at(t, 5, 0));
+            let before = Before::of(t);
+            feed(t, b"\x1b[4;6r\x1b[6;1H\n\x1b[8;9r");
+            assert_eq!(
+                live_moved(t, before),
+                Ring::Retired(Rows::ZERO),
+                "the control: no ring moved"
+            );
+            assert_eq!(
+                t.row(Row::from_index(3))[0]
+                    .content
+                    .as_codepoint()
+                    .map(|c| c.value()),
+                Some(u32::from(b'p')),
+                "and the pane's line is a row up"
+            );
+            let stale = |sel: &Selection| {
+                stale_in_moved_rows(sel, t, before, scrolled, live_moved(t, before))
+            };
+            assert!(stale(&pane), "on the pane's moved line");
+            assert!(!stale(&history), "not in the history");
         });
     }
 
@@ -4519,6 +4686,13 @@ impl Driver {
         // dropped rather than renumbered: it names rows a redraw is about
         // to replace.
         let screen = self.app.term.screen();
+        // Rows a copy moved in place: their selection names rows whose text
+        // went elsewhere, and no count renumbers it.
+        if self.app.selection.as_ref().is_some_and(|s| {
+            stale_in_moved_rows(s, &self.app.term, before, self.app.scrolled, moved)
+        }) {
+            self.app.selection = None;
+        }
         match moved {
             Ring::Retired(n) => {
                 // Numbered before the count advances: the rows under a
