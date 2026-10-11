@@ -69,6 +69,7 @@ impl ReadLen {
         self.0 == 0
     }
     /// What is left of the read after `n` bytes of it have been consumed.
+    ///
     /// Saturating, so a step that overshot cannot wrap the loop bound into a
     /// huge positive number.
     pub fn less(self, n: ReadLen) -> ReadLen {
@@ -305,9 +306,6 @@ impl Rows {
     pub(crate) fn from_ws(n: u16) -> Rows {
         Rows((n as usize).max(1))
     }
-    /// A row count that is already known, such as the length of a slice the
-    /// caller placed. `WinSize::geometry` is the path for geometry that came
-    /// off the wire; this is for one that did not.
     /// No rows: the start of a range over physical rows, or a park that
     /// holds nothing yet. Not a geometry -- `of_index` clamps to one for
     /// that, because a screen with no rows has no cell to address.
@@ -318,6 +316,9 @@ impl Rows {
     pub fn of_count(n: usize) -> Rows {
         Rows(n)
     }
+    /// A row count that is already known, such as the length of a slice the
+    /// caller placed. `WinSize::geometry` is the path for geometry that came
+    /// off the wire; this is for one that did not.
     pub fn of_index(n: usize) -> Rows {
         Rows(n.max(1))
     }

@@ -122,13 +122,6 @@ pub enum Report {
     /// instead of guessing from `$TERM` -- and guessing from `$TERM` is how a
     /// terminal ends up being sent sequences it does not implement.
     Version,
-    /// DECRPM, the answer to DECRQM: `CSI Ps ; Pm $ y`, or
-    /// `CSI ? Ps ; Pm $ y` for the private namespace.
-    ///
-    /// The marker is carried because the two namespaces are unrelated: `CSI 4`
-    /// is IRM and `CSI ? 4` is DECSCLM. Answering a private request without the
-    /// `?` would have the application read it as an answer about a different
-    /// mode entirely.
     /// `OSC 4 ; c ; rgb:RRRR/GGGG/BBBB ST` -- the answer to `OSC 4 ; c ; ?`,
     /// four digits a channel for the reason [`ReportBytes::push_hex`] gives.
     ///
@@ -154,6 +147,13 @@ pub enum Report {
         b: u8,
         term: StringTerm,
     },
+    /// DECRPM, the answer to DECRQM: `CSI Ps ; Pm $ y`, or
+    /// `CSI ? Ps ; Pm $ y` for the private namespace.
+    ///
+    /// The marker is carried because the two namespaces are unrelated: `CSI 4`
+    /// is IRM and `CSI ? 4` is DECSCLM. Answering a private request without the
+    /// `?` would have the application read it as an answer about a different
+    /// mode entirely.
     ModeStatus {
         marker: Marker,
         mode: Param,

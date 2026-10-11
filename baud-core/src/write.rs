@@ -154,8 +154,6 @@ impl Csi {
     }
     /// Is this the plain `SGR` form -- standard namespace, no intermediate,
     /// final `m`? The one shape worth answering without building anything.
-    /// Is this the plain `SGR` form -- standard namespace, no intermediate,
-    /// final `m`? The one shape worth answering without building anything.
     pub(crate) fn is_plain_sgr(&self, f: FinalByte) -> bool {
         self.marker == Marker::Standard && self.inter.is_none() && f == FinalByte::SGR
     }
@@ -876,19 +874,6 @@ fn chars(p: &mut Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> R
     ReadLen::from_index(taken)
 }
 
-/// How many back-to-back characters of `len` bytes start here, in this read.
-///
-/// **A run of one *stride*, which is far commoner than a run of one character
-/// class.** Every BMP codepoint above `U+07FF` is three bytes, so CJK, Hangul,
-/// Devanagari and box drawing all qualify together, and a constant stride is
-/// what makes the decode's swizzle indices compile-time constants.
-///
-/// `Route::of` is the same definition the block scanner answers to, and
-/// `Route::width` already says how many bytes a lead claims -- so one test
-/// serves every stride and there is no per-length table here.
-///
-/// **Never zero**: the graph only names a character action for a byte that
-/// leads one, and the split test has already established its bytes are here.
 /// Are the `len - 1` bytes after the lead all continuations?
 ///
 /// The graph answers "how long does this lead **claim** to be"; only the bytes
@@ -926,6 +911,19 @@ fn maximal_subpart(s: &[StreamByte], len: ByteLen) -> ReadLen {
     ReadLen::from_index(n)
 }
 
+/// How many back-to-back characters of `len` bytes start here, in this read.
+///
+/// **A run of one *stride*, which is far commoner than a run of one character
+/// class.** Every BMP codepoint above `U+07FF` is three bytes, so CJK, Hangul,
+/// Devanagari and box drawing all qualify together, and a constant stride is
+/// what makes the decode's swizzle indices compile-time constants.
+///
+/// `Route::of` is the same definition the block scanner answers to, and
+/// `Route::width` already says how many bytes a lead claims -- so one test
+/// serves every stride and there is no per-length table here.
+///
+/// **Never zero**: the graph only names a character action for a byte that
+/// leads one, and the split test has already established its bytes are here.
 #[inline(always)]
 fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Count {
     let (left, len) = (left.index(), len.index());
@@ -1304,7 +1302,7 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     // character always breaks.
     //
     // The `Copy` matters: the real machine must advance exactly once per
-    // character, and `set_after_ordinary` below is that advance for the whole
+    // character, and `after_ascii_run` below is that advance for the whole
     // run at once. Asking on the live machine would advance it twice for the
     // first character.
     #[cfg(not(feature = "ceiling-no-run-gate"))]

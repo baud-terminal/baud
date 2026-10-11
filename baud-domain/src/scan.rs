@@ -19,13 +19,13 @@ use crate::*;
 pub struct LaneMask(pub(crate) u32);
 
 impl LaneMask {
-    /// From a `movemask` intrinsic or a portable `Mask::to_bitmask`.
     /// The raw lane bits, for a caller matching a *pattern* across lanes
     /// rather than finding the first set one. `RouteBlock::stride_three` is
     /// the caller; nothing else should need this.
     pub fn bits(self) -> u32 {
         self.0
     }
+    /// From a `movemask` intrinsic or a portable `Mask::to_bitmask`.
     pub fn from_movemask(bits: u32) -> LaneMask {
         LaneMask(bits)
     }

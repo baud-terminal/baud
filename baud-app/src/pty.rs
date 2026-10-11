@@ -1661,8 +1661,6 @@ mod tests {
         );
     }
 
-    /// What the kernel holds for the pty behind `master` -- read back rather
-    /// than trusted from `told`, so the tests below are about the kernel.
     /// Blocking reads of `master` until what arrived ends with `want`. The
     /// master must still be blocking.
     fn read_until(master: crate::sys::Fd, want: &str) {
@@ -1809,6 +1807,9 @@ mod tests {
         drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
     }
 
+    /// What the kernel holds for the pty behind `master` -- read back rather
+    /// than trusted from `told`, so the tests that use it are about the
+    /// kernel.
     fn ask(master: crate::sys::Fd) -> crate::sys::Winsize {
         let mut ws = crate::sys::Winsize::default();
         // SAFETY: TIOCGWINSZ writes one winsize through the pointer.

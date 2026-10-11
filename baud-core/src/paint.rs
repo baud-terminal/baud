@@ -74,15 +74,6 @@ pub(crate) struct Paint<'a, 'b> {
     /// written once per character, and a per-character store into the cold
     /// struct is what keeps that struct out of registers for the whole loop.
     pub(crate) last_cp: Option<(Codepoint, Width)>,
-    /// The state a control sequence changes and the write loop never reads.
-    ///
-    /// **A reference, and it used to be by value.** `Cold` is **192 bytes** (120 when
-    /// this was measured, grown since via charset slots and input modes) --
-    /// half of it two `Option<Saved>` at 48 each, for `DECSC` and the alternate screen's
-    /// save, which no payload touches more than a handful of times -- and
-    /// `Paint` is inlined into the per-character loop. Carrying it meant
-    /// carrying all of that; an indirection costs one load on a path taken
-    /// once a control sequence.
     /// Bytes owed to the host, and how many are pending.
     ///
     /// **A slice rather than a report queued for later.** A single read can
@@ -99,10 +90,6 @@ pub(crate) struct Paint<'a, 'b> {
     /// The link every cell written from here carries. `LinkId::NONE` between
     /// `OSC 8` runs, which is what an empty URI restores.
     pub(crate) link: LinkId,
-    /// Bodies clipped at `OSC_MAX`, strings recognised and not acted on, and
-    /// the `OSC 52` reads and the writes refused. **Refused is not the same as unnoticed**:
-    /// silence is the right answer to a clipboard read, and being unable to
-    /// tell that one arrived is a different thing.
     /// VT52 commands this core does not act on: the six print functions
     /// (`ESC ^ _ W X ] V`) and any byte that is not a VT52 command at all.
     /// **Counted rather than silent**, because `unsupported` is indexed by
@@ -132,6 +119,12 @@ pub(crate) struct Paint<'a, 'b> {
     /// saying it lost data.
     pub(crate) unsupported_param: usize,
     pub(crate) replacements: usize,
+    /// Bodies clipped at `OSC_MAX` -- this -- and, below, strings recognised
+    /// and not acted on (`strings_ignored`) and the `OSC 52` reads and the
+    /// writes refused (`clipboard_reads_refused`, `clipboard_writes_refused`).
+    /// **Refused is not the same as unnoticed**: silence is the right answer
+    /// to a clipboard read, and being unable to tell that one arrived is a
+    /// different thing.
     pub(crate) string_truncations: usize,
     pub(crate) links_refused: usize,
     pub(crate) links_clipped: usize,
@@ -184,6 +177,15 @@ pub(crate) struct Paint<'a, 'b> {
     /// touches. Six slices is twelve words of exactly that. A reference is one
     /// word and costs one load on a path taken once per control string.
     pub(crate) strs: &'a mut crate::storage::StrBuf<'b>,
+    /// The state a control sequence changes and the write loop never reads.
+    ///
+    /// **A reference, and it used to be by value.** `Cold` is **192 bytes** (120 when
+    /// this was measured, grown since via charset slots and input modes) --
+    /// half of it two `Option<Saved>` at 48 each, for `DECSC` and the alternate screen's
+    /// save, which no payload touches more than a handful of times -- and
+    /// `Paint` is inlined into the per-character loop. Carrying it meant
+    /// carrying all of that; an indirection costs one load on a path taken
+    /// once a control sequence.
     pub(crate) cold: &'a mut crate::term::Cold,
     /// Cells written this read, the numerator of the amplification ratio.
     /// Two arms of an experiment that disagree here are not doing the same
@@ -263,9 +265,6 @@ pub(crate) struct Paint<'a, 'b> {
     /// 63 finals are unimplemented and the corpus sends a handful of them.
     #[cfg(feature = "diag")]
     pub(crate) unsupported_by_final: [usize; FinalByte::COUNT],
-    /// Accelerated `CSI` attempts, and the ones that committed. **A bulk path
-    /// that declines still pays its scan**, which is a rule this repo already
-    /// records; the only way to know which is happening is to count entries.
     /// Scrolls that rotated an index, and scrolls that copied the rows.
     /// **The difference between them is 45%** by this repo's own measurement,
     /// and nothing counted which one was happening.
@@ -273,6 +272,9 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) scroll_rot: usize,
     #[cfg(feature = "diag")]
     pub(crate) scroll_copy: usize,
+    /// Accelerated `CSI` attempts, and the ones that committed. **A bulk path
+    /// that declines still pays its scan**, which is a rule this repo already
+    /// records; the only way to know which is happening is to count entries.
     #[cfg(feature = "diag")]
     pub(crate) fast_try: usize,
     #[cfg(feature = "diag")]
@@ -1217,10 +1219,6 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.row_written = Col::at_index(self.view.extent(r).index());
     }
 
-    /// Down one row, scrolling when that would leave the screen.
-    ///
-    /// The scroll is a rotation: the view advances its own and the only cells
-    /// written are the incoming row's, which stop at its used extent.
     /// `LF`, `VT` and `FF`: down one line, and a carriage return **only**
     /// when LNM is set.
     ///
@@ -1240,6 +1238,10 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
     }
 
+    /// Down one row, scrolling when that would leave the screen.
+    ///
+    /// The scroll is a rotation: the view advances its own and the only cells
+    /// written are the incoming row's, which stop at its used extent.
     pub(crate) fn index(&mut self) -> RowRot {
         // **Ceiling arm: scrolling, priced whole.** The profile puts `index`
         // at 7.6% of cat-cjk and it is the one named frame that survived

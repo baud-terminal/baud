@@ -110,7 +110,6 @@ impl<'buf> core::ops::IndexMut<SlotIdx> for SlotRing<'buf> {
     }
 }
 
-/// Read-only counterpart of [`View`].
 /// Rows the grid is rotated by: screen row `y` lives at physical row
 /// `(y + rot) % rows`.
 ///
@@ -149,6 +148,7 @@ impl RowRot {
     }
 }
 
+/// Read-only counterpart of [`View`].
 pub struct ViewRef<'a> {
     cells: &'a [PackedCell],
     stride: Stride,
@@ -980,23 +980,6 @@ impl<'a> View<'a> {
         }
     }
 
-    /// Write one cell per source byte, eight at a time.
-    ///
-    /// **Why this is not `slice::fill` and not a plain loop.** `fill` writes one
-    /// repeated value and lowers to a vector store; this writes a *different*
-    /// content per cell, so it was a scalar loop -- `otool -tv` on the release
-    /// binary showed `ldr`/`str`/`orr` and **no vector register at all**. On the
-    /// streaming payload that loop writes 27% of the cells and takes 33% of the
-    /// cells-path profile, where `fill` writes the other 73% in 17%: about 5.3x
-    /// the cost per cell for the same eight bytes.
-    ///
-    /// Only the content differs between cells in a run -- style and flags are
-    /// fixed -- so under `repr(C)` on a little-endian target a cell is
-    /// `(style, flags) << 32 | content`, and eight of them are one `u64x8` OR and
-    /// one 64-byte store.
-    ///
-    /// No `unsafe`: `baud-domain` forbids it, so the reinterpretation goes through
-    /// `zerocopy`, which `PackedCell` already derives for the shm and disk paths.
     /// Write a run of double-width characters: a glyph and its tail per
     /// codepoint, **eight cells a store**.
     ///
@@ -1184,6 +1167,23 @@ impl<'a> View<'a> {
         }
     }
 
+    /// Write one cell per source byte, eight at a time.
+    ///
+    /// **Why this is not `slice::fill` and not a plain loop.** `fill` writes one
+    /// repeated value and lowers to a vector store; this writes a *different*
+    /// content per cell, so it was a scalar loop -- `otool -tv` on the release
+    /// binary showed `ldr`/`str`/`orr` and **no vector register at all**. On the
+    /// streaming payload that loop writes 27% of the cells and takes 33% of the
+    /// cells-path profile, where `fill` writes the other 73% in 17%: about 5.3x
+    /// the cost per cell for the same eight bytes.
+    ///
+    /// Only the content differs between cells in a run -- style and flags are
+    /// fixed -- so under `repr(C)` on a little-endian target a cell is
+    /// `(style, flags) << 32 | content`, and eight of them are one `u64x8` OR and
+    /// one 64-byte store.
+    ///
+    /// No `unsafe`: `baud-domain` forbids it, so the reinterpretation goes through
+    /// `zerocopy`, which `PackedCell` already derives for the shm and disk paths.
     fn put_ascii_vectored(dst: &mut [PackedCell], src: &[u8], proto: PackedCell) {
         // `ceiling-no-store` keeps every setup -- row resolution, orphan
         // repair, extent, clip -- and skips only the stores, so a pair with the
@@ -1229,26 +1229,6 @@ impl<'a> View<'a> {
         }
     }
 
-    /// Widen a half-open column span so it covers **whole characters**.
-    ///
-    /// A double-width character is stored as a lead cell and a
-    /// `Content::WIDE_TAIL`. An operation whose boundary falls between the two
-    /// leaves an orphan -- a lead claiming two columns that owns one, or a tail
-    /// with nothing in front of it -- and a renderer has no coherent way to
-    /// draw either. `[[source: ghostty-screen]]`'s `eraseChars` states the rule
-    /// baud was missing: "if our last cell is a wide char then we need to also
-    /// clear the cell beyond it since **we can't just split a wide char**", and
-    /// its `deleteChars` does the same.
-    ///
-    /// Both ends, because both were wrong. A start sitting **on** a tail
-    /// belongs to the lead before it; an end whose first excluded cell **is** a
-    /// tail is excluding the partner of a lead it included.
-    ///
-    /// One place rather than at each operation, for the reason this crate
-    /// already applies to `phys`: the range operations are `fill`,
-    /// `delete_chars`, `insert_blanks`, `delete_cells` and `insert_cells`, and
-    /// five call sites each remembering a two-line invariant is five chances to
-    /// forget it.
     /// Blank the orphaned half of any character this write is about to cut.
     ///
     /// The write itself cannot be widened the way an erase can -- the incoming
@@ -1406,6 +1386,26 @@ impl<'a> View<'a> {
         (Col::at_index(a), Col::at_index(b))
     }
 
+    /// Widen a half-open column span so it covers **whole characters**.
+    ///
+    /// A double-width character is stored as a lead cell and a
+    /// `Content::WIDE_TAIL`. An operation whose boundary falls between the two
+    /// leaves an orphan -- a lead claiming two columns that owns one, or a tail
+    /// with nothing in front of it -- and a renderer has no coherent way to
+    /// draw either. `[[source: ghostty-screen]]`'s `eraseChars` states the rule
+    /// baud was missing: "if our last cell is a wide char then we need to also
+    /// clear the cell beyond it since **we can't just split a wide char**", and
+    /// its `deleteChars` does the same.
+    ///
+    /// Both ends, because both were wrong. A start sitting **on** a tail
+    /// belongs to the lead before it; an end whose first excluded cell **is** a
+    /// tail is excluding the partner of a lead it included.
+    ///
+    /// One place rather than at each operation, for the reason this crate
+    /// already applies to `phys`: the range operations are `fill`,
+    /// `delete_chars`, `insert_blanks`, `delete_cells` and `insert_cells`, and
+    /// five call sites each remembering a two-line invariant is five chances to
+    /// forget it.
     fn snap(&self, r: Row, from: Col, to: Col) -> (usize, usize) {
         let base = self.at(r, Col::ZERO);
         self.snap_at(base, from.index(), to.index())

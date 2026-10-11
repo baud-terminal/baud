@@ -121,6 +121,7 @@ pub struct SixelCanvas<'a> {
 
 impl<'a> SixelCanvas<'a> {
     /// A canvas `width` pixels wide over `pixels`; the height is what fits.
+    ///
     /// A row of the image is `width` consecutive words.
     pub fn new(pixels: &'a mut [ColorWord], width: SixelPx) -> SixelCanvas<'a> {
         SixelCanvas { pixels, width }

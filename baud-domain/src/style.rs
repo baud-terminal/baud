@@ -204,8 +204,6 @@ const _: () = assert!(
     "two `WIRE` entries share a bit"
 );
 
-/// SGR colour. `Indexed` and `Rgb` are different kinds — `38;5;n` and
-/// `38;2;r;g;b` produce values that must not be confused.
 /// A palette index or an sRGB component. Eight bits by protocol, not by
 /// convenience — SGR encodes both as a single decimal parameter.
 #[repr(transparent)]
@@ -254,6 +252,8 @@ impl Chan {
     }
 }
 
+/// SGR colour. `Indexed` and `Rgb` are different kinds — `38;5;n` and
+/// `38;2;r;g;b` produce values that must not be confused.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Color {
     Default,
@@ -408,13 +408,13 @@ impl ColorWord {
     pub fn is_default(self) -> bool {
         self.0 == 0
     }
-    /// The RGB triple, when this word holds one. `None` for the default colour
-    /// and for palette indices, neither of which names a pixel value on their
-    /// own.
     /// The palette index, when this word holds one.
     pub fn as_index(self) -> Option<u8> {
         (self.0 & Self::TAG_INDEXED != 0).then_some(self.0 as u8)
     }
+    /// The RGB triple, when this word holds one. `None` for the default colour
+    /// and for palette indices, neither of which names a pixel value on their
+    /// own.
     pub fn as_rgb(self) -> Option<(u8, u8, u8)> {
         (self.0 & Self::TAG_RGB != 0).then_some((
             (self.0 >> 16) as u8,
@@ -599,22 +599,6 @@ impl StyleWord {
     pub fn set_underline(&mut self, c: ColorWord) {
         self.underline = c;
     }
-    /// The fields that distinguish one rendition from another, folded into one
-    /// integer for hashing.
-    ///
-    /// **`underline` and `font` are deliberately not in it**, and this used to
-    /// claim they were ("everything that distinguishes one rendition from
-    /// another") after they were added to the word and not to the fold. Two
-    /// renditions differing only in underline colour or font therefore hash to
-    /// the same bucket.
-    ///
-    /// That is a hit-rate cost, not a correctness bug: `intern_style` compares
-    /// the whole `StyleWord` on a hit, so a collision evicts and rebuilds
-    /// rather than returning the wrong style. Folding them in is a plausible
-    /// improvement and is **unmeasured** -- both bench payloads report `styles
-    /// 0 interned / 100% hits`, so nothing here can currently tell the two
-    /// versions apart. It needs a payload that cycles renditions faster than
-    /// `NSTYLE` before it is worth changing.
     /// The bucketing key. **Every field, mixed rather than overlapped.**
     ///
     /// This was `fg ^ (bg << 21) ^ (attrs << 45)`, which had two faults. The

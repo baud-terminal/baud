@@ -120,12 +120,6 @@ fn ours(bytes: &[u8]) -> Vec<Cell> {
     out
 }
 
-/// How many cells each normalisation below touched on one case.
-///
-/// **A normalisation that can fire without anyone noticing is a blind spot, not
-/// a convenience.** Each of the two below exists to cancel a representation
-/// difference that draws nothing on screen, and each is reported, so one that
-/// starts firing on hundreds of cells says so instead of quietly agreeing.
 /// How many cells one normalisation touched.
 ///
 /// A newtype rather than a bare `usize` field, which is what the audit refused
@@ -154,6 +148,12 @@ impl Cells {
     }
 }
 
+/// How many cells each normalisation below touched on one case.
+///
+/// **A normalisation that can fire without anyone noticing is a blind spot, not
+/// a convenience.** Each of the two below exists to cancel a representation
+/// difference that draws nothing on screen, and each is reported, so one that
+/// starts firing on hundreds of cells says so instead of quietly agreeing.
 struct Normalised {
     spacers: Cells,
     tabs: Cells,

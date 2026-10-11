@@ -482,8 +482,6 @@ impl Atlas {
         Some(())
     }
 
-    /// Which version of the sheets this is; every placement and reset
-    /// moves it.
     /// Start over at the first side: every slot is gone, the sheets are
     /// replaced whole, and the grow count moves so the glyph map and the
     /// overlay rebuild what they kept. What a change of font size needs.
@@ -504,6 +502,8 @@ impl Atlas {
         self.stats.grown.bump();
     }
 
+    /// Which version of the sheets this is; every placement and reset
+    /// moves it.
     pub fn generation(&self) -> Generation {
         self.generation
     }

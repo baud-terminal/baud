@@ -210,6 +210,7 @@ impl RowExtent {
     }
     /// The mark flagged as continuing, raised to `cols`: the width the row
     /// wrapped at, which is what lets `reached` keep the flag by `max` alone.
+    ///
     /// Loose by the cells between a side margin and the edge, once, which is
     /// the safe direction -- a mark too large blanks more, never less.
     pub fn wrapping(self, cols: usize) -> RowExtent {

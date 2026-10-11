@@ -316,12 +316,12 @@ fn clipboard_requests_are_refused_but_counted() {
 
 // ── dynamic colours ─────────────────────────────────────────────────────────
 
-/// Feed `bytes` after the embedder has said what its theme draws, the way
-/// both drivers do through `host::tell_defaults`, and return the reply and
-/// the two dynamic colours.
 /// An `(r, g, b)` triple, as `Term::dynamic_color` answers.
 type Rgb = (u8, u8, u8);
 
+/// Feed `bytes` after the embedder has said what its theme draws, the way
+/// both drivers do through `host::tell_defaults`, and return the reply and
+/// the two dynamic colours.
 fn dynamic(defaults: Option<(Rgb, Rgb)>, bytes: &[u8]) -> (Vec<u8>, [Option<Rgb>; 2]) {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);

@@ -963,12 +963,6 @@ fn pictures(value: &str, said: &mut Vec<String>) -> baud_render::PictureBg {
     }
 }
 
-/// A `[glass]` fraction: parsed, and clamped to 0..=1 with a warning.
-///
-/// Clamped rather than rejected, for the reason a malformed `GN_ORIGIN` is
-/// ignored rather than fatal in the example: a mistyped alpha should not
-/// stop the window appearing. It says what it did, because a value
-/// silently changed is the same defect as a key silently ignored.
 /// `[palette] floor`: the contrast floor's trigger, 1.0 to 21.0, or `"off"`.
 /// Its own parser, because `unit` clamps to 0-1 and would turn 1.2 into 1.0,
 /// which is off. **The target is the larger of 4.5 and the trigger**, so a
@@ -994,6 +988,12 @@ fn floor(value: &str, said: &mut Vec<String>) -> baud_render::Floor {
     }
 }
 
+/// A `[glass]` fraction: parsed, and clamped to 0..=1 with a warning.
+///
+/// Clamped rather than rejected, for the reason a malformed `GN_ORIGIN` is
+/// ignored rather than fatal in the example: a mistyped alpha should not
+/// stop the window appearing. It says what it did, because a value
+/// silently changed is the same defect as a key silently ignored.
 fn unit(value: &str, name: &str, said: &mut Vec<String>) -> f32 {
     let raw = value.trim();
     let Ok(v) = raw.parse::<f32>() else {

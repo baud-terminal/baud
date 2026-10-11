@@ -427,6 +427,7 @@ const KNOWN: &[(usize, &[Before], Why)] = &[
 
 /// **Lines whose standard clustering starts a cluster with a zero-width
 /// codepoint**, which this core's cell model cannot give a cell of its own.
+///
 /// Alone, that is every line that begins with a mark, a joiner or a Prepend,
 /// and every line with a Prepend after its first codepoint; after an ASCII
 /// letter only the Prepends are left, because GB9 joins the rest to it. And

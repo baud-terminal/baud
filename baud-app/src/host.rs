@@ -655,12 +655,6 @@ mod tests {
         }
     }
 
-    /// **An OS flip under `auto` drops the application's colours and reports
-    /// once** -- note Y's decision 5, through the call the app makes. A
-    /// program subscribed with `?2031` has set palette entry 1 and the
-    /// background; the flip to the light theme clears both and sends one
-    /// `CSI ? 997 ; 2 n`. The same flip with `Keep` clears nothing, the
-    /// control that the drop is the flag's.
     /// The light theme's entry 2 is Modus Operandi's green, and the core
     /// answers it: the table the renderer draws is the table the query reads.
     #[test]
@@ -676,6 +670,12 @@ mod tests {
         assert_eq!(t.reply(), b"\x1b]4;2;rgb:0000/6868/0000\x07");
     }
 
+    /// **An OS flip under `auto` drops the application's colours and reports
+    /// once** -- note Y's decision 5, through the call the app makes. A
+    /// program subscribed with `?2031` has set palette entry 1 and the
+    /// background; the flip to the light theme clears both and sends one
+    /// `CSI ? 997 ; 2 n`. The same flip with `Keep` clears nothing, the
+    /// control that the drop is the flag's.
     #[test]
     fn a_flip_drops_the_applications_colours_and_reports_once() {
         let ws = WinSize {

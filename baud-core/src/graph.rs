@@ -221,6 +221,7 @@ pub enum Act {
     ShiftOut,
     ShiftIn,
     /// A complete multi-byte character whose bytes are all in this read.
+    ///
     /// The action decodes and writes it, and eats its length.
     Char2,
     Char3,
@@ -1154,7 +1155,6 @@ const fn escape(b: StreamByte) -> Edge {
     }
 }
 
-/// Inside `CSI`, before any intermediate.
 /// The byte straight after `CSI`, where a marker is still legal.
 const fn csi_entry(b: StreamByte) -> Edge {
     if b.is_c0() {
@@ -1171,6 +1171,7 @@ const fn csi_entry(b: StreamByte) -> Edge {
     }
 }
 
+/// Inside `CSI`, before any intermediate.
 const fn csi_param(b: StreamByte) -> Edge {
     if b.is_c0() {
         return edge(c0(b), Node::CsiParam);
@@ -2550,20 +2551,6 @@ mod classes {
     // byte under ISO 8859-1 split `A4`, `B0-B9`, `BA BB`, `F1` and `FF` from
     // the classes they shared, which made 41.
     const CLASSES: usize = 41;
-    /// **The loop always advances**, and it is a table property rather than a
-    /// hope.
-    ///
-    /// `feed` is `while done < n { done += step(..) }`, so a step that consumes
-    /// nothing must at least *move*, to a node where the same byte does consume.
-    /// `Act::Resync` is the one zero-width action -- it makes a partial
-    /// character a replacement and re-dispatches the byte, which
-    /// `[[source: unicode-ch3]]` 3.9.5 requires -- and its whole safety
-    /// argument is that the node it lands in cannot produce it again.
-    ///
-    /// That argument was a comment. `acsc` in the `ansi` terminfo entry is a
-    /// hundred bytes of raw high bytes and it hung the parser, so the comment
-    /// was wrong somewhere; this walks every node against every byte under both
-    /// encodings and says where.
     /// What `write::act` consumes, which is **not** `Act::width()`.
     ///
     /// `width` is the byte length of the *character* an act writes; two acts
@@ -2658,6 +2645,20 @@ mod classes {
         }
     }
 
+    /// **The loop always advances**, and it is a table property rather than a
+    /// hope.
+    ///
+    /// `feed` is `while done < n { done += step(..) }`, so a step that consumes
+    /// nothing must at least *move*, to a node where the same byte does consume.
+    /// `Act::Resync` is the one zero-width action -- it makes a partial
+    /// character a replacement and re-dispatches the byte, which
+    /// `[[source: unicode-ch3]]` 3.9.5 requires -- and its whole safety
+    /// argument is that the node it lands in cannot produce it again.
+    ///
+    /// That argument was a comment. `acsc` in the `ansi` terminfo entry is a
+    /// hundred bytes of raw high bytes and it hung the parser, so the comment
+    /// was wrong somewhere; this walks every node against every byte under both
+    /// encodings and says where.
     #[test]
     fn every_step_of_the_loop_advances() {
         for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {

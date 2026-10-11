@@ -188,9 +188,6 @@ impl<'a> Gsub<'a> {
         }
     }
 
-    /// The glyphs lookup `i` can act at: the union of its subtables'
-    /// first-position coverages. Anything unreadable widens to everything,
-    /// so an odd table is slow rather than skipped.
     /// The glyph pairs the grid features' lookups can begin a match on,
     /// derived from the tables and handed to `sink` as (first glyph, a
     /// digest of what may follow it): a prefilter for a path that shapes
@@ -494,6 +491,9 @@ impl<'a> Gsub<'a> {
         Some(())
     }
 
+    /// The glyphs lookup `i` can act at: the union of its subtables'
+    /// first-position coverages. Anything unreadable widens to everything,
+    /// so an odd table is slow rather than skipped.
     fn lookup_digest(&self, i: Index) -> Digest {
         let Some(lookup) = self.layout.lookup(i) else {
             return Digest::ALL;

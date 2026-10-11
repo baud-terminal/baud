@@ -58,9 +58,6 @@ pub enum SgrAttr {
 }
 
 impl SgrAttr {
-    /// Consumes as many parameters as the attribute needs and reports how many.
-    /// Returning the consumed count is what keeps `38;2;r;g;b` from being
-    /// misread as five separate attributes.
     /// Is the parameter mask empty -- no colon-joined groups anywhere?
     ///
     /// The gate on [`SgrAttr::parse_one`]: a colon form can make a single
@@ -137,6 +134,9 @@ impl SgrAttr {
         })
     }
 
+    /// Consumes as many parameters as the attribute needs and reports how many.
+    /// Returning the consumed count is what keeps `38;2;r;g;b` from being
+    /// misread as five separate attributes.
     pub fn parse(params: Params<'_>) -> Option<(SgrAttr, ParamCount)> {
         let v = params.at(ParamIdx::FIRST).map_or(0, |x| x.0);
         // **The colour introducers first, because they are what reaches here.**
@@ -445,13 +445,6 @@ impl SgrAttr {
     pub fn parse_sub(params: Params<'_>, i: ParamIdx) -> Option<(SgrAttr, ParamCount)> {
         SgrAttr::parse(params.skip(i))
     }
-    /// Apply to a packed 24-bit colour + attribute word.
-    /// Apply one attribute to the accumulating rendition.
-    ///
-    /// Every variant is handled. It used to fall through to `cur.bits()` for
-    /// `Set`, `Unset` and every `Bg`, so bold, italic, underline, reverse,
-    /// blink, conceal, strike and all background colours were parsed and then
-    /// silently discarded.
     /// Fold this attribute into `cur` **in place**.
     ///
     /// [`SgrAttr::fold`] copies the twenty-byte rendition in and out to change
@@ -493,6 +486,12 @@ impl SgrAttr {
         }
     }
 
+    /// Apply one attribute to the accumulating rendition.
+    ///
+    /// Every variant is handled. It used to fall through to `cur.bits()` for
+    /// `Set`, `Unset` and every `Bg`, so bold, italic, underline, reverse,
+    /// blink, conceal, strike and all background colours were parsed and then
+    /// silently discarded.
     pub fn fold(self, cur: StyleWord) -> StyleWord {
         match self {
             // `[[source: ecma48]]` § 8.3.117: SGR 0 "cancels the effect of any

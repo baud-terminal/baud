@@ -36,7 +36,6 @@ impl Argb {
         Chan::from_u8(self.channels()[3])
     }
 
-    /// Each channel halved: what `SGR 2` does to a foreground.
     /// Half way to `other`, channel by channel in encoded sRGB, rounded half
     /// up; this colour's alpha kept. Faint text drawn on `other`
     /// (note Y, decision 10): ghostty's `faint-opacity` default of 0.5, which
@@ -517,8 +516,6 @@ fn grey(v: u8) -> Argb {
     triple(v, v, v)
 }
 
-/// xterm's 256-colour palette: the sixteen ANSI colours, a 6x6x6 cube and
-/// a 24-step grey ramp.
 /// The sixteen of the light theme: **Modus Operandi by Protesilaos Stavrou,
 /// (C) Free Software Foundation, GPL-3.0-or-later** -- its Emacs `ansi-color`
 /// mapping, the sixteen hex values and no file text (note Y, decision 3;
@@ -556,6 +553,8 @@ pub fn light_palette() -> [Argb; 256] {
     p
 }
 
+/// xterm's 256-colour palette: the sixteen ANSI colours, a 6x6x6 cube and
+/// a 24-step grey ramp.
 pub fn xterm_palette() -> [Argb; 256] {
     let mut p = [Argb(0); 256];
     const ANSI: [(u8, u8, u8); 16] = [

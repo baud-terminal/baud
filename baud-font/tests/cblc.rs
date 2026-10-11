@@ -858,6 +858,7 @@ fn size(start: u16, end: u16, recs: Vec<Rec>) -> Size {
 
 /// A minimal sfnt -- `head`, `hhea`, `hmtx`, `maxp`, `CBLC` and `CBDT`, no
 /// checksums -- with `glyphs` glyphs and these sizes at 10, 20, 30 ... ppem.
+///
 /// Each image's payload names its size, record and glyph, so an answer from
 /// the wrong record is a different image.
 fn font(glyphs: u16, sizes: &[Size]) -> Vec<u8> {

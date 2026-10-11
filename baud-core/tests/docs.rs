@@ -14,7 +14,10 @@
 //! and that the counts quoted elsewhere match the table.
 //! `scripts/check-sources.sh` checks that every `[[source: …]]` citation
 //! resolves to a hash-pinned document. This file covers what neither did: that
-//! the docs' *references to the repository itself* are still true.
+//! the docs' *references to the repository itself* are still true -- and, in
+//! `no_attribute_is_stranded_above_a_doc_comment` and
+//! `no_doc_is_stranded_on_the_item_before_its_own`, that a doc comment still
+//! sits on the item it was written for.
 //!
 //! Every one of these has been wrong here at least once. `docs/vt-coverage.md`
 //! spent most of this project's life naming `tests/coverage.rs` as the
@@ -31,7 +34,6 @@ fn root() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
 }
 
-/// Every `.md` in the repository, excluding build output.
 /// Markdown **and Rust**, because a test can be cited from either.
 ///
 /// It was markdown only, and a doc comment in `vt_properties.rs` claimed
@@ -73,6 +75,7 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>, want_rust: bool) {
     }
 }
 
+/// Every `.md` in the repository, excluding build output.
 fn markdown_files() -> Vec<PathBuf> {
     let mut out = Vec::new();
     walk(&root(), &mut out, false);
@@ -80,7 +83,8 @@ fn markdown_files() -> Vec<PathBuf> {
     out
 }
 
-/// Markdown **and Rust**, for the test-name check only.
+/// Markdown **and Rust**, for the test-name check and the stranded-attribute
+/// gate.
 ///
 /// Links and repository paths are a markdown concern; a `crate::AmbiguousWidth`
 /// in a Rust doc comment is not a path and reading it as one produces noise.
@@ -861,5 +865,305 @@ fn every_research_note_and_source_group_is_in_the_index() {
         unlisted.is_empty() && ungrouped.is_empty(),
         "docs/README.md's research index is behind:\n  notes not linked: {unlisted:?}\n  \
          manifest groups with no row: {ungrouped:?}"
+    );
+}
+
+/// The lines of `text` where an attribute other than `cfg` or `cfg_attr` is
+/// followed directly by a `///` doc comment, 1-based, at the attribute's
+/// first line. A multi-line attribute is followed to the line that closes it.
+fn attributes_above_docs(text: &str) -> Vec<usize> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].trim_start();
+        if t.starts_with("#[") && !t.starts_with("#[cfg(") && !t.starts_with("#[cfg_attr(") {
+            let start = i;
+            let mut depth = 0i64;
+            loop {
+                let l = lines[i];
+                depth += l.matches('[').count() as i64 - l.matches(']').count() as i64;
+                if depth <= 0 || i + 1 >= lines.len() {
+                    break;
+                }
+                i += 1;
+            }
+            let next = lines.get(i + 1).map(|l| l.trim_start()).unwrap_or("");
+            if next.starts_with("///") && !next.starts_with("////") {
+                out.push(start + 1);
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// **No attribute sits above a doc comment**, because that is what an
+/// insertion between a doc and its item leaves when the item had an
+/// attribute: `A`'s doc, `A`'s attribute, then the new item's doc and the
+/// new item, which now wears `A`'s attribute while `A` has neither.
+/// `CLAUDE.md`, "An attribute stranded from the function it was written
+/// for", is that failure, and `docs/record.md` records it repeatedly; rustc
+/// cannot see it, since a doc comment is an attribute and attributes stack
+/// in any order.
+///
+/// `cfg` and `cfg_attr` are exempt: `#[cfg(..)]` above an item's doc is a
+/// common and legal order (`baud-app/src/pty.rs` has three), and a stranded
+/// `cfg` would fail to compile wherever the item it moved off is used.
+///
+/// **What this cannot see** is a doc stranded with no attribute: `A`'s doc
+/// sitting above `B`'s doc is one long doc on `B` to an attribute check.
+/// `no_doc_is_stranded_on_the_item_before_its_own` is the check for that kind.
+#[test]
+fn no_attribute_is_stranded_above_a_doc_comment() {
+    // Positive control: the stranded shape, and two orders that are not.
+    let stranded = "    /// A's doc.\n    #[inline(always)]\n    /// B's doc.\n    fn b() {}\n";
+    assert_eq!(attributes_above_docs(stranded), [2], "the control");
+    let multi = "#[derive(\n    Clone,\n)]\n/// Doc.\nstruct S;\n";
+    assert_eq!(attributes_above_docs(multi), [1], "a multi-line attribute");
+    let fine = "#[cfg(test)]\n/// Doc.\nfn a() {}\n/// Doc.\n#[inline]\nfn b() {}\n";
+    assert!(
+        attributes_above_docs(fine).is_empty(),
+        "cfg first, doc first"
+    );
+
+    let mut found = Vec::new();
+    let files: Vec<_> = doc_and_code_files()
+        .into_iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "rs"))
+        .collect();
+    assert!(files.len() > 200, "only {} Rust files walked", files.len());
+    for p in files {
+        let text = fs::read_to_string(&p).expect("readable");
+        for n in attributes_above_docs(&text) {
+            found.push(format!("{}:{n}", rel(&p)));
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "an attribute above a doc comment -- the doc's item lost it, or it \
+         belongs to the item above:\n  {}",
+        found.join("\n  ")
+    );
+}
+
+/// The longest first paragraph a stranded doc has been seen to carry before
+/// the doc of the item it sits on: `paint.rs`'s `fast_try`, three lines over
+/// `scroll_rot`'s. One more for margin; longer reaches shared docs -- a field
+/// group's, `term.rs`'s `defaults`/`dynamic` -- that are no stranding.
+const SUMMARY_LINES: usize = 4;
+
+/// The item a line declares, as `(indent, name)`: a `fn`, type, `const`,
+/// `static`, `trait`, `mod`, or -- indented -- a field (`name: Type,`) or an
+/// enum variant. `impl`, `use` and macros are not items here: they never wear
+/// a doc, and an `impl` block between two items must not hide one from the
+/// other (`style.rs`'s `impl Chan` sits between `Chan` and `Color`).
+fn declared_item(line: &str) -> Option<(usize, &str)> {
+    const KW: [&str; 9] = [
+        "fn", "struct", "enum", "union", "trait", "type", "const", "static", "mod",
+    ];
+    let t = line.trim_start();
+    let indent = line.len() - t.len();
+    let toks: Vec<&str> = t.split_whitespace().collect();
+    let mut i = 0;
+    while let Some(&w) = toks.get(i) {
+        let qualifier = matches!(w, "pub" | "async" | "unsafe" | "extern" | "\"C\"")
+            || w.starts_with("pub(")
+            || (w == "const"
+                && toks
+                    .get(i + 1)
+                    .is_some_and(|n| matches!(*n, "fn" | "unsafe" | "async" | "extern")));
+        if !qualifier {
+            break;
+        }
+        i += 1;
+    }
+    let ident = |s: &str| -> usize {
+        s.char_indices()
+            .find(|&(_, c)| !(c.is_ascii_alphanumeric() || c == '_'))
+            .map_or(s.len(), |(n, _)| n)
+    };
+    if toks.get(i).is_some_and(|w| KW.contains(w)) {
+        let next = toks.get(i + 1)?;
+        let n = ident(next);
+        return Some((indent, if n == 0 { "_" } else { &next[..n] }));
+    }
+    if indent == 0 {
+        return None;
+    }
+    let end = t.trim_end();
+    // A field: optional visibility, a lower-case name, `:` but not `::`, and
+    // the line ends the field.
+    let body = match t.strip_prefix("pub") {
+        Some(r) if r.starts_with('(') => r.split_once(')').map_or(t, |(_, r)| r.trim_start()),
+        Some(r) if r.starts_with(' ') => r.trim_start(),
+        _ => t,
+    };
+    let n = ident(body);
+    let name = &body[..n];
+    let after = body[n..].trim_start();
+    if n > 0
+        && name.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
+        && after.starts_with(':')
+        && !after.starts_with("::")
+        && end.ends_with(',')
+    {
+        return Some((indent, name));
+    }
+    // A variant: a capitalised name, then `,`, `(`, `{`, `=` or the end.
+    let n = ident(t);
+    let name = &t[..n];
+    let after = t[n..].trim_start();
+    if name.starts_with(|c: char| c.is_ascii_uppercase())
+        && (after.is_empty() || after.starts_with([',', '(', '{', '=']))
+        && (end.ends_with([',', '{', '(']) || end == name)
+    {
+        return Some((indent, name));
+    }
+    None
+}
+
+/// Where a doc's first paragraph has a sentence end followed, on the next
+/// line, by a capitalised sentence, within [`SUMMARY_LINES`]: the seam an
+/// insertion leaves between `A`'s doc and `B`'s. `None` once the paragraph ends.
+fn summary_seam(doc: &[&str]) -> Option<usize> {
+    for k in 1..doc.len().min(SUMMARY_LINES + 1) {
+        let (a, b) = (doc[k - 1].trim(), doc[k].trim());
+        if a.is_empty() || b.is_empty() {
+            return None;
+        }
+        if a.starts_with(['*', '-', '|', '#']) || a.starts_with("```") {
+            continue;
+        }
+        if a.ends_with('.') && b.starts_with(|c: char| c.is_ascii_uppercase()) {
+            return Some(k);
+        }
+    }
+    None
+}
+
+/// The lines of `text`, 1-based, of an item with no doc whose sibling just
+/// before it -- same indent, same block -- has a doc with a [`summary_seam`].
+/// A `#[test]` on either side, `main`, `mod tests` and `const _` are left out:
+/// none of them is an item a doc is written for.
+fn undocumented_after_a_seamed_doc(text: &str) -> Vec<usize> {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    // The doc of the last item at each indent; a test's counts as none.
+    let mut prev: std::collections::BTreeMap<usize, Vec<&str>> = Default::default();
+    let (mut doc, mut test) = (Vec::new(), false);
+    let mut i = 0;
+    while i < lines.len() {
+        let t = lines[i].trim();
+        if t.starts_with("///") && !t.starts_with("////") {
+            doc.push(&t[3..]);
+        } else if t.starts_with("#[") {
+            test |= t.starts_with("#[test");
+            let mut depth = 0i64;
+            loop {
+                let l = lines[i];
+                depth += l.matches('[').count() as i64 - l.matches(']').count() as i64;
+                if depth <= 0 || i + 1 >= lines.len() {
+                    break;
+                }
+                i += 1;
+            }
+        } else if !t.is_empty() && !t.starts_with("//") {
+            let indent = lines[i].len() - lines[i].trim_start().len();
+            prev.retain(|&k, _| k <= indent);
+            if let Some((_, name)) = declared_item(lines[i]) {
+                if let Some(p) = prev.get(&indent) {
+                    if doc.is_empty()
+                        && !test
+                        && !matches!(name, "main" | "tests" | "_")
+                        && summary_seam(p).is_some()
+                    {
+                        out.push(i + 1);
+                    }
+                }
+                let kept = if test {
+                    Vec::new()
+                } else {
+                    std::mem::take(&mut doc)
+                };
+                prev.insert(indent, kept);
+            }
+            doc.clear();
+            test = false;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// **No doc is stranded on the item before its own**, the kind with no
+/// attribute: an insertion between `A`'s doc and `A` leaves `A`'s doc on top of
+/// the new item's, so the new item reads `A`'s summary and `A` has none.
+/// `no_attribute_is_stranded_above_a_doc_comment` sees that only when `A`
+/// had an attribute.
+///
+/// The check reads both halves of the shape: an item with no doc right after a
+/// sibling whose doc's first paragraph changes sentence at a line end, within
+/// [`SUMMARY_LINES`]. The two docs were each written to stand alone, so the
+/// join reads as two summaries -- `style.rs`'s `as_rgb` doc on `as_index`
+/// ("... on their own." / "The palette index ..."), and `Color`'s on `Chan`,
+/// `LineIdx`'s on `ByteGap`, `csi_param`'s on `csi_entry`, `fast_try`'s on
+/// `scroll_rot` and a test's `dynamic` on `Rgb`: the six a reading pass over
+/// the workspace missed, all of which this flags. On `606ea59`, before that
+/// pass, it flags fourteen of the forty-nine the pass repaired as well.
+///
+/// **A doc of the item's own that trips it** separates its summary with a
+/// blank `///`, which is also what makes rustdoc's summary line the summary;
+/// eleven took one when this landed. **What it cannot see** is a doc whose
+/// item was inserted with no doc of its own -- `A`'s doc whole on the new
+/// item, no seam -- and a stranding whose `A` later got a doc again.
+#[test]
+fn no_doc_is_stranded_on_the_item_before_its_own() {
+    // Positive controls: the stranded shapes, and the orders that are not.
+    let stranded = "impl W {\n    /// The RGB triple.\n    /// The palette index.\n    \
+                    pub fn as_index(self) {}\n    pub fn as_rgb(self) {}\n}\n";
+    assert_eq!(
+        undocumented_after_a_seamed_doc(stranded),
+        [5],
+        "the control"
+    );
+    let across_impl = "/// SGR colour.\n/// A channel.\npub struct Chan(u8);\n\n\
+                       impl Chan {}\n\n#[derive(Clone)]\npub enum Color {\n    Default,\n}\n";
+    assert_eq!(
+        undocumented_after_a_seamed_doc(across_impl),
+        [8],
+        "an impl between the two"
+    );
+    let field = "struct P {\n    /// Tries, and hits.\n    /// Rotations.\n    \
+                 #[cfg(x)]\n    rot: usize,\n    #[cfg(x)]\n    copy: usize,\n}\n";
+    assert_eq!(undocumented_after_a_seamed_doc(field), [7], "a field");
+    let fine = "/// A summary.\n///\n/// More.\nfn a() {}\nfn b() {}\n\
+                /// One doc. Two sentences.\nfn c() {}\n/// Own doc.\nfn d() {}\n\
+                /// A test's doc.\n/// Second.\n#[test]\nfn e() {}\nfn f() {}\n";
+    assert!(
+        undocumented_after_a_seamed_doc(fine).is_empty(),
+        "a paragraph break, one line, both documented, after a test: {:?}",
+        undocumented_after_a_seamed_doc(fine)
+    );
+
+    let mut found = Vec::new();
+    let files: Vec<_> = doc_and_code_files()
+        .into_iter()
+        .filter(|p| p.extension().is_some_and(|e| e == "rs"))
+        .collect();
+    assert!(files.len() > 200, "only {} Rust files walked", files.len());
+    for p in files {
+        let text = fs::read_to_string(&p).expect("readable");
+        for n in undocumented_after_a_seamed_doc(&text) {
+            found.push(format!("{}:{n}", rel(&p)));
+        }
+    }
+    assert!(
+        found.is_empty(),
+        "an item with no doc after a sibling whose doc's first paragraph \
+         reads as two -- the first is probably this item's, stranded by an \
+         insertion; if the doc is the sibling's own, put a blank `///` after \
+         its summary:\n  {}",
+        found.join("\n  ")
     );
 }

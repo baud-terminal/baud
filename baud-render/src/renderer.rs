@@ -751,7 +751,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.metrics
     }
 
-    /// Sets the blink phase the next convert or resolve draws with.
     /// A new pixel size for the same faces -- the backing scale changed, or
     /// the font size -- so the metrics, the per-face scales and the atlas are
     /// rebuilt and the next convert repaints every row. `None` leaves the
@@ -1089,6 +1088,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.fade_inst
     }
 
+    /// Sets the blink phase the next convert or resolve draws with.
     pub fn set_blink(&mut self, blink: Blink) {
         self.blink = blink;
     }
@@ -1505,11 +1505,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// Reads the terminal and converts the rows that changed since the
-    /// last frame into instances and background words, without painting.
-    /// A GPU path takes [`Renderer::instances`], [`Renderer::background`]
-    /// and [`Renderer::atlas`] from here; the CPU path calls
-    /// [`Renderer::paint`].
     /// Sizes the renderer to the terminal's grid, when it differs. Every
     /// frame goes through it -- [`Renderer::convert`] calls it, and a path
     /// that never converts, the cell path, must call it before it asks
@@ -1523,6 +1518,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// Reads the terminal and converts the rows that changed since the
+    /// last frame into instances and background words, without painting.
+    ///
+    /// A GPU path takes [`Renderer::instances`], [`Renderer::background`]
+    /// and [`Renderer::atlas`] from here; the CPU path calls
+    /// [`Renderer::paint`].
     pub fn convert(&mut self, term: &Term<'_>, back: Rows, damage: Damage) -> Converted {
         self.convert_with(term, back, damage, ImageRows::Ignored)
     }
@@ -2191,12 +2192,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// Resolves one row's colours and glyphs.
     /// The face style a cell's text is drawn from, from its resolved slot.
     fn face_style(&self, cell: PackedCell) -> FaceStyle {
         crate::cellmap::face_of(&self.styles, cell)
     }
 
+    /// Resolves one row's colours and glyphs.
     fn convert_row(&mut self, term: &Term<'_>, r: Row, cursor: Cursor, exc: &mut Exceptions) {
         let range = self.row_cells(r);
         // A copy of the row, so shaping may borrow the renderer mutably.
@@ -2563,7 +2564,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         out
     }
 
-    /// Instances for a shaped run starting at column `start` of row `r`.
     /// The `differs` count: for each cluster of the run, whether the
     /// shaped glyphs are what the cell shader's map would draw for its
     /// base codepoint -- one glyph, the same atlas slot, the same offset.
@@ -2669,6 +2669,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         });
     }
 
+    /// Instances for a shaped run starting at column `start` of row `r`.
     fn emit(&mut self, face: FaceIx, r: Row, start: Col, shaped: &Shaped, out: &mut Vec<Instance>) {
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);

@@ -428,13 +428,6 @@ impl<'a> Face<'a> {
         })
     }
 
-    /// The bytes of table `tag`, or `None` when absent **or when its record
-    /// points outside the file** -- a table the file does not actually hold
-    /// is a table the face does not have.
-    ///
-    /// A linear scan: the directory is sorted by tag and could be searched,
-    /// but a face has a few dozen tables and this runs once per table at
-    /// construction.
     /// The variation axes the face offers, in `fvar`'s order; none for a
     /// static face.
     pub fn axis(&self, i: Index) -> Option<crate::var::Axis> {
@@ -475,6 +468,13 @@ impl<'a> Face<'a> {
         &self.coords
     }
 
+    /// The bytes of table `tag`, or `None` when absent **or when its record
+    /// points outside the file** -- a table the file does not actually hold
+    /// is a table the face does not have.
+    ///
+    /// A linear scan: the directory is sorted by tag and could be searched,
+    /// but a face has a few dozen tables and this runs once per table at
+    /// construction.
     pub fn table(&self, tag: Tag) -> Option<Bytes<'a>> {
         let mut i = Index::ZERO;
         while self.tables.holds(i) {

@@ -295,14 +295,14 @@ pub enum PrivateMode {
     Origin,
     /// DECAWM, ?7.
     AutoWrap,
+    /// `?1001` — highlight mouse tracking.
+    HighlightTracking,
     /// `?1020` — xterm's `utf8` resource, which `[[source: ctlseqs]]` marks
     /// "**(read-only)**".
     ///
     /// Read-only is the whole point: it reports how the terminal decodes and
     /// cannot be used to change it. baud decodes UTF-8 and nothing else, by
     /// construction, so the answer is fixed for the life of the process.
-    /// `?1001` — highlight mouse tracking.
-    HighlightTracking,
     Utf8Resource,
     /// `?2027` — grapheme clustering. baud always clusters, so like
     /// [`PrivateMode::Utf8Resource`] this is permanent rather than a switch.

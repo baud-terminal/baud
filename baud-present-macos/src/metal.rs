@@ -333,6 +333,7 @@ const _: () = assert!(
 pub struct CellInput<'a> {
     /// Which of the caller's per-frame buffer sets `styles` and `overlay`
     /// come from, so the commit can mark it held until the frame lands.
+    ///
     /// The synchronous paths ignore it: they wait inline, so the buffers
     /// are free again before they return.
     pub set: crate::journal::SetIx,
@@ -854,9 +855,6 @@ impl Gpu {
         self.build
     }
 
-    /// Whether the device shares memory with the CPU, which is what makes
-    /// reading the grid in place a read rather than a transfer (D2's
-    /// discrete arm is unbuilt).
     /// One small render pass, committed at launch and not waited for: the
     /// first *render* pass a process runs costs ~5 ms on this box whatever
     /// it draws, an empty command buffer does not prepay it, and this one
@@ -888,6 +886,9 @@ impl Gpu {
         cmd.commit();
     }
 
+    /// Whether the device shares memory with the CPU, which is what makes
+    /// reading the grid in place a read rather than a transfer (D2's
+    /// discrete arm is unbuilt).
     pub fn unified_memory(&self) -> Memory {
         if self.device.hasUnifiedMemory() {
             Memory::Unified
@@ -945,7 +946,6 @@ impl Gpu {
         Some((StylesBuffer(buffer), styles))
     }
 
-    /// Memory for a glyph map, for `GlyphMap::over`.
     /// The overlay for a screen of at most `cols` by `rows`.
     pub fn overlay(&self, cols: Cols, rows: Rows) -> Option<(OverlayBuffer, &'static mut [u8])> {
         let n = cols.index().saturating_mul(rows.index());
@@ -955,6 +955,7 @@ impl Gpu {
         Some((OverlayBuffer(buffer), bytes))
     }
 
+    /// Memory for a glyph map, for `GlyphMap::over`.
     pub fn map(&self) -> Option<(MapBuffer, &'static mut [MapEntry])> {
         let buffer = self.shared(Span(MAP_SLOTS.saturating_mul(MapEntry::BYTES)))?;
         // SAFETY: `MapEntry` is `repr(C)` over integer newtypes, valid for
@@ -1792,7 +1793,6 @@ fn word_bytes(words: &[u32]) -> &[u8] {
     }
 }
 
-/// The same for the compositor's colour words.
 /// The rectangle of the target from `pad` that is `size` big, clamped to
 /// the target, as a scissor. The pad is the letterbox's, which may fall on
 /// half a pixel; the first pixel whose centre it covers is its floor.
@@ -1843,6 +1843,7 @@ fn clear_of(c: Argb) -> MTLClearColor {
     }
 }
 
+/// `word_bytes`, for the compositor's colour words.
 fn argb_bytes(words: &[baud_render::Argb]) -> &[u8] {
     // SAFETY: `Argb` is `repr(transparent)` over `u32`, so a slice of it
     // is a slice of `u32` of the same length at the same address.

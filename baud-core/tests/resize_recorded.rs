@@ -174,14 +174,6 @@ fn replay(f: &Fixture, mut each: impl FnMut(&Term<'_>, usize)) {
     }
 }
 
-/// The text the shell writes at the start of its prompt, taken from the
-/// recording rather than written here.
-///
-/// **Not a literal.** Matching `"zsh "` would be matching one user's
-/// prompt on one machine, and a fixture recorded from a different shell
-/// would then silently check nothing. The recording says where its own
-/// prompts begin: `OSC 133 ; P` opens the prompt, so the first printable
-/// run after one is the prompt's own first text.
 /// A `CSI`'s final byte: `@` through `~`, which is what ends one.
 ///
 /// Named rather than spelled as a range in place, because the audit
@@ -190,6 +182,14 @@ fn is_final(b: u8) -> bool {
     matches!(b, b'@'..=b'~')
 }
 
+/// The text the shell writes at the start of its prompt, taken from the
+/// recording rather than written here.
+///
+/// **Not a literal.** Matching `"zsh "` would be matching one user's
+/// prompt on one machine, and a fixture recorded from a different shell
+/// would then silently check nothing. The recording says where its own
+/// prompts begin: `OSC 133 ; P` opens the prompt, so the first printable
+/// run after one is the prompt's own first text.
 fn prompt_signature(f: &Fixture) -> String {
     let at = f
         .raw

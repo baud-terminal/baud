@@ -214,15 +214,15 @@ impl StreamByte {
     /// DEL. `[[source: williams]]` gives it the `ignore` action inside escape
     /// and CSI sequences: it neither ends them nor contributes to them.
     pub const DEL: StreamByte = StreamByte(0x7f);
-    /// `[[source: williams]]`'s "anywhere" block: CAN and SUB abandon whatever
-    /// sequence is in progress, from any state. Named because `is_c0()` is
-    /// `< 0x20` and therefore cannot distinguish them from a C0 to execute.
-    /// The intermediate byte of `ESC SP F` / `ESC SP G` (S7C1T / S8C1T).
     /// `9C` — the 8-bit String Terminator, which exists only outside UTF-8.
     pub const ST_8BIT: StreamByte = StreamByte(0x9c);
+    /// The intermediate byte of `ESC SP F` / `ESC SP G` (S7C1T / S8C1T).
     pub const SP: StreamByte = StreamByte(0x20);
     /// The intermediate byte of `ESC % @` / `ESC % G`.
     pub const PERCENT: StreamByte = StreamByte(0x25);
+    /// `[[source: williams]]`'s "anywhere" block: CAN and SUB abandon whatever
+    /// sequence is in progress, from any state. Named because `is_c0()` is
+    /// `< 0x20` and therefore cannot distinguish them from a C0 to execute.
     pub const CAN: StreamByte = StreamByte(0x18);
     pub const SUB: StreamByte = StreamByte(0x1a);
     /// The intermediate of `ESC # 8` (DECALN).
@@ -472,6 +472,22 @@ impl Codepoint {
         })
     }
 
+    /// A codepoint already proven wide, ordinary and unlooked.
+    ///
+    /// The vectorised decoder range-tests four at once, so by the time it has
+    /// them the general constructor's validity check is work it has already
+    /// done. This is that knowledge spent. `debug_assert` rather than an
+    /// `Option` because the caller is one function and the property is
+    /// enumerated by a test.
+    #[inline(always)]
+    pub fn wide_ordinary(v: u32) -> Codepoint {
+        debug_assert!(
+            Codepoint(v).is_wide_ordinary(),
+            "not a wide ordinary codepoint"
+        );
+        Codepoint(v)
+    }
+
     /// Is this codepoint unconditionally wide, ordinary, and in no lookback
     /// table -- so that both Unicode tries can be skipped?
     ///
@@ -493,22 +509,6 @@ impl Codepoint {
     /// Hiragana and katakana are two ranges rather than one because U+3099 and
     /// U+309A -- the combining voiced sound marks -- sit between them, and
     /// they are exactly the characters that must not skip the cluster machine.
-    /// A codepoint already proven wide, ordinary and unlooked.
-    ///
-    /// The vectorised decoder range-tests four at once, so by the time it has
-    /// them the general constructor's validity check is work it has already
-    /// done. This is that knowledge spent. `debug_assert` rather than an
-    /// `Option` because the caller is one function and the property is
-    /// enumerated by a test.
-    #[inline(always)]
-    pub fn wide_ordinary(v: u32) -> Codepoint {
-        debug_assert!(
-            Codepoint(v).is_wide_ordinary(),
-            "not a wide ordinary codepoint"
-        );
-        Codepoint(v)
-    }
-
     #[inline(always)]
     pub fn is_wide_ordinary(self) -> bool {
         let v = self.0;
@@ -530,6 +530,14 @@ impl Codepoint {
     pub fn new(v: u32) -> Option<Codepoint> {
         (v <= 0x10_FFFF && !(0xD800..0xE000).contains(&v)).then_some(Codepoint(v))
     }
+    /// The scalar value a three-byte sequence encodes, from the bytes as
+    /// indices. **For a table builder**, which walks the byte space rather than
+    /// the codepoint space; the cast lives here because a newtype's job is to
+    /// hold one.
+    pub fn from_three_bytes(b0: usize, b1: usize, b2: usize) -> u32 {
+        (((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f)) as u32
+    }
+
     /// A three-byte sequence's scalar value, or the replacement.
     ///
     /// **Two compares and no branch, for the length that is 50% of a mixed
@@ -545,14 +553,6 @@ impl Codepoint {
     /// decode. Branching on the length to reach it from the general
     /// single-character path measured *slower* -- 670-704 against 702-705 --
     /// because the test costs more than the two compares it saves.
-    /// The scalar value a three-byte sequence encodes, from the bytes as
-    /// indices. **For a table builder**, which walks the byte space rather than
-    /// the codepoint space; the cast lives here because a newtype's job is to
-    /// hold one.
-    pub fn from_three_bytes(b0: usize, b1: usize, b2: usize) -> u32 {
-        (((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f)) as u32
-    }
-
     pub fn from_three(v: u32) -> Codepoint {
         match v >= 0x800 && (v ^ 0xd800) >= 0x800 {
             true => Codepoint(v),

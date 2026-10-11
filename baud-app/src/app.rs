@@ -195,8 +195,6 @@ fn wanted() -> Request {
     }
 }
 
-/// The cell path's memory, all of it where the GPU reads it: the grid the
-/// core writes, the styles the renderer resolves, the map the walk fills.
 /// One of each, up to [`Wheel::SETS`]. Fallible the same way the single
 /// one was, so a machine that cannot lend the memory falls back rather
 /// than half-building a ring.
@@ -213,6 +211,8 @@ fn sets<T>(mut one: impl FnMut() -> Option<T>) -> Option<Vec<T>> {
     Some(out)
 }
 
+/// The cell path's memory, all of it where the GPU reads it: the grid the
+/// core writes, the styles the renderer resolves, the map the walk fills.
 struct CellMemory {
     /// The overlay and the records that draw the cells it masks, and the
     /// cluster map the walk fills them from.
@@ -1939,7 +1939,6 @@ fn special(key: &KeyPress) -> Option<KeyCode> {
     })
 }
 
-/// The view's responder, with the view it reports to.
 /// A style change the system has announced and the loop has not applied.
 ///
 /// **The observer cannot touch the driver, which is why this is a cell.**
@@ -2163,6 +2162,7 @@ fn palette_switch(
     }
 }
 
+/// The view's responder, with the view it reports to.
 struct Driver {
     app: App,
     view: macos_liquid_glass::objc2::rc::Retained<DrawableView>,
@@ -5574,10 +5574,6 @@ impl Driver {
         }
     }
 
-    /// `OSC 8` activation: a Cmd press over a link takes the whole gesture
-    /// for the terminal, and its release over the same link opens it. The
-    /// rules are `crate::link::gesture`'s; this maps the view's event onto
-    /// them and the answer onto the driver's state.
     /// Whether this window is the key window, read from AppKit now.
     ///
     /// **The live check found the focus gate dead.** `GlassWindow::show`
@@ -5720,6 +5716,10 @@ impl Driver {
         }
     }
 
+    /// `OSC 8` activation: a Cmd press over a link takes the whole gesture
+    /// for the terminal, and its release over the same link opens it. The
+    /// rules are `crate::link::gesture`'s; this maps the view's event onto
+    /// them and the answer onto the driver's state.
     fn links(&mut self, event: &Mouse) -> Took {
         use crate::link::{Chord, Clicks, Gesture, Press};
         let press = match (event.kind, event.button) {

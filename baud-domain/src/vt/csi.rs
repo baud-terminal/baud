@@ -144,11 +144,6 @@ impl DigitPair {
 
 impl Param {
     pub const ZERO: Param = Param(0);
-    /// The value, for an encoder that has to write it out.
-    ///
-    /// `u16` because that is what a parameter *is* -- `push` saturates at
-    /// 65535 -- and narrowing it here would silently truncate the very
-    /// saturation the parser is careful to produce.
     /// As an index or a count. The cast lives here because a newtype's job is
     /// to hold one; a caller doing `as usize` is a raw-integer site.
     pub fn index(self) -> usize {
@@ -161,6 +156,11 @@ impl Param {
             n => n as usize,
         }
     }
+    /// The value, for an encoder that has to write it out.
+    ///
+    /// `u16` because that is what a parameter *is* -- `push` saturates at
+    /// 65535 -- and narrowing it here would silently truncate the very
+    /// saturation the parser is careful to produce.
     pub fn value(self) -> u16 {
         self.0
     }
@@ -213,6 +213,7 @@ pub enum MarginMode {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Marker {
     /// `>` — the secondary namespace, used by XTVERSION and secondary DA.
+    ///
     /// Distinct from `?`: `CSI > 0 q` and `CSI ? 0 q` are unrelated.
     Gt,
     Standard,
@@ -283,7 +284,6 @@ impl<'a> Params<'a> {
     /// Length of the colon-joined group that starts at `i`, counting `i`.
     ///
     /// `38:2:0:1:2:3` from index 0 is 6; a bare `38` is 1.
-    /// How many parameters the colon group starting at `i` spans.
     ///
     /// **An explicit early-out for the empty mask is measured flat.** A colour
     /// introducer runs this on every `SGR 38`, `48` and `58`, and the

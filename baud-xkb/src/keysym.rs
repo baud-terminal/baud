@@ -94,6 +94,7 @@ impl Keysym {
     }
 
     /// The upper-case form, if the keysym is a cased letter; else itself.
+    ///
     /// The capitalisation transformation the library applies under Lock.
     pub fn to_upper(self) -> Keysym {
         let Some(c) = self.to_char() else {

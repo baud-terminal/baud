@@ -12,6 +12,7 @@ use crate::support;
 use baud_core::*;
 
 /// One step of a script: bytes to feed, and what the model does with them.
+///
 /// Named because the tuple-in-slice spelling is past clippy's complexity bar,
 /// and both scripts below are the same shape.
 type Step = (&'static str, fn(&mut Model));

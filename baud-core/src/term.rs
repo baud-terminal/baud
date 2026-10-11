@@ -292,13 +292,6 @@ pub struct Cold {
     /// compare and one `StyleFold::apply`.
     #[cfg(feature = "sgr-table")]
     pub(crate) sgr: [SgrSlot; NSGR],
-    /// DECSCA protection, kept apart from the cell flags so the charset and
-    /// the protection each change without recomputing the other wrongly.
-    /// DECKPAM/DECKPNM, `ESC =` and `ESC >`.
-    ///
-    /// **Not a mode bit.** It has no `SM`/`RM` wire number to live under, and
-    /// it is input-side: it decides what the keypad sends, which is why the
-    /// core's part is to record it and expose it.
     /// **The four G slots, and which one `GL` reads through.**
     ///
     /// Here rather than beside `charset` on the hot path, and that split is
@@ -395,19 +388,6 @@ pub struct Cold {
     /// only ever consulted when something asks which one is live.
     pub(crate) terminal: TerminalMode,
     pub(crate) vt52_row: Vt52Coord,
-    /// `DECSCUSR`. Which cursor a renderer should draw, and whether it
-    /// blinks. Recorded and exposed for the reason every renderer-side mode
-    /// here is: an embedder cannot honour it without being told, and a shape
-    /// parsed and dropped is worse than one not implemented.
-    /// How East Asian Ambiguous characters are measured.
-    ///
-    /// **A policy the embedder owns, which is why the property table stores a
-    /// width *code* rather than a resolved `Width`.** Narrow is the default
-    /// and is xterm's `cjkWidth=false`; a terminal configured for CJK text
-    /// sets Wide, and the same codepoint then takes two columns. Nothing in
-    /// the protocol changes it -- there is no escape sequence for it -- so it
-    /// arrives through the API and lives in `Cold` with the rest of the state
-    /// a control sequence does not touch.
     /// `DECSLRM`'s left and right margins.
     ///
     /// **Cold, because a control sequence moves them and the write path reads
@@ -416,12 +396,6 @@ pub struct Cold {
     /// margin per character.
     pub(crate) left: Col,
     pub(crate) right: Col,
-    /// How incoming bytes are decoded. `ESC % @` / `ESC % G` select it.
-    ///
-    /// **In `Cold` rather than on `Term` because `Paint` has to write it.**
-    /// The loop carries a live copy so the table selection is a register
-    /// rather than a field read per byte; this is where it persists between
-    /// reads, and `esc_final` sets both.
     /// `S7C1T` / `S8C1T`. How wide a `CSI` this core *writes*.
     ///
     /// Reading is a different question and is settled by `encoding`: an
@@ -435,14 +409,32 @@ pub struct Cold {
     /// is on the ingest path at all: no byte of `feed` reads them.
     pub(crate) other_keys: OtherKeys,
     pub(crate) other_keys_format: OtherKeysFormat,
+    /// How incoming bytes are decoded. `ESC % @` / `ESC % G` select it.
+    ///
+    /// **In `Cold` rather than on `Term` because `Paint` has to write it.**
+    /// The loop carries a live copy so the table selection is a register
+    /// rather than a field read per byte; this is where it persists between
+    /// reads, and `esc_final` sets both.
     pub(crate) encoding: InputEncoding,
+    /// How East Asian Ambiguous characters are measured.
+    ///
+    /// **A policy the embedder owns, which is why the property table stores a
+    /// width *code* rather than a resolved `Width`.** Narrow is the default
+    /// and is xterm's `cjkWidth=false`; a terminal configured for CJK text
+    /// sets Wide, and the same codepoint then takes two columns. Nothing in
+    /// the protocol changes it -- there is no escape sequence for it -- so it
+    /// arrives through the API and lives in `Cold` with the rest of the state
+    /// a control sequence does not touch.
     pub(crate) ambiguous: AmbiguousWidth,
     /// Whether the Primary DA may claim Sixel. `No` until the embedder opts
     /// in, whatever the store holds: an application that reads the claim stops
     /// drawing its text fallback, so the claim is the embedder's to make.
     pub(crate) sixel_claim: SixelClaim,
     /// The style `DECSCUSR` set, or the configuration: its shape, and its own
-    /// blink. What `DECRQSS SP q` answers.
+    /// blink. What `DECRQSS SP q` answers. Recorded and exposed for the
+    /// reason every renderer-side mode here is: an embedder cannot honour it
+    /// without being told, and a shape parsed and dropped is worse than one
+    /// not implemented.
     pub(crate) cursor_style: CursorStyle,
     /// `?12`, which blinks the cursor *or*-ed with the style's own blink --
     /// foot's rule -- and never stops it: [`Term::cursor_style`] draws a
@@ -456,7 +448,14 @@ pub struct Cold {
     pub(crate) vs16: Vs16Width,
     /// Where the last character written under `DECAWM` reset ended.
     pub(crate) pinned: Pinned,
+    /// DECKPAM/DECKPNM, `ESC =` and `ESC >`.
+    ///
+    /// **Not a mode bit.** It has no `SM`/`RM` wire number to live under, and
+    /// it is input-side: it decides what the keypad sends, which is why the
+    /// core's part is to record it and expose it.
     pub(crate) keypad: KeypadMode,
+    /// DECSCA protection, kept apart from the cell flags so the charset and
+    /// the protection each change without recomputing the other wrongly.
     pub(crate) protect: CellFlags,
     pub(crate) screen: Screen,
     /// Moves on every switch of `screen`: [`Term::screen_epoch`].
@@ -832,13 +831,7 @@ pub struct Term<'b> {
     pub(crate) title_len: ByteLen,
     pub(crate) icon_len: ByteLen,
     pub(crate) link: LinkId,
-    /// **Refused, and counted.** A control-string body clipped at `OSC_MAX`, a
-    /// string recognised and not acted on, the `OSC 52` reads, and the writes refused.
-    /// Silence is the right answer to a clipboard read -- any reply, empty
-    /// included, tells a remote program the feature works and it will keep
-    /// asking, and what it would read back is whatever the user last copied.
-    /// Being unable to tell that one arrived is a different thing, and is what
-    /// these turn from a bare `=> {}` into a number.
+    /// VT52 commands this core does not act on. See `Paint`.
     pub vt52_unsupported: usize,
     /// How many `BEL`s arrived.
     ///
@@ -857,6 +850,15 @@ pub struct Term<'b> {
     pub unsupported: usize,
     pub unsupported_param: usize,
     pub replacements: usize,
+    /// **Refused, and counted.** A control-string body clipped at `OSC_MAX`
+    /// -- this -- and, below, a string recognised and not acted on
+    /// (`strings_ignored`), the `OSC 52` reads (`clipboard_reads_refused`),
+    /// and the writes refused (`clipboard_writes_refused`).
+    /// Silence is the right answer to a clipboard read -- any reply, empty
+    /// included, tells a remote program the feature works and it will keep
+    /// asking, and what it would read back is whatever the user last copied.
+    /// Being unable to tell that one arrived is a different thing, and is what
+    /// these turn from a bare `=> {}` into a number.
     pub string_truncations: usize,
     /// `OSC 8` links refused because their slot already held a different
     /// URI. A slot is taken once for the storage's life, so a cell never
@@ -933,8 +935,6 @@ pub enum Resized {
 }
 
 impl<'b> Term<'b> {
-    /// Geometry comes from a [`WinSize`], which is the one place `ws_col` and
-    /// `ws_row` are destructured -- so they cannot be transposed here.
     /// **Fill the three-byte cell table**: every `(b0,b1,b2)` a character can
     /// be, and the cell it becomes. 65,536 entries, once, at construction.
     ///
@@ -1528,6 +1528,8 @@ impl<'b> Term<'b> {
         (resized, held)
     }
 
+    /// Geometry comes from a [`WinSize`], which is the one place `ws_col` and
+    /// `ws_row` are destructured -- so they cannot be transposed here.
     pub fn new(store: Storage<'b>, ws: &WinSize) -> Term<'b> {
         let mut store = store;
         Term::fill_cells3(&mut store);

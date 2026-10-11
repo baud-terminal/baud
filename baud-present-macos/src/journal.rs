@@ -249,10 +249,6 @@ pub struct Counts {
 }
 
 impl Journal {
-    /// Records what a landed frame earned, and answers it so a caller can
-    /// act on it. In the observing phase every caller shows the frame
-    /// regardless, which is what makes the count a measurement of the bug
-    /// rather than of the fix.
     /// A frame is in flight: it holds `set` if it was built into one, and
     /// it reads the unringed memory either way. The one place a commit is
     /// recorded, so the rule the app runs is the rule the tests pin.
@@ -302,6 +298,10 @@ impl Journal {
         }
     }
 
+    /// Records what a landed frame earned, and answers it so a caller can
+    /// act on it. In the observing phase every caller shows the frame
+    /// regardless, which is what makes the count a measurement of the bug
+    /// rather than of the fix.
     pub fn land(&self, tag: FrameTag, epoch: &SwapEpoch, landing: Landing) -> Fate {
         let fate = baud_domain::fate(tag.swap, epoch.current());
         self.gpu_nanos.store(

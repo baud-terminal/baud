@@ -37,8 +37,6 @@ impl BytePos {
     }
 }
 
-/// Index of a logical line. **Stable across resize and font change** — this is
-/// the only line identifier safe to persist.
 /// Distance between two [`BytePos`]. Cannot be added to a position; only
 /// compared against a capacity.
 #[derive(
@@ -53,6 +51,8 @@ impl ByteGap {
     }
 }
 
+/// Index of a logical line. **Stable across resize and font change** — this is
+/// the only line identifier safe to persist.
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, FromBytes, IntoBytes, Immutable, KnownLayout,
 )]
@@ -130,7 +130,6 @@ impl SlotIdx {
     pub fn index(self) -> usize {
         self.0 as usize
     }
-    /// Byte offset of this slot within the arena.
     /// Byte offset of this slot within the arena. Named as an index because
     /// that is the only thing it may be used for.
     pub fn byte_index(self) -> usize {
