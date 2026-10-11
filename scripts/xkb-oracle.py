@@ -1,10 +1,39 @@
 #!/usr/bin/env python3
 """libxkbcommon as the oracle: what the library answers for every key of a
 keymap under a set of modifier scenarios, written as a fixture baud-xkb has
-to reproduce. Run once; the fixtures are committed."""
-import ctypes, sys, os
-LIB = "/nix/store/q68bncwdcfknxhswvhkk6jq3aq6k2pa7-libxkbcommon-1.13.2/lib/libxkbcommon.dylib"
-x = ctypes.CDLL(LIB)
+to reproduce. Run once; the fixtures are committed.
+
+The library is found by `$LIBXKBCOMMON`, the path of the shared library
+itself, or else by `pkg-config --variable=libdir xkbcommon`; with neither the
+script stops and says so. The committed fixtures came from libxkbcommon
+1.13.2, whose nix output is /nix/store/q68bncwdcfknxhswvhkk6jq3aq6k2pa7-
+libxkbcommon-1.13.2 -- a path, not a dependency, and one the store
+collects."""
+import ctypes, sys, os, subprocess
+
+
+def find_lib():
+    env = os.environ.get("LIBXKBCOMMON")
+    if env:
+        if not os.path.isfile(env):
+            sys.exit(f"xkb-oracle: LIBXKBCOMMON={env} is not a file")
+        return env
+    try:
+        libdir = subprocess.run(["pkg-config", "--variable=libdir", "xkbcommon"],
+                                capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        libdir = ""
+    names = ("libxkbcommon.dylib", "libxkbcommon.so", "libxkbcommon.so.0")
+    for name in names if libdir else ():
+        path = os.path.join(libdir, name)
+        if os.path.isfile(path):
+            return path
+    sys.exit("xkb-oracle: libxkbcommon not found. Set LIBXKBCOMMON to the shared library "
+             "(e.g. .../lib/libxkbcommon.dylib), or put xkbcommon.pc on PKG_CONFIG_PATH"
+             + (f" (pkg-config's libdir {libdir} holds none of {', '.join(names)})" if libdir else ""))
+
+
+x = ctypes.CDLL(find_lib())
 x.xkb_context_new.restype = ctypes.c_void_p
 x.xkb_keymap_new_from_string.restype = ctypes.c_void_p
 x.xkb_keymap_new_from_string.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int, ctypes.c_int]
