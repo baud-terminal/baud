@@ -161,8 +161,17 @@ occupied, so a trailing `?` (all bits clear) still widens the image -- because
 image that reported a short extent would be written over. The extent is
 independent of the canvas; `refused` is what did not fit.
 
-**RGB (`Pu = 2`) is implemented; HLS (`Pu = 1`) and any unrecognised
-coordinate system are counted, not applied.** The source gives the HLS hue as
+~~**RGB (`Pu = 2`) is implemented; HLS (`Pu = 1`) and any unrecognised
+coordinate system are counted, not applied.**~~ **HLS is applied since
+2026-10-11.** The chapter this paragraph waited on is pinned,
+`[[source: vt3xx-screen-control]]`: "Blue: 0 degrees Red: 120 degrees Green:
+240 degrees". The conversion is the double hexcone
+`[[source: css-color-4-hsl]]` prints, turned 120 degrees, and it reproduces
+that chapter's Table 2-3 within one percent on all sixteen rows; an HLS value
+past its range ignores the whole command, `Pc` included, as
+`[[source: dec-std-070]]` 070-9 §8.1.3 says. An unrecognised coordinate
+system is still counted in `unapplied_registers`. What follows is the
+reasoning that held HLS back. The source gives the HLS hue as
 "0 to 360 degrees" and defers the origin to a chapter that is not pinned, and
 DEC's HLS does not put red at 0 -- so a converted register would be a guess,
 and "never record a mode you do not act on" says to count it

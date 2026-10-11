@@ -123,13 +123,11 @@ pub struct SixelReport {
     /// Pixels that would have fallen outside the canvas.
     pub refused: u32,
     /// Colour-register defines this decoder did not apply, so the caller knows
-    /// the image is missing a colour. Two cases fall here: HLS (`Pu = 1`),
-    /// because `[[source: vt3xx-sixel]]` gives the hue as "0 to 360 degrees"
-    /// and defers the origin to a chapter that is not pinned and DEC's HLS
-    /// does not put red at 0; and an unrecognised coordinate system. A wrongly
-    /// converted register is worse than a counted one -- the "never record a
-    /// mode you do not act on" rule -- so both are counted rather than guessed,
-    /// and pinning chapter 2 for the HLS conversion is the follow-on.
+    /// the image is missing a colour: an unrecognised coordinate system, and
+    /// an HLS (`Pu = 1`) define with a value past its range, which
+    /// `[[source: dec-std-070]]` 070-9 §8.1.3 ignores whole. HLS itself is
+    /// applied since 2026-10-11, its hue origin pinned (see `hls`); it was
+    /// counted here until then.
     pub unapplied_registers: u32,
 }
 
@@ -183,7 +181,7 @@ impl Sixel {
                 // Colour register: `#Pc` selects, `#Pc;Pu;Px;Py;Pz` defines.
                 b'#' => {
                     let (pc, mut j) = number(data, i + 1);
-                    reg = usize::from(pc).min(REGISTERS - 1);
+                    let named = usize::from(pc).min(REGISTERS - 1);
                     if data.get(j) == Some(&b';') {
                         let (pu, k1) = number(data, j + 1);
                         let (px, k2) = number_after_sep(data, k1);
@@ -191,12 +189,33 @@ impl Sixel {
                         let (pz, k4) = number_after_sep(data, k3);
                         j = k4;
                         match pu {
-                            2 => regs[reg] = rgb(px, py, pz),
-                            // HLS (`Pu = 1`) and any unrecognised system are
-                            // left unapplied rather than guessed at, and
-                            // counted so the caller can see it.
-                            _ => unapplied = unapplied.saturating_add(1),
+                            2 => {
+                                regs[named] = rgb(px, py, pz);
+                                reg = named;
+                            }
+                            // HLS, hue 0-360 and lightness and saturation
+                            // 0-100 (`[[source: vt3xx-sixel]]` Table 14-1).
+                            // A value past its range ignores the whole
+                            // command, `Pc` included: `[[source: dec-std-070]]`
+                            // 070-9 §8.1.3 (PDF p. 921), so `reg` is kept.
+                            1 => match hls(px, py, pz) {
+                                Some(c) => {
+                                    regs[named] = c;
+                                    reg = named;
+                                }
+                                None => unapplied = unapplied.saturating_add(1),
+                            },
+                            // An unrecognised system selects `Pc` and is
+                            // counted; 070-9 §8.1.3 ignores this whole command
+                            // too, and RGB past 100 is clamped where it says
+                            // the same: note AN's item 6, not built here.
+                            _ => {
+                                reg = named;
+                                unapplied = unapplied.saturating_add(1);
+                            }
                         }
+                    } else {
+                        reg = named;
                     }
                     i = j;
                     repeat = 1;
@@ -290,6 +309,41 @@ impl Sixel {
 /// is 0 to 100, scaled to a 0..=255 channel with rounding.
 fn rgb(r: u16, g: u16, b: u16) -> ColorWord {
     ColorWord::rgb(pct(r), pct(g), pct(b))
+}
+
+/// A colour register from DEC HLS (`Pu = 1`): hue `h` in degrees, lightness
+/// `l` and saturation `s` in percent; `None` when any is past its range
+/// (`[[source: vt3xx-sixel]]` Table 14-1: 0-360, 0-100, 0-100).
+///
+/// **DEC's hue origin is blue.** `[[source: vt3xx-screen-control]]`, the
+/// chapter the Sixel chapter defers its colours to: "Blue: 0 degrees Red: 120
+/// degrees Green: 240 degrees". DEC gives no formula, calling HLS
+/// "universally recognized" (`[[source: vt3xx-sixel]]`), so this is the
+/// double-hexcone conversion `[[source: css-color-4-hsl]]` prints, whose red
+/// is at 0, with the hue turned 120 degrees back. It reproduces that
+/// chapter's Table 2-3, the VT340's sixteen default colours given as HLS and
+/// RGB both, within one percent on every row.
+///
+/// In integers, since `no_std` has no `f32::round`: with `K = (30 n + h) mod
+/// 360` and `m = clamp(min(K - 90, 270 - K), -30, 30)`, CSS's
+/// `l - a * max(-1, min(k - 3, 9 - k, 1))` is `(3000 l - s * min(l, 100 - l)
+/// * m) / 3000` percent, which stays within 0..=100, so the channel is that
+/// times 255/100, rounded half up as [`pct`] rounds.
+fn hls(h: u16, l: u16, s: u16) -> Option<ColorWord> {
+    if h > 360 || l > 100 || s > 100 {
+        return None;
+    }
+    let h = (i32::from(h) + 240) % 360;
+    let (l, s) = (i32::from(l), i32::from(s));
+    let a = s * l.min(100 - l);
+    let chan = |n: i32| {
+        let k = (30 * n + h) % 360;
+        let m = (k - 90).min(270 - k).clamp(-30, 30);
+        let v = 3000 * l - a * m;
+        let c = (255 * v + 150_000) / 300_000;
+        Chan::from_u8(u8::try_from(c).unwrap_or(u8::MAX))
+    };
+    Some(ColorWord::rgb(chan(0), chan(8), chan(4)))
 }
 
 /// A 0-100 percentage as a channel, clamped and rounded.

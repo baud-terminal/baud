@@ -9,7 +9,7 @@
 //! the binary value `0x74 - 0x3F = 0b110101` with the least significant bit at
 //! the top, so its six vertical pixels read `[1,0,1,0,1,1]` top to bottom.
 
-use baud_domain::{ColorWord, Sixel, SixelCanvas, SixelPx};
+use baud_domain::{ColorWord, Sixel, SixelCanvas, SixelPx, SixelReport};
 
 /// Read the pixel at column `x`, row `y` of a `w`-wide image.
 fn px(image: &[ColorWord], w: u16, x: u16, y: u16) -> ColorWord {
@@ -184,21 +184,118 @@ fn pixels_past_the_canvas_are_refused_and_counted_never_wrapped() {
     );
 }
 
-#[test]
-fn an_hls_register_is_counted_and_left_unapplied() {
-    // `#0;1;...` defines register 0 in HLS (`Pu = 1`), whose hue origin this
-    // source does not pin, so the register is not painted and the pixel stays
-    // transparent. The count is how a caller learns the image is incomplete.
+/// The colour one all-set column of `body` paints, and the decode's report.
+fn one_column(body: &[u8]) -> (ColorWord, SixelReport) {
     let mut image = [ColorWord::DEFAULT; 6];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
-    let report = Sixel::decode(b"#0;1;120;50;100~", &mut canvas);
+    let report = Sixel::decode(body, &mut canvas);
+    for c in image {
+        assert_eq!(c, image[0], "{body:?}: one colour down the column");
+    }
+    (image[0], report)
+}
 
-    assert_eq!(report.unapplied_registers, 1, "the HLS define is counted");
-    for y in 0..6 {
-        assert!(
-            px(&image, 1, 0, y).is_default(),
-            "an unapplied register paints nothing at row {y}"
+#[test]
+fn the_hls_hue_origin_is_blue_at_zero_red_at_120_green_at_240() {
+    // `[[source: vt3xx-sixel]]` gives the hue as "0 to 360 degrees" and
+    // defers to chapter 2's "Output Mapping", which places it:
+    // `[[source: vt3xx-screen-control]]`, "The hue angles for the three
+    // primary colors are as follows. Blue: 0 degrees Red: 120 degrees Green:
+    // 240 degrees". At lightness 50 and saturation 100 each is the pure
+    // primary, and 360 is 0 again.
+    for (body, want, name) in [
+        (b"#0;1;0;50;100~".as_slice(), (0, 0, 255), "blue at 0"),
+        (b"#0;1;120;50;100~", (255, 0, 0), "red at 120"),
+        (b"#0;1;240;50;100~", (0, 255, 0), "green at 240"),
+        (b"#0;1;360;50;100~", (0, 0, 255), "blue at 360"),
+    ] {
+        let (c, report) = one_column(body);
+        assert_eq!(rgb(c), Some(want), "{name}");
+        assert_eq!(report.unapplied_registers, 0, "{name}: applied");
+    }
+}
+
+#[test]
+fn hls_defines_reproduce_the_vt340_default_colour_map() {
+    // `[[source: vt3xx-screen-control]]` Table 2-3, "VT340 Default Color
+    // Map": each row's HLS triple beside its RGB percentages. The table is in
+    // whole percents and on six rows sits above this conversion by up to 0.88
+    // of a point, more than rounding explains, so each channel must be within
+    // one percent of the table: |c / 255 * 100 - p| <= 1, kept in integers as
+    // |100 c - 255 p| <= 255.
+    let table_2_3 = [
+        ("Black", [0, 0, 0], [0, 0, 0]),
+        ("Blue", [0, 50, 60], [20, 20, 80]),
+        ("Red", [120, 46, 72], [80, 13, 13]),
+        ("Green", [240, 50, 60], [20, 80, 20]),
+        ("Magenta", [60, 50, 60], [80, 20, 80]),
+        ("Cyan", [300, 50, 60], [20, 80, 80]),
+        ("Yellow", [180, 50, 60], [80, 80, 20]),
+        ("Gray 50%", [0, 53, 0], [53, 53, 53]),
+        ("Gray 25%", [0, 26, 0], [26, 26, 26]),
+        ("Blue*", [0, 46, 29], [33, 33, 60]),
+        ("Red*", [120, 43, 39], [60, 26, 26]),
+        ("Green*", [240, 46, 29], [33, 60, 33]),
+        ("Magenta*", [60, 46, 29], [60, 33, 60]),
+        ("Cyan*", [300, 46, 29], [33, 60, 60]),
+        ("Yellow*", [180, 46, 29], [60, 60, 33]),
+        ("Gray 75%", [0, 80, 0], [80, 80, 80]),
+    ];
+    for (name, [h, l, s], want) in table_2_3 {
+        let body = format!("#0;1;{h};{l};{s}~");
+        let (c, report) = one_column(body.as_bytes());
+        assert_eq!(report.unapplied_registers, 0, "{name}: applied");
+        let Some((r, g, b)) = rgb(c) else {
+            panic!("{name}: an HLS define paints an RGB pixel, got {c:?}");
+        };
+        for (got, p, chan) in [(r, want[0], "R"), (g, want[1], "G"), (b, want[2], "B")] {
+            let off = (100 * i32::from(got) - 255 * p).abs();
+            assert!(
+                off <= 255,
+                "{name} {chan}: {got}/255 against the table's {p}%"
+            );
+        }
+    }
+}
+
+#[test]
+fn an_hls_hue_between_the_table_rows_follows_the_double_hexcone() {
+    // Chapter 2 names H150 L50 S60 "gold" and H60 L80 S60 "plum"
+    // (`[[source: vt3xx-screen-control]]`) and gives neither an RGB value.
+    // The conversion is `[[source: css-color-4-hsl]]`'s, with DEC's hue
+    // turned 120 degrees: gold is CSS hue 30, R 80% G 50% B 20%, and plum
+    // CSS hue 300, R 92% G 68% B 92%, each channel rounded half up from
+    // 255 times its fraction.
+    let (gold, _) = one_column(b"#0;1;150;50;60~");
+    assert_eq!(rgb(gold), Some((204, 128, 51)), "gold");
+    let (plum, _) = one_column(b"#0;1;60;80;60~");
+    assert_eq!(rgb(plum), Some((235, 173, 235)), "plum");
+}
+
+#[test]
+fn an_hls_define_out_of_range_is_ignored_whole() {
+    // `[[source: dec-std-070]]` 070-9 §8.1.3: "Values for Pu, Px, Py, and Pz
+    // other than those specified above cause the entire color specifier
+    // command to be ignored, including the color select parameter, Pc" (PDF
+    // p. 921), the ranges being hue 0-360 and lightness and saturation 0-100.
+    // So after register 1 is defined green and selected, a define of
+    // register 5 with any value past its range neither defines 5 nor selects
+    // it, and the data draws green; it is counted as unapplied.
+    for bad in [
+        b"#5;1;361;50;100".as_slice(),
+        b"#5;1;0;101;100",
+        b"#5;1;0;50;101",
+    ] {
+        let mut body = b"#1;2;0;100;0".to_vec();
+        body.extend_from_slice(bad);
+        body.push(b'~');
+        let (c, report) = one_column(&body);
+        assert_eq!(
+            rgb(c),
+            Some((0, 255, 0)),
+            "{bad:?}: register 1 still selected"
         );
+        assert_eq!(report.unapplied_registers, 1, "{bad:?}: counted");
     }
 }
 

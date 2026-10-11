@@ -6965,6 +6965,57 @@ group  = "C"
 # in the HTML and survive `sed 's/<[^>]*>//g'`, unlike `kitty-underlines`'s
 # colon codes above.
 
+[sources.vt3xx-screen-control]
+key    = "vt3xx-screen-control"
+title  = "Screen Control Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 2)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter2.html"
+file   = "vt3xx-screen-control.html"
+sha256 = "43c93703998162fa47cba0fcf8dd831ecf0efd46f18ce24c021114c8c0a3433b"
+bytes  = 67239
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-11. The chapter `vt3xx-sixel`'s colour table defers to: "See
+# the "Output Mapping" section in Chapter 2 for a discussion of shade and color
+# programming". Its HLS System section gives the hue origin a Sixel `Pu = 1`
+# define needs: "The hue angles for the three primary colors are as follows.
+# Blue: 0 degrees Red: 120 degrees Green: 240 degrees", with hue 0-360 and
+# lightness and saturation 0-100 percent. Table 2-3, "VT340 Default Color
+# Map", lists sixteen HLS triples beside their RGB percentages, which is the
+# fixture `baud-domain/tests/sixel_decode.rs` converts against. Table 2-1's
+# "White" row, H180 L100 S100 beside R100 G100 B0, contradicts its own
+# lightness (L100 is white in every HLS model) and is not used. Its
+# "Background Intensity Control" says the VT340's background is an output map
+# location, ReGIS's, which bears on a Sixel's `P2` background (note AN).
+
+[sources.css-color-4-hsl]
+key    = "css-color-4-hsl"
+title  = "CSS Color Module Level 4, 7.1 Converting HSL Colors to sRGB -- the hslToRgb sample code"
+author = "W3C CSS Working Group (Tab Atkins Jr., Chris Lilley, Lea Verou, eds.)"
+year   = 2026
+venue  = "W3C Candidate Recommendation Draft, 9 October 2026 (https://www.w3.org/TR/2026/CRD-css-color-4-20261009/)"
+url    = "https://drafts.csswg.org/css-color-4/hslToRgb.js"
+file   = "css-color-4-hslToRgb.js"
+sha256 = "1a03279f29b7183fe820b339c8e79c2eb8af05099a4c87b1693ace7d8e93b11a"
+bytes  = 547
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-11. The double-hexcone HSL to RGB conversion, as the
+# specification's section 7.1 prints it: "Converting an HSL color to sRGB is
+# straightforward mathematically. Here's a sample implementation of the
+# conversion algorithm in JavaScript." The function in the dated TR's section
+# 7.1 was compared with this file line by line and is the same code. DEC calls
+# HLS "universally recognized" (`vt3xx-sixel`) and gives no formula; this is
+# the formula baud's Sixel HLS conversion computes, with DEC's hue origin from
+# `vt3xx-screen-control` (CSS puts red at 0, DEC blue). Rotated by 120 degrees
+# it reproduces `vt3xx-screen-control`'s Table 2-3 within one percent on all
+# sixteen rows, and to the nearest percent on ten. On the other six the
+# conversion reads below the table by under one point: Red, H120 L46 S72,
+# gives R 79.1 where the table has 80, and the five less-saturated colours at
+# L46 S29 give 59.3 where it has 60.
+
 [sources.kitty-graphics]
 key    = "kitty-graphics"
 title  = "Terminal graphics protocol"
