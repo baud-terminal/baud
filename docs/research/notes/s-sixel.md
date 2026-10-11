@@ -464,10 +464,15 @@ the one where the picture stays beside the text it was printed with.
   row lands where its first cell lands. The column is kept, so a column past
   the new edge is cropped where it is drawn rather than moved. An anchor at
   a line's start -- every image printed after a newline -- round-trips
-  exactly, and widening back brings it whole. An anchor on a wrapped
+  exactly, and widening back brings it whole. ~~An anchor on a wrapped
   continuation row does not: a round trip brings it back a row higher,
   because the first cell of the row it landed on belongs to the row above
-  at the old width. A line the reflow drops takes its image with it.
+  at the old width.~~ An anchor on a wrapped continuation row round-trips
+  too, since 2026-10-11: the placement keeps where in its row the cell its
+  row began with landed, and the next reflow asks by that cell rather than
+  by the row's own first (docs/record.md, "An image on a continuation row
+  follows the cell its row began with"). A line the reflow drops takes its
+  image with it.
 * **An image goes when its row does**: past the far end of the history, cut
   below a shorter window past what the ring keeps, blanked as a reverse
   scroll takes the newest history line back, or dropped by a reflow. Each is
@@ -486,7 +491,8 @@ line-number assertion can hold with the image on the wrong row. foot's trap
 image on a row that also holds text, which WezTerm truncates) are pinned by
 name, with a drag through forty sizes, an image in the history narrowed and
 widened, a view asked for past the history, an image above a prompt block
-the shell redraws, and the continuation-row drift pinned as what it is.
+the shell redraws, and ~~the continuation-row drift pinned as what it is~~
+an anchor on a continuation row held to its row through any path of widths.
 Eleven mechanisms were perturbed on their own, and each fails its own test --
 two of them only after a test written for it, because the first cases could
 not tell the mechanism apart (the view clamp at a history whose oldest line

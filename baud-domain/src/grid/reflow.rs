@@ -52,16 +52,24 @@ pub struct Reflowed {
 
 /// **A hook a reflow calls once for every line it keeps, before copying
 /// it**: the line's first row and how many rows it has, both counted from
-/// the oldest retained row, and where each of its rows lands, counted the
-/// same way. Before the copy, because narrowing copies downwards over rows
-/// it has read, and where a row lands is computed from its cells.
+/// the oldest retained row, and where a cell of it lands -- asked by its
+/// row, counted the same way, and its column in that row; answered as the
+/// row and the column it lands at. Before the copy, because narrowing copies
+/// downwards over rows it has read, and where a cell lands is computed from
+/// the cells before it.
 ///
 /// What lets a thing anchored to a row -- an image placement -- follow the
 /// row through the re-cut rather than keep a number that now names another.
-/// A row lands where **its first cell** lands, foot's rule: the anchor
-/// follows the row it was placed on and keeps its column, and a column past
-/// the new edge is cropped where it is drawn rather than moved.
-pub type Follow<'f> = &'f mut dyn FnMut(Rows, Rows, &dyn Fn(Rows) -> Rows);
+/// A row lands where **its first cell** lands -- foot's rule
+/// (`[[source: foot-grid-c-1-21]]`, `grid_resize_and_reflow`) -- and the
+/// anchor keeps its own column, so a column past the new edge is cropped
+/// where it is drawn rather than moved. The first cell is the one the row
+/// began with where the anchor was placed, not whichever cell a narrower
+/// re-cut put first on the row it landed on: an anchor on a continuation row
+/// lands on a narrow row that begins earlier in the line, and asked by that
+/// row's own first cell a widen brought it back a row higher. So the hook
+/// answers the column too, and an anchor that keeps it asks by it next time.
+pub type Follow<'f> = &'f mut dyn FnMut(Rows, Rows, &dyn Fn(Rows, Col) -> (Rows, Col));
 
 /// The re-cut: where the oldest retained row is, and the two widths.
 #[derive(Clone, Copy)]
@@ -389,10 +397,20 @@ impl<'a> View<'a> {
         }
     }
 
-    /// Hand one kept line to the follow hook, with where its rows land.
+    /// Hand one kept line to the follow hook, with where its cells land. A
+    /// column at or past the old width is no cell of the line -- a row a
+    /// resize at a prompt narrowed without a re-cut keeps a column it had --
+    /// and is asked as the row's first cell.
     fn follow(&self, follow: &mut Option<Follow<'_>>, c: Cut, l: &Line, dst: usize) {
         if let Some(f) = follow.as_mut() {
-            let land = |r: Rows| Rows::of_count(self.landing(c, l, dst, r.index(), 0).0);
+            let land = |r: Rows, x: Col| {
+                let x = match x.index() < c.old {
+                    true => x.index(),
+                    false => 0,
+                };
+                let (row, col) = self.landing(c, l, dst, r.index(), x);
+                (Rows::of_count(row), Col::at_index(col))
+            };
             f(Rows::of_count(l.start), Rows::of_count(l.rows), &land);
         }
     }

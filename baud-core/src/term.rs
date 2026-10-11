@@ -1358,14 +1358,14 @@ impl<'b> Term<'b> {
             let hist = self.store.book.hist;
             let view = held.map(|b| hist.index().saturating_sub(b.index()));
             let mut landed: Option<Rows> = None;
-            let mut hook = |from: Rows, n: Rows, land: &dyn Fn(Rows) -> Rows| {
+            let mut hook = |from: Rows, n: Rows, land: &dyn Fn(Rows, Col) -> (Rows, Col)| {
                 visited = true;
                 if staged > 0 {
                     images.follow_line(from, n, land);
                 }
                 if let Some(v) = view {
                     if (from.index()..from.index() + n.index()).contains(&v) {
-                        landed = Some(land(Rows::of_count(v)));
+                        landed = Some(land(Rows::of_count(v), Col::ZERO).0);
                     }
                 }
             };

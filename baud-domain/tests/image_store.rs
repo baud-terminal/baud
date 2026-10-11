@@ -370,11 +370,11 @@ fn a_reflow_maps_each_placement_once_and_drops_the_ones_no_line_took() {
         ZIndex::ZERO,
     );
     assert_eq!(store.follow_begin(ImageScreen::Primary, floor), 3);
-    store.follow_line(Rows::of_count(0), Rows::of_count(6), &|r: Rows| {
-        Rows::of_count(r.index() + 5)
+    store.follow_line(Rows::of_count(0), Rows::of_count(6), &|r: Rows, x: Col| {
+        (Rows::of_count(r.index() + 5), x)
     });
-    store.follow_line(Rows::of_count(10), Rows::of_count(1), &|r: Rows| {
-        Rows::of_count(r.index() + 100)
+    store.follow_line(Rows::of_count(10), Rows::of_count(1), &|r: Rows, x: Col| {
+        (Rows::of_count(r.index() + 100), x)
     });
     assert_eq!(store.follow_end(floor), 1, "the one no line took");
     let mut lines: Vec<(ImageScreen, u64)> = store
@@ -391,6 +391,50 @@ fn a_reflow_maps_each_placement_once_and_drops_the_ones_no_line_took() {
         ]
     );
     assert_eq!(store.placements_expired, 1);
+}
+
+/// **A placement asks the next reflow by the cell the last one answered.**
+/// The first follow lands its row's first cell part-way along a row, column
+/// 20; the second is asked by column 20 of that row, not by the row's own
+/// first cell, which is what lets a narrow-then-widen round trip come back
+/// to the row the image was placed on. A fresh placement asks by column 0.
+#[test]
+fn a_reflow_asks_by_the_column_the_last_one_answered() {
+    let mut b = Buffers::new();
+    let mut store = b.store();
+    let (id, _) = store.store(ImagePx::of(1), ImagePx::of(1)).unwrap();
+    let floor = LineIdx::of(0);
+    store.place(
+        id,
+        ImageScreen::Primary,
+        LineIdx::of(1),
+        Col::at_index(7),
+        ZIndex::ZERO,
+    );
+    let asked = std::cell::Cell::new(None);
+    assert_eq!(store.follow_begin(ImageScreen::Primary, floor), 1);
+    store.follow_line(Rows::of_count(0), Rows::of_count(2), &|r: Rows, x: Col| {
+        asked.set(Some(x));
+        (Rows::of_count(r.index() + 2), Col::at_index(20))
+    });
+    store.follow_end(floor);
+    assert_eq!(asked.get(), Some(Col::ZERO), "placed: its row's first cell");
+    assert_eq!(store.follow_begin(ImageScreen::Primary, floor), 1);
+    store.follow_line(Rows::of_count(0), Rows::of_count(4), &|r: Rows, x: Col| {
+        asked.set(Some(x));
+        (Rows::of_count(r.index() - 2), Col::ZERO)
+    });
+    store.follow_end(floor);
+    assert_eq!(asked.get(), Some(Col::at_index(20)), "then where it landed");
+    let p: Vec<_> = store
+        .placements()
+        .map(|(_, p)| (p.line.value(), p.col))
+        .collect();
+    assert_eq!(
+        p,
+        vec![(1, Col::at_index(7))],
+        "the line back, the column kept"
+    );
 }
 
 #[test]

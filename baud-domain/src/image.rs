@@ -273,7 +273,7 @@ pub struct ImageOrigin {
 enum Staged {
     Idle,
     From(Rows),
-    To(Rows),
+    To(Rows, Col),
 }
 
 /// One placement: an image drawn at an absolute line and column with a draw
@@ -294,6 +294,13 @@ pub struct PlacementSlot {
     pub col: Col,
     /// The draw order; higher draws later, negative below text.
     pub z: ZIndex,
+    /// Where in the anchor's row the cell the row began with when the image
+    /// was placed now sits: zero until a narrower re-cut lands that cell
+    /// part-way along a row that begins earlier in the line. What a reflow
+    /// maps the anchor by, so a round trip through a narrower width brings
+    /// an anchor on a continuation row back to its row
+    /// (`an_anchor_on_a_wrapped_row_comes_back_on_its_row_after_a_round_trip`).
+    follows: Col,
     staged: Staged,
 }
 
@@ -305,6 +312,7 @@ impl PlacementSlot {
         line: LineIdx::FIRST,
         col: Col::ZERO,
         z: ZIndex::ZERO,
+        follows: Col::ZERO,
         staged: Staged::Idle,
     };
 
@@ -647,6 +655,7 @@ impl<'b> ImageStore<'b> {
             line,
             col,
             z,
+            follows: Col::ZERO,
             staged: Staged::Idle,
         };
         self.slots[i].placements = Count::of(self.slots[i].placements.index() + 1);
@@ -870,14 +879,17 @@ impl<'b> ImageStore<'b> {
     }
 
     /// Map the staged placements on one line of a reflow: the line's first
-    /// `rows` rows from `from`, and `land`, where a row of it lands. Called
+    /// `rows` rows from `from`, and `land`, where a cell of it -- a row and a
+    /// column in it -- lands. Each placement asks by the cell its row began
+    /// with when it was placed, and keeps where that cell landed. Called
     /// before the line is copied, while its cells can still be read.
-    pub fn follow_line(&mut self, from: Rows, rows: Rows, land: &dyn Fn(Rows) -> Rows) {
+    pub fn follow_line(&mut self, from: Rows, rows: Rows, land: &dyn Fn(Rows, Col) -> (Rows, Col)) {
         let end = from.index() + rows.index();
         for p in self.placements.iter_mut() {
             match p.staged {
                 Staged::From(r) if (from.index()..end).contains(&r.index()) => {
-                    p.staged = Staged::To(land(r));
+                    let (row, at) = land(r, p.follows);
+                    p.staged = Staged::To(row, at);
                 }
                 _ => {}
             }
@@ -902,8 +914,9 @@ impl<'b> ImageStore<'b> {
         for p in 0..self.placements.len() {
             match self.placements[p].staged {
                 Staged::Idle => continue,
-                Staged::To(r) => {
+                Staged::To(r, at) => {
                     self.placements[p].line = floor.plus(r);
+                    self.placements[p].follows = at;
                     self.placements[p].staged = Staged::Idle;
                 }
                 Staged::From(_) => {

@@ -342,16 +342,16 @@ fn an_image_beside_text_on_its_row_is_kept_whole() {
 }
 
 #[test]
-fn an_anchor_on_a_wrapped_row_lands_a_row_higher_after_a_round_trip() {
-    // **The one stated drift, pinned so it cannot move unannounced.** A row
-    // lands where its first cell lands. An image placed after text that
-    // wrapped onto its row anchors to a *continuation* row: at 200 columns
-    // its first cell is ordinal 200 of the line; at 60 that is row 3 of the
-    // line; widened back, row 3's first cell is ordinal 180, which at 200
-    // columns is on row 0. So the anchor comes back one row higher. A
-    // line-start anchor -- every image printed after a newline, which is
-    // what `img2sixel` and yazi do -- round-trips exactly
-    // (`a_narrower_screen_keeps_the_image_under_its_line`).
+fn an_anchor_on_a_wrapped_row_comes_back_on_its_row_after_a_round_trip() {
+    // An image placed after text that wrapped onto its row anchors to a
+    // *continuation* row: at 200 columns that row begins at ordinal 200 of
+    // the line. Narrowed to 60 the anchor goes to the row holding ordinal
+    // 200, row 3 of the line, which begins at 180. Mapped again by that
+    // row's own first cell, the widen brought it back on row 0, one higher;
+    // the anchor keeps where ordinal 200 sits in its row, so it comes back
+    // on row 1. A line-start anchor -- every image printed after a newline,
+    // which is what `img2sixel` and yazi do -- takes the same rule at
+    // ordinal 0 (`a_narrower_screen_keeps_the_image_under_its_line`).
     with(Depth::DEFAULT, |t| {
         feed(t, long(250).as_bytes());
         feed(t, SWIRL);
@@ -359,15 +359,88 @@ fn an_anchor_on_a_wrapped_row_lands_a_row_higher_after_a_round_trip() {
         let tail = long(250)[200..].to_string();
         assert_eq!(beside(t, &p, 0).as_deref(), Some(tail.as_str()));
         resize(t, 60, 50);
+        let p = only(t);
+        assert_eq!(
+            beside(t, &p, 0).as_deref(),
+            Some(&long(250)[180..240]),
+            "narrowed: on the row that holds the row's first cell"
+        );
         resize(t, 200, 50);
         let p = only(t);
         assert_eq!(
             beside(t, &p, 0).as_deref(),
-            Some(long(200).as_str()),
-            "the anchor came back on the line's first row, one higher"
+            Some(tail.as_str()),
+            "widened back: on the row it was placed on"
         );
-        assert_eq!(beside(t, &p, 1).as_deref(), Some(tail.as_str()));
+        assert_eq!(beside(t, &p, -1).as_deref(), Some(long(200).as_str()));
     });
+}
+
+/// The rows beside the image, `-1` and `0`, after `bytes` and an image after
+/// them were written at `start` columns and the screen taken through
+/// `widths` in turn.
+fn after_widths(start: u16, bytes: &[u8], widths: &[u16]) -> (Option<String>, Option<String>) {
+    with(Depth::DEFAULT, |t| {
+        resize(t, start, 50);
+        feed(t, bytes);
+        feed(t, SWIRL);
+        for &w in widths {
+            resize(t, w, 50);
+        }
+        let p = only(t);
+        (beside(t, &p, -1), beside(t, &p, 0))
+    })
+}
+
+#[test]
+fn an_anchor_on_a_wrapped_row_lands_by_the_width_not_by_the_path() {
+    // **Where the image is depends on the width, not on the widths before
+    // it.** Each path ends where one resize straight from the width the
+    // image was placed at ends. Placed at 150 columns after 190 digits, the
+    // anchor row begins at ordinal 150; 150 -> 60 -> 170 is the case a rule
+    // by the narrow row's *last* cell would get wrong: ordinal 150 is on
+    // row 0 at 170 columns, and the row 60 columns made of 120..179 ends on
+    // row 1.
+    let line = long(190);
+    for path in [
+        &[60, 170][..],
+        &[60, 150],
+        &[37, 90, 150],
+        &[61, 133, 47, 200],
+        &[200, 60, 149],
+    ] {
+        let last = *path.last().unwrap();
+        assert_eq!(
+            after_widths(150, line.as_bytes(), path),
+            after_widths(150, line.as_bytes(), &[last]),
+            "through {path:?}"
+        );
+    }
+}
+
+#[test]
+fn an_anchor_on_a_wrapped_row_of_wide_characters_round_trips() {
+    // The same through the blanks a re-cut leaves where a wide character
+    // cannot take a row's last column: 125 distinct ideographs are 250
+    // columns, the image after them anchors to the row that begins with the
+    // 101st, and an odd width pushes each row's last ideograph on. Not held
+    // against one straight resize, as the digits are: a widen keeps those
+    // blanks in the line, so the text itself takes the path with it.
+    let line: String = (0..125u32)
+        .map(|i| char::from_u32(0x4E00 + i).unwrap())
+        .collect();
+    let first = char::from_u32(0x4E00 + 100).unwrap();
+    for path in [&[61, 200][..], &[39, 101, 200], &[61, 150], &[47, 61]] {
+        let (above, row) = after_widths(200, line.as_bytes(), path);
+        assert!(
+            row.as_deref().is_some_and(|r| r.contains(first)),
+            "{path:?}: on the row that holds the 101st ideograph: {row:?}"
+        );
+        assert!(
+            !above.as_deref().is_some_and(|r| r.contains(first)),
+            "{path:?}: and not under it: {above:?}"
+        );
+    }
 }
 
 #[test]
@@ -1036,5 +1109,35 @@ fn a_status_line_image_placed_with_the_apps_cell_size_stays_there() {
         assert_eq!(beside(t, &p, 0).as_deref(), Some("    STATUS"));
         assert_eq!(beside(t, &p, -1).as_deref(), Some("REGION-LAST"));
         assert_eq!(text_of(t.row(Row::ZERO)), "FIRST", "nothing scrolled");
+    });
+}
+
+#[test]
+fn an_anchor_whose_column_a_prompt_resize_cut_off_asks_by_its_rows_first_cell() {
+    // The column an anchor keeps in its row is a cell of the line only while
+    // it is inside the width the next re-cut reads. Narrowed to 60, the
+    // anchor sits on row 3 of the line at column 20; a resize at a prompt
+    // takes the screen to 15 without re-cutting, and the next re-cut reads
+    // each row to 15 cells -- column 20 is none of them. Asked as the row's
+    // first cell, compacted ordinal 45, the anchor lands on row 0 at 50
+    // columns; asked by column 20 clamped to the old width, ordinal 60, on
+    // row 1.
+    with(Depth::DEFAULT, |t| {
+        feed(t, long(250).as_bytes());
+        feed(t, SWIRL);
+        resize(t, 60, 50);
+        feed(t, b"\r\x1b]133;A\x07$ ");
+        resize(t, 15, 50);
+        let p = only(t);
+        assert_eq!(
+            beside(t, &p, 0).as_deref(),
+            Some(&long(250)[180..195]),
+            "a prompt resize re-cut nothing: still row 3, read to 15"
+        );
+        feed(t, b"\x1b]133;C\x07");
+        resize(t, 50, 50);
+        let p = only(t);
+        assert_eq!(text_of(t.row(Row::ZERO)).len(), 50, "the line's first row");
+        assert_eq!(drawn_row(t, &p, Rows::ZERO), 0, "is the image's");
     });
 }
