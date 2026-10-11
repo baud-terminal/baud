@@ -204,7 +204,7 @@ which is why it is bundled rather than deleted. Deleting
 | V10, only on the finish branch | ghostty's `Terminal.zig` at d9840f3c, and xterm's `cursor.c` (the same pin as V4's) | lands before building |
 | V11, the clipboard | RFC 4648, base64's standard | lands before building |
 | V13, the selection colour on macOS | the NSColor selection colours, from the local SDK header | lands before building |
-| V17, colours under `?5` | xterm's `misc.c`, where OSC 4, 10 and 11 are handled | lands before building |
+| V17, colours under `?5` | xterm's `misc.c`, where OSC 4, 10 and 11 are handled | pinned ([[source: xterm-misc]]); OSC 10/11 built 2026-10-11, OSC 4 held for Jev |
 | V15 step 2, the real mode 2027 | the mode 2027 draft, and Unicode's emoji variation sequences file | lands before building |
 | V14's `?1021` | xterm's man page and `misc.c`, only if the switch is built and `?1021` is answered, which the lean leaves out even then | lands before building |
 
@@ -3708,7 +3708,7 @@ answers the second; xterm answers the first. Which should baud do?
 **What others do**
 
 - **xterm** maps to the colour as displayed. `misc.c` at 9489b205 was read,
-  and it is UNPINNED until added.
+  and is pinned as [[source: xterm-misc]].
   - The flip swaps *stored* colours: DECSCNM calls its ReverseVideo routine
     ([[source: xterm-reset]] charproc.c 7590-7595). That routine exchanges
     palette 0 and 7, 8 and 15, text foreground and background, and mouse
@@ -3878,6 +3878,25 @@ already draws like xterm and A is the only consistent completion of that.
 - **Left open:** xterm's cursor-colour rule under `?5` (util.c around 3293),
   and the reset gap. xterm's DECSTR and RIS reset every OSC 4 entry; baud's
   keep every colour override. That gap exists today and is its own item.
+  *(Since closed: both resets clear every OSC 4 override as of 38f0247,
+  2026-09-29.)*
+
+**Built, 2026-10-11, for `OSC 10` and `11`** (the record, "`OSC 10` and
+`11` under `?5` act on the colour shown"): option A, as recommended, in the
+half that is the same under every reading of DEC's `DECSCNM`. `Video` moved
+to baud-domain with `entry` and `role` (the design's `dynamic`), baud-render
+re-exports it and its `Theme::defaults` reads through `role`; the core maps
+every set, query and reset of `OSC 10`, `11`, `110` and `111` by the `?5`
+bit, the reply keeping the code asked, and `CSI ? 996 n` follows (note Y
+§ 7). The red tests went into `baud-core/tests/reverse_osc.rs` rather than
+`tests/xterm/osc.rs`, beside a property against a model that swaps stored
+values on each flip, as xterm does. **`OSC 4` and `104 ; c` are held**: DEC
+STD 070 defines `DECSCNM` as reversing "the definitions of the foreground and
+background colors" (page 5-94, PDF 349) and describes it as a per-cell
+exchange of the attribute bits (PDF 362), and no DEC passage names entries
+0/7 and 8/15, so the owner's "as recommended", given without the DEC text,
+does not decide xterm's palette swap. The `OSC 4` mapping exists only under
+that swap and waits on Jev (the question is in the record).
 
 ## Part 6. Images
 

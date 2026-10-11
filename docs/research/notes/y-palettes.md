@@ -684,7 +684,9 @@ critic's change):
   since OSC 11 cannot express them either.
 - **Under `?5`**, once V17 makes OSC 11 answer the shown colour, 996 follows
   it; no unsolicited report for `?5`. V17 waited on xterm's misc.c, which is
-  now pinned ([[source: xterm-misc]]).
+  now pinned ([[source: xterm-misc]]). Built 2026-10-11: 996 classes the
+  colours shown, and an embedder's change under `?5` reports the class of the
+  displayed pair.
 - **One residual hazard is not fixed by any option**: helix master restores
   the background it queried at startup with an explicit OSC 11 on exit
   ([[source: helix-termina-079a789]] 295-306), which re-installs an

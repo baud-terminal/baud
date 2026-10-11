@@ -265,42 +265,16 @@ pub enum PictureBg {
     Dimmed,
 }
 
-/// Whether the screen is drawn in reverse video: `?5`, DECSCNM.
-///
-/// **The rule is xterm's `ReverseVideo`** (util.c 3269-3345, the file
-/// `[[source: xterm-scroll]]` pins): the default foreground and
-/// background swap, and so do palette entries 0 and 7 and entries 8 and 15 --
-/// "by convention, these are the colors assigned to black and white" -- while
-/// every other entry, and every truecolour, is left alone. xterm swaps the
-/// colours the table *holds*, so an `OSC 4` override set before the flip
-/// travels with its entry; here the index is mapped before the table is read,
-/// which is the same answer. A cell's own `SGR 7` still swaps after that, so
-/// reverse inside reverse video draws a normal cell.
+/// Whether the screen is drawn in reverse video: `?5`, DECSCNM -- baud-domain's
+/// [`baud_domain::Video`], the one spelling of xterm's `ReverseVideo` the core
+/// reads too, so the colour `OSC 10`/`11` set under `?5` is the one drawn in
+/// the role it named. Here the index is mapped before the table is read,
+/// and a cell's own `SGR 7` still swaps after that, so reverse inside reverse
+/// video draws a normal cell.
 ///
 /// **Every background keeps the window's alpha under it**, the reversed
 /// default one included: the owner's call, 2026-09-25, "same alpha for all".
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Video {
-    #[default]
-    Normal,
-    Reverse,
-}
-
-impl Video {
-    /// The palette entry a colour index reads under this video: 0 and 7, and
-    /// 8 and 15, trade places.
-    pub fn entry(self, i: Chan) -> Chan {
-        let swapped = match (self, i.get()) {
-            (Video::Normal, n) => n,
-            (Video::Reverse, 0) => 7,
-            (Video::Reverse, 7) => 0,
-            (Video::Reverse, 8) => 15,
-            (Video::Reverse, 15) => 8,
-            (Video::Reverse, n) => n,
-        };
-        Chan::from_u8(swapped)
-    }
-}
+pub use baud_domain::Video;
 
 impl Default for Theme {
     fn default() -> Self {
@@ -461,12 +435,19 @@ impl Theme {
         video: Video,
         dynamic: impl Fn(DynamicColor) -> Option<(u8, u8, u8)>,
     ) -> (Argb, Argb) {
-        let fg = dynamic(DynamicColor::Foreground).map_or(self.fg, |(r, g, b)| triple(r, g, b));
-        let bg = dynamic(DynamicColor::Background).map_or(self.bg, |(r, g, b)| triple(r, g, b));
-        match video {
-            Video::Normal => (fg, bg),
-            Video::Reverse => (bg, fg),
-        }
+        // The stored slot each role names under `video`, through the one
+        // mapping the core's `OSC 10`/`11` use as well.
+        let stored = |w: DynamicColor| {
+            let theme = match w {
+                DynamicColor::Background => self.bg,
+                DynamicColor::Foreground | DynamicColor::Cursor => self.fg,
+            };
+            dynamic(w).map_or(theme, |(r, g, b)| triple(r, g, b))
+        };
+        (
+            stored(video.role(DynamicColor::Foreground)),
+            stored(video.role(DynamicColor::Background)),
+        )
     }
 
     /// Palette entry `i`: the application's `OSC 4` override, else the

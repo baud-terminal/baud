@@ -248,13 +248,25 @@ impl Paint<'_, '_> {
             },
             Osc::ResetColor(Some(c)) => self.set_palette(c, ColorWord::DEFAULT),
             Osc::ResetColor(None) => self.reset_palette(),
+            // **Under `?5` each names the colour shown in its role** (note V,
+            // V17): xterm's flip swaps what it stores, so its `OSC 10`-family
+            // handlers land on the colour drawn (`[[source: xterm-misc]]`
+            // misc.c 3568-3750); baud stores the unreversed slots and maps the
+            // role instead, through the [`Video`] the renderer draws by. A
+            // query keeps the code the program sent, as xterm's replies do.
             Osc::SetDynamic { which, spec } => match spec {
-                XColor::Rgb(r, g, b) => self.set_dynamic(which, ColorWord::rgb(r, g, b)),
+                XColor::Rgb(r, g, b) => {
+                    let slot = self.cold.video().role(which);
+                    self.set_dynamic(slot, ColorWord::rgb(r, g, b));
+                }
                 XColor::Query => self.report_dynamic(which, term),
                 // Counted, as `OSC 4`'s unresolvable name is.
                 XColor::Unresolved(_) => self.unsupported_total += 1,
             },
-            Osc::ResetDynamic(which) => self.set_dynamic(which, ColorWord::DEFAULT),
+            Osc::ResetDynamic(which) => {
+                let slot = self.cold.video().role(which);
+                self.set_dynamic(slot, ColorWord::DEFAULT);
+            }
             // **Inline, because the URI borrows the payload buffer.** Both
             // live in `strs`, so resolving the slot and the length first is
             // what lets the write happen at all -- the same borrow split
@@ -383,7 +395,11 @@ impl Paint<'_, '_> {
 impl Paint<'_, '_> {
     /// Answer `OSC 10 ; ?` / `OSC 11 ; ?`: the application's override if it
     /// set one, else the embedder's default if it supplied one, else nothing
-    /// -- the `OSC 4` refusal, for the same reason.
+    /// -- the `OSC 4` refusal, for the same reason. Of the colour shown in
+    /// the role asked, under the code asked (`Cold::shown`): xterm's
+    /// `ReportColorRequest` reports "the original color index, but reporting
+    /// the opposite color which would be used" (`[[source: xterm-misc]]`
+    /// 3576-3580).
     fn report_dynamic(&mut self, which: DynamicColor, term: StringTerm) {
         let Some((r, g, b)) = self.cold.shown(which).as_rgb() else {
             return;

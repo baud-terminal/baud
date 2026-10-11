@@ -608,14 +608,25 @@ const _: () = assert!(core::mem::size_of::<Cold>() == 512);
 impl Cold {
     /// What `OSC 10`/`11`/`12 ; ?` answers for `which`: the application's
     /// override, else the embedder's default -- `ColorWord::DEFAULT` when
-    /// neither exists. The one spelling of it, so `CSI ? 996 n` and the
-    /// `OSC 11` query cannot disagree.
+    /// neither exists -- **of the slot shown in that role**, which under `?5`
+    /// is the other one ([`Video::role`]; note V, V17). The one spelling of
+    /// it, so `CSI ? 996 n` and the `OSC 11` query cannot disagree.
     pub(crate) fn shown(&self, which: DynamicColor) -> ColorWord {
-        let w = self.dynamic[which.index()];
+        let slot = self.video().role(which).index();
+        let w = self.dynamic[slot];
         if w.is_default() {
-            self.defaults[which.index()]
+            self.defaults[slot]
         } else {
             w
+        }
+    }
+
+    /// The video the screen is shown in, from `?5`: what maps a colour an
+    /// `OSC 4`/`10`/`11` names to the slot that holds it.
+    pub(crate) fn video(&self) -> Video {
+        match self.modes.is_set(ModeBit::ReverseVideo) {
+            true => Video::Reverse,
+            false => Video::Normal,
         }
     }
 

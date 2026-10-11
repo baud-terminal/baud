@@ -250,6 +250,27 @@ fn the_dynamic_defaults_swap_too() {
     });
 }
 
+/// **A colour set *while* reversed is the colour drawn in the role it
+/// named** (note V, V17): `OSC 11` under `?5` sets the background shown, the
+/// blank and the margin, and `OSC 10` the text -- xterm's, whose swap of the
+/// stored colours makes `misc.c`'s set land on the displayed slot
+/// (`[[source: xterm-misc]]` 3662-3716). Before, each moved the other role.
+#[test]
+fn a_dynamic_colour_set_under_reverse_draws_in_the_role_it_named() {
+    render(
+        b"\x1b[?5h\x1b]11;rgb:aa/bb/cc\x07\x1b]10;rgb:12/34/56\x07A\x1b[2;12H",
+        |r| {
+            assert_eq!(rgb(r.background()[1]), 0x00aa_bbcc, "the blank");
+            assert_eq!(rgb(r.clear_color()), 0x00aa_bbcc, "the margin");
+            assert_eq!(
+                glyph_colours(r).into_iter().map(rgb).collect::<Vec<_>>(),
+                vec![0x0012_3456],
+                "the letter"
+            );
+        },
+    );
+}
+
 /// **The margin is the default background the screen draws**, `OSC 11`'s
 /// when a program set one -- the colour `clear_color` hands a presenter for
 /// the letterbox and the gutter. It was the theme's whatever `OSC 11` said,

@@ -8003,6 +8003,18 @@ group  = "V"
 # document public; external (hashed, not committed) for GPL/LGPL code and text and
 # for the ghostty themes tarball, whose themes are each their author's.
 
+# Read again 2026-10-11 for note V's V17, the colours under `?5`. `ReverseVideo`
+# (`[[source: xterm-scroll]]` util.c 3269-3345) swaps the stored records;
+# `ReverseOldColors` (6411-6445) swaps the copies the dynamic queries read,
+# moving a cursor colour equal to the text to the background first.
+# `ChangeColorsRequest` (3662-3716), `ReportColorRequest` (3568-3599) and
+# `ResetColorsRequest` (3718-3750) map through `oppositeColor` (3527-3566),
+# which under `re_verse` returns `TEXT_FG` for `TEXT_FG` and `TEXT_BG` for
+# `TEXT_BG` and swaps only the mouse and highlight pairs, so `OSC 10`/`11` land
+# on the swapped -- displayed -- slots; `OSC 4`'s `ChangeAnsiColorRequest`,
+# `ReportAnsiColorRequest` and `ResetAnsiColorRequest` (2636-2658, 2952-3090)
+# map nothing. The replies print the index and code asked. Title, url, file and
+# hash unchanged.
 [sources.xterm-misc]
 key    = "xterm-misc"
 title  = "xterm-snapshots 9489b20, misc.c -- ReportAnsiColorRequest answers any entry; ResetAnsiColorRequest resets all MAXCOLORS; ResetColorsRequest only from OSC 110-119"
