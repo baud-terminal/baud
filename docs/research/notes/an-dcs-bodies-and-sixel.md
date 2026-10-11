@@ -1,7 +1,11 @@
 # AN. DCS bodies and Sixel: what the texts say per byte
 
-**Status: research, 2026-10-10. Nothing here is built and no code changes
-with it.** Part 1 is what every text says a terminal does with each byte of a
+**Status: research, 2026-10-10. Item 8, the pixel aspect ratio where both
+DEC texts make it whole, is built since 2026-10-11 (the record, "A Sixel pixel
+is drawn at its aspect ratio where both DEC texts agree"), and so is part of
+item 6, an HLS value past its range ignoring the whole command (the record, "A
+Sixel HLS register is converted, with DEC's hue origin"); nothing else here is
+built.** Part 1 is what every text says a terminal does with each byte of a
 DCS command string, and what baud does since `e6a817f`. Part 2 reads DEC STD
 070's Sixel chapter, 070-9, byte by byte against the other Sixel texts the
 manifest pins, and against baud's Sixel handler. Where the texts agree and

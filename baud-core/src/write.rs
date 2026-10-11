@@ -669,14 +669,22 @@ pub(crate) fn act(
             // would have helped. An absent or empty second parameter is
             // transparent: `for_each_param` yields only the parameters present,
             // so fewer than two leaves `p2` `None`.
+            //
+            // `P1`, the first, is the macro parameter, which sets the pixel
+            // aspect ratio the decode starts at (`SixelAspect::from_macro`);
+            // absent or empty, both DEC texts make it 2:1.
             let mut i = 0u8;
+            let mut p1 = None;
             let mut p2 = None;
             csi.for_each_param(|param| {
-                if i == 1 {
-                    p2 = param;
+                match i {
+                    0 => p1 = param,
+                    1 => p2 = param,
+                    _ => {}
                 }
                 i = i.saturating_add(1);
             });
+            p.cold.sixel_aspect = SixelAspect::from_macro(p1.map(|v| v.value()));
             p.cold.sixel_bg = match p2.map(|v| v.value()) {
                 Some(0) | Some(2) => crate::term::SixelBg::Opaque,
                 _ => crate::term::SixelBg::Transparent,

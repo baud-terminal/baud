@@ -54,7 +54,8 @@ impl Paint<'_, '_> {
         let body = &self.sixel_body[..n];
         // Measure with the same grammar walk `decode` uses, so the reserved
         // span is exactly what the decode fills.
-        let report = Sixel::extent(body);
+        let aspect = self.cold.sixel_aspect;
+        let report = Sixel::extent(body, aspect);
         let (w, h) = (report.width, report.height);
         if w == SixelPx::ZERO || h == SixelPx::ZERO {
             self.images.refuse(ImageRefusal::Empty);
@@ -79,7 +80,7 @@ impl Paint<'_, '_> {
         // are equal.)
         {
             let mut canvas = SixelCanvas::new(buf, w);
-            let filled = Sixel::decode(body, &mut canvas);
+            let filled = Sixel::decode(body, aspect, &mut canvas);
             debug_assert_eq!(filled.refused, 0, "the span was sized from extent");
         }
         // The image stored, so an ignored opaque-background request is now a
@@ -98,13 +99,15 @@ impl Paint<'_, '_> {
         // refused placement; an image that fails to place keeps a zero refcount
         // and is freed by `RIS`.
         //
-        // **`Pa` and `Ph` are dropped; `Pb`/`P2` is read at `SixelStart` and
-        // counted.** The graph now routes the `Node::Dcs` parameters into `csi`
-        // (`Act::Digit`/`Sep`), so `SixelStart` reads the transparency selector
-        // and bumps `sixel_p2_ignored` when it asks for an opaque background
-        // baud renders transparent -- `s-sixel.md` records why the fill itself
-        // is not built. The aspect ratio `Pa` and grid `Ph` are still dropped;
-        // baud draws one image-pixel per cell-pixel and honours no aspect.
+        // **`Pa` sets the aspect ratio, `Pb`/`P2` is counted, and `Ph` is
+        // dropped.** The graph routes the `Node::Dcs` parameters into `csi`
+        // (`Act::Digit`/`Sep`), so `SixelStart` reads the macro parameter
+        // into `sixel_aspect`, which the decode above drew at, and the
+        // transparency selector, bumping `sixel_p2_ignored` when it asks for
+        // an opaque background baud renders transparent -- `s-sixel.md`
+        // records why the fill itself is not built. The horizontal grid size
+        // `Ph` is dropped: a sixel pixel is one image pixel wide, and what
+        // that grid falls back to is for Jev (note AN, `Ph`).
         let (screen, line) = self.image_anchor();
         let _ = self.images.place(id, screen, line, self.cx, ZIndex::ZERO);
         // Advance the cursor below the image, through the scroll path so a

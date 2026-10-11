@@ -382,6 +382,9 @@ pub struct Cold {
     /// the counter is a decision input, and a refused image renders nothing for
     /// a fill to have helped.
     pub(crate) sixel_bg: SixelBg,
+    /// The pixel aspect ratio the Sixel being received starts at, from its
+    /// `P1`, read at `SixelStart` and handed to the decode at the terminator.
+    pub(crate) sixel_aspect: SixelAspect,
     /// ANSI or VT52, and the row byte a half-finished `ESC Y` is holding.
     ///
     /// **Both land in existing padding**: `size_of::<Cold>()` does not change.
@@ -605,6 +608,7 @@ impl Cold {
             str_len: ByteLen::ZERO,
             sixel_len: ReadLen::ZERO,
             sixel_bg: SixelBg::Transparent,
+            sixel_aspect: SixelAspect::ONE_TO_ONE,
             c1: C1Transmit::SevenBit,
             // The base layer, which is what an application that has not asked
             // for an enhancement must receive.

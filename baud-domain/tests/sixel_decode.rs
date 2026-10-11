@@ -9,7 +9,12 @@
 //! the binary value `0x74 - 0x3F = 0b110101` with the least significant bit at
 //! the top, so its six vertical pixels read `[1,0,1,0,1,1]` top to bottom.
 
-use baud_domain::{ColorWord, Sixel, SixelCanvas, SixelPx, SixelReport};
+use baud_domain::{ColorWord, Sixel, SixelAspect, SixelCanvas, SixelPx, SixelReport};
+
+/// The aspect the bodies here are decoded at unless a test says otherwise:
+/// what an envelope's `P1 = 9` selects, 1:1 (`[[source: vt3xx-sixel]]`;
+/// `[[source: dec-std-070]]` 070-9 §7.1), so a band is six pixels tall.
+const SQUARE: SixelAspect = SixelAspect::ONE_TO_ONE;
 
 /// Read the pixel at column `x`, row `y` of a `w`-wide image.
 fn px(image: &[ColorWord], w: u16, x: u16, y: u16) -> ColorWord {
@@ -26,7 +31,7 @@ fn a_data_byte_sets_six_vertical_pixels_least_significant_at_the_top() {
     // `t` paints it. RGB `Pu = 2` per [[source: vt3xx-sixel]].
     let mut image = [ColorWord::DEFAULT; 6];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
-    let report = Sixel::decode(b"#0;2;100;0;0t", &mut canvas);
+    let report = Sixel::decode(b"#0;2;100;0;0t", SQUARE, &mut canvas);
 
     let red = Some((255, 0, 0));
     // `t` = 0b110101, LSB at the top: rows 0,2,4,5 set, rows 1,3 clear.
@@ -50,7 +55,7 @@ fn the_extent_is_where_the_data_reached_not_where_pixels_were_set() {
     // is the extent mode 8452 places the next text past.
     let mut image = [ColorWord::DEFAULT; 12];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(2));
-    let report = Sixel::decode(b"#0;2;100;0;0~?", &mut canvas);
+    let report = Sixel::decode(b"#0;2;100;0;0~?", SQUARE, &mut canvas);
 
     assert_eq!(
         report.width,
@@ -66,7 +71,7 @@ fn the_extremes_are_none_and_all_six() {
     let mut image = [ColorWord::DEFAULT; 12];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(2));
     // column 0: `?` sets nothing; column 1: `~` sets green (0;100;0).
-    let report = Sixel::decode(b"#0;2;0;100;0?~", &mut canvas);
+    let report = Sixel::decode(b"#0;2;0;100;0?~", SQUARE, &mut canvas);
 
     let green = Some((0, 255, 0));
     for y in 0..6 {
@@ -89,7 +94,7 @@ fn the_repeat_introducer_draws_the_next_byte_that_many_columns() {
     // `!3~` is three columns of all-six-set, in blue (0;0;100).
     let mut image = [ColorWord::DEFAULT; 18];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(3));
-    let report = Sixel::decode(b"#0;2;0;0;100!3~", &mut canvas);
+    let report = Sixel::decode(b"#0;2;0;0;100!3~", SQUARE, &mut canvas);
 
     let blue = Some((0, 0, 255));
     for x in 0..3 {
@@ -112,7 +117,7 @@ fn a_zero_repeat_draws_one_column() {
         b"#0;2;0;0;100!1~",
         b"#0;2;0;0;100~",
     ] {
-        let report = Sixel::extent(body);
+        let report = Sixel::extent(body, SQUARE);
         assert_eq!(report.width, SixelPx::of(1), "{body:?} is one column wide");
     }
 }
@@ -124,7 +129,7 @@ fn graphics_new_line_drops_one_six_pixel_band() {
     // the same band; `-` returns and drops six rows.
     let mut image = [ColorWord::DEFAULT; 12];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
-    let report = Sixel::decode(b"#0;2;100;0;0~-#0;2;0;100;0~", &mut canvas);
+    let report = Sixel::decode(b"#0;2;100;0;0~-#0;2;0;100;0~", SQUARE, &mut canvas);
 
     let red = Some((255, 0, 0));
     let green = Some((0, 255, 0));
@@ -147,7 +152,7 @@ fn graphics_carriage_return_overlays_the_same_band() {
     // overlay does not erase, it composites, and the red survives.
     let mut image = [ColorWord::DEFAULT; 6];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
-    Sixel::decode(b"#0;2;100;0;0~$?", &mut canvas);
+    Sixel::decode(b"#0;2;100;0;0~$?", SQUARE, &mut canvas);
 
     let red = Some((255, 0, 0));
     for y in 0..6 {
@@ -165,7 +170,7 @@ fn pixels_past_the_canvas_are_refused_and_counted_never_wrapped() {
     // pixels), columns 2, 3 and 4 are refused (18 pixels). Nothing wraps.
     let mut image = [ColorWord::DEFAULT; 12];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(2));
-    let report = Sixel::decode(b"#0;2;100;0;0!5~", &mut canvas);
+    let report = Sixel::decode(b"#0;2;100;0;0!5~", SQUARE, &mut canvas);
 
     let red = Some((255, 0, 0));
     for x in 0..2 {
@@ -188,7 +193,7 @@ fn pixels_past_the_canvas_are_refused_and_counted_never_wrapped() {
 fn one_column(body: &[u8]) -> (ColorWord, SixelReport) {
     let mut image = [ColorWord::DEFAULT; 6];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
-    let report = Sixel::decode(body, &mut canvas);
+    let report = Sixel::decode(body, SQUARE, &mut canvas);
     for c in image {
         assert_eq!(c, image[0], "{body:?}: one colour down the column");
     }
@@ -312,6 +317,9 @@ fn a_real_imagemagick_sixel_decodes_with_nothing_refused_or_unapplied() {
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(4));
     let report = Sixel::decode(
         b"\"1;1;4;4#0;2;100;0;0#1;2;0;100;0#2;2;0;0;100#0NLJN$#1?A#2C-",
+        // ImageMagick's envelope is `ESC P 0;1;0 q`, `P1 = 0`, 2:1, which
+        // the raster command's `1;1` overrides.
+        SixelAspect::from_macro(Some(0)),
         &mut canvas,
     );
 
@@ -359,8 +367,8 @@ fn the_measure_pass_agrees_with_the_paint_pass_on_the_extent() {
         // Paint into a canvas large enough that the extent is the data's.
         let mut image = [ColorWord::DEFAULT; 64];
         let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(8));
-        let painted = Sixel::decode(data, &mut canvas);
-        let measured = Sixel::extent(data);
+        let painted = Sixel::decode(data, SQUARE, &mut canvas);
+        let measured = Sixel::extent(data, SQUARE);
         assert_eq!(painted.width, measured.width, "width disagrees on {data:?}");
         assert_eq!(
             painted.height, measured.height,
@@ -375,7 +383,7 @@ fn raster_attributes_are_consumed_and_do_not_corrupt_the_data() {
     // consumes them and paints the data that follows unchanged.
     let mut image = [ColorWord::DEFAULT; 6];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
-    let report = Sixel::decode(b"\"1;1;10;6#0;2;100;0;0~", &mut canvas);
+    let report = Sixel::decode(b"\"1;1;10;6#0;2;100;0;0~", SQUARE, &mut canvas);
 
     let red = Some((255, 0, 0));
     for y in 0..6 {
@@ -386,4 +394,85 @@ fn raster_attributes_are_consumed_and_do_not_corrupt_the_data() {
         );
     }
     assert_eq!(report.width, SixelPx::of(1));
+}
+
+#[test]
+fn the_macro_parameter_sets_the_aspect_where_both_dec_texts_make_it_whole() {
+    // `[[source: vt3xx-sixel]]`: omitted "2:1 (default)", 0 and 1 2:1, 3 and
+    // 4 3:1, 5 and 6 2:1, 7 to 9 1:1. `[[source: dec-std-070]]` 070-9 §7.1:
+    // 0, 1 and 5 200:100, 2 450:100, 3 300:100, 4 250:100, 6 150:100, 7
+    // 130:100, 8 112:100, 9 100:100 (PDF p. 918). Where both are whole they
+    // agree; the rest, and a `P1` neither lists, are note AN's item 12, for
+    // Jev, and stay 1:1 as every Sixel was drawn before.
+    let cases = [
+        (None, 12),
+        (Some(0), 12),
+        (Some(1), 12),
+        (Some(5), 12),
+        (Some(3), 18),
+        (Some(9), 6),
+        (Some(2), 6),
+        (Some(4), 6),
+        (Some(6), 6),
+        (Some(7), 6),
+        (Some(8), 6),
+        (Some(10), 6),
+    ];
+    for (p1, rows) in cases {
+        let report = Sixel::extent(b"#0;2;100;0;0~", SixelAspect::from_macro(p1));
+        assert_eq!(report.height, SixelPx::of(rows), "P1 {p1:?}");
+    }
+}
+
+#[test]
+fn a_raster_ratio_before_the_data_overrides_the_macro() {
+    // `[[source: vt3xx-sixel]]`: "The " command overrides any raster
+    // attributes set by the macro parameter"; `[[source: dec-std-070]]` 070-9
+    // §8.1.2: it "must precede any Sixel, or any sixel positioning command
+    // ... or the command will be ignored", and omitted or zero `Pan`, `Pad`
+    // "default to '1' (one)" (PDF p. 921).
+    let two = SixelAspect::from_macro(None);
+    let cases: [(&[u8], u16); 9] = [
+        (b"\"1;1#0;2;100;0;0~", 6),
+        (b"\"3;1#0;2;100;0;0~", 18),
+        (b"\"6;3#0;2;100;0;0~", 12),
+        (b"\";#0;2;100;0;0~", 6),
+        (b"\"0;0#0;2;100;0;0~", 6),
+        (b"\"2#0;2;100;0;0~", 12),
+        (b"\"3;2#0;2;100;0;0~", 6),
+        (b"#0;2;100;0;0~\"3;1~", 12),
+        (b"#0;2;100;0;0$\"3;1~", 12),
+    ];
+    for (body, rows) in cases {
+        let report = Sixel::extent(body, two);
+        assert_eq!(report.height, SixelPx::of(rows), "{body:?}");
+    }
+}
+
+#[test]
+fn at_two_to_one_each_sixel_row_is_two_pixels_and_a_band_twelve() {
+    // `t` is `0b110101`, top to bottom 1,0,1,0,1,1 (`[[source: vt3xx-sixel]]`)
+    // and at 2:1 each row is two pixels; `-` moves down a band, "six actual
+    // grid units" (`[[source: dec-std-070]]` 070-9 §8.1.5), twelve pixels
+    // here, so the second band's `~` fills rows 12 to 23.
+    let mut image = [ColorWord::DEFAULT; 24];
+    let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
+    let report = Sixel::decode(
+        b"#0;2;100;0;0t-~",
+        SixelAspect::from_macro(None),
+        &mut canvas,
+    );
+    let lit: Vec<bool> = image.iter().map(|c| !c.is_default()).collect();
+    let mut want = vec![
+        true, true, false, false, true, true, false, false, true, true, true, true,
+    ];
+    want.extend([true; 12]);
+    assert_eq!(lit, want);
+    assert_eq!(report.height, SixelPx::of(24));
+    assert_eq!(report.refused, 0);
+    let measured = Sixel::extent(b"#0;2;100;0;0t-~", SixelAspect::from_macro(None));
+    assert_eq!(
+        (measured.width, measured.height),
+        (report.width, report.height)
+    );
 }

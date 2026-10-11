@@ -16,14 +16,34 @@
 //! round trip -- the palette scaling (`0..100` percent to `0..255` with the
 //! same rounding), the band order and the run-length expansion all at once.
 
-use baud_domain::{ColorWord, Sixel, SixelCanvas};
+use baud_domain::{ColorWord, Sixel, SixelAspect, SixelCanvas};
 
-const SIXEL: &[u8] = include_bytes!(concat!(
+const FILE: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../tests/recordings/sixel/img2sixel-96x72.six"
 ));
 
-/// `sixel2png`'s decode of `SIXEL`, 96x72 row-major 8-bit RGB triples.
+/// The body the decoder is handed: the bytes after the envelope's `q` and
+/// before its `ESC \`, as `baud-core` hands it.
+fn body() -> &'static [u8] {
+    let q = FILE
+        .iter()
+        .position(|&b| b == b'q')
+        .expect("the envelope's q");
+    let st = FILE
+        .windows(2)
+        .rposition(|w| w == [0x1b, 0x5c])
+        .expect("the ST");
+    &FILE[q + 1..st]
+}
+
+/// img2sixel's envelope is `ESC P q`: `P1` omitted, which is 2:1
+/// (`[[source: vt3xx-sixel]]`), and its raster command `"1;1` overrides it.
+fn aspect() -> SixelAspect {
+    SixelAspect::from_macro(None)
+}
+
+/// `sixel2png`'s decode of `FILE`, 96x72 row-major 8-bit RGB triples.
 const ORACLE: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../tests/recordings/sixel/img2sixel-96x72.oracle-rgb"
@@ -35,24 +55,25 @@ const OH: usize = 72;
 
 #[test]
 fn baud_decodes_a_real_sixel_to_what_libsixel_decodes_it_to() {
-    let report = Sixel::extent(SIXEL);
+    let report = Sixel::extent(body(), aspect());
     let (w, h) = (report.width, report.height);
 
     // baud's width is the data's *extent* -- the last column the cursor reached
-    // -- by design (`SixelReport::width`), not the declared `Ph`. img2sixel pads
-    // the last band's run-length past the width, so the extent is a column or
-    // two wider than the 96 the image declares; `sixel2png` clips to `Ph`.
-    // yazi's own output does not pad and decodes to its exact declared size.
+    // -- by design (`SixelReport::width`), not the declared `Ph`. For this file
+    // the two agree: fed the body after `q`, as `baud-core` hands it, the extent
+    // is exactly the declared 96x72. Fed the whole file, envelope and all, as
+    // this test did before 2026-10-11, the envelope's `P` and `q` drew as two
+    // data columns and the extent read 98.
     assert!(
-        w.index() >= OW && h.index() == OH,
-        "the extent covers the declared {OW}x{OH}, {}x{} here",
+        w.index() == OW && h.index() == OH,
+        "the extent is the declared {OW}x{OH}, {}x{} here",
         w.raw(),
         h.raw()
     );
 
     let mut image = vec![ColorWord::DEFAULT; w.index() * h.index()];
     let mut canvas = SixelCanvas::new(&mut image, w);
-    let filled = Sixel::decode(SIXEL, &mut canvas);
+    let filled = Sixel::decode(body(), aspect(), &mut canvas);
     assert_eq!(
         filled.refused, 0,
         "every pixel fits the extent-sized canvas"

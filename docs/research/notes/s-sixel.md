@@ -183,6 +183,15 @@ define) is treated as one ~~and flagged in the source as a guess~~: since
 repeat count of zero implies a repeat count of 1" (PDF p. 920; note AN,
 section 8), and `a_zero_repeat_draws_one_column` holds it.
 
+**The pixel aspect ratio is honoured since 2026-10-11** where the two DEC
+texts agree (note AN's item 8): `P1` omitted, 0, 1 or 5 is 2:1, 3 is 3:1 and
+9 is 1:1, and a whole raster `Pan:Pad` before any data overrides it, so a
+sixel row is that many pixels tall and the extent, the arena reservation and
+the cursor's advance scale with it. Both Sixel streams in the tree send
+`"1;1` and do not move. A ratio that is not whole, and `Ph`, are for Jev (the
+record, "A Sixel pixel is drawn at its aspect ratio where both DEC texts
+agree").
+
 ## What is also built: the storage value types
 
 The design below is landed as `baud-domain/src/image.rs` -- `ImageStore`, the

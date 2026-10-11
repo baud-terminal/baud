@@ -117,8 +117,8 @@ fn a_bel_inside_a_sixel_is_payload_and_draws_nothing() {
     let want = want.unwrap();
     assert_eq!(
         want.0.as_ref().map(|i| (i.0, i.1)),
-        Some((4, 12)),
-        "control: the image without the BEL is 4 by 12"
+        Some((4, 24)),
+        "control: the image without the BEL is 4 by 24, two bands at P1 0's 2:1"
     );
     for (name, bytes) in cases {
         for size in 1..=bytes.len() {
@@ -178,115 +178,115 @@ fn a_c0_or_del_inside_a_sixel_number_splits_nothing() {
             "BEL inside the repeat count",
             b"\x1bP0;1q#1;2;100;0;0#1!1\x070~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
-            (10, 6),
+            (10, 12),
         ),
         (
             "DEL inside the repeat count",
             b"\x1bP0;1q#1;2;100;0;0#1!1\x7f0~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
-            (10, 6),
+            (10, 12),
         ),
         (
             "BEL inside a colour component",
             b"\x1bP0;1q#1;2;10\x070;0;0#1~~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
-            (2, 6),
+            (2, 12),
         ),
         (
             "DEL inside a colour component",
             b"\x1bP0;1q#1;2;10\x7f0;0;0#1~~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
-            (2, 6),
+            (2, 12),
         ),
         (
             "BEL inside a register number",
             b"\x1bP0;1q#12;2;0;100;0#1\x072~~\x1b\\Z",
             b"\x1bP0;1q#12;2;0;100;0#12~~\x1b\\Z",
-            (2, 6),
+            (2, 12),
         ),
         (
             "DEL inside a register number",
             b"\x1bP0;1q#12;2;0;100;0#1\x7f2~~\x1b\\Z",
             b"\x1bP0;1q#12;2;0;100;0#12~~\x1b\\Z",
-            (2, 6),
+            (2, 12),
         ),
         (
             "BEL between # and its number",
             b"\x1bP0;1q#1;2;100;0;0#\x071~~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
-            (2, 6),
+            (2, 12),
         ),
         (
             "DEL between # and its number",
             b"\x1bP0;1q#1;2;100;0;0#\x7f1~~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
-            (2, 6),
+            (2, 12),
         ),
         (
             "control: BEL between two data bytes",
             b"\x1bP0;1q#1;2;100;0;0#1~\x07~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
-            (2, 6),
+            (2, 12),
         ),
         (
             "control: DEL between two data bytes",
             b"\x1bP0;1q#1;2;100;0;0#1~\x7f~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
-            (2, 6),
+            (2, 12),
         ),
         (
             "control: BEL between a repeat count and its byte",
             b"\x1bP0;1q#1;2;100;0;0#1!10\x07~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
-            (10, 6),
+            (10, 12),
         ),
         (
             "control: DEL between a repeat count and its byte",
             b"\x1bP0;1q#1;2;100;0;0#1!10\x7f~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
-            (10, 6),
+            (10, 12),
         ),
         (
             "CR inside the repeat count",
             b"\x1bP0;1q#1;2;100;0;0#1!1\r0~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
-            (10, 6),
+            (10, 12),
         ),
         (
             "LF inside a colour component",
             b"\x1bP0;1q#1;2;10\n0;0;0#1~~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
-            (2, 6),
+            (2, 12),
         ),
         (
             "HT inside a register number",
             b"\x1bP0;1q#12;2;0;100;0#1\t2~~\x1b\\Z",
             b"\x1bP0;1q#12;2;0;100;0#12~~\x1b\\Z",
-            (2, 6),
+            (2, 12),
         ),
         (
             "BS inside the repeat count",
             b"\x1bP0;1q#1;2;100;0;0#1!1\x080~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
-            (10, 6),
+            (10, 12),
         ),
         (
             "VT between # and its number",
             b"\x1bP0;1q#1;2;100;0;0#\x0b1~~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
-            (2, 6),
+            (2, 12),
         ),
         (
             "FF inside a colour component",
             b"\x1bP0;1q#1;2;1\x0c00;0;0#1~~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
-            (2, 6),
+            (2, 12),
         ),
         (
             "CR LF between two rows",
             b"\x1bP0;1q#1;2;100;0;0#1~~-\r\n~~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1~~-~~\x1b\\Z",
-            (2, 12),
+            (2, 24),
         ),
     ];
     let budget = ImageBudget::of(64 * 48 + 64, 8192);
@@ -998,8 +998,8 @@ fn a_gr_byte_in_a_sixel_introducer_is_read_as_its_seven_bit_byte_under_latin1() 
             let want = want.unwrap();
             assert_eq!(
                 want.0.as_ref().map(|i| (i.0, i.1)),
-                Some((1, 6)),
-                "control: {name}, {frame}, the GL spelling draws 1 by 6"
+                Some((1, 12)),
+                "control: {name}, {frame}, the GL spelling draws 1 by 12 at P1 0's 2:1"
             );
             for read in 1..=gr.len() {
                 run(&gr, read, ample(), |t| {
@@ -1030,4 +1030,87 @@ fn a_gr_byte_in_a_sixel_introducer_under_utf8_draws_nothing() {
             });
         }
     }
+}
+
+/// **A Sixel pixel is drawn at its pixel aspect ratio, where the two DEC
+/// texts agree on it.** The envelope's macro parameter `P1` sets it, and a
+/// raster command `"Pan;Pad` before any data overrides it.
+///
+/// `[[source: vt3xx-sixel]]`: `P1` omitted is "2:1 (default)", `0, 1` 2:1,
+/// `3, 4` 3:1, `5, 6` 2:1, `7, 8, 9` 1:1, and the raster command "overrides
+/// any raster attributes set by the macro parameter". `[[source: dec-std-070]]`
+/// 070-9 §7.1 gives `P1` 0, 1 and 5 as 200:100, 3 as 300:100 and 9 as
+/// 100:100 (PDF p. 918); §8.1.2 says the raster command "must precede any
+/// Sixel, or any sixel positioning command ... or the command will be
+/// ignored", and its guideline reads an omitted or zero `Pan` and `Pad` as
+/// one (PDF p. 921). So one band is six sixel rows times the ratio. baud drew
+/// every image 1:1 before, each band 6 rows tall. The ratios the two tables do
+/// not both make whole, `P1` 2, 4, 6, 7 and 8 and a raster `"3;2`, are note
+/// AN's item 12, for Jev, and are drawn 1:1 as before.
+#[test]
+fn a_sixel_pixel_is_drawn_at_its_pixel_aspect_ratio() {
+    let cases: [(&str, &[u8], (u16, u16)); 13] = [
+        (
+            "no P1, no raster: 2:1",
+            b"\x1bPq#1;2;100;0;0#1~\x1b\\",
+            (1, 12),
+        ),
+        ("P1 0: 2:1", b"\x1bP0q#1;2;100;0;0#1~\x1b\\", (1, 12)),
+        ("P1 1: 2:1", b"\x1bP1q#1;2;100;0;0#1~\x1b\\", (1, 12)),
+        ("P1 5: 2:1", b"\x1bP5q#1;2;100;0;0#1~\x1b\\", (1, 12)),
+        ("P1 3: 3:1", b"\x1bP3q#1;2;100;0;0#1~\x1b\\", (1, 18)),
+        ("P1 9: 1:1", b"\x1bP9q#1;2;100;0;0#1~\x1b\\", (1, 6)),
+        (
+            "raster 1;1 over P1 0",
+            b"\x1bP0q\"1;1#1;2;100;0;0#1~\x1b\\",
+            (1, 6),
+        ),
+        ("raster 3;1", b"\x1bP9q\"3;1#1;2;100;0;0#1~\x1b\\", (1, 18)),
+        ("raster 4;2", b"\x1bP9q\"4;2#1;2;100;0;0#1~\x1b\\", (1, 12)),
+        (
+            "raster ratio omitted",
+            b"\x1bPq\";#1;2;100;0;0#1~\x1b\\",
+            (1, 6),
+        ),
+        ("raster 0;0", b"\x1bPq\"0;0#1;2;100;0;0#1~\x1b\\", (1, 6)),
+        (
+            "raster after data",
+            b"\x1bP9q#1;2;100;0;0#1~\"3;1~\x1b\\",
+            (2, 6),
+        ),
+        (
+            "raster after a new line",
+            b"\x1bP9q#1;2;100;0;0#1~-\"3;1~\x1b\\",
+            (1, 12),
+        ),
+    ];
+    for (name, body, dims) in cases {
+        for chunk in [1usize, 2, 3, body.len()] {
+            run(body, chunk, ample(), |t| {
+                assert_eq!(placed_dims(t), Some(dims), "{name}, chunk {chunk}");
+            });
+        }
+    }
+}
+
+/// **At 2:1 each sixel row is two pixels tall, and the cursor moves past all
+/// of them.** `t` is `0b110101`, rows 1, 0, 1, 0, 1, 1 from the top
+/// (`[[source: vt3xx-sixel]]`); at 2:1 each is two device rows. With an
+/// 8-pixel cell the 12-row image takes two text rows where 1:1 took one.
+#[test]
+fn a_two_to_one_sixel_doubles_each_row_and_the_cursor_follows() {
+    let body = b"\x1bPq#1;2;100;0;0#1t\x1b\\";
+    run(body, body.len(), ample(), |t| {
+        let (img, _, _) = drawn(t);
+        let (w, h, px) = img.expect("placed");
+        assert_eq!((w, h), (1, 12));
+        let lit: Vec<bool> = px.iter().map(|c| !c.is_default()).collect();
+        let want = [
+            true, true, false, false, true, true, false, false, true, true, true, true,
+        ];
+        assert_eq!(lit, want, "each sixel row is two device rows");
+    });
+    advanced(body, body.len(), 8, |t| {
+        assert_eq!(t.cursor().0.index(), 2, "12 rows at 8 a cell is two rows");
+    });
 }

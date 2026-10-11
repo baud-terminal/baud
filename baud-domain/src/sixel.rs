@@ -44,17 +44,63 @@ impl SixelPx {
         SixelPx(self.0.saturating_add(1))
     }
 
-    fn plus_six(self) -> SixelPx {
-        SixelPx(self.0.saturating_add(6))
-    }
-
-    fn plus_row(self, row: u8) -> SixelPx {
-        SixelPx(self.0.saturating_add(u16::from(row)))
+    fn plus(self, n: u16) -> SixelPx {
+        SixelPx(self.0.saturating_add(n))
     }
 
     fn largest(self, o: SixelPx) -> SixelPx {
         SixelPx(self.0.max(o.0))
     }
+}
+
+/// The pixel aspect ratio a Sixel is drawn at, as the device rows one sixel
+/// row takes: a sixel pixel is one device pixel wide and this many tall.
+///
+/// `[[source: vt3xx-sixel]]` and `[[source: dec-std-070]]` 070-9 §7.1 agree
+/// on the macro parameter `P1` where both make the ratio whole: omitted, 0, 1
+/// and 5 are 2:1, 3 is 3:1, and 9 is 1:1. A raster command `"Pan;Pad` before
+/// any data overrides it ([`Sixel::decode`]). The other values are not drawn
+/// at a ratio: `P1` 2, 4, 6, 7 and 8, which 070-9 gives as 4.5, 2.5, 1.5, 1.3
+/// and 1.12 to 1 and the VT330/VT340 manual rounds, are note AN's item 12, for
+/// Jev, and a `P1` past 9, which neither text lists; each is drawn 1:1, as
+/// every Sixel was before the ratio was honoured.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SixelAspect(u16);
+
+impl SixelAspect {
+    /// One device row a sixel row: what `P1 = 9` selects, and a raster
+    /// `"1;1`.
+    pub const ONE_TO_ONE: SixelAspect = SixelAspect(1);
+
+    /// The ratio the envelope's macro parameter `P1` sets; `None` when it is
+    /// omitted, which both texts make 2:1.
+    pub fn from_macro(p1: Option<u16>) -> SixelAspect {
+        match p1 {
+            None | Some(0) | Some(1) | Some(5) => SixelAspect(2),
+            Some(3) => SixelAspect(3),
+            _ => SixelAspect::ONE_TO_ONE,
+        }
+    }
+
+    /// The ratio a raster command's `Pan;Pad` sets. An omitted or zero
+    /// parameter reads as one, 070-9 §8.1.2's guideline ("omitted parameters
+    /// for Pn1 and Pn2 may be interpreted as '0' (zero) and default to '1'
+    /// (one)", PDF p. 921). A ratio that is not a whole number, `"3;2` or
+    /// `"1;2`, is item 12 and draws 1:1.
+    fn from_raster(pan: u16, pad: u16) -> SixelAspect {
+        let (pan, pad) = (pan.max(1), pad.max(1));
+        match pan % pad {
+            0 => SixelAspect(pan / pad),
+            _ => SixelAspect::ONE_TO_ONE,
+        }
+    }
+}
+
+/// Whether a raster command may still set the ratio: only before the first
+/// data byte and the first `$` or `-` (070-9 §8.1.2).
+enum Raster {
+    Open,
+    Closed,
 }
 
 /// A caller-provided image the decoder paints into. `DEFAULT` (zero) means a
@@ -117,8 +163,9 @@ pub struct SixelReport {
     /// is the data's, not the ink's. Independent of the canvas: it is what the
     /// sender described, and `refused` is what did not fit.
     pub width: SixelPx,
-    /// How tall the data reached, in pixels: six times the number of bands a
-    /// data byte occupied. The extent, not the ink, for the reason `width` is.
+    /// How tall the data reached, in pixels: the bands a data byte occupied,
+    /// each six sixel rows of as many pixels as the aspect ratio
+    /// ([`SixelAspect`]). The extent, not the ink, for the reason `width` is.
     pub height: SixelPx,
     /// Pixels that would have fallen outside the canvas.
     pub refused: u32,
@@ -144,8 +191,12 @@ impl Sixel {
     /// `canvas`. The canvas starts however the caller cleared it (`DEFAULT` for
     /// transparent), and set data bits paint the current register; unset bits
     /// leave the pixel, so a later Sixel over the same canvas overlays it.
-    pub fn decode(data: &[u8], canvas: &mut SixelCanvas) -> SixelReport {
-        Sixel::walk(data, Some(canvas))
+    ///
+    /// `aspect` is what the envelope's `P1` set ([`SixelAspect::from_macro`]);
+    /// a raster command at the head of `data` overrides it. A sixel row is
+    /// painted that many device rows tall, and a band is six of them.
+    pub fn decode(data: &[u8], aspect: SixelAspect, canvas: &mut SixelCanvas) -> SixelReport {
+        Sixel::walk(data, aspect, Some(canvas))
     }
 
     /// The extent the data reaches -- its `width` and `height` -- without
@@ -153,16 +204,20 @@ impl Sixel {
     /// so a size reserved from `extent` is exactly what `decode` fills; two
     /// spellings of one grammar is the `csi_whole` mistake this repo already
     /// paid for. A caller sizes an image arena from this, then decodes into it.
-    pub fn extent(data: &[u8]) -> SixelReport {
-        Sixel::walk(data, None)
+    pub fn extent(data: &[u8], aspect: SixelAspect) -> SixelReport {
+        Sixel::walk(data, aspect, None)
     }
 
     /// The one grammar walk. `canvas` absent measures the extent and paints
     /// nothing; present, it paints and counts what fell outside. `width` and
     /// `height` are the data's reach either way, because the extent is tracked
     /// independently of whether a pixel landed.
-    fn walk(data: &[u8], mut canvas: Option<&mut SixelCanvas>) -> SixelReport {
+    fn walk(data: &[u8], aspect: SixelAspect, mut canvas: Option<&mut SixelCanvas>) -> SixelReport {
         let mut regs = [ColorWord::DEFAULT; REGISTERS];
+        // The device rows one sixel row takes, and whether a raster command
+        // may still change it.
+        let mut rows = aspect.0;
+        let mut raster = Raster::Open;
         let mut reg: usize = 0;
         let mut x = SixelPx::ZERO;
         let mut band_top = SixelPx::ZERO;
@@ -234,23 +289,29 @@ impl Sixel {
                     x = SixelPx::ZERO;
                     i += 1;
                     repeat = 1;
+                    raster = Raster::Closed;
                 }
                 // Graphics new line: left, and down one six-pixel band.
                 b'-' => {
                     x = SixelPx::ZERO;
-                    band_top = band_top.plus_six();
+                    band_top = band_top.plus(rows.saturating_mul(6));
                     i += 1;
                     repeat = 1;
+                    raster = Raster::Closed;
                 }
-                // Raster attributes: aspect ratio and a declared size. The
-                // aspect is informational to a pixel decoder and the size is
-                // the caller's canvas here, so the parameters are consumed and
-                // not otherwise used.
+                // Raster attributes: the aspect ratio `Pan:Pad`, which sets the
+                // rows a sixel row takes, and a declared size `Ph`x`Pv`, which
+                // "does not limit the number of pixels a device may image"
+                // (070-9 §8.1.2) and is not used here. After data or a `$` or
+                // `-` the whole command is ignored, as §8.1.2 says.
                 b'"' => {
-                    let (_pan, k1) = number(data, i + 1);
-                    let (_pad, k2) = number_after_sep(data, k1);
+                    let (pan, k1) = number(data, i + 1);
+                    let (pad, k2) = number_after_sep(data, k1);
                     let (_ph, k3) = number_after_sep(data, k2);
                     let (_pv, k4) = number_after_sep(data, k3);
+                    if let Raster::Open = raster {
+                        rows = SixelAspect::from_raster(pan, pad).0;
+                    }
                     i = k4;
                     repeat = 1;
                 }
@@ -264,13 +325,15 @@ impl Sixel {
                     while n > 0 {
                         for row in 0u8..6 {
                             if bits & (1 << row) != 0 {
-                                let y = band_top.plus_row(row);
                                 // Absent in measure mode: the extent below is
                                 // tracked whether or not a pixel is painted.
                                 if let Some(c) = canvas.as_deref_mut() {
-                                    match c.paint(x, y, colour) {
-                                        Painted::Inside => {}
-                                        Painted::Refused => refused = refused.saturating_add(1),
+                                    let top = band_top.plus(u16::from(row).saturating_mul(rows));
+                                    for k in 0..rows {
+                                        match c.paint(x, top.plus(k), colour) {
+                                            Painted::Inside => {}
+                                            Painted::Refused => refused = refused.saturating_add(1),
+                                        }
                                     }
                                 }
                             }
@@ -282,9 +345,10 @@ impl Sixel {
                     // were set: `x` is now the first column past this data byte,
                     // and the band is six rows tall whether or not any bit set.
                     width = width.largest(x);
-                    height = height.largest(band_top.plus_six());
+                    height = height.largest(band_top.plus(rows.saturating_mul(6)));
                     i += 1;
                     repeat = 1;
+                    raster = Raster::Closed;
                 }
                 // Everything else is skipped. No C0 reaches here -- the Sixel
                 // arm of `str_put` drops each one before the body is stored --

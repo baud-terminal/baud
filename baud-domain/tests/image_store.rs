@@ -8,7 +8,7 @@
 
 use baud_domain::{
     BandMove, Col, ColorWord, ImagePx, ImageScreen, ImageSlot, ImageStore, LineIdx, PlacementSlot,
-    Rows, Sixel, SixelCanvas, SixelPx, ZIndex,
+    Rows, Sixel, SixelAspect, SixelCanvas, SixelPx, ZIndex,
 };
 
 fn red() -> ColorWord {
@@ -314,7 +314,9 @@ fn a_real_sixel_decodes_into_the_store_in_place() {
         .expect("the arena holds a 64x48 image");
     let report = {
         let mut canvas = SixelCanvas::new(buf, SixelPx::of(64));
-        Sixel::decode(inner, &mut canvas)
+        // The capture's envelope is `ESC P 0;1;0 q`, `P1 = 0`, 2:1, and its
+        // raster command `"1;1` overrides it.
+        Sixel::decode(inner, SixelAspect::from_macro(Some(0)), &mut canvas)
     };
 
     assert_eq!(
