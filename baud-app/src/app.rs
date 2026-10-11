@@ -79,12 +79,29 @@ const SYNC_MAX: Duration = Duration::from_millis(33);
 /// gives 5 as "slowly blinking (less then 150 per minute)" and 6 as "rapidly
 /// blinking (150 per minute or more)"; the assertion below holds the first
 /// bound. `SGR 6` blinks at this rate too, a departure `docs/vt-coverage.md`
-/// states until a rapid rate is chosen.
+/// states until a rapid rate is chosen. Under Reduce Motion neither blinks
+/// ([`text_blink`]): the system's request, and a departure from "slowly
+/// blinking" the coverage row states too.
 const BLINK_HALF: f64 = 0.4;
 const _: () = assert!(
     60.0 / (2.0 * BLINK_HALF) < 150.0,
     "SGR 5 is slow blink: fewer than 150 a minute"
 );
+
+/// The phase blinking text draws with at display-link time `target`: the
+/// clock's, unless the system asks for reduced motion, when it is held
+/// shown. Apple's HIG names blinking under Reduce Motion, and WCAG 2.2.2
+/// asks for a way to stop blinking that lasts past five seconds; this is
+/// that way, and the reasons are on `reduce_motion_holds_blinking_text_shown`.
+/// Held, the phase never flips, so a blinking cell owes no frame.
+fn text_blink(target: f64, motion: crate::config::SystemMotion) -> Blink {
+    use crate::config::SystemMotion;
+    match motion {
+        SystemMotion::Reduced => Blink::Shown,
+        SystemMotion::Full if (target / BLINK_HALF).rem_euclid(2.0) < 1.0 => Blink::Shown,
+        SystemMotion::Full => Blink::Hidden,
+    }
+}
 /// How long a cursor trail's ghost takes to sweep from the old cell to the
 /// new, seconds -- short and snappy, and only paid when the trail is on.
 const TRAIL_S: f64 = 0.1;
@@ -3693,8 +3710,9 @@ mod ride_tests {
 #[cfg(test)]
 mod motion_tests {
     //! Reduce Motion: the owner's rule, "no trail, unless the config names
-    //! one". The decisions are pure and gated here; `poll_motion` and the
-    //! launch read are AppKit-bound, held by the source gate at the end.
+    //! one", and blinking text held shown. The decisions are pure and gated
+    //! here; `poll_motion`, the tick and the launch read are AppKit-bound,
+    //! held by the source gates at the end.
     use super::{
         MotionSource, Owes, Path, chase_style, motion_change, motion_override, retrail,
         system_motion,
@@ -3847,6 +3865,49 @@ mod motion_tests {
             .expect("the tick arm");
         assert!(tick.contains("self.poll_focus();"), "the control: {tick}");
         assert!(tick.contains("self.poll_motion();"), "{tick}");
+    }
+
+    /// **Reduce Motion holds blinking text shown.** Apple's HIG
+    /// (`[[source: apple-hig-accessibility]]`): "Be cautious with
+    /// fast-moving and blinking animations ... People who are prone to these
+    /// effects can turn on the Reduce Motion accessibility setting. When this
+    /// setting is active, ensure your app or game responds by reducing
+    /// automatic and repetitive animations". WCAG 2.2.2
+    /// (`[[source: wcag22]]`) asks that blinking which "starts
+    /// automatically" and "lasts more than five seconds" have "a mechanism
+    /// for the user to pause, stop, or hide it". Stopped, and stopped
+    /// *shown*: hidden would take the application's text away, which is not
+    /// reducing an animation, and it is the cursor's rule too -- a steady
+    /// caret is a drawn one.
+    #[test]
+    fn reduce_motion_holds_blinking_text_shown() {
+        use super::{BLINK_HALF, Blink, text_blink};
+        // Every quarter of a half-cycle across ten seconds, both phases.
+        let times = (0..400).map(|i| f64::from(i) * BLINK_HALF / 4.0);
+        let full: Vec<Blink> = times.clone().map(|t| text_blink(t, M::Full)).collect();
+        assert!(
+            full.contains(&Blink::Shown) && full.contains(&Blink::Hidden),
+            "the control: with full motion SGR 5 blinks"
+        );
+        assert_eq!(text_blink(0.1, M::Full), Blink::Shown);
+        assert_eq!(text_blink(BLINK_HALF + 0.1, M::Full), Blink::Hidden);
+        for t in times {
+            assert_eq!(text_blink(t, M::Reduced), Blink::Shown, "at {t}");
+        }
+    }
+
+    /// The tick's phase goes through the motion preference: like the poll,
+    /// the tick is AppKit-bound, so its source is what can be checked.
+    #[test]
+    fn the_tick_takes_the_blink_phase_under_the_motion_preference() {
+        const SRC: &str = include_str!("app.rs");
+        // Spelled apart, so this test does not match its own source.
+        let call = concat!("let phase = text_", "blink(target, self.app.motion);");
+        assert_eq!(SRC.matches(call).count(), 1, "{call}");
+        assert!(
+            !SRC.contains(concat!("let phase = if (target / BLINK_", "HALF)")),
+            "the tick computes the phase itself again, past the preference"
+        );
     }
 }
 
@@ -4920,12 +4981,10 @@ impl Responder for Driver {
         // Blink is driven off the display link's timestamp -- the hardware
         // vsync clock -- so the phase is accurate without a timer of its own.
         // A full cycle is two BLINK_HALF periods; the phase flips a repaint
-        // only when a cell actually blinks.
-        let phase = if (target / BLINK_HALF).rem_euclid(2.0) < 1.0 {
-            Blink::Shown
-        } else {
-            Blink::Hidden
-        };
+        // only when a cell actually blinks. Under Reduce Motion it is held
+        // shown, so a change of the preference to reduced flips a hidden
+        // phase back once and then nothing flips.
+        let phase = text_blink(target, self.app.motion);
         if phase != self.app.blink {
             self.app.blink = phase;
             if self.app.blink_present == Blinking::Seen {

@@ -381,7 +381,8 @@ pub enum TrailPick {
 }
 
 /// The system's motion preference: macOS's Reduce Motion, read by the
-/// driver. Only the macOS driver has a trail, so Linux never asks.
+/// driver. It decides the default trail and holds `SGR 5` text shown.
+/// Only the macOS driver has a trail or blinks text, so Linux never asks.
 #[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SystemMotion {
