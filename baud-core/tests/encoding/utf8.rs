@@ -348,8 +348,8 @@ fn a_del_in_csi_param_is_ignored_and_the_sequence_goes_on() {
 /// `[[source: williams]]` gives `7F` the *ignore* action, the state staying
 /// where it is, in `escape` (286), `escape intermediate` (293), `csi entry`
 /// (306), `csi param` (315), `csi intermediate` (328) and `csi ignore`. baud's
-/// one `Escape` node is both escape states, and `StrEsc`, the `ESC` inside a
-/// control string, is williams' `escape` reached from a string, so `ESC DEL \`
+/// `Escape` and `EscInter` nodes are the two escape states, and `StrEsc`, the
+/// `ESC` inside a control string, is williams' `escape` reached from a string, so `ESC DEL \`
 /// there is the `ST` it ends. Three rows of `docs/vt-coverage.md` were
 /// `partial` on this: `escape`, `escape_intermediate`, and "`7F` DEL in
 /// `csi_entry` or `csi_intermediate`". `escape` ended the sequence at the

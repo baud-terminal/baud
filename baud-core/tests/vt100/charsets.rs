@@ -759,3 +759,68 @@ fn every_national_replacement_renders_as_its_table_says() {
     }
     assert!(checked >= 150, "only {checked} replacements checked");
 }
+
+/// What a program leaves when fed in these reads: the first row's first
+/// three codepoints, the cursor, the title, and whether a reply was queued.
+fn left_by(reads: &[&[u8]]) -> ([u32; 3], (Row, Col), Vec<u8>, bool) {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    for r in reads {
+        t.write_at(BytePos::ZERO, r);
+        t.feed(BytePos::ZERO, ReadLen::from_index(r.len()));
+    }
+    let cells = support::screen(&t);
+    let cp = |i: usize| cells[i].content.as_codepoint().map_or(0, |c| c.value());
+    (
+        [cp(0), cp(1), cp(2)],
+        t.cursor(),
+        t.title().to_vec(),
+        !t.reply().is_empty(),
+    )
+}
+
+/// **After an intermediate, `P X [ ] ^ _` are finals, at every read size and
+/// every split.**
+///
+/// `[[source: williams]]`'s `escape intermediate` dispatches `30-7E`
+/// (`30-7E / esc_dispatch`, 224): `escape` alone opens a `CSI` on `5B`, an
+/// `OSC` on `5D`, a DCS on `50` and the other strings on `58 5E 5F` (222,
+/// 226, 232, 233). baud's one `Escape` node was both states, so it opened
+/// them after an intermediate too, and `fast_esc`, which reads `ESC
+/// <intermediate> <final>` whole, did not: `ESC ( ]` read whole designated a
+/// set and drew what followed, and split before the `]` opened an `OSC` that
+/// took it. After two intermediates `fast_esc` declines and the graph opened
+/// the string in every read.
+///
+/// Each designation is followed by `AB`, which must be drawn at columns 0
+/// and 1 whatever the read size, under both encodings: a `CSI` opened would
+/// take the `A` for its final (CUU), and a string would take both.
+#[test]
+fn after_an_intermediate_the_introducer_bytes_are_finals_at_every_read_size() {
+    let want = [u32::from(b'A'), u32::from(b'B'), 0];
+    for (enc, pre) in [("UTF-8", b"".as_slice()), ("ISO 8859-1", b"\x1b%@")] {
+        for inter in [b"(".as_slice(), b" ", b"#", b"%", b"(%"] {
+            for f in [b'P', b'X', b'[', b']', b'^', b'_'] {
+                let prog = [pre, b"\x1b", inter, &[f], b"AB"].concat();
+                let at = format!("{enc}: {}", prog.escape_ascii());
+                let whole = left_by(&[&prog]);
+                assert_eq!(whole.0, want, "{at}, one read: AB drawn");
+                assert_eq!(whole.1, (Row::ZERO, Col::at_index(2)), "{at}, one read");
+                assert_eq!(whole.2, b"", "{at}, one read: no title");
+                for size in 1..prog.len() {
+                    let reads: Vec<&[u8]> = prog.chunks(size).collect();
+                    assert_eq!(left_by(&reads), whole, "{at}, read size {size}");
+                }
+                for cut in 1..prog.len() {
+                    let (a, b) = prog.split_at(cut);
+                    assert_eq!(left_by(&[a, b]), whole, "{at}, split at {cut}");
+                }
+            }
+        }
+    }
+    // Positive control: with no intermediate the same bytes do open, and `AB`
+    // is not drawn as text.
+    let osc = left_by(&[b"\x1b]AB"]);
+    assert_eq!(osc.1, (Row::ZERO, Col::ZERO), "ESC ] opens an OSC");
+}

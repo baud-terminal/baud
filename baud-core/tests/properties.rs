@@ -375,6 +375,18 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **An introducer's byte after an intermediate, which is a final**:
+    // `ESC ( ]` designates a set baud does not name and the `u` is drawn,
+    // and `ESC ( % P` the same past two intermediates (`[[source:
+    // williams]]`'s `escape intermediate` dispatches `30-7E`, 224). A split
+    // before the `]` opened an `OSC` that took the `u` and every atom after
+    // it, where one read designated through `fast_esc`.
+    Atom {
+        name: "esc-inter-introducer",
+        bytes: b"\x1b(]u\x1b(%Pv",
+        stride: 0,
+        count: 0,
+    },
     // **GR bytes in a DCS prefix, under ISO 8859-1**: `90`, then `B1 BB B2`
     // for the parameters `1;2`, `A4` for `$` and `F1` for `q`, so the string
     // is a DECRQSS for `m`, closed by `9C`. Each GR byte is read as its
@@ -672,6 +684,28 @@ fn the_latin1_dcs_gr_atom_reaches_decrqss() {
         assert_eq!(t.cursor(), (Row::ZERO, Col::ZERO), "DCS: nothing drawn");
         assert_eq!(t.strings_ignored, 0, "DCS: the string was answered");
     });
+}
+
+/// **The intermediate atom designates and draws what follows**, in one read
+/// and in one-byte reads: an `ESC ( ]` or `ESC ( % P` that opened a string
+/// would swallow the `u` and the `v`. One read alone cannot tell, because
+/// `fast_esc` takes `ESC ( ]` whole; the two intermediates of `ESC ( % P` it
+/// declines, so there the graph decides in every chunking, and only this
+/// control sees it.
+#[test]
+fn the_esc_inter_atom_draws_what_follows() {
+    for chunk in [1, 4096] {
+        let (cells, ..) = drive(&bytes_of(&[atom("esc-inter-introducer")]), chunk);
+        let drawn: Vec<u32> = cells[..3]
+            .iter()
+            .map(|c| c.content.as_codepoint().map_or(0, |c| c.value()))
+            .collect();
+        assert_eq!(
+            drawn,
+            [u32::from(b'u'), u32::from(b'v'), 0],
+            "reads of {chunk}: u and v drawn"
+        );
+    }
 }
 
 /// Where the atom called `name` sits in the alphabet.

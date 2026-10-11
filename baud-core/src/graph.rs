@@ -35,10 +35,13 @@ pub enum Node {
     Utf8One,
     Utf8Two,
     Utf8Three,
-    /// After `ESC`. **A protocol is more nodes, not a runtime flag** -- and
+    /// After `ESC`, before any intermediate: `[[source: williams]]`'s
+    /// `escape`, the one state that opens a `CSI` or a control string.
+    /// **A protocol is more nodes, not a runtime flag** -- and
     /// until these existed `ESC` was a C0 control that did nothing and
     /// `[?1049h` was printable ASCII, so every escape sequence in the corpus
-    /// was rendered to the screen as its own parameter bytes.
+    /// was rendered to the screen as its own parameter bytes. Past an
+    /// intermediate the parser is in `EscInter`.
     Escape,
     /// Just after `CSI`, where a private marker is legal.
     ///
@@ -141,9 +144,23 @@ pub enum Node {
     AfterControl,
     /// The same in VT52, whose commands and C0 controls end a cluster too.
     Vt52AfterControl,
+    /// After `ESC` and one or more intermediates: `[[source: williams]]`'s
+    /// `escape intermediate`, which collects `20-2F` and dispatches `30-7E`
+    /// (224) and opens nothing.
+    ///
+    /// **Its own node, because `Escape` was both states and could not tell
+    /// them apart.** `Escape` opens a `CSI` on `[`, a DCS on `P`, an `OSC`
+    /// on `]` and the other strings on `X ^ _`, williams' edges out of
+    /// `escape` alone (222, 226, 232, 233); after an intermediate the same
+    /// bytes are finals. One node took them as introducers there too, so
+    /// `ESC ( P` opened a DCS where williams designates a set, and where
+    /// `fast_esc`, which reads `ESC <intermediate> <final>` whole, designated
+    /// it: the same bytes did one thing in one read and the other split
+    /// before the `P`. Last in the enum, so no other node's index moves.
+    EscInter,
 }
 
-pub(crate) const NNODE: usize = 24;
+pub(crate) const NNODE: usize = 25;
 
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
@@ -176,6 +193,7 @@ impl Node {
         Node::Vt52Utf8Three,
         Node::AfterControl,
         Node::Vt52AfterControl,
+        Node::EscInter,
     ];
 }
 
@@ -372,6 +390,7 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
         Node::Vt52Utf8Three => 21,
         Node::AfterControl => 22,
         Node::Vt52AfterControl => 23,
+        Node::EscInter => 24,
     }] += 1;
 }
 
@@ -413,6 +432,7 @@ const fn node_name(n: Node) -> &'static str {
         Node::Vt52Utf8Three => "Vt52Utf8Three",
         Node::AfterControl => "AfterControl",
         Node::Vt52AfterControl => "Vt52AfterControl",
+        Node::EscInter => "EscInter",
     }
 }
 
@@ -658,12 +678,14 @@ impl<T> Bytes<T> {
 
 /// The graph, built at compile time: `[node][byte] -> edge`.
 ///
-/// 24 x 256 x 2 bytes = **12 KB of rodata per encoding, 24 KB for both**, no
-/// initialiser and nothing to load. (Was 2 KB when there were 4 nodes, 10 KB
-/// at 20, before the string body split three ways on `BEL`, and 11 KB at 22,
-/// before the two grounds after a control; a row is read only while the
-/// parser stands in its node, so `Node::AfterControl`'s 512 bytes are read
-/// once per control, for the byte after it.)
+/// 25 x 256 x 2 bytes = **12.5 KB of rodata per encoding, 25 KB for both**,
+/// no initialiser and nothing to load. (Was 2 KB when there were 4 nodes, 10
+/// KB at 20, before the string body split three ways on `BEL`, 11 KB at 22,
+/// before the two grounds after a control, and 12 KB at 24, before `escape
+/// intermediate` had a node; a row is read only while the parser stands in
+/// its node, so `Node::AfterControl`'s 512 bytes are read once per control,
+/// for the byte after it, and `Node::EscInter`'s only inside an escape
+/// sequence with an intermediate that `fast_esc` did not take whole.)
 static UTF8: Nodes<Bytes<Edge>> = build(InputEncoding::Utf8);
 static LATIN1: Nodes<Bytes<Edge>> = build(InputEncoding::Latin1);
 
@@ -771,7 +793,12 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // (`an_esc_abandons_every_sequence_and_keeps_its_meaning_elsewhere`).
     let in_sequence = matches!(
         node,
-        Node::Escape | Node::CsiEntry | Node::CsiParam | Node::CsiInter | Node::CsiIgnore
+        Node::Escape
+            | Node::EscInter
+            | Node::CsiEntry
+            | Node::CsiParam
+            | Node::CsiInter
+            | Node::CsiIgnore
     );
     if in_sequence && b.is(StreamByte::ESC) {
         return edge(Act::EscStart, Node::Escape);
@@ -816,9 +843,9 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         }
     }
     // **And from an escape or control sequence**, the rule's other half: the
-    // same five nodes the `1B` edge above cancels from, `Escape` standing for
-    // williams' `escape` and `escape intermediate` both, whose intermediates
-    // `csi` holds. Of `csi entry` and the states after it williams says it
+    // same six nodes the `1B` edge above cancels from, `Escape` and
+    // `EscInter` standing for williams' `escape` and `escape intermediate`,
+    // whose intermediates `csi` holds. Of `csi entry` and the states after it williams says it
     // again (534-537): "C1 controls will cancel the sequence and then be
     // executed", so that the 8-bit form acts as the 7-bit one, whose `ESC`
     // cancels it. `escape()` sent every C1 to `Consume` and `Ground`, so
@@ -892,6 +919,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
             };
         }
         Node::Escape => return escape(b),
+        Node::EscInter => return esc_inter(b),
         Node::CsiEntry => return csi_entry(b),
         Node::CsiParam => return csi_param(b),
         Node::CsiInter => return csi_inter(b),
@@ -1155,15 +1183,39 @@ const fn escape(b: StreamByte) -> Edge {
         0x50 => edge(Act::StrStart, Node::Dcs),
         // **Recorded, not consumed.** `ESC ( B` designates a character set
         // and `ESC B` does not exist; dropping the `(` made every charset
-        // designation land on the same arm as its final byte alone.
-        0x20..=0x2f => edge(Act::Inter, Node::Escape),
+        // designation land on the same arm as its final byte alone. And into
+        // `EscInter`, williams' `escape intermediate`, where the introducers
+        // above are finals (`esc_inter`).
+        0x20..=0x2f => edge(Act::Inter, Node::EscInter),
         0x30..=0x7e => edge(Act::EscFinal, Node::AfterControl),
         // **`DEL` is ignored and the sequence goes on.** `[[source:
-        // williams]]` gives `7F` the *ignore* action in `escape` (286) and in
-        // `escape intermediate` (293), and this node is both. It fell to the
-        // arm below, which ended the sequence, so `ESC DEL 7` drew the `7`
-        // and lost the DECSC, and `ESC ( DEL 0` designated nothing.
+        // williams]]` gives `7F` the *ignore* action in `escape` (286). It
+        // fell to the arm below, which ended the sequence, so `ESC DEL 7`
+        // drew the `7` and lost the DECSC.
         0x7f => edge(Act::Consume, Node::Escape),
+        _ => edge(Act::Consume, Node::AfterControl),
+    }
+}
+
+/// Past `ESC` and an intermediate: `[[source: williams]]`'s `escape
+/// intermediate` (293), which executes `00-17,19,1C-1F`, collects `20-2F`,
+/// ignores `7F`, and dispatches `30-7E` (224) -- **all of them, `P X [ ] ^ _`
+/// among them**, which open a string or a `CSI` only from `escape`. `Escape`
+/// was this row too, so `ESC ( P` opened a DCS split before the `P` and
+/// designated read whole, through `fast_esc`; and `ESC ( %` then `P` opened
+/// one in any read. The other bytes end the sequence and are dropped, as
+/// `escape`'s do.
+const fn esc_inter(b: StreamByte) -> Edge {
+    if b.is_c0() {
+        // As in `escape`: every C0 but `ESC`, `CAN` and `SUB`, which `one()`
+        // takes first because they end the sequence.
+        return edge(c0(b), Node::EscInter);
+    }
+    match b.raw_byte() {
+        0x20..=0x2f => edge(Act::Inter, Node::EscInter),
+        0x30..=0x7e => edge(Act::EscFinal, Node::AfterControl),
+        // Ignored, and the sequence goes on (293): `ESC ( DEL 0` designates.
+        0x7f => edge(Act::Consume, Node::EscInter),
         _ => edge(Act::Consume, Node::AfterControl),
     }
 }
@@ -1660,6 +1712,17 @@ mod classes {
         // | the grounds after a control, `Node::AfterControl` | **41/1,313/34,972/852,113** | **-4.6%** |
         // | ... and `Bad` there takes the ground's edge | **41/1,313/34,972/856,965** | +0.6% |
         // | `DEL` ignored in `escape`, `csi entry`, `csi intermediate` and a string's `ESC` | **41/1,314/35,265/869,631** | +1.5% |
+        // | `escape intermediate` its own node, `EscInter` | **41/1,314/35,053/860,128** | **-1.1%** |
+        //
+        // **The `EscInter` row adds a node and shrinks the ladder.** Against a
+        // dump of every edge before and after, 32 edges changed, `20-2F` out
+        // of `Escape` under both encodings, each now `Inter` into `EscInter`
+        // where it stayed in `Escape`, and the new row's 512 are new. Strides
+        // 1 and 2 are the same class for class. Stride 3 falls by 212, net,
+        // and was not decomposed: the words that can now coincide are those
+        // in which an intermediate is followed by `P X [ ] ^ _`, which take the
+        // edge any other final takes rather than opening a `CSI` or a string.
+        // Stride 4 compounds the same. The table is a row longer, 25 nodes.
         //
         // **The `DEL` row moves eight edges and splits one pair.** Against a
         // dump of every edge before and after, exactly eight changed: `7F` in
@@ -1887,8 +1950,8 @@ mod classes {
         // adds pays.
         assert_eq!(one.len(), CLASSES, "stride 1");
         assert_eq!(two.len(), 1_314, "stride 2");
-        assert_eq!(three.len(), 35_265, "stride 3");
-        assert_eq!(four.len(), 869_631, "stride 4");
+        assert_eq!(three.len(), 35_053, "stride 3");
+        assert_eq!(four.len(), 860_128, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2186,6 +2249,7 @@ mod classes {
                     Node::Ground
                     | Node::AfterControl
                     | Node::Escape
+                    | Node::EscInter
                     | Node::CsiEntry
                     | Node::CsiParam
                     | Node::CsiInter
@@ -2499,7 +2563,7 @@ mod classes {
 
     /// **Under ISO 8859-1 a C1 byte cancels an escape or control sequence and
     /// takes the edge it takes from ground; under UTF-8 each of these nodes
-    /// keeps the row it had.** Exhaustive over `80-9F`, the five sequence
+    /// keeps the row it had.** Exhaustive over `80-9F`, the six sequence
     /// nodes and both encodings, and checked against the shipped table.
     ///
     /// `[[source: williams]]` (612-615): "All C1 controls cancel any escape
@@ -2529,6 +2593,7 @@ mod classes {
         );
         for (node, utf8) in [
             (Node::Escape, edge(Act::Consume, Node::AfterControl)),
+            (Node::EscInter, edge(Act::Consume, Node::AfterControl)),
             (Node::CsiEntry, edge(Act::Consume, Node::CsiIgnore)),
             (Node::CsiParam, edge(Act::Consume, Node::CsiParam)),
             (Node::CsiInter, edge(Act::Consume, Node::CsiIgnore)),
@@ -2563,9 +2628,9 @@ mod classes {
     /// the node stays, under both encodings.** `[[source: williams]]` gives
     /// `7F` the *ignore* action in `escape` (286), `escape intermediate`
     /// (293), `csi entry` (306), `csi param` (315), `csi intermediate` (328)
-    /// and `csi ignore`. `Escape` is both escape states, and `StrEsc` is
-    /// williams' `escape` reached from a string. `Escape` and `StrEsc` led
-    /// out of the sequence on it, and `CsiEntry` and `CsiInter` to
+    /// and `csi ignore`. `Escape` and `EscInter` are the two escape states,
+    /// and `StrEsc` is williams' `escape` reached from a string. `Escape`
+    /// (then both escape states) and `StrEsc` led out of the sequence on it, and `CsiEntry` and `CsiInter` to
     /// `CsiIgnore`. Named edges, so a comparison cannot pass with both sides
     /// moved, and checked against the shipped table.
     #[test]
@@ -2573,6 +2638,7 @@ mod classes {
         for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
             for node in [
                 Node::Escape,
+                Node::EscInter,
                 Node::CsiEntry,
                 Node::CsiParam,
                 Node::CsiInter,
@@ -2585,6 +2651,51 @@ mod classes {
                     "{enc:?} {node:?}"
                 );
             }
+        }
+    }
+
+    /// **`EscInter` dispatches every final and opens nothing; `Escape` alone
+    /// opens a `CSI` or a string.** `[[source: williams]]`: `escape
+    /// intermediate` sends `30-7E` to `esc_dispatch` (224), and the edges to
+    /// `csi entry`, `osc string`, `dcs entry` and `sos/pm/apc string` leave
+    /// `escape` (222, 226, 232, 233). Both encodings, the whole row, against
+    /// the shipped table.
+    #[test]
+    fn escape_intermediate_dispatches_every_final_and_opens_nothing() {
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            let at = |n: Node, v: u8| Edge::of(enc, n, StreamByte::from_stream(v));
+            for v in 0x20..=0x2fu8 {
+                assert_eq!(
+                    at(Node::Escape, v),
+                    edge(Act::Inter, Node::EscInter),
+                    "{enc:?} {v:#04x}"
+                );
+                assert_eq!(
+                    at(Node::EscInter, v),
+                    edge(Act::Inter, Node::EscInter),
+                    "{enc:?} {v:#04x}"
+                );
+            }
+            for v in 0x30..=0x7eu8 {
+                assert_eq!(
+                    at(Node::EscInter, v),
+                    edge(Act::EscFinal, Node::AfterControl),
+                    "{enc:?} {v:#04x}"
+                );
+            }
+            for v in 0..=0xffu8 {
+                let e = at(Node::EscInter, v);
+                assert!(
+                    !matches!(e.act, Act::CsiStart | Act::StrStart)
+                        || matches!(enc, InputEncoding::Latin1) && (0x80..=0x9f).contains(&v),
+                    "{enc:?} {v:#04x}: {e:?} opens from EscInter"
+                );
+            }
+            // Positive control: the same bytes open from `Escape`.
+            assert_eq!(at(Node::Escape, b'['), edge(Act::CsiStart, Node::CsiEntry));
+            assert_eq!(at(Node::Escape, b']'), edge(Act::StrStart, Node::OscStr));
+            assert_eq!(at(Node::Escape, b'P'), edge(Act::StrStart, Node::Dcs));
+            assert_eq!(at(Node::Escape, b'_'), edge(Act::StrStart, Node::SosStr));
         }
     }
 
