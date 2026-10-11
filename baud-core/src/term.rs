@@ -1486,6 +1486,24 @@ impl<'b> Term<'b> {
 
         self.rows = rows;
         self.cols = cols;
+        // **Raised by a growth, and lowered to what the ring holds.** Past
+        // the furthest cell any row holds, no row differs, so the repair
+        // carries nothing there; measured after the re-cut and the blanks
+        // above, which are the last writes past the live edge this makes.
+        let widest = Cols::of_index(self.store.book.reach.index().max(cols.index()));
+        self.store.book.reach = match widest.index() > cols.index() {
+            true => View::new(
+                self.store.vp,
+                self.store.used,
+                self.stride,
+                cols,
+                rows,
+                self.store.ring_rows(),
+                self.rot,
+            )
+            .held_past_edge(widest),
+            false => widest,
+        };
         self.cy = Row::from_index(self.cy.index().min(rows.index() - 1));
         self.cx = Col::at_index(self.cx.index().min(cols.index() - 1));
         self.cold.top = Row::ZERO;
@@ -1564,6 +1582,7 @@ impl<'b> Term<'b> {
             cols.clamp(MAX_COLS).clamp(stride.index()),
             rows.clamp(MAX_ROWS),
         );
+        store.book.reach = cols;
         Term {
             #[cfg(feature = "ceiling-segment-cache")]
             seen: [SegHash::ZERO; crate::feed::SEGS],

@@ -773,15 +773,24 @@ impl<'a> View<'a> {
     /// region back, and for the usual shape (a full-height region with a
     /// status line under it) that is one row instead of forty-nine.
     ///
-    /// **Only as far as the larger of the two rows' marks.** Past its mark a
-    /// row is uniform to the live edge -- every cell its last -- so past the
-    /// larger mark the destination already holds the source's cells when the
-    /// two rows end in the same cell, and one fill from the source's last cell
-    /// makes it hold them when they do not. A log pane over a dashboard copies
-    /// every dashboard row on every scroll, and a dashboard row uses a quarter
-    /// of a 200-column screen. A mark past the live edge copies the whole
-    /// width, which is what this did for every row before; the cells past the
-    /// edge stay the destination's, as they did.
+    /// **Only as far as the larger of the two rows' marks, inside the live
+    /// edge.** Past its mark a row is uniform to the live edge -- every cell
+    /// its last -- so past the larger mark the destination already holds the
+    /// source's cells when the two rows end in the same cell, and one fill
+    /// from the source's last cell makes it hold them when they do not. A log
+    /// pane over a dashboard copies every dashboard row on every scroll, and
+    /// a dashboard row uses a quarter of a 200-column screen.
+    ///
+    /// **The cells past the live edge are not this one's.** A mark is true
+    /// to the live edge and no further; [`View::copy_past_edge`] carries what
+    /// lies past it, for a screen narrower than it has been.
+    ///
+    /// **Inlined into its caller, always.** The repair's loop has two
+    /// monomorphs, one for a screen at its widest and one past the edge
+    /// (`Paint::rotate_top_region`), and with two call sites LLVM put this
+    /// out of line: the log pane over a dashboard read 6.5% down, on the
+    /// widest screen's loop, which is the one every recording runs.
+    #[inline(always)]
     pub fn copy_row(&mut self, from: Row, to: Row) -> usize {
         let (a, b) = (self.phys(from), self.phys(to));
         if a == b {
@@ -814,6 +823,106 @@ impl<'a> View<'a> {
         }
         dst[n..].fill(last);
         w
+    }
+
+    /// Each of screen rows `top..bottom` over the row below it, descending,
+    /// **past the live edge, to `reach`** -- the furthest any row of the ring
+    /// holds anything ([`View::held_past_edge`]) -- verbatim, and the cells
+    /// written. The other half of the region repair's [`View::copy_row`], for
+    /// a screen narrower than what its rows hold.
+    ///
+    /// A mark is true to the live edge and no further, so it says nothing of
+    /// the cells past it: a tail a resize at a prompt hid, or a colour a row
+    /// was uniform in to the old edge under a mark of zero. A growth without
+    /// a re-cut shows those cells as they are, so a row the repair puts back
+    /// has to carry them, and the row it lands on must not keep its own. Past
+    /// `reach` every row holds what the storage was provisioned with, so
+    /// nothing there differs. A pass of its own rather than a step of
+    /// `copy_row`, because the two halves touch disjoint columns: a screen
+    /// with nothing past its edge -- every screen the corpus records -- keeps
+    /// `copy_row`'s loop as it was. Only after a narrowing, so out of line.
+    #[cold]
+    #[inline(never)]
+    pub fn copy_past_edge(&mut self, top: Row, bottom: Row, reach: Cols) -> usize {
+        let s = self.stride.index();
+        let (w, end) = (self.cols.index(), reach.index().min(s));
+        if end <= w {
+            return 0;
+        }
+        let mut n = 0;
+        for y in (top.index() + 1..=bottom.index()).rev() {
+            let (a, b) = (
+                self.phys(Row::from_index(y - 1)),
+                self.phys(Row::from_index(y)),
+            );
+            if a != b {
+                self.cells.copy_within(a * s + w..a * s + end, b * s + w);
+                n += end - w;
+            }
+        }
+        n
+    }
+
+    /// **How far past the live edge the ring holds anything**: the least
+    /// width, from the live width up to `reach`, past which every row of the
+    /// ring is [`PackedCell::EMPTY`] to `reach` and no row's mark lies. What
+    /// the region repair carries past a narrower edge
+    /// ([`View::copy_past_edge`]) is measured here when the screen narrows,
+    /// not remembered as the widest it has been: a screen narrowed before
+    /// anything was written past the new width -- or re-cut, which blanks
+    /// every row it writes past it -- holds nothing there, and a repair that
+    /// copied to the widest width wrote every row under the region past the
+    /// edge again on every scroll, empty over empty.
+    ///
+    /// **Every row of the ring**, because a history row comes back onto the
+    /// screen under a taller one, and a ring row comes round as the line a
+    /// scroll brings in. **The marks too**, because a fill on a row whose
+    /// mark lies past the edge runs on to the mark ([`View::fill_row`]), so
+    /// a mark over blank cells is where a later blank can write: past the
+    /// width this returns nothing writes but such a fill. Compared with
+    /// `EMPTY`, what `baud-core`'s `Owned` provisions; storage lent holding
+    /// anything else keeps the reach where it was, the safe direction. Each
+    /// row is read from the furthest found so far, so the pass stops at the
+    /// first row that reaches `reach`. Only on a resize, so out of line.
+    #[cold]
+    #[inline(never)]
+    pub fn held_past_edge(&self, reach: Cols) -> Cols {
+        let s = self.stride.index();
+        let end = reach.index().min(s);
+        let mut held = self.cols.index();
+        for p in 0..self.ring.index() {
+            if held >= end {
+                break;
+            }
+            held = held.max(self.used[p].index().min(end));
+            let row = &self.cells[p * s + held..p * s + end];
+            if let Some(k) = row.iter().rposition(|c| *c != PackedCell::EMPTY) {
+                held += k + 1;
+            }
+        }
+        Cols::of_index(held)
+    }
+
+    /// Clear the cells past the live edge and past the mark of screen row
+    /// `r`, to `reach`, to the provisioned blank: the line a region scroll
+    /// opens, on the row the repair copied down and then blanked, whose
+    /// cells past the edge were the copied row's. Past the mark, because a
+    /// blank on a row whose mark lay past the edge ran on to the mark
+    /// ([`View::fill_row`]) and that is the blank's; past both, the default
+    /// blank, as an erase taken while narrow leaves it. Only after a
+    /// narrowing, so out of line. Returns the cells written.
+    #[cold]
+    #[inline(never)]
+    pub fn clear_past_edge(&mut self, r: Row, reach: Cols) -> usize {
+        let s = self.stride.index();
+        let p = self.phys(r);
+        let from = self.cols.index().max(self.used[p].index());
+        let end = reach.index().min(s);
+        if end <= from {
+            return 0;
+        }
+        self.cells[p * s + from..p * s + end].fill(PackedCell::EMPTY);
+        end - from
     }
 
     /// The mark for screen row `r`.

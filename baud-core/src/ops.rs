@@ -389,34 +389,23 @@ impl Paint<'_, '_> {
             {
                 self.scroll_rot += k;
             }
-            let mut moved = 0;
-            for _ in 0..k {
-                self.retire();
-                self.view.advance_rot(1);
-                #[cfg(feature = "probe-warm-scroll")]
-                self.warm_incoming();
-                // **Descending, so a row is read before it is overwritten.**
-                for y in (bot.index() + 1..=last).rev() {
-                    moved += self
-                        .view
-                        .copy_row(Row::from_index(y - 1), Row::from_index(y));
-                }
-                self.fill_row_counted(bot);
-                // **The rows under the region went back, and their images
-                // go back with them.** `retire` moved every image up with the
-                // window, which is right for the region's and one row wrong
-                // for these: without this an image on a status line walks up
-                // into the region a row a scroll while its text stays put.
-                if self.images.any_placed() {
-                    self.band_images_moved(
-                        bot,
-                        Row::from_index(last),
-                        Rows::of_count(1),
-                        BandMove::Down,
-                    );
-                }
+            // **To the furthest the rows hold, on the primary.** A growth
+            // without a re-cut shows the cells past a narrower edge as they
+            // are, so the rows put back carry theirs (`View::copy_row`). The
+            // alternate screen blanks what a growth reveals (`View::widened`),
+            // so its cells past the edge are never shown and are not carried.
+            let reach = match self.cold.screen {
+                Screen::Normal => self.book.reach,
+                Screen::Alternate => self.cols,
+            };
+            // A screen with nothing past its edge -- every screen the corpus
+            // records, and one narrowed before anything was written past the
+            // new edge -- runs the loop with nothing past the edge compiled
+            // into it.
+            match reach.index() > self.cols.index() {
+                false => self.rotate_top_region::<false>(Rows::of_count(k), bot, reach),
+                true => self.rotate_top_region_past_edge(Rows::of_count(k), bot, reach),
             }
-            self.cells = self.cells.plus(moved);
             return;
         }
         #[cfg(feature = "diag")]
@@ -445,6 +434,65 @@ impl Paint<'_, '_> {
         self.cells = self
             .cells
             .plus((bot.index() + 1 - top.index()) * self.cols.index());
+    }
+
+    /// **A top region's `n` scrolls, each a rotation and a repair**: the
+    /// rows under the region put back, the line the scroll opens blanked,
+    /// and their images moved with them. `PAST` also carries the cells past
+    /// the live edge, to `reach`, for a screen narrower than its rows reach
+    /// ([`View::copy_past_edge`]); a monomorph of its own, so the loop a
+    /// screen with nothing past its edge runs has none of it compiled in.
+    /// Counts the cells the repair wrote.
+    #[inline(always)]
+    fn rotate_top_region<const PAST: bool>(&mut self, n: Rows, bot: Row, reach: Cols) {
+        let last = self.rows.index() - 1;
+        let mut moved = 0;
+        for _ in 0..n.index() {
+            self.retire();
+            self.view.advance_rot(1);
+            #[cfg(feature = "probe-warm-scroll")]
+            self.warm_incoming();
+            // **Descending, so a row is read before it is overwritten.**
+            for y in (bot.index() + 1..=last).rev() {
+                moved += self
+                    .view
+                    .copy_row(Row::from_index(y - 1), Row::from_index(y));
+            }
+            // Past the live edge, before the blank below can write past
+            // it on the row the first copy read.
+            if PAST {
+                moved += self.view.copy_past_edge(bot, Row::from_index(last), reach);
+            }
+            self.fill_row_counted(bot);
+            // The line the scroll opens is on the row the first row under
+            // the region held, just copied down: past the edge it held
+            // that row's cells.
+            if PAST {
+                moved += self.view.clear_past_edge(bot, reach);
+            }
+            // **The rows under the region went back, and their images
+            // go back with them.** `retire` moved every image up with the
+            // window, which is right for the region's and one row wrong
+            // for these: without this an image on a status line walks up
+            // into the region a row a scroll while its text stays put.
+            if self.images.any_placed() {
+                self.band_images_moved(
+                    bot,
+                    Row::from_index(last),
+                    Rows::of_count(1),
+                    BandMove::Down,
+                );
+            }
+        }
+        self.cells = self.cells.plus(moved);
+    }
+
+    /// [`Paint::rotate_top_region`] past the live edge: only after a
+    /// narrowing, so out of line.
+    #[cold]
+    #[inline(never)]
+    fn rotate_top_region_past_edge(&mut self, n: Rows, bot: Row, reach: Cols) {
+        self.rotate_top_region::<true>(n, bot, reach);
     }
 
     pub(crate) fn scroll_region_down(&mut self, n: Count) {

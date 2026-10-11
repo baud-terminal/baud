@@ -230,6 +230,23 @@ pub struct Book {
     /// the top of the window. Kept only while an image is placed -- nothing
     /// else reads it -- and restarted each time the screen is entered.
     pub(crate) alt_top: LineIdx,
+    /// **How far the primary's rows hold anything**: the width `Term::new` is
+    /// given, raised by a growth to the new width, and at every resize that
+    /// leaves it past the live width lowered to the furthest any row of the
+    /// ring holds a cell or a mark (`View::held_past_edge`) -- so a screen
+    /// narrowed with nothing past the new edge, or re-cut, is back at its
+    /// width. Every cell at or past it is as the storage was provisioned, in
+    /// every row, while the storage has been lent to this `Term` alone --
+    /// `Term::new` does not clear it -- because nothing writes at or past
+    /// here but a fill to a mark, which the measure counts, and the re-cut's
+    /// and `View::widened`'s blanks; the repair's own copy and clear
+    /// (`View::copy_past_edge`, `View::clear_past_edge`) stop short of here.
+    /// So a row moved inside the screen carries
+    /// everything a later growth can show when it carries its cells to here:
+    /// what the region repair copies past a narrower live edge
+    /// (`View::copy_past_edge`). Here and not in `Cold`, as the rest of this
+    /// word: the grid's bookkeeping.
+    pub(crate) reach: Cols,
 }
 
 /// Everything a control string writes, in one struct.
@@ -906,6 +923,7 @@ impl<'b> Storage<'b> {
                 hidden: Rows::ZERO,
                 top: LineIdx::FIRST,
                 alt_top: LineIdx::FIRST,
+                reach: Cols::of_index(0),
             },
             strs,
             images,

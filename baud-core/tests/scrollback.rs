@@ -324,8 +324,10 @@ fn the_rows_under_a_top_region_come_back_cell_for_cell() {
 
 /// **A mark past the live edge is not a width.** At a prompt a narrower
 /// screen is not re-cut, so a row written wide keeps its tail past the edge
-/// and a mark there. The repair copies that row whole to the live edge, as it
-/// always has, and does not read past the row.
+/// and a mark there. The repair copies that row to the live edge and the
+/// cells past it to the furthest the rows hold, and does not read past the
+/// row; what a growth then shows is
+/// `a_hidden_tail_under_a_top_region_comes_back_when_the_screen_grows`.
 #[test]
 fn a_row_with_a_hidden_tail_under_a_top_region_survives_a_scroll() {
     let ws = WinSize {
@@ -360,6 +362,376 @@ fn a_row_with_a_hidden_tail_under_a_top_region_survives_a_scroll() {
         .collect::<Vec<_>>();
     assert_eq!(got, want);
     assert_eq!(t.row_extent(Row::from_index(8)).index(), 30);
+}
+
+/// The width a terminal is made at, before it is grown to 40.
+#[derive(Clone, Copy)]
+enum Made {
+    Wide,
+    Narrow,
+}
+
+/// The rows under a top region at 40 columns, then again after the screen
+/// narrowed to 20 at a prompt, the region scrolled a line, and the screen
+/// grew back to 40 at the same prompt: neither resize re-cuts, so the rows
+/// under the region did not move and every cell a growth reveals is the one
+/// that was there. `rows` draws rows 7 to 9, and row 10 is the prompt. One
+/// line, because the rotation lands each row under the region on the
+/// physical row that held the one below it, and a second scroll lands it on
+/// another: one scroll is what puts row 8 over row 9's cells. The terminal
+/// is made as `made` says and grown to 40 before anything is written.
+fn under_a_region_through_a_prompt_resize(
+    made: Made,
+    rows: &[u8],
+) -> (Vec<Vec<PackedCell>>, Vec<Vec<PackedCell>>) {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let narrow = WinSize {
+        ws_row: 10,
+        ws_col: 20,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let first = WinSize {
+        ws_row: 10,
+        ws_col: match made {
+            Made::Wide => wide.ws_col,
+            Made::Narrow => narrow.ws_col,
+        },
+    };
+    let mut t = Term::new(owned.storage(), &first);
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    support::feed(&mut t, rows);
+    support::feed(&mut t, b"\x1b[10;1H\x1b]133;A\x07$ ");
+    let under = |t: &Term<'_>| {
+        (6..10)
+            .map(|y| t.row(Row::from_index(y)).to_vec())
+            .collect::<Vec<_>>()
+    };
+    let want = under(&t);
+    assert_eq!(t.resize(&narrow), Resized::Ok);
+    let before = t.region_scrolls();
+    support::feed(&mut t, b"\x1b[1;6r\x1b[6;1H\n\x1b[r\x1b[10;3H");
+    assert_ne!(t.region_scrolls(), before, "the region rotated");
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    (want, under(&t))
+}
+
+/// **A hidden tail goes with its row through the repair.** At a prompt a
+/// narrower screen is not re-cut, so a row written wide keeps its tail past
+/// the edge, under a mark there; the repair copied the row to the live edge
+/// only, and the tail past it was the destination row's -- a growth back
+/// showed twenty `S` where thirty were written.
+#[test]
+fn a_hidden_tail_under_a_top_region_comes_back_when_the_screen_grows() {
+    let (want, got) = under_a_region_through_a_prompt_resize(
+        Made::Wide,
+        b"\x1b[7;1Hdash 07\x1b[9;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS",
+    );
+    assert_eq!(got[2], want[2], "row 9, thirty S");
+}
+
+/// **And a row the repair copies over one with a hidden tail does not take
+/// that tail.** The rotation lands row 8 on the physical row that held row
+/// 9's thirty `S`; copied to the live edge, row 8 showed its own text and
+/// then ten of row 9's `S` past column 20.
+#[test]
+fn a_row_the_repair_copies_over_a_hidden_tail_does_not_show_it() {
+    let (want, got) = under_a_region_through_a_prompt_resize(
+        Made::Wide,
+        b"\x1b[8;1Hdash 08\x1b[9;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS",
+    );
+    assert_eq!(got[1], want[1], "row 8, short");
+}
+
+/// **A row uniform in a colour to the old edge keeps it past the new one.**
+/// A blue bar is uniform from column 0, so its mark is zero at either width
+/// and says nothing about the twenty blue cells past the narrow edge; the
+/// repair must carry them all the same.
+#[test]
+fn a_coloured_bar_under_a_top_region_comes_back_whole_when_the_screen_grows() {
+    let (want, got) =
+        under_a_region_through_a_prompt_resize(Made::Wide, b"\x1b[9;1H\x1b[44m\x1b[2K\x1b[0m");
+    assert_eq!(got[2], want[2], "row 9, blue to column 40");
+}
+
+/// **A screen made narrow and grown carries its widest cells too.** How far
+/// the rows hold is raised by every growth, not set once when the terminal
+/// is made: made at 20 and grown to 40 before a line is written, the hidden
+/// tail is the same thirty `S`.
+#[test]
+fn a_screen_made_narrow_carries_the_cells_it_grew_to() {
+    let (want, got) = under_a_region_through_a_prompt_resize(
+        Made::Narrow,
+        b"\x1b[7;1Hdash 07\x1b[9;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS",
+    );
+    assert_eq!(got[2], want[2], "row 9, thirty S");
+}
+
+/// **The line a region scroll opens is blank past the narrow edge too.** The
+/// rotation makes the region's bottom row of the physical row the first row
+/// under it held, and the repair copies that row down before the bottom row
+/// is blanked to the live edge -- so the cells past it were that row's: a
+/// blue bar under the region left twenty blue cells on the new line, which
+/// a growth showed. Past the edge the new line is the default blank, as an
+/// erase taken while narrow leaves it
+/// (`at_a_prompt_a_wider_screen_still_erases_a_band_to_the_old_edge`).
+#[test]
+fn the_line_a_region_scroll_opens_is_blank_past_the_narrow_edge() {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &wide);
+    support::feed(
+        &mut t,
+        b"\x1b[7;1H\x1b[44m\x1b[2K\x1b[0m\x1b[10;1H\x1b]133;A\x07$ ",
+    );
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    support::feed(&mut t, b"\x1b[1;6r\x1b[6;1H\n\x1b[r\x1b[10;3H");
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    assert!(
+        t.row(Row::from_index(5))
+            .iter()
+            .all(|c| *c == PackedCell::EMPTY),
+        "the region's new bottom line, blank to column 40"
+    );
+    assert!(
+        t.row(Row::from_index(6))
+            .iter()
+            .all(|c| *c != PackedCell::EMPTY),
+        "the control: the bar stayed on row 7, blue to column 40"
+    );
+}
+
+/// **But a coloured blank runs on to the mark it reused**, as the blank of
+/// any row whose mark lies past the edge does (`View::fill_row`). The line
+/// opens on the row that held thirty `S` under a mark of thirty, with a red
+/// background current: red to column 30, the default blank past it.
+#[test]
+fn the_line_a_region_scroll_opens_keeps_its_blank_to_the_mark_it_reused() {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &wide);
+    support::feed(
+        &mut t,
+        b"\x1b[7;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\x1b[10;1H\x1b]133;A\x07$ ",
+    );
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    support::feed(
+        &mut t,
+        b"\x1b[1;6r\x1b[6;1H\x1b[41m\n\x1b[0m\x1b[r\x1b[10;3H",
+    );
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    let line = t.row(Row::from_index(5));
+    assert!(
+        line[0] != PackedCell::EMPTY && line[..30].iter().all(|c| *c == line[0]),
+        "red to column 30"
+    );
+    assert!(
+        line[30..].iter().all(|c| *c == PackedCell::EMPTY),
+        "the default blank past it"
+    );
+    // And the row it held went down whole: its cells past the edge were
+    // carried before the blank ran on through them.
+    let s: Vec<_> = t.row(Row::from_index(6))[..31]
+        .iter()
+        .map(|c| c.content.as_codepoint().map(|cp| cp.value()))
+        .collect();
+    assert_eq!(
+        s,
+        [vec![Some(u32::from(b'S')); 30], vec![None]].concat(),
+        "row 7, thirty S"
+    );
+}
+
+/// The cells one scroll of a top region writes on a 20-column screen made
+/// at `first` columns: `before` is fed at that width, the screen narrows to
+/// 20 when it was made wider, and rows 7 to 9 are drawn under the region
+/// before the scroll. The storage is provisioned for 40 either way.
+fn cells_a_region_scroll_writes(first: u16, before: &[u8]) -> usize {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let narrow = WinSize {
+        ws_row: 10,
+        ws_col: 20,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(
+        owned.storage(),
+        &WinSize {
+            ws_row: 10,
+            ws_col: first,
+        },
+    );
+    support::feed(&mut t, before);
+    if first != narrow.ws_col {
+        assert_eq!(t.resize(&narrow), Resized::Ok);
+    }
+    support::feed(&mut t, b"\x1b[7;1Hdash 07\x1b[8;1Hdash 08\x1b[9;1Hdash 09");
+    let (_, a) = t.amplification();
+    let scrolls = t.region_scrolls();
+    support::feed(&mut t, b"\x1b[1;6r\x1b[6;1H\n\x1b[r");
+    assert_ne!(t.region_scrolls(), scrolls, "the region rotated");
+    let (_, b) = t.amplification();
+    b - a
+}
+
+/// **A narrowing that leaves nothing past the edge carries nothing past
+/// it.** The repair carries each row's cells past the live edge to the
+/// furthest any row of the ring holds one, and that is measured at the
+/// resize, not remembered as the widest the screen has been: a screen made
+/// at 40 and narrowed to 20 at a prompt before a line past column 20 was
+/// written scrolls a top region for the cells one made at 20 does. Taken
+/// as the widest width instead, the 40-column screen copied twenty cells
+/// past the edge for every row under the region, every scroll -- the log
+/// pane over a dashboard read 54% down after a narrowing.
+#[test]
+fn a_narrowing_with_nothing_past_the_edge_carries_nothing_past_it() {
+    let prompt = b"\x1b[10;1H\x1b]133;A\x07$ ";
+    assert_eq!(
+        cells_a_region_scroll_writes(40, prompt),
+        cells_a_region_scroll_writes(20, prompt)
+    );
+}
+
+/// **Nor does one a re-cut leaves bare.** Thirty `S` at 40 columns, in
+/// output, re-cut to 20 when the screen narrows: the re-cut blanks every
+/// row it writes past the new width, and every other row of the ring is as
+/// provisioned, so nothing lies past the edge and a scroll writes what it
+/// writes on a screen made at 20 that took the same line.
+#[test]
+fn a_recut_narrowing_carries_nothing_past_the_edge() {
+    let line = b"SSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\r\n";
+    assert_eq!(
+        cells_a_region_scroll_writes(40, line),
+        cells_a_region_scroll_writes(20, line)
+    );
+}
+
+/// **The control: a hidden tail keeps the reach.** Thirty `S` on row 9 at a
+/// prompt, narrowed: the tail past column 20 is a cell a growth shows, so
+/// the scroll carries the rows under the region past the edge and writes
+/// more than a screen made at 20 -- the comparison above can fail.
+#[test]
+fn a_narrowing_over_a_hidden_tail_still_carries_past_the_edge() {
+    let tail = b"\x1b[9;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\x1b[10;1H\x1b]133;A\x07$ ";
+    assert!(cells_a_region_scroll_writes(40, tail) > cells_a_region_scroll_writes(20, tail));
+}
+
+/// **A mark past the edge holds the reach where the cells do not.** A
+/// `DCH` raises a row's mark to the width, so at 40 columns a row reading
+/// `ab` has a mark of 40 over blank cells. Narrowed at a prompt, an erase
+/// of that row in red runs on to its mark (`View::fill_row`), forty red
+/// cells, twenty past the edge. A reach measured from the cells alone sat
+/// at 20 when the erase wrote past it, and the scroll after it left the
+/// twenty on the physical row the repair moved the line off.
+#[test]
+fn a_mark_past_the_edge_keeps_the_reach_a_blank_runs_on_to() {
+    let row9 = |scroll: bool| {
+        let wide = WinSize {
+            ws_row: 10,
+            ws_col: 40,
+        };
+        let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+        let mut t = Term::new(owned.storage(), &wide);
+        support::feed(
+            &mut t,
+            b"\x1b[9;1Hab\x1b[9;3H\x1b[P\x1b[10;1H\x1b]133;A\x07$ ",
+        );
+        assert_eq!(
+            t.row_extent(Row::from_index(8)).index(),
+            40,
+            "the DCH's mark"
+        );
+        assert_eq!(
+            t.resize(&WinSize {
+                ws_row: 10,
+                ws_col: 20
+            }),
+            Resized::Ok
+        );
+        support::feed(&mut t, b"\x1b[9;1H\x1b[41m\x1b[2K\x1b[0m\x1b[10;3H");
+        if scroll {
+            support::feed(&mut t, b"\x1b[1;6r\x1b[6;1H\n\x1b[r\x1b[10;3H");
+        }
+        assert_eq!(t.resize(&wide), Resized::Ok);
+        t.row(Row::from_index(8)).to_vec()
+    };
+    let (want, got) = (row9(false), row9(true));
+    assert!(
+        want.iter()
+            .all(|c| *c == want[0] && *c != PackedCell::EMPTY),
+        "the control: red to column 40 with no scroll"
+    );
+    assert_eq!(got, want, "row 9 after the scroll");
+}
+
+/// **The reach is the whole ring's, not the window's.** A tail written at
+/// 40 columns on row 3, retired into the history by a shorter screen as
+/// it narrows at a prompt, then pulled back onto it by a taller one: the
+/// rows on screen at the narrowing hold nothing past column 20, the row in
+/// the history does, and the repair it comes back under carries it. A reach
+/// measured over the window lost ten of its thirty `S`.
+#[test]
+fn a_tail_the_history_holds_at_the_narrowing_keeps_the_reach() {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &wide);
+    support::feed(
+        &mut t,
+        b"\x1b[3;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\x1b[10;1H\x1b]133;A\x07$ ",
+    );
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 5,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    assert!(
+        (0..5).all(|y| !row_text(&t, y, 20).contains('S')),
+        "the control: the tail's row left the screen"
+    );
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    assert_eq!(
+        row_text(&t, 2, 20),
+        "S".repeat(20),
+        "and came back to row 3"
+    );
+    let scrolls = t.region_scrolls();
+    support::feed(&mut t, b"\x1b[1;2r\x1b[2;1H\n\x1b[r\x1b[10;3H");
+    assert_ne!(t.region_scrolls(), scrolls, "the region rotated");
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    assert_eq!(row_text(&t, 2, 31), format!("{} ", "S".repeat(30)), "row 3");
 }
 
 /// **The repair counts the cells it writes**, which is the rows under the
