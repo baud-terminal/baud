@@ -254,6 +254,35 @@ fn a_wrap_onto_a_lead_blanks_the_tail_and_keeps_the_character() {
     );
 }
 
+/// Defect (d): a ZWJ family read as ISO 8859-1. Its bytes `F0 9F 91 A8 E2
+/// 80 8D F0 9F 91 A9` are `ð`, an `APC` the `PU1` after it cancels, `¨` in
+/// the last column, `â` wrapped onto row 1, `PAD`, then `8D`, a C1 `RI`, up
+/// onto row 0's first tail, where `ð` must take the lead with it; `©` cuts
+/// the next character, whose tail `t` overwrites. Re-derived from
+/// `tests/properties.rs` with the bare `ESC % @` atom on the parent of the
+/// commit that fixed it, as `[wide-three x 3, latin1-enter, zwj-family,
+/// ascii]`: one byte at a time kept the lead at column 0 and the `©`, one
+/// read kept the lead and lost the `©`. The UTF-8 arm is the same screen
+/// spelled in 7 bits, `ESC M` for the `RI`.
+#[test]
+fn a_reverse_index_onto_a_tail_under_iso_8859_1_blanks_the_lead() {
+    let wide = "\u{4e16}".repeat(9);
+    let before = format!("{}..", "\u{4e16}]".repeat(9));
+    let fox = "the quick brown fox";
+    at_every_read_size(
+        &TWENTY,
+        &wide,
+        &[&before],
+        format!("ð¨â\x1bMð©{fox}").as_bytes(),
+        &[
+            b"\xf0\x9f\x91\xa8\xe2\x80\x8d\xf0\x9f\x91\xa9".as_slice(),
+            fox.as_bytes(),
+        ]
+        .concat(),
+        &[".ð©the quick brown f", "ox.................."],
+    );
+}
+
 /// One case of the table below: its name, the setup, what the setup shows,
 /// the move and the letter (the same bytes in both encodings), and what
 /// they show.
