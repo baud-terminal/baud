@@ -475,10 +475,12 @@ pub struct Cold {
     /// **A policy the embedder owns, which is why the property table stores a
     /// width *code* rather than a resolved `Width`.** Narrow is the default
     /// and is xterm's `cjkWidth=false`; a terminal configured for CJK text
-    /// sets Wide, and the same codepoint then takes two columns. Nothing in
-    /// the protocol changes it -- there is no escape sequence for it -- so it
-    /// arrives through the API and lives in `Cold` with the rest of the state
-    /// a control sequence does not touch.
+    /// sets Wide, and the same codepoint then takes two columns. No escape
+    /// sequence sets it; it arrives through the API
+    /// (`Term::set_ambiguous_width`). One reports it: xterm answers
+    /// `DECRQM ?1021`, "cjkWidth resource (read-only)" (`[[source: ctlseqs]]`).
+    /// baud does not recognise `?1021` and answers it `0`; note V's V14
+    /// answer, unbuilt, is to answer it.
     pub(crate) ambiguous: AmbiguousWidth,
     /// Whether the Primary DA may claim Sixel. `No` until the embedder opts
     /// in, whatever the store holds: an application that reads the claim stops

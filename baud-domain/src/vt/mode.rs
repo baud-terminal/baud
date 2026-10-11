@@ -301,11 +301,15 @@ pub enum PrivateMode {
     /// "**(read-only)**".
     ///
     /// Read-only is the whole point: it reports how the terminal decodes and
-    /// cannot be used to change it. baud decodes UTF-8 and nothing else, by
-    /// construction, so the answer is fixed for the life of the process.
+    /// DECSET cannot change it. `DECRQM` answers it from the live input
+    /// encoding: `1` under UTF-8 and `2` under ISO 8859-1, which `ESC % G`
+    /// and `ESC % @` select.
     Utf8Resource,
-    /// `?2027` — grapheme clustering. baud always clusters, so like
-    /// [`PrivateMode::Utf8Resource`] this is permanent rather than a switch.
+    /// `?2027` — grapheme clustering. baud always clusters and has no mode
+    /// that stops it, so `DECRQM` answers it permanently: `3` while a
+    /// `U+FE0F` widens its base and `4` when the embedder configures one cell.
+    /// Not a switch, where [`PrivateMode::Utf8Resource`] answers `1` or `2`
+    /// from the live input encoding.
     GraphemeClustering,
     CursorVisible,      // ?25
     BracketedPaste,     // ?2004
