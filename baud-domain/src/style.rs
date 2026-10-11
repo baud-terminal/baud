@@ -144,11 +144,18 @@ impl Attrs {
         (Attrs::IDEOGRAM_STRESS, 64),
     ];
 
-    /// Thirteen bits of the thirty-two are still free.
+    /// Ten bits of the thirty-two are still free.
+    ///
+    /// **Derived from [`Attrs::WIRE`], not typed.** The constant read fourteen
+    /// and this line thirteen while twenty-two bits were taken, wrong both
+    /// ways; `the_free_bit_count_is_what_the_defined_bits_leave` counts the
+    /// bits this file defines independently of `WIRE`, so a bit left out of
+    /// the table fails there, and holds this line to the number.
     ///
     /// The ideogram aspects needed five and there were three, so `Attrs` went
-    /// to `u32` and `StyleWord` to twenty bytes -- `NSTYLE * 8` = 512 bytes in
-    /// a 24 MB `Storage`, and nothing at all on the cell, which holds a
+    /// to `u32` and `StyleWord` to twenty bytes -- a cost the rendition table
+    /// pays per slot (it is sized to the screen, between `NSTYLE` and
+    /// `NSTYLE_MAX` slots), and nothing at all on the cell, which holds a
     /// `StyleId` index rather than a rendition.
     ///
     /// This bit was previously spent on an argument that the aspects were
@@ -157,7 +164,20 @@ impl Attrs {
     /// Both were wrong: CJK terminals do send them, and the source read
     /// perfectly once searched with its own letter-spacing removed. Two
     /// reasons for one refusal is the signal that neither had been checked.
-    const _FREE_BITS: u32 = 14;
+    const _FREE_BITS: u32 = u32::BITS - Attrs::wire_union().count_ones();
+
+    /// Every bit `WIRE` names, OR-ed. A `const fn` so the count above is
+    /// computed by the compiler, and so the assertion below can refuse two
+    /// entries that share a bit.
+    const fn wire_union() -> u32 {
+        let mut u = 0;
+        let mut i = 0;
+        while i < Attrs::WIRE.len() {
+            u |= Attrs::WIRE[i].0.0;
+            i += 1;
+        }
+        u
+    }
 
     /// The raw set, for hashing a rendition.
     pub fn bits(self) -> u32 {
@@ -172,10 +192,17 @@ impl Attrs {
     pub fn has(self, o: Attrs) -> bool {
         self.0 & o.0 == o.0
     }
-    // No `as_bits`: `Attrs` is `repr(transparent)` over `u16`, so it can be
-    // stored in a `repr(C)` cell directly. Unpacking it was the only reason a
-    // raw `u16` used to escape.
+    // No `as_bits`: `Attrs` is `repr(transparent)` over `u32`, so it can be
+    // stored in a `repr(C)` rendition directly. Unpacking it was the only
+    // reason a raw integer used to escape.
 }
+
+// Two `WIRE` entries on one bit would make the derived free count too high
+// and DECRQSS name one attribute twice.
+const _: () = assert!(
+    Attrs::wire_union().count_ones() as usize == Attrs::WIRE.len(),
+    "two `WIRE` entries share a bit"
+);
 
 /// SGR colour. `Indexed` and `Rgb` are different kinds — `38;5;n` and
 /// `38;2;r;g;b` produce values that must not be confused.
@@ -731,6 +758,83 @@ impl StyleFold {
         for i in STYLE_BYTES - STYLE_BYTES % 8..STYLE_BYTES {
             dst[i] = (dst[i] & !m[i]) | v[i];
         }
+    }
+}
+
+#[cfg(test)]
+mod attrs_free_bits {
+    use crate::*;
+
+    /// The bits `Attrs` defines, read off this file's own `Attrs(1 << n)`
+    /// lines rather than off `WIRE`, so a bit added to the type and left out
+    /// of `WIRE` is still counted -- and then caught below. The union, and
+    /// how many lines named a bit: the two disagree when two lines share one.
+    fn defined() -> (u32, u32) {
+        const SRC: &str = include_str!("style.rs");
+        // Spelled apart, so this function's own source does not match.
+        let marker = concat!(": Attrs = Attrs(", "1 << ");
+        let (mut union, mut lines) = (0u32, 0u32);
+        for (_, rest) in SRC.lines().filter_map(|l| l.split_once(marker)) {
+            let n = rest.split(')').next().expect("a closing paren");
+            let n: u32 = n.trim().parse().expect("a literal shift");
+            assert!(n < u32::BITS, "bit {n} is past the word");
+            union |= 1 << n;
+            lines += 1;
+        }
+        (union, lines)
+    }
+
+    /// **The free-bit count is derived, and the doc above it says it.** It
+    /// read fourteen in the constant and thirteen in the doc while 22 of the
+    /// 32 bits were taken, wrong both ways, because both were typed.
+    #[test]
+    fn the_free_bit_count_is_what_the_defined_bits_leave() {
+        let (union, lines) = defined();
+        assert_eq!(
+            union & 0xff,
+            0xff,
+            "the control: `BOLD` to `STRIKE` are bits 0-7, and the reader must see them"
+        );
+        assert_eq!(union.count_ones(), lines, "two attributes share a bit");
+        assert_eq!(Attrs::_FREE_BITS, u32::BITS - union.count_ones());
+
+        // Every defined bit is in `WIRE`, which is what DECRQSS walks.
+        for b in (0..u32::BITS).filter(|b| union & (1 << b) != 0) {
+            assert!(
+                Attrs::WIRE.iter().any(|(a, _)| a.bits() == 1 << b),
+                "bit {b} is defined and not in `WIRE`, so DECRQSS cannot report it"
+            );
+        }
+
+        // The doc's first word names the count.
+        const SRC: &str = include_str!("style.rs");
+        let before = SRC
+            .split_once(concat!("const _FREE_", "BITS"))
+            .map(|(head, _)| head)
+            .expect("the constant");
+        let doc = before
+            .lines()
+            .rev()
+            // The indentation before `const`, on the constant's own line.
+            .skip(1)
+            .take_while(|l| l.trim_start().starts_with("///"))
+            .last()
+            .expect("a doc on the constant");
+        const WORDS: &str = "No One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve \
+            Thirteen Fourteen Fifteen Sixteen Seventeen Eighteen Nineteen Twenty Twenty-one \
+            Twenty-two Twenty-three Twenty-four Twenty-five Twenty-six Twenty-seven \
+            Twenty-eight Twenty-nine Thirty Thirty-one Thirty-two";
+        let want = WORDS
+            .split_whitespace()
+            .nth(Attrs::_FREE_BITS as usize)
+            .expect("a word for every count");
+        assert!(
+            doc.trim_start()
+                .trim_start_matches('/')
+                .trim_start()
+                .starts_with(want),
+            "the doc should open with {want:?}: {doc}"
+        );
     }
 }
 
