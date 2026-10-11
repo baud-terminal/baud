@@ -6,6 +6,8 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Font parsing, shaping and rasterisation owned by baud: sfnt/CFF/GSUB/GPOS/morx readers over borrowed bytes, no engine dependencies. no_std."
+# Not published: the owner's "no publishing, private".
+publish = false
 
 [dependencies]
 baud-domain = { path = "../baud-domain" }

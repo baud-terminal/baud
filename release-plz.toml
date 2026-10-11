@@ -1,34 +1,38 @@
-# Release configuration. The workflow restricts releasing to master; this file
-# decides what gets released once there.
+# Release configuration. **baud publishes nothing and releases nothing**: the
+# owner's "no publishing, private". The release-plz jobs in ci.yml still run
+# on every master push -- CI is left as it is -- and this file and the
+# manifests are what make each run a no-op. The source lines behind every
+# claim here are in docs/record.md, "Nothing is published, and release-plz
+# opens no Release PR".
 #
 # https://release-plz.dev/docs/config
+#
+# **What does the work is `publish = false` in every crate's Cargo.toml.**
+# release-plz 0.3.160, the version `release-plz/action@v0.5.131` installs,
+# releases only packages cargo can publish, versions only those, and opens no
+# Release PR when nothing needs a new version. So `release` skips any push
+# that is not a Release PR's merge ("skipping release: current commit is not
+# from a release PR") and on one finds nothing to release, and `release-pr`
+# opens nothing; both exit 0.
+#
+# **Not `release = false`**, the setting that reads like the switch. It drops
+# every package before anything runs, and release-plz then fails with "no
+# public packages found", so both jobs would go red on every master push.
 
 [workspace]
-# cargo-semver-checks before each release: a "patch" bump on a breaking API
-# change is rejected and the version escalated to satisfy semver.
-semver_check = true
+# For a crate added later without `publish = false`: `release_commits` below
+# keeps release-pr from proposing it, and if a PR were merged anyway it would
+# neither run `cargo publish` nor create a git tag or a GitHub release.
+publish = false
+git_tag_enable = false
+git_release_enable = false
+# No commit can match this regex (a word boundary and a non-boundary at one
+# position), so release-pr bumps nothing and opens no Release PR even for
+# a crate added later without `publish = false`.
+release_commits = "\\b\\B"
 
-# Single-crate template, so a plain `vX.Y.Z` tag. A workspace instantiated from
-# this template should switch to "{{ package }}-v{{ version }}" so each member
-# gets its own tag.
-git_tag_name = "v{{ version }}"
-
-git_release_enable = true
-
-# "auto" marks a version carrying a pre-release suffix as a GitHub pre-release,
-# so a beta does not present itself as the latest stable download.
-git_release_type = "auto"
-
-# Publishing requires merging a Release PR. An ordinary commit landing on master
-# does not publish, however it got there. crates.io is immutable, so the second
-# merge is the point.
+# Only merging a Release PR releases; an ordinary push to master does not.
 release_always = false
-
-# A release is triggered by changes to packaged files. README.md, LICENSE and
-# src/ ship inside the crate, so editing any of them needs a new version before
-# crates.io shows it. .github/ is not packaged.
-#
-# Check what ships with `cargo package --list`.
 
 # Filterable in the GitHub UI as `is:pr label:release`, and excludable from
 # "needs human review" queries with `-label:automated`.

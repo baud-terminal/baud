@@ -43,6 +43,7 @@
 #   AK  the window title: OSC titles, derived facts, platform conventions
 #   AL  the cursor trails' flashes: WCAG 2.3.1, broadcast flash rules, OS settings, trail prior art
 #   AM  XTGETTCAP: what a terminal reports about its own capabilities
+#   AN  the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper
 
 [sources.simdjson]
 key    = "simdjson"
@@ -20206,3 +20207,107 @@ group  = "C"
 # position to the value it had when the console driver received the SCP
 # sequence", and says nothing of a restore with no save. v2.0/source/ANSI.txt
 # at the same commit is byte-identical.
+
+[sources.cargo-1ef25ea-manifest-publish]
+key    = "cargo-1ef25ea-manifest-publish"
+title  = "The Cargo Book, reference/manifest.md at 1ef25ea -- \"The publish field\": publish = false disables publishing"
+author = "The Cargo Project Developers"
+year   = 2026
+venue  = "rust-lang/cargo (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/rust-lang/cargo/1ef25ea3d391374fe3bed4dcbe24f0d3be3ab8f9/doc/book/src/reference/manifest.md"
+file   = ""
+sha256 = "8058b127a263105c72d41338244cc63d0e6662397a9c9c3409f5e6605417d44c"
+bytes  = 25664
+status = "external"
+group  = "AN"
+
+[sources.release-plz-action-v0-5-131]
+key    = "release-plz-action-v0-5-131"
+title  = "release-plz/action v0.5.131, action.yml -- the `version` input defaults to release-plz 0.3.160, installed by cargo-binstall"
+author = "Marco Ieni"
+year   = 2026
+venue  = "release-plz/action (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/release-plz/action/v0.5.131/action.yml"
+file   = ""
+sha256 = "1724b5ac24e0053bacfc0eb2f04c414e1d4d8b830805e994b1bf60f6a8d0b8d9"
+bytes  = 8007
+status = "external"
+group  = "AN"
+
+[sources.release-plz-v0-3-160-config-md]
+key    = "release-plz-v0-3-160-config-md"
+title  = "release-plz 0.3.160, website/docs/config.md -- the `publish`, `release`, `git_tag_enable`, `git_release_enable`, `release_always` and `release_commits` fields"
+author = "Marco Ieni and the release-plz contributors"
+year   = 2026
+venue  = "release-plz (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/release-plz/release-plz/release-plz-v0.3.160/website/docs/config.md"
+file   = ""
+sha256 = "30754ad690bbba815b570e061271f9b295201f852658c1b40799f9a479ebb685"
+bytes  = 43705
+status = "external"
+group  = "AN"
+
+[sources.release-plz-v0-3-160-project-rs]
+key    = "release-plz-v0-3-160-project-rs"
+title  = "release-plz 0.3.160, crates/release_plz_core/src/project.rs -- Project::new keeps release-enabled packages and fails \"no public packages found\" on none; publishable_packages() filters on cargo's publish"
+author = "Marco Ieni and the release-plz contributors"
+year   = 2026
+venue  = "release-plz (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/release-plz/release-plz/release-plz-v0.3.160/crates/release_plz_core/src/project.rs"
+file   = ""
+sha256 = "491d6e758661aaa826a4cc4aca1cc2640f745f0a741cf0dec66275ea0256d35a"
+bytes  = 16798
+status = "external"
+group  = "AN"
+
+[sources.release-plz-v0-3-160-release-rs]
+key    = "release-plz-v0-3-160-release-rs"
+title  = "release-plz 0.3.160, crates/release_plz_core/src/command/release.rs -- release_packages takes publishable_packages() and logs \"nothing to release\" on none"
+author = "Marco Ieni and the release-plz contributors"
+year   = 2026
+venue  = "release-plz (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/release-plz/release-plz/release-plz-v0.3.160/crates/release_plz_core/src/command/release.rs"
+file   = ""
+sha256 = "8dc9115dd99b227c8572ca2ba4e6d1ff3660f17126bb3b0f926b150b3cec43be"
+bytes  = 44203
+status = "external"
+group  = "AN"
+
+[sources.release-plz-v0-3-160-next-ver-rs]
+key    = "release-plz-v0-3-160-next-ver-rs"
+title  = "release-plz 0.3.160, crates/release_plz_core/src/next_ver.rs -- collect_registry_packages returns empty when no package is publishable; is_publishable reads cargo's publish"
+author = "Marco Ieni and the release-plz contributors"
+year   = 2026
+venue  = "release-plz (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/release-plz/release-plz/release-plz-v0.3.160/crates/release_plz_core/src/next_ver.rs"
+file   = ""
+sha256 = "d435a05df1e125fc8db1389d7d414f5a9f456698275bb3ba1d5bac1b77d6e5d3"
+bytes  = 18884
+status = "external"
+group  = "AN"
+
+[sources.release-plz-v0-3-160-release-pr-rs]
+key    = "release-plz-v0-3-160-release-pr-rs"
+title  = "release-plz 0.3.160, crates/release_plz_core/src/command/release_pr/mod.rs -- a Release PR is opened only when updates() is non-empty"
+author = "Marco Ieni and the release-plz contributors"
+year   = 2026
+venue  = "release-plz (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/release-plz/release-plz/release-plz-v0.3.160/crates/release_plz_core/src/command/release_pr/mod.rs"
+file   = ""
+sha256 = "09a1da0f950dc98ff1a585979f5122c0254ddff8627ec6c6cc6ac48c623c2053"
+bytes  = 17101
+status = "external"
+group  = "AN"
+
+[sources.release-plz-v0-3-160-config-rs]
+key    = "release-plz-v0-3-160-config-rs"
+title  = "release-plz 0.3.160, crates/release_plz/src/config.rs -- the [workspace] table flattens the package defaults (publish, git_tag_enable, git_release_enable) under deny_unknown_fields"
+author = "Marco Ieni and the release-plz contributors"
+year   = 2026
+venue  = "release-plz (MIT OR Apache-2.0)"
+url    = "https://raw.githubusercontent.com/release-plz/release-plz/release-plz-v0.3.160/crates/release_plz/src/config.rs"
+file   = ""
+sha256 = "87344de94fd665677c2cda886e613848c21964015213444b335e0b34944d69cb"
+bytes  = 35168
+status = "external"
+group  = "AN"

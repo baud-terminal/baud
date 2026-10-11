@@ -2,6 +2,8 @@
 name = "alacritty-bench"
 version = "0.1.0"
 edition = "2021"
+# Not published: the owner's "no publishing, private".
+publish = false
 
 [dependencies]
 # **The registry, not a sibling checkout.** This named

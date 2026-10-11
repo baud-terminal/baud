@@ -6,6 +6,8 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "A terminal emulator core: PTY bytes through VT parse into a grid. no_std, allocation-free."
+# Not published: the owner's "no publishing, private".
+publish = false
 
 [features]
 # **`param3` is off, and it used to be on.** Three bytes an edge in the

@@ -6,6 +6,8 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "AVX2 implementations of baud-isa's domain-typed scan operations. no_std, x86-64 only."
+# Not published: the owner's "no publishing, private".
+publish = false
 
 [dependencies]
 baud-domain = { path = "../baud-domain" }

@@ -6,6 +6,8 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "baud's compositor: cells to instance records to pixels, on the CPU and on the GPU, with the glyph atlas and row-granular damage."
+# Not published: the owner's "no publishing, private".
+publish = false
 
 [dependencies]
 baud-domain = { path = "../baud-domain" }

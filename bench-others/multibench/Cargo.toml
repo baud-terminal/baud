@@ -6,6 +6,8 @@ cargo-features = ["profile-rustflags"]
 name = "multibench"
 version = "0.1.0"
 edition = "2021"
+# Not published: the owner's "no publishing, private".
+publish = false
 
 [dependencies]
 # From crates.io rather than a sibling checkout. The path dependency made this

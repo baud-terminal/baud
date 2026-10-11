@@ -6,6 +6,8 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "aarch64 implementations of baud-isa's domain-typed scan operations. no_std, ARM only."
+# Not published: the owner's "no publishing, private".
+publish = false
 
 [dependencies]
 baud-domain = { path = "../baud-domain" }

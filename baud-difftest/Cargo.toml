@@ -2,12 +2,10 @@
 name = "baud-difftest"
 version.workspace = true
 edition.workspace = true
-# **Not published, and that became load-bearing when this crate joined the
-# workspace.** `release-plz.toml` releases every publishable member, and this one
-# carries no `license` or `description` -- so a release PR would offer a test
-# harness to crates.io and be rejected for missing metadata. It is an oracle
-# against an external implementation, not a library anyone depends on, so the
-# answer is `publish = false` rather than inventing the metadata.
+# Not published, as no crate here is (the owner's "no publishing, private";
+# `release-plz.toml` says how the release jobs are kept to a no-op). It is an
+# oracle against an external implementation, not a library anyone depends on,
+# and it carries no `license` or `description`.
 publish = false
 
 [dependencies]

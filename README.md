@@ -334,12 +334,10 @@ confident guesses more than once, and the record says where.
 
 ## Releases
 
-Automated with [release-plz](https://release-plz.dev). Commits follow
-[Conventional Commits](https://www.conventionalcommits.org/); release-plz opens
-a `chore: release` PR that bumps the version and writes `CHANGELOG.md`, and
-**merging that PR is what authorises the publish to crates.io.** Versions are
-never edited by hand — release-plz reads its baseline from crates.io, so a
-manual bump or publish desynchronises it.
+None. baud is private and publishes nothing: every crate carries
+`publish = false`, and `release-plz.toml` keeps the release jobs CI still runs
+to a no-op, so no Release PR is opened and nothing is tagged or published.
+Build from source ([BUILD.md](BUILD.md)).
 
 ## Funding
 

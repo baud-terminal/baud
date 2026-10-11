@@ -113,6 +113,7 @@ their entries' titles:
 | AK | the window title: OSC titles, derived facts, platform conventions |
 | AL | the cursor trails' flashes: WCAG 2.3.1, broadcast flash rules, OS settings, trail prior art |
 | AM | XTGETTCAP: what a terminal reports about its own capabilities |
+| AN | the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper |
 
 A group's letter and a note's need not match: group H's sources are key
 encoding, and note H is the session context budget. Both tables are held to

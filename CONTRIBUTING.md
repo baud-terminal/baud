@@ -33,23 +33,19 @@ that is exactly the divergence this setup exists to prevent.
 
 ## Commit messages
 
-[Conventional Commits](https://www.conventionalcommits.org/). release-plz reads
-them to compute the next version and write `CHANGELOG.md`, so the prefix
-decides the release:
-
-- `fix:` → patch
-- `feat:` → minor
-- `feat!:` / `BREAKING CHANGE:` in the body → major
-
-`chore:`, `docs:`, `test:`, `refactor:` and `ci:` do not trigger a release.
+[Conventional Commits](https://www.conventionalcommits.org/). Nothing is
+released (below), so no prefix decides a version or triggers a release.
 
 ## Releases
 
-Releases are automated and gated. release-plz opens a `chore: release` PR that
-bumps the version and writes the changelog; **merging that PR is what
-authorises the publish to crates.io.** Do not bump versions by hand and do not
-publish manually — release-plz reads its baseline from crates.io, and a manual
-publish or a hand-edited version desynchronises it.
+**baud is private and publishes nothing.** Every crate's `Cargo.toml` carries
+`publish = false`, so `cargo publish` refuses each one, and a new crate must
+carry it too. The release-plz jobs in `.github/workflows/ci.yml` still run on
+master, and `release-plz.toml` keeps them to a no-op: `release` skips every
+push that is not a Release PR's merge and finds nothing to release on one,
+`release-pr` opens no Release PR, and neither tags nor makes a GitHub
+release. Do not publish by hand. `cargo metadata --no-deps
+--format-version 1` shows `"publish": []` for every package.
 
 ## Code of Conduct
 
