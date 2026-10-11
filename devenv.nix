@@ -51,10 +51,17 @@ in
   ];
 
   # Development scripts
+  #
+  # **No `--all-features`.** It turned on every ceiling and probe arm at once,
+  # and the arms are wrong by construction and stub one another out: on
+  # 5f1d5f0 baud-core's lib did not compile that way under `-D warnings`
+  # (an unreachable statement, an unused `mut`, an unused parameter, two
+  # methods never called), so the script was red on a green tree.
+  # `test:features` checks each arm alone, which is how an arm is used.
   scripts.dev-test.exec = ''
     echo "Running tests..."
-    RUSTFLAGS="-D warnings" cargo nextest run --release --no-fail-fast ${scope} --all-features; a=$?
-    RUSTFLAGS="-D warnings" cargo test --release --doc ${scope} --all-features; b=$?
+    RUSTFLAGS="-D warnings" cargo nextest run --release --no-fail-fast ${scope}; a=$?
+    RUSTFLAGS="-D warnings" cargo test --release --doc ${scope}; b=$?
     [ "$a" -eq 0 ] && [ "$b" -eq 0 ]
   '';
 
@@ -336,9 +343,11 @@ in
       exec = "sh ./audit_all.sh";
       after = [ "test:linux" ];
     };
-    # Every feature arm must build on its own. `--all-features` (dev-test) builds
-    # them all at once, which masks per-arm rot; this checks each individually,
-    # the way the arms are actually used for measurement.
+    # Every feature arm must build on its own. `--all-features` builds them all
+    # at once, which masks per-arm rot and, on 5f1d5f0, did not compile under
+    # `-D warnings` (dev-test ran it until 2026-10-11); this checks each
+    # individually, the way the arms are actually used for measurement. It
+    # checks; no arm's tests run anywhere.
     "test:features" = {
       exec = "bash ./scripts/check-features.sh";
       after = [ "test:audit" ];
