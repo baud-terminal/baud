@@ -207,9 +207,9 @@ written, and it is +4% on both CJK rows" (`2ff81d8`).
 `baud-isa` exists. It held `Scan`, `Portable` and `Avx2` -- the whole of what
 was `baud-core2`'s scan module, the crate then named `baud-core` -- and that
 crate depended on it. The `baud-core` of today depends on it behind its scan
-features (`neon-scan`, the default, and `avx2-scan`). Since
-`76b5769` it holds `Scan`, `Portable` and the other portable traits
-(`Decode`, `CacheProbe`, `Warm`), and the intrinsics live in the
+features (`neon-scan`, the default, and `avx2-scan`). It holds the
+`Scan` trait, the `Portable` scanner struct and the other portable traits
+(`Decode`, `CacheProbe`, `Warm`, each added after `76b5769`), and the intrinsics live in the
 per-architecture crates: `Avx2` in `baud-isa-x86-64`, `Neon` in
 `baud-isa-aarch64` (corrected 2026-10-10).
 
