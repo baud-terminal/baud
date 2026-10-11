@@ -57,6 +57,13 @@ impl Paint<'_, '_> {
         let aspect = self.cold.sixel_aspect;
         let report = Sixel::extent(body, aspect);
         let (w, h) = (report.width, report.height);
+        // Wider or taller than a coordinate holds: refused whole, since its
+        // extent stopped at 65535 and a span reserved from it would be too
+        // small for what the decode paints.
+        if report.fit == SixelFit::TooLarge {
+            self.images.refuse(ImageRefusal::TooLarge);
+            return;
+        }
         if w == SixelPx::ZERO || h == SixelPx::ZERO {
             self.images.refuse(ImageRefusal::Empty);
             return;

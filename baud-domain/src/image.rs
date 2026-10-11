@@ -353,6 +353,9 @@ pub enum ImageRefusal {
     /// No gap in the pixel arena held a `width` x `height` image -- larger
     /// than the whole arena, or larger than what the live images leave free.
     Arena(ImagePx, ImagePx),
+    /// An image wider or taller than 65535 pixels, the most an image
+    /// coordinate holds: no limit refused it and none raised would draw it.
+    TooLarge,
 }
 
 /// The image refusals split by the limit each hit, with the size the last one
@@ -378,6 +381,8 @@ pub struct ImageRefusals {
     pub arena_width: ImagePx,
     /// Its height.
     pub arena_height: ImagePx,
+    /// Images refused for being wider or taller than 65535 pixels.
+    pub too_large: usize,
 }
 
 impl ImageRefusals {
@@ -390,12 +395,13 @@ impl ImageRefusals {
         arena: 0,
         arena_width: ImagePx::ZERO,
         arena_height: ImagePx::ZERO,
+        too_large: 0,
     };
 
     /// Every refusal, whatever its cause: what
     /// [`ImageStore::images_refused`] equals.
     pub fn total(&self) -> usize {
-        self.body + self.empty + self.slot + self.arena
+        self.body + self.empty + self.slot + self.arena + self.too_large
     }
 }
 
@@ -591,6 +597,7 @@ impl<'b> ImageStore<'b> {
                 r.arena_width = width;
                 r.arena_height = height;
             }
+            ImageRefusal::TooLarge => r.too_large += 1,
         }
     }
 

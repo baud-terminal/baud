@@ -40,17 +40,24 @@ impl SixelPx {
         self.0
     }
 
-    fn next(self) -> SixelPx {
-        SixelPx(self.0.saturating_add(1))
+    /// A walk position as a coordinate, or `None` past what a `u16` holds.
+    fn at(v: u32) -> Option<SixelPx> {
+        u16::try_from(v).ok().map(SixelPx)
     }
+}
 
-    fn plus(self, n: u16) -> SixelPx {
-        SixelPx(self.0.saturating_add(n))
-    }
-
-    fn largest(self, o: SixelPx) -> SixelPx {
-        SixelPx(self.0.max(o.0))
-    }
+/// Whether an image's extent fits a [`SixelPx`] each way. A Sixel can
+/// describe more: `!65535~!1~` is 65536 columns, and a raster ratio of 20000
+/// makes one band 120000 rows. The walk keeps counting past 65535, so an
+/// extent too large to state is reported as such rather than stopped at the
+/// limit while the painting runs on, and the caller refuses the image whole.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SixelFit {
+    /// Width and height are each at most 65535: the report's extent is exact.
+    Fits,
+    /// Wider or taller than 65535: the extent is stopped there and is not the
+    /// image's.
+    TooLarge,
 }
 
 /// The pixel aspect ratio a Sixel is drawn at, as the device rows one sixel
@@ -176,6 +183,8 @@ pub struct SixelReport {
     /// applied since 2026-10-11, its hue origin pinned (see `hls`); it was
     /// counted here until then.
     pub unapplied_registers: u32,
+    /// Whether `width` and `height` are the image's or stopped at 65535.
+    pub fit: SixelFit,
 }
 
 /// The 256 colour registers a Sixel image shares
@@ -219,10 +228,13 @@ impl Sixel {
         let mut rows = aspect.0;
         let mut raster = Raster::Open;
         let mut reg: usize = 0;
-        let mut x = SixelPx::ZERO;
-        let mut band_top = SixelPx::ZERO;
-        let mut width = SixelPx::ZERO;
-        let mut height = SixelPx::ZERO;
+        // Positions and the extent are counted in `u32`, past what a
+        // coordinate holds, so an image too large to state is seen as one.
+        let mut x: u32 = 0;
+        let mut band_top: u32 = 0;
+        let mut width: u32 = 0;
+        let mut height: u32 = 0;
+        let mut band = 6 * u32::from(rows);
         let mut refused: u32 = 0;
         let mut unapplied: u32 = 0;
         // The repeat introducer applies to the one data byte that follows it;
@@ -286,15 +298,15 @@ impl Sixel {
                 }
                 // Graphics carriage return: back to the left of this band.
                 b'$' => {
-                    x = SixelPx::ZERO;
+                    x = 0;
                     i += 1;
                     repeat = 1;
                     raster = Raster::Closed;
                 }
                 // Graphics new line: left, and down one six-pixel band.
                 b'-' => {
-                    x = SixelPx::ZERO;
-                    band_top = band_top.plus(rows.saturating_mul(6));
+                    x = 0;
+                    band_top = band_top.saturating_add(band);
                     i += 1;
                     repeat = 1;
                     raster = Raster::Closed;
@@ -311,6 +323,7 @@ impl Sixel {
                     let (_pv, k4) = number_after_sep(data, k3);
                     if let Raster::Open = raster {
                         rows = SixelAspect::from_raster(pan, pad).0;
+                        band = 6 * u32::from(rows);
                     }
                     i = k4;
                     repeat = 1;
@@ -328,9 +341,15 @@ impl Sixel {
                                 // Absent in measure mode: the extent below is
                                 // tracked whether or not a pixel is painted.
                                 if let Some(c) = canvas.as_deref_mut() {
-                                    let top = band_top.plus(u16::from(row).saturating_mul(rows));
-                                    for k in 0..rows {
-                                        match c.paint(x, top.plus(k), colour) {
+                                    let top =
+                                        band_top.saturating_add(u32::from(row) * u32::from(rows));
+                                    for k in 0..u32::from(rows) {
+                                        let y = top.saturating_add(k);
+                                        let painted = match (SixelPx::at(x), SixelPx::at(y)) {
+                                            (Some(px), Some(py)) => c.paint(px, py, colour),
+                                            _ => Painted::Refused,
+                                        };
+                                        match painted {
                                             Painted::Inside => {}
                                             Painted::Refused => refused = refused.saturating_add(1),
                                         }
@@ -338,14 +357,14 @@ impl Sixel {
                                 }
                             }
                         }
-                        x = x.next();
+                        x = x.saturating_add(1);
                         n -= 1;
                     }
                     // The extent is where the data reached, not where pixels
                     // were set: `x` is now the first column past this data byte,
                     // and the band is six rows tall whether or not any bit set.
-                    width = width.largest(x);
-                    height = height.largest(band_top.plus(rows.saturating_mul(6)));
+                    width = width.max(x);
+                    height = height.max(band_top.saturating_add(band));
                     i += 1;
                     repeat = 1;
                     raster = Raster::Closed;
@@ -360,11 +379,16 @@ impl Sixel {
             }
         }
 
+        let fit = match (SixelPx::at(width), SixelPx::at(height)) {
+            (Some(_), Some(_)) => SixelFit::Fits,
+            _ => SixelFit::TooLarge,
+        };
         SixelReport {
-            width,
-            height,
+            width: SixelPx::at(width).unwrap_or(SixelPx(u16::MAX)),
+            height: SixelPx::at(height).unwrap_or(SixelPx(u16::MAX)),
             refused,
             unapplied_registers: unapplied,
+            fit,
         }
     }
 }

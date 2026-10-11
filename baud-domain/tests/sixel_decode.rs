@@ -9,7 +9,7 @@
 //! the binary value `0x74 - 0x3F = 0b110101` with the least significant bit at
 //! the top, so its six vertical pixels read `[1,0,1,0,1,1]` top to bottom.
 
-use baud_domain::{ColorWord, Sixel, SixelAspect, SixelCanvas, SixelPx, SixelReport};
+use baud_domain::{ColorWord, Sixel, SixelAspect, SixelCanvas, SixelFit, SixelPx, SixelReport};
 
 /// The aspect the bodies here are decoded at unless a test says otherwise:
 /// what an envelope's `P1 = 9` selects, 1:1 (`[[source: vt3xx-sixel]]`;
@@ -374,6 +374,23 @@ fn the_measure_pass_agrees_with_the_paint_pass_on_the_extent() {
             painted.height, measured.height,
             "height disagrees on {data:?}"
         );
+    }
+}
+
+#[test]
+fn an_extent_past_65535_is_reported_too_large_not_stopped() {
+    // A coordinate is a `u16`. 65535 columns, and a band of 65532 rows at a
+    // ratio of 10922, fit; one more column, or a ratio whose band passes
+    // 65535, does not, and the report says so rather than stating 65535 as
+    // the image's extent.
+    let cases: [(&[u8], SixelFit); 4] = [
+        (b"#0;2;100;0;0!65535~", SixelFit::Fits),
+        (b"#0;2;100;0;0!65535~!1~", SixelFit::TooLarge),
+        (b"\"10922;1#0;2;100;0;0~", SixelFit::Fits),
+        (b"\"10923;1#0;2;100;0;0~", SixelFit::TooLarge),
+    ];
+    for (body, fit) in cases {
+        assert_eq!(Sixel::extent(body, SQUARE).fit, fit, "{body:?}");
     }
 }
 

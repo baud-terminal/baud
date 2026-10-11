@@ -66,9 +66,10 @@ pub fn describe_images(b: &ImageBudget) -> String {
 /// It exists because the refusal was invisible: yazi's previews went blank
 /// against the 256 KiB body default, counted in a total that also counted
 /// the arena and the slots and that nothing in the app read. An image with no
-/// pixels is counted and not said -- no limit refused it and none raised
-/// would draw it. A `ColorWord` is four bytes, so a pixel count shifted right
-/// 18 is MiB, as in [`describe_images`].
+/// pixels, or one wider or taller than the 65535 pixels an image coordinate
+/// holds, is counted and not said -- no limit refused it and none raised would
+/// draw it. A `ColorWord` is four bytes, so a pixel count shifted right 18 is
+/// MiB, as in [`describe_images`].
 pub fn describe_refusals(
     before: &ImageRefusals,
     after: &ImageRefusals,

@@ -608,6 +608,39 @@ fn a_sixel_with_no_pixels_is_counted_as_empty() {
     }
 }
 
+/// **An image past 65535 pixels either way is refused whole, never cut.** An
+/// image coordinate is a `u16`, so the walk's extent stopped at 65535 while
+/// its painting ran on, and the span reserved from the extent was too small
+/// for what the decode then painted: a debug build tripped `sixel_end`'s
+/// `refused == 0` assertion and a release build placed a cut image. A raster
+/// ratio of 20000 makes one band 120000 rows tall in a dozen bytes, and
+/// `!65535~!1~` is 65536 columns. Each budget holds the 65535-pixel span the
+/// capped extent asked for, so only the size can refuse it.
+#[test]
+fn an_image_past_65535_pixels_either_way_is_refused_whole() {
+    let cases: [(&str, &[u8], ImageBudget); 2] = [
+        (
+            "120000 rows",
+            b"\x1bPq\"20000;1#1;2;100;0;0#1~\x1b\\",
+            ImageBudget::of(1 << 17, 8192),
+        ),
+        (
+            "65536 columns",
+            b"\x1bP9q#1;2;100;0;0#1!65535~!1~\x1b\\",
+            ImageBudget::of(1 << 19, 8192),
+        ),
+    ];
+    for (name, body, budget) in cases {
+        run(body, body.len(), budget, |t| {
+            assert_eq!(t.images().placements().count(), 0, "{name}: nothing placed");
+            assert_eq!(t.images().images_refused, 1, "{name}: refused");
+            let r = refusals(t);
+            assert_eq!(r.too_large, 1, "{name}: counted as too large");
+            assert_eq!((r.body, r.empty, r.slot, r.arena), (0, 0, 0, 0), "{name}");
+        });
+    }
+}
+
 /// A 1x6 red Sixel, the smallest well-formed image, for placement tests.
 const TINY: &[u8] = b"\x1bP0;1;0q#0;2;100;0;0~\x1b\\";
 
