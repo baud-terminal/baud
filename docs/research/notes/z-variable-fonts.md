@@ -652,3 +652,38 @@ and for the owner's reading of what it caches; transformed components, which
 fontTools flattens with the transform applied and no font here carries;
 value-record devices.
 
+
+
+## Step 6, built: the renderer draws a varied face
+
+`Face::outline` refuses a glyph that varies at the face's coordinates
+(step 2), and the atlas and the shaper's glyph boxes took that refusal for
+a glyph with no ink: a varied face drew blanks, memoised as blank, and a
+face with no `GPOS` placed none of its marks. Nothing set a variation on a
+renderer's faces, so nothing showed it; the embed swap and a configured
+variable font would have.
+
+* **The atlas** draws every outline through `Face::outline_at`. Its
+  scratch grows to the need a refusal names and the glyph is drawn again;
+  a static face never asks, so its glyphs pay one call. A need past
+  `VAR_POINTS_MAX`, 200,000 points (HarfBuzz's `HB_GLYF_MAX_POINTS`
+  (`[[source: harfbuzz-12-3-0-limits]]`) as a memory budget, about 5.6 MB),
+  is refused, counted once in `AtlasStats::refused` and memoised as
+  nothing. A `COLR` glyph with a layer refused is refused whole rather
+  than painted in part -- none of its layers is painted, and it falls to
+  its base glyph's own outline; the fixture's base glyphs are empty, so
+  that fallback is untested.
+* **The shaper** takes scratch from its caller (`Shaper::scratch`; the
+  crate allocates nothing) and counts a refused glyph box in
+  `Shaped::ink_refused` with the largest need, `Shaped::ink_need`. The
+  renderer grows its scratch to that need, capped at the budget, and
+  shapes the run once more; a box still refused is counted in
+  `Renderer::ink_refused`. `frame` prints both counters.
+
+`var/ink-cases.ttf` (`scripts/ink-cases-font.py`) is the fixture: a
+variable font with no `GPOS`, two bases and six marks whose boxes move
+with the weight, a 240,000-point composite, and two `COLR` glyphs. Its
+fallback placements at four weights are HarfBuzz's
+(`tests/var/marks.txt`, 80 varied rows, `every_mark_position_is_harfbuzzs`),
+and `baud-render/tests/varied_face.rs` holds the atlas, the layered glyph,
+the renderer's placement and the two refusals.

@@ -29,7 +29,9 @@ use crate::bytes::Count;
 use crate::cmap::Variation;
 use crate::compose::{CCC, COMPOSE, DECOMPOSE};
 use crate::face::Face;
+use crate::glyf::VarPoint;
 use crate::layout::{Digest, Features};
+use crate::outline::Drawn;
 use crate::raster::{Bounds, InkBox};
 use baud_domain::{Codepoint, GlyphId};
 
@@ -128,14 +130,16 @@ pub struct Shaped {
     pub declined: Count,
     /// Codepoints the face had no glyph for, drawn as `.notdef`.
     pub missing: Count,
-}
-
-/// The horizontal centre of a glyph's ink, in font units, from its
-/// control-point box.
-fn ink_box(face: &Face<'_>, g: GlyphId) -> Option<InkBox> {
-    let mut b = Bounds::new();
-    face.outline(g, &mut b);
-    b.ink()
+    /// Glyph boxes the fallback mark placement asked for and was refused,
+    /// because the outline needs more scratch than [`Shaper::scratch`]
+    /// gave it ([`Drawn::NeedsScratch`]): a base refused leaves its marks
+    /// where the pen put them and a mark refused stays at the pen, as a
+    /// glyph with no box does. Never refused silently: a caller that sees
+    /// this above zero grows its scratch to [`Shaped::ink_need`] and
+    /// shapes again, or counts what it would not grow for.
+    pub ink_refused: Count,
+    /// The most scratch any refused box needed, in [`VarPoint`]s.
+    pub ink_need: Count,
 }
 
 /// A glyph box in HarfBuzz's extents form: a left bearing and width, a
@@ -504,6 +508,12 @@ pub struct Shaper<'f, 'a, 'b> {
     missing: Count,
     /// Per-lookup digests for `GSUB`, when the caller keeps them.
     digests: &'f [Digest],
+    /// The caller's scratch for an outline that needs it, which a varied
+    /// face's glyph does ([`Face::outline_at`]); empty until
+    /// [`Shaper::scratch`] hands some over.
+    scratch: &'b mut [VarPoint],
+    ink_refused: Count,
+    ink_need: Count,
 }
 
 impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
@@ -513,7 +523,31 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             buf: Buffer::new(storage),
             missing: Count::ZERO,
             digests: &[],
+            scratch: &mut [],
+            ink_refused: Count::ZERO,
+            ink_need: Count::ZERO,
         }
+    }
+
+    /// Hands the shaper scratch for the glyph boxes the fallback mark
+    /// placement reads: a face read at a variation draws its glyphs only
+    /// through [`Face::outline_at`], and a box it is refused is counted in
+    /// [`Shaped::ink_refused`] with the size that would have drawn it.
+    pub fn scratch(&mut self, scratch: &'b mut [VarPoint]) {
+        self.scratch = scratch;
+    }
+
+    /// A glyph's control-point box in font units, at the face's
+    /// coordinates. `None` for a glyph that draws nothing, or for one
+    /// whose outline the scratch is too small for, which is counted.
+    fn ink_box(&mut self, g: GlyphId) -> Option<InkBox> {
+        let mut b = Bounds::new();
+        if let Drawn::NeedsScratch(need) = self.face.outline_at(g, self.scratch, &mut b) {
+            self.ink_refused = Count::of(self.ink_refused.value().saturating_add(1));
+            self.ink_need = self.ink_need.max(need);
+            return None;
+        }
+        b.ink()
     }
 
     /// Hands the shaper the digests [`crate::Gsub::digests`] filled for
@@ -641,12 +675,13 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
                     && g.ignorable == Ignorable::No);
             if starts_base {
                 // A base without extents zeroes its marks and goes home.
-                base = ink_box(self.face, g.id).map(|ink| BaseBox::of(g, self.face, ink));
+                base = self.ink_box(g.id).map(|ink| BaseBox::of(g, self.face, ink));
             } else if g.ccc != CombiningClass::STARTER
                 && g.ignorable == Ignorable::No
                 && g.positioned == Positioned::No
             {
-                if let (Some(b), Some(mark)) = (base.as_mut(), ink_box(self.face, g.id)) {
+                let mark = self.ink_box(g.id);
+                if let (Some(b), Some(mark)) = (base.as_mut(), mark) {
                     let (x, y) = b.place(Extents::of(mark), g.ccc);
                     if let Some(glyph) = self.buf.get_mut(at) {
                         glyph.dx = i16::try_from(b.dx.saturating_add(x)).unwrap_or(0);
@@ -703,6 +738,8 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             Shaped {
                 declined,
                 missing: self.missing,
+                ink_refused: self.ink_refused,
+                ink_need: self.ink_need,
             },
         )
     }

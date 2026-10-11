@@ -237,13 +237,28 @@ fn shape_some(face: &Face<'_>) {
         &[0x10FFFF],
         &[0xAC00],
     ];
+    // A varied face's glyph boxes need scratch: shaped once without, and
+    // again with exactly the need the refusals named, which must then
+    // refuse nothing -- the renderer's protocol, so a hostile font must not
+    // make that need short. A need past a bound is left refused.
+    const BOUND: u32 = 1 << 16;
     let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 64];
-    let mut shaper = Shaper::new(face, &mut storage);
-    for (i, cps) in CLUSTERS.iter().enumerate() {
-        let cps: Vec<Codepoint> = cps.iter().filter_map(|&v| Codepoint::new(v)).collect();
-        let _ = shaper.push_cluster(&cps, Cluster(u16::try_from(i).unwrap()));
+    let mut scratch: Vec<baud_font::VarPoint> = Vec::new();
+    for pass in 0..2 {
+        let mut shaper = Shaper::new(face, &mut storage);
+        shaper.scratch(&mut scratch);
+        for (i, cps) in CLUSTERS.iter().enumerate() {
+            let cps: Vec<Codepoint> = cps.iter().filter_map(|&v| Codepoint::new(v)).collect();
+            let _ = shaper.push_cluster(&cps, Cluster(u16::try_from(i).unwrap()));
+        }
+        let (_, shaped) = shaper.finish(Features::GRID);
+        let need = shaped.ink_need.value();
+        if shaped.ink_refused.is_zero() || need > BOUND {
+            return;
+        }
+        assert_eq!(pass, 0, "a box refused with the scratch it named: {need}");
+        scratch.resize(usize::try_from(need).unwrap(), baud_font::VarPoint::EMPTY);
     }
-    let _ = shaper.finish(Features::GRID);
 }
 
 /// Decode a PNG the way a renderer would, with the size-bomb check the

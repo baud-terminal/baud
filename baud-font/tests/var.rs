@@ -472,13 +472,14 @@ fn every_advance_is_harfbuzzs() {
 /// HarfBuzz reports a mark's offset from its own pen position, one base
 /// advance along; baud's is from the cell origin, so the pen is added back,
 /// as `tests/shape.rs` does. The default rows are the control; the varied
-/// rows are the anchors' variation devices.
+/// rows are the anchors' variation devices, and for `var/ink-cases.ttf`,
+/// which has no GPOS, the fallback placement against varied glyph boxes.
 #[test]
 fn every_mark_position_is_harfbuzzs() {
     use baud_font::{Cluster, Features, Glyph, Ignorable, Shaper};
     let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/var/marks.txt"))
         .unwrap();
-    let (mut checked, mut varied, mut offset) = (0usize, 0usize, 0usize);
+    let (mut checked, mut varied, mut offset, mut asked) = (0usize, 0usize, 0usize, 0usize);
     let mut default_rows = std::collections::HashMap::new();
     let mut moved = 0usize;
     let mut wrong = Vec::new();
@@ -513,10 +514,26 @@ fn every_mark_position_is_harfbuzzs() {
             .map(|h| baud_domain::Codepoint::new(u32::from_str_radix(h, 16).unwrap()).unwrap())
             .collect();
         let mut storage = [Glyph::new(baud_domain::GlyphId::NOTDEF, Cluster(0), Ignorable::No); 16];
+        // The renderer's protocol: shape with what scratch there is, and on
+        // a refused box grow it to the need the refusal names and shape
+        // again. A face with GPOS reads no box and never asks.
+        let mut scratch: Vec<baud_font::VarPoint> = Vec::new();
         let mut shaper = Shaper::new(&face, &mut storage);
+        shaper.push_cluster(&cps, Cluster(0)).unwrap();
+        let (_, first) = shaper.finish(Features::GRID);
+        if !first.ink_refused.is_zero() {
+            asked += 1;
+            scratch.resize(
+                usize::try_from(first.ink_need.value()).unwrap(),
+                baud_font::VarPoint::EMPTY,
+            );
+        }
+        let mut shaper = Shaper::new(&face, &mut storage);
+        shaper.scratch(&mut scratch);
         shaper.push_cluster(&cps, Cluster(0)).unwrap();
         let (buf, shaped) = shaper.finish(Features::GRID);
         assert!(shaped.declined.is_zero(), "{line}");
+        assert!(shaped.ink_refused.is_zero(), "{line}: a box refused");
         let mut got = Vec::new();
         let mut pen = 0i32;
         let expected: Vec<[i32; 5]> = want
@@ -542,11 +559,14 @@ fn every_mark_position_is_harfbuzzs() {
         }
         checked += 1;
     }
-    eprintln!("checked {checked} varied {varied} moved {moved} offsets {offset}");
+    eprintln!("checked {checked} varied {varied} moved {moved} offsets {offset} asked {asked}");
     assert!(
         checked > 11_000 && varied > 8_000 && moved > 1_500 && offset > 4_500,
         "the control: {checked} {varied} {moved} {offset}"
     );
+    // Exactly the varied rows of the one face with no GPOS -- four weights,
+    // twenty texts -- read boxes at a variation and asked for scratch.
+    assert_eq!(asked, 80, "rows that asked for scratch");
     assert!(
         wrong.is_empty(),
         "{} of {checked} differ, first: {:#?}",

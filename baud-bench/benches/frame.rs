@@ -8,7 +8,10 @@
 //! dirtied, instances emitted, cache hits and misses, glyphs rasterised,
 //! and the codepoints left out of a cluster no face draws whole because
 //! the face that keeps it lacks them (`unmapped`, the last rep's total;
-//! `Renderer::marks_unmapped` says what it counts).
+//! `Renderer::marks_unmapped` says what it counts), and the outlines the
+//! atlas and the shaper's glyph boxes refused for want of scratch
+//! (`refused` and `inkref`, `AtlasStats::refused` and
+//! `Renderer::ink_refused`; zero unless a face is read at a variation).
 //!
 //! Usage: `frame <recording> [reps] [full|incremental]`.
 
@@ -91,7 +94,7 @@ fn main() {
     let (w, h) = r.pixel_size();
     let mut pixels = vec![0u32; usize::try_from(w.value() * h.value()).unwrap()];
     println!(
-        "{:<12} {:>7} {:>9} {:>9} {:>9} {:>8} {:>9} {:>8} {:>8} {:>8} {:>8} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>8}",
+        "{:<12} {:>7} {:>9} {:>9} {:>9} {:>8} {:>9} {:>8} {:>8} {:>8} {:>8} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>8} {:>7} {:>7}",
         "recording",
         "frames",
         "us/frame",
@@ -110,7 +113,9 @@ fn main() {
         "shaped",
         "morx",
         "bigram",
-        "unmapped"
+        "unmapped",
+        "refused",
+        "inkref"
     );
     /// The best rep's sums.
     struct Rep {
@@ -224,7 +229,7 @@ fn main() {
     let c = r.cache_stats();
     let hit = 100.0 * c.hits.value() as f64 / (c.hits.value() + c.misses.value()).max(1) as f64;
     println!(
-        "{:<12} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7.1}% {:>8} {:>8} {:>8} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>8}",
+        "{:<12} {:>7} {:>9.1} {:>9.1} {:>9.1} {:>8.1} {:>9.1} {:>7.1}% {:>8} {:>8} {:>8} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>7.1} {:>8} {:>7} {:>7}",
         which,
         frames,
         total.as_secs_f64() * 1e6 / frames as f64,
@@ -243,6 +248,8 @@ fn main() {
         exc[4] as f64 / frames as f64,
         exc[5] as f64 / frames as f64,
         exc[6] as f64 / frames as f64,
-        r.marks_unmapped().value()
+        r.marks_unmapped().value(),
+        a.refused.value(),
+        r.ink_refused().value()
     );
 }

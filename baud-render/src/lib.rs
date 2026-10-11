@@ -54,6 +54,7 @@ mod units;
 
 pub use atlas::{
     Atlas, AtlasStats, Code, Dirty, Generation, Kind, Replaced, Side, Slot, Tex, TexRect,
+    VAR_POINTS_MAX,
 };
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use cellmap::{

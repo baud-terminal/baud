@@ -52,10 +52,38 @@ use crate::units::{Coverage, Tally, slots};
 use baud_domain::{Chan, Codepoint, GlyphId};
 use baud_font::bytes::Index;
 use baud_font::{
-    Bounds, Canvas, Face, Fit, Mirror, Palette, PaletteEntry, Phase, Png, Ppem, Px, Rasterizer,
-    Scale, Strike,
+    Bounds, Canvas, Drawn, Face, Fit, Mirror, Palette, PaletteEntry, Phase, Png, Ppem, Px,
+    Rasterizer, Scale, Sink, Strike, VarPoint,
 };
 use std::collections::HashMap;
+
+/// The most scratch the atlas grows to for one outline, in points: a
+/// memory budget, set at HarfBuzz's `HB_GLYF_MAX_POINTS`
+/// (`[[source: harfbuzz-12-3-0-limits]]`), past which HarfBuzz refuses a
+/// glyph whose flattened points exceed it. The need also counts the
+/// component stack, so a glyph within HarfBuzz's bound and this close to
+/// it can be refused here and not there; about 5.6 MB at 28 bytes a point.
+pub const VAR_POINTS_MAX: u32 = 200_000;
+
+/// `id`'s outline at the face's coordinates into `sink`. A glyph that
+/// needs scratch -- a face read at a variation draws only through
+/// [`Face::outline_at`] -- answers [`Drawn::NeedsScratch`] with nothing
+/// drawn, and `var` grows to exactly that need and the glyph is drawn
+/// again, unless the need is past [`VAR_POINTS_MAX`]: then the refusal is
+/// the answer, for the caller to count. A face at its default instance
+/// never asks, so a static face's glyph pays nothing.
+fn outline<S: Sink>(var: &mut Vec<VarPoint>, face: &Face<'_>, id: GlyphId, sink: &mut S) -> Drawn {
+    match face.outline_at(id, var, sink) {
+        Drawn::NeedsScratch(need) if need.value() <= VAR_POINTS_MAX => {
+            var.resize(
+                usize::try_from(need.value()).unwrap_or(usize::MAX),
+                VarPoint::EMPTY,
+            );
+            face.outline_at(id, var, sink)
+        }
+        drawn => drawn,
+    }
+}
 
 /// A pixel position or size inside the atlas.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -232,6 +260,12 @@ pub struct AtlasStats {
     /// survives, so nothing that cached one is told; the GPU still learns
     /// the texture itself was replaced, through [`Replaced`].
     pub enlarged: Tally,
+    /// Glyphs whose outline needed more scratch than [`VAR_POINTS_MAX`],
+    /// each counted once and then drawn as nothing (a `COLR` glyph refused
+    /// for a layer falls to its base glyph's own outline, as a glyph with no
+    /// `COLR` record does): refused where a reader sees it rather than taken
+    /// for a glyph with no ink.
+    pub refused: Tally,
 }
 
 /// One texture and the bands carved out of it.
@@ -372,6 +406,9 @@ pub struct Atlas {
     /// mask is a function of the cell, so `reset` voids it with `map`.
     procedural: HashMap<u32, Option<Slot>>,
     scratch: Vec<f32>,
+    /// The points of a varied outline ([`outline`]), grown to the largest
+    /// need asked so far and kept.
+    var: Vec<VarPoint>,
     coverage: Vec<u8>,
     raw: Vec<u8>,
     rgba: Vec<u8>,
@@ -398,6 +435,7 @@ impl Atlas {
             map: HashMap::new(),
             procedural: HashMap::new(),
             scratch: Vec::new(),
+            var: Vec::new(),
             coverage: Vec::new(),
             raw: Vec::new(),
             rgba: Vec::new(),
@@ -729,10 +767,14 @@ impl Atlas {
         phase: Phase,
     ) -> Option<Slot> {
         let layers = face.layers(id)?;
-        // The union box of every layer decides the image.
+        // The union box of every layer decides the image. A layer refused
+        // refuses the glyph, counted once, rather than paint it partly.
         let mut b = Bounds::new();
         for layer in layers {
-            face.outline(layer.glyph, &mut b);
+            if let Drawn::NeedsScratch(_) = outline(&mut self.var, face, layer.glyph, &mut b) {
+                self.stats.refused.bump();
+                return None;
+            }
         }
         let fit = Fit::at(&b, scale, phase)?;
         let cells = fit.extent.cells()?;
@@ -756,7 +798,8 @@ impl Atlas {
             self.scratch.fill(0.0);
             let canvas = Canvas::new(fit.extent, &mut self.scratch)?;
             let mut r = Rasterizer::new(canvas, fit.transform);
-            face.outline(layer.glyph, &mut r);
+            // The scratch the bounds pass grew answers this pass too.
+            outline(&mut self.var, face, layer.glyph, &mut r);
             r.finish().coverage(&mut self.coverage[..cells])?;
             for (px, &cov) in image.iter_mut().zip(&self.coverage[..cells]) {
                 if cov == 0 {
@@ -817,7 +860,10 @@ impl Atlas {
         })
     }
 
-    /// Whether `id` has no ink at all, so `None` is its permanent answer.
+    /// Whether `id` has no ink at all, so `None` is its permanent answer --
+    /// or was refused, which [`Atlas::rasterise`] has already counted, and
+    /// whose answer is as permanent: the budget it was refused against
+    /// does not change.
     fn fits_nothing_anyway(
         &mut self,
         face: &Face<'_>,
@@ -826,7 +872,9 @@ impl Atlas {
         phase: Phase,
     ) -> bool {
         let mut b = Bounds::new();
-        face.outline(id, &mut b);
+        if let Drawn::NeedsScratch(_) = outline(&mut self.var, face, id, &mut b) {
+            return true;
+        }
         Fit::at(&b, scale, phase).is_none()
     }
 
@@ -838,7 +886,10 @@ impl Atlas {
         phase: Phase,
     ) -> Option<Slot> {
         let mut b = Bounds::new();
-        face.outline(id, &mut b);
+        if let Drawn::NeedsScratch(_) = outline(&mut self.var, face, id, &mut b) {
+            self.stats.refused.bump();
+            return None;
+        }
         let fit = Fit::at(&b, scale, phase)?;
         let cells = fit.extent.cells()?;
         if self.coverage.len() < cells {
@@ -850,7 +901,7 @@ impl Atlas {
         }
         let canvas = Canvas::new(fit.extent, &mut self.scratch)?;
         let mut r = Rasterizer::new(canvas, fit.transform);
-        face.outline(id, &mut r);
+        outline(&mut self.var, face, id, &mut r);
         r.finish().coverage(&mut self.coverage[..cells])?;
         self.stats.rasterised.bump();
         let (w, h) = (fit.extent.w, fit.extent.h);

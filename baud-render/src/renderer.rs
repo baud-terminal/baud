@@ -29,7 +29,7 @@ use baud_domain::{
 use baud_font::bytes::Count;
 use baud_font::{
     Cluster, Digest as LookupDigest, Face, Features, Glyph, Ignorable, MAX_LOOKUPS, Normalised,
-    Phase, Px, Scale, Shaper, Walked,
+    Phase, Px, Scale, Shaper, VarPoint, Walked,
 };
 use std::time::{Duration, Instant};
 
@@ -619,9 +619,16 @@ pub struct Renderer<'f, 'a> {
     /// the face that keeps it lacks them, cumulative
     /// ([`Renderer::marks_unmapped`]).
     marks_unmapped: Tally,
+    /// Glyph boxes the shaper's fallback mark placement was refused for
+    /// want of scratch past [`crate::atlas::VAR_POINTS_MAX`], cumulative
+    /// ([`Renderer::ink_refused`]).
+    ink_refused: Tally,
     /// Which rows the last `convert` found changed; what `paint` repaints.
     dirty: Vec<bool>,
     storage: Vec<Glyph>,
+    /// The shaper's scratch for a varied face's glyph boxes, grown to the
+    /// need a refusal names and kept; empty while no face varies.
+    ink_scratch: Vec<VarPoint>,
 }
 
 impl<'f, 'a> Renderer<'f, 'a> {
@@ -740,8 +747,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             image_epoch: ImageGen::ZERO,
             image_snapshots: Tally::of(0),
             marks_unmapped: Tally::of(0),
+            ink_refused: Tally::of(0),
             dirty: Vec::new(),
             storage: vec![Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256],
+            ink_scratch: Vec::new(),
         };
         r.resize(cols, rows);
         Some(r)
@@ -883,6 +892,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// (`mark_coverage::the_overlay_counts_a_dropped_mark_once_across_window_chunks`).
     pub fn marks_unmapped(&self) -> Tally {
         self.marks_unmapped
+    }
+
+    /// How many glyph boxes the fallback mark placement of a face with no
+    /// `GPOS` was refused, cumulative: a face read at a variation draws a
+    /// glyph only through scratch, the renderer grows it to the need the
+    /// shaper reports and shapes the run again, and a need past
+    /// [`crate::atlas::VAR_POINTS_MAX`] is refused -- its marks stay at the
+    /// pen -- and counted here. Counted each time a run is shaped, for
+    /// every cluster it holds: a ligature window's context cells, which
+    /// [`Renderer::marks_unmapped`] leaves to the chunk that owns them,
+    /// count here in every chunk that shapes them.
+    pub fn ink_refused(&self) -> Tally {
+        self.ink_refused
     }
 
     /// The table [`Renderer::face_for`] reads, built from the stack when the
@@ -2505,71 +2527,94 @@ impl<'f, 'a> Renderer<'f, 'a> {
         clusters: &[ClusterIn],
         own: impl core::ops::RangeBounds<CellIx>,
     ) -> Shaped {
-        let f = self.stack.face(face);
-        let mut shaper = Shaper::new(f, &mut self.storage);
-        shaper.accelerate(&self.digests[face.index()]);
-        for cl in clusters {
-            let at = Cluster(u16::from(cl.at.0));
-            // **A mark the face cannot draw is left out, and counted.** A
-            // cluster reaches a face that cannot draw it whole only when no
-            // face can -- `face_for` would have chosen that one -- and the
-            // `.notdef` it would map such a mark to is a base with a full
-            // advance in JetBrains Mono: the box drew a cell to the right
-            // and every mark after it over the box (Jev A_DROP, 0.99). What
-            // is left is the letter and the marks the face has, which the
-            // shaper takes as it takes any cluster; a face that draws the
-            // cluster whole is handed it untouched, and which of the two a
-            // cluster is on a face is remembered, as its face is, so a run
-            // the cache misses pays a probe per marked cell rather than a
-            // normalisation. The dropped set follows from the face and the
-            // codepoints alone, which the run cache's key folds, so a cached
-            // run never needs it recomputed.
-            let pushed = match cl.cps.as_slice() {
-                [_, _, ..] => {
-                    let cover =
-                        self.cluster_covers.answer(face, &cl.cps, || {
+        // **A refused glyph box is shaped again with the scratch it named,
+        // once.** The shaper reports the largest need of the run, so one
+        // pass at that size draws every box it refused; a box past the
+        // budget is refused again and counted. Counts are taken from the
+        // pass kept.
+        let mut grown = false;
+        loop {
+            let have = self.ink_scratch.len();
+            let f = self.stack.face(face);
+            let mut shaper = Shaper::new(f, &mut self.storage);
+            shaper.accelerate(&self.digests[face.index()]);
+            shaper.scratch(&mut self.ink_scratch);
+            let mut unmapped = 0usize;
+            for cl in clusters {
+                let at = Cluster(u16::from(cl.at.0));
+                // **A mark the face cannot draw is left out, and counted.** A
+                // cluster reaches a face that cannot draw it whole only when no
+                // face can -- `face_for` would have chosen that one -- and the
+                // `.notdef` it would map such a mark to is a base with a full
+                // advance in JetBrains Mono: the box drew a cell to the right
+                // and every mark after it over the box (Jev A_DROP, 0.99). What
+                // is left is the letter and the marks the face has, which the
+                // shaper takes as it takes any cluster; a face that draws the
+                // cluster whole is handed it untouched, and which of the two a
+                // cluster is on a face is remembered, as its face is, so a run
+                // the cache misses pays a probe per marked cell rather than a
+                // normalisation. The dropped set follows from the face and the
+                // codepoints alone, which the run cache's key folds, so a cached
+                // run never needs it recomputed.
+                let pushed = match cl.cps.as_slice() {
+                    [_, _, ..] => {
+                        let cover = self.cluster_covers.answer(face, &cl.cps, || {
                             match Normalised::of(f, &cl.cps).covered() {
                                 true => Cover::Whole,
                                 false => Cover::Partial,
                             }
                         });
-                    if cover == Cover::Whole {
-                        shaper.push_cluster(&cl.cps, at)
-                    } else {
-                        let kept = Normalised::without_unmapped(f, &cl.cps);
-                        let pushed = shaper.push_cluster(kept.as_slice(), at);
-                        if pushed.is_some() && own.contains(&cl.at) {
-                            self.marks_unmapped.add(Tally::of(
-                                usize::try_from(kept.dropped().value()).unwrap_or(0),
-                            ));
+                        if cover == Cover::Whole {
+                            shaper.push_cluster(&cl.cps, at)
+                        } else {
+                            let kept = Normalised::without_unmapped(f, &cl.cps);
+                            let pushed = shaper.push_cluster(kept.as_slice(), at);
+                            if pushed.is_some() && own.contains(&cl.at) {
+                                unmapped = unmapped.saturating_add(
+                                    usize::try_from(kept.dropped().value()).unwrap_or(0),
+                                );
+                            }
+                            pushed
                         }
-                        pushed
                     }
+                    cps => shaper.push_cluster(cps, at),
+                };
+                if pushed.is_none() {
+                    break;
                 }
-                cps => shaper.push_cluster(cps, at),
-            };
-            if pushed.is_none() {
-                break;
             }
-        }
-        let (buf, _) = shaper.finish(Features::GRID);
-        let mut out = Shaped::EMPTY;
-        for g in buf.as_slice() {
-            if g.ignorable == Ignorable::Yes {
+            let (buf, shaped) = shaper.finish(Features::GRID);
+            // A need past the budget grows the scratch to the budget, so the
+            // boxes within it still draw and only the one past it is refused.
+            let want = shaped.ink_need.value().min(crate::atlas::VAR_POINTS_MAX);
+            let want = usize::try_from(want).unwrap_or(usize::MAX);
+            if !shaped.ink_refused.is_zero() && !grown && have < want {
+                grown = true;
+                self.ink_scratch.resize(want, VarPoint::EMPTY);
                 continue;
             }
-            let p = Placed {
-                id: g.id,
-                cell: CellIx(u8::try_from(g.cluster.0).unwrap_or(u8::MAX)),
-                last: CellIx(u8::try_from(g.last.0).unwrap_or(u8::MAX)),
-                dx: g.dx,
-                dy: g.dy,
-            };
-            if out.push(p).is_none() {
-                break;
+            self.marks_unmapped.add(Tally::of(unmapped));
+            self.ink_refused.add(Tally::of(
+                usize::try_from(shaped.ink_refused.value()).unwrap_or(usize::MAX),
+            ));
+            let mut out = Shaped::EMPTY;
+            for g in buf.as_slice() {
+                if g.ignorable == Ignorable::Yes {
+                    continue;
+                }
+                let p = Placed {
+                    id: g.id,
+                    cell: CellIx(u8::try_from(g.cluster.0).unwrap_or(u8::MAX)),
+                    last: CellIx(u8::try_from(g.last.0).unwrap_or(u8::MAX)),
+                    dx: g.dx,
+                    dy: g.dy,
+                };
+                if out.push(p).is_none() {
+                    break;
+                }
             }
+            return out;
         }
-        out
     }
 
     /// The `differs` count: for each cluster of the run, whether the
