@@ -424,8 +424,14 @@ impl Paint<'_, '_> {
         // copied region scrolls a rep against zero everywhere else.
         #[cfg(not(feature = "ceiling-no-region-copy"))]
         {
+            if self.past_edge() {
+                self.clear_swept();
+            }
             let b = self.blank();
             self.view.delete_lines_in(top, n, bot, b);
+            if self.past_edge() {
+                self.lines_moved_past_edge(top, n, bot, BandMove::Up);
+            }
         }
         if self.images.any_placed() {
             self.band_images_moved(top, bot, Rows::of_count(k), BandMove::Up);
@@ -464,14 +470,24 @@ impl Paint<'_, '_> {
             // Past the live edge, before the blank below can write past
             // it on the row the first copy read.
             if PAST {
-                moved += self.view.copy_past_edge(bot, Row::from_index(last), reach);
+                let mut past = PastRows {
+                    flags: &mut *self.book.past,
+                    held: &mut self.book.held,
+                };
+                moved += self
+                    .view
+                    .copy_past_edge(bot, Row::from_index(last), reach, &mut past);
             }
             self.fill_row_counted(bot);
             // The line the scroll opens is on the row the first row under
             // the region held, just copied down: past the edge it held
             // that row's cells.
             if PAST {
-                moved += self.view.clear_past_edge(bot, reach);
+                let mut past = PastRows {
+                    flags: &mut *self.book.past,
+                    held: &mut self.book.held,
+                };
+                moved += self.view.clear_past_edge(bot, reach, &mut past);
             }
             // **The rows under the region went back, and their images
             // go back with them.** `retire` moved every image up with the
@@ -495,7 +511,111 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     fn rotate_top_region_past_edge(&mut self, n: Rows, bot: Row, reach: Cols) {
+        self.clear_swept();
         self.rotate_top_region::<true>(n, bot, reach);
+        // Its own scrolls brought in rows the repair has just put right.
+        self.book.swept = self.book.top;
+        self.settle_reach();
+    }
+
+    /// **The rows the full-screen scrolls swept since the last pass past the
+    /// edge, cleared there** ([`View::clear_swept_past_edge`]), before a
+    /// pass that moves or clears rows past the edge reads them -- the swept
+    /// rows are found by where they lie, so before anything moves one -- on
+    /// the primary narrower than its rows hold. The scrolls themselves pay
+    /// nothing for it.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn clear_swept(&mut self) {
+        if self.cold.screen != Screen::Normal {
+            return;
+        }
+        let n = self.book.top.since(self.book.swept).unwrap_or(Rows::ZERO);
+        self.book.swept = self.book.top;
+        if n.index() == 0 {
+            return;
+        }
+        let reach = self.book.reach;
+        let mut past = PastRows {
+            flags: &mut *self.book.past,
+            held: &mut self.book.held,
+        };
+        let w = self.view.clear_swept_past_edge(n, reach, &mut past);
+        self.cells = self.cells.plus(w);
+    }
+
+    /// **Back to the live width once no row holds anything past it.** The
+    /// passes past the edge carry a held row's flag with its cells and clear
+    /// it with them, so a row of history wider than the narrowed screen is
+    /// carried off by the repair when the ring brings it round, and from
+    /// then the scroll paths take the loop with nothing past the edge
+    /// compiled in. Without it the measure at the resize was the last word,
+    /// and the cost of a narrowing over one long line never fell.
+    fn settle_reach(&mut self) {
+        if self.book.held.index() == 0 {
+            self.book.reach = self.cols;
+        }
+    }
+
+    /// **The line a scroll down takes back, cleared past the live edge**,
+    /// on the primary narrower than its rows hold: the newest line of
+    /// history comes back as the blank top row, blanked to the live edge, or
+    /// to its mark when that lies past the edge, and past both it kept the
+    /// line's cells, which a growth showed on a line that was blank when it
+    /// came in. At once, not with the swept rows: the window moves back over
+    /// it, so where it lies says nothing of how it came. Out of line, behind
+    /// one compare in the caller.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn clear_incoming_past_edge(&mut self, r: Row) {
+        if self.cold.screen != Screen::Normal {
+            return;
+        }
+        let reach = self.book.reach;
+        let mut past = PastRows {
+            flags: &mut *self.book.past,
+            held: &mut self.book.held,
+        };
+        let n = self.view.clear_past_edge(r, reach, &mut past);
+        self.cells = self.cells.plus(n);
+        self.settle_reach();
+    }
+
+    /// **The rows `IL`, `DL` and a copying region scroll moved, past the
+    /// live edge**, on the primary narrower than its rows hold: the same
+    /// moves on the columns past the edge, and the rows they opened cleared
+    /// there ([`View::insert_lines_past_edge`],
+    /// [`View::delete_lines_past_edge`]). Called after the move, which went
+    /// to the live edge and carried the marks. Out of line, behind one
+    /// compare in each caller.
+    #[cold]
+    #[inline(never)]
+    fn lines_moved_past_edge(&mut self, at: Row, n: Count, bottom: Row, way: BandMove) {
+        if self.cold.screen != Screen::Normal {
+            return;
+        }
+        let reach = self.book.reach;
+        let mut past = PastRows {
+            flags: &mut *self.book.past,
+            held: &mut self.book.held,
+        };
+        let w = match way {
+            BandMove::Down => self
+                .view
+                .insert_lines_past_edge(at, n, bottom, reach, &mut past),
+            BandMove::Up => self
+                .view
+                .delete_lines_past_edge(at, n, bottom, reach, &mut past),
+        };
+        self.cells = self.cells.plus(w);
+        self.settle_reach();
+    }
+
+    /// Whether the primary's rows may hold anything past the live edge: the
+    /// one compare the line paths pay for the passes past it.
+    #[inline(always)]
+    pub(crate) fn past_edge(&self) -> bool {
+        self.book.reach.index() > self.cols.index()
     }
 
     pub(crate) fn scroll_region_down(&mut self, n: Count) {
@@ -506,10 +626,21 @@ impl Paint<'_, '_> {
         let k = n.at_least_one().min(bot.index() + 1 - top.index());
         let last = self.rows.index() - 1;
         if top.index() == 0 && bot.index() == last {
+            if self.past_edge() {
+                self.clear_swept();
+            }
             for _ in 0..k {
                 self.view.retreat_rot(1);
                 self.unretire();
                 self.fill_row_counted(Row::ZERO);
+                if self.past_edge() {
+                    self.clear_incoming_past_edge(Row::ZERO);
+                }
+            }
+            // The window moved back, so the swept rows are counted from here:
+            // on the primary, whose rows they are and whose window moved.
+            if self.cold.screen == Screen::Normal {
+                self.book.swept = self.book.top;
             }
             return;
         }
@@ -518,8 +649,14 @@ impl Paint<'_, '_> {
             self.scroll_copy += k;
         }
         self.cold.row_moves = self.cold.row_moves.next();
+        if self.past_edge() {
+            self.clear_swept();
+        }
         let b = self.blank();
         self.view.insert_lines_in(top, n, bot, b);
+        if self.past_edge() {
+            self.lines_moved_past_edge(top, n, bot, BandMove::Down);
+        }
         if self.images.any_placed() {
             self.band_images_moved(top, bot, Rows::of_count(k), BandMove::Down);
         }
@@ -551,8 +688,14 @@ impl Paint<'_, '_> {
         let (at, bot) = (self.cy, self.cold.bot);
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
         self.cold.row_moves = self.cold.row_moves.next();
+        if self.past_edge() {
+            self.clear_swept();
+        }
         let b = self.blank();
         self.view.insert_lines_in(at, n, bot, b);
+        if self.past_edge() {
+            self.lines_moved_past_edge(at, n, bot, BandMove::Down);
+        }
         if self.images.any_placed() {
             self.band_images_moved(at, bot, Rows::of_count(k), BandMove::Down);
         }
@@ -568,8 +711,14 @@ impl Paint<'_, '_> {
         let (at, bot) = (self.cy, self.cold.bot);
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
         self.cold.row_moves = self.cold.row_moves.next();
+        if self.past_edge() {
+            self.clear_swept();
+        }
         let b = self.blank();
         self.view.delete_lines_in(at, n, bot, b);
+        if self.past_edge() {
+            self.lines_moved_past_edge(at, n, bot, BandMove::Up);
+        }
         if self.images.any_placed() {
             self.band_images_moved(at, bot, Rows::of_count(k), BandMove::Up);
         }

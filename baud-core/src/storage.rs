@@ -161,7 +161,7 @@ pub struct Storage<'b> {
     /// `View` is built **once per read**, over whichever surface is live.
     pub(crate) alt: AltBuf<'b>,
     /// The primary ring's bookkeeping; see [`Book`].
-    pub(crate) book: Book,
+    pub(crate) book: Book<'b>,
     /// Bytes the terminal owes the host: the answer to a `DA`, a `DSR`, a
     /// `DECRQM` or an `XTVERSION`.
     ///
@@ -213,8 +213,7 @@ pub struct AltBuf<'b> {
 /// and how many after it were cut by a shorter window and can come back.
 /// Grid bookkeeping, so it lives here rather than in `Cold`, whose size is
 /// pinned.
-#[derive(Clone, Copy)]
-pub struct Book {
+pub struct Book<'b> {
     pub(crate) hist: Rows,
     pub(crate) hidden: Rows,
     /// **The absolute line at the top of the primary window.** It moves with
@@ -245,8 +244,29 @@ pub struct Book {
     /// everything a later growth can show when it carries its cells to here:
     /// what the region repair copies past a narrower live edge
     /// (`View::copy_past_edge`). Here and not in `Cold`, as the rest of this
-    /// word: the grid's bookkeeping.
+    /// word: the grid's bookkeeping. Lowered to the live width, too, when the
+    /// last row `past` holds is carried off or cleared (`held`).
     pub(crate) reach: Cols,
+    /// How many rows `past` holds, while `reach` lies past the live width:
+    /// at zero nothing lies past the edge, and `reach` comes back to the
+    /// live width.
+    pub(crate) held: Rows,
+    /// **Whether each physical row of the primary holds anything past the
+    /// live edge**, one a row of the ring: what the passes that carry cells
+    /// past a narrower edge read to skip a row with nothing there
+    /// (`baud_domain::PastRows`). Set whole at a resize that leaves `reach`
+    /// past the live width and read only while it is, so `Term::new` need
+    /// not clear it. Here rather than beside `used` because `Paint` carries
+    /// this word by reference, and a slice of its own through that struct
+    /// would be two more words in the per-byte loop.
+    pub(crate) past: &'b mut [PastEdge],
+    /// **The top line when the rows the window's bottom swept were last
+    /// cleared past the edge** (`View::clear_swept_past_edge`): `top` minus
+    /// this is how many lines a full-screen scroll has brought in on rows
+    /// whose cells past the edge are a retired line's. Set at every resize
+    /// and after each pass that clears them; read only while `reach` lies
+    /// past the live width.
+    pub(crate) swept: LineIdx,
 }
 
 /// Everything a control string writes, in one struct.
@@ -358,6 +378,7 @@ pub struct Owned {
     arena: alloc::vec::Vec<u8>,
     vp: alloc::vec::Vec<PackedCell>,
     used: alloc::vec::Vec<RowExtent>,
+    past: alloc::vec::Vec<PastEdge>,
     cells3: alloc::vec::Vec<PackedCell>,
     tmpl: alloc::vec::Vec<Option<StyleWord>>,
     order: alloc::vec::Vec<StyleId>,
@@ -430,6 +451,7 @@ impl Owned {
             arena: vec![0u8; ARENA],
             vp: vec![PackedCell::EMPTY; ring.len()],
             used: vec![RowExtent::ZERO; rows.index() + depth.lines()],
+            past: vec![PastEdge::Clear; rows.index() + depth.lines()],
             cells3: vec::Vec::new(),
             tmpl: vec![None; styles],
             order: vec![StyleId::DEFAULT; styles],
@@ -531,6 +553,7 @@ impl Owned {
             self.depth,
             vp,
             &mut self.used,
+            &mut self.past,
             &mut self.cells3,
             StyleTable {
                 slots: &mut self.tmpl,
@@ -569,6 +592,7 @@ impl Owned {
             self.depth,
             &mut self.vp,
             &mut self.used,
+            &mut self.past,
             &mut self.cells3,
             StyleTable {
                 slots: &mut self.tmpl,
@@ -813,6 +837,7 @@ impl<'b> Storage<'b> {
         depth: Depth,
         vp: &'b mut [PackedCell],
         used: &'b mut [RowExtent],
+        past: &'b mut [PastEdge],
         cells3: &'b mut [PackedCell],
         styles: StyleTable<'b>,
         tabs: &'b mut [bool],
@@ -860,6 +885,10 @@ impl<'b> Storage<'b> {
         );
         let ring = RowBlock::leading(Rows::of_index(used.len()), stride);
         assert!(ring.fits(vp), "the ring is short of its rows");
+        assert!(
+            past.len() >= used.len(),
+            "the past-edge flags are one per row of the ring"
+        );
         let screen = RowBlock::leading(Rows::of_index(used.len() - depth.lines()), stride);
         // **Required, not optional.** An absent buffer would mean the
         // alternate screen is recognised, entered, and then quietly destroys
@@ -924,6 +953,9 @@ impl<'b> Storage<'b> {
                 top: LineIdx::FIRST,
                 alt_top: LineIdx::FIRST,
                 reach: Cols::of_index(0),
+                held: Rows::ZERO,
+                past,
+                swept: LineIdx::FIRST,
             },
             strs,
             images,

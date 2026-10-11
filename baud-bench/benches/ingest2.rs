@@ -283,6 +283,7 @@ fn main() {
     let mut arena = vec![0u8; ARENA];
     let mut vp = vec![PackedCell::EMPTY; ring.len()];
     let mut used = vec![RowExtent::ZERO; ring_rows.index()];
+    let mut past = vec![PastEdge::Clear; ring_rows.index()];
     // **An empty table is how this benchmark declines it.** The only read is
     // behind `cell-table`; passing the full 2 MiB otherwise costs 262,144
     // property-table lookups and 2 MiB of stores at construction, for a table
@@ -327,6 +328,7 @@ fn main() {
             depth,
             &mut vp,
             &mut used,
+            &mut past,
             &mut cells3,
             baud_core::StyleTable {
                 slots: &mut tmpl,

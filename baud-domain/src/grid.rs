@@ -231,6 +231,44 @@ pub struct View<'a> {
     rot: RowRot,
 }
 
+/// **Which physical rows of the primary hold anything past the live edge**,
+/// one [`PastEdge`] a row of the ring, and how many are [`PastEdge::Held`].
+///
+/// What the passes that carry cells past a narrower edge read to skip a row
+/// with nothing there ([`View::copy_past_edge`], [`View::clear_past_edge`],
+/// [`View::insert_lines_past_edge`], [`View::delete_lines_past_edge`]), set
+/// whole by [`View::held_past_edge`] at a resize. Between resizes nothing
+/// else writes past the live edge but a fill to a mark that lies past it, on
+/// a row already held, so the flags stay true while only those passes keep
+/// them. The count is what lets a caller drop back to the loop with nothing
+/// past the edge compiled in once the last held row is carried off or
+/// cleared. Physical, as the marks are, so a rotation leaves every flag on
+/// its row.
+pub struct PastRows<'a> {
+    pub flags: &'a mut [PastEdge],
+    pub held: &'a mut Rows,
+}
+
+impl PastRows<'_> {
+    #[inline(always)]
+    fn get(&self, p: usize) -> PastEdge {
+        self.flags[p]
+    }
+
+    /// Set physical row `p`'s flag, keeping the count.
+    #[inline(always)]
+    fn set(&mut self, p: usize, to: PastEdge) {
+        let was = core::mem::replace(&mut self.flags[p], to);
+        *self.held = match (was, to) {
+            (PastEdge::Clear, PastEdge::Held) => Rows::of_count(self.held.index() + 1),
+            (PastEdge::Held, PastEdge::Clear) => {
+                Rows::of_count(self.held.index().saturating_sub(1))
+            }
+            _ => *self.held,
+        };
+    }
+}
+
 /// The screen, read where it is.
 ///
 /// **The same pointers as the ring, in the shape its readers use.** A row is
@@ -827,9 +865,10 @@ impl<'a> View<'a> {
 
     /// Each of screen rows `top..bottom` over the row below it, descending,
     /// **past the live edge, to `reach`** -- the furthest any row of the ring
-    /// holds anything ([`View::held_past_edge`]) -- verbatim, and the cells
-    /// written. The other half of the region repair's [`View::copy_row`], for
-    /// a screen narrower than what its rows hold.
+    /// holds anything ([`View::held_past_edge`]) -- verbatim, for a pair
+    /// either of whose rows holds something there, and the cells written.
+    /// The other half of the region repair's [`View::copy_row`], for a screen
+    /// narrower than what its rows hold.
     ///
     /// A mark is true to the live edge and no further, so it says nothing of
     /// the cells past it: a tail a resize at a prompt hid, or a colour a row
@@ -837,13 +876,29 @@ impl<'a> View<'a> {
     /// a re-cut shows those cells as they are, so a row the repair puts back
     /// has to carry them, and the row it lands on must not keep its own. Past
     /// `reach` every row holds what the storage was provisioned with, so
-    /// nothing there differs. A pass of its own rather than a step of
-    /// `copy_row`, because the two halves touch disjoint columns: a screen
-    /// with nothing past its edge -- every screen the corpus records -- keeps
-    /// `copy_row`'s loop as it was. Only after a narrowing, so out of line.
+    /// nothing there differs.
+    ///
+    /// **Only the pairs that hold something.** Two rows both
+    /// [`PastEdge::Clear`] are `EMPTY` past the edge to `reach` alike, so the
+    /// copy would write what is there; a row's flag goes with its cells. One
+    /// line of history wider than the narrowed screen held `reach` at the old
+    /// width and the repair copied every row under the region past the edge
+    /// every scroll: the narrowed log pane read 95.7 MB/s against 208.4
+    /// (the record, "A row the repair puts back carries what a growth can show").
+    ///
+    /// A pass of its own rather than a step of `copy_row`, because the two
+    /// halves touch disjoint columns: a screen with nothing past its edge --
+    /// every screen the corpus records -- keeps `copy_row`'s loop as it was.
+    /// Only after a narrowing, so out of line.
     #[cold]
     #[inline(never)]
-    pub fn copy_past_edge(&mut self, top: Row, bottom: Row, reach: Cols) -> usize {
+    pub fn copy_past_edge(
+        &mut self,
+        top: Row,
+        bottom: Row,
+        reach: Cols,
+        past: &mut PastRows<'_>,
+    ) -> usize {
         let s = self.stride.index();
         let (w, end) = (self.cols.index(), reach.index().min(s));
         if end <= w {
@@ -855,69 +910,222 @@ impl<'a> View<'a> {
                 self.phys(Row::from_index(y - 1)),
                 self.phys(Row::from_index(y)),
             );
-            if a != b {
-                self.cells.copy_within(a * s + w..a * s + end, b * s + w);
-                n += end - w;
-            }
+            n += self.move_past_edge(a, b, w, end, past);
         }
         n
     }
 
+    /// Physical row `a`'s cells from `w` to `end` over row `b`'s, and its
+    /// flag with them, when either row is held; the cells written.
+    #[inline(always)]
+    fn move_past_edge(
+        &mut self,
+        a: usize,
+        b: usize,
+        w: usize,
+        end: usize,
+        past: &mut PastRows<'_>,
+    ) -> usize {
+        let s = self.stride.index();
+        let from = past.get(a);
+        if a == b || (from == PastEdge::Clear && past.get(b) == PastEdge::Clear) {
+            return 0;
+        }
+        self.cells.copy_within(a * s + w..a * s + end, b * s + w);
+        past.set(b, from);
+        end - w
+    }
+
+    /// The rows `IL` moves, past the live edge: [`View::insert_lines_in`]'s
+    /// moves on the columns from the live edge to `reach`, row for row and
+    /// in its order, then the rows it opened cleared there. That pass moves
+    /// a row to the live edge and carries its mark, so without this a hidden
+    /// tail moved by `IL` came back cut at the narrow edge, and a line it
+    /// opened over a row uniform in a colour came back in that colour past
+    /// it. Each pair as [`View::copy_past_edge`] takes it, only where either
+    /// row holds something. Run after it, on the primary narrower than its
+    /// rows hold; the cells written.
+    #[cold]
+    #[inline(never)]
+    pub fn insert_lines_past_edge(
+        &mut self,
+        at: Row,
+        n: Count,
+        bottom: Row,
+        reach: Cols,
+        past: &mut PastRows<'_>,
+    ) -> usize {
+        let (cy, bot) = (at.index(), bottom.index().min(self.rows.index() - 1));
+        let (w, end) = (self.cols.index(), reach.index().min(self.stride.index()));
+        if cy > bot || end <= w {
+            return 0;
+        }
+        let n = (n.get_raw() as usize).min(bot + 1 - cy);
+        let mut written = 0;
+        for y in (cy + n..=bot).rev() {
+            let (a, b) = (
+                self.phys(Row::from_index(y - n)),
+                self.phys(Row::from_index(y)),
+            );
+            written += self.move_past_edge(a, b, w, end, past);
+        }
+        for y in cy..cy + n {
+            written += self.clear_past_edge(Row::from_index(y), reach, past);
+        }
+        written
+    }
+
+    /// The rows `DL` moves, past the live edge: [`View::delete_lines_in`]'s
+    /// moves on the columns from the live edge to `reach`, in its order, then
+    /// the rows it opened at the bottom cleared there. The twin of
+    /// [`View::insert_lines_past_edge`], for the same defect; the cells
+    /// written.
+    #[cold]
+    #[inline(never)]
+    pub fn delete_lines_past_edge(
+        &mut self,
+        at: Row,
+        n: Count,
+        bottom: Row,
+        reach: Cols,
+        past: &mut PastRows<'_>,
+    ) -> usize {
+        let (cy, bot) = (at.index(), bottom.index().min(self.rows.index() - 1));
+        let (w, end) = (self.cols.index(), reach.index().min(self.stride.index()));
+        if cy > bot || end <= w {
+            return 0;
+        }
+        let n = (n.get_raw() as usize).min(bot + 1 - cy);
+        let mut written = 0;
+        for y in cy..bot + 1 - n {
+            let (a, b) = (
+                self.phys(Row::from_index(y + n)),
+                self.phys(Row::from_index(y)),
+            );
+            written += self.move_past_edge(a, b, w, end, past);
+        }
+        for y in bot + 1 - n..=bot {
+            written += self.clear_past_edge(Row::from_index(y), reach, past);
+        }
+        written
+    }
+
     /// **How far past the live edge the ring holds anything**: the least
     /// width, from the live width up to `reach`, past which every row of the
-    /// ring is [`PackedCell::EMPTY`] to `reach` and no row's mark lies. What
-    /// the region repair carries past a narrower edge
-    /// ([`View::copy_past_edge`]) is measured here when the screen narrows,
-    /// not remembered as the widest it has been: a screen narrowed before
-    /// anything was written past the new width -- or re-cut, which blanks
-    /// every row it writes past it -- holds nothing there, and a repair that
-    /// copied to the widest width wrote every row under the region past the
-    /// edge again on every scroll, empty over empty.
+    /// ring is [`PackedCell::EMPTY`] to `reach` and no row's mark lies -- and
+    /// each row's [`PastEdge`], with the count of rows held. What the passes
+    /// that carry cells past a narrower edge read ([`View::copy_past_edge`])
+    /// is measured here when the screen narrows, not remembered as the widest
+    /// it has been: a screen narrowed before anything was written past the
+    /// new width -- or re-cut, which blanks every row it writes past it --
+    /// holds nothing there, and a repair that copied to the widest width wrote
+    /// every row under the region past the edge again on every scroll, empty
+    /// over empty.
     ///
     /// **Every row of the ring**, because a history row comes back onto the
     /// screen under a taller one, and a ring row comes round as the line a
     /// scroll brings in. **The marks too**, because a fill on a row whose
     /// mark lies past the edge runs on to the mark ([`View::fill_row`]), so
     /// a mark over blank cells is where a later blank can write: past the
-    /// width this returns nothing writes but such a fill. Compared with
-    /// `EMPTY`, what `baud-core`'s `Owned` provisions; storage lent holding
-    /// anything else keeps the reach where it was, the safe direction. Each
-    /// row is read from the furthest found so far, so the pass stops at the
-    /// first row that reaches `reach`. Only on a resize, so out of line.
+    /// width this returns nothing writes but such a fill, and only on a row
+    /// this holds. Compared with `EMPTY`, what `baud-core`'s `Owned`
+    /// provisions; storage lent holding anything else keeps the reach where
+    /// it was, the safe direction. Every row is read to `reach`, as a ring
+    /// with nothing past the edge -- the common case -- always was. Only on a
+    /// resize, so out of line.
     #[cold]
     #[inline(never)]
-    pub fn held_past_edge(&self, reach: Cols) -> Cols {
+    pub fn held_past_edge(&self, reach: Cols, past: &mut PastRows<'_>) -> Cols {
         let s = self.stride.index();
-        let end = reach.index().min(s);
-        let mut held = self.cols.index();
+        let (w, end) = (self.cols.index(), reach.index().min(s));
+        let mut held = w;
+        let mut count = 0;
         for p in 0..self.ring.index() {
-            if held >= end {
-                break;
-            }
-            held = held.max(self.used[p].index().min(end));
-            let row = &self.cells[p * s + held..p * s + end];
-            if let Some(k) = row.iter().rposition(|c| *c != PackedCell::EMPTY) {
-                held += k + 1;
-            }
+            let m = self.used[p].index().min(end);
+            let row = &self.cells[p * s + w.min(end)..p * s + end];
+            let far = match row.iter().rposition(|c| *c != PackedCell::EMPTY) {
+                Some(k) => w + k + 1,
+                None => w,
+            };
+            let reach_p = far.max(m);
+            past.flags[p] = match reach_p > w {
+                true => {
+                    count += 1;
+                    PastEdge::Held
+                }
+                false => PastEdge::Clear,
+            };
+            held = held.max(reach_p);
         }
+        *past.held = Rows::of_count(count);
         Cols::of_index(held)
     }
 
     /// Clear the cells past the live edge and past the mark of screen row
-    /// `r`, to `reach`, to the provisioned blank: the line a region scroll
-    /// opens, on the row the repair copied down and then blanked, whose
-    /// cells past the edge were the copied row's. Past the mark, because a
-    /// blank on a row whose mark lay past the edge ran on to the mark
-    /// ([`View::fill_row`]) and that is the blank's; past both, the default
-    /// blank, as an erase taken while narrow leaves it. Only after a
+    /// `r`, to `reach`, to the provisioned blank, when the row holds anything
+    /// past the edge: the line a scroll opens or brings in, and a row `IL` or
+    /// `DL` opens, whose cells past the edge were the copied row's or a
+    /// retired line's. Past the mark, because a blank on a row whose mark lay
+    /// past the edge ran on to the mark ([`View::fill_row`]) and that is the
+    /// blank's; past both, the default blank, as an erase taken while narrow
+    /// leaves it. A row left with its mark inside the edge is clear. Only
+    /// after a narrowing, so out of line. Returns the cells written.
+    #[cold]
+    #[inline(never)]
+    pub fn clear_past_edge(&mut self, r: Row, reach: Cols, past: &mut PastRows<'_>) -> usize {
+        let p = self.phys(r);
+        self.clear_past_edge_at(p, reach, past)
+    }
+
+    /// **The rows a full-screen scroll brought in since the passes past the
+    /// edge last ran, cleared there**: the `n` rows of the ring that end at
+    /// the screen's bottom row, going back, each as [`View::clear_past_edge`]
+    /// clears it; every row of the ring once `n` reaches its length.
+    ///
+    /// A full-screen scroll hands the line it brings in a row of the ring --
+    /// the oldest line of history once the ring is full, or a row a shorter
+    /// window cut -- and blanks it to the live edge, or to its mark when that
+    /// lies past it; past both it keeps the retired line's cells, which a
+    /// growth shows on a line that was blank when it came in. Nothing reads
+    /// those cells before a growth or a pass that moves or clears rows past
+    /// the edge, so each of those clears the rows the window's bottom swept
+    /// first, and the scroll -- the line feed's, the hottest path in the
+    /// core -- keeps its source. Clearing there at once is a test of the
+    /// reach and a cold call on every scroll; `multibench`'s cat row did not
+    /// separate that arm from the base or from this form (the record, "A row
+    /// is carried past the edge only where it holds something, and the reach
+    /// comes down"), so the work goes to the rare passes, not the common one.
+    /// Rows only: the caller knows how many lines came in. Only after a
     /// narrowing, so out of line. Returns the cells written.
     #[cold]
     #[inline(never)]
-    pub fn clear_past_edge(&mut self, r: Row, reach: Cols) -> usize {
+    pub fn clear_swept_past_edge(
+        &mut self,
+        n: Rows,
+        reach: Cols,
+        past: &mut PastRows<'_>,
+    ) -> usize {
+        let (ring, rows) = (self.ring.index(), self.rows.index());
+        let mut written = 0;
+        for k in 0..n.index().min(ring) {
+            let p = self.rot.advance(rows - 1 + ring - k, self.ring).index();
+            written += self.clear_past_edge_at(p, reach, past);
+        }
+        written
+    }
+
+    /// [`View::clear_past_edge`] on physical row `p`.
+    fn clear_past_edge_at(&mut self, p: usize, reach: Cols, past: &mut PastRows<'_>) -> usize {
         let s = self.stride.index();
-        let p = self.phys(r);
-        let from = self.cols.index().max(self.used[p].index());
+        if past.get(p) == PastEdge::Clear {
+            return 0;
+        }
+        let (w, m) = (self.cols.index(), self.used[p].index());
+        let from = w.max(m);
         let end = reach.index().min(s);
+        if m <= w {
+            past.set(p, PastEdge::Clear);
+        }
         if end <= from {
             return 0;
         }

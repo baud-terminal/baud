@@ -108,6 +108,11 @@ impl Paint<'_, '_> {
                 .into_iter()
                 .all(|y| self.view.row_is_blank(Row::from_index(y)))
         {
+            // The rows full-screen scrolls swept are found by where they lie,
+            // and the window is about to move back.
+            if self.past_edge() {
+                self.clear_swept();
+            }
             self.view.retreat_rot(above);
             let hist = self.book.hist.index() - above;
             self.book.hist = Rows::of_count(hist);
@@ -125,6 +130,7 @@ impl Paint<'_, '_> {
             if self.images.any_placed() {
                 self.expire_primary_images(None);
             }
+            self.book.swept = self.book.top;
         }
         let blank = PackedCell::empty_with(self.style);
         for k in 0..=d {

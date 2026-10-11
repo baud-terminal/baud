@@ -1149,6 +1149,35 @@ impl<'b> Term<'b> {
         }
     }
 
+    /// The primary's rows full-screen scrolls swept since the last pass past
+    /// the edge, cleared there under the geometry they came in at
+    /// (`Paint::clear_swept`'s twin for a resize), and the cells counted.
+    #[cold]
+    #[inline(never)]
+    fn clear_swept(&mut self) {
+        let ring = self.store.ring_rows();
+        let book = &mut self.store.book;
+        let n = book.top.since(book.swept).unwrap_or(Rows::ZERO);
+        book.swept = book.top;
+        self.cells_written += View::new(
+            self.store.vp,
+            self.store.used,
+            self.stride,
+            self.cols,
+            self.rows,
+            ring,
+            self.rot,
+        )
+        .clear_swept_past_edge(
+            n,
+            book.reach,
+            &mut PastRows {
+                flags: &mut *book.past,
+                held: &mut book.held,
+            },
+        );
+    }
+
     /// [`Term::resize`], holding a window over the primary's history on the
     /// line it shows: `back` is how many lines above the primary window's
     /// top it starts, and the answer is where that line is afterwards, in
@@ -1192,6 +1221,13 @@ impl<'b> Term<'b> {
         // twice. Applied to the primary whichever screen is up, around the
         // cursor the primary has -- its own, or the one it was saved with --
         // so an exit from the alternate screen has nothing to catch up on.
+        // **The lines full-screen scrolls brought in since the passes past
+        // the edge last ran, cleared there before anything here moves a row
+        // or a growth shows one** (`View::clear_swept_past_edge`): found by
+        // where they lie, under the geometry they were brought in at.
+        if self.store.book.reach.index() > old_cols.index() {
+            self.clear_swept();
+        }
         let top_before = self.store.book.top;
         if rows.index() != old_rows.index() {
             let ring = self.store.ring_rows();
@@ -1519,20 +1555,31 @@ impl<'b> Term<'b> {
         // the furthest cell any row holds, no row differs, so the repair
         // carries nothing there; measured after the re-cut and the blanks
         // above, which are the last writes past the live edge this makes.
+        // Each row's flag with it, which is what lets the passes past the
+        // edge skip a row with nothing there and lower the reach again.
         let widest = Cols::of_index(self.store.book.reach.index().max(cols.index()));
-        self.store.book.reach = match widest.index() > cols.index() {
+        let ring = self.store.ring_rows();
+        let book = &mut self.store.book;
+        book.reach = match widest.index() > cols.index() {
             true => View::new(
                 self.store.vp,
                 self.store.used,
                 self.stride,
                 cols,
                 rows,
-                self.store.ring_rows(),
+                ring,
                 self.rot,
             )
-            .held_past_edge(widest),
+            .held_past_edge(
+                widest,
+                &mut PastRows {
+                    flags: &mut *book.past,
+                    held: &mut book.held,
+                },
+            ),
             false => widest,
         };
+        book.swept = book.top;
         self.cy = Row::from_index(self.cy.index().min(rows.index() - 1));
         self.cx = Col::at_index(self.cx.index().min(cols.index() - 1));
         self.cold.top = Row::ZERO;

@@ -146,7 +146,7 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) other: Surface<'a>,
     /// The primary ring's bookkeeping: how many rows behind the window are
     /// lines, how many after it were cut by a shorter window. One word.
-    pub(crate) book: &'a mut crate::storage::Book,
+    pub(crate) book: &'a mut crate::storage::Book<'b>,
     /// Where a cluster's continuations go. Reached once per zero-width
     /// codepoint, which ASCII never is.
     ///

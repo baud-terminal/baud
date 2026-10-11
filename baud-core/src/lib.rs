@@ -70,8 +70,8 @@ mod write;
 
 pub use baud_domain::{
     ByteLen, ByteLen as DomByteLen, BytePos, Charset, Codepoint, Col, Cols, Content, FinalByte,
-    InputEncoding, KeypadMode, PackedCell, ReadLen, Row, RowBlock, RowExtent, Rows, StyleWord,
-    Width, WinSize,
+    InputEncoding, KeypadMode, PackedCell, PastEdge, ReadLen, Row, RowBlock, RowExtent, Rows,
+    StyleWord, Width, WinSize,
 };
 // **The key API's own vocabulary.** `Term::key` takes a `KeyEvent`, so a
 // caller that cannot name one cannot call it -- an entry point whose argument

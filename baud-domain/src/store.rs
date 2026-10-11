@@ -227,6 +227,29 @@ impl RowExtent {
     }
 }
 
+/// **Whether one physical row of the primary may hold anything past the live
+/// edge**: a cell other than [`crate::PackedCell::EMPTY`] from the live width
+/// to how far the ring's rows hold anything, or a mark past the live width.
+///
+/// Per row because the region repair copies a row past the edge only when it
+/// or the row it lands on holds something there, and a mark cannot say which:
+/// it is true to the live edge and no further, so a row uniform in a colour
+/// carries that colour past the edge under a mark of zero. Set for every row
+/// of the ring when a resize leaves the screen narrower than what its rows
+/// hold, and kept by the passes that move or clear cells past the edge. Not
+/// in [`RowExtent`]: its spare bits sit above a mark that `reached` raises by
+/// a bare `max`, which a flag there would win.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[repr(u8)]
+pub enum PastEdge {
+    /// Nothing past the live edge: every cell there is `EMPTY` and the mark
+    /// lies inside it.
+    #[default]
+    Clear,
+    /// A cell or the mark may lie past the live edge.
+    Held,
+}
+
 /// A number of runs.
 #[derive(
     Clone,

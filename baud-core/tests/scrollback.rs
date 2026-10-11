@@ -790,6 +790,560 @@ fn a_tail_the_history_holds_at_the_narrowing_keeps_the_reach() {
     assert_eq!(row_text(&t, 2, 31), format!("{} ", "S".repeat(30)), "row 3");
 }
 
+/// **A long line above the rows under a region costs them nothing past the
+/// edge.** Thirty `S` on row 3 at 40 columns, kept past the edge by a
+/// narrowing at a prompt: the ring holds a cell past column 20, so the reach
+/// stays at 30, but no row under the region holds one, and the repair carries
+/// a row past the edge only where it or the row it lands on does. Copying
+/// every row under the region past the edge whenever any row of the ring
+/// held anything, one line of history wider than the narrowed screen cost
+/// the narrowed log pane 54%: 95.7 MB/s against 208.4.
+#[test]
+fn a_long_line_above_the_rows_under_a_region_costs_them_nothing_past_the_edge() {
+    let line = b"\x1b[3;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS\x1b[10;1H\x1b]133;A\x07$ ";
+    assert_eq!(
+        cells_a_region_scroll_writes(40, line),
+        cells_a_region_scroll_writes(20, line)
+    );
+}
+
+/// Rows of cells, a screen's or a band's.
+type Band = Vec<Vec<PackedCell>>;
+
+/// A 40-column screen with two lines of history: `top` on row 1, three
+/// rows under a region drawn at 7 to 9 and a prompt on row 10, narrowed to
+/// 20 there, then `scrolls` lines through the region `1 ; 6`. Returns the
+/// rows under the region at 40 columns before the narrowing, the same rows
+/// after the screen grew back to 40 at the prompt, the screen's text after
+/// it, and the cells the last of the scrolls wrote. With the ring twelve
+/// rows, row 1's physical row comes round as the bottom row under the
+/// region on the third scroll.
+fn a_ring_brought_round(top: &[u8], scrolls: usize) -> (Band, Band, Vec<String>, usize) {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(2));
+    let mut t = Term::new(owned.storage(), &wide);
+    support::feed(&mut t, b"\x1b[1;1H");
+    support::feed(&mut t, top);
+    support::feed(
+        &mut t,
+        b"\x1b[7;1Hdash 07\x1b[8;1Hdash 08\x1b[9;1Hdash 09\x1b[10;1H\x1b]133;A\x07$ ",
+    );
+    let under = |t: &Term<'_>| {
+        (6..10)
+            .map(|y| t.row(Row::from_index(y)).to_vec())
+            .collect::<Vec<_>>()
+    };
+    let want = under(&t);
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    support::feed(&mut t, b"\x1b[1;6r\x1b[6;1H");
+    let before = t.region_scrolls();
+    let mut last = 0;
+    for _ in 0..scrolls {
+        let (_, a) = t.amplification();
+        support::feed(&mut t, b"\n");
+        let (_, b) = t.amplification();
+        last = b - a;
+    }
+    assert_ne!(t.region_scrolls(), before, "the region rotated");
+    support::feed(&mut t, b"\x1b[r\x1b[10;3H");
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    let text = (0..10).map(|y| row_text(&t, y, 40)).collect();
+    (want, under(&t), text, last)
+}
+
+/// **A long line the ring brings round under the region is carried off.**
+/// Its physical row comes round as the bottom row under the region, which
+/// the repair fills with the prompt's row: past the edge it is the
+/// destination that holds something, and the copy has to run for it, or the
+/// ten `S` past column 20 stay under the prompt and a growth shows them.
+#[test]
+fn a_long_line_the_ring_brings_round_under_a_region_is_carried_off() {
+    let (want, got, text, _) = a_ring_brought_round(&[b'S'; 30], 12);
+    assert_eq!(got, want, "the rows under the region, to column 40");
+    assert!(
+        text.iter().all(|row| !row.contains('S')),
+        "the line left the ring: {text:?}"
+    );
+}
+
+/// **And then the cost falls.** Once the repair has carried the long line
+/// off, nothing past the edge is held anywhere, and a scroll writes what it
+/// writes where row 1 held ten `S` -- nothing past the edge at the narrowing
+/// at all. Measured only at the resize, the reach stayed at the long line's
+/// width, and every scroll after copied every row under the region past the
+/// edge, however long the line had been gone.
+#[test]
+fn a_narrowing_over_one_long_line_costs_nothing_once_the_ring_carries_it_off() {
+    let (_, _, _, long) = a_ring_brought_round(&[b'S'; 30], 13);
+    let (_, _, _, short) = a_ring_brought_round(&[b'S'; 10], 13);
+    assert_eq!(long, short);
+}
+
+/// A 40-column screen with twenty lines of history: `rows` drawn and a
+/// prompt on row 10, narrowed to 20 there, `ops` fed, the region reset and
+/// the cursor back at the prompt, and grown back to 40. Returns every screen
+/// row at 40 columns before the narrowing and after the growth. Neither
+/// resize re-cuts, so every cell a growth reveals is the one that was there.
+fn through_a_prompt_narrowing(
+    rows: &[u8],
+    ops: &[u8],
+) -> (Vec<Vec<PackedCell>>, Vec<Vec<PackedCell>>) {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &wide);
+    support::feed(&mut t, rows);
+    support::feed(&mut t, b"\x1b[10;1H\x1b]133;A\x07$ ");
+    let screen = |t: &Term<'_>| {
+        (0..10)
+            .map(|y| t.row(Row::from_index(y)).to_vec())
+            .collect::<Vec<_>>()
+    };
+    let want = screen(&t);
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    support::feed(&mut t, ops);
+    support::feed(&mut t, b"\x1b[r\x1b[10;3H");
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    (want, screen(&t))
+}
+
+fn is_blank(row: &[PackedCell]) -> bool {
+    row.iter().all(|c| *c == PackedCell::EMPTY)
+}
+
+/// **`IL` moves a hidden tail with its row, and the line it opens is blank
+/// past the edge.** Thirty `S` on row 8 under the region `1 ; 9`, narrowed
+/// at a prompt, then `IL` there: the row goes down to row 9. `IL` moved it
+/// to the live edge, so it came back as twenty `S`, and the line it opened
+/// on row 8 kept the ten past the edge.
+#[test]
+fn il_carries_a_hidden_tail_and_blanks_the_line_it_opens_past_the_edge() {
+    let (want, got) = through_a_prompt_narrowing(
+        b"\x1b[8;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS",
+        b"\x1b[1;9r\x1b[8;1H\x1b[L",
+    );
+    assert_eq!(got[8], want[7], "row 9, thirty S");
+    assert!(is_blank(&got[7]), "row 8, opened, blank to column 40");
+}
+
+/// **And a bar uniform in a colour, whose mark is zero.** A blue bar on row
+/// 8 goes down whole to row 9, and the line `IL` opens on row 8 is the
+/// default blank past the edge, as it is inside it.
+#[test]
+fn il_carries_a_coloured_bar_whole() {
+    let (want, got) = through_a_prompt_narrowing(
+        b"\x1b[8;1H\x1b[44m\x1b[2K\x1b[0m",
+        b"\x1b[1;9r\x1b[8;1H\x1b[L",
+    );
+    assert_eq!(got[8], want[7], "row 9, blue to column 40");
+    assert!(is_blank(&got[7]), "row 8, opened, blank to column 40");
+}
+
+/// **`DL`, the same both ways.** Thirty `S` on row 9 under the region
+/// `1 ; 9`, `DL` on row 8: the row comes up to row 8 whole, and the line
+/// opened at the region's bottom, on the row that held it, is blank past the
+/// edge.
+#[test]
+fn dl_carries_a_hidden_tail_and_blanks_the_line_it_opens_past_the_edge() {
+    let (want, got) = through_a_prompt_narrowing(
+        b"\x1b[9;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS",
+        b"\x1b[1;9r\x1b[8;1H\x1b[M",
+    );
+    assert_eq!(got[7], want[8], "row 8, thirty S");
+    assert!(is_blank(&got[8]), "row 9, opened, blank to column 40");
+}
+
+/// A blue bar on row 9, `DL` on row 8: row 8 blue to column 40, row 9 the
+/// default blank to it.
+#[test]
+fn dl_carries_a_coloured_bar_whole() {
+    let (want, got) = through_a_prompt_narrowing(
+        b"\x1b[9;1H\x1b[44m\x1b[2K\x1b[0m",
+        b"\x1b[1;9r\x1b[8;1H\x1b[M",
+    );
+    assert_eq!(got[7], want[8], "row 8, blue to column 40");
+    assert!(is_blank(&got[8]), "row 9, opened, blank to column 40");
+}
+
+/// **A region that does not start at the top scrolls by copying**, through
+/// `DL`'s engine, and carries a hidden tail the same way: thirty `S` on row
+/// 5 under the region `2 ; 9`, a line feed at its bottom, and the row is on
+/// row 4 whole.
+#[test]
+fn a_copying_region_scroll_carries_a_hidden_tail() {
+    let (want, got) = through_a_prompt_narrowing(
+        b"\x1b[5;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS",
+        b"\x1b[2;9r\x1b[9;1H\n",
+    );
+    assert_eq!(got[3], want[4], "row 4, thirty S");
+    assert!(is_blank(&got[8]), "row 9, opened, blank to column 40");
+}
+
+/// And down, through `IL`'s: a reverse index at the top of the region
+/// `2 ; 9` moves the row on row 5 to row 6 whole.
+#[test]
+fn a_copying_region_scroll_down_carries_a_hidden_tail() {
+    let (want, got) = through_a_prompt_narrowing(
+        b"\x1b[5;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS",
+        b"\x1b[2;9r\x1b[2;1H\x1bM",
+    );
+    assert_eq!(got[5], want[4], "row 6, thirty S");
+}
+
+/// The ring full of blue bars -- forty lines of the blue blank through a
+/// ring of thirty rows -- narrowed to 20 at a prompt, `scroll` fed, then a
+/// prompt and a growth back to 40: the screen's rows after it.
+fn rows_a_full_screen_scroll_brings_in(scroll: &[u8]) -> Vec<Vec<PackedCell>> {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &wide);
+    support::feed(&mut t, b"\x1b[44m\x1b[2J\x1b[10;1H");
+    support::feed(&mut t, &[b'\n'; 40]);
+    support::feed(&mut t, b"\x1b[0m\x1b]133;A\x07$ ");
+    assert!(
+        t.row(Row::from_index(0))
+            .iter()
+            .all(|c| *c != PackedCell::EMPTY),
+        "the control: a bar to column 40"
+    );
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    support::feed(&mut t, scroll);
+    support::feed(&mut t, b"\x1b[10;1H$ ");
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    (0..10)
+        .map(|y| t.row(Row::from_index(y)).to_vec())
+        .collect()
+}
+
+/// **The line a full-screen scroll brings in is blank past the edge.**
+/// Twelve line feeds on the bar-filled ring: each line comes in on a ring
+/// row that held a bar, blanked to the live edge, and a growth showed it
+/// blue past column 20.
+#[test]
+fn the_line_a_full_screen_scroll_brings_in_is_blank_past_the_edge() {
+    let rows =
+        rows_a_full_screen_scroll_brings_in(b"\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n");
+    for (y, row) in rows[..9].iter().enumerate() {
+        assert!(
+            is_blank(row),
+            "row {}, a line fed in, blank to column 40",
+            y + 1
+        );
+    }
+}
+
+/// **And through `SU`**, which scrolls the whole screen by the same
+/// rotation and blank, on its own path.
+#[test]
+fn the_lines_su_brings_in_are_blank_past_the_edge() {
+    let rows = rows_a_full_screen_scroll_brings_in(b"\x1b[12S");
+    for (y, row) in rows[..9].iter().enumerate() {
+        assert!(
+            is_blank(row),
+            "row {}, a line SU brought in, blank to column 40",
+            y + 1
+        );
+    }
+}
+
+/// **Every line a scroll brings in, once the scrolls have gone round the
+/// ring.** Forty line feeds through a ring of thirty rows: each row the
+/// window's bottom swept is cleared past the edge however many times it was
+/// swept, and the clear covers the whole ring once.
+#[test]
+fn the_lines_a_scroll_brings_in_past_a_whole_ring_are_blank_past_the_edge() {
+    let mut scroll = Vec::new();
+    for _ in 0..40 {
+        scroll.extend_from_slice(b"\r\n");
+    }
+    let rows = rows_a_full_screen_scroll_brings_in(&scroll);
+    for (y, row) in rows[..9].iter().enumerate() {
+        assert!(
+            is_blank(row),
+            "row {}, a line fed in, blank to column 40",
+            y + 1
+        );
+    }
+}
+
+/// **A line a scroll brought in is cleared before `DL` moves it.** The rows
+/// a full-screen scroll swept are cleared past the edge when something next
+/// reads or moves rows there, and they are found by where they lie: three
+/// line feeds bring lines in on rows 8 to 10, then `DL` on row 2 moves them
+/// up a row. Cleared after the move, by position, the line moved onto row 7
+/// kept its retired bar past column 20; the bars above, moved too, keep
+/// theirs.
+#[test]
+fn lines_a_scroll_brought_in_and_dl_moved_are_blank_past_the_edge() {
+    let rows = rows_a_full_screen_scroll_brings_in(b"\r\n\r\n\r\n\x1b[2;1H\x1b[M");
+    assert!(
+        rows[1].iter().all(|c| *c != PackedCell::EMPTY),
+        "the control: row 2, a bar moved up, blue to column 40"
+    );
+    for (y, row) in rows.iter().enumerate().take(9).skip(6) {
+        assert!(
+            is_blank(row),
+            "row {}, a line fed in and moved up, blank to column 40",
+            y + 1
+        );
+    }
+}
+
+/// **And before a top region's repair carries it.** Three line feeds, then
+/// a scroll of the region `1 ; 5`: the lines brought in are rows under the
+/// region, and its repair put them back on other rows with their retired
+/// bars past the edge, counted then as rows the repair had put right.
+#[test]
+fn lines_a_scroll_brought_in_under_a_region_are_blank_past_the_edge() {
+    let rows = rows_a_full_screen_scroll_brings_in(b"\r\n\r\n\r\n\x1b[1;5r\x1b[5;1H\n");
+    for (y, row) in rows.iter().enumerate().take(9).skip(7) {
+        assert!(
+            is_blank(row),
+            "row {}, a line fed in under the region, blank to column 40",
+            y + 1
+        );
+    }
+}
+
+/// **And before a scroll down moves the window back over them.** Three line
+/// feeds, then a reverse index at the top: the lines brought in go down a
+/// row, and counted from the window's new place they were rows nothing had
+/// swept.
+#[test]
+fn lines_a_scroll_brought_in_then_scrolled_down_are_blank_past_the_edge() {
+    let rows = rows_a_full_screen_scroll_brings_in(b"\r\n\r\n\r\n\x1b[1;1H\x1bM");
+    assert!(is_blank(&rows[0]), "row 1, taken back, blank to column 40");
+    assert!(
+        is_blank(&rows[8]),
+        "row 9, a line fed in, blank to column 40"
+    );
+}
+
+/// **A scroll down on the alternate screen forgets none of them.** The
+/// primary's swept rows are counted by its top line, which the alternate
+/// screen does not move: three line feeds, then a reverse index at the top
+/// of the alternate screen and back. Restarting the count there, on the
+/// alternate screen's scroll, lost the three lines' rows, and a growth
+/// showed their retired bars.
+#[test]
+fn lines_a_scroll_brought_in_survive_a_scroll_down_on_the_alternate_screen() {
+    let rows =
+        rows_a_full_screen_scroll_brings_in(b"\r\n\r\n\r\n\x1b[?1049h\x1b[1;1H\x1bM\x1b[?1049l");
+    for (y, row) in rows.iter().enumerate().take(9).skip(7) {
+        assert!(
+            is_blank(row),
+            "row {}, a line fed in, blank to column 40",
+            y + 1
+        );
+    }
+}
+
+/// **And before a prompt's redraw moves the window back over them.** A
+/// prompt block of thirteen lines on a ten-row screen, every line after its
+/// first brought in by a line feed on a row that held a blue bar, narrowed
+/// before them; the shell erases its last rows and redraws, and the
+/// window moves back three rows to replace the block where it began.
+/// Counted from the window's new place, those lines' rows were rows nothing
+/// had swept, and a growth showed their retired bars.
+#[test]
+fn lines_a_scroll_brought_in_and_a_prompt_redraw_took_back_are_blank_past_the_edge() {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &wide);
+    support::feed(&mut t, b"\x1b[44m\x1b[2J\x1b[10;1H");
+    support::feed(&mut t, &[b'\n'; 40]);
+    support::feed(&mut t, b"\x1b[0m\x1b]133;A\x07");
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    for _ in 0..12 {
+        support::feed(&mut t, b"p\r\n");
+    }
+    let erased = t.prompt_erases;
+    support::feed(&mut t, b"\x1b[8;1H\x1b[J\x1b]133;A\x07$ ");
+    assert_eq!(
+        t.prompt_erases,
+        erased + 1,
+        "the control: the block was replaced"
+    );
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    for y in 1..10 {
+        assert!(
+            is_blank(t.row(Row::from_index(y))),
+            "row {}, a line of the block, blank to column 40",
+            y + 1
+        );
+    }
+}
+
+/// **A hidden tail goes with its row through many scrolls.** Each scroll of
+/// the region `1 ; 6` lands the rows under it on other physical rows, so the
+/// flag that says a row holds something past the edge has to go with its
+/// cells, or the second scroll finds both rows clear and leaves the tail
+/// behind: thirty `S` on row 9, five lines, and a growth.
+#[test]
+fn a_hidden_tail_under_a_region_survives_many_scrolls_and_a_growth() {
+    let (want, got) = through_a_prompt_narrowing(
+        b"\x1b[9;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS",
+        b"\x1b[1;6r\x1b[6;1H\n\n\n\n\n",
+    );
+    assert_eq!(got[8], want[8], "row 9, thirty S");
+}
+
+/// **And the line a scroll down takes back.** The newest line of history,
+/// a blue bar, comes back as the top row a reverse index at the top opens:
+/// blanked to the live edge, it kept the bar past it.
+#[test]
+fn the_line_a_full_screen_scroll_down_brings_in_is_blank_past_the_edge() {
+    let (want, got) = through_a_prompt_narrowing(
+        b"\x1b[44m\x1b[2J\x1b[10;1H\n\x1b[0m\x1b[1;1H\x1b[2K",
+        b"\x1b[1;1H\x1bM",
+    );
+    assert!(is_blank(&want[0]), "the control: row 1 blank at 40");
+    assert!(is_blank(&got[0]), "row 1, opened, blank to column 40");
+    assert_eq!(got[1], want[0], "row 2, the old row 1");
+}
+
+/// **And before `IL` moves it.** Three line feeds, then `IL` on row 2: the
+/// lines brought in go down a row, and the bar on row 7 goes down onto row
+/// 8. Cleared after the move, by position, row 8's bar lost its cells past
+/// column 20 and the line moved onto row 9 kept its retired bar.
+#[test]
+fn lines_a_scroll_brought_in_and_il_moved_are_blank_past_the_edge() {
+    let rows = rows_a_full_screen_scroll_brings_in(b"\r\n\r\n\r\n\x1b[2;1H\x1b[L");
+    assert!(
+        rows[7].iter().all(|c| *c != PackedCell::EMPTY),
+        "row 8, a bar moved down, blue to column 40"
+    );
+    assert!(
+        is_blank(&rows[8]),
+        "row 9, a line fed in and moved down, blank to column 40"
+    );
+}
+
+/// **And before a copying region scroll moves it**, up through `DL`'s
+/// engine: three line feeds, then a line feed at the bottom of the region
+/// `2 ; 10`, and the lines brought in go up a row.
+#[test]
+fn lines_a_scroll_brought_in_and_a_copying_scroll_moved_are_blank_past_the_edge() {
+    let rows = rows_a_full_screen_scroll_brings_in(b"\r\n\r\n\r\n\x1b[2;10r\x1b[10;1H\n");
+    for (y, row) in rows.iter().enumerate().take(9).skip(6) {
+        assert!(
+            is_blank(row),
+            "row {}, a line fed in and moved up, blank to column 40",
+            y + 1
+        );
+    }
+}
+
+/// And down, through `IL`'s: a reverse index at the top of the region
+/// `2 ; 10` moves the bar on row 7 onto row 8 and a line brought in onto
+/// row 9.
+#[test]
+fn lines_a_scroll_brought_in_and_a_copying_scroll_down_moved_are_blank_past_the_edge() {
+    let rows = rows_a_full_screen_scroll_brings_in(b"\r\n\r\n\r\n\x1b[2;10r\x1b[2;1H\x1bM");
+    assert!(
+        rows[7].iter().all(|c| *c != PackedCell::EMPTY),
+        "row 8, a bar moved down, blue to column 40"
+    );
+    assert!(
+        is_blank(&rows[8]),
+        "row 9, a line fed in and moved down, blank to column 40"
+    );
+}
+
+/// **The rows a top region's own scrolls bring in are not counted as swept.**
+/// The repair puts them right as it goes, so the count restarts after it:
+/// `SU 3` in the region `1 ; 6` is three scrolls in one call, and counted,
+/// the clear at the growth took the bottom three rows under the region for
+/// lines a scroll brought in and cut row 9's blue bar, whose mark is zero,
+/// at column 20.
+#[test]
+fn a_coloured_bar_under_a_region_survives_three_scrolls_in_one_call() {
+    let (want, got) =
+        through_a_prompt_narrowing(b"\x1b[9;1H\x1b[44m\x1b[2K\x1b[0m", b"\x1b[1;6r\x1b[3S");
+    assert!(
+        want[8].iter().all(|c| *c != PackedCell::EMPTY),
+        "the control: row 9 blue to column 40"
+    );
+    assert_eq!(got[8], want[8], "row 9, blue to column 40");
+}
+
+/// **A row the repair clears past the edge is clear after**, so the ring
+/// does not bring it round as a row to copy. Thirty `S` on row 7, the first
+/// row under the region `1 ; 6`, narrowed at a prompt: every scroll copies
+/// the tail down onto a new physical row and opens the line on the one it
+/// left, cleared past the edge. Left held there, each scroll added a row the
+/// ring brought round under the region and copied past the edge, and from
+/// the ring's first lap the scrolls cost more each time.
+#[test]
+fn a_row_the_repair_clears_past_the_edge_is_not_copied_again() {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(2));
+    let mut t = Term::new(owned.storage(), &wide);
+    support::feed(&mut t, b"\x1b[7;1HSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS");
+    support::feed(
+        &mut t,
+        b"\x1b[8;1Hdash 08\x1b[9;1Hdash 09\x1b[10;1H\x1b]133;A\x07$ ",
+    );
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    support::feed(&mut t, b"\x1b[1;6r\x1b[6;1H");
+    let costs: Vec<usize> = (0..30)
+        .map(|_| {
+            let (_, a) = t.amplification();
+            support::feed(&mut t, b"\n");
+            let (_, b) = t.amplification();
+            b - a
+        })
+        .collect();
+    assert!(
+        costs.iter().all(|c| *c == costs[0]),
+        "every scroll the same cells: {costs:?}"
+    );
+}
+
 /// **The repair counts the cells it writes**, which is the rows under the
 /// region to their marks, not to the width. Three rows of four glyphs under a
 /// top region, one scroll: each row is copied to a mark of four, and the
