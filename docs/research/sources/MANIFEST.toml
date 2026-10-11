@@ -12,6 +12,11 @@
 #   gated       never obtained (paywall / registration); `access` says how.
 #               NOT citable — no claim may rest on it.
 #
+# Committing a file is distributing it: a `retrieved` file needs its row in
+# docs/research/third-party.toml (its licence and where its notice is) in the
+# same commit, and THIRD_PARTY.md regenerated (scripts/gen-third-party.py).
+# scripts/check-sources.sh fails until both are done.
+#
 # Notes cite with `[[source: <key>]]`. A claim that matters carries a section
 # or page alongside — "simdjson § 3", not "simdjson".
 #

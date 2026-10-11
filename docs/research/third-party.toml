@@ -1,0 +1,1891 @@
+# baud -- the licence of every third-party file in the tree.
+#
+# scripts/gen-third-party.py reads this file with docs/research/sources/
+# MANIFEST.toml and writes THIRD_PARTY.md; scripts/check-sources.sh runs it
+# with --check, which fails if:
+#
+#   - a `retrieved` file in MANIFEST.toml is in no group here, or in two, or a
+#     group names a file the manifest does not hold as `retrieved`;
+#   - a file in LICENSES/ has no [text] entry, or no longer hashes to it, or an
+#     entry names a file that is not there, or a text nothing here cites;
+#   - a `notice` or a [[tree]] path names a file that does not exist, or so
+#     does a path LICENSE writes from the repository root;
+#   - THIRD_PARTY.md is not what this file and the manifest generate.
+#
+# So a source added to the manifest needs its row here in the same commit.
+#
+# Fields:
+#   licence  an SPDX expression, or LicenseRef-* where SPDX has no identifier:
+#              LicenseRef-NoGrant      no grant to redistribute was found
+#              LicenseRef-Unverified   the licence has not been established
+#              LicenseRef-W3C-Document, LicenseRef-IETF-RFC,
+#              LicenseRef-Khronos-Specification, LicenseRef-AGG-2.4-permissive,
+#              LicenseRef-W3C-Software-and-Document-2023,
+#              LicenseRef-Public-Domain-US-Government
+#   notice   where the notice the licence asks for is: a path from the
+#            repository root, "in file", "uri" (the licence asks only for its
+#            URI, which THIRD_PARTY.md gives), "none needed", or "none"
+#   status   kept        redistributable, and its notice is satisfied
+#            own         the owner's work
+#            nc          kept verbatim under CC BY-NC-SA 3.0, which allows a
+#                        verbatim copy that carries its attribution and the
+#                        licence's URI; its NonCommercial term binds every
+#                        copy of this file, whatever the repository's licence
+#            copyleft    redistributable with its licence text, which is in
+#                        LICENSES/; keeping it or making it `external` is the
+#                        owner's call
+#            no-grant    no grant to redistribute; moving it out of the tree
+#                        (status `external` in the manifest) is the owner's call
+#            unverified  licence not established; the owner's call
+#            open        a question recorded where the file is; the owner's call
+#
+# The classification comes from a read-only audit of the tree on 2026-10-10
+# (each file's own header, its upstream repository's licence through the
+# GitHub API, or the page's notice), re-checked here for the files added
+# since. It is not legal advice.
+
+# ── The licence texts in LICENSES/. `sha256` is the committed file's; the
+# check re-hashes it, so a hand edit to a text fails.
+
+[text."alacritty-Apache-2.0.txt"]
+licence = "Apache-2.0"
+from    = "https://raw.githubusercontent.com/alacritty/alacritty/0c405d53e74ace2980fc5e6c6d5b710c144bc075/LICENSE-APACHE"
+how     = "fetched"
+sha256  = "8884289e3969c089cd556c53fa1d3f51d86b29e52a8c1d660a55ce8292986910"
+
+[text."Apache-2.0.txt"]
+licence = "Apache-2.0"
+from    = "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/Apache-2.0.txt"
+how     = "fetched"
+sha256  = "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+
+[text."APSL-2.0.txt"]
+licence = "APSL-2.0"
+from    = "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/APSL-2.0.txt"
+how     = "fetched"
+sha256  = "2d0c12edaaf8d31fec6796fef99291b12e833b6bef28100975120a53d209e06d"
+
+[text."bat-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/sharkdp/bat/4987f76709aae3a1c4db723c53874c9ddcb0c4fd/LICENSE-MIT"
+how     = "fetched"
+sha256  = "dccda9eb9533f5c65624a1106536c6cfde46008d58e60b3faf154e8b9fd5b46e"
+
+[text."fontdue-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/mooman219/fontdue/2924772fb4439b8aca40b1bffca70088acba5a1b/LICENSE-MIT"
+how     = "fetched"
+sha256  = "a72354dd6206c20dff7c9fd45b137261e00a31f71ffb8fe67d5ca0c8170b5fd5"
+
+[text."fonttools-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/fonttools/fonttools/4.63.0/LICENSE"
+how     = "fetched"
+sha256  = "6787208f83f659ccbc2223b2fde952ffa6f7e8aca62f1a8a2bf5bc51bb1b2383"
+
+[text."foot-MIT.txt"]
+licence = "MIT"
+from    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/LICENSE"
+how     = "fetched"
+sha256  = "d534a23a31500a0ac958d9634b84f532bd73ff1aca1bb8f7debbcbebc16ff39a"
+
+[text."FTL.txt"]
+licence = "FTL"
+from    = "https://gitlab.freedesktop.org/freetype/freetype/-/raw/e2526d30e673c3063209bcbad8bdfc7fe1745fc3/docs/FTL.TXT"
+how     = "fetched"
+sha256  = "5a5ee54c5001bbad1cdc1a57cc3dd4c42199b2da09d39c7ee41fab002d02967f"
+
+[text."fzf-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/junegunn/fzf/a140afeb4d733cad3c96a56bf6db7e26853b6757/LICENSE"
+how     = "fetched"
+sha256  = "a296f423c0d30ce3581435e78e7e36c5fe73984a882d8720c72e713b4593588b"
+
+[text."ghostty-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3/LICENSE"
+how     = "fetched"
+sha256  = "386211873e5b7a02f663ae4d7adf96285999f91608f8f9f31fecfd0f4095e6f1"
+
+[text."GPL-2.0-only.txt"]
+licence = "GPL-2.0-only"
+from    = "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-2.0-only.txt"
+how     = "fetched"
+sha256  = "aaf135472f81c5b4a0dca9367e5bb5e9750032b5bebe5442b36e4c0a47430df3"
+
+[text."GPL-3.0-only.txt"]
+licence = "GPL-3.0-only"
+from    = "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/GPL-3.0-only.txt"
+how     = "fetched"
+sha256  = "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0"
+
+[text."harfbuzz-COPYING.txt"]
+licence = "MIT-Modern-Variant"
+from    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/COPYING"
+how     = "fetched"
+sha256  = "ba8f810f2455c2f08e2d56bb49b72f37fcf68f1f4fade38977cfd7372050ad64"
+
+[text."highway-LICENSE.txt"]
+licence = "Apache-2.0 OR BSD-3-Clause"
+from    = "https://raw.githubusercontent.com/google/highway/b93ad441d9cbeb7d7629281992b796a73033996a/LICENSE"
+how     = "fetched"
+sha256  = "85de9303e7a81f35d81befd51a4004c41b5e7f7e40cd4e3f5ff609ecd71a0e44"
+
+[text."iterm2-color-schemes-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/99d9701ba3cf4a06d24eea6ca4f25a64656b446b/LICENSE"
+how     = "fetched"
+sha256  = "2373168614b527494dff99eb393024608216db79f687d58bad420f6c1e0ad192"
+
+[text."libxkbcommon-LICENSE.txt"]
+licence = "MIT AND HPND"
+from    = "https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/LICENSE"
+how     = "fetched"
+sha256  = "967e97b28658f0037bbe164a237bdfb0c3ec790e67f6c29372ea5b09306f61f3"
+
+[text."lscolors-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/sharkdp/lscolors/fd932f838d055990378e3d73fbd5d61185da495e/LICENSE-MIT"
+how     = "fetched"
+sha256  = "f9c4c77baa3828004ee54b8a4f2db2e88ed44a6237a493965bf551fac0fcb62d"
+
+[text."macos-man-notices.txt"]
+licence = "APSL-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSD-4-Clause-UC"
+from    = "$SDKROOT/usr/share/man/{man2/kqueue.2,man3/clock_gettime.3,man3/tcgetpgrp.3}, macOS 27.0 SDK"
+how     = "built"
+sha256  = "8f831f5ead7d9f05b07584d0170b7a323d542483044b80ba7d224967cffa838a"
+
+[text."MPL-2.0.txt"]
+licence = "MPL-2.0"
+from    = "https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/MPL-2.0.txt"
+how     = "fetched"
+sha256  = "66a3107d5ad6a058aab753eaac2047ccb2ed0e39465dd0fe5844da3e300d5172"
+
+[text."msdfgen-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/Chlumsky/msdfgen/1c106ed8117893bf943e577f62eb0665fb271e46/LICENSE.txt"
+how     = "fetched"
+sha256  = "32a94b25ad7072a78457d35019b32d73d2c265c806b0b76e9638fe800330bbe4"
+
+[text."ncurses-COPYING.txt"]
+licence = "X11"
+from    = "https://raw.githubusercontent.com/ThomasDickey/ncurses-snapshots/6c26c1f46499e2fbedfb2c69c9463eceeab62ca5/COPYING"
+how     = "fetched"
+sha256  = "a85ca5bef8ce71f013bc5f4306c681881b248450f3b63722589891f0b69ea52d"
+
+[text."neovide-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/neovide/neovide/105fd640f83616501d7c6bfedb0b4c15ab9515e1/LICENSE"
+how     = "fetched"
+sha256  = "60c7b5e1d0b3daee2f2a504d622e47ca37f45e61bb2538a2a10e1c5555da1dd7"
+
+[text."neovim-LICENSE.txt"]
+licence = "Apache-2.0 AND Vim"
+from    = "https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/LICENSE.txt"
+how     = "fetched"
+sha256  = "de23202ef9a51f5e654034190539739a4abece5505f2ce75e780791106707011"
+
+[text."ots-BSD-3-Clause.txt"]
+licence = "BSD-3-Clause"
+from    = "https://raw.githubusercontent.com/khaledhosny/ots/6263433/LICENSE"
+how     = "fetched"
+sha256  = "0d74de3c3cd3196a9ed1bc612cfd5f81d7509d66c4be34a50f99d61bd1ad00d4"
+
+[text."regex-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/rust-lang/regex/72d650cb0a880a01ab6dc2137c0888e8f89740f7/LICENSE-MIT"
+how     = "fetched"
+sha256  = "6485b8ed310d3f0340bf1ad1f47645069ce4069dcc6bb46c7d5c6faf41de1fdb"
+
+[text."rust-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/LICENSE-MIT"
+how     = "fetched"
+sha256  = "b71bd43a069ca0641a9ecfe585ca7b3c53b5cc1608f8b68321168698e28b5ea1"
+
+[text."rust-reference-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/rust-lang/reference/9fa1d6fba4ca87ca2d4e1b2c3807488bd8b4a85c/LICENSE-MIT"
+how     = "fetched"
+sha256  = "0621878e61f0d0fda054bcbe02df75192c28bde1ecc8289cbd86aeba2dd72720"
+
+[text."rust-rfcs-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/rust-lang/rfcs/d2705ad64ba47e812a2b6b19d6f613fb4c14c5e0/LICENSE-MIT"
+how     = "fetched"
+sha256  = "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+
+[text."sfte-Zlib.txt"]
+licence = "Zlib"
+from    = "docs/research/sources/sfte.h lines 149-170"
+how     = "built"
+sha256  = "f3b1a6d6613ad220aafce72d5aad4158f90de5fcccc7b42f5f1ffe10399c64ca"
+
+[text."slug-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/EricLengyel/Slug/be3c13eb7d63f9e8aa5c583e42d92c374cb91d98/LICENSE-MIT"
+how     = "fetched"
+sha256  = "8b284b866415649e107444b72f35f6931ba2adcddef2febb83b25ed99b10f0f0"
+
+[text."tinted-base24-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/tinted-theming/base24/fb96d3c6396eb27f94efadfa3c416abd9d54b488/LICENSE.md"
+how     = "fetched"
+sha256  = "80a4a39d52cf47647948f3c5e03be7a6f4bc4f4f399c71d5a8c95a15ea847313"
+
+[text."tinted-home-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/tinted-theming/home/38fdf7d4c74417ea86f1e354c628fc2d2aeb5d96/LICENSE"
+how     = "fetched"
+sha256  = "4e287e2ce0ff0679a8fc20120c7116d972ef1d96e317540ce4c23a1025cf8d1d"
+
+[text."tinted-shell-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/tinted-theming/tinted-shell/d1a0085b06670b770b818b00592b1f1e37d65bc5/LICENSE"
+how     = "fetched"
+sha256  = "f17613282ac66e6b65fa49a4d1a6379d2139a3aa19284cb1d9eae8f57a82d699"
+
+[text."Unicode-3.0.txt"]
+licence = "Unicode-3.0"
+# Unversioned. On 2026-10-11 no versioned URL was found serving these bytes:
+# none under unicode.org/Public/, and the unicode-org repositories' LICENSE
+# files differ. A Wayback Machine snapshot dated 2026-10-09 exists, but its
+# fetch returned HTTP 429, so it is unchecked; the sha256 is the pin.
+from    = "https://www.unicode.org/license.txt"
+how     = "fetched"
+sha256  = "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+
+[text."vma-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/3aa921224c154a0d2c43912bc88e1c42ce1f7607/LICENSE.txt"
+how     = "fetched"
+sha256  = "52df2c03d6cfc9ffec13c9d3626c530fc9ce0cbe41d5ea3d10cd46edeb1aeb38"
+
+[text."W3C-software-and-document-license-2023.txt"]
+licence = "LicenseRef-W3C-Software-and-Document-2023"
+from    = "https://www.w3.org/copyright/software-license/"
+how     = "built"
+sha256  = "15c2b580995ed69235ec04e0560628beb89d01cb63a319e7b5a26dd068d73a15"
+
+[text."wayland-rs-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/Smithay/wayland-rs/b9e6f573a94d46b6d76142ebfc737a01af548f47/LICENSE.txt"
+how     = "fetched"
+sha256  = "1cb6f4dee8c649f175736380495f0af0c753c87f22d50931692968bb24bf2161"
+
+[text."wezterm-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/LICENSE.md"
+how     = "fetched"
+sha256  = "37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca"
+
+[text."windows-terminal-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/microsoft/terminal/bb0541e7a972a1f9e39318c1f6b4e70347a86696/LICENSE"
+how     = "fetched"
+sha256  = "5d177f23ecfeb0ea8e050b6a5a16355e1ae9a0b286436ca8f83ed08b3795be6b"
+
+[text."x11rb-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/psychon/x11rb/86c4252fe023fddd523f0ac3c7c07c40ba266ce0/LICENSE-MIT"
+how     = "fetched"
+sha256  = "a72561f47c1f665535930f606739d9098a6186802d5e2e8ec491faf00f4add5b"
+
+[text."xorgproto-COPYING.txt"]
+licence = "HPND"
+from    = "https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/raw/6d3907b6d5dc4aa7d7ee6ee5d7d8714e7466630b/COPYING-dri3proto"
+how     = "fetched"
+sha256  = "64a579d1a0b3347301d87c94698a58ea7933d0ae6ca7e8fdd702fde2ea376301"
+
+[text."xterm-COPYING.txt"]
+licence = "X11"
+from    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/bccd466414dc4ecb264a3824a6f1e41bebe65214/COPYING"
+how     = "fetched"
+sha256  = "f272fa007de2cffdb22b4df09e9a3aaec3555d5a6913229b70006ee137ab22b5"
+
+[text."yazi-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/sxyazi/yazi/aa526434f00bb44e2e902d9a4ac5f810da1018b9/LICENSE"
+how     = "fetched"
+sha256  = "e66519d3d006dc76760d00d40361d24d2b97ba80ab93438885e78bc5a70bdd9c"
+
+[text."zeno-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/dfrg/zeno/698399439f8035736d01de00cbcdc413b3976a18/LICENSE-MIT"
+how     = "fetched"
+sha256  = "122dadfc2eb4de0f4bafcd9eb4e7502cfe338a7965ebd1d18708cc5050f43f76"
+
+[text."zig-MIT.txt"]
+licence = "MIT"
+from    = "https://codeberg.org/ziglang/zig/raw/tag/0.16.0/LICENSE"
+how     = "fetched"
+sha256  = "5c537d6853e005298a285d508cff9ac7192cea23576c840d485b2b586a7ff177"
+
+# ── docs/research/sources/: every `retrieved` file in MANIFEST.toml, in
+# exactly one group.
+
+[upstream.apple-docs]
+name    = "Apple developer documentation and support pages (Apple Inc.)"
+licence = "LicenseRef-NoGrant"
+notice  = "none"
+status  = "no-grant"
+files   = [
+  "apple-cacurrentmediatime.json",
+  "apple-cadisplaylink-duration.json",
+  "apple-cadisplaylink-targettimestamp.json",
+  "apple-cadisplaylink-timestamp.json",
+  "apple-cadisplaylink.json",
+  "apple-cametaldisplaylink-targetpresentation.json",
+  "apple-cametaldisplaylink-targettimestamp.json",
+  "apple-catransaction-commit.json",
+  "apple-catransaction-flush.json",
+  "apple-catransaction.json",
+  "apple-cftimeinterval.json",
+  "apple-cgevent-init-keyboard.json",
+  "apple-cgevent-post.json",
+  "apple-cgevent-timestamp.json",
+  "apple-cgeventsettimestamp.json",
+  "apple-cgeventtaplocation.json",
+  "apple-cgeventtimestamp.json",
+  "apple-cghideventtap.json",
+  "apple-customizing-logging.json",
+  "apple-event-architecture.html",
+  "apple-fspg-library-dirs.html",
+  "apple-generating-log-messages.json",
+  "apple-hig-accessibility.json",
+  "apple-hig-launching.json",
+  "apple-hig-loading.json",
+  "apple-hig-motion.json",
+  "apple-hig-onboarding.json",
+  "apple-hig-toolbars.json",
+  "apple-hig-windows.json",
+  "apple-infoplist-lsenvironment.html",
+  "apple-kmadimflashinglightschangednotification.json",
+  "apple-logging.json",
+  "apple-mach_absolute_time.json",
+  "apple-madimflashinglightsenabled.json",
+  "apple-maflashinglightsprocessor-processsurface.json",
+  "apple-maflashinglightsprocessor-result.json",
+  "apple-maflashinglightsprocessor.json",
+  "apple-mediaaccessibility-flashing-lights.json",
+  "apple-metal-best-practices-functions-libraries.html",
+  "apple-metal-best-practices-pipelines.html",
+  "apple-metal-binary-archives.json",
+  "apple-metal-building-a-shader-library.json",
+  "apple-metal-compiling-binary-archives-from-a-script.json",
+  "apple-metal-creating-binary-archives.json",
+  "apple-metal-libraries.json",
+  "apple-metal-minimizing-binary-size.json",
+  "apple-metal-resource-options.html",
+  "apple-metal-shader-libraries.json",
+  "apple-metal-using-the-metal-4-compilation-api.json",
+  "apple-metal-variables.json",
+  "apple-mtl4archive.json",
+  "apple-mtlbinaryarchive-addrenderpipelinefunctions.json",
+  "apple-mtlbinaryarchive-serialize.json",
+  "apple-mtlbinaryarchive.json",
+  "apple-mtlbinaryarchivedescriptor-url.json",
+  "apple-mtlbinaryarchivedescriptor.json",
+  "apple-mtlcommandbuffer-gpuendtime.json",
+  "apple-mtlcommandbuffer-gpustarttime.json",
+  "apple-mtlcommandbuffer-kernelstarttime.json",
+  "apple-mtldevice-makebinaryarchive.json",
+  "apple-mtldevice-makedefaultlibrary.json",
+  "apple-mtldevice-makelibrary-data.json",
+  "apple-mtldevice-makelibrary-source.json",
+  "apple-mtldevice-makelibrary-url.json",
+  "apple-mtlpipelineoption-failonbinaryarchivemiss.json",
+  "apple-mtlrenderpipelinedescriptor-binaryarchives.json",
+  "apple-nsapplication-currentevent.json",
+  "apple-nsevent-timestamp.json",
+  "apple-nsevent.json",
+  "apple-nswindow-miniwindowtitle.json",
+  "apple-nswindow-representedurl.json",
+  "apple-nswindow-subtitle.json",
+  "apple-nswindow-title.json",
+  "apple-nswindow-titlebarappearstransparent.json",
+  "apple-nswindow-titlevisibility-hidden.json",
+  "apple-nswindow-titlevisibility-property.json",
+  "apple-nsworkspace-accessibilitydisplayoptionsdidchangenotification.json",
+  "apple-nsworkspace-accessibilitydisplayshouldreducemotion.json",
+  "apple-os-log-create.json",
+  "apple-os-log-with-type.json",
+  "apple-os-log.json",
+  "apple-oslogprivacy.json",
+  "apple-promotion-displays.json",
+  "apple-reducing-your-app-s-launch-time.json",
+  "apple-responding-to-flashing-lights-setting.json",
+  "apple-scstreamframeinfo-displaytime.json",
+  "apple-scstreamframeinfo.json",
+  "apple-storage-mode-apple-gpus.json",
+  "apple-techtalk-10855-render-loop-hitches.html",
+  "apple-terminal-guide-change-title.html",
+  "apple-terminal-guide-tab-settings.html",
+  "apple-terminal-guide-window-settings.html",
+  "apple-timeinterval.json",
+  "apple-understanding-hangs-in-your-app.json",
+  "apple-viewing-log-messages.json",
+  "apple-wwdc20-10615-build-gpu-binaries.html",
+  "apple-wwdc20-10615-transcript.txt",
+  "apple-wwdc22-10102-target-optimize-gpu-binaries.html",
+  "apple-wwdc22-10102-transcript.txt",
+  "apple-wwdc23-10248-analyze-hangs.html",
+  "apple-xcode-16-release-notes.json",
+  "apple-xcode-26-release-notes.json",
+  "apple-xcode-additional-components.json",
+  "apple-xcode-improving-app-responsiveness.json",
+  "apple-xcode-understanding-hitches.json",
+]
+
+[upstream.dec-manuals]
+name    = "DEC manuals as transcribed on vt100.net (Digital Equipment Corporation)"
+licence = "LicenseRef-NoGrant"
+notice  = "none"
+status  = "no-grant"
+files   = [
+  "vt100-ug-chapter3.html",
+  "vt102-ug-chapter5.html",
+  "vt220-rm-chapter2.html",
+  "vt220-rm-chapter4.html",
+  "vt320-uu-appendixe.html",
+  "vt3xx-screen-control.html",
+  "vt3xx-sixel.html",
+  "vt420-uu-chapter9.html",
+  "vt510-DECALN.html",
+  "vt510-DECANM.html",
+  "vt510-DECARM.html",
+  "vt510-DECAUPSS.html",
+  "vt510-DECAWM.html",
+  "vt510-DECCIR.html",
+  "vt510-DECDC.html",
+  "vt510-DECIC.html",
+  "vt510-DECOM.html",
+  "vt510-DECRC.html",
+  "vt510-DECRQUPSS.html",
+  "vt510-DECSC.html",
+  "vt510-DECSCA.html",
+  "vt510-DECSCL.html",
+  "vt510-DECSCPP.html",
+  "vt510-DECSED.html",
+  "vt510-DECSEL.html",
+  "vt510-DECSLRM.html",
+  "vt510-DECSTR.html",
+  "vt510-LS.html",
+  "vt510-RIS.html",
+  "vt510-S7C1T.html",
+  "vt510-S8C1T.html",
+  "vt510-SCS.html",
+  "vt510-SS.html",
+  "vt510-chapter7.html",
+]
+
+[upstream.vt100net-charsets]
+name    = "vt100.net, 'Character sets: technical' (Paul Flo Williams)"
+licence = "LicenseRef-NoGrant"
+notice  = "none"
+status  = "no-grant"
+files   = [
+  "vt100net-charsets-technical.html",
+]
+
+[upstream.unicode-publications]
+name    = "Unicode publications: annexes, standard chapters, L2 documents (Unicode, Inc.)"
+licence = "LicenseRef-NoGrant"
+notice  = "none"
+status  = "no-grant"
+files   = [
+  "l2-24264-ttwg-report-utc181.pdf",
+  "l2-25179-ttwg.pdf",
+  "l2-25263-ttwg-report-utc185.pdf",
+  "uax11-east-asian-width.html",
+  "uax29-text-segmentation.html",
+  "uax9-tr9-52.html",
+  "unicode-ch3.html",
+  "unicode-enumerated-versions.html",
+  "unicode16-ch5.html",
+  "unicode17-ch2.html",
+  "unicode17-ch23.html",
+  "unicode17-ch3.html",
+  "unicode17-ch5.html",
+  "unicode18-ch2.html",
+  "unicode18-ch22.html",
+  "unicode18-ch23.html",
+  "unicode18-ch3.html",
+  "unicode18-ch5.html",
+  "unicode18-release.html",
+  "uts51-img-invalid-tag.png",
+  "uts51-img-missing-flag.png",
+  "uts51-img-unsupported.png",
+  "uts51-r31.html",
+]
+
+[upstream.iso10646]
+name    = "ISO/IEC 10646 final committee draft, 2010 (ISO/IEC)"
+licence = "LicenseRef-NoGrant"
+notice  = "none"
+status  = "no-grant"
+files   = [
+  "iso10646-fcd-2010.pdf",
+]
+
+[upstream.papers]
+name    = "Papers with no redistribution grant: ACM ASPLOS 2014, USENIX ATC 2012 and NSDI 2019, the Parabix paper"
+licence = "LicenseRef-NoGrant"
+notice  = "none"
+status  = "no-grant"
+files   = [
+  "cameron-2014-parabix-regex.pdf",
+  "hyperscan-nsdi19.pdf",
+  "mosh-usenix-atc-2012.pdf",
+  "mytkowicz-2014-data-parallel-fsm.pdf",
+]
+
+[upstream.posts]
+name    = "Blog and forum posts with no licence"
+licence = "LicenseRef-NoGrant"
+notice  = "none"
+status  = "no-grant"
+files   = [
+  "arm-neon-bitmask.html",
+  "chadaustin-2024-windows-terminal-latency.html",
+  "danluu-2017-computer-latency-1977-2017.html",
+  "danluu-2017-keyboard-latency.html",
+  "danluu-2017-terminal-latency.html",
+  "fatin-2015-typing-with-pleasure.html",
+  "fatin-2015-typometer.html",
+  "fixterms.html",
+  "hn-42526221-mitchellh-on-latency-benchmarks.html",
+  "hume-2020-keyboard-to-photon-latency-tester.html",
+  "langdale-2018-sheng.html",
+  "lkhrs-2022-measuring-terminal-latency.html",
+  "sawicki-vulkan-memory-types.html",
+  "zolotukhin-2026-04-20-metal-pipeline-state-tax.html",
+  "zolotukhin-2026-04-21-metal-binary-archive.html",
+]
+
+[upstream.issues]
+name    = "GitHub issue and pull-request comments (their authors' content)"
+licence = "LicenseRef-NoGrant"
+notice  = "none"
+status  = "no-grant"
+files   = [
+  "alacritty-issue-673-comments.json",
+  "alacritty-issue-673.json",
+  "gfx-rs-3716-comment-816575736.json",
+  "kitty-issue-2701-comment-636497270.json",
+  "kitty-issue-2701-comment-911089374.json",
+  "kitty-issue-2701-comment-912704201.json",
+  "terminal-wg-issue-20.json",
+  "wezterm-pr-7470-webgpu-present-mode.json",
+]
+
+[upstream.gists]
+name    = "Gists with no licence (aras-p, rockorager, pervognsen)"
+licence = "LicenseRef-NoGrant"
+notice  = "none"
+status  = "no-grant"
+files   = [
+  "aras-metal-shader-cache-gist.md",
+  "inband-resize-notifications.md",
+  "pervognsen-shift-based-dfa.md",
+]
+
+[upstream.mikee47-vt100]
+name    = "mikee47/VT100, vt100.cpp (Martin K. Schroeder); the repository has no licence"
+licence = "LicenseRef-NoGrant"
+notice  = "none"
+status  = "no-grant"
+files   = [
+  "vt100-avr-terminal.cpp",
+]
+
+[upstream.williams-parser]
+name    = "vt100.net, 'A parser for DEC's ANSI-compatible video terminals' (Paul Flo Williams). Its RDF names CC BY-NC-SA 3.0; a footer commented out of the page names CC BY 4.0. The two conflict, and the RDF, the only notice the page declares, is the one followed."
+licence = "CC-BY-NC-SA-3.0"
+notice  = "uri"
+status  = "nc"
+files   = [
+  "williams-dec-ansi-parser.html",
+]
+
+[upstream.ecma]
+name    = "Ecma International standards ECMA-35 and ECMA-48, free to download; no notice was found in the text"
+licence = "LicenseRef-Unverified"
+notice  = "none"
+status  = "unverified"
+files   = [
+  "ecma-35-6th-1994.pdf",
+  "ecma-48-5th-1991.pdf",
+]
+
+[upstream.kitty]
+name    = "kitty source and documentation (Kovid Goyal)"
+licence = "GPL-3.0-only"
+notice  = "LICENSES/GPL-3.0-only.txt"
+status  = "copyleft"
+files   = [
+  "kitty-cursor-trail.c",
+  "kitty-docs-conf.html",
+  "kitty-docs-performance.rst",
+  "kitty-graphics-protocol.html",
+  "kitty-keyboard-protocol.html",
+  "kitty-options-definition.py",
+  "kitty-text-cache.c",
+  "kitty-trail.slang",
+  "kitty-underlines.html",
+]
+
+[upstream.linux]
+name    = "Linux, drivers/tty (n_tty.c is GPL-1.0-or-later, the rest GPL-2.0)"
+licence = "GPL-2.0-only AND GPL-1.0-or-later"
+notice  = "LICENSES/GPL-2.0-only.txt"
+status  = "copyleft"
+files   = [
+  "linux-n_tty.c",
+  "linux-pty.c",
+  "linux-tty_buffer.c",
+  "linux-vt-console.c",
+]
+
+[upstream.mosh]
+name    = "mosh 1.4.0 (Keith Winstein and contributors), with its OpenSSL linking exception in the file"
+licence = "GPL-3.0-or-later"
+notice  = "LICENSES/GPL-3.0-only.txt"
+status  = "copyleft"
+files   = [
+  "mosh-1.4.0-stmclient.cc",
+  "mosh-1.4.0-terminaloverlay.cc",
+  "mosh-1.4.0-terminaloverlay.h",
+]
+
+[upstream.helix]
+name    = "helix editor"
+licence = "MPL-2.0"
+notice  = "LICENSES/MPL-2.0.txt"
+status  = "copyleft"
+files   = [
+  "helix-079a789-termina.rs",
+  "helix-editor.rs",
+  "helix-tui-crossterm.rs",
+  "helix-tui-terminal.rs",
+]
+
+[upstream.xnu]
+name    = "XNU, bsd/kern and bsd/sys tty sources (Apple Inc.)"
+licence = "APSL-2.0"
+notice  = "LICENSES/APSL-2.0.txt"
+status  = "copyleft"
+files   = [
+  "xnu-tty.c",
+  "xnu-tty.h",
+  "xnu-tty_dev.c",
+  "xnu-tty_subr.c",
+]
+
+[upstream.freetype]
+name    = "FreeType, src/smooth/ftgrays.c"
+licence = "FTL OR GPL-2.0-or-later"
+notice  = "LICENSES/FTL.txt"
+status  = "copyleft"
+files   = [
+  "freetype-ftgrays.c",
+]
+
+[upstream.alacritty]
+name    = "alacritty"
+licence = "Apache-2.0"
+notice  = "LICENSES/alacritty-Apache-2.0.txt"
+status  = "kept"
+files   = [
+  "alacritty-0c405d5-alacritty.5.scd",
+]
+
+[upstream.bat]
+name    = "bat"
+licence = "MIT OR Apache-2.0"
+notice  = "LICENSES/bat-MIT.txt"
+status  = "kept"
+files   = [
+  "bat-terminal.rs",
+]
+
+[upstream.contour]
+name    = "contour"
+licence = "Apache-2.0"
+notice  = "LICENSES/Apache-2.0.txt"
+status  = "kept"
+files   = [
+  "contour-Terminal.cpp",
+  "contour-TerminalSession.cpp",
+  "contour-color-palette-update-notifications.md",
+]
+
+[upstream.fontdue]
+name    = "fontdue"
+licence = "MIT OR Apache-2.0 OR Zlib"
+notice  = "LICENSES/fontdue-MIT.txt"
+status  = "kept"
+files   = [
+  "fontdue-raster.rs",
+]
+
+[upstream.fonttools]
+name    = "fontTools 4.63.0"
+licence = "MIT"
+notice  = "LICENSES/fonttools-MIT.txt"
+status  = "kept"
+files   = [
+  "fonttools-4.63.0-misc-fixedTools.py",
+  "fonttools-4.63.0-ttLib-tables-O_S_2f_2.py",
+  "fonttools-4.63.0-ttLib-tables-TupleVariation.py",
+  "fonttools-4.63.0-ttLib-tables-_g_l_y_f.py",
+  "fonttools-4.63.0-ttLib-tables-_h_h_e_a.py",
+  "fonttools-4.63.0-ttLib-tables-_m_a_x_p.py",
+  "fonttools-4.63.0-varLib-instancer-__init__.py",
+  "fonttools-4.63.0-varLib-instancer-solver.py",
+  "fonttools-4.63.0-varLib-iup.py",
+  "fonttools-4.63.0-varLib-merger.py",
+  "fonttools-4.63.0-varLib-models.py",
+]
+
+[upstream.foot]
+name    = "foot"
+licence = "MIT"
+notice  = "LICENSES/foot-MIT.txt"
+status  = "kept"
+files   = [
+  "foot-2705e36-foot.ini.5.scd",
+  "foot-benchmark.md",
+  "foot-cb27717-terminal.c",
+  "foot-csi.c",
+  "foot-input.c",
+  "foot-readme.md",
+  "foot-terminal.c",
+  "foot-vt.c",
+  "foot-wiki-performance.md",
+]
+
+[upstream.fzf]
+name    = "fzf"
+licence = "MIT"
+notice  = "LICENSES/fzf-MIT.txt"
+status  = "kept"
+files   = [
+  "fzf-light_unix.go",
+]
+
+[upstream.regex-automata]
+name    = "regex-automata 0.4.9 documentation (the rust-lang/regex project)"
+licence = "MIT OR Apache-2.0"
+notice  = "LICENSES/regex-MIT.txt"
+status  = "kept"
+files   = [
+  "gallant-regex-automata-dense.html",
+]
+
+[upstream.ghostty]
+name    = "ghostty"
+licence = "MIT"
+notice  = "LICENSES/ghostty-MIT.txt"
+status  = "kept"
+files   = [
+  "ghostty-MetallibStep.zig",
+  "ghostty-d9840f3-Config.zig",
+  "ghostty-d9840f3-Termio.zig",
+  "ghostty-d9840f3-args.zig",
+  "ghostty-d9840f3-cell.zig",
+  "ghostty-d9840f3-color.zig",
+  "ghostty-d9840f3-fraction.zig",
+  "ghostty-d9840f3-shaders.metal",
+]
+
+[upstream.harfbuzz]
+name    = "HarfBuzz 12.3.0"
+licence = "MIT-Modern-Variant"
+notice  = "LICENSES/harfbuzz-COPYING.txt"
+status  = "kept"
+files   = [
+  "harfbuzz-12.3.0-OT-Layout-GDEF-GDEF.hh",
+  "harfbuzz-12.3.0-OT-Layout-GPOS-AnchorFormat3.hh",
+  "harfbuzz-12.3.0-OT-Layout-GPOS-MarkArray.hh",
+  "harfbuzz-12.3.0-glyf-CompositeGlyph.hh",
+  "harfbuzz-12.3.0-glyf-Glyph.hh",
+  "harfbuzz-12.3.0-glyf-SimpleGlyph.hh",
+  "harfbuzz-12.3.0-glyf-glyf.hh",
+  "harfbuzz-12.3.0-hb-font.hh",
+  "harfbuzz-12.3.0-hb-limits.hh",
+  "harfbuzz-12.3.0-hb-open-type.hh",
+  "harfbuzz-12.3.0-hb-ot-font.cc",
+  "harfbuzz-12.3.0-hb-ot-hmtx-table.hh",
+  "harfbuzz-12.3.0-hb-ot-layout-common.hh",
+  "harfbuzz-12.3.0-hb-ot-var-avar-table.hh",
+  "harfbuzz-12.3.0-hb-ot-var-common.hh",
+  "harfbuzz-12.3.0-hb-ot-var-fvar-table.hh",
+  "harfbuzz-12.3.0-hb-ot-var-gvar-table.hh",
+  "harfbuzz-12.3.0-hb-ot-var-hvar-table.hh",
+  "harfbuzz-12.3.0-hb-ot-var.cc",
+  "harfbuzz-12.3.0-hb-sanitize.hh",
+  "harfbuzz-12.3.0-hb.hh",
+  "harfbuzz-usermanual-clusters.xml",
+]
+
+[upstream.highway]
+name    = "Highway documentation (Google)"
+licence = "Apache-2.0 OR BSD-3-Clause"
+notice  = "LICENSES/highway-LICENSE.txt"
+status  = "kept"
+files   = [
+  "highway-dynamic-dispatch-faq.html",
+]
+
+[upstream.iterm2-color-schemes]
+name    = "iTerm2-Color-Schemes"
+licence = "MIT"
+notice  = "LICENSES/iterm2-color-schemes-MIT.txt"
+status  = "kept"
+files   = [
+  "iterm2-color-schemes-gen.py",
+]
+
+[upstream.lscolors]
+name    = "lscolors"
+licence = "MIT OR Apache-2.0"
+notice  = "LICENSES/lscolors-MIT.txt"
+status  = "kept"
+files   = [
+  "lscolors-lib.rs",
+]
+
+[upstream.lsd]
+name    = "lsd"
+licence = "Apache-2.0"
+notice  = "LICENSES/Apache-2.0.txt"
+status  = "kept"
+files   = [
+  "lsd-theme-color.rs",
+]
+
+[upstream.macos-man]
+name    = "macOS SDK manual pages, rendered to text; the notices the rendering dropped are copied from the page sources"
+licence = "APSL-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSD-4-Clause-UC"
+notice  = "LICENSES/macos-man-notices.txt"
+status  = "kept"
+files   = [
+  "macos-man-clock_gettime.txt",
+  "macos-man-kqueue.txt",
+  "macos-man-tcgetpgrp.txt",
+]
+
+[upstream.msdfgen]
+name    = "msdfgen"
+licence = "MIT"
+notice  = "LICENSES/msdfgen-MIT.txt"
+status  = "kept"
+files   = [
+  "msdfgen-README.md",
+]
+
+[upstream.neovide]
+name    = "Neovide"
+licence = "MIT"
+notice  = "LICENSES/neovide-MIT.txt"
+status  = "kept"
+files   = [
+  "neovide-cursor-renderer.rs",
+]
+
+[upstream.neovim]
+name    = "Neovim"
+licence = "Apache-2.0"
+notice  = "LICENSES/neovim-LICENSE.txt"
+status  = "kept"
+files   = [
+  "neovim-tui-input.c",
+  "neovim-tui.c",
+]
+
+[upstream.noto-emoji-tools]
+name    = "Noto Emoji's tools (Google); its README puts the tools under Apache-2.0"
+licence = "Apache-2.0"
+notice  = "LICENSES/Apache-2.0.txt"
+status  = "kept"
+files   = [
+  "noto-emoji-add_emoji_gsub.py",
+  "noto-emoji-add_glyphs.py",
+]
+
+[upstream.ots]
+name    = "OpenType Sanitizer"
+licence = "BSD-3-Clause"
+notice  = "LICENSES/ots-BSD-3-Clause.txt"
+status  = "kept"
+files   = [
+  "ots-designdoc.md",
+]
+
+[upstream.rust]
+name    = "The Rust standard library"
+licence = "MIT OR Apache-2.0"
+notice  = "LICENSES/rust-MIT.txt"
+status  = "kept"
+files   = [
+  "rust-std-macros.rs",
+  "rust-std-pal-unix-time.rs",
+  "rust-std-panicking.rs",
+  "rust-std-sys-time-unix.rs",
+]
+
+[upstream.rust-reference]
+name    = "The Rust Reference"
+licence = "MIT OR Apache-2.0"
+notice  = "LICENSES/rust-reference-MIT.txt"
+status  = "kept"
+files   = [
+  "rust-reference-abi.md",
+]
+
+[upstream.rust-rfcs]
+name    = "Rust RFCs"
+licence = "MIT OR Apache-2.0"
+notice  = "LICENSES/rust-rfcs-MIT.txt"
+status  = "kept"
+files   = [
+  "rust-rfc-2045-target-feature.html",
+]
+
+[upstream.ncurses]
+name    = "ncurses terminfo entries (infocmp output) and terminfo(5)"
+licence = "X11"
+notice  = "LICENSES/ncurses-COPYING.txt"
+status  = "kept"
+files   = [
+  "terminfo/ansi.ti",
+  "terminfo/dtterm.ti",
+  "terminfo/nsterm.ti",
+  "terminfo/rxvt.ti",
+  "terminfo/terminfo.5",
+  "terminfo/vt100.ti",
+  "terminfo/vt102.ti",
+  "terminfo/vt52.ti",
+  "terminfo/xterm-16color.ti",
+  "terminfo/xterm-256color-x.ti",
+  "terminfo/xterm-256color.ti",
+  "terminfo/xterm.ti",
+]
+
+[upstream.tinted-home]
+name    = "Tinted Theming, home"
+licence = "MIT"
+notice  = "LICENSES/tinted-home-MIT.txt"
+status  = "kept"
+files   = [
+  "tinted-home-builder.md",
+  "tinted-home-styling.md",
+]
+
+[upstream.tinted-base24]
+name    = "Tinted Theming, base24"
+licence = "MIT"
+notice  = "LICENSES/tinted-base24-MIT.txt"
+status  = "kept"
+files   = [
+  "tinted-base24-styling.md",
+]
+
+[upstream.tinted-shell]
+name    = "Tinted Theming, tinted-shell"
+licence = "MIT"
+notice  = "LICENSES/tinted-shell-MIT.txt"
+status  = "kept"
+files   = [
+  "tinted-shell-base16.mustache",
+]
+
+[upstream.typometer]
+name    = "Typometer (Pavel Fatin)"
+licence = "Apache-2.0"
+notice  = "LICENSES/Apache-2.0.txt"
+status  = "kept"
+files   = [
+  "typometer-BenchmarkImpl.java",
+  "typometer-ChangeDetector.java",
+  "typometer-ScreenAccessor.java",
+  "typometer-readme.md",
+]
+
+[upstream.vma]
+name    = "Vulkan Memory Allocator documentation (AMD)"
+licence = "MIT"
+notice  = "LICENSES/vma-MIT.txt"
+status  = "kept"
+files   = [
+  "vma-memory-mapping.html",
+  "vma-usage-patterns.html",
+]
+
+[upstream.wayland-rs]
+name    = "wayland-rs, wayland-backend"
+licence = "MIT"
+notice  = "LICENSES/wayland-rs-MIT.txt"
+status  = "kept"
+files   = [
+  "wayland-backend-socket.rs",
+  "wayland-backend-wire.rs",
+]
+
+[upstream.wezterm]
+name    = "WezTerm"
+licence = "MIT"
+notice  = "LICENSES/wezterm-MIT.txt"
+status  = "kept"
+files   = [
+  "wezterm-b09b56c-get_current_working_dir.md",
+  "wezterm-b09b56c-shell-integration.md",
+  "wezterm-color-types-lib.rs",
+  "wezterm-screen_line.rs",
+]
+
+[upstream.x11rb]
+name    = "x11rb"
+licence = "MIT OR Apache-2.0"
+notice  = "LICENSES/x11rb-MIT.txt"
+status  = "kept"
+files   = [
+  "x11rb-rust_connection-mod.rs",
+]
+
+[upstream.libxkbcommon]
+name    = "libxkbcommon"
+licence = "MIT AND HPND"
+notice  = "LICENSES/libxkbcommon-LICENSE.txt"
+status  = "kept"
+files   = [
+  "xkb-keymap-text-format-v1-v2.md",
+  "xkbcommon-keysyms.h",
+  "xkbcommon.h",
+]
+
+[upstream.xorgproto]
+name    = "xorgproto protocol descriptions (Keith Packard)"
+licence = "HPND"
+notice  = "LICENSES/xorgproto-COPYING.txt"
+status  = "kept"
+files   = [
+  "xorg-dri3proto.txt",
+  "xorg-presentproto.txt",
+]
+
+[upstream.xterm]
+name    = "xterm (Thomas E. Dickey and the X Consortium)"
+licence = "X11"
+notice  = "LICENSES/xterm-COPYING.txt"
+status  = "kept"
+files   = [
+  "xterm-VTPrsTbl.c",
+  "xterm-charproc.c",
+  "xterm-charsets.h",
+  "xterm-ctlseqs.txt",
+  "xterm-cursor.c",
+  "xterm-faq.html",
+  "xterm-graphics_sixel.c",
+  "xterm-main.h",
+  "xterm-misc.c",
+  "xterm-ptydata.c",
+  "xterm-ptyx.h",
+  "xterm-util.c",
+  "xterm-xterm.h",
+  "xterm-xterm.man",
+  "xterm-xtermcap.c",
+]
+
+[upstream.yazi]
+name    = "yazi 26.5.6"
+licence = "MIT"
+notice  = "LICENSES/yazi-MIT.txt"
+status  = "kept"
+files   = [
+  "yazi-dimension-26.5.6.rs",
+  "yazi-emulator-26.5.6.rs",
+]
+
+[upstream.zeno]
+name    = "zeno"
+licence = "Apache-2.0 OR MIT"
+notice  = "LICENSES/zeno-MIT.txt"
+status  = "kept"
+files   = [
+  "zeno-raster.rs",
+]
+
+[upstream.zig]
+name    = "Zig 0.16.0 standard library"
+licence = "MIT"
+notice  = "LICENSES/zig-MIT.txt"
+status  = "kept"
+files   = [
+  "zig-0.16.0-fmt.zig",
+]
+
+[upstream.w3c-css]
+name    = "CSS Color Module Level 4, editor's draft sample code (W3C); the file carries no notice, so the W3C short notice is at the head of the licence text"
+licence = "LicenseRef-W3C-Software-and-Document-2023"
+notice  = "LICENSES/W3C-software-and-document-license-2023.txt"
+status  = "kept"
+files   = [
+  "css-color-4-hslToRgb.js",
+]
+
+[upstream.unicode-data]
+name    = "Unicode Character Database and emoji data files (Unicode, Inc.); each file's header points to the terms"
+licence = "Unicode-3.0"
+notice  = "LICENSES/Unicode-3.0.txt"
+status  = "kept"
+files   = [
+  "JIS0201.TXT",
+  "emoji17-sequences.txt",
+  "emoji17-test.txt",
+  "emoji17-zwj-sequences.txt",
+  "ucd18-emoji-data.txt",
+  "unicode-derivedcoreproperties.txt",
+  "unicode-derivedgeneralcategory.txt",
+  "unicode-derivednormalizationprops.txt",
+  "unicode-eastasianwidth.txt",
+  "unicode-emoji-data.txt",
+  "unicode-emoji-variation-sequences.txt",
+  "unicode-graphemebreakproperty.txt",
+  "unicode-graphemebreaktest.txt",
+  "unicode-proplist.txt",
+  "unicode-unicodedata.txt",
+]
+
+[upstream.ab-glyph]
+name    = "ab_glyph_rasterizer, raster.rs (Google, from font-rs)"
+licence = "Apache-2.0"
+notice  = "LICENSES/Apache-2.0.txt"
+status  = "kept"
+files   = [
+  "ab-glyph-raster.rs",
+]
+
+[upstream.font-rs]
+name    = "font-rs (Google)"
+licence = "Apache-2.0"
+notice  = "LICENSES/Apache-2.0.txt"
+status  = "kept"
+files   = [
+  "font-rs-accumulate.rs",
+  "font-rs-geom.rs",
+  "font-rs-raster.rs",
+]
+
+[upstream.agg]
+name    = "Anti-Grain Geometry 2.6 (Maxim Shemanarev)"
+licence = "LicenseRef-AGG-2.4-permissive"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "agg-rasterizer_cells_aa.h",
+]
+
+[upstream.apple-file-cmds]
+name    = "Apple file_cmds, ls (University of California / Michael Fischbein)"
+licence = "BSD-3-Clause"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "apple-file_cmds-ls-ls.c",
+  "apple-file_cmds-ls-print.c",
+]
+
+[upstream.last-resort]
+name    = "Last Resort font project (Unicode, Inc.)"
+licence = "OFL-1.1"
+notice  = "docs/research/sources/last-resort-LICENSE-3f05565.txt"
+status  = "kept"
+files   = [
+  "last-resort-LICENSE-3f05565.txt",
+  "last-resort-README-3f05565.md",
+]
+
+[upstream.pathfinder]
+name    = "Pathfinder"
+licence = "Apache-2.0 OR MIT"
+notice  = "LICENSES/Apache-2.0.txt"
+status  = "kept"
+files   = [
+  "pathfinder-fill_area.inc.glsl",
+]
+
+[upstream.sfte]
+name    = "sfte (Patryk Pujanek), with stb_truetype inside it"
+licence = "Zlib"
+notice  = "LICENSES/sfte-Zlib.txt"
+status  = "kept"
+files   = [
+  "sfte.h",
+]
+
+[upstream.slug]
+name    = "Slug (Eric Lengyel); its LICENSE names the two licences without their text, so the MIT one is beside"
+licence = "MIT OR Apache-2.0"
+notice  = "LICENSES/slug-MIT.txt"
+status  = "kept"
+files   = [
+  "slug-LICENSE",
+  "slug-README.md",
+]
+
+[upstream.stb]
+name    = "stb_truetype.h (Sean Barrett)"
+licence = "MIT OR Unlicense"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "stb_truetype.h",
+]
+
+[upstream.tmux]
+name    = "tmux (Nicholas Marriott)"
+licence = "ISC"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "tmux-input.c",
+  "tmux-tty.c",
+]
+
+[upstream.ugrapheme]
+name    = "ugrapheme README"
+licence = "0BSD"
+notice  = "none needed"
+status  = "kept"
+files   = [
+  "ugrapheme-readme.md",
+]
+
+[upstream.vello]
+name    = "Vello"
+licence = "Apache-2.0 OR MIT"
+notice  = "LICENSES/Apache-2.0.txt"
+status  = "kept"
+files   = [
+  "vello-fine.wgsl",
+  "vello-flatten.rs",
+  "vello-strip.rs",
+]
+
+[upstream.wayland]
+name    = "Wayland and wayland-protocols"
+licence = "MIT"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "wayland-COPYING",
+  "wayland.xml",
+  "wp-commit-timing-v1.xml",
+  "wp-cursor-shape-v1.xml",
+  "wp-fifo-v1.xml",
+  "wp-fractional-scale-v1.xml",
+  "wp-linux-dmabuf-v1.xml",
+  "wp-linux-drm-syncobj-v1.xml",
+  "wp-presentation-time.xml",
+  "wp-tearing-control-v1.xml",
+  "wp-text-input-unstable-v3.xml",
+  "wp-viewporter.xml",
+  "wp-xdg-decoration-unstable-v1.xml",
+  "wp-xdg-shell.xml",
+]
+
+[upstream.windows-terminal]
+name    = "Windows Terminal (Microsoft); each file names the licence, whose text is beside"
+licence = "MIT"
+notice  = "LICENSES/windows-terminal-MIT.txt"
+status  = "kept"
+files   = [
+  "wt-ColorFix.cpp",
+  "wt-RenderSettings.cpp",
+]
+
+[upstream.xcb-proto]
+name    = "xcb-proto"
+licence = "X11 AND HPND"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "xcb-proto-dri3.xml",
+  "xcb-proto-present.xml",
+  "xcb-proto-shm.xml",
+  "xcb-proto-xkb.xml",
+]
+
+[upstream.xorg-keysymdef]
+name    = "X.Org keysymdef.h (The Open Group)"
+licence = "X11"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "xorg-keysymdef.h",
+]
+
+[upstream.adobe-tech-notes]
+name    = "Adobe font technical notes 5176 and 5177"
+licence = "CC-BY-ND-4.0"
+notice  = "uri"
+status  = "kept"
+files   = [
+  "adobe-5176-cff.pdf",
+  "adobe-5177-type2.pdf",
+]
+
+[upstream.khronos-arb]
+name    = "Khronos ARB_buffer_storage extension specification"
+licence = "LicenseRef-Khronos-Specification"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "arb-buffer-storage.txt",
+]
+
+[upstream.beuke]
+name    = "beuke.org, terminal latency with Typometer"
+licence = "CC-BY-SA-4.0"
+notice  = "uri"
+status  = "kept"
+files   = [
+  "beuke-2024-terminal-latency-typometer.html",
+]
+
+[upstream.arxiv-cc-by]
+name    = "arXiv papers under CC BY 4.0 (Keiser and Lemire; Langdale and Lemire)"
+licence = "CC-BY-4.0"
+notice  = "uri"
+status  = "kept"
+files   = [
+  "keiser-lemire-2020-utf8.pdf",
+  "langdale-lemire-2019-simdjson.pdf",
+]
+
+[upstream.arxiv-cc0]
+name    = "arXiv 2109.10433 (Lemire and others), under CC0"
+licence = "CC0-1.0"
+notice  = "none needed"
+status  = "kept"
+files   = [
+  "lemire-transcoding.pdf",
+  "simdutf-transcoding.pdf",
+]
+
+[upstream.directx-specs]
+name    = "DirectX-Specs (Microsoft)"
+licence = "CC-BY-4.0"
+notice  = "uri"
+status  = "kept"
+files   = [
+  "ms-d3d12-gpu-upload-heaps.html",
+]
+
+[upstream.ietf-rfcs]
+name    = "IETF RFCs"
+licence = "LicenseRef-IETF-RFC"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "rfc1950-zlib.txt",
+  "rfc1951-deflate.txt",
+  "rfc3986-uri.txt",
+  "rfc4648-base64.txt",
+  "rfc8089-file-uri.txt",
+]
+
+[upstream.uapi]
+name    = "UAPI group specification, OSC context"
+licence = "CC-BY-4.0"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "uapi-osc-context.md",
+]
+
+[upstream.vulkan-docs]
+name    = "Vulkan-Docs extension proposals and appendices (The Khronos Group)"
+licence = "CC-BY-4.0"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "vulkan-VK_EXT_external_memory_dma_buf.adoc",
+  "vulkan-VK_EXT_image_drm_format_modifier.adoc",
+  "vulkan-VK_EXT_swapchain_maintenance1.adoc",
+  "vulkan-VK_KHR_present_wait.adoc",
+  "vulkan-VK_KHR_wayland_surface.adoc",
+  "vulkan-VK_KHR_xcb_surface.adoc",
+]
+
+[upstream.w3c-docs]
+name    = "W3C Recommendations and notes: PNG 2003, WCAG 2.2 and its techniques, WCAG2ICT, WCAG 3 draft"
+licence = "LicenseRef-W3C-Document"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "w3c-png-2003.html",
+  "wcag22-20241212.html",
+  "wcag22-errata.html",
+  "wcag22-technique-g15.html",
+  "wcag22-technique-g176.html",
+  "wcag22-technique-g19.html",
+  "wcag22-understanding-animation-from-interactions.html",
+  "wcag22-understanding-pause-stop-hide.html",
+  "wcag22-understanding-seizures-and-physical-reactions.html",
+  "wcag22-understanding-three-flashes-aaa.html",
+  "wcag22-understanding-three-flashes.html",
+  "wcag2ict-22-20251211.html",
+  "wcag3-wd-20260910.html",
+]
+
+[upstream.ecfr]
+name    = "Electronic Code of Federal Regulations, 37 CFR 202.1 (a US federal government work)"
+licence = "LicenseRef-Public-Domain-US-Government"
+notice  = "none needed"
+status  = "kept"
+files   = [
+  "ecfr-37-cfr-202.1.xml",
+]
+
+[upstream.apple-emoji-screenshots]
+name    = "The owner's research screenshots that show Apple Color Emoji artwork, some of them beside other system fonts' glyphs and other terminals' windows (Apple's glyph art carries no grant)"
+licence = "LicenseRef-NoGrant"
+notice  = "none"
+status  = "no-grant"
+files   = [
+  "ad-observed/chromium-zoom.png",
+  "ad-observed/coretext-sheet.png",
+  "ad-observed/frequency-shot-core-altered-macos.png",
+  "ad-observed/kitty-run-a.png",
+  "ad-observed/kitty-run-b.png",
+  "ad-observed/pango-jbm-apple.png",
+  "ad-observed/review-v13-sheet-a-28.png",
+  "ad-observed/review-v13-sheet-a-56.png",
+  "ad-observed/review-v13-sheet-b-28.png",
+  "ad-observed/review-v13-sheet-b-56.png",
+  "ad-observed/review-v13-sheet-c-28.png",
+  "ad-observed/review-v13-sheet-c-56.png",
+  "ad-observed/review-v13-sheet-e-28.png",
+  "ad-observed/review-v13-sheet-e-56.png",
+  "ad-observed/supp-coretext-render.png",
+  "ad-observed/supp-terminalapp-crop.png",
+  "ad-observed/supp-terminalapp-zoom.png",
+  "ad-observed/terminals-sheet.png",
+  "ad-observed/webkit-zoom.png",
+]
+
+[upstream.owner-observations]
+name    = "The owner's own probes, captures and renders"
+licence = "CC-BY-NC-SA-4.0"
+notice  = "LICENSE"
+status  = "own"
+files   = [
+  "ad-observed/coretext-cbdt-load.txt",
+  "ad-observed/coretext-createforstring.txt",
+  "ad-observed/coretext-ctline-fira.txt",
+  "ad-observed/coretext-mn-coverage.txt",
+  "ad-observed/coretext-runs.txt",
+  "ad-observed/frequency-emoji-rows.tsv",
+  "ad-observed/frequency-emoji.txt",
+  "ad-observed/frequency-marks-missing.txt",
+  "ad-observed/frequency-marks.txt",
+  "ad-observed/frequency-replay.txt",
+  "ad-observed/frequency-saturate.txt",
+  "ad-observed/frequency-storetest.txt",
+  "ad-observed/jev-design-r2.json",
+  "ad-observed/jev-design.json",
+  "ad-observed/jev-starters-r2.json",
+  "ad-observed/jev-starters.json",
+  "ad-observed/kitty-run-a.log",
+  "ad-observed/kitty-run-b.log",
+  "ad-observed/notdef-survey.txt",
+  "ad-observed/noto-tag-flags.png",
+  "ad-observed/pango-marks.png",
+  "ad-observed/reserved-tags-selectors.txt",
+  "ad-observed/review-v13-counts.txt",
+  "ad-observed/review-v13-sheet-d-28.png",
+  "ad-observed/review-v13-sheet-d-56.png",
+  "ad-observed/review-v13-sheet-noto-a-28.png",
+  "ad-observed/review-v13-sheet-noto-a-56.png",
+  "ad-observed/review-v13-sheet-noto-b-28.png",
+  "ad-observed/review-v13-sheet-noto-b-56.png",
+  "ad-observed/review-v13-sheet-noto-c-28.png",
+  "ad-observed/review-v13-sheet-noto-c-56.png",
+  "ad-observed/supp-coretext-fira-runs.txt",
+  "ad-observed/supp-coretext-jbm-runs.txt",
+  "ad-observed/supp-coretext-probe.swift",
+  "ad-observed/supp-coretext-render.swift",
+  "ad-observed/supp-mux-cases.txt",
+  "ad-observed/supp-mux-cprprobe.py",
+  "ad-observed/supp-mux-harness.py",
+  "ad-observed/supp-terminalapp-cpr.json",
+  "ad-observed/supp-tmux-cpr.json",
+  "ad-observed/supp-tmux-out.bin",
+  "ad-observed/supp-zellij-cpr.json",
+  "ad-observed/supp-zellij-out.bin",
+  "ad-observed/terminals-cases-e1first.txt",
+  "ad-observed/terminals-cases.txt",
+  "ad-observed/tux-shape.txt",
+  "ad-observed/wezterm-ls-fonts.txt",
+  "ah-observed/child_probe.c",
+  "ah-observed/child_probe.out",
+  "ah-observed/leds_probe.c",
+  "ah-observed/leds_probe.out",
+  "ah-observed/leds_probe_ssh.out",
+  "ah-observed/listings.out",
+  "ah-observed/pcb64_probe.c",
+  "ah-observed/pcb64_probe.out",
+  "ah-observed/titlebar_probe.out",
+  "ah-observed/titlebar_probe.swift",
+  "ah-observed/titlebar_probe_sdk14.m",
+  "ah-observed/titlebar_probe_sdk14.out",
+  "ai-observed/FdProbe-Info.plist",
+  "ai-observed/admin-and-shim.txt",
+  "ai-observed/capprobe-reread.txt",
+  "ai-observed/capprobe.c",
+  "ai-observed/capprobe2.c",
+  "ai-observed/capprobe2.txt",
+  "ai-observed/costprobe-rerun.txt",
+  "ai-observed/costprobe.c",
+  "ai-observed/fdprobe-run.txt",
+  "ai-observed/fdprobe-stderr-direct.txt",
+  "ai-observed/fdprobe-stderr-open.txt",
+  "ai-observed/fdprobe.c",
+  "ai-observed/lifeprobe.c",
+  "ai-observed/lifeprobe.txt",
+  "ai-observed/log-invocations.txt",
+  "ai-observed/log-show-probes.txt",
+  "ai-observed/longline-reread.txt",
+  "ai-observed/nslogprobe-stderr.txt",
+  "ai-observed/nslogprobe.m",
+  "ai-observed/observations.txt",
+  "ai-observed/privprobe.c",
+  "ai-observed/review-costprobe-lines.txt",
+  "ai-observed/review-info-debug-absent.txt",
+  "ai-observed/set-hook-sweep.txt",
+  "ai-observed/shim-reread.txt",
+  "ai-observed/shim-run.txt",
+  "ai-observed/shim.c",
+  "ai-observed/shimmain.c",
+  "ai-observed/stat-volume.txt",
+  "ai-observed/stderr-marker-requery.txt",
+  "ai-observed/syslogprobe.c",
+  "ai-observed/syslogprobe1-reread.txt",
+  "ai-observed/syslogprobe1.txt",
+  "ai-observed/syslogprobe2-syntax.txt",
+  "ai-observed/syslogprobe2.c",
+  "ai-observed/syslogprobe2.txt",
+  "aj-observed/flash-census.tsv",
+  "aj-observed/flash_area.py",
+  "aj-observed/flash_area.txt",
+  "aj-observed/font_probe.py",
+  "aj-observed/font_probe.txt",
+  "aj-observed/logo_probe.sh",
+  "aj-observed/logo_probe.txt",
+  "aj-observed/probe-logo-sampling.sh",
+  "aj-observed/probe-logo-sampling.txt",
+  "aj-observed/probe-run.sh",
+  "aj-observed/probe-terminals.txt",
+  "aj-observed/probe.sh",
+  "ak-observed/lossy-out.txt",
+  "ak-observed/lossy.rs",
+  "ak-observed/observations.txt",
+  "ak-observed/probe-run-path-sleep.txt",
+  "ak-observed/probe-runs.txt",
+  "ak-observed/probe.c",
+  "ak-observed/proxy-runs.txt",
+  "ak-observed/proxy.m",
+  "al-observed/base-fire13-f39.png",
+  "al-observed/base-fire32-f19.png",
+  "al-observed/base-fire32-f39.png",
+  "al-observed/base-fire32-f43.png",
+  "al-observed/base-fire32-footprint.png",
+  "al-observed/base-fire72-f31.png",
+  "al-observed/base-fire72-footprint.png",
+  "al-observed/base_frames-out.txt",
+  "al-observed/base_frames.py",
+  "al-observed/cell-sizes.txt",
+  "al-observed/census-out.txt",
+  "al-observed/census.py",
+  "al-observed/cross_base-out.txt",
+  "al-observed/cross_base.py",
+  "al-observed/gates-out.txt",
+  "al-observed/gates.py",
+  "al-observed/o1-analyze-out.txt",
+  "al-observed/o1-analyze.py",
+  "al-observed/o1-census.tsv",
+  "al-observed/o1-fire32-f39.png",
+  "al-observed/o1-fire32-footprint.png",
+  "al-observed/o1-fire72-f31.png",
+  "al-observed/o1-fire72-footprint.png",
+  "al-observed/o2-analyze.py",
+  "al-observed/o2-astar.py",
+  "al-observed/o2-census.tsv",
+  "al-observed/o2-drop-particles-72x1-dark.tsv",
+  "al-observed/o2-drop-particles-72x1-light.tsv",
+  "al-observed/o2-fire32-f19.png",
+  "al-observed/o2-fire32-f39.png",
+  "al-observed/o2-fire32-footprint.png",
+  "al-observed/o2-summary.tsv",
+  "al-observed/o3-analyse.py",
+  "al-observed/o3-analysis.txt",
+  "al-observed/o3-census.tsv",
+  "al-observed/o3-fire32-f39.png",
+  "al-observed/o3-fire32-f43.png",
+  "al-observed/o3-fire32-footprint.png",
+  "al-observed/o4-analyze.py",
+  "al-observed/o4-census.tsv",
+  "al-observed/o4-dim13-f39.png",
+  "al-observed/o4-fire32-footprint.png",
+  "al-observed/o4-live.txt",
+  "al-observed/o4-pollcost-main.rs",
+  "al-observed/o4-summary.py",
+  "al-observed/o4-summary.txt",
+  "al-observed/options_table-out.txt",
+  "al-observed/options_table.py",
+  "al-observed/replica-Cargo.toml",
+  "al-observed/replica-gate.py",
+  "al-observed/replica-main.rs",
+  "al-observed/replica-matrix-out.txt",
+  "al-observed/replica-matrix.py",
+  "al-observed/replica-out1.tsv",
+  "al-observed/replica-out2.tsv",
+  "al-observed/replica-out3.tsv",
+  "al-observed/replica-out4.tsv",
+  "al-observed/replica-out56.tsv",
+  "al-observed/replica-out7.tsv",
+  "al-observed/replica-refs.rs",
+  "al-observed/replica-tab.py",
+  "al-observed/replica-trailx.rs",
+  "al-observed/thresholds-out.txt",
+  "al-observed/thresholds.py",
+  "xcode-27-metal-toolchain-component.txt",
+]
+
+[upstream.macos-liquid-glass]
+name    = "macos-liquid-glass, the owner's MIT crate (copies of its files)"
+licence = "MIT"
+notice  = "the owner's crate"
+status  = "own"
+files   = [
+  "mlg-Cargo.toml",
+  "mlg-MEASUREMENTS.md",
+  "mlg-accessibility.rs",
+  "mlg-drawable.rs",
+  "mlg-glass.rs",
+  "mlg-window.rs",
+]
+
+# ── Files outside docs/research/sources/ that are, or carry, someone else's
+# work. `paths` must exist; `notice` is a path, or says where the notice is.
+
+[[tree]]
+what     = "JetBrains Mono 2.304, embedded in the app, unmodified"
+paths    = ["baud-app/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf", "baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf", "baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf", "baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf", "baud-app/fonts/jetbrains-mono/AUTHORS.txt"]
+licence  = "OFL-1.1"
+notice   = "baud-app/fonts/jetbrains-mono/OFL.txt"
+upstream = "https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304"
+status   = "kept"
+
+[[tree]]
+what     = "STIX Two Math 2.13 b171, embedded in the app, unmodified"
+paths    = ["baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf"]
+licence  = "OFL-1.1"
+notice   = "baud-app/fonts/stix-two-math/OFL.txt"
+upstream = "https://github.com/stipub/stixfonts/tree/v2.13b171"
+status   = "kept"
+
+[[tree]]
+what     = "Symbols Nerd Font Mono 3.5.1, embedded in the app, unmodified; its icon sets are under their own licences, which README.md lists and icon-licences/ holds, copied from nerd-fonts v3.5.1 src/glyphs/ (its SOURCE gives each URL and sha256): OFL-1.1 (Pomicons, Weather Icons, Font Awesome's icons packaged as fonts), Apache-2.0 (Material Design), CC-BY-4.0 (Codicons), MIT (Octicons and the rest) and Unlicense (Font Logos)"
+paths    = ["baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf", "baud-app/fonts/symbols-nerd-font/README.md", "baud-app/fonts/symbols-nerd-font/icon-licences/SOURCE"]
+licence  = "MIT AND OFL-1.1 AND Apache-2.0 AND CC-BY-4.0 AND Unlicense"
+notice   = "baud-app/fonts/symbols-nerd-font/LICENSE"
+upstream = "https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.5.1"
+status   = "kept"
+
+[[tree]]
+what     = "baud's embedded Regular and Bold: JetBrains Mono with Hebrew drawn from Cascadia Mono, a Modified Version under the OFL. The Cascadia release binary's own name table carries a notice that differs from its repository's licence; FONTLOG.txt records it as the owner's open call"
+paths    = ["baud-app/fonts/built/Regular.ttf", "baud-app/fonts/built/Bold.ttf", "baud-app/fonts/built/FONTLOG.txt", "baud-app/fonts/built/AUTHORS.txt"]
+licence  = "OFL-1.1"
+notice   = "baud-app/fonts/built/OFL.txt"
+upstream = "https://github.com/JetBrains/JetBrainsMono and https://github.com/microsoft/cascadia-code"
+status   = "open"
+
+[[tree]]
+what     = "Cascadia Mono from Cascadia Code v2407.24, and the dagesh anchors read out of it; the same open call as the built font"
+paths    = ["baud-app/fonts/glyphs/languages/hebrew/CascadiaMono.ttf", "baud-app/fonts/glyphs/languages/hebrew/anchors-400.json", "baud-app/fonts/glyphs/languages/hebrew/anchors-700.json"]
+licence  = "OFL-1.1"
+notice   = "baud-app/fonts/glyphs/languages/hebrew/OFL.txt"
+upstream = "https://github.com/microsoft/cascadia-code/releases/tag/v2407.24"
+status   = "open"
+
+[[tree]]
+what     = "The Hebrew build modules. Whether they are Font Software under the OFL or baud's code under the repository's licence has not been decided (FONTLOG.txt); LICENSE assigns them to neither"
+paths    = ["baud-app/fonts/glyphs/languages/hebrew/casanchors.py", "baud-app/fonts/glyphs/languages/hebrew/build/build.py", "baud-app/fonts/glyphs/languages/hebrew/build/design.py", "baud-app/fonts/glyphs/languages/hebrew/build/design2.py", "baud-app/fonts/glyphs/languages/hebrew/build/design3.py", "baud-app/fonts/glyphs/languages/hebrew/build/field.py", "baud-app/fonts/glyphs/languages/hebrew/build/geom.py", "baud-app/fonts/glyphs/languages/hebrew/build/instance.py", "baud-app/fonts/glyphs/languages/hebrew/build/narrow.py", "baud-app/fonts/glyphs/languages/hebrew/build/pin.py", "baud-app/fonts/glyphs/languages/hebrew/build/style.py"]
+licence  = "not assigned"
+notice   = "baud-app/fonts/built/FONTLOG.txt"
+upstream = "baud's own build, ported from the research tree"
+status   = "open"
+
+[[tree]]
+what     = "Bungee Tint, a test font, unmodified"
+paths    = ["baud-font/tests/fonts/BungeeTint-Regular.ttf"]
+licence  = "OFL-1.1"
+notice   = "baud-font/tests/fonts/BungeeTint-LICENSE.txt"
+upstream = "https://github.com/djrrb/Bungee/releases/download/v2.001/Bungee-fonts.zip"
+status   = "kept"
+
+[[tree]]
+what     = "Fira Code 6.2, test fonts, unmodified"
+paths    = ["baud-font/tests/fonts/FiraCode-Regular.ttf", "baud-font/tests/fonts/FiraCode-VF.ttf"]
+licence  = "OFL-1.1"
+notice   = "baud-font/tests/fonts/FiraCode-LICENSE.txt"
+upstream = "https://github.com/tonsky/FiraCode/releases/download/6.2/Fira_Code_v6.2.zip"
+status   = "kept"
+
+[[tree]]
+what     = "JetBrains Mono at cd5227b, test fonts, unmodified"
+paths    = ["baud-font/tests/fonts/JetBrainsMono-Regular.ttf", "baud-font/tests/fonts/JetBrainsMono-Variable.ttf", "baud-font/tests/fonts/JetBrainsMono-Italic-Variable.ttf"]
+licence  = "OFL-1.1"
+notice   = "baud-font/tests/fonts/JetBrainsMono-LICENSE.txt"
+upstream = "https://github.com/JetBrains/JetBrainsMono/tree/cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9/fonts"
+status   = "kept"
+
+[[tree]]
+what     = "fontTools' instances of JetBrains Mono's variable fonts at wght 400 and 700 (scripts/bake-oracle.py), Modified Versions"
+paths    = ["baud-font/tests/var/bake/JetBrainsMono-Variable-400.ttf", "baud-font/tests/var/bake/JetBrainsMono-Variable-700.ttf", "baud-font/tests/var/bake/JetBrainsMono-Italic-Variable-400.ttf", "baud-font/tests/var/bake/JetBrainsMono-Italic-Variable-700.ttf"]
+licence  = "OFL-1.1"
+notice   = "baud-font/tests/var/bake/JetBrainsMono-LICENSE.txt"
+upstream = "https://github.com/JetBrains/JetBrainsMono/tree/cd5227bd1f61dff3bbd6c814ceaf7ffd95e947d9/fonts/variable"
+status   = "kept"
+
+[[tree]]
+what     = "A subset of Noto Color Emoji (scripts/gen-cbdt-fixture.py), a Modified Version"
+paths    = ["baud-font/tests/fonts/NotoColorEmoji-subset.ttf"]
+licence  = "OFL-1.1"
+notice   = "baud-font/tests/fonts/NotoColorEmoji-LICENSE.txt"
+upstream = "https://github.com/googlefonts/noto-emoji; the notice is the repository's root LICENSE at 8998f5dd683424a73e2314a8c1f1e359c19e8742, with its copyright line"
+status   = "kept"
+
+[[tree]]
+what     = "Byte-identical copies of ghostty's src/terminal/build_options.zig and src/build/uucode_config.zig at d9840f3"
+paths    = ["bench-others/ghostty-bench/tbuild_options.zig", "bench-others/ghostty-bench/uucode_config.zig"]
+licence  = "MIT"
+notice   = "bench-others/ghostty-bench/NOTICE"
+upstream = "https://github.com/ghostty-org/ghostty/tree/d9840f3"
+status   = "kept"
+
+[[tree]]
+what     = "The test helper sfte in trail.rs's test module, ported line for line from sfte's _sfte_render_trail and marked as a port"
+paths    = ["baud-render/src/trail.rs"]
+licence  = "Zlib"
+notice   = "LICENSES/sfte-Zlib.txt"
+upstream = "docs/research/sources/sfte.h"
+status   = "kept"
+
+[[tree]]
+what     = "Two test helpers in image_geometry.rs, yazi_csi_16t and yazi_light_bg, ported from yazi 26.5.6's emulator.rs and marked as ports"
+paths    = ["baud-core/tests/image_geometry.rs"]
+licence  = "MIT"
+notice   = "LICENSES/yazi-MIT.txt"
+upstream = "https://github.com/sxyazi/yazi/blob/aa526434f00bb44e2e902d9a4ac5f810da1018b9/yazi-emulator/src/emulator.rs"
+status   = "kept"
+
+[[tree]]
+what     = "DEC Special Graphics, generated by scripts/gen-dec-graphics.py from foot's vt100_0[] table. Whether a 31-entry codepoint table needs foot's notice is the owner's call (MANIFEST.toml, at foot-vt100-0); the notice is in the tree for the foot sources either way"
+paths    = ["baud-domain/src/dec_graphics.rs"]
+licence  = "MIT (foot), if the table carries any"
+notice   = "LICENSES/foot-MIT.txt"
+upstream = "https://codeberg.org/dnkl/foot/src/tag/1.21.0/terminal.c"
+status   = "open"
+
+[[tree]]
+what     = "Tables generated from the Unicode Character Database files pinned in the manifest: grapheme clusters, widths, the two merged into one table, canonical composition, Default_Ignorable_Code_Point"
+paths    = ["baud-domain/src/grapheme_data.rs", "baud-domain/src/width_data.rs", "baud-domain/src/merged_data.rs", "baud-font/src/compose.rs", "baud-font/src/ignorable.rs"]
+licence  = "Unicode-3.0"
+notice   = "LICENSES/Unicode-3.0.txt"
+upstream = "https://www.unicode.org/Public/"
+status   = "kept"
+
+[[tree]]
+what     = "National Replacement Character Sets, generated from xterm's charsets.h macros with their keysyms resolved through X.Org's keysymdef.h"
+paths    = ["baud-domain/src/nrcs_data.rs"]
+licence  = "X11"
+notice   = "LICENSES/xterm-COPYING.txt"
+upstream = "docs/research/sources/xterm-charsets.h and docs/research/sources/xorg-keysymdef.h"
+status   = "kept"
+
+[[tree]]
+what     = "The app compiles in ncurses' xterm-256color terminfo entry (infocmp output) to read the flash's padding"
+paths    = ["baud-app/src/bell.rs"]
+licence  = "X11"
+notice   = "LICENSES/ncurses-COPYING.txt"
+upstream = "docs/research/sources/terminfo/xterm-256color.ti"
+status   = "kept"
+
+[[tree]]
+what     = "baud-xkb's build reads xkbcommon's keysym header into the binary's keysym table"
+paths    = ["baud-xkb/build.rs"]
+licence  = "X11"
+notice   = "docs/research/sources/xkbcommon-keysyms.h"
+upstream = "https://github.com/xkbcommon/libxkbcommon/blob/xkbcommon-1.13.2/include/xkbcommon/xkbcommon-keysyms.h"
+status   = "kept"
+
+[[tree]]
+what     = "Four DirectWrite gamma coefficients, from Windows Terminal's dwrite_helpers.hlsl at 4e2b8bd"
+paths    = ["baud-domain/build.rs"]
+licence  = "MIT"
+notice   = "LICENSES/windows-terminal-MIT.txt"
+upstream = "https://github.com/microsoft/terminal/blob/4e2b8bd9264642475d1398c11a5fd2aba06f373e/src/renderer/atlas/dwrite_helpers.hlsl"
+status   = "kept"
+
+[[tree]]
+what     = "The light theme's sixteen colours, Modus Operandi's (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant; no file text is copied. Whether a chosen set of sixteen values is protectable is unverified (note Y)"
+paths    = ["baud-render/src/color.rs"]
+licence  = "none claimed; Modus itself is GPL-3.0-or-later"
+notice   = "credit at MODUS_OPERANDI"
+upstream = "https://github.com/protesilaos/modus-themes"
+status   = "open"
+
+[[tree]]
+what     = "The cursor trail's per-corner decay follows kitty's cursor_trail.c term for term, restructured in Rust and cited at each step; kitty is GPL-3.0. What to do about it is the owner's open call"
+paths    = ["baud-render/src/trail.rs"]
+licence  = "kitty is GPL-3.0-only"
+notice   = "LICENSES/GPL-3.0-only.txt"
+upstream = "https://github.com/kovidgoyal/kitty/blob/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/cursor_trail.c"
+status   = "open"
+
+[[tree]]
+what     = "CFF Standard Encoding, a 256-entry code-to-SID table generated by scripts/gen-cff-standard-encoding.py from Appendix B of Adobe's technical note 5176, which is CC BY-ND 4.0. Whether the table is an adaptation the ND term forbids sharing, or a fact, is the owner's call"
+paths    = ["baud-font/src/standard_encoding.rs"]
+licence  = "CC-BY-ND-4.0 (Adobe TN 5176), if the table carries any"
+notice   = "docs/research/sources/adobe-5176-cff.pdf"
+upstream = "https://github.com/adobe-type-tools/font-tech-notes"
+status   = "open"
+
+[[tree]]
+what     = "The kitty keyboard protocol's functional-key numbers in input.rs, which baud-core/tests/kitty_encode.rs holds to the table in kitty's documentation through scripts/extract-kitty-keys.py; that documentation is GPL-3.0. Whether a protocol's key-to-number table carries kitty's licence is the owner's call"
+paths    = ["baud-domain/src/input.rs"]
+licence  = "GPL-3.0-only (kitty's documentation), if the table carries any"
+notice   = "LICENSES/GPL-3.0-only.txt"
+upstream = "https://sw.kovidgoyal.net/kitty/keyboard-protocol/"
+status   = "open"
+
+[[tree]]
+what     = "A recording of asciiquarium, which draws asciiquarium's sprite art; that art's licence has not been verified"
+paths    = ["tests/recordings/ascii/asciiquarium.raw"]
+licence  = "not verified"
+notice   = "none"
+upstream = "https://robobunny.com/projects/asciiquarium/"
+status   = "unverified"
+
+[[tree]]
+what     = "img2sixel's output for a 96x72 image whose source is not recorded"
+paths    = ["tests/recordings/sixel/img2sixel-96x72.six", "tests/recordings/sixel/img2sixel-96x72.oracle-rgb"]
+licence  = "not verified"
+notice   = "none"
+upstream = "unrecorded"
+status   = "unverified"

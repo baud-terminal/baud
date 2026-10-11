@@ -351,4 +351,7 @@ which the NonCommercial clause below makes a separate conversation.
 
 Creative Commons Attribution-NonCommercial-ShareAlike (CC BY-NC-SA) 4.0 International
 
-See [LICENSE](LICENSE) for details.
+See [LICENSE](LICENSE) for details. The fonts, and the third-party files the
+research and tests hold, are under their own licences: LICENSE names the files
+its licence does not cover, and [THIRD_PARTY.md](THIRD_PARTY.md) lists every
+third-party file with its licence, its notice and where it came from.

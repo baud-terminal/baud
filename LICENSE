@@ -104,3 +104,23 @@ Other projects' code:
       Byte-identical copies of ghostty's src/terminal/build_options.zig and
       src/build/uucode_config.zig at commit d9840f3: MIT, Copyright (c) 2024
       Mitchell Hashimoto, Ghostty contributors (NOTICE, beside them).
+
+  Lines ported from other projects into baud's files keep their own
+  licence: the test helper sfte in baud-render/src/trail.rs, from sfte
+  (zlib; LICENSES/sfte-Zlib.txt); two test helpers in
+  baud-core/tests/image_geometry.rs, from yazi (MIT; LICENSES/yazi-MIT.txt);
+  and the uucode block of bench-others/ghostty-bench/build.zig follows
+  ghostty's src/build/SharedDeps.zig at d9840f3 (MIT; NOTICE beside it).
+
+Third-party research sources:
+
+  docs/research/sources/
+      Copies of other people's documents and code that baud's research
+      cites, each under its own terms; this licence covers none of them.
+      THIRD_PARTY.md lists every file with its licence, where its notice is
+      and where it came from, and names those that carry no grant to
+      redistribute; the licence texts are in LICENSES/. The owner's own
+      observations there (the *-observed/ directories) are under this
+      licence, except for the third-party artwork the screenshots show:
+      Apple Color Emoji and other system fonts' glyphs stay their owners',
+      and THIRD_PARTY.md names each screenshot that shows them.

@@ -191,4 +191,12 @@ if true; then
   echo "  ok   $(wc -l <"$tmp/cited" | tr -d ' ') citations resolve, $(wc -l <"$tmp/keys" | tr -d ' ') sources in manifest"
 fi
 
+# ── 5: every committed source has a licence, and the index says so ──────────
+# Committing a file is distributing it, so a source in the manifest is also a
+# licence obligation. docs/research/third-party.toml records each file's
+# licence and where its notice is; scripts/gen-third-party.py --check fails if
+# a retrieved file has no row there, if a text in LICENSES/ drifted from its
+# hash or is missing, or if THIRD_PARTY.md is not what the two files generate.
+python3 scripts/gen-third-party.py --check || fail=1
+
 exit $fail
