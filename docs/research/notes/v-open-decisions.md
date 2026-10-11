@@ -36,19 +36,29 @@ Two requests arrived with the answers, and are not decisions from this note:
   it off.
 - **The cursor's shape and blink set in the config**, blinking block by
   default. The core has defaulted to a blinking block all along; no renderer
-  path drew the blink then (it has since 2026-09-25).
+  path drew the cursor's blink then (it has since 2026-09-25, `d6bab1b`).
+  SGR 5 text had blinked since 2026-09-13 (`d28e6f9`); that is not the
+  cursor.
 
 Later the same day the owner answered the cursor's questions, and these steer
 the builds that follow them:
 
 - **Every trail style is config**: kitty's four-corner quad, sfte's fading
   swept box, baud's first ghost, and a fire trail drawn on the GPU, which is
-  **the default** -- chosen over the recommended quad. On the CPU path, Linux
-  today, `fire` draws the quad. **Superseded on 2026-09-29**: the owner made
+  **the default** -- chosen over the recommended quad. On the CPU path,
+  `fire` draws the quad, and Linux's driver draws no trail at all
+  (`baud-app/src/linux.rs`). **Superseded on 2026-09-29**: the owner made
   the plasma the default, replacing the fire (built 2026-10-10; the record,
   "The plasma is the default trail, and the fire stays by name").
 - **The flame is opaque over glass**, and the light theme gets a darker
-  variant that is not additive.
+  variant that is not additive. **Met by one rule since the fire was built**
+  (`2dcb9b5`): the flame is drawn in the cursor's colour, premultiplied, with
+  its heat as its opacity, which "is valid over a glass window by
+  construction ... and is dark on a light theme, whose cursor is dark, so the
+  two variants the owner asked for (opaque over glass, darker over light) are
+  one rule" (the record, "The fire trail is a flame in the cursor's colour,
+  held to a Rust reference"). Every effect trail draws by that rule
+  (`baud-render/src/effect.rs`).
 - **Reduce Motion means no trail**, unless the config names one.
 - **The trail rides smooth scroll** by default, with an option to stay put.
 - **The blink reads the OS**: macOS's per-phase insertion-point keys, and
@@ -58,24 +68,28 @@ the builds that follow them:
 - **The per-frame cost first**: the resolved rendition table kept as a cache
   in baud's own idiom, then the trail styles one commit each.
 
-Built since: the rendition cache (`fe776c9`), the quad trail, sfte's swept
-box (`trail = "sweep"`), and the fire trail, the default until the plasma
-replaced it -- drawn in the cursor's colour, the owner's word mid-build:
-"the flame should not use a special color, we use the cursor color, default
-color". Then plasma,
-lightning, ice, ufo, orb and liquid, and Reduce Motion: the default trail is
-off under it and a named one is kept (CLAUDE.md, "Reduce Motion means no
-trail, unless the config names one"). Then the blink from the OS, with the
-owner's answers of 2026-09-27 -- hard edges at 650/350, every other
-sub-question as recommended: the rate read from the system's keys, macOS
-15's non-blinking switch holding the drawing steady unless the config says
-`true`, and `[cursor] stop_blinking_after`, never by default (CLAUDE.md, "The
-cursor blinks at the system caret's rate"). Then rule F, the owner's call the
-same day: `?12` or-ed with the style's own blink, as foot does, and the style
-saved and restored across `?1049`, so vim and helix leave the shell its
-configured cursor (CLAUDE.md, "`?12` is a second input to the blink"). Then
-the ride, with the owner's bound of the same day -- two rows, then fold in: a
-trail in flight moves up with the text under a smooth scroll, and `[cursor]
+Built since: the rendition cache (`fe776c9`), the quad trail (`6872f61`),
+sfte's swept box (`trail = "sweep"`, `6700c54`), and the fire trail
+(`2dcb9b5`), the default until the plasma replaced it (`898f9e6`) -- drawn in
+the cursor's colour, the owner's word mid-build: "the flame should not use a
+special color, we use the cursor color, default color". Then plasma
+(`e8798ae`), lightning (`dbea478`), ice (`301f589`), ufo (`32042ce`), orb
+(`4478fb2`) and liquid (`6daf3d3`), ten trails with the ghost: the one-cell
+box that was the trail before these decisions (`c77d2ef`, 2026-09-20), named
+`ghost` by the quad's commit and drawn in the cursor's colour since `c632ae3`.
+Then Reduce Motion (`336d269`): the default trail is off under it and a named
+one is kept (CLAUDE.md, "Reduce Motion means no trail, unless the config names
+one"). Then the blink from the OS, with the owner's answers of 2026-09-27
+(`9c4769d`) -- hard edges at 650/350, every other sub-question as recommended:
+the rate read from the system's keys, macOS 15's non-blinking switch holding
+the drawing steady unless the config says `true`, and
+`[cursor] stop_blinking_after`, never by default (CLAUDE.md, "The cursor blinks at the
+system caret's rate"). Then rule F (`2b54cfd`), the owner's call the same day:
+`?12` or-ed with the style's own blink, as foot does, and the style saved and
+restored across `?1049`, so vim and helix leave the shell its configured
+cursor (CLAUDE.md, "`?12` is a second input to the blink"). Then the ride
+(`cd5bc29`), with the owner's bound of the same day -- two rows, then fold in:
+a trail in flight moves up with the text under a smooth scroll, and `[cursor]
 trail_scroll = "stay"` keeps it put (CLAUDE.md, "A trail rides a smooth
 scroll, two rows at most").
 
