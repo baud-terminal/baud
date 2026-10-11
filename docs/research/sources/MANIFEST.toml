@@ -20311,3 +20311,42 @@ sha256 = "87344de94fd665677c2cda886e613848c21964015213444b335e0b34944d69cb"
 bytes  = 35168
 status = "external"
 group  = "AN"
+
+[sources.devenv-6469c9c-treefmt-nix]
+key    = "devenv-6469c9c-treefmt-nix"
+title  = "devenv 6469c9c (the locked rev), src/modules/integrations/treefmt.nix -- the wrapper passes --tree-root <git.root or devenv.root> after \"$@\", or --tree-root-file when treefmt.config.projectRootFile is non-empty"
+author = "Cachix and the devenv contributors"
+year   = 2026
+venue  = "cachix/devenv (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/cachix/devenv/6469c9c4b20bbd35dcce0fbcbb7681926720a49c/src/modules/integrations/treefmt.nix"
+file   = ""
+sha256 = "3217b2270855e011bbb6cd547bb133f92bce1aed1244fd11e312a0d644ba54b8"
+bytes  = 2349
+status = "external"
+group  = "AN"
+
+[sources.treefmt-nix-ae79109-module-options]
+key    = "treefmt-nix-ae79109-module-options"
+title  = "treefmt-nix ae79109 (the locked rev), module-options.nix -- projectRootFile defaults to .git/config and is not part of the generated treefmt.toml"
+author = "Numtide and the treefmt-nix contributors"
+year   = 2026
+venue  = "numtide/treefmt-nix (MIT)"
+url    = "https://raw.githubusercontent.com/numtide/treefmt-nix/ae7910970dddc408fe6ab1c8e4b277bb21d72dc0/module-options.nix"
+file   = ""
+sha256 = "2cc2aa42b80e79ca48ee374274189d71e7977fd8c470818254960f29fe02d3ed"
+bytes  = 11613
+status = "external"
+group  = "AN"
+
+[sources.treefmt-v2-4-1-config-go]
+key    = "treefmt-v2-4-1-config-go"
+title  = "treefmt v2.4.1, config/config.go -- at most one of tree-root, tree-root-cmd, tree-root-file; tree-root-file is found by FindUp from the working directory"
+author = "Numtide and the treefmt contributors"
+year   = 2026
+venue  = "numtide/treefmt (MIT)"
+url    = "https://raw.githubusercontent.com/numtide/treefmt/v2.4.1/config/config.go"
+file   = ""
+sha256 = "3bbb22a4a80214151bdec249437c767dbd41e54ce2ab15639f9f49c82dba8121"
+bytes  = 17030
+status = "external"
+group  = "AN"

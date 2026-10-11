@@ -27,6 +27,16 @@ execute the same nix-defined suite. If you want to run one piece while
 iterating, `enterShell` lists the individual scripts (`dev-fmt`, `dev-lint`,
 `dev-check`, `dev-test`).
 
+**Committing from a git worktree.** `treefmt` finds its tree root by walking
+up from the working directory to the first `devenv.nix`, so it formats the
+checkout you are in, worktree or not -- once the shell you are using has been
+evaluated from a `devenv.nix` that says so. Passing `--tree-root` to it is an
+error, because the wrapper already passes `--tree-root-file`. The pre-commit
+hook still does not run in a worktree: `.pre-commit-config.yaml` is generated
+by entering the shell and is absent there, and `prek` refuses to run without
+it. In a worktree, run `treefmt --fail-on-change` from inside it (0 changed)
+and commit with `PREK_ALLOW_NO_CONFIG=1`.
+
 **Add a check by adding a task in `devenv.nix`, never by adding a step to the
 workflow.** A step that exists only in CI is a step you cannot run locally, and
 that is exactly the divergence this setup exists to prevent.

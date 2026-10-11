@@ -185,6 +185,18 @@ in
   treefmt = {
     enable = true;
     config = {
+      # **The tree root is found from the working directory, not baked in.**
+      # Left empty, devenv's module writes `--tree-root <the checkout that
+      # evaluated the shell>` into the wrapper, after "$@" so no caller can
+      # override it, so from an agent worktree the main checkout's shell
+      # would format the main checkout's copies. Non-empty, the module passes
+      # `--tree-root-file` instead and treefmt walks up from the working
+      # directory to the first directory holding this file: the checkout you
+      # are in, worktree or not. Not treefmt-nix's `.git/config`, which a
+      # worktree does not have (its `.git` is a file), so the walk would pass
+      # it and reach the main checkout. The generated treefmt.toml is unchanged.
+      projectRootFile = "devenv.nix";
+
       settings.global.excludes = [
         ".devenv.flake.nix"
         ".devenv/"
