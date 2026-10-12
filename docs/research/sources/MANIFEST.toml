@@ -21080,3 +21080,91 @@ bytes  = 42559
 status = "external"
 group  = "C"
 # Read 2026-10-11 (round 2026-10-11c, lane scorc): 207-212, 551-553.
+
+[sources.vt240-rm-002]
+key    = "vt240-rm-002"
+title  = "VT240 Programmer Reference Manual, EK-VT240-RM-002"
+author = "Digital Equipment Corporation"
+year   = 1984
+venue  = "bitsavers.org (a scan with no text layer)"
+url    = "https://bitsavers.org/pdf/dec/terminal/vt240/EK-VT240-RM-002_VT240_Programmer_Reference_Manual_Oct84.pdf"
+file   = ""
+sha256 = "b1b9e5a0d739f2d5cdb2f594221a2857fbb67457f45248e6c3e097a1820d7574"
+bytes  = 14579035
+status = "external"
+group  = "C"
+# `external`: over 3 MB. Read 2026-10-11 through OCR, all 407 pages (round 2026-10-11c,
+# DECSCNM): 4.6.12 Screen Mode (DECSCNM), printed 72 (PDF 91), checked on the image:
+# "Screen mode selects either a dark or light (reverse) display background on the
+# screen." Set: "Selects reverse video (dark characters on a light background)." No page
+# ties reverse screen to the output map: "reverse screen" on 0 pages, DECSCNM on 5 and
+# "output map" on 39 as the controls.
+
+[sources.vt240-ug-003]
+key    = "vt240-ug-003"
+title  = "VT240 Series Owner's Manual, EK-VT240-UG-003"
+author = "Digital Equipment Corporation"
+year   = 1984
+venue  = "bitsavers.org (Paper Capture text layer, missing on some table pages)"
+url    = "https://bitsavers.org/pdf/dec/terminal/vt240/EK-VT240-UG-003_VT240_Series_Owners_Manual_Dec84.pdf"
+file   = ""
+sha256 = "73042eef168856963550df1f26272a79367ce82d31d7f732677d5592f12770cc"
+bytes  = 61903321
+status = "external"
+group  = "C"
+# `external`: over 3 MB. Read 2026-10-11 (round 2026-10-11c, DECSCNM): Table 4-5 Display
+# Set-Up Screen, printed 62 (PDF 73). That page has no text layer, so a text search for
+# "light background" missed it; read through OCR and checked on the image: "Dark Text,
+# Light Screen" -- "Selects reverse video screen display (dark text on a light
+# background)." Printed 63 (PDF 74): the Display field selects the colour map for a
+# monochrome or colour monitor, and says nothing of the screen field.
+
+[sources.vt240-hr-001]
+key    = "vt240-hr-001"
+title  = "VT240 Series Programmer Pocket Guide, EK-VT240-HR-001"
+author = "Digital Equipment Corporation"
+year   = 1983
+venue  = "bitsavers.org (Paper Capture text layer)"
+url    = "https://bitsavers.org/pdf/dec/terminal/vt240/EK_VT240-HR-001_VT240_Series_Programmer_Pocket_Guide_Sep83.pdf"
+file   = ""
+sha256 = "e5bc895b5e1a49e04d9271324587c20e370adcb061e6127966a934a25e70b9e2"
+bytes  = 1990705
+status = "external"
+group  = "C"
+# `external`: a DEC manual with no grant to redistribute. Read 2026-10-11 (round
+# 2026-10-11c, DECSCNM) through its text layer: the mode table, PDF 26, lists DECSCNM set
+# "Reverse" and reset "Normal"; DECSCNM is on that page only.
+
+[sources.vt520-in]
+key    = "vt520-in"
+title  = "VT520 Video Terminal Installation and Operating Information, EK-VT520-IN"
+author = "Digital Equipment Corporation"
+year   = 1994
+venue  = "bitsavers.org (Paper Capture text layer)"
+url    = "https://bitsavers.org/pdf/dec/terminal/vt5xx/EK-VT520-IN_VT520_Installation_and_Operating_Information_Apr94.pdf"
+file   = ""
+sha256 = "b4cd65ac50b702cf4472d2a6d40d872c10cf13f98a956efeb7065a126e2b114a"
+bytes  = 1865560
+status = "external"
+group  = "C"
+# `external`: a DEC manual with no grant to redistribute. Searched 2026-10-11 (round
+# 2026-10-11c, DECSCNM) through its text layer: DECSCNM, "light background", "dark
+# background" and "color map" on 0 of 46 pages; "set-up" on 29 as the control.
+
+[sources.vt525-io]
+key    = "vt525-io"
+title  = "VT525 Color Video Terminal Installation and Operating Information"
+author = "Boundless Technologies"
+year   = 1999
+venue  = "bitsavers.org (a scan with no text layer)"
+url    = "https://bitsavers.org/pdf/dec/terminal/vt5xx/VT525_Installation_and_Operating.pdf"
+file   = ""
+sha256 = "1b57e19a602e18485d63114fbcb3c78148b32b1ae1492b45a4903644fc4fc285"
+bytes  = 2145519
+status = "external"
+group  = "C"
+# `external`: no grant to redistribute. Read 2026-10-11 through OCR, all 23 pages (round
+# 2026-10-11c, DECSCNM): 1.3 Using Color, printed 1-9 and 1-10, "The default background
+# color is black (00 on the scale)." DECSCNM, "light" as a screen setting and "dark" as
+# one appear on no page; "Set-Up", "screen background" and "reverse" are found as the
+# controls.
