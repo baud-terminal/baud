@@ -170,7 +170,9 @@ its source rather than recalled (`[[source: harfbuzz-12-3-0-gvar]]`,
   nothing is inferred across components; a child's points are transformed
   by its matrix, then offset; under USE_MY_METRICS the composite takes the
   child's phantom points;
-* the glyph is shifted left by its left phantom point at the top level.
+* the glyph is shifted left by its left phantom point at the top level --
+  ~~undocumented, as HarfBuzz's source calls it~~ the text's rule, found in
+  step 8: the glyph is drawn from its left side bearing point.
 
 **Four calls, made with Jev (the principles attached; every confidence under
 0.6, so each took the rule written before asking):**
@@ -187,12 +189,15 @@ reaches any of the fixture fonts' 3,599 components, so neither is measured.
 Honouring them is a change to both paths at once, and it is on TODO.
 ~~On TODO.~~ Built in step 7, against a fixture that reaches both.
 
-**The shift is by the left phantom's delta, not its position.** Phantom
+~~**The shift is by the left phantom's delta, not its position.** Phantom
 points start at 0, so the shift is the delta alone and a glyph whose deltas
 are 0 draws where the default path draws it. HarfBuzz shifts by `xMin - lsb`
 plus the delta; the two agree wherever `xMin` is the left side bearing,
 which is every glyph of the three committed variable fonts (`head` bit 1
-set, zero exceptions counted).
+set, zero exceptions counted).~~ **The shift is the left phantom's
+position**, `xMin - lsb` plus its delta, on both paths, where `head` bit 1
+is clear (step 8): the texts place the origin there. With bit 1 set it is
+still the delta alone, for Jev.
 
 **The oracle is HarfBuzz's own drawing.** `tests/var/outlines.txt` holds
 HarfBuzz 12.3.0's draw commands for every 37th glyph of the three variable
@@ -770,7 +775,9 @@ Both engines also shift a top-level glyph whose xMin is not its lsb by the
 difference -- `dot2`, and `umm`, which takes `dot2`'s phantoms under
 USE_MY_METRICS -- which baud has never done (step 2's shift is the
 movement); the test holds those two to baud's own default drawing, and the
-difference is recorded, not changed here.
+difference is recorded, not changed here. ~~Not changed.~~ Built in step 8
+where `head` bit 1 is clear; this fixture sets it, so `dot2` and `umm` keep
+baud's drawing, for Jev (step 8, question 6).
 
 **For Jev, where the texts leave it open (each kept as it was; 2 is
 built where the text turned out to define it):**
@@ -837,3 +844,96 @@ built where the text turned out to define it):**
 `ROUND_XY_TO_GRID` is a grid-fitting rule, and nothing here fits to a grid.
 The bake still refuses a matched or scaled component; it writes a font,
 and these would need writing out as offsets first.
+
+## Step 8, built: a glyph is drawn from its left side bearing point
+
+HarfBuzz and FreeType draw a `glyf` glyph whose xMin is not its lsb moved
+left by the difference, and Core Text does in the one case measured, `dot2`
+in fonts that set `head` bit 1 (flags 0x3); baud drew its stored coordinates, moved
+only by its left phantom's delta at a variation (step 2), and the fonts
+lane found Core Text a third engine on it (round 2026-10-12, `dot2`).
+HarfBuzz's source calls the shift "undocumented rasterizer behavior". The
+texts define it:
+
+* `[[source: ms-opentype-hmtx]]`: "If pp1 and pp2 are TrueType phantom
+  points used to control lsb and rsb, their initial position in the
+  X-direction is calculated as follows: pp1 = xMin - lsb; pp2 = pp1 + aw".
+* `[[source: ms-opentype-tt-instructing-glyphs]]`: point n "will be placed
+  at the glyph left sidebearing point; point “n+1” will be placed at the advance width point".
+* `[[source: apple-ttrm-ch2]]`: those two points "represent the origin and
+  advance width of the glyph. The origin point is the original pen
+  position. Imagine that the pen moves the left-side bearing distance,
+  draws the glyph, moves the pen the advance width from the origin point",
+  and "the origin point would have the number n".
+* `[[source: ms-opentype-head]]`, flags bit 1: "Left sidebearing point at
+  x=0", and "The left sidebearing point for each glyph corresponds to the
+  first phantom point ... pp1 = xMin - lsb". With the bit clear the point is not held at x = 0, and the glyph is drawn from it.
+
+So the outline is drawn relative to the origin: every x less the left
+phantom's final position -- its start, `xMin - lsb` from the glyph's header
+and `hmtx`, or a USE_MY_METRICS component's start (the last one's, taken
+before it is placed, as Jev decided step 7's question 5 on 2026-10-12, at
+0.90 and 0.92), plus its `gvar` delta. `[[source: apple-ttrm-gvar]]`
+says the same of the deltas: the phantoms "represent the glyph's
+side-bearings". **Built, where `head` bit 1 is clear**, on the stream (the
+start found by a walk down the USE_MY_METRICS chain, taken from x after each point is placed, as HarfBuzz takes it; the
+midpoint between two off-curve points is taken before the shift here and
+after it in HarfBuzz and the varied walk, the same value wherever the
+points are integers) and on the varied walk (the
+left phantom's position, where it was its movement).
+
+**Where the texts give two answers: bit 1 set, xMin not the lsb.** The
+`head` text says "If bit 1 of the flags field is set, then pp1 = 0 for all
+glyphs and the xMin and left sidebearing for each glyph must be equal", and
+Apple's (`[[source: apple-ttrm-head]]`) that the leftmost black bit "is
+assumed to be the left side bearing". A font that sets the bit and breaks
+the equality has `pp1 = 0` by one sentence and `xMin - lsb` by the other.
+16 glyphs in 6 faces on this Mac do (ArialHB, Arial, Baskerville,
+ZapfDingbats), and 546 in the embedded Symbols Nerd Font Mono (flags 0xb,
+every one at -1). FreeType ignores the bit on purpose ("independent on the value
+of bit 1 ... at least major applications like Acroread indicate that",
+`[[source: freetype-2-14-3-ttgload]]`), HarfBuzz never reads it, and Core
+Text draws `dot2` from 20 in a font with flags 0x3 (the fonts lane's
+`ct-*.ttf`). Kept as baud drew it, for Jev:
+
+6. *Bit 1 set and xMin not the lsb.* (A) `pp1 = 0`: no shift at the
+   default instance, the delta alone at a variation, and the phantoms a
+   matched component aligns on starting at 0 -- the `head` text's sentence
+   and Apple's "assumed", read as what a reader does; moves `anchlsb`'s dot
+   in `component-cases.ttf`. (B) `pp1 = xMin - lsb`: the shift as with the
+   bit clear -- the `hmtx` formula, read as holding regardless, the bit's
+   sentence as a consequence of the font's "must"; HarfBuzz's, FreeType's
+   and Core Text's; moves the 546 Nerd Font glyphs a unit, 16 system
+   glyphs, and `dot2` and `umm`. (C) as built: phantoms starting at
+   `xMin - lsb` for alignment and the advance's extent, but no static
+   shift -- neither reading, a hybrid of the two, kept only because it is
+   what was there. Kept: C, until Jev decides between A and B; each sets
+   pp1 in one place.
+
+The census (fontTools 4.63.0, `/System/Library/Fonts`, a composite's start
+taken from its last USE_MY_METRICS component): 648 `glyf` faces; 8,131
+glyphs with contours whose left side bearing point is not at 0 in the 42
+faces with bit 1 clear (Apple Color Emoji's two faces 3,708 each, Times
+New Roman Italic 118, Hoefler Text's 56 and 37, Arial Bold 40, the rest
+under 36), 11 of them composites with at most one point that draw
+nothing; 16 in the 6 with bit 1 set. JetBrains Mono, Fira Code, Cascadia Mono, the built Regular and Bold, and
+the three variable fonts the outline oracle samples
+(`JetBrainsMono-Variable`, `JetBrainsMono-Italic-Variable`, `FiraCode-VF`)
+have none. Of the committed fixtures, `component-cases.ttf` (`dot2`, `umm`)
+and `hvar/phantom.ttf` (13 glyphs) have some and set bit 1, and the bake's
+fontTools instances `cases-*.ttf` (`sq`, `instc`) clear it. So the embedded
+faces draw as before; a glyph that a bit-1-clear system face supplies
+through fallback is now drawn from its left side bearing point.
+
+**The fixtures**, `tests/var/bearing-cases.ttf` and
+`bearing-cases-bit1.ttf` (`scripts/bearing-cases-font.py`): the same ten
+glyphs with bit 1 clear and set -- a simple glyph with its origin at 20 and
+at -30, one at 0 whose left phantom moves, one at 20 whose left phantom
+and first point move, a composite with its own start and own delta, three
+USE_MY_METRICS cases (one, the last of two, nested), and two matched
+composites, one aligned on a child's left phantom; `tests/var/bearings.txt`
+(`scripts/bearing-oracle.py`) holds HarfBuzz 12.3.0's and FreeType 2.14.3's
+drawings at the default and wght 100, 650 and 900, and each glyph's start
+as fontTools reads it. Both engines draw both fonts alike, bit 1
+regardless; FreeType refuses the phantom match, as in step 7.
+

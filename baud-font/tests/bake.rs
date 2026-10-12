@@ -616,7 +616,15 @@ fn what_the_bake_cannot_instance_is_refused() {
 /// The bake is fontTools' instance and the runtime draws HarfBuzz's
 /// variation, and the two agree: every simple glyph's points within half a
 /// unit -- the rounding -- and a composite's within one, its components'
-/// offsets rounded before their points are.
+/// offsets rounded before their points are. The case font's `sq` and
+/// `instc` move their left phantom, and fontTools keeps their points and
+/// writes the moved bearing as `lsb`, no longer xMin, with `head` bit 1
+/// cleared: the static face agrees with the varied one only if it is drawn
+/// from its left side bearing point, `xMin - lsb`
+/// (`[[source: ms-opentype-hmtx]]`), as the varied one is drawn from the
+/// moved phantom -- drawn from x 0 the static one was 7.1 units off at
+/// 875. Its points are rounded to the unit and so is that bearing, so the
+/// case font's glyphs agree within one unit, simple ones included.
 #[test]
 fn the_baked_outline_is_the_runtimes_within_a_unit() {
     use baud_font::var::Variation;
@@ -639,15 +647,19 @@ fn the_baked_outline_is_the_runtimes_within_a_unit() {
         }
         fn close(&mut self) {}
     }
-    let (mut simple, mut composite) = (0f32, 0f32);
+    let (mut simple, mut composite, mut cases) = (0f32, 0f32, 0f32);
     let mut glyphs = 0;
-    for name in FONTS {
+    let runs = FONTS
+        .iter()
+        .map(|&name| (name, Weight(700)))
+        .chain(CASE_WEIGHTS.iter().map(|&w| (CASES, w)));
+    for (name, wght) in runs {
         let var = read(&source(name));
-        let ours = baked(name, Weight(700));
+        let ours = baked(name, wght);
         let mut face = Face::parse(&var).unwrap();
         face.set_variations(&[Variation {
             tag: baud_font::Tag::from_bytes(*b"wght"),
-            value: Weight(700).fixed(),
+            value: wght.fixed(),
         }]);
         let stat = Face::parse(&ours).unwrap();
         let kinds = self::glyphs(&ours);
@@ -657,8 +669,9 @@ fn the_baked_outline_is_the_runtimes_within_a_unit() {
             let (mut a, mut b) = (Points::default(), Points::default());
             face.outline_at(g, &mut scratch, &mut a);
             stat.outline(g, &mut b);
-            assert_eq!(a.0.len(), b.0.len(), "{name} glyph {k}");
+            assert_eq!(a.0.len(), b.0.len(), "{name} {wght} glyph {k}");
             let worst = match kinds[usize::from(k)] {
+                _ if name == CASES => &mut cases,
                 G::Composite { .. } => &mut composite,
                 _ => &mut simple,
             };
@@ -669,9 +682,10 @@ fn the_baked_outline_is_the_runtimes_within_a_unit() {
         }
     }
     assert!(glyphs > 3_000);
-    eprintln!("worst: simple {simple}, composite {composite}");
+    eprintln!("worst: simple {simple}, composite {composite}, cases {cases}");
     assert!(simple <= 0.5, "{simple}");
     assert!(composite <= 1.0, "{composite}");
+    assert!(cases <= 1.0, "{cases}");
 }
 
 /// The format of every anchor the mark lookups (4, 5 and 6, through

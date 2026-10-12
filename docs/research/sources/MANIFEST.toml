@@ -1552,12 +1552,21 @@ year   = 2026
 venue  = "OpenType specification 1.9.1, learn.microsoft.com"
 url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/head"
 file   = ""
-sha256 = "0395668578913c3ab4c7b671ed8cf1340b671f7fa3fa08f95efb5f9ff6a0f3e1"
-bytes  = 57977
+sha256 = "2d1d38db5db387fcfef88d3b5275f232cc0a3d1614e68455809a05d804cc0933"
+bytes  = 57627
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-10-12: a fetch no longer gives the first pin's bytes
+# (03956685, 57,977 bytes), and whether the page changed or only its chrome
+# is not known; two fetches the same day hash alike. The fresh fetch was read
+# for flags bit 1, "Left sidebearing point at x=0 (relevant only for
+# TrueType rasterizers)", and its note: "The left sidebearing point for each
+# glyph corresponds to the first phantom point ... pp1 = xMin - lsb. If bit 1
+# of the flags field is set, then pp1 = 0 for all glyphs and the xMin and
+# left sidebearing for each glyph must be equal", and that a variable font
+# with TrueType outlines must set the bit.
 
 [sources.ms-opentype-maxp]
 key    = "ms-opentype-maxp"
@@ -1597,12 +1606,21 @@ year   = 2026
 venue  = "OpenType specification 1.9.1, learn.microsoft.com"
 url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/hmtx"
 file   = ""
-sha256 = "eba7e6402be733f03b289408d41d2d886355d6c0be3f64017b97337ae16c8a2c"
-bytes  = 54213
+sha256 = "bc1bf1ab74468c1eea5efb0b3815534c9489fc704ae1a1e8c3d69b5fe8bdc9c9"
+bytes  = 53863
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-10-12: a fetch no longer gives the first pin's bytes
+# (eba7e640, 54,213 bytes), and whether the page changed or only its chrome
+# is not known; two fetches the same day hash alike. The fresh fetch was read
+# for the lsb field: "If pp1 and pp2 are TrueType phantom points used to
+# control lsb and rsb, their initial position in the X-direction is
+# calculated as follows: pp1 = xMin - lsb; pp2 = pp1 + aw", "rsb = aw - (lsb
+# + xMax - xMin)", and, for a variable font, "the left side bearing value in
+# the 'hmtx' table must always be equal to xMin (bit 1 of the 'head' flags
+# field must be set)".
 
 [sources.ms-opentype-loca]
 key    = "ms-opentype-loca"
@@ -2080,6 +2098,62 @@ group  = "J"
 # and the advance height point. Hash-verified, not committed -- a vendor HTML
 # page whose spec text is a fraction of its chrome.
 
+[sources.apple-ttrm-ch2]
+key    = "apple-ttrm-ch2"
+title  = "TrueType Reference Manual, chapter 2: the font engine (the origin point and the advance point)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/fonts"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM02/Chap2.html"
+file   = ""
+sha256 = "9cee2077f06fd92cec8ac355e936bfd14530a2c27e1e319780c924c60ad8cbd6"
+bytes  = 203795
+status = "external"
+group  = "J"
+# Read 2026-10-12, two fetches hashing alike; not committed -- a vendor HTML
+# page whose spec text is a fraction of its chrome. Read for "Creating the
+# origin point and the advance point": "The origin point is the original pen
+# position. Imagine that the pen moves the left-side bearing distance, draws
+# the glyph, moves the pen the advance width from the origin point ... If
+# the points in a given glyph are numbered from 0 to n-1, the origin point
+# would have the number n and the advance point the number n+1."
+
+[sources.apple-ttrm-head]
+key    = "apple-ttrm-head"
+title  = "TrueType Reference Manual, chapter 6: the 'head' table"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/fonts"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6head.html"
+file   = ""
+sha256 = "ba7c4d9bf0b019f9f17b2e4bda7236ab2994b9ad4b174bfa083891c3e06ee0b0"
+bytes  = 111769
+status = "external"
+group  = "J"
+# Read 2026-10-12, two fetches hashing alike; not committed. Read for flags
+# bit 1: "If bit 1 is set to one, the x-position of the leftmost black bit
+# is assumed to be the left side bearing"; its table, "bit 1 - x position
+# of left most black bit is LSB".
+
+[sources.apple-ttrm-hmtx]
+key    = "apple-ttrm-hmtx"
+title  = "TrueType Reference Manual, chapter 6: the 'hmtx' table"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/fonts"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6hmtx.html"
+file   = ""
+sha256 = "e0e0bbf0502eaac2ef9eb488409649243336816de758c82e9061c6890f65bf16"
+bytes  = 107425
+status = "external"
+group  = "J"
+# Read 2026-10-12, two fetches hashing alike; not committed. Read for "there
+# must be a left side bearing and an advance width associated with each
+# glyph in the font", and for the four phantoms: tuples carry entries for
+# "four 'phantom points,' which represent the glyph's side-bearings ... the
+# left-side phantom point, the right-side phantom point, the top phantom
+# point, and the bottom phantom point". It says nothing of xMin.
+
 [sources.freetype-2-14-3-ttgload]
 key    = "freetype-2-14-3-ttgload"
 title  = "FreeType 2.14.3: src/truetype/ttgload.c -- TT_Process_Composite_Component, point matching and scaled offsets"
@@ -2099,6 +2173,10 @@ group  = "J"
 # outline point (no phantoms), and SCALED_COMPONENT_OFFSET scales the offset
 # by FT_Hypot of each matrix column rather than through the matrix, the
 # default unscaled unless TT_CONFIG_OPTION_COMPONENT_OFFSET_SCALED.
+# Re-read 2026-10-12, same bytes: tt_loader_set_pp starts pp1 at
+# "bbox.xMin - left_bearing", and TT_Load_Glyph translates the outline by
+# -pp1.x, "independent on the value of bit 1 of the `flags' field in the
+# `head' table -- at least major applications like Acroread indicate that".
 
 [sources.apple-ttrm-cmap]
 key    = "apple-ttrm-cmap"

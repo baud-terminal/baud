@@ -164,7 +164,7 @@ fn a_ligature_spans_the_cells_of_its_components() {
     ))
     .unwrap();
     let face = Face::parse(&data).unwrap();
-    let text: Vec<u32> = "a->b".chars().map(|c| c as u32).collect();
+    let text: Vec<u32> = "a->b".chars().map(u32::from).collect();
     let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 16];
     let (buf, _) = shape(&face, &text, &mut storage);
     let spans: Vec<(u16, u16)> = buf

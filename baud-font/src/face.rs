@@ -21,7 +21,7 @@ use crate::cff::Cff;
 use crate::cff2::Cff2;
 use crate::cmap::{Cmap, Variation};
 use crate::colr::{Colr, Cpal, Layers, Palette, PaletteEntry, Rgba};
-use crate::glyf::{Glyf, Loca, LocaFormat, Streamed};
+use crate::glyf::{Glyf, LeftPoint, Loca, LocaFormat, Streamed};
 use crate::gpos::Gpos;
 use crate::gsub::Gsub;
 use crate::layout::Gdef;
@@ -384,11 +384,22 @@ impl<'a> Face<'a> {
             Some(1) => Some(LocaFormat::Long),
             _ => None,
         };
+        // flags at 16, bit 1 "Left sidebearing point at x=0": where a
+        // TrueType glyph is drawn from (`glyf.rs`'s doc). The read cannot
+        // fail where unitsPerEm's, two bytes on, did.
+        let flags: u16 = head
+            .read(Offset::of(16u32))
+            .ok_or(Error::Malformed(Tag::HEAD))?;
+        let left = if flags & 2 == 0 {
+            LeftPoint::Bearing
+        } else {
+            LeftPoint::Kept
+        };
         if let (Some(format), Some(loca), Some(glyf)) =
             (format, face.table(Tag::LOCA), face.table(Tag::GLYF))
         {
             let loca = Loca::parse(loca, format, Count::of(glyphs));
-            face.glyf = Some(Glyf::new(loca, glyf));
+            face.glyf = Some(Glyf::new(loca, glyf, left));
         }
         face.cff = face.table(Tag::CFF).and_then(Cff::parse);
         // `CFF2`, when it is there, is read whole or the face is refused --
@@ -623,15 +634,20 @@ impl<'a> Face<'a> {
         if past {
             return Some(Advance(0));
         }
-        let hmtx = |g: GlyphId| {
-            let advance = i32::from(self.default_advance(g)?.0);
-            let lsb = self.side_bearing(g).map_or(0, |b| i32::from(b.value()));
-            Some((advance, lsb))
-        };
+        let hmtx = |g: GlyphId| self.metrics(g);
         Some(match glyf.phantom_extent(g, gvar, &self.coords, &hmtx) {
             Some(w) => Advance::saturating(round_half_up(w)),
             None => Advance(self.upem.0 / 2),
         })
+    }
+
+    /// `g`'s advance and left side bearing from `hmtx`, which place its
+    /// first two phantom points: `None` without an advance, and a bearing
+    /// of 0 where the table has none.
+    fn metrics(&self, g: GlyphId) -> Option<(i32, i32)> {
+        let advance = i32::from(self.default_advance(g)?.0);
+        let lsb = self.side_bearing(g).map_or(0, |b| i32::from(b.value()));
+        Some((advance, lsb))
     }
 
     /// The left side bearing of `g` from `hmtx`: in the record for the first
@@ -833,7 +849,10 @@ impl<'a> Face<'a> {
     /// curves from `glyf`, cubics from `CFF2` and CFF. `glyf` is tried
     /// first, `CFF2` second and CFF third, which is HarfBuzz's order.
     /// `Drawn::Nothing` for a glyph with no contours, no data, or a
-    /// malformed description.
+    /// malformed description. A `glyf` glyph is drawn from its left side
+    /// bearing point, `xMin - lsb` where `head` bit 1 is clear (`glyf.rs`'s
+    /// doc); CFF and `CFF2` outlines carry their bearing in their
+    /// coordinates.
     ///
     /// **A glyph that needs scratch is refused here**, answered
     /// `Drawn::NeedsScratch` with nothing drawn, and [`Face::outline_at`]
@@ -855,7 +874,8 @@ impl<'a> Face<'a> {
             drawn: Drawn::Nothing,
         };
         let parsed = if let Some(glyf) = &self.glyf {
-            match glyf.outline(g, &mut counting) {
+            let hmtx = |g: GlyphId| self.metrics(g);
+            match glyf.outline(g, &hmtx, &mut counting) {
                 Some(Streamed::Drawn) => Some(()),
                 Some(Streamed::NeedsScratch(need)) => return Drawn::NeedsScratch(need),
                 None => None,
@@ -876,8 +896,8 @@ impl<'a> Face<'a> {
     /// The outline of `g` at the face's coordinates, with `scratch` for a
     /// glyph that needs it: [`Face::outline`] for one that does not, else
     /// the walk that flattens the glyph's components -- with its `gvar`
-    /// deltas at a variation (HarfBuzz's flattening, with the left
-    /// phantom's delta as the shift), without them at the default instance
+    /// deltas at a variation (HarfBuzz's flattening, drawn from the left
+    /// phantom where it ends), without them at the default instance
     /// for a glyph that matches points; the rules are on
     /// `Glyf::outline_varied`. `Drawn::NeedsScratch` when `scratch` holds
     /// fewer points than [`Face::outline_need`] says.
@@ -904,11 +924,7 @@ impl<'a> Face<'a> {
             inner: sink,
             drawn: Drawn::Nothing,
         };
-        let hmtx = |g: GlyphId| {
-            let advance = i32::from(self.default_advance(g)?.0);
-            let lsb = self.side_bearing(g).map_or(0, |b| i32::from(b.value()));
-            Some((advance, lsb))
-        };
+        let hmtx = |g: GlyphId| self.metrics(g);
         match glyf.outline_varied(g, gvar, &self.coords, &hmtx, scratch, &mut counting) {
             Some(()) => counting.drawn,
             None => Drawn::Nothing,

@@ -49,6 +49,14 @@ const OWN: &[(&str, &str)] = &[
         "scripts/component-cases-font.py",
     ),
     (
+        "baud-font/tests/var/bearing-cases.ttf",
+        "scripts/bearing-cases-font.py",
+    ),
+    (
+        "baud-font/tests/var/bearing-cases-bit1.ttf",
+        "scripts/bearing-cases-font.py",
+    ),
+    (
         "baud-font/tests/var/cff2-cases.otf",
         "scripts/cff2-cases-font.py",
     ),

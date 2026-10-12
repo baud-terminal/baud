@@ -41,6 +41,19 @@
 //! ones, Y on the two vertical ones -- which a matched component sees once
 //! the composite is its parent or its child. `ROUND_XY_TO_GRID` is a
 //! grid-fitting rule, and nothing here fits to a grid.
+//!
+//! **A glyph is drawn from its left side bearing point**, the first
+//! phantom point: "pp1 = xMin - lsb" (`[[source: ms-opentype-hmtx]]`), and
+//! that point is the origin -- "The origin point is the original pen
+//! position. Imagine that the pen moves the left-side bearing distance,
+//! draws the glyph" (`[[source: apple-ttrm-ch2]]`). So the whole outline is
+//! moved left by where that point ends: its start, a USE_MY_METRICS
+//! component's where the composite takes one, plus its `gvar` delta. With
+//! `head` flags bit 1 set, "Left sidebearing point at x=0", the text puts
+//! it at 0 for every glyph and requires each glyph's xMin to be its lsb
+//! (`[[source: ms-opentype-head]]`); for a font that sets the bit and
+//! breaks the requirement baud keeps what it drew before -- the point's
+//! movement alone -- and the choice is Jev's ([`LeftPoint::Kept`]).
 
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
 use crate::gvar::{Gvar, Referenced, Track};
@@ -264,6 +277,37 @@ struct Contour<'s, S: Sink> {
     first_on: Option<(f32, f32)>,
     first_off: Option<(f32, f32)>,
     last_off: Option<(f32, f32)>,
+}
+
+/// A sink that takes `x` from every x it is handed: the stream's move to
+/// the left side bearing point (the module's doc), applied after each point
+/// is placed, as HarfBuzz takes its top-level shift from points already
+/// placed; the midpoint between two off-curve points is taken before the
+/// shift here and after it in HarfBuzz and the varied walk, the same value
+/// wherever the points are integers. Only a glyph whose point is not at 0 goes through it, so the
+/// rest stream as they did.
+struct Shifted<'s, S: Sink> {
+    sink: &'s mut S,
+    x: f32,
+}
+
+impl<S: Sink> Sink for Shifted<'_, S> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.sink.move_to(x - self.x, y);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.sink.line_to(x - self.x, y);
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        self.sink.quad_to(x1 - self.x, y1, x - self.x, y);
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        self.sink
+            .curve_to(x1 - self.x, y1, x2 - self.x, y2, x - self.x, y);
+    }
+    fn close(&mut self) {
+        self.sink.close();
+    }
 }
 
 fn mid(a: (f32, f32), b: (f32, f32)) -> (f32, f32) {
@@ -793,16 +837,37 @@ fn push_phantoms(pts: &mut [VarPoint], at: &mut usize, left: (i32, i32)) -> Opti
     Some(())
 }
 
+/// Where a glyph's left side bearing point starts, by `head` flags bit 1,
+/// "Left sidebearing point at x=0" (`[[source: ms-opentype-head]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LeftPoint {
+    /// Bit 1 clear: at `xMin - lsb` (`[[source: ms-opentype-hmtx]]`), and
+    /// the glyph is drawn from it, at the default instance and at a
+    /// variation alike.
+    Bearing,
+    /// Bit 1 set: "pp1 = 0 for all glyphs and the xMin and left sidebearing
+    /// for each glyph must be equal". A glyph is drawn as baud drew it
+    /// before, moved by its left phantom's delta and not its start, which
+    /// is the same drawing wherever the font keeps the requirement. Where
+    /// it does not -- 16 glyphs in 6 faces on the development Mac, and 546
+    /// in the embedded Nerd Font symbols -- the text gives two places, 0
+    /// and `xMin - lsb`, HarfBuzz, FreeType and Core Text draw from the
+    /// second, and the phantoms a matched component aligns on start at the
+    /// second here too: which baud follows is Jev's (note Z, step 8).
+    Kept,
+}
+
 /// The table pair; `outline` is the entry point.
 #[derive(Clone, Copy)]
 pub struct Glyf<'a> {
     loca: Loca<'a>,
     data: Bytes<'a>,
+    left: LeftPoint,
 }
 
 impl<'a> Glyf<'a> {
-    pub fn new(loca: Loca<'a>, data: Bytes<'a>) -> Glyf<'a> {
-        Glyf { loca, data }
+    pub fn new(loca: Loca<'a>, data: Bytes<'a>, left: LeftPoint) -> Glyf<'a> {
+        Glyf { loca, data, left }
     }
 
     pub(crate) fn glyph(&self, g: GlyphId) -> Option<Bytes<'a>> {
@@ -829,7 +894,11 @@ impl<'a> Glyf<'a> {
     /// glyph is answered `Streamed::NeedsScratch` with nothing drawn: its
     /// alignment reads points a stream has already given away, and
     /// [`Glyf::outline_varied`] draws it.
-    pub fn outline<S: Sink>(&self, g: GlyphId, sink: &mut S) -> Option<Streamed> {
+    ///
+    /// The glyph is drawn from its left side bearing point, which `hmtx`
+    /// places (the module's doc); under [`LeftPoint::Kept`] `hmtx` is not
+    /// read.
+    pub fn outline<S: Sink>(&self, g: GlyphId, hmtx: Hmtx<'_>, sink: &mut S) -> Option<Streamed> {
         let data = self.glyph(g)?;
         let contours: i16 = data.read(Offset::ZERO)?;
         if contours < 0 {
@@ -838,8 +907,54 @@ impl<'a> Glyf<'a> {
                 return Some(Streamed::NeedsScratch(r.kept.plus(r.stack)?));
             }
         }
-        self.outline_into(data, Transform::IDENTITY, 0, sink)?;
+        let x = match self.left {
+            LeftPoint::Bearing => self.origin(g, hmtx)? as f32,
+            LeftPoint::Kept => 0.0,
+        };
+        if x != 0.0 {
+            let mut shifted = Shifted { sink, x };
+            self.outline_into(data, Transform::IDENTITY, 0, &mut shifted)?;
+        } else {
+            self.outline_into(data, Transform::IDENTITY, 0, sink)?;
+        }
         Some(Streamed::Drawn)
+    }
+
+    /// Where `g`'s left side bearing point starts at the default instance:
+    /// `xMin - lsb`, or, for a composite with a USE_MY_METRICS component,
+    /// that component's start -- the last one's, taken before it is placed
+    /// -- since the bit "forces the aw and lsb (and rsb) for the composite
+    /// to be equal to those from this component glyph"
+    /// (`[[source: ms-opentype-glyf]]`). The start the varied walk answers,
+    /// found without the walk; `None` for a malformed glyph or a chain past
+    /// 32 deep.
+    fn origin(&self, g: GlyphId, hmtx: Hmtx<'_>) -> Option<i32> {
+        let mut g = g;
+        for _ in 0..MAX_DEPTH {
+            let data = self.glyph(g);
+            let (start, _) = Self::phantom_start(hmtx, g, data)?;
+            let contours: i16 = match data {
+                Some(data) => data.read(Offset::ZERO)?,
+                None => 0,
+            };
+            let mut metrics = None;
+            if contours < 0 {
+                let mut records = Comps {
+                    body: data?.tail(Offset::of(10u32))?,
+                    at: Some(Offset::ZERO),
+                };
+                while let Some(c) = records.next()? {
+                    if c.flags.use_my_metrics() {
+                        metrics = Some(c.glyph);
+                    }
+                }
+            }
+            match metrics {
+                Some(c) => g = c,
+                None => return Some(start),
+            }
+        }
+        None
     }
 
     /// [`Glyf::need`] for a glyph whose tree places a component by points,
@@ -1027,19 +1142,17 @@ impl<'a> Glyf<'a> {
     /// `gvar` tuples when `gvar` is given, its components flattened and
     /// placed as HarfBuzz flattens them (`Glyph::get_points` in
     /// `[[source: harfbuzz-12-3-0-glyph]]`) and as the specification places
-    /// them (the module's doc), and the whole shifted left by its left
-    /// phantom point's delta. Without `gvar` it is the default instance of
-    /// a glyph that matches points, which only this walk can draw. `scratch`
-    /// must hold [`Glyf::need`] points; `None` when it does not, or when the
+    /// them (the module's doc), and the whole drawn from its left side
+    /// bearing point. Without `gvar` it is the default instance of a glyph
+    /// that matches points, which only this walk can draw. `scratch` must
+    /// hold [`Glyf::need`] points; `None` when it does not, or when the
     /// glyph is malformed.
     ///
-    /// **The shift is by the delta, not the position.** HarfBuzz shifts by
-    /// the left phantom's final x, which is `xMin - lsb` plus its delta --
-    /// 0 plus the delta in a font whose `xMin` is its left side bearing, as
-    /// every glyph of JetBrains Mono and Fira Code is (`head` bit 1). The
-    /// phantoms start where HarfBuzz starts them, so a matched component
-    /// can align on them, and the shift is the left one's movement, so a
-    /// glyph whose deltas are 0 is drawn where the default path draws it.
+    /// **The shift is the left phantom's position**: `xMin - lsb`, or a
+    /// USE_MY_METRICS component's, plus its delta, as HarfBuzz shifts and
+    /// as the text places the origin (the module's doc) -- the delta alone
+    /// in a font whose xMin is its lsb, as every variable font's must be.
+    /// Under [`LeftPoint::Kept`] it is the movement alone, as it was.
     pub fn outline_varied<S: Sink>(
         &self,
         g: GlyphId,
@@ -1065,8 +1178,12 @@ impl<'a> Glyf<'a> {
         let end = used.slot();
         let pts = all.get_mut(..end)?;
         let (glyph, phantoms) = pts.split_at_mut(end.checked_sub(Count::of(PHANTOMS).slot())?);
-        // HarfBuzz's "undocumented rasterizer behavior", at the top level.
-        let shift = phantoms.first()?.x - rest as f32;
+        // The left side bearing point, where the glyph is drawn from.
+        let start = match self.left {
+            LeftPoint::Bearing => 0.0,
+            LeftPoint::Kept => rest as f32,
+        };
+        let shift = phantoms.first()?.x - start;
         let mut contour = Contour {
             sink,
             transform: Transform::IDENTITY,
@@ -1087,16 +1204,12 @@ impl<'a> Glyf<'a> {
     /// right one's distance from it: HarfBuzz's `init_phantom_points`, with
     /// `xMin` 0 for a glyph with no data and a missing `hmtx` entry read
     /// as 0, as HarfBuzz reads one.
-    fn phantom_start(
-        walk: &Walk<'_, 'a>,
-        g: GlyphId,
-        data: Option<Bytes<'a>>,
-    ) -> Option<(i32, i32)> {
+    fn phantom_start(hmtx: Hmtx<'_>, g: GlyphId, data: Option<Bytes<'a>>) -> Option<(i32, i32)> {
         let x_min: i16 = match data {
             Some(data) => data.read(Offset::of(2u32))?,
             None => 0,
         };
-        let (advance, lsb) = (walk.hmtx)(g).unwrap_or((0, 0));
+        let (advance, lsb) = hmtx(g).unwrap_or((0, 0));
         Some((i32::from(x_min).checked_sub(lsb)?, advance))
     }
 
@@ -1105,7 +1218,7 @@ impl<'a> Glyf<'a> {
     /// phantoms -- live in `stack` while its components are walked. Answers
     /// where the left phantom started -- the composite's, or the last
     /// USE_MY_METRICS component's, whose phantoms it takes -- so the top
-    /// level can shift by the movement alone.
+    /// level can shift by the movement alone under [`LeftPoint::Kept`].
     fn varied(
         &self,
         g: GlyphId,
@@ -1136,7 +1249,7 @@ impl<'a> Glyf<'a> {
             }
             None => Kind::Empty,
         };
-        let start = Self::phantom_start(walk, g, data)?;
+        let start = Self::phantom_start(walk.hmtx, g, data)?;
         let gvar = walk.gvar.and_then(|v| v.glyph(g));
         let comps = match body {
             Kind::Simple(simple) => {

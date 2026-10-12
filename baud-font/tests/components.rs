@@ -56,11 +56,14 @@ enum Side {
     Unmatched(&'static [&'static str]),
     /// baud's own drawing at the default instance, where the glyph does not
     /// vary: `dot2`'s xMin is not its lsb, and `umm` takes `dot2`'s
-    /// phantoms under USE_MY_METRICS, so both engines shift the drawing by
-    /// the 20 between them at the top level, which baud has never done
-    /// (note Z, step 2: the shift is the left phantom's movement, not its
-    /// position). At a variation that moves neither, it is drawn where the
-    /// default stream draws it.
+    /// phantoms under USE_MY_METRICS, so both engines draw it from its left
+    /// side bearing point, 20 along. This font sets `head` bit 1, which
+    /// puts that point at 0 and requires the two to be equal, so it is
+    /// malformed there, and baud keeps the drawing it made before -- the
+    /// point's movement alone -- for Jev (note Z, step 8;
+    /// `tests/bearings.rs` holds the rule where bit 1 is clear). At a
+    /// variation that moves neither, it is drawn where the default stream
+    /// draws it.
     Default,
     /// Neither engine's: the text's drawing at each weight, worked by hand
     /// from `scripts/component-cases-font.py`, where both depart. FreeType

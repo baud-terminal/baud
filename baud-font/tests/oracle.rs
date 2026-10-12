@@ -137,6 +137,7 @@ struct Tally {
     outline_presence_normalised: usize,
     gvar_refusals: usize,
     cff2_drawn: usize,
+    bearing_shifted: usize,
 }
 
 impl Tally {
@@ -162,6 +163,7 @@ impl Tally {
             outline_presence_normalised,
             gvar_refusals,
             cff2_drawn,
+            bearing_shifted,
         } = other;
         self.files += files;
         self.faces += faces;
@@ -181,6 +183,104 @@ impl Tally {
         self.outline_presence_normalised += outline_presence_normalised;
         self.gvar_refusals += gvar_refusals;
         self.cff2_drawn += cff2_drawn;
+        self.bearing_shifted += bearing_shifted;
+    }
+}
+
+/// Glyph `id`'s bytes in `glyf`, through a `loca` of `head`'s format: the
+/// oracle's own tables, read with no code of baud's. `None` for an empty
+/// glyph or an entry out of order or past the table.
+fn glyph_bytes<'a>(glyf: &'a [u8], loca: &[u8], long: i16, id: u16) -> Option<&'a [u8]> {
+    let i = usize::from(id);
+    let entry = |k: usize| -> Option<usize> {
+        if long == 1 {
+            let b = loca.get(4 * k..4 * k + 4)?;
+            usize::try_from(u32::from_be_bytes([b[0], b[1], b[2], b[3]])).ok()
+        } else {
+            let b = loca.get(2 * k..2 * k + 2)?;
+            Some(2 * usize::from(u16::from_be_bytes([b[0], b[1]])))
+        }
+    };
+    let (from, to) = (entry(i)?, entry(i + 1)?);
+    if to <= from {
+        return None;
+    }
+    glyf.get(from..to)
+}
+
+/// Where glyph `id`'s left side bearing point starts, `xMin - lsb`, or the
+/// last USE_MY_METRICS component's start for a composite -- read from the
+/// oracle's own tables, so the shift baud draws a glyph by is checked
+/// against the text's rule rather than against itself. `None` for a face
+/// without `glyf` or with `head` bit 1 set, whose glyphs baud keeps where
+/// it drew them.
+fn bearing_start(theirs: &ttf_parser::Face<'_>, id: u16) -> Option<f32> {
+    let raw = theirs.raw_face();
+    let head = raw.table(ttf_parser::Tag::from_bytes(b"head"))?;
+    let glyf = raw.table(ttf_parser::Tag::from_bytes(b"glyf"))?;
+    let loca = raw.table(ttf_parser::Tag::from_bytes(b"loca"))?;
+    if u16::from_be_bytes([*head.get(16)?, *head.get(17)?]) & 2 != 0 {
+        return None;
+    }
+    let long = i16::from_be_bytes([*head.get(50)?, *head.get(51)?]);
+    let mut id = id;
+    for _ in 0..32 {
+        let data = glyph_bytes(glyf, loca, long, id);
+        let x_min = data.map_or(0, |d| i16::from_be_bytes([d[2], d[3]]));
+        let lsb = theirs
+            .glyph_hor_side_bearing(ttf_parser::GlyphId(id))
+            .unwrap_or(0);
+        let start = i32::from(x_min) - i32::from(lsb);
+        let mut metrics = None;
+        if let Some(d) = data.filter(|d| i16::from_be_bytes([d[0], d[1]]) < 0) {
+            let mut at = 10;
+            loop {
+                let flags = u16::from_be_bytes([*d.get(at)?, *d.get(at + 1)?]);
+                let glyph = u16::from_be_bytes([*d.get(at + 2)?, *d.get(at + 3)?]);
+                if flags & 0x0200 != 0 {
+                    metrics = Some(glyph);
+                }
+                at += 4 + if flags & 1 != 0 { 4 } else { 2 };
+                at += if flags & 0x0080 != 0 {
+                    8
+                } else if flags & 0x0040 != 0 {
+                    4
+                } else if flags & 0x0008 != 0 {
+                    2
+                } else {
+                    0
+                };
+                if flags & 0x0020 == 0 {
+                    break;
+                }
+            }
+        }
+        match metrics {
+            Some(g) => id = g,
+            None => return Some(start as f32),
+        }
+    }
+    None
+}
+
+/// `segs` with every x less `shift`, the subtraction baud makes after a
+/// point is placed.
+fn shifted(segs: &mut Segs, shift: f32) {
+    let x = |v: &mut u32| *v = (f32::from_bits(*v) - shift).to_bits();
+    for s in &mut segs.0 {
+        match s {
+            Seg::M(a, _) | Seg::L(a, _) => x(a),
+            Seg::Q(a, _, b, _) => {
+                x(a);
+                x(b);
+            }
+            Seg::C(a, _, b, _, c, _) => {
+                x(a);
+                x(b);
+                x(c);
+            }
+            Seg::Z => {}
+        }
     }
 }
 
@@ -339,6 +439,13 @@ fn compare_face(
     // a glyph whose points are all at the origin (its bounding box never
     // grows), while this crate reports what it emitted; when the segments
     // are identical and only that verdict differs, it is counted here.
+    //
+    // **And one the specification makes, counted.** The oracle hands back a
+    // `glyf` glyph's stored coordinates; baud draws it from its left side
+    // bearing point, `xMin - lsb`, where `head` bit 1 is clear
+    // (`[[source: ms-opentype-hmtx]]`, `glyf.rs`'s doc). The oracle's
+    // segments are moved by that start, read from its own tables by
+    // `bearing_start`, and must then be baud's bit for bit.
     let mut first_bad = true;
     for id in 0..n {
         let g = GlyphId::from_shaper(id);
@@ -347,6 +454,10 @@ fn compare_face(
         let mut b = Segs(Vec::new());
         let drawn = ours.outline(g, &mut a);
         let theirs_drew = theirs.outline_glyph(tg, &mut b).is_some();
+        let start = bearing_start(theirs, id).filter(|&s| s != 0.0);
+        if let Some(s) = start {
+            shifted(&mut b, s);
+        }
         // **Two more normalisations, each tied to a table, each verified
         // against a second reading rather than assumed, and counted.**
         //
@@ -362,6 +473,9 @@ fn compare_face(
         if a.0 != b.0 && theirs.tables().gvar.is_some() {
             let mut c = Segs(Vec::new());
             let _ = theirs.tables().glyf.map(|glyf| glyf.outline(tg, &mut c));
+            if let Some(s) = start {
+                shifted(&mut c, s);
+            }
             if a.0 == c.0 {
                 t.gvar_refusals += 1;
                 continue;
@@ -409,6 +523,7 @@ fn compare_face(
         t.outlines_agreed += 1;
         if drawn == Drawn::Outline {
             t.outline_hits += 1;
+            t.bearing_shifted += usize::from(start.is_some());
         }
     }
 
@@ -620,6 +735,20 @@ fn every_face_on_this_machine_agrees_with_ttf_parser() {
     // carry gvar -- or the note above describes nothing.
     if cfg!(target_os = "macos") {
         assert!(t.gvar_refusals > 0, "the gvar normalisation never fired");
+    }
+    // The bearing normalisation must fire on this Mac -- Apple Color Emoji,
+    // Times New Roman Italic and forty more faces with bit 1 clear draw
+    // glyphs whose lsb is not their xMin -- or the note above describes
+    // nothing.
+    eprintln!(
+        "oracle: {} outlines drawn from a left side bearing point not at x 0",
+        t.bearing_shifted
+    );
+    if cfg!(target_os = "macos") {
+        assert!(
+            t.bearing_shifted > 0,
+            "the bearing normalisation never fired"
+        );
     }
     // Each recorded oracle defect fired -- on macOS, where the face lives;
     // elsewhere the corpus cannot reach it and the list is documentation.
