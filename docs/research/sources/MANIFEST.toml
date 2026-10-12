@@ -23661,3 +23661,220 @@ bytes  = 26044
 status = "external"
 group  = "AA"
 # Retrieved 2026-10-12. Read: 60-75, 385-402.
+
+# Group C, for the Sixel body limit (TODO item: yazi's previews blank for some PDFs and images):
+# what xterm, foot, wezterm, mintty and contour cap a Sixel at and whether each buffers the body,
+# and yazi's encoder and its preview cap. Each file was fetched twice on 2026-10-12 and the two
+# copies were byte-identical. Already pinned and re-used: xterm-graphics-sixel, xterm-man,
+# xterm-reset (charproc.c), foot-dcs-c (the same bytes at 1.28.0), wezterm-ts-sixel-rs-e2a98e1,
+# mintty-383-termout and kitty-9710eb4-vt-parser-c (hashes re-checked 2026-10-12).
+
+[sources.xterm-411-graphics-c]
+key    = "xterm-411-graphics-c"
+title  = "xterm 411, graphics.c -- allocGraphic callocs max_w x max_h pixels, sized from graphics_max_wide and graphics_max_high"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/graphics.c"
+file   = ""
+sha256 = "447846c4a6120d24962f97b653538794df888a88b25b4c74a1c5ac5a5d0019c0"
+bytes  = 51358
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 191-205, 216-224.
+
+[sources.foot-1280-sixel-c]
+key    = "foot-1280-sixel-c"
+title  = "foot 1.28.0, sixel.c -- the image grows by realloc as data arrives, truncated at sixel.max_width and max_height; the raster attributes pre-allocate"
+author = "Daniel Eklöf and contributors"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot, tag 1.28.0 @ ab33c9a1"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/ab33c9a19d626f8d0ac0bd1adfdba21946ada948/sixel.c"
+file   = ""
+sha256 = "756a6fcae368e839e02b4987cdc067b9ae1aa41dd0cff8bb301724c2bbc80ea6"
+bytes  = 72016
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 1432-1437, 1492-1525, 1925-1959, 2199-2204.
+
+[sources.foot-1280-sixel-h]
+key    = "foot-1280-sixel-h"
+title  = "foot 1.28.0, sixel.h -- SIXEL_MAX_COLORS 1024, SIXEL_MAX_WIDTH and SIXEL_MAX_HEIGHT 10000"
+author = "Daniel Eklöf and contributors"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot, tag 1.28.0 @ ab33c9a1"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/ab33c9a19d626f8d0ac0bd1adfdba21946ada948/sixel.h"
+file   = ""
+sha256 = "83c70f40d8da88d00bfe3850925eeaf74800e3f1b8c9151a10df8fd8e60d3681"
+bytes  = 1835
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 5-7.
+
+[sources.wezterm-e2a98e1-parser-sixel]
+key    = "wezterm-e2a98e1-parser-sixel"
+title  = "wezterm at e2a98e1, wezterm-escape-parser/src/parser/sixel.rs -- SixelBuilder pushes one SixelData per byte; a raster size past MAX_SIXEL_SIZE (100,000,000) is ignored"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm @ e2a98e1"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/wezterm-escape-parser/src/parser/sixel.rs"
+file   = ""
+sha256 = "0ee96308cf6365f321a56f2d583a60cc2c5097269c3d649b6ffc570e04874a39"
+bytes  = 10121
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 6-7, 47-60, 130-176.
+
+[sources.wezterm-e2a98e1-parser-mod]
+key    = "wezterm-e2a98e1-parser-mod"
+title  = "wezterm at e2a98e1, wezterm-escape-parser/src/parser/mod.rs -- dcs_hook starts a SixelBuilder, dcs_put pushes each byte, dcs_unhook finishes it and hands the whole Sixel on"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm @ e2a98e1"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/wezterm-escape-parser/src/parser/mod.rs"
+file   = ""
+sha256 = "2a6d47a01c801ef9df5a60f49106917078d4894dd2b0593e3accfec217ef54e7"
+bytes  = 40652
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 243-247, 276-280, 310-312.
+
+[sources.wezterm-e2a98e1-ts-image]
+key    = "wezterm-e2a98e1-ts-image"
+title  = "wezterm at e2a98e1, term/src/terminalstate/image.rs -- check_image_dimensions refuses an image whose RGBA bytes exceed MAX_IMAGE_SIZE, 100,000,000"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm @ e2a98e1"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/term/src/terminalstate/image.rs"
+file   = ""
+sha256 = "462e9445d356f99ca013ab0d0e5656ac215599983ace5a762d59ee37bf6f928b"
+bytes  = 13039
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 302-319.
+
+[sources.mintty-383-sixel-c]
+key    = "mintty-383-sixel-c"
+title  = "mintty 3.8.3, src/sixel.c -- the image buffer doubles as data arrives, up to DECSIXEL_WIDTH_MAX and DECSIXEL_HEIGHT_MAX"
+author = "Andy Koppe, Thomas Wolff"
+year   = 2026
+venue  = "mintty/mintty, tag 3.8.3 @ b2df94ec"
+url    = "https://raw.githubusercontent.com/mintty/mintty/b2df94ec9507d9e1175c12fb60daf319bfc19d3c/src/sixel.c"
+file   = ""
+sha256 = "508627a39742dced51a0511f0f253d8097d344463a3bec39ba74b0be375cef11"
+bytes  = 18408
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 366-395.
+
+[sources.mintty-383-sixel-h]
+key    = "mintty-383-sixel-h"
+title  = "mintty 3.8.3, src/sixel.h -- DECSIXEL_WIDTH_MAX and DECSIXEL_HEIGHT_MAX 4096, DECSIXEL_PALETTE_MAX 1024"
+author = "Andy Koppe, Thomas Wolff"
+year   = 2026
+venue  = "mintty/mintty, tag 3.8.3 @ b2df94ec"
+url    = "https://raw.githubusercontent.com/mintty/mintty/b2df94ec9507d9e1175c12fb60daf319bfc19d3c/src/sixel.h"
+file   = ""
+sha256 = "6e1fd39bd83439ce18c2ff75ff90bf55d30497c2b2bbf43664057fd14bc7659a"
+bytes  = 1592
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 6-10.
+
+[sources.contour-063-sixelparser]
+key    = "contour-063-sixelparser"
+title  = "Contour v0.6.3.8249, src/vtbackend/SixelParser.cpp -- parse takes one byte; SixelImageBuilder pre-allocates maxSize.area() * 4 bytes and drops pixels outside it"
+author = "Christian Parpart and contributors"
+year   = 2026
+venue  = "contour-terminal/contour, tag v0.6.3.8249 @ 3aef6f72"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/3aef6f7243f571fd4fda2642da190a244bb87a57/src/vtbackend/SixelParser.cpp"
+file   = ""
+sha256 = "57d4234a092a2a6deba60e257e3f952833f127d82f8335542e9ee32ae6e72d1c"
+bytes  = 15284
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 150-152, 352-366, 393-397, 442-454.
+
+[sources.contour-063-settings-h]
+key    = "contour-063-settings-h"
+title  = "Contour v0.6.3.8249, src/vtbackend/Settings.h -- maxImageSize defaults to 800 x 600"
+author = "Christian Parpart and contributors"
+year   = 2026
+venue  = "contour-terminal/contour, tag v0.6.3.8249 @ 3aef6f72"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/3aef6f7243f571fd4fda2642da190a244bb87a57/src/vtbackend/Settings.h"
+file   = ""
+sha256 = "543483c04ec66c979cd8001aba29e52861881f03dfaa1838c3f8cd3f4391f4c0"
+bytes  = 4256
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 48.
+
+[sources.contour-063-config-h]
+key    = "contour-063-config-h"
+title  = "Contour v0.6.3.8249, src/contour/Config.h -- ImagesConfig's maxImageSize defaults to 0 x 0"
+author = "Christian Parpart and contributors"
+year   = 2026
+venue  = "contour-terminal/contour, tag v0.6.3.8249 @ 3aef6f72"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/3aef6f7243f571fd4fda2642da190a244bb87a57/src/contour/Config.h"
+file   = ""
+sha256 = "bdb5eae2b3ec42b41a24dde5747d887e8d272039c627e1cb9751344d7892227f"
+bytes  = 79694
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 263-268.
+
+[sources.contour-063-terminalsession]
+key    = "contour-063-terminalsession"
+title  = "Contour v0.6.3.8249, src/contour/TerminalSession.cpp -- a configured maxImageSize of 0 becomes the screen's size in device pixels"
+author = "Christian Parpart and contributors"
+year   = 2026
+venue  = "contour-terminal/contour, tag v0.6.3.8249 @ 3aef6f72"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/3aef6f7243f571fd4fda2642da190a244bb87a57/src/contour/TerminalSession.cpp"
+file   = ""
+sha256 = "7ce8a26788a74b445a27c5e1277c7a87dae8a866d3b84c2b36ace933b8d59434"
+bytes  = 71934
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 303-317.
+
+[sources.contour-063-screen]
+key    = "contour-063-screen"
+title  = "Contour v0.6.3.8249, src/vtbackend/Screen.cpp -- a Sixel's SixelImageBuilder is made at the terminal's maxImageSize"
+author = "Christian Parpart and contributors"
+year   = 2026
+venue  = "contour-terminal/contour, tag v0.6.3.8249 @ 3aef6f72"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/3aef6f7243f571fd4fda2642da190a244bb87a57/src/vtbackend/Screen.cpp"
+file   = ""
+sha256 = "4036c88dd70a30fbda8f9f08c322ff22f9a8c27696f3f3b4843972cd0de2712d"
+bytes  = 184242
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 4598-4600.
+
+[sources.yazi-sixel]
+key    = "yazi-sixel"
+title  = "yazi-adapter/src/drivers/sixel.rs, at v26.5.6 -- the Sixel encoder: P9;1q with a 1;1 raster, a palette of up to 256 registers, and one sixel row a pixel row"
+author = "sxyazi and contributors"
+year   = 2026
+venue  = "github.com/sxyazi/yazi @ aa526434"
+url    = "https://raw.githubusercontent.com/sxyazi/yazi/aa526434f00bb44e2e902d9a4ac5f810da1018b9/yazi-adapter/src/drivers/sixel.rs"
+file   = ""
+sha256 = "6cb8df9bfc967fddb667871ce296bb9c2233d17ba11b2195726e137d4248529c"
+bytes  = 3218
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 57-111, 117-127.
+
+[sources.yazi-default-toml]
+key    = "yazi-default-toml"
+title  = "yazi-config/preset/yazi-default.toml, at v26.5.6 -- [preview] max_width 600, max_height 900"
+author = "sxyazi and contributors"
+year   = 2026
+venue  = "github.com/sxyazi/yazi @ aa526434"
+url    = "https://raw.githubusercontent.com/sxyazi/yazi/aa526434f00bb44e2e902d9a4ac5f810da1018b9/yazi-config/preset/yazi-default.toml"
+file   = ""
+sha256 = "db53e96d10901c07faac5618c19afdab7522696cb63c5f64d846a9f3f86dbf2a"
+bytes  = 7544
+status = "external"
+group  = "C"
+# Retrieved 2026-10-12. Read: 20-28.
