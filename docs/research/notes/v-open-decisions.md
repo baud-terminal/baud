@@ -330,6 +330,22 @@ already), and the candidate below, a slide settled on a `Restored` read. The
 record has the tests and the measurement: "A full reset drops what the app
 keeps over the screen".
 
+*Corrected 2026-10-11:* the reveal was read at the pump's edges, so
+`?1049h` then `RIS` revealed in one pump and not in two. It is read at the
+reset's byte now: the first erasure in a pump, kept by the core
+(`Term::first_erasure`), reveals when it is a reset made from the primary
+with the window above 0. The window is still the one stored at the pump's
+start, so a full-screen `SD`, `RI` at the top or a prompt redraw that
+takes it live in the same pump as the reset still depends on the
+batching (note V's V2); the record names it. Q2 is not decided by it.
+Both options are now batching-invariant, so the request round 2026-10-11d
+sent describes neither as built: its DRAWN_WINDOW Does slot and
+`baud_probe` (d) give fbc69f0's batching dependence, and a re-ask must
+carry this change's rule. The record: "A reset's
+reveal is decided at the reset's byte, not at the pump's edges
+(2026-10-11)", which also holds what an emptied history shows: Jev's
+answer A, as built (decisions lines 453-454).
+
 After the change: a reset leaves a clean slate, with no highlight, no slide,
 the live screen and no stale guess. It does so however the bytes fall into
 reads.

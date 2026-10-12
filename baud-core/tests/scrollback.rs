@@ -2567,6 +2567,78 @@ fn the_reset_count_moves_on_a_full_reset_and_nothing_else() {
     });
 }
 
+/// **The first erasure since the watch was armed, and nothing after it**
+/// (note V, V1): which screen a reset was made from is what an embedder's
+/// window over the primary's history needs, and every count reads the same
+/// after `?1049h RIS` as after `?1049h ?1049l RIS` -- the epoch twice, one
+/// reset, one erasure, the primary up -- while the first is a reset made
+/// from the alternate screen and the second one made from the primary. The
+/// first is kept: `ED 3` then `RIS` keeps `ED 3`. The same at every read
+/// size, one-byte reads splitting `ESC` from `c`; nothing kept by a read
+/// that erases nothing; and nothing for a reading the watch was not armed
+/// at.
+#[test]
+fn the_watch_keeps_the_first_erasure_and_the_screen_a_reset_came_from() {
+    let lines: Vec<u8> = (0..80)
+        .flat_map(|i| format!("line {i}\r\n").into_bytes())
+        .collect();
+    let first = |bytes: &[u8], size: usize| {
+        support::with_corpus(|t| {
+            support::feed(t, &lines);
+            assert!(!t.scrollback().is_empty(), "the control: a history");
+            t.watch_erasures();
+            let since = t.history_erasures();
+            for read in bytes.chunks(size) {
+                support::feed(t, read);
+            }
+            t.first_erasure(since)
+        })
+    };
+    let reset = |s| Some(Erasure::Reset(s));
+    for (bytes, want, what) in [
+        (
+            &b"\x1bc"[..],
+            reset(Screen::Normal),
+            "a reset on the primary",
+        ),
+        (
+            b"\x1b[?1049h\x1bc",
+            reset(Screen::Alternate),
+            "?1049h, a reset",
+        ),
+        (b"\x1b[?47h\x1bc", reset(Screen::Alternate), "?47h, a reset"),
+        (
+            b"\x1b[?1049h\x1b[?1049l\x1bc",
+            reset(Screen::Normal),
+            "a round trip, then a reset",
+        ),
+        (b"\x1b[3J", Some(Erasure::SavedLines), "ED 3"),
+        (b"\x1b[3J\x1bc", Some(Erasure::SavedLines), "ED 3, a reset"),
+        (b"\x1bc\x1b[3J", reset(Screen::Normal), "a reset, ED 3"),
+        (
+            b"\x1bc\x1b[?1049h\x1bc",
+            reset(Screen::Normal),
+            "two resets",
+        ),
+        (b"\x1b[!p\x1b[2J\x1b[?3J", None, "DECSTR, ED 2, DECSED 3"),
+    ] {
+        for size in [1, 2, 3, 4096] {
+            assert_eq!(first(bytes, size), want, "{what}, reads of {size}");
+        }
+    }
+    support::with_corpus(|t| {
+        support::feed(t, &lines);
+        let stale = t.history_erasures();
+        support::feed(t, b"\x1b[3J");
+        t.watch_erasures();
+        let since = t.history_erasures();
+        assert_ne!(since, stale, "the control: ED 3 moved the count");
+        support::feed(t, b"\x1bc");
+        assert_eq!(t.first_erasure(since), reset(Screen::Normal));
+        assert_eq!(t.first_erasure(stale), None, "a reading not armed at");
+    });
+}
+
 // **A full reset clears the history, and leaves nothing to reveal below the
 // window.** `RIS` reset the primary's rotation and left its history counts,
 // so the scrollback read rows the reset had not written at the old length --

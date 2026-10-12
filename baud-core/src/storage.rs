@@ -274,6 +274,16 @@ pub struct Book<'b> {
     /// and after each pass that clears them; read only while `reach` lies
     /// past the live width.
     pub(crate) swept: LineIdx,
+    /// **The reading of [`crate::Term::history_erasures`] the watch on the
+    /// erasures was armed at** ([`crate::Term::watch_erasures`]): what
+    /// [`crate::Term::first_erasure`] answers for. Not grid bookkeeping, and
+    /// `Paint` never reads it -- only the embedder's two calls touch it --
+    /// but here because it fills this word's four bytes of end padding, so
+    /// `Book` stays 80 bytes with every field at base's offset. As a field of
+    /// `Term` it moved the twelve fields of `Term` after `utf8` by four and cost
+    /// about 0.3% more instructions retired on `cat`; `Cold`'s three bytes
+    /// of padding held the kept erasure and not this word too.
+    pub(crate) watched_at: crate::term::HistoryErasures,
 }
 
 /// Everything a control string writes, in one struct.
@@ -964,6 +974,7 @@ impl<'b> Storage<'b> {
                 held: Rows::ZERO,
                 past,
                 swept: LineIdx::FIRST,
+                watched_at: crate::term::HistoryErasures::FIRST,
             },
             strs,
             images,

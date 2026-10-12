@@ -12,7 +12,7 @@ use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
 use crate::reveal::{Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes};
 use crate::wheel::{Delta, Route, Travel};
-use baud_core::{Depth, Owned, Screen, Term, Zone, grid_stride};
+use baud_core::{Depth, Erasure, Owned, Screen, Term, Zone, grid_stride};
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
     KeyEventKind, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking,
@@ -2314,6 +2314,14 @@ impl Before {
             band: term.scroll_region(),
         }
     }
+
+    /// The readings a pump takes before it feeds, with the core's watch on
+    /// the history's erasures armed at them, so the first erasure the feed
+    /// makes is kept for [`restart`] whatever erases after it.
+    fn watched(term: &mut Term<'_>) -> Before {
+        term.watch_erasures();
+        Before::of(term)
+    }
 }
 
 /// Whether a read erased the primary's history -- `CSI 3 J` or `RIS`, from
@@ -2760,27 +2768,31 @@ fn reset_in(term: &Term<'_>, before: Before) -> bool {
 }
 
 /// **What a read that put another surface up, or reset the terminal, owes
-/// `kept`**, and what the pump does after: `shown` is the window as drawn
-/// before the read and `now` the one drawn after it, each through
-/// [`looking`].
+/// `kept`**, and what the pump does after: `before` was taken with the
+/// erasure watch armed ([`Before::watched`]), and `back` is the primary's
+/// window as the pump found it.
 ///
 /// Note V's V1, the owner's answer of 2026-09-25: when the reset count moves,
 /// the selection goes -- it names cells the power-on state does not have, as
 /// foot's hard reset and xterm's `RIS` both drop theirs -- the guesses drawn
 /// ahead of the shell are dropped as contradicted, the wheel's part-line
 /// settles, and a window over the history that came to the live screen
-/// reveals its thumb, as a key's snap does (V1's first fork). The window and
+/// reveals its thumb, as a key's snap does (V1's first fork). **The window is
+/// the one the reset took live, at the reset's byte**, so the answer is the
+/// same however the bytes fell into pumps while nothing but an erasure moves
+/// the window inside one (a full-screen `SD`, `RI` at the top or a prompt
+/// redraw in the same pump still depends on the batching, until the core
+/// keeps the window, V2): the primary's window is drawn
+/// only while the primary is up, and any erasure takes it live, so only the
+/// first erasure in a pump can reveal, and only a reset made from the
+/// primary while the window was off the live screen. Read at the pump's
+/// edges it was the window drawn before the pump, and `?1049h` then `RIS`
+/// revealed in one pump and not in two. The window and
 /// the slide are [`after_read`]'s and the pump's erase arm, which `RIS` moves
 /// too. **No fade on a primary reset** (V1's second fork): it is not a switch,
 /// so [`Surface`] stays the epoch's; a reset from the alternate screen is
 /// both, and fades as a switch does.
-fn restart(
-    term: &Term<'_>,
-    before: Before,
-    shown: Rows,
-    now: Rows,
-    kept: Kept<'_>,
-) -> (Surface, Thumb) {
+fn restart(term: &Term<'_>, before: Before, back: Rows, kept: Kept<'_>) -> (Surface, Thumb) {
     let surface = match switched(term, before) {
         true => Surface::Switched,
         false => Surface::Same,
@@ -2805,9 +2817,9 @@ fn restart(
         // rather than carry it across. A reset's slide is the erase arm's.
         kept.slide.snap();
     }
-    let thumb = match reset && shown.index() != 0 && now.index() == 0 {
-        true => Thumb::Reveal,
-        false => Thumb::Leave,
+    let thumb = match (term.first_erasure(before.erased), back.index()) {
+        (Some(Erasure::Reset(Screen::Normal)), 1..) => Thumb::Reveal,
+        _ => Thumb::Leave,
     };
     (surface, thumb)
 }
@@ -3376,7 +3388,7 @@ mod alt_window_tests {
             "after_read(",
             "resized_window(",
         ];
-        const ALLOWED: [(&str, &str); 9] = [
+        const ALLOWED: [(&str, &str); 11] = [
             (
                 "} else if app.back.index() != 0 {",
                 "the prediction gate, after the screen gate refused the alternate screen",
@@ -3404,6 +3416,14 @@ mod alt_window_tests {
                 "the thumb's drag: a thumb is drawn only off a live primary",
             ),
             ("self.app.back = back;", "the drag's write"),
+            (
+                "let window = self.app.back;",
+                "the reset's reveal: `restart` reads it only for a reset made from the primary",
+            ),
+            (
+                "let window = self.back;",
+                "the restart tests' read, as the pump's",
+            ),
         ];
         // Spelled apart so this line does not name the window itself.
         let tokens = [concat!("self.", "back"), concat!("app.", "back")];
@@ -3626,13 +3646,14 @@ mod alt_window_tests {
 /// then `restart`.
 #[cfg(test)]
 mod restart_tests {
-    use super::{Before, Guess, Kept, Prediction, Surface, Thumb, after_read, looking, restart};
+    use super::{Before, Guess, Kept, Prediction, Surface, Thumb, after_read, restart, window_of};
     use crate::latency::{Judged, Latency, Switch};
+    use crate::reveal::Reveal;
     use crate::wheel::{Delta, Travel};
     use baud_core::{Owned, Screen, Term};
     use baud_domain::{BytePos, Codepoint, Col, HostTime, ReadLen, Row, Rows, WinSize};
     use baud_font::Px;
-    use baud_render::{Grain, Scrolled, Selection, Slide, Span};
+    use baud_render::{Grain, Scroll, Scrolled, Scroller, Selection, Slide, Span, bar};
     use std::time::{Duration, Instant};
 
     const WS: WinSize = WinSize {
@@ -3671,15 +3692,14 @@ mod restart_tests {
 
         /// One read, as the pump takes it.
         fn read(&mut self, t: &mut Term<'_>, bytes: &[u8]) -> (Surface, Thumb) {
-            let before = Before::of(t);
-            let shown = looking(t, self.back);
+            let before = Before::watched(t);
+            let window = self.back;
             feed(t, bytes);
             self.back = after_read(t, self.back, before);
             restart(
                 t,
                 before,
-                shown,
-                looking(t, self.back),
+                window,
                 Kept {
                     selection: &mut self.selection,
                     predictions: &mut self.predictions,
@@ -3915,6 +3935,177 @@ mod restart_tests {
         });
     }
 
+    /// Whether any pump of `pumps` reveals the thumb, each a read as the
+    /// pump takes it, from a window `back` rows up the history, after
+    /// `setup` fed as a pump of its own.
+    fn reveals(back: Rows, setup: &[u8], pumps: &[&[u8]]) -> bool {
+        let mut any = false;
+        with_history(|t| {
+            let mut s = State::new();
+            if !setup.is_empty() {
+                s.read(t, setup);
+            }
+            assert!(
+                t.scrollback().len() > back.index(),
+                "the control: a history"
+            );
+            s.back = back;
+            for bytes in pumps {
+                any |= s.read(t, bytes).1 == Thumb::Reveal;
+            }
+        });
+        any
+    }
+
+    /// **A reset's reveal is the same however its bytes fall into pumps**:
+    /// the event loop feeds whatever arrived since its last turn, and the
+    /// same bytes, with no frame between them, gave a reveal in one turn and
+    /// none across two -- `?1049h` then `RIS`, the reset made from the
+    /// alternate screen, whose drawn window was the live one. Each sequence
+    /// is fed a byte a pump, which is the answer the rest must give, then
+    /// whole, then cut in two at every byte; from a window five lines up,
+    /// and from the live screen, the control, where nothing reveals; one
+    /// row after an erasure in a pump before, so the watch must be armed at
+    /// each pump's reading and not left where the terminal began. The
+    /// rows pin the answer built at 232e1ab for a pump of its own: the
+    /// reset reveals when the window it took live was the primary's and
+    /// over the history at that byte (V1's first fork), so only the first
+    /// erasure in a pump can, since any erasure takes the window live.
+    #[test]
+    fn a_resets_reveal_is_the_same_however_the_bytes_fall_into_pumps() {
+        let lines: Vec<u8> = (0..12)
+            .flat_map(|i| format!("after {i}\r\n").into_bytes())
+            .collect();
+        let refill = [&b"\x1b[?1049h\x1bc"[..], &lines, b"\x1bc"].concat();
+        let erased = [&b"\x1b[3J"[..], &lines].concat();
+        let rows: [(&str, &[u8], &[u8], bool); 11] = [
+            ("a reset", b"", b"\x1bc", true),
+            ("?1049h, a reset", b"", b"\x1b[?1049h\x1bc", false),
+            ("?47h, a reset", b"", b"\x1b[?47h\x1bc", false),
+            (
+                "?1049h ?1049l, a reset",
+                b"",
+                b"\x1b[?1049h\x1b[?1049l\x1bc",
+                true,
+            ),
+            ("a reset, ?1049h", b"", b"\x1bc\x1b[?1049h", true),
+            (
+                "on the alternate screen, ?1049l, a reset",
+                b"\x1b[?1049h",
+                b"\x1b[?1049l\x1bc",
+                true,
+            ),
+            (
+                "on the alternate screen, a reset",
+                b"\x1b[?1049h",
+                b"\x1bc",
+                false,
+            ),
+            ("ED 3, a reset", b"", b"\x1b[3J\x1bc", false),
+            ("a reset, ED 3", b"", b"\x1bc\x1b[3J", true),
+            ("?1049h, a reset, lines, a reset", b"", &refill, false),
+            (
+                "after an erasure and a refill, a reset",
+                &erased,
+                b"\x1bc",
+                true,
+            ),
+        ];
+        for back in [Rows::of_count(5), Rows::ZERO] {
+            let from = back.index();
+            for (what, setup, bytes, want) in rows {
+                let one: Vec<&[u8]> = bytes.chunks(1).collect();
+                let canon = reveals(back, setup, &one);
+                assert_eq!(
+                    canon,
+                    want && from != 0,
+                    "{what}, from {from}, a byte a pump"
+                );
+                assert_eq!(
+                    reveals(back, setup, &[bytes]),
+                    canon,
+                    "{what}, from {from}, whole"
+                );
+                for cut in 1..bytes.len() {
+                    let (a, b) = bytes.split_at(cut);
+                    assert_eq!(
+                        reveals(back, setup, &[a, b]),
+                        canon,
+                        "{what}, from {from}, cut at {cut}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// **What a reset's reveal shows**, through the frame's own bar
+    /// (`baud_render::bar`, the overlay style, at the frame's widths): the
+    /// thumb a key's snap would show is revealed, but `RIS` empties the
+    /// history and a window with nothing behind it has no knob, so nothing
+    /// is drawn at the reset; lines printed within the hold give a knob at
+    /// the bottom of its travel until the fade ends. That is what HEAD
+    /// draws, pinned here because the reveal's test read only `Thumb`.
+    /// What an emptied history shows is Jev's answer, as built (A, decisions
+    /// lines 453-454): V1's fork says reveal "on that snap", the scrollbar
+    /// note draws no thumb with no history, and Apple's `flashScrollers`
+    /// text permits a flash on new content without requiring one. The controls: the
+    /// instrument draws a knob over the history before the reset, and with
+    /// the reveal left out the lines show none.
+    #[test]
+    fn a_resets_reveal_draws_a_knob_only_over_lines_printed_after_it() {
+        let size = (Px::of(800), Px::of(500));
+        let knob = |t: &Term<'_>, back: Rows, rv: Reveal, now: HostTime| {
+            let s = Scroll {
+                window: window_of(t, back),
+                look: rv.look_under(Scroller::Overlay, now),
+                widths: crate::reveal::widths(crate::reveal::Scale(2.0)),
+                scroller: Scroller::Overlay,
+            };
+            bar(s, size, Px::of(10)).and_then(|b| b.knob)
+        };
+        let lines: Vec<u8> = (0..15)
+            .flat_map(|i| format!("after {i}\r\n").into_bytes())
+            .collect();
+        for revealed in [true, false] {
+            with_history(|t| {
+                let t0 = HostTime::of_nanos(1_000_000_000);
+                let at = |ms: u64| t0.plus(Duration::from_millis(ms));
+                let mut s = State::new();
+                s.back = Rows::of_count(5);
+                let mut shown = Reveal::HIDDEN;
+                shown.reveal(t0);
+                assert!(knob(t, s.back, shown, t0).is_some(), "the control");
+                let mut rv = Reveal::HIDDEN;
+                if s.read(t, b"\x1bc").1 == Thumb::Reveal && revealed {
+                    rv.reveal(at(0));
+                }
+                let sample = |t: &Term<'_>, back: Rows, rv: &mut Reveal, ms: u64| {
+                    rv.step(at(ms));
+                    knob(t, back, *rv, at(ms))
+                };
+                assert_eq!(t.scrollback().len(), 0, "the reset emptied it");
+                if revealed {
+                    assert!(rv.look(at(10)).shown.get() > 0, "the thumb is revealed");
+                }
+                assert!(
+                    sample(t, s.back, &mut rv, 10).is_none(),
+                    "no knob at the reset (as built, and Jev's answer A)"
+                );
+                assert!(sample(t, s.back, &mut rv, 90).is_none());
+                s.read(t, &lines);
+                assert_eq!(t.scrollback().len(), 6, "the lines refilled it");
+                for ms in [110, 400, 700] {
+                    assert_eq!(
+                        sample(t, s.back, &mut rv, ms).is_some(),
+                        revealed,
+                        "a knob over the lines at {ms} ms, revealed: {revealed}"
+                    );
+                }
+                assert!(sample(t, s.back, &mut rv, 800).is_none(), "faded");
+            });
+        }
+    }
+
     /// **A reset on the primary is not a switch**, so the fade and what
     /// follows the cursor across one stay keyed on the screen epoch (V1's
     /// second fork, no); a reset from the alternate screen is both.
@@ -3929,7 +4120,8 @@ mod restart_tests {
     }
 
     /// **The pump takes the read as these tests do.** It is AppKit-bound,
-    /// so the source is held: the window drawn is read before the feed;
+    /// so the source is held: the erasure watch is armed and the window read
+    /// before the feed;
     /// `restart` runs after the `Retired` arm, which can start a slide, and
     /// after the erased snap, so neither undoes what it settles, and before
     /// the clip; and the reveal and the switch's fade follow what it says.
@@ -3950,9 +4142,11 @@ mod restart_tests {
             pump.find(needle).expect("found")
         };
         let call = at("let (surface, thumb) = restart(");
-        assert!(
-            at("let shown = looking(&self.app.term, self.app.back);") < at("crate::reads::feed(")
-        );
+        assert!(at("let before = Before::watched(&mut self.app.term);") < at("let window = "));
+        // Spelled apart, so the window's clamp test does not read it as a
+        // read of the window.
+        let window = concat!("let window = self.app", ".back;");
+        assert!(at(window) < at("crate::reads::feed("));
         assert!(at("Ring::Restored(_) => self.app.selection = None,") < call);
         assert!(at("if erased(&self.app.term, before) {") < call);
         assert!(call < at("if thumb == Thumb::Reveal {"));
@@ -5368,9 +5562,10 @@ impl Driver {
                 .latency
                 .echoed(drained.chunks.iter().map(|chunk| chunk.at));
         }
-        let before = Before::of(&self.app.term);
-        // The window as drawn before the read, for the thumb a reset reveals.
-        let shown = looking(&self.app.term, self.app.back);
+        let before = Before::watched(&mut self.app.term);
+        // The primary's window before the read, for the thumb a reset
+        // reveals.
+        let window = self.app.back;
         let refused = self.app.term.images().refusals;
         // Each read's answers go to the outbox before the next read is fed,
         // or every read after the first few lost its answers to the 256-byte
@@ -5510,8 +5705,7 @@ impl Driver {
         let (surface, thumb) = restart(
             &self.app.term,
             before,
-            shown,
-            looking(&self.app.term, self.app.back),
+            window,
             Kept {
                 selection: &mut self.app.selection,
                 predictions: &mut self.app.predictions,

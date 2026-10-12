@@ -846,7 +846,7 @@ impl Paint<'_, '_> {
         let n = self.on_primary(|v| v.erase_outside(keep));
         self.cells = self.cells.plus(n);
         self.book.hist = Rows::ZERO;
-        self.cold.history_erasures = self.cold.history_erasures.next();
+        self.cold.erased(crate::term::Erasure::SavedLines);
         if self.images.any_placed() {
             self.expire_primary_images(None);
         }
@@ -1814,6 +1814,9 @@ impl Paint<'_, '_> {
         // Whether an update was open when the reset arrived, for `?5`'s count
         // below; the soft reset releases it.
         let during = self.update();
+        // The screen the reset was made from, for the erasure it counts
+        // below: leaving makes it the primary's whichever it was.
+        let from = self.cold.screen;
         self.set_alt_screen(ModeChange::Reset, AltSwitch::SaveAndClear);
         self.soft_reset();
         // **What `RIS` resets and `DECSTR` does not.** `soft_reset` leaves
@@ -1885,8 +1888,12 @@ impl Paint<'_, '_> {
         // The history was erased, which an embedder's window over it reads
         // here as it reads `CSI 3 J` (`Term::history_erasures`): nothing
         // above moved the rotation or the top line, so no other reading says
-        // the lines it showed are gone.
-        self.cold.history_erasures = self.cold.history_erasures.next();
+        // the lines it showed are gone. Which screen it came from is kept
+        // when it is the first since an embedder armed the watch
+        // (`Term::first_erasure`): a window over the history is drawn only
+        // on the primary, so a reset made from the alternate screen took no
+        // window it was looking through to the live screen.
+        self.cold.erased(crate::term::Erasure::Reset(from));
         // And what the marks said: the block start names rows the reset
         // erased, and the shell is at no prompt after one. This is the
         // primary's -- `set_alt_screen` above came back to it -- and the

@@ -230,6 +230,21 @@ impl HistoryErasures {
     }
 }
 
+/// What erased the primary's history: `CSI 3 J`, which keeps the screen, or
+/// `RIS`, with the screen that was live when it came -- `RIS` leaves the
+/// alternate screen first, so the screen after it is always the primary and
+/// says nothing of where it was made. An embedder whose window over the
+/// history is the primary's draws that window only while the primary is
+/// up, so the screen a reset was made from is whether the window it took
+/// to the live screen was one being looked through (note V, V1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Erasure {
+    /// `CSI 3 J`: the saved lines, from either screen.
+    SavedLines,
+    /// `RIS`, made from this screen.
+    Reset(Screen),
+}
+
 /// Which full reset the terminal is at: it moves on every `RIS` (`ESC c`),
 /// from either screen and with or without a history, and on nothing else --
 /// not `DECSTR`, `ED 2` or `CSI 3 J`. ECMA-48 § 8.3.105 has `RIS` put the
@@ -567,6 +582,19 @@ pub struct Cold {
     /// the stream's last 31 bytes before the read kept for that, and read by
     /// [`Term::placed_cursor`] for an embedder's cursor trail.
     pub(crate) placement: crate::placed::Placement,
+    /// **The first erasure of the history since an embedder armed the
+    /// watch** ([`Term::watch_erasures`], [`Term::first_erasure`]). A count
+    /// says how many erasures a read held and not in what order, and one
+    /// read can hold several: `?1049h` then `RIS` is a reset made from the
+    /// alternate screen, and `?1049h ?1049l RIS` one made from the primary,
+    /// and the two end at the same readings of every count. Any erasure
+    /// takes a window over the history to the live screen, so the first is
+    /// the one that found the window where it was, and this keeps that one
+    /// -- whatever follows it in the read -- and nothing else. Written by
+    /// `CSI 3 J` and `RIS` through [`Cold::erased`] and emptied by the arm;
+    /// the reading the watch was armed at is `Book::watched_at`, which only
+    /// the embedder's two calls touch.
+    pub(crate) first_erasure: Option<Erasure>,
 }
 
 // **The size is gated because the prose drifted.** A doc comment called `Cold`
@@ -626,6 +654,10 @@ pub struct Cold {
 // Written by a pointer event under `?1001`, by XTHIMOUSE -- an arm of the
 // dispatch -- and by a mode change and the resets; read by
 // `Term::mouse_report` and `Term::highlight`. None of it on the write path.
+// The first erasure since an embedder's watch landed in padding, so 512
+// held: one byte, an `Option<Erasure>`, written by `CSI 3 J` and `RIS` beside
+// `history_erasures` and read by `Term::first_erasure` after a read; the
+// reading the watch was armed at went into `Book`'s padding (`watched_at`).
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 512);
@@ -644,6 +676,19 @@ impl Cold {
         } else {
             w
         }
+    }
+
+    /// An erasure of the primary's history, of `kind`: counted for
+    /// [`Term::history_erasures`], and kept for [`Term::first_erasure`] when
+    /// nothing has been kept since the watch was armed. The one place both
+    /// happen, so the count and the kept erasure cannot come apart: the
+    /// erasure that finds nothing kept is the one that finds the count where
+    /// the arm read it.
+    pub(crate) fn erased(&mut self, kind: Erasure) {
+        if self.first_erasure.is_none() {
+            self.first_erasure = Some(kind);
+        }
+        self.history_erasures = self.history_erasures.next();
     }
 
     /// The video the screen is shown in, from `?5`: what maps a colour an
@@ -673,6 +718,7 @@ impl Cold {
             shell: crate::prompt::Shell::FRESH,
             shell_other: crate::prompt::Shell::FRESH,
             placement: crate::placed::Placement::NONE,
+            first_erasure: None,
             mouse: MouseTracking::Off,
             mouse_encoding: MouseEncoding::X10,
             mouse_at: None,
@@ -2278,6 +2324,27 @@ impl<'b> Term<'b> {
     /// on, and belongs on the live screen.
     pub fn history_erasures(&self) -> HistoryErasures {
         self.cold.history_erasures
+    }
+
+    /// Arm the watch on the history's erasures at the current reading: the
+    /// next erasure, and only that one, is what [`Term::first_erasure`]
+    /// reports for this reading, whatever the bytes after it erase. An
+    /// embedder arms it where it reads the other counts, before a feed. See
+    /// [`Erasure`].
+    pub fn watch_erasures(&mut self) {
+        self.store.book.watched_at = self.cold.history_erasures;
+        self.cold.first_erasure = None;
+    }
+
+    /// The first erasure of the history since `since`, a reading of
+    /// [`Term::history_erasures`] taken when [`Term::watch_erasures`] armed
+    /// the watch: `None` when nothing has erased it since, and when the
+    /// watch was armed at another reading, which keeps another erasure.
+    pub fn first_erasure(&self, since: HistoryErasures) -> Option<Erasure> {
+        match self.store.book.watched_at == since {
+            true => self.cold.first_erasure,
+            false => None,
+        }
     }
 
     /// Which full reset this is: it moves on every `RIS`, from either screen,
