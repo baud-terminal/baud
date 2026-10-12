@@ -21586,3 +21586,495 @@ status = "external"
 group  = "C"
 # `external`: issue text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm). Its confirmation on an
 # actual VT340 is hackerb9's, not a further unit.
+
+[sources.foot-1280-render]
+key    = "foot-1280-render"
+title  = "foot 1.28.0, render.c -- render_cell: a default colour reads term->reverse, an indexed or RGB one does not"
+author = "Daniel Eklöf and contributors"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot, tag 1.28.0 @ ab33c9a1"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/ab33c9a19d626f8d0ac0bd1adfdba21946ada948/render.c"
+file   = ""
+sha256 = "97280b358e859d2c4f40f7ddf0b55311d7d66f9a5d9fe6e2c221611c6e0187cb"
+bytes  = 187364
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 718-747 (the ?5 swap, in the COLOR_DEFAULT arms only), 780-783 (SGR 7).
+
+[sources.foot-1280-csi]
+key    = "foot-1280-csi"
+title  = "foot 1.28.0, csi.c -- DECSET 5 (DECSCNM) sets term->reverse"
+author = "Daniel Eklöf and contributors"
+year   = 2026
+venue  = "codeberg.org/dnkl/foot, tag 1.28.0 @ ab33c9a1"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/ab33c9a19d626f8d0ac0bd1adfdba21946ada948/csi.c"
+file   = ""
+sha256 = "a9e028dd0752210842d688abce4323d3ac118e1032e35305dbce13c3447b4d61"
+bytes  = 76560
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 337-342.
+
+[sources.kitty-0492-screen]
+key    = "kitty-0492-screen"
+title  = "kitty v0.49.2, kitty/screen.c -- DECSCNM sets mDECSCNM; screen_invert_colors"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty, tag v0.49.2 @ b2cb8712"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/screen.c"
+file   = ""
+sha256 = "e73f7eaa9d01d40bb0cbe6a3232691bc864c9b8ab3770cef983106bf40c32fe0"
+bytes  = 305999
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 2012-2018, 3152-3153.
+
+[sources.kitty-0492-shaders-c]
+key    = "kitty-0492-shaders-c"
+title  = "kitty v0.49.2, kitty/shaders.c -- rd->inverted = screen_invert_colors(screen)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty, tag v0.49.2 @ b2cb8712"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/shaders.c"
+file   = ""
+sha256 = "6f2cafc540e1b4b2735785f2fa1db429471f1e338cf9b576dfb73122474c0037"
+bytes  = 166583
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 1018.
+
+[sources.kitty-0492-background-slang]
+key    = "kitty-0492-background-slang"
+title  = "kitty v0.49.2, kitty/shaders/background.slang -- fg_index_map[is_reversed + inverted], a per-cell exchange"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty, tag v0.49.2 @ b2cb8712"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/b2cb871254fbdac19a085188813c8dfb258b95cd/kitty/shaders/background.slang"
+file   = ""
+sha256 = "5cb615a2d4d0165f0e2882f301838602e7fb6c935dc8eb295c6eb1a7e69023d0"
+bytes  = 14512
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 65, 251-261.
+
+[sources.alacritty-0161-term-mod]
+key    = "alacritty-0161-term-mod"
+title  = "alacritty v0.16.1, alacritty_terminal/src/term/mod.rs -- an unknown private mode, 5 among them, is ignored"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "alacritty/alacritty, tag v0.16.1 @ 42f49eeb"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/42f49eebfd2ee1b164e773950d47e019f456e6b7/alacritty_terminal/src/term/mod.rs"
+file   = ""
+sha256 = "94be91817bec509ddb229fc83093fcbc044bd0929fb8758b236c939cb21df647"
+bytes  = 112720
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 1935-1940; Cargo.lock pins vte 0.15.0 ([[source: alacritty-vte-ansi]], whose PrivateMode::new has no arm for 5).
+
+[sources.wezterm-20240203-terminalstate-mod]
+key    = "wezterm-20240203-terminalstate-mod"
+title  = "wezterm 20240203-110809-5046fc22, term/src/terminalstate/mod.rs -- DECSCNM sets reverse_video_mode"
+author = "Wez Furlong and contributors"
+year   = 2024
+venue  = "wezterm/wezterm, tag 20240203-110809-5046fc22"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/5046fc225992db6ba2ef8812743fadfdfe4b184a/term/src/terminalstate/mod.rs"
+file   = ""
+sha256 = "5bbdf36cae5d86c29fa4decda94fde6d370e2295c6451245c6218fec665082d9"
+bytes  = 105050
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 1590-1600.
+
+[sources.wezterm-20240203-screen-line]
+key    = "wezterm-20240203-screen-line"
+title  = "wezterm 20240203-110809-5046fc22, wezterm-gui/src/termwindow/render/screen_line.rs -- each cell's resolved pair swapped when reverse() differs from reverse_video"
+author = "Wez Furlong and contributors"
+year   = 2024
+venue  = "wezterm/wezterm, tag 20240203-110809-5046fc22"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/5046fc225992db6ba2ef8812743fadfdfe4b184a/wezterm-gui/src/termwindow/render/screen_line.rs"
+file   = ""
+sha256 = "93fa5045a4d3b1ef0049f7216aa4a200516624ebb40d8584b0f2f336649b17aa"
+bytes  = 37031
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 174-188 (the line filled with the foreground), 220-222 and 789-791 (the per-cell flip).
+
+[sources.ghostty-131-terminal-render]
+key    = "ghostty-131-terminal-render"
+title  = "ghostty v1.3.1, src/terminal/render.zig -- reverse_colors swaps the background and foreground defaults; the palette is copied unchanged"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty, tag v1.3.1 @ 332b2aef"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/src/terminal/render.zig"
+file   = ""
+sha256 = "24b8565b6506f83a46b81961acd14e9ad415d1408f5aedde8c7790fcb0ed24b4"
+bytes  = 50285
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 322-338.
+
+[sources.ghostty-131-terminal-modes]
+key    = "ghostty-131-terminal-modes"
+title  = "ghostty v1.3.1, src/terminal/modes.zig -- reverse_colors is mode 5"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty, tag v1.3.1 @ 332b2aef"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/332b2aefc6e72d363aa93ab6ecfc86eeeeb5ed28/src/terminal/modes.zig"
+file   = ""
+sha256 = "5b3e6d20d926ddc48f373cc960f297411924225c0abe4cdbe05436b22a10b9ad"
+bytes  = 9442
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 200.
+
+[sources.vte-0841-vte-cc]
+key    = "vte-0841-vte-cc"
+title  = "VTE 0.84.1, src/vte.cc -- determine_colors: reverse mode switches the default fore and back colours only"
+author = "The GNOME VTE authors"
+year   = 2026
+venue  = "GNOME/vte, tag 0.84.1 @ f2223e45"
+url    = "https://raw.githubusercontent.com/GNOME/vte/f2223e45d7f04c5383c59e76772501f0ed4215bc/src/vte.cc"
+file   = ""
+sha256 = "a3ca4fed21b69467845eea7a77a7ae5e853a9b21b9d06535f81aec476e50f16d"
+bytes  = 433239
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 8738-8743 (the defaults under ?5), 8764-8767 (SGR 7).
+
+[sources.mintty-383-termout]
+key    = "mintty-383-termout"
+title  = "mintty 3.8.3, src/termout.c -- DECSCNM sets term.rvideo"
+author = "Andy Koppe, Thomas Wolff"
+year   = 2026
+venue  = "mintty/mintty, tag 3.8.3 @ b2df94ec"
+url    = "https://raw.githubusercontent.com/mintty/mintty/b2df94ec9507d9e1175c12fb60daf319bfc19d3c/src/termout.c"
+file   = ""
+sha256 = "282a1f9c5e0919273303444dea77b980781a1390b113de136d38dc030970f862"
+bytes  = 208809
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 2521-2525.
+
+[sources.mintty-383-wintext]
+key    = "mintty-383-wintext"
+title  = "mintty 3.8.3, src/wintext.c -- win_get_colour swaps only the default colour indices under rvideo"
+author = "Andy Koppe, Thomas Wolff"
+year   = 2026
+venue  = "mintty/mintty, tag 3.8.3 @ b2df94ec"
+url    = "https://raw.githubusercontent.com/mintty/mintty/b2df94ec9507d9e1175c12fb60daf319bfc19d3c/src/wintext.c"
+file   = ""
+sha256 = "0012dd9398014ce2fc02c8e9ce64a826491437a150511397f13ddfc5f3ece05e"
+bytes  = 178248
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 5671-5676.
+
+[sources.mintty-383-term-h]
+key    = "mintty-383-term-h"
+title  = "mintty 3.8.3, src/term.h -- CCL_DEFAULT"
+author = "Andy Koppe, Thomas Wolff"
+year   = 2026
+venue  = "mintty/mintty, tag 3.8.3 @ b2df94ec"
+url    = "https://raw.githubusercontent.com/mintty/mintty/b2df94ec9507d9e1175c12fb60daf319bfc19d3c/src/term.h"
+file   = ""
+sha256 = "c8b8d1f86e13228a3e6080c8f3be7b402134df73d1898c04660521f7914e6f0e"
+bytes  = 23109
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 87.
+
+[sources.konsole-26082-screen]
+key    = "konsole-26082-screen"
+title  = "Konsole 26.08.2, src/Screen.cpp -- in screen mode every displayed cell's colours are reversed"
+author = "The Konsole developers"
+year   = 2026
+venue  = "KDE/konsole, tag v26.08.2 @ c21993d0"
+url    = "https://raw.githubusercontent.com/KDE/konsole/c21993d0b73b6fe5d4c52da50b25370b40389e4e/src/Screen.cpp"
+file   = ""
+sha256 = "1de9bfa89c1b2833f928711c5fe4a6f904df46dbdafcce8155260cbd00a292c4"
+bytes  = 87754
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 769-776, 902-907.
+
+[sources.konsole-26082-vt102]
+key    = "konsole-26082-vt102"
+title  = "Konsole 26.08.2, src/Vt102Emulation.cpp -- CSI ? 5 h/l sets MODE_Screen"
+author = "The Konsole developers"
+year   = 2026
+venue  = "KDE/konsole, tag v26.08.2 @ c21993d0"
+url    = "https://raw.githubusercontent.com/KDE/konsole/c21993d0b73b6fe5d4c52da50b25370b40389e4e/src/Vt102Emulation.cpp"
+file   = ""
+sha256 = "17f63f0cacbb9de98735d686c2ca74de7ca41a584eecc41808dedaa459054875"
+bytes  = 187753
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 2212-2213.
+
+[sources.iterm2-3611-vt100terminal]
+key    = "iterm2-3611-vt100terminal"
+title  = "iTerm2 v3.6.11, sources/VT100Terminal.m -- DEC mode 5 sets reverseVideo"
+author = "George Nachman and contributors"
+year   = 2026
+venue  = "gnachman/iTerm2, tag v3.6.11 @ a7438fdf"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/a7438fdf49b06dcb7476497c51f45a63a14b8ad2/sources/VT100Terminal.m"
+file   = ""
+sha256 = "635ab35ae8acfa1766a4606f320a1f0024719542c3e6a0e4b8aa3db239283702"
+bytes  = 227425
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 754-757.
+
+[sources.iterm2-3611-metal-perframe]
+key    = "iterm2-3611-metal-perframe"
+title  = "iTerm2 v3.6.11, sources/iTermMetalPerFrameState.m -- reverse video applied to default-colour cells only"
+author = "George Nachman and contributors"
+year   = 2026
+venue  = "gnachman/iTerm2, tag v3.6.11 @ a7438fdf"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/a7438fdf49b06dcb7476497c51f45a63a14b8ad2/sources/iTermMetalPerFrameState.m"
+file   = ""
+sha256 = "d04c119f05a14f015e6858ec1977e2bad72648c60e89e1d8a107a9cec4b63ed6"
+bytes  = 119499
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 1851-1853, 2245-2251.
+
+[sources.iterm2-3611-attributed-string]
+key    = "iterm2-3611-attributed-string"
+title  = "iTerm2 v3.6.11, sources/iTermAttributedStringBuilder.m -- the same default-foreground rule on the non-Metal path"
+author = "George Nachman and contributors"
+year   = 2026
+venue  = "gnachman/iTerm2, tag v3.6.11 @ a7438fdf"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/a7438fdf49b06dcb7476497c51f45a63a14b8ad2/sources/iTermAttributedStringBuilder.m"
+file   = ""
+sha256 = "1c438b3a8d7f66a09e994ba86790427a96c8eaff4a650db55af543f03e70e688"
+bytes  = 46876
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 144-151.
+
+[sources.contour-063-cellutil]
+key    = "contour-063-cellutil"
+title  = "Contour v0.6.3.8249, src/vtbackend/CellUtil.h -- makeColors: reverseVideo swaps the colour targets, then SGR 7 swaps the pair"
+author = "Christian Parpart and contributors"
+year   = 2026
+venue  = "contour-terminal/contour, tag v0.6.3.8249 @ 3aef6f72"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/3aef6f7243f571fd4fda2642da190a244bb87a57/src/vtbackend/CellUtil.h"
+file   = ""
+sha256 = "c840e4ba3881c99dafc538f5414a639c594b078465d4fc8c3bce3b17286121b3"
+bytes  = 9460
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 18-46.
+
+[sources.contour-063-colorpalette]
+key    = "contour-063-colorpalette"
+title  = "Contour v0.6.3.8249, src/vtbackend/ColorPalette.cpp -- apply: the target matters only to a default colour"
+author = "Christian Parpart and contributors"
+year   = 2026
+venue  = "contour-terminal/contour, tag v0.6.3.8249 @ 3aef6f72"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/3aef6f7243f571fd4fda2642da190a244bb87a57/src/vtbackend/ColorPalette.cpp"
+file   = ""
+sha256 = "3b04788b3c62432c3b57f1bdd8dbd0d858204becf8cbc00df365530d13dd2dfd"
+bytes  = 17668
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 361-395.
+
+[sources.contour-063-terminal]
+key    = "contour-063-terminal"
+title  = "Contour v0.6.3.8249, src/vtbackend/Terminal.cpp -- the main display renders with the ReverseVideo mode, the status line with its inverse"
+author = "Christian Parpart and contributors"
+year   = 2026
+venue  = "contour-terminal/contour, tag v0.6.3.8249 @ 3aef6f72"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/3aef6f7243f571fd4fda2642da190a244bb87a57/src/vtbackend/Terminal.cpp"
+file   = ""
+sha256 = "c8c9886ec156369fc1e8fbf1ea9dc1e62e371437b3521c8784722f7e4e294158"
+bytes  = 119795
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 500, 524-534, 710-735.
+
+[sources.wt-1252733-rendersettings]
+key    = "wt-1252733-rendersettings"
+title  = "Windows Terminal v1.25.2733.0, src/renderer/base/RenderSettings.cpp -- GetAttributeColors: swap when IsReverseVideo() ^ ScreenReversed"
+author = "Microsoft Corporation and contributors"
+year   = 2026
+venue  = "microsoft/terminal, tag v1.25.2733.0 @ dc8ae365"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/dc8ae365847d41f62d1ebca93815bb00959bc12f/src/renderer/base/RenderSettings.cpp"
+file   = ""
+sha256 = "456d81999570d7cfb41b26967433b0d18fe3125ff90cc8b0dea6d9d901898ce8"
+bytes  = 11089
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 182-208.
+
+[sources.wt-1252733-adaptdispatch]
+key    = "wt-1252733-adaptdispatch"
+title  = "Windows Terminal v1.25.2733.0, src/terminal/adapter/adaptDispatch.cpp -- DECSCNM sets the ScreenReversed render mode"
+author = "Microsoft Corporation and contributors"
+year   = 2026
+venue  = "microsoft/terminal, tag v1.25.2733.0 @ dc8ae365"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/dc8ae365847d41f62d1ebca93815bb00959bc12f/src/terminal/adapter/adaptDispatch.cpp"
+file   = ""
+sha256 = "8a3efbcb63c1023dc138e49aed90eeb36ac75f67de1a348ab969440894813560"
+bytes  = 193173
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 1787-1792.
+
+[sources.linux-v612-vt-c]
+key    = "linux-v612-vt-c"
+title  = "Linux v6.12, drivers/tty/vt/vt.c -- DECSCNM: invert_screen exchanges every cell's colour nibbles in screen memory, and update_attr xors reverse"
+author = "The Linux kernel developers"
+year   = 2024
+venue  = "Linux, tag v6.12 (the same tag as [[source: linux-vt-console]])"
+url    = "https://raw.githubusercontent.com/torvalds/linux/v6.12/drivers/tty/vt/vt.c"
+file   = ""
+sha256 = "b73faa981f2937d6ddd558f6d46fe667f049f5e24c5eaa1c18da762af0324bee"
+bytes  = 119121
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 640-686 (build_attr), 687-694 (update_attr), 696-736 (invert_screen), 1897-1903.
+
+[sources.mame0289-vt240]
+key    = "mame0289-vt240"
+title  = "MAME 0.289, src/mame/dec/vt240.cpp -- the VT240/VT241 driver: pixels through the video output map; the VT241 runs the VT240's ROMs"
+author = "Miodrag Milanovic, Jonathan Gevaryahu"
+year   = 2026
+venue  = "mamedev/mame, tag mame0289 @ f34f0250"
+url    = "https://raw.githubusercontent.com/mamedev/mame/f34f02505e32c1993c6a782b6814232cbfc74e36/src/mame/dec/vt240.cpp"
+file   = ""
+sha256 = "bb8e1070702d0aa831779a8ab768dd750f69b28d6a02eb1a90988fef9c169c4c"
+bytes  = 23883
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 205-224 (hgdc_draw), 368-377 (vom_w), 781 (VT241 note). No line holds reverse or DECSCNM; palette is the positive control.
+
+[sources.vt340test-mediacopy-sh]
+key    = "vt340test-mediacopy-sh"
+title  = "vt340test, mediacopy/mediacopy.sh -- saves a VT340's screen as a sixel screenshot (how background_select_2.png was taken)"
+author = "hackerb9 (vt340test)"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/mediacopy/mediacopy.sh"
+file   = ""
+sha256 = "65c21057a5be19588a7e5f01a717961d1cfa41f6e732565cf928be5446b98525"
+bytes  = 10761
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): 3, 5.
+
+[sources.gh-wt-issue-3773]
+key    = "gh-wt-issue-3773"
+title  = "microsoft/terminal issue #3773, Add support for the DECSCNM Screen Mode (2019-11-28) -- j4james reads STD 070's DECSCNM text as each cell's attributes routed across"
+author = "j4james"
+year   = 2019
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/microsoft/terminal/issues/3773"
+file   = ""
+sha256 = "ecb6e4271942a76522d654034a4a9a2aa7835869f434efc2f0c1c23aeccf699b"
+bytes  = 7637
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): Issue body.
+
+[sources.gh-wt-issue-3773-comments]
+key    = "gh-wt-issue-3773-comments"
+title  = "microsoft/terminal issue #3773, comments (5) -- egmontkob on XOR with SGR 7; jdebp on emulators differing from real terminals"
+author = "egmontkob, j4james, jdebp"
+year   = 2020
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/microsoft/terminal/issues/3773/comments"
+file   = ""
+sha256 = "fa079f6b3c9527e8f4d4caec3c3247e30111a96315577c5f2c60c436b2984631"
+bytes  = 12450
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): Comments 559621098, 559624734, 589240511.
+
+[sources.gh-wt-pr-3817]
+key    = "gh-wt-pr-3817"
+title  = "microsoft/terminal PR #3817, Add support for the DECSCNM screen mode (2019-12-03)"
+author = "j4james"
+year   = 2019
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/microsoft/terminal/issues/3817"
+file   = ""
+sha256 = "bd098c4f8119816e4d616005e50144e6b6dc3897ae1a4db3a57a690850761093"
+bytes  = 7216
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): PR body.
+
+[sources.gh-wt-pr-3817-comments]
+key    = "gh-wt-pr-3817-comments"
+title  = "microsoft/terminal PR #3817, comments (6) -- miniksa asks whether red on blue stays; j4james: it becomes blue on red"
+author = "miniksa, j4james"
+year   = 2020
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/microsoft/terminal/issues/3817/comments"
+file   = ""
+sha256 = "3a5eaffd9b2a984e475780e9e6de5e36c3e955ad8d68c711ff828456d8c9d2fa"
+bytes  = 13528
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): Comments 569993514, 570085954.
+
+[sources.gh-ckwin-547-comments]
+key    = "gh-ckwin-547-comments"
+title  = "davidrg/ckwin issue #547, comments (9) -- j4james on the VT525: bold xors the foreground index with 8, then DECSCNM swaps the foreground and background indexes"
+author = "davidrg, j4james"
+year   = 2026
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/davidrg/ckwin/issues/547/comments"
+file   = ""
+sha256 = "99fcc4925bf86e393e85d8fa89b1aef225290a2025de8a91aeb1352a5d806462"
+bytes  = 27975
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): Comments 5027760287 and 5027903955 (2026-07-20).
+
+[sources.gh-vtnibbler-1-comments]
+key    = "gh-vtnibbler-1-comments"
+title  = "j4james/vtnibbler issue #1, comments (25) -- hardware runs on VT220-VT525, a DECSCNM blink test among them (2026-10-10/11)"
+author = "al20878, j4james"
+year   = 2026
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/j4james/vtnibbler/issues/1/comments"
+file   = ""
+sha256 = "20432036fec3dfc1149d36fa38406e2d44a32d33294aec25e53f44d98f379be3"
+bytes  = 55111
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): Comments of 2026-10-10 and 2026-10-11; the test (gist 51b37953) sets no SGR colour; the videos it links were not viewed.
+
+[sources.gist-51b37953-blinktest]
+key    = "gist-51b37953-blinktest"
+title  = "j4james gist 51b37953, blinktest.py -- blink beside SGR 0, 0;1, 0;7, 0;1;7, then DECSCNM (the test run on VT220-VT525, 2026-10-11)"
+author = "j4james"
+year   = 2026
+venue  = "GitHub Gist API, version ed66b11d"
+url    = "https://api.github.com/gists/51b37953ccfb3e06df83f89c96b91ef7/ed66b11d76c3ee788965a8930ac28220ba8e1577"
+file   = ""
+sha256 = "7df61b237dba5ce4348f3290b99514e02851673b6c87d60ff45196cdb6dbc177"
+bytes  = 4386
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): lines 30-33 of its file set the renditions, 36 sends CSI ? 5 h; no SGR colour.
+# The API JSON carries live fields (comments, updated_at), so a re-fetch may hash differently.
+
+[sources.gist-16e0fb22-colorrect]
+key    = "gist-16e0fb22-colorrect"
+title  = "j4james gist 16e0fb22, colorrect.py -- SGR colour attributes against rectangular area operations (the VT525 photo of 2026-10-11)"
+author = "j4james"
+year   = 2026
+venue  = "GitHub Gist API, version bf41b4ee"
+url    = "https://api.github.com/gists/16e0fb22a18422db36f585873c61957a/bf41b4ee459a54593279c82b121ffc748ec2ae4d"
+file   = ""
+sha256 = "658c5a13655d13bc4f55e0c91b09cfa9233a83eed2fa60b3dc1e39ac59fa909b"
+bytes  = 4701
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): no ?5 and no DECSCNM; decfra and deccara (24, 30) are the positive control. The VT525 photo in vtnibbler #1 is of this test, not of reverse screen.
+# The API JSON carries live fields (comments, updated_at), so a re-fetch may hash differently.
