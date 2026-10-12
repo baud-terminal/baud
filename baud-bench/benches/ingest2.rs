@@ -359,38 +359,7 @@ fn main() {
         t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
     }
 
-    // **The chunk is written into the arena and then parsed, which is what a
-    // `read(2)` does.** Parsing the recording in place instead -- placed once,
-    // never re-copied -- was tried and is *slower*: 509-518 against 517-525,
-    // because 327 KB exceeds a 128 KB L1 and every block takes misses, where a
-    // real read leaves its 4096 bytes hot. The copy is not a cost baud pays in
-    // production, but it reproduces the cache state baud parses in, and the
-    // faster number is the one that models nothing.
-    //
-    // The parse itself is zero-copy either way: `feed` borrows the arena and
-    // `put_ascii_run` blits straight out of it.
-    let mut fed = 0usize;
-    let mut per_rep = Vec::with_capacity(reps);
-    for _ in 0..reps {
-        let t0 = std::time::Instant::now();
-        let mut at = 0usize;
-        while at < data.len() {
-            // `READ_CHUNK` at a time, because where the read boundaries fall
-            // is part of what is being measured: a whole-file `feed` would
-            // give the block loop a run no `read(2)` ever hands it.
-            let chunk: usize = std::env::var("CHUNK")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(READ_CHUNK);
-            let n = chunk.min(data.len() - at);
-            t.write_at(BytePos::ZERO, &data[at..at + n]);
-            #[cfg(not(feature = "harness-only"))]
-            t.feed(BytePos::ZERO, ReadLen::from_index(n));
-            at += n;
-            fed += n;
-        }
-        per_rep.push((t0.elapsed().as_secs_f64(), at));
-    }
+    let (fed, per_rep) = timed(&mut t, &data, reps);
 
     let mut rates: Vec<f64> = per_rep
         .iter()
@@ -490,4 +459,55 @@ fn main() {
         }
         println!();
     }
+}
+
+/// The timed loop: `reps` passes over `data`, `READ_CHUNK` at a time.
+///
+/// **Out of line, so that the setup cannot move it.** Inlined into `main`,
+/// this loop shared one register allocation with everything `main` builds
+/// before it, and a setup-only change -- the cluster store's `vec!` filling
+/// 1024 slots instead of 64, or that `vec!` moved into a function of its own
+/// -- put two stack reloads at the head of the dispatch loop: about two
+/// instructions an iteration, +0.69% per rep on `cat` and +0.55% on `btop`,
+/// with no change to the core. Out of line, the loop is allocated on its own
+/// and the base moved too (`btop` +5.95% a rep, `cat` -0.04%), so per-rep
+/// figures from before this function are not comparable with those after:
+/// docs/record.md, "ingest2's setup moved its timed loop".
+/// `scripts/loop-head.py` compares this function between two binaries.
+///
+/// **The chunk is written into the arena and then parsed, which is what a
+/// `read(2)` does.** Parsing the recording in place instead -- placed once,
+/// never re-copied -- was tried and is *slower*: 509-518 against 517-525,
+/// because 327 KB exceeds a 128 KB L1 and every block takes misses, where a
+/// real read leaves its 4096 bytes hot. The copy is not a cost baud pays in
+/// production, but it reproduces the cache state baud parses in, and the
+/// faster number is the one that models nothing.
+///
+/// The parse itself is zero-copy either way: `feed` borrows the arena and
+/// `put_ascii_run` blits straight out of it.
+#[inline(never)]
+fn timed(t: &mut Term<'_>, data: &[u8], reps: usize) -> (usize, Vec<(f64, usize)>) {
+    let mut fed = 0usize;
+    let mut per_rep = Vec::with_capacity(reps);
+    for _ in 0..reps {
+        let t0 = std::time::Instant::now();
+        let mut at = 0usize;
+        while at < data.len() {
+            // `READ_CHUNK` at a time, because where the read boundaries fall
+            // is part of what is being measured: a whole-file `feed` would
+            // give the block loop a run no `read(2)` ever hands it.
+            let chunk: usize = std::env::var("CHUNK")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(READ_CHUNK);
+            let n = chunk.min(data.len() - at);
+            t.write_at(BytePos::ZERO, &data[at..at + n]);
+            #[cfg(not(feature = "harness-only"))]
+            t.feed(BytePos::ZERO, ReadLen::from_index(n));
+            at += n;
+            fed += n;
+        }
+        per_rep.push((t0.elapsed().as_secs_f64(), at));
+    }
+    (fed, per_rep)
 }
