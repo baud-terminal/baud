@@ -43,6 +43,7 @@ pub fn cluster_next(state: u8, input: u8) -> u8 {
     cluster_data::CLUSTER_NEXT[(state as usize) * 256 + input as usize]
 }
 mod dec_graphics;
+mod dec_sets_data;
 mod decode;
 mod font;
 mod frame;

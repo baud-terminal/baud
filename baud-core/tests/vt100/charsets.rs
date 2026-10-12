@@ -824,3 +824,190 @@ fn after_an_intermediate_the_introducer_bytes_are_finals_at_every_read_size() {
     let osc = left_by(&[b"\x1b]AB"]);
     assert_eq!(osc.1, (Row::ZERO, Col::ZERO), "ESC ] opens an OSC");
 }
+
+// ── the DEC 94-character sets: Supplemental, JIS-Katakana, JIS-Roman ───────
+
+/// Each translated DEC set under each designation that reaches it in GL: G0
+/// directly, and G1 through `SO`. `<` and `% 5` both name DEC Supplemental:
+/// `<` in `[[source: vt220-rm-ch4]]` Table 4-4, `% 5` in
+/// `[[source: dec-std-070]]` p. 5-117.
+const DEC_DESIGNATIONS: [(&[u8], DecSet); 6] = [
+    (b"\x1b(<", DecSet::Supplemental),
+    (b"\x1b(%5", DecSet::SupplementalGraphics),
+    (b"\x1b)%5\x0e", DecSet::SupplementalGraphics),
+    (b"\x1b(I", DecSet::JisKatakana),
+    (b"\x1b)I\x0e", DecSet::JisKatakana),
+    (b"\x1b(J", DecSet::JisRoman),
+];
+
+fn cp(c: PackedCell) -> u32 {
+    c.content.as_codepoint().map_or(0, |c| c.value())
+}
+
+/// **Every position of every translated DEC set reaches the screen as its
+/// table says, on both write paths.**
+///
+/// A run of one or two bytes is written a character at a time through
+/// `PackedCell::translate`, and a longer one in bulk through
+/// `put_ascii_run`; each translates through `with_charset`, and a path that
+/// skipped it would draw the byte. So each position is sent once alone and
+/// once as a run of eight. The expectations are the tables, which
+/// `baud-domain/tests/dec_sets.rs` holds to the DEC texts; this holds the
+/// write path to the tables.
+#[test]
+fn every_dec_set_position_renders_as_its_table_says_on_both_paths() {
+    let mut checked = 0;
+    for (designate, set) in DEC_DESIGNATIONS {
+        let table = set.table().expect("translated");
+        for byte in 0x21u8..=0x7e {
+            let want = table[usize::from(byte - 0x21)].value();
+            let one = run(&[designate, &[byte]].concat()).0;
+            assert_eq!(
+                cp(one[0]),
+                want,
+                "{set:?} via {designate:?}: 0x{byte:02x} alone"
+            );
+            let eight = run(&[designate, &[byte; 8]].concat()).0;
+            for (i, c) in eight[..8].iter().enumerate() {
+                assert_eq!(
+                    cp(*c),
+                    want,
+                    "{set:?} via {designate:?}: 0x{byte:02x}, cell {i} of a run"
+                );
+            }
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 6 * 94);
+}
+
+/// **What each set draws, spelled out**, so the write path is held to the
+/// DEC texts and not only to tables a generator wrote.
+///
+/// * DEC Supplemental 5/15 is ß (Table 2-3), where xterm draws `_`; 2/1 is ¡;
+///   2/4 is reserved and draws the error character U+2426.
+/// * JIS-Katakana 3/1 is U+FF71 HALFWIDTH KATAKANA LETTER A, JIS X 0201's
+///   0xB1; 6/0 is reserved.
+/// * JIS-Roman 5/12 is the Yen sign, `[[source: vt382-rm]]` §2.4.5, and every
+///   other letter is ASCII.
+#[test]
+fn each_dec_set_draws_what_its_dec_text_says() {
+    let first = |b: &[u8]| cp(run(b).0[0]);
+    assert_eq!(first(b"\x1b(%5_"), 0x00df, "DEC Supplemental 5/15 is ß");
+    assert_eq!(first(b"\x1b(<_"), 0x00df, "and under `<`");
+    assert_eq!(first(b"\x1b(%5!"), 0x00a1, "2/1 is ¡");
+    assert_eq!(
+        first(b"\x1b(%5$"),
+        0x2426,
+        "2/4 is reserved: the error character"
+    );
+    assert_eq!(
+        first(b"\x1b(I1"),
+        0xff71,
+        "JIS-Katakana 3/1 is HALFWIDTH KATAKANA LETTER A"
+    );
+    assert_eq!(first(b"\x1b(I`"), 0x2426, "JIS-Katakana 6/0 is reserved");
+    assert_eq!(first(b"\x1b(J\\"), 0x00a5, "JIS-Roman 5/12 is YEN SIGN");
+    assert_eq!(first(b"\x1b(Ja"), u32::from(b'a'), "JIS-Roman 6/1 is ASCII");
+    // Positive control: under ASCII the same bytes draw themselves.
+    assert_eq!(first(b"_"), u32::from(b'_'));
+}
+
+/// **SP is a space under every DEC set.** It is not one of a 94-character
+/// set's graphic characters: "As a graphic character it has the visual
+/// representation of the absence of a graphic symbol"
+/// (`[[source: dec-std-070]]` 070-3 §3.4.1), so no table indexes it, alone or in a run.
+#[test]
+fn space_is_a_space_under_every_dec_set() {
+    for (designate, set) in DEC_DESIGNATIONS {
+        for n in [1, 8] {
+            let cells = run(&[designate, &vec![b' '; n][..], b"x"].concat()).0;
+            for c in &cells[..n] {
+                assert_eq!(cp(*c), 0x20, "{set:?} via {designate:?}, run of {n}");
+            }
+        }
+    }
+}
+
+/// **A designation and the text after it draw the same at every read size
+/// and every split**: `ESC ( % 5`, a run across both paths, a return to ASCII,
+/// and a G1 designation invoked by `SO` and left by `SI`.
+#[test]
+fn a_dec_set_designation_is_chunk_invariant() {
+    let prog: &[u8] = b"\x1b(%5_!$\x1b(Bab\x1b)I\x0e1`\x0fc\x1b(J\\\\\\";
+    let whole = left_by(&[prog]);
+    // Positive control: the program does draw DEC Supplemental, which the
+    // splits are then compared against.
+    assert_eq!(whole.0, [0x00df, 0x00a1, 0x2426], "one read");
+    let screen = |reads: &[&[u8]]| {
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        for r in reads {
+            support::feed(&mut t, r);
+        }
+        support::screen(&t)[..13]
+            .iter()
+            .map(|c| cp(*c))
+            .collect::<Vec<_>>()
+    };
+    let want = screen(&[prog]);
+    assert_eq!(
+        want,
+        [
+            0xdf, 0xa1, 0x2426, 0x61, 0x62, 0xff71, 0x2426, 0x63, 0xa5, 0xa5, 0xa5, 0, 0
+        ],
+        "one read, the whole program"
+    );
+    for size in 1..prog.len() {
+        let reads: Vec<&[u8]> = prog.chunks(size).collect();
+        assert_eq!(screen(&reads), want, "read size {size}");
+    }
+    for cut in 1..prog.len() {
+        let (a, b) = prog.split_at(cut);
+        assert_eq!(screen(&[a, b]), want, "split at {cut}");
+    }
+}
+
+/// **REP repeats the DEC Supplemental character, not its byte**, from either
+/// write path: after a lone `_` (per character) and after a run (in bulk).
+#[test]
+fn rep_repeats_a_dec_set_character() {
+    let v = run(b"\x1b(%5_\x1b[2b").0;
+    assert_eq!([cp(v[0]), cp(v[1]), cp(v[2])], [0xdf; 3], "after one byte");
+    let v = run(b"\x1b(%5!!!_\x1b[2b").0;
+    assert_eq!([cp(v[3]), cp(v[4]), cp(v[5])], [0xdf; 3], "after a run");
+}
+
+/// **A byte recovered after an ill-formed UTF-8 sequence translates too**:
+/// `C2` opens a sequence `_` cannot continue, the replacement lands, and the
+/// `_`s are re-dispatched one at a time (`[[source: unicode-ch3]]` § 3.9.5).
+#[test]
+fn ascii_recovered_after_a_bad_sequence_translates_under_a_dec_set() {
+    let v = run(b"\x1b(%5\xc2__").0;
+    assert_eq!([cp(v[1]), cp(v[2])], [0xdf, 0xdf]);
+}
+
+/// **DECRC brings DEC Supplemental back**: DECSC saves G0-G3 and GL
+/// (`a_cursor_restore_brings_back_the_slots_and_the_shift`), so a set saved
+/// and restored draws again.
+#[test]
+fn decrc_restores_a_dec_set() {
+    let v = run(b"\x1b(%5\x1b7\x1b(B_").0;
+    assert_eq!(cp(v[0]), u32::from(b'_'), "ASCII between save and restore");
+    let v = run(b"\x1b(%5\x1b7\x1b(B\x1b8_").0;
+    assert_eq!(cp(v[0]), 0xdf, "DEC Supplemental after restore");
+}
+
+/// **A 96-set intermediate does not designate a 94-set into G0**: `ESC - % 5`
+/// and `ESC . <` name G1 and G2 as 96-character slots
+/// (`[[source: dec-std-070]]` p. 5-117), which baud counts and does not act on (note AE
+/// Q3), so G0 stays ASCII and `_` is `_`.
+#[test]
+fn a_96_set_intermediate_designates_no_dec_set() {
+    for prog in [b"\x1b-%5_".as_slice(), b"\x1b.<_", b"\x1b/I_"] {
+        let (cells, set) = run(prog);
+        assert_eq!(set, Charset::Ascii, "{}", prog.escape_ascii());
+        assert_eq!(cp(cells[0]), u32::from(b'_'), "{}", prog.escape_ascii());
+    }
+}

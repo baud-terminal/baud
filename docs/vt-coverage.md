@@ -33,7 +33,7 @@ Status values are deliberately blunt:
 | | meaning |
 |---|---|
 | **done** | implemented, dispatched, and covered by a test that would fail if it regressed |
-| **partial** | implemented but known-incomplete; the gap is named in the row. Six rows carry it: DECSC, DECRC, the DEC Special Graphics glyph table, the `dcs_param` and `dcs_passthrough` states, and SGR 6 |
+| **partial** | implemented but known-incomplete; the gap is named in the row. Eleven rows carry it: DECSC, DECRC, the DEC Special Graphics glyph table, JIS-Roman, DEC Technical, the DEC Hebrew, Greek and Turkish Supplementals, DEC Cyrillic, SCS and Russian NRCS, the `dcs_param` and `dcs_passthrough` states, and SGR 6 |
 | **parsed** | recognised by the parser and then **dropped** — worse than missing, because it looks supported |
 | **todo** | in scope, not implemented |
 | **out** | deliberately not in scope; the reason is in the row |
@@ -53,17 +53,19 @@ a handler for every operation this table claims. It does **not** prove the
 handler is correct — that is what the per-protocol suites are for, and no
 mechanism can prove it in general.
 
-**No row carries `parsed` or `todo`. Six carry `**partial**`, and
+**No row carries `parsed` or `todo`. Eleven carry `**partial**`, and
 `no_row_is_unfinished` in `baud-core/tests/coverage.rs` does not see them.**
 This paragraph said no row carried any of the three and that the test fails if
 one ever does. The test matches a status cell that starts with the bare word,
 and these start with `**`, so it passes with DECSC, DECRC and the DEC Special
 Graphics glyph table all at `**partial**`, the `dcs_passthrough` state
 since 2026-10-09, and since 2026-10-10 `3A` in the `dcs_param` state and
-SGR 6's rapid blink. GR bytes under `ESC % @`, the `escape` and
+SGR 6's rapid blink, and since 2026-10-12 five DEC character set rows: JIS-Roman, DEC
+Technical, the three VT500 supplementals, DEC Cyrillic, and SCS and Russian
+NRCS, which read `done` while every one of them drew its byte. GR bytes under `ESC % @`, the `escape` and
 `escape_intermediate` states and `DEL` in `csi_entry` or `csi_intermediate`
 carried it from 2026-10-10 to 2026-10-11. A check that saw them
-would fail on all six, and that is
+would fail on all eleven, and that is
 the right answer: each row names work that is not finished. `out` is the only status that
 means "not implemented", and `every_out_row_states_a_reason` requires each one
 to say why **in the row** — because otherwise "nothing is partial" would be a
@@ -203,7 +205,7 @@ direct address takes one as a coordinate, as xterm's does.
 | `7F` DEL in `csi_param` | done — ignored, and the sequence goes on, as `[[source: williams]]`'s `csi param` ignores it (315): `CSI 5 DEL C` moves the cursor as `CSI 5 C` does, under both encodings and at every read size (`a_del_in_csi_param_is_ignored_and_the_sequence_goes_on`) |
 | `7F` DEL in `csi_entry` or `csi_intermediate` | done — ignored, and the sequence goes on, as `[[source: williams]]`'s `csi entry` and `csi intermediate` ignore it and stay (306, 328), so `CSI DEL 5 C` moves the cursor as `CSI 5 C` does, `CSI DEL ? 25 l` hides it, the marker still legal after the `DEL`, and `CSI ! DEL p` is a DECSTR. Until 2026-10-11 each node took `7F` to `Consume` into `csi_ignore`, which dispatched nothing. Under both encodings, at every read size and every split into two reads (`a_del_in_any_escape_or_control_sequence_is_ignored_and_the_sequence_goes_on`; the table, `a_del_in_an_escape_or_control_sequence_is_ignored_and_the_node_stays`) |
 | `7F` DEL in ground, ANSI and VT52 | done — ignored: no cell and no cursor move, as `[[source: dec-std-070]]` 070-3 §3.4.2 says for a 94-character set in GL ("shall be ignored"), with `[[source: vt510-ch7]]` § 7.2.5 and `[[source: williams]]`'s ground. Until 2026-10-08 it drew U+FFFD, a decoding error for a byte that is well-formed in UTF-8 (`del_in_ground_is_ignored`, at every read size). A 96-character set in GL makes it a character of the set, which waits on note AE |
-| SUB additionally displaying the DEC error character `␦` | **out** — baud cancels and writes nothing. The basis this row gave, that xterm writes no glyph and baud follows it as for DECAWM, was wrong: xterm 411 writes one, under conditions read from its source (below). Whether SUB displays the error character is open with the owner: note AF's Q-UNDEF. **Which codepoint it is, is decided**: U+2426, `baud_domain::DEC_ERROR_CHARACTER`, note AE's AE8.1, Jev at 1.00 twice under the owner's 2026-10-10 rule and listed for their veto (`the_dec_error_character_is_symbol_for_substitute_form_two`); nothing draws it yet. Detail below |
+| SUB additionally displaying the DEC error character `␦` | **out** — baud cancels and writes nothing. The basis this row gave, that xterm writes no glyph and baud follows it as for DECAWM, was wrong: xterm 411 writes one, under conditions read from its source (below). Whether SUB displays the error character is open with the owner: note AF's Q-UNDEF. **Which codepoint it is, is decided**: U+2426, `baud_domain::DEC_ERROR_CHARACTER`, note AE's AE8.1, Jev at 1.00 twice under the owner's 2026-10-10 rule and listed for their veto (`the_dec_error_character_is_symbol_for_substitute_form_two`). Since 2026-10-12 it is drawn at the reserved positions of DEC Supplemental and JIS-Katakana (their rows), which their DEC texts define, and not for SUB. Detail below |
 
 **The C1 controls are the block's third rule, and baud takes it from every
 ANSI state.** `[[source: williams]]` (lines 612-615): "All C1
@@ -300,17 +302,26 @@ defined, and then defines it as 0 if nothing has set it
 
 So "baud follows xterm" was wrong as written: under those conditions xterm
 writes a glyph, and following xterm, the DECAWM precedent, would not give
-"writes nothing". The status stays **out** because changing it is the decision, and the
-decision is the owner's: whether SUB displays the error character is note AF's
-Q-UNDEF, decided with what every DEC set's reserved positions draw. Which
-codepoint the error character is no longer waits: U+2426 SYMBOL FOR SUBSTITUTE
-FORM TWO, note AE's AE8.1, picked by Jev at 1.00 on an asking and on a
-re-asking with the options reordered, which the owner's 2026-10-10 rule builds
-and lists for their veto. It is `baud_domain::DEC_ERROR_CHARACTER`, emitted
-beside the national tables by `scripts/gen-nrcs-tables.py`, and
+"writes nothing". The status stays **out** because changing it is the decision,
+and the decision is the owner's: whether SUB displays the error character is
+note AF's Q-UNDEF, decided with what every DEC set's reserved positions draw.
+Which codepoint the error character is no longer waits: U+2426 SYMBOL FOR
+SUBSTITUTE FORM TWO, note AE's AE8.1, picked by Jev at 1.00 on an asking and on
+a re-asking with the options reordered, which the owner's 2026-10-10 rule
+builds and lists for their veto. It is `baud_domain::DEC_ERROR_CHARACTER`,
+emitted beside the national tables by `scripts/gen-nrcs-tables.py`, and
 `the_dec_error_character_is_symbol_for_substitute_form_two` holds it to its
-name in `[[source: unicode-data]]`. Nothing draws it until SUB's display, A0
-with a 94-set in GR (note AE's AE8) or Q-UNDEF is answered.
+name in `[[source: unicode-data]]`. Since 2026-10-12 it is drawn at the
+reserved positions of DEC Supplemental and JIS-Katakana, where
+`[[source: dec-pplv2-pm]]` §A.2 and §A.12 say "The error character is printed
+when one of these reserved characters is received by the device" and
+`[[source: dec-std-070]]` 070-3 §3.4.3 says "The character code 10/0 in 8-bit
+environments is treated as an unassigned graphic character code, and will cause
+the error character ... to be displayed on conforming devices", read for a
+set's reserved positions by analogy (**inferred**) (their rows below). Nothing
+else draws it until SUB's display, A0 with a 94-set in GR (note AE's AE8), or
+the rest of Q-UNDEF (DEC Turkish Supplemental's hatched cells, Greek NRC 7/9
+and 7/10) is answered.
 
 The reason given before that one was that this was "a rendering decision made
 where no renderer exists". That was wrong too, and its correction stands: baud
@@ -561,7 +572,9 @@ designated set replaces a few positions of the 94 and leaves the stream's
 encoding alone. `ESC ( 0` replaces `0x60..0x7E` through
 `[[source: foot-vt100-0]]`'s table and keeps `CellFlags::GRAPHICS` on the cell
 (and should replace `0x5F` too; see the DEC Special Graphics row below), and
-the national sets replace a handful each through `[[source: xterm-charsets]]`.
+the national sets replace a handful each through `[[source: xterm-charsets]]`,
+and since 2026-10-12 DEC Supplemental, JIS-Katakana and JIS-Roman each index a
+94-entry table (their rows in the `ESC` table).
 This paragraph said `SCS` "annotates rather than translates" and that the cell
 keeps the byte; both stopped being true when the tables landed. Under ASCII,
 `PackedCell::translate` returns before any table is read. Byte-level
@@ -704,9 +717,14 @@ without these.
 | `ESC ( 0` / `ESC F` (VT52) | DEC Special Graphics glyph table | **partial** — `0x60..0x7E` translate through `[[source: foot-vt100-0]]`'s 31 entries, and the cell keeps `CellFlags::GRAPHICS`. **`0x5F` stays `_`**, where every DEC text read replaces it with Blank: `[[source: vt100-ug-ch3]]` Table 3-9 ("ASCII codes 137 through 176", octal), `[[source: vt102-ug-ch5]]` Table 5-15, `[[source: dec-special-graphics]]` Table 2-4 and `[[source: dec-std-070]]` Appendix A, Table 2. None of the DEC texts read gives Blank a codepoint, so U+0020 or U+00A0 is the owner's call, open in docs/record.md, "DEC Special Graphics begins at 0x5F, and what it stores there is the owner's call". The gap is the same on the bulk run, the per-byte path and VT52 `ESC F` |
 | `ESC ( A` | UK NRCS designation | done — reported as `Charset::Uk`, **not aliased to ASCII**, and `#` is `£` through `[[source: xterm-charsets]]` |
 | `ESC ( C 5 H 7 K Q 9 R f Y Z 4 = ` E 6` | NRCS: Finnish, Swedish, German, French Canadian, French, Italian, Spanish, Dutch, Swiss, Norwegian/Danish | done — each named as its own `Nrcs`, and translated through `[[source: xterm-charsets]]`'s tables (`every_national_replacement_renders_as_its_table_says`). This row said "recorded, not translated" after the tables landed |
-| `ESC ( < > I J` | DEC Supplemental, Technical, JIS-Katakana, JIS-Roman | done — each named as its own `DecSet` |
+| `ESC ( <` / `ESC ( % 5` | DEC Supplemental | done — translated since 2026-10-12, through a 94-entry table (`dec_sets_data.rs`, indexed by `byte - 0x21`) that `scripts/gen-dec-sets.py` generates from `[[source: dec-special-graphics]]` Table 2-3's right half, read at generation: its 81 glyphs, and in its 13 empty cells DEC's error character, U+2426 (`DEC_ERROR_CHARACTER`), as `[[source: dec-pplv2-pm]]` §A.2 says ("The error character is printed when one of these reserved characters is received by the device") and Figure A-2 hatches, the two masks equal; for a video terminal, `[[source: dec-std-070]]` 070-3 §3.4.3 states it for 10/0 ("treated as an unassigned graphic character code, and will cause the error character"), read for reserved positions by analogy (**inferred**); `[[source: vt510-ch7]]`'s control table has "Reserved 160 ... Error character generated". xterm's `map_DEC_Supp_Graphic` (`[[source: xterm-charsets]]`), practice, agrees but at 5/15, where it draws `_` and DEC has ß; the generator fails on any other difference. `<` is DEC Supplemental in `[[source: vt220-rm-ch4]]` Table 4-4 and the UPSS in 070-3 p. 3-63, note AE's Q14, open; both readings draw this table while baud has no DECAUPSS, the UPSS defaulting to DEC Supplemental (`[[source: vt510-decaupss]]`). It draws where it is invoked into GL, from G0 or from G1 by `SO`; G2, its home, has no invocation here (note AE). Until then both finals drew their byte, which conforms under no reading. **Open beside it, for Jev**: whether a set STD 070 §5.8.1 requires at Levels 2-4 acts while DA answers VT102 (note AF's Q-Level); this row takes the reading every other designation here takes, that a listed final acts at every level. It stays `done` beside Q-Level and the clustering question on the JIS-Katakana row, because neither is a gap in this set: Q-Level is asked of every final STD 070 §5.8.1 assigns a level, the national designations among them, whose row is `done`, and the clustering question is about the cluster machine, while this set's table is complete (`dec_supplemental_is_table_2_3`, the table against Table 2-3 read at test time; `every_dec_set_position_renders_as_its_table_says_on_both_paths`, every position alone and in a run, under `ESC ( <`, `ESC ( % 5` and `ESC ) % 5 SO`; `each_dec_set_draws_what_its_dec_text_says`; `a_dec_set_designation_is_chunk_invariant`; `rep_repeats_a_dec_set_character`; `decrc_restores_a_dec_set`) |
+| `ESC ( I` | JIS-Katakana | done — translated since 2026-10-12: 2/1-5/15 are JIS X 0201's katakana, which `[[source: dec-pplv2-pm]]` §A.12 names ("specified by JIS X 0201-1976. There are 63 characters defined"), through `[[source: unicode-jis0201]]`'s 0xA1-0xDF, U+FF61-U+FF9F; 6/0-7/14 are reserved and draw U+2426 (§A.12; `[[source: vt382-rm]]` §2.4.6, "displays a reverse question mark", and Figure 2-10). xterm's `map_JIS_Katakana` agrees but at 7/14, which it leaves `~`. Each byte is one cell and ends any cluster, U+FF9E and U+FF9F among them, which are `Extend`: arriving as UTF-8 they would join the katakana before (`[[source: uax29]]` GB9), and through the set each is the character at its position, as DEC charts every code of a set as one character (that a VT382 displays it so is inferred); DEC Supplemental's U+00A9 likewise opens no GB11 lookback for a `ZWJ` after it. Whether a translated character should enter the cluster machine as the same codepoint in UTF-8 does is for Jev. The row stays `done` beside that question and note AF's Q-Level (STD 070 §5.8.1 lists JIS-Katakana at "2x, 3x, 4x"), because neither is a gap in this set: the clustering question is about the cluster machine and covers DEC Supplemental's U+00A9 too, while this set's table is complete, and Q-Level is asked of every final STD 070 §5.8.1 assigns a level, the national designations among them, whose row is `done` (`every_character_set_writes_printable_ascii_as_class_other` names the three; `jis_katakana_is_jis_x_0201_and_reserves_columns_6_and_7`, against JIS0201.TXT read at test time; `every_translated_position_is_one_narrow_cell`; the Term tests in the row above) |
+| `ESC ( J` | JIS-Roman | **partial** — translated since 2026-10-12 but for 7/14: ASCII with 5/12 the Yen sign, U+00A5 (`[[source: vt382-rm]]` §2.4.5; `[[source: unicode-jis0201]]`; xterm's `map_JIS_Roman`). **The gap is 7/14**, which draws `~`: VT382 §2.4.5 names it "the over line" and `[[source: dec-pplv2-pm]]` Table A-2 "Macron", U+203E or U+00AF, note AF's Q-JIS-Roman, for Jev; xterm has U+203E (`jis_roman_is_ascii_with_the_yen_sign`, which leaves 7/14 unasserted; the Term tests above) |
+| `ESC ( >` | DEC Technical | **partial** — designated and named (`DecSet::Technical`), and draws its byte. **The gap is the whole set**: DEC gives no codepoints; `[[source: vt420-rm]]` Figure 2-10 departs from `[[source: dec-pplv2-pm]]` Figure A-4, `[[source: vt382-rm]]` Figure 2-8 and `[[source: dec-std-070]]` §7.5.5 at five cells; xterm's hooks at 2/11-2/14 are curly-bracket pieces where STD 070 names parenthesis pieces; and the seven summation pieces 3/1-3/7 have no Unicode character, xterm storing private-use U+EEEE-U+EEF4. All three are note AF's Q-Technical, for Jev (`the_sets_baud_does_not_translate_have_no_table`) |
 | `ESC ( % 6` `" >` `% 2` `% =` | NRCS Portuguese, Greek, Turkish, Hebrew — two-byte finals | done — the parser keeps two intermediates now |
-| `ESC ( " 4` `" ?` `% 0` `% 5` `& 4` `% 3` `& 5` | DEC Hebrew, Greek, Turkish, Supplemental Graphics, Cyrillic, and the two whose mappings ctlseqs says are undocumented | done — designated and named; `% 3` and `& 5` share `DecSet::Undocumented` |
+| `ESC ( " 4` `" ?` `% 0` | DEC Hebrew, Greek and Turkish Supplemental | **partial** — designated and named, and each draws its byte. **The gap is the three tables**: DEC charts them only in `[[source: dec-pplv2-pm]]` Figures A-22, A-24 and A-27, which is `external`, so a table is cells read off the figures and typed with their citation, and those cells have not been read one by one against xterm's `map_DEC_Hebrew_Supp`, `map_DEC_Greek_Supp` and `map_DEC_Turkish_Supp` (note AF §3.5, §6); Turkish's seven hatched cells have no error-character sentence in §A.10, which is note AF's Q-UNDEF, for Jev (`the_sets_baud_does_not_translate_have_no_table`) |
+| `ESC ( & 4` | DEC Cyrillic | **partial** — designated and named, and draws its byte. **The gap is the table**: no DEC chart of the set was found in the VT510, VT520 and VT420 texts or EK-PPLV2-PM (note AF §3.6), and xterm's `map_DEC_Cyrillic` is "from screenshot"; whether to draw xterm's table, practice with no DEC text under it, is note AF's Q-Cyrillic, for Jev (`the_sets_baud_does_not_translate_have_no_table`) |
+| `ESC ( % 3` / `ESC ( & 5` | SCS NRCS and Russian NRCS | **partial** — designated, sharing `DecSet::Undocumented`, and each draws its byte. **The gap is both tables**: `[[source: ctlseqs]]` says "no documentation has been found for the mappings", no DEC chart has been read, and xterm draws its own choices at level 5; note AF's Q-SCS-Russian, for Jev (`the_sets_baud_does_not_translate_have_no_table`) |
 
 ### CSI operations
 

@@ -360,6 +360,15 @@ impl PackedCell {
     /// every other route puts `─`
     /// (`ascii_recovered_after_a_bad_sequence_is_still_translated`). This read
     /// `<C2 41>` and `A`, a byte outside the set, which is `A` on every route.
+    ///
+    /// **Inlined for ASCII, called for a set.** The ASCII answer is a compare
+    /// and a return in the caller, as it was; a designated set goes through
+    /// `translate_designated`, out of line. Built with `with_charset` forced
+    /// inline once it gained the DEC sets' arm, this function went out of line
+    /// whole, and every short run and every run's `REP` record called it,
+    /// ASCII ones included (docs/record.md, "DEC Supplemental, JIS-Katakana and
+    /// JIS-Roman are translated").
+    #[inline(always)]
     pub fn translate(b: StreamByte, set: Charset) -> Codepoint {
         // **ASCII is the answer, not a case of the general one.** Without this
         // the common path builds a throwaway `PackedCell`, runs the charset
@@ -372,6 +381,12 @@ impl PackedCell {
         if matches!(set, Charset::Ascii) {
             return Codepoint::from_ascii(b);
         }
+        Self::translate_designated(b, set)
+    }
+
+    /// [`PackedCell::translate`] under a set other than ASCII.
+    #[inline(never)]
+    fn translate_designated(b: StreamByte, set: Charset) -> Codepoint {
         let blank = PackedCell::glyph(Codepoint::from_ascii(b), StyleId::DEFAULT, CellFlags::NONE);
         match blank.with_charset(b, set).content.as_codepoint() {
             Some(cp) => cp,
@@ -386,14 +401,45 @@ impl PackedCell {
     /// graphics and forget Finnish -- the shape `baud-core2`'s `promote` had
     /// before `from_wire` existed. This doc sat on `translate` from 01b11dc,
     /// which inserted `translate` between the two.
+    ///
+    /// **`#[inline(always)]`, into the two out-of-line callers on the
+    /// designated path**, `put_designated_run` and `translate_designated`, so a
+    /// designated byte is a match and a table read, not a call, as it was
+    /// before the DEC sets' arm; the ASCII path reaches neither caller.
+    #[inline(always)]
     pub fn with_charset(self, b: StreamByte, set: Charset) -> PackedCell {
         match set {
             Charset::DecGraphics => self.with_dec_graphics(b),
             Charset::Uk => self.with_nrcs(b, crate::uk_table()),
             Charset::National(n) => self.with_nrcs(b, crate::nrcs_table(n)),
-            // ASCII, the DEC sets baud does not translate, and anything
-            // unrecognised: the byte stands for itself.
-            _ => self.with_ascii(b),
+            Charset::Dec(d) => match d.table() {
+                Some(t) => self.with_dec_set(b, t),
+                // DEC Technical, the three VT500 supplementals, Cyrillic and
+                // the two undocumented sets: each draws its byte, for the
+                // reason on its `DecSet` variant.
+                None => self.with_ascii(b),
+            },
+            // ASCII and anything unrecognised: the byte stands for itself.
+            Charset::Ascii | Charset::Other => self.with_ascii(b),
+        }
+    }
+
+    /// The same, under a DEC 94-character set with a table: DEC Supplemental,
+    /// JIS-Katakana, JIS-Roman.
+    ///
+    /// **One load from a 94-entry table**, indexed by `byte - 0x21`; the
+    /// table holds every graphic position, a reserved one as DEC's error
+    /// character, so nothing is searched and nothing falls back. SP, `0x20`,
+    /// is below the index and stays a space: it is not one of the set's
+    /// graphic characters (`[[source: dec-std-070]]` 070-3 §3.4.1).
+    pub fn with_dec_set(self, b: StreamByte, table: &[Codepoint; 94]) -> PackedCell {
+        let cp = match (b.raw_byte() as usize).checked_sub(0x21) {
+            Some(i) if i < table.len() => table[i],
+            _ => Codepoint::from_ascii(b),
+        };
+        PackedCell {
+            content: Content::codepoint(cp),
+            ..self
         }
     }
 

@@ -1468,14 +1468,26 @@ fn a_replacement_character_is_class_other_to_the_cluster_after_it() {
 }
 
 /// **What a run of printable ASCII writes is class Other with no lookback,
-/// under every character set a designation can name**, which is what makes
-/// `ClusterBreak::after_ascii_run` the truthful state after it. A run is
-/// written through the designated set, so DEC graphics and the national and
-/// DEC sets put other codepoints in its cells -- 132 of them, none
-/// pictographic, none an indicator, none `InCB`. Every one-byte final and
-/// every intermediate-and-final pair, every printable byte; the control is
-/// `U+00A9`, which is `Extended_Pictographic` and so carries a lookback this
-/// check would see.
+/// under every character set a designation can name, but for three
+/// codepoints**, which is what makes `ClusterBreak::after_ascii_run` the
+/// truthful state after it. A run is written through the designated set, so
+/// DEC graphics and the national and DEC sets put other codepoints in its
+/// cells. Every one-byte final and every intermediate-and-final pair, every
+/// printable byte; the control is `U+00A9`, which is `Extended_Pictographic`
+/// and so carries a lookback this check would see.
+///
+/// **The three, since DEC Supplemental and JIS-Katakana are translated
+/// (2026-10-12)**: DEC Supplemental 2/9 is U+00A9 itself, which opens GB11's
+/// lookback, and JIS-Katakana 5/14 and 5/15 are U+FF9E and U+FF9F, the
+/// halfwidth sound marks, which are `Extend`. Each is written as the
+/// character at its position, in a cell of its own, and the state after the
+/// run is still `after_ascii_run`: `U+00A9` then a `ZWJ` and a pictograph in
+/// UTF-8 does not join as GB11 joins it, and a sound mark does not join the
+/// katakana before it as GB9 does. Whether a translated character enters the
+/// cluster machine as the same codepoint in UTF-8 would, or keeps DEC's one
+/// code, one position, is for Jev (docs/record.md, "DEC Supplemental,
+/// JIS-Katakana and JIS-Roman are translated"). This asserts the three by
+/// name, so a fourth fails here.
 #[test]
 fn every_character_set_writes_printable_ascii_as_class_other() {
     use baud_domain::{Charset, PackedCell};
@@ -1492,7 +1504,15 @@ fn every_character_set_writes_printable_ascii_as_class_other() {
             ));
         }
     }
+    // The three a translated DEC set writes that are not class Other with no
+    // lookback, each with its class and whether it opens a lookback.
+    let open = [
+        (0x00a9, GraphemeClass::Other, false),
+        (0xff9e, GraphemeClass::Extend, false),
+        (0xff9f, GraphemeClass::Extend, false),
+    ];
     let mut substituted = std::collections::BTreeSet::new();
+    let mut seen_open = std::collections::BTreeSet::new();
     for set in &sets {
         for b in b' '..=b'~' {
             let cp = PackedCell::translate(StreamByte::from_stream(b), *set);
@@ -1500,6 +1520,11 @@ fn every_character_set_writes_printable_ascii_as_class_other() {
                 substituted.insert(cp.value());
             }
             let (class, lb) = GraphemeClass::of_with_lookback(cp);
+            if let Some(&(_, c, none)) = open.iter().find(|(v, _, _)| *v == cp.value()) {
+                assert_eq!((class, lb.is_none()), (c, none), "U+{:04X}", cp.value());
+                seen_open.insert(cp.value());
+                continue;
+            }
             assert_eq!(
                 (class, lb.is_none()),
                 (GraphemeClass::Other, true),
@@ -1508,9 +1533,12 @@ fn every_character_set_writes_printable_ascii_as_class_other() {
             );
         }
     }
+    assert_eq!(seen_open.len(), open.len(), "each of the three is written");
+    // 132 before DEC Supplemental, JIS-Katakana and JIS-Roman were
+    // translated; they add 103 more, counted from the generated tables too.
     assert_eq!(
         substituted.len(),
-        132,
+        235,
         "the sets substitute a different set of codepoints now"
     );
 }

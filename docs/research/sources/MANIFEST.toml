@@ -971,10 +971,13 @@ group  = "C"
 # these macros, and Turkish 2/1, U+0131, which they lack and EK-PPLV2-PM Figure
 # A-26 draws (`dec-pplv2-pm`). Greek's two `UNDEF` lines are not emitted until
 # note AF's Q-UNDEF is answered. This said 162, without the Swedish 4/0 the
-# generator dropped (note AF §2.3).
+# generator dropped (note AF §2.3). Since 2026-10-12 `scripts/gen-dec-sets.py`
+# parses `map_DEC_Supp_Graphic`, `map_JIS_Roman` and `map_JIS_Katakana` too, as
+# practice to check DEC's tables against, and fails on any difference it does
+# not name.
 [sources.xterm-charsets]
 key    = "xterm-charsets"
-title  = "xterm patch #411, charsets.h -- the NRCS mapping macros"
+title  = "xterm patch #411, charsets.h -- the NRCS mapping macros, and the DEC Supplemental, JIS-Roman and JIS-Katakana macros the DEC-set generator checks as practice"
 author = "Thomas Dickey"
 year   = 2025
 venue  = "xterm"

@@ -2014,7 +2014,9 @@ reordered is built and listed for the owner's veto.
   `the_dec_error_character_is_symbol_for_substitute_form_two`
   (`baud-domain/tests/nrcs_dec.rs`). Only the codepoint is decided: Q8 itself
   (what A0 and FF do with a 94-set in GR, AE8), SUB's display and note AF's
-  Q-UNDEF still decide where it is drawn, and nothing draws it yet.
+  Q-UNDEF still decide where it is drawn. Since 2026-10-12 it is drawn at
+  DEC Supplemental's and JIS-Katakana's reserved positions (note AF, Q-UNDEF);
+  A0 and FF, SUB and the other sets' reserved positions still wait.
 - **AE5 part 1, GR bytes under UTF-8: (a) no GR, decided.** Re-asked on its
   own (jev-diagnosis batch 1) with `[[source: unicode18-ch3]]` C4 and D92
   added to the governing texts, each option marked as §4 marks it and this

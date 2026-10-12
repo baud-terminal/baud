@@ -25,9 +25,13 @@ use crate::{Codepoint, Nrcs};
 /// description by name and by glyph (note AF, Q-UNDEF). Note AE's AE8.1,
 /// decided by Jev at 1.00 twice, the second with the options reordered.
 ///
-/// **Nothing draws it yet.** Where it is drawn waits on open questions: A0
-/// with a 94-set in GR (note AE, AE8), SUB's display (`docs/vt-coverage.md`)
-/// and the positions a set leaves undefined (note AF, Q-UNDEF).
+/// **It is drawn at a reserved position of a DEC set baud translates**,
+/// DEC Supplemental's 13 and JIS-Katakana's 31 (`dec_sets_data.rs`): "The
+/// error character is printed when one of these reserved characters is
+/// received by the device" (`[[source: dec-pplv2-pm]]` §A.2, §A.12). Where
+/// else it is drawn waits on open questions: A0 with a 94-set in GR (note AE,
+/// AE8), SUB's display (`docs/vt-coverage.md`), and Greek NRC 7/9 and 7/10,
+/// which no DEC table charts (note AF, Q-UNDEF).
 pub const DEC_ERROR_CHARACTER: Codepoint = Codepoint(0x2426);
 
 /// `[[source: xterm-charsets]]`'s `map_NRCS_Dutch`.

@@ -1195,6 +1195,21 @@ impl<'a> View<'a> {
             PackedCell::EMPTY
         }
     }
+    /// The run under a designated set, each byte through `with_charset`.
+    ///
+    /// **Out of line, so the ASCII loops' function keeps its shape.** Inline,
+    /// the DEC sets' arm took `with_charset` out of line and the call in this
+    /// loop made `put_ascii_run`'s prologue save five register pairs on every
+    /// run, ASCII ones included: `cat` retired 1.6% more instructions a rep.
+    /// Forced inline, `put_ascii_run` still saved four (docs/record.md, "DEC
+    /// Supplemental, JIS-Katakana and JIS-Roman are translated").
+    #[inline(never)]
+    fn put_designated_run(dst: &mut [PackedCell], src: &[u8], proto: PackedCell, set: Charset) {
+        for (d, &b) in dst.iter_mut().zip(src) {
+            *d = proto.with_charset(StreamByte::from_stream(b), set);
+        }
+    }
+
     /// Write a run of printable ASCII into one row, starting at `at`.
     ///
     /// Bulk rather than per-cell: the bounds check and the row base are
@@ -1276,12 +1291,12 @@ impl<'a> View<'a> {
                 style,
                 flags,
             };
-            for (d, &b) in self.cells[base + start..base + start + n]
-                .iter_mut()
-                .zip(&src[..n])
-            {
-                *d = proto.with_charset(StreamByte::from_stream(b), set);
-            }
+            Self::put_designated_run(
+                &mut self.cells[base + start..base + start + n],
+                &src[..n],
+                proto,
+                set,
+            );
         } else if flags == CellFlags::NONE {
             let proto = PackedCell {
                 content: Content::EMPTY,
