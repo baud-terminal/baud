@@ -536,6 +536,10 @@ ghostty row reports `n/a` rather than being silently dropped.
 its settled rate, which is larger than most effects being measured. Interleave
 arms, run at least four rounds, and quote the settled ones.
 
+Per-rep figures and rates taken before `481613f` are not comparable with those
+after it: `docs/record.md`, "ingest2's setup moved its timed loop" (btop +5.95%
+in instructions, +3.0% in cycles).
+
 ## Keystroke to pixel
 
 Taken at `e8bb82d`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC, the built-in 120 Hz panel, the app's default

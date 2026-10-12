@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare one function's machine code between two binaries, addresses aside.
 
-    scripts/loop-head.py [--fn NAME] A [B]
+    scripts/loop-head.py [--fn NAME] [--no-pageoff] A [B]
     scripts/loop-head.py --self-test
 
 **Why it exists.** `ingest2` once inlined its timed loop into `main`, so the
@@ -17,8 +17,11 @@ the delta may be the allocator's and not the change's (docs/record.md,
 **What it prints**, for each binary: the function's instruction count, its
 loads from the stack frame (`ldr*`/`ldp`/`ldur*` off `sp` or `x29`), and a
 digest of its normalised body. Given two binaries, it says IDENTICAL or prints
-a unified diff of the normalised bodies, and exits 0 or 1. It exits 2 when the
-function is not in a binary, never 0.
+a unified diff of the normalised bodies, and exits 0 or 1. The verdict names
+the form it held under: page offsets normalised, or kept (`--no-pageoff`). A
+default-form IDENTICAL is compared again with offsets kept and says whether it
+holds there too. It exits 2 when the function is not in a binary, or when the
+name, demangled, names more than one function there, never 0.
 
 **Normalised** means: no instruction addresses; a branch inside the function
 becomes its offset from the function's start; a call keeps its target's name
@@ -29,6 +32,14 @@ because those offsets move with the data layout; a pc-relative literal load
 becomes `LIT`. Registers, other immediates and stack offsets are kept, so a
 different register allocation is a difference.
 
+The page-offset rewrite applies to a register function-wide, live or not (13
+registers in `timed`, one of them holding a stack address), so an offset-only
+change through one of them reads IDENTICAL. `--no-pageoff` keeps every
+offset. Every IDENTICAL arm in the record section also compares IDENTICAL
+with the rewrite disabled but one: the G cut's outlined-`vec!` arm, where
+`ingest2::run` loads one 16-byte constant from 0x80 lower in the same page
+(`[x26, #0x820]` for `#0x8a0`, an `adrp` base) at three sites.
+
 **Default function: `ingest2::timed`**, the harness's out-of-line timed loop.
 `--fn ingest2::main` reads a harness from before it was outlined, where the
 whole of `main` differs whenever the setup does, so it cannot isolate the loop.
@@ -36,15 +47,21 @@ whole of `main` differs whenever the setup does, so it cannot isolate the loop.
 **Controls.** `--self-test` runs the normaliser on synthetic bodies: the same
 body at two addresses with different call and page targets must compare equal,
 and one changed register, one added stack reload, or an immediate off a
-register no `adr` writes must not. On real binaries (docs/record.md, the
+register no `adr` writes must not; the two page offsets that compare equal
+must differ under `--no-pageoff`; and a name that two functions share must
+exit 2. On real binaries (docs/record.md, the
 section named above): two byte-identical builds report IDENTICAL, and so does
 a setup-only change (the cluster `vec!` outlined, or `NCLUSTER` raised); a
 change to `Term`'s layout (32,776 unread bytes added to `ClusterStore`)
-reports DIFFER, because the loop addresses `Term`'s fields by offset.
+reports DIFFER: the function's frame grows from 0x340 to 0x390 bytes and its
+registers are allocated anew; no instruction in that diff differs only in an
+offset off a non-stack register.
 """
 
+import contextlib
 import difflib
 import hashlib
+import io
 import re
 import subprocess
 import sys
@@ -67,28 +84,35 @@ def disasm(path):
 
 
 def functions(lines):
-    """{name: [(addr, text)]} from objdump's `<name>:` headers."""
-    fs, cur = {}, None
+    """({name: [(addr, text)]}, {name: count}) from objdump's `<name>:` headers.
+
+    Demangling can give several functions one name (`finish_grow`); their
+    bodies would merge under one key, so each such name is counted."""
+    fs, dup, cur = {}, {}, None
     for line in lines:
         m = re.match(r"^([0-9a-f]+) <(.+)>:$", line.strip())
         if m:
             cur = m.group(2)
+            if cur in fs:
+                dup[cur] = dup.get(cur, 1) + 1
             fs.setdefault(cur, [])
             continue
         m = re.match(r"^\s*([0-9a-f]+):\s+(.*)$", line)
         if cur is not None and m:
             fs[cur].append((int(m.group(1), 16), m.group(2).strip()))
-    return fs
+    return fs, dup
 
 
-def find(fs, name, path):
+def find(fs, dup, name, path):
+    if name in dup:
+        fail(f"{name!r} names {dup[name]} functions in {path}")
     if name in fs:
         return name
     near = [n for n in fs if n.endswith("::" + name.split("::")[-1])]
     fail(f"no function named {name!r} in {path}; ending alike: {near[:5]}")
 
 
-def normalise(body, name):
+def normalise(body, name, pageoff=True):
     if not body:
         return []
     base = body[0][0]
@@ -99,6 +123,8 @@ def normalise(body, name):
         m = re.match(r"^adrp?\s+([wx]\d+),", text)
         if m:
             paged.add("x" + m.group(1)[1:])
+    if not pageoff:
+        paged = set()
     out = []
     for addr, text in body:
         t = re.sub(r"\s+;.*$", "", text).strip()
@@ -166,31 +192,56 @@ def self_test():
     e = list(b)
     e[2] = (0x2008, "add\tx8, x9, #0x140")
     assert normalise(e, name) != na, "an add off another register keeps its immediate"
-    print("self-test: 4 of 4 hold")
+    assert normalise(a, name, False) != normalise(b, name, False), "--no-pageoff keeps page offsets"
+    lines = [
+        "0000000100001000 <alloc::raw_vec::finish_grow>:",
+        "100001000: ret",
+        "0000000100002000 <alloc::raw_vec::finish_grow>:",
+        "100002000: ret",
+    ]
+    fs, dup = functions(lines)
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            find(fs, dup, "alloc::raw_vec::finish_grow", "synthetic")
+        raise AssertionError("a name two functions share must exit 2")
+    except SystemExit as x:
+        assert x.code == 2, "a name two functions share must exit 2"
+    print("self-test: 6 of 6 hold")
 
 
 def main(argv):
     if argv == ["--self-test"]:
         self_test()
         return 0
-    name = "ingest2::timed"
-    if argv[:1] == ["--fn"]:
-        name, argv = argv[1], argv[2:]
+    name, pageoff = "ingest2::timed", True
+    while argv[:1] in (["--fn"], ["--no-pageoff"]):
+        if argv[0] == "--no-pageoff":
+            pageoff, argv = False, argv[1:]
+        elif len(argv) > 1:
+            name, argv = argv[1], argv[2:]
+        else:
+            fail(__doc__)
     if len(argv) not in (1, 2):
         fail(__doc__)
-    norms = []
+    form = "page offsets normalised" if pageoff else "page offsets kept"
+    norms, kept = [], []
     for path in argv:
-        fs = functions(disasm(path))
-        n = find(fs, name, path)
-        norm = normalise(fs[n], n)
+        fs, dup = functions(disasm(path))
+        n = find(fs, dup, name, path)
+        norm = normalise(fs[n], n, pageoff)
         describe(path, n, norm)
         norms.append(norm)
+        kept.append(normalise(fs[n], n, False))
     if len(norms) == 1:
         return 0
     if norms[0] == norms[1]:
-        print("IDENTICAL")
+        if pageoff:
+            also = "IDENTICAL" if kept[0] == kept[1] else "DIFFER"
+            print(f"IDENTICAL ({form}; with page offsets kept: {also})")
+        else:
+            print(f"IDENTICAL ({form})")
         return 0
-    print("DIFFER")
+    print(f"DIFFER ({form})")
     for l in difflib.unified_diff(norms[0], norms[1], argv[0], argv[1], lineterm="", n=2):
         print(l)
     return 1
