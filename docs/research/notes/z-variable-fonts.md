@@ -179,12 +179,13 @@ its source rather than recalled (`[[source: harfbuzz-12-3-0-gvar]]`,
 |---|---|---|
 | the API | `Face::outline` refuses a varied glyph with `Drawn::NeedsScratch(need)`; `Face::outline_at` draws it | B, 0.50 -- the same |
 | malformed data part-way through a glyph | as HarfBuzz: the flushes already done stay, the pending deltas go | B (default outline), 0.26 |
-| anchored components | as the default path: offset 0, the delta read and not applied | B (match points), 0.57 |
-| SCALED_COMPONENT_OFFSET | as the default path: ignored | B (honour), 0.18 |
+| anchored components | ~~as the default path: offset 0, the delta read and not applied~~ matched on both paths, as the text defines it (step 7) | B (match points), 0.57 |
+| SCALED_COMPONENT_OFFSET | ~~as the default path: ignored~~ honoured on both paths (step 7); neither flag, the text's open default, stays unscaled for Jev | B (honour), 0.18 |
 
 The last two leave the varied path agreeing with the default one; neither
 reaches any of the fixture fonts' 3,599 components, so neither is measured.
 Honouring them is a change to both paths at once, and it is on TODO.
+~~On TODO.~~ Built in step 7, against a fixture that reaches both.
 
 **The shift is by the left phantom's delta, not its position.** Phantom
 points start at 0, so the shift is the delta alone and a glyph whose deltas
@@ -687,3 +688,152 @@ fallback placements at four weights are HarfBuzz's
 (`tests/var/marks.txt`, 80 varied rows, `every_mark_position_is_harfbuzzs`),
 and `baud-render/tests/varied_face.rs` holds the atlas, the layered glyph,
 the renderer's placement and the two refusals.
+
+
+## Step 7, built: matched points and scaled offsets, on both paths
+
+Step 2 left two component rules as the default path had them -- a
+component placed by points sat at offset 0, and SCALED_COMPONENT_OFFSET was
+ignored -- because no component of any font here reached either. None
+does still: of about 2.11 million components in `/System/Library/Fonts` and the
+fonts `baud-font/tests` held before this step, none is placed by points and
+none carries bit 11 alone (132 carry bit 12). That scan's positive control is the fixture built for
+this step, `var/component-cases.ttf` (`scripts/component-cases-font.py`),
+in which it finds exactly the 16 matched, 6 scaled, 1 unscaled and 1
+both-flags components of the 58 the script builds.
+
+**What the texts say, and what is built**
+(`[[source: ms-opentype-glyf]]`, `[[source: ms-opentype-gvar]]`,
+`[[source: ms-opentype-tt-instructing-glyphs]]`, `[[source: apple-ttrm-glyf]]`,
+`[[source: apple-ttrm-glyf-formulas]]`):
+
+* **Points.** The parent's point is "from contours incorporated and
+  re-numbered from previous component glyphs", the child's is "prior to
+  re-numbering", "phantom points from the parent or the child may be
+  referenced", and "the transformation is applied to the child's point
+  before the points are aligned"; a point-matched slot's deltas "have no
+  effect". Built: the child, varied and through its matrix, is translated
+  to lay its point on the parent's, numbered from the composite's own first
+  point; a child's left and right phantoms, numbered after its points
+  (n and n+1), are reachable, and so are the parent's own, numbered after
+  the points incorporated so far ("Phantom point numbers follow after the
+  last point number of the last contour"), as the component finds them --
+  an earlier USE_MY_METRICS component's, not yet its own, which the gvar
+  text's order sets after the component is placed. A composite's own left
+  and advance phantoms take only their X deltas and its vertical ones only
+  their Y ("For AW and LSB points, apply the net X delta adjustments, and
+  ignore Y deltas. For AH and TSB points, apply the net Y delta
+  adjustments, and ignore X deltas"), which shows once one is a point a
+  component aligns on. No fixture case has a component align on phantoms
+  an earlier USE_MY_METRICS component installed; `anchpadv` holds only
+  that its own do not count yet. Its drawing at 650 and 900 rests on that
+  order: the process applies the composite's phantom deltas first ("note
+  that the phantom point positions may be later overridden by a
+  component") and replaces them at the USE_MY_METRICS component's own
+  step, after it is positioned, which the summary states as "delta values
+  for the composite glyph's phantom points are not used". The phantoms now
+  start where HarfBuzz starts them, `(xMin - lsb, 0)` and an advance along,
+  and the top-level shift is the left one's movement, as before.
+* **Scaled offsets.** Bit 11 alone: the offset is "in the component glyph's
+  coordinate system, and the scale transformation is applied to both
+  values", and "it is the delta-adjusted offsets that are scaled". Built:
+  the offset, moved by its delta, goes through the matrix with the points.
+* **The default instance** cannot stream a glyph whose alignment reads
+  points already emitted, so `Face::outline` refuses a tree that matches
+  points with `Drawn::NeedsScratch`, found by the walk composites already
+  took for the edge bound, and `Face::outline_at` draws it by the walk a
+  varied glyph takes, without deltas. The atlas and the shaper's boxes
+  draw through `outline_at` since step 6, so they draw these too.
+
+**Against HarfBuzz 12.3.0 and FreeType 2.14.3**
+(`tests/var/components.txt`, `scripts/component-oracle.py`;
+`[[source: harfbuzz-12-3-0-glyph]]`, `[[source: harfbuzz-12-3-0-composite-glyph]]`,
+`[[source: freetype-2-14-3-ttgload]]`), every glyph at the default and at
+three weights. The two agree, within FreeType's half-unit rounding of a
+varied point, on 19 of the fixture's 33 glyphs, and baud with both on 17 of
+those (the other two are `dot2` and `umm`, below); where they part, the
+text decides:
+
+| case | HarfBuzz | FreeType | the text, and baud |
+|---|---|---|---|
+| a child's left or advance phantom | aligned | refused, `invalid composite glyph` | "may be referenced": aligned |
+| a nested composite after another component | numbers the parent across the outer glyph | from the composite's own start | "a point number in the parent glyph": FreeType's |
+| bit 11 with a rotation, or a negative scale | the matrix | each column's magnitude, `FT_Hypot` | "the scale transformation is applied": the matrix |
+| bits 11 and 12 both | unscaled | scaled (reads bit 11 only) | "invalid ... default behavior": unscaled |
+| a composite child's left phantom with a Y delta | moved by it | refused | "ignore Y deltas": not moved |
+| the parent's left or advance phantom, n or n+1 after the points so far | the child's own points, aligned | refused | "Phantom points from the parent ... may be referenced", numbered "after the last point number of the last contour": the parent's |
+| a parent point past every point HarfBuzz holds | offset 0 | refused | open: offset 0, as before (Jev, below) |
+| a parent point past the parent's left and advance phantoms but within the child's, or the first component matched | the child's own points, aligned | refused | open: offset 0, as before (Jev, below) |
+| a child's top phantom | aligned, `(0, yMax)` | refused | open: offset 0 (Jev, below) |
+
+Both engines also shift a top-level glyph whose xMin is not its lsb by the
+difference -- `dot2`, and `umm`, which takes `dot2`'s phantoms under
+USE_MY_METRICS -- which baud has never done (step 2's shift is the
+movement); the test holds those two to baud's own default drawing, and the
+difference is recorded, not changed here.
+
+**For Jev, where the texts leave it open (each kept as it was; 2 is
+built where the text turned out to define it):**
+
+1. *Neither scaled-offset flag, and both.* (A) unscaled: the default the
+   Microsoft text recommends and says Microsoft and Apple platforms take,
+   HarfBuzz's and FreeType's default; conforms to the Microsoft text.
+   (B) Apple's: the offset scaled by `m` and `n` (x' = a·x + c·y + m·e,
+   y' = b·x + d·y + n·f, m₀ = max(|a|, |b|), doubled when ||a| - |c|| ≤
+   33/65536, and n₀ = max(|c|, |d|), doubled when ||b| - |d|| ≤
+   33/65536); conforms to Apple's text, which has no bits 11
+   and 12. (C) the full matrix, as bit 11; conforms to neither for this
+   case. Kept: A. Both flags set follow the same answer, the text calling
+   them invalid and giving the default.
+2. *A parent point past the earlier components' points.* (A) no
+   alignment, the component where its matrix put it -- as before, and
+   HarfBuzz's for a number past everything it holds. (B) the glyph refused,
+   FreeType's. (C) the parent's own phantoms numbered after the points so
+   far, n to n+3, a reading of "phantom points from the parent may be
+   referenced" with the instructing chapter's numbering. (D) HarfBuzz's,
+   the points it holds including the child's own; departs, since those are
+   not the parent's. ~~None is the text's. Kept: A.~~ C is the text's
+   most direct reading ("Phantom points from the parent or the child may
+   be referenced"; "Phantom point numbers follow after the last point
+   number of the last contour"), the parent's points being those "from
+   contours incoporated and re-numbered from previous component glyphs".
+   **Built: C**, for the left and advance phantoms, n and n+1 (`anchself`,
+   `anchpadv`, `anchplx`). What stays open is a number past those: n+2 and
+   n+3 are the parent's vertical phantoms, under 4 with the child's
+   (`anchptop`), and a number past n+3 names no point the text defines --
+   (A) offset 0, as before, (B) refused, (D) HarfBuzz's, the child's own
+   point where it holds one; the text neither asks for nor forbids any of
+   the three. Kept: A, for Jev.
+3. *The first component placed by points*, which the text says must not
+   be ("This flag must always be set for the first component of a
+   composite glyph"). It has no parent points but the parent's phantoms,
+   which C would number 0 to 3; (A) offset 0, as before, (C) aligned on
+   the parent's phantoms by C's numbering, or (E) the glyph refused as
+   malformed, the text's "must" read as a condition of validity. The text
+   says what a font must do and not what a reader does with one that does
+   not, so none conforms or departs. Kept: A.
+4. *A child's or the parent's vertical phantoms.* (A) no alignment, as
+   before. (B) `vmtx` read, and HarfBuzz's positions: `(0, yMax + tsb)`
+   and an advance height below, `(0, yMax)` and `(0, yMax - upem)` with no
+   `vmtx`; the text names the points (top origin, advance height) but no x
+   and no rule without `vmtx`. (C) refused, FreeType's for every phantom.
+   Kept: A.
+5. *Where a USE_MY_METRICS component's phantoms are taken from*, now that
+   a later component can align on them. The gvar text says "the positions
+   of phantom points for the composite glyph are set to the hinted
+   positions of the component's phantom points", and not whether those are
+   the component's own, before its offset and matrix, or where they land
+   once it is placed. (A) before it is placed: as built, and HarfBuzz's.
+   (B) after its offset, matrix and alignment. The text reads either way,
+   so neither conforms or departs. Kept: A. The two part through the
+   top-level shift, which follows the composite's left phantom: copied
+   after placement, `anchpadv` shifts left by its dot's placement (580 to
+   610 units) and 44 of the 1,098 sampled outlines of `var.rs` part from
+   HarfBuzz's (A); a form of (B) that moves the phantom's start with it
+   shows on neither, since the shift is then the phantom's movement before
+   it was placed, as under (A). No case has a later component align on
+   those phantoms.
+
+`ROUND_XY_TO_GRID` is a grid-fitting rule, and nothing here fits to a grid.
+The bake still refuses a matched or scaled component; it writes a font,
+and these would need writing out as offsets first.

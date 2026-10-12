@@ -531,7 +531,9 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
 
     /// Hands the shaper scratch for the glyph boxes the fallback mark
     /// placement reads: a face read at a variation draws its glyphs only
-    /// through [`Face::outline_at`], and a box it is refused is counted in
+    /// through [`Face::outline_at`], as any face draws a composite that
+    /// places a component by matched points, and a box it is refused is
+    /// counted in
     /// [`Shaped::ink_refused`] with the size that would have drawn it.
     pub fn scratch(&mut self, scratch: &'b mut [VarPoint]) {
         self.scratch = scratch;

@@ -110,6 +110,38 @@ fn the_atlas_draws_a_varied_glyph_at_its_coordinates() {
     assert_eq!(texels(&atlas, s), default);
 }
 
+/// **A composite that matches points is drawn through scratch at the
+/// default instance too.** `anch` in `var/component-cases.ttf`
+/// (`scripts/component-cases-font.py`) lays a bar's first point on a
+/// triangle's apex; `Face::outline` refuses it, since the alignment reads
+/// points a stream has given away, and the atlas draws what `outline_at`
+/// draws -- the bar on the apex, not at the origin.
+#[test]
+fn the_atlas_draws_a_matched_composite_at_the_default_instance() {
+    let data = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../baud-font/tests/var/component-cases.ttf"
+    ))
+    .unwrap();
+    let face = Face::parse(&data).unwrap();
+    // `anch` is the sixth glyph, mapped from U+0046 in the fixture.
+    let anch = glyph(&face, 0x46);
+    let mut sink = Bounds::new();
+    assert!(
+        matches!(face.outline(anch, &mut sink), Drawn::NeedsScratch(_)),
+        "the premise: the stream refuses it"
+    );
+    let scale = Scale::of(40.0, face.units_per_em());
+    let (want, w, h) = mask_of(&face, anch, scale);
+    let mut atlas = Atlas::new();
+    let s = atlas
+        .slot(&face, FaceIx::PRIMARY, anch, scale, Phase::ZERO)
+        .expect("a matched composite draws");
+    assert_eq!((u32::from(s.w.0), u32::from(s.h.0)), (w, h));
+    assert_eq!(texels(&atlas, s), want);
+    assert_eq!(atlas.stats().refused.value(), 0);
+}
+
 /// **A glyph past the scratch budget is refused, counted once, and never
 /// taken for blank.** `heavy` flattens to 240,000 points, past
 /// `VAR_POINTS_MAX` (and past HarfBuzz's own 200,000-point bound): at wght

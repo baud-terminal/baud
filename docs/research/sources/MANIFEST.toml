@@ -1627,12 +1627,19 @@ year   = 2026
 venue  = "OpenType specification 1.9.1, learn.microsoft.com"
 url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/glyf"
 file   = ""
-sha256 = "8c0afec56bb82f67f37d0fa5a8b13929ed23ad029116a1c3d89c4fe8bde25e1a"
-bytes  = 77932
+sha256 = "f20773354b1838589212a68597b1ae9098e646f2eadad058c021cbd28c1d553b"
+bytes  = 77582
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-10-11: a fetch no longer gives the first pin's bytes, and
+# whether the page changed or only its chrome is not known. The fresh fetch
+# was read for the composite rules baud-font's glyf.rs builds: the component
+# flags table (bits 1, 11 and 12), the paragraph on ARGS_ARE_XY_VALUES clear
+# ("Phantom points from the parent or the child may be referenced"), and the
+# one on SCALED_COMPONENT_OFFSET and UNSCALED_COMPONENT_OFFSET ("this
+# behavior is recommended for all rasterizer implementations").
 
 [sources.ms-opentype-cff]
 key    = "ms-opentype-cff"
@@ -1781,12 +1788,17 @@ year   = 2026
 venue  = "OpenType specification 1.9.1, learn.microsoft.com"
 url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/gvar"
 file   = ""
-sha256 = "ffe478897ca306ae1c8d8a6f4244a6dea41380411c0f8fb5495971bfae82c4a8"
-bytes  = 83755
+sha256 = "e331340853c0ee96d0037dfda514189a719a994d5f3533cb8332e99931e711ec"
+bytes  = 83405
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-10-11: a fetch no longer gives the first pin's bytes, and
+# whether the page changed or only its chrome is not known. The fresh fetch
+# was read for "Point numbers and processing for composite glyphs": deltas
+# for a point-matched component have no effect, and "if positioning offsets
+# are scaled, it is the delta-adjusted offsets that are scaled".
 
 [sources.ms-opentype-avar]
 key    = "ms-opentype-avar"
@@ -1957,12 +1969,73 @@ year   = 2026
 venue  = "developer.apple.com/fonts"
 url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6glyf.html"
 file   = ""
-sha256 = "e16e3eca942cc254badcae7cc5e1fa38a6c36828b2d4d5c81878b3aec52edaf2"
-bytes  = 121206
+sha256 = "37a315c433e7a7673aee6637c66401440ca80a640dc0ae0a82475cad4b112ea4"
+bytes  = 120080
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-10-11: a fetch no longer gives the first pin's bytes, and
+# whether the page changed or only its chrome is not known. The fresh fetch
+# was read for its compound-glyph rules: Table 18 stops at bit 10 (no
+# SCALED_COMPONENT_OFFSET or UNSCALED_COMPONENT_OFFSET), the arguments are
+# "index of matching point in compound being constructed" and "in
+# component", and e and f are scaled by m and n, whose formula is an image
+# (apple-ttrm-glyf-formulas).
+
+[sources.apple-ttrm-glyf-formulas]
+key    = "apple-ttrm-glyf-formulas"
+title  = "TrueType Reference Manual, chapter 6: the 'glyf' table -- the compound transform's formula (Formulas_glyf.png)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/fonts"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Formulas_glyf.png"
+file   = ""
+sha256 = "7f5c9f09482a6491c08b43f6adc13c33893cea0328289d0f0abcb356d7551879"
+bytes  = 31170
+status = "external"
+group  = "J"
+# Read 2026-10-11; hash-verified, not committed. The image apple-ttrm-glyf's
+# page draws for its compound transform, which its text does not spell out:
+# x' = m((a/m)x + (c/m)y + e), y' = n((b/n)x + (d/n)y + f) -- an offset
+# scaled by m and n, which the page defines from the matrix.
+
+[sources.ms-opentype-tt-instructing-glyphs]
+key    = "ms-opentype-tt-instructing-glyphs"
+title  = "Instructing TrueType Glyphs -- phantom points"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/tt_instructing_glyphs"
+file   = ""
+sha256 = "87bc107df092035dd7df825b680e16bc3ac81a213c65c13aed9f22acc2c141dc"
+bytes  = 77190
+status = "external"
+group  = "J"
+# Read 2026-10-11 for "Phantom points": a glyph of n points has phantoms n to
+# n+3, the left sidebearing point, the advance width point, the top origin
+# and the advance height point. Hash-verified, not committed -- a vendor HTML
+# page whose spec text is a fraction of its chrome.
+
+[sources.freetype-2-14-3-ttgload]
+key    = "freetype-2-14-3-ttgload"
+title  = "FreeType 2.14.3: src/truetype/ttgload.c -- TT_Process_Composite_Component, point matching and scaled offsets"
+author = "The FreeType Project (FTL / GPL-2.0)"
+year   = 2026
+venue  = "gitlab.freedesktop.org/freetype/freetype @ VER-2-14-3"
+url    = "https://gitlab.freedesktop.org/freetype/freetype/-/raw/VER-2-14-3/src/truetype/ttgload.c"
+file   = ""
+sha256 = "627e20092871f554c7eaf719e56dac72497d2d9a1a91b5919ac78bcf74d84deb"
+bytes  = 81037
+status = "external"
+group  = "J"
+# Read 2026-10-11, hash-verified, not committed: the release freetype-py
+# loads in scripts/component-oracle.py. A matched parent point is numbered
+# from the composite's own start and must be one of the earlier components'
+# (k >= num_base_points is Invalid_Composite), a child point must be an
+# outline point (no phantoms), and SCALED_COMPONENT_OFFSET scales the offset
+# by FT_Hypot of each matrix column rather than through the matrix, the
+# default unscaled unless TT_CONFIG_OPTION_COMPONENT_OFFSET_SCALED.
 
 [sources.apple-ttrm-cmap]
 key    = "apple-ttrm-cmap"

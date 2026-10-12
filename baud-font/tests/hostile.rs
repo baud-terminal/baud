@@ -39,6 +39,10 @@ const HVAR_CASES: &[u8] = include_bytes!("var/hvar/cases.ttf");
 const PHANTOM_CASES: &[u8] = include_bytes!("var/hvar/phantom.ttf");
 const JETBRAINS_VAR: &[u8] = include_bytes!("fonts/JetBrainsMono-Variable.ttf");
 const BAKE_CASES: &[u8] = include_bytes!("var/bake/cases.ttf");
+/// Composites placed by matched points and by scaled offsets, which the
+/// default instance draws only through scratch: a flipped byte lands in a
+/// point number, a flag word or a phantom's metrics.
+const COMPONENT_CASES: &[u8] = include_bytes!("var/component-cases.ttf");
 
 /// Bakes `data` at two weights into a buffer that may be too small, and
 /// then into one of the length it asked for; the answers are not the
@@ -128,6 +132,17 @@ fn exercise(data: &[u8]) {
             let _ = face.advance(g);
             let _ = face.side_bearing(g);
             let _ = face.outline(g, &mut Null);
+            // A glyph that matches points needs scratch at the default
+            // instance too, and the need must not be short.
+            let need = face.outline_need(g).value();
+            if need <= 1 << 16 {
+                let mut scratch = vec![baud_font::VarPoint::EMPTY; usize::try_from(need).unwrap()];
+                let drawn = face.outline_at(g, &mut scratch, &mut Null);
+                assert!(
+                    !matches!(drawn, baud_font::Drawn::NeedsScratch(_)),
+                    "the default need was short: {need}"
+                );
+            }
         }
         for g in 0..count.min(256) {
             let _ = face.is_colour(baud_domain::GlyphId::from_shaper(u16::try_from(g).unwrap()));
@@ -374,6 +389,22 @@ proptest! {
     #[test]
     fn a_truncated_variable_face_never_panics(len in 0usize..GVAR_CASES.len()) {
         exercise(&GVAR_CASES[..len]);
+    }
+
+    #[test]
+    fn a_mutated_component_face_never_panics(
+        flips in proptest::collection::vec((0usize..COMPONENT_CASES.len(), any::<u8>()), 1..8)
+    ) {
+        let mut data = COMPONENT_CASES.to_vec();
+        for (at, byte) in flips {
+            data[at] = byte;
+        }
+        exercise(&data);
+    }
+
+    #[test]
+    fn a_truncated_component_face_never_panics(len in 0usize..COMPONENT_CASES.len()) {
+        exercise(&COMPONENT_CASES[..len]);
     }
 
     #[test]

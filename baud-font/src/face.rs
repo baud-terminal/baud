@@ -20,7 +20,7 @@ use crate::bytes::{Bytes, Count, Index, Len, Offset};
 use crate::cff::Cff;
 use crate::cmap::{Cmap, Variation};
 use crate::colr::{Colr, Cpal, Layers, Palette, PaletteEntry, Rgba};
-use crate::glyf::{Glyf, Loca, LocaFormat};
+use crate::glyf::{Glyf, Loca, LocaFormat, Streamed};
 use crate::gpos::Gpos;
 use crate::gsub::Gsub;
 use crate::layout::Gdef;
@@ -795,13 +795,18 @@ impl<'a> Face<'a> {
         Some((self.glyf?, self.gvar?))
     }
 
-    /// How many [`crate::VarPoint`]s [`Face::outline_at`] needs for
-    /// `g`: 0 when the face is at its default instance, has no `gvar`, or
-    /// the glyph is malformed -- the cases that draw without scratch.
+    /// How many [`crate::VarPoint`]s [`Face::outline_at`] needs for `g`:
+    /// at a variation, what the varied walk needs; at the default instance,
+    /// what a glyph that places a component by matched points needs, since
+    /// only that walk can align it; and 0 for everything else -- a glyph
+    /// that draws without scratch, a face with no `glyf` or `gvar` to vary,
+    /// or a glyph the walk refuses.
     pub fn outline_need(&self, g: GlyphId) -> Count {
-        self.varying()
-            .and_then(|(glyf, _)| glyf.need(g))
-            .unwrap_or(Count::ZERO)
+        match self.varying() {
+            Some((glyf, _)) => glyf.need(g),
+            None => self.glyf.and_then(|glyf| glyf.matched_need(g)),
+        }
+        .unwrap_or(Count::ZERO)
     }
 
     /// The outline of `g` into `sink`, in font units, unflattened: quadratic
@@ -809,9 +814,12 @@ impl<'a> Face<'a> {
     /// second, which is the order the reference readers use. `Drawn::Nothing`
     /// for a glyph with no contours, no data, or a malformed description.
     ///
-    /// **A face read at a variation refuses here**: a TrueType glyph whose
-    /// outline varies answers `Drawn::NeedsScratch` and draws nothing, rather
-    /// than the default instance in its place. [`Face::outline_at`] draws it.
+    /// **A glyph that needs scratch is refused here**, answered
+    /// `Drawn::NeedsScratch` with nothing drawn, and [`Face::outline_at`]
+    /// draws it: at a variation, every TrueType glyph whose outline varies,
+    /// rather than the default instance in its place; at the default
+    /// instance, a composite that places a component by matched points,
+    /// whose alignment reads points a stream has given away.
     pub fn outline<S: Sink>(&self, g: GlyphId, sink: &mut S) -> Drawn {
         if let Some((glyf, _)) = self.varying() {
             return match glyf.need(g) {
@@ -824,7 +832,11 @@ impl<'a> Face<'a> {
             drawn: Drawn::Nothing,
         };
         let parsed = if let Some(glyf) = &self.glyf {
-            glyf.outline(g, &mut counting)
+            match glyf.outline(g, &mut counting) {
+                Some(Streamed::Drawn) => Some(()),
+                Some(Streamed::NeedsScratch(need)) => return Drawn::NeedsScratch(need),
+                None => None,
+            }
         } else if let Some(cff) = &self.cff {
             cff.outline(g, &mut counting)
         } else {
@@ -837,21 +849,28 @@ impl<'a> Face<'a> {
     }
 
     /// The outline of `g` at the face's coordinates, with `scratch` for a
-    /// varied glyph: [`Face::outline`] when the face is at its default
-    /// instance, else the glyph's `gvar` deltas applied (HarfBuzz's flattening, with the left phantom's delta as the shift;
-    /// the rules are on `Glyf::outline_varied`). `Drawn::NeedsScratch` when
-    /// `scratch` holds fewer points than [`Face::outline_need`] says.
+    /// glyph that needs it: [`Face::outline`] for one that does not, else
+    /// the walk that flattens the glyph's components -- with its `gvar`
+    /// deltas at a variation (HarfBuzz's flattening, with the left
+    /// phantom's delta as the shift), without them at the default instance
+    /// for a glyph that matches points; the rules are on
+    /// `Glyf::outline_varied`. `Drawn::NeedsScratch` when `scratch` holds
+    /// fewer points than [`Face::outline_need`] says.
     pub fn outline_at<S: Sink>(
         &self,
         g: GlyphId,
         scratch: &mut [crate::VarPoint],
         sink: &mut S,
     ) -> Drawn {
-        let Some((glyf, gvar)) = self.varying() else {
-            return self.outline(g, sink);
-        };
-        let Some(need) = glyf.need(g) else {
-            return Drawn::Nothing;
+        let (glyf, gvar, need) = match self.varying() {
+            Some((glyf, gvar)) => match glyf.need(g) {
+                Some(need) => (glyf, Some(gvar), need),
+                None => return Drawn::Nothing,
+            },
+            None => match (self.outline(g, sink), self.glyf) {
+                (Drawn::NeedsScratch(need), Some(glyf)) => (glyf, None, need),
+                (drawn, _) => return drawn,
+            },
         };
         if scratch.len() < need.slot() {
             return Drawn::NeedsScratch(need);
@@ -860,7 +879,12 @@ impl<'a> Face<'a> {
             inner: sink,
             drawn: Drawn::Nothing,
         };
-        match glyf.outline_varied(g, gvar, &self.coords, scratch, &mut counting) {
+        let hmtx = |g: GlyphId| {
+            let advance = i32::from(self.default_advance(g)?.0);
+            let lsb = self.side_bearing(g).map_or(0, |b| i32::from(b.value()));
+            Some((advance, lsb))
+        };
+        match glyf.outline_varied(g, gvar, &self.coords, &hmtx, scratch, &mut counting) {
             Some(()) => counting.drawn,
             None => Drawn::Nothing,
         }

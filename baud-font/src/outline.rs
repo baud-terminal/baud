@@ -29,10 +29,12 @@ pub trait Sink {
 pub enum Drawn {
     Outline,
     Nothing,
-    /// A glyph whose outline varies at the face's coordinates, asked for
-    /// without scratch or with too little: it needs this many points of
+    /// A glyph that can be drawn only through scratch, asked for without it
+    /// or with too little: one whose outline varies at the face's
+    /// coordinates, or, at any instance, a composite that places a
+    /// component by matched points. It needs this many points of
     /// [`crate::VarPoint`], and nothing was drawn -- never the default
-    /// instance in its place.
+    /// instance, or the component at offset 0, in its place.
     NeedsScratch(crate::bytes::Count),
 }
 

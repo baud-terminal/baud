@@ -896,7 +896,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// How many glyph boxes the fallback mark placement of a face with no
     /// `GPOS` was refused, cumulative: a face read at a variation draws a
-    /// glyph only through scratch, the renderer grows it to the need the
+    /// glyph only through scratch, as any face draws a composite that
+    /// matches points, the renderer grows it to the need the
     /// shaper reports and shapes the run again, and a need past
     /// [`crate::atlas::VAR_POINTS_MAX`] is refused -- its marks stay at the
     /// pen -- and counted here. Counted each time a run is shaped, for

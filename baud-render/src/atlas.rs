@@ -67,11 +67,12 @@ pub const VAR_POINTS_MAX: u32 = 200_000;
 
 /// `id`'s outline at the face's coordinates into `sink`. A glyph that
 /// needs scratch -- a face read at a variation draws only through
-/// [`Face::outline_at`] -- answers [`Drawn::NeedsScratch`] with nothing
-/// drawn, and `var` grows to exactly that need and the glyph is drawn
-/// again, unless the need is past [`VAR_POINTS_MAX`]: then the refusal is
-/// the answer, for the caller to count. A face at its default instance
-/// never asks, so a static face's glyph pays nothing.
+/// [`Face::outline_at`], and so does a composite that places a component
+/// by matched points, at any instance -- answers [`Drawn::NeedsScratch`]
+/// with nothing drawn, and `var` grows to exactly that need and the glyph
+/// is drawn again, unless the need is past [`VAR_POINTS_MAX`]: then the
+/// refusal is the answer, for the caller to count. Any other glyph of a
+/// face at its default instance never asks.
 fn outline<S: Sink>(var: &mut Vec<VarPoint>, face: &Face<'_>, id: GlyphId, sink: &mut S) -> Drawn {
     match face.outline_at(id, var, sink) {
         Drawn::NeedsScratch(need) if need.value() <= VAR_POINTS_MAX => {

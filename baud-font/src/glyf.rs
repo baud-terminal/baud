@@ -16,11 +16,31 @@
 //! coordinate array's length is derived from the flags before a point is
 //! read, so a lying flag cannot walk past the glyph.
 //!
-//! **What is deliberately not done.** Point-matching composites (arguments
-//! that name points rather than offsets) are read and placed at zero offset
-//! rather than matched -- FreeType matches them, the oracle does not read them
-//! at all, and no face on this Mac uses them; `SCALED_COMPONENT_OFFSET` and
-//! `ROUND_XY_TO_GRID` are ignored as every reference reader ignores them.
+//! **How a component is placed** is the specification's
+//! (`[[source: ms-opentype-glyf]]`, "Composite glyph description"). An
+//! offset is added after the component's matrix, or, with
+//! SCALED_COMPONENT_OFFSET alone, taken through it -- "deemed to be in the
+//! component glyph's coordinate system". With neither flag the text lets a
+//! rasteriser choose and recommends the unscaled offset, which Microsoft's,
+//! Apple's (by that text), HarfBuzz's and FreeType's defaults take; Apple's
+//! own reference (`[[source: apple-ttrm-glyf]]`) scales it by its `m` and
+//! `n`, so the choice is recorded for Jev and the unscaled one kept, for
+//! both flags set too, which the text calls invalid and gives the default.
+//! A component whose arguments name points -- ARGS_ARE_XY_VALUES clear --
+//! is aligned after its matrix: the parent's point, numbered across the
+//! components before it and then the parent's own left and right
+//! phantoms, onto the child's, its horizontal phantoms included. That
+//! needs the parent's points, which a stream into a sink has given away,
+//! so a glyph whose tree matches points is drawn only through scratch, by
+//! the walk a varied glyph takes ([`Glyf::outline`] refuses it with the
+//! need). What the text leaves open stays at offset 0, as every matched
+//! component was before: a point past the parent's phantoms, a vertical
+//! phantom of either glyph (no `vmtx` is read), and a first component that
+//! is not an offset. A composite's own phantoms take the deltas
+//! `[[source: ms-opentype-gvar]]` gives them -- X on the left and advance
+//! ones, Y on the two vertical ones -- which a matched component sees once
+//! the composite is its parent or its child. `ROUND_XY_TO_GRID` is a
+//! grid-fitting rule, and nothing here fits to a grid.
 
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
 use crate::gvar::{Gvar, Referenced, Track};
@@ -104,13 +124,36 @@ const PHANTOMS: u32 = 4;
 struct Reach {
     kept: Count,
     stack: Count,
+    matched: Matched,
 }
 
-/// The walk's shared state: the gvar table, the coordinates, and how many
-/// glyphs it has visited.
+/// Whether a glyph's tree places a component by matched points anywhere,
+/// so that it can be drawn only through scratch.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Matched {
+    No,
+    Yes,
+}
+
+/// What [`Glyf::outline`] did with a glyph it parsed: streamed it, or
+/// refused it because its tree matches points, with the scratch the walk
+/// that draws it needs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Streamed {
+    Drawn,
+    NeedsScratch(Count),
+}
+
+/// A glyph's advance and left side bearing, from `hmtx`, which places its
+/// first two phantom points.
+pub type Hmtx<'h> = &'h dyn Fn(GlyphId) -> Option<(i32, i32)>;
+
+/// The walk's shared state: the gvar table when the face is read at a
+/// variation, the coordinates, `hmtx`, and how many glyphs it has visited.
 struct Walk<'v, 'a> {
-    gvar: Gvar<'a>,
+    gvar: Option<Gvar<'a>>,
     coords: &'v VarCoords,
+    hmtx: Hmtx<'v>,
     edges: Edges,
 }
 
@@ -374,16 +417,33 @@ impl Component {
     fn use_my_metrics(self) -> bool {
         self.0 & 0x0200 != 0
     }
+    /// SCALED_COMPONENT_OFFSET (bit 11) without UNSCALED_COMPONENT_OFFSET
+    /// (bit 12): the offset is in the component's coordinates and goes
+    /// through its matrix. Neither bit, or both, which the text calls
+    /// invalid, is the default, the unscaled offset (open for Jev).
+    pub(crate) fn scaled_offset(self) -> bool {
+        self.0 & 0x1800 == 0x0800
+    }
+}
+
+/// How a composite record places its component: by the offset in its
+/// transform's `e` and `f`, or by aligning the parent's point onto the
+/// child's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Place {
+    Offset,
+    Points { parent: Index, child: Index },
 }
 
 /// One composite record, decoded: its flags, its glyph, and its transform
-/// with the x/y offset in `e` and `f` (zero for an anchored component, whose
-/// arguments name points rather than an offset).
+/// with the x/y offset in `e` and `f` (zero for a component placed by
+/// points, whose arguments are in `place`).
 #[derive(Clone, Copy)]
 pub(crate) struct Comp {
     pub(crate) flags: Component,
     pub(crate) glyph: GlyphId,
     pub(crate) t: Transform,
+    pub(crate) place: Place,
     /// Where the record ends in the glyph's body: after the last one, a
     /// composite's instructions follow.
     pub(crate) end: Offset,
@@ -409,12 +469,20 @@ impl<'a> Comps<'a> {
         let glyph: u16 = body.read(at.plus(Len::of(2))?)?;
         at = at.plus(Len::of(4))?;
         let mut t = Transform::IDENTITY;
+        let mut place = Place::Offset;
         if flags.words() {
             if flags.xy_values() {
                 let e: i16 = body.read(at)?;
                 let f: i16 = body.read(at.plus(Len::of(2))?)?;
                 t.e = f32::from(e);
                 t.f = f32::from(f);
+            } else {
+                let parent: u16 = body.read(at)?;
+                let child: u16 = body.read(at.plus(Len::of(2))?)?;
+                place = Place::Points {
+                    parent: Index::of(parent),
+                    child: Index::of(child),
+                };
             }
             at = at.plus(Len::of(4))?;
         } else {
@@ -423,6 +491,13 @@ impl<'a> Comps<'a> {
                 let f: u8 = body.read(at.plus(Len::of(1))?)?;
                 t.e = f32::from(i8::from_ne_bytes([e]));
                 t.f = f32::from(i8::from_ne_bytes([f]));
+            } else {
+                let parent: u8 = body.read(at)?;
+                let child: u8 = body.read(at.plus(Len::of(1))?)?;
+                place = Place::Points {
+                    parent: Index::of(parent),
+                    child: Index::of(child),
+                };
             }
             at = at.plus(Len::of(2))?;
         }
@@ -453,8 +528,28 @@ impl<'a> Comps<'a> {
             flags,
             glyph: GlyphId::from_shaper(glyph),
             t,
+            place,
             end: at,
         }))
+    }
+}
+
+impl Comp {
+    /// The transform that places the component in its parent when it is
+    /// placed by an offset: the matrix, then the offset -- through the
+    /// matrix first under SCALED_COMPONENT_OFFSET, so the offset is the
+    /// matrix applied to it, `(a·e + c·f, b·e + d·f)`.
+    fn offset_transform(&self) -> Transform {
+        if !self.flags.scaled_offset() {
+            return self.t;
+        }
+        let (e, f) = Transform {
+            e: 0.0,
+            f: 0.0,
+            ..self.t
+        }
+        .apply(self.t.e, self.t.f);
+        Transform { e, f, ..self.t }
     }
 }
 
@@ -680,11 +775,19 @@ enum Phantom<'a> {
     Composite(Bytes<'a>),
 }
 
-/// Four phantom points at 0, appended at `at`: none is drawn, none is a
-/// contour end, and only the left one's delta reaches the outline.
-fn push_phantoms(pts: &mut [VarPoint], at: &mut usize) -> Option<()> {
-    for _ in 0..PHANTOMS {
-        *pts.get_mut(*at)? = VarPoint::at(0.0, 0.0, OnCurve::Yes, LastPoint::No, Emit::No);
+/// Four phantom points appended at `at`, where HarfBuzz starts them: left
+/// at `(xMin - lsb, 0)` and right an advance along it, from `left` -- the
+/// specification's "left sidebearing point" and "advance width point"
+/// (`[[source: ms-opentype-tt-instructing-glyphs]]`) -- and the two
+/// vertical ones at 0, since no `vmtx` is read. None is drawn and none is
+/// a contour end; a matched component may align on the horizontal two, and
+/// only the left one's delta moves the outline.
+fn push_phantoms(pts: &mut [VarPoint], at: &mut usize, left: (i32, i32)) -> Option<()> {
+    let (x, advance) = left;
+    let place = [(x, 0), (x.checked_add(advance)?, 0), (0, 0), (0, 0)];
+    for (px, py) in place {
+        *pts.get_mut(*at)? =
+            VarPoint::at(px as f32, py as f32, OnCurve::Yes, LastPoint::No, Emit::No);
         *at += 1;
     }
     Some(())
@@ -714,20 +817,40 @@ impl<'a> Glyf<'a> {
         self.data.slice(at, len)
     }
 
-    /// Emits `g` into `sink`. `Some(())` when the glyph exists and parsed,
-    /// even if it drew nothing; `None` when it has no data or is malformed.
+    /// Emits `g` into `sink`. `Some(Streamed::Drawn)` when the glyph exists
+    /// and parsed, even if it drew nothing; `None` when it has no data or is
+    /// malformed.
     ///
-    /// A composite is walked once first, by [`Glyf::need`], which refuses
-    /// one past [`MAX_EDGES`] before anything is drawn: the draw streams
-    /// into `sink`, and a glyph refused half-way would leave half of it
-    /// there, where HarfBuzz draws none of it.
-    pub fn outline<S: Sink>(&self, g: GlyphId, sink: &mut S) -> Option<()> {
+    /// A composite is walked once first, by the walk [`Glyf::need`] takes,
+    /// which refuses one past [`MAX_EDGES`] before anything is drawn: the
+    /// draw streams into `sink`, and a glyph refused half-way would leave
+    /// half of it there, where HarfBuzz draws none of it. The same walk
+    /// finds a component placed by points anywhere in the tree, and such a
+    /// glyph is answered `Streamed::NeedsScratch` with nothing drawn: its
+    /// alignment reads points a stream has already given away, and
+    /// [`Glyf::outline_varied`] draws it.
+    pub fn outline<S: Sink>(&self, g: GlyphId, sink: &mut S) -> Option<Streamed> {
         let data = self.glyph(g)?;
         let contours: i16 = data.read(Offset::ZERO)?;
         if contours < 0 {
-            self.need(g)?;
+            let r = self.reach(g, Count::ZERO, &mut Edges(0))?;
+            if r.matched == Matched::Yes {
+                return Some(Streamed::NeedsScratch(r.kept.plus(r.stack)?));
+            }
         }
-        self.outline_into(data, Transform::IDENTITY, 0, sink)
+        self.outline_into(data, Transform::IDENTITY, 0, sink)?;
+        Some(Streamed::Drawn)
+    }
+
+    /// [`Glyf::need`] for a glyph whose tree places a component by points,
+    /// and so is drawn through scratch even at the default instance; `None`
+    /// for any other glyph, or one the walk refuses.
+    pub fn matched_need(&self, g: GlyphId) -> Option<Count> {
+        let r = self.reach(g, Count::ZERO, &mut Edges(0))?;
+        match r.matched {
+            Matched::Yes => r.kept.plus(r.stack),
+            Matched::No => None,
+        }
     }
 
     /// How many [`VarPoint`]s the varied outline of `g` needs, or `None`
@@ -749,6 +872,7 @@ impl<'a> Glyf<'a> {
             return Some(Reach {
                 kept: Count::of(PHANTOMS),
                 stack: Count::ZERO,
+                matched: Matched::No,
             });
         };
         let contours: i16 = data.read(Offset::ZERO)?;
@@ -760,12 +884,14 @@ impl<'a> Glyf<'a> {
             return Some(Reach {
                 kept: n,
                 stack: Count::ZERO,
+                matched: Matched::No,
             });
         }
         if contours == 0 {
             return Some(Reach {
                 kept: Count::of(PHANTOMS),
                 stack: Count::ZERO,
+                matched: Matched::No,
             });
         }
         let mut comps = Comps {
@@ -773,15 +899,20 @@ impl<'a> Glyf<'a> {
             at: Some(Offset::ZERO),
         };
         let (mut k, mut kept, mut deepest) = (Count::ZERO, Count::ZERO, Count::ZERO);
+        let mut matched = Matched::No;
         while let Some(c) = comps.next()? {
             k = k.plus(Count::of(1u32))?;
             let r = self.reach(c.glyph, Count::of(depth.value() + 1), edges)?;
             kept = kept.plus(r.kept.minus(Count::of(PHANTOMS))?)?;
             deepest = deepest.max(r.stack);
+            if r.matched == Matched::Yes || c.place != Place::Offset {
+                matched = Matched::Yes;
+            }
         }
         Some(Reach {
             kept: kept.plus(Count::of(PHANTOMS))?,
             stack: k.plus(Count::of(PHANTOMS))?.plus(deepest)?,
+            matched,
         })
     }
 
@@ -893,50 +1024,49 @@ impl<'a> Glyf<'a> {
     }
 
     /// The outline of `g` at `coords` into `sink`: its points moved by its
-    /// `gvar` tuples, its components flattened as HarfBuzz flattens them
-    /// (`Glyph::get_points` in `[[source: harfbuzz-12-3-0-glyph]]`), and the
-    /// whole shifted left by its left phantom point's delta. `scratch` must
-    /// hold [`Glyf::need`] points; `None` when it does not, or when the
+    /// `gvar` tuples when `gvar` is given, its components flattened and
+    /// placed as HarfBuzz flattens them (`Glyph::get_points` in
+    /// `[[source: harfbuzz-12-3-0-glyph]]`) and as the specification places
+    /// them (the module's doc), and the whole shifted left by its left
+    /// phantom point's delta. Without `gvar` it is the default instance of
+    /// a glyph that matches points, which only this walk can draw. `scratch`
+    /// must hold [`Glyf::need`] points; `None` when it does not, or when the
     /// glyph is malformed.
     ///
     /// **The shift is by the delta, not the position.** HarfBuzz shifts by
     /// the left phantom's final x, which is `xMin - lsb` plus its delta --
     /// 0 plus the delta in a font whose `xMin` is its left side bearing, as
-    /// every glyph of JetBrains Mono and Fira Code is (`head` bit 1). Phantom
-    /// points start at 0 here, so the shift is the delta alone and a glyph
-    /// whose deltas are 0 is drawn where the default path draws it.
-    ///
-    /// **Two component rules follow the default path, not HarfBuzz**:
-    /// an anchored component sits at offset 0 without point matching, its
-    /// offset's delta read and not applied; `SCALED_COMPONENT_OFFSET` is
-    /// ignored. None of the fixture fonts' 3,599 components uses either.
+    /// every glyph of JetBrains Mono and Fira Code is (`head` bit 1). The
+    /// phantoms start where HarfBuzz starts them, so a matched component
+    /// can align on them, and the shift is the left one's movement, so a
+    /// glyph whose deltas are 0 is drawn where the default path draws it.
     pub fn outline_varied<S: Sink>(
         &self,
         g: GlyphId,
-        gvar: Gvar<'a>,
+        gvar: Option<Gvar<'a>>,
         coords: &VarCoords,
+        hmtx: Hmtx<'_>,
         scratch: &mut [VarPoint],
         sink: &mut S,
     ) -> Option<()> {
-        let need = self.need(g)?;
-        let mut edges = Edges(0);
-        let r = self.reach(g, Count::ZERO, &mut edges)?;
-        if scratch.len() < need.slot() {
+        let r = self.reach(g, Count::ZERO, &mut Edges(0))?;
+        if scratch.len() < r.kept.plus(r.stack)?.slot() {
             return None;
         }
         let (all, stack) = scratch.split_at_mut(r.kept.slot());
         let mut walk = Walk {
             gvar,
             coords,
+            hmtx,
             edges: Edges(0),
         };
         let mut used = Count::ZERO;
-        self.varied(g, Count::ZERO, &mut walk, all, &mut used, stack)?;
+        let rest = self.varied(g, Count::ZERO, &mut walk, all, &mut used, stack)?;
         let end = used.slot();
         let pts = all.get_mut(..end)?;
         let (glyph, phantoms) = pts.split_at_mut(end.checked_sub(Count::of(PHANTOMS).slot())?);
         // HarfBuzz's "undocumented rasterizer behavior", at the top level.
-        let shift = phantoms.first()?.x;
+        let shift = phantoms.first()?.x - rest as f32;
         let mut contour = Contour {
             sink,
             transform: Transform::IDENTITY,
@@ -953,9 +1083,29 @@ impl<'a> Glyf<'a> {
         Some(())
     }
 
+    /// Where `g`'s left phantom starts, `xMin - lsb`, and its advance, the
+    /// right one's distance from it: HarfBuzz's `init_phantom_points`, with
+    /// `xMin` 0 for a glyph with no data and a missing `hmtx` entry read
+    /// as 0, as HarfBuzz reads one.
+    fn phantom_start(
+        walk: &Walk<'_, 'a>,
+        g: GlyphId,
+        data: Option<Bytes<'a>>,
+    ) -> Option<(i32, i32)> {
+        let x_min: i16 = match data {
+            Some(data) => data.read(Offset::of(2u32))?,
+            None => 0,
+        };
+        let (advance, lsb) = (walk.hmtx)(g).unwrap_or((0, 0));
+        Some((i32::from(x_min).checked_sub(lsb)?, advance))
+    }
+
     /// Appends `g`'s points and its four phantom points to `all` at `used`,
     /// varied; a composite's own points -- one offset a component, then its
-    /// phantoms -- live in `stack` while its components are walked.
+    /// phantoms -- live in `stack` while its components are walked. Answers
+    /// where the left phantom started -- the composite's, or the last
+    /// USE_MY_METRICS component's, whose phantoms it takes -- so the top
+    /// level can shift by the movement alone.
     fn varied(
         &self,
         g: GlyphId,
@@ -964,26 +1114,30 @@ impl<'a> Glyf<'a> {
         all: &mut [VarPoint],
         used: &mut Count,
         stack: &mut [VarPoint],
-    ) -> Option<()> {
+    ) -> Option<i32> {
         walk.edges.visit()?;
         if depth.value() >= u32::from(MAX_DEPTH) {
             return None;
         }
         let base = used.slot();
-        let body = match self.glyph(g) {
+        let data = self.glyph(g);
+        let body = match data {
             Some(data) => {
                 let contours: i16 = data.read(Offset::ZERO)?;
                 let body = data.tail(Offset::of(10u32))?;
-                match contours {
+                let kind = match contours {
                     c if c > 0 => {
                         Kind::Simple(Simple::parse(body, Count::of(u16::try_from(c).ok()?))?)
                     }
                     0 => Kind::Empty,
                     _ => Kind::Composite(body),
-                }
+                };
+                kind
             }
             None => Kind::Empty,
         };
+        let start = Self::phantom_start(walk, g, data)?;
+        let gvar = walk.gvar.and_then(|v| v.glyph(g));
         let comps = match body {
             Kind::Simple(simple) => {
                 let one = simple.points == Count::of(1u32);
@@ -998,26 +1152,26 @@ impl<'a> Glyf<'a> {
                     at += 1;
                 });
                 out?;
-                push_phantoms(all, &mut at)?;
+                push_phantoms(all, &mut at, start)?;
                 *used = Count::of(u32::try_from(at).ok()?);
-                if let Some(store) = walk.gvar.glyph(g) {
+                if let Some(store) = gvar {
                     store.apply(walk.coords, all.get_mut(base..at)?, Track::All);
                 }
-                return Some(());
+                return Some(start.0);
             }
             Kind::Empty => {
                 let mut at = base;
-                push_phantoms(all, &mut at)?;
+                push_phantoms(all, &mut at, start)?;
                 *used = Count::of(u32::try_from(at).ok()?);
-                if let Some(store) = walk.gvar.glyph(g) {
+                if let Some(store) = gvar {
                     store.apply(walk.coords, all.get_mut(base..at)?, Track::All);
                 }
-                return Some(());
+                return Some(start.0);
             }
             Kind::Composite(body) => body,
         };
         // The composite's own points: every record's offset, a missing or
-        // anchored component's included, so the delta indices line up; each
+        // matched component's included, so the delta indices line up; each
         // is its own contour end, so nothing is inferred across components.
         let mut records = Comps {
             body: comps,
@@ -1029,11 +1183,25 @@ impl<'a> Glyf<'a> {
             k += 1;
         }
         let mut top = k;
-        push_phantoms(stack, &mut top)?;
+        push_phantoms(stack, &mut top, start)?;
         let (mine, rest) = stack.split_at_mut(top);
-        if let Some(store) = walk.gvar.glyph(g) {
+        if let Some(store) = gvar {
+            let &[l0, r0, t0, b0] = mine.get(k..)? else {
+                return None;
+            };
             store.apply(walk.coords, mine, Track::All);
+            // "For AW and LSB points, apply the net X delta adjustments,
+            // and ignore Y deltas. For AH and TSB points, apply the net Y
+            // delta adjustments, and ignore X deltas"
+            // (`[[source: ms-opentype-gvar]]`, "Point numbers and
+            // processing for composite glyphs"). A matched component
+            // aligns on them once this composite is its parent or child.
+            let [l, r, t, b] = mine.get_mut(k..)? else {
+                return None;
+            };
+            (l.y, r.y, t.x, b.x) = (l0.y, r0.y, t0.x, b0.x);
         }
+        let mut left = start.0;
         let mut records = Comps {
             body: comps,
             at: Some(Offset::ZERO),
@@ -1041,8 +1209,15 @@ impl<'a> Glyf<'a> {
         let mut j = 0usize;
         while let Some(c) = records.next()? {
             let old = used.slot();
-            self.varied(c.glyph, Count::of(depth.value() + 1), walk, all, used, rest)?;
-            let child = all.get_mut(old..used.slot())?;
+            // The parent's own left and right phantoms as this component
+            // finds them: an earlier USE_MY_METRICS component's, if one
+            // came, and not yet its own, which the gvar text's order sets
+            // after the component is placed.
+            let own = [*mine.get(k)?, *mine.get(k.checked_add(1)?)?];
+            let child_left =
+                self.varied(c.glyph, Count::of(depth.value() + 1), walk, all, used, rest)?;
+            let (parent, after) = all.split_at_mut(old);
+            let child = after.get_mut(..used.slot().checked_sub(old)?)?;
             let n = child.len();
             if c.flags.use_my_metrics() {
                 for (m, p) in mine
@@ -1053,24 +1228,53 @@ impl<'a> Glyf<'a> {
                     m.x = p.x;
                     m.y = p.y;
                 }
+                left = child_left;
             }
             let matrix = Transform {
                 e: 0.0,
                 f: 0.0,
                 ..c.t
             };
-            let offset = if c.flags.xy_values() {
-                let o = mine.get(j)?;
-                (o.x, o.y)
-            } else {
-                (0.0, 0.0)
+            // An offset, moved by its delta, goes through the matrix with
+            // the points under SCALED_COMPONENT_OFFSET and is added after it
+            // otherwise; matched points are aligned after the matrix, and
+            // their slot's delta is not read.
+            let (before, after) = match c.place {
+                Place::Offset => {
+                    let o = mine.get(j)?;
+                    if c.flags.scaled_offset() {
+                        ((o.x, o.y), (0.0, 0.0))
+                    } else {
+                        ((0.0, 0.0), (o.x, o.y))
+                    }
+                }
+                Place::Points { .. } => ((0.0, 0.0), (0.0, 0.0)),
             };
             for p in child.iter_mut() {
+                p.x += before.0;
+                p.y += before.1;
                 if !matrix.is_identity() {
                     (p.x, p.y) = matrix.apply(p.x, p.y);
                 }
-                p.x += offset.0;
-                p.y += offset.1;
+                p.x += after.0;
+                p.y += after.1;
+            }
+            // The first component "must always" be an offset, and one that
+            // is not stays where its matrix put it (note Z, step 7).
+            if let (
+                Place::Points {
+                    parent: on,
+                    child: from,
+                },
+                1..,
+            ) = (c.place, j)
+            {
+                if let Some(d) = Self::alignment(parent.get(base..)?, &own, child, on, from) {
+                    for p in child.iter_mut() {
+                        p.x += d.0;
+                        p.y += d.1;
+                    }
+                }
             }
             // The component's phantoms go; its points stay.
             *used = Count::of(used.value().checked_sub(PHANTOMS)?);
@@ -1082,7 +1286,34 @@ impl<'a> Glyf<'a> {
             at += 1;
         }
         *used = Count::of(u32::try_from(at).ok()?);
-        Some(())
+        Some(left)
+    }
+
+    /// The translation that lays the child's point `from` -- its outline
+    /// points numbered from 0, then its left and right phantoms -- on the
+    /// parent's point `on`: the points incorporated from the components
+    /// before it, numbered from 0, then the parent's own left and right
+    /// phantoms, `own` ("Phantom points from the parent or the child may
+    /// be referenced"; "Phantom point numbers follow after the last point
+    /// number of the last contour", `[[source: ms-opentype-glyf]]`).
+    /// `None` where the text leaves the alignment open and the component
+    /// stays where its matrix put it: a parent point past the parent's
+    /// horizontal phantoms, and either glyph's vertical phantoms, which
+    /// need `vmtx` (note Z, step 7).
+    fn alignment(
+        parent: &[VarPoint],
+        own: &[VarPoint; 2],
+        child: &[VarPoint],
+        on: Index,
+        from: Index,
+    ) -> Option<(f32, f32)> {
+        let to = match on.slot().checked_sub(parent.len()) {
+            None => parent.get(on.slot())?,
+            Some(phantom) => own.get(phantom)?,
+        };
+        let horizontal = child.len().checked_sub(2)?;
+        let from = child.get(..horizontal)?.get(from.slot())?;
+        Some((to.x - from.x, to.y - from.y))
     }
 
     fn outline_into<S: Sink>(
@@ -1143,7 +1374,9 @@ impl<'a> Glyf<'a> {
         };
         while let Some(c) = comps.next()? {
             if let Some(data) = self.glyph(c.glyph) {
-                let combined = Transform::combine(transform, c.t);
+                // [`Glyf::outline`] streams no tree that matches points, so
+                // every record here is placed by its offset.
+                let combined = Transform::combine(transform, c.offset_transform());
                 self.outline_into(data, combined, depth + 1, sink)?;
             }
         }
