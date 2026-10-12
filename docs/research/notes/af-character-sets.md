@@ -6,10 +6,12 @@ against DEC's own"); researched 2026-10-08, corrected against its first check
 and again against its second (round 2) on 2026-10-09. On 2026-10-12 DEC
 Supplemental, JIS-Katakana and JIS-Roman (but its 7/14) were built, their
 reserved positions drawing the error character (§3; docs/record.md, "DEC
-Supplemental, JIS-Katakana and JIS-Roman are translated").** Every question in
-section 4 is open but Q-UNDEF's reserved positions of those two sets; the
-error character's codepoint is decided, U+2426 by Jev at 1.00 twice, and
-built as a constant on 2026-10-10 (Q-UNDEF; note AE's AE8.1).
+Supplemental, JIS-Katakana and JIS-Roman are translated"), and Q-DECNRCM
+was found to rest on DEC texts that disagree (§2.10, "STD 070's algorithms do
+not gate", added that day).** Every question in section 4 is open but
+Q-UNDEF's reserved positions of those two sets; the error character's
+codepoint is decided, U+2426 by Jev at 1.00 twice, and built as a constant on
+2026-10-10 (Q-UNDEF; note AE's AE8.1).
 
 **Routing since the owner's 2026-10-10 rule**: every question below marked
 "owner's call, whatever Jev says" goes to Jev too, decided at 0.9 or better
@@ -974,7 +976,53 @@ Q-SCS-Russian.
 
 **The docs contradict each other.** `docs/vt-coverage.md:760` lists "National
 replacement charsets | DECNRCM | Superseded by UTF-8" as out of scope.
-`:251` and `:557` say the sets are translated.
+`:251` and `:557` say the sets are translated. (Fixed by §5(a)6 on
+2026-10-09; on 2026-10-12 the translation row moved to `**partial**`, naming
+the gate below.)
+
+**STD 070's algorithms do not gate** (read 2026-10-12, on page images of the
+hash-checked copy, **[img]** each):
+
+- 5-118 (PDF 373), SCS note 5: "On traditional video terminals with the NRCS
+  extension, it is permissable to only recognize the one NRC set
+  corresponding to the keyboard dialect at a time. Workstation terminal
+  emulators may extend the character set table to recognize all NRC sets
+  regardless of the current keyboard dialect (not mandatory)."
+- 5-119 (PDF 374), `intialize_character_set_table()`, "called on power-up or
+  reset": the `TABLE_NRCS` entry is filled whenever
+  `level_2_extensions[NRCS_EXT]` is true, "initialized to correspond with the
+  keyboard dialect whenever it is changed in Set-Up". No test of the character
+  set mode, but the whole NRCS block sits inside
+  `if (conformance_level >= LEVEL_2)`.
+- 5-121 (PDF 376), `designate_character_set()`: "look for the designator in
+  the table", and on a match `designated_graphic_sets[gset_number] =
+  char_set_table[n].name`, then the in-use table is updated. No test of the
+  character set mode.
+- 5-126 to 5-128 (PDF 381-383), DECNRCM: "When 7-bit NRCS Characters is
+  selected, a 7-bit National Replacement Character set is used for
+  transmission and reception in GL (GR is not used). The NRCS used is
+  determined by the Keyboard Dialect chosen in Set-Up". Note 1: "Changing
+  this mode has the side effect of re-initializing the designated and invoked
+  character sets to their default state". Note 3: "This sequence is ignored
+  when the North American or Dutch Keyboard Dialect is selected."
+  `set_character_set_mode()` puts `nrcs_list[keyboard_dialect]` in G0-G3
+  under typewriter keys and ASCII under data processing keys;
+  `reset_character_set_mode()` puts ASCII in G0 and G1 and the UPSS in G2
+  and G3, unless the host line is 7-bit or the level is 1.
+- 3-64 (PDF 169), §3.6.4.4, prose: "National Replacement Character Sets are
+  intended for backward compatibility and may be used as above in Level 1,
+  Level 2, and Level 3 by selecting "7-bit NRCS Characters" in Set-Up or
+  setting DECNRCM ... Setting this mode has the side effect of resetting the
+  display character sets to their default state".
+
+So in STD 070's algorithm, at Level 2 or above, an NRC final designates its set
+in either mode; at Level 1 none does. DECNRCM's work is the 7-bit restriction
+and the re-initialisation from the keyboard dialect. §3.6.4.4's prose and the
+VT220 and VT420 manuals above read as a gate (VT510 §7.3, above, says what
+national mode withdraws); the algorithms, at Level 2 or above, do not. That is
+a disagreement between DEC texts, and within STD 070, which this note's first
+passes did not see: they cited §5.8.1 note 4 for the gate, and note 4 points at
+DECNRCM ("See DECNRCM") and states no gate of its own.
 
 Q-DECNRCM.
 
@@ -1720,18 +1768,41 @@ The evidence is in §2.10.
 
 - **(a) Ungated (today).**
   - DEPARTS from VT220 §2.4.3, Table 4-4's note and §4.6.19, from VT420 p. 27
-    and Table 5-3's `*` footnote, and from STD 070 §5.8.1 note 4 (pp.
-    5-115-5-116) and p. 7-18.
+    and Table 5-3's `*` footnote, and from STD 070 §3.6.4.4's prose (p.
+    3-64). VT510 §7.3 says what national mode withdraws (b.2), not that the
+    NRC sets are unavailable outside it, so it is on neither side here.
+  - CONFORMING to STD 070's SCS algorithm and character set table (pp. 5-119,
+    5-121), which test no mode, and, for a workstation emulator, to its note 5
+    (p. 5-118) -- at Level 2 or above only; at Level 1, SCS designates no NRC
+    set (p. 5-119), so (a) departs there too. p. 7-18's "available only when
+    the appropriate keyboard is selected" is the keyboard binding note 5
+    relaxes; this revision does not read it as a mode gate (**inferred**).
   - DEPARTS from xterm practice (`charproc.c:1929`).
-  - Keeps `docs/vt-coverage.md:251` and `:557` true and `:760` false.
 - **(b) Implement DECNRCM (`CSI ? 42 h/l`, reset by default), and translate an
   NRC set only while it is set.**
-  - CONFORMING on the gate to every DEC text above.
+  - CONFORMING on the gate to the VT220 and VT420 manuals and STD 070
+    §3.6.4.4.
+  - DEPARTS from STD 070's SCS algorithm, which designates an NRC set in either
+    mode at Level 2 or above.
   - Practice: xterm.
   - It changes what an application sees today: `ESC ( K` alone stops drawing
     German until `?42` is set.
 
-**Sub-points under (b), each the owner's.**
+- **(c) Implement DECNRCM as STD 070's algorithm has it**, and leave
+  designation ungated: setting or resetting the mode re-initialises G0-G3
+  (pp. 5-126-5-127), and with no keyboard dialect read as North American,
+  note 3 makes the sequence ignored.
+  - CONFORMING to STD 070's algorithms at Level 2 or above, if baud's lack of a
+    dialect is read as North American (**inferred**; no text says what a
+    terminal without a dialect setting is). At Level 1, note 3 ignores DECNRCM
+    and SCS has no NRCS entry, so no NRC set is reachable at all and the
+    ungated designation departs.
+  - DEPARTS from the manuals' gate as (a) does.
+  - Under that reading `?42` is recognised and changes nothing, and DECRQM
+    would answer it; whether as reset (2) or permanently reset (4) is part
+    of the question.
+
+**Sub-points under (b), each for Jev since the owner's 2026-10-10 rule.**
 
 - **(b.1) What an NRC designation does outside national mode.**
   - xterm designates ASCII.
@@ -1772,7 +1843,11 @@ The evidence is in §2.10.
 
 **No recommendation.**
 
-- (a) departs from every DEC text read.
+- (a) departs from the manuals and STD 070's prose, and conforms to STD 070's
+  algorithms at Level 2 or above.
+- Since the owner's 2026-10-10 rule this goes to Jev, decided at 0.9 or
+  better on two askings, the owner vetoing; it was routed to the owner
+  before.
 - (b) conforms on the gate, but its sub-points include (b.3), where VT220 and
   VT420 bind one set to the keyboard and baud has no keyboard dialect to bind
   to.
@@ -2355,8 +2430,10 @@ go to Jev, decided at 0.9 or better on two askings, with the owner's veto.
 **Not examined.**
 
 - What a DEC terminal does with an NRC designation outside national mode
-  (Q-DECNRCM (b.1)). Whether `Charset::Other` conforms for an unlisted final
-  is now examined (§2.8, Q-Unlisted): it DEPARTS.
+  (Q-DECNRCM (b.1)) -- for a device; STD 070's algorithm, read 2026-10-12
+  (§2.10), designates the set in either mode at Level 2 or above, and not at
+  Level 1. Whether `Charset::Other` conforms for an unlisted final is now
+  examined (§2.8, Q-Unlisted): it DEPARTS.
 
 **Not pinned.**
 

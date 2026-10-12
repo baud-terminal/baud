@@ -538,8 +538,12 @@ fn the_line_drawing_table_covers_the_whole_set() {
 ///
 /// **It pins note AF's Q-DECNRCM (a).** It designates UK, German and French
 /// with no `CSI ? 42 h`, so it holds only while the national sets act outside
-/// national mode, which departs from every DEC text read (note AF §2.10).
-/// Under (b) its German and French cases fail, and its UK case turns on (b.4).
+/// national mode, which conforms to `[[source: dec-std-070]]`'s SCS algorithm
+/// (p. 5-121, no mode test, at Level 2 or above per p. 5-119) and departs from
+/// the VT220 and VT420 manuals' gate (note AF §2.10). Under (b) its German and
+/// French cases fail, and its UK case turns on (b.4). This said the ungated
+/// sets departed from every DEC text read, before STD 070's algorithms were
+/// read.
 #[test]
 fn the_national_sets_substitute() {
     // The canonical one: `#` is `£` in the United Kingdom set.
