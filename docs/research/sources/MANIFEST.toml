@@ -22371,3 +22371,110 @@ group  = "C"
 # `external`: the same bytes as nixpkgs' xterm-411 source (cmp), whose binary was run under Xvfb on
 # 2026-10-12 (round 2026-10-11d, lane v12). button.c, misc.c and charproc.c in it equal xterm-snapshots
 # 9489b20 (tag xterm-411) and bccd466 (tag xterm-411a) byte for byte.
+
+# What six terminals do with a UTF-8 character straight after ESC, read 2026-10-11 for round
+# 2026-10-11f, lane esc-lead (`a ESC E0 A4 83`, U+0903). Each is `external`: one file at a pinned
+# commit, read and hash-verified against the url, not committed; each year is its commit's date
+# (GitHub API: vte 3b3da71 2025-02-02, wezterm b09b56c 2026-09-17, ghostty 9bbb9b2 2026-09-12,
+# kitty 9710eb4 2026-09-11). **Cited as practice**, beside
+# the texts, never in place of them. xterm, foot (cb27717), kitty's vt-parser.c (9710eb4) and
+# wezterm's escape parser (b09b56c) are pinned above under their own keys.
+
+[sources.vte-lib-rs-3b3da71]
+key    = "vte-lib-rs-3b3da71"
+title  = "vte 0.15.0 (alacritty's parser; tag v0.15.0 is commit 3b3da71), src/lib.rs -- advance_esc: a byte 80-FF in escape is ignored and the escape stays open"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "alacritty/vte"
+url    = "https://raw.githubusercontent.com/alacritty/vte/3b3da71c34cc1256c7e20981cf03f8eb95e08ffc/src/lib.rs"
+file   = ""
+sha256 = "fac2b9feef901019e1fcb3d413238d3b032001395abd8e727c26b4cafffba758"
+bytes  = 53632
+status = "external"
+group  = "C"
+# Read: 109-127 (only ground decodes UTF-8; every other state takes bytes one at a time), 340-390
+# (advance_esc; `_ => ()` at 388 leaves the state Escape).
+
+[sources.wezterm-vtparse-lib-b09b56c]
+key    = "wezterm-vtparse-lib-b09b56c"
+title  = "wezterm b09b56c, vtparse/src/lib.rs -- parse_byte: UTF-8 decoded only from the states the table sends to Utf8Sequence"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/vtparse/src/lib.rs"
+file   = ""
+sha256 = "538cf16a9593cf9f8ad634d994e4eaa0cdae53364bfba1ebf1f06bae72370ceb"
+bytes  = 39447
+status = "external"
+group  = "C"
+# Read: 671-719 (next_utf8), 724-744 (parse_byte).
+
+[sources.wezterm-vtparse-transitions-b09b56c]
+key    = "wezterm-vtparse-transitions-b09b56c"
+title  = "wezterm b09b56c, vtparse/src/transitions.rs -- escape: 80-8F execute and go to ground, A0-FF stay in escape"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/vtparse/src/transitions.rs"
+file   = ""
+sha256 = "c59e78dec2c33d9c884f334e2ac2687588e794142fd168800010b3564a922c81"
+bytes  = 11617
+status = "external"
+group  = "C"
+# Read: 27-47 (anywhere_or), 49-66 (ground), 68-91 (escape).
+
+[sources.ghostty-parse-table-9bbb9b2]
+key    = "ghostty-parse-table-9bbb9b2"
+title  = "ghostty 9bbb9b2, src/terminal/parse_table.zig -- escape sets no A0-FF entry, and an unset entry stays in its state with no action"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/terminal/parse_table.zig"
+file   = ""
+sha256 = "8d6072a6b69fded203bdeb0afdae63c884bea1c8ed91f9aca832d3b468e560f8"
+bytes  = 15799
+status = "external"
+group  = "C"
+# Read: 56-85 (anywhere), 122-156 (escape), 366-372 (unset entries).
+
+[sources.ghostty-stream-9bbb9b2]
+key    = "ghostty-stream-9bbb9b2"
+title  = "ghostty 9bbb9b2, src/terminal/stream.zig -- UTF-8 decoded only in ground; a C1 executed as ESC plus the byte less 0x40"
+author = "Mitchell Hashimoto and contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/9bbb9b24680358c939846b79a519ce10f7638d1f/src/terminal/stream.zig"
+file   = ""
+sha256 = "1cb5d8b8f6493e8264fd1cd027821a36f0a6f88aae5e1eeeb291affdcd1ca6d6"
+bytes  = 196846
+status = "external"
+group  = "C"
+# Read: 1115-1128 (next), 1367-1378 (execute).
+
+[sources.kitty-simd-string-c-9710eb4]
+key    = "kitty-simd-string-c-9710eb4"
+title  = "kitty 9710eb4, kitty/simd-string.c -- utf8_decode_to_esc_scalar: one U+FFFD for each rejected byte"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/simd-string.c"
+file   = ""
+sha256 = "95fc6a852498acf9fc125cdf00410ba653942310fc5f10f14940d1fc3b1c7135"
+bytes  = 18497
+status = "external"
+group  = "C"
+# Read: 96-122 (the scalar decoder). The vector decoders were not read.
+
+[sources.kitty-charsets-c-9710eb4]
+key    = "kitty-charsets-c-9710eb4"
+title  = "kitty 9710eb4, kitty/charsets.c -- decode_utf8, the DFA the scalar decoder steps"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/charsets.c"
+file   = ""
+sha256 = "a0433059392b100f9412eb63031df9f2b9744aa65546d1524591edc9a6f4527a"
+bytes  = 12648
+status = "external"
+group  = "C"
+# Read: 170-206.
