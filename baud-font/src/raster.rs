@@ -32,7 +32,7 @@
 //! the start of the next row, and deposits past the buffer are dropped.
 
 use crate::face::{Advance, UnitsPerEm};
-use crate::outline::{Sink, Transform};
+use crate::outline::{Flex, FlexDrawn, Sink, Transform};
 use core::f32::math::{ceil, floor, round, sqrt};
 
 /// A count of pixels along one axis. `repr(transparent)`, so a uniform
@@ -618,5 +618,89 @@ impl Sink for Rasterizer<'_> {
     }
     fn close(&mut self) {
         self.close_contour();
+    }
+    /// The text's rule at this canvas's pixels: a flex whose depth is less
+    /// than its threshold is one line to its end. This is the charstring's
+    /// own rendering rule, not grid fitting: the outline is not moved, and
+    /// nothing snaps to a pixel.
+    fn flex(&mut self, f: &Flex) {
+        let [x1, y1, x2, y2, x, y] = f.first;
+        let [x3, y3, x4, y4, x5, y5] = f.second;
+        match f.rendered(&self.transform) {
+            FlexDrawn::Straight => self.line_to(x5, y5),
+            FlexDrawn::Curved => {
+                self.curve_to(x1, y1, x2, y2, x, y);
+                self.curve_to(x3, y3, x4, y4, x5, y5);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    extern crate alloc;
+    use alloc::vec;
+    use alloc::vec::Vec;
+
+    /// A 1024-unit-wide box whose top edge is an `hflex` from (1024, 512)
+    /// to (0, 512), its joining point 32 units up: half a pixel at 16 px
+    /// of a 1024-unit em.
+    const FLEX: Flex = Flex {
+        first: [768.0, 512.0, 640.0, 544.0, 512.0, 544.0],
+        second: [384.0, 544.0, 256.0, 512.0, 0.0, 512.0],
+        depth: [0.0, 32.0],
+        threshold: 0.5,
+    };
+
+    /// How the top edge is drawn.
+    #[derive(Clone, Copy)]
+    enum Top {
+        Flex,
+        Line,
+        Curves,
+    }
+
+    /// The box at `px` pixels per em of 1024 units, placed by [`Fit`].
+    fn mask(px: f32, top: Top) -> Vec<u8> {
+        let mut b = Bounds::new();
+        b.move_to(0.0, 0.0);
+        b.curve_to(1024.0, 0.0, 1024.0, 544.0, 0.0, 544.0);
+        let fit = Fit::of(&b, Scale(px / 1024.0)).unwrap();
+        let extent = fit.extent;
+        let mut scratch = vec![0f32; extent.scratch().unwrap()];
+        let canvas = Canvas::new(extent, &mut scratch).unwrap();
+        let mut r = Rasterizer::new(canvas, fit.transform);
+        r.move_to(0.0, 0.0);
+        r.line_to(1024.0, 0.0);
+        r.line_to(1024.0, 512.0);
+        match top {
+            Top::Flex => r.flex(&FLEX),
+            Top::Line => r.line_to(0.0, 512.0),
+            Top::Curves => {
+                let [a, b, c, d, x, y] = FLEX.first;
+                r.curve_to(a, b, c, d, x, y);
+                let [a, b, c, d, x, y] = FLEX.second;
+                r.curve_to(a, b, c, d, x, y);
+            }
+        }
+        r.close();
+        let canvas = r.finish();
+        let mut out = vec![0u8; extent.cells().unwrap()];
+        canvas.coverage(&mut out).unwrap();
+        out
+    }
+
+    /// At 15 px the flex is 0.47 px deep and is the line; at 16 px it is
+    /// exactly 0.5, "greater than or equal to" the threshold, and is the two
+    /// curves, as at 17. The guard: at 15 px the line and the curves are
+    /// different masks, so the straightening is seen.
+    #[test]
+    fn the_rasteriser_draws_a_shallow_flex_as_one_line() {
+        assert_ne!(mask(15.0, Top::Line), mask(15.0, Top::Curves), "the guard");
+        assert_eq!(mask(15.0, Top::Flex), mask(15.0, Top::Line));
+        assert_ne!(mask(16.0, Top::Line), mask(16.0, Top::Curves), "the guard");
+        assert_eq!(mask(16.0, Top::Flex), mask(16.0, Top::Curves));
+        assert_eq!(mask(17.0, Top::Flex), mask(17.0, Top::Curves));
     }
 }

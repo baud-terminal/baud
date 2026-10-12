@@ -18,6 +18,14 @@
 //! two counts, a mean difference of 1.34/255, and no pixel further apart
 //! than 54.
 //!
+//! **One normalisation, counted: a flex.** The text says a flex shallower
+//! than its threshold "must be rendered as a straight line"
+//! (`[[source: adobe-5177-type2]]` § 4.1), and baud's rasteriser does;
+//! `ab_glyph_rasterizer` has no flex. So the oracle's sink draws each flex
+//! as `Flex::rendered` says at the same transform -- one line or the two
+//! curves -- and the comparison stays the raster half alone; the lines are
+//! counted, and STIX Two Math's flexes, 1 to 7 units deep, make some.
+//!
 //! **Corpus.** The three committed faces with outlines (Fira Code,
 //! JetBrains Mono, Bungee Tint) always; on macOS, the monospace system faces
 //! and two CFF faces, so the cubic path is driven by real charstrings rather
@@ -29,8 +37,10 @@
 //! alone; set and broken, it fails rather than skipping.
 
 use baud_domain::GlyphId;
+use baud_font::bytes::Count;
 use baud_font::{
-    Bounds, Canvas, Extent, Face, FaceIndex, Fit, Point, Rasterizer, Scale, Sink, faces,
+    Bounds, Canvas, Extent, Face, FaceIndex, Fit, Flex, FlexDrawn, Point, Rasterizer, Scale, Sink,
+    faces,
 };
 use std::path::{Path, PathBuf};
 
@@ -81,6 +91,8 @@ struct Ab {
     start: (f32, f32),
     cur: (f32, f32),
     open: bool,
+    /// Flexes drawn as one line, the normalisation's count.
+    straight: Count,
 }
 
 impl Ab {
@@ -124,6 +136,20 @@ impl Sink for Ab {
     fn close(&mut self) {
         self.close_open();
     }
+    fn flex(&mut self, f: &Flex) {
+        let [x1, y1, x2, y2, x, y] = f.first;
+        let [x3, y3, x4, y4, x5, y5] = f.second;
+        match f.rendered(&self.t) {
+            FlexDrawn::Straight => {
+                self.straight = self.straight.plus(Count::of(1u32)).unwrap();
+                self.line_to(x5, y5);
+            }
+            FlexDrawn::Curved => {
+                self.curve_to(x1, y1, x2, y2, x, y);
+                self.curve_to(x3, y3, x4, y4, x5, y5);
+            }
+        }
+    }
 }
 
 /// Counts what each face's outlines are made of, so the tally can say the
@@ -156,6 +182,9 @@ struct Tally {
     quads: usize,
     cubics: usize,
     largest: (u32, u32),
+    /// Flexes the oracle's sink drew as one line; `None` before the first
+    /// face that has any.
+    straight_flexes: Option<Count>,
 }
 
 /// baud's mask for `g` at `scale`, with the fit that placed it.
@@ -205,9 +234,14 @@ fn compare_face(path: &Path, data: &[u8], i: u32, t: &mut Tally) {
                 start: (0.0, 0.0),
                 cur: (0.0, 0.0),
                 open: false,
+                straight: Count::ZERO,
             };
             face.outline(gid, &mut ab);
             ab.close_open();
+            if !ab.straight.is_zero() {
+                let before = t.straight_flexes.unwrap_or(Count::ZERO);
+                t.straight_flexes = before.plus(ab.straight);
+            }
             let mut theirs = vec![0u8; mine.len()];
             ab.r.for_each_pixel(|idx, alpha| {
                 // The reference leaves quantisation to its caller; this is
@@ -253,6 +287,9 @@ fn every_mask_is_byte_identical_to_ab_glyph() {
     if cfg!(target_os = "macos") {
         assert!(t.cubics >= 1_000, "{}", t.cubics);
     }
+    // STIX Two Math is committed, and its flexes are straight at every size
+    // here, so the normalisation is reached.
+    assert!(t.straight_flexes.is_some(), "{:?}", t.straight_flexes);
 }
 
 #[test]

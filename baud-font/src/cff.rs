@@ -20,8 +20,11 @@
 //!
 //! **The emission conventions are the oracle's**, so the differential can be
 //! exact: a contour is closed by the next `moveto` and by `endchar`, never
-//! implicitly; every curve is a cubic; flex operators emit two cubics; the
-//! arithmetic is `f32` in the order the reference performs it.
+//! implicitly; every curve is a cubic; a flex reaches the sink as its two
+//! cubics with its depth and threshold ([`crate::outline::Flex`]), which a
+//! sink with no device draws as the two cubics the oracle emits and the
+//! rasteriser draws straight when the text says so; the arithmetic is `f32`
+//! in the order the reference performs it.
 //!
 //! **`seac`** -- `endchar` with four or five arguments -- composes a base and
 //! an accent named by Standard Encoding codes, which the generated
@@ -33,12 +36,16 @@
 //! where the oracle computes in `f32`, and `f64` there.
 
 use crate::bytes::{Bytes, Count, Index, Len, Offset, U24};
-use crate::outline::Sink;
+use crate::outline::{Flex, Sink};
 use crate::standard_encoding::STANDARD_ENCODING;
 use baud_domain::GlyphId;
-use core::ops::{Add, Neg, Sub};
+use core::ops::{Add, Div, Mul, Neg, Sub};
 
 const MAX_ARGS: usize = 48;
+/// The threshold of `hflex`, `hflex1` and `flex1` in device pixels: "0.5
+/// (that is, fd is 50) device pixels" (`[[source: adobe-5177-type2]]`), "threshold
+/// fd = 50 is implicit" (`[[source: ms-opentype-cff2]]`).
+const IMPLICIT_FLEX_THRESHOLD: f32 = 0.5;
 const MAX_DEPTH: u8 = 10;
 const TWO_BYTE: u8 = 12;
 
@@ -794,7 +801,13 @@ impl Depth {
 /// computes in, and `f64` for CFF2, which keeps the sixteen fractional bits
 /// the variations overview recommends. Either reaches the [`Sink`] as `f32`.
 pub(crate) trait Num:
-    Copy + PartialOrd + Add<Output = Self> + Sub<Output = Self> + Neg<Output = Self>
+    Copy
+    + PartialOrd
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + Mul<Output = Self>
+    + Div<Output = Self>
+    + Neg<Output = Self>
 {
     const ZERO: Self;
     fn to_sink(self) -> f32;
@@ -1184,11 +1197,58 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
     }
 
     /// The two curves of a flex, from their five intermediate points and
-    /// the current point, which the caller has moved to the sixth.
-    fn flex_curves(&mut self, p: [N; 10]) {
+    /// the current point, which the caller has moved to the sixth, with the
+    /// flex depth and the threshold in device pixels below which the sink is
+    /// to draw them as one line. A `depth` of `None` is a `flex` back at its
+    /// start, which has no line to take a depth from (`Pen::axis_depth`): its
+    /// two curves go to the sink as curves.
+    fn flex_curves(&mut self, p: [N; 10], depth: Option<[N; 2]>, threshold: f32) {
         let [x1, y1, x2, y2, x3, y3, x4, y4, x5, y5] = p;
-        self.emit_curve_to([x1, y1, x2, y2, x3, y3]);
-        self.emit_curve(x4, y4, x5, y5);
+        let Some([dx, dy]) = depth else {
+            self.emit_curve_to([x1, y1, x2, y2, x3, y3]);
+            self.emit_curve(x4, y4, x5, y5);
+            return;
+        };
+        let f = |v: N| v.to_sink();
+        self.sink.flex(&Flex {
+            first: [f(x1), f(y1), f(x2), f(y2), f(x3), f(y3)],
+            second: [f(x4), f(y4), f(x5), f(y5), f(self.x), f(self.y)],
+            depth: [f(dx), f(dy)],
+            threshold,
+        });
+    }
+
+    /// The depth of a `flex` from `(x0, y0)` to the current point whose
+    /// joining point is `(x3, y3)`, `sum` being its summed `dx1..dx5` and
+    /// `dy1..dy5`.
+    ///
+    /// Where the start and the end share a `y` (horizontal) or an `x`
+    /// (vertical), every reading of the text gives the joining point's
+    /// offset across that line. Where they share neither, the text's prose
+    /// and figure read three ways (the record's question 6), and the deepest
+    /// is carried, so that the flex is straight only where every reading is
+    /// under the threshold. The perpendicular to the start-end line is never
+    /// the deepest, which leaves the longer of the start-end line's distance
+    /// from the joining point along the minor axis and the joining point's
+    /// distance across to the end point's own line, the orientation by
+    /// flex1's test: horizontal where `|sum dx| > |sum dy|`. A `flex` back at
+    /// its start has no line: `None`, and it is drawn as its two curves.
+    fn axis_depth(&self, x0: N, y0: N, joint: [N; 2], sum: [N; 2]) -> Option<[N; 2]> {
+        let ([x3, y3], (x, y)) = (joint, (self.x, self.y));
+        let deeper = |line: N, end: N| if abs(end) > abs(line) { end } else { line };
+        match (x == x0, y == y0) {
+            (false, true) => Some([N::ZERO, y3 - y0]),
+            (true, false) => Some([x3 - x0, N::ZERO]),
+            (true, true) => None,
+            (false, false) if abs(sum[0]) > abs(sum[1]) => {
+                let line = y3 - (y0 + (y - y0) * (x3 - x0) / (x - x0));
+                Some([N::ZERO, deeper(line, y3 - y)])
+            }
+            (false, false) => {
+                let line = x3 - (x0 + (x - x0) * (y3 - y0) / (y - y0));
+                Some([deeper(line, x3 - x), N::ZERO])
+            }
+        }
     }
 
     pub(crate) fn flex(&mut self, a: &[N]) -> Option<()> {
@@ -1206,9 +1266,28 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
         let dy4 = dy3 + a[7];
         let dx5 = dx4 + a[8];
         let dy5 = dy4 + a[9];
+        let (x0, y0) = (self.x, self.y);
         self.x = dx5 + a[10];
         self.y = dy5 + a[11];
-        self.flex_curves([dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4, dx5, dy5]);
+        // "The operand fd specifies a flex depth threshold in 1/100ths of a
+        // device pixel." A flex whose start and end share neither
+        // coordinate has its depth by "a method that depends on whether the
+        // curve is more horizontal or more vertical, as illustrated in the
+        // following figure", which the figure and the prose read three
+        // ways: a question for Jev, and the deepest of them until it is
+        // answered (the record, "A flex shallower than half a pixel draws
+        // straight").
+        let sum = [
+            a[0] + a[2] + a[4] + a[6] + a[8],
+            a[1] + a[3] + a[5] + a[7] + a[9],
+        ];
+        let depth = self.axis_depth(x0, y0, [dx3, dy3], sum);
+        let threshold = a[12].to_sink() / 100.0;
+        self.flex_curves(
+            [dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4, dx5, dy5],
+            depth,
+            threshold,
+        );
         Some(())
     }
 
@@ -1235,12 +1314,20 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
                 abs(dx) > abs(dy)
             }
         };
-        if horizontal {
+        // The end shares the start's `y` when horizontal and its `x`
+        // otherwise, so the depth is the joining point's offset across.
+        let depth = if horizontal {
             self.x = dx5 + a[10];
+            [N::ZERO, dy3 - self.y]
         } else {
             self.y = dy5 + a[10];
-        }
-        self.flex_curves([dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4, dx5, dy5]);
+            [dx3 - self.x, N::ZERO]
+        };
+        self.flex_curves(
+            [dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4, dx5, dy5],
+            Some(depth),
+            IMPLICIT_FLEX_THRESHOLD,
+        );
         Some(())
     }
 
@@ -1260,7 +1347,13 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
         let dx5 = dx4 + a[5];
         let dy5 = self.y;
         self.x = dx5 + a[6];
-        self.flex_curves([dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4, dx5, dy5]);
+        // Horizontal: the end keeps the start's `y`.
+        let depth = [N::ZERO, dy3 - self.y];
+        self.flex_curves(
+            [dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4, dx5, dy5],
+            Some(depth),
+            IMPLICIT_FLEX_THRESHOLD,
+        );
         Some(())
     }
 
@@ -1280,7 +1373,13 @@ impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
         let dx5 = dx4 + a[6];
         let dy5 = dy4 + a[7];
         self.x = dx5 + a[8];
-        self.flex_curves([dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4, dx5, dy5]);
+        // Horizontal: the end keeps the start's `y`.
+        let depth = [N::ZERO, dy3 - self.y];
+        self.flex_curves(
+            [dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4, dx5, dy5],
+            Some(depth),
+            IMPLICIT_FLEX_THRESHOLD,
+        );
         Some(())
     }
 }
@@ -1542,5 +1641,119 @@ impl<S: Sink> Run<'_, '_, S> {
             }
         }
         Some(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    extern crate alloc;
+    use alloc::vec::Vec;
+
+    /// The flexes a pen hands its sink whole, and the curves it draws.
+    #[derive(Default)]
+    struct Seen {
+        flexes: Vec<Flex>,
+        curves: Vec<[f32; 6]>,
+    }
+
+    impl Sink for Seen {
+        fn move_to(&mut self, _: f32, _: f32) {}
+        fn line_to(&mut self, _: f32, _: f32) {}
+        fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+        fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+            self.curves.push([x1, y1, x2, y2, x, y]);
+        }
+        fn close(&mut self) {}
+        fn flex(&mut self, f: &Flex) {
+            self.flexes.push(*f);
+        }
+    }
+
+    /// What `op` hands the sink from (100, 100).
+    fn from_start(op: impl FnOnce(&mut Pen<'_, Seen, f32>) -> Option<()>) -> Seen {
+        let mut s = Seen::default();
+        let mut p = Pen::new(&mut s);
+        p.rmoveto(&[100.0, 100.0]).unwrap();
+        op(&mut p).unwrap();
+        s
+    }
+
+    /// The one flex `op` hands the sink: its depth and threshold.
+    fn one(op: impl FnOnce(&mut Pen<'_, Seen, f32>) -> Option<()>) -> ([f32; 2], f32) {
+        let s = from_start(op);
+        assert_eq!((s.flexes.len(), s.curves.len()), (1, 0));
+        (s.flexes[0].depth, s.flexes[0].threshold)
+    }
+
+    /// Each flex operator hands the sink its depth -- the joining point's
+    /// offset across the line its start and end share -- and its threshold
+    /// in device pixels: `fd`/100 for `flex`, 0.5 for the other three. A
+    /// `flex` whose start and end share neither coordinate carries the
+    /// deeper of two readings, along the minor axis of flex1's test: the
+    /// distance across the start-end line, and the distance across to the
+    /// end point's own line. Each slanted pair below has one case where each
+    /// is the deeper, horizontal and vertical. A `flex` back at its start
+    /// has no line, and draws its two curves.
+    #[test]
+    fn each_flex_operator_carries_its_depth_and_threshold() {
+        let flex = |a: [f32; 13]| move |p: &mut Pen<'_, Seen, f32>| p.flex(&a);
+        let h = [10., 5., 10., 5., 10., 0., 10., 0., 10., -5., 10., -5., 30.];
+        assert_eq!(one(flex(h)), ([0.0, 10.0], 0.3), "flex, horizontal, fd 30");
+        let v = [5., 10., 5., 10., 0., 10., 0., 10., -5., 10., -5., 10., 50.];
+        assert_eq!(one(flex(v)), ([10.0, 0.0], 0.5), "flex, vertical");
+        // From (100, 100) through (130, 110): ending at (160, 101), the line
+        // passes 100.5 under the joining point and the end's line 101, so
+        // 9.5 against 9; ending at (160, 99), 99.5 against 99, so 10.5
+        // against 11. The vertical pair is the same, transposed.
+        let slant = [10., 5., 10., 5., 10., 0., 10., 0., 10., -5., 10., -4., 50.];
+        assert_eq!(one(flex(slant)), ([0.0, 9.5], 0.5), "slanted, the line");
+        let below = [10., 5., 10., 5., 10., 0., 10., 0., 10., -5., 10., -6., 50.];
+        assert_eq!(
+            one(flex(below)),
+            ([0.0, 11.0], 0.5),
+            "slanted, the end's line"
+        );
+        let v_slant = [5., 10., 5., 10., 0., 10., 0., 10., -5., 10., -4., 10., 50.];
+        assert_eq!(
+            one(flex(v_slant)),
+            ([9.5, 0.0], 0.5),
+            "vertical slant, the line"
+        );
+        let v_below = [5., 10., 5., 10., 0., 10., 0., 10., -5., 10., -6., 10., 50.];
+        assert_eq!(
+            one(flex(v_below)),
+            ([11.0, 0.0], 0.5),
+            "vertical slant, the end's line"
+        );
+        let fifth = [
+            10., 5., 10., 5., 10., 0., 10., -5., 10., -5., 10., 100., 50.,
+        ];
+        assert_eq!(
+            one(flex(fifth)),
+            ([0.0, -90.0], 0.5),
+            "slanted, oriented by the fifth point"
+        );
+        let back = [
+            10., 5., 10., 5., 10., 0., -10., 0., -10., -5., -10., -5., 50.,
+        ];
+        let s = from_start(flex(back));
+        assert_eq!(
+            (s.flexes.len(), s.curves.len()),
+            (0, 2),
+            "flex, back to its start"
+        );
+        let flex1 = |a: [f32; 11]| move |p: &mut Pen<'_, Seen, f32>| p.flex1(&a, Flex1::EndPoint);
+        let h1 = [10., 5., 10., 5., 10., 0., 10., 0., 10., -5., 7.];
+        assert_eq!(one(flex1(h1)), ([0.0, 10.0], 0.5), "flex1, horizontal");
+        let v1 = [5., 10., 5., 10., 0., 10., 0., 10., -5., 10., 7.];
+        assert_eq!(one(flex1(v1)), ([10.0, 0.0], 0.5), "flex1, vertical");
+        let hflex = [10., 10., 6., 10., 10., 10., 10.];
+        assert_eq!(one(|p| p.hflex(&hflex)), ([0.0, 6.0], 0.5), "hflex");
+        let hflex1 = [10., 2., 10., 4., 10., 10., 10., -6., 10.];
+        let s = from_start(|p| p.hflex1(&hflex1));
+        assert_eq!(s.flexes[0].depth, [0.0, 6.0], "hflex1");
+        assert_eq!(s.flexes[0].first, [110., 102., 120., 106., 130., 106.]);
+        assert_eq!(s.flexes[0].second, [140., 106., 150., 100., 160., 100.]);
     }
 }

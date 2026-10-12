@@ -45,8 +45,9 @@
 //! disagree the test says which, and the specification decides.
 #![no_std]
 #![forbid(unsafe_code)]
-// `core::f32::math::{floor, ceil, sqrt}`: the rasteriser's three float
-// operations that `core` keeps behind a feature and `std` does not.
+// `core::f32::math`: `floor`, `ceil`, `round` and `sqrt`, which the
+// rasteriser, a flex's depth in pixels (`outline.rs`) and the fixed-point
+// roundings use, and which `core` keeps behind a feature and `std` does not.
 #![feature(core_float_math)]
 
 mod bake;
@@ -91,7 +92,7 @@ pub use gpos::Gpos;
 pub use gsub::{Gsub, Walked};
 pub use layout::{Digest, Enabled, FeatureTag, Features, Gdef, GlyphClass, MAX_LOOKUPS};
 pub use morx::Morx;
-pub use outline::{Drawn, Sink, Transform};
+pub use outline::{Drawn, Flex, FlexDrawn, Sink, Transform};
 pub use png::{Color, Png, PngError, Size};
 pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasterizer, Scale};
 pub use shape::{CombiningClass, Kept, Normalised, Shaped, Shaper};

@@ -215,6 +215,11 @@ impl<S: Sink> Sink for Counting<'_, S> {
     fn close(&mut self) {
         self.inner.close();
     }
+    /// Passed on whole, so the sink underneath decides how it is drawn.
+    fn flex(&mut self, f: &crate::outline::Flex) {
+        self.drawn = Drawn::Outline;
+        self.inner.flex(f);
+    }
 }
 
 /// How many faces `data` holds, without parsing any of them.

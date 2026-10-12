@@ -1181,6 +1181,66 @@ mod tests {
         assert!(!reads(&[z(), z(), z(), vec![18]].concat()), "three");
     }
 
+    /// A charstring's flexes reach the sink whole: `flex` with its `fd`
+    /// over 100 as the threshold, the other three with the implicit 0.5, each
+    /// with the joining point's offset across the line its start and end
+    /// share; a `flex` whose end is off both of its start's lines with the
+    /// deeper reading, here the start-end line's 9.5 against the end's 9; and
+    /// a `flex` back at its start, which has no line, as two curves.
+    #[test]
+    fn a_charstrings_flexes_carry_their_depth_and_threshold() {
+        #[derive(Default)]
+        struct Seen {
+            flexes: Vec<crate::outline::Flex>,
+            curves: Vec<[f32; 6]>,
+        }
+        impl Sink for Seen {
+            fn move_to(&mut self, _: f32, _: f32) {}
+            fn line_to(&mut self, _: f32, _: f32) {}
+            fn quad_to(&mut self, _: f32, _: f32, _: f32, _: f32) {}
+            fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+                self.curves.push([x1, y1, x2, y2, x, y]);
+            }
+            fn close(&mut self) {}
+            fn flex(&mut self, f: &crate::outline::Flex) {
+                self.flexes.push(*f);
+            }
+        }
+        let n = |v: i16| u8::try_from(v + 139).unwrap();
+        let mut cs = vec![N100, N100, 21];
+        // flex, horizontal, fd 30.
+        cs.extend([10, 5, 10, 5, 10, 0, 10, 0, 10, -5, 10, -5, 30].map(n));
+        cs.extend([12, 35]);
+        // flex, its end 1 above its start.
+        cs.extend([10, 5, 10, 5, 10, 0, 10, 0, 10, -5, 10, -4, 50].map(n));
+        cs.extend([12, 35]);
+        // flex1, vertical; hflex.
+        cs.extend([5, 10, 5, 10, 0, 10, 0, 10, -5, 10, 7].map(n));
+        cs.extend([12, 37]);
+        cs.extend([10, 10, 6, 10, 10, 10, 10].map(n));
+        cs.extend([12, 34]);
+        // flex, back at its start: two curves.
+        cs.extend([10, 5, 10, 5, 10, 0, -10, 0, -10, -5, -10, -5, 50].map(n));
+        cs.extend([12, 35]);
+        let t = table(&[&cs, &[]], &[], None);
+        let cff2 = Cff2::parse(Bytes::new(&t), Count::of(2u32)).unwrap();
+        let mut seen = Seen::default();
+        cff2.outline(GlyphId::NOTDEF, &Coords::default(), &mut seen)
+            .unwrap();
+        let got: Vec<([f32; 2], f32)> =
+            seen.flexes.iter().map(|f| (f.depth, f.threshold)).collect();
+        assert_eq!(
+            got,
+            [
+                ([0.0, 10.0], 0.3),
+                ([0.0, 9.5], 0.5),
+                ([10.0, 0.0], 0.5),
+                ([0.0, 6.0], 0.5)
+            ]
+        );
+        assert_eq!(seen.curves.len(), 2);
+    }
+
     /// The refusal says which table, in words a launch message can carry.
     #[test]
     fn a_refused_cff2_table_is_named() {
