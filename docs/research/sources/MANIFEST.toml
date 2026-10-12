@@ -23131,3 +23131,156 @@ bytes  = 22206
 status = "external"
 group  = "AA"
 # Retrieved 2026-10-12. Read: 323-362.
+
+# --- E: the IUTF8 route (round 2026-10-12): POSIX, XNU, Linux and both libcs on a new pty's termios ---
+[sources.posix-open]
+key    = "posix-open"
+title  = "open, openat -- open file (O_TTY_INIT, and the subsidiary side of a pseudo-terminal on first open) -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/open.html"
+file   = ""
+sha256 = "57b770918aa3e0c25186972675df8c96da119cf4b973335ed4487405e260dc3a"
+bytes  = 40401
+status = "external"
+group  = "E"
+# Read for O_TTY_INIT: the first open of a pseudo-terminal's subsidiary side sets any
+# non-standard termios parameters to a conforming state whether or not the flag is set
+# (the IUTF8 route, note AA section 5).
+
+[sources.posix-tcsetattr]
+key    = "posix-tcsetattr"
+title  = "tcsetattr -- set the parameters associated with the terminal -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/tcsetattr.html"
+file   = ""
+sha256 = "b27e4c0a8605ba67ba07787cb14e43f7305bab9dfea5fb76faa0d227c08539ea"
+bytes  = 12454
+status = "external"
+group  = "E"
+# Read for "The effect of tcsetattr() is undefined if the value of the termios structure
+# pointed to by termios_p was not derived from the result of a call to tcgetattr() on
+# fildes", which separates a hand-built termios from a read-modify-write (note AA section 5).
+
+[sources.posix-xbd-11]
+key    = "posix-xbd-11"
+title  = "General Terminal Interface (XBD chapter 11) -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap11.html"
+file   = ""
+sha256 = "d5d4eaada506f1d2c6016383e7ae83c4010acd94a9cf4f93c5103c659dbae6ac"
+bytes  = 63052
+status = "external"
+group  = "E"
+# Read for 11.2.1: the termios structure "should never be initialized directly by the
+# application", and for canonical-mode ERASE (11.1.6).
+
+[sources.posix-termios-h]
+key    = "posix-termios-h"
+title  = "<termios.h> -- define values for termios -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/termios.h.html"
+file   = ""
+sha256 = "4e151c59ebd33c6c4bb4e1fec58de052198c2766a89af221d02146a74ab39020"
+bytes  = 22826
+status = "external"
+group  = "E"
+# Read for what is absent: no IUTF8 among the input modes (positive control IXANY), so
+# the flag is an implementation's non-standard parameter.
+
+[sources.posix-xsh-2]
+key    = "posix-xsh-2"
+title  = "System Interfaces: General Information (XSH chapter 2) -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/V2_chap02.html"
+file   = ""
+sha256 = "9e9dc6276c456bf30309dcd0fd76912fc118c16ab1bbc8f3c9503a8de03458a3"
+bytes  = 330207
+status = "external"
+group  = "E"
+# Read for 2.4.3's list of async-signal-safe functions, which names tcgetattr() and
+# tcsetattr() (and neither ioctl() nor login_tty()).
+
+[sources.linux-tty-ioctl]
+key    = "linux-tty-ioctl"
+title  = "Linux cf72cbb, drivers/tty/tty_ioctl.c -- tty_mode_ioctl: a pty master's termios ioctls act on the slave"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/drivers/tty/tty_ioctl.c"
+file   = ""
+sha256 = "36babfdd0401134cead2845f4ab578b81901f1e832edcc004833c42034369ca1"
+bytes  = 26062
+status = "external"
+group  = "E"
+# Read for tty_mode_ioctl's real_tty = tty->link when the tty is a pty master, at the
+# same commit as linux-pty and linux-tty-io.
+
+[sources.apple-libc-pty-c]
+key    = "apple-libc-pty-c"
+title  = "Apple Libc-1752.120.2 (4e34d05), util/pty.c -- openpty applies termp to the replica with tcsetattr; forkpty is openpty, fork and login_tty"
+author = "Apple"
+year   = 2025
+venue  = "apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/Libc/4e34d0559e3a1b081afeb8604d9e204a1f31321d/util/pty.c"
+file   = ""
+sha256 = "5159b60806242faf7f386e08fbf78b955024f8e1541a141e43f0b1bfbc82f361"
+bytes  = 4727
+status = "external"
+group  = "E"
+# Read for openpty's `(void) tcsetattr(replica, TCSAFLUSH, termp)`: a termios handed to
+# forkpty reaches the kernel through tcsetattr on a descriptor nothing has read.
+
+[sources.glibc-2-42-openpty-c]
+key    = "glibc-2-42-openpty-c"
+title  = "glibc 2.42 (d209765), login/openpty.c -- openpty applies termp to the terminal with __tcsetattr"
+author = "The GNU C Library contributors"
+year   = 2025
+venue  = "glibc (GitHub mirror bminor/glibc)"
+url    = "https://raw.githubusercontent.com/bminor/glibc/d2097651cc57834dbfcaa102ddfacae0d86cfb66/login/openpty.c"
+file   = ""
+sha256 = "ee329de57784750e07e84d516580c3cd73352dfa064642f724efc6ec917b1e7f"
+bytes  = 4124
+status = "external"
+group  = "E"
+# Read for `__tcsetattr (terminal, TCSAFLUSH, termp)`, glibc's twin of Apple's openpty.
+
+[sources.xnu-termios-4]
+key    = "xnu-termios-4"
+title  = "XNU xnu-12377.121.6, bsd/man/man4/termios.4 -- the initial flags and control characters after open() are sys/ttydefaults.h's"
+author = "Apple"
+year   = 2026
+venue  = "XNU, apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/man/man4/termios.4"
+file   = ""
+sha256 = "ed77bdc8665e708c2f4f879329ba8d19bd17cd3806c740a17ec8cb44b162971c"
+bytes  = 40359
+status = "external"
+group  = "E"
+# Read for "The initial values of the flags and control characters after open() is set
+# according to the values in the header <sys/ttydefaults.h>"; the page does not name IUTF8.
+# The MacOSX SDK's copy differs only by the IUCLC and OLCUC lines.
+
+[sources.xnu-ttydefaults-h]
+key    = "xnu-ttydefaults-h"
+title  = "XNU xnu-12377.121.6, bsd/sys/ttydefaults.h -- TTYDEF_IFLAG and the other first-open defaults ptsopen applies"
+author = "Apple"
+year   = 2026
+venue  = "XNU, apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/ac9718fb1af618d5ce8678d0dc6e8a58f252216f/bsd/sys/ttydefaults.h"
+file   = ""
+sha256 = "d2ab60271dc08c35f748b815bbf34fc5cd40e9bcbd724f7c72c57ee2a228f3d9"
+bytes  = 5233
+status = "external"
+group  = "E"
+# Read for TTYDEF_IFLAG (BRKINT | ICRNL | IMAXBEL | IXON | IXANY): no IUTF8, so a new
+# Darwin pty starts -iutf8 (xnu-tty-dev's ptsopen applies it).
