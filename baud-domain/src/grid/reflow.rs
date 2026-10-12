@@ -152,10 +152,8 @@ impl<'a> View<'a> {
         let last = self.lin(c, start + rows - 1);
         let mark = self.used[last].index().min(old);
         let cells = (rows - 1) * old + mark;
-        let tail = match mark < old {
-            true => self.cell(last, mark),
-            false => PackedCell::EMPTY,
-        };
+        let s = self.stride.index();
+        let tail = crate::history::blank_past_mark(&self.cells[last * s..last * s + s], mark, old);
         let spacers = self.spacers(c, start, cells);
         let dest = (cells + spacers).div_ceil(new).max(1);
         Line {

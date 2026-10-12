@@ -2896,3 +2896,140 @@ fn a_full_reset_leaves_nothing_of_the_old_text_in_the_ring() {
         );
     }
 }
+
+/// Every retained line against the window scrolled back to it: the cells
+/// `Scrollback::line` gives, then the default blank past them, are the row
+/// [`Term::view`] draws there, over the live width. Fails naming each
+/// line that differs, by its first column that does. How many retained
+/// lines it compared.
+fn assert_lines_read_as_the_window_draws_them(t: &Term<'_>, what: &str) -> usize {
+    let sb = t.scrollback();
+    let cols = t.geometry().0.index();
+    let differ: Vec<(usize, usize)> = (0..sb.len())
+        .filter_map(|n| {
+            let (line, _) = sb.line(Back::of(n)).expect("a retained line");
+            let drawn = t.view(Rows::of_count(n + 1)).row(Row::ZERO);
+            drawn
+                .iter()
+                .take(cols)
+                .enumerate()
+                .position(|(c, want)| line.get(c).copied().unwrap_or(PackedCell::EMPTY) != *want)
+                .map(|c| (n, c + 1))
+        })
+        .collect();
+    assert!(
+        differ.is_empty(),
+        "{what}: (line back, first column) read other than the window draws: {differ:?}"
+    );
+    sb.len()
+}
+
+/// Lines that retire with a blank other than the default past their
+/// text: a row erased in blue (`2K`, uniform from column 1, so a mark of
+/// zero), `abc` erased to the end in blue, a line written in blue and
+/// erased on in it, a styled blank at the last column (`ECH` there), and a
+/// plain line between. Ten line feeds put them all behind the window of a
+/// ten-row screen.
+const COLOURED_LINES: &[u8] = b"\x1b[44m\x1b[2K\x1b[0m\r\n\
+    abc\x1b[44m\x1b[K\x1b[0m\r\n\
+    plain\r\n\
+    \x1b[44mblue text\x1b[K\x1b[0m\r\n\
+    \x1b[40G\x1b[44m\x1b[X\x1b[0m\r\n\
+    \r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n";
+
+/// **A retained line reads as the window draws it.** `Term::scrollback`
+/// says it gives what a scrolled-back window shows above the screen; a
+/// line whose row is uniform in a colour from its mark on read as its
+/// cells to the mark alone, so a row erased in blue read as no cells
+/// while the window drew forty blue ones, and `abc` erased in blue read
+/// as `abc`. In every read size and every two-read split.
+#[test]
+fn a_retained_line_reads_as_the_window_draws_it() {
+    let ws = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let read = |reads: Reads| {
+        let mut owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, Depth::of(20));
+        let mut t = Term::new(owned.storage(), &ws);
+        reads.feed(&mut t, COLOURED_LINES);
+        let blue = t.view(Rows::of_count(6)).row(Row::ZERO);
+        assert!(
+            blue.iter()
+                .all(|c| c.content == Content::EMPTY && c.style != StyleId::DEFAULT),
+            "{reads:?}: the control, the window draws the erased row blue"
+        );
+        assert_eq!(
+            assert_lines_read_as_the_window_draws_them(&t, &format!("{reads:?}")),
+            6,
+            "{reads:?}: the control, six lines retired"
+        );
+        let lens: Vec<usize> = (0..6)
+            .map(|n| t.scrollback().line(Back::of(n)).expect("a line").0.len())
+            .collect();
+        assert_eq!(
+            lens,
+            [0, 40, 40, 5, 40, 40],
+            "{reads:?}: a coloured blank to the live width and no further, a plain line to its mark"
+        );
+    };
+    read(Reads::Whole);
+    for reads in Reads::every(COLOURED_LINES.len()) {
+        read(reads);
+    }
+}
+
+/// The same after a narrowing at a prompt: lines written at 40 columns
+/// whose marks lie inside the new edge read to it in their blank, and a
+/// blue bar's mark of 30 past the 20-column edge keeps the bar's cells
+/// to it, of which the window draws the first twenty.
+#[test]
+fn a_retained_line_reads_as_the_window_draws_it_after_a_narrowing() {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &wide);
+    for _ in 0..4 {
+        support::feed(&mut t, BLUE_BAR);
+    }
+    support::feed(&mut t, COLOURED_LINES);
+    support::feed(&mut t, b"\x1b]133;A\x07$ ");
+    let n = assert_lines_read_as_the_window_draws_them(&t, "wide");
+    assert_eq!(n, 10, "the control: ten lines retired");
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    assert_eq!(
+        t.scrollback()
+            .line(Back::of(n - 1))
+            .expect("the oldest bar")
+            .0
+            .len(),
+        30,
+        "the control: the oldest bar's mark lies past the edge"
+    );
+    assert_lines_read_as_the_window_draws_them(&t, "narrowed");
+    let lens = |t: &Term<'_>| -> Vec<usize> {
+        (0..n)
+            .map(|k| t.scrollback().line(Back::of(k)).expect("a line").0.len())
+            .collect()
+    };
+    assert_eq!(
+        lens(&t),
+        [0, 39, 20, 5, 20, 20, 30, 30, 30, 30],
+        "narrowed: a coloured blank to the new edge and no further, a mark past it kept"
+    );
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    assert_lines_read_as_the_window_draws_them(&t, "grown");
+    assert_eq!(
+        lens(&t),
+        [0, 40, 40, 5, 40, 40, 40, 40, 40, 40],
+        "grown: every coloured blank to the edge again, the bars' blue erase with them"
+    );
+}

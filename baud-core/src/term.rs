@@ -1956,15 +1956,19 @@ impl<'b> Term<'b> {
     }
 
     /// The lines that scrolled off the top of the primary screen, newest
-    /// first, each to its mark: what a scrolled-back window shows above the
-    /// screen. They are rows of the ring behind the window, so the read is a
-    /// view and the scroll that made them wrote nothing extra; empty on a
-    /// storage built with [`Depth::NONE`], whose ring is the screen.
+    /// first, each to its mark, or to the live width when the row is
+    /// uniform from the mark in a blank other than the default: what a
+    /// scrolled-back window shows above the screen, and past a narrowed
+    /// edge the cells to a mark that lies there. They are rows of the ring
+    /// behind the window, so the read is a view and the scroll that made
+    /// them wrote nothing extra; empty on a storage built with
+    /// [`Depth::NONE`], whose ring is the screen.
     pub fn scrollback(&self) -> Scrollback<'_> {
         Scrollback::new(
             self.store.vp,
             self.store.used,
             self.stride.index(),
+            self.cols,
             self.store.ring_rows(),
             self.rot,
             self.store.book.hist,

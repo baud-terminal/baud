@@ -23,7 +23,7 @@
 
 use crate::cell::PackedCell;
 use crate::grid::RowRot;
-use crate::quantity::Rows;
+use crate::quantity::{Cols, Rows};
 use crate::store::RowExtent;
 
 /// How a stored line ended: at a newline, or by the writer wrapping onto the
@@ -52,19 +52,36 @@ impl Back {
     }
 }
 
-/// The lines behind the window, newest first, each to its mark.
+/// The lines behind the window, newest first, each as the window draws it
+/// over the live width, and to its mark where that lies past the live
+/// edge.
 ///
 /// A view over the primary ring: `ring` physical rows at `stride`, the
-/// window's first row at `rot`, and `len` rows behind it that are lines
-/// rather than blanks. Line `n` back is physical row `rot - 1 - n`, modulo
-/// the ring.
+/// window's first row at `rot`, `len` rows behind it that are lines
+/// rather than blanks, and the live width `cols`. Line `n` back is
+/// physical row `rot - 1 - n`, modulo the ring.
 pub struct Scrollback<'a> {
     cells: &'a [PackedCell],
     used: &'a [RowExtent],
     stride: usize,
+    cols: Cols,
     ring: Rows,
     rot: RowRot,
     len: Rows,
+}
+
+/// The blank `row` is uniform in from its mark to `width`, the live width
+/// it was last filled at: the cell at the mark when the mark lies inside
+/// it, and the default blank otherwise -- nothing lies between, and past
+/// the edge the cells beyond a mark are the old line's, which the passes
+/// past the edge clear to [`PackedCell::EMPTY`]. The one reading of the
+/// mark that both the history's read and a reflow take, so they cannot
+/// disagree about what a line holds past it.
+pub(crate) fn blank_past_mark(row: &[PackedCell], mark: usize, width: usize) -> PackedCell {
+    match mark < width {
+        true => row[mark],
+        false => PackedCell::EMPTY,
+    }
 }
 
 impl<'a> Scrollback<'a> {
@@ -72,6 +89,7 @@ impl<'a> Scrollback<'a> {
         cells: &'a [PackedCell],
         used: &'a [RowExtent],
         stride: usize,
+        cols: Cols,
         ring: Rows,
         rot: RowRot,
         len: Rows,
@@ -80,6 +98,7 @@ impl<'a> Scrollback<'a> {
             cells,
             used,
             stride,
+            cols,
             ring,
             rot,
             len,
@@ -96,7 +115,18 @@ impl<'a> Scrollback<'a> {
     }
 
     /// A retained line, `back` lines before the newest: its cells to the
-    /// mark, and how it ended. `None` past what is retained.
+    /// mark, or to the live width when the row is uniform from the mark in
+    /// a blank other than the default, and how it ended. `None` past what
+    /// is retained.
+    ///
+    /// **The mark is where the row stops being uniform, not where its
+    /// text ends.** A row erased in blue has a mark of zero and forty blue
+    /// cells, and `abc` erased on in blue a mark of three; read to the mark
+    /// alone, the first was no cells and the second `abc`, where the window
+    /// scrolled back to them draws the blue (the record, "A retained line
+    /// reads as the window draws it"). Past the default blank there is
+    /// nothing a caller could not supply, so a plain line still reads to
+    /// its mark. One cell read a line, on the read side.
     pub fn line(&self, back: Back) -> Option<(&[PackedCell], Wrap)> {
         if back.0 >= self.len.index() {
             return None;
@@ -104,8 +134,13 @@ impl<'a> Scrollback<'a> {
         // One row behind the window, then `back` more, wrapping at the
         // ring's start: `retreat` is the same modulus the window uses.
         let p = self.rot.retreat(back.0 + 1, self.ring).index();
-        let n = self.used[p].index();
         let start = p * self.stride;
+        let mark = self.used[p].index();
+        let row = &self.cells[start..start + self.stride];
+        let n = match blank_past_mark(row, mark, self.cols.index()) == PackedCell::EMPTY {
+            true => mark,
+            false => self.cols.index(),
+        };
         let wrap = match self.used[p].wrapped() {
             true => Wrap::Continues,
             false => Wrap::Ended,
