@@ -7,14 +7,15 @@ CI and the pre-push hook run it.
 ## The terminal
 
 ```sh
-cargo run --release -p baud-app       # the terminal, `baud`, from the shell you are in
+cargo run --release                   # the terminal, `baud`, from the shell you are in
 scripts/bundle-macos.sh               # target/baud.app: the release build as a macOS application
 scripts/bundle-macos.sh --no-build    # the same, around a binary already built
 ```
 
-`baud-app` builds the binary `baud`: a login shell on a pty, `baud-core`,
-`baud-render`, and the platform's window -- `baud-present-macos` on Metal, or
-`baud-present-wayland` on `wl_shm`. The bundle gives it an `Info.plist`
+`baud-app` builds the binary `baud`, the workspace's only binary: a login
+shell on a pty, `baud-core`, `baud-render`, and the platform's window --
+`baud-present-macos` on Metal, or `baud-present-wayland` on `wl_shm`. The
+root's `default-members` makes `cargo run` build it as the bundle does. The bundle gives it an `Info.plist`
 (`packaging/macos/`), a Dock icon rendered from the logo, and the embedded
 fonts' licences; it needs `iconutil` (macOS) and takes `rsvg-convert` from
 `nix shell nixpkgs#librsvg`.
@@ -41,6 +42,8 @@ the `test:linux` task, does.
 
 ```sh
 cargo test --release -p baud-core    # the core's suite: VT conformance, properties, golden captures, coverage
+cargo test --release -p baud-difftest -- --nocapture        # cell-by-cell diff against alacritty, its table printed
+cargo test --release -p baud-sfte-difftest -- --nocapture   # grid, cursor and replies against sfte, at every read boundary
 cargo nextest run --release --workspace && cargo test --release --doc --workspace   # every crate, as `devenv test` runs it
 bash audit_all.sh                    # the type-system gate
 cargo build --release -p baud-core --target x86_64-unknown-none   # bare metal
@@ -66,9 +69,6 @@ cargo bench -p baud-bench --bench ingest2 -- cat-cjk 250
 cargo bench -p baud-bench --bench transport -- utf8/btop.raw 48
 cargo bench -p baud-bench --bench ceiling    # the reference ceilings, on mains
 cargo bench -p baud-bench --bench opcost     # what one character shape costs
-
-cargo run --release -p baud-difftest        # cell-by-cell diff against alacritty
-cargo run --release -p baud-sfte-difftest   # grid, cursor and replies against sfte, at every read boundary
 ```
 
 The test suite is layered, and each layer catches a different class:
@@ -81,8 +81,8 @@ The test suite is layered, and each layer catches a different class:
 | `golden.rs` | what `baud-core2` rendered for 54 fixtures and 9 recordings, frozen as data before that crate was deleted, and moved since only where `recordings.txt` records a decision (two recordings). It finds regressions on recorded bytes and nothing else |
 | `cell_table.rs` | the three-byte cell table against the write path, on all 65,536 sequences — so turning `cell-table` on cannot change the screen |
 | `docs.rs`, `coverage.rs`, `readme.rs`, `api_coverage.rs` | the documents checking the code: every cited path and test name resolves, every `done` row has a test, the README's example compiles, every `pub fn` has a caller |
-| `baud-difftest` | cell-by-cell agreement with alacritty |
-| `baud-sfte-difftest` | agreement with sfte, a second implementation, on the grid, the cursor and the replies, at every 4096-byte read of every fixture and recording; what differs is pinned with its reason. Its build copies the header pinned in `docs/research/sources/`, applies `baud-sfte-difftest/patches/` to the copy, and compiles that with `cc` |
+| `baud-difftest/tests/alacritty.rs` | cell-by-cell agreement with alacritty |
+| `baud-sfte-difftest/tests/sfte.rs` | agreement with sfte, a second implementation, on the grid, the cursor and the replies, at every 4096-byte read of every fixture and recording; what differs is pinned with its reason. Its build copies the header pinned in `docs/research/sources/`, applies `baud-sfte-difftest/patches/` to the copy, and compiles that with `cc` |
 
 Every test is deterministic. `.proptest-regressions` is checked in so a property
 failure replays exactly, and a case worth finding once is also pinned by a
@@ -91,7 +91,11 @@ deterministic test rather than left depending on a saved seed.
 `baud-difftest` needs no checkout and no edit. It pins `alacritty_terminal` to
 the registry version `multibench` already uses, so the two external comparisons
 answer to one alacritty, and it is a **workspace member** -- `cargo test
---workspace` builds it and runs its tests.
+--workspace` builds it and runs its tests. Both differentials are test targets
+and not binaries, so `devenv test`'s `cargo nextest run --workspace` runs them
+with the rest; `baud` is the one binary. A bare `cargo test`, `cargo build` or
+`cargo clippy` at the root covers `baud-app` alone, because `default-members`
+names only it; the gate passes `--workspace`.
 
 That is new, and the reason it is worth a paragraph: it used to pin alacritty by
 the absolute path `/home/user/t/alacritty/alacritty_terminal`, which no

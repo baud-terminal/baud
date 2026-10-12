@@ -8,7 +8,9 @@ edition.workspace = true
 # and it carries no `license` or `description`.
 publish = false
 
-[dependencies]
+# Dev-dependencies: the oracle is `tests/alacritty.rs`, and the library
+# `src/lib.rs` is empty.
+[dev-dependencies]
 baud-core = { path = "../baud-core", features = ["alloc"] }
 # From crates.io rather than a sibling checkout, for the reason `multibench`'s
 # manifest already records: the absolute path it carried
@@ -33,4 +35,8 @@ baud-core = { path = "../baud-core", features = ["alloc"] }
 # it. The oracle is unaffected: `every_case_agrees_with_alacritty` still
 # passes, and its pinned normalisation counts -- 4 spacers, 2 tab cells --
 # cannot be produced without driving alacritty for real.
+#
+# A dev-dependency since the oracle became a test target, so `cargo build
+# --workspace` no longer compiles it; `cargo test --workspace` does, and
+# unifies features across that build, which is why the setting stays.
 alacritty_terminal = { version = "0.26", default-features = false }

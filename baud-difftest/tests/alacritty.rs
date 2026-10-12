@@ -3,6 +3,11 @@
 //! Feeds identical bytes to `baud-core` and to alacritty's `Term`, then compares
 //! the visible grid cell by cell.
 //!
+//! **A test target, not a binary** (the owner, 2026-09-14: "the only bin should
+//! be and default one is baud, rest is part of tests"). What the binary printed
+//! and exited 1 on is `the_report_lists_every_case_and_none_differs`; run it with
+//! `cargo test --release -p baud-difftest -- --nocapture` to see the table.
+//!
 //! **It was the only external oracle left when `baud-core2` went.** Until
 //! then the differential that mattered was between the two cores, and this one
 //! was a second opinion; after it, this was the one thing in the repository
@@ -306,9 +311,9 @@ struct Verdict {
 
 /// Drive both implementations over every case and compare.
 ///
-/// Returns the verdicts and the normalisation counts, so `main` can print a
-/// table and the test can assert on the same numbers rather than on a reparse of
-/// the table.
+/// Returns the verdicts and the normalisation counts, so the report can print
+/// a table and the tests can assert on the same numbers rather than on a reparse
+/// of the table.
 fn compare() -> (Vec<Verdict>, Normalised) {
     let mut norm = Normalised::new();
     let verdicts = cases()
@@ -338,7 +343,9 @@ fn compare() -> (Vec<Verdict>, Normalised) {
     (verdicts, norm)
 }
 
-fn main() {
+/// The table the binary printed, and its exit status as the test's verdict.
+#[test]
+fn the_report_lists_every_case_and_none_differs() {
     let (verdicts, norm) = compare();
     let fail = verdicts.iter().filter(|v| v.diffs.any()).count();
     println!("  {:<20} {:>8}  first mismatch", "case", "diff");
@@ -364,9 +371,7 @@ fn main() {
     // found, so even once it compiled it could not be a gate -- the same shape
     // as the glyph differential that ended in `let _ = want;` and passed green
     // while three recordings diverged by 3,057 cells.
-    if fail != 0 {
-        std::process::exit(1);
-    }
+    assert_eq!(fail, 0, "{fail} of {} cases differ", verdicts.len());
 }
 
 #[cfg(test)]

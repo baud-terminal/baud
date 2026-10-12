@@ -87,6 +87,7 @@ call, with the options set out in the note it names.
 ## Running it
 
 ```sh
+devenv shell -- cargo run --release             # the terminal, `baud`, from the shell you are in
 devenv shell -- scripts/bundle-macos.sh         # target/baud.app: the terminal, `baud`, as an app
 devenv test                                     # the whole gate, as CI runs it
 devenv shell -- dev-bench cat-cjk               # baud-core alone on one recording, in memory

@@ -1,6 +1,12 @@
 //! The differential's driver: fixtures, recordings, pins and the verdict.
 //! The shim, the two drivers and the comparison types are in `lib.rs`, so
 //! `multibench` can reuse one description of how sfte is driven.
+//!
+//! **A test target, not a binary** (the owner, 2026-09-14: "the only bin should
+//! be and default one is baud, rest is part of tests"). What the binary printed
+//! and exited 1 on is `the_report_has_nothing_unpinned`; run it with
+//! `cargo test --release -p baud-sfte-difftest -- --nocapture` to see the
+//! tables.
 use baud_core::{Col, Owned, READ_CHUNK, Row};
 use baud_sfte_difftest::*;
 
@@ -341,8 +347,8 @@ fn at((r, c): (Row, Col)) -> (usize, usize) {
 }
 
 /// Whether one fixture's result matches its control exactly. `None` means it
-/// does; `Some` carries what was wrong. Shared by `main` and the test so the
-/// binary's verdict is as strong as the test's.
+/// does; `Some` carries what was wrong. Shared by the report and the test so
+/// the report's verdict is as strong as the test's.
 fn check_control(name: &str, want: &Control, a: &Screen, b: &Screen) -> Option<String> {
     let got: Vec<(usize, usize, char, char)> = a
         .cells
@@ -513,7 +519,7 @@ fn describe(d: &Divergence) -> String {
     s
 }
 
-/// Every run, so `main` and the test cannot drive different ones.
+/// Every run, so the report and the tests cannot drive different ones.
 fn compare() -> (Vec<Verdict>, Vec<Verdict>, Normalised) {
     let mut norm = Normalised::new();
     let fx: Vec<Verdict> = fixtures()
@@ -527,7 +533,9 @@ fn compare() -> (Vec<Verdict>, Vec<Verdict>, Normalised) {
     (fx, rec, norm)
 }
 
-fn main() {
+/// The tables the binary printed, and its exit status as the test's verdict.
+#[test]
+fn the_report_has_nothing_unpinned() {
     let locale = set_locale();
     let cell_bytes = unsafe { ffi::sfte_shim_cell_bytes() };
     println!(
@@ -625,8 +633,8 @@ fn main() {
     // **An oracle that only prints cannot fail.**
     if fail != 0 {
         println!("\n  {fail} unpinned");
-        std::process::exit(1);
     }
+    assert_eq!(fail, 0, "{fail} unpinned");
 }
 
 #[cfg(test)]

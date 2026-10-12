@@ -42,6 +42,17 @@ members = ["baud-domain", "baud-core", "baud-bench",
 # terminals — and ghostty-bench is Zig. They do not belong in this lock file.
 exclude = ["bench-others"]
 
+# **`cargo run` builds the binary the bundle ships.** `baud` is the one binary
+# (the owner, 2026-09-14: "the only bin should be and default one is baud, rest
+# is part of tests"). Without this line a bare `cargo run --release` resolves
+# features across every member, and `baud-bench` turns on `baud-render`'s
+# `exceptions`, which that manifest says the app does not get, and libc's
+# `std`: 4,160 more bytes of `__text` than `scripts/bundle-macos.sh`'s
+# `cargo build --release -p baud-app`, measured at 6bd4702. With it a bare
+# `cargo run`, `build`, `test` or `clippy` covers `baud-app` alone; the gate
+# passes `--workspace`.
+default-members = ["baud-app"]
+
 [workspace.package]
 version = "0.1.0"
 # Deliberately 2021, not the 2024 the rust-template scaffold ships. An edition

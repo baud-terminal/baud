@@ -157,6 +157,72 @@ fn every_relative_link_resolves() {
     );
 }
 
+/// **`cargo run` runs baud, because `baud` is the workspace's one binary.**
+///
+/// The owner, 2026-09-14: "the only bin should be and default one is baud,
+/// rest is part of tests". `BUILD.md` tells a reader `cargo run --release`
+/// starts the terminal, and that holds only while no other member grows a
+/// binary target, `baud-app` keeps `default-run = "baud"`, and the root keeps
+/// `default-members = ["baud-app"]` -- without which a bare `cargo run`
+/// unifies features across every member and builds a different `baud` from
+/// the bundle's. The two differentials were binaries until 2026-10-12 and are
+/// test targets now. The member list is read from the root manifest, and the
+/// positive controls are its first and last members and `baud-app`'s own
+/// `[[bin]]`, which the scan must find.
+#[test]
+fn baud_is_the_only_binary_and_the_default() {
+    let manifest = fs::read_to_string(root().join("Cargo.toml")).expect("Cargo.toml");
+    let list = manifest
+        .split_once("\nmembers = [")
+        .and_then(|(_, rest)| rest.split_once(']'))
+        .expect("the root manifest's members list")
+        .0;
+    let members: Vec<&str> = list
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with('#'))
+        .flat_map(|l| l.split('"').skip(1).step_by(2))
+        .collect();
+    assert!(
+        members.first() == Some(&"baud-domain")
+            && members.last() == Some(&"baud-present-wayland")
+            && members.contains(&"baud-app"),
+        "the members scan stopped matching: {members:?}"
+    );
+    assert!(
+        manifest
+            .lines()
+            .any(|l| l.trim() == "default-members = [\"baud-app\"]"),
+        "the root is to keep `default-members = [\"baud-app\"]`, so `cargo run` \
+         builds the bundle's `baud`"
+    );
+    let mut bins = Vec::new();
+    for m in &members {
+        let dir = root().join(m);
+        let toml = fs::read_to_string(dir.join("Cargo.toml")).expect("a member's manifest");
+        for l in toml.lines().filter(|l| l.trim() == "[[bin]]") {
+            bins.push(format!("{m}: {l}"));
+        }
+        if *m != "baud-app" && dir.join("src/main.rs").exists() {
+            bins.push(format!("{m}: src/main.rs"));
+        }
+        if dir.join("src/bin").exists() {
+            bins.push(format!("{m}: src/bin/"));
+        }
+    }
+    assert_eq!(
+        bins,
+        ["baud-app: [[bin]]"],
+        "baud is to be the only binary; the rest are tests, benches or examples"
+    );
+    let app = fs::read_to_string(root().join("baud-app/Cargo.toml")).expect("baud-app");
+    assert!(
+        app.lines().any(|l| l.trim() == "name = \"baud\"")
+            && app.lines().any(|l| l.trim() == "default-run = \"baud\""),
+        "baud-app's binary is to be `baud`, and `cargo run` is to run it"
+    );
+}
+
 /// **Every repository path a document names in backticks exists.**
 ///
 /// Documents here cite real paths constantly — `baud-core/src/graph.rs`,
@@ -312,6 +378,10 @@ fn every_test_named_in_the_docs_exists() {
         "baud-domain",
         "baud-bench",
         "baud-difftest",
+        // Absent until a document first named a test of its,
+        // `the_report_has_nothing_unpinned`, which the gate then reported as a
+        // citation to nothing.
+        "baud-sfte-difftest",
         "baud-isa",
         "baud-isa-aarch64",
         "baud-isa-x86-64",

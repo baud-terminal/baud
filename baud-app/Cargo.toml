@@ -8,6 +8,13 @@ repository.workspace = true
 description = "The terminal: a pty, baud-core, baud-render and a platform presentation crate joined into one process."
 # Not published: the binary, not a library anyone depends on.
 publish = false
+# `cargo run` at the workspace root runs `baud`: the owner, 2026-09-14, "the
+# only bin should be and default one is baud, rest is part of tests". The
+# root manifest's `default-members` makes it build what the bundle ships;
+# this names the binary should the package grow a second.
+# `baud_is_the_only_binary_and_the_default` (`baud-core/tests/docs.rs`)
+# holds both.
+default-run = "baud"
 
 [dependencies]
 baud-core = { path = "../baud-core", features = ["alloc"] }

@@ -103,7 +103,7 @@ in
     echo "=== fmt ==="
     treefmt --fail-on-change || { echo "FAILED: fmt"; exit 1; }
     echo "=== clippy ==="
-    cargo clippy --quiet ${scope} -- -D warnings || { echo "FAILED: clippy"; exit 1; }
+    cargo clippy --quiet ${scope} --all-targets -- -D warnings || { echo "FAILED: clippy"; exit 1; }
     echo "=== check ==="
     # --all-targets, because a plain check builds neither benches nor
     # examples and `cargo test` does not build a bench target either. Three
@@ -290,7 +290,7 @@ in
     };
 
     "test:clippy" = {
-      exec = "cargo clippy --quiet ${scope} -- -D warnings";
+      exec = "cargo clippy --quiet ${scope} --all-targets -- -D warnings";
       after = [ "test:fmt" ];
     };
 
