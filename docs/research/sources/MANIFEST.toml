@@ -20877,3 +20877,206 @@ group  = "C"
 # `external`: 8,299,512 bytes. Read 2026-10-11 (round 2026-10-11b): clients/xterm/charproc.c
 # (1.64, 89/01/04) 67-68 and 1069-1083, misc.c 60-71, button.c 170-180 and 395-420. No
 # ctlseqs document in the tarball.
+
+# ---- round 2026-10-11c, lane scorc: SCORC (CSI u) with nothing saved, the practice survey.
+# Every entry is `external`: one file of a project, read and hash-verified 2026-10-11 against its url,
+# not committed. Reused without a new entry, the same bytes: foot-csi-c-cb27717, foot-terminal-cb27717,
+# kitty-6d5d0c4-screen, kitty-6d5d0c4-vt-parser, alacritty-vte-ansi, alacritty-0c405d5-term-mod,
+# alacritty-grid, wezterm-ts-mod-rs-e2a98e1, ghostty-screen, ghostty-d9840f3-stream-handler,
+# linux-vt-console, vte-0-80-vteseq, vte-line-drawing-map (vte.cc at 0.80.0).
+
+[sources.foot-vt-c-cb27717]
+key    = "foot-vt-c-cb27717"
+title  = "foot at cb27717, vt.c -- ESC 7 / ESC 8 / RIS dispatch"
+author = "Daniel Eklöf"
+year   = 2026
+venue  = "dnkl/foot"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/cb2771788998f6a6288e2de8273c55a8214551e0/vt.c"
+file   = ""
+sha256 = "a3e3ccb371682b40d8ba278c9ea7e3b7e8839101a5e958c500fd123179bf92af"
+bytes  = 42267
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 472-481.
+
+[sources.kitty-6d5d0c4-data-types]
+key    = "kitty-6d5d0c4-data-types"
+title  = "kitty at 6d5d0c4, kitty/data-types.h -- the Cursor struct and its sgr fields"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/data-types.h"
+file   = ""
+sha256 = "4009985e60726cf564be85938b4867aa0cbd8244bbdcf39237f6ffc300152f13"
+bytes  = 17258
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 259-270.
+
+[sources.wezterm-e2a98e1-escape-csi]
+key    = "wezterm-e2a98e1-escape-csi"
+title  = "wezterm at e2a98e1, wezterm-escape-parser/src/csi.rs -- CSI u parsed as RestoreCursor only with no parameters"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/wezterm-escape-parser/src/csi.rs"
+file   = ""
+sha256 = "db1494003f9e389a42c0cc4e3b46b8673fd6401af467b450f8e4092c3d18727f"
+bytes  = 125348
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 1806-1814, 1990.
+
+[sources.wezterm-e2a98e1-performer]
+key    = "wezterm-e2a98e1-performer"
+title  = "wezterm at e2a98e1, term/src/terminalstate/performer.rs -- ESC 7 / ESC 8 and RIS (FullReset)"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/term/src/terminalstate/performer.rs"
+file   = ""
+sha256 = "ed835157c98df179fe0dc1ac5fa86dd007f49bc4dcb56cdcd87f33b76b915ce3"
+bytes  = 49678
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 632-633, 679-730 (the same bytes as wezterm-b09b56c-performer).
+
+[sources.wezterm-e2a98e1-screen]
+key    = "wezterm-e2a98e1-screen"
+title  = "wezterm at e2a98e1, term/src/screen.rs -- saved_cursor and full_reset"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/term/src/screen.rs"
+file   = ""
+sha256 = "2d3b9e1985ab1f9d5bb1c5002f47062846488f30c886771e1a285faf5d56cbb4"
+bytes  = 41786
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 47, 89, 93-95 (the same bytes as wezterm-screen-b09b56c).
+
+[sources.wezterm-e2a98e1-term-lib]
+key    = "wezterm-e2a98e1-term-lib"
+title  = "wezterm at e2a98e1, term/src/lib.rs -- CursorPosition derives Default"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/term/src/lib.rs"
+file   = ""
+sha256 = "08006e337bee1023de6b5692353bbea8904a3dde515dff507c3768c57eb3ac33"
+bytes  = 5178
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 106-113.
+
+[sources.wezterm-e2a98e1-surface-lib]
+key    = "wezterm-e2a98e1-surface-lib"
+title  = "wezterm at e2a98e1, wezterm-surface/src/lib.rs -- CursorShape's default"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/wezterm-surface/src/lib.rs"
+file   = ""
+sha256 = "baccbf48ddb311a9ec1ff021206c5daeead559e04687c52ad1c6b00ea4c92743"
+bytes  = 63470
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 61-77.
+
+[sources.ghostty-d9840f3-stream]
+key    = "ghostty-d9840f3-stream"
+title  = "ghostty at d9840f3, src/terminal/stream.zig -- CSI u, ESC 8, CSI p and ESC c dispatch"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/stream.zig"
+file   = ""
+sha256 = "1cb5d8b8f6493e8264fd1cd027821a36f0a6f88aae5e1eeeb291affdcd1ca6d6"
+bytes  = 196846
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 2169-2205, 2450-2451, 2792-2798, 2912.
+
+[sources.ghostty-d9840f3-stream-terminal]
+key    = "ghostty-d9840f3-stream-terminal"
+title  = "ghostty at d9840f3, src/terminal/stream_terminal.zig -- restore_cursor to Terminal.restoreCursor"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/stream_terminal.zig"
+file   = ""
+sha256 = "c28cb9fd0b631d041ab1ffeb960fbc5bb01aa50370f4577ebb028f1bc35b8b61"
+bytes  = 248401
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 428, 453-454.
+
+[sources.ghostty-d9840f3-terminal]
+key    = "ghostty-d9840f3-terminal"
+title  = "ghostty at d9840f3, src/terminal/Terminal.zig -- saveCursor, restoreCursor and fullReset"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/Terminal.zig"
+file   = ""
+sha256 = "7957a064b558d04ea3edf4881874963f914714d07c03745353bc24376a5c52b8"
+bytes  = 576602
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 1997-2050, 4909-4918.
+
+[sources.linux-cf72cbb-console-struct]
+key    = "linux-cf72cbb-console-struct"
+title  = "Linux cf72cbb, include/linux/console_struct.h -- struct vc_state, what save_cur copies"
+author = "Linux kernel contributors"
+year   = 2026
+venue  = "The Linux kernel"
+url    = "https://raw.githubusercontent.com/torvalds/linux/cf72cbb39da84b6f02f90c07f33b102fc10b16f0/include/linux/console_struct.h"
+file   = ""
+sha256 = "bb5d573c85918f8ec2bdca4472461c761a2733cfaf80887da4e936a234fce08a"
+bytes  = 8312
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 45-59.
+
+[sources.wt-7d06b26-adapt-dispatch-cpp]
+key    = "wt-7d06b26-adapt-dispatch-cpp"
+title  = "Windows Terminal at 7d06b26, src/terminal/adapter/adaptDispatch.cpp -- CursorSaveState, CursorRestoreState, SoftReset, HardReset"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/7d06b26f73ef4bcb78b56647c395251eeee4c2bc/src/terminal/adapter/adaptDispatch.cpp"
+file   = ""
+sha256 = "174ce5b0ea68fa6946251136b632b28ef3ffb63ec03075b3e6d84022b4621139"
+bytes  = 194802
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 452-516, 2984-3013, 3042-3067.
+
+[sources.wt-7d06b26-adapt-dispatch-hpp]
+key    = "wt-7d06b26-adapt-dispatch-hpp"
+title  = "Windows Terminal at 7d06b26, src/terminal/adapter/adaptDispatch.hpp -- CursorState's defaults"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/7d06b26f73ef4bcb78b56647c395251eeee4c2bc/src/terminal/adapter/adaptDispatch.hpp"
+file   = ""
+sha256 = "8a851cc43181ba6f2582bf4dc45f995cad2dc0c2718b219cafa375ab1716ad02"
+bytes  = 19835
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 219-228, 330.
+
+[sources.wt-7d06b26-output-engine]
+key    = "wt-7d06b26-output-engine"
+title  = "Windows Terminal at 7d06b26, src/terminal/parser/OutputStateMachineEngine.cpp -- DECRC and ANSISYSRC dispatch"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/7d06b26f73ef4bcb78b56647c395251eeee4c2bc/src/terminal/parser/OutputStateMachineEngine.cpp"
+file   = ""
+sha256 = "d45d4c91d2fde46895d48c37bd839e5be315fd6e8ddd842415b25875f31d521b"
+bytes  = 42559
+status = "external"
+group  = "C"
+# Read 2026-10-11 (round 2026-10-11c, lane scorc): 207-212, 551-553.
