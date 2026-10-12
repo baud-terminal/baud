@@ -542,6 +542,13 @@ impl<'b> ImageStore<'b> {
     /// over it, or a memcpy of raw Kitty pixels -- so nothing is copied
     /// afterwards.
     ///
+    /// **The slice holds whatever the arena held there**, the pixels of the
+    /// last image freed from that span included: it is not cleared here, so a
+    /// caller that writes every word (the memcpy) writes each once. A caller
+    /// that leaves any word unwritten clears the slice first, as
+    /// `sixel_end` does; before it did, a Sixel showed a freed preview through
+    /// its unset bits.
+    ///
     /// Refused, counted, and `None`, if the dimensions are zero, if no image
     /// slot is free, or if no gap in the arena holds the span. Never truncated:
     /// half an image is a wrong image.

@@ -55,6 +55,27 @@ reproducible even though the capture is not. It is seeded Han, kana, Hangul,
 emoji, ZWJ sequences, combining marks and mixed ASCII/CJK lines, including the
 case where a wide character lands against the last column.
 
+## `sixel/yazi-walk.raw`
+
+yazi 26.5.6's output, 2,805,276 bytes, as a capture harness's pty received it
+on 2026-10-09 (sha256
+`d16d2a1f18f0d5f3236f1dd166a6014b8d47c48ae8497746a65b5c1d1b18f8e6`, the
+`walk-big` run of round 2026-10-13c's `runs.sha256`): the cursor stepped down
+six files with `j` and back six with `k` over seven synthetic test files
+(round 2026-10-13c, Limits) -- `photo.jpg`, `flat.png`, `alpha.png`,
+`screenshot.png`, `small.png`, `sparse.pdf` and `text.pdf`. Thirteen previews,
+each a Sixel `ESC P 9;1 q "1;1;W;H` -- `P2 = 1`, so an unset bit keeps what is
+under the image -- cleared with spaces and the next drawn at the same cell.
+The replies it was sent are not in the file; one gave the cell as 17x34
+(`CSI 6 ; 34 ; 17 t`); the file's first screen shows the capture's scratch
+directory,
+`$TMPDIR/scratch`.
+It is committed whole because a recording is not edited before it is measured,
+and because `every_preview_in_a_yazi_walk_is_its_own_body_alone`
+(`baud-core/tests/sixel_reuse.rs`) needs both directions of the walk: it
+requires preview k to equal preview 14 - k as well as each preview to equal
+its body decoded alone.
+
 ## Provenance
 
 `scripts/capture-tui.py` is how these were made and is kept for provenance, not

@@ -85,6 +85,24 @@ impl Paint<'_, '_> {
         // (`pixels_past_the_canvas_are_refused_and_counted_never_wrapped` is the
         // case where a caller sizes a canvas *smaller* than the data; here they
         // are equal.)
+        //
+        // **The span is cleared first, because `store` returns it as the arena
+        // left it**: a span is reused once its image is freed, and the decode
+        // paints set bits only, so every position the data leaves unset -- an
+        // unset bit, a band's rows past the last set bit -- showed the freed
+        // image's pixels. `[[source: vt3xx-sixel]]` gives such a position two
+        // meanings, `P2` 1 "remain at their current color" and 0 or 2 "set to
+        // the current background color" (192-203); `[[source: dec-std-070]]`
+        // 070-9 §7.2 (PDF p. 918) gives 1 "no action", 2 "set to background
+        // color" and 0 "device default action". A transparent pixel is what
+        // "current color" composites to (a reading) and baud's counted
+        // stand-in for the background, and an erased image is none of these.
+        // In yazi's walk down seven files and back, previews 4-10 of 13
+        // carried earlier previews' pixels in the rows their extent runs past
+        // `Pv`. One store per word of the image, which the decode was about to
+        // write in part anyway: no cost measured (the record, "A Sixel's span
+        // is cleared before it decodes").
+        buf.fill(ColorWord::DEFAULT);
         {
             let mut canvas = SixelCanvas::new(buf, w);
             let filled = Sixel::decode(body, aspect, &mut canvas);

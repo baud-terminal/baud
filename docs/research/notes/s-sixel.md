@@ -258,6 +258,29 @@ path an OSC body uses, and at the terminator `Paint::sixel_end`
 the span, decodes in place and places the image at the cursor's absolute line
 and column. `Term::images()` exposes the store; `RIS` resets it.
 
+**The span is cleared before the decode (2026-10-12).** `store` returns a span
+as the arena left it, and the decoder paints set bits only, so a Sixel landing
+in a span an earlier image was freed from showed that image through every
+unset bit and every row of a band past its last set bit. In yazi's walk down
+seven files and back (`tests/recordings/sixel/yazi-walk.raw`), previews 4-10
+of 13 did, in the rows their extent runs past the raster's `Pv` to a whole
+band, and the screenshot's last three rows differed between the way down and
+the way back. Neither text lets such a position show another image:
+`[[source: vt3xx-sixel]]`, `P2` "0 or 2 (default) | Pixel positions specified
+as 0 are set to the current background color" and "1 | Pixel positions
+specified as 0 remain at their current color" (192-203);
+`[[source: dec-std-070]]` 070-9 §7.2, "1 no action (no change to zero bit
+value grid positions)" and "2 set to background color - zero bit value grid
+positions are set to the background color" and 0 "device default action" (PDF
+p. 918, read on the page image). baud composites an image over the cells, so a
+transparent pixel is `P2 = 1`'s "current color" (a reading), and under
+`P2` 0 or 2 it is the counted stand-in for the unbuilt fill below. `sixel_end`
+fills the span with `ColorWord::DEFAULT` before decoding; `store` still does
+not, so a caller that writes every word (a Kitty memcpy) writes each once, and
+its doc says a caller that does not must clear. The gate is
+`baud-core/tests/sixel_reuse.rs`; the record, "A Sixel's span is cleared
+before it decodes".
+
 The gate is `baud-core/tests/sixel.rs`: the real `swirl.raw` decodes to one
 64x48 placement, **chunk-invariant** across read sizes 1 through the whole file
 (the body spans reads, which is the case no recording could show and the one a
