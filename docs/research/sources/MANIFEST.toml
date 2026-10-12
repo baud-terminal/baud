@@ -22765,3 +22765,84 @@ group  = "J"
 # baud-font/tests/cff2.rs normalises and counts: a contour of a moveto alone is
 # never emitted, and a contour whose current point is not its start is closed by
 # a line_to to the start before close_path.
+
+[sources.vt340test-color-selection-sh]
+key    = "vt340test-color-selection-sh"
+title  = "vt340test, j4james/color_selection.sh -- a VT340's one colour table, shared by images and text: a Sixel's definitions land by order (entry 1 first, the sixteenth on entry 0), and entry 0 is the background"
+author = "j4james (vt340test contributors)"
+year   = 2021
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/j4james/color_selection.sh"
+file   = "vt340test-color_selection.sh"
+sha256 = "5f95f3ff640ed9c4d0638946511636104db048703ed7be38c64e99f5c3009069"
+bytes  = 2787
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-12 (round 2026-10-12, lane sixel-colour): 5-14 (the table's order and
+# sharing), 58-75 (sixteen definitions, the last `#8;2;100;100;100`), 77-98 (three images
+# with P2 = 2). Line 21 sends DECSTR, which does not reset a VT340's palette
+# ([[source: vt340test-issue-22-comments]]), so the palette before the run is unknown.
+
+[sources.vt340test-color-selection-png]
+key    = "vt340test-color-selection-png"
+title  = "vt340test, j4james/color_selection.png -- that test on a VT340: the fill and an undefined #0 show entry 0, a #0 the image defined shows its definition"
+author = "hackerb9 (vt340test)"
+year   = 2021
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/j4james/color_selection.png"
+file   = "vt340test-color_selection.png"
+sha256 = "8f36265233a969c54b625182ea65e390b0f91dd1c5b11a46c636c54c57a4222e"
+bytes  = 1882
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-12 (round 2026-10-12, lane sixel-colour), 802x480, 16-entry palette,
+# measured by a zlib-only decode [img]: the screen background and the second image's fill
+# (x 40-119, y 130-159) are white, the same image's #0 drawn before its definitions
+# (x 680-759, y 130-159) white, and its #0 drawn after them (x 40-119, y 160-189) black.
+
+[sources.vt340test-background-select-sh]
+key    = "vt340test-background-select-sh"
+title  = "vt340test, j4james/background_select.sh -- on a VT340 a P2 0/2 fill is colour map entry 0, written before any sixel data"
+author = "j4james (vt340test contributors)"
+year   = 2021
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/j4james/background_select.sh"
+file   = "vt340test-background_select.sh"
+sha256 = "92dd74d42d5e065de35e1c7d04264bed719ef7ed635434f4760b9726e236936f"
+bytes  = 3222
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-12 (round 2026-10-12, lane sixel-colour): 5-9.
+
+[sources.vt340test-issue-22-comments]
+key    = "vt340test-issue-22-comments"
+title  = "hackerb9/vt340test issue #22, SIXEL: cursor positioning and shared palette in TEs, comments (26) -- on a VT340 an image's #0 and #7 match the text background and foreground"
+author = "hackerb9, j4james, jerch and others"
+year   = 2021
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/hackerb9/vt340test/issues/22/comments?per_page=100"
+file   = ""
+sha256 = "9cff1c03c61b656d26d8b16e3f1d523094b64adbcc73b6902b9b7c941f01ba7b"
+bytes  = 92052
+status = "external"
+group  = "C"
+# `external`: comment text, no grant. Read 2026-10-12 (round 2026-10-12, lane sixel-colour):
+# comments 962667790 (j4james, the first definition updates entry 1), 963856533 (hackerb9,
+# "#7 as the foreground and #0 as the background"), 964184776 (DECSTR leaves the palette).
+# API JSON changes with reactions, so a re-fetch may differ.
+
+[sources.mame0289-vt320]
+key    = "mame0289-vt320"
+title  = "MAME 0.289, src/mame/dec/vt320.cpp -- VT320 and VT330 not working, a monochrome palette, and the VT340 lines commented out"
+author = "MAME contributors"
+year   = 2026
+venue  = "mamedev/mame, tag mame0289 @ f34f0250"
+url    = "https://raw.githubusercontent.com/mamedev/mame/f34f02505e32c1993c6a782b6814232cbfc74e36/src/mame/dec/vt320.cpp"
+file   = ""
+sha256 = "5f1fa29f55b3c14f29277d9feda3e0ae1f3f8697790b996b800fe12b2cc27ac8"
+bytes  = 4677
+status = "external"
+group  = "C"
+# `external`: no grant recorded. Read 2026-10-12 (round 2026-10-12, lane sixel-colour): 113
+# (PALETTE ... MONOCHROME), 144-147 (vt340 and vt340p commented out). src/mame/dec/ at that
+# tag holds no other VT3xx driver; [[source: mame0289-vt240]] is the control.

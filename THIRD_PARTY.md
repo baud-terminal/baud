@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 8 | an open question, recorded where the file is; the owner's call |
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 247 | 17 | redistributable, and its notice is satisfied |
+| kept | 250 | 17 | redistributable, and its notice is satisfied |
 | own | 186 | 0 | the owner's work |
-| total | 675 | 27 | |
+| total | 678 | 27 | |
 
 ## Licence texts in LICENSES/
 
@@ -985,13 +985,16 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** CC0-1.0 (https://creativecommons.org/publicdomain/zero/1.0/)
 - **Notice:** none needed
-- **Files:** 10
+- **Files:** 13
 
 | file | copied from |
 |---|---|
 | [vt340test-README.md](docs/research/sources/vt340test-README.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/README.md |
+| [vt340test-background_select.sh](docs/research/sources/vt340test-background_select.sh) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/j4james/background_select.sh |
 | [vt340test-background_select_2.png](docs/research/sources/vt340test-background_select_2.png) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/j4james/background_select_2.png |
 | [vt340test-background_select_2.sh](docs/research/sources/vt340test-background_select_2.sh) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/j4james/background_select_2.sh |
+| [vt340test-color_selection.png](docs/research/sources/vt340test-color_selection.png) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/j4james/color_selection.png |
+| [vt340test-color_selection.sh](docs/research/sources/vt340test-color_selection.sh) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/j4james/color_selection.sh |
 | [vt340test-colormap.md](docs/research/sources/vt340test-colormap.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/colormap/colormap.md |
 | [vt340test-errata.md](docs/research/sources/vt340test-errata.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/errata.md |
 | [vt340test-p2effect.png](docs/research/sources/vt340test-p2effect.png) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/sixeltests/p2effect.png |
