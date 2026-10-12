@@ -109,6 +109,37 @@ impl<'a> Store<'a> {
 }
 
 impl Store<'_> {
+    /// How many data sets the store holds: the `vsindex` values a CFF2
+    /// table may name.
+    pub(crate) fn sets(&self) -> Count {
+        self.sets.count()
+    }
+
+    /// Data set `outer`'s regions at `coords`, for a CFF2 `blend`, which
+    /// uses a data set's region list and none of its rows
+    /// (`[[source: ms-opentype-cff2]]`, "VariationStore"): writes each
+    /// region's scalar into `out` in the set's order and answers how many
+    /// there are, `k`. A null data set names no regions, as HarfBuzz reads
+    /// it. `None` for a set past the store, or more regions than `out`
+    /// holds -- which no `blend` of one value could use on a 513-deep
+    /// stack.
+    pub(crate) fn scalars(&self, outer: Index, coords: &Coords, out: &mut [f32]) -> Option<Count> {
+        let offset = self.sets.get(outer)?;
+        let Subtable::At(b) = Subtable::at(self.data, Offset::of(offset))? else {
+            return Some(Count::ZERO);
+        };
+        let set = Data::parse(b)?;
+        let k = set.regions.count();
+        let out = out.get_mut(..k.slot())?;
+        let mut i = Index::ZERO;
+        for slot in out {
+            let r = Index::of(set.regions.get(i)?);
+            *slot = self.regions.map_or(0.0, |list| list.evaluate(r, coords));
+            i = i.next();
+        }
+        Some(k)
+    }
+
     /// Item `index`'s row, column by column: each column's region -- its
     /// start, peak and end on the one axis -- and its delta, for the bake,
     /// which sums them as fontTools does. **Strict**: an index past the

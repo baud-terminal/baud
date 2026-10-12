@@ -44,6 +44,29 @@ const BAKE_CASES: &[u8] = include_bytes!("var/bake/cases.ttf");
 /// point number, a flag word or a phantom's metrics.
 const COMPONENT_CASES: &[u8] = include_bytes!("var/component-cases.ttf");
 
+/// The two CFF2 faces: hints, flex, both subroutine kinds, two Font DICTs
+/// and three data sets in 1.4 KB, and a real variable font's charstrings.
+const CFF2_CASES: &[u8] = include_bytes!("var/cff2-cases.otf");
+const SOURCE_CODE_VF: &[u8] = include_bytes!("fonts/SourceCodeVF-Upright.otf");
+
+/// The positive control for the CFF2 properties: unmutated, both faces
+/// parse and draw their `A` at the default and at a variation, so a flip
+/// lands in a table the reader walks rather than one it refused at once.
+#[test]
+fn the_cff2_corpus_reaches_the_reader() {
+    for data in [CFF2_CASES, SOURCE_CODE_VF] {
+        let mut face = Face::parse(data).expect("parses");
+        let g = face.glyph(Codepoint::new(0x41).unwrap()).expect("an A");
+        assert_eq!(face.outline(g, &mut Null), baud_font::Drawn::Outline);
+        face.set_variations(&[baud_font::var::Variation {
+            tag: baud_font::Tag::from_bytes(*b"wght"),
+            value: baud_font::var::Fixed(700 << 16),
+        }]);
+        assert!(!face.coords().is_default());
+        assert_eq!(face.outline(g, &mut Null), baud_font::Drawn::Outline);
+    }
+}
+
 /// Bakes `data` at two weights into a buffer that may be too small, and
 /// then into one of the length it asked for; the answers are not the
 /// property, not panicking is.
@@ -389,6 +412,30 @@ proptest! {
     #[test]
     fn a_truncated_variable_face_never_panics(len in 0usize..GVAR_CASES.len()) {
         exercise(&GVAR_CASES[..len]);
+    }
+
+    /// Byte flips inside a `CFF2` table: the cases font's, whose 1.4 KB is
+    /// every structure the reader walks, or Source Code VF's, whose
+    /// charstrings and subroutines are a real font's. `exercise` draws every
+    /// glyph at the default and at a variation, so the blends run too.
+    /// Source Code VF is one case in eight: drawing its 1,568 glyphs twice
+    /// is most of this property's time.
+    #[test]
+    fn a_mutated_cff2_face_never_panics(
+        which in 0u8..8,
+        flips in proptest::collection::vec((any::<usize>(), any::<u8>()), 1..8),
+    ) {
+        let mut data = if which == 0 { SOURCE_CODE_VF } else { CFF2_CASES }.to_vec();
+        let (start, len) = table_range(&data, *b"CFF2");
+        for (at, byte) in flips {
+            data[start + at % len] = byte;
+        }
+        exercise(&data);
+    }
+
+    #[test]
+    fn a_truncated_cff2_face_never_panics(len in 0usize..CFF2_CASES.len()) {
+        exercise(&CFF2_CASES[..len]);
     }
 
     #[test]

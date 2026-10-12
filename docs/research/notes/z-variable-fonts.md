@@ -22,7 +22,7 @@ statics came from, read with fontTools:
 | `STAT` | style names | no: nothing reads it |
 | `MVAR` | absent | a not-built row |
 | `cvar`, hinting | not read by baud | a not-built row |
-| `CFF2` | absent | a not-built row |
+| `CFF2` | absent | read since 2026-10-11, at any coordinates (`baud-font/src/cff2.rs`; the record, "CFF2 outlines are read, blends and all") |
 | FeatureVariations in GSUB and GPOS | absent in both | a not-built row |
 
 The chapters: `[[source: ms-opentype-otvaroverview]]`,

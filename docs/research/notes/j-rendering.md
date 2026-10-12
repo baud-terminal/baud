@@ -38,7 +38,7 @@ in the cell.
 
 | layer | what baud owns | v1 scope | reference sizing |
 |---|---|---|---|
-| font file | sfnt/TTC directory, cmap 4/12/14, head/maxp/hhea/hmtx, OS/2, post header, loca/glyf, CFF Type 2, GSUB 1/4/6/7, GPOS 4/6 + GDEF, sbix, CBDT/CBLC, COLRv0/CPAL | as listed | ttf-parser 23.8k full, ~5.8k core; stb 5.1k incl. raster; **baud est. 10–17k before a rasteriser** |
+| font file | sfnt/TTC directory, cmap 4/12/14, head/maxp/hhea/hmtx, OS/2, post header, loca/glyf, CFF Type 2, CFF2 with its blends (since 2026-10-11), GSUB 1/4/6/7, GPOS 4/6 + GDEF, sbix, CBDT/CBLC, COLRv0/CPAL | as listed | ttf-parser 23.8k full, ~5.8k core; stb 5.1k incl. raster; **baud est. 10–17k before a rasteriser** |
 | shaping | per-cluster glyph choice, `calt`/`liga` ligatures across cells, emoji sequences via GSUB `ccmp` + default-ignorable skipping, GPOS mark attach with HarfBuzz-style fallback, run cache | Latin, CJK, emoji, marks | **minimal ≈ 2.5–3.5k**; full (Arabic, Indic, morx) ≈ rustybuzz's 17k |
 | rasteriser | signed-area accumulation into a per-glyph f32 buffer, fixed-count quad flattening, SIMD prefix-sum/quantise | grayscale, no hinting | **~400–500 lines**; font-rs 410, ab_glyph 490, ftgrays core ~1.3k |
 | compositor | cells → instances, bg as a 4 B/cell texture, atlas, row-granular damage; CPU path pixman-shaped; GPU paths per API | CPU + Metal + Vulkan | WT/ghostty design; foot for CPU |

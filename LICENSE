@@ -70,7 +70,9 @@ Fonts embedded in the baud application:
   licence call is to confirm it. And baud-font/tests/var/outlines.txt,
   outlines of JetBrains Mono's and Fira Code's variable fonts written by
   scripts/gvar-oracle.py, may be part of the Font Software under OFL
-  condition 5; this section names it under neither licence.
+  condition 5; this section names it under neither licence. The same holds
+  for baud-font/tests/var/cff2-outlines.txt, outlines of Source Code VF
+  written by scripts/cff2-oracle.py.
 
 Fonts the tests read:
 
@@ -86,6 +88,9 @@ Fonts the tests read:
   baud-font/tests/fonts/NotoColorEmoji-subset.ttf
       A subset of Noto Color Emoji, a Modified Version under the SIL Open
       Font License 1.1 (NotoColorEmoji-LICENSE.txt).
+  baud-font/tests/fonts/SourceCodeVF-Upright.otf
+      SIL Open Font License 1.1, Reserved Font Name 'Source'
+      (SourceCodeVF-LICENSE.txt); unmodified.
   baud-font/tests/var/bake/JetBrainsMono-Variable-400.ttf
   baud-font/tests/var/bake/JetBrainsMono-Variable-700.ttf
   baud-font/tests/var/bake/JetBrainsMono-Italic-Variable-400.ttf
@@ -95,7 +100,8 @@ Fonts the tests read:
 
 The other fonts under baud-font/tests/ were written from nothing by baud's
 own scripts and are under this licence: sbix-strikes.ttf, cblc-cases.ttf,
-gvar-cases.ttf, the cases fonts in var/bake/ and everything in var/hvar/.
+gvar-cases.ttf, cff2-cases.otf, the cases fonts in var/bake/ and everything
+in var/hvar/.
 
 Other projects' code:
 

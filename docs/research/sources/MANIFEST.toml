@@ -1664,12 +1664,19 @@ year   = 2026
 venue  = "OpenType specification 1.9.1, learn.microsoft.com"
 url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/cff2"
 file   = ""
-sha256 = "77fe2bb877c6e6df354c1f00d14a014f77d115a8816f46c693e506627bd11c14"
-bytes  = 228448
+sha256 = "d6a55091e56ce44e85a3c43fbaeba8f0a42af0f42e5efc51756ee5e594e00d3a"
+bytes  = 228098
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-10-11, read whole for baud-font's CFF2 reader: the url had come
+# to serve 228,098 bytes against the 228,448 first pinned (77fe2bb8...), whose
+# bytes were never committed. Two fetches that day hashed alike; the page titles
+# itself 1.9.1 and renders spec revision 254d468ec363600e6e5ef33ef118f3776007af55
+# of MicrosoftDocs/typography (its `gitcommit` meta). The CharString format is
+# this page's "CharString" section: the separate `spec/cff2charstr` url that
+# ttf-parser's comments still cite answers 404.
 
 [sources.ms-opentype-os2]
 key    = "ms-opentype-os2"
@@ -8768,6 +8775,10 @@ group  = "J"
 # MicrosoftDocs/typography repository (its `gitcommit` meta), which is the
 # revision this pin names: the page hash does not reproduce across page
 # rebuilds -- re-fetching gvar and fvar the same day matched neither pin.
+# Re-read 2026-10-11 for CFF2's blend (the precision requirements and the
+# "Algorithm for interpolation of instance values"): two fetches hashed alike,
+# e5f8db93..., 133,672 bytes, and still render revision 810414e1, so the pin
+# stands.
 
 [sources.ms-opentype-otvarcommonformats]
 key    = "ms-opentype-otvarcommonformats"
@@ -22637,3 +22648,120 @@ bytes  = 12648
 status = "external"
 group  = "C"
 # Read: 170-206.
+
+[sources.font-source-code-vf-upright]
+key    = "font-source-code-vf-upright"
+title  = "Source Code Pro 1.026 variable, upright (wght 200-900, CFF2 outlines) -- the CFF2 oracle face"
+author = "Adobe"
+year   = 2023
+venue  = "github.com/adobe-fonts/source-code-pro at 2ef38a8 (release branch), VF/ (OFL-1.1, Reserved Font Name 'Source')"
+url    = "https://raw.githubusercontent.com/adobe-fonts/source-code-pro/2ef38a8012b47b566fb2cc66bddb5e47f39af92a/VF/SourceCodeVF-Upright.otf"
+file   = ""
+sha256 = "05a8c47f02c197ce909ede7a86566925b98a7a983e6d8790af14b3a030e8412c"
+bytes  = 150744
+status = "external"
+group  = "J"
+# Committed byte for byte at `baud-font/tests/fonts/SourceCodeVF-Upright.otf`,
+# never subset: the OFL reserves the name "Source", so a modified copy could not
+# keep it. Its licence, LICENSE.md at the same commit (7c940e28...), is
+# `baud-font/tests/fonts/SourceCodeVF-LICENSE.txt`. Its CFF2 table has two
+# ItemVariationData (k = 2 and 1), 412 `vsindex` and 3,241 `blend` in its glyph
+# charstrings (its 1,016 local subroutines carry 139 and 1,517 more); it has no
+# hints, no flex, no global subroutines and one Font DICT, which
+# `scripts/cff2-cases-font.py` supplies.
+
+[sources.harfbuzz-12-3-0-cff2-interp-cs]
+key    = "harfbuzz-12-3-0-cff2-interp-cs"
+title  = "HarfBuzz 12.3.0, hb-cff2-interp-cs.hh -- the CFF2 charstring environment: fetch_op's made-up return and endchar, process_blend, blend_deltas, process_vsindex"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-cff2-interp-cs.hh"
+file   = "harfbuzz-12.3.0-hb-cff2-interp-cs.hh"
+sha256 = "57b5446c791383fe2db50bdc1c35f531c528355fc0daad6d0e4cf1632ed99088"
+bytes  = 8655
+status = "retrieved"
+group  = "J"
+# Read for baud-font's CFF2 reader: a blend adds each value's deltas, each times
+# its region's float scalar, into a double that starts at 0, then adds that to
+# the default; the scalars are taken at the first blend; a second vsindex, or one
+# after a blend, is an error.
+
+[sources.harfbuzz-12-3-0-cff-interp-cs-common]
+key    = "harfbuzz-12-3-0-cff-interp-cs-common"
+title  = "HarfBuzz 12.3.0, hb-cff-interp-cs-common.hh -- the charstring operators both CFF dialects share: path_procs_t, hintmask sizing, subroutine bias and call limit"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-cff-interp-cs-common.hh"
+file   = "harfbuzz-12.3.0-hb-cff-interp-cs-common.hh"
+sha256 = "6bb1f058cb80474a99b9f635bebe08c9545458adb79ec9c85a8c5642dde1a9cf"
+bytes  = 24089
+status = "retrieved"
+group  = "J"
+# Read for the order of every path operator's additions and flex1's summed test.
+
+[sources.harfbuzz-12-3-0-cff-interp-common]
+key    = "harfbuzz-12-3-0-cff-interp-common"
+title  = "HarfBuzz 12.3.0, hb-cff-interp-common.hh -- number_t (a double), the 513-deep argument stack, opset_t's default branch"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-cff-interp-common.hh"
+file   = "harfbuzz-12.3.0-hb-cff-interp-common.hh"
+sha256 = "850a6d622b52b5cd51828f28c57de2e830057fd8de0aa699f89005dde05407ae"
+bytes  = 20035
+status = "retrieved"
+group  = "J"
+# Read for the arithmetic: a charstring number is a double, Fixed is v / 65536.0;
+# and opset_t's default branch clears the stack for an operator it does not know,
+# as the CFF2 text asks -- though CFF's return (11) and endchar (14) are known to
+# the shared cs_opset_t and acted on in a CFF2 charstring too.
+
+[sources.harfbuzz-12-3-0-ot-cff2-table-hh]
+key    = "harfbuzz-12-3-0-ot-cff2-table-hh"
+title  = "HarfBuzz 12.3.0, hb-ot-cff2-table.hh -- the CFF2 accelerator: what makes a table invalid, FDSelect 0/3/4, the Private DICT's vsindex"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-cff2-table.hh"
+file   = "harfbuzz-12.3.0-hb-ot-cff2-table.hh"
+sha256 = "e860d974e1cbd340e69650c7f4bc2c505d6e1ef7fec68386ebc69ec5ea63a85f"
+bytes  = 16242
+status = "retrieved"
+group  = "J"
+# Read for which structure failures drop the whole table: no CharStringINDEX,
+# GlobalSubrINDEX or FontDICTINDEX, a CharStringINDEX count other than maxp's,
+# a Font or Private DICT that does not interpret.
+
+[sources.harfbuzz-12-3-0-ot-cff2-table-cc]
+key    = "harfbuzz-12-3-0-ot-cff2-table-cc"
+title  = "HarfBuzz 12.3.0, hb-ot-cff2-table.cc -- get_path: the CFF2 interpreter driving a draw session, doubles converted to float at the draw call"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-cff2-table.cc"
+file   = "harfbuzz-12.3.0-hb-ot-cff2-table.cc"
+sha256 = "b3aeae09f7f6df9899a1667ccd210a5f03418d13cfdc931343f6f6fec3e4fe2f"
+bytes  = 7193
+status = "retrieved"
+group  = "J"
+# Read for where a coordinate becomes a float: em_fscalef_x of to_real (), which
+# at a scale of the font's upem is the double rounded to float.
+
+[sources.harfbuzz-12-3-0-draw]
+key    = "harfbuzz-12-3-0-draw"
+title  = "HarfBuzz 12.3.0, hb-draw.hh -- the draw session: a deferred move_to, and close_path's line_to back to the start"
+author = "The HarfBuzz authors"
+year   = 2026
+venue  = "HarfBuzz text shaping engine (Old MIT licence)"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-draw.hh"
+file   = "harfbuzz-12.3.0-hb-draw.hh"
+sha256 = "09cc062a868f72adc185131f1419834c9eeef32cf72ef61203ef2a6e0f58b529"
+bytes  = 6274
+status = "retrieved"
+group  = "J"
+# Read for the two ways HarfBuzz's emission differs from baud's sink, which
+# baud-font/tests/cff2.rs normalises and counts: a contour of a moveto alone is
+# never emitted, and a contour whose current point is not its start is closed by
+# a line_to to the start before close_path.

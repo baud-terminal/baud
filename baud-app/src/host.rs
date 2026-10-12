@@ -186,7 +186,8 @@ pub fn stack<'f, 'a>(cfg: &Config, faces: &'f [Face<'a>]) -> baud_render::Stack<
 /// a read-only mapping for the life of the process, because the faces
 /// borrow them and a read of the whole file was the launch's largest
 /// controllable cost; a face that cannot be mapped or parsed is fatal
-/// with its path, because a terminal with no font draws nothing.
+/// with its path and the reason (a `CFF2` table that does not read, say),
+/// because a terminal with no font draws nothing.
 pub fn load_faces(cfg: &Config) -> &'static [Face<'static>] {
     let data: Vec<&'static [u8]> = cfg
         .faces
@@ -206,7 +207,7 @@ pub fn load_faces(cfg: &Config) -> &'static [Face<'static>] {
             .zip(&cfg.faces)
             .map(|(d, f)| {
                 let face = Face::parse_index(d, FaceIndex::of(f.index))
-                    .unwrap_or_else(|_| panic!("font {}: not a face", f.path));
+                    .unwrap_or_else(|e| panic!("font {}: {e}", f.path));
                 for line in bitmap_refusals(&f.path, &face) {
                     crate::warn!("{line}");
                 }

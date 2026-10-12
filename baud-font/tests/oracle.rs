@@ -8,7 +8,7 @@
 //! every disagreement is an assertion, and every normalisation the
 //! comparison makes is counted and pinned rather than absorbed.
 //!
-//! **Corpus.** The four OFL faces committed under `tests/fonts/` always; on
+//! **Corpus.** The faces committed under `tests/fonts/` always; on
 //! macOS, every `.ttf`, `.otf` and `.ttc` under `/System/Library/Fonts`,
 //! which is 369 files and several hundred faces including the collections.
 //! A positive control requires the corpus to be non-trivial before any
@@ -136,7 +136,7 @@ struct Tally {
     outline_hits: usize,
     outline_presence_normalised: usize,
     gvar_refusals: usize,
-    cff2_unimplemented: usize,
+    cff2_drawn: usize,
 }
 
 impl Tally {
@@ -161,7 +161,7 @@ impl Tally {
             outline_hits,
             outline_presence_normalised,
             gvar_refusals,
-            cff2_unimplemented,
+            cff2_drawn,
         } = other;
         self.files += files;
         self.faces += faces;
@@ -180,7 +180,7 @@ impl Tally {
         self.outline_hits += outline_hits;
         self.outline_presence_normalised += outline_presence_normalised;
         self.gvar_refusals += gvar_refusals;
-        self.cff2_unimplemented += cff2_unimplemented;
+        self.cff2_drawn += cff2_drawn;
     }
 }
 
@@ -367,12 +367,21 @@ fn compare_face(
                 continue;
             }
         }
-        // CFF2 is not read yet (register D11 defers it with variations):
-        // a face whose only outlines are CFF2 draws for the oracle and not
-        // for baud, and that gap is counted rather than hidden.
-        if a.0.is_empty() && !b.0.is_empty() && theirs.tables().cff2.is_some() {
-            t.cff2_unimplemented += 1;
-            continue;
+        // A CFF2 face: the oracle never closes a glyph's last contour --
+        // `parse_char_string` in its `cff2.rs` returns when the charstring's
+        // data ends, and nothing after that closes the path -- where the
+        // specification closes every contour, the last with "an implicit
+        // lineto" (`[[source: ms-opentype-cff2]]`, "Closing contours"), and
+        // baud does. So baud's segments must be the oracle's and one `Z`,
+        // exactly; anything else is a disagreement like any other.
+        let cff2_only = theirs.tables().cff2.is_some()
+            && theirs.tables().glyf.is_none()
+            && theirs.tables().cff.is_none();
+        if cff2_only && !b.0.is_empty() && b.0.last() != Some(&Seg::Z) {
+            b.0.push(Seg::Z);
+            if a.0 == b.0 && drawn == Drawn::Outline {
+                t.cff2_drawn += 1;
+            }
         }
         if a.0 != b.0 {
             if first_bad {
@@ -592,21 +601,25 @@ fn every_face_on_this_machine_agrees_with_ttf_parser() {
         t.outline_hits
     );
     eprintln!(
-        "oracle: {} outlines compared ({} drawn, {} presence verdicts normalised, {} outlines the oracle's gvar path changed while its glyf reader agrees with baud, {} CFF2 glyphs baud does not read)",
+        "oracle: {} outlines compared ({} drawn, {} presence verdicts normalised, {} outlines the oracle's gvar path changed while its glyf reader agrees with baud, {} CFF2 outlines drawn and equal to the oracle's once its last close is supplied)",
         t.outlines_agreed,
         t.outline_hits,
         t.outline_presence_normalised,
         t.gvar_refusals,
-        t.cff2_unimplemented
+        t.cff2_drawn,
     );
-    // Both normalisations must fire on this Mac -- ADTNumeric and SFNS carry
-    // gvar, SFIndia is CFF2-only -- or the notes above describe nothing.
+    // CFF2 is read: the committed Source Code VF is CFF2-only on every
+    // platform, so its glyphs are drawn and the oracle's missing close is
+    // supplied, or the note above describes nothing.
+    assert!(
+        t.cff2_drawn > 1_000,
+        "CFF2 outlines drawn: {}",
+        t.cff2_drawn
+    );
+    // The gvar normalisation must fire on this Mac -- ADTNumeric and SFNS
+    // carry gvar -- or the note above describes nothing.
     if cfg!(target_os = "macos") {
         assert!(t.gvar_refusals > 0, "the gvar normalisation never fired");
-        assert!(
-            t.cff2_unimplemented > 0,
-            "the CFF2 normalisation never fired"
-        );
     }
     // Each recorded oracle defect fired -- on macOS, where the face lives;
     // elsewhere the corpus cannot reach it and the list is documentation.
@@ -646,7 +659,7 @@ fn every_face_on_this_machine_agrees_with_ttf_parser() {
 
 #[test]
 fn the_committed_faces_are_the_ones_the_manifest_pins() {
-    // Seven OFL faces and one generated sbix fixture, each with its licence
+    // Eight OFL faces and one generated sbix fixture, each with its licence
     // beside it and each hash-pinned in
     // the research manifest; a test font that is not pinned is a byte string
     // nobody can re-fetch, and one whose bytes drift from the pin is a
@@ -665,6 +678,7 @@ fn the_committed_faces_are_the_ones_the_manifest_pins() {
             "JetBrainsMono-Regular.ttf",
             "JetBrainsMono-Variable.ttf",
             "NotoColorEmoji-subset.ttf",
+            "SourceCodeVF-Upright.otf",
             "sbix-strikes.ttf",
         ]
     );
@@ -692,6 +706,7 @@ fn the_committed_faces_are_the_ones_the_manifest_pins() {
         "font-jetbrains-mono-regular",
         "font-jetbrains-mono-variable",
         "font-noto-color-emoji-subset",
+        "font-source-code-vf-upright",
         "font-sbix-strikes",
     ]) {
         let lic = p.with_file_name(format!(

@@ -26,11 +26,17 @@
 //! **`seac`** -- `endchar` with four or five arguments -- composes a base and
 //! an accent named by Standard Encoding codes, which the generated
 //! `standard_encoding` table maps to SIDs and the charset maps to glyphs.
+//!
+//! **What `CFF2` shares with it** (`crate::cff2`): the INDEX, the DICT
+//! scan, FDSelect, the subroutine bias, the argument stack and the path
+//! operators, which [`Pen`] holds over either number type -- `f32` here,
+//! where the oracle computes in `f32`, and `f64` there.
 
 use crate::bytes::{Bytes, Count, Index, Len, Offset, U24};
 use crate::outline::Sink;
 use crate::standard_encoding::STANDARD_ENCODING;
 use baud_domain::GlyphId;
+use core::ops::{Add, Neg, Sub};
 
 const MAX_ARGS: usize = 48;
 const MAX_DEPTH: u8 = 10;
@@ -69,13 +75,14 @@ mod op {
 }
 
 mod dict {
-    pub const CHARSET: u16 = 15;
-    pub const CHAR_STRINGS: u16 = 17;
-    pub const PRIVATE: u16 = 18;
-    pub const SUBRS: u16 = 19;
-    pub const ROS: u16 = 1230;
-    pub const FD_ARRAY: u16 = 1236;
-    pub const FD_SELECT: u16 = 1237;
+    use super::DictOp;
+    pub const CHARSET: DictOp = DictOp(15);
+    pub const CHAR_STRINGS: DictOp = DictOp(17);
+    pub const PRIVATE: DictOp = DictOp(18);
+    pub const SUBRS: DictOp = DictOp(19);
+    pub const ROS: DictOp = DictOp(1230);
+    pub const FD_ARRAY: DictOp = DictOp(1236);
+    pub const FD_SELECT: DictOp = DictOp(1237);
 }
 
 /// The width of an INDEX's offsets.
@@ -109,7 +116,7 @@ impl OffSize {
 
 /// A CFF INDEX: `count` objects, `count + 1` one-based offsets, the data.
 #[derive(Clone, Copy)]
-struct CffIndex<'a> {
+pub(crate) struct CffIndex<'a> {
     offsets: Bytes<'a>,
     size: OffSize,
     count: Count,
@@ -117,39 +124,53 @@ struct CffIndex<'a> {
 }
 
 impl<'a> CffIndex<'a> {
-    const EMPTY: CffIndex<'static> = CffIndex {
+    pub(crate) const EMPTY: CffIndex<'static> = CffIndex {
         offsets: Bytes::new(&[]),
         size: OffSize::One,
         count: Count::ZERO,
         data: Bytes::new(&[]),
     };
 
-    /// The INDEX at `at`, and the offset just past it.
+    /// The CFF INDEX at `at`, its count a `uint16`, and the offset just
+    /// past it.
     fn parse(b: Bytes<'a>, at: Offset) -> Option<(CffIndex<'a>, Offset)> {
         let count: u16 = b.read(at)?;
-        let after_count = at.plus(Len::of(2))?;
-        if count == 0 {
+        CffIndex::counted(b, Count::of(count), at.plus(Len::of(2))?)
+    }
+
+    /// The CFF2 INDEX at `at`: the same layout with its count a `uint32`,
+    /// so an empty one is four bytes (`[[source: ms-opentype-cff2]]`, "INDEX
+    /// data").
+    pub(crate) fn parse_cff2(b: Bytes<'a>, at: Offset) -> Option<(CffIndex<'a>, Offset)> {
+        let count: u32 = b.read(at)?;
+        CffIndex::counted(b, Count::of(count), at.plus(Len::of(4))?)
+    }
+
+    /// The rest of an INDEX of `count` objects whose count field ends at
+    /// `after_count`.
+    fn counted(b: Bytes<'a>, count: Count, after_count: Offset) -> Option<(CffIndex<'a>, Offset)> {
+        if count.is_zero() {
             return Some((CffIndex::EMPTY, after_count));
         }
         let size = OffSize::parse(b.read(after_count)?)?;
         let offsets_at = after_count.plus(Len::of(1))?;
-        let entries = Count::of(u32::from(count).checked_add(1)?);
+        let entries = count.plus(Count::of(1u32))?;
         let offsets_len = size.len().times(entries)?;
         let offsets = b.slice(offsets_at, offsets_len)?;
         let data_at = offsets_at.plus(offsets_len)?;
         let index = CffIndex {
             offsets,
             size,
-            count: Count::of(count),
+            count,
             data: Bytes::new(&[]),
         };
-        let last = index.offset(Count::of(count).as_index())?;
+        let last = index.offset(count.as_index())?;
         let data = b.slice(data_at, last)?;
         let end = data_at.plus(last)?;
         Some((CffIndex { data, ..index }, end))
     }
 
-    fn len(&self) -> Count {
+    pub(crate) fn len(&self) -> Count {
         self.count
     }
 
@@ -165,7 +186,7 @@ impl<'a> CffIndex<'a> {
         n.checked_sub(1).map(Len::of)
     }
 
-    fn get(&self, i: Index) -> Option<Bytes<'a>> {
+    pub(crate) fn get(&self, i: Index) -> Option<Bytes<'a>> {
         if !self.count.holds(i) {
             return None;
         }
@@ -177,22 +198,90 @@ impl<'a> CffIndex<'a> {
 }
 
 /// The operands of one DICT entry, as the reference stores them: `f64`,
-/// because a 32-bit integer operand does not fit an `f32`.
-struct Operands {
-    vals: [f64; MAX_ARGS],
+/// because a 32-bit integer operand does not fit an `f32`. The first four
+/// are kept -- no key either reader looks up takes more than two -- and the
+/// rest only counted, against the dialect's limit.
+pub(crate) struct Operands {
+    vals: [f64; KEPT],
     n: Count,
 }
 
+/// How many of a DICT entry's operands are kept.
+const KEPT: usize = 4;
+
 impl Operands {
-    fn get(&self, i: Index) -> Option<f64> {
-        self.n.holds(i).then(|| self.vals[i.slot()])
+    /// How many operands preceded the operator, kept or only counted.
+    pub(crate) fn len(&self) -> Count {
+        self.n
+    }
+
+    pub(crate) fn get(&self, i: Index) -> Option<f64> {
+        if !self.n.holds(i) {
+            return None;
+        }
+        self.vals.get(i.slot()).copied()
     }
 }
 
-/// Scans a DICT for operator `want` and returns its operands.
-fn dict_operands(data: Bytes<'_>, want: u16) -> Option<Operands> {
+/// How many operands may precede one DICT operator.
+#[derive(Clone, Copy)]
+pub(crate) enum DictLimit {
+    /// 48, the Type 2 argument stack (5177 Appendix B).
+    Cff,
+    /// 513, the CFF2 stack: a `blend` before a key leaves `n + n * k + 1`
+    /// operands on it (`[[source: ms-opentype-cff2]]`, "Stack-based CFF2
+    /// decoding").
+    Cff2,
+}
+
+impl DictLimit {
+    fn count(self) -> Count {
+        match self {
+            DictLimit::Cff => Count::of(48u32),
+            DictLimit::Cff2 => Count::of(513u32),
+        }
+    }
+}
+
+/// A DICT operator: one byte, or `12` and a second byte, spelled as
+/// `1200` plus the second.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DictOp(pub(crate) u16);
+
+/// What a DICT scan for one operator found.
+pub(crate) enum DictScan {
+    /// The operator, with the operands before it.
+    Found(Operands),
+    /// The DICT read to its end without the operator.
+    Absent,
+    /// A number that does not decode, a truncated operator, or more
+    /// operands before one operator than the dialect allows.
+    Malformed,
+}
+
+/// Scans a CFF DICT for operator `want` and returns its operands: `None`
+/// when it is absent or the DICT is malformed.
+fn dict_operands(data: Bytes<'_>, want: DictOp) -> Option<Operands> {
+    match dict_scan(data, want, DictLimit::Cff) {
+        DictScan::Found(ops) => Some(ops),
+        DictScan::Absent | DictScan::Malformed => None,
+    }
+}
+
+/// Scans a DICT for operator `want` under `limit`.
+pub(crate) fn dict_scan(data: Bytes<'_>, want: DictOp, limit: DictLimit) -> DictScan {
+    match dict_walk(data, want, limit) {
+        Some(Some(ops)) => DictScan::Found(ops),
+        Some(None) => DictScan::Absent,
+        None => DictScan::Malformed,
+    }
+}
+
+/// [`dict_scan`] as an `Option` of an `Option`: `None` for a malformed
+/// DICT, `Some(None)` for an absent operator.
+fn dict_walk(data: Bytes<'_>, want: DictOp, limit: DictLimit) -> Option<Option<Operands>> {
     let mut ops = Operands {
-        vals: [0.0; MAX_ARGS],
+        vals: [0.0; KEPT],
         n: Count::ZERO,
     };
     let mut at = Offset::ZERO;
@@ -203,25 +292,27 @@ fn dict_operands(data: Bytes<'_>, want: u16) -> Option<Operands> {
             let operator = if b == TWO_BYTE {
                 let b2: u8 = data.read(at)?;
                 at = at.plus(Len::of(1))?;
-                1200 + u16::from(b2)
+                DictOp(1200 + u16::from(b2))
             } else {
-                u16::from(b)
+                DictOp(u16::from(b))
             };
             if operator == want {
-                return Some(ops);
+                return Some(Some(ops));
             }
             ops.n = Count::ZERO;
             continue;
         }
         let (v, next) = dict_number(data, b, at)?;
         at = next;
-        if ops.n.as_index().slot() >= MAX_ARGS {
+        if !limit.count().holds(ops.n.as_index()) {
             return None;
         }
-        ops.vals[ops.n.as_index().slot()] = v;
-        ops.n = Count::of(ops.n.value() + 1);
+        if let Some(slot) = ops.vals.get_mut(ops.n.as_index().slot()) {
+            *slot = v;
+        }
+        ops.n = ops.n.plus(Count::of(1u32))?;
     }
-    None
+    Some(None)
 }
 
 /// One DICT operand starting with byte `b0` (5177 Table 3, 5176 Table 5).
@@ -380,27 +471,114 @@ impl<'a> Charset<'a> {
     }
 }
 
-/// CID-keyed fonts: which Font DICT a glyph uses.
+/// CID-keyed fonts and CFF2: which Font DICT a glyph uses. Formats 0 and 3
+/// are CFF's (5176 section 19); format 4, `uint32` ranges naming `uint16`
+/// Font DICTs, is CFF2's (`[[source: ms-opentype-cff2]]`, "FontDICTSelect").
 #[derive(Clone, Copy)]
-enum FdSelect<'a> {
+pub(crate) enum FdSelect<'a> {
     Format0(Bytes<'a>),
     Format3(Bytes<'a>),
+    Format4(Bytes<'a>),
+}
+
+/// Which FDSelect formats a dialect reads: CFF knows 0 and 3, CFF2 adds 4.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FdFormats {
+    Cff,
+    Cff2,
 }
 
 impl FdSelect<'_> {
-    fn parse(b: Bytes<'_>, at: Offset) -> Option<FdSelect<'_>> {
+    pub(crate) fn parse(b: Bytes<'_>, at: Offset, formats: FdFormats) -> Option<FdSelect<'_>> {
         let format: u8 = b.read(at)?;
         let body = b.tail(at.plus(Len::of(1))?)?;
         match format {
             0 => Some(FdSelect::Format0(body)),
             3 => Some(FdSelect::Format3(body)),
+            4 if formats == FdFormats::Cff2 => Some(FdSelect::Format4(body)),
             _ => None,
         }
     }
 
-    fn index_of(&self, g: GlyphId) -> Option<u8> {
+    /// `Some` when every one of `glyphs` maps to one of `fds` Font DICTs,
+    /// as `[[source: ms-opentype-cff2]]`, "FontDICTSelect", requires:
+    /// format 0 holds an entry a glyph; formats 3 and 4 start at glyph 0,
+    /// ascend, and end at a sentinel equal to the glyph count.
+    pub(crate) fn covers(&self, glyphs: Count, fds: Count) -> Option<()> {
+        let names = |fd: u32| fds.holds(Index::of(fd)).then_some(());
         match *self {
-            FdSelect::Format0(data) => data.read(Offset::of(u32::try_from(g.index()).ok()?)),
+            FdSelect::Format0(data) => {
+                let mut g = Index::ZERO;
+                while glyphs.holds(g) {
+                    names(u32::from(data.read::<u8>(Offset::of(g.value()))?))?;
+                    g = g.next();
+                }
+                Some(())
+            }
+            FdSelect::Format3(data) => {
+                let ranges = u32::from(data.read::<u16>(Offset::ZERO)?);
+                let first = |i: u32| -> Option<u32> {
+                    data.read::<u16>(Offset::of(2 + 3 * i)).map(u32::from)
+                };
+                let mut prev = None;
+                for i in 0..ranges {
+                    let f = first(i)?;
+                    if prev.map_or(f != 0, |p| f <= p) {
+                        return None;
+                    }
+                    names(u32::from(data.read::<u8>(Offset::of(2 + 3 * i + 2))?))?;
+                    prev = Some(f);
+                }
+                (ranges > 0 && first(ranges)? == glyphs.value() && prev? < glyphs.value())
+                    .then_some(())
+            }
+            FdSelect::Format4(data) => {
+                let ranges = data.read::<u32>(Offset::ZERO)?;
+                let first = |i: u32| -> Option<u32> {
+                    data.read::<u32>(Offset::of(4u32.checked_add(i.checked_mul(6)?)?))
+                };
+                let mut prev = None;
+                for i in 0..ranges {
+                    let f = first(i)?;
+                    if prev.map_or(f != 0, |p| f <= p) {
+                        return None;
+                    }
+                    let at = 4u32.checked_add(i.checked_mul(6)?)?.checked_add(4)?;
+                    names(u32::from(data.read::<u16>(Offset::of(at))?))?;
+                    prev = Some(f);
+                }
+                (ranges > 0 && first(ranges)? == glyphs.value() && prev? < glyphs.value())
+                    .then_some(())
+            }
+        }
+    }
+
+    /// The Font DICT glyph `g` uses, or `None` past the ranges.
+    pub(crate) fn index_of(&self, g: GlyphId) -> Option<Index> {
+        match *self {
+            FdSelect::Format0(data) => data
+                .read::<u8>(Offset::of(u32::try_from(g.index()).ok()?))
+                .map(Index::of),
+            FdSelect::Format4(data) => {
+                let ranges = Count::of(data.read::<u32>(Offset::ZERO)?);
+                let gid = u32::try_from(g.index()).ok()?;
+                // Records of (first glyph u32, fd u16), then a sentinel
+                // glyph: range i runs from its first glyph to the next's.
+                let record = |i: Index| -> Option<(u32, u16)> {
+                    let at = Offset::of(4u32).at(i, Len::of(6))?;
+                    Some((data.read(at)?, data.read(at.plus(Len::of(4))?)?))
+                };
+                let mut i = Index::ZERO;
+                while ranges.holds(i) {
+                    let (first, fd) = record(i)?;
+                    let end: u32 = data.read(Offset::of(4u32).at(i.next(), Len::of(6))?)?;
+                    if (first..end).contains(&gid) {
+                        return Some(Index::of(fd));
+                    }
+                    i = i.next();
+                }
+                None
+            }
             FdSelect::Format3(data) => {
                 let ranges: u16 = data.read(Offset::ZERO)?;
                 if ranges == 0 {
@@ -415,7 +593,7 @@ impl FdSelect<'_> {
                 for _ in 1..=ranges {
                     let first: u16 = data.read(at)?;
                     if (prev_first..first).contains(&gid) {
-                        return Some(prev_fd);
+                        return Some(Index::of(prev_fd));
                     }
                     prev_fd = data.read(at.plus(Len::of(2))?).unwrap_or(prev_fd);
                     prev_first = first;
@@ -460,7 +638,7 @@ fn local_subrs<'a>(data: Bytes<'a>, private: &Operands) -> Option<CffIndex<'a>> 
 }
 
 /// An operand as an offset or size: an integer in `u32` range.
-fn usize_of(v: f64) -> Option<u32> {
+pub(crate) fn usize_of(v: f64) -> Option<u32> {
     let i = v as i32;
     if f64::from(i) != v {
         return None;
@@ -513,7 +691,7 @@ impl<'a> Cff<'a> {
                 return None;
             }
             let (fd_array, _) = CffIndex::parse(data, Offset::of(fda))?;
-            let fd_select = FdSelect::parse(data, Offset::of(fds))?;
+            let fd_select = FdSelect::parse(data, Offset::of(fds), FdFormats::Cff)?;
             Kind::Cid {
                 fd_array,
                 fd_select,
@@ -545,7 +723,7 @@ impl<'a> Cff<'a> {
             return None;
         };
         let fd = fd_select.index_of(g)?;
-        let font_dict = fd_array.get(Index::of(fd))?;
+        let font_dict = fd_array.get(fd)?;
         let private = dict_operands(font_dict, dict::PRIVATE)?;
         local_subrs(self.data, &private)
     }
@@ -562,27 +740,20 @@ impl<'a> Cff<'a> {
         };
         let mut run = Run {
             cff: self,
-            sink,
-            stack: Stack {
-                vals: [0.0; MAX_ARGS],
-                n: 0,
-            },
-            x: 0.0,
-            y: 0.0,
-            path: Path::NotStarted,
-            moveto: Moveto::First,
+            pen: Pen::new(sink),
+            stack: Stack::new(),
             width: Width::Pending,
             stems: 0,
             end: End::Running,
             glyph: g,
             local,
         };
-        run.exec(cs, 0)?;
+        run.exec(cs, Depth::GLYPH)?;
         (run.end != End::Running).then_some(())
     }
 }
 
-fn bias(count: Count) -> i32 {
+pub(crate) fn bias(count: Count) -> i32 {
     let n = count.value();
     if n < 1240 {
         107
@@ -593,48 +764,101 @@ fn bias(count: Count) -> i32 {
     }
 }
 
-fn subr_index(v: f32, bias: i32) -> Option<Index> {
+/// A subroutine operand plus its INDEX's bias: `None` unless the operand is
+/// an integer and the sum is not negative.
+pub(crate) fn subr_index(v: f64, bias: i32) -> Option<Index> {
     let i = v as i32;
-    if f64::from(i) != f64::from(v) {
+    if f64::from(i) != v {
         return None;
     }
     Index::of(u32::try_from(i.checked_add(bias)?).ok()?).into()
 }
 
-/// The argument stack, 48 deep per the specification.
-struct Stack {
-    vals: [f32; MAX_ARGS],
+/// How deep a charstring has called: 0 for the glyph's own, one more per
+/// subroutine, and the specification's limit of 10 (5177 Appendix B; the
+/// same 10 in `[[source: ms-opentype-cff2]]`, "Subroutines").
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Depth(u8);
+
+impl Depth {
+    pub(crate) const GLYPH: Depth = Depth(0);
+    const LIMIT: Depth = Depth(MAX_DEPTH);
+
+    /// One call deeper, or `None` at the limit.
+    pub(crate) fn deeper(self) -> Option<Depth> {
+        (self != Depth::LIMIT).then_some(Depth(self.0 + 1))
+    }
+}
+
+/// A charstring operand and coordinate: `f32` for CFF, which its oracle
+/// computes in, and `f64` for CFF2, which keeps the sixteen fractional bits
+/// the variations overview recommends. Either reaches the [`Sink`] as `f32`.
+pub(crate) trait Num:
+    Copy + PartialOrd + Add<Output = Self> + Sub<Output = Self> + Neg<Output = Self>
+{
+    const ZERO: Self;
+    fn to_sink(self) -> f32;
+}
+
+impl Num for f32 {
+    const ZERO: f32 = 0.0;
+    fn to_sink(self) -> f32 {
+        self
+    }
+}
+
+impl Num for f64 {
+    const ZERO: f64 = 0.0;
+    fn to_sink(self) -> f32 {
+        self as f32
+    }
+}
+
+fn abs<N: Num>(v: N) -> N {
+    if v < N::ZERO { -v } else { v }
+}
+
+/// The argument stack: 48 deep for CFF, 513 for CFF2.
+pub(crate) struct Stack<N, const CAP: usize> {
+    vals: [N; CAP],
     n: usize,
 }
 
-impl Stack {
-    fn args(&self) -> &[f32] {
+impl<N: Num, const CAP: usize> Stack<N, CAP> {
+    pub(crate) fn new() -> Stack<N, CAP> {
+        Stack {
+            vals: [N::ZERO; CAP],
+            n: 0,
+        }
+    }
+    pub(crate) fn args(&self) -> &[N] {
         &self.vals[..self.n]
     }
-    fn push(&mut self, v: f32) -> Option<()> {
-        if self.n >= MAX_ARGS {
-            return None;
-        }
-        self.vals[self.n] = v;
+    pub(crate) fn args_mut(&mut self) -> &mut [N] {
+        &mut self.vals[..self.n]
+    }
+    pub(crate) fn push(&mut self, v: N) -> Option<()> {
+        *self.vals.get_mut(self.n)? = v;
         self.n += 1;
         Some(())
     }
-    fn pop(&mut self) -> f32 {
-        self.n -= 1;
-        self.vals[self.n]
+    pub(crate) fn pop(&mut self) -> Option<N> {
+        self.n = self.n.checked_sub(1)?;
+        Some(self.vals[self.n])
     }
-    fn clear(&mut self) {
+    /// Drops all but the first `keep` operands.
+    pub(crate) fn keep(&mut self, keep: Count) {
+        self.n = self.n.min(keep.slot());
+    }
+    pub(crate) fn clear(&mut self) {
         self.n = 0;
-    }
-    fn reverse(&mut self) {
-        self.vals[..self.n].reverse();
     }
 }
 
 /// Whether a path has been opened by a `moveto`: drawing before one is a
 /// malformed charstring.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Path {
+pub(crate) enum Path {
     NotStarted,
     Open,
 }
@@ -645,6 +869,420 @@ enum Path {
 enum Moveto {
     First,
     Later,
+}
+
+/// Which axis an alternating operator (`hlineto`, `hvcurveto`, ...) starts on.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Axis {
+    Horizontal,
+    Vertical,
+}
+
+impl Axis {
+    fn flip(self) -> Axis {
+        match self {
+            Axis::Horizontal => Axis::Vertical,
+            Axis::Vertical => Axis::Horizontal,
+        }
+    }
+}
+
+/// How `flex1` decides whether its last operand is a dx or a dy. Both
+/// specifications say the same thing -- the vector from the start to the
+/// fifth point -- and the two oracles compute it two ways, which differ
+/// only in the last bit of a rounded `f32`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Flex1 {
+    /// The fifth point less the start, as ttf-parser computes it for CFF.
+    EndPoint,
+    /// The five deltas summed, as `[[source: ms-opentype-cff2]]` words it
+    /// and HarfBuzz computes it for CFF2.
+    Summed,
+}
+
+/// The path operators of both charstring dialects over one number type:
+/// the current point, whether a contour is open, and the sink. Each
+/// operator takes exactly its operands -- the caller has stripped a CFF
+/// width -- and refuses any other count. Each coordinate is the previous
+/// one plus a delta, in the order the specification lists the deltas.
+pub(crate) struct Pen<'s, S: Sink, N: Num> {
+    sink: &'s mut S,
+    x: N,
+    y: N,
+    path: Path,
+    moveto: Moveto,
+}
+
+impl<'s, S: Sink, N: Num> Pen<'s, S, N> {
+    pub(crate) fn new(sink: &'s mut S) -> Pen<'s, S, N> {
+        Pen {
+            sink,
+            x: N::ZERO,
+            y: N::ZERO,
+            path: Path::NotStarted,
+            moveto: Moveto::First,
+        }
+    }
+
+    /// Moves the current point without drawing: `seac`'s accent origin.
+    fn place(&mut self, x: N, y: N) {
+        self.x = x;
+        self.y = y;
+    }
+
+    fn moved(&mut self) {
+        match self.moveto {
+            Moveto::First => self.moveto = Moveto::Later,
+            Moveto::Later => self.sink.close(),
+        }
+        self.path = Path::Open;
+    }
+
+    /// Closes the open contour at the end of a glyph: `endchar` in CFF, the
+    /// end of the charstring in CFF2.
+    pub(crate) fn finish(&mut self) {
+        if self.moveto == Moveto::Later {
+            self.moveto = Moveto::First;
+            self.sink.close();
+        }
+    }
+
+    /// Whether a `moveto` has opened the path. Every other path operator
+    /// needs one, so in a charstring that draws, the path is open from its
+    /// first path operator on.
+    pub(crate) fn path(&self) -> Path {
+        self.path
+    }
+
+    fn need_move(&self) -> Option<()> {
+        (self.path == Path::Open).then_some(())
+    }
+
+    fn emit_move(&mut self) {
+        self.sink.move_to(self.x.to_sink(), self.y.to_sink());
+    }
+
+    fn emit_line(&mut self) {
+        self.sink.line_to(self.x.to_sink(), self.y.to_sink());
+    }
+
+    /// A cubic to the current point.
+    fn emit_curve(&mut self, x1: N, y1: N, x2: N, y2: N) {
+        self.emit_curve_to([x1, y1, x2, y2, self.x, self.y]);
+    }
+
+    fn emit_curve_to(&mut self, p: [N; 6]) {
+        let [x1, y1, x2, y2, x, y] = p;
+        self.sink.curve_to(
+            x1.to_sink(),
+            y1.to_sink(),
+            x2.to_sink(),
+            y2.to_sink(),
+            x.to_sink(),
+            y.to_sink(),
+        );
+    }
+
+    pub(crate) fn rmoveto(&mut self, a: &[N]) -> Option<()> {
+        let [dx, dy] = *a else { return None };
+        self.moved();
+        self.x = self.x + dx;
+        self.y = self.y + dy;
+        self.emit_move();
+        Some(())
+    }
+
+    pub(crate) fn hmoveto(&mut self, a: &[N]) -> Option<()> {
+        let [dx] = *a else { return None };
+        self.moved();
+        self.x = self.x + dx;
+        self.emit_move();
+        Some(())
+    }
+
+    pub(crate) fn vmoveto(&mut self, a: &[N]) -> Option<()> {
+        let [dy] = *a else { return None };
+        self.moved();
+        self.y = self.y + dy;
+        self.emit_move();
+        Some(())
+    }
+
+    pub(crate) fn rlineto(&mut self, a: &[N]) -> Option<()> {
+        self.need_move()?;
+        if !a.len().is_multiple_of(2) {
+            return None;
+        }
+        for d in a.chunks_exact(2) {
+            self.x = self.x + d[0];
+            self.y = self.y + d[1];
+            self.emit_line();
+        }
+        Some(())
+    }
+
+    /// `hlineto` and `vlineto`: alternating single deltas, starting on the
+    /// axis named.
+    pub(crate) fn alternating_lineto(&mut self, a: &[N], first: Axis) -> Option<()> {
+        self.need_move()?;
+        if a.is_empty() {
+            return None;
+        }
+        let mut axis = first;
+        for &d in a {
+            match axis {
+                Axis::Horizontal => self.x = self.x + d,
+                Axis::Vertical => self.y = self.y + d,
+            }
+            self.emit_line();
+            axis = axis.flip();
+        }
+        Some(())
+    }
+
+    /// One `rrcurveto` segment from six deltas.
+    fn curve(&mut self, a: &[N]) {
+        let x1 = self.x + a[0];
+        let y1 = self.y + a[1];
+        let x2 = x1 + a[2];
+        let y2 = y1 + a[3];
+        self.x = x2 + a[4];
+        self.y = y2 + a[5];
+        self.emit_curve(x1, y1, x2, y2);
+    }
+
+    pub(crate) fn rrcurveto(&mut self, a: &[N]) -> Option<()> {
+        self.need_move()?;
+        if !a.len().is_multiple_of(6) {
+            return None;
+        }
+        for c in a.chunks_exact(6) {
+            self.curve(c);
+        }
+        Some(())
+    }
+
+    pub(crate) fn rcurveline(&mut self, a: &[N]) -> Option<()> {
+        self.need_move()?;
+        if a.len() < 8 || !(a.len() - 2).is_multiple_of(6) {
+            return None;
+        }
+        let (curves, line) = a.split_at(a.len() - 2);
+        for c in curves.chunks_exact(6) {
+            self.curve(c);
+        }
+        self.x = self.x + line[0];
+        self.y = self.y + line[1];
+        self.emit_line();
+        Some(())
+    }
+
+    pub(crate) fn rlinecurve(&mut self, a: &[N]) -> Option<()> {
+        self.need_move()?;
+        if a.len() < 8 || !(a.len() - 6).is_multiple_of(2) {
+            return None;
+        }
+        let (lines, curve) = a.split_at(a.len() - 6);
+        for d in lines.chunks_exact(2) {
+            self.x = self.x + d[0];
+            self.y = self.y + d[1];
+            self.emit_line();
+        }
+        self.curve(curve);
+        Some(())
+    }
+
+    pub(crate) fn hhcurveto(&mut self, a: &[N]) -> Option<()> {
+        self.need_move()?;
+        let mut a = a;
+        if a.len() % 2 == 1 {
+            self.y = self.y + a[0];
+            a = &a[1..];
+        }
+        if !a.len().is_multiple_of(4) {
+            return None;
+        }
+        for c in a.chunks_exact(4) {
+            let x1 = self.x + c[0];
+            let y1 = self.y;
+            let x2 = x1 + c[1];
+            let y2 = y1 + c[2];
+            self.x = x2 + c[3];
+            self.y = y2;
+            self.emit_curve(x1, y1, x2, y2);
+        }
+        Some(())
+    }
+
+    pub(crate) fn vvcurveto(&mut self, a: &[N]) -> Option<()> {
+        self.need_move()?;
+        let mut a = a;
+        if a.len() % 2 == 1 {
+            self.x = self.x + a[0];
+            a = &a[1..];
+        }
+        if !a.len().is_multiple_of(4) {
+            return None;
+        }
+        for c in a.chunks_exact(4) {
+            let x1 = self.x;
+            let y1 = self.y + c[0];
+            let x2 = x1 + c[1];
+            let y2 = y1 + c[2];
+            self.x = x2;
+            self.y = y2 + c[3];
+            self.emit_curve(x1, y1, x2, y2);
+        }
+        Some(())
+    }
+
+    /// `hvcurveto` and `vhcurveto`: alternating tangent curves, with an
+    /// optional last delta on the closing axis.
+    pub(crate) fn alternating_curveto(&mut self, a: &[N], first: Axis) -> Option<()> {
+        self.need_move()?;
+        if a.len() < 4 {
+            return None;
+        }
+        let mut axis = first;
+        let mut rest = a;
+        while !rest.is_empty() {
+            if rest.len() < 4 {
+                return None;
+            }
+            // Exactly one operand after this curve's four: the last delta.
+            let last = (rest.len() == 5).then(|| rest[4]);
+            let x1;
+            let y1;
+            let x2;
+            let y2;
+            if axis == Axis::Horizontal {
+                x1 = self.x + rest[0];
+                y1 = self.y;
+                x2 = x1 + rest[1];
+                y2 = y1 + rest[2];
+                self.y = y2 + rest[3];
+                self.x = x2;
+                if let Some(d) = last {
+                    self.x = self.x + d;
+                }
+            } else {
+                x1 = self.x;
+                y1 = self.y + rest[0];
+                x2 = x1 + rest[1];
+                y2 = y1 + rest[2];
+                self.x = x2 + rest[3];
+                self.y = y2;
+                if let Some(d) = last {
+                    self.y = self.y + d;
+                }
+            }
+            self.emit_curve(x1, y1, x2, y2);
+            rest = &rest[if last.is_some() { 5 } else { 4 }..];
+            axis = axis.flip();
+        }
+        Some(())
+    }
+
+    /// The two curves of a flex, from their five intermediate points and
+    /// the current point, which the caller has moved to the sixth.
+    fn flex_curves(&mut self, p: [N; 10]) {
+        let [x1, y1, x2, y2, x3, y3, x4, y4, x5, y5] = p;
+        self.emit_curve_to([x1, y1, x2, y2, x3, y3]);
+        self.emit_curve(x4, y4, x5, y5);
+    }
+
+    pub(crate) fn flex(&mut self, a: &[N]) -> Option<()> {
+        self.need_move()?;
+        if a.len() != 13 {
+            return None;
+        }
+        let dx1 = self.x + a[0];
+        let dy1 = self.y + a[1];
+        let dx2 = dx1 + a[2];
+        let dy2 = dy1 + a[3];
+        let dx3 = dx2 + a[4];
+        let dy3 = dy2 + a[5];
+        let dx4 = dx3 + a[6];
+        let dy4 = dy3 + a[7];
+        let dx5 = dx4 + a[8];
+        let dy5 = dy4 + a[9];
+        self.x = dx5 + a[10];
+        self.y = dy5 + a[11];
+        self.flex_curves([dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4, dx5, dy5]);
+        Some(())
+    }
+
+    pub(crate) fn flex1(&mut self, a: &[N], test: Flex1) -> Option<()> {
+        self.need_move()?;
+        if a.len() != 11 {
+            return None;
+        }
+        let dx1 = self.x + a[0];
+        let dy1 = self.y + a[1];
+        let dx2 = dx1 + a[2];
+        let dy2 = dy1 + a[3];
+        let dx3 = dx2 + a[4];
+        let dy3 = dy2 + a[5];
+        let dx4 = dx3 + a[6];
+        let dy4 = dy3 + a[7];
+        let dx5 = dx4 + a[8];
+        let dy5 = dy4 + a[9];
+        let horizontal = match test {
+            Flex1::EndPoint => abs(dx5 - self.x) > abs(dy5 - self.y),
+            Flex1::Summed => {
+                let dx = a[0] + a[2] + a[4] + a[6] + a[8];
+                let dy = a[1] + a[3] + a[5] + a[7] + a[9];
+                abs(dx) > abs(dy)
+            }
+        };
+        if horizontal {
+            self.x = dx5 + a[10];
+        } else {
+            self.y = dy5 + a[10];
+        }
+        self.flex_curves([dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4, dx5, dy5]);
+        Some(())
+    }
+
+    pub(crate) fn hflex(&mut self, a: &[N]) -> Option<()> {
+        self.need_move()?;
+        if a.len() != 7 {
+            return None;
+        }
+        let dx1 = self.x + a[0];
+        let dy1 = self.y;
+        let dx2 = dx1 + a[1];
+        let dy2 = dy1 + a[2];
+        let dx3 = dx2 + a[3];
+        let dy3 = dy2;
+        let dx4 = dx3 + a[4];
+        let dy4 = dy2;
+        let dx5 = dx4 + a[5];
+        let dy5 = self.y;
+        self.x = dx5 + a[6];
+        self.flex_curves([dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4, dx5, dy5]);
+        Some(())
+    }
+
+    pub(crate) fn hflex1(&mut self, a: &[N]) -> Option<()> {
+        self.need_move()?;
+        if a.len() != 9 {
+            return None;
+        }
+        let dx1 = self.x + a[0];
+        let dy1 = self.y + a[1];
+        let dx2 = dx1 + a[2];
+        let dy2 = dy1 + a[3];
+        let dx3 = dx2 + a[4];
+        let dy3 = dy2;
+        let dx4 = dx3 + a[5];
+        let dy4 = dy2;
+        let dx5 = dx4 + a[6];
+        let dy5 = dy4 + a[7];
+        self.x = dx5 + a[8];
+        self.flex_curves([dx1, dy1, dx2, dy2, dx3, dy3, dx4, dy4, dx5, dy5]);
+        Some(())
+    }
 }
 
 /// Whether the optional leading width argument has been consumed. It rides
@@ -665,30 +1303,10 @@ enum End {
     Seac,
 }
 
-/// Which axis an alternating operator (`hlineto`, `hvcurveto`, ...) starts on.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Axis {
-    Horizontal,
-    Vertical,
-}
-
-impl Axis {
-    fn flip(self) -> Axis {
-        match self {
-            Axis::Horizontal => Axis::Vertical,
-            Axis::Vertical => Axis::Horizontal,
-        }
-    }
-}
-
 struct Run<'s, 'a, S: Sink> {
     cff: &'s Cff<'a>,
-    sink: &'s mut S,
-    stack: Stack,
-    x: f32,
-    y: f32,
-    path: Path,
-    moveto: Moveto,
+    pen: Pen<'s, S, f32>,
+    stack: Stack<f32, MAX_ARGS>,
     width: Width,
     stems: u32,
     end: End,
@@ -696,345 +1314,27 @@ struct Run<'s, 'a, S: Sink> {
     local: Option<CffIndex<'a>>,
 }
 
+/// A moveto's operands: all of them, or all but the first when there are
+/// `WITH_WIDTH`, one more than the operator takes -- the width. As the
+/// reference reads it, whether or not a width was already taken.
+fn moveto_args<'s, const WITH_WIDTH: usize>(
+    stack: &'s Stack<f32, MAX_ARGS>,
+    width: &mut Width,
+) -> &'s [f32] {
+    if stack.args().len() == WITH_WIDTH {
+        *width = Width::Taken;
+        &stack.args()[1..]
+    } else {
+        stack.args()
+    }
+}
+
 impl<S: Sink> Run<'_, '_, S> {
-    fn moved(&mut self) {
-        match self.moveto {
-            Moveto::First => self.moveto = Moveto::Later,
-            Moveto::Later => self.sink.close(),
-        }
-        self.path = Path::Open;
-    }
-
-    fn need_move(&self) -> Option<()> {
-        (self.path == Path::Open).then_some(())
-    }
-
-    fn rmoveto(&mut self, from: usize) -> Option<()> {
-        if self.stack.n != from + 2 {
-            return None;
-        }
-        self.moved();
-        self.x += self.stack.args()[from];
-        self.y += self.stack.args()[from + 1];
-        self.sink.move_to(self.x, self.y);
-        self.stack.clear();
-        Some(())
-    }
-
-    fn hmoveto(&mut self, from: usize) -> Option<()> {
-        if self.stack.n != from + 1 {
-            return None;
-        }
-        self.moved();
-        self.x += self.stack.args()[from];
-        self.sink.move_to(self.x, self.y);
-        self.stack.clear();
-        Some(())
-    }
-
-    fn vmoveto(&mut self, from: usize) -> Option<()> {
-        if self.stack.n != from + 1 {
-            return None;
-        }
-        self.moved();
-        self.y += self.stack.args()[from];
-        self.sink.move_to(self.x, self.y);
-        self.stack.clear();
-        Some(())
-    }
-
-    fn rlineto(&mut self) -> Option<()> {
-        self.need_move()?;
-        if !self.stack.n.is_multiple_of(2) {
-            return None;
-        }
-        let mut i = 0;
-        while i < self.stack.n {
-            self.x += self.stack.args()[i];
-            self.y += self.stack.args()[i + 1];
-            self.sink.line_to(self.x, self.y);
-            i += 2;
-        }
-        self.stack.clear();
-        Some(())
-    }
-
-    /// `hlineto` and `vlineto`: alternating single deltas, starting on the
-    /// axis named.
-    fn alternating_lineto(&mut self, first: Axis) -> Option<()> {
-        self.need_move()?;
-        if self.stack.n == 0 {
-            return None;
-        }
-        let mut axis = first;
-        let mut i = 0;
-        while i < self.stack.n {
-            match axis {
-                Axis::Horizontal => self.x += self.stack.args()[i],
-                Axis::Vertical => self.y += self.stack.args()[i],
-            }
-            i += 1;
-            self.sink.line_to(self.x, self.y);
-            axis = axis.flip();
-        }
-        self.stack.clear();
-        Some(())
-    }
-
-    fn curve(&mut self, i: usize) {
-        let a = self.stack.args();
-        let x1 = self.x + a[i];
-        let y1 = self.y + a[i + 1];
-        let x2 = x1 + a[i + 2];
-        let y2 = y1 + a[i + 3];
-        self.x = x2 + a[i + 4];
-        self.y = y2 + a[i + 5];
-        self.sink.curve_to(x1, y1, x2, y2, self.x, self.y);
-    }
-
-    fn rrcurveto(&mut self) -> Option<()> {
-        self.need_move()?;
-        if !self.stack.n.is_multiple_of(6) {
-            return None;
-        }
-        let mut i = 0;
-        while i < self.stack.n {
-            self.curve(i);
-            i += 6;
-        }
-        self.stack.clear();
-        Some(())
-    }
-
-    fn rcurveline(&mut self) -> Option<()> {
-        self.need_move()?;
-        if self.stack.n < 8 || !(self.stack.n - 2).is_multiple_of(6) {
-            return None;
-        }
-        let mut i = 0;
-        while i < self.stack.n - 2 {
-            self.curve(i);
-            i += 6;
-        }
-        self.x += self.stack.args()[i];
-        self.y += self.stack.args()[i + 1];
-        self.sink.line_to(self.x, self.y);
-        self.stack.clear();
-        Some(())
-    }
-
-    fn rlinecurve(&mut self) -> Option<()> {
-        self.need_move()?;
-        if self.stack.n < 8 || !(self.stack.n - 6).is_multiple_of(2) {
-            return None;
-        }
-        let mut i = 0;
-        while i < self.stack.n - 6 {
-            self.x += self.stack.args()[i];
-            self.y += self.stack.args()[i + 1];
-            self.sink.line_to(self.x, self.y);
-            i += 2;
-        }
-        self.curve(i);
-        self.stack.clear();
-        Some(())
-    }
-
-    fn hhcurveto(&mut self) -> Option<()> {
-        self.need_move()?;
-        let mut i = 0;
-        if self.stack.n % 2 == 1 {
-            self.y += self.stack.args()[0];
-            i += 1;
-        }
-        if !(self.stack.n - i).is_multiple_of(4) {
-            return None;
-        }
-        while i < self.stack.n {
-            let a = self.stack.args();
-            let x1 = self.x + a[i];
-            let y1 = self.y;
-            let x2 = x1 + a[i + 1];
-            let y2 = y1 + a[i + 2];
-            self.x = x2 + a[i + 3];
-            self.y = y2;
-            self.sink.curve_to(x1, y1, x2, y2, self.x, self.y);
-            i += 4;
-        }
-        self.stack.clear();
-        Some(())
-    }
-
-    fn vvcurveto(&mut self) -> Option<()> {
-        self.need_move()?;
-        let mut i = 0;
-        if self.stack.n % 2 == 1 {
-            self.x += self.stack.args()[0];
-            i += 1;
-        }
-        if !(self.stack.n - i).is_multiple_of(4) {
-            return None;
-        }
-        while i < self.stack.n {
-            let a = self.stack.args();
-            let x1 = self.x;
-            let y1 = self.y + a[i];
-            let x2 = x1 + a[i + 1];
-            let y2 = y1 + a[i + 2];
-            self.x = x2;
-            self.y = y2 + a[i + 3];
-            self.sink.curve_to(x1, y1, x2, y2, self.x, self.y);
-            i += 4;
-        }
-        self.stack.clear();
-        Some(())
-    }
-
-    /// `hvcurveto` and `vhcurveto`: alternating tangent curves, with an
-    /// optional last delta on the closing axis.
-    fn alternating_curveto(&mut self, first: Axis) -> Option<()> {
-        self.need_move()?;
-        if self.stack.n < 4 {
-            return None;
-        }
-        self.stack.reverse();
-        let mut axis = first;
-        while self.stack.n != 0 {
-            if self.stack.n < 4 {
-                return None;
-            }
-            if axis == Axis::Horizontal {
-                let x1 = self.x + self.stack.pop();
-                let y1 = self.y;
-                let x2 = x1 + self.stack.pop();
-                let y2 = y1 + self.stack.pop();
-                self.y = y2 + self.stack.pop();
-                self.x = x2;
-                if self.stack.n == 1 {
-                    self.x += self.stack.pop();
-                }
-                self.sink.curve_to(x1, y1, x2, y2, self.x, self.y);
-            } else {
-                let x1 = self.x;
-                let y1 = self.y + self.stack.pop();
-                let x2 = x1 + self.stack.pop();
-                let y2 = y1 + self.stack.pop();
-                self.x = x2 + self.stack.pop();
-                self.y = y2;
-                if self.stack.n == 1 {
-                    self.y += self.stack.pop();
-                }
-                self.sink.curve_to(x1, y1, x2, y2, self.x, self.y);
-            }
-            axis = axis.flip();
-        }
-        Some(())
-    }
-
-    fn flex(&mut self) -> Option<()> {
-        self.need_move()?;
-        if self.stack.n != 13 {
-            return None;
-        }
-        let a = self.stack.args();
-        let dx1 = self.x + a[0];
-        let dy1 = self.y + a[1];
-        let dx2 = dx1 + a[2];
-        let dy2 = dy1 + a[3];
-        let dx3 = dx2 + a[4];
-        let dy3 = dy2 + a[5];
-        let dx4 = dx3 + a[6];
-        let dy4 = dy3 + a[7];
-        let dx5 = dx4 + a[8];
-        let dy5 = dy4 + a[9];
-        self.x = dx5 + a[10];
-        self.y = dy5 + a[11];
-        self.sink.curve_to(dx1, dy1, dx2, dy2, dx3, dy3);
-        self.sink.curve_to(dx4, dy4, dx5, dy5, self.x, self.y);
-        self.stack.clear();
-        Some(())
-    }
-
-    fn flex1(&mut self) -> Option<()> {
-        self.need_move()?;
-        if self.stack.n != 11 {
-            return None;
-        }
-        let a = self.stack.args();
-        let dx1 = self.x + a[0];
-        let dy1 = self.y + a[1];
-        let dx2 = dx1 + a[2];
-        let dy2 = dy1 + a[3];
-        let dx3 = dx2 + a[4];
-        let dy3 = dy2 + a[5];
-        let dx4 = dx3 + a[6];
-        let dy4 = dy3 + a[7];
-        let dx5 = dx4 + a[8];
-        let dy5 = dy4 + a[9];
-        if abs(dx5 - self.x) > abs(dy5 - self.y) {
-            self.x = dx5 + a[10];
-        } else {
-            self.y = dy5 + a[10];
-        }
-        self.sink.curve_to(dx1, dy1, dx2, dy2, dx3, dy3);
-        self.sink.curve_to(dx4, dy4, dx5, dy5, self.x, self.y);
-        self.stack.clear();
-        Some(())
-    }
-
-    fn hflex(&mut self) -> Option<()> {
-        self.need_move()?;
-        if self.stack.n != 7 {
-            return None;
-        }
-        let a = self.stack.args();
-        let dx1 = self.x + a[0];
-        let dy1 = self.y;
-        let dx2 = dx1 + a[1];
-        let dy2 = dy1 + a[2];
-        let dx3 = dx2 + a[3];
-        let dy3 = dy2;
-        let dx4 = dx3 + a[4];
-        let dy4 = dy2;
-        let dx5 = dx4 + a[5];
-        let dy5 = self.y;
-        self.x = dx5 + a[6];
-        self.sink.curve_to(dx1, dy1, dx2, dy2, dx3, dy3);
-        self.sink.curve_to(dx4, dy4, dx5, dy5, self.x, self.y);
-        self.stack.clear();
-        Some(())
-    }
-
-    fn hflex1(&mut self) -> Option<()> {
-        self.need_move()?;
-        if self.stack.n != 9 {
-            return None;
-        }
-        let a = self.stack.args();
-        let dx1 = self.x + a[0];
-        let dy1 = self.y + a[1];
-        let dx2 = dx1 + a[2];
-        let dy2 = dy1 + a[3];
-        let dx3 = dx2 + a[4];
-        let dy3 = dy2;
-        let dx4 = dx3 + a[5];
-        let dy4 = dy2;
-        let dx5 = dx4 + a[6];
-        let dy5 = dy4 + a[7];
-        self.x = dx5 + a[8];
-        self.sink.curve_to(dx1, dy1, dx2, dy2, dx3, dy3);
-        self.sink.curve_to(dx4, dy4, dx5, dy5, self.x, self.y);
-        self.stack.clear();
-        Some(())
-    }
-
-    fn call(&mut self, subrs: CffIndex<'_>, depth: u8) -> Option<()> {
-        if self.stack.n == 0 || depth == MAX_DEPTH {
-            return None;
-        }
-        let i = subr_index(self.stack.pop(), bias(subrs.len()))?;
+    fn call(&mut self, subrs: CffIndex<'_>, depth: Depth) -> Option<()> {
+        let depth = depth.deeper()?;
+        let i = subr_index(f64::from(self.stack.pop()?), bias(subrs.len()))?;
         let cs = subrs.get(i)?;
-        self.exec(cs, depth + 1)
+        self.exec(cs, depth)
     }
 
     fn seac_glyph(&self, code: f32) -> Option<GlyphId> {
@@ -1053,34 +1353,46 @@ impl<S: Sink> Run<'_, '_, S> {
         }
     }
 
-    fn exec(&mut self, cs: Bytes<'_>, depth: u8) -> Option<()> {
+    fn exec(&mut self, cs: Bytes<'_>, depth: Depth) -> Option<()> {
         let mut at = Offset::ZERO;
         while let Some(b) = cs.read::<u8>(at) {
             at = at.plus(Len::of(1))?;
             match b {
                 0 | 2 | 9 | 13 | 15 | 16 | 17 => return None,
                 op::HSTEM | op::VSTEM | op::HSTEMHM | op::VSTEMHM => {
-                    let len = if self.stack.n % 2 == 1 && self.width == Width::Pending {
+                    let n = self.stack.args().len();
+                    let len = if n % 2 == 1 && self.width == Width::Pending {
                         self.width = Width::Taken;
-                        self.stack.n - 1
+                        n - 1
                     } else {
-                        self.stack.n
+                        n
                     };
                     self.stems += u32::try_from(len).ok()? >> 1;
                     self.stack.clear();
                 }
                 op::VMOVETO => {
-                    let mut i = 0;
-                    if self.stack.n == 2 {
-                        i += 1;
-                        self.width = Width::Taken;
-                    }
-                    self.vmoveto(i)?;
+                    let a = moveto_args::<2>(&self.stack, &mut self.width);
+                    self.pen.vmoveto(a)?;
+                    self.stack.clear();
                 }
-                op::RLINETO => self.rlineto()?,
-                op::HLINETO => self.alternating_lineto(Axis::Horizontal)?,
-                op::VLINETO => self.alternating_lineto(Axis::Vertical)?,
-                op::RRCURVETO => self.rrcurveto()?,
+                op::RLINETO => {
+                    self.pen.rlineto(self.stack.args())?;
+                    self.stack.clear();
+                }
+                op::HLINETO => {
+                    self.pen
+                        .alternating_lineto(self.stack.args(), Axis::Horizontal)?;
+                    self.stack.clear();
+                }
+                op::VLINETO => {
+                    self.pen
+                        .alternating_lineto(self.stack.args(), Axis::Vertical)?;
+                    self.stack.clear();
+                }
+                op::RRCURVETO => {
+                    self.pen.rrcurveto(self.stack.args())?;
+                    self.stack.clear();
+                }
                 op::CALLSUBR => {
                     if self.local.is_none() {
                         self.local = self.cff.cid_local_subrs(self.glyph);
@@ -1098,50 +1410,47 @@ impl<S: Sink> Run<'_, '_, S> {
                 TWO_BYTE => {
                     let b2: u8 = cs.read(at)?;
                     at = at.plus(Len::of(1))?;
+                    let a = self.stack.args();
                     match b2 {
-                        op::HFLEX => self.hflex()?,
-                        op::FLEX => self.flex()?,
-                        op::HFLEX1 => self.hflex1()?,
-                        op::FLEX1 => self.flex1()?,
+                        op::HFLEX => self.pen.hflex(a)?,
+                        op::FLEX => self.pen.flex(a)?,
+                        op::HFLEX1 => self.pen.hflex1(a)?,
+                        op::FLEX1 => self.pen.flex1(a, Flex1::EndPoint)?,
                         _ => return None,
                     }
+                    self.stack.clear();
                 }
                 op::ENDCHAR => {
-                    if self.stack.n == 4 || (self.width == Width::Pending && self.stack.n == 5) {
-                        let accent_code = self.stack.pop();
-                        let base_code = self.stack.pop();
+                    let n = self.stack.args().len();
+                    if n == 4 || (self.width == Width::Pending && n == 5) {
+                        let accent_code = self.stack.pop()?;
+                        let base_code = self.stack.pop()?;
                         let accent = self.seac_glyph(accent_code)?;
                         let base = self.seac_glyph(base_code)?;
-                        let dy = self.stack.pop();
-                        let dx = self.stack.pop();
-                        if self.width == Width::Pending && self.stack.n != 0 {
-                            self.stack.pop();
+                        let dy = self.stack.pop()?;
+                        let dx = self.stack.pop()?;
+                        if self.width == Width::Pending && !self.stack.args().is_empty() {
+                            self.stack.pop()?;
                             self.width = Width::Taken;
                         }
                         self.end = End::Seac;
-                        if depth == MAX_DEPTH {
-                            return None;
-                        }
+                        let deeper = depth.deeper()?;
                         let base_cs = self
                             .cff
                             .char_strings
                             .get(Index::of(u32::try_from(base.index()).ok()?))?;
-                        self.exec(base_cs, depth + 1)?;
-                        self.x = dx;
-                        self.y = dy;
+                        self.exec(base_cs, deeper)?;
+                        self.pen.place(dx, dy);
                         let accent_cs = self
                             .cff
                             .char_strings
                             .get(Index::of(u32::try_from(accent.index()).ok()?))?;
-                        self.exec(accent_cs, depth + 1)?;
-                    } else if self.stack.n == 1 && self.width == Width::Pending {
-                        self.stack.pop();
+                        self.exec(accent_cs, deeper)?;
+                    } else if n == 1 && self.width == Width::Pending {
+                        self.stack.pop()?;
                         self.width = Width::Taken;
                     }
-                    if self.moveto == Moveto::Later {
-                        self.moveto = Moveto::First;
-                        self.sink.close();
-                    }
+                    self.pen.finish();
                     if cs.read::<u8>(at).is_some() {
                         return None;
                     }
@@ -1151,7 +1460,7 @@ impl<S: Sink> Run<'_, '_, S> {
                     break;
                 }
                 op::HINTMASK | op::CNTRMASK => {
-                    let mut len = self.stack.n;
+                    let mut len = self.stack.args().len();
                     self.stack.clear();
                     if len % 2 == 1 {
                         len -= 1;
@@ -1161,25 +1470,31 @@ impl<S: Sink> Run<'_, '_, S> {
                     at = at.plus(Len::of((self.stems + 7) >> 3))?;
                 }
                 op::RMOVETO => {
-                    let mut i = 0;
-                    if self.stack.n == 3 {
-                        i += 1;
-                        self.width = Width::Taken;
-                    }
-                    self.rmoveto(i)?;
+                    let a = moveto_args::<3>(&self.stack, &mut self.width);
+                    self.pen.rmoveto(a)?;
+                    self.stack.clear();
                 }
                 op::HMOVETO => {
-                    let mut i = 0;
-                    if self.stack.n == 2 {
-                        i += 1;
-                        self.width = Width::Taken;
-                    }
-                    self.hmoveto(i)?;
+                    let a = moveto_args::<2>(&self.stack, &mut self.width);
+                    self.pen.hmoveto(a)?;
+                    self.stack.clear();
                 }
-                op::RCURVELINE => self.rcurveline()?,
-                op::RLINECURVE => self.rlinecurve()?,
-                op::VVCURVETO => self.vvcurveto()?,
-                op::HHCURVETO => self.hhcurveto()?,
+                op::RCURVELINE => {
+                    self.pen.rcurveline(self.stack.args())?;
+                    self.stack.clear();
+                }
+                op::RLINECURVE => {
+                    self.pen.rlinecurve(self.stack.args())?;
+                    self.stack.clear();
+                }
+                op::VVCURVETO => {
+                    self.pen.vvcurveto(self.stack.args())?;
+                    self.stack.clear();
+                }
+                op::HHCURVETO => {
+                    self.pen.hhcurveto(self.stack.args())?;
+                    self.stack.clear();
+                }
                 op::SHORTINT => {
                     let n: i16 = cs.read(at)?;
                     at = at.plus(Len::of(2))?;
@@ -1195,8 +1510,16 @@ impl<S: Sink> Run<'_, '_, S> {
                         break;
                     }
                 }
-                op::VHCURVETO => self.alternating_curveto(Axis::Vertical)?,
-                op::HVCURVETO => self.alternating_curveto(Axis::Horizontal)?,
+                op::VHCURVETO => {
+                    self.pen
+                        .alternating_curveto(self.stack.args(), Axis::Vertical)?;
+                    self.stack.clear();
+                }
+                op::HVCURVETO => {
+                    self.pen
+                        .alternating_curveto(self.stack.args(), Axis::Horizontal)?;
+                    self.stack.clear();
+                }
                 32..=246 => self.stack.push(f32::from(i16::from(b) - 139))?,
                 247..=250 => {
                     let b1: u8 = cs.read(at)?;
@@ -1220,8 +1543,4 @@ impl<S: Sink> Run<'_, '_, S> {
         }
         Some(())
     }
-}
-
-fn abs(v: f32) -> f32 {
-    if v.is_sign_negative() { -v } else { v }
 }

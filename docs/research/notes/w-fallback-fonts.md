@@ -419,9 +419,12 @@ numbers below were read.
   the BaseGlyphPaintRecords that version 1 adds. This file's COLR table has
   no version-0 base records and 3,993 version-1 records, so baud would draw
   its monochrome glyf outlines at best.
-- **CFF2: every `*-VF.otf` and the variable OTC.** Nothing in baud-font
+- ~~**CFF2: every `*-VF.otf` and the variable OTC.** Nothing in baud-font
   parses CFF2; `baud-font/src/bake.rs` names the tag only in its list of
-  tables a bake refuses.
+  tables a bake refuses.~~ Read since 2026-10-11 (`baud-font/src/cff2.rs`;
+  the record, "CFF2 outlines are read, blends and all"), at any
+  coordinates, and a face whose CFF2 does not read is refused at load. The
+  bake still refuses a CFF2 face: it writes `glyf` instances.
 - **SVG fonts** are not read.
 - **The glyf variable subsets can be read but default to Thin.**
   NotoSansJP-VF.ttf and NotoSansKR-VF.ttf are glyf with gvar, which baud-font

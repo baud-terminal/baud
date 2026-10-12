@@ -842,9 +842,15 @@ files   = [
   "harfbuzz-12.3.0-glyf-Glyph.hh",
   "harfbuzz-12.3.0-glyf-SimpleGlyph.hh",
   "harfbuzz-12.3.0-glyf-glyf.hh",
+  "harfbuzz-12.3.0-hb-cff-interp-common.hh",
+  "harfbuzz-12.3.0-hb-cff-interp-cs-common.hh",
+  "harfbuzz-12.3.0-hb-cff2-interp-cs.hh",
+  "harfbuzz-12.3.0-hb-draw.hh",
   "harfbuzz-12.3.0-hb-font.hh",
   "harfbuzz-12.3.0-hb-limits.hh",
   "harfbuzz-12.3.0-hb-open-type.hh",
+  "harfbuzz-12.3.0-hb-ot-cff2-table.cc",
+  "harfbuzz-12.3.0-hb-ot-cff2-table.hh",
   "harfbuzz-12.3.0-hb-ot-font.cc",
   "harfbuzz-12.3.0-hb-ot-hmtx-table.hh",
   "harfbuzz-12.3.0-hb-ot-layout-common.hh",
@@ -1806,6 +1812,14 @@ paths    = ["baud-font/tests/fonts/FiraCode-Regular.ttf", "baud-font/tests/fonts
 licence  = "OFL-1.1"
 notice   = "baud-font/tests/fonts/FiraCode-LICENSE.txt"
 upstream = "https://github.com/tonsky/FiraCode/releases/download/6.2/Fira_Code_v6.2.zip"
+status   = "kept"
+
+[[tree]]
+what     = "Source Code Pro 1.026 variable upright at 2ef38a8, a CFF2 test font, unmodified"
+paths    = ["baud-font/tests/fonts/SourceCodeVF-Upright.otf"]
+licence  = "OFL-1.1"
+notice   = "baud-font/tests/fonts/SourceCodeVF-LICENSE.txt"
+upstream = "https://github.com/adobe-fonts/source-code-pro/tree/2ef38a8012b47b566fb2cc66bddb5e47f39af92a/VF"
 status   = "kept"
 
 [[tree]]

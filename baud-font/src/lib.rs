@@ -22,8 +22,11 @@
 //! `[[source: ms-opentype-os2]]`, `[[source: ms-opentype-post]]`), and `cmap`
 //! formats 0, 4, 6, 12, 13 and 14 (`[[source: ms-opentype-cmap]]`).
 //!
-//! **Phase 1b: outlines.** `loca`/`glyf` with composites, and CFF Type 2
-//! charstrings, through one [`Sink`] in font units.
+//! **Phase 1b: outlines.** `loca`/`glyf` with composites, CFF Type 2
+//! charstrings, and CFF2 charstrings with their `blend` and `vsindex`
+//! (`[[source: ms-opentype-cff2]]`), through one [`Sink`] in font units. A
+//! face whose only outlines are a `CFF2` table that does not read is refused
+//! at load rather than drawn blank.
 //!
 //! **Phase 1c: bitmap strikes and layered colour.** `sbix`, `CBLC`/`CBDT`
 //! and `COLR` v0 with `CPAL`, plus the PNG decoder those strikes need --
@@ -51,6 +54,7 @@ mod bitmap;
 mod buffer;
 pub mod bytes;
 mod cff;
+mod cff2;
 mod cmap;
 mod colr;
 mod compose;
@@ -107,6 +111,7 @@ impl Tag {
     pub const LOCA: Tag = Tag(*b"loca");
     pub const GLYF: Tag = Tag(*b"glyf");
     pub const CFF: Tag = Tag(*b"CFF ");
+    pub const CFF2: Tag = Tag(*b"CFF2");
     pub const TTCF: Tag = Tag(*b"ttcf");
     pub const SBIX: Tag = Tag(*b"sbix");
     pub const CBLC: Tag = Tag(*b"CBLC");
@@ -143,4 +148,25 @@ pub enum Error {
     MissingTable(Tag),
     /// A table is present and does not say what its specification requires.
     Malformed(Tag),
+}
+
+/// What a caller says when it refuses a face: "no 'head' table", "its
+/// 'CFF2' table does not read". A tag's bytes are printed as they are,
+/// which every registered tag spells in ASCII.
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let tag = |t: &Tag| t.0.map(char::from);
+        match self {
+            Error::NotAFont => f.write_str("not a font"),
+            Error::FaceOutOfRange => f.write_str("the collection has no face at that index"),
+            Error::MissingTable(t) => {
+                let [a, b, c, d] = tag(t);
+                write!(f, "no '{a}{b}{c}{d}' table")
+            }
+            Error::Malformed(t) => {
+                let [a, b, c, d] = tag(t);
+                write!(f, "its '{a}{b}{c}{d}' table does not read")
+            }
+        }
+    }
 }

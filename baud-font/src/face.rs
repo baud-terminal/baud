@@ -18,6 +18,7 @@
 use crate::bitmap::{Bitmap, Cbdt, Ppem, ReadStrike, Records, Sbix, StrikeState};
 use crate::bytes::{Bytes, Count, Index, Len, Offset};
 use crate::cff::Cff;
+use crate::cff2::Cff2;
 use crate::cmap::{Cmap, Variation};
 use crate::colr::{Colr, Cpal, Layers, Palette, PaletteEntry, Rgba};
 use crate::glyf::{Glyf, Loca, LocaFormat, Streamed};
@@ -171,6 +172,7 @@ pub struct Face<'a> {
     cmap: Option<Cmap<'a>>,
     glyf: Option<Glyf<'a>>,
     cff: Option<Cff<'a>>,
+    cff2: Option<Cff2<'a>>,
     sbix: Option<Sbix<'a>>,
     cbdt: Option<Cbdt<'a>>,
     colr: Option<Colr<'a>>,
@@ -301,6 +303,7 @@ impl<'a> Face<'a> {
             cmap: None,
             glyf: None,
             cff: None,
+            cff2: None,
             sbix: None,
             cbdt: None,
             colr: None,
@@ -383,6 +386,18 @@ impl<'a> Face<'a> {
             face.glyf = Some(Glyf::new(loca, glyf));
         }
         face.cff = face.table(Tag::CFF).and_then(Cff::parse);
+        // `CFF2`, when it is there, is read whole or the face is refused --
+        // if it is the face's outlines. A face whose only outlines did not
+        // read would answer every glyph with nothing, and a terminal would
+        // draw blanks for it without a word; HarfBuzz tries `glyf`, then
+        // `CFF2`, then `CFF ` (`[[source: harfbuzz-12-3-0-ot-font]]`), so a
+        // face with another outline table falls back to it instead.
+        if let Some(t) = face.table(Tag::CFF2) {
+            face.cff2 = Cff2::parse(t, Count::of(glyphs));
+            if face.cff2.is_none() && face.glyf.is_none() && face.cff.is_none() {
+                return Err(Error::Malformed(Tag::CFF2));
+            }
+        }
         face.gvar = face.table(Tag::GVAR).and_then(crate::gvar::Gvar::parse);
         face.hvar = face.table(Tag::HVAR).and_then(crate::hvar::Hvar::parse);
         // Bitmap strikes and layered colour are optional in every sense: a
@@ -810,9 +825,10 @@ impl<'a> Face<'a> {
     }
 
     /// The outline of `g` into `sink`, in font units, unflattened: quadratic
-    /// curves from `glyf`, cubics from CFF. `glyf` is tried first, CFF
-    /// second, which is the order the reference readers use. `Drawn::Nothing`
-    /// for a glyph with no contours, no data, or a malformed description.
+    /// curves from `glyf`, cubics from `CFF2` and CFF. `glyf` is tried
+    /// first, `CFF2` second and CFF third, which is HarfBuzz's order.
+    /// `Drawn::Nothing` for a glyph with no contours, no data, or a
+    /// malformed description.
     ///
     /// **A glyph that needs scratch is refused here**, answered
     /// `Drawn::NeedsScratch` with nothing drawn, and [`Face::outline_at`]
@@ -820,6 +836,8 @@ impl<'a> Face<'a> {
     /// rather than the default instance in its place; at the default
     /// instance, a composite that places a component by matched points,
     /// whose alignment reads points a stream has given away.
+    /// A `CFF2` glyph needs no scratch: its `blend` operators are applied at
+    /// the face's coordinates as it is drawn.
     pub fn outline<S: Sink>(&self, g: GlyphId, sink: &mut S) -> Drawn {
         if let Some((glyf, _)) = self.varying() {
             return match glyf.need(g) {
@@ -837,6 +855,8 @@ impl<'a> Face<'a> {
                 Some(Streamed::NeedsScratch(need)) => return Drawn::NeedsScratch(need),
                 None => None,
             }
+        } else if let Some(cff2) = &self.cff2 {
+            cff2.outline(g, &self.coords, &mut counting)
         } else if let Some(cff) = &self.cff {
             cff.outline(g, &mut counting)
         } else {

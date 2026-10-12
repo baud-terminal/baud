@@ -156,7 +156,7 @@ crate_audit() {
     echo "  ok   $ca_name: $ca_total and $ca_sig (limit $ca_limit and $ca_siglimit)"
   fi
 }
-# **baud-font: sixteen raw-integer sites and sixty-eight signature primitives,
+# **baud-font: twelve raw-integer sites and sixty signature primitives,
 # every one enumerated, and the limit follows the count downward.** The
 # signature sites are the newtype surface of a parser over a byte format --
 # the same exemption `baud-domain` has for the same reason: `Len::of(u32)`,
@@ -165,12 +165,15 @@ crate_audit() {
 # usize` (the one bridge into slice indexing), `is_sfnt(u32)` on the
 # directory's magic, `glyph(u16)` where a `cmap` value becomes a `GlyphId`,
 # the `parse(u16)` constructors that turn a `CBLC` index or image format
-# number into its enum, and in the two outline readers the arithmetic a
-# charstring interpreter is made of: a 48-slot argument stack indexed by
-# `usize` (`rmoveto(from)` and its kin name the width slot), `bias(Count) ->
-# i32`, `f2dot14(i16) -> f32`, the composite depth as `u8` against a cap of
-# 32, and `Delta::of(bool, bool)` built from two flag bits. The PNG decoder
-# is the third interpreter and carries twenty of the fifty-seven: `crc32`
+# number into its enum, and in the outline readers the bytes a charstring
+# and a DICT are made of: `OffSize::parse(u8)`, `dict_number`'s first byte,
+# `sid_to_gid(u16)` on a string id, `usize_of -> u32` on an offset operand,
+# `subr_index`'s bias as `i32`, `f2dot14(i16) -> f32`, the composite depth
+# as `u8` against a cap of 32, and `Delta::of(bool, bool)` built from two
+# flag bits. A DICT operator is a `DictOp`, a call depth a `Depth`, and the
+# path operators CFF and CFF2 share take their operands as a slice, so no
+# width slot is passed as a `usize`. The PNG decoder
+# is the third interpreter and carries twenty of the sixty: `crc32`
 # and `adler32` over bytes to a `u32`, `paeth(u8, u8, u8) -> u8` on bytes,
 # `sample`/`scale` taking a bit depth and a sample, `BitReader::take(u32) ->
 # u32` on a bit count, `Out::push(u8)`, `Color::parse(u8)` on the IHDR byte,
@@ -182,7 +185,7 @@ crate_audit() {
 # `Scale::placing`'s two pixel offsets, `Point::new`'s two coordinates,
 # `Point::lerp`'s parameter, `distance_to`'s length, `row(f32) -> usize` --
 # the one place a pixel coordinate becomes a row index, spelled once -- and
-# `splat`'s row start as `usize`, which is also the sixteenth raw site: the
+# `splat`'s row start as `usize`, which is also the twelfth raw site: the
 # reference's own index arithmetic, kept in its shape so the byte-exact
 # differential has one algorithm to compare rather than two. The shaper adds
 # three signature sites and no raw ones: `same(GlyphId, u16)` comparing a
@@ -192,16 +195,17 @@ crate_audit() {
 # are `Count`, table glyph ids are `GlyphId`, classes are `Class`, lookup
 # types are `Kind` and flags are `LookupFlags`, so a position and a count
 # cannot be added and a class and a glyph cannot be confused. The other
-# fifteen raw sites are the interpreters' state: the
-# charstring stack length, the stem count that sizes `hintmask`, the
-# recursion depth, the contour count, the `as` conversions between a
-# charstring's `f32` operand and the integer it encodes, and in the decoder
+# eleven raw sites are the interpreters' state: the charstring stack length
+# and the stem count that sizes `hintmask` (CFF's; CFF2 keeps its stems as a
+# `Count` and shares the stack), the composite recursion depth (twice) and
+# the contour count in `glyf`, and in the decoder
 # the bit depth, the IDAT read position, the bit accumulator and its count,
 # the output length, and the one `as usize` that indexes the CRC table inside
 # a `const fn`, where `try_from` cannot be called. Every `bool` field became a
 # two-state enum before this count was taken (`Path`, `Moveto`, `Width`,
-# `End`, `Axis`, `Delta`, `Sign`, `IndexFormat`, `ImageFormat`).
-crate_audit "baud-font" 16 68 baud-font/src
+# `End`, `Axis`, `Delta`, `Sign`, `IndexFormat`, `ImageFormat`, and CFF2's
+# `Variation` and `Regions`).
+crate_audit "baud-font" 12 60 baud-font/src
 # baud-render: 0 raw sites and 11 signature primitives, every one a unit
 # type's own edge -- `Tally::of(usize)` and `Tally::value -> u64`,
 # `Digest::fold(u64)` and `Digest::value -> u64`, `slots -> usize` (the one

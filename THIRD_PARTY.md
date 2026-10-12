@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 8 | an open question, recorded where the file is; the owner's call |
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 241 | 16 | redistributable, and its notice is satisfied |
+| kept | 247 | 17 | redistributable, and its notice is satisfied |
 | own | 186 | 0 | the owner's work |
-| total | 669 | 26 | |
+| total | 675 | 27 | |
 
 ## Licence texts in LICENSES/
 
@@ -203,6 +203,14 @@ they were built from.
 - **Notice:** [baud-font/tests/fonts/FiraCode-LICENSE.txt](baud-font/tests/fonts/FiraCode-LICENSE.txt)
 - **From:** https://github.com/tonsky/FiraCode/releases/download/6.2/Fira_Code_v6.2.zip
 - **Files:** [baud-font/tests/fonts/FiraCode-Regular.ttf](baud-font/tests/fonts/FiraCode-Regular.ttf), [baud-font/tests/fonts/FiraCode-VF.ttf](baud-font/tests/fonts/FiraCode-VF.ttf)
+
+### Source Code Pro 1.026 variable upright at 2ef38a8, a CFF2 test font, unmodified
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** OFL-1.1
+- **Notice:** [baud-font/tests/fonts/SourceCodeVF-LICENSE.txt](baud-font/tests/fonts/SourceCodeVF-LICENSE.txt)
+- **From:** https://github.com/adobe-fonts/source-code-pro/tree/2ef38a8012b47b566fb2cc66bddb5e47f39af92a/VF
+- **Files:** [baud-font/tests/fonts/SourceCodeVF-Upright.otf](baud-font/tests/fonts/SourceCodeVF-Upright.otf)
 
 ### JetBrains Mono at cd5227b, test fonts, unmodified
 
@@ -997,7 +1005,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT-Modern-Variant
 - **Notice:** [LICENSES/harfbuzz-COPYING.txt](LICENSES/harfbuzz-COPYING.txt)
-- **Files:** 22
+- **Files:** 28
 
 | file | copied from |
 |---|---|
@@ -1008,9 +1016,15 @@ notice is, and the URL each file was copied from.
 | [harfbuzz-12.3.0-glyf-Glyph.hh](docs/research/sources/harfbuzz-12.3.0-glyf-Glyph.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/glyf/Glyph.hh |
 | [harfbuzz-12.3.0-glyf-SimpleGlyph.hh](docs/research/sources/harfbuzz-12.3.0-glyf-SimpleGlyph.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/glyf/SimpleGlyph.hh |
 | [harfbuzz-12.3.0-glyf-glyf.hh](docs/research/sources/harfbuzz-12.3.0-glyf-glyf.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/OT/glyf/glyf.hh |
+| [harfbuzz-12.3.0-hb-cff-interp-common.hh](docs/research/sources/harfbuzz-12.3.0-hb-cff-interp-common.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-cff-interp-common.hh |
+| [harfbuzz-12.3.0-hb-cff-interp-cs-common.hh](docs/research/sources/harfbuzz-12.3.0-hb-cff-interp-cs-common.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-cff-interp-cs-common.hh |
+| [harfbuzz-12.3.0-hb-cff2-interp-cs.hh](docs/research/sources/harfbuzz-12.3.0-hb-cff2-interp-cs.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-cff2-interp-cs.hh |
+| [harfbuzz-12.3.0-hb-draw.hh](docs/research/sources/harfbuzz-12.3.0-hb-draw.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-draw.hh |
 | [harfbuzz-12.3.0-hb-font.hh](docs/research/sources/harfbuzz-12.3.0-hb-font.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-font.hh |
 | [harfbuzz-12.3.0-hb-limits.hh](docs/research/sources/harfbuzz-12.3.0-hb-limits.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-limits.hh |
 | [harfbuzz-12.3.0-hb-open-type.hh](docs/research/sources/harfbuzz-12.3.0-hb-open-type.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-open-type.hh |
+| [harfbuzz-12.3.0-hb-ot-cff2-table.cc](docs/research/sources/harfbuzz-12.3.0-hb-ot-cff2-table.cc) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-cff2-table.cc |
+| [harfbuzz-12.3.0-hb-ot-cff2-table.hh](docs/research/sources/harfbuzz-12.3.0-hb-ot-cff2-table.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-cff2-table.hh |
 | [harfbuzz-12.3.0-hb-ot-font.cc](docs/research/sources/harfbuzz-12.3.0-hb-ot-font.cc) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-font.cc |
 | [harfbuzz-12.3.0-hb-ot-hmtx-table.hh](docs/research/sources/harfbuzz-12.3.0-hb-ot-hmtx-table.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-hmtx-table.hh |
 | [harfbuzz-12.3.0-hb-ot-layout-common.hh](docs/research/sources/harfbuzz-12.3.0-hb-ot-layout-common.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-ot-layout-common.hh |

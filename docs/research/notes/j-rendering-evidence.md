@@ -471,6 +471,8 @@ FreeType's `ttgxvar.c` 5,081. The delta-parsing hazard is the one that was
 exploited: CVE-2025-27363, a signed-short to unsigned-long cast in GX subglyph
 parsing giving an undersized heap allocation and an out-of-bounds write
 (FreeType ≤ 2.13.0). Of 375 faces on this Mac, 29 carry `fvar`, one `CFF2`.
+(baud-font reads `CFF2` since 2026-10-11, its blends at the face's
+coordinates: the record, "CFF2 outlines are read, blends and all".)
 
 ## E12. Damage
 
