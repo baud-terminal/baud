@@ -542,10 +542,19 @@ impl<'a> View<'a> {
 
     /// The mark after a fill of `cell` that ran to `to`, where `low` is the
     /// mark the fill would leave on a row it covered to the live edge and no
-    /// further. Past the live edge the fill may have reached into content the
-    /// screen is too narrow to show, and past *that* lies whatever blank the
-    /// row was last cleared to; if that blank is not this one, the row is not
-    /// uniform from `low` on and the mark has to say so.
+    /// further. Past the live edge the fill ran on to the mark, and that
+    /// blank is the line's to the mark and no further: past it lie the
+    /// cells of whatever line the row held before, which the passes past
+    /// the edge clear to [`PackedCell::EMPTY`] from the mark on
+    /// ([`View::clear_past_edge`]). So the mark stays at `to`, and comes
+    /// down to `low` only when `cell` is `EMPTY` and either the cell at
+    /// `to` is `EMPTY` or `to` is the pitch: then the row is uniform from
+    /// `low` and that clear changes nothing. That lowering is also how a
+    /// held row comes back inside the edge and the reach comes down. A
+    /// coloured blank equal to the retired cell at `to` is not uniform with
+    /// it -- the retired cell is cleared and the blank is not -- and reading
+    /// it so lost the blank past the edge on a growth (the record, "A row
+    /// erased or fed in a colour past the edge keeps it to the mark").
     fn mark_after_fill(
         &self,
         base: usize,
@@ -554,7 +563,9 @@ impl<'a> View<'a> {
         low: RowExtent,
     ) -> RowExtent {
         let (cols, s) = (self.cols.index(), self.stride.index());
-        match to <= cols || to >= s || self.cells[base + to] == cell {
+        match to <= cols
+            || (cell == PackedCell::EMPTY && (to >= s || self.cells[base + to] == cell))
+        {
             true => low,
             false => RowExtent::of(to),
         }
@@ -2037,8 +2048,9 @@ impl<'a> View<'a> {
     }
 
     /// A whole-row fill on a row whose mark lies past the live edge: the
-    /// fill runs to the mark, and the mark after it is `low` unless the
-    /// blank beyond is a different one. `fill_row`'s cold half.
+    /// fill runs to the mark, and the mark stays there unless the row is
+    /// the default blank from `low` on ([`View::mark_after_fill`]).
+    /// `fill_row`'s cold half.
     #[cold]
     #[inline(never)]
     fn fill_past_edge_row(&mut self, p: usize, cell: PackedCell, low: RowExtent) -> usize {

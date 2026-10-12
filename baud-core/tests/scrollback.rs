@@ -1344,6 +1344,191 @@ fn a_row_the_repair_clears_past_the_edge_is_not_copied_again() {
     );
 }
 
+/// Forty lines of `bar` on a ten-row screen `cols` wide with twenty lines of
+/// history, so every row of the ring holds one; narrowed to 20 at a prompt,
+/// `line` fed, a prompt on the last row and grown back. The rows, at `cols`.
+fn a_line_on_a_retired_bar(cols: u16, bar: &[u8], line: &[u8]) -> Vec<Vec<PackedCell>> {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: cols,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &wide);
+    for _ in 0..40 {
+        support::feed(&mut t, bar);
+    }
+    support::feed(&mut t, b"\x1b]133;A\x07$ ");
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    support::feed(&mut t, line);
+    support::feed(&mut t, b"\x1b[10;1H$ ");
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    (0..10)
+        .map(|y| t.row(Row::from_index(y)).to_vec())
+        .collect()
+}
+
+/// Thirty blue `X` and a blue erase to the edge: a mark of 30, and the
+/// retired cell at the mark the blue blank.
+const BLUE_BAR: &[u8] = b"\x1b[44mXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\x1b[K\x1b[0m\r\n";
+
+/// The line on row 9: a default `E`, then the line's blue blank to `mark`,
+/// then the default blank to the end.
+fn assert_blue_to(row: &[PackedCell], mark: usize, what: &str) {
+    assert_eq!(
+        row[0].content.as_codepoint().map(|c| c.value()),
+        Some(u32::from(b'E')),
+        "{what}: the E"
+    );
+    assert_eq!(
+        row[0].style,
+        StyleId::DEFAULT,
+        "{what}: the E in the default"
+    );
+    for (c, cell) in row.iter().enumerate().take(mark).skip(1) {
+        assert!(
+            cell.content == Content::EMPTY && cell.style != StyleId::DEFAULT,
+            "{what}: column {}, the line's blue blank to column {mark}",
+            c + 1
+        );
+    }
+    for (c, cell) in row.iter().enumerate().skip(mark) {
+        assert_eq!(
+            *cell,
+            PackedCell::EMPTY,
+            "{what}: column {}, the default blank past the mark",
+            c + 1
+        );
+    }
+}
+
+/// **A line erased in a colour past the edge keeps it to the mark.** The
+/// line a line feed brings in on a row that held thirty blue `X` and blue
+/// blanks to column 40 is blanked to the mark, 30, and erased there in
+/// blue at 20 columns. The erase runs on to the mark and is the line's to
+/// it; past it the retired bar's ten blue cells are cleared to the default.
+/// Read as uniform because the retired cell at 30 was the erase's blue, the
+/// row lost its mark, and the clear past the edge took the erase's ten
+/// cells from 20 to 30 with the bar's: blue to column 20.
+#[test]
+fn a_line_erased_in_a_colour_past_the_edge_keeps_it_to_the_mark() {
+    let rows = a_line_on_a_retired_bar(40, BLUE_BAR, b"\r\n\x1b[44m\x1b[2K\x1b[0mE\r\n");
+    assert!(
+        rows[0][..30].iter().all(|c| c.style != StyleId::DEFAULT)
+            && rows[0][30..].iter().all(|c| c.content == Content::EMPTY),
+        "the control: row 1 a blue bar of thirty X and ten blanks"
+    );
+    assert_blue_to(&rows[8], 30, "row 9, erased in blue");
+}
+
+/// **And fed in that colour**: `ESC [ 44 m` before the line feed, so the
+/// line feed's own blank is the blue one and runs on to the mark. The same
+/// loss on the other fill, the one a whole row takes.
+#[test]
+fn a_line_fed_in_a_colour_past_the_edge_keeps_it_to_the_mark() {
+    let rows = a_line_on_a_retired_bar(40, BLUE_BAR, b"\x1b[44m\r\n\x1b[0mE\r\n");
+    assert_blue_to(&rows[8], 30, "row 9, fed in blue");
+}
+
+/// **And to the pitch, where nothing lies past the mark.** A screen as wide
+/// as its rows' pitch, every line written to the last column, so the mark is
+/// the pitch: a line fed in blue there is blue to the end of the row, where
+/// the fill that reached the pitch read the row as uniform and the clear
+/// past the edge left it blue to column 20.
+#[test]
+fn a_line_fed_in_a_colour_over_a_row_held_to_the_pitch_keeps_it_whole() {
+    let s = grid_stride(&CacheGeometry::UNKNOWN, Cols::of_index(40)).index();
+    assert_eq!(
+        grid_stride(&CacheGeometry::UNKNOWN, Cols::of_index(s)).index(),
+        s,
+        "the control: a screen as wide as its pitch"
+    );
+    let mut bar = vec![b'X'; s];
+    bar.extend_from_slice(b"\r\n");
+    let cols = u16::try_from(s).expect("a pitch fits a WinSize");
+    let rows = a_line_on_a_retired_bar(cols, &bar, b"\x1b[44m\r\n\x1b[0mE\r\n");
+    assert!(
+        rows[0].iter().all(|c| c.content != Content::EMPTY),
+        "the control: row 1 written to the pitch"
+    );
+    assert_blue_to(&rows[8], s, "row 9, fed in blue to the pitch");
+}
+
+/// The cells each of six scrolls of the top region `1 ; 6` writes, on a
+/// screen as wide as its pitch with `row7` on row 7, narrowed to 20 at a
+/// prompt, `erase` fed, then grown back and narrowed to 20 again, which
+/// measures the reach afresh.
+fn cells_scrolls_write_after_a_renarrowing(row7: &[u8], erase: &[u8]) -> Vec<usize> {
+    let s = grid_stride(&CacheGeometry::UNKNOWN, Cols::of_index(40)).index();
+    assert_eq!(
+        grid_stride(&CacheGeometry::UNKNOWN, Cols::of_index(s)).index(),
+        s,
+        "the control: a screen as wide as its pitch"
+    );
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: u16::try_from(s).expect("a pitch fits a WinSize"),
+    };
+    let narrow = WinSize {
+        ws_row: 10,
+        ws_col: 20,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(2));
+    let mut t = Term::new(owned.storage(), &wide);
+    support::feed(&mut t, b"\x1b[7;1H");
+    support::feed(&mut t, row7);
+    support::feed(
+        &mut t,
+        b"\x1b[8;1Hdash 08\x1b[9;1Hdash 09\x1b[10;1H\x1b]133;A\x07$ ",
+    );
+    assert_eq!(t.resize(&narrow), Resized::Ok);
+    support::feed(&mut t, erase);
+    support::feed(&mut t, b"\x1b[10;3H");
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    assert_eq!(t.resize(&narrow), Resized::Ok);
+    support::feed(&mut t, b"\x1b[1;6r\x1b[6;1H");
+    (0..6)
+        .map(|_| {
+            let (_, a) = t.amplification();
+            support::feed(&mut t, b"\n");
+            let (_, b) = t.amplification();
+            b - a
+        })
+        .collect()
+}
+
+/// **A row erased to the default at the pitch comes back inside the edge,
+/// and the reach comes down.** Row 7 written to the pitch, narrowed at a
+/// prompt, then a default `2K`: the erase runs on to the mark, the pitch,
+/// and leaves the default blank from column 1 to it, which is the one fill
+/// past the edge that lowers the mark there. Lowered, the next narrowing
+/// finds nothing past the edge, and every scroll writes what it writes on a
+/// screen whose row 7 never passed column 20. Kept at the pitch over blanks,
+/// the row stayed held, the reach stayed at the pitch, and each scroll
+/// carried it past the edge.
+#[test]
+fn a_row_erased_to_the_default_at_the_pitch_lets_the_reach_come_down() {
+    let s = grid_stride(&CacheGeometry::UNKNOWN, Cols::of_index(40)).index();
+    let (pitch, twenty) = (vec![b'X'; s], vec![b'X'; 20]);
+    let erase = b"\x1b[7;1H\x1b[2K";
+    let held = cells_scrolls_write_after_a_renarrowing(&pitch, b"");
+    let want = cells_scrolls_write_after_a_renarrowing(&twenty, erase);
+    assert!(
+        held.iter().zip(&want).all(|(h, w)| h > w),
+        "the control: row 7 held to the pitch writes more, {held:?} against {want:?}"
+    );
+    assert_eq!(
+        cells_scrolls_write_after_a_renarrowing(&pitch, erase),
+        want,
+        "every scroll the cells of a screen with no row held"
+    );
+}
+
 /// **The repair counts the cells it writes**, which is the rows under the
 /// region to their marks, not to the width. Three rows of four glyphs under a
 /// top region, one scroll: each row is copied to a mark of four, and the
