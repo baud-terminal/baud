@@ -23508,3 +23508,63 @@ status = "external"
 group  = "G"
 # Read 2026-10-12 (round 2026-10-12, lane clusters): the text note AB section 7.2 counted (175 distinct
 # marked clusters, 102 with U+0591-05AF removed), and the second text of the round's model of the cluster store.
+
+[sources.posix-tcgetattr]
+key    = "posix-tcgetattr"
+title  = "tcgetattr -- get the parameters associated with the terminal -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/tcgetattr.html"
+file   = ""
+sha256 = "98b31a0026f2a3fd3166568f8238f06af1cf4890c90799f5a25cd1faa676cbbd"
+bytes  = 8017
+status = "external"
+group  = "E"
+# Read for "The fildes argument is an open file descriptor associated with a terminal" and
+# ENOTTY, which put the question of a pty's manager side to XBD 3's definitions.
+
+[sources.posix-xbd-3]
+key    = "posix-xbd-3"
+title  = "Base Definitions: Definitions (XBD chapter 3) -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap03.html"
+file   = ""
+sha256 = "0037b423cc292c3cd7c55d347a2273407d156be2a161e56771b08c1c0d421d5a"
+bytes  = 182262
+status = "external"
+group  = "E"
+# Read for 3.293 Pseudo-Terminal (the subsidiary device provides the terminal interface)
+# and 3.384 Terminal (a file that obeys the general terminal interface).
+
+[sources.posix-openpt]
+key    = "posix-openpt"
+title  = "posix_openpt -- open a pseudo-terminal device -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/posix_openpt.html"
+file   = ""
+sha256 = "992336357bf190c80401e3ca0bc5389e3cadb29ebd626c8119d6a47c9c757182"
+bytes  = 10570
+status = "external"
+group  = "E"
+# Read for what a manager descriptor can be used for ("other I/O functions that refer to
+# that pseudo-terminal") and O_NOCTTY's "the terminal device".
+
+[sources.posix-ptsname]
+key    = "posix-ptsname"
+title  = "ptsname, ptsname_r -- get name of the subsidiary pseudo-terminal device -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/ptsname.html"
+file   = ""
+sha256 = "146e571bee3e9bcd75ab90b01151834742547b449d352ed8281c84d0b4bf902e"
+bytes  = 9183
+status = "external"
+group  = "E"
+# Read for "The fildes argument is a file descriptor that refers to the manager device",
+# the wording a function taking the manager uses, against tcgetattr's "a terminal".
