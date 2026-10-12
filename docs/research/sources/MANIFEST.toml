@@ -44,6 +44,7 @@
 #   AL  the cursor trails' flashes: WCAG 2.3.1, broadcast flash rules, OS settings, trail prior art
 #   AM  XTGETTCAP: what a terminal reports about its own capabilities
 #   AN  the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper
+#   AO  the rendition table: how terminals store a cell's colours, and how a table of renditions frees its slots
 
 [sources.simdjson]
 key    = "simdjson"
@@ -23953,3 +23954,45 @@ bytes  = 76600
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.ghostty-d9840f3-style]
+key    = "ghostty-d9840f3-style"
+title  = "ghostty at d9840f3, src/terminal/style.zig -- a style's Id is size.StyleCountInt, 'at most the number of cells that can fit into a terminal page', default_id 0, and the per-page Set is a RefCountedSet of Style"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/style.zig"
+file   = ""
+sha256 = "b26507489473b7b2158adf3e70c9aac2665417e582eb5c3cab5a491e6d2cf5c9"
+bytes  = 44977
+status = "external"
+group  = "AO"
+# Fetched twice 2026-10-12, the two copies byte-identical; hash-verified, not committed -- a source file at a pinned commit, the same commit as [[source: ghostty-page]]. Re-fetch the url and compare the sha256.
+
+[sources.ghostty-d9840f3-ref-counted-set]
+key    = "ghostty-d9840f3-ref-counted-set"
+title  = "ghostty at d9840f3, src/terminal/ref_counted_set.zig -- the reference-counted set behind a page's styles: open addressing with linear probing and Robin Hood hashing, a load factor of 0.8125, OutOfMemory or NeedsRehash past capacity, items at zero references kept until their bucket is reused, ID 0 reserved"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/ref_counted_set.zig"
+file   = ""
+sha256 = "ce10c6f5066b385edceca724e71f53893661cd27a2e5a2789073f39262c867bb"
+bytes  = 30914
+status = "external"
+group  = "AO"
+# Fetched twice 2026-10-12, the two copies byte-identical; hash-verified, not committed -- a source file at a pinned commit, the same commit as [[source: ghostty-page]]. Re-fetch the url and compare the sha256.
+
+[sources.ghostty-d9840f3-size]
+key    = "ghostty-d9840f3-size"
+title  = "ghostty at d9840f3, src/terminal/size.zig -- CellCountInt is u16, and StyleCountInt matches it so a page can be split by rows"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/size.zig"
+file   = ""
+sha256 = "82be6b05c7efa3125fd596cd90e07518bd7d1356192e0e33baaf46485c4c3821"
+bytes  = 8313
+status = "external"
+group  = "AO"
+# Fetched twice 2026-10-12, the two copies byte-identical; hash-verified, not committed -- a source file at a pinned commit, the same commit as [[source: ghostty-page]]. Re-fetch the url and compare the sha256.

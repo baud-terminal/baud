@@ -115,6 +115,7 @@ their entries' titles:
 | AL | the cursor trails' flashes: WCAG 2.3.1, broadcast flash rules, OS settings, trail prior art |
 | AM | XTGETTCAP: what a terminal reports about its own capabilities |
 | AN | the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper |
+| AO | the rendition table: how terminals store a cell's colours, and how a table of renditions frees its slots |
 
 A group's letter and a note's need not match: group H's sources are key
 encoding, and note H is the session context budget. Both tables are held to
