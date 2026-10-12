@@ -939,7 +939,9 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // `ESC` and C1 edges above, none of which is a GR byte, and maps none
         // to a C0. The actions that read their byte, `Marker`, `Inter`,
         // `CsiFinal`, `EscFinal`, `StrStart` and `Digit`, read it through the
-        // same rule (`write::act`).
+        // same rule (`write::act`). Under UTF-8 `escape` and `esc_inter` do
+        // not drop a byte `80-FF` with the sequence: they cancel it and hand
+        // the byte to the ground after a control (`escape`).
         Node::Escape => return escape(enc.gr_as_gl(b)),
         Node::EscInter => return esc_inter(enc.gr_as_gl(b)),
         Node::CsiEntry => return csi_entry(enc.gr_as_gl(b)),
@@ -1219,7 +1221,28 @@ const fn escape(b: StreamByte) -> Edge {
         // fell to the arm below, which ended the sequence, so `ESC DEL 7`
         // drew the `7` and lost the DECSC.
         0x7f => edge(Act::Consume, Node::Escape),
-        _ => edge(Act::Consume, Node::AfterControl),
+        // **Under UTF-8 a byte `80-FF` cancels the sequence and is the
+        // ground's**, and they are the only bytes that reach this arm: under
+        // ISO 8859-1 `one()` takes `80-9F` as C1 controls first and `gr_as_gl`
+        // reads `A0-FF` as `20-7F`. The edge consumes nothing and leads to the
+        // ground after a control, whose decoder takes the byte as any byte
+        // there: a well-formed character is written as the ground writes one
+        // after any control, so U+0903 takes a cell of its own
+        // (`[[source: uax29]]` GB4) and a zero-width mark attaches where it
+        // does after any control (note AB's Q24), and a stray continuation, a
+        // disallowed lead byte (0xC0, 0xC1, 0xF5-0xFF) or a lead cut off writes
+        // U+FFFD. It was `Consume`, which dropped the lead with the sequence,
+        // so each continuation of a well-formed U+0903 in `a ESC E0 A4 83`
+        // wrote a U+FFFD, which `[[source: unicode-ch3]]` 3.9.5 rules out: a
+        // converter "must not consume the successor bytes as part of the
+        // ill-formed subsequence whenever those successor bytes themselves
+        // constitute part of a well-formed UTF-8 code unit subsequence". That
+        // the character is then written, and not dropped with the sequence, is
+        // Jev's CANCEL_AND_PRINT (decisions.jsonl lines 451-452, 0.96 and 0.92;
+        // the owner can veto): no text read says what a character after `ESC`
+        // does. `StrEsc` hands its byte here with `Again`, so after the `ESC`
+        // inside a string the same byte cancels the string and is the ground's.
+        _ => edge(Act::Again, Node::AfterControl),
     }
 }
 
@@ -1229,8 +1252,8 @@ const fn escape(b: StreamByte) -> Edge {
 /// among them**, which open a string or a `CSI` only from `escape`. `Escape`
 /// was this row too, so `ESC ( P` opened a DCS split before the `P` and
 /// designated read whole, through `fast_esc`; and `ESC ( %` then `P` opened
-/// one in any read. The other bytes end the sequence and are dropped, as
-/// `escape`'s do.
+/// one in any read. Under UTF-8 a byte `80-FF` ends the sequence and is the
+/// ground's after a control, as in `escape`.
 const fn esc_inter(b: StreamByte) -> Edge {
     if b.is_c0() {
         // As in `escape`: every C0 but `ESC`, `CAN` and `SUB`, which `one()`
@@ -1242,7 +1265,10 @@ const fn esc_inter(b: StreamByte) -> Edge {
         0x30..=0x7e => edge(Act::EscFinal, Node::AfterControl),
         // Ignored, and the sequence goes on (293): `ESC ( DEL 0` designates.
         0x7f => edge(Act::Consume, Node::EscInter),
-        _ => edge(Act::Consume, Node::AfterControl),
+        // Under UTF-8, `80-FF`: cancelled, and the byte is the ground's after
+        // a control, as in `escape` (Jev's CANCEL_AND_PRINT). It was
+        // `Consume`, so `a ESC ( E0 A4 83` wrote two U+FFFD.
+        _ => edge(Act::Again, Node::AfterControl),
     }
 }
 
@@ -1740,6 +1766,17 @@ mod classes {
         // | `DEL` ignored in `escape`, `csi entry`, `csi intermediate` and a string's `ESC` | **41/1,314/35,265/869,631** | +1.5% |
         // | `escape intermediate` its own node, `EscInter` | **41/1,314/35,053/860,128** | **-1.1%** |
         // | a GR byte in an escape or control sequence is its 7-bit byte (Latin-1) | **48/1,841/54,641/1,450,886** | **+68.7%** |
+        // | a byte `80-FF` after `ESC` is the ground's (UTF-8) | **48/1,841/54,641/1,450,888** | +2 classes |
+        //
+        // **The UTF-8 `ESC` row moves only stride 4, by two.** Against a dump
+        // of every edge before and after, exactly 256 changed: `80-FF` in
+        // `Escape` and `EscInter` under UTF-8, each now `Again` into
+        // `AfterControl` where it was `Consume` into it. The Latin-1 table is
+        // the same edge for edge. Stride 1 keeps its 48 classes, since both
+        // rows change alike over all of `80-FF` and no other byte takes either
+        // edge there; strides 2 and 3 keep their counts and stride 4 rises by
+        // two, and neither was decomposed. The table the parser runs, 256
+        // edges a node, keeps its size.
         //
         // **The GR sequence row is the prefix row's cost again, six nodes
         // wide.** Against a dump of every edge before and after, 528 changed,
@@ -1992,7 +2029,7 @@ mod classes {
         assert_eq!(one.len(), CLASSES, "stride 1");
         assert_eq!(two.len(), 1_841, "stride 2");
         assert_eq!(three.len(), 54_641, "stride 3");
-        assert_eq!(four.len(), 1_450_886, "stride 4");
+        assert_eq!(four.len(), 1_450_888, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2603,9 +2640,12 @@ mod classes {
     }
 
     /// **Under ISO 8859-1 a C1 byte cancels an escape or control sequence and
-    /// takes the edge it takes from ground; under UTF-8 each of these nodes
-    /// keeps the row it had.** Exhaustive over `80-9F`, the six sequence
-    /// nodes and both encodings, and checked against the shipped table.
+    /// takes the edge it takes from ground; under UTF-8 none is a control:
+    /// the four `CSI` nodes keep the rows they had, and `Escape` and
+    /// `EscInter` hand the byte to the ground after a control
+    /// (`under_utf8_a_byte_80_ff_after_esc_is_the_grounds_after_a_control`).**
+    /// Exhaustive over `80-9F`, the six sequence nodes and both encodings,
+    /// and checked against the shipped table.
     ///
     /// `[[source: williams]]` (612-615): "All C1 controls cancel any escape
     /// sequence, control sequence or control string in progress and are
@@ -2633,8 +2673,8 @@ mod classes {
             "9C ST"
         );
         for (node, utf8) in [
-            (Node::Escape, edge(Act::Consume, Node::AfterControl)),
-            (Node::EscInter, edge(Act::Consume, Node::AfterControl)),
+            (Node::Escape, edge(Act::Again, Node::AfterControl)),
+            (Node::EscInter, edge(Act::Again, Node::AfterControl)),
             (Node::CsiEntry, edge(Act::Consume, Node::CsiIgnore)),
             (Node::CsiParam, edge(Act::Consume, Node::CsiParam)),
             (Node::CsiInter, edge(Act::Consume, Node::CsiIgnore)),
@@ -2741,8 +2781,10 @@ mod classes {
     }
 
     /// **Under ISO 8859-1 a GR byte in an escape or control sequence takes
-    /// the edge its 7-bit byte takes; under UTF-8 each of these nodes keeps
-    /// the row it had, and the string bodies keep theirs in both.**
+    /// the edge its 7-bit byte takes; under UTF-8 none is read as GL: the
+    /// four `CSI` nodes and `StrEsc` keep the rows they had, `Escape` and
+    /// `EscInter` hand the byte to the ground after a control, and the
+    /// string bodies keep theirs in both encodings.**
     /// Exhaustive over `A0-FF`, the six sequence nodes and `StrEsc`, and
     /// both encodings, against the shipped table.
     ///
@@ -2759,8 +2801,8 @@ mod classes {
         let l1 = |n: Node, v: usize| Edge::of(InputEncoding::Latin1, n, StreamByte::ALL[v]);
         let u8_ = |n: Node, v: usize| Edge::of(InputEncoding::Utf8, n, StreamByte::ALL[v]);
         for (node, utf8) in [
-            (Node::Escape, edge(Act::Consume, Node::AfterControl)),
-            (Node::EscInter, edge(Act::Consume, Node::AfterControl)),
+            (Node::Escape, edge(Act::Again, Node::AfterControl)),
+            (Node::EscInter, edge(Act::Again, Node::AfterControl)),
             (Node::CsiEntry, edge(Act::Consume, Node::CsiIgnore)),
             (Node::CsiParam, edge(Act::Consume, Node::CsiParam)),
             (Node::CsiInter, edge(Act::Consume, Node::CsiIgnore)),
@@ -2826,6 +2868,73 @@ mod classes {
                     );
                 }
             }
+        }
+    }
+
+    /// **Under UTF-8 every byte `80-FF` in `Escape` and `EscInter` cancels
+    /// the sequence and is dispatched again from the ground after a control,
+    /// and under ISO 8859-1 none of them takes that edge.** Exhaustive over
+    /// both nodes, `80-FF` and both encodings, against the shipped table.
+    ///
+    /// Jev's CANCEL_AND_PRINT (decisions.jsonl lines 451-452, 0.96 and 0.92;
+    /// the owner can veto). Both rows ended the sequence with `Consume`,
+    /// dropping a lead byte, so the continuations of a well-formed character
+    /// wrote U+FFFD, which `[[source: unicode-ch3]]` 3.9.5 rules out. The
+    /// edge it hands to is `AfterControl`'s, so the character is written
+    /// through `EndCluster`, as after any control (`[[source: uax29]]` GB4),
+    /// and a byte that is no character through `Bad`; and the chain consumes
+    /// the byte, so it cannot come back to the escape. `StrEsc` keeps its own
+    /// edge and reaches this one through `Escape`.
+    #[test]
+    fn under_utf8_a_byte_80_ff_after_esc_is_the_grounds_after_a_control() {
+        let u8_ = |n: Node, v: usize| Edge::of(InputEncoding::Utf8, n, StreamByte::ALL[v]);
+        let l1 = |n: Node, v: usize| Edge::of(InputEncoding::Latin1, n, StreamByte::ALL[v]);
+        let (mut chars, mut bad) = (0usize, 0usize);
+        for node in [Node::Escape, Node::EscInter] {
+            for v in 0x80..=0xffusize {
+                assert_eq!(
+                    u8_(node, v),
+                    edge(Act::Again, Node::AfterControl),
+                    "{node:?} Utf8 {v:#04x}"
+                );
+                assert_ne!(
+                    l1(node, v),
+                    edge(Act::Again, Node::AfterControl),
+                    "{node:?} Latin1 {v:#04x}"
+                );
+                // Where it lands: a lead UTF-8 allows is written through the
+                // cluster machine, every other byte is a replacement, and
+                // both consume it in the ground.
+                let next = u8_(Node::AfterControl, v);
+                match next.act {
+                    Act::EndCluster => {
+                        let e = u8_(Node::Ground, v);
+                        assert!(
+                            matches!(e.act, Act::Char2 | Act::Char3 | Act::Char4),
+                            "{v:#04x}: {e:?}"
+                        );
+                        assert_eq!(e.next, Node::Ground, "{v:#04x}");
+                        chars += 1;
+                    }
+                    Act::Bad => {
+                        assert_eq!(next.next, Node::Ground, "{v:#04x}");
+                        bad += 1;
+                    }
+                    a => panic!("{v:#04x}: AfterControl takes {a:?}"),
+                }
+            }
+        }
+        // Positive control: both kinds were reached, in the counts Table 3-7
+        // gives, `C2-F4` as leads and the other 77 bytes as no character.
+        assert_eq!((chars, bad), (2 * 51, 2 * 77));
+        // The `ESC` inside a string hands every byte but `\` and `DEL` to
+        // `Escape`, so it reaches the edge above through its own.
+        for v in 0x80..=0xffusize {
+            assert_eq!(
+                u8_(Node::StrEsc, v),
+                edge(Act::Again, Node::Escape),
+                "StrEsc {v:#04x}"
+            );
         }
     }
 

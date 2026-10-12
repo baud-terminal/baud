@@ -572,3 +572,299 @@ fn gr_bytes_under_utf8_are_utf8_whatever_is_designated() {
         }
     }
 }
+
+// ── a character straight after ESC ──────────────────────────────────────────
+
+/// The first row of a 40x6 screen after `bytes`, fed as `cuts` says, with
+/// the cursor and the replacement count: every non-blank cell's codepoint,
+/// `0` for a blank or a wide character's tail, to the last written cell.
+fn after_cuts(bytes: &[u8], cuts: &[usize]) -> (Vec<u32>, (Row, Col), usize) {
+    let ws = WinSize {
+        ws_row: 6,
+        ws_col: 40,
+    };
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    let mut at = 0;
+    for &end in cuts.iter().chain([bytes.len()].iter()) {
+        let chunk = &bytes[at..end];
+        t.write_at(BytePos::ZERO, chunk);
+        t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+        at = end;
+    }
+    let row = &t.viewport()[..40];
+    let end = row
+        .iter()
+        .rposition(|c| c.content.as_codepoint().is_some())
+        .map_or(0, |i| i + 1);
+    let cells = row[..end]
+        .iter()
+        .map(|c| c.content.as_codepoint().map_or(0, |c| c.value()))
+        .collect();
+    (cells, t.cursor(), t.replacements)
+}
+
+/// What the cluster machine did on the first row after `bytes`, fed as
+/// `cuts` says: the marks dropped for want of a base, and the marks attached
+/// to each of the first twelve cells. The screen comparison cannot see
+/// either, since a mark is stored beside its cell and not in it.
+fn marks_after(bytes: &[u8], cuts: &[usize]) -> (usize, Vec<Vec<u32>>) {
+    let ws = WinSize {
+        ws_row: 6,
+        ws_col: 40,
+    };
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    let mut at = 0;
+    for &end in cuts.iter().chain([bytes.len()].iter()) {
+        let chunk = &bytes[at..end];
+        t.write_at(BytePos::ZERO, chunk);
+        t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+        at = end;
+    }
+    let marks = (0..12)
+        .map(|c| t.marks(Row::ZERO, Col::at_index(c)).collect())
+        .collect();
+    (t.marks_dropped, marks)
+}
+
+/// Every way of cutting `n` bytes into reads that this suite uses: one read,
+/// reads of every size from one byte up, and every split into two reads.
+fn every_cut(n: usize) -> Vec<(String, Vec<usize>)> {
+    let mut cuts = vec![("one read".to_string(), Vec::new())];
+    for size in 1..n {
+        cuts.push((
+            format!("reads of {size}"),
+            (size..n).step_by(size).collect(),
+        ));
+    }
+    for at in 1..n {
+        cuts.push((format!("split at byte {at}"), vec![at]));
+    }
+    cuts
+}
+
+/// **Under UTF-8 a byte `80-FF` after `ESC`, or after `ESC` and an
+/// intermediate, cancels the sequence and is the ground's: a character is
+/// written as the ground writes it after a control, U+0903 in a cell of its
+/// own, and only bytes that are no character write U+FFFD.** Jev's decision
+/// CANCEL_AND_PRINT (decisions.jsonl lines 451-452, 0.96 and 0.92; the owner
+/// can veto), the decision table's rows, at every read size and every split
+/// into two reads.
+///
+/// `[[source: unicode-ch3]]` 3.9.5: a converter "must not consume the
+/// successor bytes as part of the ill-formed subsequence whenever those
+/// successor bytes themselves constitute part of a well-formed UTF-8 code
+/// unit subsequence". `escape()` and `esc_inter()` dropped `E0` and ended the
+/// sequence, so `A4 83`, two bytes of the well-formed U+0903, each wrote a
+/// U+FFFD. `[[source: uax29]]` GB4 breaks after a control, so U+0903, a
+/// SpacingMark, is a cluster and a cell of its own and does not join the `a`.
+/// Its controls are `the_controls_for_a_character_after_esc`.
+#[test]
+fn a_character_after_esc_is_written_and_the_escape_is_cancelled() {
+    const A: u32 = 0x61;
+    const B: u32 = 0x62;
+    let cases: [(&str, &[u8], &[u32], usize); 12] = [
+        ("a ESC E0 A4 83 b", b"a\x1b\xe0\xa4\x83b", &[A, 0x903, B], 0),
+        ("a ESC E0 A4 83", b"a\x1b\xe0\xa4\x83", &[A, 0x903], 0),
+        (
+            "a ESC ( E0 A4 83 b",
+            b"a\x1b(\xe0\xa4\x83b",
+            &[A, 0x903, B],
+            0,
+        ),
+        (
+            "a ESC $ ( E0 A4 83 b",
+            b"a\x1b$(\xe0\xa4\x83b",
+            &[A, 0x903, B],
+            0,
+        ),
+        ("a ESC C3 A9 b", b"a\x1b\xc3\xa9b", &[A, 0xe9, B], 0),
+        (
+            "a ESC F0 9F 98 80 b",
+            b"a\x1b\xf0\x9f\x98\x80b",
+            &[A, 0x1f600, 0, B],
+            0,
+        ),
+        ("ESC A4 83 b", b"\x1b\xa4\x83b", &[FFFD, FFFD, B], 2),
+        ("ESC C0 AF b", b"\x1b\xc0\xafb", &[FFFD, FFFD, B], 2),
+        ("ESC E0 A4 b", b"\x1b\xe0\xa4b", &[FFFD, B], 1),
+        ("ESC F5 b", b"\x1b\xf5b", &[FFFD, B], 1),
+        ("ESC ( F5 b", b"\x1b(\xf5b", &[FFFD, B], 1),
+        ("ESC ( A4 83 b", b"\x1b(\xa4\x83b", &[FFFD, FFFD, B], 2),
+    ];
+    for (name, bytes, want, fffd) in cases {
+        for (cut, at) in every_cut(bytes.len()) {
+            let (cells, cursor, replacements) = after_cuts(bytes, &at);
+            assert_eq!(cells, want, "{name}, {cut}: the row");
+            assert_eq!(
+                cursor,
+                (Row::ZERO, Col::at_index(want.len())),
+                "{name}, {cut}: the cursor"
+            );
+            assert_eq!(replacements, fffd, "{name}, {cut}: replacements");
+        }
+    }
+}
+
+/// **The controls for the test above, green before the change and after
+/// it**: after `ESC 7`, a whole sequence, the bytes take the path the
+/// decision re-uses and write U+0903 in its own cell; with no control before
+/// it the same U+0903 joins the `a` (GB9a), which is what a cancel that left
+/// the cluster open would draw.
+#[test]
+fn the_controls_for_a_character_after_esc() {
+    const A: u32 = 0x61;
+    const B: u32 = 0x62;
+    for (cut, at) in every_cut(7) {
+        assert_eq!(
+            after_cuts(b"a\x1b7\xe0\xa4\x83b", &at).0,
+            [A, 0x903, B],
+            "control: after ESC 7, {cut}"
+        );
+    }
+    for (cut, at) in every_cut(5) {
+        assert_eq!(
+            after_cuts(b"a\xe0\xa4\x83b", &at).0,
+            [A, B],
+            "control: with no control before it U+0903 joins the a, {cut}"
+        );
+    }
+}
+
+/// The continuation bytes that complete a character from lead `v`, the
+/// second chosen inside Table 3-7's narrowed column for `E0`, `ED`, `F0` and
+/// `F4`, or `None` if `v` is no lead UTF-8 allows.
+fn completion(v: u8) -> Option<Vec<u8>> {
+    let n = match v {
+        0xc2..=0xdf => 1,
+        0xe0..=0xef => 2,
+        0xf0..=0xf4 => 3,
+        _ => return None,
+    };
+    let second = match v {
+        0xe0 => 0xa4,
+        0xed => 0x9f,
+        0xf0 => 0x9f,
+        0xf4 => 0x8f,
+        _ => 0xa9,
+    };
+    Some([second, 0xa9, 0xa9][..n].to_vec())
+}
+
+/// What each byte `v` in `80-FF` is followed by: nothing, the rest of a
+/// character it leads, each truncation of that character, and the two
+/// boundary continuations `80` and `BF`, which are outside the narrowed
+/// second-byte column for some of the leads.
+fn tails(v: u8) -> Vec<Vec<u8>> {
+    let mut out = vec![vec![v], vec![v, 0x80], vec![v, 0xbf]];
+    if v == 0xe0 {
+        out.push(vec![0xe0, 0xa4, 0x83]);
+    }
+    if let Some(rest) = completion(v) {
+        for k in 1..=rest.len() {
+            out.push([&[v], &rest[..k]].concat());
+        }
+    }
+    out
+}
+
+/// **Exhaustive: every byte `80-FF` after `ESC`, after `ESC` and one or two
+/// intermediates, and after the `ESC` inside a control string, is what the
+/// ground after a control makes of it, at every read size and every split.**
+///
+/// The decision's own words: the byte "is dispatched again from the ground
+/// after a control, whose decoder takes it as any byte there". So each
+/// program is held to the same bytes after a `NUL`, which leads to the ground
+/// after a control and does nothing else; the `ESC` inside an `OSC` to the
+/// same `OSC` cancelled by `ESC 7`, so both cancel the string alike. Every
+/// byte is followed by nothing, by each truncation of the character it leads
+/// and the whole of it, and by `80` and by `BF`, then by `b`; `E0` by
+/// `A4 83` too, U+0903, a SpacingMark, which the plain ground would join to
+/// the `a` (GB9a) and the ground after a control writes in a cell of its own:
+/// that is the case that holds the edge's target. The marks are held as well
+/// as the screen, at every cut, since a mark is stored beside its cell.
+///
+/// And independently of baud's own ground, against `String::from_utf8_lossy`,
+/// which writes one U+FFFD for each maximal subpart (`[[source:
+/// unicode-ch3]]` 3.9.6): the row holds no more U+FFFD than it, none where
+/// the bytes are well-formed, and no character it does not, so a ground that
+/// wrote U+FFFD for bytes of a well-formed character (3.9.5) would fail here
+/// even though the two programs agreed. Not equality, for two things the
+/// ground does today with or without an `ESC` before it: after `E0 80`,
+/// `ED BF`, `F0 80` and `F4 BF`, a lead and a second byte outside its
+/// narrowed column, it writes one U+FFFD where 3.9.6's practice, which "the
+/// Unicode Standard does not require", writes two; and a character of width
+/// zero, `CC 80` (U+0300) among them, takes no cell of its own.
+#[test]
+fn every_byte_after_esc_or_an_intermediate_is_the_grounds_after_a_control() {
+    let prefixes: [(&str, &[u8], &[u8]); 4] = [
+        ("ESC", b"\x1b", b"\x00"),
+        ("ESC (", b"\x1b(", b"\x00"),
+        ("ESC $ (", b"\x1b$(", b"\x00"),
+        ("the ESC inside an OSC", b"\x1b]0;t\x1b", b"\x1b]0;t\x1b7"),
+    ];
+    // Positive controls: the check refuses the row this decision replaced,
+    // and accepts the one it builds.
+    let u0903 = [0xe0, 0xa4, 0x83];
+    assert!(!within_lossy(&[0x61, FFFD, FFFD, 0x62], &u0903));
+    assert!(within_lossy(&[0x61, 0x903, 0x62], &u0903));
+    let (mut cases, mut exact) = (0usize, 0usize);
+    for (name, prefix, control) in prefixes {
+        for v in 0x80u8..=0xff {
+            for tail in tails(v) {
+                let program = [b"a".as_slice(), prefix, &tail, b"b"].concat();
+                let oracle = [b"a".as_slice(), control, &tail, b"b"].concat();
+                let what = format!("a {name} {tail:02X?} b");
+                super::latin1::same_outcome_at_every_split(&what, &program, &oracle);
+                let want = marks_after(&oracle, &[]);
+                for (cut, at) in every_cut(program.len()) {
+                    assert_eq!(
+                        marks_after(&program, &at),
+                        want,
+                        "{what}, {cut}: marks dropped and attached"
+                    );
+                }
+                let (cells, _, replacements) = after_cuts(&program, &[]);
+                let drawn: Vec<u32> = cells.into_iter().filter(|&c| c != 0).collect();
+                assert!(
+                    within_lossy(&drawn, &tail),
+                    "{what}: {drawn:04x?} against from_utf8_lossy"
+                );
+                assert_eq!(
+                    replacements,
+                    drawn.iter().filter(|&&c| c == FFFD).count(),
+                    "{what}: replacements"
+                );
+                exact += usize::from(drawn == lossy_row(&tail));
+                cases += 1;
+            }
+        }
+    }
+    // Positive control: the walk covered every byte under every prefix, and
+    // most rows are exactly `from_utf8_lossy`'s.
+    assert!(cases >= 4 * 128 * 3, "{cases} cases");
+    assert!(exact * 10 >= cases * 9, "{exact} of {cases} rows exact");
+}
+
+/// `a`, then `tail` as `String::from_utf8_lossy` reads it, then `b`.
+fn lossy_row(tail: &[u8]) -> Vec<u32> {
+    core::iter::once('a')
+        .chain(String::from_utf8_lossy(tail).chars())
+        .chain(core::iter::once('b'))
+        .map(u32::from)
+        .collect()
+}
+
+/// Whether `drawn` holds no more U+FFFD than `lossy_row(tail)`, none if
+/// that holds none, and its other characters in the same order.
+fn within_lossy(drawn: &[u32], tail: &[u8]) -> bool {
+    let lossy = lossy_row(tail);
+    let fffd = |r: &[u32]| r.iter().filter(|&&c| c == FFFD).count();
+    let mut rest = lossy.iter().filter(|&&c| c != FFFD);
+    fffd(drawn) <= fffd(&lossy)
+        && drawn
+            .iter()
+            .filter(|&&c| c != FFFD)
+            .all(|c| rest.any(|l| l == c))
+}

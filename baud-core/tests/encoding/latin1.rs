@@ -735,26 +735,33 @@ fn a_c1_in_any_escape_or_control_sequence_acts_as_its_seven_bit_form_under_latin
     }
 }
 
-/// **Under UTF-8 the same bytes inside a sequence are what they were.**
+/// **Under UTF-8 the same bytes inside a sequence are no controls.**
 ///
 /// `80-9F` are continuation bytes there (`docs/vt-coverage.md`, "Encoding"),
 /// so the anywhere rule's C1 half cannot apply and none of the thirty-two
-/// executes. Each is held, at every split, to the program it has always been
-/// equivalent to: after `ESC`, bare or past an intermediate, it ends the
-/// escape and is dropped; inside a `CSI`'s parameters it is dropped and the
-/// sequence carries on; straight after the introducer it sends the sequence
-/// to `csi ignore`, which swallows it to the final. The control, last so that
-/// an unfixed tree runs every UTF-8 case before it, is the first case under
-/// Latin-1, where the same bytes run a NEL.
+/// executes. Each is held, at every split, to its equivalent program: after
+/// `ESC`, bare or past an intermediate, it cancels the escape and is the
+/// ground's, a stray continuation and so one U+FFFD (Jev's
+/// CANCEL_AND_PRINT, decisions.jsonl lines 451-452; it ended the escape and
+/// was dropped until 2026-10-11); inside a `CSI`'s parameters it is dropped
+/// and the sequence carries on; straight after the introducer it sends the
+/// sequence to `csi ignore`, which swallows it to the final. The control,
+/// last so that an unfixed tree runs every UTF-8 case before it, is the
+/// first case under Latin-1, where the same bytes run a NEL.
 #[test]
 fn under_utf8_a_c1_byte_in_a_sequence_is_what_it_was() {
     for c in 0x80u8..=0x9f {
+        let stray = [c, b'X'];
         let cases: [(&str, Vec<u8>, &[u8]); 4] = [
-            ("after ESC", [b"\x1b".as_slice(), &[c], b"X"].concat(), b"X"),
+            (
+                "after ESC",
+                [b"\x1b".as_slice(), &[c], b"X"].concat(),
+                &stray,
+            ),
             (
                 "after ESC (",
                 [b"\x1b(".as_slice(), &[c], b"X"].concat(),
-                b"X",
+                &stray,
             ),
             (
                 "inside CSI parameters",
@@ -975,25 +982,31 @@ fn a_gr_byte_in_an_osc_body_is_its_seven_bit_byte_under_latin1() {
     }
 }
 
-/// **Under UTF-8 a GR byte inside a sequence is what it was**, the guard
-/// beside the tests above, green before the change and after it. `A0-FF`
-/// are lead and continuation bytes there, so nothing reads one as GL: after
-/// `ESC`, bare or past an intermediate, it ends the escape and is dropped;
-/// inside a `CSI`'s parameters it is dropped and the sequence goes on;
-/// straight after the introducer or an intermediate it sends the sequence to
-/// `csi ignore`, which swallows it and waits for a final; and after an `ESC`
-/// inside a string it ends the escape the string's `ESC` began. Each is held
-/// at every split to the program it has always been equal to. The control,
-/// last, is the first case under Latin-1, where `ESC B7` is a DECSC.
+/// **Under UTF-8 a GR byte inside a sequence is never read as GL**, the
+/// guard beside the tests above. `A0-FF` are lead and continuation bytes
+/// there: after `ESC`, bare or past an intermediate, and after an `ESC`
+/// inside a string, it cancels the escape (and the string) and is the
+/// ground's, here followed by `X` and so one U+FFFD (Jev's CANCEL_AND_PRINT,
+/// decisions.jsonl lines 451-452; until 2026-10-11 it ended the escape and
+/// was dropped); inside a `CSI`'s parameters it is dropped and the sequence
+/// goes on; straight after the introducer or an intermediate it sends the
+/// sequence to `csi ignore`, which swallows it and waits for a final. Each
+/// is held at every split to its equivalent program. The control, last, is
+/// the first case under Latin-1, where `ESC B7` is a DECSC.
 #[test]
 fn under_utf8_a_gr_byte_in_a_sequence_is_what_it_was() {
     for v in 0xa0u8..=0xff {
+        let ground = [v, b'X'];
         let cases: [(&str, Vec<u8>, &[u8]); 7] = [
-            ("after ESC", [b"\x1b".as_slice(), &[v], b"X"].concat(), b"X"),
+            (
+                "after ESC",
+                [b"\x1b".as_slice(), &[v], b"X"].concat(),
+                &ground,
+            ),
             (
                 "after ESC (",
                 [b"\x1b(".as_slice(), &[v], b"X"].concat(),
-                b"X",
+                &ground,
             ),
             (
                 "inside CSI parameters",
@@ -1018,7 +1031,7 @@ fn under_utf8_a_gr_byte_in_a_sequence_is_what_it_was() {
             (
                 "after an ESC inside an OSC",
                 [b"\x1b]0;t\x1b".as_slice(), &[v], b"X"].concat(),
-                b"X",
+                &ground,
             ),
         ];
         for (name, gr, gl) in cases {
