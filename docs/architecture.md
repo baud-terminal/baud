@@ -73,7 +73,33 @@ does not know it exists.
 
 Everything else -- the font stack, the renderer, the two presenters, the
 Wayland and XKB crates and the app -- sits on these two and is listed in
-[README's layout](../README.md#layout).
+[the layout](#layout) below.
+
+## Layout
+
+Moved here from the README on 2026-10-12.
+
+```
+baud-domain/          the type system: quantities, VT operations, reports. no_std, no unsafe.
+baud-core/            the ingest core: parser and grid. no_std, no unsafe.
+baud-isa*/            the run scans by instruction set: the trait, aarch64 NEON, x86-64 AVX2.
+baud-font/            parsing, shaping and rasterisation, with no engine dependency. no_std.
+baud-render/          the compositor: cells to instances to pixels, on the CPU and the GPU.
+baud-present-macos/   the macOS window, display-link pacing and AppKit input, on Metal.
+baud-wayland/         the Wayland wire protocol, with no libwayland.
+baud-xkb/             an XKB keymap compiler, with no libxkbcommon.
+baud-present-wayland/ the Wayland window, on wl_shm.
+baud-app/             the terminal, `baud`: a pty, the core, the renderer and a window.
+baud-bench/           ingest2, the single-payload instrument; frame and opcost; transport, the PTY ceiling.
+baud-difftest/        differential test against alacritty_terminal.
+baud-sfte-difftest/   differential test against sfte.
+bench-others/         the cross-implementation comparison.
+```
+
+`baud-core` depends on `baud-domain`, which brings `zerocopy`, and on the
+`baud-isa*` crates only behind its run-scan features (`neon-scan`, the
+default, and `avx2-scan`). It is `no_std`, with `alloc` only behind its
+default-off feature, and CI builds it for `x86_64-unknown-none` to prove it.
 
 ## Why each layer is filed differently
 

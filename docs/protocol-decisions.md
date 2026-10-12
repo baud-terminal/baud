@@ -317,6 +317,42 @@ half-built protocol feature is finished to the spec, not switched off"):
 **The other DEC sets** — designated and not translated, though
 `[[source: xterm-charsets]]` has xterm's maps for eight of them (above).
 
+
+## Open departures
+
+Each is a departure from a standard, recorded as a defect. The list moved here
+from the README on 2026-10-12. On the protocol side the full list is the rows
+at **partial** in [vt-coverage.md](vt-coverage.md), which its legend names;
+of those rows the list below repeats DECSC and DECRC, the DEC Special Graphics
+table and the `dcs_passthrough` state.
+
+- **DECSC/DECRC save G0-G3 and which of them GL invokes, but not GR, which
+  baud does not model, and no single shift, since SS2/SS3 are not
+  implemented** (`[[source: vt510-decsc]]` lists "Character sets (G0, G1, G2,
+  or G3) currently in GL and GR" and "Any single shift 2 (SS2) or single shift
+  3 (SS3) functions sent").
+- **DEC Special Graphics leaves `0x5F` as `_`**, where every DEC text read
+  replaces it with Blank; which code point Blank stores is the owner's call
+  ([the record](record.md), "DEC Special Graphics begins at 0x5F, and what
+  it stores there is the owner's call").
+- **A DCS body ignores the C0 that `[[source: williams]]`'s `dcs passthrough`
+  row puts (388), `BEL` and the format effectors `08-0D` excepted**, where
+  `[[source: dec-std-070]]` recommends they be ignored; the texts conflict and
+  the call is the owner's, with SO and SI and GR bytes in a body beside it
+  ([vt-coverage.md](vt-coverage.md), `dcs_passthrough`).
+- **Every script is shaped as `latn` or `DFLT`.** OpenType directs an
+  application to the script table for the text's own script and to `DFLT`
+  where there is none; `baud-font` takes no script argument
+  ([note AB](research/notes/ab-right-to-left.md), Q6).
+- **Marks past what the cluster store holds are dropped**, and counted
+  ([note AB](research/notes/ab-right-to-left.md), §7.2 and Q7).
+- **When no face draws a cluster whole, each attached code point its base's
+  face lacks is dropped**, and counted, where the Unicode Standard asks for a
+  placeholder ([note AD](research/notes/ad-unrenderable-in-a-cell.md)).
+- **The rendition table never frees a slot**, so a session that mints more
+  distinct renditions than it has slots recolours cells that still name an
+  evicted one.
+
 ---
 
 ## Where this came from

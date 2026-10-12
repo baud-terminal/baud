@@ -4,6 +4,18 @@ Everything below runs inside `devenv shell`, which pins the nightly toolchain
 (`nix/rust.nix`, imported by `devenv.nix`); `devenv test` is the whole gate, as
 CI and the pre-push hook run it.
 
+It requires [Nix](https://nixos.org) and [devenv](https://devenv.sh).
+
+```sh
+devenv test                 # the gate: what CI and the pre-push hook run
+devenv shell -- dev-ci      # the same checks as one script, less the per-feature and path tasks
+devenv shell -- dev-test    # tests only
+```
+
+`.github/workflows/ci.yml` runs `devenv test`, so a green gate here is the
+same task set CI runs. **Add a check by adding a task, never by adding a step
+to the workflow** ([CONTRIBUTING.md](CONTRIBUTING.md)).
+
 ## The terminal
 
 ```sh
@@ -62,6 +74,7 @@ allocator; it is off by default, and the bare-metal build above proves it.
 # to verify a change" times a core change with. A recording name, or a ladder rung
 # (flat/wrap/lines/sgr), or a synthetic payload (cjk/streaming), or `mix`.
 cargo bench -p baud-bench --bench ingest2 -- cat-cjk 250
+devenv shell -- dev-bench cat-cjk   # the same harness, as a devenv script
 
 # The transport with no parser behind it -- the ceiling a PTY row is measured
 # against, and the reason a PTY row is a claim about the tty rather than the

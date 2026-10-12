@@ -24,15 +24,7 @@ Ranges are quoted as `[min-max]`. **If two ranges overlap there is no result.**
 ## Host
 
 Apple M5 Max, macOS 27.0. Each section names its own commit and date, and its
-power state where its source states one. Until 2026-10-12 this section's one
-line said "on AC power" for the whole file; the sections that relied on it
-say so.
-
-~~On AC power. Commit `90076f9`.~~ That line dated the whole file to one
-commit, and it was written for an eight-recording table whose two CJK rows
-were re-measured after the flat BMP property table (`11f9bac`, 2026-08-29).
-That table has been replaced since: the nine-recording table below was taken
-at `935e4f1`. `git show 90076f9` does not resolve in this repository.
+power state where its source states one.
 
 ## Against other implementations, on real capture
 
@@ -50,100 +42,30 @@ table's commit, so whether it covered this sweep is not stated.
 
 `bench-others/multibench`, `TRANSPORT=memory`, medians of 9, interleaved and
 rotated. Every core is driven with the same bytes through the same 4096-byte
-reads, and every core is configured with **10,000 lines of scrollback** --
-**baud included, since 2026-09-20.** The sentence before this one was false
-for baud until then: its arm used `Owned::new`, which is `Depth::DEFAULT` =
-2,000 lines, while alacritty, ghostty and vt100 were each handed 10,000, and
-the ghostty comment beside it still cited `baud-core2`'s `SB = 10_000`. That
-is the ghostty-scrollback trap this file records below, with a different
-carrier and in baud's own favour. The table is re-taken at 10,000 for all
-four; the previous one is kept beside it because the difference is the
-finding.
+reads, and every core, baud included, is configured with **10,000 lines of
+scrollback**.
 
-| recording | baud-core | ghostty | alacritty | **vs ghostty** | baud at 2,000 (previous) |
-|---|---|---|---|---|---|
-| `ascii/less-pager.raw` | **1684.5** | 290.2 | 241.2 | **5.80x** | 1734.1 |
-| `ascii/cat-scroll.raw` | **1425.1** [1295-1626] | 424.3 | 203.3 | **3.36x** | 1766.9 |
-| `ascii/git-log.raw` | **1637.9** [1106-1670] | 516.9 | 211.5 | **3.17x** | 1837.1 |
-| `ascii/asciiquarium.raw` | **524.2** | 197.2 | 243.6 | **2.66x** | 555.7 |
-| `utf8/less-cjk.raw` | **498.0** | 247.2 | 271.3 | **2.01x** | 500.8 |
-| `utf8/vim-unicode.raw` | **636.4** | 346.8 | 293.0 | **1.84x** | 655.6 |
-| `utf8/cava.raw` | **554.1** | 318.9 | 362.2 | **1.74x** | 573.0 |
-| `utf8/btop.raw` | **871.3** | 511.2 | 330.9 | **1.70x** | 893.1 |
-| `utf8/cat-cjk.raw` | **459.4** | 385.1 | 221.7 | **1.19x** | 493.4 |
+| recording | baud-core | ghostty | alacritty | **vs ghostty** |
+|---|---|---|---|---|
+| `ascii/less-pager.raw` | **1684.5** | 290.2 | 241.2 | **5.80x** |
+| `ascii/cat-scroll.raw` | **1425.1** [1295-1626] | 424.3 | 203.3 | **3.36x** |
+| `ascii/git-log.raw` | **1637.9** [1106-1670] | 516.9 | 211.5 | **3.17x** |
+| `ascii/asciiquarium.raw` | **524.2** | 197.2 | 243.6 | **2.66x** |
+| `utf8/less-cjk.raw` | **498.0** | 247.2 | 271.3 | **2.01x** |
+| `utf8/vim-unicode.raw` | **636.4** | 346.8 | 293.0 | **1.84x** |
+| `utf8/cava.raw` | **554.1** | 318.9 | 362.2 | **1.74x** |
+| `utf8/btop.raw` | **871.3** | 511.2 | 330.9 | **1.70x** |
+| `utf8/cat-cjk.raw` | **459.4** | 385.1 | 221.7 | **1.19x** |
 
-Ahead on all nine, **1.19x to 5.80x** -- from 1.29x to 5.95x on the
-asymmetric table.
+Ahead on all nine, **1.19x to 5.80x**. baud-core is ahead of alacritty on all
+nine too. alacritty is ahead of ghostty on three rows -- asciiquarium, cava and
+less-cjk -- and behind it on the other six.
 
-**The two scroll-heavy ASCII rows moved 11% and 19%; nothing else moved past the
-machine's spread.** That is the mechanism `docs/record.md`'s "Scrollback is the
-grid as a ring, and the ring's footprint is what a scroll costs" names: at
-10,000 lines the ring is 16 MB at this pitch, past L2, so the row a scroll
-advances into misses further out than at 2,000. The seven rows that scroll
-little or not at all moved 0.6-6.9% while ghostty and alacritty moved by similar
-amounts in both directions, which is the drift this file records between sweeps.
 `git-log`'s and `cat-scroll`'s wide baud ranges are the kind of spread the
 record states for `cat-scroll`, ~25% within an arm (for `git-log` it records a
 9% spread once, in an `ingest2` sweep: "Three bytes an edge: +17% on btop, and
 the literature had the answer already"); `git-log` was taken twice in this
 sweep, 1637.9 and 1600.7.
-
-**The paragraphs from here to the end of this section were written for earlier
-tables, both of 2026-09-10**: the NEON and `unsafe` paragraphs at `2a0c15e`, and
-the ratio table and the two paragraphs after it at `cd2e440`, whose commit
-message says "on mains". The `baud-core2` figures are older: a column of the
-table `cd2e440` replaced, first in this file at `e8035f6` (2026-09-09), which
-`cd2e440`'s message says was measured at `f1a67c6`, a commit that does not
-resolve; no power state is stated for them, and "the same sweeps" are that
-table's. The "now" ratios and "the last table" are those tables', not the one
-above.
-
-**The two CJK rows moved +4% and +3% since the last table, and that is the NEON
-run scan now on by default.** `baud-isa-aarch64::Neon` extracts a lane mask with
-`shrn` where `core::simd`'s `to_bitmask` lowers to a horizontal reduction; on
-aarch64 that is a real instruction difference rather than a wider one, since
-both process sixteen bytes. Measured in isolation, six rounds with an A/A
-control interleaved: **cat-cjk +4.3%, less-cjk +3.7%**, disjoint from base and
-from the control, stable under reversing the arm order, every other recording
-overlapping -- which is the prediction holding, because the stride-three scan
-only fires on runs of three-byte characters.
-
-It costs no `unsafe` in `baud-core`, which still carries
-`#![forbid(unsafe_code)]` unconditionally: `Scan`'s methods are `unsafe fn` for
-`Avx2`'s sake, where AVX2 is not baseline, and `Neon` wraps them in a safe
-inherent surface because on aarch64 NEON *is* baseline and the obligation is
-satisfied by the target. `cargo build -p baud-bench --no-default-features` is
-the arm that turns it off.
-
-**Three rows fell against the previous table and it is a feature landing, not a
-regression.** That table predates grapheme clustering. Ratios, which are the only
-thing comparable across two sessions:
-
-| | then | now | |
-|---|---|---|---|
-| cat-scroll, git-log, less-pager, btop, cava, asciiquarium | | | within **±3%** |
-| `utf8/vim-unicode.raw` | 2.11x | 1.86x | **-12%** |
-| `utf8/cat-cjk.raw` | 1.73x | 1.25x | **-27%** |
-| `utf8/less-cjk.raw` | 2.84x | 1.92x | **-32%** |
-
-The three are exactly the recordings carrying wide characters and emoji, and what
-changed is that baud **segments** them: a ZWJ family was three separate people on
-the screen and is one glyph now. The record measured the cost when it landed --
-**-33% on cat-cjk**, of which +18.6% returned when the run gate was fixed -- and
-the old figures were for a core that was not doing the work. libghostty-vt still
-does no grapheme segmentation unless an application asks for it, so that column
-is not paying what baud's is.
-
-**Absolutes are not comparable across the two tables; ratios are.** ghostty moved
-4-15% and alacritty 23% in this run on code that has not changed, so the box is
-not where it was.
-
-**And `baud-core2` is gone from the table because the crate is gone.** For the
-record, on the same box in the same sweeps in its materialising mode it read
-cat-scroll 1107.2, git-log 1275.9, less-pager 1219.5, btop 792.6, vim 508.8,
-less-cjk 478.8, cat-cjk 467.5, cava 457.7, asciiquarium 372.9 -- a 1.16x-to-1.71x
-margin against the implementation this one replaced, and nothing can re-measure
-it.
 
 ## sfte, and the row a screen gate is for
 
@@ -242,8 +164,11 @@ different screens.
 first table in this file.
 
 **Taken at `f5c2abf`, 2026-08-30**, the commit that first carries these rows.
-The file's Host line at that commit read "on AC power", dated to an earlier
-table's commit, so whether it covered this sweep is not stated.
+Its baud-core, ghostty and alacritty figures, cava's among them, are superseded
+by the first table in this file, taken at `935e4f1`; the vt100, termwiz and
+wezterm rows have not been taken since. The file's Host line at that commit read
+"on AC power", dated to an earlier table's commit, so whether it covered this
+sweep is not stated.
 
 `utf8/cava.raw` -- a spectrum analyser, 636 KB, one escape per 12.1 bytes,
 19.5% non-ASCII block glyphs, and **the only recording in the corpus that
@@ -258,7 +183,6 @@ same-box, same-session numbers may be compared.
 | core | cava.raw | baud-core is |
 |---|---|---|
 | **baud-core** | **567.4** [558.0-576.6] | -- |
-| baud-core2, cells *(deleted; recorded)* | 447.4 [442.0-454.1] | **1.27x** |
 | vt100 crate | 402.0 [391.1-415.0] | **1.41x** |
 | alacritty_terminal | 366.0 [348.6-381.8] | **1.55x** |
 | ghostty (libghostty-vt) | 319.5 [315.5-322.8] | **1.78x** |
@@ -269,28 +193,17 @@ same-box, same-session numbers may be compared.
 568.6, 567.4, 559.7 for the new core -- which is tighter than most rows here
 and makes it a good instrument as well as a good payload.
 
-Alongside it, from the same four runs, on the recordings it was paired with:
-
-| recording | baud-core | baud-core2 *(deleted)* | ghostty | alacritty |
-|---|---|---|---|---|
-| `ascii/cat-scroll.raw` | **1872.7** | 1079.1 | 383.9 | 199.7 |
-| `utf8/btop.raw` | **904.9** | 780.0 | 508.3 | 330.1 |
-| `utf8/vim-unicode.raw` | **747.3** | 488.4 | 349.4 | 284.5 |
-| **`utf8/cava.raw`** | **567.4** | 447.4 | 319.5 | 366.0 |
-| `ascii/asciiquarium.raw` | **553.7** | 371.1 | 200.8 | 244.2 |
-
-**alacritty is ahead of ghostty on two of the five rows here, cava and
-asciiquarium**, and behind on cat-scroll, btop and vim. This sentence used to
-say cava alone, against the table's own asciiquarium row.
-
 ## Against other implementations, on generated payloads
 
 **Taken before `multibench` aligned every function to 128 bytes**, like the
 first table in this file.
 
-**First published at `406141e`, 2026-08-29**, in the README and here. The file's
-Host line at that commit read "on AC power. Commit `e363859`", a commit that
-does not resolve, so whether it covered this sweep is not stated.
+**First carried at `e8035f6`, 2026-09-09**, in the README, from which it moved
+here on 2026-10-12. `cd2e440`'s message says the tables published before it
+were measured at `f1a67c6`, a commit that does not resolve, and whether that
+covers this table is not stated; no power state is stated. **It predates
+grapheme clustering (`71715d3`) and the scrollback ring (`0a44e3f`) in the
+core it names, and has not been re-taken.**
 
 Same harness and statistic. The streaming payload models `cat`, logs and build
 output, with an SGR every 37 bytes; the TUI payload models a full-screen redraw.
@@ -298,15 +211,15 @@ Both are generated by `multibench` itself, so every core gets the same bytes.
 
 | core | streaming | TUI redraw |
 |---|---|---|
-| **baud** | **2078.2** [2040.9-2096.5] | **1735.1** [1673.5-1777.4] |
-| ghostty (libghostty-vt) | 659.5 [616.8-686.9] | 1065.7 [1039.5-1072.6] |
-| termwiz (wezterm) parse only | 381.4 [380.3-383.6] | 367.1 [363.3-370.8] |
-| alacritty_terminal | 224.4 [215.4-229.7] | 273.9 [273.0-276.7] |
-| vt100 crate | 171.2 [167.5-172.8] | 211.3 [209.6-214.0] |
-| wezterm (full terminal) | 17.9 [17.8-18.2] | 32.7 [32.7-32.8] |
+| **baud-core** | **3206.7** [3172.1-3234.1] | **2340.4** [2269.8-2377.7] |
+| ghostty (libghostty-vt) | 640.5 [582.1-681.8] | 1061.8 [1043.0-1078.9] |
+| termwiz (wezterm) parse only | 380.5 [371.5-383.4] | 366.7 [360.8-370.2] |
+| alacritty_terminal | 218.3 [201.3-227.4] | 273.7 [268.0-276.5] |
+| vt100 crate | 168.4 [166.6-170.3] | 218.6 [214.0-219.2] |
+| wezterm (full terminal) | 17.5 [17.3-17.7] | 32.5 [32.1-32.7] |
 
-**Generated payloads read higher than any real capture**, and their escape
-density matches no real program. The recordings above are the guide.
+MB/s. **Generated payloads read higher than any real capture**, and their
+escape density matches no real program. The recordings above are the guide.
 
 ## Five terminals through a pty
 
@@ -388,23 +301,19 @@ answer in this repo before.
 **Scrollback must be set on every core.** `ghostty_terminal_new` takes no
 scrollback argument and defaults to unlimited lines and 10,000 *bytes*, pruned
 at a page granularity ghostty documents as ~400 KB — which retains no history.
-alacritty and vt100 take 10,000 lines explicitly, ~~and baud carries `SB =
-10_000`~~ -- that was `baud-core2`'s constant, and `baud-core` is handed 10,000
-lines by `multibench` since 2026-09-20 (the first table above). Configured
-alike, ghostty's scroll-heavy recordings move and the others do not: `git-log`
-853.9 → 526.0, `cat-scroll` 765.7 → 430.9, `cat-cjk` 516.7 → 391.1 (`f96075e`,
-2026-08-29).
+alacritty and vt100 take 10,000 lines explicitly, and `baud-core` is handed
+10,000 lines by `multibench` since 2026-09-20 (the first table above).
+Configured alike, ghostty's scroll-heavy recordings move and the others do not:
+`git-log` 853.9 → 526.0, `cat-scroll` 765.7 → 430.9, `cat-cjk` 516.7 → 391.1
+(`f96075e`, 2026-08-29).
 
 **Grapheme segmentation is not on in every core.** libghostty-vt's mode 2027
 carries no default, so it segments only when an application asks. baud always
 segments and reports `?2027` as permanently set. The CJK rows therefore compare
 unequal work. What segmentation costs `baud-core` was measured when its cluster
 machine landed: **-33%** on cat-cjk, -31% on less-cjk, -8.8% on vim and -7.5% on
-btop against the same core storing without it (the record, "GB11 and the rest
-of UAX #29: every glyph gap is zero, and it costs a third"). The figures this
-paragraph used to give -- segmentation as 25-45% of UTF-8 throughput, and 5.9%
-*more* cells with it off, because an unclustered combining mark becomes its own
-cell -- are `baud-core2`'s, from 9c65e75 (2026-08-28).
+btop against the same core storing without it (the record, "GB11 and the rest of
+UAX #29: every glyph gap is zero, and it costs a third").
 
 **No single property of a recording predicts its cost.** btop and vim have the
 same escape density, one per 17 bytes, and differ 1.7x in cycles per byte; the
@@ -412,51 +321,7 @@ difference between them is that vim carries wide characters and btop none.
 asciiquarium carries none and is the most expensive per byte, on escape density
 alone. So the cost is wide content *or* escape density, and neither predicts it
 by itself (the record, "The path split is the whole gap, and neither way of
-closing it works"). This paragraph used to say throughput tracks escape density
-and not content, which that measurement withdrew.
-
-## baud's representations -- core2's, and there is one now
-
-Written at `8c2d182`, 2026-08-29. The file's Host line at that commit read "on
-AC power. Commit `3797649`", a commit that does not resolve, so whether it
-covered this sweep is not stated.
-
-**This whole section measures `baud-core2` and is kept as a record.** `OpMode`
-was its: `Runs` stored lines as spans and materialised in `Term::viewport`,
-`Computed` and `Templated` materialised on ingest. `baud-core` has no
-representations to choose between -- it materialises, always -- so there is
-nothing here to re-measure and no flag to pass.
-
-It also named the wrong harness. `OpMode` was `ingest`'s, never `ingest2`'s, and
-both `ingest` and the `payload::tui` generator went with the crate. `ingest2`
-drives `baud-core` and carries `cjk` and `streaming`, which are the two
-synthetic payloads the record quotes by name.
-
-Measured with baud-bench's `ingest` binary -- deleted, so it is named here in
-prose rather than cited as a path -- one payload in memory with no fork and no
-PTY, medians over 200 reps, MB/s.
-
-| payload | `Runs` | `Computed` | `Templated` |
-|---|---|---|---|
-| `payload::cjk` | 2398.6 | **2571.8** | 2566.3 |
-| `payload::streaming` | **1999.0** | 1613.1 | 1600.1 |
-| `payload::tui` | 1431.5 | 1467.2 | **1480.8** |
-| `ascii/git-log.raw` | **2026.0** | 1291.4 | 1293.4 |
-| `ascii/cat-scroll.raw` | **1674.7** | 1110.1 | 1129.7 |
-| `ascii/less-pager.raw` | 1225.6 | **1294.5** | 1275.4 |
-| `utf8/btop.raw` | **828.7** | 828.4 | 821.7 |
-| `utf8/vim-unicode.raw` | 470.4 | **477.7** | 476.6 |
-| `utf8/less-cjk.raw` | 452.6 | **453.1** | 447.1 |
-| `utf8/cat-cjk.raw` | 382.8 | 430.6 | **431.0** |
-| `ascii/asciiquarium.raw` | 408.9 | 405.7 | **412.9** |
-
-**`Computed` was the row quoted against other implementations.** Every core it
-was compared against materialises, so quoting `Runs` would have compared a
-deferred cost against a paid one — and `Runs` led on exactly the payloads where
-deferral is worth most. The span model was built in `baud-core` too, measured at
-**+50% on two recordings and -5% to -10% on the other six purely to carry the
-field**, and reverted; the record has the numbers, "Spans: +50% where they
-apply, -5% everywhere just to carry".
+closing it works").
 
 ## Storage
 
@@ -465,42 +330,40 @@ Written at `8c2d182`, 2026-08-29; the +0.3 MB figure first appears at
 
 ~24 MB *virtual*. Measured RSS after allocating it, initialising a 50x200 grid
 and feeding data is **+0.3 MB**: untouched pages are never faulted in.
-`baud-core/tests/fixed.rs` asserts the bound.
+`baud-core/tests/fixed.rs` asserts the sizes it is made of; the RSS figure is
+not re-measured.
 
 The figure was taken against `baud-core2::Storage::boxed()`, which owned its
 arrays. `baud-core`'s storage is **caller-provided** -- it borrows every buffer
 and allocates nothing -- so the equivalent is `Owned::new(&ws)`, which provisions
 exactly the geometry it is given and declines the 2 MiB cell table by default.
 The untouched-pages result is a property of the allocator and the grid, not of
-which crate holds them, so it carries over; the bound `fixed.rs` asserts is
-`baud-core`'s own.
+which crate holds them, so it should carry over, but on `baud-core` it is
+argued, not re-measured; the sizes `fixed.rs` asserts are `baud-core`'s own.
 
 ## Write amplification
 
 Cells written per byte ingested, from `Term::amplification`, which returns the
-bytes in and the cells written; `ingest2` prints their ratio. The `core2`
-columns date from `8eb1707` (2026-08-28) and the `baud-core` column from
-`f5ea0f6` (2026-09-10). **The `baud-core` column was re-read at `dc22822` on
-2026-10-12** -- a count, not a rate, so the machine's load does not enter it:
-`ascii/cat-scroll.raw` wrote 16,932,361 cells for 8,969,200 bytes at 20 reps and
-169,895,281 for 89,692,000 at 200, 1.9x both times; `utf8/cat-cjk.raw` 7,549,906
-for 6,547,020 at 20 reps and 76,336,186 for 65,470,200 at 200, 1.2x both times.
-At one rep the two read 1.8x and 0.9x, so the figure is a replayed one, and the
-rep count is part of it.
+bytes in and the cells written; `ingest2` prints their ratio. First carried at
+`f5ea0f6` (2026-09-10), and **re-read at `dc22822` on 2026-10-12** -- a count,
+not a rate, so the machine's load does not enter it: `ascii/cat-scroll.raw`
+wrote 16,932,361 cells for 8,969,200 bytes at 20 reps and 169,895,281 for
+89,692,000 at 200, 1.9x both times; `utf8/cat-cjk.raw` 7,549,906 for 6,547,020
+at 20 reps and 76,336,186 for 65,470,200 at 200, 1.2x both times. At one rep the
+two read 1.8x and 0.9x, so the figure is a replayed one, and the rep count is
+part of it.
 
-| payload | `Runs` (core2, spans) | `Computed` (core2, cells) | `baud-core` |
-|---|---|---|---|
-| `ascii/cat-scroll.raw` | 1.9x | 6.1x | 1.9x |
-| `utf8/cat-cjk.raw` | — | 1.2x | 1.2x |
+| payload | `baud-core` |
+|---|---|
+| `ascii/cat-scroll.raw` | 1.9x |
+| `utf8/cat-cjk.raw` | 1.2x |
 
 A cell is eight bytes, so a materialising path cannot go below 8x per *byte of
 text*, and the figures above are per byte of *input*, which includes escapes.
 
-**`baud-core` matches the spans column while materialising**, which is the part
-worth keeping: `RowExtent` bounds blanking at the used extent, so cat-scroll went
-6.1x to 1.9x without deferring a single write. The span model was the other way
-of getting there and it cost 5-10% on six recordings just to carry the field.
-`ingest2` prints the figure per run.
+**`RowExtent` bounds blanking at the row's used extent** (note F,
+`docs/research/notes/f-row-extent.md`), so cat-scroll reads 1.9x without
+deferring a write. `ingest2` prints the figure per run.
 
 ## Reproducing
 
@@ -1030,17 +893,16 @@ Every cell is the instrument's own row; it differences unrounded medians,
 so subtracting the printed walls gives 34.4 where the difference reads
 34.3.
 
-**A cold launch is 256 ms faster.** The warm arms overlap, so nothing is
-claimed there; every other pair is disjoint. The cold pipelines are
-**28.5 ms dearer** from a shipped library than from a source-built one,
-reproduced in every settled launch. ~~Unexplained.~~ Timed one pipeline at a
-time since (`Build::each`), all of it is the *first* pipeline build of the
-process, its function lookups and its pipeline state together. It follows the
-position rather than the shader: built last, `bg` costs what the others do,
-and the one built first pays instead. Why `newLibraryWithData` defers that
-work to the first pipeline is still not known. `docs/record.md`, "Row 1
-shipped: the shaders are compiled at build time, and a cold launch costs 34 ms
-instead of 287".
+**A cold launch is 256 ms faster.** The warm arms overlap, so nothing is claimed
+there; every other pair is disjoint. The cold pipelines are **28.5 ms dearer**
+from a shipped library than from a source-built one, reproduced in every settled
+launch. Timed one pipeline at a time since (`Build::each`), all of it is the
+*first* pipeline build of the process, its function lookups and its pipeline
+state together. It follows the position rather than the shader: built last, `bg`
+costs what the others do, and the one built first pays instead. Why
+`newLibraryWithData` defers that work to the first pipeline is still not known.
+`docs/record.md`, "Row 1 shipped: the shaders are compiled at build time, and a
+cold launch costs 34 ms instead of 287".
 
 **The 34 ms of wall is not the 73.6 ms of pipelines**, and the gap is the
 GPU probe running on its own thread under AppKit's initialisation, so
