@@ -313,6 +313,11 @@ impl Paint<'_, '_> {
     /// the window takes in at the top is the newest line behind it, blanked
     /// as it arrives, and the row that leaves the bottom is kept past the
     /// live height the way a shorter window keeps one.
+    ///
+    /// Inlined into both of its callers, the full-screen scroll down and
+    /// its twin past the edge: called from two places it went out of line,
+    /// and the scroll down paid a call a line for a body it had inlined.
+    #[inline(always)]
     pub(crate) fn unretire(&mut self) {
         if self.cold.screen != crate::term::Screen::Normal {
             if self.images.any_placed() {
@@ -652,6 +657,37 @@ impl Paint<'_, '_> {
         self.book.reach.index() > self.cols.index()
     }
 
+    /// [`Paint::scroll_region_down`]'s full-screen scroll on a screen
+    /// whose rows may hold something past the live edge: the swept rows
+    /// cleared before the window moves back over them, each line taken
+    /// back cleared past the edge, and the swept count restarted. Only
+    /// after a narrowing, so out of line.
+    ///
+    /// **The count restarts here and not on the scroll the caller keeps.**
+    /// `Book::swept` is read only by [`Paint::clear_swept`] and the
+    /// resize's twin, each behind the reach lying past the live edge, and
+    /// the reach rises there only in a resize, which restarts the count as
+    /// it measures; so on a screen with nothing past the edge the count is
+    /// written again before it is next read.
+    #[cold]
+    #[inline(never)]
+    fn scroll_down_past_edge(&mut self, k: Rows) {
+        self.clear_swept();
+        for _ in 0..k.index() {
+            self.view.retreat_rot(1);
+            self.unretire();
+            self.fill_row_counted(Row::ZERO);
+            if self.past_edge() {
+                self.clear_incoming_past_edge(Row::ZERO);
+            }
+        }
+        // The window moved back, so the swept rows are counted from here:
+        // on the primary, whose rows they are and whose window moved.
+        if self.cold.screen == Screen::Normal {
+            self.book.swept = self.book.top;
+        }
+    }
+
     pub(crate) fn scroll_region_down(&mut self, n: Count) {
         let (top, bot) = (self.cold.top, self.cold.bot);
         if top.index() > bot.index() {
@@ -660,21 +696,21 @@ impl Paint<'_, '_> {
         let k = n.at_least_one().min(bot.index() + 1 - top.index());
         let last = self.rows.index() - 1;
         if top.index() == 0 && bot.index() == last {
+            // **One compare for the passes past the edge, then the scroll
+            // the core had before them.** Tested again after each line and
+            // followed by the swept count's store, they were sixteen
+            // instructions a scroll down on a screen with nothing past the
+            // edge, for a scroll of one line, and are five: 1,209 fewer a
+            // rep on `less`, 593,934 to 592,725 (the record, "The scroll
+            // down tests the edge once").
             if self.past_edge() {
-                self.clear_swept();
+                self.scroll_down_past_edge(Rows::of_count(k));
+                return;
             }
             for _ in 0..k {
                 self.view.retreat_rot(1);
                 self.unretire();
                 self.fill_row_counted(Row::ZERO);
-                if self.past_edge() {
-                    self.clear_incoming_past_edge(Row::ZERO);
-                }
-            }
-            // The window moved back, so the swept rows are counted from here:
-            // on the primary, whose rows they are and whose window moved.
-            if self.cold.screen == Screen::Normal {
-                self.book.swept = self.book.top;
             }
             return;
         }

@@ -1145,6 +1145,30 @@ fn lines_a_scroll_brought_in_then_scrolled_down_are_blank_past_the_edge() {
     );
 }
 
+/// **And the lines brought in after a scroll down.** A reverse index at
+/// the top moves the window back a line, then three line feeds bring
+/// lines in on rows 8 to 10. Counted from the top line before the scroll
+/// down, the count comes up one short, and the line on row 8 kept its
+/// retired bar past column 20 on a growth.
+#[test]
+fn lines_a_scroll_brought_in_after_a_scroll_down_are_blank_past_the_edge() {
+    let rows = rows_a_full_screen_scroll_brings_in(b"\x1b[1;1H\x1bM\x1b[10;1H\r\n\r\n\r\n");
+    for (y, row) in rows.iter().enumerate().take(7) {
+        assert!(
+            row.iter().all(|c| *c != PackedCell::EMPTY),
+            "the control: row {}, a bar, blue to column 40",
+            y + 1
+        );
+    }
+    for (y, row) in rows.iter().enumerate().take(9).skip(7) {
+        assert!(
+            is_blank(row),
+            "row {}, a line fed in, blank to column 40",
+            y + 1
+        );
+    }
+}
+
 /// **A scroll down on the alternate screen forgets none of them.** The
 /// primary's swept rows are counted by its top line, which the alternate
 /// screen does not move: three line feeds, then a reverse index at the top
