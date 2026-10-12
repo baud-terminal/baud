@@ -22232,3 +22232,142 @@ group  = "L"
 # .claude/research/jev-program/round-2026-10-11d/v1q2/scripts/term_trace.sh: callers of flashScrollers,
 # scrollToBottom, _didChangeContents, hardReset, contentAreaScrolled and updateScroller, and what
 # -[TTVT100Emulator hardReset] sends. Static only: no run of Terminal.app was observed.
+
+# ---- round 2026-10-11d, lane v12: ?1001 Q1 and Q6, xterm run under X and the short-form sentence's history.
+# Every entry is `external`: read and hash-verified 2026-10-12 (UTC) against its url, not committed. Each
+# ThomasDickey/xterm-snapshots file was also compared byte for byte with the same path at the same commit in
+# a clone of that repository. Reused without a new entry: xterm-log-bccd466 (patch #262's entry, line 7946).
+
+[sources.xterm-x11r6-1-ctlseqs-ms]
+key    = "xterm-x11r6-1-ctlseqs-ms"
+title  = "Xterm Control Sequences, ctlseqs.ms as in the X11R6.1 snapshot -- the short form still for valid text locations"
+author = "Edward Moy and the X Consortium staff"
+year   = 1996
+venue  = "ThomasDickey/xterm-snapshots, tag X11R6_1rel"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/64440b66bc527a55cf46a71df322e8796fdd5f8e/ctlseqs.ms"
+file   = ""
+sha256 = "7f7e473a49455cc4a953d2390d9598f4df05416cfa3e1a481cd2f5fda74b3830"
+bytes  = 19795
+status = "external"
+group  = "C"
+# Read (round 2026-10-11d, lane v12): 515-518, the X11R5 sentence unchanged.
+
+[sources.xterm-261-ctlseqs-ms]
+key    = "xterm-261-ctlseqs-ms"
+title  = "Xterm Control Sequences, ctlseqs.ms at xterm patch #261 (2010-06-28) -- the last release with valid text locations"
+author = "Thomas E. Dickey"
+year   = 2010
+venue  = "ThomasDickey/xterm-snapshots, tag xterm-261"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/e3b2d2b31e89e7bcfa04587264effe64f60c5590/ctlseqs.ms"
+file   = ""
+sha256 = "d78d12f6eb0fc8250c1eb28ec16ad40379fa98bd552818f000c691919483047f"
+bytes  = 73263
+status = "external"
+group  = "C"
+# Read (round 2026-10-11d, lane v12): 2004-2013.
+
+[sources.xterm-261b-ctlseqs-ms]
+key    = "xterm-261b-ctlseqs-ms"
+title  = "Xterm Control Sequences, ctlseqs.ms at snapshot xterm-261b (2010-08-19) -- the last snapshot with valid text locations"
+author = "Thomas E. Dickey"
+year   = 2010
+venue  = "ThomasDickey/xterm-snapshots, tag xterm-261b"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/fc5b1db7dd74d3ec9b05f91ef4fe1f08f39914df/ctlseqs.ms"
+file   = ""
+sha256 = "7ead15b02d7e5dc6e972b0ef8d7278c3aeeac1736d74e70e5db1ad90eef639dd"
+bytes  = 74046
+status = "external"
+group  = "C"
+# Read (round 2026-10-11d, lane v12): 2023-2028.
+
+[sources.xterm-261c-ctlseqs-ms]
+key    = "xterm-261c-ctlseqs-ms"
+title  = "Xterm Control Sequences, ctlseqs.ms at snapshot xterm-261c (2010-08-23) -- the first with the same locations"
+author = "Thomas E. Dickey"
+year   = 2010
+venue  = "ThomasDickey/xterm-snapshots, tag xterm-261c"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ef253472cc1d564d61bad8a165c0df6ea6a7afd0/ctlseqs.ms"
+file   = ""
+sha256 = "cfa78f9579ff262e0d58cb0e92357b28a4b091defb1f9c86f77c725c0dcb5ca2"
+bytes  = 74168
+status = "external"
+group  = "C"
+# Read (round 2026-10-11d, lane v12): 2037-2048.
+
+[sources.xterm-262-ctlseqs-ms]
+key    = "xterm-262-ctlseqs-ms"
+title  = "Xterm Control Sequences, ctlseqs.ms at xterm patch #262 (2010-08-30) -- the first release with the same locations"
+author = "Thomas E. Dickey"
+year   = 2010
+venue  = "ThomasDickey/xterm-snapshots, tag xterm-262"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/1a785f462f2a5601fa4abae96746870f9b45f7dc/ctlseqs.ms"
+file   = ""
+sha256 = "352f610be2fd0dfcd52f52c3d0274c131fb106b802054f78017725684d207f50"
+bytes  = 74770
+status = "external"
+group  = "C"
+# Read (round 2026-10-11d, lane v12): 2058-2080. A scan of ctlseqs.ms at all 1706 tags of the snapshots
+# repository: "valid text locations" at 470 (X11R5 through xterm-261b), "the same locations" at 1235
+# (xterm-261c onward), no ctlseqs.ms at 1 (X11R6_3rel); "lastrow" found in every file that exists.
+
+[sources.xterm-261-button-c]
+key    = "xterm-261-button-c"
+title  = "xterm button.c at patch #261 -- EndExtend's short-form test before the 2010 rewording"
+author = "Thomas E. Dickey and the X Consortium"
+year   = 2010
+venue  = "ThomasDickey/xterm-snapshots, tag xterm-261"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/e3b2d2b31e89e7bcfa04587264effe64f60c5590/button.c"
+file   = ""
+sha256 = "5c44dd337136cd4f6c82041292c7760f5a370a52dc083c008ac0d690d14989e2"
+bytes  = 108013
+status = "external"
+group  = "C"
+# Read (round 2026-10-11d, lane v12): 2180-2191.
+
+[sources.xterm-262-button-c]
+key    = "xterm-262-button-c"
+title  = "xterm button.c at patch #262 -- EndExtend's short-form test unchanged; only the coordinate encoding moved to EmitMousePosition"
+author = "Thomas E. Dickey and the X Consortium"
+year   = 2010
+venue  = "ThomasDickey/xterm-snapshots, tag xterm-262"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/1a785f462f2a5601fa4abae96746870f9b45f7dc/button.c"
+file   = ""
+sha256 = "4faf448625fe95ed5c8743002cc3608658db00fc847956fea1e7ee7eca17ece9"
+bytes  = 109288
+status = "external"
+group  = "C"
+# Read (round 2026-10-11d, lane v12): 2214-2225.
+
+[sources.x11r4-tape-1]
+key    = "x11r4-tape-1"
+title  = "X Window System Version 11 Release 4, tape-1 (24 split parts concatenated) -- mit/clients/xterm: ctlseqs.ms leaves the mouse modes undocumented; EndExtend's short-form test"
+author = "MIT X Consortium"
+year   = 1989
+venue  = "x.org/releases/X11R4"
+url    = "https://www.x.org/releases/X11R4/tape-1/"
+file   = ""
+sha256 = "0264f3b376e107a31f286d130648a7a0a851c0e3c714a469a28033d4fdcf2579"
+bytes  = 12293470
+status = "external"
+group  = "C"
+# `external`: tape-1.01 to tape-1.24 concatenated, a compress(1) tar; the BSD sum matches the directory's
+# CHECKSUMS ("45313 12006", 12293470 bytes). Read 2026-10-12 (round 2026-10-11d, lane v12), files in
+# mit/clients/xterm/: ctlseqs.ms (sha256 b632f6e7..., 1989-12-21) 28-31 and 289; button.c (1.49, 89/12/10,
+# sha256 f0559b52...) 494-503 and 969; charproc.c (1.121, 89/12/15) 76 and 1170-1184; misc.c (1.62, 89/12/10)
+# 72-75.
+
+[sources.xterm-411-tarball]
+key    = "xterm-411-tarball"
+title  = "xterm patch #411 source tarball -- the xterm run under Xvfb for ?1001 (its button.c, misc.c and charproc.c are bccd466's)"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "invisible-island.net"
+url    = "https://invisible-island.net/archives/xterm/xterm-411.tgz"
+file   = ""
+sha256 = "969be283670deadd66934865c4de6c5ab045e3a3facc2b228decf91a20d8c36c"
+bytes  = 1633400
+status = "external"
+group  = "C"
+# `external`: the same bytes as nixpkgs' xterm-411 source (cmp), whose binary was run under Xvfb on
+# 2026-10-12 (round 2026-10-11d, lane v12). button.c, misc.c and charproc.c in it equal xterm-snapshots
+# 9489b20 (tag xterm-411) and bccd466 (tag xterm-411a) byte for byte.
