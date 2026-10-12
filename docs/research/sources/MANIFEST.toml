@@ -22078,3 +22078,157 @@ status = "external"
 group  = "C"
 # `external`: no grant recorded. Read 2026-10-11 (round 2026-10-11d, lane decscnm): no ?5 and no DECSCNM; decfra and deccara (24, 30) are the positive control. The VT525 photo in vtnibbler #1 is of this test, not of reverse screen.
 # The API JSON carries live fields (comments, updated_at), so a re-fetch may hash differently.
+
+# ---- round 2026-10-11d, lane v1q2: V1 Q2, the scrollbar thumb on a reset from the alternate screen.
+# Apple's text on when an overlay scroller is shown, iTerm2's reset and scroll-follow paths, and Terminal.app's
+# binary, traced statically. Every entry is `external`: read and hash-verified 2026-10-11 against its url (the
+# Terminal.app entry against the file on this Mac), not committed.
+
+[sources.apple-appkit-flashscrollers-doc]
+key    = "apple-appkit-flashscrollers-doc"
+title  = "NSScrollView flashScrollers() -- Apple Developer Documentation (DocC JSON)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsscrollview/flashscrollers().json"
+file   = ""
+sha256 = "214caaee0179648beedb249759570d1313d3b760f20dbc8de4c5a385ecd94cd5"
+bytes  = 6570
+status = "external"
+group  = "L"
+# Read 2026-10-11 (round 2026-10-11d, lane v1q2): the abstract and Discussion, flattened by docc_text.py,
+# lines 2-6 of its output: "This may be desirable when changing a document view's size or swapping new
+# content into the view".
+
+[sources.apple-hig-scroll-views]
+key    = "apple-hig-scroll-views"
+title  = "Human Interface Guidelines -- Scroll views (DocC JSON)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/scroll-views.json"
+file   = ""
+sha256 = "fa99110bf671741536de552c96154c6b6fb447bdce754b9b55c3536b4deae8e8"
+bytes  = 43377
+status = "external"
+group  = "L"
+# Read 2026-10-11 (round 2026-10-11d, lane v1q2): flattened by docc_text.py, lines 4 and 7 (the indicator
+# "typically appears after people begin scrolling"; "aren’t always visible"). Nothing on a programmatic scroll.
+
+[sources.apple-appkit-rn-older]
+key    = "apple-appkit-rn-older"
+title  = "AppKit Release Notes (older notes), 'Lion's Two Scroller Styles' -- overlay scrollers and -flashScrollers, Mac OS X 10.7"
+author = "Apple Inc."
+year   = 2011
+venue  = "Apple Developer Documentation Archive"
+url    = "https://developer.apple.com/library/archive/releasenotes/AppKit/RN-AppKitOlderNotes/index.html"
+file   = ""
+sha256 = "1fde98162640a48f1e10269e3222f90f3bb44396cb64469f781e4a1b67393339"
+bytes  = 1906730
+status = "external"
+group  = "L"
+# Read 2026-10-11 (round 2026-10-11d, lane v1q2): "Notes specific to Mac OS X 10.7", section "Lion's Two
+# Scroller Styles", lines 1465-1471 of the text html_text.py makes of the page.
+
+[sources.iterm2-7ce037e-vt100terminal]
+key    = "iterm2-7ce037e-vt100terminal"
+title  = "iTerm2 at 7ce037e, sources/VT100/VT100Terminal.m -- ESC c (ANSI_RIS), resetForReason:, commonReset"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/VT100/VT100Terminal.m"
+file   = ""
+sha256 = "ae713c23ce1337654774021872501da79ef32fe178a826216b1897acbd31266e"
+bytes  = 268943
+status = "external"
+group  = "L"
+# Read 2026-10-11 (round 2026-10-11d, lane v1q2): 391-439 (commonReset, 433 shows the primary buffer),
+# 476-487 (resetForReason:), 517-556, 2297-2304.
+
+[sources.iterm2-7ce037e-screen-mutable-state]
+key    = "iterm2-7ce037e-screen-mutable-state"
+title  = "iTerm2 at 7ce037e, sources/VT100Screen/VT100ScreenMutableState.m -- resetPreservingPrompt:, the grid reset into the line buffer"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/VT100Screen/VT100ScreenMutableState.m"
+file   = ""
+sha256 = "340b09019fc83d27ff876829544e3c1b869e2d38f69d9f11a1dde66a83b6116c"
+bytes  = 402498
+status = "external"
+group  = "L"
+# Read 2026-10-11 (round 2026-10-11d, lane v1q2): 2076-2131.
+
+[sources.iterm2-7ce037e-ptytextview]
+key    = "iterm2-7ce037e-ptytextview"
+title  = "iTerm2 at 7ce037e, sources/TerminalView/PTYTextView.m -- refresh's scroll to the bottom without showing overlay scrollers"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/TerminalView/PTYTextView.m"
+file   = ""
+sha256 = "d14d3cde272c73115da3f043bf90381ab049dd0504b6e1ec574af835585ae15d"
+bytes  = 382024
+status = "external"
+group  = "L"
+# Read 2026-10-11 (round 2026-10-11d, lane v1q2): 666-678 (scrollEnd), 3495-3518, 8311-8313.
+
+[sources.iterm2-7ce037e-metal-clip-view]
+key    = "iterm2-7ce037e-metal-clip-view"
+title  = "iTerm2 at 7ce037e, sources/MetalRenderer/Support/iTermMetalClipView.m -- performBlockWithoutShowingOverlayScrollers"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/MetalRenderer/Support/iTermMetalClipView.m"
+file   = ""
+sha256 = "da6a8a856f960fd8d52c39a4ed236b2ac02634c78987dabb875e7441558707f6"
+bytes  = 1338
+status = "external"
+group  = "L"
+# Read 2026-10-11 (round 2026-10-11d, lane v1q2): 17-19, 36-47.
+
+[sources.iterm2-7ce037e-ptyscrollview]
+key    = "iterm2-7ce037e-ptyscrollview"
+title  = "iTerm2 at 7ce037e, sources/TerminalView/PTYScrollView.m -- userScroll, set by the scroller and by detectUserScroll"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/TerminalView/PTYScrollView.m"
+file   = ""
+sha256 = "5b3e9a44340b6a18667036ad77b45793c8d031402dd598465dab288cf2cd4cea"
+bytes  = 13652
+status = "external"
+group  = "L"
+# Read 2026-10-11 (round 2026-10-11d, lane v1q2): 117-145, 289-296.
+
+[sources.iterm2-7ce037e-ptysession]
+key    = "iterm2-7ce037e-ptysession"
+title  = "iTerm2 at 7ce037e, sources/PTYSession/PTYSession.m -- every write of userScroll"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/PTYSession/PTYSession.m"
+file   = ""
+sha256 = "7850ed4dc05f56cb5c0f771a4c8ed49c478618bc7a7e2c1bfdc99c7269c681b6"
+bytes  = 1191532
+status = "external"
+group  = "L"
+# Read 2026-10-11 (round 2026-10-11d, lane v1q2): 4283-4290, 4511-4516, 5026, 7195-7207, 11312-11323,
+# 16025-16039, 25970. Every userScroll write in sources/ at this commit was grepped (38 lines name it).
+
+[sources.macos-terminal-app-2-15-488]
+key    = "macos-terminal-app-2-15-488"
+title  = "Terminal.app 2.15 (488), Contents/MacOS/Terminal -- the arm64e binary, traced statically for its scroller calls"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (this Mac)"
+url    = "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"
+file   = ""
+sha256 = "596e894021c2429ff7aa74016deba23867722c4b1affdbb097611c25160fe236"
+bytes  = 1189312
+status = "external"
+group  = "L"
+# Read 2026-10-11 (round 2026-10-11d, lane v1q2) by Xcode's objdump and dyld_info -objc, through
+# .claude/research/jev-program/round-2026-10-11d/v1q2/scripts/term_trace.sh: callers of flashScrollers,
+# scrollToBottom, _didChangeContents, hardReset, contentAreaScrolled and updateScroller, and what
+# -[TTVT100Emulator hardReset] sends. Static only: no run of Terminal.app was observed.
