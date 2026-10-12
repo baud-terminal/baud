@@ -12996,6 +12996,13 @@ group  = "C"
 # figures' hatching, the glyphs from page renders [img], since the text layer loses
 # most of them (wf-untranslated, wf-check). Another copy (733,833 bytes, at
 # computer-refuge and vaxhaven) was never hashed and is not this file.
+# Re-fetched 2026-10-11 (lane b8-sixel-gaps), the sha256 matching, for chapter 5,
+# Sixel Graphics [text]: DECGRI, p. 5-26 (PDF 80), "If the repeat count is zero or is
+# omitted, it is treated as a repeat count of one."; Ps2, p. 5-5 (PDF 59), "The device
+# ignores this parameter"; DECGRA, p. 5-24 (PDF 78), "Level 2 printers ignore these
+# parameters", the extent. A printer's text: 070-9 §7.2 has hardcopy ignore P2 too.
+# vt340test's docs/ holds a different file under this manual's number (732,146 bytes,
+# sha256 f1265454...), not this one.
 
 [sources.vt420-rm]
 key    = "vt420-rm"
@@ -20861,6 +20868,85 @@ status = "retrieved"
 group  = "C"
 # Retrieved 2026-10-11 (round 2026-10-11b): 800x480, the screen under ?5h is grey with
 # black text and the sixel's background fill is black [img].
+
+[sources.vt340test-p2effect-sh]
+key    = "vt340test-p2effect-sh"
+title  = "vt340test, sixeltests/p2effect.sh -- a Sixel with P2 = 0 on a VT340: with raster attributes it clears their rectangle, without them the screen from the cursor to the bottom right corner"
+author = "hackerb9 (vt340test)"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/sixeltests/p2effect.sh"
+file   = "vt340test-p2effect.sh"
+sha256 = "efd4e33620ef2ad0433b0314212275b756239d2c16163e50cd3d70a3d0c311f0"
+bytes  = 2155
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (lane b8-sixel-gaps): 6-7, 12-13 (the finding), 19-24 (the four
+# envelopes: P2 0 and 1, with and without "1;1;60;60).
+
+[sources.vt340test-p2effect-png]
+key    = "vt340test-p2effect-png"
+title  = "vt340test, sixeltests/p2effect.png -- p2effect.sh's screen, 800x480 with a 16-entry palette, the VT340's geometry"
+author = "hackerb9 (vt340test)"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/sixeltests/p2effect.png"
+file   = "vt340test-p2effect.png"
+sha256 = "703d7860491b24cd3a6842e6ec3b37d80adaa62fb82215cfd5a3209884a36302"
+bytes  = 3362
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (lane b8-sixel-gaps) [img]: under P2 = 0 with raster attributes a
+# 60x60 black rectangle is cut out of the 100x100 square drawn under it; with none,
+# everything right of and below the cursor is black to the screen's corner, the E's too.
+# Black is the screen's background in this capture. The repository does not say what
+# took the capture; the script's own comment is the VT340 claim.
+
+[sources.vt340test-textcursor-sh]
+key    = "vt340test-textcursor-sh"
+title  = "vt340test, sixeltests/textcursor.sh -- the text cursor after a Sixel on a VT340: the row of the last sixel position, the column unchanged"
+author = "hackerb9 (vt340test)"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/sixeltests/textcursor.sh"
+file   = "vt340test-textcursor.sh"
+sha256 = "f750c22e19249efcfdca995f0903ae54686de7f8d8fae4e211dbf5e52dc3381f"
+bytes  = 9605
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (lane b8-sixel-gaps): 5-10, 47-55 (the table), 165-182
+# (neither_graphic_nor_text: three images, each one column right of the last by a CUF 1).
+
+[sources.vt340test-textcursor-png]
+key    = "vt340test-textcursor-png"
+title  = "vt340test, sixeltests/textcursor.png -- textcursor.sh's screen, 800x480 with a 16-entry palette"
+author = "hackerb9 (vt340test)"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/sixeltests/textcursor.png"
+file   = "vt340test-textcursor.png"
+sha256 = "0c6490d0951a7aa6905c1790925da29b90d708751c9176729d628fcc6dd82487"
+bytes  = 3349
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (lane b8-sixel-gaps) [img]: in the "Neither NL nor GNL" column
+# the three squares start at x = 280, 290 and 300, one 10-pixel column apart, so each
+# CUF 1 moved from the column the image started in, not from its right edge (x = 376).
+
+[sources.vt340test-physicalsixels]
+key    = "vt340test-physicalsixels"
+title  = "vt340test, physicalsixels.md -- the raster extent is the rectangle cleared to the text background; without one a VT340 clears to the bottom right corner"
+author = "hackerb9 (vt340test)"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/physicalsixels.md"
+file   = "vt340test-physicalsixels.md"
+sha256 = "7c08c25aa16bca0fde21afcc295cd6d5e89416826daaf1a388711e53e30412eb"
+bytes  = 11732
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (lane b8-sixel-gaps): 163-196 (DECGRA, the extent), 198-232 (the
+# macro parameter's table, which gives 4.5:1 as 5 VT340 pixels and 2.5:1 as 3).
 
 [sources.x11r3-tarball]
 key    = "x11r3-tarball"

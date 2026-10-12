@@ -622,6 +622,11 @@ files   = [
   "vt340test-background_select_2.sh",
   "vt340test-colormap.md",
   "vt340test-errata.md",
+  "vt340test-p2effect.png",
+  "vt340test-p2effect.sh",
+  "vt340test-physicalsixels.md",
+  "vt340test-textcursor.png",
+  "vt340test-textcursor.sh",
 ]
 
 [upstream.williams-parser]

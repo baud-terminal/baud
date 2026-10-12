@@ -799,7 +799,11 @@ fn the_advance_keeps_the_column_where_the_image_started() {
     // column 0. `[[source: dec-std-070]]` 070-9 §11.3 is the text: "The
     // Horizontal Active position of the ANSI text is not affected by Sixel
     // mode and set exactly to what is was when Sixel mode was entered" (PDF
-    // p. 928).
+    // p. 928). A VT340 keeps it too, "the column stays the same as it was
+    // before the sixel image was sent" (`[[source: vt340test-textcursor-sh]]`
+    // 5-7), where the VT330/VT340 manual's "the text cursor is set to the
+    // current sixel cursor position" (`[[source: vt3xx-sixel]]` 443-444)
+    // reads the other way: a conflict note S records and this keeps.
     let mut bytes = Vec::from(b"\x1b[1;11H".as_slice()); // row 1, column 11 -> index 10
     bytes.extend_from_slice(SWIRL);
     advanced(&bytes, bytes.len(), 16, |t| {

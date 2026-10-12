@@ -102,13 +102,18 @@ The envelope, from `[[source: ctlseqs]]`:
 DCS Pa ; Pb ; Ph  q   <sixel data>   ST
 ```
 
-`Pa` pixel aspect ratio, `Pb` background-colour option, `Ph` horizontal
-grid size (xterm ignores it). The `q` final with numeric parameters and
-**no `$` intermediate** is what distinguishes a Sixel from DECRQSS (`DCS $
-q`, `[[source: ctlseqs]]`), which baud already acts on -- the graph carries
-`Node::Dcs` and `Node::DcsDollar` (`graph.rs:280`), so the Sixel hook is a
-`Node::Dcs` final `q` reached without passing through `DcsDollar`. Every
-other DCS body is consumed and dropped today, so a Sixel is consumed and
+`Pa` pixel aspect ratio, `Pb` background-colour option, `Ph` horizontal grid
+size (xterm ignores it). **That `Ph` is not the raster command's `Ph`** below:
+`[[source: ctlseqs]]` names the envelope's third parameter `Ph`, the VT3xx
+chapter calls it `P3` and gives `Ph` to the raster command's horizontal
+extent, and `[[source: dec-std-070]]` 070-9 calls the two Horizontal Grid Size
+(§7.3) and Horizontal Extent (§8.1.2). Where this note and the code say the
+grid size is dropped, they mean the envelope's. The `q` final with numeric
+parameters and **no `$` intermediate** is what distinguishes a Sixel from
+DECRQSS (`DCS $ q`, `[[source: ctlseqs]]`), which baud already acts on -- the
+graph carries `Node::Dcs` and `Node::DcsDollar` (`graph.rs:280`), so the Sixel
+hook is a `Node::Dcs` final `q` reached without passing through `DcsDollar`.
+Every other DCS body is consumed and dropped today, so a Sixel is consumed and
 dropped today; this note makes it decode instead.
 
 The raster grammar, from `[[source: vt3xx-sixel]]`, is the part a decoder
@@ -122,7 +127,7 @@ implements:
 | `!Pn` | repeat the *next* data byte `Pn` times |
 | `$` | graphics carriage return: active position to the left, same sixel row |
 | `-` | graphics new line: active position to the left of the next sixel row (down six pixels) |
-| `"Pan;Pad;Ph;Pv` | raster attributes: aspect ratio `Pan/Pad`, image size `Ph`x`Pv` pixels |
+| `"Pan;Pad;Ph;Pv` | raster attributes: aspect ratio `Pan/Pad`, and an extent `Ph`x`Pv` in grid pixels that "do not limit the size of the image" -- the rectangle a `P2` of 0 or 2 erases, and a summary of the size (below) |
 
 A Sixel builds a paletted bitmap: 256 colour registers, each a `u32` ARGB
 once resolved, and the data bytes paint six-pixel columns advancing the
@@ -188,9 +193,33 @@ texts agree (note AN's item 8): `P1` omitted, 0, 1 or 5 is 2:1, 3 is 3:1 and
 9 is 1:1, and a whole raster `Pan:Pad` before any data overrides it, so a
 sixel row is that many pixels tall and the extent, the arena reservation and
 the cursor's advance scale with it. Both Sixel streams in the tree send
-`"1;1` and do not move. A ratio that is not whole, and `Ph`, are for Jev (the
-record, "A Sixel pixel is drawn at its aspect ratio where both DEC texts
-agree").
+`"1;1` and do not move. A ratio that is not whole, and the envelope's grid
+size (`P3`, which ctlseqs calls `Ph`), are for Jev (the record, "A Sixel pixel
+is drawn at its aspect ratio where both DEC texts agree"). For the first, a
+VT340's own rows are practice beside note AN's item 12: vt340test gives `P1` 2
+as 5 VT340 pixels, 4 as 3, 6 as 2 and 7 and 8 as 1
+(`[[source: vt340test-physicalsixels]]` 223-229), the VT3xx column rounded,
+alternative c, on the terminal that manual describes.
+
+**The raster extent `Ph`x`Pv` has two jobs and baud does neither yet,
+because both wait on the fill.** `[[source: vt3xx-sixel]]`: "Ph and Pv do not
+limit the size of the image defined by the sixel data. However, Ph and Pv let
+you omit background sixel data from the image definition and still have a
+color background. They also provide a concise way for the application or
+terminal to encode the size of an image" (298-301). 070-9 §8.1.2 says the
+same of each, the device "will NOT clip the image" to it (PDF pp. 920-921).
+The first job is the region a `P2` of 0 or 2 erases, the open question at the
+end of this note. The second, a size known before the data, is what would
+reserve the arena before the body is read, which is the streaming decoder's
+change and not this one. Under `P2 = 1` neither job draws anything: no
+position outside the data is set, and the extent clips nothing. And it is
+not folded into the image's height, which the cursor's advance reads:
+070-9 §11.3 moves the text row by "the vertical motion commands executed in
+the Sixel printing" (PDF p. 928), not by `Pv`. Its unit is the grid's, not
+the screen's: "The horizontal units are specified by the ANSI **SSU**
+sequence and the vertical by the aspect ratio"
+(`[[source: vt340test-physicalsixels]]` 193-195), so a `Pv` at 2:1 is twice
+as many device rows.
 
 ## What is also built: the storage value types
 
@@ -351,6 +380,23 @@ Active position of the ANSI text is not affected by Sixel mode and set
 exactly to what is was when Sixel mode was entered", PDF p. 928), the
 sentinel, and chunk invariance.
 
+**A second DEC text reads the other way, and a VT340 sides with 070-9.**
+`[[source: vt3xx-sixel]]`'s "Sixel Scrolling Enabled": "When sixel mode is
+exited, the text cursor is set to the current sixel cursor position" (441-444),
+which read literally is the column after the last sixel drawn, not the one the
+image began in. On the terminal that manual describes, vt340test's script
+states the column is kept: "the text cursor is moved to the row of the last
+sixel cursor position, but the column stays the same as it was before the
+sixel image was sent" (`[[source: vt340test-textcursor-sh]]` 5-7), and its
+capture (`[[source: vt340test-textcursor-png]]`) shows three images sent one
+after another with a `CUF 1` between each, every one starting a column right
+of where the last one started rather than right of its edge. So baud's column
+conforms to 070-9, the standard, and to a VT340, and departs from that
+sentence of the VT330/VT340 manual, which binds the VT300 rather than baud by
+note AN's reading (section 8). It is recorded as a conflict between the texts
+and not changed; the record, "A Sixel's background fill waits on Jev, and the
+column has a second text", lists the options.
+
 **The `Term` field and the `Paint::new` argument cost nothing, measured.** They
 are per-`read(2)`, not per-byte -- `Paint::new` is called once a feed, not once
 a character -- so unlike the `last_cp`-in-`Cold` case this repo prices at 16%,
@@ -402,11 +448,14 @@ the grid, the arena, the reply buffer -- baud-core allocates none of them):
 * **An image pixel arena**, `[u32]`, caller-provided, holding decoded ARGB.
   A decode that would exceed it is refused whole (`images_refused` and
   `refusals.arena`, with the image's size), never truncated -- half an image
-  is a wrong image. The raster attributes
+  is a wrong image. ~~The raster attributes
   `Ph`x`Pv` bound a decode before it starts, and an image with no raster
   attributes is bounded by the arena's free space and refused if it fills
-  it. **Size is the owner's call**, flagged below; the mechanism does not
-  depend on the number.
+  it.~~ What bounds a decode is the walk's own extent (`Sixel::extent`), the
+  same with raster attributes or without: both DEC texts say `Ph`x`Pv` "do not
+  limit the size of the image", so a decode sized from them would be cut
+  wherever a sender's data ran past them. **Size is the owner's call**,
+  flagged below; the mechanism does not depend on the number.
 * **A placement table**, bounded, holding `{ image slot, anchor, z }`.
   Screen-space with its own storage, *not* a per-cell reference, because
   `CellFlags` is full at 16 bits with zero spare -- the note the images
@@ -661,38 +710,69 @@ if the operation regressed.
   unpainted pixels be drawn in an opaque background rather than left
   transparent. baud draws them transparent -- the `P2` = 1 behaviour, and the
   more useful default, since an image then composites over the text -- and the
-  opaque fill is **not built**, because *what colour* to fill with has no
+  opaque fill is **not built**, because ~~*what colour* to fill with has no
   defensible pinned source (`[[source: vt3xx-sixel]]`'s background chapter is
-  unread), and a wrong opaque fill paints over content that should show through,
-  which is worse than the current transparent. So the gap is made visible rather
-  than filled with a guess: the graph now routes the `Node::Dcs` parameters into
-  `csi`, `SixelStart` records the `P2` selector on `Cold`, and the terminator
-  bumps `ImageStore::sixel_p2_ignored` **after the image stores** -- not at parse
-  time, so a Sixel later refused (which drew nothing for a fill to have helped)
-  does not inflate the count. **How often a rendered image asks for it is the
-  number that would justify building the fill** -- the `clipboard_reads_refused`
-  / `mouse_unencodable` pattern. Routing the parameters moved the stride-k class
-  counts +0.6% at stride 4 (the pinned `the_alphabet_reduces_as_the_stride_doubles`
-  trade), and the DECRQSS path (`DCS $ q`, and `DCS 1 $ q` with a digit before
-  the `$`) is unchanged, which the conformance suite confirms.
-  **Since 2026-10-11 an absent or empty `P2` is counted as 0 is**:
-  `[[source: vt3xx-sixel]]` lists "0 or 2 (default)" and reads a missing
-  parameter as 0, so `ESC P q` asks what `ESC P 0;0;0 q` asks, where the
-  counter missed it. The fill is still not built, for Jev. The colour's texts
-  are read now: `[[source: dec-std-070]]` 070-9 §7.2 calls it "device
-  dependent" and §10 initialises it to the "Device default background";
-  `[[source: vt3xx-sixel]]` says "the current background color", and on the
-  VT340 that is an output-map location, chosen by ReGIS's `S(I...)`
-  (`[[source: vt3xx-screen-control]]`), in the one map its Sixel registers
-  also write -- which xterm follows as the image's register 0 (practice),
-  where baud's registers are private to each image. The region is the
-  image's rectangle, which `[[source: vt3xx-sixel]]` erases with `Ph` and
-  `Pv` and 070-9 allows. And no text says how a background pixel draws on
-  baud's translucent window, where every background carries the window's
-  alpha and an image is composited over the glyphs: at the window's alpha
-  the glyphs under the image show through, and opaque it is a slab the rest
-  of the window is not. The record, "An absent Sixel P2 is P2 = 0, and the
-  fill is for Jev", sets out the options.
+  unread), and~~ a wrong opaque fill paints over content that should show
+  through, which is worse than the current transparent; the texts are read
+  now, and what they leave open is set out at the end of this item. So the gap
+  is made visible rather than filled with a guess: the graph now routes the
+  `Node::Dcs` parameters into `csi`, `SixelStart` records the `P2` selector on
+  `Cold`, and the terminator bumps `ImageStore::sixel_p2_ignored` **after the
+  image stores** -- not at parse time, so a Sixel later refused (which drew
+  nothing for a fill to have helped) does not inflate the count. **How often a
+  rendered image asks for it is the number that would justify building the
+  fill** -- the `clipboard_reads_refused` / `mouse_unencodable` pattern.
+  Routing the parameters moved the stride-k class counts +0.6% at stride 4
+  (the pinned `the_alphabet_reduces_as_the_stride_doubles` trade), and the
+  DECRQSS path (`DCS $ q`, and `DCS 1 $ q` with a digit before the `$`) is
+  unchanged, which the conformance suite confirms. **Since 2026-10-11 an
+  absent or empty `P2` is counted as 0 is**: `[[source: vt3xx-sixel]]` lists
+  "0 or 2 (default)" and reads a missing parameter as 0, so `ESC P q` asks
+  what `ESC P 0;0;0 q` asks, where the counter missed it. The fill is still
+  not built, for Jev. The colour's texts are read now:
+  `[[source: dec-std-070]]` 070-9 §7.2 calls it "device dependent" and §10
+  initialises it to the "Device default background"; `[[source: vt3xx-sixel]]`
+  says "the current background color", and on the VT340 that is an output-map
+  location, chosen by ReGIS's `S(I...)` (`[[source: vt3xx-screen-control]]`),
+  in the one map its Sixel registers also write -- which xterm follows as the
+  image's register 0 (practice), where baud's registers are private to each
+  image. The region is the image's rectangle, which `[[source: vt3xx-sixel]]`
+  erases with `Ph` and `Pv` and 070-9 allows. And no text says how a
+  background pixel draws on baud's translucent window, where every background
+  carries the window's alpha and an image is composited over the glyphs: at
+  the window's alpha the glyphs under the image show through, and opaque it is
+  a slab the rest of the window is not. The record, "An absent Sixel P2 is P2
+  = 0, and the fill is for Jev", sets out the options.
+
+  **What a VT340 does, from vt340test (2026-10-11), practice and not a text.**
+  The region: with raster attributes "the width and height are used to clear a
+  background rectangle", and without them "On the VT340 using P2=0 clears the
+  screen from the cursor to the bottom right corner"
+  (`[[source: vt340test-p2effect-sh]]` 6-7, 12-13), which its capture shows
+  (`[[source: vt340test-p2effect-png]]`), and which 070-9 §10's initial
+  extent, "Distance from current ANSI text position to current ANSI right
+  margin" and "to current ANSI bottom margin" (PDF p. 926), describes;
+  `[[source: vt340test-physicalsixels]]` adds that the clear comes "upon
+  receive the first sixel bit pattern" (185-188). The colour: "The background
+  is always color index 0" (`[[source: vt340test-readme]]` 100-101), the
+  extent is "the rectangle that is cleared to the text background color"
+  (`[[source: vt340test-physicalsixels]]` 178-179), and under `?5`, where the
+  screen shows grey, the fill is black, the map entry and not the reversed
+  screen (`[[source: vt340test-background-select-2-png]]`). On that terminal a
+  Sixel's `#0` does not name entry 0: "it is only the order of the assignment
+  that matters ... the first sixel color defined is mapped to VT color #1, not
+  color #0" (`[[source: vt340test-readme]]` 142-144), so xterm's fill from the
+  image's register 0 follows neither the VT340 nor the VT3xx chapter's
+  "current background color" where the registers are private to the image, as
+  baud's are (a reading). With these, the region reads as settled by the texts
+  -- the raster extent when one is sent, 070-9 §10's extent to the margins
+  when none is, each conforming to both DEC texts and what a VT340 does, where
+  a fill of the data's reach alone departs from 070-9 §7.2 (a reading) -- and
+  the colour nearly so, baud's default background, with when it is read and
+  what it is under `?5` still open. **How a filled pixel draws on a
+  translucent window stays open too**: no text knows a window's alpha. The
+  record, "A Sixel's background fill waits on Jev, and the column has a second
+  text", holds the options with their marks.
 
 ## What this note does not cover
 

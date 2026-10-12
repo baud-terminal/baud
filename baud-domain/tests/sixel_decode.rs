@@ -111,9 +111,13 @@ fn a_zero_repeat_draws_one_column() {
     // `[[source: vt3xx-sixel]]` says only that the count "can be any decimal
     // value"; `[[source: dec-std-070]]` 070-9 §8.1.1 settles zero: "A repeat
     // count of zero implies a repeat count of 1" (PDF p. 920). So `!0~` is
-    // one column, as `!1~` and a bare `~` are, and not none.
+    // one column, as `!1~` and a bare `~` are, and not none. DEC's printer
+    // reference says it of an omitted count too, so `!~` is one column:
+    // "If the repeat count is zero or is omitted, it is treated as a repeat
+    // count of one" (`[[source: dec-pplv2-pm]]` p. 5-26, PDF 80).
     for body in [
         b"#0;2;0;0;100!0~".as_slice(),
+        b"#0;2;0;0;100!~",
         b"#0;2;0;0;100!1~",
         b"#0;2;0;0;100~",
     ] {
