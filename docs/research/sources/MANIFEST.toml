@@ -23284,3 +23284,93 @@ status = "external"
 group  = "E"
 # Read for TTYDEF_IFLAG (BRKINT | ICRNL | IMAXBEL | IXON | IXANY): no IUTF8, so a new
 # Darwin pty starts -iutf8 (xnu-tty-dev's ptsopen applies it).
+
+[sources.kitty-6d5d0c4-line-h]
+key    = "kitty-6d5d0c4-line-h"
+title  = "kitty at 6d5d0c4, kitty/line.h -- CPUCell's ch_or_idx/ch_is_idx and MAX_NUM_CODEPOINTS_PER_CELL"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/line.h"
+file   = ""
+sha256 = "06610034f2c3b2f72880f4dd2ad30b3a1f6da0f66bf1c9d17196ecf7c429e606"
+bytes  = 6272
+status = "external"
+group  = "F"
+# Read 2026-10-12 (round 2026-10-12, lane clusters): 31 (24 code points a cell), 50-57 (a 31-bit
+# index or character in the cell's char field, tagged by one bit). The same commit as
+# [[source: kitty-text-cache]] and kitty-6d5d0c4-screen.
+
+[sources.foot-cb27717-composed-c]
+key    = "foot-cb27717-composed-c"
+title  = "foot at cb27717, composed.c -- the composed-chain lookup that walks keys on a collision"
+author = "Daniel Eklof and the foot contributors"
+year   = 2026
+venue  = "dnkl/foot"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/cb2771788998f6a6288e2de8273c55a8214551e0/composed.c"
+file   = ""
+sha256 = "aed55e4cfafc1230958e7a31af792c43841bd1f159033563eea99007aea2ca34"
+bytes  = 3313
+status = "external"
+group  = "F"
+# Read 2026-10-12 (round 2026-10-12, lane clusters): 69-102, composed_lookup_without_collision and its
+# "loop infinitely if the composed table is full" TODO. The chains are interned in
+# [[source: foot-terminal-cb27717]] 4240-4440.
+
+[sources.foot-cb27717-terminal-h]
+key    = "foot-cb27717-terminal-h"
+title  = "foot at cb27717, terminal.h -- CELL_COMB_CHARS_LO/HI: a chain's key stored in the cell above U+10FFFF"
+author = "Daniel Eklof and the foot contributors"
+year   = 2026
+venue  = "dnkl/foot"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/cb2771788998f6a6288e2de8273c55a8214551e0/terminal.h"
+file   = ""
+sha256 = "0cfa100adab2adae8f39da87913aa33c7cc2c03be6d168cb0ce83a6518e2b25d"
+bytes  = 28221
+status = "external"
+group  = "F"
+# Read 2026-10-12 (round 2026-10-12, lane clusters): 64-66, 454-455.
+
+[sources.alacritty-0c405d5-cell]
+key    = "alacritty-0c405d5-cell"
+title  = "Alacritty at 0c405d5, alacritty_terminal/src/term/cell.rs -- zero-width characters in a per-cell Vec behind Option<Arc<CellExtra>>"
+author = "The Alacritty Project"
+year   = 2025
+venue  = "alacritty/alacritty"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/0c405d53e74ace2980fc5e6c6d5b710c144bc075/alacritty_terminal/src/term/cell.rs"
+file   = ""
+sha256 = "c5aedc6880ab1b8cf526e917dfcc7d30f85105c242ef41a557f69a04ac7e9fce"
+bytes  = 9594
+status = "external"
+group  = "F"
+# Read 2026-10-12 (round 2026-10-12, lane clusters): 118-176. The same commit as alacritty-0c405d5-term-mod,
+# whose input() pushes a width-0 character with push_zerowidth (1069-1084).
+
+[sources.wezterm-e2a98e1-cell-lib]
+key    = "wezterm-e2a98e1-cell-lib"
+title  = "WezTerm at e2a98e1, wezterm-cell/src/lib.rs -- TeenyString: a cell's text inline in a u64 up to seven bytes, else on the heap"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/wezterm-cell/src/lib.rs"
+file   = ""
+sha256 = "9cd1277b3d6944972da17b0f78b2f8b177d5ecd6746dc579997467d9fd9acee7"
+bytes  = 41418
+status = "external"
+group  = "F"
+# Read 2026-10-12 (round 2026-10-12, lane clusters): 548-697.
+
+[sources.pango-8e74c27-test-hebrew]
+key    = "pango-8e74c27-test-hebrew"
+title  = "Pango at 8e74c27, utils/test-hebrew.txt -- Genesis 1, pointed and cantillated, thirteen lines"
+author = "The Pango authors"
+year   = 2026
+venue  = "GNOME/pango"
+url    = "https://gitlab.gnome.org/GNOME/pango/-/raw/8e74c27c113c98664b77272d16b14bbce542c184/utils/test-hebrew.txt"
+file   = ""
+sha256 = "39e80e5ee3f5355eda25ccefec3ca0095e5da8f88780621abdc0617988d0b664"
+bytes  = 2693
+status = "external"
+group  = "G"
+# Read 2026-10-12 (round 2026-10-12, lane clusters): the text note AB section 7.2 counted (175 distinct
+# marked clusters, 102 with U+0591-05AF removed), and the second text of the round's model of the cluster store.
