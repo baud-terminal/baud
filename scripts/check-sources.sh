@@ -158,7 +158,9 @@ done
 cut -f1 "$tmp/entries" | sort -u >"$tmp/keys"
 awk -F'\t' '$4 == "gated" { print $1 }' "$tmp/entries" | sort -u >"$tmp/gated"
 {
-  find . \( -path ./target -o -path ./.git -o -path ./.devenv -o -path ./node_modules \) -prune \
+  # .claude/worktrees holds other branches' checkouts (agent lanes), each with its own
+  # manifest: their citations are theirs, and a lane's new key reads as missing here.
+  find . \( -path ./target -o -path ./.git -o -path ./.devenv -o -path ./node_modules -o -path ./.claude/worktrees \) -prune \
     -o -type f \( -name '*.md' -o -name '*.rs' \) -print0 |
     xargs -0 grep -ohE '\[\[source: [a-z0-9_-]+\]\]' 2>/dev/null
 } | sed -E 's/\[\[source: (.*)\]\]/\1/' | sort -u >"$tmp/cited"
