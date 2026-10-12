@@ -21168,3 +21168,421 @@ group  = "C"
 # color is black (00 on the scale)." DECSCNM, "light" as a screen setting and "dark" as
 # one appear on no page; "Set-Up", "screen background" and "reverse" are found as the
 # controls.
+
+[sources.x-ttdoda-244988351994802177]
+key    = "x-ttdoda-244988351994802177"
+title  = "@ttdoda on X, status 244988351994802177 -- 2012-09-10, the VT382 manual and VT330/VT340 ch. 14 give DECSDM opposite senses"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2012
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=244988351994802177&token=a&lang=en"
+file   = ""
+sha256 = "a7c00632ef0f78991a82c8e9401ff26f013e7db72899c292093d278a6d4f25e0"
+bytes  = 2332
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2012-09-10T02:39:09.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p003]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-244990458810474497]
+key    = "x-ttdoda-244990458810474497"
+title  = "@ttdoda on X, status 244990458810474497 -- 2012-09-10, will check on the VT382 itself tonight"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2012
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=244990458810474497&token=a&lang=en"
+file   = ""
+sha256 = "b45f040b6de4d85a4a2c4d7c9a674bb92ca5a1e0b5d0101e2c633b5331c52a1c"
+bytes  = 1834
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2012-09-10T02:47:31.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p003]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-246402876388286465]
+key    = "x-ttdoda-246402876388286465"
+title  = "@ttdoda on X, status 246402876388286465 -- 2012-09-14, a serial port added and the VT382 connected again for tests"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2012
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=246402876388286465&token=a&lang=en"
+file   = ""
+sha256 = "6953ff8cc3dcbe12b65531a03c2f629af6afaf006058c1ecdcf3485066f3f0c8"
+bytes  = 840
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2012-09-14T00:19:58.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p003]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-246407060131020802]
+key    = "x-ttdoda-246407060131020802"
+title  = "@ttdoda on X, status 246407060131020802 -- 2012-09-14, VT382 hardware: set = no scrolling, reset = scrolling, as the VT382 manual says"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2012
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=246407060131020802&token=a&lang=en"
+file   = ""
+sha256 = "3453cfc8b8d1b8288f0945c0c478db959ca92ffacb90fcc0588d9d735db54b9f"
+bytes  = 1167
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2012-09-14T00:36:35.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p003]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-452002362685550592]
+key    = "x-ttdoda-452002362685550592"
+title  = "@ttdoda on X, status 452002362685550592 -- 2014-04-04, bought a VT330 last month, still boxed"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=452002362685550592&token=a&lang=en"
+file   = ""
+sha256 = "87cbf75780eb9790f57f2c9d5f0375aaf6bfc49b170d2137d9d7a17e45b475d6"
+bytes  = 815
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2014-04-04T08:38:55.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p019]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-453075126473338881]
+key    = "x-ttdoda-453075126473338881"
+title  = "@ttdoda on X, status 453075126473338881 -- 2014-04-07, logging in from xterm: xterm defaults to Display Mode"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=453075126473338881&token=a&lang=en"
+file   = ""
+sha256 = "70e3e030f487c3db348cdc606600789bc1c962040e5a8c08ebe92de5ccb8738b"
+bytes  = 864
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2014-04-07T07:41:42.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p019]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-453076401243963392]
+key    = "x-ttdoda-453076401243963392"
+title  = "@ttdoda on X, status 453076401243963392 -- 2014-04-07, following 453075126473338881 on xterm: set = Scrolling Mode there; the VT382 manual is the opposite, and the VT382 itself follows its manual"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=453076401243963392&token=a&lang=en"
+file   = ""
+sha256 = "6be8c3c524765b2b02e0a29eb6c2da9a94b45ad62f94cd61509e662ba6d826c0"
+bytes  = 1136
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2014-04-07T07:46:46.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p019]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-453076732392656896]
+key    = "x-ttdoda-453076732392656896"
+title  = "@ttdoda on X, status 453076732392656896 -- 2014-04-07, will check the VT330 itself on getting home"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=453076732392656896&token=a&lang=en"
+file   = ""
+sha256 = "442df37bbd65665f50f6313ee49d0021c7f3d874a4f17bd7c07083f639fe291f"
+bytes  = 1082
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2014-04-07T07:48:05.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p019]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-453208758630354944]
+key    = "x-ttdoda-453208758630354944"
+title  = "@ttdoda on X, status 453208758630354944 -- 2014-04-07, VT330 out of its box"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=453208758630354944&token=a&lang=en"
+file   = ""
+sha256 = "25700d0fde28d89f6307219f7a0ddc3cf73d15b9be32ee83ce4a4f0d4003434d"
+bytes  = 803
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2014-04-07T16:32:42.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p019]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-453215353653301248]
+key    = "x-ttdoda-453215353653301248"
+title  = "@ttdoda on X, status 453215353653301248 -- 2014-04-07, VT330 hardware: after Factory Default, the default is Scrolling Mode"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=453215353653301248&token=a&lang=en"
+file   = ""
+sha256 = "26a08eaf99af795ce4edca83980c548cefa4e998b7b4a3396aac466d797b014e"
+bytes  = 879
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2014-04-07T16:58:55.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p020]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-453216088902221824]
+key    = "x-ttdoda-453216088902221824"
+title  = "@ttdoda on X, status 453216088902221824 -- 2014-04-07, VT330 hardware: DECSDM set = Display Mode, reset = Scrolling Mode, same as the VT382"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=453216088902221824&token=a&lang=en"
+file   = ""
+sha256 = "ce80d0866af8e233a14f2ccd2e85f9d296fc8a1d2f4059dd6cfd88cbb7e4602d"
+bytes  = 1068
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2014-04-07T17:01:50.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p020]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-479053314412126208]
+key    = "x-ttdoda-479053314412126208"
+title  = "@ttdoda on X, status 479053314412126208 -- 2014-06-18, the tweet lsix #41 quotes: VT382 hardware and manual, and VT330 hardware, enable sixel scrolling at DECSDM reset"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=479053314412126208&token=a&lang=en"
+file   = ""
+sha256 = "6e1486fa91c051207407e6a06df8ba12a02c9af97b360e283541bb0515889607"
+bytes  = 1041
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2014-06-18T00:09:45.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p027]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-454493567356903424]
+key    = "x-ttdoda-454493567356903424"
+title  = "@ttdoda on X, status 454493567356903424 -- 2014-04-11, withdraws a different VT330 test (graphics CR or NL after an image) and reports the VT330 no longer starts"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=454493567356903424&token=a&lang=en"
+file   = ""
+sha256 = "e55b1bc17eb9b9555a530d3856352f9e3a30e2eafa6b0da7b326ccf42963ba0a"
+bytes  = 2692
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2014-04-11T05:38:05.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p021]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-479055544255127552]
+key    = "x-ttdoda-479055544255127552"
+title  = "@ttdoda on X, status 479055544255127552 -- 2014-06-18, of the VT330/VT340 manual set bought, only PRM Vol. 2 and the Pocket Guide give the DECSDM mapping"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (cdn.syndication.twimg.com tweet-result JSON)"
+url    = "https://cdn.syndication.twimg.com/tweet-result?id=479055544255127552&token=a&lang=en"
+file   = ""
+sha256 = "8ea22bdfbd9f1ee1dad534f409c2d3ce1fa7a8a4e47d4c5a9afe746a8a6c5427"
+bytes  = 901
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm), created_at
+# 2014-06-18T00:18:36.000Z. Found through the posfie compilation [[source: posfie-sixel-revival-p027]].
+# syndication JSON carries live counts (favorite_count, edit_control), so a re-fetch may hash differently.
+
+[sources.x-ttdoda-246407060131020802-oembed]
+key    = "x-ttdoda-246407060131020802-oembed"
+title  = "@ttdoda on X, status 246407060131020802, oEmbed -- VT382 hardware test, 2012-09-14"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2012
+venue  = "X (publish.twitter.com oEmbed)"
+url    = "https://publish.twitter.com/oembed?url=https://twitter.com/ttdoda/status/246407060131020802"
+file   = ""
+sha256 = "88c4561f3a84b6caf32d9fe17f1b1ae7a62513e2c79768fffa92faed3773d48f"
+bytes  = 1045
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm). The same text as the
+# syndication entry, with the date X prints; no live counts.
+
+[sources.x-ttdoda-453215353653301248-oembed]
+key    = "x-ttdoda-453215353653301248-oembed"
+title  = "@ttdoda on X, status 453215353653301248, oEmbed -- VT330 factory default, 2014-04-07"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (publish.twitter.com oEmbed)"
+url    = "https://publish.twitter.com/oembed?url=https://twitter.com/ttdoda/status/453215353653301248"
+file   = ""
+sha256 = "5c1e63e4baadad4cd2652863689d33e436a9f43ea22baa9272abe6e4ecc9ac06"
+bytes  = 886
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm). The same text as the
+# syndication entry, with the date X prints; no live counts.
+
+[sources.x-ttdoda-453216088902221824-oembed]
+key    = "x-ttdoda-453216088902221824-oembed"
+title  = "@ttdoda on X, status 453216088902221824, oEmbed -- VT330 hardware test, 2014-04-07"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (publish.twitter.com oEmbed)"
+url    = "https://publish.twitter.com/oembed?url=https://twitter.com/ttdoda/status/453216088902221824"
+file   = ""
+sha256 = "d2dd908285f55661645d84229a8e92815dd98718631f0be15c57e0f2b8e4394b"
+bytes  = 943
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm). The same text as the
+# syndication entry, with the date X prints; no live counts.
+
+[sources.x-ttdoda-479053314412126208-oembed]
+key    = "x-ttdoda-479053314412126208-oembed"
+title  = "@ttdoda on X, status 479053314412126208, oEmbed -- the tweet lsix #41 quotes, 2014-06-18"
+author = "いわもと こういち (@ttdoda, profile: Tera Termの中の人)"
+year   = 2014
+venue  = "X (publish.twitter.com oEmbed)"
+url    = "https://publish.twitter.com/oembed?url=https://twitter.com/ttdoda/status/479053314412126208"
+file   = ""
+sha256 = "dfc2bf3db98552a5edc37670be3b67bb69bb538bd26ffab94e97af6a204c95de"
+bytes  = 907
+status = "external"
+group  = "C"
+# `external`: post text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm). The same text as the
+# syndication entry, with the date X prints; no live counts.
+
+[sources.posfie-sixel-revival-p019]
+key    = "posfie-sixel-revival-p019"
+title  = "posfie, @kefir_ (saitoha), Sixel Graphics revival compilation, page 19 -- 2014-04-04 to 04-07: ttdoda buys a VT330, reads xterm's DECSDM against the VT382"
+author = "saitoha (@kefir_), compiler; posts by their authors"
+year   = 2014
+venue  = "posfie.com"
+url    = "https://posfie.com/@kefir_/p/UWG40pu?page=19"
+file   = ""
+sha256 = "7a53de847e8fedac2c9da0de8f7a8d3130122aa52d427f1df0b3dfe2cb0c44e1"
+bytes  = 99669
+status = "external"
+group  = "C"
+# `external`: a compilation of X posts, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm). Times shown
+# are JST. The page is generated per request, so a re-fetch hashes differently (page 55 did).
+
+[sources.posfie-sixel-revival-p003]
+key    = "posfie-sixel-revival-p003"
+title  = "posfie, @kefir_ (saitoha), Sixel Graphics revival compilation, page 3 -- 2012-09: saitoha asks DECSDM's default; ttdoda's VT382 test"
+author = "saitoha (@kefir_), compiler; posts by their authors"
+year   = 2012
+venue  = "posfie.com"
+url    = "https://posfie.com/@kefir_/p/UWG40pu?page=3"
+file   = ""
+sha256 = "451f6d5511159ded803e6ae0bdd59d0d936cca237ff6c75372a57f68611d5273"
+bytes  = 101311
+status = "external"
+group  = "C"
+# `external`: a compilation of X posts, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm). Times shown
+# are JST. The page is generated per request, so a re-fetch hashes differently (page 55 did).
+
+[sources.posfie-sixel-revival-p020]
+key    = "posfie-sixel-revival-p020"
+title  = "posfie, @kefir_ (saitoha), Sixel Graphics revival compilation, page 20 -- 2014-04: ttdoda's VT330 test"
+author = "saitoha (@kefir_), compiler; posts by their authors"
+year   = 2014
+venue  = "posfie.com"
+url    = "https://posfie.com/@kefir_/p/UWG40pu?page=20"
+file   = ""
+sha256 = "8bfe4f27d8807f4a9204d3d724fff0abc2775aa9bae0de315ab74f3bc11a86dc"
+bytes  = 99854
+status = "external"
+group  = "C"
+# `external`: a compilation of X posts, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm). Times shown
+# are JST. The page is generated per request, so a re-fetch hashes differently (page 55 did).
+
+[sources.posfie-sixel-revival-p021]
+key    = "posfie-sixel-revival-p021"
+title  = "posfie, @kefir_ (saitoha), Sixel Graphics revival compilation, page 21 -- 2014-04-11: the withdrawn CR/NL test and the VT330 that no longer starts"
+author = "saitoha (@kefir_), compiler; posts by their authors"
+year   = 2014
+venue  = "posfie.com"
+url    = "https://posfie.com/@kefir_/p/UWG40pu?page=21"
+file   = ""
+sha256 = "d1dee11d96193b072cd0b1c29731758b841ab1d8e317bde39fdff1eacbb24ad1"
+bytes  = 101866
+status = "external"
+group  = "C"
+# `external`: a compilation of X posts, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm). Times shown
+# are JST. The page is generated per request, so a re-fetch hashes differently (page 55 did).
+
+[sources.posfie-sixel-revival-p026]
+key    = "posfie-sixel-revival-p026"
+title  = "posfie, @kefir_ (saitoha), Sixel Graphics revival compilation, page 26 -- 2014-06-17: @uobikiemukot's post 478781829944602624, now protected on X"
+author = "saitoha (@kefir_), compiler; posts by their authors"
+year   = 2014
+venue  = "posfie.com"
+url    = "https://posfie.com/@kefir_/p/UWG40pu?page=26"
+file   = ""
+sha256 = "7f0c32f8ae1897cf67fba392896aa9b4b9016e7932472e04fbca90382d91c477"
+bytes  = 99926
+status = "external"
+group  = "C"
+# `external`: a compilation of X posts, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm). Times shown
+# are JST. The page is generated per request, so a re-fetch hashes differently (page 55 did).
+
+[sources.posfie-sixel-revival-p027]
+key    = "posfie-sixel-revival-p027"
+title  = "posfie, @kefir_ (saitoha), Sixel Graphics revival compilation, page 27 -- 2014-06-18: ttdoda's reply that lsix #41 quotes"
+author = "saitoha (@kefir_), compiler; posts by their authors"
+year   = 2014
+venue  = "posfie.com"
+url    = "https://posfie.com/@kefir_/p/UWG40pu?page=27"
+file   = ""
+sha256 = "780c89aea420e450b393ea18fe0db1852d33cb1a3320e30bf8ab5e15a655b8d4"
+bytes  = 102703
+status = "external"
+group  = "C"
+# `external`: a compilation of X posts, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm). Times shown
+# are JST. The page is generated per request, so a re-fetch hashes differently (page 55 did).
+
+[sources.vt340test-issue-10]
+key    = "vt340test-issue-10"
+title  = "hackerb9/vt340test issue #10, Feedback on the testdecsm script (2021-08-21)"
+author = "j4james"
+year   = 2021
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/hackerb9/vt340test/issues/10"
+file   = ""
+sha256 = "d5d942271eaf09e8f6e613dae581903e7fbd3ce87c340f5b8c460df31c82bc03"
+bytes  = 4372
+status = "external"
+group  = "C"
+# `external`: issue text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm).
+
+[sources.vt340test-issue-10-comments]
+key    = "vt340test-issue-10-comments"
+title  = "hackerb9/vt340test issue #10, comments (5) -- hackerb9 on RIS and DECSTR against the Set-Up sixel-scrolling default (2021-08-23)"
+author = "hackerb9, j4james"
+year   = 2021
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/hackerb9/vt340test/issues/10/comments"
+file   = ""
+sha256 = "463826de063a331661e238850addc9ff9a64f8b154c1414c86d2b34b16e232c1"
+bytes  = 12546
+status = "external"
+group  = "C"
+# `external`: comment text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm): comment 903379822.
+# The same VT340+ as [[source: lsix-issue-41-comments]] and vt340test's errata.
+
+[sources.mintty-issue-1127]
+key    = "mintty-issue-1127"
+title  = "mintty/mintty issue #1127, Private mode 80 (DECSDM) is the wrong way around (2021-09-22)"
+author = "j4james"
+year   = 2021
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/mintty/mintty/issues/1127"
+file   = ""
+sha256 = "a080681ffdca0f2d78f2d0db88249349edbd1780f3c924abd894dad987036d35"
+bytes  = 3837
+status = "external"
+group  = "C"
+# `external`: issue text, no grant. Read 2026-10-11 (round 2026-10-11c, lane decsdm). Its confirmation on an
+# actual VT340 is hackerb9's, not a further unit.
