@@ -167,6 +167,12 @@ from    = "https://raw.githubusercontent.com/Chlumsky/msdfgen/1c106ed8117893bf94
 how     = "fetched"
 sha256  = "32a94b25ad7072a78457d35019b32d73d2c265c806b0b76e9638fe800330bbe4"
 
+[text."msdos-4.0-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/microsoft/MS-DOS/2d04cacc5322951f187bb17e017c12920ac8ebe2/LICENSE"
+how     = "fetched"
+sha256  = "b5179f780ec212a434efcc989a2295a140deb0bdb17182d2bf9c5f6f1f1a01c4"
+
 [text."msdos-MIT.txt"]
 licence = "MIT"
 from    = "https://raw.githubusercontent.com/microsoft/MS-DOS/80ab2fddfdf30f09f0a0a637654cbb3cd5c7baa6/LICENSE.md"
@@ -605,6 +611,19 @@ files   = [
   "vt100-avr-terminal.cpp",
 ]
 
+[upstream.vt340test]
+name    = "hackerb9/vt340test (hackerb9 and contributors), tests and findings on a real VT340"
+licence = "CC0-1.0"
+notice  = "none needed"
+status  = "kept"
+files   = [
+  "vt340test-README.md",
+  "vt340test-background_select_2.png",
+  "vt340test-background_select_2.sh",
+  "vt340test-colormap.md",
+  "vt340test-errata.md",
+]
+
 [upstream.williams-parser]
 name    = "vt100.net, 'A parser for DEC's ANSI-compatible video terminals' (Paul Flo Williams). Its RDF names CC BY-NC-SA 3.0; a footer commented out of the page names CC BY 4.0. The two conflict, and the RDF, the only notice the page declares, is the one followed."
 licence = "CC-BY-NC-SA-3.0"
@@ -891,6 +910,15 @@ files   = [
   "msdfgen-README.md",
 ]
 
+[upstream.msdos-4]
+name    = "MS-DOS 4.0 source (Microsoft), the ANSI.SYS driver; the file carries no notice, so the repository's is beside"
+licence = "MIT"
+notice  = "LICENSES/msdos-4.0-MIT.txt"
+status  = "kept"
+files   = [
+  "msdos-4.0-ANSI.ASM",
+]
+
 [upstream.msdos]
 name    = "MS-DOS 1.25 and 2.0 source (Microsoft); the file carries no notice, so the repository's is beside"
 licence = "MIT"
@@ -1097,6 +1125,7 @@ notice  = "LICENSES/xterm-COPYING.txt"
 status  = "kept"
 files   = [
   "xterm-VTPrsTbl.c",
+  "xterm-button.c",
   "xterm-charproc.c",
   "xterm-charsets.h",
   "xterm-ctlseqs.txt",
@@ -1109,8 +1138,21 @@ files   = [
   "xterm-ptyx.h",
   "xterm-util.c",
   "xterm-xterm.h",
+  "xterm-xterm.log.html",
   "xterm-xterm.man",
   "xterm-xtermcap.c",
+]
+
+[upstream.xterm-x11r5]
+name    = "xterm as in the X11R5 snapshot (Digital Equipment Corporation, MIT, X Consortium)"
+licence = "HPND"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "xterm-X11R5-button.c",
+  "xterm-X11R5-charproc.c",
+  "xterm-X11R5-ctlseqs.ms",
+  "xterm-X11R5-misc.c",
 ]
 
 [upstream.yazi]

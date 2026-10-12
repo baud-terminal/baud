@@ -13102,6 +13102,9 @@ group  = "C"
 # because
 # [[source: vt100net-technical]] names the -001 edition's DEC Technical diagram "small but
 # accurate". Read a page before citing it.
+# Read 2026-10-11 (round 2026-10-11b) through OCR, checked on the image: printed p. 99
+# (PDF 109), Sixel Display Mode (DECSDM): "Set: CSI ? 8 0 h" "Enables the Sixel Scrolling
+# feature on the Graphics Set-up screen."; Table 6 (printed 52, PDF 62) lists DECSDM 80.
 
 [sources.vt320-uu-appe]
 key    = "vt320-uu-appe"
@@ -20362,3 +20365,515 @@ sha256 = "3bbb22a4a80214151bdec249437c767dbd41e54ce2ab15639f9f49c82dba8121"
 bytes  = 17030
 status = "external"
 group  = "AN"
+
+[sources.xterm-button-c]
+key    = "xterm-button-c"
+title  = "xterm patch #411, button.c -- the ?1001 highlight-tracking press (TrackDown), answer (TrackMouse, StartSelect) and release (do_select_end) paths"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "ThomasDickey/xterm-snapshots (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/button.c"
+file   = "xterm-button.c"
+sha256 = "243be0fe1e1882420e3eaade87134c0c475ff685e46c6040caaa9628d1524f11"
+bytes  = 162096
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 for the V12 Q6 research (round 2026-10-11b). The same bytes as
+# `xterm-button` (external, same url) and as button.c at bccd466; committed so the
+# lines quoted (748-756, 1618-1624, 3060-3136, 5561-5589) can be checked.
+
+[sources.xterm-log-bccd466]
+key    = "xterm-log-bccd466"
+title  = "xterm change log (xterm.log.html) at bccd466 -- patch #173 (hilite tracking delay), #354 (filter identical button-events), #369 (DECSDM inverted to the VT382 manuals)"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "ThomasDickey/xterm-snapshots at bccd466 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/bccd466414dc4ecb264a3824a6f1e41bebe65214/xterm.log.html"
+file   = "xterm-xterm.log.html"
+sha256 = "318864dc31279c01fb8c7642ab90d5fae12b7c5d6b66a3fdabd06210626196dd"
+bytes  = 654820
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (round 2026-10-11b): 3284-3287 (#354), 2711-2712 (#369),
+# 11946-11948 (#173).
+
+[sources.xterm-x11r5-ctlseqs-ms]
+key    = "xterm-x11r5-ctlseqs-ms"
+title  = "Xterm Control Sequences, ctlseqs.ms v1.8 (1991-07-21), as in the X11R5 snapshot -- Mouse hilite tracking"
+author = "Edward Moy, Stephen Gildea"
+year   = 1991
+venue  = "ThomasDickey/xterm-snapshots, tag X11R5 (MIT permission notice in file)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/ctlseqs.ms"
+file   = "xterm-X11R5-ctlseqs.ms"
+sha256 = "606e82e28e570a83f37c61517cc7928fd1a49dcc083371d2e1f90b427a2c12f3"
+bytes  = 18198
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (round 2026-10-11b). Line 3: "$XConsortium: ctlseqs.ms,v 1.8
+# 91/07/21 15:30:31 gildea Exp $"; hilite tracking 464-492. The oldest revision in
+# the snapshots history; the X11R4 text was not found.
+
+[sources.xterm-x11r5-button-c]
+key    = "xterm-x11r5-button-c"
+title  = "xterm button.c as in the X11R5 snapshot -- TrackDown, TrackMouse, do_select_end, EndExtend"
+author = "Digital Equipment Corporation and MIT"
+year   = 1993
+venue  = "ThomasDickey/xterm-snapshots, tag X11R5 (permission notice in file)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/button.c"
+file   = "xterm-X11R5-button.c"
+sha256 = "c9a857169300c52c0fac05842155f6fef232005e5432d580dce456961fb930dc"
+bytes  = 39161
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (round 2026-10-11b): 148-158, 194-211, 408-448, 483-527.
+
+[sources.xterm-x11r5-misc-c]
+key    = "xterm-x11r5-misc-c"
+title  = "xterm misc.c as in the X11R5 snapshot -- xevents returns before XNextEvent while waitingForTrackInfo"
+author = "Digital Equipment Corporation and MIT"
+year   = 1993
+venue  = "ThomasDickey/xterm-snapshots, tag X11R5 (permission notice in file)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/misc.c"
+file   = "xterm-X11R5-misc.c"
+sha256 = "20a02c1a696592c3185f8f13ce6732b73ff9ff2601eb5193d2d5920c86c6c64e"
+bytes  = 23904
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (round 2026-10-11b): 66-80.
+
+[sources.msdos4-ansi-asm]
+key    = "msdos4-ansi-asm"
+title  = "MS-DOS 4.0 source, v4.0/src/DEV/ANSI/ANSI.ASM -- the ANSI.SYS console driver: SCP/RCP (PSCP/PRCP) and SAVCR DW 0"
+author = "Microsoft Corporation"
+year   = 1988
+venue  = "microsoft/MS-DOS at 2d04cac (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/MS-DOS/2d04cacc5322951f187bb17e017c12920ac8ebe2/v4.0/src/DEV/ANSI/ANSI.ASM"
+file   = "msdos-4.0-ANSI.ASM"
+sha256 = "e10599d4ebef27c2b91b89c35c49d6285fa8fd4dc70df2a3ea14bb83ebc7e6ab"
+bytes  = 52282
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (round 2026-10-11b): dispatch 156-159, SAVCR 375-377, SETCUR
+# 925-928, PSCP/PRCP 983-989. SAVCR is written nowhere else in the seven text files of
+# v4.0/src/DEV/ANSI fetched (ANSI.ASM/.INC/.SKL, ANSIINIT.ASM, ANSIVID.INC, IOCTL.ASM,
+# PARSER.ASM).
+
+[sources.vt340test-errata]
+key    = "vt340test-errata"
+title  = "vt340test, errata.md -- DEC manual errata found on a VT340: DECSDM set disables sixel scrolling"
+author = "hackerb9 and contributors"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/errata.md"
+file   = "vt340test-errata.md"
+sha256 = "0dc39daddc2c3624c8a449b089af6fe666f62f5fd145a1bd04a189b7a821e0ac"
+bytes  = 5512
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (round 2026-10-11b): 5-13, 154-170.
+
+[sources.vt340test-readme]
+key    = "vt340test-readme"
+title  = "vt340test, README.md -- findings on a real VT340, DECSDM among them"
+author = "hackerb9 and contributors"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/README.md"
+file   = "vt340test-README.md"
+sha256 = "2b42ffbd36e669bf07872acef3ebc3e441677a7830206dee6aad1368c5657a6a"
+bytes  = 21286
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (round 2026-10-11b): 128-130.
+
+[sources.vt340test-colormap]
+key    = "vt340test-colormap"
+title  = "vt340test, colormap/colormap.md -- VT340 text attributes as colour map entries 0, 7, 8, 15, measured"
+author = "hackerb9 and contributors"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/colormap/colormap.md"
+file   = "vt340test-colormap.md"
+sha256 = "d61353a1ef97d6f1b218353cb73aefe6055034bf32072e771a8aa1b6b6cdadcf"
+bytes  = 11935
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (round 2026-10-11b): 91-119, 217-223.
+
+[sources.vt3xx-gp-001]
+key    = "vt3xx-gp-001"
+title  = "VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, first edition, EK-VT3XX-GP-001"
+author = "Digital Equipment Corporation"
+year   = 1987
+venue  = "bitsavers.org (a scan with no text layer)"
+url    = "https://bitsavers.org/pdf/dec/terminal/vt340/EK-VT3XX-GP-001_VT330_VT340_Graphics_Programming_Mar87.pdf"
+file   = ""
+sha256 = "4d0a1be531edd5ed337b53b16826da266205eda334b126ca4b16a429bdaf8a63"
+bytes  = 53945027
+status = "external"
+group  = "C"
+# `external`: over the 3 MB note AF commits. Read 2026-10-11 through OCR of every page
+# (round 2026-10-11b): no DECSDM, "sixel display mode" or "sixel scrolling" (control:
+# "sixel" on 22 pages); chapter 14 ends at Parameter Separator, printed 237 (PDF 253,
+# checked on the image).
+
+[sources.vt3xx-gp-002]
+key    = "vt3xx-gp-002"
+title  = "VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, second edition, EK-VT3XX-GP-002"
+author = "Digital Equipment Corporation"
+year   = 1988
+venue  = "bitsavers.org (Paper Capture text layer)"
+url    = "https://bitsavers.org/pdf/dec/terminal/vt340/EK-VT3XX-GP-002_VT330_VT340_Graphics_Programming_198805.pdf"
+file   = ""
+sha256 = "e4b2a69d1425db5e216d372cd080c3cff6dd216dc8acbb47f58b699fa2338669"
+bytes  = 28119061
+status = "external"
+group  = "C"
+# `external`: over 3 MB. Read 2026-10-11 (round 2026-10-11b): Sixel Scrolling Mode, PDF
+# 253 (printed 237); Sixel Display Mode Control Function, PDF 254 (printed 238).
+
+[sources.vt3xx-tp-002]
+key    = "vt3xx-tp-002"
+title  = "VT330/VT340 Programmer Reference Manual, Volume 1: Text Programming, second edition, EK-VT3XX-TP-002"
+author = "Digital Equipment Corporation"
+year   = 1988
+venue  = "bitsavers.org (Paper Capture text layer)"
+url    = "https://bitsavers.org/pdf/dec/terminal/vt340/EK-VT3XX-TP-002_VT330_VT340_Text_Programming_198805.pdf"
+file   = ""
+sha256 = "518676ad1188d4f75d0780e25f0a8fda2bb4a1a591902c6d62e1b9fde8042978"
+bytes  = 36995838
+status = "external"
+group  = "C"
+# `external`: over 3 MB. Read 2026-10-11 (round 2026-10-11b): DECSCNM and DECSTGLT,
+# PDF 196-197 (printed 187-188); Table 12-3 DECSDM 80, PDF 230 (printed 221).
+
+[sources.vt3xx-ug-002]
+key    = "vt3xx-ug-002"
+title  = "Installing and Using the VT330/VT340 Video Terminal, second edition, EK-VT3XX-UG-002"
+author = "Digital Equipment Corporation"
+year   = 1988
+venue  = "bitsavers.org (a scan with no text layer)"
+url    = "https://bitsavers.org/pdf/dec/terminal/vt340/EK-VT3XX-UG-002_VT330_VT340_Users_Guide_May88.pdf"
+file   = ""
+sha256 = "c4f83f3a5b722dfaa88c8e1c2a2b62c1d2d2b7a49f97fd089628381d11bdbbc4"
+bytes  = 71389057
+status = "external"
+group  = "C"
+# `external`: over 3 MB. Read 2026-10-11 through OCR (round 2026-10-11b): Display
+# Background, PDF 100 (printed 86); Graphics Set-Up Table 10-1, Sixel Scrolling, PDF 167
+# (printed 157, checked on the image); Color Set-Up, PDF 169 (printed 159).
+
+[sources.vt38t-ug]
+key    = "vt38t-ug"
+title  = "VT382 Thai Display Terminal Installing and Using Manual, EK-VT38T-UG-001"
+author = "Digital Equipment Corporation"
+year   = 1989
+venue  = "vt100.net (a scan with no text layer)"
+url    = "https://vt100.net/dec/ek-vt38t-ug-001.pdf"
+file   = ""
+sha256 = "6e8e9fbdb82408f03920db33ebd2d405fee356b849cc012fa0f68a1f62ae60c1"
+bytes  = 5634430
+status = "external"
+group  = "C"
+# `external`: over 3 MB. Read 2026-10-11 through OCR (round 2026-10-11b), checked on the
+# image: DECSDM, PDF 132 (printed C-30), "Set: CSI ? 8 0 h No Sixel scrolling"; Display
+# Set-Up Sixel Scrolling, PDF 59 (printed 4-19).
+
+[sources.sco-osr507-screen-hw]
+key    = "sco-osr507-screen-hw"
+title  = "SCO OpenServer Release 5.0.7, screen(HW) -- SCP (CSI s, ESC 7) and RCP (CSI u, ESC 8)"
+author = "Caldera International"
+year   = 2003
+venue  = "osr507doc.xinuos.com (fetched over http: the https chain did not verify)"
+url    = "http://osr507doc.xinuos.com/en/man/html.HW/screen.HW.html"
+file   = ""
+sha256 = "93fa447755151b21d0cd225f2db5e0bd3d657500b573da1c6865eb809f3629d7"
+bytes  = 126418
+status = "external"
+group  = "C"
+# `external`: no grant (© 2003 Caldera International). Read 2026-10-11 (round
+# 2026-10-11b): RCP 2619-2620, ESC 8 2749-2751 (HTML lines); silent on an RCP with no SCP.
+
+[sources.mslearn-ansi-sys]
+key    = "mslearn-ansi-sys"
+title  = "ANSI.SYS (MS-DOS command reference, TechNet archive) -- ESC[s and ESC[u"
+author = "Microsoft Corporation"
+year   = 2014
+venue  = "learn.microsoft.com, previous-versions/tn-archive"
+url    = "https://learn.microsoft.com/en-us/previous-versions/tn-archive/cc722862(v=technet.10)"
+file   = ""
+sha256 = "d2eb64f61fd2874525e7fa360513882f058e7b8a3bd5cb9bbd43b2534e5273db"
+bytes  = 161179
+status = "external"
+group  = "C"
+# `external`: no grant. Read 2026-10-11 (round 2026-10-11b): HTML 794-797; silent on an
+# RCP with no SCP. The page is generated, so a re-fetch may not hash the same.
+
+[sources.lsix-issue-41]
+key    = "lsix-issue-41"
+title  = "hackerb9/lsix issue #41, \"DECSDM (private mode 80) is interpreted incorrectly\" (2021-05-25)"
+author = "j4james"
+year   = 2021
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/hackerb9/lsix/issues/41"
+file   = ""
+sha256 = "3aed72283c7bab865ef659b678bc3b723f3a3f65c7565dc313659ae8f2b11f4a"
+bytes  = 4954
+status = "external"
+group  = "C"
+# `external`: issue text, no grant. Read 2026-10-11 (round 2026-10-11b): quotes the Tera
+# Term author's VT330/VT382 test. API JSON changes with reactions, so a re-fetch may differ.
+
+[sources.lsix-issue-41-comments]
+key    = "lsix-issue-41-comments"
+title  = "hackerb9/lsix issue #41, comments (46) -- hackerb9's VT340+ test (comment 15, 2021-07-02)"
+author = "hackerb9, j4james, Thomas E. Dickey and others"
+year   = 2021
+venue  = "GitHub API"
+url    = "https://api.github.com/repos/hackerb9/lsix/issues/41/comments?per_page=100"
+file   = ""
+sha256 = "62faee3d60b2e2c3dfd8347e9a9a89eb377cfb4d0982abff34f1519aa3302c4a"
+bytes  = 104085
+status = "external"
+group  = "C"
+# `external`: comment text, no grant. Read 2026-10-11 (round 2026-10-11b): comments 13, 15.
+
+[sources.notcurses-sixel-c-b26048e]
+key    = "notcurses-sixel-c-b26048e"
+title  = "notcurses at b26048e, src/lib/sixel.c -- DECSDM (?80): which state each sequence means"
+author = "Nick Black and contributors"
+year   = 2026
+venue  = "dankamongmen/notcurses (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/dankamongmen/notcurses/b26048eebc74d5d254717d3332fa484718f9efe6/src/lib/sixel.c"
+file   = ""
+sha256 = "a5924b11420567e98d5ff921ef8e299af1619f4872f7bb608e7b1337dd724209"
+bytes  = 61802
+status = "external"
+group  = "C"
+# `external`: one file of a project whose licence text is not in LICENSES/. Read and
+# hash-verified 2026-10-11 against the url (round 2026-10-11b, the ?80 survey): 1581-1604.
+
+[sources.notcurses-termdesc-c-b26048e]
+key    = "notcurses-termdesc-c-b26048e"
+title  = "notcurses at b26048e, src/lib/termdesc.c -- DECSDM (?80): which state each sequence means"
+author = "Nick Black and contributors"
+year   = 2026
+venue  = "dankamongmen/notcurses (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/dankamongmen/notcurses/b26048eebc74d5d254717d3332fa484718f9efe6/src/lib/termdesc.c"
+file   = ""
+sha256 = "ea7cc628f4da73ab54add860e0cce43d9c7a43d610d5e0fddb6fbf82d7df3d8f"
+bytes  = 53408
+status = "external"
+group  = "C"
+# `external`: one file of a project whose licence text is not in LICENSES/. Read and
+# hash-verified 2026-10-11 against the url (round 2026-10-11b, the ?80 survey): 83-90, 777-779, 801-803, 845-848, 865-867, 892-893.
+
+[sources.notcurses-news-b26048e]
+key    = "notcurses-news-b26048e"
+title  = "notcurses at b26048e, NEWS.md -- DECSDM (?80): which state each sequence means"
+author = "Nick Black and contributors"
+year   = 2026
+venue  = "dankamongmen/notcurses (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/dankamongmen/notcurses/b26048eebc74d5d254717d3332fa484718f9efe6/NEWS.md"
+file   = ""
+sha256 = "08c31d8871a483777c1ee15cb6bcb98bfe255fd7be7d4e65fa0f7bcfecffa865"
+bytes  = 75454
+status = "external"
+group  = "C"
+# `external`: one file of a project whose licence text is not in LICENSES/. Read and
+# hash-verified 2026-10-11 against the url (round 2026-10-11b, the ?80 survey): 250-251.
+
+[sources.chafa-term-db-c-be73375]
+key    = "chafa-term-db-c-be73375"
+title  = "chafa at be73375, chafa/chafa-term-db.c -- DECSDM (?80): which state each sequence means"
+author = "Hans Petter Jansson"
+year   = 2026
+venue  = "hpjansson/chafa (LGPL-3.0-or-later / GPL-3.0-or-later)"
+url    = "https://raw.githubusercontent.com/hpjansson/chafa/be73375f2049a373287b4dac9f2b41057d12bb2a/chafa/chafa-term-db.c"
+file   = ""
+sha256 = "136d57b0ceab06d37c535bec139746b38f7a705e229fab41c06d40436f59f47a"
+bytes  = 46291
+status = "external"
+group  = "C"
+# `external`: one file of a project whose licence text is not in LICENSES/. Read and
+# hash-verified 2026-10-11 against the url (round 2026-10-11b, the ?80 survey): 286-287.
+
+[sources.chafa-tool-c-be73375]
+key    = "chafa-tool-c-be73375"
+title  = "chafa at be73375, tools/chafa/chafa.c -- DECSDM (?80): which state each sequence means"
+author = "Hans Petter Jansson"
+year   = 2026
+venue  = "hpjansson/chafa (LGPL-3.0-or-later / GPL-3.0-or-later)"
+url    = "https://raw.githubusercontent.com/hpjansson/chafa/be73375f2049a373287b4dac9f2b41057d12bb2a/tools/chafa/chafa.c"
+file   = ""
+sha256 = "6d8781dcfdba2136182b96c3e83d700c4d45c709c0c918cda36546b474cbd29a"
+bytes  = 35622
+status = "external"
+group  = "C"
+# `external`: one file of a project whose licence text is not in LICENSES/. Read and
+# hash-verified 2026-10-11 against the url (round 2026-10-11b, the ?80 survey): 218-220.
+
+[sources.mlterm-vt-parser-c-2aa340d]
+key    = "mlterm-vt-parser-c-2aa340d"
+title  = "mlterm at 2aa340d, vtemu/vt_parser.c -- DECSDM (?80): which state each sequence means"
+author = "Araki Ken"
+year   = 2026
+venue  = "arakiken/mlterm (BSD-3-Clause)"
+url    = "https://raw.githubusercontent.com/arakiken/mlterm/2aa340d110eeb4db0c47433a34a6c095164d7f31/vtemu/vt_parser.c"
+file   = ""
+sha256 = "f92088563aa272b6e23152fadaff4fb398c91d7adf11905641234446e0153bfb"
+bytes  = 251086
+status = "external"
+group  = "C"
+# `external`: one file of a project whose licence text is not in LICENSES/. Read and
+# hash-verified 2026-10-11 against the url (round 2026-10-11b, the ?80 survey): 4112-4118.
+
+[sources.foot-csi-c-cb27717]
+key    = "foot-csi-c-cb27717"
+title  = "foot at cb27717, csi.c -- DECSDM (?80): which state each sequence means"
+author = "Daniel Eklöf"
+year   = 2026
+venue  = "dnkl/foot (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/cb2771788998f6a6288e2de8273c55a8214551e0/csi.c"
+file   = ""
+sha256 = "a9e028dd0752210842d688abce4323d3ac118e1032e35305dbce13c3447b4d61"
+bytes  = 76560
+status = "external"
+group  = "C"
+# `external`: one file of a project whose licence text is not in LICENSES/. Read and
+# hash-verified 2026-10-11 against the url (round 2026-10-11b, the ?80 survey): 390-391.
+
+[sources.foot-changelog-cb27717]
+key    = "foot-changelog-cb27717"
+title  = "foot at cb27717, CHANGELOG.md -- DECSDM (?80): which state each sequence means"
+author = "Daniel Eklöf"
+year   = 2026
+venue  = "dnkl/foot (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/cb2771788998f6a6288e2de8273c55a8214551e0/CHANGELOG.md"
+file   = ""
+sha256 = "607bb5b5059fcc9ddb7744c59941a83edec29dca4e67ae5f414e0c77dd6728bf"
+bytes  = 142018
+status = "external"
+group  = "C"
+# `external`: one file of a project whose licence text is not in LICENSES/. Read and
+# hash-verified 2026-10-11 against the url (round 2026-10-11b, the ?80 survey): 2561-2562.
+
+[sources.wezterm-ts-mod-rs-e2a98e1]
+key    = "wezterm-ts-mod-rs-e2a98e1"
+title  = "wezterm at e2a98e1, term/src/terminalstate/mod.rs -- DECSDM (?80): which state each sequence means"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/term/src/terminalstate/mod.rs"
+file   = ""
+sha256 = "992c928614b915740036c0fcd7a7f0e59d35618d6d453b1c05f7dec6f106dd51"
+bytes  = 110533
+status = "external"
+group  = "C"
+# `external`: one file of a project whose licence text is not in LICENSES/. Read and
+# hash-verified 2026-10-11 against the url (round 2026-10-11b, the ?80 survey): 1839-1850.
+
+[sources.wezterm-ts-sixel-rs-e2a98e1]
+key    = "wezterm-ts-sixel-rs-e2a98e1"
+title  = "wezterm at e2a98e1, term/src/terminalstate/sixel.rs -- DECSDM (?80): which state each sequence means"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm/wezterm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/term/src/terminalstate/sixel.rs"
+file   = ""
+sha256 = "4bfc7b6f34a2a87fb720e67972ffcb6d641f062ef8d2f5177deeb43b41189487"
+bytes  = 5611
+status = "external"
+group  = "C"
+# `external`: one file of a project whose licence text is not in LICENSES/. Read and
+# hash-verified 2026-10-11 against the url (round 2026-10-11b, the ?80 survey): 125-130.
+
+[sources.libsixel-output-h-37026b0]
+key    = "libsixel-output-h-37026b0"
+title  = "libsixel at 37026b0, src/output.h -- DECSDM (?80): which state each sequence means"
+author = "Hayaki Saito and the libsixel contributors"
+year   = 2026
+venue  = "libsixel/libsixel (MIT)"
+url    = "https://raw.githubusercontent.com/libsixel/libsixel/37026b01a0bd38634ae0a8c5017bd4671101fe08/src/output.h"
+file   = ""
+sha256 = "d87582484e57ff58a79d3b5ceabfdb9b349a534dd0335508754053dc80083e78"
+bytes  = 2822
+status = "external"
+group  = "C"
+# `external`: one file of a project whose licence text is not in LICENSES/. Read and
+# hash-verified 2026-10-11 against the url (round 2026-10-11b, the ?80 survey): 52-54.
+
+[sources.saitoha-libsixel-drawing-a0151d9]
+key    = "saitoha-libsixel-drawing-a0151d9"
+title  = "libsixel at a0151d9, examples/drawing/main.c -- DECSDM (?80): which state each sequence means"
+author = "Hayaki Saito"
+year   = 2026
+venue  = "saitoha/libsixel (MIT)"
+url    = "https://raw.githubusercontent.com/saitoha/libsixel/a0151d940af8bb0733dac77248bd55ae86949e56/examples/drawing/main.c"
+file   = ""
+sha256 = "e12d9e27362cb34d812a4447589abcc43829c941e12d88240d8419494080f6cf"
+bytes  = 17136
+status = "external"
+group  = "C"
+# `external`: one file of a project whose licence text is not in LICENSES/. Read and
+# hash-verified 2026-10-11 against the url (round 2026-10-11b, the ?80 survey): 377.
+
+[sources.xterm-x11r5-charproc-c]
+key    = "xterm-x11r5-charproc-c"
+title  = "xterm charproc.c as in the X11R5 snapshot -- TRACKTIMESEC still defined (81-82), no timeout path"
+author = "Digital Equipment Corporation and MIT"
+year   = 1993
+venue  = "ThomasDickey/xterm-snapshots, tag X11R5 (permission notice in file)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/charproc.c"
+file   = "xterm-X11R5-charproc.c"
+sha256 = "0d5c03b7dc96979bd3c2c06cf9c50eb9d5d78ff46bf3491724b3ad0947a1631a"
+bytes  = 90468
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (round 2026-10-11b): 81-82 define TRACKTIMESEC 4L; no line
+# reads waitingForTrackInfo, so the X11R3 four-second timeout is gone by X11R5.
+
+[sources.vt340test-background-select-2-sh]
+key    = "vt340test-background-select-2-sh"
+title  = "vt340test, j4james/background_select_2.sh -- sets DECSCNM (?5h) and draws a sixel with background select"
+author = "j4james (vt340test contributors)"
+year   = 2021
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/j4james/background_select_2.sh"
+file   = "vt340test-background_select_2.sh"
+sha256 = "85bd01bd0f659d746e7ebdd994bf631da3752201ce4ac853e13a5bd736069060"
+bytes  = 941
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (round 2026-10-11b): 13-14 (?5h), 19-20 (background fill).
+
+[sources.vt340test-background-select-2-png]
+key    = "vt340test-background-select-2-png"
+title  = "vt340test, j4james/background_select_2.png -- that test on a VT340, captured by its own Media Copy (mediacopy.sh)"
+author = "hackerb9 (vt340test)"
+year   = 2021
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/j4james/background_select_2.png"
+file   = "vt340test-background_select_2.png"
+sha256 = "6b41c7234b2201a69c9b8778ee8c92f8ef31978244e7edc2412ee1470f75d7ae"
+bytes  = 1725
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-11 (round 2026-10-11b): 800x480, the screen under ?5h is grey with
+# black text and the sixel's background fill is black [img].
+
+[sources.x11r3-tarball]
+key    = "x11r3-tarball"
+title  = "X Window System Version 11 Release 3, X.V11R3.tar.gz -- clients/xterm (charproc.c: the four-second hilite-tracking timeout)"
+author = "MIT X Consortium"
+year   = 1988
+venue  = "x.org/releases/X11R3"
+url    = "https://www.x.org/releases/X11R3/X.V11R3.tar.gz"
+file   = ""
+sha256 = "1800eaa9abac0fade9f9e3e9caf3460c40ed36a3c5af6f83521f578f44f1b9c1"
+bytes  = 8299512
+status = "external"
+group  = "C"
+# `external`: 8,299,512 bytes. Read 2026-10-11 (round 2026-10-11b): clients/xterm/charproc.c
+# (1.64, 89/01/04) 67-68 and 1069-1083, misc.c 60-71, button.c 170-180 and 395-420. No
+# ctlseqs document in the tarball.

@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 8 | an open question, recorded where the file is; the owner's call |
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 224 | 16 | redistributable, and its notice is satisfied |
+| kept | 236 | 16 | redistributable, and its notice is satisfied |
 | own | 186 | 0 | the owner's work |
-| total | 652 | 26 | |
+| total | 664 | 26 | |
 
 ## Licence texts in LICENSES/
 
@@ -54,6 +54,7 @@ they were built from.
 | [macos-man-notices.txt](LICENSES/macos-man-notices.txt) | APSL-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSD-4-Clause-UC | built: $SDKROOT/usr/share/man/{man2/kqueue.2,man3/clock_gettime.3,man3/tcgetpgrp.3}, macOS 27.0 SDK | 8f831f5ead7d9f05 |
 | [MPL-2.0.txt](LICENSES/MPL-2.0.txt) | MPL-2.0 | fetched: https://raw.githubusercontent.com/spdx/license-list-data/v3.29.0/text/MPL-2.0.txt | 66a3107d5ad6a058 |
 | [msdfgen-MIT.txt](LICENSES/msdfgen-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/Chlumsky/msdfgen/1c106ed8117893bf943e577f62eb0665fb271e46/LICENSE.txt | 32a94b25ad7072a7 |
+| [msdos-4.0-MIT.txt](LICENSES/msdos-4.0-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/microsoft/MS-DOS/2d04cacc5322951f187bb17e017c12920ac8ebe2/LICENSE | b5179f780ec212a4 |
 | [msdos-MIT.txt](LICENSES/msdos-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/microsoft/MS-DOS/80ab2fddfdf30f09f0a0a637654cbb3cd5c7baa6/LICENSE.md | 51c6e2eb6150b705 |
 | [ncurses-COPYING.txt](LICENSES/ncurses-COPYING.txt) | X11 | fetched: https://raw.githubusercontent.com/ThomasDickey/ncurses-snapshots/6c26c1f46499e2fbedfb2c69c9463eceeab62ca5/COPYING | a85ca5bef8ce71f0 |
 | [neovide-MIT.txt](LICENSES/neovide-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/neovide/neovide/105fd640f83616501d7c6bfedb0b4c15ab9515e1/LICENSE | 60c7b5e1d0b3daee |
@@ -971,6 +972,21 @@ notice is, and the URL each file was copied from.
 | [ghostty-d9840f3-fraction.zig](docs/research/sources/ghostty-d9840f3-fraction.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/fraction.zig |
 | [ghostty-d9840f3-shaders.metal](docs/research/sources/ghostty-d9840f3-shaders.metal) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/shaders/shaders.metal |
 
+### hackerb9/vt340test (hackerb9 and contributors), tests and findings on a real VT340
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** CC0-1.0 (https://creativecommons.org/publicdomain/zero/1.0/)
+- **Notice:** none needed
+- **Files:** 5
+
+| file | copied from |
+|---|---|
+| [vt340test-README.md](docs/research/sources/vt340test-README.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/README.md |
+| [vt340test-background_select_2.png](docs/research/sources/vt340test-background_select_2.png) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/j4james/background_select_2.png |
+| [vt340test-background_select_2.sh](docs/research/sources/vt340test-background_select_2.sh) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/j4james/background_select_2.sh |
+| [vt340test-colormap.md](docs/research/sources/vt340test-colormap.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/colormap/colormap.md |
+| [vt340test-errata.md](docs/research/sources/vt340test-errata.md) | https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/errata.md |
+
 ### HarfBuzz 12.3.0
 
 - **Status:** kept -- redistributable, and its notice is satisfied
@@ -1121,6 +1137,17 @@ notice is, and the URL each file was copied from.
 | file | copied from |
 |---|---|
 | [msdos-2.0-ANSI.DOC](docs/research/sources/msdos-2.0-ANSI.DOC) | https://raw.githubusercontent.com/microsoft/MS-DOS/80ab2fddfdf30f09f0a0a637654cbb3cd5c7baa6/v2.0/bin/ANSI.DOC |
+
+### MS-DOS 4.0 source (Microsoft), the ANSI.SYS driver; the file carries no notice, so the repository's is beside
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** [LICENSES/msdos-4.0-MIT.txt](LICENSES/msdos-4.0-MIT.txt)
+- **Files:** 1
+
+| file | copied from |
+|---|---|
+| [msdos-4.0-ANSI.ASM](docs/research/sources/msdos-4.0-ANSI.ASM) | https://raw.githubusercontent.com/microsoft/MS-DOS/2d04cacc5322951f187bb17e017c12920ac8ebe2/v4.0/src/DEV/ANSI/ANSI.ASM |
 
 ### msdfgen
 
@@ -1579,11 +1606,12 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11
 - **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
-- **Files:** 15
+- **Files:** 17
 
 | file | copied from |
 |---|---|
 | [xterm-VTPrsTbl.c](docs/research/sources/xterm-VTPrsTbl.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/VTPrsTbl.c |
+| [xterm-button.c](docs/research/sources/xterm-button.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/button.c |
 | [xterm-charproc.c](docs/research/sources/xterm-charproc.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charproc.c |
 | [xterm-charsets.h](docs/research/sources/xterm-charsets.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charsets.h |
 | [xterm-ctlseqs.txt](docs/research/sources/xterm-ctlseqs.txt) | https://invisible-island.net/xterm/ctlseqs/ctlseqs.txt |
@@ -1596,8 +1624,23 @@ notice is, and the URL each file was copied from.
 | [xterm-ptyx.h](docs/research/sources/xterm-ptyx.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/ptyx.h |
 | [xterm-util.c](docs/research/sources/xterm-util.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/util.c |
 | [xterm-xterm.h](docs/research/sources/xterm-xterm.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xterm.h |
+| [xterm-xterm.log.html](docs/research/sources/xterm-xterm.log.html) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/bccd466414dc4ecb264a3824a6f1e41bebe65214/xterm.log.html |
 | [xterm-xterm.man](docs/research/sources/xterm-xterm.man) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xterm.man |
 | [xterm-xtermcap.c](docs/research/sources/xterm-xtermcap.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xtermcap.c |
+
+### xterm as in the X11R5 snapshot (Digital Equipment Corporation, MIT, X Consortium)
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** HPND
+- **Notice:** in the file
+- **Files:** 4
+
+| file | copied from |
+|---|---|
+| [xterm-X11R5-button.c](docs/research/sources/xterm-X11R5-button.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/button.c |
+| [xterm-X11R5-charproc.c](docs/research/sources/xterm-X11R5-charproc.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/charproc.c |
+| [xterm-X11R5-ctlseqs.ms](docs/research/sources/xterm-X11R5-ctlseqs.ms) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/ctlseqs.ms |
+| [xterm-X11R5-misc.c](docs/research/sources/xterm-X11R5-misc.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/misc.c |
 
 ### yazi 26.5.6
 

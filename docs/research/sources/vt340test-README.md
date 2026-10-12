@@ -1,0 +1,467 @@
+## What is this?
+
+In the decades since the DEC VT340 terminal was released, knowledge of
+how it functioned has been lost. Mostly for archaeological purposes,
+but also so that the [lsix](https://github.com/hackerb9/lsix) program
+works correctly, [hackerb9](https://github.com/hackerb9) purchased a
+VT340+ and is running tests, many of which were submitted by
+[j4james](https://github.com/j4james), and documenting the results
+here.
+
+Anyone who has questions or knowledge that can fill in the gaps in the
+Archaeological Computation record is encouraged to
+[file an issue](https://github.com/hackerb9/vt340test/issues/new).
+
+## Test files and output
+
+Please see
+
+* The [j4james](j4james) directory for most test files and their output.
+
+* [sixeltests](sixeltests) for sample sixel graphics images and test
+  scripts; [WordPerfect for Character Terminal Unix](sixeltests/wp).
+
+* [regis](regis) for a ReGIS graphics test scripts and notes.
+
+* [charset](charset) examines the VT340's multilingual capabilities,
+  [soft fonts](charset/softfonts), and [mathematics](charset/math.md).
+
+* [colormap](colormap) how the VT340 color lookup table works and how
+  to reset it when it goes wrong.
+
+* [mediacopy](mediacopy) test scripts and output from the VT340 of
+  sixel images created using the "Hardcopy to Host" ReGIS command. Of
+  particular use may be
+  [mediacopy/mediacopy.sh](mediacopy/mediacopy.sh) which takes a
+  screenshot of the VT340 and saves it to the host computer system as
+  a file. 
+
+* [locator.md](locator/locator.md) for tests of the VSXXX-AA mouse as input via
+  ReGIS and Tektronix commands.
+
+* [checkmode.md](checkmode.md) for an examination of which DEC Private
+  Mode (feature toggle switches) the VT340 responds to and what it is
+  set to by default. Uses the [checkmode](checkmode) script.
+
+* [graphicrenditions.md](docs/standards/graphicrenditions.md) shows a
+  listing of the 65 Select Graphic Rendition options (bold,
+  underlined, blinking) defined by the ANSI standard and which ones
+  the VT340 can display. Try the
+   [graphicrenditions.sh](docs/standards/graphicrenditions.sh) script
+  to check your own terminal's capabilities. (Can any actually do
+  encircled text?)
+
+## Directories
+
+* [docs](docs) for documentation on the VT340, usually in PDF format.
+
+  Most important docs:
+   
+  * [EK-VT3XX-TP-002 VT330/VT340 Text Programming (May88).pdf][VT340TP]
+  * [EK-VT3XX-GP-002 VT330/VT340 Graphics Programming (May88).pdf][VT340GP]
+
+  See also:
+  
+   * EK-VT340-IP	VT340 Illustrated Parts Breakdown
+   * EK-VT340-PS	VT340 Pocket Ser340-PS	VT340 Pocket Service Guide
+   * MP-02412-01	VT340 Field Maintenance Printset
+   * FB-VT340-00	VT340 Tech Documentation Kit
+   * EK-VT3XX-UP	VT330/VT340 User Documentation Package/Kit
+
+* [vms](vms) VT340 support files and programs that originally came
+  from VAX VMS systems.
+  
+* [compose](keyboard/compose.md) how to use the <kbd>Compose</kbd> key
+  on the VT340 to type characters beyond normal ASCII. 
+  
+* [usage](usage) how to configure a VT340 to be reasonably usable as a
+  terminal in modern times. 
+  
+* Demos
+
+  * [kermitdemos](kermitdemos) Graphics demo files that came with the
+	Kermit communications program in the 1980s that exercised Kermit's
+	ability to emulate the VT340. Includes sixel and tektronix files,
+	but not ReGIS.
+  * [ode](regis/ode) ReGIS graphics demo files for an ordinary
+    differential equation solver. Emulators and screenshots don't do
+    this justice as they only show the end result, while on the VT340
+    it appears animated as it lazily draws the solution to a world
+    with two suns.
+  
+## Notes on Hardware VT340 
+
+* The VT340 feature two different ways of showing color graphics: as
+  vectors using [ReGIS](regis/) or as bitmaps using
+  [Sixels](sixeltests). (It could also do Tektronix 4014 graphics).
+  
+* Unlike its primitive ancestor, the [VK100][VK100] (AKA "Gigi"), the
+  VT340 does not use "ANSI color" for text. Instead, the VT340 shows
+  _all_ text on the screen in one color (index 7). The background is
+  always color index 0. One can use ReGIS to map those indices to any
+  color, but doing so changes text already on the screen.
+
+  It is not yet clear why DEC did not permit each character cell to
+  have its own foreground and background text color attributes. (The
+  "bold" text attribute is actually an interesting case as it renders
+  text using color index 15 instead of 7.)
+  
+  Hackerb9 suspects that the reason is because the VT340 was built on
+  the VCB02 Dragon graphics architecture. Colors are stored _per
+  pixel_ via 16 color indices, each of which can be changed to
+  represents any of 4096 possible colors. "ANSI color", on the other
+  hand, specifies for each _character cell_ two colors from a fixed
+  set of 16. 
+  
+<!-- That makes the VT340 ideal as a ReGIS graphics workstation, but -->
+<!-- the indexed color model doesn't fit well with ANSI's -->
+<!-- direct  color. While the VT340 has the theoretically more -->
+<!-- powerful model, it is not  fast enough for multicolored text. -->
+
+  
+  [VK100]: https://hackerb9.github.io/vt340test/docs/kindred/AA-K336A-TK_GIGI_ReGIS_Handbook_Jun81.pdf "GIGI ReGIS Handbook"
+
+* There is a way to [fake multicolor text](regis/faketextcolor.md) by
+  changing the pixel values after the fact. It is undocumented, slow,
+  and a bit of a hack. 
+
+* DECSDM (Sixel Display Mode), when enabled, DISABLES Sixel Scrolling
+  in the Graphics Set-up screen and vice versa. Some of DEC's manuals
+  get this wrong.
+
+* While not documented anywhere, showing sixel images with more then 6
+  colors changes the foreground text color. After 16 colors, the
+  background is changed, too. This often makes the screen unreadable.
+  (See [colormap](colormap) for details). There is no obvious way to
+  reset the colors once they have been changed, but there is a
+  sequence of keys one can hit. See [Colormap
+  Reset](colormap/colorreset.md) for details.
+  
+  * Unlike REGIS, sixel color numbering is different from VT340's
+    setup screen numbering! No matter what number a sixel color is
+    referred by, it is only the order of the assignment that matters
+    in terms of where it is put in the VT340 color map. Note that the
+    first sixel color defined is mapped to VT color #1, not color #0.
+    The sixth color assigned (color #7) becomes the foreground color.
+    The sixteenth assigned color wraps around and modifies VT color
+    #0. This is probably intentional: only a sixel file that uses all
+    16 colors would change the text background.
+
+  * To change the foreground and background text colors, don't use
+    Sixel. Simply set color indices 7 and 0 
+	[in ReGIS](regis/textcolorsandregis.md).
+
+
+### Number of colors on a genuine VT340
+
+  * A genuine VT340 can show 16 colors from a 12-bit palette, which
+    means there are 4096 (2^12) different colors available.
+    ImageMagick calls this `-depth 4`, because there are 4-bits per
+    color channel.
+
+  * Red, Green, Blue vary from 0 to 100% intensity.
+
+    RGB can specify 101×101×101 different colors (nearly 2^20).
+
+  * Hue varies from 0 to 360 degrees, Lightness and Saturation vary
+    from 0 to 100%. (Hue 0 and 360 are identical).
+
+    HLS can specify 359×101×101 different colors (over 2^21).
+
+  * Thus there are roughly 250 different RGB values and 1000 different
+    HLS values for each possible color that can actually be shown.
+
+  * ReGIS cannot use RGB to specify nuanced colors. For anything other
+    than the most basic colors, use [HLS](regis/hls.md).
+
+  * When quantizing colors (reducing the color palette to 16) using
+    ImageMagick, it may help to specify `-depth 4` so ImageMagick
+    doesn't allocate two colors that are functionally identical.
+  
+    * However, it is often not as useful as it could be because
+      ImageMagick has no known way of specifying that certain colors
+      (particularly, fg, bg, and bright text) are in specific slots
+      (7, 0, and 15, respectively).
+
+	* OPEN QUESTION: How does one convert an image to sixteen colors,
+	  but with three of the colors (fg, bg, and bright) fixed and the
+	  others free?
+
+  * Note: [lsix](https://github.com/hackerb9/lsix) splits the montage
+    into rows to reduce waiting when there are more than 21 images to
+    show. However, each montage has separate color map, which means
+    the previous row's colors will get messed up. I'm not sure there's
+    a good solution for this other than to force a fixed palette
+    (would grayscale be a good idea?).
+
+### VT340 Screen Resolution 
+
+Graphics screen resolution is 800x480, but sometimes is quoted as
+800x500, which includes the 25th line (the status line).
+
+  * The status line is only addressable by sending a special escape
+    sequence (DECSSDT, DECSASD):
+
+        tput tsl; tput rev; echo; echo -n $(date); tput fsl)
+
+    Even if one wanted to muck with that, the status line ignores
+    sixel commands, so it is still not possible to use it for graphics.
+
+### REGIS
+
+* To enter REGIS: send from host `ESC P 3 p`
+* To exit REGIS: send from host `ESC \`  or hit Control-L
+* Example of using REGIS
+
+        clear
+        echo -n $'\eP3p'        # Enter interactive REGIS mode
+        echo -n $'P[150,200]W(S1)C(W(I1))[+100]C[+66]C(W(I2))[+33]' # RAF roundels
+        echo -n $'\e\\'     # Exit REGIS mode
+
+* From the amount of documentation DEC dedicated to ReGIS, it appears
+  that ReGIS was meant to be the primary graphics system used with the
+  VT340. This makes sense as it is an extremely efficient vector
+  graphics protocol, using very few bytes and allow great savings
+  using "macros", whereas Sixel graphics are poorly compressed
+  bitmaps that are quite slow at 19,200 bps.
+
+  * Additionally, there are certain things that can only be done with
+	ReGIS, but cannot be done using Sixels.
+
+	* Media Copy to Host (see below).
+	* Easily set the system color map.
+	* Modify the color of existing pixels (using bitplanes).
+    * Read the value of a pixel or a region of pixels.
+	* Use the mouse for interactive input.
+
+### MEDIA COPY TO HOST ("screenshot"):
+
+Media Copy tells the VT340 to transmit a sixel copy of the current
+screen to the host.
+
+See:
+
+* [mediacopy/README.md](mediacopy/README.md): Investigations of how Media Copy works on VT340.
+* [mediacopy/mediacopy.sh](mediacopy/mediacopy.sh): script that saves a screenshot in "print.six".
+
+At the moment, it is required to use the VT340's Printer Set-Up to
+manually change the Sixel Graphics Mode to "Level 2" before using
+media copy. Without that, it sends Level 1 output with pixel aspect
+ratio set to 2:1. 
+
+Note that despite [the VT340 manual][VT340TP] stating that the status
+line (the 25th line) is included in any print outs if it is visible,
+that is not true when graphics are being print. The status line is
+never included.
+
+### Keyboard
+
+* The ESC key on the LK-201 keyboard only functions in VT100 mode.
+  Instead, one must press <kbd>Ctrl</kbd><kbd>[</kbd> or
+  <kbd>Ctrl</kbd><kbd>3</kbd>.
+
+* Despite what the manual says, you cannot use <kbd>Return</kbd> to
+  select elements in Setup. You must press the <kbd>Do</kbd> key.
+  
+* The LK-201's <kbd>Shift</kbd> does not affect `,` and `.`. Instead
+  the `<` and `>` symbols are on their own key next to the left shift.
+  This is not changeable from the VT340 Set-Up menu.
+
+### Locator Devices
+
+The VT340 could be attached to a mouse (VSXXX-AA) or a graphics tablet
+(VSXXX-AB). The tablet could use either a stylus or a special
+"digitizer" which was like a mouse with a very precise reticule for
+selecting locations on maps. There may also have been a barcode
+attachment and possibly a lightpen. See: [VSXXXX-CA/CB peripheral
+repeater][VSXPR]. Information about the common protocol they spoke is
+in the [VCB02 manual][vcb], particularly the appendices on the
+[keyboard][], [mouse][], and [tablet][].
+ 
+Hackerb9's vt340 has been tested with a VSXXX-AA mouse as input via
+ReGIS and Tektronix commands. See [locator.md](locator/locator.md).
+
+[vcb]: https://hackerb9.github.io/vt340test/docs/kindred/EK-104AA-TM-001_VCB02_Video_Subsystem_Feb87.pdf "VCB02 Video Subsystem Technical Manual"
+
+[keyboard]: https://hackerb9.github.io/vt340test/docs/hardware/AppdxB-kbdprotocol.pdf "DEC keyboard protocol details (extracted from VCB02 techref)"
+
+[mouse]: https://hackerb9.github.io/vt340test/docs/hardware/AppdxC-mouseprotocol.pdf "DEC mouse protocol details (extracted from VCB02 techref)"
+
+[tablet]: https://hackerb9.github.io/vt340test/docs/hardware/AppdxD-tabletprotocol.pdf "DEC tablet protocol details (extracted from VCB02 techref)"
+
+[VSXPR]: https://hackerb9.github.io/vt340test/docs/kindred/EK-VSXPR-TM-001-mod.cat "DEC VSXXX-CA/CB Protocol Repeater Technical Manual"
+
+### Tek 4010/4014 mode
+
+* Entering and exiting this mode leaves VT340 with autowrap mode
+  turned off. This appears to be a firmware bug.
+  - To test: echo $'\e[?38h\e[?38l'
+  - To fix, set DECAWM after exiting Tek mode: echo $'\e[?7h'
+* Sixel print to host appears buggy; last portion gets sent to screen
+  instead of to the host. 
+
+### 80/132 column mode
+
+* Despite the [documentation][VT340TP] recommending DECSCPP (set
+  columns per page) and deprecating DECCOLM (column mode) to switch
+  between 80 and 132 column mode, they do not appear to be equivalent.
+
+  [VT340TP]: https://hackerb9.github.io/vt340test/docs/EK-VT3XX-TP-002_VT330_VT340_Text_Programming_May88.pdf "VT340 Text Programming Manual"
+  [VT340GP]: https://hackerb9.github.io/vt340test/docs/EK-VT3XX-GP-002_VT330_VT340_Text_Programming_May88.pdf "VT340 Graphics Programming Manual"
+
+
+  * **DECSCPP**: `Esc` `[` `80` `$` `|`   or  `Esc` `[` `132` `$` `|`
+
+    Terminal now thinks it has that many columns, but the screen font
+    doesn't actually change. Has the benefit of not clearing data in
+    page memory or changing number of lines per page. If you switch to
+    132 columns, but are using an 80 column font, then text that is
+    off the screen simply isn't shown. It is unclear how this is
+    beneficial.
+ 
+  * **DECCOLM**: `Esc` `[` `?` `3` `l`  or  `Esc` `[` `?` `3` `h`
+      
+    Terminal switch to 80- or 132-column mode, the same as if it had
+    been changed in the Set-Up -> Display screen. Both the logical
+    width and the actual font size change. Resets page memory.
+
+### Dual sessions
+
+The VT340 allows two login sessions simultaneously. While it is
+possible to do that over a single serial cable using DEC's proprietary
+SSU protocol, it is easier to just use the VT340's two communication
+ports. (See [MMJ](mmj.md) for how to build a DEC423 cable for
+Comm2).
+
+| Key                          | Meaning                                   |
+|------------------------------|-------------------------------------------|
+| <kbd>F4</kbd>                | Switch which session is active            |
+| <kbd>Ctrl</kbd><kbd>F4</kbd> | Split the screen vertically, horizontally |
+| <kbd>Ctrl</kbd><kbd>↑</kbd>  | Pan view up                               |
+| <kbd>Ctrl</kbd><kbd>↓</kbd>  | Pan view down                             |
+| <kbd>Ctrl</kbd><kbd>←</kbd>  | Pan view left                             |
+| <kbd>Ctrl</kbd><kbd>→</kbd>  | Pan view right                            |
+
+Sixel images persist on completely separate framebuffers. While each
+session can have a separate color palette, the VT340 hardware can only
+use one at a time. That means split screen images will only look
+correct for the session that is currently active.
+
+Note that when split horizontally, the VT340 attempts to scroll the
+view up or down to where the cursor is. This works well most of the
+time, but full-screen applications can have problems. Consider a text
+editor in which one types at the top of the screen while a status line
+at the bottom shows the cursor's current location. On each keystroke,
+the cursor would zip from top to bottom, causing the entire screen to
+jitter up and down rapidly . One workaround is to use `stty` to tell
+host programs to use a smaller screen area, e.g., `stty rows 12`.
+
+### Printer port == another keyboard!
+
+The printer port is actually a third serial port, with the same DEC423
+wiring as Comm1 and 2. As you'd expect, a print command, such as `Esc
+[ i`, sends data to it. What is unusual is that any data received on
+the printer port is typed into the active session as if it was from
+the keyboard.
+
+Although it defaults to 4800 baud, the same as the actual keyboard
+port, it can be set to run at 19.2Kbps. 
+
+This could be useful in the future for automating compatibility tests
+by connecting the printer port to a host computer. [Hackerb9 currently
+has Comm1 and 2 on /dev/ttyS0 and S1 and the printer on /dev/ttyUSB0.]
+
+Note that DEC's printer port is necessarily bidirectional because the
+VT340 needs to listen for XOFF so it can pause when the printer is
+being overrun with data.
+
+
+### Pages and Lines per page
+
+The VT340 can store several "pages" of text in memory. 
+
+The VT340 has 144 lines of memory, divided by default into 6 pages of
+24 lines. One can use <kbd>Set-Up</kbd> or **DECSLPP** to set more
+"lines per page" and fewer "pages", or vice versa. Actual number of
+lines shown on a VT340 screen is always fixed at 24. 
+
+| Keys                                                                                                                     | Description                    |
+|--------------------------------------------------------------------------------------------------------------------------|--------------------------------|
+| <kbd>Ctrl</kbd><kbd>Next<br>Screen</kbd><br><kbd>Ctrl</kbd><kbd>Prev<br>Screen</kbd>                                     | Change which page is displayed |
+| <kbd>Ctrl</kbd><kbd>↑</kbd><br><kbd>Ctrl</kbd><kbd>↓</kbd><br><kbd>Ctrl</kbd><kbd>←</kbd><br><kbd>Ctrl</kbd><kbd>→</kbd> | Pan the current virtual page   |
+
+@hackerb9 does not fully understand the purpose of Page Memory, but
+@j4james has suggested it is mainly for form filling applications, see
+[Page Memory](pagememory.md).
+
+### XON/XOFF Flow Control is Required
+
+It does not appear that the VT340 firmware can perform RTS/CTS
+("hardware") flow control, although electrically it should be
+possible. See [flowcontrol](flowcontrol.md) for more details. The most
+important point about XON/XOFF is that the host's serial card must
+handle XON/XOFF on the UART chip to prevent garbled data.
+
+### Smooth scrolling is on by factory default
+
+Instead of scrolling the page up as fast as possible ("Jump"
+scrolling), the VT340 defaults to "Smooth-2" scrolling. Smooth-1,
+Smooth-2, and Smooth-4 are the three possible smooth scrolling speeds
+available in Set-Up -> Display -> Scrolling. 
+
+On the VT340, this setting does not affect sixel images when _first_
+being drawn. Graphics New Line ('-') at the end of the screen still
+scrolls the entire screen as fast as possible. However, once on the
+screen, sixel images do scroll smoothly along with the text upon
+receiving a text New Line ('\n').
+
+Documentation varied about how fast the different speeds were supposed
+to be, so hackerb9 measured the speeds using the
+[scrollspeed.sh](scrollspeed.sh) shell script.
+
+Results:
+|   Setting | Scanlines per second | Text lines per second |
+|----------:|---------------------:|----------------------:|
+|  Smooth-1 |                   60 |                     3 |
+|  Smooth-2 |                  120 |                     6 |
+|  Smooth-4 |                  240 |                    12 |
+|      Jump |                 1192 |                    60 |
+| No Scroll |                  N/A |                   N/A |
+
+While the VT340 allows the scrolling speed to be changed in the Set-Up
+menu, it does not appear to be programmatically changeable (as it is
+on the VT5x0 using **DECSSCLS**, Set Smooth Scroll Speed). Instead, DEC
+Private Mode #4, **DECSCLM**, Smooth Scroll Mode, is used as a binary
+switch. When a program sets **DECSCLM**, Smooth-2 is selected (even if one
+of the other Smooth speeds was already enabled). When **DECSCLM** is
+RESET, Jump scroll is used. Querying the private mode via **DECRQM**
+returns SET when any of the Smooth speeds are selected. If the user
+selects "No scroll" in the Set-Up menu, then **DECRQM** returns NOT
+RECOGNIZED.
+
+Note that, although Smooth-2 is the factory default on the VT340, the
+most popular terminfo file for the VT340 (as of 2024) disables Smooth
+Scroll Mode when the "reset" sequence is sent, which is often done at
+user login (e.g., `tset`). This makes having a user preference of
+Smooth-1 or Smooth-4 overly onerous as they would require repeated
+manual configuration in Set-Up.
+
+
+### Character Sets
+
+![Technical Character Set glyphs](charset/uplineload/char-tcs.gif)
+
+It appears the easiest way to use a VT340 in modern times is to enable
+the Latin1 character set in Set Up and and `export LANG=en_US.iso8859-1`. 
+However, there may be ways to get more glyphs out of the VT340 without
+even down-line loading a new font. Please see [the charset
+subdirectory](charset/README.md).
+
+Hackerb9 has also made a tool, [uplineloadfont](charset/uplineload/),
+for automatically capturing a font from the screen. It works on the
+VT340, but should work on any terminal that supports ReGIS's Media
+Copy to Host. It creates separate images for each glyph, but can also
+make a montage, like this:
+
+![Technical Character Set montage](charset/uplineload/tcs-montage.png)
+
