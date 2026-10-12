@@ -1529,6 +1529,319 @@ fn a_row_erased_to_the_default_at_the_pitch_lets_the_reach_come_down() {
     );
 }
 
+/// How a test feeds the bytes under test: whole, in reads of `n`, or in
+/// two reads split before byte `k`.
+#[derive(Clone, Copy, Debug)]
+enum Reads {
+    Whole,
+    Of(usize),
+    SplitAt(usize),
+}
+
+impl Reads {
+    fn feed(self, t: &mut Term<'_>, bytes: &[u8]) {
+        match self {
+            Reads::Whole => support::feed(t, bytes),
+            Reads::Of(n) => bytes.chunks(n).for_each(|c| support::feed(t, c)),
+            Reads::SplitAt(k) => {
+                let (a, b) = bytes.split_at(k);
+                support::feed(t, a);
+                support::feed(t, b);
+            }
+        }
+    }
+
+    /// Every way to read `len` bytes this tests: each read size from one
+    /// to the whole, and each split into two reads.
+    fn every(len: usize) -> impl Iterator<Item = Reads> {
+        (1..=len).map(Reads::Of).chain((1..len).map(Reads::SplitAt))
+    }
+}
+
+fn rows_of(t: &Term<'_>) -> Vec<Vec<PackedCell>> {
+    (0..10)
+        .map(|y| t.row(Row::from_index(y)).to_vec())
+        .collect()
+}
+
+/// The redraw a shell sends in blue: the mark, then its prompt in the
+/// default.
+const REDRAW_BLUE: &[u8] = b"\x1b[44m\x1b]133;A\x07\x1b[0m$ ";
+
+/// What the redraw stands in for when the block's first row is row 7 and
+/// it runs to the last row: the shell's own erase from row 7 to the end of
+/// the screen, in the same blue, then the same prompt.
+const ED_BLUE: &[u8] = b"\x1b[44m\x1b[7;1H\x1b[J\x1b[0m$ ";
+
+/// Forty `BLUE_BAR`s on a ten-row screen 40 wide with twenty lines of
+/// history, so every row of the ring holds one; a prompt on the last row,
+/// narrowed to 20 at it, `lines` fed, then `redraw` in `reads`. The rows
+/// narrow, the rows grown back to 40, and the redraws the marks made.
+fn a_redraw_over_blue_bars(
+    lines: &[u8],
+    redraw: &[u8],
+    reads: Reads,
+) -> (Vec<Vec<PackedCell>>, Vec<Vec<PackedCell>>, usize) {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &wide);
+    for _ in 0..40 {
+        support::feed(&mut t, BLUE_BAR);
+    }
+    support::feed(&mut t, b"\x1b]133;A\x07$ ");
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    support::feed(&mut t, lines);
+    let erased = t.prompt_erases;
+    reads.feed(&mut t, redraw);
+    let erases = t.prompt_erases - erased;
+    let narrow = rows_of(&t);
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    (narrow, rows_of(&t), erases)
+}
+
+/// `row` from column `from`: the erase's blue blank to column `to`, then
+/// the default blank to the end.
+fn assert_erased_blue(row: &[PackedCell], from: usize, to: usize, what: &str) {
+    for (c, cell) in row.iter().enumerate().take(to).skip(from) {
+        assert!(
+            cell.content == Content::EMPTY && cell.style != StyleId::DEFAULT,
+            "{what}: column {}, the erase's blue blank to column {to}",
+            c + 1
+        );
+    }
+    for (c, cell) in row.iter().enumerate().skip(to) {
+        assert_eq!(
+            *cell,
+            PackedCell::EMPTY,
+            "{what}: column {}, the default blank past column {to}",
+            c + 1
+        );
+    }
+}
+
+/// The prompt's row: `$ ` in the default, then the erase's blue to `to`.
+fn assert_prompt_then_blue(row: &[PackedCell], to: usize, what: &str) {
+    assert_eq!(text_of(&row[..2]), "$ ", "{what}: the prompt");
+    assert!(
+        row[..2].iter().all(|c| c.style == StyleId::DEFAULT),
+        "{what}: the prompt in the default"
+    );
+    assert_erased_blue(row, 2, to, what);
+}
+
+/// **A redraw in a colour past the edge keeps it to the mark**, as the
+/// shell's own `ED` does. Three lines fed at 20 columns on rows that held
+/// blue bars of mark 30, then a redraw mark in blue: the redraw erases
+/// the block, rows 7 to 10, and the three lines' rows come back blue to
+/// column 30 on a growth, as they do when the shell erases them itself.
+/// Erased to the mark and marked empty, the rows read uniform from column
+/// 1, and the clear past the edge took the erase's cells from 20 to 30:
+/// blue to 20. The prompt's row, whose mark was inside the edge, is `$ `
+/// and the erase's blue to the edge, the same narrow and grown. Every read
+/// size and every two-read split of the redraw gives the same screens.
+#[test]
+fn a_redraw_in_a_colour_past_the_edge_keeps_it_to_the_mark() {
+    let lines = b"p\r\np\r\np\r\n";
+    let (ed_narrow, ed_grown, ed_erases) = a_redraw_over_blue_bars(lines, ED_BLUE, Reads::Whole);
+    assert_eq!(ed_erases, 0, "the control: the shell's ED is no redraw");
+    for (y, row) in ed_grown.iter().enumerate().skip(7) {
+        assert_erased_blue(row, 0, 30, &format!("the control: row {}, ED", y + 1));
+    }
+    let (narrow, grown, erases) = a_redraw_over_blue_bars(lines, REDRAW_BLUE, Reads::Whole);
+    assert_eq!(erases, 1, "the control: the mark replaced the block");
+    for (y, row) in grown.iter().enumerate().skip(7) {
+        assert_erased_blue(row, 0, 30, &format!("row {}, grown", y + 1));
+    }
+    assert_prompt_then_blue(&narrow[6], 20, "row 7, narrow");
+    assert_prompt_then_blue(&grown[6], 20, "row 7, grown");
+    assert_eq!(narrow, ed_narrow, "the redraw's narrow screen is ED's");
+    assert_eq!(grown, ed_grown, "the redraw's grown screen is ED's");
+    for reads in Reads::every(REDRAW_BLUE.len()) {
+        assert_eq!(
+            a_redraw_over_blue_bars(lines, REDRAW_BLUE, reads),
+            (narrow.clone(), grown.clone(), 1),
+            "{reads:?}"
+        );
+    }
+}
+
+/// **The blue cell after a redrawn prompt was the erase stopping at the
+/// mark.** The prompt's row of the redraw above held `$ p`, a mark of 3,
+/// inside the edge: the erase stopped there, three blue cells, and the
+/// redraw's `$ ` covered two. With `$ ` alone, a mark of 2, and `$ pq`, a
+/// mark of 4, the cells after the prompt were none and two: the count
+/// followed the mark. Erased to the edge, it is `$ ` and the erase's blue
+/// to column 20 whatever the row held, as the shell's `ED` leaves it.
+#[test]
+fn the_blue_cell_after_a_redrawn_prompt_was_the_erase_stopping_at_the_mark() {
+    for first in [&b"\r\n"[..], b"p\r\n", b"pq\r\n"] {
+        let lines = [first, b"p\r\np\r\n"].concat();
+        let what = format!("row 7 after {:?}", String::from_utf8_lossy(first));
+        let whole = a_redraw_over_blue_bars(&lines, REDRAW_BLUE, Reads::Whole);
+        assert_prompt_then_blue(&whole.0[6], 20, &what);
+        let (ed, _, _) = a_redraw_over_blue_bars(&lines, ED_BLUE, Reads::Whole);
+        assert_eq!(whole.0[6], ed[6], "{what}: as ED leaves it");
+        for reads in Reads::every(REDRAW_BLUE.len()) {
+            assert_eq!(
+                a_redraw_over_blue_bars(&lines, REDRAW_BLUE, reads),
+                whole,
+                "{what}: {reads:?}"
+            );
+        }
+    }
+}
+
+/// A ten-row screen 40 wide with twenty lines of history, `setup` fed,
+/// then `redraw` in `reads`: the rows, and the cells and redraws the last
+/// feed made.
+fn a_redraw_inside_the_edge(
+    setup: &[u8],
+    redraw: &[u8],
+    reads: Reads,
+) -> (Vec<Vec<PackedCell>>, usize, usize) {
+    let ws = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &ws);
+    support::feed(&mut t, setup);
+    let ((_, cells), erased) = (t.amplification(), t.prompt_erases);
+    reads.feed(&mut t, redraw);
+    let (_, after) = t.amplification();
+    (rows_of(&t), after - cells, t.prompt_erases - erased)
+}
+
+/// **A redraw erases its row to the edge, as `ED` does**, with no
+/// narrowing anywhere. A row erased in blue under `$ `, then a redraw
+/// mark in the default: every cell of the row is the default blank, as
+/// the shell's `ED` from column 1 leaves it. Erased to the mark, 2, the row
+/// kept thirty-eight blue cells past it. Every read size and every two-read
+/// split of the mark gives the same row.
+#[test]
+fn a_redraw_erases_its_row_to_the_edge_as_ed_does() {
+    let setup = b"\x1b[10;1H\x1b]133;A\x07\x1b[44m\x1b[2K\x1b[0m$ ";
+    let mark = b"\x1b]133;A\x07";
+    let (before, _, _) = a_redraw_inside_the_edge(setup, b"", Reads::Whole);
+    assert_prompt_then_blue(&before[9], 40, "the control: row 10 before the redraw");
+    let (ed, _, ed_erases) = a_redraw_inside_the_edge(setup, b"\x1b[10;1H\x1b[J", Reads::Whole);
+    assert_eq!(ed_erases, 0, "the control: the shell's ED is no redraw");
+    let (rows, _, erases) = a_redraw_inside_the_edge(setup, mark, Reads::Whole);
+    assert_eq!(erases, 1, "the control: the mark replaced the block");
+    for (c, cell) in rows[9].iter().enumerate() {
+        assert_eq!(
+            *cell,
+            PackedCell::EMPTY,
+            "row 10, column {}: the default blank to the edge",
+            c + 1
+        );
+    }
+    assert_eq!(rows, ed, "the redraw's screen is ED's");
+    for reads in Reads::every(mark.len()) {
+        assert_eq!(
+            a_redraw_inside_the_edge(setup, mark, reads).0,
+            rows,
+            "{reads:?}"
+        );
+    }
+}
+
+/// **And it writes what `ED` writes.** A default redraw of a row of `$ `
+/// in the default stops at the mark, as `ED` does where the row is
+/// already the blank from the mark on: two cells, not forty. It leaves the
+/// row marked empty, so a second redraw writes nothing, as a second `ED`
+/// does: two cells for the pair, where a mark left at 2 wrote four.
+#[test]
+fn a_redraw_of_a_default_row_writes_to_its_mark_as_ed_does() {
+    let setup = b"\x1b[10;1H\x1b]133;A\x07$ ";
+    let ed_twice = b"\x1b[10;1H\x1b[J\x1b[10;1H\x1b[J";
+    let (ed, ed_cells, _) = a_redraw_inside_the_edge(setup, ed_twice, Reads::Whole);
+    assert_eq!(
+        ed_cells, 2,
+        "the control: ED writes to the mark, then nothing"
+    );
+    let marks = b"\x1b]133;A\x07\x1b]133;A\x07";
+    let (rows, cells, erases) = a_redraw_inside_the_edge(setup, marks, Reads::Whole);
+    assert_eq!(erases, 2, "the control: each mark replaced the block");
+    assert_eq!(cells, ed_cells, "the redraws write what ED writes");
+    assert_eq!(rows, ed, "the redraws' screen is ED's");
+    for reads in Reads::every(marks.len()) {
+        assert_eq!(
+            a_redraw_inside_the_edge(setup, marks, reads),
+            (rows.clone(), cells, erases),
+            "{reads:?}"
+        );
+    }
+}
+
+/// **And behind the window, where `ED` cannot reach.** Twelve lines fed at
+/// 20 columns on rows that held blue bars of mark 30 make the block
+/// taller than the screen; the rows the window would give up below hold
+/// text, so the redraw erases the block's rows behind the window where
+/// they lie. Its two lines fed there read as the erase's blue to column
+/// 30, the mark, narrow and grown, as the block's rows on the screen come
+/// back. Marked empty, they read as no cells while narrow and as blue to
+/// 20 once grown.
+#[test]
+fn a_redraw_in_a_colour_behind_the_window_keeps_it_to_the_mark() {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let behind = |reads: Reads| {
+        let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+        let mut t = Term::new(owned.storage(), &wide);
+        for _ in 0..40 {
+            support::feed(&mut t, BLUE_BAR);
+        }
+        support::feed(&mut t, b"\x1b]133;A\x07$ ");
+        assert_eq!(
+            t.resize(&WinSize {
+                ws_row: 10,
+                ws_col: 20
+            }),
+            Resized::Ok
+        );
+        support::feed(&mut t, &b"p\r\n".repeat(12));
+        let (hist, erased) = (t.scrollback().len(), t.prompt_erases);
+        reads.feed(&mut t, REDRAW_BLUE);
+        assert_eq!(t.prompt_erases, erased + 1, "the control: a redraw");
+        assert_eq!(t.scrollback().len(), hist, "the control: no retreat");
+        let lines = |t: &Term<'_>| {
+            (0..2)
+                .map(|k| t.scrollback().line(Back::of(k)).expect("a line").0.to_vec())
+                .collect::<Vec<_>>()
+        };
+        let narrow = lines(&t);
+        assert_eq!(t.resize(&wide), Resized::Ok);
+        (narrow, lines(&t), rows_of(&t))
+    };
+    let (narrow, grown, rows) = behind(Reads::Whole);
+    for (k, line) in narrow.iter().chain(&grown).enumerate() {
+        assert_eq!(line.len(), 30, "line {} back: to the mark", k % 2);
+        assert_erased_blue(line, 0, 30, &format!("line {} back", k % 2));
+    }
+    for (y, row) in rows.iter().enumerate().skip(1) {
+        assert_erased_blue(row, 0, 30, &format!("the control: row {}, grown", y + 1));
+    }
+    for reads in Reads::every(REDRAW_BLUE.len()) {
+        assert_eq!(
+            behind(reads),
+            (narrow.clone(), grown.clone(), rows.clone()),
+            "{reads:?}"
+        );
+    }
+}
+
 /// **The repair counts the cells it writes**, which is the rows under the
 /// region to their marks, not to the width. Three rows of four glyphs under a
 /// top region, one scroll: each row is copied to a mark of four, and the

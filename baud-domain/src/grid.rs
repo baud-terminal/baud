@@ -2024,25 +2024,40 @@ impl<'a> View<'a> {
         self.fill_at(self.rot.retreat(back.index() + 1, self.ring), cell)
     }
 
-    /// Blank one physical row of the ring -- wherever the window is -- to
-    /// its mark, and mark it empty. `at` is the ring row as [`RowRot`]
-    /// spells it: `phys(y)` for a screen row is `rot.advance(y, ring)`,
-    /// and a row behind the window is `rot.retreat(1 + back, ring)`.
+    /// Blank one physical row of the ring -- wherever the window is -- as
+    /// a whole-row erase in `cell` leaves it. `at` is the ring row as
+    /// [`RowRot`] spells it: `phys(y)` for a screen row is
+    /// `rot.advance(y, ring)`, and a row behind the window is
+    /// `rot.retreat(1 + back, ring)`. `cell` is a blank.
     ///
     /// For a block of rows the terminal knows the ring extent of and must
     /// erase whether they are on the screen, behind it or, after the
-    /// window moved, hidden past it.
+    /// window moved, hidden past it: the prompt redraw, which stands in
+    /// for the shell's `ED` over its block. So the row ends as `ED` leaves
+    /// a screen row ([`View::fill`] from column 0 to the live edge): every
+    /// cell to the edge is `cell`, stopping at the mark only when the last
+    /// cell already is, and on a row whose mark lies past the edge the
+    /// erase runs on to the mark and keeps it there unless `cell` is the
+    /// default ([`View::mark_after_fill`]). Filling to the mark alone and
+    /// marking the row empty left the old blank between the mark and the
+    /// edge, and took a coloured erase's cells past the edge on a growth
+    /// (the record, "The prompt redraw erases as ED does").
     pub fn fill_at(&mut self, at: RowRot, cell: PackedCell) -> RowExtent {
+        let cols = self.cols.index();
+        if cols == 0 {
+            return RowExtent::ZERO;
+        }
         let p = at.index();
+        if self.used[p].index() > cols {
+            return RowExtent::of(self.fill_past_edge_row(p, cell, RowExtent::ZERO));
+        }
         let base = p * self.stride.index();
-        let to = self.used[p].index();
+        let to = match self.cells[base + cols - 1] == cell {
+            true => self.used[p].index().min(cols),
+            false => cols,
+        };
         #[cfg(not(feature = "ceiling-no-rowfill"))]
         self.cells[base..base + to].fill(cell);
-        // The arm stops writing and the mark still moves, so the two
-        // operands the store read are otherwise unused and `-D warnings`
-        // refuses the build. Gated, so the default is byte-identical.
-        #[cfg(feature = "ceiling-no-rowfill")]
-        let _ = (base, cell);
         self.used[p] = RowExtent::ZERO;
         RowExtent::of(to)
     }
@@ -2050,7 +2065,7 @@ impl<'a> View<'a> {
     /// A whole-row fill on a row whose mark lies past the live edge: the
     /// fill runs to the mark, and the mark stays there unless the row is
     /// the default blank from `low` on ([`View::mark_after_fill`]).
-    /// `fill_row`'s cold half.
+    /// `fill_row`'s cold half, and `fill_at`'s.
     #[cold]
     #[inline(never)]
     fn fill_past_edge_row(&mut self, p: usize, cell: PackedCell, low: RowExtent) -> usize {
