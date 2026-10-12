@@ -107,6 +107,7 @@ their entries' titles:
 | U | who holds the window over the history across a resize: the re-cut, the viewport, the anchors |
 | V | cursor trails and cursors drawn by programs: kitty, Neovide and helix (no line in the header) |
 | Y | palettes: light/dark pairs, scheme formats, colour-scheme notifications, contrast floors |
+| AA | the shell a launched terminal starts: its locale, working directory and terminal settings |
 | AH | title-bar activity lights: the tty LED trigger, modem panels, per-process counters |
 | AI | where a launched terminal's log lines go: unified logging, files, the journal |
 | AJ | a launch splash: launch guidance, flashing, splash prior art |
