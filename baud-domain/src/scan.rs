@@ -626,12 +626,11 @@ impl RouteBlock {
 }
 
 /// How many bytes the character starting at this byte occupies, for all 256 of
-/// them. **Zero means the byte cannot start one** -- a continuation, and the
-/// question a stride run asks about every byte after a lead.
+/// them. **Zero means the byte cannot start one** -- a continuation.
 ///
 /// `Route::of` is a `const fn` and answers the same question, but it is a
-/// seven-way range match and the run scanner reaches it **per byte of every
-/// multi-byte run** and again per continuation byte. A byte-indexed table is
+/// seven-way range match. The run scanner read this per byte of a run until it
+/// asked Table 3-7's `utf8_width`, which refuses `C0 C1 F5-FF`. A table is
 /// one load whose address depends on the byte alone, so it issues immediately
 /// and never joins the loop-carried chain --
 /// `[[source: regex-automata-dense]]` adds exactly such a load for byte classes
@@ -689,8 +688,13 @@ impl Vectorized<Printable> {
     /// overlong, surrogate, out of range -- is answerable here and does not
     /// have to be handed back with the bits. `Codepoint::decoded` is the
     /// surrogate and range half, spelled once in the domain.
+    ///
+    /// **`None` for a lane that is ill-formed**, where an overlong or a
+    /// surrogate decoded to one replacement: the run writer ends the run
+    /// there, and the bytes are taken again one maximal subpart at a time
+    /// (`[[source: unicode-ch3]]` 3.9.6), which for these is one a byte.
     #[inline(always)]
-    pub fn stride_three_quad(self) -> [Codepoint; 4] {
+    pub fn stride_three_quad(self) -> [Option<Codepoint>; 4] {
         use core::simd::simd_swizzle;
         let v = self.lanes();
         // Lane `3i` leads character `i`; `3i+1` and `3i+2` continue it.
@@ -703,8 +707,9 @@ impl Vectorized<Printable> {
         let raw = (lead << Simd::splat(12)) | (c1 << Simd::splat(6)) | c2;
         // Below `U+0800` a three-byte form is overlong -- `E0 80 AF` renders
         // `/` without this, which is the path-traversal overlong -- and
-        // `Codepoint::decoded` rejects the surrogates and anything past
-        // `U+10FFFF`, neither of which a three-byte form can reach anyway.
+        // `ED A0..BF` spells a surrogate; `from_three` refuses both, which
+        // are Table 3-7's two narrowed second bytes for `E0` and `ED`. Past
+        // `U+10FFFF` a three-byte form cannot reach.
         let v = raw.to_array();
         [
             Codepoint::from_three(v[0]),

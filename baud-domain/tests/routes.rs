@@ -152,11 +152,11 @@ fn a_truncated_character_is_not_counted() {
 /// shows up because the four characters differ.
 #[test]
 fn the_quad_decode_agrees_with_one_at_a_time() {
-    let scalar = |s: &[u8]| -> Codepoint {
+    let scalar = |s: &[u8]| -> Option<Codepoint> {
         let raw = ((s[0] as u32 & 0x0f) << 12) | ((s[1] as u32 & 0x3f) << 6) | (s[2] as u32 & 0x3f);
         match raw < 0x800 {
-            true => Codepoint::REPLACEMENT,
-            false => Codepoint::decoded(raw),
+            true => None,
+            false => Codepoint::new(raw),
         }
     };
     for lead in [0xe0u8, 0xe4, 0xe9, 0xef] {
@@ -165,7 +165,7 @@ fn the_quad_decode_agrees_with_one_at_a_time() {
                 // Four *different* characters, so a swizzle that reads the
                 // wrong lane cannot pass by coincidence.
                 let mut raw = [0u8; LANE_COUNT];
-                let mut want = [Codepoint::REPLACEMENT; 4];
+                let mut want = [None; 4];
                 for i in 0..4 {
                     let s = [
                         lead.wrapping_add(i as u8) | 0xe0,
@@ -199,7 +199,7 @@ fn the_quad_ignores_the_bytes_past_its_run() {
     let qa = Vectorized::<Printable>::load(StreamByte::slice_from(&a)).stride_three_quad();
     let qb = Vectorized::<Printable>::load(StreamByte::slice_from(&b)).stride_three_quad();
     assert_eq!(qa, qb);
-    assert_eq!(qa, [Codepoint::decoded(0x4e16); 4]);
+    assert_eq!(qa, [Codepoint::new(0x4e16); 4]);
 }
 
 /// `leads` must be exactly the union of the three lead routes, which is what
@@ -224,8 +224,8 @@ fn the_lead_mask_is_the_union_of_the_three_lengths() {
 fn the_three_byte_constructor_agrees_with_the_general_one() {
     for v in 0u32..=0xffff {
         let want = match v < 0x800 {
-            true => Codepoint::REPLACEMENT,
-            false => Codepoint::decoded(v),
+            true => None,
+            false => Codepoint::new(v),
         };
         assert_eq!(Codepoint::from_three(v), want, "{v:#06x}");
     }

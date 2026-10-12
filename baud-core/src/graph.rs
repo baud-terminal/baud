@@ -158,9 +158,28 @@ pub enum Node {
     /// it: the same bytes did one thing in one read and the other split
     /// before the `P`. Last in the enum, so no other node's index moves.
     EscInter,
+    /// **A split character owing the second byte of one of Table 3-7's four
+    /// narrowed rows**, which only that row's second bytes continue:
+    /// `[[source: unicode-ch3]]` lets `E0` go on with `A0..BF`, `ED` with
+    /// `80..9F`, `F0` with `90..BF` and `F4` with `80..8F`, where every other
+    /// lead takes any of `80..BF`. `Utf8Two` and `Utf8Three` took any of them
+    /// after every lead, so `E0 | 80 80` cut between reads waited for the
+    /// rest of an overlong and wrote one U+FFFD for three bytes, where 3.9.6
+    /// replaces each maximal subpart and the `E0` is a subpart of its own.
+    /// A row each, because which second bytes continue is the *lead's*
+    /// property and the node is the only place the lead is remembered.
+    Utf8TwoAfterE0,
+    Utf8TwoAfterEd,
+    Utf8ThreeAfterF0,
+    Utf8ThreeAfterF4,
+    /// The same four in VT52, which a split character has to resume in.
+    Vt52Utf8TwoAfterE0,
+    Vt52Utf8TwoAfterEd,
+    Vt52Utf8ThreeAfterF0,
+    Vt52Utf8ThreeAfterF4,
 }
 
-pub(crate) const NNODE: usize = 25;
+pub(crate) const NNODE: usize = 33;
 
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
@@ -194,6 +213,14 @@ impl Node {
         Node::AfterControl,
         Node::Vt52AfterControl,
         Node::EscInter,
+        Node::Utf8TwoAfterE0,
+        Node::Utf8TwoAfterEd,
+        Node::Utf8ThreeAfterF0,
+        Node::Utf8ThreeAfterF4,
+        Node::Vt52Utf8TwoAfterE0,
+        Node::Vt52Utf8TwoAfterEd,
+        Node::Vt52Utf8ThreeAfterF0,
+        Node::Vt52Utf8ThreeAfterF4,
     ];
 }
 
@@ -391,6 +418,14 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
         Node::AfterControl => 22,
         Node::Vt52AfterControl => 23,
         Node::EscInter => 24,
+        Node::Utf8TwoAfterE0 => 25,
+        Node::Utf8TwoAfterEd => 26,
+        Node::Utf8ThreeAfterF0 => 27,
+        Node::Utf8ThreeAfterF4 => 28,
+        Node::Vt52Utf8TwoAfterE0 => 29,
+        Node::Vt52Utf8TwoAfterEd => 30,
+        Node::Vt52Utf8ThreeAfterF0 => 31,
+        Node::Vt52Utf8ThreeAfterF4 => 32,
     }] += 1;
 }
 
@@ -433,6 +468,14 @@ const fn node_name(n: Node) -> &'static str {
         Node::AfterControl => "AfterControl",
         Node::Vt52AfterControl => "Vt52AfterControl",
         Node::EscInter => "EscInter",
+        Node::Utf8TwoAfterE0 => "Utf8TwoAfterE0",
+        Node::Utf8TwoAfterEd => "Utf8TwoAfterEd",
+        Node::Utf8ThreeAfterF0 => "Utf8ThreeAfterF0",
+        Node::Utf8ThreeAfterF4 => "Utf8ThreeAfterF4",
+        Node::Vt52Utf8TwoAfterE0 => "Vt52Utf8TwoAfterE0",
+        Node::Vt52Utf8TwoAfterEd => "Vt52Utf8TwoAfterEd",
+        Node::Vt52Utf8ThreeAfterF0 => "Vt52Utf8ThreeAfterF0",
+        Node::Vt52Utf8ThreeAfterF4 => "Vt52Utf8ThreeAfterF4",
     }
 }
 
@@ -678,14 +721,17 @@ impl<T> Bytes<T> {
 
 /// The graph, built at compile time: `[node][byte] -> edge`.
 ///
-/// 25 x 256 x 2 bytes = **12.5 KB of rodata per encoding, 25 KB for both**,
+/// 33 x 256 x 2 bytes = **16.5 KB of rodata per encoding, 33 KB for both**,
 /// no initialiser and nothing to load. (Was 2 KB when there were 4 nodes, 10
 /// KB at 20, before the string body split three ways on `BEL`, 11 KB at 22,
-/// before the two grounds after a control, and 12 KB at 24, before `escape
-/// intermediate` had a node; a row is read only while the parser stands in
-/// its node, so `Node::AfterControl`'s 512 bytes are read once per control,
-/// for the byte after it, and `Node::EscInter`'s only inside an escape
-/// sequence with an intermediate that `fast_esc` did not take whole.)
+/// before the two grounds after a control, 12 KB at 24, before `escape
+/// intermediate` had a node, and 12.5 KB at 25, before Table 3-7's four
+/// narrowed second bytes had a node each in both grounds; a row is read only
+/// while the parser stands in its node, so `Node::AfterControl`'s 512 bytes
+/// are read once per control, for the byte after it, `Node::EscInter`'s only
+/// inside an escape sequence with an intermediate that `fast_esc` did not
+/// take whole, and the narrowed nodes' only when a read ends straight after
+/// an `E0`, `ED`, `F0` or `F4`.)
 static UTF8: Nodes<Bytes<Edge>> = build(InputEncoding::Utf8);
 static LATIN1: Nodes<Bytes<Edge>> = build(InputEncoding::Latin1);
 
@@ -761,17 +807,8 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // successor not be swallowed, and the outcome is the same `Consume`.
     let ground_like = matches!(
         node,
-        Node::Ground
-            | Node::AfterControl
-            | Node::Vt52AfterControl
-            | Node::Utf8One
-            | Node::Utf8Two
-            | Node::Utf8Three
-            | Node::Vt52Ground
-            | Node::Vt52Utf8One
-            | Node::Vt52Utf8Two
-            | Node::Vt52Utf8Three
-    );
+        Node::Ground | Node::AfterControl | Node::Vt52AfterControl | Node::Vt52Ground
+    ) || mid_character(node);
     // **Back to the ground it was in, not to ANSI ground.** A `CAN` inside a
     // VT52 escape cancels the escape; it does not switch protocols, and
     // `ground_of` is what says so in one place rather than at each return.
@@ -916,6 +953,25 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
             return match b.utf8_continuation() {
                 Some(_) => edge(Act::ContEnd, Node::Vt52Ground),
                 None => edge(Act::Resync, Node::Vt52Ground),
+            };
+        }
+        // **Table 3-7's four narrowed second bytes**, asked of the domain's
+        // table for the lead each node stands for (`narrowed_lead`): a byte
+        // the lead admits continues the character into the node that owes
+        // what is left, and any other byte, a continuation among them, ends
+        // the maximal subpart at the lead -- one U+FFFD -- and is dispatched
+        // again from the ground, where a continuation is a subpart of its own.
+        Node::Utf8TwoAfterE0
+        | Node::Utf8TwoAfterEd
+        | Node::Utf8ThreeAfterF0
+        | Node::Utf8ThreeAfterF4
+        | Node::Vt52Utf8TwoAfterE0
+        | Node::Vt52Utf8TwoAfterEd
+        | Node::Vt52Utf8ThreeAfterF0
+        | Node::Vt52Utf8ThreeAfterF4 => {
+            return match narrowed_lead(node).admits_second(b) {
+                true => edge(Act::Cont, after_second(node)),
+                false => edge(Act::Resync, ground_of(node)),
             };
         }
         // **Under ISO 8859-1 a GR byte in an escape or control sequence is
@@ -1356,8 +1412,84 @@ pub(crate) const fn ground_of(node: Node) -> Node {
         | Node::Vt52Utf8One
         | Node::Vt52Utf8Two
         | Node::Vt52Utf8Three
+        | Node::Vt52Utf8TwoAfterE0
+        | Node::Vt52Utf8TwoAfterEd
+        | Node::Vt52Utf8ThreeAfterF0
+        | Node::Vt52Utf8ThreeAfterF4
         | Node::Vt52AfterControl => Node::Vt52Ground,
         _ => Node::Ground,
+    }
+}
+
+/// The nodes a character split across reads waits in, owing continuations:
+/// the ones a byte that cannot continue it leaves with `Act::Resync`.
+pub(crate) const fn mid_character(node: Node) -> bool {
+    matches!(
+        node,
+        Node::Utf8One
+            | Node::Utf8Two
+            | Node::Utf8Three
+            | Node::Utf8TwoAfterE0
+            | Node::Utf8TwoAfterEd
+            | Node::Utf8ThreeAfterF0
+            | Node::Utf8ThreeAfterF4
+            | Node::Vt52Utf8One
+            | Node::Vt52Utf8Two
+            | Node::Vt52Utf8Three
+            | Node::Vt52Utf8TwoAfterE0
+            | Node::Vt52Utf8TwoAfterEd
+            | Node::Vt52Utf8ThreeAfterF0
+            | Node::Vt52Utf8ThreeAfterF4
+    )
+}
+
+/// The lead a node owing a narrowed second byte waits after: Table 3-7's
+/// four rows, `E0`, `ED`, `F0` and `F4`, and nothing for any other node.
+/// `waits_for_second` (through `waits_after`) is the other direction, and
+/// `a_split_lead_waits_for_the_second_bytes_it_admits` holds the two together
+/// against the domain's table for every lead and every byte after it.
+const fn narrowed_lead(node: Node) -> StreamByte {
+    StreamByte::from_stream(match node {
+        Node::Utf8TwoAfterE0 | Node::Vt52Utf8TwoAfterE0 => 0xe0,
+        Node::Utf8TwoAfterEd | Node::Vt52Utf8TwoAfterEd => 0xed,
+        Node::Utf8ThreeAfterF0 | Node::Vt52Utf8ThreeAfterF0 => 0xf0,
+        Node::Utf8ThreeAfterF4 | Node::Vt52Utf8ThreeAfterF4 => 0xf4,
+        // Leads nothing, so admits nothing: unreachable from the rows above.
+        _ => 0x00,
+    })
+}
+
+/// Where a narrowed node goes once its second byte has come: owing what any
+/// lead of its length owes after two bytes.
+const fn after_second(node: Node) -> Node {
+    match node {
+        Node::Utf8TwoAfterE0 | Node::Utf8TwoAfterEd => Node::Utf8One,
+        Node::Utf8ThreeAfterF0 | Node::Utf8ThreeAfterF4 => Node::Utf8Two,
+        Node::Vt52Utf8TwoAfterE0 | Node::Vt52Utf8TwoAfterEd => Node::Vt52Utf8One,
+        _ => Node::Vt52Utf8Two,
+    }
+}
+
+/// The node a lead whose bytes the read does not all carry waits in, after
+/// the lead: the narrowed row for `E0`, `ED`, `F0` and `F4`, and otherwise the
+/// node owing its length's continuations, in the ground `g` it began in.
+const fn waits_for_second(g: Node, lead: StreamByte) -> Node {
+    let vt52 = matches!(g, Node::Vt52Ground);
+    match (vt52, lead.raw_byte()) {
+        (false, 0xe0) => Node::Utf8TwoAfterE0,
+        (false, 0xed) => Node::Utf8TwoAfterEd,
+        (false, 0xf0) => Node::Utf8ThreeAfterF0,
+        (false, 0xf4) => Node::Utf8ThreeAfterF4,
+        (true, 0xe0) => Node::Vt52Utf8TwoAfterE0,
+        (true, 0xed) => Node::Vt52Utf8TwoAfterEd,
+        (true, 0xf0) => Node::Vt52Utf8ThreeAfterF0,
+        (true, 0xf4) => Node::Vt52Utf8ThreeAfterF4,
+        (false, 0xc2..=0xdf) => Node::Utf8One,
+        (false, 0xe1..=0xef) => Node::Utf8Two,
+        (false, _) => Node::Utf8Three,
+        (true, 0xc2..=0xdf) => Node::Vt52Utf8One,
+        (true, 0xe1..=0xef) => Node::Vt52Utf8Two,
+        (true, _) => Node::Vt52Utf8Three,
     }
 }
 
@@ -1568,6 +1700,13 @@ pub(crate) fn split(act: Act, node: Node) -> Edge {
     // character cut by a `read(2)` in VT52 has to resume in VT52; returning the
     // ANSI nodes here would leave the protocol at a read boundary, so the same
     // bytes would render differently depending on where the reads fell.
+    //
+    // **Which second bytes may follow is the lead's, and the `Begin` arm
+    // asks it** (`waits_after`), since `E0`, `ED`, `F0` and `F4` admit fewer
+    // than `80..BF`. Not here: this runs in the loop, and a `split` that read
+    // the lead kept it live on every step, which cost the loop 1.2-2.2% more
+    // instructions on payloads that never split a character (the record, "One
+    // U+FFFD per maximal subpart").
     match (ground_of(node), act) {
         (Node::Vt52Ground, Act::Char2) => edge(Act::Begin2, Node::Vt52Utf8One),
         (Node::Vt52Ground, Act::Char3) => edge(Act::Begin3, Node::Vt52Utf8Two),
@@ -1576,6 +1715,35 @@ pub(crate) fn split(act: Act, node: Node) -> Edge {
         (_, Act::Char3) => edge(Act::Begin3, Node::Utf8Two),
         _ => edge(Act::Begin4, Node::Utf8Three),
     }
+}
+
+/// The node a lead `split` began waits in, once the `Begin` arm has the lead:
+/// Table 3-7's narrowed row for `E0`, `ED`, `F0` and `F4`, and the node
+/// `split` named for every other lead. A table built at compile time, one row
+/// a ground, read at most once a `read(2)`.
+#[inline(always)]
+pub(crate) fn waits_after(node: Node, lead: StreamByte) -> Node {
+    static WAITS: [Bytes<Node>; 2] = [build_waits(Node::Ground), build_waits(Node::Vt52Ground)];
+    let row = match ground_of(node) {
+        Node::Vt52Ground => &WAITS[1],
+        _ => &WAITS[0],
+    };
+    *row.at(lead)
+}
+
+/// One ground's `waits_after` row. A byte that leads nothing never reaches
+/// it, since the graph names no character act for it, and keeps the ground.
+const fn build_waits(g: Node) -> Bytes<Node> {
+    let mut t = [g; 256];
+    let mut i = 0usize;
+    while i < 256 {
+        let b = StreamByte::ALL[i];
+        if b.utf8_lead().is_some() {
+            t[i] = waits_for_second(g, b);
+        }
+        i += 1;
+    }
+    Bytes(t)
 }
 
 impl Act {
@@ -2026,10 +2194,18 @@ mod classes {
         // compounding in two, three and four. That is the cost of recognising
         // Sixel stated as arithmetic, the same shape every action this file
         // adds pays.
+        // **Table 3-7's narrowed second bytes moved all four.** A character
+        // split after `E0`, `ED`, `F0` or `F4` waits in a node of its own
+        // that `80-8F`, `90-9F` and `A0-BF` leave differently, so under UTF-8
+        // those three ranges part. Under ISO 8859-1 `A0-BF` had parted from
+        // the C1 bytes already, but `80-8F` and the C1 finals `91-97 99 9A`
+        // were, by reading the rows, one class -- each a C1 read as `ESC` and
+        // a final, the same edge -- and are two now: 48 -> 49, and 1,841 -> 1,878, 54,641 ->
+        // 55,701 and 1,450,888 -> 1,478,109 at strides 2, 3 and 4.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 1_841, "stride 2");
-        assert_eq!(three.len(), 54_641, "stride 3");
-        assert_eq!(four.len(), 1_450_888, "stride 4");
+        assert_eq!(two.len(), 1_878, "stride 2");
+        assert_eq!(three.len(), 55_701, "stride 3");
+        assert_eq!(four.len(), 1_478_109, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2129,9 +2305,9 @@ mod classes {
     /// pushed the test back into the node functions would leave four nodes
     /// broken and every test green.
     ///
-    /// This is exhaustive over both encodings and every node, twenty-four
-    /// since the two grounds after a control, so the claim is a gate rather
-    /// than a comment.
+    /// This is exhaustive over both encodings and every node, thirty-three
+    /// since Table 3-7's narrowed second bytes had nodes, so the claim is a
+    /// gate rather than a comment.
     #[test]
     fn can_and_sub_cancel_from_every_node_that_is_not_ground_like() {
         for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
@@ -2145,17 +2321,8 @@ mod classes {
                 let g = ground_of(node);
                 let ground_like = matches!(
                     node,
-                    Node::Ground
-                        | Node::AfterControl
-                        | Node::Vt52AfterControl
-                        | Node::Utf8One
-                        | Node::Utf8Two
-                        | Node::Utf8Three
-                        | Node::Vt52Ground
-                        | Node::Vt52Utf8One
-                        | Node::Vt52Utf8Two
-                        | Node::Vt52Utf8Three
-                );
+                    Node::Ground | Node::AfterControl | Node::Vt52AfterControl | Node::Vt52Ground
+                ) || mid_character(node);
                 for b in [StreamByte::CAN, StreamByte::SUB] {
                     let got = Edge::of(enc, node, b);
                     match ground_like {
@@ -2196,7 +2363,7 @@ mod classes {
     /// ground, so `Act::EndCluster` tells the cluster machine before the next
     /// character it would be asked about (`[[source: uax29]]` GB4, GB5).
     ///
-    /// Exhaustive over both encodings, all twenty-four nodes and all 256
+    /// Exhaustive over both encodings, all thirty-three nodes and all 256
     /// bytes, three ways:
     ///
     /// * **an edge into a ground is text**: printable ASCII, whose run tells
@@ -2235,15 +2402,7 @@ mod classes {
             for node in Node::FROM_INDEX {
                 for b in StreamByte::ALL {
                     let e = Edge::of(enc, node, b);
-                    let utf8 = matches!(
-                        node,
-                        Node::Utf8One
-                            | Node::Utf8Two
-                            | Node::Utf8Three
-                            | Node::Vt52Utf8One
-                            | Node::Vt52Utf8Two
-                            | Node::Vt52Utf8Three
-                    );
+                    let utf8 = mid_character(node);
                     let into_ground = grounds.contains(&e.next);
                     let text = match e.act {
                         Act::Text => grounds.contains(&node) || twins.contains(&node),
@@ -2332,12 +2491,20 @@ mod classes {
                     | Node::CsiParam
                     | Node::CsiInter
                     | Node::CsiIgnore => edge(Act::EscStart, Node::Escape),
-                    Node::Utf8One | Node::Utf8Two | Node::Utf8Three => {
-                        edge(Act::Resync, Node::Ground)
-                    }
-                    Node::Vt52Utf8One | Node::Vt52Utf8Two | Node::Vt52Utf8Three => {
-                        edge(Act::Resync, Node::Vt52Ground)
-                    }
+                    Node::Utf8One
+                    | Node::Utf8Two
+                    | Node::Utf8Three
+                    | Node::Utf8TwoAfterE0
+                    | Node::Utf8TwoAfterEd
+                    | Node::Utf8ThreeAfterF0
+                    | Node::Utf8ThreeAfterF4 => edge(Act::Resync, Node::Ground),
+                    Node::Vt52Utf8One
+                    | Node::Vt52Utf8Two
+                    | Node::Vt52Utf8Three
+                    | Node::Vt52Utf8TwoAfterE0
+                    | Node::Vt52Utf8TwoAfterEd
+                    | Node::Vt52Utf8ThreeAfterF0
+                    | Node::Vt52Utf8ThreeAfterF4 => edge(Act::Resync, Node::Vt52Ground),
                     Node::Dcs | Node::DcsDollar | Node::OscStr | Node::DcsStr | Node::SosStr => {
                         edge(Act::Consume, Node::StrEsc)
                     }
@@ -2965,8 +3132,10 @@ mod classes {
     // the classes they shared, which made 41. A GR byte in an escape or
     // control sequence read so split `BC-BF` from `A0-AF`, `BA` from `BB`,
     // and `D0`, `D8 DE DF`, `DB`, `DC` and `DD` from the other two-byte
-    // leads, which made 48.
-    const CLASSES: usize = 48;
+    // leads, which made 48. Table 3-7's narrowed second bytes, read where a
+    // split character waits after `E0`, `ED`, `F0` or `F4`, made 49 -- by
+    // reading the rows, `80-8F` parting from the C1 finals `91-97 99 9A`.
+    const CLASSES: usize = 49;
     /// What `write::act` consumes, which is **not** `Act::width()`.
     ///
     /// `width` is the byte length of the *character* an act writes; two acts
@@ -2981,11 +3150,9 @@ mod classes {
         }
     }
 
-    /// **`split`'s wildcard means "Char4", and only `feed` makes that true.**
-    ///
-    /// `split` ends in `_ => edge(Act::Begin4, ...)`, so any act reaching it
-    /// that is not `Char2` or `Char3` is taken to owe four bytes. Nothing in
-    /// `split` establishes that. What does is one line in `feed`:
+    /// **Only a character act reaches `split`, and only `feed` makes that
+    /// true.** `feed` asks for a `Begin` edge whenever the act's width does
+    /// not fit in what is left of the read:
     ///
     /// ```text
     /// if !left.holds(e.act.width()) { e = split(e.act, *node); }
@@ -2994,15 +3161,17 @@ mod classes {
     /// `width` is `ONE` for every act but the three character ones, and the
     /// loop runs only while a byte remains, so `left.holds(ONE)` cannot fail
     /// and `split` is unreachable for them. The invariant is real and it lives
-    /// in a different file from the wildcard that depends on it.
+    /// in a different file from the table that depends on it.
     ///
-    /// Give `width` a value above one for some other act -- a five-byte
-    /// encoding, a fused action -- and that act starts arriving at `split`,
-    /// which will quietly tell the parser to wait for four bytes. It would not
-    /// fail to compile and no existing test would notice: the graph still
-    /// terminates, chunk invariance still holds at every read size that does
-    /// not land inside such a character, and the cells only differ on input the
-    /// corpus does not contain.
+    /// `split` ends in `_ => edge(Act::Begin4, ...)`, so any act reaching it
+    /// that is not `Char2` or `Char3` is taken to owe four bytes. Give `width`
+    /// a value above one for some other act -- a five-byte encoding, a fused
+    /// action -- and that act starts arriving at `split`, which will quietly
+    /// tell the parser to wait for four bytes. It would not fail to compile
+    /// and no existing test would notice: the graph still terminates, chunk
+    /// invariance still holds at every read size that does not land inside
+    /// such a character, and the cells only differ on input the corpus does
+    /// not contain.
     ///
     /// So the assumption is checked rather than commented. This is the cheap
     /// half of the plan's "`split` as a table" step; the table itself is
@@ -3038,7 +3207,7 @@ mod classes {
         }
     }
 
-    /// And `split` maps each of the three to the length it actually owes.
+    /// And `split` maps each length to the bytes it actually owes.
     ///
     /// The wildcard is right for `Char4` only if `Char2` and `Char3` are taken
     /// by the arms above it -- a transposition here would park the accumulator
@@ -3047,11 +3216,13 @@ mod classes {
     #[test]
     fn split_owes_the_bytes_the_character_actually_has() {
         for ground in [Node::Ground, Node::Vt52Ground] {
-            for (act, want) in [
-                (Act::Char2, Act::Begin2),
-                (Act::Char3, Act::Begin3),
-                (Act::Char4, Act::Begin4),
+            for (lead, act, want) in [
+                (0xc3u8, Act::Char2, Act::Begin2),
+                (0xe4, Act::Char3, Act::Begin3),
+                (0xf0, Act::Char4, Act::Begin4),
             ] {
+                let lead = StreamByte::from_stream(lead);
+                assert_eq!(Edge::of(InputEncoding::Utf8, ground, lead).act, act);
                 assert_eq!(
                     split(act, ground).act,
                     want,
@@ -3059,6 +3230,108 @@ mod classes {
                 );
             }
         }
+    }
+
+    /// **A lead the read cut off waits for exactly the bytes Table 3-7 lets
+    /// follow it.** For every lead the ground names a character act for, in
+    /// both grounds: `split` begins the length the act owes, in the ground's
+    /// own family of nodes, `waits_after` picks the node the `Begin` arm
+    /// leaves it in, and that node continues on a second
+    /// byte if and only if the domain's table says the lead admits it --
+    /// `[[source: unicode-ch3]]`'s `A0..BF` after `E0`, `80..9F` after `ED`,
+    /// `90..BF` after `F0`, `80..8F` after `F4`, `80..BF` after the rest --
+    /// then owes what any lead of its length owes after two bytes. Every other
+    /// second byte ends the maximal subpart at the lead (3.9.6): `Resync`,
+    /// one U+FFFD, and the byte dispatched again from the ground.
+    ///
+    /// `Utf8Two` and `Utf8Three` took any continuation after any lead, so
+    /// `E0 | 80` cut by a read waited for the rest of an overlong; a
+    /// transposition of two narrowed nodes, or a lead sent to the wide node,
+    /// fails here on its first byte.
+    #[test]
+    fn a_split_lead_waits_for_the_second_bytes_it_admits() {
+        let mut checked = 0usize;
+        for ground in [Node::Ground, Node::Vt52Ground] {
+            for lead in StreamByte::ALL {
+                let e = Edge::of(InputEncoding::Utf8, ground, lead);
+                let (begin, owed) = match e.act {
+                    Act::Char2 => (Act::Begin2, 1),
+                    Act::Char3 => (Act::Begin3, 2),
+                    Act::Char4 => (Act::Begin4, 3),
+                    _ => continue,
+                };
+                // What the loop and the `Begin` arm do between them.
+                let mut s = split(e.act, ground);
+                assert_eq!(ground_of(s.next), ground);
+                s.next = waits_after(s.next, lead);
+                assert_eq!(s.act, begin, "{:#04x} from {ground:?}", lead.raw_byte());
+                assert_eq!(
+                    ground_of(s.next),
+                    ground,
+                    "{:#04x} from {ground:?}",
+                    lead.raw_byte()
+                );
+                assert!(
+                    mid_character(s.next),
+                    "{:#04x} from {ground:?}",
+                    lead.raw_byte()
+                );
+                for b in StreamByte::ALL {
+                    let c = Edge::of(InputEncoding::Utf8, s.next, b);
+                    let want = match (lead.admits_second(b), owed) {
+                        (true, 1) => edge(Act::ContEnd, ground),
+                        (true, _) => c,
+                        (false, _) => edge(Act::Resync, ground),
+                    };
+                    assert_eq!(
+                        c,
+                        want,
+                        "{:#04x} {:#04x} from {ground:?}",
+                        lead.raw_byte(),
+                        b.raw_byte()
+                    );
+                    if lead.admits_second(b) && owed > 1 {
+                        assert_eq!(
+                            c.act,
+                            Act::Cont,
+                            "{:#04x} {:#04x}",
+                            lead.raw_byte(),
+                            b.raw_byte()
+                        );
+                        // What is left is any continuation, after any lead.
+                        let rest = c.next;
+                        for b3 in StreamByte::ALL {
+                            let r = Edge::of(InputEncoding::Utf8, rest, b3);
+                            assert_eq!(
+                                r.act == Act::Resync,
+                                b3.utf8_width() != 0,
+                                "{:#04x} {:#04x} {:#04x}",
+                                lead.raw_byte(),
+                                b.raw_byte(),
+                                b3.raw_byte()
+                            );
+                        }
+                        let generic = match (owed, ground) {
+                            (2, Node::Ground) => Node::Utf8One,
+                            (2, _) => Node::Vt52Utf8One,
+                            (_, Node::Ground) => Node::Utf8Two,
+                            _ => Node::Vt52Utf8Two,
+                        };
+                        assert_eq!(
+                            rest,
+                            generic,
+                            "{:#04x} {:#04x}",
+                            lead.raw_byte(),
+                            b.raw_byte()
+                        );
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        // Positive control: the 51 leads `C2-F4`, all 256 bytes after each, in
+        // both grounds.
+        assert_eq!(checked, 2 * 51 * 256);
     }
 
     /// **The loop always advances**, and it is a table property rather than a

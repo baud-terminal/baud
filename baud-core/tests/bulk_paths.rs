@@ -8,7 +8,7 @@
 //! **What it catches is invisible to every other kind of test.** `run_of` finds
 //! a run of four-byte characters either way: through the vector scan if one
 //! exists, and otherwise through the scalar loop underneath, which asks
-//! `lead_width` once per byte. The cells are byte-identical, chunk invariance
+//! `utf8_width` once per byte. The cells are byte-identical, chunk invariance
 //! holds, every differential agrees -- and one of the two is four table lookups
 //! a character where the other is one vector step. **No assertion about output
 //! can separate them, so this asserts about entry.**

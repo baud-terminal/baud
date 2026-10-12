@@ -10,7 +10,7 @@
 //! is. That is the point of `Paint`: the `View` setup is paid once a read
 //! instead of once a run.
 
-use crate::graph::{Act, Node};
+use crate::graph::{Act, Node, waits_after};
 use crate::osc::StrKind;
 use crate::paint::Paint;
 use crate::storage::STRIDE_MAX;
@@ -426,16 +426,23 @@ pub(crate) fn act(
             *min = Utf8Min::Two;
             ReadLen::ONE
         }
+        // **And which second bytes may come is the lead's**: `split` named
+        // the node any lead of this length waits in, and `E0`, `ED`, `F0` and
+        // `F4` wait in one of their own, which admits only Table 3-7's
+        // narrowed second bytes (`waits_after`). A two-byte lead admits every
+        // continuation, so `Begin2` asks nothing.
         Act::Begin3 => {
             let b = StreamByte::from_stream(p.arena[from.index()]);
             *utf8 = Utf8Acc::lead(b.lead_bits(3));
             *min = Utf8Min::Three;
+            *node = waits_after(*node, b);
             ReadLen::ONE
         }
         Act::Begin4 => {
             let b = StreamByte::from_stream(p.arena[from.index()]);
             *utf8 = Utf8Acc::lead(b.lead_bits(4));
             *min = Utf8Min::Four;
+            *node = waits_after(*node, b);
             ReadLen::ONE
         }
         Act::Cont => {
@@ -869,11 +876,12 @@ fn chars(p: &mut Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> R
     // pty. `ansi`'s `acsc` capability is a hundred raw high bytes and it hung
     // the conformance suite for as long as it was given.
     //
-    // `[[source: unicode-ch3]]` 3.9.5 says what to emit: the **maximal
-    // subpart** of the ill-formed sequence is one unit here, because `41`
-    // cannot continue `E2`. So one `U+FFFD` for the lead and the byte after it
-    // is re-dispatched -- which is `Act::Bad`'s behaviour, reached by a
-    // different route.
+    // `[[source: unicode-ch3]]` 3.9.5 forbids taking the `41` with the lead,
+    // and 3.9.6 says what the lead itself becomes: one `U+FFFD` for its
+    // **maximal subpart**, the lead and whatever follows it that could still
+    // begin a well-formed sequence, and here that is the lead alone. The byte
+    // after it is re-dispatched -- which is `Act::Bad`'s behaviour, reached
+    // by a different route.
     //
     // The machine is told the replacement is class Other, as `Bad`'s and
     // `Resync`'s are.
@@ -884,10 +892,19 @@ fn chars(p: &mut Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> R
         p.cluster = ClusterBreak::after_ascii_run();
         return n;
     }
-    match k.index() {
-        1 => put_one(p, from, len),
+    // **`put_run` may write fewer than it was given**: a run is found by
+    // shape, and a character of the right shape can still be ill-formed --
+    // an overlong or a surrogate, which only the decode sees. The run ends
+    // before it, and the next step takes its bytes one maximal subpart at a
+    // time through the arm above. The first character is never one, since
+    // `run_of` answered zero for it otherwise, so this still advances.
+    let k = match k.index() {
+        1 => {
+            put_one(p, from, len);
+            k
+        }
         _ => put_run(p, from, len, k, left),
-    }
+    };
     let taken = len.index() * k.index();
     // **The text after the characters, in the same step.** `Char2` is 31% of
     // `vim-unicode.raw`'s iterations and `Text` 26.5%, and in mixed-script
@@ -907,20 +924,28 @@ fn chars(p: &mut Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> R
     ReadLen::from_index(taken)
 }
 
-/// Are the `len - 1` bytes after the lead all continuations?
+/// Is the character the lead claims well-formed, by `[[source: unicode-ch3]]`
+/// Table 3-7?
 ///
 /// The graph answers "how long does this lead **claim** to be"; only the bytes
 /// after it say whether the claim holds. Splitting the two is what `Act::Bad`
 /// already does for a byte that can begin nothing, and this is the same
 /// question one byte later.
+///
+/// **The second byte is the lead's question, and the rest are anyone's.**
+/// Table 3-7 narrows the second byte after `E0`, `ED`, `F0` and `F4` and no
+/// other byte after any lead, so a sequence that is all continuations can
+/// still be an overlong or a surrogate. This asked only "are they
+/// continuations", the overlong decoded to one replacement, and `E0 80 80`
+/// was one U+FFFD where 3.9.6 makes it three.
 #[inline(always)]
 fn well_formed(s: &[StreamByte], len: ByteLen) -> bool {
-    if s.len() < len.index() {
+    if s.len() < len.index() || !s[0].admits_second(s[1]) {
         return false;
     }
-    let mut i = 1;
+    let mut i = 2;
     while i < len.index() {
-        if lead_width(s[i]) != 0 {
+        if s[i].utf8_width() != 0 {
             return false;
         }
         i += 1;
@@ -928,18 +953,26 @@ fn well_formed(s: &[StreamByte], len: ByteLen) -> bool {
     true
 }
 
-/// How many bytes the ill-formed sequence at `s` occupies.
+/// How many bytes the maximal subpart at `s` occupies.
 ///
-/// `[[source: unicode-ch3]]` 3.9.5: one `U+FFFD` per **maximal subpart**,
-/// which is the lead plus every continuation that really follows it. `E2 41`
-/// is one byte and `E2 80 41` is two, so the `A` is re-dispatched in both --
-/// against `E2 80` being silently eaten, which is the shape that loses data
-/// rather than the shape that renders it oddly.
+/// `[[source: unicode-ch3]]` 3.9.6, D93b: "the longest code unit subsequence
+/// starting at an unconvertible offset that is either: a. the initial
+/// subsequence of a well-formed code unit sequence, or b. a subsequence of
+/// length one", each "replaced by a single U+FFFD". So the lead, then its
+/// second byte only if Table 3-7 lets that byte follow this lead, then every
+/// continuation after it, short of the length the lead claims. `E2 41` is one
+/// byte and `E2 80 41` two, so the `A` is re-dispatched in both -- against
+/// `E2 80` being silently eaten, which 3.9.5 forbids. `E0 80 41` is one: `E0`
+/// admits only `A0..BF` second, so the `80` is a subpart of its own, and
+/// counting it with the lead, as this did, wrote one U+FFFD for two.
 #[inline(always)]
 fn maximal_subpart(s: &[StreamByte], len: ByteLen) -> ReadLen {
     let mut n = 1;
-    while n < len.index() && n < s.len() && lead_width(s[n]) == 0 {
-        n += 1;
+    if n < len.index() && n < s.len() && s[0].admits_second(s[1]) {
+        n = 2;
+        while n < len.index() && n < s.len() && s[n].utf8_width() == 0 {
+            n += 1;
+        }
     }
     ReadLen::from_index(n)
 }
@@ -951,9 +984,9 @@ fn maximal_subpart(s: &[StreamByte], len: ByteLen) -> ReadLen {
 /// Devanagari and box drawing all qualify together, and a constant stride is
 /// what makes the decode's swizzle indices compile-time constants.
 ///
-/// `Route::of` is the same definition the block scanner answers to, and
-/// `Route::width` already says how many bytes a lead claims -- so one test
-/// serves every stride and there is no per-length table here.
+/// `utf8_width`, Table 3-7's first column, says how many bytes a lead claims
+/// and is zero for a continuation -- so one test serves every stride and there
+/// is no per-length table here. (The route's width calls `F8` a lead.)
 ///
 /// **Never zero**: the graph only names a character action for a byte that
 /// leads one, and the split test has already established its bytes are here.
@@ -975,7 +1008,7 @@ fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Coun
     if !well_formed(s, ByteLen::from_index(len)) {
         return Count::ZERO;
     }
-    if left < 2 * len || lead_width(s[len]) != len {
+    if left < 2 * len || s[len].utf8_width() != len {
         return Count::of(1);
     }
     let mut k = 0usize;
@@ -1047,13 +1080,17 @@ fn run_of(p: &Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> Coun
     }
     // **One byte-indexed load each, where this was a seven-way range match.**
     // A continuation is the byte that claims no length of its own, so both
-    // questions the scan asks come off the same table.
+    // questions the scan asks come off the same table -- Table 3-7's first
+    // column, `utf8_width`, and not the route's nibble, which calls `C0-C1`
+    // two bytes and `F5-FF` four and let `F8 A0 80 80` continue a four-byte
+    // run as U+20000. The second byte's narrower ranges are the decode's to
+    // find (`put_run`), since the vector scan above cannot see them either.
     while k < STRIDE_MAX
         && len * (k + 1) <= left
-        && lead_width(s[len * k]) == len
+        && s[len * k].utf8_width() == len
         && s[len * k + 1..len * (k + 1)]
             .iter()
-            .all(|b| lead_width(*b) == 0)
+            .all(|b| b.utf8_width() == 0)
     {
         k += 1;
     }
@@ -1159,8 +1196,22 @@ fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
 /// `put_wide_run` write eight cells to one `Simd<u64,8>` store; asking it
 /// before, as a gate on the cluster machine, is what refused 92% of candidates
 /// in the previous core.
+///
+/// **Returns how many it wrote**, which is fewer than `count` when a character
+/// of the run's shape is ill-formed: `run_of` finds a run by shape, and an
+/// overlong or a surrogate has the shape. The run ends before it, and the
+/// next step takes its bytes one maximal subpart at a time, which is one
+/// U+FFFD a byte for these (`[[source: unicode-ch3]]` 3.9.6, Tables 3-8 and
+/// 3-9). Decoding one to a single replacement here, as this did, wrote one
+/// where the standard's practice writes three or four.
 #[inline(always)]
-fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, left: ReadLen) {
+fn put_run(
+    p: &mut Paint<'_, '_>,
+    from: BytePos,
+    len: ByteLen,
+    count: Count,
+    left: ReadLen,
+) -> Count {
     #[cfg(feature = "diag")]
     {
         p.runs[count.index().min(7)] += 1;
@@ -1170,9 +1221,11 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     #[cfg(feature = "ceiling-no-decode")]
     {
         let _ = (&p, from, len, k, left);
-        return;
+        return count;
     }
+    // Lowered where the run meets an ill-formed character (the doc).
     #[allow(unreachable_code)]
+    let mut k = k;
     let mut cps = [Codepoint::REPLACEMENT; STRIDE_MAX];
     let (mut all_wide, mut all_narrow) = (true, true);
     let mut all_ordinary = true;
@@ -1191,13 +1244,19 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     // two answers. A forward scan on this path is bounded by what was fed.
     let mut done = 0usize;
     if len == 3 {
-        while done + 4 <= k && 3 * done + LANE_COUNT <= left {
+        'quads: while done + 4 <= k && 3 * done + LANE_COUNT <= left {
             let at = from.index() + 3 * done;
             let quad = Vectorized::<Printable>::load(StreamByte::slice_from(
                 &p.arena[at..at + LANE_COUNT],
             ))
             .stride_three_quad();
             for (j, cp) in quad.iter().enumerate() {
+                // An ill-formed lane ends the run before it (see the doc).
+                let Some(cp) = cp else {
+                    k = done + j;
+                    done = k;
+                    break 'quads;
+                };
                 // Zero-width is neither, exactly as in the scalar tail below.
                 // **This is the second of two accumulators and the first edit
                 // missed it**, which chunk invariance caught immediately: a
@@ -1239,9 +1298,14 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
             3 => 0x800,
             _ => 0x1_0000,
         };
-        let cp = match raw < floor {
-            true => Codepoint::REPLACEMENT,
-            false => Codepoint::decoded(raw),
+        // **Below the floor, a surrogate or past U+10FFFF, the run ends
+        // here**, exactly where Table 3-7's second byte refused the lead
+        // (`a_valid_lead_decodes_to_a_character_iff_it_admits_its_second_byte`
+        // checks the two agree), and the next step takes the bytes one
+        // maximal subpart at a time.
+        let Some(cp) = (raw >= floor).then(|| Codepoint::new(raw)).flatten() else {
+            k = i;
+            break;
         };
         // **The table, not four range compares.** `is_wide_ordinary` answers
         // without touching memory and was tried here; it measured **414
@@ -1292,7 +1356,7 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     {
         let _ = (&cps, all_wide, all_narrow, all_ordinary);
         p.cells = p.cells.plus(k);
-        return;
+        return Count::of(k);
     }
     #[allow(unreachable_code)]
     // **A run of one does not want the vectored writer.** `put_wide_run`
@@ -1304,7 +1368,7 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     // 69% for the same bytes because a block capped what it could see.
     if k == 1 {
         glyph(p, cps[0]);
-        return;
+        return Count::of(k);
     }
     // **The narrow writer existed and nothing called it.** `put_narrow_run`
     // writes eight cells to one store and only `baud-core2` referenced it, so
@@ -1363,21 +1427,22 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
         for cp in cps.iter().take(k) {
             glyph(p, *cp);
         }
-        return;
+        return Count::of(k);
     }
     let uniform = match (all_wide, all_narrow) {
         (true, _) => Some(Width::WIDE),
         (_, true) => Some(Width::NARROW),
         _ => None,
     };
-    if let Some(w) = uniform.filter(|w| k > 0 && p.fits(count, *w)) {
+    // `k`, not `count`: the run may have ended at an ill-formed character.
+    if let Some(w) = uniform.filter(|w| k > 0 && p.fits(Count::of(k), *w)) {
         p.run(&cps[..k], w);
         // **The advance for the whole run, in one store.** Every character in
         // it was ordinary and the first one broke, so the machine ends where
         // one ordinary character leaves it -- which the domain test above pins
         // as the same state from all 94.
         p.cluster = ClusterBreak::after_ascii_run();
-        return;
+        return Count::of(k);
     }
     // Mixed widths, or the row is about to end: one at a time, which also
     // handles the wrap.
@@ -1393,6 +1458,7 @@ fn put_run(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen, count: Count, lef
     for cp in cps.iter().take(k) {
         glyph(p, *cp);
     }
+    Count::of(k)
 }
 
 /// One codepoint at its own width.

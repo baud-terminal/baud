@@ -9,6 +9,7 @@ mod support;
 
 mod graphemes;
 mod latin1;
+mod maximal_subparts;
 mod utf8;
 mod width;
 
@@ -26,5 +27,9 @@ mod width;
 /// as it stood. A row nothing can reach is a row nobody re-reads.
 #[test]
 fn the_known_encoding_gaps() {
-    support::ignores_are("encoding", &["latin1.rs", "utf8.rs"], &[]);
+    support::ignores_are(
+        "encoding",
+        &["latin1.rs", "maximal_subparts.rs", "utf8.rs"],
+        &[],
+    );
 }

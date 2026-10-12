@@ -326,6 +326,47 @@ impl StreamByte {
             _ => None,
         }
     }
+
+    /// May `next` follow this byte as the second byte of a well-formed
+    /// sequence? `[[source: unicode-ch3]]` Table 3-7's second-byte column:
+    /// `80..BF` after every lead but four, `A0..BF` after `E0`, `80..9F` after
+    /// `ED`, `90..BF` after `F0` and `80..8F` after `F4`, and nothing after a
+    /// byte that leads no sequence.
+    ///
+    /// **This is where a maximal subpart ends** (3.9.6, D93b): a lead and a
+    /// second byte it admits are "the initial subsequence of a well-formed code
+    /// unit sequence", and a lead whose second byte it refuses is a subpart of
+    /// one byte. Every later byte of a sequence is `80..BF` after any lead, so
+    /// the second byte is the only one where a continuation can still end it,
+    /// which is why the decoder's shortest-form floor, its surrogate hole and
+    /// its U+10FFFF ceiling are all this one question.
+    ///
+    /// A load and two compares on a table built at compile time; the graph's
+    /// builder asks it for the rows a split character waits in, and the run
+    /// writer asks it once a run, of the run's first character.
+    #[inline(always)]
+    pub const fn admits_second(self, next: StreamByte) -> bool {
+        let [lo, hi] = UTF8_SECOND[self.0 as usize];
+        next.0 >= lo && next.0 <= hi
+    }
+
+    /// How many bytes the well-formed sequence beginning with this byte has,
+    /// by Table 3-7's first column: 2, 3 or 4 for the leads `C2..DF`,
+    /// `E0..EF` and `F0..F4`, **0 for a continuation**, and 1 for every other
+    /// byte -- ASCII, and the bytes no sequence begins with, `C0`, `C1` and
+    /// `F5..FF`, each of which is a maximal subpart of one byte.
+    ///
+    /// **Not [`lead_width`]**, which answers for the route a byte's high
+    /// nibble gives it and so calls `C0..C1` two bytes and all of `F0..FF`
+    /// four. A run of characters asked that and admitted `F8 A0 80 80` after a
+    /// four-byte character, whose low three bits then decoded as U+20000:
+    /// conformance clause C10's "shall not interpret such sequences as
+    /// characters", broken by a byte the graph would have refused had it come
+    /// first.
+    #[inline(always)]
+    pub fn utf8_width(self) -> usize {
+        UTF8_WIDTH[self.0 as usize] as usize
+    }
 }
 
 impl StreamByte {
@@ -552,7 +593,14 @@ impl Codepoint {
         (((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f)) as u32
     }
 
-    /// A three-byte sequence's scalar value, or the replacement.
+    /// A three-byte sequence's scalar value, or `None` for an ill-formed one.
+    ///
+    /// **`None` and not the replacement**, because how many U+FFFD an
+    /// ill-formed sequence is depends on its bytes and not on the value they
+    /// spell: `[[source: unicode-ch3]]` 3.9.6 replaces each maximal subpart,
+    /// and every byte of an overlong or a surrogate's three is a subpart of
+    /// its own, so `E0 80 80` is three. Folding it into one replacement here
+    /// is what made the run writer write one.
     ///
     /// **Two compares and no branch, for the length that is 50% of a mixed
     /// recording's runs and 100% of a page of CJK.** The general
@@ -567,11 +615,8 @@ impl Codepoint {
     /// decode. Branching on the length to reach it from the general
     /// single-character path measured *slower* -- 670-704 against 702-705 --
     /// because the test costs more than the two compares it saves.
-    pub fn from_three(v: u32) -> Codepoint {
-        match v >= 0x800 && (v ^ 0xd800) >= 0x800 {
-            true => Codepoint(v),
-            false => Codepoint::REPLACEMENT,
-        }
+    pub fn from_three(v: u32) -> Option<Codepoint> {
+        (v >= 0x800 && (v ^ 0xd800) >= 0x800).then_some(Codepoint(v))
     }
 
     /// From a decoder that has already validated. Malformed input becomes
@@ -853,6 +898,52 @@ impl InputEncoding {
 /// the lead's payload bits. Built at compile time from the same ranges the
 /// match used, and `the_lead_table_matches_the_ranges` checks all 256.
 const UTF8_LEAD: [u16; 256] = build_lead_table();
+
+/// Table 3-7's second-byte column, one `[low, high]` pair a byte: the
+/// inclusive range of the byte that may follow it second, and an empty range,
+/// `[1, 0]`, for a byte that leads nothing. Read by
+/// [`StreamByte::admits_second`]; `the_second_byte_table_is_table_3_7` checks
+/// all 65,536 pairs against the table as the standard prints it.
+static UTF8_SECOND: [[u8; 2]; 256] = build_second_table();
+
+const fn build_second_table() -> [[u8; 2]; 256] {
+    let mut t = [[1u8, 0u8]; 256];
+    let mut b = 0usize;
+    while b < 256 {
+        t[b] = match b as u8 {
+            0xc2..=0xdf => [0x80, 0xbf],
+            0xe0 => [0xa0, 0xbf],
+            0xe1..=0xec | 0xee..=0xef => [0x80, 0xbf],
+            0xed => [0x80, 0x9f],
+            0xf0 => [0x90, 0xbf],
+            0xf1..=0xf3 => [0x80, 0xbf],
+            0xf4 => [0x80, 0x8f],
+            _ => [1, 0],
+        };
+        b += 1;
+    }
+    t
+}
+
+/// Table 3-7's first column as a length a byte: see
+/// [`StreamByte::utf8_width`].
+static UTF8_WIDTH: [u8; 256] = build_width_table();
+
+const fn build_width_table() -> [u8; 256] {
+    let mut t = [1u8; 256];
+    let mut b = 0usize;
+    while b < 256 {
+        t[b] = match b as u8 {
+            0x80..=0xbf => 0,
+            0xc2..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf4 => 4,
+            _ => 1,
+        };
+        b += 1;
+    }
+    t
+}
 
 const fn build_lead_table() -> [u16; 256] {
     let mut t = [0x00ffu16; 256];
