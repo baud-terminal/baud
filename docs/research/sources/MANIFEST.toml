@@ -23878,3 +23878,78 @@ bytes  = 7544
 status = "external"
 group  = "C"
 # Retrieved 2026-10-12. Read: 20-28.
+
+# Group J, for whether baud's bundle may say macOS 13 (TODO item 'The bundle says macOS 13 and
+# the app panics below 26'): the glass class's availability, the standard material's, the display
+# link's (re-fetched), the minimum-version key's current page and the HIG's Materials page. Each
+# was fetched twice on 2026-10-12 and the two copies were byte-identical.
+
+[sources.apple-nsglasseffectview]
+key    = "apple-nsglasseffectview"
+title  = "NSGlassEffectView -- 'A view that embeds its content view in a dynamic glass effect'; macOS introducedAt 26.0 (documentation JSON, retrieved 2026-10-12)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsglasseffectview.json"
+file   = ""
+sha256 = "923a6c7523c673ff2cb4f18ea4e2fe5398ec2274352bab9161d9358a643e228b"
+bytes  = 33977
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-nsvisualeffectview]
+key    = "apple-nsvisualeffectview"
+title  = "NSVisualEffectView -- translucency and vibrancy as a background view, behind-window and in-window blending; macOS introducedAt 10.10 (documentation JSON, retrieved 2026-10-12)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsvisualeffectview.json"
+file   = ""
+sha256 = "16defd61f4300dfcfb0a45463552784727546bbcf78e2ba3e0e5099136cecf3b"
+bytes  = 63213
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-nsview-displaylink-2026-10-12]
+key    = "apple-nsview-displaylink-2026-10-12"
+title  = "NSView displayLink(target:selector:) -- macOS introducedAt 14.0; the page as re-fetched 2026-10-12, whose bytes differ from apple-nsview-displaylink's (documentation JSON)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsview/displaylink(target:selector:).json"
+file   = ""
+sha256 = "844ab34687d2ce5bdbb059c45768e94fb2911cd93e6906eb14030b4300c2c5d6"
+bytes  = 10053
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-lsminimumsystemversion]
+key    = "apple-lsminimumsystemversion"
+title  = "LSMinimumSystemVersion -- 'The minimum version of the operating system required for the app to run in macOS'; 'Use this key to indicate the minimum macOS release that your app supports' (documentation JSON, retrieved 2026-10-12)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/bundleresources/information-property-list/lsminimumsystemversion.json"
+file   = ""
+sha256 = "c1715e41a4f68d3dc2fb3654595e80200afc1e0eb582285f6083817778b02893"
+bytes  = 14521
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.apple-hig-materials]
+key    = "apple-hig-materials"
+title  = "Human Interface Guidelines: Materials -- Liquid Glass and standard materials; 'Don't use Liquid Glass in the content layer', standard materials 'for elements in the content layer, such as app backgrounds'; macOS's NSVisualEffectView materials and blending modes (documentation JSON, retrieved 2026-10-12; change log latest September 9, 2025)"
+author = "Apple Inc."
+year   = 2025
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/materials.json"
+file   = ""
+sha256 = "597da170985715de4bd8446df12e3604595e634a790b5da0ce6673d2b2327ed5"
+bytes  = 76600
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
