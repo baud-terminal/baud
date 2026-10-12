@@ -2007,6 +2007,62 @@ group  = "J"
 # x' = m((a/m)x + (c/m)y + e), y' = n((b/n)x + (d/n)y + f) -- an offset
 # scaled by m and n, which the page defines from the matrix.
 
+[sources.ms-opentype-cff2-flex-figure]
+key    = "ms-opentype-cff2-flex-figure"
+title  = "CFF2 -- Compact Font Format (CFF) Version 2: 'Curves constructed with a flex operator' (images/cff2-svg-2.png)"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/images/cff2-svg-2.png"
+file   = ""
+sha256 = "7ea3b31794d402f81e5906c0340a0f1bf5ebe24e30804a46f84e2aa391808827"
+bytes  = 19973
+status = "external"
+group  = "J"
+# Read 2026-10-12 on the image; hash-verified, not committed. The figure
+# ms-opentype-cff2's "Flex mechanism operators" draws after its definition of
+# the flex depth: a horizontal flex whose starting and end points share a y,
+# the depth drawn from the joining point straight down to a dashed line at
+# that height.
+
+[sources.ms-opentype-cff2-flex-depth-figure]
+key    = "ms-opentype-cff2-flex-depth-figure"
+title  = "CFF2 -- Compact Font Format (CFF) Version 2: 'Flex depth calculations' (images/cff2-svg-3.png)"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/images/cff2-svg-3.png"
+file   = ""
+sha256 = "eb375eb46c7a299b02650f5e68d764928a7a46dcb694c242b14e205ea5e9ffe6"
+bytes  = 25189
+status = "external"
+group  = "J"
+# Read 2026-10-12 on the image; hash-verified, not committed. The figure
+# ms-opentype-cff2's "Flex mechanism operators" sends a flex that is "not
+# exactly horizontal or vertical" to: "Vertical Flex (dy > dx)" and
+# "Horizontal Flex (dx > dy)", dx and dy drawn as the sides of the box from
+# the starting point to the end point, and the flex depth drawn from the
+# joining point across to the end point's own vertical (horizontal) line --
+# the drawing of adobe-5177-type2's Figure 3.
+
+[sources.apple-ttrm-gvar]
+key    = "apple-ttrm-gvar"
+title  = "TrueType Reference Manual, chapter 6: the 'gvar' table"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/fonts"
+url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6gvar.html"
+file   = ""
+sha256 = "1f963e43e914af3680cbf555551b48d4800ddf073fb4fe5b09d0f3bb215b2c72"
+bytes  = 136743
+status = "external"
+group  = "J"
+# Read 2026-10-12; hash-verified, not committed -- a vendor HTML page whose
+# spec text is a fraction of its chrome. Four phantom points, "in order, the
+# left-side phantom point, the right-side phantom point, the top phantom
+# point, and the bottom phantom point"; a composite's variations move "each
+# component specified by offsets" and the metrics.
+
 [sources.ms-opentype-tt-instructing-glyphs]
 key    = "ms-opentype-tt-instructing-glyphs"
 title  = "Instructing TrueType Glyphs -- phantom points"
