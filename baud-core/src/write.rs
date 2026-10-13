@@ -2294,6 +2294,16 @@ fn fast_csi(
         scratch.put(sc);
         core::hint::black_box(&scratch);
     }
+    // **Every decline resets, as the fused walk's does.** This walk stores a
+    // parameter at each separator before it reaches the byte that ends it, so
+    // a decline that left `csi` as it stood handed the graph a list it then
+    // pushed onto again from the `[`: `CSI 2 ; 5 CR H` ran as
+    // `CSI 2 ; 2 ; 5 H`, a CUP to 2;2 (`tests/csi_decline.rs`). The C0, `DEL`,
+    // a byte in `A0-FF` under ISO 8859-1 and any of `80-FF` under UTF-8 all
+    // end the walk at `_` and leave the sequence going on in the graph. After
+    // an intermediate the graph sends a digit to `csi ignore`, which
+    // dispatches nothing, and every byte in `3C-3F` names a marker, so the
+    // other two resets cannot be seen; they are there so no decline can leak.
     #[cfg(feature = "two-pass-csi")]
     let mut seen_inter = false;
     #[cfg(feature = "two-pass-csi")]
@@ -2307,7 +2317,10 @@ fn fast_csi(
                     None => Param::ZERO.push(d),
                 });
             }
-            Some(_) => return None,
+            Some(_) => {
+                csi.reset();
+                return None;
+            }
             None => match b.raw_byte() {
                 b';' | b':' if !seen_inter => {
                     csi.put(cur);
@@ -2319,13 +2332,19 @@ fn fast_csi(
                 }
                 0x3c..=0x3f if k == 0 => match Marker::from_private(*b) {
                     Some(m) => csi.set_marker(m),
-                    None => return None,
+                    None => {
+                        csi.reset();
+                        return None;
+                    }
                 },
                 0x20..=0x2f => {
                     seen_inter = true;
                     csi.set_inter(*b);
                 }
-                _ => return None,
+                _ => {
+                    csi.reset();
+                    return None;
+                }
             },
         }
     }
