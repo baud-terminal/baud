@@ -237,11 +237,12 @@ pub struct View<'a> {
 /// What the passes that carry cells past a narrower edge read to skip a row
 /// with nothing there ([`View::copy_past_edge`], [`View::clear_past_edge`],
 /// [`View::insert_lines_past_edge`], [`View::delete_lines_past_edge`]), set
-/// whole by [`View::held_past_edge`] at a resize. Between resizes nothing
-/// else writes past the live edge but a fill to a mark that lies past it, on
-/// a row already held, so the flags stay true while only those passes keep
-/// them. The count is what lets a caller drop back to the loop with nothing
-/// past the edge compiled in once the last held row is carried off or
+/// whole by [`View::held_past_edge`] at a resize, and what that measure reads
+/// to skip all but one cell of a row clear past the old edge. Between resizes
+/// nothing else writes past the live edge but a fill to a mark that lies past
+/// it, on a row already held, so the flags stay true while only those passes
+/// keep them. The count is what lets a caller drop back to the loop with
+/// nothing past the edge compiled in once the last held row is carried off or
 /// cleared. Physical, as the marks are, so a rotation leaves every flag on
 /// its row.
 pub struct PastRows<'a> {
@@ -267,6 +268,85 @@ impl PastRows<'_> {
             _ => *self.held,
         };
     }
+}
+
+/// **Whether the flags a resize starts from were kept**, for
+/// [`View::held_past_edge`]: they are kept while the reach lies past the live
+/// width, and read only then. Not kept, they are cleared before the measure
+/// reads them -- for its cost, not its answer: a stale flag held costs a row
+/// a full read, and one clear says what the reach's invariant says of every
+/// row, so trusting them reads more and finds the same.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Kept {
+    /// The reach lay past the old width: each flag is true of its row there.
+    Flags,
+    /// The reach lay at the old width: every row of the ring is clear past it
+    /// -- nothing at or past the reach, no mark past it -- whatever the flags
+    /// still say from an earlier narrowing.
+    Nothing,
+}
+
+/// **The past-edge bookkeeping against every cell of the ring**
+/// ([`Viewport::past_edge_check`]): the first row whose flag is wrong in each
+/// direction, the reach kept and read, and the count kept, flagged and read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PastEdgeCheck {
+    /// The first physical row flagged clear that holds something past the
+    /// live edge: what neither the measure nor any pass may leave, since a
+    /// pass skips the row and a growth shows what it kept.
+    pub clear_but_holding: Option<RowRot>,
+    /// The first physical row flagged held that holds nothing past the edge:
+    /// the safe direction, which an erase that empties a held row leaves
+    /// between resizes, and which a resize's measure does not.
+    pub held_but_clear: Option<RowRot>,
+    /// The reach kept, and the furthest any row holds anything, read to the
+    /// pitch.
+    pub reach: (Cols, Cols),
+    /// The count kept, the rows flagged held, and the rows holding anything.
+    pub held: (Rows, Rows, Rows),
+}
+
+impl PastEdgeCheck {
+    /// What a resize's measure leaves: every flag the row's, the reach the
+    /// furthest any row holds anything, the count the rows that do.
+    pub fn exact(&self) -> bool {
+        self.clear_but_holding.is_none()
+            && self.held_but_clear.is_none()
+            && self.reach.0 == self.reach.1
+            && self.held.0 == self.held.2
+            && self.held.1 == self.held.2
+    }
+
+    /// What holds between resizes: no row flagged clear holds anything,
+    /// nothing lies past the reach, and the count is the flags'.
+    pub fn sound(&self) -> bool {
+        self.clear_but_holding.is_none()
+            && self.reach.0 >= self.reach.1
+            && self.held.0 == self.held.1
+    }
+}
+
+/// How far past `w` physical row `p` holds anything, to `end`: past its last
+/// cell other than `EMPTY` there, or its mark, whichever is further, and `w`
+/// when neither lies past it. The full read of one row, which
+/// [`View::held_past_edge`] takes for a row held and
+/// [`Viewport::past_edge_check`] for every row.
+#[inline(always)]
+fn reach_of_row(
+    cells: &[PackedCell],
+    used: &[RowExtent],
+    s: usize,
+    p: usize,
+    w: usize,
+    end: usize,
+) -> usize {
+    let m = used[p].index().min(end);
+    let row = &cells[p * s + w.min(end)..p * s + end];
+    let far = match row.iter().rposition(|c| *c != PackedCell::EMPTY) {
+        Some(k) => w + k + 1,
+        None => w,
+    };
+    far.max(m)
 }
 
 /// The screen, read where it is.
@@ -315,6 +395,56 @@ impl<'a> Viewport<'a> {
         let ring = self.ring.index();
         let p = y + self.rot.index();
         if p >= ring { p - ring } else { p }
+    }
+
+    /// **The flags, the count and the reach against every cell of the
+    /// ring**, read to the pitch: what [`View::held_past_edge`] must leave,
+    /// and what the passes past the edge must keep. While `reach` lies past
+    /// the live width the flags are read as kept; at it they are not kept,
+    /// every row must be clear past the edge, and the count is taken as
+    /// zero. Reads every cell past the live edge of every row, so a check
+    /// for tests and debug builds, never a path.
+    pub fn past_edge_check(&self, reach: Cols, flags: &[PastEdge], held: Rows) -> PastEdgeCheck {
+        let (s, w) = (self.stride.index(), self.cols.index());
+        let kept = reach.index() > w;
+        let mut check = PastEdgeCheck {
+            clear_but_holding: None,
+            held_but_clear: None,
+            reach: (reach, Cols::of_index(w)),
+            held: (
+                match kept {
+                    true => held,
+                    false => Rows::ZERO,
+                },
+                Rows::ZERO,
+                Rows::ZERO,
+            ),
+        };
+        assert!(flags.len() >= self.ring.index(), "a flag a row of the ring");
+        let (mut flagged, mut holding, mut far) = (0, 0, w);
+        for (p, &kept_flag) in flags.iter().enumerate().take(self.ring.index()) {
+            let reach_p = reach_of_row(self.cells, self.used, s, p, w, s);
+            far = far.max(reach_p);
+            let flag = match kept {
+                true => kept_flag,
+                false => PastEdge::Clear,
+            };
+            match (flag, reach_p > w) {
+                (PastEdge::Clear, true) => {
+                    check.clear_but_holding = check.clear_but_holding.or(Some(RowRot(p)));
+                }
+                (PastEdge::Held, false) => {
+                    check.held_but_clear = check.held_but_clear.or(Some(RowRot(p)));
+                }
+                _ => {}
+            }
+            flagged += usize::from(flag == PastEdge::Held);
+            holding += usize::from(reach_p > w);
+        }
+        check.reach.1 = Cols::of_index(far);
+        check.held.1 = Rows::of_count(flagged);
+        check.held.2 = Rows::of_count(holding);
+        check
     }
 
     /// The same view `n` rows further back into the ring: the window over
@@ -1054,29 +1184,85 @@ impl<'a> View<'a> {
     /// **Every row of the ring**, because a history row comes back onto the
     /// screen under a taller one, and a ring row comes round as the line a
     /// scroll brings in. **The marks too**, because a fill on a row whose
-    /// mark lies past the edge runs on to the mark ([`View::fill_row`]), so
-    /// a mark over blank cells is where a later blank can write: past the
-    /// width this returns nothing writes but such a fill, and only on a row
-    /// this holds. Compared with `EMPTY`, what `baud-core`'s `Owned`
-    /// provisions; storage lent holding anything else keeps the reach where
-    /// it was, the safe direction. Every row is read to `reach`, as a ring
-    /// with nothing past the edge -- the common case -- always was. Only on a
-    /// resize, so out of line.
+    /// mark lies past the edge runs on to the mark ([`View::fill_row`]), so a
+    /// mark over blank cells is where a later blank can write: past the width
+    /// this returns nothing writes but such a fill, and only on a row this
+    /// holds. Compared with `EMPTY`, what `baud-core`'s `Owned` provisions,
+    /// and what a surface lent through `Owned::storage_over` must hold past
+    /// the width too, as every caller's does (`Gpu::grid` in
+    /// `baud-present-macos`, `marks.rs`): a row clear past the old edge is
+    /// read one cell deep and the rest trusted, so anything else there goes
+    /// unseen, and the debug check after every resize
+    /// ([`Viewport::past_edge_check`]), which reads to the pitch, panics on
+    /// it. `Term::new` clears neither surface nor its marks, so an `Owned`
+    /// lent to a second terminal carries the first one's cells and marks and
+    /// must meet it too. Only on a resize, so out of line.
+    ///
+    /// **Read only as far as the flags leave open.** `was` is the width the
+    /// flags were kept at, and `kept` says whether they were
+    /// ([`Kept::Flags`]: the reach lay past `was`) or every row is clear past
+    /// it by the reach's own invariant ([`Kept::Nothing`]), when the flags
+    /// are cleared first. A row clear past `was` holds nothing from there to
+    /// `reach`, its mark lies inside `was`, and from its mark to `was` it is
+    /// uniform -- the mark's meaning -- so on a narrowing one cell, the last
+    /// inside `was`, says what it holds past the new edge: that cell is the
+    /// uniform run's, and is `EMPTY` exactly when everything from the mark or
+    /// the new edge to `was` is. On a growth or at the same width such a row
+    /// holds nothing past the edge at all, and is not read. The uniform run
+    /// is every writer's to keep, a wrapped row's after a growth included
+    /// ([`View::settle_growth`]): a generated program that broke it found the
+    /// one-cell read three columns short (the record, "A wrapped row's mark
+    /// rises with a growth at a prompt"). Only a row held is read whole, as
+    /// every row was: before this, a narrowing of `k` columns read up to `k`
+    /// cells of every row of the ring, and a same-size or height-only resize
+    /// read them all whenever anything lay past the edge; the measure was
+    /// 67-90% of a drag's resize time (the record, "The resize measure is
+    /// most of a resize at a prompt"). The answer is the full read's, row for
+    /// row: [`Viewport::past_edge_check`] reads every cell and is the oracle.
+    ///
+    /// **The re-cut's blanked rows are read whole** (`blanked`, the window's
+    /// last rows no re-cut line reached, [`Reflowed::blanked`]): blanked to
+    /// the new width under a mark of zero, they keep an old line's cells past
+    /// it, which neither their flag nor their last cell describes. Every
+    /// other row the re-cut writes is blank past the new width to the pitch,
+    /// so its flag and the cell inside `was` both read clear, which it is.
     #[cold]
     #[inline(never)]
-    pub fn held_past_edge(&self, reach: Cols, past: &mut PastRows<'_>) -> Cols {
+    pub fn held_past_edge(
+        &self,
+        was: Cols,
+        reach: Cols,
+        kept: Kept,
+        blanked: Rows,
+        past: &mut PastRows<'_>,
+    ) -> Cols {
         let s = self.stride.index();
         let (w, end) = (self.cols.index(), reach.index().min(s));
+        let was = was.index().min(end);
+        if kept == Kept::Nothing {
+            past.flags.fill(PastEdge::Clear);
+            *past.held = Rows::ZERO;
+        }
+        let rows = self.rows.index();
+        for y in rows - blanked.index().min(rows)..rows {
+            past.set(self.phys(Row::from_index(y)), PastEdge::Held);
+        }
+        // Nothing held and nothing narrower: every row is clear past `was`,
+        // so past this edge too.
+        if w >= was && past.held.index() == 0 {
+            return Cols::of_index(w);
+        }
         let mut held = w;
         let mut count = 0;
         for p in 0..self.ring.index() {
-            let m = self.used[p].index().min(end);
-            let row = &self.cells[p * s + w.min(end)..p * s + end];
-            let far = match row.iter().rposition(|c| *c != PackedCell::EMPTY) {
-                Some(k) => w + k + 1,
-                None => w,
+            let reach_p = match past.flags[p] {
+                PastEdge::Held => reach_of_row(self.cells, self.used, s, p, w, end),
+                PastEdge::Clear if w < was => match self.cells[p * s + was - 1] {
+                    c if c != PackedCell::EMPTY => was,
+                    _ => self.used[p].index().min(end).max(w),
+                },
+                PastEdge::Clear => w,
             };
-            let reach_p = far.max(m);
             past.flags[p] = match reach_p > w {
                 true => {
                     count += 1;

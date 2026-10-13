@@ -1321,7 +1321,14 @@ impl<'b> Term<'b> {
         // the edge last ran, cleared there before anything here moves a row
         // or a growth shows one** (`View::clear_swept_past_edge`): found by
         // where they lie, under the geometry they were brought in at.
-        if self.store.book.reach.index() > old_cols.index() {
+        // **Whether the flags are kept**: only while the reach lies past the
+        // live width, which is what lets the measure below trust a row's flag
+        // and read one cell of a row clear past the old edge.
+        let kept = match self.store.book.reach.index() > old_cols.index() {
+            true => Kept::Flags,
+            false => Kept::Nothing,
+        };
+        if kept == Kept::Flags {
             self.clear_swept();
         }
         let top_before = self.store.book.top;
@@ -1483,6 +1490,9 @@ impl<'b> Term<'b> {
         //
         // A stream that sends no marks is `Zone::Output` and reaches this
         // exactly as before.
+        // The window's last rows a re-cut blanked to the new width only,
+        // which the measure reads whole (`Reflowed::blanked`).
+        let mut blanked = Rows::ZERO;
         if cols.index() != old_cols.index() && self.primary_zone() == Zone::Output {
             let at = self.primary_cursor();
             let cursor = match at {
@@ -1570,6 +1580,7 @@ impl<'b> Term<'b> {
                 None => r.hist,
             });
             self.rot = r.rot;
+            blanked = r.blanked;
             self.store.book.hist = r.hist;
             self.store.book.hidden = r.hidden;
             // The oldest retained line moved on by what the reflow dropped,
@@ -1653,6 +1664,10 @@ impl<'b> Term<'b> {
         // above, which are the last writes past the live edge this makes.
         // Each row's flag with it, which is what lets the passes past the
         // edge skip a row with nothing there and lower the reach again.
+        // From the flags the resize began with, at the old width: a row clear
+        // there is read one cell deep on a narrowing and not at all
+        // otherwise, so a resize with nothing held and nothing narrower reads
+        // nothing (`View::held_past_edge`).
         let widest = Cols::of_index(self.store.book.reach.index().max(cols.index()));
         let ring = self.store.ring_rows();
         let book = &mut self.store.book;
@@ -1667,7 +1682,10 @@ impl<'b> Term<'b> {
                 self.rot,
             )
             .held_past_edge(
+                old_cols,
                 widest,
+                kept,
+                blanked,
                 &mut PastRows {
                     flags: &mut *book.past,
                     held: &mut book.held,
@@ -1676,6 +1694,13 @@ impl<'b> Term<'b> {
             false => widest,
         };
         book.swept = book.top;
+        // The measure's answer is the full read's, row for row: every
+        // resize a debug build makes checks it against every cell.
+        debug_assert!(
+            self.past_edge_check().exact(),
+            "the measure disagrees with a full read of the ring: {:?}",
+            self.past_edge_check()
+        );
         self.cy = Row::from_index(self.cy.index().min(rows.index() - 1));
         // A clamp is a horizontal move, so it ends the pin as `Paint::set_col`
         // does: the cursor is no longer after the character written last.
@@ -2164,6 +2189,32 @@ impl<'b> Term<'b> {
     /// is about.
     pub fn amplification(&self) -> (usize, usize) {
         (self.bytes_in, self.cells_written)
+    }
+
+    /// **The primary's past-edge bookkeeping against every cell of its
+    /// ring** ([`Viewport::past_edge_check`]): the flags, the count of rows
+    /// held and the reach the passes past a narrower edge read, as a resize
+    /// measured them and the passes since have kept them. Right after a
+    /// resize it is [`PastEdgeCheck::exact`] -- the measure reads a row clear
+    /// past the old edge one cell deep, and this is the full read it must
+    /// agree with -- and between resizes [`PastEdgeCheck::sound`]. Reads
+    /// every cell past the live edge of every row of the ring: for tests and
+    /// debug builds, not a frame.
+    pub fn past_edge_check(&self) -> PastEdgeCheck {
+        Viewport::new(
+            self.store.vp,
+            self.store.used,
+            self.stride,
+            self.cols,
+            self.rows,
+            self.store.ring_rows(),
+            self.rot,
+        )
+        .past_edge_check(
+            self.store.book.reach,
+            self.store.book.past,
+            self.store.book.held,
+        )
     }
 
     /// The distance between rows in [`Term::cells`].

@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 2e3225b60e47f95c4b23491c2bf2caf67aee9dcd939a993ff3a79b8cb4235667 # shrinks to (prog, depth, read) = ([Bytes(1), Bytes(13), To(4, 1), Bytes(3), To(2, 1)], 13, 1)
+cc bb2cb16d388f5bd99bcc7ba79f052a67f588757772c09388528284e95bb6ea1d # shrinks to (prog, depth, group) = ([Bytes(6), Bytes(24), To(2, 1)], 0, 1)
+cc c1a376b149b49cc255e1f713801e27b55e3248d5f58d77d817f14b81de8d7671 # shrinks to (prog, depth, _) = ([Bytes(1), Bytes(10), To(2, 1)], 0, 1)
+cc 6751693052682224db2e88dbc1558f377daac82b2d69e8c2458e5f4b479fe84b # shrinks to (prog, depth, group) = ([Bytes(1), Bytes(2), Bytes(10), Bytes(0), To(4, 1)], 0, 1)
+cc 80440a8805ff03f0e90a69f1dad9db99a569973d39d87fbc02e16f2426d9d344 # shrinks to (prog, depth, group) = ([Bytes(11), Bytes(13), Bytes(1), To(2, 2), Bytes(31)], 0, 1)
+cc 8c7960014a410e791bbf003cb004365cb7f0a4bc9b1a8ba651c9449e9d7836fa # shrinks to (prog, depth, group) = ([Bytes(0), Bytes(0), Bytes(2), Bytes(0), To(9, 1), Bytes(6), Bytes(0), Bytes(2), Bytes(0), To(2, 1), Bytes(0), Bytes(0), Bytes(0), Bytes(0)], 0, 1)

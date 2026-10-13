@@ -48,6 +48,14 @@ pub struct Reflowed {
     /// Rows dropped from the oldest end because the re-cut history did not
     /// fit: the new oldest retained row is this many rows after the old one.
     pub dropped: Rows,
+    /// **The window's last rows that no re-cut line reached**, blanked to
+    /// the new width and marked empty, and left as they were past it. Every
+    /// other row the re-cut writes is blank past the new width to the pitch
+    /// (`finish_line`); these are not, so a row here may hold an old line's
+    /// cells from the new width on, under a mark of zero that says nothing
+    /// of them. What the resize's measure has to read whole
+    /// (`View::held_past_edge`).
+    pub blanked: Rows,
 }
 
 /// **A hook a reflow calls once for every line it keeps, before copying
@@ -299,6 +307,7 @@ impl<'a> View<'a> {
             hidden,
             cursor,
             dropped: Rows::ZERO,
+            blanked: Rows::ZERO,
         };
         if old == new || old == 0 || new == 0 || rows == 0 {
             return unchanged;
@@ -392,6 +401,7 @@ impl<'a> View<'a> {
                 Col::at_index(cur_col.min(new - 1)),
             ),
             dropped: Rows::of_count(first),
+            blanked: Rows::of_count((top + rows).saturating_sub(last)),
         }
     }
 

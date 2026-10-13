@@ -262,10 +262,12 @@ pub struct Book<'b> {
     /// live edge**, one a row of the ring: what the passes that carry cells
     /// past a narrower edge read to skip a row with nothing there
     /// (`baud_domain::PastRows`). Set whole at a resize that leaves `reach`
-    /// past the live width and read only while it is, so `Term::new` need
-    /// not clear it. Here rather than beside `used` because `Paint` carries
-    /// this word by reference, and a slice of its own through that struct
-    /// would be two more words in the per-byte loop.
+    /// past the live width and read only while it is, so `Term::new` need not
+    /// clear it -- by the passes, and by the next resize's measure, which
+    /// reads a row they say is clear one cell deep (`View::held_past_edge`).
+    /// Here rather than beside `used` because `Paint` carries this word by
+    /// reference, and a slice of its own through that struct would be two
+    /// more words in the per-byte loop.
     pub(crate) past: &'b mut [PastEdge],
     /// **The top line when the rows the window's bottom swept were last
     /// cleared past the edge** (`View::clear_swept_past_edge`): `top` minus

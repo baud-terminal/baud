@@ -754,6 +754,16 @@ redraws would reach either -- a re-cut follows the resize, not the redraw
 -- the control puts a width change at 1.5-7.0 us, three orders under a
 frame. Frames are per resize step and per display period, not per redraw.
 
+**Not re-taken since, and its resize column is not current.** The passes
+past a narrower edge (9d9de16) added a measure at every narrowing that read
+every row of the ring, most of a gesture's resize time ("The resize measure
+is most of a resize at a prompt" in the record), and "The resize measure
+reads only what the flags leave open" cut a gesture's resize time, against
+the commit before it, to a third or less on six fixtures, about a third on
+fresh-zoom, and a quarter or less on live-drag, drag, fresh-drag and
+fresh-burst, on a 400 by 150 storage at `cost 11`; this table's method was
+not run again.
+
 ## Idle CPU (row 11, measured, no change)
 
 Taken at `59e6476`, 2026-09-18. Apple M5 Max, macOS 27.0, on AC, nothing else
