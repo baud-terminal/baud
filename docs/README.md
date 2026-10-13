@@ -78,6 +78,7 @@ one.
 | [t-images.md](research/notes/t-images.md) | T. Images: the phase register for Sixel and Kitty graphics |
 | [u-resize-and-the-window.md](research/notes/u-resize-and-the-window.md) | U. Who holds the window over the history across a resize |
 | [v-open-decisions.md](research/notes/v-open-decisions.md) | V. The owner's open decisions, researched |
+| [w-cursor-trails.md](research/notes/w-cursor-trails.md) | W. The cursor trails: where each design came from, what was decided, and what is lost |
 | [w-fallback-fonts.md](research/notes/w-fallback-fonts.md) | W. Fallback fonts: what other terminals do, and what baud could bundle |
 | [x-cursor-motion-and-blink.md](research/notes/x-cursor-motion-and-blink.md) | X. The cursor's motion and blink: the designs as reviewed |
 | [y-palettes.md](research/notes/y-palettes.md) | Y. Palettes: the light/dark pair, the scheme type, the floor, and what the terminal reports |

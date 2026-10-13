@@ -1,0 +1,282 @@
+// A standalone model of the proposed lightning trail, in f32, spelled the
+// way the MSL sketch is. Not repo code: it measures the numbers the design
+// quotes (vertex bounds, the three-segment window, unimodality, reach, area).
+#![allow(clippy::all)]
+use std::f32;
+
+// ---- constants (cells unless noted) ----
+const LIFE: f32 = 0.32;
+const T_LEAD: f32 = 0.040;
+const T_RISE: f32 = 0.012;
+const T_FALL: f32 = 0.070;
+const W_CORE: f32 = 0.06;
+const W_GLOW: f32 = 0.12;
+const G_MAX: f32 = 0.40;
+const CORONA: f32 = 0.30;
+const W_CORONA: f32 = 0.20;
+const JAG: f32 = 0.8;
+const CAP: f32 = 0.25;
+const S_MIN: f32 = 0.30;
+const L_MAX: u32 = 8;
+const FORK_MIN: f32 = 5.0;
+const FORK_P: f32 = 0.75;
+const REACH: f32 = 2.2;
+const SALT_BOLT: u32 = 0x51ED_270B;
+const SALT_FORK: u32 = 0xA24B_AED4;
+
+fn hash(v: u32) -> u32 {
+    let s = v.wrapping_mul(747_796_405).wrapping_add(2_891_336_453);
+    let w = ((s >> ((s >> 28) + 4)) ^ s).wrapping_mul(277_803_737);
+    (w >> 22) ^ w
+}
+fn unit(h: u32) -> f32 { f32::from_bits((h >> 9) | 0x3f80_0000) - 1.0 }
+// fx_lattice(int2(i, j), seed)
+fn lattice(i: i32, j: i32, seed: u32) -> f32 { unit(hash((i as u32).wrapping_add(hash((j as u32).wrapping_add(seed))))) }
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 { let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0); t * t * (3.0 - 2.0 * t) }
+
+#[derive(Clone, Copy, Debug)] struct P { x: f32, y: f32 }
+fn p(x: f32, y: f32) -> P { P { x, y } }
+fn sub(a: P, b: P) -> P { p(a.x - b.x, a.y - b.y) }
+fn add(a: P, b: P) -> P { p(a.x + b.x, a.y + b.y) }
+fn mul(a: P, s: f32) -> P { p(a.x * s, a.y * s) }
+fn dot(a: P, b: P) -> f32 { a.x * b.x + a.y * b.y }
+fn len(a: P) -> f32 { (a.x * a.x + a.y * a.y).sqrt() }
+
+struct Bolt { tail: P, dir: P, len: f32, unit: f32, seed: u32, age: f32, hole: [f32; 4], boxc: [P; 4] }
+
+fn levels(b: &Bolt) -> u32 {
+    let mut l = 0u32;
+    while l < L_MAX && b.len >= S_MIN * b.unit * (1u32 << (l + 1)) as f32 { l += 1; }
+    l
+}
+// The offset of the bolt at u in [0,1] across its path: midpoint displacement
+// as its Schauder sum -- one tent a level, only one of which is nonzero at u.
+fn offset(b: &Bolt, u: f32, lv: u32) -> f32 {
+    let mut y = 0.0f32;
+    for l in 0..lv {
+        let n = (1u32 << l) as f32;
+        let x = u * n;
+        let i = x.floor();
+        let t = x - i;
+        let tent = 1.0 - (2.0 * t - 1.0).abs();
+        let xi = 2.0 * lattice(i as i32, l as i32, b.seed ^ SALT_BOLT) - 1.0;
+        let d = (JAG * b.len / (2.0 * n)).min(CAP * b.unit);
+        y += d * xi * tent;
+    }
+    y
+}
+fn nrm(b: &Bolt) -> P { p(-b.dir.y, b.dir.x) }
+fn vertex(b: &Bolt, j: i32, m: i32, lv: u32) -> P {
+    let u = j as f32 / m as f32;
+    add(add(b.tail, mul(b.dir, b.len * u)), mul(nrm(b), offset(b, u, lv)))
+}
+fn seg(q: P, a: P, bb: P) -> f32 {
+    let ba = sub(bb, a); let pa = sub(q, a);
+    let h = (dot(pa, ba) / dot(ba, ba).max(1e-6)).clamp(0.0, 1.0);
+    len(sub(pa, mul(ba, h)))
+}
+// forks: (root, elbow, tip), up to 3
+fn forks(b: &Bolt, lv: u32) -> Vec<[P; 3]> {
+    let mut out = vec![];
+    if b.len < FORK_MIN * b.unit { return out; }
+    let n = nrm(b);
+    for f in 0..3i32 {
+        let h0 = hash((f as u32).wrapping_add(hash(b.seed ^ SALT_FORK)));
+        if unit(h0) >= FORK_P { continue; }
+        let h1 = hash(h0); let h2 = hash(h1); let h3 = hash(h2); let h4 = hash(h3);
+        let q = 0.25 * (f + 1) as f32;
+        let yr = offset(b, q, lv);
+        let side = if yr.abs() > 0.6 * b.unit { -yr.signum() } else if unit(h1) < 0.5 { 1.0 } else { -1.0 };
+        let t = 0.466 + 0.534 * unit(h2);
+        let fd = add(b.dir, mul(n, side * t)); let fd = mul(fd, 1.0 / len(fd));
+        let lf = ((0.18 + 0.14 * unit(h3)) * b.len).min(1.2 * b.unit);
+        let root = add(add(b.tail, mul(b.dir, b.len * q)), mul(n, yr));
+        let nf = p(-fd.y, fd.x);
+        let tip = add(root, mul(fd, lf));
+        let elbow = add(add(root, mul(fd, 0.5 * lf)), mul(nf, (unit(h4) - 0.5) * 0.3 * lf));
+        out.push([root, elbow, tip]);
+    }
+    out
+}
+fn box_dist(q: P, c: &[P; 4]) -> f32 {
+    let (mut d, mut w) = (f32::INFINITY, 0i32);
+    for i in 0..4 {
+        let (a, bb) = (c[i], c[(i + 1) % 4]);
+        let ba = sub(bb, a); let pa = sub(q, a);
+        let h = (dot(pa, ba) / dot(ba, ba).max(1e-6)).clamp(0.0, 1.0);
+        d = d.min(len(sub(pa, mul(ba, h))));
+        let side = ba.x * pa.y - ba.y * pa.x;
+        if a.y <= q.y { if bb.y > q.y && side > 0.0 { w += 1; } } else if bb.y <= q.y && side < 0.0 { w -= 1; }
+    }
+    if w != 0 { -d } else { d }
+}
+// dm through the three-segment window, or through every segment
+fn main_dist(b: &Bolt, q: P, lv: u32, all: bool) -> f32 {
+    let m = 1i32 << lv;
+    let mut d = f32::INFINITY;
+    if all {
+        for j in 0..m { d = d.min(seg(q, vertex(b, j, m, lv), vertex(b, j + 1, m, lv))); }
+    } else {
+        let u = dot(sub(q, b.tail), b.dir) / b.len;
+        let k = ((u * m as f32).floor() as i32).clamp(0, m - 1);
+        let a0 = (k - 1).max(0);
+        for i in 0..3 { let j = (a0 + i).min(m - 1); d = d.min(seg(q, vertex(b, j, m, lv), vertex(b, j + 1, m, lv))); }
+    }
+    d
+}
+struct Cached { lv: u32, fk: Vec<[P; 3]> }
+fn alpha(b: &Bolt, c: &Cached, q: P, all: bool, cut: bool) -> f32 {
+    let h = b.hole;
+    if q.x >= h[0] && q.x < h[2] && q.y >= h[1] && q.y < h[3] { return 0.0; }
+    if b.age / LIFE >= 1.0 { return 0.0; }
+    let cc = b.unit;
+    let d0 = box_dist(q, &b.boxc) / cc;
+    if cut && d0 > REACH { return 0.0; }
+    let u = dot(sub(q, b.tail), b.dir) / b.len;
+    let tau = T_LEAD * u.clamp(0.0, 1.0);
+    let rise = smoothstep(tau, tau + T_RISE, b.age);
+    if rise <= 0.0 { return 0.0; }
+    let fall = 1.0 - smoothstep(T_FALL, LIFE, b.age);
+    let dm = main_dist(b, q, c.lv, all);
+    let mut df = f32::INFINITY;
+    for f in &c.fk { df = df.min(seg(q, f[0], f[1]).min(seg(q, f[1], f[2]))); }
+    let hc = p((h[0] + h[2]) * 0.5, (h[1] + h[3]) * 0.5);
+    let hh = p((h[2] - h[0]) * 0.5, (h[3] - h[1]) * 0.5);
+    let e = p(((q.x - hc.x).abs() - hh.x).max(0.0), ((q.y - hc.y).abs() - hh.y).max(0.0));
+    let dh = len(e);
+    let w = (W_CORE * cc).max(1.0) * (0.45 + 0.55 * fall);
+    let gw = W_GLOW * cc;
+    let km = (dm / w) * (dm / w); let kf = (df / (0.7 * w)) * (df / (0.7 * w));
+    let core = (-km * km).exp().max(0.7 * (-kf * kf).exp());
+    let gm = dm / gw; let gf = df / (0.75 * gw);
+    let glow = G_MAX * (-gm * gm).exp().max(0.6 * (-gf * gf).exp());
+    let gc = dh / (W_CORONA * cc);
+    let strike = smoothstep(T_LEAD, T_LEAD + T_RISE, b.age);
+    let corona = CORONA * (-gc * gc).exp() * strike;
+    (core * fall * fall + (glow + corona) * fall).clamp(0.0, 1.0) * rise
+}
+
+fn make(cw: f32, ch: f32, from: (f32, f32), to: (f32, f32), seed: u32) -> Bolt {
+    let rect = |c: f32, r: f32| [c * cw, r * ch, (c + 1.0) * cw, (r + 1.0) * ch];
+    let fr = rect(from.0, from.1); let tr = rect(to.0, to.1);
+    let tail = p((fr[0] + fr[2]) * 0.5, (fr[1] + fr[3]) * 0.5);
+    let head = p((tr[0] + tr[2]) * 0.5, (tr[1] + tr[3]) * 0.5);
+    let dd = sub(head, tail); let l = len(dd).max(1.0); let dir = mul(dd, 1.0 / l);
+    let n = p(-dir.y, dir.x);
+    let hw = 0.5 * (n.x.abs() * cw + n.y.abs() * ch);
+    let boxc = [sub(tail, mul(n, hw)), sub(head, mul(n, hw)), add(head, mul(n, hw)), add(tail, mul(n, hw))];
+    Bolt { tail, dir, len: l, unit: ch, seed, age: 0.0, hole: tr, boxc }
+}
+
+fn main() {
+    let (cw, ch) = (17.0f32, 34.0f32);
+
+    // 7. pictures: a 30-column hop and a diagonal, dark and light theme
+    let arg = std::env::args().nth(1).unwrap_or_default();
+    if arg == "img" {
+        for (name, f, t, seed) in [("hop", (6.0f32, 3.0f32), (36.0f32, 3.0f32), 7u32), ("diag", (4.0, 1.0), (40.0, 8.0), 11)] {
+            for age in [0.02f32, 0.045, 0.09, 0.16, 0.24] {
+                for (theme, bg, fg) in [("dark", [18u8, 19, 19], [230u8, 230, 230]), ("light", [239, 239, 239], [39, 39, 39])] {
+                    let (w, h) = (44 * 17usize, 11 * 34usize);
+                    let mut b = make(cw, ch, f, t, seed); b.age = age;
+                    let lv = levels(&b); let c = Cached { lv, fk: forks(&b, lv) };
+                    let mut out = format!("P6\n{w} {h}\n255\n").into_bytes();
+                    for y in 0..h { for x in 0..w {
+                        let q = p(x as f32 + 0.5, y as f32 + 0.5);
+                        let inhole = q.x >= b.hole[0] && q.x < b.hole[2] && q.y >= b.hole[1] && q.y < b.hole[3];
+                        let a = alpha(&b, &c, q, false, true);
+                        for k in 0..3 { let base = if inhole { fg[k] as f32 } else { bg[k] as f32 };
+                            let v = fg[k] as f32 * a + base * (1.0 - a); out.push(v.round() as u8); }
+                    } }
+                    std::fs::write(format!("img/{name}-{theme}-{age}.ppm"), out).unwrap();
+                }
+            }
+        }
+        return;
+    }
+    // 1. vertex bounds over many seeds and lengths
+    let mut ymax = 0.0f32; let mut fmax = 0.0f32; let mut smin = f32::INFINITY; let mut end_bad = 0; let mut slope_max = 0.0f32; let mut slope_sum = 0.0f64; let mut slope_n = 0u64;
+    let moves: &[((f32, f32), (f32, f32))] = &[((10., 4.), (13., 4.)), ((10., 4.), (40., 4.)), ((5., 0.), (105., 9.)), ((60., 0.), (62., 9.)), ((0., 0.), (199., 49.)), ((90., 8.), (20., 1.)), ((3., 3.), (3., 6.)), ((0., 10.), (199., 10.))];
+    for &(f, t) in moves {
+        for seed in 1..400u32 {
+            let b = make(cw, ch, f, t, seed);
+            let lv = levels(&b); let m = 1i32 << lv;
+            smin = smin.min(b.len / m as f32 / ch);
+            if offset(&b, 0.0, lv) != 0.0 || offset(&b, 1.0, lv) != 0.0 { end_bad += 1; }
+            let mut prev = 0.0f32;
+            for j in 0..=m { let y = offset(&b, j as f32 / m as f32, lv); ymax = ymax.max(y.abs() / ch);
+                if j > 0 { let s = ((y - prev) / (b.len / m as f32)).abs(); slope_max = slope_max.max(s); slope_sum += s.atan() as f64; slope_n += 1; }
+                prev = y; }
+            let n = nrm(&b);
+            for fk in forks(&b, lv) { for q in fk { fmax = fmax.max(dot(sub(q, b.tail), n).abs() / ch); } }
+        }
+    }
+    println!("vertices: endpoints nonzero {end_bad}; max |y| {ymax:.3} cells; fork max |offset| {fmax:.3} cells; min spacing {smin:.3} cells; max slope {slope_max:.2} ({:.1} deg); mean |angle| {:.1} deg", slope_max.atan().to_degrees(), (slope_sum / slope_n as f64).to_degrees());
+
+    // 2-5. per-pixel checks on a few moves and seeds
+    let ages: Vec<f32> = (0..=168).map(|i| i as f32 / 480.0).collect();
+    let mut worst_peaks = 0; let mut mism = 0u64; let mut worst_da = 0.0f32; let mut reach_need = 0.0f32; let mut lit_total = 0u64;
+    for &(f, t) in &moves[1..6] {
+        for seed in [1u32, 7, 42] {
+            let mut b = make(cw, ch, f, t, seed);
+            let lv = levels(&b); let c = Cached { lv, fk: forks(&b, lv) };
+            let xs: Vec<f32> = b.boxc.iter().map(|q| q.x).collect(); let ys: Vec<f32> = b.boxc.iter().map(|q| q.y).collect();
+            let r = (REACH + 1.0) * ch;
+            let x0 = (xs.iter().cloned().fold(f32::INFINITY, f32::min) - r).max(0.0) as i32;
+            let x1 = (xs.iter().cloned().fold(f32::NEG_INFINITY, f32::max) + r) as i32;
+            let y0 = (ys.iter().cloned().fold(f32::INFINITY, f32::min) - r).max(0.0) as i32;
+            let y1 = (ys.iter().cloned().fold(f32::NEG_INFINITY, f32::max) + r) as i32;
+            let step = if (x1 - x0) * (y1 - y0) > 400_000 { 3 } else { 1 };
+            let mut y = y0;
+            while y < y1 { let mut x = x0; while x < x1 {
+                let q = p(x as f32 + 0.5, y as f32 + 0.5);
+                // reach: uncut alpha at peak, where would it draw
+                b.age = T_FALL;
+                let a_peak = alpha(&b, &c, q, false, false);
+                if a_peak >= 0.5 / 255.0 { reach_need = reach_need.max(box_dist(q, &b.boxc) / ch); lit_total += 1; }
+                // window sufficiency
+                let a_all = alpha(&b, &c, q, true, true);
+                let a_win = alpha(&b, &c, q, false, true);
+                if (a_all - a_win).abs() > 0.0 { mism += 1; worst_da = worst_da.max((a_all - a_win).abs() * 255.0); }
+                // unimodality: count direction reversals with 1/255 hysteresis
+                if a_peak > 0.0 {
+                    let mut peaks = 0; let mut rising = true; let mut ext = 0.0f32;
+                    for &ag in &ages { b.age = ag; let a = alpha(&b, &c, q, false, true);
+                        if rising { if a > ext { ext = a } else if ext - a > 1.0 / 255.0 { peaks += 1; rising = false; ext = a } }
+                        else { if a < ext { ext = a } else if a - ext > 1.0 / 255.0 { rising = true; ext = a } } }
+                    worst_peaks = worst_peaks.max(peaks);
+                }
+                x += step; } y += step; }
+        }
+    }
+    println!("pixels lit at peak (sampled): {lit_total}; reach needed {reach_need:.3} cells (REACH {REACH}); window vs all: {mism} pixels differ, worst {worst_da:.4} of 255; worst peaks a pixel {worst_peaks}");
+
+    // 6. area at peak, alpha >= 0.1, densest 341x256 CSS window at 2x
+    for (u, label) in [(34.0f32, "unit 34 px (13-14 pt at 2x)"), (172.0, "unit 172 px (72 pt at 2x)")] {
+        let (cw2, ch2) = (u * 0.5, u);
+        let mut worst = 0u64; let mut worst_frac = 0.0f64;
+        for &(f, t, seed) in &[((0.0f32, 0.0f32), (199.0f32, 49.0f32), 3u32), ((0., 20.), (199., 20.), 5), ((0., 0.), (40., 12.), 9)] {
+            let (fw, fh) = (200.0 * cw2, 50.0 * ch2);
+            let mut b = make(cw2, ch2, f, t, seed); b.age = T_FALL;
+            let lv = levels(&b); let c = Cached { lv, fk: forks(&b, lv) };
+            let (w, h) = (fw as usize, (fh as usize).min(4000));
+            let wd = 682usize; let hd = 512usize;
+            // restrict to windows along the path: sample window origins on a grid
+            let step = 32usize;
+            // build coverage map lazily per window
+            let mut oy = 0usize;
+            while oy + hd <= h { let mut ox = 0usize; while ox + wd <= w {
+                // quick reject: window far from the box
+                let cx = (ox + wd / 2) as f32; let cy = (oy + hd / 2) as f32;
+                if box_dist(p(cx, cy), &b.boxc) > 3.0 * (wd.max(hd) as f32) { ox += step * 8; continue; }
+                let mut n = 0u64; let mut yy = oy; while yy < oy + hd { let mut xx = ox; while xx < ox + wd {
+                    if box_dist(p(xx as f32 + 0.5, yy as f32 + 0.5), &b.boxc) / ch2 <= REACH {
+                        if alpha(&b, &c, p(xx as f32 + 0.5, yy as f32 + 0.5), false, true) >= 0.1 { n += 1; } }
+                    xx += 2; } yy += 2; }
+                let n = n; // each sample is 2x2 device = 1 CSS px at 2x
+                if n > worst { worst = n; worst_frac = n as f64 / (341.0 * 256.0); }
+                ox += step * 4; } oy += step * 4; }
+        }
+        println!("area {label}: worst 341x256 CSS window has {worst} CSS px at alpha>=0.1 = {:.1}% of the field (threshold 25%)", worst_frac * 100.0);
+    }
+}
