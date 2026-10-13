@@ -355,8 +355,22 @@ pub(crate) fn act(
         // a control leaves. The fold below performs the `LF` of a `CR LF`
         // without reaching the `Index` arm, and leaves the cursor at column 0
         // too.
+        //
+        // **Under DECOM the line starts at the left margin**, out of line
+        // (`Paint::return_displaced`), so the loop carries one test of the
+        // mode word: read in place, the margin's load and the cluster's store
+        // read `cat` 9.5% below the parent, and out of line 4.7%, with the
+        // tab clamp still inlined. With both out of line `cat` still reads
+        // 1.4-3.6% below the parent by the median in eight idle sweeps (the
+        // record's four full sweeps and four ceiling sweeps), wholly below in
+        // two of them, and an arm without this test reads 5.1-7.3% below
+        // this one in the four ceiling sweeps: the loop's layout, not the test
+        // (the record, "DECOM's origin is the left margin too").
         Act::Return => {
-            p.set_col(Col::ZERO);
+            match p.cold.modes.is_set(ModeBit::Origin) {
+                false => p.set_col(Col::ZERO),
+                true => p.return_displaced(),
+            }
             match left.index() >= 2 && p.arena[from.index() + 1] == 0x0a {
                 true => {
                     p.index();
@@ -1648,27 +1662,30 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::CursorPosition { row, col } => {
             let base = p.origin_row().index();
             let want = Row::from_index(base + row.to_row(p.rows).index());
-            p.goto(p.confine(want), col.to_col(p.cols));
+            p.goto(p.confine(want), p.address_col(col.to_col(p.cols)));
         }
         DomCsi::CursorUp(c) => p.set_row(p.confine(p.cy.up(c))),
         DomCsi::CursorDown(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
-        DomCsi::CursorForward(c) => p.set_col(p.cx.forward(c, p.cols)),
-        DomCsi::CursorBack(c) => p.set_col(p.cx.back(c)),
+        DomCsi::CursorForward(c) => p.set_col(p.confine_col(p.cx.forward(c, p.cols))),
+        DomCsi::CursorBack(c) => p.set_col(p.confine_col(p.cx.back(c))),
         DomCsi::CursorNextLine(c) => {
             p.set_row(p.confine(p.cy.down(c, p.rows)));
-            p.set_col(Col::ZERO);
+            p.set_col(p.origin_col());
         }
         DomCsi::CursorPrevLine(c) => {
             p.set_row(p.confine(p.cy.up(c)));
-            p.set_col(Col::ZERO);
+            p.set_col(p.origin_col());
         }
-        DomCsi::ColumnAbsolute(c) => p.set_col(c.to_col(p.cols)),
+        // **Absolute, and clamped into the margins under DECOM**: option
+        // (a') of the record's "DECOM's origin is the left margin too", which
+        // no text settles against xterm's (b), counted from the left margin.
+        DomCsi::ColumnAbsolute(c) => p.set_col(p.confine_col(c.to_col(p.cols))),
         DomCsi::LineAbsolute(r) => {
             let base = p.origin_row().index();
             let want = Row::from_index(base + r.to_row(p.rows).index());
             p.set_row(p.confine(want));
         }
-        DomCsi::ColumnRelative(c) => p.set_col(p.cx.forward(c, p.cols)),
+        DomCsi::ColumnRelative(c) => p.set_col(p.confine_col(p.cx.forward(c, p.cols))),
         DomCsi::LineRelative(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
         DomCsi::EraseInLine(e) => p.erase_line(e),
         DomCsi::EraseInDisplay(e) => p.erase_display(e),
@@ -1758,6 +1775,14 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
                 // off the end of its own row. The same clamp `Term::cursor`
                 // carries, which is where this was found the first time.
                 let col = Col::at_index(p.cx.index().min(p.cold.right.index()));
+                // **And the column from the left margin under DECOM**:
+                // `active_position.column - left_margin + 1`
+                // (`[[source: dec-std-070]]` CPR, p. 5-54), so a `CUP` and the
+                // report agree. The subtraction cannot saturate: under DECOM
+                // every move lands inside the margins (`Paint::confine` and
+                // `Paint::confine_col`), and the record, "DECOM's origin is
+                // the left margin too", lists every place the column is set.
+                let col = Col::at_index(col.index().saturating_sub(p.origin_col().index()));
                 p.want_reply(Report::CursorPosition {
                     row: row.one_based(),
                     col: col.one_based(),
@@ -1963,7 +1988,7 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         }
         Esc::NextLine => {
             p.index();
-            p.set_col(Col::ZERO);
+            p.set_col(p.origin_col());
         }
         Esc::TabSet => {
             let x = p.cx.index();

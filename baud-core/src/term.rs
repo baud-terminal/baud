@@ -86,6 +86,27 @@ pub struct Saved {
     /// its own coordinate system back -- and until this was read off the
     /// manual rather than assumed, neither core restored either flag.
     pub(crate) origin: ModeChange,
+    /// **Whether `cx` is the pending-wrap sentinel**, one past the right
+    /// margin, and not a column. `restore` keeps a saved sentinel unclamped
+    /// under narrower side margins, and without this it could not tell one from
+    /// a column on the right margin that a narrower `DECSLRM` since brought
+    /// level with the new right margin + 1: that column came back as a pending
+    /// wrap no save had held, where `[[source: dec-std-070]]` `restore_cursor`
+    /// (p. 5-190) clamps it to the right margin. `cx == right + 1` at the save
+    /// is enough to tell: the bit matters only when the restored Origin Mode
+    /// is displaced, since `confine_col` moves nothing otherwise, and a cursor
+    /// saved displaced is confined, so there the column one past the right
+    /// margin is the sentinel. It decides nothing of note AE's Q12: a saved
+    /// sentinel is restored as before, and the bit only stops a column being
+    /// read as one. A save made pending can come back pending under a moved
+    /// right margin, Q12's, in two ways: a resize's reflow moves the `?1049`
+    /// save's `cx` and keeps this bit, and a later right margin can land one
+    /// before where the reflow put it; and one saved at full width, restored
+    /// under a right margin one before the screen's last column (`DECSLRM
+    /// 1;19` on 20 columns), is put on that margin + 1 by the clamp to the
+    /// screen. A save that was not pending never reads as one. Lands in
+    /// padding: `size_of::<Saved>()` is 56 with it and without.
+    pub(crate) pending: ModeChange,
 }
 
 /// How many `SGR` sequences the byte-keyed table holds.

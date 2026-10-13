@@ -1151,7 +1151,8 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // machine says and starts the machine again if it said otherwise
     // (`Paint::restart_cluster`); a `CR LF`, which the `Return` arm folds,
     // leaves it there too. So the line ending every line-oriented stream sends
-    // never visits the twin row.
+    // never visits the twin row. Under DECOM a `CR` goes to the left margin
+    // instead, and there its arm tells the machine itself.
     if matches!(Route::of(b), Route::Control) {
         return match c0(b) {
             Act::Return => edge(Act::Return, g),
@@ -2413,7 +2414,9 @@ mod classes {
                         Act::EndCluster => twins.contains(&node),
                         Act::ContEnd | Act::Resync => utf8,
                         // `CR`: the cursor is at column 0, where `glyph`
-                        // starts the machine again (`Paint::restart_cluster`).
+                        // starts the machine again (`Paint::restart_cluster`),
+                        // or under DECOM at the left margin, where the
+                        // `Return` arm does.
                         Act::Return => grounds.contains(&node) || twins.contains(&node),
                         _ => false,
                     };

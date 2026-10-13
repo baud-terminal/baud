@@ -96,12 +96,15 @@ fn lf_returns_to_column_one_when_lnm_is_set() {
 
 // ── DECSTBM ─────────────────────────────────────────────────────────────────
 
-/// `CSI r` sets the region and homes the cursor to its top-left.
+/// `CSI r` sets the region and homes the cursor to the page origin obeying
+/// DECOM: "First column of first line if Origin Mode is in the reset
+/// (Absolute) state; Top and Left Margins if Origin Mode is in the set
+/// (Displaced) state" (`[[source: dec-std-070]]` DECSTBM note 1, p. 5-25).
+/// It went to the region's top row with DECOM reset until 2026-10-13.
 #[test]
-fn decstbm_homes_the_cursor_to_the_region_top() {
-    {
-        assert_eq!(cursor_of(b"\x1b[3;6r"), (2, 0));
-    }
+fn decstbm_homes_the_cursor_to_the_page_origin() {
+    assert_eq!(cursor_of(b"\x1b[4;4H\x1b[3;6r"), (0, 0));
+    assert_eq!(cursor_of(b"\x1b[?6h\x1b[4;4H\x1b[3;6r"), (2, 0));
 }
 
 /// A region of fewer than two lines is rejected, leaving the previous one.

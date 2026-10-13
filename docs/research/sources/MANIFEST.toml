@@ -400,6 +400,37 @@ bytes  = 19590
 status = "retrieved"
 group  = "C"
 
+[sources.vt510-cha]
+key    = "vt510-cha"
+title  = "CHA -- Cursor Horizontal Absolute (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/CHA.html"
+file   = "vt510-CHA.html"
+sha256 = "9f8c6a0c760f74cc63d884428ce4c529b5c851a2a7d861f9dda34e733eab0c29"
+bytes  = 19323
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-13 for V10's DECOM confinement: the page names neither DECOM nor
+# the margins.
+
+[sources.vt510-hpa]
+key    = "vt510-hpa"
+title  = "HPA -- Horizontal Position Absolute (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/HPA.html"
+file   = "vt510-HPA.html"
+sha256 = "554600c38915b52805e563af3e789aea5f15c4139330f324ecf069c1e8b4f942"
+bytes  = 19424
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-13 with CHA, and as silent on DECOM. Its purpose line, "Inquire as
+# to the amount of free memory for programmable key operations", is another
+# control's; the description is HPA's.
+
 [sources.vt510-decic]
 key    = "vt510-decic"
 title  = "DECIC — Insert Column (VT510 Programmer Information)"

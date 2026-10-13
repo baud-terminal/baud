@@ -62,6 +62,41 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// Where column 1 is: **the left margin under DECOM**.
+    /// `[[source: dec-std-070]]` DECOM (p. 5-31) makes addressing "relative
+    /// to ... the origin of the current scrolling region (Top Margin, Left
+    /// Margin)". The first implementation displaced only the row, so under
+    /// side margins a `CUP` meant for inside the fence landed left of it.
+    pub(crate) fn origin_col(&self) -> Col {
+        match self.cold.modes.is_set(ModeBit::Origin) {
+            true => self.cold.left,
+            false => Col::ZERO,
+        }
+    }
+
+    /// `CUP`'s column `c`, 0-based, from the origin: under DECOM
+    /// `(left_margin - 1) + x`, and the right margin where that passes it
+    /// (`[[source: dec-std-070]]` CUP, p. 5-50); absolute otherwise.
+    pub(crate) fn address_col(&self, c: Col) -> Col {
+        match self.cold.modes.is_set(ModeBit::Origin) {
+            true => {
+                Col::at_index((self.cold.left.index() + c.index()).min(self.cold.right.index()))
+            }
+            false => c,
+        }
+    }
+
+    /// **The page origin obeying DECOM**, where `?6`, `DECSTBM` and
+    /// `DECSLRM` put the cursor. DECSTBM note 1 and DECSLRM note 1
+    /// (`[[source: dec-std-070]]` pp. 5-25 and 5-27): "First column of first
+    /// line if Origin Mode is in the reset (Absolute) state; Top and Left
+    /// Margins if Origin Mode is in the set (Displaced) state." `DECSTBM`
+    /// put the cursor on the region's top row with DECOM reset until the V10
+    /// oracle found it.
+    pub(crate) fn home(&mut self) {
+        self.goto(self.origin_row(), self.origin_col());
+    }
+
     /// **DECOM confines all cursor movement, not just absolute addressing.**
     /// `[[source: vt510-decom]]`, and the first implementation in this repo
     /// confined only CUP.
@@ -75,6 +110,42 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// **And the column**: under DECOM a column lands between the left and
+    /// right margins. `[[source: dec-std-070]]` DECOM (p. 5-31): "the Active
+    /// position cannot be moved above the Top Margin or left of the Left
+    /// Margin"; `[[source: vt510-decom]]`: "The cursor cannot move outside of
+    /// the margins." The first left-margin origin confined only `CUP`, so
+    /// `CR`, `CUB` or `CHA` left the cursor left of the origin and `CPR`
+    /// answered the origin's column for it. Every horizontal move but a write
+    /// and `BS` (which stops at the left margin by itself) comes through here
+    /// or through [`Paint::origin_col`]; not inside `set_col`, which every
+    /// write's move takes too.
+    pub(crate) fn confine_col(&self, c: Col) -> Col {
+        match self.cold.modes.is_set(ModeBit::Origin) {
+            false => c,
+            true => Col::at_index(
+                c.index()
+                    .clamp(self.cold.left.index(), self.cold.right.index()),
+            ),
+        }
+    }
+
+    /// `CR` under DECOM: to the left margin (`[[source: dec-std-070]]` CR,
+    /// p. 5-58), and where that is past column 0 the cluster machine is told
+    /// a control went past, as `Act::EndCluster` tells it after every other
+    /// control: `CR` leads to the ground because at column 0 `glyph` restarts
+    /// the machine itself, and at a margin past it a continuation would find
+    /// a cell before it and join it across the control.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn return_displaced(&mut self) {
+        let home = self.cold.left;
+        if home != Col::ZERO {
+            self.cluster = ClusterBreak::after_control();
+        }
+        self.set_col(home);
+    }
+
     pub(crate) fn save(&self) -> Saved {
         Saved {
             cy: self.cy,
@@ -86,6 +157,7 @@ impl Paint<'_, '_> {
             protect: self.cold.protect,
             autowrap: ModeChange::of(self.cold.modes.is_set(ModeBit::AutoWrap)),
             origin: ModeChange::of(self.cold.modes.is_set(ModeBit::Origin)),
+            pending: ModeChange::of(self.cx.index() == self.cold.right.index() + 1),
         }
     }
 
@@ -103,10 +175,49 @@ impl Paint<'_, '_> {
     /// **Clamped, because the save may predate a resize.** An unclamped
     /// restore puts the cursor outside the grid, and writes and erases index
     /// with it.
+    ///
+    /// **Under DECOM the restored position is confined**, after the saved
+    /// mode is back: `[[source: dec-std-070]]` `restore_cursor` (p. 5-190)
+    /// clamps the line to the top and bottom margins and the column to the
+    /// left and right when the restored Origin Mode is displaced. Its note 3 (p. 5-189),
+    /// written before side margins, keeps "the stored column value"; the
+    /// algorithm and DECOM's "cannot be moved ... left of the Left Margin"
+    /// clamp it.
     pub(crate) fn restore(&mut self, s: Option<Saved>) {
         let Some(s) = s else { return };
+        // **The two flags DECSC saves that neither core restored.**
+        // `[[source: vt510-decsc]]` lists seven items and the wrap flag and
+        // origin mode are two of them. Origin mode especially is not
+        // cosmetic: it decides where home is, so an application that sets it,
+        // saves, resets it and restores must get its coordinate system back.
+        self.cold
+            .modes
+            .apply(ModeBit::AutoWrap, s.autowrap == ModeChange::Set);
+        self.cold
+            .modes
+            .apply(ModeBit::Origin, s.origin == ModeChange::Set);
         let r = Row::from_index(s.cy.index().min(self.rows.index() - 1));
-        self.goto(r, Col::at_index(s.cx.index().min(self.cols.index() - 1)));
+        let c = Col::at_index(s.cx.index().min(self.cols.index() - 1));
+        // **A pending wrap saved under side margins narrower than the screen
+        // is restored pending** while the right margin is where it was: the
+        // sentinel one past it is not a column the clamp should pull back, as
+        // this restore kept it before the clamp and as xterm and ghostty keep
+        // theirs. Saved at full width and restored with the margins at full
+        // width, it is dropped by the clamp to the screen above, as before
+        // the clamp; restored under a right margin one before the screen's
+        // last column (`DECSLRM 1;19` on 20 columns), that clamp puts it on
+        // the new right margin + 1 and it comes back pending, as xterm's
+        // does, as can a `?1049` save a reflow moved (`Saved::pending`);
+        // under any other moved right margin it comes back a column. Which
+        // wrap state `DECRC` restores is note AE's Q12, open. **Only a saved
+        // sentinel**: a column on the right margin that a narrower `DECSLRM`
+        // made level with the new right margin + 1 is a column, and
+        // `restore_cursor` (p. 5-190) clamps it.
+        let c = match c.index() == self.cold.right.index() + 1 && s.pending == ModeChange::Set {
+            true => c,
+            false => self.confine_col(c),
+        };
+        self.goto(self.confine(r), c);
         // **Interned again, not the saved id.** An eviction between the save
         // and the restore can give the saved id's slot to another rendition,
         // and writing under the old id would draw in its colours. The
@@ -119,17 +230,6 @@ impl Paint<'_, '_> {
         self.cold.gl = s.gl;
         self.cold.protect = s.protect;
         self.invoke();
-        // **The two flags DECSC saves that neither core restored.**
-        // `[[source: vt510-decsc]]` lists seven items and the wrap flag and
-        // origin mode are two of them. Origin mode especially is not
-        // cosmetic: it decides where home is, so an application that sets it,
-        // saves, resets it and restores must get its coordinate system back.
-        self.cold
-            .modes
-            .apply(ModeBit::AutoWrap, s.autowrap == ModeChange::Set);
-        self.cold
-            .modes
-            .apply(ModeBit::Origin, s.origin == ModeChange::Set);
     }
 
     /// `DECRC` with nothing saved. `[[source: vt510-decrc]]`: "If nothing was
@@ -807,7 +907,7 @@ impl Paint<'_, '_> {
     }
 
     /// DECSTBM. **A region needs at least two rows**, and setting one homes
-    /// the cursor.
+    /// the cursor, to the page origin ([`Paint::home`]).
     pub(crate) fn set_scroll_region(&mut self, top: OneBased, bottom: Option<OneBased>) {
         let last = Row::from_index(self.rows.index() - 1);
         let t = top.to_row(self.rows);
@@ -817,7 +917,7 @@ impl Paint<'_, '_> {
         }
         self.cold.top = t;
         self.cold.bot = b;
-        self.goto(t, Col::ZERO);
+        self.home();
     }
 
     /// IL. **Outside the region it does nothing**, which is the rule that
@@ -1253,6 +1353,12 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// `HT` and `CHT`. Under DECOM the stop is clamped to the right margin:
+    /// HT note 1 (`[[source: dec-std-070]]` p. 5-67) stops there when no stop
+    /// comes first, and the cursor is inside the margins whenever DECOM is set.
+    /// **The clamp is out of line** ([`Paint::confine_cursor_col`]): carried
+    /// in, it took this function past what `act` inlines, and moving `HT` to
+    /// a call reshaped the per-byte loop.
     pub(crate) fn tab_forward(&mut self, n: Count) {
         let last = self.cols.index() - 1;
         for _ in 0..n.at_least_one().min(self.cols.index()) {
@@ -1269,8 +1375,12 @@ impl Paint<'_, '_> {
             }
             self.set_col(Col::at_index(x));
         }
+        if self.cold.modes.is_set(ModeBit::Origin) {
+            self.confine_cursor_col();
+        }
     }
 
+    /// `CBT`, clamped to the left margin under DECOM, out of line as `HT` is.
     pub(crate) fn tab_back(&mut self, n: Count) {
         for _ in 0..n.at_least_one().min(self.cols.index()) {
             let mut x = self.cx.index();
@@ -1285,6 +1395,17 @@ impl Paint<'_, '_> {
             }
             self.set_col(Col::at_index(x));
         }
+        if self.cold.modes.is_set(ModeBit::Origin) {
+            self.confine_cursor_col();
+        }
+    }
+
+    /// The cursor's column back inside the margins under DECOM, after a tab
+    /// walk that went past one.
+    #[cold]
+    #[inline(never)]
+    fn confine_cursor_col(&mut self) {
+        self.set_col(self.confine_col(self.cx));
     }
 
     pub(crate) fn tab_clear(&mut self, w: Option<TabClear>) {
@@ -1324,7 +1445,8 @@ impl Paint<'_, '_> {
     /// `[[source: vt510-decslrm]]`: "The value of the left margin (Pl) must be
     /// less than the right margin (Pr) ... The minimum size of the scrolling
     /// region is two columns ... DECSLRM moves the cursor to column 1, line 1
-    /// of the page."
+    /// of the page." Under DECOM that page origin is the new margins' corner,
+    /// `[[source: dec-std-070]]` DECSLRM note 1 ([`Paint::home`]).
     ///
     /// **Rejected rather than clamped.** An invalid pair leaves the margins
     /// alone, because clamping would confine the screen to a region the
@@ -1340,8 +1462,7 @@ impl Paint<'_, '_> {
         }
         self.cold.left = Col::at_index(l);
         self.cold.right = Col::at_index(r);
-        self.set_col(Col::ZERO);
-        self.set_row(Row::ZERO);
+        self.home();
     }
 
     /// Is the cursor inside the scrolling region, in **both** axes?
@@ -1538,12 +1659,9 @@ impl Paint<'_, '_> {
             PrivateMode::Origin => {
                 self.cold.modes.apply(ModeBit::Origin, on);
                 // Both directions home the cursor, and where home *is* depends
-                // on the mode just applied.
-                let r = match on {
-                    true => self.cold.top,
-                    false => Row::ZERO,
-                };
-                self.goto(r, Col::ZERO);
+                // on the mode just applied (`set_origin_mode` and
+                // `reset_origin_mode`, `[[source: dec-std-070]]` p. 5-31).
+                self.home();
             }
             // **The pin goes with the mode it was written under.** With
             // `DECAWM` set a write does not touch `Cold::pinned`, so a pin left
@@ -1564,7 +1682,11 @@ impl Paint<'_, '_> {
                 self.cold.modes.apply(ModeBit::Column132, on);
                 self.cold.top = Row::ZERO;
                 self.cold.bot = Row::from_index(self.rows.index() - 1);
-                self.set_col(Col::ZERO);
+                // The origin's column under DECOM: this core keeps the side
+                // margins here, where `[[source: dec-std-070]]`'s
+                // `set_column_mode` (p. 5-72) resets them, an open departure
+                // in the record.
+                self.set_col(self.origin_col());
                 self.clear_screen();
                 self.set_row(Row::ZERO);
             }
@@ -1824,10 +1946,12 @@ impl Paint<'_, '_> {
                 // it shows the rows as they were left, so resetting the
                 // rotation would put them out of order, and the cursor stays
                 // where it is, as xterm's `SwitchBufs` leaves it.
+                // Home is the origin under DECOM ([`Paint::home`]), which
+                // the mode's confinement requires wherever the cursor goes.
                 if how == AltSwitch::SaveAndClear {
                     self.view.reset_rot();
                     self.clear_screen();
-                    self.goto(Row::ZERO, Col::ZERO);
+                    self.home();
                 }
                 // Its image numbering starts again with the screen. No image
                 // can be on it: leaving is the only way off it, and leaving
@@ -1923,7 +2047,10 @@ impl Paint<'_, '_> {
         }
         self.cold.top = Row::ZERO;
         self.cold.bot = Row::from_index(self.rows.index() - 1);
-        self.goto(Row::ZERO, Col::ZERO);
+        // Under DECOM, the left margin: this core keeps the mode and the side
+        // margins here, where `[[source: dec-std-070]]`'s DECALN (p. D-19)
+        // resets the mode, an open departure in the record.
+        self.home();
     }
 
     /// RIS. **Everything a soft reset does, and the screen as well.**

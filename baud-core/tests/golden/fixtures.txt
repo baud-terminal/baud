@@ -3323,9 +3323,13 @@ cursor 0 0
 reply 1b50312472313b3530721b5c
 digest 11b7328a6fa84ae5 nonblank 0
 end
+# decrqss-stbm set departs from core2 on 2026-10-13, by the text: DECSTBM homes
+# to the page origin obeying DECOM, "First column of first line if Origin Mode is
+# in the reset (Absolute) state" (DEC STD 070 DECSTBM note 1, p. 5-25, and its
+# algorithm). core2 put the cursor on the region's top row, 4 0.
 fixture decrqss-stbm set
 bytes 1b5b353b3430721b502471721b5c
-cursor 4 0
+cursor 0 0
 reply 1b50312472353b3430721b5c
 digest 11b7328a6fa84ae5 nonblank 0
 end

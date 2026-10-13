@@ -360,7 +360,7 @@ Both fast paths reach that count:
 | Event | Sets | Text | baud today |
 |---|---|---|---|
 | Power-up (`Cold::new`, term.rs:507-508) | G0 = G1 = ASCII; G2 = G3 = UPSS (its value is Q2); GL = G0; GR = G2; no single shift; save buffer per the DECRC row | 070-3 §3.6.4.2/§3.6.4.3; vt220-rm-ch4 §4.4; vt510-rm-ch4 §4.4.1; 070-4 p. 15 `single_shift = NO_SINGLE_SHIFT` | All four slots ASCII, GL = G0, no GR |
-| DECSC `ESC 7` | Position, rendition, `flags`, G0-G3, GL, **GR**, protection, the wrap item(s) Q12 picks, DECOM, and a pending single shift only under Q6(b) | vt510-decsc; 070-5 §5.13.1; vt220-rm-ch4 §4.7; 070-5 DECCIR pp. 5-200 to 5-202; vt510-deccir | `Saved` (term.rs:55-89) lacks GR, pending wrap and the single shift. `save()` is at ops.rs:69-81 |
+| DECSC `ESC 7` | Position, rendition, `flags`, G0-G3, GL, **GR**, protection, the wrap item(s) Q12 picks, DECOM, and a pending single shift only under Q6(b) | vt510-decsc; 070-5 §5.13.1; vt220-rm-ch4 §4.7; 070-5 DECCIR pp. 5-200 to 5-202; vt510-deccir | `Saved` (term.rs:55-89) lacks GR, pending wrap and the single shift. `save()` is at ops.rs:69-81. 2026-10-13: `Saved::pending` exists, records only whether the saved `cx` is the pending-wrap sentinel (`cx == right + 1`), and decides nothing of Q12 |
 | DECRC `ESC 8` | Restores the above and calls `invoke()` | The same | `restore()` (ops.rs:97-123) clamps `cx` to `cols-1` (ops.rs:99-100). That loses pending wrap, which is `cx == cols` (term.rs:2089-2090) |
 | DECRC, nothing saved | Home; DECOM reset; attributes off; the default character-set mapping (GL = G0, GR = G2, default slots) | vt220-rm-ch4 §4.7; vt510-decrc; 070-5 p. 5-187 item 3 | Built 2026-10-11 as `Paint::restore_unsaved` from `ESC 8`, with the selective erase attribute off as 070's buffer holds it; no GR. Until then `restore(None)` returned (ops.rs:98), which DEPARTED. SCORC: Q13 |
 | DECSTR `CSI ! p` | G0-G3, GL and GR to defaults; no single shift ("no shifts"); save buffer to defaults, cursor home | 070-4 p. 31; vt220-rm-ch4 Table 4-10; vt510-decstr Table 5-9 | `soft_reset` resets `g` and `gl` (ops.rs:1511-1512) and sets `saved = None` (ops.rs:1509). That DEPARTS from "Save cursor state … Home position" |
@@ -1432,6 +1432,8 @@ Ground edge, so it takes the full A/B.
   `invoke()` in `restore()` (ops.rs:109-112).
 - The Q12 field. If pending wrap is saved, `restore` keeps `cx = cols` instead
   of clamping (ops.rs:99-100) when the width is unchanged.
+  2026-10-13: `Saved::pending` exists, records only whether the saved `cx` is
+  the pending-wrap sentinel (`cx == right + 1`), and decides nothing of Q12.
 - `single`, only under Q6(b).
 - `AltSaved`/`?1049` (ops.rs:85-93, 1203-1204) carry `Saved` and inherit all of
   this.

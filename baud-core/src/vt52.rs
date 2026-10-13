@@ -34,15 +34,21 @@ impl Paint<'_, '_> {
                 let rows = self.rows;
                 self.set_row(self.confine(self.cy.down(Count::ONE, rows)));
             }
-            Vt52::CursorRight => self.set_col(self.cx.forward(Count::ONE, self.cols)),
-            Vt52::CursorLeft => self.set_col(self.cx.back(Count::ONE)),
+            Vt52::CursorRight => {
+                self.set_col(self.confine_col(self.cx.forward(Count::ONE, self.cols)))
+            }
+            Vt52::CursorLeft => self.set_col(self.confine_col(self.cx.back(Count::ONE))),
             // `[[source: ctlseqs]]` maps `ESC F`/`ESC G` onto the DEC special
             // graphics set, which this core already has for `ESC ( 0` -- so
             // this is a designation into the active slot rather than a second
             // glyph table.
             Vt52::GraphicsOn => self.designate(Charset::DecGraphics),
             Vt52::GraphicsOff => self.designate(Charset::Ascii),
-            Vt52::Home => self.goto(Row::from_index(0), Col::ZERO),
+            // **DECOM's confinement holds here too**: `[[source: dec-std-070]]`
+            // § A.5.5 leaves Origin Mode and the scrolling region "undefined
+            // ... both when entering and exiting VT52 Mode", so no text
+            // lets the cursor out, and a `CPR` after `ESC <` must agree.
+            Vt52::Home => self.home(),
             Vt52::ReverseLineFeed => self.reverse_index(),
             Vt52::EraseToEndOfScreen => self.erase_display(EraseExtent::ToEnd),
             Vt52::EraseToEndOfLine => self.erase_line(EraseExtent::ToEnd),
@@ -91,6 +97,6 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn vt52_address(&mut self, col: Vt52Coord) {
         let (r, c) = (self.cold.vt52_row.to_row(self.rows), col.to_col(self.cols));
-        self.goto(r, c);
+        self.goto(self.confine(r), self.confine_col(c));
     }
 }

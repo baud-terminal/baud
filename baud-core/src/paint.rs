@@ -1280,7 +1280,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.view.set_ended(self.cy);
         self.index();
         if self.cold.modes.is_set(ModeBit::LineFeedNewLine) {
-            self.set_col(Col::ZERO);
+            self.set_col(self.origin_col());
         }
     }
 

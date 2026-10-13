@@ -317,9 +317,24 @@ const STEP_C: &str = "V10 step (c): line starts and moves that honour the fence"
 /// cursor right of the fence to the right margin, which reads it as a
 /// pending wrap there.
 const STEP_D: &str = "V10 step (d): the corner, a cursor right of the fence, C2-min";
-/// Found by this harness's first run, and not V10's to fix.
-const DECSTBM_HOME: &str = "found: DECSTBM homes to the region's top row with DECOM reset; \
-                            STD 070 DECSTBM note 1 says the first column of the first line";
+/// ghostty's `CUB` under DECOM goes to column 1, left of the origin.
+const CUB_PAST_ORIGIN: &str = "ghostty departs: CUB under DECOM goes past the left margin to \
+                               column 1; STD 070 CUB note 1 (p. 5-47) stops it at the Left \
+                               Margin, and DECOM (p. 5-31) bars the cursor from left of it";
+/// ghostty's `DECRC` under DECOM does not confine what it restores, on
+/// either side.
+const DECRC_UNCONFINED: &str = "ghostty departs: DECRC under DECOM keeps a restored column \
+                                outside the margins, left of the left margin or right of the \
+                                right; STD 070's restore_cursor (p. 5-190) clamps it into the \
+                                margins when the restored Origin Mode is displaced; xterm's \
+                                CursorRestore goes through CursorSet (cursor.c 484-492), which \
+                                stops it at the right margin and not at the left (79-84)";
+/// `CHA`/`HPA` under DECOM: the displacement is a Jev item, and ghostty also
+/// moves the row.
+const CHA_DISPLACED: &str = "Jev item: under DECOM baud counts CHA/HPA from the screen's \
+                             column 1 and clamps into the margins, option (a'); ghostty \
+                             counts from the left margin, option (b), as xterm's CursorSet \
+                             does, and also moves the row down by the top margin";
 /// Note V's full-width pending-wrap follow-ons, each a later decision.
 const FOLLOW_ON: &str = "note V's full-width follow-ons: baud keeps the sentinel \
                          across LF, ghostty clears its pending_wrap";
@@ -349,7 +364,7 @@ fn fixtures() -> Vec<Fixture> {
             format!("{TB}\x1b[9S\x1b[8;1H"),
             Agree,
         ),
-        f("full: DECSTBM homes", TB.into(), Pinned(DECSTBM_HOME)),
+        f("full: DECSTBM homes", TB.into(), Agree),
         f(
             "full: IL at column 1",
             format!("{TB}\x1b[3;1H\x1b[L"),
@@ -535,6 +550,110 @@ fn fixtures() -> Vec<Fixture> {
             "lrm: IL homes to the left margin",
             format!("{TB}{LRM}\x1b[3;7H\x1b[L"),
             Pinned(HOME),
+        ),
+        // ---- DECOM: the origin is the top and left margins -------------------
+        f(
+            "decom: ?6h homes to the margins' corner",
+            format!("{TB}{LRM}\x1b[?6h"),
+            Agree,
+        ),
+        f(
+            "decom: CUP 1;1 addresses from the left margin",
+            format!("{TB}{LRM}\x1b[?6h\x1b[1;1HXY"),
+            Agree,
+        ),
+        f(
+            "decom: CUP stops at the right margin",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;99HQ"),
+            Agree,
+        ),
+        f(
+            "decom: DECSLRM homes to the margins' corner",
+            format!("{TB}\x1b[?6h{LRM}"),
+            Agree,
+        ),
+        f(
+            "decom: DECSTBM homes to the margins' corner",
+            format!("{LRM}\x1b[?6h{TB}"),
+            Agree,
+        ),
+        // `?6l` at the end homes both, so IL's column (HOME) is not compared.
+        f(
+            "decom: IL from a displaced CUP inside the fence",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;2H\x1b[L\x1b[?6l"),
+            Agree,
+        ),
+        // DECOM's confinement: "cannot be moved ... left of the Left Margin"
+        // (STD 070 p. 5-31). Each starts at CUP 2;3, column 6 of the screen.
+        f(
+            "decom: CR goes to the left margin",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;3H\rX"),
+            Agree,
+        ),
+        f(
+            "decom: CNL goes to the left margin",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;3H\x1b[EX"),
+            Agree,
+        ),
+        f(
+            "decom: CPL goes to the left margin",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;3H\x1b[FX"),
+            Agree,
+        ),
+        f(
+            "decom: NEL goes to the left margin",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;3H\x1bEX"),
+            Agree,
+        ),
+        f(
+            "decom: CUF stops at the right margin",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;3H\x1b[99CX"),
+            Agree,
+        ),
+        f(
+            "decom: HT on the right margin stays there",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;6H\tX"),
+            Agree,
+        ),
+        f(
+            "decom: HT, HT stops at the right margin",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;3H\t\tX"),
+            Agree,
+        ),
+        f(
+            "decom: CBT stops at the left margin",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;3H\x1b[ZX"),
+            Agree,
+        ),
+        f(
+            "decom: DECRC confines the restored column",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;1H\x1b7\x1b[8;12s\x1b8X"),
+            Pinned(DECRC_UNCONFINED),
+        ),
+        f(
+            "decom: DECRC keeps a pending wrap",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;6HA\x1b7\x1b8B"),
+            Agree,
+        ),
+        f(
+            "decom: DECRC clamps a right-margin column a narrower DECSLRM passes",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;6H\x1b7\x1b[3;9s\x1b8X"),
+            Pinned(DECRC_UNCONFINED),
+        ),
+        f(
+            "decom: CUB stops at the left margin",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;3H\x1b[5DX"),
+            Pinned(CUB_PAST_ORIGIN),
+        ),
+        f(
+            "decom: CHA left of the margin",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;3H\x1b[3GX"),
+            Pinned(CHA_DISPLACED),
+        ),
+        f(
+            "decom: HPA left of the margin",
+            format!("{TB}{LRM}\x1b[?6h\x1b[2;3H\x1b[3`X"),
+            Pinned(CHA_DISPLACED),
         ),
         // ---- side margins: the later steps ----------------------------------
         f(
