@@ -171,7 +171,12 @@ probe-no-fast-csi = []
 probe-no-csi-op = []
 # The parameters are not accumulated: the scan runs, the loop runs, and the
 # digits are discarded. Prices the parameter walk inside the fast path.
-probe-no-csi-params = []
+# **Its base is `two-pass-csi`, not the default build**: the walk it empties
+# is the two-pass one, which the CSI scan/walk fusion moved behind that
+# feature, and its `#[cfg]` reads both. Declared bare it built the default
+# program and priced its subject at nothing, and the whole suite passed
+# under it; it implies the feature, as `probe-double-final-scan` does.
+probe-no-csi-params = ["two-pass-csi"]
 # The parameter walk run twice into a scratch and discarded: the additive
 # counterpart to `probe-no-csi-params`, which also removes the truecolor SGR
 # chain and therefore over-prices the walk.
