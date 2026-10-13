@@ -2254,8 +2254,17 @@ fn fast_csi(
     // measured three times that whatever lands in that body is paid by every
     // payload whether or not it runs -- the first version of this probe cost
     // **5% on asciiquarium**, whose sequences are all too short to reach it.
+    //
+    // **A hit commits the node the parse would**, `Node::AfterControl`, as
+    // the commit below does for every sequence taken whole. It returns before
+    // that line, and without its own the node stayed inside the sequence, so
+    // the byte after a repeated `SGR` was parsed as part of another control
+    // sequence (`tests/sgr_repeat.rs`). It went when e105e7d moved the
+    // commit out of `Act::CsiStart` and into this function, below the hit;
+    // that commit found the same gap in `fast_esc` and closed it there.
     #[cfg(feature = "sgr-table")]
     if s[off].raw_byte() == b'm' && off + 1 >= SGR_MIN_BYTES && sgr_from_table(p, &s[..=off]) {
+        *node = Node::AfterControl;
         #[cfg(feature = "diag")]
         {
             p.sgr_hit += 1;
