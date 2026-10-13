@@ -10,8 +10,8 @@
 /// carries `SB = 10_000` lines, so three cores were retaining ten thousand
 /// lines and the fourth was retaining none.
 ///
-/// This replaces bench-others/ghostty-bench, a separate Zig harness that stalled
-/// on ghostty's build-time-generated unicode_tables. libghostty-vt is now a
+/// This replaced bench-others/ghostty-bench, a separate Zig harness (deleted
+/// 2026-10-13) that stalled on ghostty's build-time-generated unicode_tables. libghostty-vt is now a
 /// shipped artifact built by ghostty's own build.zig, which runs that codegen
 /// itself — so ghostty measures here, in the same harness, through the same PTY,
 /// against the same payloads as every other core. A separate harness was the

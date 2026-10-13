@@ -1854,14 +1854,6 @@ upstream = "https://github.com/googlefonts/noto-emoji; the notice is the reposit
 status   = "kept"
 
 [[tree]]
-what     = "Byte-identical copies of ghostty's src/terminal/build_options.zig and src/build/uucode_config.zig at d9840f3"
-paths    = ["bench-others/ghostty-bench/tbuild_options.zig", "bench-others/ghostty-bench/uucode_config.zig"]
-licence  = "MIT"
-notice   = "bench-others/ghostty-bench/NOTICE"
-upstream = "https://github.com/ghostty-org/ghostty/tree/d9840f3"
-status   = "kept"
-
-[[tree]]
 what     = "The test helper sfte in trail.rs's test module, ported line for line from sfte's _sfte_render_trail and marked as a port"
 paths    = ["baud-render/src/trail.rs"]
 licence  = "Zlib"

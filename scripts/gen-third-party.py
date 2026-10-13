@@ -101,7 +101,7 @@ def licence_paths():
     """Every path LICENSE writes from the repository root, with its line: a
     token with a `/` whose first segment is an entry at the root. A path
     relative to its stanza's directory (`icon-licences/`, `var/bake/`) and an
-    upstream project's path (`src/build/uucode_config.zig`) start with no root
+    upstream project's path (one under its own `src/`) start with no root
     entry and are not repository paths; URLs and patterns (`*-observed/`) are
     skipped."""
     roots = set(os.listdir(ROOT))

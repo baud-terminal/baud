@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 253 | 17 | redistributable, and its notice is satisfied |
+| kept | 253 | 16 | redistributable, and its notice is satisfied |
 | own | 186 | 0 | the owner's work |
-| total | 682 | 28 | |
+| total | 682 | 27 | |
 
 ## Licence texts in LICENSES/
 
@@ -243,14 +243,6 @@ they were built from.
 - **Notice:** [baud-font/tests/fonts/NotoColorEmoji-LICENSE.txt](baud-font/tests/fonts/NotoColorEmoji-LICENSE.txt)
 - **From:** https://github.com/googlefonts/noto-emoji; the notice is the repository's root LICENSE at 8998f5dd683424a73e2314a8c1f1e359c19e8742, with its copyright line
 - **Files:** [baud-font/tests/fonts/NotoColorEmoji-subset.ttf](baud-font/tests/fonts/NotoColorEmoji-subset.ttf)
-
-### Byte-identical copies of ghostty's src/terminal/build_options.zig and src/build/uucode_config.zig at d9840f3
-
-- **Status:** kept -- redistributable, and its notice is satisfied
-- **Licence:** MIT
-- **Notice:** [bench-others/ghostty-bench/NOTICE](bench-others/ghostty-bench/NOTICE)
-- **From:** https://github.com/ghostty-org/ghostty/tree/d9840f3
-- **Files:** [bench-others/ghostty-bench/tbuild_options.zig](bench-others/ghostty-bench/tbuild_options.zig), [bench-others/ghostty-bench/uucode_config.zig](bench-others/ghostty-bench/uucode_config.zig)
 
 ### The test helper sfte in trail.rs's test module, ported line for line from sfte's _sfte_render_trail and marked as a port
 

@@ -5,7 +5,6 @@
 | `multibench/` | baud vs ghostty, alacritty, wezterm, termwiz, vt100, **sfte** | a ghostty checkout, for ghostty only; sfte comes through `baud-sfte-difftest`'s lib and needs nothing |
 | `kitty-bench/` | kitty's parser, through Python | a built kitty |
 | `alacritty-bench/` | alacritty with and without a PTY | nothing -- crates.io |
-| `ghostty-bench/` | **superseded — see below** | — |
 
 `multibench` no longer needs sibling checkouts for its Rust cores: alacritty,
 vt100, termwiz and wezterm come from crates.io at pinned versions, which are
@@ -15,10 +14,11 @@ also versions a reader can quote next to the numbers.
 
 Measured, in `multibench`, alongside every other core.
 
-This README used to say `ghostty-bench` was blocked on ghostty's
-`unicode_tables`, generated at build time by two codegen executables. That is
-obsolete: **libghostty-vt is a shipped artifact** with a public C ABI, built by
-ghostty's own `build.zig`, which runs that codegen itself.
+This README used to say `ghostty-bench`, a separate Zig harness deleted on
+2026-10-13, was blocked on ghostty's `unicode_tables`, generated at build time
+by two codegen executables. That is obsolete: **libghostty-vt is a shipped
+artifact** with a public C ABI, built by ghostty's own `build.zig`, which runs
+that codegen itself.
 
 ```sh
 cd ../../ghostty
@@ -42,13 +42,6 @@ absent the ghostty row prints `n/a` rather than being silently dropped.
 `std.simd.suggestVectorLength` in `consumeApcString` and `consumeOscString`
 ungated by `build_options.simd`. On a target where baud has no SIMD path, no
 build of ghostty is a like-for-like comparison. See MEASUREMENTS.md.
-
-`ghostty-bench/` is the old Zig harness, kept only until someone confirms
-nothing else wants it. It measured through a second PTY implementation, which
-was itself the cross-harness confound MEASUREMENTS.md warns about. Two of its
-files, `tbuild_options.zig` and `uucode_config.zig`, are ghostty's own,
-unmodified and under MIT; its `NOTICE` names them and carries ghostty's
-licence, which has to go with every copy.
 
 ## kitty
 

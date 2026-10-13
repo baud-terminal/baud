@@ -70,7 +70,7 @@ jobs:
 
       # ghostty's terminal core, built from source as libghostty-vt. Its own
       # build.zig runs the unicode_tables codegen, which is what used to block
-      # bench-others/ghostty-bench.
+      # the old Zig harness, bench-others/ghostty-bench (deleted 2026-10-13).
       - name: Build libghostty-vt
         run: |
           git clone --depth 1 https://github.com/ghostty-org/ghostty.git /tmp/ghostty

@@ -105,18 +105,10 @@ in var/hvar/.
 
 Other projects' code:
 
-  bench-others/ghostty-bench/tbuild_options.zig
-  bench-others/ghostty-bench/uucode_config.zig
-      Byte-identical copies of ghostty's src/terminal/build_options.zig and
-      src/build/uucode_config.zig at commit d9840f3: MIT, Copyright (c) 2024
-      Mitchell Hashimoto, Ghostty contributors (NOTICE, beside them).
-
   Lines ported from other projects into baud's files keep their own
   licence: the test helper sfte in baud-render/src/trail.rs, from sfte
-  (zlib; LICENSES/sfte-Zlib.txt); two test helpers in
-  baud-core/tests/image_geometry.rs, from yazi (MIT; LICENSES/yazi-MIT.txt);
-  and the uucode block of bench-others/ghostty-bench/build.zig follows
-  ghostty's src/build/SharedDeps.zig at d9840f3 (MIT; NOTICE beside it).
+  (zlib; LICENSES/sfte-Zlib.txt); and two test helpers in
+  baud-core/tests/image_geometry.rs, from yazi (MIT; LICENSES/yazi-MIT.txt).
 
 Third-party research sources:
 

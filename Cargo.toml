@@ -39,7 +39,7 @@ members = ["baud-domain", "baud-core", "baud-bench",
 ]
 
 # bench-others/* are standalone harnesses against sibling checkouts of other
-# terminals — and ghostty-bench is Zig. They do not belong in this lock file.
+# terminals. They do not belong in this lock file.
 exclude = ["bench-others"]
 
 # **`cargo run` builds the binary the bundle ships.** `baud` is the one binary
