@@ -1127,10 +1127,11 @@ fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
     let (at, len) = (from.index(), len.index());
     // **Index the cell instead of computing it.** `len` is a constant at each
     // call site, so this test folds; the three-byte plane is 81% of
-    // `cat-cjk.raw`. The table is built once at construction and verified
-    // against what the computing path below writes, for all 65,536
-    // sequences, by `the_cell_table_is_what_the_write_path_writes`; it was
-    // verified against `baud-core2` until that crate was deleted.
+    // `cat-cjk.raw`. The table is built once at construction.
+    // `the_cell_table_is_what_the_write_path_writes` holds each entry's
+    // content to the computing path's; the read writes a different screen:
+    // a mark that path attaches to the cell before gets a cell of its own,
+    // and `the_table_read_writes_what_the_computing_path_writes` is red.
     #[cfg(feature = "cell-table")]
     if len == 3 && !p.cells3.is_empty() {
         let s = StreamByte::slice_from(&p.arena[at..at + 3]);

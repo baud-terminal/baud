@@ -359,10 +359,33 @@ in
     # at once, which masks per-arm rot and, on 5f1d5f0, did not compile under
     # `-D warnings` (dev-test ran it until 2026-10-11); this checks each
     # individually, the way the arms are actually used for measurement. It
-    # checks; no arm's tests run anywhere.
+    # checks; `test:feature-suites` runs the tests.
     "test:features" = {
       exec = "bash ./scripts/check-features.sh";
       after = [ "test:audit" ];
+    };
+
+    # baud-core's suite under its arms, in five builds: the arms that
+    # replace a default path, in three builds that cannot hide one another
+    # (`probe-double-final-scan` rides with the `two-pass-csi` it implies);
+    # `diag`, which adds counters and the tests that read them, alone; and
+    # the additive probes in one build. Off aarch64, `route-stride` is a
+    # sixth. A compiled arm can still be wrong: 7d21de1 fixed
+    # `two-pass-csi`, under which a test already in the suite was red on
+    # 9f392ce while no gate ran the suite under it. Every baud-core feature
+    # is in one of the script's classes -- run, run by host, or excluded
+    # with the test it turns red -- so a new arm cannot go unclassified.
+    # `cell-table` is excluded as wrong, not by construction: its read
+    # writes a cell for a character the computing path attaches, such as
+    # a mark or ZWJ, and
+    # `the_table_read_writes_what_the_computing_path_writes` is red under it.
+    # Run by hand (`devenv tasks run test:feature-suites`) and not in
+    # `enterTest`: in `devenv test` it would run on every push and in CI's
+    # 45-minute job, which it outlasts on two CPUs. Where it runs is the
+    # owner's call (record, "baud-core's suite runs under its arms").
+    "test:feature-suites" = {
+      exec = "bash ./scripts/test-features.sh";
+      after = [ "test:features" ];
     };
 
     # A `path` dependency that leaves the repository builds on the machine it

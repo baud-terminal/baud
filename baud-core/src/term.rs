@@ -1096,8 +1096,9 @@ impl<'b> Term<'b> {
     /// This is the compile step of a compiled database that happens to run at
     /// startup, because 2 MiB is more than a `const fn` should evaluate and
     /// nothing in it depends on the terminal.
-    /// `the_cell_table_is_what_the_write_path_writes` walks all 65,536 against
-    /// the path it replaces.
+    /// `the_cell_table_is_what_the_write_path_writes` holds each entry's
+    /// content to the path it replaces; the read in `put_one` is held by
+    /// `the_table_read_writes_what_the_computing_path_writes`, red under it.
     ///
     /// **An empty slice is how a caller declines it, and that is the whole
     /// switch.** The only read is in `put_one` behind `cell-table`, so a

@@ -10,17 +10,32 @@
 //! which is a statement about two paths in one program, not about agreement
 //! with another one.
 //!
-//! It runs with the feature **off**, which is what makes it a comparison at
-//! all: `Term::new` fills the table whenever the slice is non-empty, while the
-//! read in `put_one` is gated. So the rendering below comes from the computing
-//! path and the table is inert data beside it. Gating `fill_cells3` on the
-//! feature instead would make this test compare the table against itself, and
-//! `storage.rs` says so where the switch is.
+//! Two tests make it, and only the second exercises the read in `put_one`.
+//! `the_cell_table_is_what_the_write_path_writes` runs with the feature
+//! **off**, which is what makes it a comparison at all: `Term::new` fills the
+//! table whenever the slice is non-empty, while the read in `put_one` is
+//! gated. So the rendering comes from the computing path and the table is
+//! inert data beside it. Gating `fill_cells3` on the feature instead would
+//! make it compare the table against itself, and `storage.rs` says so where
+//! the switch is. It compares an entry's content with the cell at column 0
+//! and skips a zero-width entry, so it cannot see what the read does to the
+//! cursor or to the cell before.
+//! `the_table_read_writes_what_the_computing_path_writes` feeds the same
+//! bytes to a terminal with the table and one without and compares the
+//! screens and the cursors, which tests the read when `cell-table` is on.
+//! **It is red under the feature**: the read writes a cell of its own for
+//! every zero-width character the computing path attaches to the cell before
+//! (combining marks, ZWJ, format characters such as U+200B, U+FEFF and the
+//! bidi controls, three Prepend), and for 235 spacing marks and Extend
+//! characters that take a column.
 //!
-//! Feeding is one character per row, so row *i* of a batch is permutation *i*
-//! and no cursor arithmetic is needed to find it. **A batch is `ROWS - 1`**:
-//! fifty sequences each ending in `LF` on a fifty-row screen scrolls, and then
+//! In `the_cell_table_is_what_the_write_path_writes`, feeding is one
+//! character per row, so row *i* of a batch is permutation *i* and no cursor
+//! arithmetic is needed to find it. **A batch is `ROWS - 1`**: fifty
+//! sequences each ending in `LF` on a fifty-row screen scrolls, and then
 //! row 0 is not the first permutation.
+//! `the_table_read_writes_what_the_computing_path_writes` feeds one context
+//! line a row, in batches of `ROWS - 2` after `RIS`.
 
 mod support;
 
@@ -80,7 +95,9 @@ fn rendered(batch: &[[u8; 3]], out: &mut Vec<PackedCell>) {
     });
 }
 
-/// **The table is what the write path writes.**
+/// **Each entry's content is the cell the write path writes at column 0**,
+/// for every entry of nonzero width; a zero-width entry is checked only for
+/// writing no cell there. The read in `put_one` is the next test's.
 #[test]
 fn the_cell_table_is_what_the_write_path_writes() {
     let perms = permutations();
@@ -129,6 +146,98 @@ fn the_cell_table_is_what_the_write_path_writes() {
         }
     }
     assert_eq!(checked, 65_536);
+}
+
+/// A geometry no context line can wrap in, at a cost per batch of 800 cells
+/// to compare rather than the corpus's 10,000.
+const NARROW: WinSize = WinSize {
+    ws_row: 50,
+    ws_col: 16,
+};
+
+/// **The table read writes the screen the computing path writes**, for every
+/// three-byte sequence in each context below, comparing the whole screen and
+/// the cursor.
+///
+/// Two terminals take the same bytes: one on `Owned::new`, whose empty table
+/// sends `put_one` down the computing path, and one on
+/// `Owned::with_cell_table`, which under `--features cell-table` reads the
+/// entry instead. **Under default features the read is compiled out and both
+/// terminals compute**, so this passes there by construction; it tests the arm
+/// only when the arm is on. The test above cannot stand in for it: it compares
+/// an entry's content with the cell at column 0 and skips width 0, so it says
+/// nothing about where the read leaves the cursor or what it does to the cell
+/// before.
+///
+/// The read fires on a three-byte character that arrives on its own, so each
+/// sequence `X` sits in a context, one per row, and a row that differs names
+/// its sequence: `X` then a space at column 0, ` X `, `aXb`, and `X` between
+/// two four-byte emoji, the woman and the man, where `X` = ZWJ makes one
+/// cluster of three. Each batch starts with `RIS`, which empties the cluster
+/// store, so 48 rows never fill its 63 slots, and ends on row 48, short of the
+/// scroll.
+#[test]
+fn the_table_read_writes_what_the_computing_path_writes() {
+    let perms = permutations();
+    let contexts: [(&str, &[u8], &[u8]); 4] = [
+        ("X, space, at column 0", b"", b" "),
+        ("space, X, space", b" ", b" "),
+        ("a, X, b", b"a", b"b"),
+        (
+            "woman, X, man",
+            "\u{1F469}".as_bytes(),
+            "\u{1F468}".as_bytes(),
+        ),
+    ];
+    assert_eq!(usize::from(NARROW.ws_row), ROWS);
+    let batch_rows = ROWS - 2;
+    let mut computed = Owned::new(&NARROW);
+    let mut indexed = Owned::with_cell_table(&NARROW);
+    let mut a = Term::new(computed.storage(), &NARROW);
+    let mut b = Term::new(indexed.storage(), &NARROW);
+    let mut report = Vec::new();
+    for (name, before, after) in contexts {
+        let mut red: Vec<[u8; 3]> = Vec::new();
+        let mut cursor_red = 0usize;
+        let mut line = Vec::new();
+        for batch in perms.chunks(batch_rows) {
+            support::feed(&mut a, b"\x1bc");
+            support::feed(&mut b, b"\x1bc");
+            for &seq in batch {
+                line.clear();
+                line.extend_from_slice(before);
+                line.extend_from_slice(&seq);
+                line.extend_from_slice(after);
+                support::feed(&mut a, &line);
+                support::feed(&mut b, &line);
+                // The cursor where the context leaves it, before the CR LF
+                // that would put both at column 0 whatever was written.
+                if a.cursor() != b.cursor() {
+                    cursor_red += 1;
+                }
+                support::feed(&mut a, b"\r\n");
+                support::feed(&mut b, b"\r\n");
+            }
+            // The layout check: every row ended in CR LF and none wrapped.
+            assert_eq!(a.cursor(), (Row::from_index(batch.len()), Col::ZERO));
+            for (r, &seq) in batch.iter().enumerate() {
+                if a.row(Row::from_index(r)) != b.row(Row::from_index(r)) {
+                    red.push(seq);
+                }
+            }
+            if support::screen(&a) != support::screen(&b) && red.is_empty() {
+                red.push(batch[0]);
+            }
+        }
+        if !red.is_empty() || cursor_red != 0 {
+            report.push(format!(
+                "{name}: {} sequences on a different row, {cursor_red} with the cursor apart, first {:02x?}",
+                red.len(),
+                &red[..red.len().min(4)]
+            ));
+        }
+    }
+    assert!(report.is_empty(), "{}", report.join("\n"));
 }
 
 /// **How much of the write table would a pointer array save?**
