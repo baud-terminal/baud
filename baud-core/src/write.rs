@@ -2280,9 +2280,13 @@ fn fast_csi(
     //
     // `cells_written` is unchanged by it, which is exactly why that counter
     // cannot be the check here: the same glyphs land in the same cells and
-    // only the `StyleId` differs.
+    // only the `StyleId` differs. **That holds only while it commits the
+    // node**, as the `sgr-table` hit above must: from e105e7d it returned
+    // with the node inside the sequence, the byte after every plain `SGR`
+    // was parsed as part of another, and the arm priced dropped text too.
     #[cfg(feature = "ceiling-free-sgr")]
     if s[off].raw_byte() == b'm' && off + 1 <= 32 {
+        *node = Node::AfterControl;
         return Some(ReadLen::from_index(off + 2));
     }
     #[cfg(feature = "probe-csi-scratch")]
