@@ -340,3 +340,111 @@ fn a_styled_tail_leaves_every_row_uniform_past_its_mark() {
         assert_eq!(uniform_from(&t, 29), 32, "reads of {chunk}");
     }
 }
+
+/// Screen row `y` as text, `.` for a cell nothing was written to.
+fn shown(t: &Term, y: usize) -> String {
+    let (cols, _) = t.geometry();
+    t.row(Row::from_index(y))[..cols.index()]
+        .iter()
+        .map(|c| match c.content.as_codepoint() {
+            Some(cp) => char::from_u32(cp.value()).unwrap_or('?'),
+            None => '.',
+        })
+        .collect()
+}
+
+/// A terminal 13 by 4 with room for 20 columns and no history, a prompt
+/// marked (`OSC 133 ; A`) so a growth re-cuts nothing unless `output`, a
+/// line of twenty that wraps at 13, then grown to 17: the wrapped row's mark
+/// is the 13 it wrapped at. `then` gets it with the bytes after the growth.
+fn grown_over_a_wrapped_row(output: bool, alt: bool, then: impl FnOnce(&mut Term)) {
+    let room = WinSize {
+        ws_col: 20,
+        ws_row: 4,
+    };
+    let ws = WinSize {
+        ws_col: 13,
+        ws_row: 4,
+    };
+    let mut s = Owned::with_history(&room, &CacheGeometry::UNKNOWN, Depth::of(0));
+    let mut t = Term::new(s.storage(), &ws);
+    let mut b: Vec<u8> = Vec::new();
+    if alt {
+        b.extend_from_slice(b"\x1b[?1049h");
+    }
+    if !output {
+        b.extend_from_slice(b"\x1b]133;A\x07");
+    }
+    b.extend_from_slice(b"0123456789abcdefghij");
+    feed(&mut t, &b, READ_CHUNK);
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_col: 17,
+            ws_row: 4,
+        }),
+        Resized::Ok
+    );
+    then(&mut t);
+}
+
+/// **A wrapped row's mark is true after a growth at a prompt.** `XY`
+/// written at columns 15 and 16 of the row that wrapped at 13 leaves it
+/// uniform from 16, and its mark must say so after every read, at every
+/// read size and every two-read split. A wrapped row's mark rose only by
+/// `max` against a flagged word that no column can exceed, so it stayed at
+/// 13 under the letters.
+#[test]
+fn a_wrapped_row_keeps_its_mark_true_after_a_growth_at_a_prompt() {
+    let bytes = b"\x1b[1;15HXY";
+    for read in 1..=bytes.len() {
+        grown_over_a_wrapped_row(false, false, |t| {
+            feed_checking("XY past a wrap at 13", t, bytes, read);
+            assert_eq!(uniform_from(t, 0), 16, "the probe, reads of {read}");
+        });
+    }
+    for cut in 1..bytes.len() {
+        grown_over_a_wrapped_row(false, false, |t| {
+            feed_checking("XY past a wrap at 13", t, &bytes[..cut], cut);
+            feed_checking("XY past a wrap at 13", t, &bytes[cut..], bytes.len());
+        });
+    }
+}
+
+/// **And an erase reaches what was written past the old wrap**: `CSI 2 K`
+/// and `CSI 2 J` stop at the mark when the row ends in the blank they write,
+/// and left `XY` standing; `ICH` shifted `EF` past the mark, and a prompt's
+/// redraw (a second `OSC 133 ; A`, which erases the block) left them under
+/// a mark of zero. The controls: the same steps in the shell's output,
+/// which re-cuts the line at 17 and marks its rows at the new width, and on
+/// the alternate screen, whose growth blanks the columns it reveals and
+/// marks every row at the old edge; both blank on the base too.
+#[test]
+fn an_erase_after_a_growth_at_a_prompt_reaches_a_wrapped_row_written_past_its_old_width() {
+    let blank = ".".repeat(17);
+    let mut wrong = Vec::new();
+    for (output, alt) in [(false, false), (true, false), (false, true)] {
+        for erase in [&b"\x1b[1;1H\x1b[2K"[..], b"\x1b[2J"] {
+            grown_over_a_wrapped_row(output, alt, |t| {
+                feed(t, b"\x1b[1;15HXY", READ_CHUNK);
+                assert!(shown(t, 0).contains("XY"), "the control: {}", shown(t, 0));
+                feed(t, erase, READ_CHUNK);
+                if shown(t, 0) != blank {
+                    wrong.push(format!(
+                        "output {output}, alt {alt}, {erase:?}: {}",
+                        shown(t, 0)
+                    ));
+                }
+            });
+        }
+    }
+    // The prompt's redraw over cells `ICH` moved past the mark.
+    grown_over_a_wrapped_row(false, false, |t| {
+        feed(t, b"\x1b[1;12H\x1b[3@", READ_CHUNK);
+        assert_eq!(shown(t, 0), "0123456789a...bc.", "the control");
+        feed(t, b"\x1b[1;1H\x1b]133;A\x07", READ_CHUNK);
+        if shown(t, 0) != blank {
+            wrong.push(format!("ICH, then a prompt redraw: {}", shown(t, 0)));
+        }
+    });
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

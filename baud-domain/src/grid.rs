@@ -684,6 +684,19 @@ impl<'a> View<'a> {
     /// ring, because the history, the rows below the window and the free rows
     /// are all cells a scroll or a growth brings into view. Returns the rows
     /// raised.
+    ///
+    /// **A wrapped row's mark rises to the new edge, whatever its cells.**
+    /// Its mark is the width it wrapped at, and [`RowExtent::reached`] keeps
+    /// a flagged mark by `max` alone, on the promise that no write reaches
+    /// past it -- true while the screen is no wider than where the row
+    /// wrapped, and false once it grows without a re-cut, which a prompt's
+    /// does. Left there, a write past it was below a mark no write could
+    /// raise: grown from 13 columns to 17 at a prompt, `XY` written at
+    /// columns 15 and 16 of a wrapped row survived `CSI 2 K`, which stops at
+    /// the mark when the row ends in the blank, and a prompt's redraw left
+    /// them under a mark of zero (`row_extent.rs`). Too large is the safe
+    /// direction for a mark; a re-cut reads a wrapped row's cells by the
+    /// width, not by its mark.
     pub fn settle_growth(&mut self, old: Cols) -> usize {
         let (old, new, s) = (old.index(), self.cols.index(), self.stride.index());
         if new <= old || old == 0 {
@@ -693,6 +706,11 @@ impl<'a> View<'a> {
         for p in 0..self.ring.index() {
             let m = self.used[p].index();
             if m >= new {
+                continue;
+            }
+            if self.used[p].wrapped() {
+                self.used[p] = self.used[p].raised_to(new);
+                raised += 1;
                 continue;
             }
             let base = p * s;
