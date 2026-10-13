@@ -24318,3 +24318,207 @@ bytes  = 8313
 status = "external"
 group  = "AO"
 # Fetched twice 2026-10-12, the two copies byte-identical; hash-verified, not committed -- a source file at a pinned commit, the same commit as [[source: ghostty-page]]. Re-fetch the url and compare the sha256.
+
+[sources.ms-opentype-standard-scripts]
+key    = "ms-opentype-standard-scripts"
+title  = "Developing OpenType Fonts for Standard Scripts"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "learn.microsoft.com, script development specifications"
+url    = "https://learn.microsoft.com/en-us/typography/script-development/standard"
+file   = ""
+sha256 = "2429d706e6216f4c628e2bc8c7133a8912691399969f2bd74e07a56f9fb676d0"
+bytes  = 71494
+status = "external"
+group  = "J"
+# Read 2026-10-13 for note AB section 11 (Q-A); not committed -- a vendor HTML page, whose hash tracks
+# its chrome as the other learn.microsoft.com pages' do. "dflt" appears on it as a language-system tag,
+# never as a script tag.
+
+[sources.ms-opentype-scripttags-2005]
+key    = "ms-opentype-scripttags-2005"
+title  = "OpenType Layout tag registry: Script tags, as archived 2005-09-08 (the page reads \"last updated 14 October 2002\")"
+author = "Microsoft Typography"
+year   = 2002
+venue  = "microsoft.com/typography/otspec, via the Internet Archive"
+url    = "https://web.archive.org/web/20050908013522id_/http://www.microsoft.com:80/typography/otspec/scripttags.htm"
+file   = ""
+sha256 = "a632ff9b5f44630552ab7f67ee14641cf5ad4e6e8a39a4ee8c95f9099b12cfed"
+bytes  = 6716
+status = "external"
+group  = "J"
+# Read 2026-10-13 for note AB section 11 (Q-A); not committed -- a vendor page's archived copy, the
+# id_ form (the original bytes, no Wayback toolbar). Its sentence on a 'dflt' script, while its own
+# table spells the tag DFLT. Later snapshots answered HTTP 429, so when the spelling changed is unknown.
+
+[sources.ms-opentype-chapter2-2005]
+key    = "ms-opentype-chapter2-2005"
+title  = "OpenType Layout Common Table Formats, as archived 2005-09-26"
+author = "Microsoft Typography"
+year   = 2005
+venue  = "microsoft.com/typography/otspec, via the Internet Archive"
+url    = "https://web.archive.org/web/20050926234909id_/http://www.microsoft.com:80/typography/otspec/CHAPTER2.htm"
+file   = ""
+sha256 = "f52f6a6407d2f5a8e9e613abc645f218f2171c048056b95d89b0ee1ebe3387b5"
+bytes  = 78119
+status = "external"
+group  = "J"
+# Read 2026-10-13 for note AB section 11 (Q-A); not committed -- a vendor page's archived copy, the
+# id_ form. The 2005 ScriptList text, which spells the default script 'DFLT'.
+
+[sources.afdko-feature-file-06171944]
+key    = "afdko-feature-file-06171944"
+title  = "OpenType Feature File Specification (AFDKO), at 06171944"
+author = "Adobe"
+year   = 2026
+venue  = "adobe-type-tools/afdko, docs/OpenTypeFeatureFileSpecification.md"
+url    = "https://raw.githubusercontent.com/adobe-type-tools/afdko/06171944b8e310749618a85a2f0717d2b54ff0e4/docs/OpenTypeFeatureFileSpecification.md"
+file   = ""
+sha256 = "bf9193e8b4fc56878f62e431ce953f4844167f015416a56711f25dd51c788bb1"
+bytes  = 159581
+status = "external"
+group  = "J"
+# Read 2026-10-13 for note AB section 11 (Q-A); not committed -- a document at a pinned commit, whose
+# redistribution terms were not checked. A font tool's document, not the OpenType specification:
+# lines 1130-1134 on what a program does without DFLT/dflt, line 1250 on which spelling is a script tag.
+
+[sources.dejavu-fonts-ttf-2-20]
+key    = "dejavu-fonts-ttf-2-20"
+title  = "DejaVu fonts 2.20, TrueType release archive"
+author = "The DejaVu fonts team"
+year   = 2007
+venue  = "sourceforge.net/projects/dejavu"
+url    = "https://downloads.sourceforge.net/project/dejavu/dejavu/2.20/dejavu-ttf-2.20.tar.bz2"
+file   = ""
+sha256 = "261b505d398a6b89511affd2cf9c352523373097de8da0df18204674af8892e8"
+bytes  = 3419291
+status = "external"
+group  = "J"
+# Fetched 2026-10-13 for note AB section 11 (Q-A); not committed -- 3.4 MB of fonts, and nothing in
+# the repository loads them. Its member dejavu-ttf-2.20/DejaVuSansMono.ttf (303,436 bytes, sha256
+# 869b72cb58ba6e414a45c1f8e09db78af7dc568353cb8cfa101bef7089138bd4) is the face with a Script table
+# tagged 'dflt' that note AB section 11.2 shaped.
+
+[sources.dejavu-fonts-ttf-2-37]
+key    = "dejavu-fonts-ttf-2-37"
+title  = "DejaVu fonts 2.37, TrueType release archive"
+author = "The DejaVu fonts team"
+year   = 2016
+venue  = "github.com/dejavu-fonts/dejavu-fonts, release version_2_37"
+url    = "https://github.com/dejavu-fonts/dejavu-fonts/releases/download/version_2_37/dejavu-fonts-ttf-2.37.tar.bz2"
+file   = ""
+sha256 = "fa9ca4d13871dd122f61258a80d01751d603b4d3ee14095d65453b4e846e17d7"
+bytes  = 5429777
+status = "external"
+group  = "J"
+# Fetched 2026-10-13 for note AB section 11 (Q-A); not committed -- 5.4 MB of fonts. Its member
+# dejavu-fonts-ttf-2.37/ttf/DejaVuSansMono.ttf (340,712 bytes, sha256
+# b4a6c3e4faab8773f4ff761d56451646409f29abedd68f05d38c2df667d3c582) has no 'dflt' Script table.
+
+[sources.sbl-hebrew-manual-1-5]
+key    = "sbl-hebrew-manual-1-5"
+title  = "SBL Hebrew Font User Manual, version 1.5 (filed as Unicode L2/19-183)"
+author = "John Hudson, Tiro Typeworks, for the Society of Biblical Literature"
+year   = 2019
+venue  = "unicode.org, L2 document register"
+url    = "https://www.unicode.org/L2/L2019/19183-sbl-hebrew-man-v1-5.pdf"
+file   = ""
+sha256 = "9062268f5c0b8f1c3e955613043a893faa21da5a8d938d4a0965ee30edfc1858"
+bytes  = 380192
+status = "external"
+group  = "J"
+# Read 2026-10-13 for note AB section 11 (Q-C); not committed -- a copyrighted manual. HarfBuzz cites
+# https://www.sbl-site.org/Fonts/SBLHebrewUserManual1.5x.pdf, which answered 404 that day; its Wayback
+# copy (20241126213448) answered 429, so the two copies were not compared. Pages 8, 10, 12 (Table 1)
+# and 21 (Appendix B); the extraction cannot read the printed numbers of pages 7-9, and pages 10-12 and
+# 20-22 print their own PDF index.
+
+[sources.osd-opentype-shaping-hebrew]
+key    = "osd-opentype-shaping-hebrew"
+title  = "opentype-shaping-documents: Hebrew shaping, at bd64cf1"
+author = "Nathan Willis and contributors"
+year   = 2026
+venue  = "n8willis/opentype-shaping-documents, opentype-shaping-hebrew.md"
+url    = "https://raw.githubusercontent.com/n8willis/opentype-shaping-documents/bd64cf1d0b426f2e400166363c6cf87614468591/opentype-shaping-hebrew.md"
+file   = ""
+sha256 = "4352f8d89f85cfd17d2c56986bf13799a9c879ad3d2c6afcced66ea371127d7f"
+bytes  = 17440
+status = "external"
+group  = "J"
+# Read 2026-10-13 for note AB section 11 (Q-C); not committed -- a document at a pinned commit, whose
+# licence was not checked. Lines 285-286: canonical combining classes "should be sufficient" for hebr.
+
+[sources.mozilla-bug-662055]
+key    = "mozilla-bug-662055"
+title  = "Mozilla bug 662055, \"advanced Hebrew diacritics are shown correctly only in particular order\" -- its 50 comments, as the REST API returned them"
+author = "Mozilla Bugzilla contributors"
+year   = 2012
+venue  = "bugzilla.mozilla.org"
+url    = "https://bugzilla.mozilla.org/rest/bug/662055/comment"
+file   = ""
+sha256 = "615da2f5117a67d74472b1ee497fd6fe1d94f28b32267756bca2d66f121f4886"
+bytes  = 54917
+status = "external"
+group  = "J"
+# Fetched 2026-10-13 for note AB section 11 (Q-C); not committed -- a live API whose bytes can change
+# with any new comment or field. Comments 17, 29, 38 and 39 (2012-02-16 to 2012-02-22).
+
+[sources.unicode-faq-normalization]
+key    = "unicode-faq-normalization"
+title  = "Unicode FAQ: Normalization"
+author = "The Unicode Consortium"
+year   = 2026
+venue  = "unicode.org/faq"
+url    = "https://www.unicode.org/faq/normalization.html"
+file   = ""
+sha256 = "7c53b44563d0db989842d2806d3edc5b5e35ed2662f2c3ee3be8d66a107408f4"
+bytes  = 26199
+status = "external"
+group  = "G"
+# Read 2026-10-13 for note AB section 11 (Q-C); not committed -- a live page, not normative. Its answer
+# that an engine may permute, never combine or split, the non-zero combining classes internally.
+
+[sources.unicode-ml-2003-06-0340]
+key    = "unicode-ml-2003-06-0340"
+title  = "Unicode mailing list, John Hudson, \"Re: Major Defect in Combining Classes of Tibetan Vowels\", 2003-06-25"
+author = "John Hudson"
+year   = 2003
+venue  = "unicode.org mail archive"
+url    = "https://www.unicode.org/mail-arch/unicode-ml/y2003-m06/0340.html"
+file   = ""
+sha256 = "6a1eb7329a7e0ac5d13d4a0d4f34a79c5d3e0905935788f47f7b3dd823611943"
+bytes  = 12515
+status = "external"
+group  = "G"
+# Read 2026-10-13 for note AB section 11 (Q-C); not committed -- a mailing-list message. On
+# normalisation breaking Biblical Hebrew; it names no order a font expects.
+
+[sources.unicode-ml-2003-07-0120]
+key    = "unicode-ml-2003-07-0120"
+title  = "Unicode mailing list, John Hudson, \"Re: Yerushala(y)im - or Biblical Hebrew\", 2003-07-07"
+author = "John Hudson"
+year   = 2003
+venue  = "unicode.org mail archive"
+url    = "https://www.unicode.org/mail-arch/unicode-ml/y2003-m07/0120.html"
+file   = ""
+sha256 = "31c1bd5c3fc5cb1f6ef2abd9dad215cbf2bad2da8dcbdfaaf04cb6c9bcfdeafd"
+bytes  = 7371
+status = "external"
+group  = "G"
+# Read 2026-10-13 for note AB section 11 (Q-C); not committed -- a mailing-list message. On encoding
+# and CGJ for Biblical Hebrew; it names no order a font expects.
+
+[sources.typedrawers-4728]
+key    = "typedrawers-4728"
+title  = "TypeDrawers discussion 4728, \"Multiple Hebrew diacritics, canonical ordering & ccmp substitutions\" (March 2023)"
+author = "TypeDrawers forum contributors"
+year   = 2023
+venue  = "typedrawers.com"
+url    = "https://typedrawers.com/discussion/4728/multiple-hebrew-diacritics-canonical-ordering-ccmp-substitutions"
+file   = ""
+sha256 = "c3356e91ee664385533aff0c81256e1e2975646d4ebdb32b937307a8b8806dc3"
+bytes  = 447017
+status = "external"
+group  = "J"
+# Read 2026-10-13 for note AB section 11 (Q-C); not committed -- a forum page, whose hash tracks its
+# chrome. John Hudson's reply: mark filtering, so a ligature forms whatever the mark order.

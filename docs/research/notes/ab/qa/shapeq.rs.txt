@@ -1,0 +1,54 @@
+//! Scratch harness (qa-survey lane): reads `path\tindex\thex cps` lines and
+//! prints baud's shaping, clustered and script-resolved exactly as
+//! tests/shape.rs does, with the GSUB and GPOS script tags chosen.
+use baud_domain::{AmbiguousWidth, Classified, Codepoint, GlyphId, GraphemeClass, Width};
+use baud_font::{Cluster, Face, FaceIndex, Features, Glyph, Ignorable, Script, Shaper, Unresolved, resolve};
+use std::io::BufRead;
+
+fn tag(t: Option<baud_font::ScriptTag>) -> String {
+    t.map_or("-".into(), |t| String::from_utf8_lossy(&t.0).into_owned())
+}
+
+fn main() {
+    let mut files: std::collections::HashMap<String, Vec<u8>> = Default::default();
+    for line in std::io::stdin().lock().lines() {
+        let line = line.unwrap();
+        if line.is_empty() || line.starts_with('#') { continue; }
+        let f: Vec<&str> = line.split('\t').collect();
+        let data = files.entry(f[0].to_string()).or_insert_with(|| std::fs::read(f[0]).unwrap());
+        let face = Face::parse_index(data, FaceIndex::of(f[1].parse().unwrap())).unwrap();
+        let cps: Vec<Codepoint> = f[2].split_whitespace().map(|h| Codepoint::new(u32::from_str_radix(h, 16).unwrap()).unwrap()).collect();
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 256];
+        let mut shaper = Shaper::new(&face, &mut storage);
+        let mut start = 0usize;
+        let mut cells: Vec<Unresolved> = Vec::new();
+        let is_ri = |c: Codepoint| (0x1F1E6..=0x1F1FF).contains(&c.value());
+        for i in 1..=cps.len() {
+            let boundary = i == cps.len() || {
+                let c = cps[i];
+                let cl = Classified::of(c);
+                let zero = cl.width(AmbiguousWidth::Narrow) == Width::ZERO;
+                let extends = matches!(cl.class, GraphemeClass::Extend | GraphemeClass::Zwj | GraphemeClass::SpacingMark);
+                let joined = cps[i - 1].value() == 0x200D && cl.lookback.pictographic();
+                let paired = is_ri(c) && { let run = cps[start..i].iter().rev().take_while(|&&p| is_ri(p)).count(); run % 2 == 1 };
+                !(zero || extends || Ignorable::of(c) == Ignorable::Yes || joined || paired)
+            };
+            if boundary {
+                shaper.push_cluster(&cps[start..i], Cluster(u16::try_from(start).unwrap())).unwrap();
+                cells.push(Unresolved::of(&cps[start..i]));
+                start = i;
+            }
+        }
+        let mut settled = vec![Script::COMMON; cells.len()];
+        resolve(&cells, &mut settled);
+        let first = settled.first().copied().unwrap_or(Script::COMMON);
+        let one = settled.iter().all(|&s| s == first);
+        let (buf, out) = shaper.finish(Features::GRID, first);
+        let glyphs: Vec<String> = buf.as_slice().iter().map(|g| format!("{}={}@{},{}", g.id.index(), g.cluster.0, g.dx, g.dy)).collect();
+        println!("{}\t{}\t{}\tscript={} one={} gsub={} gpos={} declined0={}\t[{}]",
+            f[0], f[1], f[2],
+            String::from_utf8_lossy(&first.code()), one,
+            tag(face.gsub().and_then(|g| g.chosen(first))), tag(face.gpos().and_then(|g| g.chosen(first))),
+            out.declined.is_zero(), glyphs.join("|"));
+    }
+}

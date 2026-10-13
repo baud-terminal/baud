@@ -1,0 +1,117 @@
+//! Lane qc-sbl harness: shape one cluster at a time and print glyphs in
+//! logical order, or time shaping the whole cluster list.
+//!
+//!   qc shape <face> <index> <clusters.txt>
+//!   qc bench <face> <index> <clusters.txt> <reps>
+//!
+//! clusters.txt: one cluster per line, hex codepoints space-separated.
+//! shape output, one line per cluster:
+//!   <cps>\t[id=cl@dx,dy+adv|...]\tmissing=N ink_refused=N
+use baud_domain::{Codepoint, GlyphId};
+use baud_font::{
+    Cluster, Face, FaceIndex, Features, Glyph, Ignorable, Script, Shaper, Unresolved, VarPoint,
+    resolve,
+};
+use std::time::Instant;
+
+fn script_of(cps: &[Codepoint]) -> Script {
+    let cells = [Unresolved::of(cps)];
+    let mut s = [Script::COMMON];
+    resolve(&cells, &mut s);
+    s[0]
+}
+
+fn main() {
+    let a: Vec<String> = std::env::args().collect();
+    let data = std::fs::read(&a[2]).unwrap();
+    let face = Face::parse_index(&data, FaceIndex::of(a[3].parse().unwrap())).unwrap();
+    let text = std::fs::read_to_string(&a[4]).unwrap();
+    let clusters: Vec<Vec<Codepoint>> = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| {
+            l.split_whitespace()
+                .map(|h| Codepoint::new(u32::from_str_radix(h, 16).unwrap()).unwrap())
+                .collect()
+        })
+        .collect();
+    let scripts: Vec<Script> = clusters.iter().map(|c| script_of(c)).collect();
+    let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 64];
+    let mut scratch = vec![VarPoint::EMPTY; 8192];
+    match a[1].as_str() {
+        "shape" => {
+            for (c, &sc) in clusters.iter().zip(&scripts) {
+                let mut shaper = Shaper::new(&face, &mut storage);
+                shaper.scratch(&mut scratch);
+                shaper.push_cluster(c, Cluster(0)).unwrap();
+                let (buf, out) = shaper.finish(Features::GRID, sc);
+                let cps: Vec<String> = c.iter().map(|x| format!("{:04X}", x.value())).collect();
+                let gl: Vec<String> = buf
+                    .as_slice()
+                    .iter()
+                    .map(|g| {
+                        let adv = face.advance(g.id).map_or(0, |v| i32::from(v.value()));
+                        format!("{}={}@{},{}+{}", g.id.index(), g.cluster.0, g.dx, g.dy, adv)
+                    })
+                    .collect();
+                println!(
+                    "{}\t[{}]\tmissing={} ink_refused={} declined={}",
+                    cps.join(" "),
+                    gl.join("|"),
+                    out.missing.value(),
+                    out.ink_refused.value(),
+                    out.declined.value()
+                );
+            }
+        }
+        "bench" => {
+            let reps: usize = a[5].parse().unwrap();
+            let mut sink = 0u64;
+            let t = Instant::now();
+            for _ in 0..reps {
+                for (c, &sc) in clusters.iter().zip(&scripts) {
+                    let mut shaper = Shaper::new(&face, &mut storage);
+                    shaper.scratch(&mut scratch);
+                    shaper.push_cluster(std::hint::black_box(c), Cluster(0)).unwrap();
+                    let (buf, _) = shaper.finish(Features::GRID, sc);
+                    for g in buf.as_slice() {
+                        sink = sink.wrapping_add(g.id.index() as u64 ^ g.dx as u64);
+                    }
+                }
+            }
+            let el = t.elapsed();
+            let n = reps * clusters.len();
+            println!(
+                "ns_per_cluster={:.2} clusters={} reps={} sink={}",
+                el.as_nanos() as f64 / n as f64,
+                clusters.len(),
+                reps,
+                sink
+            );
+        }
+        "norm" => {
+            // Normalisation alone: the step C2 changes.
+            let reps: usize = a[5].parse().unwrap();
+            let mut sink = 0u64;
+            let t = Instant::now();
+            for _ in 0..reps {
+                for c in &clusters {
+                    let n = baud_font::Normalised::of(&face, std::hint::black_box(c));
+                    for x in n.as_slice() {
+                        sink = sink.wrapping_mul(31).wrapping_add(u64::from(x.value()));
+                    }
+                }
+            }
+            let el = t.elapsed();
+            let n = reps * clusters.len();
+            println!(
+                "ns_per_cluster={:.2} clusters={} reps={} sink={}",
+                el.as_nanos() as f64 / n as f64,
+                clusters.len(),
+                reps,
+                sink
+            );
+        }
+        _ => panic!("mode"),
+    }
+}
