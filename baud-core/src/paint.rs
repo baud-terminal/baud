@@ -812,6 +812,9 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// `attach`, beside which `glyph` calls it.
     #[cold]
     #[inline(never)]
+    // `glyph`'s classified arm is the one caller, and `ceiling-no-classify`
+    // compiles that arm out.
+    #[cfg(not(feature = "ceiling-no-classify"))]
     pub(crate) fn restart_cluster(&mut self, cl: Classified) {
         self.cluster = ClusterBreak::after_control();
         let _ = self.cluster.is_break_classified(cl.class, cl.lookback);
@@ -983,6 +986,9 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// resize is not examined.
     #[cold]
     #[inline(never)]
+    // `glyph`'s classified arm is the one caller, and `ceiling-no-classify`
+    // compiles that arm out.
+    #[cfg(not(feature = "ceiling-no-classify"))]
     pub(crate) fn attach_continuing(&mut self, cp: Codepoint) {
         self.attach_before(cp, self.after_last_write())
     }
