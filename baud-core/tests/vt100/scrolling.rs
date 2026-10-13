@@ -213,6 +213,31 @@ fn a_zero_zero_region_is_the_whole_screen() {
     assert_eq!((x, reply.as_slice()), (Some((7, 0)), &b"\x1b[8;2R"[..]));
 }
 
+/// **A bottom past the screen leaves the region alone**, and does not home.
+/// `[[source: dec-std-070]]` DECSTBM note 3, p. 5-25: "If the value
+/// specified for the Bottom Margin is greater than the number of lines in
+/// the Logical Display Page, this control will be ignored (not executed)",
+/// and its algorithm, p. 5-26, sets the margins only when `parv[1] <=
+/// lines_per_page`. It was clamped to the last line until 2026-10-13, as
+/// xterm and ghostty do (`bench-others/ghostty-oracle` pins theirs).
+#[test]
+fn a_bottom_margin_past_the_screen_leaves_the_region_alone() {
+    let (y, x, reply) = small_at_every_read(&with_probe(b"\x1b[2;5r\x1b[4;4H\x1b[2;9rY"));
+    assert_eq!(y, Some((3, 3)), "not homed");
+    assert_eq!(
+        (x, reply.as_slice()),
+        (Some((4, 0)), &b"\x1b[4;2R"[..]),
+        "2..5 kept"
+    );
+    // The control: the last line itself is a bottom margin.
+    let (_, x, reply) = small_at_every_read(&with_probe(b"\x1b[2;5r\x1b[2;8r"));
+    assert_eq!(
+        (x, reply.as_slice()),
+        (Some((7, 0)), &b"\x1b[7;2R"[..]),
+        "2..8"
+    );
+}
+
 /// The control: an omitted bottom was already the last line.
 #[test]
 fn an_omitted_bottom_margin_is_the_last_line() {

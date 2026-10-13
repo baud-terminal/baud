@@ -335,6 +335,13 @@ const CHA_DISPLACED: &str = "Jev item: under DECOM baud counts CHA/HPA from the 
                              column 1 and clamps into the margins, option (a'); ghostty \
                              counts from the left margin, option (b), as xterm's CursorSet \
                              does, and also moves the row down by the top margin";
+/// A margin past the page: STD 070 ignores the control, ghostty clamps it.
+const PAST_PAGE: &str = "ghostty departs: a DECSLRM right margin or DECSTBM bottom margin \
+                         past the page is clamped to its last column or line \
+                         (setLeftAndRightMargin's and setTopAndBottomMargin's @min, \
+                         Terminal.zig 2610 and 2596), as xterm's is (charproc.c \
+                         4891-4894 and 4779-4782); STD 070's note 3 (pp. 5-27 and 5-25) \
+                         and algorithms say the control is ignored (not executed)";
 /// Note V's full-width pending-wrap follow-ons, each a later decision.
 const FOLLOW_ON: &str = "note V's full-width follow-ons: baud keeps the sentinel \
                          across LF, ghostty clears its pending_wrap";
@@ -697,6 +704,30 @@ fn fixtures() -> Vec<Fixture> {
         f(
             "decstbm: CSI 0;0 r is the whole screen",
             "\x1b[2;5r\x1b[0;0r\x1b[?6h\x1b[99;1HX".to_string(),
+            Agree,
+        ),
+        // ---- a margin past the page: the control is ignored ----------------
+        // STD 070 DECSLRM and DECSTBM note 3 (pp. 5-27, 5-25): "this control
+        // will be ignored (not executed)". The last column and line are the
+        // controls.
+        f(
+            "decslrm: a right margin past the page leaves 5..10",
+            format!("{LRM}\x1b[3;3H\x1b[5;21sY\x1b[?6h\x1b[1;99HX"),
+            Pinned(PAST_PAGE),
+        ),
+        f(
+            "decslrm: a right margin on the last column",
+            format!("{LRM}\x1b[5;20s\x1b[?6h\x1b[1;99HX"),
+            Agree,
+        ),
+        f(
+            "decstbm: a bottom margin past the screen leaves 2..5",
+            "\x1b[2;5r\x1b[4;4H\x1b[2;9rY\x1b[?6h\x1b[99;1HX".to_string(),
+            Pinned(PAST_PAGE),
+        ),
+        f(
+            "decstbm: a bottom margin on the last line",
+            "\x1b[2;5r\x1b[2;8r\x1b[?6h\x1b[99;1HX".to_string(),
             Agree,
         ),
         // ---- side margins: the later steps ----------------------------------

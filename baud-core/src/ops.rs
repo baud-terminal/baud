@@ -911,11 +911,17 @@ impl Paint<'_, '_> {
     /// bottom is the last line** ([`Params::far_margin`]): "default Pb: last
     /// line", and the algorithm reads a 0 as omitted (`[[source:
     /// dec-std-070]]` DECSTBM, pp. 5-25 and 5-26). A 0 read as line 1 until
-    /// 2026-10-13, so `CSI 2;0 r` was dropped.
+    /// 2026-10-13, so `CSI 2;0 r` was dropped. **A bottom past the screen
+    /// leaves the region alone**: note 3, "will be ignored (not executed)",
+    /// and the algorithm's `parv[1] <= lines_per_page` (`OneBased::row_within`);
+    /// it was clamped to the last line until the same day, as xterm and
+    /// ghostty do.
     pub(crate) fn set_scroll_region(&mut self, top: OneBased, bottom: Option<OneBased>) {
         let last = Row::from_index(self.rows.index() - 1);
         let t = top.to_row(self.rows);
-        let b = bottom.map_or(last, |v| v.to_row(self.rows));
+        let Some(b) = bottom.map_or(Some(last), |v| v.row_within(self.rows)) else {
+            return;
+        };
         if t.index() >= b.index() {
             return;
         }
@@ -1457,11 +1463,12 @@ impl Paint<'_, '_> {
     /// reads a 0 as omitted; [`Params::far_margin`]). It was decoded as
     /// column 1, so `CSI s` and `CSI 5 s` were dropped.
     ///
-    /// **A `Pr` past the page is clamped to the last column** by
-    /// `OneBased::to_col`, so `CSI 5;99 s` sets 5..20 on 20 columns, as
-    /// xterm and ghostty do. STD 070's note 3 says such a control "will be
-    /// ignored (not executed)", and its algorithm (p. 5-28) sets the margins
-    /// only when `parv[1] <= columns_per_page`: a departure, open.
+    /// **A `Pr` past the page leaves the margins alone**: STD 070's note 3
+    /// says such a control "will be ignored (not executed)", and its
+    /// algorithm (p. 5-28) sets the margins only when `parv[1] <=
+    /// columns_per_page` (`OneBased::col_within`). `OneBased::to_col`
+    /// clamped it to the last column until 2026-10-13, as xterm and ghostty
+    /// do, so `CSI 5;99 s` set 5..20 on 20 columns.
     ///
     /// **An inverted or one-column pair is rejected rather than clamped**,
     /// leaving the margins alone, because clamping would confine the screen
@@ -1471,7 +1478,9 @@ impl Paint<'_, '_> {
     pub(crate) fn set_side_margins(&mut self, left: OneBased, right: Option<OneBased>) {
         let last = self.cols.index() - 1;
         let l = left.to_col(self.cols).index();
-        let r = right.map_or(last, |v| v.to_col(self.cols).index());
+        let Some(r) = right.map_or(Some(last), |v| v.col_within(self.cols).map(Col::index)) else {
+            return;
+        };
         if l >= r {
             return;
         }

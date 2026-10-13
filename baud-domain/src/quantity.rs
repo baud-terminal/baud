@@ -484,6 +484,19 @@ impl OneBased {
     pub fn to_col(self, cols: Cols) -> Col {
         Col(((self.0 - 1) as usize).min(cols.raw().saturating_sub(1)))
     }
+    /// The row, or `None` past the last one: for a margin, where
+    /// `[[source: dec-std-070]]` ignores a control whose value is "greater
+    /// than the number of lines in the Logical Display Page" (DECSTBM note
+    /// 3, p. 5-25) rather than clamping it as [`Self::to_row`] does.
+    pub fn row_within(self, rows: Rows) -> Option<Row> {
+        ((self.0 as usize) <= rows.raw()).then(|| Row((self.0 - 1) as usize))
+    }
+    /// The column, or `None` past the last one: DECSLRM note 3 (p. 5-27)
+    /// ignores a right margin "greater than the number of columns in the
+    /// Logical Display Page".
+    pub fn col_within(self, cols: Cols) -> Option<Col> {
+        ((self.0 as usize) <= cols.raw()).then(|| Col((self.0 - 1) as usize))
+    }
     /// The wire value. For emitting a report, which is the only direction that
     /// needs the number back out.
     pub fn get(self) -> u16 {

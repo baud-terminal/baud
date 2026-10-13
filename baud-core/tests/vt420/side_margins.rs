@@ -174,6 +174,31 @@ fn an_omitted_right_margin_is_the_page_border() {
     );
 }
 
+/// **A `Pr` past the page leaves the margins alone**, and does not home.
+/// `[[source: dec-std-070]]` DECSLRM note 3, p. 5-27: "If the value
+/// specified for the Right Margin is greater than the number of columns in
+/// the Logical Display Page, this control will be ignored (not executed)",
+/// and its algorithm, p. 5-28, sets the margins only when `parv[1] <=
+/// columns_per_page`. It was clamped to the last column until 2026-10-13, as
+/// xterm and ghostty do (`bench-others/ghostty-oracle` pins theirs).
+#[test]
+fn a_right_margin_past_the_page_leaves_the_margins_alone() {
+    let s = seen(&format!("{LRM_STR}\x1b[3;3H\x1b[5;21sY{PROBE}"));
+    assert_eq!(find(&s, 'Y'), Some((2, 2)), "not homed");
+    assert_eq!(
+        (find(&s, 'X'), s.reply.as_slice()),
+        (Some((0, 9)), &b"\x1b[1;6R"[..]),
+        "margins 5..10 kept"
+    );
+    // The control: the last column itself is a right margin.
+    let s = seen(&format!("{LRM_STR}\x1b[5;20s{PROBE}"));
+    assert_eq!(
+        (find(&s, 'X'), s.reply.as_slice()),
+        (Some((0, 19)), &b"\x1b[1;16R"[..]),
+        "margins 5..20"
+    );
+}
+
 /// The control: an omitted `Pl` is column 1 and an explicit `Pr` is kept,
 /// which the decoding got right before.
 #[test]
