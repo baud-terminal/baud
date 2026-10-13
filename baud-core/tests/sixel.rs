@@ -644,6 +644,28 @@ fn writing_over_a_sixels_cells_frees_it_and_writing_elsewhere_does_not() {
 }
 
 #[test]
+fn text_after_a_sixel_in_the_same_read_frees_it() {
+    // The test above, in one read: the image is placed partway through the
+    // read that then writes over it, so the write path has to learn of it
+    // there and not only when the next read starts. The control writes
+    // below the image in the same read and leaves it placed.
+    let ws = support::CORPUS;
+    let budget = ImageBudget::of(64 * 48 + 64);
+    let read = |tail: &[u8]| {
+        let mut owned = Owned::new(&ws).with_images(budget);
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
+        let mut d = b"\x1b[1;1H".to_vec();
+        d.extend_from_slice(SWIRL);
+        d.extend_from_slice(tail);
+        one(&mut t, &d);
+        t.images().placements().count()
+    };
+    assert_eq!(read(b"\x1b[3;4HX"), 0, "a write inside it, one read");
+    assert_eq!(read(b"\x1b[20;1HX"), 1, "control: a write below it");
+}
+
+#[test]
 fn the_primary_da_advertises_sixel_only_when_opted_in_and_provisioned() {
     // An application reads attribute 4 and stops drawing its text fallback, so
     // the claim is the embedder's to make: off by default whatever the store

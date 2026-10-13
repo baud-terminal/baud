@@ -2384,10 +2384,6 @@ struct Before {
     region: baud_core::RegionScrolls,
     erased: baud_core::HistoryErasures,
     resets: baud_core::Resets,
-    rows: baud_core::RowMoves,
-    /// The scrolling region, top and bottom, for a read that sets another
-    /// after copying in this one.
-    band: (Row, Row),
 }
 
 impl Before {
@@ -2398,18 +2394,34 @@ impl Before {
             region: term.region_scrolls(),
             erased: term.history_erasures(),
             resets: term.resets(),
-            rows: term.row_moves(),
-            band: term.scroll_region(),
         }
     }
 
     /// The readings a pump takes before it feeds, with the core's watch on
     /// the history's erasures armed at them, so the first erasure the feed
-    /// makes is kept for [`restart`] whatever erases after it.
-    fn watched(term: &mut Term<'_>) -> Before {
+    /// makes is kept for [`restart`] whatever erases after it -- and its
+    /// watch on the live rows `selection` names, numbered by `scrolled`, so
+    /// [`stale_in_moved_rows`] learns whether a move in place reached one.
+    fn watched(term: &mut Term<'_>, selection: Option<&Selection>, scrolled: Scrolled) -> Before {
         term.watch_erasures();
+        let rows = selection.and_then(|s| live_rows(s, term, scrolled));
+        term.watch_rows(rows);
         Before::of(term)
     }
+}
+
+/// The first and last rows of the live screen `sel` names, numbered by
+/// `scrolled`, or `None` when it names none: a selection wholly in the
+/// history, which no move in place reaches.
+fn live_rows(sel: &Selection, term: &Term<'_>, scrolled: Scrolled) -> Option<(Row, Row)> {
+    let rows = term.geometry().1.index();
+    let on = |y: &usize| {
+        let line = scrolled.line(Rows::ZERO, Row::from_index(*y));
+        sel.touches(line, line)
+    };
+    let first = (0..rows).find(on)?;
+    let last = (0..rows).rev().find(on)?;
+    Some((Row::from_index(first), Row::from_index(last)))
 }
 
 /// Whether a read erased the primary's history -- `CSI 3 J` or `RIS`, from
@@ -2451,48 +2463,47 @@ fn stale_under_region(
     )
 }
 
-/// Whether a read moved, in place, rows of the live screen that `sel` names:
-/// an `IL` or `DL`, or a region scroll that copies its rows -- a region in
-/// the middle of the screen, a short top region on the alternate screen,
-/// `SD` and `RI` in any partial region, and every vertical scroll under side
-/// margins, the whole screen included, which moves only the rectangle. Rows
-/// are tested and columns are not, so a selection beside the rectangle on
-/// its rows is stale too, though its text did not move. No ring moves,
-/// so the selection's lines still name the same screen rows while the text
-/// on them has moved, and it would copy what took their place.
-fn stale_in_moved_rows(
-    sel: &Selection,
-    term: &Term<'_>,
-    before: Before,
-    scrolled: Scrolled,
-    moved: Ring,
-) -> bool {
-    if term.row_moves() == before.rows {
-        return false;
-    }
-    // The rows a copy can move: the region in force at the read's end, which
-    // is every live row once a read reset it -- `IL` and `DL` act from the
-    // cursor to its bottom, inside it. Lines from the region's top as the
-    // read found them to its bottom as the read left them, since a read can
-    // retire lines through the whole screen around the copy.
-    //
-    // **Every live row when the read's two regions differ.** A read can copy
-    // in one region and then set another -- stacked panes, each drawn under
-    // its own -- and the region it ends in never moved. A region set and set
-    // back within one read still reads as one; only a count of the rows each
-    // copy moved would see it.
-    let (top, bot) = match term.scroll_region() {
-        r if r == before.band => r,
-        _ => (
-            Row::ZERO,
-            Row::from_index(term.geometry().1.index().saturating_sub(1)),
-        ),
-    };
-    let after = match moved {
-        Ring::Retired(n) => scrolled.advanced(n),
-        Ring::Restored(_) => scrolled,
-    };
-    sel.touches(scrolled.line(Rows::ZERO, top), after.line(Rows::ZERO, bot))
+/// Whether a read wrote or erased on a row of the live screen the
+/// selection names -- text, a mark, `EL`, `ED`, `ECH`, `ICH`, `DCH`, the
+/// selective erases, `DECIC`, `DECDC`, `DECALN` -- whatever it left there:
+/// the owner's answer A to B23, as xterm disowns a selection a write or an
+/// erase lands on. A copy reads the cells as they are at `Cmd-C`, so a
+/// selection kept there would copy what replaced its text. Or whether a
+/// read moved, in place,
+/// rows the selection names: an `IL` or `DL`, or a region scroll that
+/// copies its rows -- a
+/// region in the middle of the screen, a short top region
+/// on the alternate screen, `SD` and `RI` in any partial region, and every
+/// vertical scroll under side margins, the whole screen included, which
+/// moves only the rectangle. Rows are tested and columns are not, so a
+/// selection beside the rectangle on its rows is stale too, though its text
+/// did not move. No ring moves, so the selection's lines still name the
+/// same screen rows while the text on them has moved, and it would copy
+/// what took their place. Or whether a region anchored at the top
+/// scrolled over rows of the selection under it: the ring moved and the
+/// text under the region did
+/// not, so the count would renumber the selection onto the row below's
+/// text. Or whether a line taken back erased a row of the selection: the
+/// whole screen's scroll down blanks the line it takes back and gives up
+/// the last row to a line feed that brings it back blank, and a redraw mark
+/// erases the block it takes back, so a read that retires as many lines
+/// again nets none taken back and the drop on lines taken back below does
+/// not see it. Or whether the live surface moved further than its rotation
+/// can say -- more than half its ring in one read -- which [`live_moved`]
+/// would misread. The core judges each write and erase by the rows it lands
+/// on, and each move by its own rows -- the region's,
+/// from the cursor to the region's bottom for `IL` and `DL`, the rows under
+/// a top region, the rows a line taken back erases -- against the rows
+/// [`Before::watched`] armed it on, numbered through every line the read
+/// retired or took back before it. Not by the region the read ends in: a
+/// read can scroll in one region and then set another, or set it back, and
+/// the region at its end says nothing of where the scroll was. So for these
+/// the answer is the one the same bytes give fed in any number of reads; the
+/// drops the pump makes from the read's net movement -- lines taken back,
+/// [`stale_under_region`] -- are judged at the read's two ends, as the
+/// record's "A selection is judged by the rows each copy moved" leaves them.
+fn stale_in_moved_rows(term: &Term<'_>) -> bool {
+    term.watched_rows_changed()
 }
 
 /// Whether every line a read retired left with the whole screen: no scroll
@@ -3180,40 +3191,71 @@ mod alt_window_tests {
         });
     }
 
+    /// Whether the moved-rows check drops a selection on screen row `y` of
+    /// the view `back` lines up, made after `setup` and held across `reads`,
+    /// each fed as the pump feeds one: the row watch armed on the selection
+    /// as the count numbers it, the check after the feed, and the count
+    /// advanced by what the read retired. The selection is numbered as the
+    /// driver would have it after the thirty-one lines the history holds, so
+    /// a line behind the screen has a number of its own rather than the
+    /// floor's.
+    fn drops(setup: &[u8], reads: &[&[u8]], at: (usize, usize)) -> bool {
+        drops_to(setup, reads, at, at.1)
+    }
+
+    /// [`drops`], for a selection from screen row `y` to screen row `last`
+    /// of the view `back` lines up.
+    fn drops_to(setup: &[u8], reads: &[&[u8]], (back, y): (usize, usize), last: usize) -> bool {
+        use baud_domain::{Col, Row};
+        use baud_render::{Grain, Selection, Span};
+        let mut dropped = false;
+        with_history(|t| {
+            let mut scrolled = Scrolled::START.advanced(Rows::of_count(31));
+            let before = Before::of(t);
+            feed(t, setup);
+            if let Ring::Retired(n) = live_moved(t, before) {
+                scrolled = scrolled.advanced(n);
+            }
+            let span = |t: &Term<'_>, y: usize| {
+                let r = Row::from_index(y);
+                Span::cell(
+                    t.row(r).expect("a row on the grid"),
+                    scrolled.line(Rows::of_count(back), r),
+                    Col::ZERO,
+                )
+            };
+            let mut sel = Selection::at(span(t, y), Grain::Cell);
+            sel.extend(span(t, last));
+            for bytes in reads {
+                let before = Before::watched(t, Some(&sel), scrolled);
+                feed(t, bytes);
+                if stale_in_moved_rows(t) {
+                    dropped = true;
+                    return;
+                }
+                if let Ring::Retired(n) = live_moved(t, before) {
+                    scrolled = scrolled.advanced(n);
+                }
+            }
+        });
+        dropped
+    }
+
     /// **Rows a region moved in place drop a selection on them, and only
     /// there.** A region in the middle of the screen scrolls by copying its
     /// rows, so no ring moves and nothing renumbers the selection: one on the
     /// region's rows named the same screen rows while their text went up a
     /// row. Above the region and under it nothing moved, and the history is
-    /// not the live screen. A read that set a region, scrolled it and reset
-    /// it leaves none to read, so every live row counts; `IL` with no region
-    /// moves the rows from the cursor down.
+    /// not the live screen. A read that copies and then resets the region is
+    /// judged by the copy's rows, as the two fed apart are; `IL` with no
+    /// region moves the rows from the cursor down, and not the row above it.
     #[test]
     fn rows_moved_in_place_drop_a_selection_on_them_and_only_there() {
-        use baud_domain::{Col, Row};
-        use baud_render::{Grain, Selection, Span};
+        use baud_domain::Row;
+        let setup: &[u8] = b"\x1b[3;1Habove\x1b[5;1Hpane\x1b[8;1Hunder\x1b[4;6r";
+        let (above, pane, under, history) = ((0, 2), (0, 4), (0, 7), (5, 0));
         with_history(|t| {
-            feed(t, b"\x1b[3;1Habove\x1b[5;1Hpane\x1b[8;1Hunder\x1b[4;6r");
-            // Numbered as the driver would have it after the thirty-one
-            // lines the history holds, so a line behind the screen has a
-            // number of its own rather than the floor's.
-            let scrolled = Scrolled::START.advanced(Rows::of_count(31));
-            let at = |t: &Term<'_>, back: usize, y: usize| {
-                let r = Row::from_index(y);
-                Selection::at(
-                    Span::cell(
-                        t.row(r).expect("a row on the grid"),
-                        scrolled.line(Rows::of_count(back), r),
-                        Col::ZERO,
-                    ),
-                    Grain::Cell,
-                )
-            };
-            let (above, pane, under) = (at(t, 0, 2), at(t, 0, 4), at(t, 0, 7));
-            let history = at(t, 5, 0);
-            let stale = |t: &Term<'_>, before: Before, sel: &Selection| {
-                stale_in_moved_rows(sel, t, before, scrolled, live_moved(t, before))
-            };
+            feed(t, setup);
             let before = Before::of(t);
             feed(t, b"\x1b[6;1H\n");
             assert_eq!(
@@ -3229,64 +3271,105 @@ mod alt_window_tests {
                 Some(u32::from(b'p')),
                 "and the text did: the pane's line is a row up"
             );
-            assert!(stale(t, before, &pane), "in the region");
-            assert!(!stale(t, before, &above), "above it");
-            assert!(!stale(t, before, &under), "under it");
-            assert!(!stale(t, before, &history), "in the history");
-            let before = Before::of(t);
-            feed(t, b"x");
-            assert!(!stale(t, before, &pane), "a read that moved no row");
-            let before = Before::of(t);
-            feed(t, b"\x1b[6;1H\n\x1b[r");
-            assert!(stale(t, before, &above), "no region left: every live row");
-            assert!(!stale(t, before, &history), "and still not the history");
-            let before = Before::of(t);
-            feed(t, b"\x1b[9;1H\x1b[L");
-            assert!(stale(t, before, &under), "IL");
-            // Lines retired through the whole screen before the copy, in the
-            // same read: row 8 was under the region when the read began, and
-            // two lines later it was the region's last row when the copy
-            // moved it. The read begins and ends in the one region, so it is
-            // the numbering and not the change of region that reaches it.
-            feed(t, b"\x1b[4;6r");
-            let before = Before::of(t);
-            feed(t, b"\x1b[r\x1b[10;1H\n\n\x1b[4;6r\x1b[6;1H\n");
-            assert_eq!(live_moved(t, before), Ring::Retired(Rows::of_count(2)));
-            assert!(
-                stale(t, before, &under),
-                "a row the retired lines carried into the region"
-            );
         });
+        let copy: &[u8] = b"\x1b[6;1H\n";
+        assert!(drops(setup, &[copy], pane), "in the region");
+        assert!(!drops(setup, &[copy], above), "above it");
+        assert!(!drops(setup, &[copy], under), "under it");
+        assert!(!drops(setup, &[copy], history), "in the history");
+        assert!(!drops(setup, &[b"x"], pane), "a read that moved no row");
+        assert!(
+            drops_to(setup, &[copy], (0, 1), 3),
+            "a selection from above the region into its first row"
+        );
+        assert!(
+            !drops_to(setup, &[copy], (0, 0), 2),
+            "and one that ends on the row above it"
+        );
+        let reset: &[u8] = b"\x1b[6;1H\n\x1b[r";
+        assert!(
+            drops(setup, &[reset], pane),
+            "copied, then the region reset"
+        );
+        assert!(!drops(setup, &[reset], above), "and not the row above it");
+        assert!(!drops(setup, &[reset], history), "nor the history");
+        let il: &[&[u8]] = &[b"\x1b[r", b"\x1b[9;1H\x1b[L"];
+        assert!(drops(setup, il, (0, 8)), "IL, at the cursor's row");
+        assert!(drops(setup, il, (0, 9)), "IL, under it");
+        assert!(!drops(setup, il, under), "IL, the row above the cursor");
+        // Lines retired through the whole screen before the copy, in the
+        // same read: row 8 was under the region when the read began, and
+        // two lines later it was the region's last row when the copy moved
+        // it. Row 3 was the region's top and is row 1 by then.
+        let carried: &[u8] = b"\x1b[r\x1b[10;1H\n\n\x1b[4;6r\x1b[6;1H\n";
+        assert!(
+            drops(setup, &[carried], under),
+            "a row the retired lines carried into the region"
+        );
+        assert!(
+            !drops(setup, &[carried], (0, 3)),
+            "and one they carried above it"
+        );
+    }
+
+    /// **A write or an erase on a selected row drops the selection, whatever
+    /// it writes, and one on another row keeps it** -- the owner's answer A
+    /// to B23. An erase on row 0 and an `IL` on row 9 in one read drop a
+    /// selection on row 0, which the move does not reach, read whole, at
+    /// every read size and cut into two reads at every byte.
+    #[test]
+    fn a_write_or_an_erase_on_a_selected_row_drops_it() {
+        let setup: &[u8] = b"\x1b[1;1Hhello\x1b[5;1Hworld\x1b[3;1H";
+        let (first, other) = ((0, 0), (0, 4));
+        let read: &[u8] = b"\x1b[1;1H\x1b[2K\x1b[10;1H\x1b[L";
+        for k in 0..read.len() {
+            let reads: Vec<&[u8]> = [&read[..k], &read[k..]]
+                .into_iter()
+                .filter(|r| !r.is_empty())
+                .collect();
+            assert!(drops(setup, &reads, first), "the erased row, cut at {k}");
+            assert!(!drops(setup, &reads, other), "a row untouched, cut at {k}");
+        }
+        for size in 1..read.len() {
+            let reads: Vec<&[u8]> = read.chunks(size).collect();
+            assert!(drops(setup, &reads, first), "the erased row, {size} a read");
+            assert!(
+                !drops(setup, &reads, other),
+                "a row untouched, {size} a read"
+            );
+        }
+        for (read, what) in [
+            (b"\x1b[1;1H\x1b[2K".as_slice(), "EL"),
+            (b"\x1b[1;1HXY", "text over it"),
+            (b"\x1b[1;1Hhello", "the same text"),
+            (b"\x1b[1;1H\x1b[@", "ICH"),
+            (b"\x1b[1;1H\x1b[P", "DCH"),
+        ] {
+            assert!(drops(setup, &[read], first), "{what}");
+            assert!(!drops(setup, &[read], other), "{what}: another row");
+        }
+        assert!(
+            !drops(setup, &[b"\x1b[5;1HXY\x1b[2K\x1b[1;1H"], first),
+            "a write and an erase on another row, and a visit"
+        );
     }
 
     /// **A region set after the copy does not hide it.** A read that copies
     /// in one region and then sets another -- stacked panes, each drawn
-    /// under its own -- ends with a region that never moved, so the rows of
+    /// under its own -- ends with a region that never moved, and the rows of
     /// the region in force at the read's end missed the pane's line that
-    /// went up a row under the selection. The read's two regions differ, so
-    /// the rows it can have moved are every live row; the history is still
-    /// not the live screen.
+    /// went up a row under the selection. The copy's own rows are what
+    /// count: the pane's line is dropped, and the rows above it and the
+    /// history are not.
     #[test]
     fn a_region_set_after_the_copy_still_drops_a_selection_it_moved() {
-        use baud_domain::{Col, Row};
-        use baud_render::{Grain, Selection, Span};
+        use baud_domain::Row;
+        let setup: &[u8] = b"\x1b[5;1Hpane";
+        let read: &[u8] = b"\x1b[4;6r\x1b[6;1H\n\x1b[8;9r";
         with_history(|t| {
-            feed(t, b"\x1b[5;1Hpane");
-            let scrolled = Scrolled::START.advanced(Rows::of_count(31));
-            let at = |t: &Term<'_>, back: usize, y: usize| {
-                let r = Row::from_index(y);
-                Selection::at(
-                    Span::cell(
-                        t.row(r).expect("a row on the grid"),
-                        scrolled.line(Rows::of_count(back), r),
-                        Col::ZERO,
-                    ),
-                    Grain::Cell,
-                )
-            };
-            let (pane, history) = (at(t, 0, 4), at(t, 5, 0));
+            feed(t, setup);
             let before = Before::of(t);
-            feed(t, b"\x1b[4;6r\x1b[6;1H\n\x1b[8;9r");
+            feed(t, read);
             assert_eq!(
                 live_moved(t, before),
                 Ring::Retired(Rows::ZERO),
@@ -3300,12 +3383,292 @@ mod alt_window_tests {
                 Some(u32::from(b'p')),
                 "and the pane's line is a row up"
             );
-            let stale = |sel: &Selection| {
-                stale_in_moved_rows(sel, t, before, scrolled, live_moved(t, before))
-            };
-            assert!(stale(&pane), "on the pane's moved line");
-            assert!(!stale(&history), "not in the history");
         });
+        assert!(drops(setup, &[read], (0, 4)), "on the pane's moved line");
+        assert!(!drops(setup, &[read], (0, 2)), "not on the row above it");
+        assert!(!drops(setup, &[read], (5, 0)), "not in the history");
+    }
+
+    /// **A region set and set back within one read**: begun in 8;9, copied
+    /// in 4;6 and ended in 8;9. The pane's line went up a row and its
+    /// selection is dropped; the row above both regions and the end
+    /// region's first row are where they were, and the history is not the
+    /// live screen. The same at every read size and every split into two
+    /// reads, so the bytes and not where the reads fall decide: judged by the
+    /// region at the read's two ends, the read whole kept the pane's line,
+    /// and the reads that held the copy with only one of the two region
+    /// changes dropped the row above.
+    #[test]
+    fn a_region_set_and_set_back_within_one_read_is_dropped_as_in_separate_reads() {
+        let setup: &[u8] = b"\x1b[3;1Habove\x1b[5;1Hpane\x1b[8;1Hunder\x1b[8;9r";
+        let prog: &[u8] = b"\x1b[4;6r\x1b[6;1H\n\x1b[8;9r";
+        let mut feeds: Vec<(String, Vec<&[u8]>)> = vec![("whole".into(), vec![prog])];
+        for size in 1..prog.len() {
+            feeds.push((format!("read size {size}"), prog.chunks(size).collect()));
+        }
+        for at in 1..prog.len() {
+            let (a, b) = prog.split_at(at);
+            feeds.push((format!("split at {at}"), vec![a, b]));
+        }
+        let mut wrong = Vec::new();
+        let mut wrong_feeds = 0;
+        for (name, reads) in &feeds {
+            let before = wrong.len();
+            for (what, at, want) in [
+                ("the pane's moved line", (0, 4), true),
+                ("the row above both regions", (0, 2), false),
+                ("the end region's first row", (0, 7), false),
+                ("the history", (5, 0), false),
+            ] {
+                if drops(setup, reads, at) != want {
+                    wrong.push(format!("{name}: {what}"));
+                }
+            }
+            wrong_feeds += usize::from(wrong.len() > before);
+        }
+        assert!(
+            wrong.is_empty(),
+            "{} wrong answers on {wrong_feeds} of {} feeds: {wrong:?}",
+            wrong.len(),
+            feeds.len()
+        );
+    }
+
+    /// Every feed of `prog`: the read whole, every read size, and every
+    /// split into two reads.
+    fn every_feed(prog: &[u8]) -> Vec<(String, Vec<&[u8]>)> {
+        let mut feeds: Vec<(String, Vec<&[u8]>)> = vec![("whole".into(), vec![prog])];
+        for size in 1..prog.len() {
+            feeds.push((format!("read size {size}"), prog.chunks(size).collect()));
+        }
+        for at in 1..prog.len() {
+            let (a, b) = prog.split_at(at);
+            feeds.push((format!("split at {at}"), vec![a, b]));
+        }
+        feeds
+    }
+
+    /// What the pump leaves of a selection on live screen row `r`, made
+    /// after `setup` and held across `reads`, each judged as `pump` judges
+    /// one and in its order: the row watch, then for lines retired the rows
+    /// under a region and the renumbering, and for lines taken back a drop.
+    /// `None` when it was dropped; else the text the selection was made on
+    /// and the text of the live row it names now, `None` for a row in the
+    /// history.
+    fn pump_keeps(
+        setup: &[u8],
+        reads: &[&[u8]],
+        r: baud_domain::Row,
+    ) -> Option<(String, Option<String>)> {
+        use baud_domain::{Col, Row};
+        use baud_render::{Grain, Selection, Span};
+        let text = |t: &Term<'_>, r: Row| -> String {
+            let s: String = t
+                .row(r)
+                .expect("a row on the grid")
+                .iter()
+                .map(|c| {
+                    c.content
+                        .as_codepoint()
+                        .and_then(|cp| char::from_u32(cp.value()))
+                        .unwrap_or(' ')
+                })
+                .collect();
+            s.trim_end().to_string()
+        };
+        let mut kept = None;
+        with_history(|t| {
+            let mut scrolled = Scrolled::START.advanced(Rows::of_count(31));
+            let before = Before::of(t);
+            feed(t, setup);
+            if let Ring::Retired(n) = live_moved(t, before) {
+                scrolled = scrolled.advanced(n);
+            }
+            let label = text(t, r);
+            let sel = Selection::at(
+                Span::cell(
+                    t.row(r).expect("a row on the grid"),
+                    scrolled.line(Rows::ZERO, r),
+                    Col::ZERO,
+                ),
+                Grain::Cell,
+            );
+            for bytes in reads {
+                let before = Before::watched(t, Some(&sel), scrolled);
+                feed(t, bytes);
+                if stale_in_moved_rows(t) {
+                    return;
+                }
+                match live_moved(t, before) {
+                    Ring::Retired(n) => {
+                        if stale_under_region(&sel, t, before, scrolled) {
+                            return;
+                        }
+                        scrolled = scrolled.advanced(n);
+                    }
+                    Ring::Restored(_) => return,
+                }
+            }
+            let now = (0..t.geometry().1.index()).map(Row::from_index).find(|&r| {
+                let line = scrolled.line(Rows::ZERO, r);
+                sel.touches(line, line)
+            });
+            kept = Some((label, now.map(|r| text(t, r))));
+        });
+        kept
+    }
+
+    /// **A region anchored at the top that scrolls drops a selection under
+    /// it, whatever region the read ends in.** The scroll advances the ring
+    /// and the rows under the region stay, so a selection there, renumbered
+    /// by the line retired, would name the row above its text. Begun in 1;9,
+    /// scrolled in 1;5: then a copy in 8;9 and back to 1;9, or straight back
+    /// to 1;9. Rows 5 to 9 were under 1;5 and are dropped at every read size
+    /// and every split into two reads. Rows 1 to 4 were in it and moved with
+    /// the ring, and row 0 went to the history: read whole they are kept, on
+    /// their own text and in the history, and no feed keeps one on another
+    /// row's text. A feed whose read with the scroll ends in 8;9 drops them
+    /// as well, by the region at its end (`stale_under_region`): 29 of the
+    /// first program's 63 feeds, and none of the second's. Judged at the
+    /// read's two ends alone, the first read whole kept rows 5 to 7 on the
+    /// text of the row above, "line 37" where "line 38" had been.
+    #[test]
+    fn a_top_regions_scroll_drops_a_selection_under_it_at_every_read_size() {
+        use baud_domain::Row;
+        let setup: &[u8] = b"\x1b[1;9r";
+        let progs: [&[u8]; 2] = [
+            b"\x1b[1;5r\x1b[5;1H\n\x1b[8;9r\x1b[9;1H\n\x1b[1;9r",
+            b"\x1b[1;5r\x1b[5;1H\n\x1b[1;9r",
+        ];
+        // The control: the selection's text is what the label says it is.
+        assert_eq!(
+            pump_keeps(setup, &[b"x"], Row::from_index(7)),
+            Some(("line 38".into(), Some("line 38".into())))
+        );
+        let (mut wrong, mut wrong_feeds, mut fed) = (Vec::new(), 0, 0);
+        for prog in progs {
+            for (name, reads) in every_feed(prog) {
+                fed += 1;
+                let before = wrong.len();
+                for y in 0..10 {
+                    let got = pump_keeps(setup, &reads, Row::from_index(y));
+                    let right = match (y, &got) {
+                        (5.., None) => true,
+                        (1..=4, Some((label, now))) => now.as_ref() == Some(label),
+                        (0, Some((_, now))) => now.is_none(),
+                        // A read with the scroll that ends in a region not
+                        // anchored at the top drops every live row
+                        // (`stale_under_region`).
+                        (..5, None) => name != "whole",
+                        _ => false,
+                    };
+                    if !right {
+                        wrong.push(format!("{:?} {name}: row {y} {got:?}", prog.len()));
+                    }
+                }
+                wrong_feeds += usize::from(wrong.len() > before);
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "{} wrong answers on {wrong_feeds} of {fed} feeds: {wrong:?}",
+            wrong.len()
+        );
+    }
+
+    /// **A line the whole screen's scroll down takes back drops a selection
+    /// on it, at every read size.** `SD` and `RI` at the top take a line back
+    /// and blank it on the top row, and push the last row under the window,
+    /// where a later line feed brings it back blank. A read that also
+    /// retires lines can net none taken back, so the drop on lines taken
+    /// back does not see it, and neither does the drop on rows moved in
+    /// place unless the core tests those two rows. Five programs on the
+    /// labelled screen, each at every read size and every split into two
+    /// reads: no feed keeps a selection on text other than its own.
+    #[test]
+    fn a_line_taken_back_drops_a_selection_on_it_at_every_read_size() {
+        use baud_domain::Row;
+        let setup: Vec<u8> = (0..10)
+            .flat_map(|y| format!("\x1b[{};1HP{y}", y + 1).into_bytes())
+            .collect();
+        let progs: [&[u8]; 5] = [
+            b"\x1b[2S\x1b[2T",
+            b"\x1b[2S\x1b[2T\x1b[10;1H\x1b[L",
+            b"\x1b[2S\x1b[T\x1b[4;6r\x1b[6;1H\n",
+            b"\n\n\n\x1b[2S\x1b[T\x1b[L",
+            b"\x1b[T\x1b[10;1H\n",
+        ];
+        // The control: the selection's text is what the label says it is.
+        assert_eq!(
+            pump_keeps(&setup, &[b"x"], Row::from_index(1)),
+            Some(("P1ne 32".into(), Some("P1ne 32".into())))
+        );
+        let (mut wrong, mut wrong_feeds, mut fed) = (Vec::new(), 0, 0);
+        for prog in progs {
+            for (name, reads) in every_feed(prog) {
+                fed += 1;
+                let before = wrong.len();
+                for y in 0..10 {
+                    let got = pump_keeps(&setup, &reads, Row::from_index(y));
+                    let right = match &got {
+                        None => true,
+                        Some((label, now)) => now.is_none() || now.as_ref() == Some(label),
+                    };
+                    if !right {
+                        let p = String::from_utf8_lossy(prog);
+                        wrong.push(format!("{p:?} {name}: row {y} {got:?}"));
+                    }
+                }
+                wrong_feeds += usize::from(wrong.len() > before);
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "{} wrong answers on {wrong_feeds} of {fed} feeds: {wrong:?}",
+            wrong.len()
+        );
+    }
+
+    /// **A read that moves the alternate screen further than half its ring
+    /// drops a selection, at every read size.** The ring's rotation, read at
+    /// a read's two ends, says one line where a ring and a line went by, so
+    /// a selection renumbered by it lands on rows that are not its own; an
+    /// `IL` in the same read, under the selection, used to drop it by the
+    /// count of moves in place. On the test terminal's ten-row alternate
+    /// ring, `IND`, `IL`, `3 IL`, two `2 SU` and six line feeds: no feed
+    /// keeps a selection on rows 1 to 6 on text other than its own.
+    #[test]
+    fn a_read_past_half_the_alternate_ring_drops_a_selection_at_every_read_size() {
+        use baud_domain::Row;
+        let mut setup: Vec<u8> = b"\x1b[?1049h".to_vec();
+        setup.extend((0..10).flat_map(|y| format!("\x1b[{};1HA{y}", y + 1).into_bytes()));
+        let prog: &[u8] = b"\x1bD\x1b[L\x1b[3L\x1b[2S\x1b[2S\n\n\n\n\n\n";
+        // The control: the selection's text is what the label says it is.
+        assert_eq!(
+            pump_keeps(&setup, &[b"x"], Row::from_index(1)),
+            Some(("A1".into(), Some("A1".into())))
+        );
+        let (mut wrong, mut wrong_feeds, mut fed) = (Vec::new(), 0, 0);
+        for (name, reads) in every_feed(prog) {
+            fed += 1;
+            let before = wrong.len();
+            for y in 1..=6 {
+                let got = pump_keeps(&setup, &reads, Row::from_index(y));
+                let right = match &got {
+                    None => true,
+                    Some((label, now)) => now.is_none() || now.as_ref() == Some(label),
+                };
+                if !right {
+                    wrong.push(format!("{name}: row {y} {got:?}"));
+                }
+            }
+            wrong_feeds += usize::from(wrong.len() > before);
+        }
+        assert!(
+            wrong.is_empty(),
+            "{} wrong answers on {wrong_feeds} of {fed} feeds: {wrong:?}",
+            wrong.len()
+        );
     }
 
     /// A read that leaves the alternate screen and enters it again ends on
@@ -3785,7 +4148,7 @@ mod restart_tests {
 
         /// One read, as the pump takes it.
         fn read(&mut self, t: &mut Term<'_>, bytes: &[u8]) -> (Surface, Thumb) {
-            let before = Before::watched(t);
+            let before = Before::watched(t, self.selection.as_ref(), Scrolled::START);
             feed(t, bytes);
             restart(
                 t,
@@ -4336,9 +4699,10 @@ mod restart_tests {
     }
 
     /// **The pump takes the read as these tests do.** It is AppKit-bound,
-    /// so the source is held: the erasure watch is armed before the feed,
-    /// and no window is read there -- the reset's window is the core's, kept
-    /// at its byte (note V, V2);
+    /// so the source is held: the erasure watch and the row watch, on the
+    /// selection the read finds, are armed before the feed, and the row
+    /// watch read after it; no window is read there -- the reset's window
+    /// is the core's, kept at its byte (note V, V2);
     /// `restart` runs after the `Retired` arm, which can start a slide, and
     /// after the erased snap, so neither undoes what it settles, and before
     /// the clip; and the reveal and the switch's fade follow what it says.
@@ -4359,9 +4723,14 @@ mod restart_tests {
             pump.find(needle).expect("found")
         };
         let call = at("let (surface, thumb) = restart(");
+        let arm = at("let before = Before::watched(");
+        assert!(arm < at("crate::reads::feed("));
+        let armed = &pump[arm..arm + pump[arm..].find(");").expect("the arm ends")];
         assert!(
-            at("let before = Before::watched(&mut self.app.term);") < at("crate::reads::feed(")
+            armed.contains("self.app.selection.as_ref()") && armed.contains("self.app.scrolled"),
+            "the row watch is armed on the selection the read finds: {armed}"
         );
+        assert!(at("crate::reads::feed(") < at("stale_in_moved_rows(&self.app.term)"));
         assert!(
             !pump.contains("let window = "),
             "a window read at the pump's start"
@@ -5992,7 +6361,11 @@ impl Driver {
                 .latency
                 .echoed(drained.chunks.iter().map(|chunk| chunk.at));
         }
-        let before = Before::watched(&mut self.app.term);
+        let before = Before::watched(
+            &mut self.app.term,
+            self.app.selection.as_ref(),
+            self.app.scrolled,
+        );
         let refused = self.app.term.images().refusals;
         // Each read's answers go to the outbox before the next read is fed,
         // or every read after the first few lost its answers to the 256-byte
@@ -6100,9 +6473,7 @@ impl Driver {
         let screen = self.app.term.screen();
         // Rows a copy moved in place: their selection names rows whose text
         // went elsewhere, and no count renumbers it.
-        if self.app.selection.as_ref().is_some_and(|s| {
-            stale_in_moved_rows(s, &self.app.term, before, self.app.scrolled, moved)
-        }) {
+        if self.app.selection.is_some() && stale_in_moved_rows(&self.app.term) {
             self.app.selection = None;
         }
         match moved {
@@ -8645,7 +9016,7 @@ mod tests {
             read.extend_from_slice(format!("{i}{}\r\n", "x".repeat(119)).as_bytes());
         }
         read.extend_from_slice(b"\x1b[80$|");
-        let before = Before::watched(&mut t);
+        let before = Before::watched(&mut t, None, Scrolled::START);
         let mut widths = Widths::new(&t);
         let mut resized = None;
         crate::reads::feed(

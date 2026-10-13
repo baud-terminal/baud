@@ -229,6 +229,20 @@ pub(crate) struct Paint<'a, 'b> {
     /// overlapping (`docs/record.md`, "A write over half a wide character
     /// blanks the other half, at every read size").
     row_written: Col,
+    /// Whether a write of text has more to do than its cells
+    /// ([`Paint::overwrote`]): set while an image is placed, which the
+    /// write may free, or a watch on a selection's rows is armed, which it
+    /// may reach. **One byte in place of the gate the image check had**, so
+    /// a stream with neither pays the one compare a character it paid
+    /// before the watch: the watch's own compare a character in `glyph`
+    /// was about 1.0% of `cat-cjk`'s instructions and 0.9% of `vim`'s
+    /// (`docs/record.md`, "A write or an erase on a selection's rows drops
+    /// it"). Read from both in [`Paint::new`]; set again after
+    /// each place a read can place an image, a Sixel's end and each kitty
+    /// call; and read again by the hooked path, so it clears once the image
+    /// goes or the watch is reached. Too high is only slower; too low loses
+    /// an overwrite or a dropped selection, which a debug build asserts.
+    hooks: WriteHooks,
     /// How many runs of each character count the loop took, and of each
     /// encoded length. **Do not read a bulk path as covering a character class
     /// -- count how often it is entered**, which is the mistake this repo
@@ -338,6 +352,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             images,
             ..
         } = store;
+        let hooks = WriteHooks::of(images, cold.watched);
         // **The live surface by which screen is up.** The primary is the
         // ring -- the screen's capacity plus the scrollback -- and the
         // alternate is a ring of the capacity alone, so a scroll there
@@ -422,6 +437,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             // Past every column, so the read's first row repairs until the
             // cursor leaves it: see the field.
             row_written: Col::at_index(crate::storage::MAX_COLS),
+            hooks,
             #[cfg(feature = "diag")]
             runs: [0; 8],
             #[cfg(feature = "diag")]
@@ -643,7 +659,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         let end = Col::at_index(start.index() + k);
         self.cx = self.end_at(end);
         self.row_written = self.row_written.max(end);
-        self.overwrite_images(start, end);
+        self.overwrote(start, end);
     }
 
     /// Advance past a character just written, leaving the pending-wrap
@@ -802,6 +818,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             ),
         }
         self.cells = self.cells.plus(need);
+        self.wrote_rows(self.cy, self.cy);
         // Where the write ended, not where the cursor stops: see `glyph`.
         let end = Col::at_index(self.cx.raw().index() + need);
         self.advance(Count::of(need));
@@ -902,7 +919,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.cells = self.cells.plus(need);
         let start = self.cx.raw();
         let end = Col::at_index(start.index() + need);
-        self.overwrite_images(start, end);
+        self.overwrote(start, end);
         self.advance(Count::of(need));
         // **Where the write ended, not where the cursor stops.** With
         // `DECAWM` reset the cursor pins to the last column, one short of a
@@ -986,6 +1003,8 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.clusters.refused += 1;
             return;
         }
+        // A mark joins the cell's text, so its row is written.
+        self.wrote_rows(r, r);
         if cell.content.is_placeholder_base() {
             return self.attach_placeholder(r, owner, cell.content, cp);
         }
@@ -1244,7 +1263,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         if o < self.cold.right {
             self.view.put_glyph(r, o, cell, Some(tail), blank);
             self.cells = self.cells.plus(1);
-            self.overwrite_images(Col::at_index(x + 1), Col::at_index(x + 2));
+            self.overwrote(Col::at_index(x + 1), Col::at_index(x + 2));
             self.advance(Count::ONE);
             // The new tail, which a pinned cursor stops short of.
             self.row_written = self.row_written.max(Col::at_index(x + 2));
@@ -1254,7 +1273,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             let start = self.cx.raw();
             self.view.put_glyph(self.cy, start, cell, Some(tail), blank);
             self.cells = self.cells.plus(2);
-            self.overwrite_images(start, Col::at_index(start.index() + 2));
+            self.overwrote(start, Col::at_index(start.index() + 2));
             self.advance(Count::of(2));
         }
         self.row_written = self.row_written.max(self.cx.col());
@@ -1290,7 +1309,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         let end = Col::at_index(start.index() + n);
         self.cx = self.end_at(end);
         self.row_written = self.row_written.max(end);
-        self.overwrite_images(start, end);
+        self.overwrote(start, end);
     }
 
     /// Does a run of `n` characters of width `w` fit the rest of the row?
@@ -1401,6 +1420,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
         let n = self.view.fill(cy, a, b, blank);
         self.cells = self.cells.plus(n);
+        self.wrote_rows(cy, cy);
     }
 
     /// Erase the screen. 0 below the cursor, 1 above it, 2 all of it.
@@ -1420,6 +1440,9 @@ impl<'a, 'b> Paint<'a, 'b> {
         for y in from..to {
             let n = self.view.fill(Row::from_index(y), Col::ZERO, cols, blank);
             self.cells = self.cells.plus(n);
+        }
+        if from < to {
+            self.wrote_rows(Row::from_index(from), Row::from_index(to - 1));
         }
         // The cursor's own row is a partial erase either side of it. The whole
         // screen takes its kitty images with it (`Paint::kitty_clear`).
@@ -1549,6 +1572,63 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.row_written = Col::at_index(self.view.extent(r).index());
     }
 
+    /// A write on the cursor's row over columns `[start, end)`: an image
+    /// there is freed ([`Paint::overwrite_images`]) and the row told to the
+    /// watch on a selection's rows ([`Paint::wrote_rows`]). Every writer of
+    /// text calls it once a run, and once a character on the per-character
+    /// path, so **both tests sit behind one compare** (`Paint::hooks`) and
+    /// out of line.
+    #[inline(always)]
+    fn overwrote(&mut self, start: Col, end: Col) {
+        if self.hooks == WriteHooks::Off {
+            debug_assert!(WriteHooks::of(self.images, self.cold.watched) == WriteHooks::Off);
+            return;
+        }
+        self.overwrote_hooked(start, end);
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn overwrote_hooked(&mut self, start: Col, end: Col) {
+        self.overwrite_images(start, end);
+        self.wrote_rows(self.cy, self.cy);
+        self.rehook();
+    }
+
+    /// [`Paint::hooks`] read again, after anything that may have placed an
+    /// image and on the hooked path itself.
+    pub(crate) fn rehook(&mut self) {
+        self.hooks = WriteHooks::of(self.images, self.cold.watched);
+    }
+
+    /// Rows `from` to `to` of the live screen written or erased, told to the
+    /// watch on a selection's rows while it is armed and nothing has reached
+    /// it ([`crate::term::Cold::test_watch`]): text, a mark joined to a
+    /// cell, `EL`, `ED`, `ECH`, `ICH`, `DCH`, the selective erases, `DECIC`,
+    /// `DECDC`, `DECALN` and a clear for a change of columns. The owner's
+    /// answer A of 2026-10-17 to B23: a selection goes when a program writes
+    /// or erases on its rows, whatever it writes, as xterm disowns one when
+    /// a write or an erase lands on a selected row (`[[source:
+    /// xterm-scroll]]`, `WriteText`, `ClearInLine`, `ClearScreen`).
+    ///
+    /// **One compare of the watch's state a call, and the test out of
+    /// line**: `ingest2` arms no watch, so an erase pays the compare. Text
+    /// reaches it only through [`Paint::overwrote`]'s gate, but for a mark
+    /// joined to a cell.
+    #[inline(always)]
+    pub(crate) fn wrote_rows(&mut self, from: Row, to: Row) {
+        if self.cold.watched == crate::term::Watched::Rows {
+            self.watch_written(from, to);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn watch_written(&mut self, from: Row, to: Row) {
+        let (rot, ring) = (self.view.rotation(), self.view.ring());
+        self.cold.test_watch(from, to, rot, ring);
+    }
+
     /// `LF`, `VT` and `FF`: down one line, and a carriage return **only**
     /// when LNM is set.
     ///
@@ -1641,5 +1721,22 @@ impl<'a, 'b> Paint<'a, 'b> {
         let n = self.view.extent(Row::from_index(last));
         self.cells = self.cells.plus(n.index());
         rot
+    }
+}
+
+/// [`Paint::hooks`]: whether a write of text has an image or a watch to
+/// tell.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum WriteHooks {
+    Off,
+    On,
+}
+
+impl WriteHooks {
+    fn of(images: &ImageStore<'_>, watched: crate::term::Watched) -> WriteHooks {
+        match images.any_placed() || watched == crate::term::Watched::Rows {
+            true => WriteHooks::On,
+            false => WriteHooks::Off,
+        }
     }
 }

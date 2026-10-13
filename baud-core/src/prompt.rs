@@ -114,6 +114,16 @@ impl Paint<'_, '_> {
                 self.clear_swept();
             }
             self.view.retreat_rot(above);
+            // The lines taken back are the block's, erased below: tested
+            // against the watch on a selection's rows at the rotation after
+            // the retreat, as the whole screen's scroll down tests the line
+            // it takes back (`Paint::scroll_region_down`), so a read that
+            // retires them again nets no movement and still drops a
+            // selection on them. The rows given up below are blank, and come
+            // back blank.
+            let (rot, ring) = (self.view.rotation(), self.view.ring());
+            self.cold
+                .test_watch(Row::ZERO, Row::from_index(above - 1), rot, ring);
             let hist = self.book.hist.index() - above;
             self.book.hist = Rows::of_count(hist);
             self.book.hidden =

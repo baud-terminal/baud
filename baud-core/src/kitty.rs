@@ -23,6 +23,7 @@ impl Paint<'_, '_> {
         self.cold.str_kind = StrKind::Kitty;
         let s = &mut *self.strs;
         s.kitty.begin(self.images, s.kitty_scratch);
+        self.rehook();
     }
 
     /// One body byte of a kitty chunk.
@@ -33,6 +34,7 @@ impl Paint<'_, '_> {
         if s.kitty.put(b.raw_byte(), self.images, s.kitty_scratch) == KittyByte::Separator {
             self.kitty_replies();
         }
+        self.rehook();
     }
 
     /// The `n` body bytes at `from`, which the graph puts, at once
@@ -43,6 +45,7 @@ impl Paint<'_, '_> {
         if s.kitty.put_run(run, self.images, s.kitty_scratch) == KittyByte::Separator {
             self.kitty_replies();
         }
+        self.rehook();
     }
 
     /// The chunk's terminator: the command runs, and the cursor moves past
@@ -53,6 +56,9 @@ impl Paint<'_, '_> {
         let at = self.kitty_at();
         let s = &mut *self.strs;
         let moved = s.kitty.end(&at, self.images, s.kitty_scratch);
+        // A placement text later in this read may land on (`Paint::hooks`),
+        // as after each call above that hands the stream the store.
+        self.rehook();
         self.kitty_replies();
         if let Some(m) = moved {
             self.kitty_move(m);

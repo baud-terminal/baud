@@ -161,12 +161,15 @@ impl Paint<'_, '_> {
                 Screen::Alternate => (ImageScreen::Alternate, self.book.alt_top),
             };
             let _ = self.images.place(id, screen, top, Col::ZERO, ZIndex::ZERO);
+            self.rehook();
             return;
         }
         let (screen, line) = self.image_anchor();
         let _ = self
             .images
             .place(id, screen, line, self.cx.col(), ZIndex::ZERO);
+        // Text written later in this read may land on it (`Paint::hooks`).
+        self.rehook();
         // Advance the cursor below the image, through the scroll path so a
         // bottom-of-screen image scrolls and the window's top line moves with
         // it -- the anchor of the next image reads the moved line. `index` does
