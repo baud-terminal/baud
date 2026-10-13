@@ -859,10 +859,11 @@ impl InputEncoding {
     /// same bytes are lead and continuation bytes of a character, so nothing
     /// maps.
     ///
-    /// A `const fn`, because its one caller is the graph, which is built at
+    /// A `const fn`, because its first caller is the graph, which is built at
     /// compile time. The nodes that ask are the DCS prefix's, an escape or
     /// control sequence's, and the `ESC` inside a control string; the bodies
-    /// do not, and an `OSC`'s handler asks of the bytes it keeps.
+    /// do not, and an `OSC`'s handler and a Sixel's ask of the bytes they
+    /// keep.
     pub const fn gr_as_gl(self, b: StreamByte) -> StreamByte {
         match self {
             InputEncoding::Utf8 => b,

@@ -41,7 +41,7 @@ impl Paint<'_, '_> {
         // means bytes were dropped: refuse the whole image rather than decode a
         // truncated one, and keep the true length so a reader can see how far
         // past the scratch it ran. It counts the bytes the decoder would read,
-        // so a C0 or `DEL` that `str_put` drops is not one of them. yazi's
+        // so a C0, `SPACE` or `DEL` that `str_put` drops is not one of them. yazi's
         // screenshot, photo and text-PDF previews ran 334 KiB to 820 KiB
         // against the app's 256 KiB, and were refused here while the arena had
         // room. An unprovisioned store (an empty `sixel_body`) refuses every

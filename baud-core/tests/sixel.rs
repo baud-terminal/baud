@@ -313,6 +313,264 @@ fn a_c0_or_del_inside_a_sixel_number_splits_nothing() {
     }
 }
 
+/// Feed `data` in the two reads `data[..at]` and `data[at..]`, then inspect it.
+fn run_split(data: &[u8], at: usize, budget: ImageBudget, f: impl FnOnce(&Term)) {
+    let ws = support::CORPUS;
+    let mut owned = Owned::new(&ws).with_images(budget);
+    let mut t = Term::new(owned.storage(), &ws);
+    for part in [&data[..at], &data[at..]] {
+        t.write_at(BytePos::ZERO, part);
+        t.feed(BytePos::ZERO, ReadLen::from_index(part.len()));
+    }
+    f(&t);
+}
+
+/// What a Sixel program left, as `drawn`, beside the refusals, so a program
+/// that draws nothing is told from one whose image was refused.
+fn drawn_and_refused(t: &Term) -> (Drawn, ImageRefusals) {
+    (drawn(t), refusals(t))
+}
+
+/// Hold `data` to `want` at every read size, the whole included, and at every
+/// split into two reads.
+fn each_read_is(data: &[u8], want: &(Drawn, ImageRefusals), at: &str) {
+    let budget = ample();
+    for size in 1..=data.len() {
+        run(data, size, budget, |t| {
+            assert_eq!(drawn_and_refused(t), *want, "{at}: read size {size}");
+            assert_eq!(t.bells, 0, "{at}: no bell, read size {size}");
+        });
+    }
+    for cut in 1..data.len() {
+        run_split(data, cut, budget, |t| {
+            assert_eq!(drawn_and_refused(t), *want, "{at}: split at {cut}");
+        });
+    }
+}
+
+/// What `data` leaves, read whole.
+fn whole(data: &[u8]) -> (Drawn, ImageRefusals) {
+    let mut out = None;
+    run(data, data.len(), ample(), |t| {
+        out = Some(drawn_and_refused(t))
+    });
+    out.unwrap()
+}
+
+/// **A `SPACE` anywhere in a Sixel body is ignored, inside a number too: the
+/// Sixel handler drops it before the decoder, with the C0.** Each program
+/// must leave what the same program without the `SPACE` leaves -- the image
+/// pixel for pixel, the screen, the cursor, the refusals -- at every read
+/// size and every split into two reads, in both encodings.
+///
+/// `[[source: dec-std-070]]` 070-9 §8.1 (PDF p. 919): a Sixel command "is
+/// terminated by any non parameter code, that is, any code other than 3/0
+/// through 3/9 (parameter digits 0-9) or 3/11 (parameter separator ;). Note
+/// Format Effectors (0/8 to 0/13) and SPACE (2/0) are ignored within sixel
+/// control strings"; §9.2 (PDF p. 926): "2/0 (SPACE) Ignored". The decoder
+/// ended a number at the `SPACE` and skipped the digits after it, so `!1
+/// SPACE 0~` drew one column where `!10~` draws ten, `#1;2;10 SPACE 0;0;0`
+/// made register 1 10% red, and `" SPACE 3;1` set no ratio. Each case but
+/// the controls draws a different image from its twin without the drop.
+///
+/// The controls are a `SPACE` between two tokens, which the decoder skipped
+/// before, so they pass either way and show the harness is not what changed.
+#[test]
+fn a_space_inside_a_sixel_body_is_ignored_and_splits_no_number() {
+    let cases: [Split; 11] = [
+        (
+            "SPACE inside the repeat count",
+            b"\x1bP0;1q#1;2;100;0;0#1!1 0~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
+            (10, 12),
+        ),
+        (
+            "SPACE between ! and its count",
+            b"\x1bP0;1q#1;2;100;0;0#1! 10~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
+            (10, 12),
+        ),
+        (
+            "SPACE inside a colour component",
+            b"\x1bP0;1q#1;2;10 0;0;0#1~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 12),
+        ),
+        (
+            "SPACE after a colour separator",
+            b"\x1bP0;1q#1;2; 100;0;0#1~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 12),
+        ),
+        (
+            "SPACE before the first colour separator",
+            b"\x1bP0;1q#1 ;2;100;0;0#1~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 12),
+        ),
+        (
+            "SPACE inside a register number",
+            b"\x1bP0;1q#12;2;0;100;0#1 2~~\x1b\\Z",
+            b"\x1bP0;1q#12;2;0;100;0#12~~\x1b\\Z",
+            (2, 12),
+        ),
+        (
+            "SPACE between # and its number",
+            b"\x1bP0;1q#1;2;100;0;0# 1~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 12),
+        ),
+        (
+            "SPACE between \" and its first parameter",
+            b"\x1bP0;1q\" 3;1#1;2;100;0;0#1~~\x1b\\Z",
+            b"\x1bP0;1q\"3;1#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 18),
+        ),
+        (
+            "SPACE inside a raster parameter",
+            b"\x1bP0;1q\"3;1 0#1;2;100;0;0#1~~\x1b\\Z",
+            b"\x1bP0;1q\"3;10#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 6),
+        ),
+        (
+            "control: SPACE between two data bytes",
+            b"\x1bP0;1q#1;2;100;0;0#1~ ~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 12),
+        ),
+        (
+            "control: SPACE between a repeat count and its byte",
+            b"\x1bP0;1q#1;2;100;0;0#1!10 ~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
+            (10, 12),
+        ),
+    ];
+    for (name, with, without, size) in cases {
+        for (enc, with, without) in [
+            ("UTF-8", with.to_vec(), without.to_vec()),
+            ("ISO 8859-1", latin1(with), latin1(without)),
+        ] {
+            let want = whole(&without);
+            assert_eq!(
+                want.0.0.as_ref().map(|i| (i.0, i.1)),
+                Some(size),
+                "control: {name}, {enc}: the image without the SPACE"
+            );
+            each_read_is(&with, &want, &format!("{name}, {enc}"));
+        }
+    }
+}
+
+/// A Sixel whose body carries GR bytes, beside its GL spelling and the image
+/// size the GL spelling draws.
+type GrBody = (&'static str, &'static [u8], &'static [u8], (u16, u16));
+
+/// Sixel bodies spelled with GR bytes, each beside its GL spelling. The
+/// first is every byte of the body in GR: `A2` `"`, `A3` `#`, `A1` `!`,
+/// `A4` `$`, `AD` `-`, `B0-B9` the digits, `BB` `;`, `CE` and `FE` data.
+const GR_BODIES: [GrBody; 6] = [
+    (
+        "the whole body in GR",
+        b"\x1bP0;1q\xa2\xb1\xbb\xb1\xa3\xb1\xbb\xb2\xbb\xb1\xb0\xb0\xbb\xb0\xbb\xb0\
+          \xa3\xb1\xa1\xb3\xfe\xa4\xce\xad\xfe\xfe\x1b\\Z",
+        b"\x1bP0;1q\"1;1#1;2;100;0;0#1!3~$N-~~\x1b\\Z",
+        (3, 12),
+    ),
+    (
+        "GR data bytes",
+        b"\x1bP0;1q#1;2;100;0;0#1\xfe\xfe\x1b\\Z",
+        b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+        (2, 12),
+    ),
+    (
+        "a GR digit after a GL one in the repeat count",
+        b"\x1bP0;1q#1;2;100;0;0#1!1\xb0~\x1b\\Z",
+        b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
+        (10, 12),
+    ),
+    (
+        "FF, DEL's twin, inside the repeat count",
+        b"\x1bP0;1q#1;2;100;0;0#1!1\xff0~\x1b\\Z",
+        b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
+        (10, 12),
+    ),
+    (
+        "A0, SPACE's twin, inside a colour component",
+        b"\x1bP0;1q#1;2;10\xa00;0;0#1~~\x1b\\Z",
+        b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+        (2, 12),
+    ),
+    (
+        "control: FF between two data bytes",
+        b"\x1bP0;1q#1;2;100;0;0#1~\xff~\x1b\\Z",
+        b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+        (2, 12),
+    ),
+];
+
+/// **Under ISO 8859-1 a GR byte in a Sixel body is its 7-bit byte**: the
+/// Sixel handler clears its eighth bit before it is stored, so `FE` is a data
+/// byte, `B0-B9` are digits, `A0` is a `SPACE` and `FF` a `DEL`, both then
+/// ignored. Each program is held to its GL spelling in all four framings --
+/// the image pixel for pixel, the screen, the cursor, the refusals -- at every
+/// read size and every split into two reads.
+///
+/// `[[source: dec-std-070]]` 070-9 §9.4 (PDF p. 926): "Codes in range 10/0
+/// through 15/15 are errors. The 8th bit is set to zero and the code is then
+/// processed as a GL code"; §9.2 then ignores `2/0` and `7/15`.
+/// `[[source: williams]]` treats GR as GL "in all states" (462), and
+/// `[[source: ecma48]]` §9 gives "the contents of the command string" the GL
+/// meanings. The body stored the byte raw and the decoder skipped it, so the
+/// whole-GR body drew nothing, `FE FE` nothing, and `!1 FF 0~` one column.
+/// The control, `FF` between two data bytes, passes either way.
+#[test]
+fn a_gr_byte_in_a_sixel_body_is_its_seven_bit_byte_under_latin1() {
+    for (name, gr, gl, size) in GR_BODIES {
+        for ((frame, gr), (_, gl)) in support::latin1_framings(gr)
+            .into_iter()
+            .zip(support::latin1_framings(gl))
+        {
+            let want = whole(&gl);
+            assert_eq!(
+                want.0.0.as_ref().map(|i| (i.0, i.1)),
+                Some(size),
+                "control: {name}, {frame}: the GL spelling's image"
+            );
+            each_read_is(&gr, &want, &format!("{name}, {frame}"));
+        }
+    }
+}
+
+/// **Under UTF-8 the same bodies are what they were**: a GR byte is part of
+/// a character there, not a GL byte, so the handler stores it as it came and
+/// the decoder skips it, ending any number it is in. Each program must leave
+/// what the same program with each GR byte spelled `:` leaves -- a byte the
+/// decoder also skips and that also ends a number -- so the whole-GR body
+/// draws nothing and is refused as empty, and `!1 FF 0~` draws one column.
+/// The guard beside the test above: it fails if the fold ignores the
+/// encoding.
+#[test]
+fn under_utf8_a_gr_byte_in_a_sixel_body_is_not_read_as_gl() {
+    for (name, gr, _, _) in GR_BODIES {
+        let colon: Vec<u8> = gr
+            .iter()
+            .map(|&b| if b >= 0xa0 { b':' } else { b })
+            .collect();
+        let want = whole(&colon);
+        each_read_is(gr, &want, &format!("UTF-8, {name}"));
+    }
+    assert_eq!(
+        whole(GR_BODIES[0].1).1.empty,
+        1,
+        "control: under UTF-8 the whole-GR body is refused as empty"
+    );
+    assert_eq!(
+        whole(GR_BODIES[3].1).0.0.map(|i| (i.0, i.1)),
+        Some((1, 12)),
+        "control: under UTF-8 `!1 FF 0~` draws one column"
+    );
+}
+
 /// Feed `d` to `t` in one read.
 fn one(t: &mut Term, d: &[u8]) {
     t.write_at(BytePos::ZERO, d);

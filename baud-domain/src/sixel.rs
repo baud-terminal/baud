@@ -13,6 +13,7 @@
 //! and the raster attributes. `docs/research/notes/s-sixel.md` is the design;
 //! this is the decode half of its first acceptance gate.
 
+use crate::decode::{InputEncoding, StreamByte};
 use crate::style::{Chan, ColorWord};
 
 /// A pixel coordinate or extent. A Sixel is bounded by its raster attributes
@@ -197,6 +198,77 @@ const REGISTERS: usize = 256;
 pub struct Sixel;
 
 impl Sixel {
+    /// The byte a Sixel's handler stores for body byte `b` under `enc`, or
+    /// `None` when the byte is to be dropped before the decoder.
+    ///
+    /// `[[source: dec-std-070]]` 070-9 §9 (PDF pp. 925-926), read for a body:
+    /// the format effectors "shall have no effect on the interpretation of
+    /// Sixel Control strings" and every other C0 that reaches a handler is
+    /// ignored (§9.1); "2/0 (SPACE) Ignored ... 7/15 (DELETE) Ignored" (§9.2);
+    /// and GR codes "are errors. The 8th bit is set to zero and the code is
+    /// then processed as a GL code" (§9.4), so under ISO 8859-1 `A0` is a
+    /// `SPACE` and `FF` a `DEL`, both dropped. §8.1 (PDF p. 919) says what
+    /// the drop is for: a command "is terminated by any non parameter code
+    /// ... Note Format Effectors (0/8 to 0/13) and SPACE (2/0) are ignored
+    /// within sixel control strings", so neither ends a number. Under UTF-8
+    /// `80-FF` belong to a character and are kept as they came, and under ISO
+    /// 8859-1 `80-9F` are C1 controls the graph takes before a body sees them
+    /// (§9.3), so both are kept. `[[source: williams]]` treats GR as GL "in
+    /// all states" (462), and `[[source: ecma48]]` §9 gives "the contents of
+    /// the command string" the GL meanings, so the texts agree.
+    ///
+    /// **The common byte is decided by one compare**
+    /// ([`Sixel::body_byte_is_gl_past_space`]), and the encoding is read only
+    /// for `A0-FF`. A fold and two compares on every byte, the first shape,
+    /// retired 16.5% more instructions on `sixel/yazi-walk.raw` (the record,
+    /// "A SPACE in a Sixel body is ignored, and a GR byte is its GL byte under
+    /// ISO 8859-1").
+    #[inline]
+    pub fn body_byte(enc: InputEncoding, b: StreamByte) -> Option<StreamByte> {
+        match b.raw_byte() {
+            0x21..=0x7e => Some(b),
+            _ => Sixel::body_byte_rare(enc, b),
+        }
+    }
+
+    /// Whether `b` is in `21-7F`, GL past `SPACE`. [`Sixel::body_byte`] keeps
+    /// every byte here but `DEL` as it is, under both encodings: every Sixel
+    /// command and data byte. A handler behind baud's graph never sees a
+    /// `DEL`, which the `DcsStr` row ignores as `[[source: williams]]`'s
+    /// `dcs passthrough` does (388), so on its per-byte path it tests this
+    /// inline, stores the byte as it is, and sends the rest to `body_byte`
+    /// out of line.
+    ///
+    /// **One signed compare, the cost of the `is_c0` it replaced**: as an
+    /// `i8`, `21-7F` are the bytes above `0x20`. Written as a `match` on `u8`
+    /// ranges with `80-9F` beside them, LLVM tested the high bit first and the
+    /// common byte took seven instructions where `is_c0` took three; as an
+    /// unsigned range `21-7E` it took four, a subtract, a mask, a compare and
+    /// a branch.
+    #[inline]
+    pub fn body_byte_is_gl_past_space(b: StreamByte) -> bool {
+        i8::from_ne_bytes([b.raw_byte()]) > 0x20
+    }
+
+    /// [`Sixel::body_byte`] for a byte outside `21-7E`: a C0, `SPACE`, `DEL`,
+    /// or one in `80-FF`, none of which a Sixel encoder sends but a line
+    /// break.
+    #[cold]
+    #[inline(never)]
+    fn body_byte_rare(enc: InputEncoding, b: StreamByte) -> Option<StreamByte> {
+        match b.raw_byte() {
+            0x80..=0x9f => Some(b),
+            0xa0..=0xff => {
+                let gl = enc.gr_as_gl(b);
+                match gl.raw_byte() {
+                    0x20 | 0x7f => None,
+                    _ => Some(gl),
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Decode `data` -- the bytes after the `q` and before the `ST` -- into
     /// `canvas`. The canvas starts however the caller cleared it (`DEFAULT` for
     /// transparent), and set data bits paint the current register; unset bits
@@ -370,10 +442,14 @@ impl Sixel {
                     repeat = 1;
                     raster = Raster::Closed;
                 }
-                // Everything else is skipped. No C0 reaches here -- the Sixel
-                // arm of `str_put` drops each one before the body is stored --
-                // so what does is `SPACE`, a byte in `80-FF`, and a command this
-                // decoder does not recognise (note AN, section 11).
+                // Everything else is skipped. No C0, `SPACE` or `DEL` reaches
+                // here from the core -- the Sixel arm of `str_put` keeps only
+                // what [`Sixel::body_byte`] keeps, a GR byte under ISO 8859-1
+                // as its GL byte -- so what does is a byte in `80-FF` under
+                // UTF-8, and a command this decoder does not recognise (note
+                // AN, section 11). A caller that hands this a body with a
+                // `SPACE` in a number gets the number ended there: the drop is
+                // `body_byte`'s, before the body is stored.
                 _ => {
                     i += 1;
                 }

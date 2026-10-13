@@ -38,7 +38,7 @@ impl Paint<'_, '_> {
     /// like it has.
     ///
     /// **And the encoding it began under**, which `str_put` reads to keep an
-    /// `OSC`'s GR byte as its 7-bit byte under ISO 8859-1: taken once here,
+    /// `OSC`'s or a Sixel's GR byte as its 7-bit byte under ISO 8859-1: taken once here,
     /// in the introducer's arm, rather than passed in the body's arm on
     /// every byte of every string, a Sixel's included.
     #[cold]
@@ -78,15 +78,25 @@ impl Paint<'_, '_> {
             // and as 070-9 §9.2 lists for Sixel, "7/15 (DELETE) Ignored" (926).
             // The `DEL` was stored until 2026-10-10 and this arm dropped it; xterm
             // hands its parser one, which ends a number there, its departure.
-            if b.is_c0() {
-                return;
+            //
+            // **Under ISO 8859-1 a GR byte is its 7-bit byte, and a `SPACE` is
+            // dropped with the C0** (`Sixel::body_byte`, which quotes 070-9
+            // §8.1, §9.2 and §9.4). The body stored GR raw until 2026-10-13,
+            // and the decoder skipped it, so `FE FE` drew nothing; and a
+            // `SPACE` reached the decoder, which ended a number at it, so `!1
+            // SPACE 0~` drew one column where `!10~` draws ten. xterm skips
+            // `isspace` bytes before it reads a digit
+            // (`[[source: xterm-graphics-sixel]]` 541-547), as this does. The
+            // encoding is the one the introducer began under (`str_start`).
+            //
+            // `21-7F` is tested here and the rest out of line, in
+            // `sixel_put_rare`, so the common byte costs what the `is_c0` this
+            // replaced cost (`Sixel::body_byte_is_gl_past_space`); the `DEL`
+            // in that range never arrives, the graph ignoring it.
+            if !Sixel::body_byte_is_gl_past_space(b) {
+                return self.sixel_put_rare(b);
             }
-            let n = self.cold.sixel_len.index();
-            if n < self.sixel_body.len() {
-                self.sixel_body[n] = b.raw_byte();
-            }
-            self.cold.sixel_len = ReadLen::from_index(n + 1);
-            return;
+            return self.sixel_put(b);
         }
         // **A DECRQSS drops a format effector, `08-0D`, before its `Pt` is
         // kept.** The graph puts them in a DCS body for the handler to judge
@@ -115,9 +125,9 @@ impl Paint<'_, '_> {
         // `[[source: williams]]` treats GR as GL "in all states" (462). The
         // body kept the byte as it came, so `ESC ] B0 BB t BEL` named no
         // `OSC`, a title in GR was stored in GR, and `B5 B2 BB` was not the
-        // `52;` that routes a copy below. Above this, the two DCS bodies a
-        // handler reads keep theirs, the owner's open call
-        // (`dcs_passthrough`, `docs/vt-coverage.md`). Below it, `Other` is a
+        // `52;` that routes a copy below. Above this, a Sixel folds its own,
+        // as 070-9 §9.4 says, and a DECRQSS keeps its `Pt`'s, the owner's
+        // open call (`dcs_passthrough`, `docs/vt-coverage.md`). Below it, `Other` is a
         // DCS no handler reads or an `APC`, `PM` or `SOS`, kept and dropped
         // unread at the terminator, so a strip there would move nothing; an
         // `APC` or `PM` that gains a reader takes the rule then. Under UTF-8
@@ -144,6 +154,28 @@ impl Paint<'_, '_> {
             }
         } else {
             self.string_truncations += 1;
+        }
+    }
+
+    /// Store one Sixel body byte the handler keeps. The length rises past
+    /// the buffer, so an overflow is seen at the terminator.
+    #[inline]
+    fn sixel_put(&mut self, b: StreamByte) {
+        let n = self.cold.sixel_len.index();
+        if n < self.sixel_body.len() {
+            self.sixel_body[n] = b.raw_byte();
+        }
+        self.cold.sixel_len = ReadLen::from_index(n + 1);
+    }
+
+    /// A Sixel body byte outside `21-7E`: kept, folded or dropped as
+    /// `Sixel::body_byte` says, under the encoding the introducer began
+    /// under.
+    #[cold]
+    #[inline(never)]
+    fn sixel_put_rare(&mut self, b: StreamByte) {
+        if let Some(b) = Sixel::body_byte(self.cold.str_enc, b) {
+            self.sixel_put(b);
         }
     }
 

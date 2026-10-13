@@ -4,8 +4,12 @@
 DEC texts make it whole, is built since 2026-10-11 (the record, "A Sixel pixel
 is drawn at its aspect ratio where both DEC texts agree"), and so is part of
 item 6, an HLS value past its range ignoring the whole command (the record, "A
-Sixel HLS register is converted, with DEC's hue origin"); nothing else here is
-built.** Part 1 is what every text says a terminal does with each byte of a
+Sixel HLS register is converted, with DEC's hue origin"), and items 2 and 3,
+a `SPACE` in a Sixel body ignored and a GR byte in one read as its GL byte
+under ISO 8859-1, since 2026-10-13 (the record, "A SPACE in a Sixel body is
+ignored, and a GR byte is its GL byte under ISO 8859-1"). Item 9, a GR byte
+in the DCS introducer, was built by 3c34afe (the record, "A GR byte in a DCS
+prefix is its 7-bit byte under ISO 8859-1"). Nothing else here is built.** Part 1 is what every text says a terminal does with each byte of a
 DCS command string, and what baud does since `e6a817f`. Part 2 reads DEC STD
 070's Sixel chapter, 070-9, byte by byte against the other Sixel texts the
 manifest pins, and against baud's Sixel handler. Where the texts agree and

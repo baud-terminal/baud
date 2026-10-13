@@ -9,7 +9,10 @@
 //! the binary value `0x74 - 0x3F = 0b110101` with the least significant bit at
 //! the top, so its six vertical pixels read `[1,0,1,0,1,1]` top to bottom.
 
-use baud_domain::{ColorWord, Sixel, SixelAspect, SixelCanvas, SixelFit, SixelPx, SixelReport};
+use baud_domain::{
+    ColorWord, InputEncoding, Sixel, SixelAspect, SixelCanvas, SixelFit, SixelPx, SixelReport,
+    StreamByte,
+};
 
 /// The aspect the bodies here are decoded at unless a test says otherwise:
 /// what an envelope's `P1 = 9` selects, 1:1 (`[[source: vt3xx-sixel]]`;
@@ -496,4 +499,60 @@ fn at_two_to_one_each_sixel_row_is_two_pixels_and_a_band_twelve() {
         (measured.width, measured.height),
         (report.width, report.height)
     );
+}
+
+/// **What a Sixel's handler keeps of each body byte, all 512 (encoding,
+/// byte) pairs, against ranges written out here rather than computed
+/// through `gr_as_gl`.** `[[source: dec-std-070]]` 070-9 §9.1 drops the C0,
+/// §9.2 "2/0 (SPACE) Ignored ... 7/15 (DELETE) Ignored", and §9.4 makes a GR
+/// code its GL code by clearing the eighth bit, so under ISO 8859-1 `A0` and
+/// `FF` are dropped and `A1-FE` kept as `21-7E`. Under UTF-8 `80-FF` are a
+/// character's bytes and are kept as they came, as are `80-9F` under ISO
+/// 8859-1, which the graph takes as C1 controls before a body sees them.
+#[test]
+fn a_sixel_body_byte_is_kept_folded_or_dropped_as_070_9_section_9_says() {
+    let mut kept = [0usize; 2];
+    for (e, enc) in [InputEncoding::Utf8, InputEncoding::Latin1]
+        .into_iter()
+        .enumerate()
+    {
+        for v in 0..=255u8 {
+            let want = match (enc, v) {
+                (_, 0x00..=0x20) | (_, 0x7f) => None,
+                (_, 0x21..=0x7e) | (_, 0x80..=0x9f) => Some(v),
+                (InputEncoding::Utf8, 0xa0..=0xff) => Some(v),
+                (InputEncoding::Latin1, 0xa0) | (InputEncoding::Latin1, 0xff) => None,
+                (InputEncoding::Latin1, 0xa1..=0xfe) => Some(v - 0x80),
+            };
+            let got = Sixel::body_byte(enc, StreamByte::from_stream(v)).map(StreamByte::raw_byte);
+            assert_eq!(got, want, "{enc:?}, {v:#04x}");
+            kept[e] += usize::from(got.is_some());
+        }
+    }
+    // The positive control: each encoding keeps what the ranges say, so the
+    // loop ran over bytes that are kept as well as dropped.
+    assert_eq!(kept, [94 + 32 + 96, 94 + 32 + 94], "kept per encoding");
+}
+
+/// **The per-byte test a handler stores on is `21-7F` exactly**, and every
+/// byte in it but `DEL`, which the graph ignores before a body handler sees
+/// it, is one `body_byte` keeps as it is under both encodings. A store that
+/// trusted the test past that range would keep a byte `body_byte` drops or
+/// folds.
+#[test]
+fn the_inline_sixel_body_test_is_21_to_7f_and_keeps_what_body_byte_keeps() {
+    let mut inside = 0;
+    for v in 0..=255u8 {
+        let b = StreamByte::from_stream(v);
+        let fast = Sixel::body_byte_is_gl_past_space(b);
+        assert_eq!(fast, (0x21..=0x7f).contains(&v), "{v:#04x}");
+        if fast && v != 0x7f {
+            inside += 1;
+            for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+                let kept = Sixel::body_byte(enc, b).map(StreamByte::raw_byte);
+                assert_eq!(kept, Some(v), "{enc:?}, {v:#04x}");
+            }
+        }
+    }
+    assert_eq!(inside, 94, "control: 21-7E");
 }
