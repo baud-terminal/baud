@@ -52,10 +52,10 @@ fn fill() -> String {
 
 /// The screen as strings (`.` blank), the cursor, and every reply, in order.
 #[derive(Debug, PartialEq, Eq, Clone)]
-struct Seen {
-    screen: Vec<String>,
-    cursor: (Row, Col),
-    reply: Vec<u8>,
+pub(super) struct Seen {
+    pub(super) screen: Vec<String>,
+    pub(super) cursor: (Row, Col),
+    pub(super) reply: Vec<u8>,
 }
 
 fn seen_at(bytes: &[u8], read: usize) -> Seen {
@@ -88,7 +88,7 @@ fn seen_at(bytes: &[u8], read: usize) -> Seen {
 }
 
 /// The bytes whole, after requiring every read size to agree with them.
-fn seen(bytes: &str) -> Seen {
+pub(super) fn seen(bytes: &str) -> Seen {
     let b = bytes.as_bytes();
     let whole = seen_at(b, b.len());
     for read in 1..b.len() {
@@ -98,7 +98,7 @@ fn seen(bytes: &str) -> Seen {
 }
 
 /// Where `ch` is on the screen, 0-based, if it is there once.
-fn find(s: &Seen, ch: char) -> Option<(usize, usize)> {
+pub(super) fn find(s: &Seen, ch: char) -> Option<(usize, usize)> {
     let hits: Vec<(usize, usize)> = s
         .screen
         .iter()

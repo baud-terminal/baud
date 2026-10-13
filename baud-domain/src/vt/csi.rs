@@ -366,6 +366,23 @@ impl<'a> Params<'a> {
     pub fn one_based(&self, i: ParamIdx) -> OneBased {
         OneBased::from_param(self.at(i))
     }
+    /// A margin's far end: `None` when omitted or 0, which means the page's
+    /// last column or line, and the line or column otherwise.
+    ///
+    /// **A 0 is the default, as an omitted parameter is.** `[[source:
+    /// dec-std-070]]` DECSLRM: "default Pr: Last Column" (p. 5-27), and its
+    /// algorithm (p. 5-28) reads the two alike, "if (parv[1] == 0) parv[1] =
+    /// columns_per_page;". `[[source: vt510-decslrm]]` defaults `Pr` to the
+    /// page width, and xterm (`CASE_ANSI_SC`, charproc.c 4891-4894,
+    /// `[[source: xterm-reset]]`) and ghostty (`setLeftAndRightMargin`,
+    /// `[[source: ghostty-d9840f3-terminal]]` 2610) read an omitted or 0 one
+    /// as the last column. [`Self::one_based`] cannot carry it: it reads both
+    /// as 1.
+    pub fn far_margin(&self, i: ParamIdx) -> Option<OneBased> {
+        self.at(i)
+            .filter(|v| v.0 != 0)
+            .map(|v| OneBased::from_param(Some(v)))
+    }
     pub fn extent(&self, i: ParamIdx) -> Option<EraseExtent> {
         EraseExtent::from_param(self.at(i))
     }
@@ -653,7 +670,11 @@ pub enum Csi {
     /// told which mode is in force.
     SetSideMargins {
         left: OneBased,
-        right: OneBased,
+        /// `None` when omitted or 0, which is the page's last column:
+        /// "default Pr: Last Column" (`[[source: dec-std-070]]`). Decoded
+        /// as `OneBased` until 2026-10-13, both read as column 1, so `Pl` >=
+        /// `Pr` and the sequence was dropped (see [`Params::far_margin`]).
+        right: Option<OneBased>,
     },
     /// DECIC, `CSI Pn ' }`. Insert columns within the margins.
     InsertColumns(Count),
@@ -733,7 +754,7 @@ impl Csi {
         {
             return Csi::SetSideMargins {
                 left: p.one_based(ParamIdx::FIRST),
-                right: p.one_based(ParamIdx::SECOND),
+                right: p.far_margin(ParamIdx::SECOND),
             };
         }
         Csi::parse_inner(marker, inter, p, f)

@@ -16,6 +16,7 @@
 //! ambiguity is in the protocol, so the parser is told which mode is in force
 //! rather than guessing.
 
+use super::origin::{find, seen};
 use crate::support;
 use baud_core::*;
 
@@ -101,6 +102,88 @@ fn a_zero_width_region_is_rejected() {
     let mut v = b"\x1b[?69h\x1b[5;5s".to_vec();
     v.extend(std::iter::repeat_n(b'x', 20));
     assert_eq!(cursor(&v), (0, 20));
+}
+
+// ── the defaults ────────────────────────────────────────────────────────────
+//
+// `[[source: dec-std-070]]` DECSLRM, p. 5-27: "default Pr: Last Column",
+// and its algorithm, p. 5-28, reads an omitted parameter and a 0 alike:
+// "if (parv[1] == 0) parv[1] = columns_per_page;". `[[source:
+// vt510-decslrm]]`: "Pr is the column number for the right margin. Default:
+// Pr = 80 or 132 (depending on the page width)". xterm (`CASE_ANSI_SC`,
+// charproc.c 4891-4894, `[[source: xterm-reset]]`) and ghostty
+// (`[[source: ghostty-d9840f3-terminal]]` 2610) read an omitted or 0 `Pr` as
+// the page's last column. Each case runs at 20 by 8
+// at every read size (`origin::seen`), and shows the margins by where `X`
+// lands under DECOM after `CUP 1;99`, and by `CPR`, which counts from the
+// left margin.
+
+/// [`LRM`] as text, for the cases that build on 5..10.
+const LRM_STR: &str = "\x1b[?69h\x1b[5;10s";
+/// Under DECOM, `CUP 1;99` stops at the right margin; `X` and `CPR` say where.
+const PROBE: &str = "\x1b[?6h\x1b[1;99HX\x1b[6n";
+
+/// **A bare `CSI s` under DECLRMM is the page's margins**, and homes. Its
+/// right margin decoded as column 1 until 2026-10-13, so `Pl` = `Pr` and the
+/// sequence was rejected: parsed and dropped, the margins 5..10 kept.
+#[test]
+fn a_bare_decslrm_sets_the_margins_to_the_page_borders() {
+    let s = seen(&format!("{LRM_STR}\x1b[3;3H\x1b[sY{PROBE}"));
+    assert_eq!(find(&s, 'Y'), Some((0, 0)), "homed");
+    assert_eq!(
+        (find(&s, 'X'), s.reply.as_slice()),
+        (Some((0, 19)), &b"\x1b[1;20R"[..]),
+        "margins 1..20"
+    );
+}
+
+/// `CSI 0;0 s` is the same: a 0 `Pr` is the default, as an omitted one is.
+#[test]
+fn a_zero_right_margin_is_the_page_border() {
+    let s = seen(&format!("{LRM_STR}\x1b[3;3H\x1b[0;0sY{PROBE}"));
+    assert_eq!(find(&s, 'Y'), Some((0, 0)), "homed");
+    assert_eq!(
+        (find(&s, 'X'), s.reply.as_slice()),
+        (Some((0, 19)), &b"\x1b[1;20R"[..]),
+        "margins 1..20"
+    );
+    let s = seen(&format!("{LRM_STR}\x1b[5;0s{PROBE}"));
+    assert_eq!(
+        (find(&s, 'X'), s.reply.as_slice()),
+        (Some((0, 19)), &b"\x1b[1;16R"[..]),
+        "margins 5..20"
+    );
+}
+
+/// `CSI 5 s` sets 5..20, from the screen's own margins and from 5..10. It
+/// was rejected as `Pl` > `Pr` = 1.
+#[test]
+fn an_omitted_right_margin_is_the_page_border() {
+    let s = seen(&format!("\x1b[?69h\x1b[5s\x1b[?6h\x1b[1;1HZ{PROBE}"));
+    assert_eq!(find(&s, 'Z'), Some((0, 4)), "the origin is column 5");
+    assert_eq!(
+        (find(&s, 'X'), s.reply.as_slice()),
+        (Some((0, 19)), &b"\x1b[1;16R"[..]),
+        "margins 5..20"
+    );
+    let s = seen(&format!("{LRM_STR}\x1b[5s{PROBE}"));
+    assert_eq!(
+        (find(&s, 'X'), s.reply.as_slice()),
+        (Some((0, 19)), &b"\x1b[1;16R"[..]),
+        "margins 5..20 after 5..10"
+    );
+}
+
+/// The control: an omitted `Pl` is column 1 and an explicit `Pr` is kept,
+/// which the decoding got right before.
+#[test]
+fn an_omitted_left_margin_is_column_one() {
+    let s = seen(&format!("\x1b[?69h\x1b[;10s{PROBE}"));
+    assert_eq!(
+        (find(&s, 'X'), s.reply.as_slice()),
+        (Some((0, 9)), &b"\x1b[1;10R"[..]),
+        "margins 1..10"
+    );
 }
 
 // ── what the margins confine ────────────────────────────────────────────────

@@ -655,6 +655,30 @@ fn fixtures() -> Vec<Fixture> {
             format!("{TB}{LRM}\x1b[?6h\x1b[2;3H\x1b[3`X"),
             Pinned(CHA_DISPLACED),
         ),
+        // ---- DECSLRM's defaults: an omitted or 0 Pr is the page's border ----
+        // `[[source: vt510-decslrm]]`: "Default: Pr = 80 or 132 (depending on
+        // the page width)". Each shows the margins by where `X` lands under
+        // DECOM after `CUP 1;99`.
+        f(
+            "decslrm: a bare CSI s is the page's margins",
+            format!("{LRM}\x1b[s\x1b[?6h\x1b[1;99HX"),
+            Agree,
+        ),
+        f(
+            "decslrm: CSI 0;0 s is the page's margins",
+            format!("{LRM}\x1b[0;0s\x1b[?6h\x1b[1;99HX"),
+            Agree,
+        ),
+        f(
+            "decslrm: CSI 5 s runs to the page's right border",
+            format!("{LRM}\x1b[5s\x1b[?6h\x1b[1;1HY\x1b[1;99HX"),
+            Agree,
+        ),
+        f(
+            "decslrm: CSI 5;0 s runs to the page's right border",
+            format!("{LRM}\x1b[5;0s\x1b[?6h\x1b[1;99HX"),
+            Agree,
+        ),
         // ---- side margins: the later steps ----------------------------------
         f(
             "lrm: CR inside the fence",

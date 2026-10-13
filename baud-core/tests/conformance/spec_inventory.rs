@@ -867,14 +867,20 @@ fn a_final_with_two_arities_means_two_things() {
     //   T -> 1 (SD) and 5 (XTHIMOUSE)
     //   s -> 0 (SCOSC) and 2 (DECSLRM)
     //
-    // DECSLRM is only honoured with DECLRMM set, so the `s` pair is fed with
-    // `?69h` first -- otherwise both arities *are* SCOSC, correctly, and the
-    // comparison would be measuring the mode rather than the arity.
+    // **The `s` pair is told apart by DECLRMM, not by arity alone**: SCOSC is
+    // "available only when DECLRMM is disabled", DECSLRM "only when DECLRMM
+    // is enabled", and under `?69h` a bare `CSI s` is DECSLRM with both
+    // margins defaulted, as xterm reads it (`CASE_ANSI_SC`, charproc.c
+    // 4884-4901, `[[source: xterm-reset]]`). So SCOSC is fed with DECLRMM
+    // reset and DECSLRM with it set, each after `CUP 3;3`: SCOSC leaves the
+    // cursor there and DECSLRM homes it, and either read as the other leaves
+    // the two alike. This pair fed both with `?69h` until 2026-10-13, and
+    // passed only because a bare `CSI s` there was dropped.
     const PAIRS: &[(&[u8], &[u8], &str)] = &[
         (b"\x1b[1T", b"\x1b[1;2;3;4;5T", "SD against XTHIMOUSE"),
         (
-            b"\x1b[?69h\x1b[s",
-            b"\x1b[?69h\x1b[1;2s",
+            b"\x1b[3;3H\x1b[s",
+            b"\x1b[?69h\x1b[3;3H\x1b[1;2s",
             "SCOSC against DECSLRM",
         ),
     ];

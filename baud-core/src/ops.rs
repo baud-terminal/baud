@@ -1448,16 +1448,27 @@ impl Paint<'_, '_> {
     /// of the page." Under DECOM that page origin is the new margins' corner,
     /// `[[source: dec-std-070]]` DECSLRM note 1 ([`Paint::home`]).
     ///
-    /// **Rejected rather than clamped.** An invalid pair leaves the margins
-    /// alone, because clamping would confine the screen to a region the
-    /// application did not ask for and then behave correctly with respect to
-    /// it -- which is worse than doing nothing, since nothing is visible as a
-    /// bug and a plausible wrong region is not.
-    pub(crate) fn set_side_margins(&mut self, left: OneBased, right: OneBased) {
+    /// **An omitted or 0 `Pr` is the page's last column**: "default Pr: Last
+    /// Column" (`[[source: dec-std-070]]` DECSLRM, p. 5-27, whose algorithm
+    /// reads a 0 as omitted; [`Params::far_margin`]). It was decoded as
+    /// column 1, so `CSI s` and `CSI 5 s` were dropped.
+    ///
+    /// **A `Pr` past the page is clamped to the last column** by
+    /// `OneBased::to_col`, so `CSI 5;99 s` sets 5..20 on 20 columns, as
+    /// xterm and ghostty do. STD 070's note 3 says such a control "will be
+    /// ignored (not executed)", and its algorithm (p. 5-28) sets the margins
+    /// only when `parv[1] <= columns_per_page`: a departure, open.
+    ///
+    /// **An inverted or one-column pair is rejected rather than clamped**,
+    /// leaving the margins alone, because clamping would confine the screen
+    /// to a region the application did not ask for and then behave correctly
+    /// with respect to it -- which is worse than doing nothing, since nothing
+    /// is visible as a bug and a plausible wrong region is not.
+    pub(crate) fn set_side_margins(&mut self, left: OneBased, right: Option<OneBased>) {
         let last = self.cols.index() - 1;
         let l = left.to_col(self.cols).index();
-        let r = right.to_col(self.cols).index();
-        if l >= r || r > last {
+        let r = right.map_or(last, |v| v.to_col(self.cols).index());
+        if l >= r {
             return;
         }
         self.cold.left = Col::at_index(l);
