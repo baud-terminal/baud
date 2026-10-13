@@ -359,6 +359,47 @@ bytes  = 20318
 status = "retrieved"
 group  = "C"
 
+[sources.vt510-ind]
+key    = "vt510-ind"
+title  = "IND -- Index (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/IND.html"
+file   = "vt510-IND.html"
+sha256 = "0cb051ccaeb09ecebde579225ab323177294113b0bac59cbbbc650acced89b90"
+bytes  = 19031
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-12 for V10's rectangle scrolling. vt100.net has no RI page in
+# this manual; RI is [[source: dec-std-070]] p. 5-36.
+
+[sources.vt510-il]
+key    = "vt510-il"
+title  = "IL -- Insert Line (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/IL.html"
+file   = "vt510-IL.html"
+sha256 = "13739e9aa876f0e1795826d80fe0e2e3efc16e4e0201c37ff461b6df798acfa0"
+bytes  = 19354
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-dl]
+key    = "vt510-dl"
+title  = "DL -- Delete Line (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DL.html"
+file   = "vt510-DL.html"
+sha256 = "9669db2c747843d395820b32841d81d8d1212aeb65c2a099c15357407558f2f8"
+bytes  = 19590
+status = "retrieved"
+group  = "C"
+
 [sources.vt510-decic]
 key    = "vt510-decic"
 title  = "DECIC — Insert Column (VT510 Programmer Information)"
@@ -21528,17 +21569,24 @@ group  = "C"
 
 [sources.ghostty-d9840f3-terminal]
 key    = "ghostty-d9840f3-terminal"
-title  = "ghostty at d9840f3, src/terminal/Terminal.zig -- saveCursor, restoreCursor and fullReset"
+title  = "ghostty at d9840f3, src/terminal/Terminal.zig -- saveCursor, restoreCursor and fullReset; index, reverseIndex, scrollUp, scrollDown, insertLines and deleteLines under left/right margins, and the separate pending_wrap flag"
 author = "Mitchell Hashimoto"
 year   = 2026
 venue  = "ghostty-org/ghostty"
 url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/Terminal.zig"
-file   = ""
+file   = "ghostty-d9840f3-Terminal.zig"
 sha256 = "7957a064b558d04ea3edf4881874963f914714d07c03745353bc24376a5c52b8"
 bytes  = 576602
-status = "external"
+status = "retrieved"
 group  = "C"
 # Read 2026-10-11 (round 2026-10-11c, lane scorc): 1997-2050, 4909-4918.
+# Committed 2026-10-12 for V10, as note V's pin table asks: copied from the
+# clean checkout at d9840f3 that built the libghostty-vt the V10 oracle
+# (bench-others/ghostty-oracle) links, equal to `git show
+# d9840f3:src/terminal/Terminal.zig`. Read for V10: index 2316-2438,
+# reverseIndex 2516-2526, scrollDown 2619-2650, scrollUp 2659-, insertLines
+# 2951-3118, deleteLines 3125-. [[source: ghostty-terminal-9bbb9b2]] does not
+# serve: it is another commit (sha c39b749...), and the oracle is this one.
 
 [sources.linux-cf72cbb-console-struct]
 key    = "linux-cf72cbb-console-struct"

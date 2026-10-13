@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 215 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 218 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 253 | 16 | redistributable, and its notice is satisfied |
+| kept | 254 | 16 | redistributable, and its notice is satisfied |
 | own | 186 | 0 | the owner's work |
-| total | 682 | 27 | |
+| total | 686 | 27 | |
 
 ## Licence texts in LICENSES/
 
@@ -451,7 +451,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 34
+- **Files:** 37
 
 | file | copied from |
 |---|---|
@@ -482,6 +482,9 @@ notice is, and the URL each file was copied from.
 | [vt510-DECSEL.html](docs/research/sources/vt510-DECSEL.html) | https://vt100.net/docs/vt510-rm/DECSEL.html |
 | [vt510-DECSLRM.html](docs/research/sources/vt510-DECSLRM.html) | https://vt100.net/docs/vt510-rm/DECSLRM.html |
 | [vt510-DECSTR.html](docs/research/sources/vt510-DECSTR.html) | https://vt100.net/docs/vt510-rm/DECSTR.html |
+| [vt510-DL.html](docs/research/sources/vt510-DL.html) | https://vt100.net/docs/vt510-rm/DL.html |
+| [vt510-IL.html](docs/research/sources/vt510-IL.html) | https://vt100.net/docs/vt510-rm/IL.html |
+| [vt510-IND.html](docs/research/sources/vt510-IND.html) | https://vt100.net/docs/vt510-rm/IND.html |
 | [vt510-LS.html](docs/research/sources/vt510-LS.html) | https://vt100.net/docs/vt510-rm/LS.html |
 | [vt510-RIS.html](docs/research/sources/vt510-RIS.html) | https://vt100.net/docs/vt510-rm/RIS.html |
 | [vt510-S7C1T.html](docs/research/sources/vt510-S7C1T.html) | https://vt100.net/docs/vt510-rm/S7C1T.html |
@@ -968,12 +971,13 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT
 - **Notice:** [LICENSES/ghostty-MIT.txt](LICENSES/ghostty-MIT.txt)
-- **Files:** 8
+- **Files:** 9
 
 | file | copied from |
 |---|---|
 | [ghostty-MetallibStep.zig](docs/research/sources/ghostty-MetallibStep.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/b32f20f3e8d25bb925ec545c54498e93518e7ced/src/build/MetallibStep.zig |
 | [ghostty-d9840f3-Config.zig](docs/research/sources/ghostty-d9840f3-Config.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/config/Config.zig |
+| [ghostty-d9840f3-Terminal.zig](docs/research/sources/ghostty-d9840f3-Terminal.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/Terminal.zig |
 | [ghostty-d9840f3-Termio.zig](docs/research/sources/ghostty-d9840f3-Termio.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/termio/Termio.zig |
 | [ghostty-d9840f3-args.zig](docs/research/sources/ghostty-d9840f3-args.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/cli/args.zig |
 | [ghostty-d9840f3-cell.zig](docs/research/sources/ghostty-d9840f3-cell.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/cell.zig |

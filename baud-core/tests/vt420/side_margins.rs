@@ -267,6 +267,44 @@ fn the_column_operations_are_inert_outside_the_margins() {
     assert_eq!(grid(&dc), grid(&set), "DECDC outside the margins");
 }
 
+// ── the pending wrap, as the V10 oracle reads it ────────────────────────────
+
+/// **`Term::wrap_pending` reads the sentinel, and so conflates what the
+/// sentinel conflates.** A write that fills to the right margin sets it, at
+/// full width and under the fence; a carriage return and `?7l` clear it; and a
+/// `CUP` past the fence answers `Yes` too, because baud wraps first from there
+/// (`a_run_right_of_the_right_margin_wraps_to_the_left_margin`), where ghostty
+/// keeps a flag and answers `No` -- the corner note V's V10 leaves to step (d).
+#[test]
+fn wrap_pending_reads_the_sentinel() {
+    let pending = |b: &[u8]| {
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        support::feed(&mut t, b);
+        t.wrap_pending()
+    };
+    let full: Vec<u8> = std::iter::repeat_n(b'x', 200).collect();
+    assert_eq!(pending(b""), WrapPending::No);
+    assert_eq!(pending(&full), WrapPending::Yes, "a full row");
+    let mut cr = full.clone();
+    cr.push(b'\r');
+    assert_eq!(pending(&cr), WrapPending::No, "a carriage return");
+    let mut off = b"\x1b[?7l".to_vec();
+    off.extend_from_slice(&full);
+    assert_eq!(pending(&off), WrapPending::No, "?7l pins to the margin");
+    let mut fenced = LRM.to_vec();
+    fenced.extend_from_slice(b"\x1b[1;5Hxxxxxx");
+    assert_eq!(
+        pending(&fenced),
+        WrapPending::Yes,
+        "filled to the right margin"
+    );
+    let mut moved = LRM.to_vec();
+    moved.extend_from_slice(b"\x1b[1;30H");
+    assert_eq!(pending(&moved), WrapPending::Yes, "a CUP past the fence");
+}
+
 // ── DECRQSS ─────────────────────────────────────────────────────────────────
 
 /// DECRQSS reports the margins in a form that can be sent straight back.

@@ -482,6 +482,9 @@ files   = [
   "vt510-DECSEL.html",
   "vt510-DECSLRM.html",
   "vt510-DECSTR.html",
+  "vt510-DL.html",
+  "vt510-IL.html",
+  "vt510-IND.html",
   "vt510-LS.html",
   "vt510-RIS.html",
   "vt510-S7C1T.html",
@@ -825,6 +828,7 @@ status  = "kept"
 files   = [
   "ghostty-MetallibStep.zig",
   "ghostty-d9840f3-Config.zig",
+  "ghostty-d9840f3-Terminal.zig",
   "ghostty-d9840f3-Termio.zig",
   "ghostty-d9840f3-args.zig",
   "ghostty-d9840f3-cell.zig",

@@ -141,6 +141,14 @@ pub enum Moved {
     Restored(Rows),
 }
 
+/// Whether the next graphic character wraps before it is written; see
+/// [`Term::wrap_pending`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WrapPending {
+    No,
+    Yes,
+}
+
 /// Where the primary screen's window stood, noted by [`Term::history_mark`]:
 /// what a window scrolled back into the history is anchored against. It is
 /// the absolute line at the primary window's top -- which the primary holds
@@ -2510,6 +2518,27 @@ impl<'b> Term<'b> {
         // application counting columns then disagrees with.
         let last = self.cold.right;
         (self.cy, Col::at_index(self.cx.index().min(last.index())))
+    }
+
+    /// **Whether the next graphic character wraps before it is written**:
+    /// the cursor stands past the right margin with `DECAWM` set. What
+    /// [`Term::cursor`] clamps away, for a differential that compares it
+    /// with a terminal that keeps the pending wrap as a flag (the V10 oracle,
+    /// `bench-others/ghostty-oracle`, against ghostty's `pending_wrap`).
+    ///
+    /// **It reads the sentinel, so it cannot tell the two states the sentinel
+    /// conflates.** A write that fills to the right margin leaves the cursor
+    /// at right + 1, and so does a move that lands there under side margins
+    /// narrower than the screen -- and so does `CUP` to any column past the
+    /// fence. All three answer `Yes`, because all three wrap first here; a
+    /// terminal with a flag answers `No` for the two moves. Telling them
+    /// apart is step (d) of note V's V10, not this accessor's.
+    pub fn wrap_pending(&self) -> WrapPending {
+        match self.cx.index() > self.cold.right.index() && self.cold.modes.is_set(ModeBit::AutoWrap)
+        {
+            true => WrapPending::Yes,
+            false => WrapPending::No,
+        }
     }
 }
 

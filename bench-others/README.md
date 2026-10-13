@@ -5,6 +5,7 @@
 | `multibench/` | baud vs ghostty, alacritty, wezterm, termwiz, vt100, **sfte** | a ghostty checkout, for ghostty only; sfte comes through `baud-sfte-difftest`'s lib and needs nothing |
 | `kitty-bench/` | kitty's parser, through Python | a built kitty |
 | `alacritty-bench/` | alacritty with and without a PTY | nothing -- crates.io |
+| `ghostty-oracle/` | not a benchmark: V10's oracle, baud-core against libghostty-vt cell for cell at every read size, the screen, the cursor and the pending wrap, with each difference pinned to its reason | `GHOSTTY_LIB_DIR` naming a libghostty-vt built at d9840f3; the build fails without it |
 
 `multibench` no longer needs sibling checkouts for its Rust cores: alacritty,
 vt100, termwiz and wezterm come from crates.io at pinned versions, which are

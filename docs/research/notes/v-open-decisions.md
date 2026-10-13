@@ -215,7 +215,7 @@ which is why it is bundled rather than deleted. Deleting
 | Decision | The pin it waits on | What the pin does |
 |---|---|---|
 | V4, the saved cursor | xterm's `cursor.c`: does xterm keep one saved cursor per screen, or a separate `?1049` save? | decides (i) against (ii) |
-| V10, only on the finish branch | ghostty's `Terminal.zig` at d9840f3c, and xterm's `cursor.c` (the same pin as V4's) | lands before building |
+| V10, only on the finish branch | ghostty's `Terminal.zig` at d9840f3c, and xterm's `cursor.c` (the same pin as V4's) | both pinned: [[source: xterm-cursor-c]], and [[source: ghostty-d9840f3-terminal]] committed 2026-10-12, the commit the oracle's libghostty-vt was built from |
 | V11, the clipboard | RFC 4648, base64's standard | lands before building |
 | V13, the selection colour on macOS | the NSColor selection colours, from the local SDK header | lands before building |
 | V17, colours under `?5` | xterm's `misc.c`, where OSC 4, 10 and 11 are handled | pinned ([[source: xterm-misc]]); OSC 10/11 built 2026-10-11, OSC 4 held for Jev |
