@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 220 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 221 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 255 | 16 | redistributable, and its notice is satisfied |
 | own | 186 | 0 | the owner's work |
-| total | 689 | 27 | |
+| total | 690 | 27 | |
 
 ## Licence texts in LICENSES/
 
@@ -451,7 +451,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 39
+- **Files:** 40
 
 | file | copied from |
 |---|---|
@@ -482,6 +482,7 @@ notice is, and the URL each file was copied from.
 | [vt510-DECSED.html](docs/research/sources/vt510-DECSED.html) | https://vt100.net/docs/vt510-rm/DECSED.html |
 | [vt510-DECSEL.html](docs/research/sources/vt510-DECSEL.html) | https://vt100.net/docs/vt510-rm/DECSEL.html |
 | [vt510-DECSLRM.html](docs/research/sources/vt510-DECSLRM.html) | https://vt100.net/docs/vt510-rm/DECSLRM.html |
+| [vt510-DECSTBM.html](docs/research/sources/vt510-DECSTBM.html) | https://vt100.net/docs/vt510-rm/DECSTBM.html |
 | [vt510-DECSTR.html](docs/research/sources/vt510-DECSTR.html) | https://vt100.net/docs/vt510-rm/DECSTR.html |
 | [vt510-DL.html](docs/research/sources/vt510-DL.html) | https://vt100.net/docs/vt510-rm/DL.html |
 | [vt510-HPA.html](docs/research/sources/vt510-HPA.html) | https://vt100.net/docs/vt510-rm/HPA.html |

@@ -134,6 +134,92 @@ fn bare_decstbm_resets_to_full_screen() {
     }
 }
 
+/// Where `Y` and `X` are, 0-based, and every reply, in order.
+type Landed = (Option<(usize, usize)>, Option<(usize, usize)>, Vec<u8>);
+
+/// 20 by 8, for the zero-bottom cases: what `Y`, `X` and every reply say
+/// after `bytes`, at every read size, each required to agree with the whole.
+fn small_at_every_read(bytes: &[u8]) -> Landed {
+    const WS: WinSize = WinSize {
+        ws_row: 8,
+        ws_col: 20,
+    };
+    let at = |read: usize| {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let mut reply = Vec::new();
+        for piece in bytes.chunks(read) {
+            t.write_at(BytePos::ZERO, piece);
+            t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
+            reply.extend_from_slice(t.reply());
+            t.clear_reply();
+        }
+        let find = |ch: u32| {
+            (0..8).find_map(|y| {
+                t.row(Row::from_index(y))[..20]
+                    .iter()
+                    .position(|c| c.content.as_codepoint().map(|cp| cp.value()) == Some(ch))
+                    .map(|x| (y, x))
+            })
+        };
+        (find(u32::from('Y')), find(u32::from('X')), reply)
+    };
+    let whole = at(bytes.len());
+    for read in 1..bytes.len() {
+        assert_eq!(at(read), whole, "reads of {read} differ: {bytes:?}");
+    }
+    whole
+}
+
+/// Under DECOM, `CUP 99;1` stops at the bottom margin; `X` and `CPR` say where.
+const BOTTOM_PROBE: &[u8] = b"\x1b[?6h\x1b[99;1HX\x1b[6n";
+
+fn with_probe(head: &[u8]) -> Vec<u8> {
+    [head, BOTTOM_PROBE].concat()
+}
+
+/// **An explicit 0 bottom margin is the last line**, as an omitted one is.
+/// `[[source: dec-std-070]]` DECSTBM: "default Pb: last line" (p. 5-25), and
+/// its algorithm reads a 0 as omitted, "if (parv[1] == 0) parv[1] =
+/// lines_per_page;" (p. 5-26). `[[source: vt510-decstbm]]`: "Default: Pb =
+/// current number of lines per screen"; `[[source: vt100-ug-ch3]]` defines a
+/// default as "assumed when no explicit value, or a value of 0, is
+/// specified", and its DECSTBM's is "the entire screen (no margins)";
+/// `[[source: ctlseqs]]`: "default = full size of window". The bottom
+/// decoded as line 1 until 2026-10-13, so `CSI 2;0 r` was rejected and did
+/// not home: parsed and dropped.
+#[test]
+fn a_zero_bottom_margin_is_the_last_line() {
+    let (y, x, reply) = small_at_every_read(&with_probe(b"\x1b[4;4H\x1b[2;0rY"));
+    assert_eq!(y, Some((0, 0)), "homed");
+    assert_eq!(
+        (x, reply.as_slice()),
+        (Some((7, 0)), &b"\x1b[7;2R"[..]),
+        "region 2..8"
+    );
+    // Over a region already set, it replaces it.
+    let (_, x, reply) = small_at_every_read(&with_probe(b"\x1b[2;5r\x1b[2;0r"));
+    assert_eq!(
+        (x, reply.as_slice()),
+        (Some((7, 0)), &b"\x1b[7;2R"[..]),
+        "2..5 to 2..8"
+    );
+}
+
+/// `CSI 0;0 r` is the whole screen: a 0 top is line 1 and a 0 bottom the last.
+#[test]
+fn a_zero_zero_region_is_the_whole_screen() {
+    let (_, x, reply) = small_at_every_read(&with_probe(b"\x1b[2;5r\x1b[0;0r"));
+    assert_eq!((x, reply.as_slice()), (Some((7, 0)), &b"\x1b[8;2R"[..]));
+}
+
+/// The control: an omitted bottom was already the last line.
+#[test]
+fn an_omitted_bottom_margin_is_the_last_line() {
+    let (_, x, reply) = small_at_every_read(&with_probe(b"\x1b[2;5r\x1b[2r"));
+    assert_eq!((x, reply.as_slice()), (Some((7, 0)), &b"\x1b[7;2R"[..]));
+}
+
 /// A line feed at the region bottom scrolls the region and nothing else.
 #[test]
 fn lf_at_region_bottom_scrolls_only_the_region() {

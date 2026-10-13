@@ -907,7 +907,11 @@ impl Paint<'_, '_> {
     }
 
     /// DECSTBM. **A region needs at least two rows**, and setting one homes
-    /// the cursor, to the page origin ([`Paint::home`]).
+    /// the cursor, to the page origin ([`Paint::home`]). **An omitted or 0
+    /// bottom is the last line** ([`Params::far_margin`]): "default Pb: last
+    /// line", and the algorithm reads a 0 as omitted (`[[source:
+    /// dec-std-070]]` DECSTBM, pp. 5-25 and 5-26). A 0 read as line 1 until
+    /// 2026-10-13, so `CSI 2;0 r` was dropped.
     pub(crate) fn set_scroll_region(&mut self, top: OneBased, bottom: Option<OneBased>) {
         let last = Row::from_index(self.rows.index() - 1);
         let t = top.to_row(self.rows);

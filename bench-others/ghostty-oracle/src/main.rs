@@ -679,6 +679,26 @@ fn fixtures() -> Vec<Fixture> {
             format!("{LRM}\x1b[5;0s\x1b[?6h\x1b[1;99HX"),
             Agree,
         ),
+        // ---- DECSTBM's zero bottom: a 0 Pb is the last line ----------------
+        // `[[source: dec-std-070]]` DECSTBM: "default Pb: last line" (p.
+        // 5-25), and its algorithm reads a 0 as omitted (p. 5-26).
+        // Each shows the region by where `X` lands under DECOM after
+        // `CUP 99;1`.
+        f(
+            "decstbm: CSI 2;0 r runs to the last line",
+            "\x1b[4;4H\x1b[2;0rY\x1b[?6h\x1b[99;1HX".to_string(),
+            Agree,
+        ),
+        f(
+            "decstbm: CSI 2;0 r replaces a region",
+            "\x1b[2;5r\x1b[2;0r\x1b[?6h\x1b[99;1HX".to_string(),
+            Agree,
+        ),
+        f(
+            "decstbm: CSI 0;0 r is the whole screen",
+            "\x1b[2;5r\x1b[0;0r\x1b[?6h\x1b[99;1HX".to_string(),
+            Agree,
+        ),
         // ---- side margins: the later steps ----------------------------------
         f(
             "lrm: CR inside the fence",

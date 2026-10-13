@@ -372,12 +372,18 @@ impl<'a> Params<'a> {
     /// **A 0 is the default, as an omitted parameter is.** `[[source:
     /// dec-std-070]]` DECSLRM: "default Pr: Last Column" (p. 5-27), and its
     /// algorithm (p. 5-28) reads the two alike, "if (parv[1] == 0) parv[1] =
-    /// columns_per_page;". `[[source: vt510-decslrm]]` defaults `Pr` to the
-    /// page width, and xterm (`CASE_ANSI_SC`, charproc.c 4891-4894,
-    /// `[[source: xterm-reset]]`) and ghostty (`setLeftAndRightMargin`,
-    /// `[[source: ghostty-d9840f3-terminal]]` 2610) read an omitted or 0 one
-    /// as the last column. [`Self::one_based`] cannot carry it: it reads both
-    /// as 1.
+    /// columns_per_page;"; DECSTBM: "default Pb: last line" (p. 5-25), and
+    /// "if (parv[1] == 0) parv[1] = lines_per_page;" (p. 5-26).
+    /// `[[source: vt100-ug-ch3]]` defines a default as "A function-dependent
+    /// value that is assumed when no explicit value, or a value of 0, is
+    /// specified". `[[source: vt510-decslrm]]` and `[[source: vt510-decstbm]]`
+    /// default `Pr` and `Pb` to the page's width and height, and xterm
+    /// (`CASE_ANSI_SC` and `CASE_DECSTBM`, charproc.c 4891-4894 and
+    /// 4779-4782, `[[source: xterm-reset]]`) and ghostty
+    /// (`setLeftAndRightMargin` and `setTopAndBottomMargin`, `[[source:
+    /// ghostty-d9840f3-terminal]]` 2610 and 2596) read an omitted or 0 one as
+    /// the last column or line. [`Self::one_based`] cannot carry it: it reads
+    /// both as 1.
     pub fn far_margin(&self, i: ParamIdx) -> Option<OneBased> {
         self.at(i)
             .filter(|v| v.0 != 0)
@@ -547,10 +553,12 @@ pub enum Csi {
     InsertBlanks(Count),
     SetScrollRegion {
         top: OneBased,
-        /// `None` when the parameter was omitted, which means the last row --
-        /// bare `CSI r` resets the region to the full screen. `OneBased`
-        /// cannot carry that: `from_param` clamps an absent parameter to 1,
-        /// making it indistinguishable from an explicit `CSI 1;1 r`.
+        /// `None` when the parameter was omitted or 0, which means the last
+        /// row -- bare `CSI r` resets the region to the full screen.
+        /// `OneBased` cannot carry that: `from_param` clamps an absent
+        /// parameter and a 0 to 1, making them indistinguishable from an
+        /// explicit `CSI 1;1 r`. A 0 read as 1 until 2026-10-13, so
+        /// `CSI 2;0 r` was dropped (see [`Params::far_margin`]).
         bottom: Option<OneBased>,
     },
     /// DECSCA, `CSI Ps " q`. Whether following characters may be erased by
@@ -996,9 +1004,7 @@ impl Csi {
             b'@' => Csi::InsertBlanks(p.count(ParamIdx::FIRST)),
             b'r' => Csi::SetScrollRegion {
                 top: p.one_based(ParamIdx::FIRST),
-                bottom: p
-                    .at(ParamIdx::SECOND)
-                    .map(|v| OneBased::from_param(Some(v))),
+                bottom: p.far_margin(ParamIdx::SECOND),
             },
             b'm' => Csi::Sgr,
             _ => Csi::Unsupported {

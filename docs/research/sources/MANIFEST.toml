@@ -330,6 +330,24 @@ bytes  = 21048
 status = "retrieved"
 group  = "C"
 
+[sources.vt510-decstbm]
+key    = "vt510-decstbm"
+title  = "DECSTBM — Set Top and Bottom Margins (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECSTBM.html"
+file   = "vt510-DECSTBM.html"
+sha256 = "f063db59d171132c5b4008a685fec3e9d71a25e8e59e932d8dd535f01ac4da0b"
+bytes  = 19851
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-13 for DECSTBM's zero bottom margin: "Pb is the line number for
+# the bottom margin. Default: Pb = current number of lines per screen". It gives
+# the omitted default and no rule for 0; [[source: vt100-ug-ch3]] gives that one.
+# The hash covers vt100.net's page chrome as well as DEC's text, so a re-fetch can
+# differ with the text unchanged.
+
 # DECARM's default, which `Modes::default()` follows: "Default: Repeat
 # (set)". xterm ignores the mode ([[source: xterm-reset]]'s file, `srm_DECARM`)
 # and states no default; this is DEC's.

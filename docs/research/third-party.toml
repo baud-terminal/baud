@@ -482,6 +482,7 @@ files   = [
   "vt510-DECSED.html",
   "vt510-DECSEL.html",
   "vt510-DECSLRM.html",
+  "vt510-DECSTBM.html",
   "vt510-DECSTR.html",
   "vt510-DL.html",
   "vt510-HPA.html",
