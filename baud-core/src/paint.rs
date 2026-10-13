@@ -1309,8 +1309,12 @@ impl<'a, 'b> Paint<'a, 'b> {
         // `DECSTBM 5 ; 50` -- took the rotation and retired its header rows
         // into the history. foot scrolls the region at its bottom whatever
         // row that is (`[[source: foot-linefeed]]`, `term_linefeed`).
+        //
+        // **Side margins make it a rectangle, the whole screen included**,
+        // which [`Paint::scroll_region_up`] scrolls in place: the third test
+        // here, on a path taken once a line at the bottom.
         if self.cy == self.cold.bot {
-            if self.cold.top != Row::ZERO || self.cold.bot.index() != last {
+            if self.cold.top != Row::ZERO || self.cold.bot.index() != last || self.fenced() {
                 self.scroll_region_up(Count::ONE);
                 self.row_changed_to(self.cy);
                 return self.view.rot();

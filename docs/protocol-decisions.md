@@ -291,9 +291,11 @@ being executed and counted; the owner's call is to build it (below).
 half-built protocol feature is finished to the spec, not switched off"):
 
 * **V10, side margins finished.** DECSLRM binds the wrap, ICH, DCH and
-  DECIC/DECDC (above), and the vertical scrolls ignore them: `SU`, `SD`, `IND`,
-  `RI`, `LF`, `IL` and `DL` move whole rows, where `[[source: vt510-decslrm]]`
-  makes the scrolling region the rectangle.
+  DECIC/DECDC (above), and since 2026-10-12 every vertical scroll: `SU`,
+  `SD`, `IND`, `RI`, `LF`, `IL` and `DL` move only the rectangle, which
+  `[[source: vt510-decslrm]]` makes the scrolling region (`docs/record.md`,
+  "Rectangle scrolling"). Steps (c) and (d) remain: line starts and cursor
+  moves that honour the fence, and C2-min.
 * **V14, an ambiguous-width switch with `?1021`**: a config key to draw East
   Asian Ambiguous characters two columns wide, and `?1021` built to the spec.
   Neither exists today: `Term::set_ambiguous_width` is the core's channel,

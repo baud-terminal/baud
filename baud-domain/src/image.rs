@@ -817,6 +817,38 @@ impl<'b> ImageStore<'b> {
         n: Rows,
         way: BandMove,
     ) -> usize {
+        self.scroll_band_within(screen, lo, hi, None, n, way)
+    }
+
+    /// [`ImageStore::scroll_band`] for a band that is a rectangle: only a
+    /// placement whose anchor column lies in `cols`, inclusive, moved with
+    /// the text, because only the text there moved -- a scroll under side
+    /// margins. **The anchor's column decides, as the anchor's row does for
+    /// a band**: no text says what an image does under a rectangle scroll,
+    /// and ghostty moves only a placement wholly inside the rectangle
+    /// (`[[source: ghostty-d9840f3-graphics-storage]]`, 513-522), a choice
+    /// listed for Jev in the record ("Rectangle scrolling").
+    pub fn scroll_rect(
+        &mut self,
+        screen: ImageScreen,
+        lo: LineIdx,
+        hi: LineIdx,
+        cols: (Col, Col),
+        n: Rows,
+        way: BandMove,
+    ) -> usize {
+        self.scroll_band_within(screen, lo, hi, Some(cols), n, way)
+    }
+
+    fn scroll_band_within(
+        &mut self,
+        screen: ImageScreen,
+        lo: LineIdx,
+        hi: LineIdx,
+        cols: Option<(Col, Col)>,
+        n: Rows,
+        way: BandMove,
+    ) -> usize {
         let Some(r) = self.reach[screen.slot()] else {
             return 0;
         };
@@ -827,6 +859,9 @@ impl<'b> ImageStore<'b> {
         for p in 0..self.placements.len() {
             let s = self.placements[p];
             if s.is_empty() || s.screen != screen || s.line < lo || s.line >= hi {
+                continue;
+            }
+            if cols.is_some_and(|(l, r)| s.col < l || s.col > r) {
                 continue;
             }
             let to = match way {

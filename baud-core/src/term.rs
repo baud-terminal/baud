@@ -201,9 +201,10 @@ impl RegionScrolls {
 /// moves that advance no ring: it moves on every `IL` and `DL`, and on every
 /// scroll of a region that copies its rows rather than rotating the ring --
 /// `SU`, a line feed or `IND` at the bottom of a region in the middle of the
-/// screen, of a short top region under side margins or on the alternate
-/// screen, and `SD` or `RI` at the top of any region smaller than the
-/// screen -- on either screen, and on nothing else. Rows moved that way keep
+/// screen or of a short top region on the alternate screen, `SD` or `RI` at
+/// the top of any region smaller than the screen, and every vertical scroll
+/// under side margins narrower than the screen, the whole screen included,
+/// which moves only the rectangle -- on either screen, and on nothing else. Rows moved that way keep
 /// their screen rows and move their text, and nothing else across a read
 /// says so: the ring did not move, so [`Term::history_moved_since`] and
 /// [`Term::region_scrolls`] read nothing. An embedder holding a selection on

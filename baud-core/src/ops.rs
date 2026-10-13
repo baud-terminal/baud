@@ -285,6 +285,69 @@ impl Paint<'_, '_> {
         self.images.scroll_band(screen, lo, hi, k, way);
     }
 
+    /// **Side margins narrower than the screen**: then the scrolling region
+    /// is the rectangle the four margins bound, and every vertical scroll is
+    /// [`Paint::scroll_rect`]'s. `DECSLRM` admits only a left margin below
+    /// the right, so full width is exactly both at the screen's edges.
+    #[inline(always)]
+    pub(crate) fn fenced(&self) -> bool {
+        self.cold.left != Col::ZERO || self.cold.right.index() + 1 != self.cols.index()
+    }
+
+    /// **A vertical scroll of the rectangle**: rows `at` to the bottom margin,
+    /// between the side margins, `n` rows `way` -- `SU`, `SD`, `IND`, `RI`,
+    /// `LF` and a wrap at a margin, `IL` and `DL`, whenever [`Paint::fenced`].
+    ///
+    /// `[[source: dec-std-070]]` § 5.4.3, p. 5-23: "A scrolling region is
+    /// defined as the area bounded by the top, bottom, left, and right
+    /// margins ... All scrolling, both vertical and horizontal, is limited to
+    /// this area", and its `scroll_up` and `scroll_down` move only the
+    /// columns from the left margin to the right (§ 5.14.2-3, revision note
+    /// 28). **Nothing goes to the history**: "Lines scrolled off the top of
+    /// the scrolling region are lost", and part of a row is not a line --
+    /// xterm keeps nothing from `scrollInMargins` either
+    /// (`[[source: xterm-scroll]]`, `xtermScroll`). So no ring moves, on
+    /// either screen, and the rows' content changed in place, which is what
+    /// [`Term::row_moves`] tells a reader holding a selection.
+    ///
+    /// Out of line: no recording the corpus holds sets side margins, and the
+    /// callers pay one test of [`Paint::fenced`] for it.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn scroll_rect(&mut self, at: Row, n: Count, way: BandMove) {
+        let (bot, left, right) = (self.cold.bot, self.cold.left, self.cold.right);
+        if at.index() > bot.index() {
+            return;
+        }
+        let b = self.blank();
+        let w = self
+            .view
+            .scroll_rect(at, bot, left, right.after(), n, way, b);
+        self.cells = self.cells.plus(w);
+        self.cold.row_moves = self.cold.row_moves.next();
+        if self.images.any_placed() {
+            let k = n.at_least_one().min(bot.index() + 1 - at.index());
+            let (screen, top) = self.image_top();
+            let lo = top.plus(Rows::of_count(at.index()));
+            let hi = top.plus(Rows::of_count(bot.index() + 1));
+            self.images
+                .scroll_rect(screen, lo, hi, (left, right), Rows::of_count(k), way);
+        }
+        self.row_changed_to(self.cy);
+    }
+
+    /// Whether the cursor is between the side margins for `IL` and `DL`,
+    /// which do "not work outside these margins" (`[[source: dec-std-070]]`
+    /// p. 5-24). **A pending wrap is on the right margin**: the sentinel is
+    /// one past it, and reading it as outside made `IL` at the end of a full
+    /// row inert. A cursor *moved* to exactly right + 1 under side margins
+    /// looks the same and reads as inside too -- the conflation note V's V10
+    /// step (d) exists to end.
+    fn within_side_margins(&self) -> bool {
+        let x = self.cx.index();
+        x >= self.cold.left.index() && x <= self.cold.right.index() + 1
+    }
+
     /// **The row the scroll after the next will blank, asked for now.** With
     /// the grid as the ring, the row a scroll brings in was last touched
     /// `ring` scrolls ago, so the blank's stores land on lines nothing has in
@@ -359,6 +422,13 @@ impl Paint<'_, '_> {
         if top.index() > bot.index() {
             return;
         }
+        // **Before every rotation**: under side margins the region is a
+        // rectangle, the whole screen and a top region included, and a
+        // rotation would move the rows outside it and retire them.
+        if self.fenced() {
+            self.scroll_rect(top, n, BandMove::Up);
+            return;
+        }
         let k = n.at_least_one().min(bot.index() + 1 - top.index());
         let last = self.rows.index() - 1;
         if top.index() == 0 && bot.index() == last {
@@ -398,10 +468,9 @@ impl Paint<'_, '_> {
         // `screen_index` and `screen_scroll`), wezterm when the region starts
         // at row 0 (`[[source: wezterm-screen-b09b56c]]`, `scroll_up`). A
         // region narrower than the screen keeps nothing in xterm or wezterm,
-        // so the widening asks for full side margins; a tall one under narrow
-        // margins rotates as it always did, which is the rectangle gap the
-        // `DECSLRM` row records. The alternate screen keeps no history, so
-        // there the cheaper path still decides.
+        // and never reaches here: it is a rectangle, scrolled above. The
+        // alternate screen keeps no history, so there the cheaper path still
+        // decides.
         //
         // **What it costs is the repair.** A short region leaves most rows
         // under it, and each scroll moves every one of them: `below` rows of
@@ -411,9 +480,7 @@ impl Paint<'_, '_> {
         // carrying cost on the corpus -- none of whose recordings has it.
         let below = last - bot.index();
         let height = bot.index() + 1 - top.index();
-        let keeps = self.cold.screen == Screen::Normal
-            && self.cold.left == Col::ZERO
-            && self.cold.right.index() == self.cols.index() - 1;
+        let keeps = self.cold.screen == Screen::Normal;
         if top.index() == 0 && (keeps || below < height) {
             // **On either screen.** The count says the ring advanced through a
             // region rather than with the whole screen, which is what a
@@ -693,6 +760,10 @@ impl Paint<'_, '_> {
         if top.index() > bot.index() {
             return;
         }
+        if self.fenced() {
+            self.scroll_rect(top, n, BandMove::Down);
+            return;
+        }
         let k = n.at_least_one().min(bot.index() + 1 - top.index());
         let last = self.rows.index() - 1;
         if top.index() == 0 && bot.index() == last {
@@ -750,9 +821,22 @@ impl Paint<'_, '_> {
     }
 
     /// IL. **Outside the region it does nothing**, which is the rule that
-    /// keeps a pager's `IL` from disturbing its status line.
+    /// keeps a pager's `IL` from disturbing its status line -- outside the
+    /// side margins too: `[[source: dec-std-070]]` p. 5-24 marks `IL` and `DL`
+    /// for both margin pairs, and its IL (p. 5-146) reads "Only that portion
+    /// of the display between the top, bottom, left, and right margins is
+    /// affected. IL is ignored if the Active Position is outside the Scroll
+    /// Area" (`[[source: vt510-il]]` says "page margins"). Under them it moves
+    /// the rectangle.
     pub(crate) fn insert_lines(&mut self, n: Count) {
         if self.cy.index() < self.cold.top.index() || self.cy.index() > self.cold.bot.index() {
+            return;
+        }
+        if !self.within_side_margins() {
+            return;
+        }
+        if self.fenced() {
+            self.scroll_rect(self.cy, n, BandMove::Down);
             return;
         }
         let (at, bot) = (self.cy, self.cold.bot);
@@ -773,9 +857,17 @@ impl Paint<'_, '_> {
         self.row_changed_to(self.cy);
     }
 
-    /// DL.
+    /// DL, `IL`'s inverse, under the same two bounds (`[[source: vt510-dl]]`:
+    /// "DL has no effect outside the scrolling margins").
     pub(crate) fn delete_lines(&mut self, n: Count) {
         if self.cy.index() < self.cold.top.index() || self.cy.index() > self.cold.bot.index() {
+            return;
+        }
+        if !self.within_side_margins() {
+            return;
+        }
+        if self.fenced() {
+            self.scroll_rect(self.cy, n, BandMove::Up);
             return;
         }
         let (at, bot) = (self.cy, self.cold.bot);

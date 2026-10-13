@@ -21588,6 +21588,24 @@ group  = "C"
 # 2951-3118, deleteLines 3125-. [[source: ghostty-terminal-9bbb9b2]] does not
 # serve: it is another commit (sha c39b749...), and the oracle is this one.
 
+[sources.ghostty-d9840f3-graphics-storage]
+key    = "ghostty-d9840f3-graphics-storage"
+title  = "ghostty at d9840f3, src/terminal/kitty/graphics_storage.zig -- which kitty placements a scroll of the margins moves"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/kitty/graphics_storage.zig"
+file   = "ghostty-d9840f3-graphics_storage.zig"
+sha256 = "a2c29c02531f00b939485a9e45eeb8198d55648f116282c31e37bed84677328d"
+bytes  = 183116
+status = "retrieved"
+group  = "C"
+# Committed 2026-10-13 for V10's rectangle scrolling, from the clean checkout
+# at d9840f3 the oracle's libghostty-vt was built from (`git show
+# d9840f3:src/terminal/kitty/graphics_storage.zig`). Read: scrollMarginsBegin
+# 459-, the "entirely within the scrolling region" test 513-522, whose comment
+# reads "the column check is our generalization for left/right margins".
+
 [sources.linux-cf72cbb-console-struct]
 key    = "linux-cf72cbb-console-struct"
 title  = "Linux cf72cbb, include/linux/console_struct.h -- struct vc_state, what save_cur copies"

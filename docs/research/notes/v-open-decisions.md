@@ -1576,6 +1576,11 @@ growth in real sessions, and the seven-gesture sweep bounds how much.
 
 ### V10. The side-margin fence: finish it or switch it off
 
+**Status, 2026-10-12.** The owner answered F. Steps (a), the oracle
+harness (`bench-others/ghostty-oracle`), and (b), rectangle scrolling, are
+built: the record, "V10's oracle" and "Rectangle scrolling". Steps (c) and
+(d) remain, and what follows is the note as it was written before them.
+
 **The question**
 
 A program can fence its text into a band of columns. It first turns on mode

@@ -302,16 +302,20 @@ fn on_fill(tail: &str) -> Vec<u8> {
     v
 }
 
-/// The step of V10 that builds rectangle scrolling, while it is unbuilt.
-const RECT: &str = "V10 step (b): rectangle scrolling under DECLRMM is not built; \
-                    baud moves whole rows";
+/// ghostty's departure from the DEC texts, which baud does not follow.
+const INDEX_OUTSIDE: &str = "ghostty departs: IND and RI from outside the side margins move \
+                             nothing there; STD 070 p. 5-24 marks them O for L/R, 'Continues \
+                             to work outside these margins', and its algorithms test the \
+                             line only (xterm departs alike)";
 /// IL and DL move the cursor to the left margin: [[source: dec-std-070]] IL
 /// and DL note 2, ECMA-48 8.3.67 and 8.3.32's line home position.
 const HOME: &str = "IL/DL leave the column where it was; the texts move it to the \
                     left margin (STD 070 IL/DL note 2, ECMA-48 8.3.67/8.3.32)";
 /// Note V's V10, step (c).
 const STEP_C: &str = "V10 step (c): line starts and moves that honour the fence";
-/// Note V's V10, step (d).
+/// Note V's V10, step (d): the corner, and `Term::cursor`'s clamp of a
+/// cursor right of the fence to the right margin, which reads it as a
+/// pending wrap there.
 const STEP_D: &str = "V10 step (d): the corner, a cursor right of the fence, C2-min";
 /// Found by this harness's first run, and not V10's to fix.
 const DECSTBM_HOME: &str = "found: DECSTBM homes to the region's top row with DECOM reset; \
@@ -402,102 +406,130 @@ fn fixtures() -> Vec<Fixture> {
         f(
             "lrm: SU scrolls the rectangle",
             format!("{TB}{LRM}\x1b[S"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: SD scrolls the rectangle",
             format!("{TB}{LRM}\x1b[2T"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: SU by more than the region",
             format!("{TB}{LRM}\x1b[9S"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: SU with the cursor outside the fence",
             format!("{TB}{LRM}\x1b[1;15H\x1b[S"),
-            Pinned(RECT),
+            Pinned(STEP_D),
         ),
         f(
             "lrm: IL inside the rectangle",
             format!("{TB}{LRM}\x1b[3;6H\x1b[L\x1b[8;1H"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: DL inside the rectangle",
             format!("{TB}{LRM}\x1b[3;6H\x1b[2M\x1b[8;1H"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: IL left of the fence does nothing",
             format!("{TB}{LRM}\x1b[3;2H\x1b[L\x1b[8;1H"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: DL right of the fence does nothing",
             format!("{TB}{LRM}\x1b[3;15H\x1b[M\x1b[8;1H"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: LF at the bottom margin",
             format!("{TB}{LRM}\x1b[6;7H\n"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: IND at the bottom margin",
             format!("{TB}{LRM}\x1b[6;7H\x1bD"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: RI at the top margin",
             format!("{TB}{LRM}\x1b[2;7H\x1bM"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: IND left of the fence at the bottom margin",
             format!("{TB}{LRM}\x1b[6;2H\x1bD"),
-            Pinned(RECT),
+            Pinned(INDEX_OUTSIDE),
         ),
         f(
             "lrm: RI right of the fence at the top margin",
             format!("{TB}{LRM}\x1b[2;15H\x1bM"),
-            Pinned(RECT),
+            Pinned(INDEX_OUTSIDE),
         ),
         f(
             "lrm: LF on the whole screen's last row",
             format!("{LRM}\x1b[8;7H\n"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: LF at a top-anchored region's bottom",
             format!("{LRM}\x1b[1;6r\x1b[6;7H\n"),
-            Pinned(RECT),
+            Agree,
+        ),
+        f(
+            "lrm: margins at the left edge, SU",
+            format!("{TB}\x1b[?69h\x1b[1;10s\x1b[S"),
+            Agree,
+        ),
+        f(
+            "lrm: margins at the left edge, LF on the whole screen",
+            "\x1b[?69h\x1b[1;10s\x1b[8;3H\n".into(),
+            Agree,
+        ),
+        f(
+            "lrm: margins at the right edge, SD",
+            format!("{TB}\x1b[?69h\x1b[11;20s\x1b[2T"),
+            Agree,
+        ),
+        f(
+            "lrm: margins at the right edge, LF on the whole screen",
+            "\x1b[?69h\x1b[11;20s\x1b[8;15H\n".into(),
+            Agree,
+        ),
+        // A cursor moved to right + 1 reads as a pending wrap on the right
+        // margin, so IL acts from it here; ghostty's is outside and inert.
+        // Step (d) ends the conflation, and this goes red when it does.
+        f(
+            "lrm: IL at CUP right + 1",
+            format!("{TB}{LRM}\x1b[3;11H\x1b[L\x1b[8;1H"),
+            Pinned(STEP_D),
         ),
         f(
             "lrm: a wrap at the bottom margin scrolls the rectangle",
             format!("{TB}{LRM}\x1b[6;5H0123456789AB"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: a wide character across the left margin",
             format!("\x1b[3;4H\u{4e2d}{TB}{LRM}\x1b[S"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: a wide character across the right margin",
             format!("\x1b[4;10H\u{4e2d}{TB}{LRM}\x1b[S"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: a wide character across the left margin on the top row",
             format!("\x1b[2;4H\u{4e2d}{TB}{LRM}\x1b[S"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: a wide character across the right margin on the bottom row, SD",
             format!("\x1b[6;10H\u{4e2d}{TB}{LRM}\x1b[T"),
-            Pinned(RECT),
+            Agree,
         ),
         f(
             "lrm: IL homes to the left margin",

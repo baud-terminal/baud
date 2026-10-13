@@ -7,6 +7,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod rect_scroll;
 mod side_margins;
 
 /// **No gaps, and the gate stays so that a new one has to say so.**
@@ -21,5 +22,5 @@ mod side_margins;
 /// to this suite fails it, and there is nothing left to close.
 #[test]
 fn the_known_vt420_gaps() {
-    support::ignores_are("vt420", &["side_margins.rs"], &[]);
+    support::ignores_are("vt420", &["rect_scroll.rs", "side_margins.rs"], &[]);
 }

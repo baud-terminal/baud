@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 254 | 16 | redistributable, and its notice is satisfied |
+| kept | 255 | 16 | redistributable, and its notice is satisfied |
 | own | 186 | 0 | the owner's work |
-| total | 686 | 27 | |
+| total | 687 | 27 | |
 
 ## Licence texts in LICENSES/
 
@@ -971,7 +971,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT
 - **Notice:** [LICENSES/ghostty-MIT.txt](LICENSES/ghostty-MIT.txt)
-- **Files:** 9
+- **Files:** 10
 
 | file | copied from |
 |---|---|
@@ -983,6 +983,7 @@ notice is, and the URL each file was copied from.
 | [ghostty-d9840f3-cell.zig](docs/research/sources/ghostty-d9840f3-cell.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/cell.zig |
 | [ghostty-d9840f3-color.zig](docs/research/sources/ghostty-d9840f3-color.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/color.zig |
 | [ghostty-d9840f3-fraction.zig](docs/research/sources/ghostty-d9840f3-fraction.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/fraction.zig |
+| [ghostty-d9840f3-graphics_storage.zig](docs/research/sources/ghostty-d9840f3-graphics_storage.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/kitty/graphics_storage.zig |
 | [ghostty-d9840f3-shaders.metal](docs/research/sources/ghostty-d9840f3-shaders.metal) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/shaders/shaders.metal |
 
 ### hackerb9/vt340test (hackerb9 and contributors), tests and findings on a real VT340

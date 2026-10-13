@@ -2548,4 +2548,91 @@ impl<'a> View<'a> {
         let a = self.at(r, Col::ZERO);
         &self.cells[a..a + self.cols.index()]
     }
+    /// **Scroll the rectangle** rows `top..=bottom`, columns `left..right`,
+    /// `n` rows `way`, blanking the `n` rows it opens, and leave every cell
+    /// outside it where it is. Side margins make the scrolling region this
+    /// rectangle: `[[source: dec-std-070]]` § 5.4.3, "All scrolling, both
+    /// vertical and horizontal, is limited to this area", and its
+    /// `scroll_up` and `scroll_down` copy from the left margin to the right
+    /// only (§ 5.14.2-3). Returns the cells written.
+    ///
+    /// **A wide character a side of the rectangle cuts is erased first, both
+    /// halves, on every row in it** -- the rows that move and the rows that
+    /// are written into alike -- since moving one half would leave the other
+    /// an orphan. No text settles it; it is [`View::snap`]'s rule, and what
+    /// xterm's `scrollInMargins` (`[[source: xterm-scroll]]`) and ghostty do.
+    ///
+    /// **Each row in it is marked to `right` (to `right + 1` where an erase
+    /// reached past it)**: cells copied or blanked inside the rectangle can
+    /// differ from what the row was uniform with past its mark, and the mark
+    /// only rises, the safe direction. The rows keep their wrap state: a row
+    /// whose middle moved is still the line it was.
+    ///
+    /// Rows are distinct, so each copy is of one row's span into another's,
+    /// in the order that reads a row before it is overwritten. Cold: only a
+    /// scroll under side margins comes here.
+    #[allow(clippy::too_many_arguments)]
+    pub fn scroll_rect(
+        &mut self,
+        top: Row,
+        bottom: Row,
+        left: Col,
+        right: Col,
+        n: Count,
+        way: BandMove,
+        blank: PackedCell,
+    ) -> usize {
+        let (cols, s) = (self.cols.index(), self.stride.index());
+        let (cy, bot) = (top.index(), bottom.index().min(self.rows.index() - 1));
+        let (l, r) = (left.index(), right.index().min(cols));
+        if cy > bot || l >= r {
+            return 0;
+        }
+        let n = (n.get_raw() as usize).min(bot + 1 - cy);
+        let mut written = 0;
+        for y in cy..=bot {
+            let row = Row::from_index(y);
+            let base = self.at(row, Col::ZERO);
+            let mut far = r;
+            if l > 0 && self.cells[base + l].content.is_wide_tail() {
+                self.cells[base + l - 1] = blank;
+                self.cells[base + l] = blank;
+                written += 2;
+            }
+            if r < cols && self.cells[base + r].content.is_wide_tail() {
+                self.cells[base + r - 1] = blank;
+                self.cells[base + r] = blank;
+                written += 2;
+                far = r + 1;
+            }
+            self.reached(row, far);
+        }
+        let w = r - l;
+        let copy = |v: &mut Self, from: usize, to: usize| {
+            let src = v.phys(Row::from_index(from)) * s + l;
+            let dst = v.phys(Row::from_index(to)) * s + l;
+            v.cells.copy_within(src..src + w, dst);
+        };
+        match way {
+            BandMove::Up => {
+                for y in cy..bot + 1 - n {
+                    copy(self, y + n, y);
+                }
+                for y in bot + 1 - n..=bot {
+                    let a = self.at(Row::from_index(y), left);
+                    self.cells[a..a + w].fill(blank);
+                }
+            }
+            BandMove::Down => {
+                for y in (cy + n..=bot).rev() {
+                    copy(self, y - n, y);
+                }
+                for y in cy..cy + n {
+                    let a = self.at(Row::from_index(y), left);
+                    self.cells[a..a + w].fill(blank);
+                }
+            }
+        }
+        written + (bot + 1 - cy) * w
+    }
 }

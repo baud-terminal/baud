@@ -2365,8 +2365,11 @@ fn stale_under_region(
 
 /// Whether a read moved, in place, rows of the live screen that `sel` names:
 /// an `IL` or `DL`, or a region scroll that copies its rows -- a region in
-/// the middle of the screen, a short top region under side margins or on
-/// the alternate screen, `SD` and `RI` in any partial region. No ring moves,
+/// the middle of the screen, a short top region on the alternate screen,
+/// `SD` and `RI` in any partial region, and every vertical scroll under side
+/// margins, the whole screen included, which moves only the rectangle. Rows
+/// are tested and columns are not, so a selection beside the rectangle on
+/// its rows is stale too, though its text did not move. No ring moves,
 /// so the selection's lines still name the same screen rows while the text
 /// on them has moved, and it would copy what took their place.
 fn stale_in_moved_rows(
