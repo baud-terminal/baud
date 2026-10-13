@@ -28,8 +28,9 @@ use baud_domain::{
 };
 use baud_font::bytes::Count;
 use baud_font::{
-    Cluster, Digest as LookupDigest, Face, Features, Glyph, Ignorable, MAX_LOOKUPS, Normalised,
-    Phase, Px, Scale, Shaper, VarPoint, Walked,
+    Cluster, Digest as LookupDigest, Face, Features, Glyph, Ignorable, LookupSet, MAX_LOOKUPS,
+    Normalised, PerScript, Phase, Px, Scale, Script, ScriptTag, Shaper, Unresolved, VarPoint,
+    Walked,
 };
 use std::time::{Duration, Instant};
 
@@ -380,6 +381,89 @@ struct ClusterIn {
     at: CellIx,
 }
 
+/// Which lookups a script selects on one face, numbered: two scripts with
+/// the same number shape alike there, since the lookups are all a script
+/// changes in baud's shaper, so a run may cross between them. A run is cut
+/// only where this changes, not wherever the script does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+struct Selection(u8);
+
+/// Whether the scripts select different lookups on a face at all.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Varies {
+    /// Every script selects the same lookups: a run is never cut by
+    /// script, and no row's scripts need settling for this face. The
+    /// embedded text faces are this, their `DFLT`, `latn` and `hebr` naming
+    /// the same lookups; STIX Two Math is not.
+    No,
+    Yes,
+}
+
+/// One face's [`Selection`] per script.
+struct Selections {
+    by_script: PerScript<Selection>,
+    varies: Varies,
+}
+
+impl Selections {
+    /// The `GSUB` and `GPOS` lookups each script selects on `face` under
+    /// the grid features, numbered by first appearance. The lookups are
+    /// gathered once per pair of Script tables chosen, not once per script:
+    /// a face lists a handful of tables, and 175 scripts share them.
+    fn of(face: &Face<'_>) -> Selections {
+        type Chosen = (Option<ScriptTag>, Option<ScriptTag>);
+        let mut tables: Vec<(Chosen, Selection)> = Vec::new();
+        let mut seen: Vec<(Option<LookupSet>, Option<LookupSet>)> = Vec::new();
+        let by_script = PerScript::from_fn(|s| {
+            let chosen = (
+                face.gsub().and_then(|g| g.chosen(s)),
+                face.gpos().and_then(|g| g.chosen(s)),
+            );
+            if let Some(&(_, sel)) = tables.iter().find(|(c, _)| *c == chosen) {
+                return sel;
+            }
+            let key = (
+                face.gsub().map(|g| g.lookups(s, Features::GRID)),
+                face.gpos().map(|g| g.lookups(s, Features::GRID)),
+            );
+            let i = match seen.iter().position(|k| *k == key) {
+                Some(i) => i,
+                None => {
+                    seen.push(key);
+                    seen.len() - 1
+                }
+            };
+            let sel = Selection(u8::try_from(i).unwrap_or(u8::MAX));
+            tables.push((chosen, sel));
+            sel
+        });
+        let varies = match by_script.uniform() {
+            true => Varies::No,
+            false => Varies::Yes,
+        };
+        Selections { by_script, varies }
+    }
+}
+
+/// What a cell contributes to its row's scripts before context settles
+/// them: its base's script, or for a base that names none, its whole
+/// cluster's (UAX #24 5.2), which reads the marks only then. A cell with
+/// nothing drawn joins whatever is around it.
+fn unresolved(term: &Term<'_>, cell: PackedCell) -> Unresolved {
+    let Some(base) = cell.content.as_codepoint() else {
+        return Unresolved::Neutral { joins: &[] };
+    };
+    match Unresolved::of(core::slice::from_ref(&base)) {
+        Unresolved::Neutral { .. } if cell.flags.is_marked() => {
+            let cps: Vec<Codepoint> = core::iter::once(base)
+                .chain(term.cluster_marks(cell).filter_map(Codepoint::new))
+                .collect();
+            Unresolved::of(&cps)
+        }
+        u => u,
+    }
+}
+
 /// Where the cursor is, when it is shown, and its shape.
 type Cursor = Option<(Row, Col, CursorStyle)>;
 
@@ -483,6 +567,15 @@ pub struct Renderer<'f, 'a> {
     /// for a face with no substitution rules or one whose tables could
     /// not be walked.
     extents: Vec<Option<Count>>,
+    /// Per face, which lookups each script selects
+    /// (`[[source: ms-opentype-chapter2]]`, ScriptList table), so a run is
+    /// cut where they change.
+    selections: Vec<Selections>,
+    /// The row being converted, each cell's script settled in context
+    /// (UAX #24, [`baud_font::resolve`]); filled only for a row with a run
+    /// on a face whose scripts select different lookups.
+    row_scripts: Vec<Script>,
+    row_unresolved: Vec<Unresolved>,
     /// The faces by the code a map entry carries.
     faces: Vec<FaceIx>,
     /// The single-codepoint resolution per codepoint, memoised for the
@@ -680,6 +773,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .iter()
             .map(|f| f.gsub().and_then(|g| g.extent(Features::GRID)))
             .collect();
+        let selections: Vec<Selections> = stack.faces().iter().map(Selections::of).collect();
         let faces = stack.each().collect();
         let defaults = (theme.fg, theme.bg);
         let mut r = Renderer {
@@ -692,6 +786,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             starters,
             pairs,
             extents,
+            selections,
+            row_scripts: Vec::new(),
+            row_unresolved: Vec::new(),
             faces,
             #[cfg(feature = "exceptions")]
             singles: std::collections::HashMap::new(),
@@ -1863,7 +1960,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             cps: cps.to_vec(),
             at: CellIx(0),
         }];
-        let shaped = self.shape(face, &clusters, ..);
+        // A marked cell alone: the script its own code points name (UAX #24
+        // 5.2), or `DFLT`'s for one that names none.
+        let shaped = self.shape(face, Script::of_cluster(cps), &clusters, ..);
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let mut out = Vec::new();
@@ -1904,7 +2003,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
             cps: vec![cp],
             at: CellIx(0),
         }];
-        let shaped = self.shape(face, &clusters, ..);
+        // A code point alone: its own script, or `DFLT`'s for one with none
+        // -- the specification's "text [that] does not have a specific
+        // script". In a row, a Common character takes its neighbours'
+        // script instead. The two agree wherever the two select the same
+        // lookups; on STIX Two Math, the one embedded face whose scripts
+        // differ, the only lookup `DFLT` adds to `latn` is a ligature that
+        // begins on a Greek capital, which no Common code point is.
+        let shaped = self.shape(face, Script::of(cp), &clusters, ..);
         let p = *shaped.glyphs().first()?;
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
@@ -1968,17 +2074,60 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // -- the face's longest rule, the same span the window itself is
         // built from -- and only the middle is kept, so a substitution
         // that straddles a chunk boundary still sees what it needs.
+        //
+        // **And in pieces of one selection of the face's lookups**, as a row
+        // is: a window's cells settle their scripts among themselves (UAX
+        // #24, [`baud_font::resolve`]), and a piece is cut where the lookups
+        // the script selects change, so no chunk shapes across that edge.
+        let Some(&facex) = usize::try_from(face.0).ok().and_then(|i| self.faces.get(i)) else {
+            return Vec::new();
+        };
+        let mut out: Vec<Vec<ClusterGlyph>> = vec![Vec::new(); cells.len()];
+        let scripts: Vec<Script> = match self.selections.get(facex.index()) {
+            Some(sel) if sel.varies == Varies::Yes => {
+                let unresolved: Vec<Unresolved> =
+                    cells.iter().map(|(cps, _)| Unresolved::of(cps)).collect();
+                let mut settled = vec![Script::COMMON; cells.len()];
+                baud_font::resolve(&unresolved, &mut settled);
+                settled
+            }
+            _ => vec![Script::COMMON; cells.len()],
+        };
+        let picks: Vec<Selection> = match self.selections.get(facex.index()) {
+            Some(sel) => scripts.iter().map(|&s| sel.by_script[s]).collect(),
+            None => vec![Selection::default(); cells.len()],
+        };
+        let mut lo = 0;
+        while lo < cells.len() {
+            let script = scripts[lo];
+            let mut hi = lo + 1;
+            while hi < cells.len() && picks[hi] == picks[lo] {
+                hi += 1;
+            }
+            self.window_piece(face, facex, script, &cells[lo..hi], &mut out[lo..hi]);
+            lo = hi;
+        }
+        out
+    }
+
+    /// One piece of [`Renderer::window`], in one selection of the face's
+    /// lookups, shaped in chunks with the face's longest rule of context
+    /// either side.
+    fn window_piece(
+        &mut self,
+        face: Code,
+        facex: FaceIx,
+        script: Script,
+        cells: &[(Vec<Codepoint>, CellSpan)],
+        out: &mut [Vec<ClusterGlyph>],
+    ) {
         let ext = self
             .extent(face)
             .and_then(|e| usize::try_from(e.value()).ok())
             .unwrap_or(1)
             .max(1);
-        let Some(&facex) = usize::try_from(face.0).ok().and_then(|i| self.faces.get(i)) else {
-            return Vec::new();
-        };
         let scale = self.scales[facex.index()];
         let f = self.stack.face(facex);
-        let mut out: Vec<Vec<ClusterGlyph>> = vec![Vec::new(); cells.len()];
         // Half the glyph budget in cells, so a cell that shapes to two
         // glyphs still fits, and the context on both sides fits with it.
         let step = (PLACED_MAX / 2).saturating_sub(2 * ext).max(1);
@@ -2000,7 +2149,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // cut.
             let own = CellIx(u8::try_from(at - lo).unwrap_or(u8::MAX))
                 ..CellIx(u8::try_from(end - lo).unwrap_or(u8::MAX));
-            let shaped = self.shape(facex, &clusters, own);
+            let shaped = self.shape(facex, script, &clusters, own);
             for p in shaped.glyphs() {
                 let cell = lo + usize::from(p.cell.0);
                 // Only this chunk's own cells; the context either side
@@ -2026,7 +2175,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             at = end;
         }
-        out
     }
 
     /// The terminal's rendition table resolved through the theme and the
@@ -2227,6 +2375,43 @@ impl<'f, 'a> Renderer<'f, 'a> {
         crate::cellmap::face_of(&self.styles, cell)
     }
 
+    /// Whether `face`'s scripts select different lookups.
+    fn varies(&self, face: FaceIx) -> Varies {
+        self.selections
+            .get(face.index())
+            .map_or(Varies::No, |s| s.varies)
+    }
+
+    /// Settles the script of every cell of `row` in context into
+    /// [`Renderer::row_scripts`].
+    fn settle_row(&mut self, term: &Term<'_>, row: &[PackedCell]) {
+        self.row_unresolved.clear();
+        for cell in row {
+            self.row_unresolved.push(unresolved(term, *cell));
+        }
+        self.row_scripts.clear();
+        self.row_scripts.resize(row.len(), Script::COMMON);
+        baud_font::resolve(&self.row_unresolved, &mut self.row_scripts);
+    }
+
+    /// The script a run on `face` from column `c` of the row being
+    /// converted is shaped in, and the lookups that selects there. A face
+    /// whose scripts all select alike is shaped as Common, which is the
+    /// same shaping.
+    fn script_at(&self, face: FaceIx, col: Col) -> (Script, Selection) {
+        match self.selections.get(face.index()) {
+            Some(sel) if sel.varies == Varies::Yes => {
+                let s = self
+                    .row_scripts
+                    .get(col.index())
+                    .copied()
+                    .unwrap_or(Script::COMMON);
+                (s, sel.by_script[s])
+            }
+            _ => (Script::COMMON, Selection::default()),
+        }
+    }
+
     /// Resolves one row's colours and glyphs.
     fn convert_row(&mut self, term: &Term<'_>, r: Row, cursor: Cursor, exc: &mut Exceptions) {
         let range = self.row_cells(r);
@@ -2384,7 +2569,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
         }
         self.row_blinks[r.index()] = blinks;
-        // Then runs of cells shaped by one face.
+        // Then runs of cells shaped by one face, in one selection of its
+        // lookups. The row's scripts are settled the first time a run is on
+        // a face whose scripts select different lookups, and not at all on a
+        // row drawn only by faces whose scripts all select alike -- which is
+        // every row the embedded faces draw alone.
+        let mut settled = false;
         let mut c = 0usize;
         while c < row.len() {
             let Some(base) = row[c].content.as_codepoint() else {
@@ -2403,10 +2593,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 continue;
             }
             let face = self.face_of_cell(term, row[c], base);
+            let varies = self.varies(face);
+            if !settled && varies == Varies::Yes {
+                self.settle_row(term, &row);
+                settled = true;
+            }
+            let (script, selection) = self.script_at(face, Col::at_index(c));
             // Gather the run: consecutive drawn cells on this face. A bold
             // cell and a regular one are on two faces when a bold face
             // exists, so the style splits the run through the face, and a
-            // cell whose marks move it to another face splits it too.
+            // cell whose marks move it to another face splits it too. So
+            // does a cell whose script selects other lookups on this face:
+            // a Hebrew word in a face whose `hebr` table differs from its
+            // `latn` one is its own run.
             let start = c;
             let mut clusters: Vec<ClusterIn> = Vec::new();
             // The key folds the face and then every codepoint of every cell.
@@ -2414,7 +2613,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // another face is on that face's key, and the marks a face that
             // keeps a cluster cannot draw -- left out before shaping, in
             // `shape` -- are decided by that face and those codepoints alone.
+            //
+            // And the selection: a run of Common cells takes its script from
+            // the cells around it, which the key does not fold, so the
+            // lookups that script selects are folded instead -- all but the
+            // first, so a face whose scripts all select alike keys its runs
+            // exactly as it did before scripts were read.
             let mut key = Key::start().fold(u32::try_from(face.index()).unwrap_or(0));
+            if selection != Selection::default() {
+                key = key.fold(u32::from(selection.0));
+            }
             // The counts behind the `exceptions` feature: a cmap lookup, a
             // digest test and a pair test per cell, which the bench reads
             // and the app must not pay for.
@@ -2438,7 +2646,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 // `face_of_cell`, so a marked cell is asked with its whole
                 // cluster both times.
                 if c > start
-                    && (crate::boxes::covers(cp) || self.face_of_cell(term, cell, cp) != face)
+                    && (crate::boxes::covers(cp)
+                        || self.face_of_cell(term, cell, cp) != face
+                        || (varies == Varies::Yes
+                            && self.script_at(face, Col::at_index(c)).1 != selection))
                 {
                     break;
                 }
@@ -2489,7 +2700,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let shaped = match self.cache.get(key) {
                 Some(s) => s,
                 None => {
-                    let s = self.shape(face, &clusters, ..);
+                    let s = self.shape(face, script, &clusters, ..);
                     self.cache.put(key, s);
                     s
                 }
@@ -2525,6 +2736,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn shape(
         &mut self,
         face: FaceIx,
+        script: Script,
         clusters: &[ClusterIn],
         own: impl core::ops::RangeBounds<CellIx>,
     ) -> Shaped {
@@ -2584,7 +2796,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     break;
                 }
             }
-            let (buf, shaped) = shaper.finish(Features::GRID);
+            let (buf, shaped) = shaper.finish(Features::GRID, script);
             // A need past the budget grows the scratch to the budget, so the
             // boxes within it still draw and only the one past it is refused.
             let want = shaped.ink_need.value().min(crate::atlas::VAR_POINTS_MAX);
@@ -2652,7 +2864,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         at: CellIx(0),
                     }];
                     let s = self
-                        .shape(face, &one, ..)
+                        .shape(face, Script::of(cp), &one, ..)
                         .glyphs()
                         .first()
                         .map(|p| (face, *p));

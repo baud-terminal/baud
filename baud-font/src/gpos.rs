@@ -32,7 +32,10 @@
 use crate::buffer::{Buffer, Glyph, Ignorable, Positioned};
 use crate::bytes::{Bytes, Count, Index, Len, Offset};
 use crate::ivs::{Store, VarIndex};
-use crate::layout::{Coverage, Features, Filter, Gdef, Kind, Layout, Lookup, Skip};
+use crate::layout::{
+    Coverage, Features, Filter, Gdef, Kind, Layout, Lookup, LookupSet, ScriptTag, Skip,
+};
+use crate::script::Script;
 use crate::var::Coords;
 
 /// An anchor's design-unit coordinates, the head of every anchor format,
@@ -112,20 +115,36 @@ pub struct Gpos<'a> {
 }
 
 impl<'a> Gpos<'a> {
+    /// The lookups the features name for text in `script`.
+    pub fn lookups(&self, script: Script, features: Features) -> LookupSet {
+        self.layout.lookups_for(script, features)
+    }
+
+    /// The tag of the Script table text in `script` is positioned with.
+    pub fn chosen(&self, script: Script) -> Option<ScriptTag> {
+        self.layout.chosen(script)
+    }
+
     pub fn parse(data: Bytes<'a>, gdef: Gdef<'a>) -> Option<Gpos<'a>> {
         Some(Gpos {
             layout: Layout::parse(data, gdef)?,
         })
     }
 
-    /// Applies the mark lookups the features name, in lookup order, with
-    /// the anchors read at `coords`.
-    pub fn apply(&self, buf: &mut Buffer<'_>, features: Features, coords: &Coords) -> Count {
+    /// Applies the mark lookups the features name for text in `script`, in
+    /// lookup order, with the anchors read at `coords`.
+    pub fn apply(
+        &self,
+        buf: &mut Buffer<'_>,
+        script: Script,
+        features: Features,
+        coords: &Coords,
+    ) -> Count {
         let vary = Vary {
             store: self.layout.gdef().store(),
             coords,
         };
-        let set = self.layout.lookups_for(features);
+        let set = self.layout.lookups_for(script, features);
         for i in set.iter() {
             if let Some(lookup) = self.layout.lookup(i) {
                 let mut pos = Index::ZERO;

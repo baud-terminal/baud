@@ -33,6 +33,7 @@ use crate::glyf::VarPoint;
 use crate::layout::{Digest, Features};
 use crate::outline::Drawn;
 use crate::raster::{Bounds, InkBox};
+use crate::script::Script;
 use baud_domain::{Codepoint, GlyphId};
 
 /// Hangul syllables compose by arithmetic
@@ -696,13 +697,17 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         }
     }
 
-    /// Substitutes, positions, hides, and hands the buffer back.
-    pub fn finish(mut self, features: Features) -> (Buffer<'b>, Shaped) {
+    /// Substitutes, positions, hides, and hands the buffer back. `script` is
+    /// the run's script, settled as [`crate::resolve`] settles it: it picks
+    /// the `GSUB` and `GPOS` Script tables ([`crate::layout`]). A run is in
+    /// one script; a caller splits where it changes, or where it changes
+    /// which lookups apply ([`crate::Gsub::lookups`]).
+    pub fn finish(mut self, features: Features, script: Script) -> (Buffer<'b>, Shaped) {
         // `morx` stands in for `GSUB` on a face that has none -- HarfBuzz's
         // rule, and the one CoreText's own faces are built for; a face
         // carrying both shapes through `GSUB`.
         let mut declined = match (self.face.gsub(), self.face.morx()) {
-            (Some(gsub), _) => gsub.apply_with(&mut self.buf, features, self.digests),
+            (Some(gsub), _) => gsub.apply_with(&mut self.buf, script, features, self.digests),
             (None, Some(morx)) => {
                 // `morx` writes ids without classes; the positioning
                 // filters read them, so they are read again once here.
@@ -718,7 +723,7 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
         // lookup leaves its marks at the pen, and so does baud.
         match self.face.gpos() {
             Some(gpos) => {
-                let d = gpos.apply(&mut self.buf, features, self.face.coords());
+                let d = gpos.apply(&mut self.buf, script, features, self.face.coords());
                 declined = Count::of(declined.value().saturating_add(d.value()));
             }
             None => self.fallback_marks(),

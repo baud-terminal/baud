@@ -13,7 +13,8 @@
 
 use baud_domain::{AmbiguousWidth, Classified, Codepoint, GlyphId, GraphemeClass, Width};
 use baud_font::{
-    Buffer, Cluster, Digest, Face, FaceIndex, Features, Glyph, Ignorable, MAX_LOOKUPS, Shaper,
+    Buffer, Cluster, Digest, Face, FaceIndex, Features, Glyph, Ignorable, MAX_LOOKUPS, Script,
+    Shaper, Unresolved, resolve,
 };
 
 struct Fixture {
@@ -73,6 +74,7 @@ fn shape_with<'b>(
     let mut shaper = Shaper::new(face, storage);
     shaper.accelerate(digests);
     let mut start = 0usize;
+    let mut cells: Vec<Unresolved> = Vec::new();
     let is_ri = |c: Codepoint| (0x1F1E6..=0x1F1FF).contains(&c.value());
     for i in 1..=cps.len() {
         let boundary = i == cps.len() || {
@@ -102,10 +104,27 @@ fn shape_with<'b>(
             shaper
                 .push_cluster(&cps[start..i], Cluster(u16::try_from(start).unwrap()))
                 .unwrap();
+            cells.push(Unresolved::of(&cps[start..i]));
             start = i;
         }
     }
-    shaper.finish(Features::GRID)
+    shaper.finish(Features::GRID, one_script(&cells))
+}
+
+/// The script a fixture's text settles to, which must be one: `hb-shape`
+/// shapes a whole line in the script of its first character that names one
+/// (`[[source: harfbuzz-hb-buffer]]`, `guess_segment_properties`), and a
+/// fixture is written as one run. A line that settled to two would compare
+/// one run against two.
+fn one_script(cells: &[Unresolved]) -> Script {
+    let mut settled = vec![Script::COMMON; cells.len()];
+    resolve(cells, &mut settled);
+    let first = settled.first().copied().unwrap_or(Script::COMMON);
+    assert!(
+        settled.iter().all(|&s| s == first),
+        "a fixture settles to more than one script: {settled:?}"
+    );
+    first
 }
 
 #[test]
@@ -522,4 +541,138 @@ fn the_lookup_digests_change_nothing_on_any_gsub_fixture() {
         named > 50 && narrow * 2 > named,
         "{named} named, {narrow} narrow"
     );
+}
+
+/// **Text is shaped with its own script's table, else `DFLT`.** The
+/// specification: "An application should use a DFLT script table if there
+/// is not a script table associated with the specific script of the text
+/// being formatted, or if the text does not have a specific script"
+/// (`[[source: ms-opentype-chapter2]]`, ScriptList table). Every line of
+/// `tests/shape/script.txt` is what hb-shape made of it with the script and
+/// direction guessed from the text; a Hebrew line comes back right to left
+/// in visual order, and is reversed here into the logical order baud draws
+/// it in, each glyph's offset taken from its cluster's left edge.
+///
+/// Courier New is what macOS falls back to for Hebrew and the face the
+/// fault was found on (note AA, section 6): its `latn` table names no
+/// features at all and its `hebr` one names `ccmp` and `mark`, so a point
+/// shaped `latn` sat one cell right of its letter. It is a system face, so
+/// its lines run on macOS only, and a different file fails loudly rather
+/// than comparing two fonts. The built JetBrains Mono carries a `hebr`
+/// record (note AC) and runs everywhere, so its lines carry the controls
+/// that hold on every platform, and Courier New's have their own on macOS.
+#[test]
+fn every_script_fixture_shapes_as_harfbuzz_does() {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/shape/script.txt"
+    ))
+    .unwrap();
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let mut files = std::collections::HashMap::new();
+    // One binding for the skip and for Courier New's control, so a run with
+    // the skip forced checks what a platform without the face checks.
+    let on_macos = cfg!(target_os = "macos");
+    let (mut fixtures, mut hebrew, mut moved) = (0usize, 0usize, 0usize);
+    let (mut system_fixtures, mut system_hebrew, mut skipped) = (0usize, 0usize, 0usize);
+    for line in text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+    {
+        let f: Vec<&str> = line.split('\t').collect();
+        let (path, index, digest, cps, shaped) = (f[0], f[1], f[2], f[3], f[4]);
+        let system = path.starts_with('/');
+        if system && !on_macos {
+            skipped += 1;
+            continue;
+        }
+        let data = files.entry(path.to_string()).or_insert_with(|| {
+            let full = if system {
+                path.to_string()
+            } else {
+                format!("{root}/{path}")
+            };
+            let d = std::fs::read(&full).unwrap_or_else(|e| panic!("{full}: {e}"));
+            assert_eq!(
+                format!("{:016x}", fnv64(&d)),
+                digest,
+                "{path} is not the file the fixtures were shaped with; rerun \
+                 scripts/gen-shape-fixtures.sh under nix-shell -p harfbuzz"
+            );
+            d
+        });
+        let face = Face::parse_index(data, FaceIndex::of(index.parse().unwrap())).unwrap();
+        let cps: Vec<u32> = cps
+            .split_whitespace()
+            .map(|h| u32::from_str_radix(h, 16).unwrap())
+            .collect();
+        let rtl = cps.iter().any(|c| (0x0590..=0x05FF).contains(c));
+        let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
+        let (buf, out) = shape(&face, &cps, &mut storage);
+        assert!(out.declined.is_zero(), "{path} {cps:04X?}");
+        // hb-shape's glyphs with their pen positions, in visual order, then
+        // in logical order; each glyph's offset from its cluster's left edge.
+        let expected = parse_positioned(shaped);
+        let mut placed: Vec<(&HbGlyph, i32)> = Vec::new();
+        let mut pen = 0i32;
+        for e in &expected {
+            placed.push((e, pen));
+            pen += e.ax;
+        }
+        if rtl {
+            placed.reverse();
+        }
+        let mut left = std::collections::HashMap::new();
+        for &(e, pen) in &placed {
+            let l = left.entry(e.cluster).or_insert(pen);
+            *l = (*l).min(pen);
+        }
+        let want: Vec<(u16, u16, i32, i32)> = placed
+            .iter()
+            .map(|&(e, pen)| (e.id, e.cluster, pen + e.dx - left[&e.cluster], e.dy))
+            .collect();
+        let got: Vec<(u16, u16, i32, i32)> = buf
+            .as_slice()
+            .iter()
+            .map(|g| {
+                (
+                    u16::try_from(g.id.index()).unwrap(),
+                    g.cluster.0,
+                    i32::from(g.dx),
+                    i32::from(g.dy),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got, want,
+            "{path} {cps:04X?}: baud {got:?} against hb-shape {want:?}"
+        );
+        if system {
+            system_fixtures += 1;
+            system_hebrew += usize::from(rtl);
+        } else {
+            fixtures += 1;
+            hebrew += usize::from(rtl);
+            moved += want.iter().filter(|w| w.2 != 0 || w.3 != 0).count();
+        }
+    }
+    eprintln!(
+        "built faces: {fixtures} script fixtures, {hebrew} of them Hebrew, {moved} glyphs \
+         offset; system faces: {system_fixtures} shaped, {system_hebrew} of them Hebrew, \
+         {skipped} skipped"
+    );
+    // Positive controls on the built Regular's lines, which run everywhere:
+    // the Hebrew lines were reached, and some point was placed by an anchor
+    // rather than left at the pen.
+    assert!(fixtures >= 20, "{fixtures}");
+    assert!(hebrew >= 13, "{hebrew}");
+    assert!(moved >= 8, "{moved}");
+    // And Courier New's lines, where the face is: shaped on macOS, every
+    // one of them counted as skipped elsewhere.
+    if on_macos {
+        assert!(system_fixtures >= 20, "{system_fixtures}");
+        assert!(system_hebrew >= 13, "{system_hebrew}");
+    } else {
+        assert!(skipped >= 20 && system_fixtures == 0, "{skipped}");
+    }
 }

@@ -726,6 +726,86 @@ bytes  = 1134783
 status = "retrieved"
 group  = "G"
 
+# The Script property and its extensions, and the aliases that give each
+# value its ISO 15924 code: what `scripts/gen-script-tables.py` builds
+# `baud-font/src/script_data.rs` from, and what baud-font's renderer splits
+# runs by. Pinned at 17.0.0, the version of every other UCD file here.
+[sources.unicode-scripts]
+key    = "unicode-scripts"
+title  = "Scripts.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/Scripts.txt"
+file   = "unicode-scripts.txt"
+sha256 = "9f5e50d3abaee7d6ce09480f325c706f485ae3240912527e651954d2d6b035bf"
+bytes  = 192460
+status = "retrieved"
+group  = "G"
+
+[sources.unicode-scriptextensions]
+key    = "unicode-scriptextensions"
+title  = "ScriptExtensions.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/ScriptExtensions.txt"
+file   = "unicode-scriptextensions.txt"
+sha256 = "ec2107e58825a1586acee8e0911ce18260394ac8b87e535ca325f1ccbeb06bc6"
+bytes  = 20707
+status = "retrieved"
+group  = "G"
+
+[sources.unicode-propertyvaluealiases]
+key    = "unicode-propertyvaluealiases"
+title  = "PropertyValueAliases.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/PropertyValueAliases.txt"
+file   = "unicode-propertyvaluealiases.txt"
+sha256 = "64e9a5f76f7a1e8b5a47d6a1f9a26522a251208f5276bdfa1559dac7cf2e827a"
+bytes  = 81858
+status = "retrieved"
+group  = "G"
+
+# Revision 39 is the one for Unicode 17.0.0, the version the data above is
+# pinned at; 37 and 38 are 16.0.0's and 40 and 41 are 18.0.0's. Sections 5.1
+# and 5.2, which baud-font's `resolve` and `Script::of_cluster` follow, read
+# the same in 37 and 39 (compared as extracted text, 2026-10-13).
+[sources.uax24]
+key    = "uax24"
+title  = "UAX #24: Unicode Script Property, revision 39"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Standard Annex"
+url    = "https://www.unicode.org/reports/tr24/tr24-39.html"
+file   = "uax24-script-property.html"
+sha256 = "2cad4de61a47ec57c4b67c57ec1ed8cc0a0c3304683612e1480a753353be49b8"
+bytes  = 75969
+status = "retrieved"
+group  = "G"
+
+# Chapter 9 (Middle Eastern-I): Hebrew's points and their fixed-position
+# combining classes. Read for the order a renderer hands Hebrew points to a
+# font in: it says canonical ordering does not preserve a vowel-meteg order
+# and offers CGJ for that, and it sets no order a renderer must use, so the
+# choice between canonical and SBL order is not settled by it.
+[sources.unicode-ch9]
+key    = "unicode-ch9"
+title  = "The Unicode Standard, Version 17.0 -- Chapter 9, Middle Eastern-I"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "The Unicode Standard, core specification"
+url    = "https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-9/"
+file   = ""
+sha256 = "c8afd8fe51bb3773a4e852a7eaa4ae0c6cfc5045872920a3d6e557d2e7467d1e"
+bytes  = 1191554
+status = "external"
+group  = "G"
+# Read and hash-verified; not committed -- 1.2 MB of HTML. Re-fetch at the
+# pinned url and compare the sha256.
+
 # The codepoints DEC's manuals do not give, from an implementation that does.
 # **Cited as foot's, not as DEC's** -- it is foot's judgement about which
 # Unicode character each DEC glyph is, and agreement between implementations is
@@ -1783,16 +1863,68 @@ year   = 2026
 venue  = "OpenType specification 1.9.1, learn.microsoft.com"
 url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2"
 file   = ""
-sha256 = "017a2093ae0478b0f44d5a64825ac2ce51fb144bdd69a020f27183f9cff158b8"
+sha256 = "669fece5c12af876fa9108fcf2ae622544b9d028d21db4369300311d1dfe9d01"
 bytes  = 177827
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
-# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# fraction of its chrome. Re-fetch at the pinned url and compare the
+# ScriptList text; the sha256 tracks the chrome (below).
 # Re-pinned 2026-10-08: the url had come to serve 177,827 bytes against the
 # 178,177 first pinned (94066f79...), whose bytes were never committed. Two
 # fetches that day hashed alike; the page still titles itself 1.9.1, and the
 # ScriptList sentence baud-font/src/layout.rs quotes is in it verbatim.
+# Re-pinned 2026-10-13: the same 177,827 bytes now hash 669fece5...; still
+# 1.9.1. The hash tracks the page chrome, not the spec text: a later fetch
+# that day had the same byte count and hashed 4795083b..., and `cmp -l`
+# put all 20 differing bytes in the site's asset version string,
+# `/static/assets/0.4.03571.8296-bb082b73` pinned against
+# `0.4.03568.8292-0a6c2196` in the later fetch. The ScriptList section was
+# read again from the pinned fetch for script selection: the DFLT paragraph
+# baud-font/src/layout.rs quotes, and its note that "Applications may
+# process script-neutral characters together with immediately-preceding or
+# following script-specific characters", which baud-font/src/script.rs
+# quotes, are both in it verbatim.
+
+[sources.ms-opentype-scripttags]
+key    = "ms-opentype-scripttags"
+title  = "Script tags (OpenType 1.9.1)"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/scripttags"
+file   = ""
+sha256 = "a94a195a9b83c971f12db63385b97202d74addf12e05848ace74569a8936d337"
+bytes  = 60816
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
+# fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# 187 registered tags. Every Unicode 17.0 script's tag that
+# `scripts/gen-script-tables.py` derives is among them (Yi's is printed with
+# no-break spaces and is `yi  `); the registered tags it does not derive are
+# byzm, math and musc (not Unicode scripts), jamo ("not recommended"), and
+# jurc, pcun and seal (not encoded in 17.0). Checked 2026-10-13.
+
+[sources.ms-hebrew-script-development]
+key    = "ms-hebrew-script-development"
+title  = "Developing OpenType Fonts for Hebrew Script"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "learn.microsoft.com, script development specifications"
+url    = "https://learn.microsoft.com/en-us/typography/script-development/hebrew"
+file   = ""
+sha256 = "afdc007411e4ed6e99f312291797eb9bf6cb7bf2c3bc6ae948d832e8b89a08b7"
+bytes  = 71662
+status = "external"
+group  = "J"
+# Read 2026-10-13; not committed -- a vendor HTML page, whose hash tracks
+# its chrome: a later fetch that day had the same 71,662 bytes and hashed
+# 8bde95d5..., and `cmp -l` put all 20 differing bytes in the site's asset
+# version string, `/static/assets/0.4.03571.8296-bb082b73` pinned against
+# `0.4.03568.8292-0a6c2196`. The script tag
+# `hebr` and its feature order; the engine stages it describes reorder no
+# marks, so it sets no order for Hebrew points either.
 
 [sources.ms-opentype-fvar]
 key    = "ms-opentype-fvar"
@@ -3208,6 +3340,81 @@ status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor page, a copyrighted paper or a
 # source file at a pinned commit. Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-ot-layout]
+key    = "harfbuzz-hb-ot-layout"
+title  = "hb-ot-layout.cc -- hb_ot_layout_table_select_script: the requested tags, then DFLT, dflt and latn"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-layout.cc"
+file   = ""
+sha256 = "0bce37312e8f21a93fab3cd56b4d8f54228bc0956745d40bcc9b23f3b43ea31f"
+bytes  = 94099
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a source file at a pinned commit.
+# Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-ot-tag]
+key    = "harfbuzz-hb-ot-tag"
+title  = "hb-ot-tag.cc -- script to OpenType tags: the old tag, the Indic v2 tag and an unregistered v3 tag"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-tag.cc"
+file   = ""
+sha256 = "a73259bbf67c0c3fb644ff510d6021216cbcb83e40fdd9fd2626f51219891a89"
+bytes  = 21416
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a source file at a pinned commit.
+# Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-ot-shaper-hebrew]
+key    = "harfbuzz-hb-ot-shaper-hebrew"
+title  = "hb-ot-shaper-hebrew.cc -- the Hebrew shaper: gpos_tag hebr, presentation-form composition, the three-mark reorder"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-ot-shaper-hebrew.cc"
+file   = ""
+sha256 = "4dbb5128ec416028ae347ddac1047a13f5e43cc69df5c3101554577667862a01"
+bytes  = 5816
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a source file at a pinned commit.
+# Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-unicode]
+key    = "harfbuzz-hb-unicode"
+title  = "hb-unicode.hh -- the modified combining classes: Hebrew points in SBL order"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-unicode.hh"
+file   = ""
+sha256 = "8c15f338fe6e3cb11315d2cf9368abac64525c6d84f391353f78e9d4518655a4"
+bytes  = 16921
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a source file at a pinned commit.
+# Re-fetch at the pinned url and compare the sha256.
+
+[sources.harfbuzz-hb-buffer]
+key    = "harfbuzz-hb-buffer"
+title  = "hb-buffer.cc -- guess_segment_properties: a buffer takes the script of its first character that names one"
+author = "HarfBuzz contributors"
+year   = 2026
+venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
+url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-buffer.cc"
+file   = ""
+sha256 = "58bd6aa7a3e93d21fe02041c53d9de7dea9e9cbc6d1826583ebff42952539245"
+bytes  = 61952
+status = "external"
+group  = "J"
+# Read and hash-verified; not committed -- a source file at a pinned commit.
+# Re-fetch at the pinned url and compare the sha256.
 
 [sources.harfbuzz-hb-ot-shaper]
 key    = "harfbuzz-hb-ot-shaper"

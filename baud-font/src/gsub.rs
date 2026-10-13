@@ -23,9 +23,10 @@
 use crate::buffer::{Buffer, Cluster, Glyph, Ignorable};
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
 use crate::layout::{
-    Class, ClassDef, Coverage, Digest, Features, Filter, Gdef, Kind, Layout, Lookup, MAX_LOOKUPS,
-    Skip,
+    Class, ClassDef, Coverage, Digest, Features, Filter, Gdef, Kind, Layout, Lookup, LookupSet,
+    MAX_LOOKUPS, ScriptTag, Skip,
 };
+use crate::script::Script;
 use baud_domain::GlyphId;
 
 /// How deep nested lookups may recurse; a contextual lookup naming
@@ -131,11 +132,23 @@ impl<'a> Gsub<'a> {
         })
     }
 
-    /// Applies every lookup the features name, in lookup order, over the
-    /// whole buffer. Answers how many named lookups lay past what the set
-    /// can hold and so did not run -- zero for any font this crate has met.
-    pub fn apply(&self, buf: &mut Buffer<'_>, features: Features) -> Count {
-        self.apply_with(buf, features, &[])
+    /// Applies every lookup the features name for text in `script`, in
+    /// lookup order, over the whole buffer. Answers how many named lookups
+    /// lay past what the set can hold and so did not run -- zero for any
+    /// font this crate has met.
+    pub fn apply(&self, buf: &mut Buffer<'_>, script: Script, features: Features) -> Count {
+        self.apply_with(buf, script, features, &[])
+    }
+
+    /// The lookups the features name for text in `script`: two scripts with
+    /// equal sets shape alike on this face.
+    pub fn lookups(&self, script: Script, features: Features) -> LookupSet {
+        self.layout.lookups_for(script, features)
+    }
+
+    /// The tag of the Script table text in `script` is shaped with here.
+    pub fn chosen(&self, script: Script) -> Option<ScriptTag> {
+        self.layout.chosen(script)
     }
 
     /// [`Gsub::apply`] with a digest per lookup, as [`Gsub::digests`]
@@ -145,10 +158,11 @@ impl<'a> Gsub<'a> {
     pub fn apply_with(
         &self,
         buf: &mut Buffer<'_>,
+        script: Script,
         features: Features,
         digests: &[Digest],
     ) -> Count {
-        let set = self.layout.lookups_for(features);
+        let set = self.layout.lookups_for(script, features);
         let mut have = Gsub::buffer_digest(buf);
         for i in set.iter() {
             if let Some(d) = digests.get(i.slot()) {
@@ -176,11 +190,13 @@ impl<'a> Gsub<'a> {
     }
 
     /// Fills `out[i]` with the digest of the glyphs lookup `i` can start
-    /// on, for every lookup `features` name, so [`Gsub::apply_with`] can
-    /// skip the rest. `out` is indexed by lookup and holds at most
-    /// [`MAX_LOOKUPS`]; a lookup past its end is simply not accelerated.
+    /// on, for every lookup `features` name under any script, so
+    /// [`Gsub::apply_with`] can skip the rest. A digest belongs to its lookup
+    /// whichever script selected it, so one slice per face serves every
+    /// script. `out` is indexed by lookup and holds at most [`MAX_LOOKUPS`];
+    /// a lookup past its end is simply not accelerated.
     pub fn digests(&self, features: Features, out: &mut [Digest]) {
-        let set = self.layout.lookups_for(features);
+        let set = self.layout.lookups_any(features);
         for i in set.iter().take(MAX_LOOKUPS) {
             if let Some(slot) = out.get_mut(i.slot()) {
                 *slot = self.lookup_digest(i);
@@ -200,7 +216,9 @@ impl<'a> Gsub<'a> {
     /// admitted -- the way an unreadable lookup's digest admits every
     /// glyph.
     pub fn pairs(&self, features: Features, sink: &mut dyn FnMut(GlyphId, Digest)) -> Walked {
-        for i in self.layout.lookups_for(features).iter() {
+        // Every script's lookups: a prefilter that admits a pair one script
+        // could begin is right for all of them.
+        for i in self.layout.lookups_any(features).iter() {
             let Some(lookup) = self.layout.lookup(i) else {
                 return Walked::Unreadable;
             };
@@ -231,7 +249,9 @@ impl<'a> Gsub<'a> {
     /// `None` when a subtable could not be walked and no bound is known.
     pub fn extent(&self, features: Features) -> Option<Count> {
         let mut widest = Count::of(1u16);
-        for i in self.layout.lookups_for(features).iter() {
+        // The widest rule under any script, so a window is wide enough
+        // whichever script shapes it.
+        for i in self.layout.lookups_any(features).iter() {
             let lookup = self.layout.lookup(i)?;
             let mut k = Index::ZERO;
             while lookup.subtable_count().holds(k) {

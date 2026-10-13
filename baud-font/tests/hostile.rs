@@ -289,7 +289,7 @@ fn shape_some(face: &Face<'_>) {
             let cps: Vec<Codepoint> = cps.iter().filter_map(|&v| Codepoint::new(v)).collect();
             let _ = shaper.push_cluster(&cps, Cluster(u16::try_from(i).unwrap()));
         }
-        let (_, shaped) = shaper.finish(Features::GRID);
+        let (_, shaped) = shaper.finish(Features::GRID, baud_font::Script::COMMON);
         let need = shaped.ink_need.value();
         if shaped.ink_refused.is_zero() || need > BOUND {
             return;

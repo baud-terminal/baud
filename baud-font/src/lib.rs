@@ -72,6 +72,8 @@ mod morx;
 pub mod outline;
 mod png;
 mod raster;
+mod script;
+mod script_data;
 mod shape;
 mod standard_encoding;
 pub mod var;
@@ -90,11 +92,14 @@ pub use face::{
 pub use glyf::VarPoint;
 pub use gpos::Gpos;
 pub use gsub::{Gsub, Walked};
-pub use layout::{Digest, Enabled, FeatureTag, Features, Gdef, GlyphClass, MAX_LOOKUPS};
+pub use layout::{
+    Digest, Enabled, FeatureTag, Features, Gdef, GlyphClass, LookupSet, MAX_LOOKUPS, ScriptTag,
+};
 pub use morx::Morx;
 pub use outline::{Drawn, Flex, FlexDrawn, Sink, Transform};
 pub use png::{Color, Png, PngError, Size};
 pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasterizer, Scale};
+pub use script::{PerScript, Script, Unresolved, resolve};
 pub use shape::{CombiningClass, Kept, Normalised, Shaped, Shaper};
 
 /// A four-byte table tag, as the directory spells it.

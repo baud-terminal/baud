@@ -458,7 +458,7 @@ fn every_mark_is_placed_as_in_fonttools() {
                 [Glyph::new(baud_domain::GlyphId::NOTDEF, Cluster(0), Ignorable::No); 16];
             let mut shaper = Shaper::new(&face, &mut storage);
             shaper.push_cluster(&cps, Cluster(0)).unwrap();
-            let (buf, _) = shaper.finish(Features::GRID);
+            let (buf, _) = shaper.finish(Features::GRID, baud_font::Script::of_cluster(&cps));
             buf.as_slice()
                 .iter()
                 .map(|g| {
@@ -514,7 +514,7 @@ fn shape(font: &[u8], text: &str) -> Vec<[i32; 4]> {
     let mut storage = [Glyph::new(baud_domain::GlyphId::NOTDEF, Cluster(0), Ignorable::No); 16];
     let mut shaper = Shaper::new(&face, &mut storage);
     shaper.push_cluster(&cps, Cluster(0)).unwrap();
-    let (buf, _) = shaper.finish(Features::GRID);
+    let (buf, _) = shaper.finish(Features::GRID, baud_font::Script::of_cluster(&cps));
     buf.as_slice()
         .iter()
         .map(|g| {

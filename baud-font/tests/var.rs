@@ -520,7 +520,7 @@ fn every_mark_position_is_harfbuzzs() {
         let mut scratch: Vec<baud_font::VarPoint> = Vec::new();
         let mut shaper = Shaper::new(&face, &mut storage);
         shaper.push_cluster(&cps, Cluster(0)).unwrap();
-        let (_, first) = shaper.finish(Features::GRID);
+        let (_, first) = shaper.finish(Features::GRID, baud_font::Script::of_cluster(&cps));
         if !first.ink_refused.is_zero() {
             asked += 1;
             scratch.resize(
@@ -531,7 +531,7 @@ fn every_mark_position_is_harfbuzzs() {
         let mut shaper = Shaper::new(&face, &mut storage);
         shaper.scratch(&mut scratch);
         shaper.push_cluster(&cps, Cluster(0)).unwrap();
-        let (buf, shaped) = shaper.finish(Features::GRID);
+        let (buf, shaped) = shaper.finish(Features::GRID, baud_font::Script::of_cluster(&cps));
         assert!(shaped.declined.is_zero(), "{line}");
         assert!(shaped.ink_refused.is_zero(), "{line}: a box refused");
         let mut got = Vec::new();

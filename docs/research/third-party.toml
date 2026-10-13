@@ -510,6 +510,7 @@ files   = [
   "l2-25179-ttwg.pdf",
   "l2-25263-ttwg-report-utc185.pdf",
   "uax11-east-asian-width.html",
+  "uax24-script-property.html",
   "uax29-text-segmentation.html",
   "uax9-tr9-52.html",
   "unicode-ch3.html",
@@ -1226,6 +1227,9 @@ files   = [
   "unicode-graphemebreakproperty.txt",
   "unicode-graphemebreaktest.txt",
   "unicode-proplist.txt",
+  "unicode-propertyvaluealiases.txt",
+  "unicode-scriptextensions.txt",
+  "unicode-scripts.txt",
   "unicode-unicodedata.txt",
 ]
 

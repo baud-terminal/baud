@@ -5,22 +5,33 @@
 //! **Scripts, features, lookups.** A layout table names its features under
 //! a script and a language system, each feature lists lookups, and the
 //! lookups are applied in `LookupList` order over the union of what the
-//! selected features name. [`Layout::lookups_for`] does that selection --
-//! script `latn` with its default language system, or `DFLT` -- and yields
-//! the sorted, deduplicated lookup indices.
+//! selected features name. [`Layout::lookups_for`] does that selection for
+//! a run's [`Script`] and yields the sorted, deduplicated lookup indices.
 //!
-//! **It takes no script argument, and that is an open departure, not a
-//! design.** Text in any script is shaped with `latn`'s features where the
-//! font has them. The specification directs an application to the Script
-//! table for the text's own script, and to `DFLT` where there is none: "An
-//! application should use a DFLT script table if there is not a script table
-//! associated with the specific script of the text being formatted, or if the
-//! text does not have a specific script (for example, it contains only
-//! symbols or punctuation)" (`[[source: ms-opentype-chapter2]]`, ScriptList
-//! table). So Latin text gets what the specification asks for, and text in
-//! another script, or in none, gets `latn`'s features wherever the font has a
-//! `latn` table. `docs/research/notes/ab-right-to-left.md`, Q6, holds the
-//! options; the choice is the owner's.
+//! **The Script table is the text's own, else `DFLT`, as the specification
+//! directs:** "An application should use a DFLT script table if there is not
+//! a script table associated with the specific script of the text being
+//! formatted, or if the text does not have a specific script (for example,
+//! it contains only symbols or punctuation)" (`[[source: ms-opentype-chapter2]]`,
+//! ScriptList table). The script's registered tags are tried in order
+//! ([`Script::tags`]), then `DFLT`, and its default language system is used;
+//! no language is ever asked for.
+//!
+//! **Then `latn`, which no text asks for and which is kept on purpose.** A
+//! face with neither the script's table nor `DFLT` gets `latn`'s features --
+//! what baud gave every script before it read one, and what HarfBuzz does
+//! too ("some old fonts put their features there even though they're really
+//! trying to support Thai", `[[source: harfbuzz-hb-ot-layout]]`, its script
+//! selection). The specification is silent on a face with no `DFLT`, so
+//! today's behaviour stands. Two other HarfBuzz
+//! choices are *not* made, and both are recorded as the open question Q6 of
+//! `docs/research/notes/ab-right-to-left.md`: the misspelt `dflt` tried
+//! before `latn`, and the Hebrew rule that turns `GPOS` off and places
+//! marks by combining class when the `GPOS` table chosen is not `hebr`
+//! (`[[source: harfbuzz-hb-ot-shape]]`, `disable_gpos`; the Hebrew shaper's
+//! `gpos_tag`, `[[source: harfbuzz-hb-ot-shaper-hebrew]]`). Where `DFLT`
+//! anchors Hebrew marks and `hebr` is absent, the specification sends the
+//! text to `DFLT` and baud uses those anchors.
 //!
 //! **Coverage and classes** are the two ways a subtable names glyphs:
 //! `Coverage` answers an index for a glyph it lists, in format 1 as a
@@ -33,7 +44,21 @@
 //! [`Filter`], built once per lookup and asked once per glyph.
 
 use crate::bytes::{Array, Bytes, Count, FromBe, Index, Len, Offset};
+use crate::script::Script;
 use baud_domain::GlyphId;
+
+/// A four-byte OpenType script tag, as a `ScriptRecord` spells it:
+/// `hebr`, `latn`, `DFLT` (`[[source: ms-opentype-scripttags]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ScriptTag(pub [u8; 4]);
+
+impl ScriptTag {
+    /// The table for text with no specific script, and the fallback for a
+    /// script the face has no table for.
+    pub const DFLT: ScriptTag = ScriptTag(*b"DFLT");
+    /// The last resort for a face with neither, as before scripts were read.
+    pub const LATN: ScriptTag = ScriptTag(*b"latn");
+}
 
 /// A four-byte feature or script tag.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -45,8 +70,6 @@ impl FeatureTag {
     pub const LIGA: FeatureTag = FeatureTag(*b"liga");
     pub const MARK: FeatureTag = FeatureTag(*b"mark");
     pub const MKMK: FeatureTag = FeatureTag(*b"mkmk");
-    const LATN: FeatureTag = FeatureTag(*b"latn");
-    const DFLT: FeatureTag = FeatureTag(*b"DFLT");
 }
 
 impl FromBe for FeatureTag {
@@ -658,7 +681,10 @@ impl Features {
 pub const MAX_LOOKUPS: usize = 2048;
 
 /// The lookup indices a feature set names, as a bitset so they come out in
-/// `LookupList` order whatever feature named them.
+/// `LookupList` order whatever feature named them. Two sets that are equal
+/// shape alike, which is what lets a renderer keep one run across two
+/// scripts that select the same lookups.
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct LookupSet {
     bits: [u64; MAX_LOOKUPS / 64],
     /// Lookups past [`MAX_LOOKUPS`] a feature named and this set could not
@@ -667,6 +693,11 @@ pub struct LookupSet {
 }
 
 impl LookupSet {
+    const EMPTY: LookupSet = LookupSet {
+        bits: [0; MAX_LOOKUPS / 64],
+        declined: Count::ZERO,
+    };
+
     pub fn iter(&self) -> impl Iterator<Item = Index> + '_ {
         self.bits.iter().enumerate().flat_map(|(w, &word)| {
             (0..64u32)
@@ -714,18 +745,39 @@ impl<'a> Layout<'a> {
         table.array(Offset::of(2u32), Count::of(count))
     }
 
-    fn find(records: &Array<'a, TagRecord>, tag: FeatureTag) -> Option<Offset> {
+    fn find(records: &Array<'a, TagRecord>, tag: [u8; 4]) -> Option<Offset> {
         // Records are sorted by tag, so a binary search answers.
-        let i = records.partition_point(|r| r.tag.0.cmp(&tag.0))?;
+        let i = records.partition_point(|r| r.tag.0.cmp(&tag))?;
         let r = records.get(i)?;
-        (r.tag == tag).then_some(r.offset)
+        (r.tag.0 == tag).then_some(r.offset)
     }
 
-    /// The default language system of `latn`, else of `DFLT`.
-    fn lang_sys(&self) -> Option<Bytes<'a>> {
+    /// The tag of the Script table text in `script` is shaped with: the
+    /// script's own, else `DFLT`, else `latn`; `None` when the face has
+    /// none of them.
+    pub fn chosen(&self, script: Script) -> Option<ScriptTag> {
+        self.record(script).map(|(tag, _)| tag)
+    }
+
+    /// The Script table [`Layout::chosen`] names, with its offset: one
+    /// binary search per tag tried.
+    fn record(&self, script: Script) -> Option<(ScriptTag, Offset)> {
         let scripts = Layout::records(self.scripts)?;
-        let script_off = Layout::find(&scripts, FeatureTag::LATN)
-            .or_else(|| Layout::find(&scripts, FeatureTag::DFLT))?;
+        script
+            .tags()
+            .chain([ScriptTag::DFLT, ScriptTag::LATN])
+            .find_map(|t| Layout::find(&scripts, t.0).map(|off| (t, off)))
+    }
+
+    /// The default language system of the Script table [`Layout::chosen`]
+    /// names.
+    fn lang_sys(&self, script: Script) -> Option<Bytes<'a>> {
+        let (_, off) = self.record(script)?;
+        self.default_lang_sys(off)
+    }
+
+    /// The default language system of the Script table at `script_off`.
+    fn default_lang_sys(&self, script_off: Offset) -> Option<Bytes<'a>> {
         let script = self.scripts.tail(script_off)?;
         let default: u16 = script.read(Offset::ZERO)?;
         if default == 0 {
@@ -734,22 +786,43 @@ impl<'a> Layout<'a> {
         script.tail(Offset::of(u32::from(default)))
     }
 
-    /// The lookups the selected features name for the script, sorted.
-    pub fn lookups_for(&self, wanted: Features) -> LookupSet {
-        let mut set = LookupSet {
-            bits: [0; MAX_LOOKUPS / 64],
-            declined: Count::ZERO,
-        };
-        let Some(lang) = self.lang_sys() else {
+    /// The lookups the selected features name for text in `script`, sorted.
+    pub fn lookups_for(&self, script: Script, wanted: Features) -> LookupSet {
+        let mut set = LookupSet::EMPTY;
+        if let Some(lang) = self.lang_sys(script) {
+            self.add_lang_sys(lang, wanted, &mut set);
+        }
+        set
+    }
+
+    /// The lookups the selected features name for any script: the union over
+    /// every Script table's default language system. What a lookup's digest,
+    /// a pair prefilter or a context width must cover, since each is a
+    /// property of a lookup and holds whatever script selected it.
+    pub fn lookups_any(&self, wanted: Features) -> LookupSet {
+        let mut set = LookupSet::EMPTY;
+        let Some(scripts) = Layout::records(self.scripts) else {
             return set;
         };
+        let mut k = Index::ZERO;
+        while let Some(r) = scripts.get(k) {
+            if let Some(lang) = self.default_lang_sys(r.offset) {
+                self.add_lang_sys(lang, wanted, &mut set);
+            }
+            k = k.next();
+        }
+        set
+    }
+
+    /// Adds what one language system's selected features name to `set`.
+    fn add_lang_sys(&self, lang: Bytes<'a>, wanted: Features, set: &mut LookupSet) {
         let Some(features) = Layout::records(self.features) else {
-            return set;
+            return;
         };
         let required: u16 = lang.read(Offset::of(2u32)).unwrap_or(0xFFFF);
         let count: u16 = lang.read(Offset::of(4u32)).unwrap_or(0);
         let Some(indices) = lang.array::<u16>(Offset::of(6u32), Count::of(count)) else {
-            return set;
+            return;
         };
         let mut add_feature = |fi: u16| {
             let Some(rec) = features.get(Index::of(fi)) else {
@@ -778,7 +851,6 @@ impl<'a> Layout<'a> {
             add_feature(fi);
             k = k.next();
         }
-        set
     }
 
     /// Lookup `i` from the `LookupList`.

@@ -682,7 +682,8 @@ mod tests {
                         .push_cluster(&cp, Cluster(u16::try_from(i).unwrap()))
                         .unwrap();
                 }
-                let (buf, _) = shaper.finish(Features::GRID);
+                // "=>" names no script: `DFLT`, as the specification says.
+                let (buf, _) = shaper.finish(Features::GRID, baud_font::Script::COMMON);
                 buf.as_slice().iter().map(|g| g.id).collect::<Vec<_>>()
             };
             let plain = |c: char| f.glyph(Codepoint::new(u32::from(c)).unwrap()).unwrap();
