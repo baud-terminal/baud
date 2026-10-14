@@ -1648,7 +1648,8 @@ impl Paint<'_, '_> {
     ///
     /// **And the cursor colour, before the bit moves**: one equal to the text
     /// shown becomes the page shown, which the flip then shows as the text
-    /// ([`Video::cursor_across`], xterm's `ReverseVideo`). Here because every
+    /// ([`Video::cursor_across`], xterm's `ReverseVideo` rule, kept under the
+    /// per-cell exchange because its reason holds there). Here because every
     /// change of `?5` comes through here, as every one of xterm's calls
     /// `ReverseVideo` -- `DECSCNM`, XTRESTORE and `RIS` alike.
     fn flip_reverse_video(&mut self, change: ModeChange, during: Update) {

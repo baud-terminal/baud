@@ -1,13 +1,17 @@
 //! `?5` DECSCNM, reverse video, reaches the pixels -- and every background,
 //! the reversed default one included, keeps the window's dim.
 //!
-//! The rule is xterm's `ReverseVideo` (util.c, `[[source: xterm-scroll]]`'s
-//! file): the default
-//! foreground and background swap, palette entries 0 and 7 swap and so do 8
-//! and 15, and everything drawn "in the foreground" or "in the background" --
-//! the margin, the scrollbar, a cursor trail, a screen fade -- follows. The
-//! owner's call on the dim, 2026-09-25: the same alpha for every background,
-//! so the reversed default background is as translucent as the normal one.
+//! The rule is DEC STD 070's (`[[source: dec-std-070]]` § 5.6.3.2, page 5-107,
+//! PDF 362): the mode "will affect which attribute bits from display memory are
+//! used to render the text foreground and background color", so **every cell
+//! draws with its foreground and background exchanged**, an explicit `SGR`
+//! colour included -- the owner's decision of 2026-10-13, which took this over
+//! xterm's palette swap. A cell's own `SGR 7` exchanges again. What is drawn
+//! "in the foreground" or "in the background" -- the margin, the scrollbar, a
+//! cursor trail, a screen fade -- takes the default pair as a default cell
+//! shows it. The owner's call on the dim, 2026-09-25: the same alpha for every
+//! background, so the reversed default background is as translucent as the
+//! normal one.
 //!
 //! Every test here renders at a translucent `bg_alpha`, because at `0xFF` the
 //! alpha half of the rule is invisible.
@@ -18,8 +22,8 @@ use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::{Face, Px};
 use baud_render::{
-    Argb, Blend, Damage, Floor, Hover, Kind, Look, PxSize, Renderer, Scroll, Scroller, Stack,
-    Theme, Trail, TrailLook, Transition, Widths, Window,
+    AppBg, Argb, Blend, Damage, Floor, Hover, Kind, Look, PxSize, Renderer, Scroll, Scroller,
+    Stack, Theme, Trail, TrailLook, Transition, Widths, Window,
 };
 use support::font;
 
@@ -69,16 +73,33 @@ fn render(bytes: &[u8], f: impl FnOnce(&Renderer<'_, '_>)) {
 
 /// [`render`] under `theme` -- the floor off, for the tests about the swap.
 fn render_with(theme: Theme, bytes: &[u8], f: impl FnOnce(&Renderer<'_, '_>)) {
+    render_in(theme, &WS, bytes, |r, _| f(r));
+}
+
+/// [`render_with`] at `ws`, handing over the painted canvas too: the CPU
+/// path's own pixels, painted from the frame the instances describe.
+fn render_in(
+    theme: Theme,
+    ws: &WinSize,
+    bytes: &[u8],
+    f: impl FnOnce(&Renderer<'_, '_>, &support::Canvas),
+) {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).expect("parse")];
-    let mut r = renderer(&faces, &WS);
+    let mut r = renderer(&faces, ws);
     r.set_theme(theme);
-    let mut owned = Owned::new(&WS);
-    let mut t = Term::new(owned.storage(), &WS);
+    let mut owned = Owned::new(ws);
+    let mut t = Term::new(owned.storage(), ws);
     feed(&mut t, bytes);
     let mut canvas = support::Canvas::for_renderer(&r);
     support::paint(&mut r, &mut t, &mut canvas, Damage::Full);
-    f(&r);
+    f(&r, &canvas);
+}
+
+fn floor_off() -> Theme {
+    let mut t = dim_theme();
+    t.floor = Floor::Off;
+    t
 }
 
 /// The glyph colours of the frame, in the order the row's glyphs were
@@ -128,58 +149,138 @@ fn reverse_inside_reverse_video_draws_a_normal_cell() {
     });
 }
 
-/// **Palette entries 0 and 7 swap, and so do 8 and 15**, whichever way the
-/// colour was asked for -- an SGR colour, the bright forms, `38;5` -- and
-/// after bold's brightening. Nothing else moves.
+/// **Every cell exchanges its colours, an explicit one included** (DEC STD
+/// 070 § 5.6.3.2; the owner, 2026-10-13): a coloured letter is drawn as a
+/// coloured cell with the default page's colour for its text, and a coloured
+/// background as coloured text on the reversed page -- whichever way the
+/// colour was asked for, an SGR colour, the bright forms, `38;5`, `48;5`,
+/// truecolour. Bold brightens the foreground's index first, then the pair
+/// exchanges. No palette entry moves, so entries 0, 7, 8 and 15 are drawn
+/// as themselves, which xterm's swap did not do.
 #[test]
-fn the_palette_swaps_black_and_white_and_nothing_else() {
+fn every_cell_exchanges_its_colours_explicit_ones_included() {
     let theme = dim_theme();
     let p = |i: usize| rgb(theme.palette[i]);
-    // Backgrounds: 40, 47, 100, 107, 41, 48;5;7, 48;5;16 and a truecolour.
-    let bgs = b"\x1b[?5h\x1b[40m \x1b[47m \x1b[100m \x1b[107m \x1b[41m \x1b[48;5;7m \x1b[48;5;16m \x1b[48;2;1;2;3m \x1b[0m\x1b[2;12H";
-    render(bgs, |r| {
-        let got: Vec<u32> = r.background()[..8].iter().map(|&c| rgb(c)).collect();
-        let want = vec![p(7), p(0), p(15), p(8), p(1), p(0), p(16), 0x0001_0203];
-        assert_eq!(got, want);
+    // Backgrounds, each under a letter: 40, 47, 100, 107, 41, 48;5;7,
+    // 48;5;16 and a truecolour. Each letter is drawn in its cell's
+    // background and every cell's background is the default foreground.
+    let bgs = b"\x1b[?5h\x1b[40mA\x1b[47mB\x1b[100mC\x1b[107mD\x1b[41mE\x1b[48;5;7mF\x1b[48;5;16mG\x1b[48;2;1;2;3mH\x1b[0m\x1b[2;12H";
+    render_with(floor_off(), bgs, |r| {
+        let text: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
+        let want = vec![p(0), p(7), p(8), p(15), p(1), p(7), p(16), 0x0001_0203];
+        assert_eq!(text, want, "each letter is its cell's background");
         for (i, &c) in r.background()[..8].iter().enumerate() {
+            assert_eq!(rgb(c), rgb(theme.fg), "cell {i} is the default foreground");
             assert_eq!(alpha(c), DIM, "cell {i} keeps the dim");
         }
     });
-    // Foregrounds: 30, bold 30 (brightened to 8, then swapped to 15), 37,
-    // and 38;5;7.
-    let fgs = b"\x1b[?5h\x1b[30mA\x1b[1mB\x1b[0;37mC\x1b[38;5;7mD\x1b[0m\x1b[2;12H";
-    let mut off = dim_theme();
-    off.floor = Floor::Off;
-    render_with(off, fgs, |r| {
-        let got: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
-        assert_eq!(got, vec![p(7), p(15), p(0), p(0)]);
+    // Foregrounds: 30, bold 30 (brightened to 8, then exchanged), 37,
+    // 38;5;7, 31, 38;5;196 and a truecolour. Each cell is its letter's
+    // colour, and every letter is the default background.
+    let fgs = b"\x1b[?5h\x1b[30mA\x1b[1mB\x1b[0;37mC\x1b[38;5;7mD\x1b[31mE\x1b[38;5;196mF\x1b[38;2;200;100;50mG\x1b[0m\x1b[2;12H";
+    render_with(floor_off(), fgs, |r| {
+        let got: Vec<u32> = r.background()[..7].iter().map(|&c| rgb(c)).collect();
+        let want = vec![p(0), p(8), p(7), p(7), p(1), p(196), 0x00c8_6432];
+        assert_eq!(got, want, "each cell is its letter's colour");
+        let text: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
+        assert_eq!(text, vec![rgb(theme.bg); 7], "every letter is the page");
     });
-    // **With the floor on, `SGR 30` under `?5` is lifted**: it swaps to entry
-    // 7, `#e5e5e5`, on the reversed page `#d8d8d8` -- 1.13:1, the flash case
-    // the floor exists for (note Y, decision 6) -- and draws `#5e5e5e`, at
-    // 4.5:1 or better. The other three read well above the trigger.
-    render(fgs, |r| {
-        let got: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
-        assert_eq!(got, vec![0x005e_5e5e, p(15), p(0), p(0)]);
-    });
-    // The control: the same bytes without `?5` draw the table unswapped.
-    render(&bgs[5..], |r| {
-        let got: Vec<u32> = r.background()[..8].iter().map(|&c| rgb(c)).collect();
-        assert_eq!(
-            got,
-            vec![p(0), p(7), p(8), p(15), p(1), p(7), p(16), 0x0001_0203]
-        );
+    // The control: the same bytes without `?5` draw each colour on its own
+    // side.
+    render_with(floor_off(), &fgs[5..], |r| {
+        let text: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
+        let want = vec![p(0), p(8), p(7), p(7), p(1), p(196), 0x00c8_6432];
+        assert_eq!(text, want);
     });
 }
 
-/// An underline colour asked for by index, `SGR 58;5;0`, swaps with the
-/// table too: xterm's underline reads the same colour table its cells do.
+/// **The contrast floor reads the pair as it is drawn**, after the
+/// exchange: `SGR 30` under `?5` is the default page's `#101010` on entry 0,
+/// `#000000` -- 1.10:1 -- and the text is lifted to `#757575`; `SGR 47`'s
+/// letter is entry 7, `#e5e5e5`, on the reversed page `#d8d8d8`, 1.13:1,
+/// and is lifted to `#5e5e5e`.
+///
+/// Which side is the page decides whether the floor may touch the pair at
+/// all (`Floor::covers`): `38;5;1` on a truecolour `48;2;200;0;0` is a page
+/// the application chose, and its red letters are left at 1.03:1 on a
+/// normal screen. Under `?5` the letter is the truecolour and the page is
+/// entry 1, one of the sixteen, so the floor lifts it.
 #[test]
-fn an_indexed_underline_colour_swaps_with_the_table() {
+fn the_floor_reads_the_exchanged_pair() {
+    render(b"\x1b[?5h\x1b[30mA\x1b[0;47mB\x1b[0m\x1b[2;12H", |r| {
+        let got: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
+        assert_eq!(got, vec![0x0075_7575, 0x005e_5e5e]);
+    });
+    let chosen = b"\x1b[38;5;1;48;2;200;0;0mA\x1b[0m\x1b[2;12H";
+    render(chosen, |r| {
+        let got: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
+        assert_eq!(got, vec![rgb(dim_theme().palette[1])], "the control");
+    });
+    render(&[&b"\x1b[?5h"[..], chosen].concat(), |r| {
+        let got: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
+        assert_eq!(got.len(), 1);
+        assert_ne!(got[0], 0x00c8_0000, "the letter was lifted off its page");
+    });
+}
+
+/// `SGR 7` inside `?5` is exchanged twice, so a coloured cell draws as it
+/// would on a normal screen: `SGR 7;31` red letters on the default page,
+/// `SGR 7;41` default letters on red.
+#[test]
+fn a_coloured_reverse_cell_inside_reverse_video_draws_normal() {
     let theme = dim_theme();
-    let underline = |bytes: &[u8]| {
+    render_with(
+        floor_off(),
+        b"\x1b[?5h\x1b[7;31mA\x1b[0;7;41mB\x1b[0m\x1b[2;12H",
+        |r| {
+            let bg: Vec<u32> = r.background()[..2].iter().map(|&c| rgb(c)).collect();
+            assert_eq!(bg, vec![rgb(theme.bg), rgb(theme.palette[1])]);
+            let text: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
+            assert_eq!(text, vec![rgb(theme.palette[1]), rgb(theme.fg)]);
+        },
+    );
+}
+
+/// **The CPU path paints the exchange**, in its own pixels and not only in
+/// the frame it paints from: under `?5` a blank written under `SGR 31` is a
+/// red cell, one under `SGR 41` is the reversed page, and so is the rest of
+/// the row erased under `SGR 41` -- an erased area is blanks in that
+/// rendition, and a blank's background is its default foreground once
+/// exchanged. Painted opaque, so a pixel is the colour and not a blend.
+#[test]
+fn the_canvas_paints_each_cell_exchanged() {
+    let mut theme = Theme::dark();
+    theme.floor = Floor::Off;
+    let bytes = b"\x1b[?5h\x1b[31m \x1b[0;41m \x1b[K\x1b[0m\x1b[2;12H";
+    let fg = rgb(theme.fg);
+    let red = rgb(theme.palette[1]);
+    let check = |bytes: &[u8], want: [u32; 3]| {
+        render_in(theme.clone(), &WS, bytes, |r, c| {
+            let m = r.metrics();
+            let (cw, ch) = (
+                usize::try_from(m.cell_w.value()).unwrap(),
+                usize::try_from(m.cell_h.value()).unwrap(),
+            );
+            let at = |col: usize| rgb(Argb(c.pixels[(ch / 2) * c.width + col * cw + cw / 2]));
+            let last = usize::from(WS.ws_col) - 1;
+            assert_eq!([at(0), at(1), at(last)], want, "{bytes:?}");
+        });
+    };
+    check(bytes, [red, fg, fg]);
+    // The control: without `?5` the first blank is the page and the band red.
+    check(&bytes[5..], [rgb(theme.bg), red, red]);
+}
+
+/// An underline that follows the text follows it through the exchange, and
+/// an `SGR 58` colour, which is neither the foreground nor the background,
+/// is drawn as set: entry 0 is entry 0 under `?5`, where xterm's swap drew
+/// entry 7.
+#[test]
+fn an_underline_follows_the_text_and_an_sgr_58_colour_stays() {
+    let theme = dim_theme();
+    let underline = |theme: Theme, bytes: &[u8]| {
         let mut got = Vec::new();
-        render(bytes, |r| {
+        render_with(theme, bytes, |r| {
             got = r
                 .instances()
                 .filter(|i| i.kind == Kind::Solid)
@@ -188,45 +289,155 @@ fn an_indexed_underline_colour_swaps_with_the_table() {
         });
         got
     };
-    // With the floor off: the swap alone. Black on the dark page is 1.10:1,
-    // so with it on the floor lifts the underline, which `floor.rs` tests.
-    let underline_off = |bytes: &[u8]| {
-        let mut off = dim_theme();
-        off.floor = Floor::Off;
-        let mut got = Vec::new();
-        render_with(off, bytes, |r| {
-            got = r
-                .instances()
-                .filter(|i| i.kind == Kind::Solid)
-                .map(|i| rgb(i.color))
-                .collect();
-        });
-        got
-    };
+    // `SGR 31;4` under `?5`: the letter is the default page's colour, and so
+    // is its underline.
+    assert_eq!(
+        underline(floor_off(), b"\x1b[?5h\x1b[31;4mA\x1b[0m\x1b[2;12H"),
+        vec![rgb(theme.bg)]
+    );
     let line = b"\x1b[4;58;5;0mA\x1b[0m\x1b[2;12H";
     assert_eq!(
-        underline_off(line),
+        underline(floor_off(), line),
         vec![rgb(theme.palette[0])],
         "the control"
     );
     let reversed = [&b"\x1b[?5h"[..], line].concat();
-    assert_eq!(underline_off(&reversed), vec![rgb(theme.palette[7])]);
-    // With the floor on, the reversed underline is entry 7 on the reversed
-    // page, the same 1.13:1 pair the text is, and is lifted the same way.
-    assert_eq!(underline(&reversed), vec![0x005e_5e5e]);
+    assert_eq!(
+        underline(floor_off(), &reversed),
+        vec![rgb(theme.palette[0])]
+    );
+    // With the floor on: black on the reversed page `#d8d8d8` reads far
+    // above the trigger, so nothing is lifted.
+    assert_eq!(
+        underline(dim_theme(), &reversed),
+        vec![rgb(theme.palette[0])]
+    );
 }
 
-/// An `OSC 4` override of entry 7 is what `SGR 30` draws under `?5`: xterm
-/// swaps the colours the table *holds*, so an override set before the flip
-/// travels with the slot it was set on.
+/// An `OSC 4` override is drawn wherever its entry is named, exchanged like
+/// any colour: entry 1 overridden is the text of an `SGR 41` cell and the
+/// background of an `SGR 31` one. An override of entry 7 does not reach a
+/// cell that names entry 0, as xterm's swap made it do.
 #[test]
-fn a_palette_override_travels_with_its_entry() {
-    render(
-        b"\x1b]4;7;rgb:12/34/56\x07\x1b[?5h\x1b[40m \x1b[0m\x1b[2;12H",
+fn a_palette_override_is_drawn_where_its_entry_is_named() {
+    render_with(
+        floor_off(),
+        b"\x1b]4;1;rgb:12/34/56\x07\x1b[?5h\x1b[41mA\x1b[0;31mB\x1b[0m\x1b[2;12H",
         |r| {
-            assert_eq!(rgb(r.background()[0]), 0x0012_3456);
+            let text: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
+            assert_eq!(text[0], 0x0012_3456, "the SGR 41 letter");
+            assert_eq!(rgb(r.background()[1]), 0x0012_3456, "the SGR 31 cell");
         },
     );
+    render_with(
+        floor_off(),
+        b"\x1b]4;7;rgb:12/34/56\x07\x1b[?5h\x1b[30mA\x1b[0m\x1b[2;12H",
+        |r| {
+            assert_eq!(rgb(r.background()[0]), rgb(dim_theme().palette[0]));
+        },
+    );
+}
+
+/// **`OSC 10` and `11` under `?5` reach an explicitly coloured cell too**:
+/// the colour `OSC 10` sets while reversed is the one drawn as text, and an
+/// `SGR 31` cell's text under `?5` is its default background exchanged -- so
+/// it moves, while the red stays the cell's background. `OSC 11` likewise
+/// moves an `SGR 41` cell's page and leaves its red letter.
+#[test]
+fn osc_10_and_11_under_reverse_reach_an_exchanged_cell() {
+    let theme = dim_theme();
+    render_with(
+        floor_off(),
+        b"\x1b[?5h\x1b]10;rgb:12/34/56\x07\x1b]11;rgb:aa/bb/cc\x07\x1b[31mA\x1b[0;41mB\x1b[0m\x1b[2;12H",
+        |r| {
+            let text: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
+            assert_eq!(text, vec![0x0012_3456, rgb(theme.palette[1])]);
+            let bg: Vec<u32> = r.background()[..2].iter().map(|&c| rgb(c)).collect();
+            assert_eq!(bg, vec![rgb(theme.palette[1]), 0x00aa_bbcc]);
+        },
+    );
+}
+
+/// Faint dims the text that is drawn toward the colour it is drawn on,
+/// after the exchange: `SGR 2;31` under `?5` is the default page's
+/// `#101010` mixed half way to red, `#6f0808`, on red. Before the exchange it
+/// would dim the red toward the page and draw `#101010` on the dimmed red.
+#[test]
+fn faint_dims_the_exchanged_text() {
+    let theme = dim_theme();
+    render_with(floor_off(), b"\x1b[?5h\x1b[2;31mA\x1b[0m\x1b[2;12H", |r| {
+        let text: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
+        assert_eq!(text, vec![0x006f_0808]);
+        assert_eq!(rgb(r.background()[0]), rgb(theme.palette[1]));
+    });
+}
+
+/// **`app_backgrounds = "opaque"` keeps the background drawn**, which under
+/// `?5` is the cell's foreground: an `SGR 31` cell's red is opaque, an `SGR
+/// 41` cell's page is the default foreground and keeps the dim, and an `SGR
+/// 7;31` cell, exchanged twice, is the default background and dims too.
+#[test]
+fn an_opaque_background_is_the_one_drawn() {
+    let theme = Theme {
+        app_bg: AppBg::Opaque,
+        ..dim_theme()
+    };
+    let bytes = b"\x1b[?5h\x1b[31mA\x1b[0;41mB\x1b[0mC\x1b[7;31mD\x1b[0m\x1b[2;12H";
+    render_with(theme.clone(), bytes, |r| {
+        let a: Vec<u8> = r.background()[..4].iter().map(|&c| alpha(c)).collect();
+        assert_eq!(a, vec![0xFF, DIM, DIM, DIM]);
+    });
+    // The control: on a normal screen the `SGR 41` and `SGR 7;31` cells are
+    // the ones whose drawn background the application set.
+    render_with(theme, &bytes[5..], |r| {
+        let a: Vec<u8> = r.background()[..4].iter().map(|&c| alpha(c)).collect();
+        assert_eq!(a, vec![DIM, 0xFF, DIM, 0xFF]);
+    });
+}
+
+/// **A picture drawn in text is found by the background drawn**, which
+/// under `?5` is each cell's foreground: a row of sixteen letters in sixteen
+/// foreground colours is a picture there and is drawn solid, and a row of
+/// sixteen blanks on sixteen backgrounds, whose drawn backgrounds are all
+/// the default foreground, is not. On a normal screen it is the other way
+/// round.
+#[test]
+fn a_picture_is_found_by_the_background_drawn() {
+    let ws = WinSize {
+        ws_row: 4,
+        ws_col: 20,
+    };
+    let mut bytes = Vec::new();
+    for i in 0..16 {
+        bytes.extend_from_slice(format!("\x1b[48;5;{}m ", 16 + i * 7).as_bytes());
+    }
+    bytes.extend_from_slice(b"\x1b[0m\r\n");
+    for i in 0..16 {
+        bytes.extend_from_slice(format!("\x1b[38;5;{}mX", 16 + i * 7).as_bytes());
+    }
+    bytes.extend_from_slice(b"\x1b[0m\x1b[4;20H");
+    let alphas = |bytes: &[u8]| {
+        let mut got = (Vec::new(), Vec::new());
+        render_in(dim_theme(), &ws, bytes, |r, _| {
+            let bg = r.background();
+            got = (
+                bg[..16].iter().map(|&c| alpha(c)).collect::<Vec<_>>(),
+                bg[20..36].iter().map(|&c| alpha(c)).collect::<Vec<_>>(),
+            );
+        });
+        got
+    };
+    let (blanks, letters) = alphas(&bytes);
+    assert_eq!(
+        blanks,
+        vec![0xFF; 16],
+        "the control: the blanks are a picture"
+    );
+    assert_eq!(letters, vec![DIM; 16], "the control: the letters are not");
+    let reversed = [&b"\x1b[?5h"[..], &bytes].concat();
+    let (blanks, letters) = alphas(&reversed);
+    assert_eq!(blanks, vec![DIM; 16], "under ?5 the blanks are the page");
+    assert_eq!(letters, vec![0xFF; 16], "and the letters are the picture");
 }
 
 /// `OSC 10` and `OSC 11` swap with the theme's defaults: the default a

@@ -1771,7 +1771,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
         }
         if self.theme.finds_pictures() {
-            self.pictures.find(term, &vp);
+            self.pictures.find(term, &vp, self.video);
         } else {
             self.pictures.clear(cols, rows);
         }
@@ -2364,12 +2364,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // **The contrast floor, on the opaque colours**: before the alpha
         // below, and before the underline, so a following underline takes
         // the floored text and `UNDERLINE_FOLLOWS_FG` still holds (note Y,
-        // section 8). The words are the ones drawn, swapped under `SGR 7`.
-        let (text_word, page_word) = if style.attrs().has(Attrs::REVERSE) {
-            (style.bg(), style.fg())
-        } else {
-            (style.fg(), style.bg())
-        };
+        // section 8). The words are the ones drawn, exchanged under `SGR 7`
+        // and under `?5` by the one rule the colours took.
+        let (text_word, page_word) = self.video.drawn(style.attrs(), style.fg(), style.bg());
         let fg = self.theme.floor.lift(fg, bg, (text_word, page_word));
         // **Every background is translucent, not only the default one**:
         // the owner's call of 2026-09-20. A picture's and an opaque
@@ -2377,7 +2374,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let bg = bg.with_alpha(self.theme.bg_alpha);
         let attrs = style.attrs();
         let mut shapes = Shapes::default().with_face(self.stack.effective(FaceStyle::of(attrs)));
-        if self.theme.opaque_bg(style) {
+        if self.theme.opaque_bg(style, self.video) {
             shapes = shapes.with(Shapes::OPAQUE_BG);
         }
         // The contrast curve a glyph takes on either side of a swap
@@ -2405,9 +2402,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 shapes = shapes.with(shape);
             }
         }
-        let underline = self
-            .theme
-            .underline(style, self.video, fg, |ch| term.palette(ch));
+        let underline = self.theme.underline(style, fg, |ch| term.palette(ch));
         // An explicit `SGR 58` colour gets the same rule against the page
         // (Jev, logged: 0.98); a following underline is the floored text.
         let underline = if style.underline().is_default() {

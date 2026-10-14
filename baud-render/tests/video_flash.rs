@@ -4,7 +4,7 @@
 //! same before and after and no frame would ever show the reversed screen.
 //! The driver sees it through `Term::reverse_flips` and shows the other video
 //! for the entry's length; this is the renderer's half, which draws a flash
-//! by the one rule `?5` is drawn by (`Video`, xterm's `ReverseVideo`).
+//! by the one rule `?5` is drawn by (`Video::drawn`, every cell exchanged).
 //!
 //! **A flash is the opposite of the mode, not reverse video**: over a
 //! reversed screen it shows the normal one. Every test renders at a
@@ -57,7 +57,7 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 }
 
 /// A screen with a default cell, a coloured one, palette 0 and 7, and a
-/// second row, so a swap of the defaults and of the palette both show.
+/// second row, so the exchange of default and of coloured cells both show.
 const SCENE: &[u8] = b"A\x1b[41mB\x1b[30;47mC\x1b[0m\r\nD\x1b[2;12H";
 
 /// One full frame of `bytes` under `flash`, as a digest.

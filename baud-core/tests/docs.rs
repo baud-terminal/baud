@@ -427,6 +427,27 @@ fn every_test_named_in_the_docs_exists() {
              the old name, and its §5(b) names the test by it",
         ),
         (
+            "the_palette_swaps_black_and_white_and_nothing_else",
+            "a historical name. The test pinned xterm's palette swap under \
+             `?5` and was withdrawn on 2026-10-14, when the per-cell exchange the \
+             owner chose on 2026-10-13 was built; `every_cell_exchanges_its_colours_explicit_ones_included` \
+             replaced it. The record and note Y cite it where they describe \
+             what it pinned then",
+        ),
+        (
+            "an_indexed_underline_colour_swaps_with_the_table",
+            "a historical name, withdrawn with xterm's palette swap on \
+             2026-10-14; `an_underline_follows_the_text_and_an_sgr_58_colour_stays` \
+             replaced it. The record cites it where it describes the swap",
+        ),
+        (
+            "a_palette_override_travels_with_its_entry",
+            "a historical name, withdrawn with xterm's palette swap on \
+             2026-10-14; `a_palette_override_is_drawn_where_its_entry_is_named` \
+             replaced it. The record and note V cite it where they describe \
+             the swap",
+        ),
+        (
             "_vte_row_data_get",
             "VTE's C accessor, quoted in note F where it returns NULL past the              row's stored length",
         ),

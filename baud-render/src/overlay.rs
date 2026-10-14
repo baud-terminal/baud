@@ -245,7 +245,7 @@ impl Overlay {
         let view = &scene.view;
         let (cols, rows) = (view.cols(), view.rows());
         self.stats.pictured = if r.theme().finds_pictures() {
-            self.pictures.find(scene.term, view)
+            self.pictures.find(scene.term, view, r.video())
         } else {
             self.pictures.clear(cols, rows);
             Tally::default()

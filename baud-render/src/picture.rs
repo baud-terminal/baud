@@ -48,7 +48,7 @@
 //! stops counting the moment it is known to be a picture.
 
 use baud_core::Term;
-use baud_domain::{Attrs, Col, ColorWord, Cols, PackedCell, Row, Rows, Viewport};
+use baud_domain::{Col, ColorWord, Cols, PackedCell, Row, Rows, Video, Viewport};
 
 use crate::units::Tally;
 
@@ -125,16 +125,13 @@ pub struct Pictures {
     palettes: Vec<Palette>,
 }
 
-/// The background a cell draws with, when the application set it -- the
-/// foreground under `SGR 7`, which swaps them. The same test as
-/// [`crate::Theme::set_bg`], on the colour word rather than a yes or no.
-fn drawn_bg(term: &Term<'_>, cell: PackedCell) -> Option<ColorWord> {
+/// The background a cell draws with under `video`, when the application set
+/// it -- the foreground under exactly one of `SGR 7` and `?5`, each of which
+/// exchanges them. The same test as [`crate::Theme::set_bg`], on the colour
+/// word rather than a yes or no.
+fn drawn_bg(term: &Term<'_>, cell: PackedCell, video: Video) -> Option<ColorWord> {
     let s = term.style_of(cell);
-    let w = if s.attrs().has(Attrs::REVERSE) {
-        s.fg()
-    } else {
-        s.bg()
-    };
+    let (_, w) = video.drawn(s.attrs(), s.fg(), s.bg());
     (!w.is_default()).then_some(w)
 }
 
@@ -158,10 +155,12 @@ impl Pictures {
         }
     }
 
-    /// Finds the pictures on `view` and returns how many cells they cover.
+    /// Finds the pictures on `view`, drawn under `video`, and returns how
+    /// many cells they cover: a cell's drawn background is its foreground
+    /// under `?5`, so the video decides which colours make a block.
     /// The frame before is kept, so [`Pictures::row_changed`] can say which
     /// rows a picture appeared on, moved across or left.
-    pub fn find(&mut self, term: &Term<'_>, view: &Viewport<'_>) -> Tally {
+    pub fn find(&mut self, term: &Term<'_>, view: &Viewport<'_>, video: Video) -> Tally {
         self.begin(view.cols(), view.rows());
         let (cols, rows) = (view.cols().index(), view.rows().index());
         let mut above = 0..0;
@@ -174,7 +173,7 @@ impl Pictures {
             let mut resume = above.start;
             let mut x = 0;
             while x < cols {
-                let Some(c) = row.get(x).and_then(|&cell| drawn_bg(term, cell)) else {
+                let Some(c) = row.get(x).and_then(|&cell| drawn_bg(term, cell, video)) else {
                     x += 1;
                     continue;
                 };
@@ -184,7 +183,7 @@ impl Pictures {
                 let mut prev = c;
                 x += 1;
                 while x < cols {
-                    let Some(c) = row.get(x).and_then(|&cell| drawn_bg(term, cell)) else {
+                    let Some(c) = row.get(x).and_then(|&cell| drawn_bg(term, cell, video)) else {
                         break;
                     };
                     // A run of one colour is the common case in a panel;

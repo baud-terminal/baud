@@ -98,32 +98,25 @@ impl DynamicColor {
 /// one spelling of what that does to the colours, which the renderer reads
 /// to draw and the core reads to set, query and reset.
 ///
-/// **The rule is xterm's `ReverseVideo`** (util.c 3269-3307, the file
-/// `[[source: xterm-scroll]]` pins): the default foreground and background
-/// swap, and so do palette entries 0 and 7 and entries 8 and 15 -- "by
-/// convention, these are the colors assigned to black and white" -- while
-/// every other entry, and every truecolour, is left alone. xterm swaps the
-/// colours it *stores*, as whole records with their defaults (`swapLocally`,
-/// 3211-3241), and `ReverseOldColors` swaps the copies `OSC 10`/`11` answer
-/// from (`[[source: xterm-misc]]` misc.c 6411-6445). baud stores the
-/// unreversed slots and maps the name to the slot instead, which is the same
-/// answer at both ends: the renderer reads entry `entry(i)` for a cell that
-/// asked for `i`, and an `OSC 10`, `11`, `110` or `111` sent under `?5` acts
-/// on the slot holding the colour shown in the role it names (note V, V17),
-/// as xterm's handlers do on its swapped tables (misc.c 3568-3750). The core
-/// does not read `entry`: an `OSC 4 ; i` or `OSC 104 ; i` names the stored
-/// entry, and whether it should name the one shown waits on the question
-/// below.
+/// **Every cell draws with its foreground and background exchanged**, an
+/// explicit `SGR` colour included: DEC STD 070 defines the mode as
+/// reversing "the definitions of the foreground and background colors"
+/// (`[[source: dec-std-070]]` § 5.6, page 5-94, PDF 349), and its Color Text
+/// Extension says it "will affect which attribute bits from display memory
+/// are used to render the text foreground and background color. It does not
+/// affect the current rendition" (§ 5.6.3.2, page 5-107, PDF 362). The
+/// owner decided this reading on 2026-10-13 over xterm's `ReverseVideo`,
+/// which swaps the defaults and palette entries 0/7 and 8/15 and leaves
+/// every other colour where it was (util.c 3269-3307, the file
+/// `[[source: xterm-scroll]]` pins). A cell's own `SGR 7` exchanges again
+/// ([`Video::drawn`]), and no palette entry moves, so an `OSC 4 ; i` or
+/// `OSC 104 ; i` names the entry drawn wherever `i` is named.
 ///
-/// DEC STD 070 words `DECSCNM` differently. Its definition, § 5.6, page 5-94
-/// (`[[source: dec-std-070]]`, PDF 349): "Changing the mode reverses the
-/// definitions of the foreground and background colors." The Color Text
-/// Extension, § 5.6.3.2 (PDF 362): it "will affect which attribute bits from
-/// display memory are used to render the text foreground and background
-/// color" -- a per-cell exchange rather than a swap of four table entries.
-/// No DEC passage names palette entries 0/7 and 8/15. Which the screen
-/// follows is an open question for Jev (the record, "`OSC 10` and `11` under
-/// `?5` act on the colour shown").
+/// A default cell drawn exchanged shows the stored background as its text
+/// and the stored foreground as its page, so the colour shown in a role is
+/// the other role's stored colour ([`Video::role`]): what an `OSC 10`,
+/// `11`, `110` or `111` sent under `?5` acts on (note V, V17), and what the
+/// margin, the scrollbar and a fade take.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Video {
     #[default]
@@ -132,18 +125,17 @@ pub enum Video {
 }
 
 impl Video {
-    /// The palette entry a colour index names under this video: 0 and 7,
-    /// and 8 and 15, trade places. Its own inverse.
-    pub fn entry(self, i: Chan) -> Chan {
-        let swapped = match (self, i.get()) {
-            (Video::Normal, n) => n,
-            (Video::Reverse, 0) => 7,
-            (Video::Reverse, 7) => 0,
-            (Video::Reverse, 8) => 15,
-            (Video::Reverse, 15) => 8,
-            (Video::Reverse, n) => n,
-        };
-        Chan::from_u8(swapped)
+    /// A cell's foreground and background as drawn under this video and
+    /// the cell's own `attrs`: exchanged when exactly one of the screen's
+    /// `?5` and the cell's `SGR 7` reverses them, so reverse inside reverse
+    /// video draws the pair as stored. The one test of which side is the
+    /// page: the colours, the contrast floor's words, the opaque-background
+    /// test and the picture finder all take it.
+    pub fn drawn<T>(self, attrs: Attrs, fg: T, bg: T) -> (T, T) {
+        match (self, attrs.has(Attrs::REVERSE)) {
+            (Video::Normal, false) | (Video::Reverse, true) => (fg, bg),
+            (Video::Normal, true) | (Video::Reverse, false) => (bg, fg),
+        }
     }
 
     /// The stored dynamic colour a role names under this video: the
@@ -163,7 +155,11 @@ impl Video {
     /// exactly that before its swap (`[[source: xterm-scroll]]` util.c
     /// 3293-3295), and `ReverseOldColors` to the copy `OSC 12 ; ?` answers
     /// from (`[[source: xterm-misc]]` misc.c 6418-6431), so the cursor keeps
-    /// the text's colour instead of vanishing into the page.
+    /// the text's colour instead of vanishing into the page. `OSC 12` is
+    /// xterm's, so xterm's rule governs it under the exchange too, and its
+    /// reason holds there: a default cell exchanged draws the old text
+    /// colour as its page, which a cursor left in that colour would vanish
+    /// into.
     ///
     /// A cursor colour nobody set ([`ColorWord::DEFAULT`]) is drawn in the
     /// text colour already, and stays unset; so does one whose page is not

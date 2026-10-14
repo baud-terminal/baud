@@ -25,7 +25,7 @@ use std::collections::{HashSet, VecDeque};
 
 use baud_core::{Owned, Term};
 use baud_domain::{Attrs, BytePos, ColorWord, PackedCell, ReadLen, Row, Rows, WinSize};
-use baud_render::{PICTURE_COLOURS, Pictures};
+use baud_render::{PICTURE_COLOURS, Pictures, Video};
 
 /// The corpus geometry, which every stream here was captured at.
 const WS: WinSize = WinSize {
@@ -126,7 +126,7 @@ fn stream(name: &str, bytes: &[u8]) {
             }
         }
         let view = t.view(Rows::ZERO);
-        marked = marked.max(finder.find(&t, &view).value());
+        marked = marked.max(finder.find(&t, &view, Video::Normal).value());
     }
     println!(
         "stream   {name:28} reads {reads:4}  busiest block {busiest:5} colours in {its_cells:5} cells  finder marked {marked}"
@@ -147,7 +147,7 @@ fn capture(name: &str, text: &str) {
     let mut all = blocks(&t);
     all.sort_by_key(|&(cells, _)| std::cmp::Reverse(cells));
     let view = t.view(Rows::ZERO);
-    let marked = Pictures::new().find(&t, &view).value();
+    let marked = Pictures::new().find(&t, &view, Video::Normal).value();
     let fewest = all.iter().map(|&(_, colours)| colours).min().unwrap_or(0);
     println!(
         "capture  {name:44} blocks {:2}  largest {:?}  fewest colours in a block {fewest:4}  finder marked {marked}",

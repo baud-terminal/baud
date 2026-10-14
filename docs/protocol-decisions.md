@@ -300,10 +300,6 @@ half-built protocol feature is finished to the spec, not switched off"):
   Asian Ambiguous characters two columns wide, and `?1021` built to the spec.
   Neither exists today: `Term::set_ambiguous_width` is the core's channel,
   `baud-app` never calls it, and `?1021` is not named.
-* **V17, `OSC 4`, `10` and `11` acting on the colour shown under `?5`**, as
-  xterm does. `OSC 10` and `11` are built (the record, "`OSC 10` and `11`
-  under `?5` act on the colour shown"); `OSC 4`'s 0/7/8/15 mapping waits on
-  Jev's `DECSCNM` decision, the question in that section.
 * **V18, the Sixel modes `?80` and `?1070`**, built to the spec. Neither is
   named today, so DECSET counts both in `unsupported_param` and DECRQM
   answers `0`.

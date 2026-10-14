@@ -11,13 +11,13 @@
 //! reset lands on the colour drawn, and a reply keeps the code the program
 //! sent.
 //!
-//! baud stores the unreversed slots and swaps where it draws, so the same
-//! answer is a mapping at the slot the core reads or writes: under `?5`,
-//! `OSC 10` names the stored background and `OSC 11` the stored foreground.
-//! That is the same under every reading of DEC's `DECSCNM`. `OSC 4`'s
-//! 0/7/8/15 mapping is not here: it exists only under xterm's palette swap,
-//! and waits on Jev's `DECSCNM` decision (the record, "`OSC 10` and `11`
-//! under `?5` act on the colour shown").
+//! baud stores the unreversed slots and exchanges every cell where it draws
+//! (DEC STD 070 § 5.6.3.2; the owner's decision of 2026-10-13), so a default
+//! cell shows the stored background as text and the stored foreground as
+//! its page, and the same answer is a mapping at the slot the core reads or
+//! writes: under `?5`, `OSC 10` names the stored background and `OSC 11` the
+//! stored foreground. `OSC 4` is not mapped: under the exchange no palette
+//! entry moves, so the entry a program names is the entry drawn.
 
 mod support;
 

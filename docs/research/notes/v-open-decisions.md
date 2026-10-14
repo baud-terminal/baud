@@ -218,7 +218,7 @@ which is why it is bundled rather than deleted. Deleting
 | V10, only on the finish branch | ghostty's `Terminal.zig` at d9840f3c, and xterm's `cursor.c` (the same pin as V4's) | both pinned: [[source: xterm-cursor-c]], and [[source: ghostty-d9840f3-terminal]] committed 2026-10-12, the commit the oracle's libghostty-vt was built from |
 | V11, the clipboard | RFC 4648, base64's standard | lands before building |
 | V13, the selection colour on macOS | the NSColor selection colours, from the local SDK header | lands before building |
-| V17, colours under `?5` | xterm's `misc.c`, where OSC 4, 10 and 11 are handled | pinned ([[source: xterm-misc]]); OSC 10/11 built 2026-10-11, OSC 4 held for Jev |
+| V17, colours under `?5` | xterm's `misc.c`, where OSC 4, 10 and 11 are handled | pinned ([[source: xterm-misc]]); OSC 10/11 built 2026-10-11; OSC 4 needs no mapping since 2026-10-14, when DEC's per-cell exchange for `?5`, the owner's choice of 2026-10-13, was built (the record, "`?5` exchanges every cell's colours") |
 | V15 step 2, the real mode 2027 | the mode 2027 draft, and Unicode's emoji variation sequences file | lands before building |
 | V14's `?1021` | xterm's man page and `misc.c`, only if the switch is built and `?1021` is answered, which the lean leaves out even then | lands before building |
 

@@ -722,7 +722,8 @@ impl Cold {
     }
 
     /// The video the screen is shown in, from `?5`: what maps a colour an
-    /// `OSC 4`/`10`/`11` names to the slot that holds it.
+    /// `OSC 10`/`11` names to the slot that holds it. An `OSC 4` entry is
+    /// not mapped: under the per-cell exchange no entry moves.
     pub(crate) fn video(&self) -> Video {
         match self.modes.is_set(ModeBit::ReverseVideo) {
             true => Video::Reverse,
@@ -2218,7 +2219,8 @@ impl<'b> Term<'b> {
     }
 
     /// `?5` DECSCNM, reverse video. The core records it; `baud-render` draws
-    /// it, by xterm's `ReverseVideo` rule (`Video` in its `color.rs`).
+    /// it, every cell's colours exchanged (`Video::drawn`, DEC STD 070
+    /// § 5.6.3.2).
     pub fn reverse_video(&self) -> bool {
         self.cold.modes.is_set(ModeBit::ReverseVideo)
     }

@@ -8,6 +8,9 @@
 //! every preview, so both halves are gated on real bytes: the corpus and
 //! three themed-editor captures (`tests/panels/`) at every read boundary,
 //! and chafa's two captures (`tests/previews/`) placed as yazi places them.
+//! Quiet on every TUI holds on a normal screen; under `?5`, where every
+//! cell draws its foreground as its background, btop and cava are found
+//! too, and a test pins that arm.
 
 mod support;
 
@@ -16,7 +19,7 @@ use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{
     AppBg, Blend, Damage, PICTURE_COLOURS, PictureBg, Pictured, Pictures, PxSize, Renderer, Stack,
-    Theme,
+    Theme, Video,
 };
 use support::{Canvas, font, paint};
 
@@ -43,7 +46,7 @@ fn found(ws: &WinSize, bytes: &[u8]) -> Vec<Vec<Pictured>> {
     feed(&mut t, bytes);
     let mut p = Pictures::new();
     let view = t.view(Rows::ZERO);
-    let cells = p.find(&t, &view);
+    let cells = p.find(&t, &view, Video::Normal);
     let grid: Vec<Vec<Pictured>> = (0..usize::from(ws.ws_row))
         .map(|y| {
             (0..usize::from(ws.ws_col))
@@ -200,8 +203,10 @@ fn every_chafa_capture_is_a_picture_in_every_cell() {
     }
 }
 
-/// **No recording and no themed editor draws a picture, at any read
-/// boundary.** The nine recordings and `tests/panels/`'s three captures --
+/// **On a normal screen no recording and no themed editor draws a
+/// picture, at any read boundary.** Under `?5` two of them do, and
+/// `under_reverse_video_only_btop_and_cava_draw_a_picture` holds that arm.
+/// The nine recordings and `tests/panels/`'s three captures --
 /// vim's diff mode under `habamax`, the busiest block measured at 8
 /// colours, helix, and vim with a search highlighted -- each fed a read at
 /// a time, with the finder asked after every read.
@@ -227,7 +232,7 @@ fn no_recording_or_panel_draws_a_picture_at_any_read_boundary() {
         for chunk in bytes.chunks(support::CHUNK) {
             feed(&mut t, chunk);
             let view = t.view(Rows::ZERO);
-            let cells = p.find(&t, &view);
+            let cells = p.find(&t, &view, Video::Normal);
             assert_eq!(cells.value(), 0, "{path}: read {boundaries} drew a picture");
             boundaries += 1;
         }
@@ -243,11 +248,102 @@ fn no_recording_or_panel_draws_a_picture_at_any_read_boundary() {
         feed(&mut t, b"\x1b[0m\x1b[H\x1b[2J");
         feed(&mut t, &preview);
         let view = t.view(Rows::ZERO);
-        assert_eq!(p.find(&t, &view).value(), 41 * 28, "{path}: the control");
+        assert_eq!(
+            p.find(&t, &view, Video::Normal).value(),
+            41 * 28,
+            "{path}: the control"
+        );
     }
     assert!(boundaries > 500, "{boundaries} boundaries");
     // The streams set backgrounds, so the zeros above were asked of panels.
     assert!(set_bg_seen > 20_000, "{set_bg_seen} set backgrounds");
+}
+
+/// **Under `?5` btop and cava draw pictures, and nothing else in the
+/// corpus does.** The same twelve streams as the normal-screen guard
+/// above, fed a read at a time with the finder asked under
+/// [`Video::Reverse`] after every read. Every cell is exchanged under `?5`,
+/// so a cell's drawn background is its stored foreground, and the
+/// background the finder reads is the drawn one (the record, "`?5`
+/// exchanges every cell's colours", open question 3, where the owner is
+/// asked whether it should be). btop's and cava's coloured text then makes
+/// a block of sixteen colours or more: btop at 125 of its 128 reads, 7200
+/// cells at most, and cava at 152 of 156, the whole screen's 10,000 cells
+/// at most.
+///
+/// Positive control: chafa's capture, fed after each stream, is 1139 of
+/// its 1148 cells under `?5`. The nine it loses are its own `SGR 7` cells
+/// with a set foreground over the default background, which `?5`
+/// exchanges a second time onto the default.
+///
+/// And the zeros were asked of colour: the ten quiet streams' last
+/// screens hold 33,327 cells whose drawn background under `?5` is set.
+#[test]
+fn under_reverse_video_only_btop_and_cava_draw_a_picture() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../tests");
+    let streams = support::RECORDINGS
+        .iter()
+        .map(|r| format!("{root}/recordings/{r}"))
+        .chain(["helix", "vimdiff", "vimhl"].map(|p| format!("{root}/panels/{p}.raw")));
+    let (preview, _) = placed("chafa-truecolour.ans", 3, 20);
+    let mut quiet_set_bg = 0usize;
+    // Each stream: its name, reads, reads with a picture, the most cells
+    // marked at one read, and the control fed after it.
+    let mut got = Vec::new();
+    let mut want = Vec::new();
+    for path in streams {
+        let bytes = std::fs::read(&path).expect("the stream");
+        let name = path.rsplit('/').next().unwrap().to_owned();
+        let mut owned = Owned::new(&CORPUS);
+        let mut t = Term::new(owned.storage(), &CORPUS);
+        let mut p = Pictures::new();
+        let (mut reads, mut pictured, mut most) = (0usize, 0usize, 0u64);
+        for chunk in bytes.chunks(support::CHUNK) {
+            feed(&mut t, chunk);
+            let view = t.view(Rows::ZERO);
+            let cells = p.find(&t, &view, Video::Reverse).value();
+            reads += 1;
+            pictured += usize::from(cells > 0);
+            most = most.max(cells);
+        }
+        let (expect_pictured, expect_most) = match name.as_str() {
+            "btop.raw" => (125, 7200),
+            "cava.raw" => (152, 10_000),
+            _ => {
+                let view = t.view(Rows::ZERO);
+                for y in 0..usize::from(CORPUS.ws_row) {
+                    for &c in view.row(Row::from_index(y)) {
+                        let s = t.style_of(c);
+                        let (_, page) = Video::Reverse.drawn(s.attrs(), s.fg(), s.bg());
+                        quiet_set_bg += usize::from(!page.is_default());
+                    }
+                }
+                (0, 0)
+            }
+        };
+        feed(&mut t, b"\x1b[0m\x1b[H\x1b[2J");
+        feed(&mut t, &preview);
+        let view = t.view(Rows::ZERO);
+        let control = p.find(&t, &view, Video::Reverse).value();
+        want.push((
+            name.clone(),
+            reads,
+            expect_pictured,
+            expect_most,
+            41 * 28 - 9,
+        ));
+        got.push((name, reads, pictured, most, control));
+    }
+    assert_eq!(
+        want.iter().map(|w| w.1).collect::<Vec<_>>(),
+        [82, 128, 110, 123, 8, 80, 156, 21, 34, 16, 8, 4],
+        "the reads each stream is fed in"
+    );
+    assert_eq!(
+        got, want,
+        "name, reads, with a picture, most cells, control"
+    );
+    assert_eq!(quiet_set_bg, 33_327, "set backgrounds drawn under ?5");
 }
 
 fn dim_renderer<'f, 'a>(faces: &'f [Face<'a>], pictures: PictureBg) -> Renderer<'f, 'a> {

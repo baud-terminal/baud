@@ -281,11 +281,13 @@ impl Paint<'_, '_> {
             Osc::ResetColor(Some(c)) => self.set_palette(c, ColorWord::DEFAULT),
             Osc::ResetColor(None) => self.reset_palette(),
             // **Under `?5` each names the colour shown in its role** (note V,
-            // V17): xterm's flip swaps what it stores, so its `OSC 10`-family
-            // handlers land on the colour drawn (`[[source: xterm-misc]]`
-            // misc.c 3568-3750); baud stores the unreversed slots and maps the
-            // role instead, through the [`Video`] the renderer draws by. A
-            // query keeps the code the program sent, as xterm's replies do.
+            // V17): every cell is drawn exchanged, so a default cell shows the
+            // stored background as its text and the stored foreground as its
+            // page, and the role maps to the other slot through the [`Video`]
+            // the renderer draws by -- where xterm's `OSC 10`-family handlers
+            // land, on its swapped tables (`[[source: xterm-misc]]` misc.c
+            // 3568-3750). A query keeps the code the program sent, as xterm's
+            // replies do.
             Osc::SetDynamic { which, spec } => match spec {
                 XColor::Rgb(r, g, b) => {
                     let slot = self.cold.video().role(which);

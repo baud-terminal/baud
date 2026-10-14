@@ -68,10 +68,12 @@ fn feed(t: &mut Term<'_>, bytes: &[u8]) {
 /// box-drawing stroke on a set background, and a reversed block -- which
 /// the theme's `AppBg::Opaque` keeps opaque, as it does the fourth row's
 /// `blue bg` and `reverse` spans. That row ends on palette entries 0, 7, 8
-/// and 15 -- the four `?5` swaps -- so the reverse-video scene draws the
-/// palette swap through both arms and not only the defaults. Both read it
-/// from one resolved table, so this compares their drawing of it; the
-/// swap's own rule is gated in `baud-render/tests/reverse_video.rs`.
+/// and 15, and the scene holds SGR, `38;5`, `48;5` and truecolour cells, so
+/// the reverse-video scene draws every cell's exchange (DEC STD 070
+/// § 5.6.3.2; the owner, 2026-10-13) through both arms and not only the
+/// defaults. Both read it from one resolved table, so this compares their
+/// drawing of it; the exchange's own rule is gated in
+/// `baud-render/tests/reverse_video.rs`.
 fn scene(t: &mut Term<'_>) {
     feed(
         t,
@@ -2128,7 +2130,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the fade veiled the screen"
     );
     arms.fade = None;
-    // `?5`, reverse video: every rendition resolves under the swap, the
+    // `?5`, reverse video: every rendition resolves exchanged, the
     // default background at the window's dim like any other. Both arms draw
     // the flip from the one resolved table, the fade over it takes the
     // reversed background, and the frame is not the one before it.
@@ -2569,6 +2571,14 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         );
     }
     feed(&mut t, b"\x1b[7;3H\x1b[44m  panel  \x1b[0m");
+    // Sixteen letters in sixteen foreground colours on the default page: no
+    // picture on a normal screen, and one under `?5`, where each cell's
+    // drawn background is its foreground.
+    feed(&mut t, b"\x1b[9;3H");
+    for x in 0..16u32 {
+        feed(&mut t, format!("\x1b[38;5;{}mX", 16 + x * 7).as_bytes());
+    }
+    feed(&mut t, b"\x1b[0m");
     let (cols, _) = arms.renderer.grid();
     let mut frames = Vec::new();
     for (pictures, want_pictured) in [
@@ -2625,6 +2635,36 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         differing(&frames[0], &frames[1]) > 0,
         "the picture's solid backgrounds did not reach the cell arm's pixels"
     );
+    // **Under `?5` the picture is found by the background drawn**, on both
+    // arms: the 2x20 block still draws forty set colours as its backgrounds
+    // (its foregrounds, exchanged), the sixteen letters become a picture,
+    // and the fifteen-colour row and the panel draw the default foreground
+    // as their backgrounds and join nothing. A cell arm whose overlay read
+    // the stored background would find forty cells, not fifty-six.
+    arms.renderer.set_theme(Theme {
+        app_bg: baud_render::AppBg::Dimmed,
+        picture_bg: baud_render::PictureBg::Opaque,
+        ..resting.clone()
+    });
+    feed(&mut t, b"\x1b[?5h");
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(
+        arms.exceptions.stats().pictured.value(),
+        56,
+        "?5: the cell arm's overlay found the picture's cells"
+    );
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "?5: the arms disagree over a text-drawn picture"
+    );
+    let bg = arms.renderer.background();
+    let alpha = |row: usize, col: usize| bg[row * cols.index() + col].0.to_be_bytes()[0];
+    assert_eq!(alpha(1, 2), 0xFF, "?5: the block's first cell");
+    assert_eq!(alpha(8, 2), 0xFF, "?5: the sixteen letters' first cell");
+    assert_eq!(alpha(8, 17), 0xFF, "?5: the sixteen letters' last cell");
+    assert_eq!(alpha(4, 2), 56, "?5: the fifteen blanks draw the page");
+    feed(&mut t, b"\x1b[?5l");
     arms.renderer.set_theme(resting);
 
     // **The image gate, last so a lingering placement disturbs nothing.** A

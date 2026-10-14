@@ -1,32 +1,32 @@
-//! `Video`, the one spelling of xterm's `ReverseVideo` colour swap
-//! (`[[source: xterm-scroll]]` util.c 3286-3294): which palette entries and
-//! which dynamic colours trade places under `?5`, read by the renderer to
-//! draw and by the core to set, query and reset (note V, V17).
+//! `Video`, the one spelling of what `?5` DECSCNM does to colour: every
+//! cell's foreground and background exchanged (`[[source: dec-std-070]]`
+//! § 5.6.3.2; the owner, 2026-10-13), and which dynamic colour is shown in
+//! each role -- read by the renderer to draw and by the core to set, query
+//! and reset (note V, V17).
 
-use baud_domain::{Chan, DynamicColor, Video};
+use baud_domain::{Attrs, DynamicColor, Video};
 
+/// The pair is exchanged when exactly one of `?5` and the cell's `SGR 7`
+/// reverses it, and kept when neither or both do. No other attribute
+/// enters.
 #[test]
-fn reverse_swaps_entries_0_and_7_and_8_and_15_and_no_other() {
-    for i in 0..=255u8 {
-        let want = match i {
-            0 => 7,
-            7 => 0,
-            8 => 15,
-            15 => 8,
-            n => n,
-        };
-        assert_eq!(Video::Reverse.entry(Chan::from_u8(i)).get(), want, "{i}");
-        assert_eq!(Video::Normal.entry(Chan::from_u8(i)).get(), i, "{i}");
+fn a_cell_is_exchanged_by_exactly_one_reversal() {
+    let plain = Attrs::NONE;
+    let rev = Attrs::NONE.with(Attrs::REVERSE);
+    assert_eq!(Video::Normal.drawn(plain, 'f', 'b'), ('f', 'b'));
+    assert_eq!(Video::Normal.drawn(rev, 'f', 'b'), ('b', 'f'));
+    assert_eq!(Video::Reverse.drawn(plain, 'f', 'b'), ('b', 'f'));
+    assert_eq!(Video::Reverse.drawn(rev, 'f', 'b'), ('f', 'b'));
+    for other in [Attrs::BOLD, Attrs::DIM, Attrs::HIDDEN, Attrs::BLINK] {
+        let a = Attrs::NONE.with(other);
+        assert_eq!(Video::Reverse.drawn(a, 'f', 'b'), ('b', 'f'), "{other:?}");
+        assert_eq!(Video::Normal.drawn(a, 'f', 'b'), ('f', 'b'), "{other:?}");
     }
 }
 
 #[test]
-fn each_mapping_undoes_itself() {
+fn each_role_mapping_undoes_itself() {
     for v in [Video::Normal, Video::Reverse] {
-        for i in 0..=255u8 {
-            let c = Chan::from_u8(i);
-            assert_eq!(v.entry(v.entry(c)), c);
-        }
         for w in [
             DynamicColor::Foreground,
             DynamicColor::Background,

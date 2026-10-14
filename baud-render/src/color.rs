@@ -266,11 +266,11 @@ pub enum PictureBg {
 }
 
 /// Whether the screen is drawn in reverse video: `?5`, DECSCNM -- baud-domain's
-/// [`baud_domain::Video`], the one spelling of xterm's `ReverseVideo` the core
+/// [`baud_domain::Video`], the one spelling of the per-cell exchange the core
 /// reads too, so the colour `OSC 10`/`11` set under `?5` is the one drawn in
-/// the role it named. Here the index is mapped before the table is read,
-/// and a cell's own `SGR 7` still swaps after that, so reverse inside reverse
-/// video draws a normal cell.
+/// the role it named. Here each cell's pair is resolved as stored and then
+/// exchanged, once for `?5` and once for the cell's own `SGR 7`, so reverse
+/// inside reverse video draws a normal cell.
 ///
 /// **Every background keeps the window's alpha under it**, the reversed
 /// default one included: the owner's call, 2026-09-25, "same alpha for all".
@@ -352,11 +352,12 @@ impl Theme {
     }
 
     /// Whether a cell drawn under `style` keeps its background opaque: the
-    /// exemption is on and the background it resolves to is one the
-    /// application set. A pure function of the rendition, so the cell path
-    /// bakes it into the style table and the shader reads one bit.
-    pub fn opaque_bg(&self, style: StyleWord) -> bool {
-        self.app_bg == AppBg::Opaque && Self::set_bg(style)
+    /// exemption is on and the background it resolves to under `video` is
+    /// one the application set. A pure function of the rendition and the
+    /// video, so the cell path bakes it into the style table, which a change
+    /// of video resolves again, and the shader reads one bit.
+    pub fn opaque_bg(&self, style: StyleWord, video: Video) -> bool {
+        self.app_bg == AppBg::Opaque && Self::set_bg(style, video)
     }
 
     /// Whether pictures drawn in text are looked for at all: only under the
@@ -369,21 +370,29 @@ impl Theme {
             && self.bg_alpha.get() < 0xFF
     }
 
-    /// Whether the background `style` resolves to is one the application
-    /// set rather than the default -- under `SGR 7` that is the
-    /// foreground, because reverse swaps them.
-    pub fn set_bg(style: StyleWord) -> bool {
-        if style.attrs().has(Attrs::REVERSE) {
-            !style.fg().is_default()
-        } else {
-            !style.bg().is_default()
-        }
+    /// Whether the background `style` resolves to under `video` is one the
+    /// application set rather than the default -- under exactly one of
+    /// `SGR 7` and `?5` that is the foreground, because each exchanges them
+    /// ([`Video::drawn`]).
+    pub fn set_bg(style: StyleWord, video: Video) -> bool {
+        let (_, page) = video.drawn(style.attrs(), style.fg(), style.bg());
+        !page.is_default()
     }
 
     /// The foreground and background a rendition draws with, after the
-    /// attribute rules: reverse swaps, bold brightens the first eight
-    /// palette entries, faint mixes the drawn text half way to the colour it
-    /// is drawn on -- all under `video`, the screen's `?5`.
+    /// attribute rules: bold brightens the first eight palette entries,
+    /// `?5` and `SGR 7` each exchange the pair ([`Video::drawn`]), and faint
+    /// mixes the drawn text half way to the colour it is drawn on.
+    ///
+    /// **Under `?5` every cell is exchanged, an explicit colour included**
+    /// (DEC STD 070 § 5.6.3.2, `[[source: dec-std-070]]` page 5-107, PDF
+    /// 362: the mode "will affect which attribute bits from display memory
+    /// are used to render the text foreground and background color"; the
+    /// owner's decision of 2026-10-13). The pair is resolved from the stored
+    /// defaults and the stored palette and only then exchanged, so no entry
+    /// moves and a default cell comes out as the defaults swapped. Bold
+    /// brightens before the exchange, as the VT525 order j4james reports
+    /// does (`[[source: gh-ckwin-547-comments]]`, not a DEC text).
     /// Hiding is not a colour and is not here: `Resolved::text`.
     pub fn resolve(
         &self,
@@ -393,26 +402,28 @@ impl Theme {
         dynamic: impl Fn(DynamicColor) -> Option<(u8, u8, u8)>,
     ) -> (Argb, Argb) {
         let attrs = style.attrs();
-        let (fg_default, bg_default) = self.defaults(video, &dynamic);
+        // The stored pair: the exchange below is the only thing `?5` does
+        // to a cell.
+        let (fg_default, bg_default) = self.defaults(Video::Normal, &dynamic);
         let pick = |w: ColorWord, default: Argb, bright: bool| -> Argb {
             if let Some((r, g, b)) = w.as_rgb() {
                 return triple(r, g, b);
             }
             if let Some(i) = w.as_index() {
                 let i = if bright && i < 8 { i + 8 } else { i };
-                return self.entry(video.entry(Chan::from_u8(i)), &palette);
+                return self.entry(Chan::from_u8(i), &palette);
             }
             default
         };
         let bold = attrs.has(Attrs::BOLD);
-        let mut fg = pick(style.fg(), fg_default, bold);
-        let mut bg = pick(style.bg(), bg_default, false);
-        if attrs.has(Attrs::REVERSE) {
-            core::mem::swap(&mut fg, &mut bg);
-        }
-        // **After the swap**: faint dims the text that is drawn, which under
-        // `SGR 7` is the background's colour, toward the band it is drawn
-        // on. Before the swap it would dim the band instead.
+        let (mut fg, bg) = video.drawn(
+            attrs,
+            pick(style.fg(), fg_default, bold),
+            pick(style.bg(), bg_default, false),
+        );
+        // **After the exchange**: faint dims the text that is drawn, which
+        // under `SGR 7` or `?5` is the background's colour, toward the band
+        // it is drawn on. Before it, it would dim the band instead.
         if attrs.has(Attrs::DIM) {
             fg = fg.faint_on(bg);
         }
@@ -462,11 +473,13 @@ impl Theme {
 
 impl Theme {
     /// The colour an underline draws in: `SGR 58`'s when set, else the
-    /// resolved foreground.
+    /// resolved foreground -- the text as drawn, so under `?5` an underline
+    /// that follows the text follows the exchange. An `SGR 58` colour is
+    /// neither the foreground nor the background DEC's `DECSCNM` names, and
+    /// is drawn as set under either video.
     pub fn underline(
         &self,
         style: StyleWord,
-        video: Video,
         fg: Argb,
         palette: impl Fn(Chan) -> Option<(u8, u8, u8)>,
     ) -> Argb {
@@ -475,7 +488,7 @@ impl Theme {
             return triple(r, g, b);
         }
         if let Some(i) = w.as_index() {
-            return self.entry(video.entry(Chan::from_u8(i)), palette);
+            return self.entry(Chan::from_u8(i), palette);
         }
         fg
     }
