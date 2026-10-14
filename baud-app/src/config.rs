@@ -147,8 +147,9 @@ pub struct Config {
     /// 1024x1024 image is 4 MiB whatever its Sixel encodes to); `body_kb`
     /// bounds the *raw* Sixel body held before it decodes, which varies with
     /// its colour count and run-length use. A large image needs both raised:
-    /// the default 4 MiB / 256 KiB holds a moderate Sixel, and either limit
-    /// alone refuses (and counts) rather than truncating.
+    /// the default 4 MiB / 3 MiB holds any yazi preview at its 600x900 cap
+    /// (`host::IMAGE_BUDGET`), and either limit alone refuses (and counts)
+    /// rather than truncating.
     pub images: baud_domain::ImageBudget,
     /// Whether the Primary DA advertises Sixel, from `[images] advertise_sixel`.
     /// **Off by default**: an application that sees the claim draws Sixel instead

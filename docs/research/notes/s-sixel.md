@@ -328,22 +328,22 @@ bug).
   For the slide, a one-band Sixel mid-screen and in the leaving row: a
   full-row slide must be the screen one line up, drawn with no slide shader.
   Dropping the pan fires the first (96 pixels), the old cull the second (48).
-* **The app provisions the arena** (`host::IMAGE_BUDGET`, 4 MiB pixels / 256 KiB
-  body) on every path, so a Sixel is stored and shown rather than parsed and
-  silently refused. The default is overridable through `[images] pixels_mb`
-  and `[images] body_kb` -- two knobs and not one, because the decoded-pixel
-  and raw-body limits are independent and a single knob scaling both would
-  rest on an unmeasured guess about Sixel encoding density; a large image
-  needs both raised. ~~The resolved budget is named on a startup line so a
-  refusal is diagnosable without a rebuild.~~ **It was not diagnosable**,
-  found 2026-10-09 when yazi's previews went blank: the startup line is
-  `info`, which the default `warn` hides, and a refusal was one total --
-  body, slot and arena together -- that nothing in the app read. The store
-  now counts each refusal by its cause (`ImageStore::refusals`: the body
-  with its true length, the arena with the image's size, the slot table, an
-  image with no pixels), and the app logs one `warn` line a pump naming the
-  limit, the sizes and the `[images]` key that raises it
-  (`host::describe_refusals`). **It goes to stderr**, where all of
+* **The app provisions the arena** (`host::IMAGE_BUDGET`, 4 MiB pixels / 3 MiB
+  body since 2026-10-14, 256 KiB of body before) on every path, so a Sixel is
+  stored and shown rather than parsed and silently refused. The default is
+  overridable through `[images] pixels_mb` and `[images] body_kb` -- two knobs
+  and not one, because the decoded-pixel and raw-body limits are independent
+  and a single knob scaling both would rest on an unmeasured guess about Sixel
+  encoding density; a large image needs both raised. ~~The resolved budget is
+  named on a startup line so a refusal is diagnosable without a rebuild.~~
+  **It was not diagnosable**, found 2026-10-09 when yazi's previews went
+  blank: the startup line is `info`, which the default `warn` hides, and a
+  refusal was one total -- body, slot and arena together -- that nothing in
+  the app read. The store now counts each refusal by its cause
+  (`ImageStore::refusals`: the body with its true length, the arena with the
+  image's size, the slot table, an image with no pixels), and the app logs one
+  `warn` line a pump naming the limit, the sizes and the `[images]` key that
+  raises it (`host::describe_refusals`). **It goes to stderr**, where all of
   baud-app's log goes: a launch from a terminal shows it, and a Dock launch,
   whose stderr is discarded, does not.
 
@@ -679,27 +679,54 @@ if the operation regressed.
 * ~~**The image arena size.**~~ **Taken.** How much caller memory Sixel gets
   is `[images] pixels_mb` (decoded ARGB) and `[images] body_kb` (raw-Sixel
   scratch), defaulting to `host::IMAGE_BUDGET`'s 4 MiB / 256 KiB -- the
-  owner's number, kept, with the knobs added around it rather than the
-  default retuned. Two knobs because the two limits are independent: a
-  1024x1024 image is 4 MiB decoded whatever its Sixel encodes to, and its
-  raw body varies with colour count and run-length use, so a single knob
-  scaling both would rest on an unmeasured density guess. ~~The resolved
-  budget is logged at startup, so a reader who raises one knob and still
-  hits a refusal can see which limit bit them.~~ The startup line is
-  `info`, hidden at the default `warn`, and named only the budget; what
-  says which limit bit is the refusal's own `warn` line
-  (`host::describe_refusals`, 2026-10-09), on stderr, which a Dock launch
-  discards.
-* **The body default against a previewer -- open.** yazi 26.5.6, run
-  headless against this budget (cell 17x34, Sixel advertised), caps a
-  preview at 600x900 pixels and writes 1 to 4.6 bytes a pixel. Its small,
-  flat and sparse previews (10-47 KiB of body) store; a UI screenshot
-  (334-390 KiB at 600x375), a photo (474-680 KiB at 600x800) and a page of a
-  text PDF (797-820 KiB at 600x776) are refused against the 256 KiB body
-  though each fits the 4 MiB arena, and the pane is blank because yazi
-  erases the old preview first. Raising `body_kb` alone (to 4 MiB) stored
-  every one. Whether to raise the default or decode as the body streams, so
-  no raw body is buffered, is the owner's call; nothing is changed here.
+  owner's number, kept, with the knobs added around it rather than the default
+  retuned. (The body default became 3 MiB on 2026-10-14, the next item; the
+  arena's 4 MiB is unchanged.) Two knobs because the two limits are
+  independent: a 1024x1024 image is 4 MiB decoded whatever its Sixel encodes
+  to, and its raw body varies with colour count and run-length use, so a
+  single knob scaling both would rest on an unmeasured density guess. ~~The
+  resolved budget is logged at startup, so a reader who raises one knob and
+  still hits a refusal can see which limit bit them.~~ The startup line is
+  `info`, hidden at the default `warn`, and named only the budget; what says
+  which limit bit is the refusal's own `warn` line (`host::describe_refusals`,
+  2026-10-09), on stderr, which a Dock launch discards.
+* ~~**The body default against a previewer -- open.**~~ **Taken,
+  2026-10-13: decode a Sixel as its body arrives, and hold a 3 MiB body
+  until that is built.** yazi 26.5.6, run headless (cell 17x34, Sixel
+  advertised), caps a preview at 600x900 pixels and writes 1 to 4.6 bytes a
+  pixel. At the 256 KiB body default its small, flat and sparse previews
+  (10-47 KiB of body) stored, and a UI screenshot (334-390 KiB at 600x375), a
+  photo (474-680 KiB at 600x800) and a page of a text PDF (797-820 KiB at
+  600x776) were refused though each fit the 4 MiB arena; the pane went blank
+  because yazi erases the old preview first. The owner picked "Stream-decode;
+  3 MiB until then": **the end state is a streaming decoder** -- no raw body
+  held, so only the pixel arena limits an image; the sections of
+  `[[source: dec-std-070]]` 070-9 read for it (§1.1, §2, §8.1.2, §12) name no
+  limit on a body's bytes, and §8.1.2 gives the raster extent as "a summary
+  to avoid a complete scanning of the data" (PDF p. 920) -- **and it is not
+  built.** The interim is built (2026-10-14): `host::IMAGE_BUDGET`'s body is
+  3 MiB, above the 2,705,560 bytes yazi's encoder writes at most for a
+  600x900 image (`[[source: yazi-sixel]]` 57-111: a 12-byte raster, at most
+  256 colour defines of 4,498 bytes in all, and five bytes a one-pixel run,
+  `#` an index of up to three digits and the sixel, for 600 runs a row plus
+  `$`, with a `-` every sixth row). Every Sixel of the nineteen 2026-10-09
+  yazi runs stores -- 41 Sixels, 19 of them refused for the body at 256 KiB
+  -- and the committed walk's thirteen do in
+  `every_yazi_preview_of_the_walk_stores_at_the_default_budget`. A body of
+  exactly the scratch stores (`a_body_of_exactly_the_default_scratch_stores`),
+  and one byte more is still refused whole, counted in `refusals.body` with
+  its length, and named in the app's `warn` line
+  (`a_body_past_the_default_scratch_is_said_with_its_length`). The
+  scratch is a separate allocation from the arena and is not committed
+  until written: provisioning a terminal, before any feed, grew the
+  footprint by 3,932,160-3,948,544 bytes at 256 KiB and 3,948,544-3,964,928
+  at 3 MiB over twelve runs each, two ranges that meet at 3,948,544, each
+  one 16 KiB page wide, with the 3 MiB runs about a page higher. A 3 MiB
+  body leaves its pages resident, so a terminal that has received one holds
+  at most 3 MiB of body beside its 4 MiB arena, 2.75 MiB more than at
+  256 KiB (the record, "The Sixel body default is 3 MiB until a Sixel
+  streams"). A yazi configured past its 600x900 default can still write
+  a body past 3 MiB, and that is refused until the decoder streams.
 * ~~**Reflow.**~~ **Taken, 2026-09-22: the image follows the row it was
   placed on**, foot's model and ghostty's, over kitty's fixed screen
   position and WezTerm's per-cell slices. See "What a resize does to an

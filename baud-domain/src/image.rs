@@ -369,9 +369,9 @@ pub enum ImageRefusal {
 /// The image refusals split by the limit each hit, with the size the last one
 /// of each carried. [`ImageStore::images_refused`] is their total, and stays
 /// the one number for a caller that only asks how many: it mixed a body over
-/// the scratch with an image over the arena, and the two are different knobs
-/// -- yazi's previews went blank on the first (a 600x375 screenshot is a
-/// 334 KiB body against the app's 256 KiB scratch) while the arena held them.
+/// the scratch with an image over the arena, two different knobs -- yazi's
+/// previews went blank on the first (a 600x375 screenshot was a 334 KiB body
+/// against the app's 256 KiB scratch of 2026-10-09) while the arena held them.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ImageRefusals {
     /// Sixels refused because the raw body ran past the body scratch.

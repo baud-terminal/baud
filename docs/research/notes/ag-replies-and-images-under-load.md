@@ -231,7 +231,11 @@ body or says what a terminal does when an image exceeds its capacity.
   must still be accepted. A larger change: the decoder keeps state across reads.
 - Raise now, stream next.
 
-Resident memory of a larger scratch is unmeasured. **Jev, twice, no lean:**
+Resident memory of a larger scratch was unmeasured here; it is measured in
+the record, "The Sixel body default is 3 MiB until a Sixel streams", where
+the owner's decision of 2026-10-13 is recorded: decode as the body streams,
+and raise the default to 3 MiB until then. The raise is built (2026-10-14);
+the streaming decoder is not. **Jev, twice, no lean:**
 "raise now, stream next" at 0.55, then 0.24, with streaming close behind
 (`.claude/research/yazi/`).
 
