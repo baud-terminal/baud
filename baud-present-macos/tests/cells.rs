@@ -30,10 +30,10 @@ use baud_render::orb;
 use baud_render::plasma;
 use baud_render::ufo;
 use baud_render::{
-    Argb, Blend, Blink, Candidate, Composition, Corners, Damage, FaceRole, FaceStyle, GlyphMap,
-    Highlight, Hover, Instance, Kind, Look, Overlay, Pt, PxSize, Rect, Region, Renderer, Resolved,
-    Scene, Scroll, Scroller, Segment, Shape, Smear, Stack, StyleStamp, Theme, Trail, TrailLook,
-    Transition, VideoFlash, Widths, Window, quad_coverage,
+    Argb, Blend, Blink, BlinkPhases, Candidate, Composition, Corners, Damage, FaceRole, FaceStyle,
+    GlyphMap, Highlight, Hover, Instance, Kind, Look, Overlay, Pt, PxSize, Rect, Region, Renderer,
+    Resolved, Scene, Scroll, Scroller, Segment, Shape, Smear, Stack, StyleStamp, Theme, Trail,
+    TrailLook, Transition, VideoFlash, Widths, Window, quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -1412,7 +1412,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "\x1b[2;60H\x1b[5mBLINK\x1b[0m \x1b[5;4;9;31mul-st\x1b[0m \x1b[5me\u{301}->\x1b[0m\x1b[2 q\x1b[2;62H"
             .as_bytes(),
     );
-    arms.renderer.set_blink(Blink::Hidden);
+    arms.renderer.set_blink(BlinkPhases {
+        slow: Blink::Hidden,
+        rapid: Blink::Shown,
+    });
     let (off_a, off_b) = arms.draw(&mut t);
     {
         let (w, _) = arms.renderer.frame_size();
@@ -1487,13 +1490,60 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         "the bar cursor over blinking text vanished in the off phase"
     );
     feed(&mut t, b"\x1b[?25h\x1b[2 q");
-    arms.renderer.set_blink(Blink::Shown);
+    arms.renderer.set_blink(BlinkPhases::SHOWN);
     let (on_a, _) = arms.draw(&mut t);
     assert_ne!(
         differing(&on_a, &off_a),
         0,
         "blinking text's off phase reached no pixel"
     );
+    // **Each rate in its own phase.** Slow text (`SGR 5`) and rapid text
+    // (`SGR 6`), with an underline and a strike, side by side: in each mixed
+    // phase the arms agree, and each is the frame with only the hidden
+    // rate's text replaced by its spaces. A shader that read one phase for
+    // both rates hides the wrong word.
+    feed(&mut t, b"\x1b[?25l");
+    let words = b"\x1b[3;60H\x1b[5;4;9;31mSLOW\x1b[0m \x1b[6;4;9;32mFAST\x1b[0m";
+    for (phase, gap, why) in [
+        (
+            BlinkPhases {
+                slow: Blink::Hidden,
+                rapid: Blink::Shown,
+            },
+            &b"\x1b[3;60H    \x1b[0m \x1b[6;4;9;32mFAST\x1b[0m"[..],
+            "the slow off phase",
+        ),
+        (
+            BlinkPhases {
+                slow: Blink::Shown,
+                rapid: Blink::Hidden,
+            },
+            &b"\x1b[3;60H\x1b[5;4;9;31mSLOW\x1b[0m     "[..],
+            "the rapid off phase",
+        ),
+    ] {
+        arms.renderer.set_blink(phase);
+        feed(&mut t, words);
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(differing(&a, &b), 0, "the arms disagree on {why}");
+        feed(&mut t, b"\x1b[3;60H\x1b[K");
+        feed(&mut t, gap);
+        let (ga, gb) = arms.draw(&mut t);
+        assert_eq!(differing(&a, &ga), 0, "the instance arm in {why}");
+        assert_eq!(differing(&b, &gb), 0, "the cell arm in {why}");
+        feed(&mut t, b"\x1b[3;60H\x1b[K");
+    }
+    arms.renderer.set_blink(BlinkPhases::SHOWN);
+    feed(&mut t, words);
+    let (both_a, _) = arms.draw(&mut t);
+    feed(&mut t, b"\x1b[3;60H\x1b[K");
+    let (blank_a, _) = arms.draw(&mut t);
+    assert_ne!(
+        differing(&both_a, &blank_a),
+        0,
+        "the control: the words draw"
+    );
+    feed(&mut t, b"\x1b[?25h");
     // `SGR 8` the same way, in either phase: concealed text with an underline
     // and a strike is the frame of its spaces, on each arm.
     feed(

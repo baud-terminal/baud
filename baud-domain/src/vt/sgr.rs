@@ -55,6 +55,11 @@ pub enum SgrAttr {
     /// `4:2` or a `21` is curly, not double-and-curly, because exactly one
     /// style is in force at a time.
     UnderlineStyle(Attrs),
+    /// The blink's rate, one of [`Attrs::BLINKS`]: what `SGR 5` (slow) and
+    /// `SGR 6` (rapid) build. **Replaces the family rather than setting a
+    /// bit**, as [`SgrAttr::UnderlineStyle`] does, so the later of 5 and 6
+    /// wins and a rendition never blinks at both rates.
+    BlinkRate(Attrs),
 }
 
 impl SgrAttr {
@@ -207,14 +212,12 @@ impl SgrAttr {
             4 => (SgrAttr::UnderlineStyle(Attrs::UNDERLINE), ParamCount(1)),
             // 5 slow blink, 6 rapid blink. `[[source: ecma48]]` § 8.3.117
             // distinguishes them by rate, "less then 150 per minute" and "150
-            // per minute or more". Both set BLINK, which the app blinks at 75
-            // a minute: right for 5 and a stated departure for 6
-            // (`docs/vt-coverage.md`, the SGR 5/6 row). This said "a terminal
-            // core has no timer", which expired when the app's display link
-            // began blinking the bit; a second bit waits on a rapid rate, which
-            // no text or decision fixes, and until then DECRQSS answers 5, the
-            // rendition drawn.
-            5 | 6 => (SgrAttr::Set(Attrs::BLINK), ParamCount(1)),
+            // per minute or more", and the app draws each at its own (75 and
+            // 150 a minute). One aspect, so each replaces the family and the
+            // later wins (`Attrs::BLINKS`); until 2026-10-14 both set BLINK
+            // and 6 blinked at 5's rate, a stated departure.
+            5 => (SgrAttr::BlinkRate(Attrs::BLINK), ParamCount(1)),
+            6 => (SgrAttr::BlinkRate(Attrs::RAPID_BLINK), ParamCount(1)),
             7 => (SgrAttr::Set(Attrs::REVERSE), ParamCount(1)),
             8 => (SgrAttr::Set(Attrs::HIDDEN), ParamCount(1)),
             9 => (SgrAttr::Set(Attrs::STRIKE), ParamCount(1)),
@@ -247,7 +250,8 @@ impl SgrAttr {
             // `24` is `4:0`: every underline style off, not only the two it
             // used to name.
             24 => (SgrAttr::Unset(Attrs::UNDERLINES), ParamCount(1)),
-            25 => (SgrAttr::Unset(Attrs::BLINK), ParamCount(1)),
+            // "steady (not blinking)": neither rate.
+            25 => (SgrAttr::Unset(Attrs::BLINKS), ParamCount(1)),
             27 => (SgrAttr::Unset(Attrs::REVERSE), ParamCount(1)),
             28 => (SgrAttr::Unset(Attrs::HIDDEN), ParamCount(1)),
             29 => (SgrAttr::Unset(Attrs::STRIKE), ParamCount(1)),
@@ -479,6 +483,7 @@ impl SgrAttr {
             SgrAttr::UnderlineStyle(a) => {
                 cur.set_attrs(cur.attrs().without(Attrs::UNDERLINES).with(a))
             }
+            SgrAttr::BlinkRate(a) => cur.set_attrs(cur.attrs().without(Attrs::BLINKS).with(a)),
             SgrAttr::Fg(c) => cur.set_fg(ColorWord::from_color(c)),
             SgrAttr::Bg(c) => cur.set_bg(ColorWord::from_color(c)),
             SgrAttr::Font(f) => cur.set_font(f),
@@ -502,6 +507,7 @@ impl SgrAttr {
             SgrAttr::UnderlineStyle(a) => {
                 cur.with_attrs(cur.attrs().without(Attrs::UNDERLINES).with(a))
             }
+            SgrAttr::BlinkRate(a) => cur.with_attrs(cur.attrs().without(Attrs::BLINKS).with(a)),
             SgrAttr::Fg(c) => cur.with_fg(ColorWord::from_color(c)),
             SgrAttr::Bg(c) => cur.with_bg(ColorWord::from_color(c)),
             SgrAttr::Font(f) => cur.with_font(f),
@@ -528,7 +534,8 @@ const fn build_one() -> [Option<SgrAttr>; SgrAttr::ONE_MAX] {
             2 => Some(SgrAttr::Set(Attrs::DIM)),
             3 => Some(SgrAttr::Set(Attrs::ITALIC)),
             4 => Some(SgrAttr::UnderlineStyle(Attrs::UNDERLINE)),
-            5 | 6 => Some(SgrAttr::Set(Attrs::BLINK)),
+            5 => Some(SgrAttr::BlinkRate(Attrs::BLINK)),
+            6 => Some(SgrAttr::BlinkRate(Attrs::RAPID_BLINK)),
             7 => Some(SgrAttr::Set(Attrs::REVERSE)),
             8 => Some(SgrAttr::Set(Attrs::HIDDEN)),
             9 => Some(SgrAttr::Set(Attrs::STRIKE)),
@@ -537,7 +544,7 @@ const fn build_one() -> [Option<SgrAttr>; SgrAttr::ONE_MAX] {
             22 => Some(SgrAttr::Unset(Attrs::BOLD.with(Attrs::DIM))),
             23 => Some(SgrAttr::Unset(Attrs::ITALIC.with(Attrs::FRAKTUR))),
             24 => Some(SgrAttr::Unset(Attrs::UNDERLINES)),
-            25 => Some(SgrAttr::Unset(Attrs::BLINK)),
+            25 => Some(SgrAttr::Unset(Attrs::BLINKS)),
             26 => Some(SgrAttr::Set(Attrs::PROPORTIONAL)),
             27 => Some(SgrAttr::Unset(Attrs::REVERSE)),
             28 => Some(SgrAttr::Unset(Attrs::HIDDEN)),

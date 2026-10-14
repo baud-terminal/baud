@@ -33,7 +33,7 @@ Status values are deliberately blunt:
 | | meaning |
 |---|---|
 | **done** | implemented, dispatched, and covered by a test that would fail if it regressed |
-| **partial** | implemented but known-incomplete; the gap is named in the row. Fourteen rows carry it: DECSC, DECRC, DECALN, DECCOLM, the DEC Special Graphics glyph table, the national sets' translation, JIS-Roman, DEC Technical, the DEC Hebrew, Greek and Turkish Supplementals, DEC Cyrillic, SCS and Russian NRCS, the `dcs_param` and `dcs_passthrough` states, and SGR 6 |
+| **partial** | implemented but known-incomplete; the gap is named in the row. Thirteen rows carry it: DECSC, DECRC, DECALN, DECCOLM, the DEC Special Graphics glyph table, the national sets' translation, JIS-Roman, DEC Technical, the DEC Hebrew, Greek and Turkish Supplementals, DEC Cyrillic, SCS and Russian NRCS, and the `dcs_param` and `dcs_passthrough` states |
 | **parsed** | recognised by the parser and then **dropped** — worse than missing, because it looks supported |
 | **todo** | in scope, not implemented |
 | **out** | deliberately not in scope; the reason is in the row |
@@ -53,24 +53,25 @@ a handler for every operation this table claims. It does **not** prove the
 handler is correct — that is what the per-protocol suites are for, and no
 mechanism can prove it in general.
 
-**No row carries `parsed` or `todo`. Fourteen carry `**partial**`, and
+**No row carries `parsed` or `todo`. Thirteen carry `**partial**`, and
 `no_row_is_unfinished` in `baud-core/tests/coverage.rs` does not see them.**
 This paragraph said no row carried any of the three and that the test fails if
 one ever does. The test matches a status cell that starts with the bare word,
 and these start with `**`, so it passes with DECSC, DECRC and the DEC Special
 Graphics glyph table all at `**partial**`, the `dcs_passthrough` state
-since 2026-10-09, and since 2026-10-10 `3A` in the `dcs_param` state and
-SGR 6's rapid blink, and since 2026-10-12 five DEC character set rows: JIS-Roman, DEC
+since 2026-10-09, and since 2026-10-10 `3A` in the `dcs_param` state, and
+since 2026-10-12 five DEC character set rows: JIS-Roman, DEC
 Technical, the three VT500 supplementals, DEC Cyrillic, and SCS and Russian
 NRCS, which read `done` while every one of them drew its byte, and the
 national sets' translation, which read `done` beside a gate DEC's texts
 disagree on, and since 2026-10-13 DECALN, which keeps DECOM set, and
 DECCOLM, which keeps the side margins. DECOM carried it on 2026-10-13, while
 its origin ignored the left margin and then while its columns were not
-confined. GR bytes under `ESC % @`, the `escape` and
+confined. SGR 6's rapid blink carried it from 2026-10-10 to 2026-10-14,
+while it blinked at 5's slow rate. GR bytes under `ESC % @`, the `escape` and
 `escape_intermediate` states and `DEL` in `csi_entry` or `csi_intermediate`
 carried it from 2026-10-10 to 2026-10-11. A check that saw them
-would fail on all fourteen, and that is
+would fail on all thirteen, and that is
 the right answer: each row names work that is not finished. `out` is the only status that
 means "not implemented", and `every_out_row_states_a_reason` requires each one
 to say why **in the row** — because otherwise "nothing is partial" would be a
@@ -812,7 +813,7 @@ Enumerated against `[[source: ecma48]]` § 8.3.117 and, for the extensions,
 | 1, 2 bold/dim · 22 neither | done |
 | 3 italic · 23 not | done |
 | 4 underline, 21 double, **4:1..4:5** styled · 24 / 4:0 not | done — five styles, exactly one in force: straight, double, and `[[source: kitty-underlines]]`'s curly, dotted and dashed, each its own `Attrs` bit and drawn by the software compositor and the cell shader. A `4:n` *replaces* the family, and so do a bare 4 (the spec's backward-compatible 4:1) and 21 (`[[source: ecma48]]`'s "doubly underlined", the state 4:2 names), so 4:3 then 21 is double alone and 21 and 4:2 are one rendition (practice departs three ways and is not followed: vte reads 21 as bold off, `[[source: alacritty-vte-sgr]]`; the Linux console as a single underline, `[[source: linux-vt-sgr]]`; xterm holds 4 and 21 as two bits, `[[source: xterm-sgr]]`); 24 and 4:0 clear all five; an unknown n clears rather than aborts the walk. **4:3 is not 4;3** -- sfte flattens the colon and gets underline-plus-italic, measured -- and DECRQSS reports the three colon styles as 4:n so the reply round-trips. `each_colon_style_sets_exactly_its_own_bit`, `the_colon_form_is_not_the_semicolon_form`, `a_style_replaces_the_family_and_4_0_clears_it`, `twenty_one_replaces_the_family_in_either_order`, `twenty_one_and_4_2_are_one_rendition`, `a_colon_underline_style_round_trips`, `a_double_underline_after_another_style_reports_alone_and_round_trips` |
-| 5, 6 blink · 25 steady | **partial** — **5 is drawn to the spec**: the app blinks `Attrs::BLINK` at 75 a minute (0.4 s shown, 0.4 s hidden, `BLINK_HALF` on the display link's clock), inside `[[source: ecma48]]` § 8.3.117's "slowly blinking (less then 150 per minute)", which a const assertion beside `BLINK_HALF` holds; the CPU path draws both phases (`hidden_blinking_text_is_the_frame_of_its_spaces`, `a_blinking_row_keeps_blinking_through_incremental_frames`) and the cell shader is held to it (`the_cell_arm_draws_what_the_instance_arm_draws`). This row said "no timer", which expired when the display link began driving the phase. **The gap is 6**: it sets the same bit and blinks at the same rate, where the text asks "rapidly blinking (150 per minute or more)" -- a departure until a rapid rate is chosen, which no text or owner decision fixes (for Jev), and with it whether 5 and 6 exclude each other (§ 8.3.117: "The usable combinations of parameter values are determined by the implementation"). Until then 6 is 5's rendition (`rapid_blink_is_blink`) and DECRQSS answers `5` for it, the rendition drawn (`decrqss_answers_5_for_rapid_blink_while_it_blinks_slowly`). 25 clears the bit. **Under macOS's Reduce Motion both are held shown** (`text_blink`, `reduce_motion_holds_blinking_text_shown`, with the tick held to it by `the_tick_takes_the_blink_phase_under_the_motion_preference`): `[[source: apple-hig-accessibility]]` puts blinking animation under that setting, and WCAG 2.2.2 (`[[source: wcag22]]`) asks for a way to stop blinking that lasts past five seconds -- a departure from "slowly blinking" made at the system's request, stated here so it is not silent. Dim Flashing Lights does not reach it: the window crate has no getter for it, its scope is video in the SDK header and the HIG and app animation in the article (note AL §1.8), and 75 a minute is under WCAG 2.3.1's three flashes a second -- whether it should is for Jev. The Linux driver blinks nothing yet |
+| 5, 6 blink · 25 steady | done — **each rate drawn at its own rate, and the two one aspect**, as the owner decided on 2026-10-13 ("Own rate, exclusive"). `SGR 5` sets `Attrs::BLINK`, which the app blinks at 75 a minute (0.4 s shown, 0.4 s hidden, `BLINK_HALF_MS` on the display link's clock), inside `[[source: ecma48]]` § 8.3.117's "slowly blinking (less then 150 per minute)"; `SGR 6` sets `Attrs::RAPID_BLINK`, a bit of its own in the twenty-byte `StyleWord`'s `Attrs` (not the eight-byte cell), which it blinks at 150 a minute (0.2 s and 0.2 s, `RAPID_HALF_MS`), the floor of "rapidly blinking (150 per minute or more)". Integer const assertions beside the two halves hold both bounds, and `each_blink_rate_flips_at_its_own_rate` counts 75 and 150 hides across a minute of the clock. Each rate shows for half its cycle, as 5 always did: the text gives a rate and no duty cycle. **5 and 6 replace each other and the later wins** (`Attrs::BLINKS`, `SgrAttr::BlinkRate`): § 8.3.117 lists them as two rates of one aspect beside "25 steady (not blinking)" and closes "The usable combinations of parameter values are determined by the implementation"; 25 clears both, and so does 0 (`rapid_blink_is_its_own_rendition`, `the_later_blink_rate_wins`, `steady_clears_both_blink_rates`, `the_blink_rates_are_the_same_at_every_read_size`, every read size and every split into two reads, and `the_blink_rates_are_masked_replaces`, which holds the `sgr-table` arm's derived fold to the grammar's). Until 2026-10-14 6 set 5's bit and blinked at its rate, a stated departure, and DECRQSS answered `5` for it; it answers `6` and the answer round-trips (`decrqss_answers_6_for_rapid_blink_and_it_round_trips`). **Each rate hides its text only in its own off phase**, in the software compositor and in the cell shader, whose `blink_hidden` is the mask of the shapes the frame hides (`BlinkPhases::hidden`; `each_blink_rate_hides_only_in_its_own_off_phase`, `hidden_blinking_text_is_the_frame_of_its_spaces`, `a_hidden_cells_records_are_not_drawn`, and the pixel oracle's mixed-phase scene in `the_cell_arm_draws_what_the_instance_arm_draws`), and **a frame knows which rates are on screen**, so a rate's flip repaints only while text at that rate is drawn and a slow-only screen builds no frame at the rapid flips (`Blinking::flips`; `a_rate_flips_a_frame_only_while_its_text_is_on_screen`, `a_blinking_row_keeps_blinking_through_incremental_frames`, `a_blinking_slot_off_screen_is_not_seen`, `a_rapid_slot_alone_is_seen_on_the_cell_path`, and `the_tick_takes_the_blink_phase_under_the_motion_preference` for the tick). 2.5 cycles a second is under WCAG 2.3.1's "more than three times in any one second period" (`[[source: wcag22]]`), whose flash is "a pair of opposing changes in relative luminance": one shown-and-hidden cycle is one flash, not two. **Under macOS's Reduce Motion both are held shown** (`text_blink`, `reduce_motion_holds_blinking_text_shown`, both rates, with the tick held to it by `the_tick_takes_the_blink_phase_under_the_motion_preference`): `[[source: apple-hig-accessibility]]` puts blinking animation under that setting, and WCAG 2.2.2 (`[[source: wcag22]]`) asks for a way to stop blinking that lasts past five seconds -- a departure from "slowly blinking" and "rapidly blinking" made at the system's request, stated here so it is not silent. Dim Flashing Lights does not reach it: the window crate has no getter for it, its scope is video in the SDK header and the HIG and app animation in the article (note AL §1.8), and 75 and 150 a minute are under WCAG 2.3.1's three flashes a second -- whether it should is for Jev. The Linux driver blinks no text yet, at either rate: a gap in that driver, which draws no text blink, and not in this row's protocol |
 | 7 reverse · 27 positive | done |
 | 8 conceal · 28 reveal | done |
 | 9 strike · 29 not | done |
@@ -834,12 +835,13 @@ never had to grow, and the eight-byte cell was never the constraint. "A bit set
 and never read" resolved the way it did for charset designations: baud records
 the selection and `Term::style_of` is where a renderer reads it.
 
-Every SGR parameter above is **done** or **out** but 6, **partial** since 2026-10-10 because it blinks at 5's slow rate where § 8.3.117 asks 150 a minute or more. `CSI m` used
+Every SGR parameter above is **done** or **out**; 6 was **partial** from 2026-10-10 to 2026-10-14, while it blinked at 5's slow rate where § 8.3.117 asks 150 a minute or more. `CSI m` used
 to be listed as `partial` on the strength of that last row, which conflated two
 different things. `out` is a scope decision with a reason — storing a font
 selection no renderer can read would be a bit set and never used, which is the
 failure this table exists to catch. `partial` means the row claims something it
-does not do. Only the 5, 6 row does, and it says what.
+does not do. No SGR row does now; the 5, 6 row did until 2026-10-14, and
+said what.
 
 **This was the largest `parsed` gap in the codebase and the table did not show
 it.** `SgrAttr::fold` handled `Reset` and foreground only, falling through to "no

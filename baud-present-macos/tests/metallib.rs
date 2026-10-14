@@ -269,8 +269,9 @@ fn the_wide_tail_value_matches_the_shader() {
     );
 }
 
-/// **`SHAPE_BLINK` and `SHAPE_CONCEAL` in the shader and `Shapes::BLINK` and
-/// `Shapes::CONCEAL` are one fact spelled twice.** The resolved table carries
+/// **`SHAPE_BLINK`, `SHAPE_RAPID_BLINK` and `SHAPE_CONCEAL` in the shader
+/// and `Shapes::BLINK`, `Shapes::RAPID_BLINK` and `Shapes::CONCEAL` are one
+/// fact spelled twice.** The resolved table carries
 /// the bits and the shader tests them to hide a cell's text; a literal that
 /// drifted from its constant would draw blinking or concealed text on the
 /// cell path while the instance path hid it, or hide some other rendition.
@@ -279,6 +280,7 @@ fn the_hidden_text_bits_match_the_shader() {
     let src = include_str!("../src/shaders.metal");
     for (name, want) in [
         ("SHAPE_BLINK", baud_render::Shapes::BLINK.0),
+        ("SHAPE_RAPID_BLINK", baud_render::Shapes::RAPID_BLINK.0),
         ("SHAPE_CONCEAL", baud_render::Shapes::CONCEAL.0),
     ] {
         let prefix = format!("#define {name} ");

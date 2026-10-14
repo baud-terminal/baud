@@ -78,21 +78,6 @@ fn decrqss_reports_sgr() {
     );
 }
 
-/// **Rapid blink answers `5`, the rendition drawn.** `SGR 6` sets slow
-/// blink's bit and blinks at its 75 a minute, a departure from
-/// `[[source: ecma48]]`'s "150 per minute or more" that `docs/vt-coverage.md`
-/// states; answering `6` would claim a rate nothing draws. Giving 6 its own
-/// bit and phase has to change this and the row together.
-#[test]
-fn decrqss_answers_5_for_rapid_blink_while_it_blinks_slowly() {
-    assert_eq!(replies(b"\x1b[6m\x1bP$qm\x1b\\"), b"\x1bP1$r0;5m\x1b\\");
-    assert_eq!(
-        replies(b"\x1b[6;25m\x1bP$qm\x1b\\"),
-        b"\x1bP1$r0m\x1b\\",
-        "25 clears it"
-    );
-}
-
 /// The SGR reply round-trips: sending it back reproduces the rendition.
 ///
 /// This is the property that makes the report useful rather than merely
@@ -136,8 +121,8 @@ fn valid_is_one_and_invalid_is_zero() {
 // ── a part-full reply buffer ────────────────────────────────────────────────
 
 /// Every SGR attribute this core reports, one underline style -- `4:3`, the
-/// longest spelling -- a font, and all three colours as RGB at three digits a
-/// channel: a 111-byte reply.
+/// longest spelling -- one blink rate, `5` (`6` is as long), a font, and all
+/// three colours as RGB at three digits a channel: a 111-byte reply.
 ///
 /// **No `21`.** It carried one while `21` set its bit beside the family, and
 /// then the rendition held curly *and* double and answered in the 114 bytes
@@ -163,20 +148,22 @@ fn decrqss_for_a_rich_rendition_is_sent_whole_or_not_at_all() {
 /// **The bound the answer is built in holds the richest rendition there is.**
 /// `RICH` sets every attribute an application can hold at once, at the widest
 /// spelling of each, so its reply is the longest the encoder can be driven to:
-/// 111 bytes. `DECRQSS_MAX` is 124 because it counts all five underline
-/// spellings together, which no rendition holds -- the thirteen bytes of
-/// `;4`, `;21`, `;4:4` and `;4:5` that `4:3` excludes. It was 114 while `21`
-/// could be held beside `4:3`, and the slack ten.
+/// 111 bytes. `DECRQSS_MAX` is 126 because it counts all five underline
+/// spellings and both blink rates together, which no rendition holds -- the
+/// thirteen bytes of `;4`, `;21`, `;4:4` and `;4:5` that `4:3` excludes, and
+/// the two of `;6` that `5` does (124 and thirteen until 2026-10-14, when `6`
+/// took a bit of its own). It was 114 while `21` could be held beside `4:3`,
+/// and the slack ten.
 #[test]
 fn the_longest_decrqss_reply_is_within_its_bound() {
     let r = replies(&[RICH, b"\x1bP$qm\x1b\\"].concat());
     assert_eq!(r.len(), 111, "the richest rendition answers in 111 bytes");
     assert!(r.ends_with(b"m\x1b\\"), "and whole: {r:02x?}");
-    assert_eq!(DECRQSS_MAX, 124, "the number DECRQSS_MAX's doc derives");
+    assert_eq!(DECRQSS_MAX, 126, "the number DECRQSS_MAX's doc derives");
     assert_eq!(
         DECRQSS_MAX - r.len(),
-        b";4;21;4:4;4:5".len(),
-        "and the slack is the family"
+        b";4;21;4:4;4:5".len() + b";6".len(),
+        "and the slack is the two families"
     );
     const { assert!(DECRQSS_MAX <= REPLY, "so a drained buffer always takes it") };
 }

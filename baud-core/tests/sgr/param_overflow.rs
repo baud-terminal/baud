@@ -38,14 +38,17 @@ fn feed_in_chunks(bytes: &[u8], chunk: usize) -> Attrs {
 
 /// The capacity is derived from what DECRQSS has to be able to re-read.
 ///
-/// Not a chosen number: a leading `0`, every attribute in `Attrs::WIRE`, a
-/// font, and three colours in their five-parameter direct form. Asserting the
+/// Not a chosen number: a leading `0`, every attribute in `Attrs::WIRE` but
+/// one of the two blink rates, which replace each other, a font, and three
+/// colours in their five-parameter direct form. Asserting the
 /// derivation rather than the value is the point -- the constant moved from 16
 /// to 35 when the ideogram aspects widened `WIRE`, and a test pinning `16`
 /// would have had to be edited to say so.
 #[test]
 fn the_capacity_covers_the_longest_reply_baud_emits() {
-    assert_eq!(ParamIdx::CAPACITY, 1 + Attrs::WIRE.len() + 1 + 3 * 5);
+    // One blink rate: 5 and 6 replace each other, so no reply holds both.
+    assert_eq!(Attrs::wire_in(Attrs::BLINKS), 2);
+    assert_eq!(ParamIdx::CAPACITY, 1 + (Attrs::WIRE.len() - 1) + 1 + 3 * 5);
     const _: () = assert!(
         ParamIdx::CAPACITY >= 35,
         "bold plus three truecolours already answers with seventeen"

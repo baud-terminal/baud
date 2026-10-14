@@ -1041,8 +1041,9 @@ struct CU {
     uint pan; uint slide_rows;
     // `OSC 12` cursor colour, packed 0xFFRRGGBB, or 0 for none.
     uint cursor_color;
-    // 1 in `SGR 5`'s off phase: the frame's, not a slot's, so a resolved
-    // style is the same in both phases.
+    // The blink shapes this frame hides -- `SHAPE_BLINK` in `SGR 5`'s off
+    // phase, `SHAPE_RAPID_BLINK` in `SGR 6`'s: the frame's, not a slot's, so
+    // a resolved style is the same in every phase. `BlinkPhases::hidden`.
     uint blink_hidden;
     // The struct is 8-aligned by its `uint2`s, so it is 120 bytes and the
     // Rust side binds that many: `CellUniforms`, which checks it.
@@ -1081,10 +1082,11 @@ static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint d
 // constant, because the two are one fact spelled twice.
 #define WIDE_TAIL 0x110001u
 
-// `Shapes::BLINK` and `Shapes::CONCEAL`, one fact spelled twice and pinned
-// by `the_hidden_text_bits_match_the_shader`.
+// `Shapes::BLINK`, `Shapes::CONCEAL` and `Shapes::RAPID_BLINK`, one fact
+// spelled twice and pinned by `the_hidden_text_bits_match_the_shader`.
 #define SHAPE_BLINK 256u
 #define SHAPE_CONCEAL 512u
+#define SHAPE_RAPID_BLINK 4096u
 // The face style's two bits in a resolved slot's shapes -- the style whose
 // face the cell's text is drawn from, already fallen back by the stack --
 // and where they sit in a glyph-map key, above the 21-bit codepoint. The
@@ -1098,13 +1100,14 @@ static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint d
 #define KEY_SPAN_SHIFT 26u
 
 // Whether the cell's own text -- its glyph, underline and strike -- is
-// hidden: `SGR 8`, or `SGR 5` in its off phase. Hidden text draws its
+// hidden: `SGR 8`, or `SGR 5` or `SGR 6` in its own rate's off phase, which
+// `blink_hidden` names by the shape it hides. Hidden text draws its
 // background and nothing of its own, not a glyph in the background's colour,
 // which on glass lands at another alpha and shows. The cursor's shape still
 // draws. Must match `Resolved::text`.
 static bool hidden(constant CU& u, uint shapes) {
-    return (shapes & SHAPE_CONCEAL) != 0u ||
-           (u.blink_hidden != 0u && (shapes & SHAPE_BLINK) != 0u);
+    uint blinks = u.blink_hidden & (SHAPE_BLINK | SHAPE_RAPID_BLINK);
+    return (shapes & (SHAPE_CONCEAL | blinks)) != 0u;
 }
 
 // Whether the cell is inside the selection, both ends inclusive: a stream

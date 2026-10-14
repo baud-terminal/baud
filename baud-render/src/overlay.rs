@@ -21,7 +21,7 @@ use crate::cellmap::{BlockCursor, Candidate, GlyphMap, Resolved, Selected, Swaps
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
 use crate::picture::{Pictured, Pictures};
-use crate::renderer::{Blink, Blinking, ClusterGlyph, Renderer};
+use crate::renderer::{BlinkPhases, Blinking, ClusterGlyph, Renderer};
 use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
@@ -146,8 +146,9 @@ struct Paint<'p> {
     styles: &'p [Resolved],
     block: Option<(Row, Col, CursorStyle)>,
     highlight: Option<Highlight>,
-    /// The frame's `SGR 5` phase: a record for a hidden cell is not drawn.
-    blink: Blink,
+    /// The frame's `SGR 5` and `SGR 6` phases: a record for a hidden cell is
+    /// not drawn.
+    blink: BlinkPhases,
 }
 
 /// Distinct window contents kept before the store starts over.
@@ -341,17 +342,15 @@ impl Overlay {
         // screen blinks, which is `Renderer::blink_seen`'s answer on this
         // path. Tested only while the table holds a blinking slot at all,
         // so a screen with none pays one compare a frame.
-        let blinks = r.blink_slots() == Blinking::Seen;
-        let mut seen = Blinking::Unseen;
+        let blinks = r.blink_slots() != Blinking::UNSEEN;
+        let mut seen = Blinking::UNSEEN;
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
             for (x, cell) in row.iter().enumerate().take(cols) {
-                if blinks
-                    && styles
-                        .get(cell.style.index())
-                        .is_some_and(|s| s.shapes.has(crate::cellmap::Shapes::BLINK))
-                {
-                    seen = Blinking::Seen;
+                if blinks {
+                    if let Some(s) = styles.get(cell.style.index()) {
+                        seen = seen.with(Blinking::of(s.shapes));
+                    }
                 }
                 if !cell.flags.is_marked()
                     || mask[y * cols + x] & MASK_RECORD != 0

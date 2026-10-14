@@ -23,7 +23,7 @@ use crate::atlas::{Code, Kind, Tex};
 use crate::color::Argb;
 use crate::instance::Screen;
 use crate::picture::Pictured;
-use crate::renderer::{Blink, PairRole, Renderer, Single};
+use crate::renderer::{BlinkPhases, PairRole, Renderer, Single};
 use crate::units::Tally;
 use baud_domain::contrast::CurveRow;
 use baud_domain::{Chan, Codepoint, Col, Content, GlyphId, Row, Viewport};
@@ -487,14 +487,21 @@ impl Shapes {
     /// dim: [`crate::Theme::opaque_bg`], resolved once a slot so the
     /// shader reads one bit.
     pub const OPAQUE_BG: Shapes = Shapes(128);
-    /// `SGR 5`: the text draws only in the blink's on phase. The phase is the
-    /// frame's and not the slot's, so a slot resolves the same in both and a
-    /// flip re-resolves nothing; each path hides the text where it draws it
-    /// ([`Resolved::text`]). `SHAPE_BLINK` in the cell shader, pinned by
-    /// `the_hidden_text_bits_match_the_shader`.
+    /// `SGR 5`: the text draws only in the slow blink's on phase. The phase
+    /// is the frame's and not the slot's, so a slot resolves the same in both
+    /// and a flip re-resolves nothing; each path hides the text where it
+    /// draws it ([`Resolved::text`]). `SHAPE_BLINK` in the cell shader,
+    /// pinned by `the_hidden_text_bits_match_the_shader`.
     pub const BLINK: Shapes = Shapes(256);
     /// `SGR 8`: the text never draws. `SHAPE_CONCEAL` in the cell shader.
     pub const CONCEAL: Shapes = Shapes(512);
+    /// `SGR 6`: the text draws only in the rapid blink's on phase, a phase of
+    /// its own ([`crate::BlinkPhases`]). Above the face style's two bits.
+    /// `SHAPE_RAPID_BLINK` in the cell shader.
+    pub const RAPID_BLINK: Shapes = Shapes(4096);
+    /// Both blink shapes: a slot holds at most one, since `SGR 5` and `6`
+    /// replace each other (`Attrs::BLINKS`).
+    pub const BLINKS: Shapes = Shapes(Shapes::BLINK.0 | Shapes::RAPID_BLINK.0);
 
     /// Where the face style's two bits sit: the style whose face the cell's
     /// text is drawn from, already fallen back by [`crate::Stack::effective`],
@@ -518,6 +525,11 @@ impl Shapes {
     /// Whether every bit of `s` is set.
     pub fn has(self, s: Shapes) -> bool {
         self.0 & s.0 == s.0
+    }
+
+    /// Whether the slot blinks at either rate.
+    pub fn blinks(self) -> bool {
+        self.0 & Shapes::BLINKS.0 != 0
     }
 }
 
@@ -575,8 +587,11 @@ impl Resolved {
     /// was meant to vanish into, at another alpha, and its silhouette shows.
     /// xterm draws it in the background (`updatedXtermGC`, `fg_pix = bg_pix`
     /// for `BLINK` off and `INVISIBLE`), over a background that is opaque.
-    pub fn text(self, blink: Blink) -> Text {
-        let off = self.shapes.has(Shapes::BLINK) && blink == Blink::Hidden;
+    ///
+    /// A blinking cell is hidden in its own rate's off phase: `SGR 5` in the
+    /// slow one, `SGR 6` in the rapid one ([`BlinkPhases::hidden`]).
+    pub fn text(self, blink: BlinkPhases) -> Text {
+        let off = self.shapes.0 & blink.hidden().0 != 0;
         if off || self.shapes.has(Shapes::CONCEAL) {
             Text::Hidden
         } else {
@@ -657,7 +672,7 @@ pub struct Swaps {
     pub pictured: Pictured,
     pub selected: Selected,
     pub block: BlockCursor,
-    pub blink: Blink,
+    pub blink: BlinkPhases,
 }
 
 /// A cell as a frame draws it.

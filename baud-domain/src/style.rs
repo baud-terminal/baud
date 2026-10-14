@@ -31,6 +31,8 @@ impl Attrs {
     pub const DIM: Attrs = Attrs(1 << 1);
     pub const ITALIC: Attrs = Attrs(1 << 2);
     pub const UNDERLINE: Attrs = Attrs(1 << 3);
+    /// `SGR 5`, "slowly blinking (less then 150 per minute)" in
+    /// `[[source: ecma48]]` § 8.3.117. One of [`Attrs::BLINKS`].
     pub const BLINK: Attrs = Attrs(1 << 4);
     pub const REVERSE: Attrs = Attrs(1 << 5);
     pub const HIDDEN: Attrs = Attrs(1 << 6);
@@ -81,6 +83,11 @@ impl Attrs {
     pub const DOTTED_UNDERLINE: Attrs = Attrs(1 << 20);
     /// `SGR 4:5` -- dashed underline.
     pub const DASHED_UNDERLINE: Attrs = Attrs(1 << 21);
+    /// `SGR 6`, "rapidly blinking (150 per minute or more)" in
+    /// `[[source: ecma48]]` § 8.3.117: its own state, drawn at its own rate,
+    /// where it shared [`Attrs::BLINK`] and 5's slow rate until 2026-10-14.
+    /// One of [`Attrs::BLINKS`].
+    pub const RAPID_BLINK: Attrs = Attrs(1 << 22);
 
     /// **The five underline styles are one family and exactly one is in
     /// force**, so a `4:n` -- or a bare `4`, or `21` -- replaces the family
@@ -93,6 +100,16 @@ impl Attrs {
             | Attrs::DOTTED_UNDERLINE.0
             | Attrs::DASHED_UNDERLINE.0,
     );
+
+    /// **Slow and rapid blink are one aspect and exactly one is in force**,
+    /// so `5` and `6` each replace the family and the later one wins, and
+    /// `25`, "steady (not blinking)", clears both. `[[source: ecma48]]`
+    /// § 8.3.117 gives the three as values of one rendition aspect, by rate,
+    /// and leaves combinations to the implementation ("The usable
+    /// combinations of parameter values are determined by the
+    /// implementation"); the owner chose the exclusive reading on 2026-10-13.
+    /// The shape [`Attrs::UNDERLINES`] has.
+    pub const BLINKS: Attrs = Attrs(Attrs::BLINK.0 | Attrs::RAPID_BLINK.0);
 
     /// The five aspects `SGR 65` cancels together.
     ///
@@ -115,12 +132,13 @@ impl Attrs {
     /// to report the current rendition, and a `match` per bit is the shape that
     /// silently omits one -- which is how `fold` came to discard every
     /// attribute except reset and foreground.
-    pub const WIRE: [(Attrs, u8); 22] = [
+    pub const WIRE: [(Attrs, u8); 23] = [
         (Attrs::BOLD, 1),
         (Attrs::DIM, 2),
         (Attrs::ITALIC, 3),
         (Attrs::UNDERLINE, 4),
         (Attrs::BLINK, 5),
+        (Attrs::RAPID_BLINK, 6),
         (Attrs::REVERSE, 7),
         (Attrs::HIDDEN, 8),
         (Attrs::STRIKE, 9),
@@ -144,7 +162,7 @@ impl Attrs {
         (Attrs::IDEOGRAM_STRESS, 64),
     ];
 
-    /// Ten bits of the thirty-two are still free.
+    /// Nine bits of the thirty-two are still free.
     ///
     /// **Derived from [`Attrs::WIRE`], not typed.** The constant read fourteen
     /// and this line thirteen while twenty-two bits were taken, wrong both
@@ -177,6 +195,21 @@ impl Attrs {
             i += 1;
         }
         u
+    }
+
+    /// How many `WIRE` entries name a bit of `family`: two for
+    /// [`Attrs::BLINKS`]. A `const fn` so `ParamIdx::CAPACITY` can leave one
+    /// rate out of its count without a literal that would drift.
+    pub const fn wire_in(family: Attrs) -> usize {
+        let mut n = 0;
+        let mut i = 0;
+        while i < Attrs::WIRE.len() {
+            if Attrs::WIRE[i].0.0 & family.0 != 0 {
+                n += 1;
+            }
+            i += 1;
+        }
+        n
     }
 
     /// The raw set, for hashing a rendition.
@@ -868,6 +901,37 @@ mod style_fold {
         // (`UnderlineStyle`) so the fast path has to fold it the same way the
         // grammar does, and a masked replace over `UNDERLINES` derives cleanly.
         assert_eq!(checked, 37, "single-parameter SGR values in 0..=200");
+    }
+
+    /// **The blink rates are masked replaces too**, and the test above cannot
+    /// say so: it walks `parse_one`, which `5`, `6` and `25` never reach, so
+    /// the SGR table's derived pair for them was otherwise unchecked. Each,
+    /// and `5;6` and `6;5` composed, from every start word and from a word
+    /// holding the other rate: the later rate replaces the earlier.
+    #[test]
+    fn the_blink_rates_are_masked_replaces() {
+        let one = |v: u16| SgrAttr::one(Param::from_raw(v)).expect("a one-parameter SGR");
+        let mut starts = [StyleWord::DEFAULT; 4];
+        starts[1].as_mut_bytes().fill(0xff);
+        starts[2] = StyleWord::DEFAULT.with_attrs(Attrs::BLINK.with(Attrs::BOLD));
+        starts[3] = StyleWord::DEFAULT.with_attrs(Attrs::RAPID_BLINK);
+        for seq in [&[5u16][..], &[6], &[25], &[5, 6], &[6, 5], &[6, 25]] {
+            let fold = StyleFold::derive(|w| seq.iter().for_each(|&v| one(v).fold_into(w)));
+            for s in starts.iter() {
+                let (mut want, mut got) = (*s, *s);
+                seq.iter().for_each(|&v| one(v).fold_into(&mut want));
+                fold.apply(&mut got);
+                assert_eq!(want, got, "SGR {seq:?} from {s:?}");
+                let blinks = want.attrs().bits() & Attrs::BLINKS.bits();
+                let last = *seq.last().expect("a parameter");
+                let expect = match last {
+                    5 => Attrs::BLINK.bits(),
+                    6 => Attrs::RAPID_BLINK.bits(),
+                    _ => 0,
+                };
+                assert_eq!(blinks, expect, "SGR {seq:?} from {s:?}: the last rate wins");
+            }
+        }
     }
 
     /// Composition: two folds applied in turn must equal the pair that

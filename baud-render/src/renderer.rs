@@ -44,16 +44,48 @@ pub enum Damage {
 }
 
 /// The blink phase of a frame -- one half of the cycle a driver toggles off
-/// its display link, the hardware vsync clock. A cell with `Attrs::BLINK`
-/// draws its foreground on [`Blink::Shown`] and hides it (foreground set to
-/// its own background) on [`Blink::Hidden`]. Blink is a *frame* property, not
-/// part of the interned rendition, so it is resolved each frame here rather
-/// than stored in a cell.
+/// its display link, the hardware vsync clock. A cell that blinks draws its
+/// text on [`Blink::Shown`] and hides it on [`Blink::Hidden`]. Blink is a
+/// *frame* property, not part of the interned rendition, so it is resolved
+/// each frame here rather than stored in a cell.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Blink {
     #[default]
     Shown,
     Hidden,
+}
+
+/// A frame's phase for each blink rate: `slow` for `SGR 5`
+/// (`Attrs::BLINK`), `rapid` for `SGR 6` (`Attrs::RAPID_BLINK`). Two clocks
+/// a driver runs off one display link, so each rate flips on its own and a
+/// cell hides only in its own rate's off phase.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct BlinkPhases {
+    pub slow: Blink,
+    pub rapid: Blink,
+}
+
+impl BlinkPhases {
+    /// Both shown: what a frame draws when nothing blinks, and under Reduce
+    /// Motion.
+    pub const SHOWN: BlinkPhases = BlinkPhases {
+        slow: Blink::Shown,
+        rapid: Blink::Shown,
+    };
+
+    /// The blink shapes this frame hides: [`Shapes::BLINK`] in the slow off
+    /// phase, [`Shapes::RAPID_BLINK`] in the rapid one. The cell shader's
+    /// `blink_hidden` is this mask, so the GPU and CPU test one thing.
+    pub fn hidden(self) -> Shapes {
+        let slow = match self.slow {
+            Blink::Shown => Shapes::default(),
+            Blink::Hidden => Shapes::BLINK,
+        };
+        match self.rapid {
+            Blink::Shown => slow,
+            Blink::Hidden => slow.with(Shapes::RAPID_BLINK),
+        }
+    }
 }
 
 /// Whether this frame shows the video `?5` does not say: a visual bell whose
@@ -124,13 +156,34 @@ pub struct StyleSync {
     pub evicted: Evicted,
 }
 
-/// Whether the last convert or resolve saw a cell with `Attrs::BLINK`, so a
-/// driver repaints on a phase flip only when something blinks.
+/// Which blink rates the last convert or resolve saw on screen -- a cell
+/// with `Attrs::BLINK`, one with `Attrs::RAPID_BLINK`, both or neither -- so
+/// a driver repaints on a rate's phase flip only when text at that rate is
+/// on screen, and a slow-only screen does not repaint at the rapid rate.
+/// The blink shapes seen.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum Blinking {
-    #[default]
-    Unseen,
-    Seen,
+pub struct Blinking(Shapes);
+
+impl Blinking {
+    pub const UNSEEN: Blinking = Blinking(Shapes(0));
+    pub const SLOW: Blinking = Blinking(Shapes::BLINK);
+    pub const RAPID: Blinking = Blinking(Shapes::RAPID_BLINK);
+    pub const BOTH: Blinking = Blinking(Shapes::BLINKS);
+
+    /// The rates a resolved slot with `shapes` blinks at.
+    pub fn of(shapes: Shapes) -> Blinking {
+        Blinking(Shapes(shapes.0 & Shapes::BLINKS.0))
+    }
+
+    pub fn with(self, o: Blinking) -> Blinking {
+        Blinking(self.0.with(o.0))
+    }
+
+    /// Whether going from `from` to `to` changes what a cell on screen
+    /// draws: a rate whose phase flipped and whose text is on screen.
+    pub fn flips(self, from: BlinkPhases, to: BlinkPhases) -> bool {
+        (from.hidden().0 ^ to.hidden().0) & self.0.0 != 0
+    }
 }
 
 /// What [`Renderer::convert`] did, handed to [`Renderer::paint`] or to a
@@ -668,10 +721,11 @@ pub struct Renderer<'f, 'a> {
     fade: Option<Veil>,
     last_fade: Option<Veil>,
     fade_inst: Vec<Instance>,
-    /// This frame's blink phase, set by [`Renderer::set_blink`] before a
-    /// convert or resolve, and whether any blinking cell was seen -- so the
-    /// driver repaints on a phase flip only when something actually blinks.
-    blink: Blink,
+    /// This frame's blink phases, set by [`Renderer::set_blink`] before a
+    /// convert or resolve, and which rates' blinking cells were seen -- so
+    /// the driver repaints on a rate's phase flip only when text at that
+    /// rate actually blinks.
+    blink: BlinkPhases,
     blink_seen: Blinking,
     /// How many slots of the rendition table the last resolve found
     /// blinking. The cell path's walk tests a cell for blinking only while
@@ -833,7 +887,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             fade: None,
             last_fade: None,
             fade_inst: Vec::new(),
-            blink: Blink::default(),
+            blink: BlinkPhases::SHOWN,
             blink_slots: Tally::default(),
             blink_seen: Blinking::default(),
             cursor_blink: Blink::Shown,
@@ -1208,23 +1262,27 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.fade_inst
     }
 
-    /// Sets the blink phase the next convert or resolve draws with.
-    pub fn set_blink(&mut self, blink: Blink) {
+    /// Sets the blink phases the next convert or resolve draws with, one a
+    /// rate.
+    pub fn set_blink(&mut self, blink: BlinkPhases) {
         self.blink = blink;
     }
 
-    /// This frame's `SGR 5` phase, for the cell shader, which hides blinking
-    /// text itself: a resolved slot is the same in both phases.
-    pub fn blink(&self) -> Blink {
+    /// This frame's `SGR 5` and `SGR 6` phases, for the cell shader, which
+    /// hides blinking text itself: a resolved slot is the same in every
+    /// phase.
+    pub fn blink(&self) -> BlinkPhases {
         self.blink
     }
 
-    /// Whether the rendition table holds a blinking slot at all, as of the
-    /// last resolve: the cell path's walk tests cells only then.
+    /// Whether the rendition table holds a slot blinking at either rate, as
+    /// of the last resolve: the cell path's walk tests cells only then. An
+    /// on/off answer, not which rates: [`Blinking::BOTH`] when any slot
+    /// blinks, slow-only included, and [`Blinking::UNSEEN`] when none does.
     pub(crate) fn blink_slots(&self) -> Blinking {
         match self.blink_slots.value() {
-            0 => Blinking::Unseen,
-            _ => Blinking::Seen,
+            0 => Blinking::UNSEEN,
+            _ => Blinking::BOTH,
         }
     }
 
@@ -1329,12 +1387,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.theme
     }
 
-    /// Whether blinking text is on screen as of the last frame, so a driver
-    /// repaints on a phase flip only when something blinks: a cell on screen
-    /// with `Attrs::BLINK`, over the whole screen and not only the rows the
-    /// frame converted. The CPU and instance paths answer from `convert`;
-    /// the cell path from the overlay's walk (`Overlay::ensure`), since a
-    /// slot in the table that no cell on screen names is not on screen.
+    /// Which rates of blinking text are on screen as of the last frame, so a
+    /// driver repaints on a rate's phase flip only when text at that rate
+    /// blinks: a cell on screen with `Attrs::BLINK` or `Attrs::RAPID_BLINK`,
+    /// over the whole screen and not only the rows the frame converted. The
+    /// CPU and instance paths answer from `convert`; the cell path from the
+    /// overlay's walk (`Overlay::ensure`), since a slot in the table that no
+    /// cell on screen names is not on screen.
     pub fn blink_seen(&self) -> Blinking {
         self.blink_seen
     }
@@ -1417,7 +1476,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.fg = vec![Argb(0); cells];
         self.curve = vec![CurveRow::default(); cells];
         self.text = vec![Text::Drawn; cells];
-        self.row_blinks = vec![Blinking::Unseen; rows.index()];
+        self.row_blinks = vec![Blinking::UNSEEN; rows.index()];
         self.per_row = (0..rows.index()).map(|_| Vec::new()).collect();
         self.dirty = vec![false; rows.index()];
         self.known = Prev::Unknown;
@@ -1809,11 +1868,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 rows_dirty.bump();
             }
         }
-        self.blink_seen = if self.row_blinks.contains(&Blinking::Seen) {
-            Blinking::Seen
-        } else {
-            Blinking::Unseen
-        };
+        self.blink_seen = self
+            .row_blinks
+            .iter()
+            .fold(Blinking::UNSEEN, |a, &b| a.with(b));
         core::mem::swap(&mut self.prev, &mut self.cur);
         self.known = Prev::Known;
         self.last_cursor = cursor;
@@ -2185,7 +2243,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// after this. Slots past `out` are not resolved; the count written is
     /// returned.
     ///
-    /// **A slot is the same in both blink phases** (`Shapes::BLINK`), and
+    /// **A slot is the same in every blink phase** (`Shapes::BLINKS`), and
     /// whether blinking text is on screen is not this table's answer: a slot
     /// no cell names is not on screen, and the table never frees one. It
     /// counts the blinking slots, and the overlay's walk answers.
@@ -2196,7 +2254,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut blinking = Tally::default();
         for (slot, dst) in table.iter().zip(out.iter_mut()) {
             *dst = self.resolve_slot(term, slot.unwrap_or(baud_domain::StyleWord::DEFAULT));
-            if dst.shapes.has(Shapes::BLINK) {
+            if dst.shapes.blinks() {
                 blinking.bump();
             }
             n.bump();
@@ -2256,10 +2314,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         term,
                         slots[k.index()].unwrap_or(baud_domain::StyleWord::DEFAULT),
                     );
-                    if fresh && dst.shapes.has(Shapes::BLINK) {
+                    if fresh && dst.shapes.blinks() {
                         stamp.blinking.lose();
                     }
-                    if new.shapes.has(Shapes::BLINK) {
+                    if new.shapes.blinks() {
                         stamp.blinking.bump();
                     }
                     *dst = new;
@@ -2271,7 +2329,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 stamp.blinking = Tally::default();
                 for (slot, dst) in slots.iter().zip(out.iter_mut()) {
                     *dst = self.resolve_slot(term, slot.unwrap_or(baud_domain::StyleWord::DEFAULT));
-                    if dst.shapes.has(Shapes::BLINK) {
+                    if dst.shapes.blinks() {
                         stamp.blinking.bump();
                     }
                     sync.resolved.bump();
@@ -2340,6 +2398,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             (Attrs::DASHED_UNDERLINE, Shapes::DASHED_UNDERLINE),
             (Attrs::STRIKE, Shapes::STRIKE),
             (Attrs::BLINK, Shapes::BLINK),
+            (Attrs::RAPID_BLINK, Shapes::RAPID_BLINK),
             (Attrs::HIDDEN, Shapes::CONCEAL),
         ] {
             if attrs.has(attr) {
@@ -2435,7 +2494,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let cursor_color = term
             .cursor_color_in(self.video)
             .map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)));
-        let mut blinks = Blinking::Unseen;
+        let mut blinks = Blinking::UNSEEN;
         for (c, cell) in row.iter().enumerate() {
             let col = Col::at_index(c);
             // One load from the resolved table, which `sync_styles` keeps.
@@ -2444,9 +2503,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .get(cell.style.index())
                 .copied()
                 .unwrap_or_default();
-            if res.shapes.has(Shapes::BLINK) {
-                blinks = Blinking::Seen;
-            }
+            blinks = blinks.with(Blinking::of(res.shapes));
             // A wide tail follows its lead, so a block's edge never cuts a
             // character in two: `Highlight::selects`.
             let selected = if self

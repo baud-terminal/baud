@@ -36,7 +36,17 @@ impl ParamIdx {
     ///
     /// Writing a number here instead would put the limit back out of step the
     /// next time `WIRE` grows, which is exactly how `SGR 60-65` widened it.
-    pub const CAPACITY: usize = 1 + Attrs::WIRE.len() + 1 + 3 * 5;
+    ///
+    /// **One of the two blink rates is not counted**: `SGR 5` and `6` replace
+    /// each other ([`Attrs::BLINKS`]), so a reply holds one of them, and
+    /// counting both would grow `Term::params` by a parameter no reply sends.
+    /// Measured, the change with the array grown read `less-pager` 1.2% below
+    /// the parent, ranges apart; with it held, the change overlaps the parent
+    /// on five recordings (the record, "SGR 6 blinks at its own rate"). The
+    /// underline family is still counted whole, as it was before it became
+    /// exclusive, which bounds the reply from above by four parameters.
+    pub const CAPACITY: usize =
+        1 + Attrs::WIRE.len() - (Attrs::wire_in(Attrs::BLINKS) - 1) + 1 + 3 * 5;
     /// One position past the last storable parameter.
     ///
     /// [`ParamIdx::next_capped`] saturates here rather than at `CAPACITY`, so

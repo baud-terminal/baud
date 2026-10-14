@@ -13,7 +13,7 @@ use baud_domain::contrast::{self, CurveRow};
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{
-    Argb, Blend, Blink, BlockCursor, Curves, Damage, Ink, Instance, Kind, Pictured, PxSize,
+    Argb, Blend, BlinkPhases, BlockCursor, Curves, Damage, Ink, Instance, Kind, Pictured, PxSize,
     Renderer, Resolved, Selected, Shapes, Stack, Swaps, Theme,
 };
 use support::font;
@@ -227,7 +227,7 @@ fn the_ink_is_the_drawn_foregrounds_row() {
                     pictured,
                     selected,
                     block,
-                    blink: Blink::Shown,
+                    blink: BlinkPhases::SHOWN,
                 };
                 let drawn = slot.drawn(s);
                 assert_eq!(slot.curves.row(s.ink()), row(drawn.fg), "{s:?}");

@@ -29,17 +29,18 @@ const fn colon_style(bit: Attrs) -> bool {
     )
 }
 
-/// The longest DECRQSS reply this encoder can write: **124 bytes**.
+/// The longest DECRQSS reply this encoder can write: **126 bytes**.
 ///
 /// Built from the encoder's own parts rather than measured off one rendition,
 /// so a new attribute in `Attrs::WIRE` grows it without anyone remembering to.
 /// The SGR body is the longest of the five answers, and in it:
 ///
 /// * every `WIRE` bit, each as `;` and its code at its own width, with `4:`
-///   ahead of the three colon styles -- 61 bytes. **An upper bound, not a
+///   ahead of the three colon styles -- 63 bytes. **An upper bound, not a
 ///   reachable reply**: `4`, `21` and every `4:n` replace the underline
 ///   family, so a rendition holds at most one of `4`, `21`, `4:3`, `4:4` and
-///   `4:5`, and thirteen of those bytes are never sent together;
+///   `4:5`, and thirteen of those bytes are never sent together; `5` and `6`
+///   replace the blink family, so two more are not;
 /// * a font, `;19` at most, because `FontId::sgr` is `10..=19`;
 /// * three colours at their widest, `;58;2;255;255;255`, which is longer than
 ///   any indexed `;58;5;255`;

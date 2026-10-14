@@ -58,8 +58,8 @@ use baud_domain::{
 use baud_font::Px;
 use baud_render::effect::{self, Effect};
 use baud_render::{
-    Argb, Atlas, Blink, Dirty, Generation, Highlight, ImagePlacement, Instance, Kind, MAP_BITS,
-    MAP_SLOTS, MapEntry, Region, Renderer, Replaced, Resolved, Screen, Side, Tally, Tex, TexRect,
+    Argb, Atlas, Dirty, Generation, Highlight, ImagePlacement, Instance, Kind, MAP_BITS, MAP_SLOTS,
+    MapEntry, Region, Renderer, Replaced, Resolved, Screen, Side, Tally, Tex, TexRect,
 };
 use block2::RcBlock;
 use core::ffi::c_void;
@@ -311,8 +311,10 @@ struct CellUniforms {
     /// `OSC 12` cursor colour packed `0xFFRRGGBB`, or 0 for none. Read after
     /// the block-cursor swap and by the bar or underline shape pass.
     cursor_color: Uni,
-    /// 1 in `SGR 5`'s off phase, the frame's: the shader hides blinking
-    /// text itself, since a resolved slot is the same in both phases.
+    /// The blink shapes this frame hides, `BlinkPhases::hidden`:
+    /// `Shapes::BLINK` in `SGR 5`'s off phase and `Shapes::RAPID_BLINK` in
+    /// `SGR 6`'s, the frame's. The shader hides blinking text itself, since
+    /// a resolved slot is the same in every phase.
     blink_hidden: Uni,
     /// `CU` is 8-aligned by its `uint2`s, so its size is a multiple of eight
     /// and the bytes bound must be too: 29 words were 116 bytes against the
@@ -1602,10 +1604,7 @@ impl Gpu {
                 .cursor_color
                 .map_or(0, |(r, g, b)| u32::from_be_bytes([0xFF, r, g, b]))),
             pad: Uni(0),
-            blink_hidden: Uni(match renderer.blink() {
-                Blink::Shown => 0,
-                Blink::Hidden => 1,
-            }),
+            blink_hidden: Uni(renderer.blink().hidden().0),
         };
         let upload_time = t0.elapsed();
         let (cmd, enc) = self.encoder(target, clear, viewport)?;

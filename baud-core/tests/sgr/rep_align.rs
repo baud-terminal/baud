@@ -61,16 +61,6 @@ fn blink_conceal_and_strike_are_settable() {
     }
 }
 
-/// Rapid blink (6) is the same bit as slow blink (5), and blinks at slow
-/// blink's 75 a minute: a departure from `[[source: ecma48]]`'s "150 per
-/// minute or more" that `docs/vt-coverage.md` states until a rapid rate is
-/// chosen. This test holds the stated behaviour, so giving 6 its own bit has
-/// to change it and the row together.
-#[test]
-fn rapid_blink_is_blink() {
-    assert_eq!(grid(b"\x1b[6mx"), grid(b"\x1b[5mx"));
-}
-
 /// Double underline (21) is its own rendition, distinct from single (4) and
 /// from plain -- a renderer draws it as two lines. See `sgr/underline.rs` for
 /// the attribute; here it is enough that the cell differs from both.

@@ -27,10 +27,10 @@ use baud_present_macos::{
 };
 use baud_render::Place;
 use baud_render::{
-    AbsLine, Blend, Blink, Blinking, Candidate, Clip, Composition, Damage, Frame, GlyphMap, Grain,
-    Highlight, Instance, Look, MapEntry, Overlay, Point, Press, PxSize, Renderer, Resolved, Scene,
-    Scroll as ScrollBar, Scrolled, Scroller, Selection, Slide, Span, StyleStamp, Tally, Target,
-    Theme, Trail, TrailLook, Transition, Window, back_for, gutter, place, thumb,
+    AbsLine, Blend, Blink, BlinkPhases, Blinking, Candidate, Clip, Composition, Damage, Frame,
+    GlyphMap, Grain, Highlight, Instance, Look, MapEntry, Overlay, Point, Press, PxSize, Renderer,
+    Resolved, Scene, Scroll as ScrollBar, Scrolled, Scroller, Selection, Slide, Span, StyleStamp,
+    Tally, Target, Theme, Trail, TrailLook, Transition, Window, back_for, gutter, place, thumb,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -74,32 +74,51 @@ enum Pending {
 /// anyway -- long enough that no real redraw is cut off, short enough that a
 /// stalled update is not a frozen window. Two display-link periods at 60 Hz.
 const SYNC_MAX: Duration = Duration::from_millis(33);
-/// Half a blink cycle, seconds: text with `SGR 5` shows for this long, then
-/// hides for this long -- 75 blinks a minute. `[[source: ecma48]]` § 8.3.117
-/// gives 5 as "slowly blinking (less then 150 per minute)" and 6 as "rapidly
-/// blinking (150 per minute or more)"; the assertion below holds the first
-/// bound. `SGR 6` blinks at this rate too, a departure `docs/vt-coverage.md`
-/// states until a rapid rate is chosen. Under Reduce Motion neither blinks
-/// ([`text_blink`]): the system's request, and a departure from "slowly
-/// blinking" the coverage row states too.
-const BLINK_HALF: f64 = 0.4;
+/// Half a slow blink cycle, milliseconds: text with `SGR 5` shows for this
+/// long, then hides for this long -- 75 blinks a minute. `[[source: ecma48]]`
+/// § 8.3.117 gives 5 as "slowly blinking (less then 150 per minute)".
+const BLINK_HALF_MS: u32 = 400;
+/// Half a rapid blink cycle, milliseconds: text with `SGR 6` shows for this
+/// long, then hides for this long -- 150 blinks a minute, 2.5 a second, the
+/// floor of § 8.3.117's "rapidly blinking (150 per minute or more)", which
+/// the owner chose on 2026-10-13. Under WCAG 2.3.1's "more than three times
+/// in any one second period" (`[[source: wcag22]]`), whose flash is "a pair
+/// of opposing changes": one shown-and-hidden cycle is one flash.
+const RAPID_HALF_MS: u32 = 200;
+// The two bounds, in integers: 150 a minute is exactly the rapid floor, so a
+// float comparison would sit on a rounding edge.
 const _: () = assert!(
-    60.0 / (2.0 * BLINK_HALF) < 150.0,
+    60_000 < 150 * 2 * BLINK_HALF_MS,
     "SGR 5 is slow blink: fewer than 150 a minute"
 );
+const _: () = assert!(
+    60_000 >= 150 * 2 * RAPID_HALF_MS,
+    "SGR 6 is rapid blink: 150 a minute or more"
+);
+/// The two halves in seconds, the display link's unit.
+const BLINK_HALF: f64 = BLINK_HALF_MS as f64 / 1000.0;
+const RAPID_HALF: f64 = RAPID_HALF_MS as f64 / 1000.0;
 
-/// The phase blinking text draws with at display-link time `target`: the
-/// clock's, unless the system asks for reduced motion, when it is held
-/// shown. Apple's HIG names blinking under Reduce Motion, and WCAG 2.2.2
-/// asks for a way to stop blinking that lasts past five seconds; this is
-/// that way, and the reasons are on `reduce_motion_holds_blinking_text_shown`.
-/// Held, the phase never flips, so a blinking cell owes no frame.
-fn text_blink(target: f64, motion: crate::config::SystemMotion) -> Blink {
+/// The phases blinking text draws with at display-link time `target`, one a
+/// rate: the clock's, unless the system asks for reduced motion, when both
+/// are held shown. Apple's HIG names blinking under Reduce Motion, and WCAG
+/// 2.2.2 asks for a way to stop blinking that lasts past five seconds; this
+/// is that way, and the reasons are on
+/// `reduce_motion_holds_blinking_text_shown`. Held, no phase flips, so a
+/// blinking cell owes no frame. Each rate shows for half its cycle, as
+/// `SGR 5` always did: the text gives a rate and no duty cycle.
+fn text_blink(target: f64, motion: crate::config::SystemMotion) -> BlinkPhases {
     use crate::config::SystemMotion;
+    let at = |half: f64| match (target / half).rem_euclid(2.0) < 1.0 {
+        true => Blink::Shown,
+        false => Blink::Hidden,
+    };
     match motion {
-        SystemMotion::Reduced => Blink::Shown,
-        SystemMotion::Full if (target / BLINK_HALF).rem_euclid(2.0) < 1.0 => Blink::Shown,
-        SystemMotion::Full => Blink::Hidden,
+        SystemMotion::Reduced => BlinkPhases::SHOWN,
+        SystemMotion::Full => BlinkPhases {
+            slow: at(BLINK_HALF),
+            rapid: at(RAPID_HALF),
+        },
     }
 }
 /// How long a cursor trail's ghost takes to sweep from the old cell to the
@@ -494,7 +513,7 @@ struct App {
     /// The blink phase this frame draws with, whether any cell blinks, and
     /// whether the phase just flipped -- which forces a full repaint, since a
     /// blink changes no cell content and row damage would not catch it.
-    blink: Blink,
+    blink: BlinkPhases,
     blink_present: Blinking,
     /// The cursor's blink, on the display link's clock (`caret.rs`): the
     /// system caret's rate, read on the first tick and at every focus gain,
@@ -1005,7 +1024,7 @@ impl App {
             last_zone: Zone::Output,
             last_tick: None,
             updates: UpdateClock::new(SYNC_MAX),
-            blink: Blink::default(),
+            blink: BlinkPhases::SHOWN,
             blink_present: Blinking::default(),
             // AppKit's rate until the first tick reads the system's; the
             // cursor is not drawn blinking before then, since focus starts
@@ -4887,18 +4906,54 @@ mod motion_tests {
     /// caret is a drawn one.
     #[test]
     fn reduce_motion_holds_blinking_text_shown() {
-        use super::{BLINK_HALF, Blink, text_blink};
-        // Every quarter of a half-cycle across ten seconds, both phases.
-        let times = (0..400).map(|i| f64::from(i) * BLINK_HALF / 4.0);
-        let full: Vec<Blink> = times.clone().map(|t| text_blink(t, M::Full)).collect();
-        assert!(
-            full.contains(&Blink::Shown) && full.contains(&Blink::Hidden),
-            "the control: with full motion SGR 5 blinks"
-        );
-        assert_eq!(text_blink(0.1, M::Full), Blink::Shown);
-        assert_eq!(text_blink(BLINK_HALF + 0.1, M::Full), Blink::Hidden);
+        use super::{BLINK_HALF, Blink, BlinkPhases, RAPID_HALF, text_blink};
+        // Every eighth of a slow half-cycle across ten seconds, every phase
+        // of both rates.
+        let times = (0..800).map(|i| f64::from(i) * BLINK_HALF / 8.0);
+        let full: Vec<BlinkPhases> = times.clone().map(|t| text_blink(t, M::Full)).collect();
+        for rate in [|p: &BlinkPhases| p.slow, |p: &BlinkPhases| p.rapid] {
+            assert!(
+                full.iter().any(|p| rate(p) == Blink::Shown)
+                    && full.iter().any(|p| rate(p) == Blink::Hidden),
+                "the control: with full motion SGR 5 and SGR 6 blink"
+            );
+        }
+        assert_eq!(text_blink(0.1, M::Full), BlinkPhases::SHOWN);
+        assert_eq!(text_blink(BLINK_HALF + 0.1, M::Full).slow, Blink::Hidden);
+        assert_eq!(text_blink(RAPID_HALF + 0.1, M::Full).rapid, Blink::Hidden);
         for t in times {
-            assert_eq!(text_blink(t, M::Reduced), Blink::Shown, "at {t}");
+            assert_eq!(text_blink(t, M::Reduced), BlinkPhases::SHOWN, "at {t}");
+        }
+    }
+
+    /// **Each rate blinks at its own rate**: across a minute of the display
+    /// link's clock, sampled every millisecond, `SGR 5` hides 75 times and
+    /// `SGR 6` 150 -- `[[source: ecma48]]` § 8.3.117's "less then 150 per
+    /// minute" and "150 per minute or more" -- each shown for half its cycle.
+    #[test]
+    fn each_blink_rate_flips_at_its_own_rate() {
+        use super::{Blink, BlinkPhases, text_blink};
+        let phases: Vec<BlinkPhases> = (0..60_000)
+            .map(|ms| text_blink(f64::from(ms) / 1000.0, M::Full))
+            .collect();
+        for (name, rate, want) in [
+            (
+                "slow",
+                (|p: &BlinkPhases| p.slow) as fn(&BlinkPhases) -> Blink,
+                75,
+            ),
+            ("rapid", |p: &BlinkPhases| p.rapid, 150),
+        ] {
+            let hides = phases
+                .windows(2)
+                .filter(|w| rate(&w[0]) == Blink::Shown && rate(&w[1]) == Blink::Hidden)
+                .count();
+            assert_eq!(hides, want, "{name} blinks {hides} times a minute");
+            let shown = phases.iter().filter(|p| rate(p) == Blink::Shown).count();
+            assert!(
+                shown.abs_diff(30_000) <= want,
+                "{name} shown {shown} ms of 60,000"
+            );
         }
     }
 
@@ -4910,6 +4965,10 @@ mod motion_tests {
         // Spelled apart, so this test does not match its own source.
         let call = concat!("let phase = text_", "blink(target, self.app.motion);");
         assert_eq!(SRC.matches(call).count(), 1, "{call}");
+        // And a flip owes a frame through the rates on screen, so a slow-only
+        // screen does not repaint at the rapid flips.
+        let flips = concat!("self.app.blink_present.", "flips(self.app.blink, phase)");
+        assert_eq!(SRC.matches(flips).count(), 1, "{flips}");
         assert!(
             !SRC.contains(concat!("let phase = if (target / BLINK_", "HALF)")),
             "the tick computes the phase itself again, past the preference"
@@ -6172,18 +6231,20 @@ impl Responder for Driver {
         self.app.last_tick = Some(target);
         self.app.tick_target = target;
         // Blink is driven off the display link's timestamp -- the hardware
-        // vsync clock -- so the phase is accurate without a timer of its own.
-        // A full cycle is two BLINK_HALF periods; the phase flips a repaint
-        // only when a cell actually blinks. Under Reduce Motion it is held
-        // shown, so a change of the preference to reduced flips a hidden
-        // phase back once and then nothing flips.
+        // vsync clock -- so each rate's phase is accurate without a timer of
+        // its own. A slow cycle is two BLINK_HALF periods and a rapid one two
+        // RAPID_HALF; a rate's flip owes a repaint only when a cell on screen
+        // blinks at that rate, so a slow-only screen draws no frame at the
+        // rapid flips. Under Reduce Motion both are held shown, so a change
+        // of the preference to reduced flips a hidden phase back once and
+        // then nothing flips.
         let phase = text_blink(target, self.app.motion);
         if phase != self.app.blink {
-            self.app.blink = phase;
-            if self.app.blink_present == Blinking::Seen {
+            if self.app.blink_present.flips(self.app.blink, phase) {
                 self.app.next_damage = Damage::Full;
                 self.app.pending = Pending::Dirty;
             }
+            self.app.blink = phase;
         }
         // The cursor's blink owes a frame at each flip, and when it stops in
         // the off phase -- focus lost, a steady style, hidden, looked away

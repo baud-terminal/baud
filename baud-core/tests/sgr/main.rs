@@ -8,6 +8,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod blink;
 mod fonts;
 mod ideogram;
 mod param_overflow;

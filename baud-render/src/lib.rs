@@ -70,9 +70,9 @@ pub use metrics::{Metrics, PxSize};
 pub use overlay::{Composition, MASK_PICTURE, MASK_RECORD, Overlay, OverlayStats, Scene};
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use renderer::{
-    Blink, Blinking, ClusterGlyph, Converted, Damage, Evicted, Exceptions, Frame, GlyphSource,
-    ImagePlacement, ImageUpload, PairRole, Pairs, Pass, Renderer, Single, StyleStamp, StyleSync,
-    VideoFlash,
+    Blink, BlinkPhases, Blinking, ClusterGlyph, Converted, Damage, Evicted, Exceptions, Frame,
+    GlyphSource, ImagePlacement, ImageUpload, PairRole, Pairs, Pass, Renderer, Single, StyleStamp,
+    StyleSync, VideoFlash,
 };
 pub use scroll::{SLIDE_SECS_PER_ROW, Slide};
 pub use scrollbar::{
