@@ -32,6 +32,16 @@ root's `default-members` makes `cargo run` build it as the bundle does. The bund
 fonts' licences; it needs `iconutil` (macOS) and takes `rsvg-convert` from
 `nix shell nixpkgs#librsvg`.
 
+**macOS 26 and later** (the owner, 2026-10-13): the window is Liquid Glass,
+`NSGlassEffectView`, which macOS 26 introduced. The release is said in three
+places and `baud-app/tests/macos_floor.rs` holds them equal: the bundle's
+`LSMinimumSystemVersion`, on which Launch Services refuses to open it on an
+older system; the deployment target in `.cargo/config.toml`, forced over the
+devenv shell's 14.0, which the linker writes into the binary as
+`LC_BUILD_VERSION minos`; and the Metal library's target. A bare `baud` run
+on an older system meets the app's own check, which prints why on stderr
+and exits 1 (forced on macOS 27; not run below 26).
+
 **Configuration** is optional. Copy `config.toml.example` to one of the places
 baud looks -- `$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/config.toml`,
 `~/.config/baud/config.toml`, then `./config.toml` -- and keep only the keys
@@ -41,7 +51,7 @@ system's own faces behind them for what those lack.
 **The Metal shaders ship compiled.** `baud-present-macos/src/baud.metallib` is
 committed, so a build needs no Metal toolchain.
 `scripts/build-metallib.sh [xcode-developer-dir]` rebuilds it from
-`shaders.metal` with Xcode's Metal component, and
+`shaders.metal` with Xcode's Metal component, for macOS 26, and
 `the_library_was_built_from_the_shaders_beside_it`
 (`baud-present-macos/tests/metallib.rs`) fails if the two drift.
 

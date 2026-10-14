@@ -36,7 +36,7 @@ use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
     MouseKind as ViewMouseKind, Rect, Responder, Scroll, Waker,
 };
-use macos_liquid_glass::glass::{GlassStyle, GlassSurface};
+use macos_liquid_glass::glass::{GlassError, GlassStyle, GlassSurface};
 use macos_liquid_glass::objc2::MainThreadOnly;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
@@ -6321,7 +6321,73 @@ fn icon_titlebar() -> Option<Retained<NSImage>> {
     macos_liquid_glass::image_from_bytes(BYTES)
 }
 
+/// **Below macOS 26 baud refuses, and says why.** The owner, 2026-10-13,
+/// picked "macOS 26 and later": the window is NSGlassEffectView, which
+/// exists from 26, and there is no fallback backdrop. The refusal has three
+/// layers. Launch Services refuses the bundle, from Info.plist's
+/// `LSMinimumSystemVersion` of 26.0. A bare `baud` run from a shell meets
+/// no such check -- macOS 13's dyld and kernel do not refuse on the
+/// binary's `minos` -- so it reaches this, which prints `GlassError`'s
+/// message on stderr and exits 1 where it used to panic on
+/// `.expect("glass")`. It runs first in [`run`], ahead of the display link
+/// and `-[NSApplication activate]` (macOS 14) and ahead of the shell's
+/// spawn, so nothing is started that it would then abandon.
+fn refusal(glass: Glass) -> Option<String> {
+    match glass {
+        Glass::Present => None,
+        Glass::Absent => Some(refusal_message(&GlassError::Unsupported)),
+    }
+}
+
+/// Whether this system has `NSGlassEffectView`, the window's material.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Glass {
+    Present,
+    Absent,
+}
+
+impl Glass {
+    /// The crate's runtime class lookup, the condition
+    /// `GlassSurface::new` itself fails on.
+    fn of_system() -> Glass {
+        if macos_liquid_glass::glass::is_supported() {
+            Glass::Present
+        } else {
+            Glass::Absent
+        }
+    }
+}
+
+/// The line a refusal prints: the crate's own reason, which names the
+/// release ("Liquid Glass requires macOS 26 or later").
+fn refusal_message(err: &GlassError) -> String {
+    format!("baud: {err}")
+}
+
+/// Print a refusal on stderr and exit 1: the one way out for a system
+/// without the glass, at the check and at the construction both.
+fn refuse(message: String) -> ! {
+    eprintln!("{message}");
+    std::process::exit(1)
+}
+
+#[cfg(test)]
+mod refusal_tests {
+    use super::{Glass, refusal};
+
+    #[test]
+    fn a_system_without_the_glass_is_refused_with_the_release_named() {
+        let message = refusal(Glass::Absent).expect("refused");
+        assert!(message.starts_with("baud: "), "{message}");
+        assert!(message.contains("macOS 26 or later"), "{message}");
+        assert_eq!(refusal(Glass::Present), None);
+    }
+}
+
 pub fn run() {
+    if let Some(message) = refusal(Glass::of_system()) {
+        refuse(message);
+    }
     let mtm = MainThreadMarker::new().expect("run() on the main thread");
     let size = NSSize::new(960.0, 600.0);
     // What the grid needs before a window exists: the display's scale, and
@@ -6463,7 +6529,7 @@ pub fn run() {
         },
         16.0,
     )
-    .expect("glass");
+    .unwrap_or_else(|e| refuse(refusal_message(&e)));
     // Tinted before it is shown rather than after: the surface is not the
     // window's content until the first frame is on the layer, so doing it
     // here costs nothing and there is no frame in which an untinted

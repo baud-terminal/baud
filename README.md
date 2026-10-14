@@ -11,8 +11,8 @@
 
 </div>
 
-> A terminal emulator written in Rust. It runs on macOS; the Linux port has run
-> only headless.
+> A terminal emulator written in Rust. It runs on macOS 26 and later; the Linux
+> port has run only headless.
 
 Named for Émile Baudot, whose 1874 code gave the unit its name: a baud measures
 how fast symbols cross a line, which is what this is about.

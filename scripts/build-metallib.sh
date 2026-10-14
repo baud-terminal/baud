@@ -75,7 +75,12 @@ metal="$search/Metal.xctoolchain/usr/bin/metal"
   exit 5
 }
 
-"$metal" -o "$out" "$src"
+# **The library's floor is the app's: macOS 26** (the owner, 2026-10-13).
+# Without the flag the compiler takes its target from the environment --
+# `MACOSX_DEPLOYMENT_TARGET`, 14.0 under devenv, else the SDK's version,
+# 14.4 from the nix SDKROOT -- so the same source built two libraries.
+# `baud-app/tests/macos_floor.rs` holds this release to Info.plist's.
+"$metal" -mmacosx-version-min=26.0 -o "$out" "$src"
 [ -s "$out" ] || {
   echo "the compiler wrote nothing to $out" >&2
   exit 6
