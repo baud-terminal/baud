@@ -309,6 +309,13 @@ struct Snapshot {
     g: [Charset; 4],
     encoding: InputEncoding,
     c1: C1Transmit,
+    /// The page width asked of the embedder (`?3` under `?40`, DECSCPP),
+    /// and the `?3`s `?40` refused.
+    asked: Option<WidthRequest>,
+    column_refusals: ColumnRefusals,
+    /// `DECRQM`'s answers for `?40` and `?95`, which act through `?3` alone
+    /// and have no other reading, asked after everything above is read.
+    column_gates: Vec<u8>,
 }
 
 /// A prepared terminal: one palette entry set, text on two rows, and the
@@ -388,6 +395,15 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         ],
         encoding: t.input_encoding(),
         c1: t.c1_transmit(),
+        asked: t.requested_width(),
+        column_refusals: t.column_mode_refusals(),
+        column_gates: {
+            t.clear_reply();
+            let ask = b"\x1b[?40$p\x1b[?95$p";
+            t.write_at(BytePos::ZERO, ask);
+            t.feed(BytePos::ZERO, ReadLen::from_index(ask.len()));
+            t.reply().to_vec()
+        },
     }
 }
 

@@ -298,6 +298,93 @@ impl Resets {
     }
 }
 
+/// A count of the page widths the core has asked the embedder for, as a
+/// reading to compare: two equal readings saw no request, and a moved one
+/// says [`Term::requested_width`] holds the latest. A count rather than a
+/// flag, because one read can hold two and a flag would need clearing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WidthRequests(u32);
+
+impl WidthRequests {
+    pub(crate) const FIRST: WidthRequests = WidthRequests(0);
+
+    pub(crate) fn next(self) -> WidthRequests {
+        WidthRequests(self.0.wrapping_add(1))
+    }
+}
+
+/// A count of the `?3`s `?40` refused, as a reading to compare: two equal
+/// readings saw none ([`Term::column_mode_refusals`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ColumnRefusals(u32);
+
+impl ColumnRefusals {
+    pub(crate) const FIRST: ColumnRefusals = ColumnRefusals(0);
+
+    pub(crate) fn next(self) -> ColumnRefusals {
+        ColumnRefusals(self.0.wrapping_add(1))
+    }
+}
+
+/// The part of a read a page-width request held back under
+/// [`WidthHold::On`]: where it starts in the arena and how long it is, which
+/// [`Term::feed`] takes once the embedder has resized. Empty when the request
+/// was the read's last byte.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Rest {
+    pub at: BytePos,
+    pub len: ReadLen,
+}
+
+impl core::fmt::Debug for Rest {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "Rest {{ at: {}, len: {} }}",
+            self.at.index(),
+            self.len.index()
+        )
+    }
+}
+
+/// What the core has asked of the embedder's width, and whether a read stops
+/// at the asking (`?3` under `?40`, DECSCPP, and `RIS` after a request, back
+/// to the width at the first).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct WidthAsk {
+    pub(crate) requests: WidthRequests,
+    pub(crate) last: Option<WidthRequest>,
+    pub(crate) hold: WidthHold,
+    /// Set where a held read stopped (`Act::Hold`, or `Term::feed` when the
+    /// request was the read's last byte), and taken by [`Term::take_held`];
+    /// cleared when the next read starts.
+    pub(crate) held: Option<Rest>,
+    /// `?3` while `?40` was reset: ignored, as xterm ignores it, and counted.
+    pub(crate) refused: ColumnRefusals,
+    /// **The node the request's sequence left**, which a held read goes on
+    /// from: `Act::Hold` and `Term::feed`'s end set the parser to it. The
+    /// sequence that parks the parser can still move it -- `CSI ? 2 ; 3 l`
+    /// leaves ANSI beside the request -- so DECANM writes here while the
+    /// parser is `Held`, and a second request in the same sequence keeps
+    /// what the first saved.
+    pub(crate) resume: Node,
+    /// The grid's width at the first request since power-on or the last
+    /// `RIS`, which `RIS` asks back for: the width the user gave the window.
+    pub(crate) home: Option<Cols>,
+}
+
+impl WidthAsk {
+    pub(crate) const NONE: WidthAsk = WidthAsk {
+        requests: WidthRequests::FIRST,
+        last: None,
+        hold: WidthHold::Off,
+        held: None,
+        refused: ColumnRefusals::FIRST,
+        resume: Node::AfterControl,
+        home: None,
+    };
+}
+
 /// A count of `?5` DECSCNM changes, as a reading to compare. The core keeps
 /// two: the changes made where a frame could show them
 /// ([`Term::reverse_flips`]), and the changes made inside a synchronised
@@ -578,6 +665,8 @@ pub struct Cold {
     pub(crate) flips_held: ReverseFlips,
     /// Moves on every opening of `?2026`: [`Term::updates_opened`].
     pub(crate) updates_opened: UpdatesOpened,
+    /// The page widths asked of the embedder: [`Term::requested_width`].
+    pub(crate) width: WidthAsk,
     pub(crate) saved: Option<Saved>,
     pub(crate) alt_saved: Option<AltSaved>,
     /// Which mode put the alternate screen up, while it is up: `?1049` saved
@@ -688,9 +777,18 @@ pub struct Cold {
 // held: one byte, an `Option<Erasure>`, written by `CSI 3 J` and `RIS` beside
 // `history_erasures` and read by `Term::first_erasure` after a read; the
 // reading the watch was armed at went into `Book`'s padding (`watched_at`).
+// The page-width request took it to 584, seventy-two bytes with their
+// padding: two `u32` counts -- the requests, and the `?3`s `?40` refused --
+// the hold, a one-byte enum, the last request, an `Option<WidthRequest>` of
+// sixteen because `RIS` asks back for the window's `Cols`, that width
+// itself, an `Option<Cols>`, the node a held rest resumes from, one byte,
+// and a read held back, a `BytePos` and a `ReadLen`. Written by `?3`,
+// DECSCPP, DECANM and `RIS` -- arms of the dispatch -- by `Act::Hold`, and
+// once a read by `Term::feed`'s clearing store and its end; read there and by
+// `Term::take_held`, never by a glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 512);
+const _: () = assert!(core::mem::size_of::<Cold>() == 584);
 
 impl Cold {
     /// What `OSC 10`/`11`/`12 ; ?` answers for `which`: the application's
@@ -792,6 +890,7 @@ impl Cold {
             flips: ReverseFlips::FIRST,
             flips_held: ReverseFlips::FIRST,
             updates_opened: UpdatesOpened::FIRST,
+            width: WidthAsk::NONE,
             saved: None,
             alt_saved: None,
             alt_entry: crate::ops::AltSwitch::SaveAndClear,
@@ -2188,15 +2287,57 @@ impl<'b> Term<'b> {
         self.cold.modes.is_set(ModeBit::AutoRepeat)
     }
 
-    /// `?3` DECCOLM. Whether the application asked for 132 columns.
+    /// `?3` DECCOLM: whether column mode is 132, which `DECRQM` answers.
+    /// It moves only while `?40` allows it.
     ///
     /// **The width is not changed here.** This core's geometry is the
     /// embedder's -- it comes from a `WinSize` and moves through
-    /// [`Term::resize`] -- so DECCOLM records the request and performs the
-    /// side effects the specification attaches to it: the region resets, the
-    /// cursor homes and the screen clears.
+    /// [`Term::resize`] -- so DECCOLM performs the effects the specification
+    /// attaches to it (the screen clears unless `?95` is set, both margin
+    /// pairs reset, the cursor homes) and asks for the width
+    /// ([`Term::requested_width`]).
     pub fn column_mode(&self) -> bool {
         self.cold.modes.is_set(ModeBit::Column132)
+    }
+
+    /// How many page widths the core has asked for: read after a read, and
+    /// moved, [`Term::requested_width`] holds the latest.
+    pub fn width_requests(&self) -> WidthRequests {
+        self.cold.width.requests
+    }
+
+    /// The page width last asked for, `None` until one is: `?3` set or
+    /// reset while `?40` is set, DECSCPP, and `RIS` after a request, which
+    /// asks back for the grid's width at the first request since power-on or
+    /// the last `RIS` ([`WidthRequest::Window`] when it is neither 80 nor 132)
+    /// -- `[[source: dec-std-070]]`'s `host_state_init` reads `column mode =
+    /// EIGHTY; /* NVM */`, the width the user stored, where xterm's
+    /// `ReallyReset` asks for 80. The window is the embedder's: it resizes,
+    /// keeping its rows, or says why it does not.
+    pub fn requested_width(&self) -> Option<WidthRequest> {
+        self.cold.width.last
+    }
+
+    /// Whether a read stops at a page-width request. **Set it only if you
+    /// resize and then feed the rest**: [`Term::take_held`] says what is
+    /// left of the read, and the bytes after the request -- the 132-column
+    /// screen a program draws once it has asked -- are then parsed at the
+    /// width it asked for, as DECCOLM's "columns_per_page = 132" precedes
+    /// them (`[[source: dec-std-070]]` p. 5-72).
+    pub fn set_width_hold(&mut self, hold: WidthHold) {
+        self.cold.width.hold = hold;
+    }
+
+    /// The rest of the last read, if a page-width request held it: `None`
+    /// when the read was parsed whole. Taken once; the next read clears it.
+    pub fn take_held(&mut self) -> Option<Rest> {
+        self.cold.width.held.take()
+    }
+
+    /// How many `?3`s were ignored because `?40` was reset, as xterm
+    /// ignores them: a reading to compare.
+    pub fn column_mode_refusals(&self) -> ColumnRefusals {
+        self.cold.width.refused
     }
 
     /// How many times `?5` has changed outside a synchronised update, as a

@@ -104,20 +104,26 @@ fn the_modes_do_not_alias_each_other() {
     assert!(!with(off, |t| t.eight_bit_input()));
 }
 
-/// `?3` DECCOLM does the clearing the spec mandates, but does **not** resize.
+/// `?3` DECCOLM, allowed by `?40`, does the clearing the spec mandates and
+/// asks for the width, but does **not** resize.
 ///
 /// Geometry is caller-owned through `Term::resize`. Resizing behind the caller
-/// would desynchronise it from the application, so the request is recorded and
-/// `Term::column_mode()` reports it.
+/// would desynchronise it from the application, so the width is asked for
+/// (`Term::requested_width`) and `Term::column_mode()` reports the mode;
+/// `tests/xterm/column_mode.rs` holds the rest.
 #[test]
-fn deccolm_clears_and_records_but_does_not_resize() {
+fn deccolm_clears_and_asks_but_does_not_resize() {
     let mut t = T {
         s: Owned::new(&support::CORPUS),
     };
     let mut term = Term::new(t.s.storage(), &support::CORPUS);
-    support::feed(&mut term, b"\x1b[5;10r\x1b[3;3Hsome text\x1b[?3h");
+    support::feed(&mut term, b"\x1b[?40h\x1b[5;10r\x1b[3;3Hsome text\x1b[?3h");
 
-    assert!(term.column_mode(), "the request is recorded");
+    assert!(term.column_mode(), "the mode is set");
+    assert_eq!(
+        term.requested_width(),
+        Some(WidthRequest::Page(PageWidth::OneThirtyTwo))
+    );
     let (r, c) = term.cursor();
     assert_eq!((r.index(), c.index()), (0, 0), "DECCOLM homes the cursor");
     assert_eq!(term.geometry().0.index(), 200, "width is unchanged");
@@ -229,7 +235,11 @@ fn a_multi_parameter_form_applies_to_all_of_them() {
 /// RIS clears every one, so a crashed program cannot strand the next.
 #[test]
 fn ris_clears_them_all() {
-    let after = b"\x1b[?1;4;5;8;1034h\x1bc";
+    let after = b"\x1b[?40h\x1b[?1;3;4;5;8;1034h\x1bc";
+    assert!(
+        with(b"\x1b[?40h\x1b[?3h", |t| t.column_mode()),
+        "the control: ?3 set under ?40"
+    );
     assert!(!with(after, |t| t.cursor_keys_application()));
     assert!(!with(after, |t| t.smooth_scroll()));
     assert!(!with(after, |t| t.reverse_video()));

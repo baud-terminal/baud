@@ -122,11 +122,16 @@ what separates it from the "set and never read" failure. Who acts on each:
   is set; the Linux driver has no paste), and synchronised output, on both
   (frames are held while an update is open, 33 ms at most).
 * **`baud-render`**: DECSCNM, drawn as xterm draws reverse video.
-* **The core itself**: `?45` reverse wraparound, and `?3`, which clears the
-  screen, resets the top and bottom margins and homes the cursor.
-* **Nothing yet**: DECSCLM, exposed as `Term::smooth_scroll`, and `?3`'s
-  request for 132 columns, exposed as `Term::column_mode`; nothing outside
-  the core reads either, and the width changes only through `Term::resize`.
+* **The core itself**: `?45` reverse wraparound, and `?3` while `?40` allows
+  it, which clears the screen unless `?95` is set, resets all four margins
+  and DECLRMM, homes the cursor and asks for 132 or 80 columns
+  (`Term::requested_width`).
+* **`baud-app`**, for that request and DECSCPP's: on macOS the grid takes the
+  columns inside the read that asked and the window follows, its rows kept;
+  under `BAUD_GRID`, and on Linux, the width stays and a warning says so once
+  (`width.rs`).
+* **Nothing yet**: DECSCLM, exposed as `Term::smooth_scroll`; nothing outside
+  the core reads it.
 
 Bracketed paste is a **security** mode, not a cosmetic one: without it a pasted
 newline is delivered to the shell as typed input and runs.

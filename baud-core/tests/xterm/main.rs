@@ -10,6 +10,7 @@ mod support;
 
 mod alt_screen;
 mod bell_modes;
+mod column_mode;
 mod embedder_modes;
 mod erase_saved_lines;
 mod focus;

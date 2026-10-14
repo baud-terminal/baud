@@ -71,6 +71,10 @@ mod trail;
 // every platform, and both drivers read it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod title;
+// What a program's page-width request does to the window: pure, so its tests
+// run on every platform, and both drivers read it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod width;
 // The wheel's travel and its reports to a tracking application: pure, so its
 // tests run on every platform; only the macOS driver has a pointer today, so
 // the bin builds it there alone.

@@ -79,6 +79,7 @@ pub const DECRQSS_MAX: usize = {
         b"65535;65535s".len(),
         b"255 q".len(),
         b"255\"q".len(),
+        b"132$|".len(),
     ];
     let mut body = sgr;
     let mut k = 0;
@@ -178,6 +179,19 @@ impl Paint<'_, '_> {
                 s.num(self.cold.right.one_based());
                 s.push(b"s");
             }
+            // **DECSCPP answers the page the grid is**: STD 070's DECRQSS
+            // lists "Set Columns Per Page DECSCPP $ |" (`[[source:
+            // dec-std-070]]`, p. 5-196), and an answer is a control the
+            // application sends back. By DECSCPP's own rule, so a grid of
+            // 100 is 132, "the next higher supported number"; and the
+            // grid's, not the width last asked for, which an embedder that
+            // did not resize never gave the page. xterm answers from
+            // `IN132COLUMNS`, the last asked (`[[source: xterm-misc]]`):
+            // the record's open question.
+            StatusTarget::ColumnsPerPage => s.push(match PageWidth::page_of(self.cols) {
+                PageWidth::Eighty => b"1$r80$|",
+                PageWidth::OneThirtyTwo => b"1$r132$|",
+            }),
         }
         s.push(c1.st());
         let at = self.reply_len.index();

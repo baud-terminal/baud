@@ -37,6 +37,8 @@ impl Term<'_> {
         // Where this read starts, for a hide looking back past it
         // (`placed.rs`).
         self.cold.placement.begin(base);
+        // A rest no one took is the previous read's.
+        self.cold.width.held = None;
         let mut p = Paint::new(
             &mut self.store,
             self.cy,
@@ -293,13 +295,30 @@ impl Term<'_> {
                 *a += *b;
             }
         }
+        // **A request that was the read's last byte holds an empty rest**:
+        // the parser is still `Held`, with no byte left to take the action
+        // that would have said so, and the next read goes on from the node
+        // the request's sequence left (`WidthAsk::resume`), VT52's after a
+        // DECANM beside it.
+        if node == Node::Held {
+            node = self.cold.width.resume;
+            self.cold.width.held = Some(crate::term::Rest {
+                at: base.advance_read(n),
+                len: ReadLen::ZERO,
+            });
+        }
         self.node = node;
         self.utf8 = utf8;
         self.utf8_min = min;
         self.set_rots(rots);
+        // **What a page-width request held back was not parsed**: it is
+        // neither in this read's count nor in its tail, and the feed that
+        // takes it counts it (`Term::take_held`).
+        let held = self.cold.width.held.map_or(ReadLen::ZERO, |r| r.len);
+        self.bytes_in -= held.index();
         // The read's last bytes, for a hide in the next one to look back into:
         // one short copy a read (`placed.rs`).
-        let read = &self.store.arena[base.index()..base.index() + n.index()];
+        let read = &self.store.arena[base.index()..base.index() + n.less(held).index()];
         self.cold.placement.end(StreamByte::slice_from(read));
     }
 }

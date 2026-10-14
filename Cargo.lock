@@ -85,6 +85,7 @@ dependencies = [
  "baud-present-wayland",
  "baud-render",
  "baud-wayland",
+ "dispatch2",
  "macos-liquid-glass",
 ]
 

@@ -174,7 +174,7 @@ fn xtrestore_has_the_side_effects_of_setting_the_mode() {
         assert_eq!(t.cursor(), (Row::ZERO, Col::ZERO), "?6 restored homes");
     });
     support::with_corpus(|t| {
-        feed(t, b"\x1b[?3s\x1b[?3htext\x1b[?3r");
+        feed(t, b"\x1b[?40h\x1b[?3s\x1b[?3htext\x1b[?3r");
         assert!(
             screen_text(t).iter().all(|l| l.is_empty()),
             "?3 restored clears, as DECCOLM does"
@@ -454,6 +454,10 @@ fn every_mode_decset_changes_is_saved_and_restored_and_no_other_is() {
     for mode in (0u16..=3000).chain([9999]) {
         let mut owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, Depth::NONE);
         let mut t = Term::new(owned.storage(), &ws);
+        // `?3` moves only while `?40` allows it (`column_mode.rs`).
+        if mode == 3 {
+            feed_str(&mut t, "\x1b[?40h");
+        }
         let was = ask(&mut t, mode);
         let p = t.unsupported_param;
         if mode == 2 {

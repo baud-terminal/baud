@@ -2511,12 +2511,12 @@ mod tests {
         };
         next_after(
             include_str!("app.rs"),
-            "|t| pasteboard(clips.poll(t, osc52)),\n        );\n",
+            "resized = honour(widths.poll(t, host), t).or(resized);\n            },\n        );\n",
             "self.app.pty.follow(self.app.term.input_encoding());",
         );
         next_after(
             include_str!("linux.rs"),
-            "crate::reads::feed(&mut self.term, [bytes], |b| self.outbox.push(b), |_| {});\n",
+            "                    crate::warn!(\"{line}\");\n                }\n            },\n        );\n",
             "self.pty.follow(self.term.input_encoding());",
         );
     }

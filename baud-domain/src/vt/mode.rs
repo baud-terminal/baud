@@ -178,7 +178,9 @@ pub enum ModeBit {
     /// its sixteen rows disagree between them. Collapsing the two would make
     /// `?1039 l` silently turn Meta off as well.
     AltSendsEscape,
-    /// ?3. 132-column mode requested.
+    /// `?3` DECCOLM: 132-column mode (`column_mode = ONE_THIRTY_TWO`,
+    /// `[[source: dec-std-070]]` p. 5-71). Moved only while
+    /// [`ModeBit::AllowColumnMode`] is set; `DECRQM` answers it.
     Column132,
     /// DECSET ?2026. Read by the renderer to hold the frame.
     ///
@@ -215,6 +217,15 @@ pub enum ModeBit {
     /// `?1043` -- xterm's `popOnBell` ([`PopOnBell`]). Off at power-on and
     /// after `RIS`, kept by `DECSTR`; read through `Term::pop_on_bell`.
     PopOnBell,
+    /// `?40` -- xterm's "Allow 80 -> 132 mode" (`[[source: ctlseqs]]`), the
+    /// `c132` resource: while reset, `?3` is ignored. Off at power-on, as
+    /// `Bres(XtNc132, ..., False)` gives it (`[[source: xterm-reset]]`'s
+    /// file); off after `RIS`, kept by `DECSTR`.
+    AllowColumnMode,
+    /// `?95` DECNCSM, "Set/Reset No Clearing Screen On Column Change"
+    /// (`[[source: vt510-decncsm]]`): while set, `?3` does not clear the
+    /// screen. Off at power-on and after `RIS`, kept by `DECSTR`.
+    NoClearOnColumn,
 }
 
 impl ModeBit {
@@ -393,6 +404,12 @@ pub enum PrivateMode {
     /// `?1043` -- xterm's `popOnBell`: a `BEL` raises the window
     /// ([`PopOnBell`]).
     PopOnBell,
+    /// `?40` -- "Allow 80 -> 132 mode, xterm" (`[[source: ctlseqs]]`): the
+    /// gate on `?3` ([`ModeBit::AllowColumnMode`]).
+    AllowColumnMode,
+    /// `?95` DECNCSM -- "Do not clear screen when DECCOLM is set/reset"
+    /// (`[[source: ctlseqs]]`, `[[source: vt510-decncsm]]`).
+    NoClearOnColumn,
     Other(Param),
 }
 
@@ -417,6 +434,106 @@ pub enum BellIsUrgent {
 /// (`Bres(XtNpopOnBell, ..., False)`, `[[source: xterm-reset]]`'s file).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum PopOnBell {
+    #[default]
+    Off,
+    On,
+}
+
+/// The two page widths a program asks for: DEC STD 070's `column_mode`,
+/// "Eighty (reset) and One Thirty Two (set)", and the `columns_per_page`
+/// each sets (`set_column_mode` and `reset_column_mode`,
+/// `[[source: dec-std-070]]` p. 5-72). `?3` asks for one, while `?40`
+/// allows it, and DECSCPP asks for one whatever `?40` says.
+///
+/// **A request, not a geometry.** The window is the embedder's, so the core
+/// asks (`Term::requested_width`) and the embedder resizes, as it does for
+/// a drag; the core does not change its own width.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PageWidth {
+    Eighty,
+    OneThirtyTwo,
+}
+
+impl PageWidth {
+    /// The width `?3` asks for: set is 132, reset is 80.
+    pub const fn of_column_mode(change: ModeChange) -> PageWidth {
+        match change {
+            ModeChange::Set => PageWidth::OneThirtyTwo,
+            ModeChange::Reset => PageWidth::Eighty,
+        }
+    }
+
+    /// DECSCPP's `Pn`, by `set_columns_per_page` (`[[source: dec-std-070]]`
+    /// p. 5-74): `if (parv[0] <= 80)` the page is 80 columns, else 132. An
+    /// omitted parameter is 0, "the page width is defaulted to 80" (p. 5-73),
+    /// and a value between is "the next higher supported number", 132.
+    /// xterm takes 0, 80 and 132 only and ignores the rest (`CASE_DECSCPP`,
+    /// `[[source: xterm-reset]]`'s file), a departure not followed.
+    pub fn per_page(p: Option<Param>) -> PageWidth {
+        match p.map_or(0, |x| x.0) {
+            0..=80 => PageWidth::Eighty,
+            _ => PageWidth::OneThirtyTwo,
+        }
+    }
+
+    /// The page a grid `cols` wide is, by the same rule: up to 80 columns
+    /// is 80, and wider "the next higher supported number", 132. What
+    /// `DECRQSS` answers for DECSCPP.
+    pub fn page_of(cols: Cols) -> PageWidth {
+        match cols.0 {
+            0..=80 => PageWidth::Eighty,
+            _ => PageWidth::OneThirtyTwo,
+        }
+    }
+
+    /// The columns, as a `WinSize` counts them.
+    pub const fn ws_col(self) -> u16 {
+        match self {
+            PageWidth::Eighty => 80,
+            PageWidth::OneThirtyTwo => 132,
+        }
+    }
+}
+
+/// A width the core asks the embedder for (`Term::requested_width`): one of
+/// the two pages, or the window's own width, which `RIS` asks back for --
+/// the width the user gave it, as STD 070's `host_state_init` takes the
+/// page width from NVM. **Kept apart from [`PageWidth`]**, which DECSCPP's
+/// `Csi` carries: a `Cols` there would widen every `Csi` the dispatch
+/// builds, from 12 bytes to 24.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WidthRequest {
+    Page(PageWidth),
+    /// A width that is neither page: the window's before a program asked.
+    Window(Cols),
+}
+
+impl WidthRequest {
+    /// A window `cols` wide, as a request: 80 and 132 are the two pages, so
+    /// that a request compares equal whichever control made it.
+    pub fn of_window(cols: Cols) -> WidthRequest {
+        match cols.0 {
+            80 => WidthRequest::Page(PageWidth::Eighty),
+            132 => WidthRequest::Page(PageWidth::OneThirtyTwo),
+            _ => WidthRequest::Window(cols),
+        }
+    }
+
+    /// The columns, as a `WinSize` counts them.
+    pub fn ws_col(self) -> u16 {
+        match self {
+            WidthRequest::Page(w) => w.ws_col(),
+            WidthRequest::Window(c) => u16::try_from(c.0).unwrap_or(u16::MAX),
+        }
+    }
+}
+
+/// Whether a read stops at a page-width request, so the embedder can resize
+/// before the bytes after it are parsed (`Term::set_width_hold`). **Off by
+/// default**: an embedder that never resizes, or never resumes, is fed every
+/// byte of a read as before, at the width it has.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum WidthHold {
     #[default]
     Off,
     On,
@@ -485,7 +602,8 @@ impl PrivateMode {
     ///
     /// xterm saves a different set (`savemodes`, `[[source: xterm-reset]]`):
     /// not `?2` or `?8`, and `?3` only under the `c132` resource `?40` sets,
-    /// where baud follows the text, decided 2026-10-10 (Jev, XT-3); and one
+    /// where baud saves `?3` whatever `?40` says, decided 2026-10-10 (Jev,
+    /// XT-3) -- a restore of it acts only under `?40`, as DECSET does; and one
     /// slot for all five tracking levels and one for all four encodings,
     /// still the owner's question (XT-4, XT-5).
     pub const fn slot(self) -> Option<ModeSlot> {
@@ -524,6 +642,8 @@ impl PrivateMode {
             PrivateMode::InbandResize => 31,
             PrivateMode::BellIsUrgent => 32,
             PrivateMode::PopOnBell => 33,
+            PrivateMode::AllowColumnMode => 34,
+            PrivateMode::NoClearOnColumn => 35,
             PrivateMode::Utf8Resource | PrivateMode::GraphemeClustering | PrivateMode::Other(_) => {
                 return None;
             }
@@ -543,9 +663,11 @@ impl PrivateMode {
             5 => PrivateMode::ReverseVideo,
             8 => PrivateMode::AutoRepeat,
             12 => PrivateMode::CursorBlink,
+            40 => PrivateMode::AllowColumnMode,
             45 => PrivateMode::ReverseWrap,
             47 => PrivateMode::AltScreenLegacy,
             69 => PrivateMode::LeftRightMargin,
+            95 => PrivateMode::NoClearOnColumn,
             1034 => PrivateMode::EightBitInput,
             1036 => PrivateMode::MetaSendsEscape,
             1039 => PrivateMode::AltSendsEscape,

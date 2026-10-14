@@ -3,7 +3,7 @@
 //! loops are platform-bound and no test reaches them, the shape `wheel.rs`
 //! took for the wheel.
 
-use baud_core::{BytePos, ReadLen, Term};
+use baud_core::{BytePos, ReadLen, Rest, Term};
 
 /// Feed each read to the core, in order, and hand `sink` every byte it
 /// answered, behind whatever it already owed.
@@ -26,18 +26,30 @@ use baud_core::{BytePos, ReadLen, Term};
 /// write it finished, so a batch whose reads each finish one would hand a
 /// poll after the batch only the last; a title is state and is read once
 /// after the batch, beside this.
+///
+/// **And the rest of a read a page-width request held** (`Term::take_held`,
+/// under `WidthHold::On`): `after` sees the core at the request, resizes it
+/// if it honours one, and the rest of the read is fed after -- so a program
+/// that asks for 132 columns and draws in the same read draws at 132.
 pub fn feed<'r>(
     term: &mut Term<'_>,
     reads: impl IntoIterator<Item = &'r [u8]>,
     mut sink: impl FnMut(&[u8]),
-    mut after: impl FnMut(&Term<'_>),
+    mut after: impl FnMut(&mut Term<'_>),
 ) {
     owed(term, &mut sink);
     for bytes in reads {
         term.write_at(BytePos::ZERO, bytes);
-        term.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
-        owed(term, &mut sink);
-        after(term);
+        let mut next = Some(Rest {
+            at: BytePos::ZERO,
+            len: ReadLen::from_index(bytes.len()),
+        });
+        while let Some(r) = next {
+            term.feed(r.at, r.len);
+            owed(term, &mut sink);
+            next = term.take_held();
+            after(term);
+        }
     }
 }
 
@@ -171,6 +183,41 @@ mod tests {
         want.extend_from_slice(b"\x1b]4;2;rgb:1212/3434/5656\x1b\\");
         assert_eq!(child, want, "the earlier answers, then the read's");
         assert_eq!(t.reply_overflows, before, "and nothing overflowed");
+    }
+
+    /// **A read a page-width request held is fed on after `after`**, which
+    /// resized the core between the two: the mark drawn after the request
+    /// lands at the width asked for. The control: `after` runs twice, at the
+    /// request and after the rest, and the width it saw first is the old one.
+    #[test]
+    fn the_rest_of_a_held_read_is_fed_after_the_embedder_resizes() {
+        use baud_core::{Row, WidthHold};
+        let room = WinSize {
+            ws_row: 40,
+            ws_col: 132,
+        };
+        let mut s = Owned::new(&room);
+        let mut t = Term::new(s.storage(), &WS);
+        t.set_width_hold(WidthHold::On);
+        let read = b"\x1b[132$|\x1b[1;132HX";
+        let mut widths = Vec::new();
+        feed(
+            &mut t,
+            [read.as_slice()],
+            |_| {},
+            |t| {
+                widths.push(t.geometry().0.index());
+                if t.geometry().0.index() != 132 {
+                    assert_eq!(t.resize(&room), baud_core::Resized::Ok);
+                }
+            },
+        );
+        assert_eq!(widths, [120, 132], "at the request, then after the rest");
+        let row = t.row(Row::ZERO).expect("row 0");
+        assert_eq!(
+            row[131].content.as_codepoint().map(|c| c.value()),
+            Some(u32::from(b'X'))
+        );
     }
 
     /// **A key behind answers that nearly fill the buffer is kept.** The

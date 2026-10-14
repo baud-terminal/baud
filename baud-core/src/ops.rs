@@ -1444,6 +1444,43 @@ impl Paint<'_, '_> {
 
     // ---- margins and columns -------------------------------------------
 
+    /// Ask the embedder for a page width, and under [`WidthHold::On`] stop
+    /// the read after this control: the parser goes to `Node::Held`, whose
+    /// every byte is the rest of the read, and the node it was in is the
+    /// one the rest goes on from. **Only the first request in a sequence
+    /// saves it**: a second, in `CSI ? 3 ; 3 h`, finds the parser already
+    /// `Held`, and saving that would park the rest for good. The first
+    /// request since power-on or `RIS` also notes the grid's width, which
+    /// `RIS` asks back for.
+    pub(crate) fn ask_width(&mut self, w: PageWidth, node: &mut crate::graph::Node) {
+        let a = &mut self.cold.width;
+        a.requests = a.requests.next();
+        a.last = Some(WidthRequest::Page(w));
+        if a.home.is_none() {
+            a.home = Some(self.cols);
+        }
+        if a.hold == WidthHold::On {
+            if *node != crate::graph::Node::Held {
+                a.resume = *node;
+            }
+            *node = crate::graph::Node::Held;
+        }
+    }
+
+    /// DECSCPP, `CSI Pn $ |`: the width asked for and nothing else here.
+    /// `[[source: dec-std-070]]` p. 5-73: it "does not cause the Active
+    /// position to move" and "does not cause the Right Margin to move",
+    /// except past the new page's edge, and "When changing from a 132 column
+    /// to a 80 column page, the information in columns 1-80 is preserved" --
+    /// all of which is the resize's, when the embedder makes it. **`?3` is
+    /// not moved**: `set_columns_per_page` (p. 5-74) changes
+    /// `columns_per_page` and not `column_mode`, where xterm's `CASE_DECSCPP`
+    /// sets `IN132COLUMNS`. **Not gated by `?40`**, as neither STD 070 nor
+    /// xterm gates it.
+    pub(crate) fn set_columns_per_page(&mut self, w: PageWidth, node: &mut crate::graph::Node) {
+        self.ask_width(w, node);
+    }
+
     /// The margins a `RIS`, a `DECSTR` or a resize puts back.
     pub(crate) fn reset_side_margins(&mut self) {
         self.cold.left = Col::ZERO;
@@ -1696,25 +1733,44 @@ impl Paint<'_, '_> {
                 self.cold.modes.apply(ModeBit::AutoWrap, on);
                 self.cold.pinned = crate::term::Pinned::Before;
             }
-            // **`?3` DECCOLM is not just a bit.** `[[source: ctlseqs]]` has it
-            // reset the scrolling region, home the cursor and **clear the
-            // screen**, either way -- an application uses it to get a known
-            // state, so a core that recorded the width and left the grid alone
-            // would leave the previous screen under the new geometry. The
-            // *width* itself is the embedder's: this core does not resize
-            // itself, because the window belongs to whoever owns it.
+            // **`?3` DECCOLM, behind xterm's `?40`** -- the owner's call of
+            // 2026-10-13. While `?40` is reset the control is ignored, as
+            // xterm's `srm_DECCOLM` does nothing without `c132`, and counted.
+            // Allowed, it is `[[source: dec-std-070]]`'s `set_column_mode`
+            // and `reset_column_mode` (p. 5-72): "Selecting Eighty or One
+            // Thirty Two Column Mode causes the display data to be cleared,
+            // the scrolling region to be eliminated, and the Active Position
+            // to be set to the display origin (1,1), even if the terminal was
+            // already in the selected state" (p. 5-71) -- the top, bottom,
+            // left and right margins all reset. **The clear is `?95`'s to
+            // withhold**: "When enabled, a column mode change ... does not
+            // clear the screen" (`[[source: vt510-decncsm]]`). **The width is
+            // asked for**, not taken: the window is the embedder's.
+            //
+            // **And DECLRMM is reset**: "DECCOLM resets vertical split screen
+            // mode (DECLRMM) to unavailable" (`[[source: vt510-deccolm]]`).
+            // STD 070's algorithm sets `left_right_margins_mode = SETABLE`
+            // instead, and xterm leaves the mode as it was, calling that line
+            // an error -- both readings in the record, as an open question.
             PrivateMode::Column132 => {
+                if !self.cold.modes.is_set(ModeBit::AllowColumnMode) {
+                    self.cold.width.refused = self.cold.width.refused.next();
+                    return;
+                }
                 self.cold.modes.apply(ModeBit::Column132, on);
                 self.cold.top = Row::ZERO;
                 self.cold.bot = Row::from_index(self.rows.index() - 1);
-                // The origin's column under DECOM: this core keeps the side
-                // margins here, where `[[source: dec-std-070]]`'s
-                // `set_column_mode` (p. 5-72) resets them, an open departure
-                // in the record.
-                self.set_col(self.origin_col());
-                self.clear_screen();
-                self.set_row(Row::ZERO);
+                self.reset_side_margins();
+                self.cold.modes.reset(ModeBit::SideMargins);
+                if !self.cold.modes.is_set(ModeBit::NoClearOnColumn) {
+                    self.clear_screen();
+                }
+                self.home();
+                self.ask_width(PageWidth::of_column_mode(change), node);
             }
+            // **`?40` and `?95` act through `?3`**, which reads both.
+            PrivateMode::AllowColumnMode => self.cold.modes.apply(ModeBit::AllowColumnMode, on),
+            PrivateMode::NoClearOnColumn => self.cold.modes.apply(ModeBit::NoClearOnColumn, on),
             // **`?4` and `?8` are recorded and exposed, which is what acting
             // on them means here.** Smooth scroll is renderer policy and
             // auto-repeat is keyboard policy; this core has neither, and an
@@ -1857,15 +1913,25 @@ impl Paint<'_, '_> {
             // introducer. Recording the mode without moving the node is the
             // "a bit that is set and never read" failure; moving the node
             // without recording it would leave `terminal_mode()` lying.
+            //
+            // **Beside a held request the switch is the rest's**: in
+            // `CSI ? 3 ; 2 l` the parser is already `Held` when DECANM comes,
+            // and in `CSI ? 2 ; 3 l` it parks after it, so the protocol goes
+            // to the node the held rest resumes from rather than over the
+            // stop (`WidthAsk::resume`).
             PrivateMode::AnsiMode => {
                 self.cold.terminal = match change {
                     ModeChange::Set => TerminalMode::Ansi,
                     ModeChange::Reset => TerminalMode::Vt52,
                 };
-                *node = match self.cold.terminal {
+                let to = match self.cold.terminal {
                     TerminalMode::Ansi => crate::graph::Node::AfterControl,
                     TerminalMode::Vt52 => crate::graph::Node::Vt52AfterControl,
                 };
+                match *node {
+                    crate::graph::Node::Held => self.cold.width.resume = to,
+                    _ => *node = to,
+                }
             }
             PrivateMode::AltScreen => self.set_alt_screen(change, AltSwitch::SaveAndClear),
             // **`?47` switches buffers and does nothing else.** xterm's
@@ -2136,6 +2202,31 @@ impl Paint<'_, '_> {
         // names `bellIsUrgent` or `popOnBell` (`[[source: xterm-reset]]`'s
         // file) -- a departure from the text not followed. `DECSTR` above
         // keeps them, as its list does not name them.
+        // **And the width the window had before a program asked**:
+        // `[[source: dec-std-070]]`'s `RIS` is its Device Initialization
+        // (PDF 243), whose `host_state_init` reads `column mode = EIGHTY;
+        // /* NVM */` and `if (column_mode == EIGHTY) columns-per-page = 80;
+        // /* NVM */` (PDF 219) -- the width the user stored in Set-Up -- and
+        // whose values "apply only to those implementations in which the
+        // state cannot be set and stored locally by the terminal user" (PDF
+        // 216). Here the user stores a width by giving it to the window, so
+        // `RIS` asks back for the grid's width at the first request since
+        // power-on or the last `RIS`, unless that is the width last asked;
+        // with no request made it asks nothing. xterm's `ReallyReset` asks
+        // for 80 from 132 (`[[source: xterm-reset]]`'s file), a practice
+        // departing from the text and not followed. `?40` and `?95` go back
+        // to reset with the rest; `DECSTR` keeps them, as `[[source:
+        // vt510-decstr]]`'s table names neither. **Not held**: `RIS` is an
+        // `ESC` final, and the read goes on at the old width -- a gap in the
+        // record.
+        let a = &mut self.cold.width;
+        if let Some(home) = a.home.take() {
+            let back = WidthRequest::of_window(home);
+            if a.last != Some(back) {
+                a.requests = a.requests.next();
+                a.last = Some(back);
+            }
+        }
         self.cold.modes = Modes::default();
         // **XTSAVE's cache goes back to empty**: ECMA-48 § 8.3.105 has `RIS`
         // reset "to its initial state, i.e. the state it has after it is made
@@ -2464,6 +2555,11 @@ impl Paint<'_, '_> {
             // `MdBool(screen->poponbell)`, `[[source: xterm-misc]]`).
             PrivateMode::BellIsUrgent => bit_state(self.cold.modes, ModeBit::BellIsUrgent),
             PrivateMode::PopOnBell => bit_state(self.cold.modes, ModeBit::PopOnBell),
+            // xterm answers both (`MdBool(screen->c132)` and, at its VT510
+            // level, `MdFlag(xw->flags, NOCLEAR_COLM)`, `[[source:
+            // xterm-misc]]`); `?95`'s level gate is note AF's Q-Level.
+            PrivateMode::AllowColumnMode => bit_state(self.cold.modes, ModeBit::AllowColumnMode),
+            PrivateMode::NoClearOnColumn => bit_state(self.cold.modes, ModeBit::NoClearOnColumn),
             // The alternate screen is a whole buffer rather than a flag, and it
             // is implemented, so `DECRQM` must not deny it.
             //

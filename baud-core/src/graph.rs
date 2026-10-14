@@ -177,14 +177,25 @@ pub enum Node {
     Vt52Utf8TwoAfterEd,
     Vt52Utf8ThreeAfterF0,
     Vt52Utf8ThreeAfterF4,
+    /// **After a page-width request, under `WidthHold::On`: the read stops
+    /// here.** Every byte is `Act::Hold`, which consumes the rest of the
+    /// read and leaves it for the embedder to feed once it has resized
+    /// (`Term::take_held`), and sets the node the request's sequence left
+    /// -- the edge's `AfterControl` is overwritten, as a DECANM beside the
+    /// request leaves VT52's. The request's dispatch puts the parser here --
+    /// `?3` under `?40`, DECSCPP -- so the loop's step and the `CSI` paths
+    /// are the ones every sequence takes; a node costs one row of a table,
+    /// where a stop tested after each dispatch costs the dispatch. Last in
+    /// the enum, so no other node's index moves.
+    Held,
 }
 
-pub(crate) const NNODE: usize = 33;
+pub(crate) const NNODE: usize = 34;
 
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 39;
+pub(crate) const NACT: usize = 40;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -221,6 +232,7 @@ impl Node {
         Node::Vt52Utf8TwoAfterEd,
         Node::Vt52Utf8ThreeAfterF0,
         Node::Vt52Utf8ThreeAfterF4,
+        Node::Held,
     ];
 }
 
@@ -383,6 +395,9 @@ pub enum Act {
     /// successor that is itself well-formed. The node is now `Ground`, where
     /// this byte cannot produce `Resync` again, so the loop still advances.
     Resync,
+    /// `Node::Held`'s every byte: the rest of the read is left for the
+    /// embedder, and the step consumes all of it, so the loop ends.
+    Hold,
 }
 
 /// Which histogram slot a node is, as an **exhaustive match rather than a
@@ -426,6 +441,7 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
         Node::Vt52Utf8TwoAfterEd => 30,
         Node::Vt52Utf8ThreeAfterF0 => 31,
         Node::Vt52Utf8ThreeAfterF4 => 32,
+        Node::Held => 33,
     }] += 1;
 }
 
@@ -476,6 +492,7 @@ const fn node_name(n: Node) -> &'static str {
         Node::Vt52Utf8TwoAfterEd => "Vt52Utf8TwoAfterEd",
         Node::Vt52Utf8ThreeAfterF0 => "Vt52Utf8ThreeAfterF0",
         Node::Vt52Utf8ThreeAfterF4 => "Vt52Utf8ThreeAfterF4",
+        Node::Held => "Held",
     }
 }
 
@@ -522,6 +539,7 @@ const fn act_name(a: Act) -> &'static str {
         Act::EscFinal => "EscFinal",
         Act::Again => "Again",
         Act::Resync => "Resync",
+        Act::Hold => "Hold",
     }
 }
 
@@ -567,6 +585,7 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Again,
     Act::Resync,
     Act::EscStart,
+    Act::Hold,
 ];
 
 #[cfg(feature = "diag")]
@@ -675,6 +694,7 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::DcsQuery => 36,
         Act::SixelStart => 37,
         Act::EndCluster => 38,
+        Act::Hold => 39,
     }] += 1;
 }
 
@@ -785,6 +805,10 @@ const fn c0(b: StreamByte) -> Act {
 /// The whole protocol, as one function of three bounded values, run at build
 /// time and never at run time.
 const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
+    // A held read: every byte is the rest, the anywhere block's included.
+    if matches!(node, Node::Held) {
+        return edge(Act::Hold, Node::AfterControl);
+    }
     // `[[source: williams]]`'s **anywhere** block: "CAN and SUB cancel any
     // escape sequence", from every state, with the same action. Here rather
     // than in each node function because six of them would have to remember
@@ -1119,6 +1143,8 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
             };
         }
         Node::AfterControl | Node::Vt52AfterControl => return after_control(enc, node, b),
+        // Taken at the top, before the anywhere block.
+        Node::Held => return edge(Act::Hold, Node::AfterControl),
         Node::Ground | Node::Vt52Ground => {}
     }
 
@@ -2374,6 +2400,11 @@ mod classes {
                 ) || mid_character(node);
                 for b in [StreamByte::CAN, StreamByte::SUB] {
                     let got = Edge::of(enc, node, b);
+                    // A held read cancels nothing: the byte is the rest's.
+                    if node == Node::Held {
+                        assert_eq!(got, edge(Act::Hold, Node::AfterControl), "{enc:?}");
+                        continue;
+                    }
                     match ground_like {
                         // Nothing to cancel: `Ground` consumes it as an
                         // unrouted C0, a control all the same, and mid-character
@@ -2566,6 +2597,8 @@ mod classes {
                     }
                     Node::Vt52Row => edge(Act::Vt52SetRow, Node::Vt52Col),
                     Node::Vt52Col => edge(Act::Vt52Address, Node::Vt52AfterControl),
+                    // A held read: the `ESC` is the rest's, like every byte.
+                    Node::Held => edge(Act::Hold, Node::AfterControl),
                 };
                 assert_eq!(
                     Edge::of(enc, node, StreamByte::ESC),

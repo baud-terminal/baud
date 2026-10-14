@@ -75,6 +75,9 @@ struct Driver {
     /// What the child is owed and the kernel has not taken: every write goes
     /// through it, in order (`pty.rs`).
     outbox: Outbox,
+    /// The last page-width request seen (`width.rs`): this driver keeps its
+    /// window and says so once.
+    widths: crate::width::Widths,
     /// The frame the renderer paints into and the window copies out of:
     /// the window's size, so row damage has a target that still holds the
     /// last frame, with the cells' margin filled with the default
@@ -202,6 +205,7 @@ pub fn run() {
         }
     };
     let bell = Bell::new(&term, crate::bell::LENGTH);
+    let widths = crate::width::Widths::new(&term);
     let mut d = Driver {
         bell,
         // xterm's rate, and no switch: `auto` blinks here. Nothing on Linux
@@ -221,6 +225,7 @@ pub fn run() {
         renderer,
         pty,
         outbox: Outbox::default(),
+        widths,
         frame: Vec::new(),
         stride: Px::of(0),
         margin,
@@ -374,7 +379,19 @@ impl Driver {
         // No `OSC 52` poll: this driver has no clipboard until the Wayland
         // driver speaks a data device, and it provisions no area, so the core
         // refuses every write and counts it in `clipboard_writes_refused`.
-        crate::reads::feed(&mut self.term, [bytes], |b| self.outbox.push(b), |_| {});
+        // **A program's page width is refused and said once** (`width.rs`):
+        // nothing here resizes the window, so the read is not held either.
+        let widths = &mut self.widths;
+        crate::reads::feed(
+            &mut self.term,
+            [bytes],
+            |b| self.outbox.push(b),
+            |t| {
+                if let Some((_, Some(line))) = widths.poll(t, crate::width::Host::NoResize) {
+                    crate::warn!("{line}");
+                }
+            },
+        );
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.
         self.pty.follow(self.term.input_encoding());

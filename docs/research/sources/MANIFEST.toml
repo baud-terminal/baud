@@ -670,6 +670,42 @@ bytes  = 21216
 status = "retrieved"
 group  = "C"
 
+# DECCOLM as the VT510 gives it, beside DEC STD 070's `set_column_mode`
+# (p. 5-72): "Sets the left, right, top and bottom scrolling margins to their
+# default positions. Erases all data in page memory. DECCOLM resets vertical
+# split screen mode (DECLRMM) to unavailable." The last disagrees with STD
+# 070's algorithm, which sets `left_right_margins_mode = SETABLE`; the record
+# lists both. Fetched 2026-10-14.
+[sources.vt510-deccolm]
+key    = "vt510-deccolm"
+title  = "DECCOLM — Select 80 or 132 Columns per Page (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECCOLM.html"
+file   = "vt510-DECCOLM.html"
+sha256 = "f9be8bd29f3f2706323638d76f87356388522704d51021e8e78330a12153b300"
+bytes  = 20429
+status = "retrieved"
+group  = "C"
+
+# `?95`: "When enabled, a column mode change (either through Set-Up or by the
+# escape sequence DECCOLM) does not clear the screen ... This sequence does
+# not affect the column mode change caused by the sequence, DECSCPP." No DEC
+# STD 070 page names it. Fetched 2026-10-14.
+[sources.vt510-decncsm]
+key    = "vt510-decncsm"
+title  = "DECNCSM — Set/Reset No Clearing Screen On Column Change (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECNCSM.html"
+file   = "vt510-DECNCSM.html"
+sha256 = "0bad959a9709a60c14dbd02c17d2b2f0fa1b7b8e686ac7b08792b5c124a422ce"
+bytes  = 19969
+status = "retrieved"
+group  = "C"
+
 [sources.uax11]
 key    = "uax11"
 title  = "UAX #11: East Asian Width, revision 44"

@@ -43,6 +43,8 @@ pub enum StatusTarget {
     CursorStyle,
     /// `" q` — DECSCA.
     Protection,
+    /// `$ |` — DECSCPP, the columns per page.
+    ColumnsPerPage,
     Unknown,
 }
 
@@ -55,6 +57,7 @@ impl StatusTarget {
             b"s" => StatusTarget::SideMargins,
             b" q" => StatusTarget::CursorStyle,
             b"\"q" => StatusTarget::Protection,
+            b"$|" => StatusTarget::ColumnsPerPage,
             _ => StatusTarget::Unknown,
         }
     }

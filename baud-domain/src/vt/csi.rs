@@ -698,6 +698,11 @@ pub enum Csi {
     InsertColumns(Count),
     /// DECDC, `CSI Pn ' ~`. Delete columns within the margins.
     DeleteColumns(Count),
+    /// DECSCPP, `CSI Pn $ |` (`[[source: dec-std-070]]` p. 5-73,
+    /// `[[source: vt510-decscpp]]`): "sets the number of columns in the
+    /// display page", which [`PageWidth::per_page`] reads. Unlike DECCOLM it
+    /// "does not clear page memory or reset the scrolling regions".
+    SetColumnsPerPage(PageWidth),
     /// DECRQM, `CSI Ps $ p` and `CSI ? Ps $ p`. A *question*, answered with
     /// [`Report::ModeStatus`].
     RequestMode {
@@ -752,7 +757,7 @@ impl Csi {
     /// resolved without the mode -- so the mode is a parameter rather than
     /// something the caller patches up afterwards.
     /// **`#[inline]` so the construct-and-match pair can collapse.** This
-    /// builds a 56-variant enum that `baud-core`'s `csi_final` destructures
+    /// builds a 57-variant enum that `baud-core`'s `csi_final` destructures
     /// immediately -- two dispatches on the same final byte where one would
     /// do. Across a call boundary LLVM cannot see that; inlined it can thread
     /// the construction straight into the caller's arms. The caller is
@@ -826,6 +831,11 @@ impl Csi {
                     marker,
                     mode: p.at(ParamIdx::FIRST).unwrap_or(Param::ZERO),
                 },
+                // DECSCPP is the standard namespace's: `CSI ? Pn $ |` is no
+                // control anywhere in `[[source: ctlseqs]]`.
+                (b'$', b'|') if marker == Marker::Standard => {
+                    Csi::SetColumnsPerPage(PageWidth::per_page(p.at(ParamIdx::FIRST)))
+                }
                 _ => Csi::Unsupported {
                     marker,
                     final_byte: f,
@@ -1153,6 +1163,9 @@ impl Csi {
             | CursorStyle(_) => Level::Vt220,
 
             SetSideMargins { .. } | InsertColumns(_) | DeleteColumns(_) => Level::Vt420,
+            // "Levels: 3X (Windowing), 4" (`[[source: dec-std-070]]` p. 5-73);
+            // ctlseqs says VT340, a level this table does not carry.
+            SetColumnsPerPage(_) => Level::Vt420,
 
             // XTWINOPS is "dtterm, extended by xterm" -- the three reports are
             // xterm's extensions of it.

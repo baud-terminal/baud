@@ -37,8 +37,8 @@ use macos_liquid_glass::drawable::{
     MouseKind as ViewMouseKind, Rect, Responder, Scroll, Waker,
 };
 use macos_liquid_glass::glass::{GlassError, GlassStyle, GlassSurface};
-use macos_liquid_glass::objc2::MainThreadOnly;
 use macos_liquid_glass::objc2::rc::Retained;
+use macos_liquid_glass::objc2::{MainThreadOnly, Message};
 use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
     NSAutoresizingMaskOptions, NSBeep, NSColor, NSImage, NSImageView, NSRequestUserAttentionType,
@@ -372,7 +372,7 @@ enum Trigger {
 }
 
 /// Where the grid comes from.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Sizing {
     /// The window's size, through the view's resize callback.
     Window,
@@ -381,6 +381,40 @@ enum Sizing {
     /// default frame before it settles at the window's, and a pty resized
     /// through that transient is what a benchmark's child read as 120x40.
     Fixed,
+}
+
+impl Sizing {
+    /// What a program's page-width request may do: the window's grid
+    /// follows one, and a pinned one does not.
+    fn host(self) -> crate::width::Host {
+        match self {
+            Sizing::Window => crate::width::Host::Window,
+            Sizing::Fixed => crate::width::Host::Pinned,
+        }
+    }
+}
+
+/// A page-width decision acted on inside the read that asked
+/// (`reads::feed`'s `after`): its warning said, and on a resize the grid
+/// resized, before the rest of the read is fed. Returns the grid the core
+/// has after it -- `Term::resize` clamps, and the child is told what the
+/// terminal has. **The window over the history goes to the live screen**:
+/// a program that changes the page width is redrawing it.
+fn honour(
+    polled: Option<(crate::width::Decision, Option<String>)>,
+    term: &mut Term<'_>,
+) -> Option<crate::width::Grid> {
+    let (d, warn) = polled?;
+    if let Some(line) = warn {
+        crate::warn!("{line}");
+    }
+    let crate::width::Decision::Resize(grid) = d else {
+        return None;
+    };
+    // A clamp is read back below rather than from the answer: the child is
+    // told the grid the terminal has.
+    let _ = term.resize(&grid.ws());
+    Some(crate::width::Grid::of(term))
 }
 
 /// `OSC 8` activation, for the five-second report: links opened, revealed
@@ -582,6 +616,8 @@ struct App {
     clipboard: crate::config::Clipboard,
     /// The last `OSC 52` write acted on, and the counts (`clip.rs`).
     clips: crate::clip::Clips,
+    /// The last page-width request acted on, and the counts (`width.rs`).
+    widths: crate::width::Widths,
 }
 
 /// What launch prepares before a window or a grid exists -- the cache
@@ -982,6 +1018,10 @@ impl App {
         let bell = Bell::new(&term, crate::bell::LENGTH);
         let ringer = crate::bell::Ringer::new(&term);
         let clips = crate::clip::Clips::new(&term);
+        // A read stops at a page-width request, and `pump` resizes the grid
+        // before the rest of it is parsed (`width.rs`).
+        term.set_width_hold(baud_core::WidthHold::On);
+        let widths = crate::width::Widths::new(&term);
         App {
             bell,
             bell_style,
@@ -1063,6 +1103,7 @@ impl App {
             images,
             clipboard,
             clips,
+            widths,
         }
     }
 
@@ -1804,6 +1845,9 @@ impl App {
             if let Some(line) = self.clips.report() {
                 crate::info!("{line}");
             }
+            if let Some(line) = self.widths.report() {
+                crate::info!("{line}");
+            }
             let l = self.links;
             if l.opened.value() + l.revealed.value() + l.refused.value() > 0 {
                 crate::info!(
@@ -2472,6 +2516,19 @@ fn oldest(term: &Term<'_>, scrolled: Scrolled) -> AbsLine {
 /// an entry reset it -- so their difference is no movement of anything,
 /// and read as one it subtracted past zero. A switch drops the selection
 /// and settles a slide, whichever way the read went.
+/// What the live screen did across a read, for the slide, the ride and the
+/// selection's numbering: `live_moved`'s answer, or nothing when a program's
+/// page width resized the grid inside the read (`honour`). The reflow's
+/// re-cut retires rows that no output scrolled, and `relayout`, which a
+/// drag reaches outside the pump, starts no slide for one either; the
+/// selection is gone with the resize, so nothing it numbers is left.
+fn read_moved(term: &Term<'_>, before: Before, resized: Option<crate::width::Grid>) -> Ring {
+    match resized {
+        Some(_) => Ring::Retired(Rows::ZERO),
+        None => live_moved(term, before),
+    }
+}
+
 fn live_moved(term: &Term<'_>, before: Before) -> Ring {
     if switched(term, before) {
         return Ring::Retired(Rows::ZERO);
@@ -3404,7 +3461,7 @@ mod alt_window_tests {
         // Spelled apart, so this test's own text is not what it finds.
         const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
         const FEED: &str = concat!("crate::reads::", "feed(");
-        const POLL: &str = concat!("|t| pasteboard(", "clips.poll(t, osc52)),");
+        const POLL: &str = concat!("pasteboard(", "clips.poll(t, osc52));");
         assert_eq!(SRC.matches(PUMP).count(), 1, "one pump");
         let pump = SRC.split(PUMP).nth(1).expect("the pump");
         let pump = &pump[..pump.find("\n    }\n").expect("the pump ends")];
@@ -3437,7 +3494,7 @@ mod alt_window_tests {
             "after_read(",
             "resized_window(",
         ];
-        const ALLOWED: [(&str, &str); 11] = [
+        const ALLOWED: [(&str, &str); 12] = [
             (
                 "} else if app.back.index() != 0 {",
                 "the prediction gate, after the screen gate refused the alternate screen",
@@ -3465,6 +3522,10 @@ mod alt_window_tests {
                 "the thumb's drag: a thumb is drawn only off a live primary",
             ),
             ("self.app.back = back;", "the drag's write"),
+            (
+                "self.app.back = Rows::ZERO;",
+                "a program's page width: the window to the live screen, a write",
+            ),
             (
                 "let window = self.app.back;",
                 "the reset's reveal: `restart` reads it only for a reset made from the primary",
@@ -4975,11 +5036,15 @@ mod motion_tests {
                     &chunk.bytes[..]
                 }),
                 |b| outbox.push(b),
-                |t| pasteboard("#,
-            r#"clips.poll(t, osc52)),
+                |t| {
+                    pasteboard("#,
+            r#"clips.poll(t, osc52));
+                    resized = honour(widths.poll(t, host), t).or(resized);
+                },
             );
             self.app.pty.follow("#,
             r#"self.app.term.input_encoding());
+            if let Some(ws) = resized { self.program_resized(ws); }
             if let Some(line) = self.app.clips
                 .core_refusals(&self.app.term, self.app.clipboard.budget)
             { crate::warn!("{line}"); }
@@ -5804,13 +5869,19 @@ impl Driver {
         // one `flush_reply` below.
         // A program's `OSC 52` copy is polled after each read, not after the
         // batch: the core keeps only the last write it finished (`clip.rs`).
-        let (term, trace, outbox, clips) = (
+        // **And its page width at the request**: the read stopped there, the
+        // grid takes the columns before the rest is parsed, and the rest of
+        // the app follows after the batch (`width.rs`, `program_resized`).
+        let (term, trace, outbox, clips, widths) = (
             &mut self.app.term,
             &mut self.app.trace,
             &mut self.app.outbox,
             &mut self.app.clips,
+            &mut self.app.widths,
         );
         let osc52 = self.app.clipboard.osc52;
+        let host = self.app.sizing.host();
+        let mut resized = None;
         crate::reads::feed(
             term,
             drained.chunks.iter().map(|chunk| {
@@ -5820,11 +5891,17 @@ impl Driver {
                 &chunk.bytes[..]
             }),
             |b| outbox.push(b),
-            |t| pasteboard(clips.poll(t, osc52)),
+            |t| {
+                pasteboard(clips.poll(t, osc52));
+                resized = honour(widths.poll(t, host), t).or(resized);
+            },
         );
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.
         self.app.pty.follow(self.app.term.input_encoding());
+        if let Some(ws) = resized {
+            self.program_resized(ws);
+        }
         if let Some(line) = self
             .app
             .clips
@@ -5884,7 +5961,7 @@ impl Driver {
         // screen is up -- and no further than what is retained.
         // A read can move the window backwards: a redraw mark moving the
         // window over its block (`prompt.rs`).
-        let moved = live_moved(&self.app.term, before);
+        let moved = read_moved(&self.app.term, before, resized);
         self.app.back = after_read(&self.app.term, self.app.back, before);
         // The selection names absolute lines; the count that numbers them
         // advances with the screen. A surface switch is another ring, and a
@@ -7561,6 +7638,36 @@ impl Driver {
         ));
     }
 
+    /// A program's page width, which the grid took inside the read that
+    /// asked (`honour`): the rest of what `relayout` does on a change of
+    /// grid, then the window, to the columns and at its height, once this
+    /// callback has returned (`widen_later`). Its resize callback then lays
+    /// out the grid the core already has. **The trace records the resize
+    /// after the read that asked**, whose bytes a replay feeds whole at the
+    /// old width: its events are reads, and the request fell inside one.
+    fn program_resized(&mut self, grid: crate::width::Grid) {
+        let ws = grid.ws();
+        self.app.chase.snap();
+        self.app.predictions.clear();
+        self.app.guess = Guess::None;
+        self.app.slide.snap();
+        self.app.back = Rows::ZERO;
+        if let Some(t) = self.app.trace.as_mut() {
+            t.resized(grid.ws());
+        }
+        self.app.tell_pty();
+        self.app.grid = ws;
+        self.app.selection = None;
+        self.app.next_damage = Damage::Full;
+        self.app.pending = Pending::Dirty;
+        let scale = self.app.scale;
+        let bar = gutter(self.app.scroller, crate::reveal::widths(Scale(scale)));
+        let (cw, _) = self.app.metrics_cell();
+        let width =
+            crate::width::content_width(grid, cw, scale, self.app.padding, f64::from(bar.value()));
+        widen_later(self.window.ns_window(), width);
+    }
+
     /// The grid for a view of `size` points at `scale`, and the terminal,
     /// the child and the frame following it -- on a resize, and on a zoom.
     fn relayout(&mut self, size: NSSize, scale: CGFloat) -> Drew {
@@ -8255,6 +8362,202 @@ mod tests {
         );
     }
 
+    /// **The window a program's page width asks for lays out to exactly
+    /// its columns**: `content_width` inverted through `grid_in`, at cell
+    /// widths across 6-20 px, three scales, three paddings and both
+    /// gutters, so the resize callback that follows `widen_later` finds the
+    /// grid the core already has and changes nothing. The control: without
+    /// the half pixel, some of these land one short.
+    #[test]
+    fn a_program_width_lays_out_to_its_columns() {
+        let mut short = 0;
+        let mut checked = 0;
+        for cols in [80u16, 132] {
+            for scale in [1.0, 2.0, 3.0] {
+                for pad in [0.0, 4.0, 7.5] {
+                    for gutter in [0.0, 34.0] {
+                        let mut cw = 6.0;
+                        while cw < 20.0 {
+                            let grid = crate::width::Grid { cols, rows: 30 };
+                            let w = crate::width::content_width(grid, cw, scale, pad, gutter);
+                            let g = grid_in((w * scale, 600.0), pad * scale, gutter, (cw, 20.0));
+                            assert_eq!(
+                                g.ws_col, cols,
+                                "{cols} at {cw} px, {scale}x, {pad}, {gutter}"
+                            );
+                            let bare = (f64::from(cols) * cw + gutter) / scale + 2.0 * pad;
+                            let g = grid_in((bare * scale, 600.0), pad * scale, gutter, (cw, 20.0));
+                            short += usize::from(g.ws_col != cols);
+                            checked += 1;
+                            cw += 0.37;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 1368, "every case ran");
+        assert!(short > 0, "the control: the bare inverse never fell short");
+    }
+
+    /// **`honour` resizes the grid inside the read that asked, keeping its
+    /// rows**, so the mark drawn after the request lands at column 132, the
+    /// pump's `after` composition run against a real core. Pinned, the grid
+    /// stays and the mark is clamped to the old last column.
+    #[test]
+    fn honour_resizes_inside_the_read_and_keeps_the_rows() {
+        use crate::width::{Grid, Host, Widths};
+        let small = WinSize {
+            ws_row: 30,
+            ws_col: 100,
+        };
+        let room = WinSize {
+            ws_row: 30,
+            ws_col: 132,
+        };
+        let read: &[u8] = b"\x1b[?40h\x1b[?3h\x1b[1;132HX";
+        for (host, want, col) in [
+            (
+                Host::Window,
+                Some(Grid {
+                    cols: 132,
+                    rows: 30,
+                }),
+                131,
+            ),
+            (Host::Pinned, None, 99),
+        ] {
+            let mut s = baud_core::Owned::new(&room);
+            let mut t = Term::new(s.storage(), &small);
+            t.set_width_hold(baud_core::WidthHold::On);
+            let mut widths = Widths::new(&t);
+            let mut resized = None;
+            crate::reads::feed(
+                &mut t,
+                [read],
+                |_| {},
+                |t| {
+                    resized = honour(widths.poll(t, host), t).or(resized);
+                },
+            );
+            assert_eq!(resized, want, "{host:?}");
+            let row = t.row(baud_core::Row::ZERO).expect("row 0");
+            assert_eq!(
+                row[col].content.as_codepoint().map(|c| c.value()),
+                Some(u32::from(b'X')),
+                "{host:?}"
+            );
+        }
+    }
+
+    /// **A program's narrowing that reflows starts no slide.** A held
+    /// DECSCPP 80 after a screen of 120-column lines re-cuts them into two
+    /// rows each, retiring rows no output scrolled: `live_moved` reads the
+    /// retire (the control), and `read_moved`, given the resize, reads none.
+    #[test]
+    fn a_program_width_change_moves_nothing_for_the_slide() {
+        use crate::width::{Grid, Host, Widths};
+        let ws = WinSize {
+            ws_row: 10,
+            ws_col: 132,
+        };
+        let mut s = baud_core::Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        t.set_width_hold(baud_core::WidthHold::On);
+        let mut read: Vec<u8> = Vec::new();
+        for i in 0..9 {
+            read.extend_from_slice(format!("{i}{}\r\n", "x".repeat(119)).as_bytes());
+        }
+        read.extend_from_slice(b"\x1b[80$|");
+        let before = Before::watched(&mut t);
+        let mut widths = Widths::new(&t);
+        let mut resized = None;
+        crate::reads::feed(
+            &mut t,
+            [read.as_slice()],
+            |_| {},
+            |t| {
+                resized = honour(widths.poll(t, Host::Window), t).or(resized);
+            },
+        );
+        assert_eq!(resized, Some(Grid { cols: 80, rows: 10 }));
+        let Ring::Retired(n) = live_moved(&t, before) else {
+            panic!("the control: the reflow retired, not restored")
+        };
+        assert!(n.index() > 0, "the control: the reflow retired rows");
+        assert_eq!(read_moved(&t, before, resized), Ring::Retired(Rows::ZERO));
+        assert_eq!(
+            read_moved(&t, before, None),
+            live_moved(&t, before),
+            "unresized, the read's own"
+        );
+    }
+
+    /// **The window is resized after the callback that asked, and only
+    /// there.** The pump is AppKit-bound and no test drives it, so this
+    /// holds the source: `setContentSize` is called twice, at launch before
+    /// any responder exists and inside `widen_later`'s main-queue block; the
+    /// pump's one feed polls the widths in its per-read callback and calls
+    /// `program_resized` after it; and `program_resized` is what calls
+    /// `widen_later`.
+    #[test]
+    fn the_window_is_resized_after_the_callback_that_asked() {
+        // The file less its own test module, which code follows.
+        let src = include_str!("app.rs");
+        let (before, rest) = src
+            .split_once("#[cfg(test)]\nmod tests {")
+            .expect("the test module");
+        let code = format!(
+            "{before}{}",
+            rest.split_once("\n}\n").map_or("", |(_, a)| a)
+        );
+        let call = concat!("setContent", "Size(");
+        assert_eq!(code.matches(call).count(), 2, "launch and widen_later");
+        let run = code.split_once("\npub fn run() {").expect("run").1;
+        let run = &run[..run.find("\n}\n").expect("run ends")];
+        assert!(run.contains(call), "the launch sizing");
+        let widen = code
+            .split_once(concat!(
+                "fn widen_",
+                "later(window: &NSWindow, width: CGFloat) {"
+            ))
+            .expect("widen_later")
+            .1;
+        let widen = &widen[..widen.find("\n}\n").expect("its end")];
+        let block = widen
+            .split_once(concat!(".exec_", "async(move || {"))
+            .expect("a main-queue block")
+            .1;
+        assert!(block.contains(call), "the resize is inside the block");
+        let pump = code
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .expect("the pump")
+            .1;
+        let pump = &pump[..pump.find("\n    }\n").expect("the pump ends")];
+        let feed = pump
+            .split_once(concat!("crate::reads::", "feed("))
+            .expect("the feed")
+            .1;
+        let (args, after) = feed.split_once("\n        );").expect("the call ends");
+        assert!(
+            args.contains(concat!("honour(widths.", "poll(t, host), t)")),
+            "the widths are polled at each read"
+        );
+        let follow = after.find("self.app.pty.follow(").expect("the follow");
+        let rest = after
+            .find(concat!(
+                "if let Some(ws) = resized {\n            self.program_",
+                "resized(ws);"
+            ))
+            .expect("the rest of the app follows the call");
+        assert!(follow < rest, "after the follow, which comes first");
+        let body = code
+            .split_once(concat!("fn program_", "resized(&mut self"))
+            .expect("program_resized")
+            .1;
+        let body = &body[..body.find("\n    }\n").expect("its end")];
+        assert!(body.contains(concat!("widen_", "later(")));
+    }
+
     #[test]
     fn a_point_names_the_cell_under_it_and_the_edges_clamp() {
         // 2x scale, 20x40 px cells, a 200x50 grid: point (105, 21) is
@@ -8575,6 +8878,25 @@ fn scroller_style() -> Scroller {
         NSScrollerStyle::Legacy => Scroller::Legacy,
         _ => Scroller::Overlay,
     }
+}
+
+/// The window to `width` points of content, its height kept, **once the
+/// callback that asked has returned**. `setContentSize:` resizes the view,
+/// and the view's `setFrameSize:` reports to the responder, which the
+/// window crate borrows for the whole of the callback this is called from
+/// (`with_responder`): a resize from inside one is a second borrow of it.
+/// The main queue runs the block from the run loop, in its common modes, as
+/// the waker's wake is delivered.
+fn widen_later(window: &NSWindow, width: CGFloat) {
+    let w = dispatch2::MainThreadBound::new(window.retain(), window.mtm());
+    dispatch2::DispatchQueue::main().exec_async(move || {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let w = w.get(mtm);
+        let height = w.contentView().map_or(0.0, |v| v.frame().size.height);
+        w.setContentSize(NSSize::new(width, height));
+    });
 }
 
 /// The grid a view `px` pixels big holds, in cells of `cell` pixels: the

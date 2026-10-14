@@ -777,6 +777,19 @@ pub(crate) fn act(
             ReadLen::ONE
         }
         Act::Again => ReadLen::ZERO,
+        // **A held read**: the rest, from this byte, is the embedder's to
+        // feed once it has resized (`Node::Held`), and the step takes all of
+        // it, so the loop ends here. The rest goes on from the node the
+        // request's sequence left, which the table cannot know: VT52's after
+        // a DECANM beside the request, ANSI's otherwise.
+        Act::Hold => {
+            p.cold.width.held = Some(crate::term::Rest {
+                at: from,
+                len: left,
+            });
+            *node = p.cold.width.resume;
+            left
+        }
         // A byte that is no character: a replacement, as `Resync`'s is.
         Act::Bad => {
             replace(p);
@@ -1754,6 +1767,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::InsertColumns(c) => p.insert_columns(c),
         DomCsi::DeleteColumns(c) => p.delete_columns(c),
         DomCsi::SetSideMargins { left, right } => p.set_side_margins(left, right),
+        DomCsi::SetColumnsPerPage(w) => p.set_columns_per_page(w, node),
         // **Answered, now that there is a channel.** Each goes through a named
         // `Report`, so the shape is chosen by the variant rather than by the
         // call site -- `docs/vt-coverage.md`'s rule is that answering in the

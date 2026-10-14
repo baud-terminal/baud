@@ -111,6 +111,10 @@ pub use baud_domain::{
     DynamicColor, LinkId, Osc, Selection, Selections, StringTerm, Video, XColor,
 };
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
+/// The page-width request's vocabulary: an embedder that cannot name a
+/// [`WidthHold`] cannot call [`Term::set_width_hold`], nor read what
+/// [`Term::requested_width`] answers without a [`WidthRequest`].
+pub use baud_domain::{PageWidth, WidthHold, WidthRequest};
 /// A reading of how many `OSC 52` writes have been published.
 pub use clip::ClipboardWrites;
 pub use graph::Node;
@@ -136,7 +140,7 @@ pub use storage::{
 };
 /// Which surface is live, for a caller asking `Term::screen`.
 pub use term::{
-    Erasure, HistoryErasures, HistoryMark, Moved, Overrides, RegionScrolls, Resets, Resized,
-    ReverseFlips, RowMoves, Screen, ScreenEpoch, Term, ThemeColors, UpdatesOpened, WrapPending,
-    Written, Zone,
+    ColumnRefusals, Erasure, HistoryErasures, HistoryMark, Moved, Overrides, RegionScrolls, Resets,
+    Resized, Rest, ReverseFlips, RowMoves, Screen, ScreenEpoch, Term, ThemeColors, UpdatesOpened,
+    WidthRequests, WrapPending, Written, Zone,
 };

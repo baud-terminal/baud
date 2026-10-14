@@ -38,6 +38,11 @@ baud-wayland = { path = "../baud-wayland" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 baud-present-macos = { path = "../baud-present-macos" }
+# The main queue, for the one AppKit call a responder callback cannot make in
+# place: a program's page width resizes the window after the callback that
+# asked returns (`widen_later`). The version `baud-present-macos` takes, with
+# only what `MainThreadBound` needs.
+dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
 macos-liquid-glass = { version = "1.0.0-beta.5", features = ["drawable"] }
 
 [features]

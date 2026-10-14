@@ -465,9 +465,11 @@ fn a_right_margin_column_restored_under_a_narrower_margin_is_clamped() {
 }
 
 /// **A home under DECOM is the origin**, wherever a control homes the cursor
-/// with the mode left set: `DECALN` and `DECCOLM` (whose own margin and mode
-/// resets are on the record's open list). `?1049 h` was the third until the
-/// owner's decision of 2026-10-13; it leaves the cursor, the next test.
+/// with the mode left set: `DECALN` (whose own mode reset is on the record's
+/// open list) and `DECCOLM` under `?40`, which resets all four margins first
+/// (`set_column_mode`, `[[source: dec-std-070]]` p. 5-72), so its origin is
+/// line 1, column 1 of the screen. `?1049 h` was the third until the owner's
+/// decision of 2026-10-13; it leaves the cursor, the next test.
 #[test]
 fn the_homes_under_origin_mode_go_to_the_origin() {
     let s = after("\x1b#8");
@@ -476,10 +478,10 @@ fn the_homes_under_origin_mode_go_to_the_origin() {
         (Some((0, 4)), &b"\x1b[1;1R"[..]),
         "DECALN"
     );
-    let s = after("\x1b[?3h");
+    let s = after("\x1b[?40h\x1b[?3h");
     assert_eq!(
         (find(&s, 'X'), s.reply.as_slice()),
-        (Some((0, 4)), &b"\x1b[1;1R"[..]),
+        (Some((0, 0)), &b"\x1b[1;1R"[..]),
         "DECCOLM"
     );
 }
