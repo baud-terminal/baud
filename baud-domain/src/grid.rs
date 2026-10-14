@@ -767,16 +767,16 @@ impl<'a> View<'a> {
     }
 
     /// After the screen widened, blank the columns the alternate surface just
-    /// revealed -- `[old_cols, cols)` in every visible row. The alternate
+    /// revealed -- `[old_cols, cols)` in every row of the ring. The alternate
     /// screen has no scrollback and the application owns it: a cell past the
     /// old edge holds whatever was there when the screen was last this wide,
     /// and a full-screen program redraws a frame or two *after* the resize, so
     /// showing that stale content under the incoming draw is the "two images
     /// at once" a grow used to flash. Blanking the revealed columns leaves the
     /// overlap -- which the program redraws -- and clears the new region,
-    /// which is what a resize should show. `fill` sets each row's mark to the
-    /// old edge as it goes, which is what the earlier mark-only version did
-    /// for the fill shortcut; the difference is that the cells are now blank
+    /// which is what a resize should show. Each row's mark is set to the old
+    /// edge as it goes, which is what the earlier mark-only version did for
+    /// the fill shortcut; the difference is that the cells are now blank
     /// rather than merely marked stale. This is the width half of a grow; the
     /// primary reflows instead, so it is never revealed stale.
     ///
@@ -789,15 +789,42 @@ impl<'a> View<'a> {
     /// trusted too (`a_band_on_a_cut_row_is_blanked_when_a_growth_reveals_it`).
     /// So for the walk the view's rows are the ring, and screen row `y` of
     /// `0..ring` is every physical row once under the rotation.
+    ///
+    /// **Written, not taken through `fill`'s shortcut.** A fill to the end
+    /// of a row stops at the mark when the row's last cell is already the
+    /// blank, trusting the row uniform from its mark to the live edge -- and
+    /// here the live edge is the new one, which the mark is not yet true of.
+    /// A row erased in blue at 20 columns is blue to 20 under a mark of
+    /// zero; narrowed to 19 and grown to 21, its last cell is the default
+    /// blank the erase never reached, so the shortcut wrote nothing and left
+    /// the blue cell at column 19 standing under a mark of 19 that said the
+    /// row was uniform from there. A later `CSI 2 K` trusted that mark too,
+    /// and the region repair's `copy_row` asserted on it
+    /// (`a_band_past_the_old_edge_is_blanked_when_a_growth_reveals_it`). The
+    /// span is snapped to whole characters, as `fill` snaps it, and the mark
+    /// set to its start, as a fill to the end of a row sets it; only the
+    /// early stop goes. A row whose mark lies past the new edge is cleared to
+    /// its mark, as a fill to the end of a row clears it (`fill_past_edge`):
+    /// the next growth's snap reads the cell at its old edge, and a wide tail
+    /// left standing there pulled the blank back over the live cell in front
+    /// of it (`a_growth_leaves_no_tail_past_the_edge_for_the_next_one_to_snap_to`).
     pub fn widened(&mut self, old_cols: Cols) {
         let (from, to) = (
             Col::at_index(old_cols.index()),
             Col::at_index(self.cols.index()),
         );
-        let rows = self.rows;
+        let (rows, s) = (self.rows, self.stride.index());
         self.rows = self.ring;
         for y in 0..self.ring.index() {
-            self.fill(Row::from_index(y), from, to, PackedCell::EMPTY);
+            let r = Row::from_index(y);
+            let (a, b) = self.snap(r, from, to);
+            let p = self.phys(r);
+            if self.used[p].index() > self.cols.index() {
+                self.fill_past_edge(p, a, PackedCell::EMPTY);
+                continue;
+            }
+            self.cells[p * s + a..p * s + b].fill(PackedCell::EMPTY);
+            self.used[p] = RowExtent::of(a);
         }
         self.rows = rows;
     }

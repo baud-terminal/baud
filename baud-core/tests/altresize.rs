@@ -252,3 +252,134 @@ fn a_band_on_a_cut_row_is_blanked_when_a_growth_reveals_it() {
         );
     });
 }
+
+/// **A band past the old edge is blanked when a growth reveals it, though
+/// the row ends in the default blank.** Erased in red to the end of a row at
+/// 36 columns, a row is red to 36 under a mark of zero; narrowed to 30 it
+/// keeps the red from 30 to 36 past the edge. Grown to 50, its last cell is
+/// the default blank the erase never reached, and `widened` blanked through
+/// `fill`, whose shortcut stops at the mark when the last cell is already
+/// the blank: it wrote nothing and left the red from 30 to 36 under a mark
+/// of 30 that said the row was uniform from there, so a later default erase
+/// stopped at 30 too. On the screen, and on a row a shorter screen cut and
+/// a growth of both sizes at once reveals.
+#[test]
+fn a_band_past_the_old_edge_is_blanked_when_a_growth_reveals_it() {
+    let at = |t: &mut Term<'_>, c: u16, r: u16| {
+        t.resize(&WinSize {
+            ws_col: c,
+            ws_row: r,
+        })
+    };
+    let row = |t: &Term<'_>, y: usize| {
+        t.row(baud_domain::Row::from_index(y))
+            .expect("a row on the grid")
+            .to_vec()
+    };
+    support::with_room(60, |t| {
+        assert_eq!(at(t, 36, 50), baud_core::Resized::Ok);
+        support::feed(t, b"\x1b[?1049h\x1b[6;1H\x1b[41m\x1b[2K\x1b[0m");
+        assert_ne!(row(t, 5)[35], PackedCell::EMPTY, "the control: red to 36");
+        assert_eq!(at(t, 30, 50), baud_core::Resized::Ok, "narrower");
+        assert_eq!(at(t, 50, 50), baud_core::Resized::Ok, "and wider");
+        assert!(
+            row(t, 5)[30..].iter().all(|c| *c == PackedCell::EMPTY),
+            "every revealed cell is the default blank"
+        );
+        assert_ne!(row(t, 5)[29], PackedCell::EMPTY, "the overlap is kept");
+        support::feed(t, b"\x1b[6;1H\x1b[2K");
+        assert!(
+            row(t, 5).iter().all(|c| *c == PackedCell::EMPTY),
+            "and a later default erase clears the row"
+        );
+    });
+    support::with_room(60, |t| {
+        assert_eq!(at(t, 36, 50), baud_core::Resized::Ok);
+        support::feed(t, b"\x1b[?1049h\x1b[46;1H\x1b[41m\x1b[2K\x1b[0m");
+        assert_ne!(row(t, 45)[35], PackedCell::EMPTY, "the control: red to 36");
+        assert_eq!(at(t, 30, 40), baud_core::Resized::Ok, "row 45 is cut");
+        assert_eq!(at(t, 50, 50), baud_core::Resized::Ok, "and revealed");
+        assert!(
+            row(t, 45).iter().all(|c| *c == PackedCell::EMPTY),
+            "every revealed cell is the default blank"
+        );
+    });
+}
+
+/// **A character the old edge split is blanked whole by the growth.** A
+/// wide character at the last two columns of 36, narrowed to 35, has its
+/// lead inside the edge and its tail past it. Grown to 50, the revealed
+/// columns begin at its tail; blanking from there would leave a lead that
+/// claims two columns and owns one, so the blank starts at the lead, as
+/// `fill`'s snap to whole characters starts it.
+#[test]
+fn a_character_the_old_edge_split_is_blanked_whole_by_a_growth() {
+    support::with_room(60, |t| {
+        let at = |t: &mut Term<'_>, c: u16, r: u16| {
+            t.resize(&WinSize {
+                ws_col: c,
+                ws_row: r,
+            })
+        };
+        // The first row to the pitch, so the tail past the edge is read.
+        let row = |t: &Term<'_>| support::screen(t)[..t.stride().index()].to_vec();
+        assert_eq!(at(t, 36, 50), baud_core::Resized::Ok);
+        support::feed(t, "\x1b[?1049h\x1b[1;35H\u{4e16}".as_bytes());
+        assert_eq!(at(t, 35, 50), baud_core::Resized::Ok, "narrower");
+        let r = row(t);
+        assert!(
+            r[34].content.as_codepoint().is_some() && r[35].content.is_wide_tail(),
+            "the control: the lead inside the edge, the tail past it"
+        );
+        assert_eq!(at(t, 50, 50), baud_core::Resized::Ok, "and wider");
+        assert!(
+            row(t)[34..50].iter().all(|c| *c == PackedCell::EMPTY),
+            "the character is blanked whole, its lead with its tail"
+        );
+    });
+}
+
+/// **A growth leaves no tail past the edge for the next one to snap to.** A
+/// wide character at columns 39 and 40 of 60, narrowed to 30 and grown to
+/// 35, lies wholly past the new edge under a mark of 41. A growth that
+/// lowered the mark without clearing to it left the tail at 40 standing;
+/// grown to 40 and an `X` written at 39, the growth to 50 snapped its blank
+/// back from 40 onto the `X`, because a start on a tail belongs to the lead
+/// before it. Cleared to the mark, as a fill to the end of a row clears a
+/// row whose mark lies past the edge, there is no tail and the `X` stays.
+#[test]
+fn a_growth_leaves_no_tail_past_the_edge_for_the_next_one_to_snap_to() {
+    let at = |t: &mut Term<'_>, c: u16, r: u16| {
+        t.resize(&WinSize {
+            ws_col: c,
+            ws_row: r,
+        })
+    };
+    // The first row to the pitch, so the cells past the edge are read.
+    let row = |t: &Term<'_>| support::screen(t)[..t.stride().index()].to_vec();
+    let cp = |c: &PackedCell| c.content.as_codepoint().map(|c| c.value());
+    support::with_room(60, |t| {
+        assert_eq!(at(t, 60, 50), baud_core::Resized::Ok);
+        support::feed(t, "\x1b[?1049h\x1b[1;40H\u{4e16}".as_bytes());
+        let r = row(t);
+        assert!(
+            cp(&r[39]) == Some(0x4e16) && r[40].content.is_wide_tail(),
+            "the control: the lead at 39, the tail at 40"
+        );
+        assert_eq!(at(t, 30, 50), baud_core::Resized::Ok, "narrower");
+        assert_eq!(at(t, 35, 50), baud_core::Resized::Ok, "wider");
+        assert!(
+            !row(t)[40].content.is_wide_tail(),
+            "no tail is left past the new edge"
+        );
+        assert_eq!(at(t, 40, 50), baud_core::Resized::Ok, "wider again");
+        support::feed(t, b"\x1b[1;40HX");
+        assert_eq!(
+            cp(&row(t)[39]),
+            Some(u32::from(b'X')),
+            "the control: X at 39"
+        );
+        assert_eq!(at(t, 50, 50), baud_core::Resized::Ok, "and wider");
+        assert_eq!(cp(&row(t)[39]), Some(u32::from(b'X')), "the X survives");
+    });
+}

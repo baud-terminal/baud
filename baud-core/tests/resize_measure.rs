@@ -690,3 +690,31 @@ fn the_shrunk_program_measures_as_the_full_read() {
         assert!(check.exact(), "{c}x{r}: {check:?}");
     }
 }
+
+/// **The program the property shrank to on 2026-10-14, pinned**: on the
+/// alternate screen, a row erased in blue at 20 columns, narrowed to 19,
+/// scrolled down to screen row 4, counted from zero (the fifth), cut by a
+/// resize to 21 by 4 that grows the width, then a region of the top three
+/// rows scrolled up. The growth's blank stopped at the cut row's mark, as a
+/// fill to the end of a row does when its last cell is already the blank,
+/// and left the blue cell at column 19 under a mark of 19; the scroll's
+/// rotation brought that row in under the region, and the repair's
+/// `copy_row` over it found it not uniform past its mark -- a panic in a
+/// debug build. The visible half is `altresize.rs`'s
+/// `a_band_past_the_old_edge_is_blanked_when_a_growth_reveals_it`.
+#[test]
+fn the_shrunk_alternate_growth_measures_as_the_full_read() {
+    use Op::{By, Bytes, To};
+    let prog = [
+        Bytes(32),
+        Bytes(22),
+        Bytes(6),
+        By(-1, 0),
+        Bytes(31),
+        To(21, 4),
+        Bytes(19),
+        Bytes(30),
+    ];
+    let r = run(&prog, 0, None);
+    assert!(r.is_ok(), "{r:?}");
+}
