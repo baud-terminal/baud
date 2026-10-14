@@ -9,7 +9,8 @@ point is the original pen position. Imagine that the pen moves the
 left-side bearing distance, draws the glyph" (`[[source: apple-ttrm-ch2]]`).
 With bit 1 set the `head` text puts that point at x = 0 for every glyph,
 and requires xMin and the lsb to be equal, which these glyphs break: the
-second font is the malformed case, kept for Jev (note Z, step 8).
+second font is the malformed case, drawn from `xMin - lsb` all the same
+(note Z, step 8, question 6).
 
 Simple glyphs, all a 60 x 60 box at x 20 (xMin 20), polygons that start on
 the curve:

@@ -196,8 +196,10 @@ plus the delta; the two agree wherever `xMin` is the left side bearing,
 which is every glyph of the three committed variable fonts (`head` bit 1
 set, zero exceptions counted).~~ **The shift is the left phantom's
 position**, `xMin - lsb` plus its delta, on both paths, where `head` bit 1
-is clear (step 8): the texts place the origin there. With bit 1 set it is
-still the delta alone, for Jev.
+is clear (step 8): the texts place the origin there. ~~With bit 1 set it is
+still the delta alone, for Jev.~~ With bit 1 set it is the position too,
+by the owner's pick of 2026-10-13, "xMin - lsb (Recommended)" (step 8,
+question 6).
 
 **The oracle is HarfBuzz's own drawing.** `tests/var/outlines.txt` holds
 HarfBuzz 12.3.0's draw commands for every 37th glyph of the three variable
@@ -774,10 +776,12 @@ text decides:
 Both engines also shift a top-level glyph whose xMin is not its lsb by the
 difference -- `dot2`, and `umm`, which takes `dot2`'s phantoms under
 USE_MY_METRICS -- which baud has never done (step 2's shift is the
-movement); the test holds those two to baud's own default drawing, and the
-difference is recorded, not changed here. ~~Not changed.~~ Built in step 8
-where `head` bit 1 is clear; this fixture sets it, so `dot2` and `umm` keep
-baud's drawing, for Jev (step 8, question 6).
+movement); ~~the test holds those two to baud's own default drawing, and the
+difference is recorded, not changed here. Not changed.~~ Built in step 8
+where `head` bit 1 is clear; this fixture sets it, so ~~`dot2` and `umm` keep
+baud's drawing, for Jev (step 8, question 6)~~ both are drawn from 20 as
+both engines draw them, and the test holds both to both engines (step 8,
+question 6).
 
 **For Jev, where the texts leave it open (each kept as it was; 2 is
 built where the text turned out to define it):**
@@ -894,7 +898,8 @@ every one at -1). FreeType ignores the bit on purpose ("independent on the value
 of bit 1 ... at least major applications like Acroread indicate that",
 `[[source: freetype-2-14-3-ttgload]]`), HarfBuzz never reads it, and Core
 Text draws `dot2` from 20 in a font with flags 0x3 (the fonts lane's
-`ct-*.ttf`). Kept as baud drew it, for Jev:
+`ct-*.ttf`). ~~Kept as baud drew it, for Jev:~~ Decided by the owner on
+2026-10-13 (below):
 
 6. *Bit 1 set and xMin not the lsb.* (A) `pp1 = 0`: no shift at the
    default instance, the delta alone at a variation, and the phantoms a
@@ -907,8 +912,28 @@ Text draws `dot2` from 20 in a font with flags 0x3 (the fonts lane's
    glyphs, and `dot2` and `umm`. (C) as built: phantoms starting at
    `xMin - lsb` for alignment and the advance's extent, but no static
    shift -- neither reading, a hybrid of the two, kept only because it is
-   what was there. Kept: C, until Jev decides between A and B; each sets
-   pp1 in one place.
+   what was there. ~~Kept: C, until Jev decides between A and B; each sets
+   pp1 in one place.~~ Jev split A 0.50 / B 0.43 and B 0.54 / A 0.35
+   (round 2026-10-12c), ranking C last both times, and measured Core Text
+   drawing every simple glyph from `xMin - lsb` whatever the bit says (555
+   of 555) and every composite as its components each from their own start,
+   with no shift by the composite's (171 of 171). **The owner picked, on
+   2026-10-13,** "xMin - lsb (Recommended)", described "What HarfBuzz,
+   FreeType and Core Text do (Core Text: 555/555 simple glyphs). The flag
+   is a hint the font got wrong; hmtx is the measured value.", and
+   declined "Keep the hybrid", "Today's mix, which matches neither
+   reading." Over the 16 glyphs the question counted, Arial's 7 composites
+   among them, that is B for a composite too: drawn from its own
+   `xMin - lsb`, or its last USE_MY_METRICS component's, as HarfBuzz and
+   FreeType draw it; C is the hybrid declined. Built (the record, "With
+   head bit 1 set a glyph is drawn from xMin - lsb"): the bit is no longer
+   read, and the 546 Nerd Font glyphs and the 16 system glyphs move. Core
+   Text's composite rule, each component from its own start, departs from
+   the glyf composite text, which moves a component by its offset alone.
+   It differs from what is built on Arial's 7 composites, which Core Text
+   draws unshifted (round 2026-10-12c), on Baskerville's
+   `uni0149.nApostrophe`, whose `quoteright` it draws 93 units right, and
+   on bit-clear composites (the record's Open (1)).
 
 The census (fontTools 4.63.0, `/System/Library/Fonts`, a composite's start
 taken from its last USE_MY_METRICS component): 648 `glyf` faces; 8,131
@@ -922,8 +947,10 @@ the three variable fonts the outline oracle samples
 have none. Of the committed fixtures, `component-cases.ttf` (`dot2`, `umm`)
 and `hvar/phantom.ttf` (13 glyphs) have some and set bit 1, and the bake's
 fontTools instances `cases-*.ttf` (`sq`, `instc`) clear it. So the embedded
-faces draw as before; a glyph that a bit-1-clear system face supplies
-through fallback is now drawn from its left side bearing point.
+faces drew as before under that change; a glyph that a bit-1-clear system
+face supplies through fallback is now drawn from its left side bearing
+point. (Since 2026-10-14 the bit-set Symbols Nerd Font Mono moves too: step
+8, question 6.)
 
 **The fixtures**, `tests/var/bearing-cases.ttf` and
 `bearing-cases-bit1.ttf` (`scripts/bearing-cases-font.py`): the same ten

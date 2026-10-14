@@ -21,7 +21,7 @@ use crate::cff::Cff;
 use crate::cff2::Cff2;
 use crate::cmap::{Cmap, Variation};
 use crate::colr::{Colr, Cpal, Layers, Palette, PaletteEntry, Rgba};
-use crate::glyf::{Glyf, LeftPoint, Loca, LocaFormat, Streamed};
+use crate::glyf::{Glyf, Loca, LocaFormat, Streamed};
 use crate::gpos::Gpos;
 use crate::gsub::Gsub;
 use crate::layout::Gdef;
@@ -384,22 +384,14 @@ impl<'a> Face<'a> {
             Some(1) => Some(LocaFormat::Long),
             _ => None,
         };
-        // flags at 16, bit 1 "Left sidebearing point at x=0": where a
-        // TrueType glyph is drawn from (`glyf.rs`'s doc). The read cannot
-        // fail where unitsPerEm's, two bytes on, did.
-        let flags: u16 = head
-            .read(Offset::of(16u32))
-            .ok_or(Error::Malformed(Tag::HEAD))?;
-        let left = if flags & 2 == 0 {
-            LeftPoint::Bearing
-        } else {
-            LeftPoint::Kept
-        };
+        // flags at 16 are not read: bit 1, "Left sidebearing point at x=0",
+        // does not move where a TrueType glyph is drawn from (`glyf.rs`'s
+        // doc).
         if let (Some(format), Some(loca), Some(glyf)) =
             (format, face.table(Tag::LOCA), face.table(Tag::GLYF))
         {
             let loca = Loca::parse(loca, format, Count::of(glyphs));
-            face.glyf = Some(Glyf::new(loca, glyf, left));
+            face.glyf = Some(Glyf::new(loca, glyf));
         }
         face.cff = face.table(Tag::CFF).and_then(Cff::parse);
         // `CFF2`, when it is there, is read whole or the face is refused --
@@ -850,9 +842,9 @@ impl<'a> Face<'a> {
     /// first, `CFF2` second and CFF third, which is HarfBuzz's order.
     /// `Drawn::Nothing` for a glyph with no contours, no data, or a
     /// malformed description. A `glyf` glyph is drawn from its left side
-    /// bearing point, `xMin - lsb` where `head` bit 1 is clear (`glyf.rs`'s
-    /// doc); CFF and `CFF2` outlines carry their bearing in their
-    /// coordinates.
+    /// bearing point, `xMin - lsb`, whatever `head` flags bit 1 says
+    /// (`glyf.rs`'s doc); CFF and `CFF2` outlines carry their bearing in
+    /// their coordinates.
     ///
     /// **A glyph that needs scratch is refused here**, answered
     /// `Drawn::NeedsScratch` with nothing drawn, and [`Face::outline_at`]

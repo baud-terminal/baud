@@ -12,7 +12,8 @@
 //! point at x=0", and "If bit 1 of the flags field is set, then pp1 = 0 for
 //! all glyphs and the xMin and left sidebearing for each glyph must be
 //! equal": a font that sets it and breaks the equality is malformed, and
-//! what it draws is open for Jev (note Z, step 8); baud keeps what it drew.
+//! it is drawn from `xMin - lsb` as with the bit clear, the owner's pick
+//! of 2026-10-13, "xMin - lsb (Recommended)".
 //!
 //! `tests/var/bearing-cases.ttf` and `bearing-cases-bit1.ttf`
 //! (`scripts/bearing-cases-font.py`) are the fixtures, the same glyphs with
@@ -32,6 +33,9 @@ const WEIGHTS: [&str; 4] = ["-", "100", "650", "900"];
 /// The glyphs the matched walk draws at the default instance: the stream
 /// refuses them, so the rest are the stream's.
 const MATCHED: [&str; 2] = ["anch", "anchlsb"];
+/// The fixtures' simple glyphs (`scripts/bearing-cases-font.py`); the other
+/// six are composites.
+const SIMPLE: [&str; 4] = ["box", "neg", "same", "boxvar"];
 
 fn read(name: &str) -> Vec<u8> {
     std::fs::read(format!("{}/tests/var/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap()
@@ -94,12 +98,6 @@ fn near(a: &Contours, b: &Contours, tolerance: f32) -> bool {
                     .zip(d)
                     .all(|(p, q)| (p.0 - q.0).abs() <= tolerance && (p.1 - q.1).abs() <= tolerance)
         })
-}
-
-fn moved(c: &Contours, dx: f32) -> Contours {
-    c.iter()
-        .map(|k| k.iter().map(|&(x, y)| (x + dx, y)).collect())
-        .collect()
 }
 
 /// The oracle: (font, name, weight, engine) to contours, `None` where
@@ -286,44 +284,68 @@ fn with_bit_1_clear_a_glyph_is_drawn_from_its_left_side_bearing_point() {
     );
 }
 
-/// **With bit 1 set, baud keeps what it drew**: a glyph's stored
-/// coordinates moved by its left phantom's delta alone, which is
-/// HarfBuzz's drawing moved back by where the phantom starts. The `head`
-/// text puts the point at x = 0 for such a font and requires the lsb to be
-/// xMin; this one breaks that, HarfBuzz, FreeType and Core Text all draw it
-/// from `xMin - lsb` regardless, and which baud follows is Jev's (note Z,
-/// step 8). Eight glyphs are drawn away from HarfBuzz's, so the case is
-/// reached.
+/// **With bit 1 set, every glyph is still drawn from its left side
+/// bearing point**, as with the bit clear. The `head` text puts the point
+/// at x = 0 for such a font and requires the lsb to be xMin, and `hmtx`'s
+/// formula puts it at `xMin - lsb`; this font breaks the requirement, and
+/// the formula is taken -- the owner's pick of 2026-10-13, "xMin - lsb
+/// (Recommended)" -- which is HarfBuzz's and FreeType's drawing, bit 1
+/// regardless: a simple glyph from its own start, a composite from its own
+/// or its last USE_MY_METRICS component's. To HarfBuzz within 1e-3 and
+/// FreeType within half a unit, at the default instance and three weights.
+/// Three simple glyphs and five composites start off 0, so a drawing from
+/// 0, or from the stored coordinates, differs; at the default instance the
+/// stream draws what `outline_at` draws.
 #[test]
-fn with_bit_1_set_the_kept_drawing_stands_for_jev() {
+fn with_bit_1_set_a_glyph_is_still_drawn_from_its_left_side_bearing_point() {
     let data = read(SET);
     let o = oracle();
     let mut wrong = Vec::new();
-    let mut apart = 0;
+    let mut compared = 0;
+    let (mut simple_off, mut composite_off) = (0, 0);
     for weight in WEIGHTS {
         let mut face = Face::parse(&data).unwrap();
         at_weight(&mut face, weight);
         for (name, &id) in &o.ids {
             let g = GlyphId::from_shaper(id);
-            let hb = o.drawings[&(SET.into(), name.clone(), weight.into(), "hb".into())]
-                .clone()
-                .unwrap();
+            let key = |e: &str| {
+                (
+                    SET.to_string(),
+                    name.clone(),
+                    weight.to_string(),
+                    e.to_string(),
+                )
+            };
             let start = o.starts[&(SET.into(), name.clone())];
-            let want = moved(&hb, start);
+            let simple = SIMPLE.contains(&name.as_str());
+            simple_off += usize::from(simple && start != 0.0);
+            composite_off += usize::from(!simple && start != 0.0);
             let got = drawn(&face, g);
-            apart += usize::from(!near(&got, &hb, 1e-3));
-            if !near(&got, &want, 1e-3) {
-                wrong.push(format!(
-                    "{name} at {weight}:\n   got {got:?}\n  want {want:?}"
-                ));
+            let mut want = vec![(o.drawings[&key("hb")].clone().unwrap(), 1e-3)];
+            if let Some(ft) = o.drawings[&key("ft")].clone() {
+                want.push((ft, 0.5));
+            } else {
+                assert_eq!(name, "anchlsb", "FreeType refuses only the phantom match");
+            }
+            for (w, tol) in &want {
+                compared += 1;
+                if !near(&got, w, *tol) {
+                    wrong.push(format!("{name} at {weight}:\n   got {got:?}\n  want {w:?}"));
+                }
+            }
+            if weight == "-" && !MATCHED.contains(&name.as_str()) {
+                let mut p = Points::default();
+                assert_eq!(face.outline(g, &mut p), Drawn::Outline, "{name}");
+                assert_eq!(p.0, got, "{name}: the stream draws what outline_at draws");
             }
         }
     }
+    assert_eq!(compared, 4 * (10 + 9));
     assert!(
         wrong.is_empty(),
         "{} wrong:\n{}",
         wrong.len(),
         wrong.join("\n")
     );
-    assert_eq!(apart, 4 * 8);
+    assert_eq!((simple_off, composite_off), (4 * 3, 4 * 5));
 }

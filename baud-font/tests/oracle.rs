@@ -211,17 +211,13 @@ fn glyph_bytes<'a>(glyf: &'a [u8], loca: &[u8], long: i16, id: u16) -> Option<&'
 /// Where glyph `id`'s left side bearing point starts, `xMin - lsb`, or the
 /// last USE_MY_METRICS component's start for a composite -- read from the
 /// oracle's own tables, so the shift baud draws a glyph by is checked
-/// against the text's rule rather than against itself. `None` for a face
-/// without `glyf` or with `head` bit 1 set, whose glyphs baud keeps where
-/// it drew them.
+/// against the text's rule rather than against itself, whatever `head`
+/// flags bit 1 says. `None` for a face without `glyf`.
 fn bearing_start(theirs: &ttf_parser::Face<'_>, id: u16) -> Option<f32> {
     let raw = theirs.raw_face();
     let head = raw.table(ttf_parser::Tag::from_bytes(b"head"))?;
     let glyf = raw.table(ttf_parser::Tag::from_bytes(b"glyf"))?;
     let loca = raw.table(ttf_parser::Tag::from_bytes(b"loca"))?;
-    if u16::from_be_bytes([*head.get(16)?, *head.get(17)?]) & 2 != 0 {
-        return None;
-    }
     let long = i16::from_be_bytes([*head.get(50)?, *head.get(51)?]);
     let mut id = id;
     for _ in 0..32 {
@@ -442,7 +438,7 @@ fn compare_face(
     //
     // **And one the specification makes, counted.** The oracle hands back a
     // `glyf` glyph's stored coordinates; baud draws it from its left side
-    // bearing point, `xMin - lsb`, where `head` bit 1 is clear
+    // bearing point, `xMin - lsb`, whatever `head` bit 1 says
     // (`[[source: ms-opentype-hmtx]]`, `glyf.rs`'s doc). The oracle's
     // segments are moved by that start, read from its own tables by
     // `bearing_start`, and must then be baud's bit for bit.
@@ -737,9 +733,9 @@ fn every_face_on_this_machine_agrees_with_ttf_parser() {
         assert!(t.gvar_refusals > 0, "the gvar normalisation never fired");
     }
     // The bearing normalisation must fire on this Mac -- Apple Color Emoji,
-    // Times New Roman Italic and forty more faces with bit 1 clear draw
-    // glyphs whose lsb is not their xMin -- or the note above describes
-    // nothing.
+    // Times New Roman Italic and forty more faces with bit 1 clear, and
+    // sixteen glyphs in six faces with it set, draw glyphs whose lsb is
+    // not their xMin -- or the note above describes nothing.
     eprintln!(
         "oracle: {} outlines drawn from a left side bearing point not at x 0",
         t.bearing_shifted

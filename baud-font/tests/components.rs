@@ -54,17 +54,6 @@ enum Side {
     /// before -- the component at offset 0 after its matrix, which is these
     /// glyphs' drawings in order, at the same weight. For Jev.
     Unmatched(&'static [&'static str]),
-    /// baud's own drawing at the default instance, where the glyph does not
-    /// vary: `dot2`'s xMin is not its lsb, and `umm` takes `dot2`'s
-    /// phantoms under USE_MY_METRICS, so both engines draw it from its left
-    /// side bearing point, 20 along. This font sets `head` bit 1, which
-    /// puts that point at 0 and requires the two to be equal, so it is
-    /// malformed there, and baud keeps the drawing it made before -- the
-    /// point's movement alone -- for Jev (note Z, step 8;
-    /// `tests/bearings.rs` holds the rule where bit 1 is clear). At a
-    /// variation that moves neither, it is drawn where the default stream
-    /// draws it.
-    Default,
     /// Neither engine's: the text's drawing at each weight, worked by hand
     /// from `scripts/component-cases-font.py`, where both depart. FreeType
     /// refuses every phantom point; HarfBuzz moves a composite's left
@@ -81,7 +70,10 @@ const SIDES: &[(&str, Side)] = &[
     ("tri", Side::Both),
     ("bar", Side::Both),
     ("dot", Side::Both),
-    ("dot2", Side::Default),
+    // dot2's xMin, 20, is not its lsb, 0, and umm takes dot2's phantoms
+    // under USE_MY_METRICS: both are drawn from 20 along, as both engines
+    // draw them, though this font sets `head` bit 1 (`tests/bearings.rs`).
+    ("dot2", Side::Both),
     ("pair", Side::Both),
     ("anch", Side::Both),
     ("anchrot", Side::Both),
@@ -119,7 +111,7 @@ const SIDES: &[(&str, Side)] = &[
     ("unscaled", Side::Both),
     ("neither", Side::Both),
     ("both", Side::Hb),
-    ("umm", Side::Default),
+    ("umm", Side::Both),
     ("pairy", Side::Both),
     // pairy's left phantom, which stays at (0, 0): its Y delta of 50 is
     // ignored, so the bars sit on tri's base line at every weight.
@@ -285,7 +277,6 @@ fn every_component_case_is_placed_as_the_text_places_it() {
     assert_eq!(sides.len(), ids.len(), "every glyph has a side");
     let mut wrong = Vec::new();
     let mut counted: HashMap<String, usize> = HashMap::new();
-    let plain = Face::parse(&data).unwrap();
     for weight in ["-", "100", "650", "900"] {
         let mut face = Face::parse(&data).unwrap();
         at_weight(&mut face, weight);
@@ -296,11 +287,6 @@ fn every_component_case_is_placed_as_the_text_places_it() {
             let ft = oracle[&key("ft")].clone();
             let (d, got) = drawn(&face, g);
             let want: Vec<(Contours, f32)> = match side {
-                Side::Default => {
-                    let mut p = Points::default();
-                    assert_eq!(plain.outline(g, &mut p), Drawn::Outline, "{name}");
-                    vec![(p.0, 1e-3)]
-                }
                 Side::Both => vec![(hb, 1e-3), (ft.expect("FreeType draws it"), 0.5)],
                 Side::Hb => vec![(hb, 1e-3)],
                 Side::Ft => vec![(ft.expect("FreeType draws it"), 0.5)],

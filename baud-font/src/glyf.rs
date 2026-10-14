@@ -51,9 +51,11 @@
 //! component's where the composite takes one, plus its `gvar` delta. With
 //! `head` flags bit 1 set, "Left sidebearing point at x=0", the text puts
 //! it at 0 for every glyph and requires each glyph's xMin to be its lsb
-//! (`[[source: ms-opentype-head]]`); for a font that sets the bit and
-//! breaks the requirement baud keeps what it drew before -- the point's
-//! movement alone -- and the choice is Jev's ([`LeftPoint::Kept`]).
+//! (`[[source: ms-opentype-head]]`); a font that sets the bit and breaks
+//! the requirement is drawn from `xMin - lsb` all the same, by `hmtx`'s
+//! formula, as HarfBuzz and FreeType draw it whatever the bit: the owner
+//! picked "xMin - lsb (Recommended)" on 2026-10-13 (note Z, step 8,
+//! question 6). So the bit is not read.
 
 use crate::bytes::{Array, Bytes, Count, Index, Len, Offset};
 use crate::gvar::{Gvar, Referenced, Track};
@@ -837,37 +839,16 @@ fn push_phantoms(pts: &mut [VarPoint], at: &mut usize, left: (i32, i32)) -> Opti
     Some(())
 }
 
-/// Where a glyph's left side bearing point starts, by `head` flags bit 1,
-/// "Left sidebearing point at x=0" (`[[source: ms-opentype-head]]`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum LeftPoint {
-    /// Bit 1 clear: at `xMin - lsb` (`[[source: ms-opentype-hmtx]]`), and
-    /// the glyph is drawn from it, at the default instance and at a
-    /// variation alike.
-    Bearing,
-    /// Bit 1 set: "pp1 = 0 for all glyphs and the xMin and left sidebearing
-    /// for each glyph must be equal". A glyph is drawn as baud drew it
-    /// before, moved by its left phantom's delta and not its start, which
-    /// is the same drawing wherever the font keeps the requirement. Where
-    /// it does not -- 16 glyphs in 6 faces on the development Mac, and 546
-    /// in the embedded Nerd Font symbols -- the text gives two places, 0
-    /// and `xMin - lsb`, HarfBuzz, FreeType and Core Text draw from the
-    /// second, and the phantoms a matched component aligns on start at the
-    /// second here too: which baud follows is Jev's (note Z, step 8).
-    Kept,
-}
-
 /// The table pair; `outline` is the entry point.
 #[derive(Clone, Copy)]
 pub struct Glyf<'a> {
     loca: Loca<'a>,
     data: Bytes<'a>,
-    left: LeftPoint,
 }
 
 impl<'a> Glyf<'a> {
-    pub fn new(loca: Loca<'a>, data: Bytes<'a>, left: LeftPoint) -> Glyf<'a> {
-        Glyf { loca, data, left }
+    pub fn new(loca: Loca<'a>, data: Bytes<'a>) -> Glyf<'a> {
+        Glyf { loca, data }
     }
 
     pub(crate) fn glyph(&self, g: GlyphId) -> Option<Bytes<'a>> {
@@ -896,8 +877,7 @@ impl<'a> Glyf<'a> {
     /// [`Glyf::outline_varied`] draws it.
     ///
     /// The glyph is drawn from its left side bearing point, which `hmtx`
-    /// places (the module's doc); under [`LeftPoint::Kept`] `hmtx` is not
-    /// read.
+    /// places (the module's doc).
     pub fn outline<S: Sink>(&self, g: GlyphId, hmtx: Hmtx<'_>, sink: &mut S) -> Option<Streamed> {
         let data = self.glyph(g)?;
         let contours: i16 = data.read(Offset::ZERO)?;
@@ -907,10 +887,7 @@ impl<'a> Glyf<'a> {
                 return Some(Streamed::NeedsScratch(r.kept.plus(r.stack)?));
             }
         }
-        let x = match self.left {
-            LeftPoint::Bearing => self.origin(g, hmtx)? as f32,
-            LeftPoint::Kept => 0.0,
-        };
+        let x = self.origin(g, hmtx)? as f32;
         if x != 0.0 {
             let mut shifted = Shifted { sink, x };
             self.outline_into(data, Transform::IDENTITY, 0, &mut shifted)?;
@@ -925,9 +902,9 @@ impl<'a> Glyf<'a> {
     /// that component's start -- the last one's, taken before it is placed
     /// -- since the bit "forces the aw and lsb (and rsb) for the composite
     /// to be equal to those from this component glyph"
-    /// (`[[source: ms-opentype-glyf]]`). The start the varied walk answers,
-    /// found without the walk; `None` for a malformed glyph or a chain past
-    /// 32 deep.
+    /// (`[[source: ms-opentype-glyf]]`). The start the varied walk's left
+    /// phantom takes, found without the walk; `None` for a malformed glyph
+    /// or a chain past 32 deep.
     fn origin(&self, g: GlyphId, hmtx: Hmtx<'_>) -> Option<i32> {
         let mut g = g;
         for _ in 0..MAX_DEPTH {
@@ -1152,7 +1129,6 @@ impl<'a> Glyf<'a> {
     /// USE_MY_METRICS component's, plus its delta, as HarfBuzz shifts and
     /// as the text places the origin (the module's doc) -- the delta alone
     /// in a font whose xMin is its lsb, as every variable font's must be.
-    /// Under [`LeftPoint::Kept`] it is the movement alone, as it was.
     pub fn outline_varied<S: Sink>(
         &self,
         g: GlyphId,
@@ -1174,16 +1150,12 @@ impl<'a> Glyf<'a> {
             edges: Edges(0),
         };
         let mut used = Count::ZERO;
-        let rest = self.varied(g, Count::ZERO, &mut walk, all, &mut used, stack)?;
+        self.varied(g, Count::ZERO, &mut walk, all, &mut used, stack)?;
         let end = used.slot();
         let pts = all.get_mut(..end)?;
         let (glyph, phantoms) = pts.split_at_mut(end.checked_sub(Count::of(PHANTOMS).slot())?);
         // The left side bearing point, where the glyph is drawn from.
-        let start = match self.left {
-            LeftPoint::Bearing => 0.0,
-            LeftPoint::Kept => rest as f32,
-        };
-        let shift = phantoms.first()?.x - start;
+        let shift = phantoms.first()?.x;
         let mut contour = Contour {
             sink,
             transform: Transform::IDENTITY,
@@ -1215,10 +1187,7 @@ impl<'a> Glyf<'a> {
 
     /// Appends `g`'s points and its four phantom points to `all` at `used`,
     /// varied; a composite's own points -- one offset a component, then its
-    /// phantoms -- live in `stack` while its components are walked. Answers
-    /// where the left phantom started -- the composite's, or the last
-    /// USE_MY_METRICS component's, whose phantoms it takes -- so the top
-    /// level can shift by the movement alone under [`LeftPoint::Kept`].
+    /// phantoms -- live in `stack` while its components are walked.
     fn varied(
         &self,
         g: GlyphId,
@@ -1227,7 +1196,7 @@ impl<'a> Glyf<'a> {
         all: &mut [VarPoint],
         used: &mut Count,
         stack: &mut [VarPoint],
-    ) -> Option<i32> {
+    ) -> Option<()> {
         walk.edges.visit()?;
         if depth.value() >= u32::from(MAX_DEPTH) {
             return None;
@@ -1270,7 +1239,7 @@ impl<'a> Glyf<'a> {
                 if let Some(store) = gvar {
                     store.apply(walk.coords, all.get_mut(base..at)?, Track::All);
                 }
-                return Some(start.0);
+                return Some(());
             }
             Kind::Empty => {
                 let mut at = base;
@@ -1279,7 +1248,7 @@ impl<'a> Glyf<'a> {
                 if let Some(store) = gvar {
                     store.apply(walk.coords, all.get_mut(base..at)?, Track::All);
                 }
-                return Some(start.0);
+                return Some(());
             }
             Kind::Composite(body) => body,
         };
@@ -1314,7 +1283,6 @@ impl<'a> Glyf<'a> {
             };
             (l.y, r.y, t.x, b.x) = (l0.y, r0.y, t0.x, b0.x);
         }
-        let mut left = start.0;
         let mut records = Comps {
             body: comps,
             at: Some(Offset::ZERO),
@@ -1327,8 +1295,7 @@ impl<'a> Glyf<'a> {
             // came, and not yet its own, which the gvar text's order sets
             // after the component is placed.
             let own = [*mine.get(k)?, *mine.get(k.checked_add(1)?)?];
-            let child_left =
-                self.varied(c.glyph, Count::of(depth.value() + 1), walk, all, used, rest)?;
+            self.varied(c.glyph, Count::of(depth.value() + 1), walk, all, used, rest)?;
             let (parent, after) = all.split_at_mut(old);
             let child = after.get_mut(..used.slot().checked_sub(old)?)?;
             let n = child.len();
@@ -1341,7 +1308,6 @@ impl<'a> Glyf<'a> {
                     m.x = p.x;
                     m.y = p.y;
                 }
-                left = child_left;
             }
             let matrix = Transform {
                 e: 0.0,
@@ -1399,7 +1365,7 @@ impl<'a> Glyf<'a> {
             at += 1;
         }
         *used = Count::of(u32::try_from(at).ok()?);
-        Some(left)
+        Some(())
     }
 
     /// The translation that lays the child's point `from` -- its outline
