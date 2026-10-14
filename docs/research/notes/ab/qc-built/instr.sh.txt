@@ -1,0 +1,15 @@
+#!/bin/bash
+Q=$1; CN="/System/Library/Fonts/Supplemental/Courier New.ttf"; JR=baud-app/fonts/built/Regular.ttf
+order=(c1 c2 c1b c2b)
+for r in 1 2 3 4 5; do
+  echo "# round $r load $(sysctl -n vm.loadavg)"
+  k=$(( (r-1) % 4 )); arms=("${order[@]:k}" "${order[@]:0:k}")
+  for a in "${arms[@]}"; do
+    for spec in "norm:$CN:1000:3000" "norm:$JR:1000:3000" "bench:$CN:20:60" "bench:$JR:10:30"; do
+      IFS=: read m f lo hi <<< "$spec"
+      i1=$(/usr/bin/time -l $Q/bin/qc-$a $m "$f" 0 $Q/bench-clusters.txt $lo 2>&1 >/dev/null | awk '/instructions retired/{print $1}')
+      i2=$(/usr/bin/time -l $Q/bin/qc-$a $m "$f" 0 $Q/bench-clusters.txt $hi 2>&1 >/dev/null | awk '/instructions retired/{print $1}')
+      echo "$r $a $m $(basename "$f" .ttf | tr ' ' _) $(python3 -c "print(f'{($i2-$i1)/(($hi-$lo)*850):.3f}')")"
+    done
+  done
+done

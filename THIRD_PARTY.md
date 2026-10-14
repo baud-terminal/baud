@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 255 | 16 | redistributable, and its notice is satisfied |
+| kept | 256 | 16 | redistributable, and its notice is satisfied |
 | own | 187 | 0 | the owner's work |
-| total | 699 | 27 | |
+| total | 700 | 27 | |
 
 ## Licence texts in LICENSES/
 
@@ -1057,6 +1057,17 @@ notice is, and the URL each file was copied from.
 | [harfbuzz-12.3.0-hb-sanitize.hh](docs/research/sources/harfbuzz-12.3.0-hb-sanitize.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb-sanitize.hh |
 | [harfbuzz-12.3.0-hb.hh](docs/research/sources/harfbuzz-12.3.0-hb.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/src/hb.hh |
 | [harfbuzz-usermanual-clusters.xml](docs/research/sources/harfbuzz-usermanual-clusters.xml) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/docs/usermanual-clusters.xml |
+
+### HarfBuzz at 64e2b53
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT-Modern-Variant
+- **Notice:** [LICENSES/harfbuzz-COPYING.txt](LICENSES/harfbuzz-COPYING.txt)
+- **Files:** 1
+
+| file | copied from |
+|---|---|
+| [harfbuzz-64e2b53-hb-unicode.hh](docs/research/sources/harfbuzz-64e2b53-hb-unicode.hh) | https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-unicode.hh |
 
 ### Highway documentation (Google)
 

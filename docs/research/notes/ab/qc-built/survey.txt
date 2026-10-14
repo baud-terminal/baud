@@ -1,0 +1,44 @@
+ArialHB.ttc#0 Arial Hebrew                                 = hb C1  74 -> C2 100 / 215; regress ink 0 exact 0; new ink 26 exact 26; ink C1!=C2 54
+ArialHB.ttc#1 Arial Hebrew Bold                            = hb C1  74 -> C2 100 / 215; regress ink 0 exact 0; new ink 26 exact 26; ink C1!=C2 54
+ArialHB.ttc#2 Arial Hebrew Light                           = hb C1  74 -> C2 100 / 215; regress ink 0 exact 0; new ink 26 exact 26; ink C1!=C2 54
+ArialHB.ttc#3 .Arial Hebrew Desk Interface                 = hb C1  74 -> C2 100 / 215; regress ink 0 exact 0; new ink 26 exact 26; ink C1!=C2 54
+ArialHB.ttc#4 .Arial Hebrew Desk Interface Bold            = hb C1  74 -> C2 100 / 215; regress ink 0 exact 0; new ink 26 exact 26; ink C1!=C2 54
+ArialHB.ttc#5 .Arial Hebrew Desk Interface Light           = hb C1  74 -> C2 100 / 215; regress ink 0 exact 0; new ink 26 exact 26; ink C1!=C2 54
+ArialHB.ttc#6 Arial Hebrew Scholar                         = hb C1  99 -> C2 125 / 215; regress ink 0 exact 0; new ink 26 exact 26; ink C1!=C2 54
+ArialHB.ttc#7 Arial Hebrew Scholar Bold                    = hb C1  47 -> C2  51 / 215; regress ink 0 exact 0; new ink 4 exact 4; ink C1!=C2 54
+ArialHB.ttc#8 Arial Hebrew Scholar Light                   = hb C1  68 -> C2  87 / 215; regress ink 0 exact 0; new ink 19 exact 19; ink C1!=C2 54
+LastResort.otf#0 .LastResort                               = hb C1  35 -> C2  35 / 215; regress ink 0 exact 0; new ink 0 exact 0; ink C1!=C2 0
+LucidaGrande.ttc#0 Lucida Grande                           = hb C1  60 -> C2  60 / 215; regress ink 0 exact 0; new ink 0 exact 0; ink C1!=C2 12
+LucidaGrande.ttc#1 Lucida Grande Bold                      = hb C1  36 -> C2  36 / 215; regress ink 0 exact 0; new ink 0 exact 0; ink C1!=C2 12
+LucidaGrande.ttc#2 .Lucida Grande UI Regular               = hb C1  16 -> C2  16 / 215; regress ink 0 exact 0; new ink 0 exact 0; ink C1!=C2 0
+LucidaGrande.ttc#3 .Lucida Grande UI Bold                  = hb C1  16 -> C2  16 / 215; regress ink 0 exact 0; new ink 0 exact 0; ink C1!=C2 0
+SFHebrew.ttf#0 .SF Hebrew                                  = hb C1 215 -> C2 215 / 215; regress ink 0 exact 0; new ink 0 exact 0; ink C1!=C2 0
+SFHebrewRounded.ttf#0 .SF Hebrew Rounded                   = hb C1 215 -> C2 215 / 215; regress ink 0 exact 0; new ink 0 exact 0; ink C1!=C2 0
+Arial Bold Italic.ttf#0 Arial Bold Italic                  = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Arial Bold.ttf#0 Arial Bold                                = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Arial Italic.ttf#0 Arial Italic                            = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Arial Unicode.ttf#0 Arial Unicode MS                       = hb C1  16 -> C2  16 / 215; regress ink 0 exact 0; new ink 0 exact 0; ink C1!=C2 54
+Arial.ttf#0 Arial                                          = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Corsiva.ttc#0 Corsiva Hebrew                               = hb C1  56 -> C2  56 / 215; regress ink 0 exact 0; new ink 0 exact 0; ink C1!=C2 12
+Corsiva.ttc#1 Corsiva Hebrew Bold                          = hb C1  56 -> C2  56 / 215; regress ink 0 exact 0; new ink 0 exact 0; ink C1!=C2 12
+Courier New Bold Italic.ttf#0 Courier New Bold Italic      = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Courier New Bold.ttf#0 Courier New Bold                    = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Courier New Italic.ttf#0 Courier New Italic                = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Courier New.ttf#0 Courier New                              = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Microsoft Sans Serif.ttf#0 Microsoft Sans Serif            = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+NewPeninimMT.ttc#0 New Peninim MT                          = hb C1  81 -> C2 112 / 215; regress ink 0 exact 0; new ink 31 exact 31; ink C1!=C2 54
+NewPeninimMT.ttc#1 New Peninim MT Inclined                 = hb C1  79 -> C2 110 / 215; regress ink 0 exact 0; new ink 31 exact 31; ink C1!=C2 54
+NewPeninimMT.ttc#2 New Peninim MT Bold Inclined            = hb C1  77 -> C2 108 / 215; regress ink 0 exact 0; new ink 31 exact 31; ink C1!=C2 54
+NewPeninimMT.ttc#3 New Peninim MT Bold                     = hb C1  79 -> C2 110 / 215; regress ink 0 exact 0; new ink 31 exact 31; ink C1!=C2 54
+Raanana.ttc#0 Raanana                                      = hb C1  45 -> C2  45 / 215; regress ink 0 exact 0; new ink 0 exact 4; ink C1!=C2 0
+Raanana.ttc#1 Raanana Bold                                 = hb C1  45 -> C2  45 / 215; regress ink 0 exact 0; new ink 0 exact 4; ink C1!=C2 0
+Tahoma Bold.ttf#0 Tahoma Bold                              = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Tahoma.ttf#0 Tahoma                                        = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Times New Roman Bold Italic.ttf#0 Times New Roman Bold Italic = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Times New Roman Bold.ttf#0 Times New Roman Bold            = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Times New Roman Italic.ttf#0 Times New Roman Italic        = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Times New Roman.ttf#0 Times New Roman                      = hb C1 110 -> C2 145 / 215; regress ink 0 exact 0; new ink 35 exact 35; ink C1!=C2 54
+Bold.ttf#0 Proto Hebrew Mono C Bold                        = hb C1 116 -> C2 116 / 215; regress ink 0 exact 0; new ink 0 exact 29; ink C1!=C2 0
+Regular.ttf#0 Proto Hebrew Mono C Regular                  = hb C1 116 -> C2 116 / 215; regress ink 0 exact 0; new ink 0 exact 29; ink C1!=C2 0
+CascadiaMono.ttf#0 Cascadia Mono Regular                   = hb C1  21 -> C2  21 / 215; regress ink 0 exact 0; new ink 0 exact 0; ink C1!=C2 29
+{'faces': 43, 'reg_ink': 0, 'reg_exact': 0, 'new_ink': 854, 'new_exact': 920, 'ink_c1_ne_c2': 1643, 'faces_moved': 34}

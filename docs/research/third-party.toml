@@ -885,6 +885,15 @@ files   = [
   "harfbuzz-usermanual-clusters.xml",
 ]
 
+[upstream.harfbuzz-64e2b53]
+name    = "HarfBuzz at 64e2b53"
+licence = "MIT-Modern-Variant"
+notice  = "LICENSES/harfbuzz-COPYING.txt"
+status  = "kept"
+files   = [
+  "harfbuzz-64e2b53-hb-unicode.hh",
+]
+
 [upstream.highway]
 name    = "Highway documentation (Google)"
 licence = "Apache-2.0 OR BSD-3-Clause"

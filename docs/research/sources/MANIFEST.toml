@@ -3562,13 +3562,14 @@ author = "HarfBuzz contributors"
 year   = 2026
 venue  = "harfbuzz/harfbuzz at 64e2b53, src/"
 url    = "https://raw.githubusercontent.com/harfbuzz/harfbuzz/64e2b53/src/hb-unicode.hh"
-file   = ""
+file   = "harfbuzz-64e2b53-hb-unicode.hh"
 sha256 = "8c15f338fe6e3cb11315d2cf9368abac64525c6d84f391353f78e9d4518655a4"
 bytes  = 16921
-status = "external"
+status = "retrieved"
 group  = "J"
-# Read and hash-verified; not committed -- a source file at a pinned commit.
-# Re-fetch at the pinned url and compare the sha256.
+# Committed 2026-10-14 so a test can read it: `baud-font/tests/mark_order.rs`
+# holds the shaper's Hebrew mark order to HB_MODIFIED_COMBINING_CLASS_CCC10
+# to CCC26 (lines 333-349), the owner's pick of note AB 11.4.
 
 [sources.harfbuzz-hb-buffer]
 key    = "harfbuzz-hb-buffer"

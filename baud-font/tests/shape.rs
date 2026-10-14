@@ -563,16 +563,102 @@ fn the_lookup_digests_change_nothing_on_any_gsub_fixture() {
 /// that hold on every platform, and Courier New's have their own on macOS.
 #[test]
 fn every_script_fixture_shapes_as_harfbuzz_does() {
-    let text = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/shape/script.txt"
-    ))
-    .unwrap();
-    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
-    let mut files = std::collections::HashMap::new();
     // One binding for the skip and for Courier New's control, so a run with
     // the skip forced checks what a platform without the face checks.
     let on_macos = cfg!(target_os = "macos");
+    let Tally {
+        fixtures: Reached(fixtures),
+        hebrew: Reached(hebrew),
+        moved: Reached(moved),
+        system_fixtures: Reached(system_fixtures),
+        system_hebrew: Reached(system_hebrew),
+        skipped: Reached(skipped),
+    } = shape_script_fixtures("script.txt", on_macos);
+    eprintln!(
+        "built faces: {fixtures} script fixtures, {hebrew} of them Hebrew, {moved} glyphs \
+         offset; system faces: {system_fixtures} shaped, {system_hebrew} of them Hebrew, \
+         {skipped} skipped"
+    );
+    // Positive controls on the built Regular's lines, which run everywhere:
+    // the Hebrew lines were reached, and some point was placed by an anchor
+    // rather than left at the pen.
+    assert!(fixtures >= 20, "{fixtures}");
+    assert!(hebrew >= 13, "{hebrew}");
+    assert!(moved >= 8, "{moved}");
+    // And Courier New's lines, where the face is: shaped on macOS, every
+    // one of them counted as skipped elsewhere.
+    if on_macos {
+        assert!(system_fixtures >= 20, "{system_fixtures}");
+        assert!(system_hebrew >= 13, "{system_hebrew}");
+    } else {
+        assert!(skipped >= 20 && system_fixtures == 0, "{skipped}");
+    }
+}
+
+/// **Two or more Hebrew points in one cell reach the face in HarfBuzz's
+/// order**, its modified combining classes (`[[source:
+/// harfbuzz-hb-unicode]]`; the owner's pick, note AB 11.4), so a font's
+/// `ccmp` sees what HarfBuzz hands it. Every line of
+/// `tests/shape/order.txt` is what hb-shape made of a cluster typed in
+/// canonical order and in HarfBuzz's, compared as `script.txt`'s are. On
+/// Courier New canonical order put the shin dot after the qamats, its
+/// `ccmp` did not form the shin-dot ligature, and the dot drew a cell to
+/// the right. The built JetBrains Mono draws the same glyphs at the same
+/// offsets in either order, but hands them on in the order the points were
+/// sorted, so its lines tell the orders apart too, on every platform, and
+/// Courier New's on macOS.
+#[test]
+fn every_mark_order_fixture_shapes_as_harfbuzz_does() {
+    let on_macos = cfg!(target_os = "macos");
+    let Tally {
+        fixtures: Reached(fixtures),
+        hebrew: Reached(hebrew),
+        system_fixtures: Reached(system_fixtures),
+        system_hebrew: Reached(system_hebrew),
+        skipped: Reached(skipped),
+        ..
+    } = shape_script_fixtures("order.txt", on_macos);
+    eprintln!(
+        "built faces: {fixtures} order fixtures; system faces: {system_fixtures} shaped, \
+         {skipped} skipped"
+    );
+    // Fourteen clusters in two spellings on each face, every one Hebrew.
+    assert!(fixtures == 28 && hebrew == 28, "{fixtures} {hebrew}");
+    if on_macos {
+        assert!(
+            system_fixtures == 28 && system_hebrew == 28,
+            "{system_fixtures}"
+        );
+    } else {
+        assert!(skipped == 28 && system_fixtures == 0, "{skipped}");
+    }
+}
+
+/// What [`shape_script_fixtures`] compared: lines on the built faces, how
+/// many of them Hebrew and how many glyphs they offset; lines on system
+/// faces, and how many were skipped where the face is not.
+struct Tally {
+    fixtures: Reached,
+    hebrew: Reached,
+    moved: Reached,
+    system_fixtures: Reached,
+    system_hebrew: Reached,
+    skipped: Reached,
+}
+
+/// How many fixture lines, or glyphs, one comparison reached.
+struct Reached(usize);
+
+/// Shapes every line of `tests/shape/<name>` and requires hb-shape's
+/// glyphs and offsets, in the columns `scripts/gen-shape-fixtures.sh`
+/// writes for `script.txt`; a system face's lines are skipped unless
+/// `on_macos`.
+fn shape_script_fixtures(name: &str, on_macos: bool) -> Tally {
+    let text =
+        std::fs::read_to_string(format!("{}/tests/shape/{name}", env!("CARGO_MANIFEST_DIR")))
+            .unwrap();
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let mut files = std::collections::HashMap::new();
     let (mut fixtures, mut hebrew, mut moved) = (0usize, 0usize, 0usize);
     let (mut system_fixtures, mut system_hebrew, mut skipped) = (0usize, 0usize, 0usize);
     for line in text
@@ -656,23 +742,12 @@ fn every_script_fixture_shapes_as_harfbuzz_does() {
             moved += want.iter().filter(|w| w.2 != 0 || w.3 != 0).count();
         }
     }
-    eprintln!(
-        "built faces: {fixtures} script fixtures, {hebrew} of them Hebrew, {moved} glyphs \
-         offset; system faces: {system_fixtures} shaped, {system_hebrew} of them Hebrew, \
-         {skipped} skipped"
-    );
-    // Positive controls on the built Regular's lines, which run everywhere:
-    // the Hebrew lines were reached, and some point was placed by an anchor
-    // rather than left at the pen.
-    assert!(fixtures >= 20, "{fixtures}");
-    assert!(hebrew >= 13, "{hebrew}");
-    assert!(moved >= 8, "{moved}");
-    // And Courier New's lines, where the face is: shaped on macOS, every
-    // one of them counted as skipped elsewhere.
-    if on_macos {
-        assert!(system_fixtures >= 20, "{system_fixtures}");
-        assert!(system_hebrew >= 13, "{system_hebrew}");
-    } else {
-        assert!(skipped >= 20 && system_fixtures == 0, "{skipped}");
+    Tally {
+        fixtures: Reached(fixtures),
+        hebrew: Reached(hebrew),
+        moved: Reached(moved),
+        system_fixtures: Reached(system_fixtures),
+        system_hebrew: Reached(system_hebrew),
+        skipped: Reached(skipped),
     }
 }

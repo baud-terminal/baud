@@ -112,7 +112,53 @@ pub struct CombiningClass(pub u8);
 
 impl CombiningClass {
     pub const STARTER: CombiningClass = CombiningClass(0);
+
+    /// The key the shaper sorts marks by: HarfBuzz's modified combining
+    /// class (`[[source: harfbuzz-hb-unicode]]`, hb-unicode.hh:317-349 at
+    /// 64e2b53), which permutes Hebrew's fixed-position classes 10-26 so
+    /// shin and sin dot, dagesh, rafe and holam come before the vowels
+    /// below, the group order of the SBL Hebrew manual's Table 1
+    /// (`[[source: sbl-hebrew-manual-1-5]]`). Every other class is its
+    /// own key. A permutation of classes is canonically equivalent, so
+    /// what the text means is unchanged (`[[source: unicode-ch3]]` D108-D109,
+    /// and the Unicode FAQ: "any permutation of the non-zero CCC values
+    /// can be used", `[[source: unicode-faq-normalization]]`); what it
+    /// changes is the order a font's `ccmp` meets the points in: Courier
+    /// New's forms the shin-dot ligature from shin + shin dot, and not
+    /// with a qamats between them (note AB, 11.4). P5 of the same chapter:
+    /// "Rendering systems should be prepared to deal with common typed-in
+    /// sequences and with canonically reordered sequences". The owner's
+    /// pick, 2026-10-13, for Hebrew only: HarfBuzz's Arabic, Syriac and
+    /// Brahmic modifications are not taken.
+    fn sort_key(self) -> CombiningClass {
+        match self.0 {
+            k @ 10..=26 => HEBREW_SORT_KEY[usize::from(k - 10)],
+            _ => self,
+        }
+    }
 }
+
+/// HarfBuzz's `HB_MODIFIED_COMBINING_CLASS_CCC10` to `CCC26`, in that
+/// order: the sort key of canonical class 10 + i.
+const HEBREW_SORT_KEY: [CombiningClass; 17] = [
+    CombiningClass(22), // 10 sheva
+    CombiningClass(15), // 11 hataf segol
+    CombiningClass(16), // 12 hataf patah
+    CombiningClass(17), // 13 hataf qamats
+    CombiningClass(23), // 14 hiriq
+    CombiningClass(18), // 15 tsere
+    CombiningClass(19), // 16 segol
+    CombiningClass(20), // 17 patah
+    CombiningClass(21), // 18 qamats, qamats qatan
+    CombiningClass(14), // 19 holam, holam haser for vav
+    CombiningClass(24), // 20 qubuts
+    CombiningClass(12), // 21 dagesh
+    CombiningClass(25), // 22 meteg
+    CombiningClass(13), // 23 rafe
+    CombiningClass(10), // 24 shin dot
+    CombiningClass(11), // 25 sin dot
+    CombiningClass(26), // 26 point varika
+];
 
 /// How many codepoints one cluster may hand the shaper: a base and the
 /// attachments the core stores, with room for a decomposition.
@@ -279,7 +325,8 @@ impl BaseBox {
 
 /// A cluster as the shaper maps it on one face: a base and its
 /// attachments after [`Shaper::push_cluster`]'s normalisation -- what the
-/// face cannot draw decomposed, the marks in canonical order, and each
+/// face cannot draw decomposed, the marks in the shaper's order
+/// ([`CombiningClass::sort_key`]: canonical but for Hebrew points), and each
 /// composed onto its starter where the face has the composite.
 ///
 /// **The one spelling of those rules.** `push_cluster` maps exactly this
@@ -330,16 +377,19 @@ impl<'f, 'a> Normalised<'f, 'a> {
                 n += 1;
             }
         }
-        // Canonical ordering (`[[source: unicode-ch3]]` D109): marks after
-        // a starter sort by combining class, stably, so grave + dot-below
-        // composes the same as dot-below + grave. Insertion sort, because
-        // a cluster holds at most `CLUSTER_MAX` codepoints.
+        // Mark ordering: marks after a starter sort stably by
+        // `CombiningClass::sort_key` -- the Canonical Ordering Algorithm
+        // (`[[source: unicode-ch3]]` D109) over a permutation of the
+        // classes that differs from Unicode's only for Hebrew points -- so
+        // grave + dot-below composes the same as dot-below + grave.
+        // Insertion sort, because a cluster holds at most `CLUSTER_MAX`
+        // codepoints.
         let mut i = 1usize;
         while i < n {
-            let class = combining_class(seq[i]).0;
+            let class = combining_class(seq[i]).sort_key().0;
             let mut j = i;
             while class != 0 && j > 0 {
-                let before = combining_class(seq[j - 1]).0;
+                let before = combining_class(seq[j - 1]).sort_key().0;
                 if before == 0 || before <= class {
                     break;
                 }
@@ -421,7 +471,7 @@ impl<'f, 'a> Normalised<'f, 'a> {
     /// first part of a base the face lacks, and a base no face draws is the
     /// `.notdef` that says so. (A cluster that begins with a mark -- which
     /// only a caller of `Renderer::cluster` can build, since the core hangs a
-    /// mark on the cell before it -- is the exception: canonical order can
+    /// mark on the cell before it -- is the exception: the mark order can
     /// sort a lower-class mark the face lacks to the front, and that is kept
     /// as a `.notdef`.)
     ///
