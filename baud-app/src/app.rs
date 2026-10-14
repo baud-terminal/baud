@@ -30,7 +30,8 @@ use baud_render::{
     AbsLine, Blend, Blink, BlinkPhases, Blinking, Candidate, Clip, Composition, Damage, Frame,
     GlyphMap, Grain, Highlight, Instance, Look, MapEntry, Overlay, Point, Press, PxSize, Renderer,
     Resolved, Scene, Scroll as ScrollBar, Scrolled, Scroller, Selection, Slide, Span, StyleStamp,
-    Tally, Target, Theme, Trail, TrailLook, Transition, Window, back_for, gutter, place, thumb,
+    Tally, Target, Theme, Trail, TrailLook, Transition, Window, back_for, copy_for_shader, gutter,
+    place, thumb,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -1523,6 +1524,7 @@ impl App {
                     // cursor (the shader's row there is past every one).
                     let above = self.term.view(Rows::of_index(back.index() + 1));
                     cell.maps.live.ensure(
+                        &self.term,
                         above,
                         &cell.styles_mem[set][..],
                         &mut self.renderer,
@@ -1547,6 +1549,7 @@ impl App {
                     (c, _) => c,
                 };
                 cell.maps.live.ensure(
+                    &self.term,
                     view,
                     &cell.styles_mem[set][..],
                     &mut self.renderer,
@@ -1574,11 +1577,17 @@ impl App {
                 // `view(back + 1).row(0)`, appended at index `vrows`, where
                 // `slide_rows = 1` maps draw row 0 to it with the identity
                 // rotation the copy is read under.
+                // A marked cell there is given its base: the shader draws the
+                // row from the map alone (`copy_for_shader`).
                 if sliding {
                     let above = self.term.view(Rows::of_index(back.index() + 1));
                     let src = above.row(Row::from_index(0));
                     let at = vrows * stride;
-                    cell.copies_mem[set][at..at + vcols].copy_from_slice(&src[..vcols]);
+                    copy_for_shader(
+                        &self.term,
+                        &src[..vcols],
+                        &mut cell.copies_mem[set][at..at + vcols],
+                    );
                 }
                 cell.exceptions.ensure(
                     &Scene {
@@ -5761,7 +5770,12 @@ impl Driver {
             let mut confirmed = 0;
             let mut wrong = false;
             for p in &app.predictions {
-                let content = view.row(p.row).get(p.col.index()).map(|c| c.content);
+                // The base the cell shows: an echo a mark joined holds its
+                // slot, and the prediction was its base.
+                let content = view
+                    .row(p.row)
+                    .get(p.col.index())
+                    .map(|c| app.term.base_of(*c));
                 match content {
                     Some(c) if c == Content::codepoint(p.cp) => confirmed += 1,
                     Some(c) if c.is_empty() => break,
@@ -7448,7 +7462,7 @@ impl Driver {
         let line = scrolled.line(back, row);
         let span_at = |grain: Grain| match grain {
             Grain::Cell => Span::cell(view.row(row), line, col),
-            Grain::Word => Span::word(view.row(row), line, col),
+            Grain::Word => Span::word(&self.app.term, view.row(row), line, col),
             Grain::Line => Span::line(&view, top, row),
         };
         match event.kind {

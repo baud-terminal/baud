@@ -110,6 +110,10 @@ pub use baud_domain::{
     Chan, ClipboardBudget, ClipboardContent, ClipboardRefusals, ClipboardWrite, ColorWord,
     DynamicColor, LinkId, Osc, Selection, Selections, StringTerm, Video, XColor,
 };
+/// The cluster store's vocabulary: what [`Term::cluster_epoch`] and
+/// [`Term::cluster_sweeps`] return, and the store itself, which a test
+/// drives to read where a cluster lands.
+pub use baud_domain::{ClusterEpoch, ClusterLive, ClusterStore, ClusterSweeps, Refused};
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
 /// The page-width request's vocabulary: an embedder that cannot name a
 /// [`WidthHold`] cannot call [`Term::set_width_hold`], nor read what

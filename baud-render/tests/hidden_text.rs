@@ -297,7 +297,7 @@ fn a_blinking_slot_off_screen_is_not_seen() {
     let mut stamp = StyleStamp::default();
     let mut seen = |t: &Term<'_>, r: &mut Renderer<'_, '_>| {
         r.sync_styles(t, &mut styles, &mut stamp);
-        map.ensure(t.view(Rows::ZERO), &styles, r, &mut candidates);
+        map.ensure(t, t.view(Rows::ZERO), &styles, r, &mut candidates);
         overlay.ensure(
             &Scene {
                 term: t,
@@ -361,7 +361,7 @@ fn a_rapid_slot_alone_is_seen_on_the_cell_path() {
     let mut stamp = StyleStamp::default();
     feed(&mut t, b"\x1b[6mRAPID\x1b[0m");
     r.sync_styles(&t, &mut styles, &mut stamp);
-    map.ensure(t.view(Rows::ZERO), &styles, &mut r, &mut candidates);
+    map.ensure(&t, t.view(Rows::ZERO), &styles, &mut r, &mut candidates);
     overlay.ensure(
         &Scene {
             term: &t,
@@ -407,7 +407,7 @@ fn a_hidden_cells_records_are_not_drawn() {
         feed(&mut t, bytes);
         r.set_blink(phase);
         r.resolve_styles_into(&t, &mut styles);
-        map.ensure(t.view(Rows::ZERO), &styles, r, &mut candidates);
+        map.ensure(&t, t.view(Rows::ZERO), &styles, r, &mut candidates);
         overlay.ensure(
             &Scene {
                 term: &t,

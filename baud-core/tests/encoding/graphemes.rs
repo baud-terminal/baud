@@ -184,7 +184,7 @@ fn where_a_combining_mark_ends_up() {
     let cols = t.cursor().1.index();
     let cells: Vec<u32> = t.viewport()[..cols.max(1)]
         .iter()
-        .map(|c| c.content.as_codepoint().map_or(0, |c| c.value()))
+        .map(|c| t.base_of(*c).as_codepoint().map_or(0, |c| c.value()))
         .collect();
     assert_eq!(cells, vec![0x65], "one cell, holding the base `e`");
     let marks: Vec<u32> = t.marks(Row::from_index(0), Col::ZERO).collect();
@@ -387,14 +387,15 @@ impl Before {
 }
 
 /// Why a line this core renders differently from the policy below does so.
+///
+/// **No line is refused by the store any more.** Lines 196 (after `xyz`) and
+/// 788 (in all three) were, while `ClusterStore` probed two of 63 slots from
+/// an unfinalized hash: a fourth or a sixth prefix found both its slots
+/// taken on a fresh store. With eight probes of 1024 slots and a finalized
+/// hash they render as the standard says (docs/record.md, "The cluster
+/// store holds 1024 clusters and sweeps the dead ones").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Why {
-    /// `ClusterStore` refused a prefix of the cluster, and the codepoint that
-    /// grew it was dropped and counted in `marks_dropped`. It probes two slots
-    /// and interns every growing prefix as a slot of its own, so a long cluster
-    /// can collide on a fresh store: note AB §7.2 and its Q7, an open
-    /// departure.
-    StoreRefused,
     /// Printable ASCII straight after a Prepend. GB9b joins them; the Prepend
     /// is zero-width and joins the cell before it (`ZERO_WIDTH_STARTS_ALONE`),
     /// and the letter goes through `Paint::piece`, which never asks the
@@ -408,9 +409,6 @@ enum Why {
 /// passing fails this pin as surely as a new one failing does: the list moves
 /// when the departure does.
 const KNOWN: &[(usize, &[Before], Why)] = &[
-    // `0300 0308 06DD` after `xyz`: the `U+06DD` grows `z`'s cluster to a
-    // fourth prefix and both of its slots are taken.
-    (196, &[Before::ThreeLetters], Why::StoreRefused),
     // `06DD 0020`: alone the Prepend is dropped at column 0 and the space
     // takes the cell the policy gives it; after a letter it is not.
     (
@@ -420,9 +418,6 @@ const KNOWN: &[(usize, &[Before], Why)] = &[
     ),
     // `0061 0600 0062`, the file's own GB9b case.
     (764, &Before::ALL, Why::AsciiAfterPrepend),
-    // `179F 17D2 178F 17D2 179A 17B8`, a Khmer cluster of six: the sixth
-    // codepoint's prefix finds both slots taken.
-    (788, &Before::ALL, Why::StoreRefused),
 ];
 
 /// **Lines whose standard clustering starts a cluster with a zero-width
@@ -742,7 +737,10 @@ fn through_term(bytes: &[u8], read: ReadLen) -> (Vec<Vec<Column>>, (Row, Col), u
                         (true, _) => Column::Blank,
                         (_, true) => Column::Tail,
                         _ => {
-                            let base = c.content.as_codepoint().expect("a written cell holds one");
+                            let base = t
+                                .base_of(*c)
+                                .as_codepoint()
+                                .expect("a written cell holds one");
                             let marks = t
                                 .marks(y, Col::at_index(x))
                                 .map(|m| Codepoint::new(m).expect("a mark is a scalar value"));
@@ -870,15 +868,6 @@ fn every_line_of_the_suite_clusters_through_the_terminal() {
                 .iter()
                 .find(|(l, b, _)| *l == c.line && b.contains(&before));
             match known {
-                Some((_, _, Why::StoreRefused)) => {
-                    let whole = ReadLen::from_index(bytes.len());
-                    let (_, _, dropped) = through_term(&bytes, whole);
-                    assert!(
-                        dropped > 0,
-                        "line {}: pinned as a refusal, and nothing was dropped",
-                        c.line
-                    );
-                }
                 Some((_, _, Why::AsciiAfterPrepend)) => {
                     let after_prepend = clusters.iter().any(|k| {
                         k.windows(2).any(|w| {

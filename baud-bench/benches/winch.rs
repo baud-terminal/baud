@@ -125,10 +125,12 @@ fn load_json(path: &str) -> Vec<Step> {
     steps
 }
 
-fn text(cells: &[PackedCell]) -> String {
+/// A row's characters, each cell's base read back through `t`, which the
+/// row was read from.
+fn text(t: &Term<'_>, cells: &[PackedCell]) -> String {
     cells
         .iter()
-        .map(|c| match c.content.as_codepoint() {
+        .map(|c| match t.base_of(*c).as_codepoint() {
             Some(cp) => char::from_u32(cp.value()).unwrap_or('?'),
             None => ' ',
         })
@@ -192,7 +194,7 @@ fn copies(t: &Term<'_>, sig: Option<&str>) -> Option<usize> {
     Some(
         (0..rows.index())
             .filter(|y| {
-                text(t.row(Row::from_index(*y)).expect("a row on the grid"))
+                text(t, t.row(Row::from_index(*y)).expect("a row on the grid"))
                     .trim_start()
                     .starts_with(sig)
             })
@@ -203,7 +205,10 @@ fn copies(t: &Term<'_>, sig: Option<&str>) -> Option<usize> {
 fn dump(t: &Term<'_>) {
     let (c, r) = t.geometry();
     for y in 0..r.index() {
-        let line = text(&t.row(Row::from_index(y)).expect("a row on the grid")[..c.index()]);
+        let line = text(
+            t,
+            &t.row(Row::from_index(y)).expect("a row on the grid")[..c.index()],
+        );
         let line = line.trim_end();
         if !line.is_empty() {
             println!("    {y:3}| {}", line.chars().take(72).collect::<String>());
@@ -598,7 +603,7 @@ fn main() {
             if let Some((c, _)) = sb.line(Back::of(n)) {
                 println!(
                     "  -{n}| {}",
-                    text(c).trim_end().chars().take(72).collect::<String>()
+                    text(&t, c).trim_end().chars().take(72).collect::<String>()
                 );
             }
         }
@@ -610,7 +615,7 @@ fn main() {
         (0..sb.len())
             .filter(|n| {
                 sb.line(Back::of(*n))
-                    .is_some_and(|(c, _)| text(c).trim_start().starts_with(s))
+                    .is_some_and(|(c, _)| text(&t, c).trim_start().starts_with(s))
             })
             .count()
     });

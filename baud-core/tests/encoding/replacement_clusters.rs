@@ -45,7 +45,10 @@ fn seen(bytes: &[u8], cuts: &[usize], amb: AmbiguousWidth) -> Seen {
                 (true, _) => "_".to_string(),
                 (_, true) => "tail".to_string(),
                 _ => {
-                    let base = c.content.as_codepoint().expect("a written cell holds one");
+                    let base = t
+                        .base_of(*c)
+                        .as_codepoint()
+                        .expect("a written cell holds one");
                     let mut s = format!("{:X}", base.value());
                     for m in t.marks(y, Col::at_index(x)) {
                         s.push_str(&format!("+{m:X}"));

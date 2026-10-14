@@ -762,7 +762,7 @@ fn the_csi_and_prepend_atoms_reach_their_edges() {
     let row = |t: &Term<'_>| -> Vec<u32> {
         t.viewport()[..2]
             .iter()
-            .map(|c| c.content.as_codepoint().map_or(0, |c| c.value()))
+            .map(|c| t.base_of(*c).as_codepoint().map_or(0, |c| c.value()))
             .collect()
     };
     for (name, want) in [

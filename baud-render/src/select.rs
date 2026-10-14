@@ -132,17 +132,20 @@ impl Span {
     /// not empty, not whitespace and not delimiters. A cell that is none
     /// of those -- a delimiter or a blank under the pointer -- is a span
     /// of itself, which is what a double click on a space selects.
-    pub fn word(row: &[PackedCell], line: AbsLine, col: Col) -> Span {
+    ///
+    /// `term` is what `row` was read from, in the same borrow: a cell with
+    /// continuations holds its slot, and its base is read back from there.
+    pub fn word(term: &Term<'_>, row: &[PackedCell], line: AbsLine, col: Col) -> Span {
         let c = col.index().min(row.len().saturating_sub(1));
-        if row.is_empty() || !is_word(row, Col::at_index(c)) {
+        if row.is_empty() || !is_word(term, row, Col::at_index(c)) {
             return Span::cell(row, line, col);
         }
         let mut start = c;
-        while start > 0 && is_word(row, Col::at_index(start - 1)) {
+        while start > 0 && is_word(term, row, Col::at_index(start - 1)) {
             start -= 1;
         }
         let mut end = c;
-        while end + 1 < row.len() && is_word(row, Col::at_index(end + 1)) {
+        while end + 1 < row.len() && is_word(term, row, Col::at_index(end + 1)) {
             end += 1;
         }
         Span {
@@ -505,7 +508,7 @@ fn push_cell(out: &mut String, term: &Term<'_>, cell: PackedCell) {
     if cell.content.is_wide_tail() {
         return;
     }
-    let Some(cp) = cell.content.as_codepoint() else {
+    let Some(cp) = term.base_of(cell).as_codepoint() else {
         out.push(' ');
         return;
     };
@@ -522,13 +525,13 @@ fn push_cell(out: &mut String, term: &Term<'_>, cell: PackedCell) {
 /// The characters a word stops at, besides whitespace and an empty cell.
 const DELIMITERS: &str = ",│`|:\"' ()[]{}<>\t";
 
-fn is_word(row: &[PackedCell], at: Col) -> bool {
+fn is_word(term: &Term<'_>, row: &[PackedCell], at: Col) -> bool {
     let i = at.index();
     let cell = row[i];
     if cell.content.is_wide_tail() {
-        return i > 0 && is_word(row, Col::at_index(i - 1));
+        return i > 0 && is_word(term, row, Col::at_index(i - 1));
     }
-    let Some(cp) = cell.content.as_codepoint() else {
+    let Some(cp) = term.base_of(cell).as_codepoint() else {
         return false;
     };
     match char::from_u32(cp.value()) {
@@ -601,8 +604,14 @@ mod tests {
     fn a_word_stops_at_delimiters_blanks_and_empty_cells() {
         let r = row("foo_bar(baz) qux");
         let l = AbsLine::at(Rows::of_count(0));
+        let ws = baud_core::WinSize {
+            ws_row: 1,
+            ws_col: 20,
+        };
+        let mut st = baud_core::Owned::new(&ws);
+        let t = Term::new(st.storage(), &ws);
         let w = |c: usize| {
-            let s = Span::word(&r, l, Col::at_index(c));
+            let s = Span::word(&t, &r, l, Col::at_index(c));
             (s.start.col.index(), s.end.col.index())
         };
         assert_eq!(w(1), (0, 2));
@@ -612,7 +621,7 @@ mod tests {
         assert_eq!(w(7), (7, 7));
         // A word carries its wide tail.
         let wide = row("ab#c d");
-        let s = Span::word(&wide, l, Col::at_index(0));
+        let s = Span::word(&t, &wide, l, Col::at_index(0));
         assert_eq!((s.start.col.index(), s.end.col.index()), (0, 3));
     }
 

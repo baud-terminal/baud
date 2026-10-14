@@ -240,7 +240,7 @@ fn the_cell_paths_map_follows_a_change_of_default() {
     let mut candidates = Vec::new();
     let mut face_of_bolt = |r: &mut Renderer<'_, '_>, t: &Term<'_>| {
         r.sync_styles(t, &mut styles, &mut stamp);
-        map.ensure(t.view(Rows::ZERO), &styles, r, &mut candidates);
+        map.ensure(t, t.view(Rows::ZERO), &styles, r, &mut candidates);
         map.probe(cp('⚡'), FaceStyle::Regular, CellSpan::Two)
             .expect("the bolt is mapped")
             .face()

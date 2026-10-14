@@ -595,11 +595,11 @@ fn after_cuts(bytes: &[u8], cuts: &[usize]) -> (Vec<u32>, (Row, Col), usize) {
     let row = &t.viewport()[..40];
     let end = row
         .iter()
-        .rposition(|c| c.content.as_codepoint().is_some())
+        .rposition(|c| t.base_of(*c).as_codepoint().is_some())
         .map_or(0, |i| i + 1);
     let cells = row[..end]
         .iter()
-        .map(|c| c.content.as_codepoint().map_or(0, |c| c.value()))
+        .map(|c| t.base_of(*c).as_codepoint().map_or(0, |c| c.value()))
         .collect();
     (cells, t.cursor(), t.replacements)
 }

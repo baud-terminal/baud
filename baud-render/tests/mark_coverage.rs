@@ -587,7 +587,7 @@ fn both_paths(faces: &[Face<'_>], text: &str) -> (Vec<Instance>, Vec<Instance>) 
     r.convert(&t, Rows::ZERO, Damage::Full);
     let view = t.view(Rows::ZERO);
     r.sync_styles(&t, &mut styles, &mut stamp);
-    map.ensure(view, &styles, &mut r, &mut candidates);
+    map.ensure(&t, view, &styles, &mut r, &mut candidates);
     o.ensure(
         &Scene {
             term: &t,
@@ -675,7 +675,7 @@ fn overlay_unmapped(faces: &[Face<'_>], text: &str) -> u64 {
     let view = t.view(Rows::ZERO);
     r.sync_styles(&t, &mut styles, &mut stamp);
     let before = unmapped(&r);
-    map.ensure(view, &styles, &mut r, &mut candidates);
+    map.ensure(&t, view, &styles, &mut r, &mut candidates);
     o.ensure(
         &Scene {
             term: &t,

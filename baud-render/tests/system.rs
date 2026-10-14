@@ -26,8 +26,11 @@ fn fnv64(data: &[u8]) -> u64 {
 /// neither Menlo nor Apple Color Emoji has: 18 cells changed, every one in
 /// or just right of a letter whose vowel sign was left out. Every emoji
 /// cluster is Apple Color Emoji's whole and drew as it did; drawn from the
-/// base's face with nothing left out, the frame is its old pin again.
-const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0xd17caacd3a6fa319);
+/// base's face with nothing left out, the frame is its old pin again. It
+/// moved again when the cluster store grew to 1024 slots: two wide kana,
+/// U+30C5 and U+30C7, keep the U+3099 the 63-slot store refused them, and
+/// all 128 pixels that changed are in those two cells.
+const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0x6c88130c3c7a4fcd);
 
 #[test]
 fn the_macos_stack_paints_cat_cjk_to_its_pinned_frame() {

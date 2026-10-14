@@ -231,7 +231,9 @@ fn every_recording_renders_to_its_pinned_digest() {
             let mut digest = 0xcbf29ce484222325u64;
             let mut got = 0usize;
             for c in cells {
-                let v = match c.content.as_codepoint() {
+                // The base a cell shows: a cell with continuations holds its
+                // slot's word, and its base is in the slot.
+                let v = match t.base_of(c).as_codepoint() {
                     Some(cp) => cp.value(),
                     None if c.content.is_empty() => u32::MAX,
                     None => 0,

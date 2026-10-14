@@ -424,13 +424,14 @@ fn main() {
                     // still leaves them as the screen's -- the app's order.
                     if arm == Arm::Slide {
                         map.ensure(
+                            &t,
                             t.view(Rows::of_index(1)),
                             styles_mem,
                             &mut r,
                             &mut candidates,
                         );
                     }
-                    map.ensure(t.viewport(), styles_mem, &mut r, &mut candidates);
+                    map.ensure(&t, t.viewport(), styles_mem, &mut r, &mut candidates);
                     s.parts[part].map += tc.elapsed();
                     let cursor = t.cursor_visible().then(|| {
                         let (row, col) = t.cursor();

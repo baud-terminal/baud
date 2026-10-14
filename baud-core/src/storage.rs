@@ -134,10 +134,10 @@ pub struct Storage<'b> {
     pub(crate) tabs: &'b mut [bool],
     /// Interned grapheme clusters, indexed **from the cell**.
     ///
-    /// See [`ClusterStore`]. The index rides in `CellFlags`, so it moves when
-    /// the cell moves -- which is what makes it survive `RowRot`, a frame's read
-    /// and the alternate screen without a parallel structure to keep in step,
-    /// and is exactly what `baud-core2`'s position key did not.
+    /// See [`ClusterStore`]. The index rides in the cell's `Content`, so it
+    /// moves when the cell moves -- which is what makes it survive `RowRot`, a
+    /// frame's read and the alternate screen without a parallel structure to
+    /// keep in step, and is exactly what `baud-core2`'s position key did not.
     pub(crate) clusters: ClusterStore<'b>,
     /// Everything a control string writes. See [`StrBuf`].
     pub(crate) strs: StrBuf<'b>,
@@ -671,12 +671,17 @@ impl Owned {
 
 /// How many distinct grapheme clusters can be live at once.
 ///
-/// **63, and the bound comes from the cell rather than from a sweep.** The
-/// index rides in `CellFlags`, `PackedCell` is eight bytes because a ninth
-/// rounds it to twelve, three bits are flags and `NLINK = 128` takes seven --
-/// which leaves six. `ClusterStore` refuses beyond that and counts, so the
-/// answer is never wrong and how often it is missing is a number.
-pub const NCLUSTER: usize = 64;
+/// **1024, the owner's choice of 2026-10-13** ("1024 slots, 8 probes"). The
+/// index rides in the cell's `Content`, above U+10FFFF, where it was six
+/// bits of `CellFlags` and the store held 63. The 1024 slots are 40,960
+/// bytes, and an intern reads at most eight of them
+/// (`ClusterStore::PROBES`). A slot no cell names is reclaimed by a sweep
+/// once every slot holds a cluster, so a session can pass more clusters
+/// than the store holds. It is not a bound on what is on a cell at once:
+/// a cluster whose eight slots are taken is refused while others are free.
+/// `ClusterStore` refuses and counts, so the answer is never wrong and how
+/// often it is missing is a number.
+pub const NCLUSTER: usize = ClusterStore::SLOTS_MAX;
 
 /// The **floor** on the rendition table: the smallest it is ever sized to, for
 /// a screen too small to need more. The table is sized to the screen by

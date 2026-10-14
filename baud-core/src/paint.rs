@@ -865,7 +865,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         {
             let o = self.view.lead(self.cy, after.before());
             let c = self.view.cell_at(self.cy, o);
-            core::hint::black_box(self.clusters.get(c.flags.cluster(), c.content).is_some());
+            core::hint::black_box(self.clusters.get(c.content).is_some());
         }
         let (r, owner) = (self.cy, self.view.lead(self.cy, after.before()));
         let cell = self.view.cell_at(r, owner);
@@ -873,16 +873,22 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.clusters.refused += 1;
             return;
         }
+        // The cell's base: its own content, or its slot's when it names one,
+        // since a cell with continuations holds its slot's word instead.
         let mut cps = [0u32; ClusterSlot::CAPACITY];
         let mut n = 0usize;
-        if let Some(s) = self.clusters.get(cell.flags.cluster(), cell.content) {
-            for c in s.marks() {
-                if n < cps.len() {
-                    cps[n] = c;
-                    n += 1;
+        let base = match self.clusters.get(cell.content) {
+            Some(s) => {
+                for c in s.marks() {
+                    if n < cps.len() {
+                        cps[n] = c;
+                        n += 1;
+                    }
                 }
+                s.base
             }
-        }
+            None => cell.content,
+        };
         if n == cps.len() {
             // A cluster past the table's capacity keeps what it has rather
             // than losing its head, and says one was lost.
@@ -891,7 +897,10 @@ impl<'a, 'b> Paint<'a, 'b> {
         }
         cps[n] = cp.value();
         n += 1;
-        let id = self.clusters.intern(cell.content, &cps[..n]);
+        let id = match self.clusters.try_intern(base, &cps[..n]) {
+            Ok(id) => id,
+            Err(why) => self.refused(why, base, &cps[..n]),
+        };
         match id.is_none() {
             true => {}
             false => self.view.set_cluster(r, owner, id),
@@ -903,13 +912,64 @@ impl<'a, 'b> Paint<'a, 'b> {
         // the selector means the selector is not the base's.
         if cp.value() == 0xFE0F && self.cold.vs16 == Vs16Width::Two {
             let before = match n {
-                1 => cell.content.as_codepoint(),
+                1 => base.as_codepoint(),
                 _ => Codepoint::new(cps[n - 2]),
             };
             if before.is_some_and(vs16::widens) {
                 self.widen(r, owner.col());
             }
         }
+    }
+
+    /// A cluster the store refused: swept for, when the store is full and a
+    /// sweep is due ([`ClusterStore::sweep_due`]), else counted.
+    ///
+    /// **Out of line, and that is measured.** Inline in `attach_before`,
+    /// the full-store test cost the hit path a few instructions an intern
+    /// in register choices and block order: `cat-cjk` +0.62%, Genesis 1:1-5
+    /// +3.86% and Pango's Genesis 1 +7.63% against 59a5a0bb, where out of
+    /// line they are +0.30%, +3.11% and +6.84% (docs/record.md, "The
+    /// cluster store holds 1024 clusters and sweeps the dead ones").
+    #[cold]
+    #[inline(never)]
+    fn refused(&mut self, why: Refused, base: Content, cps: &[u32]) -> ClusterId {
+        match why {
+            Refused::Full if self.clusters.sweep_due() => self.sweep_and_intern(base, cps),
+            Refused::Full | Refused::Shape => {
+                self.clusters.refused += 1;
+                ClusterId::NONE
+            }
+        }
+    }
+
+    /// **The sweep**: every slot no cell names is freed, and `base` plus `cps`
+    /// probes again. The owner's choice of 2026-10-13, "Sweep when full":
+    /// "when all slots are used, walk the live cells once and free
+    /// unreferenced slots". It runs when a cluster finds every slot it may
+    /// take holding another and every slot of the store holds a cluster, at
+    /// most once every `SLOTS_MAX / 16` interns that wanted a slot
+    /// ([`ClusterStore::sweep_due`]).
+    ///
+    /// **Every cell that can name a slot is marked**: the live surface's
+    /// whole buffer -- its screen, the primary's history and the rows held
+    /// past a narrower edge -- and the other surface's. A cell this misses
+    /// would lose its base with its marks, since the slot holds both. The
+    /// cell being attached to still names its prefix, so the prefix is live
+    /// until the new cluster replaces it.
+    ///
+    /// `#[cold]` and out of line like `attach_before`: one sweep walks a
+    /// 200x50 grid's two surfaces and 2,000 lines of history, about 437,000
+    /// cells, in about 122 µs on its first build (docs/record.md, "The
+    /// cluster store holds 1024
+    /// clusters and sweeps the dead ones").
+    #[cold]
+    #[inline(never)]
+    fn sweep_and_intern(&mut self, base: Content, cps: &[u32]) -> ClusterId {
+        let mut live = ClusterLive::new();
+        live.mark(self.view.ring_cells());
+        live.mark(self.other.cells);
+        self.clusters.sweep(&live);
+        self.clusters.intern(base, cps)
     }
 
     /// A zero-width codepoint the cluster machine did not join to anything:

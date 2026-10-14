@@ -45,7 +45,7 @@ fn row(t: &Term<'_>, y: usize) -> String {
             if c.content.is_wide_tail() {
                 '>'
             } else {
-                c.content
+                t.base_of(*c)
                     .as_codepoint()
                     .and_then(|cp| char::from_u32(cp.value()))
                     .unwrap_or('.')
@@ -246,7 +246,7 @@ fn the_recordings_rainbow_flags_take_two_cells_at_every_read_size() {
                     .expect("a row on the grid")
                     .to_vec();
                 for x in 0..cells.len() - 1 {
-                    let Some(cp) = cells[x].content.as_codepoint() else {
+                    let Some(cp) = t.base_of(cells[x]).as_codepoint() else {
                         continue;
                     };
                     let first = t.marks(Row::from_index(y), Col::at_index(x)).next();

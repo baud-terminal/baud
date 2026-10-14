@@ -37,12 +37,13 @@ mod support;
 
 use baud_core::*;
 
-/// One cell as a character: `.` for a blank and `]` for a wide tail.
-fn glyph(c: PackedCell) -> char {
+/// One cell as a character: `.` for a blank and `]` for a wide tail, and a
+/// cell with continuations its base, read back from `t`'s store.
+fn glyph(t: &Term<'_>, c: PackedCell) -> char {
     if c.content.is_wide_tail() {
         return ']';
     }
-    match c.content.as_codepoint() {
+    match t.base_of(c).as_codepoint() {
         Some(cp) => char::from_u32(cp.value()).unwrap_or('?'),
         None => '.',
     }
@@ -72,7 +73,7 @@ fn rows(ws: &WinSize, bytes: &[u8], read: ReadLen, want: &[&str]) -> Vec<String>
             .map(|y| {
                 t.row(Row::from_index(y)).expect("a row on the grid")[..cols]
                     .iter()
-                    .map(|&c| glyph(c))
+                    .map(|&c| glyph(t, c))
                     .collect()
             })
             .collect()

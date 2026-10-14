@@ -1092,6 +1092,13 @@ by `Term::marks_dropped`:
 
 The Hindi denominator is not exact: conjunct clusters also attach consonants.
 
+*Since 2026-10-14* the store holds 1024 slots, probes eight, and sweeps out
+the clusters no cell names once all 1024 are used, so "only RIS frees the
+store" below describes the store this table measured. The four rows, one
+`Term` each at 200x50 with 2,000 lines of history, refuse 0, 2, 0 and 349,
+and none of them fills the store, so none sweeps (docs/record.md, "The
+cluster store holds 1024 clusters and sweeps the dead ones").
+
 - **Only RIS frees the store.** After the Hindi article, all 228 of Bialik's
   marks were refused across ED2, `?1049` entered and left, or DECSTR. RIS
   brought the count back to 81 ([[source: ad-obs-freq-storetest]]). The one
@@ -1378,7 +1385,13 @@ and C.
 - **The store limit comes first.** With cantillation, Genesis 1:1-5 (Sefaria)
   has 81 distinct letter-and-mark clusters, past the store's 63, and the store
   would need 107 base-and-mark prefixes (measured). The refused marks are gone
-  before any renderer option can show them.
+  before any renderer option can show them. *Since 2026-10-14* the store
+  holds 1024 and sweeps the clusters no cell names once all are used, and
+  Bialik, OSHB Genesis 1, the Arabic and the Hindi, each through a terminal
+  of its own, refuse 0, 2, 0 and 349 where they refused 81, 997, 1117 and
+  13473
+  (docs/record.md, "The cluster store holds 1024 clusters and sweeps the
+  dead ones").
 
 ## 7. Questions for Jev and the owner
 

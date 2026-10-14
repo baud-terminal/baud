@@ -621,6 +621,8 @@ All file:line citations are at e138e34 on `smooth-scroll` [source] unless tagged
 
 This needs a red test pinning `marks_dropped > 0` on that sample, and it gates phase 0 (Q7).
 
+*Built 2026-10-14* (docs/record.md, "The cluster store holds 1024 clusters and sweeps the dead ones"): the owner chose 1024 slots, eight probes, the cluster index in the cell's `Content` and a finalized hash, and a sweep of the live cells once all 1024 slots are used. `marks_dropped` over the five verses is 0, 0 and 0 where it was 0, 10 and 45 (`baud-core/tests/cluster_bounds.rs`), and 0 over Pango's pointed Genesis 1, where it was 329.
+
 ### 7.3 Constraints
 
 - **No engine dependencies.**
@@ -718,6 +720,7 @@ Phase 0 alone does not fix pointed text; see Q7.
 - (c) Leave it bounded and keep counting refusals. *Against:* vowel points vanish.
 - CLAUDE.md requires the attacker-keyed style and link tables to stay bounded. Cluster keys are attacker-supplied too, so by the same reasoning any option must stay bounded [inferred].
 - It needs a red test, pinning `marks_dropped > 0` on that sample, before any choice is made.
+- *Answered 2026-10-13 by the owner and built 2026-10-14*: (a) and (b) together, 1024 slots with the index in the cell's `Content` above U+10FFFF, eight probes, and a sweep of the live cells that frees what no cell names (7.2's postscript). It stays bounded: a cluster whose eight slots hold others is refused and counted, before the store fills and after a sweep. The eight-continuation cap (`ClusterSlot::CAPACITY`) was left open by the owner and is kept and stated in `docs/vt-coverage.md`.
 
 **Q8. Erased cells between characters.**
 

@@ -25,8 +25,9 @@ use crate::instance::Screen;
 use crate::picture::Pictured;
 use crate::renderer::{BlinkPhases, PairRole, Renderer, Single};
 use crate::units::Tally;
+use baud_core::Term;
 use baud_domain::contrast::CurveRow;
-use baud_domain::{Chan, Codepoint, Col, Content, GlyphId, Row, Viewport};
+use baud_domain::{Chan, Codepoint, Col, Content, GlyphId, PackedCell, Row, Viewport};
 
 /// A cell that ends an adjacent pair the face's rules can begin on: the
 /// second of the two, on the screen the map was ensured for.
@@ -49,6 +50,30 @@ pub fn face_of(styles: &[Resolved], cell: baud_domain::PackedCell) -> crate::Fac
     styles
         .get(cell.style.index())
         .map_or(crate::FaceStyle::Regular, |s| s.shapes.face())
+}
+
+/// **A row copied for the cell shader to draw from the map alone**: each
+/// cell as `src` holds it, but a cell with continuations given its base in
+/// place of its slot's word.
+///
+/// The shader draws a cell's glyph by looking its content up in the map,
+/// and draws no glyph for content above U+10FFFF -- which a cell naming a
+/// cluster now holds. On a screen row that is right: the overlay masks the
+/// cell and a record draws its whole cluster. The leaving row of a slide has
+/// no mask (`cell_glyph_vertex` reads none there), so it is drawn from the
+/// map, and a marked cell there draws its base for that one row -- what it
+/// drew when the base was the cell's content. The app copies that row with
+/// this; `term` is what `src` was read from, in the same borrow.
+pub fn copy_for_shader(term: &Term<'_>, src: &[PackedCell], dst: &mut [PackedCell]) {
+    for (d, s) in dst.iter_mut().zip(src) {
+        *d = match s.flags.is_marked() {
+            true => PackedCell {
+                content: term.base_of(*s),
+                ..*s
+            },
+            false => *s,
+        };
+    }
 }
 
 /// Which side of a cell's colours its glyph is drawn in: its own
@@ -391,8 +416,14 @@ impl<'m> GlyphMap<'m> {
     /// `styles` is the resolved rendition table the frame draws with,
     /// synced before this walk: a cell's face style is read from its slot,
     /// as the shader reads it, so the two build and probe the same keys.
+    ///
+    /// `term` is what `vp` was read from, in the same borrow: a cell with
+    /// continuations holds its cluster's slot rather than its base, and its
+    /// base -- which takes an entry like any other cell's and can begin or
+    /// end a pair -- is read back from the store ([`Term::base_of`]).
     pub fn ensure(
         &mut self,
+        term: &Term<'_>,
         vp: Viewport<'_>,
         styles: &[Resolved],
         r: &mut Renderer<'_, '_>,
@@ -412,7 +443,7 @@ impl<'m> GlyphMap<'m> {
                 if cell.flags.is_marked() {
                     self.stats.dropped_marks.bump();
                 }
-                let Some(cp) = cell.content.as_codepoint() else {
+                let Some(cp) = term.base_of(*cell).as_codepoint() else {
                     if cell.content != Content::WIDE_TAIL {
                         prev = None;
                     }

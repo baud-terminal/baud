@@ -34,6 +34,31 @@ impl Content {
     pub fn is_wide_tail(self) -> bool {
         self == Content::WIDE_TAIL
     }
+
+    /// Where the cluster range starts: one below the word that names slot
+    /// 1, above both reserved states.
+    ///
+    /// **A cell with continuations holds its cluster's index here, not its
+    /// base**: the base is in the slot, with the marks ([`ClusterSlot`]).
+    /// That is the id space the owner chose on 2026-10-13 ("1024 slots, 8
+    /// probes"), measured flat on plain text because a cell with no
+    /// continuations is written and read as it was: the range above
+    /// U+10FFFF had two words in use and room for any slot count a `u16`
+    /// names, where `CellFlags` had six bits left (docs/record.md, "The
+    /// cluster store holds 1024 clusters and sweeps the dead ones").
+    const CLUSTERS: u32 = 0x0012_0000;
+    /// The word a cell holds when its continuations live in slot `id`.
+    pub fn cluster(id: ClusterId) -> Content {
+        Content(Content::CLUSTERS + u32::from(id.0))
+    }
+    /// The slot this cell names, if it names one: a word in the cluster
+    /// range, which no codepoint and neither reserved state is.
+    pub fn cluster_id(self) -> Option<ClusterId> {
+        match self.0.wrapping_sub(Content::CLUSTERS) {
+            0 => None,
+            i => u16::try_from(i).ok().map(ClusterId),
+        }
+    }
     /// The word as the grid stores it. A shader reading the grid in place
     /// compares against these words, so a reserved state it tests for is
     /// spelled there as a literal and pinned to this.
@@ -117,12 +142,12 @@ impl LinkId {
     /// the same `id` be one logical link across lines; distinct ids must not
     /// collapse into a single slot merely because their URIs match.
     pub fn bucket(id: &[u8], uri: &[u8], buckets: usize) -> LinkId {
-        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut h: u64 = FNV_OFFSET;
         for &b in id.iter().chain(uri) {
             h ^= b as u64;
-            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            h = h.wrapping_mul(FNV_PRIME);
         }
-        let spread = h.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32;
+        let spread = h.wrapping_mul(FIBONACCI) >> 32;
         LinkId::from_index(1 + (spread as usize) % (buckets - 1))
     }
 }
@@ -190,7 +215,9 @@ impl CellFlags {
         CellFlags(self.0 | o.0)
     }
 
-    /// Bit 2: this cell carries entries in the marks table.
+    /// Bit 2: this cell carries entries in the marks table -- its
+    /// [`Content`] names a [`ClusterStore`] slot ([`Content::cluster_id`]),
+    /// and the bit is set and cleared with it.
     ///
     /// **The flag is in the cell so that overwriting the cell clears it.**
     /// Marks live in a side table keyed on cell identity, and a key alone
@@ -209,9 +236,9 @@ impl CellFlags {
     /// `grapheme_map`, so the map is consulted only for cells that have one.
     pub const MARKED: CellFlags = CellFlags(4);
 
-    /// Bits 3..10 carry the [`LinkId`] (`LINK_BITS`), and 10..16 the
-    /// [`ClusterId`]. This read "3..16", from before the cluster index took
-    /// the top six.
+    /// Bits 3..10 carry the [`LinkId`] (`LINK_BITS`); 10..16 are free. The
+    /// [`ClusterId`] took them until it moved into the cell's [`Content`],
+    /// whose range above U+10FFFF names 1024 slots where six bits named 63.
     ///
     /// **The link rides in the spare bits of this word rather than in a field
     /// of its own, and that is a measured constraint, not a packing game.**
@@ -226,12 +253,9 @@ impl CellFlags {
     /// wanted them and became a bug the moment something did: `link()` read
     /// `self.0 >> 3` unmasked, so any bit above the link's own range came back
     /// as part of the link index. Bounding it here is what makes the top six
-    /// bits available to [`ClusterId`] rather than a hazard.
+    /// bits above it free rather than a hazard.
     const LINK_BITS: u16 = 7;
     const LINK_MASK: u16 = (1 << CellFlags::LINK_BITS) - 1;
-    /// Where the cluster index lives: the six bits above the link.
-    const CLUSTER_SHIFT: u16 = CellFlags::LINK_SHIFT + CellFlags::LINK_BITS;
-    const CLUSTER_MASK: u16 = 0x3f;
 
     pub fn with_link(self, l: LinkId) -> CellFlags {
         let keep = self.0 & !(CellFlags::LINK_MASK << CellFlags::LINK_SHIFT);
@@ -241,33 +265,6 @@ impl CellFlags {
         LinkId::from_index(((self.0 >> CellFlags::LINK_SHIFT) & CellFlags::LINK_MASK) as usize)
     }
 
-    /// **The cluster this cell's continuations live under, carried *in* the
-    /// cell.**
-    ///
-    /// That placement is the whole design. `baud-core2` keyed its marks on
-    /// *where the cell is* -- surface, physical row, column, generation -- and
-    /// an adversarial review reproduced what that costs: its `Term::viewport`
-    /// un-rotated the grid in place and did not move the table with it, so a
-    /// renderer reading **one frame** lost a cell's marks and the next write
-    /// to that address inherited a stranger's. An index that rides in the cell
-    /// survives rotation, `viewport` and the alternate screen for free,
-    /// because it moves when the cell moves.
-    ///
-    /// Same shape as [`StyleId`] into the rendition table, which this codebase
-    /// already trusts: a bounded, content-addressed side table whose index is
-    /// in the cell.
-    pub fn with_cluster(self, c: ClusterId) -> CellFlags {
-        let keep = self.0 & !(CellFlags::CLUSTER_MASK << CellFlags::CLUSTER_SHIFT);
-        CellFlags(
-            keep | ((c.index() as u16 & CellFlags::CLUSTER_MASK) << CellFlags::CLUSTER_SHIFT)
-                | CellFlags::MARKED.0,
-        )
-    }
-    pub fn cluster(self) -> ClusterId {
-        ClusterId::from_index(
-            ((self.0 >> CellFlags::CLUSTER_SHIFT) & CellFlags::CLUSTER_MASK) as usize,
-        )
-    }
     pub fn protection(on: bool) -> CellFlags {
         CellFlags(u16::from(on))
     }
@@ -285,19 +282,16 @@ impl CellFlags {
     pub fn bare(self) -> CellFlags {
         CellFlags(self.0 & ((1 << CellFlags::LINK_SHIFT) - 1))
     }
-    /// Everything but the cluster index, for a write that replaces the cell's
-    /// content: a fresh character has no continuations, and leaving the old
-    /// index would hand it the previous occupant's.
+    /// Everything but [`CellFlags::MARKED`], for a cell built from a marked
+    /// one that holds no cluster of its own -- a wide character's new tail.
     ///
     /// It is rarely needed, because every ordinary write builds a fresh
-    /// `PackedCell` from the terminal's current flags, which never carry a
-    /// cluster -- so **overwriting a cell un-records its continuations without
+    /// `PackedCell` from the terminal's current flags, which never carry the
+    /// mark -- so **overwriting a cell un-records its continuations without
     /// the write path doing anything**, which is the same property
     /// `CellFlags::MARKED` was introduced for.
     pub fn without_cluster(self) -> CellFlags {
-        CellFlags(
-            self.0 & !((CellFlags::CLUSTER_MASK << CellFlags::CLUSTER_SHIFT) | CellFlags::MARKED.0),
-        )
+        CellFlags(self.0 & !CellFlags::MARKED.0)
     }
     /// The byte, for the one place a flag set has to survive a round trip
     /// through [`Run`]'s fixed layout.
@@ -554,48 +548,60 @@ impl PackedCell {
     }
 }
 
+/// FNV-1a's 64-bit offset basis and prime, and the 64-bit Fibonacci
+/// multiplier that finalizes a hash before its high bits pick a slot.
+///
+/// **Named once, because a copy of the prime was mistyped.** The cluster
+/// store spelled it `0x1000_0000_01b3`, 2^44 + 0x1b3, where the prime is
+/// 2^40 + 0x1b3, and took its slot from the unfinalized hash: below bit 44
+/// its state was only ever multiplied by 0x1b3, so at a power-of-two size a
+/// change in the last code point never reached the bits that chose the slot.
+/// At 1024 slots that store refused 142 of Genesis 1:1-5's 146 points; this
+/// construction, [`LinkId::bucket`]'s, refuses none (docs/record.md, "The
+/// cluster store holds 1024 clusters and sweeps the dead ones").
+const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+const FIBONACCI: u64 = 0x9E37_79B9_7F4A_7C15;
+
 /// Which interned cluster a cell's continuations live in, or none.
 ///
 /// Zero is "no continuations", so a zeroed grid has none and there is no
 /// parallel validity array to keep in step -- the same trick [`LinkId`] and
 /// `ColorWord` already use.
 ///
-/// **Six bits, and the bound is a consequence rather than a choice.**
-/// `PackedCell` is eight bytes because this file measured the ninth costing a
-/// round to twelve; `CellFlags` is the `u16` that used to be padding; three
-/// bits are flags and `NLINK = 128` needs seven. Six are left, so
-/// [`ClusterStore`] holds **63** distinct clusters at once.
+/// **It rides in the cell's [`Content`]**, in the range above U+10FFFF
+/// ([`Content::cluster`]), so it moves when the cell moves: rotation, a
+/// frame's read, the alternate screen and a reflow carry it for free.
+/// `baud-core2` keyed its marks on *where the cell is* -- surface, physical
+/// row, column, generation -- and an adversarial review reproduced what that
+/// costs: its `Term::viewport` un-rotated the grid in place and did not move
+/// the table with it, so a renderer reading one frame lost a cell's marks
+/// and the next write to that address inherited a stranger's. Six bits of
+/// `CellFlags` carried it before, which named 63 slots.
 #[repr(transparent)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub struct ClusterId(u8);
+pub struct ClusterId(u16);
 
 impl ClusterId {
     pub const NONE: ClusterId = ClusterId(0);
+    /// The id of slot `i - 1`. An index past what a `u16` names is none.
     pub fn from_index(i: usize) -> ClusterId {
-        ClusterId((i & 0x3f) as u8)
+        ClusterId(u16::try_from(i).unwrap_or(0))
     }
     pub fn index(self) -> usize {
-        self.0 as usize
+        usize::from(self.0)
     }
     pub fn is_none(self) -> bool {
         self.0 == 0
     }
 }
 
-/// One interned cluster: the codepoints that follow a cell's base character.
-///
-/// **The base is not here.** It is in the cell's `Content`, so storing it again
-/// would be storing what the index already implies -- and comparing it on
-/// lookup is what lets an evicted slot be *detected* rather than believed.
+/// One interned cluster: a base character and the codepoints that follow it.
 #[derive(Clone, Copy)]
 pub struct ClusterSlot {
-    /// The base character these continuations belong to.
-    ///
-    /// Checked on read against the cell's own content. A slot is only reused
-    /// by a cluster with the same continuations, so this cannot go stale under
-    /// the shipped policy -- it is here because "cannot" is a claim, and a
-    /// cheap check that turns a wrong answer into an empty one is worth more
-    /// than the claim.
+    /// The base character these continuations belong to, and the only copy
+    /// of it: a cell that names this slot holds the slot's index in its
+    /// [`Content`], not its base. [`ClusterStore::base_of`] reads it back.
     pub base: Content,
     len: u8,
     cps: [u32; ClusterSlot::CAPACITY],
@@ -614,7 +620,11 @@ impl ClusterSlot {
     /// It still does not cover every RGI sequence: a four-person family with a
     /// skin tone on each member is eleven codepoints, and those lose their
     /// tail. That is a bounded table behaving as one, stated rather than
-    /// implied by a number.
+    /// implied by a number, and a departure: the Unicode Standard's grapheme
+    /// cluster is a base "together with any number of nonspacing marks
+    /// applied to it" (`[[source: unicode18-ch3]]`, D60). The owner left the cap
+    /// open on 2026-10-13 when deciding the slot count and the sweep, so it
+    /// stays eight and `docs/vt-coverage.md` states it.
     pub const CAPACITY: usize = 8;
 
     pub const EMPTY: ClusterSlot = ClusterSlot {
@@ -635,6 +645,78 @@ impl ClusterSlot {
     }
 }
 
+/// How many times a store's slots may have been handed to other clusters:
+/// once a sweep that freed any, and once a reset.
+///
+/// **What a reader holding cells across reads compares.** A cell's word is
+/// the slot's index, so a slot a sweep freed and the next cluster took
+/// gives a cell the same word for a different cluster -- and a renderer
+/// that repaints only the rows whose words changed draws the old one. The
+/// rendition table's eviction is the same hazard for colours and forces a
+/// full pass the same way (`baud-render`'s `Evicted`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct ClusterEpoch(u32);
+
+/// What a store's sweeps have done: how many ran, and how many slots they
+/// freed, summed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct ClusterSweeps {
+    pub sweeps: usize,
+    pub freed: usize,
+}
+
+/// Why an intern found no slot.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Refused {
+    /// No continuations, more than [`ClusterSlot::CAPACITY`], or a store
+    /// with no slots: nothing a sweep can change.
+    Shape,
+    /// All [`ClusterStore::PROBES`] of the cluster's slots hold others. A
+    /// sweep can free one.
+    Full,
+}
+
+/// Which slots some cell names, for a sweep: one bit a slot.
+pub struct ClusterLive {
+    bits: [u64; ClusterStore::SLOTS_MAX / 64],
+}
+
+impl ClusterLive {
+    pub fn new() -> ClusterLive {
+        ClusterLive {
+            bits: [0; ClusterStore::SLOTS_MAX / 64],
+        }
+    }
+    /// Every slot a cell of `cells` names.
+    ///
+    /// **One compare a cell, and branch-free**: the test is whether the word
+    /// is in the cluster range, which a cell with no continuations -- nearly
+    /// all of them -- answers with the subtract and compare already in
+    /// [`Content::cluster_id`].
+    pub fn mark(&mut self, cells: &[PackedCell]) {
+        for c in cells {
+            if let Some(id) = c.content.cluster_id() {
+                if let Some(i) = id.index().checked_sub(1) {
+                    if let Some(w) = self.bits.get_mut(i / 64) {
+                        *w |= 1 << (i % 64);
+                    }
+                }
+            }
+        }
+    }
+    fn has(&self, i: usize) -> bool {
+        self.bits
+            .get(i / 64)
+            .is_some_and(|w| w & (1 << (i % 64)) != 0)
+    }
+}
+
+impl Default for ClusterLive {
+    fn default() -> Self {
+        ClusterLive::new()
+    }
+}
+
 /// A bounded, content-addressed store of clusters, indexed from the cell.
 ///
 /// **It refuses rather than evicts, and that is the whole difference from the
@@ -644,72 +726,231 @@ impl ClusterSlot {
 /// renderer, a selection or a copy. So a collision is refused and counted, the
 /// way `OSC 52` clipboard reads are refused and counted: the answer is never
 /// wrong, and how often it is missing is a number.
+///
+/// **And it reclaims what no cell names, once every slot is filled.** When
+/// a cluster finds its slots taken and every slot of the store holds a
+/// cluster, the caller may [`ClusterStore::sweep`] the cells that can name
+/// one -- both screens, and the history behind the primary -- and every
+/// slot none of them names is freed. The owner's choice, 2026-10-13: "Sweep
+/// when full": "when all slots are used, walk the live cells once and free
+/// unreferenced slots. No cost until the table fills."
+///
+/// **That bounds what is refused only once the store has filled.** Before
+/// it, a cluster whose eight slots are taken is refused while other slots
+/// are free, as it was with no sweep; after a sweep, what is left is what
+/// cells name, and a cluster is refused when its eight slots hold those.
+/// Neither is a bound on what is on a cell at once: with 300 one-mark
+/// clusters on cells, 2,905 of 4,000 more were refused (docs/record.md,
+/// "The cluster store holds 1024 clusters and sweeps the dead ones").
 pub struct ClusterStore<'b> {
     slots: &'b mut [ClusterSlot],
     /// Clusters that did not fit. Never silent.
     pub refused: usize,
+    /// Interns that wanted a slot -- a fill or a refusal for want of one --
+    /// since the last sweep, which [`ClusterStore::sweep_due`] reads.
+    since: u32,
+    /// Slots holding a cluster, kept as they fill and empty, so whether
+    /// every slot is used is one compare and not a walk of the slots.
+    filled: usize,
+    epoch: ClusterEpoch,
+    swept: ClusterSweeps,
 }
 
 impl<'b> ClusterStore<'b> {
-    pub fn new(slots: &'b mut [ClusterSlot]) -> ClusterStore<'b> {
-        ClusterStore { slots, refused: 0 }
-    }
+    /// **Eight probes, not a walk**: a bounded table with a bounded probe
+    /// cannot degrade into a scan under content chosen to collide, and an
+    /// intern reads at most eight 40-byte slots.
+    ///
+    /// It was two. The owner chose eight on 2026-10-13 ("1024 slots, 8
+    /// probes"): at 1024 slots and the hash above, with no sweep, eight
+    /// refused 0, 0, 2, 0, 0, 349 and 0 code points on Genesis 1:1-5, Pango's
+    /// Genesis 1, OSHB Genesis, Bialik, an Arabic and a Hindi text and
+    /// `cat-cjk`, each through a terminal of its own, where four refused 0,
+    /// 2, 22, 0, 2, 555 and 0. The sweep, which runs only once every slot
+    /// is used, runs on none of them, so they refuse the same with it
+    /// (docs/record.md, "The cluster store holds 1024 clusters and sweeps
+    /// the dead ones").
+    pub const PROBES: usize = 8;
+    /// The most slots a store uses, and the size of the sweep's live set:
+    /// a larger slice is used to this length.
+    pub const SLOTS_MAX: usize = 1024;
 
-    /// The continuations `id` names, if it still names them.
-    pub fn get(&self, id: ClusterId, base: Content) -> Option<&ClusterSlot> {
-        let s = self.slots.get(id.index().checked_sub(1)?)?;
-        match !s.is_empty() && s.base == base {
-            true => Some(s),
-            false => None,
+    /// A store over `slots`, as they are: a `Term` made again over storage
+    /// that held one keeps its clusters, so the slots already filled are
+    /// counted here, once.
+    pub fn new(slots: &'b mut [ClusterSlot]) -> ClusterStore<'b> {
+        let n = slots.len().min(ClusterStore::SLOTS_MAX);
+        let filled = slots[..n].iter().filter(|s| !s.is_empty()).count();
+        ClusterStore {
+            slots,
+            refused: 0,
+            since: ClusterStore::DUE,
+            filled,
+            epoch: ClusterEpoch::default(),
+            swept: ClusterSweeps::default(),
         }
     }
 
-    /// Intern `base` plus `cps`, returning the id to write into the cell.
+    /// **A sweep at most once every `SLOTS_MAX / 16` interns that wanted a
+    /// slot**, so a store whose every slot is named by a live cell -- where a
+    /// sweep frees nothing and the store stays full -- does not walk the grid
+    /// on every mark. The colour table's scratch prototype bounds its sweep
+    /// at the same rate, a sixteenth of its table, counted in rendition
+    /// writes (`scratch-rendition-r2`, `SweepBook::due`). Counted here in
+    /// interns, never in reads or time, so where the reads fall cannot move
+    /// it.
+    const DUE: u32 = (ClusterStore::SLOTS_MAX / 16) as u32;
+
+    fn len(&self) -> usize {
+        self.slots.len().min(ClusterStore::SLOTS_MAX)
+    }
+
+    /// The slot `content` names, if it names one that holds a cluster.
+    pub fn get(&self, content: Content) -> Option<&ClusterSlot> {
+        let i = content.cluster_id()?.index().checked_sub(1)?;
+        let s = self.slots.get(i)?;
+        match s.is_empty() {
+            true => None,
+            false => Some(s),
+        }
+    }
+
+    /// The character a cell shows as its base: the slot's for a cell that
+    /// names one, else the cell's own content.
+    pub fn base_of(&self, content: Content) -> Content {
+        match self.get(content) {
+            Some(s) => s.base,
+            None => content,
+        }
+    }
+
+    /// Intern `base` plus `cps`, returning the id to write into the cell, or
+    /// why there is none. Counts nothing in [`ClusterStore::refused`]: the
+    /// caller decides whether a refusal is final, after a sweep or not.
     ///
     /// **Content-addressed: the same cluster twice is one slot.** A page of
     /// repeated emoji costs one entry, which is the property position-keying
     /// cannot have -- there, every occurrence of the same family is its own
     /// slot and its own eviction.
-    pub fn intern(&mut self, base: Content, cps: &[u32]) -> ClusterId {
-        if cps.is_empty() || cps.len() > ClusterSlot::CAPACITY {
-            self.refused += 1;
-            return ClusterId::NONE;
+    ///
+    /// **Every probe is read before a free slot is taken.** A sweep frees
+    /// slots in the middle of a run of filled ones, so a cluster can sit
+    /// past a free slot in its own window; taking the first free slot would
+    /// intern it twice. The probe length is fixed, so no tombstone is
+    /// needed for a lookup to find what lies past a hole.
+    ///
+    /// **`#[inline]`, into `attach_before`, which is out of line already.**
+    /// Called across the crate boundary it was not inlined, and the call
+    /// cost `cat-cjk` 2.15% more instructions and the two pointed Hebrew
+    /// texts 7.41% and 12.33% against the store it replaced; inlined, as
+    /// built, 0.29%, 3.14% and 6.84%, against the costs the owner chose
+    /// from ("1024 slots, 8 probes": +0.39%, +3.38% and +6.97% on the
+    /// prototype).
+    #[inline]
+    pub fn try_intern(&mut self, base: Content, cps: &[u32]) -> Result<ClusterId, Refused> {
+        let n = self.len();
+        if cps.is_empty() || cps.len() > ClusterSlot::CAPACITY || n == 0 {
+            return Err(Refused::Shape);
         }
-        let n = self.slots.len().min(63);
-        if n == 0 {
-            self.refused += 1;
-            return ClusterId::NONE;
-        }
-        // Multiplicative hash on the **high** bits, which is the correction
-        // this codebase already paid for once: `StyleId::bucket` masked the low
-        // bits and collided every SGR colour, because they are multiples of
-        // 0x101010.
-        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        // FNV-1a over the base and the continuations, then finalized, and the
+        // slot taken from the **high** bits: [`LinkId::bucket`]'s construction.
+        // The high bits are the correction this codebase already paid for
+        // once: `StyleId::bucket` masked the low bits and collided every SGR
+        // colour, because they are multiples of 0x101010. The finalizer is the
+        // second one: without it the high bits of an FNV state carry little of
+        // its last input (`FNV_PRIME`).
+        let mut h: u64 = FNV_OFFSET;
         h ^= u64::from(base.0);
-        h = h.wrapping_mul(0x1000_0000_01b3);
+        h = h.wrapping_mul(FNV_PRIME);
         for c in cps {
             h ^= u64::from(*c);
-            h = h.wrapping_mul(0x1000_0000_01b3);
+            h = h.wrapping_mul(FNV_PRIME);
         }
-        let start = ((h >> 32) as usize) % n;
-        // Two probes, not a walk: a bounded table with a bounded probe cannot
-        // degrade into a scan under adversarial content.
-        for k in 0..2 {
+        let start = ((h.wrapping_mul(FIBONACCI) >> 32) as usize) % n;
+        let mut free = None;
+        for k in 0..ClusterStore::PROBES.min(n) {
             let i = (start + k) % n;
-            if self.slots[i].is(base, cps) {
-                return ClusterId::from_index(i + 1);
+            let s = &self.slots[i];
+            if s.is(base, cps) {
+                return Ok(ClusterId::from_index(i + 1));
             }
-            if self.slots[i].is_empty() {
-                let mut s = ClusterSlot::EMPTY;
-                s.base = base;
-                s.len = cps.len() as u8;
-                s.cps[..cps.len()].copy_from_slice(cps);
-                self.slots[i] = s;
-                return ClusterId::from_index(i + 1);
+            if free.is_none() && s.is_empty() {
+                free = Some(i);
             }
         }
-        self.refused += 1;
-        ClusterId::NONE
+        self.since = self.since.saturating_add(1);
+        let Some(i) = free else {
+            return Err(Refused::Full);
+        };
+        let mut s = ClusterSlot::EMPTY;
+        s.base = base;
+        s.len = cps.len() as u8;
+        s.cps[..cps.len()].copy_from_slice(cps);
+        self.slots[i] = s;
+        self.filled += 1;
+        Ok(ClusterId::from_index(i + 1))
+    }
+
+    /// [`ClusterStore::try_intern`], with a refusal counted.
+    pub fn intern(&mut self, base: Content, cps: &[u32]) -> ClusterId {
+        match self.try_intern(base, cps) {
+            Ok(id) => id,
+            Err(_) => {
+                self.refused += 1;
+                ClusterId::NONE
+            }
+        }
+    }
+
+    /// Whether a refusal for want of a slot should sweep: **only when every
+    /// slot holds a cluster**, the owner's "when all slots are used", and
+    /// then only once [`ClusterStore::DUE`] interns, fills or refusals, have
+    /// wanted a slot since the last sweep. A store never swept, or reset,
+    /// sweeps at its first refusal once full; a store a sweep left with
+    /// fewer than `DUE` slots free waits `DUE` interns from that sweep,
+    /// whatever its cells name by then.
+    pub fn sweep_due(&self) -> bool {
+        self.filled >= self.len() && self.since >= ClusterStore::DUE
+    }
+
+    /// How many slots hold a cluster.
+    pub fn filled(&self) -> usize {
+        self.filled
+    }
+
+    /// **Free every slot no cell in `live` names**, and say how many.
+    ///
+    /// `live` must have marked every cell that can name a slot, or a cell
+    /// loses its base and its marks: a sweep is exact only over what it was
+    /// shown. A slot it frees is given to the next cluster that hashes near
+    /// it, so the epoch moves whenever one is freed.
+    pub fn sweep(&mut self, live: &ClusterLive) -> usize {
+        let mut freed = 0;
+        let n = self.len();
+        for (i, s) in self.slots[..n].iter_mut().enumerate() {
+            if !s.is_empty() && !live.has(i) {
+                *s = ClusterSlot::EMPTY;
+                freed += 1;
+            }
+        }
+        self.since = 0;
+        self.filled -= freed;
+        self.swept.sweeps += 1;
+        self.swept.freed += freed;
+        if freed > 0 {
+            self.epoch = ClusterEpoch(self.epoch.0.wrapping_add(1));
+        }
+        freed
+    }
+
+    /// See [`ClusterEpoch`].
+    pub fn epoch(&self) -> ClusterEpoch {
+        self.epoch
+    }
+
+    /// See [`ClusterSweeps`].
+    pub fn sweeps(&self) -> ClusterSweeps {
+        self.swept
     }
 
     /// Forget everything. Every cell that named a slot is being blanked.
@@ -717,5 +958,8 @@ impl<'b> ClusterStore<'b> {
         for s in self.slots.iter_mut() {
             *s = ClusterSlot::EMPTY;
         }
+        self.since = ClusterStore::DUE;
+        self.filled = 0;
+        self.epoch = ClusterEpoch(self.epoch.0.wrapping_add(1));
     }
 }

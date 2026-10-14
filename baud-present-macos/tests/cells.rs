@@ -33,7 +33,7 @@ use baud_render::{
     Argb, Blend, Blink, BlinkPhases, Candidate, Composition, Corners, Damage, FaceRole, FaceStyle,
     GlyphMap, Highlight, Hover, Instance, Kind, Look, Overlay, Pt, PxSize, Rect, Region, Renderer,
     Resolved, Scene, Scroll, Scroller, Segment, Shape, Smear, Stack, StyleStamp, Theme, Trail,
-    TrailLook, Transition, VideoFlash, Widths, Window, quad_coverage,
+    TrailLook, Transition, VideoFlash, Widths, Window, copy_for_shader, quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -181,6 +181,7 @@ impl Arms<'_, '_> {
             (r, c, t.cursor_style())
         });
         self.map.ensure(
+            t,
             view,
             self.styles_mem,
             &mut self.renderer,
@@ -290,12 +291,13 @@ impl Arms<'_, '_> {
         // Smooth scroll: append the leaving row -- the line just above the
         // window, `view(back + 1).row(0)` -- at index `rows`, and read one
         // more row, so the shader's `slide_rows = 1` maps draw row 0 to it
-        // with the identity rotation.
+        // with the identity rotation. Copied as the app copies it, a marked
+        // cell given its base (`copy_for_shader`).
         let ring = if self.slide.is_some() {
             let above = t.view(Rows::of_index(self.back.index() + 1));
             let src = above.row(Row::from_index(0));
             let at = rows * stride;
-            self.copy_mem[at..at + cols].copy_from_slice(&src[..cols]);
+            copy_for_shader(t, &src[..cols], &mut self.copy_mem[at..at + cols]);
             rows + 1
         } else {
             rows
@@ -2308,6 +2310,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     arms.renderer
         .sync_styles(&t, arms.styles_mem, &mut arms.stamp);
     arms.map.ensure(
+        &t,
         t.view(Rows::of_count(1)),
         arms.styles_mem,
         &mut arms.renderer,
@@ -2353,6 +2356,74 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     assert!(
         differing(&mid_in_place, &settled) > 0,
         "the slide did not move the screen"
+    );
+
+    // A marked cell on the leaving row draws its base there, the row the
+    // shader draws from the map alone, with no overlay mask -- as it drew
+    // when the base was the cell's content. The cell holds its cluster's
+    // slot now, above U+10FFFF, which the shader draws nothing for, so the
+    // copy the app binds gives it its base (`copy_for_shader`). Against the
+    // same screen with the mark never sent, where the cell holds the bare
+    // letter, a full-row slide over the copy is the same frame; and against
+    // another letter there it is not, so the leaving row's letter reached
+    // the pixels. The letter is `Q`, which nothing before this draws, so the
+    // map holds it only if the walk over the leaving row gave the marked
+    // cell's base an entry.
+    let mut leaving = |t: &mut Term<'_>, first: &str| {
+        feed(t, b"\x1b[2J\x1b[H");
+        for i in 0..14u32 {
+            let lead = if i == 4 { first } else { "0" };
+            feed(t, format!("{lead}000 1111 row {i:02} 2222\r\n").as_bytes());
+        }
+        arms.renderer
+            .sync_styles(t, arms.styles_mem, &mut arms.stamp);
+        arms.map.ensure(
+            t,
+            t.view(Rows::of_count(1)),
+            arms.styles_mem,
+            &mut arms.renderer,
+            &mut arms.candidates,
+        );
+        let above = t.view(Rows::of_count(1)).row(Row::ZERO)[0];
+        arms.back = Rows::ZERO;
+        arms.slide = Some(cell_h);
+        arms.draw(t);
+        let frame = arms.draw_copied(t);
+        arms.slide = None;
+        (above, frame)
+    };
+    let (marked, with_mark) = leaving(&mut t, "Q\u{0301}");
+    let (bare, without) = leaving(&mut t, "Q");
+    let (_, other) = leaving(&mut t, "x");
+    assert!(
+        marked.flags.is_marked() && !bare.flags.is_marked(),
+        "the premise: the leaving row's first cell carries the mark, then not"
+    );
+    assert_eq!(
+        differing(&with_mark, &without),
+        0,
+        "a marked cell on the leaving row draws its base"
+    );
+    assert!(
+        differing(&with_mark, &other) > 0,
+        "the leaving row's letter reached the pixels"
+    );
+    // The digit screen again, for the ride-scroll gate below.
+    feed(&mut t, b"\x1b[2J\x1b[H");
+    for i in 0..14u32 {
+        feed(
+            &mut t,
+            format!("0000 1111 2222 row {i:02} 3333 4444 5555\r\n").as_bytes(),
+        );
+    }
+    arms.renderer
+        .sync_styles(&t, arms.styles_mem, &mut arms.stamp);
+    arms.map.ensure(
+        &t,
+        t.view(Rows::of_count(1)),
+        arms.styles_mem,
+        &mut arms.renderer,
+        &mut arms.candidates,
     );
 
     // Ride-scroll: a trail drawn mid-slide is lifted by the slide's pan,
@@ -2488,6 +2559,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     arms.renderer
         .sync_styles(&t, arms.styles_mem, &mut arms.stamp);
     arms.map.ensure(
+        &t,
         t.view(Rows::of_count(1)),
         arms.styles_mem,
         &mut arms.renderer,
@@ -2736,6 +2808,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         arms.renderer
             .sync_styles(t, arms.styles_mem, &mut arms.stamp);
         arms.map.ensure(
+            t,
             t.view(Rows::of_count(1)),
             arms.styles_mem,
             &mut arms.renderer,

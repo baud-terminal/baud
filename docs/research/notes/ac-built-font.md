@@ -140,9 +140,12 @@ launches, the variant described slows baud's per-character shaping by 36.0-36.7%
 partial ones by 25.1-31.1%; folding its placements into one lookup costs about
 4-5%, resolved in one launch of three. The effect on frame time, given the run
 cache, is unmeasured. **Longer pointed text loses points whatever the font**:
-baud-core keeps at most 63 distinct clusters and frees them only on a full
+baud-core kept at most 63 distinct clusters and freed them only on a full
 reset, and `marks_dropped` was 45 over Genesis 1:1-5 (measured), a core limit to
-fix before Hebrew can be called done. The shipped patch needs baud's
+fix before Hebrew can be called done. *Fixed 2026-10-14*: 1024 slots, eight
+probes and a sweep of the dead, and 0 dropped over the five verses
+(docs/record.md, "The cluster store holds 1024 clusters and sweeps the dead
+ones"). The shipped patch needs baud's
 own Hebrew drawings (section 1). Without the bridge, the interim under the
 owner's order is the system fallback, once it exists: asked with
 `CTFontCreateForString` for Hebrew behind FiraCode Nerd Font, CoreText answers
@@ -789,3 +792,4 @@ items 1-3 and 5-12 in brackets; items 4, 13 and 14 were not asked. All go to the
     the research recommends against it (asked, not answered).
 16. baud-core's 63-cluster limit, which drops vowel points in longer pointed
     Hebrew: to fix before Hebrew is done (found by the merge research).
+    *Fixed 2026-10-14*: the store holds 1024 and sweeps the dead.

@@ -151,7 +151,7 @@ fn baud_state(bytes: &[u8], read: usize) -> State {
                 .iter()
                 .map(|c| match c.content.is_wide_tail() {
                     true => ']',
-                    false => match c.content.as_codepoint() {
+                    false => match t.base_of(*c).as_codepoint() {
                         Some(cp) => char::from_u32(cp.value()).unwrap_or('?'),
                         None => '.',
                     },

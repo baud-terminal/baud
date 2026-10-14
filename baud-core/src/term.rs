@@ -1143,7 +1143,10 @@ pub struct Term<'b> {
     pub prompt_erases: usize,
     /// Zero-width codepoints received and **not stored**: a continuation with
     /// no base on the line, a cluster past `ClusterSlot::CAPACITY`, or a
-    /// [`ClusterStore`] with no free slot for it.
+    /// [`ClusterStore`] with none of its eight slots free: after a sweep, or
+    /// with no sweep due, which is while any slot of the store is empty and
+    /// until 64 interns have wanted a slot since the last sweep
+    /// ([`ClusterStore::sweep_due`]).
     ///
     /// **Counted, because the glyph differential structurally cannot see the
     /// difference**: it compares cell content and a continuation writes no
@@ -2758,7 +2761,7 @@ impl<'b> Term<'b> {
         let cell = v.cell_at(r, v.lead(r, c));
         self.store
             .clusters
-            .get(cell.flags.cluster(), cell.content)
+            .get(cell.content)
             .into_iter()
             .flat_map(|s| s.marks())
     }
@@ -2812,16 +2815,45 @@ impl<'b> Term<'b> {
     }
 
     /// The attached codepoints of `cell` itself, wherever on the ring it
-    /// was read: the store is keyed by the cell's cluster id and content,
+    /// was read: the store is keyed by the slot the cell's content names,
     /// not by a screen position, so a reader walking a view scrolled back
     /// gets that cell's marks. `marks` resolves a position on the live
     /// screen and answers the wrong cell for any other view.
+    ///
+    /// **Resolve a cell in the borrow it was read in.** A sweep frees the
+    /// slots no cell names and gives them to later clusters, so a copy of a
+    /// cell kept across a read can name a slot that now holds another
+    /// cluster; [`Term::cluster_epoch`] says when that can have happened.
     pub fn cluster_marks(&self, cell: PackedCell) -> impl Iterator<Item = u32> + '_ {
         self.store
             .clusters
-            .get(cell.flags.cluster(), cell.content)
+            .get(cell.content)
             .into_iter()
             .flat_map(|s| s.marks())
+    }
+
+    /// The character `cell` shows as its base: its content, or for a cell
+    /// with continuations -- whose content is its slot's word, above
+    /// U+10FFFF -- the base its slot holds. Every reader that draws, copies
+    /// or compares a cell's character reads it here, in the borrow the cell
+    /// was read in, as [`Term::cluster_marks`] says.
+    pub fn base_of(&self, cell: PackedCell) -> Content {
+        self.store.clusters.base_of(cell.content)
+    }
+
+    /// Moves whenever a slot of the cluster store may have been given to
+    /// another cluster: a sweep that freed one, or a reset. A renderer that
+    /// repaints only the rows whose cell words changed repaints everything
+    /// when it moves, because a cell naming a reused slot keeps its word.
+    pub fn cluster_epoch(&self) -> ClusterEpoch {
+        self.store.clusters.epoch()
+    }
+
+    /// How many sweeps the cluster store has run and how many slots they
+    /// freed, summed: the reclaim [`Term::marks_dropped`] is the other side
+    /// of.
+    pub fn cluster_sweeps(&self) -> ClusterSweeps {
+        self.store.clusters.sweeps()
     }
 
     /// What tracking the application asked for: `?9`, `?1000`, `?1001`, `?1002` or

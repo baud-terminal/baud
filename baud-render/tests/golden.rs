@@ -44,14 +44,18 @@ fn dump_ppm(c: &Canvas, path: &str) {
 /// ending a grapheme cluster: vim writes each regional indicator of the JP
 /// flag at a position of its own, so the eleven on its final screen draw as
 /// the two cells vim addressed rather than as one flag beside a gap
-/// (`baud-core/tests/golden/recordings.txt`).
+/// (`baud-core/tests/golden/recordings.txt`). cat-cjk moved again when the
+/// cluster store grew to 1024 slots: two wide kana on its final screen,
+/// U+30C5 and U+30C7, keep the U+3099 the 63-slot store refused them, and
+/// all 96 pixels that changed are in their tails, where JetBrains Mono
+/// draws the mark; no other cell's base or marks moved.
 const GOLDEN: [(&str, u64); 9] = [
     ("ascii/asciiquarium.raw", 0xac3842702a843af5),
     ("utf8/btop.raw", 0x378fe94215f0d9b5),
     ("ascii/cat-scroll.raw", 0x1a613c1d646560b1),
     ("ascii/git-log.raw", 0x2303bd10c2107db7),
     ("ascii/less-pager.raw", 0x41e082191ab41018),
-    ("utf8/cat-cjk.raw", 0x786d9146ab908ecd),
+    ("utf8/cat-cjk.raw", 0x253f57b6a135417d),
     ("utf8/cava.raw", 0x5428b240a6ca62e5),
     ("utf8/less-cjk.raw", 0x08602238a4813a25),
     ("utf8/vim-unicode.raw", 0x815f9ce9bf960756),

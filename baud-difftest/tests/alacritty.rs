@@ -109,8 +109,8 @@ fn ours(bytes: &[u8]) -> Vec<Cell> {
     let mut out = Vec::with_capacity(rows() * cols());
     for y in 0..rows() {
         for c in t.row(Row::from_index(y)).expect("a row on the grid") {
-            let ch = c
-                .content
+            let ch = t
+                .base_of(*c)
                 .as_codepoint()
                 .and_then(|p| char::from_u32(p.value()))
                 .unwrap_or(if c.content.is_wide_tail() { '\0' } else { ' ' });

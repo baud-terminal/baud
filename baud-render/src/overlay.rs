@@ -358,7 +358,7 @@ impl Overlay {
                 {
                     continue;
                 }
-                let Some(cp) = cell.content.as_codepoint() else {
+                let Some(cp) = term.base_of(*cell).as_codepoint() else {
                     continue;
                 };
                 let mut cps = vec![cp];
@@ -528,7 +528,7 @@ impl Overlay {
             let content = if covered.holds(y, Col::at_index(x)) {
                 Content::EMPTY
             } else {
-                cell.content
+                scene.term.base_of(*cell)
             };
             let mut entry = content.as_codepoint().and_then(|cp| {
                 scene

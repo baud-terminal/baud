@@ -51,11 +51,18 @@ fn read(t: &mut Term<'_>, bytes: &[u8]) {
 /// Row 0 and the cursor: what a case left behind.
 type Screen = (Vec<PackedCell>, (Row, Col));
 
+/// Row 0 as it shows: each cell, a cell with continuations given its base
+/// in place of its slot's word, which the store resolves only while `t` is.
 fn screen(t: &Term<'_>) -> Screen {
     (
         t.row(Row::from_index(0))
             .expect("a row on the grid")
-            .to_vec(),
+            .iter()
+            .map(|c| PackedCell {
+                content: t.base_of(*c),
+                ..*c
+            })
+            .collect(),
         t.cursor(),
     )
 }

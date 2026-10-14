@@ -1977,7 +1977,9 @@ impl<'a> View<'a> {
         }
     }
 
-    /// Point a cell at an interned cluster.
+    /// Point a cell at an interned cluster: its content becomes the slot's
+    /// word ([`Content::cluster`]), whose slot holds the base the content
+    /// held, and its flags take [`CellFlags::MARKED`].
     ///
     /// Raises `RowExtent` for the same reason [`View::set_marked`] does, and
     /// that reason is written out there: a cell carrying continuations is not
@@ -1989,8 +1991,16 @@ impl<'a> View<'a> {
         }
         let p = self.phys(r);
         let i = p * self.stride.index() + c.col().index();
-        self.cells[i].flags = self.cells[i].flags.with_cluster(id);
+        self.cells[i].content = Content::cluster(id);
+        self.cells[i].flags = self.cells[i].flags.with(CellFlags::MARKED);
         self.used[p] = self.used[p].reached(c.col().index() + 1);
+    }
+
+    /// Every cell of this surface's buffer -- the screen, the history behind
+    /// it and the rows held past a narrower edge -- for the cluster store's
+    /// sweep, which must see every cell that can name a slot.
+    pub fn ring_cells(&self) -> &[PackedCell] {
+        self.cells
     }
 
     /// Record that a cell carries entries in the marks table.

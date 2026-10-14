@@ -66,6 +66,32 @@ fn a_wide_character_a_gap_a_trailing_blank_and_a_mark_read_as_the_spec_says() {
     assert_eq!(s.text(&t, Scrolled::START), "\u{65e5}");
 }
 
+/// **A letter with a combining mark is a letter to a double click**: `cafe`
+/// with an acute on its `e`, then a space, is one word from any of its four
+/// cells, the marked one included. The marked cell holds its cluster's slot
+/// rather than its letter, and the word's test reads the letter back from
+/// the store; read as the cell's content it is no character, and the word
+/// stopped before it.
+#[test]
+fn a_letter_with_a_combining_mark_is_part_of_its_word() {
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, "cafe\u{301} au".as_bytes());
+    let row = t.viewport().row(Row::ZERO);
+    let line = Scrolled::START.line(Rows::ZERO, Row::ZERO);
+    for c in 0..4 {
+        let w = Span::word(&t, row, line, Col::at_index(c));
+        assert_eq!(
+            (w.start.col.index(), w.end.col.index()),
+            (0, 3),
+            "from column {c}"
+        );
+    }
+    let mut s = Selection::at(Span::word(&t, row, line, Col::ZERO), Grain::Word);
+    s.extend(Span::word(&t, row, line, Col::at_index(3)));
+    assert_eq!(s.text(&t, Scrolled::START), "cafe\u{301}");
+}
+
 #[test]
 fn a_wrapped_row_joins_the_next_and_a_newline_ends_a_row() {
     let mut owned = Owned::new(&WS);

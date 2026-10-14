@@ -336,6 +336,7 @@ fn main() {
                 .sync_styles(&self.term, self.styles_mem, &mut self.stamp);
             let view = self.term.view(back);
             self.map.ensure(
+                &self.term,
                 view,
                 self.styles_mem,
                 &mut self.renderer,

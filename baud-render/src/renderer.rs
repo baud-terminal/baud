@@ -23,8 +23,8 @@ use crate::units::{Band, Tally};
 use baud_core::Term;
 use baud_domain::contrast::CurveRow;
 use baud_domain::{
-    Attrs, Chan, ClusterSlot, Codepoint, Col, Cols, CursorStyle, GlyphId, ImageGen, ImageId,
-    PackedCell, Row, Rows,
+    Attrs, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle, GlyphId, ImageGen,
+    ImageId, PackedCell, Row, Rows,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -503,7 +503,7 @@ impl Selections {
 /// cluster's (UAX #24 5.2), which reads the marks only then. A cell with
 /// nothing drawn joins whatever is around it.
 fn unresolved(term: &Term<'_>, cell: PackedCell) -> Unresolved {
-    let Some(base) = cell.content.as_codepoint() else {
+    let Some(base) = term.base_of(cell).as_codepoint() else {
         return Unresolved::Neutral { joins: &[] };
     };
     match Unresolved::of(core::slice::from_ref(&base)) {
@@ -721,6 +721,10 @@ pub struct Renderer<'f, 'a> {
     fade: Option<Veil>,
     last_fade: Option<Veil>,
     fade_inst: Vec<Instance>,
+    /// The cluster store's epoch when `prev` was taken. A cell naming a slot
+    /// a sweep or a reset freed and another cluster took keeps its word, so
+    /// a frame whose epoch moved repaints every row, as an eviction does.
+    last_clusters: Option<ClusterEpoch>,
     /// This frame's blink phases, set by [`Renderer::set_blink`] before a
     /// convert or resolve, and which rates' blinking cells were seen -- so
     /// the driver repaints on a rate's phase flip only when text at that
@@ -887,6 +891,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             fade: None,
             last_fade: None,
             fade_inst: Vec::new(),
+            last_clusters: None,
             blink: BlinkPhases::SHOWN,
             blink_slots: Tally::default(),
             blink_seen: Blinking::default(),
@@ -1795,11 +1800,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // The screen fade veils every row, so a change to it -- spawned,
         // stepped or cleared -- makes the whole frame dirty. It is not a
         // per-row predicate like the trail's band overlap.
+        //
+        // A moved cluster epoch is the eviction's twin for marks: a slot a
+        // sweep or a reset freed can hold another cluster now, under the
+        // word a cell that named it in the last frame still has.
+        let clusters = Some(term.cluster_epoch());
         let full = damage == Damage::Full
             || self.known == Prev::Unknown
             || sync.pass == Pass::Full
             || sync.evicted == Evicted::Yes
-            || self.fade != self.last_fade;
+            || self.fade != self.last_fade
+            || clusters != self.last_clusters;
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let mut rows_dirty = Tally::default();
         let mut exceptions = Exceptions::default();
@@ -1879,6 +1890,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_bar = self.bar;
         self.last_trail = self.trail;
         self.last_fade = self.fade;
+        self.last_clusters = clusters;
         self.last_composition = composition;
         Converted {
             rows_dirty,
@@ -2629,7 +2641,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut settled = false;
         let mut c = 0usize;
         while c < row.len() {
-            let Some(base) = row[c].content.as_codepoint() else {
+            let Some(base) = term.base_of(row[c]).as_codepoint() else {
                 c += 1;
                 continue;
             };
@@ -2688,7 +2700,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let mut pair_here = Tally::default();
             while c < row.len() && c - start < RUN_CELLS {
                 let cell = row[c];
-                let Some(cp) = cell.content.as_codepoint() else {
+                let Some(cp) = term.base_of(cell).as_codepoint() else {
                     break;
                 };
                 // The run's first cell is taken whatever the test says: the
@@ -2774,8 +2786,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
             #[cfg(feature = "exceptions")]
-            self.count_differs(r, Col::at_index(start), &clusters, &shaped, exc);
-            self.emit(face, r, Col::at_index(start), &shaped, &mut instances);
+            self.count_differs(term, r, Col::at_index(start), &clusters, &shaped, exc);
+            self.emit(term, face, r, Col::at_index(start), &shaped, &mut instances);
         }
         instances.extend(shapes);
         self.per_row[r.index()] = instances;
@@ -2888,6 +2900,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     #[cfg(feature = "exceptions")]
     fn count_differs(
         &mut self,
+        term: &Term<'_>,
         r: Row,
         start: Col,
         clusters: &[ClusterIn],
@@ -2900,7 +2913,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let Some(cell) = self.cur.get(range.start + col).copied() else {
                 continue;
             };
-            let Some(cp) = cell.content.as_codepoint() else {
+            let Some(cp) = term.base_of(cell).as_codepoint() else {
                 continue;
             };
             let style = self.face_style(cell);
@@ -2988,7 +3001,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// Instances for a shaped run starting at column `start` of row `r`.
-    fn emit(&mut self, face: FaceIx, r: Row, start: Col, shaped: &Shaped, out: &mut Vec<Instance>) {
+    fn emit(
+        &mut self,
+        term: &Term<'_>,
+        face: FaceIx,
+        r: Row,
+        start: Col,
+        shaped: &Shaped,
+        out: &mut Vec<Instance>,
+    ) {
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0);
@@ -3017,11 +3038,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // writes: a mark at that cell moves with it.
             let span = CellSpan::at(&self.cur[range.clone()], Col::at_index(col));
             let phase = match self.cur.get(range.start + col).copied() {
-                Some(cell) if span == CellSpan::Two => {
-                    cell.content.as_codepoint().map_or(self.metrics.phase, |b| {
+                Some(cell) if span == CellSpan::Two => term
+                    .base_of(cell)
+                    .as_codepoint()
+                    .map_or(self.metrics.phase, |b| {
                         self.phase_in(face, b, CellSpan::Two)
-                    })
-                }
+                    }),
                 _ => self.metrics.phase,
             };
             let Some(slot) = self.atlas.slot(f, face, p.id, scale, phase) else {
