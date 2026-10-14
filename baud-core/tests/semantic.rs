@@ -689,8 +689,9 @@ fn a_mark_on_the_alternate_screen_does_not_redraw_the_primarys_block() {
                 assert_eq!(t.zone(), Zone::Prompt, "read size {n}");
                 assert_eq!(t.prompt_row(), Some(Row::from_index(5)));
                 // A full-screen program draws ten lines, and something in
-                // it sends a prompt mark at row 10.
-                let mut s = b"\x1b[?1049h".to_vec();
+                // it sends a prompt mark at row 10. It homes first, as a
+                // program does: `?1049 h` leaves the cursor where it was.
+                let mut s = b"\x1b[?1049h\x1b[H".to_vec();
                 s.extend_from_slice(&numbered("alt", 0, 10));
                 s.extend_from_slice(b"\x1b]133;P;k=i\x07");
                 feed_in(t, &s, n);
@@ -754,7 +755,8 @@ fn a_mark_on_the_alternate_screen_after_the_primary_scrolled() {
                 s.extend_from_slice(b"\x1b]133;P;k=i\x07$ ");
                 feed_in(t, &s, n);
                 assert_eq!(t.prompt_row(), Some(Row::from_index(19)), "read size {n}");
-                let mut s = b"\x1b[?1049h".to_vec();
+                // Homed by the program, as above.
+                let mut s = b"\x1b[?1049h\x1b[H".to_vec();
                 s.extend_from_slice(&numbered("alt", 0, 5));
                 s.extend_from_slice(b"\x1b]133;P;k=i\x07");
                 feed_in(t, &s, n);

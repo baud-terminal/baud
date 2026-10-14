@@ -1966,16 +1966,27 @@ impl Paint<'_, '_> {
                 // left from the last time an application was in it describes
                 // nothing. Blanks rotate to blanks, so this is tidiness rather
                 // than a fix -- and an invariant that holds only by accident is
-                // one the next change breaks. **`?47` does none of the three**:
-                // it shows the rows as they were left, so resetting the
-                // rotation would put them out of order, and the cursor stays
-                // where it is, as xterm's `SwitchBufs` leaves it.
-                // Home is the origin under DECOM ([`Paint::home`]), which
-                // the mode's confinement requires wherever the cursor goes.
+                // one the next change breaks. **`?47` does neither**: it
+                // shows the rows as they were left, so resetting the rotation
+                // would put them out of order.
+                //
+                // **Neither moves the cursor.** ctlseqs' `1049` saves it "as
+                // in DECSC", switches and clears, and names no move; xterm's
+                // set arm is `CursorSave; ToAlternate; ClearScreen`, and
+                // `ClearScreen` leaves the cursor (`xterm-util.c`), as
+                // `SwitchBufs` does for `?47`. This homed until the owner's
+                // decision of 2026-10-13. `ClearScreen` does reset the wrap
+                // (`ResetWrap`), so a cursor in pending wrap at the screen's
+                // edge stays in the last column with nothing pending: the
+                // `goto` to where it already is, whose clamp to the last
+                // column drops the sentinel and which re-reads the cleared
+                // row's extent. Under side margins narrower than the screen
+                // the sentinel one past the right margin is a column the
+                // clamp keeps, the conflation note V's V10 step (d) ends.
                 if how == AltSwitch::SaveAndClear {
                     self.view.reset_rot();
                     self.clear_screen();
-                    self.home();
+                    self.goto(self.cy, self.cx);
                 }
                 // Its image numbering starts again with the screen. No image
                 // can be on it: leaving is the only way off it, and leaving

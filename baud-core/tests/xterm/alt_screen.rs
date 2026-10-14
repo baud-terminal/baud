@@ -390,12 +390,70 @@ fn the_cursor_is_saved_and_restored() {
     );
 }
 
-/// Entering homes the cursor: the alt screen is cleared, so leaving the cursor
-/// mid-screen would put the first write of a full-screen program somewhere
-/// arbitrary.
+/// **Entering leaves the cursor where it was.** `[[source: ctlseqs]]`'s
+/// `?1049 h` saves the cursor, switches and clears, and names no move;
+/// xterm's set arm is `CursorSave; ToAlternate; ClearScreen`, and
+/// `ClearScreen` does not home (`xterm-util.c`). baud homed here until the
+/// owner's decision of 2026-10-13. Measured at every read size and every
+/// split into two reads, and by the write that follows, so a cursor that
+/// reads right and writes elsewhere cannot pass.
 #[test]
-fn entering_homes_the_cursor() {
-    assert_eq!(cursor(b"\x1b[9;20H\x1b[?1049h"), (0, 0));
+fn entering_leaves_the_cursor() {
+    let bytes: &[u8] = b"\x1b[9;20H\x1b[?1049hx";
+    for (at, cells, (r, c)) in reads(bytes) {
+        assert_eq!((r, c), (8, 20), "{at}: one past the x, on its row");
+        assert_eq!(char_at(&cells, 8, 19), Some('x'), "{at}: x at 9;20");
+        assert_eq!(char_at(&cells, 0, 0), None, "{at}: nothing at home");
+    }
+}
+
+/// **`ClearScreen` resets the wrap, and so does entering.** A character in
+/// the last column leaves the cursor in pending wrap; xterm's `ClearScreen`
+/// calls `ResetWrap` (`xterm-util.c`), so the cursor stays in the last
+/// column with nothing pending and the next character overwrites it there
+/// rather than wrapping to the next row.
+#[test]
+fn entering_from_a_pending_wrap_drops_the_wrap() {
+    let bytes: &[u8] = b"\x1b[9;200Ha\x1b[?1049hb";
+    for (at, cells, (r, c)) in reads(bytes) {
+        assert_eq!(
+            char_at(&cells, 8, 199),
+            Some('b'),
+            "{at}: b in the last column"
+        );
+        assert_eq!(char_at(&cells, 9, 0), None, "{at}: no wrap to the next row");
+        assert_eq!((r, c), (8, 199), "{at}: pending again, after the b");
+    }
+}
+
+/// The cells and cursor after `bytes` fed whole, at one byte a read, and at
+/// every split into two reads, each labelled.
+fn reads(bytes: &[u8]) -> Vec<(String, Vec<PackedCell>, (usize, usize))> {
+    let mut out = Vec::new();
+    let mut take = |at: String, pieces: &[&[u8]]| {
+        let mut t = T::new();
+        let mut term = Term::new(t.s.storage(), &support::CORPUS);
+        for p in pieces {
+            support::feed(&mut term, p);
+        }
+        let (r, c) = term.cursor();
+        out.push((at, support::screen(&term), (r.index(), c.index())));
+    };
+    take("whole".into(), &[bytes]);
+    let ones: Vec<&[u8]> = bytes.chunks(1).collect();
+    take("read size 1".into(), &ones);
+    for i in 1..bytes.len() {
+        take(format!("split at {i}"), &[&bytes[..i], &bytes[i..]]);
+    }
+    out
+}
+
+/// The character at `(row, col)` of a screen of `support::CORPUS`'s width.
+fn char_at(cells: &[PackedCell], row: usize, col: usize) -> Option<char> {
+    cells[row * usize::from(support::CORPUS.ws_col) + col]
+        .content
+        .as_codepoint()
+        .and_then(|x| char::from_u32(x.value()))
 }
 
 /// A second `?1049 h` must not overwrite the saved cursor.

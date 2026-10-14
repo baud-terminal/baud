@@ -172,6 +172,9 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
             "alt screen re-entry",
             b"\x1b[?1049hHELLO\x1b[?1049h".to_vec(),
         ),
+        // A first `?1049 h` from mid-screen: the cursor, which the cells
+        // cannot show, is the pinned difference -- see `MUST_DIFFER`.
+        ("alt screen entry", b"\x1b[3;7H\x1b[?1049h".to_vec()),
         // `OSC 11` set then queried. sfte's setter is a no-op -- it always
         // answers its compile-time `SFTE_COLOR_BG`, black -- where baud
         // answers what was set. Probed through the patched header, because
@@ -237,6 +240,12 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
 ///   (`xterm-util.c`), so after `HELLO` baud's cursor is at (0, 5) and sfte's
 ///   at (0, 0). Until `96949c2` baud did not clear at all, and the five cells
 ///   of `HELLO` were the difference pinned here.
+/// * **`alt screen entry` -- sfte homes the cursor on a first `?1049 h`
+///   too, and baud leaves it**, at (2, 6) after `CUP 3;7`: `[[source:
+///   ctlseqs]]`'s `1049` names no move and xterm's `ClearScreen` makes none.
+///   sfte's 1049 arm sets `cursor_col` and `cursor_row` to 0 after its clear
+///   (sfte.h 34101-34104). baud homed here too until the owner's decision of
+///   2026-10-13, when the two agreed and nothing compared the cursor.
 /// * **`OSC 11 set then query` -- sfte's dynamic-colour setter is a no-op.**
 ///   It answers every query with its compile-time default (`SFTE_COLOR_BG`,
 ///   black, as `rgb:0000/0000/0000`), whatever `OSC 11` set before; baud
@@ -292,6 +301,7 @@ const MUST_DIFFER: &[(&str, Control)] = &[
     ("DA reply", Control::Reply(b"\x1b[?6c", b"\x1b[?62c")),
     ("alt screen in/out", Control::Cursor((0, 4), (1, 0))),
     ("alt screen re-entry", Control::Cursor((0, 5), (0, 0))),
+    ("alt screen entry", Control::Cursor((2, 6), (0, 0))),
     (
         "OSC 11 set then query",
         Control::Reply(

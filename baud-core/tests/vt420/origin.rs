@@ -465,16 +465,11 @@ fn a_right_margin_column_restored_under_a_narrower_margin_is_clamped() {
 }
 
 /// **A home under DECOM is the origin**, wherever a control homes the cursor
-/// with the mode left set: `?1049 h`, `DECALN` and `DECCOLM` (whose own
-/// margin and mode resets are on the record's open list).
+/// with the mode left set: `DECALN` and `DECCOLM` (whose own margin and mode
+/// resets are on the record's open list). `?1049 h` was the third until the
+/// owner's decision of 2026-10-13; it leaves the cursor, the next test.
 #[test]
 fn the_homes_under_origin_mode_go_to_the_origin() {
-    let s = after("\x1b[?1049h");
-    assert_eq!(
-        (find(&s, 'X'), s.reply.as_slice()),
-        (Some((1, 4)), &b"\x1b[1;1R"[..]),
-        "?1049 h"
-    );
     let s = after("\x1b#8");
     assert_eq!(
         (find(&s, 'X'), s.reply.as_slice()),
@@ -486,6 +481,20 @@ fn the_homes_under_origin_mode_go_to_the_origin() {
         (find(&s, 'X'), s.reply.as_slice()),
         (Some((0, 4)), &b"\x1b[1;1R"[..]),
         "DECCOLM"
+    );
+}
+
+/// **`?1049 h` under DECOM leaves the cursor where it was**, inside the
+/// margins, and `CPR` answers the same origin-relative 2;3 before and after:
+/// `[[source: ctlseqs]]`'s `1049` saves, switches and clears and names no
+/// move, and xterm's `ClearScreen` does not home (`xterm-util.c`). Before the
+/// owner's decision of 2026-10-13 this homed to the origin, 1;1.
+#[test]
+fn entering_the_alternate_screen_under_origin_mode_leaves_the_cursor() {
+    assert_eq!(
+        landed("\x1b[?1049h"),
+        (Some((2, 6)), "\x1b[2;3R".into()),
+        "?1049 h"
     );
 }
 
