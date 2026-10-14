@@ -1797,6 +1797,48 @@ group  = "J"
 # the 'hmtx' table must always be equal to xMin (bit 1 of the 'head' flags
 # field must be set)".
 
+[sources.ms-opentype-vmtx]
+key    = "ms-opentype-vmtx"
+title  = "vmtx -- Vertical Metrics Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/vmtx"
+file   = ""
+sha256 = "47069d2c60208eed178becf757970b041605752f626f05c8914249fe33198a7b"
+bytes  = 53344
+status = "external"
+group  = "J"
+# Read 2026-10-14; hash-verified, not committed -- a vendor HTML page whose
+# spec text is a fraction of its chrome, so the hash tracks the chrome too;
+# two fetches the same day hash alike. Read for where a glyph's vertical
+# phantoms lie: "The y coordinate of a glyph's vertical origin is specified
+# as the sum of the glyph's top side bearing (recorded in the 'vmtx' table)
+# and the top (i.e. maximum y) of the glyph's bounding box", "The x
+# coordinate of a glyph's vertical origin is not specified in the 'vmtx'
+# table", and "The advance height of a glyph starts from the y coordinate
+# of the glyph's vertical origin and advances downwards"; and for the
+# layout, "The number of entries in the vMetrics array is determined by the
+# value of the numOfLongVerMetrics field of the vertical header table".
+
+[sources.ms-opentype-vhea]
+key    = "ms-opentype-vhea"
+title  = "vhea -- Vertical Header Table"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/vhea"
+file   = ""
+sha256 = "63c5551a26d8c4a7a764d897d6b495c320082e76cb572b2f9c7308749e0c0577"
+bytes  = 59893
+status = "external"
+group  = "J"
+# Read 2026-10-14; hash-verified, not committed -- a vendor HTML page whose
+# spec text is a fraction of its chrome, so the hash tracks the chrome too;
+# two fetches the same day hash alike. Read for numOfLongVerMetrics, the
+# header's last field, at byte 34 in both versions, "Number of advance
+# heights in the vertical metrics table".
+
 [sources.ms-opentype-loca]
 key    = "ms-opentype-loca"
 title  = "loca -- Index to Location"

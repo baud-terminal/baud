@@ -50,10 +50,11 @@ enum Side {
     /// FreeType's, where HarfBuzz departs from the text: it numbers a
     /// nested composite's parent points across the outer glyph.
     Ft,
-    /// Neither: the text leaves the case open, and baud keeps what it drew
-    /// before -- the component at offset 0 after its matrix, which is these
-    /// glyphs' drawings in order, at the same weight. For Jev.
-    Unmatched(&'static [&'static str]),
+    /// Nothing, `Drawn::Refused`: a first component placed by points, which
+    /// the glyf text says "cannot be used for the first component glyph"
+    /// (`[[source: ms-opentype-glyf]]`), refuses the glyph -- the owner's
+    /// decision of 2026-10-13, and FreeType's.
+    Refused,
     /// Neither engine's: the text's drawing at each weight, worked by hand
     /// from `scripts/component-cases-font.py`, where both depart. FreeType
     /// refuses every phantom point; HarfBuzz moves a composite's left
@@ -80,8 +81,9 @@ const SIDES: &[(&str, Side)] = &[
     ("anchscale", Side::Both),
     ("anchadv", Side::Hb),
     ("anchlsb", Side::Hb),
-    // The top phantom is vertical, and baud reads no `vmtx`.
-    ("anchtop", Side::Unmatched(&["tri", "dot"])),
+    // The child's top phantom: the face has no `vmtx`, so it sits at
+    // HarfBuzz's (0, yMax), dot's (0, 60). FreeType refuses every phantom.
+    ("anchtop", Side::Hb),
     ("anchcomp", Side::Both),
     ("anchflag", Side::Both),
     ("anchvar", Side::Both),
@@ -102,7 +104,7 @@ const SIDES: &[(&str, Side)] = &[
         ]),
     ),
     // The first component anchored, which the text says it must not be.
-    ("anchfirst", Side::Unmatched(&["bar", "tri"])),
+    ("anchfirst", Side::Refused),
     ("scaled", Side::Both),
     ("scaledrot", Side::Hb),
     ("scaledxy", Side::Both),
@@ -148,8 +150,21 @@ const SIDES: &[(&str, Side)] = &[
             ("900", "0,0;400,0;240,360|630,0;690,0;690,60;630,60"),
         ]),
     ),
-    // p5 is the parent's top phantom: vertical, and baud reads no `vmtx`.
-    ("anchptop", Side::Unmatched(&["tri", "bar"])),
+    // p5 of a parent with three points is its top phantom: with no `vmtx`
+    // at HarfBuzz's (0, yMax), and this composite's header yMax is 0, so
+    // (0, 0), where bar's second point is laid; bar's first point moves
+    // (10, 10) at 900. HarfBuzz reads p5 as bar's own third point.
+    // `tests/vertical.rs` holds a face with `vmtx`, where the top phantom
+    // is neither the origin nor the left phantom.
+    (
+        "anchptop",
+        Side::Text(&[
+            ("-", "0,0;400,0;200,300|-100,0;0,0;0,40;-100,40"),
+            ("100", "0,0;400,0;180,270|-100,0;0,0;0,40;-100,40"),
+            ("650", "0,0;400,0;220,330|-95,5;0,0;0,40;-100,40"),
+            ("900", "0,0;400,0;240,360|-90,10;0,0;0,40;-100,40"),
+        ]),
+    ),
     // p3 is the parent's left phantom, moved by its X delta (40 at 900) and
     // not its Y (50); the glyph then shifts by that movement.
     (
@@ -286,7 +301,14 @@ fn every_component_case_is_placed_as_the_text_places_it() {
             let hb = oracle[&key("hb")].clone().unwrap();
             let ft = oracle[&key("ft")].clone();
             let (d, got) = drawn(&face, g);
+            if *side == Side::Refused {
+                assert_eq!((d, got.len()), (Drawn::Refused, 0), "{name} at {weight}");
+                assert_eq!(ft, None, "{name}: FreeType refuses it too");
+                *counted.entry("Refused".to_string()).or_default() += 1;
+                continue;
+            }
             let want: Vec<(Contours, f32)> = match side {
+                Side::Refused => unreachable!(),
                 Side::Both => vec![(hb, 1e-3), (ft.expect("FreeType draws it"), 0.5)],
                 Side::Hb => vec![(hb, 1e-3)],
                 Side::Ft => vec![(ft.expect("FreeType draws it"), 0.5)],
@@ -295,17 +317,6 @@ fn every_component_case_is_placed_as_the_text_places_it() {
                         .find(|(w, _)| *w == weight)
                         .and_then(|(_, row)| parse(row))
                         .expect("a drawing at each weight"),
-                    1e-3,
-                )],
-                Side::Unmatched(parts) => vec![(
-                    parts
-                        .iter()
-                        .flat_map(|p| {
-                            oracle[&(p.to_string(), weight.to_string(), "hb".to_string())]
-                                .clone()
-                                .unwrap()
-                        })
-                        .collect(),
                     1e-3,
                 )],
             };
@@ -488,7 +499,8 @@ fn the_fixture_carries_the_flags_it_was_built_to() {
 /// cannot**: a glyph whose tree matches points answers `NeedsScratch` from
 /// `Face::outline`, with nothing drawn, and `Face::outline_need` names the
 /// scratch `outline_at` then draws it with; one that only scales offsets
-/// streams, and needs none.
+/// streams, and needs none; one whose first component is matched is
+/// refused and needs none.
 #[test]
 fn a_matched_tree_needs_scratch_at_the_default_and_an_offset_one_does_not() {
     let data = fixture();
@@ -524,4 +536,10 @@ fn a_matched_tree_needs_scratch_at_the_default_and_an_offset_one_does_not() {
         assert_eq!(face.outline_need(id(name)).value(), 0, "{name}");
         assert_eq!(face.outline(id(name), &mut p), Drawn::Outline, "{name}");
     }
+    // A first component placed by points is refused outright: no scratch
+    // would draw it.
+    let mut p = Points::default();
+    assert_eq!(face.outline_need(id("anchfirst")).value(), 0);
+    assert_eq!(face.outline(id("anchfirst"), &mut p), Drawn::Refused);
+    assert!(p.0.is_empty());
 }

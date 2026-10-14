@@ -142,6 +142,57 @@ fn the_atlas_draws_a_matched_composite_at_the_default_instance() {
     assert_eq!(atlas.stats().refused.value(), 0);
 }
 
+/// **A composite whose first component is placed by points is refused,
+/// counted once, and never taken for blank.** `anchfirst` in
+/// `var/component-cases.ttf` places its first component by points, which
+/// the `glyf` text says "cannot be used for the first component glyph";
+/// the face answers `Drawn::Refused` at the default instance and at a
+/// variation, and the atlas counts it, once however often it is asked, and
+/// answers the face's `.notdef` for it -- no slot here, since this
+/// fixture's `.notdef` has no contours (`refused_glyph.rs` holds a cell to
+/// a `.notdef` with ink). The control: `anch`, whose second component is
+/// the matched one, draws.
+#[test]
+fn a_composite_matched_on_its_first_component_is_refused_and_counted_once() {
+    let data = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../baud-font/tests/var/component-cases.ttf"
+    ))
+    .unwrap();
+    // `anchfirst` is glyph 19, mapped from U+0053 in the fixture.
+    for wght in [None, Some(900)] {
+        let mut face = Face::parse(&data).unwrap();
+        if let Some(w) = wght {
+            at_weight(&mut face, w);
+        }
+        let anchfirst = glyph(&face, 0x53);
+        assert_eq!(anchfirst, GlyphId::from_shaper(19));
+        let mut sink = Bounds::new();
+        assert_eq!(
+            face.outline(anchfirst, &mut sink),
+            Drawn::Refused,
+            "{wght:?}"
+        );
+        let scale = Scale::of(40.0, face.units_per_em());
+        let mut atlas = Atlas::new();
+        let anch = glyph(&face, 0x46);
+        assert!(
+            atlas
+                .slot(&face, FaceIx::PRIMARY, anch, scale, Phase::ZERO)
+                .is_some(),
+            "the control"
+        );
+        assert_eq!(atlas.stats().refused.value(), 0, "the control");
+        for _ in 0..2 {
+            assert_eq!(
+                atlas.slot(&face, FaceIx::PRIMARY, anchfirst, scale, Phase::ZERO),
+                None
+            );
+            assert_eq!(atlas.stats().refused.value(), 1, "counted once, {wght:?}");
+        }
+    }
+}
+
 /// **A glyph past the scratch budget is refused, counted once, and never
 /// taken for blank.** `heavy` flattens to 240,000 points, past
 /// `VAR_POINTS_MAX` (and past HarfBuzz's own 200,000-point bound): at wght

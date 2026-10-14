@@ -21,7 +21,7 @@ use crate::cff::Cff;
 use crate::cff2::Cff2;
 use crate::cmap::{Cmap, Variation};
 use crate::colr::{Colr, Cpal, Layers, Palette, PaletteEntry, Rgba};
-use crate::glyf::{Glyf, Loca, LocaFormat, Streamed};
+use crate::glyf::{Glyf, Loca, LocaFormat, Metrics, Need, Streamed};
 use crate::gpos::Gpos;
 use crate::gsub::Gsub;
 use crate::layout::Gdef;
@@ -167,6 +167,11 @@ pub struct Face<'a> {
     line: LineMetrics,
     hmetrics: Count,
     hmtx: Option<Bytes<'a>>,
+    /// `vmtx`'s long records and top side bearings, as many as the table
+    /// holds, and the table; `None` for a face without vertical metrics.
+    vmetrics: Count,
+    vbearings: Count,
+    vmtx: Option<Bytes<'a>>,
     os2: Option<Bytes<'a>>,
     post: Option<Bytes<'a>>,
     cmap: Option<Cmap<'a>>,
@@ -303,6 +308,9 @@ impl<'a> Face<'a> {
             },
             hmetrics: Count::ZERO,
             hmtx: None,
+            vmetrics: Count::ZERO,
+            vbearings: Count::ZERO,
+            vmtx: None,
             os2: None,
             post: None,
             cmap: None,
@@ -371,6 +379,30 @@ impl<'a> Face<'a> {
         face.hmetrics = Count::of(hmetrics);
 
         face.hmtx = face.table(Tag::HMTX);
+        // vhea: numOfLongVerMetrics at 34, which says how many of `vmtx`'s
+        // records are long (`[[source: ms-opentype-vhea]]`,
+        // `[[source: ms-opentype-vmtx]]`). The long records are clamped to
+        // the table, and the bearings to the glyph count and what is left
+        // of the table, as HarfBuzz's accelerator clamps them
+        // (`[[source: harfbuzz-12-3-0-hmtx]]`). No long record, or no
+        // `vhea`, is read as no vertical metrics: the text lays `vmtx` out
+        // by `vhea`'s count, which then names no record. HarfBuzz departs
+        // in both cases: it reads every tsb as 0, as this does, but where
+        // the table holds more two-byte entries than the face has glyphs it
+        // takes the surplus's count as its number of advance heights and
+        // reads that many u16s from the table's start, glyph g reading entry
+        // min(g, count - 1).
+        if let (Some(vhea), Some(vmtx)) = (face.table(Tag::VHEA), face.table(Tag::VMTX)) {
+            let long: Option<u16> = vhea.read(Offset::of(34u32));
+            let len = vmtx.len().value() & !1;
+            let long = long.map_or(0, u32::from).min(len / 4);
+            let bearings = u32::from(glyphs).max(long).min(long + (len - long * 4) / 2);
+            if long > 0 {
+                face.vmetrics = Count::of(long);
+                face.vbearings = Count::of(bearings);
+                face.vmtx = Some(vmtx);
+            }
+        }
         face.os2 = face.table(Tag::OS2);
         face.post = face.table(Tag::POST);
         face.cmap = face.table(Tag::CMAP).and_then(Cmap::parse);
@@ -642,6 +674,50 @@ impl<'a> Face<'a> {
         Some((advance, lsb))
     }
 
+    /// `g`'s advance height and top side bearing from `vmtx`, which place
+    /// its two vertical phantom points, as HarfBuzz reads them: the bearing
+    /// from the long records, then the trailing array, and 0 past both; the
+    /// advance from its record, or the last long record's for a glyph past
+    /// them, and 0 past the glyph count. A face without vertical metrics
+    /// answers HarfBuzz's `(unitsPerEm, 0)` for every glyph, which the text
+    /// leaves open (`glyf.rs`'s `push_phantoms`).
+    fn vertical(&self, g: GlyphId) -> (i32, i32) {
+        let Some(vmtx) = self.vmtx else {
+            return (i32::from(self.upem.0), 0);
+        };
+        let Some(i) = u32::try_from(g.index()).ok().map(Index::of) else {
+            return (0, 0);
+        };
+        let record = |k: Index| Offset::ZERO.at(k, Len::of(4));
+        let advance = |k: Index| -> i32 {
+            record(k)
+                .and_then(|at| vmtx.read::<u16>(at))
+                .map_or(0, i32::from)
+        };
+        let Some(last) = self.vmetrics.last() else {
+            return (0, 0);
+        };
+        if !self.vbearings.holds(i) {
+            let height = if self.glyphs.holds(g) {
+                advance(last)
+            } else {
+                0
+            };
+            return (height, 0);
+        }
+        let tsb = if self.vmetrics.holds(i) {
+            record(i).and_then(|at| at.plus(Len::of(2)))
+        } else {
+            Len::of(4)
+                .times(self.vmetrics)
+                .zip(i.since(self.vmetrics.as_index()))
+                .and_then(|(records, k)| Offset::ZERO.plus(records)?.at(k.as_index(), Len::of(2)))
+        };
+        let tsb = tsb.and_then(|at| vmtx.read::<i16>(at)).map_or(0, i32::from);
+        let slot = if self.vmetrics.holds(i) { i } else { last };
+        (advance(slot), tsb)
+    }
+
     /// The left side bearing of `g` from `hmtx`: in the record for the first
     /// `numberOfHMetrics` glyphs, in the trailing `leftSideBearings` array
     /// for the rest.
@@ -662,6 +738,18 @@ impl<'a> Face<'a> {
     /// next face rather than draw `.notdef`.
     pub fn glyph(&self, c: Codepoint) -> Option<GlyphId> {
         self.cmap.as_ref()?.glyph(c)
+    }
+
+    /// Whether the face refuses `g` ([`Drawn::Refused`]): a `glyf`
+    /// composite whose first component, at any depth of its tree, is placed
+    /// by matched points. The same at every instance, since it reads only the
+    /// components' flags. A caller choosing a face for a character asks this
+    /// to pass a refused glyph over, as it passes over a character the face
+    /// does not map -- unless the glyph is colour ([`Face::is_colour`]),
+    /// whose strike image or `COLR` layers draw without its own outline
+    /// (baud-render's `Stack`).
+    pub fn refuses(&self, g: GlyphId) -> bool {
+        self.glyf.is_some_and(|glyf| glyf.refuses(g))
     }
 
     /// Every codepoint range `cmap` could map -- candidates for
@@ -856,8 +944,9 @@ impl<'a> Face<'a> {
     /// the face's coordinates as it is drawn.
     pub fn outline<S: Sink>(&self, g: GlyphId, sink: &mut S) -> Drawn {
         if let Some((glyf, _)) = self.varying() {
-            return match glyf.need(g) {
-                Some(need) => Drawn::NeedsScratch(need),
+            return match glyf.walk_need(g) {
+                Some(Need::Points(need)) => Drawn::NeedsScratch(need),
+                Some(Need::Refused) => Drawn::Refused,
                 None => Drawn::Nothing,
             };
         }
@@ -870,6 +959,7 @@ impl<'a> Face<'a> {
             match glyf.outline(g, &hmtx, &mut counting) {
                 Some(Streamed::Drawn) => Some(()),
                 Some(Streamed::NeedsScratch(need)) => return Drawn::NeedsScratch(need),
+                Some(Streamed::Refused) => return Drawn::Refused,
                 None => None,
             }
         } else if let Some(cff2) = &self.cff2 {
@@ -900,8 +990,9 @@ impl<'a> Face<'a> {
         sink: &mut S,
     ) -> Drawn {
         let (glyf, gvar, need) = match self.varying() {
-            Some((glyf, gvar)) => match glyf.need(g) {
-                Some(need) => (glyf, Some(gvar), need),
+            Some((glyf, gvar)) => match glyf.walk_need(g) {
+                Some(Need::Points(need)) => (glyf, Some(gvar), need),
+                Some(Need::Refused) => return Drawn::Refused,
                 None => return Drawn::Nothing,
             },
             None => match (self.outline(g, sink), self.glyf) {
@@ -917,7 +1008,12 @@ impl<'a> Face<'a> {
             drawn: Drawn::Nothing,
         };
         let hmtx = |g: GlyphId| self.metrics(g);
-        match glyf.outline_varied(g, gvar, &self.coords, &hmtx, scratch, &mut counting) {
+        let vmtx = |g: GlyphId| self.vertical(g);
+        let metrics = Metrics {
+            hmtx: &hmtx,
+            vmtx: &vmtx,
+        };
+        match glyf.outline_varied(g, gvar, &self.coords, metrics, scratch, &mut counting) {
             Some(()) => counting.drawn,
             None => Drawn::Nothing,
         }

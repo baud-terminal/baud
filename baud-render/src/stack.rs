@@ -1,7 +1,8 @@
 //! The faces a frame draws with, in fallback order.
 
 use crate::atlas::Code;
-use baud_domain::{Attrs, Codepoint};
+use crate::units::Tally;
+use baud_domain::{Attrs, Codepoint, GlyphId};
 use baud_font::{Face, Normalised};
 
 /// A face's position in the stack. A byte, because a fallback chain of
@@ -133,6 +134,9 @@ pub struct FaceTable {
     idle: [u16; FaceTable::COMBOS],
     /// How many blocks have been filled on demand.
     filled: Filled,
+    /// Characters passed over on a face that refuses its glyph for them
+    /// ([`FaceTable::refused`]).
+    refused: Tally,
 }
 
 impl FaceTable {
@@ -149,7 +153,21 @@ impl FaceTable {
             proposed,
             idle: [0; FaceTable::COMBOS],
             filled: Filled(0),
+            refused: Tally::default(),
         }
+    }
+
+    /// How many characters a face maps to a glyph it refuses
+    /// ([`Face::refuses`]) and that is not colour were passed over for
+    /// another face, once per face and character, counted when the
+    /// character's block is decided -- the first time any cell lands in it.
+    /// A refused glyph the table keeps, the primary's when no other face
+    /// carries the character, is not counted here: the atlas counts it when
+    /// it draws the primary's `.notdef` in its place (`AtlasStats::refused`).
+    /// A colour glyph is never passed over for its outline
+    /// ([`Stack::carries`]), so never counted here.
+    pub fn refused(&self) -> Tally {
+        self.refused
     }
 
     /// The styles and presentations in table order: the style's two-bit code
@@ -352,27 +370,43 @@ impl<'f, 'a> Stack<'f, 'a> {
         self.faces.get(ix.index()).unwrap_or(&self.faces[0])
     }
 
+    /// The glyph face `ix` draws `c` with: the one its `cmap` maps, unless
+    /// the face refuses its outline ([`Face::refuses`]) and it is not
+    /// colour. A refused glyph is passed over as a character the face does
+    /// not map is, so the next face that carries the character draws it,
+    /// else the primary's `.notdef`: TUS § 5.3 (`[[source: unicode18-ch5]]`)
+    /// leaves a character a face cannot render "some placeholder", never a
+    /// blank. A colour glyph is kept: the atlas draws its strike image or
+    /// its `COLR` layers before its outline (`Atlas::slot`), so a refused
+    /// outline does not stop it drawing. `refuses` is asked first, so the
+    /// colour test is taken only for a refused glyph.
+    fn carries(&self, ix: FaceIx, c: Codepoint) -> Option<GlyphId> {
+        let f = self.face(ix);
+        f.glyph(c).filter(|g| !f.refuses(*g) || f.is_colour(*g))
+    }
+
     /// The face a character of `style` is drawn from: the style's own
-    /// face when it maps `c`, else the fallback chain.
+    /// face when it carries `c` ([`Stack::carries`]), else the fallback
+    /// chain.
     pub fn select_styled(&self, c: Codepoint, style: FaceStyle) -> FaceIx {
         let own = self
             .styled
             .get(self.effective(style))
-            .filter(|f| self.face(*f).glyph(c).is_some());
+            .filter(|f| self.carries(*f, c).is_some());
         own.unwrap_or_else(|| self.select(c))
     }
 
     /// The face a character of `style` is drawn from when it asks for a
-    /// presentation: the first face whose glyph for `c` is colour, or is not,
-    /// in the order [`Stack::select_styled`] tries them -- the style's own
+    /// presentation: the first face that carries `c` ([`Stack::carries`])
+    /// with a glyph that is colour, or is not, in the order
+    /// [`Stack::select_styled`] tries them -- the style's own
     /// face, then the chain. When no face draws `c` that way, the face
     /// `select_styled` picks: a heart with `U+FE0F` and no colour face is the
     /// text heart, not `.notdef`.
     pub fn select_presented(&self, c: Codepoint, style: FaceStyle, p: Presentation) -> FaceIx {
         let wants = |ix: FaceIx| {
-            let f = self.face(ix);
-            f.glyph(c)
-                .is_some_and(|g| f.is_colour(g) == (p == Presentation::Colour))
+            self.carries(ix, c)
+                .is_some_and(|g| self.face(ix).is_colour(g) == (p == Presentation::Colour))
         };
         let own = self.styled.get(self.effective(style)).filter(|f| wants(*f));
         own.or_else(|| self.each().find(|ix| !self.styled.holds(*ix) && wants(*ix)))
@@ -441,26 +475,38 @@ impl<'f, 'a> Stack<'f, 'a> {
 
     /// Decide every entry of block `blk` of `t`, for all eight styles and
     /// presentations at once: one `cmap` lookup and colour test per face
-    /// that proposed the block, per codepoint.
+    /// that proposed the block, per codepoint, and a refusal test for each
+    /// glyph that is not colour. A face whose glyph is refused and not
+    /// colour draws nothing there ([`Stack::carries`]), and is counted in
+    /// [`FaceTable::refused`] when no style or presentation keeps it.
     fn fill(&self, t: &mut FaceTable, blk: Block) {
         let blk = blk.0;
         let faces = core::mem::take(&mut t.proposed[blk]);
         let mut draws = vec![Draws::No; self.faces.len()];
+        let mut refused = vec![false; self.faces.len()];
         let mut rows = [[0u8; 256]; FaceTable::COMBOS];
         for lo in 0..256u32 {
             let v = u32::try_from(blk).unwrap_or(0) * 256 + lo;
             let cp = Codepoint::new(v);
             for &i in &faces {
                 let f = &self.faces[usize::from(i)];
-                draws[usize::from(i)] = match cp.and_then(|c| f.glyph(c)) {
-                    None => Draws::No,
-                    Some(g) if f.is_colour(g) => Draws::Colour,
-                    Some(_) => Draws::Text,
+                let (draw, gone) = match cp.and_then(|c| f.glyph(c)) {
+                    None => (Draws::No, false),
+                    Some(g) if f.is_colour(g) => (Draws::Colour, false),
+                    Some(g) if f.refuses(g) => (Draws::No, true),
+                    Some(_) => (Draws::Text, false),
                 };
+                draws[usize::from(i)] = draw;
+                refused[usize::from(i)] = gone;
             }
             let at = usize::try_from(lo).unwrap_or(0);
             for (combo, (style, p)) in FaceTable::combos().enumerate() {
                 rows[combo][at] = self.choose(&draws, style, p).0;
+            }
+            for &i in &faces {
+                if refused[usize::from(i)] && rows.iter().all(|row| row[at] != i) {
+                    t.refused.bump();
+                }
             }
         }
         for (combo, row) in rows.into_iter().enumerate() {
@@ -497,15 +543,15 @@ impl<'f, 'a> Stack<'f, 'a> {
             .unwrap_or(first)
     }
 
-    /// The first face that maps `c`; the primary when none does, so its
-    /// `.notdef` is what a character nobody carries draws as.
+    /// The first face that carries `c` ([`Stack::carries`]: maps it to a
+    /// glyph it does not refuse, or to a colour one); the primary when none
+    /// does, so its `.notdef` is what a character nobody carries draws as --
+    /// and what a glyph the primary refuses draws as, the atlas drawing the
+    /// `.notdef` in its place (`Atlas::slot`).
     pub fn select(&self, c: Codepoint) -> FaceIx {
-        self.faces
-            .iter()
-            .enumerate()
-            .filter_map(|(i, f)| Some((FaceIx(u8::try_from(i).ok()?), f)))
-            .find(|(ix, f)| !self.styled.holds(*ix) && f.glyph(c).is_some())
-            .map_or(FaceIx::PRIMARY, |(ix, _)| ix)
+        self.each()
+            .find(|ix| !self.styled.holds(*ix) && self.carries(*ix, c).is_some())
+            .unwrap_or(FaceIx::PRIMARY)
     }
 }
 

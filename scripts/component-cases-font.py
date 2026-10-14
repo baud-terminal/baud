@@ -22,8 +22,8 @@ Composites, by what they place (p/c: the parent's and the child's point):
   anchscale  bar scaled by half, p1/c1
   anchadv    dot, p1/c5: the child's advance phantom
   anchlsb    dot2, p1/c4: the child's left phantom, xMin - lsb = 20
-  anchtop    dot, p1/c6: the child's top phantom (vertical; baud reads no
-             vmtx)
+  anchtop    dot, p1/c6: the child's top phantom (vertical; the face has no
+             vmtx, so it is at (0, yMax))
   anchcomp   pair, p2/c5: a composite child's flattened points
   anchflag   bar by points with a scale and SCALED_COMPONENT_OFFSET, which
              the specification says is ignored without ARGS_ARE_XY_VALUES
@@ -36,7 +36,7 @@ Composites, by what they place (p/c: the parent's and the child's point):
   anchout    p50: past every point
   anchself   p3/c1: the parent has three points, so p3 is none of them
   anchfirst  the first component anchored, which the specification says
-             must not be
+             must not be: refused
   scaled     bar at (100,50) scaled by half, SCALED_COMPONENT_OFFSET
   scaledrot  the same rotated 90 degrees
   scaledxy   the same scaled (0.5, 1.5)
@@ -55,8 +55,8 @@ Composites, by what they place (p/c: the parent's and the child's point):
   anchpadv   dot under USE_MY_METRICS, p4/c0: the parent's own advance
              phantom, numbered after tri's three points, with a Y delta on
              it (ignored), read before this component's metrics replace it
-  anchptop   bar, p5/c1: the parent's own top phantom (vertical; baud
-             reads no vmtx)
+  anchptop   bar, p5/c1: the parent's own top phantom (vertical; no vmtx,
+             and the header yMax is 0, so it is at (0, 0))
   anchplx    bar, p3/c1: the parent's own left phantom, with an X delta
              (applied, and the top-level shift follows it) and a Y delta
              (ignored)

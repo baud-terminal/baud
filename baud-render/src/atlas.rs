@@ -71,8 +71,10 @@ pub const VAR_POINTS_MAX: u32 = 200_000;
 /// by matched points, at any instance -- answers [`Drawn::NeedsScratch`]
 /// with nothing drawn, and `var` grows to exactly that need and the glyph
 /// is drawn again, unless the need is past [`VAR_POINTS_MAX`]: then the
-/// refusal is the answer, for the caller to count. Any other glyph of a
-/// face at its default instance never asks.
+/// refusal is the answer, for the caller to count. A glyph the face
+/// refuses outright answers [`Drawn::Refused`], for the caller to count as
+/// well and to draw the face's `.notdef` for (`Atlas::slot`). Any other
+/// glyph of a face at its default instance never asks.
 fn outline<S: Sink>(var: &mut Vec<VarPoint>, face: &Face<'_>, id: GlyphId, sink: &mut S) -> Drawn {
     match face.outline_at(id, var, sink) {
         Drawn::NeedsScratch(need) if need.value() <= VAR_POINTS_MAX => {
@@ -262,10 +264,17 @@ pub struct AtlasStats {
     /// the texture itself was replaced, through [`Replaced`].
     pub enlarged: Tally,
     /// Glyphs whose outline needed more scratch than [`VAR_POINTS_MAX`],
-    /// each counted once and then drawn as nothing (a `COLR` glyph refused
-    /// for a layer falls to its base glyph's own outline, as a glyph with no
-    /// `COLR` record does): refused where a reader sees it rather than taken
-    /// for a glyph with no ink.
+    /// drawn as nothing, or that the face refuses ([`Drawn::Refused`]: a
+    /// composite the `glyf` text says cannot be), drawn as the face's
+    /// `.notdef`: refused where a reader sees it rather than taken for a
+    /// glyph with no ink. Each is counted once when its answer is recorded;
+    /// a refused glyph whose `.notdef` does not fit even after growing is
+    /// not recorded, and is counted again on every ask. A `COLR` glyph
+    /// refused for a layer falls to its base glyph's own outline, as a glyph
+    /// with no `COLR` record does, and is counted twice when that outline is
+    /// refused too, for either reason, once for each. A refused glyph the
+    /// stack passed over for another face, one that is not colour, is never
+    /// asked for here; `FaceTable::refused` counts it.
     pub refused: Tally,
 }
 
@@ -595,7 +604,8 @@ impl Atlas {
     /// The image of `id` in `face`, resolved on the first ask: its bitmap
     /// from a strike that holds it (see [`Atlas::bitmap`]), else its `COLR`
     /// layers, else its outline as
-    /// an exact-coverage mask. `None` for a glyph that draws nothing. One
+    /// an exact-coverage mask. `None` for a glyph that draws nothing; a
+    /// glyph the face refuses draws the face's `.notdef` in its place. One
     /// raster a glyph and phase: the text-contrast curve is applied when the
     /// mask is composited (`baud_domain::contrast`), not here.
     pub fn slot(
@@ -623,6 +633,30 @@ impl Atlas {
             return Some(s);
         }
         let slot = self.rasterise(face, id, scale, phase);
+        if slot.is_none() && id != GlyphId::NOTDEF && face.refuses(id) {
+            // A glyph the face refuses ([`Drawn::Refused`]), counted by
+            // `rasterise`, shows the face's `.notdef` rather than a blank:
+            // TUS § 5.3 leaves a character a face cannot render "some
+            // placeholder". The stack passes a refused glyph that is not
+            // colour over for the next face that carries the character, so
+            // the face here is the primary when such a glyph came from
+            // `cmap`; a colour glyph is kept on its face and reaches here
+            // only when its strike image and its layers drew nothing. Recorded
+            // when the `.notdef`'s own answer is, so it is counted once
+            // then; a `.notdef` that does not fit even after growing is not
+            // recorded, so neither is this glyph, which every later ask
+            // draws and counts again.
+            let notdef = self.slot(face, ix, GlyphId::NOTDEF, scale, phase);
+            let own = GlyphKey {
+                face: ix,
+                glyph: GlyphIx(0),
+                phase,
+            };
+            if self.map.contains_key(&own) {
+                self.map.insert(key, notdef);
+            }
+            return notdef;
+        }
         // An image that would not fit even after growing is not recorded,
         // so a later, larger atlas may take it.
         if slot.is_some() || self.fits_nothing_anyway(face, id, scale, phase) {
@@ -772,7 +806,9 @@ impl Atlas {
         // refuses the glyph, counted once, rather than paint it partly.
         let mut b = Bounds::new();
         for layer in layers {
-            if let Drawn::NeedsScratch(_) = outline(&mut self.var, face, layer.glyph, &mut b) {
+            if let Drawn::NeedsScratch(_) | Drawn::Refused =
+                outline(&mut self.var, face, layer.glyph, &mut b)
+            {
                 self.stats.refused.bump();
                 return None;
             }
@@ -873,7 +909,7 @@ impl Atlas {
         phase: Phase,
     ) -> bool {
         let mut b = Bounds::new();
-        if let Drawn::NeedsScratch(_) = outline(&mut self.var, face, id, &mut b) {
+        if let Drawn::NeedsScratch(_) | Drawn::Refused = outline(&mut self.var, face, id, &mut b) {
             return true;
         }
         Fit::at(&b, scale, phase).is_none()
@@ -887,7 +923,7 @@ impl Atlas {
         phase: Phase,
     ) -> Option<Slot> {
         let mut b = Bounds::new();
-        if let Drawn::NeedsScratch(_) = outline(&mut self.var, face, id, &mut b) {
+        if let Drawn::NeedsScratch(_) | Drawn::Refused = outline(&mut self.var, face, id, &mut b) {
             self.stats.refused.bump();
             return None;
         }

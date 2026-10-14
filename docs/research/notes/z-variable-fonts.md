@@ -814,7 +814,11 @@ built where the text turned out to define it):**
    (`anchptop`), and a number past n+3 names no point the text defines --
    (A) offset 0, as before, (B) refused, (D) HarfBuzz's, the child's own
    point where it holds one; the text neither asks for nor forbids any of
-   the three. Kept: A, for Jev.
+   the three. ~~Kept: A, for Jev.~~ Jev picked A at 0.88 and 0.77 (round
+   2026-10-12, g2), under the bar; **the owner kept A on 2026-10-13**,
+   picking "Take Jev's leading pick (Recommended)", whose description gave
+   "g2 offset 0 and c4 FontMatrix not read (both as built)". Since 4 is
+   built, A covers a number past n+3 alone.
 3. *The first component placed by points*, which the text says must not
    be ("This flag must always be set for the first component of a
    composite glyph"). It has no parent points but the parent's phantoms,
@@ -822,13 +826,28 @@ built where the text turned out to define it):**
    the parent's phantoms by C's numbering, or (E) the glyph refused as
    malformed, the text's "must" read as a condition of validity. The text
    says what a font must do and not what a reader does with one that does
-   not, so none conforms or departs. Kept: A.
+   not, so none conforms or departs. ~~Kept: A.~~ The fonts lane added
+   Microsoft's "cannot be used for the first component glyph", which read as a
+   condition of validity makes E conforming; Jev tied A and E at 0.23 both
+   times (g3), and **the owner picked E on 2026-10-13**, by the same pick,
+   whose description gave "g3 (a first component placed by points)
+   refused": the glyph is refused at any depth of its tree and nothing of
+   its outline is drawn; its cell shows the next face that carries the
+   character, else a `.notdef`, and a colour glyph still draws from its
+   image or layers (the record, "A component may align on a vertical
+   phantom, and a first component placed by points is refused").
 4. *A child's or the parent's vertical phantoms.* (A) no alignment, as
    before. (B) `vmtx` read, and HarfBuzz's positions: `(0, yMax + tsb)`
    and an advance height below, `(0, yMax)` and `(0, yMax - upem)` with no
    `vmtx`; the text names the points (top origin, advance height) but no x
    and no rule without `vmtx`. (C) refused, FreeType's for every phantom.
-   Kept: A.
+   ~~Kept: A.~~ Jev picked B at 0.70 and 0.62 (g4); **the owner picked B on
+   2026-10-13**, by the same pick, whose description gave "g4 read vmtx
+   positions", and it is built: `[[source: ms-opentype-vmtx]]` puts the
+   vertical origin's y at "the sum of the glyph's top side bearing ... and
+   the top (i.e. maximum y) of the glyph's bounding box", with the advance
+   height below it, and says its x "is not specified"; the x of 0 and the
+   positions without `vmtx` are HarfBuzz's.
 5. *Where a USE_MY_METRICS component's phantoms are taken from*, now that
    a later component can align on them. The gvar text says "the positions
    of phantom points for the composite glyph are set to the hinted

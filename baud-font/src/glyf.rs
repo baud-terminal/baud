@@ -24,8 +24,9 @@
 //! rasteriser choose and recommends the unscaled offset, which Microsoft's,
 //! Apple's (by that text), HarfBuzz's and FreeType's defaults take; Apple's
 //! own reference (`[[source: apple-ttrm-glyf]]`) scales it by its `m` and
-//! `n`, so the choice is recorded for Jev and the unscaled one kept, for
-//! both flags set too, which the text calls invalid and gives the default.
+//! `n`; Jev decided for the unscaled one on 2026-10-12 (0.98 both times),
+//! for both flags set too, which the text calls invalid and gives the
+//! default.
 //! A component whose arguments name points -- ARGS_ARE_XY_VALUES clear --
 //! is aligned after its matrix: the parent's point, numbered across the
 //! components before it and then the parent's own left and right
@@ -33,10 +34,14 @@
 //! needs the parent's points, which a stream into a sink has given away,
 //! so a glyph whose tree matches points is drawn only through scratch, by
 //! the walk a varied glyph takes ([`Glyf::outline`] refuses it with the
-//! need). What the text leaves open stays at offset 0, as every matched
-//! component was before: a point past the parent's phantoms, a vertical
-//! phantom of either glyph (no `vmtx` is read), and a first component that
-//! is not an offset. A composite's own phantoms take the deltas
+//! need). Every phantom of either glyph may be named, the vertical two at
+//! the top origin and the advance height point `vmtx` places
+//! ([`push_phantoms`]). A parent point past the parent's four phantoms,
+//! which the text leaves open, stays at offset 0, as every matched
+//! component was before. A first component placed by points -- which "cannot
+//! be used for the first component glyph" (`[[source: ms-opentype-glyf]]`)
+//! -- refuses the whole glyph ([`Streamed::Refused`]); both are the owner's
+//! decisions of 2026-10-13. A composite's own phantoms take the deltas
 //! `[[source: ms-opentype-gvar]]` gives them -- X on the left and advance
 //! ones, Y on the two vertical ones -- which a matched component sees once
 //! the composite is its parent or its child. `ROUND_XY_TO_GRID` is a
@@ -143,32 +148,65 @@ struct Reach {
 }
 
 /// Whether a glyph's tree places a component by matched points anywhere,
-/// so that it can be drawn only through scratch.
+/// so that it can be drawn only through scratch -- or places a composite's
+/// first component so, which refuses the glyph whatever else it holds.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Matched {
     No,
     Yes,
+    FirstByPoints,
 }
 
-/// What [`Glyf::outline`] did with a glyph it parsed: streamed it, or
-/// refused it because its tree matches points, with the scratch the walk
-/// that draws it needs.
+/// What [`Glyf::outline`] did with a glyph it parsed: streamed it, refused
+/// it because its tree matches points, with the scratch the walk that
+/// draws it needs, or refused it because a composite in its tree places its
+/// first component by points.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Streamed {
     Drawn,
     NeedsScratch(Count),
+    /// The composite description the glyf text says cannot be: "The second
+    /// mechanism [aligning points] assumes some outlines have already been
+    /// incorporated into the parent, so cannot be used for the first
+    /// component glyph" (`[[source: ms-opentype-glyf]]`); "This flag
+    /// [ARGS_ARE_XY_VALUES] must always be set for the first component of a
+    /// composite glyph". Read as a condition of validity, the owner's
+    /// decision of 2026-10-13: nothing of the glyph is drawn, at any depth
+    /// of its tree, as FreeType refuses it.
+    Refused,
+}
+
+/// What [`Glyf::walk_need`] found: the scratch a glyph's walk needs, or
+/// that the glyph is refused ([`Streamed::Refused`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Need {
+    Points(Count),
+    Refused,
 }
 
 /// A glyph's advance and left side bearing, from `hmtx`, which places its
 /// first two phantom points.
 pub type Hmtx<'h> = &'h dyn Fn(GlyphId) -> Option<(i32, i32)>;
 
+/// A glyph's advance height and top side bearing, from `vmtx`, which place
+/// its two vertical phantom points; for a face without vertical metrics the
+/// caller answers HarfBuzz's `(unitsPerEm, 0)` (`Face`'s `vertical`).
+pub type Vmtx<'v> = &'v dyn Fn(GlyphId) -> (i32, i32);
+
+/// The two metrics tables a glyph's four phantom points start from.
+#[derive(Clone, Copy)]
+pub struct Metrics<'m> {
+    pub hmtx: Hmtx<'m>,
+    pub vmtx: Vmtx<'m>,
+}
+
 /// The walk's shared state: the gvar table when the face is read at a
-/// variation, the coordinates, `hmtx`, and how many glyphs it has visited.
+/// variation, the coordinates, the metrics, and how many glyphs it has
+/// visited.
 struct Walk<'v, 'a> {
     gvar: Option<Gvar<'a>>,
     coords: &'v VarCoords,
-    hmtx: Hmtx<'v>,
+    metrics: Metrics<'v>,
     edges: Edges,
 }
 
@@ -466,7 +504,8 @@ impl Component {
     /// SCALED_COMPONENT_OFFSET (bit 11) without UNSCALED_COMPONENT_OFFSET
     /// (bit 12): the offset is in the component's coordinates and goes
     /// through its matrix. Neither bit, or both, which the text calls
-    /// invalid, is the default, the unscaled offset (open for Jev).
+    /// invalid, is the default, the unscaled offset (Jev's decision of
+    /// 2026-10-12).
     pub(crate) fn scaled_offset(self) -> bool {
         self.0 & 0x1800 == 0x0800
     }
@@ -821,16 +860,46 @@ enum Phantom<'a> {
     Composite(Bytes<'a>),
 }
 
-/// Four phantom points appended at `at`, where HarfBuzz starts them: left
-/// at `(xMin - lsb, 0)` and right an advance along it, from `left` -- the
-/// specification's "left sidebearing point" and "advance width point"
-/// (`[[source: ms-opentype-tt-instructing-glyphs]]`) -- and the two
-/// vertical ones at 0, since no `vmtx` is read. None is drawn and none is
-/// a contour end; a matched component may align on the horizontal two, and
-/// only the left one's delta moves the outline.
-fn push_phantoms(pts: &mut [VarPoint], at: &mut usize, left: (i32, i32)) -> Option<()> {
-    let (x, advance) = left;
-    let place = [(x, 0), (x.checked_add(advance)?, 0), (0, 0), (0, 0)];
+/// Where a glyph's four phantom points start, in font units: the left one's
+/// x and the advance width, the top one's y and the advance height.
+#[derive(Clone, Copy)]
+struct Start {
+    left: i32,
+    advance: i32,
+    top: i32,
+    height: i32,
+}
+
+/// Four phantom points appended at `at`, the specification's "left
+/// sidebearing point", "advance width point", "top origin" and "advance
+/// height point" (`[[source: ms-opentype-tt-instructing-glyphs]]`): left at
+/// `(xMin - lsb, 0)` (`[[source: ms-opentype-hmtx]]`) and right an advance
+/// along it; top at `(0, yMax + tsb)` -- "The y coordinate of a glyph's
+/// vertical origin is specified as the sum of the glyph's top side bearing
+/// (recorded in the 'vmtx' table) and the top (i.e. maximum y) of the
+/// glyph's bounding box" -- and bottom an advance height below it, since
+/// "The advance height of a glyph starts from the y coordinate of the
+/// glyph's vertical origin and advances downwards" (`[[source:
+/// ms-opentype-vmtx]]`). "The x coordinate of a glyph's vertical origin is
+/// not specified", and both vertical points take HarfBuzz's and FreeType's
+/// x of 0, and HarfBuzz's tsb of 0 and advance height of `unitsPerEm` in a
+/// face without `vmtx`, which the text leaves open (the owner's decision of
+/// 2026-10-13). None is drawn and none is a contour end; a matched
+/// component may align on any of the four, and only the left one's delta
+/// moves the outline.
+fn push_phantoms(pts: &mut [VarPoint], at: &mut usize, start: Start) -> Option<()> {
+    let Start {
+        left: x,
+        advance,
+        top,
+        height,
+    } = start;
+    let place = [
+        (x, 0),
+        (x.checked_add(advance)?, 0),
+        (0, top),
+        (0, top.checked_sub(height)?),
+    ];
     for (px, py) in place {
         *pts.get_mut(*at)? =
             VarPoint::at(px as f32, py as f32, OnCurve::Yes, LastPoint::No, Emit::No);
@@ -883,8 +952,10 @@ impl<'a> Glyf<'a> {
         let contours: i16 = data.read(Offset::ZERO)?;
         if contours < 0 {
             let r = self.reach(g, Count::ZERO, &mut Edges(0))?;
-            if r.matched == Matched::Yes {
-                return Some(Streamed::NeedsScratch(r.kept.plus(r.stack)?));
+            match r.matched {
+                Matched::Yes => return Some(Streamed::NeedsScratch(r.kept.plus(r.stack)?)),
+                Matched::FirstByPoints => return Some(Streamed::Refused),
+                Matched::No => {}
             }
         }
         let x = self.origin(g, hmtx)? as f32;
@@ -909,7 +980,7 @@ impl<'a> Glyf<'a> {
         let mut g = g;
         for _ in 0..MAX_DEPTH {
             let data = self.glyph(g);
-            let (start, _) = Self::phantom_start(hmtx, g, data)?;
+            let start = Self::left_start(hmtx, g, data)?;
             let contours: i16 = match data {
                 Some(data) => data.read(Offset::ZERO)?,
                 None => 0,
@@ -941,18 +1012,39 @@ impl<'a> Glyf<'a> {
         let r = self.reach(g, Count::ZERO, &mut Edges(0))?;
         match r.matched {
             Matched::Yes => r.kept.plus(r.stack),
-            Matched::No => None,
+            Matched::No | Matched::FirstByPoints => None,
         }
     }
 
     /// How many [`VarPoint`]s the varied outline of `g` needs, or `None`
-    /// when the glyph is malformed, nests past 32 or visits more than
-    /// 2,049 glyphs. Walked the way [`Glyf::outline_varied`] walks, so the
-    /// count is exact rather than a bound.
+    /// when the glyph is malformed, nests past 32, visits more than 2,049
+    /// glyphs or is refused ([`Streamed::Refused`]). Walked the way
+    /// [`Glyf::outline_varied`] walks, so the count is exact rather than a
+    /// bound.
     pub fn need(&self, g: GlyphId) -> Option<Count> {
+        match self.walk_need(g)? {
+            Need::Points(n) => Some(n),
+            Need::Refused => None,
+        }
+    }
+
+    /// [`Glyf::need`], telling a refused glyph from a malformed one.
+    pub fn walk_need(&self, g: GlyphId) -> Option<Need> {
         let mut edges = Edges(0);
         let r = self.reach(g, Count::ZERO, &mut edges)?;
-        r.kept.plus(r.stack)
+        Some(match r.matched {
+            Matched::FirstByPoints => Need::Refused,
+            Matched::No | Matched::Yes => Need::Points(r.kept.plus(r.stack)?),
+        })
+    }
+
+    /// Whether `g` is refused ([`Streamed::Refused`]): a composite in its
+    /// tree places its first component by points. Read from the components'
+    /// flags alone, so the answer is the same at every instance; a simple or
+    /// empty glyph answers from its header, without the walk.
+    pub fn refuses(&self, g: GlyphId) -> bool {
+        let contours: Option<i16> = self.glyph(g).and_then(|d| d.read(Offset::ZERO));
+        matches!(contours, Some(c) if c < 0) && self.walk_need(g) == Some(Need::Refused)
     }
 
     fn reach(&self, g: GlyphId, depth: Count, edges: &mut Edges) -> Option<Reach> {
@@ -993,13 +1085,19 @@ impl<'a> Glyf<'a> {
         let (mut k, mut kept, mut deepest) = (Count::ZERO, Count::ZERO, Count::ZERO);
         let mut matched = Matched::No;
         while let Some(c) = comps.next()? {
+            let first = k == Count::ZERO;
             k = k.plus(Count::of(1u32))?;
             let r = self.reach(c.glyph, Count::of(depth.value() + 1), edges)?;
             kept = kept.plus(r.kept.minus(Count::of(PHANTOMS))?)?;
             deepest = deepest.max(r.stack);
-            if r.matched == Matched::Yes || c.place != Place::Offset {
-                matched = Matched::Yes;
-            }
+            matched = match (r.matched, c.place, first) {
+                (Matched::FirstByPoints, _, _) | (_, Place::Points { .. }, true) => {
+                    Matched::FirstByPoints
+                }
+                _ if matched == Matched::FirstByPoints => matched,
+                (Matched::Yes, _, _) | (_, Place::Points { .. }, false) => Matched::Yes,
+                (Matched::No, Place::Offset, _) => matched,
+            };
         }
         Some(Reach {
             kept: kept.plus(Count::of(PHANTOMS))?,
@@ -1084,6 +1182,9 @@ impl<'a> Glyf<'a> {
         let (advance, lsb) = hmtx(g)?;
         let h = x_min.checked_sub(lsb)?;
         let at = |x: i32| VarPoint::at(x as f32, 0.0, OnCurve::Yes, LastPoint::No, Emit::No);
+        // The vertical two at 0: the extent reads only the horizontal pair,
+        // and a simple glyph's horizontal deltas do not depend on where the
+        // vertical ones start.
         let mut p = [at(h), at(advance.checked_add(h)?), at(0), at(0)];
         if let Some(store) = gvar.glyph(g) {
             let total = own.plus(Count::of(PHANTOMS))?;
@@ -1134,19 +1235,19 @@ impl<'a> Glyf<'a> {
         g: GlyphId,
         gvar: Option<Gvar<'a>>,
         coords: &VarCoords,
-        hmtx: Hmtx<'_>,
+        metrics: Metrics<'_>,
         scratch: &mut [VarPoint],
         sink: &mut S,
     ) -> Option<()> {
         let r = self.reach(g, Count::ZERO, &mut Edges(0))?;
-        if scratch.len() < r.kept.plus(r.stack)?.slot() {
+        if r.matched == Matched::FirstByPoints || scratch.len() < r.kept.plus(r.stack)?.slot() {
             return None;
         }
         let (all, stack) = scratch.split_at_mut(r.kept.slot());
         let mut walk = Walk {
             gvar,
             coords,
-            hmtx,
+            metrics,
             edges: Edges(0),
         };
         let mut used = Count::ZERO;
@@ -1172,17 +1273,35 @@ impl<'a> Glyf<'a> {
         Some(())
     }
 
-    /// Where `g`'s left phantom starts, `xMin - lsb`, and its advance, the
-    /// right one's distance from it: HarfBuzz's `init_phantom_points`, with
-    /// `xMin` 0 for a glyph with no data and a missing `hmtx` entry read
-    /// as 0, as HarfBuzz reads one.
-    fn phantom_start(hmtx: Hmtx<'_>, g: GlyphId, data: Option<Bytes<'a>>) -> Option<(i32, i32)> {
+    /// Where `g`'s left phantom starts, `xMin - lsb`, with `xMin` 0 for a
+    /// glyph with no data and a missing `hmtx` entry read as 0, as HarfBuzz
+    /// reads one.
+    fn left_start(hmtx: Hmtx<'_>, g: GlyphId, data: Option<Bytes<'a>>) -> Option<i32> {
         let x_min: i16 = match data {
             Some(data) => data.read(Offset::of(2u32))?,
             None => 0,
         };
-        let (advance, lsb) = hmtx(g).unwrap_or((0, 0));
-        Some((i32::from(x_min).checked_sub(lsb)?, advance))
+        let (_, lsb) = hmtx(g).unwrap_or((0, 0));
+        i32::from(x_min).checked_sub(lsb)
+    }
+
+    /// Where `g`'s four phantoms start ([`push_phantoms`]): HarfBuzz's
+    /// `init_phantom_points`, with `xMin` and `yMax` 0 for a glyph with no
+    /// data, a missing `hmtx` entry read as 0, and `vmtx`'s answer as the
+    /// face gives it.
+    fn phantom_start(walk: &Walk<'_, 'a>, g: GlyphId, data: Option<Bytes<'a>>) -> Option<Start> {
+        let (x_min, y_max): (i16, i16) = match data {
+            Some(data) => (data.read(Offset::of(2u32))?, data.read(Offset::of(8u32))?),
+            None => (0, 0),
+        };
+        let (advance, lsb) = (walk.metrics.hmtx)(g).unwrap_or((0, 0));
+        let (height, tsb) = (walk.metrics.vmtx)(g);
+        Some(Start {
+            left: i32::from(x_min).checked_sub(lsb)?,
+            advance,
+            top: i32::from(y_max).checked_add(tsb)?,
+            height,
+        })
     }
 
     /// Appends `g`'s points and its four phantom points to `all` at `used`,
@@ -1218,7 +1337,7 @@ impl<'a> Glyf<'a> {
             }
             None => Kind::Empty,
         };
-        let start = Self::phantom_start(walk.hmtx, g, data)?;
+        let start = Self::phantom_start(walk, g, data)?;
         let gvar = walk.gvar.and_then(|v| v.glyph(g));
         let comps = match body {
             Kind::Simple(simple) => {
@@ -1290,11 +1409,11 @@ impl<'a> Glyf<'a> {
         let mut j = 0usize;
         while let Some(c) = records.next()? {
             let old = used.slot();
-            // The parent's own left and right phantoms as this component
-            // finds them: an earlier USE_MY_METRICS component's, if one
-            // came, and not yet its own, which the gvar text's order sets
-            // after the component is placed.
-            let own = [*mine.get(k)?, *mine.get(k.checked_add(1)?)?];
+            // The parent's own four phantoms as this component finds them:
+            // an earlier USE_MY_METRICS component's, if one came, and not
+            // yet its own, which the gvar text's order sets after the
+            // component is placed.
+            let own: [VarPoint; 4] = mine.get(k..k.checked_add(4)?)?.try_into().ok()?;
             self.varied(c.glyph, Count::of(depth.value() + 1), walk, all, used, rest)?;
             let (parent, after) = all.split_at_mut(old);
             let child = after.get_mut(..used.slot().checked_sub(old)?)?;
@@ -1338,15 +1457,12 @@ impl<'a> Glyf<'a> {
                 p.x += after.0;
                 p.y += after.1;
             }
-            // The first component "must always" be an offset, and one that
-            // is not stays where its matrix put it (note Z, step 7).
-            if let (
-                Place::Points {
-                    parent: on,
-                    child: from,
-                },
-                1..,
-            ) = (c.place, j)
+            // A first component placed by points is never reached here:
+            // `outline_varied` refuses its tree before the walk.
+            if let Place::Points {
+                parent: on,
+                child: from,
+            } = c.place
             {
                 if let Some(d) = Self::alignment(parent.get(base..)?, &own, child, on, from) {
                     for p in child.iter_mut() {
@@ -1369,19 +1485,19 @@ impl<'a> Glyf<'a> {
     }
 
     /// The translation that lays the child's point `from` -- its outline
-    /// points numbered from 0, then its left and right phantoms -- on the
-    /// parent's point `on`: the points incorporated from the components
-    /// before it, numbered from 0, then the parent's own left and right
-    /// phantoms, `own` ("Phantom points from the parent or the child may
-    /// be referenced"; "Phantom point numbers follow after the last point
-    /// number of the last contour", `[[source: ms-opentype-glyf]]`).
-    /// `None` where the text leaves the alignment open and the component
-    /// stays where its matrix put it: a parent point past the parent's
-    /// horizontal phantoms, and either glyph's vertical phantoms, which
-    /// need `vmtx` (note Z, step 7).
+    /// points numbered from 0, then its four phantoms -- on the parent's
+    /// point `on`: the points incorporated from the components before it,
+    /// numbered from 0, then the parent's own four phantoms, `own`
+    /// ("Phantom points from the parent or the child may be referenced";
+    /// "Phantom point numbers follow after the last point number of the last
+    /// contour", `[[source: ms-opentype-glyf]]`). `None` where the text
+    /// leaves the alignment open and the component stays where its matrix
+    /// put it: a parent point past the parent's phantoms (the owner kept
+    /// it so on 2026-10-13), and a child point past the child's, as built
+    /// and undecided.
     fn alignment(
         parent: &[VarPoint],
-        own: &[VarPoint; 2],
+        own: &[VarPoint; 4],
         child: &[VarPoint],
         on: Index,
         from: Index,
@@ -1390,8 +1506,7 @@ impl<'a> Glyf<'a> {
             None => parent.get(on.slot())?,
             Some(phantom) => own.get(phantom)?,
         };
-        let horizontal = child.len().checked_sub(2)?;
-        let from = child.get(..horizontal)?.get(from.slot())?;
+        let from = child.get(from.slot())?;
         Some((to.x - from.x, to.y - from.y))
     }
 

@@ -111,6 +111,8 @@ impl Tag {
     pub const MAXP: Tag = Tag(*b"maxp");
     pub const HHEA: Tag = Tag(*b"hhea");
     pub const HMTX: Tag = Tag(*b"hmtx");
+    pub const VHEA: Tag = Tag(*b"vhea");
+    pub const VMTX: Tag = Tag(*b"vmtx");
     pub const CMAP: Tag = Tag(*b"cmap");
     pub const OS2: Tag = Tag(*b"OS/2");
     pub const POST: Tag = Tag(*b"post");

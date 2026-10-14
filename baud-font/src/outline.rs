@@ -102,6 +102,16 @@ pub enum Drawn {
     /// [`crate::VarPoint`], and nothing was drawn -- never the default
     /// instance, or the component at offset 0, in its place.
     NeedsScratch(crate::bytes::Count),
+    /// A glyph the face has but whose description the text says cannot be:
+    /// a `glyf` composite whose first component, at any depth of its tree,
+    /// is placed by matched points ("cannot be used for the first component
+    /// glyph", `[[source: ms-opentype-glyf]]`). Nothing was drawn, and a
+    /// caller counts it rather than take it for a glyph with no ink, and
+    /// shows a placeholder in its cell, never a blank (TUS § 5.3): another
+    /// face's glyph for the character, or a `.notdef` ([`crate::Face::refuses`]
+    /// asks before drawing). A colour glyph whose own outline is refused
+    /// still draws from its strike image or `COLR` layers.
+    Refused,
 }
 
 /// An affine transform, `[a b c d e f]` in the order the specifications
