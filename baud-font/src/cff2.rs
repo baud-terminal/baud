@@ -1185,8 +1185,9 @@ mod tests {
     /// over 100 as the threshold, the other three with the implicit 0.5, each
     /// with the joining point's offset across the line its start and end
     /// share; a `flex` whose end is off both of its start's lines with the
-    /// deeper reading, here the start-end line's 9.5 against the end's 9; and
-    /// a `flex` back at its start, which has no line, as two curves.
+    /// distance to the end's own line, here 9 where the start-end line's is
+    /// 9.5; and a `flex` back at its start with the distance to its start's
+    /// line, 10.
     #[test]
     fn a_charstrings_flexes_carry_their_depth_and_threshold() {
         #[derive(Default)]
@@ -1219,7 +1220,7 @@ mod tests {
         cs.extend([12, 37]);
         cs.extend([10, 10, 6, 10, 10, 10, 10].map(n));
         cs.extend([12, 34]);
-        // flex, back at its start: two curves.
+        // flex, back at its start: 10 across to its start's line.
         cs.extend([10, 5, 10, 5, 10, 0, -10, 0, -10, -5, -10, -5, 50].map(n));
         cs.extend([12, 35]);
         let t = table(&[&cs, &[]], &[], None);
@@ -1233,12 +1234,13 @@ mod tests {
             got,
             [
                 ([0.0, 10.0], 0.3),
-                ([0.0, 9.5], 0.5),
+                ([0.0, 9.0], 0.5),
                 ([10.0, 0.0], 0.5),
-                ([0.0, 6.0], 0.5)
+                ([0.0, 6.0], 0.5),
+                ([0.0, 10.0], 0.5)
             ]
         );
-        assert_eq!(seen.curves.len(), 2);
+        assert_eq!(seen.curves.len(), 0);
     }
 
     /// The refusal says which table, in words a launch message can carry.

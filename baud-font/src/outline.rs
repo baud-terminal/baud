@@ -52,9 +52,9 @@ pub struct Flex {
     /// The flex depth, as a vector in font units across the flex: `[0, dy]`
     /// for a horizontal flex and `[dx, 0]` for a vertical one. Where the
     /// start and the end share a `y` (or an `x`), it is the joining point's
-    /// offset from that line; where they share neither, the deepest of the
-    /// text's readings, so that the flex is straight only where every
-    /// reading is under the threshold (the record, "A flex shallower than
+    /// offset from that line; where they share neither, or both, its offset
+    /// from the end point's own line, as the text's figure draws it (the
+    /// owner's decision of 2026-10-13; the record, "A flex shallower than
     /// half a pixel draws straight", question 6).
     pub depth: [f32; 2],
     /// The threshold in device pixels: `fd / 100` for `flex`, and the

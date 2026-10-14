@@ -65,6 +65,13 @@ enum Every {
 }
 
 fn replay<S: Sink>(cmds: &[Cmd], every: Every, s: &mut S) {
+    let n = flexes(cmds).len();
+    replay_each(cmds, &vec![every; n], s);
+}
+
+/// A replay that draws the `k`th flex as `each[k]` says.
+fn replay_each<S: Sink>(cmds: &[Cmd], each: &[Every], s: &mut S) {
+    let mut k = 0;
     for c in cmds {
         match *c {
             Cmd::Move(x, y) => s.move_to(x, y),
@@ -75,6 +82,8 @@ fn replay<S: Sink>(cmds: &[Cmd], every: Every, s: &mut S) {
             Cmd::Flex(f) => {
                 let [a, b, c, d, x, y] = f.first;
                 let [e, g, h, i, x2, y2] = f.second;
+                let every = each[k];
+                k += 1;
                 match every {
                     Every::Straight => s.line_to(x2, y2),
                     Every::Curved => {
@@ -196,8 +205,8 @@ fn a_cff_flex_shallower_than_half_a_pixel_draws_straight() {
 
 /// CFF2: the cases font's `hflex`, `hflex1` and both `flex1` branches, and
 /// a `flex` whose start and end differ in both `x` and `y`, which carries
-/// the deeper of its readings: at 11 px it too is under half a pixel, and
-/// straight.
+/// its depth to the end point's own line: at 11 px it too is under half a
+/// pixel, and straight.
 #[test]
 fn a_cff2_flex_shallower_than_half_a_pixel_draws_straight() {
     let data = read(concat!(
@@ -212,23 +221,57 @@ fn a_cff2_flex_shallower_than_half_a_pixel_draws_straight() {
     face.outline(g, &mut rec);
     let depths: Vec<[f32; 2]> = flexes(&rec.0).iter().map(|f| f.depth).collect();
     // The `flex` first, from (100, 300) through (250.5, 320.25) to
-    // (401.25, 300.25): the start-end line passes about 20.125 under the
-    // joining point and the end's own line 20, and the deeper is carried.
-    // Then flex1 horizontal (the joining point 40 up), flex1 vertical (20
-    // across), hflex (30 up), hflex1 (30 up).
-    assert_eq!(depths.len(), 5, "{rec:?}", rec = rec.0);
-    let [dx, dy] = depths[0];
-    assert!(
-        dx == 0.0 && (dy - 20.1251).abs() < 1e-4,
-        "the flex: {:?}",
-        depths[0]
-    );
+    // (401.25, 300.25): the end's own line passes 20 under the joining
+    // point, and the start-end line about 20.125. Then flex1 horizontal
+    // (the joining point 40 up), flex1 vertical (20 across), hflex (30
+    // up), hflex1 (30 up).
     assert_eq!(
-        depths[1..],
-        [[0.0, 40.0], [20.0, 0.0], [0.0, 30.0], [0.0, 30.0]],
+        depths,
+        [
+            [0.0, 20.0],
+            [0.0, 40.0],
+            [20.0, 0.0],
+            [0.0, 30.0],
+            [0.0, 30.0]
+        ],
         "{rec:?}",
         rec = rec.0
     );
     let sizes = straddles(&face, g);
     eprintln!("CFF2: sizes {sizes:?}");
+}
+
+/// **The slanted `flex` is measured to its end's line, and the rasteriser
+/// sees it**: at 24.9 px the cases font's `flex` is 0.498 px deep to the
+/// end point's own line and straight, where the start-end line's 20.125
+/// units would put it at 0.501 px and curved. The other four flexes of the
+/// glyph sit on their own side of half a pixel at that size: flex1
+/// vertical, 20 units, straight; the 30- and 40-unit ones curved. The
+/// guard: the two drawings of the first flex differ in the mask.
+#[test]
+fn a_slanted_flex_is_measured_to_its_end_points_line() {
+    use Every::{Curved, Straight};
+    let data = read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/var/cff2-cases.otf"
+    ));
+    let face = Face::parse(&data).unwrap();
+    let g = flexed(&face)[0];
+    let mut rec = Record::default();
+    face.outline(g, &mut rec);
+    let scale = Scale::of(24.9, face.units_per_em());
+    let mut b = Bounds::new();
+    face.outline(g, &mut b);
+    let fit = Fit::of(&b, scale).unwrap();
+    let drawn = mask(&fit, |r| {
+        face.outline(g, r);
+    });
+    let to_end = mask(&fit, |r| {
+        replay_each(&rec.0, &[Straight, Curved, Straight, Curved, Curved], r)
+    });
+    let to_line = mask(&fit, |r| {
+        replay_each(&rec.0, &[Curved, Curved, Straight, Curved, Curved], r)
+    });
+    assert_ne!(to_end, to_line, "the guard");
+    assert_eq!(drawn, to_end);
 }
