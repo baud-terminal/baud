@@ -29,60 +29,61 @@ fails the build.
 
 `research/notes/` is where a source gets turned into an argument about baud:
 each carries its own status line, and many are a dated record of what was
-decided. A note's letter is its filename's prefix, and several notes share
-one.
+decided. The status below says done, with the date and the commit, only
+when every question a note asks is answered or built. A note's letter is
+its filename's prefix, and several notes share one.
 
-| note | title |
-|---|---|
-| [a-byte-at-a-time.md](research/notes/a-byte-at-a-time.md) | What the kernel and an ATMega do — and why it is not a throughput idea |
-| [a-simd-parsing.md](research/notes/a-simd-parsing.md) | SIMD parsing — the decoder is the part with a known better algorithm |
-| [aa-shell-locale.md](research/notes/aa-shell-locale.md) | AA. The shell's locale, and Hebrew |
-| [ab-right-to-left.md](research/notes/ab-right-to-left.md) | AB. Right-to-left text |
-| [ac-built-font.md](research/notes/ac-built-font.md) | AC. The embedded font, built from parts |
-| [ad-unrenderable-in-a-cell.md](research/notes/ad-unrenderable-in-a-cell.md) | AD. What a cell draws for a code point no face draws |
-| [ae-code-extension.md](research/notes/ae-code-extension.md) | AE. Code extension: the four G slots, GL and GR, and the shifts |
-| [af-character-sets.md](research/notes/af-character-sets.md) | AF. Character sets against DEC's own tables: the national replacement sets and the DEC sets baud designates but does not translate |
-| [ag-replies-and-images-under-load.md](research/notes/ag-replies-and-images-under-load.md) | AG. Under load: the reply buffer and the Sixel body |
-| [ah-title-bar-leds.md](research/notes/ah-title-bar-leds.md) | AH. Lights on the title bar: what each LED may honestly light for |
-| [ai-dock-launch-logging.md](research/notes/ai-dock-launch-logging.md) | AI. Where a Dock-launched baud's warnings go |
-| [aj-launch-splash.md](research/notes/aj-launch-splash.md) | AJ. The launch splash: the colour logo, and the plasma it vanishes in |
-| [ak-window-title.md](research/notes/ak-window-title.md) | AK. The window title: what a program sets, what baud derives, and where it shows |
-| [al-trail-flashes.md](research/notes/al-trail-flashes.md) | AL. The cursor trails' flashes: what the texts require, and four ways to bound them |
-| [am-xtgettcap.md](research/notes/am-xtgettcap.md) | AM. XTGETTCAP: what baud says about its own capabilities |
-| [an-dcs-bodies-and-sixel.md](research/notes/an-dcs-bodies-and-sixel.md) | AN. DCS bodies and Sixel: what the texts say per byte |
-| [b-data-parallel-fsm.md](research/notes/b-data-parallel-fsm.md) | Data-parallel finite-state machines — vectorising the parser itself |
-| [b-parser-as-a-graph.md](research/notes/b-parser-as-a-graph.md) | The parser as a graph — how to store 20 nodes and 5,120 edges |
-| [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified |
-| [d-memory-hierarchy.md](research/notes/d-memory-hierarchy.md) | Memory hierarchy — why a read cost 2.5× where a write did not |
-| [e-tty-layer.md](research/notes/e-tty-layer.md) | The tty layer — why a PTY read is 1024 bytes on Darwin and 4095 on Linux |
-| [f-cluster-storage.md](research/notes/f-cluster-storage.md) | Where a multi-codepoint cluster lives — three terminals, three answers |
-| [f-row-extent.md](research/notes/f-row-extent.md) | The per-row used extent — how four terminals decide what to blank |
-| [f-scrollback-ring.md](research/notes/f-scrollback-ring.md) | F — Where a retired line lives: the grid as a ring, checked against the field |
-| [g-property-lookup.md](research/notes/g-property-lookup.md) | Two lookups a character, unconditionally — and the design that does fewer |
-| [g-text-encoding.md](research/notes/g-text-encoding.md) | G — text encoding, width and grapheme clustering |
-| [h-session-context-budget.md](research/notes/h-session-context-budget.md) | H. Every session starts half full, and one edit to CLAUDE.md overflows it |
-| [i-isa-dispatch.md](research/notes/i-isa-dispatch.md) | Instruction-set dispatch — why the seam is a trait and not a crate |
-| [j-colour-bitmap-limits.md](research/notes/j-colour-bitmap-limits.md) | J: colour-bitmap limits -- a presence index, its bound, CBLC subtables, flip chains |
-| [j-rendering-evidence.md](research/notes/j-rendering-evidence.md) | Rendering -- the evidence behind the register |
-| [j-rendering.md](research/notes/j-rendering.md) | Rendering — the decisions register |
-| [j-text-antialiasing.md](research/notes/j-text-antialiasing.md) | J. Text anti-aliasing: weight, blend, hinting and placement |
-| [k-selection.md](research/notes/k-selection.md) | K. Selection, copy and paste |
-| [l-scrollbar.md](research/notes/l-scrollbar.md) | L. The scrollbar |
-| [m-resize-and-reflow.md](research/notes/m-resize-and-reflow.md) | M. Resize, reflow, and the prompt the shell redraws |
-| [n-make-faster.md](research/notes/n-make-faster.md) | N. What baud can make faster, as a makefaster checklist |
-| [o-keystroke-latency.md](research/notes/o-keystroke-latency.md) | O. Keystroke to pixel: the instrument, and what it read first |
-| [p-shader-cache.md](research/notes/p-shader-cache.md) | P. The shader cache at launch: 350 ms cold, 12 warm, and what each remedy would buy |
-| [q-local-echo.md](research/notes/q-local-echo.md) | Q. Local echo prediction: what row 9 draws before the pty answers, and what judges it |
-| [r-sfte.md](research/notes/r-sfte.md) | R. sfte as the second oracle |
-| [s-sixel.md](research/notes/s-sixel.md) | S. Sixel graphics |
-| [t-images.md](research/notes/t-images.md) | T. Images: the phase register for Sixel and Kitty graphics |
-| [u-resize-and-the-window.md](research/notes/u-resize-and-the-window.md) | U. Who holds the window over the history across a resize |
-| [v-open-decisions.md](research/notes/v-open-decisions.md) | V. The owner's open decisions, researched |
-| [w-cursor-trails.md](research/notes/w-cursor-trails.md) | W. The cursor trails: where each design came from, what was decided, and what is lost |
-| [w-fallback-fonts.md](research/notes/w-fallback-fonts.md) | W. Fallback fonts: what other terminals do, and what baud could bundle |
-| [x-cursor-motion-and-blink.md](research/notes/x-cursor-motion-and-blink.md) | X. The cursor's motion and blink: the designs as reviewed |
-| [y-palettes.md](research/notes/y-palettes.md) | Y. Palettes: the light/dark pair, the scheme type, the floor, and what the terminal reports |
-| [z-variable-fonts.md](research/notes/z-variable-fonts.md) | Z. Variable fonts in baud-font |
+| note | title | status |
+|---|---|---|
+| [a-byte-at-a-time.md](research/notes/a-byte-at-a-time.md) | What the kernel and an ATMega do — and why it is not a throughput idea | open |
+| [a-simd-parsing.md](research/notes/a-simd-parsing.md) | SIMD parsing — the decoder is the part with a known better algorithm | open |
+| [aa-shell-locale.md](research/notes/aa-shell-locale.md) | AA. The shell's locale, and Hebrew | open |
+| [ab-right-to-left.md](research/notes/ab-right-to-left.md) | AB. Right-to-left text | open |
+| [ac-built-font.md](research/notes/ac-built-font.md) | AC. The embedded font, built from parts | open |
+| [ad-unrenderable-in-a-cell.md](research/notes/ad-unrenderable-in-a-cell.md) | AD. What a cell draws for a code point no face draws | open |
+| [ae-code-extension.md](research/notes/ae-code-extension.md) | AE. Code extension: the four G slots, GL and GR, and the shifts | open |
+| [af-character-sets.md](research/notes/af-character-sets.md) | AF. Character sets against DEC's own tables: the national replacement sets and the DEC sets baud designates but does not translate | open |
+| [ag-replies-and-images-under-load.md](research/notes/ag-replies-and-images-under-load.md) | AG. Under load: the reply buffer and the Sixel body | open |
+| [ah-title-bar-leds.md](research/notes/ah-title-bar-leds.md) | AH. Lights on the title bar: what each LED may honestly light for | open |
+| [ai-dock-launch-logging.md](research/notes/ai-dock-launch-logging.md) | AI. Where a Dock-launched baud's warnings go | open |
+| [aj-launch-splash.md](research/notes/aj-launch-splash.md) | AJ. The launch splash: the colour logo, and the plasma it vanishes in | open |
+| [ak-window-title.md](research/notes/ak-window-title.md) | AK. The window title: what a program sets, what baud derives, and where it shows | open |
+| [al-trail-flashes.md](research/notes/al-trail-flashes.md) | AL. The cursor trails' flashes: what the texts require, and four ways to bound them | open |
+| [am-xtgettcap.md](research/notes/am-xtgettcap.md) | AM. XTGETTCAP: what baud says about its own capabilities | open |
+| [an-dcs-bodies-and-sixel.md](research/notes/an-dcs-bodies-and-sixel.md) | AN. DCS bodies and Sixel: what the texts say per byte | open |
+| [b-data-parallel-fsm.md](research/notes/b-data-parallel-fsm.md) | Data-parallel finite-state machines — vectorising the parser itself | open |
+| [b-parser-as-a-graph.md](research/notes/b-parser-as-a-graph.md) | The parser as a graph — how to store 20 nodes and 5,120 edges | open |
+| [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified | done 2026-09-11, `f920ea3` |
+| [d-memory-hierarchy.md](research/notes/d-memory-hierarchy.md) | Memory hierarchy — why a read cost 2.5× where a write did not | open |
+| [e-tty-layer.md](research/notes/e-tty-layer.md) | The tty layer — why a PTY read is 1024 bytes on Darwin and 4095 on Linux | open |
+| [f-cluster-storage.md](research/notes/f-cluster-storage.md) | Where a multi-codepoint cluster lives — three terminals, three answers | open |
+| [f-row-extent.md](research/notes/f-row-extent.md) | The per-row used extent — how four terminals decide what to blank | open |
+| [f-scrollback-ring.md](research/notes/f-scrollback-ring.md) | F — Where a retired line lives: the grid as a ring, checked against the field | open |
+| [g-property-lookup.md](research/notes/g-property-lookup.md) | Two lookups a character, unconditionally — and the design that does fewer | open |
+| [g-text-encoding.md](research/notes/g-text-encoding.md) | G — text encoding, width and grapheme clustering | open |
+| [h-session-context-budget.md](research/notes/h-session-context-budget.md) | H. Every session starts half full, and one edit to CLAUDE.md overflows it | open |
+| [i-isa-dispatch.md](research/notes/i-isa-dispatch.md) | Instruction-set dispatch — why the seam is a trait and not a crate | open |
+| [j-colour-bitmap-limits.md](research/notes/j-colour-bitmap-limits.md) | J: colour-bitmap limits -- a presence index, its bound, CBLC subtables, flip chains | open |
+| [j-rendering-evidence.md](research/notes/j-rendering-evidence.md) | Rendering -- the evidence behind the register | open |
+| [j-rendering.md](research/notes/j-rendering.md) | Rendering — the decisions register | open |
+| [j-text-antialiasing.md](research/notes/j-text-antialiasing.md) | J. Text anti-aliasing: weight, blend, hinting and placement | open |
+| [k-selection.md](research/notes/k-selection.md) | K. Selection, copy and paste | open |
+| [l-scrollbar.md](research/notes/l-scrollbar.md) | L. The scrollbar | open |
+| [m-resize-and-reflow.md](research/notes/m-resize-and-reflow.md) | M. Resize, reflow, and the prompt the shell redraws | open |
+| [n-make-faster.md](research/notes/n-make-faster.md) | N. What baud can make faster, as a makefaster checklist | open |
+| [o-keystroke-latency.md](research/notes/o-keystroke-latency.md) | O. Keystroke to pixel: the instrument, and what it read first | open |
+| [p-shader-cache.md](research/notes/p-shader-cache.md) | P. The shader cache at launch: 350 ms cold, 12 warm, and what each remedy would buy | open |
+| [q-local-echo.md](research/notes/q-local-echo.md) | Q. Local echo prediction: what row 9 draws before the pty answers, and what judges it | open |
+| [r-sfte.md](research/notes/r-sfte.md) | R. sfte as the second oracle | open |
+| [s-sixel.md](research/notes/s-sixel.md) | S. Sixel graphics | open |
+| [t-images.md](research/notes/t-images.md) | T. Images: the phase register for Sixel and Kitty graphics | open |
+| [u-resize-and-the-window.md](research/notes/u-resize-and-the-window.md) | U. Who holds the window over the history across a resize | open |
+| [v-open-decisions.md](research/notes/v-open-decisions.md) | V. The owner's open decisions, researched | open |
+| [w-cursor-trails.md](research/notes/w-cursor-trails.md) | W. The cursor trails: where each design came from, what was decided, and what is lost | open |
+| [w-fallback-fonts.md](research/notes/w-fallback-fonts.md) | W. Fallback fonts: what other terminals do, and what baud could bundle | superseded by AC |
+| [x-cursor-motion-and-blink.md](research/notes/x-cursor-motion-and-blink.md) | X. The cursor's motion and blink: the designs as reviewed | open |
+| [y-palettes.md](research/notes/y-palettes.md) | Y. Palettes: the light/dark pair, the scheme type, the floor, and what the terminal reports | open |
+| [z-variable-fonts.md](research/notes/z-variable-fonts.md) | Z. Variable fonts in baud-font | open |
 
 The manifest files each source under a group. Its header comment names the
 groups' topics, and two groups it has no line for are described here from

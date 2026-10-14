@@ -1,5 +1,8 @@
 # C — the terminal parser as specified
 
+**Status: done 2026-09-11, `f920ea3`.** The question below is answered, and
+`f920ea3` struck its one gap, grapheme clusters, which the core now has.
+
 *Group C of `docs/research/sources/MANIFEST.toml`. Primary source:
 `[[source: williams]]`, Paul Flo Williams' state diagram for the DEC ANSI
 parser, which is the de-facto specification every modern terminal is written
