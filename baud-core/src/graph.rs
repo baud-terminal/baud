@@ -1096,7 +1096,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 _ => edge(Act::Consume, Node::DcsStr),
             };
         }
-        Node::Vt52Escape | Node::Vt52Row | Node::Vt52Col => return vt52(node, b),
+        Node::Vt52Escape | Node::Vt52Row | Node::Vt52Col => return vt52(enc, node, b),
         Node::OscStr | Node::DcsStr | Node::SosStr => return string(node, b),
         // `[[source: williams]]`: `ESC \` is the *only* string terminator, and
         // a bare `ESC` cancels the string rather than continuing it. Code that
@@ -1290,10 +1290,13 @@ const fn escape(b: StreamByte) -> Edge {
         // disallowed lead byte (0xC0, 0xC1, 0xF5-0xFF) or a lead cut off writes
         // U+FFFD. It was `Consume`, which dropped the lead with the sequence,
         // so each continuation of a well-formed U+0903 in `a ESC E0 A4 83`
-        // wrote a U+FFFD, which `[[source: unicode-ch3]]` 3.9.5 rules out: a
-        // converter "must not consume the successor bytes as part of the
-        // ill-formed subsequence whenever those successor bytes themselves
-        // constitute part of a well-formed UTF-8 code unit subsequence". That
+        // wrote a U+FFFD. Read as one UTF-8 conversion over the whole stream,
+        // `[[source: unicode-ch3]]` 3.9.5 rules that out: a converter "must
+        // not consume the successor bytes as part of the ill-formed
+        // subsequence whenever those successor bytes themselves constitute
+        // part of a well-formed UTF-8 code unit subsequence". Read with the
+        // bytes inside a sequence belonging to the sequence and not to the
+        // text, it says nothing of them. That
         // the character is then written, and not dropped with the sequence, is
         // Jev's CANCEL_AND_PRINT (decisions.jsonl lines 451-452, 0.96 and 0.92;
         // the owner can veto): no text read says what a character after `ESC`
@@ -1346,6 +1349,19 @@ const fn csi_entry(b: StreamByte) -> Edge {
         // It sent the sequence to `csi_ignore`, so `CSI DEL 5 C` moved
         // nothing.
         0x7f => edge(Act::Consume, Node::CsiEntry),
+        // **Under UTF-8 a byte `80-FF` cancels the sequence and is the
+        // ground's after a control**, in this row and the three after it, as
+        // after `ESC` (`escape`): the owner's decision of 2026-10-13, "cancel
+        // and print it". Only those bytes reach here, as in `escape`: under
+        // ISO 8859-1 `one()` takes `80-9F` as C1 controls and `gr_as_gl`
+        // reads `A0-FF` as `20-7F`. Each row dropped the byte: this one and
+        // `csi_inter` sent the sequence to `csi_ignore`, `csi_param` stayed
+        // and `csi_ignore` stayed, so the continuations of a character whose
+        // lead was dropped each wrote U+FFFD, or were taken as the sequence
+        // went on: `a CSI 1 E0 A4 83 b` ran REP and wrote the `a` twice, and
+        // `a CSI E0 A4 83 b` took the `b` as an ignored final
+        // (`a_character_inside_a_csi_is_written_and_the_csi_is_cancelled`).
+        0x80..=0xff => edge(Act::Again, Node::AfterControl),
         _ => edge(Act::Consume, Node::CsiIgnore),
     }
 }
@@ -1364,6 +1380,9 @@ const fn csi_param(b: StreamByte) -> Edge {
         0x3c..=0x3f => edge(Act::Consume, Node::CsiIgnore),
         0x20..=0x2f => edge(Act::Inter, Node::CsiInter),
         0x40..=0x7e => edge(Act::CsiFinal, Node::AfterControl),
+        // Under UTF-8, cancelled, and the byte is the ground's (`csi_entry`).
+        0x80..=0xff => edge(Act::Again, Node::AfterControl),
+        // `DEL`, which `[[source: williams]]`'s `csi param` ignores (315).
         _ => edge(Act::Consume, Node::CsiParam),
     }
 }
@@ -1380,6 +1399,8 @@ const fn csi_inter(b: StreamByte) -> Edge {
         // (328). It sent the sequence to `csi_ignore`, so `CSI ! DEL p` was
         // no DECSTR.
         0x7f => edge(Act::Consume, Node::CsiInter),
+        // Under UTF-8, cancelled, and the byte is the ground's (`csi_entry`).
+        0x80..=0xff => edge(Act::Again, Node::AfterControl),
         _ => edge(Act::Consume, Node::CsiIgnore),
     }
 }
@@ -1393,6 +1414,8 @@ const fn csi_ignore(b: StreamByte) -> Edge {
         // **Still a control sequence, and it ends the cluster before it**:
         // nothing is performed, and the sequence is a control all the same.
         0x40..=0x7e => edge(Act::Consume, Node::AfterControl),
+        // Under UTF-8, cancelled, and the byte is the ground's (`csi_entry`).
+        0x80..=0xff => edge(Act::Again, Node::AfterControl),
         _ => edge(Act::Consume, Node::CsiIgnore),
     }
 }
@@ -1529,15 +1552,25 @@ const fn after_control(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
 }
 
 /// `ESC` in VT52, and the two bytes of a direct address.
-const fn vt52(node: Node, b: StreamByte) -> Edge {
+const fn vt52(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     match node {
         // **A second `ESC` restarts the sequence rather than dispatching.**
         // `ESC ESC A` moves the cursor up; a uniform row would hand `ESC` to
         // `Vt52::parse`, which does not name it, and the `A` would then be
         // drawn as text. One compare in a `const fn` that runs at build time.
-        Node::Vt52Escape => match b.raw_byte() {
-            0x1b => edge(Act::Consume, Node::Vt52Escape),
-            b'Y' => edge(Act::Consume, Node::Vt52Row),
+        //
+        // **Under UTF-8 a byte `80-FF` cancels the escape and is the
+        // ground's after a control**, as after the ANSI `ESC` (`escape`):
+        // the owner's decision of 2026-10-13 that VT52 follow the `ESC`
+        // decision. It went to `Vt52::parse`, which names no such byte, so
+        // the lead of `a ESC E0 A4 83 b` was dropped with the escape and its
+        // two continuations each wrote U+FFFD. Under ISO 8859-1 the row is
+        // what it was: what a C1 or GR byte does after a VT52 `ESC` is note
+        // AE's D3, which waits on the DEC text for the mode.
+        Node::Vt52Escape => match (enc, b.raw_byte()) {
+            (_, 0x1b) => edge(Act::Consume, Node::Vt52Escape),
+            (_, b'Y') => edge(Act::Consume, Node::Vt52Row),
+            (InputEncoding::Utf8, 0x80..=0xff) => edge(Act::Again, Node::Vt52AfterControl),
             _ => edge(Act::Vt52Dispatch, Node::Vt52AfterControl),
         },
         // `ESC Y <row> <col>`, each biased by `0x20`. Two nodes because the
@@ -2212,10 +2245,16 @@ mod classes {
         // `AfterControl` and `Vt52AfterControl` under UTF-8. Strides 1 and 2
         // do not move; 55,701 -> 55,354 and 1,478,109 -> 1,453,919 at strides 3
         // and 4; the fall was not decomposed.
+        // **A byte `80-FF` inside a `CSI` and after a VT52 `ESC` is the
+        // ground's after a control, under UTF-8** (the owner's decision of
+        // 2026-10-13): 640 edges, `80-FF` in the four `CSI` nodes and
+        // `Vt52Escape`. Stride 1 does not move; 1,878 -> 1,816, 55,354 ->
+        // 50,852 and 1,453,919 -> 1,263,705 at strides 2, 3 and 4; the fall
+        // was not decomposed.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 1_878, "stride 2");
-        assert_eq!(three.len(), 55_354, "stride 3");
-        assert_eq!(four.len(), 1_453_919, "stride 4");
+        assert_eq!(two.len(), 1_816, "stride 2");
+        assert_eq!(three.len(), 50_852, "stride 3");
+        assert_eq!(four.len(), 1_263_705, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2821,9 +2860,9 @@ mod classes {
 
     /// **Under ISO 8859-1 a C1 byte cancels an escape or control sequence and
     /// takes the edge it takes from ground; under UTF-8 none is a control:
-    /// the four `CSI` nodes keep the rows they had, and `Escape` and
-    /// `EscInter` hand the byte to the ground after a control
-    /// (`under_utf8_a_byte_80_ff_after_esc_is_the_grounds_after_a_control`).**
+    /// all six nodes hand the byte to the ground after a control
+    /// (`under_utf8_a_byte_80_ff_after_esc_is_the_grounds_after_a_control`,
+    /// `under_utf8_a_byte_80_ff_inside_a_csi_or_after_a_vt52_esc_is_the_grounds_after_a_control`).**
     /// Exhaustive over `80-9F`, the six sequence nodes and both encodings,
     /// and checked against the shipped table.
     ///
@@ -2855,10 +2894,10 @@ mod classes {
         for (node, utf8) in [
             (Node::Escape, edge(Act::Again, Node::AfterControl)),
             (Node::EscInter, edge(Act::Again, Node::AfterControl)),
-            (Node::CsiEntry, edge(Act::Consume, Node::CsiIgnore)),
-            (Node::CsiParam, edge(Act::Consume, Node::CsiParam)),
-            (Node::CsiInter, edge(Act::Consume, Node::CsiIgnore)),
-            (Node::CsiIgnore, edge(Act::Consume, Node::CsiIgnore)),
+            (Node::CsiEntry, edge(Act::Again, Node::AfterControl)),
+            (Node::CsiParam, edge(Act::Again, Node::AfterControl)),
+            (Node::CsiInter, edge(Act::Again, Node::AfterControl)),
+            (Node::CsiIgnore, edge(Act::Again, Node::AfterControl)),
         ] {
             for v in 0x80..=0x9fusize {
                 let b = StreamByte::ALL[v];
@@ -2961,10 +3000,10 @@ mod classes {
     }
 
     /// **Under ISO 8859-1 a GR byte in an escape or control sequence takes
-    /// the edge its 7-bit byte takes; under UTF-8 none is read as GL: the
-    /// four `CSI` nodes and `StrEsc` keep the rows they had, `Escape` and
-    /// `EscInter` hand the byte to the ground after a control, and the
-    /// string bodies keep theirs in both encodings.**
+    /// the edge its 7-bit byte takes; under UTF-8 none is read as GL:
+    /// `StrEsc` keeps the row it had, `Escape`, `EscInter` and the four `CSI`
+    /// nodes hand the byte to the ground after a control, and the string
+    /// bodies keep theirs in both encodings.**
     /// Exhaustive over `A0-FF`, the six sequence nodes and `StrEsc`, and
     /// both encodings, against the shipped table.
     ///
@@ -2983,10 +3022,10 @@ mod classes {
         for (node, utf8) in [
             (Node::Escape, edge(Act::Again, Node::AfterControl)),
             (Node::EscInter, edge(Act::Again, Node::AfterControl)),
-            (Node::CsiEntry, edge(Act::Consume, Node::CsiIgnore)),
-            (Node::CsiParam, edge(Act::Consume, Node::CsiParam)),
-            (Node::CsiInter, edge(Act::Consume, Node::CsiIgnore)),
-            (Node::CsiIgnore, edge(Act::Consume, Node::CsiIgnore)),
+            (Node::CsiEntry, edge(Act::Again, Node::AfterControl)),
+            (Node::CsiParam, edge(Act::Again, Node::AfterControl)),
+            (Node::CsiInter, edge(Act::Again, Node::AfterControl)),
+            (Node::CsiIgnore, edge(Act::Again, Node::AfterControl)),
             (Node::StrEsc, edge(Act::Again, Node::Escape)),
         ] {
             for v in 0xa0..=0xffusize {
@@ -3059,7 +3098,8 @@ mod classes {
     /// Jev's CANCEL_AND_PRINT (decisions.jsonl lines 451-452, 0.96 and 0.92;
     /// the owner can veto). Both rows ended the sequence with `Consume`,
     /// dropping a lead byte, so the continuations of a well-formed character
-    /// wrote U+FFFD, which `[[source: unicode-ch3]]` 3.9.5 rules out. The
+    /// wrote U+FFFD, which `[[source: unicode-ch3]]` 3.9.5 rules out when the
+    /// stream is read as one UTF-8 conversion. The
     /// edge it hands to is `AfterControl`'s, `EndCluster`, as after any
     /// control (`[[source: uax29]]` GB4), and then the ground's: a character
     /// is written through `Char2-4` and a byte that is no character through
@@ -3111,6 +3151,64 @@ mod classes {
                 u8_(Node::StrEsc, v),
                 edge(Act::Again, Node::Escape),
                 "StrEsc {v:#04x}"
+            );
+        }
+    }
+
+    /// **Under UTF-8 every byte `80-FF` in the four `CSI` states and after a
+    /// VT52 `ESC` cancels the sequence and is dispatched again from the
+    /// ground after a control, and under ISO 8859-1 none of them takes that
+    /// edge.** Exhaustive over the five nodes, `80-FF` and both encodings,
+    /// against the shipped table; `DEL` keeps its row in each `CSI` state.
+    ///
+    /// The owner's decision of 2026-10-13, "cancel and print it": the `CSI`
+    /// rows as `Escape`, and `Vt52Escape` following the `ESC` decision. Each
+    /// dropped the byte (`csi_entry` and `csi_inter` into `csi_ignore`,
+    /// `csi_param` and `csi_ignore` staying, `Vt52Escape` to `Vt52::parse`).
+    #[test]
+    fn under_utf8_a_byte_80_ff_inside_a_csi_or_after_a_vt52_esc_is_the_grounds_after_a_control() {
+        let u8_ = |n: Node, v: usize| Edge::of(InputEncoding::Utf8, n, StreamByte::ALL[v]);
+        let l1 = |n: Node, v: usize| Edge::of(InputEncoding::Latin1, n, StreamByte::ALL[v]);
+        let rows = [
+            (Node::CsiEntry, Node::AfterControl),
+            (Node::CsiParam, Node::AfterControl),
+            (Node::CsiInter, Node::AfterControl),
+            (Node::CsiIgnore, Node::AfterControl),
+            (Node::Vt52Escape, Node::Vt52AfterControl),
+        ];
+        let mut n = 0usize;
+        for (node, twin) in rows {
+            for v in 0x80..=0xffusize {
+                assert_eq!(
+                    u8_(node, v),
+                    edge(Act::Again, twin),
+                    "{node:?} Utf8 {v:#04x}"
+                );
+                assert_ne!(
+                    l1(node, v),
+                    edge(Act::Again, twin),
+                    "{node:?} Latin1 {v:#04x}"
+                );
+                n += 1;
+            }
+        }
+        assert_eq!(n, 5 * 128);
+        // `DEL` is ignored and the sequence goes on in every `CSI` state
+        // (`[[source: williams]]` 306, 315, 328), and `csi ignore` ignores it.
+        for node in [
+            Node::CsiEntry,
+            Node::CsiParam,
+            Node::CsiInter,
+            Node::CsiIgnore,
+        ] {
+            assert_eq!(u8_(node, 0x7f), edge(Act::Consume, node), "{node:?} DEL");
+        }
+        // Under ISO 8859-1 the VT52 row is what it was, note AE's D3.
+        for v in 0x80..=0xffusize {
+            assert_eq!(
+                l1(Node::Vt52Escape, v),
+                edge(Act::Vt52Dispatch, Node::Vt52AfterControl),
+                "Vt52Escape Latin1 {v:#04x}"
             );
         }
     }

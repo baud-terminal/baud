@@ -27,9 +27,11 @@
 //! - `FF` under ISO 8859-1: STD 070 3.5.3 e lists "7/15 and 15/15" together,
 //!   and baud ignores it as it does `DEL`.
 //! - `80-FF` under UTF-8 is no control: a continuation byte or a lead,
-//!   dropped inside the parameters
+//!   which cancels the sequence and is the ground's after a control, as
+//!   after `ESC`, the owner's decision of 2026-10-13
 //!   (`under_utf8_a_c1_byte_in_a_sequence_is_what_it_was`; the row "a byte
-//!   `80-FF` after `ESC`" for the `csi_*` states).
+//!   `80-FF` inside a control sequence"). It was dropped and the sequence
+//!   went on.
 //!
 //! Each case is held against the same control written outside the sequence,
 //! or the sequence without the byte, at every read size and every split into
@@ -117,13 +119,20 @@ fn under_latin1_a_gr_parameter_byte_is_its_gl_byte() {
     same_at_every_split("FF", b"\x1b%@X\x1b[2;5\xffHY", b"\x1b%@X\x1b[2;5HY");
 }
 
-/// **Under UTF-8 a byte in `80-FF` inside the parameters is dropped**, a
-/// continuation byte or a lead, and the sequence goes on.
+/// **Under UTF-8 a byte in `80-FF` inside the parameters cancels the
+/// sequence**, a continuation byte or a lead, and is the ground's after a
+/// control, so no parameter is dispatched and the `H` is text: held against
+/// the same bytes after a `NUL`, which leads to that ground and does nothing
+/// else.
 #[test]
-fn under_utf8_a_c1_byte_inside_the_parameters_is_dropped() {
-    same_at_every_split("85 under UTF-8", b"X\x1b[2;5\x85HY", b"X\x1b[2;5HY");
-    same_at_every_split("C3 A9 under UTF-8", b"X\x1b[2;5\xc3\xa9HY", b"X\x1b[2;5HY");
-    same_at_every_split("E0 under UTF-8", b"X\x1b[2;5\xe0HY", b"X\x1b[2;5HY");
+fn under_utf8_a_byte_80_ff_inside_the_parameters_cancels_the_sequence() {
+    same_at_every_split("85 under UTF-8", b"X\x1b[2;5\x85HY", b"X\x00\x85HY");
+    same_at_every_split(
+        "C3 A9 under UTF-8",
+        b"X\x1b[2;5\xc3\xa9HY",
+        b"X\x00\xc3\xa9HY",
+    );
+    same_at_every_split("E0 under UTF-8", b"X\x1b[2;5\xe0HY", b"X\x00\xe0HY");
 }
 
 /// **A digit after an intermediate sends the sequence to `csi ignore`**, so

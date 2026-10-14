@@ -398,6 +398,52 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **A UTF-8 character inside a `CSI`, one atom a `CSI` state**: it
+    // cancels the sequence and is the ground's after a control (the owner's
+    // decision of 2026-10-13), so the byte after it is text. `fast_csi`
+    // declines at the lead in one read and the graph walks it in every
+    // other, so the two paths meet here; a split can fall inside the
+    // character, after the cancel.
+    Atom {
+        name: "csi-entry-lead",
+        bytes: b"\x1b[\xe0\xa4\x83u",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "csi-param-lead",
+        bytes: b"\x1b[5\xe0\xa4\x83C",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "csi-inter-lead",
+        bytes: b"\x1b[ \xc3\xa9q",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "csi-ignore-cont",
+        bytes: b"\x1b[1<\xa4m",
+        stride: 0,
+        count: 0,
+    },
+    // **A U+FFFD for ill-formed bytes after a Prepend joins the cluster**,
+    // as a literal one does (the owner's SAME_AS_LITERAL, 2026-10-13): a
+    // stray `80`, and a lead cut short at the end of the atom, which the
+    // next atom's first byte ends and which a split can fall inside.
+    Atom {
+        name: "fffd-after-prepend",
+        bytes: b"a\xd8\x80\x80Z",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "fffd-cut-after-prepend",
+        bytes: b"a\xd8\x80\xe2\x82",
+        stride: 0,
+        count: 0,
+    },
     // **`OSC 52` writes, whose body leaves `pending` at `52;`** for the
     // clipboard areas and is decoded as it arrives: a split can fall inside
     // `52;` itself, where the route is decided, and between any two
@@ -706,6 +752,35 @@ fn the_esc_inter_atom_draws_what_follows() {
             "reads of {chunk}: u and v drawn"
         );
     }
+}
+
+/// **The UTF-8 atoms inside a `CSI` and after a Prepend reach the edges they
+/// were added for**, the control the C1 atoms have: a character the `CSI`
+/// swallowed, or a U+FFFD that took a cell, would do so in every chunking.
+#[test]
+fn the_csi_and_prepend_atoms_reach_their_edges() {
+    let row = |t: &Term<'_>| -> Vec<u32> {
+        t.viewport()[..2]
+            .iter()
+            .map(|c| c.content.as_codepoint().map_or(0, |c| c.value()))
+            .collect()
+    };
+    for (name, want) in [
+        ("csi-entry-lead", [0x903, u32::from(b'u')]),
+        ("csi-param-lead", [0x903, u32::from(b'C')]),
+        ("csi-inter-lead", [0xe9, u32::from(b'q')]),
+        ("csi-ignore-cont", [0xfffd, u32::from(b'm')]),
+    ] {
+        fed(name, &|t| {
+            assert_eq!(row(t), want, "{name}: cancelled and printed");
+            assert_eq!(t.cursor().1, Col::at_index(2), "{name}: the cursor");
+        });
+    }
+    fed("fffd-after-prepend", &|t| {
+        assert_eq!(row(t), [u32::from(b'a'), u32::from(b'Z')]);
+        let marks: Vec<u32> = t.marks(Row::ZERO, Col::ZERO).collect();
+        assert_eq!(marks, [0x600, 0xfffd], "the U+FFFD joins the Prepend");
+    });
 }
 
 /// Where the atom called `name` sits in the alphabet.

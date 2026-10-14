@@ -743,39 +743,41 @@ fn a_c1_in_any_escape_or_control_sequence_acts_as_its_seven_bit_form_under_latin
 /// `ESC`, bare or past an intermediate, it cancels the escape and is the
 /// ground's, a stray continuation and so one U+FFFD (Jev's
 /// CANCEL_AND_PRINT, decisions.jsonl lines 451-452; it ended the escape and
-/// was dropped until 2026-10-11); inside a `CSI`'s parameters it is dropped
-/// and the sequence carries on; straight after the introducer it sends the
-/// sequence to `csi ignore`, which swallows it to the final. The control,
+/// was dropped until 2026-10-11); inside a `CSI`, in its parameters or
+/// straight after the introducer, the same, and what follows is text (the
+/// owner's decision of 2026-10-13; until then it was dropped there and the
+/// sequence carried on, or went to `csi ignore`, which swallowed it to the
+/// final). The control,
 /// last so that an unfixed tree runs every UTF-8 case before it, is the
 /// first case under Latin-1, where the same bytes run a NEL.
 #[test]
 fn under_utf8_a_c1_byte_in_a_sequence_is_what_it_was() {
     for c in 0x80u8..=0x9f {
         let stray = [c, b'X'];
-        let cases: [(&str, Vec<u8>, &[u8]); 4] = [
+        let cases: [(&str, Vec<u8>, Vec<u8>); 4] = [
             (
                 "after ESC",
                 [b"\x1b".as_slice(), &[c], b"X"].concat(),
-                &stray,
+                stray.to_vec(),
             ),
             (
                 "after ESC (",
                 [b"\x1b(".as_slice(), &[c], b"X"].concat(),
-                &stray,
+                stray.to_vec(),
             ),
             (
                 "inside CSI parameters",
                 [b"\x1b[31".as_slice(), &[c], b"mX"].concat(),
-                b"\x1b[31mX",
+                [&[c][..], b"mX"].concat(),
             ),
             (
                 "after CSI",
                 [b"\x1b[".as_slice(), &[c], b"31mX"].concat(),
-                b"X",
+                [&[c][..], b"31mX"].concat(),
             ),
         ];
         for (name, eight, seven) in cases {
-            same_outcome_at_every_split(&format!("{c:#04x} {name}, under UTF-8"), &eight, seven);
+            same_outcome_at_every_split(&format!("{c:#04x} {name}, under UTF-8"), &eight, &seven);
         }
     }
     fed(b"\x1b%@\x1b\x85X", usize::MAX, |t| {
@@ -988,54 +990,57 @@ fn a_gr_byte_in_an_osc_body_is_its_seven_bit_byte_under_latin1() {
 /// inside a string, it cancels the escape (and the string) and is the
 /// ground's, here followed by `X` and so one U+FFFD (Jev's CANCEL_AND_PRINT,
 /// decisions.jsonl lines 451-452; until 2026-10-11 it ended the escape and
-/// was dropped); inside a `CSI`'s parameters it is dropped and the sequence
-/// goes on; straight after the introducer or an intermediate it sends the
-/// sequence to `csi ignore`, which swallows it and waits for a final. Each
+/// was dropped); in every `CSI` state, its parameters, straight after the
+/// introducer or an intermediate, and `csi ignore`, the same, and what
+/// follows is text (the owner's decision of 2026-10-13; until then it was
+/// dropped there and the sequence went on or waited in `csi ignore` for a
+/// final). Each
 /// is held at every split to its equivalent program. The control, last, is
 /// the first case under Latin-1, where `ESC B7` is a DECSC.
 #[test]
 fn under_utf8_a_gr_byte_in_a_sequence_is_what_it_was() {
     for v in 0xa0u8..=0xff {
-        let ground = [v, b'X'];
-        let cases: [(&str, Vec<u8>, &[u8]); 7] = [
+        let ground = [v, b'X'].to_vec();
+        let then = |rest: &[u8]| [&[v][..], rest].concat();
+        let cases: [(&str, Vec<u8>, Vec<u8>); 7] = [
             (
                 "after ESC",
                 [b"\x1b".as_slice(), &[v], b"X"].concat(),
-                &ground,
+                ground.clone(),
             ),
             (
                 "after ESC (",
                 [b"\x1b(".as_slice(), &[v], b"X"].concat(),
-                &ground,
+                ground.clone(),
             ),
             (
                 "inside CSI parameters",
                 [b"\x1b[31".as_slice(), &[v], b"mX"].concat(),
-                b"\x1b[31mX",
+                then(b"mX"),
             ),
             (
                 "after CSI",
                 [b"\x1b[".as_slice(), &[v], b"31mX"].concat(),
-                b"X",
+                then(b"31mX"),
             ),
             (
                 "after a CSI intermediate",
                 [b"\x1b[1 ".as_slice(), &[v], b"qX"].concat(),
-                b"X",
+                then(b"qX"),
             ),
             (
                 "in csi ignore",
                 [b"\x1b[1?".as_slice(), &[v], b"mX"].concat(),
-                b"X",
+                then(b"mX"),
             ),
             (
                 "after an ESC inside an OSC",
                 [b"\x1b]0;t\x1b".as_slice(), &[v], b"X"].concat(),
-                &ground,
+                ground.clone(),
             ),
         ];
         for (name, gr, gl) in cases {
-            same_outcome_at_every_split(&format!("{v:#04x} {name}, under UTF-8"), &gr, gl);
+            same_outcome_at_every_split(&format!("{v:#04x} {name}, under UTF-8"), &gr, &gl);
         }
     }
     fed(b"\x1b%@ab\x1b\xb7cd\x1b\xb8X", usize::MAX, |t| {

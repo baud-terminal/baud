@@ -652,10 +652,12 @@ fn every_cut(n: usize) -> Vec<(String, Vec<usize>)> {
 /// can veto), the decision table's rows, at every read size and every split
 /// into two reads.
 ///
-/// `[[source: unicode-ch3]]` 3.9.5: a converter "must not consume the
-/// successor bytes as part of the ill-formed subsequence whenever those
-/// successor bytes themselves constitute part of a well-formed UTF-8 code
-/// unit subsequence". `escape()` and `esc_inter()` dropped `E0` and ended the
+/// `[[source: unicode-ch3]]` 3.9.5, when the stream is read as one UTF-8
+/// conversion: a converter "must not consume the successor bytes as part of
+/// the ill-formed subsequence whenever those successor bytes themselves
+/// constitute part of a well-formed UTF-8 code unit subsequence". Read with
+/// the bytes inside a sequence belonging to it, 3.9.5 says nothing of them,
+/// and the decision rests on neither reading. `escape()` and `esc_inter()` dropped `E0` and ended the
 /// sequence, so `A4 83`, two bytes of the well-formed U+0903, each wrote a
 /// U+FFFD. `[[source: uax29]]` GB4 breaks after a control, so U+0903, a
 /// SpacingMark, is a cluster and a cell of its own and does not join the `a`.
@@ -844,6 +846,192 @@ fn every_byte_after_esc_or_an_intermediate_is_the_grounds_after_a_control() {
     // Positive control: the walk covered every byte under every prefix, and
     // most rows are exactly `from_utf8_lossy`'s.
     assert!(cases >= 4 * 128 * 3, "{cases} cases");
+    assert!(exact * 10 >= cases * 9, "{exact} of {cases} rows exact");
+}
+
+// ── a character inside a CSI, and after a VT52 ESC ──────────────────────────
+
+/// `CSI ? 2 l`: leave ANSI for VT52, where the cases after it run.
+const VT52: &[u8] = b"\x1b[?2l";
+
+/// **Under UTF-8 a byte `80-FF` inside a control sequence cancels it and is
+/// the ground's after a control, as after `ESC`; and after a VT52 `ESC` the
+/// same.** The owner's decision of 2026-10-13, "cancel and print it", for
+/// `csi entry`, `csi param`, `csi intermediate` and `csi ignore`, and for
+/// VT52 that it follow the `ESC` decision: the decision's rows at every read
+/// size and every split into two reads, row, cursor and replacement count.
+///
+/// Each row dropped the byte and the sequence went on or was ignored, so the
+/// continuations of a character whose lead was dropped wrote U+FFFD, or the
+/// text after it was taken into the sequence: `a CSI 1 E0 A4 83 b` ran REP
+/// and wrote the `a` twice, `a CSI E0 A4 83 b` took the `b` as an ignored
+/// final. `a CSI 5 E0 A4 83 C` holds the cancel: the `C` is written, not a
+/// CUF 5. U+0903 after a control is a cell of its own (`[[source: uax29]]`
+/// GB4).
+#[test]
+fn a_character_inside_a_csi_is_written_and_the_csi_is_cancelled() {
+    const A: u32 = 0x61;
+    const B: u32 = 0x62;
+    let u0903 = "\u{903}".as_bytes();
+    let cases: Vec<(&str, Vec<u8>, Vec<u32>, usize)> = vec![
+        (
+            "a CSI E0 A4 83 b",
+            [b"a\x1b[", u0903, b"b"].concat(),
+            vec![A, 0x903, B],
+            0,
+        ),
+        (
+            "a CSI 1 E0 A4 83 b",
+            [b"a\x1b[1", u0903, b"b"].concat(),
+            vec![A, 0x903, B],
+            0,
+        ),
+        (
+            "a CSI 5 E0 A4 83 C",
+            [b"a\x1b[5", u0903, b"C"].concat(),
+            vec![A, 0x903, 0x43],
+            0,
+        ),
+        (
+            "a CSI ? 1 ; 2 E0 A4 83 b",
+            [b"a\x1b[?1;2", u0903, b"b"].concat(),
+            vec![A, 0x903, B],
+            0,
+        ),
+        (
+            "a CSI SP E0 A4 83 b",
+            [b"a\x1b[ ", u0903, b"b"].concat(),
+            vec![A, 0x903, B],
+            0,
+        ),
+        (
+            "a CSI 1 < E0 A4 83 b",
+            [b"a\x1b[1<", u0903, b"b"].concat(),
+            vec![A, 0x903, B],
+            0,
+        ),
+        (
+            "a CSI 1 C3 A9 b",
+            b"a\x1b[1\xc3\xa9b".to_vec(),
+            vec![A, 0xe9, B],
+            0,
+        ),
+        (
+            "a CSI 1 F0 9F 98 80 b",
+            b"a\x1b[1\xf0\x9f\x98\x80b".to_vec(),
+            vec![A, 0x1f600, 0, B],
+            0,
+        ),
+        (
+            "CSI A4 83 b",
+            b"\x1b[\xa4\x83b".to_vec(),
+            vec![FFFD, FFFD, B],
+            2,
+        ),
+        ("CSI 1 F5 b", b"\x1b[1\xf5b".to_vec(), vec![FFFD, B], 1),
+        (
+            "CSI 1 E0 A4 b",
+            b"\x1b[1\xe0\xa4b".to_vec(),
+            vec![FFFD, B],
+            1,
+        ),
+        ("CSI SP 80 b", b"\x1b[ \x80b".to_vec(), vec![FFFD, B], 1),
+        ("CSI 1 < BF b", b"\x1b[1<\xbfb".to_vec(), vec![FFFD, B], 1),
+        (
+            "VT52: a ESC E0 A4 83 b",
+            [VT52, b"a\x1b", u0903, b"b"].concat(),
+            vec![A, 0x903, B],
+            0,
+        ),
+        (
+            "VT52: a ESC C3 A9 b",
+            [VT52, b"a\x1b\xc3\xa9b"].concat(),
+            vec![A, 0xe9, B],
+            0,
+        ),
+        (
+            "VT52: ESC A4 83 b",
+            [VT52, b"\x1b\xa4\x83b"].concat(),
+            vec![FFFD, FFFD, B],
+            2,
+        ),
+        (
+            "VT52: ESC F5 b",
+            [VT52, b"\x1b\xf5b"].concat(),
+            vec![FFFD, B],
+            1,
+        ),
+    ];
+    for (name, bytes, want, fffd) in cases {
+        for (cut, at) in every_cut(bytes.len()) {
+            let (cells, cursor, replacements) = after_cuts(&bytes, &at);
+            assert_eq!(cells, want, "{name}, {cut}: the row");
+            assert_eq!(
+                cursor,
+                (Row::ZERO, Col::at_index(want.len())),
+                "{name}, {cut}: the cursor"
+            );
+            assert_eq!(replacements, fffd, "{name}, {cut}: replacements");
+        }
+    }
+}
+
+/// **Exhaustive: every byte `80-FF` in each of the four `CSI` states and
+/// after a VT52 `ESC` is what the ground after a control makes of it, at
+/// every read size and every split**, the test above
+/// `every_byte_after_esc_or_an_intermediate_is_the_grounds_after_a_control`
+/// is for `ESC`, over the same tails and held the same three ways: against
+/// the same bytes after a `NUL`, on screen, cursor, counters and marks;
+/// and against `String::from_utf8_lossy`. One prefix a state, so a row that
+/// kept its old edge fails at its own prefix: `CSI` (`csi entry`), `CSI 1`
+/// (`csi param`), `CSI SP` (`csi intermediate`), `CSI 1 <` (`csi ignore`),
+/// and `ESC` after `CSI ? 2 l` (VT52). `E0 A4 83`, a SpacingMark the plain
+/// ground would join to the `a` (GB9a), is the tail that holds the edge's
+/// target to the ground after a control.
+#[test]
+fn every_byte_inside_a_csi_or_after_a_vt52_esc_is_the_grounds_after_a_control() {
+    let prefixes: [(&str, &[u8], &[u8]); 5] = [
+        ("CSI", b"", b"\x1b["),
+        ("CSI 1", b"", b"\x1b[1"),
+        ("CSI SP", b"", b"\x1b[ "),
+        ("CSI 1 <", b"", b"\x1b[1<"),
+        ("VT52 ESC", VT52, b"\x1b"),
+    ];
+    let (mut cases, mut exact) = (0usize, 0usize);
+    for (name, enter, prefix) in prefixes {
+        for v in 0x80u8..=0xff {
+            for tail in tails(v) {
+                let program = [enter, b"a", prefix, &tail, b"b"].concat();
+                let oracle = [enter, b"a", b"\x00", &tail, b"b"].concat();
+                let what = format!("a {name} {tail:02X?} b");
+                super::latin1::same_outcome_at_every_split(&what, &program, &oracle);
+                let want = marks_after(&oracle, &[]);
+                for (cut, at) in every_cut(program.len()) {
+                    assert_eq!(
+                        marks_after(&program, &at),
+                        want,
+                        "{what}, {cut}: marks dropped and attached"
+                    );
+                }
+                let (cells, _, replacements) = after_cuts(&program, &[]);
+                let drawn: Vec<u32> = cells.into_iter().filter(|&c| c != 0).collect();
+                assert!(
+                    within_lossy(&drawn, &tail),
+                    "{what}: {drawn:04x?} against from_utf8_lossy"
+                );
+                assert_eq!(
+                    replacements,
+                    drawn.iter().filter(|&&c| c == FFFD).count(),
+                    "{what}: replacements"
+                );
+                exact += usize::from(drawn == lossy_row(&tail));
+                cases += 1;
+            }
+        }
+    }
+    // Positive control: every byte under every prefix, and most rows exactly
+    // `from_utf8_lossy`'s.
+    assert!(cases >= 5 * 128 * 3, "{cases} cases");
     assert!(exact * 10 >= cases * 9, "{exact} of {cases} rows exact");
 }
 
