@@ -83,7 +83,9 @@ fn a_photo_half_block_preview_does_not_scramble_its_colours() {
     let mut wrong = 0usize;
     let mut first_wrong_row = None;
     for (idx, &fg) in fgs.iter().enumerate() {
-        let row = t.row(Row::from_index(idx / cols));
+        let row = t
+            .row(Row::from_index(idx / cols))
+            .expect("a row on the grid");
         let sw = t.style_of(row[idx % cols]);
         if sw.fg().as_rgb() != Some(fg) || sw.bg().as_rgb() != Some(bg) {
             wrong += 1;
@@ -264,7 +266,7 @@ fn preview_lands_cell_for_cell(file: &str) {
 
     let mut wrong = Vec::new();
     for (i, line) in want.iter().enumerate() {
-        let row = t.row(Row::from_index(row0 + i));
+        let row = t.row(Row::from_index(row0 + i)).expect("a row on the grid");
         for (j, w) in line.iter().enumerate() {
             let cell = row[col0 + j];
             let got = cell.content.as_codepoint().map(|p| p.value());

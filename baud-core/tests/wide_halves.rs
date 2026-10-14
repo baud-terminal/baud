@@ -70,7 +70,7 @@ fn rows(ws: &WinSize, bytes: &[u8], read: ReadLen, want: &[&str]) -> Vec<String>
         }
         (0..want.len())
             .map(|y| {
-                t.row(Row::from_index(y))[..cols]
+                t.row(Row::from_index(y)).expect("a row on the grid")[..cols]
                     .iter()
                     .map(|&c| glyph(c))
                     .collect()

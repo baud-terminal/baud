@@ -34,6 +34,7 @@ fn drawn(t: &Term) -> bool {
     let (_, rows) = support::CORPUS.geometry();
     (0..rows.index()).any(|y| {
         t.row(Row::from_index(y))
+            .expect("a row on the grid")
             .iter()
             .any(|c| c.content != Content::EMPTY)
     })

@@ -52,7 +52,12 @@ fn read(t: &mut Term<'_>, bytes: &[u8]) {
 type Screen = (Vec<PackedCell>, (Row, Col));
 
 fn screen(t: &Term<'_>) -> Screen {
-    (t.row(Row::from_index(0)).to_vec(), t.cursor())
+    (
+        t.row(Row::from_index(0))
+            .expect("a row on the grid")
+            .to_vec(),
+        t.cursor(),
+    )
 }
 
 /// `RIS`, then `setup` in a read of its own, then `case` in the reads
@@ -526,7 +531,11 @@ fn latin1_writes_no_replacement_for_any_probe() {
             run(t, b"\x1b%@", &case, &[]);
             // Both rows and every cell: `85` is NEL under ISO 8859-1.
             let fffd = (0..2)
-                .flat_map(|y| t.row(Row::from_index(y)).to_vec())
+                .flat_map(|y| {
+                    t.row(Row::from_index(y))
+                        .expect("a row on the grid")
+                        .to_vec()
+                })
                 .filter(|c| c.content.as_codepoint().map(|c| c.value()) == Some(FFFD))
                 .count();
             assert_eq!(fffd, 0, "{probe:02x?} under ISO 8859-1");

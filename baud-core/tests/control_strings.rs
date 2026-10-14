@@ -55,7 +55,7 @@ fn every_control_string_is_consumed_and_the_text_after_it_is_not() {
         t.write_at(BytePos::ZERO, &bytes);
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
 
-        let row = t.row(Row::from_index(0));
+        let row = t.row(Row::from_index(0)).expect("a row on the grid");
         let text: String = row
             .iter()
             .filter_map(|c| c.content.as_codepoint())
@@ -86,7 +86,7 @@ fn a_control_string_survives_a_read_boundary() {
             t.write_at(BytePos::ZERO, part);
             t.feed(BytePos::ZERO, ReadLen::from_index(part.len()));
         }
-        let row = t.row(Row::from_index(0));
+        let row = t.row(Row::from_index(0)).expect("a row on the grid");
         let text: String = row
             .iter()
             .filter_map(|c| c.content.as_codepoint())

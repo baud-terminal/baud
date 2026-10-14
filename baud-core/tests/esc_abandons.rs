@@ -25,7 +25,7 @@ use baud_domain::{Attrs, Col, Row};
 
 /// The character at screen row `y`, column `x`: `' '` for a blank.
 fn ch(t: &Term<'_>, y: usize, x: usize) -> char {
-    t.row(Row::from_index(y))[x]
+    t.row(Row::from_index(y)).expect("a row on the grid")[x]
         .content
         .as_codepoint()
         .map_or(' ', |cp| char::from_u32(cp.value()).unwrap_or('?'))
@@ -56,7 +56,9 @@ fn an_esc_in_the_parameters_starts_a_new_sequence() {
     each_read_size(b"\x1b[1\x1b[2mX", |t| {
         assert_eq!(ch(t, 0, 0), 'X', "the text after the new sequence");
         assert_eq!(ch(t, 0, 1), ' ', "`2m` is a sequence, not text");
-        let x = t.style_of(t.row(Row::from_index(0))[0]).attrs();
+        let x = t
+            .style_of(t.row(Row::from_index(0)).expect("a row on the grid")[0])
+            .attrs();
         assert!(x.has(Attrs::DIM), "`ESC [ 2 m` ran");
         assert!(!x.has(Attrs::BOLD), "the abandoned `CSI 1` applied nothing");
         assert_eq!(t.cursor(), at(0, 1));

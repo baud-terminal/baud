@@ -1929,17 +1929,21 @@ impl<'b> Term<'b> {
         }
     }
 
-    /// One screen row, `cols` cells: [`Viewport::row`].
-    pub fn row(&self, y: Row) -> &[PackedCell] {
-        self.viewport().row(y)
-    }
-
-    /// One row, or `None` if `y` is not on the grid.
+    /// One screen row, `cols` cells, or `None` if `y` is not on the grid.
     ///
-    /// The checked form, for a caller holding a row number from somewhere
-    /// other than its own loop bound.
-    pub fn get_row(&self, y: Row) -> Option<&[PackedCell]> {
-        (y.index() < self.rows.index()).then(|| self.row(y))
+    /// **`None` past the last row, not another row's cells.** The screen is
+    /// a window into a ring, and [`Viewport::row`] does not bound its index
+    /// by the screen, so a row past the last one, short of the ring's
+    /// length, names a ring slot behind the screen: a retained history line
+    /// or one nothing has written. This returned those cells, silently,
+    /// until the owner's decision of 2026-10-13 between an `Option` and a
+    /// panic. A caller looping to the row count it read from
+    /// [`Term::geometry`] in the same borrow can `expect` it; one holding a
+    /// row number from elsewhere -- a pointer, a selection, a count kept
+    /// across a resize -- has `None` to handle. It absorbed `get_row`, the
+    /// checked form it now is.
+    pub fn row(&self, y: Row) -> Option<&[PackedCell]> {
+        (y.index() < self.rows.index()).then(|| self.viewport().row(y))
     }
 
     /// Which surface is live. Each screen is a surface of its own, swapped

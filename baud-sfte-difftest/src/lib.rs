@@ -225,7 +225,7 @@ impl<'a> Ours<'a> {
     pub fn screen(&mut self) -> Screen {
         let mut cells = Vec::with_capacity(rows() * cols());
         for y in 0..rows() {
-            for c in self.t.row(Row::from_index(y)) {
+            for c in self.t.row(Row::from_index(y)).expect("a row on the grid") {
                 let ch = c
                     .content
                     .as_codepoint()

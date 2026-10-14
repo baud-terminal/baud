@@ -41,7 +41,7 @@ fn history(t: &Term<'_>) -> Vec<String> {
 
 fn screen_text(t: &Term<'_>) -> Vec<String> {
     (0..t.geometry().1.index())
-        .map(|y| text_of(t.row(Row::from_index(y))))
+        .map(|y| text_of(t.row(Row::from_index(y)).expect("a row on the grid")))
         .collect()
 }
 
@@ -103,11 +103,15 @@ fn erase_saved_lines_empties_the_history_and_keeps_the_screen_and_the_cursor() {
             // The rendition stays too: the next character is written bold
             // yellow, as it would have been without the erase.
             feed_in(t, b"x", n);
-            let c = t.row(Row::from_index(6))[8];
+            let c = t.row(Row::from_index(6)).expect("a row on the grid")[8];
             let mut control = Owned::new(&support::CORPUS);
             let mut u = Term::new(control.storage(), &support::CORPUS);
             support::feed(&mut u, b"\x1b[7;9H\x1b[1;33mx");
-            assert_eq!(c.style, u.row(Row::from_index(6))[8].style, "read size {n}");
+            assert_eq!(
+                c.style,
+                u.row(Row::from_index(6)).expect("a row on the grid")[8].style,
+                "read size {n}"
+            );
             // And the history refills from the screen with nothing of the
             // erased lines among it.
             feed_in(t, b"\x1b[50;1H", n);
@@ -198,7 +202,7 @@ fn erase_saved_lines_keeps_the_rows_a_shrink_cut_below_the_window() {
             Resized::Ok
         );
         assert_eq!(
-            text_of(t.row(Row::from_index(29))),
+            text_of(t.row(Row::from_index(29)).expect("a row on the grid")),
             "old 40",
             "a row the shrink cut came back"
         );

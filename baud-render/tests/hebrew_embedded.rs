@@ -48,7 +48,7 @@ fn may_differ(t: &Term<'_>) -> (Vec<bool>, usize) {
     let mut mask = vec![false; rows * cols];
     let mut held = 0;
     for y in 0..rows {
-        let row = t.row(Row::from_index(y));
+        let row = t.row(Row::from_index(y)).expect("a row on the grid");
         for x in 0..cols {
             let base = row[x].content.as_codepoint().is_some_and(hebrew);
             let marks = t

@@ -23,7 +23,9 @@ fn text_of(cells: &[PackedCell]) -> String {
 }
 
 fn row_text(t: &Term<'_>, y: usize) -> String {
-    text_of(t.row(Row::from_index(y))).trim_end().to_string()
+    text_of(t.row(Row::from_index(y)).expect("a row on the grid"))
+        .trim_end()
+        .to_string()
 }
 
 /// A line longer than the narrow width, so a re-cut is visible as a

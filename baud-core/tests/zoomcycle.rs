@@ -32,7 +32,11 @@ fn lines(t: &Term<'_>) -> Vec<String> {
         }
     }
     for y in 0..t.geometry().1.index() {
-        out.push(text_of(t.row(Row::from_index(y))).trim_end().to_string());
+        out.push(
+            text_of(t.row(Row::from_index(y)).expect("a row on the grid"))
+                .trim_end()
+                .to_string(),
+        );
     }
     out.retain(|l| !l.is_empty());
     out

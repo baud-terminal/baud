@@ -352,67 +352,45 @@ fn the_alt_screen_restore_clamps_like_decrc() {
     assert!(c.index() <= 1, "and so is the column");
 }
 
-/// **`Term::row` past the last row returns cells, not an error.**
+/// **`Term::row` past the last row is `None`**, the owner's decision of
+/// 2026-10-13 between an `Option` and a panic.
 ///
-/// The grid is a ring of rows, the screen a window into it, and `row` reads
-/// through `Viewport::row`, which does not bound its index by the screen: a
-/// row index past the last one, short of the ring's length, names a ring slot
-/// after the screen's bottom, so `row(55)` on a fifty-row screen returns the cells of a retained history
-/// line or of a slot nothing has written. No panic, no `None` — silently cells
-/// that are not on the screen, which is the shape this project rules out for
-/// replies.
-///
-/// Pinned rather than changed. `row` returns `&[PackedCell]`, so making it
-/// answer an out-of-range index honestly means either returning `Option` or
-/// panicking, and both change a published signature or its behaviour. That is
-/// the owner's call, not a fix to slip into a testing pass. The checked form
-/// is beside it: `Term::get_row` answers `None` past the grid, and the next
-/// test holds it.
+/// The grid is a ring of rows, the screen a window into it, and
+/// `Viewport::row` does not bound its index by the screen: a row index past
+/// the last one, short of the ring's length, names a ring slot after the
+/// screen's bottom, a retained history line or one nothing has written.
+/// `Term::row` read through it and returned those cells, silently, which is
+/// the shape this project rules out for replies. It absorbed `get_row`, the
+/// checked form, and the bound tracks a resize, the stale row count an
+/// embedder holds across one.
 #[test]
-fn row_past_the_grid_is_a_documented_sharp_edge() {
-    let ws = support::CORPUS;
-    let mut s = Owned::new(&ws);
-    let t = Term::new(s.storage(), &support::CORPUS);
-    let (cols, rows) = t.geometry();
-    assert_eq!(rows.index(), 50);
-
-    // In range: the row is `cols` wide.
-    assert_eq!(t.row(Row::from_index(rows.index() - 1)).len(), cols.index());
-
-    // Past the grid but inside the allocation: still a slice, still `cols`
-    // wide, and not part of the screen. If this ever starts returning `None`
-    // or panicking, that is a deliberate API change and this test should be
-    // updated to say so rather than deleted.
-    assert_eq!(t.row(Row::from_index(rows.index())).len(), cols.index());
-    assert_eq!(t.row(Row::from_index(rows.index() + 5)).len(), cols.index());
-}
-
-/// `get_row` is the checked half of the pair, and answers honestly.
-///
-/// Additive: it does not change what `row` does, so nothing published moves.
-/// It exists so a caller that cannot prove its index is in range has something
-/// to call that is not silently wrong -- an embedder holding a row count
-/// across a resize, which is the exact staleness that turned a shrink into a
-/// panic in `viewport` and an out-of-grid cursor in DECRC.
-#[test]
-fn get_row_bounds_what_row_takes_on_trust() {
+fn row_past_the_grid_is_none() {
     let mut s = Owned::new(&support::CORPUS);
     let mut t = Term::new(s.storage(), &support::CORPUS);
     let (cols, rows) = t.geometry();
+    assert_eq!(rows.index(), 50);
 
     assert_eq!(
-        t.get_row(Row::from_index(rows.index() - 1)).map(<[_]>::len),
+        t.row(Row::from_index(rows.index() - 1)).map(<[_]>::len),
         Some(cols.index()),
         "the last row is on the grid"
     );
+    // The control: the slot one past the screen is there to be read, and
+    // `Viewport::row`, which is not bounded, still reads it -- so the `None`
+    // below is the bound, not a missing slot.
     assert_eq!(
-        t.get_row(Row::from_index(rows.index())),
+        t.viewport().row(Row::from_index(rows.index())).len(),
+        cols.index(),
+        "the ring slot past the screen"
+    );
+    assert_eq!(
+        t.row(Row::from_index(rows.index())),
         None,
         "one past it is not, and says so"
     );
-    assert_eq!(t.get_row(Row::from_index(rows.index() + 5)), None);
+    assert_eq!(t.row(Row::from_index(rows.index() + 5)), None);
 
-    // And it tracks a resize, which is the case it exists for.
+    // And it tracks a resize.
     assert_eq!(
         t.resize(&WinSize {
             ws_row: 10,
@@ -420,12 +398,13 @@ fn get_row_bounds_what_row_takes_on_trust() {
         }),
         Resized::Ok
     );
-    assert!(
-        t.get_row(Row::from_index(9)).is_some(),
+    assert_eq!(
+        t.row(Row::from_index(9)).map(<[_]>::len),
+        Some(80),
         "inside the new grid"
     );
     assert_eq!(
-        t.get_row(Row::from_index(10)),
+        t.row(Row::from_index(10)),
         None,
         "a row that existed before the shrink does not now"
     );

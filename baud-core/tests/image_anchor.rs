@@ -113,7 +113,9 @@ fn beside(t: &Term<'_>, p: &PlacementSlot, delta: i128) -> Option<String> {
     let rows = i128::try_from(t.geometry().1.index()).unwrap();
     if line >= top && line < top + rows {
         let y = usize::try_from(line - top).unwrap();
-        return Some(text_of(t.row(Row::from_index(y))));
+        return Some(text_of(
+            t.row(Row::from_index(y)).expect("a row on the grid"),
+        ));
     }
     if line < top {
         let n = usize::try_from(top - 1 - line).unwrap();
@@ -623,9 +625,12 @@ fn beside_alt(t: &Term<'_>, p: &PlacementSlot, delta: i128) -> Option<String> {
     assert_eq!(screen, ImageScreen::Alternate);
     let y = i128::from(p.line.value()) + delta - top;
     let rows = i128::try_from(t.geometry().1.index()).unwrap();
-    (0..rows)
-        .contains(&y)
-        .then(|| text_of(t.row(Row::from_index(usize::try_from(y).unwrap()))))
+    (0..rows).contains(&y).then(|| {
+        text_of(
+            t.row(Row::from_index(usize::try_from(y).unwrap()))
+                .expect("a row on the grid"),
+        )
+    })
 }
 
 #[test]
@@ -859,8 +864,14 @@ fn an_image_in_a_middle_region_moves_with_its_text_and_its_neighbours_do_not() {
             rows.contains(&30),
             "the image below the region stayed: {rows:?}"
         );
-        assert_eq!(text_of(t.row(Row::from_index(7))), "EDGE-ABOVE");
-        assert_eq!(text_of(t.row(Row::from_index(31))), "EDGE-BELOW");
+        assert_eq!(
+            text_of(t.row(Row::from_index(7)).expect("a row on the grid")),
+            "EDGE-ABOVE"
+        );
+        assert_eq!(
+            text_of(t.row(Row::from_index(31)).expect("a row on the grid")),
+            "EDGE-BELOW"
+        );
         assert_eq!(t.images().placements_expired, 0);
     });
 }
@@ -1108,7 +1119,11 @@ fn a_status_line_image_placed_with_the_apps_cell_size_stays_there() {
         assert_eq!(drawn_row(t, &p, Rows::ZERO), 49, "on the status line");
         assert_eq!(beside(t, &p, 0).as_deref(), Some("    STATUS"));
         assert_eq!(beside(t, &p, -1).as_deref(), Some("REGION-LAST"));
-        assert_eq!(text_of(t.row(Row::ZERO)), "FIRST", "nothing scrolled");
+        assert_eq!(
+            text_of(t.row(Row::ZERO).expect("a row on the grid")),
+            "FIRST",
+            "nothing scrolled"
+        );
     });
 }
 
@@ -1137,7 +1152,11 @@ fn an_anchor_whose_column_a_prompt_resize_cut_off_asks_by_its_rows_first_cell() 
         feed(t, b"\x1b]133;C\x07");
         resize(t, 50, 50);
         let p = only(t);
-        assert_eq!(text_of(t.row(Row::ZERO)).len(), 50, "the line's first row");
+        assert_eq!(
+            text_of(t.row(Row::ZERO).expect("a row on the grid")).len(),
+            50,
+            "the line's first row"
+        );
         assert_eq!(drawn_row(t, &p, Rows::ZERO), 0, "is the image's");
     });
 }

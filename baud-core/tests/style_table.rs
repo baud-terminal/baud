@@ -58,17 +58,20 @@ fn default_cells_stay_default(ws: &WinSize, len: usize) {
         // The control: the rendition really does bucket to 0, and the cell
         // it was written in really does carry it -- so the probe reached the
         // slot this test is about.
-        let x = t.row(Row::from_index(1))[0];
+        let x = t.row(Row::from_index(1)).expect("a row on the grid")[0];
         assert_eq!(t.style_of(x).fg().as_rgb(), Some(fg));
         assert_eq!(StyleId::bucket(t.style_of(x), len), 0);
-        for (i, c) in t.row(Row::from_index(0))[..5].iter().enumerate() {
+        for (i, c) in t.row(Row::from_index(0)).expect("a row on the grid")[..5]
+            .iter()
+            .enumerate()
+        {
             assert_eq!(
                 t.style_of(*c),
                 StyleWord::DEFAULT,
                 "`hello`'s column {i} took the colour of a rendition interned after it"
             );
         }
-        let untouched = t.row(Row::from_index(5))[0];
+        let untouched = t.row(Row::from_index(5)).expect("a row on the grid")[0];
         assert_eq!(t.style_of(untouched), StyleWord::DEFAULT);
         assert_eq!(t.style_of(PackedCell::EMPTY), StyleWord::DEFAULT);
     });
@@ -122,10 +125,13 @@ fn a_prompt_in_a_256_colour_does_not_recolour_the_banner_above_it() {
             bytes.extend(prompt);
             support::feed(t, &bytes);
             // The control: the prompt's rendition buckets to 0.
-            let tilde = t.row(Row::from_index(1))[0];
+            let tilde = t.row(Row::from_index(1)).expect("a row on the grid")[0];
             assert_ne!(t.style_of(tilde), StyleWord::DEFAULT);
             assert_eq!(StyleId::bucket(t.style_of(tilde), 1_024), 0);
-            for (i, c) in t.row(Row::from_index(0))[..10].iter().enumerate() {
+            for (i, c) in t.row(Row::from_index(0)).expect("a row on the grid")[..10]
+                .iter()
+                .enumerate()
+            {
                 assert_eq!(
                     t.style_of(*c),
                     StyleWord::DEFAULT,
@@ -174,9 +180,12 @@ fn a_full_table_never_evicts_slot_zero() {
         let mut last = sgr_fg(zero);
         last.extend(b"Y");
         support::feed(t, &last);
-        let y = t.row(Row::from_index(1))[0];
+        let y = t.row(Row::from_index(1)).expect("a row on the grid")[0];
         assert_eq!(t.style_of(y).fg().as_rgb(), Some(zero));
-        for (i, c) in t.row(Row::from_index(0))[..5].iter().enumerate() {
+        for (i, c) in t.row(Row::from_index(0)).expect("a row on the grid")[..5]
+            .iter()
+            .enumerate()
+        {
             assert_eq!(
                 t.style_of(*c),
                 StyleWord::DEFAULT,
@@ -205,7 +214,7 @@ fn a_restored_cursor_takes_its_rendition_not_its_old_slot() {
         let mut bytes = sgr_fg(saved);
         bytes.extend(b"S\x08\x1b7");
         support::feed(t, &bytes);
-        let k = t.row(Row::from_index(0))[0].style;
+        let k = t.row(Row::from_index(0)).expect("a row on the grid")[0].style;
         // Distinct renditions until the table is full.
         let mut plane = (0u8..=255).flat_map(|g| (1u8..=255).map(move |b| (0u8, g, b)));
         while !t.styles().iter().all(Option::is_some) {
@@ -239,7 +248,7 @@ fn a_restored_cursor_takes_its_rendition_not_its_old_slot() {
         );
         // DECRC, then a cell written in the restored rendition.
         support::feed(t, b"\x1b8Z");
-        let z = t.row(Row::from_index(0))[0];
+        let z = t.row(Row::from_index(0)).expect("a row on the grid")[0];
         assert_eq!(t.style_of(z).fg().as_rgb(), Some(saved));
     });
 }

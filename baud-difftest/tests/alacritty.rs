@@ -108,7 +108,7 @@ fn ours(bytes: &[u8]) -> Vec<Cell> {
     }
     let mut out = Vec::with_capacity(rows() * cols());
     for y in 0..rows() {
-        for c in t.row(Row::from_index(y)) {
+        for c in t.row(Row::from_index(y)).expect("a row on the grid") {
             let ch = c
                 .content
                 .as_codepoint()

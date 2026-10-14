@@ -345,7 +345,7 @@ fn five_parameter_t_is_not_scroll_down() {
     let rows = |term: &Term| -> Vec<u32> {
         (0..3)
             .map(|y| {
-                term.row(Row::from_index(y))[0]
+                term.row(Row::from_index(y)).expect("a row on the grid")[0]
                     .content
                     .as_codepoint()
                     .map_or(0, |c| c.value())
@@ -395,7 +395,7 @@ fn one_parameter_t_is_still_scroll_down() {
     let mut term = Term::new(t.s.storage(), &support::CORPUS);
     feed(&mut term, b"one\r\ntwo\r\n\x1b[1T");
     assert_eq!(
-        term.row(Row::from_index(1))[0]
+        term.row(Row::from_index(1)).expect("a row on the grid")[0]
             .content
             .as_codepoint()
             .map(|c| c.value()),

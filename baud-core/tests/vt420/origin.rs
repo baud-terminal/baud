@@ -70,7 +70,7 @@ fn seen_at(bytes: &[u8], read: usize) -> Seen {
     }
     let screen = (0..ROWS)
         .map(|y| {
-            t.row(Row::from_index(y))[..COLS]
+            t.row(Row::from_index(y)).expect("a row on the grid")[..COLS]
                 .iter()
                 .map(|c| {
                     c.content

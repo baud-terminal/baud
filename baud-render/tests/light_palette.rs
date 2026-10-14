@@ -100,7 +100,10 @@ fn captured_listings_read_at_six_to_one_under_the_light_theme() {
         let mut n = 0;
         let mut worst = f64::MAX;
         for y in 0..ws.ws_row {
-            for cell in t.row(Row::from_index(usize::from(y))) {
+            for cell in t
+                .row(Row::from_index(usize::from(y)))
+                .expect("a row on the grid")
+            {
                 let style = t.style_of(*cell);
                 if cell.content.is_empty() || style.fg().is_default() {
                     continue;

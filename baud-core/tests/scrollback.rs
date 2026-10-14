@@ -22,7 +22,7 @@ fn text_of(cells: &[PackedCell]) -> String {
 }
 
 fn row_text(t: &Term<'_>, y: usize, n: usize) -> String {
-    text_of(&t.row(Row::from_index(y))[..n])
+    text_of(&t.row(Row::from_index(y)).expect("a row on the grid")[..n])
 }
 
 fn back(t: &Term<'_>, n: usize) -> (String, Wrap) {
@@ -364,7 +364,11 @@ fn the_rows_under_a_top_region_come_back_cell_for_cell() {
     );
     let under = |t: &Term<'_>| {
         (6..10)
-            .map(|y| t.row(Row::from_index(y)).to_vec())
+            .map(|y| {
+                t.row(Row::from_index(y))
+                    .expect("a row on the grid")
+                    .to_vec()
+            })
             .collect::<Vec<_>>()
     };
     let want = under(&t);
@@ -408,13 +412,21 @@ fn a_row_with_a_hidden_tail_under_a_top_region_survives_a_scroll() {
         "at a prompt the narrower screen did not re-cut, so the tail is hidden"
     );
     let want = (6..10)
-        .map(|y| t.row(Row::from_index(y)).to_vec())
+        .map(|y| {
+            t.row(Row::from_index(y))
+                .expect("a row on the grid")
+                .to_vec()
+        })
         .collect::<Vec<_>>();
     let before = t.region_scrolls();
     support::feed(&mut t, b"\x1b[6;1H\n\n\n\n\n");
     assert_ne!(t.region_scrolls(), before, "the region rotated");
     let got = (6..10)
-        .map(|y| t.row(Row::from_index(y)).to_vec())
+        .map(|y| {
+            t.row(Row::from_index(y))
+                .expect("a row on the grid")
+                .to_vec()
+        })
         .collect::<Vec<_>>();
     assert_eq!(got, want);
     assert_eq!(t.row_extent(Row::from_index(8)).index(), 30);
@@ -462,7 +474,11 @@ fn under_a_region_through_a_prompt_resize(
     support::feed(&mut t, b"\x1b[10;1H\x1b]133;A\x07$ ");
     let under = |t: &Term<'_>| {
         (6..10)
-            .map(|y| t.row(Row::from_index(y)).to_vec())
+            .map(|y| {
+                t.row(Row::from_index(y))
+                    .expect("a row on the grid")
+                    .to_vec()
+            })
             .collect::<Vec<_>>()
     };
     let want = under(&t);
@@ -556,12 +572,14 @@ fn the_line_a_region_scroll_opens_is_blank_past_the_narrow_edge() {
     assert_eq!(t.resize(&wide), Resized::Ok);
     assert!(
         t.row(Row::from_index(5))
+            .expect("a row on the grid")
             .iter()
             .all(|c| *c == PackedCell::EMPTY),
         "the region's new bottom line, blank to column 40"
     );
     assert!(
         t.row(Row::from_index(6))
+            .expect("a row on the grid")
             .iter()
             .all(|c| *c != PackedCell::EMPTY),
         "the control: the bar stayed on row 7, blue to column 40"
@@ -596,7 +614,7 @@ fn the_line_a_region_scroll_opens_keeps_its_blank_to_the_mark_it_reused() {
         b"\x1b[1;6r\x1b[6;1H\x1b[41m\n\x1b[0m\x1b[r\x1b[10;3H",
     );
     assert_eq!(t.resize(&wide), Resized::Ok);
-    let line = t.row(Row::from_index(5));
+    let line = t.row(Row::from_index(5)).expect("a row on the grid");
     assert!(
         line[0] != PackedCell::EMPTY && line[..30].iter().all(|c| *c == line[0]),
         "red to column 30"
@@ -607,7 +625,7 @@ fn the_line_a_region_scroll_opens_keeps_its_blank_to_the_mark_it_reused() {
     );
     // And the row it held went down whole: its cells past the edge were
     // carried before the blank ran on through them.
-    let s: Vec<_> = t.row(Row::from_index(6))[..31]
+    let s: Vec<_> = t.row(Row::from_index(6)).expect("a row on the grid")[..31]
         .iter()
         .map(|c| c.content.as_codepoint().map(|cp| cp.value()))
         .collect();
@@ -731,7 +749,9 @@ fn a_mark_past_the_edge_keeps_the_reach_a_blank_runs_on_to() {
             support::feed(&mut t, b"\x1b[1;6r\x1b[6;1H\n\x1b[r\x1b[10;3H");
         }
         assert_eq!(t.resize(&wide), Resized::Ok);
-        t.row(Row::from_index(8)).to_vec()
+        t.row(Row::from_index(8))
+            .expect("a row on the grid")
+            .to_vec()
     };
     let (want, got) = (row9(false), row9(true));
     assert!(
@@ -833,7 +853,11 @@ fn a_ring_brought_round(top: &[u8], scrolls: usize) -> (Band, Band, Vec<String>,
     );
     let under = |t: &Term<'_>| {
         (6..10)
-            .map(|y| t.row(Row::from_index(y)).to_vec())
+            .map(|y| {
+                t.row(Row::from_index(y))
+                    .expect("a row on the grid")
+                    .to_vec()
+            })
             .collect::<Vec<_>>()
     };
     let want = under(&t);
@@ -907,7 +931,11 @@ fn through_a_prompt_narrowing(
     support::feed(&mut t, b"\x1b[10;1H\x1b]133;A\x07$ ");
     let screen = |t: &Term<'_>| {
         (0..10)
-            .map(|y| t.row(Row::from_index(y)).to_vec())
+            .map(|y| {
+                t.row(Row::from_index(y))
+                    .expect("a row on the grid")
+                    .to_vec()
+            })
             .collect::<Vec<_>>()
     };
     let want = screen(&t);
@@ -1022,6 +1050,7 @@ fn rows_a_full_screen_scroll_brings_in(scroll: &[u8]) -> Vec<Vec<PackedCell>> {
     support::feed(&mut t, b"\x1b[0m\x1b]133;A\x07$ ");
     assert!(
         t.row(Row::from_index(0))
+            .expect("a row on the grid")
             .iter()
             .all(|c| *c != PackedCell::EMPTY),
         "the control: a bar to column 40"
@@ -1037,7 +1066,11 @@ fn rows_a_full_screen_scroll_brings_in(scroll: &[u8]) -> Vec<Vec<PackedCell>> {
     support::feed(&mut t, b"\x1b[10;1H$ ");
     assert_eq!(t.resize(&wide), Resized::Ok);
     (0..10)
-        .map(|y| t.row(Row::from_index(y)).to_vec())
+        .map(|y| {
+            t.row(Row::from_index(y))
+                .expect("a row on the grid")
+                .to_vec()
+        })
         .collect()
 }
 
@@ -1226,7 +1259,7 @@ fn lines_a_scroll_brought_in_and_a_prompt_redraw_took_back_are_blank_past_the_ed
     assert_eq!(t.resize(&wide), Resized::Ok);
     for y in 1..10 {
         assert!(
-            is_blank(t.row(Row::from_index(y))),
+            is_blank(t.row(Row::from_index(y)).expect("a row on the grid")),
             "row {}, a line of the block, blank to column 40",
             y + 1
         );
@@ -1393,7 +1426,11 @@ fn a_line_on_a_retired_bar(cols: u16, bar: &[u8], line: &[u8]) -> Vec<Vec<Packed
     support::feed(&mut t, b"\x1b[10;1H$ ");
     assert_eq!(t.resize(&wide), Resized::Ok);
     (0..10)
-        .map(|y| t.row(Row::from_index(y)).to_vec())
+        .map(|y| {
+            t.row(Row::from_index(y))
+                .expect("a row on the grid")
+                .to_vec()
+        })
         .collect()
 }
 
@@ -1584,7 +1621,11 @@ impl Reads {
 
 fn rows_of(t: &Term<'_>) -> Vec<Vec<PackedCell>> {
     (0..10)
-        .map(|y| t.row(Row::from_index(y)).to_vec())
+        .map(|y| {
+            t.row(Row::from_index(y))
+                .expect("a row on the grid")
+                .to_vec()
+        })
         .collect()
 }
 
@@ -2691,7 +2732,11 @@ fn everything(t: &Term<'_>) -> Vec<String> {
             let (c, _) = sb.line(Back::of(n)).expect("a retained line");
             text_of(c).trim_end().to_string()
         })
-        .chain((0..rows).map(|y| text_of(t.row(Row::from_index(y))).trim_end().to_string()))
+        .chain((0..rows).map(|y| {
+            text_of(t.row(Row::from_index(y)).expect("a row on the grid"))
+                .trim_end()
+                .to_string()
+        }))
         .collect()
 }
 
@@ -2832,7 +2877,7 @@ fn a_full_reset_leaves_nothing_hidden_below_the_window() {
             ws_col: 200,
         });
         assert_eq!(
-            text_of(t.row(Row::from_index(29))).trim_end(),
+            text_of(t.row(Row::from_index(29)).expect("a row on the grid")).trim_end(),
             "old 29",
             "the control: without a reset the cut rows come back"
         );

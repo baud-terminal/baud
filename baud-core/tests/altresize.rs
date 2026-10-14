@@ -13,7 +13,8 @@ use baud_domain::WinSize;
 
 /// The first eight cells of screen row `y`, as text.
 fn text(t: &Term<'_>, y: usize) -> String {
-    t.row(baud_domain::Row::from_index(y))[..8]
+    t.row(baud_domain::Row::from_index(y))
+        .expect("a row on the grid")[..8]
         .iter()
         .map(|c| {
             c.content
@@ -223,7 +224,11 @@ fn a_band_on_a_cut_row_is_blanked_when_a_growth_reveals_it() {
             t,
             b"\x1b[?1049h\x1b[46;1Habc\x1b[41m\x1b[46;14H\x1b[K\x1b[0m",
         );
-        let row = |t: &Term<'_>| t.row(baud_domain::Row::from_index(45)).to_vec();
+        let row = |t: &Term<'_>| {
+            t.row(baud_domain::Row::from_index(45))
+                .expect("a row on the grid")
+                .to_vec()
+        };
         assert_ne!(
             row(t)[20],
             PackedCell::EMPTY,

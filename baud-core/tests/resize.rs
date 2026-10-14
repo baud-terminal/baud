@@ -87,7 +87,7 @@ fn the_pitch_is_the_cache_geometrys_and_survives_every_resize() {
 fn rows_text(t: &Term<'_>, rows: usize, n: usize) -> Vec<String> {
     (0..rows)
         .map(|y| {
-            t.row(Row::from_index(y))[..n]
+            t.row(Row::from_index(y)).expect("a row on the grid")[..n]
                 .iter()
                 .map(|c| match c.content.as_codepoint() {
                     Some(cp) => char::from_u32(cp.value()).unwrap_or('?'),
@@ -212,7 +212,7 @@ fn a_line_cleared_while_narrow_comes_back_clean() {
         // cell -- the red band left past the old edge is the case a fill that
         // trusted the mark would skip.
         support::feed(t, b"\x1b[1;1H\x1b[2K");
-        let row0 = t.row(Row::ZERO);
+        let row0 = t.row(Row::ZERO).expect("a row on the grid");
         assert!(
             row0[..200]
                 .iter()
@@ -438,7 +438,7 @@ fn a_blank_left_past_the_old_edge_is_not_mistaken_for_the_blank_beyond_it() {
             Resized::Ok
         );
         support::feed(t, b"\x1b[1;1H\x1b[2K");
-        let row = t.row(Row::ZERO);
+        let row = t.row(Row::ZERO).expect("a row on the grid");
         assert!(
             row[..250]
                 .iter()
@@ -472,7 +472,7 @@ fn a_wider_screen_raises_the_marks_so_a_band_to_the_old_edge_is_erased() {
             Resized::Ok
         );
         support::feed(t, b"\x1b[3;1H\x1b[2K");
-        let row = t.row(Row::from_index(2));
+        let row = t.row(Row::from_index(2)).expect("a row on the grid");
         assert!(
             row[..200]
                 .iter()
@@ -585,7 +585,7 @@ fn at_a_prompt_a_wider_screen_still_erases_a_band_to_the_old_edge() {
             support::feed(t, mark);
             resize_ok(t, 200);
             support::feed(t, b"\x1b[3;1H\x1b[2K");
-            let row = t.row(Row::from_index(2));
+            let row = t.row(Row::from_index(2)).expect("a row on the grid");
             let red = row[..200]
                 .iter()
                 .filter(|c| t.style_of(**c) != StyleWord::DEFAULT)
@@ -614,7 +614,7 @@ fn the_alternate_screen_grows_whatever_the_shells_zone() {
             support::feed(t, b"\x1b[?1049h");
             let red: usize = (0..50)
                 .map(|y| {
-                    t.row(Row::from_index(y))[..200]
+                    t.row(Row::from_index(y)).expect("a row on the grid")[..200]
                         .iter()
                         .filter(|c| t.style_of(**c) != StyleWord::DEFAULT)
                         .count()
@@ -652,7 +652,7 @@ fn a_wider_alternate_screen_blanks_what_it_reveals_while_the_shell_is_at_a_promp
             resize_ok(t, 200);
             let stale: usize = (0..50)
                 .map(|y| {
-                    t.row(Row::from_index(y))[100..200]
+                    t.row(Row::from_index(y)).expect("a row on the grid")[100..200]
                         .iter()
                         .filter(|c| c.content.as_codepoint().is_some())
                         .count()
@@ -681,7 +681,7 @@ fn a_narrowing_re_cut_leaves_nothing_past_its_width() {
         resize_ok(t, 100);
         let long: Vec<(usize, String)> = (0..50)
             .map(|y| {
-                let text: String = t.row(Row::from_index(y))[..100]
+                let text: String = t.row(Row::from_index(y)).expect("a row on the grid")[..100]
                     .iter()
                     .map(|c| {
                         c.content
@@ -719,7 +719,7 @@ fn a_growth_at_a_prompt_does_not_lengthen_the_lines_a_later_re_cut_reads() {
         resize_ok(t, 40);
         let rows: Vec<String> = (0..11)
             .map(|y| {
-                t.row(Row::from_index(y))[..40]
+                t.row(Row::from_index(y)).expect("a row on the grid")[..40]
                     .iter()
                     .map(|c| {
                         c.content
@@ -764,7 +764,7 @@ fn a_tail_hidden_at_a_prompt_is_dropped_cleanly_by_a_later_re_cut() {
         resize_ok(t, 200);
         let rows: Vec<String> = (0..50)
             .map(|y| {
-                t.row(Row::from_index(y))[..200]
+                t.row(Row::from_index(y)).expect("a row on the grid")[..200]
                     .iter()
                     .map(|c| {
                         c.content

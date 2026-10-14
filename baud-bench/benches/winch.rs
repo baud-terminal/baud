@@ -192,7 +192,7 @@ fn copies(t: &Term<'_>, sig: Option<&str>) -> Option<usize> {
     Some(
         (0..rows.index())
             .filter(|y| {
-                text(t.row(Row::from_index(*y)))
+                text(t.row(Row::from_index(*y)).expect("a row on the grid"))
                     .trim_start()
                     .starts_with(sig)
             })
@@ -203,7 +203,7 @@ fn copies(t: &Term<'_>, sig: Option<&str>) -> Option<usize> {
 fn dump(t: &Term<'_>) {
     let (c, r) = t.geometry();
     for y in 0..r.index() {
-        let line = text(&t.row(Row::from_index(y))[..c.index()]);
+        let line = text(&t.row(Row::from_index(y)).expect("a row on the grid")[..c.index()]);
         let line = line.trim_end();
         if !line.is_empty() {
             println!("    {y:3}| {}", line.chars().take(72).collect::<String>());

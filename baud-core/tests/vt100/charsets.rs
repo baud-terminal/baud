@@ -626,7 +626,7 @@ fn a_cell_written_under_ungated_german_keeps_its_glyph_when_g0_is_designated_aga
         b.extend_from_slice(b"Hz");
         feed(&mut t, &b);
     }
-    let first = t.row(Row::from_index(0))[0]
+    let first = t.row(Row::from_index(0)).expect("a row on the grid")[0]
         .content
         .as_codepoint()
         .map(|c| c.value());

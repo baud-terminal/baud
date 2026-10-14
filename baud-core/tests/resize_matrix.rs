@@ -24,7 +24,9 @@ fn text_of(cells: &[PackedCell]) -> String {
         .collect()
 }
 fn row_text(t: &Term<'_>, y: usize) -> String {
-    text_of(t.row(Row::from_index(y))).trim_end().to_string()
+    text_of(t.row(Row::from_index(y)).expect("a row on the grid"))
+        .trim_end()
+        .to_string()
 }
 fn on_screen(t: &Term<'_>, want: &str) -> bool {
     (0..t.geometry().1.index()).any(|y| row_text(t, y).contains(want))

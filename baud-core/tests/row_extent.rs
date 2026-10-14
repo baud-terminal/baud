@@ -40,6 +40,7 @@ fn feed(t: &mut Term, bytes: &[u8], chunk: usize) {
 /// The rightmost column of screen row `y` holding a glyph, as a count.
 fn true_extent(t: &Term, y: usize) -> usize {
     t.row(Row::from_index(y))
+        .expect("a row on the grid")
         .iter()
         .rposition(|c| c.content != Content::EMPTY)
         .map_or(0, |p| p + 1)
@@ -225,7 +226,7 @@ fn reading_the_viewport_between_scrolls_keeps_the_marks_aligned() {
 /// which every cell to the live edge equals the row's last cell -- content,
 /// rendition and flags, the whole eight bytes.
 fn uniform_from(t: &Term, y: usize) -> usize {
-    let row = t.row(Row::from_index(y));
+    let row = t.row(Row::from_index(y)).expect("a row on the grid");
     let Some(last) = row.last() else { return 0 };
     row.iter().rposition(|c| c != last).map_or(0, |p| p + 1)
 }
@@ -344,7 +345,7 @@ fn a_styled_tail_leaves_every_row_uniform_past_its_mark() {
 /// Screen row `y` as text, `.` for a cell nothing was written to.
 fn shown(t: &Term, y: usize) -> String {
     let (cols, _) = t.geometry();
-    t.row(Row::from_index(y))[..cols.index()]
+    t.row(Row::from_index(y)).expect("a row on the grid")[..cols.index()]
         .iter()
         .map(|c| match c.content.as_codepoint() {
             Some(cp) => char::from_u32(cp.value()).unwrap_or('?'),

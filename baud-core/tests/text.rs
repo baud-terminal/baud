@@ -364,7 +364,11 @@ fn shrinking_after_a_scroll_does_not_panic() {
     // The cursor is on the last row, so the ten rows that stay are the
     // bottom ten; the forty above them retire to the history.
     let before: Vec<Vec<baud_domain::PackedCell>> = (40..50)
-        .map(|y| t.row(baud_domain::Row::from_index(y)).to_vec())
+        .map(|y| {
+            t.row(baud_domain::Row::from_index(y))
+                .expect("a row on the grid")
+                .to_vec()
+        })
         .collect();
     let small = WinSize {
         ws_row: 10,

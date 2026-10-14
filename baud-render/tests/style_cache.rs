@@ -244,7 +244,9 @@ fn an_eviction_repaints_rows_whose_words_did_not_change() {
         let mut owned = Owned::new(&small);
         let mut t = Term::new(owned.storage(), &small);
         feed(&mut t, text);
-        t.row(baud_domain::Row::from_index(0))[0].style
+        t.row(baud_domain::Row::from_index(0))
+            .expect("a row on the grid")[0]
+            .style
     };
     // Fill the table on row 1, then the thief.
     let mut fill = Vec::new();

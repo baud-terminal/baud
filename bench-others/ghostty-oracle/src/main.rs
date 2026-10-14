@@ -147,7 +147,7 @@ fn baud_state(bytes: &[u8], read: usize) -> State {
     }
     let screen = (0..ROWS as usize)
         .map(|y| {
-            t.row(Row::from_index(y))[..COLS as usize]
+            t.row(Row::from_index(y)).expect("a row on the grid")[..COLS as usize]
                 .iter()
                 .map(|c| match c.content.is_wide_tail() {
                     true => ']',

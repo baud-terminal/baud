@@ -45,7 +45,7 @@ fn text_of(cells: &[PackedCell]) -> String {
 
 fn screen_text(t: &Term<'_>) -> Vec<String> {
     (0..t.geometry().1.index())
-        .map(|y| text_of(t.row(Row::from_index(y))))
+        .map(|y| text_of(t.row(Row::from_index(y)).expect("a row on the grid")))
         .collect()
 }
 
@@ -128,7 +128,10 @@ fn xtrestore_has_the_side_effects_of_setting_the_mode() {
         assert_eq!(t.screen(), Screen::Alternate, "the control");
         feed(t, b"\x1b[?1049r");
         assert_eq!(t.screen(), Screen::Normal, "?1049 restored reset leaves");
-        assert_eq!(text_of(t.row(Row::ZERO)), "primary");
+        assert_eq!(
+            text_of(t.row(Row::ZERO).expect("a row on the grid")),
+            "primary"
+        );
         assert_eq!(
             t.cursor(),
             (Row::from_index(4), Col::at_index(4)),
@@ -222,7 +225,11 @@ fn a_restore_changes_only_what_differs_from_the_saved_value() {
     });
     support::with_corpus(|t| {
         feed(t, b"\x1b[?1049h\x1b[2;2Hkept\x1b[?1049s\x1b[?1049r");
-        assert_eq!(text_of(t.row(Row::from_index(1))), " kept", "not cleared");
+        assert_eq!(
+            text_of(t.row(Row::from_index(1)).expect("a row on the grid")),
+            " kept",
+            "not cleared"
+        );
     });
 }
 
@@ -243,7 +250,7 @@ fn a_restore_at_the_value_in_force_neither_homes_nor_clears() {
     support::with_corpus(|t| {
         feed(t, b"\x1b[?3h\x1b[?3s\x1b[2;2Hkept\x1b[?3r");
         assert_eq!(
-            text_of(t.row(Row::from_index(1))),
+            text_of(t.row(Row::from_index(1)).expect("a row on the grid")),
             " kept",
             "?3 did not clear"
         );

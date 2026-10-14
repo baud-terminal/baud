@@ -21,7 +21,9 @@ fn text_of(cells: &[PackedCell]) -> String {
 }
 
 fn row_text(t: &Term<'_>, y: usize) -> String {
-    text_of(t.row(Row::from_index(y))).trim_end().to_string()
+    text_of(t.row(Row::from_index(y)).expect("a row on the grid"))
+        .trim_end()
+        .to_string()
 }
 
 fn wrapped(t: &Term<'_>, y: usize) -> Wrap {
@@ -162,14 +164,14 @@ fn a_wide_character_does_not_straddle_the_new_edge() {
         support::feed(t, head.as_bytes());
         support::feed(t, "漢字end".as_bytes());
         resize(t, 100, 50);
-        let r0 = t.row(Row::from_index(0));
+        let r0 = t.row(Row::from_index(0)).expect("a row on the grid");
         assert_eq!(text_of(&r0[..99]), head);
         assert!(
             r0[99].content.is_empty(),
             "the column the wide character could not take"
         );
         assert_eq!(wrapped(t, 0), Wrap::Continues);
-        let r1 = t.row(Row::from_index(1));
+        let r1 = t.row(Row::from_index(1)).expect("a row on the grid");
         assert_eq!(
             r1[0]
                 .content
@@ -204,11 +206,21 @@ fn trailing_blanks_are_not_carried_across_a_rewrap() {
 fn the_tail_fill_survives_a_rewrap() {
     support::with_corpus(|t| {
         support::feed(t, b"ab\x1b[41m\x1b[K\x1b[0m");
-        let red = t.style_of(t.row(Row::from_index(0))[50]).bg();
+        let red = t
+            .style_of(t.row(Row::from_index(0)).expect("a row on the grid")[50])
+            .bg();
         resize(t, 100, 50);
         assert_eq!(row_text(t, 0), "ab");
-        assert_eq!(t.style_of(t.row(Row::from_index(0))[50]).bg(), red);
-        assert_eq!(t.style_of(t.row(Row::from_index(0))[99]).bg(), red);
+        assert_eq!(
+            t.style_of(t.row(Row::from_index(0)).expect("a row on the grid")[50])
+                .bg(),
+            red
+        );
+        assert_eq!(
+            t.style_of(t.row(Row::from_index(0)).expect("a row on the grid")[99])
+                .bg(),
+            red
+        );
     });
 }
 

@@ -91,7 +91,9 @@ fn rendered(batch: &[[u8; 3]], out: &mut Vec<PackedCell>) {
     support::with_term(&support::CORPUS, |t| {
         support::feed(t, &bytes);
         out.clear();
-        out.extend((0..batch.len()).map(|r| t.row(Row::from_index(r))[0]));
+        out.extend(
+            (0..batch.len()).map(|r| t.row(Row::from_index(r)).expect("a row on the grid")[0]),
+        );
     });
 }
 

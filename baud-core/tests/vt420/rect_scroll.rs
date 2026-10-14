@@ -87,7 +87,7 @@ fn seen_at(bytes: &[u8], read: ReadLen) -> Seen {
     }
     let screen = (0..ROWS)
         .map(|y| {
-            t.row(Row::from_index(y))[..COLS]
+            t.row(Row::from_index(y)).expect("a row on the grid")[..COLS]
                 .iter()
                 .map(|c| match c.content.is_wide_tail() {
                     true => ']',
@@ -482,7 +482,7 @@ fn a_coloured_blank_fills_only_the_rectangle() {
     let mut s = Owned::new(&WS);
     let mut t = Term::new(s.storage(), &WS);
     support::feed(&mut t, bytes.as_bytes());
-    let row = t.row(Row::from_index(5));
+    let row = t.row(Row::from_index(5)).expect("a row on the grid");
     assert_eq!(row[4].content, Content::EMPTY);
     assert_ne!(row[4].style, row[3].style, "blue inside");
     assert_eq!(row[9].style, row[4].style);
@@ -501,7 +501,7 @@ fn the_marks_cover_what_the_rectangle_wrote() {
         let mut t = Term::new(s.storage(), &WS);
         support::feed(&mut t, bytes.as_bytes());
         for y in 0..ROWS {
-            let row = t.row(Row::from_index(y));
+            let row = t.row(Row::from_index(y)).expect("a row on the grid");
             let last = row[COLS - 1];
             let uniform = row[..COLS]
                 .iter()

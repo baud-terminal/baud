@@ -69,7 +69,7 @@ fn cells(theme: Theme, sgrs: &[String]) -> Vec<(String, StyleWord, (Argb, Argb),
     r.resolve_styles_into(&t, &mut table);
     let mut out = Vec::new();
     'rows: for y in 0..usize::from(WS.ws_row) {
-        for cell in t.row(Row::from_index(y)) {
+        for cell in t.row(Row::from_index(y)).expect("a row on the grid") {
             if out.len() == sgrs.len() {
                 break 'rows;
             }
@@ -302,7 +302,7 @@ fn replayed(theme: Theme, bytes: &[u8]) -> Vec<((Argb, Argb), Resolved)> {
     r.resolve_styles_into(&t, &mut table);
     let mut out = Vec::new();
     for y in 0..usize::from(WS.ws_row) {
-        for cell in t.row(Row::from_index(y)) {
+        for cell in t.row(Row::from_index(y)).expect("a row on the grid") {
             if cell.content.is_empty() {
                 continue;
             }
@@ -364,7 +364,9 @@ fn black_text_on_a_black_page_set_by_osc_11_is_lifted() {
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     let mut table = vec![Resolved::default(); t.styles().len()];
     r.resolve_styles_into(&t, &mut table);
-    let slot = table[t.row(Row::from_index(0))[0].style.index()];
+    let slot = table[t.row(Row::from_index(0)).expect("a row on the grid")[0]
+        .style
+        .index()];
     assert_eq!(rgb(slot.bg), [0, 0, 0], "the control: the page is black");
     assert!(
         contrast(slot.fg, slot.bg) >= 4.5,

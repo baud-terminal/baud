@@ -176,7 +176,7 @@ fn a_full_style_table_makes_cells_report_the_wrong_colour() {
         i += k;
     }
 
-    let row = t.row(Row::from_index(0));
+    let row = t.row(Row::from_index(0)).expect("a row on the grid");
     let mut wrong = 0usize;
     // `row[..n]` and not `.take(n)`: the slice panics where `0..n` panicked,
     // so a row shorter than `n` still fails rather than checking fewer cells.
@@ -246,7 +246,7 @@ fn the_sixteen_colour_palette_does_not_collide() {
         i += k;
     }
 
-    let row = t.row(Row::from_index(0));
+    let row = t.row(Row::from_index(0)).expect("a row on the grid");
     let mut slots = Vec::new();
     for c in &want {
         slots.push(row[*c].style.index());
@@ -308,7 +308,7 @@ fn renditions_that_differ_still_differ_after_a_write() {
         i += k;
     }
 
-    let row = t.row(Row::from_index(0));
+    let row = t.row(Row::from_index(0)).expect("a row on the grid");
     let mut seen: Vec<(ColorWord, ColorWord, bool)> = Vec::new();
     // `row[..n]` for the reason above: the bound stays a panic.
     for cell in &row[..n] {

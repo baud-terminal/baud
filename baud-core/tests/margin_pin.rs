@@ -53,7 +53,10 @@ fn seen(bytes: &[u8], read: ReadLen) -> (String, Vec<u32>, Vec<u32>) {
             t.write_at(BytePos::ZERO, piece);
             t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
         }
-        let row = t.row(Row::ZERO)[..8].iter().map(|&c| glyph(c)).collect();
+        let row = t.row(Row::ZERO).expect("a row on the grid")[..8]
+            .iter()
+            .map(|&c| glyph(c))
+            .collect();
         let before = t.marks(Row::ZERO, Col::at_index(6)).collect();
         let last = t.marks(Row::ZERO, Col::at_index(7)).collect();
         (row, before, last)
@@ -178,7 +181,7 @@ fn across_a_resize(
     let (rows, cols) = (usize::from(to.ws_row), usize::from(to.ws_col));
     let text = (0..rows)
         .map(|y| {
-            t.row(Row::from_index(y))[..cols]
+            t.row(Row::from_index(y)).expect("a row on the grid")[..cols]
                 .iter()
                 .map(|&c| glyph(c))
                 .collect()

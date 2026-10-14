@@ -114,7 +114,7 @@ fn the_bulk_scan_finds_the_same_run_the_scalar_loop_would() {
             bytes.extend_from_slice(b"|");
             let cells = support::with_term(&support::CORPUS, |t| {
                 support::feed(t, &bytes);
-                let row = t.row(Row::from_index(0));
+                let row = t.row(Row::from_index(0)).expect("a row on the grid");
                 row.iter().filter(|c| c.content != Content::EMPTY).count()
             });
             // Wide characters take two cells and a tail; narrow take one.

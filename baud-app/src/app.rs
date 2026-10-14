@@ -3008,7 +3008,11 @@ mod alt_window_tests {
             let sel = |t: &Term<'_>, y: usize| {
                 let r = Row::from_index(y);
                 Selection::at(
-                    Span::cell(t.row(r), scrolled.line(Rows::ZERO, r), Col::ZERO),
+                    Span::cell(
+                        t.row(r).expect("a row on the grid"),
+                        scrolled.line(Rows::ZERO, r),
+                        Col::ZERO,
+                    ),
                     Grain::Cell,
                 )
             };
@@ -3055,7 +3059,11 @@ mod alt_window_tests {
             let sel = |t: &Term<'_>, y: usize| {
                 let r = Row::from_index(y);
                 Selection::at(
-                    Span::cell(t.row(r), scrolled.line(Rows::ZERO, r), Col::ZERO),
+                    Span::cell(
+                        t.row(r).expect("a row on the grid"),
+                        scrolled.line(Rows::ZERO, r),
+                        Col::ZERO,
+                    ),
                     Grain::Cell,
                 )
             };
@@ -3097,7 +3105,11 @@ mod alt_window_tests {
             let at = |t: &Term<'_>, back: usize, y: usize| {
                 let r = Row::from_index(y);
                 Selection::at(
-                    Span::cell(t.row(r), scrolled.line(Rows::of_count(back), r), Col::ZERO),
+                    Span::cell(
+                        t.row(r).expect("a row on the grid"),
+                        scrolled.line(Rows::of_count(back), r),
+                        Col::ZERO,
+                    ),
                     Grain::Cell,
                 )
             };
@@ -3114,7 +3126,7 @@ mod alt_window_tests {
                 "the control: no ring moved"
             );
             assert_eq!(
-                t.row(Row::from_index(3))[0]
+                t.row(Row::from_index(3)).expect("a row on the grid")[0]
                     .content
                     .as_codepoint()
                     .map(|c| c.value()),
@@ -3168,7 +3180,11 @@ mod alt_window_tests {
             let at = |t: &Term<'_>, back: usize, y: usize| {
                 let r = Row::from_index(y);
                 Selection::at(
-                    Span::cell(t.row(r), scrolled.line(Rows::of_count(back), r), Col::ZERO),
+                    Span::cell(
+                        t.row(r).expect("a row on the grid"),
+                        scrolled.line(Rows::of_count(back), r),
+                        Col::ZERO,
+                    ),
                     Grain::Cell,
                 )
             };
@@ -3181,7 +3197,7 @@ mod alt_window_tests {
                 "the control: no ring moved"
             );
             assert_eq!(
-                t.row(Row::from_index(3))[0]
+                t.row(Row::from_index(3)).expect("a row on the grid")[0]
                     .content
                     .as_codepoint()
                     .map(|c| c.value()),
@@ -3569,7 +3585,7 @@ mod alt_window_tests {
                         true => scrolled.top(Rows::of_count(31 - line)),
                         false => scrolled.line(Rows::ZERO, Row::from_index(line - 31)),
                     };
-                    Span::cell(t.row(Row::ZERO), at, Col::ZERO)
+                    Span::cell(t.row(Row::ZERO).expect("a row on the grid"), at, Col::ZERO)
                 };
                 let make = |t: &Term<'_>, from: usize, to: usize| {
                     let mut s = Selection::at(span(t, from), Grain::Cell);
@@ -3718,7 +3734,7 @@ mod restart_tests {
         fn select(&mut self, t: &Term<'_>, r: Row) {
             let line = Scrolled::START.line(Rows::ZERO, r);
             self.selection = Some(Selection::at(
-                Span::cell(t.row(r), line, Col::ZERO),
+                Span::cell(t.row(r).expect("a row on the grid"), line, Col::ZERO),
                 Grain::Cell,
             ));
         }

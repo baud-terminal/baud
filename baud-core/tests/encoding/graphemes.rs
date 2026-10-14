@@ -734,6 +734,7 @@ fn through_term(bytes: &[u8], read: ReadLen) -> (Vec<Vec<Column>>, (Row, Col), u
         .map(Row::from_index)
         .map(|y| {
             t.row(y)
+                .expect("a row on the grid")
                 .iter()
                 .enumerate()
                 .map(

@@ -39,6 +39,7 @@ fn each_read_size(w: Vs16Width, bytes: &[u8], f: impl Fn(&mut Term<'_>)) {
 /// a cell nothing was written to.
 fn row(t: &Term<'_>, y: usize) -> String {
     t.row(Row::from_index(y))
+        .expect("a row on the grid")
         .iter()
         .map(|c| {
             if c.content.is_wide_tail() {
@@ -240,7 +241,10 @@ fn the_recordings_rainbow_flags_take_two_cells_at_every_read_size() {
             }
             let mut widened = Vec::new();
             for y in 0..50 {
-                let cells = t.row(Row::from_index(y)).to_vec();
+                let cells = t
+                    .row(Row::from_index(y))
+                    .expect("a row on the grid")
+                    .to_vec();
                 for x in 0..cells.len() - 1 {
                     let Some(cp) = cells[x].content.as_codepoint() else {
                         continue;

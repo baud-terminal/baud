@@ -985,7 +985,7 @@ fn text_after_a_sixel_is_not_consumed() {
     t.write_at(BytePos::ZERO, &bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
 
-    let row = t.row(Row::from_index(0));
+    let row = t.row(Row::from_index(0)).expect("a row on the grid");
     let text: String = row
         .iter()
         .filter_map(|c| c.content.as_codepoint())

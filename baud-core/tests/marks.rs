@@ -376,7 +376,10 @@ fn the_style_table_is_exact_below_capacity() {
     // Row by row, through the row accessor: the pitch is wider than the
     // 200-column screen, and the addressing is the core's to do.
     let cells: Vec<_> = (0..usize::from(N))
-        .map(|i| t.row(baud_domain::Row::from_index(i / 200))[i % 200])
+        .map(|i| {
+            t.row(baud_domain::Row::from_index(i / 200))
+                .expect("a row on the grid")[i % 200]
+        })
         .collect();
     let mut wrong = 0usize;
     for (i, c) in cells.iter().enumerate() {

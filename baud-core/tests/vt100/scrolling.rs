@@ -27,7 +27,11 @@ fn rows_of(bytes: &[u8]) -> Vec<Vec<PackedCell>> {
     support::feed(&mut t, bytes);
     let (_, rows) = t.geometry();
     (0..rows.index())
-        .map(|y| t.row(Row::from_index(y)).to_vec())
+        .map(|y| {
+            t.row(Row::from_index(y))
+                .expect("a row on the grid")
+                .to_vec()
+        })
         .collect()
 }
 
@@ -156,7 +160,7 @@ fn small_at_every_read(bytes: &[u8]) -> Landed {
         }
         let find = |ch: u32| {
             (0..8).find_map(|y| {
-                t.row(Row::from_index(y))[..20]
+                t.row(Row::from_index(y)).expect("a row on the grid")[..20]
                     .iter()
                     .position(|c| c.content.as_codepoint().map(|cp| cp.value()) == Some(ch))
                     .map(|x| (y, x))
@@ -462,7 +466,7 @@ fn a_full_screen_scroll_moves_the_grid() {
 
         let col0: Vec<char> = (0..4)
             .map(|y| {
-                t.row(Row::from_index(y))[0]
+                t.row(Row::from_index(y)).expect("a row on the grid")[0]
                     .content
                     .as_codepoint()
                     .map_or('.', |x| char::from_u32(x.value()).unwrap_or('?'))
@@ -474,7 +478,7 @@ fn a_full_screen_scroll_moves_the_grid() {
             "after one scroll the top row must be the second line"
         );
         // And the row that scrolled in is blank.
-        let last = t.row(Row::from_index(rows - 1))[0];
+        let last = t.row(Row::from_index(rows - 1)).expect("a row on the grid")[0];
         assert!(last.content.is_empty(), "the row scrolled in must be blank");
     }
 }
@@ -491,7 +495,7 @@ fn su_scrolls_the_full_screen() {
             BytePos::ZERO,
             ReadLen::from_index((b"one\r\ntwo\r\nthree\x1b[1S").len()),
         );
-        let row0: String = t.row(Row::from_index(0))[..3]
+        let row0: String = t.row(Row::from_index(0)).expect("a row on the grid")[..3]
             .iter()
             .map(|c| {
                 c.content

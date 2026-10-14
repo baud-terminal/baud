@@ -174,7 +174,11 @@ fn history(t: &Term<'_>) -> Vec<(Vec<PackedCell>, Wrap)> {
 fn first_difference(a: &Term<'_>, b: &Term<'_>) -> Option<(usize, String, String)> {
     let rows = a.geometry().1.index();
     (0..rows).find_map(|y| {
-        let (x, w) = (a.row(Row::from_index(y)), b.row(Row::from_index(y)));
+        let at = Row::from_index(y);
+        let (x, w) = (
+            a.row(at).expect("a row on the grid"),
+            b.row(at).expect("a row on the grid"),
+        );
         (x != w).then(|| (y, shown(&x[..8]), shown(&w[..8])))
     })
 }
@@ -269,12 +273,16 @@ fn a_scrolled_primary_comes_back_in_the_order_it_left() {
             support::feed(&mut twin, primary.as_bytes());
             assert_eq!(twin.rotation().index(), rot, "{case}: the twin's rotation");
             assert_eq!(
-                shown(&twin.row(Row::ZERO)[..4]),
+                shown(&twin.row(Row::ZERO).expect("a row on the grid")[..4]),
                 format!("P{scrolled:03}"),
                 "{case}: the twin's top row"
             );
             assert_eq!(
-                shown(&twin.row(Row::from_index(rows - 1))[..4]),
+                shown(
+                    &twin
+                        .row(Row::from_index(rows - 1))
+                        .expect("a row on the grid")[..4]
+                ),
                 format!("P{:03}", lines - 1),
                 "{case}: the twin's bottom row"
             );

@@ -26,7 +26,7 @@ use baud_domain::{Col, Row};
 
 /// The first eight cells of screen row `y`, as text.
 fn text(t: &Term<'_>, y: usize) -> String {
-    t.row(Row::from_index(y))[..8]
+    t.row(Row::from_index(y)).expect("a row on the grid")[..8]
         .iter()
         .map(|c| {
             c.content
@@ -174,8 +174,8 @@ fn a_reset_drops_a_save_a_47_exit_left_pending() {
             let mut fresh = Term::new(plain.storage(), &support::CORPUS);
             support::feed(&mut fresh, b"x");
             assert_eq!(
-                t.style_of(t.row(Row::ZERO)[0]),
-                fresh.style_of(fresh.row(Row::ZERO)[0]),
+                t.style_of(t.row(Row::ZERO).expect("a row on the grid")[0]),
+                fresh.style_of(fresh.row(Row::ZERO).expect("a row on the grid")[0]),
                 "and nothing restored the red"
             );
         },
@@ -233,7 +233,7 @@ fn a_reset_leaves_the_alternate_cells_naming_nothing() {
     bytes.extend_from_slice(b"\x1b[?47l\x1bc\x1b[?47h");
     each_read_size(&bytes, |t| {
         assert!(t.screen() == baud_core::Screen::Alternate);
-        let cell = t.row(Row::ZERO)[0];
+        let cell = t.row(Row::ZERO).expect("a row on the grid")[0];
         assert!(!cell.flags.is_marked(), "the cell names no cluster");
         assert_eq!(text(t, 0), "        ");
         assert!(
