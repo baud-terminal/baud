@@ -1,9 +1,11 @@
 //! The pty: a login shell on the slave, the master read on a thread on
 //! macOS and polled beside the compositor's socket on Linux.
 //!
-//! The one place this binary calls libc: `forkpty`, `execve`, `read`,
-//! `write`, `poll`, `fcntl`, the `TIOCSWINSZ` ioctl, `mmap` for the font
-//! files, CoreGraphics for the display's scale before AppKit exists, and
+//! The one place this binary calls libc: `forkpty`, `tcgetattr` and
+//! `tcsetattr` in the child and on the subsidiary `ptsname` names,
+//! `execve`, `read`, `write`, `poll`, `fcntl`, the `TIOCSWINSZ` ioctl,
+//! `mmap` for the font files, CoreGraphics for the display's scale before
+//! AppKit exists, and
 //! CoreFoundation and `newlocale` for a shell whose environment names no
 //! locale. On macOS the reader thread
 //! owns the master's read side for the life of the process and pushes
@@ -24,7 +26,7 @@
 
 #[cfg(target_os = "macos")]
 use baud_domain::HostTime;
-use baud_domain::WinSize;
+use baud_domain::{InputEncoding, WinSize};
 use baud_font::Px;
 use std::ffi::{CString, OsString};
 use std::os::fd::AsRawFd;
@@ -47,6 +49,8 @@ pub struct Pty {
     /// sends no `SIGWINCH`: the app calls it on every re-lay, including the
     /// ones where only the pixels could have moved.
     told: crate::sys::Winsize,
+    /// `IUTF8`, kept with the input encoding after the spawn.
+    line: LineDiscipline,
     #[cfg(target_os = "macos")]
     rx: Receiver<Read>,
     /// Set by the reader when it has woken the main thread and not yet
@@ -401,9 +405,11 @@ fn names_a_locale(parent: &[(OsString, OsString)]) -> bool {
 /// `LANG` set to `locale` when the parent names no locale
 /// ([`names_a_locale`]), replacing an empty one rather than adding a second
 /// that `getenv`, which reads the first, would never see. Built in the
-/// parent, before the fork, so the child does nothing between `fork` and
-/// `exec` but the exec -- no `putenv`, which may reallocate the environment
-/// array in a process that was multi-threaded a moment ago.
+/// parent, before the fork, so the child runs no `putenv` between `fork`
+/// and `exec`: it may reallocate the environment array in a process that
+/// was multi-threaded a moment ago, and it is not async-signal-safe. The
+/// child runs only [`utf8_erase`], the exec and, if the exec fails,
+/// `_exit`.
 fn child_env(parent: Vec<(OsString, OsString)>, locale: Option<&str>) -> Vec<CString> {
     let fill = locale.filter(|_| !names_a_locale(&parent));
     let dropped = |k: &[u8]| {
@@ -670,6 +676,185 @@ fn tell(master: crate::sys::Fd, told: &mut crate::sys::Winsize, ws: crate::sys::
     *told = ws;
 }
 
+/// **Backspace erases a whole UTF-8 character**: `IUTF8` set on the
+/// terminal `fd`, which the kernel's default leaves clear on Darwin and on
+/// Linux. Without it a line read in canonical mode -- `cat`, `read` -- kept
+/// a Hebrew letter's lead byte `d7` after Backspace
+/// (`docs/research/notes/aa-shell-locale.md` section 5).
+///
+/// Called in the child, on descriptor 0, before the exec, so the shell's
+/// first look at its terminal already has the flag: Terminal.app 2.15's
+/// route (`[[source: macos-terminal-2-15-binary]]`), and foot's on the
+/// subsidiary before it dups it to 0, and the one the owner chose on
+/// 2026-10-13. The route only:
+/// Terminal.app writes a whole `c_iflag` of its own, with `IUTF8` only
+/// when a `CharacterEncoding` value is 4, `NSUTF8StringEncoding`, where
+/// this changes one bit (the record, "Backspace erases a whole UTF-8
+/// character: IUTF8 in the child"). A failed call
+/// leaves the kernel's default and the shell still starts: the parent is
+/// not told (an open question in the record). After the spawn the parent
+/// keeps the bit with the input encoding ([`LineDiscipline`]).
+///
+/// The attributes set are the ones `tcgetattr` read, with one bit changed,
+/// and a failed read sets nothing: `tcsetattr`'s effect "is undefined if
+/// the value of the termios structure pointed to by termios_p was not
+/// derived from the result of a call to tcgetattr() on fildes"
+/// (`[[source: posix-tcsetattr]]`).
+///
+/// # Safety
+/// Only async-signal-safe calls, over the child's stack: `tcgetattr` and
+/// `tcsetattr` are in XSH 2.4.3's table (`[[source: posix-xsh-chap02]]`).
+/// It allocates, formats and panics nowhere, and reads no `errno`.
+unsafe fn utf8_erase(fd: crate::sys::Fd) {
+    let mut t = core::mem::MaybeUninit::<crate::sys::Termios>::uninit();
+    let p = t.as_mut_ptr();
+    // SAFETY: `p` is a termios-sized, termios-aligned block, which the
+    // call fills when it succeeds.
+    if unsafe { crate::sys::tcgetattr(fd, p) } != 0 {
+        return;
+    }
+    // SAFETY: the call above succeeded, so `*p` is initialised; the flag
+    // word is changed in place and nothing else is touched.
+    unsafe {
+        (*p).c_iflag |= crate::sys::IUTF8;
+        crate::sys::tcsetattr(fd, crate::sys::TCSANOW, p);
+    }
+}
+
+/// The child's terminal after `forkpty`: its `login_tty` makes the
+/// subsidiary descriptors 0, 1 and 2, and 0 is the one Terminal.app asks.
+const CHILD_TERMINAL: crate::sys::Fd = 0;
+
+/// **`IUTF8` follows the input encoding after the spawn.** Under `ESC % @`
+/// the keyboard sends ISO 8859-1, one byte a character (`Term::key`), and
+/// with `IUTF8` still set the line discipline's erase reads a byte
+/// `80`-`BF` as a continuation and takes the character before it too: `a £`
+/// then Backspace left an empty line, where ISO 8859-1 leaves `a`. So the
+/// parent clears the bit when the core's encoding becomes ISO 8859-1 and
+/// sets it when it becomes UTF-8 again, by whatever changed it -- `ESC % @`
+/// and `ESC % G` today, and a reset if one ever restores UTF-8.
+///
+/// **Through the subsidiary, not the manager.** `tcgetattr` takes "an open
+/// file descriptor associated with a terminal" (`[[source:
+/// posix-tcgetattr]]`), which the subsidiary is; no text read says the
+/// manager is one. So the parent opens the path `ptsname` gave at the
+/// spawn, reads the attributes, changes one bit, writes them back and
+/// closes it before returning: it never holds the subsidiary, so the
+/// child's last close is still the one that hangs the manager up. Opened
+/// with `O_NOCTTY`, so the parent never takes it as its controlling
+/// terminal, and `O_NONBLOCK`, so the open "shall return without blocking
+/// for the device to be ready or available" (`[[source: posix-open]]`).
+/// The parent runs none of this between `fork` and `exec`, so it may
+/// allocate, and it says a failure rather than swallowing it.
+pub struct LineDiscipline {
+    /// The subsidiary's path, from `ptsname` at the spawn; `None` if it
+    /// gave none, and then no change can reach the line discipline.
+    subsidiary: Option<std::path::PathBuf>,
+    /// The encoding the bit was last set for: UTF-8 at the spawn, because
+    /// the child set it ([`utf8_erase`]).
+    told: InputEncoding,
+}
+
+/// What [`LineDiscipline::follow`] did.
+#[derive(Debug)]
+pub enum Followed {
+    /// The encoding is the one the bit was last set for.
+    Same,
+    /// The bit now says the new encoding.
+    Told,
+    /// The change did not reach the line discipline, and why.
+    Failed(std::io::Error),
+}
+
+impl LineDiscipline {
+    /// The line discipline of the pty whose manager is `master`, the bit as
+    /// the child set it.
+    fn of(master: crate::sys::Fd) -> LineDiscipline {
+        LineDiscipline {
+            subsidiary: subsidiary_of(master),
+            told: InputEncoding::Utf8,
+        }
+    }
+
+    /// Sets `IUTF8` for `enc` when `enc` is not what it was last set for,
+    /// and does nothing when it is. The encoding counts as told even when
+    /// the change fails, so a failure is said once, not once a read.
+    pub fn follow(&mut self, enc: InputEncoding) -> Followed {
+        if enc == self.told {
+            return Followed::Same;
+        }
+        self.told = enc;
+        let Some(path) = &self.subsidiary else {
+            return Followed::Failed(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "ptsname named no subsidiary at the spawn",
+            ));
+        };
+        match utf8_erase_at(path, enc) {
+            Ok(()) => Followed::Told,
+            Err(e) => Followed::Failed(e),
+        }
+    }
+}
+
+/// The subsidiary's path for the manager `master`, or `None` if
+/// `ptsname` gives none.
+///
+/// **Under a lock**, because `ptsname` answers in a buffer of libc's that
+/// the next call overwrites, and two spawns -- or two tests, which
+/// `cargo test` runs as threads of one process -- could otherwise read
+/// each other's name. The lock covers every call baud makes; a library in
+/// this process calling `ptsname` at the same moment is not covered, and
+/// none in `baud-app`'s dependency tree does.
+fn subsidiary_of(master: crate::sys::Fd) -> Option<std::path::PathBuf> {
+    static PTSNAME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _held = PTSNAME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // SAFETY: `master` is a descriptor; the answer is null or a string
+    // libc keeps until the next call, which the lock holds off until the
+    // copy below is made.
+    let name = unsafe { crate::sys::ptsname(master) };
+    if name.is_null() {
+        return None;
+    }
+    // SAFETY: non-null, so a NUL-terminated string, read before the guard
+    // drops.
+    let name = unsafe { std::ffi::CStr::from_ptr(name) };
+    Some(std::path::PathBuf::from(std::ffi::OsStr::from_bytes(
+        name.to_bytes(),
+    )))
+}
+
+/// `IUTF8` set on the terminal at `subsidiary` for UTF-8 and cleared for
+/// ISO 8859-1, every other attribute as `tcgetattr` read it; the
+/// descriptor is closed before this returns, whatever happened.
+fn utf8_erase_at(subsidiary: &std::path::Path, enc: InputEncoding) -> std::io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(crate::sys::O_NOCTTY | crate::sys::O_NONBLOCK)
+        .open(subsidiary)?;
+    let fd = file.as_raw_fd();
+    let mut t = core::mem::MaybeUninit::<crate::sys::Termios>::uninit();
+    // SAFETY: a termios-sized, termios-aligned block, which the call fills
+    // when it succeeds.
+    if unsafe { crate::sys::tcgetattr(fd, t.as_mut_ptr()) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: the call above succeeded, so the block is initialised.
+    let mut t = unsafe { t.assume_init() };
+    match enc {
+        InputEncoding::Utf8 => t.c_iflag |= crate::sys::IUTF8,
+        InputEncoding::Latin1 => t.c_iflag &= !crate::sys::IUTF8,
+    }
+    // SAFETY: `t` is what `tcgetattr` read on `fd`, one bit changed.
+    if unsafe { crate::sys::tcsetattr(fd, crate::sys::TCSANOW, &t) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 impl Pty {
     /// Forks a login shell -- `$SHELL`, else the system's -- on a fresh
     /// pty of `size`, and returns the master. With `BAUD_CMD` set, forks
@@ -748,9 +933,16 @@ impl Pty {
         let ws_arg: *const crate::sys::Winsize = &raw const ws;
         #[cfg(not(target_os = "linux"))]
         let ws_arg: *mut crate::sys::Winsize = &raw mut ws;
-        // SAFETY: forkpty is given a valid out-pointer and window size; in
-        // the child only `execve` and `_exit` run, both async-signal-safe,
-        // over pointers into memory built before the fork.
+        // SAFETY: forkpty is given a valid out-pointer and window size. In
+        // the child only `tcgetattr`, `tcsetattr`, `execve` and `_exit` run,
+        // over the child's stack and pointers into memory built before the
+        // fork: after a multi-threaded process forks, POSIX has "the child
+        // process only executes async-signal-safe operations until such
+        // time as one of the exec functions is successful"
+        // (`[[source: posix-fork]]`), and XSH 2.4.3's table lists all four
+        // (`[[source: posix-xsh-chap02]]`).
+        // The rule was `execve` and `_exit` alone until 2026-10-13, when
+        // the owner widened it for the two attribute calls.
         let pid = unsafe {
             crate::sys::forkpty(
                 &mut master,
@@ -764,6 +956,7 @@ impl Pty {
         }
         if pid == 0 {
             unsafe {
+                utf8_erase(CHILD_TERMINAL);
                 crate::sys::execve(path_c.as_ptr(), argv.as_ptr(), envp.as_ptr());
                 crate::sys::_exit(127);
             }
@@ -794,6 +987,7 @@ impl Pty {
         Some(Pty {
             master,
             told,
+            line: LineDiscipline::of(master),
             rx,
             signalled,
         })
@@ -808,7 +1002,11 @@ impl Pty {
         let told = text_area(size, cell_w, cell_h);
         let master = Pty::fork(told)?;
         make_nonblocking(master);
-        Some(Pty { master, told })
+        Some(Pty {
+            master,
+            told,
+            line: LineDiscipline::of(master),
+        })
     }
 
     /// The master, to wait on.
@@ -874,6 +1072,16 @@ impl Pty {
     /// for nothing.
     pub fn resize(&mut self, size: &WinSize, cell_w: Px, cell_h: Px) {
         tell(self.master, &mut self.told, text_area(size, cell_w, cell_h));
+    }
+
+    /// Keeps `IUTF8` with the core's input encoding ([`LineDiscipline`]).
+    /// Called after every feed and before any key is encoded, so a key
+    /// `Term::key` sends as ISO 8859-1 reaches a line discipline with the
+    /// bit clear. A change that fails is said once.
+    pub fn follow(&mut self, enc: InputEncoding) {
+        if let Followed::Failed(e) = self.line.follow(enc) {
+            crate::warn!("the pty's IUTF8 stayed as it was for {enc:?}: {e}");
+        }
     }
 }
 
@@ -1335,6 +1543,606 @@ mod tests {
         }
     }
 
+    /// A child of a bare `forkpty` that runs only `execve`, as every spawn
+    /// did before 2026-10-13: the kernel's own terminal, for a control.
+    fn bare_fork(ws: crate::sys::Winsize, cmd: &str, env: &[CString]) -> crate::sys::Fd {
+        let path = CString::new("/bin/sh").expect("a path");
+        let argv0 = CString::new("sh").expect("argv0");
+        let dash = CString::new("-c").expect("-c");
+        let cmd = CString::new(cmd).expect("a command");
+        let argv = [
+            argv0.as_ptr(),
+            dash.as_ptr(),
+            cmd.as_ptr(),
+            std::ptr::null(),
+        ];
+        let envp: Vec<*const core::ffi::c_char> = env
+            .iter()
+            .map(|e| e.as_ptr())
+            .chain(std::iter::once(std::ptr::null()))
+            .collect();
+        #[cfg_attr(target_os = "linux", allow(unused_mut))]
+        let mut ws = ws;
+        #[cfg(target_os = "linux")]
+        let ws_arg: *const crate::sys::Winsize = &raw const ws;
+        #[cfg(not(target_os = "linux"))]
+        let ws_arg: *mut crate::sys::Winsize = &raw mut ws;
+        let mut master: crate::sys::Fd = -1;
+        // SAFETY: as in `fork_with`; the child runs only `execve` and
+        // `_exit`.
+        let pid = unsafe {
+            crate::sys::forkpty(
+                &mut master,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                ws_arg,
+            )
+        };
+        assert!(pid >= 0, "forkpty");
+        if pid == 0 {
+            unsafe {
+                crate::sys::execve(path.as_ptr(), argv.as_ptr(), envp.as_ptr());
+                crate::sys::_exit(127);
+            }
+        }
+        master
+    }
+
+    /// What `/bin/stty -a` printed on `master`, word by word, once the child
+    /// has gone; the descriptor is closed after.
+    fn stty_words(master: crate::sys::Fd) -> Vec<String> {
+        let out = read_all(master);
+        // SAFETY: `master` is the descriptor forkpty returned and nothing
+        // else owns it.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        String::from_utf8_lossy(&out)
+            .split_whitespace()
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// **The child's terminal has `IUTF8`, and nothing else differs from
+    /// the kernel's.** `stty -a` run through baud's spawn against the same
+    /// command under a bare `forkpty`: the two print the same words but
+    /// `iutf8` for `-iutf8`. The bare one printing `-iutf8` is the control
+    /// -- `stty` names the flag on this system and the default leaves it
+    /// clear, so the probe can fire -- and the comparison holds the route to
+    /// one bit, every other flag, character and speed the kernel's.
+    #[test]
+    fn a_spawned_childs_terminal_has_iutf8_and_otherwise_the_kernels_default() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let ws = text_area(&size, Px::of(8), Px::of(16));
+        let env = child_env(outer_parent(), None);
+        let bare = stty_words(bare_fork(ws, "exec /bin/stty -a", &env));
+        assert!(
+            bare.iter().any(|w| w == "-iutf8"),
+            "the control: a bare forkpty's terminal reads -iutf8: {bare:?}"
+        );
+        let ours =
+            stty_words(Pty::fork_with(ws, Some("exec /bin/stty -a".into()), env).expect("forkpty"));
+        let want: Vec<String> = bare
+            .iter()
+            .map(|w| match w.as_str() {
+                "-iutf8" => "iutf8".to_string(),
+                _ => w.clone(),
+            })
+            .collect();
+        assert_eq!(ours, want, "baud's spawn against the kernel's default");
+    }
+
+    /// The bytes a line read in canonical mode holds after `typed`, in hex:
+    /// the child turns echo off, says it is ready -- after which its terminal
+    /// is set, so the line discipline reads `typed` under the flags the
+    /// spawn left -- reads one line and prints it between markers.
+    fn line_after(typed: &[u8]) -> String {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let master = Pty::fork_with(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some(
+                r#"/bin/stty -echo; echo ready; IFS= read -r l; printf 'GOT[%s]\n' "$(printf '%s' "$l" | /usr/bin/od -An -tx1 | /usr/bin/tr -d ' \n')""#
+                    .into(),
+            ),
+            child_env(outer_parent(), None),
+        )
+        .expect("forkpty");
+        read_until(master, "ready\r\n");
+        // SAFETY: `typed` is a live buffer of the length passed.
+        let n = unsafe { crate::sys::write(master, typed.as_ptr().cast(), typed.len()) };
+        assert_eq!(
+            usize::try_from(n).ok(),
+            Some(typed.len()),
+            "the pty took it"
+        );
+        let out = read_all(master);
+        // SAFETY: as in `stty_words`.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        let text = String::from_utf8_lossy(&out).into_owned();
+        text.split_once("GOT[")
+            .and_then(|(_, rest)| rest.split_once(']'))
+            .map(|(line, _)| line.to_string())
+            .unwrap_or_else(|| panic!("the child printed no line: {text:?}"))
+    }
+
+    /// **Backspace after a Hebrew letter leaves an empty line**, where the
+    /// kernel's default left its lead byte `d7` (note AA section 5, measured
+    /// by `scripts/locale/iutf8_probe.py`). The control, `ab` then
+    /// Backspace, leaves `61` with the flag or without it, so a probe that
+    /// erased everything would fail it.
+    #[test]
+    fn backspace_after_a_hebrew_letter_erases_the_whole_letter() {
+        assert_eq!(line_after(b"ab\x7f\n"), "61", "the control");
+        assert_eq!(line_after(b"\xd7\x99\x7f\n"), "");
+    }
+
+    /// Whether a test lets the line discipline follow the core's encoding,
+    /// or leaves the bit as the child set it -- the control, and what the
+    /// app did before the bit followed.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Follow {
+        Encoding,
+        Never,
+    }
+
+    /// A text key, as `key_encode.rs` spells one.
+    fn ch(c: char) -> baud_core::KeyCode {
+        baud_core::KeyCode::Char(baud_core::Codepoint::from_char(c))
+    }
+
+    /// The bytes `keys` send through `Term::key`, in the encoding `t` is in.
+    fn typed(t: &mut baud_core::Term<'_>, keys: &[baud_core::KeyCode]) -> Vec<u8> {
+        t.clear_reply();
+        for &k in keys {
+            assert!(
+                t.key(baud_core::KeyEvent::press(k, baud_core::Modifiers::NONE)),
+                "{k:?} sends something"
+            );
+        }
+        let out = t.reply().to_vec();
+        t.clear_reply();
+        out
+    }
+
+    /// `bytes` into the core, as `reads::feed` hands it a read.
+    fn feed(t: &mut baud_core::Term<'_>, bytes: &[u8]) {
+        t.write_at(baud_domain::BytePos::ZERO, bytes);
+        t.feed(
+            baud_domain::BytePos::ZERO,
+            baud_domain::ReadLen::from_index(bytes.len()),
+        );
+    }
+
+    /// `bytes` to the child, all of them.
+    fn send(master: crate::sys::Fd, bytes: &[u8]) {
+        // SAFETY: `bytes` is a live buffer of the length passed.
+        let n = unsafe { crate::sys::write(master, bytes.as_ptr().cast(), bytes.len()) };
+        assert_eq!(
+            usize::try_from(n).ok(),
+            Some(bytes.len()),
+            "the pty took it"
+        );
+    }
+
+    /// The child's half of a line test: echo off, then for each marker, the
+    /// marker (after which its terminal is as the parent leaves it), one
+    /// line read in canonical mode, and that line in hex between `GOT[` and
+    /// `]`. `before` is printed ahead of each marker -- `ESC % @` or
+    /// `ESC % G`, which the core reads in the same output.
+    fn line_script(steps: &[(&str, &str)]) -> String {
+        let mut s = String::from("/bin/stty -echo");
+        for (before, marker) in steps {
+            s.push_str(&format!(
+                r#"; printf '{before}{marker}\n'; IFS= read -r l; printf 'GOT[%s]\n' "$(printf '%s' "$l" | /usr/bin/od -An -tx1 | /usr/bin/tr -d ' \n')""#
+            ));
+        }
+        s
+    }
+
+    /// The lines a child read in canonical mode after the keys of each
+    /// step, typed through a `Term` that read everything the child wrote,
+    /// with the line discipline following its encoding or not: the whole
+    /// path from the child's `ESC % @` to the line discipline, but the
+    /// driver's pump. Each step is the bytes printed before its marker and
+    /// the keys typed after it.
+    fn lines_typed(follow: Follow, steps: &[(&str, &[baud_core::KeyCode])]) -> Vec<String> {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let markers: Vec<(String, String)> = steps
+            .iter()
+            .enumerate()
+            .map(|(i, (before, _))| (before.to_string(), format!("ready{i}")))
+            .collect();
+        let script = line_script(
+            &markers
+                .iter()
+                .map(|(b, m)| (b.as_str(), m.as_str()))
+                .collect::<Vec<_>>(),
+        );
+        let master = Pty::fork_with(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some(script),
+            child_env(outer_parent(), None),
+        )
+        .expect("forkpty");
+        let mut line = LineDiscipline::of(master);
+        let mut s = baud_core::Owned::new(&size);
+        let mut t = baud_core::Term::new(s.storage(), &size);
+        let mut out = Vec::new();
+        for ((_, keys), (_, marker)) in steps.iter().zip(&markers) {
+            let read = read_until(master, &format!("{marker}\r\n"));
+            out.extend_from_slice(&read);
+            feed(&mut t, &read);
+            if follow == Follow::Encoding {
+                if let Followed::Failed(e) = line.follow(t.input_encoding()) {
+                    panic!("the line discipline did not follow: {e}");
+                }
+            }
+            let bytes = typed(&mut t, keys);
+            send(master, &bytes);
+        }
+        out.extend_from_slice(&read_all(master));
+        // SAFETY: as in `stty_words`.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+        let text = String::from_utf8_lossy(&out).into_owned();
+        let got: Vec<String> = text
+            .split("GOT[")
+            .skip(1)
+            .map(|rest| rest.split_once(']').expect("a closed GOT").0.to_string())
+            .collect();
+        assert_eq!(got.len(), steps.len(), "one line a step: {text:?}");
+        got
+    }
+
+    /// **Under `ESC % @` Backspace erases one ISO 8859-1 byte.** The child
+    /// switches the core to ISO 8859-1; `a`, `£`, Backspace and Return
+    /// through `Term::key` send `61 a3 7f 0d`, and the line holds `61`.
+    /// The control leaves the bit as the child set it: the erase reads
+    /// `a3` as a continuation and takes the `a` with it, the empty line a
+    /// spawn that only sets the bit in the child leaves, so the probe can
+    /// fire.
+    #[test]
+    fn under_latin1_backspace_erases_one_byte() {
+        use baud_core::KeyCode::{Backspace, Enter};
+        let keys = [ch('a'), ch('£'), Backspace, Enter];
+        {
+            let size = WinSize {
+                ws_col: 80,
+                ws_row: 24,
+            };
+            let mut s = baud_core::Owned::new(&size);
+            let mut t = baud_core::Term::new(s.storage(), &size);
+            feed(&mut t, b"\x1b%@");
+            assert_eq!(
+                typed(&mut t, &keys),
+                b"a\xa3\x7f\r",
+                "the keyboard sends ISO 8859-1"
+            );
+        }
+        let step: &[(&str, &[baud_core::KeyCode])] = &[(r"\033%%@", &keys)];
+        assert_eq!(lines_typed(Follow::Never, step), [""], "the control");
+        assert_eq!(lines_typed(Follow::Encoding, step), ["61"]);
+    }
+
+    /// **Back under `ESC % G`, Backspace erases the whole letter again.**
+    /// The same child switches to ISO 8859-1, reads a line, switches back
+    /// and reads another: `a £` Backspace leaves `61`, then `י` Backspace,
+    /// `d7 99 7f`, leaves the line empty. Without the bit set again the
+    /// erase would take `99` and leave `d7`.
+    #[test]
+    fn back_under_utf8_backspace_erases_the_whole_letter() {
+        use baud_core::KeyCode::{Backspace, Enter};
+        let latin1 = [ch('a'), ch('£'), Backspace, Enter];
+        let utf8 = [ch('י'), Backspace, Enter];
+        assert_eq!(
+            lines_typed(
+                Follow::Encoding,
+                &[(r"\033%%@", &latin1), (r"\033%%G", &utf8)]
+            ),
+            ["61", ""]
+        );
+    }
+
+    /// **The line discipline is told only when the encoding changes**: the
+    /// app calls [`LineDiscipline::follow`] after every read, and an open,
+    /// two attribute calls and a close a read would be work for nothing.
+    /// UTF-8 at the spawn, as the child left the bit.
+    #[test]
+    fn the_line_discipline_is_told_only_when_the_encoding_changes() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let master = Pty::fork_with(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some("IFS= read -r l".into()),
+            child_env(outer_parent(), None),
+        )
+        .expect("forkpty");
+        let mut line = LineDiscipline::of(master);
+        let told = |f: Followed| match f {
+            Followed::Same => false,
+            Followed::Told => true,
+            Followed::Failed(e) => panic!("{e}"),
+        };
+        assert!(!told(line.follow(InputEncoding::Utf8)), "as spawned");
+        assert!(told(line.follow(InputEncoding::Latin1)));
+        assert!(!told(line.follow(InputEncoding::Latin1)));
+        assert!(told(line.follow(InputEncoding::Utf8)));
+        assert!(!told(line.follow(InputEncoding::Utf8)));
+        send(master, b"\r");
+        drop(read_all(master));
+        // SAFETY: as in `stty_words`.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+    }
+
+    /// What `stty -a < /dev/tty` printed after the child switched the core
+    /// to ISO 8859-1 and the parent did or did not follow: the child's
+    /// controlling terminal, opened by that name after the parent's open,
+    /// change and close.
+    fn stty_after_latin1(follow: Follow) -> Vec<String> {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let master = Pty::fork_with(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some(
+                r#"/bin/stty -echo; printf '\033%%@ready\n'; IFS= read -r l; exec /bin/stty -a < /dev/tty"#
+                    .into(),
+            ),
+            child_env(outer_parent(), None),
+        )
+        .expect("forkpty");
+        let mut s = baud_core::Owned::new(&size);
+        let mut t = baud_core::Term::new(s.storage(), &size);
+        feed(&mut t, &read_until(master, "ready\r\n"));
+        assert_eq!(
+            t.input_encoding(),
+            InputEncoding::Latin1,
+            "the core switched"
+        );
+        if follow == Follow::Encoding {
+            let mut line = LineDiscipline::of(master);
+            assert!(matches!(line.follow(t.input_encoding()), Followed::Told));
+        }
+        send(master, b"\r");
+        stty_words(master)
+    }
+
+    /// **The parent's change is one bit, on the child's own terminal.**
+    /// `stty -a` on the child's `/dev/tty` -- which opens only while the
+    /// child still has its controlling terminal -- prints the same words
+    /// with and without the parent's change, but `-iutf8` for `iutf8`.
+    #[test]
+    fn the_parents_change_is_iutf8_alone_on_the_childs_terminal() {
+        let before = stty_after_latin1(Follow::Never);
+        assert!(
+            before.iter().any(|w| w == "iutf8"),
+            "the control: the child set the bit: {before:?}"
+        );
+        let want: Vec<String> = before
+            .iter()
+            .map(|w| match w.as_str() {
+                "iutf8" => "-iutf8".to_string(),
+                _ => w.clone(),
+            })
+            .collect();
+        assert_eq!(stty_after_latin1(Follow::Encoding), want);
+    }
+
+    /// Whether `master` reads as hung up within two seconds -- a bound, so
+    /// a subsidiary held open fails the test rather than hanging it.
+    fn hung_up(master: crate::sys::Fd) -> bool {
+        make_nonblocking(master);
+        let mut p = crate::sys::PollFd {
+            fd: master,
+            events: crate::sys::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: one initialised record and its count.
+        let ready = unsafe { crate::sys::poll(&mut p, 1, 2000) };
+        let mut buf = [0u8; 64];
+        ready > 0 && matches!(read_master(master, &mut buf), Got::Closed)
+    }
+
+    /// **The parent never holds the subsidiary, so the child's going still
+    /// hangs the manager up.** The child prints `ESC % @` and exits; the
+    /// parent sees the end, reads the switch and follows it after the child
+    /// has gone, and the manager still reads as hung up. The control holds
+    /// the subsidiary open across the same read, and the manager then reads
+    /// as waiting, so the probe can fire.
+    #[test]
+    fn following_after_the_child_has_gone_leaves_the_manager_hung_up() {
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let spawn = || {
+            Pty::fork_with(
+                text_area(&size, Px::of(8), Px::of(16)),
+                Some(r"printf '\033%%@'".into()),
+                child_env(outer_parent(), None),
+            )
+            .expect("forkpty")
+        };
+        let master = spawn();
+        let mut line = LineDiscipline::of(master);
+        let mut s = baud_core::Owned::new(&size);
+        let mut t = baud_core::Term::new(s.storage(), &size);
+        feed(&mut t, &read_all(master));
+        assert_eq!(
+            t.input_encoding(),
+            InputEncoding::Latin1,
+            "the core switched"
+        );
+        let followed = line.follow(t.input_encoding());
+        assert!(
+            matches!(followed, Followed::Told),
+            "the subsidiary opens after the child has gone: {followed:?}"
+        );
+        assert!(hung_up(master), "the manager reads as hung up");
+        // SAFETY: as in `stty_words`.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+
+        let master = spawn();
+        drop(read_all(master));
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags_noctty()
+            .open(subsidiary_of(master).expect("a subsidiary"))
+            .expect("the subsidiary opens");
+        assert!(!hung_up(master), "the control: held open, it waits");
+        drop(held);
+        // SAFETY: as in `stty_words`.
+        drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+    }
+
+    /// `O_NOCTTY` on an `OpenOptions`, for the controls that open the
+    /// subsidiary as the parent does.
+    trait NoCtty {
+        fn custom_flags_noctty(&mut self) -> &mut Self;
+    }
+    impl NoCtty for std::fs::OpenOptions {
+        fn custom_flags_noctty(&mut self) -> &mut Self {
+            use std::os::unix::fs::OpenOptionsExt;
+            self.custom_flags(crate::sys::O_NOCTTY)
+        }
+    }
+
+    /// The variable that turns [`ctty_helper`] on: the subsidiary's path,
+    /// then `follow` or `plain` after a tab.
+    const CTTY_HELPER: &str = "BAUD_TEST_CTTY_HELPER";
+
+    /// **Run only by [`the_parent_never_takes_the_subsidiary_as_its_terminal`]**,
+    /// as a process of its own; a no-op otherwise. It starts a session --
+    /// no controlling terminal, the state of an app the Dock started --
+    /// opens the subsidiary the way it is told, and says whether `/dev/tty`
+    /// opens after: whether it took the subsidiary as its terminal.
+    #[test]
+    fn ctty_helper() {
+        let Ok(arg) = std::env::var(CTTY_HELPER) else {
+            return;
+        };
+        let (path, how) = arg.split_once('\t').expect("a path and a mode");
+        // SAFETY: no arguments; a process that is not a group leader.
+        assert!(unsafe { crate::sys::setsid() } >= 0, "a new session");
+        assert!(
+            std::fs::File::open("/dev/tty").is_err(),
+            "a new session has no terminal"
+        );
+        match how {
+            "follow" => {
+                let mut line = LineDiscipline {
+                    subsidiary: Some(path.into()),
+                    told: InputEncoding::Utf8,
+                };
+                let followed = line.follow(InputEncoding::Latin1);
+                assert!(matches!(followed, Followed::Told), "{followed:?}");
+            }
+            _ => drop(std::fs::File::open(path).expect("the subsidiary opens")),
+        }
+        let took = std::fs::File::open("/dev/tty").is_ok();
+        println!("CTTY[{took}]");
+    }
+
+    /// **Both drivers follow the encoding straight after they feed the
+    /// child's output.** The pumps are bound to AppKit and to Wayland, so
+    /// the source is held: in each, the statement after the one
+    /// `reads::feed` of a read is the follow, so no key can be encoded
+    /// between a switch and the bit that follows it.
+    #[test]
+    fn both_drivers_follow_the_encoding_straight_after_the_feed() {
+        let next_after = |src: &str, feed: &str, follow: &str| {
+            assert_eq!(src.matches(feed).count(), 1, "one feed: {feed}");
+            assert_eq!(src.matches(follow).count(), 1, "one follow: {follow}");
+            let rest = &src[src.find(feed).expect("found") + feed.len()..];
+            let next = rest
+                .lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty() && !l.starts_with("//"))
+                .expect("a statement after the feed");
+            assert_eq!(next, follow);
+        };
+        next_after(
+            include_str!("app.rs"),
+            "|t| pasteboard(clips.poll(t, osc52)),\n        );\n",
+            "self.app.pty.follow(self.app.term.input_encoding());",
+        );
+        next_after(
+            include_str!("linux.rs"),
+            "crate::reads::feed(&mut self.term, [bytes], |b| self.outbox.push(b), |_| {});\n",
+            "self.pty.follow(self.term.input_encoding());",
+        );
+    }
+
+    /// A pseudo-terminal no session has held: its manager, which the
+    /// caller closes. `posix_openpt` with `O_NOCTTY`, so this process does
+    /// not take it either.
+    fn unheld_pty() -> crate::sys::Fd {
+        // SAFETY: plain calls on the descriptor the first returns.
+        unsafe {
+            let m = crate::sys::posix_openpt(crate::sys::O_RDWR | crate::sys::O_NOCTTY);
+            assert!(m >= 0, "posix_openpt");
+            assert_eq!(crate::sys::grantpt(m), 0, "grantpt");
+            assert_eq!(crate::sys::unlockpt(m), 0, "unlockpt");
+            m
+        }
+    }
+
+    /// **The parent never takes the subsidiary as its controlling
+    /// terminal.** A session leader with none -- an app the Dock started --
+    /// takes a terminal it opens without `O_NOCTTY` when no session holds
+    /// that terminal, and with it the terminal's hang-up. A process in a
+    /// new session ([`ctty_helper`]) follows the encoding on the subsidiary
+    /// of a pty no session holds and has no terminal after. The control
+    /// opens the same path plainly and has it as its terminal after, so the
+    /// probe can fire. This process keeps the subsidiary open across both,
+    /// with `O_NOCTTY`, as the child keeps it in the app: on Darwin the
+    /// helper's close is otherwise the last, and the last close lets the
+    /// terminal go, so a control without the hold read nothing taken. Not
+    /// a `forkpty` pty: its child's session holds the subsidiary from the
+    /// start, and on Darwin that hold outlives the child -- a plain open
+    /// after the child had exited, reaped or not, took nothing.
+    #[test]
+    fn the_parent_never_takes_the_subsidiary_as_its_terminal() {
+        let took = |how: &str| {
+            let master = unheld_pty();
+            let path = subsidiary_of(master).expect("a subsidiary");
+            let held = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags_noctty()
+                .open(&path)
+                .expect("the subsidiary opens");
+            let out = std::process::Command::new(std::env::current_exe().expect("this test"))
+                .args(["--exact", "pty::tests::ctty_helper", "--nocapture"])
+                .env(CTTY_HELPER, format!("{}\t{how}", path.display()))
+                .output()
+                .expect("the helper runs");
+            drop(held);
+            // SAFETY: `master` is the descriptor `posix_openpt` returned
+            // and nothing else owns it.
+            drop(unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(master) });
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            assert!(out.status.success(), "the helper passed: {text}");
+            match (text.contains("CTTY[true]"), text.contains("CTTY[false]")) {
+                (true, false) => (true, text),
+                (false, true) => (false, text),
+                _ => panic!("the helper ran once and said: {text}"),
+            }
+        };
+        let (plain, said) = took("plain");
+        assert!(plain, "the control: a plain open takes it: {said}");
+        let (follow, said) = took("follow");
+        assert!(!follow, "{said}");
+    }
+
     /// `outer_parent()` with `extra` added.
     fn parent_with(extra: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
         let mut parent = outer_parent();
@@ -1661,9 +2469,9 @@ mod tests {
         );
     }
 
-    /// Blocking reads of `master` until what arrived ends with `want`. The
-    /// master must still be blocking.
-    fn read_until(master: crate::sys::Fd, want: &str) {
+    /// Blocking reads of `master` until what arrived ends with `want`, and
+    /// what arrived. The master must still be blocking.
+    fn read_until(master: crate::sys::Fd, want: &str) -> Vec<u8> {
         let mut seen = Vec::new();
         let mut buf = [0u8; 256];
         while !seen.ends_with(want.as_bytes()) {
@@ -1676,6 +2484,7 @@ mod tests {
                 ),
             }
         }
+        seen
     }
 
     /// **An idle child's empty master is not the end of the stream.** The

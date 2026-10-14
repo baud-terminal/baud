@@ -135,8 +135,9 @@ Whether any of these is why the read is cheaper is unmeasured. The launch's
 
 ## 5. Found on the way: Backspace and a whole UTF-8 character
 
-baud's `forkpty` passes no termios (`pty.rs:568-573`), so the pseudo-terminal
-starts with the kernel default `-iutf8`. In line-input mode -- `cat`, `read` --
+Until 2026-10-13 baud's `forkpty` passed no termios (`Pty::fork_with` in
+`pty.rs`), so the pseudo-terminal started with the kernel default `-iutf8`.
+In line-input mode -- `cat`, `read` --
 a Hebrew letter followed by Backspace leaves its lead byte `d7` in the line;
 with `iutf8` the line is empty; the control `ab` Backspace leaves `61` every
 time (`scripts/locale/iutf8_probe.py`, measured, two runs identical). zsh's own
@@ -146,8 +147,14 @@ the child before `exec` (`slave.c:248-261`). baud's `forkpty` creates and forks
 in one call, so the three routes are: pass a termios into `forkpty` (built by
 hand, since a Dock launch has no tty to copy), `openpty` then `fork` and
 `login_tty`, or `tcsetattr` on the child's terminal before `execve` (which
-`tcsetattr`'s async-signal safety permits, against `pty.rs:216-219`'s rule that
-the child does nothing but the exec).
+`tcsetattr`'s async-signal safety permits, against `pty.rs`'s rule, then, that
+the child does nothing but the exec). **Built 2026-10-13 by the third, the
+owner's call**: the child sets the flag on descriptor 0 before `execve`, and
+the rule now names the two calls (the record, "Backspace erases a whole UTF-8
+character: IUTF8 in the child"). After the spawn the parent keeps the bit with
+the input encoding, clearing it under `ESC % @`, whose keyboard sends ISO
+8859-1, and setting it again under `ESC % G`, through the subsidiary it opens
+by `ptsname` and closes again (the same record).
 
 ## 6. Hebrew once the locale is right
 
@@ -208,7 +215,9 @@ say Noto Sans Hebrew is proportional; W's Hebrew test string has no points.
      in a nix-built parent proves nothing about the host libc the shell uses.
 2. **The Backspace flag**: Jev would set `IUTF8` (0.98, confidence 0.96). The
    route is open: a termios into `forkpty` 0.59, `openpty` and `login_tty`
-   0.21, `tcsetattr` in the child 0.20, confidence 0.39. Not built.
+   0.21, `tcsetattr` in the child 0.20, confidence 0.39. ~~Not built.~~
+   Built 2026-10-13 in the child, the owner's call after four Jev rounds
+   left it under the bar (section 5).
 3. **Which face draws Hebrew**: folded into note W's open fallback-font
    question, with Liberation Mono as the candidate that fits the cell and is
    the same on every system, to be re-measured against W's amended bundle and

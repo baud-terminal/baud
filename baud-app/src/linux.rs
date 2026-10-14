@@ -375,6 +375,9 @@ impl Driver {
         // driver speaks a data device, and it provisions no area, so the core
         // refuses every write and counts it in `clipboard_writes_refused`.
         crate::reads::feed(&mut self.term, [bytes], |b| self.outbox.push(b), |_| {});
+        // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
+        // must reach a line discipline whose `IUTF8` is clear.
+        self.pty.follow(self.term.input_encoding());
         self.pending = Pending::Dirty;
         // A refused image is said by the limit it hit, once a read -- the
         // macOS pump's rule (`host::describe_refusals`).

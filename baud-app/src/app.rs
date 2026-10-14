@@ -5610,6 +5610,9 @@ impl Driver {
             |b| outbox.push(b),
             |t| pasteboard(clips.poll(t, osc52)),
         );
+        // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
+        // must reach a line discipline whose `IUTF8` is clear.
+        self.app.pty.follow(self.app.term.input_encoding());
         if let Some(line) = self
             .app
             .clips

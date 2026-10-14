@@ -8,7 +8,8 @@
 //! opens close-on-exec, answers the length from `metadata` and closes on
 //! drop; that took the surface from twenty-five items to ten. Everything
 //! left is something `std` has no API for: a pty, an ioctl, a poll, a
-//! descriptor's non-blocking flag, a mapping, Darwin's raw uptime clock, a
+//! descriptor's non-blocking flag, a terminal's attributes, a mapping,
+//! Darwin's raw uptime clock, a
 //! symbol looked up at run time because older systems do not have it, and
 //! the user's locale -- read from CoreFoundation and checked with
 //! `newlocale` -- for a shell whose environment names none.
@@ -177,7 +178,98 @@ unsafe extern "C" {
     /// `fork` and a failed `exec`, where only async-signal-safe calls are
     /// allowed.
     pub fn _exit(status: c_int) -> !;
+
+    /// A terminal's attributes, read into `t`. The child calls it on its
+    /// terminal between `fork` and `exec`, which XSH 2.4.3's table of
+    /// async-signal-safe functions allows, and the parent on the
+    /// subsidiary it opens when the input encoding changes.
+    pub fn tcgetattr(fd: Fd, t: *mut Termios) -> c_int;
+
+    /// A terminal's attributes, set from `t`. Async-signal-safe, as
+    /// [`tcgetattr`] is; POSIX leaves the effect undefined unless `t` came
+    /// from `tcgetattr` on the same descriptor.
+    pub fn tcsetattr(fd: Fd, when: c_int, t: *const Termios) -> c_int;
+
+    /// The subsidiary's path for the manager `fd`, or null. The answer
+    /// lives in a buffer of libc's that the next call overwrites -- POSIX
+    /// says `ptsname` "need not be thread-safe" -- so the one caller takes a
+    /// process-wide lock and copies it out (`pty.rs`, `subsidiary_of`).
+    /// Not `ptsname_r`: its `size_t` length would be a signature primitive
+    /// past `audit_all.sh`'s budget for this crate.
+    pub fn ptsname(fd: Fd) -> *mut c_char;
+
+    /// A new session with no controlling terminal, for the test that holds
+    /// [`O_NOCTTY`] to its job: only such a process could take one. A
+    /// `pid_t` is an `int` on both platforms.
+    #[cfg(test)]
+    pub fn setsid() -> c_int;
+
+    /// A pseudo-terminal no session has held, for the same test:
+    /// `forkpty`'s child takes its subsidiary as its terminal at once, and
+    /// on Darwin the hold outlives the child.
+    #[cfg(test)]
+    pub fn posix_openpt(flags: c_int) -> Fd;
+    #[cfg(test)]
+    pub fn grantpt(fd: Fd) -> c_int;
+    #[cfg(test)]
+    pub fn unlockpt(fd: Fd) -> c_int;
 }
+
+/// `open`'s read-and-write access mode, which `posix_openpt` takes; the
+/// same value on both platforms.
+#[cfg(test)]
+pub const O_RDWR: c_int = 2;
+
+/// `open`'s flag that keeps a terminal from becoming the caller's
+/// controlling terminal. The parent opens the subsidiary with it, through
+/// [`std::fs::OpenOptions`]: a session leader with no controlling terminal
+/// takes a terminal no session holds when it opens one without the flag
+/// (measured on Darwin, `pty.rs`'s
+/// `the_parent_never_takes_the_subsidiary_as_its_terminal`). Whether an
+/// app the Dock started is such a leader was not checked. The bit differs
+/// per platform.
+#[cfg(target_os = "macos")]
+pub const O_NOCTTY: c_int = 0x2_0000;
+#[cfg(not(target_os = "macos"))]
+pub const O_NOCTTY: c_int = 0o400;
+
+/// `tcflag_t`, the type of each of a termios's four flag words: `unsigned
+/// long` on Darwin and `unsigned int` on glibc.
+#[cfg(target_os = "macos")]
+pub type TcFlag = c_ulong;
+#[cfg(not(target_os = "macos"))]
+pub type TcFlag = core::ffi::c_uint;
+
+/// **`struct termios`, opaque but for its first field.** What the kernel
+/// hands out is handed back with one bit of `c_iflag` set or cleared, so
+/// nothing else is read or built and nothing else is named. The size, the alignment and
+/// `c_iflag`'s offset are the header's, which the tests below hold: a block
+/// smaller than the header's would let `tcgetattr` write past it.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Termios {
+    pub c_iflag: TcFlag,
+    rest: [u8; TERMIOS_SIZE - core::mem::size_of::<TcFlag>()],
+}
+
+/// Four `unsigned long` flag words, twenty control characters, padding and
+/// two `unsigned long` speeds on Darwin; four `unsigned int` flag words,
+/// the line discipline, thirty-two control characters, padding and two
+/// `unsigned int` speeds on glibc.
+#[cfg(target_os = "macos")]
+const TERMIOS_SIZE: usize = 72;
+#[cfg(not(target_os = "macos"))]
+const TERMIOS_SIZE: usize = 60;
+
+/// **Backspace erases a whole UTF-8 character**: with it set, the line
+/// discipline's erase takes the continuation bytes before the cursor and
+/// the byte that leads them (`[[source: xnu-tty]]` `ttyinput`,
+/// `[[source: linux-n-tty]]` `eraser`). Not in POSIX's `<termios.h>`;
+/// the same bit in Darwin's header and in Linux's.
+pub const IUTF8: TcFlag = 0x4000;
+
+/// `tcsetattr`'s "now", rather than after the output drains.
+pub const TCSANOW: c_int = 0;
 
 // **A symbol looked up rather than linked**, because it exists only from
 // macOS 15: `AXPrefersNonBlinkingTextInsertionIndicator`. Linking it would
@@ -292,7 +384,7 @@ unsafe extern "C" {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::mem::{offset_of, size_of};
+    use core::mem::{align_of, offset_of, size_of};
 
     const PROBE: &str = r#"
 #include <fcntl.h>
@@ -302,6 +394,7 @@ mod tests {
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <termios.h>
 #include <time.h>
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
@@ -322,6 +415,10 @@ int main(void) {
     printf("pollfd.revents=%zu\n", offsetof(struct pollfd, revents));
     printf("nfds.size=%zu\n", sizeof(nfds_t));
     printf("request.size=%zu\n", sizeof(unsigned long));
+    printf("termios.size=%zu\n", sizeof(struct termios));
+    printf("termios.align=%zu\n", _Alignof(struct termios));
+    printf("termios.iflag=%zu\n", offsetof(struct termios, c_iflag));
+    printf("tcflag.size=%zu\n", sizeof(tcflag_t));
     printf("TIOCSWINSZ=%llu\n", (unsigned long long)TIOCSWINSZ);
     printf("TIOCGWINSZ=%llu\n", (unsigned long long)TIOCGWINSZ);
     printf("POLLIN=%lld\n", (long long)POLLIN);
@@ -330,9 +427,13 @@ int main(void) {
     printf("F_GETFL=%lld\n", (long long)F_GETFL);
     printf("F_SETFL=%lld\n", (long long)F_SETFL);
     printf("O_NONBLOCK=%lld\n", (long long)O_NONBLOCK);
+    printf("O_NOCTTY=%lld\n", (long long)O_NOCTTY);
+    printf("O_RDWR=%lld\n", (long long)O_RDWR);
     printf("PROT_READ=%lld\n", (long long)PROT_READ);
     printf("MAP_PRIVATE=%lld\n", (long long)MAP_PRIVATE);
     printf("MAP_FAILED=%lld\n", (long long)(intptr_t)MAP_FAILED);
+    printf("IUTF8=%lld\n", (long long)IUTF8);
+    printf("TCSANOW=%lld\n", (long long)TCSANOW);
 #ifdef CLOCK_UPTIME_RAW
     printf("CLOCK_UPTIME_RAW=%lld\n", (long long)CLOCK_UPTIME_RAW);
 #endif
@@ -354,6 +455,10 @@ int main(void) {
     return 0;
 }
 "#;
+
+    /// The lines the probe prints on every platform, before its
+    /// `#ifdef`s: the floor its output is held to.
+    const PRINTED_EVERYWHERE: usize = 30;
 
     /// Compile and run the probe, or say why it could not.
     fn ask_the_headers() -> std::collections::HashMap<String, i128> {
@@ -397,7 +502,7 @@ int main(void) {
         // empty map -- the shape this repo keeps recording as a gate that
         // cannot fire.
         assert!(
-            map.len() >= 17,
+            map.len() >= PRINTED_EVERYWHERE,
             "the probe printed {} values, which is fewer than it has lines: {text}",
             map.len()
         );
@@ -418,6 +523,10 @@ int main(void) {
         assert_eq!(h["pollfd.revents"], offset_of!(PollFd, revents) as i128);
         assert_eq!(h["nfds.size"], size_of::<Nfds>() as i128);
         assert_eq!(h["request.size"], size_of::<c_ulong>() as i128);
+        assert_eq!(h["termios.size"], size_of::<Termios>() as i128);
+        assert_eq!(h["termios.align"], align_of::<Termios>() as i128);
+        assert_eq!(h["termios.iflag"], offset_of!(Termios, c_iflag) as i128);
+        assert_eq!(h["tcflag.size"], size_of::<TcFlag>() as i128);
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["locale_t.size"], size_of::<Locale>() as i128);
@@ -444,9 +553,13 @@ int main(void) {
         assert_eq!(h["F_GETFL"], i128::from(F_GETFL));
         assert_eq!(h["F_SETFL"], i128::from(F_SETFL));
         assert_eq!(h["O_NONBLOCK"], i128::from(O_NONBLOCK));
+        assert_eq!(h["O_NOCTTY"], i128::from(O_NOCTTY));
+        assert_eq!(h["O_RDWR"], i128::from(O_RDWR));
         assert_eq!(h["PROT_READ"], i128::from(PROT_READ));
         assert_eq!(h["MAP_PRIVATE"], i128::from(MAP_PRIVATE));
         assert_eq!(h["MAP_FAILED"], MAP_FAILED as isize as i128);
+        assert_eq!(h["IUTF8"], i128::from(IUTF8));
+        assert_eq!(h["TCSANOW"], i128::from(TCSANOW));
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["CLOCK_UPTIME_RAW"], i128::from(CLOCK_UPTIME_RAW));
