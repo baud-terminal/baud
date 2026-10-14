@@ -45,6 +45,7 @@
 #   AM  XTGETTCAP: what a terminal reports about its own capabilities
 #   AN  the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper
 #   AO  the rendition table: how terminals store a cell's colours, and how a table of renditions frees its slots
+#   BL  the bell: what a BEL does in a macOS window -- the alert sound, an attention request, a raise
 
 [sources.simdjson]
 key    = "simdjson"
@@ -24522,3 +24523,85 @@ status = "external"
 group  = "J"
 # Read 2026-10-13 for note AB section 11 (Q-C); not committed -- a forum page, whose hash tracks its
 # chrome. John Hudson's reply: mark filtering, so a ligature forms whatever the mark order.
+
+# The bell (BL): what a BEL does in the window on macOS -- the system's alert
+# sound, an attention request that bounces the Dock icon, and a raise that takes
+# no focus. Pinned 2026-10-14 for the BEL lane, `baud-app/src/bell.rs`.
+
+[sources.apple-nsapplication-requestuserattention]
+key    = "apple-nsapplication-requestuserattention"
+title  = "NSApplication requestUserAttention(_:) -- starts a user attention request; sending it to an app that is already active has no effect (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/requestuserattention(_:).json"
+file   = "apple-nsapplication-requestuserattention.json"
+sha256 = "15d09e764be44f26184a18452ce3067162e871a917a357c5baefdc2059e059c1"
+bytes  = 17891
+status = "retrieved"
+group  = "BL"
+
+[sources.apple-nsapplication-informationalrequest]
+key    = "apple-nsapplication-informationalrequest"
+title  = "NSApplication.RequestUserAttentionType.informationalRequest -- the dock icon will bounce for one second; the request remains active until the app becomes active (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/requestuserattentiontype/informationalrequest.json"
+file   = "apple-nsapplication-requestuserattentiontype-informationalrequest.json"
+sha256 = "05571a5b2c67c1fda765c81d5322911e21b8232123e842f10903085b9877fa17"
+bytes  = 12058
+status = "retrieved"
+group  = "BL"
+
+[sources.apple-nsbeep]
+key    = "apple-nsbeep"
+title  = "NSBeep -- plays the system beep, the sound the user selects (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsbeep.json"
+file   = "apple-nsbeep.json"
+sha256 = "c78c4cc1e6cb06c507fc28ed61793fdbdb52a97889a3f9564682b1703e4e5ed8"
+bytes  = 3929
+status = "retrieved"
+group  = "BL"
+
+[sources.apple-nswindow-orderfrontregardless]
+key    = "apple-nswindow-orderfrontregardless"
+title  = "NSWindow orderFrontRegardless() -- moves the window to the front of its level, even if its application isn't active, without changing the key or main window (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/orderfrontregardless().json"
+file   = "apple-nswindow-orderfrontregardless.json"
+sha256 = "57cbf24d08b67677e6a0dd36106a964bde05d970bb979d3b08d32460cf7fb980"
+bytes  = 14483
+status = "retrieved"
+group  = "BL"
+
+[sources.apple-nswindow-isminiaturized]
+key    = "apple-nswindow-isminiaturized"
+title  = "NSWindow isMiniaturized -- whether the window is minimized, removed from the screen and replaced by its counterpart (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/isminiaturized.json"
+file   = "apple-nswindow-isminiaturized.json"
+sha256 = "3e27607a713574a7c8d7a3913ced1b45198a0c6bbbac5314bae3b9fa742cc485"
+bytes  = 15265
+status = "retrieved"
+group  = "BL"
+
+[sources.apple-nswindow-iskeywindow]
+key    = "apple-nswindow-iskeywindow"
+title  = "NSWindow isKeyWindow -- whether the window is the key window for the application (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/iskeywindow.json"
+file   = "apple-nswindow-iskeywindow.json"
+sha256 = "b4b57bf6aafadad9e2efef214e6c8a5137d6939a8c557b2b5f5b62420ecbe79d"
+bytes  = 16123
+status = "retrieved"
+group  = "BL"

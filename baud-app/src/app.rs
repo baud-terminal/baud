@@ -1,7 +1,7 @@
 //! The window, the responder, and the frame.
 #![forbid(unsafe_code)]
 
-use crate::bell::{Bell, Update, UpdateClock};
+use crate::bell::{Bell, Rings, Update, UpdateClock};
 use crate::caret::{Caret, Cycle, Gate, NonBlinking, Owes};
 use crate::host::{
     FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK,
@@ -41,8 +41,8 @@ use macos_liquid_glass::objc2::MainThreadOnly;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
-    NSAutoresizingMaskOptions, NSColor, NSImage, NSImageView, NSScreen, NSScroller,
-    NSScrollerStyle, NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
+    NSAutoresizingMaskOptions, NSBeep, NSColor, NSImage, NSImageView, NSRequestUserAttentionType,
+    NSScreen, NSScroller, NSScrollerStyle, NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
@@ -533,6 +533,10 @@ struct App {
     /// other video until a deadline the display link's clock reaches
     /// (`bell.rs`).
     bell: Bell<HostTime>,
+    /// What a `BEL` does in a focused window, from `bell`, and the bells
+    /// the last read brought, rung once a frame interval (`bell.rs`).
+    bell_style: crate::config::BellStyle,
+    ringer: crate::bell::Ringer<Instant>,
     /// The damage the next frame draws with -- `Full` for the frame after a
     /// blink flip, since a blink changes no cell and row damage would miss it.
     next_damage: Damage,
@@ -628,6 +632,8 @@ struct Boot {
     vs16_width: baud_domain::Vs16Width,
     /// `[clipboard]`.
     clipboard: crate::config::Clipboard,
+    /// What a `BEL` does in a focused window, from `bell`.
+    bell: crate::config::BellStyle,
 }
 
 impl Boot {
@@ -776,6 +782,7 @@ impl Boot {
             sixel: cfg.sixel,
             vs16_width: cfg.vs16_width,
             clipboard: cfg.clipboard,
+            bell: cfg.bell,
         }
     }
 
@@ -813,6 +820,7 @@ impl App {
             sixel,
             vs16_width,
             clipboard,
+            bell: bell_style,
         } = boot;
         let probe = probe.join().unwrap_or(None);
         startup_mark("gpu joined");
@@ -972,9 +980,12 @@ impl App {
         term.set_vs16_width(vs16_width);
         term.set_initial_cursor_style(cursor);
         let bell = Bell::new(&term, crate::bell::LENGTH);
+        let ringer = crate::bell::Ringer::new(&term);
         let clips = crate::clip::Clips::new(&term);
         App {
             bell,
+            bell_style,
+            ringer,
             term,
             renderer,
             presenter: None,
@@ -4892,6 +4903,148 @@ mod motion_tests {
         assert!(tick.contains("self.poll_motion();"), "{tick}");
     }
 
+    /// **The pump rings a read's bells before anything can return**, and
+    /// the shim makes the calls `ring` names. Both are AppKit-bound, so the
+    /// source is what can fail: a ring after the held-update or the
+    /// clean-frame return would be lost exactly when no frame is drawn -- a
+    /// minimized window, where `?1042` matters most.
+    #[test]
+    fn the_pump_rings_the_bell_before_it_can_return() {
+        const SRC: &str = include_str!("app.rs");
+        // A line that is only a `//` comment taken out, so a call written in
+        // one is not read as code. A comment after code stays, so a `//`
+        // inside a string cannot hide what follows it.
+        let uncommented = |s: &str| {
+            s.lines()
+                .filter(|l| !l.trim_start().starts_with("//"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let bare = |s: &str| s.split_whitespace().collect::<String>();
+        // Spelled apart, so this test does not match its own source first.
+        const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
+        const SHIM_FN: &str = concat!("    fn ring_", "bell(&mut self) {");
+        // Each signature once, so no copy of either -- in a comment, a
+        // string or an impl configured out -- is what is read below.
+        assert_eq!(SRC.matches(PUMP).count(), 1, "one pump");
+        assert_eq!(SRC.matches(SHIM_FN).count(), 1, "one shim");
+        // The file without this test: each call the bell makes, once.
+        let (head, rest) = SRC
+            .split_once(concat!(
+                "fn the_pump_rings_the_bell_",
+                "before_it_can_return() {"
+            ))
+            .expect("this test");
+        let code = uncommented(&format!(
+            "{head}{}",
+            rest.split_once("\n    }\n").expect("its end").1
+        ));
+        for call in [
+            ".hear(",
+            concat!(".ring_", "bell()"),
+            "NSBeep(",
+            "requestUserAttention(",
+            "orderFrontRegardless(",
+        ] {
+            assert_eq!(code.matches(call).count(), 1, "{call}");
+        }
+        // `NSBeep` is AppKit's: imported from it, and named nowhere else.
+        let kit = SRC
+            .split_once("objc2_app_kit::{")
+            .and_then(|(_, r)| r.split_once("};"))
+            .map(|(names, _)| bare(names))
+            .expect("the AppKit import");
+        assert!(kit.split(',').any(|n| n == "NSBeep"), "{kit}");
+        assert_eq!(code.matches("NSBeep").count(), 2, "imported and called");
+
+        let pump = SRC
+            .split_once(PUMP)
+            .and_then(|(_, rest)| rest.split_once("\n    fn "))
+            .map(|(body, _)| bare(&uncommented(body)))
+            .expect("the pump");
+        // From the read to the ring, exactly this: nothing between them can
+        // return, take the ringer's answer first or put the ring under
+        // another condition.
+        // The poll's argument and the follow spelled apart, as their own
+        // tests count them.
+        const READ_TO_RING: &str = concat!(
+            r#"crate::reads::feed(
+                term,
+                drained.chunks.iter().map(|chunk| {
+                    if let Some(t) = trace.as_mut() { t.fed(&chunk.bytes); }
+                    &chunk.bytes[..]
+                }),
+                |b| outbox.push(b),
+                |t| pasteboard("#,
+            r#"clips.poll(t, osc52)),
+            );
+            self.app.pty.follow("#,
+            r#"self.app.term.input_encoding());
+            if let Some(line) = self.app.clips
+                .core_refusals(&self.app.term, self.app.clipboard.budget)
+            { crate::warn!("{line}"); }
+            if !drained.chunks.is_empty() { self.app.pending = Pending::Dirty; }
+            if self.app.ringer.hear(&self.app.term, Instant::now(), self.app.interval)
+                == Rings::Ring
+            { self.ring_bell(); }"#
+        );
+        let span = bare(READ_TO_RING);
+        let fed = pump.find("crate::reads::feed(").expect("the read");
+        assert!(pump[fed..].starts_with(&span), "the read, then the ring");
+        let rung = fed + span.len();
+        let first_return = fed + pump[fed..].find("return;").expect("the control: a return");
+        let held = pump
+            .find(&bare(
+                ".observe(&self.app.term, Instant::now()) == Update::Honoured",
+            ))
+            .expect("the held update");
+        assert!(rung < first_return, "before the clean-frame return");
+        assert!(rung < held, "before the held update");
+
+        let shim = SRC
+            .split_once(SHIM_FN)
+            .and_then(|(_, rest)| rest.split_once("\n    }\n"))
+            .map(|(body, _)| uncommented(body))
+            .expect("the shim");
+        // The whole body, compared with every space taken out of both
+        // sides so rustfmt's layout cannot break the match: a call
+        // outside its condition, a question in the other slot, a
+        // rebinding, an early return or a filtered window each change the
+        // text. The raise is `orderFrontRegardless`, which takes no focus,
+        // as `XRaiseWindow` takes none.
+        const SHIM: &str = r#"
+            use crate::bell::{Attention, Key, Miniaturized, Raise, Shown, Sound, Window};
+            let window = self.view.window();
+            let state = match &window {
+                Some(w) => Window::of(
+                    if w.isKeyWindow() { Key::Key } else { Key::NotKey },
+                    if w.isMiniaturized() { Miniaturized::Minimized }
+                    else { Miniaturized::NotMinimized },
+                ),
+                None => Window::Unfocused,
+            };
+            let ring = crate::bell::ring(
+                self.app.bell_style, self.app.motion, state,
+                self.app.term.bell_is_urgent(), self.app.term.pop_on_bell(),
+            );
+            if ring.sound == Sound::Beep { NSBeep(); }
+            if ring.shown == Shown::Flash {
+                self.app.bell.ring();
+                self.app.pending = Pending::Dirty;
+            }
+            if ring.attention == Attention::Request {
+                if let Some(mtm) = MainThreadMarker::new() {
+                    NSApplication::sharedApplication(mtm)
+                        .requestUserAttention(NSRequestUserAttentionType::InformationalRequest);
+                }
+            }
+            if ring.raise == Raise::Front {
+                if let Some(w) = &window { w.orderFrontRegardless(); }
+            }
+        "#;
+        assert_eq!(bare(&shim), bare(SHIM), "the shim is this, and only this");
+    }
+
     /// **Reduce Motion holds blinking text shown.** Apple's HIG
     /// (`[[source: apple-hig-accessibility]]`): "Be cautious with
     /// fast-moving and blinking animations ... People who are prone to these
@@ -5681,6 +5834,18 @@ impl Driver {
         }
         if !drained.chunks.is_empty() {
             self.app.pending = Pending::Dirty;
+        }
+        // **The bells this read brought ring now**, before the early returns
+        // for a held update or a busy frame: a sound, a bounce and a raise
+        // are not drawn, and a minimized window draws nothing. Once a frame
+        // interval (`Ringer`).
+        if self
+            .app
+            .ringer
+            .hear(&self.app.term, Instant::now(), self.app.interval)
+            == Rings::Ring
+        {
+            self.ring_bell();
         }
         // An image the store refused is said once a pump, by the limit it
         // hit: the count was a total nothing here read, and yazi's previews
@@ -6914,6 +7079,59 @@ impl Driver {
         } else {
             baud_core::Focus::Lost
         });
+    }
+
+    /// **The bell's AppKit shim**: the window as AppKit has it now -- key
+    /// (`[[source: apple-nswindow-iskeywindow]]`), minimized (`[[source:
+    /// apple-nswindow-isminiaturized]]`) or neither, asked here rather than
+    /// taken from the tick's focus poll, which may not have run since the
+    /// window changed -- classed by [`Window::of`](crate::bell::Window::of),
+    /// then [`ring`](crate::bell::ring)'s decision, and the calls it names.
+    /// Both are tested; this is the two questions and the four calls, each
+    /// under its condition, and the source gate holds it to that text.
+    fn ring_bell(&mut self) {
+        use crate::bell::{Attention, Key, Miniaturized, Raise, Shown, Sound, Window};
+        let window = self.view.window();
+        let state = match &window {
+            Some(w) => Window::of(
+                if w.isKeyWindow() {
+                    Key::Key
+                } else {
+                    Key::NotKey
+                },
+                if w.isMiniaturized() {
+                    Miniaturized::Minimized
+                } else {
+                    Miniaturized::NotMinimized
+                },
+            ),
+            None => Window::Unfocused,
+        };
+        let ring = crate::bell::ring(
+            self.app.bell_style,
+            self.app.motion,
+            state,
+            self.app.term.bell_is_urgent(),
+            self.app.term.pop_on_bell(),
+        );
+        if ring.sound == Sound::Beep {
+            NSBeep();
+        }
+        if ring.shown == Shown::Flash {
+            self.app.bell.ring();
+            self.app.pending = Pending::Dirty;
+        }
+        if ring.attention == Attention::Request {
+            if let Some(mtm) = MainThreadMarker::new() {
+                NSApplication::sharedApplication(mtm)
+                    .requestUserAttention(NSRequestUserAttentionType::InformationalRequest);
+            }
+        }
+        if ring.raise == Raise::Front {
+            if let Some(w) = &window {
+                w.orderFrontRegardless();
+            }
+        }
     }
 
     /// **Output retired `n` lines under a smooth scroll**: what the trail

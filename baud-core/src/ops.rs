@@ -1832,6 +1832,13 @@ impl Paint<'_, '_> {
                     ModeChange::Reset => AlternateScroll::Off,
                 }
             }
+            // **`?1042` and `?1043` are the bell's**, and the bell is the
+            // embedder's: exposing them is acting on them
+            // (`Term::bell_is_urgent`, `Term::pop_on_bell`), as `?1007` is
+            // the wheel's. They were counted and dropped while `BEL` itself
+            // rang nothing.
+            PrivateMode::BellIsUrgent => self.cold.modes.apply(ModeBit::BellIsUrgent, on),
+            PrivateMode::PopOnBell => self.cold.modes.apply(ModeBit::PopOnBell, on),
             // `?1001` is the fifth level: "The remaining five modes of the
             // mouse protocols are each enabled (or disabled) by a different
             // parameter", exclusive with the other four (`[[source:
@@ -2123,6 +2130,12 @@ impl Paint<'_, '_> {
         // committing it, so a reverse video that only ever existed inside one
         // is not a flip anything could have shown.
         self.flip_reverse_video(ModeChange::Reset, during);
+        // `?1042` and `?1043` go back to reset with the rest: ECMA-48
+        // § 8.3.105 has `RIS` "set the modes into the reset state"
+        // (`[[source: ecma48]]`). xterm keeps both -- no `ReallyReset` path
+        // names `bellIsUrgent` or `popOnBell` (`[[source: xterm-reset]]`'s
+        // file) -- a departure from the text not followed. `DECSTR` above
+        // keeps them, as its list does not name them.
         self.cold.modes = Modes::default();
         // **XTSAVE's cache goes back to empty**: ECMA-48 § 8.3.105 has `RIS`
         // reset "to its initial state, i.e. the state it has after it is made
@@ -2447,6 +2460,10 @@ impl Paint<'_, '_> {
                 AlternateScroll::On => ModeState::Set,
                 AlternateScroll::Off => ModeState::Reset,
             },
+            // xterm answers both flags (`MdBool(screen->bellIsUrgent)`,
+            // `MdBool(screen->poponbell)`, `[[source: xterm-misc]]`).
+            PrivateMode::BellIsUrgent => bit_state(self.cold.modes, ModeBit::BellIsUrgent),
+            PrivateMode::PopOnBell => bit_state(self.cold.modes, ModeBit::PopOnBell),
             // The alternate screen is a whole buffer rather than a flag, and it
             // is implemented, so `DECRQM` must not deny it.
             //

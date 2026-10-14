@@ -53,10 +53,25 @@
 //! would have kept it: a flash that never reached the screen is lost with the
 //! frame, and an end that never did is drawn by the next frame drawn for any
 //! reason, not forced again.
+//!
+//! **A `BEL` rings here too**, the owner's call of 2026-10-13,
+//! "System sound + Dock bounce": `NSBeep` while the window is focused; while
+//! it is not,
+//! `?1042` asks for the user's attention -- the Dock icon bounces -- and
+//! `?1043` raises the window; the config's `bell` picks the sound, the
+//! visual bell or nothing. [`ring`] is that decision, a pure function of the
+//! config, the motion preference, the window and the two modes, and the
+//! macOS driver's shim makes the AppKit calls it names. [`Ringer`] reads
+//! [`Term::bells`](baud_core::Term#structfield.bells) after each read and
+//! rings once for the bells of one frame interval. A flash it decides is
+//! started through [`Bell::ring`], so it is planned, committed and refused
+//! as a `?5` pair's is.
 
 use core::time::Duration;
 use std::time::Instant;
 
+#[cfg(any(target_os = "macos", test))]
+use baud_core::{BellIsUrgent, PopOnBell};
 use baud_core::{ReverseFlips, Term, UpdatesOpened};
 use baud_domain::HostTime;
 use baud_domain::terminfo::{self, Flash};
@@ -213,15 +228,32 @@ struct Seen {
     shown: ReverseFlips,
     held: ReverseFlips,
     mode: Mode,
+    rung: Rung,
 }
 
 impl Seen {
-    fn of(term: &Term<'_>) -> Seen {
+    fn of(term: &Term<'_>, rung: Rung) -> Seen {
         Seen {
             shown: term.reverse_flips(),
             held: term.reverse_flips_held(),
             mode: Mode::of(term),
+            rung,
         }
+    }
+}
+
+/// How many flashes a `BEL` has asked for ([`Bell::ring`]): a count the
+/// frame compares, as it compares the `?5` counts, so a ring that lands
+/// between a frame's plan and its commit is still seen by the next frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Rung(u32);
+
+impl Rung {
+    const FIRST: Rung = Rung(0);
+
+    #[cfg(any(target_os = "macos", test))]
+    fn next(self) -> Rung {
+        Rung(self.0.wrapping_add(1))
     }
 }
 
@@ -231,6 +263,9 @@ pub struct Bell<T> {
     seen: Seen,
     until: Option<T>,
     length: Duration,
+    /// The flashes asked for so far, of which `seen.rung` the last drawn
+    /// frame had shown.
+    rung: Rung,
 }
 
 /// What one frame shows, decided before it is built and kept by
@@ -248,9 +283,10 @@ impl<T: Moment> Bell<T> {
     /// flash lasts `length` -- [`LENGTH`] in a driver, anything in a test.
     pub fn new(term: &Term<'_>, length: Duration) -> Bell<T> {
         Bell {
-            seen: Seen::of(term),
+            seen: Seen::of(term, Rung::FIRST),
             until: None,
             length,
+            rung: Rung::FIRST,
         }
     }
 
@@ -259,13 +295,16 @@ impl<T: Moment> Bell<T> {
     /// off leaves the baseline where it was, so the next one asks the same
     /// question again.
     pub fn plan(&self, term: &Term<'_>, now: T, update: Update) -> Plan<T> {
-        let seen = Seen::of(term);
+        let seen = Seen::of(term, self.rung);
         // Only a frame drawn through an outlived update shows what the update
         // held; any other either holds it or reads it closed.
         let held_shown = update == Update::Outlived && seen.held != self.seen.held;
+        // A `BEL` is not screen content, so an update hides none: its flash
+        // is shown by the first frame drawn after it, held or not.
+        let rang = seen.rung != self.seen.rung;
         let until = if seen.mode != self.seen.mode {
             None
-        } else if seen.shown != self.seen.shown || held_shown {
+        } else if seen.shown != self.seen.shown || held_shown || rang {
             Some(now.after(self.length))
         } else {
             self.until.filter(|&u| now < u)
@@ -311,6 +350,15 @@ impl<T: Moment> Bell<T> {
         self.seen.held = term.reverse_flips_held();
     }
 
+    /// A `BEL` asked for the visual bell ([`ring`]): the next frame drawn
+    /// shows it, from when it is drawn, unless that frame finds `?5` changed
+    /// -- the mode is what a frame draws, and a flash of it would draw the
+    /// opposite. Several rings before a frame are one flash.
+    #[cfg(any(target_os = "macos", test))]
+    pub fn ring(&mut self) {
+        self.rung = self.rung.next();
+    }
+
     /// When a flash on screen ends, for a loop that waits on a clock.
     pub fn deadline(&self) -> Option<T> {
         self.until
@@ -320,6 +368,246 @@ impl<T: Moment> Bell<T> {
     /// owes a frame to take it down.
     pub fn is_due(&self, now: T) -> bool {
         self.deadline().is_some_and(|u| now >= u)
+    }
+}
+
+/// The window as a `BEL` finds it. `Minimized` is unfocused too, and the
+/// one state a raise must leave alone: `[[source: xterm-man]]` on
+/// `popOnBell`, "If the window is iconified, this has no effect."
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Window {
+    Focused,
+    Unfocused,
+    Minimized,
+}
+
+/// Whether AppKit has the window as the key window: "A Boolean value that
+/// indicates whether the window is the key window for the application"
+/// (`[[source: apple-nswindow-iskeywindow]]`).
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Key {
+    Key,
+    NotKey,
+}
+
+/// Whether AppKit has the window minimized: "A Boolean value that
+/// indicates whether the window is minimized" (`[[source:
+/// apple-nswindow-isminiaturized]]`).
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Miniaturized {
+    Minimized,
+    NotMinimized,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl Window {
+    /// **The window from AppKit's two answers**, so the shim only asks.
+    /// The key window is the focused one, minimized or not -- AppKit does
+    /// not make a minimized window key, and a window the user is typing in
+    /// is the one the decision calls focused. Not key, minimized is
+    /// [`Window::Minimized`]; not key and not minimized is
+    /// [`Window::Unfocused`] -- **a hidden application's window too**
+    /// (Cmd-H), which neither answer tells apart, so `?1043` asks it to the
+    /// front: the open counterpart of xterm's "If the window is iconified,
+    /// this has no effect" (`[[source: xterm-man]]`).
+    pub fn of(key: Key, mini: Miniaturized) -> Window {
+        match (key, mini) {
+            (Key::Key, Miniaturized::NotMinimized) => Window::Focused,
+            (Key::Key, Miniaturized::Minimized) => Window::Focused,
+            (Key::NotKey, Miniaturized::Minimized) => Window::Minimized,
+            (Key::NotKey, Miniaturized::NotMinimized) => Window::Unfocused,
+        }
+    }
+}
+
+/// Whether the ring plays the system's alert sound, `NSBeep`: "Plays the
+/// system beep. Users can select a sound to be played as the system beep"
+/// (`[[source: apple-nsbeep]]`).
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Sound {
+    Silent,
+    Beep,
+}
+
+/// Whether the ring shows the visual bell ([`Bell::ring`]).
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Shown {
+    Nothing,
+    Flash,
+}
+
+/// Whether the ring asks for the user's attention: `?1042`, "Enable Urgency
+/// window manager hint" (`[[source: ctlseqs]]`), which on macOS is the
+/// application's `requestUserAttention` of the informational kind: "The dock
+/// icon will bounce for one second. The request, though, remains active
+/// until either the app becomes active or the request is canceled"
+/// (`[[source: apple-nsapplication-informationalrequest]]`). "Sending
+/// requestUserAttention(_:) to an app that is already active has no effect"
+/// (`[[source: apple-nsapplication-requestuserattention]]`), so a window that
+/// is not key while baud is active asks and nothing bounces.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Attention {
+    None,
+    Request,
+}
+
+/// Whether the ring raises the window: `?1043`, "Enable raising of the
+/// window" (`[[source: ctlseqs]]`). xterm's raise is `XRaiseWindow`
+/// (`Bell`, `[[source: xterm-misc]]`), a change of stacking that asks for no
+/// focus, so the shim calls `orderFrontRegardless`, which "Moves the window
+/// to the front of its level, even if its application isn't active, without
+/// changing either the key window or the main window" (`[[source:
+/// apple-nswindow-orderfrontregardless]]`).
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Raise {
+    Stay,
+    Front,
+}
+
+/// What one ring does: each of the four, decided apart.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Ring {
+    pub sound: Sound,
+    pub shown: Shown,
+    pub attention: Attention,
+    pub raise: Raise,
+}
+
+/// **What a `BEL` does**, the owner's call of 2026-10-13: "NSBeep when
+/// focused; ?1042 bounces the Dock and ?1043 raises the window when
+/// unfocused; config bell = sound|flash|none".
+///
+/// * Focused: the config's `bell` -- the sound, the visual bell, or nothing.
+///   Neither mode acts: the window is the one the user is in.
+/// * Not focused: `?1042` asks for attention, as xterm sets its urgency hint
+///   only `if (enable && !(screen->select & FOCUS))` (`setXUrgency`,
+///   `[[source: xterm-misc]]`); `?1043` raises the window, unless it is
+///   minimized. **No sound**: the owner's "NSBeep when focused", read as
+///   written; xterm rings whatever the focus, which is the alternative. A
+///   flash is drawn whatever the focus, as xterm's `VisualBell` is, since
+///   the decision limits only the sound to a focused window -- **but not in
+///   a minimized one**, which "is removed from the screen" (`[[source:
+///   apple-nswindow-isminiaturized]]`): its flash would wait for the next
+///   drawn frame and show on the restore, long after the bell.
+/// * The config does not silence the modes: an application that set one is
+///   told by `DECRQM` that it is set, so a `none` that dropped it would be a
+///   mode recorded and not acted on. xterm sets the hint and raises whatever
+///   its bell's volume or `visualBell` says (`Bell`, `[[source:
+///   xterm-misc]]`).
+/// * **Reduce Motion: no flash.** Apple's HIG (`[[source:
+///   apple-hig-accessibility]]`): "Be cautious with fast-moving and blinking
+///   animations ... When this setting is active, ensure your app or game
+///   responds by reducing automatic and repetitive animations", and a flash
+///   inverts the screen and puts it back whenever a program writes a `BEL`.
+///   Nothing takes its place, as nothing takes blinking text's: the user
+///   picked no sound.
+#[cfg(any(target_os = "macos", test))]
+pub fn ring(
+    style: crate::config::BellStyle,
+    motion: crate::config::SystemMotion,
+    window: Window,
+    urgent: BellIsUrgent,
+    pop: PopOnBell,
+) -> Ring {
+    use crate::config::{BellStyle, SystemMotion};
+    let focused = window == Window::Focused;
+    let sound = match (style, focused) {
+        (BellStyle::Sound, true) => Sound::Beep,
+        _ => Sound::Silent,
+    };
+    let shown = match (style, motion, window) {
+        (BellStyle::Flash, SystemMotion::Full, Window::Focused | Window::Unfocused) => Shown::Flash,
+        _ => Shown::Nothing,
+    };
+    let attention = match (urgent, focused) {
+        (BellIsUrgent::On, false) => Attention::Request,
+        _ => Attention::None,
+    };
+    let raise = match (pop, window) {
+        (PopOnBell::On, Window::Unfocused) => Raise::Front,
+        _ => Raise::Stay,
+    };
+    Ring {
+        sound,
+        shown,
+        attention,
+        raise,
+    }
+}
+
+/// How many `BEL`s the terminal had counted when the ringer last looked.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Heard(usize);
+
+#[cfg(any(target_os = "macos", test))]
+impl Heard {
+    fn of(term: &Term<'_>) -> Heard {
+        Heard(term.bells)
+    }
+}
+
+/// Whether the bells a read brought ring.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Rings {
+    /// No new bell, or only bells inside the frame interval of the last ring.
+    Quiet,
+    Ring,
+}
+
+/// **Bells within one frame interval ring once.** The driver asks after
+/// every read; the bells ring if the count moved and the last ring is at
+/// least a frame interval old, and bells inside that interval are absorbed,
+/// not put off -- so `yes $'\a'` rings at most once a frame, and a lone bell
+/// rings on the read that brought it, drawn or not: a sound, a bounce and a
+/// raise are not frames, and a minimized window draws none.
+///
+/// No text governs how bells coalesce. xterm suppresses for
+/// `bellSuppressTime`, "Number of milliseconds after a bell command is sent
+/// during which additional bells will be suppressed. Default is 200", and
+/// until the server reports the first bell done (`[[source: xterm-man]]`;
+/// `Bell`, `[[source: xterm-misc]]`). One frame is the bound built, and
+/// xterm's 200 ms the open alternative. What Terminal.app does is not
+/// known: its source is not published, no documentation of its bell is
+/// cited here, and the rules forbid driving a GUI to find out.
+#[cfg(any(target_os = "macos", test))]
+pub struct Ringer<T> {
+    heard: Heard,
+    last: Option<T>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl<T: Moment> Ringer<T> {
+    /// A ringer that has heard every bell the terminal has counted so far.
+    pub fn new(term: &Term<'_>) -> Ringer<T> {
+        Ringer {
+            heard: Heard::of(term),
+            last: None,
+        }
+    }
+
+    /// Whether the bells since the last call ring at `now`, a frame being
+    /// `frame` long.
+    pub fn hear(&mut self, term: &Term<'_>, now: T, frame: Duration) -> Rings {
+        let heard = Heard::of(term);
+        if heard == self.heard {
+            return Rings::Quiet;
+        }
+        self.heard = heard;
+        if self.last.is_some_and(|l| now.elapsed_since(l) < frame) {
+            return Rings::Quiet;
+        }
+        self.last = Some(now);
+        Rings::Ring
     }
 }
 
@@ -656,5 +944,326 @@ mod tests {
         assert_eq!(p.flash, VideoFlash::On);
         assert_eq!(b.deadline(), Some(start + LEN));
         assert!(b.is_due(start + LEN));
+    }
+
+    mod bel {
+        //! A `BEL`: what it does ([`ring`]), how often ([`Ringer`]), and
+        //! its flash ([`Bell::ring`]).
+
+        use super::super::*;
+        use super::{LEN, MS, WS, at, draw, draw_through, feed};
+        use crate::config::{BellStyle, SystemMotion};
+        use baud_core::Owned;
+
+        const STYLES: [BellStyle; 3] = [BellStyle::Sound, BellStyle::Flash, BellStyle::Nothing];
+        const MOTIONS: [SystemMotion; 2] = [SystemMotion::Full, SystemMotion::Reduced];
+        const WINDOWS: [Window; 3] = [Window::Focused, Window::Unfocused, Window::Minimized];
+        const URGENT: [BellIsUrgent; 2] = [BellIsUrgent::Off, BellIsUrgent::On];
+        const POP: [PopOnBell; 2] = [PopOnBell::Off, PopOnBell::On];
+
+        /// One input to [`ring`].
+        type Input = (BellStyle, SystemMotion, Window, BellIsUrgent, PopOnBell);
+
+        /// Every input, with the ring it decides.
+        fn every() -> Vec<(Input, Ring)> {
+            let mut out = Vec::new();
+            for s in STYLES {
+                for m in MOTIONS {
+                    for w in WINDOWS {
+                        for u in URGENT {
+                            for p in POP {
+                                out.push(((s, m, w, u, p), ring(s, m, w, u, p)));
+                            }
+                        }
+                    }
+                }
+            }
+            out
+        }
+
+        /// **The window is AppKit's two answers, all four of them**: key
+        /// is focused whatever else it reads, and a window that is not key
+        /// is minimized or merely unfocused.
+        #[test]
+        fn the_window_is_classed_from_both_answers() {
+            assert_eq!(
+                Window::of(Key::Key, Miniaturized::NotMinimized),
+                Window::Focused
+            );
+            assert_eq!(
+                Window::of(Key::Key, Miniaturized::Minimized),
+                Window::Focused,
+                "key wins"
+            );
+            assert_eq!(
+                Window::of(Key::NotKey, Miniaturized::Minimized),
+                Window::Minimized
+            );
+            assert_eq!(
+                Window::of(Key::NotKey, Miniaturized::NotMinimized),
+                Window::Unfocused
+            );
+        }
+
+        /// The owner's rule in the focused window: the config's `bell`, and
+        /// neither mode.
+        #[test]
+        fn a_focused_window_does_what_the_config_says() {
+            let quiet = Ring {
+                sound: Sound::Silent,
+                shown: Shown::Nothing,
+                attention: Attention::None,
+                raise: Raise::Stay,
+            };
+            for u in URGENT {
+                for p in POP {
+                    let f = |s, m| ring(s, m, Window::Focused, u, p);
+                    assert_eq!(
+                        f(BellStyle::Sound, SystemMotion::Full),
+                        Ring {
+                            sound: Sound::Beep,
+                            ..quiet
+                        },
+                        "{u:?} {p:?}: sound"
+                    );
+                    assert_eq!(
+                        f(BellStyle::Flash, SystemMotion::Full),
+                        Ring {
+                            shown: Shown::Flash,
+                            ..quiet
+                        },
+                        "{u:?} {p:?}: flash"
+                    );
+                    assert_eq!(
+                        f(BellStyle::Nothing, SystemMotion::Full),
+                        quiet,
+                        "{u:?} {p:?}: none"
+                    );
+                }
+            }
+        }
+
+        /// **Unfocused, the modes act and the sound does not**: `?1042`
+        /// asks for attention, `?1043` raises, each alone, whatever the
+        /// config says -- `none` included.
+        #[test]
+        fn an_unfocused_window_does_what_the_modes_say() {
+            for s in STYLES {
+                let r = |u, p| ring(s, SystemMotion::Full, Window::Unfocused, u, p);
+                assert_eq!(r(BellIsUrgent::Off, PopOnBell::Off).sound, Sound::Silent);
+                assert_eq!(
+                    r(BellIsUrgent::Off, PopOnBell::Off).attention,
+                    Attention::None
+                );
+                assert_eq!(r(BellIsUrgent::Off, PopOnBell::Off).raise, Raise::Stay);
+                assert_eq!(
+                    r(BellIsUrgent::On, PopOnBell::Off).attention,
+                    Attention::Request,
+                    "{s:?}: ?1042"
+                );
+                assert_eq!(r(BellIsUrgent::On, PopOnBell::Off).raise, Raise::Stay);
+                assert_eq!(
+                    r(BellIsUrgent::Off, PopOnBell::On).raise,
+                    Raise::Front,
+                    "{s:?}: ?1043"
+                );
+                assert_eq!(
+                    r(BellIsUrgent::Off, PopOnBell::On).attention,
+                    Attention::None
+                );
+            }
+        }
+
+        /// **A minimized window is not raised**, "If the window is
+        /// iconified, this has no effect", and still asks for attention.
+        #[test]
+        fn a_minimized_window_is_not_raised_and_still_asks() {
+            for s in STYLES {
+                let r = ring(
+                    s,
+                    SystemMotion::Full,
+                    Window::Minimized,
+                    BellIsUrgent::On,
+                    PopOnBell::On,
+                );
+                assert_eq!(r.raise, Raise::Stay, "{s:?}");
+                assert_eq!(r.attention, Attention::Request, "{s:?}");
+                assert_eq!(r.sound, Sound::Silent, "{s:?}");
+                assert_eq!(
+                    r.shown,
+                    Shown::Nothing,
+                    "{s:?}: no flash waits for a restore"
+                );
+            }
+        }
+
+        /// **Reduce Motion: no flash, and nothing in its place.** The
+        /// control: the same inputs under full motion flash.
+        #[test]
+        fn reduce_motion_shows_no_flash_and_rings_nothing_instead() {
+            for ((s, m, w, u, p), r) in every() {
+                let full = ring(s, SystemMotion::Full, w, u, p);
+                match (s, m) {
+                    (BellStyle::Flash, SystemMotion::Reduced) => {
+                        assert_eq!(
+                            full.shown == Shown::Flash,
+                            w != Window::Minimized,
+                            "the control, {w:?}"
+                        );
+                        assert_eq!(
+                            r,
+                            Ring {
+                                shown: Shown::Nothing,
+                                ..full
+                            },
+                            "{w:?} {u:?} {p:?}"
+                        );
+                    }
+                    _ => assert_eq!(r, full, "{s:?} {m:?} {w:?}: motion moves nothing else"),
+                }
+            }
+        }
+
+        /// The whole table, each of the four outputs a function of only
+        /// what the rule says it reads: the sound of the style and the
+        /// focus, the flash of the style, the motion and whether the window
+        /// is minimized, the attention of
+        /// `?1042` and the focus, the raise of `?1043` and the window.
+        #[test]
+        fn each_output_reads_only_its_own_inputs() {
+            let all = every();
+            assert_eq!(all.len(), 72, "the control: every input");
+            for ((s, m, w, u, p), r) in all {
+                let focused = w == Window::Focused;
+                assert_eq!(
+                    r.sound == Sound::Beep,
+                    s == BellStyle::Sound && focused,
+                    "{s:?} {m:?} {w:?} {u:?} {p:?}: sound"
+                );
+                assert_eq!(
+                    r.shown == Shown::Flash,
+                    s == BellStyle::Flash && m == SystemMotion::Full && w != Window::Minimized,
+                    "{s:?} {m:?} {w:?}: flash"
+                );
+                assert_eq!(
+                    r.attention == Attention::Request,
+                    u == BellIsUrgent::On && !focused,
+                    "{w:?} {u:?}: attention"
+                );
+                assert_eq!(
+                    r.raise == Raise::Front,
+                    p == PopOnBell::On && w == Window::Unfocused,
+                    "{w:?} {p:?}: raise"
+                );
+            }
+        }
+
+        /// **Bells within one frame ring once; a lone bell rings on the
+        /// read that brought it.**
+        #[test]
+        fn bells_within_one_frame_ring_once() {
+            let frame = MS * 8;
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            feed(&mut t, b"\x07");
+            let mut r: Ringer<HostTime> = Ringer::new(&t);
+            assert_eq!(
+                r.hear(&t, at(Duration::ZERO), frame),
+                Rings::Quiet,
+                "a bell from before the ringer is not this one's"
+            );
+            feed(&mut t, b"a");
+            assert_eq!(r.hear(&t, at(MS), frame), Rings::Quiet, "no bell");
+            feed(&mut t, b"\x07\x07\x07");
+            assert_eq!(
+                r.hear(&t, at(MS * 2), frame),
+                Rings::Ring,
+                "three in one read"
+            );
+            feed(&mut t, b"\x07");
+            assert_eq!(
+                r.hear(&t, at(MS * 9), frame),
+                Rings::Quiet,
+                "inside the frame"
+            );
+            assert_eq!(
+                r.hear(&t, at(MS * 10), frame),
+                Rings::Quiet,
+                "absorbed, not put off: a frame on, it does not ring"
+            );
+            feed(&mut t, b"\x07");
+            assert_eq!(
+                r.hear(&t, at(MS * 10), frame),
+                Rings::Ring,
+                "a bell a frame after the last ring"
+            );
+        }
+
+        /// **A ring's flash is planned and committed as a `?5` pair's**:
+        /// shown by the next frame from when it is drawn, run to its
+        /// deadline, and several rings before a frame are one flash.
+        #[test]
+        fn a_ring_flashes_from_the_next_frame() {
+            let mut owned = Owned::new(&WS);
+            let t = Term::new(owned.storage(), &WS);
+            let mut b = Bell::new(&t, LEN);
+            assert_eq!(
+                draw(&mut b, &t, at(Duration::ZERO)),
+                VideoFlash::Off,
+                "the control"
+            );
+            b.ring();
+            b.ring();
+            assert_eq!(b.deadline(), None, "a ring draws nothing by itself");
+            assert_eq!(draw(&mut b, &t, at(MS * 5)), VideoFlash::On, "the start");
+            assert_eq!(
+                b.deadline(),
+                Some(at(MS * 105)),
+                "one flash, from the frame"
+            );
+            assert_eq!(draw(&mut b, &t, at(MS * 50)), VideoFlash::On, "held");
+            assert_eq!(draw(&mut b, &t, at(MS * 105)), VideoFlash::Off, "the end");
+            assert_eq!(b.deadline(), None, "nothing more is owed");
+        }
+
+        /// A ring that lands between a frame's plan and its commit is shown
+        /// by the next frame: the count, not a deadline set from the side.
+        #[test]
+        fn a_ring_between_plan_and_commit_is_not_lost() {
+            let mut owned = Owned::new(&WS);
+            let t = Term::new(owned.storage(), &WS);
+            let mut b = Bell::new(&t, LEN);
+            let p = b.plan(&t, at(Duration::ZERO), Update::Closed);
+            b.ring();
+            b.commit(p);
+            assert_eq!(p.flash, VideoFlash::Off, "the plan was made before");
+            assert_eq!(draw(&mut b, &t, at(MS * 8)), VideoFlash::On);
+        }
+
+        /// A `BEL` is not screen content: a frame drawn through an honoured
+        /// update shows its flash, where it hides a `?5` pair; and a change
+        /// of `?5` in the same frame wins, as it does over a pair.
+        #[test]
+        fn an_update_hides_no_ring_and_a_change_of_mode_wins() {
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut b = Bell::new(&t, LEN);
+            feed(&mut t, b"\x1b[?2026h");
+            b.ring();
+            assert_eq!(
+                draw_through(&mut b, &t, at(MS * 5), Update::Honoured),
+                VideoFlash::On
+            );
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut b = Bell::new(&t, LEN);
+            b.ring();
+            feed(&mut t, b"\x1b[?5h");
+            assert_eq!(
+                draw(&mut b, &t, at(MS * 5)),
+                VideoFlash::Off,
+                "reverse, as set"
+            );
+        }
     }
 }

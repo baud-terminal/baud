@@ -117,6 +117,7 @@ their entries' titles:
 | AM | XTGETTCAP: what a terminal reports about its own capabilities |
 | AN | the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper |
 | AO | the rendition table: how terminals store a cell's colours, and how a table of renditions frees its slots |
+| BL | the bell: what a `BEL` does in a macOS window -- the alert sound, an attention request, a raise (no note; `baud-app/src/bell.rs` and the record's section cite them) |
 
 A group's letter and a note's need not match: group H's sources are key
 encoding, and note H is the session context budget. Both tables are held to

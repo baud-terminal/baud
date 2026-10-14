@@ -2704,6 +2704,28 @@ impl<'b> Term<'b> {
         self.cold.alternate_scroll
     }
 
+    /// `?1042`: whether a `BEL` should ask for the user's attention while
+    /// the window is not focused. `[[source: ctlseqs]]`: "Enable Urgency
+    /// window manager hint when Control-G is received". The window is the
+    /// embedder's, so acting on the mode is exposing it, beside
+    /// [`Term::bells`](Term#structfield.bells), the count it acts on.
+    pub fn bell_is_urgent(&self) -> BellIsUrgent {
+        match self.cold.modes.is_set(ModeBit::BellIsUrgent) {
+            true => BellIsUrgent::On,
+            false => BellIsUrgent::Off,
+        }
+    }
+
+    /// `?1043`: whether a `BEL` should raise the window. `[[source:
+    /// ctlseqs]]`: "Enable raising of the window when Control-G is
+    /// received". The embedder's to act on, as `?1042` is.
+    pub fn pop_on_bell(&self) -> PopOnBell {
+        match self.cold.modes.is_set(ModeBit::PopOnBell) {
+            true => PopOnBell::On,
+            false => PopOnBell::Off,
+        }
+    }
+
     /// **What `?1001` highlights now, for the embedder to draw**: from the
     /// start the program answered with to the end that tracks the mouse,
     /// in live-screen cells, or `None` when nothing is tracked.

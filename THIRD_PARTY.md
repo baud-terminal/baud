@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 221 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 227 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 255 | 16 | redistributable, and its notice is satisfied |
 | own | 186 | 0 | the owner's work |
-| total | 690 | 27 | |
+| total | 696 | 27 | |
 
 ## Licence texts in LICENSES/
 
@@ -311,7 +311,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 105
+- **Files:** 111
 
 | file | copied from |
 |---|---|
@@ -382,9 +382,15 @@ notice is, and the URL each file was copied from.
 | [apple-mtlpipelineoption-failonbinaryarchivemiss.json](docs/research/sources/apple-mtlpipelineoption-failonbinaryarchivemiss.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtlpipelineoption/failonbinaryarchivemiss.json |
 | [apple-mtlrenderpipelinedescriptor-binaryarchives.json](docs/research/sources/apple-mtlrenderpipelinedescriptor-binaryarchives.json) | https://developer.apple.com/tutorials/data/documentation/metal/mtlrenderpipelinedescriptor/binaryarchives.json |
 | [apple-nsapplication-currentevent.json](docs/research/sources/apple-nsapplication-currentevent.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/currentevent.json |
+| [apple-nsapplication-requestuserattention.json](docs/research/sources/apple-nsapplication-requestuserattention.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/requestuserattention(_:).json |
+| [apple-nsapplication-requestuserattentiontype-informationalrequest.json](docs/research/sources/apple-nsapplication-requestuserattentiontype-informationalrequest.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsapplication/requestuserattentiontype/informationalrequest.json |
+| [apple-nsbeep.json](docs/research/sources/apple-nsbeep.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsbeep.json |
 | [apple-nsevent-timestamp.json](docs/research/sources/apple-nsevent-timestamp.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsevent/timestamp.json |
 | [apple-nsevent.json](docs/research/sources/apple-nsevent.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsevent.json |
+| [apple-nswindow-iskeywindow.json](docs/research/sources/apple-nswindow-iskeywindow.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/iskeywindow.json |
+| [apple-nswindow-isminiaturized.json](docs/research/sources/apple-nswindow-isminiaturized.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/isminiaturized.json |
 | [apple-nswindow-miniwindowtitle.json](docs/research/sources/apple-nswindow-miniwindowtitle.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/miniwindowtitle.json |
+| [apple-nswindow-orderfrontregardless.json](docs/research/sources/apple-nswindow-orderfrontregardless.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/orderfrontregardless().json |
 | [apple-nswindow-representedurl.json](docs/research/sources/apple-nswindow-representedurl.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/representedurl.json |
 | [apple-nswindow-subtitle.json](docs/research/sources/apple-nswindow-subtitle.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/subtitle.json |
 | [apple-nswindow-title.json](docs/research/sources/apple-nswindow-title.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/title.json |

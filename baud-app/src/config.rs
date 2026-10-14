@@ -4,7 +4,7 @@
 //! string, integer and decimal scalars, a bracketed list of strings that may
 //! span lines, and `[section]` headers. baud owns its stack rather than
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
-//! `font_size`, `padding`, `colorspace`, `vs16_width`, `emoji`, `theme`, and the eight under
+//! `font_size`, `padding`, `colorspace`, `vs16_width`, `emoji`, `theme`, `bell`, and the eight under
 //! `[glass]` -- and a key it does not understand is ignored, and said,
 //! rather than fatal, so a newer config does not break an older binary.
 //!
@@ -163,6 +163,11 @@ pub struct Config {
     /// as macOS draws it. A `U+FE0F` asks for colour and a `U+FE0E` for text
     /// under either (owner, 2026-09-30).
     pub emoji: baud_render::EmojiDefault,
+    /// `bell`: what a `BEL` does in a focused window -- the system's alert
+    /// sound by default, the visual bell, or nothing (the owner, 2026-10-13;
+    /// [`BellStyle`]). `?1042` and `?1043` act on an unfocused window
+    /// whatever this says (`bell.rs`, `ring`).
+    pub bell: BellStyle,
     /// `[clipboard]`: whether a program's `OSC 52` copy reaches the
     /// pasteboard, and how large a copy the terminal holds (note V, V11).
     pub clipboard: Clipboard,
@@ -440,6 +445,21 @@ pub enum StopAfter {
     After(std::time::Duration),
 }
 
+/// `bell`: what a `BEL` does, the owner's call of 2026-10-13
+/// ("System sound + Dock bounce"). **`Sound` by default**: `NSBeep`, the system's alert
+/// sound, while the window is focused. `Flash` shows the visual bell `?5`'s
+/// pair shows -- the other video for the entry's `flash` length -- and not
+/// under Reduce Motion; `Nothing` neither. What an unfocused window does is
+/// `?1042`'s and `?1043`'s, set by the application, and this does not
+/// silence them (`bell.rs`, `ring`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum BellStyle {
+    #[default]
+    Sound,
+    Flash,
+    Nothing,
+}
+
 /// Whether switching to or from the alternate screen fades the new screen
 /// in from the background. Off by default, like the trail; a two-state enum
 /// for the reason `CursorTrail` is.
@@ -509,6 +529,7 @@ impl Config {
             sixel: baud_domain::SixelClaim::No,
             vs16_width: baud_domain::Vs16Width::Two,
             emoji: baud_render::EmojiDefault::Font,
+            bell: BellStyle::Sound,
             clipboard: Clipboard::DEFAULT,
             source: None,
         }
@@ -587,6 +608,19 @@ impl Config {
                                 "config: emoji {other:?} is not font or system; using font"
                             ));
                             baud_render::EmojiDefault::Font
+                        }
+                    };
+                }
+                ("", "bell") => {
+                    self.bell = match value.trim().trim_matches('"') {
+                        "sound" => BellStyle::Sound,
+                        "flash" => BellStyle::Flash,
+                        "none" => BellStyle::Nothing,
+                        other => {
+                            said.push(format!(
+                                "config: bell {other:?} is not sound, flash or none; using sound"
+                            ));
+                            BellStyle::Sound
                         }
                     };
                 }
@@ -2223,6 +2257,25 @@ shadow     = "never"
         );
     }
 
+    /// `bell` reads three words, and anything else is `sound` and said.
+    #[test]
+    fn bell_is_sound_unless_named() {
+        assert_eq!(read("").bell, BellStyle::Sound);
+        assert_eq!(read("bell = \"flash\"").bell, BellStyle::Flash);
+        assert_eq!(read("bell = \"none\"").bell, BellStyle::Nothing);
+        assert_eq!(read("bell = \"sound\"").bell, BellStyle::Sound);
+        let mut c = Config::defaults();
+        c.bell = BellStyle::Flash;
+        let said = c.apply("bell = \"loud\"");
+        assert_eq!(c.bell, BellStyle::Sound);
+        assert_eq!(said.len(), 1, "a bad value is said: {said:?}");
+        assert_eq!(
+            read("[glass]\nbell = \"none\"").bell,
+            BellStyle::Sound,
+            "a section's key of the same name is not this one"
+        );
+    }
+
     /// `vs16_width` reads two words, and anything else is `two` and said.
     #[test]
     fn vs16_width_is_two_unless_named() {
@@ -2280,6 +2333,10 @@ shadow     = "never"
             c.faces[0].path
         );
         assert_eq!(c.font_fallback, FontFallback::Embedded);
+        // `bell` is written at its default, so the line is checked as well
+        // as what it reads to.
+        assert!(text.contains("\nbell = \"sound\"\n"), "the bell line");
+        assert_eq!(c.bell, BellStyle::Sound);
         // The `[cursor]` section lands; that a section header cannot
         // swallow a top-level list is `a_list_across_lines_survives_a_section_header`.
         // The example's `trail` line is commented out -- naming a trail keeps

@@ -49,6 +49,17 @@ vs16_width = "two"
 # under either.
 emoji = "font"
 
+# What a BEL (Control-G) does while baud's window is focused: "sound" plays
+# the system's alert sound, "flash" shows the screen in the other video for
+# the 100 ms the xterm-256color entry's flash names -- not under Reduce
+# Motion, and nothing in its place, nor in a minimized window -- and "none"
+# does neither. While the
+# window is not focused nothing sounds, and whatever this says, a program
+# that set mode 1042 makes the Dock icon bounce and one that set mode 1043
+# raises the window, unless it is minimized. Bells within one frame ring
+# once. macOS only: the Linux driver rings nothing yet.
+bell = "sound"
+
 
 # The fallback stack, first face first: a face supplies the glyphs the faces
 # before it lack. A ".ttc" collection may carry "@N" to pick a face in it.

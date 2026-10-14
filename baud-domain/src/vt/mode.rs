@@ -208,6 +208,13 @@ pub enum ModeBit {
     /// and an application's own colour escapes send nothing: they change the
     /// next `CSI ? 996 n` answer only. Acted on by `Term::set_theme`.
     ColorPaletteUpdates,
+    /// `?1042` -- xterm's `bellIsUrgent` ([`BellIsUrgent`]). Off at power-on
+    /// and after `RIS`, kept by `DECSTR`. Read by the embedder's bell through
+    /// `Term::bell_is_urgent`.
+    BellIsUrgent,
+    /// `?1043` -- xterm's `popOnBell` ([`PopOnBell`]). Off at power-on and
+    /// after `RIS`, kept by `DECSTR`; read through `Term::pop_on_bell`.
+    PopOnBell,
 }
 
 impl ModeBit {
@@ -380,7 +387,39 @@ pub enum PrivateMode {
     AlternateScroll,
     /// `?1004` FocusIn/FocusOut reporting.
     FocusReporting,
+    /// `?1042` -- xterm's `bellIsUrgent`: a `BEL` asks for the user's
+    /// attention while the window is not focused ([`BellIsUrgent`]).
+    BellIsUrgent,
+    /// `?1043` -- xterm's `popOnBell`: a `BEL` raises the window
+    /// ([`PopOnBell`]).
+    PopOnBell,
     Other(Param),
+}
+
+/// `?1042`, xterm's `bellIsUrgent` resource. `[[source: ctlseqs]]`: "Enable
+/// Urgency window manager hint when Control-G is received, xterm. This
+/// enables the bellIsUrgent resource." **Off at power-on**, the resource's
+/// default (`Bres(XtNbellIsUrgent, ..., False)`, `[[source: xterm-reset]]`'s
+/// file; `[[source: xterm-man]]`, "The default is \"false\"").
+///
+/// A two-state enum for the reason `baud-domain` is gated at zero `bool`
+/// fields.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum BellIsUrgent {
+    #[default]
+    Off,
+    On,
+}
+
+/// `?1043`, xterm's `popOnBell` resource. `[[source: ctlseqs]]`: "Enable
+/// raising of the window when Control-G is received, xterm. This enables
+/// the popOnBell resource." **Off at power-on**, the resource's default
+/// (`Bres(XtNpopOnBell, ..., False)`, `[[source: xterm-reset]]`'s file).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PopOnBell {
+    #[default]
+    Off,
+    On,
 }
 
 /// Where XTSAVE keeps one mode's value in [`SavedModes`]: one per mode
@@ -483,6 +522,8 @@ impl PrivateMode {
             PrivateMode::SynchronizedOutput => 29,
             PrivateMode::ColorPaletteUpdates => 30,
             PrivateMode::InbandResize => 31,
+            PrivateMode::BellIsUrgent => 32,
+            PrivateMode::PopOnBell => 33,
             PrivateMode::Utf8Resource | PrivateMode::GraphemeClustering | PrivateMode::Other(_) => {
                 return None;
             }
@@ -518,6 +559,8 @@ impl PrivateMode {
             1016 => PrivateMode::MouseSgrPixels,
             1007 => PrivateMode::AlternateScroll,
             1004 => PrivateMode::FocusReporting,
+            1042 => PrivateMode::BellIsUrgent,
+            1043 => PrivateMode::PopOnBell,
             1049 => PrivateMode::AltScreen,
             1001 => PrivateMode::HighlightTracking,
             1020 => PrivateMode::Utf8Resource,

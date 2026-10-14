@@ -101,6 +101,8 @@ pub use baud_domain::{
     Attrs, C1Transmit, Csi, CursorBlink, CursorPick, CursorShape, CursorStyle, DecSet, FnKey,
     GSlot, Level, Marker, ModeState, Nrcs, Params,
 };
+/// `?1042` and `?1043`, which an embedder's bell reads.
+pub use baud_domain::{BellIsUrgent, PopOnBell};
 /// Control strings' vocabulary: `Chan` names a palette entry and `LinkId`
 /// an `OSC 8` hyperlink, and both are what the accessors return; `Video` is
 /// the video a frame is drawn in, which `Term::cursor_color_in` takes.
