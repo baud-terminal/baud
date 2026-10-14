@@ -21,7 +21,7 @@ use crate::cff::Cff;
 use crate::cff2::Cff2;
 use crate::cmap::{Cmap, Variation};
 use crate::colr::{Colr, Cpal, Layers, Palette, PaletteEntry, Rgba};
-use crate::glyf::{Glyf, Loca, LocaFormat, Metrics, Need, Streamed};
+use crate::glyf::{Glyf, Instance, Loca, LocaFormat, Metrics, Need, Streamed};
 use crate::gpos::Gpos;
 use crate::gsub::Gsub;
 use crate::layout::Gdef;
@@ -743,13 +743,33 @@ impl<'a> Face<'a> {
     /// Whether the face refuses `g` ([`Drawn::Refused`]): a `glyf`
     /// composite whose first component, at any depth of its tree, is placed
     /// by matched points. The same at every instance, since it reads only the
-    /// components' flags. A caller choosing a face for a character asks this
-    /// to pass a refused glyph over, as it passes over a character the face
-    /// does not map -- unless the glyph is colour ([`Face::is_colour`]),
-    /// whose strike image or `COLR` layers draw without its own outline
-    /// (baud-render's `Stack`).
+    /// components' flags. A caller that caps its scratch asks
+    /// [`Face::refuses_past`], which answers this and the budget at once.
     pub fn refuses(&self, g: GlyphId) -> bool {
         self.glyf.is_some_and(|glyf| glyf.refuses(g))
+    }
+
+    /// Whether [`Face::outline_at`] cannot draw `g` with `budget` points of
+    /// scratch: the face refuses it ([`Face::refuses`]), or its
+    /// [`Face::outline_need`] is past `budget`. A caller that caps its
+    /// scratch asks this to pass the glyph over as it passes over a refused
+    /// one (baud-render's `Stack`). Exactly `refuses(g) ||
+    /// outline_need(g) > budget`, from one walk of a composite and none of
+    /// a simple glyph while `budget` holds the most one can need.
+    pub fn refuses_past(&self, g: GlyphId, budget: Count) -> bool {
+        let at = match self.varying() {
+            Some(_) => Instance::Varied,
+            None => Instance::Default,
+        };
+        self.glyf
+            .is_some_and(|glyf| glyf.refuses_past(g, budget, at))
+    }
+
+    /// Whether `g` has an outline of its own to draw, as far as a `glyf`
+    /// header says: false for a glyph with no data or no contours; true
+    /// for any glyph of a face without `glyf`, which only drawing tells.
+    pub fn has_outline(&self, g: GlyphId) -> bool {
+        self.glyf.is_none_or(|glyf| glyf.has_outline(g))
     }
 
     /// Every codepoint range `cmap` could map -- candidates for

@@ -8,9 +8,12 @@
 //! defect here (e0a611d). So the stack passes over a face whose mapped
 //! glyph is refused, to the next face that carries the character, as it
 //! passes over one that does not map it; when no other face does, the cell
-//! draws the primary's `.notdef`. A colour glyph is the exception: the atlas
-//! draws its strike image or its `COLR` layers before its outline, so a
-//! refused outline does not stop it drawing, and the stack keeps its face.
+//! draws the primary's `.notdef`. A colour glyph whose outline is refused is
+//! the exception while its strike image or `COLR` layers draw: the atlas
+//! draws those before its outline, so a refused outline does not stop it
+//! drawing, and the stack keeps its face. One with a layer that cannot draw
+//! draws its own outline when it has one, and is passed over when it has
+//! none (`past_budget.rs`).
 //!
 //! The fonts: `var/component-cases.ttf` maps `S` to `anchfirst` and
 //! `var/vertical-cases.ttf` maps `L` to `firstm`, both refused; the second's
@@ -264,8 +267,8 @@ fn hued(text: &str) -> usize {
 
 /// **A colour glyph whose outline is refused still draws in colour**, so
 /// the stack keeps its face: the atlas draws a `COLR` glyph's layers before
-/// its outline. `U+25B6` with `U+FE0F` on a stack of the colour cases and
-/// JetBrains Mono is the colour face's -- by `select_presented` and the
+/// its outline, and these layers draw. `U+25B6` with `U+FE0F` on a stack
+/// of the colour cases and JetBrains Mono is the colour face's -- by `select_presented` and the
 /// table -- and its slot is a colour image, nothing refused; `select`,
 /// the first face that carries it, keeps the colour face too. Without the
 /// selector it asks for text (`EmojiDefault::Font`, the default; `U+25B6`

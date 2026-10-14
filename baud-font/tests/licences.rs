@@ -65,6 +65,10 @@ const OWN: &[(&str, &str)] = &[
         "scripts/colour-refused-font.py",
     ),
     (
+        "baud-font/tests/var/budget-cases.ttf",
+        "scripts/budget-cases-font.py",
+    ),
+    (
         "baud-font/tests/var/cff2-cases.otf",
         "scripts/cff2-cases-font.py",
     ),

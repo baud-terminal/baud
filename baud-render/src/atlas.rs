@@ -62,7 +62,17 @@ use std::collections::HashMap;
 /// (`[[source: harfbuzz-12-3-0-limits]]`), past which HarfBuzz refuses a
 /// glyph whose flattened points exceed it. The need also counts the
 /// component stack, so a glyph within HarfBuzz's bound and this close to
-/// it can be refused here and not there; about 5.6 MB at 28 bytes a point.
+/// it can be refused here and not there; 5.6 MB at 28 bytes a point.
+///
+/// **A bound, because the walk's own bounds admit 3.5 GiB.** A walk
+/// visits at most 2,049 glyphs (`glyf`'s edge bound), each simple one at
+/// most 65,536 points, so one composite of 2,048 copies of a full simple
+/// glyph -- a 210 KB font, measured (the record, "A glyph past the
+/// scratch budget shows a placeholder, and the budget stays") -- needs
+/// 134,219,784 points: 3.76 GB of scratch, held for the atlas's life. A
+/// glyph past the bound is not a blank: the stack passes it over for the
+/// next face that carries its character (`Stack`'s `drawing`), else the
+/// atlas draws the face's `.notdef` in its place (`Atlas::slot`).
 pub const VAR_POINTS_MAX: u32 = 200_000;
 
 /// `id`'s outline at the face's coordinates into `sink`. A glyph that
@@ -264,17 +274,17 @@ pub struct AtlasStats {
     /// the texture itself was replaced, through [`Replaced`].
     pub enlarged: Tally,
     /// Glyphs whose outline needed more scratch than [`VAR_POINTS_MAX`],
-    /// drawn as nothing, or that the face refuses ([`Drawn::Refused`]: a
-    /// composite the `glyf` text says cannot be), drawn as the face's
-    /// `.notdef`: refused where a reader sees it rather than taken for a
-    /// glyph with no ink. Each is counted once when its answer is recorded;
-    /// a refused glyph whose `.notdef` does not fit even after growing is
-    /// not recorded, and is counted again on every ask. A `COLR` glyph
+    /// or that the face refuses ([`Drawn::Refused`]: a composite the `glyf`
+    /// text says cannot be), drawn as the face's `.notdef`: refused where a
+    /// reader sees it rather than taken for a glyph with no ink. Each is
+    /// counted once when its answer is recorded; a refused glyph whose
+    /// `.notdef` does not fit even after growing is not recorded, and is
+    /// counted again on every ask. A `COLR` glyph
     /// refused for a layer falls to its base glyph's own outline, as a glyph
     /// with no `COLR` record does, and is counted twice when that outline is
-    /// refused too, for either reason, once for each. A refused glyph the
-    /// stack passed over for another face, one that is not colour, is never
-    /// asked for here; `FaceTable::refused` counts it.
+    /// refused too, for either reason, once for each, and then draws the
+    /// `.notdef` too. A glyph the stack passed over for another face is
+    /// never asked for here; `FaceTable::refused` counts it.
     pub refused: Tally,
 }
 
@@ -625,6 +635,7 @@ impl Atlas {
         if let Some(known) = self.map.get(&key) {
             return *known;
         }
+        let before = self.stats.refused;
         if let Some(s) = self
             .bitmap(face, id, scale, phase)
             .or_else(|| self.layered(face, id, scale, phase))
@@ -633,19 +644,26 @@ impl Atlas {
             return Some(s);
         }
         let slot = self.rasterise(face, id, scale, phase);
-        if slot.is_none() && id != GlyphId::NOTDEF && face.refuses(id) {
-            // A glyph the face refuses ([`Drawn::Refused`]), counted by
-            // `rasterise`, shows the face's `.notdef` rather than a blank:
-            // TUS § 5.3 leaves a character a face cannot render "some
-            // placeholder". The stack passes a refused glyph that is not
-            // colour over for the next face that carries the character, so
-            // the face here is the primary when such a glyph came from
-            // `cmap`; a colour glyph is kept on its face and reaches here
-            // only when its strike image and its layers drew nothing. Recorded
-            // when the `.notdef`'s own answer is, so it is counted once
-            // then; a `.notdef` that does not fit even after growing is not
-            // recorded, so neither is this glyph, which every later ask
-            // draws and counts again.
+        if slot.is_none() && id != GlyphId::NOTDEF && self.stats.refused != before {
+            // A glyph that drew nothing after a refusal -- its outline or a
+            // `COLR` layer refused by the face ([`Drawn::Refused`]) or past
+            // [`VAR_POINTS_MAX`], each counted where it was met -- shows the
+            // face's `.notdef` rather than a blank: TUS § 5.3 leaves a
+            // character a face cannot render "some placeholder". The stack
+            // passes such a glyph over for the next face that carries the
+            // character (`Stack`'s `drawing`), so the face here is the primary
+            // when it came from `cmap` -- but for a `COLR` glyph whose layer
+            // cannot draw and whose own outline, which the stack judges by
+            // its `glyf` header alone (all of a face without `glyf` as
+            // having one), draws nothing: that stays on its face (the
+            // record, "A glyph past the scratch budget shows a
+            // placeholder, and the budget stays", Open (2)). A `COLR` glyph whose layer is refused
+            // draws its own outline when that has ink, as a glyph with no
+            // `COLR` record does, and reaches here only when it has none or
+            // is refused too. Recorded when the `.notdef`'s own answer is,
+            // so it is counted once then; a `.notdef` that does not fit even
+            // after growing is not recorded, so neither is this glyph, which
+            // every later ask draws and counts again.
             let notdef = self.slot(face, ix, GlyphId::NOTDEF, scale, phase);
             let own = GlyphKey {
                 face: ix,

@@ -1,8 +1,9 @@
 //! The faces a frame draws with, in fallback order.
 
-use crate::atlas::Code;
+use crate::atlas::{Code, VAR_POINTS_MAX};
 use crate::units::Tally;
 use baud_domain::{Attrs, Codepoint, GlyphId};
+use baud_font::bytes::Count;
 use baud_font::{Face, Normalised};
 
 /// A face's position in the stack. A byte, because a fallback chain of
@@ -157,15 +158,17 @@ impl FaceTable {
         }
     }
 
-    /// How many characters a face maps to a glyph it refuses
-    /// ([`Face::refuses`]) and that is not colour were passed over for
-    /// another face, once per face and character, counted when the
-    /// character's block is decided -- the first time any cell lands in it.
-    /// A refused glyph the table keeps, the primary's when no other face
-    /// carries the character, is not counted here: the atlas counts it when
-    /// it draws the primary's `.notdef` in its place (`AtlasStats::refused`).
-    /// A colour glyph is never passed over for its outline
-    /// ([`Stack::carries`]), so never counted here.
+    /// How many characters a face maps to a glyph it draws not at all
+    /// (`drawing`: its outline refused or past the scratch budget, and no
+    /// colour image that draws; or a `COLR` layer that cannot draw over an
+    /// outline that is empty or cannot draw either) were
+    /// passed over for another face, once per face and character, counted
+    /// when the character's block is decided -- the first time any cell
+    /// lands in it. Such a glyph the table keeps, the primary's when no
+    /// other face carries the character, is not counted here: the atlas
+    /// counts it when it draws the primary's `.notdef` in its place
+    /// (`AtlasStats::refused`). A colour glyph whose outline is refused and
+    /// whose strike image or layers draw is kept, so never counted here.
     pub fn refused(&self) -> Tally {
         self.refused
     }
@@ -370,19 +373,15 @@ impl<'f, 'a> Stack<'f, 'a> {
         self.faces.get(ix.index()).unwrap_or(&self.faces[0])
     }
 
-    /// The glyph face `ix` draws `c` with: the one its `cmap` maps, unless
-    /// the face refuses its outline ([`Face::refuses`]) and it is not
-    /// colour. A refused glyph is passed over as a character the face does
-    /// not map is, so the next face that carries the character draws it,
-    /// else the primary's `.notdef`: TUS § 5.3 (`[[source: unicode18-ch5]]`)
-    /// leaves a character a face cannot render "some placeholder", never a
-    /// blank. A colour glyph is kept: the atlas draws its strike image or
-    /// its `COLR` layers before its outline (`Atlas::slot`), so a refused
-    /// outline does not stop it drawing. `refuses` is asked first, so the
-    /// colour test is taken only for a refused glyph.
-    fn carries(&self, ix: FaceIx, c: Codepoint) -> Option<GlyphId> {
+    /// How face `ix` draws `c` ([`drawing`]), or [`Draws::No`] when its
+    /// `cmap` does not map it. A face that draws it not at all is passed
+    /// over as one that does not map it is, so the next face that carries
+    /// the character draws it, else the primary's `.notdef`: TUS § 5.3
+    /// (`[[source: unicode18-ch5]]`) leaves a character a face cannot
+    /// render "some placeholder", never a blank.
+    fn carries(&self, ix: FaceIx, c: Codepoint) -> Draws {
         let f = self.face(ix);
-        f.glyph(c).filter(|g| !f.refuses(*g) || f.is_colour(*g))
+        f.glyph(c).map_or(Draws::No, |g| drawing(f, g))
     }
 
     /// The face a character of `style` is drawn from: the style's own
@@ -392,7 +391,7 @@ impl<'f, 'a> Stack<'f, 'a> {
         let own = self
             .styled
             .get(self.effective(style))
-            .filter(|f| self.carries(*f, c).is_some());
+            .filter(|f| self.carries(*f, c) != Draws::No);
         own.unwrap_or_else(|| self.select(c))
     }
 
@@ -404,10 +403,11 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// `select_styled` picks: a heart with `U+FE0F` and no colour face is the
     /// text heart, not `.notdef`.
     pub fn select_presented(&self, c: Codepoint, style: FaceStyle, p: Presentation) -> FaceIx {
-        let wants = |ix: FaceIx| {
-            self.carries(ix, c)
-                .is_some_and(|g| self.face(ix).is_colour(g) == (p == Presentation::Colour))
+        let want = match p {
+            Presentation::Text => Draws::Text,
+            Presentation::Colour => Draws::Colour,
         };
+        let wants = |ix: FaceIx| self.carries(ix, c) == want;
         let own = self.styled.get(self.effective(style)).filter(|f| wants(*f));
         own.or_else(|| self.each().find(|ix| !self.styled.holds(*ix) && wants(*ix)))
             .unwrap_or_else(|| self.select_styled(c, style))
@@ -474,11 +474,10 @@ impl<'f, 'a> Stack<'f, 'a> {
     }
 
     /// Decide every entry of block `blk` of `t`, for all eight styles and
-    /// presentations at once: one `cmap` lookup and colour test per face
-    /// that proposed the block, per codepoint, and a refusal test for each
-    /// glyph that is not colour. A face whose glyph is refused and not
-    /// colour draws nothing there ([`Stack::carries`]), and is counted in
-    /// [`FaceTable::refused`] when no style or presentation keeps it.
+    /// presentations at once: one `cmap` lookup and [`drawing`] per face that
+    /// proposed the block, per codepoint. A face that maps a character to a
+    /// glyph it draws not at all is counted in [`FaceTable::refused`] when
+    /// no style or presentation keeps it.
     fn fill(&self, t: &mut FaceTable, blk: Block) {
         let blk = blk.0;
         let faces = core::mem::take(&mut t.proposed[blk]);
@@ -492,9 +491,10 @@ impl<'f, 'a> Stack<'f, 'a> {
                 let f = &self.faces[usize::from(i)];
                 let (draw, gone) = match cp.and_then(|c| f.glyph(c)) {
                     None => (Draws::No, false),
-                    Some(g) if f.is_colour(g) => (Draws::Colour, false),
-                    Some(g) if f.refuses(g) => (Draws::No, true),
-                    Some(_) => (Draws::Text, false),
+                    Some(g) => {
+                        let d = drawing(f, g);
+                        (d, d == Draws::No)
+                    }
                 };
                 draws[usize::from(i)] = draw;
                 refused[usize::from(i)] = gone;
@@ -544,14 +544,43 @@ impl<'f, 'a> Stack<'f, 'a> {
     }
 
     /// The first face that carries `c` ([`Stack::carries`]: maps it to a
-    /// glyph it does not refuse, or to a colour one); the primary when none
-    /// does, so its `.notdef` is what a character nobody carries draws as --
-    /// and what a glyph the primary refuses draws as, the atlas drawing the
+    /// glyph it draws, as colour or as text); the primary when none does,
+    /// so its `.notdef` is what a character nobody carries draws as -- and
+    /// what a glyph the primary cannot draw draws as, the atlas drawing the
     /// `.notdef` in its place (`Atlas::slot`).
     pub fn select(&self, c: Codepoint) -> FaceIx {
         self.each()
-            .find(|ix| !self.styled.holds(*ix) && self.carries(*ix, c).is_some())
+            .find(|ix| !self.styled.holds(*ix) && self.carries(*ix, c) != Draws::No)
             .unwrap_or(FaceIx::PRIMARY)
+    }
+}
+
+/// How `f` draws `g`, as the atlas would (`Atlas::slot`). As colour when
+/// a strike holds an image for it, or its `COLR` layers all draw; a
+/// refused outline does not stop either. As text when its outline draws
+/// and it has no `COLR` layers, or a layer that cannot draw. Not at all
+/// when its outline cannot draw -- the face refuses it, or it needs more
+/// scratch than the atlas grows to, [`VAR_POINTS_MAX`]
+/// ([`Face::refuses_past`]) -- or when it is a
+/// `COLR` glyph with a layer that cannot, which the atlas refuses whole
+/// rather than paint partly, and whose own outline cannot draw either
+/// (refused or past the budget) or is, by its `glyf` header, empty. One
+/// whose own outline has data is text: the atlas draws that outline, as
+/// the `COLR` text allows ("If the base glyph ID has an outline, that may
+/// be rendered as a non-color glyph instead",
+/// `[[source: ms-opentype-colr]]`). The layers are looked up first,
+/// so a glyph with none pays the strike walk and the outline test it paid
+/// before a budget was tested.
+fn drawing(f: &Face<'_>, g: GlyphId) -> Draws {
+    let budget = Count::of(VAR_POINTS_MAX);
+    match f.layers(g) {
+        Some(layers) if layers.into_iter().all(|l| !f.refuses_past(l.glyph, budget)) => {
+            Draws::Colour
+        }
+        _ if f.has_bitmap(g) => Draws::Colour,
+        _ if f.refuses_past(g, budget) => Draws::No,
+        Some(_) if !f.has_outline(g) => Draws::No,
+        _ => Draws::Text,
     }
 }
 

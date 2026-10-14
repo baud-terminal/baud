@@ -135,6 +135,11 @@ pub(crate) enum Emit {
 /// The four phantom points, in HarfBuzz's order: left, right, top, bottom.
 const PHANTOMS: u32 = 4;
 
+/// The most a simple glyph's walk can need: its last point is numbered by
+/// a 16-bit `endPtsOfContours`, so it has at most 65,536, and its four
+/// phantoms.
+const SIMPLE_NEED_MAX: u32 = 65_536 + PHANTOMS;
+
 /// What one glyph's walk needs, in points: what it appends to the flattened
 /// list (its four phantom points included), and the most the component
 /// stack holds. The list never grows past what it keeps: each child's
@@ -174,6 +179,15 @@ pub enum Streamed {
     /// decision of 2026-10-13: nothing of the glyph is drawn, at any depth
     /// of its tree, as FreeType refuses it.
     Refused,
+}
+
+/// Which instance a face is read at, for [`Glyf::refuses_past`]: at a
+/// variation every glyph is drawn through scratch, at the default only one
+/// that matches points.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Instance {
+    Default,
+    Varied,
 }
 
 /// What [`Glyf::walk_need`] found: the scratch a glyph's walk needs, or
@@ -1045,6 +1059,39 @@ impl<'a> Glyf<'a> {
     pub fn refuses(&self, g: GlyphId) -> bool {
         let contours: Option<i16> = self.glyph(g).and_then(|d| d.read(Offset::ZERO));
         matches!(contours, Some(c) if c < 0) && self.walk_need(g) == Some(Need::Refused)
+    }
+
+    /// Whether `g`'s header gives it an outline: data, and a
+    /// `numberOfContours` other than 0.
+    pub(crate) fn has_outline(&self, g: GlyphId) -> bool {
+        let contours: Option<i16> = self.glyph(g).and_then(|d| d.read(Offset::ZERO));
+        matches!(contours, Some(c) if c != 0)
+    }
+
+    /// Whether `g` is refused ([`Glyf::refuses`]) or its outline needs
+    /// more than `budget` points of scratch to draw: at a variation
+    /// ([`Instance::Varied`]), [`Glyf::need`], since every glyph is drawn through
+    /// scratch there; at the default instance, [`Glyf::matched_need`],
+    /// since only a glyph that matches points is. Exactly that disjunction,
+    /// from one walk of a composite; an empty glyph's need is its phantoms,
+    /// and a simple glyph is walked only when `budget` is under
+    /// [`SIMPLE_NEED_MAX`], the most any simple glyph can need.
+    pub(crate) fn refuses_past(&self, g: GlyphId, budget: Count, at: Instance) -> bool {
+        let past = |n: Option<Count>| n.is_some_and(|n| n > budget);
+        let varied = at == Instance::Varied;
+        let contours: Option<i16> = self.glyph(g).and_then(|d| d.read(Offset::ZERO));
+        match contours {
+            Some(c) if c < 0 => match self.reach(g, Count::ZERO, &mut Edges(0)) {
+                None => false,
+                Some(r) => match r.matched {
+                    Matched::FirstByPoints => true,
+                    Matched::Yes => past(r.kept.plus(r.stack)),
+                    Matched::No => varied && past(r.kept.plus(r.stack)),
+                },
+            },
+            Some(c) if c > 0 => varied && budget < Count::of(SIMPLE_NEED_MAX) && past(self.need(g)),
+            _ => varied && past(self.need(g)),
+        }
     }
 
     fn reach(&self, g: GlyphId, depth: Count, edges: &mut Edges) -> Option<Reach> {

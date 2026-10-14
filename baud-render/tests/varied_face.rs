@@ -196,9 +196,11 @@ fn a_composite_matched_on_its_first_component_is_refused_and_counted_once() {
 /// **A glyph past the scratch budget is refused, counted once, and never
 /// taken for blank.** `heavy` flattens to 240,000 points, past
 /// `VAR_POINTS_MAX` (and past HarfBuzz's own 200,000-point bound): at wght
-/// 900 the atlas draws nothing for it and counts it, and asking again is
-/// answered from the memo without counting it twice. The control: at the
-/// default instance it draws without scratch, and nothing is refused.
+/// 900 the atlas counts it and draws the face's `.notdef` in its place,
+/// which in this fixture has no ink (`past_budget.rs` holds one with ink),
+/// and asking again is answered from the memo without counting it twice.
+/// The control: at the default instance it draws without scratch, and
+/// nothing is refused.
 #[test]
 fn a_glyph_past_the_scratch_budget_is_refused_and_counted_once() {
     let data = ink_cases();
@@ -245,7 +247,8 @@ fn a_glyph_past_the_scratch_budget_is_refused_and_counted_once() {
 /// and the acute, which move at wght 900, so its image there differs from
 /// the default one in size; `colrheavy` paints `heavy` under `a`, and
 /// rather than paint `a` alone it is refused and counted -- once, though
-/// its own outline, which is empty, is then tried and draws nothing.
+/// its own outline, which is empty, is then tried and draws nothing, so
+/// the face's `.notdef` is drawn, empty here too.
 #[test]
 fn a_layered_glyph_paints_varied_layers_or_is_refused_whole() {
     let data = ink_cases();
