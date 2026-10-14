@@ -179,6 +179,13 @@ unsafe extern "C" {
     /// allowed.
     pub fn _exit(status: c_int) -> !;
 
+    /// Changes the working directory to `path`; on failure "the current
+    /// working directory shall remain unchanged" (`[[source:
+    /// posix-chdir]]`). The child calls it between `fork` and `exec`, which
+    /// XSH 2.4.3's table of async-signal-safe functions allows (`[[source:
+    /// posix-xsh-chap02]]`).
+    pub fn chdir(path: *const c_char) -> c_int;
+
     /// A terminal's attributes, read into `t`. The child calls it on its
     /// terminal between `fork` and `exec`, which XSH 2.4.3's table of
     /// async-signal-safe functions allows, and the parent on the

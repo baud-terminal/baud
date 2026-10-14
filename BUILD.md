@@ -44,8 +44,10 @@ and exits 1 (forced on macOS 27; not run below 26).
 
 **Configuration** is optional. Copy `config.toml.example` to one of the places
 baud looks -- `$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/config.toml`,
-`~/.config/baud/config.toml`, then `./config.toml` -- and keep only the keys
-you change. With no config baud draws with the fonts compiled into it, and the
+then `~/.config/baud/config.toml`; no entry of its own under the directory
+baud starts in, though a relative `$BAUD_CONFIG` names a file there -- and
+keep only the keys you change. A relative font or theme path in it is read
+beside the file. With no config baud draws with the fonts compiled into it, and the
 system's own faces behind them for what those lack.
 
 **The Metal shaders ship compiled.** `baud-present-macos/src/baud.metallib` is

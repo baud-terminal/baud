@@ -333,3 +333,16 @@ settle. With the prior art, changing directory in the child before exec read
 changing baud's whole process directory, first thing in `main`, 0.78 at
 confidence 0.56. Only on a launchd launch does that move those lookups from `/`
 to home. It goes to the owner.
+
+**Built 2026-10-14, the owner's call of 2026-10-13** ("Drop ./config.toml;
+chdir in child", the recommendation; the record, "A shell baud starts from
+the Dock starts in the home directory"). The config search's last entry is
+gone. A relative font or theme path names a file beside the config. In the
+forked child, before the exec, baud changes to `HOME` when its parent is
+process 1, launchd (`[[source: macos-man-launchd]]`), and otherwise keeps
+the directory it inherited. When the change succeeds, the child's `PWD` is
+set to `HOME` (`[[source: posix-xbd-8]]`). baud's own directory never
+changes, so a relative `BAUD_CONFIG`, `BAUD_TRACE` and `BAUD_PTYLOG` still
+resolve against the directory baud was started in. An empty or relative
+`XDG_CONFIG_HOME` is now ignored, as `[[source: xdg-basedir-0-8]]` says it
+should be.

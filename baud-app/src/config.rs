@@ -16,10 +16,13 @@
 //! header stops being read -- neither committed config does.
 //!
 //! The file is looked up at `$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/
-//! config.toml`, then `~/.config/baud/config.toml`, then `./config.toml`. When
-//! none is found or a field is absent, the defaults are the stack that
-//! starts with baud's embedded font -- JetBrains Mono, with baud's Hebrew in
-//! its Regular and Bold -- and its Nerd Fonts icon face, with the embedded
+//! config.toml`, then `~/.config/baud/config.toml`, and in the working
+//! directory only as far as a relative `$BAUD_CONFIG` names a file under
+//! it; a relative font or theme path in it names a file beside it
+//! ([`config_paths`]). When none is found or a field is absent,
+//! the defaults are the stack that starts with baud's embedded font --
+//! JetBrains Mono, with baud's Hebrew in its Regular and Bold -- and its
+//! Nerd Fonts icon face, with the embedded
 //! Bold, Italic and Bold Italic as the styled faces -- so the app runs with
 //! no config at all. A configured `fonts` replaces that stack and keeps the
 //! embedded Regular, the icon face and then STIX Two Math behind it, for the
@@ -543,9 +546,29 @@ impl Config {
             for said in c.apply(&text) {
                 crate::warn!("{said}");
             }
+            if let Some(dir) = path.parent() {
+                c.faces_beside(dir);
+            }
             c.source = Some(path);
         }
         c
+    }
+
+    /// **A relative font path names a file beside the config**, in `dir`,
+    /// the directory the config file is in -- the owner's call of
+    /// 2026-10-13 -- and not under the directory baud was started in, which
+    /// from the Dock is `/`. An absolute path and a compiled-in face are
+    /// kept. The `@N` of a collection was split off when the value was
+    /// read, so only the path is joined. A path that `dir` would make
+    /// unreadable as UTF-8 is kept as written.
+    fn faces_beside(&mut self, dir: &std::path::Path) {
+        for f in &mut self.faces {
+            if matches!(f.from, FaceFrom::File) && std::path::Path::new(&f.path).is_relative() {
+                if let Some(joined) = dir.join(&f.path).to_str() {
+                    f.path = joined.to_string();
+                }
+            }
+        }
     }
 
     /// Reads `text` over `self`, and returns what it could not act on, one
@@ -1117,23 +1140,55 @@ impl FaceSpec {
     }
 }
 
+/// The first config file that reads, by the path it was read at.
 fn read_first() -> Option<(std::path::PathBuf, String)> {
-    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
-    let xdg = std::env::var_os("XDG_CONFIG_HOME").map(std::path::PathBuf::from);
-    let mut paths: Vec<std::path::PathBuf> = Vec::new();
-    if let Some(p) = std::env::var_os("BAUD_CONFIG") {
-        paths.push(p.into());
-    }
-    if let Some(x) = xdg {
-        paths.push(x.join("baud/config.toml"));
-    }
-    if let Some(h) = &home {
-        paths.push(h.join(".config/baud/config.toml"));
-    }
-    paths.push("config.toml".into());
+    let given = std::env::var_os("BAUD_CONFIG")
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from)
+        .map(|p| std::path::absolute(&p).unwrap_or(p));
+    config_paths(
+        given,
+        absolute_dir(std::env::var_os("XDG_CONFIG_HOME")),
+        absolute_dir(std::env::var_os("HOME")),
+    )
+    .into_iter()
+    .find_map(|p| std::fs::read_to_string(&p).ok().map(|t| (p, t)))
+}
+
+/// **Where a config file is looked for**, in order: `given`, from
+/// `BAUD_CONFIG`; `$XDG_CONFIG_HOME/baud/config.toml`; and
+/// `~/.config/baud/config.toml`. No entry is under the working directory:
+/// the `./config.toml` that ended this list was dropped on the owner's
+/// call of 2026-10-13, whose option said "No terminal surveyed reads its
+/// config from the cwd" (the record, "A shell baud starts from the Dock
+/// starts in the home directory"); a Dock launch's is `/`.
+///
+/// `given` is made absolute by the caller, against the directory baud was
+/// started in, which baud never changes: a relative `BAUD_CONFIG` typed
+/// in a shell names the file under that shell's directory, and the path
+/// the log says, and the `themes` beside it, are that file's.
+fn config_paths(
+    given: Option<std::path::PathBuf>,
+    xdg: Option<std::path::PathBuf>,
+    home: Option<std::path::PathBuf>,
+) -> Vec<std::path::PathBuf> {
+    let mut paths: Vec<std::path::PathBuf> = given.into_iter().collect();
+    paths.extend(xdg.map(|x| x.join("baud/config.toml")));
+    paths.extend(home.map(|h| h.join(".config/baud/config.toml")));
     paths
-        .into_iter()
-        .find_map(|p| std::fs::read_to_string(&p).ok().map(|t| (p, t)))
+}
+
+/// **A directory variable, used only when it names an absolute path.**
+/// For `XDG_CONFIG_HOME` the specification says so: "If $XDG_CONFIG_HOME
+/// is either not set or empty, a default equal to $HOME/.config should be
+/// used", and "If an implementation encounters a relative path in any of
+/// these variables it should consider the path invalid and ignore it"
+/// (`[[source: xdg-basedir-0-8]]`). `HOME` is held to the same rule, which
+/// no text sets for it: an empty or relative one would look for
+/// `.config/baud` under the working directory, the lookup this file no
+/// longer makes. Both the config's lookup and the themes' read through it.
+pub(crate) fn absolute_dir(v: Option<std::ffi::OsString>) -> Option<std::path::PathBuf> {
+    v.map(std::path::PathBuf::from).filter(|p| p.is_absolute())
 }
 
 /// `(section, key, value)` triples. A value runs to the end of the line, or,
@@ -2445,5 +2500,233 @@ shadow     = "never"
         assert_eq!(c.faces[1].index, 2);
         assert!(is_symbols(&c.faces[3]));
         assert_eq!(c.glass.dim_dark, 0.3);
+    }
+}
+
+/// **Where the config is looked for, and what the paths in it resolve
+/// against.** `Config::load` reads the environment and opens paths against
+/// the working directory, and both are the whole process's: a test that set
+/// either would move every other test running beside it. So each case runs
+/// [`load_helper`] as a process of its own, with the directory and the
+/// variables it names, and reads back what the load found.
+#[cfg(test)]
+mod lookup {
+    use std::ffi::OsStr;
+    use std::path::{Path, PathBuf};
+
+    /// **The lookup's order, and nothing under the working directory**:
+    /// `BAUD_CONFIG`, then XDG's, then `~/.config`'s, each only when it is
+    /// there, and a directory variable only when it is absolute.
+    #[test]
+    fn the_lookup_is_three_places_and_no_relative_one() {
+        let p = |s: &str| Some(PathBuf::from(s));
+        assert_eq!(
+            super::config_paths(p("/b/c.toml"), p("/x"), p("/h")),
+            [
+                PathBuf::from("/b/c.toml"),
+                PathBuf::from("/x/baud/config.toml"),
+                PathBuf::from("/h/.config/baud/config.toml"),
+            ]
+        );
+        assert!(super::config_paths(None, None, None).is_empty());
+        let dir = |s: &str| super::absolute_dir(Some(s.into()));
+        assert_eq!(dir("/x"), p("/x"));
+        assert_eq!(dir(""), None, "empty is unset");
+        assert_eq!(dir("rel"), None, "relative is ignored");
+        assert_eq!(super::absolute_dir(None), None);
+    }
+
+    /// The variable that turns [`load_helper`] on.
+    const LOAD_HELPER: &str = "BAUD_TEST_LOAD_HELPER";
+
+    /// **Run only by the tests below**, as a process of its own; a no-op
+    /// otherwise. It loads the config as the app does and prints the file
+    /// it read, every face read from a file, and where a theme named
+    /// `night` would be looked for.
+    #[test]
+    fn load_helper() {
+        if std::env::var_os(LOAD_HELPER).is_none() {
+            return;
+        }
+        let c = super::Config::load();
+        match &c.source {
+            Some(p) => println!("SOURCE[{}]", p.display()),
+            None => println!("SOURCE[none]"),
+        }
+        for f in &c.faces {
+            if matches!(f.from, super::FaceFrom::File) {
+                println!("FACE[{}@{}]", f.path, f.index);
+            }
+        }
+        let dirs = crate::palette::Dirs::from_env(c.source.as_deref());
+        for p in crate::palette::candidates("night", &dirs) {
+            println!("THEME[{}]", p.display());
+        }
+    }
+
+    /// A directory of this test's own, made fresh and canonical: on macOS
+    /// the temporary directory sits behind the `/var` symlink, and a path
+    /// the child reports is the resolved one.
+    fn scratch(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("baud-lookup-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).expect("a scratch directory");
+        d.canonicalize().expect("it resolves")
+    }
+
+    fn write(path: &Path, text: &str) {
+        std::fs::create_dir_all(path.parent().expect("a parent")).expect("its directory");
+        std::fs::write(path, text).expect("the file");
+    }
+
+    /// What [`load_helper`] printed, run in `dir` with `HOME` set to
+    /// `home`, no `BAUD_CONFIG` or `XDG_CONFIG_HOME` but those `env` sets.
+    fn load_in(dir: &Path, home: &Path, env: &[(&str, &OsStr)]) -> Vec<String> {
+        let mut cmd = std::process::Command::new(std::env::current_exe().expect("this test"));
+        cmd.args(["--exact", "config::lookup::load_helper", "--nocapture"])
+            .current_dir(dir)
+            .env_remove("BAUD_CONFIG")
+            .env_remove("XDG_CONFIG_HOME")
+            .env("HOME", home)
+            .env(LOAD_HELPER, "1");
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        let out = cmd.output().expect("the helper runs");
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(out.status.success(), "the helper passed: {text}");
+        let lines: Vec<String> = text
+            .lines()
+            .filter(|l| {
+                ["SOURCE[", "FACE[", "THEME["]
+                    .iter()
+                    .any(|p| l.starts_with(p))
+            })
+            .map(str::to_string)
+            .collect();
+        assert_eq!(
+            lines.iter().filter(|l| l.starts_with("SOURCE[")).count(),
+            1,
+            "the helper loaded once: {text}"
+        );
+        lines
+    }
+
+    fn source(lines: &[String]) -> &str {
+        lines
+            .iter()
+            .find_map(|l| l.strip_prefix("SOURCE[")?.strip_suffix(']'))
+            .expect("a source line")
+    }
+
+    /// **The working directory is not searched**, the owner's call of
+    /// 2026-10-13: a `config.toml` in the directory baud starts in is not
+    /// read. The control names the same file through `BAUD_CONFIG` and it
+    /// is read, so the file is one the load can find.
+    #[test]
+    fn the_working_directory_is_not_searched_for_a_config() {
+        let dir = scratch("cwd");
+        let home = scratch("cwd-home");
+        write(&dir.join("config.toml"), "font_size = 21\n");
+        let named = dir.join("config.toml");
+        let control = load_in(&dir, &home, &[("BAUD_CONFIG", named.as_os_str())]);
+        assert_eq!(source(&control), named.display().to_string(), "the control");
+        assert_eq!(source(&load_in(&dir, &home, &[])), "none");
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    /// **An empty or relative `XDG_CONFIG_HOME` is ignored**, and the
+    /// lookup goes on to `~/.config`: "If $XDG_CONFIG_HOME is either not
+    /// set or empty, a default equal to $HOME/.config should be used", and
+    /// "If an implementation encounters a relative path in any of these
+    /// variables it should consider the path invalid and ignore it"
+    /// (`[[source: xdg-basedir-0-8]]`). Both would otherwise name a file
+    /// under the working directory, and one is put there for each. The
+    /// control is the same directory named absolutely, which is read; no
+    /// theme is looked for under a relative directory either.
+    #[test]
+    fn an_empty_or_relative_xdg_config_home_is_ignored() {
+        let dir = scratch("xdg");
+        let home = scratch("xdg-home");
+        write(&dir.join("baud/config.toml"), "font_size = 21\n");
+        write(&dir.join("rel/baud/config.toml"), "font_size = 22\n");
+        let homed = home.join(".config/baud/config.toml");
+        write(&homed, "font_size = 23\n");
+        let control = load_in(&dir, &home, &[("XDG_CONFIG_HOME", dir.as_os_str())]);
+        assert_eq!(
+            source(&control),
+            dir.join("baud/config.toml").display().to_string(),
+            "the control"
+        );
+        for xdg in ["", "rel"] {
+            let got = load_in(&dir, &home, &[("XDG_CONFIG_HOME", OsStr::new(xdg))]);
+            assert_eq!(
+                source(&got),
+                homed.display().to_string(),
+                "{xdg:?}: {got:?}"
+            );
+            for l in &got {
+                if let Some(p) = l.strip_prefix("THEME[") {
+                    assert!(
+                        p.starts_with('/'),
+                        "{xdg:?}: a theme under the cwd: {got:?}"
+                    );
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    /// **A relative `BAUD_CONFIG` names a file under the directory baud
+    /// was started in**, and the config in force is said by that whole
+    /// path, so the `themes` beside it are looked for there too. baud's
+    /// own directory never changes -- the shell is the one sent home -- so
+    /// it is the directory the variable was written against.
+    #[test]
+    fn a_relative_baud_config_is_read_under_the_launch_directory() {
+        let dir = scratch("relative");
+        let home = scratch("relative-home");
+        write(&dir.join("sub/c.toml"), "font_size = 21\n");
+        let got = load_in(&dir, &home, &[("BAUD_CONFIG", OsStr::new("sub/c.toml"))]);
+        assert_eq!(source(&got), dir.join("sub/c.toml").display().to_string());
+        assert!(
+            got.contains(&format!(
+                "THEME[{}]",
+                dir.join("sub/themes/night").display()
+            )),
+            "{got:?}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    /// **A relative font path is read beside the config file**, the
+    /// owner's call of 2026-10-13, not under the directory baud started
+    /// in; a collection's `@N` stays the index, and an absolute path is
+    /// kept as written.
+    #[test]
+    fn a_relative_font_path_resolves_against_the_config_files_directory() {
+        let dir = scratch("fonts");
+        let launch = scratch("fonts-launch");
+        let named = dir.join("config.toml");
+        write(
+            &named,
+            "fonts = [\"f.ttf@1\", \"deep/g.otf\", \"/abs/h.ttf\"]\nfont_fallback = false\n",
+        );
+        let got = load_in(&launch, &launch, &[("BAUD_CONFIG", named.as_os_str())]);
+        let faces: Vec<&String> = got.iter().filter(|l| l.starts_with("FACE[")).collect();
+        assert_eq!(
+            faces,
+            [
+                &format!("FACE[{}@1]", dir.join("f.ttf").display()),
+                &format!("FACE[{}@0]", dir.join("deep/g.otf").display()),
+                &"FACE[/abs/h.ttf@0]".to_string(),
+            ],
+            "{got:?}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(launch);
     }
 }

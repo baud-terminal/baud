@@ -8,9 +8,13 @@ that program may be hostile. Everything below follows from that.
 ## What baud does on your machine
 
 `baud-app`, the binary `baud`, starts your `$SHELL` as a login shell on a pty
-(`forkpty` and `execve`), with the variables other terminals set removed. It
-reads its configuration (`$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/`,
-`~/.config/baud/`, then `./config.toml`), maps font files read-only -- the
+(`forkpty` and `execve`), with the variables other terminals set removed --
+in your home directory when baud's parent is launchd (`open`, and so,
+inferred, the Dock and Finder), where baud was started otherwise. It reads
+its configuration (`$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/`, then
+`~/.config/baud/`; no entry of its own under the directory it starts in,
+though a relative `$BAUD_CONFIG` is read against it), maps font files
+read-only -- the
 ones the config names, or the system faces behind its embedded font when it
 names none -- and draws with Metal
 on macOS and on the CPU into `wl_shm` on Linux. On macOS it copies a selection

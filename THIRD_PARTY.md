@@ -24,8 +24,8 @@ and decides nothing.
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 255 | 16 | redistributable, and its notice is satisfied |
-| own | 186 | 0 | the owner's work |
-| total | 696 | 27 | |
+| own | 187 | 0 | the owner's work |
+| total | 697 | 27 | |
 
 ## Licence texts in LICENSES/
 
@@ -1737,10 +1737,11 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the owner's work
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 180
+- **Files:** 181
 
 | file | copied from |
 |---|---|
+| [aa-observed/cwdprobe-run.txt](docs/research/sources/aa-observed/cwdprobe-run.txt) | cwdprobe run 2026-10-14 directly and through open -n; its own output file, then ps |
 | [ad-observed/coretext-cbdt-load.txt](docs/research/sources/ad-observed/coretext-cbdt-load.txt) | a Swift probe compiled with /usr/bin/swiftc (Apple Swift 6.4) |
 | [ad-observed/coretext-createforstring.txt](docs/research/sources/ad-observed/coretext-createforstring.txt) | a Swift probe |
 | [ad-observed/coretext-ctline-fira.txt](docs/research/sources/ad-observed/coretext-ctline-fira.txt) | a C probe over CTLineCreateWithAttributedString |

@@ -1,15 +1,18 @@
-# baud configuration -- copy to `config.toml` and edit.
+# baud configuration -- copy to ~/.config/baud/config.toml and edit.
 #
 # Looked up at $BAUD_CONFIG, then $XDG_CONFIG_HOME/baud/config.toml, then
-# ~/.config/baud/config.toml, then ./config.toml. A key baud does not know is
-# ignored, and any field left out keeps its built-in default, so a config with
-# only the keys you care about is fine -- or no config at all, which draws with
-# the fonts baud carries inside itself: JetBrains Mono (its ligatures, and real
-# Bold, Italic and Bold Italic faces) with baud's own Hebrew in its Regular and
-# Bold, and Symbols Nerd Font Mono (the Nerd Fonts icons), with Menlo, the
-# emoji, symbol and CJK system faces behind it. `fonts` below replaces that
-# stack, and the embedded Regular, icon and symbol faces stay behind it for
-# what your faces lack unless `font_fallback = false`.
+# ~/.config/baud/config.toml -- no entry of its own under the directory baud is
+# started in. A relative $BAUD_CONFIG names a file under that directory; an
+# empty or relative $XDG_CONFIG_HOME is ignored, as the XDG specification says.
+# A relative font or theme path below names a file beside this one. A key baud
+# does not know is ignored, and any field left out keeps its built-in default,
+# so a config with only the keys you care about is fine -- or no config at all,
+# which draws with the fonts baud carries inside itself: JetBrains Mono (its
+# ligatures, and real Bold, Italic and Bold Italic faces) with baud's own Hebrew
+# in its Regular and Bold, and Symbols Nerd Font Mono (the Nerd Fonts icons),
+# with Menlo, the emoji, symbol and CJK system faces behind it. `fonts` below
+# replaces that stack, and the embedded Regular, icon and symbol faces stay
+# behind it for what your faces lack unless `font_fallback = false`.
 
 # Points; pixels are this times the display's backing scale.
 font_size = 13
@@ -75,7 +78,9 @@ bell = "sound"
 # 458 code points by cmap, among them 8 symbols (U+23FB-23FE, U+26A1,
 # U+276E-276F, U+2B58) that drew from the icon face before -- so those come
 # from it, not the icon face. A stack named here draws bold and italic in its
-# regular faces, unfaked, until faces can be named by family:
+# regular faces, unfaked, until faces can be named by family. A path that does
+# not start with / is read beside this file, so "fonts/Mine.ttf" is the fonts
+# directory next to it:
 # fonts = [
 #   "/System/Library/Fonts/Menlo.ttc@0",
 #   "/System/Library/Fonts/Apple Color Emoji.ttc@0",
@@ -120,7 +125,9 @@ font_fallback = true
 # `light` and `dark` name a theme file for each half of the palette; `theme`
 # above still picks which half is drawn. A `.yaml` or `.yml` file is read as a
 # base16 or base24 scheme (tinted-theming), anything else as a ghostty theme.
-# A bare name is looked up in the `themes` directory beside this file, then
+# A value with a / is a path: ~/ is your home, and a path that does not start
+# with / or ~/ is read beside this file. A bare name is looked up in the
+# `themes` directory beside this file, then
 # in $XDG_CONFIG_HOME/baud/themes/ and ~/.config/baud/themes/, as given and
 # then with .yaml and .yml. What a file leaves unset stays baud's own, entries 16-255
 # stay xterm's, and a file that cannot be read is reported and leaves baud's

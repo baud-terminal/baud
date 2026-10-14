@@ -23635,6 +23635,79 @@ status = "external"
 group  = "AA"
 # Retrieved 2026-10-12. Read: 323-362.
 
+# Group AA, note AA section 9 (2026-10-14, building the owner's call of 2026-10-13): what launchd
+# is, where an orphan goes, and what PWD must name. All external: hash-verified, not committed.
+
+[sources.macos-man-launchd]
+key    = "macos-man-launchd"
+title  = "launchd(8) -- 'During boot launchd is invoked by the kernel to run as the first process on the system'"
+author = "Apple Inc."
+year   = 2013
+venue  = "macOS 27.0 (build 26A5425a), system man page, dated 25 November, 2013"
+url    = "file:///usr/share/man/man8/launchd.8"
+file   = ""
+sha256 = "05a8aa5e6cc7353c0b8aacd1747ee99c2b60c6f88e4189b217ef60cb7fe3786f"
+bytes  = 3077
+status = "external"
+group  = "AA"
+# Read 2026-10-14: DESCRIPTION. That the first process is ID 1 is measured (`ps -o pid,ppid,comm -p 1`
+# prints `1 0 (launchd)`), not stated.
+
+[sources.posix-exit]
+key    = "posix-exit"
+title  = "_Exit, _exit -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024: an exiting process's children 'shall be set to the process ID of an implementation-defined system process'"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/functions/_exit.html"
+file   = ""
+sha256 = "3316e1eb976ab64edf1e507259e7fed79adf7b9cbca3c617115805292c72e44c"
+bytes  = 26533
+status = "external"
+group  = "AA"
+# Retrieved 2026-10-14. Read: DESCRIPTION, the consequences of process termination.
+
+[sources.posix-xbd-8]
+key    = "posix-xbd-8"
+title  = "Environment Variables (XBD chapter 8) -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024: PWD 'shall represent an absolute pathname of the current working directory'"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap08.html"
+file   = ""
+sha256 = "89294048dbc032eacc75804005e256eaa7eb6b5c9a2a9cf75b44d8c573d25ad7"
+bytes  = 52350
+status = "external"
+group  = "AA"
+# Retrieved 2026-10-14. Read: 8.3 Other Environment Variables, HOME and PWD.
+
+[sources.posix-xcu-2]
+key    = "posix-xcu-2"
+title  = "Shell Command Language (XCU chapter 2) -- The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024: 2.5.3, a PWD from the environment is kept when it is an absolute pathname of the working directory, else set as pwd -P would print it"
+author = "IEEE and The Open Group"
+year   = 2024
+venue  = "pubs.opengroup.org"
+url    = "https://pubs.opengroup.org/onlinepubs/9799919799/utilities/V3_chap02.html"
+file   = ""
+sha256 = "0889867a53fe12508a71e8739ec23ecdddc95e6f67697c98e26acc8ff0ec1acd"
+bytes  = 357953
+status = "external"
+group  = "AA"
+# Retrieved 2026-10-14. Read: 2.5.3 Shell Variables, PWD.
+
+[sources.aa-obs-cwdprobe-run]
+key    = "aa-obs-cwdprobe-run"
+title  = "cwdprobe's report for two arms, from zsh and through open(1) (ppid, working directory, PWD, OLDPWD, HOME, XPC_*), an orphan's parent and process 1"
+author = "baud research (note AA)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "cwdprobe run 2026-10-14 directly and through open -n; its own output file, then ps"
+file   = "aa-observed/cwdprobe-run.txt"
+sha256 = "f2af86efda27c0f19c4b3cd7ab25b63313510abb659b29fa9fc4314705e373e0"
+bytes  = 1323
+status = "retrieved"
+group  = "AA"
+
 # --- E: the IUTF8 route (round 2026-10-12): POSIX, XNU, Linux and both libcs on a new pty's termios ---
 [sources.posix-open]
 key    = "posix-open"

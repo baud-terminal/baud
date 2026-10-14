@@ -76,8 +76,8 @@ impl Dirs {
     pub fn from_env(config: Option<&Path>) -> Dirs {
         Dirs {
             config: config.map(Path::to_path_buf),
-            home: std::env::var_os("HOME").map(PathBuf::from),
-            xdg: std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
+            home: crate::config::absolute_dir(std::env::var_os("HOME")),
+            xdg: crate::config::absolute_dir(std::env::var_os("XDG_CONFIG_HOME")),
         }
     }
 }
@@ -93,17 +93,23 @@ pub fn load_halves(light: Option<&str>, dark: Option<&str>, dirs: &Dirs) -> (Hal
 }
 
 /// The paths a value names, in the order they are tried. A value with a `/`
-/// is a path, `~/` expanded from `HOME`; a bare name is looked up in the
-/// `themes` directory beside the config file in force, then in
-/// `$XDG_CONFIG_HOME/baud/themes` and `~/.config/baud/themes`, each directory
-/// once, as given and then with `.yaml` and `.yml`.
+/// is a path: `~/` expanded from `HOME`, and none when there is no `HOME`;
+/// a relative one beside the config file in force, the owner's call of
+/// 2026-10-13, not under the directory baud was started in. A bare name is
+/// looked up in the `themes` directory beside the config file in force,
+/// then in `$XDG_CONFIG_HOME/baud/themes` and `~/.config/baud/themes`, each
+/// directory once, as given and then with `.yaml` and `.yml`.
 pub fn candidates(spec: &str, dirs: &Dirs) -> Vec<PathBuf> {
     if spec.contains('/') {
-        let path = match (spec.strip_prefix("~/"), &dirs.home) {
-            (Some(rest), Some(home)) => home.join(rest),
-            _ => PathBuf::from(spec),
-        };
-        return vec![path];
+        if let Some(rest) = spec.strip_prefix("~/") {
+            return dirs.home.iter().map(|home| home.join(rest)).collect();
+        }
+        let path = Path::new(spec);
+        let beside = dirs.config.as_deref().and_then(Path::parent);
+        return vec![match beside {
+            Some(dir) if path.is_relative() => dir.join(path),
+            _ => path.to_path_buf(),
+        }];
     }
     let mut roots: Vec<PathBuf> = Vec::new();
     let beside = dirs
@@ -376,6 +382,39 @@ mod tests {
             xdg: None,
         };
         assert!(candidates("day", &none).is_empty());
+    }
+
+    /// **A relative theme path is read beside the config file**, the
+    /// owner's call of 2026-10-13, not under the directory baud started
+    /// in. An absolute path is kept and `~/` is still home; a `~/` with no
+    /// home to expand is looked for nowhere, rather than as a directory
+    /// named `~` under the working directory.
+    #[test]
+    fn a_relative_theme_path_resolves_against_the_config_files_directory() {
+        let d = Dirs {
+            config: Some("/c/baud/config.toml".into()),
+            home: Some("/h".into()),
+            xdg: None,
+        };
+        assert_eq!(
+            candidates("themes/night.yaml", &d),
+            [PathBuf::from("/c/baud/themes/night.yaml")]
+        );
+        assert_eq!(
+            candidates("../shared/day", &d),
+            [PathBuf::from("/c/baud/../shared/day")]
+        );
+        assert_eq!(candidates("/abs/night", &d), [PathBuf::from("/abs/night")]);
+        assert_eq!(
+            candidates("~/t/day.yaml", &d),
+            [PathBuf::from("/h/t/day.yaml")]
+        );
+        let homeless = Dirs { home: None, ..d };
+        assert!(
+            candidates("~/t/day.yaml", &homeless).is_empty(),
+            "{:?}",
+            candidates("~/t/day.yaml", &homeless)
+        );
     }
 
     #[test]

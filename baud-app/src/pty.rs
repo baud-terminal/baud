@@ -408,8 +408,8 @@ fn names_a_locale(parent: &[(OsString, OsString)]) -> bool {
 /// parent, before the fork, so the child runs no `putenv` between `fork`
 /// and `exec`: it may reallocate the environment array in a process that
 /// was multi-threaded a moment ago, and it is not async-signal-safe. The
-/// child runs only [`utf8_erase`], the exec and, if the exec fails,
-/// `_exit`.
+/// child runs only [`utf8_erase`], the `chdir` [`start_in`] decided, a
+/// test of what it returned, the exec and, if the exec fails, `_exit`.
 fn child_env(parent: Vec<(OsString, OsString)>, locale: Option<&str>) -> Vec<CString> {
     let fill = locale.filter(|_| !names_a_locale(&parent));
     let dropped = |k: &[u8]| {
@@ -725,6 +725,105 @@ unsafe fn utf8_erase(fd: crate::sys::Fd) {
 /// subsidiary descriptors 0, 1 and 2, and 0 is the one Terminal.app asks.
 const CHILD_TERMINAL: crate::sys::Fd = 0;
 
+/// **Who started baud**, as far as where its shell starts goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Parent {
+    /// launchd, which is the parent of an app `open` starts (measured), and
+    /// so, inferred, of one the Dock or Finder starts, which LaunchServices
+    /// starts the same way. Never read on Linux.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Launchd,
+    /// A shell, a debugger, anything else.
+    Other,
+}
+
+/// launchd's process ID. launchd(8): "During boot launchd is invoked by
+/// the kernel to run as the first process on the system"
+/// (`[[source: macos-man-launchd]]`), and `ps -p 1` names it
+/// (`[[source: aa-obs-cwdprobe-run]]`).
+#[cfg(target_os = "macos")]
+const LAUNCHD: u32 = 1;
+
+impl Parent {
+    /// **This process's parent, read once, in the parent, at the spawn**:
+    /// launchd when `getppid()` is 1 -- Ghostty's `getppid()` test on macOS
+    /// (`[[source: ghostty-d9840f3-desktop]]`), the owner's call of
+    /// 2026-10-13. An app `open` starts has parent 1, and one run from a
+    /// shell has that shell (`[[source: ai-obs-fdprobe-run]]`, and again
+    /// for this change, `[[source: aa-obs-cwdprobe-run]]`).
+    ///
+    /// One misreading is known and kept, as Ghostty keeps it: an exiting
+    /// process's children are given to "an implementation-defined system
+    /// process" (`[[source: posix-exit]]`), on macOS launchd
+    /// (`[[source: aa-obs-cwdprobe-run]]`), so
+    /// a baud started from a shell that exited before the spawn reads as
+    /// launchd's too, and its shell starts home.
+    #[cfg(target_os = "macos")]
+    fn of_this_process() -> Parent {
+        match std::os::unix::process::parent_id() {
+            LAUNCHD => Parent::Launchd,
+            _ => Parent::Other,
+        }
+    }
+
+    /// Not on Linux, where process 1 is init and launchd does not exist:
+    /// the shell starts where baud is.
+    #[cfg(not(target_os = "macos"))]
+    fn of_this_process() -> Parent {
+        Parent::Other
+    }
+}
+
+/// **Where the child starts.**
+#[derive(Debug, PartialEq, Eq)]
+enum StartIn {
+    /// Where baud is: the exec keeps the working directory
+    /// (`[[source: posix-exec]]`), and the child changes nothing.
+    Inherited,
+    /// `HOME`, changed to in the child before the exec.
+    Home(CString),
+}
+
+/// **Where a shell baud spawns starts**: in `HOME` when baud's parent is
+/// launchd, and otherwise where baud is -- so a Dock or Finder launch,
+/// whose working directory is `/`, starts in the home directory, and a
+/// launch from a shell starts in that shell's directory. `HOME` is the
+/// first in `parent_env`, which is the one `getenv` would read, and is
+/// used only when it is absolute: an empty one names nothing, and a
+/// relative one would be read against `/`, so either leaves the child where
+/// baud is. Decided in the parent, before the fork, so the child calls
+/// `chdir` on a string built already.
+fn start_in(started_by: Parent, parent_env: &[(OsString, OsString)]) -> StartIn {
+    match started_by {
+        Parent::Other => StartIn::Inherited,
+        Parent::Launchd => parent_env
+            .iter()
+            .find(|(k, _)| k.as_bytes() == b"HOME")
+            .map(|(_, v)| v.as_bytes())
+            .filter(|v| v.first() == Some(&b'/'))
+            .and_then(|v| CString::new(v).ok())
+            .map_or(StartIn::Inherited, StartIn::Home),
+    }
+}
+
+/// **The child's `PWD` names where it starts.** `PWD` "shall represent an
+/// absolute pathname of the current working directory"
+/// (`[[source: posix-xbd-8]]`). A child sent home would inherit a `PWD`
+/// naming somewhere else -- `open` run from a shell passes that shell's on
+/// to the app it starts, while the app's directory is `/`
+/// (`[[source: aa-obs-cwdprobe-run]]`) -- so it is replaced with `HOME`,
+/// as Ghostty sets it (note AA section 9). A
+/// child that stays keeps its environment as it is.
+fn with_pwd(mut env: Vec<CString>, start: &StartIn) -> Vec<CString> {
+    if let StartIn::Home(dir) = start {
+        env.retain(|e| !e.as_bytes().starts_with(b"PWD="));
+        let mut entry = b"PWD=".to_vec();
+        entry.extend_from_slice(dir.as_bytes());
+        env.extend(CString::new(entry).ok());
+    }
+    env
+}
+
 /// **`IUTF8` follows the input encoding after the spawn.** Under `ESC % @`
 /// the keyboard sends ISO 8859-1, one byte a character (`Term::key`), and
 /// with `IUTF8` still set the line discipline's erase reads a byte
@@ -868,28 +967,57 @@ impl Pty {
     /// so it had nothing to send and the zero stood until the window changed.
     fn fork(ws: crate::sys::Winsize) -> Option<crate::sys::Fd> {
         let cmd = std::env::var("BAUD_CMD").ok();
-        Pty::fork_from(ws, cmd, std::env::vars_os().collect(), shell_locale)
+        Pty::fork_from(
+            ws,
+            cmd,
+            std::env::vars_os().collect(),
+            shell_locale,
+            Parent::of_this_process(),
+        )
     }
 
     /// [`Pty::fork`] with every input given: the command, the parent's
-    /// environment and where a locale comes from when the parent names
-    /// none -- so a test runs the whole spawn, the locale included.
+    /// environment, where a locale comes from when the parent names none,
+    /// and who started baud -- so a test runs the whole spawn, the locale
+    /// and the start directory included.
     fn fork_from(
         ws: crate::sys::Winsize,
         cmd: Option<String>,
         parent: Vec<(OsString, OsString)>,
         locale: impl FnOnce() -> Option<String>,
+        started_by: Parent,
     ) -> Option<crate::sys::Fd> {
-        Pty::fork_with(ws, cmd, spawn_env(parent, locale))
+        let start = start_in(started_by, &parent);
+        let stay = spawn_env(parent, locale);
+        let home = with_pwd(stay.clone(), &start);
+        Pty::fork_in(ws, cmd, &home, &stay, &start)
     }
 
-    /// [`Pty::fork`] with the command and the environment given rather
-    /// than read, so a test can hand the child a parent environment of its
-    /// own and read back what the child saw.
+    /// [`Pty::fork_in`] where baud is, for the tests that hand the child a
+    /// parent environment of their own and read back what it saw or the
+    /// terminal it was given.
+    #[cfg(test)]
     fn fork_with(
         ws: crate::sys::Winsize,
         cmd: Option<String>,
         env: Vec<CString>,
+    ) -> Option<crate::sys::Fd> {
+        Pty::fork_in(ws, cmd, &env, &env, &StartIn::Inherited)
+    }
+
+    /// [`Pty::fork`] with the command, the environments and the start
+    /// directory given rather than read. `home` is the environment of a
+    /// child whose `chdir` to `start`'s directory succeeded, and `stay`
+    /// that of a child left where baud is -- because `start` said so, or
+    /// because the `chdir` failed -- so a `PWD` naming `HOME` reaches only
+    /// a shell that is in it, as XBD 8 has `PWD` name "the current working
+    /// directory" (`[[source: posix-xbd-8]]`).
+    fn fork_in(
+        ws: crate::sys::Winsize,
+        cmd: Option<String>,
+        home: &[CString],
+        stay: &[CString],
+        start: &StartIn,
     ) -> Option<crate::sys::Fd> {
         let shell = match &cmd {
             Some(_) => "/bin/sh".to_string(),
@@ -917,11 +1045,14 @@ impl Pty {
                 std::ptr::null(),
             ],
         };
-        let envp: Vec<*const core::ffi::c_char> = env
-            .iter()
-            .map(|e| e.as_ptr())
-            .chain(std::iter::once(std::ptr::null()))
-            .collect();
+        let envp_of = |env: &[CString]| -> Vec<*const core::ffi::c_char> {
+            env.iter()
+                .map(|e| e.as_ptr())
+                .chain(std::iter::once(std::ptr::null()))
+                .collect()
+        };
+        let envp_home = envp_of(home);
+        let envp_stay = envp_of(stay);
         // Darwin's `forkpty` takes the size by mutable pointer and
         // glibc's by const, so the binding is only mutated on one.
         #[cfg_attr(target_os = "linux", allow(unused_mut))]
@@ -934,15 +1065,17 @@ impl Pty {
         #[cfg(not(target_os = "linux"))]
         let ws_arg: *mut crate::sys::Winsize = &raw mut ws;
         // SAFETY: forkpty is given a valid out-pointer and window size. In
-        // the child only `tcgetattr`, `tcsetattr`, `execve` and `_exit` run,
-        // over the child's stack and pointers into memory built before the
-        // fork: after a multi-threaded process forks, POSIX has "the child
-        // process only executes async-signal-safe operations until such
-        // time as one of the exec functions is successful"
-        // (`[[source: posix-fork]]`), and XSH 2.4.3's table lists all four
-        // (`[[source: posix-xsh-chap02]]`).
+        // the child only `tcgetattr`, `tcsetattr`, `chdir`, `execve` and
+        // `_exit` run, and a branch on `chdir`'s result, over the child's
+        // stack and pointers into memory built before the fork: after a
+        // multi-threaded process forks, POSIX has "the child process only
+        // executes async-signal-safe operations until such time as one of
+        // the exec functions is successful" (`[[source: posix-fork]]`),
+        // and XSH 2.4.3's table lists all five (`[[source:
+        // posix-xsh-chap02]]`).
         // The rule was `execve` and `_exit` alone until 2026-10-13, when
-        // the owner widened it for the two attribute calls.
+        // the owner widened it for the two attribute calls, and then for
+        // `chdir` by choosing that the child change directory.
         let pid = unsafe {
             crate::sys::forkpty(
                 &mut master,
@@ -957,6 +1090,15 @@ impl Pty {
         if pid == 0 {
             unsafe {
                 utf8_erase(CHILD_TERMINAL);
+                // A failed change leaves the directory as it was (`[[source:
+                // posix-chdir]]`), and the shell still starts, as Ghostty's
+                // does (`[[source: ghostty-d9840f3-command]]`), with the
+                // environment of a child that stayed: the choice is a test
+                // of the `int` `chdir` returns, and allocates nothing.
+                let envp = match start {
+                    StartIn::Home(dir) if crate::sys::chdir(dir.as_ptr()) == 0 => &envp_home,
+                    _ => &envp_stay,
+                };
                 crate::sys::execve(path_c.as_ptr(), argv.as_ptr(), envp.as_ptr());
                 crate::sys::_exit(127);
             }
@@ -2052,6 +2194,303 @@ mod tests {
         println!("CTTY[{took}]");
     }
 
+    fn env_of(pairs: &[(&str, &str)]) -> Vec<(OsString, OsString)> {
+        pairs
+            .iter()
+            .map(|(k, v)| (OsString::from(k), OsString::from(v)))
+            .collect()
+    }
+
+    /// **The child goes home only when launchd started baud, and only to
+    /// an absolute `HOME`**: under any other parent it stays where baud
+    /// is, and so it does under launchd when `HOME` is missing, empty or
+    /// relative. The first `HOME` is the one used, as `getenv` reads it.
+    #[test]
+    fn the_child_starts_home_only_under_launchd_and_an_absolute_home() {
+        let home = |v: &str| StartIn::Home(CString::new(v).expect("no NUL"));
+        let with_home = env_of(&[("HOME", "/Users/u"), ("HOME", "/second")]);
+        assert_eq!(start_in(Parent::Launchd, &with_home), home("/Users/u"));
+        assert_eq!(start_in(Parent::Other, &with_home), StartIn::Inherited);
+        for env in [
+            env_of(&[]),
+            env_of(&[("HOME", "")]),
+            env_of(&[("HOME", "relative/home")]),
+        ] {
+            assert_eq!(
+                start_in(Parent::Launchd, &env),
+                StartIn::Inherited,
+                "{env:?}"
+            );
+        }
+    }
+
+    /// **A child sent home is told so by its `PWD`**, which replaces any
+    /// it would inherit; a child that stays keeps its environment exactly.
+    #[test]
+    fn a_child_sent_home_has_home_as_its_pwd() {
+        let env = || {
+            ["PWD=/where/baud/is", "BAUD_KEPT=yes", "OLDPWD=/before"]
+                .map(|e| CString::new(e).expect("no NUL"))
+                .to_vec()
+        };
+        let home = StartIn::Home(CString::new("/Users/u").expect("no NUL"));
+        assert_eq!(
+            strings(&with_pwd(env(), &home)),
+            ["BAUD_KEPT=yes", "OLDPWD=/before", "PWD=/Users/u"]
+        );
+        assert_eq!(with_pwd(env(), &StartIn::Inherited), env());
+    }
+
+    /// **The spawn changes the child's directory**, through
+    /// [`Pty::fork_from`] on any platform with the parent given: told that
+    /// launchd started baud, the shell starts in the `HOME` it was handed;
+    /// told otherwise, where this test is. The control is that the two
+    /// directories differ. `HOME` is a symbolic link, so the `PWD` the
+    /// shell reports tells baud's `PWD` (the link's spelling) from one the
+    /// shell found itself (the resolved one): a POSIX shell keeps a `PWD`
+    /// from its environment that is "an absolute pathname of the current
+    /// working directory", and otherwise sets it as `pwd -P` would print
+    /// it (`[[source: posix-xcu-2]]`, 2.5.3).
+    #[test]
+    fn the_spawn_starts_the_child_where_its_parent_says() {
+        let real = scratch_dir("given-home");
+        let link = scratch_dir("given-link").join("home");
+        std::os::unix::fs::symlink(&real, &link).expect("a link to home");
+        let here = std::env::current_dir()
+            .expect("a working directory")
+            .canonicalize()
+            .expect("it resolves");
+        assert_ne!(real, here, "the control: two directories to tell apart");
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let run = |started_by: Parent| -> Vec<String> {
+            let parent = env_of(&[
+                ("HOME", link.to_str().expect("a UTF-8 path")),
+                ("PWD", "/where/baud/is"),
+                ("LANG", "C"),
+            ]);
+            let master = Pty::fork_from(
+                text_area(&size, Px::of(8), Px::of(16)),
+                Some("/bin/pwd -P; printf 'PWD=%s\\n' \"$PWD\"".into()),
+                parent,
+                || None,
+                started_by,
+            )
+            .expect("forkpty");
+            String::from_utf8_lossy(&read_all(master))
+                .lines()
+                .map(|l| l.trim_end_matches('\r').to_string())
+                .collect()
+        };
+        assert_eq!(
+            run(Parent::Launchd),
+            [
+                real.display().to_string(),
+                format!("PWD={}", link.display())
+            ]
+        );
+        assert_eq!(
+            run(Parent::Other)[0],
+            here.display().to_string(),
+            "where this test is"
+        );
+        for d in [real, link.parent().expect("its directory").into()] {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
+    /// **A child whose `chdir` fails keeps the environment of one that
+    /// stayed**, so its `PWD` never names a `HOME` it is not in: told that
+    /// launchd started baud, with an absolute `HOME` that does not exist,
+    /// the shell starts where this test is and is handed the parent's
+    /// `PWD`. That `PWD` is a symbolic link to this directory, and a POSIX
+    /// shell keeps a `PWD` from its environment only when it is "an
+    /// absolute pathname of the current working directory" (`[[source:
+    /// posix-xcu-2]]`, 2.5.3), so the shell prints the link's spelling only
+    /// if it was given the stay environment; given `PWD=$HOME` it would
+    /// find its own and print the resolved one. The control is that the
+    /// two spellings differ.
+    #[test]
+    fn a_failed_chdir_hands_the_shell_the_environment_of_one_that_stayed() {
+        let scratch = scratch_dir("failed-chdir");
+        let missing = scratch.join("missing-home");
+        assert!(!missing.exists(), "the control: HOME names nothing");
+        let here = std::env::current_dir()
+            .expect("a working directory")
+            .canonicalize()
+            .expect("it resolves");
+        let link = scratch.join("here");
+        std::os::unix::fs::symlink(&here, &link).expect("a link to here");
+        assert_ne!(link, here, "the control: two spellings to tell apart");
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let parent = env_of(&[
+            ("HOME", missing.to_str().expect("a UTF-8 path")),
+            ("PWD", link.to_str().expect("a UTF-8 path")),
+            ("LANG", "C"),
+        ]);
+        let master = Pty::fork_from(
+            text_area(&size, Px::of(8), Px::of(16)),
+            Some("/bin/pwd -P; printf 'PWD=%s\\n' \"$PWD\"".into()),
+            parent,
+            || None,
+            Parent::Launchd,
+        )
+        .expect("forkpty");
+        let lines: Vec<String> = String::from_utf8_lossy(&read_all(master))
+            .lines()
+            .map(|l| l.trim_end_matches('\r').to_string())
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                here.display().to_string(),
+                format!("PWD={}", link.display())
+            ],
+            "where baud is, with the PWD it would have had"
+        );
+        let _ = std::fs::remove_dir_all(scratch);
+    }
+
+    /// The variable that turns [`spawn_helper`] on: `orphan` to wait until
+    /// launchd is its parent first, anything else to spawn at once.
+    const SPAWN_HELPER: &str = "BAUD_TEST_SPAWN_HELPER";
+
+    /// **Run only by [`a_shell_spawned_under_launchd_starts_home`]**, as a
+    /// process of its own; a no-op otherwise. It spawns a shell the way
+    /// the app does, [`Pty::fork`] with the process's own environment and
+    /// parent, and prints its parent's ID and what the shell printed.
+    ///
+    /// As an orphan it first waits for its parent to be launchd: the `sh`
+    /// that starts it exits at once, and POSIX gives the children of a
+    /// process that exits to "an implementation-defined system process"
+    /// (`[[source: posix-exit]]`), which on macOS is launchd, process 1
+    /// (measured with `ps`).
+    #[test]
+    fn spawn_helper() {
+        let Ok(how) = std::env::var(SPAWN_HELPER) else {
+            return;
+        };
+        if how == "orphan" {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while std::os::unix::process::parent_id() != 1 {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "never adopted by launchd"
+                );
+                std::thread::yield_now();
+            }
+        }
+        println!("PPID[{}]", std::os::unix::process::parent_id());
+        let size = WinSize {
+            ws_col: 80,
+            ws_row: 24,
+        };
+        let master = Pty::fork(text_area(&size, Px::of(8), Px::of(16))).expect("forkpty");
+        for line in String::from_utf8_lossy(&read_all(master)).lines() {
+            println!("CHILD[{}]", line.trim_end_matches('\r'));
+        }
+    }
+
+    /// A fresh directory of this test's own, by its resolved path.
+    fn scratch_dir(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("baud-start-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).expect("a scratch directory");
+        d.canonicalize().expect("it resolves")
+    }
+
+    /// **A shell spawned under launchd starts in the home directory**, and
+    /// one spawned under any other parent starts where baud was started:
+    /// the owner's call of 2026-10-13, Ghostty's `getppid()` test. The
+    /// whole spawn, [`Pty::fork`], runs in [`spawn_helper`] twice, from the
+    /// same directory with the same `HOME`: once as this test's child, and once
+    /// as an orphan, whose parent is then launchd for real -- which is
+    /// what a Dock or Finder launch's parent is (`[[source:
+    /// ai-obs-fdprobe-run]]`, ppid 1 under `open`). The two directories
+    /// differ, so either answer can be told from the other.
+    ///
+    /// `HOME` is a symbolic link to the directory, as `/var` is on macOS,
+    /// so the shell's `PWD` -- which a POSIX shell keeps from its
+    /// environment only when it names the working directory (`[[source:
+    /// posix-xcu-2]]`, 2.5.3) -- says whether baud gave the shell `HOME` as
+    /// its `PWD`, by the link's spelling, or the shell found its own, by
+    /// the resolved one.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_shell_spawned_under_launchd_starts_home() {
+        let real = scratch_dir("home");
+        let link = scratch_dir("link").join("home");
+        std::os::unix::fs::symlink(&real, &link).expect("a link to home");
+        let launch = scratch_dir("launch");
+        assert_ne!(real, launch, "the control: two directories to tell apart");
+        let exe = std::env::current_exe().expect("this test");
+        let run = |how: &str| -> (String, Vec<String>) {
+            let mut cmd = match how {
+                "orphan" => {
+                    let mut c = std::process::Command::new("/bin/sh");
+                    c.args([
+                        "-c",
+                        "\"$0\" --exact pty::tests::spawn_helper --nocapture & exit 0",
+                    ])
+                    .arg(&exe);
+                    c
+                }
+                _ => {
+                    let mut c = std::process::Command::new(&exe);
+                    c.args(["--exact", "pty::tests::spawn_helper", "--nocapture"]);
+                    c
+                }
+            };
+            cmd.current_dir(&launch)
+                .env("HOME", &link)
+                .env("PWD", &launch)
+                .env("BAUD_CMD", "/bin/pwd -P; printf 'PWD=%s\\n' \"$PWD\"")
+                .env(SPAWN_HELPER, how);
+            let out = cmd.output().expect("the helper runs");
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            assert!(out.status.success(), "the helper passed: {text}");
+            let ppid = text
+                .lines()
+                .find_map(|l| l.strip_prefix("PPID[")?.strip_suffix(']'))
+                .unwrap_or_else(|| panic!("the helper spawned nothing: {text}"))
+                .to_string();
+            let child = text
+                .lines()
+                .filter_map(|l| l.strip_prefix("CHILD[")?.strip_suffix(']'))
+                .map(str::to_string)
+                .collect();
+            (ppid, child)
+        };
+        let (ppid, child) = run("child");
+        assert_eq!(ppid, std::process::id().to_string(), "the control's parent");
+        assert_eq!(
+            child,
+            [
+                launch.display().to_string(),
+                format!("PWD={}", launch.display())
+            ],
+            "under this test, the launch directory"
+        );
+        let (ppid, child) = run("orphan");
+        assert_eq!(ppid, "1", "the orphan's parent is launchd");
+        assert_eq!(
+            child,
+            [
+                real.display().to_string(),
+                format!("PWD={}", link.display())
+            ],
+            "under launchd, home"
+        );
+        for d in [real, link.parent().expect("its directory").into(), launch] {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
     /// **Both drivers follow the encoding straight after they feed the
     /// child's output.** The pumps are bound to AppKit and to Wayland, so
     /// the source is held: in each, the statement after the one
@@ -2361,6 +2800,7 @@ mod tests {
                 Some(r#"printf '%s|' "$LANG"; printf '\327\231' | /usr/bin/wc -m"#.into()),
                 outer_parent(),
                 move || locale,
+                Parent::Other,
             )
             .expect("forkpty");
             String::from_utf8_lossy(&read_all(master)).replace(char::is_whitespace, "")
@@ -2400,6 +2840,7 @@ mod tests {
                 Some("exec /bin/zsh -f -i".into()),
                 outer_parent(),
                 move || locale,
+                Parent::Other,
             )
             .expect("forkpty");
             let (tx, rx) = channel::<Vec<u8>>();
