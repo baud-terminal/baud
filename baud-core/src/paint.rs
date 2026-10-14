@@ -171,9 +171,6 @@ pub(crate) struct Paint<'a, 'b> {
     /// Stored images and their placements. A completed Sixel decodes into this
     /// and places at the cursor; see [`ImageStore`].
     pub(crate) images: &'a mut ImageStore<'b>,
-    /// Where a Sixel body accumulates across reads before it is decoded, the
-    /// OSC-body pattern for a body too large for `pending`.
-    pub(crate) sixel_body: &'a mut [u8],
     /// Everything a control string writes. **One word, not six slices.**
     ///
     /// `Paint` is inlined into the per-byte loop, and this file records the
@@ -337,7 +334,6 @@ impl<'a, 'b> Paint<'a, 'b> {
             clusters,
             strs,
             images,
-            sixel_body,
             ..
         } = store;
         // **The live surface by which screen is up.** The primary is the
@@ -406,7 +402,6 @@ impl<'a, 'b> Paint<'a, 'b> {
             style_log,
             strs,
             images,
-            sixel_body,
             cold,
             view,
             cy,

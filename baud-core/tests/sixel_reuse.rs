@@ -127,7 +127,7 @@ fn holds_at_every_split(p2: &str, bands: usize) {
     let mut wrong = Vec::new();
     for c in &cuts {
         // An arena of exactly one image's words.
-        let (w, h, px, ignored) = placed_after(&prog, c, ImageBudget::of(area, 4096));
+        let (w, h, px, ignored) = placed_after(&prog, c, ImageBudget::of(area));
         assert_eq!((w, h), (10, 6 * bands), "P2 {p2}, cuts {c:?}: the extent");
         // The positive control on the P2 reading: `P2 = 1` is the text's
         // transparent, `0` is baud's counted departure, both images counted.
@@ -182,15 +182,16 @@ const WALK: &[u8] = include_bytes!(concat!(
 ));
 
 /// The replay geometry: 200x60 and the 17x34 cell the capture was answered
-/// with. The budget holds every body (the largest is 815,682 bytes) and the
-/// app's 4 MiB arena.
+/// with. The budget is the app's 4 MiB arena; no body is held since
+/// 2026-10-14, and until then this held every body (the largest is 815,682
+/// bytes).
 const WALK_WS: WinSize = WinSize {
     ws_row: 60,
     ws_col: 200,
 };
 
 fn walk_budget() -> ImageBudget {
-    ImageBudget::of(1 << 20, 1 << 20)
+    ImageBudget::of(1 << 20)
 }
 
 type Image = (u16, u16, Vec<ColorWord>);
@@ -304,5 +305,51 @@ fn every_preview_in_a_yazi_walk_is_its_own_body_alone() {
                 13 - k
             );
         }
+    }
+}
+
+/// FNV-1a 64 over an image's pixel words, little-endian: a digest to pin
+/// thirteen 600x804 images by.
+fn fnv(px: &[ColorWord]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for c in px {
+        for b in c.bits().to_le_bytes() {
+            h ^= u64::from(b);
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    h
+}
+
+/// **The recorded yazi walk draws, pixel for pixel, what the buffered
+/// decoder drew.** Each preview's size and FNV-1a digest, taken from the
+/// buffered decoder at 2992a8e9 -- the body held whole, measured, and
+/// decoded into a cleared span -- fed the same way, at reads of 1 and 7.
+/// Since 2026-10-14 the body is decoded as it arrives, and the images are
+/// those. The other recorded yazi runs, 41 Sixels in all, were held to the
+/// same in the record's entry ("A Sixel is decoded as its body arrives").
+#[test]
+fn every_preview_in_a_yazi_walk_is_the_buffered_decoders_image() {
+    const WANT: [(u16, u16, u64); 13] = [
+        (600, 600, 0x6132_24e3_2195_be70),
+        (600, 804, 0x9e81_e642_d3a8_4c4b),
+        (600, 804, 0x4cbc_c35c_bfb6_4bef),
+        (600, 378, 0xbdcf_bb00_d7f7_aee7),
+        (64, 66, 0xaafa_e662_fca9_ff84),
+        (600, 780, 0xe0c6_92e5_eff3_6eae),
+        (600, 780, 0x6254_c5dc_a39c_0a8e),
+        (600, 780, 0xe0c6_92e5_eff3_6eae),
+        (64, 66, 0xaafa_e662_fca9_ff84),
+        (600, 378, 0xbdcf_bb00_d7f7_aee7),
+        (600, 804, 0x4cbc_c35c_bfb6_4bef),
+        (600, 804, 0x9e81_e642_d3a8_4c4b),
+        (600, 600, 0x6132_24e3_2195_be70),
+    ];
+    for chunk in [1usize, 7] {
+        let got: Vec<(u16, u16, u64)> = stored(WALK, chunk)
+            .iter()
+            .map(|(w, h, px)| (*w, *h, fnv(px)))
+            .collect();
+        assert_eq!(got, WANT, "chunk {chunk}");
     }
 }

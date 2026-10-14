@@ -36,7 +36,7 @@ const TINY: &[u8] = b"\x1bP0;1;0q#0;2;100;0;0~\x1b\\";
 
 /// The image memory: several swirls with room.
 fn budget() -> ImageBudget {
-    ImageBudget::of(4 * (64 * 48 + 64), 8192)
+    ImageBudget::of(4 * (64 * 48 + 64))
 }
 
 /// A terminal at the corpus geometry with `depth` lines of history and the

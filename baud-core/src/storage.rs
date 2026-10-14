@@ -181,12 +181,6 @@ pub struct Storage<'b> {
     /// image memory draws none and says how many it dropped, which is the
     /// refuse-and-count contract rather than a silent nothing.
     pub(crate) images: ImageStore<'b>,
-    /// Where a Sixel body accumulates across reads before it is decoded, the
-    /// way an OSC body accumulates in `pending`. It has its own buffer because
-    /// a Sixel body is far larger than `OSC_MAX` -- over 5 KB for a 64x48
-    /// image -- and it also defaults absent, so a body arriving with no
-    /// scratch is counted rather than decoded from nothing.
-    pub(crate) sixel_body: &'b mut [u8],
 }
 
 /// The alternate screen's surface: its cells, its extents and its rotation.
@@ -335,8 +329,8 @@ pub struct StrBuf<'b> {
     pub(crate) link_len: &'b mut [ByteLen],
     /// `OSC 52` writes: two areas of [`ClipboardBudget::text`] octets, the
     /// copy being collected in the first half and the last one finished in
-    /// the second (`clip.rs`). **Empty by default**, the `sixel_body` opt-in:
-    /// a storage with no area refuses every write and counts it.
+    /// the second (`clip.rs`). **Empty by default**, the image arena's
+    /// opt-in: a storage with no area refuses every write and counts it.
     ///
     /// Here rather than on `Paint` because `Paint` is inlined into the
     /// per-byte loop and carries this struct by reference already: a slice
@@ -347,16 +341,29 @@ pub struct StrBuf<'b> {
     /// counts (`clip.rs`): here rather than in `Cold`, whose size is pinned
     /// and which the per-glyph write dereferences.
     pub(crate) clip: crate::clip::Clip,
+    /// The Sixel in flight, decoded as its body arrives into the image
+    /// arena (`SixelStream`): its colour registers, position and claimed
+    /// gap. **No body is kept**, which until 2026-10-14 a scratch of
+    /// `[images] body_kb` bytes held whole before it decoded, refusing a
+    /// longer one. Behind a reference, here for the reason `clip_area` is:
+    /// `Paint` carries this struct by one word and only a Sixel reaches it.
+    /// Always provisioned, because it is the decoder's state and not image
+    /// memory: a terminal with no arena still walks a Sixel and refuses it
+    /// for its size against an empty arena.
+    pub(crate) sixel: &'b mut SixelStream,
 }
 
 impl<'b> StrBuf<'b> {
-    /// Lend the seven, in the one order that is correct.
+    /// Lend the eight, in the one order that is correct.
     ///
     /// A constructor rather than public fields, because `Storage::new` is
     /// public and takes a `StrBuf`: without this an embedder outside the crate
     /// could name the type and not build one, which is an entry point whose
     /// argument is unreachable -- the same shape as a mode recorded and never
-    /// read.
+    /// read. Eight, past clippy's seven, for the reason `Storage::new` takes
+    /// more: each is a buffer the caller owns, and grouping them would only
+    /// move the list.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         pending: &'b mut [u8],
         title: &'b mut [u8],
@@ -365,6 +372,7 @@ impl<'b> StrBuf<'b> {
         links: &'b mut [u8],
         link_len: &'b mut [ByteLen],
         clip: &'b mut [u8],
+        sixel: &'b mut SixelStream,
     ) -> StrBuf<'b> {
         StrBuf {
             pending,
@@ -375,6 +383,7 @@ impl<'b> StrBuf<'b> {
             link_len,
             clip_area: clip,
             clip: crate::clip::Clip::NEW,
+            sixel,
         }
     }
 }
@@ -416,7 +425,7 @@ pub struct Owned {
     img_pixels: alloc::vec::Vec<ColorWord>,
     img_slots: alloc::vec::Vec<ImageSlot>,
     img_places: alloc::vec::Vec<PlacementSlot>,
-    sixel_body: alloc::vec::Vec<u8>,
+    sixel: alloc::boxed::Box<SixelStream>,
     clip: alloc::vec::Vec<u8>,
 }
 
@@ -486,28 +495,29 @@ impl Owned {
             palette: vec![ColorWord::DEFAULT; PALETTE_LEN],
             links: vec![0u8; NLINK * LINK_MAX],
             link_len: vec![ByteLen::ZERO; NLINK],
-            // The slot and placement tables are tiny and always allocated; the
-            // pixel arena and the Sixel-body scratch are the large buffers and
-            // default absent, provisioned by [`Owned::with_images`].
+            // The slot and placement tables are tiny and always allocated, and
+            // so is the Sixel decoder's state, its 256 registers the most of
+            // it; the pixel arena is the large buffer and defaults absent,
+            // provisioned by [`Owned::with_images`].
             img_pixels: vec::Vec::new(),
             img_slots: vec![ImageSlot::EMPTY; NIMAGE],
             img_places: vec![PlacementSlot::EMPTY; NPLACEMENT],
-            sixel_body: vec::Vec::new(),
+            sixel: alloc::boxed::Box::new(SixelStream::NEW),
             // The `OSC 52` areas default absent, provisioned by
             // [`Owned::with_clipboard`].
             clip: vec::Vec::new(),
         }
     }
 
-    /// Provision image storage: `pixels` `ColorWord`s of ARGB arena and `body`
-    /// bytes of Sixel-body scratch. [`Owned::new`] provisions neither -- the
-    /// `with_cell_table` opt-in shape -- so a terminal draws no images until a
-    /// caller that wants them sizes these.
+    /// Provision image storage: `pixels` `ColorWord`s of ARGB arena.
+    /// [`Owned::new`] provisions none -- the `with_cell_table` opt-in shape --
+    /// so a terminal draws no images until a caller that wants them sizes it.
     ///
     /// **The size is the owner's call, between one image and a screenful.** A
     /// 64x48 image is 3072 `ColorWord`s (12 KiB); a full 200x50 screen at an
-    /// 8x18 cell is ~1.4M (5.6 MiB). The body scratch holds one raw Sixel
-    /// before it decodes, a few KB per small image and proportionally more.
+    /// 8x18 cell is ~1.4M (5.6 MiB). It is the only limit on a Sixel's size
+    /// besides the 65535 a coordinate holds and the slot table: a body is
+    /// decoded as it arrives, and no scratch holds it.
     ///
     /// **A zero-length arena is valid and refuses every image**, which the
     /// gate depends on -- do not add a non-empty assert here. Refuse-and-count
@@ -517,7 +527,6 @@ impl Owned {
     /// wants images recognised and dropped rather than drawn.
     pub fn with_images(mut self, budget: ImageBudget) -> Owned {
         self.img_pixels = alloc::vec![ColorWord::DEFAULT; budget.pixels];
-        self.sixel_body = alloc::vec![0u8; budget.body];
         self
     }
 
@@ -593,13 +602,13 @@ impl Owned {
                 link_len: &mut self.link_len,
                 clip_area: &mut self.clip,
                 clip: crate::clip::Clip::NEW,
+                sixel: &mut self.sixel,
             },
             ImageStore::new(
                 &mut self.img_pixels,
                 &mut self.img_slots,
                 &mut self.img_places,
             ),
-            &mut self.sixel_body,
         )
     }
 
@@ -632,13 +641,13 @@ impl Owned {
                 link_len: &mut self.link_len,
                 clip_area: &mut self.clip,
                 clip: crate::clip::Clip::NEW,
+                sixel: &mut self.sixel,
             },
             ImageStore::new(
                 &mut self.img_pixels,
                 &mut self.img_slots,
                 &mut self.img_places,
             ),
-            &mut self.sixel_body,
         )
     }
 }
@@ -871,7 +880,6 @@ impl<'b> Storage<'b> {
         clusters: &'b mut [ClusterSlot],
         strs: StrBuf<'b>,
         images: ImageStore<'b>,
-        sixel_body: &'b mut [u8],
     ) -> Storage<'b> {
         assert!(arena.len() >= READ_CHUNK, "arena is smaller than one read");
         // **The stride is checked, not assumed.** `links` is `NLINK` URIs flat
@@ -985,7 +993,6 @@ impl<'b> Storage<'b> {
             },
             strs,
             images,
-            sixel_body,
         }
     }
 }

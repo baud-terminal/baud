@@ -1202,7 +1202,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     // draw nothing, and the image comparison passes while proving the opposite
     // -- the `golden.rs` trap this file exists not to fall into.
     let mut owned = Owned::without_surfaces(&WS, &CacheGeometry::UNKNOWN, Depth::of(12))
-        .with_images(ImageBudget::of(64 * 48 + 64, 8192));
+        .with_images(ImageBudget::of(64 * 48 + 64));
     let (grid, cells) = gpu
         .grid(owned.ring(), owned.stride())
         .expect("a shared grid");

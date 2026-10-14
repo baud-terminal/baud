@@ -49,7 +49,7 @@ fn a_sixel_is_drawn_over_the_grid() {
     let mut r = renderer(&faces);
     let mut c = Canvas::for_renderer(&r);
 
-    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64));
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, SWIRL);
     {
@@ -74,7 +74,7 @@ fn a_sixel_scrolls_off_and_the_frame_changes() {
     let mut r = renderer(&faces);
     let mut c = Canvas::for_renderer(&r);
 
-    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64));
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, SWIRL);
     {
@@ -128,7 +128,7 @@ fn a_sixel_paints_to_its_pinned_frame() {
     let faces = [Face::parse(&data).unwrap()];
     let mut r = renderer(&faces);
     let mut c = Canvas::for_renderer(&r);
-    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64));
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, SWIRL);
     {
@@ -163,7 +163,7 @@ fn a_sixel_scrolled_one_line_draws_one_row_higher() {
     let mut r = renderer(&faces);
     let mut c = Canvas::for_renderer(&r);
     let ch = usize::try_from(r.metrics().cell_h.value()).unwrap();
-    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64));
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, b"\x1b[?25l\x1b[6;1H");
     feed(&mut t, SWIRL);
@@ -237,7 +237,7 @@ fn a_scrolled_back_image_after_a_shrink_draws_on_its_row() {
     let faces = [Face::parse(&data).unwrap()];
     let mut r = renderer(&faces);
     let ch = i32::try_from(r.metrics().cell_h.value()).unwrap();
-    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64));
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, &[b'\n'; 60]);
     feed(&mut t, b"\x1b[1;1HMARK\r\n");
@@ -269,7 +269,7 @@ fn the_shells_image_is_not_drawn_over_the_editor() {
     let faces = [Face::parse(&data).unwrap()];
     let mut r = renderer(&faces);
     let ch = i32::try_from(r.metrics().cell_h.value()).unwrap();
-    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 128, 8192));
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 128));
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, SWIRL);
     r.set_images(&t, Rows::ZERO);
@@ -303,7 +303,7 @@ fn a_static_image_is_snapshotted_once_not_per_frame() {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     let mut r = renderer(&faces);
-    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 128, 8192));
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 128));
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, SWIRL);
 
@@ -372,7 +372,7 @@ fn an_image_that_arrives_mid_session_is_drawn_on_an_incremental_frame() {
     let faces = [Face::parse(&data).unwrap()];
     let mut r = renderer(&faces);
     let mut c = Canvas::for_renderer(&r);
-    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64));
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, b"\x1b[?25l");
     {
@@ -403,7 +403,7 @@ fn an_image_moving_on_incremental_frames_equals_a_full_repaint() {
     let faces = [Face::parse(&data).unwrap()];
     let mut r = renderer(&faces);
     let mut c = Canvas::for_renderer(&r);
-    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64));
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, b"\x1b[?25l\x1b[6;1Hunder\x1b[6;1H");
     feed(&mut t, SWIRL);
@@ -447,7 +447,7 @@ fn a_still_image_costs_no_repaint() {
     let faces = [Face::parse(&data).unwrap()];
     let mut r = renderer(&faces);
     let mut c = Canvas::for_renderer(&r);
-    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64));
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, b"\x1b[?25l");
     feed(&mut t, SWIRL);
@@ -477,7 +477,7 @@ fn the_cpu_path_keeps_no_upload_snapshots() {
     let faces = [Face::parse(&data).unwrap()];
     let mut r = renderer(&faces);
     let mut c = Canvas::for_renderer(&r);
-    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64, 8192));
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64 * 48 + 64));
     let mut t = Term::new(owned.storage(), &WS);
     feed(&mut t, SWIRL);
     for damage in [Damage::Full, Damage::Incremental, Damage::Incremental] {

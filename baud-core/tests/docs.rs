@@ -427,6 +427,38 @@ fn every_test_named_in_the_docs_exists() {
              the old name, and its §5(b) names the test by it",
         ),
         (
+            "a_body_past_the_scratch_is_counted_against_the_body_with_its_length",
+            "a historical name. The test held a Sixel body past its scratch to a \
+             body refusal with its length, and was withdrawn on 2026-10-14, when a \
+             Sixel began decoding as its body arrived and no scratch was left to \
+             run past. The record cites it where it describes the refusals by cause",
+        ),
+        (
+            "a_body_too_large_for_the_scratch_is_refused_whole",
+            "a historical name, withdrawn on 2026-10-14 with the body scratch it ran \
+             a Sixel past: a Sixel decodes as it arrives since. The record names it \
+             among the tests that went with the body refusal",
+        ),
+        (
+            "a_body_overflow_and_an_arena_overflow_are_told_apart",
+            "a historical name, withdrawn on 2026-10-14 with the body refusal it told \
+             apart from the arena's: a Sixel decodes as it arrives since. The record \
+             cites it where it describes the refusals by cause",
+        ),
+        (
+            "a_body_of_exactly_the_default_scratch_stores",
+            "a historical name. The test pinned the 3 MiB body scratch of the owner's \
+             interim and was withdrawn on 2026-10-14, the day it landed, when a Sixel \
+             began decoding as it arrived; `a_body_of_any_length_stores_at_the_default_budget` \
+             replaced it. The record and note S cite it where they describe the interim",
+        ),
+        (
+            "a_body_past_the_default_scratch_is_said_with_its_length",
+            "a historical name, withdrawn with `a_body_of_exactly_the_default_scratch_stores` \
+             and replaced by the same test: no body is refused since. The record and \
+             note S cite it where they describe the interim",
+        ),
+        (
             "the_palette_swaps_black_and_white_and_nothing_else",
             "a historical name. The test pinned xterm's palette swap under \
              `?5` and was withdrawn on 2026-10-14, when the per-cell exchange the \

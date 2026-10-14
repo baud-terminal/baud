@@ -2,13 +2,18 @@
 //!
 //! The parser routes a bare-`q` DCS to `Act::SixelStart` (a `q` from
 //! `Node::Dcs` without the `$` that marks DECRQSS), which renames the string
-//! kind so the body accumulates in `sixel_body` -- an OSC body is far smaller
-//! and uses `pending`. At the terminator `str_end` calls [`Paint::sixel_end`],
-//! which measures the body with the same walk the decode uses, reserves a span,
-//! decodes into it **in place**, and places the image at the cursor. Every
-//! failure is refused and counted, never a wrong or half image.
+//! kind and begins the image: the decoder (`SixelStream`, in `StrBuf`)
+//! claims the image arena's largest free gap. Each body byte the handler
+//! keeps is decoded **as it arrives**, through the same `StrPut` path an OSC
+//! body takes, and paints into the claim -- no copy of the body is kept, so a
+//! body of any length draws, and what limits an image is its pixels, as
+//! `[[source: dec-std-070]]` 070-9 has it. At the terminator `str_end` calls
+//! [`Paint::sixel_end`], which records the image where the store would have
+//! put it and places it at the cursor. Every failure is refused and counted,
+//! never a wrong or half image.
 //!
-//! The cursor advances past the image by `ceil(Pv / cell_h)` rows through the
+//! The cursor advances past the image by `ceil(h / cell_h)` rows, `h` the
+//! height the data reached (not the raster's `Pv`), through the
 //! **existing scroll path** ([`Paint::index`]), so an image at the bottom of
 //! the screen scrolls and the window's top line moves -- which keeps the anchor of
 //! the *next* image right, and which assigning `cy` directly would not. The
@@ -24,95 +29,44 @@ use crate::term::{Screen, SixelBg};
 use baud_domain::*;
 
 impl Paint<'_, '_> {
-    /// Decode the accumulated Sixel body and place the image at the cursor.
+    /// Record the Sixel decoded as its body arrived, and place it at the
+    /// cursor.
     #[cold]
     #[inline(never)]
     pub(crate) fn sixel_end(&mut self) {
-        let n = self.cold.sixel_len.index();
-        // Each refusal names the limit it hit, through `refuse`, because the
-        // one total these used to bump mixed a body over the scratch with an
-        // image over the arena -- two different knobs -- and nothing could
-        // tell a reader which to raise. An empty body is no limit at all.
-        if n == 0 {
-            self.images.refuse(ImageRefusal::Empty);
-            return;
-        }
-        // The length kept counting past the scratch buffer, so `n` beyond it
-        // means bytes were dropped: refuse the whole image rather than decode a
-        // truncated one, and keep the true length so a reader can see how far
-        // past the scratch it ran. It counts the bytes the decoder would read,
-        // so a C0, `SPACE` or `DEL` that `str_put` drops is not one of them. yazi's
-        // screenshot, photo and text-PDF previews ran 334 KiB to 820 KiB
-        // against the app's 256 KiB, and were refused here while the arena had
-        // room. An unprovisioned store (an empty `sixel_body`) refuses every
-        // non-empty Sixel here, which is the correct nothing -- a terminal
-        // with no image memory draws none and says how many it lost.
-        if n > self.sixel_body.len() {
-            self.images.refuse(ImageRefusal::Body(self.cold.sixel_len));
-            return;
-        }
-        let body = &self.sixel_body[..n];
-        // Measure with the same grammar walk `decode` uses, so the reserved
-        // span is exactly what the decode fills.
-        let aspect = self.cold.sixel_aspect;
-        let report = Sixel::extent(body, aspect);
-        let (w, h) = (report.width, report.height);
-        // Wider or taller than a coordinate holds: refused whole, since its
-        // extent stopped at 65535 and a span reserved from it would be too
-        // small for what the decode paints.
-        if report.fit == SixelFit::TooLarge {
-            self.images.refuse(ImageRefusal::TooLarge);
-            return;
-        }
-        if w == SixelPx::ZERO || h == SixelPx::ZERO {
-            self.images.refuse(ImageRefusal::Empty);
-            return;
-        }
-        let Some((id, buf)) = self
-            .images
-            .store(ImagePx::of(w.raw()), ImagePx::of(h.raw()))
-        else {
-            // `store` already counted the refusal, by its cause: no free slot,
-            // or no gap in the arena large enough for `w * h`, with the size.
-            return;
-        };
-        // Decode into the reserved span in place; the borrow ends with the
-        // block so the placement below can reborrow the store. `refused` is
-        // **structurally zero** here and the report is dropped for that reason:
-        // the canvas is `w` wide over exactly `w * h` words, so its height is
-        // `h`, and `decode` walks the same grammar `extent` measured -- every
-        // pixel it paints is inside the span reserved from that measurement.
-        // (`pixels_past_the_canvas_are_refused_and_counted_never_wrapped` is the
-        // case where a caller sizes a canvas *smaller* than the data; here they
-        // are equal.)
+        // **Refused in the order the measured decode refused**, each naming
+        // the limit it hit through `refuse`: wider or taller than a
+        // coordinate holds, no pixels at all -- an empty body among them --
+        // no free slot, then no gap in the arena for `w * h`, with the size.
+        // **No refusal is for the body's length**: a Sixel decodes as it
+        // arrives and none is kept. Until 2026-10-14 a body was held whole in
+        // a scratch of `[images] body_kb` bytes and one longer was refused --
+        // yazi's screenshot, photo and text-PDF previews ran 334 KiB to
+        // 820 KiB against the app's 256 KiB, and the pane went blank while
+        // the arena had room. An unprovisioned store's empty arena refuses
+        // every Sixel with pixels for the arena, which is the correct nothing
+        // -- a terminal with no image memory draws none and says how many it
+        // lost, and how large each was.
         //
-        // **The span is cleared first, because `store` returns it as the arena
-        // left it**: a span is reused once its image is freed, and the decode
-        // paints set bits only, so every position the data leaves unset -- an
-        // unset bit, a band's rows past the last set bit -- showed the freed
-        // image's pixels. `[[source: vt3xx-sixel]]` gives such a position two
-        // meanings, `P2` 1 "remain at their current color" and 0 or 2 "set to
-        // the current background color" (192-203); `[[source: dec-std-070]]`
+        // **Each row was cleared as the image reached it**, because the claim
+        // holds whatever the arena held there: the decode paints set bits
+        // only, so every position the data leaves unset -- an unset bit, a
+        // band's rows past the last set bit -- showed a freed image's pixels
+        // until 2026-10-12, when the span was cleared before a buffered
+        // decode. `[[source: vt3xx-sixel]]` gives such a position two
+        // meanings, `P2` 1 "remain at their current color" and 0 or 2 "set
+        // to the current background color" (192-203); `[[source: dec-std-070]]`
         // 070-9 §7.2 (PDF p. 918) gives 1 "no action", 2 "set to background
         // color" and 0 "device default action". A transparent pixel is what
         // "current color" composites to (a reading) and baud's counted
         // stand-in for the background, and an erased image is none of these.
-        // In yazi's walk down seven files and back, previews 4-10 of 13
-        // carried earlier previews' pixels in the rows their extent runs past
-        // `Pv`. One store per word of the image, which the decode was about to
-        // write in part anyway: no cost measured (the record, "A Sixel's span
-        // is cleared before it decodes").
-        buf.fill(ColorWord::DEFAULT);
-        {
-            let mut canvas = SixelCanvas::new(buf, w);
-            let filled = Sixel::decode(body, aspect, &mut canvas);
-            debug_assert_eq!(filled.refused, 0, "the span was sized from extent");
-        }
+        let Some((id, _, h)) = self.strs.sixel.finish(self.images) else {
+            return;
+        };
         // The image stored, so an ignored opaque-background request is now a
         // real one -- counted here, after the store, rather than at `SixelStart`
         // where a Sixel later refused would have inflated the number the fill
-        // decision reads. (`buf`'s borrow of the store has ended with the block
-        // above, so the counter can be written.)
+        // decision reads.
         if self.cold.sixel_bg == SixelBg::Opaque {
             self.images.sixel_p2_ignored += 1;
         }
@@ -124,15 +78,19 @@ impl Paint<'_, '_> {
         // refused placement; an image that fails to place keeps a zero refcount
         // and is freed by `RIS`.
         //
-        // **`Pa` sets the aspect ratio, `Pb`/`P2` is counted, and `Ph` is
-        // dropped.** The graph routes the `Node::Dcs` parameters into `csi`
-        // (`Act::Digit`/`Sep`), so `SixelStart` reads the macro parameter
-        // into `sixel_aspect`, which the decode above drew at, and the
+        // **`Pa` sets the aspect ratio, `Pb`/`P2` is counted, and the
+        // envelope's grid size is dropped.** The graph routes the `Node::Dcs`
+        // parameters into `csi` (`Act::Digit`/`Sep`), so `SixelStart` begins
+        // the decode at the macro parameter's ratio and reads the
         // transparency selector, bumping `sixel_p2_ignored` when it asks for
         // an opaque background baud renders transparent -- `s-sixel.md`
-        // records why the fill itself is not built. The horizontal grid size
-        // `Ph` is dropped: a sixel pixel is one image pixel wide, and what
-        // that grid falls back to is for Jev (note AN, `Ph`).
+        // records why the fill itself is not built. The third parameter, the
+        // horizontal grid size that ctlseqs calls `Ph` and the VT3xx chapter
+        // `P3`, is dropped: a sixel pixel is one image pixel wide, as "The
+        // VT300 ignores this parameter because the horizontal grid size is
+        // fixed" (`[[source: vt3xx-sixel]]`), and what 070-9 §7.3 falls back
+        // to is for Jev (note AN, `Ph`). It is not the raster command's `Ph`,
+        // the horizontal extent, which the decode lays its rows out by.
         let (screen, line) = self.image_anchor();
         let _ = self.images.place(id, screen, line, self.cx, ZIndex::ZERO);
         // Advance the cursor below the image, through the scroll path so a
@@ -143,9 +101,8 @@ impl Paint<'_, '_> {
         // Active position of the ANSI text is not affected by Sixel mode and
         // set exactly to what is was when Sixel mode was entered" (PDF p. 928,
         // as note AN quotes it). Only when the embedder has said how tall a
-        // cell is; zero
-        // leaves the cursor where the image is, the headless default. `h` was
-        // refused when zero three branches up and `cell_height` is non-zero
+        // cell is; zero leaves the cursor where the image is, the headless
+        // default. `finish` refused a zero `h` and `cell_height` is non-zero
         // here, so the row count is at least one without a guard.
         if self.cell_height != ImagePx::ZERO {
             let rows = usize::from(h.raw()).div_ceil(self.cell_height.index());

@@ -71,9 +71,10 @@ shape this design exists to avoid.
   every slot is filled, and a cell still naming the evicted slot is recoloured
   -- an open bug, a wrong colour and never an out-of-bounds read.
 * A Sixel image is decoded into caller memory with no external decoder,
-  bounded by a body scratch, a pixel arena and a slot table (`[images]
-  body_kb` and `pixels_mb` in the config). A refused image is counted by the
-  limit it hit, and the Primary DA claims Sixel only when `[images]
+  as its bytes arrive, bounded by a pixel arena (`[images] pixels_mb` in the
+  config), the 65535 pixels a coordinate holds and a slot table; no copy of
+  the bytes is kept, so their length is no limit. A refused image is counted
+  by the limit it hit, and the Primary DA claims Sixel only when `[images]
   advertise_sixel` is set.
 
 **Control strings are consumed, never executed.** DCS, SOS, PM and APC payloads

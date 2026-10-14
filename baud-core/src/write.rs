@@ -691,12 +691,12 @@ pub(crate) fn act(
             p.cold.str_kind = StrKind::Decrqss;
             ReadLen::ONE
         }
-        // A bare-`q` DCS is a Sixel: rename the string kind so the body the
-        // `StrPut`/`StrEnd` path accumulates goes to `sixel_body` and decodes,
-        // and reset the length in case a previous body did not terminate.
+        // A bare-`q` DCS is a Sixel: rename the string kind so each byte the
+        // `StrPut` path hands on decodes as it arrives, and begin the image,
+        // which starts the decoder afresh whether or not a previous body
+        // reached its terminator.
         Act::SixelStart => {
             p.cold.str_kind = StrKind::Sixel;
-            p.cold.sixel_len = ReadLen::ZERO;
             // `Pb`/`P2` is the second parameter: 0 or 2 asks for an opaque
             // background where baud renders unpainted pixels transparent. Record
             // which it is for `sixel_end` to count *after* the image stores --
@@ -722,11 +722,12 @@ pub(crate) fn act(
                 }
                 i = i.saturating_add(1);
             });
-            p.cold.sixel_aspect = SixelAspect::from_macro(p1.map(|v| v.value()));
             p.cold.sixel_bg = match p2.map(|v| v.value()) {
                 None | Some(0) | Some(2) => crate::term::SixelBg::Opaque,
                 _ => crate::term::SixelBg::Transparent,
             };
+            let aspect = SixelAspect::from_macro(p1.map(|v| v.value()));
+            p.strs.sixel.begin(aspect, p.images);
             csi.reset();
             ReadLen::ONE
         }

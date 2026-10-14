@@ -551,21 +551,12 @@ pub struct Cold {
     /// cannot change inside a string, because the `ESC` of an `ESC %` ends it.
     pub(crate) str_enc: InputEncoding,
     pub(crate) str_len: ByteLen,
-    /// A Sixel body's length, `ReadLen` rather than `ByteLen` because a Sixel
-    /// body runs to tens of kilobytes where `str_len` is a `u16`. It counts the
-    /// **true** body length and keeps rising past the scratch buffer, so a body
-    /// that overflowed is `sixel_len > sixel_body.len()` at the terminator and
-    /// is refused whole rather than decoded truncated.
-    pub(crate) sixel_len: ReadLen,
     /// A Sixel's `Pb`/`P2` background selector, read from the DCS parameters at
     /// `SixelStart` and consulted at the terminator so a Sixel that is *refused*
     /// (no arena, an overflowed body) is not counted as an ignored request --
     /// the counter is a decision input, and a refused image renders nothing for
     /// a fill to have helped.
     pub(crate) sixel_bg: SixelBg,
-    /// The pixel aspect ratio the Sixel being received starts at, from its
-    /// `P1`, read at `SixelStart` and handed to the decode at the terminator.
-    pub(crate) sixel_aspect: SixelAspect,
     /// ANSI or VT52, and the row byte a half-finished `ESC Y` is holding.
     ///
     /// **Both land in existing padding**: `size_of::<Cold>()` does not change.
@@ -786,9 +777,14 @@ pub struct Cold {
 // DECSCPP, DECANM and `RIS` -- arms of the dispatch -- by `Act::Hold`, and
 // once a read by `Term::feed`'s clearing store and its end; read there and by
 // `Term::take_held`, never by a glyph.
+// It fell 8 bytes, to 576, when a Sixel began decoding as its body arrived:
+// the body's length (`sixel_len`, the `usize` above) and its starting aspect
+// ratio (`sixel_aspect`, two bytes) left, the one read at the terminator
+// against a scratch no longer kept, and the other handed to the decoder at the
+// `q`.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 584);
+const _: () = assert!(core::mem::size_of::<Cold>() == 576);
 
 impl Cold {
     /// What `OSC 10`/`11`/`12 ; ?` answers for `which`: the application's
@@ -860,9 +856,7 @@ impl Cold {
             str_kind: StrKind::Other,
             str_enc: InputEncoding::Utf8,
             str_len: ByteLen::ZERO,
-            sixel_len: ReadLen::ZERO,
             sixel_bg: SixelBg::Transparent,
-            sixel_aspect: SixelAspect::ONE_TO_ONE,
             c1: C1Transmit::SevenBit,
             // The base layer, which is what an application that has not asked
             // for an enhancement must receive.
@@ -2771,16 +2765,16 @@ impl<'b> Term<'b> {
     /// column and a `z`; the image carries its pixel size and its ARGB pixels.
     /// How many images and placements were refused or dropped are counters on
     /// the store ([`ImageStore::images_refused`] and the rest), and which limit
-    /// each image refusal hit is [`ImageStore::refusals`]: the body scratch with
-    /// the body's true length, the arena with the image's size, the slot table,
-    /// or an image with no pixels. An embedder compares it across a read to say
-    /// which limit bit, which the total alone cannot.
+    /// each image refusal hit is [`ImageStore::refusals`]: the arena with the
+    /// image's size, the slot table, an image with no pixels, or one past 65535
+    /// either way. An embedder compares it across a read to say which limit
+    /// bit, which the total alone cannot.
     ///
     /// A Sixel arriving with no image memory provisioned ([`Owned::with_images`]
     /// is how a caller provisions it) is refused and counted here, so an empty
     /// store with a non-zero `images_refused` is the honest state of a terminal
     /// that was sent an image it had nowhere to put -- counted against the
-    /// body, whose scratch is empty.
+    /// arena, which is empty, with the image's size.
     pub fn images(&self) -> &ImageStore<'b> {
         &self.store.images
     }

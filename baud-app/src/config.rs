@@ -140,16 +140,13 @@ pub struct Config {
     pub glass: Glass,
     /// How much caller memory the image store is given, from `[images]`.
     ///
-    /// Two knobs, because the two limits are independent and a single one
-    /// scaling both would rest on an unmeasured guess about Sixel encoding
-    /// density -- a user who raised it and still hit a refusal would have no
-    /// knob left to turn. `pixels_mb` bounds the *decoded* ARGB image (a
-    /// 1024x1024 image is 4 MiB whatever its Sixel encodes to); `body_kb`
-    /// bounds the *raw* Sixel body held before it decodes, which varies with
-    /// its colour count and run-length use. A large image needs both raised:
-    /// the default 4 MiB / 3 MiB holds any yazi preview at its 600x900 cap
-    /// (`host::IMAGE_BUDGET`), and either limit alone refuses (and counts)
-    /// rather than truncating.
+    /// One knob, `pixels_mb`, bounding the *decoded* ARGB images (a
+    /// 1024x1024 image is 4 MiB whatever its Sixel encodes to): a Sixel is
+    /// decoded as its body arrives and no body is held, so its bytes are no
+    /// limit (`host::IMAGE_BUDGET`). An image past it is refused and counted
+    /// rather than truncated. `body_kb`, the second knob until 2026-10-14,
+    /// bounded a raw body held before it decoded, and is read now only to say
+    /// it no longer limits anything.
     pub images: baud_domain::ImageBudget,
     /// Whether the Primary DA advertises Sixel, from `[images] advertise_sixel`.
     /// **Off by default**: an application that sees the claim draws Sixel instead
@@ -810,18 +807,23 @@ impl Config {
                     };
                 }
                 // The image arena, in the units a reader thinks in: MiB of
-                // decoded ARGB pixels, KiB of raw-Sixel scratch. Converted to
-                // the store's own units (`ColorWord`s and bytes) here as a
-                // local -- a `usize` field on `Config` would trip the audit,
-                // but `ImageBudget` is a `baud-domain` type and exempt.
+                // decoded ARGB pixels. Converted to the store's own unit
+                // (`ColorWord`s) here as a local -- a `usize` field on `Config`
+                // would trip the audit, but `ImageBudget` is a `baud-domain`
+                // type and exempt.
                 ("images", "pixels_mb") => match value.trim().parse::<usize>() {
                     Ok(mb) => self.images.pixels = mb.saturating_mul(1 << 18),
                     Err(_) => warn_size(&value, "pixels_mb", &mut said),
                 },
-                ("images", "body_kb") => match value.trim().parse::<usize>() {
-                    Ok(kb) => self.images.body = kb.saturating_mul(1 << 10),
-                    Err(_) => warn_size(&value, "body_kb", &mut said),
-                },
+                // The raw-Sixel scratch this sized until 2026-10-14, when a
+                // Sixel began decoding as it arrived: a config that still
+                // names it is told so, by name, rather than with the line an
+                // unknown key gets, which would read as a typo.
+                ("images", "body_kb") => said.push(
+                    "config: [images] body_kb no longer limits anything: a Sixel is \
+                     decoded as it arrives and no body is held; pixels_mb is the limit"
+                        .into(),
+                ),
                 ("images", "advertise_sixel") => {
                     self.sixel = match value.trim() {
                         "true" => baud_domain::SixelClaim::Yes,
@@ -847,9 +849,8 @@ impl Config {
                         }
                     };
                 }
-                // KiB of base64 body, as `[images] body_kb` is KiB of raw
-                // Sixel: the budget is a `baud-domain` type, so no `usize`
-                // field lands on `Config`.
+                // KiB of base64 body: the budget is a `baud-domain` type, so
+                // no `usize` field lands on `Config`.
                 ("clipboard", "body_kb") => match value.trim().parse::<usize>() {
                     Ok(kb) => {
                         self.clipboard.budget =
@@ -1825,12 +1826,6 @@ mod reader {
         assert_eq!(read("[scroll]\nmode = fast\n").scroll, ScrollMode::Smooth);
     }
 
-    /// `[images]` sets both knobs, in the reader's units: `pixels_mb` MiB of
-    /// ARGB become `mb << 18` ColorWords, `body_kb` KiB become `kb << 10`
-    /// bytes. Non-default values, so a section that lands as "the defaults
-    /// anyway" cannot pass this. A whole number that is not one keeps the
-    /// default rather than being read as zero, which a zero-size arena would
-    /// refuse every image silently.
     #[test]
     fn advertising_sixel_is_off_unless_asked() {
         use baud_domain::SixelClaim;
@@ -1883,17 +1878,28 @@ mod reader {
         assert_eq!(read("osc52 = \"off\"\n").clipboard.osc52, Osc52::Write);
     }
 
+    /// `[images]` sets the arena in the reader's unit: `pixels_mb` MiB of
+    /// ARGB become `mb << 18` ColorWords. A non-default value, so a section
+    /// that lands as "the defaults anyway" cannot pass this. A whole number
+    /// that is not one keeps the default rather than being read as zero,
+    /// which a zero-size arena would refuse every image silently. `body_kb`,
+    /// which sized the raw-Sixel scratch until 2026-10-14, changes nothing
+    /// and is said by name, not as an unknown key.
     #[test]
-    fn an_images_section_sets_both_knobs() {
+    fn an_images_section_sets_the_arena_and_says_body_kb_is_gone() {
         assert_eq!(Config::defaults().images, crate::host::IMAGE_BUDGET);
-        let c = read("[images]\npixels_mb = 8\nbody_kb = 512\n");
+        let c = read("[images]\npixels_mb = 8\n");
         assert_eq!(c.images.pixels, 8 << 18, "8 MiB of ColorWords");
-        assert_eq!(c.images.body, 512 << 10, "512 KiB of scratch");
-        // A non-number on one knob leaves that knob at the default and does
-        // not disturb the other.
-        let c = read("[images]\npixels_mb = plenty\nbody_kb = 512\n");
+        let c = read("[images]\npixels_mb = plenty\n");
         assert_eq!(c.images.pixels, crate::host::IMAGE_BUDGET.pixels);
-        assert_eq!(c.images.body, 512 << 10);
+        let mut c = Config::defaults();
+        let said = c.apply("[images]\nbody_kb = 512\npixels_mb = 8\n");
+        assert_eq!(c.images.pixels, 8 << 18, "the arena still read");
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(
+            said[0].contains("body_kb no longer limits") && !said[0].contains("has no key"),
+            "{said:?}"
+        );
     }
 
     #[test]

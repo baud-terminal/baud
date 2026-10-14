@@ -363,7 +363,7 @@ fn an_image_in_the_erased_history_goes_and_one_on_the_screen_stays() {
     const TINY: &[u8] = b"\x1bP0;1;0q#0;2;100;0;0~\x1b\\";
     let ws = support::CORPUS;
     let mut owned = Owned::with_history(&ws, &CacheGeometry::UNKNOWN, Depth::DEFAULT)
-        .with_images(ImageBudget::of(4 * (64 * 48 + 64), 8192));
+        .with_images(ImageBudget::of(4 * (64 * 48 + 64)));
     let mut t = Term::new(owned.storage(), &ws);
     t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
     let placed = |t: &Term<'_>| {

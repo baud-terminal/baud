@@ -53,10 +53,9 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn str_put(&mut self, b: StreamByte) {
-        // A Sixel body is far larger than `OSC_MAX` and goes to its own buffer.
-        // The length rises past the buffer so an overflow is detectable at the
-        // terminator (`sixel_len > sixel_body.len()`) and the image is refused
-        // whole rather than decoded from a truncated body.
+        // A Sixel body is decoded as it arrives, a byte at a time, into the
+        // gap of the image arena its `q` claimed (`SixelStream`): no copy of
+        // it is kept, so no length limits it, and its pixels do.
         if self.cold.str_kind == StrKind::Sixel {
             // **A C0 is dropped here, before the decoder.** The graph puts a DCS
             // body's `BEL` and its format effectors `08-0D`,
@@ -157,15 +156,10 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// Store one Sixel body byte the handler keeps. The length rises past
-    /// the buffer, so an overflow is seen at the terminator.
+    /// Decode one Sixel body byte the handler keeps.
     #[inline]
     fn sixel_put(&mut self, b: StreamByte) {
-        let n = self.cold.sixel_len.index();
-        if n < self.sixel_body.len() {
-            self.sixel_body[n] = b.raw_byte();
-        }
-        self.cold.sixel_len = ReadLen::from_index(n + 1);
+        self.strs.sixel.put(b, self.images);
     }
 
     /// A Sixel body byte outside `21-7E`: kept, folded or dropped as
@@ -211,7 +205,6 @@ impl Paint<'_, '_> {
             }
         }
         self.cold.str_len = ByteLen::ZERO;
-        self.cold.sixel_len = ReadLen::ZERO;
     }
 
     /// A palette entry written, and the colour epoch moved when it changed:
@@ -507,9 +500,9 @@ pub(crate) enum StrKind {
     Osc,
     /// A `DCS $ q`, the status request `report_status` answers.
     Decrqss,
-    /// A `DCS Pa;Pb;Ph q` Sixel: the body is raster data, accumulated into
-    /// `sixel_body` and decoded at the terminator. Reached through the bare
-    /// `q` prefix, the `Decrqss` shape one prefix over.
+    /// A `DCS Pa;Pb;Ph q` Sixel: the body is raster data, decoded as it
+    /// arrives and recorded at the terminator. Reached through the bare `q`
+    /// prefix, the `Decrqss` shape one prefix over.
     Sixel,
     /// An `OSC 52` past its `52;`: the body goes to the clipboard areas,
     /// decoded as it arrives (`clip.rs`). Reached through the body's own

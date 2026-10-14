@@ -4,10 +4,13 @@
 //! pixels, the slots and the placements exactly as it owns the grid and the
 //! arena, and `docs/research/notes/t-images.md` is the design.
 //!
-//! An image is decoded **once, into the arena in place** (a [`SixelCanvas`] over
-//! the slice [`ImageStore::store`] returns), which is the zero-extra-copy path
-//! the register describes: the pixels land where a renderer will read them
-//! rather than in a scratch that is then copied. The storage carries ARGB
+//! An image is decoded **once, into the arena in place** (a Sixel into the
+//! gap it claims as its body arrives, [`SixelStream`], or a [`SixelCanvas`]
+//! over the slice [`ImageStore::store`] returns), which is the
+//! zero-extra-copy path the register describes: the pixels land where a
+//! renderer will read them rather than in a scratch that is then copied. A
+//! Sixel is moved once, at its terminator, when a gap lower than its claim
+//! holds it, so the store lays images out as `store` would. The storage carries ARGB
 //! [`ColorWord`]s and never palette indices, decided in the register on the
 //! shader-sampling ground -- a palette index in the cell shader is a second
 //! dependent texture fetch.
@@ -26,13 +29,13 @@
 //! An image is freed when its last placement is gone (or by an explicit
 //! [`ImageStore::free`], the Kitty delete), which returns its span to the arena.
 //! Reclaim is **inherent, not bookkept**: free space is the gaps between live
-//! spans, recomputed per allocation ([`ImageStore::allocate`]), so a free is a
+//! spans, recomputed per allocation (`ImageStore::lowest_gap`), so a free is a
 //! slot cleared and nothing else -- baud's "compute the gaps rather than keep a
 //! free list" instinct, and correct for every free order rather than only a
 //! stack.
 
 use crate::pos::LineIdx;
-use crate::quantity::{Col, Count, ReadLen, Rows};
+use crate::quantity::{Col, Count, Rows};
 use crate::style::ColorWord;
 
 /// A pixel dimension of a stored image, width or height. `u16` covers any image
@@ -322,36 +325,37 @@ impl PlacementSlot {
 }
 
 /// How much caller memory an image store is given: the ARGB pixel arena in
-/// `ColorWord`s and the Sixel-body scratch in bytes. A typed pair rather than
-/// two loose sizes, so a caller provisioning a store names which is which -- and
-/// so `baud-core`'s provisioning method takes one struct rather than two raw
-/// `usize`s, which its signature budget forbids.
+/// `ColorWord`s. A type rather than a loose size, so `baud-core`'s
+/// provisioning method takes one rather than a raw `usize`, which its
+/// signature budget forbids.
+///
+/// **It is the only limit on an image's size**, with the 65535 a coordinate
+/// holds and the slot table. Until 2026-10-14 it carried a second, the bytes
+/// of Sixel-body scratch a raw body was held in before it decoded; a Sixel
+/// is decoded as it arrives since ([`SixelStream`]), and holds no body.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ImageBudget {
     /// `ColorWord`s of ARGB pixel arena.
     pub pixels: usize,
-    /// Bytes of Sixel-body scratch, holding one raw body before it decodes.
-    pub body: usize,
 }
 
 impl ImageBudget {
-    /// A budget of `pixels` arena words and `body` scratch bytes.
-    pub fn of(pixels: usize, body: usize) -> ImageBudget {
-        ImageBudget { pixels, body }
+    /// A budget of `pixels` arena words.
+    pub fn of(pixels: usize) -> ImageBudget {
+        ImageBudget { pixels }
     }
 }
 
 /// Which limit refused an image, with the size that hit it -- what
 /// [`ImageStore::refuse`] is told, and what [`ImageRefusals`] counts. Each
-/// variant is a different fix: the first two are `[images] body_kb` and
-/// `pixels_mb` in the app, the slot table is a provisioning constant, and an
-/// image with no pixels is no limit at all.
+/// variant is a different fix: the arena is `[images] pixels_mb` in the
+/// app, the slot table is a provisioning constant, and an image with no
+/// pixels or past 65535 either way is no limit at all. **No refusal is for
+/// a body's bytes**: a Sixel is decoded as it arrives ([`SixelStream`]),
+/// and until 2026-10-14 a `Body` refusal counted a raw body past its
+/// scratch.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ImageRefusal {
-    /// A Sixel's raw body ran past the body scratch: its true length, which
-    /// keeps counting after the scratch stops holding bytes. An unprovisioned
-    /// store's empty scratch is this, against a limit of zero.
-    Body(ReadLen),
     /// An image with no pixels: an empty Sixel, one whose data paints
     /// nothing, or a zero dimension handed to [`ImageStore::store`]. No limit
     /// refused it and none raised would draw it.
@@ -360,6 +364,7 @@ pub enum ImageRefusal {
     Slot,
     /// No gap in the pixel arena held a `width` x `height` image -- larger
     /// than the whole arena, or larger than what the live images leave free.
+    /// An unprovisioned store's empty arena is this for every image.
     Arena(ImagePx, ImagePx),
     /// An image wider or taller than 65535 pixels, the most an image
     /// coordinate holds: no limit refused it and none raised would draw it.
@@ -372,13 +377,9 @@ pub enum ImageRefusal {
 /// the scratch with an image over the arena, two different knobs -- yazi's
 /// previews went blank on the first (a 600x375 screenshot was a 334 KiB body
 /// against the app's 256 KiB scratch of 2026-10-09) while the arena held them.
+/// The body scratch is gone since 2026-10-14, and with it that cause.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ImageRefusals {
-    /// Sixels refused because the raw body ran past the body scratch.
-    pub body: usize,
-    /// The true length of the last body refused for it, so a reader can see
-    /// how far to raise the scratch. Zero until one is.
-    pub body_len: ReadLen,
     /// Images refused for having no pixels.
     pub empty: usize,
     /// Images refused because every image slot held a live image.
@@ -396,8 +397,6 @@ pub struct ImageRefusals {
 impl ImageRefusals {
     /// Nothing refused.
     pub const NONE: ImageRefusals = ImageRefusals {
-        body: 0,
-        body_len: ReadLen::ZERO,
         empty: 0,
         slot: 0,
         arena: 0,
@@ -409,7 +408,7 @@ impl ImageRefusals {
     /// Every refusal, whatever its cause: what
     /// [`ImageStore::images_refused`] equals.
     pub fn total(&self) -> usize {
-        self.body + self.empty + self.slot + self.arena + self.too_large
+        self.empty + self.slot + self.arena + self.too_large
     }
 }
 
@@ -436,8 +435,8 @@ pub struct ImageStore<'b> {
     /// not drawn, and how often is a number. [`ImageStore::refusals`] says
     /// which limit each hit, and this is their total.
     pub images_refused: usize,
-    /// The refusals by cause: the body scratch, the slot table, the arena, or
-    /// an image with no pixels. Every refusal in the tree goes through
+    /// The refusals by cause: the slot table, the arena, an image with no
+    /// pixels, or one past 65535 either way. Every refusal in the tree goes through
     /// [`ImageStore::refuse`], which bumps `images_refused` with it, so the
     /// total and its causes agree.
     pub refusals: ImageRefusals,
@@ -545,9 +544,11 @@ impl<'b> ImageStore<'b> {
     /// **The slice holds whatever the arena held there**, the pixels of the
     /// last image freed from that span included: it is not cleared here, so a
     /// caller that writes every word (the memcpy) writes each once. A caller
-    /// that leaves any word unwritten clears the slice first, as
-    /// `sixel_end` does; before it did, a Sixel showed a freed preview through
-    /// its unset bits.
+    /// that leaves any word unwritten clears the slice first. A Sixel does not
+    /// come through here: it decodes as it arrives into the gap it claimed
+    /// ([`SixelStream`]), clearing each row as the image reaches it, because
+    /// before `sixel_end` cleared its span a Sixel showed a freed preview
+    /// through its unset bits.
     ///
     /// Refused, counted, and `None`, if the dimensions are zero, if no image
     /// slot is free, or if no gap in the arena holds the span. Never truncated:
@@ -564,19 +565,42 @@ impl<'b> ImageStore<'b> {
                 return None;
             }
         };
-        let slot = match self.free_slot() {
-            Some(i) => i,
-            None => {
-                self.refuse(ImageRefusal::Slot);
-                return None;
-            }
+        let at = self.lowest_gap(area);
+        let id = self.store_at(at, width, height)?;
+        let start = at?;
+        Some((id, &mut self.pixels[start..start + area]))
+    }
+
+    /// Record a `width` x `height` image whose pixels are already at word
+    /// `at` of the arena -- `None` when no gap held it. Refused and counted
+    /// in [`ImageStore::store`]'s order: no free slot, then the arena, which
+    /// is also what a span past the arena's end or over a live image is, so
+    /// a caller that named a wrong offset gets a refusal rather than a
+    /// corrupted image. `width * height` is not zero here.
+    pub(crate) fn store_at(
+        &mut self,
+        at: Option<usize>,
+        width: ImagePx,
+        height: ImagePx,
+    ) -> Option<ImageId> {
+        let Some(slot) = self.free_slot() else {
+            self.refuse(ImageRefusal::Slot);
+            return None;
         };
-        let offset = match self.allocate(area) {
-            Some(o) => o,
-            None => {
-                self.refuse(ImageRefusal::Arena(width, height));
-                return None;
-            }
+        let area = width.index() * height.index();
+        let span = at.and_then(|a| {
+            let end = a.checked_add(area)?;
+            let offset = u32::try_from(a).ok()?;
+            let clear = end <= self.pixels.len()
+                && !self
+                    .slots
+                    .iter()
+                    .any(|s| !s.is_empty() && a < s.end() && s.start() < end);
+            clear.then_some(offset)
+        });
+        let Some(offset) = span else {
+            self.refuse(ImageRefusal::Arena(width, height));
+            return None;
         };
         self.slots[slot] = ImageSlot {
             offset,
@@ -586,25 +610,60 @@ impl<'b> ImageStore<'b> {
         };
         self.tallest = self.tallest.max(height);
         self.epoch = self.epoch.bumped();
-        let start = offset as usize;
-        Some((
-            ImageId::from_index(slot),
-            &mut self.pixels[start..start + area],
-        ))
+        Some(ImageId::from_index(slot))
+    }
+
+    /// Whether an image slot is free, which a Sixel decoded as it arrives
+    /// asks at its terminator, to refuse for the slot before the arena as
+    /// [`ImageStore::store`] does.
+    pub(crate) fn has_free_slot(&self) -> bool {
+        self.free_slot().is_some()
+    }
+
+    /// The largest gap between live spans, as its start and length in words,
+    /// the lowest start of two as large: what a Sixel claims at its `q`,
+    /// before its size is known. No gap holds more at that moment; a Sixel
+    /// asks again when its claim runs out, since a free during its body can
+    /// open a larger one.
+    pub(crate) fn largest_gap(&self) -> (usize, usize) {
+        let n = self.pixels.len();
+        let live = || self.slots.iter().filter(|s| !s.is_empty());
+        // A gap starts at the arena's start or where a live span ends, and
+        // runs to the next live start or the arena's end.
+        core::iter::once(0)
+            .chain(live().map(|s| s.end()))
+            .filter(|&c| c < n && !live().any(|s| s.start() <= c && c < s.end()))
+            .map(|c| {
+                let end = live()
+                    .map(|s| s.start())
+                    .filter(|&s| s >= c)
+                    .min()
+                    .unwrap_or(n);
+                (c, end - c)
+            })
+            .fold((0, 0), |best, g| {
+                match g.1 > best.1 || (g.1 == best.1 && g.0 < best.0) {
+                    true => g,
+                    false => best,
+                }
+            })
+    }
+
+    /// The arena, for a Sixel painting the gap it claimed. Nothing but the
+    /// claim is written through it: the claim is a gap, so no live image is
+    /// in it.
+    pub(crate) fn arena_mut(&mut self) -> &mut [ColorWord] {
+        self.pixels
     }
 
     /// Count a refused image: the total and its cause in one place, so the
     /// two cannot disagree. The store calls it for its own three refusals;
     /// a decoder calls it for the ones it finds before the store is asked --
-    /// a Sixel body past the scratch, or one that paints nothing.
+    /// a Sixel that paints nothing, or one past 65535 either way.
     pub fn refuse(&mut self, why: ImageRefusal) {
         self.images_refused += 1;
         let r = &mut self.refusals;
         match why {
-            ImageRefusal::Body(len) => {
-                r.body += 1;
-                r.body_len = len;
-            }
             ImageRefusal::Empty => r.empty += 1,
             ImageRefusal::Slot => r.slot += 1,
             ImageRefusal::Arena(width, height) => {
@@ -1045,12 +1104,13 @@ impl<'b> ImageStore<'b> {
     }
 
     /// The lowest offset at which `area` pixels fit in a gap between live spans,
-    /// or `None` if the arena has no such gap. Free space is the gaps between
+    /// or `None` if the arena has no such gap: where [`ImageStore::store`]
+    /// puts an image, and where a Sixel decoded in its claim moves to. Free space is the gaps between
     /// live slots, so this reclaims every freed span with no free list to keep:
     /// a candidate offset is bumped past any span it overlaps until a full pass
     /// finds none, which converges because the candidate only rises and is
     /// bounded by the arena length.
-    fn allocate(&self, area: usize) -> Option<u32> {
+    pub(crate) fn lowest_gap(&self, area: usize) -> Option<usize> {
         let mut cand: usize = 0;
         loop {
             let end = cand.checked_add(area)?;
@@ -1069,7 +1129,7 @@ impl<'b> ImageStore<'b> {
                 }
             }
             if !bumped {
-                return u32::try_from(cand).ok();
+                return Some(cand);
             }
         }
     }

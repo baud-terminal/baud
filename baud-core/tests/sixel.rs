@@ -1,10 +1,10 @@
 //! The Sixel parser-hook gate: a `DCS ... q` Sixel is decoded and placed in
 //! the image store, and it is **chunk-invariant** -- the same image whatever
-//! the read boundaries -- because the body accumulates in `sixel_body` across
-//! reads before it decodes. A recording carries a Sixel in ~5 KB, far past a
-//! `read(2)`, so the read boundary lands mid-body on every real transfer; a
-//! parser that reset there would decode the tail of every image as garbage,
-//! and only in production.
+//! the read boundaries -- because the decoder's state, a number half read
+//! included, carries across reads as the body decodes. A recording carries
+//! a Sixel in ~5 KB, far past a `read(2)`, so the read boundary lands
+//! mid-body on every real transfer; a parser that reset there would decode
+//! the tail of every image as garbage, and only in production.
 
 use baud_core::*;
 use baud_domain::{ImageBudget, ImagePx, ImageRefusals, RowRot, SixelClaim};
@@ -19,7 +19,7 @@ const SWIRL: &[u8] = include_bytes!(concat!(
 
 /// A budget that holds the 64x48 capture with room.
 fn ample() -> ImageBudget {
-    ImageBudget::of(64 * 48 + 64, 8192)
+    ImageBudget::of(64 * 48 + 64)
 }
 
 /// Feed `data` in reads of `chunk` bytes into a term provisioned with `budget`,
@@ -111,7 +111,7 @@ fn a_bel_inside_a_sixel_is_payload_and_draws_nothing() {
             b"\x1bP0;\x071q#1;2;100;0;0#1~~~~-~~\x1b\\Z",
         ),
     ];
-    let budget = ImageBudget::of(64 * 48 + 64, 8192);
+    let budget = ImageBudget::of(64 * 48 + 64);
     let mut want = None;
     run(without, without.len(), budget, |t| want = Some(drawn(t)));
     let want = want.unwrap();
@@ -289,7 +289,7 @@ fn a_c0_or_del_inside_a_sixel_number_splits_nothing() {
             (2, 24),
         ),
     ];
-    let budget = ImageBudget::of(64 * 48 + 64, 8192);
+    let budget = ImageBudget::of(64 * 48 + 64);
     for (name, with, without, size) in cases {
         for (enc, with, without) in [
             ("UTF-8", with.to_vec(), without.to_vec()),
@@ -589,8 +589,8 @@ fn a_previewer_replacing_images_does_not_accumulate_them() {
     // scramble a previewer shows in baud.
     let ws = support::CORPUS;
     // Room for 40 copies, so without the fix the slot table (32) fills before
-    // the arena does and the failure is refusal, not a body/arena limit.
-    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(64 * 48 * 40, 8192));
+    // the arena does and the failure is refusal, not an arena limit.
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(64 * 48 * 40));
     let mut t = Term::new(owned.storage(), &ws);
     // The embedder's cell size: an image spans cells only once the core knows
     // it, which is what lets an overwrite free the image under it.
@@ -617,7 +617,7 @@ fn writing_over_a_sixels_cells_frees_it_and_writing_elsewhere_does_not() {
     // rectangle frees the image; a glyph well outside it leaves the image
     // placed -- so the freeing is scoped to the image's cells, not any write.
     let ws = support::CORPUS;
-    let budget = ImageBudget::of(64 * 48 + 64, 8192);
+    let budget = ImageBudget::of(64 * 48 + 64);
 
     // Inside the rect (row 2, col 3): frees it.
     let mut owned = Owned::new(&ws).with_images(budget);
@@ -655,7 +655,7 @@ fn the_primary_da_advertises_sixel_only_when_opted_in_and_provisioned() {
     // refuses every Sixel, so claiming it there would be a lie.
     let ws = support::CORPUS;
 
-    let mut provisioned = Owned::new(&ws).with_images(ImageBudget::of(64, 64));
+    let mut provisioned = Owned::new(&ws).with_images(ImageBudget::of(64));
     let mut t = Term::new(provisioned.storage(), &ws);
     one(&mut t, b"\x1b[c");
     assert_eq!(
@@ -685,10 +685,11 @@ fn the_primary_da_advertises_sixel_only_when_opted_in_and_provisioned() {
 
 #[test]
 fn an_unprovisioned_store_refuses_and_counts() {
-    // A default terminal has no image memory (no body scratch either), so the
-    // body length rises past the empty buffer and the Sixel is refused at the
-    // body-overflow branch -- recognised and counted, not a wrong image and not
-    // a silent drop. (The store-refuse branch is exercised separately, above.)
+    // A default terminal has no image memory, so the Sixel is walked whole
+    // and refused for want of an arena gap, with the size it would have
+    // taken -- recognised and counted, not a wrong image and not a silent
+    // drop. Until 2026-10-14 it was refused for its body against a scratch
+    // of zero bytes, which said nothing of the image.
     let ws = support::CORPUS;
     let mut owned = Owned::new(&ws);
     let mut t = Term::new(owned.storage(), &ws);
@@ -700,36 +701,21 @@ fn an_unprovisioned_store_refuses_and_counts() {
         1,
         "the one Sixel is counted refused"
     );
+    let r = t.images().refusals;
     assert_eq!(
-        t.images().refusals.body,
-        1,
-        "and counted against the body scratch, whose limit is zero"
-    );
-}
-
-#[test]
-fn a_body_too_large_for_the_scratch_is_refused_whole() {
-    // A body scratch smaller than the ~5 KB capture: the length rises past it,
-    // so the terminator sees an overflow and refuses the whole image rather
-    // than decoding a truncated one.
-    run(
-        SWIRL,
-        SWIRL.len(),
-        ImageBudget::of(64 * 48 + 64, 1024),
-        |t| {
-            assert_eq!(t.images().placements().count(), 0, "not placed");
-            assert_eq!(t.images().images_refused, 1, "refused, not decoded short");
-        },
+        (r.arena, r.arena_width.raw(), r.arena_height.raw()),
+        (1, 64, 48),
+        "and counted against the arena, whose limit is zero, with its size"
     );
 }
 
 #[test]
 fn a_body_that_fits_but_no_pixel_arena_refuses_at_the_store() {
-    // Body scratch provisioned, pixel arena starved: the body decodes-measures
-    // fine and reaches `store`, which refuses because no gap holds `w * h`.
-    // This is the store-refuse branch, distinct from the body-overflow branch
-    // an unprovisioned terminal takes.
-    run(SWIRL, SWIRL.len(), ImageBudget::of(0, 8192), |t| {
+    // A pixel arena of zero words: the body decodes-measures fine and is
+    // refused at the terminator, because no gap holds `w * h`. (The body
+    // limit this was told apart from, a scratch the body ran past, is gone
+    // since 2026-10-14: a body decodes as it arrives.)
+    run(SWIRL, SWIRL.len(), ImageBudget::of(0), |t| {
         assert_eq!(t.images().placements().count(), 0, "not placed");
         assert_eq!(t.images().images_refused, 1, "the store refused it");
     });
@@ -738,93 +724,33 @@ fn a_body_that_fits_but_no_pixel_arena_refuses_at_the_store() {
 /// What a reader can see of an image refusal: the store's refusals by cause.
 /// Two refusals by different limits must read differently here, or the reader
 /// cannot tell which limit to raise. It was every image counter the store
-/// exposed, and read `[1, 0, 0, 0, 0]` for both refusals below.
+/// exposed, and read `[1, 0, 0, 0, 0]` for a body refusal and an arena one.
 fn refusals(t: &Term) -> ImageRefusals {
     t.images().refusals
 }
 
 #[test]
-fn a_body_overflow_and_an_arena_overflow_are_told_apart() {
-    // The same capture refused twice, by the two limits `[images]` has a knob
-    // for: a 1 KiB body scratch under its ~5 KB body, and a zero pixel arena
-    // under its 64x48 pixels. Raising `body_kb` fixes the first and
-    // `pixels_mb` the second, so a reader must be able to tell them apart.
-    let mut body = None;
-    let mut arena = None;
-    run(
-        SWIRL,
-        SWIRL.len(),
-        ImageBudget::of(64 * 48 + 64, 1024),
-        |t| body = Some(refusals(t)),
-    );
-    run(SWIRL, SWIRL.len(), ImageBudget::of(0, 8192), |t| {
-        arena = Some(refusals(t))
-    });
-    assert_ne!(
-        body, arena,
-        "a body overflow and an arena overflow read the same: the reader cannot \
-         tell which limit bit"
-    );
-}
-
-/// The capture's raw body: from after the `q` that ends `ESC P 0;1;0 q` to
-/// the `ESC \` that ends it -- what the body scratch must hold, 5448 bytes.
-fn swirl_body() -> ReadLen {
-    let start = SWIRL.iter().position(|&b| b == b'q').unwrap() + 1;
-    let end = SWIRL.windows(2).rposition(|w| w == b"\x1b\\").unwrap();
-    ReadLen::from_index(end - start)
-}
-
-#[test]
-fn a_body_past_the_scratch_is_counted_against_the_body_with_its_length() {
-    // A 1 KiB scratch under the capture's 5448-byte body, at every read size:
-    // the length keeps counting across reads after the scratch stops holding
-    // bytes, so the true length is what is kept, not the scratch's. Only the
-    // body is blamed -- the arena holds the 64x48 image with room.
-    for chunk in [1usize, 7, 1024, SWIRL.len()] {
-        run(SWIRL, chunk, ImageBudget::of(64 * 48 + 64, 1024), |t| {
-            let r = refusals(t);
-            assert_eq!(r.body, 1, "chunk {chunk}: counted against the body");
-            assert_eq!(r.body_len, swirl_body(), "chunk {chunk}: its true length");
-            assert_eq!(
-                (r.empty, r.slot, r.arena),
-                (0, 0, 0),
-                "chunk {chunk}: no other limit is blamed"
-            );
-            assert_eq!(t.images().images_refused, r.total(), "chunk {chunk}");
-        });
-    }
-    // The control: a scratch of exactly the body's length holds it.
-    let exact = ImageBudget::of(64 * 48 + 64, swirl_body().index());
-    run(SWIRL, SWIRL.len(), exact, |t| {
-        assert_eq!(refusals(t), ImageRefusals::NONE, "a body that fits");
-        assert_eq!(placed_dims(t), Some((64, 48)));
-    });
-}
-
-#[test]
 fn an_image_past_the_arena_is_counted_against_the_arena_with_its_size() {
-    // One pixel short of the capture's 64x48: the body fits, the store has a
-    // free slot, and no gap holds the pixels. Only the arena is blamed, with
+    // One pixel short of the capture's 64x48, at every read size: the store
+    // has a free slot, and no gap holds the pixels. Only the arena is blamed, with
     // the size that did not fit -- and an arena of exactly 64x48 holds it.
-    run(
-        SWIRL,
-        SWIRL.len(),
-        ImageBudget::of(64 * 48 - 1, 8192),
-        |t| {
+    // The decode runs out of room partway through the body and walks the
+    // rest without painting, so the size is the whole image's at every read
+    // size.
+    for chunk in [1usize, 7, 1024, SWIRL.len()] {
+        run(SWIRL, chunk, ImageBudget::of(64 * 48 - 1), |t| {
             let r = refusals(t);
-            assert_eq!(r.arena, 1, "counted against the arena");
+            assert_eq!(r.arena, 1, "chunk {chunk}: counted against the arena");
             assert_eq!(
                 (r.arena_width.raw(), r.arena_height.raw()),
                 (64, 48),
-                "with the size that did not fit"
+                "chunk {chunk}: with the size that did not fit"
             );
-            assert_eq!((r.body, r.empty, r.slot), (0, 0, 0), "nothing else");
-            assert_eq!(r.body_len, ReadLen::ZERO, "no body length was kept");
+            assert_eq!((r.empty, r.slot, r.too_large), (0, 0, 0), "nothing else");
             assert_eq!(t.images().images_refused, r.total());
-        },
-    );
-    run(SWIRL, SWIRL.len(), ImageBudget::of(64 * 48, 8192), |t| {
+        });
+    }
+    run(SWIRL, SWIRL.len(), ImageBudget::of(64 * 48), |t| {
         assert_eq!(refusals(t), ImageRefusals::NONE, "an arena that fits");
         assert_eq!(placed_dims(t), Some((64, 48)));
     });
@@ -833,11 +759,11 @@ fn an_image_past_the_arena_is_counted_against_the_arena_with_its_size() {
 #[test]
 fn a_full_slot_table_is_counted_against_the_slots() {
     // 32 one-by-six images, `Owned`'s `NIMAGE`, at one cell: no cell size is
-    // set, so nothing frees them and each holds a slot. The arena and the
-    // body have room for many more, so the 33rd is refused by the slot table
-    // and by nothing else.
+    // set, so nothing frees them and each holds a slot. The arena has room
+    // for many more, so the 33rd is refused by the slot table and by nothing
+    // else.
     let ws = support::CORPUS;
-    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(4096, 8192));
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(4096));
     let mut t = Term::new(owned.storage(), &ws);
     for _ in 0..32 {
         feed(&mut t, TINY);
@@ -847,7 +773,7 @@ fn a_full_slot_table_is_counted_against_the_slots() {
     feed(&mut t, TINY);
     let r = refusals(&t);
     assert_eq!(r.slot, 1, "the 33rd has no slot");
-    assert_eq!((r.body, r.empty, r.arena), (0, 0, 0), "nothing else");
+    assert_eq!((r.empty, r.arena, r.too_large), (0, 0, 0), "nothing else");
     assert_eq!(t.images().images_refused, r.total());
 }
 
@@ -860,7 +786,7 @@ fn a_sixel_with_no_pixels_is_counted_as_empty() {
         run(empty, empty.len(), ample(), |t| {
             let r = refusals(t);
             assert_eq!(r.empty, 1, "{empty:?}: counted as empty");
-            assert_eq!((r.body, r.slot, r.arena), (0, 0, 0), "{empty:?}");
+            assert_eq!((r.slot, r.arena, r.too_large), (0, 0, 0), "{empty:?}");
             assert_eq!(t.images().images_refused, r.total(), "{empty:?}");
         });
     }
@@ -880,12 +806,12 @@ fn an_image_past_65535_pixels_either_way_is_refused_whole() {
         (
             "120000 rows",
             b"\x1bPq\"20000;1#1;2;100;0;0#1~\x1b\\",
-            ImageBudget::of(1 << 17, 8192),
+            ImageBudget::of(1 << 17),
         ),
         (
             "65536 columns",
             b"\x1bP9q#1;2;100;0;0#1!65535~!1~\x1b\\",
-            ImageBudget::of(1 << 19, 8192),
+            ImageBudget::of(1 << 19),
         ),
     ];
     for (name, body, budget) in cases {
@@ -894,7 +820,7 @@ fn an_image_past_65535_pixels_either_way_is_refused_whole() {
             assert_eq!(t.images().images_refused, 1, "{name}: refused");
             let r = refusals(t);
             assert_eq!(r.too_large, 1, "{name}: counted as too large");
-            assert_eq!((r.body, r.empty, r.slot, r.arena), (0, 0, 0, 0), "{name}");
+            assert_eq!((r.empty, r.slot, r.arena), (0, 0, 0), "{name}");
         });
     }
 }
@@ -1203,7 +1129,7 @@ fn a_refused_opaque_sixel_is_not_counted() {
     // starved to zero) is refused -- nothing drawn -- and must not inflate the
     // count. This is why P2 is read at the terminator, after the store succeeds,
     // not at `SixelStart`.
-    run(P2_OPAQUE, P2_OPAQUE.len(), ImageBudget::of(0, 8192), |t| {
+    run(P2_OPAQUE, P2_OPAQUE.len(), ImageBudget::of(0), |t| {
         assert_eq!(
             t.images().placements().count(),
             0,

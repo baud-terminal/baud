@@ -213,22 +213,20 @@ transition = false
 [scroll]
 mode = "smooth"
 
-# How much memory the image store (Sixel today) is given. Two knobs, because
-# the two limits are independent: pixels_mb bounds the DECODED image (a
-# 1024x1024 picture is 4 MiB whatever its Sixel encodes to), and body_kb
-# bounds the RAW Sixel bytes held before they decode, which varies with the
-# image's colours and run-length runs. A large image needs BOTH raised; either
-# limit alone refuses the image (and counts it) rather than showing half of
-# one.
+# How much memory the image store (Sixel today) is given: pixels_mb bounds
+# the DECODED images (a 1024x1024 picture is 4 MiB whatever its Sixel encodes
+# to). It is the one limit on an image's size, beside the 65535 pixels a
+# side and 32 images at once: a Sixel is decoded as its bytes arrive and the
+# bytes are not kept, so a long Sixel is no different from a short one. An
+# image past the arena is refused (and counted) rather than shown in half.
 #
-# The defaults hold a 1024x1024 image decoded, and a 3 MiB body. yazi writes
-# 1 to 4.6 bytes a pixel at its 600x900 cap, at most 2,705,560 bytes, so
-# every preview it sends fits both. Until 2026-10-14 the body default was
-# 256 KiB, and a UI screenshot (334-390 KiB at 600x375), a photo (474-680 KiB
-# at 600x800) and a page of a text PDF (797-820 KiB at 600x776) were refused
-# and the pane stayed blank. A body past body_kb is still refused whole, until
-# baud decodes a Sixel as it arrives and holds no body at all. Each refusal
-# logs one warning naming the limit and the sizes, on stderr, so it shows when
+# The default holds a 1024x1024 image decoded, and every preview yazi sends
+# at its 600x900 cap. Until 2026-10-14 the raw bytes were held first, under a
+# second key, body_kb: at its 256 KiB a UI screenshot (334-390 KiB at
+# 600x375), a photo (474-680 KiB at 600x800) and a page of a text PDF
+# (797-820 KiB at 600x776) were refused and the pane stayed blank. body_kb
+# limits nothing now, and naming it logs a line saying so. Each refusal logs
+# one warning naming the limit and the sizes, on stderr, so it shows when
 # baud is launched from a terminal and not from the Dock.
 #
 # advertise_sixel makes the Primary DA claim Sixel (attribute 4), so a
@@ -238,7 +236,6 @@ mode = "smooth"
 # the claim is the reader's to make.
 [images]
 pixels_mb = 4
-body_kb = 3072
 advertise_sixel = false
 
 # Whether a program can put text on the clipboard with OSC 52: remote

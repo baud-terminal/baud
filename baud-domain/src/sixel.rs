@@ -1,7 +1,15 @@
 //! The Sixel raster decoder: the bytes inside a `DCS ... q ... ST` turned into
 //! a paletted bitmap. Pure, `no_std`, and it allocates nothing -- the caller
-//! owns the pixels through a [`SixelCanvas`], exactly as the caller owns the
-//! grid and the arena.
+//! owns the pixels, through the image store's arena a terminal decodes into as
+//! the body arrives ([`SixelStream`]) or a [`SixelCanvas`] over a slice of its
+//! own, exactly as the caller owns the grid and the arena.
+//!
+//! **One grammar, a byte at a time.** The walk keeps what a body leaves
+//! between two bytes -- the registers, the position, the command and number
+//! in progress -- so a body split anywhere, a number included, decodes as the
+//! whole does, and no copy of it is kept. Where a set bit lands is a sink's:
+//! nothing (measuring), a canvas the caller sized, or the gap of the arena a
+//! Sixel claimed at its `q`.
 //!
 //! The grammar is `[[source: vt3xx-sixel]]` -- the VT330/VT340 manual chapter
 //! `[[source: ctlseqs]]` names and defers to. The DCS *envelope*
@@ -14,6 +22,7 @@
 //! this is the decode half of its first acceptance gate.
 
 use crate::decode::{InputEncoding, StreamByte};
+use crate::image::{ImageId, ImagePx, ImageRefusal, ImageStore};
 use crate::style::{Chan, ColorWord};
 
 /// A pixel coordinate or extent. A Sixel is bounded by its raster attributes
@@ -106,6 +115,7 @@ impl SixelAspect {
 
 /// Whether a raster command may still set the ratio: only before the first
 /// data byte and the first `$` or `-` (070-9 §8.1.2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Raster {
     Open,
     Closed,
@@ -193,8 +203,9 @@ pub struct SixelReport {
 /// (`[[source: vt3xx-sixel]]`, `Pc` 0..=255).
 const REGISTERS: usize = 256;
 
-/// The Sixel decoder. Stateless between calls; a decode is one pass over the
-/// data with the caller's canvas.
+/// The Sixel decoder over a body held whole: stateless between calls, each a
+/// pass of the one grammar over the data with the caller's canvas. A terminal
+/// does not hold the body, and decodes it with [`SixelStream`].
 pub struct Sixel;
 
 impl Sixel {
@@ -277,196 +288,662 @@ impl Sixel {
     /// `aspect` is what the envelope's `P1` set ([`SixelAspect::from_macro`]);
     /// a raster command at the head of `data` overrides it. A sixel row is
     /// painted that many device rows tall, and a band is six of them.
+    ///
+    /// **The bytes go through [`SixelStream`]'s grammar one at a time**, the
+    /// one walk the terminal decodes a body with as it arrives; only where the
+    /// pixels land differs, a canvas the caller sized here and the store's
+    /// arena there.
     pub fn decode(data: &[u8], aspect: SixelAspect, canvas: &mut SixelCanvas) -> SixelReport {
-        Sixel::walk(data, aspect, Some(canvas))
+        let mut walk = Walk::new(aspect);
+        let mut sink = Clipped { canvas, refused: 0 };
+        for &b in data {
+            walk.put(b, &mut sink);
+        }
+        walk.close(&mut sink);
+        walk.report(sink.refused)
     }
 
     /// The extent the data reaches -- its `width` and `height` -- without
     /// painting. **The same walk as [`Sixel::decode`], not a second grammar**,
     /// so a size reserved from `extent` is exactly what `decode` fills; two
     /// spellings of one grammar is the `csi_whole` mistake this repo already
-    /// paid for. A caller sizes an image arena from this, then decodes into it.
+    /// paid for.
     pub fn extent(data: &[u8], aspect: SixelAspect) -> SixelReport {
-        Sixel::walk(data, aspect, None)
+        let mut walk = Walk::new(aspect);
+        for &b in data {
+            walk.put(b, &mut Measure);
+        }
+        walk.close(&mut Measure);
+        walk.report(0)
     }
+}
 
-    /// The one grammar walk. `canvas` absent measures the extent and paints
-    /// nothing; present, it paints and counts what fell outside. `width` and
-    /// `height` are the data's reach either way, because the extent is tracked
-    /// independently of whether a pixel landed.
-    fn walk(data: &[u8], aspect: SixelAspect, mut canvas: Option<&mut SixelCanvas>) -> SixelReport {
-        let mut regs = [ColorWord::DEFAULT; REGISTERS];
-        // The device rows one sixel row takes, and whether a raster command
-        // may still change it.
-        let mut rows = aspect.0;
-        let mut raster = Raster::Open;
-        let mut reg: usize = 0;
-        // Positions and the extent are counted in `u32`, past what a
-        // coordinate holds, so an image too large to state is seen as one.
-        let mut x: u32 = 0;
-        let mut band_top: u32 = 0;
-        let mut width: u32 = 0;
-        let mut height: u32 = 0;
-        let mut band = 6 * u32::from(rows);
-        let mut refused: u32 = 0;
-        let mut unapplied: u32 = 0;
-        // The repeat introducer applies to the one data byte that follows it;
-        // one column otherwise.
-        let mut repeat: u16 = 1;
+/// The command whose parameters are arriving: none, a colour introducer
+/// `#`, a repeat introducer `!`, or raster attributes `"`. A Sixel's
+/// parameters are numbers separated by `;`, so a body split anywhere --
+/// inside a number included -- leaves this and the number so far, and the
+/// next read goes on from them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Cmd {
+    Ground,
+    Colour,
+    Repeat,
+    Raster,
+}
 
-        let mut i = 0;
-        while i < data.len() {
-            let b = data[i];
-            match b {
-                // Colour register: `#Pc` selects, `#Pc;Pu;Px;Py;Pz` defines.
-                b'#' => {
-                    let (pc, mut j) = number(data, i + 1);
-                    let named = usize::from(pc).min(REGISTERS - 1);
-                    if data.get(j) == Some(&b';') {
-                        let (pu, k1) = number(data, j + 1);
-                        let (px, k2) = number_after_sep(data, k1);
-                        let (py, k3) = number_after_sep(data, k2);
-                        let (pz, k4) = number_after_sep(data, k3);
-                        j = k4;
-                        match pu {
-                            2 => {
-                                regs[named] = rgb(px, py, pz);
-                                reg = named;
-                            }
-                            // HLS, hue 0-360 and lightness and saturation
-                            // 0-100 (`[[source: vt3xx-sixel]]` Table 14-1).
-                            // A value past its range ignores the whole
-                            // command, `Pc` included: `[[source: dec-std-070]]`
-                            // 070-9 §8.1.3 (PDF p. 921), so `reg` is kept.
-                            1 => match hls(px, py, pz) {
-                                Some(c) => {
-                                    regs[named] = c;
-                                    reg = named;
-                                }
-                                None => unapplied = unapplied.saturating_add(1),
-                            },
-                            // An unrecognised system selects `Pc` and is
-                            // counted; 070-9 §8.1.3 ignores this whole command
-                            // too, and RGB past 100 is clamped where it says
-                            // the same: note AN's item 6, not built here.
-                            _ => {
-                                reg = named;
-                                unapplied = unapplied.saturating_add(1);
-                            }
-                        }
-                    } else {
-                        reg = named;
+impl Cmd {
+    /// The index of the last parameter the command takes: `#Pc;Pu;Px;Py;Pz`
+    /// five, `"Pan;Pad;Ph;Pv` four, `!Pn` one. A `;` past it ends the
+    /// command, and is then a byte of no meaning.
+    fn last(self) -> usize {
+        match self {
+            Cmd::Colour => 4,
+            Cmd::Raster => 3,
+            Cmd::Repeat | Cmd::Ground => 0,
+        }
+    }
+}
+
+/// Where a walk's pixels go. The grammar is one ([`Walk`]); what a set bit
+/// does is the sink's: nothing ([`Measure`]), a pixel in a canvas the caller
+/// sized ([`Clipped`]), or a pixel in the gap of the image store's arena a
+/// Sixel claimed as it began ([`Claim`]).
+trait Sink {
+    /// The raster's horizontal extent `Ph`, when one is set before any data.
+    fn extent(&mut self, ph: u16);
+
+    /// One data byte, `bits` its six bits, drawn over columns `[x0, x1)` --
+    /// one, or a repeat count's -- in the band whose top row is `top`, each
+    /// sixel row `rows` device rows tall, in `colour`. Called for every data
+    /// byte, all bits clear included, because the image reaches that far.
+    fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: ColorWord);
+}
+
+/// The sink that paints nothing: what [`Sixel::extent`] measures with.
+struct Measure;
+
+impl Sink for Measure {
+    fn extent(&mut self, _ph: u16) {}
+    fn data(&mut self, _x0: u32, _x1: u32, _top: u32, _rows: u16, _bits: u8, _c: ColorWord) {}
+}
+
+/// The sink over a caller's canvas: a pixel past its edge is refused and
+/// counted, never wrapped.
+struct Clipped<'c, 'a> {
+    canvas: &'c mut SixelCanvas<'a>,
+    refused: u32,
+}
+
+impl Sink for Clipped<'_, '_> {
+    fn extent(&mut self, _ph: u16) {}
+
+    fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: ColorWord) {
+        for x in x0..x1 {
+            for row in 0u8..6 {
+                if bits & (1 << row) == 0 {
+                    continue;
+                }
+                let first = top.saturating_add(u32::from(row) * u32::from(rows));
+                for k in 0..u32::from(rows) {
+                    let y = first.saturating_add(k);
+                    let painted = match (SixelPx::at(x), SixelPx::at(y)) {
+                        (Some(px), Some(py)) => self.canvas.paint(px, py, colour),
+                        _ => Painted::Refused,
+                    };
+                    if let Painted::Refused = painted {
+                        self.refused = self.refused.saturating_add(1);
                     }
-                    i = j;
-                    repeat = 1;
-                }
-                // Repeat introducer: the next data byte is drawn `Pn` times.
-                // `[[source: vt3xx-sixel]]` is silent on `Pn = 0`;
-                // `[[source: dec-std-070]]` 070-9 §8.1.1 settles it: "A repeat
-                // count of zero implies a repeat count of 1" (PDF p. 920).
-                b'!' => {
-                    let (pn, j) = number(data, i + 1);
-                    repeat = pn.max(1);
-                    i = j;
-                }
-                // Graphics carriage return: back to the left of this band.
-                b'$' => {
-                    x = 0;
-                    i += 1;
-                    repeat = 1;
-                    raster = Raster::Closed;
-                }
-                // Graphics new line: left, and down one six-pixel band.
-                b'-' => {
-                    x = 0;
-                    band_top = band_top.saturating_add(band);
-                    i += 1;
-                    repeat = 1;
-                    raster = Raster::Closed;
-                }
-                // Raster attributes: the aspect ratio `Pan:Pad`, which sets the
-                // rows a sixel row takes, and a declared size `Ph`x`Pv`, which
-                // "does not limit the number of pixels a device may image"
-                // (070-9 §8.1.2) and is not used here. After data or a `$` or
-                // `-` the whole command is ignored, as §8.1.2 says.
-                b'"' => {
-                    let (pan, k1) = number(data, i + 1);
-                    let (pad, k2) = number_after_sep(data, k1);
-                    let (_ph, k3) = number_after_sep(data, k2);
-                    let (_pv, k4) = number_after_sep(data, k3);
-                    if let Raster::Open = raster {
-                        rows = SixelAspect::from_raster(pan, pad).0;
-                        band = 6 * u32::from(rows);
-                    }
-                    i = k4;
-                    repeat = 1;
-                }
-                // A sixel data byte: six vertical pixels, the low six bits of
-                // `b - 0x3F`, least significant at the top
-                // (`[[source: vt3xx-sixel]]`).
-                0x3f..=0x7e => {
-                    let bits = b - 0x3f;
-                    let colour = regs[reg];
-                    let mut n = repeat;
-                    while n > 0 {
-                        for row in 0u8..6 {
-                            if bits & (1 << row) != 0 {
-                                // Absent in measure mode: the extent below is
-                                // tracked whether or not a pixel is painted.
-                                if let Some(c) = canvas.as_deref_mut() {
-                                    let top =
-                                        band_top.saturating_add(u32::from(row) * u32::from(rows));
-                                    for k in 0..u32::from(rows) {
-                                        let y = top.saturating_add(k);
-                                        let painted = match (SixelPx::at(x), SixelPx::at(y)) {
-                                            (Some(px), Some(py)) => c.paint(px, py, colour),
-                                            _ => Painted::Refused,
-                                        };
-                                        match painted {
-                                            Painted::Inside => {}
-                                            Painted::Refused => refused = refused.saturating_add(1),
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        x = x.saturating_add(1);
-                        n -= 1;
-                    }
-                    // The extent is where the data reached, not where pixels
-                    // were set: `x` is now the first column past this data byte,
-                    // and the band is six rows tall whether or not any bit set.
-                    width = width.max(x);
-                    height = height.max(band_top.saturating_add(band));
-                    i += 1;
-                    repeat = 1;
-                    raster = Raster::Closed;
-                }
-                // Everything else is skipped. No C0, `SPACE` or `DEL` reaches
-                // here from the core -- the Sixel arm of `str_put` keeps only
-                // what [`Sixel::body_byte`] keeps, a GR byte under ISO 8859-1
-                // as its GL byte -- so what does is a byte in `80-FF` under
-                // UTF-8, and a command this decoder does not recognise (note
-                // AN, section 11). A caller that hands this a body with a
-                // `SPACE` in a number gets the number ended there: the drop is
-                // `body_byte`'s, before the body is stored.
-                _ => {
-                    i += 1;
                 }
             }
         }
+    }
+}
 
-        let fit = match (SixelPx::at(width), SixelPx::at(height)) {
+/// The grammar of a Sixel body, one byte at a time: the colour registers,
+/// the active position, the extent reached, and the command and number in
+/// progress. What a body leaves between two reads is this, so a split
+/// anywhere decodes as the whole does.
+///
+/// `[[source: vt3xx-sixel]]` gives the grammar and `[[source: dec-std-070]]`
+/// 070-9 §8 the rules it leaves open; each arm below cites the one it keeps.
+#[derive(Clone)]
+struct Walk {
+    regs: [ColorWord; REGISTERS],
+    /// The device rows one sixel row takes, and whether a raster command may
+    /// still change it.
+    rows: u16,
+    raster: Raster,
+    reg: usize,
+    /// Positions and the extent, counted in `u32` past what a coordinate
+    /// holds, so an image too large to state is seen as one.
+    x: u32,
+    band_top: u32,
+    width: u32,
+    height: u32,
+    /// The repeat introducer applies to the one data byte that follows it;
+    /// one column otherwise.
+    repeat: u16,
+    unapplied: u32,
+    cmd: Cmd,
+    /// The parameter being read, and the ones read before it.
+    stage: usize,
+    val: u16,
+    params: [u16; 5],
+}
+
+impl Walk {
+    const NEW: Walk = Walk {
+        regs: [ColorWord::DEFAULT; REGISTERS],
+        rows: 2,
+        raster: Raster::Open,
+        reg: 0,
+        x: 0,
+        band_top: 0,
+        width: 0,
+        height: 0,
+        repeat: 1,
+        unapplied: 0,
+        cmd: Cmd::Ground,
+        stage: 0,
+        val: 0,
+        params: [0; 5],
+    };
+
+    fn new(aspect: SixelAspect) -> Walk {
+        Walk {
+            rows: aspect.0,
+            ..Walk::NEW
+        }
+    }
+
+    fn band(&self) -> u32 {
+        6 * u32::from(self.rows)
+    }
+
+    /// One body byte. A digit grows the number in progress, saturating at
+    /// `u16::MAX`; any other byte ends it, and a byte that ends a command is
+    /// then read as the command's successor, as the slice walk this replaced
+    /// read the byte after a number.
+    #[inline]
+    fn put(&mut self, b: u8, sink: &mut impl Sink) {
+        if self.cmd == Cmd::Ground {
+            return self.ground(b, sink);
+        }
+        if b.is_ascii_digit() {
+            self.val = self
+                .val
+                .saturating_mul(10)
+                .saturating_add(u16::from(b - b'0'));
+            return;
+        }
+        self.params[self.stage] = self.val;
+        self.val = 0;
+        if b == b';' && self.stage < self.cmd.last() {
+            self.stage += 1;
+            return;
+        }
+        self.apply(sink);
+        self.ground(b, sink);
+    }
+
+    /// The body ended: a command whose parameters ran to the terminator takes
+    /// effect with what arrived, as the slice walk read a number at the end
+    /// of its data.
+    fn close(&mut self, sink: &mut impl Sink) {
+        if self.cmd != Cmd::Ground {
+            self.params[self.stage] = self.val;
+            self.val = 0;
+            self.apply(sink);
+        }
+    }
+
+    fn begin(&mut self, cmd: Cmd) {
+        self.cmd = cmd;
+        self.stage = 0;
+        self.val = 0;
+        self.params = [0; 5];
+    }
+
+    /// The command in progress, its parameters read; one never given is
+    /// zero, which is the default a Sixel omits.
+    fn apply(&mut self, sink: &mut impl Sink) {
+        let p = self.params;
+        match self.cmd {
+            // Colour register: `#Pc` selects, `#Pc;Pu;Px;Py;Pz` defines.
+            Cmd::Colour => {
+                let named = usize::from(p[0]).min(REGISTERS - 1);
+                if self.stage == 0 {
+                    self.reg = named;
+                } else {
+                    match p[1] {
+                        2 => {
+                            self.regs[named] = rgb(p[2], p[3], p[4]);
+                            self.reg = named;
+                        }
+                        // HLS, hue 0-360 and lightness and saturation 0-100
+                        // (`[[source: vt3xx-sixel]]` Table 14-1). A value past
+                        // its range ignores the whole command, `Pc` included:
+                        // `[[source: dec-std-070]]` 070-9 §8.1.3 (PDF p. 921),
+                        // so `reg` is kept.
+                        1 => match hls(p[2], p[3], p[4]) {
+                            Some(c) => {
+                                self.regs[named] = c;
+                                self.reg = named;
+                            }
+                            None => self.unapplied = self.unapplied.saturating_add(1),
+                        },
+                        // An unrecognised system selects `Pc` and is counted;
+                        // 070-9 §8.1.3 ignores this whole command too, and RGB
+                        // past 100 is clamped where it says the same: note
+                        // AN's item 6, not built here.
+                        _ => {
+                            self.reg = named;
+                            self.unapplied = self.unapplied.saturating_add(1);
+                        }
+                    }
+                }
+                self.repeat = 1;
+            }
+            // Repeat introducer: the next data byte is drawn `Pn` times.
+            // `[[source: vt3xx-sixel]]` is silent on `Pn = 0`;
+            // `[[source: dec-std-070]]` 070-9 §8.1.1 settles it: "A repeat
+            // count of zero implies a repeat count of 1" (PDF p. 920).
+            Cmd::Repeat => self.repeat = p[0].max(1),
+            // Raster attributes: the aspect ratio `Pan:Pad`, which sets the
+            // rows a sixel row takes, and a horizontal extent `Ph`, which
+            // 070-9 §8.1.2 gives "to provide a summary to avoid a complete
+            // scanning of the data for the horizontal limits" and which "does
+            // not limit the number of pixels a device may image" (its p. 9,
+            // PDF p. 920): the sink may lay its rows out by it, and data past
+            // it is drawn. `Pv`, "the same functionality vertically" (p. 10),
+            // changes nothing a sink does: a claim is the whole gap. After
+            // data or a `$` or `-` the whole command is ignored, as §8.1.2
+            // says.
+            Cmd::Raster => {
+                if let Raster::Open = self.raster {
+                    self.rows = SixelAspect::from_raster(p[0], p[1]).0;
+                    sink.extent(p[2]);
+                }
+                self.repeat = 1;
+            }
+            Cmd::Ground => {}
+        }
+        self.cmd = Cmd::Ground;
+        self.stage = 0;
+    }
+
+    #[inline]
+    fn ground(&mut self, b: u8, sink: &mut impl Sink) {
+        match b {
+            b'#' => self.begin(Cmd::Colour),
+            b'!' => self.begin(Cmd::Repeat),
+            b'"' => self.begin(Cmd::Raster),
+            // Graphics carriage return: back to the left of this band.
+            b'$' => {
+                self.x = 0;
+                self.repeat = 1;
+                self.raster = Raster::Closed;
+            }
+            // Graphics new line: left, and down one six-pixel band.
+            b'-' => {
+                self.x = 0;
+                self.band_top = self.band_top.saturating_add(self.band());
+                self.repeat = 1;
+                self.raster = Raster::Closed;
+            }
+            // A sixel data byte: six vertical pixels, the low six bits of
+            // `b - 0x3F`, least significant at the top
+            // (`[[source: vt3xx-sixel]]`).
+            0x3f..=0x7e => {
+                let x1 = self.x.saturating_add(u32::from(self.repeat));
+                let colour = self.regs[self.reg];
+                sink.data(self.x, x1, self.band_top, self.rows, b - 0x3f, colour);
+                // The extent is where the data reached, not where pixels were
+                // set: `x1` is the first column past this data byte, and the
+                // band is six rows tall whether or not any bit set.
+                self.x = x1;
+                self.width = self.width.max(x1);
+                self.height = self.height.max(self.band_top.saturating_add(self.band()));
+                self.repeat = 1;
+                self.raster = Raster::Closed;
+            }
+            // Everything else is skipped. No C0, `SPACE` or `DEL` reaches here
+            // from the core -- the Sixel arm of `str_put` keeps only what
+            // [`Sixel::body_byte`] keeps, a GR byte under ISO 8859-1 as its GL
+            // byte -- so what does is a byte in `80-FF` under UTF-8, a digit
+            // or `;` outside a command, and a command this decoder does not
+            // recognise (note AN, section 11). A caller that hands this a body
+            // with a `SPACE` in a number gets the number ended there: the drop
+            // is `body_byte`'s, before the byte arrives.
+            _ => {}
+        }
+    }
+
+    fn report(&self, refused: u32) -> SixelReport {
+        let fit = match (SixelPx::at(self.width), SixelPx::at(self.height)) {
             (Some(_), Some(_)) => SixelFit::Fits,
             _ => SixelFit::TooLarge,
         };
         SixelReport {
-            width: SixelPx::at(width).unwrap_or(SixelPx(u16::MAX)),
-            height: SixelPx::at(height).unwrap_or(SixelPx(u16::MAX)),
+            width: SixelPx::at(self.width).unwrap_or(SixelPx(u16::MAX)),
+            height: SixelPx::at(self.height).unwrap_or(SixelPx(u16::MAX)),
             refused,
-            unapplied_registers: unapplied,
+            unapplied_registers: self.unapplied,
             fit,
         }
+    }
+}
+
+/// Whether the gap a Sixel claimed still holds what it has painted.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Held {
+    /// Every data byte so far fitted.
+    Yes,
+    /// One did not: wider or taller than a coordinate holds, or more pixels
+    /// than the gap. The rest of the body is walked without painting, so the
+    /// refusal at the terminator names the image's whole size.
+    Lost,
+}
+
+/// The gap of the image store's arena a Sixel paints into while its body
+/// arrives, and how its rows are laid out there.
+///
+/// **Row `r` of the image so far is the `stride` words at `r * stride`**,
+/// and rows `[0, zeroed)` are cleared or painted -- the rest of the gap is
+/// whatever the arena held, an earlier image's pixels included, and is
+/// cleared as the image grows into it. The stride starts at the raster's
+/// `Ph` when one is sent, the summary 070-9 §8.1.2 gives it as; with none,
+/// or past it, it grows by doubling, and a band below the first lays the
+/// rows out again at the widest row seen when the stride is wider, so an
+/// overstated `Ph` or a doubling commits no more rows of it than the image
+/// has. At the terminator the rows are packed to the image's width.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Gap {
+    /// Where the claim starts in the arena, and how many words it holds.
+    at: usize,
+    len: usize,
+    stride: usize,
+    zeroed: usize,
+    /// The widest row painted so far, in pixels.
+    widest: usize,
+    /// One past the highest word of the claim written, for
+    /// [`SixelStream::written`].
+    written: usize,
+    held: Held,
+}
+
+impl Gap {
+    const NONE: Gap = Gap {
+        at: 0,
+        len: 0,
+        stride: 0,
+        zeroed: 0,
+        widest: 0,
+        written: 0,
+        held: Held::Yes,
+    };
+}
+
+/// The sink a terminal decodes into: the claimed gap of the store's arena.
+struct Claim<'g, 's, 'b> {
+    gap: &'g mut Gap,
+    store: &'s mut ImageStore<'b>,
+}
+
+impl Claim<'_, '_, '_> {
+    /// The claim's words, from its start.
+    fn words(&mut self) -> &mut [ColorWord] {
+        let Gap { at, len, .. } = *self.gap;
+        &mut self.store.arena_mut()[at..at + len]
+    }
+
+    /// The image needs `need` words and the claim holds fewer: a free since
+    /// the `q` -- a resize expiring an image between two reads of the
+    /// body -- may have opened a larger gap, so take the store's largest
+    /// gap now and move the rows laid out so far into it. Whether the claim
+    /// now holds `need`.
+    fn regrow(&mut self, need: usize) -> bool {
+        let (at, len) = self.store.largest_gap();
+        if len < need {
+            return false;
+        }
+        let g = *self.gap;
+        let used = g.zeroed * g.stride;
+        self.store.arena_mut().copy_within(g.at..g.at + used, at);
+        self.gap.at = at;
+        self.gap.len = len;
+        true
+    }
+
+    /// Make the image at least `w` wide and `h` tall inside the claim,
+    /// clearing what it grows into; [`Held::Lost`] when the claim cannot.
+    fn reach(&mut self, w: u32, h: u32) {
+        if w > u32::from(u16::MAX) || h > u32::from(u16::MAX) {
+            self.gap.held = Held::Lost;
+            return;
+        }
+        let (w, h) = (w as usize, h as usize);
+        let g = *self.gap;
+        if w <= g.stride && h <= g.zeroed {
+            self.gap.widest = g.widest.max(w);
+            return;
+        }
+        // Past the rows laid out: the image is at least the widest row by
+        // the rows reached, and a claim smaller than that is grown or lost.
+        let need = w.max(g.widest).saturating_mul(h.max(g.zeroed));
+        if need > g.len && !self.regrow(need) {
+            self.gap.held = Held::Lost;
+            return;
+        }
+        let g = *self.gap;
+        let rows = h.max(g.zeroed);
+        if w > g.stride {
+            // Wider than the stride: double it, or take exactly `w` when a
+            // doubled stride would not leave the claim room for the rows.
+            let grown = w.max(g.stride * 2).max(64);
+            let fits = g.len.checked_div(rows).unwrap_or(0);
+            let to = if grown <= fits { grown } else { w };
+            if to.saturating_mul(rows) > g.len {
+                self.gap.held = Held::Lost;
+                return;
+            }
+            self.restride(to);
+        }
+        self.gap.widest = self.gap.widest.max(w);
+        if h > self.gap.zeroed {
+            // A new band: a stride past the widest row is laid out again at
+            // it, so the rows below take only what the image is wide.
+            let widest = self.gap.widest;
+            if self.gap.zeroed > 0 && self.gap.stride > widest {
+                self.restride(widest);
+            }
+            if h.saturating_mul(self.gap.stride) > g.len {
+                if widest.saturating_mul(h) > g.len {
+                    self.gap.held = Held::Lost;
+                    return;
+                }
+                self.restride(widest);
+            }
+            let (from, to) = (self.gap.zeroed * self.gap.stride, h * self.gap.stride);
+            self.words()[from..to].fill(ColorWord::DEFAULT);
+            self.gap.written = self.gap.written.max(to);
+            self.gap.zeroed = h;
+        }
+    }
+
+    /// Lay the cleared rows out at stride `to`, clearing the columns a
+    /// wider stride adds. Rows move in the order that never overwrites one
+    /// not yet moved: from the last when widening, from the first when
+    /// narrowing.
+    fn restride(&mut self, to: usize) {
+        let Gap {
+            stride: from,
+            zeroed,
+            ..
+        } = *self.gap;
+        if to == from {
+            return;
+        }
+        let keep = from.min(to);
+        let words = self.words();
+        if to > from {
+            for r in (0..zeroed).rev() {
+                words.copy_within(r * from..r * from + keep, r * to);
+                words[r * to + from..r * to + to].fill(ColorWord::DEFAULT);
+            }
+        } else {
+            for r in 0..zeroed {
+                words.copy_within(r * from..r * from + keep, r * to);
+            }
+        }
+        self.gap.written = self.gap.written.max(zeroed * to);
+        self.gap.stride = to;
+    }
+}
+
+impl Sink for Claim<'_, '_, '_> {
+    fn extent(&mut self, ph: u16) {
+        // Only before any data, so no row is laid out yet to move.
+        if ph > 0 {
+            self.gap.stride = usize::from(ph);
+        }
+    }
+
+    fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: ColorWord) {
+        if self.gap.held == Held::Lost {
+            return;
+        }
+        self.reach(x1, top.saturating_add(6 * u32::from(rows)));
+        if self.gap.held == Held::Lost || bits == 0 {
+            return;
+        }
+        // Inside the claim by `reach`: `x1` is at most the stride and the
+        // band's last row is below `zeroed`.
+        let stride = self.gap.stride;
+        let (x0, x1, top, rows) = (x0 as usize, x1 as usize, top as usize, usize::from(rows));
+        let words = self.words();
+        for row in 0..6 {
+            if bits & (1 << row) == 0 {
+                continue;
+            }
+            let first = top + row * rows;
+            for y in first..first + rows {
+                words[y * stride + x0..y * stride + x1].fill(colour);
+            }
+        }
+    }
+}
+
+/// A Sixel decoded **as its body arrives**, into the image store's arena,
+/// with no copy of the body kept. One per terminal: [`SixelStream::begin`]
+/// at the `q`, [`SixelStream::put`] for each body byte the handler keeps,
+/// [`SixelStream::finish`] at the terminator.
+///
+/// **What limits an image is its pixels**, as `[[source: dec-std-070]]`
+/// 070-9 has it: §8.1.2's extent "does not limit the number of pixels a
+/// device may image" (its p. 9, PDF p. 920), §2 sets as a goal that
+/// "'picture too complex' for the above raster sizes is not permitted" --
+/// 768 or 800 by 240 pixels at 2:1 -- and "The protocol should support any
+/// size rasters, although not all devices will be capable of displaying
+/// them" (p. 2, PDF p. 913), and no section read names a limit on a body's
+/// bytes. So an image
+/// is refused for what it would occupy -- wider or taller than 65535, more
+/// pixels than the arena's largest gap, or no free slot -- and never for how
+/// many bytes described it.
+///
+/// **At the `q` it claims the store's largest gap.** Nothing else stores an
+/// image until this one ends; a free between two reads (a resize expiring an
+/// image) can open a larger gap, and a claim that runs out takes the store's
+/// largest gap then, moving its rows; a claim is not recorded, so a body
+/// that never reaches its terminator -- cancelled, abandoned, or reset --
+/// leaves no slot and no span, only arena words no image owns. At the terminator the image moves
+/// to the lowest gap that holds it, where [`ImageStore::store`] would have
+/// put it, and is recorded there.
+#[derive(Clone)]
+pub struct SixelStream {
+    walk: Walk,
+    gap: Gap,
+}
+
+impl SixelStream {
+    /// A stream with no Sixel begun.
+    pub const NEW: SixelStream = SixelStream {
+        walk: Walk::NEW,
+        gap: Gap::NONE,
+    };
+
+    /// Begin a Sixel drawn at `aspect`, claiming `store`'s largest free gap.
+    /// The registers start at zero, private to the image.
+    pub fn begin(&mut self, aspect: SixelAspect, store: &ImageStore) {
+        let (at, len) = store.largest_gap();
+        self.walk = Walk::new(aspect);
+        self.gap = Gap {
+            at,
+            len,
+            ..Gap::NONE
+        };
+    }
+
+    /// One body byte the handler keeps ([`Sixel::body_byte`]).
+    #[inline]
+    pub fn put(&mut self, b: StreamByte, store: &mut ImageStore) {
+        let mut sink = Claim {
+            gap: &mut self.gap,
+            store,
+        };
+        self.walk.put(b.raw_byte(), &mut sink);
+    }
+
+    /// The terminator. Refused and counted in the order the measured decode
+    /// was -- too large, then empty, then a slot, then the arena -- or the
+    /// rows packed to the image's width, moved to the lowest gap that holds
+    /// them, and recorded: the image's id, width and height.
+    pub fn finish(&mut self, store: &mut ImageStore) -> Option<(ImageId, SixelPx, SixelPx)> {
+        {
+            let mut sink = Claim {
+                gap: &mut self.gap,
+                store,
+            };
+            self.walk.close(&mut sink);
+        }
+        let report = self.walk.report(0);
+        let (w, h) = (report.width, report.height);
+        if report.fit == SixelFit::TooLarge {
+            store.refuse(ImageRefusal::TooLarge);
+            return None;
+        }
+        if w == SixelPx::ZERO || h == SixelPx::ZERO {
+            store.refuse(ImageRefusal::Empty);
+            return None;
+        }
+        let (iw, ih) = (ImagePx::of(w.raw()), ImagePx::of(h.raw()));
+        if !store.has_free_slot() || self.gap.held == Held::Lost {
+            // `store_at` counts which: the slot table first, as `store` does.
+            let _ = store.store_at(None, iw, ih);
+            return None;
+        }
+        let area = w.index() * h.index();
+        {
+            let mut sink = Claim {
+                gap: &mut self.gap,
+                store,
+            };
+            sink.restride(w.index());
+        }
+        let at = self.gap.at;
+        let to = store.lowest_gap(area).unwrap_or(at);
+        if to < at {
+            store.arena_mut().copy_within(at..at + area, to);
+        }
+        let id = store.store_at(Some(to), iw, ih)?;
+        Some((id, w, h))
+    }
+
+    /// One past the highest word of its claim this Sixel has written so far
+    /// -- cleared, painted or moved -- which is how much of the arena it
+    /// commits. Zero before any data.
+    pub fn written(&self) -> usize {
+        self.gap.written
     }
 }
 
@@ -517,30 +994,4 @@ fn pct(v: u16) -> Chan {
     // 0..=100 -> 0..=255, `(v * 255 + 50) / 100`, all within `u16`.
     let scaled = (v * 255 + 50) / 100;
     Chan::from_u8(u8::try_from(scaled).unwrap_or(u8::MAX))
-}
-
-/// Read a run of ASCII digits starting at `at`, returning the value (saturating
-/// at `u16::MAX`) and the index of the first non-digit.
-fn number(data: &[u8], at: usize) -> (u16, usize) {
-    let mut v: u16 = 0;
-    let mut i = at;
-    while let Some(&b) = data.get(i) {
-        if b.is_ascii_digit() {
-            v = v.saturating_mul(10).saturating_add(u16::from(b - b'0'));
-            i += 1;
-        } else {
-            break;
-        }
-    }
-    (v, i)
-}
-
-/// Read a `;`-separated parameter: skip the separator if present, then a number.
-/// A missing parameter reads as zero, which is the default a Sixel omits.
-fn number_after_sep(data: &[u8], at: usize) -> (u16, usize) {
-    if data.get(at) == Some(&b';') {
-        number(data, at + 1)
-    } else {
-        (0, at)
-    }
 }

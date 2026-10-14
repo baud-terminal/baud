@@ -121,7 +121,7 @@ taken from the user's files.
 | app.rs:598 | info | `cache: …; grid pitch N cells, N B a row` | -- |
 | app.rs:650-651 | info | `config: <path>` / `config: none found; the built-in stack` | a home path |
 | app.rs:654 | info | `face: <path>` | a font path |
-| app.rs:656 | info | `images: N MiB pixels, N KiB body`: **the budget line** (`host::describe_images`) | sizes |
+| app.rs:656 | info | `images: N MiB pixels`: **the budget line** (`host::describe_images`); `, N KiB body` until 2026-10-14, when the body scratch went | sizes |
 | host.rs:210 | warn | `font <path>: N of its N CBLC sizes are not read: …` (`bitmap_refusals`) | a font path |
 | config.rs:487 | warn | one sentence per config key it could not act on | config text |
 | app.rs:670 | warn | the palette loader's sentences (`config: [palette] …`) | theme names, paths |
@@ -132,7 +132,7 @@ taken from the user's files.
 | pty.rs:230 | warn | `pty: the master stays blocking, so a full queue waits: <error>` | -- |
 | app.rs:1643, 1654 | info | the five-second frame report | -- |
 | app.rs:1670 | info | `links: N opened, N revealed, N refused` | counts |
-| **app.rs:3978** | **warn** | `images: a Sixel refused for its body, the last N bytes (N KiB) against a N-byte (N KiB) body scratch; [images] body_kb raises it`, plus the arena and slot sentences, once a pump (`host::describe_refusals`) | sizes |
+| **app.rs:3978** | **warn** | the arena and slot sentences, once a pump (`host::describe_refusals`); until 2026-10-14 also `images: a Sixel refused for its body, the last N bytes (N KiB) against a N-byte (N KiB) body scratch; [images] body_kb raises it`, gone with the scratch | sizes |
 | app.rs:5154 | info | `caret: …, switch …, read in N us` | -- |
 | app.rs:5162 | warn | `baud: [cursor] blink = true overrides the system's non-blinking caret; …`, once | -- |
 | app.rs:5227 | warn | `link refused (gone)` | -- |

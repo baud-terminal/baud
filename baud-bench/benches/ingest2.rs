@@ -10,7 +10,7 @@
 //! ```
 
 use baud_core::*;
-use baud_domain::{Depth, ImagePx, ImageSlot, ImageStore, PlacementSlot, Stride};
+use baud_domain::{Depth, ImagePx, ImageSlot, ImageStore, PlacementSlot, SixelStream, Stride};
 
 fn recording(name: &str) -> Vec<u8> {
     let p = format!("{}/../tests/recordings/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -307,20 +307,20 @@ fn main() {
     let mut links = vec![0u8; NLINK * LINK_MAX];
     let mut link_len = vec![ByteLen::ZERO; NLINK];
     // No `OSC 52` areas: no recording carries one, and an empty slice
-    // refuses a write and counts it, as `sixel_body` does an image.
+    // refuses a write and counts it, as an empty arena does an image.
     let mut clip: Vec<u8> = Vec::new();
     // No images, except for the payload that places one: an empty store
     // refuses every Sixel, and the recordings carry none, so the ingest path
     // never reaches image storage. `sixel-cat` gets room for its one image and
     // the placement tables `Owned` provisions.
-    let (px, slots, places, body) = match images {
-        true => (64 * 48 + 64, 32, 64, 8192),
-        false => (0, 0, 0, 0),
+    let (px, slots, places) = match images {
+        true => (64 * 48 + 64, 32, 64),
+        false => (0, 0, 0),
     };
     let mut img_pixels = vec![ColorWord::DEFAULT; px];
     let mut img_slots = vec![ImageSlot::EMPTY; slots];
     let mut img_places = vec![PlacementSlot::EMPTY; places];
-    let mut sixel_body = vec![0u8; body];
+    let mut sixel = Box::new(SixelStream::NEW);
     let mut t = Term::new(
         Storage::new(
             &mut arena,
@@ -348,9 +348,9 @@ fn main() {
                 &mut links,
                 &mut link_len,
                 &mut clip,
+                &mut sixel,
             ),
             ImageStore::new(&mut img_pixels, &mut img_slots, &mut img_places),
-            &mut sixel_body,
         ),
         &ws,
     );

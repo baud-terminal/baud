@@ -209,10 +209,16 @@ color background. They also provide a concise way for the application or
 terminal to encode the size of an image" (298-301). 070-9 §8.1.2 says the
 same of each, the device "will NOT clip the image" to it (PDF pp. 920-921).
 The first job is the region a `P2` of 0 or 2 erases, the open question at the
-end of this note. The second, a size known before the data, is what would
+end of this note. The second, a size known before the data, ~~is what would
 reserve the arena before the body is read, which is the streaming decoder's
-change and not this one. Under `P2 = 1` neither job draws anything: no
-position outside the data is set, and the extent clips nothing. And it is
+change and not this one~~ is half used since 2026-10-14, when the decoder
+began painting as the body arrives (below): `Ph` lays the decode's rows out
+in the arena, 070-9 §8.1.2's "summary to avoid a complete scanning of the
+data for the horizontal limits" (its p. 9, PDF p. 920), and data past it is
+drawn. `Pv` is not used, because the decode claims the arena's whole largest
+gap and has no smaller reservation for it to size. Under `P2 = 1` neither job
+draws anything: no position outside the data is set, and the extent clips
+nothing. And it is
 not folded into the image's height, which the cursor's advance reads:
 070-9 §11.3 moves the text row by "the vertical motion commands executed in
 the Sixel printing" (PDF p. 928), not by `Pv`. Its unit is the grid's, not
@@ -247,16 +253,20 @@ tenth decodes the **real** ImageMagick capture below into the store in place.
 Perturbed -- an allocator that ignores gaps and always returns offset 0 -- the
 non-overlap and gap-reuse tests fail, confirmed against a forced rebuild.
 
-**Wired to the parser and to `Storage`.** `Storage` now carries an
-`ImageStore` and a `sixel_body` scratch (`baud-core/src/storage.rs`), and a
-bare-`q` DCS routes to it: `Act::SixelStart` (a `q` from `Node::Dcs` reached
-after numeric parameters `30-3B`, not after an intermediate -- so `DCS + q`
-and `DCS $ q` stay XTGETTCAP and DECRQSS) renames the string kind, the body
-accumulates in `sixel_body` across reads through the same `StrPut`/`StrEnd`
-path an OSC body uses, and at the terminator `Paint::sixel_end`
-(`baud-core/src/sixel.rs`) measures the body with `Sixel::extent`, reserves
-the span, decodes in place and places the image at the cursor's absolute line
-and column. `Term::images()` exposes the store; `RIS` resets it.
+**Wired to the parser and to `Storage`.** `Storage` carries an `ImageStore`,
+and its `StrBuf` the decoder's state, a `SixelStream`
+(`baud-core/src/storage.rs`); a bare-`q` DCS routes to it: `Act::SixelStart`
+(a `q` from `Node::Dcs` reached after numeric parameters `30-3B`, not after
+an intermediate -- so `DCS + q` and `DCS $ q` stay XTGETTCAP and DECRQSS)
+renames the string kind and begins the image, which claims the arena's
+largest free gap; each body byte the handler keeps is decoded on arrival,
+through the same `StrPut` path an OSC body uses, into that gap; and at the
+terminator `Paint::sixel_end` (`baud-core/src/sixel.rs`) records the image
+and places it at the cursor's absolute line and column. `Term::images()`
+exposes the store; `RIS` resets it. **Until 2026-10-14 the body was held
+whole** in a `sixel_body` scratch and decoded at the terminator -- measured
+with `Sixel::extent`, a span reserved, decoded in place -- and a body past
+the scratch was refused; see "A Sixel decoded as its body arrives" below.
 
 **The span is cleared before the decode (2026-10-12).** `store` returns a span
 as the arena left it, and the decoder paints set bits only, so a Sixel landing
@@ -275,9 +285,11 @@ positions are set to the background color" and 0 "device default action" (PDF
 p. 918, read on the page image). baud composites an image over the cells, so a
 transparent pixel is `P2 = 1`'s "current color" (a reading), and under
 `P2` 0 or 2 it is the counted stand-in for the unbuilt fill below. `sixel_end`
-fills the span with `ColorWord::DEFAULT` before decoding; `store` still does
-not, so a caller that writes every word (a Kitty memcpy) writes each once, and
-its doc says a caller that does not must clear. The gate is
+filled the span with `ColorWord::DEFAULT` before decoding; since 2026-10-14
+the decode clears each row of its claim as the image reaches it, the same
+words. `store` does not clear, so a caller that writes every word (a Kitty
+memcpy) writes each once, and its doc says a caller that does not must
+clear. The gate is
 `baud-core/tests/sixel_reuse.rs`; the record, "A Sixel's span is cleared
 before it decodes".
 
@@ -285,15 +297,18 @@ The gate is `baud-core/tests/sixel.rs`: the real `swirl.raw` decodes to one
 64x48 placement, **chunk-invariant** across read sizes 1 through the whole file
 (the body spans reads, which is the case no recording could show and the one a
 reset-at-boundary parser breaks only in production); an unprovisioned store
-refuses and counts; a body larger than the scratch is refused whole; and the
-text after a Sixel is drawn, not swallowed. Recognising the bare-`q` DCS moved
+refuses and counts, for the arena with the image's size since 2026-10-14
+(for the body before); a body larger than the scratch was refused whole until
+then; and the text after a Sixel is drawn, not swallowed. Recognising the bare-`q` DCS moved
 the stride-k class ladder (958 -> 967 at stride 2, and up), which
 `the_alphabet_reduces_as_the_stride_doubles` re-pins.
 
 **Provisioned by the caller, defaulting absent.** `Owned::with_images(budget)`
-sizes the pixel arena and the body scratch (an `ImageBudget`, one typed pair
-rather than two raw sizes); `Owned::new` provisions neither, so a default
-terminal recognises a Sixel and refuses it, counted. The size is the owner's
+sizes the pixel arena (an `ImageBudget`, a typed size rather than a raw one;
+it sized a body scratch too until 2026-10-14); `Owned::new` provisions none,
+so a default terminal recognises a Sixel, walks it, and refuses it for the
+arena, counted. The decoder's state, 256 registers and the walk, is
+provisioned always, about a KiB. The size is the owner's
 call the mechanism does not depend on -- a 64x48 image is 3072 `ColorWord`s, a
 full screen ~1.4M.
 
@@ -328,20 +343,22 @@ bug).
   For the slide, a one-band Sixel mid-screen and in the leaving row: a
   full-row slide must be the screen one line up, drawn with no slide shader.
   Dropping the pan fires the first (96 pixels), the old cull the second (48).
-* **The app provisions the arena** (`host::IMAGE_BUDGET`, 4 MiB pixels / 3 MiB
-  body since 2026-10-14, 256 KiB of body before) on every path, so a Sixel is
-  stored and shown rather than parsed and silently refused. The default is
-  overridable through `[images] pixels_mb` and `[images] body_kb` -- two knobs
-  and not one, because the decoded-pixel and raw-body limits are independent
-  and a single knob scaling both would rest on an unmeasured guess about Sixel
-  encoding density; a large image needs both raised. ~~The resolved budget is
+* **The app provisions the arena** (`host::IMAGE_BUDGET`, 4 MiB of pixels) on
+  every path, so a Sixel is stored and shown rather than parsed and silently
+  refused. The default is overridable through `[images] pixels_mb`, the one
+  limit on an image's size a config sets since 2026-10-14, when a Sixel began
+  decoding as it arrived. Until then a second knob, `[images] body_kb`, sized
+  the raw-body scratch -- 256 KiB, then the owner's 3 MiB interim -- two knobs
+  because the decoded-pixel and raw-body limits were independent; a config
+  that still names it is told it limits nothing. ~~The resolved budget is
   named on a startup line so a refusal is diagnosable without a rebuild.~~
   **It was not diagnosable**, found 2026-10-09 when yazi's previews went
   blank: the startup line is `info`, which the default `warn` hides, and a
   refusal was one total -- body, slot and arena together -- that nothing in
   the app read. The store now counts each refusal by its cause
-  (`ImageStore::refusals`: the body with its true length, the arena with the
-  image's size, the slot table, an image with no pixels), and the app logs one
+  (`ImageStore::refusals`: the arena with the image's size, the slot table, an
+  image with no pixels or past 65535 either way, and until 2026-10-14 the body
+  with its true length), and the app logs one
   `warn` line a pump naming the limit, the sizes and the `[images]` key that
   raises it (`host::describe_refusals`). **It goes to stderr**, where all of
   baud-app's log goes: a launch from a terminal shows it, and a Dock launch,
@@ -680,8 +697,9 @@ if the operation regressed.
   is `[images] pixels_mb` (decoded ARGB) and `[images] body_kb` (raw-Sixel
   scratch), defaulting to `host::IMAGE_BUDGET`'s 4 MiB / 256 KiB -- the
   owner's number, kept, with the knobs added around it rather than the default
-  retuned. (The body default became 3 MiB on 2026-10-14, the next item; the
-  arena's 4 MiB is unchanged.) Two knobs because the two limits are
+  retuned. (The body default became 3 MiB on 2026-10-14, the next item, and
+  the body knob went the same day, when a Sixel began decoding as it arrived;
+  the arena's 4 MiB is unchanged.) Two knobs because the two limits were
   independent: a 1024x1024 image is 4 MiB decoded whatever its Sixel encodes
   to, and its raw body varies with colour count and run-length use, so a
   single knob scaling both would rest on an unmeasured density guess. ~~The
@@ -703,8 +721,8 @@ if the operation regressed.
   held, so only the pixel arena limits an image; the sections of
   `[[source: dec-std-070]]` 070-9 read for it (§1.1, §2, §8.1.2, §12) name no
   limit on a body's bytes, and §8.1.2 gives the raster extent as "a summary
-  to avoid a complete scanning of the data" (PDF p. 920) -- **and it is not
-  built.** The interim is built (2026-10-14): `host::IMAGE_BUDGET`'s body is
+  to avoid a complete scanning of the data" (PDF p. 920) -- **built
+  2026-10-14**, the next item. The interim was built the same day, first: `host::IMAGE_BUDGET`'s body is
   3 MiB, above the 2,705,560 bytes yazi's encoder writes at most for a
   600x900 image (`[[source: yazi-sixel]]` 57-111: a 12-byte raster, at most
   256 colour defines of 4,498 bytes in all, and five bytes a one-pixel run,
@@ -713,10 +731,11 @@ if the operation regressed.
   yazi runs stores -- 41 Sixels, 19 of them refused for the body at 256 KiB
   -- and the committed walk's thirteen do in
   `every_yazi_preview_of_the_walk_stores_at_the_default_budget`. A body of
-  exactly the scratch stores (`a_body_of_exactly_the_default_scratch_stores`),
-  and one byte more is still refused whole, counted in `refusals.body` with
-  its length, and named in the app's `warn` line
-  (`a_body_past_the_default_scratch_is_said_with_its_length`). The
+  exactly the scratch stored (`a_body_of_exactly_the_default_scratch_stores`),
+  and one byte more was refused whole, counted in `refusals.body` with its
+  length, and named in the app's `warn` line
+  (`a_body_past_the_default_scratch_is_said_with_its_length`); both went the
+  same day with the scratch. The
   scratch is a separate allocation from the arena and is not committed
   until written: provisioning a terminal, before any feed, grew the
   footprint by 3,932,160-3,948,544 bytes at 256 KiB and 3,948,544-3,964,928
@@ -725,8 +744,33 @@ if the operation regressed.
   body leaves its pages resident, so a terminal that has received one holds
   at most 3 MiB of body beside its 4 MiB arena, 2.75 MiB more than at
   256 KiB (the record, "The Sixel body default is 3 MiB until a Sixel
-  streams"). A yazi configured past its 600x900 default can still write
-  a body past 3 MiB, and that is refused until the decoder streams.
+  streams"). A yazi configured past its 600x900 default could still write
+  a body past 3 MiB, refused until the decoder streamed.
+* ~~**A Sixel decoded as its body arrives -- decided, not built.**~~ **Built,
+  2026-10-14.** Each body byte the handler keeps is decoded on arrival
+  (`SixelStream`, one grammar a byte at a time, which `Sixel::decode` and
+  `Sixel::extent` also run) into the gap of the arena the `q` claimed, the
+  largest free one. Nothing else stores an image while a Sixel is in flight;
+  a claim that runs out takes the largest gap at that moment, so a free
+  between two reads of its body (a resize) is room it can use. A band refused
+  before such a free cannot be drawn, the one case where the buffered decoder
+  stored what the stream refuses. A claim is not recorded, so a body that
+  never reaches its terminator leaves no slot and no span. Rows are cleared as the image reaches them, the raster's `Ph`
+  sets the row stride (070-9 §8.1.2's "summary"), a stride wider than the
+  widest row is laid out again at the next band, and with no `Ph` it grows by
+  doubling. At the terminator the rows are packed to the image's width and
+  moved to the lowest gap that holds them, where `store` would have put a
+  measured image, so the store's layout is the buffered decoder's. **The
+  limit is pixels**: the arena (`[images] pixels_mb`, 4 MiB), 65535 a side
+  and the slot table, and no body is refused for its bytes, as 070-9 §8.1.2
+  ("does not limit the number of pixels a device may image") and §2 ("The
+  protocol should support any size rasters, although not all devices will be
+  capable of displaying them", its p. 2, PDF p. 913) have it. Its costs,
+  measured: an image past the arena paints the claim before its refusal, and
+  a sender whose `Ph` overstates its image writes its first band at that
+  stride; `Pv` is not used, the claim being the whole gap. The record, "A
+  Sixel is decoded as its body arrives", has the tests, the 54 recorded
+  images against the buffered decoder and the time and memory.
 * ~~**Reflow.**~~ **Taken, 2026-09-22: the image follows the row it was
   placed on**, foot's model and ghostty's, over kitty's fixed screen
   position and WezTerm's per-cell slices. See "What a resize does to an

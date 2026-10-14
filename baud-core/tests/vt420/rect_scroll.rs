@@ -557,7 +557,7 @@ fn an_image_moves_only_when_its_anchor_is_inside_the_rectangle() {
     // A 1x6 red Sixel, one row at a sixteen-pixel cell.
     const TINY: &str = "\x1bP0;1;0q#0;2;100;0;0~\x1b\\";
     let lines = |op: &str| {
-        let mut s = Owned::new(&WS).with_images(ImageBudget::of(4096, 4096));
+        let mut s = Owned::new(&WS).with_images(ImageBudget::of(4096));
         let mut t = Term::new(s.storage(), &WS);
         t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
         let bytes = format!("{}\x1b[4;6H{TINY}\x1b[4;15H{TINY}{TB}{LRM}{op}", fill());
@@ -591,7 +591,7 @@ fn an_image_anchored_on_a_margin_column_moves() {
     use baud_domain::ImageBudget;
     const TINY: &str = "\x1bP0;1;0q#0;2;100;0;0~\x1b\\";
     let placed = |op: &str| {
-        let mut s = Owned::new(&WS).with_images(ImageBudget::of(4096, 4096));
+        let mut s = Owned::new(&WS).with_images(ImageBudget::of(4096));
         let mut t = Term::new(s.storage(), &WS);
         t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
         let mut bytes = fill();
