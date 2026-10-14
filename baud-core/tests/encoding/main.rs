@@ -10,6 +10,7 @@ mod support;
 mod graphemes;
 mod latin1;
 mod maximal_subparts;
+mod replacement_clusters;
 mod utf8;
 mod width;
 

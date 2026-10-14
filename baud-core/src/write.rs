@@ -483,18 +483,11 @@ pub(crate) fn act(
         // successor bytes as part of the ill-formed subsequence whenever those
         // successor bytes themselves constitute part of a well-formed" one. So
         // the partial character becomes a replacement and this byte is
-        // re-dispatched from `Ground` rather than swallowed with it.
-        //
-        // The replacement is written without asking the cluster machine, so
-        // the machine is told what it is: class Other with no lookback, the
-        // state an ASCII letter leaves (`[[source: uax29]]` GB9a joins a
-        // SpacingMark to it, GB11 does not reach across it). Without the
-        // store the machine judged the next character from whatever came
-        // before -- a control, an indicator, a pictographic
-        // (`a_replacement_character_is_class_other_to_the_cluster_after_it`).
+        // re-dispatched from `Ground` rather than swallowed with it. The
+        // replacement is the character U+FFFD to the cluster machine
+        // (`replace`).
         Act::Resync => {
-            p.glyph(Codepoint::REPLACEMENT, Width::NARROW);
-            p.cluster = ClusterBreak::after_ascii_run();
+            replace(p);
             ReadLen::ZERO
         }
         // **The whole escape surface, and every arm is one byte.** Before
@@ -784,11 +777,9 @@ pub(crate) fn act(
             ReadLen::ONE
         }
         Act::Again => ReadLen::ZERO,
-        // A byte that is no character: a replacement, which the machine is
-        // told is class Other, as `Resync`'s is.
+        // A byte that is no character: a replacement, as `Resync`'s is.
         Act::Bad => {
-            p.glyph(Codepoint::REPLACEMENT, Width::NARROW);
-            p.cluster = ClusterBreak::after_ascii_run();
+            replace(p);
             ReadLen::ONE
         }
     }
@@ -895,15 +886,12 @@ fn chars(p: &mut Paint<'_, '_>, from: BytePos, left: ReadLen, len: ByteLen) -> R
     // **maximal subpart**, the lead and whatever follows it that could still
     // begin a well-formed sequence, and here that is the lead alone. The byte
     // after it is re-dispatched -- which is `Act::Bad`'s behaviour, reached
-    // by a different route.
-    //
-    // The machine is told the replacement is class Other, as `Bad`'s and
-    // `Resync`'s are.
+    // by a different route, and the replacement is written as theirs is
+    // (`replace`).
     if k.index() == 0 {
         let s = StreamByte::slice_from(&p.arena[from.index()..from.index() + left.index()]);
         let n = maximal_subpart(s, len);
-        p.glyph(Codepoint::REPLACEMENT, Width::NARROW);
-        p.cluster = ClusterBreak::after_ascii_run();
+        replace(p);
         return n;
     }
     // **`put_run` may write fewer than it was given**: a run is found by
@@ -1474,6 +1462,33 @@ fn put_run(
         glyph(p, *cp);
     }
     Count::of(k)
+}
+
+/// A U+FFFD for bytes that could not be decoded, counted and then written
+/// as the character U+FFFD: `Act::Bad`'s, `Act::Resync`'s and `chars`'.
+///
+/// **The same character to the cluster rules as a literal `EF BF BD`**, the
+/// owner's decision of 2026-10-13 (SAME_AS_LITERAL; the record, "A U+FFFD for
+/// ill-formed bytes clusters as a literal one"). `[[source: unicode-ch3]]`
+/// 3.9.5 substitutes "one or more U+FFFD replacement characters" and
+/// `[[source: uax29]]` segments the characters that result, so the machine
+/// is asked about it as about any character: GB9b joins it to a Prepend
+/// before it, and GB9a joins a SpacingMark after it. It was written without
+/// asking and then the machine was told class Other, so after a Prepend
+/// `a U+0600 80 Z` took three cells where `a U+0600 EF BF BD Z` takes two
+/// (`a_replacement_for_ill_formed_bytes_clusters_as_a_literal_one`). Its width
+/// is the literal's too, East Asian Width A, two columns under
+/// `AmbiguousWidth::Wide`.
+///
+/// **Counted here, before the machine decides**, so a U+FFFD that attaches
+/// is counted as one that takes a cell is, and a literal U+FFFD, which was
+/// decoded, is not (`Paint::replacements`). Out of line: no recording holds
+/// an ill-formed byte, and the three arms are the error path.
+#[cold]
+#[inline(never)]
+fn replace(p: &mut Paint<'_, '_>) {
+    p.replacements += 1;
+    glyph(p, Codepoint::REPLACEMENT);
 }
 
 /// One codepoint at its own width.

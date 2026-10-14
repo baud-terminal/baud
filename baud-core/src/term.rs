@@ -1004,6 +1004,9 @@ pub struct Term<'b> {
     /// Control sequences recognised and not acted on. See `Paint`.
     pub unsupported: usize,
     pub unsupported_param: usize,
+    /// `U+FFFD`s written for bytes that could not be decoded, one a maximal
+    /// subpart, whether it takes a cell or joins the cluster before it, and
+    /// none for a literal U+FFFD. See `Paint`.
     pub replacements: usize,
     /// **Refused, and counted.** A control-string body clipped at `OSC_MAX`
     /// -- this -- and, below, a string recognised and not acted on

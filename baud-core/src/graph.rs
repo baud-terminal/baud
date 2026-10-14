@@ -1509,18 +1509,21 @@ pub(crate) const fn after_control_of(node: Node) -> Node {
 /// A UTF-8 lead and an ISO 8859-1 graphic take `Act::EndCluster` back to the
 /// ground, which tells the machine a control went past and dispatches the
 /// byte again from there, so the character is decoded and written by the
-/// ground's own edge and the machine breaks before it (GB4, GB5). Printable
-/// ASCII takes the ground's edge as it is: `Paint::piece` tells the machine
-/// what a run of it leaves, which does not depend on what came before. A
-/// byte that is no character, `Act::Bad`, takes the ground's edge as it is
-/// too: it writes a replacement, `U+FFFD`, class Other, and tells the machine
-/// so, which does not depend on what came before either. Every other byte is
-/// the ground's edge, and a control there leads back here.
+/// ground's own edge and the machine breaks before it (GB4, GB5). A byte
+/// that is no character, `Act::Bad`, does the same: the replacement it
+/// writes, `U+FFFD`, goes through the machine as a literal one does (the
+/// owner's SAME_AS_LITERAL, 2026-10-13), so the machine must know a control
+/// went past, or after `a U+0600 BEL` the U+FFFD joins the Prepend
+/// (`a_control_ends_the_cluster_before_a_replacement_for_ill_formed_bytes`).
+/// Printable ASCII takes the ground's edge as it is: `Paint::piece` tells the
+/// machine what a run of it leaves, which does not depend on what came
+/// before. Every other byte is the ground's edge, and a control there leads
+/// back here.
 const fn after_control(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     let g = ground_of(node);
     let e = one(enc, g, b);
     match e.act {
-        Act::Char2 | Act::Char3 | Act::Char4 | Act::Latin1 => edge(Act::EndCluster, g),
+        Act::Char2 | Act::Char3 | Act::Char4 | Act::Latin1 | Act::Bad => edge(Act::EndCluster, g),
         _ => e,
     }
 }
@@ -2203,10 +2206,16 @@ mod classes {
         // were, by reading the rows, one class -- each a C1 read as `ESC` and
         // a final, the same edge -- and are two now: 48 -> 49, and 1,841 -> 1,878, 54,641 ->
         // 55,701 and 1,450,888 -> 1,478,109 at strides 2, 3 and 4.
+        // **A byte that is no character after a control now goes through
+        // `EndCluster`, as a character's lead does** (the owner's
+        // SAME_AS_LITERAL, 2026-10-13): 154 edges, the 77 such bytes in
+        // `AfterControl` and `Vt52AfterControl` under UTF-8. Strides 1 and 2
+        // do not move; 55,701 -> 55,354 and 1,478,109 -> 1,453,919 at strides 3
+        // and 4; the fall was not decomposed.
         assert_eq!(one.len(), CLASSES, "stride 1");
         assert_eq!(two.len(), 1_878, "stride 2");
-        assert_eq!(three.len(), 55_701, "stride 3");
-        assert_eq!(four.len(), 1_478_109, "stride 4");
+        assert_eq!(three.len(), 55_354, "stride 3");
+        assert_eq!(four.len(), 1_453_919, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2370,8 +2379,9 @@ mod classes {
     /// * **an edge into a ground is text**: printable ASCII, whose run tells
     ///   the machine what it leaves; a character's lead and an ISO 8859-1
     ///   graphic, which go through the machine; a byte that is no character,
-    ///   whose replacement tells the machine it is class Other; and the end or the
-    ///   abandoning of a character split across reads. Anything else into a
+    ///   whose replacement goes through the machine as U+FFFD, and only from
+    ///   a ground; and the end or the abandoning of a character split across
+    ///   reads. Anything else into a
     ///   ground skipped the reset, as `csi_ignore`'s exit did and `ESC DEL`'s;
     /// * **a control performed in a ground leaves for the twin**, and one
     ///   performed inside a sequence stays in it, whose own end then does;
@@ -2410,7 +2420,7 @@ mod classes {
                         Act::Char2 | Act::Char3 | Act::Char4 | Act::Latin1 => {
                             grounds.contains(&node)
                         }
-                        Act::Bad => grounds.contains(&node) || twins.contains(&node),
+                        Act::Bad => grounds.contains(&node),
                         Act::EndCluster => twins.contains(&node),
                         Act::ContEnd | Act::Resync => utf8,
                         // `CR`: the cursor is at column 0, where `glyph`
@@ -2437,7 +2447,7 @@ mod classes {
                         let g = ground_of(node);
                         let plain = Edge::of(enc, g, b);
                         let want = match plain.act {
-                            Act::Char2 | Act::Char3 | Act::Char4 | Act::Latin1 => {
+                            Act::Char2 | Act::Char3 | Act::Char4 | Act::Latin1 | Act::Bad => {
                                 edge(Act::EndCluster, g)
                             }
                             _ => plain,
@@ -3050,10 +3060,11 @@ mod classes {
     /// the owner can veto). Both rows ended the sequence with `Consume`,
     /// dropping a lead byte, so the continuations of a well-formed character
     /// wrote U+FFFD, which `[[source: unicode-ch3]]` 3.9.5 rules out. The
-    /// edge it hands to is `AfterControl`'s, so the character is written
-    /// through `EndCluster`, as after any control (`[[source: uax29]]` GB4),
-    /// and a byte that is no character through `Bad`; and the chain consumes
-    /// the byte, so it cannot come back to the escape. `StrEsc` keeps its own
+    /// edge it hands to is `AfterControl`'s, `EndCluster`, as after any
+    /// control (`[[source: uax29]]` GB4), and then the ground's: a character
+    /// is written through `Char2-4` and a byte that is no character through
+    /// `Bad`; and the chain consumes the byte, so it cannot come back to the
+    /// escape. `StrEsc` keeps its own
     /// edge and reaches this one through `Escape`.
     #[test]
     fn under_utf8_a_byte_80_ff_after_esc_is_the_grounds_after_a_control() {
@@ -3072,25 +3083,21 @@ mod classes {
                     edge(Act::Again, Node::AfterControl),
                     "{node:?} Latin1 {v:#04x}"
                 );
-                // Where it lands: a lead UTF-8 allows is written through the
-                // cluster machine, every other byte is a replacement, and
-                // both consume it in the ground.
-                let next = u8_(Node::AfterControl, v);
-                match next.act {
-                    Act::EndCluster => {
-                        let e = u8_(Node::Ground, v);
-                        assert!(
-                            matches!(e.act, Act::Char2 | Act::Char3 | Act::Char4),
-                            "{v:#04x}: {e:?}"
-                        );
-                        assert_eq!(e.next, Node::Ground, "{v:#04x}");
-                        chars += 1;
-                    }
-                    Act::Bad => {
-                        assert_eq!(next.next, Node::Ground, "{v:#04x}");
-                        bad += 1;
-                    }
-                    a => panic!("{v:#04x}: AfterControl takes {a:?}"),
+                // Where it lands: the machine is told a control went past,
+                // then a lead UTF-8 allows is written as a character and every
+                // other byte as a replacement, both through the cluster
+                // machine, and both consume it in the ground.
+                assert_eq!(
+                    u8_(Node::AfterControl, v),
+                    edge(Act::EndCluster, Node::Ground),
+                    "{v:#04x}"
+                );
+                let e = u8_(Node::Ground, v);
+                assert_eq!(e.next, Node::Ground, "{v:#04x}");
+                match e.act {
+                    Act::Char2 | Act::Char3 | Act::Char4 => chars += 1,
+                    Act::Bad => bad += 1,
+                    a => panic!("{v:#04x}: the ground takes {a:?}"),
                 }
             }
         }

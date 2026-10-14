@@ -1353,15 +1353,18 @@ fn a_carriage_return_ends_a_regional_indicator_pair() {
 /// `U+1F1E6 80 U+1F1E7` and `U+1F468 FF U+200D U+1F469` are three cells each,
 /// the joiner on the replacement.
 ///
-/// The replacement is written without asking the machine, by `Act::Bad` for
-/// a byte that is no character, by `Act::Resync` for a character a read left
-/// unfinished, and by `chars` for a lead whose character is cut short in the
-/// read, so each of the three tells the machine what it wrote. Without that,
-/// the machine judged the next character from what came before the
-/// replacement: from the control, so the visarga took a cell of its own, or
-/// from the indicator or the pictographic, so the second indicator paired
-/// with the first and the woman joined the man. Every read size, so the
-/// unfinished character takes `Resync` as well as `chars`.
+/// The replacement is written by `Act::Bad` for a byte that is no character,
+/// by `Act::Resync` for a character a read left unfinished, and by `chars`
+/// for a lead whose character is cut short in the read. It was written
+/// without asking the machine and the machine told nothing, which judged the
+/// next character from what came before the replacement: from the control,
+/// so the visarga took a cell of its own, or from the indicator or the
+/// pictographic, so the second indicator paired with the first and the woman
+/// joined the man. Each of the three then told the machine class Other, and
+/// since 2026-10-13 each asks the machine about U+FFFD as about any
+/// character (`a_replacement_for_ill_formed_bytes_clusters_as_a_literal_one`).
+/// Every read size, so the unfinished character takes `Resync` as well as
+/// `chars`.
 #[test]
 fn a_replacement_character_is_class_other_to_the_cluster_after_it() {
     let cp = |v: u32| Codepoint::new(v).expect("a scalar value");

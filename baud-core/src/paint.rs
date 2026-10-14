@@ -112,12 +112,17 @@ pub(crate) struct Paint<'a, 'b> {
     /// Incremented in an arm that is already `#[cold]`, so the ingest path
     /// pays nothing.
     pub(crate) unsupported_total: usize,
-    /// Mode parameters this core does not recognise, and `U+FFFD`s written for
-    /// bytes that could not be decoded. **Counted rather than silent** for the
-    /// reason every counter here is: an embedder cannot tell a mode that did
-    /// nothing from one that was never sent, and a replacement is the parser
-    /// saying it lost data.
+    /// Mode parameters this core does not recognise. **Counted rather than
+    /// silent** for the reason every counter here is: an embedder cannot tell
+    /// a mode that did nothing from one that was never sent.
     pub(crate) unsupported_param: usize,
+    /// `U+FFFD`s written for bytes that could not be decoded, the parser
+    /// saying it lost data: one a maximal subpart, whether the U+FFFD takes a
+    /// cell or joins the cluster before it, and none for a literal U+FFFD,
+    /// which was decoded. Counted in `write::replace`, before the cluster
+    /// machine decides; it was counted here in `glyph`, by value, so a
+    /// substitute that attached went uncounted and a literal that took a cell
+    /// was counted (`a_replacement_that_attaches_is_counted`).
     pub(crate) replacements: usize,
     /// Bodies clipped at `OSC_MAX` -- this -- and, below, strings recognised
     /// and not acted on (`strings_ignored`) and the `OSC 52` reads and the
@@ -704,9 +709,6 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// One glyph under the cursor, wrapping first if it will not fit.
     #[inline(always)]
     pub(crate) fn glyph(&mut self, cp: Codepoint, w: Width) {
-        if cp == Codepoint::REPLACEMENT {
-            self.replacements += 1;
-        }
         // **A zero-width codepoint gets no cell, and that needs no cluster
         // machine.** A combining mark, a ZWJ or a variation selector took a
         // full cell here and advanced the cursor a column, so everything after
