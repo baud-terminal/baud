@@ -240,7 +240,8 @@ pub struct View<'a> {
 /// whole by [`View::held_past_edge`] at a resize, and what that measure reads
 /// to skip all but one cell of a row clear past the old edge. Between resizes
 /// nothing else writes past the live edge but a fill to a mark that lies past
-/// it, on a row already held, so the flags stay true while only those passes
+/// it, on a row already held, and the clear an erase to the end of a row
+/// makes first ([`View::clear_past_edge_of`]), so the flags stay true while only those passes
 /// keep them. The count is what lets a caller drop back to the loop with
 /// nothing past the edge compiled in once the last held row is carried off or
 /// cleared. Physical, as the marks are, so a rotation leaves every flag on
