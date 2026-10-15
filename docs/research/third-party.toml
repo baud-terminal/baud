@@ -1246,6 +1246,7 @@ files   = [
   "emoji17-test.txt",
   "emoji17-zwj-sequences.txt",
   "ucd18-emoji-data.txt",
+  "unicode-derivedbidiclass.txt",
   "unicode-derivedcoreproperties.txt",
   "unicode-derivedgeneralcategory.txt",
   "unicode-derivednormalizationprops.txt",

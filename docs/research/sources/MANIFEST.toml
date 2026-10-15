@@ -883,6 +883,19 @@ bytes  = 20707
 status = "retrieved"
 group  = "G"
 
+[sources.unicode-derivedbidiclass]
+key    = "unicode-derivedbidiclass"
+title  = "DerivedBidiClass.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/extracted/DerivedBidiClass.txt"
+file   = "unicode-derivedbidiclass.txt"
+sha256 = "4867b4b7f0731ed1bfcd34cc6251211ff1542541fce0734b6fbda139ee80b3a4"
+bytes  = 173433
+status = "retrieved"
+group  = "G"
+
 [sources.unicode-propertyvaluealiases]
 key    = "unicode-propertyvaluealiases"
 title  = "PropertyValueAliases.txt, Unicode Character Database 17.0.0"
@@ -2541,12 +2554,19 @@ year   = 2026
 venue  = "developer.apple.com/fonts"
 url    = "https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6morx.html"
 file   = ""
-sha256 = "7f15a9cf51fa94c86322f28fb7388e924f4cfebc93e555b13f7d7e90a5331cd3"
-bytes  = 166243
+sha256 = "de157d9c6f12eb39ddc7e98ed09af678983bdeb4ed891ce73cc374223f1821af"
+bytes  = 165117
 status = "external"
 group  = "J"
 # Read and hash-verified; not committed -- a vendor HTML page whose spec text is a
 # fraction of its chrome. Re-fetch at the pinned url and compare the sha256.
+# Re-pinned 2026-10-15: two fetches give these bytes and neither gives the first
+# pin's, and whether the page changed or only what is served to this client is
+# not known. The fresh fetch was read for the rule baud follows -- coverage bits
+# 30 and 28, "If set, this subtable will process glyphs in descending order",
+# "If set, this subtable will process glyphs in logical order", and "Normally,
+# when a 'morx' table is processed, the Unicode bidi algorithm has already been
+# run and the glyph stream is in layout order".
 
 [sources.apple-ttrm-feat]
 key    = "apple-ttrm-feat"

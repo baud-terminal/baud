@@ -2,7 +2,7 @@
 //! OpenType Script table that selects (`[[source: ms-opentype-chapter2]]`).
 
 use baud_domain::Codepoint;
-use baud_font::{Face, Features, Script, ScriptTag, Unresolved, resolve};
+use baud_font::{Direction, Face, Features, RunText, Script, ScriptTag, Unresolved, resolve};
 
 fn cp(c: char) -> Codepoint {
     Codepoint::from_char(c)
@@ -201,4 +201,119 @@ fn a_face_with_no_dflt_falls_back_to_latn() {
         gsub.lookups(Script::COMMON, Features::GRID),
         gsub.lookups(Script::of(cp('א')), Features::GRID)
     );
+}
+
+/// **A script is right to left when every letter of it is Bidi_Class R or
+/// AL**, read here from the pinned files rather than from the generator.
+/// UAX #9 resolves such a letter to an odd level whatever the paragraph's
+/// direction (`[[source: uax9-bidi]]`, W3 and I1-I2), which is what makes a
+/// `morx` subtable's "layout order" the reverse of logical order on its
+/// runs (`[[source: apple-ttrm-morx]]`). The set is HarfBuzz's
+/// `hb_script_get_horizontal_direction` list (hb-common.cc:517-594), all 36,
+/// and Old Hungarian, whose letters are R and which HarfBuzz leaves to the
+/// caller as written either way.
+#[test]
+fn a_script_is_right_to_left_when_its_letters_are() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/research/sources");
+    let read = |name: &str| {
+        let mut out = std::collections::HashMap::new();
+        for line in std::fs::read_to_string(format!("{dir}/{name}"))
+            .unwrap()
+            .lines()
+        {
+            let line = line.split('#').next().unwrap().trim();
+            let Some((range, value)) = line.split_once(';') else {
+                continue;
+            };
+            let (lo, hi) = range
+                .trim()
+                .split_once("..")
+                .unwrap_or((range.trim(), range.trim()));
+            for v in u32::from_str_radix(lo, 16).unwrap()..=u32::from_str_radix(hi, 16).unwrap() {
+                out.insert(v, value.trim().to_string());
+            }
+        }
+        out
+    };
+    let gc = read("unicode-derivedgeneralcategory.txt");
+    let bidi = read("unicode-derivedbidiclass.txt");
+    let mut letters: std::collections::HashMap<String, (usize, usize)> = Default::default();
+    for (&v, g) in &gc {
+        if g.starts_with('L') {
+            let s = code(Script::of(Codepoint::new(v).unwrap()));
+            let e = letters.entry(s).or_default();
+            e.0 += 1;
+            e.1 += usize::from(matches!(bidi[&v].as_str(), "R" | "AL"));
+        }
+    }
+    let mut rtl = Vec::new();
+    for s in Script::all() {
+        let (all, strong) = letters.get(&code(s)).copied().unwrap_or((0, 0));
+        let want = if s.is_specific() && all > 0 && all == strong {
+            Direction::RightToLeft
+        } else {
+            Direction::LeftToRight
+        };
+        assert_eq!(
+            s.direction(),
+            want,
+            "{}: {strong} of {all} letters R or AL",
+            code(s)
+        );
+        if want == Direction::RightToLeft {
+            rtl.push(code(s));
+        }
+    }
+    rtl.sort();
+    let harfbuzz = [
+        "Adlm", "Arab", "Armi", "Avst", "Chrs", "Cprt", "Elym", "Gara", "Hatr", "Hebr", "Hung",
+        "Khar", "Lydi", "Mand", "Mani", "Mend", "Merc", "Mero", "Narb", "Nbat", "Nkoo", "Orkh",
+        "Ougr", "Palm", "Phli", "Phlp", "Phnx", "Prti", "Rohg", "Samr", "Sarb", "Sidt", "Sogd",
+        "Sogo", "Syrc", "Thaa", "Yezi",
+    ];
+    assert_eq!(rtl, harfbuzz, "HarfBuzz's 36 and Old Hungarian");
+}
+
+/// **A run of a right-to-left script that holds a number and no letter is
+/// laid out left to right**: a decimal digit resolves to an even level under
+/// UAX #9 (`[[source: uax9-bidi]]`, I1-I2) and a regional indicator is
+/// Bidi_Class L; HarfBuzz applies the same rule when its caller asks for
+/// left to right (`[[source: harfbuzz-hb-ot-shape]]`, hb-ot-shape.cc:613),
+/// and CoreText lays a flag pair beside Hebrew out left to right. One letter
+/// anywhere keeps the run right to left, and a left-to-right script's run
+/// stays left to right whatever it holds.
+#[test]
+fn a_right_to_left_run_of_numbers_alone_is_left_to_right() {
+    let run = |text: &str| {
+        let mut t = RunText::EMPTY;
+        for c in text.chars() {
+            t.push(cp(c));
+        }
+        t
+    };
+    let hebr = Script::of(cp('\u{05D0}'));
+    let arab = Script::of(cp('\u{0627}'));
+    let latn = Script::of(cp('a'));
+    assert_eq!(
+        run("\u{05D1}\u{05BC}").direction(hebr),
+        Direction::RightToLeft
+    );
+    assert_eq!(run("\u{05D0}12").direction(hebr), Direction::RightToLeft);
+    assert_eq!(run("12").direction(hebr), Direction::LeftToRight);
+    assert_eq!(
+        run("\u{0661}\u{0662}").direction(arab),
+        Direction::LeftToRight
+    );
+    assert_eq!(
+        run("\u{0627}\u{0661}").direction(arab),
+        Direction::RightToLeft
+    );
+    assert_eq!(
+        run("\u{1F1EE}\u{1F1F1}").direction(arab),
+        Direction::LeftToRight
+    );
+    // Neither a letter nor a number: the script decides.
+    assert_eq!(run("\u{05BE} ").direction(hebr), Direction::RightToLeft);
+    assert_eq!(RunText::EMPTY.direction(hebr), Direction::RightToLeft);
+    assert_eq!(run("ab1").direction(latn), Direction::LeftToRight);
 }

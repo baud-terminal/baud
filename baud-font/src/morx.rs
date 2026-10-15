@@ -8,6 +8,18 @@
 //! carry at all. A subtable of another type is declined and counted rather
 //! than half-run.
 //!
+//! **Each subtable walks the run in the order its coverage names.** Bit
+//! 30 asks for descending order and bit 28 for logical rather than layout
+//! order, where "the glyph stream is in layout order", the order "the
+//! glyphs will be rendered, which is always left-to-right or
+//! top-to-bottom", and for right-to-left text logical and layout order
+//! "are opposite" (`[[source: apple-ttrm-morx]]`). baud's
+//! buffer is in logical order, as HarfBuzz's is, so a subtable in layout
+//! order is walked reversed exactly when its descending bit and the run's
+//! direction disagree. Walking every descending subtable reversed, as
+//! baud did, formed none of Lucida Grande's or Corsiva Hebrew's Hebrew
+//! ligatures, whose subtables are descending in layout order.
+//!
 //! **Default flags only.** The chain's `defaultFlags` select the subtables;
 //! no feature request is folded in, because a terminal has no feature
 //! menu. HarfBuzz reads the `feat` table and asks for `liga` and friends,
@@ -27,6 +39,7 @@
 
 use crate::buffer::{Buffer, Glyph};
 use crate::bytes::{Bytes, Count, Index, Len, Offset};
+use crate::script::Direction;
 use baud_domain::GlyphId;
 
 /// Coverage bits of a subtable header.
@@ -34,6 +47,7 @@ mod coverage {
     pub const VERTICAL: u32 = 0x8000_0000;
     pub const BACKWARDS: u32 = 0x4000_0000;
     pub const ALL_DIRECTIONS: u32 = 0x2000_0000;
+    pub const LOGICAL: u32 = 0x1000_0000;
     pub const TYPE: u32 = 0xFF;
 }
 
@@ -494,14 +508,15 @@ impl<'a> Morx<'a> {
         })
     }
 
-    /// Runs every chain's default subtables over the buffer, in order, and
-    /// answers how many subtables were declined for their type.
-    pub fn apply(&self, buf: &mut Buffer<'_>) -> Count {
+    /// Runs every chain's default subtables over the buffer, a run laid
+    /// out in `direction` and held in logical order, and answers how many
+    /// subtables were declined for their type.
+    pub fn apply(&self, buf: &mut Buffer<'_>, direction: Direction) -> Count {
         let mut declined = 0u32;
         let mut at = Offset::of(8u32);
         let mut chain = 0u32;
         while chain < self.chains.value() {
-            let Some(next) = self.apply_chain(at, buf, &mut declined) else {
+            let Some(next) = self.apply_chain(at, buf, direction, &mut declined) else {
                 break;
             };
             at = next;
@@ -520,7 +535,13 @@ impl<'a> Morx<'a> {
     }
 
     /// One chain; answers the offset of the next.
-    fn apply_chain(&self, at: Offset, buf: &mut Buffer<'_>, declined: &mut u32) -> Option<Offset> {
+    fn apply_chain(
+        &self,
+        at: Offset,
+        buf: &mut Buffer<'_>,
+        direction: Direction,
+        declined: &mut u32,
+    ) -> Option<Offset> {
         let d = self.data;
         let flags: u32 = d.read(at)?;
         let length: u32 = d.read(at.plus(Len::of(4))?)?;
@@ -539,7 +560,17 @@ impl<'a> Morx<'a> {
             let horizontal =
                 coverage & coverage::ALL_DIRECTIONS != 0 || coverage & coverage::VERTICAL == 0;
             if sub_flags & flags != 0 && horizontal {
-                let backwards = coverage & coverage::BACKWARDS != 0;
+                // The text's table: bits 30 and 28 name descending and
+                // logical order, and a run's layout order is its logical
+                // order reversed when it is right to left
+                // (`[[source: apple-ttrm-morx]]`; HarfBuzz's
+                // hb-aat-layout-morx-table.hh:1236-1239 reads it alike).
+                let descending = coverage & coverage::BACKWARDS != 0;
+                let backwards = if coverage & coverage::LOGICAL != 0 {
+                    descending
+                } else {
+                    descending != (direction == Direction::RightToLeft)
+                };
                 if backwards {
                     buf.as_mut_slice().reverse();
                 }

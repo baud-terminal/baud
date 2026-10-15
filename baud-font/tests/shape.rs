@@ -415,6 +415,7 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
     let mut files = std::collections::HashMap::new();
     let mut fixtures = 0usize;
     let mut ligated = 0usize;
+    let mut rtl = 0usize;
     let mut faces = std::collections::HashSet::new();
     for line in text
         .lines()
@@ -439,7 +440,13 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
             .split_whitespace()
             .map(|h| u32::from_str_radix(h, 16).unwrap())
             .collect();
-        let expected = parse_positioned(shaped);
+        let mut expected = parse_positioned(shaped);
+        // hb-shape writes a right-to-left run in visual order, its last
+        // cluster first; baud's buffer is in logical order.
+        if expected.first().map(|e| e.cluster) > expected.last().map(|e| e.cluster) {
+            expected.reverse();
+            rtl += 1;
+        }
         let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 128];
         let (buf, shaped) = shape(&face, &cps, &mut storage);
         assert!(
@@ -479,7 +486,7 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
         fixtures += 1;
     }
     eprintln!(
-        "{fixtures} morx fixtures over {} faces, {ligated} formed a ligature",
+        "{fixtures} morx fixtures over {} faces, {ligated} formed a ligature, {rtl} right to left",
         faces.len()
     );
     // Positive controls: every face the generator names was present and
@@ -487,6 +494,7 @@ fn every_morx_fixture_shapes_as_harfbuzz_does() {
     assert!(faces.len() >= 7, "{}", faces.len());
     assert!(fixtures >= 150, "{fixtures}");
     assert!(ligated >= 30, "{ligated}");
+    assert!(rtl == 8, "{rtl}");
 }
 
 #[test]
@@ -642,9 +650,11 @@ fn every_mark_order_fixture_shapes_as_harfbuzz_does() {
 /// above right, sin dot and holam above left, varika above. Every line of
 /// `tests/shape/fallback-hebrew.txt` is what hb-shape made of a cluster on
 /// such a face, compared as `script.txt`'s are: the built Regular with its
-/// `GPOS` renamed away, on every platform, and Raanana and New Peninim MT,
-/// which carry none, on macOS. Placed by Unicode's class, every point fell
-/// to a centred default with no vertical move, and Raanana's points sat at dy 0 where HarfBuzz puts them at -4.
+/// `GPOS` renamed away, on every platform, and on macOS Raanana, New
+/// Peninim MT, and Lucida Grande and Corsiva Hebrew regular and bold,
+/// which carry none and shape through `morx`. Placed by Unicode's class,
+/// every point fell to a centred default with no vertical move, and
+/// Raanana's points sat at dy 0 where HarfBuzz puts them at -4.
 #[test]
 fn every_hebrew_fallback_fixture_places_points_as_harfbuzz_does() {
     let on_macos = cfg!(target_os = "macos");
@@ -655,31 +665,41 @@ fn every_hebrew_fallback_fixture_places_points_as_harfbuzz_does() {
         system_fixtures: Reached(system_fixtures),
         system_hebrew: Reached(system_hebrew),
         skipped: Reached(skipped),
+        ligated: Reached(ligated),
         ..
     } = shape_script_fixtures("fallback-hebrew.txt", on_macos, GposTable::Stripped);
     eprintln!(
         "built faces: {fixtures} fallback fixtures, {raised} glyphs moved vertically; \
-         system faces: {system_fixtures} shaped, {skipped} skipped"
+         system faces: {system_fixtures} shaped, {ligated} ligated, {skipped} skipped"
     );
     // Thirty-eight clusters on the built Regular, every one Hebrew, and the
     // vertical half of the placer moved some point: the positive control
     // that the classes reached the placer.
     assert!(fixtures == 38 && hebrew == 38, "{fixtures} {hebrew}");
     assert!(raised >= 20, "{raised}");
+    // The six `morx` faces: thirty-eight each, and a presentation-form
+    // ligature on eighteen of them on every face -- the positive control
+    // that the ligature subtables ran. On all but New Peninim MT, which
+    // carries the ligatures in both orders, those subtables set coverage
+    // bit 30 and not bit 28, "reverse layout order", and form them only
+    // when a right-to-left run is walked in logical order
+    // (`[[source: apple-ttrm-morx]]`).
     if on_macos {
         assert!(
-            system_fixtures == 76 && system_hebrew == 76,
+            system_fixtures == 228 && system_hebrew == 228,
             "{system_fixtures} {system_hebrew}"
         );
+        assert!(ligated == 108, "{ligated}");
     } else {
-        assert!(skipped == 76 && system_fixtures == 0, "{skipped}");
+        assert!(skipped == 228 && system_fixtures == 0, "{skipped}");
     }
 }
 
 /// What [`shape_script_fixtures`] compared: lines on the built faces, how
 /// many of them Hebrew, how many glyphs they offset and how many of those
 /// vertically; lines on system faces, and how many were skipped where the
-/// face is not.
+/// face is not; and how many lines on either came out in fewer glyphs than
+/// codepoints.
 struct Tally {
     fixtures: Reached,
     hebrew: Reached,
@@ -688,6 +708,7 @@ struct Tally {
     system_fixtures: Reached,
     system_hebrew: Reached,
     skipped: Reached,
+    ligated: Reached,
 }
 
 /// How many fixture lines, or glyphs, one comparison reached.
@@ -709,6 +730,7 @@ fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
     let (mut fixtures, mut hebrew, mut moved, mut raised) = (0usize, 0usize, 0usize, 0usize);
     let mut mismatches: Vec<String> = Vec::new();
     let (mut system_fixtures, mut system_hebrew, mut skipped) = (0usize, 0usize, 0usize);
+    let mut ligated = 0usize;
     for line in text
         .lines()
         .filter(|l| !l.starts_with('#') && !l.is_empty())
@@ -788,6 +810,7 @@ fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
                 "{path} {cps:04X?}: baud {got:?} against hb-shape {want:?}"
             ));
         }
+        ligated += usize::from(got.len() < cps.len());
         if system {
             system_fixtures += 1;
             system_hebrew += usize::from(rtl);
@@ -812,5 +835,6 @@ fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
         system_fixtures: Reached(system_fixtures),
         system_hebrew: Reached(system_hebrew),
         skipped: Reached(skipped),
+        ligated: Reached(ligated),
     }
 }

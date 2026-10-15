@@ -3,8 +3,19 @@
 
 The Unicode Script property (`[[source: unicode-scripts]]`), its
 Script_Extensions (`[[source: unicode-scriptextensions]]`), each script's
-ISO 15924 code (`[[source: unicode-propertyvaluealiases]]`), and the
-OpenType script tags each script selects (`[[source: ms-opentype-scripttags]]`).
+ISO 15924 code (`[[source: unicode-propertyvaluealiases]]`), the
+OpenType script tags each script selects (`[[source: ms-opentype-scripttags]]`),
+and each script's direction with the letters and numbers that can turn a
+run of a right-to-left script left to right (`[[source: unicode-derivedbidiclass]]`,
+`[[source: gc-data]]`).
+
+**A script is right to left when every letter in it is Bidi_Class R or
+AL.** UAX #9 resolves such a character to an odd level whatever the
+paragraph's direction (`[[source: uax9-bidi]]`, W3 and I1-I2), so a run of
+the script is laid out right to left. Over 17.0.0 that is 37 scripts:
+HarfBuzz's `hb_script_get_horizontal_direction` list and Old Hungarian,
+which HarfBuzz leaves to the caller. A script whose letters disagree stops
+the generator.
 
 Same contract as gen-grapheme-tables.py: generated and committed, and
 `script_tables_match_the_pinned_data` (baud-font/tests/script.rs) runs this
@@ -78,6 +89,16 @@ def span(field):
     return int(lo, 16), int(hi or lo, 16)
 
 
+def classes(path):
+    """A property value per code point from a UCD file; `None` where unlisted."""
+    out = [None] * 0x110000
+    for p in data_lines(path):
+        lo, hi = span(p[0])
+        for cp in range(lo, hi + 1):
+            out[cp] = p[1]
+    return out
+
+
 def main():
     check = "--check" in sys.argv[1:]
 
@@ -141,6 +162,48 @@ def main():
     assert tags[index["Deva"]] == ("dev2", "deva")
     assert tags[index["Hira"]] == ("kana", "")
 
+    # Direction: right to left when every letter (gc L*) of the script is
+    # Bidi_Class R or AL, from the files themselves; Common's letters are
+    # mixed and it stays left to right.
+    gc = classes("unicode-derivedgeneralcategory.txt")
+    bidi = classes("unicode-derivedbidiclass.txt")
+    letters = {}
+    for cp in range(0x110000):
+        if gc[cp] is not None and gc[cp].startswith("L"):
+            assert bidi[cp] is not None, hex(cp)
+            letters.setdefault(sc[cp], set()).add(bidi[cp] in ("R", "AL"))
+    rtl = set()
+    for i, kinds in letters.items():
+        if i in (0, 1, 2):
+            continue
+        assert len(kinds) == 1, f"{codes[i]}: letters of both directions"
+        if True in kinds:
+            rtl.add(i)
+    assert index["Hebr"] in rtl and index["Arab"] in rtl and index["Latn"] not in rtl
+    assert len(rtl) == 37, len(rtl)
+    directions = bytes(int(i in rtl) for i in range(len(codes)))
+
+    # What can turn a run of a right-to-left script left to right: a
+    # decimal digit or a regional indicator with no letter beside it, the
+    # rule HarfBuzz's `hb_ensure_native_direction` applies when its caller
+    # asks for left to right. Only a code point
+    # a right-to-left run can hold is classed -- its Script or one of its
+    # Script_Extensions is right to left, or it is Common or Inherited --
+    # which keeps the table to the blocks those scripts touch.
+    LETTER, NUMBER = 1, 2
+    run_kind = [0] * 0x110000
+    for cp in range(0x110000):
+        held = sc[cp] in rtl or sc[cp] in (1, 2) or any(m in rtl for m in sets[scx[cp]])
+        if not held or gc[cp] is None:
+            continue
+        if gc[cp].startswith("L"):
+            run_kind[cp] = LETTER
+        elif gc[cp] == "Nd" or 0x1F1E6 <= cp <= 0x1F1FF:
+            run_kind[cp] = NUMBER
+    assert run_kind[0x05D0] == LETTER and run_kind[0x0661] == NUMBER
+    assert run_kind[0x0031] == NUMBER and run_kind[0x1F1E6] == NUMBER
+    assert run_kind[0x02B9] == LETTER and run_kind[0x0041] == 0 and run_kind[0x0915] == 0
+
     def trie(values):
         blocks, idx = {}, []
         for base in range(0, 0x110000, BLOCK):
@@ -163,6 +226,7 @@ def main():
 
     sc_idx, sc_packed, sc_blocks = trie(sc)
     scx_idx, scx_packed, scx_blocks = trie(scx)
+    run_idx, run_packed, run_blocks = trie(run_kind)
 
     # Every table is a byte string: rustfmt rewraps array literals to its
     # width, so a generator emitting one could never pass its own --check.
@@ -177,8 +241,9 @@ def main():
         "//! tags each script selects, generated from the sources pinned in",
         "//! `docs/research/sources/MANIFEST.toml`: `[[source: unicode-scripts]]`,",
         "//! `[[source: unicode-scriptextensions]]`,",
-        "//! `[[source: unicode-propertyvaluealiases]]` and",
-        "//! `[[source: ms-opentype-scripttags]]`.",
+        "//! `[[source: unicode-propertyvaluealiases]]`,",
+        "//! `[[source: ms-opentype-scripttags]]`, `[[source: unicode-derivedbidiclass]]`",
+        "//! and `[[source: gc-data]]`.",
         "//!",
         "//! **Do not edit by hand.** Regenerate with `scripts/gen-script-tables.py`.",
         "//! `script_tables_match_the_pinned_data` fails if this file and the pinned",
@@ -221,6 +286,19 @@ def main():
         f"/// [`EXTENSION_SETS`]. Stage 1: code point >> 8 to one of {scx_blocks} blocks.",
     ))
     out.append(bytestring("EXTENSION_BLOCKS", scx_packed, "/// Stage 2 of [`EXTENSION_INDEX`]."))
+    out.append(bytestring(
+        "DIRECTIONS", directions,
+        "/// Each script's direction, a byte a script in index order: 1 where\n"
+        "/// every letter of the script is Bidi_Class R or AL, else 0.",
+    ))
+    out.append(bytestring(
+        "RUN_INDEX", run_idx,
+        "/// What a code point is to a right-to-left run's direction, as a\n"
+        "/// two-stage trie: 1 a letter, 2 a decimal digit or regional indicator,\n"
+        "/// 0 neither or out of reach of such a run. Stage 1: code point >> 8 to\n"
+        f"/// one of {run_blocks} blocks.",
+    ))
+    out.append(bytestring("RUN_BLOCKS", run_packed, "/// Stage 2 of [`RUN_INDEX`]."))
     text = "\n".join(out) + "\n"
 
     if check:
@@ -232,7 +310,8 @@ def main():
     DST.write_text(text, encoding="utf-8")
     print(
         f"{DST}: {len(codes)} scripts, {len(sets)} extension sets, "
-        f"{len(sc_packed) + len(sc_idx)} + {len(scx_packed) + len(scx_idx)} bytes"
+        f"{len(sc_packed) + len(sc_idx)} + {len(scx_packed) + len(scx_idx)} + "
+        f"{len(run_packed) + len(run_idx)} bytes, {len(rtl)} right to left"
     )
 
 

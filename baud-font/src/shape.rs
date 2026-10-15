@@ -33,7 +33,7 @@ use crate::glyf::VarPoint;
 use crate::layout::{Digest, Features};
 use crate::outline::Drawn;
 use crate::raster::{Bounds, InkBox};
-use crate::script::Script;
+use crate::script::{RunText, Script};
 use baud_domain::{Codepoint, GlyphId};
 
 /// Hangul syllables compose by arithmetic
@@ -610,6 +610,9 @@ pub struct Shaper<'f, 'a, 'b> {
     scratch: &'b mut [VarPoint],
     ink_refused: Count,
     ink_need: Count,
+    /// What the run's characters say about its direction, which `morx`
+    /// reads; noted only on a face that shapes through `morx`.
+    run: RunText,
 }
 
 impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
@@ -622,6 +625,7 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             scratch: &mut [],
             ink_refused: Count::ZERO,
             ink_need: Count::ZERO,
+            run: RunText::EMPTY,
         }
     }
 
@@ -671,6 +675,11 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
     /// when the storage is full, leaving the buffer as it was before the
     /// call.
     pub fn push_cluster(&mut self, cps: &[Codepoint], cell: Cluster) -> Option<()> {
+        if self.face.gsub().is_none() && self.face.morx().is_some() {
+            for &c in cps {
+                self.run.push(c);
+            }
+        }
         let normalised = Normalised::of(self.face, cps);
         let out = normalised.as_slice();
         let m = out.len();
@@ -809,7 +818,7 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             (None, Some(morx)) => {
                 // `morx` writes ids without classes; the positioning
                 // filters read them, so they are read again once here.
-                let declined = morx.apply(&mut self.buf);
+                let declined = morx.apply(&mut self.buf, self.run.direction(script));
                 self.buf.retag(&self.face.gdef());
                 declined
             }

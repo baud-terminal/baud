@@ -1,0 +1,14 @@
+Raanana | gen5 | 70/209 | before = hb 45/158 | after = hb 70/209 | changed 25/51 | worse 0/0 | newly = hb 25/51
+Raanana | pango | 190/641 | before = hb 120/471 | after = hb 190/641 | changed 70/170 | worse 0/0 | newly = hb 70/170
+Raanana Bold | gen5 | 70/209 | before = hb 45/158 | after = hb 70/209 | changed 25/51 | worse 0/0 | newly = hb 25/51
+Raanana Bold | pango | 190/641 | before = hb 120/471 | after = hb 190/641 | changed 70/170 | worse 0/0 | newly = hb 70/170
+New Peninim MT | gen5 | 70/209 | before = hb 52/163 | after = hb 70/209 | changed 18/46 | worse 0/0 | newly = hb 18/46
+New Peninim MT | pango | 190/641 | before = hb 149/504 | after = hb 190/641 | changed 41/137 | worse 0/0 | newly = hb 41/137
+Corsiva Hebrew | gen5 | 70/209 | before = hb 47/154 | after = hb 70/209 | changed 23/55 | worse 0/0 | newly = hb 23/55
+Corsiva Hebrew | pango | 190/641 | before = hb 127/470 | after = hb 190/641 | changed 63/171 | worse 0/0 | newly = hb 63/171
+Corsiva Hebrew Bold | gen5 | 70/209 | before = hb 47/154 | after = hb 70/209 | changed 23/55 | worse 0/0 | newly = hb 23/55
+Corsiva Hebrew Bold | pango | 190/641 | before = hb 127/470 | after = hb 190/641 | changed 63/171 | worse 0/0 | newly = hb 63/171
+Lucida Grande | gen5 | 70/209 | before = hb 37/133 | after = hb 70/209 | changed 33/76 | worse 0/0 | newly = hb 33/76
+Lucida Grande | pango | 190/641 | before = hb 103/402 | after = hb 190/641 | changed 87/239 | worse 0/0 | newly = hb 87/239
+Lucida Grande Bold | gen5 | 70/209 | before = hb 37/133 | after = hb 70/209 | changed 33/76 | worse 0/0 | newly = hb 33/76
+Lucida Grande Bold | pango | 190/641 | before = hb 103/402 | after = hb 190/641 | changed 87/239 | worse 0/0 | newly = hb 87/239

@@ -45,8 +45,8 @@
 
 use crate::layout::ScriptTag;
 use crate::script_data::{
-    CODES, EXTENSION_BLOCKS, EXTENSION_INDEX, EXTENSION_SETS, EXTENSION_SLOT, SCRIPT_BLOCKS,
-    SCRIPT_COUNT, SCRIPT_INDEX, TAGS,
+    CODES, DIRECTIONS, EXTENSION_BLOCKS, EXTENSION_INDEX, EXTENSION_SETS, EXTENSION_SLOT,
+    RUN_BLOCKS, RUN_INDEX, SCRIPT_BLOCKS, SCRIPT_COUNT, SCRIPT_INDEX, TAGS,
 };
 use baud_domain::Codepoint;
 
@@ -115,6 +115,79 @@ impl Script {
             _ => [[0; 4]; 2],
         };
         pair.into_iter().filter(|t| *t != [0; 4]).map(ScriptTag)
+    }
+
+    /// The direction a run of this script is laid out in: right to left
+    /// where every letter of the script is Bidi_Class R or AL, which UAX #9
+    /// resolves to an odd level whatever the paragraph's direction
+    /// (`[[source: uax9-bidi]]`, W3 and I1-I2), and left to right
+    /// otherwise -- Common and Inherited among them.
+    pub fn direction(self) -> Direction {
+        match DIRECTIONS.get(usize::from(self.0)) {
+            Some(1) => Direction::RightToLeft,
+            _ => Direction::LeftToRight,
+        }
+    }
+}
+
+/// The order a run's glyphs are laid out in. baud does not reorder text
+/// (UAX #9 is unbuilt; note AB), but a `morx` subtable names the order it
+/// walks a run in by the run's layout, so the shaper still needs it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Direction {
+    LeftToRight,
+    RightToLeft,
+}
+
+/// Whether a run has held a character of one kind yet.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Held {
+    No,
+    Yes,
+}
+
+/// What a run's characters say about its direction beyond its script.
+/// A run of a right-to-left script that holds a decimal digit or a
+/// regional indicator and no letter is laid out left to right -- UAX #9
+/// resolves EN and AN to an even level and a regional indicator is
+/// Bidi_Class L. CoreText puts a flag pair beside Hebrew in a
+/// left-to-right run; HarfBuzz keeps such a run left to right only when
+/// its caller asks for left to right (`hb_ensure_native_direction`,
+/// `[[source: harfbuzz-hb-ot-shape]]`, hb-ot-shape.cc:613), and baud has
+/// no caller direction to ask with.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RunText {
+    letter: Held,
+    number: Held,
+}
+
+impl RunText {
+    /// A run that has held nothing yet.
+    pub const EMPTY: RunText = RunText {
+        letter: Held::No,
+        number: Held::No,
+    };
+
+    /// Notes one character of the run.
+    pub fn push(&mut self, c: Codepoint) {
+        let v = usize::try_from(c.value()).unwrap_or(0);
+        let block = usize::from(RUN_INDEX.get(v >> 8).copied().unwrap_or(0));
+        match RUN_BLOCKS.get(block * 256 + (v & 0xFF)) {
+            Some(1) => self.letter = Held::Yes,
+            Some(2) => self.number = Held::Yes,
+            _ => {}
+        }
+    }
+
+    /// The direction a run of `script` holding these characters is laid
+    /// out in.
+    pub fn direction(self, script: Script) -> Direction {
+        match script.direction() {
+            Direction::RightToLeft if self.letter == Held::No && self.number == Held::Yes => {
+                Direction::LeftToRight
+            }
+            d => d,
+        }
     }
 }
 

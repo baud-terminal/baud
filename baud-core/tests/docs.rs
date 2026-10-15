@@ -626,6 +626,14 @@ fn every_test_named_in_the_docs_exists() {
             "show_terminal_zero_state_block",
             "Warp's setting for its per-session logo block, cited in note AJ",
         ),
+        (
+            "hb_ensure_native_direction",
+            "HarfBuzz's run-direction rule (hb-ot-shape.cc), cited for baud-font's RunText",
+        ),
+        (
+            "hb_script_get_horizontal_direction",
+            "HarfBuzz's per-script direction list (hb-common.cc), cited for Script::direction",
+        ),
     ];
 
     let mut missing = BTreeSet::new();
