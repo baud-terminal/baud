@@ -2344,8 +2344,8 @@ impl Paint<'_, '_> {
         self.goto(Row::ZERO, Col::ZERO);
     }
 
-    /// DECSTR. **A soft reset leaves the alternate screen**, which the first
-    /// implementation of it in this repo did not.
+    /// DECSTR. **A soft reset stays on the alternate screen and leaves the
+    /// cursor where it is.**
     pub(crate) fn soft_reset(&mut self) {
         // **`DECSTR` does not leave the alternate screen**, and this called
         // `set_alt_screen(Reset)` as its first act. `[[source: ctlseqs]]`'s
@@ -2424,7 +2424,16 @@ impl Paint<'_, '_> {
         self.cold.placement.forget();
         self.invoke();
         self.refresh_flags();
-        self.goto(Row::ZERO, Col::ZERO);
+        // **The cursor stays**: "DECSTR has no affect on the Active
+        // Position" (`[[source: dec-std-070]]` 070-4, DECSTR note c, p. 32),
+        // and `soft_terminal_reset` (p. 34) assigns a position only to the
+        // save buffer, which `saved = None` above stands for. xterm's soft
+        // branch moves nothing either (`[[source: xterm-reset]]`). This homed
+        // until 2026-10-14; `RIS` still does, at the end of `hard_reset`.
+        // `cx` is kept as it is, so a pending wrap at the screen's edge
+        // survives, and one at a narrower right margin is left one column
+        // past it, which the widened margins read as a column: the sentinel
+        // cannot say which it was (note V's "PendingAt", open).
     }
 }
 

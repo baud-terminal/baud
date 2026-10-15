@@ -687,3 +687,101 @@ fn decstr_and_ris_restore_the_keypad_and_modify_other_keys() {
         assert_eq!(t.reply(), b"\x1b[Z", "{name}: modifyOtherKeys");
     }
 }
+
+// ── the cursor ──────────────────────────────────────────────────────────────
+
+/// 20 by 8, for the cursor tests below.
+const SMALL: WinSize = WinSize {
+    ws_row: 8,
+    ws_col: 20,
+};
+
+/// The replies `bytes` draw and the cell `X` lands in, 0-based, after
+/// requiring the same of every read size and every split into two reads.
+fn landed(bytes: &[u8]) -> (String, Option<(usize, usize)>) {
+    let at = |pieces: &[&[u8]]| {
+        let mut s = Owned::new(&SMALL);
+        let mut t = Term::new(s.storage(), &SMALL);
+        let mut reply = Vec::new();
+        for piece in pieces {
+            t.write_at(BytePos::ZERO, piece);
+            t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
+            reply.extend_from_slice(t.reply());
+            t.clear_reply();
+        }
+        let x = (0..usize::from(SMALL.ws_row)).find_map(|y| {
+            t.row(Row::from_index(y))
+                .expect("a row on the grid")
+                .iter()
+                .position(|c| c.content.as_codepoint().map(|cp| cp.value()) == Some(u32::from('X')))
+                .map(|x| (y, x))
+        });
+        (String::from_utf8_lossy(&reply).into_owned(), x)
+    };
+    let whole = at(&[bytes]);
+    for read in 1..bytes.len() {
+        let pieces: Vec<&[u8]> = bytes.chunks(read).collect();
+        assert_eq!(at(&pieces), whole, "{read}-byte reads of {bytes:02x?}");
+    }
+    for cut in 1..bytes.len() {
+        let (a, b) = bytes.split_at(cut);
+        assert_eq!(at(&[a, b]), whole, "split at {cut} of {bytes:02x?}");
+    }
+    whole
+}
+
+/// **`DECSTR` leaves the cursor where it is.** `[[source: dec-std-070]]`
+/// 070-4, DECSTR note c (p. 32, PDF 236): "DECSTR has no affect on the
+/// Active Position", and its `soft_terminal_reset` (p. 34, PDF 238)
+/// assigns a position only to the cursor save buffer. The VT510's table
+/// (`[[source: vt510-decstr]]`) and the VT220's Table 4-10
+/// (`[[source: vt220-rm-ch4]]`) give "Home" for the saved cursor state
+/// alone, and xterm's soft branch zeroes `sc[].row` and `sc[].col` and moves
+/// nothing (`[[source: xterm-reset]]`). baud homed it until 2026-10-14.
+#[test]
+fn decstr_leaves_the_cursor_where_it_is() {
+    assert_eq!(
+        landed(b"\x1b[5;9H\x1b[!p\x1b[6nX"),
+        ("\x1b[5;9R".into(), Some((4, 8)))
+    );
+}
+
+/// **And a pending wrap at the screen's edge survives it**: STD 070's
+/// algorithm does not touch the Last Column Flag either, and xterm's soft
+/// branch leaves `do_wrap`. Whether a pending wrap survives `DECSTR` is
+/// the owner's to decide (note V, "PendingAt"); this is the option the text
+/// leans to. `CPR` reports the last column, and `X` wraps to the next row.
+#[test]
+fn decstr_keeps_a_pending_wrap_at_the_screen_edge() {
+    let mut bytes = b"\x1b[2;1H".to_vec();
+    bytes.extend_from_slice(&[b'a'; 20]);
+    bytes.extend_from_slice(b"\x1b[!p\x1b[6nX");
+    assert_eq!(landed(&bytes), ("\x1b[2;20R".into(), Some((2, 0))));
+}
+
+/// **Under DECOM the same**: margins 2..6 and 5..10, origin mode set and
+/// `CUP 2;3` from the margins' corner, which is line 3, column 7; `DECSTR`
+/// resets the mode and the margins and leaves the cursor there, so `CPR`
+/// answers 3;7 from the screen's corner. `tests/vt420/origin.rs` holds the
+/// same at every read size, through its own fixture.
+#[test]
+fn decstr_under_origin_mode_leaves_the_cursor_at_every_split() {
+    assert_eq!(
+        landed(b"\x1b[2;6r\x1b[?69h\x1b[5;10s\x1b[?6h\x1b[2;3H\x1b[!p\x1b[6nX"),
+        ("\x1b[3;7R".into(), Some((2, 6)))
+    );
+}
+
+/// **At a right margin narrower than the screen the column stays where the
+/// pending-wrap sentinel put it**, one past the margin, which the widened
+/// margins then read as a column of its own: the wrap is lost and `X` lands
+/// one right of the margin. The sentinel cannot tell this from a cursor
+/// `CUP` put past the fence, where leaving it is right; `?69 l` does the
+/// same. Open, with the options in the record (note V's "PendingAt").
+#[test]
+fn decstr_leaves_a_column_past_a_narrower_right_margin() {
+    assert_eq!(
+        landed(b"\x1b[?69h\x1b[5;10s\x1b[3;5Habcdef\x1b[!p\x1b[6nX"),
+        ("\x1b[3;11R".into(), Some((2, 10)))
+    );
+}

@@ -500,6 +500,20 @@ fn entering_the_alternate_screen_under_origin_mode_leaves_the_cursor() {
     );
 }
 
+/// **`DECSTR` under DECOM leaves the cursor where it was**, and resets the
+/// mode and the margins around it, so `CPR` answers the same cell from the
+/// screen's corner, 3;7, where it answered 2;3 from the margins' before:
+/// "DECSTR has no affect on the Active Position" (`[[source: dec-std-070]]`
+/// 070-4, DECSTR note c, p. 32, PDF 236). It homed to 1;1 until 2026-10-14.
+#[test]
+fn decstr_under_origin_mode_leaves_the_cursor() {
+    assert_eq!(
+        landed("\x1b[!p"),
+        (Some((2, 6)), "\x1b[3;7R".into()),
+        "DECSTR"
+    );
+}
+
 /// **VT52's moves keep DECOM's confinement.** STD 070's VT52 emulation
 /// leaves Origin Mode and the scrolling region "undefined ... both when
 /// entering and exiting VT52 Mode" (§ A.5.5), so no text says otherwise;

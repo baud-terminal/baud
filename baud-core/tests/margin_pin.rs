@@ -388,12 +388,14 @@ fn a_move_to_the_first_column_ends_it() {
 /// **A pin from before a `?7h` is not read after the `?7l` that follows.**
 /// With `DECAWM` set a write leaves `Cold::pinned` alone, so `abc` wrapping
 /// onto row 1 left the pin naming the `e`; the mark after the `?7l` belongs
-/// to the `c`. `DECSTR`, which sets `DECAWM` again, homes the cursor through
-/// `Paint::goto`, which ends the pin: `abc` lands on row 0, and a stale pin
-/// would put the mark on the `x` after the `c`.
+/// to the `c`. `DECSTR` sets `DECAWM` again and, since 2026-10-14, leaves
+/// the cursor on the `e` ("DECSTR has no affect on the Active Position",
+/// `[[source: dec-std-070]]` 070-4, note c), so it is `?7h` here: the pin it
+/// leaves is not read while `DECAWM` is set, and the `?7l` ends it. It homed
+/// until then, and `abc` landed on row 0 with the mark on the `c` at 0;2.
 #[test]
 fn a_change_of_autowrap_ends_it() {
-    for (between, at) in [("\x1b[?7h", (1, 1)), ("\x1b[!p", (0, 2))] {
+    for (between, at) in [("\x1b[?7h", (1, 1)), ("\x1b[!p", (1, 1))] {
         let s = format!("\x1b[?7lxxxxxxxe{between}abc\x1b[?7l\x1b[m\u{301}");
         for read in 1..=s.len() {
             assert_eq!(
