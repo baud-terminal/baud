@@ -10,6 +10,8 @@ HTML file's source rather than the page.
 [cursor]
 shape = "block"   # block | underline | bar
 blink = "auto"    # auto | true | false
+blink_animation = "plasma"  # plasma | fade | none
+# blink_interval_ms = 333   # each phase; unset follows the system's keys where set
 trail = "plasma"  # plasma | fire | lightning | ice | ufo | orb | liquid | quad | sweep | ghost | off
 ```
 
@@ -18,6 +20,11 @@ and a top-level key below it is read as the section's. `true` reads as the
 default, `trail = "plasma"`, and `false` as `trail = "off"`, so a config written
 when the key was a switch reads as it did.
 [config.toml.example](../config.toml.example) documents every key.
+
+A blinking cursor shows for 333 ms and hides for 333 by default, and
+`blink_animation` says what it does while hidden: the plasma glow on its cell
+(the default), a fade out and back in over 30% of the hidden phase each side,
+or a hard switch. Reduce Motion always means the hard switch.
 
 Each still below is the frame of its clip with the most trail on screen, on the
 fifth move: the diagonal from the top-left `+` to the bottom-right one, where

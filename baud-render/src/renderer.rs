@@ -5,6 +5,7 @@ use crate::cache::{
     CacheStats, CellIx, ClusterMemo, Cover, Key, PLACED_MAX, Placed, Question, RUN_CELLS, RunCache,
     Shaped,
 };
+use crate::caret::{self, CursorPhase};
 use crate::cellmap::{BlockCursor, CellSpan, Curves, Resolved, Selected, Shapes, Swaps, Text};
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Target};
@@ -690,6 +691,10 @@ pub struct Renderer<'f, 'a> {
     row_blinks: Vec<Blinking>,
     per_row: Vec<Vec<Instance>>,
     last_cursor: Cursor,
+    /// The opacity the last converted frame drew its cursor at, so a fade
+    /// that moves the cursor's opacity and nothing else still dirties its
+    /// row.
+    last_cursor_opacity: Chan,
     /// The selection on this frame's view, set by [`Renderer::set_highlight`]
     /// before a convert, and the one the last convert drew -- a row whose
     /// share of it changed is dirty, the cursor's own rule.
@@ -741,9 +746,16 @@ pub struct Renderer<'f, 'a> {
     /// this is not zero.
     blink_slots: Tally,
     /// This frame's cursor blink phase, set by [`Renderer::set_cursor_blink`]:
-    /// a phase of its own, because a blinking cursor keeps xterm's timing and
-    /// restarts on input where `SGR 5` text keeps neither.
-    cursor_blink: Blink,
+    /// a phase of its own, because a blinking cursor keeps its own timing and
+    /// restarts on input where `SGR 5` text keeps neither -- and a fade or
+    /// the plasma glow part way through it ([`CursorPhase`]).
+    cursor_blink: CursorPhase,
+    /// The plasma blink's glow, where it is and how bright, on this frame
+    /// and the last, and its solids: a row under either is dirty, the
+    /// trail's rule, so the glow's damage is the cursor's row.
+    glow: Option<(Row, Col, Chan)>,
+    last_glow: Option<(Row, Col, Chan)>,
+    glow_inst: Vec<Instance>,
     /// Whether this frame shows the other video, set by
     /// [`Renderer::set_flash`] before a convert or resolve, the way the blink
     /// phase is.
@@ -880,6 +892,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             row_blinks: Vec::new(),
             per_row: Vec::new(),
             last_cursor: None,
+            last_cursor_opacity: Chan::from_u8(0xFF),
             highlight: None,
             last_highlight: None,
             bar: None,
@@ -900,7 +913,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             blink: BlinkPhases::SHOWN,
             blink_slots: Tally::default(),
             blink_seen: Blinking::default(),
-            cursor_blink: Blink::Shown,
+            cursor_blink: CursorPhase::SHOWN,
+            glow: None,
+            last_glow: None,
+            glow_inst: Vec::new(),
             flash: VideoFlash::default(),
             image_places: Vec::new(),
             last_image_places: Vec::new(),
@@ -1305,16 +1321,56 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// the rules for when a cursor blinks at all -- focused, visible, on the
     /// live screen -- and hands [`Blink::Shown`] whenever it does not, so a
     /// steady cursor is never hidden.
-    pub fn set_cursor_blink(&mut self, phase: Blink) {
-        self.cursor_blink = phase;
+    ///
+    /// A [`Blink`] is a hard blink's phase; a [`CursorPhase`] carries a fade's
+    /// opacity and the plasma glow's pulse as well.
+    pub fn set_cursor_blink(&mut self, phase: impl Into<CursorPhase>) {
+        self.cursor_blink = phase.into();
     }
 
     /// Whether a cursor of `style` is drawn this frame: always, unless it
-    /// blinks and the phase is off. The one spelling of the rule, which the
-    /// CPU and instance paths apply in [`Renderer::convert`] and a cell-path
-    /// driver applies to the cursor it hands the shader.
+    /// blinks and the phase leaves none of it. The one spelling of the rule,
+    /// which the CPU and instance paths apply in [`Renderer::convert`] and a
+    /// cell-path driver applies to the cursor it hands the shader.
     pub fn cursor_drawn(&self, style: CursorStyle) -> bool {
-        !(style.blinks() && self.cursor_blink == Blink::Hidden)
+        self.cursor_opacity(style) != Chan::from_u8(0)
+    }
+
+    /// How much of a cursor of `style` this frame draws: all of a steady
+    /// one, and of a blinking one the phase's opacity. The block's swap and
+    /// the bar's or underline's shape are taken this far on every path --
+    /// the cell shader's `cursor_alpha` is this.
+    pub fn cursor_opacity(&self, style: CursorStyle) -> Chan {
+        if style.blinks() {
+            self.cursor_blink.opacity
+        } else {
+            Chan::from_u8(0xFF)
+        }
+    }
+
+    /// **The plasma blink's glow over the cursor at `at`**, built for this
+    /// frame: the live cursor whether or not the phase draws it, `None` when
+    /// there is none on the screen being drawn. Nothing for a steady style
+    /// or a phase without a glow. [`Renderer::convert`] calls this itself;
+    /// a cell-path driver calls it with the cursor it computed and draws
+    /// [`Renderer::cursor_glow`] after the trail's records.
+    pub fn set_cursor_glow_at(&mut self, at: Option<(Row, Col, CursorStyle)>) {
+        let level = self.cursor_blink.glow;
+        self.glow = at
+            .filter(|&(_, _, style)| style.blinks() && level != Chan::from_u8(0))
+            .map(|(r, c, _)| (r, c, level));
+        self.glow_inst.clear();
+        if let Some((r, c, level)) = self.glow {
+            let cell = self.cursor_px(r, c, CursorStyle::SteadyBlock);
+            caret::glow(cell, level, self.cursor_fill, &mut self.glow_inst);
+        }
+    }
+
+    /// The glow's solids, for a path that draws records of its own: after
+    /// the trail's and under the scrollbar, as [`Renderer::instances`] has
+    /// them.
+    pub fn cursor_glow(&self) -> &[Instance] {
+        &self.glow_inst
     }
 
     /// Show the other video this frame, or stop. Nothing is rebuilt here:
@@ -1787,15 +1843,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         // No cursor while looking back: it belongs to the live screen, which
         // is `back` lines below the window.
-        let cursor: Cursor =
-            (term.cursor_visible() && back.index() == 0 && self.cursor_drawn(term.cursor_style()))
-                .then(|| {
-                    let (r, c) = match &composition {
-                        Some(c) => c.cursor(cols),
-                        None => term.cursor(),
-                    };
-                    (r, c, term.cursor_style())
-                });
+        let live: Cursor = (term.cursor_visible() && back.index() == 0).then(|| {
+            let (r, c) = match &composition {
+                Some(c) => c.cursor(cols),
+                None => term.cursor(),
+            };
+            (r, c, term.cursor_style())
+        });
+        self.set_cursor_glow_at(live);
+        let cursor: Cursor = live.filter(|&(_, _, style)| self.cursor_drawn(style));
+        let opacity = cursor.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s));
         // Every slot resolved again -- a theme, a video or a palette changed
         // -- repaints every cell whose words did not change, and so does an
         // eviction, which gives a slot some cell names another rendition, and
@@ -1827,8 +1884,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let changed = self.cur[range.clone()] != self.prev[range];
             let cursor_here = cursor_row(cursor) == Some(r);
             let cursor_was = cursor_row(self.last_cursor) == Some(r);
-            let cursor_moved =
-                cursor_here != cursor_was || (cursor_here && cursor != self.last_cursor);
+            let cursor_moved = cursor_here != cursor_was
+                || (cursor_here
+                    && (cursor != self.last_cursor || opacity != self.last_cursor_opacity));
+            let glow_row =
+                |g: Option<(Row, Col, Chan)>| g.is_some_and(|(gr, _, _)| gr.index() == r);
+            let glow_moved =
+                (glow_row(self.glow) || glow_row(self.last_glow)) && self.glow != self.last_glow;
             let row = Row::from_index(r);
             let selected = |h: Option<Highlight>| h.filter(|h| h.covers_row(row));
             let selection_moved = selected(self.highlight) != selected(self.last_highlight);
@@ -1855,6 +1917,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.dirty[r] = full
                 || changed
                 || cursor_moved
+                || glow_moved
                 || selection_moved
                 || bar_moved
                 || trail_moved
@@ -1894,6 +1957,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         core::mem::swap(&mut self.prev, &mut self.cur);
         self.known = Prev::Known;
         self.last_cursor = cursor;
+        self.last_cursor_opacity = opacity;
+        self.last_glow = self.glow;
         self.last_highlight = self.highlight;
         self.last_bar = self.bar;
         self.last_trail = self.trail;
@@ -1966,7 +2031,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     }
                 }
             }
-            for inst in self.bar_inst.iter().chain(&self.fade_inst) {
+            for inst in self
+                .glow_inst
+                .iter()
+                .chain(&self.bar_inst)
+                .chain(&self.fade_inst)
+            {
                 target.over(inst, &self.atlas, self.blend, band);
             }
         }
@@ -1984,6 +2054,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .flatten()
             .chain(self.compose_inst.iter())
             .chain(self.trail_inst.iter())
+            .chain(self.glow_inst.iter())
             .chain(self.bar_inst.iter())
             .chain(self.fade_inst.iter())
     }
@@ -2546,6 +2617,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 selected,
                 block,
                 blink: self.blink,
+                cursor: here.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s)),
             });
             let (fg, hidden) = (d.fg, d.text == Text::Hidden);
             self.fg[range.start + c] = fg;
@@ -2632,6 +2704,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // The bar or underline cursor draws in the application's cursor
             // colour (`OSC 12`) if it set one, else the cell's foreground.
             let cur = cursor_color.unwrap_or(fg);
+            let cur = here.map_or(cur, |(_, _, s)| cur.scaled(self.cursor_opacity(s)));
             if let Some((
                 _,
                 _,

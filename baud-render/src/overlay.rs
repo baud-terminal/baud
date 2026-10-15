@@ -26,7 +26,7 @@ use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
 use baud_domain::{
-    AmbiguousWidth, Classified, Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row,
+    AmbiguousWidth, Chan, Classified, Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row,
     Viewport, Width,
 };
 use baud_font::Px;
@@ -149,6 +149,16 @@ struct Paint<'p> {
     /// The frame's `SGR 5` and `SGR 6` phases: a record for a hidden cell is
     /// not drawn.
     blink: BlinkPhases,
+    /// How much of the block cursor this frame draws
+    /// ([`Renderer::cursor_opacity`]): a fade's records are its glyph part
+    /// way to the swapped colour, as the cell under it is.
+    cursor: Chan,
+}
+
+/// The opacity a record under `block` is drawn with: its style's, or all
+/// of it where there is no cursor.
+fn opacity_of(r: &Renderer<'_, '_>, block: Option<(Row, Col, CursorStyle)>) -> Chan {
+    block.map_or(Chan::from_u8(0xFF), |(_, _, s)| r.cursor_opacity(s))
 }
 
 /// Distinct window contents kept before the store starts over.
@@ -396,6 +406,7 @@ impl Overlay {
                         block,
                         highlight: scene.highlight,
                         blink: r.blink(),
+                        cursor: opacity_of(r, block),
                     },
                     &geom,
                 );
@@ -454,6 +465,7 @@ impl Overlay {
                 block,
                 highlight: scene.highlight,
                 blink: r.blink(),
+                cursor: opacity_of(r, block),
             };
             // `ceiling-no-window-cache` prices the miss: nothing is found.
             let hit = if cfg!(feature = "ceiling-no-window-cache") {
@@ -647,6 +659,7 @@ impl Overlay {
                 block,
                 highlight,
                 blink: r.blink(),
+                cursor: opacity_of(r, block),
             },
             &geom,
         );
@@ -742,6 +755,7 @@ impl Overlay {
                 BlockCursor::No
             },
             blink: paint.blink,
+            cursor: paint.cursor,
         });
         if d.text == Text::Hidden {
             return;
@@ -891,6 +905,7 @@ pub(crate) fn composition_records(
         block,
         highlight: None,
         blink: r.blink(),
+        cursor: opacity_of(r, block),
     };
     let face = crate::cellmap::face_of(styles, under);
     let y = c.row.index();
@@ -926,6 +941,7 @@ pub(crate) fn composition_records(
                 BlockCursor::No
             },
             blink: r.blink(),
+            cursor: opacity_of(r, block),
         });
         if d.text == Text::Hidden {
             continue;

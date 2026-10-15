@@ -124,6 +124,13 @@ pub struct Config {
     /// `[cursor] stop_blinking_after`: seconds without input after which a
     /// blinking cursor stops, shown; never by default, the owner's call.
     pub cursor_stop: StopAfter,
+    /// `[cursor] blink_animation`: what a blinking cursor does in its
+    /// hidden phase -- the plasma glow by default, the owner's pick of
+    /// 2026-10-15; see [`BlinkAnimation`].
+    pub blink_animation: BlinkAnimation,
+    /// `[cursor] blink_interval_ms`: the length of each phase, shown and
+    /// hidden alike, if the config sets one; see [`BlinkInterval`].
+    pub blink_interval: BlinkInterval,
     /// `[screen] transition`: whether a switch to or from the alternate
     /// screen fades the new one in from the background. Off by default.
     pub screen_transition: ScreenTransition,
@@ -444,6 +451,44 @@ impl BlinkChoice {
     }
 }
 
+/// `[cursor] blink_animation`: what a blinking cursor does in its hidden
+/// phase, the owner's picks of 2026-10-15. **`Plasma` by default**: the
+/// plasma trail's glow on the cursor's cell, pulsing out and back across the
+/// hidden phase. `Fade` fades the cursor out over the first 30% of the
+/// hidden phase and in over the last 30%, eased; `None` is a hard switch.
+/// Each runs inside the hidden phase and scales with it, so any
+/// `blink_interval_ms` works with any of them. Reduce Motion always means
+/// `None` ([`BlinkAnimation::effective`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum BlinkAnimation {
+    #[default]
+    Plasma,
+    Fade,
+    None,
+}
+
+impl BlinkAnimation {
+    /// The animation drawn: the configured one, and none under Reduce
+    /// Motion whatever the config says -- the owner's "Reduce Motion always
+    /// means none".
+    #[cfg(any(target_os = "macos", test))]
+    pub fn effective(self, motion: SystemMotion) -> BlinkAnimation {
+        match motion {
+            SystemMotion::Full => self,
+            SystemMotion::Reduced => BlinkAnimation::None,
+        }
+    }
+}
+
+/// `[cursor] blink_interval_ms`: each phase's length when the config sets
+/// it, which wins over the system's insertion-point keys; otherwise those
+/// keys where the user set them, and 333 ms each where not (`caret.rs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BlinkInterval {
+    Default,
+    Set(std::time::Duration),
+}
+
 /// When a blinking cursor stops blinking: never, the default, or after a
 /// quiet time without input -- kitty's `cursor_stop_blinking_after 15.0`,
 /// with a default of never here. Output never holds it off, so `tail -f`
@@ -530,6 +575,8 @@ impl Config {
             cursor_shape: CursorShape::Block,
             cursor_blink: BlinkChoice::Auto,
             cursor_stop: StopAfter::Never,
+            blink_animation: BlinkAnimation::Plasma,
+            blink_interval: BlinkInterval::Default,
             screen_transition: ScreenTransition::Off,
             scroll: ScrollMode::Smooth,
             trail_scroll: TrailScroll::Ride,
@@ -770,6 +817,41 @@ impl Config {
                                 value.trim()
                             ));
                             StopAfter::Never
+                        }
+                    };
+                }
+                ("cursor", "blink_animation") => {
+                    self.blink_animation = match value.trim().trim_matches('"') {
+                        "plasma" => BlinkAnimation::Plasma,
+                        "fade" => BlinkAnimation::Fade,
+                        "none" => BlinkAnimation::None,
+                        other => {
+                            said.push(format!(
+                                "config: [cursor] blink_animation {other:?} is not plasma, fade \
+                                 or none; using the default, plasma"
+                            ));
+                            BlinkAnimation::Plasma
+                        }
+                    };
+                }
+                ("cursor", "blink_interval_ms") => {
+                    let ms = value.trim().parse::<f64>().ok();
+                    // A positive number past the ceiling is clamped to it, as
+                    // every phase is, rather than refused.
+                    let most = crate::caret::CEILING.as_secs_f64() * 1000.0;
+                    self.blink_interval = match ms
+                        .filter(|ms| ms.is_finite() && *ms > 0.0)
+                        .and_then(|ms| {
+                            std::time::Duration::try_from_secs_f64(ms.min(most) / 1000.0).ok()
+                        }) {
+                        Some(d) => BlinkInterval::Set(d),
+                        None => {
+                            said.push(format!(
+                                "config: [cursor] blink_interval_ms {:?} is not a positive \
+                                 number of milliseconds; using the default, 333",
+                                value.trim()
+                            ));
+                            BlinkInterval::Default
                         }
                     };
                 }
@@ -1519,6 +1601,61 @@ mod reader {
             TrailScroll::Ride,
             "not at the top level"
         );
+    }
+
+    /// `blink_animation`: plasma by default, the three names read, and
+    /// anything else said once and the default; Reduce Motion means none
+    /// whatever was named.
+    #[test]
+    fn blink_animation_is_plasma_by_default_and_none_under_reduce_motion() {
+        assert_eq!(Config::defaults().blink_animation, BlinkAnimation::Plasma);
+        let at = |v: &str| read(&format!("[cursor]\nblink_animation = {v}\n")).blink_animation;
+        assert_eq!(at("\"plasma\""), BlinkAnimation::Plasma);
+        assert_eq!(at("\"fade\""), BlinkAnimation::Fade);
+        assert_eq!(at("\"none\""), BlinkAnimation::None);
+        assert_eq!(at("fade"), BlinkAnimation::Fade, "bare, as other keys read");
+        for bad in ["\"fire\"", "\"ufo\"", "true", "\"\""] {
+            assert_eq!(at(bad), BlinkAnimation::Plasma, "{bad}");
+            let said = Config::defaults().apply(&format!("[cursor]\nblink_animation = {bad}\n"));
+            assert_eq!(said.len(), 1, "{bad} is said");
+        }
+        for a in [
+            BlinkAnimation::Plasma,
+            BlinkAnimation::Fade,
+            BlinkAnimation::None,
+        ] {
+            assert_eq!(a.effective(SystemMotion::Reduced), BlinkAnimation::None);
+            assert_eq!(a.effective(SystemMotion::Full), a);
+        }
+    }
+
+    /// `blink_interval_ms`: unset by default, a positive number of
+    /// milliseconds read as each phase's length, and anything else said
+    /// once and the default.
+    #[test]
+    fn blink_interval_reads_milliseconds_and_refuses_the_rest() {
+        use std::time::Duration;
+        assert_eq!(Config::defaults().blink_interval, BlinkInterval::Default);
+        let at = |v: &str| read(&format!("[cursor]\nblink_interval_ms = {v}\n")).blink_interval;
+        assert_eq!(at("333"), BlinkInterval::Set(Duration::from_millis(333)));
+        assert_eq!(at("250"), BlinkInterval::Set(Duration::from_millis(250)));
+        assert_eq!(
+            at("12.5"),
+            BlinkInterval::Set(Duration::from_micros(12_500))
+        );
+        // Past the ceiling is the ceiling, and not a refusal.
+        assert_eq!(at("1e300"), BlinkInterval::Set(crate::caret::CEILING));
+        assert_eq!(at("600000"), BlinkInterval::Set(crate::caret::CEILING));
+        assert!(
+            Config::defaults()
+                .apply("[cursor]\nblink_interval_ms = 1e300\n")
+                .is_empty()
+        );
+        for bad in ["0", "-1", "NaN", "inf", "fast"] {
+            assert_eq!(at(bad), BlinkInterval::Default, "{bad}");
+            let said = Config::defaults().apply(&format!("[cursor]\nblink_interval_ms = {bad}\n"));
+            assert_eq!(said.len(), 1, "{bad} is said");
+        }
     }
 
     /// `stop_blinking_after` in seconds: absent and `0` are never, a number
@@ -2469,6 +2606,19 @@ shadow     = "never"
         assert!(
             text.contains(&format!("\n# trail = \"{default}\"\n")),
             "config.toml.example's commented trail is not the default"
+        );
+        assert_eq!(
+            (c.blink_animation, c.blink_interval),
+            (BlinkAnimation::Plasma, BlinkInterval::Default),
+            "the example's blink animation is the default and its interval unset"
+        );
+        assert!(
+            text.contains("\nblink_animation = \"plasma\"\n"),
+            "the animation line"
+        );
+        assert!(
+            text.contains("\n# blink_interval_ms = 333\n"),
+            "the interval line"
         );
         assert_eq!(
             (

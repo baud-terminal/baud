@@ -1045,9 +1045,11 @@ struct CU {
     // phase, `SHAPE_RAPID_BLINK` in `SGR 6`'s: the frame's, not a slot's, so
     // a resolved style is the same in every phase. `BlinkPhases::hidden`.
     uint blink_hidden;
-    // The struct is 8-aligned by its `uint2`s, so it is 120 bytes and the
-    // Rust side binds that many: `CellUniforms`, which checks it.
-    uint pad;
+    // How much of a blinking cursor this frame draws, 255 all of it:
+    // `Renderer::cursor_opacity`, below 255 part way through a fade. The
+    // struct is 8-aligned by its `uint2`s, so it is 120 bytes and the Rust
+    // side binds that many: `CellUniforms`, which checks it.
+    uint cursor_alpha;
 };
 struct Style { uint fg; uint bg; uint ul; uint shapes; uint curves; };
 struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
@@ -1127,12 +1129,31 @@ static bool selected(constant CU& u, uint content, uint col, uint row) {
     return after_from && before_to;
 }
 
+// `level` of the way from `other` to `w`, every channel and alpha alike:
+// `(x l + y (255 - l) + 127) / 255` in integers, `Argb::mix`'s sum, so the
+// two arms agree to the bit on a fading cursor.
+static uint mix_level(uint w, uint other, uint level) {
+    uint out = 0u;
+    for (uint s = 0u; s < 32u; s += 8u) {
+        uint x = (w >> s) & 0xffu, y = (other >> s) & 0xffu;
+        out |= ((x * level + y * (255u - level) + 127u) / 255u) << s;
+    }
+    return out;
+}
+
+// `w` with its alpha scaled by `level`, rounded: `Argb::scaled`.
+static uint scaled(uint w, uint level) {
+    uint a = ((w >> 24) * level + 127u) / 255u;
+    return (w & 0x00ffffffu) | (a << 24);
+}
+
 // Whether the cell's glyph is drawn in its background's colour: the
 // selection's swap and the block cursor's each exchange the two, and
-// `OSC 12` replaces only the background, so it is the swaps' parity. Must
-// match `Swaps::ink`.
+// `OSC 12` replaces only the background, so it is the swaps' parity. A
+// fading block counts from half way. Must match `Swaps::ink`.
 static bool swapped(constant CU& u, uint content, uint col, uint row) {
-    bool block = u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y;
+    bool block = u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y
+                 && u.cursor_alpha >= 128u;
     return selected(u, content, col, row) != block;
 }
 
@@ -1160,10 +1181,17 @@ static void colors(constant CU& u, device const Style* styles, uint2 cell,
         uint t = fgw; fgw = bgw | 0xff000000u; bgw = t | 0xff000000u;
     }
     if (u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y) {
+        uint f0 = fgw, b0 = bgw;
         uint t = fgw; fgw = bgw | 0xff000000u; bgw = t | 0xff000000u;
         // `OSC 12`: the block fills with the application's cursor colour
         // instead of the swapped foreground; the glyph stays `fgw`.
         if (u.cursor_color != 0u) bgw = u.cursor_color;
+        // A block part way through a fade: each colour `cursor_alpha` of the
+        // way from the cell without it, `Resolved::drawn`'s mix.
+        if (u.cursor_alpha < 255u) {
+            fgw = mix_level(fgw, f0, u.cursor_alpha);
+            bgw = mix_level(bgw, b0, u.cursor_alpha);
+        }
     }
 }
 
@@ -1306,8 +1334,9 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
             at = float2(float(col * u.cell.x), rowy);
             wh = float2(thick, u.cell.y);
         }
-        // `OSC 12`: the bar or underline cursor draws in the cursor colour.
-        colw = (u.cursor_color != 0u) ? u.cursor_color : fgw;
+        // `OSC 12`: the bar or underline cursor draws in the cursor colour,
+        // at the fade's opacity (`Argb::scaled`).
+        colw = scaled((u.cursor_color != 0u) ? u.cursor_color : fgw, u.cursor_alpha);
     } else {
         // Segment k of a styled underline: the same arithmetic as the CPU
         // compositor's, so the two arms agree pixel for pixel.

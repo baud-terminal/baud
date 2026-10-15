@@ -548,7 +548,8 @@ struct App {
     blink: BlinkPhases,
     blink_present: Blinking,
     /// The cursor's blink, on the display link's clock (`caret.rs`): the
-    /// system caret's rate, read on the first tick and at every focus gain,
+    /// config's interval, else the system caret's keys where set, else 333
+    /// ms a phase, read on the first tick and at every focus gain,
     /// only while the window is key, restarted by a key sent or output read,
     /// and stopped after `[cursor] stop_blinking_after` without input. `focus`
     /// is whether the window is key, as the last focus callback or poll said.
@@ -559,6 +560,11 @@ struct App {
     focus: baud_core::Focus,
     blink_choice: crate::config::BlinkChoice,
     warned_blink: Done,
+    /// What `[cursor] blink_animation` and `blink_interval_ms` said: the
+    /// animation before Reduce Motion folds in (`poll_motion`), and the
+    /// interval that wins over the system's keys at every read.
+    blink_animation: crate::config::BlinkAnimation,
+    blink_interval: crate::config::BlinkInterval,
     /// Whether the first tick has read the system's caret yet.
     caret_read: Done,
     /// The visual bell no frame drew: a `?5` pair in one read, shown as the
@@ -651,6 +657,9 @@ struct Boot {
     /// What `[cursor] blink` said, and when a blink stops without input.
     blink_choice: crate::config::BlinkChoice,
     cursor_stop: crate::config::StopAfter,
+    /// `[cursor] blink_animation` and `blink_interval_ms`.
+    blink_animation: crate::config::BlinkAnimation,
+    blink_interval: crate::config::BlinkInterval,
     /// Whether an alternate-screen switch fades, from `[screen] transition`.
     screen_transition: crate::config::ScreenTransition,
     /// Whether output scrolls smoothly, from `[scroll] mode`.
@@ -812,6 +821,8 @@ impl Boot {
             cursor: baud_core::CursorStyle::of(cfg.cursor_shape, cfg.cursor_blink.power_on()),
             blink_choice: cfg.cursor_blink,
             cursor_stop: cfg.cursor_stop,
+            blink_animation: cfg.blink_animation,
+            blink_interval: cfg.blink_interval,
             screen_transition: cfg.screen_transition,
             scroll: cfg.scroll,
             trail_scroll: cfg.trail_scroll,
@@ -851,6 +862,8 @@ impl App {
             cursor,
             blink_choice,
             cursor_stop,
+            blink_animation,
+            blink_interval,
             screen_transition,
             scroll,
             trail_scroll,
@@ -1082,7 +1095,15 @@ impl App {
             // AppKit's rate until the first tick reads the system's; the
             // cursor is not drawn blinking before then, since focus starts
             // lost.
-            caret: Caret::new(host_now(), Cycle::APPKIT, Gate::Free, cursor_stop),
+            caret: Caret::new(
+                host_now(),
+                Cycle::of_config(blink_interval),
+                Gate::Free,
+                cursor_stop,
+                blink_animation.effective(motion),
+            ),
+            blink_animation,
+            blink_interval,
             focus: baud_core::Focus::Lost,
             blink_choice,
             warned_blink: Done::No,
@@ -1673,6 +1694,12 @@ impl App {
                 // drawn after the cell passes: the trail under the thumb, and
                 // the fade last so it veils everything during a switch.
                 cell.records.extend_from_slice(self.renderer.trail());
+                // The plasma blink's glow over the cursor's cell, after the
+                // trail as `Renderer::instances` has it: built from the
+                // cursor before the phase's filter, since the glow is drawn
+                // while the cursor is not.
+                self.renderer.set_cursor_glow_at(cursor_at);
+                cell.records.extend_from_slice(self.renderer.cursor_glow());
                 cell.records.extend_from_slice(self.renderer.scrollbar());
                 cell.records.extend_from_slice(self.renderer.screen_fade());
                 self.stats = Frame {
@@ -7342,6 +7369,11 @@ impl Driver {
             return;
         }
         self.app.motion = m;
+        // The blink's animation follows the preference whatever the config
+        // named: Reduce Motion always means a hard blink.
+        self.app
+            .caret
+            .set_animation(self.app.blink_animation.effective(m));
         let Some(next) = motion_change(self.app.trail_pick, self.app.cursor_trail, m) else {
             return;
         };
@@ -7387,7 +7419,7 @@ impl Driver {
     /// next gain.
     fn read_caret_system(&mut self) {
         let start = Instant::now();
-        let cycle = os_cycle();
+        let cycle = os_cycle(self.app.blink_interval);
         let switch = if os_at_least_15() {
             crate::pty::prefers_steady_caret()
         } else {
@@ -8885,18 +8917,23 @@ enum Done {
     Yes,
 }
 
-/// The system caret's rate: AppKit's own defaults,
+/// The caret's rate (`caret::rate`): `[cursor] blink_interval_ms` if the
+/// config sets it, else AppKit's own defaults,
 /// `NSTextInsertionPointBlinkPeriodOn` and `...Off`, each read on its own
-/// as AppKit reads it, with AppKit's 650/350 where one is unset
-/// (`caret::Cycle::of_defaults`). `doubleForKey` converts a number or a
-/// numeric string, and answers 0 for a key that is absent or will not
-/// convert -- which `of_defaults` reads as unset -- by its header.
-fn os_cycle() -> Cycle {
+/// as AppKit reads it, with 333 ms where one is unset -- AppKit's unset
+/// 650/350 is no longer taken, the owner's pick of 2026-10-15.
+/// `doubleForKey` converts a number or a numeric string, and answers 0 for
+/// a key that is absent or will not convert -- which `of_defaults` reads as
+/// unset -- by its header. A set interval reads no key at all.
+fn os_cycle(interval: crate::config::BlinkInterval) -> Cycle {
+    if let crate::config::BlinkInterval::Set(_) = interval {
+        return Cycle::of_config(interval);
+    }
     let d = NSUserDefaults::standardUserDefaults();
-    Cycle::of_defaults(
+    crate::caret::rate(
+        interval,
         d.doubleForKey(&NSString::from_str("NSTextInsertionPointBlinkPeriodOn")),
         d.doubleForKey(&NSString::from_str("NSTextInsertionPointBlinkPeriodOff")),
-        Cycle::APPKIT,
     )
 }
 

@@ -316,10 +316,12 @@ struct CellUniforms {
     /// `SGR 6`'s, the frame's. The shader hides blinking text itself, since
     /// a resolved slot is the same in every phase.
     blink_hidden: Uni,
-    /// `CU` is 8-aligned by its `uint2`s, so its size is a multiple of eight
-    /// and the bytes bound must be too: 29 words were 116 bytes against the
-    /// shader's 120, which Metal's validation layer refused.
-    pad: Uni,
+    /// How much of a blinking cursor this frame draws, 255 all of it:
+    /// `Renderer::cursor_opacity`. The thirtieth word: `CU` is 8-aligned by
+    /// its `uint2`s, so its size is a multiple of eight and the bytes bound
+    /// must be too -- 29 words were 116 bytes against the shader's 120,
+    /// which Metal's validation layer refused, and this word was a pad.
+    cursor_alpha: Uni,
 }
 
 // **The bytes bound are the shader's struct**: `CU` rounds up to its 8-byte
@@ -1603,7 +1605,11 @@ impl Gpu {
             cursor_color: Uni(input
                 .cursor_color
                 .map_or(0, |(r, g, b)| u32::from_be_bytes([0xFF, r, g, b]))),
-            pad: Uni(0),
+            cursor_alpha: Uni(u32::from(
+                input
+                    .cursor
+                    .map_or(0xFF, |(_, _, style)| renderer.cursor_opacity(style).get()),
+            )),
             blink_hidden: Uni(renderer.blink().hidden().0),
         };
         let upload_time = t0.elapsed();

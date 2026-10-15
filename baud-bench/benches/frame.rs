@@ -14,11 +14,19 @@
 //! `Renderer::ink_refused`; zero unless a face is read at a variation).
 //!
 //! Usage: `frame <recording> [reps] [full|incremental]`.
+//!
+//! `FRAME_BLINK=none|fade|plasma` prices instead what an idle blinking
+//! cursor's frame costs over the recording's last screen: 2000 incremental
+//! frames alternating two phases of that animation -- the hard switch's
+//! two, two opacities of a fade, two pulses of the glow -- reporting the
+//! cost, rows and instances a frame. Frames a cycle are `caret.rs`'s
+//! `frames_a_cycle_for_each_animation`; the two multiply.
 
 use baud_core::{Owned, Term};
+use baud_domain::Chan;
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
-use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Target, Theme};
+use baud_render::{Blend, CursorPhase, Damage, PxSize, Renderer, Stack, Target, Theme};
 use std::time::Duration;
 
 fn main() {
@@ -175,6 +183,46 @@ fn main() {
     // which every visible glyph re-shapes and re-rasterises into an atlas
     // that restarts at its smallest sheet. The grow and raster deltas say
     // whether the cost is the rasterising or the atlas growing under it.
+    if let Ok(kind) = std::env::var("FRAME_BLINK") {
+        let phase = |opacity: u8, glow: u8| CursorPhase {
+            opacity: Chan::from_u8(opacity),
+            glow: Chan::from_u8(glow),
+        };
+        let pair = match kind.as_str() {
+            "fade" => [phase(128, 0), phase(96, 0)],
+            "plasma" => [phase(0, 128), phase(0, 192)],
+            _ => [CursorPhase::HIDDEN, CursorPhase::SHOWN],
+        };
+        let mut rb = fresh();
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        let mut tail = data.clone();
+        tail.extend_from_slice(b"\x1b[1 q\x1b[?25h");
+        t.write_at(BytePos::ZERO, &tail);
+        t.feed(BytePos::ZERO, ReadLen::from_index(tail.len()));
+        let mut target = Target::new(&mut pixels, w, w, h).unwrap();
+        rb.render(&mut t, &mut target, Damage::Full);
+        let n = 2000u32;
+        let (mut rows, mut inst, mut glow) = (0u64, 0u64, 0u64);
+        let start = std::time::Instant::now();
+        for i in 0..n {
+            rb.set_cursor_blink(pair[usize::from(i % 2 == 1)]);
+            let f = rb.render(&mut t, &mut target, Damage::Incremental);
+            rows += f.rows_dirty.value();
+            inst += f.instances.value();
+            glow += u64::try_from(rb.cursor_glow().len()).unwrap_or(0);
+        }
+        let us = start.elapsed().as_secs_f64() * 1e6 / f64::from(n);
+        // `instances` is the rows' converted records; the glow's solids
+        // ride beside them and are counted on their own.
+        println!(
+            "blink {kind} over {which}: {us:.1} us/frame, {:.2} rows/frame, {:.1} instances/frame, {:.2} glow solids/frame",
+            rows as f64 / f64::from(n),
+            inst as f64 / f64::from(n),
+            glow as f64 / f64::from(n),
+        );
+        return;
+    }
     if let Ok(pts) = std::env::var("FRAME_RESCALE") {
         let pts: f32 = pts.parse().unwrap_or(24.0);
         let mut rz = fresh();

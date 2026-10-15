@@ -10,7 +10,7 @@ mod support;
 
 use baud_core::{Owned, Term};
 use baud_domain::contrast::{self, CurveRow};
-use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
+use baud_domain::{BytePos, Chan, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{
     Argb, Blend, BlinkPhases, BlockCursor, Curves, Damage, Ink, Instance, Kind, Pictured, PxSize,
@@ -228,11 +228,32 @@ fn the_ink_is_the_drawn_foregrounds_row() {
                     selected,
                     block,
                     blink: BlinkPhases::SHOWN,
+                    cursor: Chan::from_u8(0xFF),
                 };
                 let drawn = slot.drawn(s);
                 assert_eq!(slot.curves.row(s.ink()), row(drawn.fg), "{s:?}");
                 assert_eq!(drawn.curve, row(drawn.fg), "{s:?}");
                 swapped += usize::from(s.ink() == Ink::Swapped);
+                // **A block part way through a fade takes the row of the side
+                // it is nearer**: the whole block's from half way, the cell's
+                // without it below -- the shader's `swapped()` at 128.
+                for opacity in [254u8, 200, 128, 127, 40, 0] {
+                    let f = Swaps {
+                        cursor: Chan::from_u8(opacity),
+                        ..s
+                    };
+                    let side = if opacity >= 128 {
+                        s
+                    } else {
+                        Swaps {
+                            block: BlockCursor::No,
+                            ..s
+                        }
+                    };
+                    let want = row(slot.drawn(side).fg);
+                    assert_eq!(slot.drawn(f).curve, want, "{f:?}");
+                    assert_eq!(slot.curves.row(f.ink()), want, "{f:?}");
+                }
             }
         }
     }

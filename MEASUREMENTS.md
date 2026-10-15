@@ -1055,6 +1055,14 @@ holds it steady"). The mains retake was attempted at `fe776c9` and could not be
 taken, because a window raised by script is frontmost and not focused, so
 nothing blinked.
 
+**Stale a third time since 2026-10-15**: the rate is 333/333 ms where nothing
+sets it, three flips a second, and the default blink animates -- the plasma
+glow draws a frame every display tick of the hidden phase, about 41 frames a
+666 ms cycle at 120 Hz, where the hard switch draws two; the fade about 24.5
+(`caret.rs`, `frames_a_cycle_for_each_animation`). Each such frame repaints
+the cursor's row alone on the CPU path (`frame`'s `FRAME_BLINK`). The idle
+CPU of that default is unmeasured.
+
 ## The cursor trails' costs
 
 `scripts/idle-cpu.py`, the window unfocused, five rounds of ten seconds with the

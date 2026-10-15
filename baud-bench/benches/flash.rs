@@ -372,6 +372,7 @@ fn main() {
                 &mut self.records,
             );
             self.records.extend_from_slice(self.renderer.trail());
+            self.records.extend_from_slice(self.renderer.cursor_glow());
             self.records.extend_from_slice(self.renderer.scrollbar());
             self.records.extend_from_slice(self.renderer.screen_fade());
             let input = CellInput {

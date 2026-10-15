@@ -30,10 +30,11 @@ use baud_render::orb;
 use baud_render::plasma;
 use baud_render::ufo;
 use baud_render::{
-    Argb, Blend, Blink, BlinkPhases, Candidate, Composition, Corners, Damage, FaceRole, FaceStyle,
-    GlyphMap, Highlight, Hover, Instance, Kind, Look, Overlay, Pt, PxSize, Rect, Region, Renderer,
-    Resolved, Scene, Scroll, Scroller, Segment, Shape, Smear, Stack, StyleStamp, Theme, Trail,
-    TrailLook, Transition, VideoFlash, Widths, Window, copy_for_shader, quad_coverage,
+    Argb, Blend, Blink, BlinkPhases, Candidate, Composition, Corners, CursorPhase, Damage,
+    FaceRole, FaceStyle, GlyphMap, Highlight, Hover, Instance, Kind, Look, Overlay, Pt, PxSize,
+    Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Shape, Smear, Stack,
+    StyleStamp, Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window, copy_for_shader,
+    quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -228,6 +229,10 @@ impl Arms<'_, '_> {
             );
         }
         self.records.extend_from_slice(self.renderer.trail());
+        // The plasma blink's glow, from the cursor before the phase's
+        // filter, as the app builds it.
+        self.renderer.set_cursor_glow_at(shown);
+        self.records.extend_from_slice(self.renderer.cursor_glow());
         self.records.extend_from_slice(self.renderer.scrollbar());
         self.records.extend_from_slice(self.renderer.screen_fade());
         let input = CellInput {
@@ -1404,6 +1409,40 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             "a {name} cursor's off phase is not the frame without a cursor"
         );
         feed(&mut t, b"\x1b[?25h");
+        // **Part way through a fade, and the plasma glow.** A block at half
+        // opacity is each colour half way to its swap -- `mix_level` in the
+        // shader, `Argb::mix` on the instance arm -- and a bar or underline
+        // is its shape at half alpha; the glow is solids over the cell. The
+        // arms must agree to the bit, and each frame must be neither phase,
+        // or a fade or glow lost on both arms passes here.
+        let phase = |opacity: u8, glow: u8| CursorPhase {
+            opacity: Chan::from_u8(opacity),
+            glow: Chan::from_u8(glow),
+        };
+        for (p, what) in [
+            (phase(128, 0), "half way through a fade"),
+            (phase(40, 0), "near the end of a fade out"),
+            (phase(0, 200), "glowing"),
+        ] {
+            arms.renderer.set_cursor_blink(p);
+            let (a, b) = arms.draw(&mut t);
+            assert_eq!(
+                differing(&a, &b),
+                0,
+                "the arms disagree on a {name} cursor {what}"
+            );
+            assert_ne!(
+                differing(&a, &on_a),
+                0,
+                "a {name} cursor {what} is the on phase"
+            );
+            assert_ne!(
+                differing(&a, &off_a),
+                0,
+                "a {name} cursor {what} is the off phase"
+            );
+        }
+        arms.renderer.set_cursor_blink(Blink::Shown);
     }
     // **Text that blinks, in its off phase, under a block cursor and a
     // selection.** The cursor block and the selection block are drawn; the

@@ -92,7 +92,10 @@ impl Swaps {
     /// `Resolved::drawn` by `the_ink_is_the_drawn_foregrounds_row`.
     pub fn ink(self) -> Ink {
         let selected = self.selected == Selected::Yes;
-        let block = matches!(self.block, BlockCursor::Yes(_));
+        // A fading block counts as a swap from half way: the glyph's colour
+        // is then nearer the swapped side, and the shader's `swapped()`
+        // takes the same half.
+        let block = matches!(self.block, BlockCursor::Yes(_)) && self.cursor.get() >= 128;
         if selected != block {
             Ink::Swapped
         } else {
@@ -659,10 +662,17 @@ impl Resolved {
             (fg, bg) = (fg.with_alpha(opaque), bg.with_alpha(opaque));
         }
         if let BlockCursor::Yes(fill) = s.block {
+            let off = (fg, bg);
             core::mem::swap(&mut fg, &mut bg);
             (fg, bg) = (fg.with_alpha(opaque), bg.with_alpha(opaque));
             if let Some(c) = fill {
                 bg = c;
+            }
+            // A block part way through a fade: each colour `cursor` of the
+            // way from the cell without it to the cell with it, which over
+            // one glyph coverage is the two pixels mixed.
+            if s.cursor != opaque {
+                (fg, bg) = (fg.mix(off.0, s.cursor), bg.mix(off.1, s.cursor));
             }
         }
         Drawn {
@@ -704,6 +714,9 @@ pub struct Swaps {
     pub selected: Selected,
     pub block: BlockCursor,
     pub blink: BlinkPhases,
+    /// The block cursor's opacity, 255 drawn whole: below it during a fade
+    /// ([`crate::CursorPhase`]), and ignored where no block sits.
+    pub cursor: Chan,
 }
 
 /// A cell as a frame draws it.

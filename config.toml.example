@@ -153,15 +153,28 @@ floor = 1.2
 # The cursor: its shape -- "block", "underline" or "bar" -- and whether it
 # blinks. This is the cursor the terminal starts with and the one it returns
 # to when an application resets it; an application can still ask for another.
-# `blink = "auto"`, the default, blinks as macOS blinks its own text caret: at
-# the rate the system's defaults give it -- 650 ms shown and 350 hidden unless
-# `NSTextInsertionPointBlinkPeriodOn` and `...Off` are set -- and steady under
-# Accessibility's "prefer non-blinking cursor" (macOS 15 and later). `true`
-# blinks whatever that switch says, with a warning, and `false` starts the
-# cursor steady. On Linux it blinks at xterm's 600/300. A blinking cursor
-# blinks only while the window has focus, and shows at once on a key or on
-# output. `stop_blinking_after` stops it, shown, after that many seconds
-# without a key, a click or a paste -- output does not count; 0 is never.
+# `blink = "auto"`, the default, blinks and holds steady under Accessibility's
+# "prefer non-blinking cursor" (macOS 15 and later). `true` blinks whatever
+# that switch says, with a warning, and `false` starts the cursor steady. A
+# blinking cursor blinks only while the window has focus, and shows at once on
+# a key or on output. `stop_blinking_after` stops it, shown, after that many
+# seconds without a key, a click or a paste -- output does not count; 0 is
+# never.
+#
+# `blink_interval_ms`: how long each phase lasts, shown and hidden alike.
+# Unset, macOS's `NSTextInsertionPointBlinkPeriodOn` and `...Off` are followed
+# where you have set them, and each phase is otherwise 333 ms -- a symmetric
+# 1.5 blinks a second, on Linux too. Set here, it wins over the system's keys.
+# A phase is kept between 1/60 s and 60 s.
+#
+# `blink_animation`: what the cursor does while it is hidden. "plasma", the
+# default, is the plasma trail's glow on the cursor's cell, swelling out from
+# nothing to a faint ghost of the cursor and back across the hidden phase.
+# "fade" eases the cursor out over the first 30% of the hidden phase and back
+# in over the last 30%, gone in between. "none" switches it hard. Each fits
+# inside the hidden phase at any interval. Under macOS's Reduce Motion it is
+# always "none". An animation draws a frame a display tick while it moves: the
+# plasma about 41 a 666 ms cycle at 120 Hz, the fade about 25, "none" two.
 #
 # `trail`: what a cursor move leaves behind. "plasma", the default, is a faint
 # tube in the cursor's colour over kitty's trail as it collapses onto the
@@ -206,6 +219,8 @@ floor = 1.2
 [cursor]
 shape = "block"
 blink = "auto"
+blink_animation = "plasma"
+# blink_interval_ms = 333
 stop_blinking_after = 0
 trail_scroll = "ride"
 # trail = "plasma"

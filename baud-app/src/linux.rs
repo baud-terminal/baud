@@ -208,13 +208,16 @@ pub fn run() {
     let widths = crate::width::Widths::new(&term);
     let mut d = Driver {
         bell,
-        // xterm's rate, and no switch: `auto` blinks here. Nothing on Linux
-        // reads the desktop's caret yet, so the choice is not kept.
+        // The config's interval, else 333 ms a phase, and no switch: `auto`
+        // blinks here. Nothing on Linux reads the desktop's caret or its
+        // motion preference yet, so the choice is not kept and the
+        // animation is the config's.
         caret: Caret::new(
             Instant::now(),
-            Cycle::XTERM,
+            Cycle::of_config(cfg.blink_interval),
             Gate::of(cfg.cursor_blink, NonBlinking::Off),
             cfg.cursor_stop,
+            cfg.blink_animation,
         ),
         // Until `wl_keyboard.enter`: a window the compositor has not given
         // the keyboard holds a steady cursor.

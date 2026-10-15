@@ -36,6 +36,28 @@ impl Argb {
         Chan::from_u8(self.channels()[3])
     }
 
+    /// `level` of the way from `other` to this colour, every channel and
+    /// alpha alike, in encoded sRGB: `(x l + y (255 - l) + 127) / 255` in
+    /// integers, which the cell shader's `mix_level` spells the same way,
+    /// so a fading cursor is one colour on every path. 255 is this colour
+    /// and 0 is `other`, exactly.
+    pub fn mix(self, other: Argb, level: Chan) -> Argb {
+        let l = u32::from(level.get());
+        let (x, y) = (self.channels(), other.channels());
+        let at = |i: usize| {
+            let v = (u32::from(x[i]) * l + u32::from(y[i]) * (255 - l) + 127) / 255;
+            u8::try_from(v).unwrap_or(u8::MAX)
+        };
+        Argb(u32::from_be_bytes([at(0), at(1), at(2), at(3)]))
+    }
+
+    /// This colour with its alpha scaled by `level`, the way [`Argb::mix`]
+    /// rounds: a bar or underline cursor part way through a fade.
+    pub fn scaled(self, level: Chan) -> Argb {
+        let a = (u32::from(self.a().get()) * u32::from(level.get()) + 127) / 255;
+        self.with_alpha(Chan::from_u8(u8::try_from(a).unwrap_or(u8::MAX)))
+    }
+
     /// Half way to `other`, channel by channel in encoded sRGB, rounded half
     /// up; this colour's alpha kept. Faint text drawn on `other`
     /// (note Y, decision 10): ghostty's `faint-opacity` default of 0.5, which
