@@ -131,7 +131,8 @@ fn past(face: &Face<'_>, c: char) -> GlyphId {
 /// Mono's, by every selection, through the renderer's table, and in the
 /// cell's mask, texel for texel; nothing is asked of the fixture, so the
 /// atlas refuses nothing. `D` and `E` are colour, but their layers cannot
-/// draw, so they are passed over in both presentations. The table counts
+/// draw and neither can their own outlines, `D`'s empty and `E`'s past the
+/// budget, so they are passed over in both presentations. The table counts
 /// each character it passed over once, when its block is decided. The
 /// controls: `a`, which draws within the budget, stays on the fixture; at
 /// the default instance `H` streams and the layers of `D` and `E` draw,
@@ -381,10 +382,10 @@ fn a_colour_glyph_whose_layers_cannot_draw_draws_its_own_outline() {
 }
 
 /// **A colour glyph whose layers draw within the budget is the colour
-/// face's**, the control for the passing over above: at the default
-/// instance `D` with `U+FE0F` is the fixture's, and its slot is a colour
-/// image, nothing refused; bare, it asks for text and JetBrains Mono's
-/// `D` draws, as it did before a budget was tested.
+/// face's**, the control for the passing over of `D` in the first test: at
+/// the default instance `D` with `U+FE0F` is the fixture's, and its slot is
+/// a colour image, nothing refused; bare, it asks for text and JetBrains
+/// Mono's `D` draws, as it did before a budget was tested.
 #[test]
 fn a_colour_glyph_whose_layers_draw_is_the_colour_faces() {
     let (data, jbm) = (budget_cases(), jetbrains_mono());

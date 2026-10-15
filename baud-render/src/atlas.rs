@@ -653,17 +653,17 @@ impl Atlas {
             // passes such a glyph over for the next face that carries the
             // character (`Stack`'s `drawing`), so the face here is the primary
             // when it came from `cmap` -- but for a `COLR` glyph whose layer
-            // cannot draw and whose own outline, which the stack judges by
-            // its `glyf` header alone (all of a face without `glyf` as
-            // having one), draws nothing: that stays on its face (the
-            // record, "A glyph past the scratch budget shows a
-            // placeholder, and the budget stays", Open (2)). A `COLR` glyph whose layer is refused
-            // draws its own outline when that has ink, as a glyph with no
-            // `COLR` record does, and reaches here only when it has none or
-            // is refused too. Recorded when the `.notdef`'s own answer is,
-            // so it is counted once then; a `.notdef` that does not fit even
-            // after growing is not recorded, so neither is this glyph, which
-            // every later ask draws and counts again.
+            // cannot draw and whose own outline, which the stack judges by its
+            // `glyf` header alone (all of a face without `glyf` as having one),
+            // draws nothing: that stays on its face (the record, "A glyph past
+            // the scratch budget shows a placeholder, and the budget stays",
+            // Open (2)). A `COLR` glyph whose layer cannot draw draws its own
+            // outline when that has ink, as a glyph with no `COLR` record does,
+            // and reaches here only when it has none or is refused too.
+            // Recorded when the `.notdef`'s own answer is, so it is counted
+            // once then; a `.notdef` that does not fit even after growing is
+            // not recorded, so neither is this glyph, which every later ask
+            // draws and counts again.
             let notdef = self.slot(face, ix, GlyphId::NOTDEF, scale, phase);
             let own = GlyphKey {
                 face: ix,

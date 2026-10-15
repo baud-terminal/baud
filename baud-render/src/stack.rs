@@ -558,7 +558,7 @@ impl<'f, 'a> Stack<'f, 'a> {
 /// How `f` draws `g`, as the atlas would (`Atlas::slot`). As colour when
 /// a strike holds an image for it, or its `COLR` layers all draw; a
 /// refused outline does not stop either. As text when its outline draws
-/// and it has no `COLR` layers, or a layer that cannot draw. Not at all
+/// and it has no `COLR` layers or has one that cannot draw. Not at all
 /// when its outline cannot draw -- the face refuses it, or it needs more
 /// scratch than the atlas grows to, [`VAR_POINTS_MAX`]
 /// ([`Face::refuses_past`]) -- or when it is a

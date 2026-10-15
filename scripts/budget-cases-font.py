@@ -42,9 +42,9 @@ box.
 
 cmap: a and M to a, H to heavy, K to heavym, D to colrheavy, E to
 colrpast, U+E123 to colrink, U+E124 to colrref; JetBrains Mono maps
-neither of the last two. Axes: wght 100-400-900, no avar; only a varies, by even deltas
-at the extremes. lsb is xMin. Deterministic: the head timestamps are
-fixed. baud's own font, under the repository's licence
+neither of the last two. Axes: wght 100-400-900, no avar; only a varies,
+by even deltas at the extremes. lsb is xMin. Deterministic: the head
+timestamps are fixed. baud's own font, under the repository's licence
 (baud-font/tests/licences.rs lists it).
 
     nix shell --impure --expr 'with import (builtins.getFlake "nixpkgs") {}; \
