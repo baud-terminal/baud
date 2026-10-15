@@ -57,11 +57,16 @@ Two rules the tests pin, because both failure modes are worse than silence:
   and claims Sixel (`Term::set_sixel_claim`; `baud-app`'s `[images]
   advertise_sixel`, off by default). It now implements
   selective erase, which is a VT220 feature, and the answer still does not move
-  -- a DA identity is a promise about *everything* in that level, and baud has
-  no UDKs: DECUDK is under "Out of scope, with reasons" in
-  `docs/vt-coverage.md`. Claiming VT220 would
-  make applications send sequences baud drops, which is the `parsed` failure
-  by another route. This also said baud had no NRCS and no 132-column mode;
+  -- a DA identity is a promise about *everything* in that level. This said
+  the bar was UDKs; it is not: DECUDK is DEC STD 070's independent extension
+  8 (`Levels: 2X`), not a Level 2 requirement, so a Level 2 claim without `;8`
+  is the honest shape for a terminal without them. What keeps baud off Level
+  1 and 2 is the list in note AP (`docs/research/notes/ap-da-level.md`):
+  nine Level 1 functions counted and dropped (SS2, SS3, DECID, the four line
+  sizes, KAM, SRM), no Level 1 operation, no DA2 or DECSCL, and for Level 2
+  LS1R-LS3R and the Level 2 keyboard. Claiming more would make applications
+  send sequences baud drops, which is the `parsed` failure by another
+  route. This also said baud had no NRCS and no 132-column mode;
   the national sets are designated and translated, and DECCOLM is done.
 * **An unsupported DSR gets no answer at all.** Replying with the wrong report
   shape is worse than not replying: the application parses whatever arrives as
