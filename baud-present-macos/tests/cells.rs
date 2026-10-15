@@ -1092,8 +1092,9 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
 }
 
 /// The blink animations' phases the oracle draws, part way through each:
-/// a fade at half and near its end, the plasma glow, and the fire handing
-/// over, burning down, in embers and relighting.
+/// a fade at half and near its end, the plasma glow, the fire handing
+/// over, burning down, in embers and relighting, and the ufo handing over,
+/// lifting, holding and setting down.
 fn blink_phases() -> Vec<(CursorPhase, &'static str)> {
     let phase = |opacity: u8, glow: u8| CursorPhase {
         opacity: Chan::from_u8(opacity),
@@ -1101,6 +1102,7 @@ fn blink_phases() -> Vec<(CursorPhase, &'static str)> {
         ..CursorPhase::HIDDEN
     };
     let fire = |at: u8| CursorPhase::fire(Chan::from_u8(at));
+    let ufo = |at: u8| CursorPhase::ufo(Chan::from_u8(at));
     vec![
         (phase(128, 0), "half way through a fade"),
         (phase(40, 0), "near the end of a fade out"),
@@ -1109,6 +1111,10 @@ fn blink_phases() -> Vec<(CursorPhase, &'static str)> {
         (fire(70), "burning down"),
         (fire(135), "in embers"),
         (fire(205), "relighting"),
+        (ufo(10), "handing over to the ufo"),
+        (ufo(70), "lifting"),
+        (ufo(128), "held up"),
+        (ufo(190), "setting down"),
     ]
 }
 

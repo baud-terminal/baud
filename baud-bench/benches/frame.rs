@@ -15,11 +15,11 @@
 //!
 //! Usage: `frame <recording> [reps] [full|incremental]`.
 //!
-//! `FRAME_BLINK=none|fade|plasma|fire` prices instead what an idle blinking
+//! `FRAME_BLINK=none|fade|plasma|fire|ufo` prices instead what an idle blinking
 //! cursor's frame costs over the recording's last screen: 2000 incremental
 //! frames alternating two phases of that animation -- the hard switch's
 //! two, two opacities of a fade, two pulses of the glow, two steps of the
-//! fire's burn -- reporting the
+//! fire's burn or the ufo's lift -- reporting the
 //! cost, rows and instances a frame. Frames a cycle are `caret.rs`'s
 //! `frames_a_cycle_for_each_animation`; the two multiply.
 
@@ -196,6 +196,10 @@ fn main() {
             "fire" => [
                 CursorPhase::fire(Chan::from_u8(70)),
                 CursorPhase::fire(Chan::from_u8(80)),
+            ],
+            "ufo" => [
+                CursorPhase::ufo(Chan::from_u8(70)),
+                CursorPhase::ufo(Chan::from_u8(80)),
             ],
             _ => [CursorPhase::HIDDEN, CursorPhase::SHOWN],
         };

@@ -11,8 +11,8 @@
 //! interval or 333.
 //!
 //! **The hidden phase is the animation's** (`[cursor] blink_animation`, the
-//! same day's picks): the plasma glow by default, a fade, the fire, or
-//! none -- a hard switch. Each is a function of how far into the hidden phase it is, not
+//! same day's picks): the plasma glow by default, a fade, the fire, the
+//! ufo, or none -- a hard switch. Each is a function of how far into the hidden phase it is, not
 //! of a length of its own, so it scales with any interval and ends inside
 //! the phase ([`BlinkAnimation::runs`]). Reduce Motion means none.
 //!
@@ -230,11 +230,14 @@ impl BlinkAnimation {
     ///   out from nothing and back to nothing at the phase's end.
     /// * `Fire`: the cursor handed to a flame that burns it down into
     ///   embers and relights it, whole at both ends ([`CursorPhase::fire`]).
+    /// * `Ufo`: the cursor handed to a saucer's beam that lifts it away and
+    ///   sets it back down, whole at both ends ([`CursorPhase::ufo`]).
     pub fn at(self, h: Duration, off: Duration) -> CursorPhase {
         let u = (h.as_secs_f64() / off.as_secs_f64().max(f64::MIN_POSITIVE)).clamp(0.0, 1.0);
         match self {
             BlinkAnimation::None => CursorPhase::HIDDEN,
             BlinkAnimation::Fire => CursorPhase::fire(chan(u)),
+            BlinkAnimation::Ufo => CursorPhase::ufo(chan(u)),
             BlinkAnimation::Fade => {
                 let opacity = if u < FADE {
                     1.0 - ease(u / FADE)
@@ -264,7 +267,7 @@ impl BlinkAnimation {
     fn next_motion(self, h: Duration, off: Duration) -> Duration {
         match self {
             BlinkAnimation::None => off,
-            BlinkAnimation::Plasma | BlinkAnimation::Fire => h,
+            BlinkAnimation::Plasma | BlinkAnimation::Fire | BlinkAnimation::Ufo => h,
             BlinkAnimation::Fade => {
                 let (out, back) = (off.mul_f64(FADE), off.mul_f64(1.0 - FADE));
                 if h < out || h >= back { h } else { back }
@@ -741,10 +744,11 @@ mod tests {
         assert_eq!(c.plan(at(510), Blinks::Yes), SHOWN);
     }
 
-    const ANIMATIONS: [BlinkAnimation; 4] = [
+    const ANIMATIONS: [BlinkAnimation; 5] = [
         BlinkAnimation::Plasma,
         BlinkAnimation::Fade,
         BlinkAnimation::Fire,
+        BlinkAnimation::Ufo,
         BlinkAnimation::None,
     ];
 
@@ -820,6 +824,17 @@ mod tests {
                         assert!(matches!(embers.play, Play::Fire(_)), "{ms}: {embers:?}");
                         // The cursor hands over to the flame in the first 8%
                         // and back in the last.
+                        assert_eq!(a.at(off.mul_f64(0.08), off).opacity.get(), 0, "{ms}");
+                        assert!(a.at(off.mul_f64(0.04), off).opacity.get() > 100, "{ms}");
+                        assert!(a.at(off.mul_f64(0.96), off).opacity.get() > 100, "{ms}");
+                    }
+                    BlinkAnimation::Ufo => {
+                        assert_eq!((start, end), (SHOWN, SHOWN), "{ms}: whole at both ends");
+                        // Up in the saucer: the cursor itself gone, the
+                        // effect drawing it.
+                        let up = a.at(off.mul_f64(0.5), off);
+                        assert_eq!(up.opacity.get(), 0, "{ms}: {up:?}");
+                        assert!(matches!(up.play, Play::Ufo(_)), "{ms}: {up:?}");
                         assert_eq!(a.at(off.mul_f64(0.08), off).opacity.get(), 0, "{ms}");
                         assert!(a.at(off.mul_f64(0.04), off).opacity.get() > 100, "{ms}");
                         assert!(a.at(off.mul_f64(0.96), off).opacity.get() > 100, "{ms}");
@@ -918,7 +933,7 @@ mod tests {
         // these over 15.
         assert_eq!(
             counts,
-            [FRAMES_PLASMA, FRAMES_FADE, FRAMES_FIRE, 30],
+            [FRAMES_PLASMA, FRAMES_FADE, FRAMES_FIRE, FRAMES_UFO, 30],
             "{counts:?}"
         );
     }
@@ -933,6 +948,9 @@ mod tests {
     /// hidden phase, and its last tick rounds to the whole cursor the flip
     /// shows, so one fewer.
     const FRAMES_FIRE: usize = 612;
+    /// The same for the ufo: its rings and rim light move while the cursor
+    /// is held up.
+    const FRAMES_UFO: usize = 612;
 
     /// **On Linux the `poll` timeout follows the animation**: the flip in
     /// the shown phase, a frame's time while the drawing moves, and across
@@ -984,6 +1002,12 @@ mod tests {
             p.next_change(at(1500), Blinks::Yes),
             Some(at(1500) + FLOOR),
             "burning"
+        );
+        p.set_animation(BlinkAnimation::Ufo);
+        assert_eq!(
+            p.next_change(at(1500), Blinks::Yes),
+            Some(at(1500) + FLOOR),
+            "held up"
         );
     }
 

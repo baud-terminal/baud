@@ -457,7 +457,8 @@ impl BlinkChoice {
 /// hidden phase. `Fade` fades the cursor out over the first 30% of the
 /// hidden phase and in over the last 30%, eased; `Fire` burns the cursor
 /// down into embers and relights it, the fire trail's look on its cell;
-/// `None` is a hard switch.
+/// `Ufo` lifts it away on a saucer's beam and sets it back down, the ufo
+/// trail's; `None` is a hard switch.
 /// Each runs inside the hidden phase and scales with it, so any
 /// `blink_interval_ms` works with any of them. Reduce Motion always means
 /// `None` ([`BlinkAnimation::effective`]).
@@ -467,6 +468,7 @@ pub enum BlinkAnimation {
     Plasma,
     Fade,
     Fire,
+    Ufo,
     None,
 }
 
@@ -828,11 +830,12 @@ impl Config {
                         "plasma" => BlinkAnimation::Plasma,
                         "fade" => BlinkAnimation::Fade,
                         "fire" => BlinkAnimation::Fire,
+                        "ufo" => BlinkAnimation::Ufo,
                         "none" => BlinkAnimation::None,
                         other => {
                             said.push(format!(
                                 "config: [cursor] blink_animation {other:?} is not plasma, fade, \
-                                 fire or none; using the default, plasma"
+                                 fire, ufo or none; using the default, plasma"
                             ));
                             BlinkAnimation::Plasma
                         }
@@ -1618,8 +1621,9 @@ mod reader {
         assert_eq!(at("\"fade\""), BlinkAnimation::Fade);
         assert_eq!(at("\"none\""), BlinkAnimation::None);
         assert_eq!(at("\"fire\""), BlinkAnimation::Fire);
+        assert_eq!(at("\"ufo\""), BlinkAnimation::Ufo);
         assert_eq!(at("fade"), BlinkAnimation::Fade, "bare, as other keys read");
-        for bad in ["\"ufo\"", "\"embers\"", "true", "\"\""] {
+        for bad in ["\"saucer\"", "\"embers\"", "true", "\"\""] {
             assert_eq!(at(bad), BlinkAnimation::Plasma, "{bad}");
             let said = Config::defaults().apply(&format!("[cursor]\nblink_animation = {bad}\n"));
             assert_eq!(said.len(), 1, "{bad} is said");
@@ -1628,6 +1632,7 @@ mod reader {
             BlinkAnimation::Plasma,
             BlinkAnimation::Fade,
             BlinkAnimation::Fire,
+            BlinkAnimation::Ufo,
             BlinkAnimation::None,
         ] {
             assert_eq!(a.effective(SystemMotion::Reduced), BlinkAnimation::None);

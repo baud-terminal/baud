@@ -1059,7 +1059,7 @@ nothing blinked.
 sets it, three flips a second, and the default blink animates -- the plasma
 glow draws a frame every display tick of the hidden phase, about 41 frames a
 666 ms cycle at 120 Hz, where the hard switch draws two; the fade about 24.5,
-the fire 612 in ten seconds, about 41 (`caret.rs`,
+the fire and the ufo 612 each in ten seconds, about 41 (`caret.rs`,
 `frames_a_cycle_for_each_animation`). Each such frame repaints
 the cursor's row alone on the CPU path (`frame`'s `FRAME_BLINK`). The idle
 CPU of that default is unmeasured.

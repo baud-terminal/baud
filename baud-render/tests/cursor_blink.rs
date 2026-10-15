@@ -86,6 +86,10 @@ fn burning(at: u8) -> CursorPhase {
     CursorPhase::fire(Chan::from_u8(at))
 }
 
+fn beamed(at: u8) -> CursorPhase {
+    CursorPhase::ufo(Chan::from_u8(at))
+}
+
 /// **A fade part way is neither phase, and its ends are the two phases**:
 /// a block over a letter, an underline and a bar at half opacity draw a
 /// third frame, and at 255 and 0 the shown and hidden ones exactly.
@@ -167,6 +171,9 @@ fn a_fade_and_a_glow_repaint_incrementally() {
         burning(40),
         burning(130),
         burning(200),
+        beamed(40),
+        beamed(128),
+        beamed(200),
         faded(255),
     ] {
         r.set_cursor_blink(phase);
@@ -176,19 +183,23 @@ fn a_fade_and_a_glow_repaint_incrementally() {
     }
 }
 
-/// **The fire lands on the cursor's cell and nowhere else**, in each shape:
-/// part way it is neither the shown frame nor the hidden one, it differs
-/// from the shown one only inside the cell, and a steady cursor has none.
+/// **The fire and the ufo land on the cursor's cell and nowhere else**, in
+/// each shape: part way each is neither the shown frame nor the hidden one,
+/// it differs from the shown one only inside the cell, and a steady cursor
+/// has none.
 #[test]
-fn the_fire_lands_on_the_cursor_cell_alone() {
-    for shape in [b"1", b"3", b"5"] {
+fn the_fire_and_the_ufo_land_on_the_cursor_cell_alone() {
+    for (shape, effect) in [b"1", b"3", b"5"]
+        .into_iter()
+        .flat_map(|s| [(s, burning as fn(u8) -> CursorPhase), (s, beamed)])
+    {
         let mut bytes = b"ab\x1b[".to_vec();
         bytes.extend_from_slice(shape);
         bytes.extend_from_slice(b" q\x1b[2;3H");
         let (on, cell) = pixels(&bytes, CursorPhase::SHOWN);
         let off = frame(&bytes, Blink::Hidden);
         for at in [30u8, 90, 140, 200, 240] {
-            let (lit, _) = pixels(&bytes, burning(at));
+            let (lit, _) = pixels(&bytes, effect(at));
             assert_ne!(
                 lit.digest(),
                 on.digest(),
@@ -201,7 +212,8 @@ fn the_fire_lands_on_the_cursor_cell_alone() {
                     let (x, y) = (i % on.width, i / on.width);
                     assert!(
                         (2 * cell.0..3 * cell.0).contains(&x) && (cell.1..2 * cell.1).contains(&y),
-                        "fire {at} at ({x}, {y}), outside the cursor's cell"
+                        "{:?} at ({x}, {y}), outside the cursor's cell",
+                        effect(at)
                     );
                 }
             }
@@ -209,7 +221,7 @@ fn the_fire_lands_on_the_cursor_cell_alone() {
         let mut steady = b"ab\x1b[".to_vec();
         steady.push(shape[0] + 1);
         steady.extend_from_slice(b" q\x1b[2;3H");
-        assert_eq!(frame(&steady, burning(140)), frame(&steady, Blink::Shown));
+        assert_eq!(frame(&steady, effect(140)), frame(&steady, Blink::Shown));
     }
 }
 

@@ -172,11 +172,12 @@ floor = 1.2
 # nothing to a faint ghost of the cursor and back across the hidden phase.
 # "fade" eases the cursor out over the first 30% of the hidden phase and back
 # in over the last 30%, gone in between. "fire" burns the cursor down into
-# embers and relights it from the bottom, in the fire trail's look. "none"
-# switches it hard. Each fits inside the hidden phase at any interval. Under
+# embers and relights it from the bottom, in the fire trail's look. "ufo" has
+# a little saucer's beam lift the cursor away and set it back down, in the ufo
+# trail's. "none" switches it hard. Each fits inside the hidden phase at any interval. Under
 # macOS's Reduce Motion it is always "none". An animation draws a frame a
-# display tick while it moves: the plasma and the fire about 41 a 666 ms cycle
-# at 120 Hz, the fade about 25, "none" two.
+# display tick while it moves: the plasma, the fire and the ufo about 41 a
+# 666 ms cycle at 120 Hz, the fade about 25, "none" two.
 #
 # `trail`: what a cursor move leaves behind. "plasma", the default, is a faint
 # tube in the cursor's colour over kitty's trail as it collapses onto the

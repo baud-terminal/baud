@@ -25,6 +25,11 @@
 //!   in the cursor's colour, heat as opacity, embers that rise, flutter and
 //!   cool -- on the cursor's own shape, in solids for the same reason, its
 //!   times fractions of the hidden phase where the trail's are seconds.
+//! * **The ufo lifts the cursor away on a beam and sets it back down**
+//!   ([`Play::Ufo`]): the ufo trail's language (`crate::ufo`) -- a small
+//!   saucer with a rim light, a translucent tractor beam at its `BEAM`
+//!   opacity, brighter in the core, rings travelling along it -- inside the
+//!   cursor's cell, the cursor's shape drawn up into the saucer and back.
 
 use crate::atlas::{Kind, Tex};
 use crate::color::Argb;
@@ -67,6 +72,8 @@ pub enum Play {
     /// The fire: the cursor burns down from the top into embers, and
     /// relights from the bottom.
     Fire(Chan),
+    /// The ufo: a saucer's beam lifts the cursor away and sets it down.
+    Ufo(Chan),
 }
 
 impl CursorPhase {
@@ -90,13 +97,25 @@ impl CursorPhase {
     /// the whole cursor and nothing else, so the flips into and out of the
     /// hidden phase meet it at rest.
     pub fn fire(at: Chan) -> CursorPhase {
+        CursorPhase::handing(at, Play::Fire(at))
+    }
+
+    /// **The ufo blink `at` of the way through the hidden phase**, handed
+    /// over and back as the fire is, so its ends are the whole cursor too.
+    pub fn ufo(at: Chan) -> CursorPhase {
+        CursorPhase::handing(at, Play::Ufo(at))
+    }
+
+    /// An effect that takes the cursor over at `at`: the cursor's own
+    /// opacity [`handed`] to its solids, and none of it at either end.
+    fn handing(at: Chan, play: Play) -> CursorPhase {
         if at == NONE || at == FULL {
             return CursorPhase::SHOWN;
         }
         CursorPhase {
             opacity: Chan::from_unit(handed(unit(at))),
             glow: NONE,
-            play: Play::Fire(at),
+            play,
         }
     }
 }
@@ -283,7 +302,154 @@ pub(crate) fn play(
     match play {
         Play::Still => {}
         Play::Fire(at) => fire(cell, shape, unit(at), fill, out),
+        Play::Ufo(at) => ufo(cell, shape, unit(at), fill, out),
     }
+}
+
+/// When, as shares of the hidden phase, the ufo has the cursor up -- it
+/// lifts from the end of the handover to the first, holds, and sets it
+/// down by `1 - HANDOVER`.
+pub const LIFTED: (f32, f32) = (0.42, 0.58);
+
+/// The rings travelling along the beam.
+const RINGS: u16 = 3;
+
+/// The beam's bands from the saucer down, each as wide as the beam is
+/// half way down it.
+const BANDS: u16 = 6;
+
+/// **The ufo blink at `u` of the hidden phase.** A saucer -- a dome over a
+/// hull, a rim light running along it -- at the top of the cell, lowering a
+/// beam onto the cursor with rings rising along it; the cursor's shape,
+/// handed over from the cursor, drawn up the beam into the saucer, shrinking
+/// and fading, and back down with the rings falling, the beam closing as it
+/// lands and the cursor handed back.
+fn ufo(cell: Box4, shape: Box4, u: f32, fill: Argb, out: &mut Vec<Instance>) {
+    use crate::ufo::BEAM;
+    let c = cell.h();
+    let mid = (cell.l + cell.r) / 2.0;
+    // The saucer and its beam come and go at the phase's ends.
+    let here = step(0.0, 0.12, u) * (1.0 - step(0.88, 1.0, u));
+    let (dome, hull) = saucer(cell);
+    // The beam: from under the hull to the cursor's foot, lowered at the
+    // start and drawn up at the end, as wide as the trail's at both ends
+    // and cut to the cell.
+    let reach = step(0.02, 0.12, u) * (1.0 - step(0.9, 1.0, u));
+    let (top, foot) = (hull.b, shape.b);
+    let len = (foot - top) * reach;
+    if len > 0.0 && here > 0.0 {
+        let top_half = 0.14 * c * crate::ufo::SIZE;
+        let foot_half = (0.5 * shape.w() + 0.08 * c).max(0.22 * c);
+        let band = len / f32::from(BANDS);
+        for k in 0..BANDS {
+            let ff = (f32::from(k) + 0.5) / f32::from(BANDS);
+            let half = top_half + (foot_half - top_half) * ff;
+            let rows = Box4 {
+                l: mid - half,
+                r: mid + half,
+                t: top + band * f32::from(k),
+                b: top + band * f32::from(k + 1),
+            };
+            let a = BEAM * here * (0.6 + 0.4 * ff);
+            solid(out, cell, rows, fill, 0.55 * a);
+            let core = Box4 {
+                l: mid - 0.4 * half,
+                r: mid + 0.4 * half,
+                ..rows
+            };
+            solid(out, cell, core, fill, 0.45 * a);
+        }
+        // Rings rising while it lifts and falling while it sets down.
+        let travel = 2.0 * (0.5 - (u - 0.5).abs());
+        let thick = thick_of(c);
+        for i in 0..RINGS {
+            let along = (f32::from(i) / f32::from(RINGS) + travel).fract();
+            let y = foot - along * len;
+            let ff = (y - top) / (foot - top).max(1.0);
+            let half = top_half + (foot_half - top_half) * ff;
+            let ring = Box4 {
+                l: mid - half,
+                r: mid + half,
+                t: y - thick,
+                b: y,
+            };
+            solid(out, cell, ring, fill, 0.9 * BEAM * here);
+        }
+    }
+    let (body, a) = lifted(cell, shape, u);
+    solid(out, cell, body, fill, a);
+    // The saucer over all of it, its light running along the rim.
+    if here > 0.0 {
+        solid(out, cell, dome, fill, 0.5 * here);
+        solid(out, cell, hull, fill, 0.8 * here);
+        let at = hull.l + (2.0 * u).fract() * hull.w();
+        let light = Box4 {
+            l: at,
+            r: at + thick_of(c),
+            ..hull
+        };
+        solid(out, cell, light, fill, here);
+    }
+}
+
+/// The saucer at the top of `cell`: its dome, and the hull under it,
+/// the trail's `SIZE` across the cell.
+fn saucer(cell: Box4) -> (Box4, Box4) {
+    use crate::ufo::SIZE;
+    let (c, mid) = (cell.h(), (cell.l + cell.r) / 2.0);
+    let dome = Box4 {
+        l: mid - 0.15 * SIZE * cell.w(),
+        r: mid + 0.15 * SIZE * cell.w(),
+        t: cell.t + 1.0,
+        b: cell.t + 1.0 + (c / 16.0).max(1.0),
+    };
+    let hull = Box4 {
+        l: mid - 0.35 * SIZE * cell.w(),
+        r: mid + 0.35 * SIZE * cell.w(),
+        t: dome.b,
+        b: dome.b + (c / 12.0).max(1.0),
+    };
+    (dome, hull)
+}
+
+/// **The cursor as the beam holds it at `u`**, its edges and its share of
+/// the alpha: handed over in place, its top drawn up to the saucer's hull
+/// as it shrinks about its centre to 0.3 of its size and fades, held, and
+/// set back down and handed back.
+fn lifted(cell: Box4, shape: Box4, u: f32) -> (Box4, f32) {
+    let hull = saucer(cell).1;
+    let lift = if u < HANDOVER {
+        0.0
+    } else if u < LIFTED.0 {
+        ease((u - HANDOVER) / (LIFTED.0 - HANDOVER))
+    } else if u < LIFTED.1 {
+        1.0
+    } else {
+        1.0 - ease((u - LIFTED.1) / (1.0 - HANDOVER - LIFTED.1))
+    };
+    let shown = if u < HANDOVER {
+        ease(u / HANDOVER)
+    } else if u >= 1.0 - HANDOVER {
+        1.0 - ease((u - (1.0 - HANDOVER)) / HANDOVER)
+    } else {
+        1.0
+    };
+    let k = 1.0 - 0.7 * lift;
+    let (w, h) = ((shape.w() * k).max(1.0), (shape.h() * k).max(1.0));
+    let cx = (shape.l + shape.r) / 2.0;
+    let t = shape.t + (hull.b - shape.t) * lift;
+    let body = Box4 {
+        l: cx - w / 2.0,
+        r: cx + w / 2.0,
+        t,
+        b: t + h,
+    };
+    (body, shown * (1.0 - 0.85 * lift))
+}
+
+/// A line one pixel a 34-pixel cell thick, and never under one.
+fn thick_of(c: f32) -> f32 {
+    (c / 34.0).max(1.0)
 }
 
 /// When, as shares of the hidden phase, the fire's front leaves the top of
@@ -498,6 +664,77 @@ mod tests {
                 .any(|s| s.w.0 == 2 && i32::from(s.y.0) + i32::from(s.h.0) == 68),
             "the bar's own body"
         );
+    }
+
+    /// **The ufo stays on its cell**, for every shape at every level, all
+    /// solids; and its two ends are the whole cursor and nothing else.
+    #[test]
+    fn the_ufo_stays_on_the_cursor_cell_and_rests_at_its_ends() {
+        for shape in SHAPES {
+            for level in 0..=255u8 {
+                for s in played(shape, Play::Ufo(Chan::from_u8(level))) {
+                    assert!(inside(&s), "{shape:?} {level}: {s:?}");
+                    assert_eq!(s.kind, Kind::Solid, "every path draws a solid alike");
+                }
+            }
+        }
+        assert_eq!(CursorPhase::ufo(Chan::from_u8(0)), CursorPhase::SHOWN);
+        assert_eq!(CursorPhase::ufo(Chan::from_u8(255)), CursorPhase::SHOWN);
+        assert_eq!(CursorPhase::ufo(Chan::from_u8(128)).opacity, NONE);
+    }
+
+    /// **The beam lifts the cursor away and sets it back down**: in each
+    /// shape the lowest solid's foot -- the cursor's, under the beam's --
+    /// rises through the lift and falls through the set-down, held up
+    /// between; the beam reaches the cursor's foot while it lifts; the
+    /// saucer sits at the cell's top; and the cursor's own opacity hands
+    /// over and back as the fire's does.
+    #[test]
+    fn the_ufo_lifts_the_cursor_and_sets_it_down() {
+        let at = |u: f32| Play::Ufo(Chan::from_unit(u));
+        // The cursor's body, which the drawing holds as one solid.
+        let body_foot = |shape: (Px, Px, Px, Px), u: f32| {
+            let (b, _) = lifted(Box4::of(CELL), Box4::of(shape), unit(Chan::from_unit(u)));
+            let (t, f) = (b.t.round(), b.b.round());
+            let drawn = played(shape, at(u));
+            assert!(
+                drawn
+                    .iter()
+                    .any(|s| f32::from(s.y.0) == t && f32::from(s.y.0) + f32::from(s.h.0) == f),
+                "{shape:?} at {u}: the body {b:?} is drawn"
+            );
+            f
+        };
+        for shape in SHAPES {
+            let up: Vec<_> = [0.1, 0.2, 0.3, 0.4].map(|u| body_foot(shape, u)).to_vec();
+            assert!(
+                up.windows(2).all(|w| w[0] > w[1]),
+                "{shape:?} lifting: {up:?}"
+            );
+            let down: Vec<_> = [0.62, 0.7, 0.8, 0.9].map(|u| body_foot(shape, u)).to_vec();
+            assert!(
+                down.windows(2).all(|w| w[0] < w[1]),
+                "{shape:?} setting down: {down:?}"
+            );
+        }
+        // The beam reaches the cursor's foot, at its own opacity's order.
+        let lifting = played(CELL, at(0.25));
+        assert!(
+            lifting
+                .iter()
+                .any(|s| i32::from(s.y.0) + i32::from(s.h.0) == 68 && s.color.a().get() < 100),
+            "the beam on the cursor: {lifting:?}"
+        );
+        // The saucer at the top, and nothing of it at the very ends.
+        let held = played(CELL, at(0.5));
+        assert!(
+            held.iter()
+                .any(|s| s.y.0 <= 38 && s.h.0 <= 3 && s.color.a().get() > 150),
+            "the hull: {held:?}"
+        );
+        let opacity = |u: f32| CursorPhase::ufo(Chan::from_unit(u)).opacity.get();
+        assert!(opacity(0.02) > 200 && opacity(0.06) < 60, "handed over");
+        assert!(opacity(0.94) < 60 && opacity(0.99) > 200, "handed back");
     }
 
     /// **At the full pulse the core fills the cell at the trail's tube and

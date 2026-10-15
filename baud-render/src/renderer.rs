@@ -750,7 +750,8 @@ pub struct Renderer<'f, 'a> {
     /// restarts on input where `SGR 5` text keeps neither -- and a fade or
     /// the plasma glow part way through it ([`CursorPhase`]).
     cursor_blink: CursorPhase,
-    /// The blink animation's solids -- the plasma glow, the fire -- where
+    /// The blink animation's solids -- the plasma glow, the fire, the ufo --
+    /// where
     /// they are and the phase that drew them, on this frame and the last,
     /// and the solids: a row under either is dirty, the trail's rule, so
     /// their damage is the cursor's row.
@@ -1350,7 +1351,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// **The blink animation's solids over the cursor at `at`** -- the
-    /// plasma glow, the fire -- built for this frame: the live cursor
+    /// plasma glow, the fire, the ufo -- built for this frame: the live cursor
     /// whether or not the phase draws it, `None` when there is none on the
     /// screen being drawn. Nothing for a steady style or a phase without
     /// them. [`Renderer::convert`] calls this itself; a cell-path driver
