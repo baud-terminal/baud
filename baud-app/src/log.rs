@@ -98,9 +98,28 @@ macro_rules! verbose {
     ($($arg:tt)*) => { if $crate::log::enabled($crate::log::Level::Verbose) { eprintln!($($arg)*); } };
 }
 
+/// The exit message for a failed `Connection::connect`: baud draws through
+/// Wayland alone in this release (note V, V20), so a session without a
+/// compositor socket is told so, with the connection's own error after it.
+#[cfg(any(target_os = "linux", test))]
+pub fn no_wayland_session(cause: impl std::fmt::Display) -> String {
+    format!("baud needs a Wayland session (WAYLAND_DISPLAY): {cause}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A failed Wayland connection says what baud needs.** The first
+    /// words name the session and the variable, and the cause follows.
+    #[test]
+    fn a_failed_connection_names_the_session_baud_needs() {
+        let m = no_wayland_session("no such socket");
+        assert_eq!(
+            m,
+            "baud needs a Wayland session (WAYLAND_DISPLAY): no such socket"
+        );
+    }
 
     const ALL: [Level; 5] = [
         Level::Err,

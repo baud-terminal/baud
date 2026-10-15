@@ -276,19 +276,18 @@ change rather than a rediscovery.
    or may per-cell SGR backgrounds and images be translucent too? It decides
    whether alpha is a rendition property or a window property.
 
-**Where the six stand (recorded 2026-09-24).** Three are settled by what was
-built, and three have an answer in the session record that is not yet
-confirmed here:
+**Where the six stand (recorded 2026-09-24, calls 2-4 confirmed 2026-09-25).**
+Three are settled by what was built, and three were answered in the session
+record on 2026-09-12 and confirmed by the owner on 2026-09-25 (note V, V20,
+"as recommended"):
 
 | call | status | evidence |
 |---|---|---|
 | 1. constraint interpretation | **strict**: CoreText and `libxkbcommon` count as engines. baud owns `morx` and the XKB compiler, `libxkbcommon` is an oracle only, and CoreText is unused; AppKit, Metal, QuartzCore and IOSurface remain the OS floor D13 lists | `baud-xkb` and `baud-font` depend on `baud-domain` alone; `baud-font/src/morx.rs`; `libxkbcommon` is loaded only by `scripts/xkb-oracle.py` |
-| 2. Vulkan-only on Linux | answered *yes* 2026-09-12 in the session record; **unconfirmed here** | no Vulkan code exists yet, so nothing built contradicts or confirms it |
-| 3. X11 | answered *XWayland fallback* 2026-09-12 in the session record; **unconfirmed here** | the Linux driver is Wayland-only (`baud-present-wayland`) |
-| 4. Windows in v1 | answered *no* 2026-09-12 in the session record; **unconfirmed here** | no Windows code |
+| 2. Vulkan-only on Linux | answered *yes* 2026-09-12; **confirmed** 2026-09-25, scoped to a first release (note V, V20) | no Vulkan code exists yet, so nothing built contradicts or confirms it |
+| 3. X11 | **(a), Wayland only for v1**, 2026-09-25 (note V, V20, owner: "as recommended"); a native X11 backend is not in v1 | the Linux driver is Wayland-only (`baud-present-wayland`); on a session without Wayland it exits saying baud needs one |
+| 4. Windows in v1 | answered *no* 2026-09-12; **confirmed** 2026-09-25, scoped to a first release (note V, V20) | no Windows code |
 | 5. macOS present | **IOSurface + `CALayer.contents`** | `baud-present-macos`; no `CAMetalLayer` in any code |
 | 6. what punches through the glass | **every background**, 2026-09-20; then `[glass] app_backgrounds` (default `dim`) and `pictures` (default `opaque`), 2026-09-22 | CLAUDE.md, "Every background is translucent now" and "A picture drawn in text is found from its block" |
-
-Calls 2-4 move to settled when the owner confirms them.
 
 Everything else above is decided by evidence and reverses on a measurement.

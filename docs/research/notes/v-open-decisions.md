@@ -4528,8 +4528,8 @@ with cells identical.
 **The question**
 
 On 12 September you answered three platform questions out loud.
-`docs/research/notes/j-rendering.md` still marks all three "unconfirmed" (its
-owner-calls table, lines 282-289).
+`docs/research/notes/j-rendering.md` marked all three "unconfirmed" (its
+owner-calls table) when this was asked; it records them confirmed since.
 
 - **Call 2.** On Linux, is Vulkan the only GPU interface, at least for the
   first version? Vulkan is the modern cross-vendor way to drive a graphics

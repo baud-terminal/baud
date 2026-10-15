@@ -192,7 +192,7 @@ pub fn run() {
     let mut conn = match Connection::connect() {
         Ok(c) => c,
         Err(e) => {
-            crate::warn!("wayland: {e}");
+            crate::warn!("{}", crate::log::no_wayland_session(e));
             std::process::exit(1);
         }
     };
