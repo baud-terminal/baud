@@ -703,6 +703,126 @@ impl Col {
     }
 }
 
+/// **The cursor's column, and whether a move put it one past the right
+/// margin.**
+///
+/// One past the right margin is two states under side margins narrower
+/// than the screen. A write that filled the line to the margin leaves the
+/// cursor there with a wrap pending, the sentinel the write path keeps; a
+/// move that lands there leaves a cursor on that column, which writes on
+/// from it (`[[source: dec-std-070]]` p. 5-140, where the margin bounds a
+/// write only from at or inside it, and D.6.1, where every move resets the
+/// Last Column Flag). **The sentinel stays the common case, and the move
+/// gets a tag**, a high bit only [`CursorCol::placed`] sets: tagged, the
+/// value is past every column, so the write path's own fit test sends it
+/// out of line and the per-character path is unchanged. Note V's V10, the
+/// option C2-min.
+///
+/// A plain [`Col`] is not one, so a reader that forgets to decode does not
+/// compile: [`CursorCol::raw`] is for the write path past its fit test and
+/// for code where the margins are the screen's, [`CursorCol::col`] strips
+/// the tag, and [`CursorCol::at`] says which state it is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(transparent)]
+pub struct CursorCol(usize);
+
+/// Where the cursor stands, read against the right margin.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CursorAt {
+    /// On a column: inside the fence, left of it, or right of it where a
+    /// move or a write right of the fence left it.
+    Column(Col),
+    /// A write filled the line to where it ends -- the right margin, or the
+    /// screen's last column for a write right of the fence -- and the
+    /// cursor is one past it, the sentinel: with `DECAWM` set the next
+    /// character wraps first.
+    Pending(Col),
+    /// A move put the cursor exactly one past a right margin narrower than
+    /// the screen: a column, the one the sentinel would otherwise name.
+    Placed(Col),
+}
+
+impl CursorCol {
+    /// The low bit of the high half, bit 32: a tagged value plus a
+    /// character's two columns cannot overflow, one less than a tagged
+    /// value is still tagged, and every column fits the low half.
+    ///
+    /// **In the high half so that decoding is free.** [`CursorCol::col`]
+    /// keeps the low half, which a load from memory does by its width; at
+    /// bit 62 it was an `and` on each zero-width character's path (the
+    /// cold `attach` and `widen`), 2.9 M instructions over 200 reps of
+    /// `cat-cjk` (`docs/record.md`, "A cursor placed right of the fence
+    /// writes on").
+    const PLACED: usize = 1 << (usize::BITS / 2);
+    pub const ZERO: CursorCol = CursorCol(0);
+
+    /// Where a write left the cursor, the sentinel one past where the line
+    /// ends included.
+    #[inline(always)]
+    pub fn written(c: Col) -> CursorCol {
+        CursorCol(c.0)
+    }
+    /// A move that cannot land one past a right margin narrower than the
+    /// screen: at or left of the margin, or with the margins at the
+    /// screen's edges, where no move reaches one past the last column.
+    #[inline(always)]
+    pub fn moved(c: Col) -> CursorCol {
+        CursorCol(c.0)
+    }
+    /// A move that may land one past the right margin: tagged there when
+    /// that column is on the screen, which it is only while the margin is
+    /// left of the last column.
+    #[inline(always)]
+    pub fn placed(c: Col, right: Col, cols: Cols) -> CursorCol {
+        match c.0 == right.0 + 1 && c.0 < cols.0 {
+            true => CursorCol(c.0 | Self::PLACED),
+            false => CursorCol(c.0),
+        }
+    }
+    /// The value undecoded, a tagged one past every column. For the write
+    /// path after its fit test, which no tagged value passes, and for code
+    /// that runs only while the margins are the screen's.
+    #[inline(always)]
+    pub fn raw(self) -> Col {
+        Col(self.0)
+    }
+    /// The column, placed or not: one past the right margin for a pending
+    /// wrap and a placed cursor alike, as every reader that names a column
+    /// read the sentinel before the tag.
+    #[inline(always)]
+    pub fn col(self) -> Col {
+        Col(self.0 & (Self::PLACED - 1))
+    }
+    /// Whether a move put the cursor one past the right margin.
+    pub fn is_placed(self) -> bool {
+        self.0 & Self::PLACED != 0
+    }
+    /// One column left of an untagged value, for `BS` where the margins are
+    /// the screen's: the raw arithmetic, as before the tag.
+    #[inline(always)]
+    pub fn before(self) -> CursorCol {
+        CursorCol(self.0 - 1)
+    }
+    /// Which state the value is, under right margin `right` on a screen
+    /// `cols` wide.
+    pub fn at(self, right: Col, cols: Cols) -> CursorAt {
+        let c = self.col();
+        match (self.is_placed(), c.0 == right.0 + 1 || c.0 >= cols.0) {
+            (true, _) => CursorAt::Placed(c),
+            (false, true) => CursorAt::Pending(c),
+            (false, false) => CursorAt::Column(c),
+        }
+    }
+    /// The column a report names: a pending wrap the column it waits on,
+    /// anything else its own.
+    pub fn reported(self, right: Col, cols: Cols) -> Col {
+        match self.at(right, cols) {
+            CursorAt::Pending(c) => Col(c.0 - 1),
+            CursorAt::Column(c) | CursorAt::Placed(c) => c,
+        }
+    }
+}
+
 /// The column that **owns** the character occupying a position.
 ///
 /// Not a `Col`, and the difference was a bug that stored data nothing could

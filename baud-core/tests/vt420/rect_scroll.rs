@@ -197,14 +197,13 @@ fn su_past_the_region_blanks_the_rectangle() {
 }
 
 /// `SU` and `SD` scroll the region, not the cursor's surroundings, and
-/// leave the cursor where it was -- read against the same bytes without the
-/// scroll, because `Term::cursor` clamps a cursor right of the fence to the
-/// right margin (note V's V10, step (d)).
+/// leave the cursor where it was, right of the fence.
 #[test]
 fn su_and_sd_ignore_where_the_cursor_is() {
     let at = format!("{}{TB}{LRM}\x1b[1;15H", fill());
     let s = seen(&format!("{at}\x1b[S"));
     assert_eq!(s.screen, model(1..=5, 4..=9, Up(Count::of(1))));
+    assert_eq!(s.cursor, (Row::from_index(0), Col::at_index(14)));
     assert_eq!(s.cursor, seen(&at).cursor);
     let s = seen(&format!("{at}\x1b[T"));
     assert_eq!(s.screen, model(1..=5, 4..=9, Down(Count::of(1))));
@@ -223,14 +222,13 @@ fn il_and_dl_move_the_rectangle_from_the_cursor_row() {
 
 /// STD 070 p. 5-24, X under L/R: "Does not work outside these margins."
 ///
-/// **Not column 11, right + 1**: a cursor moved there reads as the pending
-/// wrap the sentinel also spells, which is on the right margin, so `IL` acts
-/// from it. That conflation is note V's V10 step (d), the corner; this pins
-/// every column it does not touch.
+/// Column 11, right + 1, included: a cursor a move put there is placed on
+/// that column, outside the fence, and not the pending wrap the sentinel
+/// spells there (`corner.rs`).
 #[test]
 fn il_and_dl_outside_the_side_margins_do_nothing() {
     let none = seen(&format!("{}{TB}{LRM}", fill())).screen;
-    for at in ["3;1", "3;2", "3;4", "3;12", "3;15", "3;20"] {
+    for at in ["3;1", "3;2", "3;4", "3;11", "3;12", "3;15", "3;20"] {
         for op in ["L", "M", "3L", "3M"] {
             let s = seen(&format!("{}{TB}{LRM}\x1b[{at}H\x1b[{op}", fill()));
             assert_eq!(s.screen, none, "CUP {at}, CSI {op}");

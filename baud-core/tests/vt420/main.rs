@@ -7,6 +7,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod corner;
 mod decaln;
 mod line_starts;
 mod origin;
@@ -29,6 +30,7 @@ fn the_known_vt420_gaps() {
     support::ignores_are(
         "vt420",
         &[
+            "corner.rs",
             "decaln.rs",
             "line_starts.rs",
             "origin.rs",

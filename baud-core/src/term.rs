@@ -954,7 +954,7 @@ pub struct Term<'b> {
     pub(crate) last_cp: Option<(Codepoint, Width)>,
 
     pub(crate) cy: Row,
-    pub(crate) cx: Col,
+    pub(crate) cx: CursorCol,
     pub(crate) rows: Rows,
     pub(crate) cols: Cols,
     /// The height of a cell in device pixels, or [`ImagePx::ZERO`] when the
@@ -1638,7 +1638,7 @@ impl<'b> Term<'b> {
         if cols.index() != old_cols.index() && self.primary_zone() == Zone::Output {
             let at = self.primary_cursor();
             let cursor = match at {
-                PrimaryCursor::Live | PrimaryCursor::Shared => (self.cy, self.cx),
+                PrimaryCursor::Live | PrimaryCursor::Shared => (self.cy, self.cx.col()),
                 PrimaryCursor::Saved => self
                     .cold
                     .alt_saved
@@ -1729,7 +1729,12 @@ impl<'b> Term<'b> {
             // and the window's top is the history's depth after it.
             self.store.book.top = floor.plus(r.dropped).plus(r.hist);
             match at {
-                PrimaryCursor::Live => (self.cy, self.cx) = r.cursor,
+                // The margins go back to the screen's below, so the reflowed
+                // column carries no tag.
+                PrimaryCursor::Live => {
+                    let (cy, cx) = r.cursor;
+                    (self.cy, self.cx) = (cy, CursorCol::written(cx));
+                }
                 PrimaryCursor::Saved => {
                     if let Some(s) = self.cold.alt_saved.as_mut() {
                         (s.cursor.cy, s.cursor.cx) = r.cursor;
@@ -1846,11 +1851,14 @@ impl<'b> Term<'b> {
         self.cy = Row::from_index(self.cy.index().min(rows.index() - 1));
         // A clamp is a horizontal move, so it ends the pin as `Paint::set_col`
         // does: the cursor is no longer after the character written last.
-        let clamped = Col::at_index(self.cx.index().min(cols.index() - 1));
-        if clamped != self.cx {
+        // The margins go back to the screen's here, so the clamped column
+        // carries no tag: a cursor placed one past the old right margin is a
+        // column, as [`Paint::reset_side_margins`] leaves it.
+        let clamped = Col::at_index(self.cx.col().index().min(cols.index() - 1));
+        if clamped != self.cx.raw() {
             self.cold.pinned = Pinned::Before;
         }
-        self.cx = clamped;
+        self.cx = CursorCol::moved(clamped);
         self.cold.top = Row::ZERO;
         self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
         self.cold.left = Col::ZERO;
@@ -1936,7 +1944,7 @@ impl<'b> Term<'b> {
             node: Node::Ground,
             last_cp: None,
             cy: Row::ZERO,
-            cx: Col::ZERO,
+            cx: CursorCol::ZERO,
             rows,
             cols,
             cell_height: ImagePx::ZERO,
@@ -2760,9 +2768,10 @@ impl<'b> Term<'b> {
         // the right margin rather than the screen edge once `DECSLRM` has
         // moved it. Clamping to `cols - 1` reported column 10 for a cursor
         // pinned at a margin of 9 -- a position no write can reach, which an
-        // application counting columns then disagrees with.
-        let last = self.cold.right;
-        (self.cy, Col::at_index(self.cx.index().min(last.index())))
+        // application counting columns then disagrees with. **Only the
+        // sentinel is clamped**: a cursor a move placed one past the margin,
+        // or right of the fence, is on its own column ([`CursorCol::reported`]).
+        (self.cy, self.cx.reported(self.cold.right, self.cols))
     }
 
     /// **Whether the next graphic character wraps before it is written**:
@@ -2771,16 +2780,14 @@ impl<'b> Term<'b> {
     /// with a terminal that keeps the pending wrap as a flag (the V10 oracle,
     /// `bench-others/ghostty-oracle`, against ghostty's `pending_wrap`).
     ///
-    /// **It reads the sentinel, so it cannot tell the two states the sentinel
-    /// conflates.** A write that fills to the right margin leaves the cursor
-    /// at right + 1, and so does a move that lands there under side margins
-    /// narrower than the screen -- and so does `CUP` to any column past the
-    /// fence. All three answer `Yes`, because all three wrap first here; a
-    /// terminal with a flag answers `No` for the two moves. Telling them
-    /// apart is step (d) of note V's V10, not this accessor's.
+    /// **The sentinel only**: one past the right margin where a write
+    /// filled the line to it, or past the screen's last column where a
+    /// write right of the fence did. A cursor a move placed one past the
+    /// margin, and any column right of the fence, answer `No`, as a
+    /// terminal with a flag answers, because a write from there writes on.
     pub fn wrap_pending(&self) -> WrapPending {
-        match self.cx.index() > self.cold.right.index() && self.cold.modes.is_set(ModeBit::AutoWrap)
-        {
+        let pending = matches!(self.cx.at(self.cold.right, self.cols), CursorAt::Pending(_));
+        match pending && self.cold.modes.is_set(ModeBit::AutoWrap) {
             true => WrapPending::Yes,
             false => WrapPending::No,
         }

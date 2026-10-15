@@ -164,7 +164,9 @@ impl Paint<'_, '_> {
             return;
         }
         let (screen, line) = self.image_anchor();
-        let _ = self.images.place(id, screen, line, self.cx, ZIndex::ZERO);
+        let _ = self
+            .images
+            .place(id, screen, line, self.cx.col(), ZIndex::ZERO);
         // Advance the cursor below the image, through the scroll path so a
         // bottom-of-screen image scrolls and the window's top line moves with
         // it -- the anchor of the next image reads the moved line. `index` does
@@ -207,12 +209,13 @@ impl Paint<'_, '_> {
             self.index();
         }
         if right_of {
-            let right = self.cx.index() + usize::from(w.raw()).div_ceil(self.cell_width.index());
+            let right =
+                self.cx.col().index() + usize::from(w.raw()).div_ceil(self.cell_width.index());
             if right > self.cold.right.index() {
                 self.index();
-                self.cx = self.cold.left;
+                self.cx = CursorCol::moved(self.cold.left);
             } else {
-                self.cx = Col::at_index(right);
+                self.cx = CursorCol::moved(Col::at_index(right));
             }
         }
     }

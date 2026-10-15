@@ -188,14 +188,12 @@ fn ht_one_past_the_right_margin_without_autowrap_goes_to_the_next_stop() {
     );
 }
 
-/// **Open: one past the margin with `?7h` reads as a pending wrap.** A
-/// cursor placed there by `CUP` is the sentinel a pending wrap is, so `HT`
-/// holds it at the margin where note 1 moves it on (the `CSI s` row's
-/// stated gap). Options: (a) the pending wrap wins, built; (b) the column
-/// wins, as before 2026-10-14, at the cost of the pending-wrap case.
+/// **With `?7h` too, a cursor `CUP` placed one past the margin is beyond
+/// it**, and note 1 sends it to the next stop: a move put it there, so no
+/// wrap is pending (V10's step (d), `corner.rs`).
 #[test]
-fn ht_one_past_the_right_margin_with_autowrap_reads_as_a_pending_wrap() {
-    assert_eq!(x_at(&format!("{TB}{LRM}\x1b[3;11H\t")), Some((2, 9)));
+fn ht_one_past_the_right_margin_with_autowrap_goes_to_the_next_stop() {
+    assert_eq!(x_at(&format!("{TB}{LRM}\x1b[3;11H\t")), Some((2, 16)));
 }
 
 /// **On a row outside the scroll area the right margin does not stop it**:

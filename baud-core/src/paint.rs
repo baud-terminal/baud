@@ -46,7 +46,9 @@ pub(crate) struct Paint<'a, 'b> {
     pub(crate) tabs: &'a mut [bool],
     pub(crate) view: View<'a>,
     pub(crate) cy: Row,
-    pub(crate) cx: Col,
+    /// The cursor's column: the pending-wrap sentinel, and a move's tag
+    /// one past the right margin ([`CursorCol`]).
+    pub(crate) cx: CursorCol,
     pub(crate) rows: Rows,
     pub(crate) cols: Cols,
     /// The cell height in device pixels, or [`ImagePx::ZERO`] when unknown --
@@ -300,7 +302,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     pub(crate) fn new(
         store: &'a mut Storage<'b>,
         cy: Row,
-        cx: Col,
+        cx: CursorCol,
         rows: Rows,
         cols: Cols,
         cell_height: ImagePx,
@@ -495,7 +497,8 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn open_gap(&mut self, n: Count) {
-        let (r, at, b) = (self.cy, self.cx, self.blank());
+        // After the fit test, so never a tagged value.
+        let (r, at, b) = (self.cy, self.cx.raw(), self.blank());
         let to = Col::at_index(self.cols.index());
         self.view.insert_cells(r, at, n, to, b);
         self.cells = self.cells.plus(self.cols.index() - at.index());
@@ -542,8 +545,8 @@ impl<'a, 'b> Paint<'a, 'b> {
         {
             let _ = from;
             self.cells = self.cells.plus(k);
-            self.cx = Col::at_index(self.cx.index() + k);
-            self.row_written = self.row_written.max(self.cx);
+            self.cx = CursorCol::written(Col::at_index(self.cx.raw().index() + k));
+            self.row_written = self.row_written.max(self.cx.raw());
             return;
         }
         #[allow(unreachable_code)]
@@ -570,17 +573,48 @@ impl<'a, 'b> Paint<'a, 'b> {
     }
 
     /// A run that runs off the row: row-piece by row-piece, wrapping between.
+    ///
+    /// **Right of the fence a piece runs to the screen's edge**, as
+    /// [`Paint::past_margin`] has one character do, and is sized to it so
+    /// the blitter never clips: a cursor past the margin by a move, or
+    /// beyond it after a piece, gets a piece of at least one.
     #[inline(never)]
     fn wrapped(&mut self, from: BytePos, n: ByteLen) {
         let (mut at, mut left) = (from.index(), n.index());
         while left > 0 {
-            if self.cx.index() > self.cold.right.index() {
-                self.wrap();
-            }
-            let k = left.min(self.room().index());
+            let k = match self.cx.raw().index() > self.cold.right.index() + 1 {
+                true => self.past_margin_room().index(),
+                false => {
+                    if self.cx.raw() > self.cold.right {
+                        self.wrap();
+                    }
+                    self.room().index()
+                }
+            };
+            let k = left.min(k);
             self.piece(BytePos::from_index(at), ByteLen::from_index(k));
             at += k;
             left -= k;
+        }
+    }
+
+    /// The room right of the fence for a piece of a run: to the screen's
+    /// edge, after the sentinel there wraps, or with `DECAWM` reset goes to
+    /// the last column.
+    ///
+    /// **One character from a placed cursor**, which `glyph` writes where
+    /// the tag says: untagged here, one past the margin would read as the
+    /// sentinel when `glyph` tested it, and wrap.
+    #[cold]
+    #[inline(never)]
+    fn past_margin_room(&mut self) -> Count {
+        if self.cx.is_placed() {
+            return Count::ONE;
+        }
+        self.past_margin(Count::ONE);
+        match self.cx.raw().index() > self.cold.right.index() {
+            true => Count::of(self.cols.index() - self.cx.raw().index()),
+            false => self.room(),
         }
     }
 
@@ -596,10 +630,16 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.open_gap(Count::of(k));
         }
         let src = &self.arena[from.index()..from.index() + k];
-        self.view
-            .put_ascii_run(self.cy, self.cx, src, self.style, self.flags, self.charset);
+        self.view.put_ascii_run(
+            self.cy,
+            self.cx.raw(),
+            src,
+            self.style,
+            self.flags,
+            self.charset,
+        );
         self.cells = self.cells.plus(k);
-        let start = self.cx;
+        let start = self.cx.raw();
         let end = Col::at_index(start.index() + k);
         self.cx = self.end_at(end);
         self.row_written = self.row_written.max(end);
@@ -622,7 +662,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// being created.
     #[inline(always)]
     fn advance(&mut self, need: Count) {
-        let to = Col::at_index(self.cx.index() + need.index());
+        let to = Col::at_index(self.cx.raw().index() + need.index());
         self.cx = self.end_at(to);
     }
 
@@ -637,9 +677,9 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// (`tests/margin_pin.rs`). The mode test is once a write, and the clamp
     /// and the store are out of line, in [`Paint::pin`].
     #[inline(always)]
-    fn end_at(&mut self, to: Col) -> Col {
+    fn end_at(&mut self, to: Col) -> CursorCol {
         match self.cold.modes.is_set(ModeBit::AutoWrap) {
-            true => to,
+            true => CursorCol::written(to),
             false => self.pin(to),
         }
     }
@@ -653,15 +693,76 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// commit at 0.7% more instructions, with more mispredicts
     /// (`docs/record.md`, "With `DECAWM` reset the character just written is
     /// under the cursor").
+    ///
+    /// **Right of the fence the last column is the screen's**, for a write
+    /// that started there: `[[source: dec-std-070]]` p. 5-139, "the Active
+    /// Position will not advance beyond the Right Margin or last column of
+    /// the Active Line", the right margin only from at or inside it (p.
+    /// 5-140). `cx` is still where the write started.
     #[cold]
     #[inline(never)]
-    fn pin(&mut self, to: Col) -> Col {
-        let right = self.cold.right;
+    fn pin(&mut self, to: Col) -> CursorCol {
+        let right = match self.cx.raw() > self.cold.right {
+            true => Col::at_index(self.cols.index() - 1),
+            false => self.cold.right,
+        };
         self.cold.pinned = match to > right {
             true => crate::term::Pinned::OnLast,
             false => crate::term::Pinned::Before,
         };
-        to.min(right)
+        CursorCol::written(to.min(right))
+    }
+
+    /// A character of `need` columns that does not fit before the right
+    /// margin: one past the margin is the pending wrap and wraps, as does a
+    /// wide character on the margin; **right of it is out of line**
+    /// ([`Paint::past_margin`]). Only the not-fits branch calls it.
+    ///
+    /// **Out of line, the wrap with it.** Inline beside the wrap in every
+    /// copy of `glyph`, the test read `cat-cjk` 8.6 M instructions over
+    /// 200 reps above this call, which reads level with `glyph` calling
+    /// `wrap` itself, on a recording that never wraps (`docs/record.md`,
+    /// "A cursor placed right of the fence writes on").
+    #[cold]
+    #[inline(never)]
+    fn overflow(&mut self, need: Count) {
+        match self.cx.raw().index() > self.cold.right.index() + 1 {
+            false => self.wrap(),
+            true => self.past_margin(need),
+        }
+    }
+
+    /// **A write from right of the right margin writes on to the screen's
+    /// last column.** `[[source: dec-std-070]]` p. 5-140 bounds a write by
+    /// the right margin only `if (active_position.column <= right_margin)`,
+    /// else by `end_of_line`; xterm's `dotext` takes `last_col` while
+    /// `cur_col > rmargin` (`[[source: xterm-reset]]`, charproc.c
+    /// 7055-7058), "the right-margin is ineffective until the text (may)
+    /// wrap and get within the margins" (6991-6995). Here the cursor is a
+    /// move's ([`CursorCol::placed`] one past the margin, or any column
+    /// beyond it) or the sentinel past the last column that a write right of
+    /// the fence leaves.
+    ///
+    /// What fits before the screen's edge is written where the cursor is.
+    /// What does not -- the sentinel, or a wide character on the last
+    /// column (charproc.c 7130-7138, `force_wrap`) -- wraps with `DECAWM`
+    /// set, to the left margin of the next line as [`Paint::wrap`] goes and
+    /// as xterm's `WrapLine` does (6983); with it reset the cursor goes to
+    /// the last column, as [`Paint::wrap`] puts it on the right margin at
+    /// full width, where the two are one column.
+    #[cold]
+    #[inline(never)]
+    fn past_margin(&mut self, need: Count) {
+        let c = self.cx.col();
+        let fits = c.index() + need.index() <= self.cols.index();
+        self.cx = CursorCol::moved(c);
+        if fits {
+            return;
+        }
+        match self.cold.modes.is_set(ModeBit::AutoWrap) {
+            true => self.wrap(),
+            false => self.cx = CursorCol::written(Col::at_index(self.cols.index() - 1)),
+        }
     }
 
     /// A cell that was **looked up, not computed** -- content and width came
@@ -674,8 +775,8 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cfg(feature = "cell-table")]
     pub(crate) fn indexed(&mut self, e: PackedCell) {
         let need = e.flags.advance_of();
-        if self.cx.index() + need > self.cold.right.index() + 1 {
-            self.wrap();
+        if self.cx.raw().index() + need > self.cold.right.index() + 1 {
+            self.overflow(Count::of(need));
         }
         let (style, flags) = (self.style, self.flags);
         let lead = PackedCell {
@@ -687,16 +788,22 @@ impl<'a, 'b> Paint<'a, 'b> {
             true => Some(PackedCell::wide_tail(style, flags)),
             false => None,
         };
-        match self.cx >= self.row_written {
-            true => self.view.put_glyph_fresh(self.cy, self.cx, lead, tail),
-            false => {
-                self.view
-                    .put_glyph(self.cy, self.cx, lead, tail, PackedCell::empty_with(style))
-            }
+        // The field at each use, as in `glyph`.
+        match self.cx.raw() >= self.row_written {
+            true => self
+                .view
+                .put_glyph_fresh(self.cy, self.cx.raw(), lead, tail),
+            false => self.view.put_glyph(
+                self.cy,
+                self.cx.raw(),
+                lead,
+                tail,
+                PackedCell::empty_with(style),
+            ),
         }
         self.cells = self.cells.plus(need);
         // Where the write ended, not where the cursor stops: see `glyph`.
-        let end = Col::at_index(self.cx.index() + need);
+        let end = Col::at_index(self.cx.raw().index() + need);
         self.advance(Count::of(need));
         self.row_written = self.row_written.max(end);
     }
@@ -723,8 +830,8 @@ impl<'a, 'b> Paint<'a, 'b> {
             return;
         }
         let need = 1 + usize::from(w == Width::WIDE);
-        if self.cx.index() + need > self.cold.right.index() + 1 {
-            self.wrap();
+        if self.cx.raw().index() + need > self.cold.right.index() + 1 {
+            self.overflow(Count::of(need));
         }
         // After the wrap, because the gap belongs in the row the character
         // lands in rather than the one it was pushed off.
@@ -771,18 +878,29 @@ impl<'a, 'b> Paint<'a, 'b> {
         // write` could not price, because stopping the write also stops the
         // cursor and with it every wrap and every scroll.
         #[cfg(feature = "probe-double-put")]
-        if self.cx >= self.row_written {
-            self.view.put_glyph_fresh(self.cy, self.cx, lead, tail);
+        if self.cx.raw() >= self.row_written {
+            self.view
+                .put_glyph_fresh(self.cy, self.cx.raw(), lead, tail);
         }
-        match self.cx >= self.row_written {
-            true => self.view.put_glyph_fresh(self.cy, self.cx, lead, tail),
-            false => {
-                self.view
-                    .put_glyph(self.cy, self.cx, lead, tail, PackedCell::empty_with(style))
-            }
+        // **The column is read from the field at each use, not once into a
+        // local.** Held in a local, it stayed in a register across the
+        // store's call and the loop's allocation around it moved: 6 M
+        // instructions over 200 reps of `cat-cjk` (`docs/record.md`, "A
+        // cursor placed right of the fence writes on").
+        match self.cx.raw() >= self.row_written {
+            true => self
+                .view
+                .put_glyph_fresh(self.cy, self.cx.raw(), lead, tail),
+            false => self.view.put_glyph(
+                self.cy,
+                self.cx.raw(),
+                lead,
+                tail,
+                PackedCell::empty_with(style),
+            ),
         }
         self.cells = self.cells.plus(need);
-        let start = self.cx;
+        let start = self.cx.raw();
         let end = Col::at_index(start.index() + need);
         self.overwrite_images(start, end);
         self.advance(Count::of(need));
@@ -999,9 +1117,12 @@ impl<'a, 'b> Paint<'a, 'b> {
     fn after_last_write(&self) -> Col {
         let on_last = !self.cold.modes.is_set(ModeBit::AutoWrap)
             && self.cold.pinned == crate::term::Pinned::OnLast;
+        // The column, placed or not: a mark after a move to one past the
+        // margin goes before it, as after a move anywhere.
+        let c = self.cx.col();
         match on_last {
-            true => Col::at_index(self.cx.index() + 1),
-            false => self.cx,
+            true => Col::at_index(c.index() + 1),
+            false => c,
         }
     }
 
@@ -1019,8 +1140,12 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// every round paired and this form level, a lead and not a result,
     /// since the ranges touch (`docs/record.md`, "A zero-width character
     /// after a control goes where it goes with autowrap set").
+    ///
+    /// **A [`CursorCol`], so each move says whether it can land one past the
+    /// right margin**: [`CursorCol::moved`] where it cannot,
+    /// [`Paint::place`] where it can.
     #[inline(always)]
-    pub(crate) fn set_col(&mut self, c: Col) {
+    pub(crate) fn set_col(&mut self, c: CursorCol) {
         self.cx = c;
         if self.cold.pinned != crate::term::Pinned::Before {
             self.cold.pinned = crate::term::Pinned::Before;
@@ -1065,7 +1190,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[inline(never)]
     fn widen(&mut self, r: Row, o: Col) {
         let x = o.index();
-        if x + 1 != self.cx.index()
+        if x + 1 != self.cx.col().index()
             || self
                 .view
                 .get(r, Col::at_index(x + 1))
@@ -1087,13 +1212,13 @@ impl<'a, 'b> Paint<'a, 'b> {
         } else if o == self.cold.right && self.cold.right > self.cold.left {
             self.view.put_glyph(r, o, blank, None, blank);
             self.wrap();
-            let start = self.cx;
+            let start = self.cx.raw();
             self.view.put_glyph(self.cy, start, cell, Some(tail), blank);
             self.cells = self.cells.plus(2);
             self.overwrite_images(start, Col::at_index(start.index() + 2));
             self.advance(Count::of(2));
         }
-        self.row_written = self.row_written.max(self.cx);
+        self.row_written = self.row_written.max(self.cx.col());
     }
 
     /// A run of one width, eight cells to a store.
@@ -1113,14 +1238,16 @@ impl<'a, 'b> Paint<'a, 'b> {
     pub(crate) fn run(&mut self, cps: &[Codepoint], w: Width) {
         let (style, flags) = (self.style, self.flags);
         match w == Width::WIDE {
-            true => self.view.put_wide_run(self.cy, self.cx, cps, style, flags),
+            true => self
+                .view
+                .put_wide_run(self.cy, self.cx.raw(), cps, style, flags),
             false => self
                 .view
-                .put_narrow_run(self.cy, self.cx, cps, style, flags),
+                .put_narrow_run(self.cy, self.cx.raw(), cps, style, flags),
         };
         let n = cps.len() * (1 + usize::from(w == Width::WIDE));
         self.cells = self.cells.plus(n);
-        let start = self.cx;
+        let start = self.cx.raw();
         let end = Col::at_index(start.index() + n);
         self.cx = self.end_at(end);
         self.row_written = self.row_written.max(end);
@@ -1155,11 +1282,12 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// past zero there -- a panic in a debug build, and in release a run
     /// taken as fitting: written on from the cursor past the margin, and
     /// clipped at the screen's edge with the rest dropped when it reached
-    /// it. No room sends the run to `wrapped`, which wraps first, as
-    /// `glyph` already did for one character.
+    /// it. No room sends the run to `wrapped`, which writes it on to the
+    /// screen's edge from there ([`Paint::past_margin`]), and a tagged
+    /// value, past every column, has none either.
     #[inline(always)]
     pub(crate) fn room(&self) -> Count {
-        Count::of((self.cold.right.index() + 1).saturating_sub(self.cx.index()))
+        Count::of((self.cold.right.index() + 1).saturating_sub(self.cx.raw().index()))
     }
 
     /// Move the cursor anywhere on the screen.
@@ -1169,20 +1297,61 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// the fresh path would orphan whatever wide character it half-covers.
     /// This was the one move that re-read the mark, and the others kept the
     /// row they left (`tests/wide_halves.rs`).
+    ///
+    /// **Not placed**: its callers land at a margin or the origin, and the
+    /// ones that can land one past the right margin -- `CUP`, the VT52
+    /// address, `DECRC` and the `?1049 h` keep -- place their own
+    /// ([`Paint::goto_at`], [`Paint::place`]).
     pub(crate) fn goto(&mut self, r: Row, c: Col) {
         let r = Row::from_index(r.index().min(self.rows.index() - 1));
-        self.set_col(Col::at_index(c.index().min(self.cols.index() - 1)));
+        self.set_col(CursorCol::moved(Col::at_index(
+            c.index().min(self.cols.index() - 1),
+        )));
         self.deferred_reset();
         self.set_row(r);
+    }
+
+    /// [`Paint::goto`] to a column already on the screen and already
+    /// encoded, which `CUP` places in [`Paint::address_col`].
+    pub(crate) fn goto_at(&mut self, r: Row, c: CursorCol) {
+        let r = Row::from_index(r.index().min(self.rows.index() - 1));
+        self.set_col(c);
+        self.deferred_reset();
+        self.set_row(r);
+    }
+
+    /// Where a move that may land one past the right margin leaves the
+    /// cursor: [`CursorCol::placed`], tagged there under side margins
+    /// narrower than the screen.
+    ///
+    /// **One bit inline**, as for `CR` and `CUF`: only `?69` admits a right
+    /// margin left of the last column -- `CSI s` is `DECSLRM` only under it,
+    /// and `?69l`, `DECSTR` and `DECCOLM` put the margins back with it -- so
+    /// with it reset no move lands one past the margin. **The encode is
+    /// inline too**: out of line, the call gave `goto`, a leaf, a frame,
+    /// about nine instructions a `CUP` that `vim.raw` paid 7,120 times a
+    /// rep.
+    #[inline(always)]
+    pub(crate) fn place(&self, c: Col) -> CursorCol {
+        debug_assert!(self.cold.modes.is_set(ModeBit::SideMargins) || !self.fenced());
+        match self.cold.modes.is_set(ModeBit::SideMargins) {
+            false => CursorCol::moved(c),
+            true => CursorCol::placed(c, self.cold.right, self.cols),
+        }
+    }
+
+    /// Which state the cursor is in, under the margins in force.
+    pub(crate) fn cursor_at(&self) -> CursorAt {
+        self.cx.at(self.cold.right, self.cols)
     }
 
     /// Erase within the cursor's row. 0 to the end, 1 from the start, 2 all.
     pub(crate) fn erase_line(&mut self, e: EraseExtent) {
         let (cy, cols) = (self.cy, self.cols);
         let (a, b) = match e {
-            EraseExtent::ToStart => (Col::ZERO, Col::at_index(self.cx.index() + 1)),
+            EraseExtent::ToStart => (Col::ZERO, Col::at_index(self.cx.col().index() + 1)),
             EraseExtent::All => (Col::ZERO, Col::at_index(cols.index())),
-            EraseExtent::ToEnd => (self.cx, Col::at_index(cols.index())),
+            EraseExtent::ToEnd => (self.cx.col(), Col::at_index(cols.index())),
         };
         // To its end, the line is being cleared: what it held past a
         // narrower edge goes first (`Paint::clear_erased_past_edge`).
@@ -1270,10 +1439,10 @@ impl<'a, 'b> Paint<'a, 'b> {
         // the **left** margin -- `[[source: vt510-decslrm]]` makes the region
         // a rectangle, so text confined to it stays confined across the wrap.
         if !self.cold.modes.is_set(ModeBit::AutoWrap) {
-            self.cx = self.cold.right;
+            self.cx = CursorCol::written(self.cold.right);
             return;
         }
-        self.cx = self.cold.left;
+        self.cx = CursorCol::moved(self.cold.left);
         // The row being left continues onto the next: the fact a reflow
         // needs, kept in the mark the write already touched.
         self.view.set_wrapped(self.cy);

@@ -117,10 +117,8 @@ impl Term<'_> {
                     Act::Index => {
                         p.index();
                     }
-                    Act::Return => p.set_col(Col::ZERO),
-                    Act::Backspace if p.cx.index() > 0 => {
-                        p.set_col(Col::at_index(p.cx.index() - 1))
-                    }
+                    Act::Return => p.set_col(CursorCol::moved(Col::ZERO)),
+                    Act::Backspace if p.cx.raw() > Col::ZERO => p.set_col(p.cx.before()),
                     _ => {}
                 }
                 i += 1;

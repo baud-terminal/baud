@@ -297,13 +297,12 @@ fn cuf_at_a_pending_wrap_stays_on_the_right_margin() {
     assert_eq!(find(&s, 'X'), Some((2, 9)));
 }
 
-/// **Open, pinned: under `?7h` a cursor placed one past the right margin
-/// reads as a pending wrap**, so `CUF` holds it at the margin where note 2
-/// would move it on. The same trade `HT` carries (`tab_backspace.rs`): no
-/// pending-wrap flag tells the two apart until V10's step (d).
+/// **Under `?7h` a cursor placed one past the right margin is beyond it**
+/// too, and note 2 moves it on: a move put it there, so no wrap is pending
+/// (V10's step (d), `corner.rs`).
 #[test]
-fn cuf_from_one_past_the_margin_reads_as_a_pending_wrap() {
-    assert_eq!(x_at(&format!("{LRM}\x1b[3;11H\x1b[2C")), Some((2, 9)));
+fn cuf_from_a_cursor_placed_one_past_the_margin_moves_on() {
+    assert_eq!(x_at(&format!("{LRM}\x1b[3;11H\x1b[2C")), Some((2, 12)));
 }
 
 /// The control: **`HPR` goes to the line's last position**, the right

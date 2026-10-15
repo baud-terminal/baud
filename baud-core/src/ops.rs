@@ -76,13 +76,19 @@ impl Paint<'_, '_> {
 
     /// `CUP`'s column `c`, 0-based, from the origin: under DECOM
     /// `(left_margin - 1) + x`, and the right margin where that passes it
-    /// (`[[source: dec-std-070]]` CUP, p. 5-50); absolute otherwise.
-    pub(crate) fn address_col(&self, c: Col) -> Col {
+    /// (`[[source: dec-std-070]]` CUP, p. 5-50); absolute otherwise, and
+    /// placed one past a narrower right margin ([`Paint::place`]). Under
+    /// DECOM it stops at the right margin, so it is never placed; the
+    /// encode beside DECOM's test reads the mode byte that test loaded.
+    /// Inline, as it was before it returned a [`CursorCol`]: out of line it
+    /// was a call a `CUP`.
+    #[inline(always)]
+    pub(crate) fn address_col(&self, c: Col) -> CursorCol {
         match self.cold.modes.is_set(ModeBit::Origin) {
-            true => {
-                Col::at_index((self.cold.left.index() + c.index()).min(self.cold.right.index()))
-            }
-            false => c,
+            true => CursorCol::moved(Col::at_index(
+                (self.cold.left.index() + c.index()).min(self.cold.right.index()),
+            )),
+            false => self.place(c),
         }
     }
 
@@ -143,7 +149,7 @@ impl Paint<'_, '_> {
     #[inline(always)]
     pub(crate) fn carriage_return(&mut self) {
         match self.cold.modes.is_set(ModeBit::SideMargins) {
-            false => self.set_col(Col::ZERO),
+            false => self.set_col(CursorCol::moved(Col::ZERO)),
             true => self.return_fenced(),
         }
     }
@@ -167,7 +173,7 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn return_fenced(&mut self) {
-        let (x, y) = (self.cx.index(), self.cy.index());
+        let (x, y) = (self.cx.col().index(), self.cy.index());
         let left = self.cold.left;
         let inside = self.cold.modes.is_set(ModeBit::Origin)
             || (x >= left.index() && y >= self.cold.top.index() && y <= self.cold.bot.index());
@@ -178,7 +184,7 @@ impl Paint<'_, '_> {
         if home != Col::ZERO {
             self.cluster = ClusterBreak::after_control();
         }
-        self.set_col(home);
+        self.set_col(CursorCol::moved(home));
     }
 
     /// **`CUF`: the right margin stops a cursor at or inside it.**
@@ -204,25 +210,46 @@ impl Paint<'_, '_> {
     /// replaces DECOM's test rather than adding one. Inline, the margin test
     /// was 2.4 M instructions over 100 reps of `btop`, whose 6,150 `CUF`s and
     /// 1,863 `CUB`s a rep are all at full width.
+    ///
+    /// **A cursor a move placed one past the margin is beyond it** (note
+    /// 2), and only the sentinel a write leaves there reads as on it
+    /// ([`Paint::at_or_inside_right`]).
     #[inline(always)]
-    pub(crate) fn forward_in_margins(&self, n: Count) -> Col {
+    pub(crate) fn forward_in_margins(&self, n: Count) -> CursorCol {
         match self.cold.modes.is_set(ModeBit::SideMargins) {
-            false => self.cx.forward(n, self.cols),
+            false => CursorCol::moved(self.cx.raw().forward(n, self.cols)),
             true => self.forward_fenced(n),
         }
     }
 
     #[cold]
     #[inline(never)]
-    fn forward_fenced(&self, n: Count) -> Col {
-        let x = self.cx.index();
-        let right = self.cold.right.index();
-        let pending = usize::from(self.cold.modes.is_set(ModeBit::AutoWrap));
-        let end = match x <= right + pending {
-            true => right,
+    fn forward_fenced(&self, n: Count) -> CursorCol {
+        let x = self.cx.col().index();
+        let end = match self.at_or_inside_right() {
+            true => self.cold.right.index(),
             false => self.cols.index() - 1,
         };
-        self.confine_col(Col::at_index((x + n.at_least_one()).min(end)))
+        let c = self.confine_col(Col::at_index((x + n.at_least_one()).min(end)));
+        CursorCol::placed(c, self.cold.right, self.cols)
+    }
+
+    /// **Whether the cursor is at or inside the right margin**, for the
+    /// moves whose notes split there (`CUF`, `HT`): a column at or left of
+    /// it, or the sentinel one past it with `DECAWM` set, a pending wrap,
+    /// which reads as on it. A cursor a move placed one past it, the
+    /// sentinel past the screen's last column, and any column right of it
+    /// are beyond; with `DECAWM` reset no wrap is pending, so one past is
+    /// beyond too.
+    pub(crate) fn at_or_inside_right(&self) -> bool {
+        match self.cursor_at() {
+            CursorAt::Column(c) => c <= self.cold.right,
+            CursorAt::Pending(c) => {
+                c.index() == self.cold.right.index() + 1
+                    && self.cold.modes.is_set(ModeBit::AutoWrap)
+            }
+            CursorAt::Placed(_) => false,
+        }
     }
 
     /// **`CUB`: the left margin stops a cursor at or inside it.**
@@ -234,24 +261,28 @@ impl Paint<'_, '_> {
     /// (`[[source: xterm-cursor-c]]` 148-149: "if the cursor is already
     /// before the left-margin, we have to let it go"). Gated on `DECLRMM`
     /// as `CUF` is.
+    ///
+    /// From right of the fence it can land one past the right margin, and
+    /// is placed there.
     #[inline(always)]
-    pub(crate) fn back_in_margins(&self, n: Count) -> Col {
+    pub(crate) fn back_in_margins(&self, n: Count) -> CursorCol {
         match self.cold.modes.is_set(ModeBit::SideMargins) {
-            false => self.cx.back(n),
+            false => CursorCol::moved(self.cx.raw().back(n)),
             true => self.back_fenced(n),
         }
     }
 
     #[cold]
     #[inline(never)]
-    fn back_fenced(&self, n: Count) -> Col {
-        let x = self.cx.index();
+    fn back_fenced(&self, n: Count) -> CursorCol {
+        let x = self.cx.col().index();
         let left = self.cold.left.index();
         let floor = match x >= left {
             true => left,
             false => 0,
         };
-        self.confine_col(Col::at_index(x.saturating_sub(n.at_least_one()).max(floor)))
+        let c = self.confine_col(Col::at_index(x.saturating_sub(n.at_least_one()).max(floor)));
+        CursorCol::placed(c, self.cold.right, self.cols)
     }
 
     /// **`CUU`: the top margin stops a cursor at or below it, DECOM or
@@ -289,7 +320,7 @@ impl Paint<'_, '_> {
     pub(crate) fn save(&self) -> Saved {
         Saved {
             cy: self.cy,
-            cx: self.cx,
+            cx: self.cx.col(),
             style_raw: self.style_raw,
             flags: self.flags,
             g: self.cold.g,
@@ -297,7 +328,10 @@ impl Paint<'_, '_> {
             protect: self.cold.protect,
             autowrap: ModeChange::of(self.cold.modes.is_set(ModeBit::AutoWrap)),
             origin: ModeChange::of(self.cold.modes.is_set(ModeBit::Origin)),
-            pending: ModeChange::of(self.cx.index() == self.cold.right.index() + 1),
+            // The sentinel, and not a cursor a move placed on its column.
+            pending: ModeChange::of(
+                !self.cx.is_placed() && self.cx.col().index() == self.cold.right.index() + 1,
+            ),
         }
     }
 
@@ -353,11 +387,20 @@ impl Paint<'_, '_> {
         // sentinel**: a column on the right margin that a narrower `DECSLRM`
         // made level with the new right margin + 1 is a column, and
         // `restore_cursor` (p. 5-190) clamps it.
-        let c = match c.index() == self.cold.right.index() + 1 && s.pending == ModeChange::Set {
+        let keep = c.index() == self.cold.right.index() + 1 && s.pending == ModeChange::Set;
+        let c = match keep {
             true => c,
             false => self.confine_col(c),
         };
         self.goto(self.confine(r), c);
+        // **The kept sentinel comes back the sentinel**, not through
+        // [`Paint::place`], which would make a saved pending wrap a cursor
+        // placed on its column and write on from it; a saved placed cursor,
+        // not pending, comes back placed through it.
+        self.cx = match keep {
+            true => CursorCol::written(c),
+            false => self.place(c),
+        };
         // **Interned again, not the saved id.** An eviction between the save
         // and the restore can give the saved id's slot to another rendition,
         // and writing under the old id would draw in its colours. The
@@ -580,12 +623,11 @@ impl Paint<'_, '_> {
     /// which do "not work outside these margins" (`[[source: dec-std-070]]`
     /// p. 5-24). **A pending wrap is on the right margin**: the sentinel is
     /// one past it, and reading it as outside made `IL` at the end of a full
-    /// row inert. A cursor *moved* to exactly right + 1 under side margins
-    /// looks the same and reads as inside too -- the conflation note V's V10
-    /// step (d) exists to end.
+    /// row inert. A cursor a move *placed* at exactly right + 1 is outside
+    /// ([`CursorCol::placed`]).
     fn within_side_margins(&self) -> bool {
-        let x = self.cx.index();
-        x >= self.cold.left.index() && x <= self.cold.right.index() + 1
+        let x = self.cx.col().index();
+        !self.cx.is_placed() && x >= self.cold.left.index() && x <= self.cold.right.index() + 1
     }
 
     /// **The row the scroll after the next will blank, asked for now.** With
@@ -1157,7 +1199,7 @@ impl Paint<'_, '_> {
         if !self.within_side_margins() {
             return;
         }
-        self.set_col(self.cold.left);
+        self.set_col(CursorCol::moved(self.cold.left));
         if self.fenced() {
             self.scroll_rect(self.cy, n, BandMove::Down);
             return;
@@ -1189,7 +1231,7 @@ impl Paint<'_, '_> {
         if !self.within_side_margins() {
             return;
         }
-        self.set_col(self.cold.left);
+        self.set_col(CursorCol::moved(self.cold.left));
         if self.fenced() {
             self.scroll_rect(self.cy, n, BandMove::Up);
             return;
@@ -1216,19 +1258,25 @@ impl Paint<'_, '_> {
 
     /// ECH: blank `n` cells from the cursor, without moving anything.
     pub(crate) fn erase_chars(&mut self, n: Count) {
-        let (r, from) = (self.cy, self.cx);
-        let to = Col::at_index((self.cx.index() + n.at_least_one()).min(self.cols.index()));
+        let (r, from) = (self.cy, self.cx.col());
+        let to = Col::at_index((from.index() + n.at_least_one()).min(self.cols.index()));
         self.fill_counted(r, from, to);
     }
 
     /// DCH: pull the rest of the row left over `n` cells.
     pub(crate) fn delete_chars(&mut self, n: Count) {
-        let (r, at, b) = (self.cy, self.cx, self.blank());
+        let (r, at, b) = (self.cy, self.cx.col(), self.blank());
         // **The right margin, not the row.** `to` was `cols` before the
         // margins existed, so a `DCH` inside a region pulled text in from
         // *outside* it -- correct only while the margin is the edge, which is
         // every stream that never sends `DECSLRM`.
         let to = self.cold.right.after();
+        // Right of the fence it is ignored, `[[source: dec-std-070]]` DCH
+        // note 3 (p. 5-144); `to - at` below underflowed there, a panic in a
+        // debug build.
+        if at > to {
+            return;
+        }
         self.view.delete_cells(r, at, n, to, b);
         self.cells = self.cells.plus(to.index() - at.index());
         self.row_changed_to(r);
@@ -1236,8 +1284,13 @@ impl Paint<'_, '_> {
 
     /// ICH: push the rest of the row right over `n` blanks.
     pub(crate) fn insert_blanks(&mut self, n: Count) {
-        let (r, at, b) = (self.cy, self.cx, self.blank());
+        let (r, at, b) = (self.cy, self.cx.col(), self.blank());
         let to = self.cold.right.after();
+        // Right of the fence it is ignored, `[[source: dec-std-070]]` ICH
+        // note 2 (p. 5-142), as `DCH` is.
+        if at > to {
+            return;
+        }
         self.view.insert_cells(r, at, n, to, b);
         self.cells = self.cells.plus(to.index() - at.index());
         self.row_changed_to(r);
@@ -1344,9 +1397,9 @@ impl Paint<'_, '_> {
     pub(crate) fn line_span(&self, e: EraseExtent) -> (Col, Col) {
         let cols = Col::at_index(self.cols.index());
         match e {
-            EraseExtent::ToStart => (Col::ZERO, Col::at_index(self.cx.index() + 1)),
+            EraseExtent::ToStart => (Col::ZERO, Col::at_index(self.cx.col().index() + 1)),
             EraseExtent::All => (Col::ZERO, cols),
-            EraseExtent::ToEnd => (self.cx, cols),
+            EraseExtent::ToEnd => (self.cx.col(), cols),
         }
     }
 
@@ -1741,10 +1794,11 @@ impl Paint<'_, '_> {
         let last = self.cols.index() - 1;
         let end = match self.cold.right.index() == last {
             true => last,
-            false => self.tab_end().index(),
+            false => return self.tab_forward_fenced(n),
         };
+        // With the right margin on the last column no value is tagged.
         for _ in 0..n.at_least_one().min(self.cols.index()) {
-            let mut x = self.cx.index();
+            let mut x = self.cx.raw().index();
             loop {
                 if x >= end {
                     x = end;
@@ -1755,8 +1809,31 @@ impl Paint<'_, '_> {
                     break;
                 }
             }
-            self.set_col(Col::at_index(x));
+            self.set_col(CursorCol::moved(Col::at_index(x)));
         }
+    }
+
+    /// `HT` under a right margin left of the last column, from the column
+    /// placed or not, out of line with [`Paint::tab_end`]. A cursor placed
+    /// one past the margin that no stop moves keeps its tag.
+    #[cold]
+    #[inline(never)]
+    fn tab_forward_fenced(&mut self, n: Count) {
+        let end = self.tab_end().index();
+        let mut x = self.cx.col().index();
+        for _ in 0..n.at_least_one().min(self.cols.index()) {
+            loop {
+                if x >= end {
+                    x = end;
+                    break;
+                }
+                x += 1;
+                if self.tabs[x] {
+                    break;
+                }
+            }
+        }
+        self.set_col(self.place(Col::at_index(x)));
     }
 
     /// Where `HT` stops when no tab stop comes first, under a right margin
@@ -1784,10 +1861,8 @@ impl Paint<'_, '_> {
     fn tab_end(&self) -> Col {
         let right = self.cold.right;
         let y = self.cy.index();
-        let pending = usize::from(self.cold.modes.is_set(ModeBit::AutoWrap));
-        let inside = y >= self.cold.top.index()
-            && y <= self.cold.bot.index()
-            && self.cx.index() <= right.index() + pending;
+        let inside =
+            y >= self.cold.top.index() && y <= self.cold.bot.index() && self.at_or_inside_right();
         match inside {
             true => right,
             false => Col::at_index(self.cols.index() - 1),
@@ -1809,15 +1884,49 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn back_space_at_left(&mut self) {
-        let x = self.cx.index();
+        let x = self.cx.col().index();
         let y = self.cy.index();
         let free =
             x < self.cold.left.index() || y < self.cold.top.index() || y > self.cold.bot.index();
         if free && x > 0 {
-            self.set_col(Col::at_index(x - 1));
+            self.set_col(CursorCol::moved(Col::at_index(x - 1)));
         } else if self.cold.modes.is_set(ModeBit::ReverseWrap) && y > self.cold.top.index() {
             self.set_row(Row::from_index(y - 1));
-            self.set_col(self.cold.right);
+            self.set_col(CursorCol::moved(self.cold.right));
+        }
+    }
+
+    /// `BS` from outside the margins: at or left of the left one, or right
+    /// of the right one, the sentinel and a placed cursor included. With
+    /// `?69` reset no value is tagged and the left margin is column 0, so
+    /// one column left unless at 0, as before the tag.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn back_space_outside(&mut self) {
+        match self.cold.modes.is_set(ModeBit::SideMargins) {
+            true => self.back_space_fenced(),
+            false => match self.cx.raw() > Col::ZERO {
+                true => self.set_col(self.cx.before()),
+                false => self.back_space_at_left(),
+            },
+        }
+    }
+
+    /// `BS` under `DECLRMM`: one column left from right of the left
+    /// margin, where it can land one past the right margin and is placed
+    /// there; at or left of the left margin, [`Paint::back_space_at_left`].
+    /// Out of line, as `CUB` is, because a cursor right of the fence is a
+    /// column the arm's test cannot tell from the sentinel.
+    #[cold]
+    #[inline(never)]
+    fn back_space_fenced(&mut self) {
+        let x = self.cx.col().index();
+        match x > self.cold.left.index() {
+            true => {
+                let c = Col::at_index(x - 1);
+                self.set_col(CursorCol::placed(c, self.cold.right, self.cols));
+            }
+            false => self.back_space_at_left(),
         }
     }
 
@@ -1825,7 +1934,7 @@ impl Paint<'_, '_> {
     /// for the reason `HT`'s edge is.
     pub(crate) fn tab_back(&mut self, n: Count) {
         for _ in 0..n.at_least_one().min(self.cols.index()) {
-            let mut x = self.cx.index();
+            let mut x = self.cx.col().index();
             loop {
                 if x == 0 {
                     break;
@@ -1835,7 +1944,8 @@ impl Paint<'_, '_> {
                     break;
                 }
             }
-            self.set_col(Col::at_index(x));
+            // A stop one past the right margin places the cursor there.
+            self.set_col(self.place(Col::at_index(x)));
         }
         if self.cold.modes.is_set(ModeBit::Origin) {
             self.confine_cursor_col();
@@ -1847,14 +1957,15 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     fn confine_cursor_col(&mut self) {
-        self.set_col(self.confine_col(self.cx));
+        let c = self.confine_col(self.cx.col());
+        self.set_col(self.place(c));
     }
 
     pub(crate) fn tab_clear(&mut self, w: Option<TabClear>) {
         match w {
             Some(TabClear::All) => self.tabs.fill(false),
             Some(TabClear::AtCursor) => {
-                let x = self.cx.index();
+                let x = self.cx.col().index();
                 if x < self.tabs.len() {
                     self.tabs[x] = false;
                 }
@@ -1914,9 +2025,15 @@ impl Paint<'_, '_> {
     }
 
     /// The margins a `RIS`, a `DECSTR` or a resize puts back.
+    ///
+    /// **A cursor placed one past the old right margin keeps its column**,
+    /// an ordinary one now: the tag goes with the margin it was set
+    /// against, so no tagged value is left at full width, where
+    /// [`Paint::place`] trusts there is none.
     pub(crate) fn reset_side_margins(&mut self) {
         self.cold.left = Col::ZERO;
         self.cold.right = Col::at_index(self.cols.index() - 1);
+        self.cx = CursorCol::moved(self.cx.col());
     }
 
     /// `DECSLRM`, `CSI Pl ; Pr s`.
@@ -1964,7 +2081,7 @@ impl Paint<'_, '_> {
     /// margin pairs describe is what bounds them -- not the full height, which
     /// is what a vertical-only test would give.
     pub(crate) fn within_margins(&self) -> bool {
-        let (x, y) = (self.cx.index(), self.cy.index());
+        let (x, y) = (self.cx.col().index(), self.cy.index());
         x >= self.cold.left.index()
             && x <= self.cold.right.index()
             && y >= self.cold.top.index()
@@ -2002,10 +2119,10 @@ impl Paint<'_, '_> {
         for y in self.cold.top.index()..=self.cold.bot.index() {
             let r = Row::from_index(y);
             match dir {
-                ColumnShift::Insert => self.view.insert_cells(r, self.cx, n, to, b),
-                ColumnShift::Delete => self.view.delete_cells(r, self.cx, n, to, b),
+                ColumnShift::Insert => self.view.insert_cells(r, self.cx.col(), n, to, b),
+                ColumnShift::Delete => self.view.delete_cells(r, self.cx.col(), n, to, b),
             }
-            self.cells = self.cells.plus(to.index() - self.cx.index());
+            self.cells = self.cells.plus(to.index() - self.cx.col().index());
         }
         // DECIC moved the cursor's row right under it, past the mark.
         self.row_changed_to(self.cy);
@@ -2287,7 +2404,7 @@ impl Paint<'_, '_> {
                 match on {
                     true => self.cold.placement.forget(),
                     false => {
-                        let cursor = (self.cy, self.cx);
+                        let cursor = (self.cy, self.cx.col());
                         self.cold
                             .placement
                             .hidden(self.arena, at, cursor, self.cols)
@@ -2504,11 +2621,17 @@ impl Paint<'_, '_> {
                 // column drops the sentinel and which re-reads the cleared
                 // row's extent. Under side margins narrower than the screen
                 // the sentinel one past the right margin is a column the
-                // clamp keeps, the conflation note V's V10 step (d) ends.
+                // clamp keeps, and stays the sentinel, as `goto` places
+                // nothing; a placed cursor keeps its tag.
                 if how == AltSwitch::SaveAndClear {
                     self.view.reset_rot();
                     self.clear_screen();
-                    self.goto(self.cy, self.cx);
+                    // The same cursor, placed or not.
+                    let c = self.cx;
+                    self.goto(self.cy, c.col());
+                    if c.is_placed() {
+                        self.cx = c;
+                    }
                 }
                 // Its image numbering starts again with the screen. No image
                 // can be on it: leaving is the only way off it, and leaving

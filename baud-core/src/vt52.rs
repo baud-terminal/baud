@@ -37,9 +37,13 @@ impl Paint<'_, '_> {
                 self.set_row(self.confine(self.cy.down(Count::ONE, rows)));
             }
             Vt52::CursorRight => {
-                self.set_col(self.confine_col(self.cx.forward(Count::ONE, self.cols)))
+                let c = self.confine_col(self.cx.col().forward(Count::ONE, self.cols));
+                self.set_col(self.place(c))
             }
-            Vt52::CursorLeft => self.set_col(self.confine_col(self.cx.back(Count::ONE))),
+            Vt52::CursorLeft => {
+                let c = self.confine_col(self.cx.col().back(Count::ONE));
+                self.set_col(self.place(c))
+            }
             // `[[source: ctlseqs]]` maps `ESC F`/`ESC G` onto the DEC special
             // graphics set, which this core already has for `ESC ( 0` -- so
             // this is a designation into the active slot rather than a second
@@ -99,6 +103,7 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn vt52_address(&mut self, col: Vt52Coord) {
         let (r, c) = (self.cold.vt52_row.to_row(self.rows), col.to_col(self.cols));
-        self.goto(self.confine(r), self.confine_col(c));
+        let c = self.place(self.confine_col(c));
+        self.goto_at(self.confine(r), c);
     }
 }

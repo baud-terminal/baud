@@ -410,10 +410,21 @@ pub(crate) fn act(
         // on a row outside the scrolling region, it moves one column
         // (`[[source: dec-std-070]]` BS, p. 5-63); inside both it stops, and
         // there `?45` reverse-wraps.
+        //
+        // **Inside the margins inline, the rest out of line**
+        // (`Paint::back_space_outside`): from a column inside them one left
+        // is inside them too, never one past the right margin, so it is no
+        // placed cursor; right of the right margin, one left can be, and a
+        // placed cursor or the sentinel there is past it. Tested against
+        // both margins, a placed cursor's value past every column goes out
+        // of line with them. The `?69` bit in the arm instead read `cat-cjk`,
+        // which has no `BS`, 1 M instructions over 200 reps above this: the
+        // loop's layout, which `HT`'s arm moved too (`docs/record.md`, "A
+        // cursor placed right of the fence writes on").
         Act::Backspace => {
-            match p.cx.index() > p.cold.left.index() {
-                true => p.set_col(Col::at_index(p.cx.index() - 1)),
-                false => p.back_space_at_left(),
+            match p.cx.raw() > p.cold.left && p.cx.raw() <= p.cold.right {
+                true => p.set_col(p.cx.before()),
+                false => p.back_space_outside(),
             }
             ReadLen::ONE
         }
@@ -1559,7 +1570,8 @@ fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
             core::hint::black_box(c.is_break_classified(cl.class, cl.lookback));
         }
         if !p.cluster.is_break_classified(cl.class, cl.lookback) {
-            if p.cx != Col::ZERO {
+            // A tagged value is never column 0.
+            if p.cx.raw() != Col::ZERO {
                 p.attach_continuing(cp);
                 return;
             }
@@ -1706,7 +1718,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::CursorPosition { row, col } => {
             let base = p.origin_row().index();
             let want = Row::from_index(base + row.to_row(p.rows).index());
-            p.goto(p.confine(want), p.address_col(col.to_col(p.cols)));
+            p.goto_at(p.confine(want), p.address_col(col.to_col(p.cols)));
         }
         // **The top and bottom margins stop them, DECOM or not**: STD 070's
         // notes 1 and 2 (pp. 5-41, 5-43), in `Paint::up_in_margins`.
@@ -1734,7 +1746,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // **Absolute, and clamped into the margins under DECOM**: option
         // (a') of the record's "DECOM's origin is the left margin too", which
         // no text settles against xterm's (b), counted from the left margin.
-        DomCsi::ColumnAbsolute(c) => p.set_col(p.confine_col(c.to_col(p.cols))),
+        DomCsi::ColumnAbsolute(c) => p.set_col(p.place(p.confine_col(c.to_col(p.cols)))),
         DomCsi::LineAbsolute(r) => {
             let base = p.origin_row().index();
             let want = Row::from_index(base + r.to_row(p.rows).index());
@@ -1745,7 +1757,9 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // has an `HPR`, and xterm's (`CursorSet`, `[[source: xterm-cursor-c]]`
         // 68-90) and ghostty's pass the right margin too. Under DECOM it is
         // confined as every move is.
-        DomCsi::ColumnRelative(c) => p.set_col(p.confine_col(p.cx.forward(c, p.cols))),
+        DomCsi::ColumnRelative(c) => {
+            p.set_col(p.place(p.confine_col(p.cx.col().forward(c, p.cols))))
+        }
         DomCsi::LineRelative(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
         DomCsi::EraseInLine(e) => p.erase_line(e),
         DomCsi::EraseInDisplay(e) => p.erase_display(e),
@@ -1831,7 +1845,11 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
                 // reported that -- a column the application cannot address,
                 // off the end of its own row. The same clamp `Term::cursor`
                 // carries, which is where this was found the first time.
-                let col = Col::at_index(p.cx.index().min(p.cold.right.index()));
+                //
+                // **A cursor placed one past it, or right of the fence,
+                // reports its own column**: only the sentinel waits on a
+                // column it is not on ([`CursorCol::reported`]).
+                let col = p.cx.reported(p.cold.right, p.cols);
                 // **And the column from the left margin under DECOM**:
                 // `active_position.column - left_margin + 1`
                 // (`[[source: dec-std-070]]` CPR, p. 5-54), so a `CUP` and the
@@ -2063,7 +2081,7 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
             p.index();
         }
         Esc::TabSet => {
-            let x = p.cx.index();
+            let x = p.cx.col().index();
             if x < p.tabs.len() {
                 p.tabs[x] = true;
             }

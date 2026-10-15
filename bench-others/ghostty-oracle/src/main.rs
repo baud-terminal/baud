@@ -319,10 +319,6 @@ const CUB_MARGIN: &str = "ghostty departs: without ?45 CUB passes the left margi
                           (cursorLeft's min(count, x), Terminal.zig 1913); STD 070 CUB \
                           note 1 (p. 5-47) stops it there from at or inside it, as \
                           xterm's CursorBack does (cursor.c 148-149)";
-/// Note V's V10, step (d): the corner, and `Term::cursor`'s clamp of a
-/// cursor right of the fence to the right margin, which reads it as a
-/// pending wrap there.
-const STEP_D: &str = "V10 step (d): the corner, a cursor right of the fence, C2-min";
 /// ghostty's `CUB` under DECOM goes to column 1, left of the origin.
 const CUB_PAST_ORIGIN: &str = "ghostty departs: CUB under DECOM goes past the left margin to \
                                column 1; STD 070 CUB note 1 (p. 5-47) stops it at the Left \
@@ -380,6 +376,24 @@ const REVWRAP_UNWRAPPED: &str = "found, not fixed: baud's ?45 reverse-wraps onto
                                  whether or not it wrapped; ghostty, and xterm since 2023 \
                                  (CursorBack's LineTstWrapped, cursor.c 176-182), only onto \
                                  a row that soft-wrapped";
+/// A wide character that does not fit before the line's end.
+const WIDE_LAST: &str = "found, not fixed: a wide character with one column left before \
+                         the line's end leaves that column as it was here; ghostty blanks \
+                         it before the wrap, a spacer head at the screen's edge \
+                         (Terminal.zig 1543-1556) -- at full width and right of the fence \
+                         alike";
+/// The same with `?7l`.
+const NOWRAP_WIDE: &str = "found, not fixed: with ?7l a wide character on the last column is \
+                           written here as a lead with no tail; ghostty prints nothing and \
+                           leaves the cursor, 'how xterm behaves' (Terminal.zig 1536-1542), \
+                           as xterm's dotext writes nothing (charproc.c 7142-7173) -- at \
+                           full width and right of the fence alike";
+/// A write into the last column with `?7l` sets ghostty's flag.
+const NOWRAP_FLAG: &str = "ghostty departs: with ?7l a write into the last column sets its \
+                           pending_wrap (Terminal.zig 1574-1578), as xterm's do_wrap is set \
+                           (charproc.c 7157-7173); STD 070's algorithm sets the Last Column \
+                           Flag only with Auto Wrap on (p. 5-141) -- at full width and right \
+                           of the fence alike";
 /// Note V's full-width pending-wrap follow-ons, each a later decision.
 const FOLLOW_ON: &str = "note V's full-width follow-ons: baud keeps the sentinel \
                          across LF, ghostty clears its pending_wrap";
@@ -486,7 +500,7 @@ fn fixtures() -> Vec<Fixture> {
         f(
             "lrm: SU with the cursor outside the fence",
             format!("{TB}{LRM}\x1b[1;15H\x1b[S"),
-            Pinned(STEP_D),
+            Agree,
         ),
         f(
             "lrm: IL inside the rectangle",
@@ -563,13 +577,12 @@ fn fixtures() -> Vec<Fixture> {
             "\x1b[?69h\x1b[11;20s\x1b[8;15H\n".into(),
             Agree,
         ),
-        // A cursor moved to right + 1 reads as a pending wrap on the right
-        // margin, so IL acts from it here; ghostty's is outside and inert.
-        // Step (d) ends the conflation, and this goes red when it does.
+        // A cursor moved to right + 1 is placed there, outside the fence,
+        // where IL is inert.
         f(
             "lrm: IL at CUP right + 1",
             format!("{TB}{LRM}\x1b[3;11H\x1b[L\x1b[8;1H"),
-            Pinned(STEP_D),
+            Agree,
         ),
         f(
             "lrm: a wrap at the bottom margin scrolls the rectangle",
@@ -966,7 +979,7 @@ fn fixtures() -> Vec<Fixture> {
         f(
             "lrm: CUF from one past the right margin, ?7h",
             format!("{LRM}\x1b[3;11H\x1b[2C{PROBE}"),
-            Pinned(STEP_D),
+            Agree,
         ),
         f(
             "lrm: HPR passes the right margin",
@@ -983,11 +996,138 @@ fn fixtures() -> Vec<Fixture> {
             format!("{LRM}\x1b[3;4H\x1b[5DX"),
             Agree,
         ),
-        // ---- side margins: the later steps ----------------------------------
+        // ---- the corner: a cursor right of the fence, V10's step (d) --------
+        // STD 070 p. 5-140 and xterm's dotext: from right of the right margin
+        // a write runs to the line's end, then wraps to the left margin.
         f(
             "lrm: a write right of the fence",
             format!("{LRM}\x1b[1;15HXY"),
-            Pinned(STEP_D),
+            Agree,
+        ),
+        f(
+            "corner: a run right of the fence to the edge and on",
+            format!("{LRM}\x1b[3;15HABCDEFGHIJKLMNO"),
+            Agree,
+        ),
+        f(
+            "corner: a fill to the edge right of the fence",
+            format!("{LRM}\x1b[3;15HABCDEF"),
+            Agree,
+        ),
+        f(
+            "corner: a fill to the edge, then one more",
+            format!("{LRM}\x1b[3;15HABCDEFG"),
+            Agree,
+        ),
+        f(
+            "corner: a narrow non-ASCII run right of the fence",
+            format!("{LRM}\x1b[3;15H\u{e9}\u{e9}\u{e9}"),
+            Agree,
+        ),
+        f(
+            "corner: a wide character on the last column right of the fence",
+            format!("{LRM}\x1b[3;20H\u{4e2d}"),
+            Pinned(WIDE_LAST),
+        ),
+        f(
+            "full: a wide character on the last column",
+            "\x1b[3;20H\u{4e2d}".into(),
+            Pinned(WIDE_LAST),
+        ),
+        f(
+            "full: ?7l a wide character on the last column",
+            "\x1b[?7l\x1b[3;20H\u{4e2d}".into(),
+            Pinned(NOWRAP_WIDE),
+        ),
+        f(
+            "corner: ?7l a wide character on the last column right of the fence",
+            format!("{LRM}\x1b[?7l\x1b[3;20H\u{4e2d}"),
+            Pinned(NOWRAP_WIDE),
+        ),
+        f(
+            "full: ?7l a write into the last column",
+            "\x1b[?7l\x1b[3;18HPQRS".into(),
+            Pinned(NOWRAP_FLAG),
+        ),
+        f(
+            "corner: a wide character two before the edge",
+            format!("{LRM}\x1b[3;19H\u{4e2d}"),
+            Agree,
+        ),
+        f(
+            "corner: CUP right + 1 writes there",
+            format!("{LRM}\x1b[3;11HAB"),
+            Agree,
+        ),
+        f(
+            "corner: a fill to the margin wraps first",
+            format!("{LRM}\x1b[3;5HABCDEFX"),
+            Agree,
+        ),
+        f(
+            "corner: ?7l right of the fence overwrites the last column",
+            format!("{LRM}\x1b[?7l\x1b[3;18HPQRS"),
+            Pinned(NOWRAP_FLAG),
+        ),
+        f(
+            "corner: ?7l CUP right + 1 writes there",
+            format!("{LRM}\x1b[?7l\x1b[3;11HPQ"),
+            Agree,
+        ),
+        f(
+            "corner: VPA keeps a cursor placed at right + 1",
+            format!("{LRM}\x1b[1;11H\x1b[3dQ"),
+            Agree,
+        ),
+        f(
+            "corner: CHA to right + 1",
+            format!("{LRM}\x1b[3;1H\x1b[11GQ"),
+            Agree,
+        ),
+        f(
+            "corner: BS from right + 2 lands placed",
+            format!("{LRM}\x1b[3;12H\x08Q"),
+            Agree,
+        ),
+        f(
+            "corner: BS from CUP right + 1",
+            format!("{LRM}\x1b[3;11H\x08{PROBE}"),
+            Agree,
+        ),
+        f(
+            "corner: CUB from right of the fence lands placed",
+            format!("{LRM}\x1b[3;13H\x1b[2DQ"),
+            Agree,
+        ),
+        f(
+            "corner: HT from CUP right + 1",
+            format!("{LRM}\x1b[3;11H\t{PROBE}"),
+            Pinned(HT_PAST_RIGHT),
+        ),
+        f(
+            "corner: DECRC at CUP right + 1",
+            format!("{LRM}\x1b[3;11H\x1b7\x1b[1;1H\x1b8A"),
+            Agree,
+        ),
+        f(
+            "corner: DECRC at a pending wrap under the fence",
+            format!("{LRM}\x1b[3;5HABCDEF\x1b7\x1b[1;1H\x1b8X"),
+            Agree,
+        ),
+        f(
+            "corner: ICH right of the fence",
+            format!("{LRM}\x1b[3;15H\x1b[2@"),
+            Agree,
+        ),
+        f(
+            "corner: DCH right of the fence",
+            format!("{LRM}\x1b[3;15H\x1b[2P"),
+            Agree,
+        ),
+        f(
+            "corner: ?69l leaves a placed cursor's column",
+            format!("{LRM}\x1b[3;11H\x1b[?69lQ"),
+            Agree,
         ),
         // ---- CUU, CUD, CNL and CPL under top and bottom margins ------------
         // STD 070 CUU and CUD, notes 1 and 2 (pp. 5-41, 5-43): stopped at a

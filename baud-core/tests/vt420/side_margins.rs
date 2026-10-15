@@ -227,34 +227,53 @@ fn text_wraps_within_the_margins() {
     assert_eq!(c, 5, "and to the left margin, not column 0");
 }
 
-/// **A cursor right of the right margin wraps before it writes.** `CUP` is
-/// not confined by the side margins, so `CSI 1;30 H` with margins at 5..10
-/// leaves the cursor at column 30, past the margin. The one-character
-/// writer and the wrapping loop both treat "past the right margin" as a
-/// wrap and take it first; the run writers asked how much room was left
-/// before the margin and subtracted past zero -- a panic in a debug build,
-/// and in release a run taken as fitting and written on from column 30 past
-/// the margin: eight characters landed in columns 30-37, and a run of 180
-/// kept 171 and dropped the rest at the screen's edge. All three writers
-/// agree now: an ASCII run, a narrow non-ASCII run, and one character each.
-/// Whether a terminal should instead write on to the screen's edge from
-/// there is a question no pinned source answers; this pins the rule baud's
-/// own writers already shared.
+/// **A cursor right of the right margin writes on to the screen's edge,
+/// then wraps to the left margin**, by all three writers: an ASCII run, a
+/// narrow non-ASCII run, and one character each. `CUP` is not confined by
+/// the side margins, so `CSI 1;30 H` under margins 5..10 leaves the cursor
+/// at column 30, and from there `[[source: dec-std-070]]`'s
+/// insert-or-replace algorithm bounds the write by the line's end, not the
+/// margin (p. 5-140), as xterm's `dotext` does (`[[source: xterm-reset]]`,
+/// charproc.c 7055-7058). Traced against what it was: the run writers once
+/// subtracted the room past zero, a panic in a debug build and in release
+/// a run clipped at the edge with the rest dropped; then all three wrapped
+/// first, which this test pinned until V10's step (d).
+///
+/// The want is the same text written at full width, so it does not come
+/// through the code under test.
 #[test]
 fn a_run_right_of_the_right_margin_wraps_to_the_left_margin() {
+    let tail = |n: usize| -> String {
+        // 171 to the edge of 200 columns from column 30, then the fence.
+        let (row, fence) = (n.min(171), n.saturating_sub(171));
+        let mut w = format!("\x1b[1;30H{}", "X".repeat(row));
+        for (i, k) in [fence.min(6), fence.saturating_sub(6)]
+            .into_iter()
+            .enumerate()
+        {
+            if k > 0 {
+                w.push_str(&format!("\x1b[{};5H{}", i + 2, "X".repeat(k)));
+            }
+        }
+        w
+    };
+    let long = "X".repeat(180);
     for (text, want, at) in [
-        ("XXXXXXXX", "\x1b[2;5HXXXXXX\x1b[3;5HXX", (2, 6)),
-        ("éééééééé", "\x1b[2;5Héééééé\x1b[3;5Héé", (2, 6)),
-        ("X", "\x1b[2;5HX", (1, 5)),
-        ("é", "\x1b[2;5Hé", (1, 5)),
+        ("XXXXXXXX".to_string(), tail(8), (0, 37)),
+        (
+            "éééééééé".to_string(),
+            "\x1b[1;30Héééééééé".to_string(),
+            (0, 37),
+        ),
+        ("X".to_string(), tail(1), (0, 30)),
+        ("é".to_string(), "\x1b[1;30Hé".to_string(), (0, 30)),
+        (long, tail(180), (2, 7)),
     ] {
         let mut v = LRM.to_vec();
         v.extend_from_slice(b"\x1b[1;30H");
         v.extend_from_slice(text.as_bytes());
-        let mut w = LRM.to_vec();
-        w.extend_from_slice(want.as_bytes());
-        let want_grid = grid(&w);
-        assert_eq!(grid(&v), want_grid, "{text}: wrapped to the left margin");
+        let want_grid = grid(want.as_bytes());
+        assert_eq!(grid(&v), want_grid, "{text}: written on from column 30");
         assert_eq!(cursor(&v), at, "{text}: where the cursor ends");
         for chunk in 1..v.len() {
             let ws = support::CORPUS;
@@ -377,12 +396,12 @@ fn the_column_operations_are_inert_outside_the_margins() {
 
 // ── the pending wrap, as the V10 oracle reads it ────────────────────────────
 
-/// **`Term::wrap_pending` reads the sentinel, and so conflates what the
-/// sentinel conflates.** A write that fills to the right margin sets it, at
-/// full width and under the fence; a carriage return and `?7l` clear it; and a
-/// `CUP` past the fence answers `Yes` too, because baud wraps first from there
-/// (`a_run_right_of_the_right_margin_wraps_to_the_left_margin`), where ghostty
-/// keeps a flag and answers `No` -- the corner note V's V10 leaves to step (d).
+/// **`Term::wrap_pending` reads the sentinel, and only the sentinel.** A
+/// write that fills to the right margin sets it, at full width and under
+/// the fence; a carriage return and `?7l` clear it; and a `CUP` past the
+/// fence answers `No`, because a write from there writes on
+/// (`a_run_right_of_the_right_margin_wraps_to_the_left_margin`), as ghostty's
+/// flag answers.
 #[test]
 fn wrap_pending_reads_the_sentinel() {
     let pending = |b: &[u8]| {
@@ -410,7 +429,7 @@ fn wrap_pending_reads_the_sentinel() {
     );
     let mut moved = LRM.to_vec();
     moved.extend_from_slice(b"\x1b[1;30H");
-    assert_eq!(pending(&moved), WrapPending::Yes, "a CUP past the fence");
+    assert_eq!(pending(&moved), WrapPending::No, "a CUP past the fence");
 }
 
 // ── DECRQSS ─────────────────────────────────────────────────────────────────
