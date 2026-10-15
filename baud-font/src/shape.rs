@@ -136,6 +136,26 @@ impl CombiningClass {
             _ => self,
         }
     }
+
+    /// The class the fallback places a mark by on a face with no `GPOS`:
+    /// HarfBuzz's `recategorize_combining_class`
+    /// (`[[source: harfbuzz-hb-ot-shape-fallback]]`, hb-ot-shape-fallback.cc:85-115
+    /// at 64e2b53), which gives each of Hebrew's fixed-position classes
+    /// 10-26 the side of its base it sits on. Unicode's classes 10-26 name
+    /// an order, not a side, so read as they are every point fell to a
+    /// centred default with no vertical move. HarfBuzz recategorises only a
+    /// nonspacing mark (line 180); all nineteen characters of classes 10-26
+    /// are Hebrew nonspacing marks (`[[source: unicode-data]]`), so the class
+    /// alone selects exactly HarfBuzz's set. The owner's pick, 2026-10-15,
+    /// for Hebrew only, as [`CombiningClass::sort_key`] is: HarfBuzz's
+    /// Arabic, Syriac, Thai, Lao and Tibetan recategorisations are not
+    /// taken.
+    fn placement(self) -> CombiningClass {
+        match self.0 {
+            k @ 10..=26 => HEBREW_PLACEMENT[usize::from(k - 10)],
+            _ => self,
+        }
+    }
 }
 
 /// HarfBuzz's `HB_MODIFIED_COMBINING_CLASS_CCC10` to `CCC26`, in that
@@ -158,6 +178,31 @@ const HEBREW_SORT_KEY: [CombiningClass; 17] = [
     CombiningClass(10), // 24 shin dot
     CombiningClass(11), // 25 sin dot
     CombiningClass(26), // 26 point varika
+];
+
+/// `recategorize_combining_class`'s Hebrew cases, in canonical-class order:
+/// the placement class of canonical class 10 + i. HarfBuzz switches on its
+/// modified classes; each case names the point, and the point's canonical
+/// class is what indexes here. Dagesh's case is a `break`, which leaves it
+/// at its own class: centred, with no vertical move.
+const HEBREW_PLACEMENT: [CombiningClass; 17] = [
+    ccc::BELOW,          // 10 sheva
+    ccc::BELOW,          // 11 hataf segol
+    ccc::BELOW,          // 12 hataf patah
+    ccc::BELOW,          // 13 hataf qamats
+    ccc::BELOW,          // 14 hiriq
+    ccc::BELOW,          // 15 tsere
+    ccc::BELOW,          // 16 segol
+    ccc::BELOW,          // 17 patah
+    ccc::BELOW,          // 18 qamats, qamats qatan
+    ccc::ABOVE_LEFT,     // 19 holam, holam haser for vav
+    ccc::BELOW,          // 20 qubuts
+    CombiningClass(21),  // 21 dagesh
+    ccc::BELOW,          // 22 meteg
+    ccc::ATTACHED_ABOVE, // 23 rafe
+    ccc::ABOVE_RIGHT,    // 24 shin dot
+    ccc::ABOVE_LEFT,     // 25 sin dot
+    ccc::ABOVE,          // 26 point varika
 ];
 
 /// How many codepoints one cluster may hand the shaper: a base and the
@@ -715,7 +760,11 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
     /// base's *advance* rather than its ink, and stacked above its top or
     /// below its bottom with a gap of a sixteenth of an em, each class
     /// keeping its own running box so a second above-mark rides the
-    /// first. Marks on a ligature attach to the whole ligature where
+    /// first. A Hebrew point is placed by the class HarfBuzz recategorises
+    /// it to ([`CombiningClass::placement`]), which is also the class whose
+    /// running box it rides: sheva and meteg stack below as one class, sin
+    /// dot and holam above left. Marks on a ligature attach to the whole
+    /// ligature where
     /// HarfBuzz attaches them to its last component; no fixture reaches
     /// the difference.
     fn fallback_marks(&mut self) {
@@ -735,7 +784,7 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
             {
                 let mark = self.ink_box(g.id);
                 if let (Some(b), Some(mark)) = (base.as_mut(), mark) {
-                    let (x, y) = b.place(Extents::of(mark), g.ccc);
+                    let (x, y) = b.place(Extents::of(mark), g.ccc.placement());
                     if let Some(glyph) = self.buf.get_mut(at) {
                         glyph.dx = i16::try_from(b.dx.saturating_add(x)).unwrap_or(0);
                         glyph.dy = i16::try_from(y).unwrap_or(0);

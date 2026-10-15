@@ -573,7 +573,8 @@ fn every_script_fixture_shapes_as_harfbuzz_does() {
         system_fixtures: Reached(system_fixtures),
         system_hebrew: Reached(system_hebrew),
         skipped: Reached(skipped),
-    } = shape_script_fixtures("script.txt", on_macos);
+        ..
+    } = shape_script_fixtures("script.txt", on_macos, GposTable::Kept);
     eprintln!(
         "built faces: {fixtures} script fixtures, {hebrew} of them Hebrew, {moved} glyphs \
          offset; system faces: {system_fixtures} shaped, {system_hebrew} of them Hebrew, \
@@ -617,7 +618,7 @@ fn every_mark_order_fixture_shapes_as_harfbuzz_does() {
         system_hebrew: Reached(system_hebrew),
         skipped: Reached(skipped),
         ..
-    } = shape_script_fixtures("order.txt", on_macos);
+    } = shape_script_fixtures("order.txt", on_macos, GposTable::Kept);
     eprintln!(
         "built faces: {fixtures} order fixtures; system faces: {system_fixtures} shaped, \
          {skipped} skipped"
@@ -634,13 +635,57 @@ fn every_mark_order_fixture_shapes_as_harfbuzz_does() {
     }
 }
 
+/// **On a face with no `GPOS`, a Hebrew point is placed by the class
+/// HarfBuzz's fallback gives it** (`recategorize_combining_class`,
+/// `[[source: harfbuzz-hb-ot-shape-fallback]]`; the owner's pick of
+/// 2026-10-15): the vowels and meteg below, rafe attached above, shin dot
+/// above right, sin dot and holam above left, varika above. Every line of
+/// `tests/shape/fallback-hebrew.txt` is what hb-shape made of a cluster on
+/// such a face, compared as `script.txt`'s are: the built Regular with its
+/// `GPOS` renamed away, on every platform, and Raanana and New Peninim MT,
+/// which carry none, on macOS. Read by
+/// Unicode's class, every point fell to a centred default with no vertical
+/// move, and Raanana's points sat at dy 0 where HarfBuzz puts them at -4.
+#[test]
+fn every_hebrew_fallback_fixture_places_points_as_harfbuzz_does() {
+    let on_macos = cfg!(target_os = "macos");
+    let Tally {
+        fixtures: Reached(fixtures),
+        hebrew: Reached(hebrew),
+        raised: Reached(raised),
+        system_fixtures: Reached(system_fixtures),
+        system_hebrew: Reached(system_hebrew),
+        skipped: Reached(skipped),
+        ..
+    } = shape_script_fixtures("fallback-hebrew.txt", on_macos, GposTable::Stripped);
+    eprintln!(
+        "built faces: {fixtures} fallback fixtures, {raised} glyphs moved vertically; \
+         system faces: {system_fixtures} shaped, {skipped} skipped"
+    );
+    // Thirty-eight clusters on the built Regular, every one Hebrew, and the
+    // vertical half of the placer moved some point: the positive control
+    // that the classes reached the placer.
+    assert!(fixtures == 38 && hebrew == 38, "{fixtures} {hebrew}");
+    assert!(raised >= 20, "{raised}");
+    if on_macos {
+        assert!(
+            system_fixtures == 76 && system_hebrew == 76,
+            "{system_fixtures} {system_hebrew}"
+        );
+    } else {
+        assert!(skipped == 76 && system_fixtures == 0, "{skipped}");
+    }
+}
+
 /// What [`shape_script_fixtures`] compared: lines on the built faces, how
-/// many of them Hebrew and how many glyphs they offset; lines on system
-/// faces, and how many were skipped where the face is not.
+/// many of them Hebrew, how many glyphs they offset and how many of those
+/// vertically; lines on system faces, and how many were skipped where the
+/// face is not.
 struct Tally {
     fixtures: Reached,
     hebrew: Reached,
     moved: Reached,
+    raised: Reached,
     system_fixtures: Reached,
     system_hebrew: Reached,
     skipped: Reached,
@@ -652,14 +697,18 @@ struct Reached(usize);
 /// Shapes every line of `tests/shape/<name>` and requires hb-shape's
 /// glyphs and offsets, in the columns `scripts/gen-shape-fixtures.sh`
 /// writes for `script.txt`; a system face's lines are skipped unless
-/// `on_macos`.
-fn shape_script_fixtures(name: &str, on_macos: bool) -> Tally {
+/// `on_macos`. With [`GposTable::Stripped`] a repository face has its
+/// `GPOS` renamed away after its digest is checked, as the generator did,
+/// and every face compared must then have none. Every line is compared
+/// before any mismatch fails, and the failure lists them all.
+fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
     let text =
         std::fs::read_to_string(format!("{}/tests/shape/{name}", env!("CARGO_MANIFEST_DIR")))
             .unwrap();
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
     let mut files = std::collections::HashMap::new();
-    let (mut fixtures, mut hebrew, mut moved) = (0usize, 0usize, 0usize);
+    let (mut fixtures, mut hebrew, mut moved, mut raised) = (0usize, 0usize, 0usize, 0usize);
+    let mut mismatches: Vec<String> = Vec::new();
     let (mut system_fixtures, mut system_hebrew, mut skipped) = (0usize, 0usize, 0usize);
     for line in text
         .lines()
@@ -678,16 +727,22 @@ fn shape_script_fixtures(name: &str, on_macos: bool) -> Tally {
             } else {
                 format!("{root}/{path}")
             };
-            let d = std::fs::read(&full).unwrap_or_else(|e| panic!("{full}: {e}"));
+            let mut d = std::fs::read(&full).unwrap_or_else(|e| panic!("{full}: {e}"));
             assert_eq!(
                 format!("{:016x}", fnv64(&d)),
                 digest,
                 "{path} is not the file the fixtures were shaped with; rerun \
                  scripts/gen-shape-fixtures.sh under nix-shell -p harfbuzz"
             );
+            if gpos == GposTable::Stripped && !system {
+                assert_eq!(strip_gpos(&mut d), 1, "{path}: no GPOS to strip");
+            }
             d
         });
         let face = Face::parse_index(data, FaceIndex::of(index.parse().unwrap())).unwrap();
+        if gpos == GposTable::Stripped {
+            assert!(face.gpos().is_none(), "{path} {index} has a GPOS");
+        }
         let cps: Vec<u32> = cps
             .split_whitespace()
             .map(|h| u32::from_str_radix(h, 16).unwrap())
@@ -729,10 +784,11 @@ fn shape_script_fixtures(name: &str, on_macos: bool) -> Tally {
                 )
             })
             .collect();
-        assert_eq!(
-            got, want,
-            "{path} {cps:04X?}: baud {got:?} against hb-shape {want:?}"
-        );
+        if got != want {
+            mismatches.push(format!(
+                "{path} {cps:04X?}: baud {got:?} against hb-shape {want:?}"
+            ));
+        }
         if system {
             system_fixtures += 1;
             system_hebrew += usize::from(rtl);
@@ -740,12 +796,20 @@ fn shape_script_fixtures(name: &str, on_macos: bool) -> Tally {
             fixtures += 1;
             hebrew += usize::from(rtl);
             moved += want.iter().filter(|w| w.2 != 0 || w.3 != 0).count();
+            raised += want.iter().filter(|w| w.3 != 0).count();
         }
     }
+    assert!(
+        mismatches.is_empty(),
+        "{} of {name}'s lines differ:\n{}",
+        mismatches.len(),
+        mismatches.join("\n")
+    );
     Tally {
         fixtures: Reached(fixtures),
         hebrew: Reached(hebrew),
         moved: Reached(moved),
+        raised: Reached(raised),
         system_fixtures: Reached(system_fixtures),
         system_hebrew: Reached(system_hebrew),
         skipped: Reached(skipped),

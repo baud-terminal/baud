@@ -1280,7 +1280,9 @@ Notes on the rows, from the design lens unless marked:
   silent drop keeps the base too, but shows nothing.)
   - baud's placement for faces without GPOS, `BaseBox::place`
     (shape.rs:210-270), has no arm for combining classes 10-199, and baud-font
-    does not recategorise them. HarfBuzz does
+    does not recategorise them (Hebrew's 10-26 it does since 2026-10-15: the
+    record, "Hebrew points on a face with no GPOS are placed as HarfBuzz
+    places them"). HarfBuzz does
     ([[source: harfbuzz-hb-ot-shape-fallback]], hb-ot-shape-fallback.cc:82-115).
     Without that, a placeholder for a Hebrew point lands on the letter.
   - `Kept` records only how many code points were dropped, not which ones
