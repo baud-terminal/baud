@@ -220,7 +220,7 @@ which is why it is bundled rather than deleted. Deleting
 | V13, the selection colour on macOS | the NSColor selection colours, from the local SDK header | lands before building |
 | V17, colours under `?5` | xterm's `misc.c`, where OSC 4, 10 and 11 are handled | pinned ([[source: xterm-misc]]); OSC 10/11 built 2026-10-11; OSC 4 needs no mapping since 2026-10-14, when DEC's per-cell exchange for `?5`, the owner's choice of 2026-10-13, was built (the record, "`?5` exchanges every cell's colours") |
 | V15 step 2, the real mode 2027 | the mode 2027 draft, and Unicode's emoji variation sequences file | lands before building |
-| V14's `?1021` | xterm's man page and `misc.c`, only if the switch is built and `?1021` is answered, which the lean leaves out even then | lands before building |
+| V14's `?1021` | xterm's man page and `misc.c`, only if the switch is built and `?1021` is answered, which the lean leaves out even then | pinned ([[source: xterm-man]], [[source: xterm-misc]], [[source: xterm-wcwidth-c]]); read 2026-10-15 under "V14's open questions, answered" |
 
 ## What blocks what
 
@@ -2883,9 +2883,9 @@ Terminals, from pinned sources:
 - **xterm**: *cjkWidth* defaults to narrow; separate *emojiWidth* (off) and
   *privateWidth* (on) settings sit beside it ([[source: xterm-reset]]
   charproc.c:803-810). It exposes them as read-only queries ?1020 to ?1023
-  ([[source: ctlseqs]] lines 992-994 and 1519-1524). Only the names and
-  defaults are pinned; what each covers is in xterm's man page, which is not
-  pinned.
+  ([[source: ctlseqs]] lines 992-994 and 1519-1524). What each covers,
+  and what DECRQM answers for it, is under "V14's open questions,
+  answered" below, from the pinned man page and source.
 - **VTE** (GNOME Terminal's engine): a setter that takes 1 or 2
   ([[source: vte-vte-cc-0-84]] vte.cc:2154-2163). Its default is a constant
   defined in a file that is not pinned ([[source: vte-internal-hh-0-84]] only
@@ -3059,6 +3059,258 @@ Measurement:
   (33 of V15's 219 emoji bases are EAW A, so "wide" already widens them), and
   the mask work belongs to the renderer track if it owns boxes.rs and
   atlas.rs.
+
+#### V14's open questions, answered (2026-10-15)
+
+Read for the work list's "V14's open questions, before building", after
+the owner's 2026-09-25 call to build the switch with `?1021`. Nothing here
+is built. Every xterm file is the patch 411 commit the others are pinned at
+(9489b20). `wcwidth.c` and `wcwidth.h` were fetched for this section.
+
+**Positive controls.** Each extraction found something already known
+before its misses were trusted:
+- ctlseqs found `?1020`'s "utf8 resource (read-only)".
+- The man page found `allowTitleOps`, the subject its manifest title names.
+- The UAX #11 text found ED6's definition of Ambiguous.
+- The trie decode below found ±, 水, U+0301 and ç at their known codes.
+
+**1. The data puts the whole Private Use Area in the class.**
+- `EastAsianWidth.txt` gives `A` to `E000..F8FF`, `F0000..FFFFD` and
+  `100000..10FFFD` (lines 1690, 2718 and 2719, [[source: eaw-data]]).
+- That is 137,468 of the class's 138,739 codepoints, recounted.
+- baud's committed trie agrees. A script decoded
+  `baud-domain/src/width_data.rs` as `Width::of` does, and every codepoint
+  of the three ranges is code 3, "ambiguous". The controls read ± as 3,
+  水 as 2, U+0301 as 1 and ç as 0.
+- The write path's own table, `Classified` in `baud-domain/src/merged.rs`,
+  is held equal to that trie under both policies at every codepoint
+  (`the_merged_table_agrees_with_both_tries`).
+- Measured through `Term`, by a probe in a scratch tree, with nothing
+  committed: under `Wide`, U+E0B0, U+F0186 and U+100000 each advance the
+  cursor two columns, as ± does, and five U+E0B0 in a row advance it ten.
+  Under `Narrow` each advances it one.
+- So `Term::set_ambiguous_width(Wide)` already widens every Nerd Fonts icon
+  today. Nothing calls it.
+
+**2. The text does not settle whether "wide" must cover it, and does not
+make excluding it a departure.** [[source: uax11]]:
+- § 6.1: "All private-use characters are by default classified as
+  Ambiguous, because their definition depends on context."
+- § 4.2: "Private-use character codes and the replacement character have
+  ambiguous width, because they may stand in for characters of any width."
+  The same paragraph: "The term context as used here includes extra
+  information such as explicit markup, knowledge of the source code page,
+  font information, or language and script identification."
+- § 5: "Ambiguous characters behave like wide or narrow characters
+  depending on the context (language tag, script identification, associated
+  font, source of data, or explicit markup; all can provide the context)."
+- § 2: "the guidelines on use of this property should be considered
+  recommendations based on a particular legacy practice that may be
+  overridden by implementations as necessary". Its note: the property "is
+  not intended for use by modern terminal emulators without appropriate
+  tailoring on a case-by-case basis".
+
+So `A` is the default classification of a code whose width the annex says
+context decides. It names font information as context, and it invites
+terminals to tailor. Two contexts are in play, and they point opposite
+ways:
+- **The font.** The embedded icon face draws every icon one cell wide.
+- **The program's width function**, which "wide" exists to match. A
+  function that widens PUA counts two columns; one that does not counts
+  one.
+
+Both readings conform. The work list's premise, that excluding PUA "would
+be a departure", is not what the text says, and the choice is still not a
+free one: it goes to Jev at 0.9 on both asks, or to the owner. xterm's
+default excludes PUA (point 3). That is practice, not the standard.
+
+**3. What `?1021`, `?1022` and `?1023` report.** [[source: ctlseqs]]
+(992-994, 1519-1524) calls them read-only and ties them to the resources
+"utf8, cjkWidth, emojiWidth, and privateWidth respectively". xterm:
+- **DECRQM answers 1 or 2 for all three, never 3 or 4.**
+  [[source: xterm-misc]]'s `do_dec_rqm` (5466) answers each with `MdBool`
+  (5845-5853). `MdBool` is `mdMaybeSet` (1) or `mdMaybeReset` (2), from the
+  enum at 5387-5393.
+- **Nothing changes them during a session.** `dpmodes`, `savemodes` and
+  `restoremodes` all skip 1020-1023: "these are readonly, not saved or
+  restored" ([[source: xterm-reset]] charproc.c 7998-8003, 8352-8357 and
+  8800-8805). In the pinned files only start-up sets the resources
+  (11668-11698); `menu.c` and `main.c` are not pinned. So xterm answers 1
+  or 2 for values that DECSET cannot change.
+
+| mode | resource | xterm's default | DECRQM in xterm | set means |
+|---|---|---|---|---|
+| `?1021` | cjkWidth | false (charproc.c 803) | `2` | East Asian Ambiguous characters take two columns |
+| `?1022` | emojiWidth | false (808) | `2` | VS15 and VS16 set an emoji's width; listed emoji characters take two columns |
+| `?1023` | privateWidth | **true** (809) | `1` | Private Use codes take one column even under cjkWidth |
+
+- **`?1021`.** [[source: xterm-man]] 2900-2911: "When turned on,
+  characters with East Asian Ambiguous (A) category in UTR 11 have a column
+  width of 2." `decode_wcwidth` then selects `mk_wcwidth_cjk`
+  ([[source: xterm-scroll]], util.c 6292-6318). While it is off, mkWidth
+  chooses between the system's `wcwidth` and the built-in table (man
+  4538-4557).
+
+  The answer reports the resource. It does not report whether ambiguous
+  characters are actually narrow: with both resources off, the system's
+  table decides.
+- **`?1022`.** Man 3708-3712: "Specifies whether to interpret Unicode
+  variation selectors VS15 and VS16. Those override the character width of
+  the immediately preceding character, if it is an Emoji, to one or two
+  cells, respectively." The code does that:
+  - VS15 makes the width 1 and VS16 makes it 2, for a base on its emoji
+    list (util.c 5988-5995).
+  - Within xterm's built-in tables, it also gives two columns to every
+    listed character above U+00FF, bare (`mk_wcwidth`,
+    [[source: xterm-wcwidth-c]] 864). The list comes from emoji-data and
+    takes in U+2122 ™. When xterm uses the system's `wcwidth`, the system
+    decides that width.
+
+  baud's `Vs16Width::Two`, the default, matches neither answer:
+  - It widens a listed base on U+FE0F.
+  - It never narrows on U+FE0E (V15, after the mode 2027 draft).
+  - It leaves a bare ™ one column.
+
+  So "set" would claim two things baud does not do, and "reset" would deny
+  one it does. By reading, `Vs16Width::One` behaves as emojiWidth false.
+- **`?1023`.** Man 5202-5206: "Tells xterm whether to assume that codes in
+  the Unicode PUA (private use area) are single-width, or neutral (matching
+  the cjkWidth setting. The default is "true" to assume single-width."
+  "Neutral" there means "follows cjkWidth", not EAW `N`. The chain:
+  - `XTermWcInit` turns the resource into the `WcPrivateFullwidth` bit
+    ([[source: xterm-xterm-h]] 1131-1134).
+  - That bit sets `use_cjk_pua2` (wcwidth.c 777-779).
+  - `mk_wcwidth_cjk` then returns 1 for a private-use code (887-888) before
+    the ambiguous table is consulted. The table carries all three ranges
+    (228-231).
+
+  `mk_wcwidth` gives private use one column whatever is set (862-863). So
+  in xterm's own tables a Nerd Fonts icon takes two columns only with
+  cjkWidth true and privateWidth false. With cjkWidth false and the
+  system's `wcwidth` in use, neither resource applies and the system
+  decides.
+
+  **A name trap.** [[source: xterm-wcwidth-h]] line 42 glosses the bit as
+  "private-use codes can be fullwidth in CJK". When set, it does the
+  opposite. The man page and `ptyx.h` 3449 ("true if PUA codes are always
+  single-width") describe the code; the bit's comment does not.
+
+**How `?1023` relates to the PUA answer.** It is the PUA question as a
+mode, so each answer to point 2 fixes it:
+- If PUA follows "wide", that is privateWidth false: `?1023` answers reset,
+  whatever the switch says.
+- If PUA always takes one column, that is privateWidth true, xterm's
+  default: it answers set.
+- If PUA gets its own knob, it answers the knob.
+
+Under the narrow default all three draw PUA one column. `?1023` differs
+only in what it says about "wide".
+
+**What a user sees if PUA goes wide.** By reading the code; nothing was
+drawn.
+- The icons come from Symbols Nerd Font Mono, "sized to one cell"
+  (`baud-app/src/embedded.rs`).
+- In a two-cell span an icon keeps the grid's phase: `is_icon` in
+  `baud-render/src/renderer.rs` (357), held by `an_icon_keeps_the_grid_phase`
+  (`baud-render/tests/narrow_in_wide.rs`, 246). So each icon draws in the
+  left cell, with its right cell blank.
+- A powerline prompt shows a blank cell after every separator.
+- Everything after an icon moves one column right for a program counting it
+  as one. zsh counts U+E0B0 as one on this Mac (measured above).
+- Of the committed recordings, only `sixel/yazi-walk.raw` carries PUA: 83
+  icons, among them U+E0B4 28 times, U+E60D 23 and U+E0B6 17. None of the
+  ten others has any.
+
+**The options for the PUA question.** All of them are for Jev at 0.9 on
+both asks, or for the owner.
+1. **PUA follows "wide".** This is the data's default, and today's API
+   already does it. **Conforming** (§ 6.1). `?1023` answers reset.
+2. **PUA always one column**, xterm's default. **Conforming** as the
+   tailoring § 2 invites, with the embedded face as the § 4.2/§ 5 context.
+   `?1023` answers set.
+
+   The cost is in the write path's table, `Classified` (merged.rs), and
+   `Width::of` must agree with it. `Classified` keeps its width code in a
+   whole byte: the palette's third byte, and `BMP_DIRECT`'s high byte. So
+   a fifth code, "private use", fits there with no wider table, and only
+   the `Wide` arm of `Classified::width` reads it.
+
+   `Width::of`'s trie packs two bits a codepoint, and its four codes are
+   all used (0 narrow, 1 zero, 2 wide, 3 ambiguous). So it needs either a
+   test of the three ranges inside its `ambiguous == Wide` arm, or a wider
+   trie.
+
+   By reading, neither change touches the narrow default's path. The
+   `ingest2` disassembly compare decides that.
+3. **A knob of its own**, xterm's model, beside the switch. **Conforming**
+   at either default. `?1023` answers the knob. Its default is a second
+   choice of the same kind.
+4. **Width from the font's advance.** This follows § 5's "associated font"
+   literally, so it is **conforming** to the annex. It breaks baud's wire
+   contract that width never reads a font (`DisplayWidth` in
+   `baud-domain/src/width.rs`): the core has no font, and the program on
+   the far end cannot see one.
+
+**The DECRQM value: 1 or 2, or 3 or 4.** ctlseqs gives no value rule for
+a read-only mode. These options are for Jev or the owner too.
+- **(i) 1 or 2, as xterm answers.** Conforming. It matches baud's own
+  `?1020`.
+- **(ii) 3 or 4.** Conforming to ctlseqs' definitions ("3 - permanently
+  set", "4 - permanently reset", 1510-1511), and true of a value read once
+  at launch. baud's `?2027` already answers this way. It departs from
+  xterm's practice: a program comparing against xterm sees 3 where xterm
+  says 1.
+
+Option 3a above leaned to (ii) before `misc.c` had been read.
+
+**`?1022`** is a separate call. Options:
+- **0**, under the house rule that an unimplemented mode answers "not
+  recognized". baud has no emojiWidth.
+- **2 under `Vs16Width::One`, and 0 under `Two`.** Truthful in both, but
+  the answer then depends on configuration.
+- **1 under `Two`.** Departs: it claims VS15 narrowing and a two-column
+  bare ™.
+
+**What V14's build needs.**
+1. The calls above: the PUA rule, the DECRQM values and `?1022`.
+2. The config key, as in note V's design step 1, plus a second key under
+   option 3.
+3. Core:
+   - The width policy carries the PUA rule.
+   - Under options 2 and 3, `Classified` gets a fifth width code for
+     private use (`scripts/gen-merged-table.py`).
+   - `Width::of` gets the range test, so
+     `the_merged_table_agrees_with_both_tries` still holds.
+   - `fill_cells3` follows the policy (V14's first defect).
+4. Modes:
+   - `PrivateMode` names 1021, 1022 and 1023. Today they are `Other` and
+     answered 0 (`baud-domain/src/vt/mode.rs` 694).
+   - DECRQM answers as decided.
+   - DECSET and DECRST of them are counted in `unsupported_param`, as
+     `?1020` is.
+   - They get no `PrivateMode::slot`, as xterm's `savemodes` keeps none.
+5. Renderer:
+   - Two-cell box and block masks, as in design step 4.
+   - Under option 1, whether a wide icon is centred joins that step's open
+     question. Today `an_icon_keeps_the_grid_phase` pins it left.
+6. Tests:
+   - Note V's list.
+   - DECRQM for each of the three modes under both policies.
+   - DECSET `?1021` changes nothing and is counted.
+   - XTSAVE keeps no slot for any of them.
+   - U+E0B0, U+F0186 and U+100000 under Wide, against ± as the control,
+     per the PUA rule picked.
+7. Docs:
+   - Coverage rows for `?1021`, `?1022` and `?1023`.
+   - The `Cold::ambiguous` doc (term.rs 615-617) when it lands.
+   - Two stale lines in `baud-core/src/ops.rs` (2883-2884) say "xterm's
+     `DECRQM` handler is not pinned". It is: `do_dec_rqm`, as above.
+     It answers `?1047` and `?1049` from `whichBuf`, and `?47` too unless
+     ReGIS print graphics is configured (misc.c 5610-5617), as baud's
+     choice does.
+8. Measurement: if `Classified` or `Width::of` changes, run the
+   disassembly compare at the default and, if the loop differs, the
+   interleaved sweep, as above.
 
 ### V15. Mode 2027 and U+FE0F: stop the false claim, then make it a real switch
 

@@ -24861,3 +24861,37 @@ sha256 = "673a40eac3388bc2685be6ef87e30e533ed78c8a2b290bf6a670185041ba2c6e"
 bytes  = 5283
 status = "retrieved"
 group  = "C"
+
+# Fetched 2026-10-15 for note V's "V14's open questions, answered", at the
+# commit the other xterm 411 files are pinned at. `mk_wcwidth` gives a
+# private-use code one column whatever the resources say (862-863);
+# `mk_wcwidth_cjk`, which runs only under cjkWidth, returns one for it while
+# `use_cjk_pua2` is set (887-888) and two from the ambiguous table otherwise,
+# whose 228-231 carry all three Private Use ranges. `use_cjk_pua2` is
+# `WcPrivateFullwidth` (777-779), which xterm.h's `XTermWcInit` sets from
+# privateWidth: set means single width, despite the flag's name.
+[sources.xterm-wcwidth-c]
+key    = "xterm-wcwidth-c"
+title  = "xterm 411, wcwidth.c -- mk_wcwidth and mk_wcwidth_cjk: private-use width under cjkWidth and privateWidth; the VS15/VS16 emoji list"
+author = "Thomas E. Dickey, after Markus Kuhn"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/wcwidth.c"
+file   = "xterm-wcwidth.c"
+sha256 = "f953a846633947906c9d8dff80175b053cfecd25aa38194d6a74dad7f4b04461"
+bytes  = 56116
+status = "retrieved"
+group  = "C"
+
+[sources.xterm-wcwidth-h]
+key    = "xterm-wcwidth-h"
+title  = "xterm 411, wcwidth.h -- the WcModes bits mk_wcwidth_init takes"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/wcwidth.h"
+file   = "xterm-wcwidth.h"
+sha256 = "a867950a4e0373a48e35c2323162359ad3b0754d1e5166882648fc9175807aed"
+bytes  = 2118
+status = "retrieved"
+group  = "C"
