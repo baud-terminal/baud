@@ -116,9 +116,10 @@ pub struct Storage<'b> {
     /// of the index bytes. Storing it is how you stop computing it.
     pub(crate) cells3: &'b mut [PackedCell],
     /// The rendition table. A cell holds a [`StyleId`] *index* into this;
-    /// **bounded by construction**, open-addressed, and never freeing a slot,
-    /// so it evicts only once every slot is filled, live or not: a table keyed
-    /// on what an application sends needs a bound. **Slot 0 is reserved for
+    /// **bounded by construction** and open-addressed: a table keyed on what
+    /// an application sends needs a bound. It frees the slots no cell names
+    /// when it sweeps, and evicts only when a full table's sweep frees none
+    /// or is not yet due (`Paint::sweep_styles`). **Slot 0 is reserved for
     /// the default** (`Term::new`), which every blank cell names without
     /// interning it, and is never evicted.
     ///
@@ -781,6 +782,8 @@ pub struct StyleBook {
     pub(crate) table: TableSerial,
     pub(crate) writes: StyleWrites,
     pub(crate) colors: ColorEpoch,
+    /// The sweep's book: how full the table is and what it has reclaimed.
+    pub(crate) sweep: baud_domain::SweepBook,
 }
 
 impl StyleBook {
@@ -790,6 +793,7 @@ impl StyleBook {
             table: TableSerial::mint(),
             writes: StyleWrites::NEVER,
             colors: ColorEpoch::default(),
+            sweep: baud_domain::SweepBook::default(),
         }
     }
 }
@@ -804,10 +808,11 @@ impl Default for StyleBook {
 /// argument so the three cannot be lent apart.
 ///
 /// The log is a ring of `slots.len()` entries, one a write, naming the slot
-/// each write filled or evicted. The table fills each slot once and never
-/// frees one, so until it has taken as many writes as it has slots the log
-/// holds exactly the filled slots, in the order they were filled; after
-/// that, every slot is filled anyway. A renderer resolves each slot once and then
+/// each write filled, evicted or freed. Until the table sweeps or evicts it
+/// fills each slot once, so until it has taken as many writes as it has
+/// slots the log holds exactly the filled slots, in the order they were
+/// filled. A sweep logs every slot it frees, so a reader that replays the
+/// log holds the table still. A renderer resolves each slot once and then
 /// only the slots written since (`Term::styles_written`), where it used to
 /// resolve all of them every frame: at the app's 65,536 slots that was 159 us
 /// of a 190 us idle frame.

@@ -1167,9 +1167,9 @@ impl Paint<'_, '_> {
     /// Linear probing fixes it without a search on the read. A distinct style
     /// takes the first free or matching slot from its bucket, so it evicts
     /// another style only when the probe wraps the whole table -- that is,
-    /// only once every slot is filled, live or not, since no slot is ever
-    /// freed. Below that the mapping is **exact**: distinct renditions never
-    /// share a slot and never corrupt each other's colour.
+    /// only once every slot is filled. Below that the mapping is **exact**:
+    /// distinct renditions never share a slot and never corrupt each other's
+    /// colour.
     ///
     /// The cost is a probe on the write path, and the probe length is
     /// `1/(1 - load)` on average -- a fraction of a slot while the table is
@@ -1183,13 +1183,20 @@ impl Paint<'_, '_> {
     /// cells' renditions, and each resolves to a later cell's colour: the top
     /// band of the preview scrambles while the bottom stays coherent, because
     /// eviction hits the cells interned first. A table holding a screenful of
-    /// distinct renditions cannot: below capacity the mapping is exact. A
-    /// garbage collector could not help, because nothing is dead to reclaim
-    /// while the image is displayed; the fix is capacity, sized to what a screen
-    /// can show. Eviction remains for a session that mints more *distinct*
-    /// renditions over its life than the table has slots -- an animation
-    /// cycling colours, not a still image -- and a cell still naming an evicted
-    /// slot is then recoloured: an open `SGR` bug, not a settled trade.
+    /// distinct renditions cannot: below capacity the mapping is exact.
+    /// Capacity is the fix while the image is shown, since nothing on it is
+    /// dead.
+    ///
+    /// **A table sweeps at 7/8 load, and a full one before it evicts**
+    /// ([`Paint::sweep_styles`]): the renditions no cell names are freed,
+    /// so a session that mints more over its life than the table has slots
+    /// -- picture after picture -- reuses the slots of those it no longer
+    /// shows. `[[source: dec-std-070]]`'s
+    /// SGR, page 5-104: "In no way does the selection of current rendition
+    /// affect the rendition of characters already entered into the display",
+    /// which an eviction does. It remains for cells naming more distinct
+    /// renditions than the table has slots, where a cell naming the evicted
+    /// slot is recoloured: an open `SGR` bug.
     ///
     /// **Inlined, because `restore` is its second caller.** With one caller
     /// LLVM inlined it into `apply_sgr`; when `DECRC` began interning the
@@ -1226,22 +1233,163 @@ impl Paint<'_, '_> {
                 Some(_) => k = (k + 1) & (len - 1),
             }
         }
-        // Every slot is filled: evict at the bucket, the only case a fixed
-        // table cannot serve exactly, and the read stays one load --
-        // except slot 0, the default every blank cell names without
-        // interning it (`Term::new`), whose eviction would recolour them all.
-        // Its bucket's victim is the slot after it.
-        self.intern_new(StyleId::from_index(base.max(1)), raw)
+        // Every slot is filled: a tombstone, a sweep, or at last an eviction.
+        self.full_table(StyleId::from_index(base), raw)
     }
 
-    /// A rendition written into slot `id`, and the write logged: a miss, which
-    /// an `SGR` usually is not, so out of line where the hit stays inline.
-    /// Every write to the table goes through here, so the log holds every
-    /// slot a renderer has to resolve again (`Term::styles_written`).
+    /// **A miss: `raw` takes slot `k`, which the probe found empty.** The
+    /// first tombstone on its path takes it instead, when the table holds
+    /// one; otherwise a fill past [`SweepBook::LOAD`] sweeps first, when one
+    /// is due. Out of line, as the write it replaced was, so the hit stays
+    /// inline in `apply_sgr` and costs what it did.
     #[cold]
     #[inline(never)]
-    fn intern_new(&mut self, id: StyleId, raw: StyleWord) -> StyleId {
-        self.tmpl[id.index()] = Some(raw);
+    fn intern_new(&mut self, k: StyleId, raw: StyleWord) -> StyleId {
+        let len = self.tmpl.len();
+        if self.style_log.book.sweep.tombs > 0 {
+            let mut j = StyleId::bucket(raw, len);
+            while j != k.index() {
+                if self.tmpl[j] == Some(StyleWord::TOMBSTONE) {
+                    self.style_log.book.sweep.tomb_taken();
+                    return self.write_slot(StyleId::from_index(j), Some(raw));
+                }
+                j = (j + 1) & (len - 1);
+            }
+        }
+        let book = &self.style_log.book;
+        if book.sweep.over_load(len) && book.sweep.due(book.writes, len) {
+            if let Some(id) = self.sweep_styles(raw) {
+                return id;
+            }
+        }
+        // `probe-double-intern-full` writes here over a filled slot.
+        if self.tmpl[k.index()].is_none() {
+            self.style_log.book.sweep.filled_one();
+        }
+        self.write_slot(k, Some(raw))
+    }
+
+    /// **Every slot is filled.** The first tombstone on `raw`'s path from
+    /// `base` takes it, which evicts nothing; failing that a sweep, if one is
+    /// due; failing that an eviction at the bucket -- except slot 0, the
+    /// default every blank cell names without interning it (`Term::new`),
+    /// whose eviction would recolour them all. Its bucket's victim is the
+    /// slot after it.
+    #[cold]
+    #[inline(never)]
+    fn full_table(&mut self, base: StyleId, raw: StyleWord) -> StyleId {
+        let len = self.tmpl.len();
+        if self.style_log.book.sweep.tombs > 0 {
+            let mut k = base.index();
+            for _ in 0..len {
+                if self.tmpl[k] == Some(StyleWord::TOMBSTONE) {
+                    self.style_log.book.sweep.tomb_taken();
+                    return self.write_slot(StyleId::from_index(k), Some(raw));
+                }
+                k = (k + 1) & (len - 1);
+            }
+        }
+        let book = &self.style_log.book;
+        if book.sweep.due(book.writes, len) {
+            if let Some(id) = self.sweep_styles(raw) {
+                return id;
+            }
+        }
+        self.style_log.book.sweep.evicted();
+        self.write_slot(StyleId::from_index(base.index().max(1)), Some(raw))
+    }
+
+    /// **The sweep.** Marks every slot a cell names -- every cell of the live
+    /// surface's buffer (its screen, the primary's history and the rows held
+    /// past a narrower edge) and of the other surface's, blanks past a row's
+    /// extent included, since an erase leaves its rendition there -- and
+    /// slot 0 and the current rendition. Nothing else holds a slot: `Saved`
+    /// holds a word and `restore` interns it again, and the three-byte cell
+    /// table's cells name slot 0 (`Term::fill_cells3`). Every other filled
+    /// slot is freed: emptied, or made a [`StyleWord::TOMBSTONE`] where it
+    /// lies on a live rendition's probe path, so that rendition stays
+    /// findable. Ids never move and no cell is rewritten, and every slot
+    /// that changes is logged, so a reader replaying the log holds the table
+    /// (`Term::styles_written`). Then `raw` takes the first tombstone or empty
+    /// slot on its path; `None` when there is neither.
+    ///
+    /// **The tombstones in one pass.** A probe path never crosses an empty
+    /// slot, so a slot is on some live rendition's path exactly when a live
+    /// rendition above it (cyclically) has its bucket at or below it. Walking
+    /// the table downwards with `need`, how many slots below the current one
+    /// a live rendition above still probes through, decides each slot in
+    /// constant time; the walk goes round twice, the first lap only to learn
+    /// the paths that wrap past the top. Two laps of the table, where asking
+    /// each live rendition's path in turn is quadratic at full load.
+    ///
+    /// `#[cold]` and out of line: on the app's provisioning it walks the two
+    /// surfaces' cells, about 940,000 of them, and two laps of 65,536 slots.
+    #[cold]
+    #[inline(never)]
+    fn sweep_styles(&mut self, raw: StyleWord) -> Option<StyleId> {
+        let len = self.tmpl.len();
+        let mut live = SlotSet::new();
+        live.insert(StyleId::DEFAULT);
+        live.insert(self.style);
+        live.mark(self.view.ring_cells());
+        live.mark(self.other.cells);
+        let (mut freed, mut filled, mut tombs) = (0, 0, 0);
+        let mut need = 0usize;
+        for step in 0..2 * len {
+            let k = (len - 1) - (step & (len - 1));
+            let was = self.tmpl[k];
+            let named = live.has(k) && was.is_some();
+            if step >= len && k != 0 {
+                let now = match was {
+                    _ if named => was,
+                    Some(_) if need > 0 => Some(StyleWord::TOMBSTONE),
+                    _ => None,
+                };
+                if now.is_some() {
+                    filled += 1;
+                }
+                if now == Some(StyleWord::TOMBSTONE) {
+                    tombs += 1;
+                }
+                if was.is_some_and(|w| w != StyleWord::TOMBSTONE) && now != was {
+                    freed += 1;
+                }
+                if now != was {
+                    self.write_slot(StyleId::from_index(k), now);
+                }
+            }
+            let reach = match was {
+                Some(w) if named => k.wrapping_sub(StyleId::bucket(w, len)) & (len - 1),
+                _ => 0,
+            };
+            need = need.saturating_sub(1).max(reach);
+        }
+        let now = self.style_log.book.writes;
+        self.style_log.book.sweep.swept(now, freed, filled, tombs);
+        let mut k = StyleId::bucket(raw, len);
+        for _ in 0..len {
+            match self.tmpl[k] {
+                Some(w) if w == StyleWord::TOMBSTONE => {
+                    self.style_log.book.sweep.tomb_taken();
+                    return Some(self.write_slot(StyleId::from_index(k), Some(raw)));
+                }
+                None => {
+                    self.style_log.book.sweep.filled_one();
+                    return Some(self.write_slot(StyleId::from_index(k), Some(raw)));
+                }
+                Some(_) => k = (k + 1) & (len - 1),
+            }
+        }
+        None
+    }
+
+    /// **Slot `id` written, and the write logged**: a rendition interned, a
+    /// rendition evicting another, or a sweep's free. Every write to the
+    /// table goes through here, so the log holds every slot a renderer has
+    /// to resolve again (`Term::styles_written`).
+    #[inline(always)]
+    fn write_slot(&mut self, id: StyleId, w: Option<StyleWord>) -> StyleId {
+        self.tmpl[id.index()] = w;
         self.style_log.note(id);
         id
     }

@@ -16,7 +16,7 @@
 mod support;
 
 use baud_core::*;
-use baud_domain::{Chan, ColorWord, StyleId, StyleWord};
+use baud_domain::{Back, Chan, Codepoint, ColorWord, StyleId, StyleWord};
 
 /// A truecolour foreground whose rendition buckets to slot 0 in a table of
 /// `len` slots, found by walking the green/blue plane in order so the
@@ -142,14 +142,38 @@ fn a_prompt_in_a_256_colour_does_not_recolour_the_banner_above_it() {
     }
 }
 
+/// `n` distinct renditions, each on a cell of its own and the rows pushed up
+/// as they fill, so the history keeps every one of them named: a table they
+/// fill holds no slot a sweep can free.
+fn named_renditions(n: usize, mut plane: impl Iterator<Item = (u8, u8, u8)>) -> Vec<u8> {
+    let mut out = Vec::new();
+    for i in 0..n {
+        out.extend(sgr_fg(plane.next().expect("the plane has room")));
+        out.extend(b"X");
+        if (i + 1) % 40 == 0 {
+            out.extend(b"\r\n");
+        }
+    }
+    out
+}
+
+/// `hello`, the oldest line of the history.
+fn oldest_line(t: &Term<'_>) -> Vec<PackedCell> {
+    let sb = t.scrollback();
+    let mut n = 0;
+    while sb.line(Back::of(n + 1)).is_some() {
+        n += 1;
+    }
+    sb.line(Back::of(n)).expect("the oldest line").0.to_vec()
+}
+
 /// **A full table evicts at the bucket, and the bucket of the default is
 /// slot 0.** Fill a 1,024-slot table with 1,023 distinct renditions -- every
-/// slot but the reserved one -- then intern one more that buckets to 0. The
-/// table is full, so it evicts; it must evict something other than the
-/// default, or every default cell takes its colour.
-///
-/// The renditions are written over one cell, backspacing between them, so
-/// nothing scrolls and `hello` stays on row 0.
+/// slot but the reserved one -- each on a cell of its own and kept in the
+/// history, so every slot stays named and the sweep before an eviction frees
+/// none; then intern one more that buckets to 0. The table is full, so it
+/// evicts; it must evict something other than the default, or every default
+/// cell takes its colour.
 #[test]
 fn a_full_table_never_evicts_slot_zero() {
     let ws = WinSize {
@@ -161,31 +185,30 @@ fn a_full_table_never_evicts_slot_zero() {
         assert_eq!(len, 1_024);
         let zero = fg_at_bucket_zero(len);
         support::feed(t, b"hello\r\n");
-        // Distinct renditions over one cell until the table is full: every
-        // slot but the reserved one, 1,023 of them.
-        let mut plane = (0u8..=255)
+        let plane = (0u8..=255)
             .flat_map(|g| (1u8..=255).map(move |b| (0u8, g, b)))
             .filter(|&c| c != zero);
-        while !t.styles().iter().all(Option::is_some) {
-            let mut one = sgr_fg(plane.next().expect("the plane has room"));
-            one.extend(b"X\x08");
-            support::feed(t, &one);
-        }
+        support::feed(t, &named_renditions(len - 1, plane));
         // The control: the table is full before the last rendition arrives,
-        // so the one after it has to evict.
+        // and nothing was evicted on the way, so the one after it has to.
         assert!(
             t.styles().iter().all(Option::is_some),
             "the table is not full, so nothing below evicts"
         );
-        let mut last = sgr_fg(zero);
+        assert_eq!(t.style_reclaims().evictions, 0);
+        let mut last = b"\r\n".to_vec();
+        last.extend(sgr_fg(zero));
         last.extend(b"Y");
         support::feed(t, &last);
-        let y = t.row(Row::from_index(1)).expect("a row on the grid")[0];
+        assert_eq!(t.style_reclaims().evictions, 1, "the control: it evicted");
+        let (_, rows) = t.geometry();
+        let y = t
+            .row(Row::from_index(rows.index() - 1))
+            .expect("a row on the grid")[0];
         assert_eq!(t.style_of(y).fg().as_rgb(), Some(zero));
-        for (i, c) in t.row(Row::from_index(0)).expect("a row on the grid")[..5]
-            .iter()
-            .enumerate()
-        {
+        let hello = oldest_line(t);
+        assert_eq!(hello[0].content.as_codepoint(), Codepoint::new(0x68));
+        for (i, c) in hello[..5].iter().enumerate() {
             assert_eq!(
                 t.style_of(*c),
                 StyleWord::DEFAULT,
@@ -196,10 +219,29 @@ fn a_full_table_never_evicts_slot_zero() {
     });
 }
 
+/// The saved rendition, written once so its slot can be read, then `DECSC`
+/// over the cell it was written in, then the cell overwritten: its slot is
+/// named by nothing but the save.
+fn save_over_a_dead_cell(t: &mut Term<'_>, saved: (u8, u8, u8)) -> StyleId {
+    let mut bytes = sgr_fg(saved);
+    bytes.extend(b"S\x08\x1b7");
+    support::feed(t, &bytes);
+    let k = t.row(Row::from_index(0)).expect("a row on the grid")[0].style;
+    support::feed(t, b"\x1b[0mT\x08");
+    k
+}
+
+fn restored(t: &mut Term<'_>) -> StyleWord {
+    support::feed(t, b"\x1b8Z");
+    let z = t.row(Row::from_index(0)).expect("a row on the grid")[0];
+    t.style_of(z)
+}
+
 /// **A restored cursor takes its rendition again, not the slot it had.**
-/// `DECSC` saves the rendition and the id it was interned at; an eviction
-/// between the save and the restore can give that id to another rendition,
-/// and restoring the id then writes in the other rendition's colours.
+/// `DECSC` saves the rendition, not the id it was interned at: a sweep
+/// between the save and the restore frees that id, since the save is a word
+/// and no cell names it, and a later rendition can take it. Restoring the id
+/// would then write in the other rendition's colours.
 #[test]
 fn a_restored_cursor_takes_its_rendition_not_its_old_slot() {
     let ws = WinSize {
@@ -209,46 +251,66 @@ fn a_restored_cursor_takes_its_rendition_not_its_old_slot() {
     support::with_term(&ws, |t| {
         let len = t.styles().len();
         let saved = (200u8, 10u8, 10u8);
-        // The saved rendition, written once so its slot can be read, then
-        // DECSC over the cell it was written in.
-        let mut bytes = sgr_fg(saved);
-        bytes.extend(b"S\x08\x1b7");
-        support::feed(t, &bytes);
-        let k = t.row(Row::from_index(0)).expect("a row on the grid")[0].style;
-        // Distinct renditions until the table is full.
+        let k = save_over_a_dead_cell(t, saved);
+        // Renditions over one cell on another row until the saved slot holds
+        // another: the sweeps free it and the probes reach it.
         let mut plane = (0u8..=255).flat_map(|g| (1u8..=255).map(move |b| (0u8, g, b)));
-        while !t.styles().iter().all(Option::is_some) {
-            let mut one = sgr_fg(plane.next().expect("the plane has room"));
-            one.extend(b"X\x08");
+        let mut n = 0;
+        while t.styles()[k.index()].is_some_and(|w| w.fg().as_rgb() == Some(saved)) || n < len {
+            let mut one = b"\x1b[5;1H".to_vec();
+            one.extend(sgr_fg(plane.next().expect("the plane has room")));
+            one.extend(b"X");
             support::feed(t, &one);
+            n += 1;
         }
-        // Then one that buckets to the saved rendition's slot, so the full
-        // table evicts exactly that slot.
-        let thief = plane
-            .find(|&(r, g, b)| {
-                let w = StyleWord::DEFAULT.with_fg(ColorWord::rgb(
-                    Chan::from_u8(r),
-                    Chan::from_u8(g),
-                    Chan::from_u8(b),
-                ));
-                StyleId::bucket(w, len) == k.index()
-            })
-            .expect("some rendition buckets to the saved slot");
-        let mut one = sgr_fg(thief);
-        one.extend(b"X\x08");
-        support::feed(t, &one);
-        // The control: the saved rendition is gone from the table, so its
-        // old id names the thief.
+        // The control: a sweep ran, the saved rendition is gone from the
+        // table, and its old id names another.
+        assert!(t.style_reclaims().sweeps > 0);
         assert!(
             !t.styles()
                 .iter()
                 .flatten()
                 .any(|w| w.fg().as_rgb() == Some(saved)),
-            "no eviction took the saved rendition's slot, so the restore is not tested"
+            "the saved rendition is still in the table, so the restore is not tested"
         );
-        // DECRC, then a cell written in the restored rendition.
-        support::feed(t, b"\x1b8Z");
-        let z = t.row(Row::from_index(0)).expect("a row on the grid")[0];
-        assert_eq!(t.style_of(z).fg().as_rgb(), Some(saved));
+        assert_eq!(restored(t).fg().as_rgb(), Some(saved));
+    });
+}
+
+/// **The same through an eviction**: the table full of named renditions, a
+/// sweep frees only the saved one's slot, and the one rendition after it
+/// takes that slot, the next evicting. The restore interns the word again
+/// into a full table, which evicts, and the cell takes the saved colour.
+#[test]
+fn a_cursor_restored_into_a_full_table_takes_its_rendition() {
+    let ws = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    support::with_term(&ws, |t| {
+        let len = t.styles().len();
+        let saved = (200u8, 10u8, 10u8);
+        save_over_a_dead_cell(t, saved);
+        support::feed(t, b"\x1b[2;1H");
+        let plane = (0u8..=255).flat_map(|g| (1u8..=255).map(move |b| (0u8, g, b)));
+        support::feed(t, &named_renditions(len + 40, plane));
+        // The control: the table is full of named slots and evicted, and
+        // the saved rendition is gone from it.
+        assert!(t.styles().iter().all(Option::is_some));
+        assert!(t.style_reclaims().evictions > 0);
+        assert!(
+            !t.styles()
+                .iter()
+                .flatten()
+                .any(|w| w.fg().as_rgb() == Some(saved)),
+            "the saved rendition is still in the table"
+        );
+        let before = t.style_reclaims().evictions;
+        assert_eq!(restored(t).fg().as_rgb(), Some(saved));
+        assert_eq!(
+            t.style_reclaims().evictions,
+            before + 1,
+            "the restore evicted"
+        );
     });
 }

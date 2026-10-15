@@ -3,8 +3,8 @@
 //!
 //! The contract is exact: a reader that copies the slots
 //! `Term::styles_written` names since its count onto what it last copied
-//! holds the table as it is now, at every read boundary, through evictions,
-//! and when it has fallen more than a log behind.
+//! holds the table as it is now, at every read boundary, through sweeps and
+//! evictions, and when it has fallen more than a log behind.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -23,23 +23,42 @@ fn sgr_fg((r, g, b): (u8, u8, u8)) -> Vec<u8> {
     format!("\x1b[38;2;{r};{g};{b}m").into_bytes()
 }
 
-/// A program that mints `distinct` renditions, each written over one cell,
-/// with a hit -- the rendition before it again -- after every third, and an
-/// `SGR 0` after every tenth.
-fn program(distinct: Count) -> Vec<u8> {
+/// Where a program's cells go: over one cell, so each rendition dies when
+/// the next replaces it and the table sweeps, or each on a cell of its own,
+/// the rows pushed into the history, so every slot stays named and a full
+/// table evicts.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Cells {
+    One,
+    Own,
+}
+
+/// A program that mints `distinct` renditions, with a hit -- the rendition
+/// before it again -- after every third, and an `SGR 0` after every tenth.
+fn program(distinct: Count, cells: Cells) -> Vec<u8> {
+    let step: &[u8] = match cells {
+        Cells::One => b"\x08",
+        Cells::Own => b"",
+    };
     let mut out = Vec::new();
     let mut n = 0usize;
     'fill: for g in 0u8..=255 {
         for b in 1u8..=255 {
             out.extend(sgr_fg((7, g, b)));
-            out.extend(b"X\x08");
+            out.extend(b"X");
+            out.extend(step);
             n += 1;
             if n.is_multiple_of(3) {
                 out.extend(sgr_fg((7, g, b)));
-                out.extend(b"Y\x08");
+                out.extend(b"Y");
+                out.extend(step);
             }
             if n.is_multiple_of(10) {
-                out.extend(b"\x1b[0mZ\x08");
+                out.extend(b"\x1b[0mZ");
+                out.extend(step);
+                if cells == Cells::Own {
+                    out.extend(b"\r\n");
+                }
             }
             if n == distinct.index() {
                 break 'fill;
@@ -91,52 +110,67 @@ impl Reader {
 /// **Every write is logged**: a reader that replays the log after every read
 /// holds the table exactly, and so does one that catches up only every
 /// 40,000 bytes -- about 1,500 renditions, more than the log holds -- at read
-/// sizes 1, 3 and 4096, through a program that fills the table three times
-/// over and evicts.
+/// sizes 1, 3 and 4096, through a program that sweeps the table and one that
+/// fills it with named slots and evicts.
+///
+/// A sweep logs every slot it frees, up to one fewer than the table has, and
+/// then the rendition that asked for it: one write short of lapping a reader
+/// that caught up just before. So a reader replaying after every read of one
+/// or three bytes, which hold at most one `SGR`, is never lapped; a read of
+/// 4096 bytes can hold a sweep and more mints than the rest of the log.
 #[test]
 fn every_write_to_the_rendition_table_is_logged() {
-    let bytes = program(Count::of(3_500));
-    for chunk in [1usize, 3, 4096] {
-        support::with_term(&SMALL, |t| {
-            let len = t.styles().len();
-            assert_eq!(len, 1_024);
-            let mut close = Reader::new(t);
-            let mut far = Reader::new(t);
-            let mut fed = 0usize;
-            for (i, piece) in bytes.chunks(chunk).enumerate() {
-                t.write_at(BytePos::ZERO, piece);
-                t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
-                close.catch_up(t);
-                assert!(
-                    close.copy == t.styles(),
-                    "chunk {chunk}, read {i}: the replayed copy is not the table"
-                );
-                let before = fed;
-                fed += piece.len();
-                if fed / 40_000 != before / 40_000 {
-                    far.catch_up(t);
-                    assert!(far.copy == t.styles(), "chunk {chunk}, read {i}: far");
+    for cells in [Cells::One, Cells::Own] {
+        let bytes = program(Count::of(3_500), cells);
+        for chunk in [1usize, 3, 4096] {
+            support::with_term(&SMALL, |t| {
+                let len = t.styles().len();
+                assert_eq!(len, 1_024);
+                let mut close = Reader::new(t);
+                let mut far = Reader::new(t);
+                let mut fed = 0usize;
+                for (i, piece) in bytes.chunks(chunk).enumerate() {
+                    t.write_at(BytePos::ZERO, piece);
+                    t.feed(BytePos::ZERO, ReadLen::from_index(piece.len()));
+                    close.catch_up(t);
+                    assert!(
+                        close.copy == t.styles(),
+                        "{cells:?}, chunk {chunk}, read {i}: the replayed copy is not the table"
+                    );
+                    let before = fed;
+                    fed += piece.len();
+                    if fed / 40_000 != before / 40_000 {
+                        far.catch_up(t);
+                        assert!(
+                            far.copy == t.styles(),
+                            "{cells:?}, chunk {chunk}, read {i}: far"
+                        );
+                    }
                 }
-            }
-            far.catch_up(t);
-            assert!(far.copy == t.styles());
-            // The control: the program evicted, so the log lapped a reader
-            // that was a table behind, and the close reader never lapped.
-            assert!(
-                t.style_writes().past(len),
-                "the program never filled the table"
-            );
-            assert_eq!(
-                far.lapped,
-                Lapped::Yes,
-                "chunk {chunk}: the far reader never lapped"
-            );
-            assert_eq!(
-                close.lapped,
-                Lapped::Never,
-                "chunk {chunk}: the close reader lapped"
-            );
-        });
+                far.catch_up(t);
+                assert!(far.copy == t.styles());
+                // The controls: the program reached the reclaim it is for,
+                // the log lapped a reader that was a table behind, and the
+                // close reader at the small reads never lapped.
+                let r = t.style_reclaims();
+                match cells {
+                    Cells::One => assert!(r.sweeps > 0 && r.evictions == 0, "{r:?}"),
+                    Cells::Own => assert!(r.evictions > 0, "{r:?}"),
+                }
+                assert_eq!(
+                    far.lapped,
+                    Lapped::Yes,
+                    "{cells:?}, chunk {chunk}: the far reader never lapped"
+                );
+                if chunk < 4096 {
+                    assert_eq!(
+                        close.lapped,
+                        Lapped::Never,
+                        "{cells:?}, chunk {chunk}: the close reader lapped"
+                    );
+                }
+            });
+        }
     }
 }
 
@@ -144,7 +178,7 @@ fn every_write_to_the_rendition_table_is_logged() {
 #[test]
 fn the_log_lists_every_live_slot_once_until_full() {
     support::with_term(&SMALL, |t| {
-        support::feed(t, &program(Count::of(500)));
+        support::feed(t, &program(Count::of(500), Cells::One));
         let Written::Slots(parts) = t.styles_written(StyleWrites::NEVER) else {
             panic!("500 renditions in 1,024 slots lapped the log");
         };
@@ -167,13 +201,21 @@ fn the_log_lists_every_live_slot_once_until_full() {
 fn a_lapped_reader_is_told_every() {
     support::with_term(&SMALL, |t| {
         let len = t.styles().len();
-        // Fill the table: slot 0 and 1,023 distinct renditions.
+        // Fill the table: slot 0 and 1,023 distinct renditions, each on a
+        // cell of its own and kept in the history, so a sweep frees nothing
+        // and logs nothing, and each rendition is one write.
         let mut plane = (0u8..=255).flat_map(|g| (1u8..=255).map(move |b| (9u8, g, b)));
+        let mut n = 0;
         while !t.style_writes().past(len - 1) {
             let mut one = sgr_fg(plane.next().expect("room"));
-            one.extend(b"X\x08");
+            one.extend(b"X");
+            n += 1;
+            if n % 40 == 0 {
+                one.extend(b"\r\n");
+            }
             support::feed(t, &one);
         }
+        assert_eq!(t.style_reclaims().freed, 0, "the control: nothing freed");
         // Exactly `len` writes: a reader at NEVER is a log behind and not
         // more, so it is given the entries.
         assert!(matches!(
@@ -181,7 +223,7 @@ fn a_lapped_reader_is_told_every() {
             Written::Slots(_)
         ));
         let mut one = sgr_fg(plane.next().expect("room"));
-        one.extend(b"X\x08");
+        one.extend(b"X");
         support::feed(t, &one);
         assert!(
             matches!(t.styles_written(StyleWrites::NEVER), Written::Every),

@@ -2435,6 +2435,15 @@ impl<'b> Term<'b> {
         self.store.style_log.book.writes
     }
 
+    /// **What the rendition table has reclaimed**: evictions, sweeps and the
+    /// slots the sweeps freed. A reader holding a frame repaints all of it
+    /// when [`Reclaims::recolours_since`] says so: an eviction recolours
+    /// cells, and a slot a sweep freed can be given another rendition at a
+    /// position the last frame showed in the old one.
+    pub fn style_reclaims(&self) -> Reclaims {
+        self.store.style_log.book.sweep.reclaims
+    }
+
     /// **The slots written since a count**, oldest first, as up to two slices
     /// of the log: or [`Written::Every`] when the reader is more than the
     /// table's length behind, and the ring has overwritten what it missed. A

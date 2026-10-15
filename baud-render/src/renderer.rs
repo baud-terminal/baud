@@ -127,6 +127,8 @@ pub struct StyleStamp {
     at: baud_domain::StyleWrites,
     inputs: Option<StyleInputs>,
     blinking: Tally,
+    /// What the core had reclaimed when this copy was stamped.
+    reclaims: Option<baud_domain::Reclaims>,
 }
 
 /// How a sync resolved a copy: the slots written since it was stamped, or
@@ -138,8 +140,11 @@ pub enum Pass {
     Full,
 }
 
-/// Whether a sync replayed a write that evicted a slot a cell may name: the
-/// cell's word is the same and its colour is not, so row damage cannot see it.
+/// Whether the table reclaimed a slot since the copy was stamped -- evicted a
+/// slot a cell may name, or swept one free that a later write may give
+/// another rendition where the last frame showed the old one. Either way the
+/// cell's word is the same and its colour is not, so row damage cannot see
+/// it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Evicted {
     #[default]
@@ -1793,9 +1798,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 });
         // Every slot resolved again -- a theme, a video or a palette changed
         // -- repaints every cell whose words did not change, and so does an
-        // eviction, which gives a slot some cell names another rendition. A
-        // slot filled since changes no drawn cell: no cell named it before,
-        // and a cell that names it now is a changed word.
+        // eviction, which gives a slot some cell names another rendition, and
+        // so does a sweep that freed a slot: a later write can give it
+        // another rendition where the last frame drew the old one, under the
+        // same word (`Reclaims::recolours_since`). A slot filled since
+        // otherwise changes no drawn cell: no cell named it before, and a
+        // cell that names it now is a changed word.
         //
         // The screen fade veils every row, so a change to it -- spawned,
         // stepped or cleared -- makes the whole frame dirty. It is not a
@@ -2257,8 +2265,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
     ///
     /// **A slot is the same in every blink phase** (`Shapes::BLINKS`), and
     /// whether blinking text is on screen is not this table's answer: a slot
-    /// no cell names is not on screen, and the table never frees one. It
-    /// counts the blinking slots, and the overlay's walk answers.
+    /// no cell names is not on screen, and the table frees one only when it
+    /// sweeps. It counts the blinking slots, and the overlay's walk answers.
     pub fn resolve_styles_into(&mut self, term: &Term<'_>, out: &mut [Resolved]) -> Tally {
         self.refresh_screen(term);
         let table = term.styles();
@@ -2348,7 +2356,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
         }
-        if fresh && now > stamp.at && now.past(slots.len()) {
+        // The core's own count of what it reclaimed, and not writes past the
+        // table's length: a table that sweeps passes its length without
+        // evicting, and logs every slot a sweep frees.
+        let reclaims = term.style_reclaims();
+        if fresh && stamp.reclaims.is_some_and(|r| reclaims.recolours_since(r)) {
             sync.evicted = Evicted::Yes;
         }
         *stamp = StyleStamp {
@@ -2356,6 +2368,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             at: now,
             inputs: Some(inputs),
             blinking: stamp.blinking,
+            reclaims: Some(reclaims),
         };
         self.blink_slots = stamp.blinking;
         sync

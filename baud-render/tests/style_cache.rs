@@ -46,15 +46,25 @@ fn agrees(r: &mut Renderer<'_, '_>, t: &Term<'_>, copy: &[Resolved], what: &str)
     }
 }
 
-/// A program that fills a 1,024-slot table and evicts: 2,500 distinct
-/// truecolour renditions over one cell, with hits between them.
-fn evicting() -> Vec<u8> {
+/// 2,500 distinct truecolour renditions in a 1,024-slot table, with hits
+/// between them: over one cell, so each dies when the next replaces it and
+/// the table sweeps (`sweeping`), or each on a cell of its own, pushed into
+/// the history, so every slot stays named and the table evicts (`evicting`).
+fn churning(own_cells: bool) -> Vec<u8> {
     let mut out = Vec::new();
     let mut n = 0usize;
+    let step: &[u8] = if own_cells { b"" } else { b"\x08" };
     'fill: for g in 0u8..=255 {
         for b in 1u8..=255 {
-            out.extend(format!("\x1b[38;2;3;{g};{b}mX\x08\x1b[1mY\x08\x1b[0m").as_bytes());
+            out.extend(format!("\x1b[38;2;3;{g};{b}mX").as_bytes());
+            out.extend(step);
+            out.extend(b"\x1b[1mY");
+            out.extend(step);
+            out.extend(b"\x1b[0m");
             n += 1;
+            if own_cells && n.is_multiple_of(20) {
+                out.extend(b"\r\n");
+            }
             if n == 2_500 {
                 break 'fill;
             }
@@ -79,7 +89,12 @@ fn the_cache_equals_a_full_resolve_at_every_read_boundary() {
         .iter()
         .map(|n| (n.to_string(), WS, recording(n)))
         .collect();
-    streams.push(("evicting".into(), small, evicting()));
+    let small_too = WinSize {
+        ws_row: small.ws_row,
+        ws_col: small.ws_col,
+    };
+    streams.push(("sweeping".into(), small_too, churning(false)));
+    streams.push(("evicting".into(), small, churning(true)));
     for (name, ws, bytes) in streams {
         let mut r = renderer(&faces, &ws);
         let mut owned = Owned::new(&ws);
@@ -114,6 +129,13 @@ fn the_cache_equals_a_full_resolve_at_every_read_boundary() {
                     );
                 }
             }
+        }
+        // The controls: each churn reached the reclaim it is named for.
+        let r = t.style_reclaims();
+        match name.as_str() {
+            "sweeping" => assert!(r.sweeps > 0 && r.evictions == 0, "{r:?}"),
+            "evicting" => assert!(r.evictions > 0, "{r:?}"),
+            _ => {}
         }
     }
 }
@@ -228,8 +250,10 @@ fn a_palette_entry_set_to_black_repaints_on_an_incremental_frame() {
 
 /// **An eviction repaints the rows whose words did not change**: a slot a
 /// cell names given to another rendition changes the cell's colour and not
-/// its word. A 1,024-slot table filled, then one rendition bucketing to the
-/// slot the text on row 0 names.
+/// its word. A 1,024-slot table filled with renditions each on a cell of its
+/// own, pushed into the history so every one stays named and a sweep frees
+/// nothing; then the text on row 0, in the table's last free slot; then one
+/// rendition bucketing to the text's slot, which evicts it.
 #[test]
 fn an_eviction_repaints_rows_whose_words_did_not_change() {
     let data = font("JetBrainsMono-Regular.ttf");
@@ -238,23 +262,36 @@ fn an_eviction_repaints_rows_whose_words_did_not_change() {
         ws_row: 10,
         ws_col: 40,
     };
-    // The text's rendition, and where it lands.
-    let text = b"\x1b[38;2;200;10;10mvictim\x1b[0m\r\n";
-    let slot = {
+    let mut plane = (0u8..=255).flat_map(|g| (1u8..=255).map(move |b| (5u8, g, b)));
+    let mut before = Vec::new();
+    for i in 0..1_022 {
+        let (r, g, b) = plane.next().unwrap();
+        before.extend(format!("\x1b[38;2;{r};{g};{b}mX").as_bytes());
+        if (i + 1) % 40 == 0 {
+            before.extend(b"\r\n");
+        }
+    }
+    before.extend(b"\x1b[0m");
+    before.extend([b'\n'; 10]);
+    // The cursor waits on row 5, hidden, so the thief's write dirties row 5
+    // alone and row 0 is repainted only for its colour.
+    before.extend(b"\x1b[H\x1b[38;2;200;10;10mvictim\x1b[0m\x1b[5;1H\x1b[?25l");
+    // Where the text landed, and the controls: the table is full of named
+    // slots, so the thief has to evict.
+    let (slot, len) = {
         let mut owned = Owned::new(&small);
         let mut t = Term::new(owned.storage(), &small);
-        feed(&mut t, text);
-        t.row(baud_domain::Row::from_index(0))
-            .expect("a row on the grid")[0]
-            .style
+        feed(&mut t, &before);
+        assert!(
+            t.styles().iter().all(Option::is_some),
+            "the table is not full"
+        );
+        assert_eq!(t.style_reclaims().evictions, 0);
+        let row = t
+            .row(baud_domain::Row::from_index(0))
+            .expect("a row on the grid");
+        (row[0].style, t.styles().len())
     };
-    // Fill the table on row 1, then the thief.
-    let mut fill = Vec::new();
-    let mut plane = (0u8..=255).flat_map(|g| (1u8..=255).map(move |b| (5u8, g, b)));
-    for _ in 0..1_100 {
-        let (r, g, b) = plane.next().unwrap();
-        fill.extend(format!("\x1b[38;2;{r};{g};{b}mX\x08").as_bytes());
-    }
     let thief = plane
         .find(|&(r, g, b)| {
             let w = baud_domain::StyleWord::DEFAULT.with_fg(baud_domain::ColorWord::rgb(
@@ -262,13 +299,25 @@ fn an_eviction_repaints_rows_whose_words_did_not_change() {
                 baud_domain::Chan::from_u8(g),
                 baud_domain::Chan::from_u8(b),
             ));
-            baud_domain::StyleId::bucket(w, 1_024) == slot.index()
+            baud_domain::StyleId::bucket(w, len) == slot.index()
         })
         .unwrap();
-    let mut before = text.to_vec();
-    before.extend(&fill);
-    before.extend(b"\x1b[?25l");
     let between = format!("\x1b[38;2;{};{};{}mX\x08\x1b[0m", thief.0, thief.1, thief.2);
+    {
+        let mut owned = Owned::new(&small);
+        let mut t = Term::new(owned.storage(), &small);
+        feed(&mut t, &before);
+        feed(&mut t, between.as_bytes());
+        assert_eq!(t.style_reclaims().evictions, 1, "the control: it evicted");
+        let row = t
+            .row(baud_domain::Row::from_index(0))
+            .expect("a row on the grid");
+        assert_eq!(
+            t.style_of(row[0]).fg().as_rgb(),
+            Some(thief),
+            "the control: the text's slot is the thief's"
+        );
+    }
     let (inc, full) = incremental_and_full(&faces, &small, &before, between.as_bytes());
     assert_eq!(inc, full, "row 0's text kept its evicted colour");
 }

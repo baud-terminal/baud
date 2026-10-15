@@ -79,6 +79,9 @@ pub use baud_domain::{
 /// Focus reporting's vocabulary, for the same reason: an embedder that cannot
 /// name a [`Focus`] cannot call [`Term::focus`].
 pub use baud_domain::Focus;
+/// What [`Term::style_reclaims`] returns: the rendition table's evictions,
+/// sweeps and the slots they freed.
+pub use baud_domain::Reclaims;
 /// VT52 is a protocol an embedder can be in, so it can be asked about.
 pub use baud_domain::TerminalMode;
 /// Mouse reporting's vocabulary: an embedder that cannot name a

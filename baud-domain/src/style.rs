@@ -319,10 +319,11 @@ impl StyleId {
 }
 
 /// **How many writes the rendition table has taken** since it was allocated:
-/// every slot filled and every slot evicted, in order. A reader that resolved
-/// the table up to one count asks for the slots written since, and the table
-/// never frees a slot, so while the count is no more than the table's length
-/// the writes are exactly the live slots.
+/// every slot filled, evicted or freed by a sweep, in order. A reader that
+/// resolved the table up to one count asks for the slots written since.
+/// Until the first sweep or eviction the table frees no slot, so while the
+/// count is no more than the table's length the writes are exactly the
+/// filled slots.
 ///
 /// Zero is a table nothing has written; slot 0's reservation is write 1.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
@@ -353,9 +354,10 @@ impl StyleWrites {
         (self.0 - 1) as usize & (len - 1)
     }
 
-    /// Whether the table had taken more writes than it has slots, `len`: a
-    /// table fills each slot once and never frees one, so any write past its
-    /// length evicted a slot a cell may still name.
+    /// Whether the table had taken more writes than it has slots, `len`. A
+    /// table that sweeps passes its length without evicting, so this says
+    /// nothing about whether a slot was reclaimed: that is
+    /// [`Reclaims`]'s.
     pub fn past(self, len: usize) -> bool {
         self.0 > len as u64
     }
@@ -512,6 +514,135 @@ pub struct StyleWord {
     /// `Run::_pad` exists: uninitialised tail bytes leak stack across any
     /// shm or disk boundary.
     _pad: u16,
+}
+
+impl StyleWord {
+    /// **A slot a sweep freed that a live rendition's probe path crosses**,
+    /// kept filled so the probe walks on to that rendition: emptied, it would
+    /// end the walk there, and naming the rendition again would intern it a
+    /// second time. A new rendition takes it as it takes an empty slot. No
+    /// `SGR` folds to it, because `_pad` is zero in every word a fold makes,
+    /// and no cell names it, because only a slot no cell names becomes one.
+    pub const TOMBSTONE: StyleWord = StyleWord {
+        fg: ColorWord::DEFAULT,
+        bg: ColorWord::DEFAULT,
+        underline: ColorWord::DEFAULT,
+        attrs: Attrs::NONE,
+        font: FontId::PRIMARY,
+        _pad: 1,
+    };
+}
+
+/// **Which slots of a rendition table some cell names**, for a sweep: one
+/// bit a slot of the largest table, since a [`StyleId`] is a `u16`. 8 KiB,
+/// so it lives on the sweep's stack and nowhere else.
+pub struct SlotSet([u64; SlotSet::WORDS]);
+
+impl SlotSet {
+    const WORDS: usize = (1 << 16) / 64;
+    pub const fn new() -> SlotSet {
+        SlotSet([0; SlotSet::WORDS])
+    }
+    pub fn insert(&mut self, id: StyleId) {
+        let k = id.index();
+        self.0[k >> 6] |= 1 << (k & 63);
+    }
+    /// Every slot a cell of `cells` names.
+    pub fn mark(&mut self, cells: &[PackedCell]) {
+        for c in cells {
+            self.insert(c.style);
+        }
+    }
+    pub fn has(&self, k: usize) -> bool {
+        self.0[(k >> 6) & (SlotSet::WORDS - 1)] & (1 << (k & 63)) != 0
+    }
+}
+
+impl Default for SlotSet {
+    fn default() -> SlotSet {
+        SlotSet::new()
+    }
+}
+
+/// **What the rendition table has reclaimed**, counted for a reader that
+/// holds a frame. An eviction gives a slot some cell names another rendition;
+/// a sweep frees slots no cell names, which a later write can give another
+/// rendition at a position the reader's last frame showed in the old one --
+/// the cell's word unchanged and its colour not. Either way row damage
+/// cannot see it, so a reader whose count moved repaints everything
+/// ([`Reclaims::recolours_since`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Reclaims {
+    /// Renditions written over a slot a cell may name: the full table's
+    /// last resort, when even a sweep found no slot free.
+    pub evictions: u64,
+    pub sweeps: u64,
+    /// Slots a sweep emptied or made a [`StyleWord::TOMBSTONE`], over every
+    /// sweep: a tombstone a sweep finds again is not counted twice.
+    pub freed: u64,
+}
+
+impl Reclaims {
+    /// Whether a slot may name another rendition than it did at `since`: an
+    /// eviction, or a sweep that freed one. A sweep that freed nothing
+    /// changed no slot.
+    pub fn recolours_since(self, since: Reclaims) -> bool {
+        self.evictions != since.evictions || self.freed != since.freed
+    }
+}
+
+/// **The sweep's book beside the rendition table**: how full it is, how many
+/// of its filled slots are tombstones, the write count at the last sweep, and
+/// what it has reclaimed. In the caller's memory with the table
+/// (`StyleBook`), so a terminal lent the table again finds them as it left
+/// them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct SweepBook {
+    /// Filled slots, tombstones included; slot 0 is not counted.
+    pub filled: usize,
+    /// Tombstones in the table. A miss looks for one on its path only when
+    /// there is one, so a table that never swept never looks.
+    pub tombs: usize,
+    pub swept_at: StyleWrites,
+    pub reclaims: Reclaims,
+}
+
+impl SweepBook {
+    /// The load a fill may not pass without a sweep: 7/8 of the table, where
+    /// a linear probe's miss averages 32.5 slots (Knuth's `(1 + 1/(1-a)^2)/2`)
+    /// and is still climbing towards the whole table's walk at full load.
+    pub const LOAD: (usize, usize) = (7, 8);
+    /// Whether `len / 16` writes have passed since the last sweep, so a
+    /// table whose cells name nearly every slot is not swept a rendition at
+    /// a time.
+    pub fn due(&self, now: StyleWrites, len: usize) -> bool {
+        now.0.saturating_sub(self.swept_at.0) >= (len / 16) as u64
+    }
+    /// Whether one more filled slot passes [`SweepBook::LOAD`].
+    pub fn over_load(&self, len: usize) -> bool {
+        (self.filled + 1) * SweepBook::LOAD.1 > len * SweepBook::LOAD.0
+    }
+    /// A miss filled an empty slot.
+    pub fn filled_one(&mut self) {
+        self.filled += 1;
+    }
+    /// A miss took a tombstone.
+    pub fn tomb_taken(&mut self) {
+        self.tombs = self.tombs.saturating_sub(1);
+    }
+    pub fn evicted(&mut self) {
+        self.reclaims.evictions += 1;
+    }
+    /// A sweep ran, after its frees were logged at `now`: `freed` slots
+    /// emptied or made tombstones, and `filled` left filled, `tombs` of them
+    /// tombstones.
+    pub fn swept(&mut self, now: StyleWrites, freed: usize, filled: usize, tombs: usize) {
+        self.filled = filled;
+        self.tombs = tombs;
+        self.swept_at = now;
+        self.reclaims.sweeps += 1;
+        self.reclaims.freed += freed as u64;
+    }
 }
 
 /// Which of the ten fonts `[[source: ctlseqs]]` gives SGR the text is set in.
