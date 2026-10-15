@@ -470,6 +470,7 @@ files   = [
   "vt3xx-sixel.html",
   "vt420-uu-chapter9.html",
   "vt510-CHA.html",
+  "vt510-CHT.html",
   "vt510-DECALN.html",
   "vt510-DECANM.html",
   "vt510-DECARM.html",
@@ -502,6 +503,7 @@ files   = [
   "vt510-S8C1T.html",
   "vt510-SCS.html",
   "vt510-SS.html",
+  "vt510-chapter4.html",
   "vt510-chapter7.html",
 ]
 
@@ -1176,6 +1178,7 @@ files   = [
   "xterm-misc.c",
   "xterm-ptydata.c",
   "xterm-ptyx.h",
+  "xterm-tabs.c",
   "xterm-util.c",
   "xterm-xterm.h",
   "xterm-xterm.log.html",

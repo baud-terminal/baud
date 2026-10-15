@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 229 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 231 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 256 | 16 | redistributable, and its notice is satisfied |
+| kept | 257 | 16 | redistributable, and its notice is satisfied |
 | own | 187 | 0 | the owner's work |
-| total | 700 | 27 | |
+| total | 703 | 27 | |
 
 ## Licence texts in LICENSES/
 
@@ -457,7 +457,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 42
+- **Files:** 44
 
 | file | copied from |
 |---|---|
@@ -470,6 +470,7 @@ notice is, and the URL each file was copied from.
 | [vt3xx-sixel.html](docs/research/sources/vt3xx-sixel.html) | https://vt100.net/docs/vt3xx-gp/chapter14.html |
 | [vt420-uu-chapter9.html](docs/research/sources/vt420-uu-chapter9.html) | https://vt100.net/docs/vt420-uu/chapter9.html |
 | [vt510-CHA.html](docs/research/sources/vt510-CHA.html) | https://vt100.net/docs/vt510-rm/CHA.html |
+| [vt510-CHT.html](docs/research/sources/vt510-CHT.html) | https://vt100.net/docs/vt510-rm/CHT.html |
 | [vt510-DECALN.html](docs/research/sources/vt510-DECALN.html) | https://vt100.net/docs/vt510-rm/DECALN.html |
 | [vt510-DECANM.html](docs/research/sources/vt510-DECANM.html) | https://vt100.net/docs/vt510-rm/DECANM.html |
 | [vt510-DECARM.html](docs/research/sources/vt510-DECARM.html) | https://vt100.net/docs/vt510-rm/DECARM.html |
@@ -502,6 +503,7 @@ notice is, and the URL each file was copied from.
 | [vt510-S8C1T.html](docs/research/sources/vt510-S8C1T.html) | https://vt100.net/docs/vt510-rm/S8C1T.html |
 | [vt510-SCS.html](docs/research/sources/vt510-SCS.html) | https://vt100.net/docs/vt510-rm/SCS.html |
 | [vt510-SS.html](docs/research/sources/vt510-SS.html) | https://vt100.net/docs/vt510-rm/SS.html |
+| [vt510-chapter4.html](docs/research/sources/vt510-chapter4.html) | https://vt100.net/docs/vt510-rm/chapter4.html |
 | [vt510-chapter7.html](docs/research/sources/vt510-chapter7.html) | https://vt100.net/docs/vt510-rm/chapter7.html |
 
 ### Gists with no licence (aras-p, rockorager, pervognsen)
@@ -1659,7 +1661,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11
 - **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
-- **Files:** 17
+- **Files:** 18
 
 | file | copied from |
 |---|---|
@@ -1675,6 +1677,7 @@ notice is, and the URL each file was copied from.
 | [xterm-misc.c](docs/research/sources/xterm-misc.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/misc.c |
 | [xterm-ptydata.c](docs/research/sources/xterm-ptydata.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/ptydata.c |
 | [xterm-ptyx.h](docs/research/sources/xterm-ptyx.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/ptyx.h |
+| [xterm-tabs.c](docs/research/sources/xterm-tabs.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/tabs.c |
 | [xterm-util.c](docs/research/sources/xterm-util.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/util.c |
 | [xterm-xterm.h](docs/research/sources/xterm-xterm.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xterm.h |
 | [xterm-xterm.log.html](docs/research/sources/xterm-xterm.log.html) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/bccd466414dc4ecb264a3824a6f1e41bebe65214/xterm.log.html |

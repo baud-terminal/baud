@@ -1363,19 +1363,24 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// `HT` and `CHT`. Under DECOM the stop is clamped to the right margin:
-    /// HT note 1 (`[[source: dec-std-070]]` p. 5-67) stops there when no stop
-    /// comes first, and the cursor is inside the margins whenever DECOM is set.
-    /// **The clamp is out of line** ([`Paint::confine_cursor_col`]): carried
-    /// in, it took this function past what `act` inlines, and moving `HT` to
-    /// a call reshaped the per-byte loop.
+    /// `HT` and `CHT`: the next stop, or the edge [`Paint::tab_end`] names
+    /// when none comes first. At full width that is the last column; under
+    /// side margins narrower than the screen it depends on where the cursor
+    /// starts, and **that question is out of line**: carried in, a clamp took
+    /// this function past what `act` inlines, and moving `HT` to a call
+    /// reshaped the per-byte loop. A cursor at a pending wrap, the sentinel
+    /// one past the edge, comes back to it, as at full width.
     pub(crate) fn tab_forward(&mut self, n: Count) {
         let last = self.cols.index() - 1;
+        let end = match self.cold.right.index() == last {
+            true => last,
+            false => self.tab_end().index(),
+        };
         for _ in 0..n.at_least_one().min(self.cols.index()) {
             let mut x = self.cx.index();
             loop {
-                if x >= last {
-                    x = last;
+                if x >= end {
+                    x = end;
                     break;
                 }
                 x += 1;
@@ -1385,12 +1390,72 @@ impl Paint<'_, '_> {
             }
             self.set_col(Col::at_index(x));
         }
-        if self.cold.modes.is_set(ModeBit::Origin) {
-            self.confine_cursor_col();
+    }
+
+    /// Where `HT` stops when no tab stop comes first, under a right margin
+    /// left of the last column. `[[source: dec-std-070]]` HT note 1 (p.
+    /// 5-67): "If no tabulation stop is reached before the Right Margin of
+    /// the Active Line (within the Scroll Area), the Active Position will be
+    /// set to the Right Margin of the Active Line. If the Active Column is
+    /// beyond the Right Margin or the Active Line is outside the Scroll Area
+    /// (due to absolute cursor positioning), the Active Position will move to
+    /// the next tab stop, or last column of the Active Line, whichever comes
+    /// first."
+    ///
+    /// **The scroll area includes its margin rows**, as note 1 and BS's
+    /// algorithm (p. 5-63) have it; HT's own algorithm (p. 5-68) compares
+    /// strictly, which would put them outside (`docs/record.md`, "HT and BS
+    /// under side margins"). **A pending wrap is on the right margin**:
+    /// with `DECAWM` set the sentinel one past it reads as on it, as
+    /// [`crate::Term::wrap_pending`] reads it; with it reset no wrap is
+    /// pending, so one past the margin is beyond it. Under DECOM every move
+    /// keeps the cursor inside the margins (the `?6` row of
+    /// `docs/vt-coverage.md`), so the right margin stops it with no test of
+    /// the mode here.
+    #[cold]
+    #[inline(never)]
+    fn tab_end(&self) -> Col {
+        let right = self.cold.right;
+        let y = self.cy.index();
+        let pending = usize::from(self.cold.modes.is_set(ModeBit::AutoWrap));
+        let inside = y >= self.cold.top.index()
+            && y <= self.cold.bot.index()
+            && self.cx.index() <= right.index() + pending;
+        match inside {
+            true => right,
+            false => Col::at_index(self.cols.index() - 1),
         }
     }
 
-    /// `CBT`, clamped to the left margin under DECOM, out of line as `HT` is.
+    /// `BS` where the column is at or left of the left margin. `[[source:
+    /// dec-std-070]]` BS, p. 5-63, note 1: "If the Active Position is at or
+    /// inside the Left Margin and within the Scroll Area, it will not move
+    /// beyond the Left Margin"; note 2: "If the Active Position is already
+    /// before the Left Margin, the Active Position will move left one column
+    /// unless it is at the first column of the Active Line." Its algorithm
+    /// moves a cursor on the margin too when its line is above the top margin
+    /// or below the bottom. **Where it does not move, `?45` reverse-wraps**,
+    /// bounded by the scrolling region's top (the `Act::Backspace` arm).
+    ///
+    /// At full width the left margin is column 0, so only a cursor there
+    /// arrives, and it does not move.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn back_space_at_left(&mut self) {
+        let x = self.cx.index();
+        let y = self.cy.index();
+        let free =
+            x < self.cold.left.index() || y < self.cold.top.index() || y > self.cold.bot.index();
+        if free && x > 0 {
+            self.set_col(Col::at_index(x - 1));
+        } else if self.cold.modes.is_set(ModeBit::ReverseWrap) && y > self.cold.top.index() {
+            self.set_row(Row::from_index(y - 1));
+            self.set_col(self.cold.right);
+        }
+    }
+
+    /// `CBT`, clamped to the left margin under DECOM, the clamp out of line
+    /// for the reason `HT`'s edge is.
     pub(crate) fn tab_back(&mut self, n: Count) {
         for _ in 0..n.at_least_one().min(self.cols.index()) {
             let mut x = self.cx.index();

@@ -342,6 +342,38 @@ const PAST_PAGE: &str = "ghostty departs: a DECSLRM right margin or DECSTBM bott
                          Terminal.zig 2610 and 2596), as xterm's is (charproc.c \
                          4891-4894 and 4779-4782); STD 070's note 3 (pp. 5-27 and 5-25) \
                          and algorithms say the control is ignored (not executed)";
+/// `?69l` puts the margins back and leaves the cursor, so the `X` after it
+/// lands on the cursor's own column on both terminals: right of the old
+/// fence with no wrap first, and where baud's `Term::cursor` would clamp it.
+const PROBE: &str = "\x1b[?69lX";
+/// ghostty's `HT` from right of the right margin.
+const HT_PAST_RIGHT: &str = "ghostty departs: HT from beyond the right margin does not move \
+                             (horizontalTab loops while x < right, Terminal.zig 2257); STD \
+                             070 HT note 1 (p. 5-67) moves it to the next tab stop or the \
+                             last column; xterm's TabToNextStop pulls it back to the right \
+                             margin (tabs.c 152-156)";
+/// ghostty's `HT` on a row outside the scroll area.
+const HT_OUTSIDE: &str = "ghostty departs: HT on a row outside the scroll area stops at the \
+                          right margin (Terminal.zig 2257); STD 070 HT note 1 (p. 5-67) \
+                          moves it to the next tab stop or the last column there; xterm \
+                          stops it at the right margin on every row (tabs.c 152-155)";
+/// ghostty's `HT` at a pending wrap keeps it.
+const HT_WRAP: &str = "ghostty departs: HT at a pending wrap keeps the wrap pending \
+                       (horizontalTab moves nothing, Terminal.zig 2257); STD 070 D.6.1 \
+                       (pp. D-13, D-14) lists HORIZONTAL_TAB among the controls that \
+                       reset the Last Column Flag, and p. C-20 records the PRO 350's \
+                       HT not resetting it as a product defect to fix";
+/// ghostty's `BS` at the left margin.
+const BS_MARGIN: &str = "ghostty departs: without ?45 BS passes the left margin on every \
+                         row (cursorLeft's min(count, x), Terminal.zig 1913), and with \
+                         ?45 it stops there on every row; STD 070 BS notes 1-2 (p. 5-63) \
+                         stop it at the margin inside the scroll area only. xterm stops \
+                         it at the margin on every row (CursorBack, cursor.c 148-149)";
+/// baud's `?45` reverse-wraps onto a row that did not wrap.
+const REVWRAP_UNWRAPPED: &str = "found, not fixed: baud's ?45 reverse-wraps onto the row above \
+                                 whether or not it wrapped; ghostty, and xterm since 2023 \
+                                 (CursorBack's LineTstWrapped, cursor.c 176-182), only onto \
+                                 a row that soft-wrapped";
 /// Note V's full-width pending-wrap follow-ons, each a later decision.
 const FOLLOW_ON: &str = "note V's full-width follow-ons: baud keeps the sentinel \
                          across LF, ghostty clears its pending_wrap";
@@ -729,6 +761,104 @@ fn fixtures() -> Vec<Fixture> {
             "decstbm: a bottom margin on the last line",
             "\x1b[2;5r\x1b[2;8r\x1b[?6h\x1b[99;1HX".to_string(),
             Agree,
+        ),
+        // ---- HT and BS: where the cursor starts decides the edge ------------
+        // STD 070 HT note 1 (p. 5-67) and BS notes 1-2 (p. 5-63); each ends in
+        // PROBE, which reads the cursor's column on both terminals.
+        f(
+            "htbs: HT inside stops at the right margin",
+            format!("{TB}{LRM}\x1b[3;9H\t{PROBE}"),
+            Agree,
+        ),
+        f(
+            "htbs: HT on the right margin stays there",
+            format!("{TB}{LRM}\x1b[3;10H\t{PROBE}"),
+            Agree,
+        ),
+        f(
+            "htbs: HT from left of the margin with no stops",
+            format!("{TB}{LRM}\x1b[3g\x1b[3;2H\t{PROBE}"),
+            Agree,
+        ),
+        f(
+            "htbs: HT on the top margin row stops at the right margin",
+            format!("{TB}{LRM}\x1b[2;9H\t{PROBE}"),
+            Agree,
+        ),
+        f(
+            "htbs: HT on the last row with no region stops at the right margin",
+            format!("{LRM}\x1b[8;9H\t{PROBE}"),
+            Agree,
+        ),
+        f(
+            "htbs: CHT 2 stops at the right margin",
+            format!("{TB}{LRM}\x1b[3;6H\x1b[2I{PROBE}"),
+            Agree,
+        ),
+        f(
+            "htbs: HT from two columns right of the right margin",
+            format!("{TB}{LRM}\x1b[3;12H\t{PROBE}"),
+            Pinned(HT_PAST_RIGHT),
+        ),
+        f(
+            "htbs: HT one past the right margin under ?7l",
+            format!("{TB}{LRM}\x1b[?7l\x1b[3;11H\t{PROBE}"),
+            Pinned(HT_PAST_RIGHT),
+        ),
+        f(
+            "htbs: HT on a row above the region",
+            format!("{TB}{LRM}\x1b[1;9H\t{PROBE}"),
+            Pinned(HT_OUTSIDE),
+        ),
+        f(
+            "htbs: HT at a pending wrap under side margins",
+            format!("{TB}{LRM}\x1b[3;5Habcdef\t{PROBE}"),
+            Pinned(HT_WRAP),
+        ),
+        f(
+            "htbs: HT at a pending wrap at full width",
+            "\x1b[3;1Hzzzzzzzzzzzzzzzzzzzz\tX".to_string(),
+            Pinned(HT_WRAP),
+        ),
+        f(
+            "htbs: BS left of the left margin moves one column",
+            format!("{TB}{LRM}\x1b[3;3H\x08{PROBE}"),
+            Agree,
+        ),
+        f(
+            "htbs: BS on the first column left of the margin",
+            format!("{TB}{LRM}\x1b[3;1H\x08{PROBE}"),
+            Agree,
+        ),
+        f(
+            "htbs: BS at the left margin on a row below the region",
+            format!("{TB}{LRM}\x1b[8;5H\x08{PROBE}"),
+            Agree,
+        ),
+        f(
+            "htbs: ?45 BS left of the left margin moves one column",
+            format!("{TB}{LRM}\x1b[?45h\x1b[3;3H\x08{PROBE}"),
+            Agree,
+        ),
+        f(
+            "htbs: BS at the left margin inside the region stops",
+            format!("{TB}{LRM}\x1b[3;5H\x08{PROBE}"),
+            Pinned(BS_MARGIN),
+        ),
+        f(
+            "htbs: BS at the left margin on the top margin row stops",
+            format!("{TB}{LRM}\x1b[2;5H\x08{PROBE}"),
+            Pinned(BS_MARGIN),
+        ),
+        f(
+            "htbs: ?45 BS at the left margin on a row below the region",
+            format!("{TB}{LRM}\x1b[?45h\x1b[8;5H\x08{PROBE}"),
+            Pinned(BS_MARGIN),
+        ),
+        f(
+            "htbs: ?45 BS at the left margin inside the region",
+            format!("{TB}{LRM}\x1b[?45h\x1b[3;5H\x08{PROBE}"),
+            Pinned(REVWRAP_UNWRAPPED),
         ),
         // ---- side margins: the later steps ----------------------------------
         f(

@@ -393,13 +393,16 @@ pub(crate) fn act(
         // Bounded by the scrolling region's top, not by row 0: reverse-wrapping
         // out of a region would put the cursor somewhere the application has
         // told the terminal it is not drawing.
+        //
+        // **At or left of the left margin, where it starts decides**
+        // (`Paint::back_space_at_left`, out of line): left of the margin, or
+        // on a row outside the scrolling region, it moves one column
+        // (`[[source: dec-std-070]]` BS, p. 5-63); inside both it stops, and
+        // there `?45` reverse-wraps.
         Act::Backspace => {
-            if p.cx.index() > p.cold.left.index() {
-                p.set_col(Col::at_index(p.cx.index() - 1));
-            } else if p.cold.modes.is_set(ModeBit::ReverseWrap) && p.cy.index() > p.cold.top.index()
-            {
-                p.set_row(Row::from_index(p.cy.index() - 1));
-                p.set_col(p.cold.right);
+            match p.cx.index() > p.cold.left.index() {
+                true => p.set_col(Col::at_index(p.cx.index() - 1)),
+                false => p.back_space_at_left(),
             }
             ReadLen::ONE
         }

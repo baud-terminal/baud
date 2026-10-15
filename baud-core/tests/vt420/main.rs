@@ -11,6 +11,7 @@ mod decaln;
 mod origin;
 mod rect_scroll;
 mod side_margins;
+mod tab_backspace;
 
 /// **No gaps, and the gate stays so that a new one has to say so.**
 ///
@@ -31,6 +32,7 @@ fn the_known_vt420_gaps() {
             "origin.rs",
             "rect_scroll.rs",
             "side_margins.rs",
+            "tab_backspace.rs",
         ],
         &[],
     );

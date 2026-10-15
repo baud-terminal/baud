@@ -24761,3 +24761,50 @@ sha256 = "b4b57bf6aafadad9e2efef214e6c8a5137d6939a8c557b2b5f5b62420ecbe79d"
 bytes  = 16123
 status = "retrieved"
 group  = "BL"
+
+# Fetched 2026-10-14 for HT and BS under side margins (docs/record.md, "HT and
+# BS under side margins"). vt100.net has no HT or BS page in this manual (both
+# 404); Table 4-1, "C0 (7-Bit) Control Characters", is where the VT510 says
+# what each does. The hash covers the page with its site chrome.
+[sources.vt510-chapter4]
+key    = "vt510-chapter4"
+title  = "VT510 Programmer Information, chapter 4 -- Table 4-1, the C0 controls (BS, HT)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/chapter4.html"
+file   = "vt510-chapter4.html"
+sha256 = "90697715013394a6aafc5ee7363992cf0f5500ad04b991890e3d85446b881286"
+bytes  = 149134
+status = "retrieved"
+group  = "C"
+
+# Fetched 2026-10-14 with vt510-chapter4: CHT's description names no margin.
+[sources.vt510-cht]
+key    = "vt510-cht"
+title  = "CHT -- Cursor Horizontal Forward Tabulation (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/CHT.html"
+file   = "vt510-CHT.html"
+sha256 = "2a5c8931360978b21605f6f57918daedb4cb850207f218edd878e257aaddfeca"
+bytes  = 19335
+status = "retrieved"
+group  = "C"
+
+# Fetched 2026-10-14 at the tag xterm-cursor.c is pinned at: TabToNextStop
+# (145-159) stops HT at the right margin under DECLRMM on every row, and pulls
+# a cursor right of it back to it.
+[sources.xterm-tabs-c]
+key    = "xterm-tabs-c"
+title  = "xterm 411, tabs.c -- TabToNextStop and TabToPrevStop: where HT and CBT stop under left/right margin mode"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/tabs.c"
+file   = "xterm-tabs.c"
+sha256 = "673a40eac3388bc2685be6ef87e30e533ed78c8a2b290bf6a670185041ba2c6e"
+bytes  = 5283
+status = "retrieved"
+group  = "C"
