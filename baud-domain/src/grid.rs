@@ -1319,6 +1319,38 @@ impl<'a> View<'a> {
         self.clear_past_edge_at(p, reach, past)
     }
 
+    /// [`View::clear_past_edge`] on the ring row `at`, wherever the window
+    /// is -- `rot.advance(y, ring)` for screen row `y`, `rot.retreat(1 +
+    /// back, ring)` for a row behind it: **a row an erase covers to its
+    /// end**, before the erase's fill. The erase is the line being cleared,
+    /// so what the row held past the edge is the erased line's: past the
+    /// mark a coloured blank run on from the width it was written at,
+    /// which the mark does not bound because the mark is where the row
+    /// stops being uniform, and past the edge a tail under a mark inside
+    /// it. Left there, a growth showed the erased line's colour again. The
+    /// erase then fills to the mark, which reads the cleared cell there, so
+    /// a default erase lowers the mark and a coloured one keeps it (the
+    /// record, "An erase taken while narrow clears what the line held past
+    /// the edge"). So when `blank`, the erase's, is the default, the row
+    /// holds nothing past the edge once filled, and its flag goes clear
+    /// here: left held, the reach stayed up for nothing and the next pass
+    /// cleared the row again. Only after a narrowing, so out of line.
+    #[cold]
+    #[inline(never)]
+    pub fn clear_past_edge_of(
+        &mut self,
+        at: RowRot,
+        reach: Cols,
+        past: &mut PastRows<'_>,
+        blank: PackedCell,
+    ) -> usize {
+        let n = self.clear_past_edge_at(at.index(), reach, past);
+        if blank == PackedCell::EMPTY {
+            past.set(at.index(), PastEdge::Clear);
+        }
+        n
+    }
+
     /// **The rows a full-screen scroll brought in since the passes past the
     /// edge last ran, cleared there**: the `n` rows of the ring that end at
     /// the screen's bottom row, going back, each as [`View::clear_past_edge`]

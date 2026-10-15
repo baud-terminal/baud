@@ -574,10 +574,14 @@ fn a_row_clear_at_the_old_edge_is_held_past_the_new_one_by_its_mark() {
 
 /// **A row held and emptied is read again at a resize of the height
 /// alone, and at one to the same size.** Narrowed at a prompt, the long
-/// line is held; erased while narrow, its row still says held -- the safe
-/// direction between resizes -- and the reach lies past the edge. The
-/// measure must read it again and find it clear, as the full read does:
-/// every row clear, and the reach back at the live width.
+/// line is held; erased while narrow by an `ECH` that reaches the edge,
+/// which runs on to the mark, its row still says held -- the safe
+/// direction between resizes -- and the reach lies past the edge. (An `EL`
+/// clears the flag itself since it began to clear what the line held past
+/// the edge: the record, "An erase taken while narrow clears what the line
+/// held past the edge".) The measure must read it again and find it
+/// clear, as the full read does: every row clear, and the reach back at
+/// the live width.
 #[test]
 fn a_held_row_emptied_is_read_again_at_a_resize_of_the_height_or_the_same_size() {
     for (cols, rows) in [(20u16, 10u16), (20, 9), (20, 11)] {
@@ -585,7 +589,7 @@ fn a_held_row_emptied_is_read_again_at_a_resize_of_the_height_or_the_same_size()
             support::feed(t, LONG);
             support::feed(t, b"\x1b[10;1H\x1b]133;A\x07$ ");
             resize(t, 20, 10);
-            support::feed(t, b"\x1b[2;1H\x1b[2K\x1b[10;3H");
+            support::feed(t, b"\x1b[2;1H\x1b[20X\x1b[10;3H");
             let before = t.past_edge_check();
             assert!(before.sound());
             assert!(before.held_but_clear.is_some(), "the control: {before:?}");

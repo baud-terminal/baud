@@ -787,6 +787,64 @@ impl Paint<'_, '_> {
         self.settle_reach();
     }
 
+    /// **A row an erase covers to its end, cleared past the live edge
+    /// first** ([`View::clear_past_edge_of`]), on the primary narrower than
+    /// its rows hold: `EL 0` and `EL 2`, the cursor's row of `ED 0`, and
+    /// each row of the prompt block a redraw erases, behind the window
+    /// too; the rows `ED` and `DECCOLM`'s clear cover whole go through
+    /// [`Paint::clear_erased_rows_past_edge`]. Not `DECSEL` or `DECSED`,
+    /// which spare protected characters and stop at the live edge. The
+    /// erase stands in for the line being cleared, so nothing of the old
+    /// line survives past the edge for a growth to show; the erase's own
+    /// blank then runs on to the mark, which is TO_THE_MARK (the record, "A
+    /// row erased or fed in a colour past the edge keeps it to the mark").
+    /// `at` is the ring row and `blank` the erase's. Out of line, behind
+    /// one compare of the reach in each caller.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn clear_erased_past_edge(&mut self, at: RowRot, blank: PackedCell) {
+        if self.cold.screen != Screen::Normal {
+            return;
+        }
+        let reach = self.book.reach;
+        let mut past = PastRows {
+            flags: &mut *self.book.past,
+            held: &mut self.book.held,
+        };
+        let n = self.view.clear_past_edge_of(at, reach, &mut past, blank);
+        self.cells = self.cells.plus(n);
+        self.settle_reach();
+    }
+
+    /// [`Paint::clear_erased_past_edge`] on screen rows `from` to `to`, the
+    /// rows an `ED` or `DECCOLM`'s clear covers whole, before their fills.
+    /// One compare of the reach for the erase and not one a row: with the
+    /// compare in the row loop, `vim`'s 46 `EL` and 15 `ED 2` a rep took
+    /// 6,448 more instructions than the base, ranges apart; out of it, the
+    /// difference is inside the base's range (the record, "An erase taken
+    /// while narrow clears what the line held past the edge").
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn clear_erased_rows_past_edge(&mut self, from: Row, to: Row) {
+        if self.cold.screen != Screen::Normal {
+            return;
+        }
+        let blank = self.blank();
+        let (reach, rot, ring) = (self.book.reach, self.view.rotation(), self.view.ring());
+        let mut past = PastRows {
+            flags: &mut *self.book.past,
+            held: &mut self.book.held,
+        };
+        let mut n = 0;
+        for y in from.index()..to.index() {
+            n += self
+                .view
+                .clear_past_edge_of(rot.advance(y, ring), reach, &mut past, blank);
+        }
+        self.cells = self.cells.plus(n);
+        self.settle_reach();
+    }
+
     /// **The rows `IL`, `DL` and a copying region scroll moved, past the
     /// live edge**, on the primary narrower than its rows hold: the same
     /// moves on the columns past the edge, and the rows they opened cleared
@@ -2349,6 +2407,9 @@ impl Paint<'_, '_> {
     }
 
     pub(crate) fn clear_screen(&mut self) {
+        if self.past_edge() {
+            self.clear_erased_rows_past_edge(Row::ZERO, Row::from_index(self.rows.index()));
+        }
         for y in 0..self.rows.index() {
             let b = self.blank();
             let n = self.view.fill_row(Row::from_index(y), b);

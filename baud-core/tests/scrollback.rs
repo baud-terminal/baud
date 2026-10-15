@@ -1667,6 +1667,7 @@ fn a_redraw_over_blue_bars(
     support::feed(&mut t, lines);
     let erased = t.prompt_erases;
     reads.feed(&mut t, redraw);
+    assert!(t.past_edge_check().sound(), "{:?}", t.past_edge_check());
     let erases = t.prompt_erases - erased;
     let narrow = rows_of(&t);
     assert_eq!(t.resize(&wide), Resized::Ok);
@@ -1880,6 +1881,7 @@ fn a_redraw_in_a_colour_behind_the_window_keeps_it_to_the_mark() {
         let (hist, erased) = (t.scrollback().len(), t.prompt_erases);
         reads.feed(&mut t, REDRAW_BLUE);
         assert_eq!(t.prompt_erases, erased + 1, "the control: a redraw");
+        assert!(t.past_edge_check().sound(), "{:?}", t.past_edge_check());
         assert_eq!(t.scrollback().len(), hist, "the control: no retreat");
         let lines = |t: &Term<'_>| {
             (0..2)
@@ -1904,6 +1906,402 @@ fn a_redraw_in_a_colour_behind_the_window_keeps_it_to_the_mark() {
             (narrow.clone(), grown.clone(), rows.clone()),
             "{reads:?}"
         );
+    }
+}
+
+/// `abc`, then a blue erase to the edge: a mark of 3 and blue blanks from
+/// column 4 to the end of the row, so narrowed to 20 the row holds the
+/// blue past the edge under a mark inside it.
+const ABC_BLUE: &[u8] = b"abc\x1b[44m\x1b[K\x1b[0m\r\n";
+
+/// Nine lines of `line` on a ten-row screen 40 wide with twenty lines of
+/// history, a prompt on the last row, narrowed to 20 at it, then `f`.
+fn with_narrowed<R>(line: &[u8], f: impl FnOnce(&mut Term<'_>) -> R) -> R {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &wide);
+    for _ in 0..9 {
+        support::feed(&mut t, line);
+    }
+    support::feed(&mut t, b"\x1b]133;A\x07$ ");
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    f(&mut t)
+}
+
+/// [`with_narrowed`], then `ops` in `reads`: the rows narrow, and grown
+/// back to 40. The past-edge bookkeeping is sound after the ops.
+fn erased_while_narrow(
+    line: &[u8],
+    ops: &[u8],
+    reads: Reads,
+) -> (Vec<Vec<PackedCell>>, Vec<Vec<PackedCell>>) {
+    with_narrowed(line, |t| {
+        reads.feed(t, ops);
+        assert!(t.past_edge_check().sound(), "{:?}", t.past_edge_check());
+        let narrow = rows_of(t);
+        let wide = WinSize {
+            ws_row: 10,
+            ws_col: 40,
+        };
+        assert_eq!(t.resize(&wide), Resized::Ok);
+        (narrow, rows_of(t))
+    })
+}
+
+/// `row` is a `BLUE_BAR` as written: thirty blue `X`, then blue blanks to
+/// the end, from column `from`.
+fn assert_bar_from(row: &[PackedCell], from: usize, what: &str) {
+    for (c, cell) in row.iter().enumerate().skip(from) {
+        let x = cell.content.as_codepoint().map(|p| p.value()) == Some(u32::from(b'X'));
+        assert!(
+            cell.style != StyleId::DEFAULT
+                && x == (c < 30)
+                && (x || cell.content == Content::EMPTY),
+            "{what}: column {}, the bar's blue {} to column 40",
+            c + 1,
+            if c < 30 { "X" } else { "blank" }
+        );
+    }
+}
+
+/// `row` from column `from` is the default blank to the end.
+fn assert_default_from(row: &[PackedCell], from: usize, what: &str) {
+    for (c, cell) in row.iter().enumerate().skip(from) {
+        assert_eq!(
+            *cell,
+            PackedCell::EMPTY,
+            "{what}: column {}, the default blank",
+            c + 1
+        );
+    }
+}
+
+/// `ops` in every read size and every two-read split leave the screens a
+/// whole read leaves.
+fn in_every_read(line: &[u8], ops: &[u8], whole: &(Vec<Vec<PackedCell>>, Vec<Vec<PackedCell>>)) {
+    for reads in Reads::every(ops.len()) {
+        assert_eq!(
+            &erased_while_narrow(line, ops, reads),
+            whole,
+            "{:?} {reads:?}",
+            String::from_utf8_lossy(ops)
+        );
+    }
+}
+
+/// **An erase taken while narrow clears what the line held past the
+/// edge.** A blue bar of mark 30, narrowed to 20 at a prompt, erased by
+/// `EL 2` in the default: the line is gone, and a growth shows the
+/// default blank to column 40, where it showed the bar's blue blanks from
+/// 31 to 40 -- the erase ran to the mark and the bar's blank past the mark
+/// stayed, because the mark is where the row stops being uniform and not
+/// where its cells end. `EL 0` from column 6 keeps the five `X` before it
+/// and the same. In the erase's blue, the blue runs to the mark and the
+/// default past it, which is TO_THE_MARK, where the bar's blank left it
+/// blue to 40. The bar above is the control. Every read size and every
+/// two-read split.
+#[test]
+fn el_while_narrow_clears_what_a_bar_held_past_its_mark() {
+    for ops in [&b"\x1b[3;1H\x1b[2K"[..], b"\x1b[3;6H\x1b[K"] {
+        let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+        let (narrow, grown) = &whole;
+        let kept = usize::from(ops[4] == b'6') * 5;
+        assert_bar_from(&grown[1], 0, "the control: row 2, a bar grown back");
+        assert_bar_from(&grown[2][..kept], 0, "row 3, the X before the erase");
+        assert_default_from(&narrow[2], kept, "row 3, narrow");
+        assert_default_from(&grown[2], kept, "row 3, grown");
+        in_every_read(BLUE_BAR, ops, &whole);
+    }
+    let ops = b"\x1b[3;1H\x1b[44m\x1b[2K\x1b[0m";
+    let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+    assert_erased_blue(&whole.0[2], 0, 20, "row 3, narrow, erased in blue");
+    assert_erased_blue(&whole.1[2], 0, 30, "row 3, grown, erased in blue");
+    in_every_read(BLUE_BAR, ops, &whole);
+}
+
+/// **And under a mark inside the edge.** `abc` and a blue erase to column
+/// 40 hold the blue past the 20-column edge under a mark of 3. `EL 2` in
+/// the default stopped at the edge, so a growth showed the erased line's
+/// blue from 21 to 40; now the default to the end. In blue, the erase's
+/// blue to the edge and the default past it, as `View::clear_past_edge`
+/// says an erase taken while narrow leaves a row.
+#[test]
+fn el_while_narrow_clears_a_tail_under_a_mark_inside_the_edge() {
+    let ops = b"\x1b[3;1H\x1b[2K";
+    let whole = erased_while_narrow(ABC_BLUE, ops, Reads::Whole);
+    assert_erased_blue(&whole.1[1], 3, 40, "the control: row 2's blue grown back");
+    assert_default_from(&whole.1[2], 0, "row 3, grown");
+    in_every_read(ABC_BLUE, ops, &whole);
+    let ops = b"\x1b[3;1H\x1b[44m\x1b[2K\x1b[0m";
+    let whole = erased_while_narrow(ABC_BLUE, ops, Reads::Whole);
+    assert_erased_blue(&whole.1[2], 0, 20, "row 3, grown, erased in blue");
+    in_every_read(ABC_BLUE, ops, &whole);
+}
+
+/// **`EL 1` is no erase of the line's end**, so what the bar holds past
+/// the edge stays: from column 6 on, the bar a growth shows. Green before
+/// the change too; it holds that the clear goes only with an erase to the
+/// end.
+#[test]
+fn el_1_while_narrow_leaves_what_the_line_held_past_the_edge() {
+    let ops = b"\x1b[3;6H\x1b[1K";
+    let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+    assert_default_from(&whole.1[2][..6], 0, "row 3, erased to column 6");
+    assert_bar_from(&whole.1[2], 6, "row 3, the bar from column 7");
+    in_every_read(BLUE_BAR, ops, &whole);
+}
+
+/// **`ED` clears past the edge every row it covers to the end.** `ED 2`:
+/// every row the default blank once grown. `ED 0` from row 4: rows 1 to
+/// 3 bars, rows 4 to 10 the default. `ED 1` from row 4, column 6: rows 1
+/// to 3 the default; row 4, which it erases only to the cursor, the bar
+/// from column 7; rows 5 to 9 bars.
+#[test]
+fn ed_while_narrow_clears_the_rows_it_covers_past_the_edge() {
+    let ops = b"\x1b[2J";
+    let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+    for (y, row) in whole.1.iter().enumerate() {
+        assert_default_from(row, 0, &format!("ED 2, row {}", y + 1));
+    }
+    in_every_read(BLUE_BAR, ops, &whole);
+    let ops = b"\x1b[4;1H\x1b[J";
+    let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+    for (y, row) in whole.1.iter().enumerate() {
+        match y < 3 {
+            true => assert_bar_from(row, 0, &format!("the control: ED 0, row {}", y + 1)),
+            false => assert_default_from(row, 0, &format!("ED 0, row {}", y + 1)),
+        }
+    }
+    in_every_read(BLUE_BAR, ops, &whole);
+    let ops = b"\x1b[4;6H\x1b[1J";
+    let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+    for (y, row) in whole.1.iter().enumerate().take(9) {
+        match y {
+            0..=2 => assert_default_from(row, 0, &format!("ED 1, row {}", y + 1)),
+            3 => {
+                assert_default_from(&row[..6], 0, "ED 1, row 4 to the cursor");
+                assert_bar_from(row, 6, "ED 1, row 4 past the cursor");
+            }
+            _ => assert_bar_from(row, 0, &format!("the control: ED 1, row {}", y + 1)),
+        }
+    }
+    in_every_read(BLUE_BAR, ops, &whole);
+}
+
+/// **A default erase leaves the row default from its start, and says
+/// so**: the mark comes down with it, so the same erase again writes
+/// nothing, and the row is no longer held past the edge. On the bar, `EL
+/// 2` writes the bar's 30 cells to its mark and clears its 10 past it;
+/// the second writes none. Were the mark left at 30, the second would
+/// write the 30 again and the row would stay held -- what clearing after
+/// the fill, not before it, leaves, since the fill then reads the bar's
+/// blue at the mark. Every read size and every two-read split.
+#[test]
+fn a_default_erase_while_narrow_brings_the_mark_down() {
+    for ops in [&b"\x1b[3;1H\x1b[2K"[..], b"\x1b[3;1H\x1b[J"] {
+        for reads in std::iter::once(Reads::Whole).chain(Reads::every(ops.len())) {
+            let (first, again) = with_narrowed(BLUE_BAR, |t| {
+                let (_, a) = t.amplification();
+                reads.feed(t, ops);
+                let (_, b) = t.amplification();
+                reads.feed(t, ops);
+                let (_, c) = t.amplification();
+                (b - a, c - b)
+            });
+            let what = format!("{:?} {reads:?}", String::from_utf8_lossy(ops));
+            assert_eq!(again, 0, "{what}: the second erase wrote {again} cells");
+            assert!(first > 0, "{what}: the control, the first erase wrote none");
+        }
+    }
+}
+
+/// **`DECCOLM`'s clear is an erase of every row**, so it clears what the
+/// rows held past the edge as `ED 2` does: allowed by `?40`, `?3 h` while
+/// narrow leaves every row the default once grown. Under `?95` it does
+/// not clear, and every bar comes back whole, the control.
+#[test]
+fn deccolm_while_narrow_clears_what_its_rows_held_past_the_edge() {
+    let ops = b"\x1b[?40h\x1b[?3h";
+    let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+    for (y, row) in whole.1.iter().enumerate() {
+        assert_default_from(row, 0, &format!("DECCOLM, row {}", y + 1));
+    }
+    in_every_read(BLUE_BAR, ops, &whole);
+    let ops = b"\x1b[?40h\x1b[?95h\x1b[?3h";
+    let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+    for (y, row) in whole.1.iter().enumerate().take(9) {
+        assert_bar_from(row, 0, &format!("the control: ?95, row {}", y + 1));
+    }
+    in_every_read(BLUE_BAR, ops, &whole);
+}
+
+/// **Not on the alternate screen**: the flags and the reach are the
+/// primary's. Bars narrowed at a prompt, then on the alternate screen
+/// `ED 2` and `EL 2` in blue, and back, and an `IL` on row 2, which carries
+/// the rows below it past the edge by their flags: a growth shows every
+/// bar whole, rows 1 and 3 to 10, and the line `IL` opened the default.
+#[test]
+fn an_erase_on_the_alternate_screen_leaves_the_primary_past_the_edge() {
+    let ops = b"\x1b[?1049h\x1b[44m\x1b[2J\x1b[3;1H\x1b[2K\x1b[0m\x1b[?1049l\x1b[2;1H\x1b[L";
+    let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+    for (y, row) in whole.1.iter().enumerate() {
+        match y {
+            1 => assert_default_from(row, 0, "the control: row 2, the line IL opened"),
+            _ => assert_bar_from(row, 0, &format!("row {}", y + 1)),
+        }
+    }
+    in_every_read(BLUE_BAR, ops, &whole);
+}
+
+/// Six `BLUE_BAR`s, then a prompt block of three more and `$ `, rows 7 to
+/// 10, on a ten-row screen 40 wide, narrowed to 20 at the prompt, then
+/// `redraw` in `reads`: the rows narrow and grown, and the redraws made.
+fn a_redraw_over_held_bars(
+    redraw: &[u8],
+    reads: Reads,
+) -> (Vec<Vec<PackedCell>>, Vec<Vec<PackedCell>>, usize) {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(owned.storage(), &wide);
+    for _ in 0..6 {
+        support::feed(&mut t, BLUE_BAR);
+    }
+    support::feed(&mut t, b"\x1b]133;A\x07");
+    for _ in 0..3 {
+        support::feed(&mut t, BLUE_BAR);
+    }
+    support::feed(&mut t, b"$ ");
+    assert_eq!(
+        t.resize(&WinSize {
+            ws_row: 10,
+            ws_col: 20
+        }),
+        Resized::Ok
+    );
+    let erased = t.prompt_erases;
+    reads.feed(&mut t, redraw);
+    assert!(t.past_edge_check().sound(), "{:?}", t.past_edge_check());
+    let erases = t.prompt_erases - erased;
+    let narrow = rows_of(&t);
+    assert_eq!(t.resize(&wide), Resized::Ok);
+    (narrow, rows_of(&t), erases)
+}
+
+/// **A redraw over the block's held rows erases them as `ED` does**, now
+/// that `ED` clears past the edge: the block's bars, rows 8 and 9 once the
+/// redraw has moved the prompt to row 7, come back blue to their mark, 30,
+/// and the default past it in blue; the default to the end in the
+/// default. The shell's own erase on the same state, `CSI 7 ; 1 H CSI J`,
+/// leaves the same screens, narrow and grown. The rows above the block
+/// are bars. Every read size and every two-read split of the redraw.
+#[test]
+fn a_redraw_over_held_rows_erases_past_the_edge_as_ed_does() {
+    for (redraw, ed, blue) in [
+        (&b"\r\x1b[44m\x1b]133;A\x07\x1b[0m$ "[..], ED_BLUE, true),
+        (b"\r\x1b]133;A\x07$ ", b"\x1b[7;1H\x1b[J$ ", false),
+    ] {
+        let (ed_narrow, ed_grown, ed_erases) = a_redraw_over_held_bars(ed, Reads::Whole);
+        assert_eq!(ed_erases, 0, "the control: the shell's ED is no redraw");
+        let whole = a_redraw_over_held_bars(redraw, Reads::Whole);
+        let (narrow, grown, erases) = &whole;
+        assert_eq!(*erases, 1, "the control: the mark replaced the block");
+        assert_eq!(
+            *narrow, ed_narrow,
+            "blue {blue}: the redraw's narrow screen is ED's"
+        );
+        assert_eq!(
+            *grown, ed_grown,
+            "blue {blue}: the redraw's grown screen is ED's"
+        );
+        for (y, row) in grown.iter().enumerate() {
+            let what = format!("blue {blue}: row {}", y + 1);
+            match (y, blue) {
+                (0..=5, _) => assert_bar_from(row, 0, &format!("the control: {what}")),
+                (6, _) => assert_eq!(text_of(&row[..2]), "$ ", "{what}: the prompt"),
+                (7 | 8, true) => assert_erased_blue(row, 0, 30, &what),
+                (_, true) => assert_erased_blue(row, 0, 20, &what),
+                (_, false) => assert_default_from(row, 0, &what),
+            }
+        }
+        for reads in Reads::every(redraw.len()) {
+            assert_eq!(
+                a_redraw_over_held_bars(redraw, reads),
+                whole,
+                "blue {blue}: {reads:?}"
+            );
+        }
+    }
+}
+
+/// **And behind the window.** A prompt block of fifteen bars and `$ `,
+/// six rows of it behind the window, narrowed at the prompt; the rows the
+/// window would give up hold bars, so a redraw erases the six where they
+/// lie. In blue each reads as the erase's blue to the mark, 30 cells,
+/// narrow and grown, where grown it read the bar's blank past the mark
+/// too, forty; in the default each reads as no cells, where it read
+/// thirty default blanks narrow and forty cells grown. Every read size and
+/// every two-read split of the redraw.
+#[test]
+fn a_redraw_behind_the_window_clears_what_its_rows_held_past_the_edge() {
+    let wide = WinSize {
+        ws_row: 10,
+        ws_col: 40,
+    };
+    let behind = |redraw: &[u8], reads: Reads| {
+        let mut owned = Owned::with_history(&wide, &CacheGeometry::UNKNOWN, Depth::of(20));
+        let mut t = Term::new(owned.storage(), &wide);
+        support::feed(&mut t, b"\x1b]133;A\x07");
+        for _ in 0..15 {
+            support::feed(&mut t, BLUE_BAR);
+        }
+        support::feed(&mut t, b"$ ");
+        assert_eq!(
+            t.resize(&WinSize {
+                ws_row: 10,
+                ws_col: 20
+            }),
+            Resized::Ok
+        );
+        let (hist, erased) = (t.scrollback().len(), t.prompt_erases);
+        assert_eq!(
+            hist, 6,
+            "the control: six rows of the block behind the window"
+        );
+        reads.feed(&mut t, redraw);
+        assert_eq!(t.prompt_erases, erased + 1, "the control: a redraw");
+        assert!(t.past_edge_check().sound(), "{:?}", t.past_edge_check());
+        assert_eq!(t.scrollback().len(), hist, "the control: no retreat");
+        let lines = |t: &Term<'_>| {
+            (0..6)
+                .map(|k| t.scrollback().line(Back::of(k)).expect("a line").0.to_vec())
+                .collect::<Vec<_>>()
+        };
+        let narrow = lines(&t);
+        assert_eq!(t.resize(&wide), Resized::Ok);
+        (narrow, lines(&t))
+    };
+    for (redraw, len) in [(REDRAW_BLUE, 30), (&b"\x1b]133;A\x07$ "[..], 0)] {
+        let whole = behind(redraw, Reads::Whole);
+        for (k, line) in whole.0.iter().chain(&whole.1).enumerate() {
+            let what = format!("line {} back, {}", k % 6, ["narrow", "grown"][k / 6]);
+            assert_eq!(line.len(), len, "{what}: its length");
+            assert_erased_blue(line, 0, len, &what);
+        }
+        for reads in Reads::every(redraw.len()) {
+            assert_eq!(behind(redraw, reads), whole, "{reads:?}");
+        }
     }
 }
 
@@ -2123,21 +2521,21 @@ fn pinned_a_cut_row_uniform_in_a_visible_colour_is_left_cut() {
     });
 }
 
-/// **Pinned: a band past the old edge counts once a width growth has raised
-/// its mark**, which is the owner's live drag at steps 641 to 654, in
-/// miniature. At a prompt the shell erases to the line's end in a
-/// foreground-only rendition while the screen is 36 wide; later a default
-/// erase from column 0 at a narrower width leaves the invisible band past the
-/// edge with a mark of zero -- a mark true up to the live edge and not past
-/// it. (The drag reaches that in two steps, a mark of 14 at 22 columns and 0
-/// at 21; this test takes one, at 22.) A growth to 27 columns raises the mark
-/// to 22, which is what lets a later erase clear the band, and it also makes
-/// the row count: the height growth after it reveals the blank-looking row.
-/// Without the width growth the mark stays zero and the same height growth
-/// pulls a history line, which is the contrast this test carries in one
-/// binary.
+/// **Pinned: a band past the old edge goes with the erase of its row**,
+/// the owner's live drag at steps 641 to 654, in miniature. At a prompt the
+/// shell erases to the line's end in a foreground-only rendition while the
+/// screen is 36 wide, then erases the row from column 0 at 22 columns. That
+/// erase is the line being cleared, so it clears the band past the edge
+/// too (the record, "An erase taken while narrow clears what the line held
+/// past the edge"); before, it left the band there under a mark of zero,
+/// and a width growth to 27 raised the mark over it, so the height growth
+/// after it revealed a row holding no character where without the width
+/// growth it pulled a history line. Now the row holds nothing either way
+/// and both pull the line, which is the outcome V9's recommendation, the
+/// owner's answer, gives this case: a written character counts and colour
+/// alone does not (note V).
 #[test]
-fn pinned_a_band_past_the_old_edge_counts_once_a_growth_raised_its_mark() {
+fn pinned_a_band_past_the_old_edge_goes_with_the_erase_of_its_row() {
     fn band(widen: bool) -> (usize, String, String) {
         support::with_corpus(|t| {
             let at = |rows: u16, cols: u16| WinSize {
@@ -2173,16 +2571,19 @@ fn pinned_a_band_past_the_old_edge_counts_once_a_growth_raised_its_mark() {
             )
         })
     }
-    let (hist, first, revealed) = band(true);
-    assert_eq!(hist, 11, "after the width growth nothing was pulled");
-    assert_eq!(first, "line 011");
-    assert!(
-        revealed.trim().is_empty(),
-        "the revealed row holds no character"
-    );
-    let (hist, first, _) = band(false);
-    assert_eq!(hist, 10, "without it a history line was pulled");
+    let trimmed = |(h, f, l): (usize, String, String)| (h, f, l.trim_end().to_string());
+    let (hist, first, last) = trimmed(band(true));
+    assert_eq!(hist, 10, "a history line was pulled");
     assert_eq!(first, "line 010");
+    assert_eq!(
+        last, "line 035",
+        "the last row is the line below the pulled one"
+    );
+    assert_eq!(
+        trimmed(band(false)),
+        (hist, first, last),
+        "the width growth changes nothing: the row holds nothing to count"
+    );
 }
 
 /// A storage built with no depth retains nothing from a scroll: its ring is

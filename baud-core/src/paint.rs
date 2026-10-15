@@ -1184,7 +1184,13 @@ impl<'a, 'b> Paint<'a, 'b> {
             EraseExtent::All => (Col::ZERO, Col::at_index(cols.index())),
             EraseExtent::ToEnd => (self.cx, Col::at_index(cols.index())),
         };
+        // To its end, the line is being cleared: what it held past a
+        // narrower edge goes first (`Paint::clear_erased_past_edge`).
         let blank = PackedCell::empty_with(self.style);
+        if e != EraseExtent::ToStart && self.past_edge() {
+            let at = self.view.rotation().advance(cy.index(), self.view.ring());
+            self.clear_erased_past_edge(at, blank);
+        }
         let n = self.view.fill(cy, a, b, blank);
         self.cells = self.cells.plus(n);
     }
@@ -1198,6 +1204,11 @@ impl<'a, 'b> Paint<'a, 'b> {
             EraseExtent::All => (0, rows),
             EraseExtent::ToEnd => (self.cy.index() + 1, rows),
         };
+        // The rows covered whole are being cleared: what they held past a
+        // narrower edge goes first (`Paint::clear_erased_rows_past_edge`).
+        if self.past_edge() {
+            self.clear_erased_rows_past_edge(Row::from_index(from), Row::from_index(to));
+        }
         for y in from..to {
             let n = self.view.fill(Row::from_index(y), Col::ZERO, cols, blank);
             self.cells = self.cells.plus(n);

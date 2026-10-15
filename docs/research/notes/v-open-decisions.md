@@ -1446,7 +1446,9 @@ make erasing fast. It is not a record of whether the row shows anything.
   `a_growth_reveals_a_cut_row_of_text_before_pulling_history` (the control),
   `pinned_a_cut_row_of_invisible_blanks_is_revealed_as_content`,
   `pinned_a_cut_row_uniform_in_a_visible_colour_is_left_cut` and
-  `pinned_a_band_past_the_old_edge_counts_once_a_growth_raised_its_mark`.
+  the band test, `pinned_a_band_past_the_old_edge_goes_with_the_erase_of_its_row`
+  since 2026-10-14, when the erase began to clear the band and both of its
+  arms began to pull the line.
 
 **What others do** -- They ask a related question, not this one: none of them
 keeps hidden cut rows. They support a test for "content", not the reveal

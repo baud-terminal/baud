@@ -134,7 +134,11 @@ impl Paint<'_, '_> {
         }
         let blank = PackedCell::empty_with(self.style);
         for k in 0..=d {
-            let n = self.view.fill_at(start.advance(k, ring), blank);
+            let at = start.advance(k, ring);
+            if self.past_edge() {
+                self.clear_erased_past_edge(at, blank);
+            }
+            let n = self.view.fill_at(at, blank);
             self.cells = self.cells.plus(n.index());
         }
         self.set_row(Row::from_index(cy.saturating_sub(d)));
