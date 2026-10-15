@@ -76,6 +76,40 @@ and because `every_preview_in_a_yazi_walk_is_its_own_body_alone`
 requires preview k to equal preview 14 - k as well as each preview to equal
 its body decoded alone.
 
+## kitty graphics: regenerated, not committed
+
+`scripts/record-kitten-icat.py` records what `kitten icat` 0.49.2 writes,
+`--transfer-mode=stream`, to a pty carrying the app's pixels (17x34 a
+cell), for note V's V19 step 0 (`docs/record.md`, "A `kitten icat`
+session, recorded, and the three numbers V19 owed"). Unlike the captures
+above, these regenerate: kitty and the two nixos-artwork pictures are
+pinned by nixpkgs revision, and two runs gave the same bytes. None is
+committed. `mosaic-blue` and `waterfall` are CC-BY-SA-4.0 and `skyglow` is
+Apple's, and whether a recording that carries one belongs in this
+repository is the owner's call. kitten fits a picture to the window's
+width alone, so 113x24, 816 pixels high, sends the same bytes as 113x32.
+The sha256 of each:
+
+| input | window | sent | bytes | sha256 |
+|---|---|---|---|---|
+| mosaic-blue, 1920x1080 RGB | 113x32 | `f=100`, the file | 1281344 | `e2951c9e4603718c255ebcd47c4b2e41f02aa1e0a0f101497bbc5c656f378520` |
+| | 80x24 | `f=24,o=z`, 1360x765 | 1273450 | `f0bb2f55e9df86cbbdf70fed6c8de75d8a8b464d0587dffa62471957d94bc90d` |
+| | 113x24 | `f=100`, the file | 1281344 | `e2951c9e4603718c255ebcd47c4b2e41f02aa1e0a0f101497bbc5c656f378520` |
+| | 226x64 | `f=100`, the file | 1281349 | `7d96457f2c7d1c1358795d0534167ccfdc45148bdb2af81f36367720e67eeee6` |
+| waterfall, 3840x2160 RGBA | 113x32 | `f=24,o=z`, 1921x1080 | 5622860 | `fcd84ebb50c320c4dbdaff032a3d524082c7945e9aced72404090895d9788d8b` |
+| | 80x24 | `f=24,o=z`, 1360x765 | 2933892 | `a213899c577ecb1a865cd6d80e2d53d3545949117ef8ace66a211fd8c09e2602` |
+| | 113x24 | `f=24,o=z`, 1921x1080 | 5622860 | `fcd84ebb50c320c4dbdaff032a3d524082c7945e9aced72404090895d9788d8b` |
+| | 226x64 | `f=100`, the file | 18288394 | `0e573d73813b4405e83b89f541c0fc68afe7a138c5681e205c99e4ffc5decee2` |
+| skyglow, 1160x580, Adam7 (macOS 27.0 only) | 113x32 | `f=100`, the file | 24022 | `a8a1e2d64c3f00e01879b02166dd9bf4075afd449dec2f2bb537e8ea902d6735` |
+| | 80x24 | `f=100`, the file | 24021 | `19c7f4931b2f6c728b087feaee576ef3e066c4cb4c308ac8b8f42407338e5016` |
+| | 113x24 | `f=100`, the file | 24022 | `a8a1e2d64c3f00e01879b02166dd9bf4075afd449dec2f2bb537e8ea902d6735` |
+| | 226x64 | `f=100`, the file | 24022 | `4338404469e1ba447d80c3e4323ec6ae7de3daad5e2cc135725c540c8097b0ed` |
+
+The script checks each input against its sha256 first, and skips the
+macOS file where it differs. Its `detect-*` sessions answer
+kitten's queries as baud would and name a random temp file in a query, so
+they have no fixed sha256.
+
 ## Provenance
 
 `scripts/capture-tui.py` is how these were made and is kept for provenance, not

@@ -106,6 +106,18 @@ Where the decoder moves so baud-core can call it, baud-domain or a new crate,
 is open (note V's V19, step 2): baud-core depends on baud-domain and not on
 baud-font.
 
+**Measured 2026-10-15** (note V's V19, step 0, which has the figures and
+the record entry): `png.rs` decodes a full-window 1920x1080 PNG in about
+39 ms, 4.7 frames at 120 Hz, so a synchronous decode inside `feed` is
+over step 3's bar. The two sessions recorded at a 1920x1080 window needed
+15.5 and 18.7 MB at once -- payload, raw scratch and arena -- and the
+app's default arena of 1,048,576 pixels holds neither picture. Adam7 is
+2.9% of the PNGs `kitten icat` would send as they are, and its refusal
+departs from `[[source: w3c-png-2003]]` 13.10 whatever the share. `kitten
+icat` sends a PNG's own bytes when it is no wider than the window and needs
+no transform, whatever its height, and otherwise raw `f=24`/`f=32` under
+`o=z`.
+
 ## Zero copy, corrected: it is one copy, and baud lands it in GPU memory
 
 The steer named zero-copy, and the Kitty survey **refutes the premise in the

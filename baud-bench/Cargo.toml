@@ -187,6 +187,12 @@ harness = false
 name = "pictures"
 harness = false
 
+# png.rs's decode time on a full-window picture, note V's V19 step 0;
+# prints and asserts nothing.
+[[bench]]
+name = "png_decode"
+harness = false
+
 # macOS only; it prints on every other target. It was a test with a wall-clock
 # bound, which measured the machine's load under the parallel suite -- see the
 # bench's own header.

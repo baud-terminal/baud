@@ -7667,6 +7667,104 @@ group  = "C"
 # placeholder (`U+10EEEE`) grid lets an image scroll with text. Design in
 # `docs/research/notes/t-images.md`.
 
+[sources.kitty-icat-process]
+key    = "kitty-icat-process"
+title  = "kitty v0.49.2, kittens/icat/process_images.go -- what `kitten icat` sends: a PNG as-is or the pixels raw"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kittens/icat/process_images.go"
+file   = ""
+sha256 = "367e7fac3cef322707ebcff0fc4fca016541b190aee1b68c814e4ceff652fb13"
+bytes  = 9786
+status = "external"
+group  = "C"
+# `process_arg` sends a PNG's own bytes (`f=100`) when it is one frame and
+# needs no scaling, flip, flop or alpha removal -- under the default
+# `--fit width`, scaling only a PNG wider than the window; anything else is decoded
+# and sent raw, `f=24` when opaque and `f=32` otherwise (`add_frame`). So
+# kitten writes no PNG of its own, and an interlaced PNG reaches the
+# terminal only as the user's file. Note V's V19 step 0.
+
+[sources.kitty-icat-transmit]
+key    = "kitty-icat-transmit"
+title  = "kitty v0.49.2, kittens/icat/transmit.go -- the transfer modes and the first chunk's keys"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kittens/icat/transmit.go"
+file   = ""
+sha256 = "01c123bf6d70e2dcc25cdad590c4481b1cf23420de98026c5435a3d51a9c0b9e"
+bytes  = 11281
+status = "external"
+group  = "C"
+# `transmit_image`: `--transfer-mode` `file`, `memory` or `stream` (`t=d`),
+# and under `detect` shared memory, then a file, then the stream.
+
+[sources.kitty-icat-main]
+key    = "kitty-icat-main"
+title  = "kitty v0.49.2, kittens/icat/main.go -- detection, and the refusal when the direct query is not answered"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kittens/icat/main.go"
+file   = ""
+sha256 = "46baf19b5decb550887997d441596e193fbfcb578fafd55f9eab457119b5b4ef"
+bytes  = 10082
+status = "external"
+group  = "C"
+# Under `--transfer-mode=detect` it runs `DetectSupport` and exits 1, "This
+# terminal does not support the graphics protocol", unless the `t=d` query
+# was answered `OK`. The window's pixels come from `TIOCGWINSZ`.
+
+[sources.kitty-icat-options]
+key    = "kitty-icat-options"
+title  = "kitty v0.49.2, kittens/icat/main.py -- the options and their defaults"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kittens/icat/main.py"
+file   = ""
+sha256 = "7a58c71b023d61d6024e064552288a02b8ec374633879c7425b1501fad6aff21"
+bytes  = 6976
+status = "external"
+group  = "C"
+# `--transfer-mode` defaults to `detect`, `--detection-timeout` to 10 s, and
+# `--fit` to `width`, so a picture's height never makes kitten scale it.
+
+[sources.kitty-icat-detect]
+key    = "kitty-icat-detect"
+title  = "kitty v0.49.2, kittens/icat/detect.go -- the detection burst: three `a=q` and a Primary DA"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kittens/icat/detect.go"
+file   = ""
+sha256 = "60a0864dd4d55c3b9f490448a6df3de94f29594d32b87ea6c9e2c934cd67ab13"
+bytes  = 3823
+status = "external"
+group  = "C"
+# One `a=q` per medium (`t=d`, `t=t`, `t=s`), then `CSI c`; it stops at a DA
+# reply whose CSI is longer than three bytes, so `CSI ? 6 c` is not one and
+# kitten waits out its timeout (recorded, note V's V19 step 0).
+
+[sources.kitty-graphics-command]
+key    = "kitty-graphics-command"
+title  = "kitty v0.49.2, tools/tui/graphics/command.go -- how kitten serialises a payload: zlib, base64, chunks"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/tools/tui/graphics/command.go"
+file   = ""
+sha256 = "b9d0cb3d2ae47588131fdd0702202fd43ec1fe73a1bbe8c69715ee2a7b02a65a"
+bytes  = 17117
+status = "external"
+group  = "C"
+# `WriteWithPayloadTo`: a payload over 2048 bytes that is not PNG is zlib
+# compressed when that is smaller (`o=z`); the base64 is unpadded
+# (`RawStdEncoding`) and chunked at 128 KiB, against `[[source:
+# kitty-graphics]]`'s "no larger than 4096 bytes".
+
 [sources.inband-resize]
 key    = "inband-resize"
 title  = "Private Mode for In-Band Window Resize Notifications"

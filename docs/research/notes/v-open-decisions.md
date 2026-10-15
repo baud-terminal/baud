@@ -4653,13 +4653,57 @@ prerequisite is alpha".
 **At unpark, in order.** Each step with a choice is a fork for you, with my
 lean:
 
-0. **Record first.** Record a `kitten icat` session, and take three numbers
-   before any code:
-   - png.rs decode time on a full-window PNG;
-   - the Adam7 share of what is sent;
-   - the memory one full-window picture needs. The arena needs about 8.2 MB,
-     raw scratch about 8.2 MB more, plus the payload: roughly three pictures'
-     worth transiently.
+0. ~~**Record first.** Record a `kitten icat` session, and take three numbers
+   before any code: png.rs decode time on a full-window PNG; the Adam7 share
+   of what is sent; the memory one full-window picture needs. The arena needs
+   about 8.2 MB, raw scratch about 8.2 MB more, plus the payload: roughly
+   three pictures' worth transiently.~~ **Done 2026-10-15**, on kitten
+   0.49.2 at the app's 17x34 cell (the record, "A `kitten icat` session,
+   recorded, and the three numbers V19 owed";
+   `scripts/record-kitten-icat.py`):
+   - **Decode: 39.5-39.6 ms** (39.3-40.1 over an A/A pair, 476.7 M
+     instructions) for a real 1920x1080 RGB PNG of 961 KB, the one kitten
+     sent whole to a 113x32 window (1921x1088 pixels); medians of 67.4-70.1
+     ms for a high-entropy 1972x1094 one of 4.2 MB and 334 ms for a
+     3840x2160 RGBA one of 13.7 MB. Step 3's bar is 8.3 ms, so a full window is about 4.7 frames,
+     and step 3's own lean puts a table-driven Huffman fast path next.
+   - **Adam7: 2.9% of the PNGs kitten would send as they are, 1.1% of their
+     bytes**, over macOS 27's `/System/Library` and this Mac's
+     `/Applications` (155 of the 5,377 no wider than 1921 pixels; system
+     assets, not user pictures; all 155 interlaced ones pass at every window
+     measured). kitten sends a PNG's own bytes when it needs no transform and
+     is no wider than the window, whatever its height, since `--fit`
+     defaults to `width`; it scales anything else and sends it raw
+     (`[[source: kitty-icat-process]]`, `[[source: kitty-icat-options]]`).
+     So Adam7 reaches the terminal only as a user's own file, and recorded
+     it did, byte for byte. The share decides nothing: "Decoders are required to be able to
+     read interlaced images" (`[[source: w3c-png-2003]]` 13.10, and 15.2.3's
+     "all the standardized ... interlace methods"), so png.rs's refusal is a
+     departure to close before `f=100` is answered.
+   - **Memory: payload + raw + arena, exactly**, since png.rs allocates
+     nothing; a process's peak footprint agreed within 79 KB, under 0.1%.
+     1920x1080
+     `f=100` RGB: 0.96 + 6.22 + 8.29 = **15.5 MB** (raw is 8.30 for RGBA).
+     The 4K wallpaper kitten scales to 1921x1080 and sends as `f=24,o=z`: 4.22 +
+     6.22 inflated + 8.30 = **18.7 MB**, the largest. At 80x24, 8.2-9.5 MB.
+     The app's `ImageBudget`, 1,048,576 pixels, holds no 1920x1080 picture
+     (2,073,600 pixels); kitten's 1360x765 at 80x24 fills 99.2% of it.
+     Fitted to width alone, a tall PNG arrives at its full height, so the
+     window does not bound a picture's memory.
+   - **What kitten sends against the protocol's text** (step 5 has to take a
+     position): chunks of 131,072 base64 bytes where `[[source:
+     kitty-graphics]]` says "no larger than 4096 bytes"; `a=T` repeated on
+     every chunk (`[[source: kitty-graphics-command]]`) where "Subsequent
+     chunks must have only the m and optionally q keys" (`[[source:
+     kitty-graphics]]`); unpadded base64, which
+     the text allows, since only "All chunks, except the last" must be a
+     multiple of 4.
+     - *Fork, for Jev at 0.9 or you:* **(a)** accept a chunk of any length
+       and ignore a continuation chunk's other keys: kitten works, and the
+       text binds the client and says nothing of what a terminal does with a
+       longer chunk, so no text is departed from. **(b)** refuse what breaks
+       the client's rules: the letter enforced, and kitten 0.49.2 shows no
+       picture whose base64 is longer than 4096 bytes. No lean.
 1. **Alpha.**
    - *Fork:* a full alpha arena, or thresholding to opaque-or-clear, which is
      cheap, touches no render path and gives jagged edges. **Lean: full
@@ -4697,8 +4741,14 @@ lean:
      probe and fall back; or an embedder hook for `t=f`, `t=t` and `t=s`, with
      a security policy on which files a stream may make baud read or delete.
    - **Lean: `t=d` only at first.**
-   - Which medium `kitten icat` uses against an unknown local terminal is
-     UNVERIFIED.
+   - ~~Which medium `kitten icat` uses against an unknown local terminal is
+     UNVERIFIED.~~ Recorded 2026-10-15 (step 0): its default `detect` sends
+     an `a=q` per medium, then a Primary DA. Answered `OK` for `t=d` alone,
+     it sends `t=d`; with no `OK` it exits, "This terminal does not support
+     the graphics protocol" (`[[source: kitty-icat-main]]`). It reads only a
+     DA whose CSI is longer than three bytes (`[[source: kitty-icat-detect]]`),
+     so against baud's default `CSI ? 6 c` it waits out its 10 s timeout
+     first; `CSI ? 6 ; 4 c` (`[images] advertise_sixel`) fails at once.
 5. **The protocol in baud-core.**
    - An `APC G` hook of the `Act::SixelStart` shape, and a payload scratch in
      `Storage` of the `sixel_body` shape.
