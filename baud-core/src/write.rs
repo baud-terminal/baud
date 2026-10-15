@@ -354,7 +354,13 @@ pub(crate) fn act(
         // `a_break_forgets_the_state_before_it` is why the successor is the one
         // a control leaves. The fold below performs the `LF` of a `CR LF`
         // without reaching the `Index` arm, and leaves the cursor at column 0
-        // too.
+        // too. It ends the row it leaves as `Paint::line_feed` does: without
+        // that, a row that wrapped kept its wrap when the pair fell in one
+        // read and lost it when they fell in two, and a re-cut joined it to
+        // the next line or not by where the reads broke. The clear is the
+        // call `line_feed` makes, about 18 instructions a pair: 3.1% of
+        // cat-scroll's instructions retired (the record, "A `CR LF` in one
+        // read ends the row it leaves").
         //
         // **Under DECOM the line starts at the left margin**, out of line
         // (`Paint::return_displaced`), so the loop carries one test of the
@@ -373,6 +379,7 @@ pub(crate) fn act(
             }
             match left.index() >= 2 && p.arena[from.index() + 1] == 0x0a {
                 true => {
+                    p.view.set_ended(p.cy);
                     p.index();
                     ReadLen::from_index(2)
                 }

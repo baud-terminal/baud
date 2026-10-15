@@ -449,3 +449,155 @@ fn an_erase_after_a_growth_at_a_prompt_reaches_a_wrapped_row_written_past_its_ol
     });
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
+
+/// **A `CR LF` in one read clears the wrap on the row it leaves**, as a
+/// newline does (`RowExtent::WRAP`'s contract). Row 0 wraps at 10, then
+/// `x CR LF` is written over its first cell: it ends there now, at every
+/// read size and every two-read split. The fold that performs a `CR LF`
+/// found in one read skipped the clear, so the mark said the row still
+/// continued unless the two bytes fell in different reads.
+#[test]
+fn a_cr_lf_in_one_read_clears_the_wrap_on_the_row_it_leaves() {
+    let bytes = b"abcdefghijklmno\x1b[Hx\r\n";
+    let ws = WinSize {
+        ws_col: 10,
+        ws_row: 5,
+    };
+    let ended = |reads: &[&[u8]]| {
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        for r in reads {
+            feed(&mut t, r, r.len());
+        }
+        t.view(Rows::ZERO).wrapped(Row::ZERO)
+    };
+    let mut wrong = Vec::new();
+    for read in 1..=bytes.len() {
+        let reads: Vec<&[u8]> = bytes.chunks(read).collect();
+        if ended(&reads) != Wrap::Ended {
+            wrong.push(format!("reads of {read}"));
+        }
+    }
+    for cut in 1..bytes.len() {
+        let (a, b) = bytes.split_at(cut);
+        if ended(&[a, b]) != Wrap::Ended {
+            wrong.push(format!("cut at {cut}"));
+        }
+    }
+    assert!(wrong.is_empty(), "row 0 still continues: {wrong:?}");
+}
+
+/// One step of [`window_program`]: bytes, or a resize.
+enum Step {
+    Bytes(Vec<u8>),
+    Resize(u16, u16),
+}
+
+/// `n` lines of the form `line i CR LF`.
+fn lines(n: usize) -> Vec<u8> {
+    (0..n)
+        .flat_map(|i| format!("line {i}\r\n").into_bytes())
+        .collect()
+}
+
+/// The program `history_window.rs`'s read-size property shrank to, less its
+/// last wheel step: `lines(16)` at 12 columns leaves two rows that wrapped
+/// and were then ended by a `CR LF`, and the re-cut at 20x24 joins any row
+/// whose wrap survived to the next.
+fn window_program() -> Vec<Step> {
+    vec![
+        Step::Bytes([&b"\x1b[10;1H"[..], &b"\n".repeat(10)].concat()),
+        Step::Bytes(b"\x1b[3;7r\x1b[4H\x1b[2L\x1b[r".to_vec()),
+        Step::Bytes(b"\x1b[?1049h".to_vec()),
+        Step::Bytes(b"\x1b[?3J".to_vec()),
+        Step::Resize(40, 8),
+        Step::Resize(12, 10),
+        Step::Bytes(b"\x1b[?47l".to_vec()),
+        Step::Bytes(lines(16)),
+        Step::Resize(20, 24),
+    ]
+}
+
+/// What the program leaves: the history's depth, the cursor, and every
+/// line from the oldest retained to the screen's last, as text.
+fn run_window_program(read: impl Fn(usize, &[u8]) -> Vec<Vec<u8>>) -> (usize, Row, Vec<String>) {
+    let room = WinSize {
+        ws_col: 40,
+        ws_row: 24,
+    };
+    let ws = WinSize {
+        ws_col: 20,
+        ws_row: 10,
+    };
+    let mut s = Owned::with_history(&room, &CacheGeometry::UNKNOWN, Depth::of(30));
+    let mut t = Term::new(s.storage(), &ws);
+    for (i, step) in window_program().iter().enumerate() {
+        match step {
+            Step::Bytes(b) => {
+                for r in read(i, b) {
+                    feed(&mut t, &r, r.len());
+                }
+            }
+            Step::Resize(c, r) => {
+                let _ = t.resize(&WinSize {
+                    ws_col: *c,
+                    ws_row: *r,
+                });
+            }
+        }
+    }
+    let depth = t.scrollback().len();
+    let (_, rows) = t.geometry();
+    let text = (0..depth)
+        .rev()
+        .map(|b| t.view(Rows::of_count(b + 1)).row(Row::ZERO).to_vec())
+        .chain((0..rows.index()).map(|y| t.row(Row::from_index(y)).expect("a row").to_vec()))
+        .map(|cells| {
+            cells
+                .iter()
+                .filter_map(|c| c.content.as_codepoint())
+                .filter_map(|cp| char::from_u32(cp.value()))
+                .collect::<String>()
+        })
+        .collect();
+    (depth, t.cursor().0, text)
+}
+
+/// **The shrunk program comes out the same at every read size and every
+/// two-read split**, and as a byte a read does: one line of history and
+/// the cursor on row 23. Read with the `CR LF`s in one read, the two rows
+/// kept their wrap, the re-cut joined them to the next, and the program
+/// ended with no history and the cursor on row 22.
+#[test]
+fn the_shrunk_window_program_reads_the_same_at_every_read_size() {
+    let one = run_window_program(|_, b| b.chunks(1).map(<[u8]>::to_vec).collect());
+    assert_eq!((one.0, one.1), (1, Row::from_index(23)), "a byte a read");
+    let longest = window_program()
+        .iter()
+        .map(|s| match s {
+            Step::Bytes(b) => b.len(),
+            Step::Resize(..) => 0,
+        })
+        .max()
+        .unwrap_or(0);
+    let mut wrong = Vec::new();
+    for read in 2..=longest {
+        let got = run_window_program(|_, b| b.chunks(read).map(<[u8]>::to_vec).collect());
+        if got != one {
+            wrong.push(format!("reads of {read}: {} {:?}", got.0, got.1));
+        }
+    }
+    for (step, s) in window_program().iter().enumerate() {
+        let Step::Bytes(bytes) = s else { continue };
+        for cut in 1..bytes.len() {
+            let got = run_window_program(|i, b| match i == step {
+                true => vec![b[..cut].to_vec(), b[cut..].to_vec()],
+                false => vec![b.to_vec()],
+            });
+            if got != one {
+                wrong.push(format!("step {step} cut at {cut}: {} {:?}", got.0, got.1));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{} differ: {wrong:#?}", wrong.len());
+}
