@@ -265,6 +265,10 @@ sha256 = "d30c2ace1cebdd5a28454177d4d9610d9661110bbeb4b97773259313042962f2"
 bytes  = 74264381
 status = "external"
 group  = "C"
+# Re-fetched 2026-10-15 for note AP, the sha256 matching. Read for the conformance levels:
+# 070-1 §1.5.3.1, §1.6.2-§1.6.3 and §1.7.2 (PDF 55, 58-60, 63) [img]; 070-4 DA, DA2,
+# DECSCL and DECID (PDF 221-232), Table 1 at PDF 223 [img]; 070-6 §6.2.1-§6.2.4 (PDF
+# 502-506); every function's "Levels:" field, by script over the text layer [text].
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -13731,6 +13735,34 @@ group  = "C"
 # Read 2026-10-11 (round 2026-10-11b) through OCR, checked on the image: printed p. 99
 # (PDF 109), Sixel Display Mode (DECSDM): "Set: CSI ? 8 0 h" "Enables the Sixel Scrolling
 # feature on the Graphics Set-up screen."; Table 6 (printed 52, PDF 62) lists DECSDM 80.
+
+[sources.vt3xx-tp]
+key    = "vt3xx-tp"
+title  = "VT330/VT340 Programmer Reference Manual, Volume 1: Text Programming, EK-VT3XX-TP-002"
+author = "Digital Equipment Corporation"
+year   = 1988
+venue  = "bitsavers.org"
+url    = "https://bitsavers.org/pdf/dec/terminal/vt340/EK-VT3XX-TP-002_VT330_VT340_Text_Programming_198805.pdf"
+file   = ""
+sha256 = "518676ad1188d4f75d0780e25f0a8fda2bb4a1a591902c6d62e1b9fde8042978"
+bytes  = 36995838
+status = "external"
+group  = "C"
+# Not committed: a DEC manual whose edition page reads "The reproduction of this
+# material, in part or whole, is strictly prohibited." (PDF p. 4) [img], as the other DEC PDFs are
+# pinned by hash and fetched to read. Fetched and hashed 2026-10-15 for note AP, with a
+# browser's user agent. "1st Edition, March 1987 / 2nd Edition, May 1988" [img]. 342
+# PDF pages; the text layer is Acrobat Paper Capture OCR. Read on the page images [img]:
+# chapter 12, "VT300 Reports", Device Attributes, printed pp. 196-199 (PDF 205-208) --
+# "Psc indicates the terminal's maximum operating level, regardless of the current
+# operating level", whose table has the one row "63 Level 3 (VT200 or VT300 family)";
+# the example "CSI ? 63; 1; 2; 3; 4; 6; 7; 8; 9; 13; 15; 16; 18; 19c"; Table 12-1,
+# "Alias Primary DA Responses From the VT300", with "VT102 DA ESC [ ? 6 c" and "VT240 DA
+# CSI ? 62; 1; 2; 3; 4; 6; 7; 8; 9 c" -- and DECSCL, printed p. 68 (PDF 77), Level 1
+# "VT100 mode". The first edition, EK-VT3XX-TP-001_VT330_VT340_Text_Programming_Mar87.pdf
+# in the same directory (54,100,022 bytes, sha256 e60d032f...), has no text layer and
+# was hashed, not read. vt340test's docs/ holds a different file under the second
+# edition's number (27,145,158 bytes, sha256 291a291e...), not this one.
 
 [sources.vt320-uu-appe]
 key    = "vt320-uu-appe"
