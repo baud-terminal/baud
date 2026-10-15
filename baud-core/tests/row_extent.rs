@@ -601,3 +601,40 @@ fn the_shrunk_window_program_reads_the_same_at_every_read_size() {
     }
     assert!(wrong.is_empty(), "{} differ: {wrong:#?}", wrong.len());
 }
+
+/// **A bare `LF` clears the wrap on the row it leaves**, with no `CR`
+/// before it. Row 0 wraps at 10, then `x LF` is written over its first
+/// cell: it ends there, at every read size and every two-read split.
+/// `a_cr_lf_in_one_read_clears_the_wrap_on_the_row_it_leaves` reaches
+/// `Paint::line_feed` only where a read splits the pair; this reaches
+/// it at every read.
+#[test]
+fn a_bare_lf_clears_the_wrap_on_the_row_it_leaves() {
+    let bytes = b"abcdefghijklmno\x1b[Hx\n";
+    let ws = WinSize {
+        ws_col: 10,
+        ws_row: 5,
+    };
+    let ended = |reads: &[&[u8]]| {
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        for r in reads {
+            feed(&mut t, r, r.len());
+        }
+        t.view(Rows::ZERO).wrapped(Row::ZERO)
+    };
+    let mut wrong = Vec::new();
+    for read in 1..=bytes.len() {
+        let reads: Vec<&[u8]> = bytes.chunks(read).collect();
+        if ended(&reads) != Wrap::Ended {
+            wrong.push(format!("reads of {read}"));
+        }
+    }
+    for cut in 1..bytes.len() {
+        let (a, b) = bytes.split_at(cut);
+        if ended(&[a, b]) != Wrap::Ended {
+            wrong.push(format!("cut at {cut}"));
+        }
+    }
+    assert!(wrong.is_empty(), "row 0 still continues: {wrong:?}");
+}
