@@ -1,12 +1,13 @@
-//! **The terminal keeps the window over the history** (note V, V2, the
-//! owner's answer of 2026-09-25: "B -- the core keeps the window over the
-//! history, as a line number or live"). Before it, baud-app kept the window as
-//! a count of lines up from the live screen and moved it after every read by
-//! the read's net movement, which is not composable: a window a scroll down
-//! brought to the live screen stays there, so `SD 5` and five lines landed
-//! live when the two were reads of their own and five lines up when one read
-//! held both. The core holds an absolute line, which output retiring lines
-//! never moves, and sends it live at the byte that takes its line back.
+//! **The terminal keeps the window over the history** (note V, V2: the
+//! owner's "as recommended" of 2026-09-25, which picked B -- the core keeps
+//! the window over the history, as a line number or live). Before it,
+//! baud-app kept the window as a count of lines up from the live screen and
+//! moved it after every read by the read's net movement, which is not
+//! composable: a window a scroll down brought to the live screen stays
+//! there, so `SD 5` and five lines landed live when the two were reads of
+//! their own and five lines up when one read held both. The core holds an
+//! absolute line, which output retiring lines never moves, and sends it live
+//! at the byte that takes its line back.
 //!
 //! The oracle is the app's anchor as it was, ported here and fed a byte a
 //! read, where a read's net movement is one event's: the answer every other
@@ -312,7 +313,7 @@ fn an_erasure_sends_the_window_live_from_either_screen() {
                     want,
                     "{what}, reads of {size}"
                 );
-                feed_in(t, &lines(3), size);
+                feed_in(t, &[&b"\x1b[10;1H"[..], &lines(3)].concat(), size);
                 let want = if want == 0 { 0 } else { want + 3 };
                 if t.screen() == Screen::Normal {
                     assert_eq!(t.window_back().index(), want, "{what}, and lines after");
