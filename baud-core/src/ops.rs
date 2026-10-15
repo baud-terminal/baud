@@ -2143,8 +2143,22 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// DECALN: fill the screen with `E`, home the cursor, drop the region.
+    /// DECALN: origin mode absolute and the rendition normal, then the
+    /// screen filled with `E`, every margin reset and the cursor home.
+    ///
+    /// `[[source: dec-std-070]]`'s DECALN (pp. D-19 and D-20) sets
+    /// `ORIGIN_MODE := ABSOLUTE` and the four renditions it knows to `FALSE`
+    /// before it fills, then the Active Position to 1;1 and the top and
+    /// bottom margins to the page's. The colours belong to the same Current
+    /// Rendition (§ 5.13.1, p. 5-186), so the whole word goes, as `SGR 0`
+    /// takes it. The 1985 algorithm predates side margins; "DECALN sets the
+    /// margins to the extremes of the page" (`[[source: vt510-decaln]]`)
+    /// takes all four, and no text resets `DECLRMM`. It kept DECOM, the
+    /// rendition and the side margins until 2026-10-14.
     pub(crate) fn screen_alignment(&mut self) {
+        self.cold.modes.apply(ModeBit::Origin, false);
+        self.style_raw = StyleWord::DEFAULT;
+        self.style = StyleId::DEFAULT;
         let cell = PackedCell::glyph(
             Codepoint::from_ascii(StreamByte::from_stream(b'E')),
             self.style,
@@ -2156,10 +2170,8 @@ impl Paint<'_, '_> {
         }
         self.cold.top = Row::ZERO;
         self.cold.bot = Row::from_index(self.rows.index() - 1);
-        // Under DECOM, the left margin: this core keeps the mode and the side
-        // margins here, where `[[source: dec-std-070]]`'s DECALN (p. D-19)
-        // resets the mode, an open departure in the record.
-        self.home();
+        self.reset_side_margins();
+        self.goto(Row::ZERO, Col::ZERO);
     }
 
     /// RIS. **Everything a soft reset does, and the screen as well.**

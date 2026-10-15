@@ -741,6 +741,25 @@ fn fixtures() -> Vec<Fixture> {
             format!("{LRM}\x1b[1;15HXY"),
             Pinned(STEP_D),
         ),
+        // ---- DECALN: origin mode and every margin back ----------------------
+        // STD 070 pp. D-19 and D-20 and the VT510's "the margins to the
+        // extremes of the page"; ghostty's `decaln` resets all four margins
+        // and origin mode too (Terminal.zig 3706-3730).
+        f(
+            "decaln: resets origin mode",
+            format!("{TB}\x1b[?6h\x1b[3;3H\x1b#8\x1b[3;5rX"),
+            Agree,
+        ),
+        f(
+            "decaln: resets the side margins",
+            format!("{LRM}\x1b#8\x1b[1;9HABC"),
+            Agree,
+        ),
+        f(
+            "decaln: under origin mode and both margin pairs",
+            format!("{TB}{LRM}\x1b[?6h\x1b[3;7H\x1b#8"),
+            Agree,
+        ),
     ]
 }
 

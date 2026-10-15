@@ -7,6 +7,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod decaln;
 mod origin;
 mod rect_scroll;
 mod side_margins;
@@ -25,7 +26,12 @@ mod side_margins;
 fn the_known_vt420_gaps() {
     support::ignores_are(
         "vt420",
-        &["origin.rs", "rect_scroll.rs", "side_margins.rs"],
+        &[
+            "decaln.rs",
+            "origin.rs",
+            "rect_scroll.rs",
+            "side_margins.rs",
+        ],
         &[],
     );
 }
