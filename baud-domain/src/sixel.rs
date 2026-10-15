@@ -856,9 +856,9 @@ impl Sink for Claim<'_, '_, '_> {
 /// image) can open a larger gap, and a claim that runs out takes the store's
 /// largest gap then, moving its rows; a claim is not recorded, so a body
 /// that never reaches its terminator -- cancelled, abandoned, or reset --
-/// leaves no slot and no span, only arena words no image owns. At the terminator the image moves
-/// to the lowest gap that holds it, where [`ImageStore::store`] would have
-/// put it, and is recorded there.
+/// leaves no slot and no span, only arena words no image owns. At the
+/// terminator the image moves to the lowest gap that holds it, where
+/// [`ImageStore::store`] would have put it, and is recorded there.
 #[derive(Clone)]
 pub struct SixelStream {
     walk: Walk,

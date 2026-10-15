@@ -755,22 +755,23 @@ if the operation regressed.
   between two reads of its body (a resize) is room it can use. A band refused
   before such a free cannot be drawn, the one case where the buffered decoder
   stored what the stream refuses. A claim is not recorded, so a body that
-  never reaches its terminator leaves no slot and no span. Rows are cleared as the image reaches them, the raster's `Ph`
-  sets the row stride (070-9 §8.1.2's "summary"), a stride wider than the
-  widest row is laid out again at the next band, and with no `Ph` it grows by
-  doubling. At the terminator the rows are packed to the image's width and
-  moved to the lowest gap that holds them, where `store` would have put a
-  measured image, so the store's layout is the buffered decoder's. **The
-  limit is pixels**: the arena (`[images] pixels_mb`, 4 MiB), 65535 a side
-  and the slot table, and no body is refused for its bytes, as 070-9 §8.1.2
-  ("does not limit the number of pixels a device may image") and §2 ("The
-  protocol should support any size rasters, although not all devices will be
-  capable of displaying them", its p. 2, PDF p. 913) have it. Its costs,
-  measured: an image past the arena paints the claim before its refusal, and
-  a sender whose `Ph` overstates its image writes its first band at that
-  stride; `Pv` is not used, the claim being the whole gap. The record, "A
-  Sixel is decoded as its body arrives", has the tests, the 54 recorded
-  images against the buffered decoder and the time and memory.
+  never reaches its terminator leaves no slot and no span. Rows are cleared
+  as the image reaches them, the raster's `Ph` sets the row stride (070-9
+  §8.1.2's "summary"), a stride wider than the widest row is laid out again
+  at the next band, and with no `Ph` it grows by doubling. At the terminator
+  the rows are packed to the image's width and moved to the lowest gap that
+  holds them, where `store` would have put a measured image, so the store's
+  layout is the buffered decoder's. **The limit is pixels**: the arena
+  (`[images] pixels_mb`, 4 MiB), 65535 a side and the slot table, and no body
+  is refused for its bytes, as 070-9 §8.1.2 ("does not limit the number of
+  pixels a device may image") and §2 ("The protocol should support any size
+  rasters, although not all devices will be capable of displaying them", its
+  p. 2, PDF p. 913) have it. Its costs, measured: an image past the arena
+  paints the claim before its refusal, and a sender whose `Ph` overstates its
+  image writes its first band at that stride; `Pv` is not used, the claim
+  being the whole gap. The record, "A Sixel is decoded as its body arrives",
+  has the tests, the 54 recorded images against the buffered decoder and the
+  time and memory.
 * ~~**Reflow.**~~ **Taken, 2026-09-22: the image follows the row it was
   placed on**, foot's model and ghostty's, over kitty's fixed screen
   position and WezTerm's per-cell slices. See "What a resize does to an
