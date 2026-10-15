@@ -6,10 +6,19 @@
 //! Noto Color Emoji's `CBDT` carries thousands more -- and "no engine
 //! dependencies" covers image libraries too. The decoder is the smallest
 //! complete one: every colour type and bit depth the specification allows,
-//! the five filters, stored, fixed and dynamic deflate blocks, CRC-32 on
-//! every chunk and Adler-32 on the stream. Interlaced images are refused;
-//! no emoji font interlaces, and `tests/bitmap.rs` counts the refusals so
-//! that claim is checked rather than assumed.
+//! the five filters, both interlace methods, stored, fixed and dynamic
+//! deflate blocks, CRC-32 on every chunk and Adler-32 on the stream.
+//!
+//! **Adam7 is read, because PNG requires it**: "Decoders are required to be
+//! able to read interlaced images" (13.10; 15.2.3 asks for "all the
+//! standardized ... interlace methods"). An interlaced image is seven
+//! reduced images in one zlib stream, each filtered on its own -- "the
+//! entire prior scanline ... shall be treated as being zeroes for the first
+//! scanline of a reduced image" (9.2) -- and an empty one carries nothing:
+//! "no filter type bytes are present in an empty reduced image" (13.10).
+//! Each is unfiltered in place in the scratch buffer and its pixels written
+//! straight to where the pass puts them in the output, so interlacing needs
+//! no third buffer.
 //!
 //! **No allocation.** The caller provides two buffers sized by
 //! [`Png::raw_len`] and [`Png::rgba_len`]: the inflated, still-filtered
@@ -43,10 +52,9 @@ pub enum PngError {
     Malformed,
     /// A chunk's CRC-32 does not match its bytes.
     Crc,
-    /// A colour type or bit depth the specification does not allow.
+    /// A colour type, bit depth or interlace method the specification
+    /// does not allow.
     Header,
-    /// Interlace method 1 (Adam7), which this decoder does not implement.
-    Interlaced,
     /// A caller buffer is smaller than [`Png::raw_len`] or [`Png::rgba_len`].
     Buffer,
     /// The zlib stream is malformed: a bad header, an invalid block, a
@@ -101,6 +109,141 @@ impl Color {
     }
 }
 
+/// The interlace method from `IHDR` (8.2): the null method, or Adam7.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Interlace {
+    Null,
+    Adam7,
+}
+
+/// Where one reduced image's pixels sit in the whole image (8.2): its
+/// first column and row, and the distance to the next of each.
+#[derive(Clone, Copy)]
+struct Pass {
+    col: Lattice,
+    row: Lattice,
+}
+
+/// One axis of a [`Pass`]. The first pixel and the step are the same width
+/// and a swapped pair decodes to a plausible wrong picture, as `Run` and
+/// `Back` would, so they do not share a type.
+#[derive(Clone, Copy)]
+struct Lattice {
+    first: First,
+    step: Step,
+}
+
+#[derive(Clone, Copy)]
+struct First(u32);
+
+#[derive(Clone, Copy)]
+struct Step(u32);
+
+impl Pass {
+    /// The null method's one reduced image: the whole image.
+    const WHOLE: Pass = Pass {
+        col: Lattice {
+            first: First(0),
+            step: Step(1),
+        },
+        row: Lattice {
+            first: First(0),
+            step: Step(1),
+        },
+    };
+
+    /// This pass's reduced image of an image of `full` pixels, or `None`
+    /// when it has no columns or no rows: "If the reference image contains
+    /// fewer than five columns or fewer than five rows, some passes will be
+    /// empty" (8.2).
+    fn reduced(self, full: Size) -> Option<Size> {
+        let along = |n: u32, axis: Lattice| n.saturating_sub(axis.first.0).div_ceil(axis.step.0);
+        let size = Size {
+            width: along(full.width, self.col),
+            height: along(full.height, self.row),
+        };
+        (size.width != 0 && size.height != 0).then_some(size)
+    }
+}
+
+/// 8.2's pattern, as the specification prints it: the pass that carries
+/// each pixel, "replicating the following 8-by-8 pattern over the entire
+/// image, starting at the upper left corner".
+const ADAM7_PATTERN: [[u8; 8]; 8] = [
+    [1, 6, 4, 6, 2, 6, 4, 6],
+    [7, 7, 7, 7, 7, 7, 7, 7],
+    [5, 6, 5, 6, 5, 6, 5, 6],
+    [7, 7, 7, 7, 7, 7, 7, 7],
+    [3, 6, 4, 6, 3, 6, 4, 6],
+    [7, 7, 7, 7, 7, 7, 7, 7],
+    [5, 6, 5, 6, 5, 6, 5, 6],
+    [7, 7, 7, 7, 7, 7, 7, 7],
+];
+
+/// The seven passes, read off [`ADAM7_PATTERN`] at compile time: a pass
+/// starts at its first cell in reading order and steps to the next cell of
+/// its number along that row and down that column of the replicated
+/// pattern. The build then rebuilds a 16-by-16 area from the lattices and
+/// fails unless each cell lands in exactly the pass the pattern names, so
+/// the table cannot drift from the text it was derived from.
+const ADAM7: [Pass; 7] = {
+    let mut passes = [Pass::WHOLE; 7];
+    let mut k = 0;
+    let mut p: u8 = 1;
+    while k < 7 {
+        // The first cell of pass `p`, in reading order. Each index is
+        // counted twice, as the `usize` that indexes the pattern and the
+        // `u32` the lattice holds: a `const` block cannot call `try_from`.
+        let (mut r, mut c, mut r32, mut c32) = (0, 0, 0u32, 0u32);
+        while ADAM7_PATTERN[r][c] != p {
+            c += 1;
+            c32 += 1;
+            if c == 8 {
+                (c, c32) = (0, 0);
+                r += 1;
+                r32 += 1;
+            }
+        }
+        // The next cell of `p` along the row and down the column, in the
+        // replicated pattern: at most a tile on, where the cell repeats.
+        let (mut dc, mut dr, mut dc32, mut dr32) = (1, 1, 1u32, 1u32);
+        while ADAM7_PATTERN[r][(c + dc) % 8] != p {
+            dc += 1;
+            dc32 += 1;
+        }
+        while ADAM7_PATTERN[(r + dr) % 8][c] != p {
+            dr += 1;
+            dr32 += 1;
+        }
+        passes[k] = Pass {
+            col: Lattice {
+                first: First(c32),
+                step: Step(dc32),
+            },
+            row: Lattice {
+                first: First(r32),
+                step: Step(dr32),
+            },
+        };
+        // Every cell of four tiles, so a step that is right inside one tile
+        // and wrong across two cannot pass: in pass `p`'s lattice exactly
+        // when the replicated pattern says `p`.
+        let mut y = 0;
+        while y < 16 {
+            let mut x = 0;
+            while x < 16 {
+                let on = y >= r && (y - r) % dr == 0 && x >= c && (x - c) % dc == 0;
+                assert!(on == (ADAM7_PATTERN[y % 8][x % 8] == p));
+                x += 1;
+            }
+            y += 1;
+        }
+        k += 1;
+        p += 1;
+    }
+    passes
+};
+
 /// A parsed header: enough to size the buffers and to walk the chunks.
 #[derive(Clone, Copy)]
 pub struct Png<'a> {
@@ -108,6 +251,7 @@ pub struct Png<'a> {
     size: Size,
     depth: u8,
     color: Color,
+    interlace: Interlace,
     palette: Option<Bytes<'a>>,
     trns: Option<Bytes<'a>>,
 }
@@ -228,14 +372,19 @@ impl<'a> Png<'a> {
         if width == 0 || height == 0 || width > 0x7FFF_FFFF || height > 0x7FFF_FFFF {
             return Err(PngError::Header);
         }
-        if interlace != 0 {
-            return Err(PngError::Interlaced);
-        }
+        // 8.2 defines methods 0 and 1; 15.2.3, "Unexpected values in
+        // fields of known chunks ... are treated as errors."
+        let interlace = match interlace {
+            0 => Interlace::Null,
+            1 => Interlace::Adam7,
+            _ => return Err(PngError::Header),
+        };
         let mut png = Png {
             data,
             size: Size { width, height },
             depth,
             color,
+            interlace,
             palette: None,
             trns: None,
         };
@@ -265,17 +414,40 @@ impl<'a> Png<'a> {
         u32::from(self.depth) * self.color.channels()
     }
 
-    /// Bytes per scanline, without the filter byte.
-    fn row_bytes(&self) -> Option<u32> {
-        let bits = self.bits_per_pixel().checked_mul(self.size.width)?;
+    /// Bytes per scanline of an image `size` wide, without the filter
+    /// byte; a scanline of a reduced image is padded to a whole byte on its
+    /// own (7.2).
+    fn row_bytes(&self, size: Size) -> Option<u32> {
+        let bits = self.bits_per_pixel().checked_mul(size.width)?;
         bits.checked_add(7).map(|b| b / 8)
     }
 
-    /// The bytes the inflated stream occupies: `height` scanlines, each a
-    /// filter byte plus [`Self::row_bytes`].
+    /// The reduced images the scanlines are stored as, in order: the whole
+    /// image under the null method, Adam7's seven passes under method 1.
+    fn passes(&self) -> &'static [Pass] {
+        match self.interlace {
+            Interlace::Null => &[Pass::WHOLE],
+            Interlace::Adam7 => &ADAM7,
+        }
+    }
+
+    /// The bytes the inflated stream occupies: every non-empty reduced
+    /// image's scanlines, each a filter byte plus [`Self::row_bytes`] at the
+    /// reduced width. For a non-interlaced image that is `height` scanlines
+    /// of the full width. An interlaced one has about 15/8 as many
+    /// scanlines, so this is larger by a filter byte for each of the extra
+    /// 7/8 `height` and, below 8 bits, up to one padding byte for every
+    /// reduced scanline -- 2x3 grey is 11 bytes against 9. Size the scratch
+    /// from this, never from `(row + 1) * height`.
     pub fn raw_len(&self) -> Option<usize> {
-        let row = self.row_bytes()?.checked_add(1)?;
-        let total = row.checked_mul(self.size.height)?;
+        let mut total = 0u32;
+        for pass in self.passes() {
+            let Some(size) = pass.reduced(self.size) else {
+                continue;
+            };
+            let row = self.row_bytes(size)?.checked_add(1)?;
+            total = total.checked_add(row.checked_mul(size.height)?)?;
+        }
         usize::try_from(total).ok()
     }
 
@@ -293,8 +465,33 @@ impl<'a> Png<'a> {
         let raw = raw.get_mut(..raw_len).ok_or(PngError::Buffer)?;
         let rgba = rgba.get_mut(..rgba_len).ok_or(PngError::Buffer)?;
         self.inflate(raw)?;
-        self.unfilter(raw)?;
-        self.expand(raw, rgba)?;
+        if self.interlace == Interlace::Null {
+            // The whole image as its one reduced image, called on its own:
+            // sent through the loop below instead, a 1920x1080 RGB decode
+            // retired 491 M instructions against 470 M this way and 477 M
+            // before Adam7 (`baud-bench`'s `png_decode`; the record,
+            // "png.rs reads Adam7"). `codes`, inflate's symbol loop, was
+            // the same machine code in all three.
+            self.unfilter(raw, self.size)?;
+            self.expand(raw, rgba, self.size, Pass::WHOLE)?;
+            return Ok(self.size);
+        }
+        // The reduced images follow one another in the stream, an empty
+        // pass taking no bytes at all (13.10).
+        let mut at = 0;
+        for &pass in self.passes() {
+            let Some(size) = pass.reduced(self.size) else {
+                continue;
+            };
+            let stride = usize::try_from(self.row_bytes(size).ok_or(PngError::Buffer)?)
+                .map_err(|_| PngError::Buffer)?
+                + 1;
+            let h = usize::try_from(size.height).map_err(|_| PngError::Buffer)?;
+            let part = raw.get_mut(at..at + stride * h).ok_or(PngError::Buffer)?;
+            self.unfilter(part, size)?;
+            self.expand(part, rgba, size, pass)?;
+            at += stride * h;
+        }
         Ok(self.size)
     }
 
@@ -348,10 +545,13 @@ impl<'a> Png<'a> {
         Ok(())
     }
 
-    /// Reconstructs every scanline in place (9.2): the filter byte stays
-    /// where it is and the row after it becomes the original bytes.
-    fn unfilter(&self, raw: &mut [u8]) -> Result<(), PngError> {
-        let rb = usize::try_from(self.row_bytes().ok_or(PngError::Buffer)?)
+    /// Reconstructs every scanline of one reduced image of `size` pixels in
+    /// place (9.2): the filter byte stays where it is and the row after it
+    /// becomes the original bytes. `raw` starts at the image's first
+    /// scanline, so its prior scanline is zero, as 9.2 requires of every
+    /// reduced image.
+    fn unfilter(&self, raw: &mut [u8], size: Size) -> Result<(), PngError> {
+        let rb = usize::try_from(self.row_bytes(size).ok_or(PngError::Buffer)?)
             .map_err(|_| PngError::Buffer)?;
         let stride = rb + 1;
         // The "corresponding byte of the previous pixel": whole bytes for
@@ -359,7 +559,7 @@ impl<'a> Png<'a> {
         let bpp = usize::try_from(self.bits_per_pixel().div_ceil(8))
             .map_err(|_| PngError::Buffer)?
             .max(1);
-        let rows = usize::try_from(self.size.height).map_err(|_| PngError::Buffer)?;
+        let rows = usize::try_from(size.height).map_err(|_| PngError::Buffer)?;
         for r in 0..rows {
             let (before, rest) = raw.split_at_mut(r * stride);
             let prev: &[u8] = if r == 0 {
@@ -416,68 +616,96 @@ impl<'a> Png<'a> {
         Ok(())
     }
 
-    /// Every pixel to RGBA8. Sixteen-bit samples keep their high byte;
-    /// sub-byte grey scales to the full range; palette indices look up
-    /// `PLTE` with `tRNS` alpha; a `tRNS` colour key on grey and RGB images
-    /// makes that one colour transparent (11.3.2.1).
-    fn expand(&self, raw: &[u8], rgba: &mut [u8]) -> Result<(), PngError> {
-        let rb = usize::try_from(self.row_bytes().ok_or(PngError::Buffer)?)
+    /// Every pixel of one reduced image of `size` pixels to RGBA8, at the
+    /// place `pass` puts it in the whole image: each scanline's pixels go
+    /// to every `step`-th four-byte slot of their row from the first.
+    fn expand(&self, raw: &[u8], rgba: &mut [u8], size: Size, pass: Pass) -> Result<(), PngError> {
+        let rb = usize::try_from(self.row_bytes(size).ok_or(PngError::Buffer)?)
             .map_err(|_| PngError::Buffer)?;
-        let w = usize::try_from(self.size.width).map_err(|_| PngError::Buffer)?;
-        let h = usize::try_from(self.size.height).map_err(|_| PngError::Buffer)?;
+        let w = usize::try_from(size.width).map_err(|_| PngError::Buffer)?;
+        let h = usize::try_from(size.height).map_err(|_| PngError::Buffer)?;
+        let full = usize::try_from(self.size.width).map_err(|_| PngError::Buffer)?;
+        let at = |n: u32| usize::try_from(n).map_err(|_| PngError::Buffer);
+        let (x0, dx) = (at(pass.col.first.0)?, at(pass.col.step.0)?);
+        let (y0, dy) = (at(pass.row.first.0)?, at(pass.row.step.0)?);
+        for r in 0..h {
+            let line = &raw[r * (rb + 1) + 1..r * (rb + 1) + 1 + rb];
+            let start = ((y0 + r * dy) * full + x0) * 4;
+            // The row's last slot is in `rgba`, so every one before it is.
+            let end = start + ((w - 1) * dx + 1) * 4;
+            let slots = rgba
+                .get_mut(start..end)
+                .ok_or(PngError::Buffer)?
+                .chunks_exact_mut(4);
+            // A step of 1 is the null method's and pass 7's; it is its own
+            // loop so that it has no step to take.
+            if dx == 1 {
+                self.pixels(line, slots)?;
+            } else {
+                self.pixels(line, slots.step_by(dx))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// One scanline's pixels to RGBA8, into `slots` in order. Sixteen-bit
+    /// samples keep their high byte; sub-byte grey scales to the full range;
+    /// palette indices look up `PLTE` with `tRNS` alpha; a `tRNS` colour key
+    /// on grey and RGB images makes that one colour transparent (11.3.2.1).
+    fn pixels<'p>(
+        &self,
+        line: &[u8],
+        slots: impl Iterator<Item = &'p mut [u8]>,
+    ) -> Result<(), PngError> {
         let depth = usize::from(self.depth);
         let palette = self.palette.map(Bytes::as_slice).unwrap_or(&[]);
         let trns = self.trns.map(Bytes::as_slice).unwrap_or(&[]);
-        for r in 0..h {
-            let line = &raw[r * (rb + 1) + 1..r * (rb + 1) + 1 + rb];
-            for x in 0..w {
-                let px = &mut rgba[(r * w + x) * 4..(r * w + x) * 4 + 4];
-                match self.color {
-                    Color::Gray => {
-                        let v = sample(line, x, depth);
-                        let g = scale(v, depth);
-                        let a = if trns.len() >= 2 && u16::from_be_bytes([trns[0], trns[1]]) == v {
-                            0
-                        } else {
-                            255
-                        };
-                        px.copy_from_slice(&[g, g, g, a]);
-                    }
-                    Color::Palette => {
-                        let i = usize::from(
-                            u8::try_from(sample(line, x, depth)).map_err(|_| PngError::Palette)?,
-                        );
-                        let rgb = palette.get(i * 3..i * 3 + 3).ok_or(PngError::Palette)?;
-                        let a = trns.get(i).copied().unwrap_or(255);
-                        px.copy_from_slice(&[rgb[0], rgb[1], rgb[2], a]);
-                    }
-                    Color::GrayAlpha => {
-                        let s = depth / 8;
-                        let g = line[x * 2 * s];
-                        let a = line[x * 2 * s + s];
-                        px.copy_from_slice(&[g, g, g, a]);
-                    }
-                    Color::Rgb => {
-                        let s = depth / 8;
-                        let at = x * 3 * s;
-                        let (r8, g8, b8) = (line[at], line[at + s], line[at + 2 * s]);
-                        let a = if trns.len() >= 6 && self.color_key_matches(line, at, s, trns) {
-                            0
-                        } else {
-                            255
-                        };
-                        px.copy_from_slice(&[r8, g8, b8, a]);
-                    }
-                    Color::Rgba => {
-                        let s = depth / 8;
-                        let at = x * 4 * s;
-                        px.copy_from_slice(&[
-                            line[at],
-                            line[at + s],
-                            line[at + 2 * s],
-                            line[at + 3 * s],
-                        ]);
-                    }
+        for (x, px) in slots.enumerate() {
+            match self.color {
+                Color::Gray => {
+                    let v = sample(line, x, depth);
+                    let g = scale(v, depth);
+                    let a = if trns.len() >= 2 && u16::from_be_bytes([trns[0], trns[1]]) == v {
+                        0
+                    } else {
+                        255
+                    };
+                    px.copy_from_slice(&[g, g, g, a]);
+                }
+                Color::Palette => {
+                    let i = usize::from(
+                        u8::try_from(sample(line, x, depth)).map_err(|_| PngError::Palette)?,
+                    );
+                    let rgb = palette.get(i * 3..i * 3 + 3).ok_or(PngError::Palette)?;
+                    let a = trns.get(i).copied().unwrap_or(255);
+                    px.copy_from_slice(&[rgb[0], rgb[1], rgb[2], a]);
+                }
+                Color::GrayAlpha => {
+                    let s = depth / 8;
+                    let g = line[x * 2 * s];
+                    let a = line[x * 2 * s + s];
+                    px.copy_from_slice(&[g, g, g, a]);
+                }
+                Color::Rgb => {
+                    let s = depth / 8;
+                    let at = x * 3 * s;
+                    let (r8, g8, b8) = (line[at], line[at + s], line[at + 2 * s]);
+                    let a = if trns.len() >= 6 && self.color_key_matches(line, at, s, trns) {
+                        0
+                    } else {
+                        255
+                    };
+                    px.copy_from_slice(&[r8, g8, b8, a]);
+                }
+                Color::Rgba => {
+                    let s = depth / 8;
+                    let at = x * 4 * s;
+                    px.copy_from_slice(&[
+                        line[at],
+                        line[at + s],
+                        line[at + 2 * s],
+                        line[at + 3 * s],
+                    ]);
                 }
             }
         }

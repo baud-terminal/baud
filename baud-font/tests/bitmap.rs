@@ -50,6 +50,8 @@ use std::path::{Path, PathBuf};
 use ttf_parser::RgbaColor;
 use ttf_parser::colr::{ClipBox, CompositeMode, Paint, Painter};
 
+mod sha256;
+
 fn committed() -> Vec<PathBuf> {
     let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fonts"));
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -107,7 +109,6 @@ struct Tally {
     cbdt_y_translated: usize,
     pngs_decoded: usize,
     pixels: usize,
-    interlaced_refused: usize,
     refused_by_both: Counted,
     layered_glyphs: usize,
     layers_agreed: usize,
@@ -132,7 +133,6 @@ impl Tally {
             cbdt_y_translated,
             pngs_decoded,
             pixels,
-            interlaced_refused,
             refused_by_both: Counted(refused_by_both),
             layered_glyphs,
             layers_agreed,
@@ -149,7 +149,6 @@ impl Tally {
         self.cbdt_y_translated += cbdt_y_translated;
         self.pngs_decoded += pngs_decoded;
         self.pixels += pixels;
-        self.interlaced_refused += interlaced_refused;
         self.refused_by_both.0 += refused_by_both;
         self.layered_glyphs += layered_glyphs;
         self.layers_agreed += layers_agreed;
@@ -234,14 +233,8 @@ fn oracle_rgba(bytes: &[u8]) -> (u32, u32, Vec<u8>) {
 }
 
 fn decode_both(bytes: &[u8], t: &mut Tally, what: &str) {
-    let png = match Png::parse(bytes) {
-        Ok(p) => p,
-        Err(PngError::Interlaced) => {
-            t.interlaced_refused += 1;
-            return;
-        }
-        Err(e) => panic!("{what}: baud refuses a PNG the strike carries: {e:?}"),
-    };
+    let png = Png::parse(bytes)
+        .unwrap_or_else(|e| panic!("{what}: baud refuses a PNG the strike carries: {e:?}"));
     let mut raw = vec![0u8; png.raw_len().expect("a strike PNG has a bounded size")];
     let mut rgba = vec![0u8; png.rgba_len().unwrap()];
     let size = match png.decode(&mut raw, &mut rgba) {
@@ -740,7 +733,7 @@ fn every_strike_layer_and_pixel_agrees_with_the_oracles() {
     assert!(t.palettes >= 8, "{}", t.palettes);
     assert!(t.colors_agreed >= 2126 * 8, "{}", t.colors_agreed);
     // Apple Color Emoji on macOS: nine sbix strikes, tens of thousands of
-    // PNGs, none interlaced.
+    // PNGs.
     if cfg!(target_os = "macos") {
         assert!(t.strikes >= 10, "{}", t.strikes);
         assert!(t.sbix_bitmaps >= 30_000, "{}", t.sbix_bitmaps);
@@ -749,7 +742,6 @@ fn every_strike_layer_and_pixel_agrees_with_the_oracles() {
         assert!(t.sbix_flips.0 >= 1_944 + 84, "{:?}", t.sbix_flips);
         assert!(t.pngs_decoded >= 30_000, "{}", t.pngs_decoded);
     }
-    assert_eq!(t.interlaced_refused, 0);
     // `sbix-strikes.ttf`'s unreadable PNGs: E's at 40 ppem and Q's in all
     // six strikes; none elsewhere.
     assert_eq!(t.refused_by_both, Counted(7));
@@ -1099,4 +1091,214 @@ fn the_sbix_fixture_is_what_its_generator_writes() {
         "sbix-strikes.ttf is not what scripts/gen-sbix-fixture.py writes: regenerate it \
          and re-pin font-sbix-strikes in MANIFEST.toml"
     );
+}
+
+/// baud's decode of one PNG, as its size and RGBA8.
+fn ours(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), PngError> {
+    let png = Png::parse(bytes)?;
+    let mut raw = vec![0u8; png.raw_len().ok_or(PngError::Buffer)?];
+    let mut rgba = vec![0u8; png.rgba_len().ok_or(PngError::Buffer)?];
+    let size = png.decode(&mut raw, &mut rgba)?;
+    Ok((size.width, size.height, rgba))
+}
+
+fn adam7_fixtures() -> Vec<PathBuf> {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/png");
+    let mut all: Vec<PathBuf> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.to_string_lossy().ends_with("-i.png"))
+        .collect();
+    all.sort();
+    all
+}
+
+#[test]
+fn every_interlaced_fixture_decodes_as_its_twin_and_the_oracle() {
+    // `scripts/gen-adam7-fixtures.py`: each picture with interlace method 1
+    // and again with method 0, every colour type and depth PNG allows, at
+    // 1x1, 2x3, 7x9 and 33x17. PNG 2003 13.10: "Decoders are required to
+    // be able to read interlaced images." The two baud decodes and the two
+    // oracle decodes must all be one RGBA image.
+    let mut kinds = std::collections::BTreeSet::new();
+    let mut sizes = std::collections::BTreeSet::new();
+    let mut pairs = 0;
+    for path in adam7_fixtures() {
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let laced = std::fs::read(&path).unwrap();
+        let twin = std::fs::read(path.with_file_name(name.replace("-i.png", "-n.png"))).unwrap();
+        // IHDR's interlace byte: the fixture is what its name says.
+        assert_eq!((laced[28], twin[28]), (1, 0), "{name}");
+        kinds.insert((laced[25], laced[24]));
+        let (w, h, a) = ours(&laced).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let (_, _, b) = ours(&twin).unwrap_or_else(|e| panic!("{name} twin: {e:?}"));
+        let (ow, oh, c) = oracle_rgba(&laced);
+        let (_, _, d) = oracle_rgba(&twin);
+        sizes.insert((w, h));
+        assert_eq!((w, h), (ow, oh), "{name}: size");
+        assert!(c == d, "{name}: the oracle reads the twins differently");
+        assert!(
+            b == d,
+            "{name}: the non-interlaced twin differs from the oracle"
+        );
+        assert!(
+            a == c,
+            "{name}: the interlaced decode differs from the oracle"
+        );
+        pairs += 1;
+    }
+    // Positive controls: all fifteen (colour type, depth) pairs of table
+    // 11.1, and the sizes that leave passes empty.
+    let allowed = [
+        (0, 1),
+        (0, 2),
+        (0, 4),
+        (0, 8),
+        (0, 16),
+        (2, 8),
+        (2, 16),
+        (3, 1),
+        (3, 2),
+        (3, 4),
+        (3, 8),
+        (4, 8),
+        (4, 16),
+        (6, 8),
+        (6, 16),
+    ];
+    assert_eq!(kinds.into_iter().collect::<Vec<_>>(), allowed);
+    assert_eq!(
+        sizes.into_iter().collect::<Vec<_>>(),
+        [(1, 1), (2, 3), (7, 9), (33, 17)]
+    );
+    assert_eq!(pairs, 60);
+}
+
+#[test]
+fn an_interlaced_scratch_counts_each_pass_its_own_filter_bytes() {
+    // 2x3, 8-bit grey: passes 2 and 4 have no columns and pass 3 no rows,
+    // so they carry no filter byte (9.1); 1 has one pixel, 5 one, 6 two rows
+    // of one and 7 one row of two. 2 + 2 + 4 + 3 = 11, against 3 x 3 = 9.
+    let raw = |f: &str| {
+        let bytes = std::fs::read(format!("{}/tests/png/{f}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        Png::parse(&bytes).unwrap().raw_len().unwrap()
+    };
+    assert_eq!(raw("g8-2x3-i.png"), 11);
+    assert_eq!(raw("g8-2x3-n.png"), 9);
+    // 33x17 at one bit: each reduced scanline is padded to a byte of its
+    // own (7.2). Passes 1 to 7 are 5x3, 4x3, 9x2, 8x5, 17x4, 16x9 and
+    // 33x8 pixels: 6 + 6 + 6 + 10 + 16 + 27 + 48 = 119, against 6 x 17.
+    assert_eq!(raw("g1-33x17-i.png"), 119);
+    assert_eq!(raw("g1-33x17-n.png"), 102);
+    assert_eq!(raw("rgb8-1x1-i.png"), 4);
+}
+
+#[test]
+fn an_interlace_method_past_adam7_is_a_header_error() {
+    // 15.2.3: "Unexpected values in fields of known chunks ... are treated
+    // as errors." Methods 0 and 1 are the two 8.2 defines.
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/png/g8-2x3-i.png");
+    let mut png = std::fs::read(path).unwrap();
+    png[28] = 2;
+    let crc = {
+        let mut c = 0xFFFF_FFFFu32;
+        for &b in &png[12..29] {
+            c ^= u32::from(b);
+            for _ in 0..8 {
+                c = if c & 1 != 0 {
+                    0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
+            }
+        }
+        !c
+    };
+    png[29..33].copy_from_slice(&crc.to_be_bytes());
+    assert_eq!(Png::parse(&png).err(), Some(PngError::Header));
+    png[28] = 1;
+    assert!(
+        Png::parse(&png).is_err(),
+        "the CRC was recomputed for 2, not 1"
+    );
+}
+
+#[test]
+fn the_adam7_fixtures_are_what_their_generator_writes() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let out = std::env::temp_dir().join(format!("baud-adam7-{}", std::process::id()));
+    let ran = std::process::Command::new("python3")
+        .arg(format!("{root}/scripts/gen-adam7-fixtures.py"))
+        .arg(&out)
+        .status()
+        .expect("python3 to run the generator");
+    assert!(ran.success(), "gen-adam7-fixtures.py failed");
+    let committed = format!("{root}/baud-font/tests/png");
+    let mut names: Vec<_> = std::fs::read_dir(&committed)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    names.sort();
+    let mut fresh: Vec<_> = std::fs::read_dir(&out)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    fresh.sort();
+    assert_eq!(names, fresh, "the generator writes another set of files");
+    for n in &names {
+        let a = std::fs::read(Path::new(&committed).join(n)).unwrap();
+        let b = std::fs::read(out.join(n)).unwrap();
+        assert!(
+            a == b,
+            "{n:?} is not what scripts/gen-adam7-fixtures.py writes"
+        );
+    }
+    std::fs::remove_dir_all(&out).unwrap();
+    assert_eq!(names.len(), 120);
+}
+
+#[test]
+fn the_interlaced_system_pngs_agree_with_the_oracle() {
+    // macOS 27.0 ships 155 interlaced PNGs under /System/Library and
+    // /Applications, every one 8-bit (149 RGBA, 5 RGB, 1 palette); these
+    // two directories hold 137 of them. Every one found must agree; the
+    // count is a positive control only where Skyglow, the interlaced PNG
+    // `scripts/record-kitten-icat.py` pins, has its macOS 27.0 bytes, so
+    // another release that moves the files cannot fail it.
+    if !cfg!(target_os = "macos") {
+        return;
+    }
+    let skyglow = "/System/Library/PrivateFrameworks/GeoKit.framework/Versions/A/\
+                   Resources/UTC-08.00-Skyglow@2x.png";
+    let pinned = std::fs::read(skyglow).is_ok_and(|b| {
+        sha256::sha256_hex(&b) == "e035d914fa659efae67108035fa97d31b756fc71cce807e7844d475702e74d7f"
+    });
+    let dirs = [
+        "/System/Library/PrivateFrameworks/GeoKit.framework/Versions/A/Resources",
+        "/System/Library/PrivateFrameworks/QuickLookSupport.framework/Versions/A/Resources",
+    ];
+    let mut decoded = 0;
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for e in entries {
+            let path = e.unwrap().path();
+            if path.extension().is_none_or(|x| x != "png") {
+                continue;
+            }
+            let bytes = std::fs::read(&path).unwrap();
+            if bytes.get(28) != Some(&1) || bytes.get(12..16) != Some(b"IHDR") {
+                continue;
+            }
+            let (w, h, a) = ours(&bytes).unwrap_or_else(|e| panic!("{path:?}: {e:?}"));
+            let (ow, oh, c) = oracle_rgba(&bytes);
+            assert_eq!((w, h), (ow, oh), "{path:?}: size");
+            assert!(a == c, "{path:?}: RGBA bytes differ");
+            decoded += 1;
+        }
+    }
+    if pinned {
+        assert!(decoded >= 130, "{decoded}");
+    }
 }

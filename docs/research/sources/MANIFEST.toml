@@ -5497,7 +5497,10 @@ bytes  = 318600
 status = "retrieved"
 group  = "J"
 # The chunk layout (5.3), CRC (5.5), IHDR/PLTE/tRNS/IDAT (11.2, 11.3), the five
-# filter types (9.2) and the sample expansion rules baud-font/src/png.rs cites.
+# filter types (9.2) and the sample expansion rules baud-font/src/png.rs cites;
+# and for Adam7, the pass pattern (8.2), the prior scanline zeroed for each
+# reduced image (9.2), no filter byte in an empty pass (9.1, 13.10), and
+# 13.10's and 15.2.3's requirement that a decoder read interlaced images.
 
 [sources.rfc1951-deflate]
 key    = "rfc1951-deflate"

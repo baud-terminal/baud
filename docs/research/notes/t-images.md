@@ -82,10 +82,12 @@ contract.** Sixel and raw RGB/RGBA are alloc-free by construction -- a fixed
 256-register palette, a caller-provided output canvas, no compression -- and
 PNG and zlib are alloc-free because every output size is declared before the
 decode: `png.rs` reads a PNG's from its `IHDR` and decodes into two caller
-buffers of exactly that size. Its limits are its own, not the contract's: it
-refuses Adam7 interlacing (`PngError::Interlaced`), takes the whole file as one
-slice, and its inflate reads only the `IDAT` stream and cannot resume across
-reads.
+buffers of exactly that size, an interlaced one's scratch counting each Adam7
+pass's own filter bytes. Its limits are its own, not the contract's: it takes
+the whole file as one slice, and its inflate reads only the `IDAT` stream and
+cannot resume across reads. ~~It refuses Adam7 interlacing
+(`PngError::Interlaced`).~~ It reads Adam7 since 2026-10-15 (the record,
+"png.rs reads Adam7").
 
 **The destination is sized before the decode for every format, `f=100`
 included.** For a raw format the core knows the destination size from
@@ -113,7 +115,9 @@ over step 3's bar. The two sessions recorded at a 1920x1080 window needed
 15.5 and 18.7 MB at once -- payload, raw scratch and arena -- and the
 app's default arena of 1,048,576 pixels holds neither picture. Adam7 is
 2.9% of the PNGs `kitten icat` would send as they are, and its refusal
-departs from `[[source: w3c-png-2003]]` 13.10 whatever the share. `kitten
+departed from `[[source: w3c-png-2003]]` 13.10 whatever the share; png.rs
+reads Adam7 since 2026-10-15, equal to ImageMagick on all 155 interlaced
+system PNGs. `kitten
 icat` sends a PNG's own bytes when it is no wider than the window and needs
 no transform, whatever its height, and otherwise raw `f=24`/`f=32` under
 `o=z`.

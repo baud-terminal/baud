@@ -4529,8 +4529,9 @@ You parked Kitty graphics on 2026-09-23.
   - It handles every colour type and bit depth, the five filters, every
     deflate block kind, and both checksums (CRC-32 on each PNG chunk, Adler-32
     on the zlib stream).
-  - It refuses Adam7 interlacing, a PNG storage order that sends the picture
-    in seven passes.
+  - ~~It refuses Adam7 interlacing, a PNG storage order that sends the
+    picture in seven passes.~~ It reads Adam7 since 2026-10-15 (the record,
+    "png.rs reads Adam7").
   - Its inflate (decompression) must fill its output buffer exactly (line
     336). That caps a "decompression bomb", a small input that expands to a
     huge output.
@@ -4541,8 +4542,10 @@ You parked Kitty graphics on 2026-09-23.
     chunks.
 - **Its gates:**
   - `baud-font/tests/bitmap.rs` decodes more than 30,000 Apple Color Emoji
-    PNGs with both baud and the `png` crate and requires equal pixels. It also
-    requires `interlaced_refused` to be 0.
+    PNGs with both baud and the `png` crate and requires equal pixels. ~~It
+    also requires `interlaced_refused` to be 0.~~ Since 2026-10-15 it holds
+    60 interlaced fixtures and the interlaced system PNGs to the same
+    oracle instead.
   - `baud-font/tests/hostile.rs` feeds it hostile bytes.
   - Which colour types the emoji corpus actually reaches is unmeasured.
 - **Its only consumer** is `baud-render/src/atlas.rs`.
@@ -4575,7 +4578,8 @@ You parked Kitty graphics on 2026-09-23.
   - the comment in `docs/research/sources/MANIFEST.toml` around line 6616;
   - png.rs's own module doc, which says the interlace refusals are counted in
     `baud-font/tests/oracle.rs` when the count lives in
-    `baud-font/tests/bitmap.rs`.
+    `baud-font/tests/bitmap.rs` (both gone since 2026-10-15: png.rs reads
+    Adam7).
 
   The work list's entry for these was already correct and needed no change.
 
@@ -4646,8 +4650,8 @@ measurements, not as settled.**
 
 **Now, documents only:** each of the six places says instead that
 `baud-font/src/png.rs` is a `no_std`, alloc-free, `forbid(unsafe)` PNG and
-zlib decoder, with its limits (no Adam7; bit-at-a-time Huffman; whole input
-contiguous). The Kitty row's reason becomes "parked by the owner; the real
+zlib decoder, with its limits (~~no Adam7;~~ Adam7 read since 2026-10-15;
+bit-at-a-time Huffman; whole input contiguous). The Kitty row's reason becomes "parked by the owner; the real
 prerequisite is alpha".
 
 **At unpark, in order.** Each step with a choice is a fork for you, with my
@@ -4679,7 +4683,8 @@ lean:
      it did, byte for byte. The share decides nothing: "Decoders are required to be able to
      read interlaced images" (`[[source: w3c-png-2003]]` 13.10, and 15.2.3's
      "all the standardized ... interlace methods"), so png.rs's refusal is a
-     departure to close before `f=100` is answered.
+     departure to close before `f=100` is answered. **Closed 2026-10-15**:
+     png.rs reads Adam7 (the record, "png.rs reads Adam7").
    - **Memory: payload + raw + arena, exactly**, since png.rs allocates
      nothing; a process's peak footprint agreed within 79 KB, under 0.1%.
      1920x1080

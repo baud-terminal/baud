@@ -14,8 +14,9 @@ baud-core is `no_std`, `alloc`-free and `#![forbid(unsafe_code)]`, so how a
 decoder could live under that contract was left open. The workspace already
 had the answer: `baud-font/src/png.rs` (2026-09-12) decodes PNG, its zlib
 stream included, under the same contract, into two buffers its caller
-sizes from the image header. It refuses Adam7 interlacing and takes the
-whole file as one slice, and baud-core cannot call it yet, because the core
+sizes from the image header. It reads both interlace methods, Adam7 since
+2026-10-15 (the record, "png.rs reads Adam7"), and takes the whole file as
+one slice, and baud-core cannot call it yet, because the core
 does not depend on baud-font. `t-images.md` is the Kitty note, and the
 owner's answer to note V's V19 (2026-09-25) is to build Kitty graphics to
 the spec; it is unbuilt (this cited the gitignored `TODO.md` until

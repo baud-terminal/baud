@@ -316,7 +316,7 @@ audit_tree "baud-bench/benches" baud-bench/benches 11
 # checks, which is exactly how the eleven got here, and `audit_tree` fails when
 # a named directory holds no sources so a rename cannot silently empty one.
 audit_tree "baud-domain/tests" baud-domain/tests 43
-audit_tree "baud-font/tests" baud-font/tests 49
+audit_tree "baud-font/tests" baud-font/tests 48
 audit_tree "baud-render/tests" baud-render/tests 6
 audit_tree "baud-present-macos/tests" baud-present-macos/tests 1
 audit_tree "baud-xkb/tests" baud-xkb/tests 1
