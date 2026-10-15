@@ -17,7 +17,10 @@
 //!
 //! The width stored is the *code*, not a resolved `Width`: East Asian
 //! Ambiguous depends on a policy the embedder owns, so a table cannot bake it
-//! in. `[[source: uax11]]` § 5 is why that policy exists at all.
+//! in. `[[source: uax11]]` § 5 is why that policy exists at all. The code is
+//! derived from `Width::of` under both policies, so private use, which is
+//! `A` in the data and one column under either (the owner, 2026-10-15), is
+//! stored narrow: no fifth code, and `width` reads the same four.
 
 use crate::merged_data::{BMP_DIRECT, MERGED_BLOCKS, MERGED_INDEX, MERGED_PALETTE};
 use crate::{AmbiguousWidth, Codepoint, GraphemeClass, Lookback, Width};
@@ -27,7 +30,7 @@ use crate::{AmbiguousWidth, Codepoint, GraphemeClass, Lookback, Width};
 pub struct Classified {
     pub class: GraphemeClass,
     pub lookback: Lookback,
-    /// 0 narrow, 1 zero, 2 wide, 3 East Asian Ambiguous.
+    /// 0 narrow, 1 zero, 2 wide, 3 East Asian Ambiguous outside private use.
     code: u8,
 }
 

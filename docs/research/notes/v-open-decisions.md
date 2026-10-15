@@ -3312,6 +3312,13 @@ Option 3a above leaned to (ii) before `misc.c` had been read.
    disassembly compare at the default and, if the loop differs, the
    interleaved sweep, as above.
 
+**Built 2026-10-15** (thread t-0015; `docs/record.md`, "The ambiguous-width
+switch, with `?1021` to `?1023`"): items 1-4, 6, 7 and 8. Item 3 needed no
+fifth code: `emit_merged_table` derives the code by asking `Width::of` under
+both policies, so with the range test in its `Wide` arm private use comes
+out narrow, code 0, and `Classified::width` is unchanged. Item 5, the
+renderer's two-cell masks, is not built.
+
 ### V15. Mode 2027 and U+FE0F: stop the false claim, then make it a real switch
 
 **The question**

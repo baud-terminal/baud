@@ -4,8 +4,8 @@
 //! string, integer and decimal scalars, a bracketed list of strings that may
 //! span lines, and `[section]` headers. baud owns its stack rather than
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
-//! `font_size`, `padding`, `colorspace`, `vs16_width`, `emoji`, `theme`, `bell`, and the eight under
-//! `[glass]` -- and a key it does not understand is ignored, and said,
+//! `font_size`, `padding`, `colorspace`, `vs16_width`, `emoji`, `theme`, `bell`,
+//! `[text] ambiguous_width`, and the eight under `[glass]` -- and a key it does not understand is ignored, and said,
 //! rather than fatal, so a newer config does not break an older binary.
 //!
 //! **Sections are a namespace, and they did not used to be.** The reader
@@ -158,6 +158,14 @@ pub struct Config {
     /// `"two"` by default (owner, 2026-10-01), or one for a session whose
     /// programs measure with a legacy `wcwidth`. `DECRQM ?2027` reports it.
     pub vs16_width: baud_domain::Vs16Width,
+    /// `[text] ambiguous_width`: whether an East Asian Ambiguous character
+    /// takes one column, `"narrow"`, the default, or two, `"wide"` (note V,
+    /// V14, the owner's call of 2026-09-25). `[[source: uax11]]` § 5: narrow
+    /// when the context cannot be established, and a terminal cannot see
+    /// the program's width function. Private Use Area characters, the icons,
+    /// stay one column under either (the owner, 2026-10-15). `DECRQM ?1021`
+    /// reports it.
+    pub ambiguous_width: baud_domain::AmbiguousWidth,
     /// `emoji`: how a character with no variation selector is drawn --
     /// `"font"`, the default, from a text face whatever its default
     /// presentation; `"system"`, an emoji-presentation character in colour
@@ -529,6 +537,7 @@ impl Config {
             images: crate::host::IMAGE_BUDGET,
             sixel: baud_domain::SixelClaim::No,
             vs16_width: baud_domain::Vs16Width::Two,
+            ambiguous_width: baud_domain::AmbiguousWidth::Narrow,
             emoji: baud_render::EmojiDefault::Font,
             bell: BellStyle::Sound,
             clipboard: Clipboard::DEFAULT,
@@ -833,6 +842,19 @@ impl Config {
                                 "config: [images] advertise_sixel = {other:?} is not true or false; it stays off"
                             ));
                             baud_domain::SixelClaim::No
+                        }
+                    };
+                }
+                ("text", "ambiguous_width") => {
+                    self.ambiguous_width = match value.trim().trim_matches('"') {
+                        "narrow" => baud_domain::AmbiguousWidth::Narrow,
+                        "wide" => baud_domain::AmbiguousWidth::Wide,
+                        other => {
+                            said.push(format!(
+                                "config: [text] ambiguous_width {other:?} is not narrow or wide; \
+                                 using the default, narrow"
+                            ));
+                            baud_domain::AmbiguousWidth::Narrow
                         }
                     };
                 }
@@ -2356,6 +2378,38 @@ shadow     = "never"
         );
     }
 
+    /// `[text] ambiguous_width` reads two words, quoted or bare; anything
+    /// else is `narrow` and said, and the key outside `[text]` is not this
+    /// one.
+    #[test]
+    fn ambiguous_width_is_narrow_unless_wide() {
+        use baud_domain::AmbiguousWidth;
+        assert_eq!(read("").ambiguous_width, AmbiguousWidth::Narrow);
+        for (text, want) in [
+            ("[text]\nambiguous_width = \"wide\"\n", AmbiguousWidth::Wide),
+            ("[text]\nambiguous_width = wide\n", AmbiguousWidth::Wide),
+            (
+                "[text]\nambiguous_width = \"narrow\"\n",
+                AmbiguousWidth::Narrow,
+            ),
+        ] {
+            let mut c = Config::defaults();
+            let said = c.apply(text);
+            assert_eq!(c.ambiguous_width, want, "{text:?}");
+            assert!(said.is_empty(), "{text:?}: {said:?}");
+        }
+        for text in [
+            "[text]\nambiguous_width = \"double\"\n",
+            "ambiguous_width = \"wide\"\n",
+            "[glass]\nambiguous_width = \"wide\"\n",
+        ] {
+            let mut c = Config::defaults();
+            let said = c.apply(text);
+            assert_eq!(c.ambiguous_width, AmbiguousWidth::Narrow, "{text:?}");
+            assert_eq!(said.len(), 1, "{text:?} is said: {said:?}");
+        }
+    }
+
     /// `font_smoothing` is recognised only to be reported gone, and the
     /// keys after it are still read.
     #[test]
@@ -2440,6 +2494,11 @@ shadow     = "never"
             ScrollMode::Smooth,
             "the [scroll] section did not land"
         );
+        assert!(
+            text.contains("\n[text]\nambiguous_width = \"narrow\"\n"),
+            "the [text] section"
+        );
+        assert_eq!(c.ambiguous_width, baud_domain::AmbiguousWidth::Narrow);
         // The values above are all defaults, so they read the same whether
         // a line landed or was swallowed by the section above it. What
         // separates the two is the reader's own account: every key the

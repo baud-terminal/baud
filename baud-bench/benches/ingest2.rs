@@ -358,6 +358,12 @@ fn main() {
     if images {
         t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
     }
+    // `BAUD_AMBIGUOUS=wide` prices the app's `[text] ambiguous_width =
+    // "wide"`; narrow, the default, otherwise. Read once at start.
+    if std::env::var("BAUD_AMBIGUOUS").is_ok_and(|v| v == "wide") {
+        t.set_ambiguous_width(baud_domain::AmbiguousWidth::Wide);
+    }
+    eprintln!("ambiguous width: {:?}", t.ambiguous_width());
 
     let (fed, per_rep) = timed(&mut t, &data, reps);
 

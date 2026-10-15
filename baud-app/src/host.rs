@@ -273,6 +273,20 @@ enum Wanted {
     Quiet,
 }
 
+/// Tell the core how wide the configured text is: whether a `U+FE0F` widens
+/// its base (`vs16_width`) and how many columns an East Asian Ambiguous
+/// character takes (`[text] ambiguous_width`). One function for both
+/// drivers, called after `Term::new` and before the first feed, so the grid
+/// never holds cells measured under two policies.
+pub fn set_widths(
+    term: &mut baud_core::Term<'_>,
+    vs16: baud_domain::Vs16Width,
+    ambiguous: baud_domain::AmbiguousWidth,
+) {
+    term.set_vs16_width(vs16);
+    term.set_ambiguous_width(ambiguous);
+}
+
 /// Tell the core what the theme draws the default foreground and background
 /// as, so `OSC 10 ; ?` and `OSC 11 ; ?` answer on a fresh terminal -- the
 /// query every theme-aware program sends to learn whether it is on a light
@@ -608,6 +622,33 @@ mod tests {
             let stack = super::stack(&cfg, loaded);
             assert_eq!(stack.select(arrow).index(), drawn_by, "{extra:?}");
             assert_eq!(stack.select(bullet).index(), drawn_by, "{extra:?}");
+        }
+    }
+
+    /// **The configured widths reach the core.** After `set_widths`, `±`
+    /// (East Asian Ambiguous) takes the configured columns, U+E0B0 (a
+    /// Nerd Fonts separator, private use) one under either, and a heart
+    /// with `U+FE0F` the configured `vs16_width`; `DECRQM ?1021` says which.
+    #[test]
+    fn set_widths_reaches_the_core() {
+        use baud_domain::{AmbiguousWidth, Vs16Width};
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (vs16, ambiguous, cols, rqm) in [
+            (Vs16Width::Two, AmbiguousWidth::Narrow, 4, "2"),
+            (Vs16Width::Two, AmbiguousWidth::Wide, 5, "1"),
+            (Vs16Width::One, AmbiguousWidth::Wide, 4, "1"),
+        ] {
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_widths(&mut t, vs16, ambiguous);
+            feed(&mut t, "±\u{E0B0}\u{2764}\u{FE0F}".as_bytes());
+            assert_eq!(t.cursor().1.index(), cols, "{vs16:?} {ambiguous:?}");
+            feed(&mut t, b"\x1b[?1021$p");
+            let want = format!("\x1b[?1021;{rqm}$y");
+            assert_eq!(t.reply(), want.as_bytes(), "{ambiguous:?}");
         }
     }
 

@@ -113,6 +113,18 @@ font_fallback = true
 #   "/System/Library/Fonts/Apple Symbols.ttf",
 # ]
 
+# How many columns an East Asian Ambiguous character takes -- box drawing,
+# block elements, Greek and Cyrillic letters, the plus-minus sign -- "narrow"
+# (one, the default) or "wide" (two), for programs that count them as two,
+# such as vim with ambiwidth=double. Set it only to match them: a program
+# counting one column for such a character puts everything after it one
+# column off. Private Use Area characters, the Nerd Font icons, stay one
+# column either way. Under "wide" a box-drawing line or block is still drawn
+# one cell wide, in the first of its two cells. Read at launch; DECRQM ?1021
+# reports it.
+[text]
+ambiguous_width = "narrow"
+
 # The contrast floor: text whose contrast with the colour it is drawn on is
 # below this ratio is darkened or lightened, keeping its hue, until it reads
 # at 4.5:1 -- or at this ratio, when it is higher. Only pairs a program did not

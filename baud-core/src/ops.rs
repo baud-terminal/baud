@@ -1882,8 +1882,8 @@ impl Paint<'_, '_> {
     /// answer**, so what is saved is what an application asking would have
     /// been told, and one listed twice keeps its last value -- one level, as
     /// DECSC's is. A mode DECSET does not act on is counted, a parameter at a
-    /// time, as DECSET's wildcard counts it: unnamed, the read-only `?1020`,
-    /// the permanent `?2027` ([`PrivateMode::slot`]).
+    /// time, as DECSET's wildcard counts it: unnamed, the read-only `?1020`
+    /// to `?1023`, the permanent `?2027` ([`PrivateMode::slot`]).
     pub(crate) fn save_private_modes(&mut self, csi: &crate::write::Csi) {
         csi.for_each_param(|p| {
             let m = PrivateMode::from_wire(p);
@@ -2874,6 +2874,18 @@ impl Paint<'_, '_> {
                 InputEncoding::Utf8 => ModeState::Set,
                 InputEncoding::Latin1 => ModeState::Reset,
             },
+            // **`?1021` mirrors the width policy, as `?1020` the encoding**:
+            // `1` or `2`, as xterm answers its read-only `cjkWidth` with
+            // `MdBool` (`[[source: xterm-misc]]` 5845-5853), not `3` or `4`
+            // (Jev 2026-10-15, 0.96 and 1.00). `?1023` is `privateWidth`,
+            // which baud always holds: private use is one column under
+            // either policy (the owner, 2026-10-15). `?1022`, `emojiWidth`,
+            // has no switch here and falls to `0` below (Jev, 0.98 and 1.00).
+            PrivateMode::CjkWidthResource => match self.cold.ambiguous {
+                AmbiguousWidth::Wide => ModeState::Set,
+                AmbiguousWidth::Narrow => ModeState::Reset,
+            },
+            PrivateMode::PrivateWidthResource => ModeState::Set,
             PrivateMode::ReverseWrap => bit_state(self.cold.modes, ModeBit::ReverseWrap),
             PrivateMode::LeftRightMargin => bit_state(self.cold.modes, ModeBit::SideMargins),
             PrivateMode::BracketedPaste => bit_state(self.cold.modes, ModeBit::BracketedPaste),
@@ -2937,10 +2949,9 @@ impl Paint<'_, '_> {
             // is implemented, so `DECRQM` must not deny it.
             //
             // `?47` answers the same, from which buffer is shown, whichever
-            // mode switched it. That is baud's choice: the pinned
-            // `xterm-charproc.c` records both modes from `whichBuf` in
-            // `savemodes`, which is XTSAVE, and xterm's `DECRQM` handler is
-            // not pinned.
+            // mode switched it, as xterm's `do_dec_rqm` answers `?1047` and
+            // `?1049` from `whichBuf`, and `?47` too unless print graphics
+            // are configured (`[[source: xterm-misc]]` 5610-5617).
             PrivateMode::AltScreen | PrivateMode::AltScreenLegacy => match self.cold.screen {
                 Screen::Alternate => ModeState::Set,
                 Screen::Normal => ModeState::Reset,

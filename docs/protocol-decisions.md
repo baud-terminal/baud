@@ -301,10 +301,12 @@ half-built protocol feature is finished to the spec, not switched off"):
   `[[source: vt510-decslrm]]` makes the scrolling region (`docs/record.md`,
   "Rectangle scrolling"). Steps (c) and (d) remain: line starts and cursor
   moves that honour the fence, and C2-min.
-* **V14, an ambiguous-width switch with `?1021`**: a config key to draw East
-  Asian Ambiguous characters two columns wide, and `?1021` built to the spec.
-  Neither exists today: `Term::set_ambiguous_width` is the core's channel,
-  `baud-app` never calls it, and `?1021` is not named.
+* **V14, an ambiguous-width switch with `?1021`**: built 2026-10-15. The
+  app's `[text] ambiguous_width` sets the core's policy at launch, Private
+  Use Area characters stay one column under either (the owner), and DECRQM
+  answers `?1021` `1` or `2`, `?1022` `0` and `?1023` `1` (Jev). Under
+  "wide" a box-drawing or block mask is still one cell wide: the two-cell
+  masks, design step 4, are unbuilt.
 * **V18, the Sixel modes `?80` and `?1070`**, built to the spec, with
   `?8452` and XTSMGRAPHICS, since 2026-10-15 (`docs/vt-coverage.md`). Each
   acts and answers only while DA lists Sixel; the choices Jev left below the

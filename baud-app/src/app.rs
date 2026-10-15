@@ -664,6 +664,9 @@ struct Boot {
     sixel: baud_domain::SixelClaim,
     /// Whether a `U+FE0F` widens its base, from `vs16_width`.
     vs16_width: baud_domain::Vs16Width,
+    /// How many columns an ambiguous character takes, from `[text]
+    /// ambiguous_width`.
+    ambiguous_width: baud_domain::AmbiguousWidth,
     /// `[clipboard]`.
     clipboard: crate::config::Clipboard,
     /// What a `BEL` does in a focused window, from `bell`.
@@ -815,6 +818,7 @@ impl Boot {
             images: cfg.images,
             sixel: cfg.sixel,
             vs16_width: cfg.vs16_width,
+            ambiguous_width: cfg.ambiguous_width,
             clipboard: cfg.clipboard,
             bell: cfg.bell,
         }
@@ -853,6 +857,7 @@ impl App {
             images,
             sixel,
             vs16_width,
+            ambiguous_width,
             clipboard,
             bell: bell_style,
         } = boot;
@@ -1011,7 +1016,7 @@ impl App {
         // the cell height in pixels; re-set on every `rescale`.
         term.set_cell_size(cell_px(cell_w), cell_px(cell_h));
         term.set_sixel_claim(sixel);
-        term.set_vs16_width(vs16_width);
+        crate::host::set_widths(&mut term, vs16_width, ambiguous_width);
         term.set_initial_cursor_style(cursor);
         let bell = Bell::new(&term, crate::bell::LENGTH);
         let ringer = crate::bell::Ringer::new(&term);

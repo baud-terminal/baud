@@ -304,8 +304,8 @@ fn the_cache_is_one_level_and_a_restore_keeps_it() {
 
 /// **A mode DECSET does not act on is counted, on a save and on a restore**,
 /// as DECSET counts it -- one a parameter, and the rest of the list still
-/// acts. The read-only `?1020` and the permanent `?2027` are among them:
-/// DECSET does not change either.
+/// acts. The read-only `?1020` to `?1023` and the permanent `?2027` are
+/// among them: DECSET changes none of them.
 #[test]
 fn a_mode_decset_does_not_act_on_is_counted_by_both() {
     for (bytes, n, what) in [
@@ -313,6 +313,8 @@ fn a_mode_decset_does_not_act_on_is_counted_by_both() {
         (b"\x1b[?9999r", 1, "an unknown mode restored"),
         (b"\x1b[?1020s", 1, "the read-only ?1020 saved"),
         (b"\x1b[?2027r", 1, "the permanent ?2027 restored"),
+        (b"\x1b[?1021s", 1, "the read-only ?1021 saved"),
+        (b"\x1b[?1023r", 1, "the read-only ?1023 restored"),
         (b"\x1b[?9999;1020;7s", 2, "two of three"),
         (b"\x1b[?7;25s", 0, "known modes"),
         (b"\x1b[?7;25r", 0, "known modes restored, saved or not"),

@@ -80,28 +80,43 @@ fn index_of(seq: [u8; 3]) -> Slot {
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Slot(usize);
 
-/// Drive `baud-core` with one character per row and return the first cell of
-/// each, alongside the table the same `Term::new` built.
-fn rendered(batch: &[[u8; 3]], out: &mut Vec<PackedCell>) {
+/// Drive `baud-core` at policy `a` with one character per row and return the
+/// first two cells of each: the second is a wide tail exactly when the first
+/// took two columns.
+fn rendered(a: AmbiguousWidth, batch: &[[u8; 3]], out: &mut Vec<[PackedCell; 2]>) {
     let mut bytes = Vec::new();
     for seq in batch {
         bytes.extend_from_slice(seq);
         bytes.extend_from_slice(b"\r\n");
     }
     support::with_term(&support::CORPUS, |t| {
+        t.set_ambiguous_width(a);
         support::feed(t, &bytes);
         out.clear();
-        out.extend(
-            (0..batch.len()).map(|r| t.row(Row::from_index(r)).expect("a row on the grid")[0]),
-        );
+        out.extend((0..batch.len()).map(|r| {
+            let row = t.row(Row::from_index(r)).expect("a row on the grid");
+            [row[0], row[1]]
+        }));
     });
 }
 
-/// **Each entry's content is the cell the write path writes at column 0**,
-/// for every entry of nonzero width; a zero-width entry is checked only for
-/// writing no cell there. The read in `put_one` is the next test's.
+/// **Each entry's content and width are the cell the write path writes at
+/// column 0**, for every entry of nonzero width, under both ambiguous-width
+/// policies; a zero-width entry is checked only for writing no cell there.
+/// The read in `put_one` is the next test's.
+///
+/// **The table follows the policy.** It was filled at `Narrow` in `Term::new`
+/// and nothing refilled it, so under `Wide` every ambiguous three-byte entry,
+/// U+2018 and the box-drawing pieces among them, said one column where the
+/// write path wrote two; the content alone could not see it.
 #[test]
 fn the_cell_table_is_what_the_write_path_writes() {
+    for a in [AmbiguousWidth::Narrow, AmbiguousWidth::Wide] {
+        the_cell_table_is_what_the_write_path_writes_at(a);
+    }
+}
+
+fn the_cell_table_is_what_the_write_path_writes_at(a: AmbiguousWidth) {
     let perms = permutations();
     assert_eq!(perms.len(), 65_536);
 
@@ -112,14 +127,14 @@ fn the_cell_table_is_what_the_write_path_writes() {
     // table, and `let _` ends the borrow on `owned` immediately so the table can
     // be read back. Nothing is fed through this one.
     let mut owned = Owned::with_cell_table(&support::CORPUS);
-    let _ = Term::new(owned.storage(), &support::CORPUS);
+    Term::new(owned.storage(), &support::CORPUS).set_ambiguous_width(a);
     let table: Vec<PackedCell> = owned.cell_table().to_vec();
     assert_eq!(table.len(), CELLS3);
 
     let mut want = Vec::new();
-    let mut checked = 0usize;
+    let (mut checked, mut wide) = (0usize, 0usize);
     for batch in perms.chunks(ROWS - 1) {
-        rendered(batch, &mut want);
+        rendered(a, batch, &mut want);
         for (k, &seq) in batch.iter().enumerate() {
             let got = table[index_of(seq).0];
             // **A zero-width character produces no cell.** It attaches to the
@@ -131,23 +146,37 @@ fn the_cell_table_is_what_the_write_path_writes() {
             // (U+0816 SAMARITAN MARK IN).
             match got.flags.width_of().cells() {
                 0 => assert_eq!(
-                    want[k].content,
+                    want[k][0].content,
                     Content::EMPTY,
                     "{:02x} {:02x} {:02x} is zero-width; the write path should write no cell",
                     seq[0],
                     seq[1],
                     seq[2]
                 ),
-                _ => assert_eq!(
-                    got.content, want[k].content,
-                    "{:02x} {:02x} {:02x}",
-                    seq[0], seq[1], seq[2]
-                ),
+                n => {
+                    assert_eq!(
+                        got.content, want[k][0].content,
+                        "{a:?}: {:02x} {:02x} {:02x}",
+                        seq[0], seq[1], seq[2]
+                    );
+                    assert_eq!(
+                        n == 2,
+                        want[k][1].content.is_wide_tail(),
+                        "{a:?}: {:02x} {:02x} {:02x} is {n} wide in the table",
+                        seq[0],
+                        seq[1],
+                        seq[2]
+                    );
+                    wide += usize::from(n == 2);
+                }
             }
             checked += 1;
         }
     }
     assert_eq!(checked, 65_536);
+    // The control: CJK makes thousands of two-column entries under either
+    // policy, so a width check that could not fire would not reach this.
+    assert!(wide > 10_000, "{a:?}: {wide} two-column entries");
 }
 
 /// A geometry no context line can wrap in, at a cost per batch of 800 cells

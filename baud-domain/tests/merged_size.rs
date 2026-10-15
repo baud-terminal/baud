@@ -140,6 +140,13 @@ fn emit_merged_table() {
         "block id must fit a byte: {}",
         seen.len()
     );
+    // **Padded to a power of two of blocks, with blocks no index names.**
+    // At 128 the id's sign bit is the bounds check (`ldrsb`, `tbnz`); at
+    // 126, which private use staying narrow left, every two-stage lookup
+    // took a compare more: +0.069% instructions on `cat-cjk`, ranges
+    // disjoint. The padding is never read, so it costs no cache line.
+    let padded = seen.len().next_power_of_two() * 256;
+    blocks.resize(padded, 0);
     assert!(
         pal.len() <= 256,
         "palette id must fit a byte: {}",

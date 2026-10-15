@@ -577,6 +577,22 @@ impl Codepoint {
             || (0xff01..=0xff60).contains(&v)
     }
 
+    /// Is this a Private Use Area codepoint: `E000..F8FF`, or planes 15
+    /// and 16 short of their two noncharacters, `F0000..FFFFD` and
+    /// `100000..10FFFD`?
+    ///
+    /// **The three ranges `EastAsianWidth.txt` gives `A`** (lines 1690,
+    /// 2718 and 2719, `[[source: eaw-data]]`), and the ones xterm's
+    /// `privateWidth` keeps one column (`[[source: xterm-wcwidth-c]]`
+    /// 228-231 and 887-888). baud keeps them one column under either
+    /// ambiguous-width policy, the owner's call of 2026-10-15.
+    pub fn is_private_use(self) -> bool {
+        let v = self.0;
+        (0xe000..=0xf8ff).contains(&v)
+            || (0xf_0000..=0xf_fffd).contains(&v)
+            || (0x10_0000..=0x10_fffd).contains(&v)
+    }
+
     pub const REPLACEMENT: Codepoint = Codepoint(0xFFFD);
     pub const SPACE: Codepoint = Codepoint(0x20);
 

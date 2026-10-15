@@ -345,6 +345,21 @@ pub enum PrivateMode {
     /// encoding: `1` under UTF-8 and `2` under ISO 8859-1, which `ESC % G`
     /// and `ESC % @` select.
     Utf8Resource,
+    /// `?1021` — xterm's `cjkWidth` resource, read-only in
+    /// `[[source: ctlseqs]]`: whether East Asian Ambiguous characters take
+    /// two columns. `DECRQM` answers it `1` or `2` from the embedder's
+    /// policy (`Term::set_ambiguous_width`), as xterm answers it with
+    /// `MdBool` (`[[source: xterm-misc]]` 5845-5853).
+    CjkWidthResource,
+    /// `?1022` — xterm's `emojiWidth` resource. baud has no such switch, so
+    /// `DECRQM` answers it `0`, not recognized (Jev 2026-10-15): its
+    /// `Vs16Width` neither narrows on `U+FE0E` nor widens a bare listed
+    /// emoji, which is what the resource reports.
+    EmojiWidthResource,
+    /// `?1023` — xterm's `privateWidth` resource: whether Private Use Area
+    /// codes take one column whatever `?1021` says. baud always keeps them
+    /// one column (the owner, 2026-10-15), so `DECRQM` answers it `1`.
+    PrivateWidthResource,
     /// `?2027` — grapheme clustering. baud always clusters and has no mode
     /// that stops it, so `DECRQM` answers it permanently: `3` while a
     /// `U+FE0F` widens its base and `4` when the embedder configures one cell.
@@ -631,9 +646,10 @@ impl SavedModes {
 impl PrivateMode {
     /// The slot XTSAVE keeps this mode in: **every mode DECSET acts on, and
     /// no other** -- "Ps values are the same as for DECSET". The two named
-    /// modes without one are the two DECSET cannot change: `?1020` is
-    /// read-only (`[[source: ctlseqs]]` marks it so) and `?2027` is
-    /// permanent here. An unnamed mode has none, and DECSET counts it, as a
+    /// modes without one are the five DECSET cannot change: `?1020` to
+    /// `?1023` are read-only (`[[source: ctlseqs]]` marks them so, and
+    /// xterm's `savemodes` keeps none of them) and `?2027` is permanent
+    /// here. An unnamed mode has none, and DECSET counts it, as a
     /// save and a restore of it are counted.
     ///
     /// xterm saves a different set (`savemodes`, `[[source: xterm-reset]]`):
@@ -683,7 +699,12 @@ impl PrivateMode {
             PrivateMode::SixelDisplay => 36,
             PrivateMode::SixelPrivateRegisters => 37,
             PrivateMode::SixelScrollsRight => 38,
-            PrivateMode::Utf8Resource | PrivateMode::GraphemeClustering | PrivateMode::Other(_) => {
+            PrivateMode::Utf8Resource
+            | PrivateMode::CjkWidthResource
+            | PrivateMode::EmojiWidthResource
+            | PrivateMode::PrivateWidthResource
+            | PrivateMode::GraphemeClustering
+            | PrivateMode::Other(_) => {
                 return None;
             }
         };
@@ -728,6 +749,9 @@ impl PrivateMode {
             1049 => PrivateMode::AltScreen,
             1001 => PrivateMode::HighlightTracking,
             1020 => PrivateMode::Utf8Resource,
+            1021 => PrivateMode::CjkWidthResource,
+            1022 => PrivateMode::EmojiWidthResource,
+            1023 => PrivateMode::PrivateWidthResource,
             2027 => PrivateMode::GraphemeClustering,
             2004 => PrivateMode::BracketedPaste,
             2026 => PrivateMode::SynchronizedOutput,

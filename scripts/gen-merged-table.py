@@ -52,7 +52,9 @@ pub static MERGED_PALETTE: &[u8; {npal * 3}] = b"\\
 pub static MERGED_INDEX: &[u8; {ni}] = b"\\
     {bytestr(index)}";
 
-/// {nb // 256} deduplicated blocks of 256 palette ids.
+/// Deduplicated blocks of 256 palette ids, padded with blocks no index
+/// names to {nb // 256}, a power of two, so a block id's range is its bounds
+/// check (`emit_merged_table`).
 pub static MERGED_BLOCKS: &[u8; {nb}] = b"\\
     {bytestr(blocks)}";
 

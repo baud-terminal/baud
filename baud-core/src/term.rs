@@ -612,9 +612,10 @@ pub struct Cold {
     /// sets Wide, and the same codepoint then takes two columns. No escape
     /// sequence sets it; it arrives through the API
     /// (`Term::set_ambiguous_width`). One reports it: xterm answers
-    /// `DECRQM ?1021`, "cjkWidth resource (read-only)" (`[[source: ctlseqs]]`).
-    /// baud does not recognise `?1021` and answers it `0`; note V's V14
-    /// answer, unbuilt, is to answer it.
+    /// `DECRQM ?1021`, "cjkWidth resource (read-only)" (`[[source: ctlseqs]]`),
+    /// and baud answers it `1` or `2` from this, as xterm does. Private use
+    /// stays one column under either (`Codepoint::is_private_use`), which
+    /// `?1023` reports set.
     pub(crate) ambiguous: AmbiguousWidth,
     /// Whether the Primary DA may claim Sixel. `No` until the embedder opts
     /// in, whatever the store holds: an application that reads the claim stops
@@ -1219,7 +1220,12 @@ impl<'b> Term<'b> {
     /// *this function* on the feature instead is wrong -- the table's own
     /// equivalence test builds it without the feature and reads the slice
     /// directly, which is how that mistake was caught.
-    fn fill_cells3(store: &mut Storage<'b>) {
+    ///
+    /// **An entry's width is the policy's**, `a`, so a change of policy
+    /// refills it ([`Term::set_ambiguous_width`]): filled once at `Narrow`,
+    /// every ambiguous entry said one column under `Wide` while the write
+    /// path wrote two.
+    fn fill_cells3(store: &mut Storage<'b>, a: AmbiguousWidth) {
         if store.cells3.is_empty() {
             return;
         }
@@ -1239,7 +1245,7 @@ impl<'b> Term<'b> {
                     // cell, how wide it is, and how far the cursor moves. Both are
                     // bounded functions of the three bytes, so both are settled
                     // here rather than at ingest.
-                    let w = Classified::of(cp).width(AmbiguousWidth::Narrow);
+                    let w = Classified::of(cp).width(a);
                     store.cells3[row + b2] =
                         PackedCell::glyph(cp, StyleId::DEFAULT, CellFlags::of_entry(w));
                 }
@@ -1890,7 +1896,7 @@ impl<'b> Term<'b> {
     /// `ws_row` are destructured -- so they cannot be transposed here.
     pub fn new(store: Storage<'b>, ws: &WinSize) -> Term<'b> {
         let mut store = store;
-        Term::fill_cells3(&mut store);
+        Term::fill_cells3(&mut store, AmbiguousWidth::Narrow);
         // **Slot 0 is the default rendition, reserved.** A cell carries
         // `StyleId::DEFAULT` without anything being interned -- an empty
         // cell, an erased one, every cell written before the first `SGR` --
@@ -2221,7 +2227,14 @@ impl<'b> Term<'b> {
     /// Takes effect on the **next** character: cells already written keep the
     /// width they were measured at, because the grid stores cells rather than
     /// codepoints and re-measuring would mean re-laying-out the screen.
+    ///
+    /// A provisioned cell table is refilled at the new policy, so the
+    /// `cell-table` read writes the width the computing path does; with none
+    /// provisioned, the default, this is the store alone.
     pub fn set_ambiguous_width(&mut self, a: AmbiguousWidth) {
+        if self.cold.ambiguous != a {
+            Term::fill_cells3(&mut self.store, a);
+        }
         self.cold.ambiguous = a;
     }
 

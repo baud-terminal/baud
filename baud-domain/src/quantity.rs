@@ -610,7 +610,14 @@ impl Width {
             // East Asian Ambiguous. `[[source: uax11]]` § 5 says narrow when the
             // context is unavailable; for a core with no locale it always is, so
             // narrow is the default and this is the opt-in.
-            3 if ambiguous == AmbiguousWidth::Wide => Width::WIDE,
+            //
+            // **Private use stays narrow under it**, the owner's call of
+            // 2026-10-15: xterm's default `privateWidth`, the tailoring
+            // `[[source: uax11]]` § 2 invites. The trie cannot say so -- its
+            // two bits are all used, and the data gives private use `A` -- so
+            // the three ranges are tested here, on the opt-in arm only. The
+            // write path reads `Classified`, generated from this.
+            3 if ambiguous == AmbiguousWidth::Wide && !c.is_private_use() => Width::WIDE,
             _ => Width::NARROW,
         }
     }

@@ -170,3 +170,166 @@ fn emoji_presentation_is_wide_even_when_eaw_is_neutral() {
     // And a CJK ideograph is still wide for the other reason.
     assert_eq!(cols("中"), 2, "EAW W, no emoji property");
 }
+
+/// A terminal at `a` fed `bytes` in reads ending at `cuts`: its screen, its
+/// cursor column, its reply and its count of unsupported parameters.
+fn under(
+    a: AmbiguousWidth,
+    bytes: &[u8],
+    cuts: &[usize],
+) -> (Vec<PackedCell>, usize, Vec<u8>, usize) {
+    let mut st = Owned::new(&support::CORPUS);
+    let mut t = Term::new(st.storage(), &support::CORPUS);
+    t.set_ambiguous_width(a);
+    let mut from = 0;
+    for &end in cuts.iter().chain([bytes.len()].iter()) {
+        support::feed(&mut t, &bytes[from..end]);
+        from = end;
+    }
+    (
+        support::screen(&t),
+        t.cursor().1.index(),
+        t.reply().to_vec(),
+        t.unsupported_param,
+    )
+}
+
+/// Every read size from one byte up, then every split into two reads: where
+/// each read but the last ends.
+fn every_cut(n: usize) -> Vec<Vec<usize>> {
+    let sizes = (1..=n).map(|size| (size..n).step_by(size).collect());
+    let splits = (1..n).map(|at| vec![at]);
+    sizes.chain(splits).collect()
+}
+
+/// **A Private Use Area character takes one column under either policy**, the
+/// owner's call of 2026-10-15 ("Always one column"): xterm's default
+/// `privateWidth`, which `mk_wcwidth_cjk` reads before its ambiguous table
+/// (`[[source: xterm-wcwidth-c]]` 887-888). `[[source: uax11]]` § 6.1 puts
+/// all private use in `A` by default, and § 2 invites a terminal to tailor
+/// it; the embedded icon face, sized to one cell, is the § 4.2 context.
+///
+/// Each end of the three ranges, and U+E0B0 and U+F0186 from the middle,
+/// in runs of one to five, so the write path's three places that read the
+/// policy are all reached: four three-byte characters decoded at once, the
+/// two or three left over, and one alone; the astral ones take the
+/// four-byte path. `±` is the control, two columns under `Wide`, and
+/// U+F900, just past the BMP range, is `W` and two columns under both.
+/// Each at every read size and every split into two reads, against the
+/// whole read.
+#[test]
+fn private_use_takes_one_column_under_either_policy() {
+    let pua = [
+        '\u{E000}',
+        '\u{E0B0}',
+        '\u{F8FF}',
+        '\u{F0000}',
+        '\u{F0186}',
+        '\u{FFFFD}',
+        '\u{100000}',
+        '\u{10FFFD}',
+    ];
+    let mut checked = 0;
+    for a in [AmbiguousWidth::Narrow, AmbiguousWidth::Wide] {
+        let ambiguous = match a {
+            AmbiguousWidth::Narrow => 1,
+            AmbiguousWidth::Wide => 2,
+        };
+        for (c, each) in pua
+            .iter()
+            .map(|&c| (c, 1))
+            .chain([('\u{B1}', ambiguous), ('\u{F900}', 2)])
+        {
+            for run in 1..=5 {
+                let s: String = core::iter::repeat_n(c, run).collect();
+                let bytes = s.as_bytes();
+                let whole = under(a, bytes, &[]);
+                assert_eq!(
+                    whole.1,
+                    run * each,
+                    "{a:?}: {run} of U+{:04X}",
+                    u32::from(c)
+                );
+                for cut in every_cut(bytes.len()) {
+                    let got = under(a, bytes, &cut);
+                    assert!(
+                        got.0 == whole.0 && got.1 == whole.1,
+                        "{a:?}: {run} of U+{:04X} cut at {cut:?}",
+                        u32::from(c)
+                    );
+                    checked += 1;
+                }
+            }
+        }
+    }
+    assert!(checked > 1000, "the control: {checked} cuts compared");
+}
+
+/// What `DECRQM` answers for private mode `mode` under `a`.
+fn rqm(a: AmbiguousWidth, prefix: &str, mode: u16) -> String {
+    let bytes = format!("{prefix}\x1b[?{mode}$p");
+    String::from_utf8(under(a, bytes.as_bytes(), &[]).2).expect("an ASCII reply")
+}
+
+/// **`?1021` reports the policy, `1` under `Wide` and `2` under `Narrow`**,
+/// as xterm answers its read-only `cjkWidth` resource with `MdBool`
+/// (`[[source: xterm-misc]]` 5845-5853; Jev 2026-10-15, 0.96 and 1.00).
+/// `[[source: ctlseqs]]`: "Ps = 1 0 2 1  -> cjkWidth resource (read-only),
+/// xterm." A full reset (`RIS`) and a soft one (`DECSTR`) leave the
+/// policy, and the answer with it, as they leave the widths.
+#[test]
+fn decrqm_1021_reports_the_ambiguous_width_policy() {
+    for prefix in ["", "\x1bc", "\x1b[!p"] {
+        assert_eq!(
+            rqm(AmbiguousWidth::Narrow, prefix, 1021),
+            "\x1b[?1021;2$y",
+            "{prefix:?}"
+        );
+        assert_eq!(
+            rqm(AmbiguousWidth::Wide, prefix, 1021),
+            "\x1b[?1021;1$y",
+            "{prefix:?}"
+        );
+        let after = format!("{prefix}±");
+        assert_eq!(
+            under(AmbiguousWidth::Wide, after.as_bytes(), &[]).1,
+            2,
+            "{prefix:?} keeps the policy"
+        );
+    }
+}
+
+/// **`?1023` answers set, and `?1022` is not recognized**, under either
+/// policy. `?1023` reports `privateWidth`, "whether to assume that codes in
+/// the Unicode PUA (private use area) are single-width"
+/// (`[[source: xterm-man]]` 5202-5206), which baud always does: the
+/// owner's call of 2026-10-15. `?1022` reports an `emojiWidth` baud has no switch for, so it
+/// answers `0` (Jev 2026-10-15, 0.98 and 1.00): its `Vs16Width` neither
+/// narrows on VS15 nor widens a bare listed emoji.
+#[test]
+fn decrqm_1023_answers_set_and_1022_is_not_recognized() {
+    for a in [AmbiguousWidth::Narrow, AmbiguousWidth::Wide] {
+        assert_eq!(rqm(a, "", 1023), "\x1b[?1023;1$y", "{a:?}");
+        assert_eq!(rqm(a, "", 1022), "\x1b[?1022;0$y", "{a:?}");
+    }
+}
+
+/// **DECSET and DECRST change none of the three, and are counted**: they are
+/// read-only in `[[source: ctlseqs]]`, and xterm's `dpmodes` skips them,
+/// "these are readonly, not saved or restored" (`[[source: xterm-reset]]`
+/// charproc.c 7998-8003). So `?1021h` does not widen `±`, and `DECRQM` still
+/// reports what the embedder configured.
+#[test]
+fn decset_of_the_width_resources_changes_nothing_and_is_counted() {
+    for (a, set) in [(AmbiguousWidth::Narrow, 'h'), (AmbiguousWidth::Wide, 'l')] {
+        let want = under(a, "±".as_bytes(), &[]);
+        for mode in [1021, 1022, 1023] {
+            let bytes = format!("\x1b[?{mode}{set}±");
+            let got = under(a, bytes.as_bytes(), &[]);
+            assert_eq!(got.1, want.1, "{a:?} ?{mode}{set}: the width stayed");
+            assert_eq!(got.3, want.3 + 1, "{a:?} ?{mode}{set}: counted");
+        }
+        let before = rqm(a, "", 1021);
+        assert_eq!(rqm(a, &format!("\x1b[?1021{set}"), 1021), before, "{a:?}");
+    }
+}

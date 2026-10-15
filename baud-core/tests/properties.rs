@@ -114,6 +114,14 @@ const ALPHABET: &[Atom] = &[
         stride: 3,
         count: 4,
     },
+    // Three-byte private use, k = 4: one column under either ambiguous-width
+    // policy where the box drawing above takes two under `Wide`.
+    Atom {
+        name: "pua-quad",
+        bytes: "\u{e0b0}\u{e0b0}\u{e0b0}\u{e0b0}".as_bytes(),
+        stride: 3,
+        count: 4,
+    },
     // **A zero-width character inside a three-byte run of four.** This is the
     // entry that reaches the vectorised accumulator, and a defect lived in it:
     // zero-width was counted as narrow in the quad loop and not in the scalar
@@ -482,6 +490,11 @@ const ALPHABET: &[Atom] = &[
     },
 ];
 
+/// Either ambiguous-width policy.
+fn policy() -> impl Strategy<Value = AmbiguousWidth> {
+    prop_oneof![Just(AmbiguousWidth::Narrow), Just(AmbiguousWidth::Wide)]
+}
+
 fn program() -> impl Strategy<Value = Vec<usize>> {
     proptest::collection::vec(0..ALPHABET.len(), 0..40)
 }
@@ -527,9 +540,17 @@ fn clipped(t: &Term<'_>) -> Clipped {
 /// the alphabet sets, saves and restores, the title, the one string it sets,
 /// and the reply, to the one request it makes.
 fn drive(bytes: &[u8], chunk: usize) -> Seen {
+    drive_at(bytes, chunk, AmbiguousWidth::Narrow)
+}
+
+/// [`drive`] under ambiguous-width policy `a`: box drawing, East Asian
+/// Ambiguous, is one column under `Narrow` and two under `Wide`, so the two
+/// put the run writers' width decisions in different places.
+fn drive_at(bytes: &[u8], chunk: usize, a: AmbiguousWidth) -> Seen {
     let w = ws();
     let mut owned = Owned::new(&w).with_clipboard(CLIP);
     let mut t = Term::new(owned.storage(), &w);
+    t.set_ambiguous_width(a);
     let mut i = 0;
     while i < bytes.len() {
         let n = chunk.min(bytes.len() - i);
@@ -553,10 +574,11 @@ fn drive(bytes: &[u8], chunk: usize) -> Seen {
 /// a run of four and four runs of one must agree. That is the class chunk
 /// invariance is structurally blind to -- where both chunkings are wrong the
 /// same way, which is what the blitter's clipping bug was.
-fn drive_atomwise(prog: &[usize]) -> Seen {
+fn drive_atomwise(prog: &[usize], a: AmbiguousWidth) -> Seen {
     let w = ws();
     let mut owned = Owned::new(&w).with_clipboard(CLIP);
     let mut t = Term::new(owned.storage(), &w);
+    t.set_ambiguous_width(a);
     for &i in prog {
         let b = ALPHABET[i].bytes;
         t.write_at(BytePos::ZERO, b);
@@ -829,10 +851,13 @@ proptest! {
     /// screen for a payload with no zero-width character and no run longer
     /// than two -- so it could not reach either defect it was later credited
     /// with being able to catch.
+    ///
+    /// Under both ambiguous-width policies, which move every box-drawing
+    /// atom's width.
     #[test]
-    fn the_screen_does_not_depend_on_where_the_reads_fell(prog in program(), a in 1usize..=64) {
+    fn the_screen_does_not_depend_on_where_the_reads_fell(prog in program(), a in 1usize..=64, w in policy()) {
         let b = bytes_of(&prog);
-        prop_assert_eq!(drive(&b, a), drive(&b, 4096));
+        prop_assert_eq!(drive_at(&b, a, w), drive_at(&b, 4096, w));
     }
 
     /// A run and the same characters fed one atom at a time must agree.
@@ -841,9 +866,9 @@ proptest! {
     /// is silent when both are wrong the same way, which is how a blitter that
     /// clipped at the margin passed it at every read size.
     #[test]
-    fn a_program_agrees_with_the_same_atoms_fed_one_at_a_time(prog in program()) {
+    fn a_program_agrees_with_the_same_atoms_fed_one_at_a_time(prog in program(), w in policy()) {
         let b = bytes_of(&prog);
-        prop_assert_eq!(drive(&b, 4096), drive_atomwise(&prog));
+        prop_assert_eq!(drive_at(&b, 4096, w), drive_atomwise(&prog, w));
     }
 
     /// **A cell that claims continuations must have them.**
