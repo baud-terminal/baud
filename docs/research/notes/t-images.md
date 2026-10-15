@@ -16,9 +16,10 @@ three render paths, and the corpus's first two Sixel files,
 `tests/recordings/sixel/swirl.raw` and
 `tests/recordings/sixel/img2sixel-96x72.six`. Step 5, the decoder
 pointer-walk, is not built: `SixelCanvas::paint` still computes
-`y * width + x` per pixel. Kitty graphics is `out` in `docs/vt-coverage.md`
-until its PNG path has a `no_std` decoder; the owner's answer to note V's V19
-(2026-09-25) is to build it to the spec, and it is unbuilt. The sentences
+`y * width + x` per pixel. Kitty graphics is unbuilt; the owner's answer to
+note V's V19 (2026-09-25) is to build it to the spec, and the PNG and zlib
+decoder its `f=100` needs exists under the core's contract,
+`baud-font/src/png.rs` (the seam section, corrected 2026-10-15). The sentences
 below that called the corpus empty of Sixel were written before the capture
 landed and are struck where they stand.
 
@@ -27,9 +28,8 @@ the decoder *seam* are.** A Sixel decoder is a stateful byte walk with no
 cleverness in it (`baud-domain/src/sixel.rs`, built and gated). What baud does
 not have and every other terminal takes for granted is somewhere to put an
 image's pixels under a core that allocates nothing -- which is `s-sixel.md`'s
-subject -- and a principled boundary between what an image protocol can decode
-inside `#![forbid(unsafe_code)]`, `no_std`, `alloc`-free code and what it cannot,
-which is this note's.
+subject -- and where each of an image protocol's decodes lives under
+`#![forbid(unsafe_code)]`, `no_std`, `alloc`-free code, which is this note's.
 
 ## The gates lead, and chunk invariance is first-class for Kitty
 
@@ -54,18 +54,21 @@ the placement-across-scroll-and-resize test at the top of the phase, not after.
 
 ## The decode seam: what fits the contract, and what is injected
 
-This is the question `s-sixel.md` recorded as "a research-scale question the
-owner has not settled" and deferred here. The answer is a boundary drawn by one
-property -- **does the decode allocate a heap of unknown size** -- and it falls
-cleanly:
+This is the question `s-sixel.md` left open and deferred here. The answer is a
+boundary drawn by one property -- **does the decode allocate a heap of unknown
+size** -- and every format the protocol defines falls inside it. This section
+first put PNG and zlib outside, behind a decoder the embedder injects; the
+workspace held the counterexample all along, `baud-font/src/png.rs`
+(2026-09-12), which decodes colour-emoji strikes into two buffers its caller
+sizes (corrected 2026-10-15):
 
 | protocol input | decode | where |
 |---|---|---|
 | Sixel raster (`DCS ... q`) | RLE over 256 registers into a caller canvas | **`baud-domain`** -- alloc-free, built |
 | Kitty `f=24` RGB, `f=32` RGBA | none: raw pixels, already final layout | **`baud-domain`** -- alloc-free |
 | base64 (`t=d` payload) | 4 bytes -> 3, into a caller buffer, incremental | **`baud-domain`** -- alloc-free |
-| Kitty `f=100` PNG | PNG + zlib over untrusted bytes | **embedder** -- injected seam |
-| Kitty `o=z` zlib | inflate to a variable-size output | **embedder** -- injected seam |
+| Kitty `f=100` PNG | PNG + zlib over untrusted bytes, sized by its `IHDR` | **`baud-font`** (`png.rs`) -- alloc-free, built; out of baud-core's reach today |
+| Kitty `o=z` zlib | inflate to a size the keys declare: `s` x `v` x 3 or 4, or `S` for a PNG | an inflater exists inside `png.rs`, private to its `IDAT` stream; a standalone one is unbuilt |
 
 **The defensible claim is narrow, and stated as the constraint rather than as a
 comparison.** rio, wezterm, ghostty and contour all push image decode to the
@@ -74,24 +77,34 @@ allocates, and uses `unsafe` -- incompatible with baud-core on all three axes
 (the `wezterm/contour/rio` survey confirmed each axis by compiling). That is
 their *choice*, not a limit; stated as "baud does more in its core than they do"
 it invites the same correction the ghostty-scrollback comparison needed. The
-honest form: **Sixel and raw RGB/RGBA are alloc-free by construction -- a fixed
-256-register palette, a caller-provided output canvas, no compression -- so they
-*can* live under baud's contract, and only PNG and zlib cannot.** baud-core
-therefore decodes more image input than it would if it reached for a crate,
-because the two protocols it decodes were chosen to need no heap.
+honest form: **every format the protocol defines can live under baud's
+contract.** Sixel and raw RGB/RGBA are alloc-free by construction -- a fixed
+256-register palette, a caller-provided output canvas, no compression -- and
+PNG and zlib are alloc-free because every output size is declared before the
+decode: `png.rs` reads a PNG's from its `IHDR` and decodes into two caller
+buffers of exactly that size. Its limits are its own, not the contract's: it
+refuses Adam7 interlacing (`PngError::Interlaced`), takes the whole file as one
+slice, and its inflate reads only the `IDAT` stream and cannot resume across
+reads.
 
-**The seam is wider than "inject a decode function", and `f=100` is why.** For a
-raw format the core knows the destination size from `s=`/`v=` before a byte
-arrives. For PNG the dimensions live in the file header, so **the core cannot
-even size the destination** -- the embedder owns destination sizing for that
-format, decodes into memory it allocates, and hands the core back a sized ARGB
-buffer plus its dimensions. ghostty's precedent is exactly this: PNG decode is a
-nullable function pointer, null in its VT-library build, and the seam is
-"embedder, give me the pixels and their size", not "embedder, fill this buffer".
-So the injection is a two-way contract -- the core hands the embedder the
-compressed bytes and the declared `S=` size hint, the embedder hands back a
-buffer, its width, its height, and whether it succeeded -- and the core stays
-`alloc`-free, `no_std` and `forbid(unsafe_code)` on both sides of it.
+**The destination is sized before the decode for every format, `f=100`
+included.** For a raw format the core knows the destination size from
+`s=`/`v=` before a byte arrives. For PNG, `[[source: kitty-graphics]]` says
+"The width and height of the image will be read from the PNG data itself",
+and `Png::parse` reads them from `IHDR` before any image data, after which
+`Png::raw_len` and `Png::rgba_len` give both buffers' exact lengths. Two
+qualifiers: `Png::parse` takes the whole file as one slice, so the payload is
+gathered into scratch first; and under `o=z` the PNG's own header is
+compressed, which the protocol answers itself: "if you use both PNG and
+compression, then you must provide the S key with the size of the PNG data."
+ghostty's precedent -- PNG decode a nullable function pointer, null in its
+VT-library build, the embedder handing back a buffer and its size -- rests on
+a decoder that allocates, and `png.rs` does not. An embedder hook may still be
+needed for a different reason, the file and shared-memory mediums (`t=f`,
+`t=t`, `t=s`), which a `no_std` core cannot open (note V's V19, option C).
+Where the decoder moves so baud-core can call it, baud-domain or a new crate,
+is open (note V's V19, step 2): baud-core depends on baud-domain and not on
+baud-font.
 
 ## Zero copy, corrected: it is one copy, and baud lands it in GPU memory
 
@@ -169,7 +182,8 @@ is consumed and dropped today, so a Kitty command is consumed and dropped today.
 
 **Formats and the seam** (repeated from the seam table for the reader who starts
 here): `f=24` RGB and `f=32` RGBA are raw pixels needing no decoder and are the
-fast path; `f=100` PNG and `o=z` zlib are the injected embedder seam.
+fast path; `f=100` PNG and `o=z` zlib need the PNG and zlib decoder, which is
+`png.rs`, out of baud-core's reach today.
 
 **Placements are separate from images** and carry a signed 32-bit `z` index --
 negative draws below text, and below roughly `INT32_MIN/2` draws below even
@@ -277,7 +291,7 @@ row, and the GPU upload is id-gated so an image is never re-uploaded.**
 
 | terminal | what it contributes | for baud |
 |---|---|---|
-| **ghostty** | image/placement split reconciled by a `generation: u64`; PNG decode a nullable injected fn (null in the VT-lib build) | the seam precedent -- PNG is the embedder's, and the core stays alloc-free |
+| **ghostty** | image/placement split reconciled by a `generation: u64`; PNG decode a nullable injected fn (null in the VT-lib build) | the seam precedent, resting on a decoder that allocates; `png.rs` does not, so its premise is gone, and a hook may remain for the file and shared-memory mediums |
 | **rio** | `rio-graphics`, a leaf value-type crate with no GPU/render deps; anchor by absolute scrollback row; store source rects raw and resolve per frame; hash/id-gate the upload | `rio-graphics` *is* `baud-domain`'s role, validated; the anchor is `select.rs`'s `AbsLine` |
 | **wezterm** | sha256 content-address of image data; maps an image to actual grid cells | id-gated never-re-upload |
 | **contour** | `RasterizedImage` -> `ImageFragment` carries *geometry, not pixels*; `z` as `{Below, Replace, Above}` where only `Replace` dies on a text write | the placement carries geometry the paths read, the `s-sixel.md` design |
@@ -313,13 +327,12 @@ the research gives a discipline rather than a value.
 * **Kitty at all, and in what order.** foot is a standing precedent for *not*
   implementing Kitty -- its maintainer declined it deliberately, on dependencies
   and minimalism, and it is an argument *for* Sixel-first rather than a source to
-  copy Kitty from. baud's own constraint says the same: Sixel needs no seam and
-  Kitty's `f=100` does, so Sixel is the tractable half regardless. The register's
+  copy Kitty from. Sixel needs no decoder but its own and Kitty's `f=100` needs
+  PNG and zlib, so Sixel is the tractable half regardless. The register's
   recommendation is **Sixel first (its gates are already fixed in `s-sixel.md`),
   then Kitty's raw-format and placement surface reusing the same storage, then
-  the PNG seam as a separate owner-gated slice, then U+10EEEE last.** Whether
-  Kitty ships at all, and whether the PNG seam is worth an embedder decoder, is
-  the owner's.
+  PNG and zlib as a separate slice, then U+10EEEE last.** Whether Kitty ships at
+  all was the owner's.
 
   **Answered 2026-09-25**: note V's V19 put this to the owner, and its
   "Decisions taken, 2026-09-25" records: "**V12, V14, V18, V19: built to the
@@ -352,8 +365,10 @@ the research gives a discipline rather than a value.
    DA-safe, breaks nothing.
 7. **Kitty raw formats and placements** -- `f=24`/`f=32` + base64 (incremental,
    chunk-invariant) into the same storage, `z` and `(i,p)` replace.
-8. **The PNG seam** -- owner-gated; the two-way injected contract, embedder owns
-   `f=100` destination sizing.
+8. **PNG and zlib** -- `png.rs` moved where baud-core can call it, its inflate
+   opened to `o=z`; the core sizes `f=100`'s destination from `IHDR`, or from
+   `S` under `o=z` (the seam section). Where it moves is open (note V's V19,
+   step 2).
 9. **U+10EEEE** -- last, after the style-table interaction is measured and the
    diacritics generator is pinned.
 

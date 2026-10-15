@@ -8,7 +8,7 @@
 //! complete one: every colour type and bit depth the specification allows,
 //! the five filters, stored, fixed and dynamic deflate blocks, CRC-32 on
 //! every chunk and Adler-32 on the stream. Interlaced images are refused;
-//! no emoji font interlaces, and `tests/oracle.rs` counts the refusals so
+//! no emoji font interlaces, and `tests/bitmap.rs` counts the refusals so
 //! that claim is checked rather than assumed.
 //!
 //! **No allocation.** The caller provides two buffers sized by

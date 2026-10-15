@@ -7661,7 +7661,8 @@ group  = "C"
 # what it saves is the base64, the zlib and the pty chunking rather than the
 # copy itself, which `docs/research/notes/t-images.md` records against the
 # survey that read the spec. Formats `f=24` RGB, `f=32` RGBA (raw, no decoder)
-# and `f=100` PNG (a decoder the `no_std` core cannot carry). Placements are
+# and `f=100` PNG (a PNG and zlib decoder, which `baud-font/src/png.rs` is,
+# `no_std` and allocation-free; baud-core does not reach it). Placements are
 # separate from images, carry a `z` index (negative below text), and a Unicode
 # placeholder (`U+10EEEE`) grid lets an image scroll with text. Design in
 # `docs/research/notes/t-images.md`.

@@ -1,7 +1,7 @@
 #![deny(dead_code)]
 //! **Tier 0: a control string is consumed, whatever baud does with its body.**
 //!
-//! `docs/vt-coverage.md` puts image protocols out of scope and then says the
+//! `docs/vt-coverage.md`'s row for kitty graphics, unbuilt, says the
 //! thing that is *not* optional: "the `APC` string must still be consumed --
 //! that is Tier 0". A terminal that does not swallow the body renders the
 //! payload as text, and a kitty graphics command carries base64 by the kilobyte.

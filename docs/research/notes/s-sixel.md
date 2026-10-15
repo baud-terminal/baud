@@ -8,18 +8,20 @@ implements to `[[source: vt3xx-sixel]]` -- the VT330/VT340 manual chapter
 `ctlseqs` names and defers to (`xterm-ctlseqs.txt:3234`).
 
 **Scope: Sixel only.** Kitty graphics is a separate protocol and is *not*
-in this note, for one measured reason rather than as a matter of order:
-Kitty's transmission formats include `f=100` PNG, which reaches a PNG +
-zlib decoder over untrusted bytes, and baud-core is `no_std`, `alloc`-free
-and `#![forbid(unsafe_code)]`. The shape of an image decoder under that
-contract was a research-scale question the owner had not settled when this
-was written. The Kitty note this paragraph asks for, `t-images.md`, takes up
-the decoder seam, and the owner's answer to note V's V19 (2026-09-25) is to
-build Kitty graphics to the spec; it is unbuilt (this cited the gitignored
-`TODO.md` until 2026-10-10). Sixel needs *no*
-external decoder -- it is a self-contained run-length format with no
-compression -- so it is the tractable half and the sane first one. Nothing
-here builds toward Kitty; a Kitty note settles the decoder question first.
+in this note. The reason given when this was written was that Kitty's
+`f=100` PNG reaches a PNG + zlib decoder over untrusted bytes, and that
+baud-core is `no_std`, `alloc`-free and `#![forbid(unsafe_code)]`, so how a
+decoder could live under that contract was left open. The workspace already
+had the answer: `baud-font/src/png.rs` (2026-09-12) decodes PNG, its zlib
+stream included, under the same contract, into two buffers its caller
+sizes from the image header. It refuses Adam7 interlacing and takes the
+whole file as one slice, and baud-core cannot call it yet, because the core
+does not depend on baud-font. `t-images.md` is the Kitty note, and the
+owner's answer to note V's V19 (2026-09-25) is to build Kitty graphics to
+the spec; it is unbuilt (this cited the gitignored `TODO.md` until
+2026-10-10). Sixel needs *no* external decoder -- it is a self-contained
+run-length format with no compression -- so it is the tractable half and
+the sane first one. Nothing here builds toward Kitty.
 
 **The design question is storage, not decoding.** Decoding a Sixel is a
 stateful walk over bytes with no cleverness in it. What baud does not have,
