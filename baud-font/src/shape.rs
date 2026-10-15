@@ -673,7 +673,8 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
     /// Adds one cluster -- a base followed by its attachments -- as cell
     /// `cell`, mapping the sequence [`Normalised::of`] makes of it. `None`
     /// when the storage is full, leaving the buffer as it was before the
-    /// call.
+    /// call; the run's direction has still noted the refused cluster's
+    /// characters.
     pub fn push_cluster(&mut self, cps: &[Codepoint], cell: Cluster) -> Option<()> {
         if self.face.gsub().is_none() && self.face.morx().is_some() {
             for &c in cps {

@@ -275,9 +275,12 @@ fn a_script_is_right_to_left_when_its_letters_are() {
 }
 
 /// **A run of a right-to-left script that holds a number and no letter is
-/// laid out left to right**: a decimal digit resolves to an even level under
-/// UAX #9 (`[[source: uax9-bidi]]`, I1-I2) and a regional indicator is
-/// Bidi_Class L; HarfBuzz applies the same rule when its caller asks for
+/// laid out left to right**: a European or Arabic digit (EN, AN) resolves
+/// to an even level under UAX #9 (`[[source: uax9-bidi]]`, I1-I2) and a
+/// regional indicator is Bidi_Class L. The rule takes every decimal digit
+/// (gc Nd), as HarfBuzz's does, so the 20 of Bidi_Class R -- NKo's
+/// U+07C0..07C9 and Adlam's U+1E950..1E959 -- are laid out left to right
+/// too, where UAX #9 would level them odd; HarfBuzz applies the same rule when its caller asks for
 /// left to right (`[[source: harfbuzz-hb-ot-shape]]`, hb-ot-shape.cc:613),
 /// and CoreText lays a flag pair beside Hebrew out left to right. One letter
 /// anywhere keeps the run right to left, and a left-to-right script's run

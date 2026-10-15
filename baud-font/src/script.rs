@@ -150,7 +150,9 @@ enum Held {
 /// A run of a right-to-left script that holds a decimal digit or a
 /// regional indicator and no letter is laid out left to right -- UAX #9
 /// resolves EN and AN to an even level and a regional indicator is
-/// Bidi_Class L. CoreText puts a flag pair beside Hebrew in a
+/// Bidi_Class L. A decimal digit of Bidi_Class R -- NKo's and Adlam's, 20
+/// in all -- is counted too, as HarfBuzz counts gc Nd; UAX #9 would level
+/// it odd. CoreText puts a flag pair beside Hebrew in a
 /// left-to-right run; HarfBuzz keeps such a run left to right only when
 /// its caller asks for left to right (`hb_ensure_native_direction`,
 /// `[[source: harfbuzz-hb-ot-shape]]`, hb-ot-shape.cc:613), and baud has
