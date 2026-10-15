@@ -14,21 +14,74 @@
 //!
 //! The cursor advances past the image by `ceil(h / cell_h)` rows, `h` the
 //! height the data reached (not the raster's `Pv`), through the
-//! **existing scroll path** ([`Paint::index`]), so an image at the bottom of
-//! the screen scrolls and the window's top line moves -- which keeps the anchor of
-//! the *next* image right, and which assigning `cy` directly would not. The
-//! core lacks only the one number the renderer owns, the cell height in
-//! pixels, so the embedder supplies it through [`Term::set_cell_size`]; a
-//! caller that never does (a headless test, a bench) leaves it zero and the
-//! cursor unmoved, today's behaviour. `[[source: vt3xx-sixel]]`'s mode-8452
-//! variant -- the cursor to the *right* of the image rather than below -- is
-//! not implemented and falls through to the unsupported-mode counter.
+//! **existing scroll path** ([`Paint::index`]), so an
+//! image at the bottom of the screen scrolls and the window's top line moves --
+//! which keeps the anchor of the *next* image right, and which assigning `cy`
+//! directly would not. The core lacks only the one number the renderer owns,
+//! the cell height in pixels, so the embedder supplies it through
+//! [`Term::set_cell_size`]; a caller that never does (a headless test, a
+//! bench) leaves it zero and the cursor unmoved.
+//!
+//! Three modes change this, each recorded only while DA lists Sixel
+//! ([`Paint::sixel_claim`]): `?80` (DECSDM) set puts the image at the
+//! window's upper-left cell, stops it at the screen's bottom edge and leaves
+//! the cursor; `?8452` puts the cursor to the right of the image
+//! (`[[source: ctlseqs]]`, "Sixel scrolling leaves cursor to right of
+//! graphic, RLogin, xterm"); and `?1070` reset carries the colour registers
+//! from one Sixel to the next.
 
 use crate::paint::Paint;
 use crate::term::{Screen, SixelBg};
 use baud_domain::*;
 
 impl Paint<'_, '_> {
+    /// Begin the decoder for a Sixel drawn at `aspect`. **Out of line**: it
+    /// reads the modes, the foreground and the screen's height, which the
+    /// byte loop does not, and inlined into `Act::SixelStart` it grew the
+    /// per-byte loop by 128 instructions and 54 loads from the stack.
+    ///
+    /// An undefined register paints the foreground shown -- 070-9 §10's
+    /// "default Sixel color", "Contrasting to background" -- decided by Jev
+    /// 2026-10-15 (DEFAULT_FOREGROUND, 0.92 and 0.95); a foreground the
+    /// embedder has not said is `DEFAULT`, drawn as nothing. `?1070` picks
+    /// whose registers it starts from, and `?80`'s display mode stops it at
+    /// the screen's bottom and right edges.
+    ///
+    /// The right edge is `[[source: dec-std-070]]` 070-9 §11.2.2, "Right
+    /// Margin: Sixels defined to be printed past the right margin are not
+    /// printed": the image is drawn at the window's first column, so no
+    /// pixel at or past the screen's width is painted or counted in its
+    /// width. A tall image whose ignored new lines lay its last bands side
+    /// by side is then at most the screen, not refused for the arena.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn sixel_begin(&mut self, aspect: SixelAspect) {
+        let shown = self.cold.shown(DynamicColor::Foreground);
+        let ink = match shown.as_rgb() {
+            Some(_) => shown,
+            None => ColorWord::DEFAULT,
+        };
+        let registers = match self.cold.modes.is_set(ModeBit::SixelPrivateRegisters) {
+            true => SixelRegisters::Private,
+            false => SixelRegisters::Shared,
+        };
+        let (floor, right) = match self.cold.modes.is_set(ModeBit::SixelDisplay) {
+            true => (
+                SixelEdge::screen(self.rows.index(), self.cell_height),
+                SixelEdge::screen(self.cols.index(), self.cell_width),
+            ),
+            false => (SixelEdge::Open, SixelEdge::Open),
+        };
+        let begin = SixelBegin {
+            aspect,
+            ink,
+            registers,
+            floor,
+            right,
+        };
+        self.strs.sixel.begin_with(begin, self.images);
+    }
+
     /// Record the Sixel decoded as its body arrived, and place it at the
     /// cursor.
     #[cold]
@@ -60,7 +113,7 @@ impl Paint<'_, '_> {
         // color" and 0 "device default action". A transparent pixel is what
         // "current color" composites to (a reading) and baud's counted
         // stand-in for the background, and an erased image is none of these.
-        let Some((id, _, h)) = self.strs.sixel.finish(self.images) else {
+        let Some((id, w, h)) = self.strs.sixel.finish(self.images) else {
             return;
         };
         // The image stored, so an ignored opaque-background request is now a
@@ -91,6 +144,25 @@ impl Paint<'_, '_> {
         // fixed" (`[[source: vt3xx-sixel]]`), and what 070-9 §7.3 falls back
         // to is for Jev (note AN, `Ph`). It is not the raster command's `Ph`,
         // the horizontal extent, which the decode lays its rows out by.
+        //
+        // **Display mode (`?80` set) puts the image at the window's
+        // upper-left cell and leaves the cursor**: `[[source: vt3xx-sixel]]`,
+        // "When sixel scrolling is disabled, the sixel active position begins
+        // at the upper-left corner of the active graphics page", and "When
+        // sixel mode is exited, the text cursor does not change from the
+        // position it was in when sixel mode was entered". The corner is the
+        // screen's, whatever DECOM and the margins say, as xterm places it
+        // (`get_new_graphic(xw, 0, 0)`, `[[source: xterm-graphics-sixel]]`).
+        // The window's top line is spelled here rather than through
+        // `image_top`, for the reason `image_top`'s doc gives.
+        if self.cold.modes.is_set(ModeBit::SixelDisplay) {
+            let (screen, top) = match self.cold.screen {
+                Screen::Normal => (ImageScreen::Primary, self.book.top),
+                Screen::Alternate => (ImageScreen::Alternate, self.book.alt_top),
+            };
+            let _ = self.images.place(id, screen, top, Col::ZERO, ZIndex::ZERO);
+            return;
+        }
         let (screen, line) = self.image_anchor();
         let _ = self.images.place(id, screen, line, self.cx, ZIndex::ZERO);
         // Advance the cursor below the image, through the scroll path so a
@@ -104,10 +176,43 @@ impl Paint<'_, '_> {
         // cell is; zero leaves the cursor where the image is, the headless
         // default. `finish` refused a zero `h` and `cell_height` is non-zero
         // here, so the row count is at least one without a guard.
-        if self.cell_height != ImagePx::ZERO {
-            let rows = usize::from(h.raw()).div_ceil(self.cell_height.index());
-            for _ in 0..rows {
+        //
+        // **Which row is open.** The row below the image departs from both
+        // texts: `[[source: vt3xx-sixel]]` sets the text cursor "to the
+        // current sixel cursor position", which a VT340 rounds up to the row
+        // it falls in (`[[source: vt340test-textcursor-sh]]`), and 070-9
+        // §11.3 moves it by "the vertical motion commands executed", allowing
+        // "an adjustment less than one character height ... in a downward
+        // direction". Jev chose the VT340's row at 0.91 and 0.88 on
+        // 2026-10-15, one ordering short of the bar, so the choice is the
+        // owner's and this is unchanged until it is made.
+        if self.cell_height == ImagePx::ZERO {
+            return;
+        }
+        let rows = usize::from(h.raw()).div_ceil(self.cell_height.index());
+        // **`?8452`: the cursor to the right of the image** (`[[source:
+        // ctlseqs]]`, "Sixel scrolling leaves cursor to right of graphic"),
+        // on the image's last row and `ceil(w / cell_w)` columns past where
+        // it started, as xterm's `finished_parsing` puts it
+        // (`[[source: xterm-graphics-sixel]]`: `new_row = charrow - 1 +
+        // ceil(h / FontHeight)`, and under `sixel_scrolls_right` only the
+        // column changes). Past the right margin it goes to the left margin
+        // of the next row, scrolling at the bottom, as xterm does, decided
+        // by Jev 2026-10-15 (WRAP_NEXT_ROW, 0.94 and 0.92). No column moves
+        // while the cell width is unknown, and the cursor then goes below
+        // the image as without the mode.
+        let right_of =
+            self.cold.modes.is_set(ModeBit::SixelScrollsRight) && self.cell_width != ImagePx::ZERO;
+        for _ in 0..rows - usize::from(right_of) {
+            self.index();
+        }
+        if right_of {
+            let right = self.cx.index() + usize::from(w.raw()).div_ceil(self.cell_width.index());
+            if right > self.cold.right.index() {
                 self.index();
+                self.cx = self.cold.left;
+            } else {
+                self.cx = Col::at_index(right);
             }
         }
     }

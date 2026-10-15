@@ -1927,6 +1927,12 @@ impl Paint<'_, '_> {
                 self.unsupported_param += 1;
                 return;
             };
+            // A mode with a slot that is not recognized now -- a Sixel mode
+            // while DA does not list Sixel -- is counted, as its save was.
+            if self.private_state(m) == ModeState::NotRecognized {
+                self.unsupported_param += 1;
+                return;
+            }
             let Some(want) = self.cold.xtsave.saved(slot) else {
                 return;
             };
@@ -2221,6 +2227,16 @@ impl Paint<'_, '_> {
             // It was routed nowhere while `docs/vt-coverage.md` called it
             // done, and its one test passed on a no-op.
             PrivateMode::AltScreenLegacy => self.set_alt_screen(change, AltSwitch::Bare),
+            // The Sixel modes, recorded only while DA lists Sixel
+            // ([`Paint::sixel_claim`]): `sixel_end` reads `?80` and `?8452`,
+            // and `Act::SixelStart` `?80` and `?1070`.
+            PrivateMode::SixelDisplay => self.set_sixel_mode(ModeBit::SixelDisplay, change),
+            PrivateMode::SixelPrivateRegisters => {
+                self.set_sixel_mode(ModeBit::SixelPrivateRegisters, change)
+            }
+            PrivateMode::SixelScrollsRight => {
+                self.set_sixel_mode(ModeBit::SixelScrollsRight, change)
+            }
             // **Counted, as the ANSI table's wildcard is.** This was a bare
             // `{}` while `?1004` was named nowhere in the code, so the request
             // `vim-unicode.raw` sends on its first line arrived and vanished
@@ -2528,6 +2544,11 @@ impl Paint<'_, '_> {
             }
         }
         self.cold.modes = Modes::default();
+        // The shared Sixel registers go with `?1070`, which `Modes::default`
+        // has just set: xterm's full reset restores the mode
+        // (`[[source: xterm-reset]]`), and a terminal made operational has
+        // defined none.
+        self.strs.sixel.forget_shared();
         // **XTSAVE's cache goes back to empty**: ECMA-48 § 8.3.105 has `RIS`
         // reset "to its initial state, i.e. the state it has after it is made
         // operational" (`[[source: ecma48]]`), and nothing is saved then.
@@ -2768,6 +2789,44 @@ fn encoding_state(cur: MouseEncoding, mode: MouseEncoding) -> ModeState {
 }
 
 impl Paint<'_, '_> {
+    /// Whether DA lists Sixel: the embedder's claim and a provisioned store.
+    /// **The one condition for every Sixel query and mode**, so DA, DECRQM
+    /// and XTSMGRAPHICS cannot disagree. `[[source: ctlseqs]]` puts all of
+    /// them under one sentence, "If xterm is configured as VT240, VT241,
+    /// VT330, VT340 or VT382 using the decTerminalID or decGraphicsID
+    /// resource, it supports Sixel Graphics controls": DA's `4`, `?80`,
+    /// `?1070`, `?8452` and the `DCS q`. baud's configuration is the claim.
+    /// xterm answers DECRQM from its flags whatever its configuration, a
+    /// practice departing from that sentence; Jev did not decide between the
+    /// two (2026-10-15, DA_CLAIM at 0.61 and 0.67), so this is the text's
+    /// reading, on the owner's list. A Sixel sent while unclaimed still
+    /// draws, also outside that sentence, and is recorded as open.
+    pub(crate) fn sixel_claim(&self) -> SixelClaim {
+        match (self.cold.sixel_claim, self.images.provisioned()) {
+            (SixelClaim::Yes, true) => SixelClaim::Yes,
+            _ => SixelClaim::No,
+        }
+    }
+
+    /// `?80`, `?1070` or `?8452`: recorded while DA lists Sixel, counted as
+    /// unsupported otherwise, so a request baud does not act on is not kept.
+    fn set_sixel_mode(&mut self, bit: ModeBit, change: ModeChange) {
+        match self.sixel_claim() {
+            SixelClaim::Yes => self.cold.modes.apply(bit, change == ModeChange::Set),
+            SixelClaim::No => self.unsupported_param += 1,
+        }
+    }
+
+    /// What DECRQM answers for a Sixel mode: its bit while DA lists Sixel,
+    /// "not recognized" otherwise, as [`Paint::set_sixel_mode`] then counts a
+    /// request rather than keep it.
+    fn sixel_state(&self, bit: ModeBit) -> ModeState {
+        match self.sixel_claim() {
+            SixelClaim::Yes => bit_state(self.cold.modes, bit),
+            SixelClaim::No => ModeState::NotRecognized,
+        }
+    }
+
     /// `DECRQM`: what state is this mode in?
     ///
     /// **`NotRecognized` is the answer for anything this core does not
@@ -2897,6 +2956,9 @@ impl Paint<'_, '_> {
                 Vs16Width::Two => ModeState::PermanentlySet,
                 Vs16Width::One => ModeState::PermanentlyReset,
             },
+            PrivateMode::SixelDisplay => self.sixel_state(ModeBit::SixelDisplay),
+            PrivateMode::SixelPrivateRegisters => self.sixel_state(ModeBit::SixelPrivateRegisters),
+            PrivateMode::SixelScrollsRight => self.sixel_state(ModeBit::SixelScrollsRight),
             _ => ModeState::NotRecognized,
         }
     }

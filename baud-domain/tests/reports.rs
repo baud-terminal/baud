@@ -47,6 +47,15 @@ fn one(n: u16) -> OneBased {
     OneBased::from_param(Some(p))
 }
 
+/// A `Param` pushed from ASCII digits, as [`one`] builds a `OneBased`.
+fn param(n: u16) -> Param {
+    let mut p = Param::ZERO;
+    for b in n.to_string().bytes() {
+        p = p.push(StreamByte::from_stream(b).as_ascii_digit().unwrap());
+    }
+    p
+}
+
 /// `[[source: ctlseqs]]`: "Report Cursor Position (CPR) [row;column]. Result is
 /// CSI r ; c R".
 #[test]
@@ -408,6 +417,17 @@ fn report_encodings_fit() {
         ),
         ("vt52 id", Report::Vt52Identity, b'Z'),
         (
+            "graphics geometry",
+            Report::Graphics {
+                item: param(65535),
+                reply: GraphicsReply::Geometry {
+                    width: ImagePx::of(u16::MAX),
+                    height: ImagePx::of(u16::MAX),
+                },
+            },
+            b'S',
+        ),
+        (
             "text area pixels",
             Report::TextAreaPixels {
                 height: ImagePx::of(u16::MAX),
@@ -612,7 +632,8 @@ fn report_encodings_fit() {
             | Report::MouseUtf8(_)
             | Report::MouseUrxvt(_)
             | Report::MouseSgrPixels(..)
-            | Report::Highlight(..) => {}
+            | Report::Highlight(..)
+            | Report::Graphics { .. } => {}
         }
         let b = enc(r);
         assert!(

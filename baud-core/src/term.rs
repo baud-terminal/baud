@@ -2234,8 +2234,17 @@ impl<'b> Term<'b> {
     /// claim is made only when this is `Yes` **and** the image store is
     /// provisioned, because an application that reads it switches from its text
     /// fallback to Sixel, and an embedder may want the fallback.
+    ///
+    /// **Withdrawing it returns `?80`, `?1070` and `?8452` to their power-on
+    /// states**: they are recorded only while DA lists Sixel, and a mode kept
+    /// past the claim would act while DECRQM says it is not recognized.
     pub fn set_sixel_claim(&mut self, c: SixelClaim) {
         self.cold.sixel_claim = c;
+        if c == SixelClaim::No {
+            self.cold.modes.reset(ModeBit::SixelDisplay);
+            self.cold.modes.set(ModeBit::SixelPrivateRegisters);
+            self.cold.modes.reset(ModeBit::SixelScrollsRight);
+        }
     }
 
     /// The cursor to draw: the style `DECSCUSR` (or the configuration) set,

@@ -370,6 +370,11 @@ impl<'a> Params<'a> {
     pub fn is_empty(&self) -> bool {
         self.v.is_empty()
     }
+    /// Whether parameter `i` arrived, given or omitted: `CSI ? 1 ; 1 ; S`
+    /// has a third.
+    pub fn has(&self, i: ParamIdx) -> bool {
+        i.raw_index() < self.v.len()
+    }
     pub fn count(&self, i: ParamIdx) -> Count {
         Count::from_param(self.at(i))
     }
@@ -751,10 +756,27 @@ pub enum Csi {
     /// [`Report::CellPixels`] and [`Report::TextAreaChars`]; the rest are
     /// [`WindowOp::Refused`].
     Window(WindowOp),
+    /// XTSMGRAPHICS, `CSI ? Pi ; Pa ; Pv S`: "Set or request graphics
+    /// attribute" (`[[source: ctlseqs]]`), answered with
+    /// [`Report::Graphics`]. Only the three-parameter form ctlseqs gives is
+    /// this, "xterm accepts a three-parameter control sequence"; any other
+    /// count is counted and unanswered, decided by Jev 2026-10-15
+    /// (THREE_ONLY, 0.96/0.96).
+    Graphics(GraphicsRequest),
     Unsupported {
         marker: Marker,
         final_byte: FinalByte,
     },
+}
+
+/// One XTSMGRAPHICS request: the item `Pi`, the action `Pa` and the value
+/// `Pv`, as they arrived, an omitted one as 0. The reply repeats `Pi`, so
+/// the raw parameter is kept rather than only its meaning.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct GraphicsRequest {
+    pub item: Param,
+    pub action: Param,
+    pub value: Param,
 }
 
 impl Csi {
@@ -937,6 +959,17 @@ impl Csi {
                 // those are the standard namespace's `s` and `r`.
                 b's' => Csi::SaveModes,
                 b'r' => Csi::RestoreModes,
+                // Three parameters, asked as "a third and no fourth" rather
+                // than `len() == 3`: that count was hoisted into `csi_final`'s
+                // entry, three instructions on every CSI but SGR, and these
+                // two fold to tests of the parser's own index.
+                b'S' if p.has(ParamIdx::at(2)) && !p.has(ParamIdx::at(3)) => {
+                    Csi::Graphics(GraphicsRequest {
+                        item: Param(p.raw(ParamIdx::FIRST, 0)),
+                        action: Param(p.raw(ParamIdx::SECOND, 0)),
+                        value: Param(p.raw(ParamIdx::at(2), 0)),
+                    })
+                }
                 b'n' if p.at(ParamIdx::FIRST).map_or(0, |x| x.0) == 996 => Csi::ColorSchemeQuery,
                 b'J' => match p.extent(ParamIdx::FIRST) {
                     Some(e) => Csi::SelectiveEraseDisplay(e),
@@ -1194,6 +1227,8 @@ impl Csi {
             // XTWINOPS is "dtterm, extended by xterm" -- the three reports are
             // xterm's extensions of it.
             RequestVersion | HighlightMouseTracking(_) | Window(_) => Level::Xterm,
+            // "Set or request graphics attribute (XTSMGRAPHICS), xterm."
+            Graphics(_) => Level::Xterm,
             // "Erase Saved Lines, xterm" in both forms: the saved lines are
             // xterm's, and no DEC level has them.
             EraseSavedLines | SelectiveEraseSavedLines => Level::Xterm,

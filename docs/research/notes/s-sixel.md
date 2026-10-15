@@ -409,10 +409,12 @@ it zero and the cursor unmoved, today's behaviour, which the sentinel gate
 pins. The advance is settled in the core rather than the renderer for two
 reasons a renderer-side advance gives up: the core owns cursor state, and the
 advance must happen per **read** (`DCS ... ST` completes per read) not per
-frame, or `cat a.six b.six` in one read would advance once. `[[source:
-vt3xx-sixel]]`'s **mode 8452** -- the cursor to the *right* of the image rather
-than below -- is not implemented and falls through to the unsupported-mode
-counter. Gates in `baud-core/tests/sixel.rs`: the below-advance, the
+frame, or `cat a.six b.six` in one read would advance once. **Mode 8452**
+-- the cursor to the *right* of the image rather than below -- is
+`[[source: ctlseqs]]`'s, "Sixel scrolling leaves cursor to right of graphic,
+RLogin, xterm"; this paragraph credited it to `[[source: vt3xx-sixel]]`,
+which has no 8452. It was counted as unsupported until 2026-10-15 and is
+built since (the section below). Gates in `baud-core/tests/sixel.rs`: the below-advance, the
 bottom-of-screen scroll (which pins the scroll-path route, perturbed to a `cy`
 assignment), the column staying at the image's left (`CUP` to a non-zero column
 first, so an unchanged column is a decision and not an accident -- ~~the DEC
@@ -644,11 +646,24 @@ program placing an image expects.
 **The cursor after a Sixel** is a real interaction with the grid, not a
 render detail. `[[source: ctlseqs]]` mode 8452 (sixel scrolling) leaves the
 cursor to the right of the image; without it the cursor returns to the
-image's left column on the line below. The design was to follow the mode;
-what shipped is the default only, and 8452 falls through to the
-unsupported-mode counter, as the section on the cursor advance above says --
-a mode recorded and never read being the failure `docs/vt-coverage.md` rates
-worst. The image occupies `ceil(Pv / cell_h)` rows and the grid
+image's left column on the line below. **Both are built since 2026-10-15**:
+under `?8452` the cursor is on the image's last row, `ceil(w / cell_w)`
+columns past the image's, where xterm's `finished_parsing` puts it
+(`[[source: xterm-graphics-sixel]]`), and past the right margin at the left
+margin of the next row, as xterm does (Jev, WRAP_NEXT_ROW, 0.94 and 0.92);
+until then 8452 fell through to the unsupported-mode counter. **Which row
+is open without `?8452`**: the row below the image
+departs from both DEC texts -- `[[source: vt3xx-sixel]]` sets the text cursor
+"to the current sixel cursor position", which a VT340 rounds up to the text
+row it falls in (`[[source: vt340test-textcursor-sh]]`), and
+`[[source: dec-std-070]]` 070-9 §11.3 moves it by "the vertical motion
+commands executed in the Sixel printing", allowing only "an adjustment less
+than one character height ... in a downward direction" (PDF p. 928). Jev
+chose the VT340's row at 0.91 and 0.88 on 2026-10-15 (the realigned-down row
+at 0.91 and 0.94 in an earlier round that did not offer it), so the row is the
+owner's call and unchanged; under baud's rule that text over an image frees
+it, the VT340's row would let a prompt printed after `cat pic.six` erase the
+picture a VT340 overprints. The image occupies `ceil(Pv / cell_h)` rows and the grid
 scrolls to make room the way `LF` past the bottom does, so a tall image at
 the bottom of the screen pushes lines into scrollback and its own anchor
 scrolls with them.
@@ -790,19 +805,51 @@ if the operation regressed.
   version of this line said xterm defaults to shared; that was wrong, caught
   by the prior-art survey and corrected in the Images register.)
 
-  **Answered 2026-09-25, unbuilt**: note V's V18 put this mode and DECSDM to
-  the owner, and its "Decisions taken, 2026-09-25" records: "**V12, V14, V18,
-  V19: built to the spec**, overriding their recommendations. `?1001`
-  highlight tracking, the ambiguous-width switch with `?1021`, the Sixel modes
-  `?80` and `?1070`, and the kitty graphics protocol." Neither mode is built:
-  `PrivateMode::from_wire` names neither 80 nor 1070.
+  **Answered 2026-09-25, built 2026-10-15**: note V's V18 put this mode and
+  DECSDM to the owner, and its "Decisions taken, 2026-09-25" records: "**V12,
+  V14, V18, V19: built to the spec**, overriding their recommendations.
+  `?1001` highlight tracking, the ambiguous-width switch with `?1021`, the
+  Sixel modes `?80` and `?1070`, and the kitty graphics protocol." Set at
+  power-on; reset, a register a shared Sixel defines starts the next shared
+  Sixel with that definition, and a drawn picture keeps its pixels -- what
+  ctlseqs states. **Open for the owner**: recolouring drawn pictures, as a
+  VT340's one colour map and xterm do, which would store a register number a
+  pixel (Jev, CARRY at 0.90 and 0.88, one ordering short).
 * **DECSDM** (mode 80). Its meaning inverted between VT330 and later xterm,
   and `[[source: ctlseqs]]` documents both. baud picks one and records the
   choice with the source conflict named, the DECAWM precedent.
 
-  **Answered in part 2026-09-25, unbuilt**: note V's V18 decides that `?80`
-  is to be built to the spec, with `?1070` (the bullet above). Which of the
-  two meanings it takes is not in that answer, and stays open.
+  **Answered 2026-09-25, numbered 2026-10-11, built 2026-10-15**: note V's
+  V18 decides that `?80` is to be built to the spec, and Jev decided xterm's
+  numbering (set = Sixel scrolling off, 0.90/0.90), on the owner's veto list
+  against `[[source: vt3xx-sixel]]`. `[[source: vt3xx-tp]]` lists DECSDM in
+  Table 12-3 (printed p. 221, PDF 230) as mode 80 for DECRQM, SM and RM, and
+  says nothing of its direction. Set, a Sixel is drawn at the window's first
+  cell, the cursor stays, and a `-` that would start a band at or past the
+  screen's bottom edge is ignored whole ("The terminal ignores any commands
+  that attempt to advance the active position below the bottom margin of the
+  graphics page"). Nothing at or past the screen's right edge is drawn:
+  `[[source: dec-std-070]]` 070-9 §11.2.2, "Sixels defined to be printed past
+  the right margin are not printed", so the bands a tall image lays side by
+  side stop at the screen's width and the image is at most the screen's
+  size. **Open for the owner**: that literal reading, which Jev did not
+  decide over a `-` that still returns left (0.47 and 0.58).
+* **An undefined register paints the foreground shown** (2026-10-15),
+  `[[source: dec-std-070]]` 070-9 §10, decided by Jev at 0.92 and 0.95 and
+  again at 0.96 and 0.98 with this measured: yazi writes `P2 = 1` and paints
+  every fully transparent pixel with register 0, which it never defines
+  (`[[source: yazi-sixel]]`), so its preview of a PNG with transparency
+  shows the foreground where it showed the text (190,031 pixels of the
+  recorded one; no other recorded image changes). **On the owner's veto
+  list.**
+* **The three modes and XTSMGRAPHICS answer only while DA lists Sixel**
+  (2026-10-15): `[[source: ctlseqs]]` puts DA's `4`, `?80`, `?1070`, `?8452`
+  and the `DCS q` under one sentence, "If xterm is configured as VT240,
+  VT241, VT330, VT340 or VT382 ... it supports Sixel Graphics controls", and
+  XTSMGRAPHICS fails while "not configured (runtime) for graphics". xterm
+  answers DECRQM from its flags whatever its configuration; Jev did not
+  decide between the two (0.61 and 0.67). A Sixel sent while DA does not list
+  Sixel still draws, also outside that sentence, and is open.
 * **`Pb`/`P2` opaque background: counted, not built.** `P2` = 0 or 2 asks that
   unpainted pixels be drawn in an opaque background rather than left
   transparent. baud draws them transparent -- the `P2` = 1 behaviour, and the

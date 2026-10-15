@@ -269,6 +269,13 @@ group  = "C"
 # 070-1 §1.5.3.1, §1.6.2-§1.6.3 and §1.7.2 (PDF 55, 58-60, 63) [img]; 070-4 DA, DA2,
 # DECSCL and DECID (PDF 221-232), Table 1 at PDF 223 [img]; 070-6 §6.2.1-§6.2.4 (PDF
 # 502-506); every function's "Levels:" field, by script over the text layer [text].
+# Re-fetched 2026-10-15 for V18 (lane b34), the sha256 matching, and 070-9 read on the
+# text layer for the Sixel modes [text]: §8.1.3 "Devices must implement color numbers 0
+# to 255 ... the unimplemented index must be mapped back into the supported range" (PDF
+# 922); §10 "No Sixel state is preserved from one entering of Sixel mode to the next",
+# "Sixel color: Contrasting to background. Color numbers: All unspecified color numbers
+# image as the default Sixel color" (PDF 926-927); §11.2.4 and §11.3, the bottom margin
+# and the text position on exit (PDF 928). No section names DECSDM, ?1070 or ?8452.
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -13862,6 +13869,10 @@ group  = "C"
 # in the same directory (54,100,022 bytes, sha256 e60d032f...), has no text layer and
 # was hashed, not read. vt340test's docs/ holds a different file under the second
 # edition's number (27,145,158 bytes, sha256 291a291e...), not this one.
+# Re-fetched 2026-10-15 for V18 (lane b34), the sha256 matching, and searched on the text
+# layer for DECSDM [text]: Table 12-3, "DEC Private Modes for DECRQM, DECRPM, SM, and RM",
+# printed p. 221 (PDF 230), "Sixel display mode DECSDM 80", and no other mention -- the
+# volume does not say which of set and reset turns Sixel scrolling off.
 
 [sources.vt320-uu-appe]
 key    = "vt320-uu-appe"

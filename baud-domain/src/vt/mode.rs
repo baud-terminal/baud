@@ -226,6 +226,23 @@ pub enum ModeBit {
     /// (`[[source: vt510-decncsm]]`): while set, `?3` does not clear the
     /// screen. Off at power-on and after `RIS`, kept by `DECSTR`.
     NoClearOnColumn,
+    /// `?80` DECSDM, Sixel display mode: while set, Sixel scrolling is off --
+    /// the image starts at the window's upper-left cell, nothing scrolls,
+    /// and the cursor stays where it was ([`PrivateMode::SixelDisplay`]).
+    /// Off at power-on and after `RIS`, kept by `DECSTR`, as xterm's
+    /// `ReallyReset` restores it only on a full reset
+    /// (`[[source: xterm-reset]]`).
+    SixelDisplay,
+    /// `?1070`, "use private color registers for each graphic"
+    /// (`[[source: ctlseqs]]`). **Set at power-on**, xterm's
+    /// `privateColorRegisters` resource default (`[[source: xterm-reset]]`);
+    /// while reset, the registers a Sixel defines carry into the next one.
+    /// Restored by `RIS`, kept by `DECSTR`.
+    SixelPrivateRegisters,
+    /// `?8452`, "Sixel scrolling leaves cursor to right of graphic"
+    /// (`[[source: ctlseqs]]`). Off at power-on and after `RIS`, kept by
+    /// `DECSTR`.
+    SixelScrollsRight,
 }
 
 impl ModeBit {
@@ -277,13 +294,18 @@ impl Default for Modes {
     /// **`?8` DECARM is set at power-on**, as `[[source: vt510-decarm]]`
     /// gives it: "Default: Repeat (set)". It was left reset, so DECRQM told
     /// an application keys do not repeat while the keyboard repeated them.
+    ///
+    /// **`?1070` is set at power-on**: each Sixel gets registers of its own,
+    /// which is also what `[[source: dec-std-070]]` 070-9 §10 describes, "No
+    /// Sixel state is preserved from one entering of Sixel mode to the next".
     fn default() -> Modes {
         Modes(
             ModeBit::AutoWrap.bit()
                 | ModeBit::CursorVisible.bit()
                 | ModeBit::MetaSendsEscape.bit()
                 | ModeBit::AltSendsEscape.bit()
-                | ModeBit::AutoRepeat.bit(),
+                | ModeBit::AutoRepeat.bit()
+                | ModeBit::SixelPrivateRegisters.bit(),
         )
     }
 }
@@ -410,6 +432,20 @@ pub enum PrivateMode {
     /// `?95` DECNCSM -- "Do not clear screen when DECCOLM is set/reset"
     /// (`[[source: ctlseqs]]`, `[[source: vt510-decncsm]]`).
     NoClearOnColumn,
+    /// `?80` DECSDM, Sixel display mode. **Set turns Sixel scrolling off**:
+    /// `[[source: ctlseqs]]` "Enable Sixel Display Mode" for `h` and "Turns
+    /// on "Sixel Scrolling"" for `l`, as the VT382 manuals it quotes have
+    /// it. `[[source: vt3xx-sixel]]` says the reverse, "When sixel display
+    /// mode is set, the Sixel Scrolling feature is enabled"; Jev decided
+    /// xterm's numbering on 2026-10-11 (0.90/0.90), a departure from that
+    /// manual on the owner's veto list.
+    SixelDisplay,
+    /// `?1070`, private colour registers for each Sixel ([`ModeBit`]'s
+    /// `SixelPrivateRegisters`).
+    SixelPrivateRegisters,
+    /// `?8452`, the cursor to the right of a Sixel rather than at its
+    /// column.
+    SixelScrollsRight,
     Other(Param),
 }
 
@@ -644,6 +680,9 @@ impl PrivateMode {
             PrivateMode::PopOnBell => 33,
             PrivateMode::AllowColumnMode => 34,
             PrivateMode::NoClearOnColumn => 35,
+            PrivateMode::SixelDisplay => 36,
+            PrivateMode::SixelPrivateRegisters => 37,
+            PrivateMode::SixelScrollsRight => 38,
             PrivateMode::Utf8Resource | PrivateMode::GraphemeClustering | PrivateMode::Other(_) => {
                 return None;
             }
@@ -667,7 +706,10 @@ impl PrivateMode {
             45 => PrivateMode::ReverseWrap,
             47 => PrivateMode::AltScreenLegacy,
             69 => PrivateMode::LeftRightMargin,
+            80 => PrivateMode::SixelDisplay,
             95 => PrivateMode::NoClearOnColumn,
+            1070 => PrivateMode::SixelPrivateRegisters,
+            8452 => PrivateMode::SixelScrollsRight,
             1034 => PrivateMode::EightBitInput,
             1036 => PrivateMode::MetaSendsEscape,
             1039 => PrivateMode::AltSendsEscape,

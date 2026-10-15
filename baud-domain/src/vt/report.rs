@@ -202,6 +202,40 @@ pub enum Report {
     /// six in cells). The caller refuses an ordinate the encoding cannot
     /// name.
     Highlight(HighlightEnd, MouseEncoding),
+    /// XTSMGRAPHICS's answer, `CSI ? Pi ; Ps ; Pv S` (`[[source:
+    /// ctlseqs]]`): the item asked about, then a status and, on success, the
+    /// value -- one for the colour registers, `width ; height` for a
+    /// geometry. Built by [`Report::graphics`].
+    Graphics { item: Param, reply: GraphicsReply },
+}
+
+/// What an XTSMGRAPHICS answer carries after its item: the value read,
+/// with status 0, or the failing status alone, as xterm writes no value
+/// unless the status is 0 (`CASE_GRAPHICS_ATTRIBUTES`, `[[source:
+/// xterm-reset]]`'s file).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GraphicsReply {
+    /// Status 0 and one value: a count of colour registers.
+    Count(u16),
+    /// Status 0 and `width ; height`, in pixels.
+    Geometry { width: ImagePx, height: ImagePx },
+    /// "Ps = 1 <- error in Pi."
+    ErrorInItem,
+    /// "Ps = 2 <- error in Pa."
+    ErrorInAction,
+    /// "Ps = 3 <- failure."
+    Failure,
+}
+
+impl GraphicsReply {
+    fn status(self) -> u16 {
+        match self {
+            GraphicsReply::Count(_) | GraphicsReply::Geometry { .. } => 0,
+            GraphicsReply::ErrorInItem => 1,
+            GraphicsReply::ErrorInAction => 2,
+            GraphicsReply::Failure => 3,
+        }
+    }
 }
 
 // **`Report` is 40 bytes, and a wider variant is a cost on every control
@@ -388,6 +422,70 @@ impl Report {
                 height: cell_h,
                 width: cell_w,
             }),
+        }
+    }
+
+    /// XTSMGRAPHICS's answer to `req`, from what the core has: whether DA
+    /// claims Sixel, the grid and the cell size. The shape is xterm's
+    /// (`CASE_GRAPHICS_ATTRIBUTES`, `[[source: xterm-reset]]`'s file): an
+    /// unknown `Pa` is an error in `Pa` whatever the configuration, and a
+    /// success becomes a failure while graphics are not configured --
+    /// `[[source: ctlseqs]]`, "If xterm is able to support graphics
+    /// (compile-time), but is not configured (runtime) for graphics, these
+    /// responses will indicate a failure". baud is configured for graphics
+    /// when DA lists Sixel, the configuration ctlseqs' Sixel section names
+    /// ("If xterm is configured as VT240, VT241, VT330, VT340 or VT382 ...
+    /// it supports Sixel Graphics controls").
+    ///
+    /// * `Pi = 1`, the colour registers: **256**, the number 070-9 §8.1.3
+    ///   requires ("Devices must implement color numbers 0 to 255"), with a
+    ///   number past them "mapped back into the supported range". Read,
+    ///   reset and read-maximum answer it; a set succeeds only to 256, the one
+    ///   count there is.
+    /// * `Pi = 2`, the Sixel geometry: read answers the text area in pixels,
+    ///   a failure while the cell size is unknown; read-maximum answers
+    ///   `0 ; 0`, ctlseqs' shape for "implementations which do not use the
+    ///   maximum graphics dimensions" -- baud limits an image by its arena's
+    ///   area and a coordinate's range, not by a width and height; set and
+    ///   reset fail, as xterm's do.
+    /// * `Pi = 3`, ReGIS, which baud has none of, and any other item: an
+    ///   error in `Pi`.
+    pub fn graphics(
+        req: GraphicsRequest,
+        claim: SixelClaim,
+        rows: Rows,
+        cols: Cols,
+        cell_w: ImagePx,
+        cell_h: ImagePx,
+    ) -> Report {
+        const REGISTERS: u16 = 256;
+        let reply = match (req.item.0, req.action.0) {
+            (1, 1 | 2 | 4) => GraphicsReply::Count(REGISTERS),
+            (1, 3) if req.value.0 == REGISTERS => GraphicsReply::Count(REGISTERS),
+            (1, 3) => GraphicsReply::Failure,
+            (2, 1) if cell_w != ImagePx::ZERO && cell_h != ImagePx::ZERO => {
+                GraphicsReply::Geometry {
+                    width: cell_w.span(cols.index()),
+                    height: cell_h.span(rows.index()),
+                }
+            }
+            (2, 1..=3) => GraphicsReply::Failure,
+            (2, 4) => GraphicsReply::Geometry {
+                width: ImagePx::ZERO,
+                height: ImagePx::ZERO,
+            },
+            (1 | 2, _) => GraphicsReply::ErrorInAction,
+            _ => GraphicsReply::ErrorInItem,
+        };
+        let reply = match (reply, claim) {
+            (GraphicsReply::Count(_) | GraphicsReply::Geometry { .. }, SixelClaim::No) => {
+                GraphicsReply::Failure
+            }
+            (r, _) => r,
+        };
+        Report::Graphics {
+            item: req.item,
+            reply,
         }
     }
 
@@ -699,6 +797,26 @@ impl Report {
                 e.push_num(state.wire());
                 e.push(b'$');
                 e.push(b'y');
+            }
+            Report::Graphics { item, reply } => {
+                e.push(b'?');
+                e.push_num(item.0);
+                e.push(b';');
+                e.push_num(reply.status());
+                match reply {
+                    GraphicsReply::Count(n) => {
+                        e.push(b';');
+                        e.push_num(n);
+                    }
+                    GraphicsReply::Geometry { width, height } => {
+                        e.push(b';');
+                        e.push_num(width.raw());
+                        e.push(b';');
+                        e.push_num(height.raw());
+                    }
+                    _ => {}
+                }
+                e.push(b'S');
             }
         }
         e

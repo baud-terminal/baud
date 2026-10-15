@@ -305,9 +305,11 @@ half-built protocol feature is finished to the spec, not switched off"):
   Asian Ambiguous characters two columns wide, and `?1021` built to the spec.
   Neither exists today: `Term::set_ambiguous_width` is the core's channel,
   `baud-app` never calls it, and `?1021` is not named.
-* **V18, the Sixel modes `?80` and `?1070`**, built to the spec. Neither is
-  named today, so DECSET counts both in `unsupported_param` and DECRQM
-  answers `0`.
+* **V18, the Sixel modes `?80` and `?1070`**, built to the spec, with
+  `?8452` and XTSMGRAPHICS, since 2026-10-15 (`docs/vt-coverage.md`). Each
+  acts and answers only while DA lists Sixel; the choices Jev left below the
+  bar are on the owner's list there and in `docs/record.md`, "The Sixel
+  modes `?80`, `?1070` and `?8452` are built, and XTSMGRAPHICS answers".
 * **V19, kitty graphics.** The reason this file gave against it was that
   `f=100` hands the terminal a PNG, which needs zlib, and the core decodes
   with no allocator and no dependency. The workspace already has such a

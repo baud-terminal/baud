@@ -203,6 +203,98 @@ pub struct SixelReport {
 /// (`[[source: vt3xx-sixel]]`, `Pc` 0..=255).
 const REGISTERS: usize = 256;
 
+/// Which of the 256 registers a Sixel defined, a bit each.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct RegisterSet([u64; REGISTERS / 64]);
+
+impl RegisterSet {
+    const NONE: RegisterSet = RegisterSet([0; REGISTERS / 64]);
+
+    fn add(&mut self, r: usize) {
+        self.0[r / 64] |= 1 << (r % 64);
+    }
+
+    fn has(self, r: usize) -> bool {
+        self.0[r / 64] & (1 << (r % 64)) != 0
+    }
+
+    fn with(self, other: RegisterSet) -> RegisterSet {
+        let mut out = self;
+        for (o, b) in out.0.iter_mut().zip(other.0) {
+            *o |= b;
+        }
+        out
+    }
+}
+
+/// Whether a Sixel's colour registers are its own or carried over from the
+/// Sixels before it: `?1070`, "use private color registers for each
+/// graphic" (`[[source: ctlseqs]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SixelRegisters {
+    /// `?1070` set, the default: every register starts undefined.
+    Private,
+    /// `?1070` reset: a register a shared Sixel defined starts the next
+    /// shared Sixel with that definition. A picture already drawn keeps its
+    /// pixels -- they are colours, not register numbers -- which is what
+    /// ctlseqs states and no more; recolouring them as a VT340's single
+    /// colour map would is the owner's question (Jev 2026-10-15, CARRY at
+    /// 0.90 and 0.88, one ordering short of the bar).
+    Shared,
+}
+
+/// How far down, or right, a Sixel may go: display mode's edge of the
+/// screen, or no limit.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SixelEdge {
+    /// Sixel scrolling: the image is as tall and as wide as its data.
+    Open,
+    /// Display mode on a screen `px` device pixels tall, or wide: at the
+    /// bottom no graphics new line starts a band at or past it, and rows
+    /// past it are not kept; at the right no column at or past it is
+    /// painted or counted in the width.
+    At(u32),
+}
+
+impl SixelEdge {
+    /// The edge of a screen `cells` cells of `cell` pixels each, or no limit
+    /// while the cell size is unknown (zero), since nothing then says where
+    /// the edge is.
+    pub fn screen(cells: usize, cell: ImagePx) -> SixelEdge {
+        if cell == ImagePx::ZERO {
+            return SixelEdge::Open;
+        }
+        let px = u64::from(cell.raw()).saturating_mul(cells as u64);
+        SixelEdge::At(u32::try_from(px).unwrap_or(u32::MAX))
+    }
+
+    fn px(self) -> u32 {
+        match self {
+            SixelEdge::Open => u32::MAX,
+            SixelEdge::At(px) => px,
+        }
+    }
+}
+
+/// How a terminal begins one Sixel: its aspect ratio, the colour an
+/// undefined register paints with, whose registers it starts from, and how
+/// far down and right it may go.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SixelBegin {
+    pub aspect: SixelAspect,
+    /// `[[source: dec-std-070]]` 070-9 §10, "Sixel color: Contrasting to
+    /// background. Color numbers: All unspecified color numbers image as the
+    /// default Sixel color": every register the Sixel has not defined paints
+    /// with this, `ColorWord::DEFAULT` -- drawn as nothing -- while the
+    /// terminal does not know its foreground.
+    pub ink: ColorWord,
+    pub registers: SixelRegisters,
+    pub floor: SixelEdge,
+    /// `[[source: dec-std-070]]` 070-9 §11.2.2, "Right Margin: Sixels
+    /// defined to be printed past the right margin are not printed".
+    pub right: SixelEdge,
+}
+
 /// The Sixel decoder over a body held whole: stateless between calls, each a
 /// pass of the one grammar over the data with the caller's canvas. A terminal
 /// does not hold the body, and decodes it with [`SixelStream`].
@@ -357,6 +449,16 @@ trait Sink {
     /// sixel row `rows` device rows tall, in `colour`. Called for every data
     /// byte, all bits clear included, because the image reaches that far.
     fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: ColorWord);
+
+    /// The device row no graphics new line may start a band at or past:
+    /// display mode's bottom edge ([`SixelEdge`]), else none.
+    fn floor(&self) -> u32 {
+        u32::MAX
+    }
+
+    /// Register `r` was defined, which a shared set keeps
+    /// ([`SixelRegisters::Shared`]).
+    fn defined(&mut self, _r: usize) {}
 }
 
 /// The sink that paints nothing: what [`Sixel::extent`] measures with.
@@ -518,6 +620,7 @@ impl Walk {
                     match p[1] {
                         2 => {
                             self.regs[named] = rgb(p[2], p[3], p[4]);
+                            sink.defined(named);
                             self.reg = named;
                         }
                         // HLS, hue 0-360 and lightness and saturation 0-100
@@ -528,6 +631,7 @@ impl Walk {
                         1 => match hls(p[2], p[3], p[4]) {
                             Some(c) => {
                                 self.regs[named] = c;
+                                sink.defined(named);
                                 self.reg = named;
                             }
                             None => self.unapplied = self.unapplied.saturating_add(1),
@@ -584,10 +688,19 @@ impl Walk {
                 self.repeat = 1;
                 self.raster = Raster::Closed;
             }
-            // Graphics new line: left, and down one six-pixel band.
+            // Graphics new line: left, and down one six-pixel band -- unless
+            // the band would start at or past the floor, display mode's
+            // bottom edge: `[[source: vt3xx-sixel]]`, "The terminal ignores
+            // any commands that attempt to advance the active position below
+            // the bottom margin of the graphics page", so the command moves
+            // nothing and later data continues along the last band. With no
+            // floor the comparison never holds.
             b'-' => {
-                self.x = 0;
-                self.band_top = self.band_top.saturating_add(self.band());
+                let next = self.band_top.saturating_add(self.band());
+                if next < sink.floor() {
+                    self.x = 0;
+                    self.band_top = next;
+                }
                 self.repeat = 1;
                 self.raster = Raster::Closed;
             }
@@ -670,6 +783,15 @@ struct Gap {
     /// [`SixelStream::written`].
     written: usize,
     held: Held,
+    /// The Sixel's floor ([`Sink::floor`]), its right edge, and the
+    /// registers it defined ([`Sink::defined`]): kept here, with the claim,
+    /// so the walk's own layout is the one its byte loop was measured with.
+    /// **`stride` never passes `right`**, so a data byte that reaches past
+    /// the edge always takes [`Claim::reach`]'s slow path, which clips it,
+    /// and the fast path is the one without an edge.
+    floor: u32,
+    right: u32,
+    defined: RegisterSet,
 }
 
 impl Gap {
@@ -681,6 +803,9 @@ impl Gap {
         widest: 0,
         written: 0,
         held: Held::Yes,
+        floor: u32::MAX,
+        right: u32::MAX,
+        defined: RegisterSet::NONE,
     };
 }
 
@@ -715,9 +840,25 @@ impl Claim<'_, '_, '_> {
         true
     }
 
-    /// Make the image at least `w` wide and `h` tall inside the claim,
-    /// clearing what it grows into; [`Held::Lost`] when the claim cannot.
-    fn reach(&mut self, w: u32, h: u32) {
+    /// Make the image reach the columns `[x0, x1)` and `h` rows inside the
+    /// claim, clearing what it grows into, and say which of those columns
+    /// to paint: all of them, or in display mode none at or past the right
+    /// edge. A byte wholly past it still lays its band's rows out, since
+    /// the band counts in the height. [`Held::Lost`] when the claim cannot.
+    fn reach(&mut self, x0: u32, x1: u32, h: u32) -> (u32, u32) {
+        let g = *self.gap;
+        // Inside the stride, which is inside the right edge: nothing to clip.
+        if x1 as usize <= g.stride && h as usize <= g.zeroed {
+            self.gap.widest = g.widest.max(x1 as usize);
+            return (x0, x1);
+        }
+        let (x0, x1) = (x0.min(g.right), x1.min(g.right));
+        self.grow(x1, h);
+        (x0, x1)
+    }
+
+    /// [`Claim::reach`] past the rows or the stride laid out.
+    fn grow(&mut self, w: u32, h: u32) {
         if w > u32::from(u16::MAX) || h > u32::from(u16::MAX) {
             self.gap.held = Held::Lost;
             return;
@@ -739,8 +880,9 @@ impl Claim<'_, '_, '_> {
         let rows = h.max(g.zeroed);
         if w > g.stride {
             // Wider than the stride: double it, or take exactly `w` when a
-            // doubled stride would not leave the claim room for the rows.
-            let grown = w.max(g.stride * 2).max(64);
+            // doubled stride would not leave the claim room for the rows,
+            // never past the right edge (`w` is not).
+            let grown = w.max(g.stride * 2).max(64).min(g.right as usize);
             let fits = g.len.checked_div(rows).unwrap_or(0);
             let to = if grown <= fits { grown } else { w };
             if to.saturating_mul(rows) > g.len {
@@ -803,9 +945,10 @@ impl Claim<'_, '_, '_> {
 
 impl Sink for Claim<'_, '_, '_> {
     fn extent(&mut self, ph: u16) {
-        // Only before any data, so no row is laid out yet to move.
+        // Only before any data, so no row is laid out yet to move; never
+        // past the right edge.
         if ph > 0 {
-            self.gap.stride = usize::from(ph);
+            self.gap.stride = usize::from(ph).min(self.gap.right as usize);
         }
     }
 
@@ -813,12 +956,12 @@ impl Sink for Claim<'_, '_, '_> {
         if self.gap.held == Held::Lost {
             return;
         }
-        self.reach(x1, top.saturating_add(6 * u32::from(rows)));
+        let (x0, x1) = self.reach(x0, x1, top.saturating_add(6 * u32::from(rows)));
         if self.gap.held == Held::Lost || bits == 0 {
             return;
         }
-        // Inside the claim by `reach`: `x1` is at most the stride and the
-        // band's last row is below `zeroed`.
+        // Inside the claim by `reach`: `x0..x1` is at most the stride, empty
+        // past the right edge, and the band's last row is below `zeroed`.
         let stride = self.gap.stride;
         let (x0, x1, top, rows) = (x0 as usize, x1 as usize, top as usize, usize::from(rows));
         let words = self.words();
@@ -831,6 +974,14 @@ impl Sink for Claim<'_, '_, '_> {
                 words[y * stride + x0..y * stride + x1].fill(colour);
             }
         }
+    }
+
+    fn floor(&self) -> u32 {
+        self.gap.floor
+    }
+
+    fn defined(&mut self, r: usize) {
+        self.gap.defined.add(r);
     }
 }
 
@@ -863,6 +1014,11 @@ impl Sink for Claim<'_, '_, '_> {
 pub struct SixelStream {
     walk: Walk,
     gap: Gap,
+    /// The shared registers (`?1070` reset): what every shared Sixel so far
+    /// defined, and which those are. Cleared by [`SixelStream::forget_shared`].
+    shared: [ColorWord; REGISTERS],
+    shared_defined: RegisterSet,
+    registers: SixelRegisters,
 }
 
 impl SixelStream {
@@ -870,18 +1026,55 @@ impl SixelStream {
     pub const NEW: SixelStream = SixelStream {
         walk: Walk::NEW,
         gap: Gap::NONE,
+        shared: [ColorWord::DEFAULT; REGISTERS],
+        shared_defined: RegisterSet::NONE,
+        registers: SixelRegisters::Private,
     };
 
     /// Begin a Sixel drawn at `aspect`, claiming `store`'s largest free gap.
-    /// The registers start at zero, private to the image.
+    /// The registers start undefined and transparent, private to the image,
+    /// and nothing limits how far down it goes.
     pub fn begin(&mut self, aspect: SixelAspect, store: &ImageStore) {
+        self.begin_with(
+            SixelBegin {
+                aspect,
+                ink: ColorWord::DEFAULT,
+                registers: SixelRegisters::Private,
+                floor: SixelEdge::Open,
+                right: SixelEdge::Open,
+            },
+            store,
+        );
+    }
+
+    /// Begin a Sixel as `b` says, claiming `store`'s largest free gap. An
+    /// undefined register paints `b.ink`; under
+    /// [`SixelRegisters::Shared`] a register an earlier shared Sixel defined
+    /// starts with that definition.
+    pub fn begin_with(&mut self, b: SixelBegin, store: &ImageStore) {
         let (at, len) = store.largest_gap();
-        self.walk = Walk::new(aspect);
+        self.walk = Walk::new(b.aspect);
+        self.walk.regs = [b.ink; REGISTERS];
+        if b.registers == SixelRegisters::Shared {
+            for (r, c) in self.walk.regs.iter_mut().enumerate() {
+                if self.shared_defined.has(r) {
+                    *c = self.shared[r];
+                }
+            }
+        }
+        self.registers = b.registers;
         self.gap = Gap {
             at,
             len,
+            floor: b.floor.px(),
+            right: b.right.px(),
             ..Gap::NONE
         };
+    }
+
+    /// Forget the shared registers: `RIS`.
+    pub fn forget_shared(&mut self) {
+        self.shared_defined = RegisterSet::NONE;
     }
 
     /// One body byte the handler keeps ([`Sixel::body_byte`]).
@@ -906,12 +1099,30 @@ impl SixelStream {
             };
             self.walk.close(&mut sink);
         }
-        let report = self.walk.report(0);
-        let (w, h) = (report.width, report.height);
-        if report.fit == SixelFit::TooLarge {
-            store.refuse(ImageRefusal::TooLarge);
-            return None;
+        if self.registers == SixelRegisters::Shared {
+            for r in 0..REGISTERS {
+                if self.gap.defined.has(r) {
+                    self.shared[r] = self.walk.regs[r];
+                }
+            }
+            self.shared_defined = self.shared_defined.with(self.gap.defined);
         }
+        // Display mode keeps no row past the screen's bottom edge and no
+        // column past its right edge: a band that crosses the bottom painted
+        // the claim, and the rows past it are dropped here, where the
+        // image's height is settled; the columns past the right were never
+        // painted. So the image fits as the screen does, however far its
+        // data reached.
+        let (w, h) = match (
+            SixelPx::at(self.walk.width.min(self.gap.right)),
+            SixelPx::at(self.walk.height.min(self.gap.floor)),
+        ) {
+            (Some(w), Some(h)) => (w, h),
+            _ => {
+                store.refuse(ImageRefusal::TooLarge);
+                return None;
+            }
+        };
         if w == SixelPx::ZERO || h == SixelPx::ZERO {
             store.refuse(ImageRefusal::Empty);
             return None;

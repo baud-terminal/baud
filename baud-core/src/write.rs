@@ -741,8 +741,8 @@ pub(crate) fn act(
                 None | Some(0) | Some(2) => crate::term::SixelBg::Opaque,
                 _ => crate::term::SixelBg::Transparent,
             };
-            let aspect = SixelAspect::from_macro(p1.map(|v| v.value()));
-            p.strs.sixel.begin(aspect, p.images);
+            // The rest is `sixel_begin`'s, out of line: what it reads is cold.
+            p.sixel_begin(SixelAspect::from_macro(p1.map(|v| v.value())));
             csi.reset();
             ReadLen::ONE
         }
@@ -1795,13 +1795,9 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             // claim is honest: an application that reads it
             // then draws with Sixel rather than a text fallback, and an
             // unprovisioned baud that refuses every Sixel must not claim it.
-            let sixel = match (p.cold.sixel_claim, p.images.provisioned()) {
-                (SixelClaim::Yes, true) => SixelClaim::Yes,
-                _ => SixelClaim::No,
-            };
             p.want_reply(Report::PrimaryDeviceAttributes(
                 DeviceAttribute::Vt102,
-                sixel,
+                p.sixel_claim(),
             ))
         }
         // **`DSR 6` is the cursor, `DSR 5` is health, and nothing else is
@@ -1880,6 +1876,16 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // is baud. Read a refusal against its scope, which this file says to
         // do and which has closed four others.
         DomCsi::RequestVersion => p.want_reply(Report::Version),
+        // XTSMGRAPHICS, answered under the condition DA's `4` is
+        // (`Report::graphics` says what each item answers).
+        DomCsi::Graphics(req) => p.want_reply(Report::graphics(
+            req,
+            p.sixel_claim(),
+            p.rows,
+            p.cols,
+            p.cell_width,
+            p.cell_height,
+        )),
         // **XTWINOPS 14, 16 and 18: the size of the text area, which an image
         // client sizes its pictures from.** `[[source: yazi-emulator]]` sends
         // `CSI 16 t` in its DA1 burst and takes the cell size from the

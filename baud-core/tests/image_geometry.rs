@@ -40,24 +40,33 @@ const WS: WinSize = WinSize {
 /// said this happened; the parser routes `?` through its private branch
 /// first, and this is the test that says which is true.
 ///
-/// It is unanswered on purpose for now: a reply is the claim that the
-/// attribute can be read, and the right numbers are the decoder's register
-/// count and the image budget's geometry, which is a change of its own.
+/// Since 2026-10-15 the three-parameter form is answered
+/// (`sixel_modes.rs`); here, on a terminal not configured for graphics, with
+/// failures, and a form of another arity is still counted unanswered.
 #[test]
 fn xtsmgraphics_does_not_scroll_and_is_counted() {
     support::with_term(&WS, |t| {
         support::feed(t, &numbered());
         let before = support::screen(t);
         let counted = t.unsupported;
-        // Colour registers, Sixel geometry and ReGIS geometry, each read.
-        support::feed(t, b"\x1b[?1;1;0S\x1b[?2;1;0S\x1b[?3;1;0S");
+        // Colour registers, Sixel geometry and ReGIS geometry, each read, and
+        // the registers read with two parameters.
+        support::feed(t, b"\x1b[?1;1;0S\x1b[?2;1;0S\x1b[?3;1;0S\x1b[?1;1S");
         assert_eq!(
             support::screen(t),
             before,
             "an XTSMGRAPHICS query moved the screen"
         );
-        assert!(t.reply().is_empty(), "an XTSMGRAPHICS query was answered");
-        assert_eq!(t.unsupported, counted + 3, "the three queries are counted");
+        assert_eq!(
+            t.reply(),
+            b"\x1b[?1;3S\x1b[?2;3S\x1b[?3;1S",
+            "not configured for graphics: failures, and no ReGIS item"
+        );
+        assert_eq!(
+            t.unsupported,
+            counted + 1,
+            "the two-parameter form is counted"
+        );
         // The control: plain SU does scroll, so a screen that did not move is
         // the private marker being honoured and not a test that cannot fail.
         support::feed(t, b"\x1b[2S");
