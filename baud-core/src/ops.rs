@@ -504,6 +504,9 @@ impl Paint<'_, '_> {
             }
             None => {}
         }
+        // A window over the history this took back to is on the live screen
+        // from this row on (`Book::window_taken_back`).
+        self.book.window_taken_back();
         if self.images.any_placed() {
             self.primary_images_moved(Scroll::Down);
         }
@@ -1142,6 +1145,9 @@ impl Paint<'_, '_> {
         let n = self.on_primary(|v| v.erase_outside(keep));
         self.cells = self.cells.plus(n);
         self.book.hist = Rows::ZERO;
+        // The lines a window over the history showed are gone, so it is on
+        // the live screen, from either screen.
+        self.book.window = crate::storage::HistoryWindow::Live;
         self.cold.erased(crate::term::Erasure::SavedLines);
         if self.images.any_placed() {
             self.expire_primary_images(None);
@@ -2467,8 +2473,14 @@ impl Paint<'_, '_> {
         // below; the soft reset releases it.
         let during = self.update();
         // The screen the reset was made from, for the erasure it counts
-        // below: leaving makes it the primary's whichever it was.
+        // below: leaving makes it the primary's whichever it was. And where
+        // the primary's window over the history stood at this byte, which
+        // the reset takes to the live screen.
         let from = self.cold.screen;
+        let looking = match self.book.window_back().index() {
+            0 => crate::term::Looking::Live,
+            _ => crate::term::Looking::Back,
+        };
         self.set_alt_screen(ModeChange::Reset, AltSwitch::SaveAndClear);
         self.soft_reset();
         // **What `RIS` resets and `DECSTR` does not.** `soft_reset` leaves
@@ -2555,6 +2567,11 @@ impl Paint<'_, '_> {
         // below (note V, V1).
         self.book.hist = Rows::ZERO;
         self.book.hidden = Rows::ZERO;
+        // **A window over the history goes to the live screen**, set here
+        // rather than left to the empty history to imply (note V, V2): the
+        // history refills from the next line, and a window that names a line
+        // the reset erased would read as one over the refill.
+        self.book.window = crate::storage::HistoryWindow::Live;
         // **The reset is counted, for an embedder's state over the screen**
         // (`Term::resets`, note V, V1): its selection and the echoes it drew
         // ahead of the shell name cells the power-on state does not have,
@@ -2576,7 +2593,7 @@ impl Paint<'_, '_> {
         // (`Term::first_erasure`): a window over the history is drawn only
         // on the primary, so a reset made from the alternate screen took no
         // window it was looking through to the live screen.
-        self.cold.erased(crate::term::Erasure::Reset(from));
+        self.cold.erased(crate::term::Erasure::Reset(from, looking));
         // And what the marks said: the block start names rows the reset
         // erased, and the shell is at no prompt after one. This is the
         // primary's -- `set_alt_screen` above came back to it -- and the

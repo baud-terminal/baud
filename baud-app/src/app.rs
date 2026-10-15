@@ -12,7 +12,7 @@ use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
 use crate::reveal::{Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes};
 use crate::wheel::{Delta, Route, Travel};
-use baud_core::{Depth, Erasure, Owned, Screen, Term, Zone, grid_stride};
+use baud_core::{Depth, Erasure, Looking, Owned, Screen, Term, Zone, grid_stride};
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
     KeyEventKind, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking,
@@ -399,8 +399,9 @@ impl Sizing {
 /// (`reads::feed`'s `after`): its warning said, and on a resize the grid
 /// resized, before the rest of the read is fed. Returns the grid the core
 /// has after it -- `Term::resize` clamps, and the child is told what the
-/// terminal has. **The window over the history goes to the live screen**:
-/// a program that changes the page width is redrawing it.
+/// terminal has. **The window over the history goes to the live screen**,
+/// at the request's byte: a program that changes the page width is
+/// redrawing it.
 fn honour(
     polled: Option<(crate::width::Decision, Option<String>)>,
     term: &mut Term<'_>,
@@ -415,6 +416,7 @@ fn honour(
     // A clamp is read back below rather than from the answer: the child is
     // told the grid the terminal has.
     let _ = term.resize(&grid.ws());
+    term.window_live();
     Some(crate::width::Grid::of(term))
 }
 
@@ -460,11 +462,6 @@ struct App {
     sizing: Sizing,
     /// Whether something changed since the last present.
     pending: Pending,
-    /// How many lines above the live screen the window sits: zero is the
-    /// live screen, and the bound is what the core retains. Anchored to
-    /// content while output arrives, so the line being read stays put;
-    /// a key press snaps it back to the bottom.
-    back: Rows,
     /// The selection, over absolute lines of the live surface -- see
     /// `docs/research/notes/k-selection.md` -- and the rotation's advance
     /// since launch that numbers those lines.
@@ -1045,7 +1042,6 @@ impl App {
             grid: ws,
             sizing,
             pending: Pending::Dirty,
-            back: Rows::ZERO,
             selection: None,
             scrolled: Scrolled::START,
             reveal: Reveal::HIDDEN,
@@ -1160,7 +1156,7 @@ impl App {
 
     /// Where the window sits in the ring, for the scrollbar.
     fn window(&self) -> Window {
-        window_of(&self.term, self.back)
+        window_of(&self.term)
     }
 
     /// How the thumb is seen at `now`: the reveal's under the overlay style,
@@ -1207,7 +1203,7 @@ impl App {
         // or, while a program's `?1001` region tracks the mouse, that region
         // in its place (`tracked_highlight`).
         let highlight = {
-            let back = looking(&self.term, self.back);
+            let back = self.term.window_back();
             let view = self.term.view(back);
             let top = self.scrolled.top(back);
             match self.term.highlight() {
@@ -1235,7 +1231,7 @@ impl App {
         // The quad's rules are `trail.rs`'s; the ghost sweeps on any move.
         // The cursor it follows is `trail_cursor`'s: the one drawn, or where a
         // program placed a cursor it hid and draws its own.
-        let followed = trail_cursor(&self.term, self.back);
+        let followed = trail_cursor(&self.term);
         let cursor_cell = followed.map(TrailCursor::cell);
         if self.cursor_trail == crate::config::CursorTrail::Ghost {
             if let (Some(from), Some(to)) = (self.last_cursor_cell, cursor_cell) {
@@ -1287,7 +1283,7 @@ impl App {
                 // does: output may have moved it meanwhile, and a trail on
                 // the way back would come from a place the reader never saw
                 // it leave. A hidden cursor keeps it -- `trail.rs`.
-                if looking(&self.term, self.back).index() != 0 {
+                if self.term.window_back().index() != 0 {
                     self.chase.snap();
                 }
                 let style = self.term.cursor_style();
@@ -1330,8 +1326,7 @@ impl App {
         // The input manager's composition, at the cursor of the live view:
         // the instance and CPU paths draw it in their convert, the cell path
         // through its overlay below.
-        let composition = (!self.composing.is_empty()
-            && looking(&self.term, self.back).index() == 0)
+        let composition = (!self.composing.is_empty() && self.term.window_back().index() == 0)
             .then(|| {
                 let (row, col) = self.term.cursor();
                 Composition {
@@ -1439,7 +1434,7 @@ impl App {
         let blinks = crate::caret::blinks(
             self.term.cursor_style(),
             self.focus,
-            live_cursor(&self.term, self.back),
+            live_cursor(&self.term),
         );
         let caret = self.caret.plan(seen_at, blinks);
         self.renderer.set_cursor_blink(caret);
@@ -1450,7 +1445,7 @@ impl App {
         // every visible image, kept for nothing.
         if self.presenter.as_ref().map(Presenter::mode) == Some(Mode::Gpu) {
             self.renderer
-                .set_images(&self.term, looking(&self.term, self.back));
+                .set_images(&self.term, self.term.window_back());
         }
         let damage = self.next_damage;
         self.next_damage = Damage::Incremental;
@@ -1471,7 +1466,7 @@ impl App {
         );
         let sliding = slides(
             self.scroll,
-            looking(&self.term, self.back),
+            self.term.window_back(),
             self.term.screen(),
             drawn,
         ) && pan.value() > 0;
@@ -1487,7 +1482,7 @@ impl App {
                 // The window `back` lines up the ring: the shader's rotation
                 // retreats by that and reads the retained rows where they
                 // are, so a scrolled-back frame costs what a live one costs.
-                let back = looking(&self.term, self.back);
+                let back = self.term.window_back();
                 let view = self.term.view(back);
                 // Smooth scroll: at the live screen on the primary surface, a
                 // non-zero pan draws one leaving row above the window.
@@ -1531,8 +1526,8 @@ impl App {
                         &mut cell.candidates,
                     );
                 }
-                let cursor_at = live_cursor(&self.term, self.back)
-                    .map(|(r, c)| (r, c, self.term.cursor_style()));
+                let cursor_at =
+                    live_cursor(&self.term).map(|(r, c)| (r, c, self.term.cursor_style()));
                 // Row 9: the drawn cursor sits after the last predicted
                 // glyph, for the shader and for the overlay's own paint.
                 let cursor_at = match (cursor_at, self.predictions.last()) {
@@ -1738,9 +1733,9 @@ impl App {
                 }
             }
             (Some(Mode::Gpu), None) => {
-                let converted =
-                    self.renderer
-                        .convert(&self.term, looking(&self.term, self.back), damage);
+                let converted = self
+                    .renderer
+                    .convert(&self.term, self.term.window_back(), damage);
                 self.stats = Frame {
                     rows_dirty: converted.rows_dirty,
                     rows: converted.rows,
@@ -1774,7 +1769,7 @@ impl App {
             _ => {
                 let stats = {
                     let mut target = Target::new(&mut self.frame, w, w, h).expect("target");
-                    let back = looking(&self.term, self.back);
+                    let back = self.term.window_back();
                     self.renderer
                         .render_at(&mut self.term, back, &mut target, damage)
                 };
@@ -2332,48 +2327,13 @@ struct Driver {
 
 use baud_core::Moved as Ring;
 
-/// Where the scrollback window sits after a resize moved the ring under
-/// it, given how the rotation moved and how much history is retained.
-///
-/// **A window on the live screen stays on the live screen.** This is the
-/// owner's rule -- *"we should not change the scroll ever"* -- and the
-/// bug it fixes was visible as duplicated content: zooming all the way in
-/// shrinks the grid, a shorter screen retires the rows the cursor needs,
-/// and the old form added that retirement to `back` whatever `back` was.
-/// From zero that scrolls a user who was at their prompt up into the
-/// history, so the screen fills with the prompt blocks the shell had
-/// already written and the live one is somewhere below the bottom edge.
-/// Zoom out and in again and it compounds. The recording shows a banner
-/// four times that the shell printed once.
-///
-/// `pump` has always had this guard for output scrolling and `relayout`
-/// did not, which is the whole difference: one place moved the window and
-/// the other did not, for the same event.
-///
-/// What it gives up is stated rather than hidden: while a *shrink* is in
-/// progress the first visible line now scrolls away, because the rows the
-/// cursor needs come off the top. That is what every terminal does, and
-/// it is what the old code was avoiding at the cost above.
-fn anchored(back: Rows, moved: Ring, retained: Rows) -> Rows {
-    if back.index() == 0 {
-        return back;
-    }
-    let at = match moved {
-        // Rows left the top, so the window is that much further from the
-        // live screen if it is to keep showing the lines it was showing.
-        Ring::Retired(n) => back.index().saturating_add(n.index()),
-        Ring::Restored(n) => back.index().saturating_sub(n.index()),
-    };
-    Rows::of_count(at.min(retained.index()))
-}
-
-/// Where both rings stood before a read or a resize: the live surface's,
-/// for the selection's line count and a slide, and the primary's, for a
-/// window over the history.
+/// Where the live ring stood before a read or a resize, for the
+/// selection's line count and a slide, and the counts a read is judged by.
+/// The window over the history is the core's (note V, V2), so nothing here
+/// anchors it.
 #[derive(Clone, Copy)]
 struct Before {
     live: RowRot,
-    history: baud_core::HistoryMark,
     epoch: baud_core::ScreenEpoch,
     region: baud_core::RegionScrolls,
     erased: baud_core::HistoryErasures,
@@ -2388,7 +2348,6 @@ impl Before {
     fn of(term: &Term<'_>) -> Before {
         Before {
             live: term.rotation(),
-            history: term.history_mark(),
             epoch: term.screen_epoch(),
             region: term.region_scrolls(),
             erased: term.history_erasures(),
@@ -2543,15 +2502,6 @@ fn live_moved(term: &Term<'_>, before: Before) -> Ring {
         return Ring::Retired(Rows::ZERO);
     }
     term.moved_since(before.live)
-}
-
-/// The window the user looks through, for everything that reads one: the
-/// core's clamp of `back`, the one `Term::view` applies. On the alternate
-/// screen, which keeps no history, it is the live screen whatever `back`
-/// says -- so the thumb, the cursor, a selection and the link under a click
-/// agree with what is drawn, rather than with a count that is the primary's.
-fn looking(term: &Term<'_>, back: Rows) -> Rows {
-    term.looking_back(back)
 }
 
 /// **`?1001`'s region, through the selection's highlight**, on the view
@@ -2720,22 +2670,25 @@ mod highlight_tests {
     }
 }
 
-/// Where the window sits in the ring, for the scrollback's thumb.
-fn window_of(term: &Term<'_>, back: Rows) -> Window {
+/// Where the window sits in the ring, for the scrollback's thumb: the
+/// core's window as drawn (`Term::window_back`), which is the live screen on
+/// the alternate screen, so the thumb, the cursor, a selection and the link
+/// under a click agree with what is drawn.
+fn window_of(term: &Term<'_>) -> Window {
     Window {
         // What the live surface can reach, by the same clamp: nothing on the
         // alternate screen, so no thumb is drawn there even at the bottom
         // of its travel, where a reveal would otherwise show one over the
         // primary's history.
         retained: term.looking_back(Rows::of_count(term.scrollback().len())),
-        back: looking(term, back),
+        back: term.window_back(),
         rows: term.viewport().rows(),
     }
 }
 
 /// The cursor to draw: the live screen's, while the window is on it.
-fn live_cursor(term: &Term<'_>, back: Rows) -> Option<(Row, Col)> {
-    (term.cursor_visible() && looking(term, back).index() == 0).then(|| term.cursor())
+fn live_cursor(term: &Term<'_>) -> Option<(Row, Col)> {
+    (term.cursor_visible() && term.window_back().index() == 0).then(|| term.cursor())
 }
 
 /// The cursor a trail follows, while the window is on the live screen.
@@ -2774,8 +2727,8 @@ impl TrailCursor {
 /// there first on every frame, so a trail that followed only the drawn cursor
 /// drew nothing on `gg` or `ge`. A hidden cursor no program placed is not
 /// followed: the trail keeps where it last was (`trail.rs`).
-fn trail_cursor(term: &Term<'_>, back: Rows) -> Option<TrailCursor> {
-    if looking(term, back).index() != 0 {
+fn trail_cursor(term: &Term<'_>) -> Option<TrailCursor> {
+    if term.window_back().index() != 0 {
         return None;
     }
     match term.cursor_visible() {
@@ -2787,45 +2740,18 @@ fn trail_cursor(term: &Term<'_>, back: Rows) -> Option<TrailCursor> {
     }
 }
 
-/// A window over the history after a read or a resize moved the rings
-/// under it: anchored by the **primary's** movement, which holds the history
-/// whatever screen is up. The live rotation is the alternate screen's while
-/// it is up, so its scrolling pushed the window up a history that had not
-/// moved, and a read that switched screens compared two rings.
-///
-/// **A read that erased the history puts it on the live screen**: the lines
-/// it showed are gone, and anchoring by the movement -- none, for an erase
-/// -- clamped it to whatever refilled the history in the same read, so the
-/// same bytes landed live or on the oldest new line by where the read ended.
-fn after_read(term: &Term<'_>, back: Rows, before: Before) -> Rows {
-    if erased(term, before) {
-        return Rows::ZERO;
+/// A key's or a paste's snap: the primary's window to the live screen, where
+/// the key's effect is, and whether that moved it. On the alternate screen
+/// the live screen is already what is drawn, and the primary's window is
+/// kept for when the program leaves, as foot keeps a view per grid and
+/// resets only the live one on a key (`docs/research/notes/l-scrollbar.md`).
+/// The policy is the app's and the window the core's (note V, V2).
+fn snap_live(term: &mut Term<'_>) -> bool {
+    let moved = term.screen() == Screen::Normal && term.window_back().index() != 0;
+    if moved {
+        term.window_live();
     }
-    let retained = Rows::of_count(term.scrollback().len());
-    anchored(back, term.history_moved_since(before.history), retained)
-}
-
-/// Resize the terminal and say where a window over the history is after it.
-/// The resize and the anchor are one step, because a change of width
-/// re-cuts the lines under the window: anchoring it afterwards by how far the
-/// window's top line moved counted the growth of every line above it,
-/// including the lines above the one the window shows, and put it on another
-/// line. The core maps the window's first row through the re-cut
-/// (`Term::resize_holding`), and a live window stays live.
-fn resized_window(term: &mut Term<'_>, ws: &WinSize, back: Rows) -> Rows {
-    term.resize_holding(ws, back).1
-}
-
-/// The window a key or a paste leaves: the live screen, where the key's
-/// effect is -- on the primary. On the alternate screen the live screen is
-/// already what is drawn, and the primary's window is kept for when the
-/// program leaves, as foot keeps a view per grid and resets only the live
-/// one on a key (`docs/research/notes/l-scrollbar.md`).
-fn snapped(term: &Term<'_>, back: Rows) -> Rows {
-    match term.screen() {
-        Screen::Normal => Rows::ZERO,
-        Screen::Alternate => back,
-    }
+    moved
 }
 
 /// What the app keeps over the screen and a read can leave naming cells
@@ -2868,8 +2794,7 @@ fn reset_in(term: &Term<'_>, before: Before) -> bool {
 
 /// **What a read that put another surface up, or reset the terminal, owes
 /// `kept`**, and what the pump does after: `before` was taken with the
-/// erasure watch armed ([`Before::watched`]), and `back` is the primary's
-/// window as the pump found it.
+/// erasure watch armed ([`Before::watched`]).
 ///
 /// Note V's V1, the owner's answer of 2026-09-25: when the reset count moves,
 /// the selection goes -- it names cells the power-on state does not have, as
@@ -2877,21 +2802,20 @@ fn reset_in(term: &Term<'_>, before: Before) -> bool {
 /// ahead of the shell are dropped as contradicted, the wheel's part-line
 /// settles, and a window over the history that came to the live screen
 /// reveals its thumb, as a key's snap does (V1's first fork). **The window is
-/// the one the reset took live, at the reset's byte**, so the answer is the
-/// same however the bytes fell into pumps while nothing but an erasure moves
-/// the window inside one (a full-screen `SD`, `RI` at the top or a prompt
-/// redraw in the same pump still depends on the batching, until the core
-/// keeps the window, V2): the primary's window is drawn
+/// the one the reset took live, at the reset's byte**, which the core keeps
+/// with the first erasure (`Erasure::Reset`, note V, V2), so the answer is
+/// the same however the bytes fell into pumps: the primary's window is drawn
 /// only while the primary is up, and any erasure takes it live, so only the
 /// first erasure in a pump can reveal, and only a reset made from the
 /// primary while the window was off the live screen. Read at the pump's
 /// edges it was the window drawn before the pump, and `?1049h` then `RIS`
-/// revealed in one pump and not in two. The window and
-/// the slide are [`after_read`]'s and the pump's erase arm, which `RIS` moves
-/// too. **No fade on a primary reset** (V1's second fork): it is not a switch,
+/// revealed in one pump and not in two; read as the window at the pump's
+/// start, a full-screen `SD`, `RI` at the top or a prompt redraw that took
+/// it live earlier in the same pump still revealed. The slide is the pump's
+/// erase arm's, which `RIS` moves too. **No fade on a primary reset** (V1's second fork): it is not a switch,
 /// so [`Surface`] stays the epoch's; a reset from the alternate screen is
 /// both, and fades as a switch does.
-fn restart(term: &Term<'_>, before: Before, back: Rows, kept: Kept<'_>) -> (Surface, Thumb) {
+fn restart(term: &Term<'_>, before: Before, kept: Kept<'_>) -> (Surface, Thumb) {
     let surface = match switched(term, before) {
         true => Surface::Switched,
         false => Surface::Same,
@@ -2916,8 +2840,8 @@ fn restart(term: &Term<'_>, before: Before, back: Rows, kept: Kept<'_>) -> (Surf
         // rather than carry it across. A reset's slide is the erase arm's.
         kept.slide.snap();
     }
-    let thumb = match (term.first_erasure(before.erased), back.index()) {
-        (Some(Erasure::Reset(Screen::Normal)), 1..) => Thumb::Reveal,
+    let thumb = match term.first_erasure(before.erased) {
+        Some(Erasure::Reset(Screen::Normal, Looking::Back)) => Thumb::Reveal,
         _ => Thumb::Leave,
     };
     (surface, thumb)
@@ -2931,9 +2855,8 @@ fn restart(term: &Term<'_>, before: Before, back: Rows, kept: Kept<'_>) -> (Surf
 #[cfg(test)]
 mod alt_window_tests {
     use super::{
-        Before, Hold, Ring, after_read, erased, hold_after, live_cursor, live_moved, looking,
-        oldest, resized_window, snapped, stale_in_moved_rows, stale_under_region, switched,
-        whole_screen_scrolled, window_of,
+        Before, Hold, Ring, erased, hold_after, live_cursor, live_moved, oldest, snap_live,
+        stale_in_moved_rows, stale_under_region, switched, whole_screen_scrolled, window_of,
     };
     use baud_core::Zone;
     use baud_core::{Owned, Term};
@@ -2965,26 +2888,42 @@ mod alt_window_tests {
         f(&mut t);
     }
 
-    fn drawn(t: &Term<'_>, back: Rows) -> bool {
+    fn drawn(t: &Term<'_>) -> bool {
         let widths = crate::reveal::widths(crate::reveal::Scale(2.0));
         let size = (Px::of(800), Px::of(500));
-        thumb(window_of(t, back), size, Px::of(10), widths, Hover::Rest).is_some()
+        thumb(window_of(t), size, Px::of(10), widths, Hover::Rest).is_some()
+    }
+
+    /// The terminal's window put `back` lines up the primary's history,
+    /// `bytes` fed as one read, and where the primary's window is after it.
+    fn window_across(t: &mut Term<'_>, back: Rows, bytes: &[u8]) -> Rows {
+        t.set_window_back(back);
+        feed(t, bytes);
+        t.primary_window_back()
+    }
+
+    /// The same across a resize to `ws`.
+    fn window_resized(t: &mut Term<'_>, ws: &WinSize, back: Rows) -> Rows {
+        t.set_window_back(back);
+        let _ = t.resize(ws);
+        t.primary_window_back()
     }
 
     #[test]
     fn on_the_alternate_screen_the_window_is_the_live_screen() {
         with_history(|t| {
-            let back = Rows::of_count(3);
+            t.set_window_back(Rows::of_count(3));
             // The control, on the primary: three lines up, a thumb, and no
             // cursor -- it belongs to the live screen below the window.
-            assert_eq!(looking(t, back).index(), 3);
-            assert!(drawn(t, back), "a thumb while looking back");
-            assert_eq!(live_cursor(t, back), None);
+            assert_eq!(t.window_back().index(), 3);
+            assert!(drawn(t), "a thumb while looking back");
+            assert_eq!(live_cursor(t), None);
             feed(t, b"\x1b[?1049h\x1b[Hvi");
-            assert_eq!(looking(t, back).index(), 0, "nothing behind the screen");
-            assert!(!drawn(t, back), "no thumb over a screen with no history");
+            assert_eq!(t.window_back().index(), 0, "nothing behind the screen");
+            assert_eq!(t.primary_window_back().index(), 3, "the primary's is kept");
+            assert!(!drawn(t), "no thumb over a screen with no history");
             assert!(
-                live_cursor(t, back).is_some(),
+                live_cursor(t).is_some(),
                 "the program that owns the screen owns the cursor"
             );
         });
@@ -2994,10 +2933,10 @@ mod alt_window_tests {
     fn the_alternate_screens_output_does_not_move_the_primarys_window() {
         with_history(|t| {
             let mut back = Rows::of_count(3);
+            t.set_window_back(back);
             let read = |t: &mut Term<'_>, bytes: &[u8], back: &mut Rows| {
-                let before = Before::of(t);
                 feed(t, bytes);
-                *back = after_read(t, *back, before);
+                *back = t.primary_window_back();
             };
             read(t, b"\x1b[?1049h\x1b[10;1H", &mut back);
             assert_eq!(back.index(), 3, "entering it moved nothing");
@@ -3017,28 +2956,43 @@ mod alt_window_tests {
         // Into the alternate screen within one read: two lines retired on
         // the primary before the switch, four on the alternate after it.
         with_history(|t| {
-            let before = Before::of(t);
-            feed(t, b"a\r\nb\r\n\x1b[?1049h\x1b[10;1Hw\r\nx\r\ny\r\nz\r\n");
-            assert_eq!(after_read(t, Rows::of_count(3), before).index(), 5);
+            assert_eq!(
+                window_across(
+                    t,
+                    Rows::of_count(3),
+                    b"a\r\nb\r\n\x1b[?1049h\x1b[10;1Hw\r\nx\r\ny\r\nz\r\n"
+                )
+                .index(),
+                5
+            );
         });
         // Out of it within one read: four on the alternate, one on the
         // primary after it.
         with_history(|t| {
             feed(t, b"\x1b[?1049h\x1b[10;1H");
-            let before = Before::of(t);
-            feed(t, b"w\r\nx\r\ny\r\nz\r\n\x1b[?1049lc\r\n");
-            assert_eq!(after_read(t, Rows::of_count(3), before).index(), 4);
+            assert_eq!(
+                window_across(
+                    t,
+                    Rows::of_count(3),
+                    b"w\r\nx\r\ny\r\nz\r\n\x1b[?1049lc\r\n"
+                )
+                .index(),
+                4
+            );
         });
         // In and out within one read: the one case the live rotation
         // already answered, because both its ends are the primary's -- kept
         // so the history mark is held to it too.
         with_history(|t| {
-            let before = Before::of(t);
-            feed(
-                t,
-                b"a\r\nb\r\n\x1b[?1049h\x1b[10;1Hw\r\nx\r\n\x1b[?1049lc\r\n",
+            assert_eq!(
+                window_across(
+                    t,
+                    Rows::of_count(3),
+                    b"a\r\nb\r\n\x1b[?1049h\x1b[10;1Hw\r\nx\r\n\x1b[?1049lc\r\n"
+                )
+                .index(),
+                6
             );
-            assert_eq!(after_read(t, Rows::of_count(3), before).index(), 6);
         });
     }
 
@@ -3354,12 +3308,11 @@ mod alt_window_tests {
     fn a_resize_on_the_alternate_screen_anchors_by_the_primary() {
         with_history(|t| {
             feed(t, b"\x1b[?1049h");
-            let before = Before::of(t);
-            let _ = t.resize(&WinSize {
+            let ws = WinSize {
                 ws_col: 20,
                 ws_row: 8,
-            });
-            assert_eq!(after_read(t, Rows::of_count(3), before).index(), 5);
+            };
+            assert_eq!(window_resized(t, &ws, Rows::of_count(3)).index(), 5);
         });
     }
 
@@ -3412,14 +3365,14 @@ mod alt_window_tests {
                     .map(Rows::of_count)
                     .find(|&b| text(&t, b) == viewed)
                     .expect("the viewed line is in the history");
-                let back = resized_window(&mut t, &ws(to), back);
+                let back = window_resized(&mut t, &ws(to), back);
                 assert_eq!(
                     text(&t, back),
                     viewed,
                     "{arm}, {from} to {to} columns: the window moved to another line"
                 );
                 // A live window stays live, whatever the re-cut did.
-                assert_eq!(resized_window(&mut t, &ws(from), Rows::ZERO), Rows::ZERO);
+                assert_eq!(window_resized(&mut t, &ws(from), Rows::ZERO), Rows::ZERO);
             }
         }
     }
@@ -3486,89 +3439,66 @@ mod alt_window_tests {
 
     /// **The driver's calls into these are AppKit-bound**, so no test above
     /// reaches them: `present`, `select`, the link under a Cmd-click, the
-    /// pump and the resize. This holds the source to them instead: every
-    /// line that names the raw window hands it to one of the helpers, or is
-    /// one of the lines below, each a write or a path the alternate screen
-    /// cannot reach -- the exact list, so a new raw reader fails here, and
-    /// so does a reader reverted to the raw count.
+    /// pump and the resize. This holds the source to them instead. **The app
+    /// keeps no count of the window** (note V, V2): the core holds it, and a
+    /// stored copy is the second numbering three recorded bugs came from, so
+    /// no line names one. Every read asks the core for the window drawn
+    /// (`Term::window_back`, zero on the alternate screen), and the
+    /// primary's own, which the alternate screen does not clamp, is read
+    /// only on the lines below, each on a path the alternate screen cannot
+    /// reach -- the exact list, so a new raw reader fails here.
     #[test]
     fn every_reader_of_the_window_asks_the_clamp() {
         const SRC: &str = include_str!("app.rs");
-        const HELPERS: [&str; 7] = [
-            "looking(",
-            "live_cursor(",
-            "trail_cursor(",
-            "window_of(",
-            "snapped(",
-            "after_read(",
-            "resized_window(",
+        // Spelled apart so this test does not name them itself.
+        let stored = [
+            concat!("self.", "back"),
+            concat!("app.", "back"),
+            concat!("after", "_read("),
+            concat!("resized", "_window("),
+            concat!("resize", "_holding("),
         ];
-        const ALLOWED: [(&str, &str); 12] = [
+        let names = |line: &str, tok: &str| {
+            line.match_indices(tok).any(|(at, _)| {
+                !line[at + tok.len()..]
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphanumeric() || c == '_')
+            })
+        };
+        let kept: Vec<&str> = SRC
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.starts_with("//"))
+            .filter(|l| stored.iter().any(|tok| names(l, tok)))
+            .collect();
+        assert!(kept.is_empty(), "a window the app keeps: {kept:?}");
+        const ALLOWED: [(&str, &str); 2] = [
             (
-                "} else if app.back.index() != 0 {",
-                "the prediction gate, after the screen gate refused the alternate screen",
-            ),
-            (
-                "&& self.app.back.index() == 0",
-                "the slide gate, beside `screen == Screen::Normal`",
-            ),
-            (
-                "let now = i64::try_from(self.app.back.index()).unwrap_or(0);",
+                "let was = self.app.term.primary_window_back();",
                 "the wheel over the history: the alternate screen returned arrow keys above",
             ),
             (
-                "if back.index() == self.app.back.index() {",
-                "the same wheel",
-            ),
-            ("self.app.back = back;", "the wheel's write"),
-            (
-                "if back != self.app.back {",
-                "the snap, after `snapped` chose",
-            ),
-            ("self.app.back = back;", "the snap's write"),
-            (
-                "if back.index() != self.app.back.index() {",
+                "if back.index() != self.app.term.primary_window_back().index() {",
                 "the thumb's drag: a thumb is drawn only off a live primary",
             ),
-            ("self.app.back = back;", "the drag's write"),
-            (
-                "self.app.back = Rows::ZERO;",
-                "a program's page width: the window to the live screen, a write",
-            ),
-            (
-                "let window = self.app.back;",
-                "the reset's reveal: `restart` reads it only for a reset made from the primary",
-            ),
-            (
-                "let window = self.back;",
-                "the restart tests' read, as the pump's",
-            ),
         ];
-        // Spelled apart so this line does not name the window itself.
-        let tokens = [concat!("self.", "back"), concat!("app.", "back")];
-        let names_the_window = |line: &str| {
-            tokens.iter().any(|tok| {
-                line.match_indices(tok).any(|(at, _)| {
-                    !line[at + tok.len()..]
-                        .chars()
-                        .next()
-                        .is_some_and(|c| c.is_alphanumeric() || c == '_')
-                })
-            })
-        };
+        let raw_tokens = [
+            concat!("self.app.term.", "primary_window_back("),
+            concat!("self.term.", "primary_window_back("),
+        ];
         let mut raw: Vec<&str> = SRC
             .lines()
             .map(str::trim)
             .filter(|l| !l.starts_with("//") && !l.starts_with('"') && !l.starts_with("(\""))
-            .filter(|l| names_the_window(l))
-            .filter(|l| !HELPERS.iter().any(|h| l.contains(h)))
+            .filter(|l| raw_tokens.iter().any(|tok| l.contains(tok)))
             .collect();
         raw.sort_unstable();
         let mut allowed: Vec<&str> = ALLOWED.iter().map(|(l, _)| *l).collect();
         allowed.sort_unstable();
         assert_eq!(
             raw, allowed,
-            "a raw read of the window that does not ask the clamp"
+            "a raw read of the primary's window that does not ask the clamp"
         );
         // And the CPU branch paints the window, where the live-screen form
         // names no window for the list above to see.
@@ -3582,10 +3512,14 @@ mod alt_window_tests {
     fn a_key_on_the_alternate_screen_leaves_the_primarys_window() {
         with_history(|t| {
             let back = Rows::of_count(3);
-            assert_eq!(snapped(t, back).index(), 0, "on the primary, a key snaps");
+            t.set_window_back(back);
+            assert!(snap_live(t), "on the primary, a key snaps");
+            assert_eq!(t.window_back().index(), 0);
+            t.set_window_back(back);
             feed(t, b"\x1b[?1049h");
+            assert!(!snap_live(t));
             assert_eq!(
-                snapped(t, back).index(),
+                t.primary_window_back().index(),
                 3,
                 "on the alternate screen it resets the live screen's view, \
                  which is already at the bottom"
@@ -3624,10 +3558,8 @@ mod alt_window_tests {
             (reset_then_lines, "RIS, then lines that refill the history"),
         ] {
             with_history(|t| {
-                let before = Before::of(t);
-                feed(t, &bytes);
                 assert_eq!(
-                    after_read(t, Rows::of_count(3), before),
+                    window_across(t, Rows::of_count(3), &bytes),
                     Rows::ZERO,
                     "{what}: the window is not on the live screen"
                 );
@@ -3636,23 +3568,21 @@ mod alt_window_tests {
         // The control: a read with no erase carries the window up the
         // history with the lines it shows.
         with_history(|t| {
-            let before = Before::of(t);
-            feed(t, &lines(2));
-            assert_eq!(after_read(t, Rows::of_count(3), before).index(), 5);
+            assert_eq!(window_across(t, Rows::of_count(3), &lines(2)).index(), 5);
         });
     }
 
     /// **From the alternate screen it is the primary's window that goes
-    /// live**, the one `snapped` keeps while a program has the screen: the
+    /// live**, the one a key keeps while a program has the screen: the
     /// erase emptied the primary's history under it.
     #[test]
     fn an_erase_on_the_alternate_screen_puts_the_primarys_window_live() {
         with_history(|t| {
             let mut back = Rows::of_count(3);
+            t.set_window_back(back);
             let read = |t: &mut Term<'_>, bytes: &[u8], back: &mut Rows| {
-                let before = Before::of(t);
                 feed(t, bytes);
-                *back = after_read(t, *back, before);
+                *back = t.primary_window_back();
             };
             read(t, b"\x1b[?1049h\x1b[10;1H", &mut back);
             assert_eq!(back.index(), 3, "the control: entering it moved nothing");
@@ -3761,11 +3691,11 @@ mod alt_window_tests {
 /// already follow `Term::history_erasures`, which `RIS` moves; these hold
 /// what only the reset count can say, and `CSI 3 J` -- which moves the
 /// erasure count and keeps the screen -- is the control that tells the two
-/// apart. Each read here is the pump's: `Before`, the feed, `after_read`,
-/// then `restart`.
+/// apart. Each read here is the pump's: `Before`, the feed, then `restart`;
+/// the window is the core's (note V, V2).
 #[cfg(test)]
 mod restart_tests {
-    use super::{Before, Guess, Kept, Prediction, Surface, Thumb, after_read, restart, window_of};
+    use super::{Before, Guess, Kept, Prediction, Surface, Thumb, restart, window_of};
     use crate::latency::{Judged, Latency, Switch};
     use crate::reveal::Reveal;
     use crate::wheel::{Delta, Travel};
@@ -3787,7 +3717,6 @@ mod restart_tests {
 
     /// What the app keeps over the screen, owned, as `App` holds it.
     struct State {
-        back: Rows,
         selection: Option<Selection>,
         predictions: Vec<Prediction>,
         guess: Guess,
@@ -3799,7 +3728,6 @@ mod restart_tests {
     impl State {
         fn new() -> State {
             State {
-                back: Rows::ZERO,
                 selection: None,
                 predictions: Vec::new(),
                 guess: Guess::None,
@@ -3812,13 +3740,10 @@ mod restart_tests {
         /// One read, as the pump takes it.
         fn read(&mut self, t: &mut Term<'_>, bytes: &[u8]) -> (Surface, Thumb) {
             let before = Before::watched(t);
-            let window = self.back;
             feed(t, bytes);
-            self.back = after_read(t, self.back, before);
             restart(
                 t,
                 before,
-                window,
                 Kept {
                     selection: &mut self.selection,
                     predictions: &mut self.predictions,
@@ -3828,6 +3753,16 @@ mod restart_tests {
                     latency: &mut self.latency,
                 },
             )
+        }
+
+        /// Put the primary's window `back` lines up the history.
+        fn look(&mut self, t: &mut Term<'_>, back: Rows) {
+            t.set_window_back(back);
+        }
+
+        /// The primary's window, whatever screen is up.
+        fn window(&self, t: &Term<'_>) -> Rows {
+            t.primary_window_back()
         }
 
         /// A selection of screen row `r`'s first cell.
@@ -3937,7 +3872,7 @@ mod restart_tests {
                     s.read(t, chunk);
                 }
                 assert!(s.selection.is_none(), "read size {size} kept it");
-                assert_eq!(s.back, Rows::ZERO, "read size {size}");
+                assert_eq!(s.window(t), Rows::ZERO, "read size {size}");
             });
         }
     }
@@ -4010,7 +3945,7 @@ mod restart_tests {
     fn a_reset_settles_the_wheels_travel() {
         with_history(|t| {
             let mut s = State::new();
-            s.back = Rows::of_count(5);
+            s.look(t, Rows::of_count(5));
             let _ = s.travel.lines(Delta::Lines(0.5));
             s.read(t, b"x");
             assert_ne!(s.travel, Travel::default(), "the control: a read keeps it");
@@ -4029,9 +3964,9 @@ mod restart_tests {
     fn a_reset_from_a_window_over_the_history_reveals_the_thumb() {
         with_history(|t| {
             let mut s = State::new();
-            s.back = Rows::of_count(5);
+            s.look(t, Rows::of_count(5));
             assert_eq!(s.read(t, b"\x1bc"), (Surface::Same, Thumb::Reveal));
-            assert_eq!(s.back, Rows::ZERO, "the control: it came live");
+            assert_eq!(s.window(t), Rows::ZERO, "the control: it came live");
         });
         with_history(|t| {
             let mut s = State::new();
@@ -4039,18 +3974,22 @@ mod restart_tests {
         });
         with_history(|t| {
             let mut s = State::new();
-            s.back = Rows::of_count(5);
+            s.look(t, Rows::of_count(5));
             assert_eq!(s.read(t, b"\x1b[3J").1, Thumb::Leave, "on ED 3");
-            assert_eq!(s.back, Rows::ZERO, "the control: ED 3 brought it live");
+            assert_eq!(s.window(t), Rows::ZERO, "the control: ED 3 brought it live");
         });
         with_history(|t| {
             let mut s = State::new();
-            s.back = Rows::of_count(5);
+            s.look(t, Rows::of_count(5));
             s.read(t, b"\x1b[?1049h");
-            assert_eq!(s.back.index(), 5, "the control: the primary's window kept");
+            assert_eq!(
+                s.window(t).index(),
+                5,
+                "the control: the primary's window kept"
+            );
             assert_eq!(s.read(t, b"\x1bc"), (Surface::Switched, Thumb::Leave));
             assert_eq!(t.screen(), Screen::Normal);
-            assert_eq!(s.back, Rows::ZERO);
+            assert_eq!(s.window(t), Rows::ZERO);
         });
     }
 
@@ -4068,7 +4007,7 @@ mod restart_tests {
                 t.scrollback().len() > back.index(),
                 "the control: a history"
             );
-            s.back = back;
+            s.look(t, back);
             for bytes in pumps {
                 any |= s.read(t, bytes).1 == Thumb::Reveal;
             }
@@ -4082,14 +4021,17 @@ mod restart_tests {
     /// none across two -- `?1049h` then `RIS`, the reset made from the
     /// alternate screen, whose drawn window was the live one. Each sequence
     /// is fed a byte a pump, which is the answer the rest must give, then
-    /// whole, then cut in two at every byte; from a window five lines up,
-    /// and from the live screen, the control, where nothing reveals; one
-    /// row after an erasure in a pump before, so the watch must be armed at
-    /// each pump's reading and not left where the terminal began. The
-    /// rows pin the answer built at 232e1ab for a pump of its own: the
-    /// reset reveals when the window it took live was the primary's and
-    /// over the history at that byte (V1's first fork), so only the first
-    /// erasure in a pump can, since any erasure takes the window live.
+    /// at every read size up to whole, then cut in two at every byte; from
+    /// a window five lines up, and from the live screen, the control, where
+    /// nothing reveals; one row after an erasure in a pump before, so the
+    /// watch must be armed at each pump's reading and not left where the
+    /// terminal began. The rows pin the answer built at 232e1ab for a pump
+    /// of its own: the reset reveals when the window it took live was the
+    /// primary's and over the history at that byte (V1's first fork), so
+    /// only the first erasure in a pump can, since any erasure takes the
+    /// window live. The last four take the window live with `SD`, `RI` at
+    /// the top or a prompt redraw before the reset: read at the pump's
+    /// start, a pump holding both revealed (note V, V2).
     #[test]
     fn a_resets_reveal_is_the_same_however_the_bytes_fall_into_pumps() {
         let lines: Vec<u8> = (0..12)
@@ -4097,7 +4039,8 @@ mod restart_tests {
             .collect();
         let refill = [&b"\x1b[?1049h\x1bc"[..], &lines, b"\x1bc"].concat();
         let erased = [&b"\x1b[3J"[..], &lines].concat();
-        let rows: [(&str, &[u8], &[u8], bool); 11] = [
+        let block = prompt_block();
+        let rows: [(&str, &[u8], &[u8], bool); 15] = [
             ("a reset", b"", b"\x1bc", true),
             ("?1049h, a reset", b"", b"\x1b[?1049h\x1bc", false),
             ("?47h, a reset", b"", b"\x1b[?47h\x1bc", false),
@@ -4129,6 +4072,20 @@ mod restart_tests {
                 b"\x1bc",
                 true,
             ),
+            ("SD 3, a reset", b"", b"\x1b[3T\x1bc", true),
+            ("SD 5, a reset", b"", b"\x1b[5T\x1bc", false),
+            (
+                "five RI at the top, a reset",
+                b"",
+                b"\x1b[H\x1bM\x1bM\x1bM\x1bM\x1bM\x1bc",
+                false,
+            ),
+            (
+                "a prompt redraw, a reset",
+                &block,
+                b"\x1b[3;1H\x1b[J\x1b]133;A\x07\x1bc",
+                false,
+            ),
         ];
         for back in [Rows::of_count(5), Rows::ZERO] {
             let from = back.index();
@@ -4140,11 +4097,14 @@ mod restart_tests {
                     want && from != 0,
                     "{what}, from {from}, a byte a pump"
                 );
-                assert_eq!(
-                    reveals(back, setup, &[bytes]),
-                    canon,
-                    "{what}, from {from}, whole"
-                );
+                for size in 2..=bytes.len() {
+                    let pumps: Vec<&[u8]> = bytes.chunks(size).collect();
+                    assert_eq!(
+                        reveals(back, setup, &pumps),
+                        canon,
+                        "{what}, from {from}, reads of {size}"
+                    );
+                }
                 for cut in 1..bytes.len() {
                     let (a, b) = bytes.split_at(cut);
                     assert_eq!(
@@ -4153,6 +4113,97 @@ mod restart_tests {
                         "{what}, from {from}, cut at {cut}"
                     );
                 }
+            }
+        }
+    }
+
+    /// A prompt block the shell opened on the last row and printed sixteen
+    /// lines into, so its first row is seven lines up the history: a redraw
+    /// from row 3 takes those seven back.
+    fn prompt_block() -> Vec<u8> {
+        [&b"\x1b]133;A\x07"[..], &b"p\r\n".repeat(16)].concat()
+    }
+
+    /// The primary's window after `pumps`, each a read as the pump takes it,
+    /// from a window `back` lines up the history, after `setup` fed as a
+    /// pump of its own.
+    fn window_after(back: Rows, setup: &[u8], pumps: &[&[u8]]) -> Rows {
+        let mut out = Rows::ZERO;
+        with_history(|t| {
+            let mut s = State::new();
+            if !setup.is_empty() {
+                s.read(t, setup);
+            }
+            s.look(t, back);
+            for bytes in pumps {
+                s.read(t, bytes);
+            }
+            out = s.window(t);
+        });
+        out
+    }
+
+    /// **A window over the history is the same however the bytes fall into
+    /// pumps.** Each row is fed a byte a pump, which is the answer the rest
+    /// must give, then at every read size, then cut in two at every byte,
+    /// from a window five lines up. A full-screen `SD`, `RI` at the top and
+    /// a prompt redraw take lines back from the history, and the five lines
+    /// after them retire five again: a byte a pump, the take-back brings the
+    /// window to the live screen and the lines leave it there, while a pump
+    /// that holds both saw no net movement and left the window five up. The
+    /// controls are the rows a window keeps: five lines alone, and `SD 3`,
+    /// which leaves it two up for the lines to carry back.
+    #[test]
+    fn a_window_over_the_history_is_the_same_however_the_bytes_fall_into_pumps() {
+        let five = b"\n".repeat(5);
+        let block = prompt_block();
+        let rows: [(&str, &[u8], Vec<u8>, usize); 5] = [
+            ("five lines", b"", five.clone(), 10),
+            (
+                "SD 3, five lines",
+                b"",
+                [&b"\x1b[3T"[..], &five].concat(),
+                7,
+            ),
+            (
+                "SD 5, five lines",
+                b"",
+                [&b"\x1b[5T"[..], &five].concat(),
+                0,
+            ),
+            (
+                "five RI at the top, five lines",
+                b"",
+                [&b"\x1b[H\x1bM\x1bM\x1bM\x1bM\x1bM\x1b[10;1H"[..], &five].concat(),
+                0,
+            ),
+            (
+                "a prompt redraw, five lines",
+                &block,
+                [&b"\x1b[3;1H\x1b[J\x1b]133;A\x07$ \x1b[10;1H"[..], &five].concat(),
+                0,
+            ),
+        ];
+        let back = Rows::of_count(5);
+        for (what, setup, bytes, want) in &rows {
+            let one: Vec<&[u8]> = bytes.chunks(1).collect();
+            let canon = window_after(back, setup, &one);
+            assert_eq!(canon.index(), *want, "{what}, a byte a pump");
+            for size in 2..=bytes.len() {
+                let pumps: Vec<&[u8]> = bytes.chunks(size).collect();
+                assert_eq!(
+                    window_after(back, setup, &pumps),
+                    canon,
+                    "{what}, reads of {size}"
+                );
+            }
+            for cut in 1..bytes.len() {
+                let (a, b) = bytes.split_at(cut);
+                assert_eq!(
+                    window_after(back, setup, &[a, b]),
+                    canon,
+                    "{what}, cut at {cut}"
+                );
             }
         }
     }
@@ -4173,9 +4224,9 @@ mod restart_tests {
     #[test]
     fn a_resets_reveal_draws_a_knob_only_over_lines_printed_after_it() {
         let size = (Px::of(800), Px::of(500));
-        let knob = |t: &Term<'_>, back: Rows, rv: Reveal, now: HostTime| {
+        let knob = |t: &Term<'_>, rv: Reveal, now: HostTime| {
             let s = Scroll {
-                window: window_of(t, back),
+                window: window_of(t),
                 look: rv.look_under(Scroller::Overlay, now),
                 widths: crate::reveal::widths(crate::reveal::Scale(2.0)),
                 scroller: Scroller::Overlay,
@@ -4190,37 +4241,37 @@ mod restart_tests {
                 let t0 = HostTime::of_nanos(1_000_000_000);
                 let at = |ms: u64| t0.plus(Duration::from_millis(ms));
                 let mut s = State::new();
-                s.back = Rows::of_count(5);
+                s.look(t, Rows::of_count(5));
                 let mut shown = Reveal::HIDDEN;
                 shown.reveal(t0);
-                assert!(knob(t, s.back, shown, t0).is_some(), "the control");
+                assert!(knob(t, shown, t0).is_some(), "the control");
                 let mut rv = Reveal::HIDDEN;
                 if s.read(t, b"\x1bc").1 == Thumb::Reveal && revealed {
                     rv.reveal(at(0));
                 }
-                let sample = |t: &Term<'_>, back: Rows, rv: &mut Reveal, ms: u64| {
+                let sample = |t: &Term<'_>, rv: &mut Reveal, ms: u64| {
                     rv.step(at(ms));
-                    knob(t, back, *rv, at(ms))
+                    knob(t, *rv, at(ms))
                 };
                 assert_eq!(t.scrollback().len(), 0, "the reset emptied it");
                 if revealed {
                     assert!(rv.look(at(10)).shown.get() > 0, "the thumb is revealed");
                 }
                 assert!(
-                    sample(t, s.back, &mut rv, 10).is_none(),
+                    sample(t, &mut rv, 10).is_none(),
                     "no knob at the reset (as built, and Jev's answer A)"
                 );
-                assert!(sample(t, s.back, &mut rv, 90).is_none());
+                assert!(sample(t, &mut rv, 90).is_none());
                 s.read(t, &lines);
                 assert_eq!(t.scrollback().len(), 6, "the lines refilled it");
                 for ms in [110, 400, 700] {
                     assert_eq!(
-                        sample(t, s.back, &mut rv, ms).is_some(),
+                        sample(t, &mut rv, ms).is_some(),
                         revealed,
                         "a knob over the lines at {ms} ms, revealed: {revealed}"
                     );
                 }
-                assert!(sample(t, s.back, &mut rv, 800).is_none(), "faded");
+                assert!(sample(t, &mut rv, 800).is_none(), "faded");
             });
         }
     }
@@ -4239,8 +4290,9 @@ mod restart_tests {
     }
 
     /// **The pump takes the read as these tests do.** It is AppKit-bound,
-    /// so the source is held: the erasure watch is armed and the window read
-    /// before the feed;
+    /// so the source is held: the erasure watch is armed before the feed,
+    /// and no window is read there -- the reset's window is the core's, kept
+    /// at its byte (note V, V2);
     /// `restart` runs after the `Retired` arm, which can start a slide, and
     /// after the erased snap, so neither undoes what it settles, and before
     /// the clip; and the reveal and the switch's fade follow what it says.
@@ -4261,11 +4313,13 @@ mod restart_tests {
             pump.find(needle).expect("found")
         };
         let call = at("let (surface, thumb) = restart(");
-        assert!(at("let before = Before::watched(&mut self.app.term);") < at("let window = "));
-        // Spelled apart, so the window's clamp test does not read it as a
-        // read of the window.
-        let window = concat!("let window = self.app", ".back;");
-        assert!(at(window) < at("crate::reads::feed("));
+        assert!(
+            at("let before = Before::watched(&mut self.app.term);") < at("crate::reads::feed(")
+        );
+        assert!(
+            !pump.contains("let window = "),
+            "a window read at the pump's start"
+        );
         assert!(at("Ring::Restored(_) => self.app.selection = None,") < call);
         assert!(at("if erased(&self.app.term, before) {") < call);
         assert!(call < at("if thumb == Thumb::Reveal {"));
@@ -4343,27 +4397,20 @@ mod trail_cursor_tests {
         let mut t = Term::new(owned.storage(), &WS);
         feed(&mut t, b"\x1b[?1049h");
         feed(&mut t, frame(cell!(1, 7)).as_bytes());
-        assert_eq!(live_cursor(&t, Rows::ZERO), None, "the program hid it");
+        assert_eq!(live_cursor(&t), None, "the program hid it");
         let (r, c) = cell!(1, 7);
-        assert_eq!(
-            trail_cursor(&t, Rows::ZERO),
-            Some(TrailCursor::Placed(r, c))
-        );
+        assert_eq!(trail_cursor(&t), Some(TrailCursor::Placed(r, c)));
         feed(&mut t, frame(cell!(8, 7)).as_bytes());
         let (r, c) = cell!(8, 7);
-        assert_eq!(
-            trail_cursor(&t, Rows::ZERO),
-            Some(TrailCursor::Placed(r, c)),
-            "ge"
-        );
+        assert_eq!(trail_cursor(&t), Some(TrailCursor::Placed(r, c)), "ge");
         // A hidden cursor no program placed is followed by nothing.
         feed(&mut t, b"\x1b[5;5Hab\x1b[?25l");
-        assert_eq!(trail_cursor(&t, Rows::ZERO), None, "a hide after text");
+        assert_eq!(trail_cursor(&t), None, "a hide after text");
         // Shown, it is the drawn cursor again.
         feed(&mut t, b"\x1b[?25h");
         let (r, c) = cell!(4, 6);
-        assert_eq!(live_cursor(&t, Rows::ZERO), Some((r, c)));
-        assert_eq!(trail_cursor(&t, Rows::ZERO), Some(TrailCursor::Shown(r, c)));
+        assert_eq!(live_cursor(&t), Some((r, c)));
+        assert_eq!(trail_cursor(&t), Some(TrailCursor::Shown(r, c)));
     }
 
     #[test]
@@ -4377,15 +4424,16 @@ mod trail_cursor_tests {
         feed(&mut t, b"\x1b[3;4H\x1b[?25l");
         let (r, c) = cell!(2, 3);
         assert_eq!(
-            trail_cursor(&t, Rows::ZERO),
+            trail_cursor(&t),
             Some(TrailCursor::Placed(r, c)),
             "the control: placed on the live screen"
         );
-        assert_eq!(trail_cursor(&t, Rows::of_count(3)), None);
+        t.set_window_back(Rows::of_count(3));
+        assert_eq!(trail_cursor(&t), None);
     }
 
     /// **On the alternate screen the window is the live screen**, whatever
-    /// the primary's window was left at -- `looking`'s clamp, which the source
+    /// the primary's window was left at -- `Term::window_back`'s clamp, which the source
     /// gate trusts `trail_cursor` to ask. A primary left scrolled back when
     /// helix starts must not take its trail away.
     #[test]
@@ -4396,16 +4444,21 @@ mod trail_cursor_tests {
             .flat_map(|i| format!("line {i}\r\n").into_bytes())
             .collect();
         feed(&mut t, &lines);
-        let back = Rows::of_count(3);
+        t.set_window_back(Rows::of_count(3));
         assert_eq!(
-            trail_cursor(&t, back),
+            trail_cursor(&t),
             None,
             "the control: looking back on the primary"
         );
         feed(&mut t, b"\x1b[?1049h");
         feed(&mut t, frame(cell!(1, 7)).as_bytes());
         let (r, c) = cell!(1, 7);
-        assert_eq!(trail_cursor(&t, back), Some(TrailCursor::Placed(r, c)));
+        assert_eq!(trail_cursor(&t), Some(TrailCursor::Placed(r, c)));
+        assert_eq!(
+            t.primary_window_back().index(),
+            3,
+            "the control: the primary's window is still back"
+        );
     }
 
     #[test]
@@ -4442,8 +4495,8 @@ mod trail_cursor_tests {
         let mut chase: Chase<Instant> = Chase::new(Style::Smear(Shape::Quad));
         let mut before: Chase<Instant> = Chase::new(Style::Smear(Shape::Quad));
         let mut seen = |t: &Term<'_>, ms: u64| {
-            let now = trail_cursor(t, Rows::ZERO).map(|f| block(f.cell()));
-            let old = live_cursor(t, Rows::ZERO).map(block);
+            let now = trail_cursor(t).map(|f| block(f.cell()));
+            let old = live_cursor(t).map(block);
             (
                 chase.frame(now, at(ms), CELL).is_some(),
                 before.frame(old, at(ms), CELL).is_some(),
@@ -4468,7 +4521,7 @@ mod trail_cursor_tests {
         feed(&mut t, frame(cell!(1, 8)).as_bytes());
         let (r, c) = cell!(1, 8);
         assert_eq!(
-            trail_cursor(&t, Rows::ZERO),
+            trail_cursor(&t),
             Some(TrailCursor::Placed(r, c)),
             "the control: l placed the cursor a column on"
         );
@@ -4487,7 +4540,7 @@ mod trail_cursor_tests {
         let at = |ms: u64| t0 + Duration::from_millis(ms);
         let mut chase: Chase<Instant> = Chase::new(Style::Effect(Effect::Fire));
         let mut fire = |t: &Term<'_>, ms: u64| {
-            let now = trail_cursor(t, Rows::ZERO).map(|f| block(f.cell()));
+            let now = trail_cursor(t).map(|f| block(f.cell()));
             matches!(chase.frame(now, at(ms), CELL), Some(TrailLook::Vfx(_)))
         };
         feed(&mut t, b"\x1b[?1049h");
@@ -4568,7 +4621,7 @@ mod trail_cursor_tests {
                 let mut last: Option<(TrailLook, Rect)> = None;
                 for (k, bytes) in frames.iter().enumerate() {
                     feed(&mut t, bytes);
-                    let cell = trail_cursor(&t, Rows::ZERO).map(|f| f.cell());
+                    let cell = trail_cursor(&t).map(|f| f.cell());
                     let (r, c) = cell.unwrap_or_else(|| panic!("{case}: frame {k} placed nothing"));
                     assert_eq!(c.index(), 7, "{case}: frame {k}");
                     if rows.last() == Some(&5) && r.index() > 5 {
@@ -4586,7 +4639,7 @@ mod trail_cursor_tests {
                     rows.push(r.index());
                     for n in 0..36u32 {
                         let now = t0 + tick * (u32::try_from(k).unwrap() * 36 + n);
-                        let rect = trail_cursor(&t, Rows::ZERO).map(|f| block(f.cell()));
+                        let rect = trail_cursor(&t).map(|f| block(f.cell()));
                         let look = chase.frame(rect, now, CELL);
                         let corners = |l: &TrailLook| match l {
                             TrailLook::Smear(s) => Some(s.corners),
@@ -5205,65 +5258,86 @@ mod motion_tests {
 
 #[cfg(test)]
 mod anchor_tests {
-    use super::anchored;
-    use baud_domain::Rows;
+    use baud_core::{CacheGeometry, Depth, Owned, Term};
+    use baud_domain::{BytePos, ReadLen, Rows, WinSize};
 
-    use super::Ring;
-
-    // Spelled out rather than wrapped in a two-line constructor: one
-    // taking a bare count would be a raw integer in a signature, which
-    // the audit counts and whose budget is not moved to fit a change.
-    // (Nor may this comment name one -- the audit reads comments too,
-    // which is written down in CLAUDE.md and cost a run here anyway.)
-    #[test]
-    fn a_window_on_the_live_screen_stays_there_however_far_the_ring_moved() {
-        // The zoom-in case: a shorter screen retired twenty-four rows.
-        assert_eq!(
-            anchored(
-                Rows::ZERO,
-                Ring::Retired(Rows::of_count(24)),
-                Rows::of_count(400)
-            )
-            .index(),
-            0
-        );
-        // And the zoom-out case, where they came back.
-        assert_eq!(
-            anchored(
-                Rows::ZERO,
-                Ring::Restored(Rows::of_count(24)),
-                Rows::of_count(400)
-            )
-            .index(),
-            0
-        );
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     }
 
+    /// `n` numbered lines. A count in a signature is typed, as the audit
+    /// asks of every signature here.
+    fn lines(n: Rows) -> Vec<u8> {
+        (0..n.index())
+            .flat_map(|i| format!("line {i}\r\n").into_bytes())
+            .collect()
+    }
+
+    const TALL: WinSize = WinSize {
+        ws_col: 20,
+        ws_row: 48,
+    };
+    const SHORT: WinSize = WinSize {
+        ws_col: 20,
+        ws_row: 24,
+    };
+
+    /// **A window on the live screen stays there however far the ring
+    /// moved** -- the owner's "we should not change the scroll ever". A
+    /// zoom in shrinks the grid and the shorter screen retires the rows the
+    /// cursor needs; the app once added that retirement to its window
+    /// whatever the window was, so from the prompt the screen filled with
+    /// the prompt blocks the shell had already written, a banner four times.
+    /// The core holds the window now, and the resize leaves a live one live.
+    #[test]
+    fn a_window_on_the_live_screen_stays_there_however_far_the_ring_moved() {
+        let mut owned = Owned::new(&TALL);
+        let mut t = Term::new(owned.storage(), &TALL);
+        feed(&mut t, &lines(Rows::of_count(448)));
+        let before = t.scrollback().len();
+        // The zoom-in case: a shorter screen retired twenty-four rows.
+        let _ = t.resize(&SHORT);
+        assert_eq!(t.scrollback().len(), before + 24, "the control: it retired");
+        assert_eq!(t.window_back(), Rows::ZERO);
+        // And the zoom-out case, where they came back.
+        let _ = t.resize(&TALL);
+        assert_eq!(t.scrollback().len(), before, "the control: they came back");
+        assert_eq!(t.window_back(), Rows::ZERO);
+    }
+
+    /// A window looking back follows the lines it shows as they retire, a
+    /// scroll down that takes back past its line brings it to the live
+    /// screen, and it is never past what is retained.
     #[test]
     fn a_window_looking_back_follows_the_ring_and_is_bounded_by_it() {
         let ten = Rows::of_count(10);
-        assert_eq!(
-            anchored(ten, Ring::Retired(Rows::of_count(24)), Rows::of_count(400)).index(),
-            34
-        );
-        assert_eq!(
-            anchored(ten, Ring::Restored(Rows::of_count(24)), Rows::of_count(400)).index(),
-            0
-        );
+        let mut owned = Owned::new(&SHORT);
+        let mut t = Term::new(owned.storage(), &SHORT);
+        feed(&mut t, &lines(Rows::of_count(400)));
+        t.set_window_back(ten);
+        feed(&mut t, &lines(Rows::of_count(24)));
+        assert_eq!(t.window_back().index(), 34);
+        t.set_window_back(ten);
+        feed(&mut t, b"\x1b[24T");
+        assert_eq!(t.window_back().index(), 0);
         // Never past what is retained, and never below the live screen.
+        let mut owned = Owned::with_history(&SHORT, &CacheGeometry::UNKNOWN, Depth::of(40));
+        let mut t = Term::new(owned.storage(), &SHORT);
+        feed(&mut t, &lines(Rows::of_count(100)));
+        assert_eq!(t.scrollback().len(), 40, "the control: the ring is full");
+        t.set_window_back(ten);
+        feed(&mut t, &lines(Rows::of_count(1000)));
+        assert_eq!(t.window_back().index(), 40);
+        feed(&mut t, b"\x1b[24T\x1b[24T");
         assert_eq!(
-            anchored(ten, Ring::Retired(Rows::of_count(1000)), Rows::of_count(40)).index(),
-            40
+            t.scrollback().len(),
+            0,
+            "the control: the history came back"
         );
-        assert_eq!(
-            anchored(
-                ten,
-                Ring::Restored(Rows::of_count(1000)),
-                Rows::of_count(40)
-            )
-            .index(),
-            0
-        );
+        assert_eq!(t.window_back().index(), 0);
+        feed(&mut t, &lines(Rows::of_count(30)));
+        assert_eq!(t.window_back().index(), 0, "and live stays live");
     }
 }
 
@@ -5694,7 +5768,7 @@ impl Driver {
             Some("zone")
         } else if app.term.screen() != Screen::Normal {
             Some("screen")
-        } else if app.back.index() != 0 {
+        } else if app.term.window_back().index() != 0 {
             Some("back")
         } else if app.term.synchronized_output() {
             Some("sync")
@@ -5873,9 +5947,6 @@ impl Driver {
                 .echoed(drained.chunks.iter().map(|chunk| chunk.at));
         }
         let before = Before::watched(&mut self.app.term);
-        // The primary's window before the read, for the thumb a reset
-        // reveals.
-        let window = self.app.back;
         let refused = self.app.term.images().refusals;
         // Each read's answers go to the outbox before the next read is fed,
         // or every read after the first few lost its answers to the 256-byte
@@ -5969,14 +6040,11 @@ impl Driver {
                 self.window.set_title(&t);
             }
         }
-        // Looking back while output scrolls: the window stays on the lines
-        // it was showing, which means it moves up the history by however
-        // many rows the primary retired -- its top line's advance, whatever
-        // screen is up -- and no further than what is retained.
-        // A read can move the window backwards: a redraw mark moving the
-        // window over its block (`prompt.rs`).
+        // Looking back while output scrolls, the window stays on the lines
+        // it was showing: the core holds it there, byte by byte, and sends
+        // it live where a scroll down, `RI` at the top or a redraw mark took
+        // its line back, or an erasure took the lines (note V, V2).
         let moved = read_moved(&self.app.term, before, resized);
-        self.app.back = after_read(&self.app.term, self.app.back, before);
         // The selection names absolute lines; the count that numbers them
         // advances with the screen. A surface switch is another ring, and a
         // line the ring recycled is clipped away. A window moved *back* has
@@ -6017,7 +6085,7 @@ impl Driver {
                 if !whole_screen_scrolled(&self.app.term, before) {
                     self.app.slide.snap();
                 } else if self.app.scroll == crate::config::ScrollMode::Smooth
-                    && self.app.back.index() == 0
+                    && self.app.term.window_back().index() == 0
                     && screen == Screen::Normal
                     && self.app.cell.is_some()
                 {
@@ -6042,7 +6110,6 @@ impl Driver {
         let (surface, thumb) = restart(
             &self.app.term,
             before,
-            window,
             Kept {
                 selection: &mut self.app.selection,
                 predictions: &mut self.app.predictions,
@@ -6421,12 +6488,13 @@ impl Responder for Driver {
             let _ = self.relayout(self.view.frame().size, self.app.scale);
         }
         let retained = i64::try_from(self.app.term.scrollback().len()).unwrap_or(i64::MAX);
-        let now = i64::try_from(self.app.back.index()).unwrap_or(0);
+        let was = self.app.term.primary_window_back();
+        let now = i64::try_from(was.index()).unwrap_or(0);
         let back = Rows::of_count(usize::try_from((now + step).clamp(0, retained)).unwrap_or(0));
-        if back.index() == self.app.back.index() {
+        if back.index() == was.index() {
             return;
         }
-        self.app.back = back;
+        self.app.term.set_window_back(back);
         // A wheel that moved the window reveals the thumb, as AppKit's
         // does -- the one that lands on the live screen too, which shows it
         // at the bottom of its travel and fades it.
@@ -6510,7 +6578,7 @@ impl Responder for Driver {
             let blinks = crate::caret::blinks(
                 self.app.term.cursor_style(),
                 self.app.focus,
-                live_cursor(&self.app.term, self.app.back),
+                live_cursor(&self.app.term),
             );
             if self.app.caret.due(now, blinks) == Owes::Frame {
                 self.app.pending = Pending::Dirty;
@@ -6543,7 +6611,7 @@ impl Responder for Driver {
         if let Some(now) = HostTime::of_secs(target) {
             // The hover follows the window as well as the pointer
             // (`Reveal::tick`).
-            let back = looking(&self.app.term, self.app.back);
+            let back = self.app.term.window_back();
             let drag = match self.bar_drag {
                 Some(_) => Drag::Dragging,
                 None => Drag::Idle,
@@ -7138,9 +7206,7 @@ impl Driver {
     /// Typing, and a paste, snap the window back to the live screen, where
     /// the keystroke's effect is.
     fn snap_to_live(&mut self) {
-        let back = snapped(&self.app.term, self.app.back);
-        if back != self.app.back {
-            self.app.back = back;
+        if snap_live(&mut self.app.term) {
             self.app.travel.settle();
             self.app.pending = Pending::Dirty;
             // A programmatic scroll, which AppKit reveals: the thumb shows
@@ -7237,12 +7303,7 @@ impl Driver {
             self.app.cell.as_ref(),
         );
         if self.app.trail_scroll != crate::config::TrailScroll::Ride
-            || !slides(
-                self.app.scroll,
-                looking(&self.app.term, self.app.back),
-                screen,
-                drawn,
-            )
+            || !slides(self.app.scroll, self.app.term.window_back(), screen, drawn)
             || self.app.slide.pan().value() == 0
         {
             return;
@@ -7374,7 +7435,7 @@ impl Driver {
             // The cell the pointer is over in the *view* -- scrolled back
             // included -- read the way `select` reads it; a wide tail
             // carries its lead's link, so either half resolves.
-            let view = self.app.term.view(looking(&self.app.term, self.app.back));
+            let view = self.app.term.view(self.app.term.window_back());
             let id = view.row(row)[col.index()].flags.link();
             self.app.term.link_uri(id).map(|_| id)
         };
@@ -7456,7 +7517,7 @@ impl Driver {
     fn select(&mut self, event: &Mouse) {
         let (row, col) = self.cell_under(event.x, event.y);
         let scrolled = self.app.scrolled;
-        let back = looking(&self.app.term, self.app.back);
+        let back = self.app.term.window_back();
         let view = self.app.term.view(back);
         let top = scrolled.top(back);
         let line = scrolled.line(back, row);
@@ -7627,8 +7688,8 @@ impl Driver {
         };
         let back = back_for(win, size, cell_h, top);
         self.app.reveal.reveal(now);
-        if back.index() != self.app.back.index() {
-            self.app.back = back;
+        if back.index() != self.app.term.primary_window_back().index() {
+            self.app.term.set_window_back(back);
             // Dragging the thumb into history settles a slide, as the wheel
             // does: it names live-screen rows the scrolled-back view lacks.
             if back.index() != 0 {
@@ -7665,7 +7726,6 @@ impl Driver {
         self.app.predictions.clear();
         self.app.guess = Guess::None;
         self.app.slide.snap();
-        self.app.back = Rows::ZERO;
         if let Some(t) = self.app.trace.as_mut() {
             t.resized(grid.ws());
         }
@@ -7768,11 +7828,14 @@ impl Driver {
             // would be a different line for the frame or two before it drains.
             self.app.slide.snap();
             // Truncated only past MAX_GRID, which the clamp above prevents.
-            // Anchor a window that is *already* looking back; leave one on
-            // the live screen where it is. See `anchored`. `scrolled` is
-            // left untouched: it numbers lines for a selection, and a
-            // resize has already cleared the selection.
-            self.app.back = resized_window(&mut self.app.term, &ws, self.app.back);
+            // The core holds a window that is *already* looking back on its
+            // line, through the re-cut, and leaves one on the live screen
+            // where it is -- the owner's "we should not change the scroll
+            // ever", which a zoom that repeated a banner four times broke
+            // when the app anchored it (`Term::resize`). `scrolled` is left
+            // untouched: it numbers lines for a selection, and a resize has
+            // already cleared the selection.
+            let _ = self.app.term.resize(&ws);
             if let Some(t) = self.app.trace.as_mut() {
                 // What the core *has*, post-clamp, which is what a replay
                 // must ask it for.
@@ -8460,6 +8523,44 @@ mod tests {
                 Some(u32::from(b'X')),
                 "{host:?}"
             );
+        }
+    }
+
+    /// **A program's page width sends the window over the history live, at
+    /// the request** (`honour`): the program is redrawing the page. The
+    /// core's resize holds a window on its line, which the control shows:
+    /// pinned, the grid stays and the window with it.
+    #[test]
+    fn honour_sends_the_window_over_the_history_live() {
+        use crate::width::{Host, Widths};
+        let small = WinSize {
+            ws_row: 30,
+            ws_col: 100,
+        };
+        let room = WinSize {
+            ws_row: 30,
+            ws_col: 132,
+        };
+        let lines: Vec<u8> = (0..60)
+            .flat_map(|i| format!("line {i}\r\n").into_bytes())
+            .collect();
+        for (host, want) in [(Host::Window, 0), (Host::Pinned, 5)] {
+            let mut s = baud_core::Owned::new(&room);
+            let mut t = Term::new(s.storage(), &small);
+            t.set_width_hold(baud_core::WidthHold::On);
+            crate::reads::feed(&mut t, [&lines[..]], |_| {}, |_| {});
+            t.set_window_back(Rows::of_count(5));
+            assert_eq!(t.window_back().index(), 5, "the control: five up");
+            let mut widths = Widths::new(&t);
+            crate::reads::feed(
+                &mut t,
+                [&b"\x1b[?40h\x1b[?3h"[..]],
+                |_| {},
+                |t| {
+                    let _ = honour(widths.poll(t, host), t);
+                },
+            );
+            assert_eq!(t.window_back().index(), want, "{host:?}");
         }
     }
 

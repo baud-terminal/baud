@@ -531,13 +531,12 @@ fn a_window_held_on_an_image_follows_it_through_a_re_cut() {
             (200, "widened back"),
             (37, "narrowed again"),
         ] {
-            let (r, held) = t.resize_holding(
-                &WinSize {
-                    ws_row: 50,
-                    ws_col: cols,
-                },
-                back,
-            );
+            t.set_window_back(back);
+            let r = t.resize(&WinSize {
+                ws_row: 50,
+                ws_col: cols,
+            });
+            let held = t.window_back();
             assert_eq!(r, Resized::Ok);
             in_place(t, why);
             assert_eq!(

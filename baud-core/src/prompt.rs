@@ -127,6 +127,9 @@ impl Paint<'_, '_> {
                 .top
                 .minus(Rows::of_count(above))
                 .unwrap_or(LineIdx::FIRST);
+            // A window over the history the block's rows came back over is
+            // on the live screen from here (`Book::window_taken_back`).
+            self.book.window_taken_back();
             if self.images.any_placed() {
                 self.expire_primary_images(None);
             }

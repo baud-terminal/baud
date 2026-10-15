@@ -263,16 +263,27 @@ impl HistoryErasures {
 /// What erased the primary's history: `CSI 3 J`, which keeps the screen, or
 /// `RIS`, with the screen that was live when it came -- `RIS` leaves the
 /// alternate screen first, so the screen after it is always the primary and
-/// says nothing of where it was made. An embedder whose window over the
-/// history is the primary's draws that window only while the primary is
-/// up, so the screen a reset was made from is whether the window it took
-/// to the live screen was one being looked through (note V, V1).
+/// says nothing of where it was made -- and where the primary's window over
+/// the history stood at the reset's byte. The window is drawn only while
+/// the primary is up, so a reset from the primary with its window back is
+/// one that took a window being looked through to the live screen (note V,
+/// V1); taken at the byte, because a scroll down earlier in the same read
+/// can have brought the window live first (V2).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Erasure {
     /// `CSI 3 J`: the saved lines, from either screen.
     SavedLines,
-    /// `RIS`, made from this screen.
-    Reset(Screen),
+    /// `RIS`, made from this screen, with the primary's window where it
+    /// stood.
+    Reset(Screen, Looking),
+}
+
+/// Where the primary's window over the history stood at an erasure: on the
+/// live screen, or back in the history.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Looking {
+    Live,
+    Back,
 }
 
 /// Which full reset the terminal is at: it moves on every `RIS` (`ESC c`),
@@ -1303,63 +1314,6 @@ impl<'b> Term<'b> {
         self.store.row_capacity()
     }
 
-    /// Take a new window size.
-    ///
-    /// **Geometry only: the allocation is the caller's and is untouched.** The
-    /// grid is caller-provided, so this can shrink freely and can only grow
-    /// into rows somebody provisioned -- [`Storage::row_capacity`] is that
-    /// number, and asking for more returns `Truncated` rather than clamping in
-    /// silence. Columns are free to the pitch, which `store_stride` derives
-    /// from the provisioned width and the cache line -- 208 cells for the
-    /// corpus and 400 for the app on a 128-byte line -- so a width past the
-    /// pitch or past `MAX_COLS` is `Truncated` too, and one between the
-    /// provisioned width and both is not.
-    ///
-    /// **A change of width re-cuts the primary and not the alternate
-    /// screen.** Between output and output the primary's lines are re-cut to
-    /// the new width in place, through the history (`View::reflow`); at a
-    /// prompt nothing is re-cut, because the shell redraws those rows by
-    /// counting them (see [`Zone`]). The alternate screen is cell-addressed:
-    /// the pitch is fixed, so a cell keeps its address whatever the width, a
-    /// narrower screen stops addressing what lies past its edge, and a wider
-    /// one blanks the columns it reveals ([`View::widened`]) because the
-    /// program owns them and redraws. What keeps the fixed pitch sound is that
-    /// a clear runs through a mark that lies past the live edge, so a line
-    /// erased while the screen was narrow does not come back with a tail --
-    /// and a mark is true to the live edge and no further, so a growth has to
-    /// raise it where the columns it reveals are not the row's uniform cell
-    /// (`View::settle_growth` on the primary, whatever the zone). The
-    /// height's half is the rotation moving over
-    /// the ring, below. [`Term::resize_holding`] is this with a window over
-    /// the history held on its line.
-    ///
-    /// Three things happen besides, in an order that is not free:
-    ///
-    /// * **A change of height moves the window, not the rows.** The
-    ///   rotation is an index into the ring, whose depth a resize never
-    ///   changes, so nothing is un-rotated and nothing can outrun a slice --
-    ///   the `mid <= len` panic a shrink under a live rotation once produced
-    ///   has no operation left to live in.
-    /// * **DECSTBM and the side margins are reset.** xterm does, a stale
-    ///   bottom margin points off the grid, and a stale *side* margin is an
-    ///   addressing error rather than a region: `cold.right` is what `room()`
-    ///   and every wrap test read, so a resize from 200 columns to 8 once left
-    ///   the write path believing it had 192 more than the grid has. Found by
-    ///   `autowrap_off_leaves_the_cursor_on_the_last_column`, after the
-    ///   margins work reset them on `RIS` and `DECSTR` and missed the third
-    ///   place that changes the geometry.
-    /// * **The cursor is clamped, not homed.** There is content to be
-    ///   relative to now, and a pending wrap at the old right edge is
-    ///   forgotten with the edge.
-    ///
-    /// **One thing core2 did here and this does not, deliberately.** It
-    /// rebuilt the tab table; this one is at least `MAX_COLS` long and stamped
-    /// every eighth column at construction, so no width change can invalidate
-    /// it.
-    pub fn resize(&mut self, ws: &WinSize) -> Resized {
-        self.resize_holding(ws, Rows::ZERO).0
-    }
-
     /// Which cursor the primary has while a resize runs: its own on the
     /// primary; the one `?1049` saved while that mode's alternate screen is
     /// up; and under `?47`, which saves none, the one cursor both screens
@@ -1405,22 +1359,71 @@ impl<'b> Term<'b> {
         );
     }
 
-    /// [`Term::resize`], holding a window over the primary's history on the
-    /// line it shows: `back` is how many lines above the primary window's
-    /// top it starts, and the answer is where that line is afterwards, in
-    /// the same unit and bounded by the history.
+    /// Take a new window size.
     ///
-    /// **Only the terminal can say, because a change of width re-cuts the
-    /// lines.** Anchoring the window by how far the window's top line moved
-    /// -- [`Term::history_moved_since`] -- counts the growth of every line
-    /// above the window, including the lines above the one the window shows,
-    /// which do not move it at all; long lines there put the window on
-    /// another line. So the window's first row is mapped through the re-cut
-    /// the way an image's row is, landing where its first cell lands, and a
-    /// line the re-cut dropped leaves the window on the oldest line kept.
-    /// **A live window stays live**: `back` of zero is the live screen,
-    /// whatever the re-cut did, and so is a line that lands on it.
-    pub fn resize_holding(&mut self, ws: &WinSize, back: Rows) -> (Resized, Rows) {
+    /// **Geometry only: the allocation is the caller's and is untouched.** The
+    /// grid is caller-provided, so this can shrink freely and can only grow
+    /// into rows somebody provisioned -- [`Storage::row_capacity`] is that
+    /// number, and asking for more returns `Truncated` rather than clamping in
+    /// silence. Columns are free to the pitch, which `store_stride` derives
+    /// from the provisioned width and the cache line -- 208 cells for the
+    /// corpus and 400 for the app on a 128-byte line -- so a width past the
+    /// pitch or past `MAX_COLS` is `Truncated` too, and one between the
+    /// provisioned width and both is not.
+    ///
+    /// **A change of width re-cuts the primary and not the alternate
+    /// screen.** Between output and output the primary's lines are re-cut to
+    /// the new width in place, through the history (`View::reflow`); at a
+    /// prompt nothing is re-cut, because the shell redraws those rows by
+    /// counting them (see [`Zone`]). The alternate screen is cell-addressed:
+    /// the pitch is fixed, so a cell keeps its address whatever the width, a
+    /// narrower screen stops addressing what lies past its edge, and a wider
+    /// one blanks the columns it reveals ([`View::widened`]) because the
+    /// program owns them and redraws. What keeps the fixed pitch sound is that
+    /// a clear runs through a mark that lies past the live edge, so a line
+    /// erased while the screen was narrow does not come back with a tail --
+    /// and a mark is true to the live edge and no further, so a growth has to
+    /// raise it where the columns it reveals are not the row's uniform cell
+    /// (`View::settle_growth` on the primary, whatever the zone). The
+    /// height's half is the rotation moving over
+    /// the ring, below, and it holds the window over the history on its line.
+    ///
+    /// Three things happen besides, in an order that is not free:
+    ///
+    /// * **A change of height moves the window, not the rows.** The
+    ///   rotation is an index into the ring, whose depth a resize never
+    ///   changes, so nothing is un-rotated and nothing can outrun a slice --
+    ///   the `mid <= len` panic a shrink under a live rotation once produced
+    ///   has no operation left to live in.
+    /// * **DECSTBM and the side margins are reset.** xterm does, a stale
+    ///   bottom margin points off the grid, and a stale *side* margin is an
+    ///   addressing error rather than a region: `cold.right` is what `room()`
+    ///   and every wrap test read, so a resize from 200 columns to 8 once left
+    ///   the write path believing it had 192 more than the grid has. Found by
+    ///   `autowrap_off_leaves_the_cursor_on_the_last_column`, after the
+    ///   margins work reset them on `RIS` and `DECSTR` and missed the third
+    ///   place that changes the geometry.
+    /// * **The cursor is clamped, not homed.** There is content to be
+    ///   relative to now, and a pending wrap at the old right edge is
+    ///   forgotten with the edge.
+    ///
+    /// **One thing core2 did here and this does not, deliberately.** It
+    /// rebuilt the tab table; this one is at least `MAX_COLS` long and stamped
+    /// every eighth column at construction, so no width change can invalidate
+    /// it.
+    ///
+    /// **The primary's window over the history is held on the line it
+    /// shows** (note V, V2), and only the terminal can say where that is,
+    /// because a change of width re-cuts the lines. Anchoring it by how far
+    /// the window's top line moved -- [`Term::history_moved_since`] -- counts
+    /// the growth of every line above the window, including the lines above
+    /// the one the window shows, which do not move it at all; long lines
+    /// there put the window on another line. So its first row is mapped
+    /// through the re-cut the way an image's row is, landing where its first
+    /// cell lands, and a line the re-cut dropped leaves it on the oldest line
+    /// kept. **A live window stays live**, whatever the re-cut did, and so
+    /// does one whose line a growth or the re-cut put on the live screen.
+    pub fn resize(&mut self, ws: &WinSize) -> Resized {
         let (want_cols, want_rows) = ws.geometry();
         let cap = self.store.row_capacity();
         let cols = want_cols.clamp(MAX_COLS).clamp(self.stride.index());
@@ -1433,7 +1436,9 @@ impl<'b> Term<'b> {
             self.cold.placement.forget();
         }
         // The window over the history, in lines from the window's top, as it
-        // moves with the steps below; `None` is the live screen.
+        // moves with the steps below; `None` is the live screen. Read through
+        // the floor, so the steps start from a line the ring still holds.
+        let back = self.store.book.window_back();
         let mut held = (back.index() > 0).then_some(back);
 
         // **The primary's height changes the way xterm's does, and it is
@@ -1877,7 +1882,8 @@ impl<'b> Term<'b> {
         // own clamp, the re-cut because a kept row lands no further back
         // than the oldest kept.
         debug_assert!(held.index() <= self.store.book.hist.index());
-        (resized, held)
+        self.store.book.set_window_back(held);
+        resized
     }
 
     /// Geometry comes from a [`WinSize`], which is the one place `ws_col` and
@@ -2027,6 +2033,44 @@ impl<'b> Term<'b> {
             Screen::Normal => back.min(self.store.book.hist),
             Screen::Alternate => Rows::ZERO,
         }
+    }
+
+    /// **How far back the window drawn is** (note V, V2): the terminal's own
+    /// window over the history, through [`Term::looking_back`], so zero on
+    /// the alternate screen, which keeps none, and zero on the live screen.
+    /// The terminal holds it on its line as output retires lines, sends it
+    /// live at the byte that takes its line back or erases the history, and
+    /// carries it through a resize; an embedder moves it only by asking
+    /// ([`Term::set_window_back`], [`Term::window_live`]).
+    pub fn window_back(&self) -> Rows {
+        self.looking_back(self.store.book.window_back())
+    }
+
+    /// The primary's window over the history, whatever screen is up: what
+    /// [`Term::window_back`] draws once the primary is up again. A program
+    /// on the alternate screen does not move it, because its output retires
+    /// nothing into the primary's history.
+    pub fn primary_window_back(&self) -> Rows {
+        self.store.book.window_back()
+    }
+
+    /// The screen [`Term::window_back`] lines into the history: what a
+    /// renderer draws, [`Term::view`] of the terminal's own window.
+    pub fn window(&self) -> Viewport<'_> {
+        self.view(self.window_back())
+    }
+
+    /// Put the primary's window `back` lines above the live screen's top --
+    /// a wheel, a scrollbar's thumb, a jump -- bounded by the history it
+    /// has; zero, or no history, is the live screen.
+    pub fn set_window_back(&mut self, back: Rows) {
+        self.store.book.set_window_back(back);
+    }
+
+    /// Send the primary's window to the live screen: an embedder's policy,
+    /// such as a key snapping it there.
+    pub fn window_live(&mut self) {
+        self.store.book.window = crate::storage::HistoryWindow::Live;
     }
 
     /// One screen row, `cols` cells, or `None` if `y` is not on the grid.
@@ -2520,8 +2564,8 @@ impl<'b> Term<'b> {
     /// window's top is counted rather than read round a ring. A reflow
     /// renumbers that line with the rows it re-cuts, so across a change of
     /// width this is the renumbering of the window's top, not a count of
-    /// rows that scrolled -- which is why a resize anchors a window over the
-    /// history with [`Term::resize_holding`] rather than with this.
+    /// rows that scrolled -- which is why [`Term::resize`] holds the window
+    /// over the history itself rather than leaving it to this.
     pub fn history_moved_since(&self, before: HistoryMark) -> Moved {
         let now = self.store.book.top;
         match now.since(before.0) {

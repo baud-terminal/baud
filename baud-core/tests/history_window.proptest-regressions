@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e13841f1f9fe759ee3a42c991320751b90bf8ba0b62c72add673d855dc51a7f4 # shrinks to prog = [Bytes([27, 91, 49, 48, 59, 49, 72, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]), Bytes([27, 91, 51, 59, 55, 114, 27, 91, 52, 72, 27, 91, 50, 76, 27, 91, 114]), Bytes([27, 91, 63, 49, 48, 52, 57, 104]), Bytes([27, 91, 63, 51, 74]), Resize(40, 8), Resize(12, 10), Bytes([27, 91, 63, 52, 55, 108]), Bytes([108, 105, 110, 101, 32, 48, 13, 10, 108, 105, 110, 101, 32, 49, 13, 10, 108, 105, 110, 101, 32, 50, 13, 10, 108, 105, 110, 101, 32, 51, 13, 10, 108, 105, 110, 101, 32, 52, 13, 10, 108, 105, 110, 101, 32, 53, 13, 10, 108, 105, 110, 101, 32, 54, 13, 10, 108, 105, 110, 101, 32, 55, 13, 10, 108, 105, 110, 101, 32, 56, 13, 10, 108, 105, 110, 101, 32, 57, 13, 10, 108, 105, 110, 101, 32, 49, 48, 13, 10, 108, 105, 110, 101, 32, 49, 49, 13, 10, 108, 105, 110, 101, 32, 49, 50, 13, 10, 108, 105, 110, 101, 32, 49, 51, 13, 10, 108, 105, 110, 101, 32, 49, 52, 13, 10, 108, 105, 110, 101, 32, 49, 53, 13, 10]), Resize(20, 24), Wheel(1)], size = 2

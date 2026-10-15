@@ -147,7 +147,7 @@ pub use storage::{
 };
 /// Which surface is live, for a caller asking `Term::screen`.
 pub use term::{
-    ColumnRefusals, Erasure, HistoryErasures, HistoryMark, Moved, Overrides, RegionScrolls, Resets,
-    Resized, Rest, ReverseFlips, RowMoves, Screen, ScreenEpoch, Term, ThemeColors, UpdatesOpened,
-    WidthRequests, WrapPending, Written, Zone,
+    ColumnRefusals, Erasure, HistoryErasures, HistoryMark, Looking, Moved, Overrides,
+    RegionScrolls, Resets, Resized, Rest, ReverseFlips, RowMoves, Screen, ScreenEpoch, Term,
+    ThemeColors, UpdatesOpened, WidthRequests, WrapPending, Written, Zone,
 };

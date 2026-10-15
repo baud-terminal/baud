@@ -275,12 +275,84 @@ pub struct Book<'b> {
     /// erasures was armed at** ([`crate::Term::watch_erasures`]): what
     /// [`crate::Term::first_erasure`] answers for. Not grid bookkeeping, and
     /// `Paint` never reads it -- only the embedder's two calls touch it --
-    /// but here because it fills this word's four bytes of end padding, so
-    /// `Book` stays 80 bytes with every field at base's offset. As a field of
-    /// `Term` it moved the twelve fields of `Term` after `utf8` by four and cost
-    /// about 0.3% more instructions retired on `cat`; `Cold`'s three bytes
-    /// of padding held the kept erasure and not this word too.
+    /// but here because it filled this word's four bytes of end padding, so
+    /// `Book` stayed 80 bytes with every field at base's offset. As a field
+    /// of `Term` it moved the twelve fields of `Term` after `utf8` by four
+    /// and cost about 0.3% more instructions retired on `cat`; `Cold`'s
+    /// three bytes of padding held the kept erasure and not this word too.
     pub(crate) watched_at: crate::term::HistoryErasures,
+    /// **The primary's window over the history** (note V, V2): the live
+    /// screen, or the absolute line at its top. An absolute line holds its
+    /// text as lines retire with no write at all -- `top` moves past it --
+    /// so the per-byte path that retires a line touches nothing here. What
+    /// moves it is what takes lines back, at the byte: a full-screen scroll
+    /// down, `RI` at the top and a prompt redraw's retreat send it to the
+    /// live screen when they reach its line or empty the history
+    /// ([`Book::window_taken_back`]); `CSI 3 J` and `RIS` send it there; a
+    /// resize maps it through the height step and the re-cut. The floor is
+    /// applied as it is read ([`Book::window_back`]): a line the ring
+    /// recycled reads as the oldest kept, so retiring lines writes nothing
+    /// here either. Last in the word, so every field before it keeps its
+    /// offset; the word grows from 80 bytes to 96, and `Paint` carries it by
+    /// reference. The relayout measured flat in instructions retired on
+    /// `cat`, `btop`, `vim` and `less`, none of which reaches the take-back
+    /// on the primary (the record, "The terminal keeps the window over the
+    /// history").
+    pub(crate) window: HistoryWindow,
+}
+
+/// Where the primary's window over the history stands: the live screen, or
+/// with this line at its top. An enum rather than an `Option`, as a two-state
+/// field is here. `At(l)` names a line before the window's top line, and
+/// one older than the oldest retained line reads as that line.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum HistoryWindow {
+    Live,
+    At(LineIdx),
+}
+
+// The word's size, as the window's field says: 80 bytes before it.
+const _: () = assert!(core::mem::size_of::<Book<'static>>() == 96);
+
+impl Book<'_> {
+    /// How many lines above the primary window's top the window over the
+    /// history starts: zero when it is live, and bounded by the history,
+    /// which is the floor -- a line the ring recycled reads as the oldest
+    /// line kept, as an anchor clamped at every retirement would.
+    pub(crate) fn window_back(&self) -> Rows {
+        match self.window {
+            HistoryWindow::Live => Rows::ZERO,
+            HistoryWindow::At(l) => self.top.since(l).map_or(Rows::ZERO, |n| n.min(self.hist)),
+        }
+    }
+
+    /// Put the window `back` lines above the primary window's top, bounded
+    /// by the history: none, or no history, is the live screen.
+    pub(crate) fn set_window_back(&mut self, back: Rows) {
+        let back = back.min(self.hist);
+        self.window = match (back.index(), self.top.minus(back)) {
+            (1.., Some(l)) => HistoryWindow::At(l),
+            _ => HistoryWindow::Live,
+        };
+    }
+
+    /// **The window after the primary's top line moved back or the history
+    /// shrank**, at the byte that did it: on the live screen once its line
+    /// is at or past the top -- the line is on the live screen now -- or
+    /// once no history is left behind the window. Live is where it stays as
+    /// later lines retire; a window carried by the net movement of a whole
+    /// read came back up the history by those lines, so the same bytes left
+    /// it live or five lines up by where the reads fell. One compare on the
+    /// live window, which is every scroll down nobody is looking back
+    /// through.
+    #[inline(always)]
+    pub(crate) fn window_taken_back(&mut self) {
+        if let HistoryWindow::At(l) = self.window {
+            if l >= self.top || self.hist.index() == 0 {
+                self.window = HistoryWindow::Live;
+            }
+        }
+    }
 }
 
 /// Everything a control string writes, in one struct.
@@ -995,6 +1067,7 @@ impl<'b> Storage<'b> {
                 past,
                 swept: LineIdx::FIRST,
                 watched_at: crate::term::HistoryErasures::FIRST,
+                window: HistoryWindow::Live,
             },
             strs,
             images,

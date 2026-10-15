@@ -338,28 +338,33 @@ fn a_full_ring_narrows_and_keeps_what_fits() {
 // anchored a scrolled-back window by how far the line at the window's top
 // moved, and a re-cut renumbers that line by the growth of every line above
 // it -- the lines above the one the window shows included, which do not move
-// it at all. `Term::resize_holding` maps the window's first row through the
-// re-cut the way an image's row is mapped.
+// it at all. `Term::resize` maps the terminal's own window's first row
+// through the re-cut the way an image's row is mapped (note V, V2).
 
 /// The line at the top of a view `back` lines up.
 fn viewed(t: &Term<'_>, back: Rows) -> String {
     text_of(t.view(back).row(Row::ZERO)).trim_end().to_string()
 }
 
+/// The terminal's window put `back` lines up, the screen resized, and where
+/// the window is after it.
 fn hold(t: &mut Term<'_>, cols: u16, rows: u16, back: Rows) -> Rows {
-    let (r, b) = t.resize_holding(
-        &WinSize {
-            ws_row: rows,
-            ws_col: cols,
-        },
+    t.set_window_back(back);
+    assert_eq!(
+        t.window_back(),
         back,
+        "the control: the window is where it was put"
     );
+    let r = t.resize(&WinSize {
+        ws_row: rows,
+        ws_col: cols,
+    });
     assert_eq!(
         r,
         Resized::Ok,
         "{cols}x{rows} is inside the provisioned grid"
     );
-    b
+    t.window_back()
 }
 
 /// How far back the line `want` starts, looking from the live screen.
@@ -449,9 +454,10 @@ fn a_window_a_growth_brings_to_the_live_screen_stays_live_through_the_re_cut() {
     let mut t = Term::new(owned.storage(), &ws(20, 8));
     let s: String = (0..20).map(long).collect();
     support::feed(&mut t, s.as_bytes());
-    let (r, held) = t.resize_holding(&ws(12, 10), Rows::of_count(2));
-    assert_eq!(r, Resized::Ok);
-    assert_eq!(held, Rows::ZERO);
+    t.set_window_back(Rows::of_count(2));
+    assert_eq!(t.window_back().index(), 2, "the control: two lines up");
+    assert_eq!(t.resize(&ws(12, 10)), Resized::Ok);
+    assert_eq!(t.window_back(), Rows::ZERO);
 }
 
 /// The re-cut drops whole lines from the oldest end when the ring cannot

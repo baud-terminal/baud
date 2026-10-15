@@ -3060,7 +3060,7 @@ fn the_watch_keeps_the_first_erasure_and_the_screen_a_reset_came_from() {
             t.first_erasure(since)
         })
     };
-    let reset = |s| Some(Erasure::Reset(s));
+    let reset = |s| Some(Erasure::Reset(s, Looking::Live));
     for (bytes, want, what) in [
         (
             &b"\x1bc"[..],
