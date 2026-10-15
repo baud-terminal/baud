@@ -117,9 +117,10 @@ impl Paint<'_, '_> {
     /// the margins." The first left-margin origin confined only `CUP`, so
     /// `CR`, `CUB` or `CHA` left the cursor left of the origin and `CPR`
     /// answered the origin's column for it. Every horizontal move but a write
-    /// and `BS` (which stops at the left margin by itself) comes through here
-    /// or through [`Paint::origin_col`]; not inside `set_col`, which every
-    /// write's move takes too.
+    /// and `BS` (which stops at the left margin by itself) comes through here,
+    /// through the line start of [`Paint::return_fenced`] or through
+    /// [`Paint::origin_col`]; not inside `set_col`, which every write's move
+    /// takes too.
     pub(crate) fn confine_col(&self, c: Col) -> Col {
         match self.cold.modes.is_set(ModeBit::Origin) {
             false => c,
@@ -130,20 +131,127 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// `CR` under DECOM: to the left margin (`[[source: dec-std-070]]` CR,
-    /// p. 5-58), and where that is past column 0 the cluster machine is told
-    /// a control went past, as `Act::EndCluster` tells it after every other
+    /// **`CR`, and every line start built on it**: `NEL`, `CNL`, `CPL` and
+    /// `LF` under `LNM`. One bit of the mode word inline: **a left margin
+    /// past column 0 is set only under `DECLRMM`** -- `DECSLRM` parses only
+    /// then, and `?69 l`, `DECCOLM`, `DECSTR`, `RIS` and a resize put the
+    /// margins back wherever the bit goes -- so with it reset every line
+    /// starts at column 0, DECOM or not, and nothing else is read. A mask of
+    /// both bits, `0x24`, is no logical immediate on arm64: it cost a `mov`
+    /// and a `tst` where one `tbnz` stands, 2.4 M instructions over 100 reps
+    /// of `cat` (`docs/record.md`, "Line starts and moves under side margins").
+    #[inline(always)]
+    pub(crate) fn carriage_return(&mut self) {
+        match self.cold.modes.is_set(ModeBit::SideMargins) {
+            false => self.set_col(Col::ZERO),
+            true => self.return_fenced(),
+        }
+    }
+
+    /// `CR` under `DECLRMM`. `[[source: dec-std-070]]` CR, p. 5-58:
+    /// "The CR control moves the Active Position to the Left Margin. If the
+    /// Active Position is before the left margin, or outside the top and
+    /// bottom margins, the cursor moves to the first column of the Active
+    /// Line"; its algorithm tests `column >= left_margin` and the line
+    /// between the top and bottom margins. xterm's `CarriageReturn`
+    /// (`[[source: xterm-cursor-c]]` 345-371) and ghostty's
+    /// (`[[source: ghostty-d9840f3-terminal]]` 1822-1833) test the column
+    /// only: their departure. Under DECOM the cursor cannot be outside the
+    /// margins (p. 5-31), so it goes to the left margin with no test.
+    ///
+    /// Where the line starts past column 0 the cluster machine is told a
+    /// control went past, as `Act::EndCluster` tells it after every other
     /// control: `CR` leads to the ground because at column 0 `glyph` restarts
     /// the machine itself, and at a margin past it a continuation would find
     /// a cell before it and join it across the control.
     #[cold]
     #[inline(never)]
-    pub(crate) fn return_displaced(&mut self) {
-        let home = self.cold.left;
+    pub(crate) fn return_fenced(&mut self) {
+        let (x, y) = (self.cx.index(), self.cy.index());
+        let left = self.cold.left;
+        let inside = self.cold.modes.is_set(ModeBit::Origin)
+            || (x >= left.index() && y >= self.cold.top.index() && y <= self.cold.bot.index());
+        let home = match inside {
+            true => left,
+            false => Col::ZERO,
+        };
         if home != Col::ZERO {
             self.cluster = ClusterBreak::after_control();
         }
         self.set_col(home);
+    }
+
+    /// **`CUF`: the right margin stops a cursor at or inside it.**
+    /// `[[source: dec-std-070]]` CUF, p. 5-45, note 1: "If the Active
+    /// Position is at or inside the Right Margin ... The Active Position will
+    /// not move beyond the Right Margin"; note 2: "If the Active Position is
+    /// beyond the Right Margin ... the control will be executed until the
+    /// Active Position reaches the last column of the Active Line." No row is
+    /// tested (the algorithm, p. 5-46), and xterm's `CursorForward`
+    /// (`[[source: xterm-cursor-c]]` 211-241) and ghostty's `cursorRight`
+    /// (`[[source: ghostty-d9840f3-terminal]]` 1884-1895) agree.
+    /// `[[source: vt510-cuf]]` says "the right border of the page", which
+    /// STD 070's notes refine.
+    ///
+    /// **A pending wrap is on the right margin**, as in `Paint::tab_end`:
+    /// with `DECAWM` set the sentinel one past it reads as on it, so a `CUF`
+    /// there stays on the margin; with it reset one past is beyond.
+    ///
+    /// **One bit inline, the margins out of line**, as for `CR`: with
+    /// `DECLRMM` reset the margins are the page's edges
+    /// ([`Paint::carriage_return`]), both notes stop at the last column, and
+    /// DECOM's clamp ([`Paint::confine_col`]) to them is no clamp, so the bit
+    /// replaces DECOM's test rather than adding one. Inline, the margin test
+    /// was 2.4 M instructions over 100 reps of `btop`, whose 6,150 `CUF`s and
+    /// 1,863 `CUB`s a rep are all at full width.
+    #[inline(always)]
+    pub(crate) fn forward_in_margins(&self, n: Count) -> Col {
+        match self.cold.modes.is_set(ModeBit::SideMargins) {
+            false => self.cx.forward(n, self.cols),
+            true => self.forward_fenced(n),
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn forward_fenced(&self, n: Count) -> Col {
+        let x = self.cx.index();
+        let right = self.cold.right.index();
+        let pending = usize::from(self.cold.modes.is_set(ModeBit::AutoWrap));
+        let end = match x <= right + pending {
+            true => right,
+            false => self.cols.index() - 1,
+        };
+        self.confine_col(Col::at_index((x + n.at_least_one()).min(end)))
+    }
+
+    /// **`CUB`: the left margin stops a cursor at or inside it.**
+    /// `[[source: dec-std-070]]` CUB, p. 5-47, note 1: "If the Active
+    /// Position is at or inside the Left Margin ... The Active position will
+    /// not move beyond the Left Margin"; note 2: from before it, "until the
+    /// Active Position reaches the first column of the Active Line". No row
+    /// is tested (p. 5-48), as xterm's `CursorBack` does not
+    /// (`[[source: xterm-cursor-c]]` 148-149: "if the cursor is already
+    /// before the left-margin, we have to let it go"). Gated on `DECLRMM`
+    /// as `CUF` is.
+    #[inline(always)]
+    pub(crate) fn back_in_margins(&self, n: Count) -> Col {
+        match self.cold.modes.is_set(ModeBit::SideMargins) {
+            false => self.cx.back(n),
+            true => self.back_fenced(n),
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn back_fenced(&self, n: Count) -> Col {
+        let x = self.cx.index();
+        let left = self.cold.left.index();
+        let floor = match x >= left {
+            true => left,
+            false => 0,
+        };
+        self.confine_col(Col::at_index(x.saturating_sub(n.at_least_one()).max(floor)))
     }
 
     pub(crate) fn save(&self) -> Saved {
@@ -999,6 +1107,17 @@ impl Paint<'_, '_> {
     /// affected. IL is ignored if the Active Position is outside the Scroll
     /// Area" (`[[source: vt510-il]]` says "page margins"). Under them it moves
     /// the rectangle.
+    ///
+    /// **And it puts the cursor on the left margin**, on its own row, before
+    /// anything moves: IL and DL note 2 (pp. 5-146 and 5-148), "The Active
+    /// Position is set to the Left Margin in the active line after execution
+    /// of this control. The active line does not change", and both algorithms
+    /// set `active_position.column = left_margin` inside the test that
+    /// ignores the control. xterm's `InsertLine` and `DeleteLine` do
+    /// (`[[source: xterm-scroll]]` 1650 and 1760) and so does ghostty
+    /// (`[[source: ghostty-d9840f3-terminal]]` 2969 and 3143).
+    /// At full width that is column 0, where the cursor stayed on its column
+    /// until 2026-10-15, as alacritty's still does.
     pub(crate) fn insert_lines(&mut self, n: Count) {
         if self.cy.index() < self.cold.top.index() || self.cy.index() > self.cold.bot.index() {
             return;
@@ -1006,6 +1125,7 @@ impl Paint<'_, '_> {
         if !self.within_side_margins() {
             return;
         }
+        self.set_col(self.cold.left);
         if self.fenced() {
             self.scroll_rect(self.cy, n, BandMove::Down);
             return;
@@ -1037,6 +1157,7 @@ impl Paint<'_, '_> {
         if !self.within_side_margins() {
             return;
         }
+        self.set_col(self.cold.left);
         if self.fenced() {
             self.scroll_rect(self.cy, n, BandMove::Up);
             return;

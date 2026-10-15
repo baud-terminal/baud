@@ -8,6 +8,7 @@
 mod support;
 
 mod decaln;
+mod line_starts;
 mod origin;
 mod rect_scroll;
 mod side_margins;
@@ -29,6 +30,7 @@ fn the_known_vt420_gaps() {
         "vt420",
         &[
             "decaln.rs",
+            "line_starts.rs",
             "origin.rs",
             "rect_scroll.rs",
             "side_margins.rs",

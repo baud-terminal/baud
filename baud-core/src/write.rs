@@ -365,10 +365,12 @@ pub(crate) fn act(
         // took 0.8% of them back (the record, "A `CR LF` calls `set_ended`
         // only on a row that wrapped").
         //
-        // **Under DECOM the line starts at the left margin**, out of line
-        // (`Paint::return_displaced`), so the loop carries one test of the
-        // mode word: read in place, the margin's load and the cluster's store
-        // read `cat` 9.5% below the parent, and out of line 4.7%, with the
+        // **Under `DECLRMM` the line starts where `CR`'s rule puts it**, out
+        // of line (`Paint::return_fenced`), so the loop carries one test of
+        // one bit of the mode word (`Paint::carriage_return` says why one bit
+        // covers DECOM too): read in place, the margin's load and the
+        // cluster's store read `cat` 9.5% below the parent (the DECOM test
+        // this one replaced), and out of line 4.7%, with the
         // tab clamp still inlined. With both out of line `cat` still reads
         // 1.4-3.6% below the parent by the median in eight idle sweeps (the
         // record's four full sweeps and four ceiling sweeps), wholly below in
@@ -376,10 +378,7 @@ pub(crate) fn act(
         // this one in the four ceiling sweeps: the loop's layout, not the test
         // (the record, "DECOM's origin is the left margin too").
         Act::Return => {
-            match p.cold.modes.is_set(ModeBit::Origin) {
-                false => p.set_col(Col::ZERO),
-                true => p.return_displaced(),
-            }
+            p.carriage_return();
             match left.index() >= 2 && p.arena[from.index() + 1] == 0x0a {
                 true => {
                     if p.view.extent(p.cy).wrapped() {
@@ -1711,15 +1710,23 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         }
         DomCsi::CursorUp(c) => p.set_row(p.confine(p.cy.up(c))),
         DomCsi::CursorDown(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
-        DomCsi::CursorForward(c) => p.set_col(p.confine_col(p.cx.forward(c, p.cols))),
-        DomCsi::CursorBack(c) => p.set_col(p.confine_col(p.cx.back(c))),
+        DomCsi::CursorForward(c) => p.set_col(p.forward_in_margins(c)),
+        DomCsi::CursorBack(c) => p.set_col(p.back_in_margins(c)),
+        // **`CNL` and `CPL` start the line they land on as `CR` would**:
+        // `[[source: vt510-cnl]]` and `[[source: vt510-cpl]]`, "the first
+        // character of the n-th following line", the words
+        // `[[source: vt510-nel]]` uses for `NEL`, whose line start
+        // `[[source: dec-std-070]]` (p. 5-64) is `CR`'s; xterm's
+        // `CursorNextLine` and `CursorPrevLine` are `CursorDown` or
+        // `CursorUp` and then `CarriageReturn` (`[[source: xterm-cursor-c]]`
+        // 527-549). No DEC text has a `CNL`: the record lists the reading.
         DomCsi::CursorNextLine(c) => {
             p.set_row(p.confine(p.cy.down(c, p.rows)));
-            p.set_col(p.origin_col());
+            p.carriage_return();
         }
         DomCsi::CursorPrevLine(c) => {
             p.set_row(p.confine(p.cy.up(c)));
-            p.set_col(p.origin_col());
+            p.carriage_return();
         }
         // **Absolute, and clamped into the margins under DECOM**: option
         // (a') of the record's "DECOM's origin is the left margin too", which
@@ -1730,6 +1737,11 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             let want = Row::from_index(base + r.to_row(p.rows).index());
             p.set_row(p.confine(want));
         }
+        // **`HPR` goes to "the last position on the line"**
+        // (`[[source: vt510-hpr]]`), the side margins aside: no DEC algorithm
+        // has an `HPR`, and xterm's (`CursorSet`, `[[source: xterm-cursor-c]]`
+        // 68-90) and ghostty's pass the right margin too. Under DECOM it is
+        // confined as every move is.
         DomCsi::ColumnRelative(c) => p.set_col(p.confine_col(p.cx.forward(c, p.cols))),
         DomCsi::LineRelative(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
         DomCsi::EraseInLine(e) => p.erase_line(e),
@@ -2038,9 +2050,14 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         Esc::Index => {
             p.index();
         }
+        // **`CR` and then `LF`, so the line it leaves decides**:
+        // `[[source: dec-std-070]]` NEL, p. 5-64, "If the Active Position is
+        // before the left margin, or outside the top and bottom margins, it
+        // will move to the first column of the next line", and its algorithm
+        // is `carriage_return(); line_feed();`.
         Esc::NextLine => {
+            p.carriage_return();
             p.index();
-            p.set_col(p.origin_col());
         }
         Esc::TabSet => {
             let x = p.cx.index();

@@ -430,6 +430,73 @@ bytes  = 19590
 status = "retrieved"
 group  = "C"
 
+[sources.vt510-cnl]
+key    = "vt510-cnl"
+title  = "CNL -- Cursor Next Line (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/CNL.html"
+file   = "vt510-CNL.html"
+sha256 = "3fc72b651271f79e614e2d6c2a4f589f59aa88cf48037f2fd92c44e3b65fd54b"
+bytes  = 19268
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-15 for V10's line starts and moves, with the four below.
+# vt100.net has no CR page in this manual; CR is [[source: dec-std-070]] p. 5-58.
+
+[sources.vt510-cpl]
+key    = "vt510-cpl"
+title  = "CPL -- Cursor Previous Line (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/CPL.html"
+file   = "vt510-CPL.html"
+sha256 = "c53cc07bbebdc7ad20d6b64cd237d6b8f6a0922c13e8b6f86244e7b3ca5f1f70"
+bytes  = 19297
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-cuf]
+key    = "vt510-cuf"
+title  = "CUF -- Cursor Forward (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/CUF.html"
+file   = "vt510-CUF.html"
+sha256 = "6d6f8646eb5bd99e7ff9c11e384d1e0c6c03f8dff8d57447d0a19fa533b9eb41"
+bytes  = 19216
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-hpr]
+key    = "vt510-hpr"
+title  = "HPR -- Horizontal Position Relative (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/HPR.html"
+file   = "vt510-HPR.html"
+sha256 = "1c0abd0c4a77cb566fbc73013c34e261acc2f41f4b8978709b7e875c7e309e86"
+bytes  = 19438
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-nel]
+key    = "vt510-nel"
+title  = "NEL -- Next Line (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/NEL.html"
+file   = "vt510-NEL.html"
+sha256 = "440b12ecaa9c5b3f2d6844234bbc1c0f3b85470e48406aad5c43e71bbf29ab3d"
+bytes  = 19013
+status = "retrieved"
+group  = "C"
+
 [sources.vt510-cha]
 key    = "vt510-cha"
 title  = "CHA -- Cursor Horizontal Absolute (VT510 Programmer Information)"

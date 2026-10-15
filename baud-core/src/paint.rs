@@ -1352,10 +1352,13 @@ impl<'a, 'b> Paint<'a, 'b> {
     pub(crate) fn line_feed(&mut self) {
         // A newline ends the row it leaves, however it was written before.
         self.view.set_ended(self.cy);
-        self.index();
+        // `CR` first: `[[source: dec-std-070]]` LF's algorithm (p. 5-60)
+        // calls `carriage_return()` before it moves, so the line it leaves
+        // decides where the next one starts under the margins.
         if self.cold.modes.is_set(ModeBit::LineFeedNewLine) {
-            self.set_col(self.origin_col());
+            self.carriage_return();
         }
+        self.index();
     }
 
     /// Down one row, scrolling when that would leave the screen.

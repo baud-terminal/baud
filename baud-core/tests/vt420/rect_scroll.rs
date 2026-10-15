@@ -519,12 +519,20 @@ fn the_marks_cover_what_the_rectangle_wrote() {
 /// **`DL` re-reads the cursor's row after the rectangle moves**: a blank row
 /// that takes a wide character from below is no longer blank where the
 /// write path's shortcut says it is, and a write over the tail with no move
-/// in between must still erase the lead. `SU` and `SD` re-read in their
-/// dispatch and `LF` in `index`; `IL` and `DL` only through
-/// `Paint::scroll_rect`.
+/// in between must still erase the other half. `SU` and `SD` re-read in
+/// their dispatch and `LF` in `index`; `IL` and `DL` only through
+/// `Paint::scroll_rect`. `DL` leaves the cursor on the left margin (STD 070
+/// DL note 2), so the wide character is put under it there and the write
+/// lands on its lead.
 #[test]
 fn dl_that_brings_a_wide_character_onto_the_cursor_row_rereads_it() {
-    let s = seen(&format!("\x1b[4;6H\u{4e2d}{TB}{LRM}\x1b[3;7H\x1b[Mx"));
+    let s = seen(&format!("\x1b[4;5H\u{4e2d}{TB}{LRM}\x1b[3;7H\x1b[Mx"));
+    assert_eq!(s.screen[2], "....x...............", "the tail erased");
+    // And over the tail, after a `CUF` that moves the column only: the
+    // lead is erased.
+    let s = seen(&format!(
+        "\x1b[4;6H\u{4e2d}{TB}{LRM}\x1b[3;7H\x1b[M\x1b[2Cx"
+    ));
     assert_eq!(s.screen[2], "......x.............", "the lead erased");
     assert_eq!(s.screen[3], "....................");
 }

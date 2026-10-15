@@ -307,12 +307,18 @@ const INDEX_OUTSIDE: &str = "ghostty departs: IND and RI from outside the side m
                              nothing there; STD 070 p. 5-24 marks them O for L/R, 'Continues \
                              to work outside these margins', and its algorithms test the \
                              line only (xterm departs alike)";
-/// IL and DL move the cursor to the left margin: [[source: dec-std-070]] IL
-/// and DL note 2, ECMA-48 8.3.67 and 8.3.32's line home position.
-const HOME: &str = "IL/DL leave the column where it was; the texts move it to the \
-                    left margin (STD 070 IL/DL note 2, ECMA-48 8.3.67/8.3.32)";
-/// Note V's V10, step (c).
-const STEP_C: &str = "V10 step (c): line starts and moves that honour the fence";
+/// ghostty's `CR` and line starts test the column only.
+const CR_ROWS: &str = "ghostty departs: CR on a row outside the top and bottom margins \
+                       goes to the left margin (carriageReturn tests the column only, \
+                       Terminal.zig 1822-1833), as xterm's CarriageReturn does (cursor.c \
+                       345-371); STD 070 CR (p. 5-58) sends it to the first column, \
+                       'or outside the top and bottom margins', and NEL (p. 5-64) is \
+                       CR then LF, so the line it leaves decides";
+/// ghostty's `CUB` without `?45` passes the left margin.
+const CUB_MARGIN: &str = "ghostty departs: without ?45 CUB passes the left margin \
+                          (cursorLeft's min(count, x), Terminal.zig 1913); STD 070 CUB \
+                          note 1 (p. 5-47) stops it there from at or inside it, as \
+                          xterm's CursorBack does (cursor.c 148-149)";
 /// Note V's V10, step (d): the corner, and `Term::cursor`'s clamp of a
 /// cursor right of the fence to the right margin, which reads it as a
 /// pending wrap there.
@@ -432,7 +438,12 @@ fn fixtures() -> Vec<Fixture> {
         f(
             "full: IL homes the column",
             format!("{TB}\x1b[3;6H\x1b[L"),
-            Pinned(HOME),
+            Agree,
+        ),
+        f(
+            "full: DL homes the column",
+            format!("{TB}\x1b[3;6H\x1b[2M"),
+            Agree,
         ),
         f(
             "full: LF after a full row",
@@ -588,7 +599,12 @@ fn fixtures() -> Vec<Fixture> {
         f(
             "lrm: IL homes to the left margin",
             format!("{TB}{LRM}\x1b[3;7H\x1b[L"),
-            Pinned(HOME),
+            Agree,
+        ),
+        f(
+            "lrm: DL homes to the left margin",
+            format!("{TB}{LRM}\x1b[3;10H\x1b[M"),
+            Agree,
         ),
         // ---- DECOM: the origin is the top and left margins -------------------
         f(
@@ -616,7 +632,7 @@ fn fixtures() -> Vec<Fixture> {
             format!("{LRM}\x1b[?6h{TB}"),
             Agree,
         ),
-        // `?6l` at the end homes both, so IL's column (HOME) is not compared.
+        // `?6l` at the end homes both, so IL's column is not compared.
         f(
             "decom: IL from a displaced CUP inside the fence",
             format!("{TB}{LRM}\x1b[?6h\x1b[2;2H\x1b[L\x1b[?6l"),
@@ -860,12 +876,114 @@ fn fixtures() -> Vec<Fixture> {
             format!("{TB}{LRM}\x1b[?45h\x1b[3;5H\x08{PROBE}"),
             Pinned(REVWRAP_UNWRAPPED),
         ),
-        // ---- side margins: the later steps ----------------------------------
+        // ---- side margins: line starts and moves, DECOM reset ---------------
+        // STD 070 CR (p. 5-58), NEL (p. 5-64), CUF and CUB (pp. 5-45, 5-47).
         f(
             "lrm: CR inside the fence",
             format!("{LRM}\x1b[3;7HAB\rC"),
-            Pinned(STEP_C),
+            Agree,
         ),
+        f(
+            "lrm: CR right of the fence",
+            format!("{LRM}\x1b[3;15H\r{PROBE}"),
+            Agree,
+        ),
+        f(
+            "lrm: CR left of the fence",
+            format!("{LRM}\x1b[3;2H\rC"),
+            Agree,
+        ),
+        f(
+            "lrm: CR at a pending wrap",
+            format!("{LRM}\x1b[3;5HABCDEF\rZ"),
+            Agree,
+        ),
+        f(
+            "lrm: CR LF inside the fence",
+            format!("{LRM}\x1b[3;7H\r\nC"),
+            Agree,
+        ),
+        f(
+            "lrm: CR below the scroll area",
+            format!("{TB}{LRM}\x1b[8;7H\rC"),
+            Pinned(CR_ROWS),
+        ),
+        f(
+            "lrm: NEL inside the fence",
+            format!("{TB}{LRM}\x1b[3;7H\x1bEC"),
+            Agree,
+        ),
+        f(
+            "lrm: NEL from above the scroll area",
+            format!("{TB}{LRM}\x1b[1;7H\x1bEC"),
+            Pinned(CR_ROWS),
+        ),
+        f(
+            "lrm: LF under LNM inside the fence",
+            format!("{LRM}\x1b[20h\x1b[3;7H\nC\x1b[20l"),
+            Agree,
+        ),
+        f(
+            "lrm: CNL inside the fence",
+            format!("{LRM}\x1b[3;7H\x1b[EC"),
+            Agree,
+        ),
+        f(
+            "lrm: CPL right of the fence",
+            format!("{LRM}\x1b[3;15H\x1b[F{PROBE}"),
+            Agree,
+        ),
+        f(
+            "lrm: CNL into the scroll area",
+            format!("{TB}{LRM}\x1b[1;7H\x1b[EC"),
+            Agree,
+        ),
+        f(
+            "lrm: CUF stops at the right margin",
+            format!("{LRM}\x1b[3;8H\x1b[5CX"),
+            Agree,
+        ),
+        f(
+            "lrm: CUF from left of the fence",
+            format!("{LRM}\x1b[3;2H\x1b[20CX"),
+            Agree,
+        ),
+        f(
+            "lrm: CUF beyond the right margin",
+            format!("{LRM}\x1b[3;13H\x1b[3C{PROBE}"),
+            Agree,
+        ),
+        f(
+            "lrm: CUF at a pending wrap",
+            format!("{LRM}\x1b[3;5HABCDEF\x1b[CX"),
+            Agree,
+        ),
+        f(
+            "lrm: CUF from one past the right margin, ?7l",
+            format!("{LRM}\x1b[?7l\x1b[3;11H\x1b[2C{PROBE}"),
+            Agree,
+        ),
+        f(
+            "lrm: CUF from one past the right margin, ?7h",
+            format!("{LRM}\x1b[3;11H\x1b[2C{PROBE}"),
+            Pinned(STEP_D),
+        ),
+        f(
+            "lrm: HPR passes the right margin",
+            format!("{LRM}\x1b[3;8H\x1b[5a{PROBE}"),
+            Agree,
+        ),
+        f(
+            "lrm: CUB stops at the left margin",
+            format!("{LRM}\x1b[3;7H\x1b[5DX"),
+            Pinned(CUB_MARGIN),
+        ),
+        f(
+            "lrm: CUB from left of the fence",
+            format!("{LRM}\x1b[3;4H\x1b[5DX"),
+            Agree,
+        ),
+        // ---- side margins: the later steps ----------------------------------
         f(
             "lrm: a write right of the fence",
             format!("{LRM}\x1b[1;15HXY"),
