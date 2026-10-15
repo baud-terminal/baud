@@ -792,6 +792,10 @@ pub struct Composition {
     pub row: Row,
     pub col: Col,
     pub text: Vec<Codepoint>,
+    /// How many columns an ambiguous character takes: the core's own
+    /// policy (`Term::ambiguous_width`), so the overlay and a write of
+    /// the same text agree. Private Use stays one column either way.
+    pub ambiguous: AmbiguousWidth,
 }
 
 /// One cluster of a composition: the column it starts at, its codepoints
@@ -808,13 +812,12 @@ impl Composition {
     /// cluster before it, a wide one takes two cells, and one that would
     /// cross the right edge is not drawn, nor anything after it -- a
     /// composition is shown on its line, as `NSTextView` shows marked text
-    /// at the insertion point. Ambiguous characters are narrow, the core's
-    /// default and the app's.
+    /// at the insertion point. Ambiguous characters take `self.ambiguous`.
     fn pieces(&self, cols: Cols) -> Vec<Piece> {
         let mut out: Vec<Piece> = Vec::new();
         let mut x = self.col.index();
         for &cp in &self.text {
-            let w = Classified::of(cp).width(AmbiguousWidth::Narrow);
+            let w = Classified::of(cp).width(self.ambiguous);
             if w == Width::ZERO {
                 if let Some(last) = out.last_mut() {
                     last.cps.push(cp);

@@ -19,7 +19,7 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{BytePos, Codepoint, ReadLen};
+use baud_domain::{AmbiguousWidth, BytePos, Codepoint, ReadLen};
 use baud_font::Face;
 use baud_render::{Composition, Damage, Renderer};
 use support::{Canvas, WS, font, renderer};
@@ -45,6 +45,7 @@ fn frame(r: &mut Renderer<'_, '_>, bytes: &[u8], composition: Option<&str>) -> V
         row,
         col,
         text: cps(s),
+        ambiguous: AmbiguousWidth::Narrow,
     }));
     let mut c = Canvas::for_renderer(r);
     support::paint(r, &mut t, &mut c, Damage::Full);
@@ -137,6 +138,7 @@ fn an_ended_composition_repaints_the_cells_under_it() {
         row,
         col,
         text: cps("xyz"),
+        ambiguous: AmbiguousWidth::Narrow,
     }));
     support::paint(&mut r, &mut t, &mut c, Damage::Full);
     // Committed or cancelled: the incremental frame after it is the grid.
@@ -164,6 +166,7 @@ fn a_changed_composition_repaints_even_over_the_same_text() {
         row,
         col,
         text: cps("xyz"),
+        ambiguous: AmbiguousWidth::Narrow,
     }));
     support::paint(&mut r, &mut t, &mut c, Damage::Incremental);
     assert_eq!(c.pixels, want, "the underline and the cursor moved in");
@@ -191,6 +194,7 @@ fn over_blank_cells_it_appears_and_goes_on_incremental_frames() {
         row,
         col,
         text: cps("xyz"),
+        ambiguous: AmbiguousWidth::Narrow,
     }));
     support::paint(&mut r, &mut t, &mut c, Damage::Incremental);
     assert_eq!(c.pixels, composed, "it appeared");
@@ -221,4 +225,36 @@ fn a_composition_on_a_later_row_draws_on_that_row() {
     let composed = frame(&mut r, b"one\r\ntwo\r\nth", Some("ree"));
     let written = frame(&mut r, b"one\r\ntwo\r\nth\x1b[4mree\x1b[24m", None);
     assert_eq!(composed, written);
+}
+
+/// **The overlay measures as the core writes.** Under the configured
+/// ambiguous width `U+00B1` is two cells and under the default one; a Private
+/// Use character (`U+E0B0`) is one under both, the table storing it narrow,
+/// and the cursor lands where a write of the same text leaves it.
+#[test]
+fn a_composition_takes_the_configured_ambiguous_width() {
+    let home = Term::new(Owned::new(&WS).storage(), &WS).cursor();
+    let comp = |text: &str, ambiguous| Composition {
+        row: home.0,
+        col: home.1,
+        text: cps(text),
+        ambiguous,
+    };
+    let cols = baud_domain::Cols::of_index(usize::from(WS.ws_col));
+    for (text, ambiguous, width) in [
+        ("\u{b1}", AmbiguousWidth::Narrow, 1),
+        ("\u{b1}", AmbiguousWidth::Wide, 2),
+        ("a\u{b1}b", AmbiguousWidth::Wide, 4),
+        ("\u{e0b0}", AmbiguousWidth::Narrow, 1),
+        ("\u{e0b0}", AmbiguousWidth::Wide, 1),
+    ] {
+        let c = comp(text, ambiguous);
+        assert_eq!(c.columns(cols), (0, width), "{text:?} {ambiguous:?}");
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_ambiguous_width(ambiguous);
+        feed(&mut t, text.as_bytes());
+        assert_eq!(t.cursor().1.index(), width, "core {text:?} {ambiguous:?}");
+        assert_eq!(c.cursor(cols).1.index(), width, "{text:?} {ambiguous:?}");
+    }
 }

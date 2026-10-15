@@ -1338,6 +1338,7 @@ impl App {
                     row,
                     col,
                     text: self.composing.clone(),
+                    ambiguous: self.term.ambiguous_width(),
                 }
             });
         self.renderer.set_composition(composition.clone());

@@ -1835,6 +1835,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             .chars()
             .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
             .collect(),
+        ambiguous: baud_domain::AmbiguousWidth::Narrow,
     });
     let (comp_a, comp_b) = arms.draw(&mut t);
     assert_eq!(
@@ -2229,6 +2230,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
                 .chars()
                 .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
                 .collect(),
+            ambiguous: baud_domain::AmbiguousWidth::Narrow,
         });
         // `draw` returns the instance arm first and the cell arm second.
         let (inst, cell) = arms.draw(&mut t);
@@ -2267,6 +2269,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             row,
             col,
             text: vec![baud_domain::Codepoint::new(u32::from('z')).unwrap()],
+            ambiguous: baud_domain::AmbiguousWidth::Narrow,
         });
         let (inst, cell) = arms.draw(&mut t);
         arms.composition = None;
