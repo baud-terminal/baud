@@ -1208,7 +1208,8 @@ impl Paint<'_, '_> {
     // ---- rendition ------------------------------------------------------
 
     /// **A bounded table, open-addressed over its whole length so a distinct
-    /// rendition evicts another only when every slot is occupied.**
+    /// rendition evicts another only when every slot is occupied and neither a
+    /// tombstone nor a due sweep frees one (`Paint::full_table`).**
     /// The read stays one load -- a cell holds the final slot as its `StyleId`
     /// and `resolve` is `tmpl[id]` -- and only the intern, run once per `SGR`
     /// rather than per cell, probes.
@@ -1225,7 +1226,8 @@ impl Paint<'_, '_> {
     /// Linear probing fixes it without a search on the read. A distinct style
     /// takes the first free or matching slot from its bucket, so it evicts
     /// another style only when the probe wraps the whole table -- that is,
-    /// only once every slot is filled. Below that the mapping is **exact**:
+    /// only once every slot is filled and no tombstone or due sweep frees one.
+    /// Below that the mapping is **exact**:
     /// distinct renditions never share a slot and never corrupt each other's
     /// colour.
     ///
