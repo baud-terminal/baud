@@ -114,14 +114,14 @@ impl CombiningClass {
     pub const STARTER: CombiningClass = CombiningClass(0);
 
     /// The key the shaper sorts marks by: HarfBuzz's modified combining
-    /// class (`[[source: harfbuzz-hb-unicode]]`, hb-unicode.hh:317-349 at
+    /// class (`[[source: harfbuzz-hb-unicode]]`, hb-unicode.hh:333-349 at
     /// 64e2b53), which permutes Hebrew's fixed-position classes 10-26 so
     /// shin and sin dot, dagesh, rafe and holam come before the vowels
     /// below, the group order of the SBL Hebrew manual's Table 1
     /// (`[[source: sbl-hebrew-manual-1-5]]`). Every other class is its
     /// own key. A permutation of classes is canonically equivalent, so
-    /// what the text means is unchanged (`[[source: unicode-ch3]]` D108-D109,
-    /// and the Unicode FAQ: "any permutation of the non-zero CCC values
+    /// what the text means is unchanged (`[[source: unicode-ch3]]` D109 and
+    /// P5, and the Unicode FAQ: "any permutation of the non-zero CCC values
     /// can be used", `[[source: unicode-faq-normalization]]`); what it
     /// changes is the order a font's `ccmp` meets the points in: Courier
     /// New's forms the shin-dot ligature from shin + shin dot, and not
