@@ -254,6 +254,38 @@ impl Paint<'_, '_> {
         self.confine_col(Col::at_index(x.saturating_sub(n.at_least_one()).max(floor)))
     }
 
+    /// **`CUU`: the top margin stops a cursor at or below it, DECOM or
+    /// not.** `[[source: dec-std-070]]` CUU, p. 5-41, note 1: "If the Active
+    /// Position is at or below the Top Margin ... The Active Position will
+    /// not move beyond the Top Margin"; note 2: from above it, "until the
+    /// Active Position reaches the first line of the Page". The algorithm
+    /// (p. 5-42) tests `line >= top_margin` and no mode, so a cursor below
+    /// the region crosses it to the top margin. xterm's `CursorUp`
+    /// (`[[source: xterm-cursor-c]]` 271-285) and ghostty's `cursorUp`
+    /// (`[[source: ghostty-d9840f3-terminal]]` 1849-1862) agree. This
+    /// confined only under DECOM, so a region alone let `CUU` out of it.
+    /// DECOM's clamp follows, as before, for a cursor it finds outside.
+    pub(crate) fn up_in_margins(&self, n: Count) -> Row {
+        let to = self.cy.up(n);
+        self.confine(match self.cy >= self.cold.top {
+            true => to.max(self.cold.top),
+            false => to,
+        })
+    }
+
+    /// **`CUD`: the bottom margin stops a cursor at or above it**, the
+    /// mirror: `[[source: dec-std-070]]` CUD, p. 5-43, notes 1 and 2, "the
+    /// bottom line of the Page" from below it; the algorithm (p. 5-44) tests
+    /// `line <= bottom_margin`. xterm's `CursorDown` (251-264) and ghostty's
+    /// `cursorDown` (1867-1878) agree.
+    pub(crate) fn down_in_margins(&self, n: Count) -> Row {
+        let to = self.cy.down(n, self.rows);
+        self.confine(match self.cy <= self.cold.bot {
+            true => to.min(self.cold.bot),
+            false => to,
+        })
+    }
+
     pub(crate) fn save(&self) -> Saved {
         Saved {
             cy: self.cy,

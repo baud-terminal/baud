@@ -276,6 +276,10 @@ group  = "C"
 # "Sixel color: Contrasting to background. Color numbers: All unspecified color numbers
 # image as the default Sixel color" (PDF 926-927); §11.2.4 and §11.3, the bottom margin
 # and the text position on exit (PDF 928). No section names DECSDM, ?1070 or ?8452.
+# Read 2026-10-15 for CUU and CUD under the margins (lane b39), the copy whose sha256
+# matches, on the text layer [text]: CUU notes 1-2 and algorithm, pp. 5-41 and 5-42
+# (PDF 296-297); CUD's, pp. 5-43 and 5-44 (PDF 298-299); VT52 Cursor Up and Down,
+# pp. A-23 and A-24.
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"

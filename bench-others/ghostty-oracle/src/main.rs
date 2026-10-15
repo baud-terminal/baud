@@ -989,6 +989,80 @@ fn fixtures() -> Vec<Fixture> {
             format!("{LRM}\x1b[1;15HXY"),
             Pinned(STEP_D),
         ),
+        // ---- CUU, CUD, CNL and CPL under top and bottom margins ------------
+        // STD 070 CUU and CUD, notes 1 and 2 (pp. 5-41, 5-43): stopped at a
+        // margin from at or inside it, DECOM reset; ghostty's `cursorUp` and
+        // `cursorDown` (Terminal.zig 1849-1878) are the same test.
+        f(
+            "tb: CUU inside the region stops at the top margin",
+            format!("{TB}\x1b[4;3H\x1b[99AX"),
+            Agree,
+        ),
+        f(
+            "tb: CUU on the top margin stays",
+            format!("{TB}\x1b[2;3H\x1b[AX"),
+            Agree,
+        ),
+        f(
+            "tb: CUU from below the region stops at the top margin",
+            format!("{TB}\x1b[8;3H\x1b[99AX"),
+            Agree,
+        ),
+        f(
+            "tb: CUU above the region goes to the first line",
+            "\x1b[3;6r\x1b[2;3H\x1b[99AX".into(),
+            Agree,
+        ),
+        f(
+            "tb: CUD inside the region stops at the bottom margin",
+            format!("{TB}\x1b[3;3H\x1b[99BX"),
+            Agree,
+        ),
+        f(
+            "tb: CUD on the bottom margin stays",
+            format!("{TB}\x1b[6;3H\x1b[BX"),
+            Agree,
+        ),
+        f(
+            "tb: CUD from above the region stops at the bottom margin",
+            format!("{TB}\x1b[1;3H\x1b[99BX"),
+            Agree,
+        ),
+        f(
+            "tb: CUD below the region goes to the last line",
+            format!("{TB}\x1b[7;3H\x1b[99BX"),
+            Agree,
+        ),
+        f(
+            "tb: CUU and CUD by a count inside the region",
+            format!("{TB}\x1b[5;3H\x1b[2AX\x1b[2;3H\x1b[2BX"),
+            Agree,
+        ),
+        f(
+            "tb: CNL stops at the bottom margin",
+            format!("{TB}\x1b[3;7H\x1b[99EX"),
+            Agree,
+        ),
+        f(
+            "tb: CPL stops at the top margin",
+            format!("{TB}\x1b[5;7H\x1b[99FX"),
+            Agree,
+        ),
+        f(
+            "tb: CNL below the region goes to the last line",
+            format!("{TB}\x1b[7;7H\x1b[99EX"),
+            Agree,
+        ),
+        f(
+            "tb: CNL at the bottom margin starts at the left margin",
+            format!("{TB}{LRM}\x1b[3;7H\x1b[99EX"),
+            Agree,
+        ),
+        f(
+            "tb: CPL from below starts at the left margin",
+            format!("{TB}{LRM}\x1b[8;7H\x1b[99FX"),
+            Agree,
+        ),
         // ---- DECALN: origin mode and every margin back ----------------------
         // STD 070 pp. D-19 and D-20 and the VT510's "the margins to the
         // extremes of the page"; ghostty's `decaln` resets all four margins

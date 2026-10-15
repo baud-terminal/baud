@@ -13,6 +13,7 @@ mod support;
 mod c0;
 mod charsets;
 mod cursor;
+mod cuu_cud;
 mod erase;
 mod irm;
 mod modes;

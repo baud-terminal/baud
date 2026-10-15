@@ -177,9 +177,11 @@ fn autowrap_off_leaves_the_cursor_on_the_last_column() {
 /// only when a test exists that would fail if the operation regressed, and
 /// "some other test happens to send the sequence" is not that test.
 ///
-/// `[[source: ctlseqs]]`: each defaults to 1, each stops at the edge rather
-/// than wrapping, and `CUD` is bounded by the scrolling region's bottom rather
-/// than by the screen when the cursor starts inside it.
+/// `[[source: ctlseqs]]` (lines 592-597): each defaults to 1. Each stops at
+/// the edge rather than wrapping, and `CUU` stops at the top margin from at
+/// or below it, `CUD` at the bottom margin from at or above it, DECOM or
+/// not: `[[source: dec-std-070]]` CUU and CUD, notes 1 and 2 (pp. 5-41,
+/// 5-43), which `tests/vt100/cuu_cud.rs` holds at every margin.
 #[test]
 fn cuu_cud_and_cub_move_and_stop_at_the_edges() {
     support::with_corpus(|t| {
@@ -207,20 +209,22 @@ fn cuu_cud_and_cub_move_and_stop_at_the_edges() {
         assert_eq!(t.cursor().0, Row::from_index(49), "CUD stops at the bottom");
     });
 
-    // **A scrolling region alone does not bound them; `DECOM` does.** This
-    // assertion was written the other way round first -- "CUD stops at the
-    // region's bottom" -- from reading `[[source: ctlseqs]]`'s sentence
-    // without the clause in front of it. `confine` clamps to the margins only
-    // when Origin mode is set, as core2's did, so the region on its own leaves
-    // the whole screen reachable. The oracle, core2, said so before the spec
-    // did.
+    // **A scrolling region bounds them with DECOM reset too.** This
+    // assertion read "without DECOM the region does not bound CUD", after
+    // core2, whose `confine` clamped only under Origin mode, and no text was
+    // read for it. `[[source: dec-std-070]]` CUD, note 1 (p. 5-43): from "at
+    // or above the Bottom Margin ... The Active position will not move
+    // beyond the Bottom Margin", and its algorithm tests no mode; CUU's note
+    // 1 (p. 5-41) is the mirror.
     support::with_corpus(|t| {
         support::feed(t, b"\x1b[5;20r\x1b[10;1H\x1b[99B");
         assert_eq!(
             t.cursor().0,
-            Row::from_index(49),
-            "without DECOM the region does not bound CUD"
+            Row::from_index(19),
+            "without DECOM CUD stops at the region's bottom"
         );
+        support::feed(t, b"\x1b[99A");
+        assert_eq!(t.cursor().0, Row::from_index(4), "and CUU at its top");
     });
     support::with_corpus(|t| {
         support::feed(t, b"\x1b[5;20r\x1b[?6h\x1b[6;1H\x1b[99B");

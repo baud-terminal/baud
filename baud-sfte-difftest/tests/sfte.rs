@@ -212,6 +212,25 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
         ("ESC in escape", b"\x1b(\x1b0q".to_vec()),
         ("ESC after CSI inter", b"\x1b[ \x1b(0q".to_vec()),
         ("ESC after hash", b"\x1b7\x1b[5;5H\x1b#\x1b8X".to_vec()),
+        // `CUU` and `CUD` stop at the top and bottom margins from their side
+        // of them, DECOM reset ([[source: dec-std-070]] CUU and CUD, notes 1
+        // and 2, pp. 5-41 and 5-43); `CUU` from below the region crosses it.
+        (
+            "CUU to the top margin",
+            b"\x1b[5;20r\x1b[10;1H\x1b[99AX".to_vec(),
+        ),
+        (
+            "CUU from below a region",
+            b"\x1b[5;20r\x1b[30;1H\x1b[99AX".to_vec(),
+        ),
+        (
+            "CUD to the bottom margin",
+            b"\x1b[5;20r\x1b[10;1H\x1b[99BX".to_vec(),
+        ),
+        (
+            "CNL to the bottom margin",
+            b"\x1b[5;20r\x1b[10;3H\x1b[99EX".to_vec(),
+        ),
         // The two that MUST differ -- see `MUST_DIFFER`.
         ("tab", b"a\tb\tc".to_vec()),
         ("tab at a stop", b"01234567\tX".to_vec()),
@@ -278,6 +297,12 @@ fn fixtures() -> Vec<(&'static str, Vec<u8>)> {
 ///   anything but `8` (sfte.h ~35037-35103), so it prints what baud, vte and
 ///   `[[source: williams]]` treat as a new sequence. baud had the same
 ///   defect until the anywhere `1B` edge went in, and these agreed then.
+/// * **The four margin cases -- sfte's `CUU`, `CUD` and `CNL` ignore the
+///   top and bottom margins.** Each clamps the row to `0 ..= rows - 1`
+///   alone (sfte.h 34536-34543 and 33777-33780), where `[[source:
+///   dec-std-070]]` CUU and CUD, notes 1 and 2 (pp. 5-41, 5-43), stop them
+///   at the margin from its side, as baud does, so baud's `X` is on the
+///   margin and sfte's on the page's edge.
 enum Control {
     Cells(&'static [(usize, usize, char, char)]),
     Cursor((usize, usize), (usize, usize)), // (row, col) indices; a const table cannot call Row::from_index
@@ -348,6 +373,22 @@ const MUST_DIFFER: &[(&str, Control)] = &[
     (
         "ESC after hash",
         Control::Cells(&[(0, 0, 'X', ' '), (4, 4, ' ', '8'), (4, 5, ' ', 'X')]),
+    ),
+    (
+        "CUU to the top margin",
+        Control::Cells(&[(0, 0, ' ', 'X'), (4, 0, 'X', ' ')]),
+    ),
+    (
+        "CUU from below a region",
+        Control::Cells(&[(0, 0, ' ', 'X'), (4, 0, 'X', ' ')]),
+    ),
+    (
+        "CUD to the bottom margin",
+        Control::Cells(&[(19, 0, 'X', ' '), (49, 0, ' ', 'X')]),
+    ),
+    (
+        "CNL to the bottom margin",
+        Control::Cells(&[(19, 0, 'X', ' '), (49, 0, ' ', 'X')]),
     ),
 ];
 
@@ -734,8 +775,9 @@ mod tests {
         // (the count stays 330,301) -- inferred to be sfte's reset writing
         // every cell, which was not read in its source. 370,281 since the
         // four `BEL in ...` fixtures, measured: 39,980 more, four screens less
-        // the five cells of `AFTER` on each.
-        assert_eq!(norm.blanks.get(), 370_281, "zero-rune blanks normalised");
+        // the five cells of `AFTER` on each. 410,277 since the four margin
+        // fixtures, measured: 39,996 more, four screens less one `X` each.
+        assert_eq!(norm.blanks.get(), 410_277, "zero-rune blanks normalised");
     }
 
     /// The geometry assert can fire: the shim refuses a context at any other

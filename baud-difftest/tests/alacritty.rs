@@ -142,9 +142,6 @@ impl Cells {
     fn of(n: usize) -> Cells {
         Cells(n)
     }
-    fn any(self) -> bool {
-        self.0 != 0
-    }
     fn bump(&mut self) {
         self.0 += 1;
     }
@@ -267,6 +264,25 @@ fn cases() -> Vec<(&'static str, Vec<u8>)> {
         ("insert blanks", b"abcdefgh\x1b[3G\x1b[2@".to_vec()),
         ("save/restore cur", b"\x1b7moved\x1b8back".to_vec()),
         ("reverse index", b"a\r\nb\x1bMx".to_vec()),
+        // `CUU` and `CUD` stop at the top and bottom margins from their side
+        // of them, DECOM reset ([[source: dec-std-070]] CUU and CUD, notes 1
+        // and 2, pp. 5-41 and 5-43); `CUU` from below the region crosses it.
+        (
+            "CUU to the top margin",
+            b"\x1b[5;20r\x1b[10;1H\x1b[99AX".to_vec(),
+        ),
+        (
+            "CUU from below a region",
+            b"\x1b[5;20r\x1b[30;1H\x1b[99AX".to_vec(),
+        ),
+        (
+            "CUD to the bottom margin",
+            b"\x1b[5;20r\x1b[10;1H\x1b[99BX".to_vec(),
+        ),
+        (
+            "CNL to the bottom margin",
+            b"\x1b[5;20r\x1b[10;3H\x1b[99EX".to_vec(),
+        ),
         // A region that starts below the top and ends on the last row: an
         // LF at its bottom scrolls the region, and the header rows above it
         // stay where they are.
@@ -300,6 +316,34 @@ fn cases() -> Vec<(&'static str, Vec<u8>)> {
         ("ESC after CSI inter", b"\x1b[ \x1b(0q".to_vec()),
         ("ESC after hash", b"\x1b7\x1b[5;5H\x1b#\x1b8X".to_vec()),
     ]
+}
+
+/// **alacritty's departures from the text, each pinned at its cell count.**
+/// A pinned case must differ by exactly that many cells, so one alacritty
+/// closes, or one that moves, comes back here.
+///
+/// * The four margin cases: with DECOM reset alacritty's `CUU`, `CUD` and
+///   `CNL` go to the page's edge: each moves through `goto`, which bounds
+///   the row by the region only under `ORIGIN`
+///   (`[[source: alacritty-term-term-mod]]` 1156-1170, 1215-1230 and
+///   1349-1354, the 0.26.0 crate's file byte for byte), where
+///   `[[source: dec-std-070]]` CUU and CUD, notes 1 and 2 (pp. 5-41, 5-43),
+///   stop them at the margin. The `X` lands on two rows: two cells.
+const DEPARTS: &[(&str, usize)] = &[
+    ("CUU to the top margin", 2),
+    ("CUU from below a region", 2),
+    ("CUD to the bottom margin", 2),
+    ("CNL to the bottom margin", 2),
+];
+
+/// Off its pin: an unpinned case that differs, or a pinned one that differs
+/// by another count, none included.
+fn off_pin(v: &Verdict) -> bool {
+    let pinned = DEPARTS
+        .iter()
+        .find(|(n, _)| *n == v.name)
+        .map_or(0, |p| p.1);
+    v.diffs.get() != pinned
 }
 
 /// One case's verdict: how many cells differ, and where the first one is.
@@ -347,16 +391,19 @@ fn compare() -> (Vec<Verdict>, Normalised) {
 #[test]
 fn the_report_lists_every_case_and_none_differs() {
     let (verdicts, norm) = compare();
-    let fail = verdicts.iter().filter(|v| v.diffs.any()).count();
+    let fail = verdicts.iter().filter(|v| off_pin(v)).count();
     println!("  {:<20} {:>8}  first mismatch", "case", "diff");
     for v in &verdicts {
         match &v.first {
             None => println!("  {:<20} {:>8}  ok", v.name, 0),
+            Some(w) if !off_pin(v) => {
+                println!("  {:<20} {:>8}  pinned: {}", v.name, v.diffs.get(), w)
+            }
             Some(w) => println!("  {:<20} {:>8}  {}", v.name, v.diffs.get(), w),
         }
     }
     println!(
-        "\n  {} match, {} differ, of {} cases",
+        "\n  {} match or differ as pinned, {} off their pins, of {} cases",
         verdicts.len() - fail,
         fail,
         verdicts.len()
@@ -371,7 +418,7 @@ fn the_report_lists_every_case_and_none_differs() {
     // found, so even once it compiled it could not be a gate -- the same shape
     // as the glyph differential that ended in `let _ = want;` and passed green
     // while three recordings diverged by 3,057 cells.
-    assert_eq!(fail, 0, "{fail} of {} cases differ", verdicts.len());
+    assert_eq!(fail, 0, "{fail} of {} cases off their pins", verdicts.len());
 }
 
 #[cfg(test)]
@@ -389,7 +436,7 @@ mod tests {
         let (verdicts, norm) = compare();
         let differing: Vec<String> = verdicts
             .iter()
-            .filter(|v| v.diffs.any())
+            .filter(|v| off_pin(v))
             .map(|v| {
                 format!(
                     "{}: {} cells, first {}",
@@ -401,7 +448,7 @@ mod tests {
             .collect();
         assert!(
             differing.is_empty(),
-            "baud-core and alacritty render these differently:\n  {}",
+            "baud-core and alacritty render these off their pins:\n  {}",
             differing.join("\n  ")
         );
 

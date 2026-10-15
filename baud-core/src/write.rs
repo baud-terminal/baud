@@ -1708,8 +1708,10 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             let want = Row::from_index(base + row.to_row(p.rows).index());
             p.goto(p.confine(want), p.address_col(col.to_col(p.cols)));
         }
-        DomCsi::CursorUp(c) => p.set_row(p.confine(p.cy.up(c))),
-        DomCsi::CursorDown(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
+        // **The top and bottom margins stop them, DECOM or not**: STD 070's
+        // notes 1 and 2 (pp. 5-41, 5-43), in `Paint::up_in_margins`.
+        DomCsi::CursorUp(c) => p.set_row(p.up_in_margins(c)),
+        DomCsi::CursorDown(c) => p.set_row(p.down_in_margins(c)),
         DomCsi::CursorForward(c) => p.set_col(p.forward_in_margins(c)),
         DomCsi::CursorBack(c) => p.set_col(p.back_in_margins(c)),
         // **`CNL` and `CPL` start the line they land on as `CR` would**:
@@ -1719,13 +1721,14 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // `[[source: dec-std-070]]` (p. 5-64) is `CR`'s; xterm's
         // `CursorNextLine` and `CursorPrevLine` are `CursorDown` or
         // `CursorUp` and then `CarriageReturn` (`[[source: xterm-cursor-c]]`
-        // 527-549). No DEC text has a `CNL`: the record lists the reading.
+        // 527-549), so they stop at the top and bottom margins where those
+        // do. No DEC text has a `CNL`: the record lists the reading.
         DomCsi::CursorNextLine(c) => {
-            p.set_row(p.confine(p.cy.down(c, p.rows)));
+            p.set_row(p.down_in_margins(c));
             p.carriage_return();
         }
         DomCsi::CursorPrevLine(c) => {
-            p.set_row(p.confine(p.cy.up(c)));
+            p.set_row(p.up_in_margins(c));
             p.carriage_return();
         }
         // **Absolute, and clamped into the margins under DECOM**: option

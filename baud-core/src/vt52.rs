@@ -24,11 +24,13 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn vt52(&mut self, c: Vt52, node: &mut crate::graph::Node) {
         match c {
-            // The same four expressions the CSI dispatch uses for CUU/CUD/
-            // CUF/CUB, because they are the same operations with an implicit
-            // count of one -- spelling them a second way here is the "one
-            // write path knowing a rule the other did not" shape this repo
-            // records four times, and `confine` is exactly such a rule.
+            // **The page's edges, not the margins**: `[[source: dec-std-070]]`
+            // VT52 Cursor Up and Cursor Down (pp. A-23, A-24) "will not move
+            // above the first line of the display" and below its bottom
+            // line, and VT52 has no margins, where ANSI `CUU`/`CUD` stop at
+            // them (`Paint::up_in_margins`). DECOM's `confine` holds, as for
+            // `Home` below, and `CUF`/`CUB` are the ANSI expressions at a
+            // count of one.
             Vt52::CursorUp => self.set_row(self.confine(self.cy.up(Count::ONE))),
             Vt52::CursorDown => {
                 let rows = self.rows;
