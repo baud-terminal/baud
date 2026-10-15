@@ -510,7 +510,7 @@ impl Selections {
 /// nothing drawn joins whatever is around it.
 fn unresolved(term: &Term<'_>, cell: PackedCell) -> Unresolved {
     let Some(base) = term.base_of(cell).as_codepoint() else {
-        return Unresolved::Neutral { joins: &[] };
+        return Unresolved::BLANK;
     };
     match Unresolved::of(core::slice::from_ref(&base)) {
         Unresolved::Neutral { .. } if cell.flags.is_marked() => {

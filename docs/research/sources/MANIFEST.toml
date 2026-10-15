@@ -961,6 +961,24 @@ bytes  = 20707
 status = "retrieved"
 group  = "G"
 
+# Bidi_Paired_Bracket and its type: which characters are paired brackets
+# and which closes which (UAX #9 BD14-BD16). `scripts/gen-script-tables.py`
+# builds the pairs into `script_data.rs`, for UAX #24 5.1's "paired
+# punctuation ... should therefore match the script of the enclosing text".
+# Pinned at 17.0.0, the version of Scripts.txt beside it.
+[sources.unicode-bidibrackets]
+key    = "unicode-bidibrackets"
+title  = "BidiBrackets.txt, Unicode Character Database 17.0.0"
+author = "The Unicode Consortium"
+year   = 2025
+venue  = "Unicode Character Database"
+url    = "https://www.unicode.org/Public/17.0.0/ucd/BidiBrackets.txt"
+file   = "unicode-bidibrackets.txt"
+sha256 = "dadbaf38a0d0246e5b805bf8725cb81b7c621f93d030595635f5ba2c2f179428"
+bytes  = 8891
+status = "retrieved"
+group  = "G"
+
 [sources.unicode-derivedbidiclass]
 key    = "unicode-derivedbidiclass"
 title  = "DerivedBidiClass.txt, Unicode Character Database 17.0.0"

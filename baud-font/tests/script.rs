@@ -2,7 +2,9 @@
 //! OpenType Script table that selects (`[[source: ms-opentype-chapter2]]`).
 
 use baud_domain::Codepoint;
-use baud_font::{Direction, Face, Features, RunText, Script, ScriptTag, Unresolved, resolve};
+use baud_font::{
+    Bracket, Direction, Face, Features, RunText, Script, ScriptTag, Unresolved, resolve,
+};
 
 fn cp(c: char) -> Codepoint {
     Codepoint::from_char(c)
@@ -319,4 +321,307 @@ fn a_right_to_left_run_of_numbers_alone_is_left_to_right() {
     assert_eq!(run("\u{05BE} ").direction(hebr), Direction::RightToLeft);
     assert_eq!(RunText::EMPTY.direction(hebr), Direction::RightToLeft);
     assert_eq!(run("ab1").direction(latn), Direction::LeftToRight);
+}
+
+/// Settles `text` and groups it into runs of one script, as
+/// `(text, ISO code)`.
+fn runs(text: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for (c, s) in text.chars().zip(settled(text)) {
+        match out.last_mut() {
+            Some((t, last)) if *last == s => t.push(c),
+            _ => out.push((c.to_string(), s)),
+        }
+    }
+    out
+}
+
+fn run_list(r: &[(&str, &str)]) -> Vec<(String, String)> {
+    r.iter()
+        .map(|(t, s)| ((*t).to_string(), (*s).to_string()))
+        .collect()
+}
+
+/// **A bracket pair takes the script of the text that encloses it**
+/// (`[[source: uax24]]` 5.1): "paired punctuation, such as brackets or
+/// quotation marks, belongs to the enclosing or outer level of the text
+/// and should therefore match the script of the enclosing text. In
+/// addition, opening and closing elements of a pair resolve to the same
+/// Script property values, where possible". The preceding-character
+/// heuristic alone made the closer take the script inside the pair --
+/// the text's own example, "... gamma (γ) is ...", where it "would cause
+/// matching parentheses to be in different scripts". A pair is UAX #9's
+/// (`[[source: uax9-bidi]]`, BD16) over `[[source: unicode-bidibrackets]]`.
+#[test]
+fn a_bracket_pair_takes_the_enclosing_script() {
+    // UAX #24's own example, and the character after the closer is back in
+    // the enclosing text.
+    assert_eq!(
+        runs("gamma (γ) is"),
+        run_list(&[("gamma (", "Latn"), ("γ", "Grek"), (") is", "Latn")])
+    );
+    // Inside Hebrew, Arabic and Greek.
+    assert_eq!(
+        runs("א(a)ב"),
+        run_list(&[("א(", "Hebr"), ("a", "Latn"), (")ב", "Hebr")])
+    );
+    assert_eq!(
+        runs("ب[a]ت"),
+        run_list(&[("ب[", "Arab"), ("a", "Latn"), ("]ت", "Arab")])
+    );
+    assert_eq!(
+        runs("α{a}β"),
+        run_list(&[("α{", "Grek"), ("a", "Latn"), ("}β", "Grek")])
+    );
+    // A pair closing the line takes the enclosing script too.
+    assert_eq!(
+        runs("שלום (abc)"),
+        run_list(&[("שלום (", "Hebr"), ("abc", "Latn"), (")", "Hebr")])
+    );
+    // Nested: the inner pair is enclosed by the Greek.
+    assert_eq!(
+        runs("a[α(β)γ]b"),
+        run_list(&[("a[", "Latn"), ("α(β)γ", "Grek"), ("]b", "Latn")])
+    );
+    // A closer that matches deeper pops through the unclosed opener
+    // (BD16 step 4), and so is the outer pair's.
+    assert_eq!(
+        runs("a(α[β)b"),
+        run_list(&[("a(", "Latn"), ("α[β", "Grek"), (")b", "Latn")])
+    );
+    // U+2329 and U+3008 are canonically equivalent, as are U+232A and
+    // U+3009, and BD16 pairs across them. U+3008 and U+3009 join only
+    // the CJK scripts and Yi, so the enclosing text is Han.
+    assert_eq!(
+        runs("漢\u{2329}a\u{3009}"),
+        run_list(&[("漢\u{2329}", "Hani"), ("a", "Latn"), ("\u{3009}", "Hani")])
+    );
+    assert_eq!(
+        runs("漢\u{3008}a\u{232A}"),
+        run_list(&[("漢\u{3008}", "Hani"), ("a", "Latn"), ("\u{232A}", "Hani")])
+    );
+    // An opener that leads the line takes what follows it, and its closer
+    // takes the opener's script, not the one after the closer.
+    assert_eq!(
+        runs("(α a)b"),
+        run_list(&[("(α ", "Grek"), ("a", "Latn"), (")", "Grek"), ("b", "Latn")])
+    );
+    // Where its Script_Extensions admit the opener's script: the corner
+    // brackets join Han, Hiragana and Katakana and not Latin.
+    assert_eq!(
+        runs("漢「a」"),
+        run_list(&[("漢「", "Hani"), ("a", "Latn"), ("」", "Hani")])
+    );
+    // A pair that leads the line, with other text inside before its
+    // closer: what follows the closer continues the opener's script, as
+    // the preceding-character heuristic has it.
+    assert_eq!(
+        runs("(שלום world)."),
+        run_list(&[("(שלום ", "Hebr"), ("world", "Latn"), (").", "Hebr")])
+    );
+    assert_eq!(
+        runs("[α a] b."),
+        run_list(&[
+            ("[α ", "Grek"),
+            ("a", "Latn"),
+            ("] ", "Grek"),
+            ("b.", "Latn")
+        ])
+    );
+    assert_eq!(
+        runs("(α a) b"),
+        run_list(&[
+            ("(α ", "Grek"),
+            ("a", "Latn"),
+            (") ", "Grek"),
+            ("b", "Latn")
+        ])
+    );
+    assert_eq!(
+        runs("(α a)(b)"),
+        run_list(&[
+            ("(α ", "Grek"),
+            ("a", "Latn"),
+            (")(", "Grek"),
+            ("b", "Latn"),
+            (")", "Grek")
+        ])
+    );
+}
+
+/// **A pair that leads the line settles what follows it as one that does
+/// not.** After the closer the opener's script is the one before, under
+/// the same Script_Extensions limit: the Devanagari danda cannot continue
+/// Hebrew (`[[source: uax24]]` 5.3, example 2), and settles as it does
+/// where a Latin letter leads the line. And where nothing settled is
+/// inside the pair, the closer takes its opener's script and the text
+/// after the closer follows it: the prolonged sound mark joins only
+/// Hiragana and Katakana, so the opener does not take the Latin after.
+#[test]
+fn a_pair_that_leads_the_line_settles_what_follows_it_alike() {
+    let led = settled("(שלום क)। x");
+    let unled = settled("a (שלום क)। x");
+    assert_eq!(&led[..6], ["Hebr"; 6], "{led:?}");
+    assert_eq!(&led[6..8], ["Deva", "Hebr"], "{led:?}");
+    assert_eq!(led[8], unled[10], "{led:?} {unled:?}");
+
+    let s = settled("(ー). x");
+    assert_ne!(s[0], "Latn", "{s:?}");
+    assert_eq!(&s[..5], [s[0].as_str(); 5], "{s:?}");
+    assert_eq!(s[5], "Latn");
+}
+
+/// **What is not a pair keeps the preceding script.** A closer with no
+/// opener, a closer of another pair, a quotation mark -- "it is not
+/// possible to tell from the character code alone whether a particular
+/// quotation mark is used as an opening or closing punctuation"
+/// (`[[source: uax24]]` 5.1), and BidiBrackets.txt lists none -- and a
+/// bracket that names a script of its own.
+#[test]
+fn what_is_not_a_pair_keeps_the_preceding_script() {
+    assert_eq!(runs("α)a"), run_list(&[("α)", "Grek"), ("a", "Latn")]));
+    assert_eq!(
+        runs("a(α]b"),
+        run_list(&[("a(", "Latn"), ("α]", "Grek"), ("b", "Latn")])
+    );
+    assert_eq!(
+        runs("a«α»b"),
+        run_list(&[("a«", "Latn"), ("α»", "Grek"), ("b", "Latn")])
+    );
+    // Tibetan's brackets are Tibetan.
+    assert_eq!(
+        runs("a\u{0F3A}α\u{0F3B}b"),
+        run_list(&[
+            ("a", "Latn"),
+            ("\u{0F3A}", "Tibt"),
+            ("α", "Grek"),
+            ("\u{0F3B}", "Tibt"),
+            ("b", "Latn")
+        ])
+    );
+}
+
+/// **The stack is BD16's, 63 deep** (`[[source: uax9-bidi]]`): "If an
+/// opening paired bracket is found and there is no room in the stack, stop
+/// processing BD16 for the remainder of the isolating run sequence and
+/// return an empty list". At 63 openers every pair holds; at 64 none
+/// does, and every closer keeps the preceding script.
+#[test]
+fn the_pair_stack_is_63_deep() {
+    for (depth, closers) in [(63, "Latn"), (64, "Grek")] {
+        let text = format!("a{}α{}", "(".repeat(depth), ")".repeat(depth));
+        let s = settled(&text);
+        assert!(s[..=depth].iter().all(|c| c == "Latn"), "{depth}");
+        assert_eq!(s[depth + 1], "Grek");
+        assert!(
+            s[depth + 2..].iter().all(|c| c == closers),
+            "{depth}: {:?}",
+            &s[depth + 2..]
+        );
+    }
+}
+
+/// **Both elements of every pair settle alike**, over generated lines of
+/// letters of four scripts, spaces and ASCII brackets: the pairs are found
+/// here by BD16 as written, independently of the resolver. And every
+/// neutral but a paired closer settles as the cell before it, a paired
+/// closer included, since every neutral here admits every script.
+#[test]
+fn both_elements_of_every_pair_settle_alike() {
+    let alphabet: Vec<char> = "aαאب ()[]{}".chars().collect();
+    let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+    let mut paired = 0usize;
+    let mut after = 0usize;
+    for _ in 0..20_000 {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        let len = 2 + (seed >> 59);
+        let mut text = String::new();
+        for _ in 0..len {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            text.push(alphabet[usize::try_from(seed >> 33).unwrap() % alphabet.len()]);
+        }
+        let chars: Vec<char> = text.chars().collect();
+        let s = settled(&text);
+        let mut closer = vec![false; chars.len()];
+        // BD16: push openers, and pop a closer's match with all above it.
+        let mut stack: Vec<(char, usize)> = Vec::new();
+        for (i, &c) in chars.iter().enumerate() {
+            let close = match c {
+                '(' => Some(')'),
+                '[' => Some(']'),
+                '{' => Some('}'),
+                _ => None,
+            };
+            if let Some(want) = close {
+                stack.push((want, i));
+            } else if let Some(k) = stack.iter().rposition(|&(w, _)| w == c) {
+                let (_, open) = stack[k];
+                stack.truncate(k);
+                assert_eq!(s[open], s[i], "{text:?} {open} {i}: {s:?}");
+                closer[i] = true;
+                paired += 1;
+            }
+        }
+        // Every neutral here admits every script, so each that is not a
+        // paired closer takes the script of the cell before it.
+        for i in 1..chars.len() {
+            if " ()[]{}".contains(chars[i]) && !closer[i] {
+                assert_eq!(s[i - 1], s[i], "{text:?} {i}: {s:?}");
+                after += usize::from(closer[i - 1]);
+            }
+        }
+    }
+    // Positive control: the generator reached pairs, and cells after them.
+    assert!(paired > 5_000, "{paired}");
+    assert!(after > 1_000, "{after}");
+}
+
+/// **Every code point's paired-bracket type is BidiBrackets.txt's**, read
+/// here from the file itself, and each opener shares its pair with the
+/// closer the file names and with no other pair -- but for the two
+/// equivalents BD16 names, "U+3009 and U+232A are treated as equivalent"
+/// (`[[source: uax9-bidi]]`), which share one.
+#[test]
+fn every_code_point_has_the_bracket_type_bidibrackets_txt_gives_it() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/research/sources");
+    let file = std::fs::read_to_string(format!("{dir}/unicode-bidibrackets.txt")).unwrap();
+    let mut listed = std::collections::HashMap::new();
+    for line in file.lines() {
+        let f: Vec<&str> = line
+            .split('#')
+            .next()
+            .unwrap()
+            .split(';')
+            .map(str::trim)
+            .collect();
+        if f.len() == 3 && f[2] != "n" {
+            let v = |h: &str| u32::from_str_radix(h, 16).unwrap();
+            listed.insert(v(f[0]), (v(f[1]), f[2] == "o"));
+        }
+    }
+    // Positive control: the file was read, 64 pairs.
+    assert_eq!(listed.len(), 128);
+    let c = |v: u32| Codepoint::new(v).unwrap();
+    let mut pairs = std::collections::HashMap::new();
+    let mut checked = 0usize;
+    for v in 0..0x11_0000u32 {
+        let Some(cp) = Codepoint::new(v) else {
+            continue;
+        };
+        match (Bracket::of(cp), listed.get(&v)) {
+            (Bracket::None, None) => {}
+            (Bracket::Open(p), Some(&(closer, true))) => {
+                assert_eq!(Bracket::of(c(closer)), Bracket::Close(p), "U+{v:04X}");
+                pairs.entry(p).or_insert_with(Vec::new).push(v);
+            }
+            (Bracket::Close(_), Some(&(_, false))) => {}
+            (got, want) => panic!("U+{v:04X}: {got:?} against {want:?}"),
+        }
+        checked += 1;
+    }
+    assert_eq!(checked, 1_112_064, "every scalar value");
+    let mut shared: Vec<Vec<u32>> = pairs.into_values().filter(|o| o.len() > 1).collect();
+    shared.iter_mut().for_each(|o| o.sort_unstable());
+    assert_eq!(shared, [vec![0x2329, 0x3008]], "one pair shared, BD16's");
+    assert_eq!(Bracket::of(c(0x232A)), Bracket::of(c(0x3009)));
 }

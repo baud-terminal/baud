@@ -7,7 +7,18 @@ ISO 15924 code (`[[source: unicode-propertyvaluealiases]]`), the
 OpenType script tags each script selects (`[[source: ms-opentype-scripttags]]`),
 and each script's direction with the letters and numbers that can turn a
 run of a right-to-left script left to right (`[[source: unicode-derivedbidiclass]]`,
-`[[source: gc-data]]`).
+`[[source: gc-data]]`), and the paired brackets UAX #9 pairs
+(`[[source: unicode-bidibrackets]]`, with `[[source: unicode-data]]`
+for the canonical equivalents BD16 names).
+
+**A bracket pair takes the script of the text enclosing it**
+(`[[source: uax24]]` 5.1): "paired punctuation, such as brackets or
+quotation marks, belongs to the enclosing or outer level of the text and
+should therefore match the script of the enclosing text". Which characters
+pair is Bidi_Paired_Bracket and its type, and a pair is matched as UAX #9's
+BD16 matches one (`[[source: uax9-bidi]]`), U+2329/U+3008 and U+232A/U+3009
+"treated as equivalent". Each pair gets one number, shared by the two
+equivalents, so the resolver compares numbers and never searches the file.
 
 **A script is right to left when every letter in it is Bidi_Class R or
 AL.** UAX #9 resolves such a character to an odd level whatever the
@@ -204,6 +215,48 @@ def main():
     assert run_kind[0x0031] == NUMBER and run_kind[0x1F1E6] == NUMBER
     assert run_kind[0x02B9] == LETTER and run_kind[0x0041] == 0 and run_kind[0x0915] == 0
 
+    # Paired brackets: 0 where a code point is none, else its pair's number
+    # times two, plus one for a closer. BidiBrackets.txt's header: "two
+    # characters, A and B, form a bracket pair if A has gc=Ps and B has
+    # gc=Pe, both have bc=ON and Bidi_M=Y, and bmg of A is B"; each is
+    # checked against the files pinned beside it.
+    bpb, bpt = {}, {}
+    for p in data_lines("unicode-bidibrackets.txt"):
+        cp = int(p[0], 16)
+        if p[2] == "n":
+            continue
+        bpb[cp], bpt[cp] = int(p[1], 16), p[2]
+    assert len(bpb) == 128 and sum(t == "o" for t in bpt.values()) == 64, len(bpb)
+    for cp, other in bpb.items():
+        assert bpb[other] == cp and {bpt[cp], bpt[other]} == {"o", "c"}, hex(cp)
+        assert gc[cp] == ("Ps" if bpt[cp] == "o" else "Pe"), hex(cp)
+        assert bidi[cp] == "ON", hex(cp)
+        # A pair is in one Script value: Common, or both in one script
+        # (Tibetan's and Ogham's), which needs no resolving.
+        assert sc[cp] == sc[other] and sets[scx[cp]] == sets[scx[other]], hex(cp)
+    # BD16's equivalents, from UnicodeData.txt's canonical decompositions:
+    # a bracket whose decomposition is one code point is that bracket.
+    canonical = {}
+    for line in (SRC / "unicode-unicodedata.txt").read_text(encoding="utf-8").splitlines():
+        f = line.split(";")
+        cp, dec = int(f[0], 16), f[5]
+        if cp in bpb and dec and not dec.startswith("<") and " " not in dec:
+            canonical[cp] = int(dec, 16)
+    assert canonical == {0x2329: 0x3008, 0x232A: 0x3009}, canonical
+    pair_of = {}
+    for cp in sorted(c for c in bpb if bpt[c] == "o" and c not in canonical):
+        pair_of[cp] = len(pair_of) + 1
+    for cp, to in canonical.items():
+        if bpt[cp] == "o":
+            pair_of[cp] = pair_of[to]
+    assert len(set(pair_of.values())) == 63 and max(pair_of.values()) * 2 + 1 <= 255
+    bracket = [0] * 0x110000
+    for cp, n in pair_of.items():
+        bracket[cp] = n * 2
+        bracket[bpb[cp]] = n * 2 + 1
+    assert bracket[0x28] == 2 and bracket[0x29] == 3
+    assert bracket[0x2329] == bracket[0x3008] and bracket[0x232A] == bracket[0x3009]
+
     def trie(values):
         blocks, idx = {}, []
         for base in range(0, 0x110000, BLOCK):
@@ -227,6 +280,7 @@ def main():
     sc_idx, sc_packed, sc_blocks = trie(sc)
     scx_idx, scx_packed, scx_blocks = trie(scx)
     run_idx, run_packed, run_blocks = trie(run_kind)
+    br_idx, br_packed, br_blocks = trie(bracket)
 
     # Every table is a byte string: rustfmt rewraps array literals to its
     # width, so a generator emitting one could never pass its own --check.
@@ -242,8 +296,9 @@ def main():
         "//! `docs/research/sources/MANIFEST.toml`: `[[source: unicode-scripts]]`,",
         "//! `[[source: unicode-scriptextensions]]`,",
         "//! `[[source: unicode-propertyvaluealiases]]`,",
-        "//! `[[source: ms-opentype-scripttags]]`, `[[source: unicode-derivedbidiclass]]`",
-        "//! and `[[source: gc-data]]`.",
+        "//! `[[source: ms-opentype-scripttags]]`, `[[source: unicode-derivedbidiclass]]`,",
+        "//! `[[source: gc-data]]`, `[[source: unicode-bidibrackets]]` and",
+        "//! `[[source: unicode-data]]`.",
         "//!",
         "//! **Do not edit by hand.** Regenerate with `scripts/gen-script-tables.py`.",
         "//! `script_tables_match_the_pinned_data` fails if this file and the pinned",
@@ -299,6 +354,14 @@ def main():
         f"/// one of {run_blocks} blocks.",
     ))
     out.append(bytestring("RUN_BLOCKS", run_packed, "/// Stage 2 of [`RUN_INDEX`]."))
+    out.append(bytestring(
+        "BRACKET_INDEX", br_idx,
+        "/// Each code point's paired bracket, as a two-stage trie: 0 none, else\n"
+        "/// its pair's number times two, plus one for a closer; U+2329 and\n"
+        "/// U+3008 share a number, as U+232A and U+3009 do. Stage 1: code point\n"
+        f"/// >> 8 to one of {br_blocks} blocks.",
+    ))
+    out.append(bytestring("BRACKET_BLOCKS", br_packed, "/// Stage 2 of [`BRACKET_INDEX`]."))
     text = "\n".join(out) + "\n"
 
     if check:
@@ -311,7 +374,8 @@ def main():
     print(
         f"{DST}: {len(codes)} scripts, {len(sets)} extension sets, "
         f"{len(sc_packed) + len(sc_idx)} + {len(scx_packed) + len(scx_idx)} + "
-        f"{len(run_packed) + len(run_idx)} bytes, {len(rtl)} right to left"
+        f"{len(run_packed) + len(run_idx)} + {len(br_packed) + len(br_idx)} bytes, "
+        f"{len(rtl)} right to left, {len(set(pair_of.values()))} bracket pairs"
     )
 
 

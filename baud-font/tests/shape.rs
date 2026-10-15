@@ -838,3 +838,128 @@ fn shape_script_fixtures(name: &str, on_macos: bool, gpos: GposTable) -> Tally {
         ligated: Reached(ligated),
     }
 }
+
+/// **A bracket pair is in the run of the text enclosing it, and each run
+/// shapes as hb-shape shapes it** (`[[source: uax24]]` 5.1, "paired
+/// punctuation ... should therefore match the script of the enclosing
+/// text"). Every line of `tests/shape/brackets.txt` is written as the runs
+/// UAX #24 gives it, each with its script, and hb-shape shaped one run at a
+/// time with that script given; hb-shape itemises nothing, so the runs are
+/// the file's. baud's resolver must settle every cell of a run to the run's
+/// script, which it did not for a closer before pairs were matched -- it
+/// took the script inside the pair -- and each run, shaped in that script,
+/// must be hb-shape's glyph for glyph. On STIX Two Math, whose `latn`,
+/// `grek` and `cyrl` select different lookups, every cut is a run cut.
+#[test]
+fn every_bracket_run_fixture_settles_and_shapes_as_harfbuzz_does() {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/shape/brackets.txt"
+    ))
+    .unwrap();
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let by_code = |c: &str| {
+        Script::all()
+            .find(|s| s.code() == c.as_bytes())
+            .unwrap_or_else(|| panic!("{c}: no such script"))
+    };
+    let mut mismatches: Vec<String> = Vec::new();
+    let (mut lines, mut runs, mut brackets) = (0usize, 0usize, 0usize);
+    for line in text
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+    {
+        let f: Vec<&str> = line.split('\t').collect();
+        let (path, digest, cps, scripts, shaped) = (f[0], f[2], f[3], f[4], f[5]);
+        let data = std::fs::read(format!("{root}/{path}")).unwrap();
+        assert_eq!(format!("{:016x}", fnv64(&data)), digest, "{path}");
+        let face = Face::parse(&data).unwrap();
+        let run_cps: Vec<Vec<u32>> = cps
+            .split('|')
+            .map(|r| {
+                r.split_whitespace()
+                    .map(|h| u32::from_str_radix(h, 16).unwrap())
+                    .collect()
+            })
+            .collect();
+        let run_scripts: Vec<Script> = scripts.split(' ').map(by_code).collect();
+        let outputs: Vec<&str> = shaped.split(' ').collect();
+        assert!(run_cps.len() == run_scripts.len() && run_cps.len() == outputs.len());
+        // The itemisation: one cluster a code point, settled as a row is.
+        let all: Vec<Codepoint> = run_cps
+            .iter()
+            .flatten()
+            .map(|&v| Codepoint::new(v).unwrap())
+            .collect();
+        let cells: Vec<Unresolved> = all.iter().map(|c| Unresolved::of(&[*c])).collect();
+        let mut settled = vec![Script::COMMON; cells.len()];
+        resolve(&cells, &mut settled);
+        let want: Vec<Script> = run_cps
+            .iter()
+            .zip(&run_scripts)
+            .flat_map(|(r, &s)| std::iter::repeat_n(s, r.len()))
+            .collect();
+        if settled != want {
+            mismatches.push(format!("{cps}: settled {settled:?}, runs {want:?}"));
+        }
+        brackets += all
+            .iter()
+            .filter(|c| !matches!(baud_font::Bracket::of(**c), baud_font::Bracket::None))
+            .count();
+        // Each run, shaped in its script, against hb-shape's.
+        for ((r, &script), out) in run_cps.iter().zip(&run_scripts).zip(&outputs) {
+            let mut storage = [Glyph::new(GlyphId::NOTDEF, Cluster(0), Ignorable::No); 64];
+            let mut shaper = Shaper::new(&face, &mut storage);
+            for (i, &v) in r.iter().enumerate() {
+                shaper
+                    .push_cluster(
+                        &[Codepoint::new(v).unwrap()],
+                        Cluster(u16::try_from(i).unwrap()),
+                    )
+                    .unwrap();
+            }
+            let (buf, done) = shaper.finish(Features::GRID, script);
+            assert!(done.declined.is_zero(), "{cps}");
+            let mut pen = 0i32;
+            let mut left = std::collections::HashMap::new();
+            let placed: Vec<(HbGlyph, i32)> = parse_positioned(out)
+                .into_iter()
+                .map(|e| {
+                    let at = pen;
+                    pen += e.ax;
+                    let l = left.entry(e.cluster).or_insert(at);
+                    *l = (*l).min(at);
+                    (e, at)
+                })
+                .collect();
+            let hb: Vec<(u16, u16, i32, i32)> = placed
+                .iter()
+                .map(|(e, at)| (e.id, e.cluster, at + e.dx - left[&e.cluster], e.dy))
+                .collect();
+            let got: Vec<(u16, u16, i32, i32)> = buf
+                .as_slice()
+                .iter()
+                .map(|g| {
+                    (
+                        u16::try_from(g.id.index()).unwrap(),
+                        g.cluster.0,
+                        i32::from(g.dx),
+                        i32::from(g.dy),
+                    )
+                })
+                .collect();
+            if got != hb {
+                mismatches.push(format!("{cps} run {r:04X?}: baud {got:?}, hb-shape {hb:?}"));
+            }
+            runs += 1;
+        }
+        lines += 1;
+    }
+    // Positive controls: every line and run was reached, and the lines
+    // hold brackets.
+    assert!(
+        lines == 8 && runs == 25 && brackets == 19,
+        "{lines} {runs} {brackets}"
+    );
+    assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+}

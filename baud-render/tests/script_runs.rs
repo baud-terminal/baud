@@ -221,3 +221,34 @@ fn a_marked_cell_alone_is_shaped_in_its_script() {
         );
     }
 }
+
+/// **A bracket pair is in the run of the text enclosing it** (UAX #24
+/// 5.1, "paired punctuation ... should therefore match the script of the
+/// enclosing text"), so a run is cut on both sides of what the pair
+/// holds. On STIX Two Math, whose `latn` and `grek` select different
+/// lookups, `a(α)` is three runs -- `a(`, `α`, `)` -- where the
+/// preceding-character rule alone made it two and shaped the closer
+/// Greek.
+#[test]
+fn a_bracket_pair_is_in_the_enclosing_run() {
+    let stix = app_font("stix-two-math/STIXTwoMath-Regular.otf");
+    let stix = [Face::parse(&stix).unwrap()];
+    assert_eq!(painted(&stix, "a(α)b").2, 3, "the control: a(, α, )b");
+    assert_eq!(painted(&stix, "a(α)").2, 3, "a(, α, )");
+    assert_eq!(painted(&stix, "α(a)").2, 3, "α(, a, )");
+    assert_eq!(painted(&stix, "a«α»").2, 2, "a quotation mark is no pair");
+}
+
+/// **And inside Hebrew** on Courier New, whose `hebr` and `latn` select
+/// different lookups: `א(a)` is `א(`, `a`, `)`. A macOS system face.
+#[test]
+fn a_bracket_pair_inside_hebrew_is_in_the_hebrew_run() {
+    if !cfg!(target_os = "macos") {
+        eprintln!("skipped: Courier New is a macOS system face");
+        return;
+    }
+    let data = std::fs::read("/System/Library/Fonts/Supplemental/Courier New.ttf").unwrap();
+    let faces = [Face::parse(&data).unwrap()];
+    assert_eq!(painted(&faces, "א(a)ב").2, 3, "the control");
+    assert_eq!(painted(&faces, "א(a)").2, 3, "א(, a, )");
+}

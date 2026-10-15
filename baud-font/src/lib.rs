@@ -99,7 +99,7 @@ pub use morx::Morx;
 pub use outline::{Drawn, Flex, FlexDrawn, Sink, Transform};
 pub use png::{Color, Png, PngError, Size};
 pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasterizer, Scale};
-pub use script::{Direction, PerScript, RunText, Script, Unresolved, resolve};
+pub use script::{Bracket, Direction, Pair, PerScript, RunText, Script, Unresolved, resolve};
 pub use shape::{CombiningClass, Kept, Normalised, Shaped, Shaper};
 
 /// A four-byte table tag, as the directory spells it.
