@@ -21199,6 +21199,8 @@ status = "external"
 group  = "C"
 # `external`: no grant (© 2003 Caldera International). Read 2026-10-11 (round
 # 2026-10-11b): RCP 2619-2620, ESC 8 2749-2751 (HTML lines); silent on an RCP with no SCP.
+# Re-fetched 2026-10-14 (lane scosc), the same sha256: SCP 2589-2595 and its
+# preformatted row 2606, "CSI s" with no parameter, as RCP's "CSI u" at 2623.
 
 [sources.mslearn-ansi-sys]
 key    = "mslearn-ansi-sys"
@@ -21214,6 +21216,8 @@ status = "external"
 group  = "C"
 # `external`: no grant. Read 2026-10-11 (round 2026-10-11b): HTML 794-797; silent on an
 # RCP with no SCP. The page is generated, so a re-fetch may not hash the same.
+# Re-fetched 2026-10-14 (lane scosc): it hashes 35bb7720... and 160,799 bytes, not the
+# above, as a generated page may; lines 794-797 give `ESC[s` and `ESC[u`, no parameter.
 
 [sources.lsix-issue-41]
 key    = "lsix-issue-41"

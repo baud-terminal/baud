@@ -399,6 +399,19 @@ impl<'a> Params<'a> {
             .filter(|v| v.0 != 0)
             .map(|v| OneBased::from_param(Some(v)))
     }
+    /// Is every parameter a default -- omitted, empty or 0 -- with no colon?
+    ///
+    /// For an operation that takes no parameter, which is what a defaulted
+    /// one is. `[[source: msdos2-ansi-doc]]` note 1 (6-7): "The default value
+    /// is used when no explicit value is given or a value of zero is given";
+    /// `[[source: dec-std-070]]` § 3.5.3.1 (p. 3-24): "A zero length
+    /// parameter, or one consisting only of 3/0 bit combinations, represents
+    /// a default". A colon is not: there "the entire sequence up to and
+    /// including the final character shall be ignored" (the same section).
+    /// A bare `CSI s` arrives here as one omitted parameter, not none.
+    pub fn all_default(&self) -> bool {
+        self.sub == SubParams::NONE && self.v.iter().all(|v| v.is_none_or(|v| v.0 == 0))
+    }
     pub fn extent(&self, i: ParamIdx) -> Option<EraseExtent> {
         EraseExtent::from_param(self.at(i))
     }
@@ -626,10 +639,11 @@ pub enum Csi {
     ColumnRelative(Count),
     /// VPR, `CSI e`. Down `n` rows, column unchanged. Unlike CNL.
     LineRelative(Count),
-    /// SCOSC, `CSI s`. Ambiguous with DECSLRM when DECLRMM is enabled; baud
-    /// does not implement left/right margins, so this is unambiguous here.
+    /// SCOSC, `CSI s`, with DECLRMM reset: under DECLRMM the same bytes are
+    /// [`Csi::SetSideMargins`]. Every parameter defaulted or none; one that
+    /// is not is DECSLRM's shape and [`Csi::Unsupported`].
     SaveCursor,
-    /// SCORC, `CSI u`.
+    /// SCORC, `CSI u`. Every parameter defaulted or none, as SCOSC.
     RestoreCursor,
     /// SU, `CSI S`. Scroll the scrolling region up, cursor unmoved.
     ScrollUp(Count),
@@ -982,6 +996,16 @@ impl Csi {
             b'd' => Csi::LineAbsolute(p.one_based(ParamIdx::FIRST)),
             b'a' => Csi::ColumnRelative(p.count(ParamIdx::FIRST)),
             b'e' => Csi::LineRelative(p.count(ParamIdx::FIRST)),
+            // SCOSC and SCORC take no parameter (`[[source: ctlseqs]]` 1592
+            // and 1734), so a defaulted one is the bare form. Anything else
+            // is DECSLRM's shape for `s`, "available only when DECLRMM is
+            // enabled" (1595-1597), and no form for `u`: counted, and the
+            // cursor neither saved nor restored. Both saved or restored it
+            // until 2026-10-14 (`tests/vt100/save_params.rs`).
+            b's' | b'u' if !p.all_default() => Csi::Unsupported {
+                marker,
+                final_byte: f,
+            },
             b's' => Csi::SaveCursor,
             b'u' => Csi::RestoreCursor,
             b'S' => Csi::ScrollUp(p.count(ParamIdx::FIRST)),

@@ -423,14 +423,6 @@ fn every_spec_csi_form_is_handled_or_counted() {
     // snapshot has stopped observing rather than that baud has stopped acting.
     const UNOBSERVABLE: &[(&[u8], &str)] = &[
         (
-            b"\x1b[1s",
-            "SCOSC saves the cursor; nothing exposes the saved slot",
-        ),
-        (
-            b"\x1b[1u",
-            "SCORC with no prior save is inert by design -- scorc_without_a_save_is_inert",
-        ),
-        (
             b"\x1b[1 q",
             "DECSCUSR 1 is blinking block, which is already the default",
         ),
@@ -892,12 +884,23 @@ fn a_final_with_two_arities_means_two_things() {
     // cursor there and DECSLRM homes it, and either read as the other leaves
     // the two alike. This pair fed both with `?69h` until 2026-10-13, and
     // passed only because a bare `CSI s` there was dropped.
+    //
+    // **With DECLRMM reset the two arities still mean two things**: the bare
+    // form saves, and `CSI 1;2 s` is DECSLRM's, not available, so it is
+    // counted in `unsupported` and saves nothing (`tests/vt100/save_params.rs`).
+    // Until 2026-10-14 both saved, which this snapshot, blind to the saved
+    // slot, read as alike.
     const PAIRS: &[(&[u8], &[u8], &str)] = &[
         (b"\x1b[1T", b"\x1b[1;2;3;4;5T", "SD against XTHIMOUSE"),
         (
             b"\x1b[3;3H\x1b[s",
             b"\x1b[?69h\x1b[3;3H\x1b[1;2s",
             "SCOSC against DECSLRM",
+        ),
+        (
+            b"\x1b[3;3H\x1b[s",
+            b"\x1b[3;3H\x1b[1;2s",
+            "SCOSC against DECSLRM's shape with DECLRMM reset",
         ),
     ];
     for (low, high, what) in PAIRS {

@@ -134,8 +134,9 @@ fn scorc_without_a_save_is_inert() {
 }
 
 /// `CSI s` and `ESC 7` write the same slot, so `ESC 8` restores either. That is
-/// what xterm does when DECLRMM is disabled, which is baud's only mode since it
-/// has no left/right margins.
+/// what xterm does when DECLRMM is disabled; with it set `CSI s` is DECSLRM
+/// (`tests/vt420/side_margins.rs`), and with parameters it saves nothing
+/// (`save_params.rs`).
 #[test]
 fn scosc_and_decsc_share_a_slot() {
     assert_eq!(cursor(b"\x1b[7;13H\x1b[s\x1b[1;1H\x1b8"), (6, 12));

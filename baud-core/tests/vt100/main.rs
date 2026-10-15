@@ -17,6 +17,7 @@ mod erase;
 mod irm;
 mod modes;
 mod private_modes;
+mod save_params;
 mod scrolling;
 mod tabs;
 
