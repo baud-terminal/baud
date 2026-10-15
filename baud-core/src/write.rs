@@ -357,10 +357,13 @@ pub(crate) fn act(
         // too. It ends the row it leaves as `Paint::line_feed` does: without
         // that, a row that wrapped kept its wrap when the pair fell in one
         // read and lost it when they fell in two, and a re-cut joined it to
-        // the next line or not by where the reads broke. The clear is the
-        // call `line_feed` makes, about 18 instructions a pair: 3.1% of
-        // cat-scroll's instructions retired (the record, "A `CR LF` in one
-        // read ends the row it leaves").
+        // the next line or not by where the reads broke. The clear is
+        // `set_ended`, cold and out of line, and it is called only on a row
+        // whose wrap bit is set: on any other row it would store the word it
+        // read. The call made on every pair was 18 instructions a pair, 3.1%
+        // of cat-scroll's instructions retired; the inline test is 13, and
+        // took 0.8% of them back (the record, "A `CR LF` calls `set_ended`
+        // only on a row that wrapped").
         //
         // **Under DECOM the line starts at the left margin**, out of line
         // (`Paint::return_displaced`), so the loop carries one test of the
@@ -379,7 +382,9 @@ pub(crate) fn act(
             }
             match left.index() >= 2 && p.arena[from.index() + 1] == 0x0a {
                 true => {
-                    p.view.set_ended(p.cy);
+                    if p.view.extent(p.cy).wrapped() {
+                        p.view.set_ended(p.cy);
+                    }
                     p.index();
                     ReadLen::from_index(2)
                 }
