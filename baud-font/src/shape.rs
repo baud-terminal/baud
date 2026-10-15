@@ -764,9 +764,8 @@ impl<'f, 'a, 'b> Shaper<'f, 'a, 'b> {
     /// it to ([`CombiningClass::placement`]), which is also the class whose
     /// running box it rides: sheva and meteg stack below as one class, sin
     /// dot and holam above left. Marks on a ligature attach to the whole
-    /// ligature where
-    /// HarfBuzz attaches them to its last component; no fixture reaches
-    /// the difference.
+    /// ligature where HarfBuzz attaches them to its last component; no
+    /// fixture reaches the difference.
     fn fallback_marks(&mut self) {
         let mut base: Option<BaseBox> = None;
         let mut at = crate::bytes::Index::ZERO;

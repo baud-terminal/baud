@@ -476,11 +476,11 @@ wc -l "$OR_OUT"
 # through `morx`. Lucida Grande and Corsiva Hebrew carry none either and are
 # left out: HarfBuzz's `morx` pass forms a ligature on 20 and 18 of these
 # clusters where baud's forms none, which is substitution, not placement;
-# every other cluster places as HarfBuzz places it there too. Every class 10-26 on its
-# own, a rafe over lamed's ascender and a sheva under final pe's descender,
-# then points that share a placement class (sheva and meteg below, sin dot
-# and holam above left) and the Genesis clusters of `order.txt`, in
-# canonical order. Columns and features as `script.txt`; the fnv64 is of
+# every other cluster places as HarfBuzz places it there too. Every class
+# 10-26 on its own, a rafe over lamed's ascender and a sheva under final
+# pe's descender, then points that share a placement class (sheva and
+# meteg below, sin dot and holam above left) and the Genesis clusters of
+# `order.txt`, in canonical order. Columns and features as `script.txt`; the fnv64 is of
 # the file as committed, before a rename.
 HF_OUT=baud-font/tests/shape/fallback-hebrew.txt
 {

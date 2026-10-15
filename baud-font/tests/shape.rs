@@ -643,9 +643,8 @@ fn every_mark_order_fixture_shapes_as_harfbuzz_does() {
 /// `tests/shape/fallback-hebrew.txt` is what hb-shape made of a cluster on
 /// such a face, compared as `script.txt`'s are: the built Regular with its
 /// `GPOS` renamed away, on every platform, and Raanana and New Peninim MT,
-/// which carry none, on macOS. Read by
-/// Unicode's class, every point fell to a centred default with no vertical
-/// move, and Raanana's points sat at dy 0 where HarfBuzz puts them at -4.
+/// which carry none, on macOS. Placed by Unicode's class, every point fell
+/// to a centred default with no vertical move, and Raanana's points sat at dy 0 where HarfBuzz puts them at -4.
 #[test]
 fn every_hebrew_fallback_fixture_places_points_as_harfbuzz_does() {
     let on_macos = cfg!(target_os = "macos");
