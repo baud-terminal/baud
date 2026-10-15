@@ -455,7 +455,9 @@ impl BlinkChoice {
 /// phase, the owner's picks of 2026-10-15. **`Plasma` by default**: the
 /// plasma trail's glow on the cursor's cell, pulsing out and back across the
 /// hidden phase. `Fade` fades the cursor out over the first 30% of the
-/// hidden phase and in over the last 30%, eased; `None` is a hard switch.
+/// hidden phase and in over the last 30%, eased; `Fire` burns the cursor
+/// down into embers and relights it, the fire trail's look on its cell;
+/// `None` is a hard switch.
 /// Each runs inside the hidden phase and scales with it, so any
 /// `blink_interval_ms` works with any of them. Reduce Motion always means
 /// `None` ([`BlinkAnimation::effective`]).
@@ -464,6 +466,7 @@ pub enum BlinkAnimation {
     #[default]
     Plasma,
     Fade,
+    Fire,
     None,
 }
 
@@ -824,11 +827,12 @@ impl Config {
                     self.blink_animation = match value.trim().trim_matches('"') {
                         "plasma" => BlinkAnimation::Plasma,
                         "fade" => BlinkAnimation::Fade,
+                        "fire" => BlinkAnimation::Fire,
                         "none" => BlinkAnimation::None,
                         other => {
                             said.push(format!(
-                                "config: [cursor] blink_animation {other:?} is not plasma, fade \
-                                 or none; using the default, plasma"
+                                "config: [cursor] blink_animation {other:?} is not plasma, fade, \
+                                 fire or none; using the default, plasma"
                             ));
                             BlinkAnimation::Plasma
                         }
@@ -1613,8 +1617,9 @@ mod reader {
         assert_eq!(at("\"plasma\""), BlinkAnimation::Plasma);
         assert_eq!(at("\"fade\""), BlinkAnimation::Fade);
         assert_eq!(at("\"none\""), BlinkAnimation::None);
+        assert_eq!(at("\"fire\""), BlinkAnimation::Fire);
         assert_eq!(at("fade"), BlinkAnimation::Fade, "bare, as other keys read");
-        for bad in ["\"fire\"", "\"ufo\"", "true", "\"\""] {
+        for bad in ["\"ufo\"", "\"embers\"", "true", "\"\""] {
             assert_eq!(at(bad), BlinkAnimation::Plasma, "{bad}");
             let said = Config::defaults().apply(&format!("[cursor]\nblink_animation = {bad}\n"));
             assert_eq!(said.len(), 1, "{bad} is said");
@@ -1622,6 +1627,7 @@ mod reader {
         for a in [
             BlinkAnimation::Plasma,
             BlinkAnimation::Fade,
+            BlinkAnimation::Fire,
             BlinkAnimation::None,
         ] {
             assert_eq!(a.effective(SystemMotion::Reduced), BlinkAnimation::None);

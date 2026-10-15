@@ -58,7 +58,7 @@ pub use atlas::{
     VAR_POINTS_MAX,
 };
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
-pub use caret::CursorPhase;
+pub use caret::{CursorPhase, Play};
 pub use cellmap::{
     BlockCursor, Candidate, CellKey, CellSpan, Curves, Drawn, GlyphMap, Ink, MAP_BITS, MAP_SLOTS,
     MapEntry, MapGeneration, MapStats, NO_INK, Resolved, Selected, Shapes, Swaps, Text,
@@ -70,7 +70,9 @@ pub use color::{
 pub use composite::{Blend, Target};
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
-pub use overlay::{Composition, MASK_PICTURE, MASK_RECORD, Overlay, OverlayStats, Scene};
+pub use overlay::{
+    Composition, MASK_CURSOR, MASK_PICTURE, MASK_RECORD, Overlay, OverlayStats, Scene,
+};
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use renderer::{
     Blink, BlinkPhases, Blinking, ClusterGlyph, Converted, Damage, Evicted, Exceptions, Frame,

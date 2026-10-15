@@ -71,15 +71,19 @@ fn pixels(bytes: &[u8], phase: CursorPhase) -> (support::Canvas, (usize, usize))
 fn faded(opacity: u8) -> CursorPhase {
     CursorPhase {
         opacity: Chan::from_u8(opacity),
-        glow: Chan::from_u8(0),
+        ..CursorPhase::HIDDEN
     }
 }
 
 fn glowing(glow: u8) -> CursorPhase {
     CursorPhase {
-        opacity: Chan::from_u8(0),
         glow: Chan::from_u8(glow),
+        ..CursorPhase::HIDDEN
     }
+}
+
+fn burning(at: u8) -> CursorPhase {
+    CursorPhase::fire(Chan::from_u8(at))
 }
 
 /// **A fade part way is neither phase, and its ends are the two phases**:
@@ -160,12 +164,52 @@ fn a_fade_and_a_glow_repaint_incrementally() {
         glowing(30),
         glowing(250),
         glowing(0),
+        burning(40),
+        burning(130),
+        burning(200),
         faded(255),
     ] {
         r.set_cursor_blink(phase);
         let f = support::paint(&mut r, &mut t, &mut canvas, Damage::Incremental);
         assert_eq!(canvas.digest(), frame(bytes, phase), "{phase:?}");
         assert_eq!(f.rows_dirty.value(), 1, "{phase:?}");
+    }
+}
+
+/// **The fire lands on the cursor's cell and nowhere else**, in each shape:
+/// part way it is neither the shown frame nor the hidden one, it differs
+/// from the shown one only inside the cell, and a steady cursor has none.
+#[test]
+fn the_fire_lands_on_the_cursor_cell_alone() {
+    for shape in [b"1", b"3", b"5"] {
+        let mut bytes = b"ab\x1b[".to_vec();
+        bytes.extend_from_slice(shape);
+        bytes.extend_from_slice(b" q\x1b[2;3H");
+        let (on, cell) = pixels(&bytes, CursorPhase::SHOWN);
+        let off = frame(&bytes, Blink::Hidden);
+        for at in [30u8, 90, 140, 200, 240] {
+            let (lit, _) = pixels(&bytes, burning(at));
+            assert_ne!(
+                lit.digest(),
+                on.digest(),
+                "Ps {} at {at}",
+                char::from(shape[0])
+            );
+            assert_ne!(lit.digest(), off, "Ps {} at {at}", char::from(shape[0]));
+            for (i, (a, b)) in on.pixels.iter().zip(&lit.pixels).enumerate() {
+                if a != b {
+                    let (x, y) = (i % on.width, i / on.width);
+                    assert!(
+                        (2 * cell.0..3 * cell.0).contains(&x) && (cell.1..2 * cell.1).contains(&y),
+                        "fire {at} at ({x}, {y}), outside the cursor's cell"
+                    );
+                }
+            }
+        }
+        let mut steady = b"ab\x1b[".to_vec();
+        steady.push(shape[0] + 1);
+        steady.extend_from_slice(b" q\x1b[2;3H");
+        assert_eq!(frame(&steady, burning(140)), frame(&steady, Blink::Shown));
     }
 }
 

@@ -5,7 +5,7 @@ use crate::cache::{
     CacheStats, CellIx, ClusterMemo, Cover, Key, PLACED_MAX, Placed, Question, RUN_CELLS, RunCache,
     Shaped,
 };
-use crate::caret::{self, CursorPhase};
+use crate::caret::{self, CursorPhase, Play};
 use crate::cellmap::{BlockCursor, CellSpan, Curves, Resolved, Selected, Shapes, Swaps, Text};
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Target};
@@ -750,11 +750,12 @@ pub struct Renderer<'f, 'a> {
     /// restarts on input where `SGR 5` text keeps neither -- and a fade or
     /// the plasma glow part way through it ([`CursorPhase`]).
     cursor_blink: CursorPhase,
-    /// The plasma blink's glow, where it is and how bright, on this frame
-    /// and the last, and its solids: a row under either is dirty, the
-    /// trail's rule, so the glow's damage is the cursor's row.
-    glow: Option<(Row, Col, Chan)>,
-    last_glow: Option<(Row, Col, Chan)>,
+    /// The blink animation's solids -- the plasma glow, the fire -- where
+    /// they are and the phase that drew them, on this frame and the last,
+    /// and the solids: a row under either is dirty, the trail's rule, so
+    /// their damage is the cursor's row.
+    glow: Option<(Row, Col, CursorStyle, CursorPhase)>,
+    last_glow: Option<(Row, Col, CursorStyle, CursorPhase)>,
     glow_inst: Vec<Instance>,
     /// Whether this frame shows the other video, set by
     /// [`Renderer::set_flash`] before a convert or resolve, the way the blink
@@ -1348,27 +1349,37 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// **The plasma blink's glow over the cursor at `at`**, built for this
-    /// frame: the live cursor whether or not the phase draws it, `None` when
-    /// there is none on the screen being drawn. Nothing for a steady style
-    /// or a phase without a glow. [`Renderer::convert`] calls this itself;
-    /// a cell-path driver calls it with the cursor it computed and draws
+    /// **The blink animation's solids over the cursor at `at`** -- the
+    /// plasma glow, the fire -- built for this frame: the live cursor
+    /// whether or not the phase draws it, `None` when there is none on the
+    /// screen being drawn. Nothing for a steady style or a phase without
+    /// them. [`Renderer::convert`] calls this itself; a cell-path driver
+    /// calls it with the cursor it computed and draws
     /// [`Renderer::cursor_glow`] after the trail's records.
     pub fn set_cursor_glow_at(&mut self, at: Option<(Row, Col, CursorStyle)>) {
-        let level = self.cursor_blink.glow;
+        let phase = self.cursor_blink;
+        let plays = phase.glow != Chan::from_u8(0) || phase.play != Play::Still;
         self.glow = at
-            .filter(|&(_, _, style)| style.blinks() && level != Chan::from_u8(0))
-            .map(|(r, c, _)| (r, c, level));
+            .filter(|&(_, _, style)| style.blinks() && plays)
+            .map(|(r, c, style)| (r, c, style, phase));
         self.glow_inst.clear();
-        if let Some((r, c, level)) = self.glow {
+        if let Some((r, c, style, phase)) = self.glow {
             let cell = self.cursor_px(r, c, CursorStyle::SteadyBlock);
-            caret::glow(cell, level, self.cursor_fill, &mut self.glow_inst);
+            caret::glow(cell, phase.glow, self.cursor_fill, &mut self.glow_inst);
+            let shape = self.cursor_px(r, c, style);
+            caret::play(
+                cell,
+                shape,
+                phase.play,
+                self.cursor_fill,
+                &mut self.glow_inst,
+            );
         }
     }
 
-    /// The glow's solids, for a path that draws records of its own: after
-    /// the trail's and under the scrollbar, as [`Renderer::instances`] has
-    /// them.
+    /// The blink animation's solids, for a path that draws records of its
+    /// own: after the trail's and under the scrollbar, as
+    /// [`Renderer::instances`] has them.
     pub fn cursor_glow(&self) -> &[Instance] {
         &self.glow_inst
     }
@@ -1887,8 +1898,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let cursor_moved = cursor_here != cursor_was
                 || (cursor_here
                     && (cursor != self.last_cursor || opacity != self.last_cursor_opacity));
-            let glow_row =
-                |g: Option<(Row, Col, Chan)>| g.is_some_and(|(gr, _, _)| gr.index() == r);
+            let glow_row = |g: Option<(Row, Col, CursorStyle, CursorPhase)>| {
+                g.is_some_and(|(gr, _, _, _)| gr.index() == r)
+            };
             let glow_moved =
                 (glow_row(self.glow) || glow_row(self.last_glow)) && self.glow != self.last_glow;
             let row = Row::from_index(r);

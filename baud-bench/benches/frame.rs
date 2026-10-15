@@ -15,10 +15,11 @@
 //!
 //! Usage: `frame <recording> [reps] [full|incremental]`.
 //!
-//! `FRAME_BLINK=none|fade|plasma` prices instead what an idle blinking
+//! `FRAME_BLINK=none|fade|plasma|fire` prices instead what an idle blinking
 //! cursor's frame costs over the recording's last screen: 2000 incremental
 //! frames alternating two phases of that animation -- the hard switch's
-//! two, two opacities of a fade, two pulses of the glow -- reporting the
+//! two, two opacities of a fade, two pulses of the glow, two steps of the
+//! fire's burn -- reporting the
 //! cost, rows and instances a frame. Frames a cycle are `caret.rs`'s
 //! `frames_a_cycle_for_each_animation`; the two multiply.
 
@@ -187,10 +188,15 @@ fn main() {
         let phase = |opacity: u8, glow: u8| CursorPhase {
             opacity: Chan::from_u8(opacity),
             glow: Chan::from_u8(glow),
+            ..CursorPhase::HIDDEN
         };
         let pair = match kind.as_str() {
             "fade" => [phase(128, 0), phase(96, 0)],
             "plasma" => [phase(0, 128), phase(0, 192)],
+            "fire" => [
+                CursorPhase::fire(Chan::from_u8(70)),
+                CursorPhase::fire(Chan::from_u8(80)),
+            ],
             _ => [CursorPhase::HIDDEN, CursorPhase::SHOWN],
         };
         let mut rb = fresh();

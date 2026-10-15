@@ -11,8 +11,8 @@
 //! interval or 333.
 //!
 //! **The hidden phase is the animation's** (`[cursor] blink_animation`, the
-//! same day's picks): the plasma glow by default, a fade, or none -- a hard
-//! switch. Each is a function of how far into the hidden phase it is, not
+//! same day's picks): the plasma glow by default, a fade, the fire, or
+//! none -- a hard switch. Each is a function of how far into the hidden phase it is, not
 //! of a length of its own, so it scales with any interval and ends inside
 //! the phase ([`BlinkAnimation::runs`]). Reduce Motion means none.
 //!
@@ -228,10 +228,13 @@ impl BlinkAnimation {
     ///   at both ends and meets the shown phase with no step.
     /// * `Plasma`: the cursor gone and the glow pulsing `sin^2(pi h / off)`,
     ///   out from nothing and back to nothing at the phase's end.
+    /// * `Fire`: the cursor handed to a flame that burns it down into
+    ///   embers and relights it, whole at both ends ([`CursorPhase::fire`]).
     pub fn at(self, h: Duration, off: Duration) -> CursorPhase {
         let u = (h.as_secs_f64() / off.as_secs_f64().max(f64::MIN_POSITIVE)).clamp(0.0, 1.0);
         match self {
             BlinkAnimation::None => CursorPhase::HIDDEN,
+            BlinkAnimation::Fire => CursorPhase::fire(chan(u)),
             BlinkAnimation::Fade => {
                 let opacity = if u < FADE {
                     1.0 - ease(u / FADE)
@@ -261,7 +264,7 @@ impl BlinkAnimation {
     fn next_motion(self, h: Duration, off: Duration) -> Duration {
         match self {
             BlinkAnimation::None => off,
-            BlinkAnimation::Plasma => h,
+            BlinkAnimation::Plasma | BlinkAnimation::Fire => h,
             BlinkAnimation::Fade => {
                 let (out, back) = (off.mul_f64(FADE), off.mul_f64(1.0 - FADE));
                 if h < out || h >= back { h } else { back }
@@ -495,6 +498,7 @@ mod tests {
     use super::*;
     use baud_core::{Owned, Term};
     use baud_domain::{BytePos, ReadLen, WinSize};
+    use baud_render::Play;
     use std::time::Instant;
 
     const MS: Duration = Duration::from_millis(1);
@@ -737,9 +741,10 @@ mod tests {
         assert_eq!(c.plan(at(510), Blinks::Yes), SHOWN);
     }
 
-    const ANIMATIONS: [BlinkAnimation; 3] = [
+    const ANIMATIONS: [BlinkAnimation; 4] = [
         BlinkAnimation::Plasma,
         BlinkAnimation::Fade,
+        BlinkAnimation::Fire,
         BlinkAnimation::None,
     ];
 
@@ -805,6 +810,19 @@ mod tests {
                                 "{ms} at {f}"
                             );
                         }
+                    }
+                    BlinkAnimation::Fire => {
+                        assert_eq!((start, end), (SHOWN, SHOWN), "{ms}: whole at both ends");
+                        // Burnt down and not yet relit: only embers, the
+                        // cursor itself gone.
+                        let embers = a.at(off.mul_f64(0.5), off);
+                        assert_eq!(embers.opacity.get(), 0, "{ms}: {embers:?}");
+                        assert!(matches!(embers.play, Play::Fire(_)), "{ms}: {embers:?}");
+                        // The cursor hands over to the flame in the first 8%
+                        // and back in the last.
+                        assert_eq!(a.at(off.mul_f64(0.08), off).opacity.get(), 0, "{ms}");
+                        assert!(a.at(off.mul_f64(0.04), off).opacity.get() > 100, "{ms}");
+                        assert!(a.at(off.mul_f64(0.96), off).opacity.get() > 100, "{ms}");
                     }
                     BlinkAnimation::Plasma => {
                         assert_eq!((start, end), (HIDDEN, HIDDEN), "{ms}: no glow at the ends");
@@ -898,7 +916,11 @@ mod tests {
         }
         // Ten seconds is 15 cycles of 666 ms; the counts per cycle are
         // these over 15.
-        assert_eq!(counts, [FRAMES_PLASMA, FRAMES_FADE, 30], "{counts:?}");
+        assert_eq!(
+            counts,
+            [FRAMES_PLASMA, FRAMES_FADE, FRAMES_FIRE, 30],
+            "{counts:?}"
+        );
     }
 
     /// About 41 a cycle: each of the hidden phase's 40 ticks, and the flip
@@ -907,6 +929,10 @@ mod tests {
     /// About 24.5 a cycle: the two 100 ms ramps' 12 ticks each, give or
     /// take the tick a ramp's first and last value round alike.
     const FRAMES_FADE: usize = 368;
+    /// About 41 a cycle, as the plasma: the flame moves through the whole
+    /// hidden phase, and its last tick rounds to the whole cursor the flip
+    /// shows, so one fewer.
+    const FRAMES_FIRE: usize = 612;
 
     /// **On Linux the `poll` timeout follows the animation**: the flip in
     /// the shown phase, a frame's time while the drawing moves, and across
@@ -952,6 +978,12 @@ mod tests {
             p.next_change(at(1500), Blinks::Yes),
             Some(at(1500) + FLOOR),
             "glowing"
+        );
+        p.set_animation(BlinkAnimation::Fire);
+        assert_eq!(
+            p.next_change(at(1500), Blinks::Yes),
+            Some(at(1500) + FLOOR),
+            "burning"
         );
     }
 

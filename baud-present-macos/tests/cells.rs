@@ -1091,6 +1091,27 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     arms.margin = (0, 0);
 }
 
+/// The blink animations' phases the oracle draws, part way through each:
+/// a fade at half and near its end, the plasma glow, and the fire handing
+/// over, burning down, in embers and relighting.
+fn blink_phases() -> Vec<(CursorPhase, &'static str)> {
+    let phase = |opacity: u8, glow: u8| CursorPhase {
+        opacity: Chan::from_u8(opacity),
+        glow: Chan::from_u8(glow),
+        ..CursorPhase::HIDDEN
+    };
+    let fire = |at: u8| CursorPhase::fire(Chan::from_u8(at));
+    vec![
+        (phase(128, 0), "half way through a fade"),
+        (phase(40, 0), "near the end of a fade out"),
+        (phase(0, 200), "glowing"),
+        (fire(10), "handing over to the fire"),
+        (fire(70), "burning down"),
+        (fire(135), "in embers"),
+        (fire(205), "relighting"),
+    ]
+}
+
 fn differing(a: &[u32], b: &[u32]) -> usize {
     a.iter().zip(b).filter(|(x, y)| x != y).count()
 }
@@ -1415,15 +1436,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         // is its shape at half alpha; the glow is solids over the cell. The
         // arms must agree to the bit, and each frame must be neither phase,
         // or a fade or glow lost on both arms passes here.
-        let phase = |opacity: u8, glow: u8| CursorPhase {
-            opacity: Chan::from_u8(opacity),
-            glow: Chan::from_u8(glow),
-        };
-        for (p, what) in [
-            (phase(128, 0), "half way through a fade"),
-            (phase(40, 0), "near the end of a fade out"),
-            (phase(0, 200), "glowing"),
-        ] {
+        for (p, what) in blink_phases() {
             arms.renderer.set_cursor_blink(p);
             let (a, b) = arms.draw(&mut t);
             assert_eq!(
@@ -1444,6 +1457,55 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         }
         arms.renderer.set_cursor_blink(Blink::Shown);
     }
+    // **The same phases over a cell the overlay draws as a record**: the
+    // `e` and its acute on the marks row, where the cell arm's glyph is a
+    // record and not the map's. The loop above sits on a map-drawn `H`, so
+    // a record that missed the fade's mix or the effect's solids would
+    // pass there. The positive control is the mask: the cell is the
+    // overlay's.
+    feed(&mut t, b"\x1b[7;7H");
+    // An `OSC 12` bar crosses the glyph: drawn under the record's glyph on
+    // the cell arm and over it on the instance arm, ten pixels differed.
+    for (shape, name) in [(b"\x1b[6 q", "bar"), (b"\x1b[4 q", "underline")] {
+        feed(&mut t, shape);
+        feed(&mut t, b"\x1b]12;rgb:ff/00/00\x07");
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the arms disagree on an OSC 12 {name} over a record"
+        );
+        feed(&mut t, b"\x1b]112\x07");
+    }
+    let cols = usize::from(WS.ws_col);
+    for (shape, name) in [
+        (b"\x1b[1 q", "block"),
+        (b"\x1b[3 q", "underline"),
+        (b"\x1b[5 q", "bar"),
+    ] {
+        feed(&mut t, shape);
+        let (on_a, _) = arms.draw(&mut t);
+        assert_ne!(
+            arms.overlay_mem[6 * cols + 6],
+            0,
+            "the control: the marked cell is drawn by a record"
+        );
+        arms.renderer.set_cursor_blink(Blink::Hidden);
+        let (off_a, _) = arms.draw(&mut t);
+        for (p, what) in blink_phases() {
+            arms.renderer.set_cursor_blink(p);
+            let (a, b) = arms.draw(&mut t);
+            assert_eq!(
+                differing(&a, &b),
+                0,
+                "the arms disagree on a {name} cursor {what} over a record"
+            );
+            assert_ne!(differing(&a, &on_a), 0, "{name} {what}: the on phase");
+            assert_ne!(differing(&a, &off_a), 0, "{name} {what}: the off phase");
+        }
+        arms.renderer.set_cursor_blink(Blink::Shown);
+    }
+    feed(&mut t, b"\x1b[1;1H");
     // **Text that blinks, in its off phase, under a block cursor and a
     // selection.** The cursor block and the selection block are drawn; the
     // blinking glyph, its underline and its strike are not. So the blink's

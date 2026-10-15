@@ -18,6 +18,7 @@
 use crate::atlas::Code;
 use crate::cellmap::CellSpan;
 use crate::cellmap::{BlockCursor, Candidate, GlyphMap, Resolved, Selected, Swaps, Text};
+use crate::color::Argb;
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
 use crate::picture::{Pictured, Pictures};
@@ -62,6 +63,9 @@ pub struct OverlayStats {
 /// background pass draws it solid -- [`crate::Pictures`].
 pub const MASK_RECORD: u8 = 1;
 pub const MASK_PICTURE: u8 = 2;
+/// `CURSOR`: a record draws the bar or underline cursor over this cell, after
+/// the glyph's, and the shape pass must not draw it under them.
+pub const MASK_CURSOR: u8 = 4;
 
 /// What one frame's walk reads: the core for the marks, the view it is
 /// drawing, the resolved rendition table the shader reads, and the cursor.
@@ -119,6 +123,84 @@ struct Geom {
     /// The downward pixel shift a smooth scroll applies to every record on
     /// the cell path, matching the grid passes' `u.pan`.
     pan: Px,
+    /// The bar or underline cursor, when one is drawn this frame: over a
+    /// cell the records draw, its shape is a record after the glyph's, as
+    /// the instance path draws it after the row's glyphs, and the shader's
+    /// shape pass leaves it out there.
+    bar: Option<BarCursor>,
+}
+
+/// A bar or underline cursor as a record draws it: where, which shape, the
+/// `OSC 12` colour if one is set, and how much of it a blink draws.
+#[derive(Clone, Copy)]
+struct BarCursor {
+    row: Row,
+    col: Col,
+    style: CursorStyle,
+    color: Option<Argb>,
+    opacity: Chan,
+}
+
+impl BarCursor {
+    /// The frame's bar or underline cursor, from the cursor it draws.
+    fn of(
+        r: &Renderer<'_, '_>,
+        term: &Term<'_>,
+        cursor: Option<(Row, Col, CursorStyle)>,
+    ) -> Option<BarCursor> {
+        let (row, col, style) = cursor?;
+        let bar = matches!(
+            style,
+            CursorStyle::BlinkingBar
+                | CursorStyle::SteadyBar
+                | CursorStyle::BlinkingUnderline
+                | CursorStyle::SteadyUnderline
+        );
+        bar.then(|| BarCursor {
+            row,
+            col,
+            style,
+            color: term
+                .cursor_color_in(r.video())
+                .map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))),
+            opacity: r.cursor_opacity(style),
+        })
+    }
+
+    /// Its solid over cell `(x, y)` whose glyph is drawn in `fg`, or none
+    /// when it is not there: `Renderer::cursor_px`'s rectangle and the
+    /// shader's `which == 3` colour, `OSC 12` or the foreground, scaled.
+    fn over(self, (x, y): (usize, usize), fg: Argb, geom: &Geom) -> Option<Instance> {
+        if self.row.index() != y || self.col.index() != x {
+            return None;
+        }
+        let m = geom.m;
+        let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+        let line = m.thickness.value().max(2);
+        let (dy, w, h) = match self.style {
+            CursorStyle::BlinkingUnderline | CursorStyle::SteadyUnderline => {
+                (ch.saturating_sub(line), cw, line)
+            }
+            _ => (0, line, ch),
+        };
+        let at = |v: u64| Screen(i16::try_from(v).unwrap_or(i16::MAX));
+        let len = |v: u32| crate::atlas::Tex(u16::try_from(v).unwrap_or(u16::MAX));
+        let left = u64::try_from(x).unwrap_or(0) * u64::from(cw);
+        let top = u64::try_from(y).unwrap_or(0) * u64::from(ch)
+            + u64::from(dy)
+            + u64::from(geom.pan.value());
+        Some(Instance {
+            x: at(left),
+            y: at(top),
+            w: len(w),
+            h: len(h),
+            u: crate::atlas::Tex(0),
+            v: crate::atlas::Tex(0),
+            color: self.color.unwrap_or(fg).scaled(self.opacity),
+            kind: crate::atlas::Kind::Solid,
+            curve: baud_domain::contrast::CurveRow::default(),
+        })
+    }
 }
 
 /// The cells a composition covers on the view, `row` and `start..end`, or
@@ -299,6 +381,7 @@ impl Overlay {
             m: r.metrics(),
             cols: view.cols(),
             pan: scene.pan,
+            bar: BarCursor::of(r, scene.term, cursor),
         };
         let block = cursor
             .filter(|(_, _, s)| matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock));
@@ -410,6 +493,15 @@ impl Overlay {
                     },
                     &geom,
                 );
+            }
+        }
+        // The cursor's shape over a cell the records draw is theirs.
+        if let Some(m) = geom
+            .bar
+            .and_then(|b| mask.get_mut(b.row.index() * cols + b.col.index()))
+        {
+            if *m & MASK_RECORD != 0 {
+                *m |= MASK_CURSOR;
             }
         }
         r.set_blink_seen(seen);
@@ -648,6 +740,7 @@ impl Overlay {
             m: r.metrics(),
             cols,
             pan: Px::of(0),
+            bar: None,
         };
         Overlay::emit(
             records,
@@ -757,7 +850,9 @@ impl Overlay {
             blink: paint.blink,
             cursor: paint.cursor,
         });
+        let bar = geom.bar.and_then(|b| b.over(at, d.fg, geom));
         if d.text == Text::Hidden {
+            records.extend(bar);
             return;
         }
         let color = d.fg;
@@ -785,6 +880,7 @@ impl Overlay {
                 curve,
             });
         }
+        records.extend(bar);
     }
 }
 
@@ -899,6 +995,7 @@ pub(crate) fn composition_records(
         m: r.metrics(),
         cols,
         pan,
+        bar: None,
     };
     let paint = Paint {
         styles,

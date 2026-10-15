@@ -1289,7 +1289,8 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
 vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uint2* cells [[buffer(0)]],
                               device const Style* styles [[buffer(1)]],
-                              constant CU& u [[buffer(2)]]) {
+                              constant CU& u [[buffer(2)]],
+                              device const uchar* overlay [[buffer(4)]]) {
     GOut o;
     o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 2u; o.curve = 0u;
     uint which = iid % SHAPE_SLOTS, ci = iid / SHAPE_SLOTS;
@@ -1327,6 +1328,10 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
     } else if (which == 3u) {
         if (col != u.cursor.x || lrow != int(u.cursor.y) || u.cursor_kind < 2u) return o;
+        // Over a cell the records draw, a record draws the cursor after the
+        // glyph (`MASK_CURSOR`, 4 in the overlay), as the instance path
+        // draws it after the row's glyphs.
+        if (lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & 4u) != 0u) return o;
         if (u.cursor_kind == 2u) {
             at = float2(float(col * u.cell.x), rowy + float(u.cell.y) - thick);
             wh = float2(u.cell.x, thick);
