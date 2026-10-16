@@ -49,7 +49,15 @@
 //! error codes are the ones the text names -- ENOENT for a put naming no
 //! image, EINVAL for `i` and `I` together, kitty's one EBADF string for a
 //! file medium -- and kitty's own for the rest (EINVAL, ENODATA, EFBIG,
-//! ENOSPC, EBADPNG), practice recorded as such.
+//! ENOSPC, EBADPNG), practice recorded as such. **A placement not made is
+//! never answered `OK`**: the reply to `a=p` and `a=T` is the placement's
+//! outcome, and a full table, on screen or virtual, answers ENOSPC -- a
+//! case the text names no code for and kitty, whose placements are not in
+//! a table, never meets; ENOSPC is the code the text gives for storage
+//! run out. kitty builds an `a=T` reply before it places
+//! (`[[source: kitty-graphics-c]]`), so a refused placement there is
+//! answered `OK`, practice not followed, as the text's EINVAL for a
+//! relative virtual placement already was not.
 //!
 //! **The file mediums `t=f`, `t=t` and `t=s` are the embedder's**, through
 //! [`KittyFiles`] (Jev TD_FIRST_FILES_LATER): the payload is the path, or the
@@ -251,6 +259,16 @@ impl KittyError {
         KittyError::new("EINVAL", "PNG data size too large for the image scratch");
     pub const RELATIVE: KittyError =
         KittyError::new("EINVAL", "Relative placements are not supported");
+    /// **A placement the store's full table refuses.** The text names no
+    /// code for it, and kitty has no such table to fill; `ENOSPC` is the
+    /// code it names for storage that has run out ("there is not enough
+    /// storage space, kitty will respond with ENOSPC"), in its error form.
+    pub const PLACEMENTS_FULL: KittyError =
+        KittyError::new("ENOSPC", "No room for another placement");
+    /// A virtual placement the stream's full table ([`KITTY_VIRTUALS`])
+    /// refuses, as [`KittyError::PLACEMENTS_FULL`].
+    pub const VIRTUALS_FULL: KittyError =
+        KittyError::new("ENOSPC", "No room for another virtual placement");
     /// A path past [`KITTY_PATH_MAX`]: kitty's code and text
     /// (`load_image_data`), which say nothing of any file.
     pub const PATH: KittyError = KittyError::new("EINVAL", "Filename too long");
@@ -747,7 +765,8 @@ pub struct KittyMove {
 pub struct KittyCounts {
     /// Commands completed, one per command and not per chunk.
     pub commands: usize,
-    /// Commands refused with an error, whether or not the reply was sent.
+    /// Commands refused, whether or not a reply was sent: one naming no
+    /// image is answered nothing, and `q` may silence the error.
     pub refused: usize,
     /// Commands ignored: animation, and frame deletes.
     pub ignored: usize,
@@ -765,8 +784,8 @@ pub struct KittyCounts {
     /// reply buffer: a different buffer, emptied by a different caller.
     pub replies_dropped: usize,
     /// Virtual placements (`U=1`) not made because every slot of the
-    /// stream's table held one ([`KITTY_VIRTUALS`]), or because their
-    /// image has no id a placeholder could name.
+    /// stream's table held one ([`KITTY_VIRTUALS`]), answered ENOSPC, or
+    /// because their image has no id a placeholder could name.
     pub virtuals_refused: usize,
 }
 
@@ -1745,9 +1764,18 @@ impl KittyStream {
             Deferred::Png { image, .. } | Deferred::Convert { image, .. } => image,
             Deferred::Idle => return None,
         };
-        match cmd.act() {
-            KittyAction::TransmitPut => self.place(image, &cmd, at, store),
-            _ => None,
+        if cmd.act() != KittyAction::TransmitPut {
+            return None;
+        }
+        // The reply waits for the decode, so a placement refused now is
+        // kept in the owed command's `error`, which a command reaching here
+        // has empty, for the reply to carry.
+        match self.place(image, &cmd, at, store) {
+            Ok(moved) => moved,
+            Err(e) => {
+                self.owed.error = Some(e);
+                None
+            }
         }
     }
 
@@ -1766,11 +1794,14 @@ impl KittyStream {
             return None;
         }
         self.counts.images += 1;
-        self.reply(&cmd, answer(&cmd));
-        match cmd.act() {
+        // The placement first, so the reply is its outcome: an `OK` for a
+        // placement not made would tell the client its picture is up.
+        let placed = match cmd.act() {
             KittyAction::TransmitPut => self.place(image, &cmd, at, store),
-            _ => None,
-        }
+            _ => Ok(None),
+        };
+        self.reply(&cmd, placed.map(|_| ()));
+        placed.ok().flatten()
     }
 
     /// Finish any deferred decode now.
@@ -1849,7 +1880,8 @@ impl KittyStream {
                             KittyAction::Query => store.free(image),
                             _ => self.counts.images += 1,
                         }
-                        self.reply(&cmd, answer(&cmd));
+                        // What `defer` kept of the placement it tried.
+                        self.reply(&cmd, cmd.error.map_or(Ok(()), Err));
                     }
                     _ => {
                         self.deferred = Deferred::Convert {
@@ -1881,37 +1913,39 @@ impl KittyStream {
     }
 
     /// **Place `image` at the cursor** with `cmd`'s geometry, and say how
-    /// far the cursor moves. A relative placement is refused (EINVAL),
-    /// placing nothing; a Unicode placeholder's virtual one is made in the
-    /// stream's table and moves nothing.
+    /// far the cursor moves, or why nothing was placed -- the reply the
+    /// command owes. A relative placement is refused (EINVAL), a full
+    /// table refuses (ENOSPC), and either moves nothing; a Unicode
+    /// placeholder's virtual one is made in the stream's table and moves
+    /// nothing.
     fn place(
         &mut self,
         image: ImageId,
         cmd: &KittyCommand,
         at: &KittyAt,
         store: &mut ImageStore,
-    ) -> Option<KittyMove> {
-        if unplaceable(cmd).is_some() {
-            return None;
+    ) -> Result<Option<KittyMove>, KittyError> {
+        if let Some(e) = unplaceable(cmd) {
+            return Err(e);
         }
         if cmd.virtual_place != 0 {
-            self.place_virtual(image, cmd, store);
-            return None;
+            self.place_virtual(image, cmd, store)?;
+            return Ok(None);
         }
-        let (iw, ih) = store.size_of(image)?;
+        let (iw, ih) = store.size_of(image).ok_or(KittyError::NO_IMAGE)?;
         let place = geometry(cmd, iw, ih, at);
         let line = at.top.plus(at.row);
         let pid = store.place_kitty(image, at.screen, line, at.col, ZIndex::of(cmd.z), place);
         if pid.is_none() {
-            return None;
+            return Err(KittyError::PLACEMENTS_FULL);
         }
-        match cmd.cursor {
+        Ok(match cmd.cursor {
             KittyCursor::Stay => None,
             KittyCursor::Move => Some(KittyMove {
                 rows: place.rows,
                 cols: place.cols,
             }),
-        }
+        })
     }
 
     /// **A command that is not a transmission**: put, delete, or one of the
@@ -1949,9 +1983,9 @@ impl KittyStream {
                 if let Some((id, _)) = store.kitty_names(image) {
                     answered.id = id;
                 }
-                let moved = self.place(image, &answered, at, store);
-                self.reply(&answered, answer(&answered));
-                moved
+                let placed = self.place(image, &answered, at, store);
+                self.reply(&answered, placed.map(|_| ()));
+                placed.ok().flatten()
             }
             KittyAction::Delete => {
                 self.delete(&cmd, at, store, scratch);
@@ -2122,15 +2156,23 @@ impl KittyStream {
     /// the same image and non-zero placement id, "If you send two
     /// placements with the same image id and placement id the second one
     /// will replace the first". An image no id names cannot be shown by a
-    /// placeholder, and is not given one; a full table refuses. Both are
-    /// counted.
-    fn place_virtual(&mut self, image: ImageId, cmd: &KittyCommand, store: &mut ImageStore) {
-        let Some((id, _)) = store.kitty_names(image) else {
-            return;
-        };
+    /// placeholder, and is not given one; a full table refuses (ENOSPC).
+    /// Both are counted. The nameless one is answered nothing: only `a=T`
+    /// with neither `i` nor `I` makes an image no id names (an `I` alone
+    /// is given one), and the text replies only to a command that named
+    /// an image ("If it does so, the terminal emulator will reply").
+    fn place_virtual(
+        &mut self,
+        image: ImageId,
+        cmd: &KittyCommand,
+        store: &mut ImageStore,
+    ) -> Result<(), KittyError> {
+        let (id, _) = store.kitty_names(image).ok_or(KittyError::NO_IMAGE)?;
         if id.is_none() {
+            debug_assert!(cmd.id.is_none() && cmd.number.is_none());
             self.counts.virtuals_refused += 1;
-            return;
+            self.counts.refused += 1;
+            return Ok(());
         }
         // What names no live image is gone, without a release: its image
         // went with every reference it had.
@@ -2141,7 +2183,7 @@ impl KittyStream {
             }
         }
         if !store.hold(image) {
-            return;
+            return Err(KittyError::NO_IMAGE);
         }
         let pid = cmd.placement;
         if !pid.is_none() {
@@ -2153,7 +2195,7 @@ impl KittyStream {
         let Some(slot) = self.virtuals.iter_mut().find(|v| v.image.is_none()) else {
             store.release(image, KittyFree::Placements);
             self.counts.virtuals_refused += 1;
-            return;
+            return Err(KittyError::VIRTUALS_FULL);
         };
         *slot = Virtual {
             image,
@@ -2164,6 +2206,7 @@ impl KittyStream {
             z: ZIndex::of(cmd.z),
         };
         self.virtuals_live += 1;
+        Ok(())
     }
 
     /// Delete the live virtual placements `hit` picks, releasing each
@@ -2360,16 +2403,6 @@ fn unplaceable(cmd: &KittyCommand) -> Option<KittyError> {
     match cmd.parent {
         0 => None,
         _ => Some(KittyError::RELATIVE),
-    }
-}
-
-/// The answer to a command whose image is stored or found: `OK`, or the
-/// refusal of the placement it asked for. A transmission with no placement
-/// asks for none.
-fn answer(cmd: &KittyCommand) -> Result<(), KittyError> {
-    match cmd.act() {
-        KittyAction::TransmitPut | KittyAction::Put => unplaceable(cmd).map_or(Ok(()), Err),
-        _ => Ok(()),
     }
 }
 

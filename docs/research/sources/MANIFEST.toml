@@ -7890,6 +7890,12 @@ group  = "C"
 # down by the rows; `filter_refs` and `modify_refs` free an image with no id
 # with its last placement; the error codes EINVAL, ENOENT, ENODATA, EFBIG,
 # ENOSPC and EBADF, and EBADPNG from `png-reader.c`.
+# Re-fetched and hash-verified 2026-10-16 for refused placements: a
+# placement is a `create_ref` into a hash map, so no table fills and no
+# code answers one full; the `a=T` arm of `handle_command` builds its reply
+# by `finish_command_response` before `handle_put_command` runs, so a put
+# that fails there (EINVAL for a virtual placement with a parent) is
+# answered OK.
 
 [sources.kitty-utils-py]
 key    = "kitty-utils-py"

@@ -4844,6 +4844,14 @@ lean:
    both times. **Open, under the bar:** BLANK for a placeholder with
    nothing to show (0.80, 0.84; TUS 5.3's `.notdef` the other option) and
    the content word over the cluster store (0.72, 0.68).
+   **Followed up 2026-10-16**: a placement a full table refuses, virtual
+   (256) or on screen (64), was answered `OK`; it answers `ENOSPC`, in the
+   text's error form, at `q` absent and `q=1`, and an `a=T` answers for
+   its placement, deferred or not. The text names no code for a full
+   table and kitty has none to fill; ENOSPC is the code the text gives
+   for storage run out. Interim; the Jev question is drafted, not asked.
+   A virtual placement of an image no id names is answered nothing, the
+   text replying only to a command naming one.
 
 **Tests and measurement**
 
