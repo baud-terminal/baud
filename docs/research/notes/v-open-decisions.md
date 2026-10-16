@@ -4806,7 +4806,10 @@ lean:
      arena pixel. Open, each recorded: the renderer does not draw the source
      rect, `c`/`r`, `X`/`Y` or `z` order; `t=f`/`t=t`/`t=s`, animation,
      `U=1` and `P` are later steps; a placed image is never deleted for
-     space and a query deletes nothing; replies keep the 7-bit shape under
+     space, a query deletes nothing (Jev decided a small query scratch
+     outside the quota, 0.98 and 0.97, unbuilt), and when deleting every
+     unplaced image would not make space none is deleted (Jev 0.90 and
+     0.92); replies keep the 7-bit shape under
      S8C1T, following it the owner's question (Jev 0.92 and 0.88); the
      app's 4 MiB default arena holds no full-screen picture. The quota is
      the text's: the oldest images without placements go first.
