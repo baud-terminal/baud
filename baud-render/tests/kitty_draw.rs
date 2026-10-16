@@ -608,11 +608,11 @@ fn below_half_int32_min_the_order_is_still_z_then_the_lower_id() {
     assert_eq!(on_top((1, EDGE), (2, DEEP)), texel(0, 0), "the edge over");
 }
 
-/// The interim reading of two forks the text does not settle: a block
-/// cursor's cell and a selected cell draw a background that is not the
-/// default one, so a deep image goes under them, as kitty's
-/// `compute_background` makes them "special" (`[[source:
-/// kitty-background-slang]]`).
+/// The reading of two forks the text does not settle, Jev's NON_DEFAULT
+/// (1.00 and 1.00): a block cursor's cell and a selected cell draw a
+/// background that is not the default one, so a deep image goes under them,
+/// as kitty's `compute_background` makes them "special"
+/// (`[[source: kitty-background-slang]]`).
 #[test]
 fn a_deep_image_goes_under_the_block_cursor_and_the_selection() {
     // The cursor on the default-backed block, the third cell; the
@@ -746,12 +746,13 @@ fn deep_hidden(text: &str) -> (usize, usize) {
     (hidden, usize::try_from(dw * dh).unwrap())
 }
 
-/// The interim readings of the forks the text leaves to "non-default
-/// background colors": a cell is default when the colour its background is
-/// drawn in is the default background, so `SGR 7` on default colours and
-/// every cell under `?5` are not, as kitty compares the drawn colour
-/// (`[[source: kitty-background-slang]]`); and `OSC 11` changes the
-/// default's colour, not which cells have it.
+/// The readings of the forks the text leaves to "non-default background
+/// colors": a cell is default when the colour its background is drawn in is
+/// the default background, so `SGR 7` on default colours and every cell
+/// under `?5` are not, as kitty compares the drawn colour
+/// (`[[source: kitty-background-slang]]`; Jev's DRAWN_COLOUR, 1.00 and
+/// 0.98); and `OSC 11` changes the default's colour, not which cells have
+/// it.
 #[test]
 fn the_default_background_is_the_drawn_one_and_survives_osc_11() {
     let (hidden, all) = deep_hidden("\x1b[3;5H\x1b[7m    \x1b[0m");

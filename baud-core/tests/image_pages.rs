@@ -367,15 +367,14 @@ fn ten_bands(w: &str, rgb: &str) -> Vec<u8> {
     v
 }
 
-/// **A Sixel's written rows are never handed over**: its claim lies in
-/// a gap the slot table cannot see, which the store keeps a record of.
-/// The
+/// **A Sixel's written rows are never handed over**: its claim lies in a
+/// gap the slot table cannot see, which the store keeps a record of. The
 /// scenario of `sixel_stream.rs`'s
 /// `a_resize_inside_a_body_frees_room_the_rest_of_it_can_use` -- an image
-/// expired by a resize between two reads of a Sixel body, its span
-/// released while the Sixel paints the gap beside it and may then move
-/// into it -- is run at every cut with the double lent and without, and
-/// every image drawn is the same in both.
+/// expired by a resize between two reads of a Sixel body, its span released
+/// while the Sixel paints the gap beside it and may then move into it -- is
+/// run at every cut with the double lent and without, and every image drawn
+/// is the same in both.
 #[test]
 fn a_sixel_claim_survives_a_release_beside_it_at_every_cut() {
     let mut first = ten_bands("20", "0;0;100");

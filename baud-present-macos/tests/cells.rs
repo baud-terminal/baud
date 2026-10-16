@@ -3768,10 +3768,10 @@ fn kitty_draw_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
 /// (`[[source: kitty-graphics]]`). Four cells at the anchor -- a red-backed
 /// upper half block, a red-backed space, a default-backed block and a
 /// default-backed space -- under an image `c=4,r=1`: at -1073741825 the red
-/// cells are the frame without the image and the default ones show it
-/// under their ink; at -1073741824 exactly, which is not below, the image
-/// shows in all four under the ink. Then the interim forks: a block
-/// cursor on the third cell and the selection on the fourth draw over
+/// cells are the frame without the image and the default ones show it under
+/// their ink; at -1073741824 exactly, which is not below, the image shows
+/// in all four under the ink. Then the forks Jev decided, NON_DEFAULT: a
+/// block cursor on the third cell and the selection on the fourth draw over
 /// the image. Every expected pixel is the frame without the image or the
 /// texel the text puts there, never another arm's.
 fn kitty_below_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {

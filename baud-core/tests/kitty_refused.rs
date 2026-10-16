@@ -250,11 +250,13 @@ fn a_transmission_whose_placement_is_refused_is_answered_enospc() {
     }
 }
 
-/// **The controls: a table with room answers `OK`**, and a virtual
-/// placement of an image no id names -- `a=T,U=1` with neither `i` nor
-/// `I` -- answers nothing, the text replying only to a command that named
-/// an image ("If it does so, the terminal emulator will reply"); it is
-/// refused and counted, a placeholder having no id to name it by.
+/// **A table with room answers `OK`, the control**, and the nameless case,
+/// which is red on the commit before only because `refused` did not count
+/// it: a virtual placement of an image no id names -- `a=T,U=1` with
+/// neither `i` nor `I` -- answers nothing, the text replying only to a
+/// command that named an image ("If it does so, the terminal emulator will
+/// reply"); it is refused and counted, a placeholder having no id to name
+/// it by.
 #[test]
 fn a_table_with_room_answers_ok_and_a_nameless_image_answers_nothing() {
     with(|t| {

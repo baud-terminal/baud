@@ -184,9 +184,8 @@ impl Term<'_> {
     /// placement expiring -- the rows a Sixel's claim wrote that its image
     /// does not hold, and the PNG scratch a decode is done with go to
     /// `release`, at the free, which is rare, and never on the per-byte
-    /// path. The
-    /// core makes no system call; with none lent a freed page stays
-    /// committed until an image writes it again. An embedder setting,
+    /// path. The core makes no system call; with none lent a freed page
+    /// stays committed until an image writes it again. An embedder setting,
     /// which `RIS` keeps.
     pub fn set_page_release(&mut self, release: PageRelease) {
         self.store.images.set_release(release);

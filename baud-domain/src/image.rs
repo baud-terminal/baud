@@ -1017,13 +1017,14 @@ impl ImageRefusals {
 /// and tests lend a function that fills what it is handed with a pattern
 /// no image wrote and one that fails and leaves the old picture.
 ///
-/// **Which pages are handed: those that just became wholly free.** When
-/// a span is freed, the whole pages that touch it and that no live span
-/// and no open Sixel claim touches; so a page two neighbours share goes
-/// back with the second of them, no page goes twice without an image
-/// writing it in between, and a page past the arena's ends is never
-/// handed. The page size is the embedder's because a page smaller than
-/// the system's would have the call round outward on Linux, where
+/// **Which pages are handed: those that just became wholly free.** When a
+/// span is freed, the whole pages that touch it and that no live span and
+/// no open Sixel claim touches; so a page two neighbours share goes back
+/// with the second of them, a page may be handed again without an image
+/// writing it in between, when a span reserved and never written is freed
+/// (a kitty load refused at once), and a page past the arena's ends is
+/// never handed. The page size is the embedder's because a page smaller
+/// than the system's would have the call round outward on Linux, where
 /// `madvise` rounds its length up, and zero a neighbour.
 #[derive(Clone, Copy)]
 pub struct PageRelease {

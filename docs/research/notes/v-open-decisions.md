@@ -4849,7 +4849,9 @@ lean:
    text's error form, at `q` absent and `q=1`, and an `a=T` answers for
    its placement, deferred or not. The text names no code for a full
    table and kitty has none to fill; ENOSPC is the code the text gives
-   for storage run out. Interim; the Jev question is drafted, not asked.
+   for storage run out. Jev, 2026-10-16: ENOSPC 1.00 and 1.00, and an
+   `a=T` answering for its placement, PLACEMENT_OUTCOME, 1.00 and
+   1.00, both decided as built.
    A virtual placement of an image no id names is answered nothing, the
    text replying only to a command naming one.
 
