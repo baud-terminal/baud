@@ -142,6 +142,9 @@ pub fn run() {
         Owned::with_geometry(&MAX_GRID, &geom).with_images(cfg.images),
     ));
     let mut term = Term::new(owned.storage(), &FIRST);
+    // The kitty file mediums, read with the text's checks
+    // (`kitty_files.rs`); leaked as the storage is.
+    term.set_kitty_files(Box::leak(Box::new(crate::kitty_files::LocalFiles::new())));
     // **No appearance signal is wired here, so `Auto` resolves to dark.**
     // The desktop's preference lives behind `org.freedesktop.appearance`
     // on the portal's settings interface, which this driver does not speak

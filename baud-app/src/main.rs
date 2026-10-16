@@ -16,8 +16,9 @@
 //! type-checked against the Linux target from this Mac and has not yet run
 //! on a compositor.
 //!
-//! `unsafe` lives in `pty.rs` alone, which forbids nothing and says why at
-//! every call; `app.rs` and `linux.rs` forbid it.
+//! `unsafe` lives in `pty.rs`, and in `kitty_files.rs`'s shared-memory
+//! read, which forbid nothing and say why at every call; `app.rs` and
+//! `linux.rs` forbid it.
 
 #[cfg(target_os = "macos")]
 mod app;
@@ -38,6 +39,9 @@ mod config;
 mod embedded;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod host;
+// The kitty file mediums' reader, which both drivers lend the core.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod kitty_files;
 #[cfg(target_os = "macos")]
 mod latency;
 // The link policy is pure and its tests run on every platform; only the

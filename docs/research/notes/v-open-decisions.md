@@ -4788,6 +4788,18 @@ lean:
      DA whose CSI is longer than three bytes (`[[source: kitty-icat-detect]]`),
      so against baud's default `CSI ? 6 c` it waits out its 10 s timeout
      first; `CSI ? 6 ; 4 c` (`[images] advertise_sixel`) fails at once.
+   - **Built 2026-10-16, both halves** (Jev TD_FIRST_FILES_LATER: `t=d`
+     first, the three local mediums later through a baud-app hook): a
+     `KittyFiles` trait the embedder lends, called at the terminator inside
+     the read, so replies keep their order; baud-app's `LocalFiles` with the
+     text's checks, `fstat`-identity TOCTOU-safe. kitten's detection sends
+     `S` as the payload's length (87 for a three-byte `t=t` file), which
+     the text's "smaller than the client claimed" refuses and kitty's
+     `read_img_file` reads as a bound; Jev kept the text (0.69, 0.72, under
+     the bar), so its `t=t` probe gets the error and it sends `t=d`; its
+     `file` and `memory` modes decode by `t=f` and `t=s`. Open, under the bar:
+     reading `S` as a bound; refusing a relative path (0.68, 0.70). The
+     record, "The kitty file mediums, through a reader the embedder lends".
 5. **The protocol in baud-core.**
    - An `APC G` hook of the `Act::SixelStart` shape, and a payload scratch in
      `Storage` of the `sixel_body` shape.

@@ -222,6 +222,24 @@ unsafe extern "C" {
     pub fn unlockpt(fd: Fd) -> c_int;
 }
 
+// **POSIX shared memory, for the kitty `t=s` medium**
+// (`kitty_files.rs`): open an object read-only, and unlink its name once
+// read, as the text requires ("read the data from the memory object and
+// then unlink and close it"). `shm_open` is variadic in Darwin's
+// `<sys/mman.h>`, with the mode as its variadic argument, and takes a
+// fixed `mode_t` in glibc's; a read-only open passes no mode on Darwin
+// and zero on glibc. `munmap` releases what `mmap` mapped of an object
+// on Darwin, where a shared-memory descriptor cannot be read.
+unsafe extern "C" {
+    #[cfg(target_os = "macos")]
+    pub fn shm_open(name: *const c_char, oflag: c_int, ...) -> Fd;
+    #[cfg(not(target_os = "macos"))]
+    pub fn shm_open(name: *const c_char, oflag: c_int, mode: core::ffi::c_uint) -> Fd;
+    pub fn shm_unlink(name: *const c_char) -> c_int;
+    #[cfg(any(target_os = "macos", test))]
+    pub fn munmap(addr: *mut c_void, len: MapLen) -> c_int;
+}
+
 /// `open`'s read-and-write access mode, which `posix_openpt` takes; the
 /// same value on both platforms.
 #[cfg(test)]
@@ -239,6 +257,72 @@ pub const O_RDWR: c_int = 2;
 pub const O_NOCTTY: c_int = 0x2_0000;
 #[cfg(not(target_os = "macos"))]
 pub const O_NOCTTY: c_int = 0o400;
+
+/// `open`'s flag that fails on a symbolic link as the last component. A
+/// kitty file medium's path is resolved first -- the text says "the
+/// terminal emulator must follow symlinks" -- and the resolved path, which
+/// has none, is opened with this, so a link swapped in after the check is
+/// refused rather than followed (`kitty_files.rs`). Darwin's bit, glibc's
+/// on arm64 (`asm/fcntl.h` gives aarch64 its own) and glibc's elsewhere;
+/// the probe below checks the one it runs on.
+#[cfg(all(test, target_os = "macos"))]
+pub const O_NOFOLLOW: c_int = 0x100;
+#[cfg(all(not(target_os = "macos"), target_arch = "aarch64"))]
+pub const O_NOFOLLOW: c_int = 0o100_000;
+#[cfg(all(not(target_os = "macos"), not(target_arch = "aarch64")))]
+pub const O_NOFOLLOW: c_int = 0o400_000;
+
+/// Darwin's `open` flag that fails on a symbolic link anywhere in the
+/// path, the last component included, which the resolved path of a kitty
+/// file medium has none of: a directory swapped for a link after the check
+/// is refused too. Darwin refuses it beside `O_NOFOLLOW` (`EINVAL`,
+/// measured), so it is used alone. glibc's `open` has none.
+#[cfg(target_os = "macos")]
+pub const O_NOFOLLOW_ANY: c_int = 0x2000_0000;
+
+/// What a kitty file medium's resolved path is opened with so that no
+/// link in it is followed: `O_NOFOLLOW_ANY` on Darwin, `O_NOFOLLOW` on
+/// glibc, where the directories above are checked after the open.
+#[cfg(target_os = "macos")]
+pub const NO_LINKS: c_int = O_NOFOLLOW_ANY;
+#[cfg(not(target_os = "macos"))]
+pub const NO_LINKS: c_int = O_NOFOLLOW;
+
+/// `open`'s read-only access mode, which `shm_open` takes; zero on both
+/// platforms.
+pub const O_RDONLY: c_int = 0;
+
+/// A mapping that shares the object's pages: a kitty `t=s` object on
+/// Darwin, whose shared memory cannot be `read` and is mapped instead.
+#[cfg(target_os = "macos")]
+pub const MAP_SHARED: c_int = 0x1;
+
+/// The longest POSIX shared-memory name, its leading `/` included:
+/// Darwin's `PSHMNAMLEN`, and `NAME_MAX` on glibc, whose `shm_open` opens
+/// the name under `/dev/shm`. The text: names "must be no longer than the
+/// maximum SHM name size supported by the OS".
+#[cfg(target_os = "macos")]
+pub const SHM_NAME_MAX: usize = 31;
+#[cfg(not(target_os = "macos"))]
+pub const SHM_NAME_MAX: usize = 255;
+
+/// A mapping's length, as `munmap` takes it: a `size_t`.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+#[cfg(any(target_os = "macos", test))]
+pub struct MapLen(pub usize);
+
+/// `open`'s flag that creates the object, and `mmap`'s that lets a
+/// mapping be written: the tests make the shared-memory objects a `t=s`
+/// read takes.
+#[cfg(all(test, target_os = "macos"))]
+pub const O_CREAT: c_int = 0x200;
+#[cfg(all(test, not(target_os = "macos")))]
+pub const O_CREAT: c_int = 0o100;
+#[cfg(test)]
+pub const PROT_WRITE: c_int = 0x2;
+#[cfg(all(test, not(target_os = "macos")))]
+pub const MAP_SHARED: c_int = 0x1;
 
 /// `tcflag_t`, the type of each of a termios's four flag words: `unsigned
 /// long` on Darwin and `unsigned int` on glibc.
@@ -395,6 +479,7 @@ mod tests {
 
     const PROBE: &str = r#"
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -405,6 +490,7 @@ mod tests {
 #include <time.h>
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
+#include <sys/posix_shm.h>
 #include <dlfcn.h>
 #include <langinfo.h>
 #include <locale.h>
@@ -436,6 +522,12 @@ int main(void) {
     printf("O_NONBLOCK=%lld\n", (long long)O_NONBLOCK);
     printf("O_NOCTTY=%lld\n", (long long)O_NOCTTY);
     printf("O_RDWR=%lld\n", (long long)O_RDWR);
+    printf("O_RDONLY=%lld\n", (long long)O_RDONLY);
+    printf("O_CREAT=%lld\n", (long long)O_CREAT);
+    printf("PROT_WRITE=%lld\n", (long long)PROT_WRITE);
+    printf("O_NOFOLLOW=%lld\n", (long long)O_NOFOLLOW);
+    printf("MAP_SHARED=%lld\n", (long long)MAP_SHARED);
+    printf("size_t.size=%zu\n", sizeof(size_t));
     printf("PROT_READ=%lld\n", (long long)PROT_READ);
     printf("MAP_PRIVATE=%lld\n", (long long)MAP_PRIVATE);
     printf("MAP_FAILED=%lld\n", (long long)(intptr_t)MAP_FAILED);
@@ -458,6 +550,10 @@ int main(void) {
     printf("RTLD_LAZY=%lld\n", (long long)RTLD_LAZY);
     printf("RTLD_LOCAL=%lld\n", (long long)RTLD_LOCAL);
     printf("RTLD_NOLOAD=%lld\n", (long long)RTLD_NOLOAD);
+    printf("PSHMNAMLEN=%lld\n", (long long)PSHMNAMLEN);
+    printf("O_NOFOLLOW_ANY=%lld\n", (long long)O_NOFOLLOW_ANY);
+#else
+    printf("NAME_MAX=%lld\n", (long long)NAME_MAX);
 #endif
     return 0;
 }
@@ -465,7 +561,7 @@ int main(void) {
 
     /// The lines the probe prints on every platform, before its
     /// `#ifdef`s: the floor its output is held to.
-    const PRINTED_EVERYWHERE: usize = 30;
+    const PRINTED_EVERYWHERE: usize = 36;
 
     /// Compile and run the probe, or say why it could not.
     fn ask_the_headers() -> std::collections::HashMap<String, i128> {
@@ -534,6 +630,7 @@ int main(void) {
         assert_eq!(h["termios.align"], align_of::<Termios>() as i128);
         assert_eq!(h["termios.iflag"], offset_of!(Termios, c_iflag) as i128);
         assert_eq!(h["tcflag.size"], size_of::<TcFlag>() as i128);
+        assert_eq!(h["size_t.size"], size_of::<MapLen>() as i128);
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["locale_t.size"], size_of::<Locale>() as i128);
@@ -562,6 +659,11 @@ int main(void) {
         assert_eq!(h["O_NONBLOCK"], i128::from(O_NONBLOCK));
         assert_eq!(h["O_NOCTTY"], i128::from(O_NOCTTY));
         assert_eq!(h["O_RDWR"], i128::from(O_RDWR));
+        assert_eq!(h["O_RDONLY"], i128::from(O_RDONLY));
+        assert_eq!(h["O_CREAT"], i128::from(O_CREAT));
+        assert_eq!(h["PROT_WRITE"], i128::from(PROT_WRITE));
+        assert_eq!(h["MAP_SHARED"], i128::from(MAP_SHARED));
+        assert_eq!(h["O_NOFOLLOW"], i128::from(O_NOFOLLOW));
         assert_eq!(h["PROT_READ"], i128::from(PROT_READ));
         assert_eq!(h["MAP_PRIVATE"], i128::from(MAP_PRIVATE));
         assert_eq!(h["MAP_FAILED"], MAP_FAILED as isize as i128);
@@ -579,6 +681,10 @@ int main(void) {
             assert_eq!(h["RTLD_LAZY"], i128::from(RTLD_LAZY));
             assert_eq!(h["RTLD_LOCAL"], i128::from(RTLD_LOCAL));
             assert_eq!(h["RTLD_NOLOAD"], i128::from(RTLD_NOLOAD));
+            assert_eq!(h["PSHMNAMLEN"], SHM_NAME_MAX as i128);
+            assert_eq!(h["O_NOFOLLOW_ANY"], i128::from(O_NOFOLLOW_ANY));
         }
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(h["NAME_MAX"], SHM_NAME_MAX as i128);
     }
 }

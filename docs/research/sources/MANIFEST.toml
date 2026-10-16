@@ -7887,6 +7887,26 @@ group  = "C"
 # with its last placement; the error codes EINVAL, ENOENT, ENODATA, EFBIG,
 # ENOSPC and EBADF, and EBADPNG from `png-reader.c`.
 
+[sources.kitty-utils-py]
+key    = "kitty-utils-py"
+title  = "kitty v0.49.2, kitty/utils.py -- is_ok_to_read_image_path, is_ok_to_read_image_file, is_path_in_temp_dir: the file mediums' policy"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/utils.py"
+file   = ""
+sha256 = "cedf69dd3cc909e25f9a11e35e794599364e8f1bced13ce53e744114a0d63f7f"
+bytes  = 38776
+status = "external"
+group  = "C"
+# Practice for the file mediums (V19), read against `[[source:
+# kitty-graphics]]`'s "The transmission medium": the path is resolved and
+# refused under `/proc`, `/sys` and `/dev` but for a file under `/dev/shm`;
+# once opened, the path is checked again and its `stat` must be the
+# descriptor's, a regular file; a `t=t` file is deleted when its resolved
+# path starts with a resolved temporary directory, a string prefix and not
+# a component one, so `/tmpfoo` passes for `/tmp`.
+
 [sources.kitty-shaders-c]
 key    = "kitty-shaders-c"
 title  = "kitty v0.49.2, kitty/shaders.c -- send_image_to_gpu, the texture filter an image is drawn with"

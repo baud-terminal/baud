@@ -1551,3 +1551,395 @@ proptest::proptest! {
         proptest::prop_assert_eq!(&two, &whole, "cut at {}", cut);
     }
 }
+
+// ---- the file mediums, through the embedder's reader ----------------------
+
+use baud_domain::{KittyFileFailed, KittyFileRequest, KittyFiles, KittyFlow, KittyPastLimit};
+
+/// One request as the reader saw it: its keys, and its path kept.
+#[derive(Clone, Debug, PartialEq)]
+struct Asked {
+    req: KittyFileRequest<'static>,
+    path: Vec<u8>,
+}
+
+/// What a reader saw, kept where the test can read it after lending a
+/// copy of the reader away.
+#[derive(Default)]
+struct Log {
+    asked: Vec<Asked>,
+    /// Each piece handed over, by its length.
+    pieces: Vec<usize>,
+}
+
+/// **A reader over named byte strings**, standing in for a filesystem: it
+/// records every request, decides the length by the request's own rule,
+/// and hands the bytes over `chunk` at a time.
+#[derive(Clone)]
+struct Mem {
+    named: Vec<(Vec<u8>, Vec<u8>)>,
+    chunk: core::num::NonZeroUsize,
+    log: std::rc::Rc<std::cell::RefCell<Log>>,
+}
+
+impl Mem {
+    fn new(named: &[(&[u8], &[u8])], chunk: usize) -> Mem {
+        Mem {
+            named: named
+                .iter()
+                .map(|(p, d)| (p.to_vec(), d.to_vec()))
+                .collect(),
+            chunk: core::num::NonZeroUsize::new(chunk).unwrap(),
+            log: Default::default(),
+        }
+    }
+
+    /// The requests seen.
+    fn asked(&self) -> Vec<Asked> {
+        self.log.borrow().asked.clone()
+    }
+
+    /// The bytes handed over.
+    fn handed(&self) -> usize {
+        self.log.borrow().pieces.iter().sum()
+    }
+}
+
+impl KittyFiles for Mem {
+    fn read(
+        &mut self,
+        req: &KittyFileRequest<'_>,
+        sink: &mut dyn FnMut(&[u8]) -> KittyFlow,
+    ) -> Result<(), KittyFileFailed> {
+        self.log.borrow_mut().asked.push(Asked {
+            req: KittyFileRequest { path: b"", ..*req },
+            path: req.path.to_vec(),
+        });
+        let data = match self.named.iter().find(|(p, _)| p == req.path) {
+            Some((_, d)) => d.clone(),
+            None => return Err(KittyFileFailed),
+        };
+        let len = u64::try_from(data.len()).unwrap();
+        let n = req.read_len(req.available(len))?;
+        let from = usize::try_from(req.offset).unwrap().min(data.len());
+        for c in data[from..from + n].chunks(self.chunk.get()) {
+            self.log.borrow_mut().pieces.push(c.len());
+            if sink(c) == KittyFlow::Stop {
+                break;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A terminal with `pixels` of arena, a 10x20 cell, and a copy of `files`
+/// lent, leaked as an embedder leaks it.
+fn with_files<R>(pixels: usize, files: &Mem, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(pixels));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+    t.set_kitty_files(Box::leak(Box::new(files.clone())));
+    f(&mut t)
+}
+
+/// The single error, for image 1.
+const FILE_ERR: &[u8] = b"\x1b_Gi=1;EBADF:Failed to read image file\x1b\\";
+
+/// **Each file medium decodes what `t=d` decodes**, in every format: the
+/// state after the bytes come from the reader is the state after they come
+/// in the payload, and the reader was asked for the payload's path with
+/// the medium named.
+#[test]
+fn a_file_medium_reads_through_the_embedder_and_decodes_as_direct() {
+    let rgb = bytes(5 * 3 * 3, 81);
+    let rgba = bytes(5 * 3 * 4, 82);
+    let p = png(6, 4, png::ColorType::Rgba, &bytes(6 * 4 * 4, 83), 37);
+    let zrgb = zlib_mixed(&rgb);
+    let zpng = zlib_mixed(&p);
+    let cases: [(String, &[u8]); 5] = [
+        ("f=24,s=5,v=3".to_string(), &rgb),
+        ("f=32,s=5,v=3".to_string(), &rgba),
+        ("f=100".to_string(), &p),
+        ("f=24,s=5,v=3,o=z".to_string(), &zrgb),
+        (format!("f=100,o=z,S={}", p.len()), &zpng),
+    ];
+    for (keys, data) in &cases {
+        let direct = with(256, |t| {
+            let mut r = Vec::new();
+            feed(t, &apc(&format!("a=T,i=1,{keys}"), &b64(data)), &mut r);
+            settle(t, &mut r);
+            state(t, &r)
+        });
+        assert!(direct.contains("i=1;OK"), "{keys}: {direct}");
+        for (medium, name) in [
+            ('f', &b"/pics/a.raw"[..]),
+            ('t', b"/tmp/tty-graphics-protocol-a"),
+            ('s', b"/shm-a"),
+        ] {
+            for chunk in [1, 7, 4096] {
+                let m = Mem::new(&[(name, data)], chunk);
+                let got = with_files(256, &m, |t| {
+                    let mut r = Vec::new();
+                    let cmd = apc(&format!("a=T,i=1,t={medium},{keys}"), &b64(name));
+                    feed(t, &cmd, &mut r);
+                    settle(t, &mut r);
+                    state(t, &r)
+                });
+                assert_eq!(got, direct, "{keys} t={medium} chunk {chunk}");
+                assert_eq!(m.asked().len(), 1, "{keys} t={medium}");
+                assert_eq!(m.asked()[0].path, name, "the payload is the path");
+                let want = match medium {
+                    'f' => baud_domain::KittyMedium::File,
+                    't' => baud_domain::KittyMedium::TempFile,
+                    _ => baud_domain::KittyMedium::SharedMemory,
+                };
+                assert_eq!(m.asked()[0].req.medium, want);
+            }
+        }
+    }
+}
+
+/// **`O` and `S` choose the bytes**: "read 80 bytes starting from the
+/// offset 10" ("Local client"), and an object "smaller than the client
+/// claimed" is the single error.
+#[test]
+fn o_and_s_choose_the_bytes_read_and_a_short_object_is_the_one_error() {
+    let rgb = bytes(4 * 2 * 3, 91);
+    let mut padded = vec![0xEEu8; 10];
+    padded.extend_from_slice(&rgb);
+    padded.extend_from_slice(&[0xDD; 7]);
+    let name: &[u8] = b"/p/padded";
+    let m = Mem::new(&[(name, &padded)], 5);
+    with_files(256, &m, |t| {
+        let mut r = Vec::new();
+        let keys = format!("a=T,i=1,t=f,f=24,s=4,v=2,O=10,S={}", rgb.len());
+        feed(t, &apc(&keys, &b64(name)), &mut r);
+        assert_eq!(r, b"\x1b_Gi=1;OK\x1b\\");
+        assert_eq!(placed_pixels(t), rgb_pixels(&rgb));
+    });
+    assert_eq!((m.asked()[0].req.offset, m.asked()[0].req.size), (10, 24));
+    // S past the object, O past its end, and S short of the pixels: each
+    // the one error, and nothing stored or placed.
+    for keys in [
+        "a=T,i=1,t=f,f=24,s=4,v=2,O=10,S=999",
+        "a=T,i=1,t=f,f=24,s=4,v=2,O=999",
+        "a=T,i=1,t=f,f=24,s=4,v=2,O=10,S=23",
+    ] {
+        let m = Mem::new(&[(name, &padded)], 5);
+        with_files(256, &m, |t| {
+            let mut r = Vec::new();
+            feed(t, &apc(keys, &b64(name)), &mut r);
+            assert_eq!(r, FILE_ERR, "{keys}: {:?}", String::from_utf8_lossy(&r));
+            assert_eq!(t.images().placements().count(), 0, "{keys}");
+            assert_eq!(t.cursor(), (Row::ZERO, Col::ZERO), "{keys}");
+        });
+    }
+}
+
+/// **Every failure is one identical reply**: a name the reader does not
+/// have, raw data short of `s * v` with no `S` -- which `t=d` answers
+/// ENODATA -- and a PNG past the scratch are the same bytes, so the reply
+/// tells a remote client nothing about the object.
+#[test]
+fn every_file_failure_answers_one_identical_reply() {
+    let short = bytes(4 * 2 * 3 - 1, 92);
+    let big = vec![7u8; 64 * 8 + 1];
+    let m = Mem::new(&[(b"/short", &short), (b"/big.png", &big)], 64);
+    with_files(64, &m, |t| {
+        for (keys, name) in [
+            ("a=T,i=1,t=f,f=24,s=4,v=2", &b"/missing"[..]),
+            ("a=T,i=1,t=t,f=24,s=4,v=2", b"/short"),
+            ("a=T,i=1,t=s,f=100", b"/big.png"),
+            ("a=q,i=1,t=f,f=100", b"/big.png"),
+        ] {
+            let mut r = Vec::new();
+            feed(t, &apc(keys, &b64(name)), &mut r);
+            settle(t, &mut r);
+            assert_eq!(r, FILE_ERR, "{keys}: {:?}", String::from_utf8_lossy(&r));
+        }
+        assert_eq!(t.images().placements().count(), 0);
+        assert_eq!(t.kitty().images, 0);
+    });
+    // The PNG past the scratch was refused before a byte was handed over.
+    assert_eq!(
+        m.handed(),
+        short.len(),
+        "only the short raw object was read"
+    );
+}
+
+/// **The bound is decided before reading**: raw pixels are read to `s *
+/// v` and no further, a PNG is bounded by the scratch and refused past it,
+/// and zlib data by the zlib bound of what it inflates to.
+#[test]
+fn the_bound_is_decided_before_reading() {
+    let rgb = bytes(4 * 2 * 3, 93);
+    let mut long = rgb.clone();
+    long.extend_from_slice(&[1u8; 100]);
+    let m = Mem::new(&[(b"/long", &long)], 3);
+    with_files(64, &m, |t| {
+        let mut r = Vec::new();
+        feed(t, &apc("a=T,i=1,t=f,f=24,s=4,v=2", &b64(b"/long")), &mut r);
+        assert_eq!(r, b"\x1b_Gi=1;OK\x1b\\");
+        assert_eq!(placed_pixels(t), rgb_pixels(&rgb));
+        assert_eq!(
+            t.kitty().excess,
+            0,
+            "the bytes past the pixels were not read"
+        );
+    });
+    assert_eq!(
+        (m.asked()[0].req.limit, m.asked()[0].req.past),
+        (24, KittyPastLimit::Stop)
+    );
+    assert_eq!(m.handed(), 24);
+    let p = png(2, 2, png::ColorType::Rgba, &bytes(16, 94), 8);
+    let m = Mem::new(&[(b"/p", &p)], 64);
+    with_files(64, &m, |t| {
+        let mut r = Vec::new();
+        feed(t, &apc("a=t,i=1,t=f,f=100", &b64(b"/p")), &mut r);
+        settle(t, &mut r);
+        assert_eq!(r, b"\x1b_Gi=1;OK\x1b\\");
+    });
+    assert_eq!(
+        (m.asked()[0].req.limit, m.asked()[0].req.past),
+        (64 * 8, KittyPastLimit::Refuse)
+    );
+    let z = zlib_mixed(&rgb);
+    let m = Mem::new(&[(b"/z", &z)], 64);
+    with_files(64, &m, |t| {
+        let mut r = Vec::new();
+        feed(t, &apc("a=t,i=1,t=f,f=24,s=4,v=2,o=z", &b64(b"/z")), &mut r);
+        settle(t, &mut r);
+        assert_eq!(r, b"\x1b_Gi=1;OK\x1b\\");
+    });
+    assert_eq!(
+        (m.asked()[0].req.limit, m.asked()[0].req.past),
+        (24 + 3 + 64, KittyPastLimit::Refuse)
+    );
+    // A PNG through zlib keeps `S` as the PNG's size and reads to the end.
+    let zp = zlib_mixed(&p);
+    let m = Mem::new(&[(b"/zp", &zp)], 64);
+    with_files(64, &m, |t| {
+        let mut r = Vec::new();
+        let keys = format!("a=t,i=1,t=f,f=100,o=z,S={}", p.len());
+        feed(t, &apc(&keys, &b64(b"/zp")), &mut r);
+        settle(t, &mut r);
+        assert_eq!(r, b"\x1b_Gi=1;OK\x1b\\");
+    });
+    assert_eq!(m.asked()[0].req.size, 0, "the whole object");
+    assert_eq!(m.asked()[0].req.limit, p.len() + p.len() / 8 + 64);
+}
+
+/// **kitten's detection, served**: each medium's query is answered `OK`
+/// before the Primary DA, and stores nothing.
+#[test]
+fn a_served_query_per_medium_is_answered_before_the_primary_da() {
+    let px: &[u8] = &[1, 2, 3];
+    let m = Mem::new(
+        &[(b"/tmp/tty-graphics-protocol-x", px), (b"/shm", px)],
+        4096,
+    );
+    let mut s = apc("i=31,s=1,v=1,a=q,t=d,f=24", b"AAAA");
+    s.extend(apc(
+        "i=32,s=1,v=1,a=q,t=t,f=24",
+        &b64(b"/tmp/tty-graphics-protocol-x"),
+    ));
+    s.extend(apc("i=33,s=1,v=1,a=q,t=s,f=24", &b64(b"/shm")));
+    s.extend(apc("i=34,s=1,v=1,a=q,t=f,f=24", &b64(b"/remote-only")));
+    s.extend_from_slice(b"\x1b[c");
+    let (r, imgs) = with_files(64, &m, |t| {
+        let mut r = Vec::new();
+        feed(t, &s, &mut r);
+        (r, t.kitty().images)
+    });
+    let r = String::from_utf8_lossy(&r).into_owned();
+    let expect = "\x1b_Gi=31;OK\x1b\\\x1b_Gi=32;OK\x1b\\\x1b_Gi=33;OK\x1b\\\
+        \x1b_Gi=34;EBADF:Failed to read image file\x1b\\";
+    assert!(r.starts_with(expect), "the answers first, in order: {r:?}");
+    assert!(
+        r[expect.len()..].starts_with("\x1b[?"),
+        "then the DA: {r:?}"
+    );
+    assert_eq!(imgs, 0, "a query stores nothing");
+}
+
+/// **A path past 2048 bytes is refused without asking**, as kitty refuses
+/// it; one of 2048 is asked for. A file medium is one chunk: `m=1` is read
+/// at once and the next command is its own.
+#[test]
+fn a_long_path_is_refused_unasked_and_a_file_medium_is_one_chunk() {
+    let px: &[u8] = &[4, 5, 6];
+    let at_max = vec![b'a'; 2048];
+    let past = vec![b'a'; 2049];
+    let m = Mem::new(&[(&at_max, px)], 64);
+    with_files(64, &m, |t| {
+        let mut r = Vec::new();
+        feed(t, &apc("a=t,i=1,t=f,f=24,s=1,v=1", &b64(&past)), &mut r);
+        assert_eq!(r, b"\x1b_Gi=1;EINVAL:Filename too long\x1b\\");
+        r.clear();
+        feed(t, &apc("a=t,i=2,t=f,f=24,s=1,v=1", &b64(&at_max)), &mut r);
+        assert_eq!(r, b"\x1b_Gi=2;OK\x1b\\");
+        r.clear();
+        feed(
+            t,
+            &apc("a=t,i=3,t=f,f=24,s=1,v=1,m=1", &b64(&at_max)),
+            &mut r,
+        );
+        assert_eq!(r, b"\x1b_Gi=3;OK\x1b\\", "answered at its own terminator");
+        r.clear();
+        feed(t, &apc("a=p,i=3", b""), &mut r);
+        assert_eq!(r, b"\x1b_Gi=3;OK\x1b\\", "the next command is not a chunk");
+    });
+    assert_eq!(m.asked().len(), 2, "the long path was never asked for");
+}
+
+/// **A file medium is the same however the reads fall**, and `RIS` keeps
+/// the reader: every read size and every two-read split of a stream that
+/// sends one by file and places it.
+#[test]
+fn a_file_medium_is_the_same_however_the_reads_fall() {
+    let rgba = bytes(3 * 2 * 4, 95);
+    let name: &[u8] = b"/tmp/tty-graphics-protocol-r";
+    let mut s = b"\x1bc\x1b[3;4H".to_vec();
+    s.extend(apc("a=T,i=1,t=t,f=32,s=3,v=2", &b64(name)));
+    s.extend_from_slice(b"after");
+    let run = |pieces: &[&[u8]]| {
+        let m = Mem::new(&[(name, &rgba)], 5);
+        with_files(64, &m, |t| {
+            let mut r = Vec::new();
+            for p in pieces {
+                feed(t, p, &mut r);
+            }
+            settle(t, &mut r);
+            state(t, &r)
+        })
+    };
+    let whole = run(&[&s]);
+    assert!(whole.contains("i=1;OK"), "{whole}");
+    for n in 1..=s.len() {
+        let pieces: Vec<&[u8]> = s.chunks(n).collect();
+        assert_eq!(run(&pieces), whole, "read size {n}");
+    }
+    for cut in 1..s.len() {
+        assert_eq!(run(&[&s[..cut], &s[cut..]]), whole, "cut at {cut}");
+    }
+}
+
+/// **With no reader lent, a file medium touches nothing**: it is answered
+/// the one error before anything is reserved, so the image filling the
+/// arena is not evicted for it.
+#[test]
+fn with_no_reader_a_file_medium_reserves_nothing() {
+    with(64, |t| {
+        let mut r = Vec::new();
+        feed(t, &apc("a=t,i=5,f=24,s=8,v=8", &b64(&[9u8; 192])), &mut r);
+        r.clear();
+        feed(t, &apc("a=t,i=1,t=f,f=24,s=8,v=8", &b64(b"/p")), &mut r);
+        assert_eq!(r, FILE_ERR);
+        assert_eq!(t.images().images_evicted, 0, "nothing evicted");
+        r.clear();
+        feed(t, &apc("a=p,i=5", b""), &mut r);
+        assert_eq!(r, b"\x1b_Gi=5;OK\x1b\\", "image 5 is still stored");
+    });
+}

@@ -160,6 +160,23 @@ impl Term<'_> {
         p
     }
 
+    /// **Lend the reader for the file mediums** `t=f`, `t=t` and `t=s`
+    /// (`[[source: kitty-graphics]]`, "The transmission medium"): from here
+    /// a file medium's path, `O`, `S` and bound go to `files` at the
+    /// command's terminator, inside the read, and the bytes it hands back
+    /// are decoded as a direct payload's are. The core never opens a file;
+    /// the checks the text asks for -- regular files only, the sensitive
+    /// parts of the filesystem refused, one identical error -- are the
+    /// reader's. With none lent each answers that error.
+    ///
+    /// `'static`, because the reader lives in the kitty stream, behind its
+    /// pointer, and not beside it in `Storage`, where a field moved every
+    /// field after it and the text path's code with them; an embedder
+    /// leaks the reader as it leaks the storage.
+    pub fn set_kitty_files(&mut self, files: &'static mut dyn KittyFiles) {
+        self.store.strs.kitty.set_files(files);
+    }
+
     /// What the kitty graphics protocol did: commands, refusals, ignored
     /// commands, cancelled chunks, images stored.
     pub fn kitty(&self) -> KittyCounts {

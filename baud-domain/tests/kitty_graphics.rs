@@ -117,3 +117,69 @@ fn a_reply_with_no_room_is_dropped_whole_and_counted() {
     assert_eq!(k.replies(), one, "drained, the next fits");
     assert_eq!(k.counts.replies_dropped, 1);
 }
+
+/// A reader that has nothing: every read fails.
+struct Nothing;
+
+impl KittyFiles for Nothing {
+    fn read(
+        &mut self,
+        _: &KittyFileRequest<'_>,
+        _: &mut dyn FnMut(&[u8]) -> KittyFlow,
+    ) -> Result<(), KittyFileFailed> {
+        Err(KittyFileFailed)
+    }
+}
+
+/// **A reader lent serves the file mediums, and `RIS` keeps it**: a read
+/// that fails is the one error, where a stream with no reader answers it
+/// before reading.
+#[test]
+fn a_lent_reader_serves_the_file_mediums_and_ris_keeps_it() {
+    let mut k = KittyStream::NEW;
+    assert_eq!(k.mediums(), KittyMediums::Direct, "Direct by default");
+    k.set_files(Box::leak(Box::new(Nothing)));
+    assert_eq!(k.mediums(), KittyMediums::Local);
+    let (mut px, mut slots, mut places) = (
+        [Pixel::CLEAR; 0],
+        [ImageSlot::EMPTY; 4],
+        [PlacementSlot::EMPTY; 4],
+    );
+    let mut store = ImageStore::new(&mut px, &mut slots, &mut places);
+    command(&mut k, &mut store, b"a=t,i=1,t=f,f=100;L3A=");
+    assert_eq!(
+        k.replies(),
+        b"\x1b_Gi=1;EBADF:Failed to read image file\x1b\\"
+    );
+    k.reset();
+    assert_eq!(k.mediums(), KittyMediums::Local, "RIS keeps the reader");
+}
+
+/// **How many bytes a file medium reads**, decided before reading: `S`
+/// when given and the object holds it, the rest of the object otherwise,
+/// and past the limit the limit or a refusal.
+#[test]
+fn the_read_length_follows_o_s_and_the_limit() {
+    let req = |offset, size, limit, past| KittyFileRequest {
+        medium: KittyMedium::File,
+        path: b"/p",
+        offset,
+        size,
+        limit,
+        past,
+    };
+    let stop = KittyPastLimit::Stop;
+    let refuse = KittyPastLimit::Refuse;
+    assert_eq!(req(10, 0, 100, refuse).available(50), 40);
+    assert_eq!(req(60, 0, 100, refuse).available(50), 0, "O past the end");
+    assert_eq!(req(0, 0, 100, refuse).read_len(40), Ok(40), "the rest");
+    assert_eq!(req(0, 30, 100, refuse).read_len(40), Ok(30), "S");
+    assert_eq!(
+        req(0, 41, 100, refuse).read_len(40),
+        Err(KittyFileFailed),
+        "smaller than the client claimed"
+    );
+    assert_eq!(req(0, 0, 20, stop).read_len(40), Ok(20), "to the limit");
+    assert_eq!(req(0, 0, 20, refuse).read_len(40), Err(KittyFileFailed));
+    assert_eq!(req(0, 0, 40, refuse).read_len(40), Ok(40), "at the limit");
+}

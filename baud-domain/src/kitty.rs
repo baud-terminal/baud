@@ -51,9 +51,25 @@
 //! file medium -- and kitty's own for the rest (EINVAL, ENODATA, EFBIG,
 //! ENOSPC, EBADPNG), practice recorded as such.
 //!
-//! **Out of this step, each refused or ignored and counted**: the file
-//! mediums `t=f`, `t=t` and `t=s` (EBADF, never touching a file; Jev
-//! TD_FIRST_FILES_LATER); relative placements `P`/`Q` and Unicode
+//! **The file mediums `t=f`, `t=t` and `t=s` are the embedder's**, through
+//! [`KittyFiles`] (Jev TD_FIRST_FILES_LATER): the payload is the path, or the
+//! shared-memory name, collected to [`KITTY_PATH_MAX`] bytes; the terminator
+//! hands it out with `O`, `S` and the most bytes the transmission can use
+//! ([`KittyFileRequest`]), and the bytes the embedder reads go where a direct
+//! payload's decoded octets go, from there on the `t=d` path. A stream no
+//! embedder serves ([`KittyMediums::Direct`], the default) answers each with
+//! the text's single error and touches nothing. A file medium is one chunk,
+//! whatever its `m`: the text chunks the data a remote client sends, and
+//! kitty reads the file at the chunk's end (`handle_add_command`,
+//! `[[source: kitty-graphics-c]]`). Every failure that depends on the file
+//! -- missing, unreadable, special, sensitive, past the bound, or "smaller
+//! than the client claimed" -- is that one error, as "all failures to read
+//! an image file ... must be reported with a single, identical, error
+//! response" ("The transmission medium"); a PNG that reads and does not
+//! decode is EBADPNG, kitty's practice, the text naming decoding nowhere.
+//!
+//! **Out of this step, each refused or ignored and counted**: relative
+//! placements `P`/`Q` and Unicode
 //! placeholders `U=1` (EINVAL, no placement and no cursor move; Jev
 //! REFUSE_WITH_EINVAL, 1.00 and 0.98); animation `a=f`, `a=a`, `a=c` and the frame
 //! deletes `d=f`/`d=F` (ignored and counted: the text gives no reply for a
@@ -221,6 +237,9 @@ impl KittyError {
         KittyError::new("EINVAL", "Relative placements are not supported");
     pub const VIRTUAL: KittyError =
         KittyError::new("EINVAL", "Unicode placeholder placements are not supported");
+    /// A path past [`KITTY_PATH_MAX`]: kitty's code and text
+    /// (`load_image_data`), which say nothing of any file.
+    pub const PATH: KittyError = KittyError::new("EINVAL", "Filename too long");
 
     /// The code, `EINVAL` and the like.
     pub fn code(self) -> &'static str {
@@ -561,6 +580,122 @@ pub enum DecodeProgress {
     More,
 }
 
+/// The longest path or shared-memory name a file medium may carry, in
+/// decoded bytes: kitty's bound (`load_image_data`, "Filename too long").
+pub const KITTY_PATH_MAX: usize = 2048;
+
+/// Which mediums the stream serves: `t=d` alone, or the file mediums too,
+/// through the [`KittyFiles`] its embedder lends.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KittyMediums {
+    /// `t=d` alone: `t=f`, `t=t` and `t=s` answer the single error at once.
+    Direct,
+    /// The file mediums too, read by the embedder at the terminator.
+    Local,
+}
+
+/// What a read does with a file longer than the transmission can use.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KittyPastLimit {
+    /// Read to the limit: raw pixels, whose bytes past `s * v` would be
+    /// dropped as a direct payload's are, so reading them is pointless
+    /// (kitty's `max_to_read`).
+    Stop,
+    /// Refuse before reading: a PNG or zlib data, which past the bound
+    /// cannot decode into what the store was given.
+    Refuse,
+}
+
+/// **The one error a file medium answers**, whatever went wrong: the
+/// embedder writes the reason where only the local user reads it, as kitty
+/// writes it to its log.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct KittyFileFailed;
+
+/// Whether the read goes on after a chunk: `Stop` once the transmission is
+/// refused, so a file is not read past a refusal.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KittyFlow {
+    More,
+    Stop,
+}
+
+/// **What a file medium asks the embedder to read**: the medium, the
+/// decoded payload -- a path for `t=f` and `t=t`, a shared-memory name for
+/// `t=s` -- the `O` and `S` keys, and the most bytes the transmission can
+/// use, decided before anything is read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct KittyFileRequest<'a> {
+    pub medium: KittyMedium,
+    /// The payload's bytes, not checked as UTF-8: a POSIX path is bytes.
+    pub path: &'a [u8],
+    /// `O`: where to start.
+    pub offset: u32,
+    /// `S`: how many bytes to read, zero for the rest of the object.
+    pub size: u32,
+    /// The most the transmission can use, and what a longer read does.
+    pub limit: usize,
+    pub past: KittyPastLimit,
+}
+
+impl KittyFileRequest<'_> {
+    /// The bytes from `O` to the end of an object of `len` bytes: none when
+    /// `O` is past the end, as kitty reads it (`read_img_file`).
+    pub fn available(&self, len: u64) -> u64 {
+        len.saturating_sub(u64::from(self.offset))
+    }
+
+    /// **How many bytes to read** from `available` bytes past `O`, decided
+    /// before reading: `S` when given, refused when the object is "smaller
+    /// than the client claimed"; the rest of the object otherwise; and past
+    /// [`KittyFileRequest::limit`], the limit or a refusal as
+    /// [`KittyFileRequest::past`] says. kitty reads `S` as a bound and
+    /// judges the claim against the image (`read_img_file`), and kitten's
+    /// detection leans on that, sending `S` as the payload's length -- 87
+    /// for a three-byte `t=t` pixel. The text's plain reading stands: Jev,
+    /// asked uncached on 2026-10-16, favoured it at 0.69 and 0.72, under the
+    /// bar for a departure.
+    pub fn read_len(&self, available: u64) -> Result<usize, KittyFileFailed> {
+        let want = match self.size {
+            0 => available,
+            s if available < u64::from(s) => return Err(KittyFileFailed),
+            s => u64::from(s),
+        };
+        let want = usize::try_from(want).unwrap_or(usize::MAX);
+        match (want > self.limit, self.past) {
+            (false, _) => Ok(want),
+            (true, KittyPastLimit::Stop) => Ok(self.limit),
+            (true, KittyPastLimit::Refuse) => Err(KittyFileFailed),
+        }
+    }
+}
+
+/// **The embedder's half of the file mediums.** Called at the terminator of
+/// a `t=f`, `t=t` or `t=s` command, inside the read that carried it, so the
+/// reply is owed before the next byte is parsed -- "terminal emulators that
+/// support the graphics protocol, must reply to query actions immediately
+/// without processing other input" ("Querying support") -- and a placement
+/// moves the cursor before the text after it. The core never opens a file:
+/// it hands out the request and takes the bytes.
+pub trait KittyFiles {
+    /// Read what `req` names, handing the bytes to `sink` in order, as many
+    /// calls as the embedder likes, and stopping when `sink` answers
+    /// [`KittyFlow::Stop`]. Any failure is [`KittyFileFailed`]. Deleting a
+    /// `t=t` file and unlinking a `t=s` object are the embedder's too.
+    fn read(
+        &mut self,
+        req: &KittyFileRequest<'_>,
+        sink: &mut dyn FnMut(&[u8]) -> KittyFlow,
+    ) -> Result<(), KittyFileFailed>;
+}
+
+/// The compressed bytes a zlib stream of `n` inflated bytes can take: an
+/// eighth over and 64 bytes, past what stored blocks (five bytes a 65535),
+/// the header and the Adler-32 (six) add.
+fn zlib_bound(n: usize) -> usize {
+    n.saturating_add(n / 8).saturating_add(64)
+}
+
 /// Where the terminal is when a command completes: what a placement anchors
 /// to and what a delete naming a cell is read against.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -675,9 +810,8 @@ enum Deferred {
 
 /// **The protocol's state, in caller memory**: the chunk being read, the
 /// transmission in flight, the decode deferred, and the replies owed.
-/// About 9 KB, most of it two inflate states; an embedder keeps one beside
+/// About 11 KB, most of it two inflate states and the 2 KiB path buffer; an embedder keeps one beside
 /// the Sixel stream.
-#[derive(Clone)]
 pub struct KittyStream {
     ctrl: [u8; KITTY_CONTROL_MAX],
     ctrl_len: usize,
@@ -700,6 +834,16 @@ pub struct KittyStream {
     next_id: u32,
     outbox: [u8; OUTBOX],
     out_len: usize,
+    /// **The embedder's reader for the file mediums**, behind the stream's
+    /// own pointer rather than beside it in the core's `Storage`: a field
+    /// there moved every field after it, and the text path's code with
+    /// them. `'static` because the stream is kept in caller memory with no
+    /// lifetime of its own; an embedder leaks the reader as it leaks the
+    /// storage.
+    files: Option<&'static mut dyn KittyFiles>,
+    /// A file medium's payload, decoded: the path or the name.
+    path: [u8; KITTY_PATH_MAX],
+    path_len: usize,
     /// What it did.
     pub counts: KittyCounts,
     /// How the caller fed it, beside what it did.
@@ -753,6 +897,9 @@ impl KittyStream {
         outbox: [0; OUTBOX],
         out_len: 0,
         feed: KittyFeed { runs: 0 },
+        files: None,
+        path: [0; KITTY_PATH_MAX],
+        path_len: 0,
         counts: KittyCounts {
             commands: 0,
             refused: 0,
@@ -768,10 +915,27 @@ impl KittyStream {
     /// counts stay.
     pub fn reset(&mut self) {
         let (counts, next_id, feed) = (self.counts, self.next_id, self.feed);
+        let files = self.files.take();
         *self = KittyStream::NEW;
         self.counts = counts;
         self.next_id = next_id;
         self.feed = feed;
+        self.files = files;
+    }
+
+    /// **Lend the reader for the file mediums**: from here `t=f`, `t=t`
+    /// and `t=s` are read through `files` at their terminator. An embedder
+    /// setting, which `RIS` keeps.
+    pub fn set_files(&mut self, files: &'static mut dyn KittyFiles) {
+        self.files = Some(files);
+    }
+
+    /// Which mediums are served: the file mediums once a reader is lent.
+    pub fn mediums(&self) -> KittyMediums {
+        match self.files {
+            Some(_) => KittyMediums::Local,
+            None => KittyMediums::Direct,
+        }
     }
 
     /// The replies owed since [`KittyStream::clear_replies`].
@@ -840,7 +1004,8 @@ impl KittyStream {
     }
 
     /// **Payload bytes in bulk**, the octets of each [`Base64::feed`] to
-    /// [`KittyStream::octets`] as the byte path hands it each quantum's.
+    /// [`KittyStream::decoded`] as the byte path hands it each quantum's:
+    /// the data, or a file medium's path.
     ///
     /// Two places where the bulk order could differ from the byte path's,
     /// and each is made the byte path's:
@@ -875,7 +1040,7 @@ impl KittyStream {
                     return;
                 }
             };
-            self.octets(&out[..fed.wrote], store, scratch);
+            self.decoded(&out[..fed.wrote], store, scratch);
             if matches!(self.load, Load::Refused(_)) {
                 self.b64 = Base64::NEW;
                 return;
@@ -934,9 +1099,10 @@ impl KittyStream {
         }
         match this.act() {
             KittyAction::Transmit | KittyAction::TransmitPut | KittyAction::Query => {
-                match this.more {
-                    KittyMore::More => None,
-                    KittyMore::Last => self.finish(at, store, scratch),
+                // A file medium is one chunk: its `m` chunks nothing.
+                match (this.more, self.start.medium) {
+                    (KittyMore::More, KittyMedium::Direct) => None,
+                    _ => self.finish(at, store, scratch),
                 }
             }
             _ => self.command(this, at, store, scratch),
@@ -994,7 +1160,11 @@ impl KittyStream {
         if !query {
             store.kitty_free_unplaced(|id, _| id.is_none());
         }
-        if cmd.error.is_none() && cmd.medium != KittyMedium::Direct {
+        // A file medium no embedder serves is refused here, before anything
+        // is reserved; a served one is checked and reserved as `t=d` is,
+        // its payload being the path.
+        self.path_len = 0;
+        if cmd.error.is_none() && cmd.medium != KittyMedium::Direct && self.files.is_none() {
             cmd.error = Some(KittyError::FILE);
         }
         if cmd.error.is_none() && !query {
@@ -1110,8 +1280,76 @@ impl KittyStream {
         }
         match self.b64.push(b) {
             Base64Step::Need => {}
-            Base64Step::Octets(o) => self.octets(o.as_slice(), store, scratch),
+            Base64Step::Octets(o) => self.decoded(o.as_slice(), store, scratch),
             Base64Step::Invalid => self.refuse_load(KittyError::BASE64, store),
+        }
+    }
+
+    /// Decoded payload octets: the data, or a file medium's path, a byte
+    /// at a time. A `copy_from_slice` here changed the code LTO made of
+    /// `View::put_ascii_run`, a function this does not call, and `cat`'s
+    /// instructions with it: 0.7%, on `ingest2`.
+    #[inline]
+    fn decoded(&mut self, bytes: &[u8], store: &mut ImageStore, scratch: &mut [u8]) {
+        match self.start.medium {
+            KittyMedium::Direct => self.octets(bytes, store, scratch),
+            _ => {
+                for &b in bytes {
+                    match self.path.get_mut(self.path_len) {
+                        Some(d) => *d = b,
+                        None => return self.refuse_load(KittyError::PATH, store),
+                    }
+                    self.path_len += 1;
+                }
+            }
+        }
+    }
+
+    /// **Read a file medium's data through the embedder**, the bytes going
+    /// where a direct payload's go. The most the transmission can use is
+    /// decided first: `s * v` pixels of raw data, read to that and no
+    /// further; the scratch for a PNG; and the zlib bound of either inflated
+    /// size for `o=z`, past which the read is refused before it starts. A
+    /// PNG through zlib keeps `S` as "the size of the PNG data", which sizes
+    /// the inflate as it does for `t=d`, and reads the object to its end:
+    /// the two sentences about `S` meet there, and the compressed size is
+    /// not the PNG's.
+    fn read_file(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
+        let (limit, past, size) = match self.load {
+            Load::Raw { .. } => (self.raw_bytes(), KittyPastLimit::Stop, self.start.size),
+            Load::RawZ { .. } => (
+                zlib_bound(self.raw_bytes()),
+                KittyPastLimit::Refuse,
+                self.start.size,
+            ),
+            Load::Png { .. } => (scratch.len(), KittyPastLimit::Refuse, self.start.size),
+            Load::PngZ { need } => (zlib_bound(need), KittyPastLimit::Refuse, 0),
+            Load::Idle | Load::Refused(_) => return,
+        };
+        let path = self.path;
+        let req = KittyFileRequest {
+            medium: self.start.medium,
+            path: &path[..self.path_len],
+            offset: self.start.offset,
+            size,
+            limit,
+            past,
+        };
+        // Taken for the read, whose sink needs the stream, and put back
+        // with nothing between that can return.
+        let Some(files) = self.files.take() else {
+            return self.refuse_load(KittyError::FILE, store);
+        };
+        let read = files.read(&req, &mut |chunk| {
+            self.octets(chunk, store, scratch);
+            match self.load {
+                Load::Refused(_) => KittyFlow::Stop,
+                _ => KittyFlow::More,
+            }
+        });
+        self.files = Some(files);
+        if read.is_err() && !matches!(self.load, Load::Refused(_)) {
+            self.refuse_load(KittyError::FILE, store);
         }
     }
 
@@ -1260,9 +1498,18 @@ impl KittyStream {
         let cmd = self.start;
         let b64 = core::mem::replace(&mut self.b64, Base64::NEW);
         match b64.finish() {
-            Ok(tail) => self.octets(tail.as_slice(), store, scratch),
+            Ok(tail) => self.decoded(tail.as_slice(), store, scratch),
             Err(_) => self.refuse_load(KittyError::BASE64, store),
         }
+        if cmd.medium != KittyMedium::Direct {
+            self.read_file(store, scratch);
+        }
+        // "smaller than the client claimed" is a failure to read the file,
+        // and answers the single error (kitty's `ABRT_INSUFFICIENT_DATA`).
+        let short = match cmd.medium {
+            KittyMedium::Direct => KittyError::NO_DATA,
+            _ => KittyError::FILE,
+        };
         if matches!(self.load, Load::RawZ { .. } | Load::PngZ { .. }) {
             self.flush(store, scratch);
             if matches!(self.load, Load::RawZ { .. } | Load::PngZ { .. })
@@ -1291,7 +1538,7 @@ impl KittyStream {
                     .map_or(0, |(w, h)| w.index() * h.index());
                 if n < total {
                     store.free(image);
-                    self.reply(&cmd, Err(KittyError::NO_DATA));
+                    self.reply(&cmd, Err(short));
                     return None;
                 }
                 store.complete(image, alpha);
