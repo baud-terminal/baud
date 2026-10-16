@@ -4763,10 +4763,11 @@ lean:
    - **The table-driven Huffman fast path is built, 2026-10-15, and 8.3 ms
      is not met** (the record, "Huffman codes decode through a table, and a
      full window still takes four frames"). mosaic-blue decodes in 32.5 ms
-     against base's 36.5, 355.6 M instructions against 412.7 M: 24.2 ms
-     over the bar, 3.9 frames. The symbol loop, its lookups included, is
-     now about a tenth of a decode; the Adler-32 is about two fifths, unfiltering a fifth, and
-     the byte-at-a-time back-reference copy an eighth. By this step's own
+     against base's 36.5, 355.6 M instructions against 412.7 M: 32.5 ms,
+     3.9 frames; 24.2 ms over the bar. The symbol loop, its lookups
+     included, is now about a tenth of a decode; the Adler-32 is about two
+     fifths, unfiltering a fifth, and the byte-at-a-time back-reference
+     copy an eighth. By this step's own
      rule it falls to deferred decode, which is a design question for Jev.
 4. **Transmission mediums.**
    - *Fork:* direct payloads (`t=d`) only, since the spec expects clients to

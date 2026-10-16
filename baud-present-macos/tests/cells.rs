@@ -3313,8 +3313,9 @@ fn channel_diff(a: &[u32], b: &[u32], keep: impl Fn(usize) -> bool) -> (usize, u
 /// the default and in set colours, a block cursor, and a 40x30 image of
 /// partly transparent pixels over the text; then over the glass the same
 /// image over text on a set background, dimmed as the app's default
-/// `AppBg::Dimmed` dims it; and over each, three translucent cursors. Source-over is W3C Compositing
-/// and Blending Level 1's 5.1, `co = Cs as + Cb ab (1 - as)` premultiplied,
+/// `AppBg::Dimmed` dims it; and over each, three translucent cursors.
+/// Source-over is W3C Compositing and Blending Level 1's 5.1,
+/// `co = Cs as + Cb ab (1 - as)` premultiplied,
 /// `ao = as + ab (1 - as)` (`[[source: w3c-compositing-1]]`), which the GPU
 /// arms' `One, OneMinusSourceAlpha` blend is over premultiplied pixels; the
 /// CPU arm keeps straight pixels and the presenter premultiplies them, so

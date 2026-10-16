@@ -403,8 +403,9 @@ impl Blend {
     /// rounds too: [`Blend::over`]'s truncation is exact only at `ab = 255`.
     ///
     /// **`Linear` is the same formula in linear light**, `Co` taken before
-    /// the conversion back, divided by `ao` unrounded. It has no GPU counterpart and no app path selects
-    /// it, so it is held to the formula and to `over` on an opaque page.
+    /// the conversion back, divided by `ao` unrounded. It has no GPU
+    /// counterpart and no app path selects it, so it is held to the formula
+    /// and to `over` on an opaque page.
     fn over_glass(self, src: Argb, dst: Argb, cov: Coverage) -> Argb {
         let a = u32::from(cov.0) * u32::from(src.a().get()) / 255;
         if a == 0 {
