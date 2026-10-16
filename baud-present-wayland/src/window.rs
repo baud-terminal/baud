@@ -577,7 +577,9 @@ mod tests {
     /// the integer nearest `c a / 255` and the alpha passes through.
     /// `wl_shm`'s formats are premultiplied (`[[source: wayland]]`,
     /// `wl_shm.format`); one rounding on both systems is the owner's same
-    /// pixels on every OS.
+    /// pixels on every OS. It holds `premultiply` as imported here, the
+    /// function `present` calls per pixel; a `present` that skipped it
+    /// would not be caught by this test.
     #[test]
     fn the_buffer_word_rounds_as_on_macos() {
         let mut wrong = 0u32;

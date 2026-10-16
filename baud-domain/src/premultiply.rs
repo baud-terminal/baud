@@ -42,9 +42,8 @@ pub fn premultiply(word: u32) -> u32 {
 /// **The division is spelled as the multiply LLVM makes of it**, `n *
 /// 0x8081 >> 23`, which is `n / 255` for every `n` below `2^16`
 /// (`the_reciprocal_is_the_division`). Written `/ 255`, LLVM narrows the
-/// numerator to sixteen bits and masks each channel before the multiply,
-/// an instruction a channel that the truncating form it replaced did not
-/// have.
+/// numerator to sixteen bits and masks each channel before the multiply.
+/// The truncating form it replaced had no such mask.
 #[inline]
 const fn scale(c: u32, a: u32) -> u32 {
     ((c * a + 127) * 0x8081) >> 23
