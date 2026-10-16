@@ -538,3 +538,89 @@ fn a_placeholder_image_is_over_its_cells_background_at_any_z() {
     );
     assert_eq!(differ(&deep, &under, None), 0, "over the red, as at -1");
 }
+
+/// Every strip a frame `back` lines up places, as `(x, y, w, h, texel
+/// columns, texel rows)`.
+type Strip = (i16, i16, u16, u16, Vec<u32>, Vec<u32>);
+
+fn strips(r: &mut baud_render::Renderer<'_, '_>, t: &Term, back: usize) -> Vec<Strip> {
+    r.set_images(t, baud_domain::Rows::of_count(back));
+    r.image_placements()
+        .iter()
+        .map(|p| {
+            let (xs, ys) = r.image_map(p);
+            (p.x, p.y, p.w, p.h, xs.to_vec(), ys.to_vec())
+        })
+        .collect()
+}
+
+/// **The leaving row's placeholders resolve from its own cells**: the
+/// line just above the window, which the cell path slides in under
+/// smooth scroll, places the strip it placed when it was on screen -- one
+/// row higher, the same texels -- whose first cell names the row and the
+/// second inherits it and its column from the one to its left. And where
+/// there is no line above the window -- an empty history, the alternate
+/// screen -- nothing is placed above the top: the view's clamp would read
+/// the screen's own first row there.
+#[test]
+fn the_leaving_row_places_the_strip_it_placed_on_screen() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let m = r.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(
+        ImagePx::of(u16::try_from(cw).unwrap()),
+        ImagePx::of(u16::try_from(ch).unwrap()),
+    );
+    let ch16 = i16::try_from(ch).unwrap();
+    // No history: a strip on the first row places nothing above it.
+    transmit(&mut t, 1, texel);
+    feed(&mut t, &apc("a=p,U=1,i=1,q=2,c=11,r=3", b""));
+    let first_row = format!(
+        "\x1b[1;5H\x1b[0;38;5;1m\u{10EEEE}{}{}\u{10EEEE}\x1b[0m",
+        d(0),
+        d(0)
+    );
+    feed(&mut t, first_row.as_bytes());
+    let none = strips(&mut r, &t, 0);
+    assert_eq!(none.len(), 1, "the premise: the first row's strip");
+    assert!(none.iter().all(|s| s.1 >= 0), "an empty history: {none:?}");
+    // The picture, its first row two cells inherited, the rest a cell.
+    feed(&mut t, b"\x1b[2J");
+    let mut g = grid("38;5;1", &[(0, 0), (0, 1)], 0, Form::RowOnly);
+    g.extend(grid("38;5;1", &[(1, 2), (2, 2)], 0, Form::Full));
+    feed(&mut t, &g);
+    let line = t.image_origin(baud_domain::Rows::ZERO).top.value() + ROW as u64;
+    feed(&mut t, format!("\x1b[{};1H", WS.ws_row).as_bytes());
+    while t.image_origin(baud_domain::Rows::ZERO).top.value() <= line {
+        feed(&mut t, b"\n");
+    }
+    assert_eq!(
+        t.image_origin(baud_domain::Rows::ZERO).top.value(),
+        line + 1,
+        "the picture's first line is the leaving row"
+    );
+    let up = strips(&mut r, &t, 1);
+    assert_eq!(up.len(), 3, "the premise: three strips one line up");
+    assert!(
+        (0..ch16).contains(&up[0].1),
+        "the premise: the first strip on the top row, {up:?}"
+    );
+    let shifted: Vec<Strip> = up
+        .into_iter()
+        .map(|(x, y, w, h, xs, ys)| (x, y - ch16, w, h, xs, ys))
+        .collect();
+    assert_eq!(strips(&mut r, &t, 0), shifted, "the leaving row's strip");
+    // The alternate screen keeps no history, so has no leaving row.
+    feed(&mut t, b"\x1b[?1049h");
+    feed(&mut t, first_row.as_bytes());
+    let alt = strips(&mut r, &t, 0);
+    assert_eq!(alt.len(), 1, "the premise: the alternate's first row");
+    assert!(
+        alt.iter().all(|s| s.1 >= 0),
+        "the alternate screen: {alt:?}"
+    );
+}

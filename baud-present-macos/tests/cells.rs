@@ -3758,6 +3758,7 @@ fn kitty_draw_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     }
     kitty_below_gate(arms, t);
     kitty_placeholder_gate(arms, t);
+    kitty_placeholder_leaving_gate(arms, t);
     t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
     feed(t, b"\x1bc");
 }
@@ -3975,4 +3976,102 @@ fn kitty_placeholder_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             );
         }
     }
+}
+
+/// **A placeholder picture in a smooth scroll's leaving row** (`[[source:
+/// kitty-graphics]]`, "Unicode placeholders"): an 11 by 3 picture whose
+/// first row -- two cells, the second inheriting its row and column from
+/// the first -- is the top row, scrolled one line. Its first row is then
+/// the leaving row, the line above the window. Sliding, on the cell arm
+/// over the live ring and over the window's copy, at a whole row and at
+/// half of one, every pixel is the frame before the scroll moved down by
+/// what is left of the slide: the leaving row's strip is the one that row
+/// showed on screen. Settled, on all four arms, every pixel is the frame
+/// before the scroll moved up a row: the leaving row's strip, placed at
+/// a negative y, is clipped. At `z` 0, over the text; -1, under it; and
+/// below `INT32_MIN/2`, which a placeholder clamps to under its cells'
+/// backgrounds. The instance and CPU arms do not slide (`stage_images`,
+/// "The instance path does not slide"), so they are held settled only.
+fn kitty_placeholder_leaving_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let m = arms.renderer.metrics();
+    let ch = usize::try_from(m.cell_h.value()).unwrap();
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let rows = t.view(Rows::ZERO).rows().index();
+    let row = ch * fw;
+    for z in ["", ",z=-1", ",z=-1073741825"] {
+        arms.back = Rows::ZERO;
+        arms.slide = None;
+        feed(t, b"\x1bc\x1b[?25l");
+        let (_, blank) = arms.draw(t);
+        kitty_put(t, 1, kitty_texel, &[&format!("U=1,c=11,r=3{z}")]);
+        let mut grid = placeholder_grid("38;5;1", &[(0, 0), (0, 1)], 0, false);
+        grid.extend(placeholder_grid("38;5;1", &[(1, 2), (2, 2)], 0, true));
+        feed(t, &grid);
+        // The picture's first row, written on screen row 3, to the top.
+        let line = t.image_origin(Rows::ZERO).top.value() + 2;
+        feed(t, format!("\x1b[{rows};1H").as_bytes());
+        while t.image_origin(Rows::ZERO).top.value() < line {
+            feed(t, b"\n");
+        }
+        let (a, b) = arms.draw(t);
+        let c = arms.draw_copied(t);
+        let cpu = cpu_frame(arms, t);
+        let before = [a, b, c, cpu];
+        assert!(
+            differing(&before[1][..row], &blank[..row]) > 0,
+            "{z}: the premise, the picture's first row on the top row"
+        );
+        feed(t, b"\n");
+        assert_eq!(
+            t.image_origin(Rows::ZERO).top.value(),
+            line + 1,
+            "{z}: the picture's first row is the leaving row"
+        );
+        // Settled: every arm the frame before, a row up.
+        let (a, b) = arms.draw(t);
+        assert_eq!(
+            arms.renderer.image_placements().len(),
+            3,
+            "{z}: the premise, the leaving row's strip and the two below"
+        );
+        let c = arms.draw_copied(t);
+        let cpu = cpu_frame(arms, t);
+        let n = (rows - 1) * row;
+        for (k, (arm, got)) in [("instance", a), ("cell", b), ("copied", c), ("cpu", cpu)]
+            .into_iter()
+            .enumerate()
+        {
+            let d = differing(&got[..n], &before[k][row..row + n]);
+            assert_eq!(
+                d, 0,
+                "{z}: settled, the {arm} arm shows the leaving row, {d} pixels"
+            );
+        }
+        // Sliding: the cell arms the frame before, down by the pan left.
+        arms.renderer
+            .sync_styles(t, arms.styles_mem, &mut arms.stamp);
+        arms.map.ensure(
+            t,
+            t.view(Rows::of_count(1)),
+            arms.styles_mem,
+            &mut arms.renderer,
+            &mut arms.candidates,
+        );
+        for pan in [ch, ch / 2] {
+            arms.slide = Some(Px::of(u32::try_from(pan).unwrap()));
+            let (_, slid) = arms.draw(t);
+            let copied = arms.draw_copied(t);
+            arms.slide = None;
+            let off = (ch - pan) * fw;
+            let n = rows * row - off;
+            for (k, arm, got) in [(1, "cell", slid), (2, "copied", copied)] {
+                let d = differing(&got[..n], &before[k][off..off + n]);
+                assert_eq!(
+                    d, 0,
+                    "{z}: a slide of {pan} on the {arm} arm is not the frame before, {d} pixels"
+                );
+            }
+        }
+    }
+    feed(t, b"\x1bc");
 }

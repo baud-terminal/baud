@@ -1908,52 +1908,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // no seam and sample one table. Only while a virtual placement is
         // held: a screen with none asks one compare a frame.
         if term.kitty_virtuals() {
-            let vp = term.view(term.looking_back(back));
-            for r in 0..self.rows.index() {
-                let row = vp.row(Row::from_index(r));
-                for run in term.placeholder_runs(row) {
-                    let Some(v) = term.kitty_virtual(run.image, run.placement) else {
-                        continue;
-                    };
-                    let Some(view) = imgs.image(v.image) else {
-                        continue;
-                    };
-                    let draw = v.place.draw(view.width, view.height, cell_w, cell_h);
-                    let dest = draw.dest;
-                    if dest.is_empty() {
-                        continue;
-                    }
-                    let at = run.at.index() as i64;
-                    let x0 = (at - run.col.index() as i64) * cw + i64::from(dest.x);
-                    let y0 = (r as i64 - run.row.index() as i64) * ch + i64::from(dest.y);
-                    let (left, top) = (at * cw, r as i64 * ch);
-                    let right = left + run.cells.index() as i64 * cw;
-                    let (i0, i1) = (
-                        (left - x0).max(0),
-                        (right - x0).min(i64::from(dest.w)).min(frame_w - x0),
-                    );
-                    let (j0, j1) = ((top - y0).max(0), (top + ch - y0).min(i64::from(dest.h)));
-                    self.push_image(
-                        imgs,
-                        epoch,
-                        v.image,
-                        &view,
-                        draw,
-                        (x0, y0),
-                        (i0, i1, j0, j1),
-                        // Never below its own cells' backgrounds: "The
-                        // background color is interpreted as the
-                        // background color, visible if the image is
-                        // transparent" ("Unicode placeholders"), so the
-                        // image is over it. Otherwise the virtual
-                        // placement's `z`, which kitty sets to -1 for
-                        // every placeholder image (`[[source:
-                        // kitty-graphics-c]]` `grman_put_cell_image`),
-                        // where the text says nothing; an open fork.
-                        v.z.max(ZIndex::of(ImageLayer::BELOW_BACKGROUNDS)),
-                        snap,
-                    );
-                }
+            let back = term.looking_back(back);
+            let vp = term.view(back);
+            // The leaving row too, draw row -1: the line above the window,
+            // `view(back + 1).row(0)`, the cells the cell path slides in
+            // from the ring, resolved from those cells as when that line
+            // was on screen. Only where the history holds one: the clamp
+            // would read the screen's own first row there.
+            let above = Rows::of_count(back.index() + 1);
+            let leaving = (term.looking_back(above) == above)
+                .then(|| term.view(above).row(Row::from_index(0)));
+            let rows = (0..self.rows.index()).map(|r| (r as i64, vp.row(Row::from_index(r))));
+            for (r, row) in leaving.map(|row| (-1, row)).into_iter().chain(rows) {
+                self.place_placeholders(term, imgs, epoch, (r, row), snap);
             }
         }
         // The text's order: by `z`, then by the client's id; stable, so
@@ -1970,6 +1937,68 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let places = &self.image_places;
             self.image_uploads
                 .retain(|u| places.iter().any(|p| p.id == u.id));
+        }
+    }
+
+    /// **The placeholder runs of draw row `r`** into this frame's list,
+    /// `row` its cells: each run's strip of the virtual placement it
+    /// names, clipped to the run's cells, `r` rows from the top of the
+    /// frame -- `-1` for the leaving row the cell path slides in, which a
+    /// frame that is not sliding draws at a negative y and every path
+    /// clips.
+    fn place_placeholders(
+        &mut self,
+        term: &Term<'_>,
+        imgs: &ImageStore<'_>,
+        epoch: ImageGen,
+        (r, row): (i64, &[PackedCell]),
+        snap: Snapshots,
+    ) {
+        let cw = i64::from(self.metrics.cell_w.value());
+        let ch = i64::from(self.metrics.cell_h.value());
+        let cell = |p: Px| ImagePx::of(u16::try_from(p.value()).unwrap_or(u16::MAX));
+        let (cell_w, cell_h) = (cell(self.metrics.cell_w), cell(self.metrics.cell_h));
+        let frame_w = i64::from(self.frame_size().0.value());
+        for run in term.placeholder_runs(row) {
+            let Some(v) = term.kitty_virtual(run.image, run.placement) else {
+                continue;
+            };
+            let Some(view) = imgs.image(v.image) else {
+                continue;
+            };
+            let draw = v.place.draw(view.width, view.height, cell_w, cell_h);
+            let dest = draw.dest;
+            if dest.is_empty() {
+                continue;
+            }
+            let at = run.at.index() as i64;
+            let x0 = (at - run.col.index() as i64) * cw + i64::from(dest.x);
+            let y0 = (r - run.row.index() as i64) * ch + i64::from(dest.y);
+            let (left, top) = (at * cw, r * ch);
+            let right = left + run.cells.index() as i64 * cw;
+            let (i0, i1) = (
+                (left - x0).max(0),
+                (right - x0).min(i64::from(dest.w)).min(frame_w - x0),
+            );
+            let (j0, j1) = ((top - y0).max(0), (top + ch - y0).min(i64::from(dest.h)));
+            self.push_image(
+                imgs,
+                epoch,
+                v.image,
+                &view,
+                draw,
+                (x0, y0),
+                (i0, i1, j0, j1),
+                // Never below its own cells' backgrounds: "The background
+                // color is interpreted as the background color, visible if
+                // the image is transparent" ("Unicode placeholders"), so the
+                // image is over it. Otherwise the virtual placement's `z`,
+                // which kitty sets to -1 for every placeholder image
+                // (`[[source: kitty-graphics-c]]` `grman_put_cell_image`),
+                // where the text says nothing; an open fork.
+                v.z.max(ZIndex::of(ImageLayer::BELOW_BACKGROUNDS)),
+                snap,
+            );
         }
     }
 
