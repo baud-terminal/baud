@@ -706,8 +706,8 @@ impl Resolved {
     /// [`Shapes::DEFAULT_BG`], and not selected and not under a block
     /// cursor, each of which draws another colour as the background, as
     /// kitty's `compute_background` makes them "special" (`[[source:
-    /// kitty-background-slang]]`). Interim on both, an open fork. The cell
-    /// shader's `ground_set` mirrors it.
+    /// kitty-background-slang]]`; Jev, NON_DEFAULT, 1.00 and 1.00). The
+    /// cell shader's `ground_set` mirrors it.
     pub fn ground(self, selected: Selected, block: BlockCursor) -> Ground {
         match (self.shapes.has(Shapes::DEFAULT_BG), selected, block) {
             (true, Selected::No, BlockCursor::No) => Ground::Default,

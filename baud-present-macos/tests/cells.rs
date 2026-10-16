@@ -3561,15 +3561,16 @@ fn kitty_other(x: u32, y: u32) -> u32 {
     0xFF00_0000 | (200 << 16) | ((29 * x + 5) << 8) | (41 * y + 30)
 }
 
-/// `a=t` of a 6 by 4 `f=32` image `id` with `px`'s pixels, then each
+/// `a=t` of a 6 by 4 `f=32` image `id` with `px`'s pixels, alpha the top
+/// byte, then each
 /// placement in `puts` at row 3, column 5 (one-based).
 fn kitty_put(t: &mut Term<'_>, id: u32, px: fn(u32, u32) -> u32, puts: &[&str]) {
     const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut rgba = Vec::new();
     for y in 0..4 {
         for x in 0..6 {
-            let [_, r, g, b] = px(x, y).to_be_bytes();
-            rgba.extend_from_slice(&[r, g, b, 0xFF]);
+            let [a, r, g, b] = px(x, y).to_be_bytes();
+            rgba.extend_from_slice(&[r, g, b, a]);
         }
     }
     let mut cmd = format!("\x1b_Ga=t,f=32,s=6,v=4,i={id},q=2;").into_bytes();
@@ -3757,6 +3758,7 @@ fn kitty_draw_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         );
     }
     kitty_below_gate(arms, t);
+    kitty_picks_gate(arms, t);
     kitty_placeholder_gate(arms, t);
     kitty_placeholder_leaving_gate(arms, t);
     t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
@@ -3838,6 +3840,172 @@ fn kitty_below_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     }
     arms.highlight = None;
     feed(t, b"\x1b[0 q");
+}
+
+/// What a pixel of a bare cell under a deep image is expected to be: the
+/// image's texel, the frame without the image, or the cell's background,
+/// straight, source-over the texel.
+#[derive(Clone, Copy, Debug)]
+enum Deep {
+    Texel,
+    Plain,
+    Over(Argb),
+}
+
+/// `bg`, straight with its alpha, source-over the opaque texel `t`, one
+/// channel at a time and rounded to the nearest byte: `co = Cs as + Cb (1 -
+/// as)` at `ab = 1` (`[[source: w3c-compositing-1]]` 5.1).
+fn over_texel(bg: Argb, t: u32) -> u32 {
+    let (w, a) = (bg.0, bg.0 >> 24);
+    let ch = |shift: u32| {
+        let (s, d) = ((w >> shift) & 0xFF, (t >> shift) & 0xFF);
+        ((s * a + d * (255 - a) + 127) / 255) << shift
+    };
+    0xFF00_0000 | ch(16) | ch(8) | ch(0)
+}
+
+/// One scene of [`kitty_picks_gate`]: the text written at the anchor, the
+/// theme, the image's pixels and what each of the four cells shows.
+type PicksScene<'t> = (String, &'t Theme, fn(u32, u32) -> u32, [Deep; 4]);
+
+/// The kitty gate's image with every pixel clear.
+fn kitty_clear(x: u32, y: u32) -> u32 {
+    kitty_texel(x, y) & 0x00FF_FFFF
+}
+
+/// **The owner's two picks for an image below `INT32_MIN/2`, on all three
+/// paths** (2026-10-16). "Compare the colour": a cell is default when the
+/// colour its background is drawn in is the default background's, so an
+/// explicit 24-bit colour or an `OSC 4` entry of the default's value shows
+/// the image, and after `OSC 11` a cell of the new default's value does
+/// and one of the old default's does not. "Picture shows dimmed": on the
+/// glass a coloured cell dimmed as `AppBg::Dimmed` dims it is its
+/// background source-over the image, and over a clear image the frame
+/// without it; an opaque one, the gate's own `AppBg::Opaque`, still
+/// replaces. Four bare cells at the anchor under an image `c=4,r=1`; every
+/// expected pixel the frame without the image, the texel, or the
+/// background over the texel by the formula, never another arm's.
+fn kitty_picks_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let fw = arms.renderer.frame_size().0.value();
+    let at = |x: u32, y: u32| usize::try_from(y * fw + x).unwrap();
+    let (ax, ay) = (4 * cw, 2 * ch);
+    let glass = arms.renderer.theme().clone();
+    assert_eq!(
+        (glass.bg.0 & 0xFF_FFFF, glass.bg_alpha.get(), glass.app_bg),
+        (0x10_1010, 56, baud_render::AppBg::Opaque),
+        "the premise: the gate's glass"
+    );
+    let dimmed = Theme {
+        app_bg: baud_render::AppBg::Dimmed,
+        ..glass.clone()
+    };
+    let red = glass.palette[1].with_alpha(glass.bg_alpha);
+    let (texel, plain, over) = (Deep::Texel, Deep::Plain, Deep::Over(red));
+    let osc = "\x1b]11;rgb:30/00/30\x1b\\";
+    let scenes: [PicksScene<'_>; 7] = [
+        (
+            "\x1b[48;2;16;16;16m  \x1b[0m  ".into(),
+            &glass,
+            kitty_texel,
+            [texel; 4],
+        ),
+        (
+            "\x1b]4;1;rgb:10/10/10\x1b\\\x1b[41m  \x1b[0m  ".into(),
+            &glass,
+            kitty_texel,
+            [texel; 4],
+        ),
+        (
+            format!("{osc}\x1b[48;2;48;0;48m  \x1b[0m  "),
+            &glass,
+            kitty_texel,
+            [texel; 4],
+        ),
+        (
+            format!("{osc}\x1b[48;2;16;16;16m  \x1b[0m  "),
+            &glass,
+            kitty_texel,
+            [plain, plain, texel, texel],
+        ),
+        (
+            "\x1b[41m  \x1b[0m  ".into(),
+            &dimmed,
+            kitty_texel,
+            [over, over, texel, texel],
+        ),
+        (
+            "\x1b[41m  \x1b[0m  ".into(),
+            &dimmed,
+            kitty_clear,
+            [plain; 4],
+        ),
+        (
+            "\x1b[41m  \x1b[0m  ".into(),
+            &glass,
+            kitty_texel,
+            [plain, plain, texel, texel],
+        ),
+    ];
+    for (text, theme, px, want_of) in scenes {
+        arms.renderer.set_theme(theme.clone());
+        feed(t, format!("\x1bc\x1b[?25l\x1b[3;5H{text}").as_bytes());
+        let (before, _) = arms.draw(t);
+        kitty_put(t, 1, px, &["C=1,c=4,r=1,z=-1073741825"]);
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        let [[dx, dy, dw, dh], [sx, sy, sw, sh]] = kitty_expect("c=4,r=1", cw, ch);
+        let mut want = before.clone();
+        for j in 0..dh {
+            for i in 0..dw {
+                let (x, y) = (ax + dx + i, ay + dy + j);
+                let cell = usize::try_from((dx + i) / cw).unwrap();
+                let tx = kitty_texel(
+                    sx + (2 * i + 1) * sw / (2 * dw),
+                    sy + (2 * j + 1) * sh / (2 * dh),
+                );
+                want[at(x, y)] = match want_of[cell] {
+                    Deep::Texel => tx,
+                    Deep::Plain => before[at(x, y)],
+                    Deep::Over(bg) => over_texel(bg, tx),
+                };
+            }
+        }
+        for (arm, got) in [("instance", &a), ("cell", &b), ("cpu", &cpu)] {
+            let (n, most) = channel_diff(got, &want, |_| true);
+            assert_eq!(
+                n, 0,
+                "{text:?}, {want_of:?}: the {arm} arm misses {n} pixels, by up to {most}"
+            );
+        }
+    }
+    // A half-transparent image under the dimmed cells, both kinds: the
+    // arms agree, where the CPU's clear and source-over each round once.
+    arms.renderer.set_theme(dimmed);
+    feed(t, b"\x1bc\x1b[?25l\x1b[3;5H\x1b[41m  \x1b[0m  ");
+    let (before, _) = arms.draw(t);
+    kitty_put(t, 1, kitty_half, &["C=1,c=4,r=1,z=-1073741825"]);
+    let (a, b) = arms.draw(t);
+    let cpu = cpu_frame(arms, t);
+    assert!(
+        differing(&a, &before) > 0,
+        "a half image: the premise, drawn"
+    );
+    for (arm, got) in [("cell", &b), ("cpu", &cpu)] {
+        let (n, most) = channel_diff(got, &a, |_| true);
+        assert_eq!(
+            n, 0,
+            "a half image: the {arm} arm and the instance arm differ on {n} pixels, by up to {most}"
+        );
+    }
+    arms.renderer.set_theme(glass);
+    feed(t, b"\x1bc");
+}
+
+/// The kitty gate's image at half alpha.
+fn kitty_half(x: u32, y: u32) -> u32 {
+    kitty_texel(x, y) & 0x00FF_FFFF | 0x8000_0000
 }
 
 /// The pinned list's diacritic for `n` (`[[source:

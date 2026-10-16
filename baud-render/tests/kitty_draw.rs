@@ -211,9 +211,15 @@ fn draw(setup: impl FnOnce(&mut Term)) -> Frame {
 
 /// [`draw`], with a selection drawn.
 fn draw_lit(setup: impl FnOnce(&mut Term), lit: Option<Highlight>) -> Frame {
+    draw_themed(setup, lit, Theme::dark())
+}
+
+/// [`draw_lit`] under `theme`.
+fn draw_themed(setup: impl FnOnce(&mut Term), lit: Option<Highlight>, theme: Theme) -> Frame {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     let mut r = renderer(&faces);
+    r.set_theme(theme);
     r.set_highlight(lit);
     let m = r.metrics();
     let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
@@ -751,8 +757,8 @@ fn deep_hidden(text: &str) -> (usize, usize) {
 /// the default background, so `SGR 7` on default colours and every cell
 /// under `?5` are not, as kitty compares the drawn colour
 /// (`[[source: kitty-background-slang]]`; Jev's DRAWN_COLOUR, 1.00 and
-/// 0.98); and `OSC 11` changes the default's colour, not which cells have
-/// it.
+/// 0.98); and a default-word cell is drawn in the default's colour
+/// whatever `OSC 11` makes it, so it stays default.
 #[test]
 fn the_default_background_is_the_drawn_one_and_survives_osc_11() {
     let (hidden, all) = deep_hidden("\x1b[3;5H\x1b[7m    \x1b[0m");
@@ -768,4 +774,238 @@ fn the_default_background_is_the_drawn_one_and_survives_osc_11() {
     assert_eq!(hidden, 0, "OSC 11: still the default, of {all}");
     let (hidden, all) = deep_hidden("\x1b[3;5H\x1b[48;5;1m    \x1b[0m");
     assert_eq!(hidden, all, "a palette background is not the default");
+}
+
+/// What a pixel of a cell under a deep image is expected to be, the
+/// cell bare (a space): the image's texel, the frame without the image,
+/// or the cell's background, straight, source-over the texel.
+#[derive(Clone, Copy, Debug)]
+enum Deep {
+    Texel,
+    Plain,
+    Over(u32),
+}
+
+/// `bg`, straight with its alpha, source-over the opaque texel `t`, one
+/// channel at a time: `co = Cs as + Cb (1 - as)` at `ab = 1`, rounded to
+/// the nearest byte (`[[source: w3c-compositing-1]]` 5.1).
+fn over_texel(bg: u32, t: u32) -> u32 {
+    let a = bg >> 24;
+    let ch = |shift: u32| {
+        let (s, d) = ((bg >> shift) & 0xFF, (t >> shift) & 0xFF);
+        ((s * a + d * (255 - a) + 127) / 255) << shift
+    };
+    0xFF00_0000 | ch(16) | ch(8) | ch(0)
+}
+
+/// A word as the presenter stores it, premultiplied: what two pixels
+/// that differ only in a straight byte the alpha hides agree on.
+fn premul(p: u32) -> u32 {
+    baud_domain::premultiply(p)
+}
+
+/// Four bare cells at the anchor written by `text` under `theme`, under
+/// a deep image of `px`'s pixels placed `c=4,r=1`: how many pixels of its
+/// drawn rectangle are not what `want` says of their cell, compared
+/// premultiplied, and how many there were.
+fn deep_cells(text: &str, theme: &Theme, alpha: u8, want: [Deep; 4]) -> (usize, usize) {
+    let write = |t: &mut Term| feed(t, text.as_bytes());
+    let plain = draw_themed(write, None, theme.clone());
+    let imaged = draw_themed(
+        |t| {
+            write(t);
+            transmit_alpha(t, 1, alpha);
+            feed(t, AT);
+            feed(t, &apc(&format!("a=p,i=1,q=2,C=1,c=4,r=1,z={DEEP}"), b""));
+        },
+        None,
+        theme.clone(),
+    );
+    let e = expect("c=4,r=1", plain.cw(), plain.ch());
+    let [dx, dy, dw, dh] = e.dest;
+    let (ax, ay) = (COL * plain.cw() + dx, ROW * plain.ch() + dy);
+    let mut wrong = 0;
+    for j in 0..dh {
+        for i in 0..dw {
+            let (x, y) = (ax + i, ay + j);
+            let cell = usize::try_from((x - COL * plain.cw()) / plain.cw()).unwrap();
+            let (sx, sy) = source(e, i, j);
+            let w = match want[cell] {
+                Deep::Texel => texel(sx, sy),
+                Deep::Plain => plain.at(x, y),
+                Deep::Over(bg) => over_texel(bg, texel(sx, sy)),
+            };
+            wrong += usize::from(premul(imaged.at(x, y)) != premul(w));
+        }
+    }
+    (wrong, usize::try_from(dw * dh).unwrap())
+}
+
+/// Transmit image `id`, the test image's colours at `alpha`.
+fn transmit_alpha(t: &mut Term, id: u32, alpha: u8) {
+    let mut v = rgba(texel);
+    for p in v.chunks_mut(4) {
+        p[3] = alpha;
+    }
+    feed(
+        t,
+        &apc(&format!("a=t,f=32,s={IW},v={IH},i={id},q=2"), &b64(&v)),
+    );
+}
+
+const DEFAULT: [Deep; 4] = [Deep::Texel; 4];
+const RED_SET: [Deep; 4] = [Deep::Plain, Deep::Plain, Deep::Texel, Deep::Texel];
+
+/// **The owner's pick, "Compare the colour" (2026-10-16)**: a cell is
+/// default when the colour its background is drawn in equals the default
+/// background's colour, as kitty's `cell_has_default_bg` compares it
+/// (`[[source: kitty-background-slang]]`), and not when it carries the
+/// default colour word. So an explicit colour, 24-bit or a palette entry,
+/// whose value is the default's shows a deep image; and under one exchange
+/// the drawn background is the foreground's colour, so `SGR 7` or `?5`
+/// over a foreground of the default's value is default too.
+#[test]
+fn an_explicit_background_of_the_default_colour_shows_a_deep_image() {
+    let dark = Theme::dark();
+    assert_eq!(dark.bg.0 & 0xFF_FFFF, 0x10_1010, "the premise: the default");
+    for (text, what) in [
+        ("\x1b[3;5H\x1b[48;2;16;16;16m    \x1b[0m", "24-bit"),
+        (
+            "\x1b]4;1;rgb:10/10/10\x1b\\\x1b[3;5H\x1b[41m    \x1b[0m",
+            "a palette entry OSC 4 set to it",
+        ),
+        (
+            "\x1b[3;5H\x1b[38;2;16;16;16;7m    \x1b[0m",
+            "SGR 7 over a foreground of it",
+        ),
+        (
+            "\x1b[?5h\x1b[3;5H\x1b[38;2;16;16;16m    \x1b[0m",
+            "?5 over a foreground of it",
+        ),
+    ] {
+        let (wrong, all) = deep_cells(text, &dark, 0xFF, DEFAULT);
+        assert_eq!(wrong, 0, "{what}: the image shows, of {all}");
+    }
+    // The control: a colour one step off the default's is not it.
+    let (wrong, all) = deep_cells(
+        "\x1b[3;5H\x1b[48;2;16;16;17m  \x1b[0m  ",
+        &dark,
+        0xFF,
+        RED_SET,
+    );
+    assert_eq!(wrong, 0, "one step off: under the cell, of {all}");
+}
+
+/// After `OSC 11` the comparison moves with the default: a cell whose
+/// explicit colour is the new default shows a deep image, a default-word
+/// cell, drawn in the new default, shows it, and a cell whose explicit
+/// colour is the old default no longer does.
+#[test]
+fn after_osc_11_the_comparison_moves_with_the_default() {
+    let dark = Theme::dark();
+    let osc = "\x1b]11;rgb:30/00/30\x1b\\";
+    let (wrong, all) = deep_cells(
+        &format!("{osc}\x1b[3;5H\x1b[48;2;48;0;48m  \x1b[0m  "),
+        &dark,
+        0xFF,
+        DEFAULT,
+    );
+    assert_eq!(wrong, 0, "the new default's value and the word, of {all}");
+    let (wrong, all) = deep_cells(
+        &format!("{osc}\x1b[3;5H\x1b[48;2;16;16;16m  \x1b[0m  "),
+        &dark,
+        0xFF,
+        RED_SET,
+    );
+    assert_eq!(wrong, 0, "the old default's value is set, of {all}");
+}
+
+/// The same on incremental frames: `OSC 11` moves no cell, and the cells
+/// whose explicit colour it lands on show the image on the next frame,
+/// and stop when `OSC 111` puts the default back.
+#[test]
+fn osc_11_moves_a_deep_image_under_explicit_cells_on_incremental_frames() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let m = r.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let mut c = Canvas::for_renderer(&r);
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(
+        ImagePx::of(u16::try_from(cw).unwrap()),
+        ImagePx::of(u16::try_from(ch).unwrap()),
+    );
+    feed(&mut t, b"\x1b[?25l\x1b[3;5H\x1b[48;2;48;0;48m    \x1b[0m");
+    transmit(&mut t, 1, texel);
+    feed(&mut t, AT);
+    feed(
+        &mut t,
+        &apc(&format!("a=p,i=1,q=2,C=1,c=4,r=1,z={DEEP}"), b""),
+    );
+    let e = expect("c=4,r=1", cw, ch);
+    let [dx, dy, dw, dh] = e.dest;
+    let mut shown = |t: &mut Term, damage| {
+        r.render(t, &mut c.target(), damage);
+        let mut n = 0;
+        for j in 0..dh {
+            for i in 0..dw {
+                let (sx, sy) = source(e, i, j);
+                let (x, y) = (COL * cw + dx + i, ROW * ch + dy + j);
+                let p =
+                    c.pixels[usize::try_from(y).unwrap() * c.width + usize::try_from(x).unwrap()];
+                n += usize::from(p == texel(sx, sy));
+            }
+        }
+        n
+    };
+    let all = usize::try_from(dw * dh).unwrap();
+    assert_eq!(shown(&mut t, Damage::Full), 0, "set: under the cells");
+    feed(&mut t, b"\x1b]11;rgb:30/00/30\x1b\\");
+    assert_eq!(
+        shown(&mut t, Damage::Incremental),
+        all,
+        "OSC 11 to their colour: the image shows"
+    );
+    feed(&mut t, b"\x1b]111\x1b\\");
+    assert_eq!(
+        shown(&mut t, Damage::Incremental),
+        0,
+        "OSC 111: under them again"
+    );
+}
+
+/// **The owner's pick, "Picture shows dimmed" (2026-10-16)**: on the
+/// translucent window a coloured cell's background is composited over a
+/// deep image at its own alpha, as it is over the desktop where there is
+/// no image, as kitty blends the non-default backgrounds over the images
+/// below them (`[[source: kitty-cell-slang]]`). So the image shows tinted
+/// through the coloured cells, fully through the default ones; where the
+/// image is clear the coloured cell is the frame without the image, not
+/// its background twice; and an opaque coloured cell -- `[glass]
+/// app_backgrounds = "opaque"` -- is its background, as before.
+#[test]
+fn on_the_glass_a_coloured_cell_is_blended_over_a_deep_image() {
+    let dimmed = Theme {
+        bg_alpha: baud_domain::Chan::from_u8(56),
+        ..Theme::dark()
+    };
+    let red = dimmed.palette[1].0 & 0xFF_FFFF | 56 << 24;
+    let text = "\x1b[3;5H\x1b[41m  \x1b[0m  ";
+    let (wrong, all) = deep_cells(
+        text,
+        &dimmed,
+        0xFF,
+        [Deep::Over(red), Deep::Over(red), Deep::Texel, Deep::Texel],
+    );
+    assert_eq!(wrong, 0, "dimmed red over the image, of {all}");
+    let (wrong, all) = deep_cells(text, &dimmed, 0, [Deep::Plain; 4]);
+    assert_eq!(wrong, 0, "a clear image: the frame without it, of {all}");
+    let opaque = Theme {
+        app_bg: baud_render::AppBg::Opaque,
+        ..dimmed.clone()
+    };
+    let (wrong, all) = deep_cells(text, &opaque, 0xFF, RED_SET);
+    assert_eq!(wrong, 0, "an opaque coloured cell replaces, of {all}");
 }

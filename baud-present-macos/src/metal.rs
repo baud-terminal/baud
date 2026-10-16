@@ -491,10 +491,17 @@ pub struct Gpu {
     /// `glyph_vertex` and `image_fragment`: an image placement read
     /// through its tables. Built the first time an image is drawn.
     image_pipe: LatePipe,
-    /// `bg_vertex` and `bg_set_fragment`, replacing: the instance path's
-    /// background pass again over a kitty image below `INT32_MIN/2`. Built
-    /// the first time one is drawn.
+    /// `bg_vertex` and `bg_ground_fragment`, replacing: the instance path's
+    /// background pass on a frame with a kitty image below `INT32_MIN/2`,
+    /// the non-default backgrounds cleared. Built the first time one is
+    /// drawn.
+    bg_ground_pipe: LatePipe,
+    /// `bg_vertex` and `bg_set_fragment`, blending: the instance path's
+    /// non-default backgrounds again, over that image. Built with it.
     bg_set_pipe: LatePipe,
+    /// `cell_bg_vertex` and `flat_fragment`, blending: the cell path's
+    /// non-default backgrounds again over that image. Built with it.
+    cell_bg_over_pipe: LatePipe,
     sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
     /// The text-contrast curves, `baud_domain::contrast::CURVES`, copied
     /// once: `glyph_fragment` reads a mask's coverage through the row its
@@ -863,7 +870,9 @@ impl Gpu {
             quad_pipe: LatePipe::Unbuilt,
             effect_pipes: core::array::from_fn(|_| LatePipe::Unbuilt),
             image_pipe: LatePipe::Unbuilt,
+            bg_ground_pipe: LatePipe::Unbuilt,
             bg_set_pipe: LatePipe::Unbuilt,
+            cell_bg_over_pipe: LatePipe::Unbuilt,
             sampler,
             curves,
             instances,
@@ -1591,16 +1600,23 @@ impl Gpu {
         // slide, so no pan.
         let images = self.resolve_images(renderer);
         let staged = self.stage_images(&images, Px::of(0));
-        // An image below the backgrounds: the cells' grounds, and the
-        // pipeline that draws the non-default backgrounds over it.
+        // An image below the backgrounds: the cells' grounds, the pipeline
+        // that draws the background pass with the non-default backgrounds
+        // cleared, and the one that blends them over the image.
         let below = match images.iter().any(|d| d.layer == ImageLayer::Below) {
             true => Some((
                 self.ground_for(renderer)?,
+                self.bg_ground_pipe.get_as(
+                    &self.device,
+                    &self.library,
+                    ("bg_vertex", "bg_ground_fragment"),
+                    Blend::Replace,
+                )?,
                 self.bg_set_pipe.get_as(
                     &self.device,
                     &self.library,
                     ("bg_vertex", "bg_set_fragment"),
-                    Blend::Replace,
+                    Blend::Over,
                 )?,
             )),
             false => None,
@@ -1625,7 +1641,14 @@ impl Gpu {
         let (cmd, enc) = self.encoder(target, clear, viewport)?;
         let ubytes = NonNull::from(&uniforms).cast::<c_void>();
         let ulen = core::mem::size_of::<[f32; UNIFORM_FLOATS]>();
-        enc.setRenderPipelineState(&self.bg_pipe);
+        match &below {
+            Some((ground, pipe, _)) => {
+                enc.setRenderPipelineState(pipe);
+                // SAFETY: index 1 is `bg_ground_fragment`'s `[[texture(1)]]`.
+                unsafe { enc.setFragmentTexture_atIndex(Some(ground), 1) };
+            }
+            None => enc.setRenderPipelineState(&self.bg_pipe),
+        }
         // SAFETY: the byte pointers name `uniforms`, which outlives the
         // encoder (Metal copies `setBytes` data at the call); the buffer
         // and texture indices match the shader's `[[buffer(n)]]` and
@@ -1643,8 +1666,8 @@ impl Gpu {
             enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4);
             enc.setScissorRect(scissor(target, [0.0, 0.0], target.size()));
             // Images below the non-default backgrounds, then those
-            // backgrounds again over them, as the CPU's `paint_under`.
-            if let Some((ground, pipe)) = &below {
+            // backgrounds blended over them, as the CPU's `paint_under`.
+            if let Some((ground, _, pipe)) = &below {
                 self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Below, frame_px)?;
                 enc.setRenderPipelineState(pipe);
                 enc.setFragmentBytes_length_atIndex(ubytes, ulen, 0);
@@ -1716,6 +1739,17 @@ impl Gpu {
         // slide with the grid under smooth scroll.
         let images = self.resolve_images(renderer);
         let staged = self.stage_images(&images, input.slide.unwrap_or(Px::of(0)));
+        // An image below the backgrounds: the pipeline that blends the
+        // non-default backgrounds over it.
+        let below = match images.iter().any(|d| d.layer == ImageLayer::Below) {
+            true => Some(self.cell_bg_over_pipe.get_as(
+                &self.device,
+                &self.library,
+                ("cell_bg_vertex", "flat_fragment"),
+                Blend::Over,
+            )?),
+            false => None,
+        };
         let (viewport, pad) = letterbox(target, frame_px);
         let trail = self.trail_draw(renderer, pad);
         let (cursor_row, cursor_col) = input
@@ -1785,18 +1819,22 @@ impl Gpu {
                     count.saturating_mul(SHAPES_PER_CELL),
                 ),
             ];
-            let below = images.iter().any(|d| d.layer == ImageLayer::Below);
+            // `cell_bg_vertex`'s `ground_pass`: `GROUND_EVERY`,
+            // `GROUND_ONLY_SET` and `GROUND_CLEAR_SET`.
             let every: u32 = 0;
             let only_set: u32 = 1;
+            let clear_set: u32 = 2;
             let word = |w: &u32| NonNull::from(w).cast::<c_void>();
             let wlen = core::mem::size_of::<u32>();
             for (k, (pipe, instances)) in passes.iter().enumerate() {
                 // Images under the text after the backgrounds, before the
                 // glyphs: the CPU compositor's order in a repainted row.
-                // Those below the non-default backgrounds first, and the
-                // background pass again over them for those cells alone.
+                // Those below the non-default backgrounds first, over a
+                // background pass that cleared those cells, and the
+                // background pass again over them for those cells alone,
+                // blended.
                 if k == 1 {
-                    if below {
+                    if let Some(over) = &below {
                         self.draw_images(
                             &enc,
                             &images,
@@ -1805,7 +1843,7 @@ impl Gpu {
                             frame_px,
                         )?;
                         // `draw_images` bound its own buffers at 0 and 1.
-                        enc.setRenderPipelineState(&self.cell_bg_pipe);
+                        enc.setRenderPipelineState(over);
                         enc.setVertexBuffer_offset_atIndex(Some(&input.grid.0), 0, 0);
                         enc.setVertexBuffer_offset_atIndex(Some(&input.styles.0), 0, 1);
                         enc.setVertexBytes_length_atIndex(ubytes, ulen, 2);
@@ -1827,7 +1865,11 @@ impl Gpu {
                 enc.setVertexBytes_length_atIndex(ubytes, ulen, 2);
                 enc.setVertexBuffer_offset_atIndex(Some(&input.map.0), 0, 3);
                 enc.setVertexBuffer_offset_atIndex(Some(&input.overlay.0), 0, 4);
-                enc.setVertexBytes_length_atIndex(word(&every), wlen, 5);
+                let pass = match (k, &below) {
+                    (0, Some(_)) => &clear_set,
+                    _ => &every,
+                };
+                enc.setVertexBytes_length_atIndex(word(pass), wlen, 5);
                 enc.setFragmentTexture_atIndex(Some(&mask), 0);
                 enc.setFragmentTexture_atIndex(Some(&color), 1);
                 enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);

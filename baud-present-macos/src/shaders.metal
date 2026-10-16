@@ -23,10 +23,27 @@ fragment float4 bg_fragment(BgOut in [[stage_in]],
     return float4(c.rgb * c.a, c.a);
 }
 
+// The background pass on a frame with a kitty image below `INT32_MIN/2`:
+// the default backgrounds as `bg_fragment` draws them, and the cells whose
+// background is not the default one (`ground`, 255 for `Ground::Set`,
+// `Renderer::grounds`) the transparent zero, replacing, so what is under
+// the image there is what is under the window. The CPU's `clear_set`.
+fragment float4 bg_ground_fragment(BgOut in [[stage_in]],
+                                   constant U& u [[buffer(0)]],
+                                   texture2d<float, access::read> bg [[texture(0)]],
+                                   texture2d<float, access::read> ground [[texture(1)]]) {
+    float2 cf = (in.pos.xy - u.pad) / u.cell;
+    if (cf.x >= u.grid.x || cf.y >= u.grid.y) return float4(0.0);
+    if (ground.read(uint2(cf)).r != 0.0) return float4(0.0);
+    float4 c = bg.read(uint2(cf));
+    return float4(c.rgb * c.a, c.a);
+}
+
 // The background pass again, over a kitty image below `INT32_MIN/2`, for
-// the cells whose background is not the default one alone (`ground`, 255
-// for `Ground::Set`, `Renderer::grounds`): it replaces what is under them,
-// so only the default backgrounds show the image. The CPU's `refill_set`.
+// the cells whose background is not the default one alone, blended over
+// the image at the background's own alpha, as over the desktop where
+// there is no image (the owner's pick of 2026-10-16). The CPU's
+// `cover_set`.
 fragment float4 bg_set_fragment(BgOut in [[stage_in]],
                                 constant U& u [[buffer(0)]],
                                 texture2d<float, access::read> bg [[texture(0)]],
@@ -1260,19 +1277,26 @@ static bool ground_set(constant CU& u, device const Style* styles, uint2 cell,
     return (s.shapes & SHAPE_DEFAULT_BG) == 0u || selected(u, cell.x, col, row) || block;
 }
 
-// `only_set` 1 draws the cells whose background is not the default one
-// alone, a quad of no area for every other: the pass again over a kitty
-// image below `INT32_MIN/2`, as the instance path's `bg_set_fragment`.
+// `ground_pass`, for a frame with a kitty image below `INT32_MIN/2`:
+// 0 draws every cell; 2 draws the default backgrounds and the others the
+// transparent zero, the pass before the image, as the instance path's
+// `bg_ground_fragment`; 1 draws the cells whose background is not the
+// default one alone, a quad of no area for every other, the pass again
+// over the image, blended, as its `bg_set_fragment`.
+#define GROUND_EVERY 0u
+#define GROUND_ONLY_SET 1u
+#define GROUND_CLEAR_SET 2u
 vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uint2* cells [[buffer(0)]],
                               device const Style* styles [[buffer(1)]],
                               constant CU& u [[buffer(2)]],
                               device const uchar* overlay [[buffer(4)]],
-                              constant uint& only_set [[buffer(5)]]) {
+                              constant uint& ground_pass [[buffer(5)]]) {
     uint col = iid % u.grid.x, dr = iid / u.grid.x;
     int lrow = int(dr) - int(u.slide_rows);
     uint2 cell = cell_at(u, cells, col, dr);
-    if (only_set != 0u && !ground_set(u, styles, cell, col, uint(lrow))) {
+    bool set = ground_pass != GROUND_EVERY && ground_set(u, styles, cell, col, uint(lrow));
+    if (ground_pass == GROUND_ONLY_SET && !set) {
         FlatOut none;
         none.pos = float4(2.0, 2.0, 0.0, 1.0);
         none.color = float4(0.0);
@@ -1293,7 +1317,7 @@ vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     FlatOut o;
     o.pos = clip(p, u);
     float4 bg = unpack(bgw);
-    o.color = float4(bg.rgb * bg.a, bg.a);
+    o.color = ground_pass == GROUND_CLEAR_SET && set ? float4(0.0) : float4(bg.rgb * bg.a, bg.a);
     return o;
 }
 

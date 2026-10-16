@@ -13,7 +13,7 @@ use crate::color::Argb;
 use crate::instance::Instance;
 use crate::trail::{Pt, Smear};
 use crate::units::{Band, Coverage, slots};
-use baud_domain::{Chan, ImageAlpha, ImageView, Pixel};
+use baud_domain::{Chan, Cols, ImageAlpha, ImageView, Pixel};
 use baud_font::Px;
 
 /// How coverage mixes a glyph colour into the background.
@@ -110,6 +110,60 @@ impl<'p> Target<'p> {
                 }
                 if set(c) {
                     row[x..end].fill(w.0);
+                }
+            }
+        }
+    }
+
+    /// Clears the cells `set` names, of the first `cols`, over the rows
+    /// of `band`, to the transparent zero word, and leaves every other cell
+    /// and the margin as they are.
+    pub fn clear_cells(&mut self, band: Band, cols: Cols, cell_w: Px, set: impl Fn(usize) -> bool) {
+        let cell_w = slots(cell_w);
+        let (stride, width) = (slots(self.stride), slots(self.width));
+        for y in self.rows_of(band) {
+            let row = &mut self.pixels[y * stride..y * stride + width];
+            for c in 0..cols.index() {
+                let x = c * cell_w;
+                let end = (x + cell_w).min(width);
+                if x >= end {
+                    break;
+                }
+                if set(c) {
+                    row[x..end].fill(0);
+                }
+            }
+        }
+    }
+
+    /// Composites the cells `set` names with their words from `bg`, over the
+    /// rows of `band`, source-over what is there at each word's alpha
+    /// ([`Blend::over_glass`]), and leaves every other cell and the margin
+    /// as they are. Over a cleared pixel a word is itself
+    /// (`Target::clear_cells`), as the GPU's `One, OneMinusSourceAlpha`
+    /// blend over a zero is.
+    pub fn over_cells(
+        &mut self,
+        band: Band,
+        bg: &[Argb],
+        cell_w: Px,
+        blend: Blend,
+        set: impl Fn(usize) -> bool,
+    ) {
+        let cell_w = slots(cell_w);
+        let (stride, width) = (slots(self.stride), slots(self.width));
+        for y in self.rows_of(band) {
+            let row = &mut self.pixels[y * stride..y * stride + width];
+            for (c, &w) in bg.iter().enumerate() {
+                let x = c * cell_w;
+                let end = (x + cell_w).min(width);
+                if x >= end {
+                    break;
+                }
+                if set(c) {
+                    for d in &mut row[x..end] {
+                        *d = blend.over_glass(w, Argb(*d), Coverage(255)).0;
+                    }
                 }
             }
         }

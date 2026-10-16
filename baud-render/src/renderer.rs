@@ -809,6 +809,12 @@ pub struct Renderer<'f, 'a> {
     /// "in the foreground" or "in the background" takes these: the margin,
     /// the scrollbar, a cursor trail and a screen fade.
     defaults: (Argb, Argb),
+    /// The default background's colour as stored, under no exchange -- the
+    /// theme's, or `OSC 11`'s -- read through [`Theme::defaults`] by
+    /// `refresh_screen`: what a resolved slot's background is compared
+    /// with for [`Shapes::DEFAULT_BG`] ([`Theme::default_bg`]). Under `?5`
+    /// the default cells draw the foreground's colour, which is not it.
+    page_default: Argb,
     blend: Blend,
     cache: RunCache,
     atlas: Atlas,
@@ -1037,6 +1043,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             theme,
             video: Video::Normal,
             defaults,
+            page_default: defaults.1,
             blend,
             cache: RunCache::new(),
             atlas: Atlas::new(),
@@ -1583,6 +1590,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.theme_gen = ThemeGen(self.theme_gen.0.wrapping_add(1));
         self.known = Prev::Unknown;
         self.defaults = self.theme.defaults(self.video, |_| None);
+        self.page_default = self.theme.bg;
         self.rebuild_overlays();
     }
 
@@ -1595,6 +1603,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     fn refresh_screen(&mut self, term: &Term<'_>) {
         self.video = video_of(term, self.flash);
         let defaults = self.theme.defaults(self.video, |d| term.dynamic_color(d));
+        self.page_default = self
+            .theme
+            .defaults(Video::Normal, |d| term.dynamic_color(d))
+            .1;
         let fill = term
             .cursor_color_in(self.video)
             .map_or(defaults.0, |(r, g, b)| {
@@ -2149,16 +2161,32 @@ impl<'f, 'a> Renderer<'f, 'a> {
 
     /// Blits the placements under the text that cover `row`'s band into
     /// it, in order: a repainted row's, over its background. Those below
-    /// the non-default backgrounds first, and then those backgrounds again
-    /// over them, as the background pass draws them -- replacing what is
-    /// under them -- so only the default ones show the image; then the
-    /// rest. The GPU paths draw the same three steps.
+    /// the non-default backgrounds first, and then those backgrounds over
+    /// them, at their own alpha, as over the desktop where there is no
+    /// image (the owner's pick of 2026-10-16), so the default ones show the
+    /// image and the others show it through their alpha; then the rest.
+    /// The GPU paths draw the same steps.
     fn paint_under(&self, imgs: &ImageStore<'_>, target: &mut Target<'_>, row: Row, page: Page) {
         let band = self.band(row);
+        // The cells the placements below the backgrounds reach in this
+        // row: the only ones cleared and composited again, so a frame pays
+        // for the image's columns and not the row's.
+        let cw = i64::from(self.metrics.cell_w.value()).max(1);
+        let reach = self
+            .image_places
+            .iter()
+            .filter(|p| p.layer == ImageLayer::Below && covers(p, band))
+            .map(|p| (i64::from(p.x), i64::from(p.x) + i64::from(p.w)))
+            .reduce(|(a, b), (x0, x1)| (a.min(x0), b.max(x1)))
+            .map_or(0..0, |(a, b)| {
+                let cell = |v: i64| usize::try_from(v.max(0) / cw).unwrap_or(0);
+                cell(a)..cell(b + cw - 1)
+            });
+        let set = |c: usize| reach.contains(&c) && self.set_at(row, Col::at_index(c));
         let mut below = false;
         for p in self.image_places.iter().filter(|p| covers(p, band)) {
             if p.layer == ImageLayer::Under && below {
-                self.refill_set(target, row);
+                self.cover_set(target, row, page, set);
                 below = false;
             }
             if p.layer == ImageLayer::Over {
@@ -2167,25 +2195,62 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let Some(view) = imgs.image(p.id) else {
                 continue;
             };
-            below |= p.layer == ImageLayer::Below;
+            if p.layer == ImageLayer::Below && !below {
+                self.clear_set(target, row, page, set);
+                below = true;
+            }
             target.blit_image(&self.blit_of(p, band), &view, self.blend, page);
         }
         if below {
-            self.refill_set(target, row);
+            self.cover_set(target, row, page, set);
         }
     }
 
-    /// Fills `row`'s cells whose background is not the default one
-    /// ([`Ground::Set`]) with their background again, over what a
-    /// placement below the backgrounds drew there.
-    fn refill_set(&self, target: &mut Target<'_>, row: Row) {
+    /// Whether `row`'s cell at `col` draws a background that is not the
+    /// default one ([`Ground::Set`]).
+    fn set_at(&self, row: Row, col: Col) -> bool {
+        let at = self.row_cells(row).start + col.index();
+        self.ground(row, col, self.prev[at]) == Ground::Set
+    }
+
+    /// On the glass, clears the cells of `row` that `set` names, its
+    /// [`Ground::Set`] ones, to nothing before a placement below the
+    /// backgrounds is drawn there: the background pass drew them, and
+    /// [`Renderer::cover_set`] composites them again over the image, so
+    /// what is under the image there is what is under the window -- the
+    /// desktop -- and not the cell's background twice. On an opaque page
+    /// every background is opaque and replaces what is under it, so
+    /// nothing is cleared.
+    fn clear_set(
+        &self,
+        target: &mut Target<'_>,
+        row: Row,
+        page: Page,
+        set: impl Fn(usize) -> bool,
+    ) {
+        if page == Page::Glass {
+            target.clear_cells(self.band(row), self.cols, self.metrics.cell_w, set);
+        }
+    }
+
+    /// Composites the backgrounds of the cells of `row` that `set` names
+    /// over what a placement below the backgrounds drew there, at their
+    /// own alpha: a fill on an opaque page, where they are opaque.
+    fn cover_set(
+        &self,
+        target: &mut Target<'_>,
+        row: Row,
+        page: Page,
+        set: impl Fn(usize) -> bool,
+    ) {
         let range = self.row_cells(row);
-        target.fill_cells(
-            self.band(row),
-            &self.bg[range.clone()],
-            self.metrics.cell_w,
-            |c| self.ground(row, Col::at_index(c), self.prev[range.start + c]) == Ground::Set,
-        );
+        let bg = &self.bg[range];
+        match page {
+            Page::Opaque => target.fill_cells(self.band(row), bg, self.metrics.cell_w, set),
+            Page::Glass => {
+                target.over_cells(self.band(row), bg, self.metrics.cell_w, self.blend, set);
+            }
+        }
     }
 
     /// Whether the cell at `row` and `col`, as the last convert drew it,
@@ -2993,7 +3058,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if self.theme.opaque_bg(style, self.video) {
             shapes = shapes.with(Shapes::OPAQUE_BG);
         }
-        if Theme::default_bg(style, self.video) {
+        if Theme::default_bg(bg, self.page_default) {
             shapes = shapes.with(Shapes::DEFAULT_BG);
         }
         // The contrast curve a glyph takes on either side of a swap

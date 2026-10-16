@@ -220,14 +220,6 @@ impl Linear {
     }
 }
 
-/// Which of a cell's two colour words a drawn colour came from, through
-/// [`Video::drawn`]'s exchange.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Side {
-    Text,
-    Page,
-}
-
 /// The colours a rendition resolves against. The 256-entry palette is
 /// xterm's by default and an application may repaint it through `OSC 4`,
 /// which the core records and [`Theme::resolve`] reads back.
@@ -410,21 +402,19 @@ impl Theme {
         !page.is_default()
     }
 
-    /// Whether the background `style` draws under `video` is the default
-    /// background colour: the cell's own background word, not exchanged by
-    /// exactly one of `SGR 7` and `?5`, and that word the default. Under
-    /// one exchange the background is the foreground's colour, which is not
-    /// the default background, whatever [`Theme::set_bg`] says of who set
-    /// it. What a kitty image below `INT32_MIN/2` shows through
-    /// (`[[source: kitty-graphics]]`); `OSC 11` changes the colour and not
-    /// the word, so a default cell stays default under it.
-    pub fn default_bg(style: StyleWord, video: Video) -> bool {
-        let (_, page) = video.drawn(
-            style.attrs(),
-            (Side::Text, style.fg()),
-            (Side::Page, style.bg()),
-        );
-        page.0 == Side::Page && page.1.is_default()
+    /// Whether a background drawn in `drawn` -- the colour [`Theme::resolve`]
+    /// gives a cell's background, after `SGR 7` and `?5` exchange the pair --
+    /// is the default background, whose colour is `default`, the page's as
+    /// stored ([`Theme::defaults`] under [`Video::Normal`]: the theme's, or
+    /// `OSC 11`'s). By the colour, not the word: an explicit colour equal to
+    /// the default's is default, as kitty's `cell_has_default_bg` compares
+    /// the drawn colour (`[[source: kitty-background-slang]]`), the owner's
+    /// pick of 2026-10-16. Alpha is the window's and not the colour's, so
+    /// it is not compared. What a kitty image below `INT32_MIN/2` shows
+    /// through (`[[source: kitty-graphics]]`).
+    pub fn default_bg(drawn: Argb, default: Argb) -> bool {
+        let opaque = Chan::from_u8(0xFF);
+        drawn.with_alpha(opaque) == default.with_alpha(opaque)
     }
 
     /// The foreground and background a rendition draws with, after the
