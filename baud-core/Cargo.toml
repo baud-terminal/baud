@@ -41,8 +41,9 @@ publish = false
 default = ["neon-scan"]
 # `Owned`, for hosts that have an allocator. The core itself never
 # allocates; this is a convenience for callers who would otherwise have to find
-# the storage themselves.
-alloc = []
+# the storage themselves. It turns on `baud-domain/alloc` for
+# `Pixel::zeroed_vec`, so the image arena comes from zeroed memory.
+alloc = ["baud-domain/alloc"]
 # Ceiling arms. Each is incorrect by construction and off by default; they
 # exist so the next person re-measures where the time is instead of arguing
 # about it, which is how this crate came to be written at all.

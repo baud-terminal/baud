@@ -510,6 +510,7 @@ pub struct Owned {
     links: alloc::vec::Vec<u8>,
     link_len: alloc::vec::Vec<ByteLen>,
     img_pixels: alloc::vec::Vec<Pixel>,
+    img_probe: alloc::vec::Vec<Pixel>,
     img_slots: alloc::vec::Vec<ImageSlot>,
     img_places: alloc::vec::Vec<PlacementSlot>,
     sixel: alloc::boxed::Box<SixelStream>,
@@ -589,6 +590,7 @@ impl Owned {
             // it; the pixel arena is the large buffer and defaults absent,
             // provisioned by [`Owned::with_images`].
             img_pixels: vec::Vec::new(),
+            img_probe: vec::Vec::new(),
             img_slots: vec![ImageSlot::EMPTY; NIMAGE],
             img_places: vec![PlacementSlot::EMPTY; NPLACEMENT],
             sixel: alloc::boxed::Box::new(SixelStream::NEW),
@@ -616,8 +618,14 @@ impl Owned {
     /// and `refusals.arena` when no gap holds the pixels, and an empty arena is
     /// that with no gap at all, which is the correct nothing for a caller that
     /// wants images recognised and dropped rather than drawn.
+    ///
+    /// **Nothing is written here.** The arena, the kitty query probe and the
+    /// PNG scratch come from zeroed memory ([`Pixel::zeroed_vec`],
+    /// `vec![0u8; n]`), so a page is committed when an image first writes
+    /// it and an idle terminal pays for none of it.
     pub fn with_images(mut self, budget: ImageBudget) -> Owned {
-        self.img_pixels = alloc::vec![Pixel::CLEAR; budget.pixels];
+        self.img_pixels = Pixel::zeroed_vec(budget.pixels);
+        self.img_probe = Pixel::zeroed_vec(budget.probe());
         self.kitty_scratch = alloc::vec![0u8; budget.scratch()];
         self
     }
@@ -702,7 +710,8 @@ impl Owned {
                 &mut self.img_pixels,
                 &mut self.img_slots,
                 &mut self.img_places,
-            ),
+            )
+            .with_probe(&mut self.img_probe),
         )
     }
 
@@ -743,7 +752,8 @@ impl Owned {
                 &mut self.img_pixels,
                 &mut self.img_slots,
                 &mut self.img_places,
-            ),
+            )
+            .with_probe(&mut self.img_probe),
         )
     }
 }

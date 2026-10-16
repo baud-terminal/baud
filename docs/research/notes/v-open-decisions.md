@@ -4573,9 +4573,10 @@ You parked Kitty graphics on 2026-09-23.
   - CLAUDE.md's CPU-path rule depends on that: every image pixel is opaque or
     clear.
   - Kitty's default format is RGBA, and PNGs carry partial transparency.
-- **Budget:** `baud-app/src/host.rs` gives images 4 MiB by default
+- **Budget:** `baud-app/src/host.rs` gave images 4 MiB by default
   (`[images] pixels_mb` overrides it). One 1887x1088 window is 2,053,056
-  pixels, so the default cannot hold one full-window picture.
+  pixels, so the default could not hold one full-window picture. 95 MiB
+  since 2026-10-16, three 3840x2160 screens.
 - **Six places say the decoder cannot exist, or point to the wrong place:**
   - `docs/vt-coverage.md` line 712;
   - `docs/research/notes/s-sixel.md` lines 10-19, which says the decoder's
@@ -4806,13 +4807,16 @@ lean:
      arena pixel. Open, each recorded: the renderer does not draw the source
      rect, `c`/`r`, `X`/`Y` or `z` order; `t=f`/`t=t`/`t=s`, animation,
      `U=1` and `P` are later steps; a placed image is never deleted for
-     space, a query deletes nothing (Jev decided a small query scratch
-     outside the quota, 0.98 and 0.97, unbuilt), and when deleting every
-     unplaced image would not make space none is deleted (Jev 0.90 and
-     0.92); replies keep the 7-bit shape under
-     S8C1T, following it the owner's question (Jev 0.92 and 0.88); the
-     app's 4 MiB default arena holds no full-screen picture. The quota is
-     the text's: the oldest images without placements go first.
+     space, and when deleting every unplaced image would not make space
+     none is deleted (Jev 0.90 and 0.92); replies keep the 7-bit shape
+     under S8C1T, following it the owner's question (Jev 0.92 and 0.88).
+     The quota is the text's: the oldest images without placements go
+     first. **Followed up 2026-10-16** (the record, "A kitty query decodes
+     outside the quota, and the arena costs nothing idle"): a query
+     decodes in a 64x64 probe outside the arena, deleting nothing (Jev's
+     QUERY_SMALL_SCRATCH, 0.98 and 0.97); the arena comes from zeroed
+     memory, so the app's default is 95 MiB, three 3840x2160 screens, at
+     no idle cost.
 6. **Answer no query until raw formats and PNG both decode.** This reverses
    t-images' order, which answered queries a step early. **Done 2026-10-16**:
    queries are answered in the commit that decodes both.

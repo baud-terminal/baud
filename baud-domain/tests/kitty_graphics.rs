@@ -68,3 +68,52 @@ fn a_malformed_key_is_an_error_and_an_unknown_one_is_not() {
     let c = KittyCommand::parse(b"f=7,i=9");
     assert_eq!((c.error, c.id), (Some(KittyError::FORMAT), KittyId::of(9)));
 }
+
+/// One `APC G` body through `k`, as the core routes it: `begin`, each
+/// byte, then the terminator.
+fn command(k: &mut KittyStream, store: &mut ImageStore, body: &[u8]) {
+    let at = KittyAt {
+        screen: ImageScreen::Primary,
+        top: LineIdx::FIRST,
+        row: Rows::ZERO,
+        col: Col::ZERO,
+        rows: Rows::of_count(24),
+        cols: Cols::of_index(80),
+        cell_w: ImagePx::of(10),
+        cell_h: ImagePx::of(20),
+    };
+    let mut scratch = [0u8; 0];
+    k.begin(store);
+    for &b in body {
+        k.put(b, store, &mut scratch);
+    }
+    k.end(&at, store, &mut scratch);
+}
+
+/// **A reply with no room in the outbox is dropped whole and counted**,
+/// never cut: an embedder that does not drain the replies between
+/// commands. Five ENOENT replies of 56 bytes against 256 bytes of outbox:
+/// four fit, the fifth is counted.
+#[test]
+fn a_reply_with_no_room_is_dropped_whole_and_counted() {
+    let mut k = KittyStream::NEW;
+    let (mut px, mut slots, mut places) = (
+        [Pixel::CLEAR; 0],
+        [ImageSlot::EMPTY; 4],
+        [PlacementSlot::EMPTY; 4],
+    );
+    let mut store = ImageStore::new(&mut px, &mut slots, &mut places);
+    let one = b"\x1b_Gi=1;ENOENT:Put command refers to non-existent image\x1b\\";
+    for _ in 0..4 {
+        command(&mut k, &mut store, b"a=p,i=1");
+    }
+    assert_eq!(k.replies(), one.repeat(4), "four whole replies");
+    assert_eq!(k.counts.replies_dropped, 0);
+    command(&mut k, &mut store, b"a=p,i=1");
+    assert_eq!(k.replies(), one.repeat(4), "the fifth is not cut in");
+    assert_eq!(k.counts.replies_dropped, 1, "and is counted");
+    k.clear_replies();
+    command(&mut k, &mut store, b"a=p,i=1");
+    assert_eq!(k.replies(), one, "drained, the next fits");
+    assert_eq!(k.counts.replies_dropped, 1);
+}

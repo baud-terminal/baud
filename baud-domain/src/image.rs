@@ -70,6 +70,25 @@ impl Pixel {
     /// Fully transparent: drawn as nothing.
     pub const CLEAR: Pixel = Pixel(0);
 
+    /// **`n` pixels, every one [`Pixel::CLEAR`], from zeroed memory**: what
+    /// `vec![Pixel::CLEAR; n]` holds, without writing it. `vec!` takes the
+    /// allocator's zeroed path only for the primitive types it knows to be
+    /// zero, and wrote all `n` words of a newtype, so an arena committed
+    /// every page at construction whether or not an image came; zeroed
+    /// pages stay uncommitted until an image writes them. Allocation failure
+    /// is `vec!`'s: the allocator's error handler, or a capacity overflow.
+    #[cfg(feature = "alloc")]
+    pub fn zeroed_vec(n: usize) -> alloc::vec::Vec<Pixel> {
+        use zerocopy::FromZeros;
+        match Pixel::new_vec_zeroed(n) {
+            Ok(v) => v,
+            Err(_) => match core::alloc::Layout::array::<Pixel>(n) {
+                Ok(layout) => alloc::alloc::handle_alloc_error(layout),
+                Err(_) => panic!("capacity overflow"),
+            },
+        }
+    }
+
     /// A fully opaque pixel of `r`, `g`, `b`.
     pub fn opaque(r: Chan, g: Chan, b: Chan) -> Pixel {
         Pixel::straight(Chan::from_u8(0xFF), r, g, b)
@@ -219,6 +238,10 @@ pub struct ImageId(u32);
 impl ImageId {
     /// Names no image.
     pub const NONE: ImageId = ImageId(0);
+
+    /// The store's query probe ([`ImageStore::reserve_probe`]): past every
+    /// slot, so no slot lookup finds it.
+    const PROBE: ImageId = ImageId(u32::MAX);
 
     fn from_index(i: usize) -> ImageId {
         ImageId((i as u32).wrapping_add(1))
@@ -648,6 +671,17 @@ impl ImageBudget {
         ImageBudget { pixels }
     }
 
+    /// **The pixels of the kitty query probe that go with it**
+    /// ([`ImageStore::with_probe`]): [`KITTY_PROBE`] when there is an arena
+    /// at all, none when there is not, so a terminal that draws no images
+    /// answers a query as it answers a transmission.
+    pub fn probe(self) -> usize {
+        match self.pixels {
+            0 => 0,
+            _ => KITTY_PROBE,
+        }
+    }
+
     /// **The bytes of kitty PNG scratch that go with it: eight a pixel.** A
     /// PNG waits whole in the scratch with its inflated scanlines after it
     /// (`[[source: w3c-png-2003]]`'s filtered rows, a byte more each): an
@@ -660,6 +694,19 @@ impl ImageBudget {
         self.pixels.saturating_mul(8)
     }
 }
+
+/// **The kitty query probe, 64 x 64 pixels (16 KiB)**: where a query
+/// (`a=q`) decodes, outside the arena and its quota, because the text says
+/// a query "will try to load the image and respond with either OK or an
+/// error ... but it will not replace an existing image with the same id,
+/// nor will it store the image" (`[[source: kitty-graphics]]`, "Querying
+/// support and available transmission mediums"). Kitten's detection sends a
+/// 1 x 1 query a medium (`[[source: kitty-icat-detect]]`); 64 x 64 holds
+/// that and a dummy the size of an icon, at a sixty-fourth of the app's
+/// smallest arena. A larger query decodes in the arena if a gap holds it,
+/// deleting nothing, and is answered ENOSPC if none does (Jev,
+/// QUERY_SMALL_SCRATCH, 0.98 and 0.97).
+pub const KITTY_PROBE: usize = 64 * 64;
 
 /// Which limit refused an image, with the size that hit it -- what
 /// [`ImageStore::refuse`] is told, and what [`ImageRefusals`] counts. Each
@@ -742,13 +789,19 @@ pub struct ImageView<'a> {
 /// A bounded, caller-owned store of images and their placements.
 ///
 /// The three caller buffers are the arena (straight ARGB pixels), the image-slot table
-/// and the placement table; all three are refuse-and-count, and the counters are
+/// and the placement table, with a fourth, the kitty query probe, outside
+/// the arena ([`ImageStore::with_probe`]); all are refuse-and-count, and the counters are
 /// public and never silent, the [`ClusterStore`] contract. The one exception is
 /// the kitty quota: a new kitty image deletes older kitty images without
 /// placements to make space before it is refused
 /// ([`ImageStore::reserve_evicting`], counted in `images_evicted`).
 pub struct ImageStore<'b> {
     pixels: &'b mut [Pixel],
+    /// The kitty query probe ([`ImageStore::with_probe`]): outside the
+    /// arena, so a query is answered on a full one.
+    probe: &'b mut [Pixel],
+    /// The size of the query decoding in the probe, `None` while it is free.
+    probe_size: Option<(ImagePx, ImagePx)>,
     slots: &'b mut [ImageSlot],
     placements: &'b mut [PlacementSlot],
     /// Images refused, whatever the cause. Never silent: a refused image is
@@ -813,6 +866,8 @@ impl<'b> ImageStore<'b> {
     ) -> ImageStore<'b> {
         ImageStore {
             pixels,
+            probe: Default::default(),
+            probe_size: None,
             slots,
             placements,
             images_refused: 0,
@@ -827,6 +882,30 @@ impl<'b> ImageStore<'b> {
             reach: [None; 2],
             tallest: ImagePx::ZERO,
         }
+    }
+
+    /// **Give the store a kitty query probe** ([`KITTY_PROBE`] pixels,
+    /// [`ImageBudget::probe`]): caller memory beside the arena, never counted
+    /// against it, never shown, never placed. Without one every query
+    /// decodes in the arena.
+    pub fn with_probe(mut self, probe: &'b mut [Pixel]) -> ImageStore<'b> {
+        self.probe = probe;
+        self
+    }
+
+    /// **Reserve the probe for a `width` x `height` query**: an id that
+    /// [`ImageStore::decoding_mut`] lends the probe's first `width * height`
+    /// pixels under, [`ImageStore::size_of`] sizes and [`ImageStore::free`]
+    /// releases. It takes no slot, moves no epoch and frees nothing: the
+    /// store is as it was once the query is answered. `None` if the query
+    /// is larger than the probe or the probe is taken.
+    pub fn reserve_probe(&mut self, width: ImagePx, height: ImagePx) -> Option<ImageId> {
+        let area = width.index().checked_mul(height.index())?;
+        if area == 0 || area > self.probe.len() || self.probe_size.is_some() {
+            return None;
+        }
+        self.probe_size = Some((width, height));
+        Some(ImageId::PROBE)
     }
 
     /// Widen `screen`'s reach to hold `line`.
@@ -1033,6 +1112,10 @@ impl<'b> ImageStore<'b> {
     /// The pixels of an image still being decoded, to write in place;
     /// `None` once it is complete or if `id` names none.
     pub fn decoding_mut(&mut self, id: ImageId) -> Option<&mut [Pixel]> {
+        if id == ImageId::PROBE {
+            let (w, h) = self.probe_size?;
+            return self.probe.get_mut(..w.index() * h.index());
+        }
         let s = *self.slots.get(id.index()?)?;
         match !s.is_empty() && s.state == ImageState::Decoding {
             true => Some(&mut self.pixels[s.start()..s.end()]),
@@ -1045,6 +1128,7 @@ impl<'b> ImageStore<'b> {
     /// pixels rather than its caller's word. The epoch moves, so a texture
     /// cache keyed on it uploads the pixels now there.
     pub fn complete(&mut self, id: ImageId, alpha: ImageAlpha) {
+        // The probe is never shown, so completing it changes nothing.
         let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) else {
             return;
         };
@@ -1058,6 +1142,9 @@ impl<'b> ImageStore<'b> {
 
     /// The size of a live image, decoding or not.
     pub fn size_of(&self, id: ImageId) -> Option<(ImagePx, ImagePx)> {
+        if id == ImageId::PROBE {
+            return self.probe_size;
+        }
         let s = *self.slots.get(id.index()?)?;
         (!s.is_empty()).then_some((s.width, s.height))
     }
@@ -1350,6 +1437,10 @@ impl<'b> ImageStore<'b> {
     /// meanwhile -- `ED 2`, a placement expiring -- may hold another
     /// protocol's image by now, which this leaves alone.
     pub fn free_decoding(&mut self, id: ImageId) {
+        if id == ImageId::PROBE {
+            self.probe_size = None;
+            return;
+        }
         let decoding = id
             .index()
             .and_then(|i| self.slots.get(i))
@@ -1361,6 +1452,11 @@ impl<'b> ImageStore<'b> {
 
     /// Delete an image and every placement of it (the Kitty uppercase delete).
     pub fn free(&mut self, id: ImageId) {
+        if id == ImageId::PROBE {
+            // Released, and nothing else: no slot, no count, no epoch.
+            self.probe_size = None;
+            return;
+        }
         let Some(i) = id.index() else { return };
         match self.slots.get_mut(i) {
             Some(s) if !s.is_empty() => *s = ImageSlot::EMPTY,
@@ -1401,6 +1497,7 @@ impl<'b> ImageStore<'b> {
         self.placed = 0;
         self.reach = [None; 2];
         self.tallest = ImagePx::ZERO;
+        self.probe_size = None;
         self.epoch = self.epoch.bumped();
     }
 
@@ -1414,6 +1511,12 @@ impl<'b> ImageStore<'b> {
     /// a declared size is checked against before anything is reserved.
     pub fn capacity(&self) -> usize {
         self.pixels.len()
+    }
+
+    /// The query probe, in pixels: the largest query answered without the
+    /// arena ([`ImageStore::with_probe`]).
+    pub fn probe_capacity(&self) -> usize {
+        self.probe.len()
     }
 
     /// Whether the store has any pixel arena at all, so a Sixel can be drawn

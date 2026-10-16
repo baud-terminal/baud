@@ -20,7 +20,9 @@
 //! until it is whole, as "terminals must not display anything, until the
 //! entire sequence is received and validated" ("Remote client"). Its reply
 //! is sent when it completes. A query (`a=q`) is decoded at its terminator,
-//! before the next byte, because "terminal emulators that support the
+//! into the store's probe outside the arena when it fits there (a query
+//! "will not replace an existing image with the same id, nor will it store
+//! the image"), before the next byte, because "terminal emulators that support the
 //! graphics protocol, must reply to query actions immediately without
 //! processing other input" ("Querying support"). A command that arrives
 //! while a decode is pending finishes that decode first, so the replies
@@ -604,6 +606,11 @@ pub struct KittyCounts {
     /// Payload octets past what `s` and `v` declared, dropped as kitty
     /// drops them.
     pub excess: usize,
+    /// Replies dropped whole because the outbox had no room for them: an
+    /// embedder that did not drain [`KittyStream::replies`] between calls.
+    /// The stream's own count, beside the core's `reply_overflows` for its
+    /// reply buffer: a different buffer, emptied by a different caller.
+    pub replies_dropped: usize,
 }
 
 /// Where the current chunk stands between its `G` and its terminator.
@@ -736,6 +743,7 @@ impl KittyStream {
             cancelled: 0,
             images: 0,
             excess: 0,
+            replies_dropped: 0,
         },
     };
 
@@ -886,8 +894,11 @@ impl KittyStream {
         self.z = Inflate::NEW;
         let query = cmd.act() == KittyAction::Query;
         // An image nothing can name and nothing shows goes when the next
-        // transmission begins, as kitty trims it (`add_trim_predicate`).
-        store.kitty_free_unplaced(|id, _| id.is_none());
+        // transmission begins, as kitty trims it (`add_trim_predicate`). A
+        // query leaves the store as it found it, so it trims nothing.
+        if !query {
+            store.kitty_free_unplaced(|id, _| id.is_none());
+        }
         if cmd.error.is_none() && cmd.medium != KittyMedium::Direct {
             cmd.error = Some(KittyError::FILE);
         }
@@ -945,7 +956,10 @@ impl KittyStream {
     /// side past 65535 or an area past the whole arena is refused and
     /// counted without looking for a gap. A new image that does not fit
     /// deletes the oldest images without placements until it does
-    /// ([`ImageStore::reserve_evicting`]); a query does not.
+    /// ([`ImageStore::reserve_evicting`]). A query decodes in the store's
+    /// probe when it fits there, whatever the arena holds, and otherwise in
+    /// a gap of the arena, deleting nothing
+    /// ([`KITTY_PROBE`](crate::KITTY_PROBE)).
     fn reserve(
         &mut self,
         width: u32,
@@ -963,12 +977,17 @@ impl KittyStream {
             return Err(KittyError::TOO_LARGE);
         };
         let (w, h) = (ImagePx::of(w), ImagePx::of(h));
+        if act == KittyAction::Query {
+            if let Some(probe) = store.reserve_probe(w, h) {
+                return Ok(probe);
+            }
+        }
         if w.index() * h.index() > store.capacity() {
             store.refuse(ImageRefusal::Arena(w, h));
             return Err(KittyError::TOO_LARGE);
         }
         // A query stores nothing the client can name or show, so it
-        // deletes nothing for space (kitty keeps one outside its quota).
+        // deletes nothing for space.
         match act {
             KittyAction::Query => store.reserve(w, h, owner),
             _ => store.reserve_evicting(w, h, owner),
@@ -1065,7 +1084,7 @@ impl KittyStream {
                     }
                     len += 1;
                     if len == 24 {
-                        if let Err(e) = header_fits(&scratch[..24], store) {
+                        if let Err(e) = header_fits(&scratch[..24], self.start.act(), store) {
                             return self.refuse_load(e, store);
                         }
                     }
@@ -1093,7 +1112,7 @@ impl KittyStream {
                 let before = self.z.written();
                 let fed = self.z.feed(&self.stage[..n], &mut scratch[..need]);
                 if before < 24 && self.z.written() >= 24 {
-                    if let Err(e) = header_fits(&scratch[..24], store) {
+                    if let Err(e) = header_fits(&scratch[..24], self.start.act(), store) {
                         return self.refuse_load(e, store);
                     }
                 }
@@ -1666,6 +1685,8 @@ impl KittyStream {
                 *d = *s;
             }
             self.out_len += b.len();
+        } else {
+            self.counts.replies_dropped += 1;
         }
     }
 }
@@ -1744,8 +1765,9 @@ fn chan(v: u8) -> Chan {
 /// **The PNG's declared size, against the store, before anything is
 /// reserved**: the signature, `IHDR`'s width and height from its first 24
 /// bytes, a side past 65535 or an area past the whole arena refused and
-/// counted. Malformed bytes pass here and are refused at the last chunk.
-fn header_fits(head: &[u8], store: &mut ImageStore) -> Result<(), KittyError> {
+/// counted -- past the arena and the query probe, for a query. Malformed
+/// bytes pass here and are refused at the last chunk.
+fn header_fits(head: &[u8], act: KittyAction, store: &mut ImageStore) -> Result<(), KittyError> {
     if head.get(..8) != Some(b"\x89PNG\r\n\x1a\n") || head.get(12..16) != Some(b"IHDR") {
         return Ok(());
     }
@@ -1762,7 +1784,12 @@ fn header_fits(head: &[u8], store: &mut ImageStore) -> Result<(), KittyError> {
         return Err(KittyError::TOO_LARGE);
     };
     let (w, h) = (ImagePx::of(w), ImagePx::of(h));
-    if w.index() * h.index() > store.capacity() {
+    let area = w.index() * h.index();
+    let probe = match act {
+        KittyAction::Query => store.probe_capacity(),
+        _ => 0,
+    };
+    if area > store.capacity() && area > probe {
         store.refuse(ImageRefusal::Arena(w, h));
         return Err(KittyError::TOO_LARGE);
     }

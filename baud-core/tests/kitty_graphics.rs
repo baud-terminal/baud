@@ -911,21 +911,191 @@ fn with_nothing_to_delete_the_new_image_is_refused_and_counted_once() {
     });
 }
 
-/// A query stores nothing the client can use, so it deletes nothing to
-/// make space: on a full arena it is answered ENOSPC (kitty keeps a query
-/// outside its quota; recorded as open).
+/// What a query must leave as it found it: the images, the counts and the
+/// epoch a texture cache keys on.
+fn untouched(t: &Term<'_>) -> (usize, usize, usize, u32) {
+    let imgs = t.images();
+    (
+        imgs.images_evicted,
+        imgs.images_refused,
+        imgs.images_dropped,
+        imgs.generation().raw(),
+    )
+}
+
+/// **A query is answered on a full arena, and deletes nothing**: it "will
+/// try to load the image and respond with either OK or an error ... but it
+/// will not replace an existing image with the same id, nor will it store
+/// the image" (`[[source: kitty-graphics]]`, "Querying support and
+/// available transmission mediums"). It decodes in the store's probe,
+/// outside the arena and its quota, in every format and compression; the
+/// probe is released after each, so the next query is answered too.
 #[test]
-fn a_query_deletes_nothing_to_make_space() {
+fn a_query_on_a_full_arena_is_answered_and_deletes_nothing() {
+    let rgba = bytes(16, 9);
+    let rgb = bytes(12, 9);
+    let queries = [
+        apc("a=q,i=9,f=32,s=2,v=2", &b64(&rgba)),
+        apc("a=q,i=9,f=24,s=2,v=2", &b64(&rgb)),
+        apc("a=q,i=9,f=32,s=2,v=2,o=z", &b64(&zlib_mixed(&rgba))),
+        apc("a=q,i=9,f=32,s=4,v=4", &b64(&bytes(64, 9))),
+    ];
+    for q in &queries {
+        with(8, |t| {
+            let mut r = Vec::new();
+            feed(t, &tiny('t', 1), &mut r);
+            feed(t, &tiny('t', 2), &mut r);
+            let before = untouched(t);
+            r.clear();
+            feed(t, q, &mut r);
+            feed(t, q, &mut r);
+            assert_eq!(r, b"\x1b_Gi=9;OK\x1b\\\x1b_Gi=9;OK\x1b\\", "{r:?}");
+            assert_eq!(untouched(t), before, "nothing evicted, stored or freed");
+            assert_eq!(live(t, 2), [1, 2]);
+        });
+    }
+    // A PNG, on an arena whose scratch holds one, full of an unplaced image.
+    let p = png(2, 2, png::ColorType::Rgba, &bytes(16, 3), 8);
+    with(64, |t| {
+        let mut r = Vec::new();
+        feed(t, &apc("a=t,f=24,s=8,v=8,i=1", &b64(&[7u8; 192])), &mut r);
+        let before = untouched(t);
+        r.clear();
+        feed(t, &apc("a=q,i=7,f=100", &b64(&p)), &mut r);
+        assert_eq!(
+            r,
+            b"\x1b_Gi=7;OK\x1b\\",
+            "{:?}",
+            String::from_utf8_lossy(&r)
+        );
+        assert_eq!(untouched(t), before);
+        assert_eq!(live(t, 1), [1]);
+    });
+}
+
+/// **A query in the probe touches nothing**, on an arena with room too: no
+/// slot, no epoch, no count, and no trim of an image nothing names (`a=t`
+/// with no `i`), which a transmission would delete.
+#[test]
+fn a_query_with_room_in_the_arena_still_touches_nothing() {
+    with(64, |t| {
+        let mut r = Vec::new();
+        feed(t, &apc("a=t,f=32,s=2,v=2", &b64(&bytes(16, 5))), &mut r);
+        let before = untouched(t);
+        feed(t, &apc("a=q,i=9,f=32,s=2,v=2", &b64(&bytes(16, 9))), &mut r);
+        assert_eq!(r, b"\x1b_Gi=9;OK\x1b\\", "{r:?}");
+        assert_eq!(
+            untouched(t),
+            before,
+            "the nameless image stays, the epoch too"
+        );
+    });
+}
+
+/// A PNG query larger than the arena and within the probe is answered:
+/// its `IHDR` is checked against the probe, not only the arena. 9 x 9
+/// pixels against a 64-pixel arena whose 512-byte scratch holds the file
+/// and its scanlines.
+#[test]
+fn a_png_query_within_the_probe_is_answered_on_a_smaller_arena() {
+    let p = png(9, 9, png::ColorType::Rgba, &[0u8; 324], 64);
+    assert!(p.len() + 9 * 37 <= 512, "{} bytes", p.len());
+    with(64, |t| {
+        let mut r = Vec::new();
+        feed(t, &apc("a=q,i=7,f=100", &b64(&p)), &mut r);
+        assert_eq!(
+            r,
+            b"\x1b_Gi=7;OK\x1b\\",
+            "{:?}",
+            String::from_utf8_lossy(&r)
+        );
+    });
+}
+
+/// A short or broken query in the probe is still its error, and releases
+/// the probe for the next.
+#[test]
+fn a_short_or_broken_query_is_its_error_and_frees_the_probe() {
     with(8, |t| {
         let mut r = Vec::new();
         feed(t, &tiny('t', 1), &mut r);
         feed(t, &tiny('t', 2), &mut r);
         r.clear();
+        feed(t, &apc("a=q,i=9,f=32,s=2,v=2", &b64(&bytes(12, 9))), &mut r);
+        assert!(r.starts_with(b"\x1b_Gi=9;ENODATA:"), "{r:?}");
+        r.clear();
         feed(t, &apc("a=q,i=9,f=32,s=2,v=2", &b64(&bytes(16, 9))), &mut r);
-        assert!(r.starts_with(b"\x1b_Gi=9;ENOSPC:"), "{r:?}");
-        assert_eq!(t.images().images_evicted, 0);
+        assert_eq!(r, b"\x1b_Gi=9;OK\x1b\\", "the probe was released");
         assert_eq!(live(t, 2), [1, 2]);
+        // Data past `s` x `v` is dropped and counted in the probe as in the
+        // arena: the probe lends the query its size, not all of itself.
+        let excess = t.kitty().excess;
+        r.clear();
+        feed(t, &apc("a=q,i=9,f=32,s=2,v=2", &b64(&bytes(20, 9))), &mut r);
+        assert_eq!(r, b"\x1b_Gi=9;OK\x1b\\");
+        assert_eq!(t.kitty().excess - excess, 4, "one pixel past the size");
     });
+    let mut bad = png(2, 2, png::ColorType::Rgba, &bytes(16, 3), 8);
+    bad[40] ^= 0xFF;
+    with(64, |t| {
+        let mut r = Vec::new();
+        feed(t, &apc("a=t,f=24,s=8,v=8,i=1", &b64(&[7u8; 192])), &mut r);
+        r.clear();
+        feed(t, &apc("a=q,i=8,f=100", &b64(&bad)), &mut r);
+        assert!(r.starts_with(b"\x1b_Gi=8;EBADPNG:"), "{r:?}");
+        r.clear();
+        feed(t, &apc("a=q,i=9,f=32,s=2,v=2", &b64(&bytes(16, 9))), &mut r);
+        assert_eq!(r, b"\x1b_Gi=9;OK\x1b\\", "the probe was released");
+    });
+}
+
+/// **A query larger than the probe** decodes in a gap of the arena when one
+/// holds it, deleting nothing either way, and is answered ENOSPC when none
+/// does: 100 x 50 pixels against a 64 x 64 probe.
+#[test]
+fn a_query_larger_than_the_probe_uses_a_gap_or_is_refused() {
+    let big = apc("a=q,i=9,f=24,s=100,v=50", &b64(&bytes(15_000, 9)));
+    with(10_000, |t| {
+        let mut r = Vec::new();
+        feed(t, &big, &mut r);
+        assert_eq!(r, b"\x1b_Gi=9;OK\x1b\\", "{r:?}");
+        r.clear();
+        feed(
+            t,
+            &apc("a=t,f=24,s=100,v=100,i=1", &b64(&bytes(30_000, 1))),
+            &mut r,
+        );
+        assert_eq!(r, b"\x1b_Gi=1;OK\x1b\\", "the query left the arena free");
+    });
+    with(10_000, |t| {
+        let mut r = Vec::new();
+        feed(
+            t,
+            &apc("a=t,f=24,s=100,v=100,i=1", &b64(&bytes(30_000, 1))),
+            &mut r,
+        );
+        let (evicted, _, dropped, _) = untouched(t);
+        r.clear();
+        feed(t, &big, &mut r);
+        assert!(r.starts_with(b"\x1b_Gi=9;ENOSPC:"), "{r:?}");
+        assert_eq!((untouched(t).0, untouched(t).2), (evicted, dropped));
+        assert_eq!(live(t, 1), [1], "nothing deleted for a query");
+    });
+}
+
+/// A full arena, two queries and an image after them: the same however the
+/// reads fall.
+#[test]
+fn queries_on_a_full_arena_are_chunk_invariant() {
+    let mut s = tiny('t', 1);
+    s.extend(tiny('t', 2));
+    s.extend(apc("a=q,i=9,f=32,s=2,v=2", &b64(&bytes(16, 9))));
+    s.extend(apc(
+        "a=q,i=10,f=24,s=2,v=2,o=z",
+        &b64(&zlib_mixed(&bytes(12, 4))),
+    ));
+    s.extend(tiny('T', 3));
+    invariant(8, &s, Splits::Every);
 }
 
 #[test]

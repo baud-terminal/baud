@@ -243,21 +243,24 @@ transition = false
 [scroll]
 mode = "smooth"
 
-# How much memory the image store (Sixel today) is given: pixels_mb bounds
-# the DECODED images (a 1024x1024 picture is 4 MiB whatever its Sixel encodes
-# to). It is the one limit on an image's size, beside the 65535 pixels a
-# side and 32 images at once: a Sixel is decoded as its bytes arrive and the
-# bytes are not kept, so a long Sixel is no different from a short one. An
-# image past the arena is refused (and counted) rather than shown in half.
+# How much memory the image store (Sixel and kitty graphics) is given:
+# pixels_mb bounds the DECODED images (a 1024x1024 picture is 4 MiB whatever
+# its Sixel or PNG encodes to). It is the one limit on an image's size,
+# beside the 65535 pixels a side and 32 images at once: a Sixel is decoded as
+# its bytes arrive and the bytes are not kept, so a long Sixel is no
+# different from a short one. An image past the arena is refused (and
+# counted) rather than shown in half.
 #
-# The default holds a 1024x1024 image decoded, and every preview yazi sends
-# at its 600x900 cap. Until 2026-10-14 the raw bytes were held first, under a
-# second key, body_kb: at its 256 KiB a UI screenshot (334-390 KiB at
-# 600x375), a photo (474-680 KiB at 600x800) and a page of a text PDF
-# (797-820 KiB at 600x776) were refused and the pane stayed blank. body_kb
-# limits nothing now, and naming it logs a line saying so. Each refusal logs
-# one warning naming the limit and the sizes, on stderr, so it shows when
-# baud is launched from a terminal and not from the Dock.
+# The default, 95 MiB, holds three 3840x2160 screens decoded, the "few full
+# screen images" kitty's protocol asks a terminal to allow, and costs nothing
+# until an image comes: the store's memory is committed as images write it.
+# Until 2026-10-14 the raw bytes were held first, under a second key,
+# body_kb: at its 256 KiB a UI screenshot (334-390 KiB at 600x375), a photo
+# (474-680 KiB at 600x800) and a page of a text PDF (797-820 KiB at 600x776)
+# were refused and the pane stayed blank. body_kb limits nothing now, and
+# naming it logs a line saying so. Each refusal logs one warning naming the
+# limit and the sizes, on stderr, so it shows when baud is launched from a
+# terminal and not from the Dock.
 #
 # advertise_sixel makes the Primary DA claim Sixel (attribute 4), so a
 # previewer such as yazi draws a real image instead of its text fallback --
@@ -265,7 +268,7 @@ mode = "smooth"
 # Off by default: the text preview is what baud is proven to draw right, and
 # the claim is the reader's to make.
 [images]
-pixels_mb = 4
+pixels_mb = 95
 advertise_sixel = false
 
 # Whether a program can put text on the clipboard with OSC 52: remote

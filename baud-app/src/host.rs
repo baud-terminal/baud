@@ -25,9 +25,11 @@ pub fn cell_px(cell_h: Px) -> ImagePx {
     ImagePx::of(u16::try_from(cell_h.value()).unwrap_or(u16::MAX))
 }
 
-/// The default image arena, when a config names no `[images]` section: 4 MiB
-/// of decoded pixels, a 1024x1024 image or several small ones -- the gap-scan
-/// packs them, and an overflow is refused and counted rather than truncated.
+/// The default image arena, when a config names no `[images]` section:
+/// 95 MiB of decoded pixels, three 3840x2160 screens (24,883,200 pixels)
+/// with 20,480 to spare -- `[images] pixels_mb` counts whole MiB, and the
+/// committed example writes the default -- or many smaller images -- the gap-scan packs them, and an overflow is
+/// refused and counted rather than truncated.
 /// **It is the one limit a config sets on an image**, with the 65535 pixels a
 /// coordinate holds each way and the slot table beside it: a Sixel is decoded
 /// as its body arrives (`SixelStream`), and no copy of the body is held, so
@@ -45,17 +47,21 @@ pub fn cell_px(cell_h: Px) -> ImagePx {
 /// decoded as its body arrives"). The single source of the default;
 /// `Config::defaults` reads it, and `[images] pixels_mb` overrides it.
 ///
-/// **Under the kitty quota's "should allow at least a few full screen
-/// images"** (`[[source: kitty-graphics]]`, "Image persistence and storage
-/// quotas"): a 1920x1080 picture is about twice this and is refused, an
-/// open departure. Raising it costs memory whether or not a picture comes:
-/// the arena is written at construction (`Owned::with_images`'s
-/// `vec![Pixel::CLEAR; n]`), and a 400x150 terminal built that way and
-/// left idle peaked at 15.8 MB resident at this budget and 111.1 MB at
-/// three 3840x2160 screens; the eight-byte-a-pixel kitty scratch, zeroed
-/// bytes, stayed uncommitted.
+/// **Sized to the kitty quota's "It should allow at least a few full
+/// screen images"** (`[[source: kitty-graphics]]`, "Image persistence and
+/// storage quotas"): three screens at 3840x2160, the largest this Mac's
+/// displays draw. An idle terminal pays nothing for it, because the arena,
+/// the query probe and the PNG scratch come from zeroed memory
+/// (`Owned::with_images`, `Pixel::zeroed_vec`) and a page is committed
+/// when an image first writes it: a 400x150 terminal built that way and
+/// left idle peaked at 11.9 MB resident at this budget and 11.8 MB at the
+/// 4 MiB it replaced, where writing the arena at construction had peaked
+/// at 111.5 MB and 16.0 MB. Pages an image wrote stay committed after it is
+/// deleted: one 1920x1080 PNG shown and deleted left that terminal at
+/// 32.8 MB. Until 2026-10-16 this was 4 MiB and refused a 1920x1080
+/// picture whole, an open departure.
 pub const IMAGE_BUDGET: ImageBudget = ImageBudget {
-    pixels: 1 << 20, // 1,048,576 ColorWords, 4 MiB
+    pixels: 95 << 18, // 24,903,680 ColorWords, 95 MiB
 };
 
 /// One startup line naming the resolved image budget, at `info` -- so it shows
@@ -748,7 +754,7 @@ mod tests {
     /// that raises it** -- and only when a counter moved across the pump, so
     /// a snapshot whose last sizes are set says nothing again on the next
     /// pump. An image with no pixels is no limit and is not said. The arena
-    /// cases are an image over the whole 4 MiB arena and one inside it that
+    /// cases are an image over the whole 95 MiB arena and one inside it that
     /// found no gap, which are different fixes.
     #[test]
     fn a_refusal_is_said_by_the_limit_it_hit() {
@@ -763,15 +769,15 @@ mod tests {
 
         let over = ImageRefusals {
             arena: 1,
-            arena_width: ImagePx::of(2048),
-            arena_height: ImagePx::of(1024),
+            arena_width: ImagePx::of(8192),
+            arena_height: ImagePx::of(4096),
             ..none
         };
         let line = say(&none, &over).expect("an arena refusal is said");
         for want in [
-            "2048x1024",
-            "2097152 pixels",
-            "4 MiB arena",
+            "8192x4096",
+            "33554432 pixels",
+            "95 MiB arena",
             "larger than the whole",
             "pixels_mb",
         ] {
@@ -823,6 +829,76 @@ mod tests {
             ws_col: 200,
         };
         (Owned::new(&ws).with_images(super::IMAGE_BUDGET), ws)
+    }
+
+    /// A zlib stream of one 3840x2160 RGB screen of zeros in one
+    /// fixed-Huffman block (`[[source: rfc1951-deflate]]` 3.2.6): a literal
+    /// 0, copies of 258 at distance 1, the rest as literals, each code's
+    /// bits written as text, most significant first; the block header's
+    /// fields go least significant first. The Adler-32 of `n` zeros is
+    /// `n mod 65521` over 1 (`[[source: rfc1950-zlib]]`).
+    fn zlib_zero_screen() -> Vec<u8> {
+        const N: usize = 3840 * 2160 * 3;
+        const LITERAL_ZERO: &str = "00110000";
+        const COPY_258_AT_1: &str = "1100010100000"; // code 285, distance code 0
+        let copies = (N - 1) / 258;
+        let mut codes = vec!["110", LITERAL_ZERO]; // BFINAL, BTYPE = 01
+        codes.extend(std::iter::repeat_n(COPY_258_AT_1, copies));
+        codes.extend(std::iter::repeat_n(LITERAL_ZERO, N - 1 - copies * 258));
+        codes.push("0000000"); // end of block, 256
+        let bits: Vec<u8> = codes.concat().bytes().map(|b| b - b'0').collect();
+        let mut out = vec![0x78, 0x01];
+        out.extend(
+            bits.chunks(8)
+                .map(|c| c.iter().rev().fold(0u8, |byte, &b| (byte << 1) | b)),
+        );
+        let adler = (u32::try_from(N % 65521).unwrap() << 16) | 1;
+        out.extend_from_slice(&adler.to_be_bytes());
+        out
+    }
+
+    /// RFC 4648 base64, unpadded, as kitten writes it.
+    fn b64(data: &[u8]) -> Vec<u8> {
+        const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = Vec::new();
+        for q in data.chunks(3) {
+            let mut b = [0u8; 3];
+            b[..q.len()].copy_from_slice(q);
+            let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+            for k in 0..=q.len() {
+                out.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]);
+            }
+        }
+        out
+    }
+
+    /// **The default holds "at least a few full screen images"**
+    /// (`[[source: kitty-graphics]]`, "Image persistence and storage
+    /// quotas"): three 3840x2160 kitty images, sent as kitten sends them,
+    /// each stored and answered with nothing deleted for space.
+    #[test]
+    fn the_default_budget_holds_three_3840x2160_screens() {
+        let (mut s, ws) = at_default();
+        let mut t = Term::new(s.storage(), &ws);
+        let screen = b64(&zlib_zero_screen());
+        let mut replies = Vec::new();
+        for i in 1..=3 {
+            let mut cmd = format!("\x1b_Ga=t,f=24,o=z,s=3840,v=2160,i={i};").into_bytes();
+            cmd.extend_from_slice(&screen);
+            cmd.extend_from_slice(b"\x1b\\");
+            pump(&mut t, &cmd);
+            while t.decode_step(baud_domain::DecodeBudget::ALL) == baud_domain::DecodeProgress::More
+            {
+            }
+            replies.extend_from_slice(t.reply());
+            t.clear_reply();
+        }
+        assert_eq!(
+            String::from_utf8_lossy(&replies),
+            "\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;OK\x1b\\\x1b_Gi=3;OK\x1b\\"
+        );
+        let imgs = t.images();
+        assert_eq!((imgs.images_evicted, imgs.images_refused), (0, 0));
     }
 
     /// A Sixel whose body is `len` bytes the decoder reads, every one of them

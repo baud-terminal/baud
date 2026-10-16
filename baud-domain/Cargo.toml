@@ -22,6 +22,10 @@ png = "0.17.16"
 proptest = "1"
 
 [features]
+# `Pixel::zeroed_vec`: an image arena from the allocator's zeroed path, so
+# its pages are committed only as images write them. For hosts with an
+# allocator; `baud-core`'s `alloc` turns it on.
+alloc = ["zerocopy/alloc"]
 probe-double-fold = []
 probe-double-sgr-color = []
 probe-sgr-color-reborrow = []

@@ -28,6 +28,11 @@
 #![feature(variant_count)]
 #![forbid(unsafe_code)]
 
+// `Pixel::zeroed_vec`, for a host with an allocator: the arena from zeroed
+// memory. Off by default; `baud-core`'s `alloc` turns it on.
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
 mod base64;
 mod brand;
 mod cache;
