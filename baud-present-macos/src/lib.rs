@@ -473,8 +473,9 @@ impl Shared {
 }
 
 /// A straight-alpha pixel as Core Animation wants it: each colour channel
-/// scaled by the alpha.
-fn premultiply(p: Argb) -> Argb {
+/// scaled by the alpha, rounded. Public so the pixel oracle presents the
+/// CPU arm's frame through this function and not a copy of it.
+pub fn premultiply(p: Argb) -> Argb {
     let [a, r, g, b] = p.0.to_be_bytes();
     if a == 0xFF {
         return p;

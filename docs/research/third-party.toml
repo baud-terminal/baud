@@ -1242,6 +1242,15 @@ files   = [
   "css-color-4-hslToRgb.js",
 ]
 
+[upstream.w3c-compositing]
+name    = "Compositing and Blending Level 1 (W3C), whose notice names the W3C Software and Document License"
+licence = "LicenseRef-W3C-Software-and-Document-2023"
+notice  = "in file"
+status  = "kept"
+files   = [
+  "w3c-compositing-1-20240321.html",
+]
+
 [upstream.unicode-data]
 name    = "Unicode Character Database and emoji data files (Unicode, Inc.); each file's header points to the terms"
 licence = "Unicode-3.0"

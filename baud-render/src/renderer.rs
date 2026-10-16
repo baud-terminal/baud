@@ -8,7 +8,7 @@ use crate::cache::{
 use crate::caret::{self, CursorPhase, Play};
 use crate::cellmap::{BlockCursor, CellSpan, Curves, Resolved, Selected, Shapes, Swaps, Text};
 use crate::color::{Argb, Theme, Video};
-use crate::composite::{Blend, Target};
+use crate::composite::{Blend, Page, Target};
 use crate::effect::Vfx;
 use crate::instance::{Instance, Screen};
 use crate::metrics::{Metrics, PxSize};
@@ -1775,12 +1775,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Blits every image placement over the frame, after the glyphs, reading
     /// the list [`Renderer::set_images`] built and the term's own pixels.
     fn paint_images(&self, term: &Term<'_>, target: &mut Target<'_>) {
+        let page = self.page();
         let imgs = term.images();
         for p in &self.image_places {
             let Some(view) = imgs.image(p.id) else {
                 continue;
             };
-            target.blit_image((i32::from(p.x), i32::from(p.y)), &view, self.blend);
+            target.blit_image((i32::from(p.x), i32::from(p.y)), &view, self.blend, page);
         }
     }
 
@@ -2010,6 +2011,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
+    /// The page this frame composites over: the glass whenever the theme
+    /// dims the window. At a dim of 255 every word `paint` fills with is
+    /// opaque -- each background takes the dim's alpha, and a swap or a
+    /// picture makes one opaque -- so nothing it draws over is translucent.
+    fn page(&self) -> Page {
+        if self.theme.bg_alpha.get() == 0xFF {
+            Page::Opaque
+        } else {
+            Page::Glass
+        }
+    }
+
     /// Paints the rows the last [`Renderer::convert`] found dirty into
     /// `target`, which must still hold the frame before.
     pub fn paint(&mut self, target: &mut Target<'_>, converted: Converted) -> Frame {
@@ -2022,6 +2035,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             exceptions: converted.exceptions,
             ..Frame::default()
         };
+        let page = self.page();
         for r in 0..self.rows.index() {
             let row = Row::from_index(r);
             frame.instances.add(Tally::of(self.per_row[r].len()));
@@ -2049,23 +2063,25 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // (`trail_moved`, and a fade makes the frame full), so a row
             // repainted without them would draw them out.
             for inst in &self.per_row[r] {
-                target.over(inst, &self.atlas, self.blend, band);
+                target.over(inst, &self.atlas, self.blend, page, band);
             }
             // The composition's records, over its row: `instances()` hands
             // the GPU instance path them in the same place.
             for inst in &self.compose_inst {
-                target.over(inst, &self.atlas, self.blend, band);
+                target.over(inst, &self.atlas, self.blend, page, band);
             }
             // On the CPU an effect is its emitter, the quad it rides: the
             // effect is the GPU's.
             match self.trail {
-                Some(Drawn::Smear(s)) => target.quad(&s, self.cursor_fill, self.blend, band),
+                Some(Drawn::Smear(s)) => {
+                    target.quad(&s, self.cursor_fill, self.blend, page, band);
+                }
                 Some(Drawn::Vfx(v, ..)) => {
-                    target.quad(&v.emitter, self.cursor_fill, self.blend, band);
+                    target.quad(&v.emitter, self.cursor_fill, self.blend, page, band);
                 }
                 _ => {
                     for inst in &self.trail_inst {
-                        target.over(inst, &self.atlas, self.blend, band);
+                        target.over(inst, &self.atlas, self.blend, page, band);
                     }
                 }
             }
@@ -2075,7 +2091,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .chain(&self.bar_inst)
                 .chain(&self.fade_inst)
             {
-                target.over(inst, &self.atlas, self.blend, band);
+                target.over(inst, &self.atlas, self.blend, page, band);
             }
         }
         frame.composite = t1.elapsed();

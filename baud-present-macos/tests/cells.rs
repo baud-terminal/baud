@@ -20,7 +20,7 @@ use baud_domain::{
 };
 use baud_font::{Face, Px};
 use baud_present_macos::{
-    CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer,
+    CellInput, Done, Drawn, Gpu, GridBuffer, MapBuffer, OverlayBuffer, StylesBuffer, premultiply,
 };
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::fire;
@@ -34,8 +34,8 @@ use baud_render::{
     Argb, Blend, Blink, BlinkPhases, Candidate, Composition, Corners, CursorPhase, Damage,
     FaceRole, FaceStyle, GlyphMap, Highlight, Hover, Instance, Kind, Look, Overlay, Pt, PxSize,
     Rect, Region, Renderer, Resolved, Scene, Scroll, Scroller, Segment, Shape, Smear, Stack,
-    StyleStamp, Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window, copy_for_shader,
-    quad_coverage,
+    StyleStamp, Target, Theme, Trail, TrailLook, Transition, VideoFlash, Widths, Window,
+    copy_for_shader, quad_coverage,
 };
 
 /// **Wide enough for the right-hand side to be a question.** It was 40x6,
@@ -2965,6 +2965,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     assert_eq!(placed(&t), line, "the dot survived the scroll");
     slid_is_one_up(&mut arms, &mut t, "an image in the leaving row");
     partial_image_gate(&mut arms, &mut t);
+    cpu_page_gate(&mut arms, &mut t);
     // **Styled faces.** Bold, italic and bold-italic text -- a ligature and
     // a Nerd Fonts icon among it -- on both arms, and a positive control
     // that each style reached the pixels: the same row regular paints
@@ -3195,11 +3196,8 @@ const DOT: &[u8] = b"\x1bPq\"1;1;8;6#1;2;100;0;0#1!8~\x1b\\";
 /// snapshot that premultiplied before the fragment premultiplies again, or
 /// a pass that drew a partial pixel whole, misses on most of them.
 ///
-/// **Over a translucent page they do not**: the CPU's `Blend::over` mixes
-/// the page's colour as if it were opaque and the presenter premultiplies
-/// after, where the GPU blends premultiplied, so 1187 of 1200 pixels of
-/// this image over the default page differed by up to 47 in a channel. It
-/// is the glyphs' blend, and the record lists it.
+/// Over the glass page the CPU arm is held to the GPU arms by
+/// `cpu_page_gate`.
 fn partial_image_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     const W: usize = 40;
     const H: usize = 30;
@@ -3276,5 +3274,176 @@ fn partial_image_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         0,
         "the arms disagree with the partial image on screen"
     );
+    feed(t, b"\x1bc");
+}
+
+/// The CPU arm: [`Renderer::render_at`] into a [`Target`], each pixel then
+/// put through the macOS presenter's own `premultiply`, as
+/// `Presenter::present` copies a frame into its surface -- the form the
+/// two GPU arms' readback is in.
+fn cpu_frame(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) -> Vec<u32> {
+    let (fw, fh) = arms.renderer.frame_size();
+    let n = usize::try_from(fw.value() * fh.value()).unwrap();
+    let mut px = vec![0u32; n];
+    let mut target = Target::new(&mut px, fw, fw, fh).expect("target");
+    arms.renderer
+        .render_at(t, arms.back, &mut target, Damage::Full);
+    px.iter().map(|&p| premultiply(Argb(p)).0).collect()
+}
+
+/// How many pixels of `a` and `b` differ, and by how much at most in one
+/// channel, over the pixels `keep` admits.
+fn channel_diff(a: &[u32], b: &[u32], keep: impl Fn(usize) -> bool) -> (usize, u32) {
+    let (mut n, mut most) = (0, 0);
+    for (i, (&x, &y)) in a.iter().zip(b).enumerate() {
+        if x == y || !keep(i) {
+            continue;
+        }
+        n += 1;
+        for shift in [0, 8, 16, 24] {
+            let (p, q) = ((x >> shift) & 0xFF, (y >> shift) & 0xFF);
+            most = most.max(p.abs_diff(q));
+        }
+    }
+    (n, most)
+}
+
+/// **The CPU arm draws what the GPU arms draw, over an opaque page and over
+/// the default glass page** (`[glass] dim_dark = 0.22`, alpha 56): text in
+/// the default and in set colours, a block cursor, and a 40x30 image of
+/// partly transparent pixels over the text; then over the glass the same
+/// image over text on a set background, dimmed as the app's default
+/// `AppBg::Dimmed` dims it; and over each, three translucent cursors. Source-over is W3C Compositing
+/// and Blending Level 1's 5.1, `co = Cs as + Cb ab (1 - as)` premultiplied,
+/// `ao = as + ab (1 - as)` (`[[source: w3c-compositing-1]]`), which the GPU
+/// arms' `One, OneMinusSourceAlpha` blend is over premultiplied pixels; the
+/// CPU arm keeps straight pixels and the presenter premultiplies them, so
+/// its straight result must be the one that premultiplies to the GPU's.
+///
+/// Over the opaque page the control: every pixel equal. Over the glass page
+/// a blend that mixes the page's colour as if it were opaque differs from
+/// the GPU on 1156 of the image's 1200 pixels, by up to 47, and on 3590
+/// pixels of text and page outside it; over the set background on 1189,
+/// by up to 45.
+fn cpu_page_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    const W: usize = 40;
+    const H: usize = 30;
+    let pixel = |x: usize, y: usize| {
+        let c = |v: usize| Chan::from_u8(u8::try_from(v % 256).unwrap());
+        Pixel::straight(c(x * 7 + y * 13), c(x * 6), c(255 - y * 8), c(90 + x))
+    };
+    let glass = arms.renderer.theme().clone();
+    assert_eq!(
+        glass.bg_alpha.get(),
+        56,
+        "the premise: the default glass dim"
+    );
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    // Text in the default colours, and `partial_image_gate`'s text on a
+    // set background, which `AppBg::Dimmed`, the app's default, dims too.
+    let plain: &[u8] = b"\x1bc\x1b[2 q\x1b[2;1HHHHHHHHHHHHHHHHH\x1b[3;1HWWWWWWWWWWWWWWWW\
+        \x1b[4;1H\x1b[31mred \x1b[1;32mbold\x1b[0m MMMMMM\x1b[5;1H################\
+        \x1b[7;1Hcursor here\x1b[3;4H";
+    let set: &[u8] = b"\x1bc\x1b[2 q\x1b[48;2;20;40;160m\x1b[38;2;250;220;30m\
+        \x1b[2;1HHHHHHHHHHHHHHHHH\x1b[3;1HWWWWWWWWWWWWWWWW\x1b[4;1HMMMMMMMMMMMMMMMM\
+        \x1b[5;1H################\x1b[0m\x1b[7;1Hcursor here\x1b[3;4H";
+    for (page, alpha, app_bg, text) in [
+        ("opaque", 0xFF, glass.app_bg, plain),
+        ("glass", 56, glass.app_bg, plain),
+        (
+            "glass, set backgrounds",
+            56,
+            baud_render::AppBg::Dimmed,
+            set,
+        ),
+    ] {
+        arms.renderer.set_theme(Theme {
+            bg_alpha: Chan::from_u8(alpha),
+            app_bg,
+            ..glass.clone()
+        });
+        feed(t, text);
+        let placed = t.put_image(
+            ImagePx::of(u16::try_from(W).unwrap()),
+            ImagePx::of(u16::try_from(H).unwrap()),
+            ImageAlpha::Partial,
+            |px| {
+                for (i, p) in px.iter_mut().enumerate() {
+                    *p = pixel(i % W, i / W);
+                }
+            },
+        );
+        assert!(!placed.is_none(), "{page}: the partial image placed");
+        feed(t, b"\x1b[7;8H");
+        let (a, b) = arms.draw(t);
+        let places = arms.renderer.image_placements();
+        assert_eq!(places.len(), 1, "{page}: the partial image is on screen");
+        let (x0, y0) = (
+            usize::try_from(places[0].x).unwrap(),
+            usize::try_from(places[0].y).unwrap(),
+        );
+        let in_image = |i: usize| {
+            let (x, y) = (i % fw, i / fw);
+            (x0..x0 + W).contains(&x) && (y0..y0 + H).contains(&y)
+        };
+        let still = a.clone();
+        let cpu = cpu_frame(arms, t);
+        // The premise: the page under the image is the page asked for.
+        let corner = a[a.len() - 1];
+        assert_eq!(corner >> 24, u32::from(alpha), "{page}: the page's alpha");
+        assert_eq!(differing(&a, &b), 0, "{page}: the GPU arms disagree");
+        let image = channel_diff(&cpu, &a, in_image);
+        let rest = channel_diff(&cpu, &a, |i| !in_image(i));
+        eprintln!("cpu against instance, {page}: image {image:?}, rest {rest:?}");
+        assert_eq!(
+            image.0,
+            0,
+            "{page}: CPU and GPU differ on {} of the image's {} pixels, by up to {}",
+            image.0,
+            W * H,
+            image.1
+        );
+        assert_eq!(
+            rest.0, 0,
+            "{page}: CPU and GPU differ on {} pixels outside the image, by up to {}",
+            rest.0, rest.1
+        );
+        // A cursor drawn as a translucent solid over the page: a blinking
+        // bar and underline half way through a fade, and the plasma's glow
+        // (a steady style neither fades nor glows).
+        let phase = |opacity: u8, glow: u8| CursorPhase {
+            opacity: Chan::from_u8(opacity),
+            glow: Chan::from_u8(glow),
+            ..CursorPhase::HIDDEN
+        };
+        for (shape, p, what) in [
+            (b"\x1b[5 q", phase(128, 0), "a bar half faded"),
+            (b"\x1b[3 q", phase(128, 0), "an underline half faded"),
+            (b"\x1b[1 q", phase(0, 200), "a block's glow"),
+        ] {
+            feed(t, shape);
+            arms.renderer.set_cursor_blink(p);
+            let (a, b) = arms.draw(t);
+            assert_eq!(
+                differing(&a, &b),
+                0,
+                "{page}, {what}: the GPU arms disagree"
+            );
+            assert!(
+                differing(&a, &still) > 0,
+                "{page}, {what}: the control, drawn"
+            );
+            let cpu = cpu_frame(arms, t);
+            let all = channel_diff(&cpu, &a, |_| true);
+            eprintln!("cpu against instance, {page}, {what}: {all:?}");
+            assert_eq!(
+                all.0, 0,
+                "{page}, {what}: CPU and GPU differ on {} pixels, by up to {}",
+                all.0, all.1
+            );
+        }
+        arms.renderer.set_cursor_blink(Blink::Shown);
+    }
+    arms.renderer.set_theme(glass);
     feed(t, b"\x1bc");
 }

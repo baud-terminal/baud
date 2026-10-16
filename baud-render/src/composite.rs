@@ -26,6 +26,19 @@ pub enum Blend {
     Linear,
 }
 
+/// What the page a frame is composited over is: opaque, or the window's
+/// glass, a page whose alpha is below one. Chosen once a frame, from the
+/// theme's dim, so the per-pixel loops of an opaque page are the ones they
+/// were: over an opaque backdrop source-over reduces to the mix
+/// [`Blend`] has always done (`glass_reduces_to_over_on_an_opaque_page`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Page {
+    /// Every pixel under the frame has alpha 255.
+    Opaque,
+    /// A pixel under the frame may have alpha below 255.
+    Glass,
+}
+
 /// The caller's pixel buffer: `width` by `height` pixels of `Argb`, rows
 /// `stride` pixels apart. What an `IOSurface`, a `wl_shm` map or an
 /// upload heap hands over.
@@ -83,8 +96,23 @@ impl<'p> Target<'p> {
     /// Paints `inst` over the pixels, clipped to the buffer and to the
     /// rows of `band`: a mask in the instance's colour, its coverage bent
     /// by the instance's contrast curve, a colour image as it is, or a solid
-    /// rectangle.
-    pub fn over(&mut self, inst: &Instance, atlas: &Atlas, blend: Blend, band: Band) {
+    /// rectangle. Over a [`Page::Glass`] page by [`Blend::over_glass`].
+    pub fn over(&mut self, inst: &Instance, atlas: &Atlas, blend: Blend, page: Page, band: Band) {
+        match page {
+            Page::Opaque => self.over_by(inst, atlas, band, |s, d, c| blend.over(s, d, c)),
+            Page::Glass => self.over_by(inst, atlas, band, |s, d, c| blend.over_glass(s, d, c)),
+        }
+    }
+
+    /// [`Target::over`]'s loop, one copy for each page's blend.
+    #[inline(always)]
+    fn over_by(
+        &mut self,
+        inst: &Instance,
+        atlas: &Atlas,
+        band: Band,
+        mix: impl Fn(Argb, Argb, Coverage) -> Argb,
+    ) {
         let (w, h) = (usize::from(inst.w.0), usize::from(inst.h.0));
         let (u, v) = (usize::from(inst.u.0), usize::from(inst.v.0));
         let rows = self.rows_of(band);
@@ -118,9 +146,9 @@ impl<'p> Target<'p> {
                         }
                         // The text-contrast curve, a lookup: the exact
                         // coverage bent for the colour the glyph is in.
-                        blend.over(color, dst, Coverage(inst.curve.apply(cov)))
+                        mix(color, dst, Coverage(inst.curve.apply(cov)))
                     }
-                    Kind::Solid => blend.over(color, dst, Coverage(255)),
+                    Kind::Solid => mix(color, dst, Coverage(255)),
                     // A quad's record is only its bounds; the pixels come
                     // from its corners, which `Target::quad` is handed. An
                     // effect's records are the GPU's alone: on the CPU an
@@ -131,7 +159,7 @@ impl<'p> Target<'p> {
                         if src.a().get() == 0 {
                             continue;
                         }
-                        blend.over(src, dst, Coverage(255))
+                        mix(src, dst, Coverage(255))
                     }
                 };
                 row[x] = out.0;
@@ -142,7 +170,22 @@ impl<'p> Target<'p> {
     /// Paints the trail's quad over the pixels in `fill`, clipped to its
     /// bounds, the buffer and the rows of `band`: each pixel as much as
     /// [`crate::trail::coverage`] says the quad covers its centre.
-    pub fn quad(&mut self, s: &Smear, fill: Argb, blend: Blend, band: Band) {
+    pub fn quad(&mut self, s: &Smear, fill: Argb, blend: Blend, page: Page, band: Band) {
+        match page {
+            Page::Opaque => self.quad_by(s, fill, band, |f, d, c| blend.over(f, d, c)),
+            Page::Glass => self.quad_by(s, fill, band, |f, d, c| blend.over_glass(f, d, c)),
+        }
+    }
+
+    /// [`Target::quad`]'s loop, one copy for each page's blend.
+    #[inline(always)]
+    fn quad_by(
+        &mut self,
+        s: &Smear,
+        fill: Argb,
+        band: Band,
+        mix: impl Fn(Argb, Argb, Coverage) -> Argb,
+    ) {
         let (x0, y0, x1, y1) = s.bounds();
         let rows = self.rows_of(band);
         let (stride, width) = (slots(self.stride), slots(self.width));
@@ -158,7 +201,7 @@ impl<'p> Target<'p> {
                     continue;
                 }
                 let c = u8::try_from((cover * 255.0).round() as i64).unwrap_or(u8::MAX);
-                row[x] = blend.over(fill, Argb(row[x]), Coverage(c)).0;
+                row[x] = mix(fill, Argb(row[x]), Coverage(c)).0;
             }
         }
     }
@@ -169,11 +212,15 @@ impl<'p> Target<'p> {
     /// exactly as a `Kind::Color` glyph is (an image is ARGB the same way an
     /// `sbix` glyph is), so an image drawn over glyphs reads over them; a
     /// clear pixel draws nothing and lets the cell underneath show through.
-    /// A partial pixel is blended by its straight alpha, which `blend.over`
-    /// weights by as it mixes, taking the pixel under it as opaque; the
-    /// presenter premultiplies the result (`[[source: w3c-png-2003]]` 6.2
-    /// stores colour straight; the record, "Images keep straight alpha, and
-    /// a partial one repaints its rows", Found, not fixed (1)).
+    /// A partial pixel is blended by its straight alpha (`[[source:
+    /// w3c-png-2003]]` 6.2 stores colour straight): over an opaque page by
+    /// `blend.over`, over the glass by [`Blend::over_glass`], whose straight
+    /// result the presenter premultiplies to what the GPU's premultiplied
+    /// blend stores.
+    ///
+    /// An opaque-or-clear image needs no page: source-over of an opaque
+    /// pixel is that pixel, at alpha one, whatever is under it
+    /// (`[[source: w3c-compositing-1]]` 5.1 at `as = 1`).
     ///
     /// **An opaque-or-clear image under `Blend::Native` is stored, not
     /// mixed**: the OVER of an opaque pixel is that pixel (`(255 s + 127) /
@@ -182,11 +229,22 @@ impl<'p> Target<'p> {
     /// the store held alpha. Sharing one loop with the partial case, it
     /// stopped unswitching on the blend and blended every pixel, 53% more
     /// instructions a frame for a still Sixel.
-    pub fn blit_image(&mut self, origin: (i32, i32), view: &ImageView<'_>, blend: Blend) {
-        match (view.alpha, blend) {
-            (ImageAlpha::OpaqueOrClear, Blend::Native) => self.blit_opaque(origin, view),
-            (ImageAlpha::OpaqueOrClear, Blend::Linear) => self.blit_opaque_linear(origin, view),
-            (ImageAlpha::Partial, _) => self.blit_blended(origin, view, blend),
+    pub fn blit_image(
+        &mut self,
+        origin: (i32, i32),
+        view: &ImageView<'_>,
+        blend: Blend,
+        page: Page,
+    ) {
+        match (view.alpha, blend, page) {
+            (ImageAlpha::OpaqueOrClear, Blend::Native, _) => self.blit_opaque(origin, view),
+            (ImageAlpha::OpaqueOrClear, Blend::Linear, _) => self.blit_opaque_linear(origin, view),
+            (ImageAlpha::Partial, _, Page::Opaque) => {
+                self.blit_blended(origin, view, |s, d| blend.over(s, d, Coverage(255)));
+            }
+            (ImageAlpha::Partial, _, Page::Glass) => {
+                self.blit_blended(origin, view, |s, d| blend.over_glass(s, d, Coverage(255)));
+            }
         }
     }
 
@@ -258,10 +316,15 @@ impl<'p> Target<'p> {
     }
 
     /// [`Target::blit_image`]'s loop for a partial image: each drawn pixel
-    /// `blend.over` by its alpha. Out of line, so it leaves the opaque
-    /// loops' caller as it was.
+    /// mixed by its alpha, `mix` the page's blend. Out of line, so it leaves
+    /// the opaque loops' caller as it was.
     #[inline(never)]
-    fn blit_blended(&mut self, origin: (i32, i32), view: &ImageView<'_>, blend: Blend) {
+    fn blit_blended(
+        &mut self,
+        origin: (i32, i32),
+        view: &ImageView<'_>,
+        mix: impl Fn(Argb, Argb) -> Argb,
+    ) {
         let (x0, y0) = origin;
         let (iw, ih) = (view.width.index(), view.height.index());
         let pixels = view.pixels;
@@ -286,7 +349,7 @@ impl<'p> Target<'p> {
                     continue;
                 }
                 let dst = Argb(self.pixels[base + x]);
-                self.pixels[base + x] = blend.over(Argb(p.bits()), dst, Coverage(255)).0;
+                self.pixels[base + x] = mix(Argb(p.bits()), dst).0;
             }
         }
     }
@@ -322,7 +385,96 @@ impl Blend {
         )
         .with_alpha(Chan::from_u8(alpha))
     }
+
+    /// `src` over `dst` with `cov` scaling the source alpha, where `dst`
+    /// may be translucent: source-over as W3C Compositing and Blending
+    /// Level 1 defines it, `co = Cs as + Cb ab (1 - as)` premultiplied and
+    /// `ao = as + ab (1 - as)`, its colour `Co = co / ao` straight (5.1,
+    /// 9.1.4, `[[source: w3c-compositing-1]]`).
+    ///
+    /// **`Native` rounds where the GPU rounds.** The target holds straight
+    /// pixels and the presenter premultiplies them, `(C a + 127) / 255`; the
+    /// GPU stores 8-bit premultiplied pixels and blends `One,
+    /// OneMinusSourceAlpha` over them. So `co` is formed from the backdrop as
+    /// the presenter would premultiply it, rounded to a byte as the GPU's
+    /// store is, and the straight byte kept is the nearest to `co / ao`,
+    /// which premultiplies back to `co` exactly
+    /// (`a_straight_byte_presents_as_its_premultiplied_byte`). The alpha
+    /// rounds too: [`Blend::over`]'s truncation is exact only at `ab = 255`.
+    ///
+    /// **`Linear` is the same formula in linear light**, `Co` taken before
+    /// the conversion back, divided by `ao` unrounded. It has no GPU counterpart and no app path selects
+    /// it, so it is held to the formula and to `over` on an opaque page.
+    fn over_glass(self, src: Argb, dst: Argb, cov: Coverage) -> Argb {
+        let a = u32::from(cov.0) * u32::from(src.a().get()) / 255;
+        if a == 0 {
+            return dst;
+        }
+        let ab = u32::from(dst.a().get());
+        // At least `a`, so never zero here.
+        let ao = (a * 255 + ab * (255 - a) + 127) / 255;
+        let alpha = Chan::from_u8(u8::try_from(ao).unwrap_or(255));
+        match self {
+            Blend::Native => {
+                // A whole source pixel is itself: `ao` is 255 and `co` is
+                // `Cs` -- a glyph's interior and a solid's every pixel.
+                if a == 255 {
+                    return src;
+                }
+                let m = u64::from(RECIP[usize::try_from(ao & 0xFF).unwrap_or(0)]);
+                let mix = |s: Chan, d: Chan| -> Chan {
+                    let pb = (u32::from(d.get()) * ab + 127) / 255;
+                    let co = (u32::from(s.get()) * a + pb * (255 - a) + 127) / 255;
+                    let v = (u64::from(co * 255 + ao / 2) * m) >> 24;
+                    Chan::from_u8(u8::try_from(v).unwrap_or(255))
+                };
+                Argb::rgb(
+                    mix(src.r(), dst.r()),
+                    mix(src.g(), dst.g()),
+                    mix(src.b(), dst.b()),
+                )
+                .with_alpha(alpha)
+            }
+            Blend::Linear => {
+                let t = luts();
+                // `255 ao` before its rounding: the divisor `Native` takes
+                // rounded is the one its presenter multiplies by.
+                let den = a * 255 + ab * (255 - a);
+                let mix = |s: Chan, d: Chan| -> Chan {
+                    let (ls, ld) = (
+                        u32::from(t.to_linear[s.index()]),
+                        u32::from(t.to_linear[d.index()]),
+                    );
+                    let l = (ls * a * 255 + ld * ab * (255 - a) + den / 2) / den;
+                    Chan::from_u8(t.to_srgb[usize::try_from(l).unwrap_or(0).min(4095)])
+                };
+                Argb::rgb(
+                    mix(src.r(), dst.r()),
+                    mix(src.g(), dst.g()),
+                    mix(src.b(), dst.b()),
+                )
+                .with_alpha(alpha)
+            }
+        }
+    }
 }
+
+/// `RECIP[d]` is `ceil(2^24 / d)`: `(n * RECIP[d]) >> 24` is `n / d` for
+/// every `n` below `2^16` and `d` from 1 to 255, since `n` times the
+/// rounding error, at most `d - 1`, stays under `2^24`. What
+/// [`Blend::over_glass`] divides by the alpha with, three channels a pixel;
+/// `a_straight_byte_presents_as_its_premultiplied_byte` runs every
+/// numerator it is handed.
+const RECIP: [u32; 256] = {
+    let mut t = [0u32; 256];
+    let (mut i, mut d) = (1usize, 1u32);
+    while i < 256 {
+        t[i] = (1u32 << 24).div_ceil(d);
+        i += 1;
+        d += 1;
+    }
+    t
+};
 
 /// The two transfer tables, built once: sRGB byte to 12-bit linear, and
 /// 12-bit linear back to a byte.
@@ -361,6 +513,155 @@ fn luts() -> &'static Luts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Over an opaque backdrop the glass blend is the opaque one**, bit
+    /// for bit, under both blends: what lets `paint` choose the page once a
+    /// frame and leave an opaque page's loops as they were. Every source and
+    /// backdrop channel value at every source alpha.
+    #[test]
+    fn glass_reduces_to_over_on_an_opaque_page() {
+        for blend in [Blend::Native, Blend::Linear] {
+            for a in 0..=255u8 {
+                for s in 0..=255u8 {
+                    let src = Argb::rgb(Chan::from_u8(s), Chan::from_u8(!s), Chan::from_u8(s));
+                    for d in 0..=255u8 {
+                        let dst = Argb::rgb(Chan::from_u8(d), Chan::from_u8(d), Chan::from_u8(!d));
+                        assert_eq!(
+                            blend.over_glass(src, dst, Coverage(a)),
+                            blend.over(src, dst, Coverage(a)),
+                            "{blend:?}: {s} over {d} at {a}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// **`RECIP` divides exactly** over the whole range its comment
+    /// claims: every numerator below `2^16` by every alpha.
+    #[test]
+    fn the_reciprocal_divides_exactly() {
+        for d in 1..=255u32 {
+            let m = u64::from(RECIP[usize::try_from(d).unwrap()]);
+            for n in 0..(1u32 << 16) {
+                assert_eq!((u64::from(n) * m) >> 24, u64::from(n / d), "{n} / {d}");
+            }
+        }
+    }
+
+    /// **The straight byte `over_glass` keeps premultiplies back to the
+    /// premultiplied byte it was formed from**: for every alpha and every
+    /// premultiplied value it admits, the nearest straight byte to `co /
+    /// ao`, formed by `RECIP` as the blend forms it and put through the
+    /// presenter's rounding, is `co`.
+    #[test]
+    fn a_straight_byte_presents_as_its_premultiplied_byte() {
+        // The macOS presenter's premultiply of one channel, `(C a + 127) /
+        // 255`; the pixel oracle in `baud-present-macos/tests/cells.rs` runs
+        // the presenter's own function.
+        let present = |c: u32, a: u32| (c * a + 127) / 255;
+        for ao in 1..=255u32 {
+            for co in 0..=ao {
+                let n = co * 255 + ao / 2;
+                let m = u64::from(RECIP[usize::try_from(ao).unwrap()]);
+                let straight = u32::try_from((u64::from(n) * m) >> 24).unwrap();
+                assert_eq!(straight, n / ao, "the reciprocal at {co}, {ao}");
+                assert!(straight <= 255, "{co} at {ao}");
+                assert_eq!(present(straight, ao), co, "{co} at {ao}");
+            }
+        }
+    }
+
+    /// **Over the glass the presented pixel is the GPU's**: the `Native`
+    /// result, premultiplied by the presenter, equals source-over formed as
+    /// the GPU forms it over its 8-bit premultiplied store -- `co = Cs as +
+    /// cb (1 - as)` and `ao = as + ab (1 - as)`, each rounded to a byte, `cb`
+    /// the backdrop presented -- at every source and backdrop alpha and a
+    /// spread of channel values. `as` is the blend's own, a whole byte: the
+    /// GPU's for an opaque colour and for a solid, while a mask in a colour
+    /// below opaque takes `ca cov / 255` unrounded on the GPU.
+    #[test]
+    fn glass_presents_as_the_gpu_blends() {
+        // The macOS presenter's premultiply of one channel, `(C a + 127) /
+        // 255`; the pixel oracle in `baud-present-macos/tests/cells.rs` runs
+        // the presenter's own function.
+        let present = |c: u32, a: u32| (c * a + 127) / 255;
+        let chans = |p: Argb| p.0.to_be_bytes().map(u32::from);
+        let vals = [0u8, 1, 37, 51, 102, 128, 153, 204, 254, 255];
+        for sa in [255u8, 200, 90, 1] {
+            for cov in 0..=255u8 {
+                let a = u32::from(cov) * u32::from(sa) / 255;
+                for ab in 0..=255u8 {
+                    for &s in &vals {
+                        for &d in &vals {
+                            let src =
+                                Argb::rgb(Chan::from_u8(s), Chan::from_u8(d), Chan::from_u8(s))
+                                    .with_alpha(Chan::from_u8(sa));
+                            let dst =
+                                Argb::rgb(Chan::from_u8(d), Chan::from_u8(s), Chan::from_u8(d))
+                                    .with_alpha(Chan::from_u8(ab));
+                            let got = chans(Blend::Native.over_glass(src, dst, Coverage(cov)));
+                            let (sc, dc) = (chans(src), chans(dst));
+                            let ab = u32::from(ab);
+                            let want_a = (a * 255 + ab * (255 - a) + 127) / 255;
+                            assert_eq!(got[0], want_a, "alpha: {s} over {d}, {a} over {ab}");
+                            for i in 1..4 {
+                                let cb = present(dc[i], ab);
+                                let want = (sc[i] * a + cb * (255 - a) + 127) / 255;
+                                assert_eq!(
+                                    present(got[i], got[0]),
+                                    want,
+                                    "channel {i}: {s} over {d}, {a} over {ab}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// **`Linear` over the glass is source-over in linear light**: against
+    /// the formula in `f64`, through the exact transfer functions, within
+    /// the one byte the 12-bit tables cost.
+    #[test]
+    fn linear_glass_is_source_over_in_linear_light() {
+        let chans = |p: Argb| p.0.to_be_bytes().map(u32::from);
+        let lin = |c: u32| {
+            let c = f64::from(c) / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let enc = |l: f64| {
+            let c = if l <= 0.003_130_8 {
+                l * 12.92
+            } else {
+                1.055 * l.powf(1.0 / 2.4) - 0.055
+            };
+            c * 255.0
+        };
+        let mut most = 0.0f64;
+        for a in 1..=255u8 {
+            for ab in (0..=255u8).step_by(5) {
+                for s in (0..=255u8).step_by(15) {
+                    for d in (0..=255u8).step_by(15) {
+                        let src = Argb::rgb(Chan::from_u8(s), Chan::from_u8(s), Chan::from_u8(s));
+                        let dst = Argb::rgb(Chan::from_u8(d), Chan::from_u8(d), Chan::from_u8(d))
+                            .with_alpha(Chan::from_u8(ab));
+                        let got = chans(Blend::Linear.over_glass(src, dst, Coverage(a)));
+                        let (fa, fb) = (f64::from(a) / 255.0, f64::from(ab) / 255.0);
+                        let ao = fa + fb * (1.0 - fa);
+                        let co = (lin(s.into()) * fa + lin(d.into()) * fb * (1.0 - fa)) / ao;
+                        most = most.max((f64::from(got[1]) - enc(co)).abs());
+                    }
+                }
+            }
+        }
+        assert!(most <= 1.0, "{most} from the formula");
+    }
 
     /// **The OVER of an opaque pixel is that pixel**, under `Blend::Native`,
     /// whatever it is drawn over: what lets `blit_opaque` store a drawn pixel

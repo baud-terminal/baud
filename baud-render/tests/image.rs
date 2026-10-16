@@ -588,6 +588,104 @@ fn a_partial_image_blends_by_its_alpha() {
     );
 }
 
+/// Default-coloured text under the image's rect on the default page, the
+/// cursor at row 3, column 4, where the image goes: a backdrop translucent
+/// between the glyphs once the theme dims the window.
+const UNDER_GLASS: &[u8] = b"\x1b[?25l\x1b[2;1HHHHHHHHHHHHHHHHH\x1b[3;1HWWWWWWWWWWWWWWWW\
+\x1b[4;1H\x1b[31mMMMMMMMM\x1b[0mMMMMMMMMM\x1b[5;1H################\x1b[3;4H";
+
+/// A straight channel premultiplied as the macOS presenter does it, `(C a
+/// + 127) / 255`, the form a GPU's store holds.
+fn present(c: u32, a: u32) -> u32 {
+    (c * a + 127) / 255
+}
+
+/// **Over the glass a partial image is source-over on the page's alpha**
+/// (`[[source: w3c-compositing-1]]` 5.1): each pixel of its rect,
+/// presented, is `co = Cs as + cb (1 - as)` and `ao = as + ab (1 - as)`
+/// formed over the frame under it presented, each rounded to a byte as a
+/// GPU's 8-bit premultiplied store rounds it. The CPU-only gate: the macOS
+/// pixel oracle holds the same frame to the GPU arms. A blend that mixed
+/// the page's colour as if it were opaque misses on nearly every pixel.
+#[test]
+fn a_partial_image_over_the_glass_is_source_over() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(support::PX).unwrap(),
+        Theme {
+            bg_alpha: Chan::from_u8(56),
+            ..Theme::dark()
+        },
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    let mut c = Canvas::for_renderer(&r);
+    let (cw, ch) = (
+        usize::try_from(r.metrics().cell_w.value()).unwrap(),
+        usize::try_from(r.metrics().cell_h.value()).unwrap(),
+    );
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(PW * PH));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, UNDER_GLASS);
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    let under = c.pixels.clone();
+    let placed = t.put_image(
+        ImagePx::of(u16::try_from(PW).unwrap()),
+        ImagePx::of(u16::try_from(PH).unwrap()),
+        ImageAlpha::Partial,
+        fill_partial,
+    );
+    assert!(!placed.is_none(), "the image placed");
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    let (x0, y0) = (3 * cw, 2 * ch);
+    let (mut wrong, mut glass, mut text) = (0, 0, 0);
+    for y in 0..PH {
+        for x in 0..PW {
+            let i = (y0 + y) * c.width + x0 + x;
+            let [ab, rb, gb, bb] = under[i].to_be_bytes().map(u32::from);
+            if ab < 0xFF {
+                glass += 1;
+            }
+            if under[i] != under[(y0 + y) * c.width + x0] {
+                text += 1;
+            }
+            let src = partial_pixel(x, y);
+            let a = u32::from(src.alpha().get());
+            let (sr, sg, sb) = src.rgb();
+            let ao = (a * 255 + ab * (255 - a) + 127) / 255;
+            let ch =
+                |s: Chan, b: u32| (u32::from(s.get()) * a + present(b, ab) * (255 - a) + 127) / 255;
+            let want = [ao, ch(sr, rb), ch(sg, gb), ch(sb, bb)];
+            let [go, gr, gg, gb] = c.pixels[i].to_be_bytes().map(u32::from);
+            let got = [go, present(gr, go), present(gg, go), present(gb, go)];
+            if got != want {
+                wrong += 1;
+            }
+        }
+    }
+    assert!(
+        glass > PW * PH / 2,
+        "the premise: {glass} translucent pixels under it"
+    );
+    assert!(text > 0, "the control: glyphs lie under the image");
+    assert_eq!(
+        wrong,
+        0,
+        "pixels not source-over on the glass, of {}",
+        PW * PH
+    );
+}
+
 /// **A still partial image repaints its rows on every frame**, and only a
 /// partial one: a blit over its own last blit would blend it twice, so the
 /// rows it covers are dirty whatever else changed, and counted; the frame

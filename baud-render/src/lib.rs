@@ -67,7 +67,7 @@ pub use cellmap::{
 pub use color::{
     AppBg, Argb, Floor, MODUS_OPERANDI, PictureBg, Theme, Video, light_palette, xterm_palette,
 };
-pub use composite::{Blend, Target};
+pub use composite::{Blend, Page, Target};
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{

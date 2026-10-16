@@ -5591,6 +5591,25 @@ group  = "J"
 # reduced image (9.2), no filter byte in an empty pass (9.1, 13.10), and
 # 13.10's and 15.2.3's requirement that a decoder read interlaced images.
 
+[sources.w3c-compositing-1]
+key    = "w3c-compositing-1"
+title  = "Compositing and Blending Level 1 -- W3C Candidate Recommendation Draft, 21 March 2024"
+author = "C. Harrelson, ed.; R. Cabanier and N. Andronikos, former eds."
+year   = 2024
+venue  = "www.w3.org/TR/2024/CRD-compositing-1-20240321"
+url    = "https://www.w3.org/TR/2024/CRD-compositing-1-20240321/"
+file   = "w3c-compositing-1-20240321.html"
+sha256 = "0fb91119308e706a5e4df368a91fa3b43cd5fe8cd8f192418b2df0a30ba8a62b"
+bytes  = 234781
+status = "retrieved"
+group  = "J"
+# Simple alpha compositing (5.1): co = Cs as + Cb ab (1 - as), the
+# premultiplied result; ao = as + ab (1 - as); Co = co / ao straight; and
+# source-over among the Porter-Duff operators (9.1.4). What
+# baud-render/src/composite.rs's Blend::over_glass computes over a
+# translucent page. Byte-identical to www.w3.org/TR/compositing-1/ on
+# 2026-10-15.
+
 [sources.rfc1951-deflate]
 key    = "rfc1951-deflate"
 title  = "RFC 1951: DEFLATE Compressed Data Format Specification version 1.3"

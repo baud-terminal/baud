@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 25 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 261 | 16 | redistributable, and its notice is satisfied |
+| kept | 262 | 16 | redistributable, and its notice is satisfied |
 | own | 187 | 0 | the owner's work |
-| total | 712 | 27 | |
+| total | 713 | 27 | |
 
 ## Licence texts in LICENSES/
 
@@ -862,6 +862,17 @@ notice is, and the URL each file was copied from.
 | file | copied from |
 |---|---|
 | [beuke-2024-terminal-latency-typometer.html](docs/research/sources/beuke-2024-terminal-latency-typometer.html) | https://beuke.org/terminal-latency/ |
+
+### Compositing and Blending Level 1 (W3C), whose notice names the W3C Software and Document License
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** LicenseRef-W3C-Software-and-Document-2023
+- **Notice:** in the file
+- **Files:** 1
+
+| file | copied from |
+|---|---|
+| [w3c-compositing-1-20240321.html](docs/research/sources/w3c-compositing-1-20240321.html) | https://www.w3.org/TR/2024/CRD-compositing-1-20240321/ |
 
 ### contour
 

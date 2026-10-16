@@ -15,6 +15,11 @@
 //!
 //! Usage: `frame <recording> [reps] [full|incremental]`.
 //!
+//! `FRAME_BG_ALPHA=<0-255>` paints over a page dimmed to that alpha, the
+//! glass (`[glass] dim_dark = 0.22` is 56), where the default is
+//! `Theme::dark()`'s opaque page: the compositor blends the two pages by
+//! two loops (`baud_render::Page`).
+//!
 //! `FRAME_BLINK=none|fade|plasma|fire|ufo` prices instead what an idle blinking
 //! cursor's frame costs over the recording's last screen: 2000 incremental
 //! frames alternating two phases of that animation -- the hard switch's
@@ -88,11 +93,18 @@ fn main() {
     // the first version of this harness did, and its "best of three" was
     // a warm-cache number three times lower than a real first pass. Each
     // rep starts cold, which is what a recording's first replay costs.
+    let theme = Theme {
+        bg_alpha: std::env::var("FRAME_BG_ALPHA")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .map_or(Theme::dark().bg_alpha, Chan::from_u8),
+        ..Theme::dark()
+    };
     let fresh = || {
         Renderer::new(
             Stack::new(&faces).unwrap(),
             PxSize::of(14.0).unwrap(),
-            Theme::dark(),
+            theme.clone(),
             Blend::Native,
             Cols::of_index(usize::from(ws.ws_col)),
             Rows::of_index(usize::from(ws.ws_row)),
