@@ -1580,6 +1580,45 @@ impl<'b> ImageStore<'b> {
         n
     }
 
+    /// **Hold a reference on a live image without a placement on screen**:
+    /// a kitty virtual placement (`U=1`), which is kept in the kitty
+    /// stream's own table, counts as a placement of its image so the quota
+    /// does not delete an image placeholders show, and an uppercase delete
+    /// frees it only when it was the last. `false` when `id` names no live
+    /// image.
+    pub fn hold(&mut self, id: ImageId) -> bool {
+        match id.index().and_then(|i| self.slots.get_mut(i)) {
+            Some(s) if !s.is_empty() => {
+                s.placements = Count::of(s.placements.index() + 1);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// **Let go of a reference [`ImageStore::hold`] took**, freeing the
+    /// image when it was its last and `free` or its namelessness says it
+    /// goes, as [`ImageStore::kitty_delete`] frees one.
+    pub fn release(&mut self, id: ImageId, free: KittyFree) {
+        let Some(i) = id.index() else {
+            return;
+        };
+        let Some(s) = self.slots.get_mut(i) else {
+            return;
+        };
+        if s.is_empty() {
+            return;
+        }
+        s.placements = Count::of(s.placements.index().saturating_sub(1));
+        if s.placements.index() == 0 && (free == KittyFree::Data || s.goes_with_placements()) {
+            // Through `forget`, the one place a slot is emptied, so its
+            // pages go back as every other free's do.
+            self.forget(i);
+            self.images_dropped += 1;
+            self.epoch = self.epoch.bumped();
+        }
+    }
+
     /// **Free every kitty image `hit` picks that has no placement**: an
     /// `a=d,d=I` or `d=N` naming an image only stored, and `d=R`'s range
     /// (`[[source: kitty-graphics-c]]` `handle_delete_command`, whose

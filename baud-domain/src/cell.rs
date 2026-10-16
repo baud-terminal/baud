@@ -65,6 +65,78 @@ impl Content {
     pub const fn bits(self) -> u32 {
         self.0
     }
+
+    /// Where the placeholder range starts: above the cluster range, which
+    /// a `u16` slot index bounds below `0x0013_0000`.
+    ///
+    /// **A U+10EEEE cell with its diacritics holds them here, not in a
+    /// cluster slot**: three fields of nine bits, the row, the column and
+    /// the image id's top byte, each a diacritic's number plus one, zero
+    /// when it was not written (`placeholder.rs`). `kitten icat` writes
+    /// three on every cell (`[[source: kitty-icat-transmit]]`), each cell a
+    /// cluster of its own, and the 1024-slot store dropped 3000 of the 5760
+    /// marks of an 80x24 picture; here no slot is used and the cell stays
+    /// eight bytes. The cell carries [`CellFlags::MARKED`], as a cluster
+    /// cell does: its content is not its base, and
+    /// [`ClusterStore::base_of`] and [`ClusterStore::marks_of`] read the
+    /// character back, so a copy or a selection sees what was written.
+    const PLACEHOLDERS: u32 = 0x0100_0000;
+    /// How many bits a field takes: 297 numbers and absent.
+    const FIELD: u32 = 9;
+
+    /// The word for U+10EEEE with `marks` after it, none of them absent
+    /// before a written one.
+    pub fn placeholder(marks: PlaceholderMarks) -> Content {
+        let f = |d: Option<Diacritic>| d.map_or(0, |d| u32::try_from(d.index() + 1).unwrap_or(0));
+        Content(
+            Content::PLACEHOLDERS
+                | (f(marks.row) << (2 * Content::FIELD))
+                | (f(marks.col) << Content::FIELD)
+                | f(marks.msb),
+        )
+    }
+
+    /// The diacritics a placeholder word holds, if it is one.
+    pub fn placeholder_marks(self) -> Option<PlaceholderMarks> {
+        let v = self.0.checked_sub(Content::PLACEHOLDERS)?;
+        if v >> (3 * Content::FIELD) != 0 {
+            return None;
+        }
+        let field = |k: u32| {
+            let n = (v >> (k * Content::FIELD)) & ((1 << Content::FIELD) - 1);
+            usize::try_from(n)
+                .ok()?
+                .checked_sub(1)
+                .and_then(Diacritic::at)
+        };
+        Some(PlaceholderMarks {
+            row: field(2),
+            col: field(1),
+            msb: field(0),
+        })
+    }
+
+    /// **What a placeholder becomes with one more mark**, when the mark is
+    /// a diacritic and there is room for it: U+10EEEE itself, or a
+    /// placeholder word with fewer than three. `None` sends the mark to the
+    /// cluster store, the path any other base takes.
+    pub fn with_diacritic(self, cp: Codepoint) -> Option<Content> {
+        let marks = match self.0 {
+            crate::placeholder::PLACEHOLDER => PlaceholderMarks::NONE,
+            _ => self.placeholder_marks()?,
+        };
+        Diacritic::of(cp)
+            .and_then(|d| marks.then(d))
+            .map(Content::placeholder)
+    }
+
+    /// Whether this content may take a mark as a placeholder: U+10EEEE, or
+    /// a placeholder word. One compare each, the gate the cold attach path
+    /// asks before anything else.
+    #[inline(always)]
+    pub fn is_placeholder_base(self) -> bool {
+        self.0 == crate::placeholder::PLACEHOLDER || self.0 >= Content::PLACEHOLDERS
+    }
 }
 
 impl Default for Content {
@@ -665,6 +737,27 @@ pub struct ClusterSweeps {
     pub freed: usize,
 }
 
+/// The marks after a cell's base ([`ClusterStore::marks_of`]): a slot's
+/// continuations, or a placeholder word's diacritics.
+pub enum Marks<'a> {
+    Slot(core::slice::Iter<'a, u32>),
+    Placeholder(PlaceholderMarks, usize),
+}
+
+impl Iterator for Marks<'_> {
+    type Item = u32;
+    fn next(&mut self) -> Option<u32> {
+        match self {
+            Marks::Slot(i) => i.next().copied(),
+            Marks::Placeholder(m, k) => {
+                let c = m.get(*k)?;
+                *k += 1;
+                Some(c.value())
+            }
+        }
+    }
+}
+
 /// Why an intern found no slot.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Refused {
@@ -817,10 +910,31 @@ impl<'b> ClusterStore<'b> {
 
     /// The character a cell shows as its base: the slot's for a cell that
     /// names one, else the cell's own content.
+    ///
+    /// A placeholder word ([`Content::placeholder`]) reads as U+10EEEE.
+    /// A codepoint or a reserved state, below the cluster range, is its own
+    /// base, answered by one compare before the slot and the placeholder
+    /// are asked: a renderer asks this of every cell it draws.
     pub fn base_of(&self, content: Content) -> Content {
+        if content.0 < Content::CLUSTERS {
+            return content;
+        }
         match self.get(content) {
             Some(s) => s.base,
-            None => content,
+            None => match content.placeholder_marks() {
+                Some(_) => Content(crate::placeholder::PLACEHOLDER),
+                None => content,
+            },
+        }
+    }
+
+    /// The codepoints attached after `content`'s base: its slot's, or a
+    /// placeholder word's diacritics, or none.
+    pub fn marks_of(&self, content: Content) -> Marks<'_> {
+        match (self.get(content), content.placeholder_marks()) {
+            (Some(s), _) => Marks::Slot(s.cps[..s.len as usize].iter()),
+            (None, Some(m)) => Marks::Placeholder(m, 0),
+            (None, None) => Marks::Slot([].iter()),
         }
     }
 
@@ -889,6 +1003,14 @@ impl<'b> ClusterStore<'b> {
         self.slots[i] = s;
         self.filled += 1;
         Ok(ClusterId::from_index(i + 1))
+    }
+
+    /// [`ClusterStore::try_intern`] out of line, for a caller off the
+    /// path a mark usually takes: the placeholder fallback
+    /// (`Paint::attach_placeholder`).
+    #[inline(never)]
+    pub fn try_intern_cold(&mut self, base: Content, cps: &[u32]) -> Result<ClusterId, Refused> {
+        self.try_intern(base, cps)
     }
 
     /// [`ClusterStore::try_intern`], with a refusal counted.

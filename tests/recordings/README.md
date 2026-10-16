@@ -105,6 +105,17 @@ The sha256 of each:
 | | 113x24 | `f=100`, the file | 24022 | `a8a1e2d64c3f00e01879b02166dd9bf4075afd449dec2f2bb537e8ea902d6735` |
 | | 226x64 | `f=100`, the file | 24022 | `4338404469e1ba447d80c3e4323ec6ae7de3daad5e2cc135725c540c8097b0ed` |
 
+**One is committed**, `kitty/grad-80x24-placeholder.raw` (8604 bytes, sha256
+`5860df5a73c9e2ba9e63303ad4ff85afd895d96438cf60c1910c75a7559bcc5a`): the
+script's `placeholder` mode, `--unicode-placeholder`, at 80x24, for a 60x40
+RGB gradient made for it -- pixel `(x, y)` is `(4x, 6y, 3(x + y))` mod 256,
+written as a PNG with zlib level 9 (sha256
+`198fb2c1572a4da53a7140ba8dfcd0ac10954c199d5a1064707c2871a19389af`), no
+one's picture. kitten sends `a=T,U=1,c=4,r=2,X=4` with the PNG and two rows
+of four U+10EEEE cells, each with its row, column and id-byte diacritics.
+`kittens_placeholders_place_the_picture` (`baud-render/tests/kitty_placeholder.rs`)
+replays it. The image id is random, so a new run has other bytes.
+
 The script checks each input against its sha256 first, and skips the
 macOS file where it differs. Its `detect-*` sessions answer
 kitten's queries as baud would and name a random temp file in a query, so

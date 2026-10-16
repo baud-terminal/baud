@@ -986,6 +986,9 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.clusters.refused += 1;
             return;
         }
+        if cell.content.is_placeholder_base() {
+            return self.attach_placeholder(r, owner, cell.content, cp);
+        }
         // The cell's base: its own content, or its slot's when it names one,
         // since a cell with continuations holds its slot's word instead.
         let mut cps = [0u32; ClusterSlot::CAPACITY];
@@ -1031,6 +1034,42 @@ impl<'a, 'b> Paint<'a, 'b> {
             if before.is_some_and(vs16::widens) {
                 self.widen(r, owner.col());
             }
+        }
+    }
+
+    /// **A mark after a kitty Unicode placeholder** (`[[source:
+    /// kitty-graphics]]`, "Unicode placeholders"): a listed diacritic, up
+    /// to three, goes into the cell's own word ([`Content::placeholder`]),
+    /// and anything else sends the placeholder and its marks to the cluster
+    /// store as any base's would go. `kitten icat` writes three diacritics
+    /// on every cell, each cell a cluster of its own, and the store dropped
+    /// 3000 of an 80x24 picture's 5760 marks
+    /// (`every_diacritic_of_a_kitten_picture_is_kept`).
+    ///
+    /// `#[cold]` and out of line, behind one compare in `attach_before`, so
+    /// a mark on any other base runs what it ran.
+    #[cold]
+    #[inline(never)]
+    fn attach_placeholder(&mut self, r: Row, owner: LeadCol, content: Content, cp: Codepoint) {
+        if let Some(word) = content.with_diacritic(cp) {
+            self.view.set_placeholder(r, owner, word);
+            return;
+        }
+        let mut cps = [0u32; ClusterSlot::CAPACITY];
+        let mut n = 0usize;
+        for (d, m) in cps.iter_mut().zip(self.clusters.marks_of(content)) {
+            *d = m;
+            n += 1;
+        }
+        cps[n] = cp.value();
+        n += 1;
+        let base = self.clusters.base_of(content);
+        let id = match self.clusters.try_intern_cold(base, &cps[..n]) {
+            Ok(id) => id,
+            Err(why) => self.refused(why, base, &cps[..n]),
+        };
+        if !id.is_none() {
+            self.view.set_cluster(r, owner, id);
         }
     }
 

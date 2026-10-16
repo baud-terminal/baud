@@ -68,10 +68,26 @@
 //! response" ("The transmission medium"); a PNG that reads and does not
 //! decode is EBADPNG, kitty's practice, the text naming decoding nowhere.
 //!
+//! **A virtual placement (`U=1`) is a prototype, kept apart from the
+//! placements on screen** (`[[source: kitty-graphics]]`, "Unicode
+//! placeholders"): "Virtual placements are invisible and only play the role
+//! of prototypes for real images", so it is held in the stream's own table
+//! ([`KITTY_VIRTUALS`]), never in the store's placement table, whose every
+//! scroll, erase and expiry is about a place on the screen. It holds a
+//! reference on its image ([`ImageStore::hold`]), so the quota does not
+//! delete an image placeholders show. It moves no cursor, whatever `C`
+//! says, having "no physical location on the screen" (Jev, STAY, 1.00 and
+//! 1.00), and draws the whole image fitted into its `c` x `r` cells with
+//! its aspect kept and centred, `x`, `y`, `w`, `h`, `X` and `Y` unused
+//! (Jev, FIT_WHOLE, 1.00 and 1.00; kitty's `grman_put_cell_image`,
+//! `[[source: kitty-graphics-c]]`). Only `d=i`, `I`, `n`, `N`, `r` and `R`
+//! delete one; the same image and placement id replace one. The placeholder
+//! cells that show it are `placeholder.rs`'s.
+//!
 //! **Out of this step, each refused or ignored and counted**: relative
-//! placements `P`/`Q` and Unicode
-//! placeholders `U=1` (EINVAL, no placement and no cursor move; Jev
-//! REFUSE_WITH_EINVAL, 1.00 and 0.98); animation `a=f`, `a=a`, `a=c` and the frame
+//! placements `P`/`Q` (EINVAL, no placement and no cursor move; Jev
+//! REFUSE_WITH_EINVAL, 1.00 and 0.98), a virtual one among them, which the
+//! text answers EINVAL too; animation `a=f`, `a=a`, `a=c` and the frame
 //! deletes `d=f`/`d=F` (ignored and counted: the text gives no reply for a
 //! terminal without them).
 
@@ -235,8 +251,6 @@ impl KittyError {
         KittyError::new("EINVAL", "PNG data size too large for the image scratch");
     pub const RELATIVE: KittyError =
         KittyError::new("EINVAL", "Relative placements are not supported");
-    pub const VIRTUAL: KittyError =
-        KittyError::new("EINVAL", "Unicode placeholder placements are not supported");
     /// A path past [`KITTY_PATH_MAX`]: kitty's code and text
     /// (`load_image_data`), which say nothing of any file.
     pub const PATH: KittyError = KittyError::new("EINVAL", "Filename too long");
@@ -750,6 +764,50 @@ pub struct KittyCounts {
     /// The stream's own count, beside the core's `reply_overflows` for its
     /// reply buffer: a different buffer, emptied by a different caller.
     pub replies_dropped: usize,
+    /// Virtual placements (`U=1`) not made because every slot of the
+    /// stream's table held one ([`KITTY_VIRTUALS`]), or because their
+    /// image has no id a placeholder could name.
+    pub virtuals_refused: usize,
+}
+
+/// **How many virtual placements a stream holds**: `kitten icat` makes one
+/// an image, and each is a few dozen bytes in the stream's own memory. A
+/// table full refuses the next and counts it
+/// ([`KittyCounts::virtuals_refused`]).
+pub const KITTY_VIRTUALS: usize = 256;
+
+/// One virtual placement: its image, by slot and by the client's id, its
+/// placement id, the counts `c` and `r` as given, and its `z`. Empty when
+/// [`Virtual::image`] is [`ImageId::NONE`].
+#[derive(Clone, Copy)]
+struct Virtual {
+    image: ImageId,
+    id: KittyId,
+    placement: KittyPlacement,
+    cols: Cols,
+    rows: Rows,
+    z: ZIndex,
+}
+
+impl Virtual {
+    const EMPTY: Virtual = Virtual {
+        image: ImageId::NONE,
+        id: KittyId::NONE,
+        placement: KittyPlacement::NONE,
+        cols: Cols(0),
+        rows: Rows::ZERO,
+        z: ZIndex::ZERO,
+    };
+}
+
+/// **What a placeholder run draws** ([`KittyStream::virtual_of`]): the
+/// image, the virtual placement's geometry -- the whole image fitted into
+/// its cells, [`KittyFit::Box`] -- and its `z`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct KittyVirtual {
+    pub image: ImageId,
+    pub place: KittyPlace,
+    pub z: ZIndex,
 }
 
 /// Where the current chunk stands between its `G` and its terminator.
@@ -849,6 +907,11 @@ pub struct KittyStream {
     /// scanlines its decode made after them. Given back
     /// ([`ImageStore::set_release`]) once no PNG holds the scratch.
     scratch_hi: usize,
+    /// The virtual placements (`U=1`), in their own table.
+    virtuals: [Virtual; KITTY_VIRTUALS],
+    /// How many slots of `virtuals` are filled, so a renderer asks one
+    /// compare before it looks for placeholders.
+    virtuals_live: usize,
     /// What it did.
     pub counts: KittyCounts,
     /// How the caller fed it, beside what it did.
@@ -906,6 +969,8 @@ impl KittyStream {
         path: [0; KITTY_PATH_MAX],
         path_len: 0,
         scratch_hi: 0,
+        virtuals: [Virtual::EMPTY; KITTY_VIRTUALS],
+        virtuals_live: 0,
         counts: KittyCounts {
             commands: 0,
             refused: 0,
@@ -914,6 +979,7 @@ impl KittyStream {
             images: 0,
             excess: 0,
             replies_dropped: 0,
+            virtuals_refused: 0,
         },
     };
 
@@ -1213,6 +1279,12 @@ impl KittyStream {
             // existing image and all its placements must be deleted."
             if let Some(old) = store.kitty_image(cmd.id) {
                 store.free(old);
+            }
+            // Its virtual placements go with it, by the id: an image freed
+            // before, by a failed decode, leaves them naming no live image.
+            if !cmd.id.is_none() {
+                let id = cmd.id;
+                self.drop_virtuals(store, KittyFree::Placements, |v| v.id == id);
             }
             if cmd.id.is_none() && !cmd.number.is_none() {
                 cmd.id = self.fresh_id(store);
@@ -1809,8 +1881,9 @@ impl KittyStream {
     }
 
     /// **Place `image` at the cursor** with `cmd`'s geometry, and say how
-    /// far the cursor moves. A Unicode placeholder's virtual placement and a
-    /// relative one are refused (EINVAL), placing nothing.
+    /// far the cursor moves. A relative placement is refused (EINVAL),
+    /// placing nothing; a Unicode placeholder's virtual one is made in the
+    /// stream's table and moves nothing.
     fn place(
         &mut self,
         image: ImageId,
@@ -1819,6 +1892,10 @@ impl KittyStream {
         store: &mut ImageStore,
     ) -> Option<KittyMove> {
         if unplaceable(cmd).is_some() {
+            return None;
+        }
+        if cmd.virtual_place != 0 {
+            self.place_virtual(image, cmd, store);
             return None;
         }
         let (iw, ih) = store.size_of(image)?;
@@ -1902,6 +1979,32 @@ impl KittyStream {
         let (what, free) = cmd.delete;
         let screen = at.screen;
         let pid = cmd.placement;
+        // "Virtual placements can be deleted by a deletion command only when
+        // the d key is equal to i, I, r, R, n or N" -- first, so an image
+        // they alone held is freed by an uppercase letter as one with no
+        // placement is.
+        match what {
+            KittyDelete::Id => {
+                let id = cmd.id;
+                self.drop_virtuals(store, free, |v| {
+                    !id.is_none() && v.id == id && (pid.is_none() || v.placement == pid)
+                });
+            }
+            KittyDelete::Number => {
+                if let Some(img) = store.kitty_newest(cmd.number) {
+                    self.drop_virtuals(store, free, |v| {
+                        v.image == img && (pid.is_none() || v.placement == pid)
+                    });
+                }
+            }
+            KittyDelete::Range => {
+                let (lo, hi) = (cmd.x, cmd.y);
+                self.drop_virtuals(store, free, |v| {
+                    !v.id.is_none() && lo <= v.id.raw() && v.id.raw() <= hi
+                });
+            }
+            _ => {}
+        }
         // An `I`, `N` or `R` naming an image no placement shows frees it too.
         if free == KittyFree::Data && pid.is_none() {
             match what {
@@ -2006,6 +2109,129 @@ impl KittyStream {
             }
             KittyDelete::Frames => self.counts.ignored += 1,
         }
+    }
+
+    /// Whether virtual placement `v` still names a live image by its id: an
+    /// image freed under it (a failed decode) leaves it naming none, and a
+    /// slot reused since names another id.
+    fn live(v: &Virtual, store: &ImageStore) -> bool {
+        !v.image.is_none() && store.kitty_names(v.image).is_some_and(|(i, _)| i == v.id)
+    }
+
+    /// **Make a virtual placement of `image`** (`U=1`): replacing the one of
+    /// the same image and non-zero placement id, "If you send two
+    /// placements with the same image id and placement id the second one
+    /// will replace the first". An image no id names cannot be shown by a
+    /// placeholder, and is not given one; a full table refuses. Both are
+    /// counted.
+    fn place_virtual(&mut self, image: ImageId, cmd: &KittyCommand, store: &mut ImageStore) {
+        let Some((id, _)) = store.kitty_names(image) else {
+            return;
+        };
+        if id.is_none() {
+            self.counts.virtuals_refused += 1;
+            return;
+        }
+        // What names no live image is gone, without a release: its image
+        // went with every reference it had.
+        for v in self.virtuals.iter_mut() {
+            if !v.image.is_none() && !KittyStream::live(v, store) {
+                *v = Virtual::EMPTY;
+                self.virtuals_live -= 1;
+            }
+        }
+        if !store.hold(image) {
+            return;
+        }
+        let pid = cmd.placement;
+        if !pid.is_none() {
+            self.drop_virtuals(store, KittyFree::Placements, |v| {
+                v.image == image && v.placement == pid
+            });
+        }
+        let count = |n: u32| usize::try_from(n).unwrap_or(usize::MAX);
+        let Some(slot) = self.virtuals.iter_mut().find(|v| v.image.is_none()) else {
+            store.release(image, KittyFree::Placements);
+            self.counts.virtuals_refused += 1;
+            return;
+        };
+        *slot = Virtual {
+            image,
+            id,
+            placement: pid,
+            cols: Cols(count(cmd.cols)),
+            rows: Rows::of_count(count(cmd.rows)),
+            z: ZIndex::of(cmd.z),
+        };
+        self.virtuals_live += 1;
+    }
+
+    /// Delete the live virtual placements `hit` picks, releasing each
+    /// one's reference with `free`'s rule, and the ones naming no live
+    /// image with nothing to release.
+    fn drop_virtuals(
+        &mut self,
+        store: &mut ImageStore,
+        free: KittyFree,
+        hit: impl Fn(&Virtual) -> bool,
+    ) {
+        for v in self.virtuals.iter_mut() {
+            if v.image.is_none() || !hit(v) {
+                continue;
+            }
+            if KittyStream::live(v, store) {
+                store.release(v.image, free);
+            }
+            *v = Virtual::EMPTY;
+            self.virtuals_live -= 1;
+        }
+    }
+
+    /// Whether any virtual placement is held.
+    pub fn has_virtuals(&self) -> bool {
+        self.virtuals_live > 0
+    }
+
+    /// **The virtual placement a placeholder run of image `image` and
+    /// placement `placement` shows**: the one with that placement id, or
+    /// with none the first in the table ("the terminal may choose any
+    /// virtual placement of the given image"), its image live and whole.
+    /// Its geometry is the whole image fitted into its cells at `at`'s cell
+    /// size, aspect kept and centred; a count not given is the image's own
+    /// size in cells, rounded up (kitty's `grman_put_cell_image`).
+    pub fn virtual_of(
+        &self,
+        image: KittyId,
+        placement: KittyPlacement,
+        at: &KittyAt,
+        store: &ImageStore,
+    ) -> Option<KittyVirtual> {
+        if image.is_none() {
+            return None;
+        }
+        let v = self.virtuals.iter().find(|v| {
+            v.id == image
+                && (placement.is_none() || v.placement == placement)
+                && KittyStream::live(v, store)
+        })?;
+        let (iw, ih) = store.size_of(v.image)?;
+        let cells = |given: usize, px: ImagePx, cell: ImagePx| match (given, cell.raw()) {
+            (0, 0) => 0,
+            (0, c) => px.index().div_ceil(usize::from(c)),
+            (n, _) => n,
+        };
+        let place = KittyPlace {
+            id: v.placement,
+            cols: Cols(cells(v.cols.index(), iw, at.cell_w)),
+            rows: Rows::of_count(cells(v.rows.index(), ih, at.cell_h)),
+            fit: KittyFit::Box,
+            ..KittyPlace::NONE
+        };
+        Some(KittyVirtual {
+            image: v.image,
+            place,
+            z: v.z,
+        })
     }
 
     /// **`ED 2` clears the images on screen** as it clears the text: "The
@@ -2126,13 +2352,13 @@ impl ReplyBuf {
     }
 }
 
-/// Why a placement `cmd` asks for is not made: a relative one (`P`) or a
-/// Unicode placeholder's virtual one (`U=1`), both later steps (Jev,
-/// REFUSE_WITH_EINVAL).
+/// Why a placement `cmd` asks for is not made: a relative one (`P`), a
+/// later step (Jev, REFUSE_WITH_EINVAL), and a virtual one made relative
+/// with it, which "the terminal must respond with the EINVAL error code"
+/// ("Relative placements").
 fn unplaceable(cmd: &KittyCommand) -> Option<KittyError> {
-    match (cmd.parent, cmd.virtual_place) {
-        (0, 0) => None,
-        (0, _) => Some(KittyError::VIRTUAL),
+    match cmd.parent {
+        0 => None,
         _ => Some(KittyError::RELATIVE),
     }
 }

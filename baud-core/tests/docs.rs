@@ -634,6 +634,14 @@ fn every_test_named_in_the_docs_exists() {
             "hb_script_get_horizontal_direction",
             "HarfBuzz's per-script direction list (hb-common.cc), cited for Script::direction",
         ),
+        (
+            "grman_put_cell_image",
+            "kitty's graphics.c, how a placeholder run draws its virtual placement, cited in kitty.rs",
+        ),
+        (
+            "screen_render_line_graphics",
+            "kitty's screen.c, how a line's placeholders become runs, cited in placeholder.rs",
+        ),
     ];
 
     let mut missing = BTreeSet::new();

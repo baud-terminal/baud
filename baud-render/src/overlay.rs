@@ -451,7 +451,7 @@ impl Overlay {
                 {
                     continue;
                 }
-                let Some(cp) = term.base_of(*cell).as_codepoint() else {
+                let Some(cp) = crate::renderer::drawn_base(term, *cell) else {
                     continue;
                 };
                 let mut cps = vec![cp];
@@ -629,12 +629,11 @@ impl Overlay {
             }
             // A cell under the composition is empty to the walk, and cuts
             // the window as an empty cell does.
-            let content = if covered.holds(y, Col::at_index(x)) {
-                Content::EMPTY
-            } else {
-                scene.term.base_of(*cell)
+            let drawn = match covered.holds(y, Col::at_index(x)) {
+                true => None,
+                false => crate::renderer::drawn_base(scene.term, *cell),
             };
-            let mut entry = content.as_codepoint().and_then(|cp| {
+            let mut entry = drawn.and_then(|cp| {
                 scene
                     .map
                     .probe(

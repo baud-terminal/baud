@@ -2056,6 +2056,21 @@ impl<'a> View<'a> {
         self.used[p] = self.used[p].reached(c.col().index() + 1);
     }
 
+    /// Give a U+10EEEE cell its diacritics: its content becomes the
+    /// placeholder word `word` ([`Content::placeholder`]) and its flags take
+    /// [`CellFlags::MARKED`], as [`View::set_cluster`] does for a slot, and
+    /// for the same reason it raises `RowExtent`.
+    pub fn set_placeholder(&mut self, r: Row, c: LeadCol, word: Content) {
+        if r.index() >= self.rows.index() || c.col().index() >= self.cols.index() {
+            return;
+        }
+        let p = self.phys(r);
+        let i = p * self.stride.index() + c.col().index();
+        self.cells[i].content = word;
+        self.cells[i].flags = self.cells[i].flags.with(CellFlags::MARKED);
+        self.used[p] = self.used[p].reached(c.col().index() + 1);
+    }
+
     /// Every cell of this surface's buffer -- the screen, the history behind
     /// it and the rows held past a narrower edge -- for the cluster store's
     /// sweep, which must see every cell that can name a slot.

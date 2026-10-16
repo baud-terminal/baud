@@ -110,6 +110,9 @@ MODES = {
     "detect-da6": ([], b"\x1b[?6c", False),
     "detect-da64": ([], b"\x1b[?6;4c", False),
     "detect-direct": ([], b"\x1b[?6;4c", True),
+    # Unicode placeholders, as through tmux: the image with `a=T,U=1` and
+    # then U+10EEEE cells, each with its row, column and id-byte diacritics.
+    "placeholder": (["--transfer-mode=stream", "--unicode-placeholder"], None, False),
 }
 
 

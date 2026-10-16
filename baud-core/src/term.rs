@@ -2835,11 +2835,7 @@ impl<'b> Term<'b> {
         // different questions that used to be the same type. `attach` already
         // goes through it; this is the read side of the same rule.
         let cell = v.cell_at(r, v.lead(r, c));
-        self.store
-            .clusters
-            .get(cell.content)
-            .into_iter()
-            .flat_map(|s| s.marks())
+        self.store.clusters.marks_of(cell.content)
     }
 
     /// The stored images and their placements, for a renderer to draw and a
@@ -2947,11 +2943,67 @@ impl<'b> Term<'b> {
     /// cell kept across a read can name a slot that now holds another
     /// cluster; [`Term::cluster_epoch`] says when that can have happened.
     pub fn cluster_marks(&self, cell: PackedCell) -> impl Iterator<Item = u32> + '_ {
+        self.store.clusters.marks_of(cell.content)
+    }
+
+    /// **The kitty Unicode placeholders of `row`, resolved into runs**
+    /// (`[[source: kitty-graphics]]`, "Unicode placeholders";
+    /// [`PlaceholderRuns`]): each run a strip of cells showing one row of
+    /// one image, from the ids in the cells' foreground and underline
+    /// colours, the diacritics after U+10EEEE and what a cell inherits from
+    /// the one to its left. `row` is read in this borrow, as
+    /// [`Term::cluster_marks`] says.
+    pub fn placeholder_runs<'r>(
+        &'r self,
+        row: &'r [PackedCell],
+    ) -> PlaceholderRuns<impl Iterator<Item = PlaceholderCell> + 'r> {
+        PlaceholderRuns::new(row.iter().map(move |c| {
+            let base = self.store.clusters.base_of(c.content);
+            if !base.as_codepoint().is_some_and(is_placeholder) {
+                return PlaceholderCell::Other;
+            }
+            let marks = match c.content.placeholder_marks() {
+                Some(m) => m,
+                None => PlaceholderMarks::read(self.store.clusters.marks_of(c.content)),
+            };
+            let style = self.style_of(*c);
+            PlaceholderCell::Placeholder {
+                marks,
+                fg: style.fg(),
+                underline: style.underline(),
+            }
+        }))
+    }
+
+    /// **The virtual placement a placeholder run shows** (`a=p,U=1`): the
+    /// image `image` names, and of its virtual placements the one
+    /// `placement` names, or with none the first -- "the terminal may
+    /// choose any virtual placement of the given image". Its geometry is the
+    /// whole image fitted into its `c` x `r` cells at the cell size set
+    /// now, a count not given the image's own size in cells rounded up.
+    /// `None` when the image or the placement is gone.
+    pub fn kitty_virtual(&self, image: KittyId, placement: KittyPlacement) -> Option<KittyVirtual> {
+        let at = KittyAt {
+            screen: ImageScreen::Primary,
+            top: LineIdx::FIRST,
+            row: Rows::ZERO,
+            col: Col::ZERO,
+            rows: self.rows,
+            cols: self.cols,
+            cell_w: self.cell_width,
+            cell_h: self.cell_height,
+        };
         self.store
-            .clusters
-            .get(cell.content)
-            .into_iter()
-            .flat_map(|s| s.marks())
+            .strs
+            .kitty
+            .virtual_of(image, placement, &at, &self.store.images)
+    }
+
+    /// Whether any kitty virtual placement is live: the gate a renderer
+    /// asks before it looks for placeholders at all, so a screen with none
+    /// costs one compare a frame.
+    pub fn kitty_virtuals(&self) -> bool {
+        self.store.strs.kitty.has_virtuals()
     }
 
     /// The character `cell` shows as its base: its content, or for a cell

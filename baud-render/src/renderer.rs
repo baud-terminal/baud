@@ -515,7 +515,7 @@ impl Selections {
 /// cluster's (UAX #24 5.2), which reads the marks only then. A cell with
 /// nothing drawn joins whatever is around it.
 fn unresolved(term: &Term<'_>, cell: PackedCell) -> Unresolved {
-    let Some(base) = term.base_of(cell).as_codepoint() else {
+    let Some(base) = drawn_base(term, cell) else {
         return Unresolved::BLANK;
     };
     match Unresolved::of(core::slice::from_ref(&base)) {
@@ -527,6 +527,23 @@ fn unresolved(term: &Term<'_>, cell: PackedCell) -> Unresolved {
         }
         u => u,
     }
+}
+
+/// **The character a cell draws**: its base ([`Term::base_of`]), and none
+/// for a kitty Unicode placeholder, U+10EEEE, whose cell shows a slice of
+/// an image or nothing (`[[source: kitty-graphics]]`, "Unicode
+/// placeholders"): the protocol is the private agreement that gives this
+/// private-use character its meaning, and it is never drawn as a glyph,
+/// nor are its diacritics, as kitty's `font_for_cell` draws it with the
+/// blank font (`[[source: kitty-fonts-c]]`). With no image to show, the
+/// cell shows its background: Jev favoured BLANK over TUS 5.3's `.notdef`
+/// at 0.80 and 0.84, under the bar, so it is the interim choice and an
+/// open question. Every path that draws a glyph asks here; a copy asks
+/// [`Term::base_of`] and gets the character back.
+pub(crate) fn drawn_base(term: &Term<'_>, cell: PackedCell) -> Option<Codepoint> {
+    term.base_of(cell)
+        .as_codepoint()
+        .filter(|c| !baud_domain::is_placeholder(*c))
 }
 
 /// Where the cursor is, when it is shown, and its shape.
@@ -1822,9 +1839,6 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let (cell_w, cell_h) = (cell(self.metrics.cell_w), cell(self.metrics.cell_h));
         let screen_h = self.rows.index() as i64 * ch;
         let frame_w = i64::from(self.frame_size().0.value());
-        let clamp16 = |v: i64| v.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16;
-        let side = |v: i64| u16::try_from(v).unwrap_or(u16::MAX);
-        let texel = |v: u32| ImagePx::of(u16::try_from(v).unwrap_or(u16::MAX));
         for (_, p) in imgs.placements() {
             if p.screen != origin.screen {
                 continue;
@@ -1833,7 +1847,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 continue;
             };
             let draw = p.kitty.draw(view.width, view.height, cell_w, cell_h);
-            let (src, dest) = (draw.src, draw.dest);
+            let dest = draw.dest;
             if dest.is_empty() {
                 continue;
             }
@@ -1858,60 +1872,64 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if cut_bottom > 0 {
                 j1 = j1.min(rows_px(p.kitty.rows) - cut_bottom - i64::from(dest.y));
             }
-            if i0 >= i1 || j0 >= j1 {
-                continue;
-            }
-            let at = MapAt(self.image_maps.len());
-            let span = |v: i64| u32::try_from(v).unwrap_or(0);
-            self.image_maps
-                .extend((span(i0)..span(i1)).map(|i| ImageDraw::nearest(i, dest.w, src.x, src.w)));
-            self.image_maps
-                .extend((span(j0)..span(j1)).map(|j| ImageDraw::nearest(j, dest.h, src.y, src.h)));
-            let scale = match (dest.w == src.w, dest.h == src.h) {
-                (true, true) => ImageScale::Unit {
-                    x: texel(src.x + span(i0)),
-                    y: texel(src.y + span(j0)),
-                },
-                _ => ImageScale::Mapped,
-            };
-            let z = p.z;
-            self.image_places.push(ImagePlacement {
-                id: p.image,
+            self.push_image(
+                imgs,
                 epoch,
-                x: clamp16(x0 + i0),
-                y: clamp16(y0 + j0),
-                w: side(i1 - i0),
-                h: side(j1 - j0),
-                alpha: view.alpha,
-                z,
-                layer: ImageLayer::of(z),
-                tie: imgs
-                    .kitty_names(p.image)
-                    .map_or(KittyId::NONE, |(id, _)| id),
+                p.image,
+                &view,
                 draw,
-                scale,
-                map: at,
-            });
-            // Snapshot the pixels once per referenced `(id, epoch)`: the GPU
-            // reads this to upload, the CPU reads the term itself. The words
-            // are the store's own, straight: the fragment premultiplies, so a
-            // clear (unpainted Sixel) pixel, `0x00000000`, leaves the cell
-            // showing through and a partial one blends by its alpha.
-            if snap == Snapshots::Kept
-                && !self
-                    .image_uploads
-                    .iter()
-                    .any(|u| u.id == p.image && u.epoch == epoch)
-            {
-                let pixels = view.pixels.iter().map(|p| p.bits()).collect();
-                self.image_uploads.push(ImageUpload {
-                    id: p.image,
-                    epoch,
-                    w: view.width.raw(),
-                    h: view.height.raw(),
-                    pixels,
-                });
-                self.image_snapshots = self.image_snapshots.inc();
+                (x0, y0),
+                (i0, i1, j0, j1),
+                p.z,
+                snap,
+            );
+        }
+        // **kitty's Unicode placeholders** (`[[source: kitty-graphics]]`,
+        // "Unicode placeholders"): each run of placeholder cells on screen
+        // shows its strip of the virtual placement it names, drawn as a
+        // placement anchored where the placement's top-left cell would be
+        // -- `col` columns left of the run and `row` rows above it -- and
+        // clipped to the run's cells, so the strips of one image meet with
+        // no seam and sample one table. Only while a virtual placement is
+        // held: a screen with none asks one compare a frame.
+        if term.kitty_virtuals() {
+            let vp = term.view(term.looking_back(back));
+            for r in 0..self.rows.index() {
+                let row = vp.row(Row::from_index(r));
+                for run in term.placeholder_runs(row) {
+                    let Some(v) = term.kitty_virtual(run.image, run.placement) else {
+                        continue;
+                    };
+                    let Some(view) = imgs.image(v.image) else {
+                        continue;
+                    };
+                    let draw = v.place.draw(view.width, view.height, cell_w, cell_h);
+                    let dest = draw.dest;
+                    if dest.is_empty() {
+                        continue;
+                    }
+                    let at = run.at.index() as i64;
+                    let x0 = (at - run.col.index() as i64) * cw + i64::from(dest.x);
+                    let y0 = (r as i64 - run.row.index() as i64) * ch + i64::from(dest.y);
+                    let (left, top) = (at * cw, r as i64 * ch);
+                    let right = left + run.cells.index() as i64 * cw;
+                    let (i0, i1) = (
+                        (left - x0).max(0),
+                        (right - x0).min(i64::from(dest.w)).min(frame_w - x0),
+                    );
+                    let (j0, j1) = ((top - y0).max(0), (top + ch - y0).min(i64::from(dest.h)));
+                    self.push_image(
+                        imgs,
+                        epoch,
+                        v.image,
+                        &view,
+                        draw,
+                        (x0, y0),
+                        (i0, i1, j0, j1),
+                        v.z,
+                        snap,
+                    );
+                }
             }
         }
         // The text's order: by `z`, then by the client's id; stable, so
@@ -1928,6 +1946,83 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let places = &self.image_places;
             self.image_uploads
                 .retain(|u| places.iter().any(|p| p.id == u.id));
+        }
+    }
+
+    /// **One placement's visible part into this frame's list**: its
+    /// tables, from `ImageDraw::nearest`, and its pixels snapshotted once
+    /// for the GPU. `x0` and `y0` are the drawn rectangle's top-left on
+    /// screen and `i0..i1` by `j0..j1` the part of it shown, in drawn pixels
+    /// from that corner -- what a placement on screen and a placeholder's
+    /// strip both reduce to.
+    #[allow(clippy::too_many_arguments)]
+    fn push_image(
+        &mut self,
+        imgs: &ImageStore<'_>,
+        epoch: ImageGen,
+        id: ImageId,
+        view: &baud_domain::ImageView<'_>,
+        draw: ImageDraw,
+        (x0, y0): (i64, i64),
+        (i0, i1, j0, j1): (i64, i64, i64, i64),
+        z: ZIndex,
+        snap: Snapshots,
+    ) {
+        if i0 >= i1 || j0 >= j1 {
+            return;
+        }
+        let (src, dest) = (draw.src, draw.dest);
+        let clamp16 = |v: i64| v.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16;
+        let side = |v: i64| u16::try_from(v).unwrap_or(u16::MAX);
+        let texel = |v: u32| ImagePx::of(u16::try_from(v).unwrap_or(u16::MAX));
+        let at = MapAt(self.image_maps.len());
+        let span = |v: i64| u32::try_from(v).unwrap_or(0);
+        self.image_maps
+            .extend((span(i0)..span(i1)).map(|i| ImageDraw::nearest(i, dest.w, src.x, src.w)));
+        self.image_maps
+            .extend((span(j0)..span(j1)).map(|j| ImageDraw::nearest(j, dest.h, src.y, src.h)));
+        let scale = match (dest.w == src.w, dest.h == src.h) {
+            (true, true) => ImageScale::Unit {
+                x: texel(src.x + span(i0)),
+                y: texel(src.y + span(j0)),
+            },
+            _ => ImageScale::Mapped,
+        };
+        self.image_places.push(ImagePlacement {
+            id,
+            epoch,
+            x: clamp16(x0 + i0),
+            y: clamp16(y0 + j0),
+            w: side(i1 - i0),
+            h: side(j1 - j0),
+            alpha: view.alpha,
+            z,
+            layer: ImageLayer::of(z),
+            tie: imgs.kitty_names(id).map_or(KittyId::NONE, |(k, _)| k),
+            draw,
+            scale,
+            map: at,
+        });
+        // Snapshot the pixels once per referenced `(id, epoch)`: the GPU
+        // reads this to upload, the CPU reads the term itself. The words
+        // are the store's own, straight: the fragment premultiplies, so a
+        // clear (unpainted Sixel) pixel, `0x00000000`, leaves the cell
+        // showing through and a partial one blends by its alpha.
+        if snap == Snapshots::Kept
+            && !self
+                .image_uploads
+                .iter()
+                .any(|u| u.id == id && u.epoch == epoch)
+        {
+            let pixels = view.pixels.iter().map(|p| p.bits()).collect();
+            self.image_uploads.push(ImageUpload {
+                id,
+                epoch,
+                w: view.width.raw(),
+                h: view.height.raw(),
+                pixels,
+            });
+            self.image_snapshots = self.image_snapshots.inc();
         }
     }
 
@@ -3034,7 +3129,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut settled = false;
         let mut c = 0usize;
         while c < row.len() {
-            let Some(base) = term.base_of(row[c]).as_codepoint() else {
+            let Some(base) = drawn_base(term, row[c]) else {
                 c += 1;
                 continue;
             };
@@ -3093,7 +3188,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let mut pair_here = Tally::default();
             while c < row.len() && c - start < RUN_CELLS {
                 let cell = row[c];
-                let Some(cp) = term.base_of(cell).as_codepoint() else {
+                let Some(cp) = drawn_base(term, cell) else {
                     break;
                 };
                 // The run's first cell is taken whatever the test says: the
@@ -3306,7 +3401,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let Some(cell) = self.cur.get(range.start + col).copied() else {
                 continue;
             };
-            let Some(cp) = term.base_of(cell).as_codepoint() else {
+            let Some(cp) = drawn_base(term, cell) else {
                 continue;
             };
             let style = self.face_style(cell);

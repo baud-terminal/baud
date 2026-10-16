@@ -3756,6 +3756,145 @@ fn kitty_draw_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             "a margin scroll: the {arm} arm does not clip at the margin"
         );
     }
+    kitty_placeholder_gate(arms, t);
     t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
     feed(t, b"\x1bc");
+}
+
+/// The pinned list's diacritic for `n` (`[[source:
+/// kitty-rowcolumn-diacritics]]`), read from the list and not the table
+/// generated from it.
+fn placeholder_diacritic(n: usize) -> char {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/research/sources/kitty-rowcolumn-diacritics.txt"
+    );
+    let src = std::fs::read_to_string(path).unwrap();
+    let line = src
+        .lines()
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .nth(n)
+        .unwrap();
+    char::from_u32(u32::from_str_radix(line.split(';').next().unwrap(), 16).unwrap()).unwrap()
+}
+
+/// U+10EEEE cells at `cells` -- `(row, col)` from the gate's anchor, row 3
+/// and column 5 one-based -- in `sgr`: every cell its row and column and,
+/// past zero, the id's top byte `msb` when `full`, else only each row's
+/// first cell its row, the rest inheriting.
+fn placeholder_grid(sgr: &str, cells: &[(usize, usize)], msb: usize, full: bool) -> Vec<u8> {
+    let d = placeholder_diacritic;
+    let mut s = String::new();
+    let mut rows: Vec<usize> = cells.iter().map(|c| c.0).collect();
+    rows.dedup();
+    for r in rows {
+        let cols: Vec<usize> = cells.iter().filter(|c| c.0 == r).map(|c| c.1).collect();
+        s += &format!("\x1b[{};{}H\x1b[0;{sgr}m", 3 + r, 5 + cols[0]);
+        for (k, c) in cols.into_iter().enumerate() {
+            s.push('\u{10EEEE}');
+            match (full, k) {
+                (true, _) => {
+                    s.push(d(r));
+                    s.push(d(c));
+                    if msb != 0 {
+                        s.push(d(msb));
+                    }
+                }
+                (false, 0) => s.push(d(r)),
+                _ => {}
+            }
+        }
+    }
+    s += "\x1b[0m";
+    s.into_bytes()
+}
+
+/// **kitty's Unicode placeholders on every arm** (`[[source:
+/// kitty-graphics]]`, "Unicode placeholders"): a grid of U+10EEEE cells
+/// at the anchor draws, on the instance, cell and CPU arms alike, what a
+/// placement of its virtual placement's box draws on that arm -- which the
+/// gate above holds to the text -- and a partial grid draws that inside
+/// its cells and nothing outside them. The scenes reach the inheritance,
+/// the id's top byte and the placement id in the underline colour, each
+/// of which draws other pixels when it is ignored; the image is 6 by 4 and
+/// the boxes are not square, so a row and a column swapped do too.
+fn kitty_placeholder_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (
+        usize::try_from(m.cell_w.value()).unwrap(),
+        usize::try_from(m.cell_h.value()).unwrap(),
+    );
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let frames = |arms: &mut Arms<'_, '_>, t: &mut Term<'_>| {
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        [a, b, cpu]
+    };
+    let all = |c: usize, r: usize| -> Vec<(usize, usize)> {
+        (0..r).flat_map(|y| (0..c).map(move |x| (y, x))).collect()
+    };
+    let hi = 1 + (2 << 24);
+    feed(t, b"\x1bc\x1b[?25l");
+    let blank = frames(arms, t);
+    // (name, the image placed, its virtual placements, the grid).
+    type Scene<'s> = (&'s str, (u32, fn(u32, u32) -> u32), &'s [&'s str], Vec<u8>);
+    let scenes: [Scene<'_>; 5] = [
+        ("4x3, every cell", (1, kitty_texel), &["U=1,c=4,r=3"], {
+            placeholder_grid("38;5;1", &all(4, 3), 0, true)
+        }),
+        ("2x3, rows inherited", (1, kitty_texel), &["U=1,c=2,r=3"], {
+            placeholder_grid("38;5;1", &all(2, 3), 0, false)
+        }),
+        ("5x1, the top byte", (hi, kitty_other), &["U=1,c=5,r=1"], {
+            placeholder_grid("38;5;1", &all(5, 1), 2, true)
+        }),
+        (
+            "2x3, placement 2",
+            (1, kitty_texel),
+            &["U=1,p=1,c=4,r=3", "U=1,p=2,c=2,r=3"],
+            { placeholder_grid("38;5;1;58;5;2", &all(2, 3), 0, true) },
+        ),
+        ("4x3, three cells", (1, kitty_texel), &["U=1,c=4,r=3"], {
+            placeholder_grid("38;5;1", &[(1, 1), (1, 2), (2, 3)], 0, true)
+        }),
+    ];
+    for (name, (id, px), virts, grid) in scenes {
+        let last = virts[virts.len() - 1];
+        let geometry = last.trim_start_matches("U=1,").trim_start_matches("p=2,");
+        feed(t, b"\x1bc\x1b[?25l");
+        kitty_put(t, id, px, &[geometry]);
+        let placed = frames(arms, t);
+        assert!(
+            differing(&placed[0], &blank[0]) > 0,
+            "{name}: the premise, the placement draws"
+        );
+        feed(t, b"\x1bc\x1b[?25l");
+        if id == hi {
+            kitty_put(t, 1, kitty_texel, &["U=1,c=5,r=1"]);
+        }
+        kitty_put(t, id, px, virts);
+        feed(t, &grid);
+        let got = frames(arms, t);
+        // The cells the grid wrote, on screen.
+        let written: Vec<(usize, usize)> = match name {
+            "4x3, three cells" => vec![(3, 5), (3, 6), (4, 7)],
+            _ => Vec::new(),
+        };
+        for (k, arm) in ["instance", "cell", "cpu"].into_iter().enumerate() {
+            let want: Vec<u32> = (0..got[k].len())
+                .map(|i| {
+                    let cell = (i / fw / ch, i % fw / cw);
+                    match written.is_empty() || written.contains(&cell) {
+                        true => placed[k][i],
+                        false => blank[k][i],
+                    }
+                })
+                .collect();
+            assert_eq!(
+                differing(&got[k], &want),
+                0,
+                "{name}: the {arm} arm's placeholders are not the placement's pixels"
+            );
+        }
+    }
 }

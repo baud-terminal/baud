@@ -446,7 +446,7 @@ impl<'m> GlyphMap<'m> {
                 if cell.flags.is_marked() {
                     self.stats.dropped_marks.bump();
                 }
-                let Some(cp) = term.base_of(*cell).as_codepoint() else {
+                let Some(cp) = crate::renderer::drawn_base(term, *cell) else {
                     if cell.content != Content::WIDE_TAIL {
                         prev = None;
                     }

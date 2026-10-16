@@ -193,8 +193,9 @@ fn an_image_still_placed_keeps_its_pages() {
     assert_eq!(t.images().bytes_released, 0, "no image was freed");
 }
 
-/// **Every way an image is freed gives its pages back**: a delete, an
-/// eviction for space, `RIS`, `ED 2`, and its screen being left. Each
+/// **Every way an image is freed gives its pages back**: a delete, the
+/// delete of an image only a virtual placement held, an eviction for
+/// space, `RIS`, `ED 2`, and its screen being left. Each
 /// starts from a placed 64x4 image (1024 bytes, at least fifteen whole
 /// double pages) and counts what went back.
 #[test]
@@ -210,8 +211,17 @@ fn every_free_gives_its_pages_back() {
         s.extend(apc("a=t,f=32,s=64,v=4,i=7", &a));
         s
     };
-    let cases: [(&str, &[u8], &[u8], usize); 5] = [
+    let mut virtual_only = apc("a=t,f=32,s=64,v=4,i=1", &a);
+    virtual_only.extend(apc("a=p,U=1,i=1,c=4,r=3", b""));
+    let cases: [(&str, &[u8], &[u8], usize); 6] = [
         ("delete", &placed, b"\x1b_Ga=d,d=I,i=1\x1b\\", 4096),
+        // Held by a virtual placement alone: its last reference let go.
+        (
+            "a virtual placement's delete",
+            &virtual_only,
+            b"\x1b_Ga=d,d=I,i=1\x1b\\",
+            4096,
+        ),
         ("eviction", b"", &evicting, 512),
         ("RIS", &placed, b"\x1bc", 4096),
         ("ED 2", &placed, b"\x1b[2J", 4096),

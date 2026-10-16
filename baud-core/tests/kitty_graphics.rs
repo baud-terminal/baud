@@ -781,7 +781,7 @@ fn text_does_not_erase_an_image_and_ed2_and_ris_do() {
 }
 
 #[test]
-fn placeholders_relative_placements_and_animation_are_refused_or_ignored() {
+fn relative_placements_and_animation_are_refused_or_ignored() {
     with(256, |t| {
         let mut r = Vec::new();
         feed(
@@ -792,9 +792,11 @@ fn placeholders_relative_placements_and_animation_are_refused_or_ignored() {
         feed(t, &apc("a=p,i=1,P=1,Q=1", b""), &mut r);
         feed(t, &apc("a=f,i=1,f=24,s=1,v=1", &b64(&[1, 2, 3])), &mut r);
         let r = String::from_utf8_lossy(&r).into_owned();
+        // A virtual placement (`U=1`) is made and answered as a put is
+        // (`tests/kitty_placeholder.rs`); a relative one is refused.
         assert_eq!(
             r,
-            "\x1b_Gi=1;EINVAL:Unicode placeholder placements are not supported\x1b\\\
+            "\x1b_Gi=1;OK\x1b\\\
              \x1b_Gi=1;EINVAL:Relative placements are not supported\x1b\\"
         );
         assert_eq!(t.images().placements().count(), 0);

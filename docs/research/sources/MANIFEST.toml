@@ -7818,6 +7818,10 @@ status = "external"
 group  = "C"
 # `transmit_image`: `--transfer-mode` `file`, `memory` or `stream` (`t=d`),
 # and under `detect` shared memory, then a file, then the stream.
+# `write_unicode_placeholder` (placeholder practice): `ESC [ 38:2:r:g:b m`,
+# then every cell as U+10EEEE followed by the row, the column and the
+# image id's top byte diacritics, rows joined by `\n\r`; an image id is
+# drawn with its top byte and middle bytes non-zero.
 
 [sources.kitty-icat-main]
 key    = "kitty-icat-main"
@@ -7956,6 +7960,59 @@ group  = "C"
 # compressed when that is smaller (`o=z`); the base64 is unpadded
 # (`RawStdEncoding`) and chunked at 128 KiB, against `[[source:
 # kitty-graphics]]`'s "no larger than 4096 bytes".
+
+[sources.kitty-rowcolumn-diacritics]
+key    = "kitty-rowcolumn-diacritics"
+title  = "kitty v0.49.2, gen/rowcolumn-diacritics.txt -- the 297 combining marks a Unicode placeholder's row, column and image-id byte are written with"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/gen/rowcolumn-diacritics.txt"
+file   = "kitty-rowcolumn-diacritics.txt"
+sha256 = "a80368b3272c41d8b50f3f640cf4305b6423e5a1aae6b72a405129bc29425f2c"
+bytes  = 18056
+status = "retrieved"
+group  = "C"
+# The file `[[source: kitty-graphics]]`'s "Unicode placeholders" links as
+# rowcolumn-diacritics.txt; the copy the documentation serves
+# (https://sw.kovidgoyal.net/kitty/_downloads/f0a0de9ec8d9ff4456206db8e0814937/rowcolumn-diacritics.txt)
+# is byte-identical to this one. Line n of its data, from zero, is the
+# diacritic for the number n. `scripts/gen-placeholder-table.py` builds
+# `baud-domain/src/placeholder_data.rs` from it.
+
+[sources.kitty-screen-c]
+key    = "kitty-screen-c"
+title  = "kitty v0.49.2, kitty/screen.c -- screen_render_line_graphics, how a line's Unicode placeholders become cell images"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/screen.c"
+file   = ""
+sha256 = "e73f7eaa9d01d40bb0cbe6a3232691bc864c9b8ab3770cef983106bf40c32fe0"
+bytes  = 305999
+status = "external"
+group  = "C"
+# Practice for the placeholder section's inheritance: a run continues only
+# from the cell immediately to the left, when the ids taken from the
+# foreground and underline colours (`color_to_id`, the colour's 24 bits or
+# its 8-bit index) are equal and row, column and msb are absent or
+# compatible; a run's first cell takes 0 for what it lacks.
+
+[sources.kitty-fonts-c]
+key    = "kitty-fonts-c"
+title  = "kitty v0.49.2, kitty/fonts.c -- font_for_cell, which draws U+10EEEE with the blank font"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/fonts.c"
+file   = ""
+sha256 = "d7e6741fa2b2a2fc218e2af2d25bc050d872df8a01145003d2a4294ed0cb7dc8"
+bytes  = 123825
+status = "external"
+group  = "C"
+# `font_for_cell`: `case IMAGE_PLACEHOLDER_CHAR: return BLANK_FONT;`, so
+# kitty draws neither the placeholder character nor its diacritics,
+# whether an image resolves or not.
 
 [sources.inband-resize]
 key    = "inband-resize"

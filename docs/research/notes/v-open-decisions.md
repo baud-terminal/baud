@@ -4832,6 +4832,18 @@ lean:
 6. **Answer no query until raw formats and PNG both decode.** This reverses
    t-images' order, which answered queries a step early. **Done 2026-10-16**:
    queries are answered in the commit that decodes both.
+7. **Unicode placeholders (`U=1`, U+10EEEE).** **Built 2026-10-16** (the
+   record, "kitty Unicode placeholders"), to `[[source: kitty-graphics]]`'s
+   "Unicode placeholders" and the pinned diacritic list `[[source:
+   kitty-rowcolumn-diacritics]]`: virtual placements in the kitty stream's
+   own table, holding their image, moving no cursor; the diacritics in the
+   cell's content word; the inheritance resolved a row at a time as drawn;
+   each run drawn on the three paths as a strip of the virtual placement's
+   whole image in its cells; deletes by `i I n N r R` only. Jev decided
+   ADJACENT, IDS (a departure from "colors"), STAY and FIT_WHOLE at 1.00
+   both times. **Open, under the bar:** BLANK for a placeholder with
+   nothing to show (0.80, 0.84; TUS 5.3's `.notdef` the other option) and
+   the content word over the cluster store (0.72, 0.68).
 
 **Tests and measurement**
 
