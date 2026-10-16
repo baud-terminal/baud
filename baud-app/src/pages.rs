@@ -3,24 +3,29 @@
 //! deleted leaves the terminal at its idle size rather than at its high
 //! water. The image arena and the kitty PNG scratch come from zeroed
 //! memory and are committed only where an image writes
-//! (`Owned::with_images`); the core hands this the whole pages inside a
-//! freed image's span and inside the scratch a PNG decode is done with,
-//! page-aligned and held by nothing live, and this gives them back.
+//! (`Owned::with_images`); the core hands this the whole pages a freed
+//! image or a Sixel's claim leaves wholly free and those of the scratch a
+//! PNG decode is done with, page-aligned and held by nothing live, and
+//! this gives them back.
 //!
 //! Linux: `madvise(MADV_DONTNEED)`, after which a private anonymous page
 //! reads zero and stops counting as resident. Darwin: a fresh anonymous
 //! mapping over the pages (`MAP_FIXED`), because no `madvise` advice
 //! lowered the resident size there (`sys.rs`); the new pages read zero,
-//! as Linux's do. What a failed `mmap` leaves is unverified: POSIX allows
-//! part of the range to be left unmapped, and no failure was seen here.
-//! The core assumes neither: what a released page holds is unspecified
-//! ([`PageRelease`]), and every image writes its span before it is shown.
+//! as Linux's do. Each reports whether the call succeeded
+//! ([`PagesBack`]), and only taken pages count. What a failed call
+//! leaves neither manual page says (`[[source: linux-madvise-2]]`,
+//! `[[source: darwin-mmap-2]]`): old bytes the core does not mind, since
+//! what a released page holds is unspecified ([`PageRelease`]) and every
+//! image writes its span before it is shown; an unmapped page, which
+//! POSIX allows of a failed `MAP_FIXED`, it would, and no failure was
+//! seen here.
 //!
 //! This release's `unsafe` is here and in `sys.rs`, and each call says why.
 
 #![allow(unsafe_code)]
 
-use baud_domain::PageRelease;
+use baud_domain::{PageRelease, PagesBack};
 
 /// The release both drivers lend ([`baud_core::Term::set_page_release`]):
 /// the system's page size and [`give_back`]. `None` if the system answers
@@ -31,18 +36,19 @@ pub fn release() -> Option<PageRelease> {
     PageRelease::new(page, give_back)
 }
 
-/// Give `pages` back. The core hands only whole pages no live image
-/// holds; a span that is not page-aligned is refused here too, because
-/// Linux's `madvise` rounds a length up and would zero the next page.
-fn give_back(pages: &mut [u8]) {
+/// Give `pages` back, and say whether the system took them. The core
+/// hands only whole pages no live image holds; a span that is not
+/// page-aligned is refused here too, because Linux's `madvise` rounds a
+/// length up and would zero the next page.
+fn give_back(pages: &mut [u8]) -> PagesBack {
     let Some(size) = release().map(PageRelease::page) else {
-        return;
+        return PagesBack::Kept;
     };
     if pages.is_empty()
         || pages.as_ptr().align_offset(size) != 0
         || !pages.len().is_multiple_of(size)
     {
-        return;
+        return PagesBack::Kept;
     }
     let at = pages.as_mut_ptr().cast::<core::ffi::c_void>();
     #[cfg(target_os = "macos")]
@@ -52,9 +58,10 @@ fn give_back(pages: &mut [u8]) {
         // pages of a live allocation; the mapping replaces them in place
         // with zero-filled pages of the same protection, which is what
         // writing zeros through the borrow would leave, and `Pixel` and
-        // `u8` take any bits. A failure was never seen; POSIX lets it leave
-        // part of the range unmapped, which this does not check.
-        let _ = unsafe {
+        // `u8` take any bits. `mmap.2` says what a successful `MAP_FIXED`
+        // replaces and nothing of what a failed one leaves
+        // (`[[source: darwin-mmap-2]]`); a failure was never seen here.
+        let mapped = unsafe {
             crate::sys::mmap(
                 at,
                 pages.len(),
@@ -64,18 +71,28 @@ fn give_back(pages: &mut [u8]) {
                 0,
             )
         };
+        // Success is the address asked for; a failure is `MAP_FAILED`.
+        match mapped == at {
+            true => PagesBack::Released,
+            false => PagesBack::Kept,
+        }
     }
     #[cfg(target_os = "linux")]
     {
-        // SAFETY: as above; a private anonymous page reads zero after the
-        // advice, and on failure nothing changed.
-        let _ = unsafe {
+        // SAFETY: as above; a private anonymous page reads zero "after a
+        // successful" call, and the page says nothing of a failed one
+        // (`[[source: linux-madvise-2]]`).
+        let done = unsafe {
             crate::sys::madvise(
                 at,
                 crate::sys::MapLen(pages.len()),
                 crate::sys::MADV_DONTNEED,
             )
         };
+        match done {
+            0 => PagesBack::Released,
+            _ => PagesBack::Kept,
+        }
     }
 }
 
@@ -429,6 +446,110 @@ mod tests {
         assert_released("rgba");
     }
 
+    /// One cycle's resident bytes: idle, shown, after.
+    type Cycle = (u64, u64, u64);
+
+    /// Each cycle's `(idle, shown, after)` for `kind` with the release
+    /// lent, and the same without it: the control that the scenario
+    /// commits what the release then gives back.
+    fn lent_and_not(kind: &str) -> (Vec<Cycle>, Vec<Cycle>) {
+        let lent = measure(kind);
+        let not = measure(&format!("{kind},nolend"));
+        for (l, n) in lent.iter().zip(&not) {
+            eprintln!("{kind}: lent {l:?} not lent {n:?}");
+        }
+        (lent, not)
+    }
+
+    /// **Pictures that share every page with a neighbour give them all
+    /// back once all are gone**: 32 pictures of 4095 pixels, one byte
+    /// short of a 16 KiB page each, side by side, so no picture holds a
+    /// whole page and every page is shared, then `RIS`. Without the
+    /// release they stay; with it they go as the last of each page's
+    /// pictures does. Judged from the second cycle: the first also
+    /// commits memory the terminal keeps on first use, with or without a
+    /// release (0.23 MB here).
+    #[test]
+    fn pictures_that_share_every_page_give_them_back() {
+        let page = u64::try_from(release().expect("a release").page()).unwrap();
+        let (lent, not) = lent_and_not("tiles");
+        // **The control**: without the release the pages stay.
+        let (n_idle, _, n_after) = not[0];
+        assert!(
+            n_after > n_idle + 24 * page,
+            "kept without a release: {n_idle} -> {n_after}"
+        );
+        for &(idle, shown, after) in &lent[1..] {
+            assert!(
+                shown > idle + 24 * page,
+                "committed again: {idle} -> {shown}"
+            );
+            assert!(
+                after <= idle + 4 * page,
+                "after the reset {after} bytes resident, idle was {idle}"
+            );
+        }
+    }
+
+    /// **A refused Sixel's rows go back**: every image slot is held, so a
+    /// 1920x1080 Sixel decodes into the arena and is refused at its
+    /// terminator; what it wrote goes back then, not at a reset.
+    #[test]
+    fn a_refused_sixel_gives_its_rows_back() {
+        let (lent, not) = lent_and_not("sixel-refused");
+        // **The control**: without the release the rows stay.
+        let (n_idle, n_shown, _) = not[0];
+        assert!(
+            n_shown > n_idle + 8_000_000,
+            "kept without a release: {n_idle} -> {n_shown}"
+        );
+        let idle = lent[0].0;
+        for (_, shown, after) in lent {
+            assert!(
+                shown.max(after) <= idle + MARGIN,
+                "after the Sixel {shown} and the reset {after}, idle was {idle}"
+            );
+        }
+    }
+
+    /// **A moved Sixel's rows go back**: a 1920x1080 picture is deleted
+    /// between two 1x1s, and a 1920x1080 Sixel decodes past them and moves
+    /// into the hole at its terminator; what it left goes back at once,
+    /// so only the Sixel is resident, and after `RIS` nothing is.
+    #[test]
+    fn a_moved_sixel_gives_back_the_rows_it_left() {
+        let (lent, not) = lent_and_not("sixel-moved");
+        let image = 1920 * 1080 * 4;
+        // **The control**: without the release the Sixel and the rows it
+        // left are both resident, and stay.
+        let (n_idle, n_shown, n_after) = not[0];
+        assert!(
+            n_shown > n_idle + 2 * image - MARGIN && n_after > n_idle + 2 * image - MARGIN,
+            "kept without a release: {n_idle} -> {n_shown} -> {n_after}"
+        );
+        let idle = lent[0].0;
+        for (_, shown, after) in lent {
+            assert!(
+                shown <= idle + image + MARGIN && after <= idle + MARGIN,
+                "the Sixel shown {shown} and after the reset {after}, idle was {idle}"
+            );
+        }
+    }
+
+    /// A green Sixel `w` x `h` with its raster given.
+    fn green_sixel(w: ImagePx, h: ImagePx) -> Vec<u8> {
+        let (w, h) = (w.raw(), h.raw());
+        let mut v = format!("\x1bP9;1;0q\"1;1;{w};{h}#1;2;0;100;0#1").into_bytes();
+        for band in 0..h.div_ceil(6) {
+            if band > 0 {
+                v.push(b'-');
+            }
+            v.extend(format!("!{w}~").into_bytes());
+        }
+        v.extend_from_slice(b"\x1b\\");
+        v
+    }
+
     /// The child [`measure`] runs: the terminal the kitty-follow
     /// measurement built -- 400x150, the app's image budget -- with the
     /// release lent, one 1920x1080 picture shown and deleted three times.
@@ -443,6 +564,9 @@ mod tests {
             ws_row: 150,
             ws_col: 400,
         };
+        if kind.starts_with("tiles") || kind.starts_with("sixel") {
+            return rss_child_reset(&kind, ws);
+        }
         let (w, h) = (ImagePx::of(1920), ImagePx::of(1080));
         let seed = Chan::from_u8(0x42);
         let show = match kind.as_str() {
@@ -476,6 +600,67 @@ mod tests {
             let shown = resident();
             feed(&mut t, &delete);
             assert_eq!(t.images().placements().count(), 0, "deleted");
+            let after = resident();
+            println!("rss {} {} {}", idle.0, shown.0, after.0);
+        }
+    }
+
+    /// [`rss_child`]'s cycles that end in `RIS`: `kind` is `tiles`,
+    /// `sixel-refused` or `sixel-moved`, with `,nolend` for the run with
+    /// no release lent.
+    fn rss_child_reset(kind: &str, ws: WinSize) {
+        let lend = !kind.ends_with(",nolend");
+        let dot = apc("a=t,f=32,s=1,v=1,i=1", &[0x11, 0x22, 0x33, 0xff]);
+        let dots = |n: u32| -> Vec<u8> {
+            (1..=n)
+                .flat_map(|i| {
+                    apc(
+                        &format!("a=t,f=32,s=1,v=1,i={i}"),
+                        &[0x11, 0x22, 0x33, 0xff],
+                    )
+                })
+                .collect()
+        };
+        let (w, h) = (ImagePx::of(1920), ImagePx::of(1080));
+        let show = match kind.split(',').next() {
+            Some("tiles") => {
+                let tile = rgba(ImagePx::of(63), ImagePx::of(65), Chan::from_u8(0x5c));
+                (1..=32)
+                    .flat_map(|i| apc(&format!("a=t,f=32,s=63,v=65,i={i}"), &tile))
+                    .collect()
+            }
+            Some("sixel-refused") => {
+                let mut v = dots(32);
+                v.extend(green_sixel(w, h));
+                v
+            }
+            _ => {
+                let mut v = dot.clone();
+                v.extend(apc(
+                    &format!("a=t,f=32,s={},v={},i=2", w.raw(), h.raw()),
+                    &rgba(w, h, Chan::from_u8(0x42)),
+                ));
+                v.extend(apc("a=t,f=32,s=1,v=1,i=3", &[0x11, 0x22, 0x33, 0xff]));
+                v.extend(apc("a=d,d=I,i=2", &[]));
+                v.extend(green_sixel(w, h));
+                v
+            }
+        };
+        let mut owned = Owned::new(&ws).with_images(crate::host::IMAGE_BUDGET);
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(ImagePx::of(17), ImagePx::of(34));
+        if lend {
+            t.set_page_release(release().expect("a release"));
+        }
+        feed(&mut t, b"idle\r\n");
+        let read: u64 = show.iter().map(|&b| u64::from(b)).sum();
+        assert!(read > 0);
+        for _ in 0..3 {
+            let idle = resident();
+            feed(&mut t, &show);
+            let shown = resident();
+            feed(&mut t, b"\x1bc");
+            assert_eq!(t.images().placements().count(), 0, "reset");
             let after = resident();
             println!("rss {} {} {}", idle.0, shown.0, after.0);
         }

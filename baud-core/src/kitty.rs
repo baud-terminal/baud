@@ -179,10 +179,12 @@ impl Term<'_> {
     }
 
     /// **Lend the way freed image pages go back to the operating system**
-    /// ([`PageRelease`]): from here the whole pages inside a freed image's
-    /// span -- a delete, an eviction, `RIS`, `ED 2`, a placement expiring --
-    /// and inside the PNG scratch a decode is done with go to `release`,
-    /// at the free, which is rare, and never on the per-byte path. The
+    /// ([`PageRelease`]): from here the whole pages a freed image's span
+    /// leaves wholly free -- a delete, an eviction, `RIS`, `ED 2`, a
+    /// placement expiring -- the rows a Sixel's claim wrote that its image
+    /// does not hold, and the PNG scratch a decode is done with go to
+    /// `release`, at the free, which is rare, and never on the per-byte
+    /// path. The
     /// core makes no system call; with none lent a freed page stays
     /// committed until an image writes it again. An embedder setting,
     /// which `RIS` keeps.

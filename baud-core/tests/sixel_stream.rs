@@ -275,7 +275,7 @@ fn through_stream(arena: usize, prog: &[Step]) -> Trace {
                     }
                     Step::Free(_) => unreachable!(),
                 };
-                s.begin(SixelAspect::from_macro(*p1), &store);
+                s.begin(SixelAspect::from_macro(*p1), &mut store);
                 for (i, &b) in body.iter().enumerate() {
                     if let Some((_, k)) = free.filter(|&(cut, _)| cut == i) {
                         free_kth(&mut store, &mut ids, k);

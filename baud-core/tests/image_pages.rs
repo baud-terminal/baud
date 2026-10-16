@@ -11,7 +11,8 @@
 
 use baud_core::*;
 use baud_domain::{
-    Chan, DecodeBudget, DecodeProgress, ImageBudget, ImagePx, KittyId, PageRelease, Pixel,
+    Chan, DecodeBudget, DecodeProgress, ImageBudget, ImagePx, KittyId, PageRelease, PagesBack,
+    Pixel,
 };
 use std::cell::Cell;
 use std::io::Write as _;
@@ -32,9 +33,10 @@ thread_local! {
     static CALLS: Cell<u64> = const { Cell::new(0) };
 }
 
-fn poison(span: &mut [u8]) {
+fn poison(span: &mut [u8]) -> PagesBack {
     span.fill(POISON);
     CALLS.with(|c| c.set(c.get() + 1));
+    PagesBack::Released
 }
 
 fn release() -> PageRelease {
@@ -365,8 +367,9 @@ fn ten_bands(w: &str, rgb: &str) -> Vec<u8> {
     v
 }
 
-/// **A Sixel's claim is never handed over**: it lies in a gap the slot
-/// table cannot see, and only a freed slot's span is released. The
+/// **A Sixel's written rows are never handed over**: its claim lies in
+/// a gap the slot table cannot see, which the store keeps a record of.
+/// The
 /// scenario of `sixel_stream.rs`'s
 /// `a_resize_inside_a_body_frees_room_the_rest_of_it_can_use` -- an image
 /// expired by a resize between two reads of a Sixel body, its span
@@ -424,3 +427,356 @@ fn a_sixel_claim_survives_a_release_beside_it_at_every_cut() {
 }
 
 use baud_domain::LineIdx;
+
+thread_local! {
+    /// Every range the recording double was handed on this thread.
+    static HANDED: std::cell::RefCell<Vec<(usize, usize)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The recording double: poisons what it is handed, as [`poison`] does,
+/// and keeps its address and length.
+fn record(span: &mut [u8]) -> PagesBack {
+    HANDED.with(|h| h.borrow_mut().push((span.as_ptr().addr(), span.len())));
+    span.fill(POISON);
+    PagesBack::Released
+}
+
+/// The pages handed since the last call, by address, in the order
+/// handed, a page handed twice twice.
+fn handed_raw() -> Vec<usize> {
+    let mut pages = Vec::new();
+    for (at, len) in HANDED.with(|h| core::mem::take(&mut *h.borrow_mut())) {
+        assert_eq!((at % PAGE, len % PAGE), (0, 0), "whole pages");
+        pages.extend((at..at + len).step_by(PAGE));
+    }
+    pages
+}
+
+/// The pages handed since the last call, by address, each once: a page
+/// handed twice fails here.
+fn handed_pages() -> Vec<usize> {
+    let pages = handed_raw();
+    let mut once = pages.clone();
+    once.sort_unstable();
+    once.dedup();
+    assert_eq!(once.len(), pages.len(), "a page handed twice: {pages:x?}");
+    once
+}
+
+/// The pages from `lo`'s page boundary at or above to `hi`'s at or above.
+fn pages_between(lo: usize, hi: usize) -> Vec<usize> {
+    (lo.next_multiple_of(PAGE)..hi.next_multiple_of(PAGE))
+        .step_by(PAGE)
+        .collect()
+}
+
+/// A terminal over a `pixels` arena with the recording double lent.
+fn recorded(owned: &mut Owned) -> Term<'_> {
+    HANDED.with(|h| h.borrow_mut().clear());
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+    t.set_page_release(PageRelease::new(PAGE, record).expect("a power of two"));
+    t
+}
+
+/// **The page two neighbours share goes back with the second of them.**
+/// A is 37x5 and B 16x4 right after it, starting inside A's last page.
+/// A freed hands A's whole pages and not the shared one; B freed then
+/// hands the shared page and B's own, through the page B's end is on,
+/// which nothing else touches: every page the two touched, each once.
+#[test]
+fn the_page_two_freed_spans_share_goes_back_with_the_second() {
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
+    let mut t = recorded(&mut owned);
+    let (a, b, c) = (
+        rgba(ImagePx::of(37), ImagePx::of(5), Chan::from_u8(0x31)),
+        rgba(ImagePx::of(16), ImagePx::of(4), Chan::from_u8(0x5c)),
+        rgba(ImagePx::of(60), ImagePx::of(5), Chan::from_u8(0x9e)),
+    );
+    feed(&mut t, &apc("a=T,f=32,s=37,v=5,i=1", &a));
+    feed(&mut t, &apc("a=T,f=32,s=16,v=4,i=2", &b));
+    let (ra, rb) = (bounds(&t, KittyId::of(1)), bounds(&t, KittyId::of(2)));
+    let (a0, b0, b1) = (ra.start.addr(), rb.start.addr(), rb.end.addr());
+    // **The control**: B starts inside a page A also holds.
+    assert_eq!(ra.end, rb.start, "B lies right after A");
+    assert_ne!(b0 % PAGE, 0, "mid-page");
+    feed(&mut t, &apc("a=d,d=I,i=1", &[]));
+    let first = handed_pages();
+    assert_eq!(first, pages_between(a0, b0 - PAGE + 1), "A's own pages");
+    assert_eq!(shown(&t, KittyId::of(2)), words(&b), "B is pixel-exact");
+    feed(&mut t, &apc("a=d,d=I,i=2", &[]));
+    let second = handed_pages();
+    assert_eq!(
+        second,
+        pages_between(b0 - PAGE + 1, b1),
+        "the shared page and B's, through B's last"
+    );
+    feed(&mut t, &apc("a=T,f=32,s=60,v=5,i=3", &c));
+    assert_eq!(
+        bounds(&t, KittyId::of(3)).start,
+        ra.start,
+        "C took A's span"
+    );
+    assert_eq!(shown(&t, KittyId::of(3)), words(&c), "C reads back exactly");
+}
+
+/// A Sixel `w` x `h` in green with its raster given, every pixel set,
+/// terminated or not.
+fn green_sixel(w: usize, h: usize, end: &[u8]) -> Vec<u8> {
+    let mut v = format!("\x1bP9;1;0q\"1;1;{w};{h}#1;2;0;100;0#1").into_bytes();
+    for band in 0..h.div_ceil(6) {
+        if band > 0 {
+            v.push(b'-');
+        }
+        v.extend(format!("!{w}~").into_bytes());
+    }
+    v.extend_from_slice(end);
+    v
+}
+
+/// **A Sixel refused at its terminator gives its claim back**: every
+/// image slot is held by a 1x1 picture, so a 40x60 Sixel decodes into
+/// the gap past them and is refused for the slot. Its rows go back --
+/// the pages touching them that no picture touches -- and a picture
+/// stored there afterwards reads back exactly.
+#[test]
+fn a_refused_sixel_gives_its_claim_back() {
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
+    let mut t = recorded(&mut owned);
+    let dot = rgba(ImagePx::of(1), ImagePx::of(1), Chan::from_u8(0x44));
+    for i in 1..=32 {
+        feed(&mut t, &apc(&format!("a=t,f=32,s=1,v=1,i={i}"), &dot));
+    }
+    let lo = bounds(&t, KittyId::of(32)).end.addr();
+    let refused = t.images().images_refused;
+    feed(&mut t, &green_sixel(40, 60, b"\x1b\\"));
+    // **The control**: refused for the slot, so it wrote and kept nothing.
+    assert_eq!(t.images().images_refused, refused + 1, "refused");
+    assert_eq!(
+        handed_pages(),
+        pages_between(lo, lo + 40 * 60 * 4),
+        "its rows' pages"
+    );
+    feed(&mut t, &apc("a=d,d=I,i=1", &[]));
+    handed_pages();
+    let c = rgba(ImagePx::of(40), ImagePx::of(60), Chan::from_u8(0x9e));
+    feed(&mut t, &apc("a=t,f=32,s=40,v=60,i=40", &c));
+    assert_eq!(
+        bounds(&t, KittyId::of(40)).start.addr(),
+        lo,
+        "over the claim"
+    );
+    assert_eq!(shown(&t, KittyId::of(40)), words(&c), "reads back exactly");
+}
+
+/// **A Sixel moved at its terminator gives back the rows it left**: a
+/// 40x40 picture between two 1x1s is deleted, so a 20x30 Sixel claims
+/// the larger gap past them and moves into the hole at its terminator.
+/// What it wrote in the gap goes back, and the Sixel is whole.
+#[test]
+fn a_moved_sixel_gives_back_the_rows_it_left() {
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
+    let mut t = recorded(&mut owned);
+    let dot = rgba(ImagePx::of(1), ImagePx::of(1), Chan::from_u8(0x44));
+    let g = rgba(ImagePx::of(40), ImagePx::of(40), Chan::from_u8(0x21));
+    feed(&mut t, &apc("a=t,f=32,s=1,v=1,i=1", &dot));
+    feed(&mut t, &apc("a=t,f=32,s=40,v=40,i=2", &g));
+    feed(&mut t, &apc("a=t,f=32,s=1,v=1,i=3", &dot));
+    let hole = bounds(&t, KittyId::of(2)).start;
+    let lo = bounds(&t, KittyId::of(3)).end.addr();
+    feed(&mut t, &apc("a=d,d=I,i=2", &[]));
+    handed_pages();
+    feed(&mut t, &green_sixel(20, 30, b"\x1b\\"));
+    let im = t.images();
+    let (_, p) = im.placements().next().expect("the Sixel is placed");
+    let v = im.image(p.image).expect("live");
+    // **The control**: it moved into the hole.
+    assert_eq!(v.pixels.as_ptr(), hole, "moved into the hole");
+    let green = Pixel::opaque(Chan::from_u8(0), Chan::from_u8(255), Chan::from_u8(0));
+    assert!(v.pixels.iter().all(|&p| p == green), "the Sixel is whole");
+    assert_eq!(
+        handed_pages(),
+        pages_between(lo, lo + 20 * 30 * 4),
+        "the rows it left"
+    );
+}
+
+/// **A Sixel body abandoned gives its claim back** at the next control
+/// string or a reset: the parser reports no abandoning byte, `CAN` here,
+/// so the claim is let go where the core next begins a string.
+#[test]
+fn an_abandoned_sixel_gives_its_claim_back() {
+    for (what, next) in [
+        ("a title", &b"\x1b]2;x\x07"[..]),
+        ("another Sixel", &b"\x1bPq#0!1~\x1b\\"[..]),
+        ("RIS", &b"\x1bc"[..]),
+    ] {
+        let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
+        let mut t = recorded(&mut owned);
+        feed(&mut t, &green_sixel(40, 60, b"\x18"));
+        assert_eq!(handed_raw(), Vec::<usize>::new(), "{what}: not yet");
+        feed(&mut t, next);
+        // Another Sixel writes over the pages it lets go and gives back
+        // its own tail, so a page may go twice there.
+        let mut got = handed_raw();
+        got.sort_unstable();
+        got.dedup();
+        assert!(
+            got.len() * PAGE >= 40 * 60 * 4 - 2 * PAGE,
+            "{what}: its rows went back: {} pages",
+            got.len()
+        );
+    }
+}
+
+/// A release whose system call failed: it touches nothing, says so, and
+/// counts its calls.
+fn fail(_: &mut [u8]) -> PagesBack {
+    CALLS.with(|c| c.set(c.get() + 1));
+    PagesBack::Kept
+}
+
+/// A release that succeeded and left zero, as both systems' calls do.
+fn zero(span: &mut [u8]) -> PagesBack {
+    span.fill(0);
+    PagesBack::Released
+}
+
+/// What a picture stored where a 64x16 one was deleted reads back, the
+/// deleted one's pages handed to `release` or no release lent: the
+/// decoders that write over a freed span, each from a fresh terminal.
+fn over_a_freed_picture(release: Option<PageRelease>) -> Vec<Vec<u32>> {
+    let old = rgba(ImagePx::of(64), ImagePx::of(16), Chan::from_u8(0x7b));
+    let c = rgba(ImagePx::of(24), ImagePx::of(10), Chan::from_u8(0x3e));
+    let rgb: Vec<u8> = c.chunks(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+    // A Sixel whose first band is ten pixels wide and its second a
+    // hundred: its stride, 64 after the first band, widens under the first
+    // band's rows, and every bit but the top one of each band is unset.
+    let sixel = b"\x1bP9;1;0q#1;2;100;0;0#1!10@-!100@\x1b\\".to_vec();
+    let sends: [Vec<u8>; 4] = [
+        sixel,
+        apc("a=T,f=24,s=24,v=10,i=2", &rgb),
+        apc("a=T,f=100,i=2", &png(ImagePx::of(24), ImagePx::of(10), &c)),
+        apc("a=T,f=32,o=z,s=24,v=10,i=2", &zlib(&c)),
+    ];
+    let mut out = Vec::new();
+    for send in sends {
+        let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+        if let Some(r) = release {
+            t.set_page_release(r);
+        }
+        feed(&mut t, &apc("a=T,f=32,s=64,v=16,i=1", &old));
+        let at = bounds(&t, KittyId::of(1)).start;
+        feed(&mut t, &apc("a=d,d=I,i=1", &[]));
+        feed(&mut t, &send);
+        let im = t.images();
+        let (_, p) = im.placements().next().expect("placed");
+        let v = im.image(p.image).expect("live");
+        assert_eq!(v.pixels.as_ptr(), at, "stored over the deleted picture");
+        out.push(v.pixels.iter().map(|c| c.bits()).collect());
+    }
+    out
+}
+
+/// **A release that fails leaves nothing drawn wrong, and counts
+/// nothing.** Darwin's `mmap.2` and Linux's `madvise.2` say what a
+/// successful call leaves and nothing of a failed one, so a failure may
+/// leave the old picture where it was. A Sixel with unset pixels and a
+/// widening stride, an RGB picture converted in place, a PNG and an
+/// `o=z` picture are each stored over a deleted picture whose release
+/// failed, and each reads back as it does where no release was lent, over
+/// the poison and over zero: no decoder reads a word of a freed span
+/// before writing it. The calls were made, and `bytes_released` stays
+/// zero: it counts only pages the system took.
+#[test]
+fn a_release_that_fails_leaves_nothing_drawn_wrong() {
+    let before = CALLS.with(Cell::get);
+    let failed = over_a_freed_picture(PageRelease::new(PAGE, fail));
+    assert!(CALLS.with(Cell::get) > before, "the release was asked");
+    assert_eq!(failed, over_a_freed_picture(None), "as with no release");
+    assert_eq!(
+        failed,
+        over_a_freed_picture(Some(release())),
+        "as over poison"
+    );
+    assert_eq!(
+        failed,
+        over_a_freed_picture(PageRelease::new(PAGE, zero)),
+        "as over zero"
+    );
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_page_release(PageRelease::new(PAGE, fail).expect("a power of two"));
+    let old = rgba(ImagePx::of(64), ImagePx::of(16), Chan::from_u8(0x7b));
+    feed(&mut t, &apc("a=T,f=32,s=64,v=16,i=1", &old));
+    feed(&mut t, &apc("a=d,d=I,i=1", &[]));
+    assert_eq!(t.images().bytes_released, 0, "nothing was taken");
+    // **The control**: the Sixel's unset pixels are clear, so a stale
+    // word would show; its set ones are red.
+    let clear = Pixel::CLEAR.bits();
+    assert!(failed[0].contains(&clear), "unset pixels are clear");
+    assert!(
+        failed[0].iter().any(|&p| p != clear),
+        "and some are painted"
+    );
+}
+
+/// **A picture freed beside a Sixel's claim keeps the claim's rows**: a
+/// 37x6 Sixel on row 8 ends mid-page, a Sixel's claim starts there,
+/// and a resize to five rows between two reads of its body expires the
+/// picture. The page the two
+/// share then holds the Sixel's first rows, and only the pages past what
+/// the Sixel wrote may go back. Run at every cut with the poisoning
+/// double and without; the Sixel drawn is the same.
+#[test]
+fn a_picture_freed_beside_a_claim_keeps_the_claims_rows() {
+    let body = ten_bands("30", "100;0;0");
+    let ws = WinSize {
+        ws_row: 12,
+        ws_col: 20,
+    };
+    // 37x6 pixels, 888 bytes: it ends 56 bytes into a page.
+    let x = b"\x1bP9;1;0q\"1;1;37;6#1;2;0;0;100#1!37~\x1b\\";
+    let run = |cut: usize, lend| {
+        let mut owned = Owned::new(&ws).with_images(ImageBudget::of(3000));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
+        if lend == Lend::Yes {
+            t.set_page_release(release());
+        }
+        feed(&mut t, b"\x1b[?1049h\x1b[8;1H");
+        feed(&mut t, x);
+        assert_eq!(t.images().placements().count(), 1, "the picture is placed");
+        feed(&mut t, b"\x1b[1;1H");
+        feed(&mut t, &body[..cut]);
+        let _ = t.resize(&WinSize {
+            ws_row: 5,
+            ws_col: 20,
+        });
+        feed(&mut t, &body[cut..]);
+        feed(&mut t, b"\x1b\\");
+        let im = t.images();
+        let gone = im.placements().count() == 1;
+        let drawn: Vec<Vec<u32>> = im
+            .placements()
+            .map(|(_, p)| {
+                let v = im.image(p.image).expect("placed means live");
+                v.pixels.iter().map(|c| c.bits()).collect()
+            })
+            .collect();
+        (drawn, gone, im.bytes_released)
+    };
+    let mut released = 0;
+    for cut in 0..=body.len() {
+        let (plain, gone, _) = run(cut, Lend::No);
+        let (lent, _, bytes) = run(cut, Lend::Yes);
+        assert!(gone, "cut {cut}: the control, the picture expired");
+        assert_eq!(plain.len(), 1, "cut {cut}: the Sixel is drawn");
+        assert_eq!(plain, lent, "cut {cut}: the same Sixel, pixel for pixel");
+        released += bytes;
+    }
+    assert!(released > 0, "the expired picture's pages went back");
+}

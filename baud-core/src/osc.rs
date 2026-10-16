@@ -44,6 +44,13 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn str_start(&mut self, b: StreamByte, enc: InputEncoding) {
+        // **A Sixel body that never reached its terminator lets its claim
+        // go here**: `CAN`, `SUB` and an `ESC` that is not `ST` abandon it
+        // with no action of their own, and this is the next one the core
+        // takes. Nothing to do after a body that ended.
+        if self.cold.str_kind == StrKind::Sixel {
+            self.strs.sixel.abandon(self.images);
+        }
         self.cold.str_kind = StrKind::of(b);
         self.cold.str_enc = enc;
         self.cold.str_len = ByteLen::ZERO;

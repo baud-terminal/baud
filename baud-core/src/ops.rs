@@ -2948,7 +2948,9 @@ impl Paint<'_, '_> {
         // point where every cell is gone, so a placement outliving a mere clear
         // is correct -- an image is content a program may redraw over -- and
         // only a reset drops them all. Leaving the alternate screen, above,
-        // drops that screen's alone.
+        // drops that screen's alone. A Sixel body the reset abandons lets
+        // its claim go first, while its rows are still its own.
+        self.strs.sixel.abandon(self.images);
         self.images.reset();
         // The kitty transmission in flight and any decode pending name
         // images the reset just dropped; the scratch a PNG wrote goes back.

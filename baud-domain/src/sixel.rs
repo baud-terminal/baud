@@ -837,6 +837,8 @@ impl Claim<'_, '_, '_> {
         self.store.arena_mut().copy_within(g.at..g.at + used, at);
         self.gap.at = at;
         self.gap.len = len;
+        self.gap.written = used;
+        moved(self.store, &g, at);
         true
     }
 
@@ -908,7 +910,7 @@ impl Claim<'_, '_, '_> {
             }
             let (from, to) = (self.gap.zeroed * self.gap.stride, h * self.gap.stride);
             self.words()[from..to].fill(Pixel::CLEAR);
-            self.gap.written = self.gap.written.max(to);
+            self.wrote(to);
             self.gap.zeroed = h;
         }
     }
@@ -938,9 +940,29 @@ impl Claim<'_, '_, '_> {
                 words.copy_within(r * from..r * from + keep, r * to);
             }
         }
-        self.gap.written = self.gap.written.max(zeroed * to);
+        self.wrote(zeroed * to);
         self.gap.stride = to;
     }
+
+    /// The claim has written its words up to `to`: the store keeps the
+    /// pages they touch, and only those, from a release beside it.
+    fn wrote(&mut self, to: usize) {
+        self.gap.written = self.gap.written.max(to);
+        let Gap { at, written, .. } = *self.gap;
+        self.store.set_claim(Some((at, at + written)));
+    }
+}
+
+/// **A claim moved to a larger gap gives back what it left**: the old
+/// claim's written words, but the pages the rows now at `at` touch. Out of
+/// line, off the byte loop: a claim moves at most once a free during its
+/// body.
+#[cold]
+#[inline(never)]
+fn moved(store: &mut ImageStore, old: &Gap, at: usize) {
+    let used = old.zeroed * old.stride;
+    store.set_claim(Some((at, at + used)));
+    store.release_free(old.at, old.at + old.written);
 }
 
 impl Sink for Claim<'_, '_, '_> {
@@ -1034,7 +1056,7 @@ impl SixelStream {
     /// Begin a Sixel drawn at `aspect`, claiming `store`'s largest free gap.
     /// The registers start undefined and transparent, private to the image,
     /// and nothing limits how far down it goes.
-    pub fn begin(&mut self, aspect: SixelAspect, store: &ImageStore) {
+    pub fn begin(&mut self, aspect: SixelAspect, store: &mut ImageStore) {
         self.begin_with(
             SixelBegin {
                 aspect,
@@ -1051,8 +1073,12 @@ impl SixelStream {
     /// undefined register paints `b.ink`; under
     /// [`SixelRegisters::Shared`] a register an earlier shared Sixel defined
     /// starts with that definition.
-    pub fn begin_with(&mut self, b: SixelBegin, store: &ImageStore) {
+    pub fn begin_with(&mut self, b: SixelBegin, store: &mut ImageStore) {
+        // A body that never reached its terminator lets its claim go here.
+        self.abandon(store);
         let (at, len) = store.largest_gap();
+        // Nothing written yet: a release beside it keeps no page.
+        store.set_claim(Some((at, at)));
         self.walk = Walk::new(b.aspect);
         self.walk.regs = [b.ink; REGISTERS];
         if b.registers == SixelRegisters::Shared {
@@ -1070,6 +1096,22 @@ impl SixelStream {
             right: b.right.px(),
             ..Gap::NONE
         };
+    }
+
+    /// **Let the claim go**: the pages its written words touch that no
+    /// image now holds go back ([`ImageStore::release_free`]), and the
+    /// store stops keeping the gap's pages. What [`SixelStream::finish`]
+    /// does as it ends, and what a terminal calls when a body ended
+    /// without its terminator -- at its next control string or a reset,
+    /// since `CAN`, `SUB` and an `ESC` that is not `ST` abandon a body
+    /// with no action of their own. Nothing to do once let go.
+    #[cold]
+    #[inline(never)]
+    pub fn abandon(&mut self, store: &mut ImageStore) {
+        let Gap { at, written, .. } = self.gap;
+        store.set_claim(None);
+        self.gap.written = 0;
+        store.release_free(at, at + written);
     }
 
     /// Forget the shared registers: `RIS`.
@@ -1090,8 +1132,17 @@ impl SixelStream {
     /// The terminator. Refused and counted in the order the measured decode
     /// was -- too large, then empty, then a slot, then the arena -- or the
     /// rows packed to the image's width, moved to the lowest gap that holds
-    /// them, and recorded: the image's id, width and height.
+    /// them, and recorded: the image's id, width and height. Either way the
+    /// claim is let go ([`SixelStream::abandon`]): what it wrote that the
+    /// image does not now hold goes back, refused, moved or in place.
     pub fn finish(&mut self, store: &mut ImageStore) -> Option<(ImageId, SixelPx, SixelPx)> {
+        let done = self.settle(store);
+        self.abandon(store);
+        done
+    }
+
+    /// [`SixelStream::finish`] up to letting the claim go.
+    fn settle(&mut self, store: &mut ImageStore) -> Option<(ImageId, SixelPx, SixelPx)> {
         {
             let mut sink = Claim {
                 gap: &mut self.gap,
@@ -1152,7 +1203,7 @@ impl SixelStream {
 
     /// One past the highest word of its claim this Sixel has written so far
     /// -- cleared, painted or moved -- which is how much of the arena it
-    /// commits. Zero before any data.
+    /// commits. Zero before any data and once the claim is let go.
     pub fn written(&self) -> usize {
         self.gap.written
     }

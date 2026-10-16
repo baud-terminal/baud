@@ -1003,29 +1003,51 @@ impl ImageRefusals {
 /// its scratch ends ([`ImageStore::set_release`]); the core stays `no_std`
 /// and free of `unsafe`, and the system call is the embedder's.
 ///
-/// **What the pages hold afterwards is unspecified.** Linux's
-/// `MADV_DONTNEED` reads them back zero; Darwin's `MADV_FREE_REUSABLE`
-/// left every page reading its old bytes, measured on this Mac, and is
-/// not what baud-app calls. Nothing in the store reads a byte of a freed
-/// span before writing it -- a reserve "holds whatever the arena held" --
-/// so the store assumes nothing, and a test lends a function that fills
-/// what it is handed with a pattern no image wrote.
+/// **What the pages hold afterwards is unspecified, and the function
+/// may fail.** Linux's `MADV_DONTNEED` reads zero "after a successful"
+/// call on a private anonymous mapping and says nothing of a failed one
+/// (`[[source: linux-madvise-2]]`); Darwin's `mmap.2` says what a
+/// successful `MAP_FIXED` replaces and nothing of what a failed one
+/// leaves (`[[source: darwin-mmap-2]]`); `MADV_FREE_REUSABLE` left every
+/// page reading its old bytes, measured on this Mac, and is not what
+/// baud-app calls. Nothing in the store reads a byte of a freed span
+/// before writing it -- a reserve "holds whatever the arena held", a
+/// Sixel clears each row as it reaches it, a kitty load short of its
+/// pixels is freed -- so the store assumes nothing and re-clears nothing,
+/// and tests lend a function that fills what it is handed with a pattern
+/// no image wrote and one that fails and leaves the old picture.
 ///
-/// Only whole pages strictly inside the span are handed: its start
-/// rounded up and its end down to the page, so a page a live neighbour
-/// shares is never touched. The page size is the embedder's because a
-/// page smaller than the system's would have the call round outward on
-/// Linux, where `madvise` rounds its length up, and zero a neighbour.
+/// **Which pages are handed: those that just became wholly free.** When
+/// a span is freed, the whole pages that touch it and that no live span
+/// and no open Sixel claim touches; so a page two neighbours share goes
+/// back with the second of them, no page goes twice without an image
+/// writing it in between, and a page past the arena's ends is never
+/// handed. The page size is the embedder's because a page smaller than
+/// the system's would have the call round outward on Linux, where
+/// `madvise` rounds its length up, and zero a neighbour.
 #[derive(Clone, Copy)]
 pub struct PageRelease {
     page: usize,
-    give_back: fn(&mut [u8]),
+    give_back: fn(&mut [u8]) -> PagesBack,
+}
+
+/// **What a [`PageRelease`]'s function did with the pages it was handed**:
+/// gave them back, or kept them because the system call failed. Only
+/// pages given back count in [`ImageStore::bytes_released`]; kept ones
+/// hold what they held, which the store never reads before writing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PagesBack {
+    /// The system took them.
+    Released,
+    /// The call failed: the pages are as they were, or as the system left
+    /// them.
+    Kept,
 }
 
 impl PageRelease {
     /// Pages of `page` bytes, given back through `give_back`; `None`
     /// unless `page` is a power of two.
-    pub fn new(page: usize, give_back: fn(&mut [u8])) -> Option<PageRelease> {
+    pub fn new(page: usize, give_back: fn(&mut [u8]) -> PagesBack) -> Option<PageRelease> {
         page.is_power_of_two()
             .then_some(PageRelease { page, give_back })
     }
@@ -1036,7 +1058,7 @@ impl PageRelease {
     }
 
     /// Give back the whole pages strictly inside `span`, and say how many
-    /// bytes they were. Off the per-byte path: once per freed span.
+    /// bytes the system took. Off the per-byte path: once per freed span.
     #[cold]
     #[inline(never)]
     fn release(self, span: &mut [u8]) -> usize {
@@ -1049,10 +1071,10 @@ impl PageRelease {
         let n = rest.len() - rest.len() % self.page;
         match n {
             0 => 0,
-            _ => {
-                (self.give_back)(&mut rest[..n]);
-                n
-            }
+            _ => match (self.give_back)(&mut rest[..n]) {
+                PagesBack::Released => n,
+                PagesBack::Kept => 0,
+            },
         }
     }
 }
@@ -1100,10 +1122,12 @@ pub struct ImageStore<'b> {
     pub placements_refused: usize,
     /// Images freed, by a last placement leaving or an explicit delete.
     pub images_dropped: usize,
-    /// Bytes of freed spans and spent PNG scratch handed to the embedder's
-    /// [`PageRelease`] to give back to the operating system: whole pages,
-    /// so a span smaller than a page or a page a live image shares adds
-    /// nothing. Zero while none is lent.
+    /// Bytes of freed spans and spent PNG scratch the embedder's
+    /// [`PageRelease`] gave back to the operating system: whole pages it
+    /// reported [`PagesBack::Released`], so a page it kept on a failed call
+    /// adds nothing. An address range, not a resident size: a page handed
+    /// that no image had written since it last went back counts too. Zero
+    /// while none is lent.
     pub bytes_released: usize,
     /// Kitty images deleted to make space for a new one: the oldest with no
     /// placement first, "to make space for the new one"
@@ -1144,6 +1168,12 @@ pub struct ImageStore<'b> {
     tallest: ImagePx,
     /// The embedder's way to give freed pages back, `None` until lent.
     release: Option<PageRelease>,
+    /// What the open Sixel claim has written, words `[start, end)` of the
+    /// arena: a gap the slot table does not record, so a page it touches
+    /// is not given back when a span beside it is freed ([`SixelStream`]).
+    /// Only the written words: a page past them that a free makes wholly
+    /// free goes back then, and the Sixel writes it again if it grows.
+    claim: Option<(usize, usize)>,
 }
 
 impl<'b> ImageStore<'b> {
@@ -1173,6 +1203,7 @@ impl<'b> ImageStore<'b> {
             reach: [None; 2],
             tallest: ImagePx::ZERO,
             release: None,
+            claim: None,
         }
     }
 
@@ -1185,24 +1216,90 @@ impl<'b> ImageStore<'b> {
     }
 
     /// Hand the whole pages inside `span`, memory no live image holds, to
-    /// the lent release, and count them.
+    /// the lent release, and count those it gave back: the kitty PNG
+    /// scratch, outside the arena.
     pub(crate) fn release_span(&mut self, span: &mut [u8]) {
         if let Some(r) = self.release {
             self.bytes_released += r.release(span);
         }
     }
 
-    /// **Free slot `i`**: the slot emptied and the whole pages inside its
-    /// span given back. The one place a slot is emptied, so no free keeps
-    /// its pages. The caller counts and moves the epoch.
+    /// **Free slot `i`**: the slot emptied and the pages that became
+    /// wholly free given back ([`ImageStore::release_free`]). The one place
+    /// a slot is emptied, so no free keeps its pages. The caller counts and
+    /// moves the epoch.
     fn forget(&mut self, i: usize) {
         let Some(s) = self.slots.get_mut(i) else {
             return;
         };
         let (start, end) = (s.start(), s.end());
         *s = ImageSlot::EMPTY;
-        if let (Some(r), Some(span)) = (self.release, self.pixels.get_mut(start..end)) {
-            self.bytes_released += r.release(span.as_mut_bytes());
+        self.release_free(start, end);
+    }
+
+    /// Record what the open Sixel claim has written, words `[start, end)`,
+    /// or none.
+    pub(crate) fn set_claim(&mut self, claim: Option<(usize, usize)>) {
+        self.claim = claim;
+    }
+
+    /// **Give back the whole pages that touch words `[lo, hi)` of the
+    /// arena and that no live span and no open claim touches**: called
+    /// once those words stop being used, so each page handed is one that
+    /// just became wholly free. A page partly outside the arena is never
+    /// handed; it is the allocator's neighbour's too. Off the per-byte
+    /// path: once per freed span, with one call to the embedder for each
+    /// run of pages between what is still live.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn release_free(&mut self, lo: usize, hi: usize) {
+        let Some(r) = self.release else {
+            return;
+        };
+        let page = r.page();
+        let px = core::mem::size_of::<Pixel>();
+        let len = core::mem::size_of_val(self.pixels);
+        // Byte `lead + k * page` of the arena starts a page.
+        let lead = self.pixels.as_ptr().cast::<u8>().align_offset(page);
+        if lead >= len || hi <= lo {
+            return;
+        }
+        let top = lead + (len - lead) / page * page;
+        let down = |b: usize| match b < lead {
+            true => 0,
+            false => lead + (b - lead) / page * page,
+        };
+        let up = |b: usize| match b <= lead {
+            true => lead,
+            false => lead + (b - lead).div_ceil(page) * page,
+        };
+        let first = down(lo * px).max(lead);
+        let last = up(hi * px).min(top);
+        let mut at = first;
+        while at < last {
+            // What is still in use, each rounded out to its pages: the one
+            // overlapping `[at, last)` that starts lowest.
+            let next = self
+                .slots
+                .iter()
+                .filter(|s| !s.is_empty())
+                .map(|s| (s.start(), s.end()))
+                .chain(self.claim)
+                // A claim that has written nothing keeps no page.
+                .filter(|&(s, e)| e > s)
+                .map(|(s, e)| (down(s * px), up(e * px)))
+                .filter(|&(s, e)| e > at && s < last)
+                .min_by_key(|&(s, _)| s);
+            let to = next.map_or(last, |(s, _)| s);
+            if to > at {
+                if let Some(span) = self.pixels.as_mut_bytes().get_mut(at..to) {
+                    self.bytes_released += r.release(span);
+                }
+            }
+            at = match next {
+                Some((_, e)) => e.max(at),
+                None => last,
+            };
         }
     }
 
