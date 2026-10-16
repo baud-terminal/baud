@@ -642,6 +642,10 @@ fn every_test_named_in_the_docs_exists() {
             "screen_render_line_graphics",
             "kitty's screen.c, how a line's placeholders become runs, cited in placeholder.rs",
         ),
+        (
+            "cell_has_default_bg",
+            "kitty's background.slang, which cells count as default under a deep image, cited in color.rs",
+        ),
     ];
 
     let mut missing = BTreeSet::new();
