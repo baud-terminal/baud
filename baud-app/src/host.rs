@@ -59,8 +59,8 @@ pub fn cell_px(cell_h: Px) -> ImagePx {
 /// 4 MiB it replaced, where writing the arena at construction had peaked
 /// at 111.5 MB and 16.0 MB. A deleted image's pages go back to the system
 /// (`pages.rs`), with the PNG scratch its decode wrote: one 1920x1080
-/// picture shown and deleted leaves that terminal within 0.4 MB of idle,
-/// where 21.1 MB (a PNG) and 8.5 MB (`f=32`) stayed resident without it.
+/// picture shown and deleted leaves that terminal within 0.3 MB of idle
+/// (0.26 MB after a PNG, 0.20 MB after `f=32`), where 21.1 MB (a PNG) and 8.5 MB (`f=32`) stayed resident without it.
 /// Until 2026-10-16 this was 4 MiB and refused a 1920x1080 picture whole,
 /// an open departure.
 pub const IMAGE_BUDGET: ImageBudget = ImageBudget {

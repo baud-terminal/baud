@@ -16,7 +16,7 @@
 //! The core assumes neither: what a released page holds is unspecified
 //! ([`PageRelease`]), and every image writes its span before it is shown.
 //!
-//! `unsafe` is here and in `sys.rs` only, and says why at its one call.
+//! This release's `unsafe` is here and in `sys.rs`, and each call says why.
 
 #![allow(unsafe_code)]
 
