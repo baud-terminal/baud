@@ -3,16 +3,19 @@
 
     cargo test --release -p baud-domain --test cluster_states -- --ignored
     python3 scripts/gen-cluster-table.py
+    python3 scripts/gen-cluster-table.py --check   # cluster_data.rs is current
 
 Byte strings, not array literals: rustfmt rewraps `[0, 1, ...]`, so the file the
 generator writes would not be the file that gets committed.
 """
-import struct, pathlib
+import struct, sys, pathlib
 
 raw = pathlib.Path("baud-domain/cluster.bin").read_bytes()
 (n,) = struct.unpack_from("<I", raw, 0)
 table = raw[4 : 4 + n * 256]
 ready = raw[4 + n * 256 : 4 + n * 256 + n]
+assert len(raw) == 4 + n * 257, f"cluster.bin is {len(raw)} bytes for {n} states"
+assert list(ready).count(1) == 1, f"ready states: {[i for i, r in enumerate(ready) if r]}"
 rid = ready.index(1)
 
 def bytestr(v, per=24):
@@ -47,7 +50,15 @@ pub static CLUSTER_NEXT: &[u8; {len(table)}] = b"\\
 pub const CLUSTER_READY: u8 = {rid};
 
 /// States reachable from the initial one.
+#[allow(dead_code)]
 pub const CLUSTER_STATES: usize = {n};
 '''
-pathlib.Path("baud-domain/src/cluster_data.rs").write_text(src)
-print(f"  cluster_data.rs: {n} states, {len(table)} bytes, ready state = {rid}")
+out = pathlib.Path("baud-domain/src/cluster_data.rs")
+if "--check" in sys.argv:
+    if out.read_text() != src:
+        print("STALE: cluster_data.rs is not what cluster.bin formats to")
+        sys.exit(1)
+    print("OK")
+else:
+    out.write_text(src)
+    print(f"  cluster_data.rs: {n} states, {len(table)} bytes, ready state = {rid}")

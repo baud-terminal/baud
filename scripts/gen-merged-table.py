@@ -3,6 +3,7 @@
 
     cargo test --release -p baud-domain --test merged_size -- --ignored
     python3 scripts/gen-merged-table.py
+    python3 scripts/gen-merged-table.py --check   # merged_data.rs is current
 
 Byte strings, not array literals: rustfmt rewraps `[0, 1, 2, ...]`, so the file
 the generator writes would not be the file that gets committed and `--check`
@@ -70,7 +71,14 @@ pub static MERGED_BLOCKS: &[u8; {nb}] = b"\\
 pub static BMP_DIRECT: &[u8; {len(bmp)}] = b"\\
     {bytestr(bmp)}";
 '''
-pathlib.Path("baud-domain/src/merged_data.rs").write_text(src)
+out = pathlib.Path("baud-domain/src/merged_data.rs")
+if "--check" in sys.argv:
+    if out.read_text() != src:
+        print("STALE: merged_data.rs is not what merged.bin formats to")
+        sys.exit(1)
+    print("OK")
+    sys.exit(0)
+out.write_text(src)
 print(f"  merged_data.rs: index {ni}, blocks {nb//256}, palette {npal} -> {total} bytes")
 print(f"  flat BMP: {len(bmp)} bytes of rodata, 113 lines touched by cat-cjk")
 print(f"  against the two tries' 44,032 = {100*(total/44032-1):+.0f}%")

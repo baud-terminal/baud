@@ -83,11 +83,10 @@ fn report_merged_trie_size() {
     println!("  merged, 1 B leaf  : {packed:>7} bytes   (needs class+lookback+width in 8 bits)");
 }
 
-/// Dump the merged table as raw bytes for `scripts/gen-merged-table.py`.
-/// Run with `--ignored` to regenerate.
-#[test]
-#[ignore]
-fn emit_merged_table() {
+/// The merged table as `scripts/gen-merged-table.py` reads it. Palette and
+/// block ids are numbered in codepoint order of first use; the maps are only
+/// looked up, never iterated, so the bytes do not depend on a hash seed.
+fn merged_table_bytes() -> Vec<u8> {
     let mut pal: Vec<(u8, u8, u8)> = Vec::new();
     let mut pal_of: HashMap<(u8, u8, u8), u8> = HashMap::new();
     let mut leaf = vec![0u8; 0x110000];
@@ -190,16 +189,44 @@ fn emit_merged_table() {
         bmp.extend_from_slice(&v.to_le_bytes());
     }
     out.extend_from_slice(&bmp);
-    for d in ["merged.bin", "../merged.bin"] {
-        if std::fs::write(d, &out).is_ok() {
-            break;
-        }
+    out
+}
+
+/// Dump the merged table as raw bytes for `scripts/gen-merged-table.py`.
+/// Run with `--ignored` to regenerate.
+#[test]
+#[ignore]
+fn emit_merged_table() {
+    let out = merged_table_bytes();
+    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/merged.bin"), &out).expect("write");
+    println!("  dumped: {} bytes", out.len());
+}
+
+/// The committed `merged.bin` is what the emitter writes, byte for byte, and
+/// `merged_data.rs` is what `merged.bin` formats to.
+#[test]
+fn the_committed_merged_table_is_the_emitters_output() {
+    let (a, b) = (merged_table_bytes(), merged_table_bytes());
+    assert!(a == b, "the emitter is not deterministic");
+    let committed: &[u8] = include_bytes!("../merged.bin");
+    assert_eq!(a.len(), committed.len(), "merged.bin size");
+    if let Some(i) = (0..a.len()).find(|&i| a[i] != committed[i]) {
+        panic!(
+            "merged.bin differs from the emitter at byte {i}: committed {:#04x}, emitted {:#04x}",
+            committed[i], a[i]
+        );
     }
-    println!(
-        "  dumped: index {} blocks {} palette {} -> {} bytes of table (+128 KB flat BMP)",
-        index.len(),
-        blocks.len() / 256,
-        pal.len(),
-        index.len() + blocks.len() + pal.len() * 3
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let out = std::process::Command::new("python3")
+        .arg(format!("{root}/scripts/gen-merged-table.py"))
+        .arg("--check")
+        .current_dir(root)
+        .output()
+        .expect("python3 to run the formatter");
+    assert!(
+        out.status.success(),
+        "merged_data.rs is stale -- rerun scripts/gen-merged-table.py\n{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
     );
 }
