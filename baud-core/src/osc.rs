@@ -54,9 +54,9 @@ impl Paint<'_, '_> {
     ///
     /// A kitty body is base64 behind a line of keys, and fed a byte at a
     /// time it cost about 4 ns a byte: a 1920x1080 `f=32` picture took
-    /// 46.0-47.1 ms, all of it here, and 4.7 a run at a time
-    /// (`docs/record.md`, "A kitty payload is fed a run at a time"). So its printable-ASCII run is found as the
-    /// text path finds one (`run_of_text`, the same vector scan) and handed
+    /// 46.0-47.1 ms, all of it here, and 4.7 ms a run at a time
+    /// (`docs/record.md`, "A kitty payload is fed a run at a time"). So its
+    /// printable-ASCII run is found as the text path finds one (`run_of_text`, the same vector scan) and handed
     /// to the stream whole. **The run is a subset of what the byte path
     /// would put, edge for edge**: `20-7E` in `Node::SosStr` is `StrPut`
     /// back to `SosStr` under both encodings

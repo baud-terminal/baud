@@ -58,7 +58,8 @@ vertex GOut glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
 
 // The source alpha of a pixel `cov` of 255 covered in a colour of alpha
 // `color_a`: the two bytes' product, rounded to a byte as the CPU's
-// `Blend::over` and `over_glass` round it, `(c a + 127) / 255`. Taken as
+// `Target::over_translucent` and `Target::quad` round it through
+// `baud_domain::premultiply_chan`, `(c a + 127) / 255`. Taken as
 // a float product it falls between bytes, and a blend from it rounds to
 // another byte than the CPU's on a sub-opaque colour. An opaque colour,
 // every glyph's today, is the coverage itself and takes no arithmetic.

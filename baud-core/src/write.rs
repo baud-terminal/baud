@@ -824,7 +824,8 @@ pub(crate) fn act(
 /// How far the printable-ASCII run starting here reaches, within the read.
 ///
 /// One subtract and one unsigned compare over sixteen bytes, then a scalar
-/// tail. **Never zero**: the table only names `Text` for a byte that is one.
+/// tail. **Zero only for `Paint::str_run`**, which calls it on any string
+/// body byte; the table names `Text` only for a byte that is one.
 #[inline(always)]
 pub(crate) fn run_of_text(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> ByteLen {
     let left = left.index();
