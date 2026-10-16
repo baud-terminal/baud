@@ -6666,6 +6666,12 @@ impl Responder for Driver {
             self.app.pending = Pending::Dirty;
         }
         self.app.ticks.bump();
+        // A kitty picture placed before its pixels were made: a step a
+        // tick (`reads::decode_step`), a frame when it shows, and its reply
+        // sent by the pump's flush below.
+        if crate::reads::decode_step(&mut self.app.term).1 == crate::reads::Shown::Changed {
+            self.app.pending = Pending::Dirty;
+        }
         self.pump(Trigger::Tick);
         // Every tick, not every frame: an idle screen builds no frame and
         // is the one this has to be able to report on.

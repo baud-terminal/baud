@@ -97,6 +97,23 @@ impl Paint<'_, '_> {
             }
             return self.sixel_put(b);
         }
+        // **An `APC` whose body begins `G` is a kitty graphics command**
+        // (`[[source: kitty-graphics]]`, "The graphics escape code": "All
+        // graphics escape codes are of the form: <ESC>_G<control
+        // data>;<payload><ESC>\"), routed by its first byte as `52;` routes a
+        // clipboard string, so the graph is unchanged. Under ISO 8859-1 a GR
+        // byte of it is its 7-bit byte, the rule `[[source: dec-std-070]]`
+        // 3.5.4.5 gives APC and the paragraph below quotes. Any other `APC`
+        // is `Other`, kept and discarded unread as before.
+        if self.cold.str_kind == StrKind::Kitty {
+            return self.kitty_put(self.cold.str_enc.gr_as_gl(b));
+        }
+        if self.cold.str_kind == StrKind::Apc {
+            if self.cold.str_enc.gr_as_gl(b).raw_byte() == b'G' {
+                return self.kitty_start();
+            }
+            self.cold.str_kind = StrKind::Other;
+        }
         // **A DECRQSS drops a format effector, `08-0D`, before its `Pt` is
         // kept.** The graph puts them in a DCS body for the handler to judge
         // (`graph::string`), and this one gives them no meaning:
@@ -199,7 +216,8 @@ impl Paint<'_, '_> {
             // has no prefix parser yet. **Consumed is the part that matters**:
             // a body that reached the screen as text would render an
             // application's private protocol as glyphs.
-            StrKind::Other => {
+            StrKind::Kitty => self.kitty_end(),
+            StrKind::Other | StrKind::Apc => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;
             }
@@ -509,6 +527,11 @@ pub(crate) enum StrKind {
     /// first bytes, which `StrKind::of` cannot see either.
     Clipboard,
     Other,
+    /// An `APC` before its first body byte, which decides whether it is a
+    /// kitty graphics command (`G`) or `Other`.
+    Apc,
+    /// An `APC G`: the body goes to the kitty graphics stream (`kitty.rs`).
+    Kitty,
 }
 
 impl StrKind {
@@ -531,6 +554,8 @@ impl StrKind {
             // `Other` for it, consuming the string and dropping its title.
             // Under UTF-8 the graph names `StrStart` for no `DD`.
             0x5d | 0x9d | 0xdd => StrKind::Osc,
+            // `APC`, in the same three spellings: `ESC _`, `9F` and `DF`.
+            0x5f | 0x9f | 0xdf => StrKind::Apc,
             _ => StrKind::Other,
         }
     }

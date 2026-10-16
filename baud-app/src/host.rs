@@ -44,6 +44,16 @@ pub fn cell_px(cell_h: Px) -> ImagePx {
 /// each fit the arena, and the pane went blank (the record, "A Sixel is
 /// decoded as its body arrives"). The single source of the default;
 /// `Config::defaults` reads it, and `[images] pixels_mb` overrides it.
+///
+/// **Under the kitty quota's "should allow at least a few full screen
+/// images"** (`[[source: kitty-graphics]]`, "Image persistence and storage
+/// quotas"): a 1920x1080 picture is about twice this and is refused, an
+/// open departure. Raising it costs memory whether or not a picture comes:
+/// the arena is written at construction (`Owned::with_images`'s
+/// `vec![Pixel::CLEAR; n]`), and a 400x150 terminal built that way and
+/// left idle peaked at 15.8 MB resident at this budget and 111.1 MB at
+/// three 3840x2160 screens; the eight-byte-a-pixel kitty scratch, zeroed
+/// bytes, stayed uncommitted.
 pub const IMAGE_BUDGET: ImageBudget = ImageBudget {
     pixels: 1 << 20, // 1,048,576 ColorWords, 4 MiB
 };

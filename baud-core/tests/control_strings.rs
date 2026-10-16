@@ -388,7 +388,9 @@ fn a_bel_in_sos_pm_or_apc_is_ignored_and_only_st_ends_it() {
     let cases: [(&str, &[u8], &[u8]); 4] = [
         ("SOS", b"\x1bXa\x07X\x1b\\AFTER", b"AFTER"),
         ("PM", b"\x1b^a\x07X\x1b\\AFTER", b"AFTER"),
-        ("APC", b"\x1b_Ga\x07X\x1b\\AFTER", b"AFTER"),
+        // Not `G`: an `APC G` is a kitty graphics command since 2026-10-16,
+        // read below.
+        ("APC", b"\x1b_Ha\x07X\x1b\\AFTER", b"AFTER"),
         (
             "APC under ISO 8859-1, 9F and 9C",
             b"\x1b%@\x9fa\x07X\x9cAFTER",
@@ -405,6 +407,22 @@ fn a_bel_in_sos_pm_or_apc_is_ignored_and_only_st_ends_it() {
                 assert_eq!(t.bells, 0, "{name}: no bell, read size {size}");
             });
         }
+    }
+
+    // An `APC G` ignores the `BEL` the same way, and is a kitty graphics
+    // command, malformed here and refused, not a string ignored.
+    let bytes: &[u8] = b"\x1b_Ga\x07X\x1b\\AFTER";
+    for size in 1..=bytes.len() {
+        assert_eq!(
+            left(bytes, size).screen,
+            left(b"AFTER", 5).screen,
+            "APC G: screen"
+        );
+        fed(bytes, size, |t| {
+            assert_eq!(t.strings_ignored, 0, "APC G: read, read size {size}");
+            assert_eq!(t.kitty().refused, 1, "APC G: refused, read size {size}");
+            assert_eq!(t.bells, 0, "APC G: no bell, read size {size}");
+        });
     }
 
     // `OSC_MAX` printable bytes and a BEL, against `OSC_MAX + 1` and none.

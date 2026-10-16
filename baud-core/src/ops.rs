@@ -2941,6 +2941,9 @@ impl Paint<'_, '_> {
         // only a reset drops them all. Leaving the alternate screen, above,
         // drops that screen's alone.
         self.images.reset();
+        // The kitty transmission in flight and any decode pending name
+        // images the reset just dropped.
+        self.strs.kitty.reset();
         self.reset_tabs();
         self.last_cp = None;
         self.goto(Row::ZERO, Col::ZERO);

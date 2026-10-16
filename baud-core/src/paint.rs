@@ -1382,8 +1382,10 @@ impl<'a, 'b> Paint<'a, 'b> {
             let n = self.view.fill(Row::from_index(y), Col::ZERO, cols, blank);
             self.cells = self.cells.plus(n);
         }
-        // The cursor's own row is a partial erase either side of it.
+        // The cursor's own row is a partial erase either side of it. The whole
+        // screen takes its kitty images with it (`Paint::kitty_clear`).
         match e {
+            EraseExtent::All if self.images.any_placed() => self.kitty_clear(),
             EraseExtent::All => {}
             e => self.erase_line(e),
         }

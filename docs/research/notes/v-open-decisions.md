@@ -4769,6 +4769,11 @@ lean:
      fifths, unfiltering a fifth, and the byte-at-a-time back-reference
      copy an eighth. By this step's own
      rule it falls to deferred decode, which is a design question for Jev.
+   - **Jev decided DEFER_IN_CORE_STEPPED (1.00 and 1.00), built 2026-10-16**
+     with steps 5-6: reserved, placed and the cursor moved when the size is
+     known, `Term::decode_step` advancing the rest, the macOS display link a
+     MiB a tick and the Linux loop a MiB a turn; mosaic-blue's steps take 28.9 ms in all (the record, "kitty
+     graphics in the core").
 4. **Transmission mediums.**
    - *Fork:* direct payloads (`t=d`) only, since the spec expects clients to
      probe and fall back; or an embedder hook for `t=f`, `t=t` and `t=s`, with
@@ -4795,8 +4800,19 @@ lean:
      height) is checked against `ImageBudget` before anything is reserved, and
      a refusal is counted.
    - Placements, cursor movement and deletion reuse `ImageStore`.
+   - **Built 2026-10-16** (the record, "kitty graphics in the core"): routed
+     by the body's first byte rather than a graph action, so the graph is
+     unchanged; the scratch holds a PNG and its scanlines, eight bytes an
+     arena pixel. Open, each recorded: the renderer does not draw the source
+     rect, `c`/`r`, `X`/`Y` or `z` order; `t=f`/`t=t`/`t=s`, animation,
+     `U=1` and `P` are later steps; a placed image is never deleted for
+     space and a query deletes nothing; replies keep the 7-bit shape under
+     S8C1T, following it the owner's question (Jev 0.92 and 0.88); the
+     app's 4 MiB default arena holds no full-screen picture. The quota is
+     the text's: the oldest images without placements go first.
 6. **Answer no query until raw formats and PNG both decode.** This reverses
-   t-images' order, which answered queries a step early.
+   t-images' order, which answered queries a step early. **Done 2026-10-16**:
+   queries are answered in the commit that decodes both.
 
 **Tests and measurement**
 

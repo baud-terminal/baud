@@ -693,3 +693,45 @@ proptest! {
         }
     }
 }
+
+/// **A stepped decode makes what the one-shot decode makes**, on every PNG
+/// in the repository and every Adam7 fixture, at steps of one byte (for
+/// the small ones), of 61 and of 4096 bytes and of everything; and refuses
+/// what it refuses. The core's deferred `f=100` decode is this (note V,
+/// V19 steps 5-6).
+#[test]
+fn a_stepped_decode_is_the_one_shot_decode_at_every_step_size() {
+    let files = repo_pngs();
+    assert!(files.len() >= 185, "found {}", files.len());
+    for p in files {
+        let bytes = std::fs::read(&p).expect("readable");
+        let what = p.display().to_string();
+        let Ok(png) = Png::parse(&bytes) else {
+            continue;
+        };
+        let (r, a) = (png.raw_len().unwrap_or(0), png.rgba_len().unwrap_or(0));
+        let (mut raw, mut once) = (vec![0u8; r], vec![0u8; a]);
+        let whole = png.decode(&mut raw, &mut once).map(|_| ());
+        let budgets: &[usize] = if r <= 4096 {
+            &[1, 61, 4096, usize::MAX]
+        } else {
+            &[61, 4096, 1 << 20, usize::MAX]
+        };
+        for &budget in budgets {
+            let (mut raw, mut rgba) = (vec![0u8; r], vec![0u8; a]);
+            let again = Png::reparse(&bytes).expect("reparsed");
+            let stepped = png.steps().and_then(|mut st| {
+                loop {
+                    match again.step(&mut st, &mut raw, &mut rgba, budget)? {
+                        baud_domain::png::PngProgress::Done => break Ok(()),
+                        baud_domain::png::PngProgress::More => continue,
+                    }
+                }
+            });
+            assert_eq!(stepped, whole, "{what} at {budget}");
+            if whole.is_ok() {
+                assert!(rgba == once, "{what} at {budget}: the pixels differ");
+            }
+        }
+    }
+}

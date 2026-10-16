@@ -57,6 +57,7 @@ mod feed;
 mod graph;
 #[cfg(feature = "diag")]
 pub use graph::Hist;
+mod kitty;
 mod ops;
 mod osc;
 mod paint;

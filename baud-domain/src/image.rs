@@ -46,16 +46,24 @@
 //! stack.
 
 use crate::pos::LineIdx;
-use crate::quantity::{Col, Count, Rows};
+use crate::quantity::{Col, Cols, Count, Rows};
 use crate::style::Chan;
+use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 /// **One image pixel, straight ARGB**: `0xAARRGGBB`, the colour not
 /// multiplied by its alpha (`[[source: w3c-png-2003]]` 6.2). Zero is
 /// [`Pixel::CLEAR`], which a Sixel leaves where its data sets no bit, so a
 /// zeroed arena is a clear one. The word is the one a renderer's `Argb`
 /// and a `BGRA8Unorm` texture read, so an image goes to either unconverted.
+///
+/// **Bytes too, through zerocopy**, so a decoder whose output is a byte
+/// stream -- inflate, whose output buffer is also its window, and PNG's
+/// RGBA8 rows -- writes the reserved span in place, and
+/// [`Pixel::from_memory_rgba`] turns each four bytes into the word where they lie.
 #[repr(transparent)]
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Debug, Default, FromBytes, IntoBytes, KnownLayout, Immutable,
+)]
 pub struct Pixel(u32);
 
 impl Pixel {
@@ -95,6 +103,15 @@ impl Pixel {
     pub fn bits(self) -> u32 {
         self.0
     }
+
+    /// The pixel whose four bytes in memory are `r, g, b, a` in that order,
+    /// as PNG's RGBA8 and kitty's `f=32` lay them out: the word a byte
+    /// decoder left in place, read back as the straight ARGB it means.
+    /// `to_ne_bytes` reads the bytes in memory order on either endianness.
+    pub fn from_memory_rgba(self) -> Pixel {
+        let [r, g, b, a] = self.0.to_ne_bytes();
+        Pixel(u32::from_be_bytes([a, r, g, b]))
+    }
 }
 
 /// **How an image's pixels blend**, marked once at decode: what decides
@@ -112,6 +129,14 @@ pub enum ImageAlpha {
 }
 
 impl ImageAlpha {
+    /// The mark of `self`'s pixels and `p` together: partial once any is.
+    pub fn with(self, p: Pixel) -> ImageAlpha {
+        match (self, p.alpha().get()) {
+            (ImageAlpha::OpaqueOrClear, 0 | 0xFF) => ImageAlpha::OpaqueOrClear,
+            _ => ImageAlpha::Partial,
+        }
+    }
+
     /// What `pixels` hold: [`ImageAlpha::Partial`] when any alpha lies
     /// strictly between clear and opaque. For a decoder that does not know
     /// from its format.
@@ -254,6 +279,173 @@ impl PlacementId {
     }
 }
 
+/// A kitty image id, the `i` key (`[[source: kitty-graphics]]`, "Control
+/// data reference"): "an arbitrary positive integer up to 4294967295", zero
+/// meaning none was given. The client's name for an image, not the store's
+/// [`ImageId`], which is a slot.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct KittyId(u32);
+
+impl KittyId {
+    /// No id: an image sent without `i` or `I`.
+    pub const NONE: KittyId = KittyId(0);
+
+    /// The id `n`.
+    pub fn of(n: u32) -> KittyId {
+        KittyId(n)
+    }
+
+    /// The raw id, for a reply.
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Whether this names no image.
+    pub fn is_none(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// A kitty image number, the `I` key: not unique, and a command naming one
+/// acts on "the newest image with that number" (`[[source: kitty-graphics]]`,
+/// "Requesting image ids from the terminal").
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct KittyNumber(u32);
+
+impl KittyNumber {
+    /// No number.
+    pub const NONE: KittyNumber = KittyNumber(0);
+
+    /// The number `n`.
+    pub fn of(n: u32) -> KittyNumber {
+        KittyNumber(n)
+    }
+
+    /// The raw number, for a reply.
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Whether no number was given.
+    pub fn is_none(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// A kitty placement id, the `p` key: with the image id, it names one
+/// placement, and a second put with the same pair replaces the first.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct KittyPlacement(u32);
+
+impl KittyPlacement {
+    /// No placement id.
+    pub const NONE: KittyPlacement = KittyPlacement(0);
+
+    /// The placement id `n`.
+    pub fn of(n: u32) -> KittyPlacement {
+        KittyPlacement(n)
+    }
+
+    /// The raw id, for a reply.
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Whether no placement id was given.
+    pub fn is_none(self) -> bool {
+        self.0 == 0
+    }
+}
+
+/// **Which protocol stored an image**, because they free it differently.
+/// A Sixel or an embedder's image is freed with its last placement, and text
+/// written over it erases it. A kitty image outlives its placements -- `a=t`
+/// stores one with none, and a lowercase delete removes placements "without
+/// necessarily freeing up the stored image data" (`[[source: kitty-graphics]]`,
+/// "Deleting images") -- and "The other commands to erase text must have no
+/// effect on graphics" ("Interaction with other terminal actions").
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ImageOwner {
+    /// A Sixel, or [`ImageStore::store`]'s caller.
+    Local,
+    /// A kitty transmission, with the client's id and number. An image with
+    /// neither can never be named again, so it goes with its last placement
+    /// as a local one does (kitty's own rule, `[[source: kitty-graphics-c]]`
+    /// `filter_refs` and `modify_refs`).
+    Kitty(KittyId, KittyNumber),
+}
+
+/// **Whether a stored image's pixels are all there.** A kitty image is
+/// reserved and placed when its size is known and decoded afterwards, in
+/// steps; "terminals must not display anything, until the entire sequence is
+/// received and validated" (`[[source: kitty-graphics]]`, "Remote client"),
+/// so [`ImageStore::image`] does not show it until it is
+/// [`ImageState::Ready`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ImageState {
+    /// Reserved; its pixels are still being written.
+    Decoding,
+    /// Every pixel written.
+    Ready,
+}
+
+/// Where a kitty placement draws from and over what: the source rectangle
+/// in image pixels (`x`, `y`, `w`, `h`; a zero width or height is the rest
+/// of the image), the offset inside the first cell (`X`, `Y`), and the
+/// cells it covers, from `c` and `r` or from the image and the cell size.
+/// What the deletes that name a cell, a row or a column intersect, and what
+/// the cursor moves by. **Stored, and not yet drawn**: the renderer draws
+/// the whole image at the anchor (an open departure, `docs/record.md`,
+/// "kitty graphics in the core").
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct KittyPlace {
+    /// The client's placement id, or none.
+    pub id: KittyPlacement,
+    /// The source rectangle's left edge, in image pixels.
+    pub src_x: ImagePx,
+    /// Its top edge.
+    pub src_y: ImagePx,
+    /// Its width; zero is the image's width past `src_x`.
+    pub src_w: ImagePx,
+    /// Its height; zero is the image's height past `src_y`.
+    pub src_h: ImagePx,
+    /// The offset inside the anchor cell, `X`.
+    pub cell_x: ImagePx,
+    /// The offset inside the anchor cell, `Y`.
+    pub cell_y: ImagePx,
+    /// The cells it covers across.
+    pub cols: Cols,
+    /// The rows it covers down.
+    pub rows: Rows,
+}
+
+impl KittyPlace {
+    /// No kitty geometry: a Sixel's or an embedder's placement.
+    pub const NONE: KittyPlace = KittyPlace {
+        id: KittyPlacement::NONE,
+        src_x: ImagePx::ZERO,
+        src_y: ImagePx::ZERO,
+        src_w: ImagePx::ZERO,
+        src_h: ImagePx::ZERO,
+        cell_x: ImagePx::ZERO,
+        cell_y: ImagePx::ZERO,
+        cols: Cols(0),
+        rows: Rows(0),
+    };
+}
+
+/// Whether a kitty delete frees the images it leaves with no placement: the
+/// uppercase specifiers "delete the image data as well", the lowercase ones
+/// only an image no id names (`[[source: kitty-graphics]]`, "Deleting
+/// images").
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KittyFree {
+    /// Lowercase: placements go, named images stay.
+    Placements,
+    /// Uppercase: an image left with no placement goes too.
+    Data,
+}
+
 /// One image-slot: where a live image's pixels are in the arena, its size, and
 /// how many placements reference it. Empty when [`ImageSlot::width`] is
 /// [`ImagePx::ZERO`] -- a zero-width image is meaningless, the `ClusterSlot`
@@ -268,6 +460,13 @@ pub struct ImageSlot {
     /// The reference count: how many live placements name this image. An image
     /// is freed when this reaches zero after having been placed.
     placements: Count,
+    /// Which protocol stored it, and the client's names for a kitty image.
+    owner: ImageOwner,
+    /// Whether its pixels are all written.
+    state: ImageState,
+    /// The store's epoch when it was stored: which of two images with one
+    /// kitty number is the newer.
+    born: ImageGen,
 }
 
 impl ImageSlot {
@@ -278,10 +477,22 @@ impl ImageSlot {
         height: ImagePx::ZERO,
         alpha: ImageAlpha::OpaqueOrClear,
         placements: Count::ZERO,
+        owner: ImageOwner::Local,
+        state: ImageState::Ready,
+        born: ImageGen::ZERO,
     };
 
     fn is_empty(self) -> bool {
         self.width.is_zero()
+    }
+
+    /// Whether this image goes with its last placement: a local one, or a
+    /// kitty one no id names.
+    fn goes_with_placements(self) -> bool {
+        match self.owner {
+            ImageOwner::Local => true,
+            ImageOwner::Kitty(id, _) => id.is_none(),
+        }
     }
 
     fn span_len(self) -> usize {
@@ -393,6 +604,9 @@ pub struct PlacementSlot {
     /// (`an_anchor_on_a_wrapped_row_comes_back_on_its_row_after_a_round_trip`).
     follows: Col,
     staged: Staged,
+    /// A kitty placement's geometry and id; [`KittyPlace::NONE`] for any
+    /// other.
+    pub kitty: KittyPlace,
 }
 
 impl PlacementSlot {
@@ -405,6 +619,7 @@ impl PlacementSlot {
         z: ZIndex::ZERO,
         follows: Col::ZERO,
         staged: Staged::Idle,
+        kitty: KittyPlace::NONE,
     };
 
     fn is_empty(self) -> bool {
@@ -431,6 +646,18 @@ impl ImageBudget {
     /// A budget of `pixels` arena words.
     pub fn of(pixels: usize) -> ImageBudget {
         ImageBudget { pixels }
+    }
+
+    /// **The bytes of kitty PNG scratch that go with it: eight a pixel.** A
+    /// PNG waits whole in the scratch with its inflated scanlines after it
+    /// (`[[source: w3c-png-2003]]`'s filtered rows, a byte more each): an
+    /// 8-bit RGBA image the size of the whole arena is four bytes a pixel of
+    /// scanlines, and its compressed file is smaller than that in all but a
+    /// stored stream, so eight holds the largest picture the arena does.
+    /// A 16-bit RGBA one that large needs more and is refused for it,
+    /// counted and answered.
+    pub fn scratch(self) -> usize {
+        self.pixels.saturating_mul(8)
     }
 }
 
@@ -516,7 +743,10 @@ pub struct ImageView<'a> {
 ///
 /// The three caller buffers are the arena (straight ARGB pixels), the image-slot table
 /// and the placement table; all three are refuse-and-count, and the counters are
-/// public and never silent, the [`ClusterStore`] contract.
+/// public and never silent, the [`ClusterStore`] contract. The one exception is
+/// the kitty quota: a new kitty image deletes older kitty images without
+/// placements to make space before it is refused
+/// ([`ImageStore::reserve_evicting`], counted in `images_evicted`).
 pub struct ImageStore<'b> {
     pixels: &'b mut [Pixel],
     slots: &'b mut [ImageSlot],
@@ -534,6 +764,11 @@ pub struct ImageStore<'b> {
     pub placements_refused: usize,
     /// Images freed, by a last placement leaving or an explicit delete.
     pub images_dropped: usize,
+    /// Kitty images deleted to make space for a new one: the oldest with no
+    /// placement first, "to make space for the new one"
+    /// (`[[source: kitty-graphics]]`, "Image persistence and storage
+    /// quotas"). Each is in `images_dropped` too.
+    pub images_evicted: usize,
     /// Placements removed because the row their anchor is on no longer
     /// exists: it left the retained history, a scroll blanked it as it came
     /// in, a reflow dropped its line, or its screen was the alternate one
@@ -584,6 +819,7 @@ impl<'b> ImageStore<'b> {
             refusals: ImageRefusals::NONE,
             placements_refused: 0,
             images_dropped: 0,
+            images_evicted: 0,
             placements_expired: 0,
             sixel_p2_ignored: 0,
             epoch: ImageGen::ZERO,
@@ -703,16 +939,262 @@ impl<'b> ImageStore<'b> {
             self.refuse(ImageRefusal::Arena(width, height));
             return None;
         };
+        self.epoch = self.epoch.bumped();
         self.slots[slot] = ImageSlot {
             offset,
             width,
             height,
             alpha,
             placements: Count::ZERO,
+            owner: ImageOwner::Local,
+            state: ImageState::Ready,
+            born: self.epoch,
         };
         self.tallest = self.tallest.max(height);
-        self.epoch = self.epoch.bumped();
         Some(ImageId::from_index(slot))
+    }
+
+    /// **Reserve a `width` x `height` image for a decoder that writes it
+    /// later**, as `owner`: recorded at once, so nothing else is stored over
+    /// its span, and [`ImageState::Decoding`], so [`ImageStore::image`] does
+    /// not show it until [`ImageStore::complete`]. Refused and counted as
+    /// [`ImageStore::store`] refuses. The span holds whatever the arena held;
+    /// [`ImageStore::decoding_mut`] lends it.
+    pub fn reserve(
+        &mut self,
+        width: ImagePx,
+        height: ImagePx,
+        owner: ImageOwner,
+    ) -> Option<ImageId> {
+        let area = match width.index().checked_mul(height.index()) {
+            Some(a) if a > 0 => a,
+            _ => {
+                self.refuse(ImageRefusal::Empty);
+                return None;
+            }
+        };
+        let at = self.lowest_gap(area);
+        let id = self.store_at(at, width, height, ImageAlpha::OpaqueOrClear)?;
+        let s = &mut self.slots[id.index()?];
+        s.owner = owner;
+        s.state = ImageState::Decoding;
+        Some(id)
+    }
+
+    /// **Reserve a kitty image, deleting older ones to make space**:
+    /// "When adding a new image, if the total size exceeds the quota, the
+    /// terminal emulator should delete older images to make space for the
+    /// new one", and "existing images without placements will be
+    /// preferentially deleted" (`[[source: kitty-graphics]]`, "Image
+    /// persistence and storage quotas" and "Deleting images"). While no
+    /// slot is free or no gap holds `width` x `height`, the oldest kitty
+    /// image with no placement, on screen or in the history, and whole
+    /// goes, each counted in `images_evicted`; only if deleting all of them
+    /// would not make space does none go, and the reserve is refused and
+    /// counted once, as [`ImageStore::reserve`] refuses. An image with a
+    /// placement, one still decoding, and a Sixel or embedder image are
+    /// never deleted for space.
+    pub fn reserve_evicting(
+        &mut self,
+        width: ImagePx,
+        height: ImagePx,
+        owner: ImageOwner,
+    ) -> Option<ImageId> {
+        let area = width.index().saturating_mul(height.index());
+        let fits = |st: &ImageStore, live: &dyn Fn(&ImageSlot) -> bool| {
+            st.slots.iter().any(|s| !live(s)) && st.lowest_gap_among(area, live).is_some()
+        };
+        let evictable = |s: &ImageSlot| {
+            !s.is_empty()
+                && s.placements.index() == 0
+                && s.state == ImageState::Ready
+                && matches!(s.owner, ImageOwner::Kitty(..))
+        };
+        let taken = |s: &ImageSlot| !s.is_empty();
+        if area > 0 && !fits(self, &taken) && fits(self, &|s| taken(s) && !evictable(s)) {
+            while !fits(self, &taken) {
+                let Some(old) = self
+                    .slots
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, s)| evictable(s))
+                    .min_by_key(|(_, s)| s.born.raw())
+                    .map(|(i, _)| ImageId::from_index(i))
+                else {
+                    break;
+                };
+                self.free(old);
+                self.images_evicted += 1;
+            }
+        }
+        self.reserve(width, height, owner)
+    }
+
+    /// The pixels of an image still being decoded, to write in place;
+    /// `None` once it is complete or if `id` names none.
+    pub fn decoding_mut(&mut self, id: ImageId) -> Option<&mut [Pixel]> {
+        let s = *self.slots.get(id.index()?)?;
+        match !s.is_empty() && s.state == ImageState::Decoding {
+            true => Some(&mut self.pixels[s.start()..s.end()]),
+            false => None,
+        }
+    }
+
+    /// **Mark an image's pixels complete, with the mark they earn**: a
+    /// decoding image starts showing, and an embedder's image is held to its
+    /// pixels rather than its caller's word. The epoch moves, so a texture
+    /// cache keyed on it uploads the pixels now there.
+    pub fn complete(&mut self, id: ImageId, alpha: ImageAlpha) {
+        let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) else {
+            return;
+        };
+        if s.is_empty() {
+            return;
+        }
+        s.state = ImageState::Ready;
+        s.alpha = alpha;
+        self.epoch = self.epoch.bumped();
+    }
+
+    /// The size of a live image, decoding or not.
+    pub fn size_of(&self, id: ImageId) -> Option<(ImagePx, ImagePx)> {
+        let s = *self.slots.get(id.index()?)?;
+        (!s.is_empty()).then_some((s.width, s.height))
+    }
+
+    /// The live image a kitty id names.
+    pub fn kitty_image(&self, id: KittyId) -> Option<ImageId> {
+        if id.is_none() {
+            return None;
+        }
+        self.slots
+            .iter()
+            .position(|s| !s.is_empty() && matches!(s.owner, ImageOwner::Kitty(i, _) if i == id))
+            .map(ImageId::from_index)
+    }
+
+    /// The newest live image a kitty number names.
+    pub fn kitty_newest(&self, number: KittyNumber) -> Option<ImageId> {
+        if number.is_none() {
+            return None;
+        }
+        self.slots
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| {
+                !s.is_empty() && matches!(s.owner, ImageOwner::Kitty(_, n) if n == number)
+            })
+            .max_by_key(|(_, s)| s.born.raw())
+            .map(|(i, _)| ImageId::from_index(i))
+    }
+
+    /// The kitty id and number of a live image; `None` for one no kitty
+    /// transmission stored.
+    pub fn kitty_names(&self, id: ImageId) -> Option<(KittyId, KittyNumber)> {
+        let s = *self.slots.get(id.index()?)?;
+        match (s.is_empty(), s.owner) {
+            (false, ImageOwner::Kitty(i, n)) => Some((i, n)),
+            _ => None,
+        }
+    }
+
+    /// **Place a kitty image**, replacing the placement of the same image
+    /// with the same non-zero placement id: "If you send two placements with
+    /// the same image id and placement id the second one will replace the
+    /// first" (`[[source: kitty-graphics]]`, "Display images on screen"). The
+    /// old one goes first, so the image is not freed between them.
+    pub fn place_kitty(
+        &mut self,
+        id: ImageId,
+        screen: ImageScreen,
+        line: LineIdx,
+        col: Col,
+        z: ZIndex,
+        place: KittyPlace,
+    ) -> PlacementId {
+        if !place.id.is_none() {
+            for p in self.placements.iter_mut() {
+                if !p.is_empty() && p.image == id && p.kitty.id == place.id {
+                    *p = PlacementSlot::EMPTY;
+                    self.placed = self.placed.saturating_sub(1);
+                    if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
+                        s.placements = Count::of(s.placements.index().saturating_sub(1));
+                    }
+                }
+            }
+        }
+        let pid = self.place(id, screen, line, col, z);
+        if let Some(p) = pid_index(pid) {
+            self.placements[p].kitty = place;
+        }
+        pid
+    }
+
+    /// **Delete the kitty placements `hit` picks**, and with them each
+    /// image they leave with no placement that `free` or its namelessness
+    /// says goes -- kitty's `filter_refs` (`[[source: kitty-graphics-c]]`):
+    /// an image is freed only if a placement of it matched. `hit` sees the
+    /// placement and its image's kitty names. Returns how many placements
+    /// went. Sixel and embedder placements are never touched: the delete
+    /// command is kitty's.
+    pub fn kitty_delete(
+        &mut self,
+        free: KittyFree,
+        hit: impl Fn(&PlacementSlot, KittyId, KittyNumber) -> bool,
+    ) -> usize {
+        let mut n = 0;
+        for p in 0..self.placements.len() {
+            let slot = self.placements[p];
+            if slot.is_empty() {
+                continue;
+            }
+            let Some(i) = slot.image.index() else {
+                continue;
+            };
+            let ImageOwner::Kitty(kid, num) = self.slots[i].owner else {
+                continue;
+            };
+            if !hit(&slot, kid, num) {
+                continue;
+            }
+            self.placements[p] = PlacementSlot::EMPTY;
+            self.placed = self.placed.saturating_sub(1);
+            n += 1;
+            let s = &mut self.slots[i];
+            s.placements = Count::of(s.placements.index().saturating_sub(1));
+            if s.placements.index() == 0 && (free == KittyFree::Data || s.goes_with_placements()) {
+                *s = ImageSlot::EMPTY;
+                self.images_dropped += 1;
+                self.epoch = self.epoch.bumped();
+            }
+        }
+        n
+    }
+
+    /// **Free every kitty image `hit` picks that has no placement**: an
+    /// `a=d,d=I` or `d=N` naming an image only stored, and `d=R`'s range
+    /// (`[[source: kitty-graphics-c]]` `handle_delete_command`, whose
+    /// special case frees an unplaced image by id or number). Returns how
+    /// many.
+    pub fn kitty_free_unplaced(&mut self, hit: impl Fn(KittyId, KittyNumber) -> bool) -> usize {
+        let mut n = 0;
+        for s in self.slots.iter_mut() {
+            if s.is_empty() || s.placements.index() != 0 {
+                continue;
+            }
+            let ImageOwner::Kitty(kid, num) = s.owner else {
+                continue;
+            };
+            if hit(kid, num) {
+                *s = ImageSlot::EMPTY;
+                self.images_dropped += 1;
+                n += 1;
+            }
+        }
+        if n > 0 {
+            self.epoch = self.epoch.bumped();
+        }
+        n
     }
 
     /// Whether an image slot is free, which a Sixel decoded as it arrives
@@ -784,6 +1266,9 @@ impl<'b> ImageStore<'b> {
         if s.is_empty() {
             return None;
         }
+        if s.state == ImageState::Decoding {
+            return None;
+        }
         Some(ImageView {
             pixels: &self.pixels[s.start()..s.end()],
             width: s.width,
@@ -826,6 +1311,7 @@ impl<'b> ImageStore<'b> {
             z,
             follows: Col::ZERO,
             staged: Staged::Idle,
+            kitty: KittyPlace::NONE,
         };
         self.slots[i].placements = Count::of(self.slots[i].placements.index() + 1);
         self.placed += 1;
@@ -852,10 +1338,24 @@ impl<'b> ImageStore<'b> {
         };
         let left = s.placements.index().saturating_sub(1);
         s.placements = Count::of(left);
-        if left == 0 {
+        if left == 0 && s.goes_with_placements() {
             *s = ImageSlot::EMPTY;
             self.images_dropped += 1;
             self.epoch = self.epoch.bumped();
+        }
+    }
+
+    /// [`ImageStore::free`] an image only while it is still decoding: what a
+    /// decoder that reserved it frees on failure. A slot that was cleared
+    /// meanwhile -- `ED 2`, a placement expiring -- may hold another
+    /// protocol's image by now, which this leaves alone.
+    pub fn free_decoding(&mut self, id: ImageId) {
+        let decoding = id
+            .index()
+            .and_then(|i| self.slots.get(i))
+            .is_some_and(|s| !s.is_empty() && s.state == ImageState::Decoding);
+        if decoding {
+            self.free(id);
         }
     }
 
@@ -908,6 +1408,12 @@ impl<'b> ImageStore<'b> {
     /// overwrite check, so a stream with no image on screen pays one compare.
     pub fn any_placed(&self) -> bool {
         self.placed > 0
+    }
+
+    /// The whole arena, in pixels: the most any one image can hold, which
+    /// a declared size is checked against before anything is reserved.
+    pub fn capacity(&self) -> usize {
+        self.pixels.len()
     }
 
     /// Whether the store has any pixel arena at all, so a Sixel can be drawn
@@ -1181,7 +1687,11 @@ impl<'b> ImageStore<'b> {
                 continue;
             };
             let img = self.slots[i];
-            if img.is_empty() {
+            // A kitty image is not erased by text: "The other commands to
+            // erase text must have no effect on graphics"
+            // (`[[source: kitty-graphics]]`), and one under the text, at a
+            // negative z, is there to be written over.
+            if img.is_empty() || img.owner != ImageOwner::Local {
                 continue;
             }
             let rows = img.height.index().div_ceil(ch);
@@ -1214,6 +1724,12 @@ impl<'b> ImageStore<'b> {
     /// finds none, which converges because the candidate only rises and is
     /// bounded by the arena length.
     pub(crate) fn lowest_gap(&self, area: usize) -> Option<usize> {
+        self.lowest_gap_among(area, |s| !s.is_empty())
+    }
+
+    /// [`ImageStore::lowest_gap`] with the spans `live` picks taken and the
+    /// rest free: what a gap would be were the others deleted.
+    fn lowest_gap_among(&self, area: usize, live: impl Fn(&ImageSlot) -> bool) -> Option<usize> {
         let mut cand: usize = 0;
         loop {
             let end = cand.checked_add(area)?;
@@ -1222,7 +1738,7 @@ impl<'b> ImageStore<'b> {
             }
             let mut bumped = false;
             for s in self.slots.iter() {
-                if s.is_empty() {
+                if !live(s) {
                     continue;
                 }
                 // Overlap of [cand, end) with the live span [start, end).

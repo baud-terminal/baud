@@ -723,3 +723,56 @@ fn an_image_keeps_the_alpha_mark_it_was_stored_with() {
     assert_eq!(r, o);
     assert_eq!(store.image(r).unwrap().alpha, ImageAlpha::Partial);
 }
+
+/// **The kitty quota deletes only whole kitty images with no placement**,
+/// oldest first ("delete older images to make space for the new one",
+/// `[[source: kitty-graphics]]`): never one still decoding and never a
+/// Sixel's or an embedder's, and when deleting every candidate would not
+/// make space it deletes none and refuses once.
+#[test]
+fn the_kitty_quota_deletes_only_whole_unplaced_kitty_images() {
+    use baud_domain::{ImageOwner, KittyId, KittyNumber};
+    let kitty = |i| ImageOwner::Kitty(KittyId::of(i), KittyNumber::NONE);
+    let px = ImagePx::of;
+    let mut b = Buffers::new();
+    let mut store = b.store();
+    // Half the arena still decoding, half a local image: nothing may go.
+    let decoding = store.reserve(px(4), px(8), kitty(1)).unwrap();
+    let (local, _) = store
+        .store(px(4), px(8), ImageAlpha::OpaqueOrClear)
+        .unwrap();
+    assert_eq!(store.reserve_evicting(px(4), px(4), kitty(3)), None);
+    assert_eq!((store.images_evicted, store.images_refused), (0, 1));
+    assert!(store.size_of(decoding).is_some() && store.image(local).is_some());
+    // Whole, it is the one candidate, and it goes; the local image stays.
+    store.complete(decoding, ImageAlpha::OpaqueOrClear);
+    assert!(store.reserve_evicting(px(4), px(4), kitty(3)).is_some());
+    assert_eq!(store.images_evicted, 1);
+    assert!(
+        store.image(local).is_some(),
+        "a local image is never deleted"
+    );
+    assert_eq!(store.kitty_image(KittyId::of(1)), None);
+}
+
+/// No free slot is a quota too: four whole unplaced kitty images hold the
+/// four slots, and a fifth deletes the oldest.
+#[test]
+fn a_full_slot_table_deletes_the_oldest_unplaced_kitty_image() {
+    use baud_domain::{ImageOwner, KittyId, KittyNumber};
+    let px = ImagePx::of;
+    let mut b = Buffers::new();
+    let mut store = b.store();
+    for i in 1..=4 {
+        let owner = ImageOwner::Kitty(KittyId::of(i), KittyNumber::NONE);
+        let id = store.reserve(px(1), px(1), owner).unwrap();
+        store.complete(id, ImageAlpha::OpaqueOrClear);
+    }
+    let owner = ImageOwner::Kitty(KittyId::of(5), KittyNumber::NONE);
+    assert!(store.reserve_evicting(px(1), px(1), owner).is_some());
+    assert_eq!((store.images_evicted, store.images_refused), (1, 0));
+    let live: Vec<bool> = (1..=5)
+        .map(|i| store.kitty_image(KittyId::of(i)).is_some())
+        .collect();
+    assert_eq!(live, [false, true, true, true, true], "the oldest went");
+}

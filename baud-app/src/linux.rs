@@ -40,7 +40,7 @@ use crate::host::{
 };
 use crate::pty::{Chunk, Outbox, Pty, Ready, wait};
 use baud_core::{Focus, Owned, Resized, Term};
-use baud_domain::{Cols, Rows, WinSize};
+use baud_domain::{Cols, DecodeProgress, Rows, WinSize};
 use baud_font::Px;
 use baud_present_wayland::{Event, Presented, Window};
 use baud_render::{Argb, Blend, Damage, PxSize, Renderer, Target};
@@ -109,6 +109,9 @@ struct Driver {
     /// The image budget the core was provisioned with, so a refusal's log
     /// line names the limit it hit (`host::describe_refusals`).
     images: baud_domain::ImageBudget,
+    /// Whether a kitty picture's decode is pending, so the wait does not
+    /// block while it is (`reads::decode_wait`).
+    decode: DecodeProgress,
 }
 
 pub fn run() {
@@ -237,6 +240,7 @@ pub fn run() {
         updates: UpdateClock::new(SYNC_MAX),
         titles: crate::title::Shown::new(),
         images: cfg.images,
+        decode: DecodeProgress::Idle,
     };
     if let Err(e) = d.conn.flush() {
         crate::warn!("wayland: {e}");
@@ -271,7 +275,13 @@ pub fn run() {
             .caret
             .next_change(now, d.blinks())
             .map(|t| t.saturating_duration_since(now));
-        let timeout = [sync, repeat, flash, caret].into_iter().flatten().min();
+        // A kitty picture's decode, a step a turn between reads: the next
+        // turn at once while one is pending (`reads::decode_wait`).
+        let decode = crate::reads::decode_wait(d.decode);
+        let timeout = [sync, repeat, flash, caret, decode]
+            .into_iter()
+            .flatten()
+            .min();
         let (compositor, pty) = match wait(d.conn.as_fd(), d.pty.as_fd(), d.outbox.owed(), timeout)
         {
             Ok(r) => r,
@@ -349,6 +359,13 @@ pub fn run() {
                 }
                 Event::Closed => return,
             }
+        }
+        // The step the macOS display link takes a tick, here a turn; its
+        // reply goes with the flush below.
+        let (decode, shown) = crate::reads::decode_step(&mut d.term);
+        d.decode = decode;
+        if shown == crate::reads::Shown::Changed {
+            d.pending = Pending::Dirty;
         }
         d.flush_reply();
         d.present();

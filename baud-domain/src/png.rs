@@ -35,6 +35,7 @@
 //! resumable inflate a caller with a stream split across reads feeds itself.
 
 use crate::zlib::{Inflate, Inflated, ZlibError};
+use core::ops::Range;
 
 /// A decoded image's dimensions, in pixels.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -330,7 +331,20 @@ fn be32(bytes: &[u8]) -> Option<u32> {
     Some(u32::from_be_bytes(bytes.get(..4)?.try_into().ok()?))
 }
 
+/// Whether a chunk's CRC is checked as it is read.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Crc {
+    Check,
+    /// Already checked: [`Png::reparse`] reading a header [`Png::parse`]
+    /// accepted, over bytes that have not changed.
+    Trusted,
+}
+
 fn chunk(data: &[u8], at: ChunkAt) -> Result<Chunk<'_>, PngError> {
+    chunk_with(data, at, Crc::Check)
+}
+
+fn chunk_with(data: &[u8], at: ChunkAt, crc: Crc) -> Result<Chunk<'_>, PngError> {
     let at = at.0;
     let len = be32(data.get(at..).ok_or(PngError::Malformed)?).ok_or(PngError::Malformed)?;
     let len = usize::try_from(len).map_err(|_| PngError::Malformed)?;
@@ -342,7 +356,7 @@ fn chunk(data: &[u8], at: ChunkAt) -> Result<Chunk<'_>, PngError> {
     let covered = data.get(kind_at..crc_at).ok_or(PngError::Malformed)?;
     let stored =
         be32(data.get(crc_at..next).ok_or(PngError::Malformed)?).ok_or(PngError::Malformed)?;
-    if crc32(covered) != stored {
+    if crc == Crc::Check && crc32(covered) != stored {
         return Err(PngError::Crc);
     }
     let kind: [u8; 4] = covered
@@ -360,11 +374,26 @@ impl<'a> Png<'a> {
     /// Parses the signature, `IHDR`, and the `PLTE`/`tRNS` chunks that
     /// precede the image data; checks every chunk's CRC on the way.
     pub fn parse(bytes: &'a [u8]) -> Result<Png<'a>, PngError> {
+        Png::parse_with(bytes, Crc::Check)
+    }
+
+    /// **The header of bytes [`Png::parse`] already accepted, read again
+    /// without its CRCs**: what a stepped decode reads at each step over the
+    /// same bytes. A first `IDAT` is checked as the header walk reaches it,
+    /// and an encoder that writes the whole stream as one -- mosaic-blue's
+    /// is 960,772 bytes -- had every step check it again, which took the
+    /// steps of its decode to 2.4 times the one-shot decode.
+    pub fn reparse(bytes: &'a [u8]) -> Result<Png<'a>, PngError> {
+        Png::parse_with(bytes, Crc::Trusted)
+    }
+
+    #[inline(always)]
+    fn parse_with(bytes: &'a [u8], crc: Crc) -> Result<Png<'a>, PngError> {
         let data = bytes;
         if bytes.get(..8) != Some(&SIGNATURE) {
             return Err(PngError::Malformed);
         }
-        let ihdr = chunk(data, ChunkAt(8))?;
+        let ihdr = chunk_with(data, ChunkAt(8), crc)?;
         let &[
             w0,
             w1,
@@ -414,7 +443,7 @@ impl<'a> Png<'a> {
         };
         let mut at = ihdr.next;
         loop {
-            let c = chunk(data, at)?;
+            let c = chunk_with(data, at, crc)?;
             match &c.kind {
                 b"PLTE" => png.palette = Some(c.data),
                 b"tRNS" => png.trns = Some(c.data),
@@ -496,8 +525,9 @@ impl<'a> Png<'a> {
             // before Adam7 (`baud-bench`'s `png_decode`; the record,
             // "png.rs reads Adam7"). `codes`, inflate's symbol loop, was
             // the same machine code in all three.
-            self.unfilter(raw, self.size)?;
-            self.expand(raw, rgba, self.size, Pass::WHOLE)?;
+            let h = usize::try_from(self.size.height).map_err(|_| PngError::Buffer)?;
+            self.unfilter(raw, self.size, 0..h)?;
+            self.expand(raw, rgba, self.size, Pass::WHOLE, 0..h)?;
             return Ok(self.size);
         }
         // The reduced images follow one another in the stream, an empty
@@ -512,8 +542,8 @@ impl<'a> Png<'a> {
                 + 1;
             let h = usize::try_from(size.height).map_err(|_| PngError::Buffer)?;
             let part = raw.get_mut(at..at + stride * h).ok_or(PngError::Buffer)?;
-            self.unfilter(part, size)?;
-            self.expand(part, rgba, size, pass)?;
+            self.unfilter(part, size, 0..h)?;
+            self.expand(part, rgba, size, pass, 0..h)?;
             at += stride * h;
         }
         Ok(self.size)
@@ -532,12 +562,12 @@ impl<'a> Png<'a> {
         }
     }
 
-    /// Reconstructs every scanline of one reduced image of `size` pixels in
+    /// Reconstructs scanlines `rows` of one reduced image of `size` pixels in
     /// place (9.2): the filter byte stays where it is and the row after it
     /// becomes the original bytes. `raw` starts at the image's first
     /// scanline, so its prior scanline is zero, as 9.2 requires of every
-    /// reduced image.
-    fn unfilter(&self, raw: &mut [u8], size: Size) -> Result<(), PngError> {
+    /// reduced image; the rows before `rows` are already reconstructed.
+    fn unfilter(&self, raw: &mut [u8], size: Size, rows: Range<usize>) -> Result<(), PngError> {
         let rb = usize::try_from(self.row_bytes(size).ok_or(PngError::Buffer)?)
             .map_err(|_| PngError::Buffer)?;
         // The "corresponding byte of the previous pixel": whole bytes for
@@ -545,23 +575,29 @@ impl<'a> Png<'a> {
         let bpp = usize::try_from(self.bits_per_pixel().div_ceil(8))
             .map_err(|_| PngError::Buffer)?
             .max(1);
-        let rows = usize::try_from(size.height).map_err(|_| PngError::Buffer)?;
         unfilter_rows(raw, Scan { bytes: rb, rows }, bpp)
     }
 
-    /// Every pixel of one reduced image of `size` pixels to RGBA8, at the
-    /// place `pass` puts it in the whole image: each scanline's pixels go
-    /// to every `step`-th four-byte slot of their row from the first.
-    fn expand(&self, raw: &[u8], rgba: &mut [u8], size: Size, pass: Pass) -> Result<(), PngError> {
+    /// The pixels of scanlines `rows` of one reduced image of `size` pixels
+    /// to RGBA8, at the place `pass` puts them in the whole image: each
+    /// scanline's pixels go to every `step`-th four-byte slot of their row
+    /// from the first.
+    fn expand(
+        &self,
+        raw: &[u8],
+        rgba: &mut [u8],
+        size: Size,
+        pass: Pass,
+        rows: Range<usize>,
+    ) -> Result<(), PngError> {
         let rb = usize::try_from(self.row_bytes(size).ok_or(PngError::Buffer)?)
             .map_err(|_| PngError::Buffer)?;
         let w = usize::try_from(size.width).map_err(|_| PngError::Buffer)?;
-        let h = usize::try_from(size.height).map_err(|_| PngError::Buffer)?;
         let full = usize::try_from(self.size.width).map_err(|_| PngError::Buffer)?;
         let at = |n: u32| usize::try_from(n).map_err(|_| PngError::Buffer);
         let (x0, dx) = (at(pass.col.first.0)?, at(pass.col.step.0)?);
         let (y0, dy) = (at(pass.row.first.0)?, at(pass.row.step.0)?);
-        for r in 0..h {
+        for r in rows {
             let line = &raw[r * (rb + 1) + 1..r * (rb + 1) + 1 + rb];
             let start = ((y0 + r * dy) * full + x0) * 4;
             // The row's last slot is in `rgba`, so every one before it is.
@@ -702,12 +738,12 @@ fn paeth(a: u8, b: u8, c: u8) -> u8 {
     }
 }
 
-/// How a reduced image's filtered scanlines lie in the scratch: `rows`
-/// of a filter byte and `bytes` more.
-#[derive(Clone, Copy, Debug)]
+/// Which of a reduced image's filtered scanlines to reconstruct, `rows`,
+/// each a filter byte and `bytes` more; the rows before them are done.
+#[derive(Clone, Debug)]
 struct Scan {
     bytes: usize,
-    rows: usize,
+    rows: Range<usize>,
 }
 
 /// [`Png::unfilter`] at a byte count per pixel: each count a PNG can have
@@ -734,7 +770,7 @@ fn unfilter_rows(raw: &mut [u8], scan: Scan, bpp: usize) -> Result<(), PngError>
 /// prior one.
 fn rows_of<const N: usize>(raw: &mut [u8], scan: Scan) -> Result<(), PngError> {
     let stride = scan.bytes + 1;
-    for r in 0..scan.rows {
+    for r in scan.rows {
         let (before, rest) = raw.split_at_mut(r * stride);
         let (filter, line) = rest[..stride].split_first_mut().ok_or(PngError::Buffer)?;
         let prev: &[u8] = if r == 0 {
@@ -881,6 +917,171 @@ impl<'a> Iterator for Idat<'a> {
     }
 }
 
+/// **A decode advanced a bounded amount at a time**: [`Png::step`] resumes
+/// it. What the core's deferred `f=100` decode keeps between steps (note V,
+/// V19 step 3: deferred inside the core, in bounded steps, Jev
+/// DEFER_IN_CORE_STEPPED). The same work as [`Png::decode`] in the same
+/// order -- the `IDAT` stream inflated into the scratch, then each reduced
+/// image unfiltered and expanded a scanline at a time -- so the output is
+/// the same whatever the steps' sizes. `Copy`, for a caller that keeps it in
+/// caller memory beside the stream it came from.
+#[derive(Clone, Copy)]
+pub struct PngSteps {
+    z: Inflate,
+    stage: Stage,
+}
+
+/// Where a stepped decode stands.
+#[derive(Clone, Copy)]
+enum Stage {
+    /// Feeding the `IDAT` data from `at` to `end`; the next chunk is at
+    /// `next`.
+    Inflate {
+        at: usize,
+        end: usize,
+        next: ChunkAt,
+    },
+    /// Reconstructing reduced image `pass` from scanline `row`; its
+    /// scanlines start at `base` in the scratch.
+    Rows {
+        pass: usize,
+        row: usize,
+        base: usize,
+    },
+    /// Every pixel written.
+    Done,
+}
+
+/// What a step left the decode as.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PngProgress {
+    /// Work remains.
+    More,
+    /// Every pixel is written.
+    Done,
+}
+
+impl<'a> Png<'a> {
+    /// A stepped decode of this image, at its first `IDAT` chunk.
+    pub fn steps(&self) -> Result<PngSteps, PngError> {
+        let mut at = ChunkAt(8);
+        loop {
+            let c = chunk(self.data, at)?;
+            match &c.kind {
+                b"IDAT" => {
+                    let start = c.next.0 - 4 - c.data.len();
+                    return Ok(PngSteps {
+                        z: Inflate::NEW,
+                        stage: Stage::Inflate {
+                            at: start,
+                            end: start + c.data.len(),
+                            next: c.next,
+                        },
+                    });
+                }
+                b"IEND" => return Err(PngError::Malformed),
+                _ => at = c.next,
+            }
+        }
+    }
+
+    /// **Advance `st` by about `budget` bytes of work**: input fed to the
+    /// inflate, or scanline bytes reconstructed, at least one of either.
+    /// `raw` and `rgba` are the buffers [`Png::decode`] takes, the same
+    /// ones on every step. A refusal is [`Png::decode`]'s for the same bytes.
+    pub fn step(
+        &self,
+        st: &mut PngSteps,
+        raw: &mut [u8],
+        rgba: &mut [u8],
+        budget: usize,
+    ) -> Result<PngProgress, PngError> {
+        let raw_len = self.raw_len().ok_or(PngError::Buffer)?;
+        let rgba_len = self.rgba_len().ok_or(PngError::Buffer)?;
+        let raw = raw.get_mut(..raw_len).ok_or(PngError::Buffer)?;
+        let rgba = rgba.get_mut(..rgba_len).ok_or(PngError::Buffer)?;
+        let mut left = budget.max(1);
+        while left > 0 {
+            match st.stage {
+                Stage::Done => return Ok(PngProgress::Done),
+                Stage::Inflate { at, end, next } if at == end => {
+                    // The chunk is spent: the next must be `IDAT`, the
+                    // stream ending inside the run being malformed, as
+                    // `Idat` makes it in the one-shot decode.
+                    let c = chunk(self.data, next)
+                        .ok()
+                        .filter(|c| c.kind == *b"IDAT")
+                        .ok_or(PngError::Deflate)?;
+                    let start = c.next.0 - 4 - c.data.len();
+                    st.stage = Stage::Inflate {
+                        at: start,
+                        end: start + c.data.len(),
+                        next: c.next,
+                    };
+                    left -= 1;
+                }
+                Stage::Inflate { at, end, next } => {
+                    let to = end.min(at.saturating_add(left));
+                    let fed = st.z.feed(&self.data[at..to], raw).map_err(|e| match e {
+                        ZlibError::Adler => PngError::Adler,
+                        _ => PngError::Deflate,
+                    })?;
+                    left -= to - at;
+                    st.stage = match fed {
+                        Inflated::Done => Stage::Rows {
+                            pass: 0,
+                            row: 0,
+                            base: 0,
+                        },
+                        Inflated::More => Stage::Inflate { at: to, end, next },
+                    };
+                }
+                Stage::Rows { pass, row, base } => {
+                    let Some(&p) = self.passes().get(pass) else {
+                        st.stage = Stage::Done;
+                        continue;
+                    };
+                    let Some(size) = p.reduced(self.size) else {
+                        st.stage = Stage::Rows {
+                            pass: pass + 1,
+                            row: 0,
+                            base,
+                        };
+                        continue;
+                    };
+                    let stride = usize::try_from(self.row_bytes(size).ok_or(PngError::Buffer)?)
+                        .map_err(|_| PngError::Buffer)?
+                        + 1;
+                    let h = usize::try_from(size.height).map_err(|_| PngError::Buffer)?;
+                    let n = (left / stride).clamp(1, h - row);
+                    let part = raw
+                        .get_mut(base..base + stride * h)
+                        .ok_or(PngError::Buffer)?;
+                    self.unfilter(part, size, row..row + n)?;
+                    self.expand(part, rgba, size, p, row..row + n)?;
+                    left = left.saturating_sub(n * stride);
+                    st.stage = match row + n == h {
+                        true => Stage::Rows {
+                            pass: pass + 1,
+                            row: 0,
+                            base: base + stride * h,
+                        },
+                        false => Stage::Rows {
+                            pass,
+                            row: row + n,
+                            base,
+                        },
+                    };
+                }
+            }
+        }
+        Ok(match st.stage {
+            Stage::Done => PngProgress::Done,
+            _ => PngProgress::More,
+        })
+    }
+}
+
 /// The widened unfilter and the sliced CRC against the byte-at-a-time
 /// forms they replaced, kept here as the oracles.
 #[cfg(test)]
@@ -1000,7 +1201,14 @@ mod tests {
     fn agree(seed: u64, rb: usize, bpp: usize, rows: usize, bad: Option<usize>) {
         let raw = scanlines(seed, rb, rows, bad);
         let (mut fast, mut slow) = (raw.clone(), raw.clone());
-        let got = unfilter_rows(&mut fast, Scan { bytes: rb, rows }, bpp);
+        let got = unfilter_rows(
+            &mut fast,
+            Scan {
+                bytes: rb,
+                rows: 0..rows,
+            },
+            bpp,
+        );
         let want = unfilter_per_byte(&mut slow, rb, bpp, rows);
         assert_eq!(got, want, "verdict, {rb} bytes at {bpp}, {rows} rows");
         assert_eq!(fast, slow, "{rb} bytes at {bpp}, {rows} rows, seed {seed}");
@@ -1023,7 +1231,14 @@ mod tests {
                     let bpp = usize::try_from(bits.div_ceil(8)).expect("small").max(1);
                     let mut raw = [0u8; 9];
                     assert_eq!(
-                        unfilter_rows(&mut raw, Scan { bytes: 8, rows: 1 }, bpp),
+                        unfilter_rows(
+                            &mut raw,
+                            Scan {
+                                bytes: 8,
+                                rows: 0..1
+                            },
+                            bpp
+                        ),
                         Ok(())
                     );
                     counts.push(bpp);

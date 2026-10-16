@@ -261,5 +261,10 @@ baud-domain = { path = "../baud-domain" }
 # and hashing its eight bytes is exact where a key built from the public
 # accessors would silently drop whatever `CellFlags` carries.
 zerocopy = "0.8"
+# **Oracles for the kitty graphics suite**, as in `baud-domain`: `miniz_oxide`
+# writes the `o=z` streams (stored, fixed and dynamic blocks in one) and `png`
+# the `f=100` pictures the protocol carries. Neither is in a build of the core.
+miniz_oxide = "0.9.1"
+png = "0.17.16"
 
 

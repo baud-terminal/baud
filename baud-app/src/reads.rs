@@ -4,6 +4,7 @@
 //! took for the wheel.
 
 use baud_core::{BytePos, ReadLen, Rest, Term};
+use baud_domain::{DecodeBudget, DecodeProgress};
 
 /// Feed each read to the core, in order, and hand `sink` every byte it
 /// answered, behind whatever it already owed.
@@ -89,10 +90,55 @@ pub fn owed(term: &mut Term<'_>, sink: &mut impl FnMut(&[u8])) {
     }
 }
 
+/// How much of a deferred kitty decode one turn of a driver's loop does: a
+/// MiB of compressed input fed or of scanlines made. mosaic-blue's
+/// 1920x1080 decode is 31 ms over 60 steps of a quarter of this
+/// (`baud-bench`'s `kitty_image`), so a turn spends about 2 ms of a 120 Hz
+/// frame's 8.3.
+pub const KITTY_DECODE_STEP: DecodeBudget = DecodeBudget::MIB;
+
+/// Whether a step changed what the images show: a picture completed, or a
+/// failed one freed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Shown {
+    Same,
+    Changed,
+}
+
+/// **One step of a deferred kitty decode** (note V, V19 step 3: deferred
+/// inside the core, in bounded steps): a picture is placed when its size
+/// is known and its pixels are made here, [`KITTY_DECODE_STEP`] a call.
+/// The macOS loop calls it on each display-link tick and the Linux loop on
+/// each turn, between reads; the reply a decode owes is in the core's reply
+/// buffer for the caller's flush. A command that arrives first finishes the
+/// decode itself, so a late step only shows it late.
+pub fn decode_step(term: &mut Term<'_>) -> (DecodeProgress, Shown) {
+    let epoch = term.images().generation();
+    let progress = term.decode_step(KITTY_DECODE_STEP);
+    match term.images().generation() == epoch {
+        true => (progress, Shown::Same),
+        false => (progress, Shown::Changed),
+    }
+}
+
+/// **How long a loop that waits on descriptors may block while a decode is
+/// pending: not at all.** The next turn is scheduled at once, so the step
+/// runs between reads rather than after the next one, and nothing sleeps;
+/// with nothing pending the wait is the loop's own. The macOS loop waits on
+/// no descriptor: its display link is the turn.
+#[cfg(any(target_os = "linux", test))]
+pub fn decode_wait(progress: DecodeProgress) -> Option<std::time::Duration> {
+    match progress {
+        DecodeProgress::More => Some(std::time::Duration::ZERO),
+        DecodeProgress::Idle => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use baud_core::{Owned, READ_CHUNK, REPLY, WinSize};
+    use std::time::Duration;
 
     const WS: WinSize = WinSize {
         ws_row: 40,
@@ -244,5 +290,72 @@ mod tests {
         want.extend_from_slice(b"\x1b[1;6A");
         assert_eq!(child, want, "the answers, then the key");
         assert_eq!(t.reply_overflows, before, "and nothing overflowed");
+    }
+
+    /// Base64, padded, for the kitty payload below.
+    fn b64(data: &[u8]) -> Vec<u8> {
+        const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = Vec::new();
+        for q in data.chunks(3) {
+            let n = q
+                .iter()
+                .enumerate()
+                .fold(0u32, |n, (k, &b)| n | u32::from(b) << (16 - 8 * k));
+            for k in 0..4 {
+                let six = usize::try_from((n >> (18 - 6 * k)) & 63).unwrap_or(0);
+                out.push(if k <= q.len() { A[six] } else { b'=' });
+            }
+        }
+        out
+    }
+
+    /// **A transmitted PNG completes with no display link**: fed the way
+    /// both drivers feed, it is placed and not shown, and [`decode_step`]
+    /// called as the Linux loop calls it -- each turn, the wait not blocking
+    /// while [`decode_wait`] says so -- shows it and owes its `OK`.
+    #[test]
+    fn a_kitty_png_completes_through_the_loops_step() {
+        const PNG: &[u8] = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../baud-font/tests/png/rgba16-33x17-n.png"
+        ));
+        let mut owned = Owned::new(&WS).with_images(baud_domain::ImageBudget::of(1 << 12));
+        let mut t = Term::new(owned.storage(), &WS);
+        let mut cmd = b"\x1b_Ga=T,f=100,i=7;".to_vec();
+        cmd.extend(b64(PNG));
+        cmd.extend_from_slice(b"\x1b\\");
+        let mut out = Vec::new();
+        feed(
+            &mut t,
+            cmd.chunks(READ_CHUNK),
+            |b| out.extend_from_slice(b),
+            |_| {},
+        );
+        let (_, p) = t.images().placements().next().expect("placed at once");
+        let image = p.image;
+        assert!(
+            t.images().image(image).is_none(),
+            "not shown before its steps"
+        );
+        assert!(out.is_empty(), "nothing owed yet: {out:?}");
+        let mut turns = 0;
+        let mut shown = Shown::Same;
+        let mut wait = Some(Duration::ZERO);
+        while wait == Some(Duration::ZERO) {
+            let (progress, s) = decode_step(&mut t);
+            if s == Shown::Changed {
+                shown = s;
+            }
+            owed(&mut t, &mut |b: &[u8]| out.extend_from_slice(b));
+            wait = decode_wait(progress);
+            turns += 1;
+            assert!(turns < 100, "a decode that never ends");
+        }
+        assert!(turns >= 2, "stepped, not decoded in the feed: {turns}");
+        assert_eq!(shown, Shown::Changed, "the frame is owed");
+        let v = t.images().image(image).expect("shown");
+        assert_eq!((v.width.raw(), v.height.raw()), (33, 17));
+        assert_eq!(out, b"\x1b_Gi=7;OK\x1b\\");
+        assert_eq!(decode_wait(DecodeProgress::Idle), None, "idle waits");
     }
 }

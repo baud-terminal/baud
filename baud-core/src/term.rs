@@ -2865,8 +2865,9 @@ impl<'b> Term<'b> {
     /// leaving the cursor where it is. `fill` paints the `width` x `height`
     /// pixels, straight ARGB and row-major, into the arena in place -- the
     /// slice [`ImageStore::store`] reserves, which holds whatever was there
-    /// -- and `alpha` is its mark for what it paints (`ImageStore::store`
-    /// says what each mark costs). No protocol reaches it: it is the store
+    /// -- and `alpha` is only a first guess: the image is marked by the
+    /// pixels `fill` painted (`ImageAlpha::of`), since an opaque mark on a
+    /// partial pixel blended it twice on the CPU path. No protocol reaches it: it is the store
     /// and a placement at the cursor's line on the live screen, the two
     /// halves of a Sixel's terminator without the cursor's move.
     ///
@@ -2893,6 +2894,10 @@ impl<'b> Term<'b> {
             return PlacementId::NONE;
         };
         fill(pixels);
+        // The mark the pixels earn, not the caller's: an opaque mark on a
+        // partial pixel blended it twice on the CPU path.
+        let mark = ImageAlpha::of(pixels);
+        self.store.images.complete(id, mark);
         let (row, col) = self.cursor();
         let cy = Rows::of_count(row.index());
         let (screen, line) = match self.cold.screen {

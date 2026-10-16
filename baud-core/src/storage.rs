@@ -424,6 +424,16 @@ pub struct StrBuf<'b> {
     /// memory: a terminal with no arena still walks a Sixel and refuses it
     /// for its size against an empty arena.
     pub(crate) sixel: &'b mut SixelStream,
+    /// The kitty graphics stream (`kitty.rs`): the chunk being read, the
+    /// transmission in flight, the decode deferred and the replies owed.
+    /// Behind a reference for the reason `sixel` is, and always provisioned:
+    /// it is the protocol's state, and a terminal with no arena still reads
+    /// a command and refuses it.
+    pub(crate) kitty: &'b mut KittyStream,
+    /// Where a kitty PNG waits whole for its decode, its scanlines after it:
+    /// [`ImageBudget::scratch`] bytes. Empty by default, the arena's opt-in,
+    /// so every PNG is refused for its size until [`Owned::with_images`].
+    pub(crate) kitty_scratch: &'b mut [u8],
 }
 
 impl<'b> StrBuf<'b> {
@@ -446,6 +456,8 @@ impl<'b> StrBuf<'b> {
         link_len: &'b mut [ByteLen],
         clip: &'b mut [u8],
         sixel: &'b mut SixelStream,
+        kitty: &'b mut KittyStream,
+        kitty_scratch: &'b mut [u8],
     ) -> StrBuf<'b> {
         StrBuf {
             pending,
@@ -457,6 +469,8 @@ impl<'b> StrBuf<'b> {
             clip_area: clip,
             clip: crate::clip::Clip::NEW,
             sixel,
+            kitty,
+            kitty_scratch,
         }
     }
 }
@@ -499,6 +513,8 @@ pub struct Owned {
     img_slots: alloc::vec::Vec<ImageSlot>,
     img_places: alloc::vec::Vec<PlacementSlot>,
     sixel: alloc::boxed::Box<SixelStream>,
+    kitty: alloc::boxed::Box<KittyStream>,
+    kitty_scratch: alloc::vec::Vec<u8>,
     clip: alloc::vec::Vec<u8>,
 }
 
@@ -576,6 +592,8 @@ impl Owned {
             img_slots: vec![ImageSlot::EMPTY; NIMAGE],
             img_places: vec![PlacementSlot::EMPTY; NPLACEMENT],
             sixel: alloc::boxed::Box::new(SixelStream::NEW),
+            kitty: alloc::boxed::Box::new(KittyStream::NEW),
+            kitty_scratch: vec::Vec::new(),
             // The `OSC 52` areas default absent, provisioned by
             // [`Owned::with_clipboard`].
             clip: vec::Vec::new(),
@@ -600,6 +618,7 @@ impl Owned {
     /// wants images recognised and dropped rather than drawn.
     pub fn with_images(mut self, budget: ImageBudget) -> Owned {
         self.img_pixels = alloc::vec![Pixel::CLEAR; budget.pixels];
+        self.kitty_scratch = alloc::vec![0u8; budget.scratch()];
         self
     }
 
@@ -676,6 +695,8 @@ impl Owned {
                 clip_area: &mut self.clip,
                 clip: crate::clip::Clip::NEW,
                 sixel: &mut self.sixel,
+                kitty: &mut self.kitty,
+                kitty_scratch: &mut self.kitty_scratch,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -715,6 +736,8 @@ impl Owned {
                 clip_area: &mut self.clip,
                 clip: crate::clip::Clip::NEW,
                 sixel: &mut self.sixel,
+                kitty: &mut self.kitty,
+                kitty_scratch: &mut self.kitty_scratch,
             },
             ImageStore::new(
                 &mut self.img_pixels,

@@ -113,6 +113,8 @@ dependencies = [
  "baud-isa",
  "baud-isa-aarch64",
  "baud-isa-x86-64",
+ "miniz_oxide 0.9.1",
+ "png",
  "proptest",
  "zerocopy",
 ]

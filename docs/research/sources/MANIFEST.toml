@@ -7866,6 +7866,27 @@ group  = "C"
 # reply whose CSI is longer than three bytes, so `CSI ? 6 c` is not one and
 # kitten waits out its timeout (recorded, note V's V19 step 0).
 
+[sources.kitty-graphics-c]
+key    = "kitty-graphics-c"
+title  = "kitty v0.49.2, kitty/graphics.c -- the reference implementation of the graphics protocol: replies, deletes, the put command"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/graphics.c"
+file   = ""
+sha256 = "bfab5f2794ce6a40d454190c8d57f330fa9c4377cfc9084ebd191b4e3973fe14"
+bytes  = 123771
+status = "external"
+group  = "C"
+# Practice, read against the spec's text (V19 steps 5-6):
+# `finish_command_response` answers only a command with `i` or `I`, `q=1`
+# silencing an `OK` and `q=2` everything (the placeholder section's "(q=2)
+# so that there are no responses"); `handle_put_command` moves the cursor
+# right by the columns and down by the rows less one, where the text says
+# down by the rows; `filter_refs` and `modify_refs` free an image with no id
+# with its last placement; the error codes EINVAL, ENOENT, ENODATA, EFBIG,
+# ENOSPC and EBADF, and EBADPNG from `png-reader.c`.
+
 [sources.kitty-graphics-command]
 key    = "kitty-graphics-command"
 title  = "kitty v0.49.2, tools/tui/graphics/command.go -- how kitten serialises a payload: zlib, base64, chunks"

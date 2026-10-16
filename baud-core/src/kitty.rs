@@ -1,0 +1,158 @@
+//! The kitty graphics protocol's wiring (`[[source: kitty-graphics]]`; note
+//! V, V19 steps 5-6): an `APC G` body routed to `baud_domain::KittyStream`,
+//! which holds the protocol, and what it asks of the terminal done here --
+//! the cursor moved past a placement, the replies queued, and the deferred
+//! decode stepped between reads.
+//!
+//! **Routed by a prefix, not a graph action**, as `clip.rs`'s `52;` is: an
+//! `APC` is told apart from `SOS` and `PM` by its introducer
+//! (`StrKind::of`), and a kitty command from any other `APC` by its first
+//! body byte (`Paint::str_put`). The graph's tables are what they were, so
+//! the text path's are too.
+
+use crate::osc::StrKind;
+use crate::paint::Paint;
+use crate::term::Term;
+use baud_domain::*;
+
+impl Paint<'_, '_> {
+    /// The `G` of an `APC G`: a kitty graphics chunk begins.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn kitty_start(&mut self) {
+        self.cold.str_kind = StrKind::Kitty;
+        self.strs.kitty.begin(self.images);
+    }
+
+    /// One body byte of a kitty chunk.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn kitty_put(&mut self, b: StreamByte) {
+        let s = &mut *self.strs;
+        if s.kitty.put(b.raw_byte(), self.images, s.kitty_scratch) == KittyByte::Separator {
+            self.kitty_replies();
+        }
+    }
+
+    /// The chunk's terminator: the command runs, and the cursor moves past
+    /// what it placed.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn kitty_end(&mut self) {
+        let at = self.kitty_at();
+        let s = &mut *self.strs;
+        let moved = s.kitty.end(&at, self.images, s.kitty_scratch);
+        self.kitty_replies();
+        if let Some(m) = moved {
+            self.kitty_move(m);
+        }
+    }
+
+    /// `ED 2`: the kitty images on screen go with the text.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn kitty_clear(&mut self) {
+        let at = self.kitty_at();
+        self.strs.kitty.clear_screen(&at, self.images);
+    }
+
+    /// Where the terminal is, for the stream.
+    fn kitty_at(&self) -> KittyAt {
+        let (screen, top) = self.image_top();
+        KittyAt {
+            screen,
+            top,
+            row: Rows::of_count(self.cy.index()),
+            col: self.cx.col(),
+            rows: self.rows,
+            cols: self.cols,
+            cell_w: self.cell_width,
+            cell_h: self.cell_height,
+        }
+    }
+
+    /// **Move the cursor past a placement**: "to the right by the number of
+    /// cols in the image placement rectangle and down by the number of rows"
+    /// (`[[source: kitty-graphics]]`, "Controlling displayed image layout").
+    /// Down is `index`, so a placement at the bottom scrolls. Kitty moves
+    /// down by the rows less one (`[[source: kitty-graphics-c]]`
+    /// `handle_put_command`), its practice and not followed: Jev, asked
+    /// uncached on 2026-10-16, favoured the text at 0.86 and 0.76, under
+    /// the bar for a departure. Past the right margin the cursor goes to
+    /// the left margin of the next row, the Sixel `?8452` rule, where "the
+    /// exact positioning of the cursor is undefined, and up to
+    /// implementations". A move longer than the ring scrolls no further
+    /// than the ring, which it has blanked by then.
+    fn kitty_move(&mut self, m: KittyMove) {
+        for _ in 0..m.rows.index().min(self.view.ring().index()) {
+            self.index();
+        }
+        if m.cols.index() == 0 {
+            return;
+        }
+        let right = self.cx.col().index().saturating_add(m.cols.index());
+        if right > self.cold.right.index() {
+            self.index();
+            self.cx = CursorCol::moved(self.cold.left);
+        } else {
+            self.cx = CursorCol::moved(Col::at_index(right));
+        }
+    }
+
+    /// The stream's replies into the reply buffer, each whole or counted.
+    fn kitty_replies(&mut self) {
+        let s = &mut *self.strs;
+        let b = s.kitty.replies();
+        if b.is_empty() {
+            return;
+        }
+        let at = self.reply_len.index();
+        match at + b.len() <= self.reply.len() {
+            true => {
+                for (d, x) in self.reply[at..at + b.len()].iter_mut().zip(b) {
+                    *d = *x;
+                }
+                self.reply_len = ByteLen::from_index(at + b.len());
+            }
+            false => self.reply_overflows += 1,
+        }
+        s.kitty.clear_replies();
+    }
+}
+
+impl Term<'_> {
+    /// **Advance a deferred kitty decode** by about `budget` bytes of work:
+    /// a PNG, or `o=z` pixels, placed when their size was known and shown
+    /// when this completes them. Call it between reads and on display-link
+    /// ticks while it answers [`DecodeProgress::More`]; the reply the
+    /// decode owes is in [`Term::reply`] once it completes. A command that
+    /// arrives first finishes the decode itself, so nothing is lost by
+    /// calling it late, only shown late.
+    pub fn decode_step(&mut self, budget: DecodeBudget) -> DecodeProgress {
+        let s = &mut self.store.strs;
+        let p = s
+            .kitty
+            .step(budget, &mut self.store.images, s.kitty_scratch);
+        let b = s.kitty.replies();
+        if !b.is_empty() {
+            let at = self.reply_len.index();
+            match at + b.len() <= self.store.reply.len() {
+                true => {
+                    for (d, x) in self.store.reply[at..at + b.len()].iter_mut().zip(b) {
+                        *d = *x;
+                    }
+                    self.reply_len = ByteLen::from_index(at + b.len());
+                }
+                false => self.reply_overflows += 1,
+            }
+            s.kitty.clear_replies();
+        }
+        p
+    }
+
+    /// What the kitty graphics protocol did: commands, refusals, ignored
+    /// commands, cancelled chunks, images stored.
+    pub fn kitty(&self) -> KittyCounts {
+        self.store.strs.kitty.counts
+    }
+}

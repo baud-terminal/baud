@@ -321,6 +321,8 @@ fn main() {
     let mut img_slots = vec![ImageSlot::EMPTY; slots];
     let mut img_places = vec![PlacementSlot::EMPTY; places];
     let mut sixel = Box::new(SixelStream::NEW);
+    let mut kitty = Box::new(baud_domain::KittyStream::NEW);
+    let mut kitty_scratch: Vec<u8> = Vec::new();
     let mut t = Term::new(
         Storage::new(
             &mut arena,
@@ -349,6 +351,8 @@ fn main() {
                 &mut link_len,
                 &mut clip,
                 &mut sixel,
+                &mut kitty,
+                &mut kitty_scratch,
             ),
             ImageStore::new(&mut img_pixels, &mut img_slots, &mut img_places),
         ),
