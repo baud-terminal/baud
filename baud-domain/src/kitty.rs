@@ -69,12 +69,21 @@
 //! the text's single error and touches nothing. A file medium is one chunk,
 //! whatever its `m`: the text chunks the data a remote client sends, and
 //! kitty reads the file at the chunk's end (`handle_add_command`,
-//! `[[source: kitty-graphics-c]]`). Every failure that depends on the file
-//! -- missing, unreadable, special, sensitive, past the bound, or "smaller
-//! than the client claimed" -- is that one error, as "all failures to read
-//! an image file ... must be reported with a single, identical, error
-//! response" ("The transmission medium"); a PNG that reads and does not
-//! decode is EBADPNG, kitty's practice, the text naming decoding nowhere.
+//! `[[source: kitty-graphics-c]]`). **Once the reader is asked (a load
+//! still open at the terminator), every refusal is that one error** --
+//! missing, unreadable, special, sensitive, past the bound, "smaller than
+//! the client claimed", and as much a PNG that does not decode, an `IHDR`
+//! past the arena or a placement refused after the decode, each of which
+//! tells the client the file exists and something of what it holds: "the
+//! terminal emulator must not allow such a program to use the responses
+//! to these commands to learn anything about files it cannot read itself"
+//! ("The transmission medium"). Each keeps nothing, as a missing file
+//! does: the image is freed and the cursor stays, so a file medium's
+//! image is decoded whole at its terminator and only then placed, and
+//! the reply comes before the next byte. kitty answers a decode failure
+//! EBADPNG (practice not followed). A refusal decided before the read,
+//! from the control data and the path alone, keeps its code
+//! ([`KittyFileRead`]).
 //!
 //! **A virtual placement (`U=1`) is a prototype, kept apart from the
 //! placements on screen** (`[[source: kitty-graphics]]`, "Unicode
@@ -333,6 +342,27 @@ pub struct KittyCommand {
     pub parent_placement: u32,
     /// The first malformed key, if any.
     pub error: Option<KittyError>,
+    /// Whether a file medium's reader was asked: from then on every
+    /// refusal is the single error.
+    pub read: KittyFileRead,
+}
+
+/// **Whether a file medium was read**: once the embedder's reader has been
+/// asked, any refusal -- a read that failed, a PNG that does not decode, an
+/// `IHDR` past the arena, a placement refused after the decode -- would
+/// tell the client the file exists and something of what it holds, so
+/// every one is the text's single error ("all failures to read an image
+/// file ... must be reported with a single, identical, error response",
+/// "The transmission medium"), and keeps nothing: the image is freed, as
+/// a missing file leaves none. A refusal decided before the read, from
+/// the control data and the path alone, keeps its own code: it says
+/// nothing of any file.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KittyFileRead {
+    /// `t=d`, or a file medium refused before its reader was asked.
+    Unasked,
+    /// A file medium whose reader was asked.
+    Asked,
 }
 
 impl KittyCommand {
@@ -366,6 +396,7 @@ impl KittyCommand {
         parent: 0,
         parent_placement: 0,
         error: None,
+        read: KittyFileRead::Unasked,
     };
 
     /// The action this command performs: `t` where `a` was absent.
@@ -1630,21 +1661,19 @@ impl KittyStream {
         store: &mut ImageStore,
         scratch: &mut [u8],
     ) -> Option<KittyMove> {
-        let cmd = self.start;
+        let mut cmd = self.start;
         let b64 = core::mem::replace(&mut self.b64, Base64::NEW);
         match b64.finish() {
             Ok(tail) => self.decoded(tail.as_slice(), store, scratch),
             Err(_) => self.refuse_load(KittyError::BASE64, store),
         }
-        if cmd.medium != KittyMedium::Direct {
+        // Marked on the copy every later reply is made from -- `done`,
+        // `png_ready`, and the owed command a deferred decode answers.
+        if cmd.medium != KittyMedium::Direct && !matches!(self.load, Load::Idle | Load::Refused(_))
+        {
+            cmd.read = KittyFileRead::Asked;
             self.read_file(store, scratch);
         }
-        // "smaller than the client claimed" is a failure to read the file,
-        // and answers the single error (kitty's `ABRT_INSUFFICIENT_DATA`).
-        let short = match cmd.medium {
-            KittyMedium::Direct => KittyError::NO_DATA,
-            _ => KittyError::FILE,
-        };
         if matches!(self.load, Load::RawZ { .. } | Load::PngZ { .. }) {
             self.flush(store, scratch);
             if matches!(self.load, Load::RawZ { .. } | Load::PngZ { .. })
@@ -1672,8 +1701,10 @@ impl KittyStream {
                     .size_of(image)
                     .map_or(0, |(w, h)| w.index() * h.index());
                 if n < total {
+                    // A file "smaller than the client claimed" is the
+                    // single error, which `reply` makes of this.
                     store.free(image);
-                    self.reply(&cmd, Err(short));
+                    self.reply(&cmd, Err(KittyError::NO_DATA));
                     return None;
                 }
                 store.complete(image, alpha);
@@ -1745,7 +1776,11 @@ impl KittyStream {
 
     /// Hand a decode to [`KittyStream::step`]: placed now, and the cursor
     /// moved now, its pixels shown when they are made. A query is decoded
-    /// to the end here.
+    /// to the end here, and so is a file medium's image, then placed and
+    /// answered as a raw one is ([`KittyStream::done`]): a decode failing
+    /// later would move the cursor for a picture never shown and answer
+    /// after the bytes that follow, telling the client the file exists
+    /// where a missing one answers at once and moves nothing.
     fn defer(
         &mut self,
         d: Deferred,
@@ -1756,14 +1791,22 @@ impl KittyStream {
     ) -> Option<KittyMove> {
         self.deferred = d;
         self.owed = cmd;
-        if cmd.act() == KittyAction::Query {
-            self.drain(store, scratch);
-            return None;
-        }
         let image = match d {
             Deferred::Png { image, .. } | Deferred::Convert { image, .. } => image,
             Deferred::Idle => return None,
         };
+        if cmd.act() == KittyAction::Query {
+            self.drain(store, scratch);
+            return None;
+        }
+        if cmd.read == KittyFileRead::Asked {
+            self.drain(store, scratch);
+            // A failed decode has freed its image and answered.
+            return match store.image(image) {
+                Some(_) => self.done(image, cmd, at, store),
+                None => None,
+            };
+        }
         if cmd.act() != KittyAction::TransmitPut {
             return None;
         }
@@ -1793,13 +1836,20 @@ impl KittyStream {
             self.reply(&cmd, Ok(()));
             return None;
         }
-        self.counts.images += 1;
         // The placement first, so the reply is its outcome: an `OK` for a
         // placement not made would tell the client its picture is up.
         let placed = match cmd.act() {
             KittyAction::TransmitPut => self.place(image, &cmd, at, store),
             _ => Ok(None),
         };
+        // After a file read the refusal is the single error, and the image
+        // goes with it, as a missing file leaves none: an image kept would
+        // answer the next `a=p` where a missing file's answers ENOENT.
+        if placed.is_err() && cmd.read == KittyFileRead::Asked {
+            store.free(image);
+        } else {
+            self.counts.images += 1;
+        }
         self.reply(&cmd, placed.map(|_| ()));
         placed.ok().flatten()
     }
@@ -1876,12 +1926,20 @@ impl KittyStream {
                     0 => {
                         self.deferred = Deferred::Idle;
                         store.complete(image, alpha);
-                        match cmd.act() {
-                            KittyAction::Query => store.free(image),
-                            _ => self.counts.images += 1,
-                        }
                         // What `defer` kept of the placement it tried.
-                        self.reply(&cmd, cmd.error.map_or(Ok(()), Err));
+                        let placed = cmd.error.map_or(Ok(()), Err);
+                        match (cmd.act(), cmd.read) {
+                            (KittyAction::Query, _) => {
+                                store.free(image);
+                                self.reply(&cmd, placed);
+                            }
+                            // `defer`, draining, places and answers it.
+                            (_, KittyFileRead::Asked) => {}
+                            _ => {
+                                self.counts.images += 1;
+                                self.reply(&cmd, placed);
+                            }
+                        }
                     }
                     _ => {
                         self.deferred = Deferred::Convert {
@@ -2293,6 +2351,10 @@ impl KittyStream {
     /// Owe the reply to `cmd`: `OK`, or the error. Sent only for a command
     /// that named an image, and as its `q` allows.
     fn reply(&mut self, cmd: &KittyCommand, result: Result<(), KittyError>) {
+        let result = match cmd.read {
+            KittyFileRead::Unasked => result,
+            KittyFileRead::Asked => result.map_err(|_| KittyError::FILE),
+        };
         if result.is_err() {
             self.counts.refused += 1;
         }

@@ -16,17 +16,18 @@
 //!    a file under `/dev/shm`, which the text names a temporary directory.
 //! 3. It must be a regular file: "only regular files are allowed", so a
 //!    directory, a FIFO, a device or a socket is refused unopened.
-//! 4. **The open cannot be swapped under the check**: the resolved path,
-//!    which has no link in it, is opened following none -- every component
-//!    under Darwin's `O_NOFOLLOW_ANY`, the last under glibc's `O_NOFOLLOW`
-//!    -- and with `O_NONBLOCK`, so a FIFO put there cannot block the open;
-//!    then the descriptor's own `fstat` must be a regular file with the
-//!    device and inode the check saw, so any other swap is refused before
-//!    a byte is read. glibc's `open` has no flag for the directories above,
-//!    so on Linux the descriptor's own path, read back from
-//!    `/proc/self/fd`, must be the resolved path; the open has happened by
-//!    then, as it has when kitty checks again (`[[source:
-//!    kitty-utils-py]]`). Linux is type-checked, not run.
+//! 4. **The open cannot be swapped under the check**, and in the same
+//!    order on Darwin and Linux: the resolved path, which has no link in
+//!    it, is walked from `/` a directory at a time, each opened in the one
+//!    before it to search, following no link (`openat`, `O_NOFOLLOW`), and
+//!    the last must have the device and inode the path resolved to -- so a
+//!    directory swapped for a link, or renamed in, is refused before the
+//!    file is opened. The file is then opened in that directory following
+//!    no link and with `O_NONBLOCK`, so a FIFO put there cannot block the
+//!    open, and the descriptor's own `fstat` must be a regular file with
+//!    the device and inode the check saw, so any other swap is refused
+//!    before a byte is read. kitty checks the path again only after its
+//!    open (`[[source: kitty-utils-py]]`). Linux is type-checked, not run.
 //!
 //! The length is decided from that `fstat` before reading
 //! ([`KittyFileRequest::read_len`]), so no object is read past what the
@@ -39,10 +40,15 @@
 //! **Every failure is one error**, kitty's `EBADF:Failed to read image
 //! file`, so "the responses ... learn [nothing] about files it cannot read
 //! itself"; the reason goes to the log at `warn`, which only the local
-//! user reads, as kitty writes it to its own.
+//! user reads, as kitty writes it to its own. The core answers the same
+//! for whatever refuses the command once this was asked -- a PNG that
+//! does not decode, a placement refused -- so a reply never says the file
+//! was there.
 //!
 //! **What is deleted.** A `t=t` file is deleted only once it was opened and
-//! read as the file the path named, and only when its resolved path lies
+//! read as the file the path named, from the directory it was read from
+//! (`unlinkat` on the walk's descriptor, so no link swapped in above it
+//! moves the deletion elsewhere), and only when its resolved path lies
 //! in a known temporary directory -- `/tmp`, `/dev/shm`, `TMPDIR` and the
 //! platform's own -- compared component by component, where kitty's
 //! temporary-directory test compares strings and lets `/tmpfoo` pass for
@@ -52,17 +58,18 @@
 //! kitty-graphics-c]]` `load_image_data`), and so does this. A `t=s`
 //! object is unlinked once opened, read or not.
 //!
-//! `unsafe` here is the shared-memory read alone: `shm_open` and
-//! `shm_unlink`, a descriptor taken into a `File`, and on Darwin the
-//! mapping its shared memory is read through.
+//! `unsafe` here is the walk, the deletion and the shared-memory read:
+//! `openat`, `unlinkat`, `shm_open` and `shm_unlink`, a descriptor taken
+//! into a `File`, and on Darwin the mapping its shared memory is read
+//! through.
 
 #![allow(unsafe_code)]
 
 use baud_domain::{KittyFileFailed, KittyFileRequest, KittyFiles, KittyFlow, KittyMedium};
 use std::ffi::{CString, OsStr};
-use std::fs::{File, Metadata, OpenOptions};
+use std::fs::{File, Metadata};
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{FileExt, MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{FileExt, MetadataExt};
 use std::path::{Component, Path, PathBuf};
 
 /// The piece a file is read and handed to the core in.
@@ -89,12 +96,11 @@ pub enum Refusal {
     NotRegular,
     /// The open failed: no permission, or a link swapped in.
     Open,
+    /// A directory above the file is a link, or not the directory the
+    /// path resolved to.
+    Directory,
     /// The descriptor is not the file the check saw, or not regular.
     Swapped,
-    /// The descriptor's own path is not the resolved one: a directory
-    /// above it was swapped for a link (Linux).
-    #[cfg(not(target_os = "macos"))]
-    Elsewhere,
     /// "smaller than the client claimed", or past the store's bound.
     Size,
     /// The read failed, or ended short: the file shrank while read.
@@ -120,9 +126,16 @@ pub struct LocalFiles {
     /// there and need no race.
     #[cfg(test)]
     between: Option<Between>,
-    /// Run between resolving the path and checking it.
+    /// Run between resolving the path and taking its directory's device
+    /// and inode.
+    #[cfg(test)]
+    canonical: Option<Between>,
+    /// Run between taking them and checking the path.
     #[cfg(test)]
     resolved: Option<Between>,
+    /// Run between the read and a `t=t` file's deletion.
+    #[cfg(test)]
+    unlinking: Option<Between>,
 }
 
 /// What a test runs between the check and the open.
@@ -157,7 +170,11 @@ impl LocalFiles {
             #[cfg(test)]
             between: None,
             #[cfg(test)]
+            canonical: None,
+            #[cfg(test)]
             resolved: None,
+            #[cfg(test)]
+            unlinking: None,
         }
     }
 
@@ -177,6 +194,14 @@ impl LocalFiles {
         }
         let real = std::fs::canonicalize(path).map_err(|_| Refusal::Resolve)?;
         #[cfg(test)]
+        if let Some(f) = self.canonical.as_mut() {
+            f(&real);
+        }
+        // The directory the path resolved to, as it was resolved: `real`
+        // has no link in it, so this is that directory itself.
+        let parent = real.parent().unwrap_or(Path::new("/"));
+        let resolved = std::fs::symlink_metadata(parent).map_err(|_| Refusal::Resolve)?;
+        #[cfg(test)]
         if let Some(f) = self.resolved.as_mut() {
             f(&real);
         }
@@ -188,30 +213,34 @@ impl LocalFiles {
         if !before.file_type().is_file() {
             return Err(Refusal::NotRegular);
         }
+        let name = real.file_name().ok_or(Refusal::NotRegular)?;
+        let name = CString::new(name.as_bytes()).map_err(|_| Refusal::Nul)?;
+        let dir = open_dir(parent)?;
+        let opened_dir = dir.metadata().map_err(|_| Refusal::Directory)?;
+        if !same_directory(&resolved, &opened_dir) {
+            return Err(Refusal::Directory);
+        }
         #[cfg(test)]
         if let Some(f) = self.between.as_mut() {
             f(&real);
         }
-        let file = OpenOptions::new()
-            .read(true)
-            .custom_flags(crate::sys::NO_LINKS | crate::sys::O_NONBLOCK)
-            .open(&real)
-            .map_err(|_| Refusal::Open)?;
-        #[cfg(not(target_os = "macos"))]
-        {
-            use std::os::fd::AsRawFd;
-            let at = std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()));
-            if at.ok().as_deref() != Some(real.as_path()) {
-                return Err(Refusal::Elsewhere);
-            }
-        }
+        let file = open_at(&dir, &name, FILE_FLAGS).map_err(|()| Refusal::Open)?;
         let opened = file.metadata().map_err(|_| Refusal::Swapped)?;
         if !same_regular_file(&before, &opened) {
             return Err(Refusal::Swapped);
         }
         let read = self.pread(&file, req, &opened, sink);
+        #[cfg(test)]
+        if let Some(f) = self.unlinking.as_mut() {
+            f(&real);
+        }
         if req.medium == KittyMedium::TempFile && self.deletable(&real) {
-            if let Err(e) = std::fs::remove_file(&real) {
+            use std::os::fd::AsRawFd;
+            // SAFETY: `dir` is open and `name` NUL-terminated. The name is
+            // deleted from the directory it was read from, wherever a
+            // rename or a link has put that directory's path since.
+            if unsafe { crate::sys::unlinkat(dir.as_raw_fd(), name.as_ptr(), 0) } != 0 {
+                let e = std::io::Error::last_os_error();
                 crate::warn!("kitty graphics: could not delete {}: {e}", real.display());
             }
         }
@@ -420,6 +449,65 @@ pub fn sensitive(real: &Path) -> bool {
 /// saw: the same device and inode.
 fn same_regular_file(before: &Metadata, opened: &Metadata) -> bool {
     opened.file_type().is_file() && opened.dev() == before.dev() && opened.ino() == before.ino()
+}
+
+/// Whether the descriptor's `fstat` is the directory the path resolved
+/// to: the same device and inode.
+fn same_directory(resolved: &Metadata, opened: &Metadata) -> bool {
+    opened.is_dir() && opened.dev() == resolved.dev() && opened.ino() == resolved.ino()
+}
+
+/// How each directory on the way is opened: a directory, to search it,
+/// following no link, closed on exec (`O_SEARCH` holds `O_DIRECTORY`
+/// already, named for the reader).
+#[cfg(target_os = "macos")]
+const DIR_FLAGS: core::ffi::c_int =
+    crate::sys::O_SEARCH | crate::sys::O_DIRECTORY | crate::sys::O_NOFOLLOW | crate::sys::O_CLOEXEC;
+#[cfg(not(target_os = "macos"))]
+const DIR_FLAGS: core::ffi::c_int =
+    crate::sys::O_PATH | crate::sys::O_DIRECTORY | crate::sys::O_NOFOLLOW | crate::sys::O_CLOEXEC;
+
+/// How the file is opened in its directory: read-only, following no link,
+/// not blocking on a FIFO swapped in, closed on exec.
+const FILE_FLAGS: core::ffi::c_int =
+    crate::sys::O_RDONLY | crate::sys::O_NOFOLLOW | crate::sys::O_NONBLOCK | crate::sys::O_CLOEXEC;
+
+/// `name`, opened in the directory `dir` holds open with `flags`.
+fn open_at(dir: &File, name: &CString, flags: core::ffi::c_int) -> Result<File, ()> {
+    use std::os::fd::AsRawFd;
+    // SAFETY: `dir` is open, `name` NUL-terminated, and no flag creates,
+    // so no mode is passed.
+    let fd = unsafe { crate::sys::openat(dir.as_raw_fd(), name.as_ptr(), flags) };
+    if fd < 0 {
+        return Err(());
+    }
+    // SAFETY: `fd` was just returned by `openat` and nothing else holds it.
+    Ok(unsafe { <File as std::os::fd::FromRawFd>::from_raw_fd(fd) })
+}
+
+/// **The directory `dir` names, opened a component at a time from `/`,
+/// following no link**: each component is opened in the one before it,
+/// held open, so a directory swapped for a link anywhere on the way is
+/// refused, on Darwin and Linux alike, before the file below it is
+/// opened. `dir` is resolved, so it has no `.`, `..` or link.
+fn open_dir(dir: &Path) -> Result<File, Refusal> {
+    let root = c"/";
+    // SAFETY: an absolute path, NUL-terminated, opened with no mode.
+    let fd = unsafe { crate::sys::openat(crate::sys::AT_FDCWD, root.as_ptr(), DIR_FLAGS) };
+    if fd < 0 {
+        return Err(Refusal::Directory);
+    }
+    // SAFETY: `fd` was just returned by `openat` and nothing else holds it.
+    let mut at = unsafe { <File as std::os::fd::FromRawFd>::from_raw_fd(fd) };
+    for c in dir.components() {
+        let name = match c {
+            Component::RootDir => continue,
+            Component::Normal(s) => CString::new(s.as_bytes()).map_err(|_| Refusal::Nul)?,
+            _ => return Err(Refusal::Directory),
+        };
+        at = open_at(&at, &name, DIR_FLAGS).map_err(|()| Refusal::Directory)?;
+    }
+    Ok(at)
 }
 
 /// Whether `hay` contains `needle`.
@@ -717,10 +805,11 @@ mod tests {
     }
 
     /// **A directory above the file swapped for a link after the path is
-    /// resolved is refused**: the checks were made on the resolved path,
-    /// and the open follows no link in it. The link points at a directory
-    /// holding a regular file of the same name, standing for a sensitive
-    /// one: every other check passes on it.
+    /// resolved is refused before the file is opened**, on Darwin and on
+    /// Linux alike: the directories are opened a component at a time,
+    /// following no link, before the file is. The link points at a
+    /// directory holding a regular file of the same name, standing for a
+    /// sensitive one: every other check passes on it.
     #[test]
     fn a_directory_swapped_for_a_link_after_resolving_is_refused() {
         let d = Dir::new();
@@ -738,11 +827,109 @@ mod tests {
             std::fs::rename(&dir, &old).unwrap();
             std::os::unix::fs::symlink(&there, &dir).unwrap();
         }));
+        let opened = std::rc::Rc::new(std::cell::Cell::new(false));
+        let seen = opened.clone();
+        f.between = Some(Box::new(move |_: &Path| seen.set(true)));
         let got = ask(&mut f, &whole(KittyMedium::File, bytes_of(&real)));
-        #[cfg(target_os = "macos")]
-        assert_eq!(got, Err(Refusal::Open));
-        #[cfg(not(target_os = "macos"))]
-        assert_eq!(got, Err(Refusal::Elsewhere));
+        assert_eq!(got, Err(Refusal::Directory));
+        assert!(!opened.get(), "refused before the file's open");
+    }
+
+    /// **A directory further up swapped for a link before anything is
+    /// checked is refused**: the directory's device and inode are taken
+    /// through the link, and agree with a walk that followed it, so only
+    /// the walk's refusal to follow one stands between the path checked
+    /// and a file of the same name in the tree the link points into.
+    #[test]
+    fn an_ancestor_swapped_for_a_link_before_the_checks_is_refused() {
+        let d = Dir::new();
+        std::fs::create_dir_all(d.at("home/a/dir")).unwrap();
+        std::fs::create_dir_all(d.at("home/b/dir")).unwrap();
+        let real = d.put("home/a/dir/x.png", PNG);
+        d.put("home/b/dir/x.png", PNG);
+        let mut f = d.files();
+        let (a, old, b) = (d.at("home/a"), d.at("home/a-old"), d.at("home/b"));
+        f.canonical = Some(Box::new(move |_: &Path| {
+            std::fs::rename(&a, &old).unwrap();
+            std::os::unix::fs::symlink(&b, &a).unwrap();
+        }));
+        let got = ask(&mut f, &whole(KittyMedium::File, bytes_of(&real)));
+        assert_eq!(got.map(|v| v.len()), Err(Refusal::Directory));
+    }
+
+    /// **The directory opened is the one resolved**: the file's directory
+    /// renamed away after resolving and another put in its place, holding
+    /// a hard link to the same file, so the path has no link in it and the
+    /// file is the one checked -- only the directory's device and inode
+    /// tell them apart.
+    #[test]
+    fn a_directory_renamed_in_after_resolving_is_refused() {
+        let d = Dir::new();
+        std::fs::create_dir_all(d.at("home/dir")).unwrap();
+        std::fs::create_dir_all(d.at("home/twin")).unwrap();
+        let real = d.put("home/dir/x.png", PNG);
+        std::fs::hard_link(&real, d.at("home/twin/x.png")).unwrap();
+        let mut f = d.files();
+        let (dir, old, twin) = (d.at("home/dir"), d.at("home/dir-old"), d.at("home/twin"));
+        f.resolved = Some(Box::new(move |_: &Path| {
+            std::fs::rename(&dir, &old).unwrap();
+            std::fs::rename(&twin, &dir).unwrap();
+        }));
+        let got = ask(&mut f, &whole(KittyMedium::File, bytes_of(&real)));
+        assert_eq!(got.map(|v| v.len()), Err(Refusal::Directory));
+    }
+
+    /// **Every descriptor the walk and the file's open make closes on
+    /// exec**: they are `openat`'s, not `std`'s, and the shell baud forks
+    /// would otherwise inherit them.
+    #[test]
+    fn the_directories_and_the_file_are_opened_close_on_exec() {
+        use std::os::fd::AsRawFd;
+        let d = Dir::new();
+        let p = d.put("home/c.png", PNG);
+        let real = std::fs::canonicalize(&p).unwrap();
+        let dir = open_dir(real.parent().unwrap()).expect("the walk");
+        let name = CString::new(real.file_name().unwrap().as_bytes()).unwrap();
+        let file = open_at(&dir, &name, FILE_FLAGS).expect("the open");
+        for (what, fd) in [("dir", dir.as_raw_fd()), ("file", file.as_raw_fd())] {
+            // SAFETY: an open descriptor; `F_GETFD` takes no argument.
+            let flags = unsafe { crate::sys::fcntl(fd, crate::sys::F_GETFD) };
+            assert!(flags >= 0, "{what}");
+            assert_eq!(
+                flags & crate::sys::FD_CLOEXEC,
+                crate::sys::FD_CLOEXEC,
+                "{what}"
+            );
+        }
+    }
+
+    /// **A `t=t` file is deleted from the directory it was read from**: a
+    /// directory above it swapped, after the read, for a link to another
+    /// holding a file of the same name, does not move the deletion there.
+    #[test]
+    fn a_directory_swapped_before_the_unlink_does_not_move_it() {
+        let d = Dir::new();
+        let rgba = [7u8; 3 * 2 * 4];
+        std::fs::create_dir_all(d.at("tmp/sub")).unwrap();
+        std::fs::create_dir_all(d.at("home/sub")).unwrap();
+        let p = d.put("tmp/sub/tty-graphics-protocol-u", &rgba);
+        let victim = d.put("home/sub/tty-graphics-protocol-u", &rgba);
+        let mut f = d.files();
+        let (sub, old, there) = (d.at("tmp/sub"), d.at("tmp/sub-old"), d.at("home/sub"));
+        f.unlinking = Some(Box::new(move |_: &Path| {
+            std::fs::rename(&sub, &old).unwrap();
+            std::os::unix::fs::symlink(&there, &sub).unwrap();
+        }));
+        let req = KittyFileRequest {
+            medium: KittyMedium::TempFile,
+            ..whole(KittyMedium::TempFile, bytes_of(&p))
+        };
+        assert_eq!(ask(&mut f, &req), Ok(rgba.to_vec()));
+        assert!(victim.exists(), "the file behind the link is not deleted");
+        assert!(
+            !d.at("tmp/sub-old/tty-graphics-protocol-u").exists(),
+            "the file read is deleted"
+        );
     }
 
     /// **`t=t` deletes only inside a temporary directory and with the

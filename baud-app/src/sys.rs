@@ -96,6 +96,14 @@ pub const POLLNVAL: i16 = 0x20;
 /// `EAGAIN` instead. The flag's bit differs per platform.
 pub const F_GETFL: c_int = 3;
 pub const F_SETFL: c_int = 4;
+
+/// `fcntl`'s commands and flag for a descriptor's own flags: a test reads
+/// that what `openat` opened for a kitty file closes on exec. The same
+/// values on both platforms.
+#[cfg(test)]
+pub const F_GETFD: c_int = 1;
+#[cfg(test)]
+pub const FD_CLOEXEC: c_int = 1;
 #[cfg(target_os = "macos")]
 pub const O_NONBLOCK: c_int = 0x4;
 #[cfg(not(target_os = "macos"))]
@@ -261,32 +269,66 @@ pub const O_NOCTTY: c_int = 0o400;
 /// `open`'s flag that fails on a symbolic link as the last component. A
 /// kitty file medium's path is resolved first -- the text says "the
 /// terminal emulator must follow symlinks" -- and the resolved path, which
-/// has none, is opened with this, so a link swapped in after the check is
+/// has none, is opened a component at a time from `/` with this, each
+/// directory and then the file, so a link swapped in after the check is
 /// refused rather than followed (`kitty_files.rs`). Darwin's bit, glibc's
 /// on arm64 (`asm/fcntl.h` gives aarch64 its own) and glibc's elsewhere;
 /// the probe below checks the one it runs on.
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(target_os = "macos")]
 pub const O_NOFOLLOW: c_int = 0x100;
 #[cfg(all(not(target_os = "macos"), target_arch = "aarch64"))]
 pub const O_NOFOLLOW: c_int = 0o100_000;
 #[cfg(all(not(target_os = "macos"), not(target_arch = "aarch64")))]
 pub const O_NOFOLLOW: c_int = 0o400_000;
 
-/// Darwin's `open` flag that fails on a symbolic link anywhere in the
-/// path, the last component included, which the resolved path of a kitty
-/// file medium has none of: a directory swapped for a link after the check
-/// is refused too. Darwin refuses it beside `O_NOFOLLOW` (`EINVAL`,
-/// measured), so it is used alone. glibc's `open` has none.
+/// `open`'s flag that fails unless the path is a directory: each
+/// directory above a kitty file medium's file, opened so. Darwin's bit,
+/// glibc's on arm64 and glibc's elsewhere, as [`O_NOFOLLOW`].
 #[cfg(target_os = "macos")]
-pub const O_NOFOLLOW_ANY: c_int = 0x2000_0000;
+pub const O_DIRECTORY: c_int = 0x10_0000;
+#[cfg(all(not(target_os = "macos"), target_arch = "aarch64"))]
+pub const O_DIRECTORY: c_int = 0o40_000;
+#[cfg(all(not(target_os = "macos"), not(target_arch = "aarch64")))]
+pub const O_DIRECTORY: c_int = 0o200_000;
 
-/// What a kitty file medium's resolved path is opened with so that no
-/// link in it is followed: `O_NOFOLLOW_ANY` on Darwin, `O_NOFOLLOW` on
-/// glibc, where the directories above are checked after the open.
+/// `open`'s close-on-exec flag, which `std` sets on its own opens: a
+/// descriptor `openat` makes must carry it too, or the shell baud forks
+/// inherits it.
 #[cfg(target_os = "macos")]
-pub const NO_LINKS: c_int = O_NOFOLLOW_ANY;
+pub const O_CLOEXEC: c_int = 0x100_0000;
 #[cfg(not(target_os = "macos"))]
-pub const NO_LINKS: c_int = O_NOFOLLOW;
+pub const O_CLOEXEC: c_int = 0o2_000_000;
+
+/// **How a directory above a kitty file is opened: to search it, not to
+/// read it**, so a directory the user may pass through and not list --
+/// as the path's own resolution may -- is opened as it resolved: Darwin's
+/// `O_SEARCH` (`O_EXEC | O_DIRECTORY`), glibc's `O_PATH` beside
+/// [`O_DIRECTORY`]. Either descriptor serves `openat`, `fstat` and
+/// `unlinkat`.
+#[cfg(target_os = "macos")]
+pub const O_SEARCH: c_int = 0x4010_0000;
+#[cfg(not(target_os = "macos"))]
+pub const O_PATH: c_int = 0o10_000_000;
+
+/// What `openat` reads a relative path against when given no directory:
+/// the working directory. Only `/` is opened against it, which is
+/// absolute and so reads against nothing.
+#[cfg(target_os = "macos")]
+pub const AT_FDCWD: Fd = -2;
+#[cfg(not(target_os = "macos"))]
+pub const AT_FDCWD: Fd = -100;
+
+// **A path walked a component at a time, and a file deleted from the
+// directory it was read from** (`kitty_files.rs`): `openat` opens a name
+// in a directory held open, so no link and no rename above it can move
+// what is opened, and `unlinkat` deletes a name there, so a `t=t` file is
+// deleted from the directory it was read from. `openat` is variadic in
+// both platforms' `<fcntl.h>`, its mode the variadic argument, and these
+// opens create nothing, so they pass none.
+unsafe extern "C" {
+    pub fn openat(dir: Fd, path: *const c_char, oflag: c_int, ...) -> Fd;
+    pub fn unlinkat(dir: Fd, path: *const c_char, flag: c_int) -> c_int;
+}
 
 /// `open`'s read-only access mode, which `shm_open` takes; zero on both
 /// platforms.
@@ -555,6 +597,9 @@ mod tests {
     use core::mem::{align_of, offset_of, size_of};
 
     const PROBE: &str = r#"
+#ifdef __linux__
+#define _GNU_SOURCE
+#endif
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
@@ -598,6 +643,8 @@ int main(void) {
     printf("POLLNVAL=%lld\n", (long long)POLLNVAL);
     printf("F_GETFL=%lld\n", (long long)F_GETFL);
     printf("F_SETFL=%lld\n", (long long)F_SETFL);
+    printf("F_GETFD=%lld\n", (long long)F_GETFD);
+    printf("FD_CLOEXEC=%lld\n", (long long)FD_CLOEXEC);
     printf("O_NONBLOCK=%lld\n", (long long)O_NONBLOCK);
     printf("O_NOCTTY=%lld\n", (long long)O_NOCTTY);
     printf("O_RDWR=%lld\n", (long long)O_RDWR);
@@ -605,6 +652,9 @@ int main(void) {
     printf("O_CREAT=%lld\n", (long long)O_CREAT);
     printf("PROT_WRITE=%lld\n", (long long)PROT_WRITE);
     printf("O_NOFOLLOW=%lld\n", (long long)O_NOFOLLOW);
+    printf("O_DIRECTORY=%lld\n", (long long)O_DIRECTORY);
+    printf("O_CLOEXEC=%lld\n", (long long)O_CLOEXEC);
+    printf("AT_FDCWD=%lld\n", (long long)AT_FDCWD);
     printf("MAP_SHARED=%lld\n", (long long)MAP_SHARED);
     printf("size_t.size=%zu\n", sizeof(size_t));
     printf("PROT_READ=%lld\n", (long long)PROT_READ);
@@ -632,7 +682,7 @@ int main(void) {
     printf("RTLD_LOCAL=%lld\n", (long long)RTLD_LOCAL);
     printf("RTLD_NOLOAD=%lld\n", (long long)RTLD_NOLOAD);
     printf("PSHMNAMLEN=%lld\n", (long long)PSHMNAMLEN);
-    printf("O_NOFOLLOW_ANY=%lld\n", (long long)O_NOFOLLOW_ANY);
+    printf("O_SEARCH=%lld\n", (long long)O_SEARCH);
     printf("MAP_ANON=%lld\n", (long long)MAP_ANON);
     printf("MACH_TASK_BASIC_INFO=%lld\n", (long long)MACH_TASK_BASIC_INFO);
     printf("MACH_TASK_BASIC_INFO_COUNT=%lld\n", (long long)MACH_TASK_BASIC_INFO_COUNT);
@@ -643,6 +693,7 @@ int main(void) {
     printf("mach_port_t.size=%zu\n", sizeof(mach_port_t));
 #else
     printf("NAME_MAX=%lld\n", (long long)NAME_MAX);
+    printf("O_PATH=%lld\n", (long long)O_PATH);
     printf("MADV_DONTNEED=%lld\n", (long long)MADV_DONTNEED);
 #endif
     return 0;
@@ -651,7 +702,7 @@ int main(void) {
 
     /// The lines the probe prints on every platform, before its
     /// `#ifdef`s: the floor its output is held to.
-    const PRINTED_EVERYWHERE: usize = 38;
+    const PRINTED_EVERYWHERE: usize = 43;
 
     /// Compile and run the probe, or say why it could not.
     fn ask_the_headers() -> std::collections::HashMap<String, i128> {
@@ -759,6 +810,8 @@ int main(void) {
         assert_eq!(h["POLLNVAL"], i128::from(POLLNVAL));
         assert_eq!(h["F_GETFL"], i128::from(F_GETFL));
         assert_eq!(h["F_SETFL"], i128::from(F_SETFL));
+        assert_eq!(h["F_GETFD"], i128::from(F_GETFD));
+        assert_eq!(h["FD_CLOEXEC"], i128::from(FD_CLOEXEC));
         assert_eq!(h["O_NONBLOCK"], i128::from(O_NONBLOCK));
         assert_eq!(h["O_NOCTTY"], i128::from(O_NOCTTY));
         assert_eq!(h["O_RDWR"], i128::from(O_RDWR));
@@ -767,6 +820,9 @@ int main(void) {
         assert_eq!(h["PROT_WRITE"], i128::from(PROT_WRITE));
         assert_eq!(h["MAP_SHARED"], i128::from(MAP_SHARED));
         assert_eq!(h["O_NOFOLLOW"], i128::from(O_NOFOLLOW));
+        assert_eq!(h["O_DIRECTORY"], i128::from(O_DIRECTORY));
+        assert_eq!(h["O_CLOEXEC"], i128::from(O_CLOEXEC));
+        assert_eq!(h["AT_FDCWD"], i128::from(AT_FDCWD));
         assert_eq!(h["PROT_READ"], i128::from(PROT_READ));
         assert_eq!(h["MAP_PRIVATE"], i128::from(MAP_PRIVATE));
         assert_eq!(h["MAP_FAILED"], MAP_FAILED as isize as i128);
@@ -800,9 +856,11 @@ int main(void) {
             assert_eq!(h["RTLD_LOCAL"], i128::from(RTLD_LOCAL));
             assert_eq!(h["RTLD_NOLOAD"], i128::from(RTLD_NOLOAD));
             assert_eq!(h["PSHMNAMLEN"], SHM_NAME_MAX as i128);
-            assert_eq!(h["O_NOFOLLOW_ANY"], i128::from(O_NOFOLLOW_ANY));
+            assert_eq!(h["O_SEARCH"], i128::from(O_SEARCH));
         }
         #[cfg(not(target_os = "macos"))]
         assert_eq!(h["NAME_MAX"], SHM_NAME_MAX as i128);
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(h["O_PATH"], i128::from(O_PATH));
     }
 }

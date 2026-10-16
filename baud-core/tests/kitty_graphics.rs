@@ -1945,3 +1945,440 @@ fn with_no_reader_a_file_medium_reserves_nothing() {
         assert_eq!(r, b"\x1b_Gi=5;OK\x1b\\", "image 5 is still stored");
     });
 }
+
+/// **A decode that fails after the read: a bad signature, a broken later
+/// `IDAT`, an `IHDR` past the arena, a scanline buffer past the scratch,
+/// broken zlib, and a relative placement after a raw and after a PNG
+/// decode** -- each command with the arena it needs and what is fed after
+/// it. `t=d` answers each with
+/// its own code; this is the control that each reaches that code.
+fn after_the_read() -> Vec<AfterRead> {
+    let small = png(2, 2, png::ColorType::Rgba, &bytes(16, 3), 8);
+    // The last of several `IDAT`s broken: the header and the first chunk
+    // parse, so the PNG is reserved, placed and fails in a later step.
+    let mut late = png(21, 23, png::ColorType::Rgba, &bytes(21 * 23 * 4, 7), 50);
+    let at = late.len() - 12 - 4 - 10;
+    late[at] ^= 0xFF;
+    let wide = png(9, 8, png::ColorType::Rgb, &bytes(216, 1), 64);
+    // 8x8 at sixteen bits a channel: 64 pixels fit the arena, and their
+    // 520 bytes of scanlines do not fit the 512-byte scratch.
+    let deep = {
+        let mut out = Vec::new();
+        let mut e = png::Encoder::new(&mut out, 8, 8);
+        e.set_color(png::ColorType::Rgba);
+        e.set_depth(png::BitDepth::Sixteen);
+        let mut wr = e.write_header().unwrap();
+        wr.write_image_data(&[0u8; 8 * 8 * 8]).unwrap();
+        drop(wr);
+        out
+    };
+    [
+        (
+            "signature",
+            Arena::Small,
+            "a=T,i=1,f=100".into(),
+            b"not a png at all".to_vec(),
+            &b""[..],
+            "EBADPNG",
+        ),
+        (
+            "late idat",
+            Arena::Large,
+            "a=T,i=1,f=100".into(),
+            late,
+            b"",
+            "EBADPNG",
+        ),
+        (
+            "ihdr",
+            Arena::Small,
+            "a=T,i=1,f=100".into(),
+            wide,
+            b"",
+            "EINVAL:Image too large",
+        ),
+        (
+            "scanlines",
+            Arena::Small,
+            "a=T,i=1,f=100".into(),
+            deep,
+            b"",
+            "EFBIG",
+        ),
+        (
+            "zlib",
+            Arena::Small,
+            "a=T,i=1,f=24,s=2,v=2,o=z".into(),
+            vec![0x78, 0x9c, 0xff, 0xff, 0xff, 0xff],
+            b"",
+            "EINVAL:Failed to inflate",
+        ),
+        (
+            "relative raw",
+            Arena::Small,
+            "a=T,i=1,f=24,s=2,v=2,P=5".into(),
+            bytes(12, 4),
+            b"",
+            "EINVAL:Relative",
+        ),
+        (
+            "relative png",
+            Arena::Small,
+            "a=T,i=1,f=100,P=5".into(),
+            small,
+            b"",
+            "EINVAL:Relative",
+        ),
+    ]
+    .into_iter()
+    .map(|(what, arena, keys, data, then, code)| AfterRead {
+        what,
+        arena,
+        keys,
+        data,
+        then,
+        code,
+    })
+    .collect()
+}
+
+/// The arena a case of [`after_the_read`] needs: 64 pixels, so a size
+/// past it is refused, or 4096, room for a 21x23 picture.
+#[derive(Clone, Copy)]
+enum Arena {
+    Small,
+    Large,
+}
+
+impl Arena {
+    fn pixels(self) -> usize {
+        match self {
+            Arena::Small => 64,
+            Arena::Large => 4096,
+        }
+    }
+}
+
+/// One case of [`after_the_read`]: its name, the arena, the command's
+/// keys, the data, what is fed after it, and the code `t=d` answers.
+struct AfterRead {
+    what: &'static str,
+    arena: Arena,
+    keys: String,
+    data: Vec<u8>,
+    then: &'static [u8],
+    code: &'static str,
+}
+
+/// **Every refusal after a file medium is read is the one reply**: "all
+/// failures to read an image file ... must be reported with a single,
+/// identical, error response", so that a client cannot "use the responses
+/// to these commands to learn anything about files it cannot read itself"
+/// ("The transmission medium"). A decode error tells the client the file
+/// exists and something of what it holds; through `t=f`, `t=t` and `t=s`
+/// each is `EBADF:Failed to read image file`, while `t=d` keeps its code.
+#[test]
+fn every_refusal_after_the_read_is_the_one_reply() {
+    for AfterRead {
+        what,
+        arena,
+        keys,
+        data,
+        then,
+        code,
+    } in after_the_read()
+    {
+        let direct = with(arena.pixels(), |t| {
+            let mut r = Vec::new();
+            feed(t, &apc(&keys, &b64(&data)), &mut r);
+            feed(t, then, &mut r);
+            settle(t, &mut r);
+            String::from_utf8_lossy(&r).into_owned()
+        });
+        assert!(
+            direct.starts_with(&format!("\x1b_Gi=1;{code}")),
+            "{what}: the control reaches {code}: {direct:?}"
+        );
+        for (medium, name) in [
+            ('f', &b"/pics/a"[..]),
+            ('t', b"/tmp/tty-graphics-protocol-a"),
+            ('s', b"/shm-a"),
+        ] {
+            let m = Mem::new(&[(name, &data)], 7);
+            let (r, placed) = with_files(arena.pixels(), &m, |t| {
+                let mut r = Vec::new();
+                let keys = keys.replacen("a=T,", &format!("a=T,t={medium},"), 1);
+                feed(t, &apc(&keys, &b64(name)), &mut r);
+                feed(t, then, &mut r);
+                settle(t, &mut r);
+                (r, t.images().placements().count())
+            });
+            assert_eq!(
+                r,
+                FILE_ERR,
+                "{what} t={medium}: {:?}",
+                String::from_utf8_lossy(&r)
+            );
+            assert_eq!(placed, 0, "{what} t={medium}");
+            assert_eq!(m.asked().len(), 1, "{what} t={medium}: it was read");
+        }
+    }
+}
+
+/// **A refusal decided before the read keeps its code**, and the reader
+/// is never asked: the control data and the path alone decide it, so it
+/// says nothing of any file -- `s=0`, `s * v` past the arena, a PNG through
+/// zlib with no `S` or one past the scratch, and a path past 2048 bytes.
+#[test]
+fn a_refusal_before_the_read_keeps_its_code_and_reads_nothing() {
+    let long = vec![b'a'; 2049];
+    for (keys, path, code) in [
+        ("a=T,i=1,t=f,f=24,s=0,v=2", &b"/p"[..], "EINVAL:Zero width"),
+        ("a=T,i=1,t=t,f=24,s=9,v=8", b"/p", "EINVAL:Image too large"),
+        ("a=T,i=1,t=s,f=100,o=z", b"/p", "ENODATA"),
+        (
+            "a=T,i=1,t=f,f=100,o=z,S=99999",
+            b"/p",
+            "EINVAL:PNG data size",
+        ),
+        (
+            "a=T,i=1,t=f,f=24,s=1,v=1",
+            &long,
+            "EINVAL:Filename too long",
+        ),
+        (
+            "a=T,i=1,I=2,t=f,f=24,s=1,v=1",
+            b"/p",
+            "EINVAL:Must not specify both",
+        ),
+    ] {
+        let m = Mem::new(&[(b"/p", &[1u8, 2, 3])], 7);
+        let r = with_files(64, &m, |t| {
+            let mut r = Vec::new();
+            feed(t, &apc(keys, &b64(path)), &mut r);
+            settle(t, &mut r);
+            String::from_utf8_lossy(&r).into_owned()
+        });
+        assert!(r.contains(&format!(";{code}")), "{keys}: {r:?}");
+        assert_eq!(r.matches("\x1b_G").count(), 1, "{keys}: one reply");
+        assert_eq!(m.asked().len(), 0, "{keys}: the reader was not asked");
+    }
+}
+
+/// **The one reply after the read is the same however the reads fall**:
+/// three file commands that fail after their reads, each answered EBADF,
+/// at every read size and every two-read split.
+#[test]
+fn the_reply_after_the_read_is_the_same_however_the_reads_fall() {
+    let small = png(2, 2, png::ColorType::Rgba, &bytes(16, 3), 8);
+    let named: [(&[u8], &[u8]); 3] = [
+        (b"/a", b"not a png at all"),
+        (b"/b", &[0x78, 0x9c, 0xff, 0xff, 0xff, 0xff]),
+        (b"/c", &small),
+    ];
+    let mut s = b"\x1b[3;4H".to_vec();
+    s.extend(apc("a=T,i=1,t=f,f=100", &b64(b"/a")));
+    s.extend(apc("a=T,i=2,t=s,f=24,s=2,v=2,o=z", &b64(b"/b")));
+    s.extend(apc("a=T,i=3,t=t,f=100,P=5", &b64(b"/c")));
+    s.extend_from_slice(b"after");
+    let run = |pieces: &[&[u8]]| {
+        let m = Mem::new(&named, 5);
+        with_files(64, &m, |t| {
+            let mut r = Vec::new();
+            for p in pieces {
+                feed(t, p, &mut r);
+            }
+            settle(t, &mut r);
+            state(t, &r)
+        })
+    };
+    let whole = run(&[&s]);
+    for i in 1..=3 {
+        let want = format!("i={i};EBADF:Failed to read image file");
+        assert!(whole.contains(&want), "{want}: {whole}");
+    }
+    assert_eq!(whole.matches(";E").count(), 3, "no other code: {whole}");
+    for n in 1..=s.len() {
+        let pieces: Vec<&[u8]> = s.chunks(n).collect();
+        assert_eq!(run(&pieces), whole, "read size {n}");
+    }
+    for cut in 1..s.len() {
+        assert_eq!(run(&[&s[..cut], &s[cut..]]), whole, "cut at {cut}");
+    }
+}
+
+/// `stream` fed in `pieces` to a terminal of `pixels` lent `named`, the
+/// decode settled, and the state it leaves.
+fn file_state(pixels: usize, named: &[(&[u8], &[u8])], pieces: &[&[u8]]) -> String {
+    let m = Mem::new(named, 7);
+    with_files(pixels, &m, |t| {
+        let mut r = Vec::new();
+        for p in pieces {
+            feed(t, p, &mut r);
+        }
+        settle(t, &mut r);
+        state(t, &r)
+    })
+}
+
+/// **A refusal after the read keeps nothing**: an `a=T` through `t=f`,
+/// `t=t` and `t=s` whose placement is refused once its file is read -- a
+/// relative placement, the store's 64 placements full, the stream's
+/// virtual table full -- leaves what a missing file leaves, raw and PNG:
+/// the one error, the image gone, so the `a=p` after it answers ENOENT,
+/// and the cursor where it was ("all failures to read an image file ...
+/// a single, identical, error response", "The transmission medium").
+#[test]
+fn a_refusal_after_the_read_keeps_nothing() {
+    let small = png(2, 2, png::ColorType::Rgba, &bytes(16, 3), 8);
+    let raw = bytes(12, 4);
+    let raw_z = zlib_mixed(&raw);
+    let fill = |placement: &dyn Fn(usize) -> String, n: usize| {
+        let mut s = apc("a=t,i=3,f=24,s=1,v=1,q=2", &b64(&[1, 2, 3]));
+        for p in 1..=n {
+            s.extend(apc(&placement(p), b""));
+        }
+        s
+    };
+    let physical = fill(&|p| format!("a=p,i=3,p={p},C=1,q=2"), 64);
+    let virtuals = fill(
+        &|p| format!("a=p,U=1,i=3,p={p},c=1,r=1,q=2"),
+        baud_domain::KITTY_VIRTUALS,
+    );
+    let cases: [(&str, &[u8], &str, &[u8]); 3] = [
+        ("relative", b"", ",P=5", b""),
+        (
+            "placements",
+            &physical,
+            ",C=1",
+            b"\x1b_Ga=d,d=i,i=3,q=2\x1b\\",
+        ),
+        (
+            "virtuals",
+            &virtuals,
+            ",U=1,c=1,r=1",
+            b"\x1b_Ga=d,d=i,i=3,q=2\x1b\\",
+        ),
+    ];
+    let mut differ = Vec::new();
+    for (what, before, extra, after) in cases {
+        for (format, data) in [
+            ("f=24,s=2,v=2", &raw),
+            ("f=24,s=2,v=2,o=z", &raw_z),
+            ("f=100", &small),
+        ] {
+            for (medium, name) in [
+                ('f', &b"/pics/a"[..]),
+                ('t', b"/tmp/tty-graphics-protocol-a"),
+                ('s', b"/shm-a"),
+            ] {
+                let stream = |path: &[u8]| {
+                    let mut s = b"\x1b[3;4H".to_vec();
+                    s.extend_from_slice(before);
+                    let keys = format!("a=T,i=1,t={medium},{format}{extra}");
+                    s.extend(apc(&keys, &b64(path)));
+                    s.extend_from_slice(after);
+                    s.extend(apc("a=p,i=1", b""));
+                    s
+                };
+                let missing = file_state(64, &[(name, data)], &[&stream(b"/gone")]);
+                assert!(
+                    missing.contains(
+                        "i=1;EBADF:Failed to read image file\\u{1b}\\\\\\u{1b}_Gi=1;ENOENT"
+                    ),
+                    "{what} {format} t={medium}: the control: {missing}"
+                );
+                // The embedder's counts differ -- a refused virtual
+                // placement here, and outside `state` a refused placement
+                // and an image dropped -- and no reply carries any of them.
+                let read = file_state(64, &[(name, data)], &[&stream(name)])
+                    .replace("virtuals_refused: 1", "virtuals_refused: 0");
+                if read != missing {
+                    differ.push(format!("{what} {format} t={medium}:\n{read}{missing}"));
+                }
+            }
+        }
+    }
+    assert!(differ.is_empty(), "{} differ: {differ:#?}", differ.len());
+}
+
+/// **A file PNG that fails late moves nothing and answers before the next
+/// byte**: a PNG whose header and first `IDAT` parse and whose last does
+/// not, through `t=f`, `t=t` and `t=s`, then a CPR and a DA, leaves the
+/// bytes and the state a missing file leaves -- the one error, then the
+/// cursor where it was, then the DA, then ENOENT for the `a=p` naming the
+/// image -- at every read size and every two-read split.
+#[test]
+fn a_file_png_that_fails_late_moves_nothing_and_answers_in_order() {
+    let mut late = png(21, 23, png::ColorType::Rgba, &bytes(21 * 23 * 4, 7), 50);
+    let at = late.len() - 12 - 4 - 10;
+    late[at] ^= 0xFF;
+    for (medium, name) in [
+        ('f', &b"/pics/a"[..]),
+        ('t', b"/tmp/tty-graphics-protocol-a"),
+        ('s', b"/shm-a"),
+    ] {
+        let named: [(&[u8], &[u8]); 1] = [(name, &late)];
+        let stream = |path: &[u8]| {
+            let mut s = b"\x1b[3;4H".to_vec();
+            s.extend(apc(&format!("a=T,i=1,t={medium},f=100"), &b64(path)));
+            s.extend_from_slice(b"\x1b[6n\x1b[c");
+            s.extend(apc("a=p,i=1", b""));
+            s
+        };
+        let missing = file_state(4096, &named, &[&stream(b"/gone")]);
+        assert!(
+            missing.contains("EBADF:Failed to read image file\\u{1b}\\\\\\u{1b}[3;4R\\u{1b}[?")
+                && missing.contains("c\\u{1b}_Gi=1;ENOENT"),
+            "t={medium}: the control: {missing}"
+        );
+        let s = stream(name);
+        assert_eq!(file_state(4096, &named, &[&s]), missing, "t={medium}");
+        for n in 1..=s.len() {
+            let pieces: Vec<&[u8]> = s.chunks(n).collect();
+            let got = file_state(4096, &named, &pieces);
+            assert_eq!(got, missing, "t={medium} read size {n}");
+        }
+        for cut in 1..s.len() {
+            let got = file_state(4096, &named, &[&s[..cut], &s[cut..]]);
+            assert_eq!(got, missing, "t={medium} cut at {cut}");
+        }
+    }
+}
+
+/// **A file PNG is decoded whole at its terminator**: an `ED 2` straight
+/// after it clears a picture already shown, and the command was answered
+/// `OK` before it, where `t=d`'s deferred decode is cleared mid-way and
+/// answered ENOENT.
+#[test]
+fn a_file_png_is_decoded_whole_at_its_terminator() {
+    let p = png(21, 23, png::ColorType::Rgba, &bytes(21 * 23 * 4, 91), 50);
+    let direct = with(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, &apc("a=T,i=1,f=100", &b64(&p)), &mut r);
+        feed(t, b"\x1b[2J", &mut r);
+        settle(t, &mut r);
+        r
+    });
+    assert!(
+        direct.starts_with(b"\x1b_Gi=1;ENOENT:Image deleted"),
+        "{direct:?}"
+    );
+    for (medium, name) in [
+        ('f', &b"/pics/a"[..]),
+        ('t', b"/tmp/tty-graphics-protocol-a"),
+        ('s', b"/shm-a"),
+    ] {
+        let m = Mem::new(&[(name, &p)], 7);
+        let r = with_files(4096, &m, |t| {
+            let mut r = Vec::new();
+            let keys = format!("a=T,i=1,t={medium},f=100");
+            feed(t, &apc(&keys, &b64(name)), &mut r);
+            assert_eq!(t.decode_step(DecodeBudget::ALL), DecodeProgress::Idle);
+            feed(t, b"\x1b[2J", &mut r);
+            settle(t, &mut r);
+            r
+        });
+        assert_eq!(r, b"\x1b_Gi=1;OK\x1b\\", "t={medium}");
+    }
+}
