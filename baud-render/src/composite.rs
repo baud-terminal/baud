@@ -170,8 +170,10 @@ impl<'p> Target<'p> {
     /// `sbix` glyph is), so an image drawn over glyphs reads over them; a
     /// clear pixel draws nothing and lets the cell underneath show through.
     /// A partial pixel is blended by its straight alpha, which `blend.over`
-    /// premultiplies as it mixes: the one place the CPU path premultiplies
-    /// (`[[source: w3c-png-2003]]` 6.2 stores colour straight).
+    /// weights by as it mixes, taking the pixel under it as opaque; the
+    /// presenter premultiplies the result (`[[source: w3c-png-2003]]` 6.2
+    /// stores colour straight; the record, "Images keep straight alpha, and
+    /// a partial one repaints its rows", Found, not fixed (1)).
     ///
     /// **An opaque-or-clear image under `Blend::Native` is stored, not
     /// mixed**: the OVER of an opaque pixel is that pixel (`(255 s + 127) /

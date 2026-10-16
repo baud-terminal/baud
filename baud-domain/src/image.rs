@@ -636,8 +636,9 @@ impl<'b> ImageStore<'b> {
     /// [`ImageAlpha::OpaqueOrClear`]; one that may hold a partly transparent
     /// pixel is [`ImageAlpha::Partial`], or [`ImageAlpha::of`] the pixels
     /// once written. A `Partial` mark on opaque pixels costs a repaint of
-    /// their rows each frame; an `OpaqueOrClear` mark on partial ones is
-    /// drawn blended twice by a renderer that keeps its last frame.
+    /// their rows each frame; an `OpaqueOrClear` mark on partial ones
+    /// sends them through a renderer's opaque blit, which stores or draws
+    /// each drawn pixel whole without blending it.
     ///
     /// **The slice holds whatever the arena held there**, the pixels of the
     /// last image freed from that span included: it is not cleared here, so a

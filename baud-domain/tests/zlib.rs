@@ -401,7 +401,11 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>, enter: &dyn Fn(&Path) -> bool) {
 /// A stream short enough, inflating to little enough, is split everywhere
 /// and read at every size; any other at five points and two read sizes,
 /// which keeps the debug-built suite to seconds. The ignored system test
-/// and the generated properties carry the rest.
+/// carries the rest. The generated properties do not: their data stops at
+/// 3,000 bytes, so no back-reference needs 11-13 distance extra bits, and
+/// they never build a step past about 33 bits. A refill stopped at 32 bits
+/// stays green on all three at 20,000 cases; only the repo PNGs here turn
+/// it red.
 fn cut_every_way_it_can(z: &[u8], n: usize, what: &str) -> End {
     if z.len() <= 2048 && n <= 65_536 {
         return every_split_and_size(z, n, what);

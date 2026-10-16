@@ -249,7 +249,11 @@ impl<const N: usize> Code<N> {
             first <<= 1;
             code <<= 1;
         }
-        // Bits past `count` are zero, so a walk that read them proves nothing.
+        // Bits past `count` are zero, and in a canonical code the zero
+        // extension of the held bits is the smallest code at each length,
+        // so a walk that fails on them would fail on any continuation too.
+        // Waiting for fifteen bits changes only which feed reports `Block`,
+        // never the verdict: a truncated stream reads `Truncated` instead.
         if bits.count < 15 {
             Ok(None)
         } else {
