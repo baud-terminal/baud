@@ -7887,6 +7887,39 @@ group  = "C"
 # with its last placement; the error codes EINVAL, ENOENT, ENODATA, EFBIG,
 # ENOSPC and EBADF, and EBADPNG from `png-reader.c`.
 
+[sources.kitty-shaders-c]
+key    = "kitty-shaders-c"
+title  = "kitty v0.49.2, kitty/shaders.c -- send_image_to_gpu, the texture filter an image is drawn with"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/shaders.c"
+file   = ""
+sha256 = "6f2cafc540e1b4b2735785f2fa1db429471f1e338cf9b576dfb73122474c0037"
+bytes  = 166583
+status = "external"
+group  = "C"
+# Practice for the filter `[[source: kitty-graphics]]` does not name:
+# `send_image_to_gpu` sets `GL_TEXTURE_MIN_FILTER` and `MAG_FILTER` to
+# `GL_LINEAR` when its `linear` argument is true, which `graphics.c`'s
+# `upload_to_gpu` passes, on a `GL_SRGB_ALPHA` texture clamped to a
+# transparent border.
+
+[sources.ghostty-shaders-metal]
+key    = "ghostty-shaders-metal"
+title  = "ghostty v1.2.0, src/renderer/shaders/shaders.metal -- image_fragment, how a kitty image is sampled"
+author = "Mitchell Hashimoto"
+year   = 2025
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/v1.2.0/src/renderer/shaders/shaders.metal"
+file   = ""
+sha256 = "a9bc47f979f9afeff0d61c1f29765bcee648650f7fb93d9d28aeccceef6b9850"
+bytes  = 25258
+status = "external"
+group  = "C"
+# `image_fragment` samples a kitty image with `filter::linear`; its text
+# with `filter::nearest`. Practice, not the text, which names no filter.
+
 [sources.kitty-graphics-command]
 key    = "kitty-graphics-command"
 title  = "kitty v0.49.2, tools/tui/graphics/command.go -- how kitten serialises a payload: zlib, base64, chunks"

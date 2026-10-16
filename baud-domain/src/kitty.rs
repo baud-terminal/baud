@@ -60,8 +60,8 @@
 //! terminal without them).
 
 use crate::image::{
-    ImageAlpha, ImageId, ImageOwner, ImagePx, ImageRefusal, ImageScreen, ImageStore, KittyFree,
-    KittyId, KittyNumber, KittyPlace, KittyPlacement, Pixel, PlacementSlot, ZIndex,
+    ImageAlpha, ImageId, ImageOwner, ImagePx, ImageRefusal, ImageScreen, ImageStore, KittyFit,
+    KittyFree, KittyId, KittyNumber, KittyPlace, KittyPlacement, Pixel, PlacementSlot, ZIndex,
 };
 use crate::png::{Png, PngError, PngProgress, PngSteps};
 use crate::pos::LineIdx;
@@ -1543,7 +1543,7 @@ impl KittyStream {
             Some((at.top.plus(Rows::of_count(row)), col))
         };
         let covers_line = |p: &PlacementSlot, line: LineIdx| -> bool {
-            let rows = p.kitty.rows.index().max(1);
+            let rows = p.kitty.shown().index();
             p.line <= line && line < p.line.plus(Rows::of_count(rows))
         };
         let covers_col = |p: &PlacementSlot, col: usize| -> bool {
@@ -1554,7 +1554,7 @@ impl KittyStream {
         match what {
             KittyDelete::Visible => {
                 store.kitty_delete(free, |p, _, _| {
-                    let rows = p.kitty.rows.index().max(1);
+                    let rows = p.kitty.shown().index();
                     p.screen == screen
                         && p.line < window_end
                         && p.line.plus(Rows::of_count(rows)) > at.top
@@ -1627,7 +1627,7 @@ impl KittyStream {
         let screen = at.screen;
         let end = at.top.plus(at.rows);
         store.kitty_delete(KittyFree::Data, |p, _, _| {
-            let rows = p.kitty.rows.index().max(1);
+            let rows = p.kitty.shown().index();
             p.screen == screen && p.line < end && p.line.plus(Rows::of_count(rows)) > at.top
         });
     }
@@ -1836,63 +1836,71 @@ fn convert(
     }
 }
 
-/// **A placement's geometry**: the source rectangle clipped to the image,
-/// as kitty clips it, and the cells it covers -- `c` and `r` as given, or
-/// from the source and the cell size: both absent, the source's own extent
-/// with the cell offset; one absent, "computed based on the source image
-/// aspect ratio" (kitty's `update_dest_rect`). With the cell size unknown,
-/// an absent count is zero and moves nothing.
+/// **A placement's geometry**: the source rectangle, the cell offset, and
+/// the cells it covers -- `c` and `r` as given, and a count not given the
+/// cells the drawn image reaches ([`KittyPlace::draw`]), so the cursor
+/// moves "by the number of cols in the image placement rectangle and ...
+/// rows" it is drawn in (`[[source: kitty-graphics]]`, "Controlling
+/// displayed image layout"). Kitty derives a count from the box plus the
+/// offset (`[[source: kitty-graphics-c]]` `update_dest_rect`), one row
+/// more than the drawn image reaches when `X` widens it, its practice and
+/// not followed. With the cell size unknown, an absent count is zero and
+/// moves nothing.
 fn geometry(cmd: &KittyCommand, iw: ImagePx, ih: ImagePx, at: &KittyAt) -> KittyPlace {
     let px = |n: u32| ImagePx::of(u16::try_from(n).unwrap_or(u16::MAX));
-    let (iw32, ih32) = (u32::from(iw.raw()), u32::from(ih.raw()));
-    let sx = cmd.x.min(iw32);
-    let sy = cmd.y.min(ih32);
-    let sw = match cmd.w {
-        0 => iw32,
-        w => w,
-    }
-    .min(iw32 - sx);
-    let sh = match cmd.h {
-        0 => ih32,
-        h => h,
-    }
-    .min(ih32 - sy);
-    let (cw, ch) = (u64::from(at.cell_w.raw()), u64::from(at.cell_h.raw()));
-    let cx = u64::from(cmd.cell_x.min(u32::from(at.cell_w.raw().saturating_sub(1))));
-    let cy = u64::from(cmd.cell_y.min(u32::from(at.cell_h.raw().saturating_sub(1))));
-    let div_up = |a: u64, b: u64| -> u64 {
-        match b {
-            0 => 0,
-            b => a.div_ceil(b),
-        }
+    let cx = cmd.cell_x.min(u32::from(at.cell_w.raw().saturating_sub(1)));
+    let cy = cmd.cell_y.min(u32::from(at.cell_h.raw().saturating_sub(1)));
+    let count = |n: u32| usize::try_from(n).unwrap_or(usize::MAX);
+    let fit = match (cmd.cols, cmd.rows) {
+        (0, 0) => KittyFit::Natural,
+        (_, 0) => KittyFit::Cols,
+        (0, _) => KittyFit::Rows,
+        _ => KittyFit::Box,
     };
-    let (c, r) = (u64::from(cmd.cols), u64::from(cmd.rows));
-    let (sw64, sh64) = (u64::from(sw), u64::from(sh));
-    let cols = match (c, r) {
-        (0, 0) => div_up(sw64 + cx, cw),
-        (0, r) => div_up((ch * r + cy) * sw64, sh64 * cw),
-        (c, _) => c,
-    };
-    let rows = match (c, r) {
-        (0, 0) => div_up(sh64 + cy, ch),
-        (c, 0) => div_up((cw * c + cx) * sh64, sw64 * ch),
-        (_, r) => r,
-    };
-    let count = |n: u64| usize::try_from(n).unwrap_or(usize::MAX);
-    KittyPlace {
+    let mut place = KittyPlace {
         id: match cmd.id.is_none() {
             // "If you specify a placement id for an image that does not have
             // an id ... it will be ignored".
             true => KittyPlacement::NONE,
             false => cmd.placement,
         },
-        src_x: px(sx),
-        src_y: px(sy),
-        src_w: px(sw),
-        src_h: px(sh),
-        cell_x: px(u32::try_from(cx).unwrap_or(0)),
-        cell_y: px(u32::try_from(cy).unwrap_or(0)),
-        cols: Cols(count(cols)),
-        rows: Rows::of_count(count(rows)),
+        src_x: px(cmd.x),
+        src_y: px(cmd.y),
+        src_w: px(cmd.w),
+        src_h: px(cmd.h),
+        cell_x: px(cx),
+        cell_y: px(cy),
+        cols: Cols(count(cmd.cols)),
+        rows: Rows::of_count(count(cmd.rows)),
+        fit,
+        cut_top: Rows::ZERO,
+        cut_bottom: Rows::ZERO,
+    };
+    let drawn = place.draw(iw, ih, at.cell_w, at.cell_h);
+    // The source as drawn, clipped to the image, so a delete and a reader
+    // see the rectangle and not the request.
+    place.src_x = px(drawn.src.x);
+    place.src_y = px(drawn.src.y);
+    place.src_w = px(drawn.src.w);
+    place.src_h = px(drawn.src.h);
+    let reach = |off: u32, len: u32, cell: ImagePx| match cell.raw() {
+        0 => 0,
+        c => count(
+            (u64::from(off) + u64::from(len))
+                .div_ceil(u64::from(c))
+                .try_into()
+                .unwrap_or(u32::MAX),
+        ),
+    };
+    let (d, s) = (drawn.dest, drawn.src);
+    match fit {
+        KittyFit::Natural => {
+            place.cols = Cols(reach(cx, s.w, at.cell_w));
+            place.rows = Rows::of_count(reach(cy, s.h, at.cell_h));
+        }
+        KittyFit::Cols => place.rows = Rows::of_count(reach(d.y, d.h, at.cell_h)),
+        KittyFit::Rows => place.cols = Cols(reach(d.x, d.w, at.cell_w)),
+        KittyFit::Box => {}
     }
+    place
 }

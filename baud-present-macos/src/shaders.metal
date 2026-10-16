@@ -75,6 +75,21 @@ fragment float4 glyph_fragment(GOut in [[stage_in]],
     return float4(in.color.rgb * in.color.a, in.color.a);
 }
 
+// An image placement's pixel: drawn pixel (i, j) of its visible rectangle
+// -- `uv`, which `glyph_vertex` hands over in pixels because `draw_images`
+// sets the uniform's `color` to one -- shows texel (xs[i], ys[j]), the
+// tables `Renderer::image_map` filled from `ImageDraw::nearest`. Read, not
+// sampled, so the GPU shows the texel the CPU blit does. Straight in the
+// texture and premultiplied once here, as `glyph_fragment`'s colour branch.
+fragment float4 image_fragment(GOut in [[stage_in]],
+                               texture2d<float, access::read> img [[texture(1)]],
+                               device const uint* xs [[buffer(0)]],
+                               device const uint* ys [[buffer(1)]]) {
+    uint2 d = uint2(in.uv);
+    float4 c = img.read(uint2(xs[d.x], ys[d.y]));
+    return float4(c.rgb * c.a, c.a);
+}
+
 // ---- The cursor trail's quad: `trail::coverage` in `baud-render`, the
 // same rule. The record is the quad's bounds, drawn by `glyph_vertex`; this
 // covers the pixels inside the corners by the non-zero winding rule, a pixel

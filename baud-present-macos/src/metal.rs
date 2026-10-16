@@ -58,8 +58,9 @@ use baud_domain::{
 use baud_font::Px;
 use baud_render::effect::{self, Effect};
 use baud_render::{
-    Argb, Atlas, Dirty, Generation, Highlight, ImagePlacement, Instance, Kind, MAP_BITS, MAP_SLOTS,
-    MapEntry, Region, Renderer, Replaced, Resolved, Screen, Side, Tally, Tex, TexRect,
+    Argb, Atlas, Dirty, Generation, Highlight, ImageLayer, ImagePlacement, Instance, Kind,
+    MAP_BITS, MAP_SLOTS, MapEntry, Region, Renderer, Replaced, Resolved, Screen, Side, Tally, Tex,
+    TexRect,
 };
 use block2::RcBlock;
 use core::ffi::c_void;
@@ -205,9 +206,7 @@ impl LatePipe {
             *self = match pipeline(device, library, "glyph_vertex", fragment, Blend::Over) {
                 Some(p) => LatePipe::Built(p),
                 None => {
-                    eprintln!(
-                        "baud-present-macos: the trail's {fragment} pipeline would not build"
-                    );
+                    eprintln!("baud-present-macos: the {fragment} pipeline would not build");
                     LatePipe::Failed
                 }
             };
@@ -478,6 +477,9 @@ pub struct Gpu {
     library: Retained<ProtocolObject<dyn MTLLibrary>>,
     quad_pipe: LatePipe,
     effect_pipes: [LatePipe; Effect::COUNT],
+    /// `glyph_vertex` and `image_fragment`: an image placement read
+    /// through its tables. Built the first time an image is drawn.
+    image_pipe: LatePipe,
     sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
     /// The text-contrast curves, `baud_domain::contrast::CURVES`, copied
     /// once: `glyph_fragment` reads a mask's coverage through the row its
@@ -838,6 +840,7 @@ impl Gpu {
             library,
             quad_pipe: LatePipe::Unbuilt,
             effect_pipes: core::array::from_fn(|_| LatePipe::Unbuilt),
+            image_pipe: LatePipe::Unbuilt,
             sampler,
             curves,
             instances,
@@ -1099,12 +1102,12 @@ impl Gpu {
 
     /// Ensures every visible image has a GPU texture -- uploading a new one
     /// once, its own texture rather than the shared atlas, because an image is
-    /// not glyph-sized -- and returns the instances to draw, each with the
-    /// texture to bind. The cache is dropped whole when the store's epoch
-    /// moves, so a slot reused after a `reset` cannot return a stale texture.
-    /// Called before the encoder, so a `replaceRegion` upload never touches a
-    /// bound texture.
-    fn resolve_images(&mut self, renderer: &Renderer<'_, '_>) -> Vec<(Instance, Texture)> {
+    /// not glyph-sized -- and returns the placements to draw, in the
+    /// renderer's order, each with the texture to bind. The cache is dropped
+    /// whole when the store's epoch moves, so a slot reused after a `reset`
+    /// cannot return a stale texture. Called before the encoder, so a
+    /// `replaceRegion` upload never touches a bound texture.
+    fn resolve_images(&mut self, renderer: &Renderer<'_, '_>) -> Vec<ImageDraw> {
         let places = renderer.image_placements();
         let Some(epoch) = places.first().map(|p| p.epoch) else {
             return Vec::new();
@@ -1137,92 +1140,144 @@ impl Gpu {
                 self.images.push((p.id, tex));
             }
             if let Some((_, tex)) = self.images.iter().find(|(id, _)| *id == p.id) {
-                draws.push((image_instance(p), tex.clone()));
+                let (xs, ys) = renderer.image_map(p);
+                let mut map = Vec::with_capacity(xs.len() + ys.len());
+                map.extend_from_slice(xs);
+                map.extend_from_slice(ys);
+                draws.push(ImageDraw {
+                    inst: image_instance(p),
+                    tex: tex.clone(),
+                    layer: p.layer,
+                    map,
+                });
             }
         }
         draws
     }
 
-    /// Draws each resolved image as a textured quad from its own texture, over
-    /// the glyphs -- the same OVER the CPU `blit_image` does, the texture's
-    /// straight pixels premultiplied once in the fragment,
-    /// through the same `glyph`/`Kind::Color` pipeline a colour glyph uses, so
-    /// no shader is added. One draw call per image: its texture at fragment 1,
-    /// and a uniform whose `color` floats are the image size, so the quad's uv
-    /// spans exactly the texture.
-    ///
-    /// Called inside an open encoder. `pan` shifts every image down by that
-    /// many pixels -- the smooth-scroll offset the grid and records already
-    /// take, so an image anchored to a sliding line moves with it -- and is
-    /// zero on the instance path and on a settled cell frame.
-    fn draw_images(
-        &mut self,
-        enc: &ProtocolObject<dyn MTLRenderCommandEncoder>,
-        draws: &[(Instance, Texture)],
-        mask: &ProtocolObject<dyn MTLTexture>,
-        frame_px: (Px, Px),
-        pan: Px,
-    ) -> Option<()> {
+    /// **Writes every image draw's record and tables** into the next ring
+    /// buffer: the records first, then each draw's tables, the texel x of
+    /// its columns and the texel y of its rows, at a 16-byte boundary each.
+    /// `pan` shifts every record down by that many pixels -- the
+    /// smooth-scroll offset the grid and records already take, so an image
+    /// anchored to a sliding line moves with it -- and is zero on the
+    /// instance path and on a settled cell frame. One buffer for both
+    /// layers, so the draws under the text and over it take one ring slot.
+    fn stage_images(&mut self, draws: &[ImageDraw], pan: Px) -> Option<Staged> {
         if draws.is_empty() {
-            return Some(());
+            return None;
         }
         let pan16 = i16::try_from(pan.value()).unwrap_or(i16::MAX);
-        let bytes = draws.len().saturating_mul(Instance::BYTES);
+        let records = draws.len().saturating_mul(Instance::BYTES);
+        let align = |n: usize| n.div_ceil(16).saturating_mul(16);
+        let mut maps = Vec::with_capacity(draws.len());
+        let mut end = align(records);
+        for d in draws {
+            let xs = end;
+            let ys = xs.saturating_add(usize::from(d.inst.w.0).saturating_mul(4));
+            maps.push((xs, ys));
+            end = align(xs.saturating_add(d.map.len().saturating_mul(4)));
+        }
         let slot = self.ring.0;
-        if self.instances[slot].length() < bytes {
-            let want = bytes.max(BUFFER_FLOOR).next_power_of_two();
+        if self.instances[slot].length() < end {
+            let want = end.max(BUFFER_FLOOR).next_power_of_two();
             self.instances[slot] = self.shared(Span(want))?;
         }
         {
             let buffer = &self.instances[slot];
             let ptr = buffer.contents().cast::<u8>();
             // SAFETY: a shared buffer's contents are CPU-addressable for its
-            // whole length, at least `bytes` after the check above, and nothing
+            // whole length, at least `end` after the check above, and nothing
             // is in flight, so the GPU is not reading it.
-            let dst = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes) };
-            for (chunk, (inst, _)) in dst.chunks_exact_mut(Instance::BYTES).zip(draws) {
-                let mut inst = *inst;
+            let dst = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), end) };
+            for (chunk, d) in dst[..records].chunks_exact_mut(Instance::BYTES).zip(draws) {
+                let mut inst = d.inst;
                 inst.y = Screen(inst.y.0.saturating_add(pan16));
                 chunk.copy_from_slice(&inst.to_bytes());
             }
+            for (d, &(xs, _)) in draws.iter().zip(&maps) {
+                for (out, v) in dst[xs..xs + d.map.len() * 4]
+                    .chunks_exact_mut(4)
+                    .zip(&d.map)
+                {
+                    out.copy_from_slice(&v.to_le_bytes());
+                }
+            }
         }
         self.ring = Ring((slot + 1) % RING);
-        // SAFETY: `u` and the instance bytes outlive their calls (Metal copies
-        // `setBytes`/`setVertexBytes` at the call); the instance buffer holds
-        // `draws.len()` records so an offset never reads past it; the buffer and
-        // texture indices match `glyph_vertex`/`glyph_fragment`.
+        Some(Staged {
+            slot: Ring(slot),
+            maps,
+        })
+    }
+
+    /// Draws the staged images of `layer`, in order, each a quad from its
+    /// own texture through `image_fragment`, which reads each drawn pixel's
+    /// texel by its tables -- the same texel the CPU's blit takes -- and
+    /// premultiplies it once, as the colour branch of `glyph_fragment` does,
+    /// for the same OVER the CPU `blit_image` does. One draw call per image:
+    /// its texture at fragment 1, its tables at fragment buffers 0 and 1,
+    /// and a uniform whose `color` floats are one, so the quad's uv is the
+    /// drawn pixel's position in it.
+    ///
+    /// Called inside an open encoder; every pass after it binds what it
+    /// reads, so the buffers this binds are not left for a glyph to read.
+    fn draw_images(
+        &mut self,
+        enc: &ProtocolObject<dyn MTLRenderCommandEncoder>,
+        draws: &[ImageDraw],
+        staged: Option<&Staged>,
+        layer: ImageLayer,
+        frame_px: (Px, Px),
+    ) -> Option<()> {
+        let Some(staged) = staged else {
+            return Some(());
+        };
+        if !draws.iter().any(|d| d.layer == layer) {
+            return Some(());
+        }
+        let pipe = self
+            .image_pipe
+            .get(&self.device, &self.library, "image_fragment")?;
+        let buffer = &self.instances[staged.slot.0];
+        // Only `viewport` (0,1) and `color` (8,9) are read by `glyph_vertex`;
+        // a `color` of one makes the uv the drawn pixel's position.
+        let u: [f32; UNIFORM_FLOATS] = [
+            px_f32(frame_px.0),
+            px_f32(frame_px.1),
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+            1.0,
+            0.0,
+            0.0,
+        ];
+        let ubytes = NonNull::from(&u).cast::<c_void>();
+        let ulen = core::mem::size_of::<[f32; UNIFORM_FLOATS]>();
+        // SAFETY: `u` outlives its calls (Metal copies `setVertexBytes` at
+        // the call); the buffer holds every draw's record and tables, at the
+        // offsets `stage_images` wrote them; the indices match
+        // `glyph_vertex` and `image_fragment`, which reads no table entry
+        // past the quad's own width and height.
         unsafe {
-            enc.setRenderPipelineState(&self.glyph_pipe);
-            enc.setFragmentTexture_atIndex(Some(mask), 0);
-            enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);
-            enc.setFragmentBuffer_offset_atIndex(Some(&self.curves), 0, 0);
-            for (i, (inst, tex)) in draws.iter().enumerate() {
-                // Only `viewport` (0,1) and `color` (8,9) are read by
-                // `glyph_vertex`; `color` is the image size, so uv spans 0..1
-                // over the whole texture. The rest is unused on this path.
-                let u: [f32; UNIFORM_FLOATS] = [
-                    px_f32(frame_px.0),
-                    px_f32(frame_px.1),
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    f32::from(inst.w.0),
-                    f32::from(inst.h.0),
-                    0.0,
-                    0.0,
-                ];
-                let ubytes = NonNull::from(&u).cast::<c_void>();
-                let ulen = core::mem::size_of::<[f32; UNIFORM_FLOATS]>();
+            enc.setRenderPipelineState(&pipe);
+            for (i, (d, &(xs, ys))) in draws.iter().zip(&staged.maps).enumerate() {
+                if d.layer != layer {
+                    continue;
+                }
                 enc.setVertexBuffer_offset_atIndex(
-                    Some(&self.instances[slot]),
+                    Some(buffer),
                     i.saturating_mul(Instance::BYTES),
                     0,
                 );
                 enc.setVertexBytes_length_atIndex(ubytes, ulen, 1);
-                enc.setFragmentTexture_atIndex(Some(tex), 1);
+                enc.setFragmentTexture_atIndex(Some(&d.tex), 1);
+                enc.setFragmentBuffer_offset_atIndex(Some(buffer), xs, 0);
+                enc.setFragmentBuffer_offset_atIndex(Some(buffer), ys, 1);
                 enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
                     MTLPrimitiveType::TriangleStrip,
                     0,
@@ -1467,8 +1522,10 @@ impl Gpu {
         let mask = self.mask.as_ref()?.texture.clone();
         let color = self.color.as_ref()?.texture.clone();
         // Resolve images before the encoder, so a new one's `replaceRegion`
-        // upload never touches a bound texture.
+        // upload never touches a bound texture. The instance path does not
+        // slide, so no pan.
         let images = self.resolve_images(renderer);
+        let staged = self.stage_images(&images, Px::of(0));
         let (viewport, pad) = letterbox(target, frame_px);
         let trail = self.trail_draw(renderer, pad);
         let uniforms: [f32; UNIFORM_FLOATS] = [
@@ -1506,6 +1563,9 @@ impl Gpu {
             enc.setScissorRect(scissor(target, pad, grid_px));
             enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4);
             enc.setScissorRect(scissor(target, [0.0, 0.0], target.size()));
+            // Images under the text, over the backgrounds, as the CPU
+            // compositor blits them into a repainted row.
+            self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Under, frame_px)?;
             if count > 0 {
                 self.draw_records(
                     &enc,
@@ -1518,9 +1578,9 @@ impl Gpu {
                     &color,
                 );
             }
-            // Images last, over the text, the way the CPU compositor blits
-            // them. The instance path does not slide, so no pan.
-            self.draw_images(&enc, &images, &mask, frame_px, Px::of(0))?;
+            // Images over the text last, the way the CPU compositor blits
+            // them.
+            self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Over, frame_px)?;
         }
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);
@@ -1561,8 +1621,10 @@ impl Gpu {
         self.sheets_for(renderer.atlas_mut())?;
         let mask = self.mask.as_ref()?.texture.clone();
         let color = self.color.as_ref()?.texture.clone();
-        // Resolve images before the encoder, as the instance path does.
+        // Resolve images before the encoder, as the instance path does. They
+        // slide with the grid under smooth scroll.
         let images = self.resolve_images(renderer);
+        let staged = self.stage_images(&images, input.slide.unwrap_or(Px::of(0)));
         let (viewport, pad) = letterbox(target, frame_px);
         let trail = self.trail_draw(renderer, pad);
         let (cursor_row, cursor_col) = input
@@ -1624,11 +1686,21 @@ impl Gpu {
         // with `col < cols <= stride` and `rows <= ring`; the style buffer holds every slot a
         // cell can name; the map buffer holds every slot the probe reaches.
         unsafe {
-            for (pipe, instances) in [
-                (&self.cell_bg_pipe, count),
-                (&self.cell_glyph_pipe, count),
-                (&self.cell_shape_pipe, count.saturating_mul(SHAPES_PER_CELL)),
-            ] {
+            let passes = [
+                (self.cell_bg_pipe.clone(), count),
+                (self.cell_glyph_pipe.clone(), count),
+                (
+                    self.cell_shape_pipe.clone(),
+                    count.saturating_mul(SHAPES_PER_CELL),
+                ),
+            ];
+            for (k, (pipe, instances)) in passes.iter().enumerate() {
+                // Images under the text after the backgrounds, before the
+                // glyphs: the CPU compositor's order in a repainted row.
+                if k == 1 {
+                    self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Under, frame_px)?;
+                }
+                let instances = *instances;
                 enc.setRenderPipelineState(pipe);
                 enc.setVertexBuffer_offset_atIndex(Some(&input.grid.0), 0, 0);
                 enc.setVertexBuffer_offset_atIndex(Some(&input.styles.0), 0, 1);
@@ -1700,15 +1772,9 @@ impl Gpu {
                     &color,
                 );
             }
-            // Images last, over the records, matching the instance path and
-            // the CPU compositor. They slide with the grid under smooth scroll.
-            self.draw_images(
-                &enc,
-                &images,
-                &mask,
-                frame_px,
-                input.slide.unwrap_or(Px::of(0)),
-            )?;
+            // Images over the text last, over the records, matching the
+            // instance path and the CPU compositor.
+            self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Over, frame_px)?;
         }
         enc.endEncoding();
         let (submit, gpu) = self.commit(&cmd, done);
@@ -1759,10 +1825,27 @@ pub enum Memory {
     Discrete,
 }
 
-/// The `Kind::Color` instance for an image placement: its screen rect and
-/// size, `uv` zero. `color` is unused -- the fragment samples the bound
-/// texture -- and the uv spans the whole texture because `draw_images` sets
-/// the uniform's `color` to the image size.
+/// One image placement as the GPU draws it: its record, its texture, its
+/// layer, and its tables, the texel x of each visible drawn column then the
+/// texel y of each visible drawn row ([`Renderer::image_map`]).
+struct ImageDraw {
+    inst: Instance,
+    tex: Texture,
+    layer: ImageLayer,
+    map: Vec<u32>,
+}
+
+/// The ring buffer [`Gpu::stage_images`] wrote, and each draw's tables in
+/// it: the byte offsets of its columns' and its rows'.
+struct Staged {
+    slot: Ring,
+    maps: Vec<(usize, usize)>,
+}
+
+/// The `Kind::Color` instance for an image placement: the screen rect and
+/// size of its visible part, `uv` zero, so with `draw_images`'s uniform the
+/// quad's uv is the drawn pixel's position. `color` is unused -- the
+/// fragment reads the bound texture.
 fn image_instance(p: &ImagePlacement) -> Instance {
     Instance {
         x: Screen(p.x),

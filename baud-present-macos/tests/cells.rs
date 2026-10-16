@@ -2966,6 +2966,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     slid_is_one_up(&mut arms, &mut t, "an image in the leaving row");
     partial_image_gate(&mut arms, &mut t);
     cpu_page_gate(&mut arms, &mut t);
+    kitty_draw_gate(&mut arms, &mut t);
     // **Styled faces.** Bold, italic and bold-italic text -- a ligature and
     // a Nerd Fonts icon among it -- on both arms, and a positive control
     // that each style reached the pixels: the same row regular paints
@@ -3446,5 +3447,214 @@ fn cpu_page_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         arms.renderer.set_cursor_blink(Blink::Shown);
     }
     arms.renderer.set_theme(glass);
+    feed(t, b"\x1bc");
+}
+
+/// The kitty gate's image, 6 by 4, every pixel opaque and distinct; and a
+/// second, in other colours, for which of two is on top.
+fn kitty_texel(x: u32, y: u32) -> u32 {
+    0xFF00_0000 | ((37 * x + 20) << 16) | ((53 * y + 10) << 8) | 200
+}
+
+fn kitty_other(x: u32, y: u32) -> u32 {
+    0xFF00_0000 | (200 << 16) | ((29 * x + 5) << 8) | (41 * y + 30)
+}
+
+/// `a=t` of a 6 by 4 `f=32` image `id` with `px`'s pixels, then each
+/// placement in `puts` at row 3, column 5 (one-based).
+fn kitty_put(t: &mut Term<'_>, id: u32, px: fn(u32, u32) -> u32, puts: &[&str]) {
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut rgba = Vec::new();
+    for y in 0..4 {
+        for x in 0..6 {
+            let [_, r, g, b] = px(x, y).to_be_bytes();
+            rgba.extend_from_slice(&[r, g, b, 0xFF]);
+        }
+    }
+    let mut cmd = format!("\x1b_Ga=t,f=32,s=6,v=4,i={id},q=2;").into_bytes();
+    for q in rgba.chunks(3) {
+        let n = u32::from_be_bytes([0, q[0], q[1], q[2]]);
+        for k in 0..4 {
+            cmd.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]);
+        }
+    }
+    cmd.extend_from_slice(b"\x1b\\");
+    feed(t, &cmd);
+    for put in puts {
+        feed(
+            t,
+            format!("\x1b[3;5H\x1b_Ga=p,i={id},q=2,{put}\x1b\\").as_bytes(),
+        );
+    }
+}
+
+/// Where the text says a placement of the 6 by 4 image draws, from the
+/// anchor cell's top-left -- `[x, y, w, h]` -- and the source rectangle it
+/// maps, the same four: `baud-render/tests/kitty_draw.rs`'s rules, written
+/// again here so the GPU arms are held to the text and not to the
+/// renderer's geometry.
+fn kitty_expect(ctrl: &str, cw: u32, ch: u32) -> [[u32; 4]; 2] {
+    let key = |name: char| {
+        ctrl.split(',')
+            .find_map(|kv| kv.strip_prefix(name)?.strip_prefix('='))
+            .map_or(0u32, |v| v.parse().unwrap())
+    };
+    let (iw, ih) = (6u32, 4u32);
+    let nearest = |a: u64, b: u64| u32::try_from((a + b / 2) / b).unwrap();
+    let sx = key('x').min(iw);
+    let sy = key('y').min(ih);
+    let sw = if key('w') == 0 {
+        iw - sx
+    } else {
+        key('w').min(iw - sx)
+    };
+    let sh = if key('h') == 0 {
+        ih - sy
+    } else {
+        key('h').min(ih - sy)
+    };
+    let (sw64, sh64) = (u64::from(sw), u64::from(sh));
+    let (ox, oy) = (key('X'), key('Y'));
+    let (mut dx, mut dy) = (ox, oy);
+    let (dw, dh) = match (key('c'), key('r')) {
+        (0, 0) => (sw, sh),
+        (c, 0) => {
+            let dw = c * cw - ox;
+            (dw, nearest(u64::from(dw) * sh64, sw64))
+        }
+        (0, r) => {
+            let dh = r * ch - oy;
+            (nearest(u64::from(dh) * sw64, sh64), dh)
+        }
+        (c, r) => {
+            let (bw, bh) = (c * cw - ox, r * ch - oy);
+            if u64::from(bw) * sh64 < u64::from(bh) * sw64 {
+                let dh = nearest(u64::from(bw) * sh64, sw64);
+                dy += (bh - dh) / 2;
+                (bw, dh)
+            } else {
+                let dw = nearest(u64::from(bh) * sw64, sh64);
+                dx += (bw - dw) / 2;
+                (dw, bh)
+            }
+        }
+    };
+    [[dx, dy, dw, dh], [sx, sy, sw, sh]]
+}
+
+/// **Kitty placements draw what they store, on all three paths**
+/// (`[[source: kitty-graphics]]`, "Controlling displayed image layout"):
+/// the source rectangle, `c` and `r` with the aspect kept and a box
+/// letterboxed, `X` and `Y`, and `z` -- negative under the text, and the
+/// order by `z` then the lower id under. Each arm is held to the text's
+/// pixels, computed here: the source texel under each drawn pixel's centre
+/// inside the drawn rectangle, the frame without the image outside it, and
+/// under the text the text's pixel where it drew one; then the arms to
+/// each other and the CPU to them. Both GPU arms read the placements' tables
+/// through one `image_fragment`, so their agreeing alone would say nothing.
+fn kitty_draw_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    assert_eq!(arms.margin, (0, 0), "the frame is at the target's origin");
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let px16 = |v: u32| ImagePx::of(u16::try_from(v).unwrap());
+    t.set_cell_size(px16(cw), px16(ch));
+    let fw = arms.renderer.frame_size().0.value();
+    let at = |x: u32, y: u32| usize::try_from(y * fw + x).unwrap();
+    let (ax, ay) = (4 * cw, 2 * ch);
+    let blocks = "\x1bc\x1b[?25l\x1b[3;5H\u{2580}\u{2580}\u{2580}\u{2580}\u{2580}\u{2580}";
+    for (text, put) in [
+        ("\x1bc\x1b[?25l", "x=2,y=1,w=3,h=2"),
+        ("\x1bc\x1b[?25l", "c=3"),
+        ("\x1bc\x1b[?25l", "r=2"),
+        ("\x1bc\x1b[?25l", "c=4,r=1"),
+        ("\x1bc\x1b[?25l", "c=1,r=3"),
+        ("\x1bc\x1b[?25l", "X=3,Y=5,c=2"),
+        ("\x1bc\x1b[?25l", "X=1,Y=2,x=1,y=1,w=4,h=2,c=5,r=1"),
+        (blocks, "c=4,r=1,z=-1"),
+        (blocks, "c=4,r=1,z=0"),
+    ] {
+        feed(t, text.as_bytes());
+        let (before, _) = arms.draw(t);
+        kitty_put(t, 1, kitty_texel, &[put]);
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        let [[dx, dy, dw, dh], [sx, sy, sw, sh]] = kitty_expect(put, cw, ch);
+        let under = put.contains("z=-1");
+        let mut want = before.clone();
+        for j in 0..dh {
+            for i in 0..dw {
+                let i_at = at(ax + dx + i, ay + dy + j);
+                let texel = kitty_texel(
+                    sx + (2 * i + 1) * sw / (2 * dw),
+                    sy + (2 * j + 1) * sh / (2 * dh),
+                );
+                let bare = before[i_at] == before[at(0, 0)];
+                if !under || bare {
+                    want[i_at] = texel;
+                }
+            }
+        }
+        if under {
+            let ink = (0..dh)
+                .flat_map(|j| (0..dw).map(move |i| (i, j)))
+                .filter(|&(i, j)| before[at(ax + dx + i, ay + dy + j)] != before[at(0, 0)])
+                .count();
+            assert!(ink > 0, "{put}: the premise, text under the image");
+        }
+        for (arm, got) in [("instance", &a), ("cell", &b), ("cpu", &cpu)] {
+            assert_eq!(
+                differing(got, &want),
+                0,
+                "{put}: the {arm} arm is not the text's pixels"
+            );
+        }
+        assert_eq!(differing(&a, &b), 0, "{put}: the GPU arms disagree");
+    }
+    // The order: `z` first, then the lower id under, whatever the order of
+    // placement -- the second placed is on top only when the rest tie.
+    for (first, second, top) in [
+        ((1, "z=2"), (2, "z=1"), kitty_texel(0, 0)),
+        ((7, "z=0"), (3, "z=0"), kitty_texel(0, 0)),
+        ((1, "z=1"), (2, "z=1"), kitty_other(0, 0)),
+    ] {
+        feed(t, b"\x1bc\x1b[?25l");
+        kitty_put(t, first.0, kitty_texel, &[first.1]);
+        kitty_put(t, second.0, kitty_other, &[second.1]);
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        for (arm, got) in [("instance", &a), ("cell", &b), ("cpu", &cpu)] {
+            assert_eq!(
+                got[at(ax, ay)],
+                top,
+                "{first:?} then {second:?}: the {arm} arm's top image"
+            );
+        }
+    }
+    // A margin scroll clips: two rows at the top margin, scrolled up one,
+    // draw their second row at the margin and nothing above it.
+    feed(t, b"\x1bc\x1b[?25l\x1b[3;10r");
+    let (before, _) = arms.draw(t);
+    kitty_put(t, 1, kitty_texel, &["C=1,r=2"]);
+    feed(t, b"\x1b[10;1H\n");
+    let (a, b) = arms.draw(t);
+    let cpu = cpu_frame(arms, t);
+    let [[_, _, dw, dh], [sx, sy, sw, sh]] = kitty_expect("r=2", cw, ch);
+    let mut want = before;
+    for k in 0..ch {
+        for i in 0..dw {
+            want[at(ax + i, ay + k)] = kitty_texel(
+                sx + (2 * i + 1) * sw / (2 * dw),
+                sy + (2 * (ch + k) + 1) * sh / (2 * dh),
+            );
+        }
+    }
+    for (arm, got) in [("instance", &a), ("cell", &b), ("cpu", &cpu)] {
+        assert_eq!(
+            differing(got, &want),
+            0,
+            "a margin scroll: the {arm} arm does not clip at the margin"
+        );
+    }
+    t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
     feed(t, b"\x1bc");
 }

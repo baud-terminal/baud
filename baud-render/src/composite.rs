@@ -13,7 +13,7 @@ use crate::color::Argb;
 use crate::instance::Instance;
 use crate::trail::{Pt, Smear};
 use crate::units::{Band, Coverage, slots};
-use baud_domain::{Chan, ImageAlpha, ImageView};
+use baud_domain::{Chan, ImageAlpha, ImageView, Pixel};
 use baud_font::Px;
 
 /// How coverage mixes a glyph colour into the background.
@@ -206,21 +206,25 @@ impl<'p> Target<'p> {
         }
     }
 
-    /// Blits an image's pixels over the buffer at slot `(x0, y0)`, which
-    /// may be negative when an image has scrolled partway off the top. Clipped
-    /// to the buffer on every side. A pixel is composited `blend.over`,
-    /// exactly as a `Kind::Color` glyph is (an image is ARGB the same way an
-    /// `sbix` glyph is), so an image drawn over glyphs reads over them; a
-    /// clear pixel draws nothing and lets the cell underneath show through.
-    /// A partial pixel is blended by its straight alpha (`[[source:
-    /// w3c-png-2003]]` 6.2 stores colour straight): over an opaque page by
-    /// `blend.over`, over the glass by [`Blend::over_glass`], whose straight
-    /// result the presenter premultiplies to what the GPU's premultiplied
-    /// blend stores.
+    /// Blits a placement's drawn pixels over the buffer: `blit.at` is the
+    /// screen top-left of its visible rectangle, which may be above the top
+    /// when an image has scrolled partway off it, and `blit.texels` says
+    /// which image pixel each drawn pixel shows. Clipped to the buffer on
+    /// every side and to the rows of `blit.band`: the whole frame for an
+    /// image over the text, the row being repainted for one under it. A
+    /// pixel is composited `blend.over`, exactly as a `Kind::Color` glyph is
+    /// (an image is ARGB the same way an `sbix` glyph is), so an image drawn
+    /// over glyphs reads over them; a clear pixel draws nothing and lets the
+    /// cell underneath show through. A partial pixel is blended by its
+    /// straight alpha (`[[source: w3c-png-2003]]` 6.2 stores colour
+    /// straight): over an opaque page by `blend.over`, over the glass by
+    /// [`Blend::over_glass`], whose straight result the presenter
+    /// premultiplies to what the GPU's premultiplied blend stores.
     ///
     /// An opaque-or-clear image needs no page: source-over of an opaque
     /// pixel is that pixel, at alpha one, whatever is under it
-    /// (`[[source: w3c-compositing-1]]` 5.1 at `as = 1`).
+    /// (`[[source: w3c-compositing-1]]` 5.1 at `as = 1`). Nearest-neighbour
+    /// scaling keeps it so: every drawn pixel is one of the image's.
     ///
     /// **An opaque-or-clear image under `Blend::Native` is stored, not
     /// mixed**: the OVER of an opaque pixel is that pixel (`(255 s + 127) /
@@ -229,88 +233,130 @@ impl<'p> Target<'p> {
     /// the store held alpha. Sharing one loop with the partial case, it
     /// stopped unswitching on the blend and blended every pixel, 53% more
     /// instructions a frame for a still Sixel.
-    pub fn blit_image(
+    ///
+    /// **Each loop runs over the clipped rectangle only**, never over the
+    /// rest with a skip: a placement's size is the client's (`c=65535`), and
+    /// what it costs is the pixels on screen.
+    pub fn blit_image(&mut self, blit: &Blit<'_>, view: &ImageView<'_>, blend: Blend, page: Page) {
+        let Some(area) = self.clip(blit) else {
+            return;
+        };
+        let (iw, pixels) = (view.width.index(), view.pixels);
+        let cols = area.cols.clone();
+        match blit.texels {
+            Texels::Unit { x, y } => {
+                let (x, y) = (slots(x), slots(y));
+                let row = |j: usize| {
+                    let from = (y + j) * iw + x;
+                    pixels[from + cols.start..from + cols.end].iter().copied()
+                };
+                self.blit_by(&area, row, view.alpha, blend, page);
+            }
+            Texels::Mapped { xs, ys } => {
+                let index = |v: u32| usize::try_from(v).unwrap_or(0);
+                let row = |j: usize| {
+                    let from = index(ys[j]) * iw;
+                    xs[cols.clone()]
+                        .iter()
+                        .map(move |&x| pixels[from + index(x)])
+                };
+                self.blit_by(&area, row, view.alpha, blend, page);
+            }
+        }
+    }
+
+    /// The drawn pixels of `blit` that land in the buffer and its band:
+    /// `None` when none do.
+    fn clip(&self, blit: &Blit<'_>) -> Option<Area> {
+        let (x, y) = blit.at;
+        let (w, h) = (i64::from(blit.w.value()), i64::from(blit.h.value()));
+        let (x, y) = (i64::from(x), i64::from(y));
+        let top = i64::from(blit.band.top.value()).min(i64::from(self.height.value()));
+        let bottom = i64::from(blit.band.bottom.value()).min(i64::from(self.height.value()));
+        let (j0, j1) = ((top - y).max(0), (bottom - y).min(h));
+        let (i0, i1) = ((-x).max(0), (i64::from(self.width.value()) - x).min(w));
+        let at = |v: i64| usize::try_from(v).ok();
+        let px = |v: i64| u32::try_from(v).ok().map(Px::of);
+        if j0 >= j1 || i0 >= i1 {
+            return None;
+        }
+        Some(Area {
+            cols: at(i0)?..at(i1)?,
+            rows: at(j0)?..at(j1)?,
+            x: px(x + i0)?,
+            y: px(y + j0)?,
+        })
+    }
+
+    /// [`Target::blit_image`]'s dispatch, one copy for each way texels are
+    /// fetched: `row(j)` is drawn row `j`'s texels, across the area's
+    /// columns.
+    #[inline(always)]
+    fn blit_by<I: Iterator<Item = Pixel>>(
         &mut self,
-        origin: (i32, i32),
-        view: &ImageView<'_>,
+        area: &Area,
+        row: impl Fn(usize) -> I,
+        alpha: ImageAlpha,
         blend: Blend,
         page: Page,
     ) {
-        match (view.alpha, blend, page) {
-            (ImageAlpha::OpaqueOrClear, Blend::Native, _) => self.blit_opaque(origin, view),
-            (ImageAlpha::OpaqueOrClear, Blend::Linear, _) => self.blit_opaque_linear(origin, view),
+        match (alpha, blend, page) {
+            (ImageAlpha::OpaqueOrClear, Blend::Native, _) => self.blit_opaque(area, row),
+            (ImageAlpha::OpaqueOrClear, Blend::Linear, _) => self.blit_opaque_linear(area, row),
             (ImageAlpha::Partial, _, Page::Opaque) => {
-                self.blit_blended(origin, view, |s, d| blend.over(s, d, Coverage(255)));
+                self.blit_blended(area, row, |s, d| blend.over(s, d, Coverage(255)));
             }
             (ImageAlpha::Partial, _, Page::Glass) => {
-                self.blit_blended(origin, view, |s, d| blend.over_glass(s, d, Coverage(255)));
+                self.blit_blended(area, row, |s, d| blend.over_glass(s, d, Coverage(255)));
             }
         }
+    }
+
+    /// The buffer's pixels each drawn row of `area` lands on, with the row.
+    #[inline(always)]
+    fn area_rows<'s>(
+        &'s mut self,
+        area: &Area,
+    ) -> impl Iterator<Item = (usize, &'s mut [u32])> + use<'s> {
+        let stride = slots(self.stride);
+        let (x, y, n) = (slots(area.x), slots(area.y), area.cols.len());
+        self.pixels[y * stride..]
+            .chunks_mut(stride)
+            .zip(area.rows.clone())
+            .map(move |(line, j)| (j, &mut line[x..x + n]))
     }
 
     /// [`Target::blit_image`]'s opaque-or-clear `Linear` loop: each drawn
     /// pixel taken opaque and mixed at a constant blend, the shape the loop
     /// had before the store held alpha. Through `blit_blended`, reading each
     /// pixel's alpha, it cost 68% more instructions a frame.
-    fn blit_opaque_linear(&mut self, origin: (i32, i32), view: &ImageView<'_>) {
-        let (x0, y0) = origin;
-        let (iw, ih) = (view.width.index(), view.height.index());
-        let pixels = view.pixels;
-        let (stride, width, height) = (slots(self.stride), slots(self.width), slots(self.height));
-        for my in 0..ih {
-            let Ok(y) = usize::try_from(y0 + i32::try_from(my).unwrap_or(0)) else {
-                continue;
-            };
-            if y >= height {
-                continue;
-            }
-            let base = y * stride;
-            for mx in 0..iw {
-                let Ok(x) = usize::try_from(x0 + i32::try_from(mx).unwrap_or(0)) else {
-                    continue;
-                };
-                if x >= width {
-                    continue;
-                }
-                let p = pixels[my * iw + mx];
+    fn blit_opaque_linear<I: Iterator<Item = Pixel>>(
+        &mut self,
+        area: &Area,
+        row: impl Fn(usize) -> I,
+    ) {
+        for (j, line) in self.area_rows(area) {
+            for (d, p) in line.iter_mut().zip(row(j)) {
                 if p.alpha().get() == 0 {
                     continue;
                 }
                 let (r, g, b) = p.rgb();
-                let dst = Argb(self.pixels[base + x]);
-                self.pixels[base + x] =
-                    Blend::Linear.over(Argb::rgb(r, g, b), dst, Coverage(255)).0;
+                *d = Blend::Linear
+                    .over(Argb::rgb(r, g, b), Argb(*d), Coverage(255))
+                    .0;
             }
         }
     }
 
     /// [`Target::blit_image`]'s opaque-or-clear `Native` loop: each drawn
     /// pixel stored as it is.
-    fn blit_opaque(&mut self, origin: (i32, i32), view: &ImageView<'_>) {
-        let (x0, y0) = origin;
-        let (iw, ih) = (view.width.index(), view.height.index());
-        let pixels = view.pixels;
-        let (stride, width, height) = (slots(self.stride), slots(self.width), slots(self.height));
-        for my in 0..ih {
-            let Ok(y) = usize::try_from(y0 + i32::try_from(my).unwrap_or(0)) else {
-                continue;
-            };
-            if y >= height {
-                continue;
-            }
-            let base = y * stride;
-            for mx in 0..iw {
-                let Ok(x) = usize::try_from(x0 + i32::try_from(mx).unwrap_or(0)) else {
-                    continue;
-                };
-                if x >= width {
-                    continue;
-                }
-                let p = pixels[my * iw + mx];
+    fn blit_opaque<I: Iterator<Item = Pixel>>(&mut self, area: &Area, row: impl Fn(usize) -> I) {
+        for (j, line) in self.area_rows(area) {
+            for (d, p) in line.iter_mut().zip(row(j)) {
                 if p.alpha().get() == 0 {
                     continue;
                 }
-                self.pixels[base + x] = p.bits();
+                *d = p.bits();
             }
         }
     }
@@ -319,40 +365,54 @@ impl<'p> Target<'p> {
     /// mixed by its alpha, `mix` the page's blend. Out of line, so it leaves
     /// the opaque loops' caller as it was.
     #[inline(never)]
-    fn blit_blended(
+    fn blit_blended<I: Iterator<Item = Pixel>>(
         &mut self,
-        origin: (i32, i32),
-        view: &ImageView<'_>,
+        area: &Area,
+        row: impl Fn(usize) -> I,
         mix: impl Fn(Argb, Argb) -> Argb,
     ) {
-        let (x0, y0) = origin;
-        let (iw, ih) = (view.width.index(), view.height.index());
-        let pixels = view.pixels;
-        let (stride, width, height) = (slots(self.stride), slots(self.width), slots(self.height));
-        for my in 0..ih {
-            let Ok(y) = usize::try_from(y0 + i32::try_from(my).unwrap_or(0)) else {
-                continue;
-            };
-            if y >= height {
-                continue;
-            }
-            let base = y * stride;
-            for mx in 0..iw {
-                let Ok(x) = usize::try_from(x0 + i32::try_from(mx).unwrap_or(0)) else {
-                    continue;
-                };
-                if x >= width {
-                    continue;
-                }
-                let p = pixels[my * iw + mx];
+        for (j, line) in self.area_rows(area) {
+            for (d, p) in line.iter_mut().zip(row(j)) {
                 if p.alpha().get() == 0 {
                     continue;
                 }
-                let dst = Argb(self.pixels[base + x]);
-                self.pixels[base + x] = mix(Argb(p.bits()), dst).0;
+                *d = mix(Argb(p.bits()), Argb(*d)).0;
             }
         }
     }
+}
+
+/// **One placement's blit**: where its visible rectangle's top-left lands
+/// on screen (signed: above the top while it scrolls off), its size in
+/// device pixels, which image pixel each drawn pixel shows, and the rows
+/// it may write.
+pub struct Blit<'m> {
+    pub at: (i32, i32),
+    pub w: Px,
+    pub h: Px,
+    pub texels: Texels<'m>,
+    pub band: Band,
+}
+
+/// **Which image pixel a drawn pixel shows.** Drawn pixel `(i, j)` of a
+/// placement's visible rectangle shows texel `(x + i, y + j)` when it is
+/// drawn one image pixel a device pixel, and `(xs[i], ys[j])` otherwise --
+/// the tables `baud_domain::ImageDraw::nearest` filled, which the GPU
+/// paths read too, so the CPU and the GPU sample one way.
+#[derive(Clone, Copy)]
+pub enum Texels<'m> {
+    Unit { x: Px, y: Px },
+    Mapped { xs: &'m [u32], ys: &'m [u32] },
+}
+
+/// The part of a blit inside the buffer and its band: the drawn columns
+/// and rows, by their index in the visible rectangle, and the buffer pixel
+/// the first of each lands on.
+struct Area {
+    cols: core::ops::Range<usize>,
+    rows: core::ops::Range<usize>,
+    x: Px,
+    y: Px,
 }
 
 impl Blend {

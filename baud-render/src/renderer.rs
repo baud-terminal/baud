@@ -8,7 +8,7 @@ use crate::cache::{
 use crate::caret::{self, CursorPhase, Play};
 use crate::cellmap::{BlockCursor, CellSpan, Curves, Resolved, Selected, Shapes, Swaps, Text};
 use crate::color::{Argb, Theme, Video};
-use crate::composite::{Blend, Page, Target};
+use crate::composite::{Blend, Blit, Page, Target, Texels};
 use crate::effect::Vfx;
 use crate::instance::{Instance, Screen};
 use crate::metrics::{Metrics, PxSize};
@@ -25,7 +25,7 @@ use baud_core::Term;
 use baud_domain::contrast::CurveRow;
 use baud_domain::{
     Attrs, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle, GlyphId, ImageAlpha,
-    ImageGen, ImageId, PackedCell, Row, Rows,
+    ImageDraw, ImageGen, ImageId, ImagePx, ImageStore, KittyId, PackedCell, Row, Rows, ZIndex,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -549,12 +549,36 @@ enum ImageRows {
     Repainted,
 }
 
-/// Whether a partly transparent placement covers the band: its rows are
-/// repainted every CPU frame, since its blit over its own last blit would
-/// blend it twice.
+/// What [`Renderer::paint_rows`] draws between a repainted row's background
+/// and its glyphs.
+trait Under {
+    fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, band: Band, page: Page);
+}
+
+/// Nothing: no placement is under the text.
+struct NoUnder;
+
+impl Under for NoUnder {
+    #[inline(always)]
+    fn paint(&self, _: &Renderer<'_, '_>, _: &mut Target<'_>, _: Band, _: Page) {}
+}
+
+/// The placements under the text, from the term's images.
+struct UnderImages<'s, 'b>(&'s ImageStore<'b>);
+
+impl Under for UnderImages<'_, '_> {
+    fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, band: Band, page: Page) {
+        r.paint_under(self.0, target, band, page);
+    }
+}
+
+/// Whether a partly transparent placement over the text covers the band:
+/// its rows are repainted every CPU frame, since its blit over its own last
+/// blit would blend it twice. One under the text is blitted only into a
+/// row being repainted, over the row's fresh background, so never twice.
 fn partial_over(now: &[ImagePlacement], band: Band) -> bool {
     now.iter()
-        .any(|p| p.alpha == ImageAlpha::Partial && covers(p, band))
+        .any(|p| p.alpha == ImageAlpha::Partial && p.layer == ImageLayer::Over && covers(p, band))
 }
 
 /// Whether a placement's pixel rows meet the band's.
@@ -572,6 +596,15 @@ fn left_from(now: &[ImagePlacement], last: &[ImagePlacement], band: Band) -> boo
     last.iter().any(|p| covers(p, band) && !now.contains(p))
 }
 
+/// Whether a placement under the text arrived on the band, or changed
+/// there, since the last CPU frame. Its blit lands only in a row being
+/// repainted, under the row's text, so a row it arrives on is repainted
+/// where one over the text needs none.
+fn arrived_under(now: &[ImagePlacement], last: &[ImagePlacement], band: Band) -> bool {
+    now.iter()
+        .any(|p| p.layer == ImageLayer::Under && covers(p, band) && !last.contains(p))
+}
+
 /// Whether [`Renderer::set_images`] keeps a copy of each image's pixels for a
 /// GPU to upload. The CPU path blits from the terminal's own pixels, so it
 /// asks for placements alone.
@@ -581,10 +614,49 @@ enum Snapshots {
     Skipped,
 }
 
+/// **Whether a placement draws under the text or over it**: "Negative
+/// z-index values mean that the images will be drawn under the text"
+/// (`[[source: kitty-graphics]]`, "Controlling displayed image layout").
+/// Under, it is drawn over the cells' backgrounds and under their glyphs,
+/// underlines and cursor; over, after everything the row draws.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ImageLayer {
+    Under,
+    Over,
+}
+
+impl ImageLayer {
+    /// The layer a draw order puts a placement in.
+    pub fn of(z: ZIndex) -> ImageLayer {
+        match z.raw() < 0 {
+            true => ImageLayer::Under,
+            false => ImageLayer::Over,
+        }
+    }
+}
+
+/// **Where a placement's drawn pixels come from**: one image pixel a device
+/// pixel from the texel at its visible rectangle's top-left, which the CPU
+/// copies a row at a time; or through the placement's nearest-neighbour
+/// tables, [`Renderer::image_map`], which every path reads when it is
+/// scaled and the GPU paths read always.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ImageScale {
+    Unit { x: ImagePx, y: ImagePx },
+    Mapped,
+}
+
+/// Where a placement's tables start in [`Renderer::image_map`]'s store:
+/// its `w` columns' texel x, then its `h` rows' texel y.
+#[derive(Clone, Copy, Debug)]
+pub struct MapAt(usize);
+
 /// One visible image to draw: which image (and the store epoch it was seen
-/// at, the GPU texture-cache key), and where on screen at what size, in device
-/// pixels. The origin is signed, so a partly-scrolled image hangs off the top.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// at, the GPU texture-cache key), where on screen at what size, in device
+/// pixels -- the part of its drawn rectangle on the frame -- and in which
+/// order. The origin is signed, so a partly-scrolled image hangs off the
+/// top.
+#[derive(Clone, Copy)]
 pub struct ImagePlacement {
     /// Which stored image this draws.
     pub id: ImageId,
@@ -601,7 +673,37 @@ pub struct ImagePlacement {
     /// Whether any of its pixels is partly transparent: the CPU path then
     /// repaints the rows under it on every frame.
     pub alpha: ImageAlpha,
+    /// Its draw order, the kitty `z`; zero for a Sixel.
+    pub z: ZIndex,
+    /// Under the text or over it, from `z`.
+    pub layer: ImageLayer,
+    /// The client's image id, which orders two placements at one `z`: "the
+    /// image with the lower id is considered to have the lower z-index".
+    /// None, ordered first, for a Sixel and a kitty image no id names.
+    pub tie: KittyId,
+    /// What it draws: the source rectangle, and the drawn one from its
+    /// anchor cell, of which `x`, `y`, `w` and `h` are the visible part.
+    pub draw: ImageDraw,
+    /// One image pixel a device pixel, or through its tables.
+    pub scale: ImageScale,
+    /// Where its tables are.
+    pub map: MapAt,
 }
+
+/// Two placements are one when they draw the same: everything but where
+/// this frame's tables happen to sit.
+impl PartialEq for ImagePlacement {
+    fn eq(&self, o: &ImagePlacement) -> bool {
+        (
+            self.id, self.epoch, self.x, self.y, self.w, self.h, self.alpha, self.z, self.tie,
+            self.draw, self.scale,
+        ) == (
+            o.id, o.epoch, o.x, o.y, o.w, o.h, o.alpha, o.z, o.tie, o.draw, o.scale,
+        )
+    }
+}
+
+impl Eq for ImagePlacement {}
 
 /// One image's pixels to upload once: keyed by `id` and `epoch`, the store's
 /// straight `0xAARRGGBB` words, `w * h` of them, row-major, unconverted. A
@@ -787,6 +889,12 @@ pub struct Renderer<'f, 'a> {
     /// both the CPU `paint_images` and the two GPU arms -- one description
     /// of where an image goes, not three.
     image_places: Vec<ImagePlacement>,
+    /// Each placement's nearest-neighbour tables, at its [`MapAt`]: the
+    /// texel x of every visible drawn column, then the texel y of every
+    /// visible drawn row, from `baud_domain::ImageDraw::nearest`. Built
+    /// with the placements; the CPU reads them for a scaled placement and
+    /// the GPU paths for every one, so the paths sample one way.
+    image_maps: Vec<u32>,
     /// The placements the last CPU frame drew, so the next one repaints the
     /// rows an image left as well as the rows it is on.
     last_image_places: Vec<ImagePlacement>,
@@ -941,6 +1049,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             glow_inst: Vec::new(),
             flash: VideoFlash::default(),
             image_places: Vec::new(),
+            image_maps: Vec::new(),
             last_image_places: Vec::new(),
             image_uploads: Vec::new(),
             image_epoch: ImageGen::ZERO,
@@ -1631,10 +1740,22 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // with a partly transparent pixel (`ImageAlpha::Partial`) blitted
         // over its own last blit would blend twice, so the rows under it are
         // repainted on every frame it is on, and counted in `rows_partial`.
+        //
+        // An image under the text (`ImageLayer::Under`) is blitted inside the
+        // row loop instead, over a repainted row's background and under its
+        // glyphs, so it is never over its own last blit; the rows one
+        // arrives on are repainted for it (`arrived_under`).
         self.fit(term);
         self.place_images(term, back, Snapshots::Skipped);
         let converted = self.convert_with(term, back, damage, ImageRows::Repainted);
-        let frame = self.paint(target, converted);
+        let under = self
+            .image_places
+            .iter()
+            .any(|p| p.layer == ImageLayer::Under);
+        let frame = match under {
+            true => self.paint_rows(target, converted, UnderImages(term.images())),
+            false => self.paint_rows(target, converted, NoUnder),
+        };
         self.paint_images(term, target);
         frame
     }
@@ -1649,20 +1770,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// scrolls the image moves up with its line, a scrollback view shows the
     /// images anchored there, and an image and the grid row under it are drawn
     /// from one answer. A placement on the screen that is not up is not
-    /// drawn: the shell's image is not the editor's. The pixel origin is the cell `(row, col)` at the cell
-    /// metrics, and the image draws one image-pixel per device pixel, its
-    /// natural size. Placements fully off the screen are skipped; a
-    /// partly-scrolled one keeps a signed screen origin and is clipped by the
-    /// blit (CPU) or the rasteriser (GPU).
+    /// drawn: the shell's image is not the editor's. What it draws from the
+    /// anchor cell -- the source rectangle, `c`/`r`, `X`/`Y` -- is
+    /// `baud_domain::KittyPlace::draw` at this renderer's cell size, a Sixel
+    /// its whole image at its own size. Of the drawn rectangle only the part
+    /// on the frame is kept, from one row above the top, where the leaving
+    /// row slides under smooth scroll, to the bottom; a placement with none
+    /// there is skipped, and the GPU rasteriser and the CPU blit clip what is
+    /// above the top.
     ///
     /// This is the one place the placement-to-screen arithmetic is written:
-    /// the CPU `paint_images` and the two GPU arms all read the list, so three
-    /// paths cannot disagree about where an image goes -- which the pixel
-    /// oracle could not otherwise tell from a blit bug.
+    /// the CPU `paint_images` and the two GPU arms all read the list and its
+    /// tables, so three paths cannot disagree about where an image goes or
+    /// which pixel it shows -- which the pixel oracle could not otherwise
+    /// tell from a blit bug.
     ///
-    /// Order is placement order, drawn over the text. Z-ordering -- a negative
-    /// `z` below the glyphs, ties broken by image id -- is the follow-on;
-    /// nothing in the corpus places two overlapping images.
+    /// **Order is the text's**: by `z`, and at one `z` "the image with the
+    /// lower id is considered to have the lower z-index"
+    /// (`[[source: kitty-graphics]]`), so drawn first; at one id, which the
+    /// text leaves undefined, in placement order. Kitty orders by its own
+    /// internal id, the order images were made (`[[source: kitty-graphics-c]]`
+    /// `grman_update_layers`), where the text names the client's id; the
+    /// text is followed.
     pub fn set_images(&mut self, term: &Term<'_>, back: Rows) {
         self.place_images(term, back, Snapshots::Kept);
     }
@@ -1673,6 +1802,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// 600x800 preview -- for a GPU that path does not have.
     fn place_images(&mut self, term: &Term<'_>, back: Rows, snap: Snapshots) {
         self.image_places.clear();
+        self.image_maps.clear();
         let imgs = term.images();
         let epoch = imgs.generation();
         // The snapshot cache is kept across frames and dropped whole only when
@@ -1686,10 +1816,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         let origin = term.image_origin(back);
         let top = origin.top.value() as i64;
-        let cw = self.metrics.cell_w.value() as i64;
-        let ch = self.metrics.cell_h.value() as i64;
+        let cw = i64::from(self.metrics.cell_w.value());
+        let ch = i64::from(self.metrics.cell_h.value());
+        let cell = |p: Px| ImagePx::of(u16::try_from(p.value()).unwrap_or(u16::MAX));
+        let (cell_w, cell_h) = (cell(self.metrics.cell_w), cell(self.metrics.cell_h));
         let screen_h = self.rows.index() as i64 * ch;
+        let frame_w = i64::from(self.frame_size().0.value());
         let clamp16 = |v: i64| v.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16;
+        let side = |v: i64| u16::try_from(v).unwrap_or(u16::MAX);
+        let texel = |v: u32| ImagePx::of(u16::try_from(v).unwrap_or(u16::MAX));
         for (_, p) in imgs.placements() {
             if p.screen != origin.screen {
                 continue;
@@ -1697,27 +1832,65 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let Some(view) = imgs.image(p.image) else {
                 continue;
             };
-            let y0 = (p.line.value() as i64 - top) * ch;
-            let x0 = p.col.index() as i64 * cw;
-            // Fully above the top, or fully below the bottom: nothing to draw.
-            // "The top" is one row above the window, not the window's edge:
-            // under smooth scroll the cell path draws the leaving row there
-            // and `draw_images` adds the same pan, so an image wholly inside
-            // that row is on screen for the length of the slide. Culling at
-            // zero dropped it, and it popped off at the slide's start rather
-            // than sliding out. A frame that is not sliding draws it at a
-            // negative y, which every path clips.
-            if y0 + view.height.index() as i64 <= -ch || y0 >= screen_h {
+            let draw = p.kitty.draw(view.width, view.height, cell_w, cell_h);
+            let (src, dest) = (draw.src, draw.dest);
+            if dest.is_empty() {
                 continue;
             }
+            // A margin scroll's cut: the placement's line is its first shown
+            // row, the rows cut off its top above it, and nothing is drawn
+            // outside the rows it still shows (`ImageStore::scroll_band`).
+            let rows_px = |r: Rows| r.index() as i64 * ch;
+            let (cut_top, cut_bottom) = (rows_px(p.kitty.cut_top), rows_px(p.kitty.cut_bottom));
+            let x0 = p.col.index() as i64 * cw + i64::from(dest.x);
+            let y0 = (p.line.value() as i64 - top) * ch - cut_top + i64::from(dest.y);
+            // The visible part, in drawn pixels from the drawn top-left:
+            // columns on the frame, rows from one row above the top -- the
+            // leaving row the cell path draws under smooth scroll, which
+            // `draw_images` pans the image into -- to the bottom. A frame
+            // that is not sliding draws that row at a negative y, which
+            // every path clips.
+            let (i0, i1) = ((-x0).max(0), i64::from(dest.w).min(frame_w - x0));
+            let (mut j0, mut j1) = ((-ch - y0).max(0), i64::from(dest.h).min(screen_h - y0));
+            if cut_top > 0 {
+                j0 = j0.max(cut_top - i64::from(dest.y));
+            }
+            if cut_bottom > 0 {
+                j1 = j1.min(rows_px(p.kitty.rows) - cut_bottom - i64::from(dest.y));
+            }
+            if i0 >= i1 || j0 >= j1 {
+                continue;
+            }
+            let at = MapAt(self.image_maps.len());
+            let span = |v: i64| u32::try_from(v).unwrap_or(0);
+            self.image_maps
+                .extend((span(i0)..span(i1)).map(|i| ImageDraw::nearest(i, dest.w, src.x, src.w)));
+            self.image_maps
+                .extend((span(j0)..span(j1)).map(|j| ImageDraw::nearest(j, dest.h, src.y, src.h)));
+            let scale = match (dest.w == src.w, dest.h == src.h) {
+                (true, true) => ImageScale::Unit {
+                    x: texel(src.x + span(i0)),
+                    y: texel(src.y + span(j0)),
+                },
+                _ => ImageScale::Mapped,
+            };
+            let z = p.z;
             self.image_places.push(ImagePlacement {
                 id: p.image,
                 epoch,
-                x: clamp16(x0),
-                y: clamp16(y0),
-                w: view.width.raw(),
-                h: view.height.raw(),
+                x: clamp16(x0 + i0),
+                y: clamp16(y0 + j0),
+                w: side(i1 - i0),
+                h: side(j1 - j0),
                 alpha: view.alpha,
+                z,
+                layer: ImageLayer::of(z),
+                tie: imgs
+                    .kitty_names(p.image)
+                    .map_or(KittyId::NONE, |(id, _)| id),
+                draw,
+                scale,
+                map: at,
             });
             // Snapshot the pixels once per referenced `(id, epoch)`: the GPU
             // reads this to upload, the CPU reads the term itself. The words
@@ -1741,6 +1914,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.image_snapshots = self.image_snapshots.inc();
             }
         }
+        // The text's order: by `z`, then by the client's id; stable, so
+        // placement order breaks what is left.
+        self.image_places.sort_by_key(|p| (p.z, p.tie.raw()));
         // Drop snapshots of images no longer on screen, so an image scrolled off
         // the top does not hold its pixels until the next epoch change -- which
         // on a terminal showing one image is forever. The clear-every-frame
@@ -1752,6 +1928,34 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let places = &self.image_places;
             self.image_uploads
                 .retain(|u| places.iter().any(|p| p.id == u.id));
+        }
+    }
+
+    /// A placement's nearest-neighbour tables: the texel x of each of its
+    /// `w` visible drawn columns, and the texel y of each of its `h` rows.
+    pub fn image_map(&self, p: &ImagePlacement) -> (&[u32], &[u32]) {
+        let (w, h) = (usize::from(p.w), usize::from(p.h));
+        let at = p.map.0;
+        let xs = self.image_maps.get(at..at + w).unwrap_or(&[]);
+        let ys = self.image_maps.get(at + w..at + w + h).unwrap_or(&[]);
+        (xs, ys)
+    }
+
+    /// The [`Blit`] of a placement, writing the rows of `band`.
+    fn blit_of(&self, p: &ImagePlacement, band: Band) -> Blit<'_> {
+        let (xs, ys) = self.image_map(p);
+        Blit {
+            at: (i32::from(p.x), i32::from(p.y)),
+            w: Px::of(u32::from(p.w)),
+            h: Px::of(u32::from(p.h)),
+            texels: match p.scale {
+                ImageScale::Unit { x, y } => Texels::Unit {
+                    x: Px::of(u32::from(x.raw())),
+                    y: Px::of(u32::from(y.raw())),
+                },
+                ImageScale::Mapped => Texels::Mapped { xs, ys },
+            },
+            band,
         }
     }
 
@@ -1772,16 +1976,41 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.image_snapshots
     }
 
-    /// Blits every image placement over the frame, after the glyphs, reading
-    /// the list [`Renderer::set_images`] built and the term's own pixels.
+    /// Blits every image placement over the text over the frame, after
+    /// the glyphs, in order, reading the list [`Renderer::set_images`] built
+    /// and the term's own pixels.
     fn paint_images(&self, term: &Term<'_>, target: &mut Target<'_>) {
         let page = self.page();
         let imgs = term.images();
-        for p in &self.image_places {
+        let (_, h) = self.frame_size();
+        let all = Band {
+            top: Px::of(0),
+            bottom: h,
+        };
+        for p in self
+            .image_places
+            .iter()
+            .filter(|p| p.layer == ImageLayer::Over)
+        {
             let Some(view) = imgs.image(p.id) else {
                 continue;
             };
-            target.blit_image((i32::from(p.x), i32::from(p.y)), &view, self.blend, page);
+            target.blit_image(&self.blit_of(p, all), &view, self.blend, page);
+        }
+    }
+
+    /// Blits the placements under the text that cover `band` into it, in
+    /// order: a repainted row's, over its background.
+    fn paint_under(&self, imgs: &ImageStore<'_>, target: &mut Target<'_>, band: Band, page: Page) {
+        for p in self
+            .image_places
+            .iter()
+            .filter(|p| p.layer == ImageLayer::Under && covers(p, band))
+        {
+            let Some(view) = imgs.image(p.id) else {
+                continue;
+            };
+            target.blit_image(&self.blit_of(p, band), &view, self.blend, page);
         }
     }
 
@@ -1908,6 +2137,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut rows_dirty = Tally::default();
         let mut rows_partial = Tally::default();
         let mut exceptions = Exceptions::default();
+        // Whether a placement under the text arrived or changed: once a
+        // frame, so a frame with none asks no row about it.
+        let under_new = images == ImageRows::Repainted
+            && self
+                .image_places
+                .iter()
+                .any(|p| p.layer == ImageLayer::Under && !self.last_image_places.contains(p));
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
             let changed = self.cur[range.clone()] != self.prev[range];
@@ -1947,6 +2183,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // And one the CPU path blits over this row that is partly
             // transparent: repainted every frame, and counted.
             let partial = images == ImageRows::Repainted && partial_over(&self.image_places, band);
+            // And one under the text that arrived or changed on this row.
+            let imaged = imaged
+                || (under_new && arrived_under(&self.image_places, &self.last_image_places, band));
             if partial {
                 rows_partial.bump();
             }
@@ -2026,6 +2265,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// Paints the rows the last [`Renderer::convert`] found dirty into
     /// `target`, which must still hold the frame before.
     pub fn paint(&mut self, target: &mut Target<'_>, converted: Converted) -> Frame {
+        self.paint_rows(target, converted, NoUnder)
+    }
+
+    /// [`Renderer::paint`], with what is drawn between a repainted row's
+    /// background and its glyphs: nothing, or the images under the text.
+    /// One copy for each, so a frame with no image under the text runs the
+    /// loop it ran before there were any.
+    fn paint_rows(
+        &mut self,
+        target: &mut Target<'_>,
+        converted: Converted,
+        under: impl Under,
+    ) -> Frame {
         let t1 = Instant::now();
         let mut frame = Frame {
             rows_dirty: converted.rows_dirty,
@@ -2057,6 +2309,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.metrics.cell_w,
                 margin,
             );
+            under.paint(self, target, band, page);
             // In the order `instances()` hands the GPU instance path: the
             // row's own, then the trail under the scrollbar, then the screen
             // fade over everything. The trail and the fade dirtied these rows

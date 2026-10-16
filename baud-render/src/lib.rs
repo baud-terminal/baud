@@ -67,7 +67,7 @@ pub use cellmap::{
 pub use color::{
     AppBg, Argb, Floor, MODUS_OPERANDI, PictureBg, Theme, Video, light_palette, xterm_palette,
 };
-pub use composite::{Blend, Page, Target};
+pub use composite::{Blend, Blit, Page, Target, Texels};
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{
@@ -76,8 +76,8 @@ pub use overlay::{
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use renderer::{
     Blink, BlinkPhases, Blinking, ClusterGlyph, Converted, Damage, Evicted, Exceptions, Frame,
-    GlyphSource, ImagePlacement, ImageUpload, PairRole, Pairs, Pass, Renderer, Single, StyleStamp,
-    StyleSync, VideoFlash,
+    GlyphSource, ImageLayer, ImagePlacement, ImageScale, ImageUpload, PairRole, Pairs, Pass,
+    Renderer, Single, StyleStamp, StyleSync, VideoFlash,
 };
 pub use scroll::{SLIDE_SECS_PER_ROW, Slide};
 pub use scrollbar::{

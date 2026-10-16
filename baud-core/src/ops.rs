@@ -568,6 +568,20 @@ impl Paint<'_, '_> {
         self.images.scroll_band(screen, lo, hi, k, way);
     }
 
+    /// **The rows `[from, to]` under a top-anchored region, put back a row
+    /// after its window move**, and their images with them by their
+    /// anchors (`ImageStore::put_back_band`): unlike a band that scrolled,
+    /// they never left their screen rows. Outlined, gated on `any_placed`
+    /// as the band move is.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn band_images_put_back(&mut self, from: Row, to: Row) {
+        let (screen, top) = self.image_top();
+        let lo = top.plus(Rows::of_count(from.index()));
+        let hi = top.plus(Rows::of_count(to.index() + 1));
+        self.images.put_back_band(screen, lo, hi, Rows::of_count(1));
+    }
+
     /// **Side margins narrower than the screen**: then the scrolling region
     /// is the rectangle the four margins bound, and every vertical scroll is
     /// [`Paint::scroll_rect`]'s. `DECSLRM` admits only a left margin below
@@ -886,12 +900,7 @@ impl Paint<'_, '_> {
             // for these: without this an image on a status line walks up
             // into the region a row a scroll while its text stays put.
             if self.images.any_placed() {
-                self.band_images_moved(
-                    bot,
-                    Row::from_index(last),
-                    Rows::of_count(1),
-                    BandMove::Down,
-                );
+                self.band_images_put_back(bot, Row::from_index(last));
             }
         }
         self.cells = self.cells.plus(moved);

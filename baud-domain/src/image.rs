@@ -414,12 +414,11 @@ pub enum ImageState {
 
 /// Where a kitty placement draws from and over what: the source rectangle
 /// in image pixels (`x`, `y`, `w`, `h`; a zero width or height is the rest
-/// of the image), the offset inside the first cell (`X`, `Y`), and the
-/// cells it covers, from `c` and `r` or from the image and the cell size.
-/// What the deletes that name a cell, a row or a column intersect, and what
-/// the cursor moves by. **Stored, and not yet drawn**: the renderer draws
-/// the whole image at the anchor (an open departure, `docs/record.md`,
-/// "kitty graphics in the core").
+/// of the image), the offset inside the first cell (`X`, `Y`), the cells it
+/// covers, from `c` and `r` or from the image and the cell size, and which
+/// of the two counts the client gave. What the deletes that name a cell, a
+/// row or a column intersect, what the cursor moves by, and what
+/// [`KittyPlace::draw`] turns into the pixels the renderer draws.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct KittyPlace {
     /// The client's placement id, or none.
@@ -440,6 +439,183 @@ pub struct KittyPlace {
     pub cols: Cols,
     /// The rows it covers down.
     pub rows: Rows,
+    /// Which of [`KittyPlace::cols`] and [`KittyPlace::rows`] the client
+    /// gave, and so how the image is scaled into them.
+    pub fit: KittyFit,
+    /// The rows of [`KittyPlace::rows`] clipped off its top by a margin
+    /// scroll: the placement's line is its first shown row, these rows
+    /// above it.
+    pub cut_top: Rows,
+    /// The rows clipped off its bottom by a margin scroll.
+    pub cut_bottom: Rows,
+}
+
+/// **Which of `c` and `r` a kitty placement gave**, because the text scales
+/// each case its own way (`[[source: kitty-graphics]]`, "Controlling
+/// displayed image layout"): the counts a placement stores are the cells
+/// it covers whichever it was, and from them alone a derived count and a
+/// given one cannot be told apart.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KittyFit {
+    /// Neither: "the entire image will be displayed", one image pixel a
+    /// device pixel.
+    Natural,
+    /// `c` alone: the image as wide as the columns less `X`, and "the other
+    /// one is computed based on the source image aspect ratio".
+    Cols,
+    /// `r` alone: as tall as the rows less `Y`, the width from the aspect.
+    Rows,
+    /// Both: "the image is letterboxed/pillarboxed to prevent distortion",
+    /// fitted into the box with its aspect kept and centred in it (Jev,
+    /// CENTRED, 0.94 and 0.97; the text does not say where in the box).
+    Box,
+}
+
+/// A rectangle in pixels, `x` and `y` its top-left from an origin the user
+/// names, `w` and `h` its size. Four fields of one unit, so a `u32` each:
+/// the source rectangle is in image pixels and the drawn one in device
+/// pixels, and [`ImageDraw`] keeps them apart by name.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PxRect {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+}
+
+impl PxRect {
+    /// Whether it covers no pixel.
+    pub fn is_empty(self) -> bool {
+        self.w == 0 || self.h == 0
+    }
+}
+
+/// **What one placement draws**: `src`, the part of the image shown, in
+/// image pixels, and `dest`, where it lands, in device pixels from the
+/// anchor cell's top-left. The one description every drawing path reads
+/// ([`KittyPlace::draw`]), so the paths cannot disagree about a placement's
+/// geometry.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ImageDraw {
+    pub src: PxRect,
+    pub dest: PxRect,
+}
+
+impl ImageDraw {
+    /// **The source pixel shown at drawn pixel `d`** of a span `dest` long
+    /// mapping `src` source pixels from `off`: the one under the drawn
+    /// pixel's centre, `off + floor((d + 1/2) src / dest)`, nearest
+    /// neighbour. The text names no filter; Jev picked NEAREST on all four
+    /// asks (0.88 and 0.52, then with kitty's `GL_LINEAR`, `[[source:
+    /// kitty-shaders-c]]`, and ghostty's `filter::linear`, `[[source:
+    /// ghostty-shaders-metal]]`, given, 0.98 and 0.72), under the bar on one of each
+    /// pair, so it is the interim choice and an open question
+    /// (`docs/record.md`, "kitty placements draw what they store"). At one
+    /// drawn pixel a source pixel it is `off + d`, so an unscaled image is
+    /// copied. Integer arithmetic, so the CPU and the GPU, which reads a
+    /// table of these, cannot round apart.
+    pub fn nearest(d: u32, dest: u32, off: u32, src: u32) -> u32 {
+        let q = match dest {
+            0 => 0,
+            n => (2 * u64::from(d) + 1) * u64::from(src) / (2 * u64::from(n)),
+        };
+        off.saturating_add(u32::try_from(q).unwrap_or(u32::MAX))
+    }
+}
+
+/// `a * b`, saturating at `u32::MAX`.
+fn mul_px(a: u32, b: u32) -> u32 {
+    u32::try_from(u64::from(a) * u64::from(b)).unwrap_or(u32::MAX)
+}
+
+/// `a * b / c` to the nearest integer, a half up; zero when `c` is.
+fn scale_px(a: u32, b: u32, c: u32) -> u32 {
+    match c {
+        0 => 0,
+        c => {
+            let (a, b, c) = (u64::from(a), u64::from(b), u64::from(c));
+            u32::try_from((2 * a * b + c) / (2 * c)).unwrap_or(u32::MAX)
+        }
+    }
+}
+
+impl KittyPlace {
+    /// **What this placement draws** of an `iw` by `ih` image at a
+    /// `cell_w` by `cell_h` cell, from the text's "Controlling displayed
+    /// image layout" (`[[source: kitty-graphics]]`):
+    ///
+    /// * the source is "the intersection of the specified rectangle with
+    ///   the source image rectangle", a zero width or height the rest of
+    ///   the image;
+    /// * the image is drawn "from the upper left corner of the current
+    ///   cell", offset by `X` and `Y`;
+    /// * with neither count, at its own size; with `c` alone, as wide as
+    ///   the columns less `X` -- the offset "is not added to the number of
+    ///   rows/columns" -- and as tall as the source's aspect makes that,
+    ///   to the nearest pixel; `r` alone the same way round; both, fitted
+    ///   into the box the counts less the offset make, aspect kept, and
+    ///   centred on the axis with room to spare.
+    ///
+    /// Kitty's practice stretches a placement with both counts to the box
+    /// (`[[source: kitty-graphics-c]]` `grman_update_layers`), where the
+    /// text letterboxes it; the text is followed. With the cell size
+    /// unknown, a box is empty and nothing is drawn.
+    pub fn draw(&self, iw: ImagePx, ih: ImagePx, cell_w: ImagePx, cell_h: ImagePx) -> ImageDraw {
+        let (iw, ih) = (u32::from(iw.raw()), u32::from(ih.raw()));
+        let sx = u32::from(self.src_x.raw()).min(iw);
+        let sy = u32::from(self.src_y.raw()).min(ih);
+        let rest = |want: ImagePx, all: u32, from: u32| match want.raw() {
+            0 => all - from,
+            w => u32::from(w).min(all - from),
+        };
+        let (sw, sh) = (rest(self.src_w, iw, sx), rest(self.src_h, ih, sy));
+        let (ox, oy) = (u32::from(self.cell_x.raw()), u32::from(self.cell_y.raw()));
+        let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+        let box_w = mul_px(count(self.cols.index()), u32::from(cell_w.raw())).saturating_sub(ox);
+        let box_h = mul_px(count(self.rows.index()), u32::from(cell_h.raw())).saturating_sub(oy);
+        let (mut x, mut y) = (ox, oy);
+        let (w, h) = match self.fit {
+            KittyFit::Natural => (sw, sh),
+            KittyFit::Cols => (box_w, scale_px(box_w, sh, sw)),
+            KittyFit::Rows => (scale_px(box_h, sw, sh), box_h),
+            KittyFit::Box => {
+                // Wider for its height than the box: fit the width.
+                if u64::from(box_w) * u64::from(sh) < u64::from(box_h) * u64::from(sw) {
+                    let h = scale_px(box_w, sh, sw);
+                    y = y.saturating_add((box_h - h.min(box_h)) / 2);
+                    (box_w, h)
+                } else {
+                    let w = scale_px(box_h, sw, sh);
+                    x = x.saturating_add((box_w - w.min(box_w)) / 2);
+                    (w, box_h)
+                }
+            }
+        };
+        let src = PxRect {
+            x: sx,
+            y: sy,
+            w: sw,
+            h: sh,
+        };
+        // A source of no pixels draws none, whatever box it was given.
+        let (w, h) = match src.is_empty() {
+            true => (0, 0),
+            false => (w, h),
+        };
+        ImageDraw {
+            src,
+            dest: PxRect { x, y, w, h },
+        }
+    }
+}
+
+impl KittyPlace {
+    /// The rows it shows: [`KittyPlace::rows`] less what a margin scroll
+    /// clipped, and at least one, as a delete counts a placement's rows.
+    pub fn shown(&self) -> Rows {
+        let cut = self.cut_top.index().saturating_add(self.cut_bottom.index());
+        Rows::of_count(self.rows.index().saturating_sub(cut).max(1))
+    }
 }
 
 impl KittyPlace {
@@ -454,6 +630,9 @@ impl KittyPlace {
         cell_y: ImagePx::ZERO,
         cols: Cols(0),
         rows: Rows(0),
+        fit: KittyFit::Natural,
+        cut_top: Rows(0),
+        cut_bottom: Rows(0),
     };
 }
 
@@ -578,6 +757,49 @@ pub enum BandMove {
 struct Reach {
     first: LineIdx,
     last: LineIdx,
+}
+
+/// What a band move does to a kitty placement: leaves it, moves it with
+/// what is left of it, or takes it.
+enum Clip {
+    Stays,
+    Moves(LineIdx, KittyPlace),
+    Goes,
+}
+
+/// [`ImageStore::scroll_band`]'s kitty rule for placement `s` in the band
+/// `[lo, hi)` moving `n` rows `way`: moved only if its shown rows are all
+/// in the band, and clipped to it.
+fn clipped(s: PlacementSlot, lo: LineIdx, hi: LineIdx, n: Rows, way: BandMove) -> Clip {
+    let shown = u64::try_from(s.kitty.shown().index()).unwrap_or(u64::MAX);
+    let (top, lo, hi) = (s.line.value(), lo.value(), hi.value());
+    let bottom = top.saturating_add(shown);
+    if top < lo || bottom > hi {
+        return Clip::Stays;
+    }
+    let n = u64::try_from(n.index()).unwrap_or(u64::MAX);
+    let rows = |v: u64| Rows::of_count(usize::try_from(v).unwrap_or(usize::MAX));
+    let mut k = s.kitty;
+    match way {
+        BandMove::Up => {
+            if bottom.saturating_sub(n) <= lo {
+                return Clip::Goes;
+            }
+            let to = top.saturating_sub(n);
+            let cut = lo.saturating_sub(to);
+            k.cut_top = rows(u64::try_from(k.cut_top.index()).unwrap_or(0) + cut);
+            Clip::Moves(LineIdx::of(to.max(lo)), k)
+        }
+        BandMove::Down => {
+            let to = top.saturating_add(n);
+            if to >= hi {
+                return Clip::Goes;
+            }
+            let cut = to.saturating_add(shown).saturating_sub(hi);
+            k.cut_bottom = rows(u64::try_from(k.cut_bottom.index()).unwrap_or(0) + cut);
+            Clip::Moves(LineIdx::of(to), k)
+        }
+    }
 }
 
 /// Where a view's top is in a screen's numbering: the screen, and the
@@ -1576,10 +1798,25 @@ impl<'b> ImageStore<'b> {
     /// **Move `screen`'s placements with rows that moved inside a band**:
     /// the lines `[lo, hi)` shifted `n` rows `way`, which is what a
     /// scrolling region, `IL` and `DL` do to the rows between their bounds
-    /// without moving the window. A placement whose anchor leaves the band
-    /// went with its row -- deleted off one end, the region's text with it
-    /// -- and is dropped and counted in [`ImageStore::placements_expired`].
-    /// Outside the band nothing moves. Returns how many were dropped.
+    /// without moving the window. A Sixel's or an embedder's placement
+    /// whose anchor leaves the band went with its row -- deleted off one
+    /// end, the region's text with it -- and is dropped and counted in
+    /// [`ImageStore::placements_expired`]. Outside the band nothing moves.
+    /// Returns how many were dropped.
+    ///
+    /// **A kitty placement takes the text's rule**: "When page margins are
+    /// defined and the index commands are used, only images that are
+    /// entirely within the page area (between the margins) must be
+    /// scrolled. When scrolling them would cause them to extend outside the
+    /// page area, they must be clipped" (`[[source: kitty-graphics]]`,
+    /// "Interaction with other terminal actions"). One whose shown rows
+    /// cross a margin stays where it is; one inside moves, and the rows it
+    /// would take past the margin are cut from it ([`KittyPlace::cut_top`],
+    /// [`KittyPlace::cut_bottom`]), the drawn image clipped at the margin's
+    /// row edge; one moved wholly past it goes. The text names the index
+    /// commands; `IL` and `DL` move a band the same way here, baud's
+    /// choice. A top-anchored region moves the window instead, and
+    /// [`ImageStore::put_back_band`] keeps the rule there.
     pub fn scroll_band(
         &mut self,
         screen: ImageScreen,
@@ -1589,6 +1826,53 @@ impl<'b> ImageStore<'b> {
         way: BandMove,
     ) -> usize {
         self.scroll_band_within(screen, lo, hi, None, n, way)
+    }
+
+    /// **Put back the placements a top-anchored region's window move took
+    /// up with it**: the rows `[lo, hi)` under the region went back down
+    /// `n`, and their images with them by their anchors, as text rows are
+    /// put back whatever an image's height -- an image under a region was
+    /// never in its page area, so the text's margin rule does not touch
+    /// it. And a kitty placement across the region's bottom margin, from
+    /// above `lo` into it, goes back down too: "only images that are
+    /// entirely within the page area ... must be scrolled"
+    /// (`[[source: kitty-graphics]]`, "Interaction with other terminal
+    /// actions"), so it stays on its screen rows. Returns how many were
+    /// dropped off the bottom.
+    pub fn put_back_band(
+        &mut self,
+        screen: ImageScreen,
+        lo: LineIdx,
+        hi: LineIdx,
+        n: Rows,
+    ) -> usize {
+        let mut n_gone = 0;
+        for p in 0..self.placements.len() {
+            let s = self.placements[p];
+            if s.is_empty() || s.screen != screen || s.line >= hi {
+                continue;
+            }
+            let kitty = s
+                .image
+                .index()
+                .and_then(|i| self.slots.get(i))
+                .is_some_and(|i| matches!(i.owner, ImageOwner::Kitty(..)));
+            let across = kitty && s.line < lo && s.line.plus(s.kitty.shown()) > lo;
+            if s.line < lo && !across {
+                continue;
+            }
+            let to = s.line.plus(n);
+            match to < hi || across {
+                true => self.placements[p].line = to,
+                false => {
+                    self.unplace(PlacementId::from_index(p));
+                    self.placements_expired += 1;
+                    n_gone += 1;
+                }
+            }
+        }
+        self.rescan(screen);
+        n_gone
     }
 
     /// [`ImageStore::scroll_band`] for a band that is a rectangle: only a
@@ -1633,6 +1917,34 @@ impl<'b> ImageStore<'b> {
                 continue;
             }
             if cols.is_some_and(|(l, r)| s.col < l || s.col > r) {
+                continue;
+            }
+            let kitty = s
+                .image
+                .index()
+                .and_then(|i| self.slots.get(i))
+                .is_some_and(|i| matches!(i.owner, ImageOwner::Kitty(..)));
+            if kitty {
+                // "entirely within the page area": under side margins its
+                // columns too, the anchor left of the band skipped above.
+                let across = cols.is_some_and(|(_, r)| {
+                    s.col.index().saturating_add(s.kitty.cols.index().max(1)) > r.index() + 1
+                });
+                if across {
+                    continue;
+                }
+                match clipped(s, lo, hi, n, way) {
+                    Clip::Stays => {}
+                    Clip::Moves(line, k) => {
+                        self.placements[p].line = line;
+                        self.placements[p].kitty = k;
+                    }
+                    Clip::Goes => {
+                        self.unplace(PlacementId::from_index(p));
+                        self.placements_expired += 1;
+                        n_gone += 1;
+                    }
+                }
                 continue;
             }
             let to = match way {

@@ -27,10 +27,17 @@
 //! fire's burn or the ufo's lift -- reporting the
 //! cost, rows and instances a frame. Frames a cycle are `caret.rs`'s
 //! `frames_a_cycle_for_each_animation`; the two multiply.
+//!
+//! `FRAME_IMAGE=<keys>|none` prices instead what an image on screen costs a
+//! frame: over the recording's last screen a 256x192 kitty image placed at
+//! row 6, column 11 with the `a=p` keys given (`c=40`, `z=-1`, ...), or none,
+//! then 500 full frames, reporting the cost a frame. The instructions the
+//! whole run retires, `/usr/bin/time -l`, less those of `none`'s, over 500,
+//! are the image's a frame.
 
 use baud_core::{Owned, Term};
 use baud_domain::Chan;
-use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
+use baud_domain::{BytePos, Cols, ImageBudget, ImagePx, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{Blend, CursorPhase, Damage, PxSize, Renderer, Stack, Target, Theme};
 use std::time::Duration;
@@ -242,6 +249,53 @@ fn main() {
             rows as f64 / f64::from(n),
             inst as f64 / f64::from(n),
             glow as f64 / f64::from(n),
+        );
+        return;
+    }
+    if let Ok(keys) = std::env::var("FRAME_IMAGE") {
+        let mut ri = fresh();
+        let m = ri.metrics();
+        let cell = |p: baud_font::Px| ImagePx::of(u16::try_from(p.value()).unwrap_or(u16::MAX));
+        let mut owned = Owned::new(&ws).with_images(ImageBudget::of(256 * 192));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(cell(m.cell_w), cell(m.cell_h));
+        let mut tail = data.clone();
+        if keys != "none" {
+            const B64: &[u8; 64] =
+                b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            let mut rgba = Vec::new();
+            for y in 0..192u32 {
+                for x in 0..256u32 {
+                    let [_, _, r, g] = (x * 256 + y).to_be_bytes();
+                    rgba.extend_from_slice(&[r, g, 160, 255]);
+                }
+            }
+            tail.extend_from_slice(b"\x1b[6;11H\x1b_Ga=T,f=32,s=256,v=192,i=1,q=2,C=1,");
+            tail.extend_from_slice(keys.as_bytes());
+            tail.push(b';');
+            for q in rgba.chunks(3) {
+                let mut b = [0u8; 3];
+                b[..q.len()].copy_from_slice(q);
+                let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+                for k in 0..4 {
+                    tail.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap_or(0)]);
+                }
+            }
+            tail.extend_from_slice(b"\x1b\\");
+        }
+        t.write_at(BytePos::ZERO, &tail);
+        t.feed(BytePos::ZERO, ReadLen::from_index(tail.len()));
+        let mut target = Target::new(&mut pixels, w, w, h).unwrap();
+        ri.render(&mut t, &mut target, Damage::Full);
+        let n = 500u32;
+        let start = std::time::Instant::now();
+        for _ in 0..n {
+            ri.render(&mut t, &mut target, Damage::Full);
+        }
+        let us = start.elapsed().as_secs_f64() * 1e6 / f64::from(n);
+        println!(
+            "image {keys} over {which}: {us:.1} us/frame, {} placements",
+            ri.image_placements().len()
         );
         return;
     }

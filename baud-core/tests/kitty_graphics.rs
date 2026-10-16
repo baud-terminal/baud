@@ -1169,3 +1169,159 @@ fn a_decode_whose_image_was_cleared_frees_nothing_else() {
         assert!(r.is_empty(), "a nameless command is not answered");
     });
 }
+
+/// The lines of the kitty placements on screen.
+fn kitty_lines(t: &Term<'_>) -> Vec<u64> {
+    t.images()
+        .placements()
+        .map(|(_, p)| p.line.value())
+        .collect()
+}
+
+/// A 10 by 40 image, two rows of the 10x20 cell, placed at `row`
+/// (one-based) under the margins 5 to 10, the cursor left on the
+/// region's bottom row; then `scroll`. Returns the placements' lines, and
+/// how many are left after a delete of those on row `probe` (one-based),
+/// which says which rows a placement still covers.
+fn in_margins(row: u32, scroll: &[u8], probe: u32) -> (Vec<u64>, usize) {
+    with(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, b"\x1b[5;10r", &mut r);
+        feed(t, format!("\x1b[{row};1H").as_bytes(), &mut r);
+        feed(
+            t,
+            &apc("a=T,f=24,s=10,v=40,i=1,q=2,C=1", &b64(&[7u8; 1200])),
+            &mut r,
+        );
+        feed(t, b"\x1b[10;1H", &mut r);
+        feed(t, scroll, &mut r);
+        let lines = kitty_lines(t);
+        feed(t, &apc(&format!("a=d,d=y,y={probe},q=2"), b""), &mut r);
+        (lines, t.images().placements().count())
+    })
+}
+
+/// "When page margins are defined and the index commands are used, only
+/// images that are entirely within the page area (between the margins)
+/// must be scrolled. When scrolling them would cause them to extend
+/// outside the page area, they must be clipped" (`[[source:
+/// kitty-graphics]]`, "Interaction with other terminal actions"). Which
+/// rows a placement still covers is read by a row delete, `d=y`.
+#[test]
+fn a_margin_scroll_moves_only_an_image_inside_the_margins_and_clips_it() {
+    // Inside, rows 8 and 9 (lines 7 and 8): one LF at the bottom margin
+    // moves it up a row, both rows kept, so a delete on its second row
+    // (row 8) takes it.
+    assert_eq!(in_margins(8, b"\n", 8), (vec![6], 0), "moved, uncut");
+    // At the top margin, rows 5 and 6: moved up a row, its first row cut
+    // and its line the margin's; a delete on row 4, where its cut row
+    // would be, leaves it.
+    assert_eq!(in_margins(5, b"\n", 4), (vec![4], 1), "the top row cut");
+    // Two rows: nothing of it is left inside, so it goes.
+    assert_eq!(in_margins(5, b"\n\n", 5), (vec![], 0), "scrolled out");
+    // Across the bottom margin, rows 10 and 11: not wholly inside, so it
+    // stays where it is.
+    assert_eq!(in_margins(10, b"\n", 10), (vec![9], 0), "across a margin");
+    // Down, by `SD`, from rows 9 and 10: moved down a row, its last row
+    // cut, so a delete on row 11 leaves it.
+    assert_eq!(
+        in_margins(9, b"\x1b[T", 11),
+        (vec![9], 1),
+        "the bottom row cut"
+    );
+}
+
+/// [`in_margins`] under side margins too, columns 2 to 40 (`DECLRMM`,
+/// `DECSLRM`): a 10 by 40 image placed at `row` and `col` with `keys`, the
+/// scroll then a rectangle's.
+fn in_side_margins(row: u32, col: u32, keys: &str, scroll: &[u8], probe: u32) -> (Vec<u64>, usize) {
+    with(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, b"\x1b[?69h\x1b[5;10r\x1b[2;40s", &mut r);
+        feed(t, format!("\x1b[{row};{col}H").as_bytes(), &mut r);
+        let ctrl = format!("a=T,f=24,s=10,v=40,i=1,q=2,C=1{keys}");
+        feed(t, &apc(&ctrl, &b64(&[7u8; 1200])), &mut r);
+        feed(t, b"\x1b[10;3H", &mut r);
+        feed(t, scroll, &mut r);
+        let lines = kitty_lines(t);
+        feed(t, &apc(&format!("a=d,d=y,y={probe},q=2"), b""), &mut r);
+        (lines, t.images().placements().count())
+    })
+}
+
+/// Under side margins the page area is a rectangle, so "entirely within
+/// the page area (between the margins)" is its columns as well as its
+/// rows (`[[source: kitty-graphics]]`, "Interaction with other terminal
+/// actions"): the rectangle's scroll moves and clips an image wholly
+/// inside it as the full-width scroll does, and leaves one across any of
+/// its margins where it is.
+#[test]
+fn a_rectangle_scroll_moves_only_an_image_inside_its_margins_and_clips_it() {
+    assert_eq!(
+        in_side_margins(8, 3, "", b"\n", 8),
+        (vec![6], 0),
+        "moved, uncut"
+    );
+    assert_eq!(
+        in_side_margins(5, 3, "", b"\n", 4),
+        (vec![4], 1),
+        "the top row cut"
+    );
+    assert_eq!(
+        in_side_margins(10, 3, "", b"\n", 10),
+        (vec![9], 0),
+        "across the bottom margin"
+    );
+    // `c=2` alone makes it four rows: rows 6 to 9, inside the rows, and
+    // columns 40 and 41, across the right margin, so it is left where it is.
+    assert_eq!(
+        in_side_margins(6, 40, ",c=2", b"\n", 6),
+        (vec![5], 0),
+        "across the right margin"
+    );
+    // The control: columns 38 and 39, inside, scrolled up a row.
+    assert_eq!(
+        in_side_margins(6, 38, ",c=2", b"\n", 6),
+        (vec![4], 0),
+        "inside, scrolled"
+    );
+}
+
+/// A 10 by 40 image placed at `row` (one-based) with `keys` under a
+/// region anchored at the top, lines 1 to 20 of 24, whose scroll moves the
+/// window; then one LF on the region's bottom row. Returns the
+/// placements' lines and the window's top. A line is absolute: one that
+/// stays on its screen row reads one more once the window has moved.
+fn under_top_region(row: u32, keys: &str) -> (Vec<u64>, u64) {
+    with(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, b"\x1b[1;20r", &mut r);
+        feed(t, format!("\x1b[{row};1H").as_bytes(), &mut r);
+        let ctrl = format!("a=T,f=24,s=10,v=40,i=1,q=2,C=1{keys}");
+        feed(t, &apc(&ctrl, &b64(&[7u8; 1200])), &mut r);
+        feed(t, b"\x1b[20;1H\n", &mut r);
+        (
+            kitty_lines(t),
+            t.image_origin(baud_domain::Rows::ZERO).top.value(),
+        )
+    })
+}
+
+/// A region anchored at the top scrolls by moving the window, and puts
+/// the rows under it back: an image under it goes back with them however
+/// far past the screen it reaches, and one across its bottom margin, not
+/// wholly inside, stays where it is with the text under it.
+#[test]
+fn a_top_anchored_region_leaves_the_images_it_does_not_scroll() {
+    // Rows 23 to 27, under the region and past the screen's bottom.
+    let (lines, top) = under_top_region(23, ",r=5");
+    assert_eq!(top, 1, "the premise: the window moved");
+    assert_eq!(lines, vec![23], "under the region, put back");
+    // Rows 20 and 21, across the region's bottom margin.
+    let (lines, top) = under_top_region(20, "");
+    assert_eq!(top, 1, "the premise: the window moved");
+    assert_eq!(lines, vec![20], "across the margin, left");
+    // The control: rows 18 and 19, inside, scroll with the region.
+    // Its line is unchanged and the window moved past it: a row up.
+    assert_eq!(under_top_region(18, "").0, vec![17], "inside, scrolled");
+}
