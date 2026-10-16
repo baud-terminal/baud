@@ -863,8 +863,22 @@ struct Run(usize);
 #[derive(Clone, Copy)]
 struct Back(usize);
 
-/// A back-reference: `run` bytes from `back` behind the write position, byte
-/// by byte so an overlapping copy repeats as the format intends.
+/// A back-reference: `run` bytes from `back` behind the write position
+/// (3.2.5), the bytes 3.2.3 says it adds: "the referenced string may
+/// overlap the current position", and an overlapping copy repeats.
+///
+/// **Eight bytes a move where the distance allows it.** A move of eight
+/// bytes from `back` behind reads only bytes already written when `back`
+/// is at least eight, so a run of any length -- overlapping its source or
+/// not -- is the byte-at-a-time copy's result, eight at a time, the last
+/// move ending at the run's end. A shorter distance, where a move would
+/// read a byte the same move writes, and a run shorter than a move, go a
+/// byte at a time. The moves are array loads and stores, not
+/// `copy_from_slice` (see [`Inflate::stored`]). On mosaic-blue, moves of
+/// sixteen where the distance allows were no faster, ranges overlapping
+/// (10.68-10.77 ms against 10.73-11.14), and moves of sixteen, then
+/// eight, then a byte tail were slower than no moves at all (13.21-13.28
+/// against 12.84-13.20).
 #[inline(always)]
 fn copy(out: &mut [u8], len: &mut usize, run: Run, back: Back) -> Result<(), ZlibError> {
     if back.0 == 0 || back.0 > *len {
@@ -873,10 +887,35 @@ fn copy(out: &mut [u8], len: &mut usize, run: Run, back: Back) -> Result<(), Zli
     if run.0 > out.len() - *len {
         return Err(ZlibError::Overrun);
     }
-    for _ in 0..run.0 {
-        out[*len] = out[*len - back.0];
-        *len += 1;
+    let end = *len + run.0;
+    let mut at = *len;
+    if back.0 >= 8 && run.0 >= 8 {
+        while end - at > 8 {
+            move8(out, at, back)?;
+            at += 8;
+        }
+        // The last move ends at `end`. Any bytes it shares with the one
+        // before are written again with the values they already hold:
+        // its source is all before `end - 8`, written by then.
+        move8(out, end - 8, back)?;
+    } else {
+        while at < end {
+            out[at] = out[at - back.0];
+            at += 1;
+        }
     }
+    *len = end;
+    Ok(())
+}
+
+/// The eight bytes from `back` behind `at` to `at`; `back` is at least
+/// eight, so they are all written already.
+#[inline(always)]
+fn move8(out: &mut [u8], at: usize, back: Back) -> Result<(), ZlibError> {
+    let from = at - back.0;
+    let chunk = <[u8; 8]>::try_from(&out[from..from + 8]).map_err(|_| ZlibError::Overrun)?;
+    let to = <&mut [u8; 8]>::try_from(&mut out[at..at + 8]).map_err(|_| ZlibError::Overrun)?;
+    *to = chunk;
     Ok(())
 }
 
@@ -885,15 +924,66 @@ fn small(v: u32) -> Result<usize, ZlibError> {
     usize::try_from(v).map_err(|_| ZlibError::Block)
 }
 
+/// Adler-32's modulus, "the largest prime smaller than 65536" (RFC 1950
+/// 9).
+const BASE: u32 = 65521;
+
+/// The most bytes whose sums fit a `u32` before the modulo: "The modulo on
+/// unsigned long accumulators can be delayed for 5552 bytes" (RFC 1950
+/// 8.2). From sums of `BASE - 1` each, 5552 bytes of 255 take the second
+/// sum to 4,294,690,200, and a 5553rd past `u32::MAX`. It is 347 steps of
+/// sixteen.
+const NMAX: usize = 5552;
+
 /// Adler-32 (RFC 1950 8.2), over the inflated bytes.
 fn adler32(bytes: &[u8]) -> u32 {
-    let mut a = 1u32;
-    let mut b = 0u32;
-    for &x in bytes {
-        a = (a + u32::from(x)) % 65521;
-        b = (b + a) % 65521;
+    let (s1, s2) = adler_update(1, 0, bytes);
+    (s2 << 16) | s1
+}
+
+/// The two sums of 8.2, each below [`BASE`], carried over `bytes`.
+///
+/// **Sixteen bytes a step, with the modulo once a [`NMAX`] block.** Over a
+/// block of `n` bytes the first sum gains every byte and the second gains
+/// `n` times the first sum it started with plus each byte weighted by how
+/// many sums follow it, `n - j` for the byte at `j`. Sixteen lanes keep
+/// each lane's byte sum and the sum of those sums before each step, and
+/// the weights are put back once a block: the byte in lane `i` of step `t`
+/// of `k` is weighted `16 (k - t) - i`. A lane's sum of sums is at most
+/// 255 * 347 * 346 / 2, below 2^24, and the block's second sum is the one
+/// the RFC's bound is for: from sums of `BASE - 1` and 5552 bytes of 255
+/// it is 4,294,690,200, and a block of 348 steps would wrap it. The few
+/// bytes past the last whole step go one at a time.
+fn adler_update(mut s1: u32, mut s2: u32, bytes: &[u8]) -> (u32, u32) {
+    use core::simd::Simd;
+    use core::simd::num::SimdUint as _;
+    const LANES: usize = 16;
+    const WEIGHT: Simd<u32, LANES> =
+        Simd::from_array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+    for block in bytes.chunks(NMAX) {
+        let (steps, tail) = block.as_chunks::<LANES>();
+        let mut sum = Simd::<u32, LANES>::splat(0);
+        let mut sums = Simd::<u32, LANES>::splat(0);
+        for step in steps {
+            sums += sum;
+            sum += Simd::<u8, LANES>::from_array(*step).cast::<u32>();
+        }
+        let n = u32::try_from(steps.len() * LANES).unwrap_or(u32::MAX);
+        let bytes_sum = sum.reduce_sum();
+        let weighted = 16 * (sums.reduce_sum() + bytes_sum) - (sum * WEIGHT).reduce_sum();
+        // Below 2^32 exactly when the block is at most NMAX bytes: the
+        // second sum's bound, which the RFC's 5552 is.
+        let b = s2.wrapping_add(n.wrapping_mul(s1)).wrapping_add(weighted);
+        s1 = (s1 + bytes_sum) % BASE;
+        s2 = b % BASE;
+        for &x in tail {
+            s1 += u32::from(x);
+            s2 += s1;
+        }
+        s1 %= BASE;
+        s2 %= BASE;
     }
-    (b << 16) | a
+    (s1, s2)
 }
 
 /// The lookup tables against the canonical walk, which stays as the oracle:
@@ -902,6 +992,8 @@ fn adler32(bytes: &[u8]) -> u32 {
 /// incomplete, with codes longer than a table reads.
 #[cfg(test)]
 mod tests {
+    // The no_std crate's tests run hosted: the checks below build buffers.
+    extern crate std;
     use super::*;
 
     /// A xorshift, so every set is the same on every run.
@@ -1099,5 +1191,159 @@ mod tests {
         }
         assert_eq!(FIXED_DIST.fast[0b11111], Slot::WALK);
         assert_eq!(FIXED_DIST.fast[0b10000], Slot::new(1, 5));
+    }
+    /// Adler-32 as 8.2 defines it, both sums reduced at every byte, from
+    /// any pair of sums: the oracle for [`adler_update`].
+    fn adler_per_byte(mut s1: u32, mut s2: u32, bytes: &[u8]) -> (u32, u32) {
+        for &x in bytes {
+            s1 = (s1 + u32::from(x)) % 65521;
+            s2 = (s2 + s1) % 65521;
+        }
+        (s1, s2)
+    }
+
+    /// Bytes for the checksum: random, all 255 (the largest sums), or
+    /// 255 with random bytes among them.
+    fn adler_bytes(seed: u64, len: usize, kind: u8) -> std::vec::Vec<u8> {
+        let mut rng = Rng(seed | 1);
+        (0..len)
+            .map(|_| {
+                let r = rng.next().to_le_bytes()[3];
+                match kind % 3 {
+                    0 => r,
+                    1 => 255,
+                    _ if r < 32 => r,
+                    _ => 255,
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn adler_32_defers_the_modulo_no_further_than_its_sums_fit() {
+        // From the largest sums a pair can hold, 255s fill a `u32` second
+        // sum in exactly NMAX bytes: one block more would wrap it.
+        for len in [
+            NMAX - 1,
+            NMAX,
+            NMAX + 1,
+            2 * NMAX,
+            2 * NMAX + 1,
+            3 * NMAX + 17,
+        ] {
+            let ff = std::vec![255u8; len];
+            assert_eq!(
+                adler_update(65520, 65520, &ff),
+                adler_per_byte(65520, 65520, &ff),
+                "{len} bytes of 255 from the largest sums"
+            );
+        }
+        // Every length up to well past a step, and across each block edge.
+        for len in (0..200)
+            .chain(NMAX - 20..NMAX + 20)
+            .chain(2 * NMAX - 20..2 * NMAX + 20)
+        {
+            for kind in 0..3 {
+                let b = adler_bytes(0x9e37_79b9 ^ u64::try_from(len).expect("small"), len, kind);
+                assert_eq!(
+                    adler_update(1, 0, &b),
+                    adler_per_byte(1, 0, &b),
+                    "{len}, {kind}"
+                );
+                assert_eq!(
+                    adler_update(65520, 65520, &b),
+                    adler_per_byte(65520, 65520, &b),
+                    "{len}, {kind}, from the largest sums"
+                );
+            }
+        }
+        // RFC 1950 8.2: bytes a, b, c make the second sum 3a + 2b + c + 3.
+        assert_eq!(
+            adler32(&[7, 11, 13]),
+            ((3 * 7 + 2 * 11 + 13 + 3) << 16) | (1 + 7 + 11 + 13)
+        );
+    }
+
+    /// A back-reference a byte at a time, as 3.2.3 adds it.
+    fn copy_per_byte(out: &mut [u8], len: usize, run: usize, back: usize) {
+        for i in len..len + run {
+            out[i] = out[i - back];
+        }
+    }
+
+    #[test]
+    fn a_back_reference_copies_as_a_byte_at_a_time_at_every_distance() {
+        let mut rng = Rng(0x5851_f42d_4c95_7f2d);
+        let mut seen = std::vec::Vec::new();
+        for back in 1..=40 {
+            for run in (3..=40).chain([63, 64, 65, 127, 128, 129, 255, 256, 257, 258]) {
+                // Room before the write position for the distance, and a
+                // byte past the run that must stay as it was.
+                let len = back + rng.below(8);
+                let mut a = std::vec![0u8; len + run + 1];
+                for b in &mut a {
+                    *b = rng.next().to_le_bytes()[5];
+                }
+                let mut b = a.clone();
+                let mut at = len;
+                let limit = len + run;
+                copy(&mut a[..=limit], &mut at, Run(run), Back(back)).expect("in range");
+                copy_per_byte(&mut b, len, run, back);
+                assert_eq!(at, len + run);
+                assert_eq!(a, b, "run {run} from {back} back");
+                seen.push(back);
+            }
+        }
+        // The control: distances below, at and past each move's width,
+        // with runs longer than the distance.
+        assert!(seen.contains(&7) && seen.contains(&8) && seen.contains(&16));
+        // Refusals stay where they were.
+        let mut out = [0u8; 8];
+        let mut at = 2;
+        assert_eq!(
+            copy(&mut out, &mut at, Run(3), Back(3)),
+            Err(ZlibError::Distance)
+        );
+        assert_eq!(
+            copy(&mut out, &mut at, Run(7), Back(1)),
+            Err(ZlibError::Overrun)
+        );
+        assert_eq!(at, 2);
+    }
+
+    proptest::proptest! {
+        /// Adler-32 equals 8.2's per-byte definition on any bytes, from
+        /// the start and from the largest sums.
+        #[test]
+        fn adler_32_equals_its_per_byte_definition(
+            seed in proptest::prelude::any::<u64>(),
+            len in 0usize..3 * NMAX + 100,
+            kind in 0u8..3,
+            s1 in 0u32..65521,
+            s2 in 0u32..65521,
+        ) {
+            let b = adler_bytes(seed, len, kind);
+            proptest::prop_assert_eq!(adler_update(1, 0, &b), adler_per_byte(1, 0, &b));
+            proptest::prop_assert_eq!(adler_update(s1, s2, &b), adler_per_byte(s1, s2, &b));
+        }
+
+        /// A back-reference of any length from any distance copies as a
+        /// byte at a time, and leaves the byte past it alone.
+        #[test]
+        fn a_back_reference_equals_its_per_byte_copy(
+            seed in proptest::prelude::any::<u64>(),
+            back in 1usize..=300,
+            more in 0usize..40,
+            run in 3usize..=258,
+        ) {
+            let len = back + more;
+            let mut a = adler_bytes(seed, len + run + 1, 0);
+            let mut b = a.clone();
+            let mut at = len;
+            copy(&mut a[..len + run], &mut at, Run(run), Back(back)).expect("in range");
+            copy_per_byte(&mut b, len, run, back);
+            proptest::prop_assert_eq!(at, len + run);
+            proptest::prop_assert_eq!(a, b);
+        }
     }
 }

@@ -257,35 +257,59 @@ pub struct Png<'a> {
 
 const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
 
-/// The CRC-32 table, built at compile time from the polynomial the
+/// The CRC-32 tables, built at compile time from the polynomial the
 /// specification gives (5.5); a chunk whose CRC disagrees is refused, which
 /// is what every reference decoder does by default.
-const CRC_TABLE: [u32; 256] = {
-    let mut t = [0u32; 256];
+///
+/// **Eight tables, so eight bytes go in a step** (slicing). Table 0 is
+/// Annex D's `crc_table`: byte `n` run through the eight bit steps of its
+/// `make_crc_table`. Table `k` is the same byte followed by `k` zero bytes,
+/// `n` through `8 (k + 1)` bit steps, so the CRC of eight bytes is the XOR
+/// of each byte's entry in the table for how many bytes follow it.
+const CRC_TABLES: [[u32; 256]; 8] = {
+    let mut t = [[0u32; 256]; 8];
     let mut n: u32 = 0;
     while n < 256 {
         let mut c = n;
         let mut k = 0;
-        while k < 8 {
+        while k < 64 {
             c = if c & 1 != 0 {
                 0xEDB8_8320 ^ (c >> 1)
             } else {
                 c >> 1
             };
             k += 1;
+            if k % 8 == 0 {
+                // The one cast in this file: a `const fn` cannot call
+                // `try_from`, and `n` is below 256 by the loop bound.
+                t[k / 8 - 1][n as usize] = c;
+            }
         }
-        // The one cast in this file: a `const fn` cannot call `try_from`,
-        // and `n` is below 256 by the loop bound.
-        t[n as usize] = c;
         n += 1;
     }
     t
 };
 
+/// The CRC of `bytes` (5.5, Annex D's `update_crc` from all ones, the
+/// result inverted), eight bytes a step and the rest one at a time.
 fn crc32(bytes: &[u8]) -> u32 {
+    let t = &CRC_TABLES;
     let mut c = 0xFFFF_FFFFu32;
-    for &b in bytes {
-        c = CRC_TABLE[usize::from((c ^ u32::from(b)).to_le_bytes()[0])] ^ (c >> 8);
+    let (steps, tail) = bytes.as_chunks::<8>();
+    for step in steps {
+        let lo = u32::from_le_bytes([step[0], step[1], step[2], step[3]]) ^ c;
+        let [b0, b1, b2, b3] = lo.to_le_bytes();
+        c = t[7][usize::from(b0)]
+            ^ t[6][usize::from(b1)]
+            ^ t[5][usize::from(b2)]
+            ^ t[4][usize::from(b3)]
+            ^ t[3][usize::from(step[4])]
+            ^ t[2][usize::from(step[5])]
+            ^ t[1][usize::from(step[6])]
+            ^ t[0][usize::from(step[7])];
+    }
+    for &b in tail {
+        c = t[0][usize::from((c ^ u32::from(b)).to_le_bytes()[0])] ^ (c >> 8);
     }
     c ^ 0xFFFF_FFFF
 }
@@ -516,67 +540,13 @@ impl<'a> Png<'a> {
     fn unfilter(&self, raw: &mut [u8], size: Size) -> Result<(), PngError> {
         let rb = usize::try_from(self.row_bytes(size).ok_or(PngError::Buffer)?)
             .map_err(|_| PngError::Buffer)?;
-        let stride = rb + 1;
         // The "corresponding byte of the previous pixel": whole bytes for
         // depths of 8 and more, one byte for sub-byte pixels (9.2).
         let bpp = usize::try_from(self.bits_per_pixel().div_ceil(8))
             .map_err(|_| PngError::Buffer)?
             .max(1);
         let rows = usize::try_from(size.height).map_err(|_| PngError::Buffer)?;
-        for r in 0..rows {
-            let (before, rest) = raw.split_at_mut(r * stride);
-            let prev: &[u8] = if r == 0 {
-                &[]
-            } else {
-                &before[(r - 1) * stride + 1..r * stride]
-            };
-            let row = &mut rest[..stride];
-            let filter = row[0];
-            let line = &mut row[1..];
-            match filter {
-                0 => {}
-                1 => {
-                    for x in bpp..rb {
-                        line[x] = line[x].wrapping_add(line[x - bpp]);
-                    }
-                }
-                2 => {
-                    // `prev` is empty on the first row, where "up" is zero.
-                    for (x, up) in line
-                        .iter_mut()
-                        .zip(prev.iter().chain(core::iter::repeat(&0)))
-                    {
-                        *x = x.wrapping_add(*up);
-                    }
-                }
-                3 => {
-                    for x in 0..rb {
-                        let a = if x >= bpp {
-                            u16::from(line[x - bpp])
-                        } else {
-                            0
-                        };
-                        let b = u16::from(prev.get(x).copied().unwrap_or(0));
-                        line[x] =
-                            line[x].wrapping_add(u8::try_from((a + b) / 2).unwrap_or(u8::MAX));
-                    }
-                }
-                4 => {
-                    for x in 0..rb {
-                        let a = if x >= bpp { line[x - bpp] } else { 0 };
-                        let b = prev.get(x).copied().unwrap_or(0);
-                        let c = if x >= bpp {
-                            prev.get(x - bpp).copied().unwrap_or(0)
-                        } else {
-                            0
-                        };
-                        line[x] = line[x].wrapping_add(paeth(a, b, c));
-                    }
-                }
-                _ => return Err(PngError::Deflate),
-            }
-        }
-        Ok(())
+        unfilter_rows(raw, Scan { bytes: rb, rows }, bpp)
     }
 
     /// Every pixel of one reduced image of `size` pixels to RGBA8, at the
@@ -732,6 +702,137 @@ fn paeth(a: u8, b: u8, c: u8) -> u8 {
     }
 }
 
+/// How a reduced image's filtered scanlines lie in the scratch: `rows`
+/// of a filter byte and `bytes` more.
+#[derive(Clone, Copy, Debug)]
+struct Scan {
+    bytes: usize,
+    rows: usize,
+}
+
+/// [`Png::unfilter`] at a byte count per pixel: each count a PNG can have
+/// (one for every depth below 8, then 1, 2, 3, 4, 6 or 8 bytes) gets its
+/// own copy of the loops, with the pixel to the left held in registers.
+fn unfilter_rows(raw: &mut [u8], scan: Scan, bpp: usize) -> Result<(), PngError> {
+    match bpp {
+        1 => rows_of::<1>(raw, scan),
+        2 => rows_of::<2>(raw, scan),
+        3 => rows_of::<3>(raw, scan),
+        4 => rows_of::<4>(raw, scan),
+        6 => rows_of::<6>(raw, scan),
+        8 => rows_of::<8>(raw, scan),
+        _ => Err(PngError::Buffer),
+    }
+}
+
+/// Every scanline, `N` bytes a pixel (9.2-9.4). Each filter's
+/// reconstruction depends on the byte `N` to its left, so a scanline is
+/// reconstructed a pixel at a time, left to right, with that pixel -- `a`,
+/// and for Paeth the one above it, `c` -- carried as `N` bytes rather than
+/// read back from the bytes just written. "The bytes to the left of the
+/// first pixel" are zero, and on the first scanline so is every byte of the
+/// prior one.
+fn rows_of<const N: usize>(raw: &mut [u8], scan: Scan) -> Result<(), PngError> {
+    let stride = scan.bytes + 1;
+    for r in 0..scan.rows {
+        let (before, rest) = raw.split_at_mut(r * stride);
+        let (filter, line) = rest[..stride].split_first_mut().ok_or(PngError::Buffer)?;
+        let prev: &[u8] = if r == 0 {
+            &[]
+        } else {
+            &before[(r - 1) * stride + 1..]
+        };
+        match (*filter, prev.is_empty()) {
+            (0, _) | (2, true) => {}
+            // On the first scanline Paeth's `b` and `c` are zero and it
+            // predicts `a` (9.4: `pa` is 0), which is Sub.
+            (1, _) | (4, true) => sub::<N>(line),
+            (2, false) => {
+                for (x, up) in line.iter_mut().zip(prev) {
+                    *x = x.wrapping_add(*up);
+                }
+            }
+            (3, true) => average_first::<N>(line),
+            (3, false) => average::<N>(line, prev),
+            (4, false) => paeth_row::<N>(line, prev),
+            _ => return Err(PngError::Deflate),
+        }
+    }
+    Ok(())
+}
+
+/// Sub: `Recon(a)` added to each byte.
+fn sub<const N: usize>(line: &mut [u8]) {
+    let mut a = [0u8; N];
+    let (pixels, tail) = line.as_chunks_mut::<N>();
+    for px in pixels {
+        for i in 0..N {
+            px[i] = px[i].wrapping_add(a[i]);
+        }
+        a = *px;
+    }
+    for (x, a) in tail.iter_mut().zip(a) {
+        *x = x.wrapping_add(a);
+    }
+}
+
+/// `floor((x + y) / 2)` in eight bits, as 9.3's nine-bit sum gives it: the
+/// bits both have, plus half of those only one has.
+#[inline(always)]
+fn floor_mean(x: u8, y: u8) -> u8 {
+    (x & y) + ((x ^ y) >> 1)
+}
+
+/// Average on the first scanline, where `Recon(b)` is zero.
+fn average_first<const N: usize>(line: &mut [u8]) {
+    let mut a = [0u8; N];
+    let (pixels, tail) = line.as_chunks_mut::<N>();
+    for px in pixels {
+        for i in 0..N {
+            px[i] = px[i].wrapping_add(a[i] >> 1);
+        }
+        a = *px;
+    }
+    for (x, a) in tail.iter_mut().zip(a) {
+        *x = x.wrapping_add(a >> 1);
+    }
+}
+
+/// Average: `floor((Recon(a) + Recon(b)) / 2)` added to each byte (9.3).
+fn average<const N: usize>(line: &mut [u8], prev: &[u8]) {
+    let mut a = [0u8; N];
+    let (pixels, tail) = line.as_chunks_mut::<N>();
+    let (ups, up_tail) = prev.as_chunks::<N>();
+    for (px, up) in pixels.iter_mut().zip(ups) {
+        for i in 0..N {
+            px[i] = px[i].wrapping_add(floor_mean(a[i], up[i]));
+        }
+        a = *px;
+    }
+    for ((x, a), b) in tail.iter_mut().zip(a).zip(up_tail) {
+        *x = x.wrapping_add(floor_mean(a, *b));
+    }
+}
+
+/// Paeth: `PaethPredictor(Recon(a), Recon(b), Recon(c))` added to each
+/// byte (9.4).
+fn paeth_row<const N: usize>(line: &mut [u8], prev: &[u8]) {
+    let mut a = [0u8; N];
+    let mut c = [0u8; N];
+    let (pixels, tail) = line.as_chunks_mut::<N>();
+    let (ups, up_tail) = prev.as_chunks::<N>();
+    for (px, up) in pixels.iter_mut().zip(ups) {
+        for i in 0..N {
+            px[i] = px[i].wrapping_add(paeth(a[i], up[i], c[i]));
+        }
+        a = *px;
+        c = *up;
+    }
+    for (((x, a), b), c) in tail.iter_mut().zip(a).zip(up_tail).zip(c) {
+        *x = x.wrapping_add(paeth(a, *b, c));
+    }
+}
+
 /// The `IDAT` chunks' data, in order: the first one and every one that
 /// follows it with no other chunk between (table 5.3, "Multiple IDAT
 /// chunks shall be consecutive"). A chunk that fails its CRC ends the run, as the
@@ -777,5 +878,212 @@ impl<'a> Iterator for Idat<'a> {
             .filter(|c| c.kind == *b"IDAT");
         self.next = c.as_ref().map(|c| c.next);
         c.map(|c| c.data)
+    }
+}
+
+/// The widened unfilter and the sliced CRC against the byte-at-a-time
+/// forms they replaced, kept here as the oracles.
+#[cfg(test)]
+mod tests {
+    // The no_std crate's tests run hosted: the checks below build buffers.
+    extern crate std;
+    use super::*;
+    use std::vec::Vec;
+
+    /// The unfilter as it was, a byte at a time with `bpp` read at run
+    /// time and every neighbour looked up.
+    fn unfilter_per_byte(
+        raw: &mut [u8],
+        rb: usize,
+        bpp: usize,
+        rows: usize,
+    ) -> Result<(), PngError> {
+        let stride = rb + 1;
+        for r in 0..rows {
+            let (before, rest) = raw.split_at_mut(r * stride);
+            let prev: &[u8] = if r == 0 {
+                &[]
+            } else {
+                &before[(r - 1) * stride + 1..r * stride]
+            };
+            let row = &mut rest[..stride];
+            let filter = row[0];
+            let line = &mut row[1..];
+            match filter {
+                0 => {}
+                1 => {
+                    for x in bpp..rb {
+                        line[x] = line[x].wrapping_add(line[x - bpp]);
+                    }
+                }
+                2 => {
+                    for (x, up) in line
+                        .iter_mut()
+                        .zip(prev.iter().chain(core::iter::repeat(&0)))
+                    {
+                        *x = x.wrapping_add(*up);
+                    }
+                }
+                3 => {
+                    for x in 0..rb {
+                        let a = if x >= bpp {
+                            u16::from(line[x - bpp])
+                        } else {
+                            0
+                        };
+                        let b = u16::from(prev.get(x).copied().unwrap_or(0));
+                        line[x] =
+                            line[x].wrapping_add(u8::try_from((a + b) / 2).unwrap_or(u8::MAX));
+                    }
+                }
+                4 => {
+                    for x in 0..rb {
+                        let a = if x >= bpp { line[x - bpp] } else { 0 };
+                        let b = prev.get(x).copied().unwrap_or(0);
+                        let c = if x >= bpp {
+                            prev.get(x - bpp).copied().unwrap_or(0)
+                        } else {
+                            0
+                        };
+                        line[x] = line[x].wrapping_add(paeth(a, b, c));
+                    }
+                }
+                _ => return Err(PngError::Deflate),
+            }
+        }
+        Ok(())
+    }
+
+    /// The CRC as Annex D's `update_crc` spells it, a byte at a time.
+    fn crc_per_byte(bytes: &[u8]) -> u32 {
+        let mut c = 0xFFFF_FFFFu32;
+        for &b in bytes {
+            let mut x = (c ^ u32::from(b)) & 0xff;
+            for _ in 0..8 {
+                x = if x & 1 != 0 {
+                    0xEDB8_8320 ^ (x >> 1)
+                } else {
+                    x >> 1
+                };
+            }
+            c = x ^ (c >> 8);
+        }
+        c ^ 0xFFFF_FFFF
+    }
+
+    /// A xorshift, so every buffer is the same on every run.
+    fn bytes_from(seed: u64, len: usize) -> Vec<u8> {
+        let mut x = seed | 1;
+        (0..len)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x.to_le_bytes()[2]
+            })
+            .collect()
+    }
+
+    /// Scanlines for the unfilter: random bytes with each row's filter
+    /// byte drawn from 0-4, or, with `bad`, a 5 somewhere.
+    fn scanlines(seed: u64, rb: usize, rows: usize, bad: Option<usize>) -> Vec<u8> {
+        let mut raw = bytes_from(seed, (rb + 1) * rows);
+        for r in 0..rows {
+            raw[r * (rb + 1)] %= 5;
+        }
+        if let Some(r) = bad.filter(|&r| r < rows) {
+            raw[r * (rb + 1)] = 5;
+        }
+        raw
+    }
+
+    fn agree(seed: u64, rb: usize, bpp: usize, rows: usize, bad: Option<usize>) {
+        let raw = scanlines(seed, rb, rows, bad);
+        let (mut fast, mut slow) = (raw.clone(), raw.clone());
+        let got = unfilter_rows(&mut fast, Scan { bytes: rb, rows }, bpp);
+        let want = unfilter_per_byte(&mut slow, rb, bpp, rows);
+        assert_eq!(got, want, "verdict, {rb} bytes at {bpp}, {rows} rows");
+        assert_eq!(fast, slow, "{rb} bytes at {bpp}, {rows} rows, seed {seed}");
+    }
+
+    #[test]
+    fn each_byte_count_a_png_can_have_is_one_the_unfilter_has() {
+        let colors = [
+            Color::Gray,
+            Color::Rgb,
+            Color::Palette,
+            Color::GrayAlpha,
+            Color::Rgba,
+        ];
+        let mut counts = Vec::new();
+        for color in colors {
+            for depth in [1u8, 2, 4, 8, 16] {
+                if color.allows(depth) {
+                    let bits = u32::from(depth) * color.channels();
+                    let bpp = usize::try_from(bits.div_ceil(8)).expect("small").max(1);
+                    let mut raw = [0u8; 9];
+                    assert_eq!(
+                        unfilter_rows(&mut raw, Scan { bytes: 8, rows: 1 }, bpp),
+                        Ok(())
+                    );
+                    counts.push(bpp);
+                }
+            }
+        }
+        counts.sort_unstable();
+        counts.dedup();
+        assert_eq!(counts, [1, 2, 3, 4, 6, 8]);
+    }
+
+    #[test]
+    fn the_unfilter_is_the_per_byte_one_at_every_width_and_filter() {
+        for bpp in [1, 2, 3, 4, 6, 8] {
+            // Widths below a pixel, at it, and with a partial pixel after.
+            for rb in 0..40 {
+                for (k, rows) in [1usize, 2, 7].into_iter().enumerate() {
+                    let seed = u64::try_from(1000 * bpp + 10 * rb + k).expect("small");
+                    agree(seed, rb, bpp, rows, None);
+                    agree(seed, rb, bpp, rows, Some(rows - 1));
+                }
+            }
+        }
+        // The control: every filter on a row after another, and on the first.
+        let raw = scanlines(7, 12, 64, None);
+        let filters: Vec<u8> = (0..64).map(|r| raw[r * 13]).collect();
+        assert!((0..5).all(|f| filters[1..].contains(&f)), "{filters:?}");
+    }
+
+    #[test]
+    fn the_crc_is_annex_d_at_every_length() {
+        for len in 0..80 {
+            let b = bytes_from(u64::try_from(len).expect("small") + 3, len);
+            assert_eq!(crc32(&b), crc_per_byte(&b), "{len} bytes");
+        }
+        // This CRC's customary check value, over the ASCII digits 1-9, and
+        // the CRC every PNG's empty `IEND` chunk carries.
+        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+        assert_eq!(crc32(b"IEND"), 0xAE42_6082);
+    }
+
+    proptest::proptest! {
+        /// Any scanlines, at any byte count a PNG can have, unfilter as
+        /// the per-byte form does, a bad filter byte included.
+        #[test]
+        fn any_scanlines_unfilter_as_the_per_byte_form(
+            seed in proptest::prelude::any::<u64>(),
+            k in 0usize..6,
+            rb in 0usize..200,
+            rows in 1usize..12,
+            bad in proptest::option::weighted(0.1, 0usize..12),
+        ) {
+            agree(seed, rb, [1, 2, 3, 4, 6, 8][k], rows, bad);
+        }
+
+        /// The CRC of any bytes is the byte-at-a-time one.
+        #[test]
+        fn any_bytes_crc_as_annex_d(seed in proptest::prelude::any::<u64>(), len in 0usize..600) {
+            let b = bytes_from(seed, len);
+            proptest::prop_assert_eq!(crc32(&b), crc_per_byte(&b));
+        }
     }
 }
