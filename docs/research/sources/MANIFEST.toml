@@ -7929,6 +7929,43 @@ group  = "C"
 # `upload_to_gpu` passes, on a `GL_SRGB_ALPHA` texture clamped to a
 # transparent border.
 
+[sources.kitty-background-slang]
+key    = "kitty-background-slang"
+title  = "kitty v0.49.2, kitty/shaders/background.slang -- compute_background, which cells have the default background"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/shaders/background.slang"
+file   = ""
+sha256 = "5cb615a2d4d0165f0e2882f301838602e7fb6c935dc8eb295c6eb1a7e69023d0"
+bytes  = 14512
+status = "external"
+group  = "C"
+# Practice for "cells with non-default background colors"
+# (`[[source: kitty-graphics]]`): `cell_has_default_bg` compares the drawn
+# background colour, after `SGR 7` and the screen's reverse video
+# exchange the pair, with the default's colour, so an explicit colour
+# equal to the default counts as default; a block cursor, a selected cell
+# and a reversed cell are "special" and never default, and drawn opaque.
+
+[sources.kitty-cell-slang]
+key    = "kitty-cell-slang"
+title  = "kitty v0.49.2, kitty/shaders/cell.slang -- draw_bg_bitfield, the background pass split by default and non-default cells"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.49.2/kitty/shaders/cell.slang"
+file   = ""
+sha256 = "6a960652b35fb6b807be2207efd0f3fc06ca4e6377a7a29ae4960c327d6f7da2"
+bytes  = 14049
+status = "external"
+group  = "C"
+# Practice: bit 0 of `draw_bg_bitfield` draws the default-background
+# cells, bit 1 the others; `shaders.c` `draw_cells_with_layers`
+# (`[[source: kitty-shaders-c]]`) draws the default ones, the images below
+# `INT32_MIN/2`, the non-default ones blended over them, then the other
+# negative images, then the text.
+
 [sources.ghostty-shaders-metal]
 key    = "ghostty-shaders-metal"
 title  = "ghostty v1.2.0, src/renderer/shaders/shaders.metal -- image_fragment, how a kitty image is sampled"

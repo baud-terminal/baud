@@ -3756,9 +3756,87 @@ fn kitty_draw_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             "a margin scroll: the {arm} arm does not clip at the margin"
         );
     }
+    kitty_below_gate(arms, t);
     kitty_placeholder_gate(arms, t);
     t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
     feed(t, b"\x1bc");
+}
+
+/// **Below `INT32_MIN/2`, under the non-default backgrounds, on all three
+/// paths**: "Negative z-index values below INT32_MIN/2 (-1,073,741,824)
+/// will be drawn under cells with non-default background colors"
+/// (`[[source: kitty-graphics]]`). Four cells at the anchor -- a red-backed
+/// upper half block, a red-backed space, a default-backed block and a
+/// default-backed space -- under an image `c=4,r=1`: at -1073741825 the red
+/// cells are the frame without the image and the default ones show it
+/// under their ink; at -1073741824 exactly, which is not below, the image
+/// shows in all four under the ink. Then the interim forks: a block
+/// cursor on the third cell and the selection on the fourth draw over
+/// the image. Every expected pixel is the frame without the image or the
+/// texel the text puts there, never another arm's.
+fn kitty_below_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let fw = arms.renderer.frame_size().0.value();
+    let at = |x: u32, y: u32| usize::try_from(y * fw + x).unwrap();
+    let (ax, ay) = (4 * cw, 2 * ch);
+    let scene = "\x1bc\x1b[?25l\x1b[3;5H\x1b[41m\u{2580} \x1b[0m\u{2580} ";
+    let lit = Highlight {
+        from: (Row::from_index(2), Col::at_index(7)),
+        to: (Row::from_index(2), Col::at_index(7)),
+        region: Region::Stream,
+    };
+    for (z, deep, more, highlight) in [
+        (-1_073_741_825, true, "", None),
+        (-1_073_741_824, false, "", None),
+        (
+            -1_073_741_825,
+            true,
+            "\x1b[2 q\x1b[3;7H\x1b[?25h",
+            Some(lit),
+        ),
+    ] {
+        arms.highlight = highlight;
+        feed(t, scene.as_bytes());
+        feed(t, more.as_bytes());
+        let (before, _) = arms.draw(t);
+        let put = format!("C=1,c=4,r=1,z={z}");
+        feed(t, b"\x1b7");
+        kitty_put(t, 1, kitty_texel, &[&put]);
+        feed(t, b"\x1b8");
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        let [[dx, dy, dw, dh], [sx, sy, sw, sh]] = kitty_expect("c=4,r=1", cw, ch);
+        let mut want = before.clone();
+        let mut kinds = [0usize; 4];
+        for j in 0..dh {
+            for i in 0..dw {
+                let (x, y) = (ax + dx + i, ay + dy + j);
+                let cell = (dx + i) / cw;
+                let ink = before[at(x, y)] != before[at(x, ay + ch - 1)];
+                let lit_cell = highlight.is_some() && cell >= 2;
+                let hidden = ink || lit_cell || (deep && cell < 2);
+                kinds[2 * usize::from(cell >= 2) + usize::from(ink)] += 1;
+                if !hidden {
+                    want[at(x, y)] = kitty_texel(
+                        sx + (2 * i + 1) * sw / (2 * dw),
+                        sy + (2 * j + 1) * sh / (2 * dh),
+                    );
+                }
+            }
+        }
+        assert!(kinds.iter().all(|&k| k > 0), "z={z}: the premise {kinds:?}");
+        for (arm, got) in [("instance", &a), ("cell", &b), ("cpu", &cpu)] {
+            assert_eq!(
+                differing(got, &want),
+                0,
+                "z={z}, {more:?}: the {arm} arm is not the text's pixels"
+            );
+        }
+        assert_eq!(differing(&a, &b), 0, "z={z}: the GPU arms disagree");
+    }
+    arms.highlight = None;
+    feed(t, b"\x1b[0 q");
 }
 
 /// The pinned list's diacritic for `n` (`[[source:

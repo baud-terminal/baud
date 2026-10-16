@@ -533,6 +533,12 @@ impl Shapes {
     /// its own ([`crate::BlinkPhases`]). Above the face style's two bits.
     /// `SHAPE_RAPID_BLINK` in the cell shader.
     pub const RAPID_BLINK: Shapes = Shapes(4096);
+    /// The background this rendition draws is the default background
+    /// colour ([`crate::Theme::default_bg`]): what a kitty image below
+    /// `INT32_MIN/2` shows through. Resolved once a slot, so no cell bit
+    /// holds it. `SHAPE_DEFAULT_BG` in the cell shader, pinned by
+    /// `the_default_background_bit_matches_the_shader`.
+    pub const DEFAULT_BG: Shapes = Shapes(8192);
     /// Both blink shapes: a slot holds at most one, since `SGR 5` and `6`
     /// replace each other (`Attrs::BLINKS`).
     pub const BLINKS: Shapes = Shapes(Shapes::BLINK.0 | Shapes::RAPID_BLINK.0);
@@ -680,6 +686,32 @@ impl Resolved {
             bg,
             text: self.text(s.blink),
             curve: self.curves.row(s.ink()),
+        }
+    }
+}
+
+/// **Whether a cell draws the default background**, for a kitty image
+/// below `INT32_MIN/2`: "Negative z-index values below INT32_MIN/2
+/// (-1,073,741,824) will be drawn under cells with non-default background
+/// colors" (`[[source: kitty-graphics]]`, "Controlling displayed image
+/// layout"). [`Ground::Set`] cells are drawn over such an image.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Ground {
+    Default,
+    Set,
+}
+
+impl Resolved {
+    /// The cell's [`Ground`] this frame: its rendition's
+    /// [`Shapes::DEFAULT_BG`], and not selected and not under a block
+    /// cursor, each of which draws another colour as the background, as
+    /// kitty's `compute_background` makes them "special" (`[[source:
+    /// kitty-background-slang]]`). Interim on both, an open fork. The cell
+    /// shader's `ground_set` mirrors it.
+    pub fn ground(self, selected: Selected, block: BlockCursor) -> Ground {
+        match (self.shapes.has(Shapes::DEFAULT_BG), selected, block) {
+            (true, Selected::No, BlockCursor::No) => Ground::Default,
+            _ => Ground::Set,
         }
     }
 }

@@ -6,7 +6,9 @@ use crate::cache::{
     Shaped,
 };
 use crate::caret::{self, CursorPhase, Play};
-use crate::cellmap::{BlockCursor, CellSpan, Curves, Resolved, Selected, Shapes, Swaps, Text};
+use crate::cellmap::{
+    BlockCursor, CellSpan, Curves, Ground, Resolved, Selected, Shapes, Swaps, Text,
+};
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Blit, Page, Target, Texels};
 use crate::effect::Vfx;
@@ -569,7 +571,7 @@ enum ImageRows {
 /// What [`Renderer::paint_rows`] draws between a repainted row's background
 /// and its glyphs.
 trait Under {
-    fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, band: Band, page: Page);
+    fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, row: Row, page: Page);
 }
 
 /// Nothing: no placement is under the text.
@@ -577,15 +579,15 @@ struct NoUnder;
 
 impl Under for NoUnder {
     #[inline(always)]
-    fn paint(&self, _: &Renderer<'_, '_>, _: &mut Target<'_>, _: Band, _: Page) {}
+    fn paint(&self, _: &Renderer<'_, '_>, _: &mut Target<'_>, _: Row, _: Page) {}
 }
 
 /// The placements under the text, from the term's images.
 struct UnderImages<'s, 'b>(&'s ImageStore<'b>);
 
 impl Under for UnderImages<'_, '_> {
-    fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, band: Band, page: Page) {
-        r.paint_under(self.0, target, band, page);
+    fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, row: Row, page: Page) {
+        r.paint_under(self.0, target, row, page);
     }
 }
 
@@ -619,7 +621,7 @@ fn left_from(now: &[ImagePlacement], last: &[ImagePlacement], band: Band) -> boo
 /// where one over the text needs none.
 fn arrived_under(now: &[ImagePlacement], last: &[ImagePlacement], band: Band) -> bool {
     now.iter()
-        .any(|p| p.layer == ImageLayer::Under && covers(p, band) && !last.contains(p))
+        .any(|p| p.layer.under_text() && covers(p, band) && !last.contains(p))
 }
 
 /// Whether [`Renderer::set_images`] keeps a copy of each image's pixels for a
@@ -631,24 +633,39 @@ enum Snapshots {
     Skipped,
 }
 
-/// **Whether a placement draws under the text or over it**: "Negative
-/// z-index values mean that the images will be drawn under the text"
-/// (`[[source: kitty-graphics]]`, "Controlling displayed image layout").
-/// Under, it is drawn over the cells' backgrounds and under their glyphs,
-/// underlines and cursor; over, after everything the row draws.
+/// **Which layer a placement draws in**: "Negative z-index values mean
+/// that the images will be drawn under the text. This allows rendering of
+/// text on top of images. Negative z-index values below INT32_MIN/2
+/// (-1,073,741,824) will be drawn under cells with non-default background
+/// colors" (`[[source: kitty-graphics]]`, "Controlling displayed image
+/// layout"). Below, it is drawn over the default backgrounds and under
+/// every other ([`crate::Ground`]), and under the text; under, over every
+/// background and under the cells' glyphs, underlines and cursor; over,
+/// after everything the row draws.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ImageLayer {
+    Below,
     Under,
     Over,
 }
 
 impl ImageLayer {
+    /// `INT32_MIN/2`: a `z` strictly below it is drawn under the
+    /// non-default backgrounds.
+    pub const BELOW_BACKGROUNDS: i32 = i32::MIN / 2;
+
     /// The layer a draw order puts a placement in.
     pub fn of(z: ZIndex) -> ImageLayer {
-        match z.raw() < 0 {
-            true => ImageLayer::Under,
-            false => ImageLayer::Over,
+        match z.raw() {
+            z if z < ImageLayer::BELOW_BACKGROUNDS => ImageLayer::Below,
+            z if z < 0 => ImageLayer::Under,
+            _ => ImageLayer::Over,
         }
+    }
+
+    /// Whether it is drawn under the text: below or under.
+    pub fn under_text(self) -> bool {
+        self != ImageLayer::Over
     }
 }
 
@@ -692,7 +709,8 @@ pub struct ImagePlacement {
     pub alpha: ImageAlpha,
     /// Its draw order, the kitty `z`; zero for a Sixel.
     pub z: ZIndex,
-    /// Under the text or over it, from `z`.
+    /// Below the non-default backgrounds, under the text or over it, from
+    /// `z`.
     pub layer: ImageLayer,
     /// The client's image id, which orders two placements at one `z`: "the
     /// image with the lower id is considered to have the lower z-index".
@@ -1765,10 +1783,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.fit(term);
         self.place_images(term, back, Snapshots::Skipped);
         let converted = self.convert_with(term, back, damage, ImageRows::Repainted);
-        let under = self
-            .image_places
-            .iter()
-            .any(|p| p.layer == ImageLayer::Under);
+        let under = self.image_places.iter().any(|p| p.layer.under_text());
         let frame = match under {
             true => self.paint_rows(target, converted, UnderImages(term.images())),
             false => self.paint_rows(target, converted, NoUnder),
@@ -1926,7 +1941,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
                         draw,
                         (x0, y0),
                         (i0, i1, j0, j1),
-                        v.z,
+                        // Never below its own cells' backgrounds: "The
+                        // background color is interpreted as the
+                        // background color, visible if the image is
+                        // transparent" ("Unicode placeholders"), so the
+                        // image is over it. Otherwise the virtual
+                        // placement's `z`, which kitty sets to -1 for
+                        // every placeholder image (`[[source:
+                        // kitty-graphics-c]]` `grman_put_cell_image`),
+                        // where the text says nothing; an open fork.
+                        v.z.max(ZIndex::of(ImageLayer::BELOW_BACKGROUNDS)),
                         snap,
                     );
                 }
@@ -2094,18 +2118,83 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// Blits the placements under the text that cover `band` into it, in
-    /// order: a repainted row's, over its background.
-    fn paint_under(&self, imgs: &ImageStore<'_>, target: &mut Target<'_>, band: Band, page: Page) {
-        for p in self
-            .image_places
-            .iter()
-            .filter(|p| p.layer == ImageLayer::Under && covers(p, band))
-        {
+    /// Blits the placements under the text that cover `row`'s band into
+    /// it, in order: a repainted row's, over its background. Those below
+    /// the non-default backgrounds first, and then those backgrounds again
+    /// over them, as the background pass draws them -- replacing what is
+    /// under them -- so only the default ones show the image; then the
+    /// rest. The GPU paths draw the same three steps.
+    fn paint_under(&self, imgs: &ImageStore<'_>, target: &mut Target<'_>, row: Row, page: Page) {
+        let band = self.band(row);
+        let mut below = false;
+        for p in self.image_places.iter().filter(|p| covers(p, band)) {
+            if p.layer == ImageLayer::Under && below {
+                self.refill_set(target, row);
+                below = false;
+            }
+            if p.layer == ImageLayer::Over {
+                continue;
+            }
             let Some(view) = imgs.image(p.id) else {
                 continue;
             };
+            below |= p.layer == ImageLayer::Below;
             target.blit_image(&self.blit_of(p, band), &view, self.blend, page);
+        }
+        if below {
+            self.refill_set(target, row);
+        }
+    }
+
+    /// Fills `row`'s cells whose background is not the default one
+    /// ([`Ground::Set`]) with their background again, over what a
+    /// placement below the backgrounds drew there.
+    fn refill_set(&self, target: &mut Target<'_>, row: Row) {
+        let range = self.row_cells(row);
+        target.fill_cells(
+            self.band(row),
+            &self.bg[range.clone()],
+            self.metrics.cell_w,
+            |c| self.ground(row, Col::at_index(c), self.prev[range.start + c]) == Ground::Set,
+        );
+    }
+
+    /// Whether the cell at `row` and `col`, as the last convert drew it,
+    /// draws the default background: its rendition, the selection and the
+    /// block cursor, by [`Resolved::ground`]. Asked only of a row a
+    /// placement below the backgrounds covers, so no frame without one
+    /// pays a store a cell for it.
+    fn ground(&self, row: Row, col: Col, cell: PackedCell) -> Ground {
+        let res = self
+            .styles
+            .get(cell.style.index())
+            .copied()
+            .unwrap_or_default();
+        let selected = match self
+            .highlight
+            .is_some_and(|h| h.selects(row, col, cell.content))
+        {
+            true => Selected::Yes,
+            false => Selected::No,
+        };
+        let block = match self.last_cursor {
+            Some((r, cc, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock))
+                if r == row && cc == col =>
+            {
+                BlockCursor::Yes(None)
+            }
+            _ => BlockCursor::No,
+        };
+        res.ground(selected, block)
+    }
+
+    /// Each cell's [`Ground`], row-major, as the last convert drew it:
+    /// what the instance path's second background pass reads.
+    pub fn grounds(&self, out: &mut Vec<Ground>) {
+        out.clear();
+        let cols = self.cols.index();
+        for (i, &cell) in self.prev.iter().enumerate() {
+            out.push(self.ground(Row::from_index(i / cols), Col::at_index(i % cols), cell));
         }
     }
 
@@ -2238,7 +2327,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             && self
                 .image_places
                 .iter()
-                .any(|p| p.layer == ImageLayer::Under && !self.last_image_places.contains(p));
+                .any(|p| p.layer.under_text() && !self.last_image_places.contains(p));
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
             let changed = self.cur[range.clone()] != self.prev[range];
@@ -2404,7 +2493,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.metrics.cell_w,
                 margin,
             );
-            under.paint(self, target, band, page);
+            under.paint(self, target, row, page);
             // In the order `instances()` hands the GPU instance path: the
             // row's own, then the trail under the scrollbar, then the screen
             // fade over everything. The trail and the fade dirtied these rows
@@ -2874,6 +2963,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut shapes = Shapes::default().with_face(self.stack.effective(FaceStyle::of(attrs)));
         if self.theme.opaque_bg(style, self.video) {
             shapes = shapes.with(Shapes::OPAQUE_BG);
+        }
+        if Theme::default_bg(style, self.video) {
+            shapes = shapes.with(Shapes::DEFAULT_BG);
         }
         // The contrast curve a glyph takes on either side of a swap
         // (`baud_domain::contrast`), chosen here once per rendition so a

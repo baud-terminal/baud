@@ -25,8 +25,9 @@ mod support;
 
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, ImageBudget, ImagePx, ReadLen};
+use baud_domain::{Col, Row};
 use baud_font::Face;
-use baud_render::{Damage, Theme};
+use baud_render::{Damage, Highlight, Region, Theme};
 use support::{Canvas, WS, font, renderer};
 
 /// The test image: 6 by 4, every pixel opaque and distinct.
@@ -205,9 +206,15 @@ impl Frame {
 /// A terminal with image memory and the renderer's cell size, cursor
 /// hidden, after `setup`; then one full frame.
 fn draw(setup: impl FnOnce(&mut Term)) -> Frame {
+    draw_lit(setup, None)
+}
+
+/// [`draw`], with a selection drawn.
+fn draw_lit(setup: impl FnOnce(&mut Term), lit: Option<Highlight>) -> Frame {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     let mut r = renderer(&faces);
+    r.set_highlight(lit);
     let m = r.metrics();
     let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
     let mut c = Canvas::for_renderer(&r);
@@ -496,4 +503,268 @@ fn an_image_scrolled_past_a_margin_is_clipped_at_it() {
         }
     }
     assert_eq!(wrong, 0, "clipped at the margin");
+}
+
+/// The boundary the text draws: "Negative z-index values below INT32_MIN/2
+/// (-1,073,741,824) will be drawn under cells with non-default background
+/// colors" (`[[source: kitty-graphics]]`, "Controlling displayed image
+/// layout"). Below is strictly less.
+const DEEP: i32 = -1_073_741_825;
+const EDGE: i32 = -1_073_741_824;
+
+/// Four cells at the anchor -- a red-backed upper half block, a red-backed
+/// space, a default-backed block and a default-backed space -- under an
+/// image placed `c=4,r=1` at `z`.
+const SCENE: &str = "\x1b[3;5H\x1b[41m\u{2580} \x1b[0m\u{2580} ";
+
+/// The scene's frame without the image and with it at `z`, after `more`.
+fn scene(z: i32, more: &str) -> (Frame, Frame) {
+    let text = |t: &mut Term| {
+        feed(t, SCENE.as_bytes());
+        feed(t, more.as_bytes());
+    };
+    let plain = draw(text);
+    let imaged = draw(|t| {
+        text(t);
+        transmit(t, 1, texel);
+        feed(t, AT);
+        feed(t, &apc(&format!("a=p,i=1,q=2,C=1,c=4,r=1,z={z}"), b""));
+    });
+    (plain, imaged)
+}
+
+/// What a pixel of the image's drawn rectangle should be, held to the
+/// text: the plain frame's pixel where the cell drew ink -- anything but
+/// its own background, read at its bottom row, which the upper half block
+/// leaves bare -- and where the image is under a non-default background
+/// (`deep`, and the cell one of the red two); the texel elsewhere. Returns
+/// how many pixels miss, and how many of each kind there were: red bare,
+/// default bare, ink.
+fn deep_misses(plain: &Frame, imaged: &Frame, deep: bool) -> (usize, [usize; 3]) {
+    let e = expect("c=4,r=1", plain.cw(), plain.ch());
+    let [dx, dy, dw, dh] = e.dest;
+    let (ax, ay) = (COL * plain.cw() + dx, ROW * plain.ch() + dy);
+    let (mut wrong, mut kinds) = (0, [0; 3]);
+    for j in 0..dh {
+        for i in 0..dw {
+            let (x, y) = (ax + i, ay + j);
+            let cell = (x - COL * plain.cw()) / plain.cw();
+            let own = plain.at(x, ROW * plain.ch() + plain.ch() - 1);
+            let under = plain.at(x, y);
+            let red = cell < 2;
+            let want = if under != own {
+                kinds[2] += 1;
+                under
+            } else if red {
+                kinds[0] += 1;
+                match deep {
+                    true => under,
+                    false => {
+                        let (sx, sy) = source(e, i, j);
+                        texel(sx, sy)
+                    }
+                }
+            } else {
+                kinds[1] += 1;
+                let (sx, sy) = source(e, i, j);
+                texel(sx, sy)
+            };
+            wrong += usize::from(imaged.at(x, y) != want);
+        }
+    }
+    (wrong, kinds)
+}
+
+#[test]
+fn a_z_below_half_int32_min_draws_under_non_default_backgrounds() {
+    let (plain, imaged) = scene(DEEP, "");
+    let bg = Theme::dark().bg.0;
+    let red = plain.at(COL * plain.cw() + 1, ROW * plain.ch() + plain.ch() - 1);
+    assert_ne!(red, bg, "the premise: the red cells are not the default");
+    let (wrong, kinds) = deep_misses(&plain, &imaged, true);
+    assert!(
+        kinds.iter().all(|&k| k > 0),
+        "the premise: red bare, default bare and ink {kinds:?}"
+    );
+    assert_eq!(wrong, 0, "under the red backgrounds, over the default");
+}
+
+#[test]
+fn a_z_of_half_int32_min_exactly_stays_over_every_background() {
+    let (plain, imaged) = scene(EDGE, "");
+    let (wrong, kinds) = deep_misses(&plain, &imaged, false);
+    assert!(kinds.iter().all(|&k| k > 0), "the premise {kinds:?}");
+    assert_eq!(wrong, 0, "-1073741824 is not below it: over the red too");
+}
+
+#[test]
+fn below_half_int32_min_the_order_is_still_z_then_the_lower_id() {
+    // Within the layer: at one `z`, the lower id under.
+    assert_eq!(on_top((7, DEEP), (3, DEEP)), texel(0, 0), "id 7 over id 3");
+    assert_eq!(on_top((3, DEEP), (7, DEEP)), other(0, 0), "id 7 over id 3");
+    // Across the boundary, either order: -1 over the deep one.
+    assert_eq!(on_top((1, -1), (2, DEEP)), texel(0, 0), "z = -1 over");
+    assert_eq!(on_top((1, DEEP), (2, -1)), other(0, 0), "z = -1 over");
+    assert_eq!(on_top((1, EDGE), (2, DEEP)), texel(0, 0), "the edge over");
+}
+
+/// The interim reading of two forks the text does not settle: a block
+/// cursor's cell and a selected cell draw a background that is not the
+/// default one, so a deep image goes under them, as kitty's
+/// `compute_background` makes them "special" (`[[source:
+/// kitty-background-slang]]`).
+#[test]
+fn a_deep_image_goes_under_the_block_cursor_and_the_selection() {
+    // The cursor on the default-backed block, the third cell; the
+    // selection over the default-backed space, the fourth.
+    let lit = Some(Highlight {
+        from: (Row::from_index(2), Col::at_index(7)),
+        to: (Row::from_index(2), Col::at_index(7)),
+        region: Region::Stream,
+    });
+    let more = "\x1b[2 q\x1b[3;7H\x1b[?25h";
+    let text = |t: &mut Term| {
+        feed(t, SCENE.as_bytes());
+        feed(t, more.as_bytes());
+    };
+    let plain = draw_lit(text, lit);
+    let imaged = draw_lit(
+        |t| {
+            text(t);
+            transmit(t, 1, texel);
+            feed(t, b"\x1b7");
+            feed(t, AT);
+            feed(t, &apc(&format!("a=p,i=1,q=2,C=1,c=4,r=1,z={DEEP}"), b""));
+            feed(t, b"\x1b8");
+        },
+        lit,
+    );
+    let e = expect("c=4,r=1", plain.cw(), plain.ch());
+    let [dx, dy, dw, dh] = e.dest;
+    let (ax, ay) = (COL * plain.cw() + dx, ROW * plain.ch() + dy);
+    let (mut wrong, mut seen) = (0, 0);
+    for j in 0..dh {
+        for i in 0..dw {
+            let (x, y) = (ax + i, ay + j);
+            if (x - COL * plain.cw()) / plain.cw() >= 2 {
+                seen += 1;
+                wrong += usize::from(imaged.at(x, y) != plain.at(x, y));
+            }
+        }
+    }
+    assert!(seen > 0, "the premise: the image reaches the lit cells");
+    assert_eq!(wrong, 0, "the cursor and the selection over the image");
+}
+
+#[test]
+fn a_deep_image_appears_goes_and_follows_a_background_on_incremental_frames() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let m = r.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let mut c = Canvas::for_renderer(&r);
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(
+        ImagePx::of(u16::try_from(cw).unwrap()),
+        ImagePx::of(u16::try_from(ch).unwrap()),
+    );
+    feed(&mut t, b"\x1b[?25l");
+    feed(&mut t, SCENE.as_bytes());
+    transmit(&mut t, 1, texel);
+    let mut frame = |t: &mut Term, damage| {
+        r.render(t, &mut c.target(), damage);
+        Frame {
+            c: Canvas {
+                pixels: c.pixels.clone(),
+                width: c.width,
+                height: c.height,
+            },
+            cell: [cw, ch],
+        }
+    };
+    let plain = frame(&mut t, Damage::Full);
+    feed(&mut t, AT);
+    feed(
+        &mut t,
+        &apc(&format!("a=p,i=1,p=1,q=2,C=1,c=4,r=1,z={DEEP}"), b""),
+    );
+    let placed = frame(&mut t, Damage::Incremental);
+    let (wrong, kinds) = deep_misses(&plain, &placed, true);
+    assert!(kinds.iter().all(|&k| k > 0), "the premise {kinds:?}");
+    assert_eq!(wrong, 0, "placed under the red on an incremental frame");
+    // The red space becomes a default one: the image shows through it.
+    feed(&mut t, b"\x1b[3;6H\x1b[0m ");
+    let repainted = frame(&mut t, Damage::Incremental);
+    let e = expect("c=4,r=1", cw, ch);
+    let [dx, dy, dw, dh] = e.dest;
+    let x0 = (COL + 1) * cw;
+    let (mut wrong, mut seen) = (0, 0);
+    for j in 0..dh {
+        for i in 0..dw {
+            let x = COL * cw + dx + i;
+            if (x0..x0 + cw).contains(&x) {
+                let (sx, sy) = source(e, i, j);
+                seen += 1;
+                wrong += usize::from(repainted.at(x, ROW * ch + dy + j) != texel(sx, sy));
+            }
+        }
+    }
+    assert!(seen > 0, "the premise: the image reaches the second cell");
+    assert_eq!(wrong, 0, "a background gone default shows the image");
+    feed(&mut t, &apc("a=d,d=i,i=1,p=1,q=2", b""));
+    feed(&mut t, b"\x1b[3;6H\x1b[41m \x1b[0m");
+    let gone = frame(&mut t, Damage::Incremental);
+    assert!(
+        gone.c.pixels == plain.c.pixels,
+        "deleted, gone without a full frame"
+    );
+}
+
+/// Of four cells at the anchor written by `text`, under a deep image, how
+/// many pixels of the image's drawn rectangle are the frame without it,
+/// and how many in all.
+fn deep_hidden(text: &str) -> (usize, usize) {
+    let write = |t: &mut Term| feed(t, text.as_bytes());
+    let plain = draw(write);
+    let imaged = draw(|t| {
+        write(t);
+        transmit(t, 1, texel);
+        feed(t, AT);
+        feed(t, &apc(&format!("a=p,i=1,q=2,C=1,c=4,r=1,z={DEEP}"), b""));
+    });
+    let e = expect("c=4,r=1", plain.cw(), plain.ch());
+    let [dx, dy, dw, dh] = e.dest;
+    let (ax, ay) = (COL * plain.cw() + dx, ROW * plain.ch() + dy);
+    let mut hidden = 0;
+    for j in 0..dh {
+        for i in 0..dw {
+            hidden += usize::from(imaged.at(ax + i, ay + j) == plain.at(ax + i, ay + j));
+        }
+    }
+    (hidden, usize::try_from(dw * dh).unwrap())
+}
+
+/// The interim readings of the forks the text leaves to "non-default
+/// background colors": a cell is default when the colour its background is
+/// drawn in is the default background, so `SGR 7` on default colours and
+/// every cell under `?5` are not, as kitty compares the drawn colour
+/// (`[[source: kitty-background-slang]]`); and `OSC 11` changes the
+/// default's colour, not which cells have it.
+#[test]
+fn the_default_background_is_the_drawn_one_and_survives_osc_11() {
+    let (hidden, all) = deep_hidden("\x1b[3;5H\x1b[7m    \x1b[0m");
+    assert_eq!(hidden, all, "SGR 7: the background is the foreground's");
+    let (hidden, all) = deep_hidden("\x1b[?5h");
+    assert_eq!(hidden, all, "?5: every background is the foreground's");
+    let (hidden, all) = deep_hidden("\x1b[?5h\x1b[3;5H\x1b[7m    \x1b[0m");
+    assert_eq!(
+        hidden, 0,
+        "?5 and SGR 7 together: the default again, of {all}"
+    );
+    let (hidden, all) = deep_hidden("\x1b]11;rgb:30/00/30\x1b\\");
+    assert_eq!(hidden, 0, "OSC 11: still the default, of {all}");
+    let (hidden, all) = deep_hidden("\x1b[3;5H\x1b[48;5;1m    \x1b[0m");
+    assert_eq!(hidden, all, "a palette background is not the default");
 }

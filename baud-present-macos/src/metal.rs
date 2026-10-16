@@ -58,7 +58,7 @@ use baud_domain::{
 use baud_font::Px;
 use baud_render::effect::{self, Effect};
 use baud_render::{
-    Argb, Atlas, Dirty, Generation, Highlight, ImageLayer, ImagePlacement, Instance, Kind,
+    Argb, Atlas, Dirty, Generation, Ground, Highlight, ImageLayer, ImagePlacement, Instance, Kind,
     MAP_BITS, MAP_SLOTS, MapEntry, Region, Renderer, Replaced, Resolved, Screen, Side, Tally, Tex,
     TexRect,
 };
@@ -202,8 +202,19 @@ impl LatePipe {
         library: &ProtocolObject<dyn MTLLibrary>,
         fragment: &str,
     ) -> Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>> {
+        self.get_as(device, library, ("glyph_vertex", fragment), Blend::Over)
+    }
+
+    /// [`LatePipe::get`], over another vertex function and blend.
+    fn get_as(
+        &mut self,
+        device: &ProtocolObject<dyn MTLDevice>,
+        library: &ProtocolObject<dyn MTLLibrary>,
+        (vertex, fragment): (&str, &str),
+        blend: Blend,
+    ) -> Option<Retained<ProtocolObject<dyn MTLRenderPipelineState>>> {
         if let LatePipe::Unbuilt = self {
-            *self = match pipeline(device, library, "glyph_vertex", fragment, Blend::Over) {
+            *self = match pipeline(device, library, vertex, fragment, blend) {
                 Some(p) => LatePipe::Built(p),
                 None => {
                     eprintln!("baud-present-macos: the {fragment} pipeline would not build");
@@ -480,6 +491,10 @@ pub struct Gpu {
     /// `glyph_vertex` and `image_fragment`: an image placement read
     /// through its tables. Built the first time an image is drawn.
     image_pipe: LatePipe,
+    /// `bg_vertex` and `bg_set_fragment`, replacing: the instance path's
+    /// background pass again over a kitty image below `INT32_MIN/2`. Built
+    /// the first time one is drawn.
+    bg_set_pipe: LatePipe,
     sampler: Retained<ProtocolObject<dyn MTLSamplerState>>,
     /// The text-contrast curves, `baud_domain::contrast::CURVES`, copied
     /// once: `glyph_fragment` reads a mask's coverage through the row its
@@ -488,6 +503,13 @@ pub struct Gpu {
     instances: Vec<Buffer>,
     ring: Ring,
     background: Option<Background>,
+    /// Each cell's [`Ground`], 255 where it is `Set`, for `bg_set_fragment`:
+    /// made and written only on a frame with an image below the
+    /// backgrounds.
+    ground: Option<Background>,
+    /// The bytes it is written from, kept so a frame allocates nothing.
+    ground_bytes: Vec<u8>,
+    grounds: Vec<Ground>,
     mask: Option<Sheet>,
     color: Option<Sheet>,
     /// The atlas generation the sheets were last brought up to.
@@ -841,11 +863,15 @@ impl Gpu {
             quad_pipe: LatePipe::Unbuilt,
             effect_pipes: core::array::from_fn(|_| LatePipe::Unbuilt),
             image_pipe: LatePipe::Unbuilt,
+            bg_set_pipe: LatePipe::Unbuilt,
             sampler,
             curves,
             instances,
             ring: Ring(0),
             background: None,
+            ground: None,
+            ground_bytes: Vec::new(),
+            grounds: Vec::new(),
             mask: None,
             color: None,
             uploaded: None,
@@ -1040,6 +1066,45 @@ impl Gpu {
             });
         }
         self.background.as_ref()
+    }
+
+    /// Writes every cell's [`Ground`] into the ground texture, made at the
+    /// grid's size when it is not: what `bg_set_fragment` reads. `None`
+    /// when no texture could be made.
+    fn ground_for(&mut self, renderer: &Renderer<'_, '_>) -> Option<Texture> {
+        let (cols, rows) = renderer.grid();
+        let stale = self
+            .ground
+            .as_ref()
+            .is_none_or(|b| b.cols.index() != cols.index() || b.rows.index() != rows.index());
+        let (w, h) = (
+            Px::of(u32::try_from(cols.index()).ok()?),
+            Px::of(u32::try_from(rows.index()).ok()?),
+        );
+        if stale {
+            let texture = texture(
+                &self.device,
+                MTLPixelFormat::R8Unorm,
+                w,
+                h,
+                MTLTextureUsage::ShaderRead,
+            )?;
+            self.ground = Some(Background {
+                texture,
+                cols,
+                rows,
+            });
+        }
+        renderer.grounds(&mut self.grounds);
+        self.ground_bytes.clear();
+        self.ground_bytes
+            .extend(self.grounds.iter().map(|g| match g {
+                Ground::Default => 0u8,
+                Ground::Set => 0xFF,
+            }));
+        let ground = self.ground.as_ref()?;
+        upload(&ground.texture, w, h, &self.ground_bytes, Texel::A8);
+        Some(ground.texture.clone())
     }
 
     /// Brings the two sheet textures up to the atlas: a replaced sheet is
@@ -1526,6 +1591,20 @@ impl Gpu {
         // slide, so no pan.
         let images = self.resolve_images(renderer);
         let staged = self.stage_images(&images, Px::of(0));
+        // An image below the backgrounds: the cells' grounds, and the
+        // pipeline that draws the non-default backgrounds over it.
+        let below = match images.iter().any(|d| d.layer == ImageLayer::Below) {
+            true => Some((
+                self.ground_for(renderer)?,
+                self.bg_set_pipe.get_as(
+                    &self.device,
+                    &self.library,
+                    ("bg_vertex", "bg_set_fragment"),
+                    Blend::Replace,
+                )?,
+            )),
+            false => None,
+        };
         let (viewport, pad) = letterbox(target, frame_px);
         let trail = self.trail_draw(renderer, pad);
         let uniforms: [f32; UNIFORM_FLOATS] = [
@@ -1563,6 +1642,18 @@ impl Gpu {
             enc.setScissorRect(scissor(target, pad, grid_px));
             enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4);
             enc.setScissorRect(scissor(target, [0.0, 0.0], target.size()));
+            // Images below the non-default backgrounds, then those
+            // backgrounds again over them, as the CPU's `paint_under`.
+            if let Some((ground, pipe)) = &below {
+                self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Below, frame_px)?;
+                enc.setRenderPipelineState(pipe);
+                enc.setFragmentBytes_length_atIndex(ubytes, ulen, 0);
+                enc.setFragmentTexture_atIndex(Some(&bg_texture), 0);
+                enc.setFragmentTexture_atIndex(Some(ground), 1);
+                enc.setScissorRect(scissor(target, pad, grid_px));
+                enc.drawPrimitives_vertexStart_vertexCount(MTLPrimitiveType::TriangleStrip, 0, 4);
+                enc.setScissorRect(scissor(target, [0.0, 0.0], target.size()));
+            }
             // Images under the text, over the backgrounds, as the CPU
             // compositor blits them into a repainted row.
             self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Under, frame_px)?;
@@ -1694,10 +1785,39 @@ impl Gpu {
                     count.saturating_mul(SHAPES_PER_CELL),
                 ),
             ];
+            let below = images.iter().any(|d| d.layer == ImageLayer::Below);
+            let every: u32 = 0;
+            let only_set: u32 = 1;
+            let word = |w: &u32| NonNull::from(w).cast::<c_void>();
+            let wlen = core::mem::size_of::<u32>();
             for (k, (pipe, instances)) in passes.iter().enumerate() {
                 // Images under the text after the backgrounds, before the
                 // glyphs: the CPU compositor's order in a repainted row.
+                // Those below the non-default backgrounds first, and the
+                // background pass again over them for those cells alone.
                 if k == 1 {
+                    if below {
+                        self.draw_images(
+                            &enc,
+                            &images,
+                            staged.as_ref(),
+                            ImageLayer::Below,
+                            frame_px,
+                        )?;
+                        // `draw_images` bound its own buffers at 0 and 1.
+                        enc.setRenderPipelineState(&self.cell_bg_pipe);
+                        enc.setVertexBuffer_offset_atIndex(Some(&input.grid.0), 0, 0);
+                        enc.setVertexBuffer_offset_atIndex(Some(&input.styles.0), 0, 1);
+                        enc.setVertexBytes_length_atIndex(ubytes, ulen, 2);
+                        enc.setVertexBuffer_offset_atIndex(Some(&input.overlay.0), 0, 4);
+                        enc.setVertexBytes_length_atIndex(word(&only_set), wlen, 5);
+                        enc.drawPrimitives_vertexStart_vertexCount_instanceCount(
+                            MTLPrimitiveType::TriangleStrip,
+                            0,
+                            4,
+                            count,
+                        );
+                    }
                     self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Under, frame_px)?;
                 }
                 let instances = *instances;
@@ -1707,6 +1827,7 @@ impl Gpu {
                 enc.setVertexBytes_length_atIndex(ubytes, ulen, 2);
                 enc.setVertexBuffer_offset_atIndex(Some(&input.map.0), 0, 3);
                 enc.setVertexBuffer_offset_atIndex(Some(&input.overlay.0), 0, 4);
+                enc.setVertexBytes_length_atIndex(word(&every), wlen, 5);
                 enc.setFragmentTexture_atIndex(Some(&mask), 0);
                 enc.setFragmentTexture_atIndex(Some(&color), 1);
                 enc.setFragmentSamplerState_atIndex(Some(&self.sampler), 0);

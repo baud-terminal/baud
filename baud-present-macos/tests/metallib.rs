@@ -297,6 +297,26 @@ fn the_hidden_text_bits_match_the_shader() {
     }
 }
 
+/// **The cell shader reads the default-background bit the CPU resolves**:
+/// `Shapes::DEFAULT_BG` and `SHAPE_DEFAULT_BG` are one fact spelled twice,
+/// and a drift would draw a kitty image below `INT32_MIN/2` over or under
+/// the wrong cells on the cell path alone.
+#[test]
+fn the_default_background_bit_matches_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    let prefix = "#define SHAPE_DEFAULT_BG ";
+    let line = src
+        .lines()
+        .find(|l| l.starts_with(prefix))
+        .expect("shaders.metal defines SHAPE_DEFAULT_BG");
+    let got: u32 = line[prefix.len()..]
+        .trim()
+        .trim_end_matches('u')
+        .parse()
+        .expect("an unsigned literal");
+    assert_eq!(got, baud_render::Shapes::DEFAULT_BG.0, "{line:?}");
+}
+
 /// **The cell shader composes the glyph-map key the CPU builds.** The face
 /// style's bits in a resolved slot, and where they sit in the key, are one
 /// fact spelled in Rust (`Shapes::FACE_SHIFT`, `CellKey::STYLE_SHIFT`) and

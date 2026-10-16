@@ -93,6 +93,28 @@ impl<'p> Target<'p> {
         }
     }
 
+    /// Fills the cells `set` names with their words from `bg`, over the
+    /// rows of `band`, as [`Target::fill_band`] fills them -- replacing
+    /// what is there -- and leaves every other cell and the margin as they
+    /// are.
+    pub fn fill_cells(&mut self, band: Band, bg: &[Argb], cell_w: Px, set: impl Fn(usize) -> bool) {
+        let cell_w = slots(cell_w);
+        let (stride, width) = (slots(self.stride), slots(self.width));
+        for y in self.rows_of(band) {
+            let row = &mut self.pixels[y * stride..y * stride + width];
+            for (c, w) in bg.iter().enumerate() {
+                let x = c * cell_w;
+                let end = (x + cell_w).min(width);
+                if x >= end {
+                    break;
+                }
+                if set(c) {
+                    row[x..end].fill(w.0);
+                }
+            }
+        }
+    }
+
     /// Paints `inst` over the pixels, clipped to the buffer and to the
     /// rows of `band`: a mask in the instance's colour, its coverage bent
     /// by the instance's contrast curve, a colour image as it is, or a solid

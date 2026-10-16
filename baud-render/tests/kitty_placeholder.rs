@@ -517,3 +517,24 @@ fn incremental_frames_show_the_picture_when_it_becomes_drawable() {
         assert_eq!(c.pixels, full(&mut t), "{name}: after");
     }
 }
+
+/// **A placeholder's image is never below its own cells' backgrounds**:
+/// "The background color is interpreted as the background color, visible
+/// if the image is transparent" ("Unicode placeholders"), so the image is
+/// over it, whatever the virtual placement's `z` -- below `INT32_MIN/2`
+/// included, which would put a placement's image under a red background.
+#[test]
+fn a_placeholder_image_is_over_its_cells_background_at_any_z() {
+    let cells = all(4, 3);
+    let sgr = "38;5;42;41";
+    let bare = draw(|t| feed(t, &grid(sgr, &cells, 0, Form::Full)));
+    let under = shown(42, texel, "c=4,r=3,z=-1", &grid(sgr, &cells, 0, Form::Full));
+    assert!(differ(&under, &bare, None) > 0, "the premise: it draws");
+    let deep = shown(
+        42,
+        texel,
+        "c=4,r=3,z=-1073741825",
+        &grid(sgr, &cells, 0, Form::Full),
+    );
+    assert_eq!(differ(&deep, &under, None), 0, "over the red, as at -1");
+}

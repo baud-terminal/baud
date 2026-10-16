@@ -220,6 +220,14 @@ impl Linear {
     }
 }
 
+/// Which of a cell's two colour words a drawn colour came from, through
+/// [`Video::drawn`]'s exchange.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Text,
+    Page,
+}
+
 /// The colours a rendition resolves against. The 256-entry palette is
 /// xterm's by default and an application may repaint it through `OSC 4`,
 /// which the core records and [`Theme::resolve`] reads back.
@@ -400,6 +408,23 @@ impl Theme {
     pub fn set_bg(style: StyleWord, video: Video) -> bool {
         let (_, page) = video.drawn(style.attrs(), style.fg(), style.bg());
         !page.is_default()
+    }
+
+    /// Whether the background `style` draws under `video` is the default
+    /// background colour: the cell's own background word, not exchanged by
+    /// exactly one of `SGR 7` and `?5`, and that word the default. Under
+    /// one exchange the background is the foreground's colour, which is not
+    /// the default background, whatever [`Theme::set_bg`] says of who set
+    /// it. What a kitty image below `INT32_MIN/2` shows through
+    /// (`[[source: kitty-graphics]]`); `OSC 11` changes the colour and not
+    /// the word, so a default cell stays default under it.
+    pub fn default_bg(style: StyleWord, video: Video) -> bool {
+        let (_, page) = video.drawn(
+            style.attrs(),
+            (Side::Text, style.fg()),
+            (Side::Page, style.bg()),
+        );
+        page.0 == Side::Page && page.1.is_default()
     }
 
     /// The foreground and background a rendition draws with, after the

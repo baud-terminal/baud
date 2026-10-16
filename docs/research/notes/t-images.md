@@ -203,8 +203,8 @@ fast path; `f=100` PNG and `o=z` zlib need the PNG and zlib decoder, which is
 `png.rs`, out of baud-core's reach today.
 
 **Placements are separate from images** and carry a signed 32-bit `z` index --
-negative draws below text, and below roughly `INT32_MIN/2` draws below even
-non-default cell backgrounds. This is exactly the screen-space placement table
+negative draws below text, and strictly below `INT32_MIN/2` (-1,073,741,824)
+draws below even non-default cell backgrounds. This is exactly the screen-space placement table
 `s-sixel.md` settles for Sixel (`{ image slot, anchor, z }`), and it is why
 `CellFlags` being full at 16 bits with zero spare is not a blocker: Kitty's own
 model never references an image from a cell. Re-sending the same `(i, p)` image-

@@ -23,6 +23,21 @@ fragment float4 bg_fragment(BgOut in [[stage_in]],
     return float4(c.rgb * c.a, c.a);
 }
 
+// The background pass again, over a kitty image below `INT32_MIN/2`, for
+// the cells whose background is not the default one alone (`ground`, 255
+// for `Ground::Set`, `Renderer::grounds`): it replaces what is under them,
+// so only the default backgrounds show the image. The CPU's `refill_set`.
+fragment float4 bg_set_fragment(BgOut in [[stage_in]],
+                                constant U& u [[buffer(0)]],
+                                texture2d<float, access::read> bg [[texture(0)]],
+                                texture2d<float, access::read> ground [[texture(1)]]) {
+    float2 cf = (in.pos.xy - u.pad) / u.cell;
+    if (cf.x >= u.grid.x || cf.y >= u.grid.y) discard_fragment();
+    if (ground.read(uint2(cf)).r == 0.0) discard_fragment();
+    float4 c = bg.read(uint2(cf));
+    return float4(c.rgb * c.a, c.a);
+}
+
 // `curve` is the text-contrast curve row a mask is bent by
 // (`baud_domain::contrast`): a pixel looks its coverage up in that row.
 struct GOut { float4 pos [[position]]; float2 uv; float4 color; uint kind [[flat]]; uint curve [[flat]]; };
@@ -1126,6 +1141,9 @@ static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint d
 #define SHAPE_BLINK 256u
 #define SHAPE_CONCEAL 512u
 #define SHAPE_RAPID_BLINK 4096u
+// `Shapes::DEFAULT_BG`: the rendition draws the default background colour,
+// pinned by `the_default_background_bit_matches_the_shader`.
+#define SHAPE_DEFAULT_BG 8192u
 // The face style's two bits in a resolved slot's shapes -- the style whose
 // face the cell's text is drawn from, already fallen back by the stack --
 // and where they sit in a glyph-map key, above the 21-bit codepoint. The
@@ -1232,15 +1250,36 @@ static void colors(constant CU& u, device const Style* styles, uint2 cell,
     }
 }
 
+// Whether the cell draws a background that is not the default one: its
+// rendition's `SHAPE_DEFAULT_BG` unset, or selected, or under a block
+// cursor. Must match `Resolved::ground`.
+static bool ground_set(constant CU& u, device const Style* styles, uint2 cell,
+                       uint col, uint row) {
+    Style s = styles[cell.y & 0xffffu];
+    bool block = u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y;
+    return (s.shapes & SHAPE_DEFAULT_BG) == 0u || selected(u, cell.x, col, row) || block;
+}
+
+// `only_set` 1 draws the cells whose background is not the default one
+// alone, a quad of no area for every other: the pass again over a kitty
+// image below `INT32_MIN/2`, as the instance path's `bg_set_fragment`.
 vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uint2* cells [[buffer(0)]],
                               device const Style* styles [[buffer(1)]],
                               constant CU& u [[buffer(2)]],
-                              device const uchar* overlay [[buffer(4)]]) {
+                              device const uchar* overlay [[buffer(4)]],
+                              constant uint& only_set [[buffer(5)]]) {
     uint col = iid % u.grid.x, dr = iid / u.grid.x;
     int lrow = int(dr) - int(u.slide_rows);
+    uint2 cell = cell_at(u, cells, col, dr);
+    if (only_set != 0u && !ground_set(u, styles, cell, col, uint(lrow))) {
+        FlatOut none;
+        none.pos = float4(2.0, 2.0, 0.0, 1.0);
+        none.color = float4(0.0);
+        return none;
+    }
     uint fgw, bgw;
-    colors(u, styles, cell_at(u, cells, col, dr), col, uint(lrow), fgw, bgw);
+    colors(u, styles, cell, col, uint(lrow), fgw, bgw);
     // A cell of a picture drawn in text keeps its background solid under
     // the dim (`MASK_PICTURE`, bit 2 of the overlay). After the swaps is
     // the same as before them: a swap already leaves both sides opaque.
