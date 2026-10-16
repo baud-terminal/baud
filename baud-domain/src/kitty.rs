@@ -529,6 +529,10 @@ pub const KITTY_CONTROL_MAX: usize = 256;
 /// inflate's setup three bytes at a time.
 const STAGE: usize = 512;
 
+/// Octets [`KittyStream::put_run`] decodes into the stack before it hands
+/// them on: 2048 encoded bytes a call.
+const RUN_OCTETS: usize = 1536;
+
 /// The work [`KittyStream::step`] may do in one call, in bytes: compressed
 /// input fed, or scanline and pixel bytes converted. A newtype so an
 /// embedder's budget cannot be read as a pixel count.
@@ -698,6 +702,18 @@ pub struct KittyStream {
     out_len: usize,
     /// What it did.
     pub counts: KittyCounts,
+    /// How the caller fed it, beside what it did.
+    pub feed: KittyFeed,
+}
+
+/// **How a caller handed a stream its body bytes**, kept apart from
+/// [`KittyCounts`]: where the reads fell decides it, so it is not a count
+/// of what the protocol did.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct KittyFeed {
+    /// The calls that handed it body bytes, [`KittyStream::put`]'s and
+    /// [`KittyStream::put_run`]'s.
+    pub runs: usize,
 }
 
 /// What [`KittyStream::put`] did with a byte.
@@ -736,6 +752,7 @@ impl KittyStream {
         next_id: 1,
         outbox: [0; OUTBOX],
         out_len: 0,
+        feed: KittyFeed { runs: 0 },
         counts: KittyCounts {
             commands: 0,
             refused: 0,
@@ -750,11 +767,11 @@ impl KittyStream {
     /// Forget everything in flight: `RIS`, after the store was reset. The
     /// counts stay.
     pub fn reset(&mut self) {
-        let counts = self.counts;
-        let next_id = self.next_id;
+        let (counts, next_id, feed) = (self.counts, self.next_id, self.feed);
         *self = KittyStream::NEW;
         self.counts = counts;
         self.next_id = next_id;
+        self.feed = feed;
     }
 
     /// The replies owed since [`KittyStream::clear_replies`].
@@ -792,6 +809,84 @@ impl KittyStream {
     /// decides the command and is [`KittyByte::Separator`].
     #[inline]
     pub fn put(&mut self, b: u8, store: &mut ImageStore, scratch: &mut [u8]) -> KittyByte {
+        self.feed.runs += 1;
+        self.take(b, store, scratch)
+    }
+
+    /// **A run of body bytes, as [`KittyStream::put`] on each would take
+    /// them**: the control data a byte at a time up to its `;`, then the
+    /// payload through [`Base64::feed`] in one call per [`RUN_OCTETS`] of
+    /// output. Returns [`KittyByte::Separator`] if the run held the `;`;
+    /// whatever it decided is in [`KittyStream::replies`] after it, and the
+    /// payload past it queues none.
+    ///
+    /// **The caller hands only bytes its parser puts in the body**, as it
+    /// would to `put`: the run is the body, already free of the controls
+    /// that end, cancel or are ignored in it.
+    pub fn put_run(&mut self, run: &[u8], store: &mut ImageStore, scratch: &mut [u8]) -> KittyByte {
+        self.feed.runs += 1;
+        let mut said = KittyByte::Taken;
+        let mut at = 0;
+        while let (Chunk::Control, Some(&b)) = (self.chunk, run.get(at)) {
+            if self.take(b, store, scratch) == KittyByte::Separator {
+                said = KittyByte::Separator;
+            }
+            at += 1;
+        }
+        if self.chunk == Chunk::Payload {
+            self.payload_run(&run[at..], store, scratch);
+        }
+        said
+    }
+
+    /// **Payload bytes in bulk**, the octets of each [`Base64::feed`] to
+    /// [`KittyStream::octets`] as the byte path hands it each quantum's.
+    ///
+    /// Two places where the bulk order could differ from the byte path's,
+    /// and each is made the byte path's:
+    ///
+    /// * **A byte that is no base64.** `feed` stops on it without saying
+    ///   how much it wrote, and the octets before it may refuse the load
+    ///   first, as a PNG's header does at its 24th octet. So the decoder's
+    ///   state is put back and the rest of the run goes through
+    ///   [`KittyStream::payload`] a byte at a time, which is the byte path;
+    ///   it is a run that ends the data, once a transmission.
+    /// * **A refusal by the octets.** Past it the byte path decodes nothing,
+    ///   so its decoder is left at the quantum that refused, whole, which
+    ///   [`Base64::finish`] ends with no octets and no error. `feed` has
+    ///   gone on to the end of its window by then, perhaps into a partial
+    ///   quantum or a byte that is no base64, which `finish` would refuse
+    ///   as base64 over the refusal already made. So the decoder starts
+    ///   afresh, which `finish` also ends with nothing.
+    fn payload_run(&mut self, mut run: &[u8], store: &mut ImageStore, scratch: &mut [u8]) {
+        let mut out = [0u8; RUN_OCTETS];
+        while !run.is_empty() {
+            if matches!(self.load, Load::Idle | Load::Refused(_)) {
+                return;
+            }
+            let before = self.b64;
+            let fed = match self.b64.feed(run, &mut out) {
+                Ok(fed) => fed,
+                Err(_) => {
+                    self.b64 = before;
+                    for &b in run {
+                        self.payload(b, store, scratch);
+                    }
+                    return;
+                }
+            };
+            self.octets(&out[..fed.wrote], store, scratch);
+            if matches!(self.load, Load::Refused(_)) {
+                self.b64 = Base64::NEW;
+                return;
+            }
+            run = &run[fed.read..];
+        }
+    }
+
+    /// One body byte, [`KittyStream::put`]'s work.
+    #[inline]
+    fn take(&mut self, b: u8, store: &mut ImageStore, scratch: &mut [u8]) -> KittyByte {
         match self.chunk {
             Chunk::Payload => self.payload(b, store, scratch),
             Chunk::Control if b == b';' => {

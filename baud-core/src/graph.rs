@@ -3519,4 +3519,31 @@ mod classes {
             }
         }
     }
+
+    /// **The bytes `Paint::str_run` hands a kitty stream as one run are
+    /// bytes the body puts, edge for edge**: a run is `run_of_text`'s,
+    /// printable ASCII, and each such byte in an `APC` body is `StrPut`
+    /// back to `SosStr` under both encodings, so taking a run of them in
+    /// one step leaves the parser where taking them one at a time would.
+    /// Every byte the run stops at is checked to be one the scan refuses.
+    #[test]
+    fn a_kitty_run_is_bytes_the_string_body_puts() {
+        for enc in [InputEncoding::Utf8, InputEncoding::Latin1] {
+            for &b in StreamByte::ALL.iter() {
+                if b.is_printable_ascii() {
+                    assert_eq!(
+                        Edge::of(enc, Node::SosStr, b),
+                        edge(Act::StrPut, Node::SosStr),
+                        "{enc:?} {:#04x}",
+                        b.raw_byte()
+                    );
+                }
+            }
+        }
+        for v in [
+            0x00, 0x07, 0x0a, 0x18, 0x1a, 0x1b, 0x1f, 0x7f, 0x80, 0x9c, 0xa0, 0xff,
+        ] {
+            assert!(!StreamByte::ALL[v].is_printable_ascii(), "{v:#04x}");
+        }
+    }
 }

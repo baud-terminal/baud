@@ -254,6 +254,19 @@ pub struct Png<'a> {
     interlace: Interlace,
     palette: Option<&'a [u8]>,
     trns: Option<&'a [u8]>,
+    /// The first `IDAT` chunk, read as the header walk reached it: `None`
+    /// when `IEND` came first. [`Idat::new`] and [`Png::steps`] start
+    /// here, so the chunk's CRC is taken once, by the walk: a single
+    /// `IDAT` of 960,772 bytes, mosaic-blue's, was taken again by each.
+    first_idat: Option<FirstIdat<'a>>,
+}
+
+/// Where the image data begins: the first `IDAT` chunk's data and the
+/// chunk after it.
+#[derive(Clone, Copy)]
+struct FirstIdat<'a> {
+    data: &'a [u8],
+    next: ChunkAt,
 }
 
 const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
@@ -440,6 +453,7 @@ impl<'a> Png<'a> {
             interlace,
             palette: None,
             trns: None,
+            first_idat: None,
         };
         let mut at = ihdr.next;
         loop {
@@ -447,7 +461,14 @@ impl<'a> Png<'a> {
             match &c.kind {
                 b"PLTE" => png.palette = Some(c.data),
                 b"tRNS" => png.trns = Some(c.data),
-                b"IDAT" | b"IEND" => break,
+                b"IDAT" => {
+                    png.first_idat = Some(FirstIdat {
+                        data: c.data,
+                        next: c.next,
+                    });
+                    break;
+                }
+                b"IEND" => break,
                 _ => {}
             }
             at = c.next;
@@ -554,7 +575,7 @@ impl<'a> Png<'a> {
     /// stream the chunks end inside is malformed.
     fn inflate(&self, raw: &mut [u8]) -> Result<(), PngError> {
         let mut z = Inflate::NEW;
-        match z.run(Idat::new(self.data)?, raw) {
+        match z.run(Idat::new(self)?, raw) {
             Ok(Inflated::Done) => Ok(()),
             Ok(Inflated::More) => Err(PngError::Deflate),
             Err(ZlibError::Adler) => Err(PngError::Adler),
@@ -875,28 +896,21 @@ fn paeth_row<const N: usize>(line: &mut [u8], prev: &[u8]) {
 /// end of the image data does.
 struct Idat<'a> {
     data: &'a [u8],
-    /// The first chunk's data, read and checked by [`Idat::new`].
+    /// The first chunk's data, read and checked by the header walk.
     first: Option<&'a [u8]>,
     next: Option<ChunkAt>,
 }
 
 impl<'a> Idat<'a> {
-    fn new(data: &'a [u8]) -> Result<Idat<'a>, PngError> {
-        let mut at = ChunkAt(8);
-        loop {
-            let c = chunk(data, at)?;
-            match &c.kind {
-                b"IDAT" => {
-                    return Ok(Idat {
-                        data,
-                        first: Some(c.data),
-                        next: Some(c.next),
-                    });
-                }
-                b"IEND" => return Err(PngError::Malformed),
-                _ => at = c.next,
-            }
-        }
+    /// From the first `IDAT` the header walk read, CRC and all; an image
+    /// with none is malformed.
+    fn new(png: &Png<'a>) -> Result<Idat<'a>, PngError> {
+        let f = png.first_idat.ok_or(PngError::Malformed)?;
+        Ok(Idat {
+            data: png.data,
+            first: Some(f.data),
+            next: Some(f.next),
+        })
     }
 }
 
@@ -962,27 +976,19 @@ pub enum PngProgress {
 }
 
 impl<'a> Png<'a> {
-    /// A stepped decode of this image, at its first `IDAT` chunk.
+    /// A stepped decode of this image, at its first `IDAT` chunk, which
+    /// the header walk read.
     pub fn steps(&self) -> Result<PngSteps, PngError> {
-        let mut at = ChunkAt(8);
-        loop {
-            let c = chunk(self.data, at)?;
-            match &c.kind {
-                b"IDAT" => {
-                    let start = c.next.0 - 4 - c.data.len();
-                    return Ok(PngSteps {
-                        z: Inflate::NEW,
-                        stage: Stage::Inflate {
-                            at: start,
-                            end: start + c.data.len(),
-                            next: c.next,
-                        },
-                    });
-                }
-                b"IEND" => return Err(PngError::Malformed),
-                _ => at = c.next,
-            }
-        }
+        let f = self.first_idat.ok_or(PngError::Malformed)?;
+        let start = f.next.0 - 4 - f.data.len();
+        Ok(PngSteps {
+            z: Inflate::NEW,
+            stage: Stage::Inflate {
+                at: start,
+                end: start + f.data.len(),
+                next: f.next,
+            },
+        })
     }
 
     /// **Advance `st` by about `budget` bytes of work**: input fed to the
@@ -1278,6 +1284,64 @@ mod tests {
         // the CRC every PNG's empty `IEND` chunk carries.
         assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
         assert_eq!(crc32(b"IEND"), 0xAE42_6082);
+    }
+
+    /// A chunk of `kind` holding `data`, its CRC over both (5.3).
+    fn chunk_bytes(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut c = Vec::new();
+        c.extend_from_slice(&u32::try_from(data.len()).unwrap().to_be_bytes());
+        c.extend_from_slice(kind);
+        c.extend_from_slice(data);
+        c.extend_from_slice(&crc32(&c[4..]).to_be_bytes());
+        c
+    }
+
+    /// A 3x2 RGB PNG whose stream is one `IDAT` behind a `tEXt`, and the
+    /// offset of that `IDAT`'s CRC.
+    fn one_idat() -> (Vec<u8>, usize) {
+        let raw = [0u8, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+        let z = miniz_oxide::deflate::compress_to_vec_zlib(&raw, 6);
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&3u32.to_be_bytes());
+        ihdr.extend_from_slice(&2u32.to_be_bytes());
+        ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
+        let mut png = SIGNATURE.to_vec();
+        png.extend(chunk_bytes(b"IHDR", &ihdr));
+        png.extend(chunk_bytes(b"tEXt", b"k\0v"));
+        png.extend(chunk_bytes(b"IDAT", &z));
+        let crc_at = png.len() - 4;
+        png.extend(chunk_bytes(b"IEND", &[]));
+        (png, crc_at)
+    }
+
+    /// **A first `IDAT` whose CRC disagrees is refused**, by the header
+    /// walk, whichever decode follows: "A CRC should be checked before
+    /// processing the chunk data" (13.2).
+    #[test]
+    fn a_bad_first_idat_crc_is_refused() {
+        let (mut png, crc_at) = one_idat();
+        let (mut raw, mut rgba) = (std::vec![0u8; 64], std::vec![0u8; 64]);
+        let good = Png::parse(&png).expect("good");
+        assert_eq!(good.decode(&mut raw, &mut rgba).ok(), Some(good.size()));
+        png[crc_at] ^= 1;
+        assert_eq!(Png::parse(&png).err(), Some(PngError::Crc));
+    }
+
+    /// **The first `IDAT`'s CRC is taken once, by the header walk**: a
+    /// decode and a stepped decode start from the chunk it read, so over
+    /// bytes [`Png::reparse`] trusts, a bad CRC there is not taken again.
+    /// They walked from the signature and took it a second time.
+    #[test]
+    fn the_first_idat_crc_is_taken_by_the_walk_alone() {
+        let (mut png, crc_at) = one_idat();
+        png[crc_at] ^= 1;
+        let trusted = Png::reparse(&png).expect("trusted");
+        let (mut raw, mut rgba) = (std::vec![0u8; 64], std::vec![0u8; 64]);
+        assert_eq!(
+            trusted.decode(&mut raw, &mut rgba).ok(),
+            Some(trusted.size())
+        );
+        assert!(trusted.steps().is_ok(), "steps took the CRC again");
     }
 
     proptest::proptest! {

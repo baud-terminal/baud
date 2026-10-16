@@ -1325,3 +1325,229 @@ fn a_top_anchored_region_leaves_the_images_it_does_not_scroll() {
     // Its line is unchanged and the window moved past it: a row up.
     assert_eq!(under_top_region(18, "").0, vec![17], "inside, scrolled");
 }
+
+/// **A body reaches the stream a run at a time, not a byte at a time**:
+/// everything after the `G` up to its `ESC \` is printable ASCII, so one
+/// read hands it over in one call. Fed a byte at a time it was one call a
+/// byte, 21,875 here, about 4 ns each: a 1920x1080 `f=32` took 46-47 ms,
+/// all of it feeding (`docs/record.md`, "A kitty payload is fed a run at a
+/// time").
+#[test]
+fn a_body_reaches_the_stream_in_one_call_a_run() {
+    let data = bytes(64 * 64 * 4, 31);
+    let s = apc("a=T,f=32,s=64,v=64,i=3,q=2", &b64(&data));
+    with(1 << 13, |t| {
+        let mut r = Vec::new();
+        feed(t, &s, &mut r);
+        assert_eq!(placed_pixels(t), rgba_pixels(&data), "the pixels sent");
+        assert_eq!(t.kitty_feed().runs, 1, "one run, the body");
+    });
+    let p = png(16, 16, png::ColorType::Rgba, &bytes(16 * 16 * 4, 32), 100);
+    let s = chunked("a=T,f=100,i=4,q=2", "a=T,f=100,q=2", &b64(&p), 512);
+    let chunks = s.windows(3).filter(|w| *w == b"\x1b_G").count();
+    with(1 << 13, |t| {
+        let mut r = Vec::new();
+        feed(t, &s, &mut r);
+        settle(t, &mut r);
+        assert_eq!(t.kitty().images, 1);
+        assert_eq!(t.kitty_feed().runs, chunks, "one run a chunk");
+    });
+}
+
+/// A raw transmission with `extra` spliced into its payload at `at`.
+fn spliced(at: usize, extra: &[u8]) -> (Vec<u8>, Vec<u8>) {
+    let data = bytes(3 * 2 * 4, 40);
+    let mut enc = b64(&data);
+    let tail = enc.split_off(at);
+    enc.extend_from_slice(extra);
+    enc.extend_from_slice(&tail);
+    (apc("a=T,f=32,s=3,v=2,i=7", &enc), data)
+}
+
+/// **A C0 inside the payload is ignored and the run goes on past it**:
+/// `[[source: williams]]`'s `sos/pm/apc string` ignores `00-17`, `19` and
+/// `1C-1F` (426), so the quantum it splits is completed by the bytes after
+/// it, at every read size and every two-read split. `DEL` is put (`20-7F`)
+/// and is no base64, so the data is refused (`[[source: rfc4648-base64]]`
+/// 3.3), as a `=` before the end and a `*` are.
+#[test]
+fn what_interrupts_a_payload_run_is_what_it_was_byte_by_byte() {
+    for at in [1, 2, 3, 4, 13, 30] {
+        for c0 in [&b"\n"[..], b"\0", b"\x07", b"\x08\r", b"\x1f"] {
+            let (s, data) = spliced(at, c0);
+            invariant(64, &s, Splits::Every);
+            with(64, |t| {
+                let mut r = Vec::new();
+                feed(t, &s, &mut r);
+                assert_eq!(placed_pixels(t), rgba_pixels(&data), "{at} {c0:?}");
+                assert_eq!(r, b"\x1b_Gi=7;OK\x1b\\");
+            });
+        }
+        for bad in [&b"\x7f"[..], b"=", b"*", b";"] {
+            let (s, _) = spliced(at, bad);
+            invariant(64, &s, Splits::Every);
+            with(64, |t| {
+                let mut r = Vec::new();
+                feed(t, &s, &mut r);
+                assert_eq!(t.images().placements().count(), 0, "{at} {bad:?}");
+                assert!(r.starts_with(b"\x1b_Gi=7;E"), "{at} {bad:?} {r:?}");
+            });
+        }
+    }
+}
+
+/// **`CAN`, `SUB` and a bare `ESC` cancel the chunk mid-run**:
+/// `[[source: williams]]` makes `18` and `1A` leave any state for ground,
+/// and an `ESC` not followed by `\` begins an escape sequence, so the
+/// string ends with no terminator (`[[source: ctlseqs]]` 201: only `\`
+/// after `ESC` makes `ST`). The upload goes, and the next command is its
+/// own, at every split.
+#[test]
+fn a_cancel_inside_a_payload_run_ends_it_where_it_stands() {
+    for cancel in [&b"\x18"[..], b"\x1a", b"\x1bX", b"\x1b7", b"\x1b_G"] {
+        let (mut s, _) = spliced(9, cancel);
+        // The rest of the payload and its `ST` arrive after the cancel, as
+        // text or as a string of their own; then a whole command.
+        s.extend(apc("a=T,f=24,s=1,v=1,i=2", &b64(&[1, 2, 3])));
+        invariant(64, &s, Splits::Every);
+        with(64, |t| {
+            let mut r = Vec::new();
+            feed(t, &s, &mut r);
+            assert_eq!(t.kitty().cancelled, 1, "{cancel:?}");
+            assert!(r.ends_with(b"\x1b_Gi=2;OK\x1b\\"), "{cancel:?} {r:?}");
+        });
+    }
+}
+
+/// **Under ISO 8859-1 a GR byte of the body is its 7-bit byte, and `9C`
+/// is `ST`**: `[[source: dec-std-070]]` 3.5.4.5 for the first, and `9C` is
+/// the 8-bit `ST` there. Under UTF-8 `9C` is a continuation byte, payload,
+/// and no base64. The run the bulk path takes is GL only, so these bytes
+/// take the byte path, at every split.
+#[test]
+fn gr_payload_and_the_one_byte_st_keep_their_meaning_beside_a_run() {
+    let data = bytes(3 * 2 * 4, 41);
+    let enc = b64(&data);
+    let mut gr = b"\x1b%@\x1b_Ga=T,f=32,s=3,v=2,i=8;".to_vec();
+    gr.extend(enc.iter().enumerate().map(|(k, &b)| match k % 3 {
+        0 => b | 0x80,
+        _ => b,
+    }));
+    gr.push(0x9c);
+    invariant(64, &gr, Splits::Every);
+    with(64, |t| {
+        let mut r = Vec::new();
+        feed(t, &gr, &mut r);
+        assert_eq!(placed_pixels(t), rgba_pixels(&data));
+        assert_eq!(r, b"\x1b_Gi=8;OK\x1b\\");
+    });
+    let mut utf8 = b"\x1b_Ga=T,f=32,s=3,v=2,i=8;".to_vec();
+    utf8.extend_from_slice(&enc[..10]);
+    utf8.push(0x9c);
+    utf8.extend_from_slice(&enc[10..]);
+    utf8.extend_from_slice(b"\x1b\\");
+    invariant(64, &utf8, Splits::Every);
+    with(64, |t| {
+        let mut r = Vec::new();
+        feed(t, &utf8, &mut r);
+        assert_eq!(t.images().placements().count(), 0);
+        assert!(r.starts_with(b"\x1b_Gi=8;E"), "{r:?}");
+    });
+}
+
+/// **A refusal mid-run is the one the byte path made**: a PNG whose
+/// header is refused at its 24th octet, too wide for the arena, and whose
+/// payload then carries a byte that is no base64, answers for the header
+/// and not for the base64: past a refusal the byte path decoded nothing.
+#[test]
+fn a_refusal_inside_a_run_is_the_first_one_byte_by_byte() {
+    let p = png(4000, 1, png::ColorType::Rgb, &vec![9u8; 4000 * 3], 1 << 16);
+    let mut enc = b64_unpadded(&p);
+    enc.truncate(64);
+    enc.extend_from_slice(b"*AAAA");
+    let s = apc("a=T,f=100,i=9", &enc);
+    invariant(64, &s, Splits::Every);
+    let reply = with(64, |t| {
+        let mut r = Vec::new();
+        feed(t, &s, &mut r);
+        settle(t, &mut r);
+        r
+    });
+    assert_eq!(
+        String::from_utf8_lossy(&reply),
+        "\x1b_Gi=9;EINVAL:Image too large for the image arena\x1b\\"
+    );
+}
+
+proptest::proptest! {
+    /// **Any kitty stream, cut anywhere, is the stream fed whole**: raw,
+    /// zlib and PNG transmissions in chunks of any length, a PNG whose
+    /// header is refused among them, with a
+    /// C0, a byte that is no base64, a `CAN`, a `SUB` or a bare `ESC`
+    /// spliced in at any byte, then fed in reads of any size, a byte at
+    /// a time, and in two reads cut anywhere. Run at `PROPTEST_CASES=20000`.
+    #[test]
+    fn any_kitty_stream_cut_anywhere_is_the_stream_fed_whole(
+        kinds in proptest::collection::vec((0u8..4, 1usize..40, 0u32..1000), 1..3),
+        splices in proptest::collection::vec((0usize..10_000, 0usize..10), 0..3),
+        read in 1usize..300,
+        cut in 0usize..10_000,
+    ) {
+        let mut s = Vec::new();
+        for (k, (kind, n, seed)) in kinds.into_iter().enumerate() {
+            let data = bytes(2 * 3 * 4, seed);
+            let (keys, enc) = match kind {
+                0 => ("a=T,f=32,s=2,v=3", b64(&data)),
+                1 => ("a=T,f=32,s=2,v=3,o=z", b64_unpadded(&zlib_mixed(&data))),
+                2 => ("a=T,f=100", b64(&png(2, 3, png::ColorType::Rgba, &data, 9))),
+                // Wider than the arena: refused at its 24th octet, mid-run.
+                _ => ("a=T,f=100", b64(&png(4000, 1, png::ColorType::Rgb, &[7; 12_000], 9))),
+            };
+            // An id, so every outcome is answered and its error compared.
+            s.extend(chunked(&format!("{keys},i={}", k + 1), "", &enc, n));
+        }
+        const SPLICE: [&[u8]; 10] = [
+            b"\n", b"\0", b"\x7f", b"=", b"*", b"\x18", b"\x1a", b"\x1bX", b"\x1b\\", b"\x07",
+        ];
+        for (at, k) in splices {
+            let at = at % (s.len() + 1);
+            let tail = s.split_off(at);
+            s.extend_from_slice(SPLICE[k]);
+            s.extend_from_slice(&tail);
+        }
+        let whole = with(256, |t| {
+            let mut r = Vec::new();
+            feed(t, &s, &mut r);
+            settle(t, &mut r);
+            state(t, &r)
+        });
+        let reads = with(256, |t| {
+            let mut r = Vec::new();
+            for piece in s.chunks(read) {
+                feed(t, piece, &mut r);
+            }
+            settle(t, &mut r);
+            state(t, &r)
+        });
+        proptest::prop_assert_eq!(&reads, &whole, "reads of {}", read);
+        // A byte a read: every run one byte long, the byte path's order.
+        let bytewise = with(256, |t| {
+            let mut r = Vec::new();
+            for piece in s.chunks(1) {
+                feed(t, piece, &mut r);
+            }
+            settle(t, &mut r);
+            state(t, &r)
+        });
+        proptest::prop_assert_eq!(&bytewise, &whole, "a byte a read");
+        let cut = cut % (s.len() + 1);
+        let two = with(256, |t| {
+            let mut r = Vec::new();
+            feed(t, &s[..cut], &mut r);
+            feed(t, &s[cut..], &mut r);
+            settle(t, &mut r);
+            state(t, &r)
+        });
+        proptest::prop_assert_eq!(&two, &whole, "cut at {}", cut);
+    }
+}

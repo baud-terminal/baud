@@ -34,6 +34,16 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// The `n` body bytes at `from`, which the graph puts, at once
+    /// (`Paint::str_run`).
+    pub(crate) fn kitty_run(&mut self, from: BytePos, n: ByteLen) {
+        let run = &self.arena[from.index()..from.index() + n.index()];
+        let s = &mut *self.strs;
+        if s.kitty.put_run(run, self.images, s.kitty_scratch) == KittyByte::Separator {
+            self.kitty_replies();
+        }
+    }
+
     /// The chunk's terminator: the command runs, and the cursor moves past
     /// what it placed.
     #[cold]
@@ -154,5 +164,12 @@ impl Term<'_> {
     /// commands, cancelled chunks, images stored.
     pub fn kitty(&self) -> KittyCounts {
         self.store.strs.kitty.counts
+    }
+
+    /// How the kitty stream was fed ([`KittyFeed`]): one call a byte on
+    /// a per-byte path, one a run on the bulk path. Where the reads fell
+    /// decides it, so it is beside [`Term::kitty`] and not in it.
+    pub fn kitty_feed(&self) -> KittyFeed {
+        self.store.strs.kitty.feed
     }
 }

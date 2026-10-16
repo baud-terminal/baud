@@ -49,10 +49,41 @@ impl Paint<'_, '_> {
         self.cold.str_len = ByteLen::ZERO;
     }
 
-    /// One body byte, truncating rather than growing.
+    /// **What a `StrPut` takes: one body byte, or a kitty payload's run.**
+    /// Out of line, so the parser's loop holds a call and nothing else.
+    ///
+    /// A kitty body is base64 behind a line of keys, and fed a byte at a
+    /// time it cost about 4 ns a byte: a 1920x1080 `f=32` picture took
+    /// 46.0-47.1 ms, all of it here, and 4.7 a run at a time
+    /// (`docs/record.md`, "A kitty payload is fed a run at a time"). So its printable-ASCII run is found as the
+    /// text path finds one (`run_of_text`, the same vector scan) and handed
+    /// to the stream whole. **The run is a subset of what the byte path
+    /// would put, edge for edge**: `20-7E` in `Node::SosStr` is `StrPut`
+    /// back to `SosStr` under both encodings
+    /// (`graph::classes::a_kitty_run_is_bytes_the_string_body_puts`), and
+    /// `gr_as_gl` maps none of them. Everything else -- the `ESC` that may
+    /// begin `ST` (`[[source: ctlseqs]]` 201) or cancel the string
+    /// (`[[source: williams]]`), `CAN`, `SUB`, the C0 the body ignores,
+    /// `DEL`, a GR byte, `9C` under ISO 8859-1 -- ends the run where it
+    /// stands and takes its own edge, so the run is bounded by the read and
+    /// by the first byte the graph treats otherwise.
     #[cold]
     #[inline(never)]
-    pub(crate) fn str_put(&mut self, b: StreamByte) {
+    pub(crate) fn str_run(&mut self, from: BytePos, left: ReadLen) -> ReadLen {
+        if self.cold.str_kind == StrKind::Kitty {
+            let n = crate::write::run_of_text(self, from, left);
+            if n.index() > 0 {
+                self.kitty_run(from, n);
+                return ReadLen::of_bytes(n);
+            }
+        }
+        self.str_put(StreamByte::from_stream(self.arena[from.index()]));
+        ReadLen::ONE
+    }
+
+    /// One body byte, truncating rather than growing.
+    #[inline(always)]
+    fn str_put(&mut self, b: StreamByte) {
         // A Sixel body is decoded as it arrives, a byte at a time, into the
         // gap of the image arena its `q` claimed (`SixelStream`): no copy of
         // it is kept, so no length limits it, and its pixels do.

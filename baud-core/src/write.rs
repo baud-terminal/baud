@@ -678,10 +678,7 @@ pub(crate) fn act(
             p.str_start(StreamByte::from_stream(p.arena[from.index()]), *enc);
             ReadLen::ONE
         }
-        Act::StrPut => {
-            p.str_put(StreamByte::from_stream(p.arena[from.index()]));
-            ReadLen::ONE
-        }
+        Act::StrPut => p.str_run(from, left),
         // The three VT52 arms. Each body is `#[cold] #[inline(never)]`, so
         // what lands in the per-byte loop is a call.
         Act::Bell => {
@@ -829,7 +826,7 @@ pub(crate) fn act(
 /// One subtract and one unsigned compare over sixteen bytes, then a scalar
 /// tail. **Never zero**: the table only names `Text` for a byte that is one.
 #[inline(always)]
-fn run_of_text(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> ByteLen {
+pub(crate) fn run_of_text(p: &Paint<'_, '_>, from: BytePos, left: ReadLen) -> ByteLen {
     let left = left.index();
     let s = StreamByte::slice_from(&p.arena[from.index()..from.index() + left]);
     let mut n = 0usize;
