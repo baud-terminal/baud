@@ -306,10 +306,9 @@ pub const SHM_NAME_MAX: usize = 31;
 #[cfg(not(target_os = "macos"))]
 pub const SHM_NAME_MAX: usize = 255;
 
-/// A mapping's length, as `munmap` takes it: a `size_t`.
+/// A mapping's length, as `munmap` and `madvise` take it: a `size_t`.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-#[cfg(any(target_os = "macos", test))]
 pub struct MapLen(pub usize);
 
 /// `open`'s flag that creates the object, and `mmap`'s that lets a
@@ -319,7 +318,7 @@ pub struct MapLen(pub usize);
 pub const O_CREAT: c_int = 0x200;
 #[cfg(all(test, not(target_os = "macos")))]
 pub const O_CREAT: c_int = 0o100;
-#[cfg(test)]
+#[cfg(any(target_os = "macos", test))]
 pub const PROT_WRITE: c_int = 0x2;
 #[cfg(all(test, not(target_os = "macos")))]
 pub const MAP_SHARED: c_int = 0x1;
@@ -465,6 +464,84 @@ unsafe extern "C" {
     pub fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
 }
 
+// **Freed image pages back to the system** (`pages.rs`). The page size is
+// asked, never assumed: 16 KiB on this Mac and 4 KiB on most Linux, and
+// `madvise` rounds a length up, so a page assumed too small would zero a
+// live neighbour's bytes. Linux gives pages back with `madvise`
+// `MADV_DONTNEED`, after which a private anonymous page reads zero. Darwin
+// does not: measured on this Mac, `MADV_DONTNEED`, `MADV_FREE`,
+// `MADV_FREE_REUSABLE` and `MADV_ZERO` each left `resident_size` where it
+// was, and `MADV_FREE_REUSABLE` lowered only the footprint, kept every
+// page's bytes and needs `MADV_FREE_REUSE` before each write or the
+// footprint under-counts. A fresh anonymous mapping over the pages
+// (`MAP_FIXED`) lowered both and reads zero, as Linux's does.
+unsafe extern "C" {
+    pub fn getpagesize() -> c_int;
+    #[cfg(target_os = "linux")]
+    pub fn madvise(addr: *mut c_void, len: MapLen, advice: c_int) -> c_int;
+}
+
+/// `mmap`'s flag that maps at exactly the address given, replacing what
+/// was there; the same bit on both platforms.
+#[cfg(any(target_os = "macos", test))]
+pub const MAP_FIXED: c_int = 0x10;
+
+/// `mmap`'s flag for memory no file backs, zero-filled: Darwin's bit.
+#[cfg(target_os = "macos")]
+pub const MAP_ANON: c_int = 0x1000;
+
+/// `madvise`'s advice that the pages are not needed: on Linux a private
+/// anonymous page reads zero after it, and stops counting as resident.
+#[cfg(target_os = "linux")]
+pub const MADV_DONTNEED: c_int = 4;
+
+/// A Mach port name, as `mach_task_self` answers it: a `natural_t`.
+#[cfg(all(test, target_os = "macos"))]
+pub type MachPort = c_uint;
+
+/// `task_info`'s flavor for [`MachTaskBasicInfo`], a `natural_t`.
+#[cfg(all(test, target_os = "macos"))]
+pub const MACH_TASK_BASIC_INFO: c_uint = 20;
+
+/// Mach's VM size, sixty-four bits: a byte count in a task's address
+/// space.
+#[cfg(all(test, target_os = "macos"))]
+#[repr(transparent)]
+#[derive(Clone, Copy, Default)]
+pub struct VmSize(pub u64);
+
+/// Seconds and microseconds, Mach's `time_value_t`.
+#[cfg(all(test, target_os = "macos"))]
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct TimeValue {
+    pub seconds: c_int,
+    pub microseconds: c_int,
+}
+
+/// `struct mach_task_basic_info`: what a test reads its own resident
+/// size from, the number that falls when a page is given back --
+/// `getrusage` and `/usr/bin/time -l` report the peak, which never falls.
+#[cfg(all(test, target_os = "macos"))]
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct MachTaskBasicInfo {
+    pub virtual_size: VmSize,
+    pub resident_size: VmSize,
+    pub resident_size_max: VmSize,
+    pub user_time: TimeValue,
+    pub system_time: TimeValue,
+    pub policy: c_int,
+    pub suspend_count: c_int,
+}
+
+#[cfg(all(test, target_os = "macos"))]
+unsafe extern "C" {
+    pub static mach_task_self_: MachPort;
+    pub fn task_info(task: MachPort, flavor: c_uint, info: *mut c_int, count: *mut c_uint)
+    -> c_int;
+}
+
 /// **The declarations above, checked against the platform's own headers.**
 ///
 /// A fixture generated once on one machine could not do this: `TIOCSWINSZ`
@@ -488,8 +565,10 @@ mod tests {
 #include <sys/mman.h>
 #include <termios.h>
 #include <time.h>
+#include <unistd.h>
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
+#include <mach/mach.h>
 #include <sys/posix_shm.h>
 #include <dlfcn.h>
 #include <langinfo.h>
@@ -533,6 +612,8 @@ int main(void) {
     printf("MAP_FAILED=%lld\n", (long long)(intptr_t)MAP_FAILED);
     printf("IUTF8=%lld\n", (long long)IUTF8);
     printf("TCSANOW=%lld\n", (long long)TCSANOW);
+    printf("MAP_FIXED=%lld\n", (long long)MAP_FIXED);
+    printf("getpagesize=%lld\n", (long long)getpagesize());
 #ifdef CLOCK_UPTIME_RAW
     printf("CLOCK_UPTIME_RAW=%lld\n", (long long)CLOCK_UPTIME_RAW);
 #endif
@@ -552,8 +633,17 @@ int main(void) {
     printf("RTLD_NOLOAD=%lld\n", (long long)RTLD_NOLOAD);
     printf("PSHMNAMLEN=%lld\n", (long long)PSHMNAMLEN);
     printf("O_NOFOLLOW_ANY=%lld\n", (long long)O_NOFOLLOW_ANY);
+    printf("MAP_ANON=%lld\n", (long long)MAP_ANON);
+    printf("MACH_TASK_BASIC_INFO=%lld\n", (long long)MACH_TASK_BASIC_INFO);
+    printf("MACH_TASK_BASIC_INFO_COUNT=%lld\n", (long long)MACH_TASK_BASIC_INFO_COUNT);
+    printf("mach_task_basic_info.size=%zu\n", sizeof(struct mach_task_basic_info));
+    printf("mach_task_basic_info.resident_size=%zu\n",
+           offsetof(struct mach_task_basic_info, resident_size));
+    printf("mach_task_basic_info.policy=%zu\n", offsetof(struct mach_task_basic_info, policy));
+    printf("mach_port_t.size=%zu\n", sizeof(mach_port_t));
 #else
     printf("NAME_MAX=%lld\n", (long long)NAME_MAX);
+    printf("MADV_DONTNEED=%lld\n", (long long)MADV_DONTNEED);
 #endif
     return 0;
 }
@@ -561,7 +651,7 @@ int main(void) {
 
     /// The lines the probe prints on every platform, before its
     /// `#ifdef`s: the floor its output is held to.
-    const PRINTED_EVERYWHERE: usize = 36;
+    const PRINTED_EVERYWHERE: usize = 38;
 
     /// Compile and run the probe, or say why it could not.
     fn ask_the_headers() -> std::collections::HashMap<String, i128> {
@@ -643,6 +733,19 @@ int main(void) {
             assert_eq!(h["Boolean.size"], size_of::<CfBoolean>() as i128);
             assert_eq!(h["CFLocaleRef.size"], size_of::<CfLocale>() as i128);
             assert_eq!(h["CFStringRef.size"], size_of::<CfString>() as i128);
+            assert_eq!(
+                h["mach_task_basic_info.size"],
+                size_of::<MachTaskBasicInfo>() as i128
+            );
+            assert_eq!(
+                h["mach_task_basic_info.resident_size"],
+                offset_of!(MachTaskBasicInfo, resident_size) as i128
+            );
+            assert_eq!(
+                h["mach_task_basic_info.policy"],
+                offset_of!(MachTaskBasicInfo, policy) as i128
+            );
+            assert_eq!(h["mach_port_t.size"], size_of::<MachPort>() as i128);
         }
     }
 
@@ -669,6 +772,21 @@ int main(void) {
         assert_eq!(h["MAP_FAILED"], MAP_FAILED as isize as i128);
         assert_eq!(h["IUTF8"], i128::from(IUTF8));
         assert_eq!(h["TCSANOW"], i128::from(TCSANOW));
+        assert_eq!(h["MAP_FIXED"], i128::from(MAP_FIXED));
+        // **The page size is the system's**: what `getpagesize` answers here
+        // is what the headers' program answers.
+        assert_eq!(h["getpagesize"], i128::from(unsafe { getpagesize() }));
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(h["MAP_ANON"], i128::from(MAP_ANON));
+            assert_eq!(h["MACH_TASK_BASIC_INFO"], i128::from(MACH_TASK_BASIC_INFO));
+            assert_eq!(
+                h["MACH_TASK_BASIC_INFO_COUNT"],
+                (size_of::<MachTaskBasicInfo>() / size_of::<c_int>()) as i128
+            );
+        }
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(h["MADV_DONTNEED"], i128::from(MADV_DONTNEED));
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["CLOCK_UPTIME_RAW"], i128::from(CLOCK_UPTIME_RAW));

@@ -21,7 +21,8 @@ impl Paint<'_, '_> {
     #[inline(never)]
     pub(crate) fn kitty_start(&mut self) {
         self.cold.str_kind = StrKind::Kitty;
-        self.strs.kitty.begin(self.images);
+        let s = &mut *self.strs;
+        s.kitty.begin(self.images, s.kitty_scratch);
     }
 
     /// One body byte of a kitty chunk.
@@ -175,6 +176,18 @@ impl Term<'_> {
     /// leaks the reader as it leaks the storage.
     pub fn set_kitty_files(&mut self, files: &'static mut dyn KittyFiles) {
         self.store.strs.kitty.set_files(files);
+    }
+
+    /// **Lend the way freed image pages go back to the operating system**
+    /// ([`PageRelease`]): from here the whole pages inside a freed image's
+    /// span -- a delete, an eviction, `RIS`, `ED 2`, a placement expiring --
+    /// and inside the PNG scratch a decode is done with go to `release`,
+    /// at the free, which is rare, and never on the per-byte path. The
+    /// core makes no system call; with none lent a freed page stays
+    /// committed until an image writes it again. An embedder setting,
+    /// which `RIS` keeps.
+    pub fn set_page_release(&mut self, release: PageRelease) {
+        self.store.images.set_release(release);
     }
 
     /// What the kitty graphics protocol did: commands, refusals, ignored

@@ -16,9 +16,9 @@
 //! type-checked against the Linux target from this Mac and has not yet run
 //! on a compositor.
 //!
-//! `unsafe` lives in `pty.rs`, and in `kitty_files.rs`'s shared-memory
-//! read, which forbid nothing and say why at every call; `app.rs` and
-//! `linux.rs` forbid it.
+//! `unsafe` lives in `pty.rs`, in `kitty_files.rs`'s shared-memory read
+//! and in `pages.rs`'s release of freed image pages, which forbid nothing
+//! and say why at every call; `app.rs` and `linux.rs` forbid it.
 
 #[cfg(target_os = "macos")]
 mod app;
@@ -51,6 +51,9 @@ mod link;
 #[cfg(target_os = "linux")]
 mod linux;
 mod log;
+// Freed image pages back to the system, which both drivers lend the core.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod pages;
 // The theme files `[palette]` names: read at launch by both drivers, and
 // its tests run on every platform.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

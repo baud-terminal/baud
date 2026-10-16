@@ -844,6 +844,11 @@ pub struct KittyStream {
     /// A file medium's payload, decoded: the path or the name.
     path: [u8; KITTY_PATH_MAX],
     path_len: usize,
+    /// One past the highest scratch byte a PNG wrote since its pages were
+    /// last given back: the PNG's bytes, inflated for `o=z`, and the
+    /// scanlines its decode made after them. Given back
+    /// ([`ImageStore::set_release`]) once no PNG holds the scratch.
+    scratch_hi: usize,
     /// What it did.
     pub counts: KittyCounts,
     /// How the caller fed it, beside what it did.
@@ -900,6 +905,7 @@ impl KittyStream {
         files: None,
         path: [0; KITTY_PATH_MAX],
         path_len: 0,
+        scratch_hi: 0,
         counts: KittyCounts {
             commands: 0,
             refused: 0,
@@ -912,8 +918,9 @@ impl KittyStream {
     };
 
     /// Forget everything in flight: `RIS`, after the store was reset. The
-    /// counts stay.
-    pub fn reset(&mut self) {
+    /// counts stay, and the scratch a PNG wrote is given back.
+    pub fn reset(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
+        self.give_back(store, scratch);
         let (counts, next_id, feed) = (self.counts, self.next_id, self.feed);
         let files = self.files.take();
         *self = KittyStream::NEW;
@@ -960,10 +967,11 @@ impl KittyStream {
     /// `SUB` or an `ESC` that did not make `ST` ended it with no terminator
     /// -- and its upload goes with it: half a chunk is not data the client
     /// sent.
-    pub fn begin(&mut self, store: &mut ImageStore) {
+    pub fn begin(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
         if self.chunk != Chunk::Closed {
             self.counts.cancelled += 1;
             self.abort(store);
+            self.settle(store, scratch);
         }
         self.chunk = Chunk::Control;
         self.ctrl_len = 0;
@@ -1073,6 +1081,39 @@ impl KittyStream {
     /// the last chunk of a transmission finishes it, and a command that is
     /// not a transmission runs. Returns how far the cursor moves.
     pub fn end(
+        &mut self,
+        at: &KittyAt,
+        store: &mut ImageStore,
+        scratch: &mut [u8],
+    ) -> Option<KittyMove> {
+        let moved = self.end_chunk(at, store, scratch);
+        self.settle(store, scratch);
+        moved
+    }
+
+    /// **Give the scratch's pages back once no PNG holds it**: none
+    /// loading, none decoding. Every way a PNG's use ends -- decoded,
+    /// refused, aborted, failed -- passes a terminator, a step or a
+    /// cancelling `APC G`, and each settles.
+    fn settle(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
+        let loading = matches!(self.load, Load::Png { .. } | Load::PngZ { .. });
+        let decoding = matches!(self.deferred, Deferred::Png { .. });
+        if self.scratch_hi > 0 && !loading && !decoding {
+            self.give_back(store, scratch);
+        }
+    }
+
+    /// The scratch a PNG wrote, to the store's release.
+    fn give_back(&mut self, store: &mut ImageStore, scratch: &mut [u8]) {
+        let hi = self.scratch_hi.min(scratch.len());
+        self.scratch_hi = 0;
+        if hi > 0 {
+            store.release_span(&mut scratch[..hi]);
+        }
+    }
+
+    /// [`KittyStream::end`]'s work.
+    fn end_chunk(
         &mut self,
         at: &KittyAt,
         store: &mut ImageStore,
@@ -1410,6 +1451,8 @@ impl KittyStream {
                 }
             }
             Load::Png { mut len } => {
+                let reach = len.saturating_add(bytes.len()).min(scratch.len());
+                self.scratch_hi = self.scratch_hi.max(reach);
                 for &x in bytes {
                     match scratch.get_mut(len) {
                         Some(slot) => *slot = x,
@@ -1444,6 +1487,7 @@ impl KittyStream {
             Load::PngZ { need } => {
                 let before = self.z.written();
                 let fed = self.z.feed(&self.stage[..n], &mut scratch[..need]);
+                self.scratch_hi = self.scratch_hi.max(self.z.written().min(need));
                 if before < 24 && self.z.written() >= 24 {
                     if let Err(e) = header_fits(&scratch[..24], self.start.act(), store) {
                         return self.refuse_load(e, store);
@@ -1603,6 +1647,8 @@ impl KittyStream {
             }
         };
         self.png = Some(steps);
+        // The decode makes its scanlines in `[len, len + raw)`.
+        self.scratch_hi = self.scratch_hi.max(len + raw);
         self.defer(Deferred::Png { image, len }, cmd, at, store, scratch)
     }
 
@@ -1744,6 +1790,7 @@ impl KittyStream {
                 }
             }
         }
+        self.settle(store, scratch);
         self.pending()
     }
 

@@ -145,6 +145,10 @@ pub fn run() {
     // The kitty file mediums, read with the text's checks
     // (`kitty_files.rs`); leaked as the storage is.
     term.set_kitty_files(Box::leak(Box::new(crate::kitty_files::LocalFiles::new())));
+    // A deleted picture's pages go back to the system (`pages.rs`).
+    if let Some(release) = crate::pages::release() {
+        term.set_page_release(release);
+    }
     // **No appearance signal is wired here, so `Auto` resolves to dark.**
     // The desktop's preference lives behind `org.freedesktop.appearance`
     // on the portal's settings interface, which this driver does not speak

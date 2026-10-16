@@ -996,6 +996,67 @@ impl ImageRefusals {
     }
 }
 
+/// **How an embedder gives freed pages back to the operating system**: its
+/// page size and a function handed whole, page-aligned pages of memory no
+/// live image holds, which it may unmap or advise away. The store calls it
+/// when an image's span is freed and the kitty stream when a PNG's use of
+/// its scratch ends ([`ImageStore::set_release`]); the core stays `no_std`
+/// and free of `unsafe`, and the system call is the embedder's.
+///
+/// **What the pages hold afterwards is unspecified.** Linux's
+/// `MADV_DONTNEED` reads them back zero; Darwin's `MADV_FREE_REUSABLE`
+/// left every page reading its old bytes, measured on this Mac, and is
+/// not what baud-app calls. Nothing in the store reads a byte of a freed
+/// span before writing it -- a reserve "holds whatever the arena held" --
+/// so the store assumes nothing, and a test lends a function that fills
+/// what it is handed with a pattern no image wrote.
+///
+/// Only whole pages strictly inside the span are handed: its start
+/// rounded up and its end down to the page, so a page a live neighbour
+/// shares is never touched. The page size is the embedder's because a
+/// page smaller than the system's would have the call round outward on
+/// Linux, where `madvise` rounds its length up, and zero a neighbour.
+#[derive(Clone, Copy)]
+pub struct PageRelease {
+    page: usize,
+    give_back: fn(&mut [u8]),
+}
+
+impl PageRelease {
+    /// Pages of `page` bytes, given back through `give_back`; `None`
+    /// unless `page` is a power of two.
+    pub fn new(page: usize, give_back: fn(&mut [u8])) -> Option<PageRelease> {
+        page.is_power_of_two()
+            .then_some(PageRelease { page, give_back })
+    }
+
+    /// The page size this release rounds to.
+    pub fn page(self) -> usize {
+        self.page
+    }
+
+    /// Give back the whole pages strictly inside `span`, and say how many
+    /// bytes they were. Off the per-byte path: once per freed span.
+    #[cold]
+    #[inline(never)]
+    fn release(self, span: &mut [u8]) -> usize {
+        // `align_offset` may answer `usize::MAX` where alignment cannot be
+        // computed; `get_mut` then hands nothing.
+        let lo = span.as_ptr().align_offset(self.page);
+        let Some(rest) = span.get_mut(lo..) else {
+            return 0;
+        };
+        let n = rest.len() - rest.len() % self.page;
+        match n {
+            0 => 0,
+            _ => {
+                (self.give_back)(&mut rest[..n]);
+                n
+            }
+        }
+    }
+}
+
 /// A read view of a stored image: its pixels, its size and how it blends.
 pub struct ImageView<'a> {
     /// The straight ARGB pixels, `width * height` of them, row-major.
@@ -1039,6 +1100,11 @@ pub struct ImageStore<'b> {
     pub placements_refused: usize,
     /// Images freed, by a last placement leaving or an explicit delete.
     pub images_dropped: usize,
+    /// Bytes of freed spans and spent PNG scratch handed to the embedder's
+    /// [`PageRelease`] to give back to the operating system: whole pages,
+    /// so a span smaller than a page or a page a live image shares adds
+    /// nothing. Zero while none is lent.
+    pub bytes_released: usize,
     /// Kitty images deleted to make space for a new one: the oldest with no
     /// placement first, "to make space for the new one"
     /// (`[[source: kitty-graphics]]`, "Image persistence and storage
@@ -1076,6 +1142,8 @@ pub struct ImageStore<'b> {
     /// with the cell height, how far below its anchor any image can reach.
     /// Widened by every store and never narrowed -- a bound, like `reach`.
     tallest: ImagePx,
+    /// The embedder's way to give freed pages back, `None` until lent.
+    release: Option<PageRelease>,
 }
 
 impl<'b> ImageStore<'b> {
@@ -1096,6 +1164,7 @@ impl<'b> ImageStore<'b> {
             refusals: ImageRefusals::NONE,
             placements_refused: 0,
             images_dropped: 0,
+            bytes_released: 0,
             images_evicted: 0,
             placements_expired: 0,
             sixel_p2_ignored: 0,
@@ -1103,6 +1172,37 @@ impl<'b> ImageStore<'b> {
             placed: 0,
             reach: [None; 2],
             tallest: ImagePx::ZERO,
+            release: None,
+        }
+    }
+
+    /// **Lend the way freed pages go back to the operating system**: from
+    /// here every freed image's span and every spent PNG scratch hands its
+    /// whole pages to `release` ([`PageRelease`]). An embedder setting,
+    /// which `RIS` keeps.
+    pub fn set_release(&mut self, release: PageRelease) {
+        self.release = Some(release);
+    }
+
+    /// Hand the whole pages inside `span`, memory no live image holds, to
+    /// the lent release, and count them.
+    pub(crate) fn release_span(&mut self, span: &mut [u8]) {
+        if let Some(r) = self.release {
+            self.bytes_released += r.release(span);
+        }
+    }
+
+    /// **Free slot `i`**: the slot emptied and the whole pages inside its
+    /// span given back. The one place a slot is emptied, so no free keeps
+    /// its pages. The caller counts and moves the epoch.
+    fn forget(&mut self, i: usize) {
+        let Some(s) = self.slots.get_mut(i) else {
+            return;
+        };
+        let (start, end) = (s.start(), s.end());
+        *s = ImageSlot::EMPTY;
+        if let (Some(r), Some(span)) = (self.release, self.pixels.get_mut(start..end)) {
+            self.bytes_released += r.release(span.as_mut_bytes());
         }
     }
 
@@ -1472,7 +1572,7 @@ impl<'b> ImageStore<'b> {
             let s = &mut self.slots[i];
             s.placements = Count::of(s.placements.index().saturating_sub(1));
             if s.placements.index() == 0 && (free == KittyFree::Data || s.goes_with_placements()) {
-                *s = ImageSlot::EMPTY;
+                self.forget(i);
                 self.images_dropped += 1;
                 self.epoch = self.epoch.bumped();
             }
@@ -1487,7 +1587,8 @@ impl<'b> ImageStore<'b> {
     /// many.
     pub fn kitty_free_unplaced(&mut self, hit: impl Fn(KittyId, KittyNumber) -> bool) -> usize {
         let mut n = 0;
-        for s in self.slots.iter_mut() {
+        for i in 0..self.slots.len() {
+            let s = self.slots[i];
             if s.is_empty() || s.placements.index() != 0 {
                 continue;
             }
@@ -1495,7 +1596,7 @@ impl<'b> ImageStore<'b> {
                 continue;
             };
             if hit(kid, num) {
-                *s = ImageSlot::EMPTY;
+                self.forget(i);
                 self.images_dropped += 1;
                 n += 1;
             }
@@ -1648,7 +1749,7 @@ impl<'b> ImageStore<'b> {
         let left = s.placements.index().saturating_sub(1);
         s.placements = Count::of(left);
         if left == 0 && s.goes_with_placements() {
-            *s = ImageSlot::EMPTY;
+            self.forget(i);
             self.images_dropped += 1;
             self.epoch = self.epoch.bumped();
         }
@@ -1680,8 +1781,8 @@ impl<'b> ImageStore<'b> {
             return;
         }
         let Some(i) = id.index() else { return };
-        match self.slots.get_mut(i) {
-            Some(s) if !s.is_empty() => *s = ImageSlot::EMPTY,
+        match self.slots.get(i) {
+            Some(s) if !s.is_empty() => self.forget(i),
             _ => return,
         }
         for p in self.placements.iter_mut() {
@@ -1710,8 +1811,10 @@ impl<'b> ImageStore<'b> {
     /// screen drops only that screen's, through
     /// [`ImageStore::expire_screen`].
     pub fn reset(&mut self) {
-        for s in self.slots.iter_mut() {
-            *s = ImageSlot::EMPTY;
+        for i in 0..self.slots.len() {
+            if !self.slots[i].is_empty() {
+                self.forget(i);
+            }
         }
         for p in self.placements.iter_mut() {
             *p = PlacementSlot::EMPTY;

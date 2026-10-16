@@ -622,7 +622,11 @@ impl Owned {
     /// **Nothing is written here.** The arena, the kitty query probe and the
     /// PNG scratch come from zeroed memory ([`Pixel::zeroed_vec`],
     /// `vec![0u8; n]`), so a page is committed when an image first writes
-    /// it and an idle terminal pays for none of it.
+    /// it and an idle terminal pays for none of it. Once the image is
+    /// freed, or the PNG decoded, its whole pages go back to the system
+    /// through the release an embedder lends ([`Term::set_page_release`]);
+    /// with none lent they stay committed until an image writes them
+    /// again.
     pub fn with_images(mut self, budget: ImageBudget) -> Owned {
         self.img_pixels = Pixel::zeroed_vec(budget.pixels);
         self.img_probe = Pixel::zeroed_vec(budget.probe());

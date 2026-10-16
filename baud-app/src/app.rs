@@ -1040,6 +1040,10 @@ impl App {
         // The kitty file mediums, read with the text's checks; leaked as
         // the storage is, for a `Term<'static>`.
         term.set_kitty_files(Box::leak(Box::new(crate::kitty_files::LocalFiles::new())));
+        // A deleted picture's pages go back to the system (`pages.rs`).
+        if let Some(release) = crate::pages::release() {
+            term.set_page_release(release);
+        }
         let widths = crate::width::Widths::new(&term);
         App {
             bell,

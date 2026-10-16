@@ -2951,8 +2951,9 @@ impl Paint<'_, '_> {
         // drops that screen's alone.
         self.images.reset();
         // The kitty transmission in flight and any decode pending name
-        // images the reset just dropped.
-        self.strs.kitty.reset();
+        // images the reset just dropped; the scratch a PNG wrote goes back.
+        let s = &mut *self.strs;
+        s.kitty.reset(self.images, s.kitty_scratch);
         self.reset_tabs();
         self.last_cp = None;
         self.goto(Row::ZERO, Col::ZERO);

@@ -83,7 +83,7 @@ fn command(k: &mut KittyStream, store: &mut ImageStore, body: &[u8]) {
         cell_h: ImagePx::of(20),
     };
     let mut scratch = [0u8; 0];
-    k.begin(store);
+    k.begin(store, &mut scratch);
     for &b in body {
         k.put(b, store, &mut scratch);
     }
@@ -151,7 +151,7 @@ fn a_lent_reader_serves_the_file_mediums_and_ris_keeps_it() {
         k.replies(),
         b"\x1b_Gi=1;EBADF:Failed to read image file\x1b\\"
     );
-    k.reset();
+    k.reset(&mut store, &mut []);
     assert_eq!(k.mediums(), KittyMediums::Local, "RIS keeps the reader");
 }
 
