@@ -4530,7 +4530,8 @@ You parked Kitty graphics on 2026-09-23.
 
 **Today**
 
-- **A suitable decoder already exists:** `baud-font/src/png.rs`.
+- **A suitable decoder already exists:** `baud-font`'s `png.rs`, at
+  `baud-domain/src/png.rs` since step 2 (2026-10-15).
   - It is `no_std` (builds without Rust's standard library),
     `forbid(unsafe_code)`, and works over buffers the caller provides.
   - It handles every colour type and bit depth, the five filters, every
@@ -4656,7 +4657,8 @@ measurements, not as settled.**
 **Design**
 
 **Now, documents only:** each of the six places says instead that
-`baud-font/src/png.rs` is a `no_std`, alloc-free, `forbid(unsafe)` PNG and
+`baud-font`'s `png.rs` (`baud-domain/src/png.rs` since step 2) is a
+`no_std`, alloc-free, `forbid(unsafe)` PNG and
 zlib decoder, with its limits (~~no Adam7;~~ Adam7 read since 2026-10-15;
 bit-at-a-time Huffman; whole input contiguous). The Kitty row's reason becomes "parked by the owner; the real
 prerequisite is alpha".
@@ -4715,7 +4717,8 @@ lean:
        text binds the client and says nothing of what a terminal does with a
        longer chunk, so no text is departed from. **(b)** refuse what breaks
        the client's rules: the letter enforced, and kitten 0.49.2 shows no
-       picture whose base64 is longer than 4096 bytes. No lean.
+       picture whose base64 is longer than 4096 bytes. ~~No lean.~~ **Jev
+       decided (a), 2026-10-15, 0.90/0.92**; the owner can veto.
 1. **Alpha.**
    - *Fork:* a full alpha arena, or thresholding to opaque-or-clear, which is
      cheap, touches no render path and gives jagged edges. **Lean: full
@@ -4733,7 +4736,11 @@ lean:
      1.00). `Pixel` is straight `0xAARRGGBB`, each image `OpaqueOrClear` or
      `Partial` (the record, "Images keep straight alpha, and a partial one
      repaints its rows").
-2. **Where the decoder lives.**
+2. ~~**Where the decoder lives.**~~ **Done 2026-10-15**, in baud-domain
+   (the owner's pick): `baud-domain/src/png.rs`, `baud-domain/src/zlib.rs`
+   (inflate fed a read at a time, over any source of slices) and
+   `Base64::feed` (chunks of any length, Jev's (a)); the record, "The
+   decoders move to baud-domain, and inflate resumes across reads".
    - *Fork:* baud-domain, or a new leaf codec crate. **Lean: baud-domain**,
      which baud-core and baud-font both already depend on, and where t-images
      puts image decode. A new crate is viable too: `scripts/check-features.sh`
@@ -4771,8 +4778,10 @@ lean:
      `Storage` of the `sixel_body` shape.
    - Raw formats without compression base64-decode straight into the reserved
      arena.
-   - Compressed formats and PNG go through the scratch, because png.rs's
-     inflate is not resumable.
+   - ~~Compressed formats and PNG go through the scratch, because png.rs's
+     inflate is not resumable.~~ Since step 2, `o=z` can inflate straight
+     into the arena as its chunks arrive (`zlib::Inflate::feed`); PNG still
+     goes through the scratch, because png.rs reads its container whole.
    - Every declared size (width x height, `S`, the PNG header's width and
      height) is checked against `ImageBudget` before anything is reserved, and
      a refusal is counted.

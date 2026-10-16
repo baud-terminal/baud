@@ -1,13 +1,15 @@
 //! PNG, decoded to RGBA8 (`[[source: w3c-png-2003]]`; the compression is
 //! zlib over deflate, `[[source: rfc1950-zlib]]` and `[[source: rfc1951-deflate]]`).
 //!
-//! **Why a PNG decoder lives in a font crate.** Colour emoji arrive as PNG
-//! strikes -- Apple Color Emoji's `sbix` carries 31,707 of them on this Mac,
-//! Noto Color Emoji's `CBDT` carries thousands more -- and "no engine
-//! dependencies" covers image libraries too. The decoder is the smallest
-//! complete one: every colour type and bit depth the specification allows,
-//! the five filters, both interlace methods, stored, fixed and dynamic
-//! deflate blocks, CRC-32 on every chunk and Adler-32 on the stream.
+//! **Why it lives here.** Two crates decode PNG: `baud-font` its colour
+//! emoji strikes -- Apple Color Emoji's `sbix` carries 31,707 of them on this
+//! Mac, Noto Color Emoji's `CBDT` thousands more -- and the core a kitty
+//! `f=100` picture (note V, V19 step 2: "In baud-domain", the owner,
+//! 2026-10-15). Both depend on this crate, and "no engine dependencies"
+//! covers image libraries too. The decoder is the smallest complete one:
+//! every colour type and bit depth the specification allows, the five
+//! filters, both interlace methods, CRC-32 on every chunk, and the zlib
+//! stream through [`crate::zlib`], which checks its Adler-32.
 //!
 //! **Adam7 is read, because PNG requires it**: "Decoders are required to be
 //! able to read interlaced images" (13.10; 15.2.3 asks for "all the
@@ -27,15 +29,12 @@
 //! through it, which is the same shape as the core's caller-provided
 //! `Storage`.
 //!
-//! **Huffman decoding is the canonical bit-at-a-time walk** the
-//! specification describes in 3.2.2: codes of each length are consecutive,
-//! so a symbol is found by counting how many codes of each length precede
-//! it. It is a few dozen lines, needs a 16-entry count array and a 288-entry
-//! symbol array, and costs a handful of instructions per bit -- an emoji
-//! strike is a few kilobytes, decoded once per glyph and then cached in the
-//! atlas, so the table-driven fast forms are not worth their size here.
+//! **The container is read whole; the stream inside it is not.** `parse`
+//! and `decode` take the file's bytes in one slice. The `IDAT` chunks are
+//! handed to [`Inflate::run`] one by one as a source of slices, the same
+//! resumable inflate a caller with a stream split across reads feeds itself.
 
-use crate::bytes::{Bytes, Len, Offset};
+use crate::zlib::{Inflate, Inflated, ZlibError};
 
 /// A decoded image's dimensions, in pixels.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -247,13 +246,13 @@ const ADAM7: [Pass; 7] = {
 /// A parsed header: enough to size the buffers and to walk the chunks.
 #[derive(Clone, Copy)]
 pub struct Png<'a> {
-    data: Bytes<'a>,
+    data: &'a [u8],
     size: Size,
     depth: u8,
     color: Color,
     interlace: Interlace,
-    palette: Option<Bytes<'a>>,
-    trns: Option<Bytes<'a>>,
+    palette: Option<&'a [u8]>,
+    trns: Option<&'a [u8]>,
 }
 
 const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
@@ -294,36 +293,42 @@ fn crc32(bytes: &[u8]) -> u32 {
 /// One chunk: its type and its data, already CRC-checked.
 struct Chunk<'a> {
     kind: [u8; 4],
-    data: Bytes<'a>,
-    next: Offset,
+    data: &'a [u8],
+    next: ChunkAt,
 }
 
-fn chunk(data: Bytes<'_>, at: Offset) -> Result<Chunk<'_>, PngError> {
-    let len: u32 = data.read(at).ok_or(PngError::Malformed)?;
-    let kind_at = at.plus(Len::of(4)).ok_or(PngError::Malformed)?;
-    let body_at = kind_at.plus(Len::of(4)).ok_or(PngError::Malformed)?;
-    let crc_at = body_at.plus(Len::of(len)).ok_or(PngError::Malformed)?;
-    let next = crc_at.plus(Len::of(4)).ok_or(PngError::Malformed)?;
+/// Where a chunk starts in the file: its length field's first byte.
+#[derive(Clone, Copy)]
+struct ChunkAt(usize);
+
+/// The big-endian `u32` at the start of `bytes`, which holds at least four.
+fn be32(bytes: &[u8]) -> Option<u32> {
+    Some(u32::from_be_bytes(bytes.get(..4)?.try_into().ok()?))
+}
+
+fn chunk(data: &[u8], at: ChunkAt) -> Result<Chunk<'_>, PngError> {
+    let at = at.0;
+    let len = be32(data.get(at..).ok_or(PngError::Malformed)?).ok_or(PngError::Malformed)?;
+    let len = usize::try_from(len).map_err(|_| PngError::Malformed)?;
+    let kind_at = at.checked_add(4).ok_or(PngError::Malformed)?;
+    let body_at = kind_at.checked_add(4).ok_or(PngError::Malformed)?;
+    let crc_at = body_at.checked_add(len).ok_or(PngError::Malformed)?;
+    let next = crc_at.checked_add(4).ok_or(PngError::Malformed)?;
     // Type and body together are what the CRC covers.
-    let covered = data
-        .slice(
-            kind_at,
-            Len::of(len.checked_add(4).ok_or(PngError::Malformed)?),
-        )
-        .ok_or(PngError::Malformed)?;
-    let stored: u32 = data.read(crc_at).ok_or(PngError::Malformed)?;
-    if crc32(covered.as_slice()) != stored {
+    let covered = data.get(kind_at..crc_at).ok_or(PngError::Malformed)?;
+    let stored =
+        be32(data.get(crc_at..next).ok_or(PngError::Malformed)?).ok_or(PngError::Malformed)?;
+    if crc32(covered) != stored {
         return Err(PngError::Crc);
     }
-    let kind_bytes = data.slice(kind_at, Len::of(4)).ok_or(PngError::Malformed)?;
-    let mut kind = [0u8; 4];
-    kind.copy_from_slice(kind_bytes.as_slice());
+    let kind: [u8; 4] = covered
+        .get(..4)
+        .and_then(|k| k.try_into().ok())
+        .ok_or(PngError::Malformed)?;
     Ok(Chunk {
         kind,
-        data: data
-            .slice(body_at, Len::of(len))
-            .ok_or(PngError::Malformed)?,
-        next,
+        data: &covered[4..],
+        next: ChunkAt(next),
     })
 }
 
@@ -331,39 +336,34 @@ impl<'a> Png<'a> {
     /// Parses the signature, `IHDR`, and the `PLTE`/`tRNS` chunks that
     /// precede the image data; checks every chunk's CRC on the way.
     pub fn parse(bytes: &'a [u8]) -> Result<Png<'a>, PngError> {
-        let data = Bytes::new(bytes);
+        let data = bytes;
         if bytes.get(..8) != Some(&SIGNATURE) {
             return Err(PngError::Malformed);
         }
-        let ihdr = chunk(data, Offset::of(8u32))?;
-        if ihdr.kind != *b"IHDR" || ihdr.data.len().value() != 13 {
+        let ihdr = chunk(data, ChunkAt(8))?;
+        let &[
+            w0,
+            w1,
+            w2,
+            w3,
+            h0,
+            h1,
+            h2,
+            h3,
+            depth,
+            color,
+            compression,
+            filter,
+            interlace,
+        ] = ihdr.data
+        else {
+            return Err(PngError::Malformed);
+        };
+        if ihdr.kind != *b"IHDR" {
             return Err(PngError::Malformed);
         }
-        let width: u32 = ihdr.data.read(Offset::ZERO).ok_or(PngError::Malformed)?;
-        let height: u32 = ihdr
-            .data
-            .read(Offset::of(4u32))
-            .ok_or(PngError::Malformed)?;
-        let depth: u8 = ihdr
-            .data
-            .read(Offset::of(8u32))
-            .ok_or(PngError::Malformed)?;
-        let color: u8 = ihdr
-            .data
-            .read(Offset::of(9u32))
-            .ok_or(PngError::Malformed)?;
-        let compression: u8 = ihdr
-            .data
-            .read(Offset::of(10u32))
-            .ok_or(PngError::Malformed)?;
-        let filter: u8 = ihdr
-            .data
-            .read(Offset::of(11u32))
-            .ok_or(PngError::Malformed)?;
-        let interlace: u8 = ihdr
-            .data
-            .read(Offset::of(12u32))
-            .ok_or(PngError::Malformed)?;
+        let width = u32::from_be_bytes([w0, w1, w2, w3]);
+        let height = u32::from_be_bytes([h0, h1, h2, h3]);
         let color = Color::parse(color).ok_or(PngError::Header)?;
         if !color.allows(depth) || compression != 0 || filter != 0 {
             return Err(PngError::Header);
@@ -495,54 +495,17 @@ impl<'a> Png<'a> {
         Ok(self.size)
     }
 
-    /// The `IDAT` chunks in order, as one zlib stream, inflated into `raw`.
+    /// The `IDAT` chunks in order, as one zlib stream, inflated into `raw`:
+    /// each chunk's data is one slice of [`Inflate::run`]'s source, and a
+    /// stream the chunks end inside is malformed.
     fn inflate(&self, raw: &mut [u8]) -> Result<(), PngError> {
-        let mut input = Idat::new(self.data)?;
-        // RFC 1950: CMF and FLG; CM must be 8 (deflate), the pair must be a
-        // multiple of 31, and a preset dictionary is not allowed in PNG.
-        let cmf = input.byte().ok_or(PngError::Deflate)?;
-        let flg = input.byte().ok_or(PngError::Deflate)?;
-        if cmf & 0x0f != 8 || (u16::from(cmf) * 256 + u16::from(flg)) % 31 != 0 || flg & 0x20 != 0 {
-            return Err(PngError::Deflate);
+        let mut z = Inflate::NEW;
+        match z.run(Idat::new(self.data)?, raw) {
+            Ok(Inflated::Done) => Ok(()),
+            Ok(Inflated::More) => Err(PngError::Deflate),
+            Err(ZlibError::Adler) => Err(PngError::Adler),
+            Err(_) => Err(PngError::Deflate),
         }
-        let mut out = Out { buf: raw, len: 0 };
-        let mut bits = BitReader {
-            input,
-            bits: 0,
-            count: 0,
-        };
-        loop {
-            let last = bits.take(1)?;
-            let kind = bits.take(2)?;
-            match kind {
-                0 => stored(&mut bits, &mut out)?,
-                1 => {
-                    let (lit, dist) = fixed_tables();
-                    codes(&mut bits, &mut out, &lit, &dist)?;
-                }
-                2 => {
-                    let (lit, dist) = dynamic_tables(&mut bits)?;
-                    codes(&mut bits, &mut out, &lit, &dist)?;
-                }
-                _ => return Err(PngError::Deflate),
-            }
-            if last == 1 {
-                break;
-            }
-        }
-        if out.len != out.buf.len() {
-            return Err(PngError::Deflate);
-        }
-        // Adler-32 over the inflated bytes, big-endian in the trailer.
-        bits.align();
-        let mut adler = [0u8; 4];
-        for b in &mut adler {
-            *b = bits.input.byte().ok_or(PngError::Deflate)?;
-        }
-        if adler32(out.buf) != u32::from_be_bytes(adler) {
-            return Err(PngError::Adler);
-        }
-        Ok(())
     }
 
     /// Reconstructs every scanline of one reduced image of `size` pixels in
@@ -636,7 +599,9 @@ impl<'a> Png<'a> {
             let slots = rgba
                 .get_mut(start..end)
                 .ok_or(PngError::Buffer)?
-                .chunks_exact_mut(4);
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut();
             // A step of 1 is the null method's and pass 7's; it is its own
             // loop so that it has no step to take.
             if dx == 1 {
@@ -648,18 +613,20 @@ impl<'a> Png<'a> {
         Ok(())
     }
 
-    /// One scanline's pixels to RGBA8, into `slots` in order. Sixteen-bit
-    /// samples keep their high byte; sub-byte grey scales to the full range;
-    /// palette indices look up `PLTE` with `tRNS` alpha; a `tRNS` colour key
-    /// on grey and RGB images makes that one colour transparent (11.3.2.1).
+    /// One scanline's pixels to RGBA8, into `slots` in order, each an array
+    /// store rather than a `copy_from_slice` (`zlib.rs`'s stored-block copy
+    /// says why). Sixteen-bit samples keep their high byte; sub-byte grey
+    /// scales to the full range; palette indices look up `PLTE` with `tRNS`
+    /// alpha; a `tRNS` colour key on grey and RGB images makes that one
+    /// colour transparent (11.3.2.1).
     fn pixels<'p>(
         &self,
         line: &[u8],
-        slots: impl Iterator<Item = &'p mut [u8]>,
+        slots: impl Iterator<Item = &'p mut [u8; 4]>,
     ) -> Result<(), PngError> {
         let depth = usize::from(self.depth);
-        let palette = self.palette.map(Bytes::as_slice).unwrap_or(&[]);
-        let trns = self.trns.map(Bytes::as_slice).unwrap_or(&[]);
+        let palette = self.palette.unwrap_or(&[]);
+        let trns = self.trns.unwrap_or(&[]);
         for (x, px) in slots.enumerate() {
             match self.color {
                 Color::Gray => {
@@ -670,7 +637,7 @@ impl<'a> Png<'a> {
                     } else {
                         255
                     };
-                    px.copy_from_slice(&[g, g, g, a]);
+                    *px = [g, g, g, a];
                 }
                 Color::Palette => {
                     let i = usize::from(
@@ -678,13 +645,13 @@ impl<'a> Png<'a> {
                     );
                     let rgb = palette.get(i * 3..i * 3 + 3).ok_or(PngError::Palette)?;
                     let a = trns.get(i).copied().unwrap_or(255);
-                    px.copy_from_slice(&[rgb[0], rgb[1], rgb[2], a]);
+                    *px = [rgb[0], rgb[1], rgb[2], a];
                 }
                 Color::GrayAlpha => {
                     let s = depth / 8;
                     let g = line[x * 2 * s];
                     let a = line[x * 2 * s + s];
-                    px.copy_from_slice(&[g, g, g, a]);
+                    *px = [g, g, g, a];
                 }
                 Color::Rgb => {
                     let s = depth / 8;
@@ -695,17 +662,12 @@ impl<'a> Png<'a> {
                     } else {
                         255
                     };
-                    px.copy_from_slice(&[r8, g8, b8, a]);
+                    *px = [r8, g8, b8, a];
                 }
                 Color::Rgba => {
                     let s = depth / 8;
                     let at = x * 4 * s;
-                    px.copy_from_slice(&[
-                        line[at],
-                        line[at + s],
-                        line[at + 2 * s],
-                        line[at + 3 * s],
-                    ]);
+                    *px = [line[at], line[at + s], line[at + 2 * s], line[at + 3 * s]];
                 }
             }
         }
@@ -770,36 +732,28 @@ fn paeth(a: u8, b: u8, c: u8) -> u8 {
     }
 }
 
-fn adler32(bytes: &[u8]) -> u32 {
-    let mut a = 1u32;
-    let mut b = 0u32;
-    for &x in bytes {
-        a = (a + u32::from(x)) % 65521;
-        b = (b + a) % 65521;
-    }
-    (b << 16) | a
-}
-
-/// The `IDAT` chunks as one byte stream.
+/// The `IDAT` chunks' data, in order: the first one and every one that
+/// follows it with no other chunk between (table 5.3, "Multiple IDAT
+/// chunks shall be consecutive"). A chunk that fails its CRC ends the run, as the
+/// end of the image data does.
 struct Idat<'a> {
-    data: Bytes<'a>,
-    chunk: Bytes<'a>,
-    pos: usize,
-    next: Offset,
+    data: &'a [u8],
+    /// The first chunk's data, read and checked by [`Idat::new`].
+    first: Option<&'a [u8]>,
+    next: Option<ChunkAt>,
 }
 
 impl<'a> Idat<'a> {
-    fn new(data: Bytes<'a>) -> Result<Idat<'a>, PngError> {
-        let mut at = Offset::of(8u32);
+    fn new(data: &'a [u8]) -> Result<Idat<'a>, PngError> {
+        let mut at = ChunkAt(8);
         loop {
             let c = chunk(data, at)?;
             match &c.kind {
                 b"IDAT" => {
                     return Ok(Idat {
                         data,
-                        chunk: c.data,
-                        pos: 0,
-                        next: c.next,
+                        first: Some(c.data),
+                        next: Some(c.next),
                     });
                 }
                 b"IEND" => return Err(PngError::Malformed),
@@ -807,313 +761,21 @@ impl<'a> Idat<'a> {
             }
         }
     }
-
-    fn byte(&mut self) -> Option<u8> {
-        loop {
-            if let Some(&b) = self.chunk.as_slice().get(self.pos) {
-                self.pos += 1;
-                return Some(b);
-            }
-            // The next IDAT, or the end of the image data.
-            let c = chunk(self.data, self.next).ok()?;
-            if c.kind != *b"IDAT" {
-                return None;
-            }
-            self.chunk = c.data;
-            self.pos = 0;
-            self.next = c.next;
-        }
-    }
 }
 
-/// Deflate's bit order: least-significant bit first from each byte (3.1.1).
-struct BitReader<'a> {
-    input: Idat<'a>,
-    bits: u32,
-    count: u32,
-}
+impl<'a> Iterator for Idat<'a> {
+    type Item = &'a [u8];
 
-impl BitReader<'_> {
-    fn take(&mut self, n: u32) -> Result<u32, PngError> {
-        while self.count < n {
-            let b = self.input.byte().ok_or(PngError::Deflate)?;
-            self.bits |= u32::from(b) << self.count;
-            self.count += 8;
+    /// The next chunk is read only when the inflate asks for more, so a
+    /// chunk after the stream's end is never checked, as before the move.
+    fn next(&mut self) -> Option<&'a [u8]> {
+        if let Some(first) = self.first.take() {
+            return Some(first);
         }
-        let v = self.bits & ((1u32 << n) - 1);
-        self.bits >>= n;
-        self.count -= n;
-        Ok(v)
-    }
-
-    /// Drops the bits left in the current byte (a stored block, the trailer).
-    fn align(&mut self) {
-        self.bits = 0;
-        self.count = 0;
-    }
-}
-
-struct Out<'b> {
-    buf: &'b mut [u8],
-    len: usize,
-}
-
-impl Out<'_> {
-    fn push(&mut self, b: u8) -> Result<(), PngError> {
-        *self.buf.get_mut(self.len).ok_or(PngError::Deflate)? = b;
-        self.len += 1;
-        Ok(())
-    }
-
-    /// A back-reference: `run` bytes from `back` behind the write position,
-    /// byte by byte so an overlapping copy repeats as the format intends.
-    fn copy(&mut self, run: Run, back: Back) -> Result<(), PngError> {
-        if back.0 == 0 || back.0 > self.len {
-            return Err(PngError::Deflate);
-        }
-        for _ in 0..run.0 {
-            let b = self.buf[self.len - back.0];
-            self.push(b)?;
-        }
-        Ok(())
-    }
-}
-
-/// How many bytes a back-reference copies (3.2.5's length).
-#[derive(Clone, Copy)]
-struct Run(usize);
-
-/// How far behind the write position it copies from (3.2.5's distance);
-/// the two are the same width and a swapped pair decodes to plausible
-/// garbage, so they do not share a type.
-#[derive(Clone, Copy)]
-struct Back(usize);
-
-/// A stored block: LEN, its one's complement, then the bytes (3.2.4).
-fn stored(bits: &mut BitReader<'_>, out: &mut Out<'_>) -> Result<(), PngError> {
-    bits.align();
-    let mut hdr = [0u8; 4];
-    for b in &mut hdr {
-        *b = bits.input.byte().ok_or(PngError::Deflate)?;
-    }
-    let len = u16::from_le_bytes([hdr[0], hdr[1]]);
-    let nlen = u16::from_le_bytes([hdr[2], hdr[3]]);
-    if len != !nlen {
-        return Err(PngError::Deflate);
-    }
-    for _ in 0..len {
-        let b = bits.input.byte().ok_or(PngError::Deflate)?;
-        out.push(b)?;
-    }
-    Ok(())
-}
-
-const MAX_BITS: usize = 15;
-const MAX_LIT: usize = 288;
-const MAX_DIST: usize = 32;
-
-/// A canonical Huffman code as the specification defines it (3.2.2): how
-/// many codes there are of each length, and the symbols in code order.
-struct Code<const N: usize> {
-    count: [u16; MAX_BITS + 1],
-    symbol: [u16; N],
-}
-
-impl<const N: usize> Code<N> {
-    /// Builds the code from a length per symbol. An over-subscribed set of
-    /// lengths is refused; an incomplete one is allowed, as the reference
-    /// implementations allow it, because a single-code distance tree is
-    /// legal and incomplete.
-    fn build(lengths: &[u8]) -> Result<Code<N>, PngError> {
-        let mut code = Code {
-            count: [0; MAX_BITS + 1],
-            symbol: [0; N],
-        };
-        for &l in lengths {
-            code.count[usize::from(l)] += 1;
-        }
-        code.count[0] = 0;
-        let mut left = 1i32;
-        for len in 1..=MAX_BITS {
-            left <<= 1;
-            left -= i32::from(code.count[len]);
-            if left < 0 {
-                return Err(PngError::Deflate);
-            }
-        }
-        let mut offs = [0u16; MAX_BITS + 1];
-        for len in 1..MAX_BITS {
-            offs[len + 1] = offs[len] + code.count[len];
-        }
-        for (sym, &l) in lengths.iter().enumerate() {
-            if l != 0 {
-                let slot = usize::from(offs[usize::from(l)]);
-                *code.symbol.get_mut(slot).ok_or(PngError::Deflate)? =
-                    u16::try_from(sym).map_err(|_| PngError::Deflate)?;
-                offs[usize::from(l)] += 1;
-            }
-        }
-        Ok(code)
-    }
-
-    /// One symbol, a bit at a time: at each length, `first` is the first code
-    /// of that length and `index` where its symbols start.
-    fn decode(&self, bits: &mut BitReader<'_>) -> Result<u16, PngError> {
-        let mut code = 0i32;
-        let mut first = 0i32;
-        let mut index = 0i32;
-        for len in 1..=MAX_BITS {
-            code |= i32::from(bits.take(1)? != 0);
-            let count = i32::from(self.count[len]);
-            if code - count < first {
-                return self
-                    .symbol
-                    .get(usize::try_from(index + (code - first)).map_err(|_| PngError::Deflate)?)
-                    .copied()
-                    .ok_or(PngError::Deflate);
-            }
-            index += count;
-            first += count;
-            first <<= 1;
-            code <<= 1;
-        }
-        Err(PngError::Deflate)
-    }
-}
-
-/// The fixed literal/length and distance codes (3.2.6).
-fn fixed_tables() -> (Code<MAX_LIT>, Code<MAX_DIST>) {
-    let mut lengths = [0u8; MAX_LIT];
-    for (i, l) in lengths.iter_mut().enumerate() {
-        *l = match i {
-            0..=143 => 8,
-            144..=255 => 9,
-            256..=279 => 7,
-            _ => 8,
-        };
-    }
-    let lit = Code::build(&lengths).unwrap_or(Code {
-        count: [0; MAX_BITS + 1],
-        symbol: [0; MAX_LIT],
-    });
-    let dist = Code::build(&[5u8; 30]).unwrap_or(Code {
-        count: [0; MAX_BITS + 1],
-        symbol: [0; MAX_DIST],
-    });
-    (lit, dist)
-}
-
-/// A field of at most a few bits as a count.
-fn small(v: u32) -> Result<usize, PngError> {
-    usize::try_from(v).map_err(|_| PngError::Deflate)
-}
-
-/// The dynamic tables (3.2.7): code lengths for the code-length code, then
-/// the literal/length and distance lengths run-length coded with it.
-fn dynamic_tables(bits: &mut BitReader<'_>) -> Result<(Code<MAX_LIT>, Code<MAX_DIST>), PngError> {
-    let nlen = small(bits.take(5)?)? + 257;
-    let ndist = small(bits.take(5)?)? + 1;
-    let ncode = small(bits.take(4)?)? + 4;
-    if nlen > 286 || ndist > 30 {
-        return Err(PngError::Deflate);
-    }
-    const ORDER: [usize; 19] = [
-        16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
-    ];
-    let mut lengths = [0u8; MAX_LIT + MAX_DIST];
-    for &o in ORDER.iter().take(ncode) {
-        lengths[o] = u8::try_from(bits.take(3)?).map_err(|_| PngError::Deflate)?;
-    }
-    let lencode: Code<19> = Code::build(&lengths[..19])?;
-    let mut i = 0;
-    while i < nlen + ndist {
-        let sym = lencode.decode(bits)?;
-        match sym {
-            0..=15 => {
-                lengths[i] = u8::try_from(sym).map_err(|_| PngError::Deflate)?;
-                i += 1;
-            }
-            16 => {
-                if i == 0 {
-                    return Err(PngError::Deflate);
-                }
-                let prev = lengths[i - 1];
-                let n = 3 + small(bits.take(2)?)?;
-                if i + n > nlen + ndist {
-                    return Err(PngError::Deflate);
-                }
-                for _ in 0..n {
-                    lengths[i] = prev;
-                    i += 1;
-                }
-            }
-            17 | 18 => {
-                let n = if sym == 17 {
-                    3 + small(bits.take(3)?)?
-                } else {
-                    11 + small(bits.take(7)?)?
-                };
-                if i + n > nlen + ndist {
-                    return Err(PngError::Deflate);
-                }
-                for _ in 0..n {
-                    lengths[i] = 0;
-                    i += 1;
-                }
-            }
-            _ => return Err(PngError::Deflate),
-        }
-    }
-    // The end-of-block code must exist.
-    if lengths[256] == 0 {
-        return Err(PngError::Deflate);
-    }
-    let lit = Code::build(&lengths[..nlen])?;
-    let dist = Code::build(&lengths[nlen..nlen + ndist])?;
-    Ok((lit, dist))
-}
-
-/// Length and distance bases and extra bits (3.2.5).
-const LEN_BASE: [u16; 29] = [
-    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131,
-    163, 195, 227, 258,
-];
-const LEN_EXTRA: [u8; 29] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
-];
-const DIST_BASE: [u16; 30] = [
-    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537,
-    2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577,
-];
-const DIST_EXTRA: [u8; 30] = [
-    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13,
-    13,
-];
-
-/// Decodes one compressed block's symbols until end-of-block (3.2.3).
-fn codes(
-    bits: &mut BitReader<'_>,
-    out: &mut Out<'_>,
-    lit: &Code<MAX_LIT>,
-    dist: &Code<MAX_DIST>,
-) -> Result<(), PngError> {
-    loop {
-        let sym = lit.decode(bits)?;
-        match sym {
-            0..=255 => out.push(u8::try_from(sym).map_err(|_| PngError::Deflate)?)?,
-            256 => return Ok(()),
-            257..=285 => {
-                let i = usize::from(sym - 257);
-                let len = usize::from(LEN_BASE[i]) + small(bits.take(u32::from(LEN_EXTRA[i]))?)?;
-                let d = usize::from(dist.decode(bits)?);
-                if d >= 30 {
-                    return Err(PngError::Deflate);
-                }
-                let distance =
-                    usize::from(DIST_BASE[d]) + small(bits.take(u32::from(DIST_EXTRA[d]))?)?;
-                out.copy(Run(len), Back(distance))?;
-            }
-            _ => return Err(PngError::Deflate),
-        }
+        let c = chunk(self.data, self.next?)
+            .ok()
+            .filter(|c| c.kind == *b"IDAT");
+        self.next = c.as_ref().map(|c| c.next);
+        c.map(|c| c.data)
     }
 }

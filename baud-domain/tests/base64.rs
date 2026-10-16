@@ -9,6 +9,7 @@
 //! here exercises because none of them is decoded in one call.
 
 use baud_domain::{Base64, Base64Step};
+use proptest::prelude::*;
 
 /// Section 4, Table 1.
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -198,4 +199,161 @@ fn the_decoder_holds_no_more_than_a_quantum() {
         other => panic!("{other:?}"),
     }
     assert_eq!(d, Base64::NEW, "a completed quantum leaves no carry");
+}
+
+/// Feeds `input` in the reads `cuts` makes of it (sorted offsets) through
+/// [`Base64::feed`], each into an output window of at most `room` octets,
+/// and finishes: the decoded bytes, or `None` where the data was rejected.
+fn feed_cut(input: &[u8], cuts: &[usize], room: usize) -> Option<Vec<u8>> {
+    let mut d = Base64::NEW;
+    let mut out = Vec::new();
+    let mut from = 0;
+    for to in cuts.iter().copied().chain([input.len()]) {
+        let to = to.clamp(from, input.len());
+        let mut chunk = &input[from..to];
+        while !chunk.is_empty() {
+            let mut window = vec![0u8; room];
+            let fed = d.feed(chunk, &mut window).ok()?;
+            assert!(fed.read > 0 || room < 3, "no progress with room {room}");
+            if fed.read == 0 {
+                // A window too small for the next quantum: widen it, as a
+                // caller moving its window on would.
+                let mut wide = [0u8; 3];
+                let fed = d.feed(chunk, &mut wide).ok()?;
+                out.extend_from_slice(&wide[..fed.wrote]);
+                chunk = &chunk[fed.read..];
+                continue;
+            }
+            out.extend_from_slice(&window[..fed.wrote]);
+            chunk = &chunk[fed.read..];
+        }
+        from = to;
+    }
+    let tail = d.finish().ok()?;
+    out.extend_from_slice(tail.as_slice());
+    Some(out)
+}
+
+/// Every split into two reads and every read size, at two window sizes,
+/// against the decoder fed a byte at a time.
+fn every_split_and_size(input: &[u8]) {
+    let whole = decode(input);
+    for room in [1, 3, 4096] {
+        for k in 0..=input.len() {
+            assert_eq!(
+                feed_cut(input, &[k], room),
+                whole,
+                "{input:?} split at {k}, room {room}"
+            );
+        }
+        for size in 1..=input.len().max(1) {
+            let cuts: Vec<usize> = (size..input.len()).step_by(size).collect();
+            assert_eq!(
+                feed_cut(input, &cuts, room),
+                whole,
+                "{input:?} reads of {size}, room {room}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_feed_cut_anywhere_decodes_as_a_byte_at_a_time() {
+    // kitty's chunks need not be multiples of four (Jev, 2026-10-15), and a
+    // read boundary falls anywhere, so a quantum straddles feeds: padded and
+    // unpadded ends, every rejection above, and data long enough for the
+    // four-at-a-time path to run between straddling quanta.
+    let mut data = Vec::new();
+    for i in 0..=255u8 {
+        data.extend_from_slice(&[i, i.wrapping_mul(7), i.wrapping_add(91)]);
+    }
+    let long = encode(&data[..100]);
+    let mut cases: Vec<Vec<u8>> = vec![long.clone(), long[..long.len() - 2].to_vec()];
+    for v in [
+        &b""[..],
+        b"Zg==",
+        b"Zm8=",
+        b"Zm9v",
+        b"Zg",
+        b"Zm8",
+        b"Zm9vYg",
+        b"Zh==",
+        b"Zm9vYmFy",
+        b"Zm9v\nYmFy",
+        b"Zg==Zg==",
+        b"Zg===",
+        b"Z",
+        b"Zg=",
+        b"Zm9vY",
+        b"Zm9v?",
+        b"====",
+    ] {
+        cases.push(v.to_vec());
+    }
+    let mut bad = long.clone();
+    bad[61] = b'!';
+    cases.push(bad);
+    for c in &cases {
+        every_split_and_size(c);
+    }
+    // The control: the long case decodes to what was encoded.
+    assert_eq!(feed_cut(&long, &[], 4096).as_deref(), Some(&data[..100]));
+}
+
+#[test]
+fn a_full_window_stops_the_feed_before_the_quantum_it_cannot_hold() {
+    let mut d = Base64::NEW;
+    let mut out = [0u8; 4];
+    // One quantum fits; of the next, three characters are carried and the
+    // fourth, whose octets would not fit, is left unread.
+    let fed = d.feed(b"Zm9vYmFy", &mut out).expect("valid");
+    assert_eq!((fed.read, fed.wrote), (7, 3));
+    assert_eq!(&out[..3], b"foo");
+    let fed = d.feed(b"y", &mut out).expect("valid");
+    assert_eq!((fed.read, fed.wrote), (1, 3));
+    assert_eq!(&out[..3], b"bar");
+}
+
+#[test]
+fn a_rejected_feed_stays_rejected() {
+    let mut d = Base64::NEW;
+    let mut out = [0u8; 16];
+    assert!(d.feed(b"Zm9v!", &mut out).is_err());
+    assert!(d.feed(b"Zm9v", &mut out).is_err());
+    assert!(d.finish().is_err());
+}
+
+proptest! {
+    /// Generated data, encoded padded or not, with a character perhaps
+    /// replaced, cut at generated points into windows of generated size:
+    /// the same result as a byte at a time, and the data back when valid.
+    #[test]
+    fn a_generated_feed_cut_anywhere_decodes_as_a_byte_at_a_time(
+        data in prop::collection::vec(any::<u8>(), 0..400),
+        strip in any::<bool>(),
+        hit in prop::option::of((0usize..600, any::<u8>())),
+        cuts in prop::collection::vec(0usize..600, 0..10),
+        room in 1usize..40,
+    ) {
+        let mut input = encode(&data);
+        // Both final forms: padded, and with every pad dropped (a single
+        // pad dropped from `xx==` is half a padding, rejected above).
+        if strip {
+            let pads = input.iter().rev().take_while(|&&b| b == b'=').count();
+            input.truncate(input.len() - pads);
+        }
+        if let Some((at, b)) = hit {
+            let len = input.len().max(1);
+            if let Some(slot) = input.get_mut(at % len) {
+                *slot = b;
+            }
+        }
+        let mut cuts = cuts;
+        cuts.sort_unstable();
+        let whole = decode(&input);
+        if hit.is_none() {
+            prop_assert_eq!(whole.as_deref(), Some(&data[..]));
+        }
+        prop_assert_eq!(feed_cut(&input, &cuts, room), whole);
+    }
 }

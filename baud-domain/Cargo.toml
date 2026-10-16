@@ -12,6 +12,15 @@ publish = false
 [dependencies]
 zerocopy = { version = "0.8", default-features = false, features = ["derive"] }
 
+[dev-dependencies]
+# **Oracles and generators, not dependencies**: none of the three is in a
+# build of the crate. `miniz_oxide` writes and inflates the zlib streams the
+# resumable inflate is checked against, `png` decodes the PNGs `png.rs` is,
+# and `proptest` generates the streams and the base64 cut at random.
+miniz_oxide = "0.9.1"
+png = "0.17.16"
+proptest = "1"
+
 [features]
 probe-double-fold = []
 probe-double-sgr-color = []

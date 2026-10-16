@@ -19,7 +19,8 @@ pointer-walk, is not built: `SixelCanvas::paint` still computes
 `y * width + x` per pixel. Kitty graphics is unbuilt; the owner's answer to
 note V's V19 (2026-09-25) is to build it to the spec, and the PNG and zlib
 decoder its `f=100` needs exists under the core's contract,
-`baud-font/src/png.rs` (the seam section, corrected 2026-10-15). The sentences
+`baud-domain/src/png.rs`, moved from `baud-font` for V19 step 2 (the seam
+section, corrected 2026-10-15). The sentences
 below that called the corpus empty of Sixel were written before the capture
 landed and are struck where they stand.
 
@@ -58,8 +59,8 @@ This is the question `s-sixel.md` left open and deferred here. The answer is a
 boundary drawn by one property -- **does the decode allocate a heap of unknown
 size** -- and every format the protocol defines falls inside it. This section
 first put PNG and zlib outside, behind a decoder the embedder injects; the
-workspace held the counterexample all along, `baud-font/src/png.rs`
-(2026-09-12), which decodes colour-emoji strikes into two buffers its caller
+workspace held the counterexample all along, `baud-font`'s `png.rs`
+(2026-09-12; `baud-domain/src/png.rs` since 2026-10-15), which decodes colour-emoji strikes into two buffers its caller
 sizes (corrected 2026-10-15):
 
 | protocol input | decode | where |

@@ -156,7 +156,7 @@ crate_audit() {
     echo "  ok   $ca_name: $ca_total and $ca_sig (limit $ca_limit and $ca_siglimit)"
   fi
 }
-# **baud-font: twelve raw-integer sites and sixty signature primitives,
+# **baud-font: six raw-integer sites and forty signature primitives,
 # every one enumerated, and the limit follows the count downward.** The
 # signature sites are the newtype surface of a parser over a byte format --
 # the same exemption `baud-domain` has for the same reason: `Len::of(u32)`,
@@ -172,20 +172,15 @@ crate_audit() {
 # as `u8` against a cap of 32, and `Delta::of(bool, bool)` built from two
 # flag bits. A DICT operator is a `DictOp`, a call depth a `Depth`, and the
 # path operators CFF and CFF2 share take their operands as a slice, so no
-# width slot is passed as a `usize`. The PNG decoder
-# is the third interpreter and carries twenty of the sixty: `crc32`
-# and `adler32` over bytes to a `u32`, `paeth(u8, u8, u8) -> u8` on bytes,
-# `sample`/`scale` taking a bit depth and a sample, `BitReader::take(u32) ->
-# u32` on a bit count, `Out::push(u8)`, `Color::parse(u8)` on the IHDR byte,
-# `raw_len`/`rgba_len -> usize` sizing a caller's buffers, and `small(u32)
-# -> usize` on a Huffman field. What the decoder does not carry is a swappable
-# pair: the back-reference's `Run` and `Back` are two types because they are
-# the same width. The rasteriser carries eight more, all pixel arithmetic:
+# width slot is passed as a `usize`. The PNG decoder was the
+# third interpreter, with twenty signature sites and six raw ones; it moved
+# to `baud-domain` for V19 step 2 (note V) and took them with it, and the
+# limits fell from 12 and 60. The rasteriser carries eight more, all pixel arithmetic:
 # `Px::of(u32)` and `Px::value`, `Scale::of` taking pixels per em as `f32`,
 # `Scale::placing`'s two pixel offsets, `Point::new`'s two coordinates,
 # `Point::lerp`'s parameter, `distance_to`'s length, `row(f32) -> usize` --
 # the one place a pixel coordinate becomes a row index, spelled once -- and
-# `splat`'s row start as `usize`, which is also the twelfth raw site: the
+# `splat`'s row start as `usize`, which is also the sixth raw site: the
 # reference's own index arithmetic, kept in its shape so the byte-exact
 # differential has one algorithm to compare rather than two. The shaper adds
 # three signature sites and no raw ones: `same(GlyphId, u16)` comparing a
@@ -195,17 +190,14 @@ crate_audit() {
 # are `Count`, table glyph ids are `GlyphId`, classes are `Class`, lookup
 # types are `Kind` and flags are `LookupFlags`, so a position and a count
 # cannot be added and a class and a glyph cannot be confused. The other
-# eleven raw sites are the interpreters' state: the charstring stack length
+# five raw sites are the interpreters' state: the charstring stack length
 # and the stem count that sizes `hintmask` (CFF's; CFF2 keeps its stems as a
 # `Count` and shares the stack), the composite recursion depth (twice) and
-# the contour count in `glyf`, and in the decoder
-# the bit depth, the IDAT read position, the bit accumulator and its count,
-# the output length, and the one `as usize` that indexes the CRC table inside
-# a `const fn`, where `try_from` cannot be called. Every `bool` field became a
+# the contour count in `glyf`. Every `bool` field became a
 # two-state enum before this count was taken (`Path`, `Moveto`, `Width`,
 # `End`, `Axis`, `Delta`, `Sign`, `IndexFormat`, `ImageFormat`, and CFF2's
 # `Variation` and `Regions`).
-crate_audit "baud-font" 12 60 baud-font/src
+crate_audit "baud-font" 6 40 baud-font/src
 # baud-render: 0 raw sites and 11 signature primitives, every one a unit
 # type's own edge -- `Tally::of(usize)` and `Tally::value -> u64`,
 # `Digest::fold(u64)` and `Digest::value -> u64`, `slots -> usize` (the one

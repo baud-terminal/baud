@@ -315,8 +315,9 @@ half-built protocol feature is finished to the spec, not switched off"):
 * **V19, kitty graphics.** The reason this file gave against it was that
   `f=100` hands the terminal a PNG, which needs zlib, and the core decodes
   with no allocator and no dependency. The workspace already has such a
-  decoder: `baud-font`'s, with its own inflate and no allocation, for colour
-  emoji (`baud-font/src/png.rs`).
+  decoder: written for `baud-font`'s colour emoji, with its own inflate and
+  no allocation, and moved to `baud-domain/src/png.rs` (V19 step 2) beside
+  a resumable inflate, `baud-domain/src/zlib.rs`.
 
 **DEC Special Graphics `0x5F`** — Blank, U+0020 or U+00A0, the owner's call
 (above).

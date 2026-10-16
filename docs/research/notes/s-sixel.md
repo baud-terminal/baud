@@ -12,7 +12,8 @@ in this note. The reason given when this was written was that Kitty's
 `f=100` PNG reaches a PNG + zlib decoder over untrusted bytes, and that
 baud-core is `no_std`, `alloc`-free and `#![forbid(unsafe_code)]`, so how a
 decoder could live under that contract was left open. The workspace already
-had the answer: `baud-font/src/png.rs` (2026-09-12) decodes PNG, its zlib
+had the answer: `baud-font`'s `png.rs` (2026-09-12; `baud-domain/src/png.rs`
+since 2026-10-15) decodes PNG, its zlib
 stream included, under the same contract, into two buffers its caller
 sizes from the image header. It reads both interlace methods, Adam7 since
 2026-10-15 (the record, "png.rs reads Adam7"), and takes the whole file as

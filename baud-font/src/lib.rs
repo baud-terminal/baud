@@ -29,10 +29,11 @@
 //! at load rather than drawn blank.
 //!
 //! **Phase 1c: bitmap strikes and layered colour.** `sbix`, `CBLC`/`CBDT`
-//! and `COLR` v0 with `CPAL`, plus the PNG decoder those strikes need --
-//! the one piece of general-purpose code in the crate, written here rather
-//! than pulled in because a decoder is a dependency in every sense the
-//! owner's constraint names.
+//! and `COLR` v0 with `CPAL`. The PNG decoder those strikes need is
+//! `baud_domain::png`, written in the workspace rather than pulled in
+//! because a decoder is a dependency in every sense the owner's constraint
+//! names, and moved to `baud-domain` so the core decodes kitty pictures
+//! through the same code (note V, V19 step 2); it is re-exported here.
 //!
 //! **Phase 2: the rasteriser.** Signed-area accumulation into a caller's
 //! `f32` scratch, then a prefix sum into an 8-bit coverage mask -- the
@@ -70,7 +71,6 @@ pub mod ivs;
 mod layout;
 mod morx;
 pub mod outline;
-mod png;
 mod raster;
 mod script;
 mod script_data;
@@ -79,6 +79,7 @@ mod standard_encoding;
 pub mod var;
 
 pub use bake::{BakePoint, Refused, bake};
+pub use baud_domain::png::{Color, Png, PngError, Size};
 pub use bitmap::{
     Bitmap, Mirror, Placement, Ppem, ReadStrike, Records, Strike, StrikeRefusal, StrikeState,
 };
@@ -97,7 +98,6 @@ pub use layout::{
 };
 pub use morx::Morx;
 pub use outline::{Drawn, Flex, FlexDrawn, Sink, Transform};
-pub use png::{Color, Png, PngError, Size};
 pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasterizer, Scale};
 pub use script::{Bracket, Direction, Pair, PerScript, RunText, Script, Unresolved, resolve};
 pub use shape::{CombiningClass, Kept, Normalised, Shaped, Shaper};

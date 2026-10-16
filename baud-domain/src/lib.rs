@@ -58,6 +58,7 @@ mod line;
 mod merged;
 mod merged_data;
 mod nrcs_data;
+pub mod png;
 mod pos;
 mod quantity;
 mod scan;
@@ -73,6 +74,7 @@ pub mod vs16;
 mod vt;
 mod width;
 mod width_data;
+pub mod zlib;
 
 pub use base64::*;
 pub use brand::*;

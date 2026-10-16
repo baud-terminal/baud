@@ -1,10 +1,9 @@
-//! **Milliseconds per PNG decode through `baud-font/src/png.rs`, kept
+//! **Milliseconds per PNG decode through `baud_domain::png`, kept
 //! runnable** for note V's V19, step 0: whether decoding a full-window
 //! picture inside `feed` fits one 120 Hz frame (8.3 ms).
 //!
-//! `png` is private to `baud-font`, so this compiles the decoder's own
-//! source here, over `baud_font::bytes`, which is the module it imports:
-//! the bytes timed are png.rs's, and neither file changes for the bench.
+//! It was `baud-font`'s private module, compiled here by path; since V19
+//! step 2 moved it to `baud-domain` it is called as the crate exports it.
 //!
 //! Each round decodes every file `reps` times, `Png::parse` then
 //! `Png::decode` into two buffers sized once, the files rotated so none
@@ -20,15 +19,7 @@
 //!
 //!     cargo bench -p baud-bench --bench png_decode -- <rounds> <reps> <png>...
 
-#[allow(dead_code)]
-mod bytes {
-    pub use baud_font::bytes::*;
-}
-#[allow(dead_code)]
-#[path = "../../baud-font/src/png.rs"]
-mod png;
-
-use png::Png;
+use baud_domain::png::Png;
 use std::hint::black_box;
 use std::time::Instant;
 

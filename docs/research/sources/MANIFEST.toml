@@ -5586,7 +5586,7 @@ bytes  = 318600
 status = "retrieved"
 group  = "J"
 # The chunk layout (5.3), CRC (5.5), IHDR/PLTE/tRNS/IDAT (11.2, 11.3), the five
-# filter types (9.2) and the sample expansion rules baud-font/src/png.rs cites;
+# filter types (9.2) and the sample expansion rules baud-domain/src/png.rs cites;
 # and for Adam7, the pass pattern (8.2), the prior scanline zeroed for each
 # reduced image (9.2), no filter byte in an empty pass (9.1, 13.10), and
 # 13.10's and 15.2.3's requirement that a decoder read interlaced images.
@@ -7760,8 +7760,8 @@ group  = "C"
 # what it saves is the base64, the zlib and the pty chunking rather than the
 # copy itself, which `docs/research/notes/t-images.md` records against the
 # survey that read the spec. Formats `f=24` RGB, `f=32` RGBA (raw, no decoder)
-# and `f=100` PNG (a PNG and zlib decoder, which `baud-font/src/png.rs` is,
-# `no_std` and allocation-free; baud-core does not reach it). Placements are
+# and `f=100` PNG (a PNG and zlib decoder, which `baud-domain/src/png.rs` is,
+# `no_std` and allocation-free; baud-core does not call it yet). Placements are
 # separate from images, carry a `z` index (negative below text), and a Unicode
 # placeholder (`U+10EEEE`) grid lets an image scroll with text. Design in
 # `docs/research/notes/t-images.md`.

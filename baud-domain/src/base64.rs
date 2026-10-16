@@ -129,6 +129,14 @@ pub enum Base64Step {
     Invalid,
 }
 
+/// What one [`Base64::feed`] did: how many encoded bytes it took and how
+/// many octets it wrote.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Fed {
+    pub read: usize,
+    pub wrote: usize,
+}
+
 /// Why [`Base64::finish`] rejected the data.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Base64Error {
@@ -200,6 +208,76 @@ impl Base64 {
             // A pad after none or one sextet, or any byte outside the
             // alphabet: section 3.3's rejection.
             _ => self.reject(),
+        }
+    }
+
+    /// A read's worth of the encoded data, decoded into `out` from its start.
+    ///
+    /// **Any length, because a chunk is not a quantum.** kitty's text asks a
+    /// client for chunks that are multiples of four but the last, and Jev
+    /// decided (2026-10-15, note V's V19) that baud takes chunks of any
+    /// length; a `read(2)` boundary falls anywhere regardless. So a quantum
+    /// may start in one feed and end in the next, held in the same carry
+    /// [`Self::push`] keeps, and the octets are the same wherever the reads
+    /// were cut.
+    ///
+    /// Stops early, `read` short of `input`, only when the next character
+    /// would complete a quantum whose octets do not fit in `out`: the caller
+    /// moves its window on and feeds the rest. A character outside the
+    /// alphabet rejects the data, now and on every later feed, and what was
+    /// written before it is the caller's to discard. [`Self::finish`] still
+    /// ends the data.
+    pub fn feed(&mut self, input: &[u8], out: &mut [u8]) -> Result<Fed, Base64Error> {
+        let mut fed = Fed { read: 0, wrote: 0 };
+        loop {
+            // Whole quanta while nothing is carried: four characters, one
+            // load each, three octets, and no state to keep.
+            if self.held == Held::Zero && self.phase == Phase::Open {
+                while let (Some(&[c0, c1, c2, c3]), Some([d0, d1, d2])) = (
+                    input.get(fed.read..fed.read + 4),
+                    out.get_mut(fed.wrote..fed.wrote + 3),
+                ) {
+                    let v = [
+                        VALUE[usize::from(c0)],
+                        VALUE[usize::from(c1)],
+                        VALUE[usize::from(c2)],
+                        VALUE[usize::from(c3)],
+                    ];
+                    if v.contains(&NOT_BASE64) {
+                        break;
+                    }
+                    let word = v.iter().fold(0u32, |w, &x| (w << 6) | u32::from(x));
+                    [_, *d0, *d1, *d2] = word.to_be_bytes();
+                    fed.read += 4;
+                    fed.wrote += 3;
+                }
+            }
+            let Some(&b) = input.get(fed.read) else {
+                return Ok(fed);
+            };
+            // One character on a copy, kept only if its octets fit. Written
+            // without `copy_from_slice`, as `zlib.rs`'s stored-block copy
+            // explains.
+            let mut next = *self;
+            match next.push(b) {
+                Base64Step::Need => {}
+                Base64Step::Octets(o) => {
+                    let o = o.as_slice();
+                    let Some(dst) = out.get_mut(fed.wrote..fed.wrote + o.len()) else {
+                        return Ok(fed);
+                    };
+                    for (d, &s) in dst.iter_mut().zip(o) {
+                        *d = s;
+                    }
+                    fed.wrote += o.len();
+                }
+                Base64Step::Invalid => {
+                    *self = next;
+                    return Err(Base64Error::NotBase64);
+                }
+            }
+            *self = next;
+            fed.read += 1;
         }
     }
 
