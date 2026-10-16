@@ -135,8 +135,8 @@ fn emit_cluster_table() {
 }
 
 /// The committed `cluster.bin` is what the emitter writes, byte for byte,
-/// and the emitter writes the same bytes twice in one process, where each
-/// `HashMap` draws its own seed.
+/// and the emitter writes the same bytes twice in one process, as a guard;
+/// determinism rests on the maps being looked up and never iterated.
 #[test]
 fn the_committed_cluster_bin_is_the_emitters_output() {
     let (a, b) = (cluster_table_bytes(), cluster_table_bytes());

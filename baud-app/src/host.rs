@@ -26,10 +26,11 @@ pub fn cell_px(cell_h: Px) -> ImagePx {
 }
 
 /// The default image arena, when a config names no `[images]` section:
-/// 95 MiB of decoded pixels, three 3840x2160 screens (24,883,200 pixels)
-/// with 20,480 to spare -- `[images] pixels_mb` counts whole MiB, and the
-/// committed example writes the default -- or many smaller images -- the gap-scan packs them, and an overflow is
-/// refused and counted rather than truncated.
+/// 95 MiB of decoded pixels. That is three 3840x2160 screens (24,883,200
+/// pixels) with 20,480 to spare, because `[images] pixels_mb` counts whole
+/// MiB and the committed example writes the default. The gap-scan packs
+/// smaller images into it, and an overflow is refused and counted rather
+/// than truncated.
 /// **It is the one limit a config sets on an image**, with the 65535 pixels a
 /// coordinate holds each way and the slot table beside it: a Sixel is decoded
 /// as its body arrives (`SixelStream`), and no copy of the body is held, so
