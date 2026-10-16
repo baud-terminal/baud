@@ -74,7 +74,7 @@ impl Content {
     /// the image id's top byte, each a diacritic's number plus one, zero
     /// when it was not written (`placeholder.rs`). `kitten icat` writes
     /// three on every cell (`[[source: kitty-icat-transmit]]`), each cell a
-    /// cluster of its own, and the 1024-slot store dropped 3000 of the 5760
+    /// cluster of its own, and the 1024-slot store dropped 2366 of the 5760
     /// marks of an 80x24 picture; here no slot is used and the cell stays
     /// eight bytes. The cell carries [`CellFlags::MARKED`], as a cluster
     /// cell does: its content is not its base, and

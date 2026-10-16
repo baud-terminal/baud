@@ -11,7 +11,7 @@
 //! the cell's own 8-byte content word ([`Content::placeholder`]), not in
 //! the cluster store: `kitten icat` writes three on every cell
 //! (`[[source: kitty-icat-transmit]]`), every cell a different cluster, and
-//! the 1024-slot store dropped 3000 of the 5760 marks of an 80x24 picture
+//! the 1024-slot store dropped 2366 of the 5760 marks of an 80x24 picture
 //! (docs/record.md, "kitty Unicode placeholders"). The inheritance reads
 //! the neighbours and the colours, which later writes change, so it is
 //! resolved a row at a time by [`PlaceholderRuns`], when a renderer asks.

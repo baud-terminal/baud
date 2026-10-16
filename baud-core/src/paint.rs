@@ -1043,7 +1043,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// and anything else sends the placeholder and its marks to the cluster
     /// store as any base's would go. `kitten icat` writes three diacritics
     /// on every cell, each cell a cluster of its own, and the store dropped
-    /// 3000 of an 80x24 picture's 5760 marks
+    /// 2366 of an 80x24 picture's 5760 marks
     /// (`every_diacritic_of_a_kitten_picture_is_kept`).
     ///
     /// `#[cold]` and out of line, behind one compare in `attach_before`, so

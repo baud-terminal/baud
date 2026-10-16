@@ -175,7 +175,7 @@ fn kitten(id: u32, w: usize, h: usize) -> String {
 
 /// **Every diacritic of a full-screen kitten picture is kept, and reads
 /// back as written.** Kept as combining marks in the 1024-slot cluster
-/// store, the commit before dropped 3000 of this picture's 5760.
+/// store, the commit before dropped 2366 of this picture's 5760.
 #[test]
 fn every_diacritic_of_a_kitten_picture_is_kept() {
     with(|t| {
