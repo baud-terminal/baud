@@ -3327,6 +3327,13 @@ fn channel_diff(a: &[u32], b: &[u32], keep: impl Fn(usize) -> bool) -> (usize, u
 /// the GPU on 1156 of the image's 1200 pixels, by up to 47, and on 3590
 /// pixels of text and page outside it; over the set background on 1189,
 /// by up to 45.
+///
+/// Over each page too the cursor trail ([`trail_over_page`]) and text in a
+/// foreground below opaque. The source alpha of either is a product of two
+/// fractions, coverage and colour: taken by the CPU as a truncated or
+/// quantised byte and by the GPU as a float, they differed by one on 5, 9
+/// and 9 pixels of the quad, 145, 252 and 399 of the sweep, and 1820, 1855
+/// and 159 of the text, opaque page first. Both now round it to a byte.
 fn cpu_page_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     const W: usize = 40;
     const H: usize = 30;
@@ -3445,9 +3452,103 @@ fn cpu_page_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             );
         }
         arms.renderer.set_cursor_blink(Blink::Shown);
+        trail_over_page(arms, t, page);
+        let (opaque_fg, _) = arms.draw(t);
+        // A glyph mask in a colour below opaque: the default foreground at
+        // alpha 180, so a pixel's source alpha is the colour's times the
+        // coverage, `as` of 5.1 a product of two fractions.
+        arms.renderer.set_theme(Theme {
+            bg_alpha: Chan::from_u8(alpha),
+            app_bg,
+            fg: glass.fg.with_alpha(Chan::from_u8(180)),
+            ..glass.clone()
+        });
+        let (a, b) = arms.draw(t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "{page}, a sub-opaque mask: the GPU arms disagree"
+        );
+        assert!(
+            differing(&a, &opaque_fg) > 0,
+            "{page}, a sub-opaque mask: the control, drawn"
+        );
+        let cpu = cpu_frame(arms, t);
+        let all = channel_diff(&cpu, &a, |_| true);
+        eprintln!("cpu against instance, {page}, a sub-opaque mask: {all:?}");
+        assert_eq!(
+            all.0, 0,
+            "{page}, a sub-opaque mask: CPU and GPU differ on {} pixels, by up to {}",
+            all.0, all.1
+        );
     }
     arms.renderer.set_theme(glass);
     feed(t, b"\x1bc");
+}
+
+/// [`cpu_page_gate`]'s cursor trail over the page as it stands: the quad
+/// part way from a cell over the text to the cursor, sfte's sweep from the
+/// same cell, and the fading ghost -- each drawn by both GPU arms and the
+/// CPU arm, which paints the quad and the sweep by `trail::coverage` per
+/// pixel (`Target::quad`) and the ghost as a translucent solid.
+fn trail_over_page(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, page: &str) {
+    let (plain, _) = arms.draw(t);
+    let (cr, cc) = t.cursor();
+    let style = t.cursor_style();
+    let hole = arms.renderer.cursor_rect(cr, cc, style);
+    let from = arms
+        .renderer
+        .cursor_rect(Row::from_index(1), Col::at_index(14), style);
+    let seg = Segment::new(from.corners(), hole);
+    for (look, what) in [
+        (
+            TrailLook::Smear(Smear {
+                corners: seg.at(0.3),
+                hole,
+                shape: Shape::Quad,
+            }),
+            "the trail's quad",
+        ),
+        (
+            TrailLook::Smear(Smear {
+                corners: from.corners(),
+                hole,
+                shape: Shape::Sweep,
+            }),
+            "the trail's sweep",
+        ),
+        (
+            TrailLook::Ghost(Trail {
+                from: (Row::from_index(1), Col::at_index(14)),
+                to: (cr, cc),
+                progress: 0.5,
+                origin_dy: 0.0,
+                lift: Px::of(0),
+            }),
+            "the trail's ghost",
+        ),
+    ] {
+        arms.trail = Some(look);
+        let (a, b) = arms.draw(t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "{page}, {what}: the GPU arms disagree"
+        );
+        assert!(
+            differing(&a, &plain) > 0,
+            "{page}, {what}: the control, drawn"
+        );
+        let cpu = cpu_frame(arms, t);
+        let all = channel_diff(&cpu, &a, |_| true);
+        eprintln!("cpu against instance, {page}, {what}: {all:?}");
+        assert_eq!(
+            all.0, 0,
+            "{page}, {what}: CPU and GPU differ on {} pixels, by up to {}",
+            all.0, all.1
+        );
+    }
+    arms.trail = None;
 }
 
 /// The kitty gate's image, 6 by 4, every pixel opaque and distinct; and a

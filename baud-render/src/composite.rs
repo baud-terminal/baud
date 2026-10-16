@@ -97,10 +97,61 @@ impl<'p> Target<'p> {
     /// rows of `band`: a mask in the instance's colour, its coverage bent
     /// by the instance's contrast curve, a colour image as it is, or a solid
     /// rectangle. Over a [`Page::Glass`] page by [`Blend::over_glass`].
+    ///
+    /// Out of line, the dispatch alone: its callers call it as they did
+    /// before there was one, and it branches to the loop.
+    #[inline(never)]
     pub fn over(&mut self, inst: &Instance, atlas: &Atlas, blend: Blend, page: Page, band: Band) {
+        if inst.kind == Kind::Mask && inst.color.a().get() < 0xFF {
+            self.over_translucent(inst, atlas, blend, page, band);
+        } else {
+            self.over_as_is(inst, atlas, blend, page, band);
+        }
+    }
+
+    /// [`Target::over`] for every instance but a mask in a colour below
+    /// opaque. Out of line and apart from the dispatch, so its loops are
+    /// the ones `over` ran before there was one.
+    #[inline(never)]
+    fn over_as_is(&mut self, inst: &Instance, atlas: &Atlas, blend: Blend, page: Page, band: Band) {
         match page {
             Page::Opaque => self.over_by(inst, atlas, band, |s, d, c| blend.over(s, d, c)),
             Page::Glass => self.over_by(inst, atlas, band, |s, d, c| blend.over_glass(s, d, c)),
+        }
+    }
+
+    /// [`Target::over`] for a mask in a colour below opaque: the source
+    /// alpha the coverage scaled by the colour's alpha and rounded,
+    /// `baud_domain::premultiply_chan`, as the GPU's `alpha_byte` forms
+    /// it, and the colour then taken opaque. [`Blend::over`] truncates
+    /// that product, which is exact only when one factor is 255, so the
+    /// opaque colours every shipped mask is in keep their loop. Out of
+    /// line, so `over`'s callers keep theirs.
+    #[inline(never)]
+    #[cold]
+    fn over_translucent(
+        &mut self,
+        inst: &Instance,
+        atlas: &Atlas,
+        blend: Blend,
+        page: Page,
+        band: Band,
+    ) {
+        let ca = inst.color.a();
+        let opaque = Instance {
+            color: inst.color.with_alpha(Chan::from_u8(0xFF)),
+            ..*inst
+        };
+        let cov = move |c: Coverage| {
+            Coverage(baud_domain::premultiply_chan(Chan::from_u8(c.0), ca).get())
+        };
+        match page {
+            Page::Opaque => self.over_by(&opaque, atlas, band, |s, d, c| blend.over(s, d, cov(c))),
+            Page::Glass => {
+                self.over_by(&opaque, atlas, band, |s, d, c| {
+                    blend.over_glass(s, d, cov(c))
+                });
+            }
         }
     }
 
@@ -169,7 +220,9 @@ impl<'p> Target<'p> {
 
     /// Paints the trail's quad over the pixels in `fill`, clipped to its
     /// bounds, the buffer and the rows of `band`: each pixel as much as
-    /// [`crate::trail::coverage`] says the quad covers its centre.
+    /// [`crate::trail::coverage`] says the quad covers its centre, as a
+    /// byte, scaled by the fill's alpha and rounded -- the GPU's
+    /// `quad_fragment` forms the same byte.
     pub fn quad(&mut self, s: &Smear, fill: Argb, blend: Blend, page: Page, band: Band) {
         match page {
             Page::Opaque => self.quad_by(s, fill, band, |f, d, c| blend.over(f, d, c)),
@@ -187,6 +240,8 @@ impl<'p> Target<'p> {
         mix: impl Fn(Argb, Argb, Coverage) -> Argb,
     ) {
         let (x0, y0, x1, y1) = s.bounds();
+        let fa = fill.a();
+        let fill = fill.with_alpha(Chan::from_u8(0xFF));
         let rows = self.rows_of(band);
         let (stride, width) = (slots(self.stride), slots(self.width));
         let ys = slots(y0).max(rows.start)..slots(y1).min(rows.end);
@@ -201,7 +256,8 @@ impl<'p> Target<'p> {
                     continue;
                 }
                 let c = u8::try_from((cover * 255.0).round() as i64).unwrap_or(u8::MAX);
-                row[x] = mix(fill, Argb(row[x]), Coverage(c)).0;
+                let a = baud_domain::premultiply_chan(Chan::from_u8(c), fa).get();
+                row[x] = mix(fill, Argb(row[x]), Coverage(a)).0;
             }
         }
     }
@@ -485,7 +541,8 @@ impl Blend {
                 }
                 let m = u64::from(RECIP[usize::try_from(ao & 0xFF).unwrap_or(0)]);
                 let mix = |s: Chan, d: Chan| -> Chan {
-                    let pb = (u32::from(d.get()) * ab + 127) / 255;
+                    // The backdrop as the presenter premultiplies it.
+                    let pb = u32::from(baud_domain::premultiply_chan(d, dst.a()).get());
                     let co = (u32::from(s.get()) * a + pb * (255 - a) + 127) / 255;
                     let v = (u64::from(co * 255 + ao / 2) * m) >> 24;
                     Chan::from_u8(u8::try_from(v).unwrap_or(255))

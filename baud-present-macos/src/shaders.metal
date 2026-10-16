@@ -56,6 +56,27 @@ vertex GOut glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     return o;
 }
 
+// The source alpha of a pixel `cov` of 255 covered in a colour of alpha
+// `color_a`: the two bytes' product, rounded to a byte as the CPU's
+// `Blend::over` and `over_glass` round it, `(c a + 127) / 255`. Taken as
+// a float product it falls between bytes, and a blend from it rounds to
+// another byte than the CPU's on a sub-opaque colour. An opaque colour,
+// every glyph's today, is the coverage itself and takes no arithmetic.
+static inline float alpha_byte(float color_a, uint cov) {
+    if (color_a >= 1.0) {
+        return float(cov) / 255.0;
+    }
+    uint ca = uint(color_a * 255.0 + 0.5);
+    return float((ca * cov + 127u) / 255u) / 255.0;
+}
+
+// A coverage in [0, 1] as the byte the CPU's `Target::quad` takes,
+// `(c * 255).round()`: half away from zero, as `floor(x + 0.5)` is for x
+// at least zero.
+static inline uint coverage_byte(float c) {
+    return uint(floor(c * 255.0 + 0.5));
+}
+
 fragment float4 glyph_fragment(GOut in [[stage_in]],
                                texture2d<float> mask [[texture(0)]],
                                texture2d<float> color [[texture(1)]],
@@ -65,7 +86,7 @@ fragment float4 glyph_fragment(GOut in [[stage_in]],
         // The exact coverage, bent by the glyph's contrast curve: a lookup
         // into the compiled table, never arithmetic per pixel.
         uint cov = uint(mask.sample(s, in.uv).r * 255.0 + 0.5);
-        float a = in.color.a * float(curves[in.curve * 256u + cov]) / 255.0;
+        float a = alpha_byte(in.color.a, curves[in.curve * 256u + cov]);
         return float4(in.color.rgb * a, a);
     }
     if (in.kind == 1u) {
@@ -120,7 +141,7 @@ fragment float4 quad_fragment(GOut in [[stage_in]], constant Quad& q [[buffer(0)
         if (off.x > r.x || off.y > r.y) {
             return float4(0.0);
         }
-        float a = in.color.a * (128.0 * t / 255.0);
+        float a = alpha_byte(in.color.a, coverage_byte(128.0 * t / 255.0));
         return float4(in.color.rgb * a, a);
     }
     float d = INFINITY;
@@ -140,7 +161,7 @@ fragment float4 quad_fragment(GOut in [[stage_in]], constant Quad& q [[buffer(0)
         }
     }
     float s = winding != 0 ? -d : d;
-    float a = in.color.a * clamp(0.5 - s, 0.0, 1.0);
+    float a = alpha_byte(in.color.a, coverage_byte(clamp(0.5 - s, 0.0, 1.0)));
     return float4(in.color.rgb * a, a);
 }
 
