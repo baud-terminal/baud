@@ -338,12 +338,12 @@ impl ClusterBreak {
     /// Is the machine in the state where a run of ordinary characters needs no
     /// work at all?
     ///
-    /// The bulk path's precondition. If `prev` is `Other` and no lookback is
-    /// live, then for any run of codepoints that are themselves `Other` and in
-    /// no lookback table, `is_break` returns `true` every time and leaves every
-    /// field exactly as it found it -- the same argument the fast path in
-    /// `is_break` makes, extended along the run because each character
-    /// re-establishes the precondition for the next.
+    /// The bulk path's precondition. `CLUSTER_READY` is the state of
+    /// `prev = Other` with no lookback live; in it, every codepoint that is
+    /// itself `Other` and in no lookback table breaks and leaves the id at
+    /// `CLUSTER_READY` -- the same argument the fast path in `is_break`
+    /// makes, extended along the run because each character re-establishes
+    /// the precondition for the next.
     ///
     /// So the caller may skip the machine entirely for such a run, and the
     /// state afterwards is the state before. The fields are
