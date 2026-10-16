@@ -14,7 +14,7 @@
 //! differs is worth being able to check rather than re-deriving from the
 //! comment.
 
-use baud_domain::{ClusterBreak, GraphemeClass, Lookback, RunBlocker, cluster_next};
+use baud_domain::{ClusterBreak, ClusterRules, GraphemeClass, Lookback, RunBlocker, cluster_next};
 
 /// The one thing that differs, named: `prev`. Everything else about the two
 /// states is identical. `prev` is also what GB9 and GB9a see past GB1, so
@@ -36,11 +36,14 @@ fn the_two_post_ascii_states_differ_only_in_the_bulk_precondition() {
         "printable ASCII is class Other, so the truthful state can"
     );
     assert_eq!(
-        reset.ordinary_run_blocker(),
+        ClusterRules::new().ordinary_run_blocker(),
         RunBlocker::Prev,
         "and the only thing blocking the reset is `prev`"
     );
-    assert_eq!(truthful.ordinary_run_blocker(), RunBlocker::Ready);
+    assert_eq!(
+        ClusterRules::after_ascii_run().ordinary_run_blocker(),
+        RunBlocker::Ready
+    );
 }
 
 /// Neither state carries a lookback, which is the half of the equivalence
@@ -50,8 +53,8 @@ fn the_two_post_ascii_states_differ_only_in_the_bulk_precondition() {
 #[test]
 fn neither_post_ascii_state_carries_a_lookback() {
     for (name, s) in [
-        ("reset", ClusterBreak::new()),
-        ("truthful", ClusterBreak::after_ascii_run()),
+        ("reset", ClusterRules::new()),
+        ("truthful", ClusterRules::after_ascii_run()),
     ] {
         assert!(
             matches!(
@@ -99,8 +102,8 @@ fn the_state_after_a_control_is_the_state_before_any_text() {
     for cur in GraphemeClass::FROM_INDEX {
         for lb in 0..16u8 {
             let lb = Lookback::from_bits(lb);
-            let mut fresh = ClusterBreak::new();
-            let mut ctl = ClusterBreak::new();
+            let mut fresh = ClusterRules::new();
+            let mut ctl = ClusterRules::new();
             assert!(ctl.is_break_by_rules(GraphemeClass::Control, Lookback::from_bits(0)));
             let (a, b) = (
                 fresh.is_break_by_rules(cur, lb),
@@ -114,10 +117,7 @@ fn the_state_after_a_control_is_the_state_before_any_text() {
             );
         }
     }
-    assert_eq!(
-        ClusterBreak::after_control().to_bits(),
-        ClusterBreak::new().to_bits()
-    );
+    assert_eq!(ClusterBreak::after_control(), ClusterBreak::new());
 }
 
 /// **Where a cluster breaks, the state after it does not depend on the state

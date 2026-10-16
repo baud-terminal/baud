@@ -161,7 +161,7 @@ impl GraphemeClass {
 /// splits flags and country flags in the wrong places.
 /// GB12/13 counts regional indicators **pairwise**, so what matters is the
 /// parity of the run, not how many there are.
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 enum RiParity {
     #[default]
     Even,
@@ -172,7 +172,7 @@ enum RiParity {
 ///
 /// Three states, not two flags. As `{pict_run, pict_zwj}` bools it was possible
 /// to spell "in a run *and* zwj seen", which the rule has no meaning for.
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 enum PictLookback {
     #[default]
     None,
@@ -187,7 +187,7 @@ enum PictLookback {
 ///
 /// Three states for the same reason: "linker seen" is only meaningful *inside*
 /// a consonant run, and two bools could say otherwise.
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 enum IncbLookback {
     #[default]
     None,
@@ -197,10 +197,37 @@ enum IncbLookback {
     ConsonantLinker,
 }
 
-#[derive(Clone, Copy, Default)]
+/// The cluster machine the terminal runs: one state id into
+/// `CLUSTER_NEXT`, and nothing else.
+///
+/// **It carried the rule fields too, until 2026-10-16, and the two halves
+/// could disagree.** One struct held the table id and [`ClusterRules`]'s
+/// four fields; `is_break_classified` moved the id, `is_break_by_rules`
+/// and `set_after_ordinary` the fields, and `from_bits` set the fields
+/// with the id at 0. So `new()` stepped by one ordinary character said
+/// ready by the table and `Prev` by the fields, and the cluster emitter,
+/// asking `ordinary_run_ready` of a `from_bits` machine, wrote no ready
+/// state from `167f3fa7` until `38b6f0a9`. The rule form is its own type
+/// now, so a machine holds one form and cannot answer with the other;
+/// `the_two_forms_agree_in_lockstep_from_every_constructor` steps the two
+/// side by side. The runtime struct went from five bytes to one, and
+/// what that did to ingest2 is in `docs/record.md`, "The cluster
+/// machine's two forms are two types".
+#[derive(Clone, Copy, Default, PartialEq, Eq, Hash, Debug)]
 pub struct ClusterBreak {
     /// The whole machine, as one state id into `CLUSTER_NEXT`.
     table_state: u8,
+}
+
+/// The cluster machine as `[[source: uax29]]`'s rules over four fields:
+/// the definition `CLUSTER_NEXT` is generated from and answers to.
+///
+/// Tooling and tests only: `baud-domain/tests/cluster_states.rs`
+/// enumerates its states through `to_bits`/`from_bits` to emit the
+/// table, and `the_cluster_table_agrees_with_the_rules` holds the table
+/// to it. It has no table id, so nothing on it can disagree with one.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct ClusterRules {
     prev: Option<GraphemeClass>,
     ri: RiParity,
     pict: PictLookback,
@@ -254,57 +281,6 @@ impl ClusterBreak {
         ClusterBreak::new()
     }
 
-    /// The machine's whole state as nine bits, for tooling that has to
-    /// enumerate it. `prev` is 15 values, `ri` 2, `pict` 3, `incb` 3.
-    pub fn to_bits(self) -> u16 {
-        let prev = match self.prev {
-            None => 14u16,
-            Some(c) => c as u16,
-        };
-        let ri = match self.ri {
-            RiParity::Even => 0u16,
-            RiParity::Odd => 1,
-        };
-        let pict = match self.pict {
-            PictLookback::None => 0u16,
-            PictLookback::Pictographic => 1,
-            PictLookback::PictographicZwj => 2,
-        };
-        let incb = match self.incb {
-            IncbLookback::None => 0u16,
-            IncbLookback::Consonant => 1,
-            IncbLookback::ConsonantLinker => 2,
-        };
-        prev | (ri << 4) | (pict << 5) | (incb << 7)
-    }
-
-    /// Inverse of [`ClusterBreak::to_bits`].
-    pub fn from_bits(b: u16) -> ClusterBreak {
-        ClusterBreak {
-            // Tooling only: reconstructs the *rule* machine, whose
-            // `table_state` is not meaningful.
-            table_state: 0,
-            prev: match b & 0xf {
-                14 => None,
-                n => Some(GraphemeClass::FROM_INDEX[n as usize]),
-            },
-            ri: match (b >> 4) & 1 {
-                0 => RiParity::Even,
-                _ => RiParity::Odd,
-            },
-            pict: match (b >> 5) & 3 {
-                0 => PictLookback::None,
-                1 => PictLookback::Pictographic,
-                _ => PictLookback::PictographicZwj,
-            },
-            incb: match (b >> 7) & 3 {
-                0 => IncbLookback::None,
-                1 => IncbLookback::Consonant,
-                _ => IncbLookback::ConsonantLinker,
-            },
-        }
-    }
-
     /// The truthful state after a run of **printable ASCII**, which is also
     /// the state one ordinary character leaves.
     ///
@@ -354,43 +330,8 @@ impl ClusterBreak {
         ClusterBreak {
             // `prev = Other` with no lookback live is exactly the one
             // state `ordinary_run_ready` accepts, so under the table it
-            // is that id.
+            // is that id: `ClusterRules::after_ascii_run`'s state.
             table_state: crate::cluster_data::CLUSTER_READY,
-            prev: Some(GraphemeClass::Other),
-            ..ClusterBreak::default()
-        }
-    }
-
-    /// The state a completed run of ordinary characters leaves behind.
-    ///
-    /// What `advance_plain(Other, true)` writes, which is the same for every
-    /// such character: `prev` is `Other` and nothing is pending. Setting it
-    /// once for a run is the whole of the machine's work for all of them.
-    pub fn set_after_ordinary(&mut self) {
-        self.prev = Some(GraphemeClass::Other);
-        self.ri = RiParity::Even;
-        self.pict = PictLookback::None;
-        self.incb = IncbLookback::None;
-    }
-
-    /// Which of `ordinary_run_ready`'s four conditions said no.
-    ///
-    /// **A predicate that answers "no" cannot be optimised against.** The bulk
-    /// wide path is gated on this state and was being refused on 92% of a CJK
-    /// recording's wide characters, while every hand-written shape passed it
-    /// 100% of the time -- so the shape that refuses it is one nobody had
-    /// thought to write down, which is exactly the case a boolean hides.
-    pub fn ordinary_run_blocker(&self) -> RunBlocker {
-        if self.prev != Some(GraphemeClass::Other) {
-            RunBlocker::Prev
-        } else if self.ri != RiParity::Even {
-            RunBlocker::Regional
-        } else if self.pict != PictLookback::None {
-            RunBlocker::Pictographic
-        } else if self.incb != IncbLookback::None {
-            RunBlocker::Indic
-        } else {
-            RunBlocker::Ready
         }
     }
 
@@ -405,12 +346,15 @@ impl ClusterBreak {
     /// re-establishes the precondition for the next.
     ///
     /// So the caller may skip the machine entirely for such a run, and the
-    /// state afterwards is the state before.
+    /// state afterwards is the state before. The fields are
+    /// `ClusterRules::after_ascii_run`'s, and this id is theirs.
     ///
     /// **This doc and an `#[inline(always)]` sat above `set_after_ordinary`
     /// from `6f3fedf` (2026-08-29), which inserted that function between
     /// them and this one.** The attribute was dropped rather than re-attached:
-    /// neither function has a caller outside the tests, and ingest2's `__text`
+    /// neither function had a caller outside the tests
+    /// (`set_after_ordinary` was deleted on 2026-10-16;
+    /// `ClusterRules::after_ascii_run` is its state), and ingest2's `__text`
     /// is byte-identical without it against `606ea59`; a forced attribute is a
     /// codegen change with a number the day a caller arrives (`docs/record.md`, "The
     /// eighth stranded attribute, and re-attaching it was the wrong repair").
@@ -471,9 +415,94 @@ impl ClusterBreak {
         self.table_state = e & 0x7f;
         e & 0x80 != 0
     }
+}
 
-    /// The rules, walked. **Not the hot path** -- `is_break_classified` is a
-    /// table now -- but the table is generated from this, and
+impl ClusterRules {
+    pub fn new() -> ClusterRules {
+        ClusterRules::default()
+    }
+
+    /// [`ClusterBreak::after_ascii_run`]'s state in the rule form: `prev`
+    /// is `Other` and no lookback is live.
+    pub fn after_ascii_run() -> ClusterRules {
+        ClusterRules {
+            prev: Some(GraphemeClass::Other),
+            ..ClusterRules::default()
+        }
+    }
+
+    /// The machine's whole state as nine bits, for tooling that has to
+    /// enumerate it. `prev` is 15 values, `ri` 2, `pict` 3, `incb` 3.
+    pub fn to_bits(self) -> u16 {
+        let prev = match self.prev {
+            None => 14u16,
+            Some(c) => c as u16,
+        };
+        let ri = match self.ri {
+            RiParity::Even => 0u16,
+            RiParity::Odd => 1,
+        };
+        let pict = match self.pict {
+            PictLookback::None => 0u16,
+            PictLookback::Pictographic => 1,
+            PictLookback::PictographicZwj => 2,
+        };
+        let incb = match self.incb {
+            IncbLookback::None => 0u16,
+            IncbLookback::Consonant => 1,
+            IncbLookback::ConsonantLinker => 2,
+        };
+        prev | (ri << 4) | (pict << 5) | (incb << 7)
+    }
+
+    /// Inverse of [`ClusterRules::to_bits`].
+    pub fn from_bits(b: u16) -> ClusterRules {
+        ClusterRules {
+            prev: match b & 0xf {
+                14 => None,
+                n => Some(GraphemeClass::FROM_INDEX[n as usize]),
+            },
+            ri: match (b >> 4) & 1 {
+                0 => RiParity::Even,
+                _ => RiParity::Odd,
+            },
+            pict: match (b >> 5) & 3 {
+                0 => PictLookback::None,
+                1 => PictLookback::Pictographic,
+                _ => PictLookback::PictographicZwj,
+            },
+            incb: match (b >> 7) & 3 {
+                0 => IncbLookback::None,
+                1 => IncbLookback::Consonant,
+                _ => IncbLookback::ConsonantLinker,
+            },
+        }
+    }
+
+    /// Which of [`ClusterBreak::ordinary_run_ready`]'s four conditions,
+    /// read from the fields, says no.
+    ///
+    /// **A predicate that answers "no" cannot be optimised against.** The bulk
+    /// wide path is gated on this state and was being refused on 92% of a CJK
+    /// recording's wide characters, while every hand-written shape passed it
+    /// 100% of the time -- so the shape that refuses it is one nobody had
+    /// thought to write down, which is exactly the case a boolean hides.
+    pub fn ordinary_run_blocker(&self) -> RunBlocker {
+        if self.prev != Some(GraphemeClass::Other) {
+            RunBlocker::Prev
+        } else if self.ri != RiParity::Even {
+            RunBlocker::Regional
+        } else if self.pict != PictLookback::None {
+            RunBlocker::Pictographic
+        } else if self.incb != IncbLookback::None {
+            RunBlocker::Indic
+        } else {
+            RunBlocker::Ready
+        }
+    }
+
+    /// The rules, walked. **Not the hot path** --
+    /// [`ClusterBreak::is_break_classified`] is a table now -- but the table is generated from this, and
     /// `the_cluster_table_agrees_with_the_rules` checks every reachable state
     /// against it, so this stays as the definition the artefact answers to.
     pub fn is_break_by_rules(&mut self, cur: GraphemeClass, lb: Lookback) -> bool {

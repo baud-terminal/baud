@@ -4,12 +4,12 @@
 //! needs the reachable state count, not the nominal one: 15 x 2 x 3 x 3 = 270
 //! combinations exist, but most may be unreachable.
 
-use baud_domain::{ClusterBreak, GraphemeClass, Lookback, RunBlocker};
+use baud_domain::{ClusterRules, GraphemeClass, Lookback, RunBlocker};
 use std::collections::HashSet;
 
 #[test]
 fn report_reachable_cluster_states() {
-    let start = ClusterBreak::new().to_bits();
+    let start = ClusterRules::new().to_bits();
     let mut seen: HashSet<u16> = HashSet::from([start]);
     let mut queue = vec![start];
     // The transition input is exactly the byte the flat property table returns:
@@ -26,7 +26,7 @@ fn report_reachable_cluster_states() {
         .collect();
     while let Some(st) = queue.pop() {
         for &(cl, lb) in &inputs {
-            let mut m = ClusterBreak::from_bits(st);
+            let mut m = ClusterRules::from_bits(st);
             let _ = m.is_break_by_rules(cl, lb);
             let next = m.to_bits();
             if seen.insert(next) {
@@ -57,7 +57,7 @@ fn report_reachable_cluster_states() {
 /// a hash seed.
 fn cluster_table_bytes() -> Vec<u8> {
     use std::collections::HashMap;
-    let start = ClusterBreak::new().to_bits();
+    let start = ClusterRules::new().to_bits();
     let mut id: HashMap<u16, u8> = HashMap::from([(start, 0)]);
     let mut order: Vec<u16> = vec![start];
     let mut i = 0usize;
@@ -72,7 +72,7 @@ fn cluster_table_bytes() -> Vec<u8> {
             if (b & 0xf) >= 14 {
                 continue;
             }
-            let mut m = ClusterBreak::from_bits(st);
+            let mut m = ClusterRules::from_bits(st);
             let _ = m.is_break_by_rules(cl, lb);
             let n = m.to_bits();
             if !id.contains_key(&n) {
@@ -92,11 +92,11 @@ fn cluster_table_bytes() -> Vec<u8> {
     let mut table = vec![0u8; order.len() * 256];
     let mut ready = vec![0u8; order.len()];
     for (si, &st) in order.iter().enumerate() {
-        // From the fields, not `ordinary_run_ready`: that compares the
-        // table id, which `from_bits` leaves at 0, so asking it here said
-        // "not ready" of every state and the dump lost its ready state.
+        // From the fields: the rule form has no table id to ask. Until
+        // 2026-10-16 one type carried both, and asking its table here
+        // said "not ready" of every state from `from_bits`.
         ready[si] = u8::from(matches!(
-            ClusterBreak::from_bits(st).ordinary_run_blocker(),
+            ClusterRules::from_bits(st).ordinary_run_blocker(),
             RunBlocker::Ready
         ));
         for b in 0u16..256 {
@@ -107,7 +107,7 @@ fn cluster_table_bytes() -> Vec<u8> {
                 GraphemeClass::FROM_INDEX[(b & 0xf) as usize],
                 Lookback::from_bits((b >> 4) as u8),
             );
-            let mut m = ClusterBreak::from_bits(st);
+            let mut m = ClusterRules::from_bits(st);
             let brk = m.is_break_by_rules(cl, lb);
             table[si * 256 + b as usize] = (u8::from(brk) << 7) | id[&m.to_bits()];
         }
@@ -183,7 +183,7 @@ fn cluster_data_rs_is_what_cluster_bin_formats_to() {
 fn the_cluster_table_agrees_with_the_rules() {
     use baud_domain::cluster_next;
     use std::collections::HashMap;
-    let start = ClusterBreak::new().to_bits();
+    let start = ClusterRules::new().to_bits();
     let mut id: HashMap<u16, u8> = HashMap::from([(start, 0)]);
     let mut order: Vec<u16> = vec![start];
     let mut i = 0usize;
@@ -194,7 +194,7 @@ fn the_cluster_table_agrees_with_the_rules() {
             if (b & 0xf) >= 14 {
                 continue;
             }
-            let mut m = ClusterBreak::from_bits(st);
+            let mut m = ClusterRules::from_bits(st);
             let _ = m.is_break_by_rules(
                 GraphemeClass::FROM_INDEX[(b & 0xf) as usize],
                 Lookback::from_bits((b >> 4) as u8),
@@ -217,7 +217,7 @@ fn the_cluster_table_agrees_with_the_rules() {
                 GraphemeClass::FROM_INDEX[(b & 0xf) as usize],
                 Lookback::from_bits((b >> 4) as u8),
             );
-            let mut m = ClusterBreak::from_bits(st);
+            let mut m = ClusterRules::from_bits(st);
             let want_brk = m.is_break_by_rules(cl, lb);
             let want_next = id[&m.to_bits()];
             let e = cluster_next(si as u8, b as u8);
