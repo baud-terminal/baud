@@ -22,7 +22,7 @@ fn stream(store: &mut ImageStore, body: &[u8]) -> (Option<(ImageId, SixelPx, Six
 
 fn start(store: &ImageStore, base: usize, id: ImageId) -> usize {
     let v = store.image(id).expect("live");
-    (v.pixels.as_ptr().addr() - base) / core::mem::size_of::<ColorWord>()
+    (v.pixels.as_ptr().addr() - base) / core::mem::size_of::<Pixel>()
 }
 
 /// **A Sixel lands in the lowest gap that holds it, where `store` would
@@ -33,16 +33,25 @@ fn start(store: &ImageStore, base: usize, id: ImageId) -> usize {
 /// intact.
 #[test]
 fn a_sixel_lands_in_the_lowest_gap_that_holds_it() {
-    let mut px = vec![ColorWord::DEFAULT; 1000];
+    let mut px = vec![Pixel::CLEAR; 1000];
     let base = px.as_ptr().addr();
     let mut slots = [ImageSlot::EMPTY; 4];
     let mut places = [PlacementSlot::EMPTY; 4];
     let mut store = ImageStore::new(&mut px, &mut slots, &mut places);
     let ten = ImagePx::of(10);
     let six = ImagePx::of(6);
-    let a = store.store(ten, six).expect("a").0;
-    let b = store.store(ten, six).expect("b").0;
-    let c = store.store(ten, six).expect("c").0;
+    let a = store
+        .store(ten, six, ImageAlpha::OpaqueOrClear)
+        .expect("a")
+        .0;
+    let b = store
+        .store(ten, six, ImageAlpha::OpaqueOrClear)
+        .expect("b")
+        .0;
+    let c = store
+        .store(ten, six, ImageAlpha::OpaqueOrClear)
+        .expect("c")
+        .0;
     assert_eq!(
         [a, b, c].map(|id| start(&store, base, id)),
         [0, 60, 120],
@@ -58,7 +67,7 @@ fn a_sixel_lands_in_the_lowest_gap_that_holds_it() {
         60,
         "the freed middle span, not 180"
     );
-    let red = ColorWord::rgb(Chan::from_u8(255), Chan::from_u8(0), Chan::from_u8(0));
+    let red = Pixel::opaque(Chan::from_u8(255), Chan::from_u8(0), Chan::from_u8(0));
     let v = store.image(id).expect("live");
     assert!(
         v.pixels.iter().all(|&p| p == red),
@@ -74,7 +83,7 @@ fn a_sixel_lands_in_the_lowest_gap_that_holds_it() {
 /// ten. Without that the four bands would write 24 rows of 65535.
 #[test]
 fn an_overstated_extent_writes_one_band_of_its_stride() {
-    let mut px = vec![ColorWord::DEFAULT; 1 << 20];
+    let mut px = vec![Pixel::CLEAR; 1 << 20];
     let mut slots = [ImageSlot::EMPTY; 4];
     let mut places = [PlacementSlot::EMPTY; 4];
     let mut store = ImageStore::new(&mut px, &mut slots, &mut places);
@@ -95,7 +104,7 @@ fn an_overstated_extent_writes_one_band_of_its_stride() {
 /// that the ten bands would write 60 rows of 1024.
 #[test]
 fn with_no_extent_a_decode_writes_the_image_and_no_more() {
-    let mut px = vec![ColorWord::DEFAULT; 1 << 20];
+    let mut px = vec![Pixel::CLEAR; 1 << 20];
     let mut slots = [ImageSlot::EMPTY; 4];
     let mut places = [PlacementSlot::EMPTY; 4];
     let mut store = ImageStore::new(&mut px, &mut slots, &mut places);
@@ -115,7 +124,7 @@ fn with_no_extent_a_decode_writes_the_image_and_no_more() {
 /// sits lower.
 #[test]
 fn a_sixel_that_fits_only_the_largest_gap_is_drawn() {
-    let mut px = vec![ColorWord::DEFAULT; 300];
+    let mut px = vec![Pixel::CLEAR; 300];
     let base = px.as_ptr().addr();
     let mut slots = [ImageSlot::EMPTY; 4];
     let mut places = [PlacementSlot::EMPTY; 4];
@@ -124,9 +133,18 @@ fn a_sixel_that_fits_only_the_largest_gap_is_drawn() {
     let six = ImagePx::of(6);
     // Spans at 0, 60 and 120; free the first, leaving a 60-word gap at 0
     // and a 120-word one from 180.
-    let a = store.store(ten, six).expect("a").0;
-    let _b = store.store(ten, six).expect("b").0;
-    let _c = store.store(ten, six).expect("c").0;
+    let a = store
+        .store(ten, six, ImageAlpha::OpaqueOrClear)
+        .expect("a")
+        .0;
+    let _b = store
+        .store(ten, six, ImageAlpha::OpaqueOrClear)
+        .expect("b")
+        .0;
+    let _c = store
+        .store(ten, six, ImageAlpha::OpaqueOrClear)
+        .expect("c")
+        .0;
     store.free(a);
     let (got, _) = stream(&mut store, b"#1;2;100;0;0#1!20~");
     let (id, w, h) = got.expect("a 20x6 image drawn in the gap from 180");

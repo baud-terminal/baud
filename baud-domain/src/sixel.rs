@@ -22,8 +22,8 @@
 //! this is the decode half of its first acceptance gate.
 
 use crate::decode::{InputEncoding, StreamByte};
-use crate::image::{ImageId, ImagePx, ImageRefusal, ImageStore};
-use crate::style::{Chan, ColorWord};
+use crate::image::{ImageAlpha, ImageId, ImagePx, ImageRefusal, ImageStore, Pixel};
+use crate::style::Chan;
 
 /// A pixel coordinate or extent. A Sixel is bounded by its raster attributes
 /// and by the caller's canvas; `u16` covers every image a terminal draws and
@@ -121,12 +121,12 @@ enum Raster {
     Closed,
 }
 
-/// A caller-provided image the decoder paints into. `DEFAULT` (zero) means a
+/// A caller-provided image the decoder paints into. `CLEAR` (zero) means a
 /// pixel was never painted -- transparent, so a Sixel composited over the
 /// screen shows the cells through its gaps -- which the reserved-value
 /// discipline for blank cells is the precedent for.
 pub struct SixelCanvas<'a> {
-    pixels: &'a mut [ColorWord],
+    pixels: &'a mut [Pixel],
     width: SixelPx,
 }
 
@@ -134,7 +134,7 @@ impl<'a> SixelCanvas<'a> {
     /// A canvas `width` pixels wide over `pixels`; the height is what fits.
     ///
     /// A row of the image is `width` consecutive words.
-    pub fn new(pixels: &'a mut [ColorWord], width: SixelPx) -> SixelCanvas<'a> {
+    pub fn new(pixels: &'a mut [Pixel], width: SixelPx) -> SixelCanvas<'a> {
         SixelCanvas { pixels, width }
     }
 
@@ -147,7 +147,7 @@ impl<'a> SixelCanvas<'a> {
 
     /// Paint one pixel. Returns whether it landed inside the canvas; a write
     /// past the edge is refused, never wrapped, and the caller counts it.
-    fn paint(&mut self, x: SixelPx, y: SixelPx, colour: ColorWord) -> Painted {
+    fn paint(&mut self, x: SixelPx, y: SixelPx, colour: Pixel) -> Painted {
         if x >= self.width || y >= self.height() {
             return Painted::Refused;
         }
@@ -285,9 +285,9 @@ pub struct SixelBegin {
     /// `[[source: dec-std-070]]` 070-9 §10, "Sixel color: Contrasting to
     /// background. Color numbers: All unspecified color numbers image as the
     /// default Sixel color": every register the Sixel has not defined paints
-    /// with this, `ColorWord::DEFAULT` -- drawn as nothing -- while the
+    /// with this, `Pixel::CLEAR` -- drawn as nothing -- while the
     /// terminal does not know its foreground.
-    pub ink: ColorWord,
+    pub ink: Pixel,
     pub registers: SixelRegisters,
     pub floor: SixelEdge,
     /// `[[source: dec-std-070]]` 070-9 §11.2.2, "Right Margin: Sixels
@@ -373,7 +373,7 @@ impl Sixel {
     }
 
     /// Decode `data` -- the bytes after the `q` and before the `ST` -- into
-    /// `canvas`. The canvas starts however the caller cleared it (`DEFAULT` for
+    /// `canvas`. The canvas starts however the caller cleared it (`CLEAR` for
     /// transparent), and set data bits paint the current register; unset bits
     /// leave the pixel, so a later Sixel over the same canvas overlays it.
     ///
@@ -448,7 +448,7 @@ trait Sink {
     /// one, or a repeat count's -- in the band whose top row is `top`, each
     /// sixel row `rows` device rows tall, in `colour`. Called for every data
     /// byte, all bits clear included, because the image reaches that far.
-    fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: ColorWord);
+    fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: Pixel);
 
     /// The device row no graphics new line may start a band at or past:
     /// display mode's bottom edge ([`SixelEdge`]), else none.
@@ -466,7 +466,7 @@ struct Measure;
 
 impl Sink for Measure {
     fn extent(&mut self, _ph: u16) {}
-    fn data(&mut self, _x0: u32, _x1: u32, _top: u32, _rows: u16, _bits: u8, _c: ColorWord) {}
+    fn data(&mut self, _x0: u32, _x1: u32, _top: u32, _rows: u16, _bits: u8, _c: Pixel) {}
 }
 
 /// The sink over a caller's canvas: a pixel past its edge is refused and
@@ -479,7 +479,7 @@ struct Clipped<'c, 'a> {
 impl Sink for Clipped<'_, '_> {
     fn extent(&mut self, _ph: u16) {}
 
-    fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: ColorWord) {
+    fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: Pixel) {
         for x in x0..x1 {
             for row in 0u8..6 {
                 if bits & (1 << row) == 0 {
@@ -510,7 +510,7 @@ impl Sink for Clipped<'_, '_> {
 /// 070-9 §8 the rules it leaves open; each arm below cites the one it keeps.
 #[derive(Clone)]
 struct Walk {
-    regs: [ColorWord; REGISTERS],
+    regs: [Pixel; REGISTERS],
     /// The device rows one sixel row takes, and whether a raster command may
     /// still change it.
     rows: u16,
@@ -535,7 +535,7 @@ struct Walk {
 
 impl Walk {
     const NEW: Walk = Walk {
-        regs: [ColorWord::DEFAULT; REGISTERS],
+        regs: [Pixel::CLEAR; REGISTERS],
         rows: 2,
         raster: Raster::Open,
         reg: 0,
@@ -817,7 +817,7 @@ struct Claim<'g, 's, 'b> {
 
 impl Claim<'_, '_, '_> {
     /// The claim's words, from its start.
-    fn words(&mut self) -> &mut [ColorWord] {
+    fn words(&mut self) -> &mut [Pixel] {
         let Gap { at, len, .. } = *self.gap;
         &mut self.store.arena_mut()[at..at + len]
     }
@@ -907,7 +907,7 @@ impl Claim<'_, '_, '_> {
                 self.restride(widest);
             }
             let (from, to) = (self.gap.zeroed * self.gap.stride, h * self.gap.stride);
-            self.words()[from..to].fill(ColorWord::DEFAULT);
+            self.words()[from..to].fill(Pixel::CLEAR);
             self.gap.written = self.gap.written.max(to);
             self.gap.zeroed = h;
         }
@@ -931,7 +931,7 @@ impl Claim<'_, '_, '_> {
         if to > from {
             for r in (0..zeroed).rev() {
                 words.copy_within(r * from..r * from + keep, r * to);
-                words[r * to + from..r * to + to].fill(ColorWord::DEFAULT);
+                words[r * to + from..r * to + to].fill(Pixel::CLEAR);
             }
         } else {
             for r in 0..zeroed {
@@ -952,7 +952,7 @@ impl Sink for Claim<'_, '_, '_> {
         }
     }
 
-    fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: ColorWord) {
+    fn data(&mut self, x0: u32, x1: u32, top: u32, rows: u16, bits: u8, colour: Pixel) {
         if self.gap.held == Held::Lost {
             return;
         }
@@ -1016,7 +1016,7 @@ pub struct SixelStream {
     gap: Gap,
     /// The shared registers (`?1070` reset): what every shared Sixel so far
     /// defined, and which those are. Cleared by [`SixelStream::forget_shared`].
-    shared: [ColorWord; REGISTERS],
+    shared: [Pixel; REGISTERS],
     shared_defined: RegisterSet,
     registers: SixelRegisters,
 }
@@ -1026,7 +1026,7 @@ impl SixelStream {
     pub const NEW: SixelStream = SixelStream {
         walk: Walk::NEW,
         gap: Gap::NONE,
-        shared: [ColorWord::DEFAULT; REGISTERS],
+        shared: [Pixel::CLEAR; REGISTERS],
         shared_defined: RegisterSet::NONE,
         registers: SixelRegisters::Private,
     };
@@ -1038,7 +1038,7 @@ impl SixelStream {
         self.begin_with(
             SixelBegin {
                 aspect,
-                ink: ColorWord::DEFAULT,
+                ink: Pixel::CLEAR,
                 registers: SixelRegisters::Private,
                 floor: SixelEdge::Open,
                 right: SixelEdge::Open,
@@ -1130,7 +1130,7 @@ impl SixelStream {
         let (iw, ih) = (ImagePx::of(w.raw()), ImagePx::of(h.raw()));
         if !store.has_free_slot() || self.gap.held == Held::Lost {
             // `store_at` counts which: the slot table first, as `store` does.
-            let _ = store.store_at(None, iw, ih);
+            let _ = store.store_at(None, iw, ih, ImageAlpha::OpaqueOrClear);
             return None;
         }
         let area = w.index() * h.index();
@@ -1146,7 +1146,7 @@ impl SixelStream {
         if to < at {
             store.arena_mut().copy_within(at..at + area, to);
         }
-        let id = store.store_at(Some(to), iw, ih)?;
+        let id = store.store_at(Some(to), iw, ih, ImageAlpha::OpaqueOrClear)?;
         Some((id, w, h))
     }
 
@@ -1160,8 +1160,8 @@ impl SixelStream {
 
 /// A colour register from RGB percentages (`Pu = 2`): each of `Px`, `Py`, `Pz`
 /// is 0 to 100, scaled to a 0..=255 channel with rounding.
-fn rgb(r: u16, g: u16, b: u16) -> ColorWord {
-    ColorWord::rgb(pct(r), pct(g), pct(b))
+fn rgb(r: u16, g: u16, b: u16) -> Pixel {
+    Pixel::opaque(pct(r), pct(g), pct(b))
 }
 
 /// A colour register from DEC HLS (`Pu = 1`): hue `h` in degrees, lightness
@@ -1182,7 +1182,7 @@ fn rgb(r: u16, g: u16, b: u16) -> ColorWord {
 /// `l - a * max(-1, min(k - 3, 9 - k, 1))` is `(3000 l - s * min(l, 100 - l)
 /// * m) / 3000` percent, which stays within 0..=100, so the channel is that
 /// times 255/100, rounded half up as [`pct`] rounds.
-fn hls(h: u16, l: u16, s: u16) -> Option<ColorWord> {
+fn hls(h: u16, l: u16, s: u16) -> Option<Pixel> {
     if h > 360 || l > 100 || s > 100 {
         return None;
     }
@@ -1196,7 +1196,7 @@ fn hls(h: u16, l: u16, s: u16) -> Option<ColorWord> {
         let c = (255 * v + 150_000) / 300_000;
         Chan::from_u8(u8::try_from(c).unwrap_or(u8::MAX))
     };
-    Some(ColorWord::rgb(chan(0), chan(8), chan(4)))
+    Some(Pixel::opaque(chan(0), chan(8), chan(4)))
 }
 
 /// A 0-100 percentage as a channel, clamped and rounded.

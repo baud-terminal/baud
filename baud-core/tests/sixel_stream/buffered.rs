@@ -8,7 +8,7 @@
 //! spelled locally. A second spelling of the grammar on purpose: an oracle
 //! that shared the decoder's would agree with any mistake in it.
 
-use baud_domain::{Chan, ColorWord};
+use baud_domain::{Chan, Pixel};
 
 /// What the buffered walk reached: its extent, counted past 65535 as the
 /// original counted, so an image too large to state is seen as one.
@@ -42,8 +42,8 @@ enum Raster {
 
 /// The walk. `canvas` absent measures; present, `(pixels, width)` is painted
 /// where a pixel is inside it, as `SixelCanvas::paint` painted.
-pub fn walk(data: &[u8], rows0: u16, mut canvas: Option<(&mut [ColorWord], usize)>) -> Reach {
-    let mut regs = [ColorWord::DEFAULT; 256];
+pub fn walk(data: &[u8], rows0: u16, mut canvas: Option<(&mut [Pixel], usize)>) -> Reach {
+    let mut regs = [Pixel::CLEAR; 256];
     let mut rows = rows0;
     let mut raster = Raster::Open;
     let mut reg: usize = 0;
@@ -153,11 +153,11 @@ pub fn walk(data: &[u8], rows0: u16, mut canvas: Option<(&mut [ColorWord], usize
     Reach { width, height }
 }
 
-fn rgb(r: u16, g: u16, b: u16) -> ColorWord {
-    ColorWord::rgb(pct(r), pct(g), pct(b))
+fn rgb(r: u16, g: u16, b: u16) -> Pixel {
+    Pixel::opaque(pct(r), pct(g), pct(b))
 }
 
-fn hls(h: u16, l: u16, s: u16) -> Option<ColorWord> {
+fn hls(h: u16, l: u16, s: u16) -> Option<Pixel> {
     if h > 360 || l > 100 || s > 100 {
         return None;
     }
@@ -171,7 +171,7 @@ fn hls(h: u16, l: u16, s: u16) -> Option<ColorWord> {
         let c = (255 * v + 150_000) / 300_000;
         Chan::from_u8(u8::try_from(c).unwrap_or(u8::MAX))
     };
-    Some(ColorWord::rgb(chan(0), chan(8), chan(4)))
+    Some(Pixel::opaque(chan(0), chan(8), chan(4)))
 }
 
 fn pct(v: u16) -> Chan {

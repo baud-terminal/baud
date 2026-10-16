@@ -16,7 +16,7 @@
 //! round trip -- the palette scaling (`0..100` percent to `0..255` with the
 //! same rounding), the band order and the run-length expansion all at once.
 
-use baud_domain::{ColorWord, Sixel, SixelAspect, SixelCanvas};
+use baud_domain::{Pixel, Sixel, SixelAspect, SixelCanvas};
 
 const FILE: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -71,7 +71,7 @@ fn baud_decodes_a_real_sixel_to_what_libsixel_decodes_it_to() {
         h.raw()
     );
 
-    let mut image = vec![ColorWord::DEFAULT; w.index() * h.index()];
+    let mut image = vec![Pixel::CLEAR; w.index() * h.index()];
     let mut canvas = SixelCanvas::new(&mut image, w);
     let filled = Sixel::decode(body(), aspect(), &mut canvas);
     assert_eq!(
@@ -94,9 +94,11 @@ fn baud_decodes_a_real_sixel_to_what_libsixel_decodes_it_to() {
     let mut first = None;
     for y in 0..OH {
         for x in 0..OW {
-            match image[y * stride + x].as_rgb() {
+            let p = image[y * stride + x];
+            match (p != Pixel::CLEAR).then(|| p.rgb()) {
                 None => transparent += 1,
                 Some((r, g, b)) => {
+                    let (r, g, b) = (r.get(), g.get(), b.get());
                     painted += 1;
                     let o = (y * OW + x) * 3;
                     let want = [ORACLE[o], ORACLE[o + 1], ORACLE[o + 2]];

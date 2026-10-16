@@ -16,13 +16,13 @@
 //! value grid positions)" and "2 set to background color - zero bit value grid
 //! positions are set to the background color". Under `P2 = 1` the position
 //! keeps what the screen shows under the image, which a transparent image
-//! pixel (`ColorWord::DEFAULT`) composites to (a reading); under `P2 = 0` or
+//! pixel (`Pixel::CLEAR`) composites to (a reading); under `P2 = 0` or
 //! `2` baud draws it transparent too, its counted, standing departure
 //! (`sixel_p2_ignored`, note S). Neither text, under any `P2`, lets the
 //! position show a different image that was erased before this one arrived.
 
 use baud_core::*;
-use baud_domain::{Chan, ImageBudget, ImageGen, ImageId, ImagePx};
+use baud_domain::{Chan, ImageBudget, ImageGen, ImageId, ImagePx, Pixel};
 
 mod support;
 
@@ -49,7 +49,7 @@ fn placed_after(
     data: &[u8],
     cuts: &[usize],
     budget: ImageBudget,
-) -> (usize, usize, Vec<ColorWord>, usize) {
+) -> (usize, usize, Vec<Pixel>, usize) {
     let ws = support::CORPUS;
     let mut owned = Owned::new(&ws).with_images(budget);
     let mut t = Term::new(owned.storage(), &ws);
@@ -68,16 +68,16 @@ fn placed_after(
     )
 }
 
-fn red() -> ColorWord {
-    ColorWord::rgb(
+fn red() -> Pixel {
+    Pixel::opaque(
         Chan::from_offset(255, 0),
         Chan::from_offset(0, 0),
         Chan::from_offset(0, 0),
     )
 }
 
-fn green() -> ColorWord {
-    ColorWord::rgb(
+fn green() -> Pixel {
+    Pixel::opaque(
         Chan::from_offset(0, 0),
         Chan::from_offset(255, 0),
         Chan::from_offset(0, 0),
@@ -109,8 +109,8 @@ fn reuse_program(p2: &str, bands: usize) -> (Vec<u8>, usize) {
 
 /// What the text gives the second image: its top row green, every other
 /// position unpainted.
-fn want(w: usize, h: usize) -> Vec<ColorWord> {
-    let mut v = vec![ColorWord::DEFAULT; w * h];
+fn want(w: usize, h: usize) -> Vec<Pixel> {
+    let mut v = vec![Pixel::CLEAR; w * h];
     v[..w].fill(green());
     v
 }
@@ -194,7 +194,7 @@ fn walk_budget() -> ImageBudget {
     ImageBudget::of(1 << 20)
 }
 
-type Image = (u16, u16, Vec<ColorWord>);
+type Image = (u16, u16, Vec<Pixel>);
 
 /// Every image stored over a feed of `data` in reads of `chunk`, in order. A
 /// store bumps the store's generation, so after each read whose generation
@@ -309,11 +309,22 @@ fn every_preview_in_a_yazi_walk_is_its_own_body_alone() {
 }
 
 /// FNV-1a 64 over an image's pixel words, little-endian: a digest to pin
-/// thirteen 600x804 images by.
-fn fnv(px: &[ColorWord]) -> u64 {
+/// thirteen 600x804 images by. Each pixel is hashed as the word the arena
+/// held before it stored alpha -- zero for clear, `0x02RRGGBB` for a colour
+/// -- so the digests pinned at 2992a8e9 still hold every pixel, and a
+/// Sixel pixel neither clear nor opaque fails here.
+fn fnv(px: &[Pixel]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for c in px {
-        for b in c.bits().to_le_bytes() {
+        let word = match c.alpha().get() {
+            0 => {
+                assert_eq!(*c, Pixel::CLEAR, "a clear Sixel pixel is zero");
+                0
+            }
+            0xFF => 0x0200_0000 | (c.bits() & 0x00FF_FFFF),
+            a => panic!("a Sixel pixel at alpha {a}"),
+        };
+        for b in u32::to_le_bytes(word) {
             h ^= u64::from(b);
             h = h.wrapping_mul(0x0100_0000_01b3);
         }

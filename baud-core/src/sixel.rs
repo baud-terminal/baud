@@ -58,8 +58,8 @@ impl Paint<'_, '_> {
     pub(crate) fn sixel_begin(&mut self, aspect: SixelAspect) {
         let shown = self.cold.shown(DynamicColor::Foreground);
         let ink = match shown.as_rgb() {
-            Some(_) => shown,
-            None => ColorWord::DEFAULT,
+            Some((r, g, b)) => Pixel::opaque(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)),
+            None => Pixel::CLEAR,
         };
         let registers = match self.cold.modes.is_set(ModeBit::SixelPrivateRegisters) {
             true => SixelRegisters::Private,

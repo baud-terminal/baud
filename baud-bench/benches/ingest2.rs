@@ -317,7 +317,7 @@ fn main() {
         true => (64 * 48 + 64, 32, 64),
         false => (0, 0, 0),
     };
-    let mut img_pixels = vec![ColorWord::DEFAULT; px];
+    let mut img_pixels = vec![baud_domain::Pixel::CLEAR; px];
     let mut img_slots = vec![ImageSlot::EMPTY; slots];
     let mut img_places = vec![PlacementSlot::EMPTY; places];
     let mut sixel = Box::new(SixelStream::NEW);

@@ -8,7 +8,7 @@
 //! the next is the case a chunk-invariant terminal has to get right.
 
 use baud_core::*;
-use baud_domain::{Chan, ImageBudget, ImagePx, ImageRefusals, LineIdx, SixelClaim};
+use baud_domain::{Chan, ImageBudget, ImagePx, ImageRefusals, LineIdx, Pixel, SixelClaim};
 
 mod support;
 
@@ -65,11 +65,11 @@ const CLAIMED: Setup = Setup {
 
 const FG: (u8, u8, u8) = (10, 20, 30);
 
-fn rgb((r, g, b): (u8, u8, u8)) -> ColorWord {
-    ColorWord::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
+fn rgb((r, g, b): (u8, u8, u8)) -> Pixel {
+    Pixel::opaque(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))
 }
 
-fn red() -> ColorWord {
+fn red() -> Pixel {
     rgb((255, 0, 0))
 }
 
@@ -109,7 +109,7 @@ fn every_read(set: Setup, bytes: &[u8], f: impl Fn(&mut Term<'_>, &str)) {
 }
 
 /// The one placement's line, column and image size, and its pixels.
-fn placed(t: &Term<'_>) -> (LineIdx, Col, u16, u16, Vec<ColorWord>) {
+fn placed(t: &Term<'_>) -> (LineIdx, Col, u16, u16, Vec<Pixel>) {
     let imgs = t.images();
     let mut all = imgs.placements();
     let (_, p) = all.next().expect("an image is placed");
@@ -125,7 +125,7 @@ fn placed(t: &Term<'_>) -> (LineIdx, Col, u16, u16, Vec<ColorWord>) {
 }
 
 /// Every image's pixel at `(x, y)`, in placement order.
-fn pixels_at(t: &Term<'_>, x: usize, y: usize) -> Vec<ColorWord> {
+fn pixels_at(t: &Term<'_>, x: usize, y: usize) -> Vec<Pixel> {
     let imgs = t.images();
     imgs.placements()
         .map(|(_, p)| {
@@ -371,11 +371,7 @@ fn display_mode_draws_nothing_past_the_right_edge() {
         let (_, _, w, h, px) = placed(t);
         assert_eq!((w, h), (200, 50), "{how}: the screen, no wider");
         assert_eq!(px[49 * 200 + 199], red(), "{how}: drawn to the edge");
-        assert_eq!(
-            px[40],
-            ColorWord::DEFAULT,
-            "{how}: only the last band piles"
-        );
+        assert_eq!(px[40], Pixel::CLEAR, "{how}: only the last band piles");
         assert_eq!(
             t.images().refusals,
             ImageRefusals::NONE,
@@ -502,11 +498,7 @@ fn an_undefined_register_paints_the_foreground_shown() {
         ..CLAIMED
     };
     every_read(unsaid, body, |t, how| {
-        assert_eq!(
-            placed(t).4[1],
-            ColorWord::DEFAULT,
-            "{how}: no foreground said"
-        );
+        assert_eq!(placed(t).4[1], Pixel::CLEAR, "{how}: no foreground said");
     });
 }
 

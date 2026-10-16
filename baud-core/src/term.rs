@@ -2861,6 +2861,47 @@ impl<'b> Term<'b> {
         &self.store.images
     }
 
+    /// **Store an image the embedder decodes and place it at the cursor**,
+    /// leaving the cursor where it is. `fill` paints the `width` x `height`
+    /// pixels, straight ARGB and row-major, into the arena in place -- the
+    /// slice [`ImageStore::store`] reserves, which holds whatever was there
+    /// -- and `alpha` is its mark for what it paints (`ImageStore::store`
+    /// says what each mark costs). No protocol reaches it: it is the store
+    /// and a placement at the cursor's line on the live screen, the two
+    /// halves of a Sixel's terminator without the cursor's move.
+    ///
+    /// Refused and counted as [`ImageStore::store`] refuses, `fill` then not
+    /// called, and **refused for the arena while a Sixel's body is split
+    /// across two reads**: the Sixel decodes into a gap of the arena its `q`
+    /// claimed, which the slot table does not record, so an image stored in
+    /// it would be painted over by the rest of the body. Returns the
+    /// placement, [`PlacementId::NONE`] when anything refused it.
+    pub fn put_image(
+        &mut self,
+        width: ImagePx,
+        height: ImagePx,
+        alpha: ImageAlpha,
+        fill: impl FnOnce(&mut [Pixel]),
+    ) -> PlacementId {
+        let in_sixel = self.cold.str_kind == StrKind::Sixel
+            && matches!(self.node, Node::DcsStr | Node::StrEsc);
+        if in_sixel {
+            self.store.images.refuse(ImageRefusal::Arena(width, height));
+            return PlacementId::NONE;
+        }
+        let Some((id, pixels)) = self.store.images.store(width, height, alpha) else {
+            return PlacementId::NONE;
+        };
+        fill(pixels);
+        let (row, col) = self.cursor();
+        let cy = Rows::of_count(row.index());
+        let (screen, line) = match self.cold.screen {
+            Screen::Normal => (ImageScreen::Primary, self.store.book.top.plus(cy)),
+            Screen::Alternate => (ImageScreen::Alternate, self.store.book.alt_top.plus(cy)),
+        };
+        self.store.images.place(id, screen, line, col, ZIndex::ZERO)
+    }
+
     /// Tell the core the cell size in device pixels, so it can advance the
     /// cursor past a Sixel by `ceil(image_pixel_height / cell_h)` rows and free
     /// a Sixel when text is written over its `ceil(w / cell_w)` by

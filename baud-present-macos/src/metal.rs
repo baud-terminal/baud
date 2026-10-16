@@ -1144,7 +1144,8 @@ impl Gpu {
     }
 
     /// Draws each resolved image as a textured quad from its own texture, over
-    /// the glyphs -- the same premultiplied OVER the CPU `blit_image` does,
+    /// the glyphs -- the same OVER the CPU `blit_image` does, the texture's
+    /// straight pixels premultiplied once in the fragment,
     /// through the same `glyph`/`Kind::Color` pipeline a colour glyph uses, so
     /// no shader is added. One draw call per image: its texture at fragment 1,
     /// and a uniform whose `color` floats are the image size, so the quad's uv

@@ -4728,6 +4728,11 @@ lean:
      `ImageStore`. Sixel writes full-alpha pixels, so its output is unchanged.
    - Each image is marked opaque or partial at decode. Opaque keeps today's
      cheap repeatable blit; partial repaints the rows it covers each frame.
+   - **Built 2026-10-15** as decided: the owner's "Full alpha", and Jev's
+     straight in the store, premultiplied once where it blends (1.00 and
+     1.00). `Pixel` is straight `0xAARRGGBB`, each image `OpaqueOrClear` or
+     `Partial` (the record, "Images keep straight alpha, and a partial one
+     repaints its rows").
 2. **Where the decoder lives.**
    - *Fork:* baud-domain, or a new leaf codec crate. **Lean: baud-domain**,
      which baud-core and baud-font both already depend on, and where t-images

@@ -495,7 +495,7 @@ pub struct Owned {
     palette: alloc::vec::Vec<ColorWord>,
     links: alloc::vec::Vec<u8>,
     link_len: alloc::vec::Vec<ByteLen>,
-    img_pixels: alloc::vec::Vec<ColorWord>,
+    img_pixels: alloc::vec::Vec<Pixel>,
     img_slots: alloc::vec::Vec<ImageSlot>,
     img_places: alloc::vec::Vec<PlacementSlot>,
     sixel: alloc::boxed::Box<SixelStream>,
@@ -582,12 +582,12 @@ impl Owned {
         }
     }
 
-    /// Provision image storage: `pixels` `ColorWord`s of ARGB arena.
+    /// Provision image storage: `pixels` [`Pixel`]s of arena.
     /// [`Owned::new`] provisions none -- the `with_cell_table` opt-in shape --
     /// so a terminal draws no images until a caller that wants them sizes it.
     ///
     /// **The size is the owner's call, between one image and a screenful.** A
-    /// 64x48 image is 3072 `ColorWord`s (12 KiB); a full 200x50 screen at an
+    /// 64x48 image is 3072 `Pixel`s (12 KiB); a full 200x50 screen at an
     /// 8x18 cell is ~1.4M (5.6 MiB). It is the only limit on a Sixel's size
     /// besides the 65535 a coordinate holds and the slot table: a body is
     /// decoded as it arrives, and no scratch holds it.
@@ -599,7 +599,7 @@ impl Owned {
     /// that with no gap at all, which is the correct nothing for a caller that
     /// wants images recognised and dropped rather than drawn.
     pub fn with_images(mut self, budget: ImageBudget) -> Owned {
-        self.img_pixels = alloc::vec![ColorWord::DEFAULT; budget.pixels];
+        self.img_pixels = alloc::vec![Pixel::CLEAR; budget.pixels];
         self
     }
 

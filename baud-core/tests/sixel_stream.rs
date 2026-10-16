@@ -19,8 +19,8 @@
 
 use baud_core::*;
 use baud_domain::{
-    ColorWord, ImageBudget, ImageId, ImagePx, ImageRefusal, ImageRefusals, ImageSlot, ImageStore,
-    PlacementSlot, SixelAspect, SixelStream, StreamByte,
+    ImageAlpha, ImageBudget, ImageId, ImagePx, ImageRefusal, ImageRefusals, ImageSlot, ImageStore,
+    Pixel, PlacementSlot, SixelAspect, SixelStream, StreamByte,
 };
 use proptest::prelude::*;
 
@@ -87,7 +87,7 @@ fn largest_gap(store: &ImageStore, base: usize, ids: &[ImageId], len: usize) -> 
         .iter()
         .map(|&id| {
             let v = store.image(id).expect("live");
-            let at = (v.pixels.as_ptr().addr() - base) / core::mem::size_of::<ColorWord>();
+            let at = (v.pixels.as_ptr().addr() - base) / core::mem::size_of::<Pixel>();
             (at, at + v.pixels.len())
         })
         .collect();
@@ -115,14 +115,14 @@ type Trace = Vec<(After, Live)>;
 /// pixel neither decoder cleared or painted shows; four slots, so a program
 /// reaches the slot table.
 struct Arena {
-    px: Vec<ColorWord>,
+    px: Vec<Pixel>,
     slots: Vec<ImageSlot>,
     places: Vec<PlacementSlot>,
 }
 
 impl Arena {
     fn new(len: usize) -> Arena {
-        let sentinel = ColorWord::rgb(
+        let sentinel = Pixel::opaque(
             baud_domain::Chan::from_u8(1),
             baud_domain::Chan::from_u8(2),
             baud_domain::Chan::from_u8(3),
@@ -137,7 +137,7 @@ impl Arena {
 
 fn recorded(store: &ImageStore, base: usize, id: ImageId) -> (ImageId, usize, u16, u16, Vec<u32>) {
     let v = store.image(id).expect("recorded means live");
-    let at = (v.pixels.as_ptr().addr() - base) / core::mem::size_of::<ColorWord>();
+    let at = (v.pixels.as_ptr().addr() - base) / core::mem::size_of::<Pixel>();
     let px = v.pixels.iter().map(|c| c.bits()).collect();
     (id, at, v.width.raw(), v.height.raw(), px)
 }
@@ -248,8 +248,8 @@ fn buffered_sixel(
         });
         return None;
     }
-    let (id, buf) = store.store(iw, ih)?;
-    buf.fill(ColorWord::DEFAULT);
+    let (id, buf) = store.store(iw, ih, ImageAlpha::OpaqueOrClear)?;
+    buf.fill(Pixel::CLEAR);
     let _ = buffered::walk(body, rows, Some((buf, usize::from(w))));
     ids.push(id);
     Some(id)
@@ -671,7 +671,7 @@ fn an_abandoned_body_leaves_nothing_and_the_next_sixel_draws_as_alone() {
 /// 920-921).
 #[test]
 fn a_raster_that_overstates_or_understates_the_image_draws_the_datas_extent() {
-    let red = ColorWord::rgb(
+    let red = Pixel::opaque(
         baud_domain::Chan::from_u8(255),
         baud_domain::Chan::from_u8(0),
         baud_domain::Chan::from_u8(0),
@@ -774,7 +774,7 @@ fn ten_bands(w: usize, rgb: &str) -> Vec<u8> {
 ///   arrives").
 #[test]
 fn a_resize_inside_a_body_frees_room_the_rest_of_it_can_use() {
-    let red = ColorWord::rgb(
+    let red = Pixel::opaque(
         baud_domain::Chan::from_u8(255),
         baud_domain::Chan::from_u8(0),
         baud_domain::Chan::from_u8(0),

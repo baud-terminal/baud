@@ -13,7 +13,7 @@ use crate::color::Argb;
 use crate::instance::Instance;
 use crate::trail::{Pt, Smear};
 use crate::units::{Band, Coverage, slots};
-use baud_domain::{Chan, ImageView};
+use baud_domain::{Chan, ImageAlpha, ImageView};
 use baud_font::Px;
 
 /// How coverage mixes a glyph colour into the background.
@@ -163,19 +163,36 @@ impl<'p> Target<'p> {
         }
     }
 
-    /// Blits an image's ARGB pixels over the buffer at slot `(x0, y0)`, which
+    /// Blits an image's pixels over the buffer at slot `(x0, y0)`, which
     /// may be negative when an image has scrolled partway off the top. Clipped
-    /// to the buffer on every side. A pixel is composited `blend.over` opaque,
+    /// to the buffer on every side. A pixel is composited `blend.over`,
     /// exactly as a `Kind::Color` glyph is (an image is ARGB the same way an
-    /// `sbix` glyph is), so an image drawn over glyphs reads over them.
+    /// `sbix` glyph is), so an image drawn over glyphs reads over them; a
+    /// clear pixel draws nothing and lets the cell underneath show through.
+    /// A partial pixel is blended by its straight alpha, which `blend.over`
+    /// premultiplies as it mixes: the one place the CPU path premultiplies
+    /// (`[[source: w3c-png-2003]]` 6.2 stores colour straight).
     ///
-    /// A `ColorWord` that resolves to RGB is drawn; anything else -- a
-    /// `DEFAULT` word, which is an unpainted, transparent Sixel pixel, or an
-    /// indexed word, which a Sixel arena never holds -- draws nothing and lets
-    /// the cell underneath show through. Transparency is by omission, not an
-    /// alpha channel; the Sixel `Pb`/`P2` whole-image transparency mode is a
-    /// separate thing the core does not yet see.
+    /// **An opaque-or-clear image under `Blend::Native` is stored, not
+    /// mixed**: the OVER of an opaque pixel is that pixel (`(255 s + 127) /
+    /// 255` is `s`; `an_opaque_pixel_over_anything_is_itself` holds every
+    /// channel value to it), which is the loop LLVM made of the blend before
+    /// the store held alpha. Sharing one loop with the partial case, it
+    /// stopped unswitching on the blend and blended every pixel, 53% more
+    /// instructions a frame for a still Sixel.
     pub fn blit_image(&mut self, origin: (i32, i32), view: &ImageView<'_>, blend: Blend) {
+        match (view.alpha, blend) {
+            (ImageAlpha::OpaqueOrClear, Blend::Native) => self.blit_opaque(origin, view),
+            (ImageAlpha::OpaqueOrClear, Blend::Linear) => self.blit_opaque_linear(origin, view),
+            (ImageAlpha::Partial, _) => self.blit_blended(origin, view, blend),
+        }
+    }
+
+    /// [`Target::blit_image`]'s opaque-or-clear `Linear` loop: each drawn
+    /// pixel taken opaque and mixed at a constant blend, the shape the loop
+    /// had before the store held alpha. Through `blit_blended`, reading each
+    /// pixel's alpha, it cost 68% more instructions a frame.
+    fn blit_opaque_linear(&mut self, origin: (i32, i32), view: &ImageView<'_>) {
         let (x0, y0) = origin;
         let (iw, ih) = (view.width.index(), view.height.index());
         let pixels = view.pixels;
@@ -195,12 +212,79 @@ impl<'p> Target<'p> {
                 if x >= width {
                     continue;
                 }
-                let Some((r, g, b)) = pixels[my * iw + mx].as_rgb() else {
+                let p = pixels[my * iw + mx];
+                if p.alpha().get() == 0 {
+                    continue;
+                }
+                let (r, g, b) = p.rgb();
+                let dst = Argb(self.pixels[base + x]);
+                self.pixels[base + x] =
+                    Blend::Linear.over(Argb::rgb(r, g, b), dst, Coverage(255)).0;
+            }
+        }
+    }
+
+    /// [`Target::blit_image`]'s opaque-or-clear `Native` loop: each drawn
+    /// pixel stored as it is.
+    fn blit_opaque(&mut self, origin: (i32, i32), view: &ImageView<'_>) {
+        let (x0, y0) = origin;
+        let (iw, ih) = (view.width.index(), view.height.index());
+        let pixels = view.pixels;
+        let (stride, width, height) = (slots(self.stride), slots(self.width), slots(self.height));
+        for my in 0..ih {
+            let Ok(y) = usize::try_from(y0 + i32::try_from(my).unwrap_or(0)) else {
+                continue;
+            };
+            if y >= height {
+                continue;
+            }
+            let base = y * stride;
+            for mx in 0..iw {
+                let Ok(x) = usize::try_from(x0 + i32::try_from(mx).unwrap_or(0)) else {
                     continue;
                 };
-                let src = Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b));
+                if x >= width {
+                    continue;
+                }
+                let p = pixels[my * iw + mx];
+                if p.alpha().get() == 0 {
+                    continue;
+                }
+                self.pixels[base + x] = p.bits();
+            }
+        }
+    }
+
+    /// [`Target::blit_image`]'s loop for a partial image: each drawn pixel
+    /// `blend.over` by its alpha. Out of line, so it leaves the opaque
+    /// loops' caller as it was.
+    #[inline(never)]
+    fn blit_blended(&mut self, origin: (i32, i32), view: &ImageView<'_>, blend: Blend) {
+        let (x0, y0) = origin;
+        let (iw, ih) = (view.width.index(), view.height.index());
+        let pixels = view.pixels;
+        let (stride, width, height) = (slots(self.stride), slots(self.width), slots(self.height));
+        for my in 0..ih {
+            let Ok(y) = usize::try_from(y0 + i32::try_from(my).unwrap_or(0)) else {
+                continue;
+            };
+            if y >= height {
+                continue;
+            }
+            let base = y * stride;
+            for mx in 0..iw {
+                let Ok(x) = usize::try_from(x0 + i32::try_from(mx).unwrap_or(0)) else {
+                    continue;
+                };
+                if x >= width {
+                    continue;
+                }
+                let p = pixels[my * iw + mx];
+                if p.alpha().get() == 0 {
+                    continue;
+                }
                 let dst = Argb(self.pixels[base + x]);
-                self.pixels[base + x] = blend.over(src, dst, Coverage(255)).0;
+                self.pixels[base + x] = blend.over(Argb(p.bits()), dst, Coverage(255)).0;
             }
         }
     }
@@ -270,4 +354,33 @@ fn luts() -> &'static Luts {
         }
         Luts { to_linear, to_srgb }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **The OVER of an opaque pixel is that pixel**, under `Blend::Native`,
+    /// whatever it is drawn over: what lets `blit_opaque` store a drawn pixel
+    /// rather than mix it. Every channel value, over a spread of
+    /// destinations, translucent ones included.
+    #[test]
+    fn an_opaque_pixel_over_anything_is_itself() {
+        for v in 0..=255u8 {
+            let c = Chan::from_u8(v);
+            let w = Chan::from_u8(v.wrapping_mul(37));
+            let src = Argb::rgb(c, w, Chan::from_u8(255 - v));
+            for d in [
+                0u32,
+                0x00FF_FFFF,
+                0x3812_3456,
+                0x80FF_0000,
+                0xFFFF_FFFF,
+                0xFF00_0000,
+            ] {
+                let got = Blend::Native.over(src, Argb(d), Coverage(255));
+                assert_eq!(got.0, src.0, "{:08x} over {d:08x}", src.0);
+            }
+        }
+    }
 }

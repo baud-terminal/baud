@@ -9,9 +9,9 @@
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{BytePos, ImageBudget, ReadLen, Rows};
+use baud_domain::{BytePos, Chan, Cols, ImageAlpha, ImageBudget, ImagePx, Pixel, ReadLen, Rows};
 use baud_font::Face;
-use baud_render::{Damage, Theme};
+use baud_render::{Blend, Damage, PxSize, Renderer, Stack, Theme};
 use support::{Canvas, WS, font, renderer};
 
 /// A 1x6 red Sixel, the smallest well-formed image, for the second-image case.
@@ -490,4 +490,233 @@ fn the_cpu_path_keeps_no_upload_snapshots() {
     );
     assert_eq!(r.image_snapshots().value(), 0);
     assert!(r.image_uploads().is_empty());
+}
+
+/// The partly transparent image the alpha tests place: 40x30, its alpha
+/// running through every value from clear to opaque across the rect, its
+/// colour varying with position, so a blend that read the alpha a step
+/// wrong, or not at all, misses on most pixels.
+const PW: usize = 40;
+const PH: usize = 30;
+
+fn partial_pixel(x: usize, y: usize) -> Pixel {
+    let c = |v: usize| Chan::from_u8(u8::try_from(v % 256).unwrap());
+    Pixel::straight(c(x * 7 + y * 13), c(x * 6), c(255 - y * 8), c(90 + x))
+}
+
+fn fill_partial(px: &mut [Pixel]) {
+    for (i, p) in px.iter_mut().enumerate() {
+        *p = partial_pixel(i % PW, i / PW);
+    }
+}
+
+/// Coloured text on a set, opaque background under the image's rect, and
+/// the cursor at row 3, column 4, where the image goes.
+const UNDER: &[u8] = b"\x1b[?25l\x1b[48;2;20;40;160m\x1b[38;2;250;220;30m\
+\x1b[2;1HHHHHHHHHHHHHHHHH\x1b[3;1HWWWWWWWWWWWWWWWW\x1b[4;1HMMMMMMMMMMMMMMMM\
+\x1b[5;1H################\x1b[6;1H@@@@@@@@@@@@@@@@\x1b[0m\x1b[3;4H";
+
+/// What straight-alpha OVER gives `src` over the opaque `dst`, in the sRGB
+/// numbers `Blend::Native` blends in: `(s a + d (255 - a)) / 255`, rounded
+/// to nearest -- which no exact half can tie, 255 being odd.
+fn over(src: Pixel, dst: u32) -> u32 {
+    let a = u32::from(src.alpha().get());
+    let (r, g, b) = src.rgb();
+    let mix = |s: Chan, shift: u32| {
+        let d = (dst >> shift) & 0xFF;
+        (u32::from(s.get()) * a + d * (255 - a) + 127) / 255
+    };
+    0xFF00_0000 | mix(r, 16) << 16 | mix(g, 8) << 8 | mix(b, 0)
+}
+
+/// **A partly transparent image blends by its alpha.** Every pixel of its
+/// rect is the straight-alpha OVER of the image's pixel on the frame drawn
+/// without it -- so a path that drew a partial pixel whole (the opaque-or-
+/// clear blit), or premultiplied it twice, fails on most of them.
+#[test]
+fn a_partial_image_blends_by_its_alpha() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut c = Canvas::for_renderer(&r);
+    let (cw, ch) = (
+        usize::try_from(r.metrics().cell_w.value()).unwrap(),
+        usize::try_from(r.metrics().cell_h.value()).unwrap(),
+    );
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(PW * PH));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, UNDER);
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    let under = c.pixels.clone();
+    let placed = t.put_image(
+        ImagePx::of(u16::try_from(PW).unwrap()),
+        ImagePx::of(u16::try_from(PH).unwrap()),
+        ImageAlpha::Partial,
+        fill_partial,
+    );
+    assert!(!placed.is_none(), "the image placed");
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    let (x0, y0) = (3 * cw, 2 * ch);
+    let (mut wrong, mut mid, mut text) = (0, 0, 0);
+    for y in 0..PH {
+        for x in 0..PW {
+            let i = (y0 + y) * c.width + x0 + x;
+            assert_eq!(under[i] >> 24, 0xFF, "the frame under the image is opaque");
+            let src = partial_pixel(x, y);
+            if !matches!(src.alpha().get(), 0 | 0xFF) {
+                mid += 1;
+            }
+            if under[i] != under[(y0 + y) * c.width + x0] {
+                text += 1;
+            }
+            if c.pixels[i] != over(src, under[i]) {
+                wrong += 1;
+            }
+        }
+    }
+    assert!(mid > PW * PH * 9 / 10, "the control: {mid} partial pixels");
+    assert!(text > 0, "the control: glyphs lie under the image");
+    assert_eq!(
+        wrong, 0,
+        "pixels not the OVER of the image on the frame under it"
+    );
+}
+
+/// **A still partial image repaints its rows on every frame**, and only a
+/// partial one: a blit over its own last blit would blend it twice, so the
+/// rows it covers are dirty whatever else changed, and counted; the frame
+/// equals a full repaint. `a_still_image_costs_no_repaint` is the opaque
+/// side, which still repaints nothing.
+#[test]
+fn a_still_partial_image_repaints_its_rows_every_frame() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut c = Canvas::for_renderer(&r);
+    let ch = usize::try_from(r.metrics().cell_h.value()).unwrap();
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(PW * PH));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, UNDER);
+    let _ = t.put_image(
+        ImagePx::of(u16::try_from(PW).unwrap()),
+        ImagePx::of(u16::try_from(PH).unwrap()),
+        ImageAlpha::Partial,
+        fill_partial,
+    );
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    let rows = u64::try_from((2 * ch + PH - 1) / ch - 2 + 1).unwrap();
+    for step in 0..3u8 {
+        feed(
+            &mut t,
+            &[0x1b, b'[', b'4', b'0', b';', b'1', b'H', b'a' + step],
+        );
+        let frame = {
+            let mut target = c.target();
+            r.render(&mut t, &mut target, Damage::Incremental)
+        };
+        assert_eq!(
+            frame.rows_partial.value(),
+            rows,
+            "frame {step}: the rows under the partial image, counted"
+        );
+        assert_eq!(
+            frame.rows_dirty.value(),
+            1 + rows,
+            "frame {step}: the row that changed and the image's"
+        );
+        assert!(
+            equals_a_full_repaint(&mut t, &c, &faces),
+            "frame {step}: the incremental frame is not the full one"
+        );
+    }
+}
+
+/// **The upload a GPU takes is the store's straight pixels**, unconverted:
+/// the fragment premultiplies (`glyph_fragment`'s colour branch), so a
+/// snapshot that premultiplied too would darken every partial pixel, and
+/// one that forced the alpha opaque would draw it whole.
+#[test]
+fn the_upload_is_the_straight_pixels() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(PW * PH));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, UNDER);
+    let _ = t.put_image(
+        ImagePx::of(u16::try_from(PW).unwrap()),
+        ImagePx::of(u16::try_from(PH).unwrap()),
+        ImageAlpha::Partial,
+        fill_partial,
+    );
+    r.set_images(&t, Rows::ZERO);
+    let ups = r.image_uploads();
+    assert_eq!(ups.len(), 1, "one image on screen");
+    let want: Vec<u32> = (0..PW * PH)
+        .map(|i| partial_pixel(i % PW, i / PW).bits())
+        .collect();
+    assert_eq!(ups[0].pixels, want);
+}
+
+/// **A Sixel's clear pixels show the cells under them** on the CPU path,
+/// under both blends, each its own opaque loop: an 8x6 Sixel whose data
+/// sets only its second row draws that row red -- pure red, which `Linear`'s
+/// tables carry through unchanged -- and leaves the five others as the
+/// frame without it. The swirl paints every pixel, so nothing above sees a
+/// clear one.
+#[test]
+fn a_sixels_clear_pixels_show_the_cells_under_them() {
+    for blend in [Blend::Native, Blend::Linear] {
+        clear_pixels_under(blend);
+    }
+}
+
+fn clear_pixels_under(blend: Blend) {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(support::PX).unwrap(),
+        Theme::dark(),
+        blend,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    let mut c = Canvas::for_renderer(&r);
+    let (cw, ch) = (
+        usize::try_from(r.metrics().cell_w.value()).unwrap(),
+        usize::try_from(r.metrics().cell_h.value()).unwrap(),
+    );
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64));
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, UNDER);
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    let under = c.pixels.clone();
+    feed(&mut t, b"\x1bP0;1;0q\"1;1;8;6#0;2;100;0;0AAAAAAAA\x1b\\");
+    assert_eq!(t.images().placements().count(), 1, "the Sixel placed");
+    {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full);
+    }
+    let (x0, y0) = (3 * cw, 2 * ch);
+    for y in 0..6 {
+        for x in 0..8 {
+            let i = (y0 + y) * c.width + x0 + x;
+            let want = if y == 1 { 0xFFFF_0000 } else { under[i] };
+            assert_eq!(c.pixels[i], want, "{blend:?}: pixel ({x}, {y})");
+        }
+    }
 }

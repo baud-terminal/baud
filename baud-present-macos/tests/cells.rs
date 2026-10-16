@@ -15,7 +15,8 @@
 use baud_core::{Owned, Term};
 use baud_domain::CacheGeometry;
 use baud_domain::{
-    BytePos, Chan, Col, Cols, Depth, ImageBudget, PackedCell, ReadLen, Row, RowRot, Rows, WinSize,
+    BytePos, Chan, Col, Cols, Depth, ImageAlpha, ImageBudget, ImagePx, PackedCell, Pixel, ReadLen,
+    Row, RowRot, Rows, WinSize,
 };
 use baud_font::{Face, Px};
 use baud_present_macos::{
@@ -2963,6 +2964,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     );
     assert_eq!(placed(&t), line, "the dot survived the scroll");
     slid_is_one_up(&mut arms, &mut t, "an image in the leaving row");
+    partial_image_gate(&mut arms, &mut t);
     // **Styled faces.** Bold, italic and bold-italic text -- a ligature and
     // a Nerd Fonts icon among it -- on both arms, and a positive control
     // that each style reached the pixels: the same row regular paints
@@ -3183,3 +3185,96 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
 /// A one-band Sixel, 8 pixels wide and 6 high: shorter than any cell this
 /// file draws, so the whole image lies inside one row.
 const DOT: &[u8] = b"\x1bPq\"1;1;8;6#1;2;100;0;0#1!8~\x1b\\";
+
+/// **A partly transparent image over coloured text** (V19 step 1). Both GPU
+/// arms draw it through the same `draw_images`, so their agreeing says
+/// nothing of alpha; what does is each pixel of its rect against the frame
+/// drawn without it: the straight-alpha OVER, `(s a + d (255 - a)) / 255`
+/// rounded, which `baud-render/tests/image.rs` holds the CPU compositor to
+/// as well, so over an opaque page the three paths blend one way. A
+/// snapshot that premultiplied before the fragment premultiplies again, or
+/// a pass that drew a partial pixel whole, misses on most of them.
+///
+/// **Over a translucent page they do not**: the CPU's `Blend::over` mixes
+/// the page's colour as if it were opaque and the presenter premultiplies
+/// after, where the GPU blends premultiplied, so 1187 of 1200 pixels of
+/// this image over the default page differed by up to 47 in a channel. It
+/// is the glyphs' blend, and the record lists it.
+fn partial_image_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    const W: usize = 40;
+    const H: usize = 30;
+    let pixel = |x: usize, y: usize| {
+        let c = |v: usize| Chan::from_u8(u8::try_from(v % 256).unwrap());
+        Pixel::straight(c(x * 7 + y * 13), c(x * 6), c(255 - y * 8), c(90 + x))
+    };
+    assert_eq!(
+        arms.margin,
+        (0, 0),
+        "the frame is drawn at the target's origin"
+    );
+    feed(
+        t,
+        b"\x1bc\x1b[?25l\x1b[48;2;20;40;160m\x1b[38;2;250;220;30m\
+          \x1b[2;1HHHHHHHHHHHHHHHHH\x1b[3;1HWWWWWWWWWWWWWWWW\x1b[4;1HMMMMMMMMMMMMMMMM\
+          \x1b[5;1H################\x1b[0m\x1b[3;4H",
+    );
+    let (under_a, under_b) = arms.draw(t);
+    let placed = t.put_image(
+        ImagePx::of(u16::try_from(W).unwrap()),
+        ImagePx::of(u16::try_from(H).unwrap()),
+        ImageAlpha::Partial,
+        |px| {
+            for (i, p) in px.iter_mut().enumerate() {
+                *p = pixel(i % W, i / W);
+            }
+        },
+    );
+    assert!(!placed.is_none(), "the partial image placed");
+    let (a, b) = arms.draw(t);
+    let places = arms.renderer.image_placements();
+    assert_eq!(places.len(), 1, "the partial image is on screen");
+    assert_eq!(places[0].alpha, ImageAlpha::Partial);
+    let (x0, y0) = (
+        usize::try_from(places[0].x).unwrap(),
+        usize::try_from(places[0].y).unwrap(),
+    );
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let over = |src: Pixel, dst: u32| {
+        let al = u32::from(src.alpha().get());
+        let (r, g, bl) = src.rgb();
+        let mix = |s: Chan, shift: u32| {
+            (u32::from(s.get()) * al + ((dst >> shift) & 0xFF) * (255 - al) + 127) / 255
+        };
+        0xFF00_0000 | mix(r, 16) << 16 | mix(g, 8) << 8 | mix(bl, 0)
+    };
+    for (arm, under, got) in [("instance", &under_a, &a), ("cell", &under_b, &b)] {
+        let (mut wrong, mut text) = (0, 0);
+        for y in 0..H {
+            for x in 0..W {
+                let i = (y0 + y) * fw + x0 + x;
+                assert_eq!(
+                    under[i] >> 24,
+                    0xFF,
+                    "{arm}: the frame under the image is opaque"
+                );
+                if under[i] != under[(y0 + y) * fw + x0] {
+                    text += 1;
+                }
+                if got[i] != over(pixel(x, y), under[i]) {
+                    wrong += 1;
+                }
+            }
+        }
+        assert!(text > 0, "{arm}: the control, glyphs lie under the image");
+        assert_eq!(
+            wrong, 0,
+            "{arm}: pixels not the OVER of the image on the frame under it"
+        );
+    }
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the arms disagree with the partial image on screen"
+    );
+    feed(t, b"\x1bc");
+}

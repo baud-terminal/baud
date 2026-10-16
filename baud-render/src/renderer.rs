@@ -24,8 +24,8 @@ use crate::units::{Band, Tally};
 use baud_core::Term;
 use baud_domain::contrast::CurveRow;
 use baud_domain::{
-    Attrs, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle, GlyphId, ImageGen,
-    ImageId, PackedCell, Row, Rows,
+    Attrs, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle, GlyphId, ImageAlpha,
+    ImageGen, ImageId, PackedCell, Row, Rows,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -197,6 +197,9 @@ impl Blinking {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Converted {
     pub rows_dirty: Tally,
+    /// Of the dirty rows, those under a partly transparent image, which are
+    /// repainted on every frame it is on (`ImageAlpha::Partial`).
+    pub rows_partial: Tally,
     pub rows: Tally,
     pub convert: Duration,
     pub exceptions: Exceptions,
@@ -382,6 +385,9 @@ pub struct Single {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Frame {
     pub rows_dirty: Tally,
+    /// Of the dirty rows, those under a partly transparent image, which are
+    /// repainted on every frame it is on (`ImageAlpha::Partial`).
+    pub rows_partial: Tally,
     pub rows: Tally,
     pub instances: Tally,
     /// Of the instances, those on the colour texture and those solid.
@@ -543,6 +549,14 @@ enum ImageRows {
     Repainted,
 }
 
+/// Whether a partly transparent placement covers the band: its rows are
+/// repainted every CPU frame, since its blit over its own last blit would
+/// blend it twice.
+fn partial_over(now: &[ImagePlacement], band: Band) -> bool {
+    now.iter()
+        .any(|p| p.alpha == ImageAlpha::Partial && covers(p, band))
+}
+
 /// Whether a placement's pixel rows meet the band's.
 fn covers(p: &ImagePlacement, band: Band) -> bool {
     let top = i64::from(p.y);
@@ -584,11 +598,17 @@ pub struct ImagePlacement {
     pub w: u16,
     /// The image height in device pixels.
     pub h: u16,
+    /// Whether any of its pixels is partly transparent: the CPU path then
+    /// repaints the rows under it on every frame.
+    pub alpha: ImageAlpha,
 }
 
-/// One image's pixels to upload once: keyed by `id` and `epoch`, premultiplied
-/// `0xAARRGGBB` words, `w * h` of them, row-major. A transparent (unpainted
-/// Sixel) pixel is `0x00000000`.
+/// One image's pixels to upload once: keyed by `id` and `epoch`, the store's
+/// straight `0xAARRGGBB` words, `w * h` of them, row-major, unconverted. A
+/// clear (unpainted Sixel) pixel is `0x00000000`. **Straight, not
+/// premultiplied**: the fragment that samples the texture premultiplies
+/// (`glyph_fragment`'s colour branch, `c.rgb * c.a`), the one premultiply on
+/// the GPU paths, as `blend.over` is the CPU's.
 pub struct ImageUpload {
     /// Which stored image these pixels are.
     pub id: ImageId,
@@ -598,7 +618,7 @@ pub struct ImageUpload {
     pub w: u16,
     /// The image height in pixels.
     pub h: u16,
-    /// The premultiplied pixels, `w * h`, row-major.
+    /// The straight pixels, `w * h`, row-major.
     pub pixels: Vec<u32>,
 }
 
@@ -770,7 +790,7 @@ pub struct Renderer<'f, 'a> {
     /// The placements the last CPU frame drew, so the next one repaints the
     /// rows an image left as well as the rows it is on.
     last_image_places: Vec<ImagePlacement>,
-    /// Each referenced image's pixels, premultiplied, for a GPU to upload
+    /// Each referenced image's pixels, straight, for a GPU to upload
     /// once. Keyed by id and store epoch; the CPU path reads the term's
     /// pixels directly instead. **Kept across frames** and refreshed only for a
     /// new `(id, epoch)`, so a static image is snapshotted once rather than
@@ -1607,8 +1627,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // placements are computed first, and the rows under a placement the
         // last CPU frame blitted and this one does not are repainted; a still
         // image's rows are not, and a new one's need not be, since its blit
-        // lands on the cells. A format with partial alpha would need its rows
-        // repainted every frame, and the core produces none.
+        // lands on the cells. That holds for an opaque-or-clear image; one
+        // with a partly transparent pixel (`ImageAlpha::Partial`) blitted
+        // over its own last blit would blend twice, so the rows under it are
+        // repainted on every frame it is on, and counted in `rows_partial`.
         self.fit(term);
         self.place_images(term, back, Snapshots::Skipped);
         let converted = self.convert_with(term, back, damage, ImageRows::Repainted);
@@ -1695,27 +1717,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 y: clamp16(y0),
                 w: view.width.raw(),
                 h: view.height.raw(),
+                alpha: view.alpha,
             });
             // Snapshot the pixels once per referenced `(id, epoch)`: the GPU
-            // reads this to upload, the CPU reads the term itself. A pixel that
-            // resolves to RGB is opaque; a `DEFAULT` (unpainted Sixel) pixel is
-            // `0x00000000`, transparent, which the fragment's premultiplied OVER
-            // leaves the cell showing through.
+            // reads this to upload, the CPU reads the term itself. The words
+            // are the store's own, straight: the fragment premultiplies, so a
+            // clear (unpainted Sixel) pixel, `0x00000000`, leaves the cell
+            // showing through and a partial one blends by its alpha.
             if snap == Snapshots::Kept
                 && !self
                     .image_uploads
                     .iter()
                     .any(|u| u.id == p.image && u.epoch == epoch)
             {
-                let pixels = view
-                    .pixels
-                    .iter()
-                    .map(|cw| {
-                        cw.as_rgb().map_or(0u32, |(r, g, b)| {
-                            0xFF00_0000 | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
-                        })
-                    })
-                    .collect();
+                let pixels = view.pixels.iter().map(|p| p.bits()).collect();
                 self.image_uploads.push(ImageUpload {
                     id: p.image,
                     epoch,
@@ -1745,7 +1760,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         &self.image_places
     }
 
-    /// Each referenced image's premultiplied pixels, for a GPU to upload once.
+    /// Each referenced image's straight pixels, for a GPU to upload once.
     pub fn image_uploads(&self) -> &[ImageUpload] {
         &self.image_uploads
     }
@@ -1890,6 +1905,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             || clusters != self.last_clusters;
         let cursor_row = |c: Cursor| c.map(|(r, _, _)| r.index());
         let mut rows_dirty = Tally::default();
+        let mut rows_partial = Tally::default();
         let mut exceptions = Exceptions::default();
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
@@ -1927,6 +1943,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // there now: see `render_at`.
             let imaged = images == ImageRows::Repainted
                 && left_from(&self.image_places, &self.last_image_places, band);
+            // And one the CPU path blits over this row that is partly
+            // transparent: repainted every frame, and counted.
+            let partial = images == ImageRows::Repainted && partial_over(&self.image_places, band);
+            if partial {
+                rows_partial.bump();
+            }
             self.dirty[r] = full
                 || changed
                 || cursor_moved
@@ -1936,6 +1958,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || trail_moved
                 || pictured
                 || imaged
+                || partial
                 || composed;
         }
         if images == ImageRows::Repainted {
@@ -1980,6 +2003,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.last_composition = composition;
         Converted {
             rows_dirty,
+            rows_partial,
             rows: Tally::of(rows.index()),
             convert: t0.elapsed(),
             exceptions,
@@ -1992,6 +2016,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let t1 = Instant::now();
         let mut frame = Frame {
             rows_dirty: converted.rows_dirty,
+            rows_partial: converted.rows_partial,
             rows: converted.rows,
             convert: converted.convert,
             exceptions: converted.exceptions,

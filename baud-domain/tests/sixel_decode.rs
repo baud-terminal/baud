@@ -10,7 +10,7 @@
 //! the top, so its six vertical pixels read `[1,0,1,0,1,1]` top to bottom.
 
 use baud_domain::{
-    ColorWord, InputEncoding, Sixel, SixelAspect, SixelCanvas, SixelFit, SixelPx, SixelReport,
+    InputEncoding, Pixel, Sixel, SixelAspect, SixelCanvas, SixelFit, SixelPx, SixelReport,
     StreamByte,
 };
 
@@ -20,28 +20,35 @@ use baud_domain::{
 const SQUARE: SixelAspect = SixelAspect::ONE_TO_ONE;
 
 /// Read the pixel at column `x`, row `y` of a `w`-wide image.
-fn px(image: &[ColorWord], w: u16, x: u16, y: u16) -> ColorWord {
+fn px(image: &[Pixel], w: u16, x: u16, y: u16) -> Pixel {
     image[usize::from(y) * usize::from(w) + usize::from(x)]
 }
 
-fn rgb(c: ColorWord) -> Option<(u8, u8, u8)> {
-    c.as_rgb()
+fn rgb(c: Pixel) -> Option<(u8, u8, u8)> {
+    let (r, g, b) = c.rgb();
+    (c != Pixel::CLEAR).then_some((r.get(), g.get(), b.get()))
 }
 
 #[test]
 fn a_data_byte_sets_six_vertical_pixels_least_significant_at_the_top() {
     // `#0;2;100;0;0` defines and selects register 0 as RGB red (100% -> 255);
     // `t` paints it. RGB `Pu = 2` per [[source: vt3xx-sixel]].
-    let mut image = [ColorWord::DEFAULT; 6];
+    let mut image = [Pixel::CLEAR; 6];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
     let report = Sixel::decode(b"#0;2;100;0;0t", SQUARE, &mut canvas);
 
     let red = Some((255, 0, 0));
     // `t` = 0b110101, LSB at the top: rows 0,2,4,5 set, rows 1,3 clear.
     assert_eq!(rgb(px(&image, 1, 0, 0)), red, "row 0 (bit 0) is set");
-    assert!(px(&image, 1, 0, 1).is_default(), "row 1 (bit 1) is clear");
+    assert!(
+        px(&image, 1, 0, 1) == Pixel::CLEAR,
+        "row 1 (bit 1) is clear"
+    );
     assert_eq!(rgb(px(&image, 1, 0, 2)), red, "row 2 (bit 2) is set");
-    assert!(px(&image, 1, 0, 3).is_default(), "row 3 (bit 3) is clear");
+    assert!(
+        px(&image, 1, 0, 3) == Pixel::CLEAR,
+        "row 3 (bit 3) is clear"
+    );
     assert_eq!(rgb(px(&image, 1, 0, 4)), red, "row 4 (bit 4) is set");
     assert_eq!(rgb(px(&image, 1, 0, 5)), red, "row 5 (bit 5) is set");
 
@@ -56,7 +63,7 @@ fn the_extent_is_where_the_data_reached_not_where_pixels_were_set() {
     // `~` (all six) then `?` (none): the second byte paints nothing but still
     // advances the cursor a column, so the width is 2, not the painted 1. This
     // is the extent mode 8452 places the next text past.
-    let mut image = [ColorWord::DEFAULT; 12];
+    let mut image = [Pixel::CLEAR; 12];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(2));
     let report = Sixel::decode(b"#0;2;100;0;0~?", SQUARE, &mut canvas);
 
@@ -71,7 +78,7 @@ fn the_extent_is_where_the_data_reached_not_where_pixels_were_set() {
 #[test]
 fn the_extremes_are_none_and_all_six() {
     // `?` (0x3F) is 0b000000 -- no pixels; `~` (0x7E) is 0b111111 -- all six.
-    let mut image = [ColorWord::DEFAULT; 12];
+    let mut image = [Pixel::CLEAR; 12];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(2));
     // column 0: `?` sets nothing; column 1: `~` sets green (0;100;0).
     let report = Sixel::decode(b"#0;2;0;100;0?~", SQUARE, &mut canvas);
@@ -79,7 +86,7 @@ fn the_extremes_are_none_and_all_six() {
     let green = Some((0, 255, 0));
     for y in 0..6 {
         assert!(
-            px(&image, 2, 0, y).is_default(),
+            px(&image, 2, 0, y) == Pixel::CLEAR,
             "column 0 stays clear at row {y}"
         );
         assert_eq!(
@@ -95,7 +102,7 @@ fn the_extremes_are_none_and_all_six() {
 #[test]
 fn the_repeat_introducer_draws_the_next_byte_that_many_columns() {
     // `!3~` is three columns of all-six-set, in blue (0;0;100).
-    let mut image = [ColorWord::DEFAULT; 18];
+    let mut image = [Pixel::CLEAR; 18];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(3));
     let report = Sixel::decode(b"#0;2;0;0;100!3~", SQUARE, &mut canvas);
 
@@ -134,7 +141,7 @@ fn graphics_new_line_drops_one_six_pixel_band() {
     // `~` (red band), `-` (new line), `~` (green band): a 1x12 image with the
     // top band red and the bottom band green. `$` would return to the left of
     // the same band; `-` returns and drops six rows.
-    let mut image = [ColorWord::DEFAULT; 12];
+    let mut image = [Pixel::CLEAR; 12];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
     let report = Sixel::decode(b"#0;2;100;0;0~-#0;2;0;100;0~", SQUARE, &mut canvas);
 
@@ -157,7 +164,7 @@ fn graphics_new_line_drops_one_six_pixel_band() {
 fn graphics_carriage_return_overlays_the_same_band() {
     // `~` fills column 0 red, `$` returns to the left, `?` leaves it -- so the
     // overlay does not erase, it composites, and the red survives.
-    let mut image = [ColorWord::DEFAULT; 6];
+    let mut image = [Pixel::CLEAR; 6];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
     Sixel::decode(b"#0;2;100;0;0~$?", SQUARE, &mut canvas);
 
@@ -175,7 +182,7 @@ fn graphics_carriage_return_overlays_the_same_band() {
 fn pixels_past_the_canvas_are_refused_and_counted_never_wrapped() {
     // Five all-set columns into a two-wide canvas: columns 0 and 1 land (12
     // pixels), columns 2, 3 and 4 are refused (18 pixels). Nothing wraps.
-    let mut image = [ColorWord::DEFAULT; 12];
+    let mut image = [Pixel::CLEAR; 12];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(2));
     let report = Sixel::decode(b"#0;2;100;0;0!5~", SQUARE, &mut canvas);
 
@@ -197,8 +204,8 @@ fn pixels_past_the_canvas_are_refused_and_counted_never_wrapped() {
 }
 
 /// The colour one all-set column of `body` paints, and the decode's report.
-fn one_column(body: &[u8]) -> (ColorWord, SixelReport) {
-    let mut image = [ColorWord::DEFAULT; 6];
+fn one_column(body: &[u8]) -> (Pixel, SixelReport) {
+    let mut image = [Pixel::CLEAR; 6];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
     let report = Sixel::decode(body, SQUARE, &mut canvas);
     for c in image {
@@ -320,7 +327,7 @@ fn a_real_imagemagick_sixel_decodes_with_nothing_refused_or_unapplied() {
     // payload -- the "use real recordings" discipline for the decode gate --
     // and it exercises only tokens the fixtures above cover: `"` raster
     // attributes, `#Pc;2;...` RGB defines, `#Pc` selects, data bytes, `$`, `-`.
-    let mut image = [ColorWord::DEFAULT; 24]; // 4 wide, one six-pixel band
+    let mut image = [Pixel::CLEAR; 24]; // 4 wide, one six-pixel band
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(4));
     let report = Sixel::decode(
         b"\"1;1;4;4#0;2;100;0;0#1;2;0;100;0#2;2;0;0;100#0NLJN$#1?A#2C-",
@@ -340,7 +347,7 @@ fn a_real_imagemagick_sixel_decodes_with_nothing_refused_or_unapplied() {
     assert_eq!(rgb(px(&image, 4, 1, 1)), green, "the lime point at (1,1)");
     assert_eq!(rgb(px(&image, 4, 2, 2)), blue, "the blue point at (2,2)");
     // Rows 4 and 5 of the band are past the 4-pixel image and never painted.
-    assert!(px(&image, 4, 0, 4).is_default(), "row 4 is untouched");
+    assert!(px(&image, 4, 0, 4) == Pixel::CLEAR, "row 4 is untouched");
 
     assert_eq!(
         report.width,
@@ -372,7 +379,7 @@ fn the_measure_pass_agrees_with_the_paint_pass_on_the_extent() {
     ];
     for data in cases {
         // Paint into a canvas large enough that the extent is the data's.
-        let mut image = [ColorWord::DEFAULT; 64];
+        let mut image = [Pixel::CLEAR; 64];
         let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(8));
         let painted = Sixel::decode(data, SQUARE, &mut canvas);
         let measured = Sixel::extent(data, SQUARE);
@@ -405,7 +412,7 @@ fn an_extent_past_65535_is_reported_too_large_not_stopped() {
 fn raster_attributes_are_consumed_and_do_not_corrupt_the_data() {
     // `"1;1;10;6` is the raster attributes (aspect 1:1, size 10x6); a decoder
     // consumes them and paints the data that follows unchanged.
-    let mut image = [ColorWord::DEFAULT; 6];
+    let mut image = [Pixel::CLEAR; 6];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
     let report = Sixel::decode(b"\"1;1;10;6#0;2;100;0;0~", SQUARE, &mut canvas);
 
@@ -479,14 +486,14 @@ fn at_two_to_one_each_sixel_row_is_two_pixels_and_a_band_twelve() {
     // and at 2:1 each row is two pixels; `-` moves down a band, "six actual
     // grid units" (`[[source: dec-std-070]]` 070-9 §8.1.5), twelve pixels
     // here, so the second band's `~` fills rows 12 to 23.
-    let mut image = [ColorWord::DEFAULT; 24];
+    let mut image = [Pixel::CLEAR; 24];
     let mut canvas = SixelCanvas::new(&mut image, SixelPx::of(1));
     let report = Sixel::decode(
         b"#0;2;100;0;0t-~",
         SixelAspect::from_macro(None),
         &mut canvas,
     );
-    let lit: Vec<bool> = image.iter().map(|c| !c.is_default()).collect();
+    let lit: Vec<bool> = image.iter().map(|c| *c != Pixel::CLEAR).collect();
     let mut want = vec![
         true, true, false, false, true, true, false, false, true, true, true, true,
     ];

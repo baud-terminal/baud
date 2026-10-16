@@ -7,7 +7,7 @@
 //! the tail of every image as garbage, and only in production.
 
 use baud_core::*;
-use baud_domain::{ImageBudget, ImagePx, ImageRefusals, RowRot, SixelClaim};
+use baud_domain::{ImageBudget, ImagePx, ImageRefusals, Pixel, RowRot, SixelClaim};
 
 mod support;
 
@@ -72,11 +72,7 @@ fn a_sixel_is_chunk_invariant() {
 
 /// What a Sixel program left: the placed image's size and pixels, the screen
 /// and the cursor.
-type Drawn = (
-    Option<(u16, u16, Vec<ColorWord>)>,
-    Vec<PackedCell>,
-    (Row, Col),
-);
+type Drawn = (Option<(u16, u16, Vec<Pixel>)>, Vec<PackedCell>, (Row, Col));
 
 fn drawn(t: &Term) -> Drawn {
     let imgs = t.images();
@@ -1342,7 +1338,7 @@ fn a_two_to_one_sixel_doubles_each_row_and_the_cursor_follows() {
         let (img, _, _) = drawn(t);
         let (w, h, px) = img.expect("placed");
         assert_eq!((w, h), (1, 12));
-        let lit: Vec<bool> = px.iter().map(|c| !c.is_default()).collect();
+        let lit: Vec<bool> = px.iter().map(|c| *c != Pixel::CLEAR).collect();
         let want = [
             true, true, false, false, true, true, false, false, true, true, true, true,
         ];

@@ -10,10 +10,21 @@
 //! zero-extra-copy path the register describes: the pixels land where a
 //! renderer will read them rather than in a scratch that is then copied. A
 //! Sixel is moved once, at its terminator, when a gap lower than its claim
-//! holds it, so the store lays images out as `store` would. The storage carries ARGB
-//! [`ColorWord`]s and never palette indices, decided in the register on the
-//! shader-sampling ground -- a palette index in the cell shader is a second
-//! dependent texture fetch.
+//! holds it, so the store lays images out as `store` would. The storage carries
+//! [`Pixel`]s, straight ARGB, and never palette indices, decided in the
+//! register on the shader-sampling ground -- a palette index in the cell
+//! shader is a second dependent texture fetch.
+//!
+//! **Alpha is stored straight**, the colour not multiplied by its opacity:
+//! "The colour values in a pixel are not premultiplied by the alpha value
+//! assigned to the pixel" (`[[source: w3c-png-2003]]` 6.2), and kitty's
+//! `f=32` is "32-bit RGBA" stored "directly as ... 4 bytes per pixel"
+//! (`[[source: kitty-graphics]]`, "RGB and RGBA data"), which says nothing
+//! of premultiplying. A renderer premultiplies once, where it blends. Each
+//! image is marked at decode as [`ImageAlpha::OpaqueOrClear`] -- every pixel
+//! drawn whole or not at all, a Sixel's case -- or [`ImageAlpha::Partial`],
+//! because only the first can be blitted again over its own last blit and
+//! leave the pixel as it was.
 //!
 //! Three bounded structures, the [`ClusterStore`] pattern a fourth time --
 //! **refuse rather than evict, and count the refusal**, because an evicted image
@@ -36,7 +47,81 @@
 
 use crate::pos::LineIdx;
 use crate::quantity::{Col, Count, Rows};
-use crate::style::ColorWord;
+use crate::style::Chan;
+
+/// **One image pixel, straight ARGB**: `0xAARRGGBB`, the colour not
+/// multiplied by its alpha (`[[source: w3c-png-2003]]` 6.2). Zero is
+/// [`Pixel::CLEAR`], which a Sixel leaves where its data sets no bit, so a
+/// zeroed arena is a clear one. The word is the one a renderer's `Argb`
+/// and a `BGRA8Unorm` texture read, so an image goes to either unconverted.
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Pixel(u32);
+
+impl Pixel {
+    /// Fully transparent: drawn as nothing.
+    pub const CLEAR: Pixel = Pixel(0);
+
+    /// A fully opaque pixel of `r`, `g`, `b`.
+    pub fn opaque(r: Chan, g: Chan, b: Chan) -> Pixel {
+        Pixel::straight(Chan::from_u8(0xFF), r, g, b)
+    }
+
+    /// A pixel of `r`, `g`, `b` at opacity `a`, the colour not premultiplied.
+    pub fn straight(a: Chan, r: Chan, g: Chan, b: Chan) -> Pixel {
+        Pixel(
+            u32::from(a.get()) << 24
+                | u32::from(r.get()) << 16
+                | u32::from(g.get()) << 8
+                | u32::from(b.get()),
+        )
+    }
+
+    /// The opacity: 0 clear, 255 opaque.
+    pub fn alpha(self) -> Chan {
+        Chan::from_u8((self.0 >> 24) as u8)
+    }
+
+    /// The straight colour.
+    pub fn rgb(self) -> (Chan, Chan, Chan) {
+        (
+            Chan::from_u8((self.0 >> 16) as u8),
+            Chan::from_u8((self.0 >> 8) as u8),
+            Chan::from_u8(self.0 as u8),
+        )
+    }
+
+    /// The word, `0xAARRGGBB`.
+    pub fn bits(self) -> u32 {
+        self.0
+    }
+}
+
+/// **How an image's pixels blend**, marked once at decode: what decides
+/// whether a renderer that keeps its last frame may blit the image again
+/// over its own last blit.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ImageAlpha {
+    /// Every pixel opaque or clear: a blit over the pixel the last one left
+    /// changes nothing, so the rows under a still image need no repaint. A
+    /// Sixel is always this.
+    OpaqueOrClear,
+    /// Some pixel partly transparent: a second blit over the first blends
+    /// it twice, so the rows under it are repainted on every frame it is on.
+    Partial,
+}
+
+impl ImageAlpha {
+    /// What `pixels` hold: [`ImageAlpha::Partial`] when any alpha lies
+    /// strictly between clear and opaque. For a decoder that does not know
+    /// from its format.
+    pub fn of(pixels: &[Pixel]) -> ImageAlpha {
+        match pixels.iter().any(|p| !matches!(p.alpha().get(), 0 | 0xFF)) {
+            true => ImageAlpha::Partial,
+            false => ImageAlpha::OpaqueOrClear,
+        }
+    }
+}
 
 /// A pixel dimension of a stored image, width or height. `u16` covers any image
 /// a terminal draws -- 65535 pixels a side is far past a screen -- and the area
@@ -178,6 +263,8 @@ pub struct ImageSlot {
     offset: u32,
     width: ImagePx,
     height: ImagePx,
+    /// How its pixels blend, marked when it was stored.
+    alpha: ImageAlpha,
     /// The reference count: how many live placements name this image. An image
     /// is freed when this reaches zero after having been placed.
     placements: Count,
@@ -189,6 +276,7 @@ impl ImageSlot {
         offset: 0,
         width: ImagePx::ZERO,
         height: ImagePx::ZERO,
+        alpha: ImageAlpha::OpaqueOrClear,
         placements: Count::ZERO,
     };
 
@@ -324,8 +412,8 @@ impl PlacementSlot {
     }
 }
 
-/// How much caller memory an image store is given: the ARGB pixel arena in
-/// `ColorWord`s. A type rather than a loose size, so `baud-core`'s
+/// How much caller memory an image store is given: the pixel arena in
+/// [`Pixel`]s. A type rather than a loose size, so `baud-core`'s
 /// provisioning method takes one rather than a raw `usize`, which its
 /// signature budget forbids.
 ///
@@ -335,7 +423,7 @@ impl PlacementSlot {
 /// is decoded as it arrives since ([`SixelStream`]), and holds no body.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ImageBudget {
-    /// `ColorWord`s of ARGB pixel arena.
+    /// [`Pixel`]s of arena.
     pub pixels: usize,
 }
 
@@ -412,23 +500,25 @@ impl ImageRefusals {
     }
 }
 
-/// A read view of a stored image: its pixels and its size.
+/// A read view of a stored image: its pixels, its size and how it blends.
 pub struct ImageView<'a> {
-    /// The ARGB pixels, `width * height` of them, row-major.
-    pub pixels: &'a [ColorWord],
+    /// The straight ARGB pixels, `width * height` of them, row-major.
+    pub pixels: &'a [Pixel],
     /// The image width in pixels.
     pub width: ImagePx,
     /// The image height in pixels.
     pub height: ImagePx,
+    /// Whether any pixel is partly transparent, marked when it was stored.
+    pub alpha: ImageAlpha,
 }
 
 /// A bounded, caller-owned store of images and their placements.
 ///
-/// The three caller buffers are the arena (ARGB pixels), the image-slot table
+/// The three caller buffers are the arena (straight ARGB pixels), the image-slot table
 /// and the placement table; all three are refuse-and-count, and the counters are
 /// public and never silent, the [`ClusterStore`] contract.
 pub struct ImageStore<'b> {
-    pixels: &'b mut [ColorWord],
+    pixels: &'b mut [Pixel],
     slots: &'b mut [ImageSlot],
     placements: &'b mut [PlacementSlot],
     /// Images refused, whatever the cause. Never silent: a refused image is
@@ -479,10 +569,10 @@ pub struct ImageStore<'b> {
 }
 
 impl<'b> ImageStore<'b> {
-    /// A store over caller memory: `pixels` the ARGB arena, `slots` the
+    /// A store over caller memory: `pixels` the arena, `slots` the
     /// image-slot table, `placements` the placement table.
     pub fn new(
-        pixels: &'b mut [ColorWord],
+        pixels: &'b mut [Pixel],
         slots: &'b mut [ImageSlot],
         placements: &'b mut [PlacementSlot],
     ) -> ImageStore<'b> {
@@ -541,6 +631,14 @@ impl<'b> ImageStore<'b> {
     /// over it, or a memcpy of raw Kitty pixels -- so nothing is copied
     /// afterwards.
     ///
+    /// **`alpha` is the decoder's mark** for what it writes: a format with no
+    /// alpha, or one whose pixels are each opaque or clear, is
+    /// [`ImageAlpha::OpaqueOrClear`]; one that may hold a partly transparent
+    /// pixel is [`ImageAlpha::Partial`], or [`ImageAlpha::of`] the pixels
+    /// once written. A `Partial` mark on opaque pixels costs a repaint of
+    /// their rows each frame; an `OpaqueOrClear` mark on partial ones is
+    /// drawn blended twice by a renderer that keeps its last frame.
+    ///
     /// **The slice holds whatever the arena held there**, the pixels of the
     /// last image freed from that span included: it is not cleared here, so a
     /// caller that writes every word (the memcpy) writes each once. A caller
@@ -557,7 +655,8 @@ impl<'b> ImageStore<'b> {
         &mut self,
         width: ImagePx,
         height: ImagePx,
-    ) -> Option<(ImageId, &mut [ColorWord])> {
+        alpha: ImageAlpha,
+    ) -> Option<(ImageId, &mut [Pixel])> {
         let area = match width.index().checked_mul(height.index()) {
             Some(a) if a > 0 => a,
             _ => {
@@ -566,7 +665,7 @@ impl<'b> ImageStore<'b> {
             }
         };
         let at = self.lowest_gap(area);
-        let id = self.store_at(at, width, height)?;
+        let id = self.store_at(at, width, height, alpha)?;
         let start = at?;
         Some((id, &mut self.pixels[start..start + area]))
     }
@@ -582,6 +681,7 @@ impl<'b> ImageStore<'b> {
         at: Option<usize>,
         width: ImagePx,
         height: ImagePx,
+        alpha: ImageAlpha,
     ) -> Option<ImageId> {
         let Some(slot) = self.free_slot() else {
             self.refuse(ImageRefusal::Slot);
@@ -606,6 +706,7 @@ impl<'b> ImageStore<'b> {
             offset,
             width,
             height,
+            alpha,
             placements: Count::ZERO,
         };
         self.tallest = self.tallest.max(height);
@@ -652,7 +753,7 @@ impl<'b> ImageStore<'b> {
     /// The arena, for a Sixel painting the gap it claimed. Nothing but the
     /// claim is written through it: the claim is a gap, so no live image is
     /// in it.
-    pub(crate) fn arena_mut(&mut self) -> &mut [ColorWord] {
+    pub(crate) fn arena_mut(&mut self) -> &mut [Pixel] {
         self.pixels
     }
 
@@ -686,6 +787,7 @@ impl<'b> ImageStore<'b> {
             pixels: &self.pixels[s.start()..s.end()],
             width: s.width,
             height: s.height,
+            alpha: s.alpha,
         })
     }
 

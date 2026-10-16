@@ -7,15 +7,15 @@
 //! describes.
 
 use baud_domain::{
-    BandMove, Col, ColorWord, ImagePx, ImageScreen, ImageSlot, ImageStore, LineIdx, PlacementSlot,
-    Rows, Sixel, SixelAspect, SixelCanvas, SixelPx, ZIndex,
+    BandMove, Col, ImageAlpha, ImagePx, ImageScreen, ImageSlot, ImageStore, LineIdx, Pixel,
+    PlacementSlot, Rows, Sixel, SixelAspect, SixelCanvas, SixelPx, ZIndex,
 };
 
-fn red() -> ColorWord {
-    ColorWord::rgb(chan(255), chan(0), chan(0))
+fn red() -> Pixel {
+    Pixel::opaque(chan(255), chan(0), chan(0))
 }
-fn blue() -> ColorWord {
-    ColorWord::rgb(chan(0), chan(0), chan(255))
+fn blue() -> Pixel {
+    Pixel::opaque(chan(0), chan(0), chan(255))
 }
 fn chan(v: u8) -> baud_domain::Chan {
     baud_domain::Chan::from_u8(v)
@@ -23,14 +23,14 @@ fn chan(v: u8) -> baud_domain::Chan {
 
 /// A store over freshly-zeroed caller buffers of the given sizes.
 struct Buffers {
-    pixels: [ColorWord; 64],
+    pixels: [Pixel; 64],
     slots: [ImageSlot; 4],
     places: [PlacementSlot; 4],
 }
 impl Buffers {
     fn new() -> Buffers {
         Buffers {
-            pixels: [ColorWord::DEFAULT; 64],
+            pixels: [Pixel::CLEAR; 64],
             slots: [ImageSlot::EMPTY; 4],
             places: [PlacementSlot::EMPTY; 4],
         }
@@ -41,7 +41,7 @@ impl Buffers {
 }
 
 /// Fill an image's returned buffer with one colour.
-fn paint(buf: &mut [ColorWord], c: ColorWord) {
+fn paint(buf: &mut [Pixel], c: Pixel) {
     for p in buf.iter_mut() {
         *p = c;
     }
@@ -52,9 +52,13 @@ fn two_images_do_not_overlap_in_the_arena() {
     let mut b = Buffers::new();
     let mut store = b.store();
 
-    let (a, buf_a) = store.store(ImagePx::of(2), ImagePx::of(2)).unwrap();
+    let (a, buf_a) = store
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
+        .unwrap();
     paint(buf_a, red());
-    let (c, buf_c) = store.store(ImagePx::of(3), ImagePx::of(2)).unwrap();
+    let (c, buf_c) = store
+        .store(ImagePx::of(3), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
+        .unwrap();
     paint(buf_c, blue());
 
     // If the second store had overlapped the first, painting it blue would have
@@ -83,7 +87,11 @@ fn an_image_too_large_for_the_arena_is_refused_and_counted() {
 
     // 9x9 = 81 > 64: refused whole, never truncated -- and counted against
     // the arena, with the size that did not fit.
-    assert!(store.store(ImagePx::of(9), ImagePx::of(9)).is_none());
+    assert!(
+        store
+            .store(ImagePx::of(9), ImagePx::of(9), ImageAlpha::OpaqueOrClear)
+            .is_none()
+    );
     assert_eq!(store.images_refused, 1);
     assert_eq!(
         (store.refusals.arena, store.refusals.arena_width),
@@ -91,7 +99,11 @@ fn an_image_too_large_for_the_arena_is_refused_and_counted() {
     );
     // A zero dimension is refused too, as an image with no pixels rather than
     // one over a limit.
-    assert!(store.store(ImagePx::of(0), ImagePx::of(4)).is_none());
+    assert!(
+        store
+            .store(ImagePx::of(0), ImagePx::of(4), ImageAlpha::OpaqueOrClear)
+            .is_none()
+    );
     assert_eq!(store.images_refused, 2);
     assert_eq!((store.refusals.empty, store.refusals.arena), (1, 1));
     assert_eq!(store.images_refused, store.refusals.total());
@@ -102,10 +114,16 @@ fn a_full_slot_table_refuses_and_counts() {
     let mut b = Buffers::new(); // four slots
     let mut store = b.store();
     for _ in 0..4 {
-        assert!(store.store(ImagePx::of(1), ImagePx::of(1)).is_some());
+        assert!(
+            store
+                .store(ImagePx::of(1), ImagePx::of(1), ImageAlpha::OpaqueOrClear)
+                .is_some()
+        );
     }
     assert!(
-        store.store(ImagePx::of(1), ImagePx::of(1)).is_none(),
+        store
+            .store(ImagePx::of(1), ImagePx::of(1), ImageAlpha::OpaqueOrClear)
+            .is_none(),
         "the fifth image has no slot"
     );
     assert_eq!(store.images_refused, 1);
@@ -120,7 +138,9 @@ fn a_full_slot_table_refuses_and_counts() {
 fn a_placement_holds_its_image_line_column_and_z() {
     let mut b = Buffers::new();
     let mut store = b.store();
-    let (id, _) = store.store(ImagePx::of(2), ImagePx::of(2)).unwrap();
+    let (id, _) = store
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
+        .unwrap();
 
     let pid = store.place(
         id,
@@ -141,7 +161,9 @@ fn a_placement_holds_its_image_line_column_and_z() {
 fn a_full_placement_table_refuses_and_counts() {
     let mut b = Buffers::new();
     let mut store = b.store();
-    let (id, _) = store.store(ImagePx::of(1), ImagePx::of(1)).unwrap();
+    let (id, _) = store
+        .store(ImagePx::of(1), ImagePx::of(1), ImageAlpha::OpaqueOrClear)
+        .unwrap();
     for _ in 0..4 {
         assert!(
             !store
@@ -174,7 +196,9 @@ fn a_full_placement_table_refuses_and_counts() {
 fn the_last_placement_leaving_frees_the_image_and_reclaims_its_span() {
     let mut b = Buffers::new();
     let mut store = b.store();
-    let (id, _) = store.store(ImagePx::of(2), ImagePx::of(2)).unwrap();
+    let (id, _) = store
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
+        .unwrap();
     let p1 = store.place(
         id,
         ImageScreen::Primary,
@@ -210,20 +234,30 @@ fn a_freed_gap_is_reused_so_a_full_arena_still_stores() {
     // A 12-pixel arena holding three 2x2 images exactly, then the middle freed
     // and a new 2x2 stored: it must land in the gap, because appending past the
     // third would exceed the arena. So a successful store proves gap reclaim.
-    let mut pixels = [ColorWord::DEFAULT; 12];
+    let mut pixels = [Pixel::CLEAR; 12];
     let mut slots = [ImageSlot::EMPTY; 4];
     let mut places = [PlacementSlot::EMPTY; 4];
     let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places);
 
-    let (_, _) = store.store(ImagePx::of(2), ImagePx::of(2)).unwrap();
-    let (mid, _) = store.store(ImagePx::of(2), ImagePx::of(2)).unwrap();
-    let (_, _) = store.store(ImagePx::of(2), ImagePx::of(2)).unwrap();
+    let (_, _) = store
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
+        .unwrap();
+    let (mid, _) = store
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
+        .unwrap();
+    let (_, _) = store
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
+        .unwrap();
     // Arena is full: a fourth image is refused.
-    assert!(store.store(ImagePx::of(2), ImagePx::of(2)).is_none());
+    assert!(
+        store
+            .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
+            .is_none()
+    );
 
     store.free(mid);
     let (reused, buf) = store
-        .store(ImagePx::of(2), ImagePx::of(2))
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
         .expect("the freed gap holds the new image");
     paint(buf, red());
     assert!(
@@ -241,7 +275,9 @@ fn a_freed_gap_is_reused_so_a_full_arena_still_stores() {
 fn free_deletes_the_image_and_all_its_placements() {
     let mut b = Buffers::new();
     let mut store = b.store();
-    let (id, _) = store.store(ImagePx::of(2), ImagePx::of(2)).unwrap();
+    let (id, _) = store
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
+        .unwrap();
     store.place(
         id,
         ImageScreen::Primary,
@@ -271,7 +307,9 @@ fn free_deletes_the_image_and_all_its_placements() {
 fn reset_forgets_everything() {
     let mut b = Buffers::new();
     let mut store = b.store();
-    let (id, _) = store.store(ImagePx::of(2), ImagePx::of(2)).unwrap();
+    let (id, _) = store
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
+        .unwrap();
     store.place(
         id,
         ImageScreen::Primary,
@@ -284,7 +322,11 @@ fn reset_forgets_everything() {
     assert!(store.image(id).is_none());
     assert_eq!(store.placements().count(), 0);
     // The arena is free again: a fresh store succeeds at the origin's space.
-    assert!(store.store(ImagePx::of(4), ImagePx::of(4)).is_some());
+    assert!(
+        store
+            .store(ImagePx::of(4), ImagePx::of(4), ImageAlpha::OpaqueOrClear)
+            .is_some()
+    );
 }
 
 #[test]
@@ -304,13 +346,13 @@ fn a_real_sixel_decodes_into_the_store_in_place() {
     let inner = &raw[q + 1..st];
 
     // A 64x48 image is 3072 pixels; the arena holds it and a margin.
-    let mut pixels = [ColorWord::DEFAULT; 64 * 48 + 16];
+    let mut pixels = [Pixel::CLEAR; 64 * 48 + 16];
     let mut slots = [ImageSlot::EMPTY; 2];
     let mut places = [PlacementSlot::EMPTY; 2];
     let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places);
 
     let (id, buf) = store
-        .store(ImagePx::of(64), ImagePx::of(48))
+        .store(ImagePx::of(64), ImagePx::of(48), ImageAlpha::OpaqueOrClear)
         .expect("the arena holds a 64x48 image");
     let report = {
         let mut canvas = SixelCanvas::new(buf, SixelPx::of(64));
@@ -330,7 +372,7 @@ fn a_real_sixel_decodes_into_the_store_in_place() {
 
     // The image drew: a real photo-like Sixel leaves most pixels painted.
     let view = store.image(id).unwrap();
-    let painted = view.pixels.iter().filter(|p| !p.is_default()).count();
+    let painted = view.pixels.iter().filter(|p| **p != Pixel::CLEAR).count();
     assert!(
         painted > view.pixels.len() / 2,
         "a swirl gradient paints most of its {} pixels, not {painted}",
@@ -349,7 +391,9 @@ fn a_reflow_maps_each_placement_once_and_drops_the_ones_no_line_took() {
     // and not the first's; no line takes row 20, so that one is dropped.
     let mut b = Buffers::new();
     let mut store = b.store();
-    let (id, _) = store.store(ImagePx::of(1), ImagePx::of(1)).unwrap();
+    let (id, _) = store
+        .store(ImagePx::of(1), ImagePx::of(1), ImageAlpha::OpaqueOrClear)
+        .unwrap();
     let floor = LineIdx::of(1000);
     for r in [5u64, 10, 20] {
         let pid = store.place(
@@ -402,7 +446,9 @@ fn a_reflow_maps_each_placement_once_and_drops_the_ones_no_line_took() {
 fn a_reflow_asks_by_the_column_the_last_one_answered() {
     let mut b = Buffers::new();
     let mut store = b.store();
-    let (id, _) = store.store(ImagePx::of(1), ImagePx::of(1)).unwrap();
+    let (id, _) = store
+        .store(ImagePx::of(1), ImagePx::of(1), ImageAlpha::OpaqueOrClear)
+        .unwrap();
     let floor = LineIdx::of(0);
     store.place(
         id,
@@ -439,11 +485,13 @@ fn a_reflow_asks_by_the_column_the_last_one_answered() {
 
 #[test]
 fn expiry_keeps_the_retained_span_and_drops_a_blanked_row() {
-    let mut pixels = [ColorWord::DEFAULT; 4];
+    let mut pixels = [Pixel::CLEAR; 4];
     let mut slots = [ImageSlot::EMPTY; 1];
     let mut places = [PlacementSlot::EMPTY; 8];
     let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places);
-    let (id, _) = store.store(ImagePx::of(1), ImagePx::of(1)).unwrap();
+    let (id, _) = store
+        .store(ImagePx::of(1), ImagePx::of(1), ImageAlpha::OpaqueOrClear)
+        .unwrap();
     for l in [9u64, 10, 15, 19, 20] {
         store.place(
             id,
@@ -486,7 +534,9 @@ fn a_cancelled_follow_leaves_every_placement_where_it_was() {
     // mapped; ending the follow would read that as every line dropped.
     let mut b = Buffers::new();
     let mut store = b.store();
-    let (id, _) = store.store(ImagePx::of(1), ImagePx::of(1)).unwrap();
+    let (id, _) = store
+        .store(ImagePx::of(1), ImagePx::of(1), ImageAlpha::OpaqueOrClear)
+        .unwrap();
     store.place(
         id,
         ImageScreen::Primary,
@@ -510,11 +560,13 @@ fn a_cancelled_follow_leaves_every_placement_where_it_was() {
 fn a_band_moves_its_placements_and_drops_the_ones_that_leave_it() {
     // The band is lines [5, 10). 4 and 10 are its neighbours on either side
     // and must not move; the alternate screen's 7 is on the other screen.
-    let mut pixels = [ColorWord::DEFAULT; 4];
+    let mut pixels = [Pixel::CLEAR; 4];
     let mut slots = [ImageSlot::EMPTY; 1];
     let mut places = [PlacementSlot::EMPTY; 8];
     let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places);
-    let (id, _) = store.store(ImagePx::of(1), ImagePx::of(1)).unwrap();
+    let (id, _) = store
+        .store(ImagePx::of(1), ImagePx::of(1), ImageAlpha::OpaqueOrClear)
+        .unwrap();
     for l in [4u64, 5, 7, 9, 10] {
         store.place(
             id,
@@ -599,4 +651,75 @@ fn a_band_moves_its_placements_and_drops_the_ones_that_leave_it() {
         BandMove::Down,
     );
     assert_eq!(lines(&store, ImageScreen::Primary), vec![4, 8, 17]);
+}
+
+/// **A pixel is straight ARGB in one word**, `0xAARRGGBB`: the colour as
+/// given, not multiplied by its alpha (`[[source: w3c-png-2003]]` 6.2), so
+/// a half-transparent white keeps its white.
+#[test]
+fn a_pixel_is_straight_argb_in_one_word() {
+    let p = Pixel::straight(chan(0x80), chan(0xFF), chan(0x10), chan(0x01));
+    assert_eq!(p.bits(), 0x80FF_1001);
+    assert_eq!(p.alpha(), chan(0x80));
+    assert_eq!(
+        p.rgb(),
+        (chan(0xFF), chan(0x10), chan(0x01)),
+        "not premultiplied"
+    );
+    assert_eq!(Pixel::opaque(chan(1), chan(2), chan(3)).bits(), 0xFF01_0203);
+    assert_eq!(Pixel::CLEAR.bits(), 0, "a zeroed arena is clear");
+    assert_eq!(Pixel::default(), Pixel::CLEAR);
+    assert_eq!(
+        core::mem::size_of::<Pixel>(),
+        4,
+        "one word, as the arena budgets"
+    );
+}
+
+/// **What `ImageAlpha::of` calls partial is any alpha between clear and
+/// opaque**, the ends excluded, and nothing else: the colour of a clear
+/// pixel does not make it partial.
+#[test]
+fn image_alpha_of_is_partial_for_any_alpha_between_the_ends() {
+    let px = |a: u8| Pixel::straight(chan(a), chan(9), chan(9), chan(9));
+    assert_eq!(ImageAlpha::of(&[]), ImageAlpha::OpaqueOrClear);
+    assert_eq!(
+        ImageAlpha::of(&[px(0), px(255), Pixel::CLEAR]),
+        ImageAlpha::OpaqueOrClear
+    );
+    for a in 1..=254 {
+        assert_eq!(
+            ImageAlpha::of(&[px(255), px(a), px(0)]),
+            ImageAlpha::Partial,
+            "alpha {a}"
+        );
+    }
+}
+
+/// **An image keeps the mark it was stored with**, and a slot freed and
+/// stored again takes the new image's mark, not the old one's.
+#[test]
+fn an_image_keeps_the_alpha_mark_it_was_stored_with() {
+    let mut b = Buffers::new();
+    let mut store = b.store();
+    let (p, _) = store
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::Partial)
+        .unwrap();
+    let (o, _) = store
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
+        .unwrap();
+    assert_eq!(store.image(p).unwrap().alpha, ImageAlpha::Partial);
+    assert_eq!(store.image(o).unwrap().alpha, ImageAlpha::OpaqueOrClear);
+    store.free(p);
+    let (q, _) = store
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
+        .unwrap();
+    assert_eq!(q, p, "the freed slot, reused");
+    assert_eq!(store.image(q).unwrap().alpha, ImageAlpha::OpaqueOrClear);
+    store.free(o);
+    let (r, _) = store
+        .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::Partial)
+        .unwrap();
+    assert_eq!(r, o);
+    assert_eq!(store.image(r).unwrap().alpha, ImageAlpha::Partial);
 }
