@@ -473,16 +473,11 @@ impl Shared {
 }
 
 /// A straight-alpha pixel as Core Animation wants it: each colour channel
-/// scaled by the alpha, rounded. Public so the pixel oracle presents the
+/// scaled by the alpha, rounded -- `baud_domain::premultiply`, the function
+/// the Wayland presenter calls too. Public so the pixel oracle presents the
 /// CPU arm's frame through this function and not a copy of it.
 pub fn premultiply(p: Argb) -> Argb {
-    let [a, r, g, b] = p.0.to_be_bytes();
-    if a == 0xFF {
-        return p;
-    }
-    let scale =
-        |c: u8| -> u8 { u8::try_from((u32::from(c) * u32::from(a) + 127) / 255).unwrap_or(0) };
-    Argb(u32::from_be_bytes([a, scale(r), scale(g), scale(b)]))
+    Argb(baud_domain::premultiply(p.0))
 }
 
 /// A pixel count as a slice index: the one place the conversion is spelled.

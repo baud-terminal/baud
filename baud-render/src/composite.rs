@@ -393,7 +393,8 @@ impl Blend {
     /// 9.1.4, `[[source: w3c-compositing-1]]`).
     ///
     /// **`Native` rounds where the GPU rounds.** The target holds straight
-    /// pixels and the presenter premultiplies them, `(C a + 127) / 255`; the
+    /// pixels and the presenter premultiplies them, `(C a + 127) / 255`
+    /// (`baud_domain::premultiply`, the function both presenters call); the
     /// GPU stores 8-bit premultiplied pixels and blends `One,
     /// OneMinusSourceAlpha` over them. So `co` is formed from the backdrop as
     /// the presenter would premultiply it, rounded to a byte as the GPU's
@@ -557,10 +558,11 @@ mod tests {
     /// presenter's rounding, is `co`.
     #[test]
     fn a_straight_byte_presents_as_its_premultiplied_byte() {
-        // The macOS presenter's premultiply of one channel, `(C a + 127) /
-        // 255`; the pixel oracle in `baud-present-macos/tests/cells.rs` runs
-        // the presenter's own function.
-        let present = |c: u32, a: u32| (c * a + 127) / 255;
+        // One channel as both presenters premultiply it, the shared
+        // `baud_domain::premultiply_chan`.
+        let byte = |v: u32| Chan::from_u8(u8::try_from(v).unwrap());
+        let present =
+            |c: u32, a: u32| u32::from(baud_domain::premultiply_chan(byte(c), byte(a)).get());
         for ao in 1..=255u32 {
             for co in 0..=ao {
                 let n = co * 255 + ao / 2;
@@ -583,10 +585,11 @@ mod tests {
     /// below opaque takes `ca cov / 255` unrounded on the GPU.
     #[test]
     fn glass_presents_as_the_gpu_blends() {
-        // The macOS presenter's premultiply of one channel, `(C a + 127) /
-        // 255`; the pixel oracle in `baud-present-macos/tests/cells.rs` runs
-        // the presenter's own function.
-        let present = |c: u32, a: u32| (c * a + 127) / 255;
+        // One channel as both presenters premultiply it, the shared
+        // `baud_domain::premultiply_chan`.
+        let byte = |v: u32| Chan::from_u8(u8::try_from(v).unwrap());
+        let present =
+            |c: u32, a: u32| u32::from(baud_domain::premultiply_chan(byte(c), byte(a)).get());
         let chans = |p: Argb| p.0.to_be_bytes().map(u32::from);
         let vals = [0u8, 1, 37, 51, 102, 128, 153, 204, 254, 255];
         for sa in [255u8, 200, 90, 1] {

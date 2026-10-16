@@ -227,15 +227,16 @@ crate_audit "baud-wayland" 7 7 baud-wayland/src
 # encoding and not an index) -- plus the byte cursor the lexer carries. The
 # keysym and the keycode are newtypes. Set at the count.
 crate_audit "baud-xkb" 10 6 baud-xkb/src
-# baud-present-wayland: 6 raw sites and 14 signature primitives, the kernel's
+# baud-present-wayland: 6 raw sites and 12 signature primitives, the kernel's
 # mapping ABI in `sys.rs` (`mmap`, `munmap`, `ftruncate`, `memfd_create`, as
 # the externs they are, and the mapping's `len`) and the pool's byte
 # arithmetic -- a stride in words on the pool and on `present`, an offset into
 # the file -- which the wire carries as `int`; plus the keyboard's `group`
 # field and `bind`'s wire `name` and `version`, which sit one to a line and so
 # read to the audit as fields. Set at the count. (This comment said 4 from the
-# commit that set the limit at 6, 20ab159.)
-crate_audit "baud-present-wayland" 6 14 baud-present-wayland/src
+# commit that set the limit at 6, 20ab159.) It was 14 until `premultiply`
+# moved to `baud-domain`, which both presenters call.
+crate_audit "baud-present-wayland" 6 12 baud-present-wayland/src
 # baud-app: 1 raw site and 4 signature primitives. One is `slots(Px) ->
 # usize` in the presenter edge, as above; the other four are the kernel ABI
 # in `sys.rs`, which declares the pty, the ioctl, the poll, the mapping and

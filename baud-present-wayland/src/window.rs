@@ -10,7 +10,7 @@
 
 use crate::keys;
 use crate::shm::{Pool, Px};
-use baud_domain::{Focus, KeyEvent, KeyEventKind};
+use baud_domain::{Focus, KeyEvent, KeyEventKind, premultiply};
 use baud_wayland::{
     Arg, Connection, Event as Wire, Handler, Interface, ObjectId, Opcode, Read, Sender, protocol,
 };
@@ -285,8 +285,9 @@ impl Window {
     }
 
     /// Show `frame` -- `stride` words a row, `0xAARRGGBB` straight alpha,
-    /// at least the window's size -- premultiplied into a free buffer,
-    /// with a frame callback for the next.
+    /// at least the window's size -- premultiplied into a free buffer, the
+    /// encoding `ARGB8888` names, by the function the macOS presenter
+    /// uses, with a frame callback for the next.
     pub fn present(&mut self, s: &mut Sender<'_>, frame: &[u32], stride: usize) -> Presented {
         let (Some(surface), Some(shm), Some((w, h))) = (self.surface, self.globals.shm, self.size)
         else {
@@ -374,16 +375,6 @@ impl Window {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "keymap"))?;
         Keymap::from_text(s).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
     }
-}
-
-/// `0xAARRGGBB` straight to premultiplied, the encoding `ARGB8888` names.
-fn premultiply(px: u32) -> u32 {
-    let a = px >> 24;
-    if a == 0xff {
-        return px;
-    }
-    let ch = |shift: u32| ((px >> shift) & 0xff) * a / 255;
-    (a << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)
 }
 
 impl Handler for Window {
@@ -573,5 +564,36 @@ impl Handler for Window {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **The buffer word is the straight word premultiplied, rounded**, as
+    /// the macOS presenter's is: at every channel value `c` and alpha `a`,
+    /// in each of R, G and B with other values beside it, the channel is
+    /// the integer nearest `c a / 255` and the alpha passes through.
+    /// `wl_shm`'s formats are premultiplied (`[[source: wayland]]`,
+    /// `wl_shm.format`); one rounding on both systems is the owner's same
+    /// pixels on every OS.
+    #[test]
+    fn the_buffer_word_rounds_as_on_macos() {
+        let mut wrong = 0u32;
+        for a in 0..=255u32 {
+            for c in 0..=255u32 {
+                let ok = [16u32, 8, 0].iter().all(|&shift| {
+                    let rest = 0x5a_c3_96 & !(0xff << shift);
+                    let got = premultiply((a << 24) | rest | (c << shift));
+                    let ch = (got >> shift) & 0xff;
+                    got >> 24 == a && (255 * ch).abs_diff(c * a) <= 127
+                });
+                if !ok {
+                    wrong += 1;
+                }
+            }
+        }
+        assert_eq!(wrong, 0, "(C, a) pairs off the nearest, of 65536");
     }
 }
