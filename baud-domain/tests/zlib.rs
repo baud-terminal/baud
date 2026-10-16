@@ -17,6 +17,7 @@ use miniz_oxide::deflate::core::{
     create_comp_flags_from_zip_params,
 };
 use proptest::prelude::*;
+use proptest::sample::Index;
 use std::path::{Path, PathBuf};
 
 /// How a stream is written: miniz's level, its strategy, and where its
@@ -401,11 +402,9 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>, enter: &dyn Fn(&Path) -> bool) {
 /// A stream short enough, inflating to little enough, is split everywhere
 /// and read at every size; any other at five points and two read sizes,
 /// which keeps the debug-built suite to seconds. The ignored system test
-/// carries the rest. The generated properties do not: their data stops at
-/// 3,000 bytes, so no back-reference needs 11-13 distance extra bits, and
-/// they never build a step past about 33 bits. A refill stopped at 32 bits
-/// stays green on all three at 20,000 cases; only the repo PNGs here turn
-/// it red.
+/// carries the rest, and the generated properties the long steps: a
+/// quarter of their streams inflate past 32 KiB with references from up to
+/// 32,768 bytes back, cut and damaged anywhere along them.
 fn cut_every_way_it_can(z: &[u8], n: usize, what: &str) -> End {
     if z.len() <= 2048 && n <= 65_536 {
         return every_split_and_size(z, n, what);
@@ -605,8 +604,19 @@ fn oracle(bytes: &[u8]) -> Option<Vec<u8>> {
     })
 }
 
-/// A generated stream's data, shape and cuts.
-fn streams() -> impl Strategy<Value = (Vec<u8>, Shape, Vec<usize>)> {
+/// Where generated reads cut a stream of `len` bytes, sorted.
+fn cut_at(cuts: &[Index], len: usize) -> Vec<usize> {
+    let mut v: Vec<usize> = cuts.iter().map(|c| c.index(len + 1)).collect();
+    v.sort_unstable();
+    v
+}
+
+/// A generated stream's data, shape and cuts. A quarter of the data runs
+/// past 32 KiB, referring back as far as deflate's window reaches, so
+/// distance codes 26-29 and their 12-13 extra bits are written, and a
+/// length with its distance makes a step past 33 bits; flushes and cuts
+/// fall anywhere in the data and the stream, not only near their start.
+fn streams() -> impl Strategy<Value = (Vec<u8>, Shape, Vec<Index>)> {
     let strategy = prop_oneof![
         Just(CompressionStrategy::Default),
         Just(CompressionStrategy::Fixed),
@@ -614,19 +624,21 @@ fn streams() -> impl Strategy<Value = (Vec<u8>, Shape, Vec<usize>)> {
         Just(CompressionStrategy::RLE),
         Just(CompressionStrategy::Filtered),
     ];
+    let size = prop_oneof![
+        3 => (0usize..3000, 1usize..4000),
+        1 => (32_768usize..72_000, 24_577usize..=32_768),
+    ];
     (
-        0usize..3000,
-        1usize..4000,
+        size,
         any::<u64>(),
         0u8..=10,
         strategy,
-        prop::collection::vec(0usize..3000, 0..4),
-        prop::collection::vec(0usize..2000, 0..12),
+        prop::collection::vec(any::<Index>(), 0..4),
+        prop::collection::vec(any::<Index>(), 0..12),
     )
-        .prop_map(|(len, far, seed, level, strategy, flushes, cuts)| {
+        .prop_map(|((len, far), seed, level, strategy, flushes, cuts)| {
             let data = sample(len, far, seed);
-            let mut cuts = cuts;
-            cuts.sort_unstable();
+            let flushes = cut_at(&flushes, len);
             (
                 data,
                 Shape {
@@ -648,7 +660,7 @@ proptest! {
         let whole = one_read(&z, data.len());
         prop_assert_eq!(&whole.verdict, &Ok(()));
         prop_assert_eq!(&whole.out, &data);
-        prop_assert_eq!(feed_cut(&z, data.len(), &cuts), whole);
+        prop_assert_eq!(feed_cut(&z, data.len(), &cut_at(&cuts, z.len())), whole);
     }
 
     /// The hostile half: a valid stream with bytes overwritten, cut short or
@@ -658,23 +670,23 @@ proptest! {
     #[test]
     fn a_damaged_stream_gets_one_verdict_wherever_the_reads_fall(
         (data, shape, cuts) in streams(),
-        hits in prop::collection::vec((0usize..4000, any::<u8>()), 0..4),
-        cut in prop::option::of(0usize..4000),
+        hits in prop::collection::vec((any::<Index>(), any::<u8>()), 0..4),
+        cut in prop::option::of(any::<Index>()),
         slack in 0usize..3,
     ) {
         let mut z = compress(&data, &shape);
         for (at, b) in hits {
-            let len = z.len().max(1);
-            if let Some(slot) = z.get_mut(at % len) {
+            let len = z.len();
+            if let Some(slot) = z.get_mut(at.index(len.max(1))) {
                 *slot ^= b;
             }
         }
         if let Some(c) = cut {
-            z.truncate(c);
+            z.truncate(c.index(z.len() + 1));
         }
         let n = (data.len() + slack).saturating_sub(1);
         let whole = one_read(&z, n);
-        prop_assert_eq!(feed_cut(&z, n, &cuts), one_read(&z, n));
+        prop_assert_eq!(feed_cut(&z, n, &cut_at(&cuts, z.len())), one_read(&z, n));
         if whole.verdict.is_ok() {
             let theirs = miniz_oxide::inflate::decompress_to_vec_zlib(&z);
             prop_assert_eq!(theirs.ok(), Some(whole.out));
