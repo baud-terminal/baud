@@ -141,7 +141,9 @@ ambiguous_width = "narrow"
 # the colour asked. Block elements, which graphs are drawn with, are not. What
 # a program asked for is unchanged in what the terminal reports; only the
 # pixel moves. 1.2, the default, lifts only text that is nearly invisible;
-# "off" turns it off.
+# "off" turns it off. While Accessibility's Increase Contrast is on, the floor
+# lifts text below 3:1 to 4.5:1, or to what is set here when that is higher,
+# even when it is "off".
 #
 # `light` and `dark` name a theme file for each half of the palette; `theme`
 # above still picks which half is drawn. baud reads base16 and base24 schemes

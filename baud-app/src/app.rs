@@ -2270,6 +2270,7 @@ pub(crate) fn themes_with(halves: &crate::palette::Halves) -> (Theme, Theme) {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 struct Display {
     transparency: Transparency,
+    contrast: Contrast,
 }
 
 /// Reduce Transparency: "UI (mainly window) backgrounds should not be
@@ -2282,17 +2283,37 @@ enum Transparency {
     Reduced,
 }
 
+/// Increase Contrast: "UI should be presented with high contrast such as
+/// utilizing a less subtle color palette or bolder lines"
+/// ([[source: macos-sdk-nsaccessibility-h]] line 93).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Contrast {
+    #[default]
+    Standard,
+    Increased,
+}
+
 /// The settings from the system's getters.
-fn display_settings(reduce_transparency: impl FnOnce() -> bool) -> Display {
+fn display_settings(
+    reduce_transparency: impl FnOnce() -> bool,
+    increase_contrast: impl FnOnce() -> bool,
+) -> Display {
     Display {
         transparency: match reduce_transparency() {
             true => Transparency::Reduced,
             false => Transparency::Full,
         },
+        contrast: match increase_contrast() {
+            true => Contrast::Increased,
+            false => Contrast::Standard,
+        },
     }
 }
 
-/// `theme` as `display` asks for it drawn.
+/// `theme` as `display` asks for it drawn. The renderer's style cache is
+/// dropped by `set_theme`, which moves its theme generation, so a changed
+/// floor reaches cells already resolved only through it, which
+/// `show_theme` calls.
 ///
 /// **Reduce Transparency draws every background at alpha 1.0**, the margin
 /// included, since it clears to the default background at the theme's
@@ -2304,7 +2325,29 @@ fn accessible(mut theme: Theme, display: Display) -> Theme {
     if display.transparency == Transparency::Reduced {
         theme.bg_alpha = baud_domain::Chan::from_u8(0xFF);
     }
+    if display.contrast == Contrast::Increased {
+        theme.floor = stricter(theme.floor);
+    }
     theme
+}
+
+/// **Increase Contrast's floor**: a trigger of at least 3.0 and a target
+/// of at least 4.5, the owner's note Y decision 9 (Jev's lean, 0.88/0.87,
+/// decisions 718/719), the HIG's "higher contrast color scheme when the
+/// system setting Increase Contrast is turned on"
+/// ([[source: apple-hig-accessibility]]). It overrides `floor = "off"` while
+/// the setting is on, as Reduce Transparency overrides the dim -- decided
+/// by analogy in note Y, which the owner can reverse. A reader's stricter
+/// floor is kept: "at least" is this reading of "stricter".
+fn stricter(floor: baud_render::Floor) -> baud_render::Floor {
+    let (trigger, target) = match floor {
+        baud_render::Floor::Off => (0.0, 0.0),
+        baud_render::Floor::Lift { trigger, target } => (trigger, target),
+    };
+    baud_render::Floor::Lift {
+        trigger: trigger.max(3.0),
+        target: target.max(4.5),
+    }
 }
 
 /// The appearance whose theme is in force: the pinned one, or under `auto`
@@ -7890,7 +7933,7 @@ impl Driver {
     /// rebuilds whichever theme is in force. The core is told nothing,
     /// because the settings move no colour it reports.
     fn poll_display(&mut self) {
-        let display = display_settings(reduce_transparency);
+        let display = display_settings(reduce_transparency, increase_contrast);
         if display == self.display {
             return;
         }
@@ -8830,6 +8873,7 @@ mod tests {
                 theme.clone(),
                 Display {
                     transparency: Transparency::Reduced,
+                    ..Display::default()
                 },
             );
             assert_eq!(on.bg_alpha, Chan::from_u8(0xFF));
@@ -8837,10 +8881,59 @@ mod tests {
             assert_eq!(fields(&on), fields(&theme), "only the alpha moves");
         }
         assert_eq!(
-            display_settings(|| true).transparency,
+            display_settings(|| true, || false).transparency,
             Transparency::Reduced
         );
-        assert_eq!(display_settings(|| false), Display::default());
+        assert_eq!(display_settings(|| false, || false), Display::default());
+    }
+
+    /// **Increase Contrast makes the floor stricter**: a trigger of at
+    /// least 3.0 and a target of at least 4.5 (note Y, decision 9), over a
+    /// floor that is off too, by analogy with Reduce Transparency over the
+    /// dim (note Y; the owner can reverse it). A reader's stricter floor
+    /// is kept, never lowered: `floor = 7` is a target of 7 already.
+    #[test]
+    fn increase_contrast_makes_the_floor_stricter() {
+        use baud_render::Floor;
+        let lift = |trigger, target| Floor::Lift { trigger, target };
+        let on = Display {
+            contrast: Contrast::Increased,
+            ..Display::default()
+        };
+        let glass = crate::config::Glass::defaults();
+        for (configured, want) in [
+            (Floor::DEFAULT, lift(3.0, 4.5)),
+            (Floor::Off, lift(3.0, 4.5)),
+            (lift(3.0, 4.5), lift(3.0, 4.5)),
+            (lift(2.0, 4.5), lift(3.0, 4.5)),
+            (lift(7.0, 7.0), lift(7.0, 7.0)),
+            (lift(1.0, 4.5), lift(3.0, 4.5)),
+        ] {
+            let theme = theme_for(Appearance::Dark, &glass, configured, &Default::default());
+            assert_eq!(theme.floor, configured, "the control");
+            assert_eq!(accessible(theme.clone(), on).floor, want, "{configured:?}");
+            let off = accessible(theme.clone(), Display::default());
+            assert_eq!(off.floor, configured, "off keeps {configured:?}");
+            let alpha = accessible(theme.clone(), on).bg_alpha;
+            assert_eq!(alpha, theme.bg_alpha, "the dim is Reduce Transparency's");
+        }
+        let both = Display {
+            transparency: Transparency::Reduced,
+            contrast: Contrast::Increased,
+        };
+        let theme = theme_for(
+            Appearance::Light,
+            &glass,
+            Floor::DEFAULT,
+            &Default::default(),
+        );
+        let drawn = accessible(theme, both);
+        assert_eq!(
+            (drawn.floor, drawn.bg_alpha.get()),
+            (lift(3.0, 4.5), 0xFF),
+            "both at once"
+        );
+        assert_eq!(display_settings(|| false, || true), on);
     }
 
     /// **A pinned theme is reached**: the poll rebuilds the theme in force,
@@ -8883,7 +8976,7 @@ mod tests {
         assert!(show.contains("accessible("), "{show}");
         let poll = body("poll_display");
         assert!(
-            poll.contains("display_settings(reduce_transparency"),
+            poll.contains("display_settings(reduce_transparency, increase_contrast)"),
             "{poll}"
         );
         assert!(poll.contains("show_theme(in_force("), "{poll}");
@@ -9606,6 +9699,12 @@ fn reduce_motion() -> bool {
 /// ([[source: mlg-accessibility]] 58-60).
 fn reduce_transparency() -> bool {
     macos_liquid_glass::accessibility::reduce_transparency()
+}
+
+/// macOS's Increase Contrast, from the window crate's safe getter
+/// ([[source: mlg-accessibility]] 62-70).
+fn increase_contrast() -> bool {
+    macos_liquid_glass::accessibility::increase_contrast()
 }
 
 /// The trail a change of the motion preference switches to, if it changes
