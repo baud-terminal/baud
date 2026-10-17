@@ -1,22 +1,57 @@
 # Documentation
 
-What each document is for, and who should read it. This index exists because
-its absence is why the README grew to 354 lines: with nowhere to point, every
-question got answered inline.
+Every document in the repository, grouped by who it is for. Start with the
+first group if you want to use baud, and skip to the others when you need
+them.
 
-## Start here
+## Use baud
 
-| | for | read when |
-|---|---|---|
-| [contributing/architecture.md](contributing/architecture.md) | contributors | before touching code — the data path, the two core crates and the constraints that shaped both |
-| [protocols/](protocols/) | anyone | **start here for a protocol** — one document per level (VT52, VT100, VT220, VT420, xterm), mirroring the code and tests |
-| [vt-coverage.md](vt-coverage.md) | anyone | checking whether a specific operation works. One row per operation |
-| [protocol-decisions.md](protocol-decisions.md) | contributors | something looks like a gap and you want to know if it is deliberate |
-| [cursor.md](cursor.md) | anyone | choosing a cursor trail — a still of each, the rules they share, and [cursor.html](cursor.html), which plays them side by side |
-| [../MEASUREMENTS.md](../MEASUREMENTS.md) | sceptics | checking a number. Every table stamped with the host that produced it |
-| [../CLAUDE.md](../CLAUDE.md) | contributors and agents | before proposing an optimisation — it lists what was tried and lost |
-| [contributing/build.md](contributing/build.md) | contributors | setting up, running the suites |
-| [contributing/measuring.md](contributing/measuring.md) | contributors | running the benchmarks |
+| | read it for |
+|---|---|
+| [guide/features.md](guide/features.md) | everything baud does for you, by area |
+| [guide/install.md](guide/install.md) | building baud and getting it running |
+| [guide/configuration.md](guide/configuration.md) | the config file: where it goes, every key, its default and what it changes |
+| [guide/status.md](guide/status.md) | what works today and what is not built yet |
+| [guide/performance.md](guide/performance.md) | how fast baud is, what was measured, and what was not |
+| [cursor.md](cursor.md) | the cursor trails, a still of each; [cursor.html](cursor.html) plays them side by side from a checkout |
+| [guide/licensing.md](guide/licensing.md) | what the licence allows, a commercial licence, and sponsoring |
+| [../config.toml.example](../config.toml.example) | the config file to copy, with every key explained |
+| [../SECURITY.md](../SECURITY.md) | what baud trusts, what it refuses, and how to report a vulnerability |
+
+## Embed the core
+
+| | read it for |
+|---|---|
+| [embedding.md](embedding.md) | using `baud-core` in your own program, with a compiled example |
+
+## Contribute
+
+| | read it for |
+|---|---|
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | what a change needs before it lands |
+| [contributing/build.md](contributing/build.md) | setting up, the suites and the gates |
+| [contributing/architecture.md](contributing/architecture.md) | the data path, the two core crates and the constraints that shaped both; read it before touching code |
+| [contributing/measuring.md](contributing/measuring.md) | which benchmark answers which question, and how to run it |
+| [../CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md) | how contributors treat each other |
+
+## Reference
+
+| | read it for |
+|---|---|
+| [vt-coverage.md](vt-coverage.md) | whether a specific control sequence works: one row per operation, against its primary source |
+| [input-coverage.md](input-coverage.md) | what baud sends for each key, modifier and input mode |
+| [protocols/](protocols/) | one document per level (VT52, VT100, VT220, VT420, xterm), mirroring the code and tests, and a page per `$TERM` profile |
+| [protocol-decisions.md](protocol-decisions.md) | whether something that looks like a gap is deliberate, and the open departures from the standards |
+| [../MEASUREMENTS.md](../MEASUREMENTS.md) | every number, stamped with the host and commit that produced it |
+| [../THIRD_PARTY.md](../THIRD_PARTY.md) | every third-party file, with its licence and source |
+
+## History and research
+
+| | read it for |
+|---|---|
+| [record.md](record.md) | the dated record of every measured change and every decision |
+| [../CLAUDE.md](../CLAUDE.md) | the working rules for agents and contributors: the measurement discipline, and what was tried and lost |
+| [the notes below](#research) | the research behind each design, one note per question |
 
 ## Research
 
@@ -53,6 +88,7 @@ its filename's prefix, and several notes share one.
 | [am-xtgettcap.md](research/notes/am-xtgettcap.md) | AM. XTGETTCAP: what baud says about its own capabilities | open |
 | [an-dcs-bodies-and-sixel.md](research/notes/an-dcs-bodies-and-sixel.md) | AN. DCS bodies and Sixel: what the texts say per byte | open |
 | [ap-da-level.md](research/notes/ap-da-level.md) | AP. The Primary DA level: can baud answer `?61;4c`? | open |
+| [aq-docs-structure.md](research/notes/aq-docs-structure.md) | AQ. How the documentation is arranged, and for whom | open |
 | [b-data-parallel-fsm.md](research/notes/b-data-parallel-fsm.md) | Data-parallel finite-state machines — vectorising the parser itself | open |
 | [b-parser-as-a-graph.md](research/notes/b-parser-as-a-graph.md) | The parser as a graph — how to store 20 nodes and 5,120 edges | open |
 | [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified | done 2026-09-11, `f920ea3` |
@@ -162,6 +198,7 @@ the build instead:
 | `baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists; **nothing listed as absent is also marked done**; every research note and every manifest group has a row in the index above |
 | `scripts/check-sources.sh` | every `[[source: …]]` citation — in the docs **and** in the code — resolves to a document pinned by SHA-256 in `MANIFEST.toml` |
 | `baud-core/tests/embedding.rs` | the usage example in `docs/embedding.md` is compiled, and is byte-identical to the block in the file |
+| `baud-app/src/config.rs` | `docs/guide/configuration.md` lists every key `Config::apply` matches and no other; `config.toml.example` writes only keys the reader acts on; `docs/cursor.md` and `docs/cursor.html` show every trail |
 
 Each was written after the corresponding claim turned out to be false. The
 coverage document spent most of this project's life naming `tests/coverage.rs`

@@ -237,6 +237,7 @@ fn baud_is_the_only_binary_and_the_default() {
 const MOVED: &[(&str, &str)] = &[
     // 2026-10-16, the docs reorganised by reader.
     ("docs/architecture.md", "docs/contributing/architecture.md"),
+    ("baud-core/tests/readme.rs", "baud-core/tests/embedding.rs"),
 ];
 
 /// **Every repository path a document names in backticks exists.**
