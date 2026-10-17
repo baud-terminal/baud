@@ -779,13 +779,14 @@ The facts asked with:
   that it does the same is inferred. A user who opens the `.app` sees no
   notice and no refusal; only a shell launch shows them.
 - **O3.** tinted-builder-rust `ae1cc37` refuses a base24 scheme missing any
-  of its 24 keys (`tinted-builder/src/scheme/base24.rs` 8-11, 86-93) and
-  never applies the fallback table.
-- **O4.** WHATWG HTML, "2.3.6 Legacy colors" (page of 16 October 2026): the
+  of its 24 keys ([[source: tinted-builder-rust-base24-ae1cc37]] 8-11,
+  86-93) and never applies the fallback table.
+- **O4.** WHATWG HTML, "2.3.6 Legacy colors"
+  ([[source: whatwg-html-legacy-colors]], the page of 16 October 2026): the
   ×17 branch is taken only for a four-character `#rgb`; otherwise the `#`
   is removed and the string split into three equal components, so a bare
   `abc` is (0x0A, 0x0B, 0x0C). tinted-builder-rust doubles any three digits
-  (`color.rs` 343-373), as baud does.
+  ([[source: tinted-builder-rust-color-ae1cc37]] 343-373), as baud does.
 
 **Two refinements of section 2, each from a format's text, built.** A line
 with no `=` is a ghostty line, because ghostty's parser takes the whole line
@@ -795,3 +796,37 @@ are not a foot theme: "The default section is usually unnamed"
 (`foot-2705e36-foot-ini-5` 9-11) is `[main]`, which has no colours, so a
 sectionless `regular0=` is refused as outside a section; with no foot
 reading of a sectionless file, "also valid foot" does not arise.
+
+## kitty's names and wide-gamut colours (2026-10-17)
+
+**kitty's colour names are read.** kitty looks a value up as a name before
+any other form ([[source: kitty-colors-1e1486e]] 1525-1526), in the 753
+names of [[source: kitty-color-names-1e1486e]]: X.Org's rgb.txt at
+749182c ([[source: xorg-rgb-749182c]]) lower-cased, plus `debianred`
+(line 161). `scripts/gen-colour-names.py --kitty` holds the two equal; the
+table is a perfect hash built from rgb.txt. A word that is not a name is
+skipped with its line, as kitty skips it. 950 values run through kitty's
+own functions (`scripts/kitty-colour-oracle.sh`, the GPL source fetched by
+hash and never committed) are read as kitty reads them, and so is which
+`oklch(`/`lab(` values kitty accepts, C's `strtod` forms included.
+
+**O14. How an `oklch(` or `lab(` colour is drawn: open.** kitty's code and
+its documentation ([[source: kitty-wide-gamut-docs-1e1486e]]) disagree,
+and both differ from CSS Color 4's 2026-10-09 draft:
+
+| | kitty's code | kitty's docs | CSS Color 4 |
+|---|---|---|---|
+| a colour outside sRGB | each linear channel clipped (the chroma search never runs: oklch_to_srgb has clamped already) | CSS Color 4's chroma reduction | chroma reduction, JND 0.02 |
+| a neutral grey (chroma < 1e-5) | L taken as linear light: `lab(10 0 0)` #828282 | "very dark neutral gray" | #1b1b1b |
+| Lab's white | D65, no adaptation | not named | D50, Bradford |
+
+On 1015 values, kitty's functions against the spec's sample code: OKLCH
+inside sRGB with chroma, 209 of 209 bytes equal; OKLCH outside, median 20
+and at most 228 apart (`oklch(0.95 0.4 30)`: #ff0000 against #ffe4dc);
+Lab inside sRGB, none equal, at most 103. Jev (decisions.jsonl 698-701,
+none cached): one question, kitty's code 0.80 / 0.77; re-asked once apart,
+a chromatic colour inside sRGB by kitty's math 0.92 / 0.89, and the grey
+and out-of-gamut cases refuse 0.25 / 0.52. Below the bar, a file holding
+a value kitty reads as `oklch(` or `lab(` stays refused at its line
+(`WideGamut`), and one kitty refuses is skipped. The owner's, or Jev's with
+a fact these asks did not have.

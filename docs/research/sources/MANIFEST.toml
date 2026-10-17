@@ -25619,3 +25619,151 @@ status = "external"
 group  = "J"
 # Read 2026-10-16 for the bundle's version keys; not committed -- vendor
 # documentation. "You can include more integers but the system ignores them."
+
+[sources.kitty-colors-1e1486e]
+key    = "kitty-colors-1e1486e"
+title  = "kitty 1e1486e, kitty/colors.c -- Color.parse_color: #rgb to #rrrrggggbbbb, rgb:, rgbi:, oklch(, lab( and X11 names"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/colors.c"
+file   = ""
+sha256 = "a13cac7e7162951ed7332c9c9ab972bf2ff55feba238c1cf59f8ef91f5928f0f"
+bytes  = 65249
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the kitty theme reader (note AR); hash-verified, not
+# committed: kitty is GPL.
+
+[sources.kitty-conf-utils-1e1486e]
+key    = "kitty-conf-utils-1e1486e"
+title  = "kitty 1e1486e, kitty/conf/utils.py -- the config line grammar (key_pat, parse_line)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/conf/utils.py"
+file   = ""
+sha256 = "5af002918cbf199f2bd250527322b1b49af33fda66d255434d5efb8256eca295"
+bytes  = 17984
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the kitty theme reader (note AR); not committed: GPL.
+
+[sources.kitty-options-utils-1e1486e]
+key    = "kitty-options-utils-1e1486e"
+title  = "kitty 1e1486e, kitty/options/utils.py -- to_color_or_none and cursor_text_color's background"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/options/utils.py"
+file   = ""
+sha256 = "5fc552256355df39edcbaa7fbf1892079a7c0e2449500440a446e442b7cff08a"
+bytes  = 63673
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the kitty theme reader (note AR); not committed: GPL.
+
+[sources.tinted-builder-rust-base24-ae1cc37]
+key    = "tinted-builder-rust-base24-ae1cc37"
+title  = "tinted-builder-rust ae1cc37, tinted-builder/src/scheme/base24.rs -- REQUIRED_BASE24_PALETTE_KEYS, all 24, and the refusal of a scheme missing one"
+author = "the Tinted Theming contributors"
+year   = 2026
+venue  = "tinted-theming/tinted-builder-rust (MIT)"
+url    = "https://raw.githubusercontent.com/tinted-theming/tinted-builder-rust/ae1cc3765830c55d685715ca2b8ece8affb63b3a/tinted-builder/src/scheme/base24.rs"
+file   = ""
+sha256 = "62604f39b3b71b3fc5ce06af291038950d0f4691b3abc18cd6e28d541a6430b9"
+bytes  = 5375
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for note AR's O3: the reference builder refuses a partial
+# base24 scheme and never applies the fallback table.
+
+[sources.tinted-builder-rust-color-ae1cc37]
+key    = "tinted-builder-rust-color-ae1cc37"
+title  = "tinted-builder-rust ae1cc37, tinted-builder/src/scheme/color.rs -- process_hex_input: an optional #, three digits doubled or six"
+author = "the Tinted Theming contributors"
+year   = 2026
+venue  = "tinted-theming/tinted-builder-rust (MIT)"
+url    = "https://raw.githubusercontent.com/tinted-theming/tinted-builder-rust/ae1cc3765830c55d685715ca2b8ece8affb63b3a/tinted-builder/src/scheme/color.rs"
+file   = ""
+sha256 = "6a3c02d61de689728ad005b0677d517a6034b7a10553f62d1043b0f240264929"
+bytes  = 18416
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for note AR's O4.
+
+[sources.whatwg-html-legacy-colors]
+key    = "whatwg-html-legacy-colors"
+title  = "WHATWG HTML Living Standard, 2.3 Common microsyntaxes (Last Updated 16 October 2026) -- 2.3.6 Legacy colors, the rules for parsing a legacy color value"
+author = "WHATWG"
+year   = 2026
+venue  = "html.spec.whatwg.org (CC BY 4.0); whatwg/html main at de953a7c on that day"
+url    = "https://html.spec.whatwg.org/multipage/common-microsyntaxes.html"
+file   = ""
+sha256 = "302bb4a55534aa6f0e7fc004067f687304179d668aab1e7db20949eabb9655f2"
+bytes  = 121595
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for note AR's O4: the x17 branch is taken only for a
+# four-character "#rgb"; a bare "abc" splits into components a, b, c.
+[sources.kitty-color-names-1e1486e]
+key    = "kitty-color-names-1e1486e"
+title  = "kitty 1e1486e, gen/color_names.py -- the 753 colour names parse_color looks up first"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/gen/color_names.py"
+file   = ""
+sha256 = "255914422a50db71c07b7de905c919ff44db90f7ee0faffd0d2fd60d26b794fe"
+bytes  = 29907
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the kitty reader's names (note AR): rgb.txt at
+# 749182c lower-cased plus debianred (line 161), which
+# scripts/gen-colour-names.py --kitty checks. Not committed: kitty is GPL.
+
+[sources.kitty-color-names-h-1e1486e]
+key    = "kitty-color-names-h-1e1486e"
+title  = "kitty 1e1486e, kitty/color-names.h -- gperf's in_color_name_set over gen/color_names.py, which the oracle compiles"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty/color-names.h"
+file   = ""
+sha256 = "3be7edfc24aa866c12e80ccc43db0954311587d308aa7f7ce6d01db7c3c2968c"
+bytes  = 155033
+status = "external"
+group  = "Y"
+# Fetched and hash-checked by scripts/kitty-colour-oracle.sh. Not
+# committed: kitty is GPL.
+
+[sources.kitty-wide-gamut-docs-1e1486e]
+key    = "kitty-wide-gamut-docs-1e1486e"
+title  = "kitty 1e1486e, docs/wide-gamut-colors.rst -- OKLCH and CIE LAB values, and the CSS Color 4 gamut mapping kitty documents"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/docs/wide-gamut-colors.rst"
+file   = ""
+sha256 = "af0fa82758fa7f573b99e1ddf4311877954d5c4860548a7a3e521aa1f15a486c"
+bytes  = 2676
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for note AR's O14, where kitty's code and these docs
+# disagree. Not committed: kitty is GPL.
+
+[sources.xorg-rgb-749182c]
+key    = "xorg-rgb-749182c"
+title  = "X.Org app/rgb 749182c, rgb.txt -- the X11 colour names and values"
+author = "The Open Group, X.Org Foundation"
+year   = 2008
+venue  = "gitlab.freedesktop.org/xorg/app/rgb (MIT-open-group)"
+url    = "https://gitlab.freedesktop.org/xorg/app/rgb/-/raw/749182c37cb455939ba327e9420dd652c0ff58a1/rgb.txt"
+file   = "xorg-rgb-749182c.txt"
+sha256 = "8c10879038a8ed4fbc1e0de93d2e4ea679efb7662975595cffcfad7c696aae24"
+bytes  = 17315
+status = "retrieved"
+group  = "Y"
+# The last rgb.txt before the 2014 CSS names; kitty's table is it,
+# lower-cased, plus debianred (note AR). baud-domain's colour_names.rs is
+# generated from it.

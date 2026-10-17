@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use baud_domain::ColorScheme;
 use baud_domain::themefile::detect::{self, Grammar, Kind, Mark, NotText, Shape, Unknown, Verdict};
-use baud_domain::themefile::{self, Format, Scheme, SchemeErrorKind};
+use baud_domain::themefile::{self, Format, Scheme, SchemeErrorKind, Skipped};
 use baud_render::Theme;
 
 /// Which half of the palette a file is named for.
@@ -214,6 +214,8 @@ fn format_name(f: Format) -> &'static str {
         Format::Base16 => "a base16 scheme",
         Format::Base24 => "a base24 scheme",
         Format::Ghostty => "a ghostty theme",
+        Format::Kitty => "a kitty theme",
+        Format::Foot => "a foot theme",
         Format::Empty => "an empty file",
     }
 }
@@ -364,6 +366,16 @@ fn load(spec: &str, half: Half, dirs: &Dirs, said: &mut Vec<String>) -> Option<S
             }),
             Some(m),
         ),
+        Verdict::Is(k @ (Kind::Kitty | Kind::Foot), m) => {
+            let mut skip = |line: themefile::Line, key: &[u8], why: Skipped| {
+                ignored.push(skipped(&at, k, line, key, why));
+            };
+            let read = match k {
+                Kind::Kitty => themefile::kitty(body, &mut skip),
+                _ => themefile::foot(body, &mut skip),
+            };
+            (read, Some(m))
+        }
         Verdict::Empty => (Ok(Scheme::empty(Format::Empty)), None),
         other => {
             said.push(format!("{at}: {}; {own}", refusal(other)));
@@ -405,6 +417,25 @@ fn load(spec: &str, half: Half, dirs: &Dirs, said: &mut Vec<String>) -> Option<S
     Some(scheme)
 }
 
+/// A line a reader passed over, said with why.
+fn skipped(at: &str, k: Kind, line: themefile::Line, key: &[u8], why: Skipped) -> String {
+    let key = String::from_utf8_lossy(key);
+    let terminal = match k {
+        Kind::Kitty => "kitty",
+        Kind::Foot => "foot",
+        _ => "its terminal",
+    };
+    let what = match why {
+        Skipped::NotAColour => format!("{key} is not a colour and is ignored"),
+        Skipped::Refused => {
+            format!("{key} has a value {terminal} does not read either, and is ignored")
+        }
+        Skipped::Section => format!("{key} holds no colours and is ignored"),
+        Skipped::Syntax => format!("{key} is not a {terminal} setting and is ignored"),
+    };
+    format!("{at}: line {}: {what}", line.0)
+}
+
 /// What a loaded scheme is worth saying: entries the file left to baud, a
 /// declared variant its colours disagree with, a polarity that is the other
 /// half's, and a ghostty file's entries past 15, which are not used.
@@ -441,7 +472,13 @@ fn notice(at: &str, half: Half, scheme: &Scheme, said: &mut Vec<String>) {
             half.key()
         ));
     }
-    if scheme.format == Format::Ghostty && scheme.extended.iter().any(Option::is_some) {
+    // base16 and base24 name 16-21 by slot, and that is their mapping, not
+    // a choice the file made.
+    let numbered = matches!(
+        scheme.format,
+        Format::Ghostty | Format::Kitty | Format::Foot
+    );
+    if numbered && scheme.extended.iter().any(Option::is_some) {
         said.push(format!(
             "{at}: entries 16-255 are not used; they stay xterm's"
         ));
@@ -487,6 +524,10 @@ fn reason(kind: SchemeErrorKind) -> String {
         SchemeErrorKind::Syntax => "a line that is not a key and a value".into(),
         SchemeErrorKind::PaletteIndex => "a palette number that is not 0-255".into(),
         SchemeErrorKind::ColourName => "a colour name, which baud does not resolve yet".into(),
+        SchemeErrorKind::WideGamut => "an OKLCH or CIE LAB colour, which baud does not convert yet".into(),
+        SchemeErrorKind::Pair => {
+            "a second theme: the file holds a dark and a light one, so save the one for this half alone".into()
+        }
     }
 }
 
@@ -834,8 +875,6 @@ mod tests {
     fn every_other_format_is_named_for_what_it_is() {
         for (file, name) in [
             ("tinted8.yaml", "a tinted8 scheme"),
-            ("kitty.conf", "a kitty theme"),
-            ("foot.ini", "a foot theme"),
             ("Xresources", "X resources"),
             ("colors", "a list of 16 colours"),
         ] {
@@ -862,6 +901,43 @@ mod tests {
         let (eq, said) = dark_of("slots-eq", "slots-eq");
         assert!(eq.is_none(), "{said}");
         assert!(said.contains("base16 slot names"), "{said}");
+    }
+
+    /// The dark scheme every other terminal's fixture carries
+    /// (`tests/themes/README.md`), each in its own spelling.
+    fn fixture_night() -> Scheme {
+        let ansi = [
+            "#1d1f21", "#cc6666", "#b5bd68", "#f0c674", "#81a2be", "#b294bb", "#8abeb7", "#c5c8c6",
+            "#666666", "#d54e53", "#b9ca4a", "#e7c547", "#7aa6da", "#c397d8", "#70c0b1", "#eaeaea",
+        ];
+        let mut s = Scheme::empty(Format::Empty);
+        s.ansi = ansi.map(|h| Some(rgb(h)));
+        s.page = Some(rgb("#161719"));
+        s.text = Some(rgb("#c5c8c7"));
+        s.cursor = Some(rgb("#aeafad"));
+        s.cursor_text = Some(rgb("#1d1f22"));
+        s.selection = Some(rgb("#373b41"));
+        s.selection_text = Some(rgb("#c5c8c8"));
+        s
+    }
+
+    /// **kitty's and foot's own theme files are read**, each to the colours
+    /// it carries, and each says what it was read as.
+    #[test]
+    fn kitty_and_foot_files_read_as_the_colours_they_carry() {
+        for (file, why) in [
+            ("kitty.conf", "read as a kitty theme (line 3: foreground)"),
+            ("foot.ini", "read as a foot theme (line 2: colors-dark)"),
+        ] {
+            let (got, said) = dark_of(file, file);
+            let colours = got.map(|s| Scheme {
+                format: Format::Empty,
+                ..s
+            });
+            assert_eq!(colours, Some(fixture_night()), "{file}: {said}");
+            assert!(said.contains(why), "{file}: {said}");
+            assert!(!said.contains("ignored"), "{file}: {said}");
+        }
     }
 
     /// **A file is read as bytes wherever its format is**: a ghostty

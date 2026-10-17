@@ -27,7 +27,11 @@
 
 use crate::{Chan, Color, ColorScheme, ColorWord};
 
+mod colour_names;
 pub mod detect;
+mod terminals;
+
+pub use terminals::{Skipped, foot, kitty};
 
 /// Why a colour value was refused.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -87,6 +91,8 @@ pub enum Format {
     Base16,
     Base24,
     Ghostty,
+    Kitty,
+    Foot,
     /// A file with nothing in it but blank lines and comments: no format
     /// to name, and it sets nothing.
     Empty,
@@ -168,9 +174,17 @@ pub enum SchemeErrorKind {
     Syntax,
     /// A ghostty `palette` entry whose number is not 0-255.
     PaletteIndex,
-    /// An X11 colour name, which ghostty resolves and baud does not yet:
-    /// there is no citable copy of `rgb.txt` here, for OSC colours either.
+    /// An X11 colour name in a ghostty file, which ghostty resolves and
+    /// baud does not yet; kitty's names are read (by X.Org's `rgb.txt`,
+    /// `[[source: xorg-rgb-749182c]]`, and kitty's one addition).
     ColourName,
+    /// kitty's `oklch(` or `lab(` colour, which kitty reads and baud does
+    /// not draw yet: how is note AR's O14, open.
+    WideGamut,
+    /// A dark and a light theme in one file (foot's two sections), where
+    /// which half to read is undecided (note AR, O8): the line of the
+    /// second.
+    Pair,
 }
 
 /// A base16/base24 slot number, `0x00` to `0x17`.
