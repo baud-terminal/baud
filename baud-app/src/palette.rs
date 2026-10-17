@@ -5,15 +5,19 @@
 //! so a file that fails is reported and leaves baud's own half in place
 //! rather than stopping the terminal.
 //!
-//! Decided with Jev, with the rule written before asking: a bare name is
-//! tried as given, then with `.yaml`, then `.yml` (Jev, 0.65); the reader is
-//! chosen by extension -- `.yaml` and `.yml` are base16/base24, anything else
-//! is a ghostty file (below 0.6, the written rule); a scheme whose polarity is
-//! the other half's is used as named and reported (Jev, 0.93).
+//! **The content chooses the reader** (note AR; the owner's call of
+//! 2026-10-17): [`themefile::detect::classify`] gives one verdict and only
+//! that verdict's reader runs. Every load says what the file was read as and
+//! the line that decided; a file named for another format is read by its
+//! content and the name reported (Jev, O1, 0.90/0.92, decisions.jsonl
+//! 680/681). A bare name is tried as given, then with `.yaml`, then `.yml`
+//! (the owner, 2026-10-17, keeping Jev's 0.65 order); a scheme whose
+//! polarity is the other half's is used as named and reported (Jev, 0.93).
 
 use std::path::{Path, PathBuf};
 
 use baud_domain::ColorScheme;
+use baud_domain::themefile::detect::{self, Grammar, Kind, Mark, NotText, Shape, Unknown, Verdict};
 use baud_domain::themefile::{self, Format, Scheme, SchemeErrorKind};
 use baud_render::Theme;
 
@@ -137,12 +141,163 @@ pub fn candidates(spec: &str, dirs: &Dirs) -> Vec<PathBuf> {
     out
 }
 
-/// The reader a file goes to: base16/base24 for `.yaml` and `.yml` in any
-/// case, ghostty for anything else, no extension included.
-fn is_tinted(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("yaml") || e.eq_ignore_ascii_case("yml"))
+/// The formats a file's extension names, for the cross-check: the name
+/// never chooses the reader, and one the content disagrees with is
+/// reported. `None` for a name that implies nothing, no extension included.
+fn implied(path: &Path) -> Option<(&'static str, &'static [Kind])> {
+    let name = path.file_name()?.to_str()?;
+    if name.eq_ignore_ascii_case(".Xresources") || name.eq_ignore_ascii_case(".Xdefaults") {
+        return Some((name_of_dotfile(name), &[Kind::Xresources]));
+    }
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    Some(match ext.as_str() {
+        "yaml" => (
+            ".yaml",
+            &[
+                Kind::Tinted,
+                Kind::Tinted8,
+                Kind::ColorNN,
+                Kind::AlacrittyYaml,
+            ],
+        ),
+        "yml" => (
+            ".yml",
+            &[
+                Kind::Tinted,
+                Kind::Tinted8,
+                Kind::ColorNN,
+                Kind::AlacrittyYaml,
+            ],
+        ),
+        "conf" => (".conf", &[Kind::Kitty]),
+        "toml" => (".toml", &[Kind::Alacritty, Kind::Wezterm]),
+        "ini" => (".ini", &[Kind::Foot]),
+        "itermcolors" => (".itermcolors", &[Kind::ITermPlist]),
+        "json" => (".json", &[Kind::WindowsTerminal]),
+        "xresources" => (".Xresources", &[Kind::Xresources]),
+        "xdefaults" => (".Xdefaults", &[Kind::Xresources]),
+        _ => return None,
+    })
+}
+
+fn name_of_dotfile(name: &str) -> &'static str {
+    if name.eq_ignore_ascii_case(".Xresources") {
+        ".Xresources"
+    } else {
+        ".Xdefaults"
+    }
+}
+
+/// What a format is called in a report.
+fn kind_name(k: Kind) -> &'static str {
+    match k {
+        Kind::Tinted => "a base16 or base24 scheme",
+        Kind::Ghostty => "a ghostty theme",
+        Kind::PlainList => "a list of 16 colours",
+        Kind::Kitty => "a kitty theme",
+        Kind::Foot => "a foot theme",
+        Kind::Alacritty => "an alacritty theme",
+        Kind::AlacrittyYaml => "an alacritty YAML config",
+        Kind::ITermPlist => "an iTerm2 colour preset",
+        Kind::WindowsTerminal => "a Windows Terminal scheme",
+        Kind::Xresources => "X resources",
+        Kind::Tinted8 => "a tinted8 scheme",
+        Kind::ColorNN => "a color_01-color_16 YAML scheme (Gogh, iTerm2-Color-Schemes)",
+        Kind::Wezterm => "a wezterm scheme",
+    }
+}
+
+/// What a read scheme is called: the reader's own answer, where it gives
+/// one (base16 or base24).
+fn format_name(f: Format) -> &'static str {
+    match f {
+        Format::Base16 => "a base16 scheme",
+        Format::Base24 => "a base24 scheme",
+        Format::Ghostty => "a ghostty theme",
+        Format::Empty => "an empty file",
+    }
+}
+
+fn grammar_name(g: Grammar) -> &'static str {
+    match g {
+        Grammar::Colon => "`key: value` lines (YAML)",
+        Grammar::Equals => "`key = value` lines",
+        Grammar::Space => "`key value` lines",
+        Grammar::Resource => "`*.resource: value` lines (X resources)",
+        Grammar::Bare => "a word alone on a line",
+        Grammar::Other => "a line that is no theme grammar",
+    }
+}
+
+fn shape_name(s: Shape) -> &'static str {
+    match s {
+        Shape::Grammar(g) => grammar_name(g),
+        Shape::Kind(k) => kind_name(k),
+    }
+}
+
+/// `line N: key`, for a report.
+fn at_line(m: Mark<'_>) -> String {
+    format!("line {}: {}", m.line.0, String::from_utf8_lossy(m.key))
+}
+
+/// Why a file was not read, from what was seen in it.
+fn refusal(v: Verdict<'_>) -> String {
+    match v {
+        Verdict::Is(k, m) => format!(
+            "{} ({}), which baud does not read",
+            kind_name(k),
+            at_line(m)
+        ),
+        Verdict::Mixed(a, ma, b, mb) => format!(
+            "two formats in one file: {} at line {} and {} at line {}",
+            shape_name(a),
+            ma.line.0,
+            shape_name(b),
+            mb.line.0
+        ),
+        Verdict::Unknown(u) => match u {
+            Unknown::HexLines(n) => {
+                format!("{} lines of #rrggbb, where a list of colours has 16", n.0)
+            }
+            Unknown::Xml => "XML that is not an iTerm2 colour preset (no Ansi 0 Color)".into(),
+            Unknown::Json => "JSON that is not a Windows Terminal scheme".into(),
+            Unknown::JsonSchemes(m) => format!(
+                "a Windows Terminal settings file holding several schemes ({}); save the one to use as its own file",
+                at_line(m)
+            ),
+            Unknown::Sections(m) => format!("sections no theme format uses ({})", at_line(m)),
+            Unknown::FootRemovedSection(m) => format!(
+                "foot's [colors] section ({}), which foot 1.28.0 removed; name it [colors-dark] or [colors-light]",
+                at_line(m)
+            ),
+            Unknown::FootOutsideSection(m) => format!(
+                "foot colour keys outside a [colors-dark] or [colors-light] section ({})",
+                at_line(m)
+            ),
+            Unknown::Yaml(m) => format!(
+                "YAML with none of system, base00-base17, scheme.system, color_01 or colors ({})",
+                at_line(m)
+            ),
+            Unknown::TintedSystem(m) => format!(
+                "a tinted scheme whose scheme.system is not tinted8 ({})",
+                at_line(m)
+            ),
+            Unknown::TintedSlotsInEquals(m) => format!(
+                "base16 slot names in `key = value` syntax ({}); base16 and base24 are YAML, `key: value`",
+                at_line(m)
+            ),
+            Unknown::Lines(g, m) => format!(
+                "{} with no colour key a theme format has ({})",
+                grammar_name(g),
+                at_line(m)
+            ),
+        },
+        Verdict::NotText(NotText::BinaryPlist) => {
+            "a binary plist; save the iTerm2 preset as XML".into()
+        }
+        Verdict::Empty => "an empty file".into(),
+    }
 }
 
 /// One half's scheme, or `None` with a complaint; notices about a scheme
@@ -192,28 +347,60 @@ fn load(spec: &str, half: Half, dirs: &Dirs, said: &mut Vec<String>) -> Option<S
         return None;
     };
     let at = format!("config: [palette] {} {}", half.key(), path.display());
-    let read = if is_tinted(path) {
-        themefile::base16(&bytes)
-    } else {
-        themefile::ghostty(&bytes, |line, key| {
-            said.push(format!(
-                "{at}: line {}: {} is not a colour and is ignored",
-                line.0,
-                String::from_utf8_lossy(key)
-            ))
-        })
+    let verdict = detect::classify(&bytes);
+    let body = detect::body(&bytes);
+    // Only the verdict's reader runs; what it ignored is said after what
+    // the file was read as.
+    let mut ignored = Vec::new();
+    let (read, mark) = match verdict {
+        Verdict::Is(Kind::Tinted, m) => (themefile::base16(body), Some(m)),
+        Verdict::Is(Kind::Ghostty, m) => (
+            themefile::ghostty(body, |line, key| {
+                ignored.push(format!(
+                    "{at}: line {}: {} is not a colour and is ignored",
+                    line.0,
+                    String::from_utf8_lossy(key)
+                ))
+            }),
+            Some(m),
+        ),
+        Verdict::Empty => (Ok(Scheme::empty(Format::Empty)), None),
+        other => {
+            said.push(format!("{at}: {}; {own}", refusal(other)));
+            return None;
+        }
     };
+    let why = mark
+        .map(|m| format!(" ({})", at_line(m)))
+        .unwrap_or_default();
     let scheme = match read {
         Ok(s) => s,
         Err(e) => {
+            let name = match verdict {
+                Verdict::Is(k, _) => kind_name(k),
+                _ => format_name(Format::Empty),
+            };
+            let why = mark
+                .map(|m| format!(", {}", at_line(m)))
+                .unwrap_or_default();
             said.push(format!(
-                "{at}: line {}: {}; {own}",
+                "{at}: line {}: {} (read as {name}{why}); {own}",
                 e.line.0,
                 reason(e.kind)
             ));
             return None;
         }
     };
+    said.push(format!("{at}: read as {}{why}", format_name(scheme.format)));
+    said.append(&mut ignored);
+    if let (Verdict::Is(k, _), Some((ext, kinds))) = (verdict, implied(path)) {
+        if !kinds.contains(&k) {
+            said.push(format!(
+                "{at}: named {ext}, but the content is {}",
+                kind_name(k)
+            ));
+        }
+    }
     notice(&at, half, &scheme, said);
     Some(scheme)
 }
@@ -417,17 +604,42 @@ mod tests {
         );
     }
 
+    /// **The name only cross-checks the content**, which chooses the
+    /// reader: base16 YAML named `.conf` is read as base16 and the name
+    /// reported; the extension's case does not matter, and a name that
+    /// implies nothing is not reported.
     #[test]
-    fn the_extension_chooses_the_reader() {
-        assert!(is_tinted(Path::new("a/day.yaml")));
-        assert!(is_tinted(Path::new("sepia.yml")));
-        assert!(!is_tinted(Path::new("night")));
-        assert!(!is_tinted(Path::new("night.conf")));
-        assert!(
-            is_tinted(Path::new("Day.YAML")),
-            "the case of the extension does not matter"
+    fn the_content_chooses_the_reader_and_the_name_only_cross_checks() {
+        let tinted: &[Kind] = &[
+            Kind::Tinted,
+            Kind::Tinted8,
+            Kind::ColorNN,
+            Kind::AlacrittyYaml,
+        ];
+        assert_eq!(implied(Path::new("a/day.yaml")), Some((".yaml", tinted)));
+        assert_eq!(implied(Path::new("Day.YAML")), Some((".yaml", tinted)));
+        assert_eq!(implied(Path::new("sepia.Yml")), Some((".yml", tinted)));
+        assert_eq!(implied(Path::new("night")), None);
+        assert_eq!(implied(Path::new("colors.txt")), None);
+        assert_eq!(
+            implied(Path::new("t/.Xresources")),
+            Some((".Xresources", &[Kind::Xresources][..]))
         );
-        assert!(is_tinted(Path::new("day.Yml")));
+        let h = home_with("day-conf", &[]);
+        let t = h.join(".config/baud/themes/day.conf");
+        std::fs::copy(fixtures().join("day.yaml"), &t).unwrap();
+        let (halves, said) = load_halves(None, Some("day.conf"), &dirs(&h));
+        let said = said.join("\n");
+        assert_eq!(
+            halves.dark.map(|s| s.format),
+            Some(Format::Base16),
+            "{said}"
+        );
+        assert!(
+            said.contains("day.conf: named .conf, but the content is a base16 or base24 scheme"),
+            "{said}"
+        );
+        let _ = std::fs::remove_dir_all(h);
     }
 
     /// Each fixture, by bare name and by path, lands and says what it must.
@@ -449,7 +661,15 @@ mod tests {
             "{joined}"
         );
         assert!(joined.contains("entries 16-255 are not used"), "{joined}");
-        assert_eq!(said.len(), 3, "day says nothing: {joined}");
+        assert!(
+            joined.contains("night: read as a ghostty theme (line 2: palette)"),
+            "{joined}"
+        );
+        assert!(
+            joined.contains("day.yaml: read as a base16 scheme (line 1: system)"),
+            "{joined}"
+        );
+        assert_eq!(said.len(), 5, "day says only what it was read as: {joined}");
         let _ = std::fs::remove_dir_all(h);
     }
 
@@ -472,7 +692,7 @@ mod tests {
             ),
             "{joined}"
         );
-        assert_eq!(said.len(), 2, "{joined}");
+        assert_eq!(said.len(), 4, "two read-as lines and two notices: {joined}");
         let _ = std::fs::remove_dir_all(h);
     }
 
@@ -484,7 +704,7 @@ mod tests {
         let joined = said.join("\n");
         assert!(
             joined.contains(
-                "broken.yaml: line 20: base0F is missing; using baud's own light palette"
+                "broken.yaml: line 20: base0F is missing (read as a base16 or base24 scheme, line 1: system); using baud's own light palette"
             ),
             "{joined}"
         );
@@ -546,6 +766,119 @@ mod tests {
             ]
         );
         let _ = std::fs::remove_dir_all(h);
+    }
+
+    /// A home whose `.config/baud/themes` holds the named fixtures.
+    fn home_with(tag: &str, files: &[&str]) -> PathBuf {
+        let h = std::env::temp_dir().join(format!("baud-palette-{}-{tag}", std::process::id()));
+        let themes = h.join(".config/baud/themes");
+        std::fs::create_dir_all(&themes).unwrap();
+        for f in files {
+            std::fs::copy(fixtures().join(f), themes.join(f)).unwrap();
+        }
+        h
+    }
+
+    /// One fixture loaded as the dark half: the scheme and what was said.
+    fn dark_of(tag: &str, file: &str) -> (Option<Scheme>, String) {
+        let h = home_with(tag, &[file]);
+        let (halves, said) = load_halves(None, Some(file), &dirs(&h));
+        let _ = std::fs::remove_dir_all(h);
+        (halves.dark, said.join("\n"))
+    }
+
+    fn rgb(hex: &str) -> baud_domain::Color {
+        themefile::hex(hex.as_bytes()).unwrap()
+    }
+
+    /// **A double-quoted alacritty file never draws its search colour as
+    /// the page.** Read line by line as ghostty, its section headers were
+    /// ignored and the last `background =`, `[colors.search.matches]`'s
+    /// `#ffff00`, became the page (note AR, section 1.3).
+    #[test]
+    fn an_alacritty_file_never_draws_its_search_colour_as_the_page() {
+        let (dark, said) = dark_of("alacritty", "alacritty.toml");
+        assert_ne!(
+            dark.and_then(|s| s.page),
+            Some(rgb("#ffff00")),
+            "the search match colour is the page: {said}"
+        );
+        assert!(said.contains("an alacritty theme"), "{said}");
+    }
+
+    /// **A base16 file with no extension is read as base16**, with the
+    /// colours of the same file named `.yaml`.
+    #[test]
+    fn a_base16_file_without_an_extension_is_read_as_base16() {
+        let (dawn, said) = dark_of("dawn", "dawn");
+        let day = themefile::base16(&std::fs::read(fixtures().join("day.yaml")).unwrap()).unwrap();
+        assert_eq!(dawn, Some(day), "{said}");
+        assert!(said.contains("read as a base16 scheme"), "{said}");
+    }
+
+    /// **A ghostty theme named `.yaml` is read as ghostty**, and the name
+    /// that says otherwise is reported (Jev, O1, decisions.jsonl 680/681).
+    #[test]
+    fn a_ghostty_theme_named_yaml_is_read_as_ghostty_and_the_name_reported() {
+        let (mislabelled, said) = dark_of("night-yaml", "night.yaml");
+        let (night, _) = dark_of("night-plain", "night");
+        assert!(night.is_some());
+        assert_eq!(mislabelled, night, "{said}");
+        assert!(said.contains("read as a ghostty theme"), "{said}");
+        assert!(said.contains("named .yaml"), "{said}");
+    }
+
+    /// Each other format is named for what it is, never read as a
+    /// ghostty file whose lines are all ignored or all comments.
+    #[test]
+    fn every_other_format_is_named_for_what_it_is() {
+        for (file, name) in [
+            ("tinted8.yaml", "a tinted8 scheme"),
+            ("kitty.conf", "a kitty theme"),
+            ("foot.ini", "a foot theme"),
+            ("Xresources", "X resources"),
+            ("colors", "a list of 16 colours"),
+        ] {
+            let (_, said) = dark_of(file, file);
+            assert!(said.contains(name), "{file}: {said}");
+            assert!(
+                !said.contains("is not a colour and is ignored"),
+                "{file}: {said}"
+            );
+            assert!(!said.contains("are unset"), "{file}: {said}");
+        }
+    }
+
+    /// Two grammars in one file are refused naming both lines; tinted's
+    /// slot names in ghostty's grammar are refused saying so (Jev, O10).
+    #[test]
+    fn a_mixed_file_and_tinted_slots_in_equals_syntax_are_refused() {
+        let (mixed, said) = dark_of("mixed", "mixed");
+        assert!(mixed.is_none(), "{said}");
+        assert!(
+            said.contains("two formats in one file: `key: value` lines (YAML) at line 1 and `key = value` lines at line 5"),
+            "{said}"
+        );
+        let (eq, said) = dark_of("slots-eq", "slots-eq");
+        assert!(eq.is_none(), "{said}");
+        assert!(said.contains("base16 slot names"), "{said}");
+    }
+
+    /// **A file is read as bytes wherever its format is**: a ghostty
+    /// theme with a Latin-1 comment reads with the colours base read from
+    /// it, since ghostty takes a line as bytes and a comment is passed
+    /// over whole (`[[source: ghostty-args-d9840f3]]` 1450-1466).
+    #[test]
+    fn a_ghostty_theme_with_a_latin_1_comment_reads_as_base_read_it() {
+        let bytes = b"# Th\xe8me d'\xe9t\xe9\npalette = 1=#cc6666\nbackground = #1d1f21\n";
+        let h = home_with("latin1", &[]);
+        std::fs::write(h.join(".config/baud/themes/latin1"), bytes).unwrap();
+        let (halves, said) = load_halves(None, Some("latin1"), &dirs(&h));
+        let _ = std::fs::remove_dir_all(h);
+        let said = said.join("\n");
+        let base = themefile::ghostty(bytes, |_, _| {}).unwrap();
+        assert_eq!(halves.dark, Some(base), "{said}");
+        assert!(said.contains("read as a ghostty theme"), "{said}");
     }
 
     /// A polarity notice says which of page and text the file set.

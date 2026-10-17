@@ -1,0 +1,16 @@
+scheme:
+  system: "tinted8"
+  supports:
+    styling-spec: "0.2.0"
+  author: "baud tests"
+  name: "Fixture Eight"
+variant: "dark"
+palette:
+  black: "#1d1f21"
+  red: "#cc6666"
+  green: "#b5bd68"
+  yellow: "#f0c674"
+  blue: "#81a2be"
+  magenta: "#b294bb"
+  cyan: "#8abeb7"
+  white: "#c5c8c6"

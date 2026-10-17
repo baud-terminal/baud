@@ -108,7 +108,9 @@ and tinted's third system.
 - `Mixed`: two families in one file, with the lines of each.
 - `Unknown`: the nearest shape, such as "YAML with none of `system`,
   `palette`, `base00`, `color_01` or `scheme.system`".
-- `NotText`: not UTF-8, or a binary plist (`bplist00`).
+- `NotText`: a binary plist (`bplist00`). Bytes that are not UTF-8 are
+  read as bytes; a format whose text requires UTF-8 refuses them in its
+  reader.
 
 **The verdict is an enum in `baud-domain`, beside the readers.**
 `audit_all.sh` gates `baud-domain` at zero `bool` fields, so "is it tinted"
@@ -236,8 +238,8 @@ The steps run in order. The first step that decides, ends.
 
 - **D0. Not text.** If the file starts with `bplist00`, the verdict is
   `NotText(binary plist)`, reported as "an iTerm2 binary plist; save it as
-  XML". If the bytes are not UTF-8, the verdict is `NotText`. Otherwise a
-  leading BOM is stripped and noted.
+  XML". Otherwise a leading BOM is stripped and noted; bytes that are not
+  UTF-8 decide nothing here.
 - **D1. Plain list.** If every non-blank line, trimmed, matches
   `^#[0-9A-Fa-f]{6}$` and there are exactly 16 of them, the verdict is
   `PlainList`. This runs before any `#` line is read as a comment (Trap 1).
@@ -742,3 +744,54 @@ check that a user who opens the app sees the "read as" report; O3, what
 tinted-builder-rust does with a base24 file missing one base1x slot; O4,
 WHATWG section 2.3.6 pinned and quoted; O5, cursor and selection asked
 separately; O7 and O9, the owner's scope for "ansi"; O13, the owner.
+
+## The owner, and Jev again, 2026-10-17
+
+**The owner answered O7, O9 and O13** (2026-10-17, "use the recommended
+answers and continue", accepting decision 4 of that day's page): read all
+four further families -- kitty and foot; alacritty, TOML and the YAML before
+0.13; iTerm2's `.itermcolors` and Windows Terminal's JSON schemes; X
+resources and a plain list of 16 colours such as pywal's `colors` -- by
+content, a refusal only where reading is unsafe; and a bare name matching
+both `night` and `night.yaml` keeps today's order, exact name first. Gogh's
+`color_NN` YAML and wezterm's TOML are not among the four: they are detected
+and refused by name.
+
+**Jev, with the facts section 2 said were missing** (decisions.jsonl 678/679,
+re-asked 680/681, jev-1.13.0, none cached):
+
+| option | first ask | re-ask | status |
+|---|---|---|---|
+| O1 a name that disagrees with the content | read and report (0.84 / 0.94) | read and report (0.90 / 0.92) | **decided** |
+| O3 a base24 file missing base1x | refuse (1.00 / 1.00) | | **decided**, today's |
+| O5 cursor, base16/base24 | unset (1.00 / 1.00) | | **decided**, today's |
+| O5 selection, base16/base24 | unset (0.98 / 0.90) | | **decided**, today's |
+| O4 hex forms | keep all four (0.45 / 0.59) | keep all four (0.44 / 0.49) | open; today's stays |
+| O8 a light/dark pair in one file | read the named half (0.50 / 0.56) | read the named half (0.82 / 0.90) | open; refused naming both |
+| an empty or comments-only file | load empty (0.76 / 0.88) | load empty (0.74 / 0.72) | open; today's (load empty) stays |
+
+The facts asked with:
+
+- **O1.** Every theme notice goes to stderr through `warn!` (log.rs:82-84).
+  On this Mac every process launchd started from Finder or the Dock that
+  was looked at -- Finder, Dock, 1Password and its helpers -- has fd 2 on
+  `/dev/null` (`lsof`, 2026-10-17); baud.app was not launched for it, so
+  that it does the same is inferred. A user who opens the `.app` sees no
+  notice and no refusal; only a shell launch shows them.
+- **O3.** tinted-builder-rust `ae1cc37` refuses a base24 scheme missing any
+  of its 24 keys (`tinted-builder/src/scheme/base24.rs` 8-11, 86-93) and
+  never applies the fallback table.
+- **O4.** WHATWG HTML, "2.3.6 Legacy colors" (page of 16 October 2026): the
+  ×17 branch is taken only for a four-character `#rgb`; otherwise the `#`
+  is removed and the string split into three equal components, so a bare
+  `abc` is (0x0A, 0x0B, 0x0C). tinted-builder-rust doubles any three digits
+  (`color.rs` 343-373), as baud does.
+
+**Two refinements of section 2, each from a format's text, built.** A line
+with no `=` is a ghostty line, because ghostty's parser takes the whole line
+as a key (`ghostty-args-d9840f3` 1468-1494), so it joins `key = value` lines
+rather than making a file `Mixed`. And foot's colour keys outside a section
+are not a foot theme: "The default section is usually unnamed"
+(`foot-2705e36-foot-ini-5` 9-11) is `[main]`, which has no colours, so a
+sectionless `regular0=` is refused as outside a section; with no foot
+reading of a sectionless file, "also valid foot" does not arise.

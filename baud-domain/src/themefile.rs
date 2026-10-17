@@ -27,6 +27,8 @@
 
 use crate::{Chan, Color, ColorScheme, ColorWord};
 
+pub mod detect;
+
 /// Why a colour value was refused.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HexError {
@@ -85,6 +87,9 @@ pub enum Format {
     Base16,
     Base24,
     Ghostty,
+    /// A file with nothing in it but blank lines and comments: no format
+    /// to name, and it sets nothing.
+    Empty,
 }
 
 /// A colour scheme, landed on the sixteen ANSI slots.
@@ -111,6 +116,22 @@ pub struct Scheme {
 }
 
 impl Scheme {
+    /// A scheme that sets nothing, read from `format`.
+    pub const fn empty(format: Format) -> Scheme {
+        Scheme {
+            ansi: [None; 16],
+            page: None,
+            text: None,
+            extended: [None; 240],
+            cursor: None,
+            cursor_text: None,
+            selection: None,
+            selection_text: None,
+            format,
+            declared: None,
+        }
+    }
+
     /// Dark or light by the rule `CSI ? 996 n` answers with (note Y,
     /// decision 5): the page's relative luminance against the text's.
     pub fn polarity(&self) -> Option<ColorScheme> {
@@ -350,18 +371,7 @@ fn yaml_value(v: &[u8]) -> Option<&[u8]> {
 /// `[[source: zig-fmt-0-16-0]]` 394-475) but an X11 name, which is refused as
 /// [`SchemeErrorKind::ColourName`]: baud resolves names nowhere yet.
 pub fn ghostty(text: &[u8], mut ignored: impl FnMut(Line, &[u8])) -> Result<Scheme, SchemeError> {
-    let mut s = Scheme {
-        ansi: [None; 16],
-        page: None,
-        text: None,
-        extended: [None; 240],
-        cursor: None,
-        cursor_text: None,
-        selection: None,
-        selection_text: None,
-        format: Format::Ghostty,
-        declared: None,
-    };
+    let mut s = Scheme::empty(Format::Ghostty);
     let mut line_no = 0u32;
     for raw in text.split(|&b| b == b'\n') {
         line_no += 1;

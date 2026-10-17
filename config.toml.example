@@ -144,8 +144,11 @@ ambiguous_width = "narrow"
 # "off" turns it off.
 #
 # `light` and `dark` name a theme file for each half of the palette; `theme`
-# above still picks which half is drawn. A `.yaml` or `.yml` file is read as a
-# base16 or base24 scheme (tinted-theming), anything else as a ghostty theme.
+# above still picks which half is drawn. A theme is a base16 or base24 scheme
+# (tinted-theming) or a ghostty theme, told apart by what is in the file and
+# not by its name; each load says what the file was read as. Theme files of
+# other terminals are named for what they are, and a file mixing two formats
+# is refused with the line of each.
 # A value with a / is a path: ~/ is your home, and a path that does not start
 # with / or ~/ is read beside this file. A bare name is looked up in the
 # `themes` directory beside this file, then

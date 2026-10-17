@@ -64,10 +64,14 @@ Menlo, emoji, symbol and Chinese, Japanese and Korean fonts behind them.
 | `light` | a theme file or name | baud's light colours | The colours used when the light appearance is in effect. |
 | `dark` | a theme file or name | baud's dark colours | The colours used when the dark appearance is in effect. |
 
-A theme can be a base16 or base24 scheme (`.yaml` or `.yml`) or a ghostty
-theme file. A bare name such as `dark = "night"` is looked for in a `themes`
-folder next to the config file, then in `$XDG_CONFIG_HOME/baud/themes/`
-and `~/.config/baud/themes/`.
+A theme can be a base16 or base24 scheme or a ghostty theme. baud tells
+which by what is in the file, not by its name, and says what it read it
+as; a file whose name says another format is still read, and the name is
+mentioned. Other terminals' theme files are recognised and named, and a
+file that mixes two formats is refused with the line of each. A bare name
+such as `dark = "night"` is looked for in a `themes` folder next to the
+config file, then in `$XDG_CONFIG_HOME/baud/themes/` and
+`~/.config/baud/themes/`, as given and then with `.yaml` and `.yml`.
 
 ## [cursor]
 

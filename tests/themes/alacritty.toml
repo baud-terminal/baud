@@ -1,0 +1,36 @@
+# A hand-made alacritty theme; not from a published collection.
+[colors.primary]
+background = "#161719"
+foreground = "#c5c8c7"
+
+[colors.cursor]
+text = "#1d1f22"
+cursor = "#aeafad"
+
+[colors.selection]
+text = "#c5c8c8"
+background = "#373b41"
+
+[colors.search.matches]
+foreground = "#000000"
+background = "#ffff00"
+
+[colors.normal]
+black = "#1d1f21"
+red = "#cc6666"
+green = "#b5bd68"
+yellow = "#f0c674"
+blue = "#81a2be"
+magenta = "#b294bb"
+cyan = "#8abeb7"
+white = "#c5c8c6"
+
+[colors.bright]
+black = "#666666"
+red = "#d54e53"
+green = "#b9ca4a"
+yellow = "#e7c547"
+blue = "#7aa6da"
+magenta = "#c397d8"
+cyan = "#70c0b1"
+white = "#eaeaea"

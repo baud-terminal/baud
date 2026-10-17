@@ -460,6 +460,13 @@ fn every_test_named_in_the_docs_exists() {
              run past. The record cites it where it describes the refusals by cause",
         ),
         (
+            "the_extension_chooses_the_reader",
+            "a historical name, replaced on 2026-10-17 by \
+             `the_content_chooses_the_reader_and_the_name_only_cross_checks` when \
+             a theme file's content began choosing its reader; note AR and its \
+             survey of baud name the test the design replaces",
+        ),
+        (
             "a_body_too_large_for_the_scratch_is_refused_whole",
             "a historical name, withdrawn on 2026-10-14 with the body scratch it ran \
              a Sixel past: a Sixel decodes as it arrives since. The record names it \
