@@ -67,8 +67,7 @@ This page is generated from `docs/data/features.toml` by
 `scripts/gen-features.py`, which fails the build when a feature's proof is gone,
 when a feature marked built names none, when a done item on the
 [roadmap](../roadmap.md) is missing from this list, or when this page has been
-edited by hand. `feature_list_matches_its_data_and_its_proofs` runs it with
-every test suite.
+edited by hand. Every test run of the project runs this check.
 """
 
 [[area]]
@@ -307,7 +306,7 @@ measured = ["Pacing a keystroke's frame by completion (row 6)"]
 id = "key-to-screen"
 area = "speed"
 name = "About 3 ms from key to screen"
-does = "A keystroke reaches the screen in about 3 ms through cat on a 120 Hz Mac, and `BAUD_KEYLAT=1` prints your own."
+does = "A keystroke reaches the screen in about 3 ms through cat on a 120 Hz Mac, and baud can print the figure for your own machine (`BAUD_KEYLAT=1`)."
 status = "built"
 platform = "macos"
 tests = ["baud-app/src/latency.rs::off_stores_nothing_and_never_reads_the_clock"]

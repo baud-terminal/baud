@@ -280,7 +280,7 @@ def render_features(feat, road, rows):
     w("| protocol | from | reference |")
     w("|---|---|---|")
     for p in feat.get("protocol", []):
-        w(f"| {p['name']} | {p['origin']} | [row]({row_link(p['row'])}) |")
+        w(f"| {p['name']} | {p['origin']} | [in the coverage table]({row_link(p['row'])}) |")
     w("")
     w("## Where baud is behind")
     w("")

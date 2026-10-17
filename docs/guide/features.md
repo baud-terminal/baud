@@ -40,7 +40,7 @@ Measured on real recordings and real keystrokes, with the numbers kept in [MEASU
 - **Ahead through a real terminal connection** — On one Mac, through the same kind of connection a shell uses, baud led four other terminals on four of five recordings and used the least CPU on all but one. *macOS.* **For now:** measured before scrollback existed and not taken again since. <sub>[measured](../../MEASUREMENTS.md#five-terminals-through-a-pty)</sub>
 - **What you type shows before the shell answers** — At a prompt your shell marks, a typed character is drawn about 3 ms sooner, and quietly taken back if the shell shows something else. *macOS.* <sub>[proof](../../baud-render/tests/predicted.rs) · [measured](../../MEASUREMENTS.md#a-keys-echo-drawn-before-the-pty-answers-row-9)</sub>
 - **Keys first, even during a flood** — A key typed while a program streams output is drawn at once, about 2.8 ms sooner, instead of waiting for the next frame. *macOS.* <sub>[measured](../../MEASUREMENTS.md#pacing-a-keystrokes-frame-by-completion-row-6)</sub>
-- **About 3 ms from key to screen** — A keystroke reaches the screen in about 3 ms through cat on a 120 Hz Mac, and `BAUD_KEYLAT=1` prints your own. *macOS.* <sub>[proof](../../baud-app/src/latency.rs) · [measured](../../MEASUREMENTS.md#keystroke-to-pixel)</sub>
+- **About 3 ms from key to screen** — A keystroke reaches the screen in about 3 ms through cat on a 120 Hz Mac, and baud can print the figure for your own machine (`BAUD_KEYLAT=1`). *macOS.* <sub>[proof](../../baud-app/src/latency.rs) · [measured](../../MEASUREMENTS.md#keystroke-to-pixel)</sub>
 - **Quiet when idle** — An idle window draws nothing and uses about half a percent of one core; a steady cursor costs no frames at all. *macOS.* <sub>[proof](../../baud-app/src/caret.rs) · [measured](../../MEASUREMENTS.md#idle-cpu-row-11-measured-no-change)</sub>
 - **No half-drawn screens** — Programs that redraw in one go, such as btop, neovim and helix, never show a half-finished screen, and a program that stalls can't hold the window for more than 33 ms. <sub>[synchronised output](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) · [proof](../../baud-core/tests/xterm/embedder_modes.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
 - **Quick to start** — The GPU shaders ship already built, which took a cold launch from 390 ms to 134 ms when it was measured. *macOS.* <sub>[proof](../../baud-present-macos/tests/metallib.rs) · [measured](../../MEASUREMENTS.md#the-shipped-metallib-row-1-kept)</sub>
@@ -220,15 +220,15 @@ one. Every control sequence has its own row in the
 
 | protocol | from | reference |
 |---|---|---|
-| synchronised output | the terminal working group | [row](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
-| modifyOtherKeys | xterm | [row](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
-| kitty keyboard protocol | kitty | [row](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
-| SGR mouse | xterm | [row](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
-| bracketed paste | xterm | [row](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
-| OSC 52 | xterm | [row](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
-| hyperlinks | VTE and iTerm2 | [row](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
-| Sixel | DEC | [row](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
-| kitty graphics protocol | kitty | [row](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
+| synchronised output | the terminal working group | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
+| modifyOtherKeys | xterm | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
+| kitty keyboard protocol | kitty | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
+| SGR mouse | xterm | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
+| bracketed paste | xterm | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
+| OSC 52 | xterm | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
+| hyperlinks | VTE and iTerm2 | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
+| Sixel | DEC | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
+| kitty graphics protocol | kitty | [in the coverage table](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) |
 
 ## Where baud is behind
 
@@ -255,5 +255,4 @@ This page is generated from `docs/data/features.toml` by
 `scripts/gen-features.py`, which fails the build when a feature's proof is gone,
 when a feature marked built names none, when a done item on the
 [roadmap](../roadmap.md) is missing from this list, or when this page has been
-edited by hand. `feature_list_matches_its_data_and_its_proofs` runs it with
-every test suite.
+edited by hand. Every test run of the project runs this check.

@@ -3280,10 +3280,6 @@ fn partial_image_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     feed(t, b"\x1bc");
 }
 
-/// The CPU arm: [`Renderer::render_at`] into a [`Target`], each pixel then
-/// put through the macOS presenter's own `premultiply`, as
-/// `Presenter::present` copies a frame into its surface -- the form the
-/// two GPU arms' readback is in.
 /// **The floor on the page the glass draws**, on all three arms: dark
 /// text on a light page the program set (gruvbox-light's pair, 10.2:1 as
 /// asked, 1.14:1 dimmed over the dark page), drawn as a 2x20 picture of
@@ -3381,6 +3377,10 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
     assert_eq!(moved(4..5, 13..14), 0, "the block cursor's cell was lifted");
 }
 
+/// The CPU arm: [`Renderer::render_at`] into a [`Target`], each pixel then
+/// put through the macOS presenter's own `premultiply`, as
+/// `Presenter::present` copies a frame into its surface -- the form the
+/// two GPU arms' readback is in.
 fn cpu_frame(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) -> Vec<u32> {
     let (fw, fh) = arms.renderer.frame_size();
     let n = usize::try_from(fw.value() * fh.value()).unwrap();

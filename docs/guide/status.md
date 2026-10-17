@@ -4,9 +4,9 @@ Where baud stands today: what you can use, and what is not built yet.
 
 ## Ready to use: macOS 26 and later
 
-baud runs as an everyday terminal on a Mac with macOS 26 or later. Everything
-on [Features](features.md) not marked Linux works there: the glass window, light and dark
-colours, fonts and emoji, the cursor and its trails, scrollback with a
+baud runs as an everyday terminal on a Mac with macOS 26 or later. Everything on
+[Features](features.md) that is not marked Linux works there: the glass window,
+light and dark colours, fonts and emoji, the cursor and its trails, scrollback with a
 scrollbar, selection, copy and paste, mouse and keyboard support for
 programs, and pictures.
 

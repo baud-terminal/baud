@@ -130,7 +130,7 @@ ambiguous_width = "narrow"
 # at 4.5:1 -- or at this ratio, when it is higher. Only pairs a program did not
 # choose outright: the same colour on both sides, or a page the program set as
 # a 256-colour or truecolour value with its own text on it, is left alone, so
-# pictures drawn in text are untouched. The floor also covers text that
+# pictures drawn in text are untouched while [glass] pictures = "opaque" draws them solid. The floor also covers text that
 # [glass] app_backgrounds = "dim" makes unreadable: a page the program set,
 # drawn at the dim over the window's own background, is measured as drawn,
 # and text that reads at this ratio on the page as asked but not on the page
