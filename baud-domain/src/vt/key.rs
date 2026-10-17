@@ -915,7 +915,8 @@ fn keypad_key(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> b
     // digit ("4 (LeftArrow)"), and otherwise the key it duplicates, which
     // `[[source: kitty-keyboard]]` says of every keypad key: "reported as
     // their equivalent non-keypad keys". `Begin` duplicates no key, and its
-    // row's `CSI E` is the one spelling line 2518 and kitty's `1 E` give.
+    // row's `CSI E` is line 2518's spelling and the first of kitty's two
+    // (`1 E or 57427 ~`).
     if let Some(row) = k.shares_row_with() {
         return match (s.keypad, k.duplicates()) {
             (KeypadMode::Numeric, Some(code)) => ansi(o, code, mods, None, s),

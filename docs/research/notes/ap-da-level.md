@@ -8,8 +8,9 @@ default", not landed, turns the opt-in on by default.
 
 **The answer, in short: no.** baud does not meet DEC STD 070's Level 1 today.
 
-* Nine functions that STD 070 requires at Level 1 are counted and not acted
-  on: SS2, SS3, DECID, DECSWL, DECDWL, DECDHLT, DECDHLB, KAM and SRM. LS2 and
+* Nine functions that STD 070 requires at Level 1 were counted and not acted
+  on: SS2, SS3, DECID, DECSWL, DECDWL, DECDHLT, DECDHLB, KAM and SRM. DECID
+  is built since 2026-10-16, which leaves eight. LS2 and
   LS3 are two more if 070-3 §3.6.1.1 governs (section 4).
 * Three more are partial: DEC Special Graphics at 5/15, SUB's error
   character, and DECSCLM, which no embedder acts on.
@@ -344,7 +345,7 @@ route in section 3.
 
 **Does baud meet Level 1? No.** Exactly what is missing:
 
-1. **Nine required functions, each counted and not acted on:**
+1. **Nine required functions, each counted and not acted on when this note was written (DECID built 2026-10-16):**
    - SS2 and SS3 (§1.6.2; 070-3 pp. 3-80 and 3-81);
    - DECID in ANSI mode (§1.6.2; 070-4 PDF p. 232), built 2026-10-16;
    - DECSWL, DECDWL, DECDHLT and DECDHLB (§1.6.2; 070-5 pp. 5-96 to 5-99);
@@ -372,7 +373,7 @@ route in section 3.
    not implement Level 2, 3 or 4 functions, and baud implements many of them
    (section 6).
 
-So `?61;4c` today would claim nine functions baud drops. That is the `parsed`
+So `?61;4c` today would claim eight functions baud drops. That is the `parsed`
 failure that "DA under-claims" exists to avoid.
 
 ## 8. What this leaves for Jev or the owner

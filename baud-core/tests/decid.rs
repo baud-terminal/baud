@@ -5,8 +5,9 @@
 //! response", note a: "This control is identical to a primary DA control
 //! with an omitted parameter or a parameter value of zero (0)", note b:
 //! "DECID is not recognized at Level 3 or above", and its algorithm calls
-//! `device_attributes_1()` at levels 1 and 2. baud's DA names a VT102, a
-//! Level 1 device, so DECID answers. `[[source: ctlseqs]]`: "Return Terminal
+//! `device_attributes_1()` at levels 1 and 2. baud's DA names a VT102, which
+//! STD 070 places at Level 1, so note b's Level 3 bar is not reached and
+//! DECID answers. `[[source: ctlseqs]]`: "Return Terminal
 //! ID (DECID is 0x9a). Obsolete form of CSI c (DA)." Note c sends VT52 mode
 //! elsewhere: there `ESC Z` is VT52's own identify, `ESC / Z`.
 //!

@@ -54,7 +54,14 @@ pub enum Esc {
     /// `[[source: dec-std-070]]` 070-4 (PDF 232): "This control is
     /// identical to a primary DA control with an omitted parameter or a
     /// parameter value of zero (0)", and "DECID is not recognized at Level
-    /// 3 or above"; baud's DA names a Level 1 device, so it is recognised.
+    /// 3 or above"; baud's DA names a VT102, which STD 070 places at Level 1,
+    /// so note b's Level 3 bar is not reached.
+    /// Note a of the same entry records the conflict with ECMA-48: "THIS
+    /// CONTROL IS RESERVED FOR FUTURE STANDARDIZATION BY ISO AND ANSI.
+    /// Conforming software shall use the primary Device Attributes (DA)
+    /// control". In `[[source: ecma48]]` ESC Z / 09/10 is 8.3.109 SCI, whose
+    /// use "is reserved for future standardization", so DECID takes a
+    /// representation ECMA-48 defines no behaviour for.
     /// VT52 mode never reaches this table: its `ESC Z` is VT52's identify.
     Identify,
     /// Recognised as an `ESC Fe` and deliberately not acted on.
