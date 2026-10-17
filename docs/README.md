@@ -8,14 +8,15 @@ question got answered inline.
 
 | | for | read when |
 |---|---|---|
-| [architecture.md](architecture.md) | contributors | before touching code — the data path, the two core crates and the constraints that shaped both |
+| [contributing/architecture.md](contributing/architecture.md) | contributors | before touching code — the data path, the two core crates and the constraints that shaped both |
 | [protocols/](protocols/) | anyone | **start here for a protocol** — one document per level (VT52, VT100, VT220, VT420, xterm), mirroring the code and tests |
 | [vt-coverage.md](vt-coverage.md) | anyone | checking whether a specific operation works. One row per operation |
 | [protocol-decisions.md](protocol-decisions.md) | contributors | something looks like a gap and you want to know if it is deliberate |
 | [cursor.md](cursor.md) | anyone | choosing a cursor trail — a still of each, the rules they share, and [cursor.html](cursor.html), which plays them side by side |
 | [../MEASUREMENTS.md](../MEASUREMENTS.md) | sceptics | checking a number. Every table stamped with the host that produced it |
 | [../CLAUDE.md](../CLAUDE.md) | contributors and agents | before proposing an optimisation — it lists what was tried and lost |
-| [../BUILD.md](../BUILD.md) | contributors | setting up, running the suites |
+| [contributing/build.md](contributing/build.md) | contributors | setting up, running the suites |
+| [contributing/measuring.md](contributing/measuring.md) | contributors | running the benchmarks |
 
 ## Research
 

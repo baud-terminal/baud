@@ -305,8 +305,8 @@ in
     # (docs/record.md, "A timing bound in `cargo test` measured the load, and it
     # is a bench now"), so nothing in the suite fails on the profile. A debug run
     # takes minutes where release takes seconds (docs/record.md, "The tests run
-    # on every core, the owner's call of 2026-10-07"). BUILD.md runs the same
-    # tests in release.
+    # on every core, the owner's call of 2026-10-07"). docs/contributing/build.md
+    # runs the same tests in release.
     "test:unit" = {
       # `--no-fail-fast`, the owner's call 2026-09-22: cargo stops at the
       # first failing test binary, and a wall-clock flake once stopped this

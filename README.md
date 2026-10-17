@@ -87,12 +87,14 @@ devenv shell -- cargo run --release              # the terminal, from the shell 
 devenv test                                      # the whole gate, as CI runs it
 ```
 
-[BUILD.md](BUILD.md) has the suites, the benchmarks and the gates, and
-[CONTRIBUTING.md](CONTRIBUTING.md) what a change needs.
+[docs/contributing/build.md](docs/contributing/build.md) has the suites and
+the gates, [docs/contributing/measuring.md](docs/contributing/measuring.md)
+the benchmarks, and [CONTRIBUTING.md](CONTRIBUTING.md) what a change needs.
 
 **Configuration** is optional: copy [config.toml.example](config.toml.example)
 to `~/.config/baud/config.toml` and keep only the keys you change.
-[BUILD.md](BUILD.md) lists every place baud looks.
+[docs/contributing/build.md](docs/contributing/build.md) lists every place
+baud looks.
 
 ## Embedding the core
 
@@ -130,7 +132,7 @@ let cells = term.cells().len(); // the grid, ring and all
 |---|---|
 | [docs/README.md](docs/README.md) | the index of every document, and who each is for |
 | [docs/vt-coverage.md](docs/vt-coverage.md) | what of the protocol is implemented, per operation, against primary sources |
-| [docs/architecture.md](docs/architecture.md) | the data path, the crates and the constraints that shaped them |
+| [docs/contributing/architecture.md](docs/contributing/architecture.md) | the data path, the crates and the constraints that shaped them |
 | [MEASUREMENTS.md](MEASUREMENTS.md) | the current numbers, each with the host and commit that produced it |
 | [docs/record.md](docs/record.md) | the dated record of every measured change and every decision |
 | [CLAUDE.md](CLAUDE.md) | working notes: the rules, and what was tried and lost |

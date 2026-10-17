@@ -160,7 +160,8 @@ fn every_relative_link_resolves() {
 /// **`cargo run` runs baud, because `baud` is the workspace's one binary.**
 ///
 /// The owner, 2026-09-14: "the only bin should be and default one is baud,
-/// rest is part of tests". `BUILD.md` tells a reader `cargo run --release`
+/// rest is part of tests". `docs/contributing/build.md` and
+/// `docs/guide/install.md` tell a reader `cargo run --release`
 /// starts the terminal, and that holds only while no other member grows a
 /// binary target, `baud-app` keeps `default-run = "baud"`, and the root keeps
 /// `default-members = ["baud-app"]` -- without which a bare `cargo run`
@@ -223,6 +224,21 @@ fn baud_is_the_only_binary_and_the_default() {
     );
 }
 
+/// **Paths a document moved from, and where it went**, for history only.
+///
+/// The record and the research notes are dated: a backticked path in them
+/// says what the file was called on the day the entry was written, and
+/// rewriting it would edit evidence. So a path moved on purpose resolves
+/// to its new home when, and only when, the document naming it is
+/// `docs/record.md` or under `docs/research/`; every other document has to
+/// use the new path. Each entry is checked as well: its old path must be
+/// gone and its new one present, so a revert or a second move fails here
+/// rather than leaving an entry that excuses nothing.
+const MOVED: &[(&str, &str)] = &[
+    // 2026-10-16, the docs reorganised by reader.
+    ("docs/architecture.md", "docs/contributing/architecture.md"),
+];
+
 /// **Every repository path a document names in backticks exists.**
 ///
 /// Documents here cite real paths constantly — `baud-core/src/graph.rs`,
@@ -267,12 +283,20 @@ fn every_repository_path_named_in_the_docs_exists() {
         "assets/",
     ];
     const EXTS: &[&str] = &[".rs", ".md", ".sh", ".toml", ".nix", ".py", ".yml", ".yaml"];
+    for (old, new) in MOVED {
+        assert!(
+            !root().join(old).exists() && root().join(new).exists(),
+            "MOVED names {old} -> {new}, but the old path is still there or the new one is not"
+        );
+    }
     let mut missing = BTreeSet::new();
     let mut checked = 0usize;
     for f in markdown_files() {
         let Ok(src) = fs::read_to_string(&f) else {
             continue;
         };
+        let name = rel(&f);
+        let history = name == "docs/record.md" || name.starts_with("docs/research/");
         for tok in src.split('`').skip(1).step_by(2) {
             let tok = tok.trim();
             if !tok.contains('/') || tok.contains(' ') {
@@ -286,8 +310,9 @@ fn every_repository_path_named_in_the_docs_exists() {
             }
             for path in expand_braces(tok) {
                 checked += 1;
-                if !root().join(&path).exists() {
-                    missing.insert(format!("{}: {path}", rel(&f)));
+                let moved = history && MOVED.iter().any(|(old, _)| *old == path);
+                if !moved && !root().join(&path).exists() {
+                    missing.insert(format!("{name}: {path}"));
                 }
             }
         }

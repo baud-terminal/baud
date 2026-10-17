@@ -367,6 +367,9 @@ deferring a write. `ingest2` prints the figure per run.
 
 ## Reproducing
 
+Every benchmark, these and the in-repository ones, with what each is for:
+[docs/contributing/measuring.md](docs/contributing/measuring.md).
+
 ```sh
 # cross-implementation, real capture
 cd bench-others/multibench

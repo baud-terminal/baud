@@ -15,7 +15,8 @@ members = ["baud-domain", "baud-core", "baud-bench",
   # has not set that path" -- and the path was
   # `/home/user/t/alacritty/alacritty_terminal`, which no checkout has,
   # including the one it was written on. So the crate never compiled, while
-  # `BUILD.md` listed it as "the only oracle outside this repo". Pinned to the
+  # `BUILD.md` (now `docs/contributing/build.md`) listed it as "the only
+  # oracle outside this repo". Pinned to the
   # registry version `multibench` already uses, it resolves anywhere, and being
   # a member is what makes `cargo test --workspace` build it -- which is the
   # only thing that would have reported the break.

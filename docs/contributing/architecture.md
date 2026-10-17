@@ -2,7 +2,7 @@
 
 The data path, the two core crates, and the constraints that shaped both, as
 of 2026-10-10. Read this before changing anything in `baud-core/`.
-[CLAUDE.md](../CLAUDE.md) holds the rules and [the record](record.md) every
+[CLAUDE.md](../../CLAUDE.md) holds the rules and [the record](../record.md) every
 measured change behind them.
 
 ## The data path
@@ -22,7 +22,7 @@ read(2)  buffer      write_at   one lookup   Paint     screen is     renderer
    The protocol is a graph compiled at build time (`baud-core/src/graph.rs`):
    an edge names the action and the next node, and the action says how many
    bytes it eats, so a three-byte UTF-8 character is one lookup. The nodes
-   follow Williams' DEC ANSI parser ([why](research/notes/c-vt-parser.md)),
+   follow Williams' DEC ANSI parser ([why](../research/notes/c-vt-parser.md)),
    plus the UTF-8 continuations a character split across two reads leaves
    owed and a disjoint VT52 sub-graph from `Node::Vt52Ground`. The node, the UTF-8
    accumulator and the CSI parameters live on `Term` between reads, which is
@@ -166,5 +166,5 @@ not the thing**: "it doesn't allocate" is not a defence.
 
 A cell core cannot hold write amplification to 1 and is not meant to: one
 printable byte becomes an eight-byte `PackedCell`, so 8x is a floor by
-construction ([the record](record.md), "The pure-ASCII rung is at 74% of the
+construction ([the record](../record.md), "The pure-ASCII rung is at 74% of the
 machine's store bandwidth").
