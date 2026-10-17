@@ -770,7 +770,7 @@ re-asked 680/681, jev-1.13.0, none cached):
 | option | first ask | re-ask | status |
 |---|---|---|---|
 | O1 a name that disagrees with the content | read and report (0.84 / 0.94) | read and report (0.90 / 0.92) | **decided** |
-| O3 a base24 file missing base1x | refuse (1.00 / 1.00) | | **decided**, today's |
+| O3 a base24 file missing base1x | refuse (1.00 / 1.00) | fill from the table (0.28 / 0.14, 724/725) | reopened: the first ask's premise was wrong; below the bar, so the refusal stays |
 | O5 cursor, base16/base24 | unset (1.00 / 1.00) | | **decided**, today's |
 | O5 selection, base16/base24 | unset (0.98 / 0.90) | | **decided**, today's |
 | O4 hex forms | keep all four (0.45 / 0.59) | keep all four (0.44 / 0.49) | open; today's stays |
@@ -799,6 +799,23 @@ The facts asked with:
 - **O3.** tinted-builder-rust `ae1cc37` refuses a base24 scheme missing any
   of its 24 keys ([[source: tinted-builder-rust-base24-ae1cc37]] 8-11,
   86-93) and never applies the fallback table.
+
+**O3, re-asked 2026-10-17 with the premise corrected.** The 1.00 / 1.00
+above rested on "no sentence says a partial file is valid or that the table
+fills one", and that is wrong. Two texts fill a partial file from
+styling.md's table ([[source: base24-styling]] 9-23): the spec's own example
+builder ([[source: base24-builder-fb96d3c]] 1-5, 77-83) and
+tinted-builder-python ([[source: tinted-builder-python-4c93d49]] 48, 58-65),
+and the README promises base16 themes on base24 templates
+([[source: base24-readme-fb96d3c]] 40-49). Three refuse one: the schema
+requires all 24 ([[source: base24-schema-fb96d3c]] 213-241),
+base16-builder-go fails "Missing colors from base24 palette"
+([[source: base16-builder-go-systems-c12f583]] 75-85), and
+tinted-builder-rust, as above. All 210 base24 files in the corpus have all
+24 slots. Jev, both orders, uncached (decisions.jsonl 724/725): fill from
+the table, 0.28 / 0.14. The pick changed and stayed far below the bar, so
+nothing is built: baud still refuses a partial base24 file at its first
+missing slot, and the lean, fill, is the owner's to take or veto.
 - **O4.** WHATWG HTML, "2.3.6 Legacy colors"
   ([[source: whatwg-html-legacy-colors]], the page of 16 October 2026): the
   ×17 branch is taken only for a four-character `#rgb`; otherwise the `#`

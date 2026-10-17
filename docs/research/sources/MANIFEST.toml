@@ -26461,3 +26461,73 @@ bytes  = 5400
 status = "external"
 group  = "Y"
 # Read 2026-10-17. The API's answer as fetched; its counts change, so a re-fetch need not hash the same (note AR, O14).
+
+[sources.base24-builder-fb96d3c]
+key    = "base24-builder-fb96d3c"
+title  = "tinted-theming/base24 fb96d3c, builder.md -- the example builder adapted from base16, filling each missing base10-base17 from the fallback table"
+author = "Tinted Theming"
+year   = 2026
+venue  = "tinted-theming (MIT)"
+url    = "https://raw.githubusercontent.com/tinted-theming/base24/fb96d3c6396eb27f94efadfa3c416abd9d54b488/builder.md"
+file   = ""
+sha256 = "c26cd58ea076075b891187eab10ec7d6d475271fde042246243a0c7a6298a6c4"
+bytes  = 4214
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 1-5, 77-83; for O3 (note AR).
+
+[sources.base24-schema-fb96d3c]
+key    = "base24-schema-fb96d3c"
+title  = "tinted-theming/base24 fb96d3c, base24schema.json -- all 24 of base00-base17 required, no other property"
+author = "Tinted Theming"
+year   = 2026
+venue  = "tinted-theming (MIT)"
+url    = "https://raw.githubusercontent.com/tinted-theming/base24/fb96d3c6396eb27f94efadfa3c416abd9d54b488/base24schema.json"
+file   = ""
+sha256 = "fa34fb97f0f17a3e8fc38397c4148ff105ac469bc7c5bbdd8fb36d0a7729736a"
+bytes  = 4460
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 213-241; for O3 (note AR).
+
+[sources.base24-readme-fb96d3c]
+key    = "base24-readme-fb96d3c"
+title  = "tinted-theming/base24 fb96d3c, README.md -- Base24 Compatibility: a base24 builder renders a base16 theme to a base24 template"
+author = "Tinted Theming"
+year   = 2026
+venue  = "tinted-theming (MIT)"
+url    = "https://raw.githubusercontent.com/tinted-theming/base24/fb96d3c6396eb27f94efadfa3c416abd9d54b488/README.md"
+file   = ""
+sha256 = "8456caaac1aed8177e61657166c4743c6f4453995dcc104e99b689323c99329e"
+bytes  = 15432
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 40-49; for O3 (note AR).
+
+[sources.tinted-builder-python-4c93d49]
+key    = "tinted-builder-python-4c93d49"
+title  = "tinted-theming/tinted-builder-python 4c93d49, base24_builder/builder.py -- Base24 (with fallbacks): a missing base1x taken from the table"
+author = "Tinted Theming"
+year   = 2026
+venue  = "tinted-theming (MIT)"
+url    = "https://raw.githubusercontent.com/tinted-theming/tinted-builder-python/4c93d490806be317d1e4e51457b4def5472d501e/base24_builder/builder.py"
+file   = ""
+sha256 = "63254b469069237377005b5c2e9077d71472bed5bf44f93c5a4a91a4b62933ff"
+bytes  = 5526
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 48, 58-65; for O2 and O3 (note AR).
+
+[sources.base16-builder-go-systems-c12f583]
+key    = "base16-builder-go-systems-c12f583"
+title  = "tinted-theming/base16-builder-go c12f583, systems.go -- a palette of more than 16 colours missing any base1x is refused"
+author = "Tinted Theming"
+year   = 2026
+venue  = "tinted-theming (MIT)"
+url    = "https://raw.githubusercontent.com/tinted-theming/base16-builder-go/c12f5838ebe53e755da9384f877420c6d7e28c65/systems.go"
+file   = ""
+sha256 = "f2ea569f0e18f54d003403ad2535b961ab7851de018c802a04fad9ad621582b3"
+bytes  = 4659
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 63-100; for O2 and O3 (note AR).
