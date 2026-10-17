@@ -1894,8 +1894,9 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // does not have" -- but `Report::Version` is `baud_domain`'s and
         // already encodes `DCS > | baud(<version>) ST`, the name and the
         // workspace version (`Report::VERSION_TEXT`). The name is the
-        // *program*'s rather than the core's, and the program is baud. Read a refusal against its scope, which this file says to
-        // do and which has closed four others.
+        // *program*'s rather than the core's, and the program is baud. Read a
+        // refusal against its scope, which this file says to do and which has
+        // closed four others.
         DomCsi::RequestVersion => p.want_reply(Report::Version),
         // XTSMGRAPHICS, answered under the condition DA's `4` is
         // (`Report::graphics` says what each item answers).

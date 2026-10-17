@@ -34,7 +34,8 @@ Either way baud opens a window running your login shell.
 ## What a program sees
 
 baud tells the programs it runs who it is the usual way: `TERM` is
-`xterm-256color`, `COLORTERM` is `truecolor`, and `TERM_PROGRAM` is `baud`.
+`xterm-256color`, `COLORTERM` is `truecolor`, `TERM_PROGRAM` is `baud`, and
+`TERM_PROGRAM_VERSION` is baud's version (the one XTVERSION reports).
 Programs read these to decide which keys, colours and features to use.
 
 ## Make it yours
