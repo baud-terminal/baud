@@ -26085,8 +26085,9 @@ bytes  = 29907
 status = "external"
 group  = "Y"
 # Read 2026-10-17 for the kitty reader's names (note AR): rgb.txt at
-# 749182c lower-cased plus debianred (line 161), which
-# scripts/gen-colour-names.py --kitty checks. Not committed: kitty is GPL.
+# 749182c lower-cased plus debianred (line 161), Debian's 2004 addition to
+# its rgb.txt (debian-bug-243288), which scripts/gen-colour-names.py
+# --kitty checks. Not committed: kitty is GPL.
 
 [sources.kitty-color-names-h-1e1486e]
 key    = "kitty-color-names-h-1e1486e"
@@ -26131,8 +26132,8 @@ bytes  = 17315
 status = "retrieved"
 group  = "Y"
 # The last rgb.txt before the 2014 CSS names; kitty's table is it,
-# lower-cased, plus debianred (note AR). baud-domain's colour_names.rs is
-# generated from it.
+# lower-cased, plus Debian's debianred (debian-xorg-rgb-7-7-26, note AR).
+# baud-domain's colour_names.rs is generated from it.
 
 [sources.rfc8259-json]
 key    = "rfc8259-json"
@@ -26531,3 +26532,73 @@ bytes  = 4659
 status = "external"
 group  = "Y"
 # Read 2026-10-17. 63-100; for O2 and O3 (note AR).
+
+[sources.debian-xorg-rgb-7-7-26]
+key    = "debian-xorg-rgb-7-7-26"
+title  = "Debian xorg 1:7.7+26, debian/local/rgb.txt -- X.Org's rgb.txt with one line added, 215 7 81 DebianRed"
+author = "The Debian X Strike Force"
+year   = 2026
+venue  = "Debian (sources.debian.org)"
+url    = "https://sources.debian.org/data/main/x/xorg/1:7.7+26/debian/local/rgb.txt"
+file   = ""
+sha256 = "2c8ab5acc9eb072f4cc88696834188100d05e50af5d1425501d993700aaa3164"
+bytes  = 17394
+status = "external"
+group  = "Y"
+# Read 2026-10-17. Differs from X.Org 749182c in its $Xorg tag and line 478, DebianRed; for the licence row of kitty's colour names (note AR).
+
+[sources.debian-xorg-changelog-7-7-26]
+key    = "debian-xorg-changelog-7-7-26"
+title  = "Debian xorg 1:7.7+26, debian/changelog -- 1:7.2-4 (2007-06-11): \"Add DebianRed to rgb.txt, closes: #243288.\""
+author = "The Debian X Strike Force"
+year   = 2026
+venue  = "Debian (sources.debian.org)"
+url    = "https://sources.debian.org/data/main/x/xorg/1:7.7+26/debian/changelog"
+file   = ""
+sha256 = "c62efe182404c7d1b261ab9b9c41cfc4734dcf81551a0ef4ee97f4d0b3f5d280"
+bytes  = 112935
+status = "external"
+group  = "Y"
+# Read 2026-10-17. Line 1464; for the licence row of kitty's colour names (note AR).
+
+[sources.debian-bug-243288]
+key    = "debian-bug-243288"
+title  = "Debian bug 243288 -- the request for DebianRed in rgb.txt (2004-04-12) and its value, 215 7 81, sampled from the Debian logo"
+author = "Debian bug tracking system"
+year   = 2004
+venue  = "bugs.debian.org"
+url    = "https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=243288"
+file   = ""
+sha256 = "a695e5abf0805110498e8793789a5b1929b5de0bce064e1964177fd97ecdaa57"
+bytes  = 61596
+status = "external"
+group  = "Y"
+# Read 2026-10-17. The page is generated, so a re-fetch need not hash the same (one on 2026-10-17 did not); for the licence row of kitty's colour names (note AR).
+
+[sources.gnu-gpl-faq-20260113]
+key    = "gnu-gpl-faq-20260113"
+title  = "Frequently Asked Questions about the GNU Licenses, $Date: 2026/01/13 -- #GPLOutput, #CanIUseGPLToolsForNF, #WhatCaseIsOutputGPL"
+author = "Free Software Foundation"
+year   = 2026
+venue  = "gnu.org"
+url    = "https://www.gnu.org/licenses/gpl-faq.html"
+file   = ""
+sha256 = "6b48c709107e216b22c8415ed5c190c1c10818ac79f792563dfa501ee8dcec14"
+bytes  = 197515
+status = "external"
+group  = "Y"
+# Read 2026-10-17. Lines 1712, 1818, 1846: a program's output is not, in general, covered by the program's copyright; for the licence row of kitty-colours.txt (note AR).
+
+[sources.usco-compendium3-ch300]
+key    = "usco-compendium3-ch300"
+title  = "Compendium of U.S. Copyright Office Practices, Third Edition, chapter 300 (01/28/2021) -- facts, names and colour are not copyrightable"
+author = "United States Copyright Office"
+year   = 2021
+venue  = "copyright.gov (public domain)"
+url    = "https://www.copyright.gov/comp3/chap300/ch300-copyrightable-authorship.pdf"
+file   = ""
+sha256 = "363f7898364800c62b7a8457133955df3884cf5950510abaffecf656bd39c37d"
+bytes  = 641671
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 313.3(C) p. 24, 313.4(C) p. 28, 313.4(K) p. 33; for the licence row of kitty's colour names (note AR).

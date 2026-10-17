@@ -6,8 +6,10 @@
 //! pinned source disagree.
 //!
 //! 753 names: X.Org's rgb.txt at 749182c
-//! (`[[source: xorg-rgb-749182c]]`), lower-cased, and kitty's `debianred`
-//! (`[[source: kitty-color-names-1e1486e]]` 161). A name is looked up by
+//! (`[[source: xorg-rgb-749182c]]`), lower-cased, and `debianred`, Debian's
+//! addition to its rgb.txt (`[[source: debian-xorg-rgb-7-7-26]]` 478), which
+//! kitty's table carries (`[[source: kitty-color-names-1e1486e]]` 161): a
+//! name and a value. A name is looked up by
 //! [`SEEDS`] then [`SLOTS`]: two hashes and one comparison.
 
 /// The seed of each of the 256 buckets the first hash picks.

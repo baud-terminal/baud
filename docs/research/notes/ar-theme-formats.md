@@ -893,6 +893,10 @@ red on dad9260c (refused as "X resources, which baud does not read").
 - A display's symbols (`WIDTH`, `PLANES`, `CLASS`) are not defined, and
   neither are cpp's own (`__STDC__`, `linux`, `unix`).
 - X colour names, `rgbi:`, CIE and TekHVC values refuse the file, as before.
+  Any name-shaped word refuses, not only rgb.txt's: the X server's own
+  table holds 30 names X.Org's rgb.txt at 749182c does not (aqua, crimson,
+  rebeccapurple, the web and x11 variants;
+  [[source: xserver-oscolor-98aed9d]] 65-849).
 
 ## kitty's names and wide-gamut colours (2026-10-17)
 
@@ -900,7 +904,26 @@ red on dad9260c (refused as "X resources, which baud does not read").
 any other form ([[source: kitty-colors-1e1486e]] 1525-1526), in the 753
 names of [[source: kitty-color-names-1e1486e]]: X.Org's rgb.txt at
 749182c ([[source: xorg-rgb-749182c]]) lower-cased, plus `debianred`
-(line 161). `scripts/gen-colour-names.py --kitty` holds the two equal; the
+(line 161). That one name is Debian's: requested in 2004
+([[source: debian-bug-243288]], its value 215 7 81 sampled from the Debian
+logo), added in Debian's xorg 1:7.2-4
+([[source: debian-xorg-changelog-7-7-26]] 1464), and Debian's rgb.txt
+differs from X.Org's by that line ([[source: debian-xorg-rgb-7-7-26]] 478).
+
+**The licence row is closed (the owner's recommendation A, 2026-10-17).** A
+name and a value are facts: "Words and short phrases such as names" are not
+subject to copyright ([[source: ecfr-37-202-1]]), and Compendium III says
+"Facts are not copyrightable", nor names, nor "color in and of itself"
+([[source: usco-compendium3-ch300]] 313.3(C), 313.4(C), 313.4(K)). The
+oracle file holds baud's probes, rgb.txt's names and the numbers kitty's
+parser gives for them, and no kitty text: "The output of a program is not,
+in general, covered by the copyright on the code of the program"
+([[source: gnu-gpl-faq-20260113]], #WhatCaseIsOutputGPL). The row in
+`docs/research/third-party.toml` now reads MIT-open-group for rgb.txt and
+DebianRed as a name and a value from Debian's file, kept. Debian's
+copyright file for xorg carries MIT-style and GPL-2+ stanzas without saying
+which covers its rgb.txt; the row rests on the name and value being
+facts, not on that mapping. `scripts/gen-colour-names.py --kitty` holds the two equal; the
 table is a perfect hash built from rgb.txt. A word that is not a name is
 skipped with its line, as kitty skips it. 950 values run through kitty's
 own functions (`scripts/kitty-colour-oracle.sh`, the GPL source fetched by
@@ -936,7 +959,7 @@ answer for each:
 |---|---|---|
 | L at or past 0 or 1, or not finite | (all three agree) | black or white |
 | chromatic, linear sRGB inside [0, 1] before any clip | kitty_math 0.92 / 0.91, decided | kitty's C arithmetic |
-| a grey, chroma under 1e-5 | kitty_grey 0.92 / 0.79, lean | `linear_to_srgb(L)`, as kitty draws it |
+| a grey, chroma under 1e-5 | kitty_grey 0.92 / 0.79, lean | L's sRGB encoding, L taken as linear light, as kitty draws it |
 | outside sRGB | kitty_go_chroma_search 0.62 / 0.56, lean | the chroma search of kitty's Go code ([[source: kitty-colorspaces-go-1e1486e]] 101-230), which its themes kitten previews with ([[source: kitty-themes-ui-go-1e1486e]] 178-195) and which keeps [[source: kitty-pr-9325]]'s promise of CSS Color 4 gamut mapping |
 
 The numbers are the ones kitty's terminal reads, `%` and C's `strtod`

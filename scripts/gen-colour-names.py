@@ -6,9 +6,11 @@ kitty 1e1486e looks a colour name up before any other form
 gen/color_names.py holds (`[[source: kitty-color-names-1e1486e]]`): 753
 lower-case names. That table is X.Org's rgb.txt at 749182c
 (`[[source: xorg-rgb-749182c]]`), each name lower-cased, plus one name
-rgb.txt does not have, `debianred` (215, 7, 81; kitty's line 161). kitty is
-GPL-3.0 and is not in this tree, so the table is built from rgb.txt and
-the one name, and `--kitty FILE` checks the result against kitty's own file,
+X.Org's rgb.txt does not have, `debianred` (215, 7, 81; kitty's line 161):
+Debian's addition to its rgb.txt in 2004
+(`[[source: debian-bug-243288]]`, `[[source: debian-xorg-rgb-7-7-26]]`
+478), a name and a value. kitty is GPL-3.0 and is not in this tree, so
+the table is built from rgb.txt and the one name, and `--kitty FILE` checks the result against kitty's own file,
 fetched at the pinned commit:
 
     python3 scripts/gen-colour-names.py                write the table
@@ -31,7 +33,8 @@ SRC = ROOT / "docs/research/sources/xorg-rgb-749182c.txt"
 OUT = ROOT / "baud-domain/src/themefile/colour_names.rs"
 BUCKETS = 256
 SLOTS = 1024
-# kitty's one name that rgb.txt at 749182c does not have.
+# The one name kitty's table holds that X.Org's rgb.txt at 749182c does
+# not: Debian's DebianRed, debian/local/rgb.txt line 478.
 EXTRA = {"debianred": (215, 7, 81)}
 
 
@@ -97,8 +100,10 @@ def render(table: dict) -> str:
         "//! pinned source disagree.",
         "//!",
         f"//! {len(table)} names: X.Org's rgb.txt at 749182c",
-        "//! (`[[source: xorg-rgb-749182c]]`), lower-cased, and kitty's `debianred`",
-        "//! (`[[source: kitty-color-names-1e1486e]]` 161). A name is looked up by",
+        "//! (`[[source: xorg-rgb-749182c]]`), lower-cased, and `debianred`, Debian's",
+        "//! addition to its rgb.txt (`[[source: debian-xorg-rgb-7-7-26]]` 478), which",
+        "//! kitty's table carries (`[[source: kitty-color-names-1e1486e]]` 161): a",
+        "//! name and a value. A name is looked up by",
         "//! [`SEEDS`] then [`SLOTS`]: two hashes and one comparison.",
         "",
         "/// The seed of each of the 256 buckets the first hash picks.",

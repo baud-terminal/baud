@@ -160,7 +160,7 @@ fn every_value_reads_as_kittys_own_parser_reads_it() {
     assert_eq!(apart, 744);
 }
 
-/// **kitty's names are X.Org's rgb.txt and `debianred`**, each found in
+/// **kitty's names are X.Org's rgb.txt and Debian's `debianred`**, each found in
 /// any case, with spaces where rgb.txt has them; a word that is not one is
 /// skipped, as kitty skips it.
 #[test]
