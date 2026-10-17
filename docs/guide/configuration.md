@@ -145,6 +145,10 @@ that suits a dark desktop is far too much over a light one.
 | `saturation` | 0 to 1 | `0.80` | How strong that colour is. |
 | `shadow` | `"auto"`, `"always"`, `"never"` | `"auto"` | Whether the window casts a shadow. `"auto"` casts one only under the dark appearance. |
 
+While Reduce Transparency is on in System Settings, Accessibility, Display,
+every background and the margin around the text are drawn solid, whatever
+the dims say, and go back to glass when it is turned off.
+
 On Linux `theme = "auto"` means dark, so `dim_dark` is used unless
 `theme = "light"`; `style`, the tints, `hue`, `saturation` and `shadow` have
 no effect there.

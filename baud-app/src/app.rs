@@ -2264,6 +2264,60 @@ pub(crate) fn themes_with(halves: &crate::palette::Halves) -> (Theme, Theme) {
     (t.dark, t.light)
 }
 
+/// What macOS's Accessibility Display settings ask of the cells, read on
+/// the tick beside Reduce Motion (note Y, decision 9). Off, the default,
+/// until the first read, which `run` makes before the first frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+struct Display {
+    transparency: Transparency,
+}
+
+/// Reduce Transparency: "UI (mainly window) backgrounds should not be
+/// semi-transparent; they should be opaque"
+/// ([[source: macos-sdk-nsaccessibility-h]] line 99).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Transparency {
+    #[default]
+    Full,
+    Reduced,
+}
+
+/// The settings from the system's getters.
+fn display_settings(reduce_transparency: impl FnOnce() -> bool) -> Display {
+    Display {
+        transparency: match reduce_transparency() {
+            true => Transparency::Reduced,
+            false => Transparency::Full,
+        },
+    }
+}
+
+/// `theme` as `display` asks for it drawn.
+///
+/// **Reduce Transparency draws every background at alpha 1.0**, the margin
+/// included, since it clears to the default background at the theme's
+/// alpha. That overrides the owner's rule that application backgrounds
+/// stay dim, and only while the setting is on (note Y, decision 9). The
+/// 32 pt titlebar strip stays material, which the system itself frosts
+/// under the setting (Jev's lean, 0.80/0.66, decisions 718/719).
+fn accessible(mut theme: Theme, display: Display) -> Theme {
+    if display.transparency == Transparency::Reduced {
+        theme.bg_alpha = baud_domain::Chan::from_u8(0xFF);
+    }
+    theme
+}
+
+/// The appearance whose theme is in force: the pinned one, or under `auto`
+/// the one the palette was last set for -- dark before the first, as
+/// `prepare` builds it.
+fn in_force(choice: crate::config::ThemeChoice, set_for: Option<Appearance>) -> Appearance {
+    match choice {
+        crate::config::ThemeChoice::Light => Appearance::Light,
+        crate::config::ThemeChoice::Dark => Appearance::Dark,
+        crate::config::ThemeChoice::Auto => set_for.unwrap_or(Appearance::Dark),
+    }
+}
+
 /// What an appearance callback does to the palette.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum PaletteSwitch {
@@ -2342,6 +2396,9 @@ struct Driver {
     glass_cfg: crate::config::Glass,
     /// Both palettes, built at launch.
     themes: Themes,
+    /// The Accessibility Display settings the theme in force was drawn
+    /// for, read on the tick (`poll_display`).
+    display: Display,
     /// The appearance the palette was last set for under `auto`: `None`
     /// before the first, and always under a pinned theme.
     palette_for: Option<Appearance>,
@@ -5449,6 +5506,28 @@ mod motion_tests {
         assert!(tick.contains("self.poll_motion();"), "{tick}");
     }
 
+    /// **The tick polls the display settings, and the launch reads them
+    /// before the first frame**: both are AppKit-bound, so the source is
+    /// what can fail.
+    #[test]
+    fn the_tick_and_the_launch_read_the_display_settings() {
+        const SRC: &str = include_str!("app.rs");
+        let tick = SRC
+            .split_once(concat!("if let Trigger::", "Tick = trigger {"))
+            .and_then(|(_, rest)| rest.split_once('}'))
+            .map(|(arm, _)| arm)
+            .expect("the tick arm");
+        assert!(tick.contains("self.poll_motion();"), "the control: {tick}");
+        assert!(tick.contains("self.poll_display();"), "{tick}");
+        let read = SRC
+            .find(concat!("driver.poll_", "display();"))
+            .expect("the launch read");
+        let first = SRC
+            .find(concat!("driver.app.present(&v, ", "Show::Now);"))
+            .expect("the first frame");
+        assert!(read < first, "the settings are read after the first frame");
+    }
+
     /// **The pump rings a read's bells before anything can return**, and
     /// the shim makes the calls `ring` names. Both are AppKit-bound, so the
     /// source is what can fail: a ring after the held-update or the
@@ -6338,6 +6417,7 @@ impl Driver {
         if let Trigger::Tick = trigger {
             self.poll_focus();
             self.poll_motion();
+            self.poll_display();
         }
         // **The parser is not held here, and that is research decision D4
         // arriving.** This used to return while a frame was in flight,
@@ -7520,6 +7600,7 @@ pub fn run() {
         theme_choice,
         glass_cfg,
         themes: Themes::of(&glass_cfg, floor, &halves),
+        display: Display::default(),
         palette_for: None,
         glass: glass.clone(),
         window: window.clone(),
@@ -7542,14 +7623,16 @@ pub fn run() {
     if theme_choice == crate::config::ThemeChoice::Auto {
         let appearance = appearance_of(&window);
         driver.palette_for = Some(appearance);
-        let theme = driver.themes.get(appearance).clone();
-        driver.app.renderer.set_theme(theme);
+        driver.show_theme(appearance);
         crate::host::tell_defaults(
             &mut driver.app.term,
             driver.app.renderer.theme(),
             baud_core::Overrides::Keep,
         );
     }
+    // **The display settings before the first frame**, pinned theme or
+    // not, so a launch under Reduce Transparency never draws a dim frame.
+    driver.poll_display();
     Responder::resized(&mut driver, view.frame().size, scale);
     let v = driver.view.clone();
     driver.app.present(&v, Show::Now);
@@ -7795,6 +7878,35 @@ impl Driver {
         if owes == Owes::Frame {
             self.app.pending = Pending::Dirty;
         }
+    }
+
+    /// The Accessibility Display settings, read on the tick beside Reduce
+    /// Motion and on the same terms: AppKit's own observer of the
+    /// display-options notification invalidates the cached answers, which
+    /// the Reduce Motion design probed for that setting, so no observer of
+    /// baud's is added; that a live toggle of these two reads fresh within
+    /// a frame is the owner's check. **Not through `apply_style`**, whose early return for a
+    /// pinned theme would leave a pinned reader's cells as they were: this
+    /// rebuilds whichever theme is in force. The core is told nothing,
+    /// because the settings move no colour it reports.
+    fn poll_display(&mut self) {
+        let display = display_settings(reduce_transparency);
+        if display == self.display {
+            return;
+        }
+        self.display = display;
+        crate::info!("display: {display:?}");
+        self.show_theme(in_force(self.theme_choice, self.palette_for));
+        self.app.next_damage = Damage::Full;
+        self.app.pending = Pending::Dirty;
+    }
+
+    /// Set the renderer's theme to `appearance`'s as the display settings
+    /// ask for it drawn: the one way a theme reaches the renderer, so a
+    /// light/dark flip under Reduce Transparency stays opaque.
+    fn show_theme(&mut self, appearance: Appearance) {
+        let theme = accessible(self.themes.get(appearance).clone(), self.display);
+        self.app.renderer.set_theme(theme);
     }
 
     /// Record a focus transition and report it if the application asked.
@@ -8470,9 +8582,7 @@ impl Driver {
             return;
         };
         self.palette_for = Some(appearance);
-        self.app
-            .renderer
-            .set_theme(self.themes.get(appearance).clone());
+        self.show_theme(appearance);
         // The one place a palette change drops the application's colours.
         crate::host::tell_defaults(
             &mut self.app.term,
@@ -8677,6 +8787,109 @@ mod tests {
                 "{choice:?} {set_for:?} {now:?}"
             );
         }
+    }
+
+    /// **Reduce Transparency draws every background opaque**, the default
+    /// one and every one a program sets, so the margin, which clears to the
+    /// default background at the theme's alpha, is opaque too (note Y,
+    /// decision 9). Nothing else in the theme moves: the colours the core
+    /// reports are the same, so the poll owes it no new defaults.
+    #[test]
+    fn reduce_transparency_draws_every_background_opaque() {
+        let glass = crate::config::Glass::defaults();
+        for (theme, dim) in [
+            (
+                theme_for(
+                    Appearance::Dark,
+                    &glass,
+                    baud_render::Floor::DEFAULT,
+                    &Default::default(),
+                ),
+                glass.dim_dark,
+            ),
+            (
+                theme_for(
+                    Appearance::Light,
+                    &glass,
+                    baud_render::Floor::DEFAULT,
+                    &Default::default(),
+                ),
+                glass.dim_light,
+            ),
+        ] {
+            use baud_domain::Chan;
+            let fields = |t: &Theme| (t.fg, t.bg, t.palette, t.floor, t.app_bg, t.picture_bg);
+            assert_eq!(theme.bg_alpha, Chan::from_unit(dim), "the control");
+            let off = accessible(theme.clone(), Display::default());
+            assert_eq!(
+                (off.bg_alpha, fields(&off)),
+                (theme.bg_alpha, fields(&theme)),
+                "off changes nothing"
+            );
+            let on = accessible(
+                theme.clone(),
+                Display {
+                    transparency: Transparency::Reduced,
+                },
+            );
+            assert_eq!(on.bg_alpha, Chan::from_u8(0xFF));
+            assert!(!on.finds_pictures(), "every picture is already solid");
+            assert_eq!(fields(&on), fields(&theme), "only the alpha moves");
+        }
+        assert_eq!(
+            display_settings(|| true).transparency,
+            Transparency::Reduced
+        );
+        assert_eq!(display_settings(|| false), Display::default());
+    }
+
+    /// **A pinned theme is reached**: the poll rebuilds the theme in force,
+    /// which for a pinned one is the pinned half whatever the appearance
+    /// last set, and under `auto` the half the palette was set for.
+    #[test]
+    fn the_theme_in_force_is_the_pinned_half_or_the_one_last_set() {
+        use crate::config::ThemeChoice::{Auto, Dark, Light};
+        use Appearance as A;
+        for (choice, set_for, want) in [
+            (Light, None, A::Light),
+            (Light, Some(A::Dark), A::Light),
+            (Dark, None, A::Dark),
+            (Auto, None, A::Dark),
+            (Auto, Some(A::Light), A::Light),
+            (Auto, Some(A::Dark), A::Dark),
+        ] {
+            assert_eq!(in_force(choice, set_for), want, "{choice:?} {set_for:?}");
+        }
+    }
+
+    /// **One way to the renderer.** Every theme reaches it through
+    /// `show_theme`, which applies the display settings, so a light/dark
+    /// flip or the first frame cannot set a theme they did not see; and the
+    /// poll rebuilds the theme in force itself rather than going through
+    /// `apply_style`, whose early return would skip a pinned theme.
+    #[test]
+    fn every_theme_reaches_the_renderer_through_the_display_settings() {
+        let app = include_str!("app.rs")
+            .rsplit_once("#[cfg(test)]\nmod tests {")
+            .map(|(c, _)| c)
+            .expect("the code before the tests");
+        let body = |name: &str| {
+            let at = app.find(&format!("fn {name}(")).expect(name);
+            &app[at..at + app[at..].find("\n    }\n").expect("its end")]
+        };
+        assert_eq!(app.matches(".set_theme(").count(), 1, "one call");
+        let show = body("show_theme");
+        assert!(show.contains(".set_theme("), "the call is show_theme's");
+        assert!(show.contains("accessible("), "{show}");
+        let poll = body("poll_display");
+        assert!(
+            poll.contains("display_settings(reduce_transparency"),
+            "{poll}"
+        );
+        assert!(poll.contains("show_theme(in_force("), "{poll}");
+        assert!(!poll.contains("palette_switch("), "{poll}");
+        assert!(!poll.contains("apply_style("), "{poll}");
+        assert!(body("apply_style").contains("show_theme("), "the flip");
     }
 
     /// **One place drops.** `Overrides::Drop` appears once in the app's code
@@ -9387,6 +9600,12 @@ fn system_motion(source: MotionSource, read: impl FnOnce() -> bool) -> crate::co
 /// macOS's Reduce Motion, from the window crate's safe getter.
 fn reduce_motion() -> bool {
     macos_liquid_glass::accessibility::reduce_motion()
+}
+
+/// macOS's Reduce Transparency, from the window crate's safe getter
+/// ([[source: mlg-accessibility]] 58-60).
+fn reduce_transparency() -> bool {
+    macos_liquid_glass::accessibility::reduce_transparency()
 }
 
 /// The trail a change of the motion preference switches to, if it changes

@@ -340,7 +340,8 @@ style = "regular"
 # that paints its own panels is glass rather than a slab. The defaults are the
 # lowest that keep the default text at 4.5:1 over a white desktop and over a
 # black one; turn them down for more glass, at the cost of text over a bright
-# window behind.
+# window behind. While Accessibility's Reduce Transparency is on, every
+# background and the margin are drawn opaque, whatever these say.
 dim_dark = 0.70
 dim_light = 0.60
 
