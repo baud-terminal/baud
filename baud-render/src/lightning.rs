@@ -478,6 +478,7 @@ mod tests {
                 corners: to.corners(),
                 hole: to,
                 shape: Shape::Quad,
+                strength: crate::flash::Strength::Full,
             },
             ignition: f,
             axis: f.dir,

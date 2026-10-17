@@ -261,6 +261,7 @@ mod tests {
                 corners: Segment::new(from.corners(), to).at(age),
                 hole: to,
                 shape: Shape::Quad,
+                strength: crate::flash::Strength::Full,
             },
             ignition: f.at(age),
             axis: f.dir,

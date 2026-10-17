@@ -1327,8 +1327,10 @@ impl App {
                 let m = self.renderer.metrics();
                 let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
                 let cell = (side(m.cell_w), side(m.cell_h));
+                // The cell's height in points, the flash bound's size gate.
+                let height = baud_render::Points(cell.1 / self.scale as f32);
                 HostTime::of_secs(self.tick_target)
-                    .and_then(|now| self.chase.frame(rect, now, cell))
+                    .and_then(|now| self.chase.frame(rect, now, cell, height))
             }
             crate::config::CursorTrail::Off => None,
         };
@@ -4773,6 +4775,9 @@ mod trail_cursor_tests {
     };
     const CELL: (f32, f32) = (10.0, 20.0);
 
+    /// A 20 px cell's height in points at 2x, below the flash bound's gate.
+    const PT: baud_render::Points = baud_render::Points(10.0);
+
     fn feed(t: &mut Term<'_>, bytes: &[u8]) {
         t.write_at(BytePos::ZERO, bytes);
         t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
@@ -4913,8 +4918,8 @@ mod trail_cursor_tests {
             let now = trail_cursor(t).map(|f| block(f.cell()));
             let old = live_cursor(t).map(block);
             (
-                chase.frame(now, at(ms), CELL).is_some(),
-                before.frame(old, at(ms), CELL).is_some(),
+                chase.frame(now, at(ms), CELL, PT).is_some(),
+                before.frame(old, at(ms), CELL, PT).is_some(),
             )
         };
         feed(&mut t, b"\x1b[?1049h");
@@ -4956,7 +4961,7 @@ mod trail_cursor_tests {
         let mut chase: Chase<Instant> = Chase::new(Style::Effect(Effect::Fire));
         let mut fire = |t: &Term<'_>, ms: u64| {
             let now = trail_cursor(t).map(|f| block(f.cell()));
-            matches!(chase.frame(now, at(ms), CELL), Some(TrailLook::Vfx(_)))
+            matches!(chase.frame(now, at(ms), CELL, PT), Some(TrailLook::Vfx(_)))
         };
         feed(&mut t, b"\x1b[?1049h");
         feed(&mut t, frame(cell!(1, 7)).as_bytes());
@@ -5055,7 +5060,7 @@ mod trail_cursor_tests {
                     for n in 0..36u32 {
                         let now = t0 + tick * (u32::try_from(k).unwrap() * 36 + n);
                         let rect = trail_cursor(&t).map(|f| block(f.cell()));
-                        let look = chase.frame(rect, now, CELL);
+                        let look = chase.frame(rect, now, CELL, PT);
                         let corners = |l: &TrailLook| match l {
                             TrailLook::Smear(s) => Some(s.corners),
                             TrailLook::Vfx(v) => Some(v.emitter.corners),
@@ -5297,6 +5302,9 @@ mod motion_tests {
     use baud_render::Rect;
     use std::cell::Cell;
 
+    /// A 20 px cell's height in points at 2x, below the flash bound's gate.
+    const PT: baud_render::Points = baud_render::Points(10.0);
+
     const ALL: [T; 11] = [
         T::Off,
         T::Ghost,
@@ -5357,11 +5365,11 @@ mod motion_tests {
     #[test]
     fn a_switch_mid_fire_owes_one_frame_and_then_none() {
         let mut chase: Chase<HostTime> = Chase::new(chase_style(T::Fire.style(), Path::Cells));
-        chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0));
-        chase.frame(Some(cell(60.0, 3.0)), at(1.008), (10.0, 20.0));
+        chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0), PT);
+        chase.frame(Some(cell(60.0, 3.0)), at(1.008), (10.0, 20.0), PT);
         assert!(
             chase
-                .frame(Some(cell(60.0, 3.0)), at(1.020), (10.0, 20.0))
+                .frame(Some(cell(60.0, 3.0)), at(1.020), (10.0, 20.0), PT)
                 .is_some(),
             "the control: a fire is lit"
         );
@@ -5386,7 +5394,7 @@ mod motion_tests {
     #[test]
     fn a_switch_at_rest_owes_no_frame() {
         let mut chase: Chase<HostTime> = Chase::new(chase_style(T::Fire.style(), Path::Cells));
-        chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0));
+        chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0), PT);
         let (mut ghost, mut last) = (None, None);
         let owes = retrail(
             &mut chase,

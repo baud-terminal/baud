@@ -6,7 +6,7 @@ use baud_domain::{Attrs, Chan, Color, ColorWord, Count, DynamicColor, LINEAR, St
 /// A pixel: `0xAARRGGBB`, straight alpha, which is what a `CALayer` and a
 /// `wl_shm` buffer both take once premultiplied at the edge, by the one
 /// function both presenters call, `baud_domain::premultiply`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 #[repr(transparent)]
 pub struct Argb(pub u32);
 

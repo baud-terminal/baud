@@ -248,6 +248,7 @@ fn smear(
         corners: seg.at(t),
         hole,
         shape,
+        strength: baud_render::Strength::Full,
     }
 }
 

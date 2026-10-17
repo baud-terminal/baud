@@ -2,7 +2,11 @@
 
 **Status: research, 2026-10-09. Nothing is decided and nothing here is built
 into the shipped trail; four prototypes were built on branches, not merged, to
-be measured.** The owner's questions are in section 8. Jev is consulted on
+be measured.** (Built since, 2026-10-17: O2, Jev's lean, with section 6's
+harness first. A repeat pass drops its particles and reads its cap from
+the cells under it, text included, and the CPU path's quad takes it: 0
+FAIL on the full grid at 1x and 2x; the record, "A trail's repeat pass is
+drawn under the flash thresholds". The ghost is still unbounded.) The owner's questions are in section 8. Jev is consulted on
 each and the review page shows each with a visual, as the owner's rules
 require; the frames staged with this note (section 4) are the material.
 
@@ -839,7 +843,10 @@ the raw measure six of the eight reach 0.1368 and the orb and the plasma
 
 **Cost (C).** Per long move, a band test against up to eight rectangles; per
 change of ink or ground, a scan of up to about 767 alpha intervals; per
-repeat frame, one multiply per record. `baud-render`'s CPU drawing path
+repeat frame, one multiply per record. *As of the prototype at
+`4ccd622`; the landed build caps the CPU path's quad and reads the ground
+from the cells under the pass (the record, "A trail's repeat pass is drawn
+under the flash thresholds").* `baud-render`'s CPU drawing path
 ignores the cap, and the macOS driver draws a trail through it whenever
 `BAUD_GPU=0` forces that path or no Metal device is found, every effect then
 running as the quad (`app.rs` 130-140, 160-171 and 805-809 at `c00dfd1`); the
@@ -1111,15 +1118,15 @@ or measured.
 
 ## 7. Unmeasured
 
-Sizes above 72 pt (every option); 2x above 24 pt (all but O4's few cases);
-72 pt at 2x (nothing); 24 pt at 120 Hz under O1 (and under O2 except by
-construction); G19's count, for any case; text under the trail; grounds
-through the glass; the ghost trail; the visual bell's rate; the bar and
-underline cursors; any combination; any option's cost in time; O1's veiled
-glyph; O2's ground in the app and its CPU path; the launch splash's plasma under any option;
-whether macOS posts the Dim Flashing Lights change to the local or the
-default notification centre; whether a poll of the setting sees a live
-toggle; what kitty's dwell would do here.
+Sizes above 72 pt (every option); 24 pt at 120 Hz under O1 (and under O2
+except by construction); G19's count, for any case; grounds through the
+glass; the ghost trail; the visual bell's rate; the bar and underline
+cursors; any combination; any option's cost in time; O1's veiled glyph;
+the launch splash's plasma under any option; whether macOS posts the Dim
+Flashing Lights change to the local or the default notification centre;
+whether a poll of the setting sees a live toggle; what kitty's dwell would
+do here. O2's 2x above 24 pt, 72 pt at 2x, text under the trail and its
+CPU path were measured since ([[source: al-obs-b68-analysis]]).
 
 ## 8. The owner's questions
 

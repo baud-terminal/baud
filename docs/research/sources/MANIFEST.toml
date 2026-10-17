@@ -18950,10 +18950,11 @@ year   = 2026
 venue  = "developer.apple.com/documentation/mediaaccessibility"
 url    = "https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/flashing-lights.json"
 file   = "apple-mediaaccessibility-flashing-lights.json"
-sha256 = "8990eb147c6407f0b680b751ca2fd6acedaeb573e62d5c484f30caa881dc5f76"
-bytes  = 11779
+sha256 = "6f54be7de428b238ca39fdab8d55726f33126df3e515af1a6ef79ec692713b41"
+bytes  = 11933
 status = "retrieved"
 # Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+# Re-pinned 2026-10-17: the bytes changed, the text did not.
 group  = "AL"
 
 [sources.apple-responding-to-flashing-lights-setting]
@@ -18978,10 +18979,11 @@ year   = 2026
 venue  = "developer.apple.com/documentation/mediaaccessibility"
 url    = "https://developer.apple.com/tutorials/data/documentation/mediaaccessibility/madimflashinglightsenabled().json"
 file   = "apple-madimflashinglightsenabled.json"
-sha256 = "7b6cfe6401bd6fd9560fa6e5344fd1a0c1e6bfcd2978e2a5ce969d9a9e974e15"
-bytes  = 11227
+sha256 = "576735a80174ab036347b656af38eaeb9b9b5a6b180b163c25747e06aec5e050"
+bytes  = 10603
 status = "retrieved"
 # Read for note AL (2026-10-09); committed: a W3C or Apple documentation page.
+# Re-pinned 2026-10-17: the bytes changed, the text did not.
 group  = "AL"
 
 [sources.apple-kmadimflashinglightschangednotification]
@@ -19940,6 +19942,102 @@ status = "retrieved"
 # Local evidence for note AL, made 2026-10-09 on macOS 27.0 (26A5425a); not fetched --
 # the url says how it was made. Committed because the scratch directory it came from
 # does not survive a reboot, and a claim in the note rests on it.
+group  = "AL"
+
+[sources.al-obs-b68-base-census]
+key    = "al-obs-b68-base-census"
+title  = "The flash census on master's driver with note AL section 6's harness (49aa8251): the full grid, 13 to 72 pt at 1x and 2x, both rates, four grounds and inks, ten arms, seven motions; 26 and 72 pt at 2x partial"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench at 49aa8251, FLASH_HASH=1, sharded by size and ground"
+file   = "al-observed/b68-base-census.tsv.gz"
+sha256 = "fd40aab69104eefa218373f52c07c60d927f69f6872b9bcacb8e6de6afa68d39"
+bytes  = 726541
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-17 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
+group  = "AL"
+
+[sources.al-obs-b68-o2-census]
+key    = "al-obs-b68-o2-census"
+title  = "The flash census of option O2 as built, before the per-frame budget on the cap: the full grid, 22,400 cases, with the pixel check's columns"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench with O2, FLASH_HASH=1, sharded by size and ground"
+file   = "al-observed/b68-o2-census.tsv.gz"
+sha256 = "cd87140ad7c081ca58cdac864f347d2608882fe00ba506a22538beb0a66fecb0"
+bytes  = 768749
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-17 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
+group  = "AL"
+
+[sources.al-obs-b68-cpu-base-census]
+key    = "al-obs-b68-cpu-base-census"
+title  = "The flash census on the CPU path (FLASH_PATH=cpu), master's driver: off, quad and sweep on the full grid"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench at 49aa8251, FLASH_PATH=cpu"
+file   = "al-observed/b68-cpu-base-census.tsv.gz"
+sha256 = "d18f77b241bf5f26d128093dcda6a08f13b59e94a1e3784ed6df99d7008d2263"
+bytes  = 175073
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-17 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
+group  = "AL"
+
+[sources.al-obs-b68-cpu-o2-census]
+key    = "al-obs-b68-cpu-o2-census"
+title  = "The flash census on the CPU path with option O2: off, quad and sweep on the full grid"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench with O2, FLASH_PATH=cpu"
+file   = "al-observed/b68-cpu-o2-census.tsv.gz"
+sha256 = "2c8059c660203e2948c7c89f90090644bc6466f2e2e1c22a35e8b1c047ec6365"
+bytes  = 168259
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-17 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
+group  = "AL"
+
+[sources.al-obs-b68-analyze-tool]
+key    = "al-obs-b68-analyze-tool"
+title  = "b68_analyze.py: the O2 build's census read back against the committed census and between builds"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for lane b68"
+file   = "al-observed/b68_analyze.py"
+sha256 = "6d004eae6ba10ba4477e938c44c2f7f4e334765e29176ed55a000971a508bcdf"
+bytes  = 2815
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-17 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
+group  = "AL"
+
+[sources.al-obs-b68-analysis]
+key    = "al-obs-b68-analysis"
+title  = "The O2 build's census, read back: the base reproduces the committed census, FAIL counts per size, the pixel check, the hashes below the gate"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 b68_analyze.py"
+file   = "al-observed/b68-analysis.txt"
+sha256 = "91efcfd6339f0cf0594c2ada18cab6843e466551c042105cd1003519e301bcdc"
+bytes  = 2019
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-17 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
 group  = "AL"
 
 [sources.al-obs-o3-census]

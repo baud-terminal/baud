@@ -60,6 +60,21 @@
 //! effect runs as the quad (`chase_style` in `app.rs`): so its arms are the
 //! smears and off, and the `path` column says which path drew the line.
 //!
+//! `FLASH_TEXT=1` fills every cell with an `X` in the default colour once
+//! a combination's controls have read the bare ground, so the trail passes
+//! over text.
+//!
+//! **The flash bound's pixel check** (note AL, option O2). Over every frame
+//! the driver marks a repeat pass, against the case's first frame and
+//! outside the cursor's cells: `repeat` counts those frames, `under_dl` is
+//! the largest change in relative luminance where the darker of the two is
+//! below 0.80 (where a change can be a general transition at all),
+//! `under_raw` the largest change with no condition, `under_over` the
+//! pixel-frames that are a general transition (0.10 or more, the darker
+//! below 0.80), `under_red` those that are a red transition (u'v' more than
+//! 0.2 apart, either a saturated red), and `over_cap` the trail's records
+//! that carry more alpha than the renderer's cap.
+//!
 //! Usage: `flash [effects] [sizes] [rates] [inks] [grounds] [motions]`, each
 //! a comma list or `all`: effects by name, `quad`, `sweep` or `off`; sizes
 //! such as `13x1,13x2,32x1,32x2,72x1` (points x scale); rates `60,120`; inks
@@ -128,8 +143,8 @@ fn main() {
     };
     use baud_render::effect::Effect;
     use baud_render::{
-        Argb, Blend, Candidate, GlyphMap, Instance, Kind, Overlay, PxSize, Rect, Renderer,
-        Resolved, Scene, Shape, Stack, StyleStamp, Tally, Theme, TrailLook,
+        Argb, Blend, Candidate, GlyphMap, Instance, Kind, Overlay, Points, PxSize, Rect, Renderer,
+        Resolved, Scene, Shape, Stack, Strength, StyleStamp, Tally, Theme, TrailLook,
     };
     use core::time::Duration;
     use std::collections::BTreeSet;
@@ -463,6 +478,15 @@ fn main() {
         lit: Tally,
         /// Pixel-frames on the frame's edge that changed.
         edge: Tally,
+        /// Frames the driver marked a repeat pass, and over them the pixel
+        /// check: the largest conditioned and raw luminance changes, the
+        /// general and the red transitions, and records over the cap.
+        repeat: Tally,
+        under_dl: f32,
+        under_raw: f32,
+        under_over: Tally,
+        under_red: Tally,
+        over_cap: Tally,
     }
 
     /// The control block's columns and rows: 30% of a window, in cells
@@ -493,7 +517,7 @@ fn main() {
             Outcome::Fails => "FAIL",
         };
         println!(
-            "{pt}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\t{}\t{}",
+            "{pt}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t{}",
             scale.0,
             rate.0,
             ground.name(),
@@ -536,6 +560,12 @@ fn main() {
                 Drawer::Cpu => "cpu",
             },
             fnv.map_or_else(|| "-".to_string(), |h| format!("{h:016x}")),
+            did.repeat.value(),
+            did.under_dl,
+            did.under_raw,
+            did.under_over.value(),
+            did.under_red.value(),
+            did.over_cap.value(),
         );
     }
 
@@ -588,6 +618,43 @@ fn main() {
         .filter(|m| picks(&motion_names, &m.name()))
         .collect();
     let hashing = std::env::var("FLASH_HASH").is_ok_and(|v| v == "1");
+    let text = std::env::var("FLASH_TEXT").is_ok_and(|v| v == "1");
+    // WCAG's curve a byte at a time, and a word's relative luminance, u'v'
+    // and saturated redness, as `baud_bench::flash` reads them: the pixel
+    // check's.
+    let lin: Vec<f32> = (0u8..=255)
+        .map(|b| {
+            let c = f64::from(b) / 255.0;
+            (if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }) as f32
+        })
+        .collect();
+    let see = |p: u32| -> (f32, f32, f32, bool) {
+        let [_, r, g, b] = p.to_be_bytes();
+        let (lr, lg, lb) = (
+            lin[usize::from(r)],
+            lin[usize::from(g)],
+            lin[usize::from(b)],
+        );
+        let uv = |lr: f32, lg: f32, lb: f32| {
+            let x = 0.412_456_4 * lr + 0.357_576_1 * lg + 0.180_437_5 * lb;
+            let y = 0.212_672_9 * lr + 0.715_152_2 * lg + 0.072_175 * lb;
+            let z = 0.019_333_9 * lr + 0.119_192 * lg + 0.950_304_1 * lb;
+            let d = x + 15.0 * y + 3.0 * z;
+            (d > 0.0).then(|| (4.0 * x / d, 9.0 * y / d))
+        };
+        let (u, v) = uv(lr, lg, lb).unwrap_or_else(|| uv(1.0, 1.0, 1.0).unwrap_or((0.0, 0.0)));
+        let sum = lr + lg + lb;
+        (
+            0.2126 * lr + 0.7152 * lg + 0.0722 * lb,
+            u,
+            v,
+            sum > 0.0 && lr / sum >= 0.8,
+        )
+    };
     let drawer = match std::env::var("FLASH_PATH").as_deref() {
         Ok("cpu") => Drawer::Cpu,
         Ok("cells") | Err(_) => Drawer::Cells,
@@ -608,7 +675,7 @@ fn main() {
     let faces = [Face::parse(&face_data).expect("parse")];
 
     println!(
-        "pt\tscale\trate\tground\tink\tarm\tmotion\tframes\tmoves\tvfx\tignitions\toff_colour\tlit\tedge\ttranslucent\tgen_trans\tgen_flashes\tgen_chained\tgen_over\tgen_ever\tred_trans\tred_flashes\tred_chained\tred_over\tred_ever\tredenc_flashes\tredenc_chained\tarea\tcontiguous\tsecond\tstrict\toutcome\tstrict_outcome\tapart\tapart_strict\tapart_outcome\tapart_strict_outcome\tms\tpath\tfnv"
+        "pt\tscale\trate\tground\tink\tarm\tmotion\tframes\tmoves\tvfx\tignitions\toff_colour\tlit\tedge\ttranslucent\tgen_trans\tgen_flashes\tgen_chained\tgen_over\tgen_ever\tred_trans\tred_flashes\tred_chained\tred_over\tred_ever\tredenc_flashes\tredenc_chained\tarea\tcontiguous\tsecond\tstrict\toutcome\tstrict_outcome\tapart\tapart_strict\tapart_outcome\tapart_strict_outcome\tms\tpath\tfnv\trepeat\tunder_dl\tunder_raw\tunder_over\tunder_red\tover_cap"
     );
 
     let started = Instant::now();
@@ -631,6 +698,8 @@ fn main() {
             f32::from(u16::try_from(m.cell_w.value()).unwrap()),
             f32::from(u16::try_from(m.cell_h.value()).unwrap()),
         );
+        // The cell's height in points, as the app hands the driver it.
+        let height = Points(cell.1 / f32::from(u16::try_from(scale).unwrap_or(1)));
         // The two cells a window's diagonal apart, centre to centre, with a
         // margin on every side for what the effects throw off their path.
         let dc = usize::try_from((341.0 * s / cw).round() as i64).unwrap();
@@ -770,6 +839,21 @@ fn main() {
                 fill
             );
             let band = Argb(fill).with_alpha(Chan::from_u8(0xFF));
+            // `FLASH_TEXT=1`: every cell an `X` in the default colour over
+            // the ground, so the trail passes over text, after the controls
+            // have read the bare ground. Not under the control block.
+            if text && !case_arms.iter().any(|a| matches!(a, Arm::Block(_))) {
+                let mut bytes = ground.sgr().to_string();
+                for row in 0..usize::from(ws.ws_row) {
+                    bytes.push_str(&format!(
+                        "\x1b[{};1H{}",
+                        row + 1,
+                        "X".repeat(usize::from(ws.ws_col))
+                    ));
+                }
+                world.feed(bytes.as_bytes());
+                world.go(a);
+            }
 
             for arm in case_arms {
                 let case_motions: Vec<Motion> = match arm {
@@ -802,6 +886,7 @@ fn main() {
                         world.draw(None);
                         let first = world.pixels.clone();
                         let rested = |x: usize, y: usize| rests.iter().any(|&r| inside(x, y, r));
+                        let first_l: Vec<f32> = first.iter().map(|&p| see(p).0).collect();
                         // The schedule: moves from 0.2 s, then time for the
                         // effect to burn out and a full second to close.
                         let (moves, end): (Vec<f64>, f64) = match (arm, motion) {
@@ -880,6 +965,7 @@ fn main() {
                                     Some(world.cursor_rect()),
                                     HostTime::of_secs(1000.0 + now).expect("a time"),
                                     cell,
+                                    height,
                                 )
                             });
                             match look {
@@ -890,10 +976,28 @@ fn main() {
                                 Some(TrailLook::Smear(_)) => did.vfx.bump(),
                                 _ => {}
                             }
+                            let repeat = match look {
+                                Some(TrailLook::Vfx(v)) => v.emitter.strength,
+                                Some(TrailLook::Smear(s)) => s.strength,
+                                _ => Strength::Full,
+                            } == Strength::UnderThreshold;
                             world.draw(look);
                             for rec in world.renderer.trail() {
-                                if rec.kind == Kind::Band && rec.color != band {
+                                // The colour, whatever alpha a repeat's cap
+                                // left it.
+                                if rec.kind == Kind::Band
+                                    && rec.color.with_alpha(Chan::from_u8(0xFF)) != band
+                                {
                                     did.off_colour.bump();
+                                }
+                            }
+                            if repeat {
+                                let k = world.renderer.flash_cap().get();
+                                did.repeat.bump();
+                                for rec in world.renderer.trail() {
+                                    if rec.color.a().get() > k {
+                                        did.over_cap.bump();
+                                    }
                                 }
                             }
                             // What the trail lit: pixels off the case's first
@@ -908,8 +1012,28 @@ fn main() {
                                     if x == 0 || y == 0 || x + 1 == w || y + 1 == h {
                                         edge += 1;
                                     }
-                                    if !rested(x, y) {
-                                        lit += 1;
+                                    if rested(x, y) {
+                                        continue;
+                                    }
+                                    lit += 1;
+                                    // The pixel check, over a repeat
+                                    // frame: against the first frame, by
+                                    // luminance and by the red rule.
+                                    if repeat {
+                                        let p = world.pixels[i];
+                                        let (l, u, v, red) = see(p);
+                                        let (_, fu, fv, fred) = see(first[i]);
+                                        let dl = (l - first_l[i]).abs();
+                                        did.under_raw = did.under_raw.max(dl);
+                                        if l.min(first_l[i]) < 0.80 {
+                                            did.under_dl = did.under_dl.max(dl);
+                                            if dl >= 0.10 {
+                                                did.under_over.bump();
+                                            }
+                                        }
+                                        if (red || fred) && (u - fu).hypot(v - fv) > 0.2 {
+                                            did.under_red.bump();
+                                        }
                                     }
                                 }
                             }

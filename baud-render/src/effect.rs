@@ -563,6 +563,7 @@ pub(crate) mod tests {
             corners: seg.at(0.05),
             hole: to,
             shape: Shape::Quad,
+            strength: crate::flash::Strength::Full,
         };
         let TrailLook::Smear(s) = TrailLook::Smear(smear).lifted(pan) else {
             panic!("a smear lifts to a smear");
@@ -628,6 +629,7 @@ pub(crate) mod tests {
                 corners: seg.at(0.05),
                 hole: to,
                 shape: Shape::Quad,
+                strength: crate::flash::Strength::Full,
             },
             ignition: ignition(from, to, Seed(5)).at(0.05),
             axis: Pt { x: 1.0, y: 0.0 },
@@ -673,6 +675,7 @@ pub(crate) mod tests {
                         corners: seg.at(t),
                         hole: to,
                         shape: Shape::Quad,
+                        strength: crate::flash::Strength::Full,
                     },
                     ignition: ignition(from, to, Seed(3)).at(t),
                     axis: ignition(from, to, Seed(3)).dir,
@@ -729,6 +732,7 @@ pub(crate) mod tests {
                     corners: Segment::new(from.corners(), to).at(t),
                     hole: to,
                     shape: Shape::Quad,
+                    strength: crate::flash::Strength::Full,
                 },
                 ignition: ignition(from, to, Seed(9)).at(t),
                 axis: ignition(from, to, Seed(9)).dir,
@@ -765,6 +769,7 @@ pub(crate) mod tests {
                     corners: to.corners(),
                     hole: to,
                     shape: Shape::Quad,
+                    strength: crate::flash::Strength::Full,
                 },
                 ignition: ignition(cell(10.0, 5.0), to, Seed(0xDEAD_BEEF)).at(0.1),
                 axis: Pt { x: 1.0, y: 0.0 },

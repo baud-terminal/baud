@@ -12,6 +12,7 @@ use crate::cellmap::{
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Blit, Page, Target, Texels};
 use crate::effect::Vfx;
+use crate::flash::{self, Strength};
 use crate::instance::{Instance, Screen};
 use crate::metrics::{Metrics, PxSize};
 use crate::overlay::Composition;
@@ -413,6 +414,27 @@ fn video_of(term: &Term<'_>, flash: VideoFlash) -> Video {
 
 fn px_i32(p: Px) -> i32 {
     i32::try_from(p.value()).unwrap_or(i32::MAX)
+}
+
+/// **The most grounds a repeat pass's cap is read from**: more under it,
+/// and it draws nothing. A cap over a text colour costs every mixture a
+/// glyph edge draws, about 2.4 ms in release on this Mac, and a picture
+/// holds thousands.
+const FLASH_GROUNDS: usize = 64;
+
+/// The caps scanned a frame, at most: about 5 ms.
+const FLASH_SCANS: usize = 2;
+
+/// The caps the cache holds before it is emptied between frames: several
+/// screens of text.
+const FLASH_CACHED: usize = 512;
+
+/// Whether a cell under a repeat pass draws text: a character other than a
+/// space, so its text colours are grounds too.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Inked {
+    Yes,
+    No,
 }
 
 /// A screen position from pixel arithmetic, pinned to the record's range.
@@ -888,6 +910,14 @@ pub struct Renderer<'f, 'a> {
     /// application's `OSC 12` colour, else the default foreground a block
     /// cursor's reversed cell fills with.
     cursor_fill: Argb,
+    /// **The most alpha a repeat pass's records carry** (note AL, option
+    /// O2): the least [`flash::under_threshold`] of the cursor's colour over
+    /// the backgrounds of the cells they cover, set by
+    /// [`Renderer::bound_trail`] and read when the records are built.
+    flash_cap: Chan,
+    /// The caps already scanned, by cursor colour, text colour and page:
+    /// a screen's worth, [`FLASH_CACHED`], emptied between frames when full.
+    flash_caps: std::collections::HashMap<(Argb, Argb, Argb), Chan>,
     /// The alternate-screen fade's veil on this frame and the last, and its
     /// one full-screen solid: while it fades every row is dirty, because the
     /// veil covers the whole screen and the whole screen is what changed.
@@ -1078,6 +1108,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_composition: None,
             compose_inst: Vec::new(),
             cursor_fill: Argb::default(),
+            flash_cap: Chan::from_u8(0),
+            flash_caps: std::collections::HashMap::new(),
             fade: None,
             last_fade: None,
             fade_inst: Vec::new(),
@@ -1356,6 +1388,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .push(trail::quad_instance(s, self.cursor_fill)),
             Some(Drawn::Vfx(v, top, bottom)) => {
                 v.instances(frame, self.cursor_fill, &mut self.trail_inst);
+                // A repeat pass keeps one record a pixel: the bands, a cell
+                // row each and disjoint, and not the particles that stack
+                // over them, whose alphas would compound past the cap.
+                if v.emitter.strength == Strength::UnderThreshold {
+                    self.trail_inst.retain(|r| r.kind == Kind::Band);
+                }
                 let (mut lo, mut hi) = (i32::MAX, i32::MIN);
                 for inst in &self.trail_inst {
                     lo = lo.min(i32::from(inst.y.0));
@@ -1377,6 +1415,146 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             None => {}
         }
+        if self.strength() == Strength::UnderThreshold {
+            let k = self.flash_cap;
+            for r in &mut self.trail_inst {
+                r.color = r.color.with_alpha(flash::capped(r.color.a(), k));
+            }
+        }
+    }
+
+    /// How this frame's trail is drawn: a ghost always as it is.
+    fn strength(&self) -> Strength {
+        match &self.trail {
+            Some(Drawn::Smear(s)) => s.strength,
+            Some(Drawn::Vfx(v, ..)) => v.emitter.strength,
+            _ => Strength::Full,
+        }
+    }
+
+    /// **The cap a repeat pass is drawn at, from the cells under it**: the
+    /// least [`flash::under_threshold`] of the cursor's colour over each
+    /// colour those cells draw, made opaque -- every one's background, and
+    /// the text colours of one that holds a character or sets an attribute
+    /// (its solid and glass text, its line and its underline) -- so a pass
+    /// over a red cell is held under the red ground's thresholds, one over
+    /// text under the text's, and one over the page under the page's. The
+    /// records are rebuilt when it moves. Run where the frame's styles are
+    /// read ([`Renderer::sync_styles`]), after the trail is set, on every
+    /// path. A pass whose records meet an image placed under the text, or
+    /// below the backgrounds, draws nothing: a cap of 0. A selection or a
+    /// block cursor under the trail, and the desktop under a dimmed page,
+    /// are not grounds it reads.
+    fn bound_trail(&mut self, term: &Term<'_>) {
+        if self.strength() == Strength::Full {
+            return;
+        }
+        let view = term.view(term.window_back());
+        let (cols, rows) = (view.cols().index(), view.rows().index());
+        let side = |v: u32| usize::try_from(v.max(1)).unwrap_or(1);
+        let (cw, ch) = (
+            side(self.metrics.cell_w.value()),
+            side(self.metrics.cell_h.value()),
+        );
+        let at = |v: i32| usize::try_from(v.max(0)).unwrap_or(0);
+        let blank = |c: baud_domain::Content| {
+            c.is_empty() || c.as_codepoint().is_some_and(|p| p.value() == 0x20)
+        };
+        let mut ids: Vec<(baud_domain::StyleId, Inked)> = Vec::new();
+        'walk: for r in &self.trail_inst {
+            let (x, y) = (i32::from(r.x.0), i32::from(r.y.0));
+            let (x1, y1) = (x + i32::from(r.w.0), y + i32::from(r.h.0));
+            for row in at(y) / ch..at(y1).div_ceil(ch).min(rows) {
+                let cells = view.row(Row::from_index(row));
+                for cell in &cells[(at(x) / cw).min(cols)..at(x1).div_ceil(cw).min(cols)] {
+                    let inked = if blank(cell.content) {
+                        Inked::No
+                    } else {
+                        Inked::Yes
+                    };
+                    if !ids.contains(&(cell.style, inked)) {
+                        ids.push((cell.style, inked));
+                        if ids.len() > FLASH_GROUNDS {
+                            break 'walk;
+                        }
+                    }
+                }
+            }
+        }
+        // An image under the text is a ground the cells do not name: their
+        // styles are the page's while the pixels are the image's.
+        let imaged = self.image_places.iter().any(|p| {
+            let (px0, py0) = (i32::from(p.x), i32::from(p.y));
+            let (px1, py1) = (px0 + i32::from(p.w), py0 + i32::from(p.h));
+            p.layer.under_text()
+                && self.trail_inst.iter().any(|r| {
+                    let (x, y) = (i32::from(r.x.0), i32::from(r.y.0));
+                    x < px1 && px0 < x + i32::from(r.w.0) && y < py1 && py0 < y + i32::from(r.h.0)
+                })
+        });
+        let ink = self.cursor_fill.with_alpha(Chan::from_u8(0xFF));
+        let opaque = |c: Argb| c.with_alpha(Chan::from_u8(0xFF));
+        let mut triples: Vec<(Argb, Argb)> = Vec::new();
+        for &(id, inked) in &ids {
+            let word = term
+                .styles()
+                .get(id.index())
+                .copied()
+                .flatten()
+                .unwrap_or(baud_domain::StyleWord::DEFAULT);
+            let res = self.resolve_slot(term, word);
+            let text = inked == Inked::Yes || word.attrs() != baud_domain::Attrs::NONE;
+            let n = if text { 5 } else { 1 };
+            let page = opaque(res.bg);
+            for colour in [res.bg, res.fg, res.glass, res.line, res.underline]
+                .into_iter()
+                .take(n)
+            {
+                if !triples.contains(&(opaque(colour), page)) {
+                    triples.push((opaque(colour), page));
+                }
+            }
+        }
+        // **Bounded a frame, and sound while it is**: past
+        // [`FLASH_GROUNDS`] grounds under the pass -- a picture, a gradient
+        // -- or an image under the text beneath one of its records, or while a ground's cap is not yet scanned, the repeat draws
+        // nothing, a cap of 0; [`FLASH_SCANS`] new caps are scanned a frame.
+        if self.flash_caps.len() > FLASH_CACHED {
+            self.flash_caps.clear();
+        }
+        let mut budget = FLASH_SCANS;
+        let mut k = Chan::from_u8(0xFF);
+        if imaged || ids.len() > FLASH_GROUNDS || triples.len() > FLASH_GROUNDS {
+            k = Chan::from_u8(0);
+        }
+        for (text, page) in triples {
+            if k.get() == 0 && budget == 0 {
+                break;
+            }
+            let c = match self.flash_caps.get(&(ink, text, page)) {
+                Some(&c) => c,
+                None if budget > 0 => {
+                    budget -= 1;
+                    let c = flash::under_threshold_over(ink, text, page);
+                    self.flash_caps.insert((ink, text, page), c);
+                    c
+                }
+                None => Chan::from_u8(0),
+            };
+            if c.get() < k.get() {
+                k = c;
+            }
+        }
+        if k != self.flash_cap {
+            self.flash_cap = k;
+            self.build_trail();
+        }
+    }
+
+    /// The most alpha the trail's records carry while it draws a repeat
+    /// pass, for a bench or a test to hold them to.
+    pub fn flash_cap(&self) -> Chan {
+        self.flash_cap
     }
 
     /// The effect this frame draws, for a GPU path to hand its fragment
@@ -2603,12 +2781,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             // On the CPU an effect is its emitter, the quad it rides: the
             // effect is the GPU's.
+            // A repeat pass's quad carries the cap, as its record does.
+            let fill = match self.strength() {
+                Strength::Full => self.cursor_fill,
+                Strength::UnderThreshold => self
+                    .cursor_fill
+                    .with_alpha(flash::capped(self.cursor_fill.a(), self.flash_cap)),
+            };
             match self.trail {
                 Some(Drawn::Smear(s)) => {
-                    target.quad(&s, self.cursor_fill, self.blend, page, band);
+                    target.quad(&s, fill, self.blend, page, band);
                 }
                 Some(Drawn::Vfx(v, ..)) => {
-                    target.quad(&v.emitter, self.cursor_fill, self.blend, page, band);
+                    target.quad(&v.emitter, fill, self.blend, page, band);
                 }
                 _ => {
                     for inst in &self.trail_inst {
@@ -2958,6 +3143,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         stamp: &mut StyleStamp,
     ) -> StyleSync {
         self.refresh_screen(term);
+        self.bound_trail(term);
         let inputs = StyleInputs {
             theme: self.theme_gen,
             video: self.video,

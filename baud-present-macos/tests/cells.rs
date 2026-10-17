@@ -684,6 +684,7 @@ fn every_effect_rides_rigidly() {
                     corners: seg.at(age),
                     hole: to,
                     shape: Shape::Quad,
+                    strength: baud_render::Strength::Full,
                 },
                 ignition: Ignition::ignite(centre(from), to, Seed(7), ch).at(age),
                 axis: Pt { x: 0.8, y: -0.6 },
@@ -950,6 +951,7 @@ fn effect_scenes(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
                         corners: seg.at(age),
                         hole,
                         shape: Shape::Quad,
+                        strength: baud_render::Strength::Full,
                     },
                     ignition: ignite.at(age),
                     axis,
@@ -2013,6 +2015,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         corners: seg.at(0.05),
         hole,
         shape: Shape::Quad,
+        strength: baud_render::Strength::Full,
     }));
     let (quad_a, quad_b) = arms.draw(&mut t);
     assert_eq!(
@@ -2041,6 +2044,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         corners: seg.at(0.2),
         hole,
         shape: Shape::Quad,
+        strength: baud_render::Strength::Full,
     }));
     let (spared, spared_b) = arms.draw(&mut t);
     assert_eq!(
@@ -2057,6 +2061,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         corners: seg.at(0.2),
         hole: Rect::default(),
         shape: Shape::Quad,
+        strength: baud_render::Strength::Full,
     }));
     let (covered, _) = arms.draw(&mut t);
     assert!(
@@ -2094,6 +2099,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             corners: Corners(pts.map(|(x, y)| Pt { x, y })),
             hole: no_hole,
             shape: Shape::Quad,
+            strength: baud_render::Strength::Full,
         };
         arms.trail = Some(TrailLook::Smear(smear));
         let (a, b) = arms.draw(&mut t);
@@ -2163,6 +2169,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             corners: tail.corners(),
             hole: head,
             shape: Shape::Sweep,
+            strength: baud_render::Strength::Full,
         };
         arms.trail = Some(TrailLook::Smear(smear));
         let (a, b) = arms.draw(&mut t);
@@ -2224,6 +2231,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         );
     }
     effect_scenes(&mut arms, &mut t);
+    repeat_pass_gate(&mut arms, &mut t);
     arms.trail = None;
     // The alternate-screen fade: a full-screen veil at mid-progress, drawn
     // by both arms as one translucent solid over everything, and a change to
@@ -2557,6 +2565,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         corners: seg.at(0.03),
         hole,
         shape: Shape::Quad,
+        strength: baud_render::Strength::Full,
     });
     let ignite = Ignition::ignite(
         Pt {
@@ -2573,6 +2582,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
             corners: seg.at(0.1),
             hole,
             shape: Shape::Quad,
+            strength: baud_render::Strength::Full,
         },
         ignition: ignite.at(0.1),
         axis: Pt { x: 0.0, y: -1.0 },
@@ -3505,6 +3515,110 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
     );
 }
 
+/// **A repeat pass makes no flash transition, on the GPU's own pixels** --
+/// the flash bound's pixel check (note AL, option O2), on both GPU arms:
+/// every effect at three ages, a black cursor (`OSC 12`) over the light
+/// theme's opaque page and whatever text the scene left under it. Against
+/// the frame without a trail, outside the cursor's cell, no pixel of a
+/// repeat pass is a WCAG 2.2 general transition (a change in relative
+/// luminance of 0.10 or more, the darker below 0.80). A repeat pass draws
+/// its bands at the cap of the colours under them and drops its particles,
+/// whose alphas would compound over the bands. The control: the same looks
+/// at full strength make transitions.
+fn repeat_pass_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let (resting, margin) = (arms.renderer.theme().clone(), arms.margin);
+    arms.margin = (0, 0);
+    arms.renderer.set_theme(Theme::light());
+    feed(t, b"\x1b]12;rgb:00/00/00\x07");
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value() as f32, m.cell_h.value() as f32);
+    let cell_at = |col: f32, row: f32| Rect {
+        left: col * cw,
+        top: row * ch,
+        right: (col + 1.0) * cw,
+        bottom: (row + 1.0) * ch,
+    };
+    let (from, to) = (cell_at(98.0, 2.0), cell_at(116.0, 3.0));
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    arms.trail = None;
+    let (plain, _) = arms.draw(t);
+    let lum = |p: u32| {
+        let [_, r, g, b] = p.to_be_bytes();
+        let lin = |c: u8| {
+            let c = f64::from(c) / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    };
+    let transitions = |frame: &[u32]| {
+        frame
+            .iter()
+            .zip(&plain)
+            .enumerate()
+            .filter(|&(i, (&p, &q))| {
+                let (x, y) = ((i % fw) as f32 + 0.5, (i / fw) as f32 + 0.5);
+                let hole = x > to.left && x < to.right && y > to.top && y < to.bottom;
+                let (a, b) = (lum(p), lum(q));
+                !hole && (a - b).abs() >= 0.10 && a.min(b) < 0.80
+            })
+            .count()
+    };
+    let mut full = 0;
+    for effect in Effect::ALL {
+        let ignite = Ignition::ignite(
+            Pt {
+                x: (from.left + from.right) * 0.5,
+                y: (from.top + from.bottom) * 0.5,
+            },
+            to,
+            Seed(7),
+            ch,
+        );
+        let life = (effect.end(&ignite) / Effect::Fire.life()).min(1.0);
+        for age in [0.04f32, 0.12, 0.25].map(|a| a * life) {
+            for strength in [
+                baud_render::Strength::Full,
+                baud_render::Strength::UnderThreshold,
+            ] {
+                arms.trail = Some(TrailLook::Vfx(Vfx {
+                    effect,
+                    emitter: Smear {
+                        corners: Segment::new(from.corners(), to).at(age),
+                        hole: to,
+                        shape: Shape::Quad,
+                        strength,
+                    },
+                    ignition: ignite.at(age),
+                    axis: ignite.dir,
+                }));
+                let (a, b) = arms.draw(t);
+                assert_eq!(
+                    differing(&a, &b),
+                    0,
+                    "{effect:?} at {age}, {strength:?}: the GPU arms disagree"
+                );
+                let n = transitions(&b);
+                match strength {
+                    baud_render::Strength::Full => full += n,
+                    baud_render::Strength::UnderThreshold => assert_eq!(
+                        n, 0,
+                        "{effect:?} at {age}: a repeat pass flashes {n} pixels"
+                    ),
+                }
+            }
+        }
+    }
+    assert!(full > 0, "the control: full passes flash");
+    arms.trail = None;
+    feed(t, b"\x1b]112\x07");
+    arms.renderer.set_theme(resting);
+    arms.margin = margin;
+}
+
 /// The CPU arm: [`Renderer::render_at`] into a [`Target`], each pixel then
 /// put through the macOS presenter's own `premultiply`, as
 /// `Presenter::present` copies a frame into its surface -- the form the
@@ -3733,6 +3847,7 @@ fn trail_over_page(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, page: &str) {
                 corners: seg.at(0.3),
                 hole,
                 shape: Shape::Quad,
+                strength: baud_render::Strength::Full,
             }),
             "the trail's quad",
         ),
@@ -3741,6 +3856,7 @@ fn trail_over_page(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, page: &str) {
                 corners: from.corners(),
                 hole,
                 shape: Shape::Sweep,
+                strength: baud_render::Strength::Full,
             }),
             "the trail's sweep",
         ),
