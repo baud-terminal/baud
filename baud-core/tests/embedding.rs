@@ -7,13 +7,14 @@
 // renamed because the decision it pinned was reversed by measurement -- whose
 // assertion was wrong for two commits without anyone finding out. The
 // compiler's own dead-code analysis is the check that catches it.
-//! The README's Rust example is the example file, not a copy of it.
+//! The embedding guide's Rust example is the example file, not a copy of it.
 //!
 //! A usage snippet that does not compile is the same class of false claim as a
-//! coverage table nothing checks — and README examples rot silently, because
+//! coverage table nothing checks — and examples in prose rot silently, because
 //! nothing builds them. `baud-core/examples/quickstart.rs` *is* built, by
-//! `cargo check --all-targets`. This test asserts the README shows that file
-//! and not a drifted paraphrase of it.
+//! `cargo check --all-targets`. This test asserts `docs/embedding.md` shows
+//! that file and not a drifted paraphrase of it. The block lived in the README
+//! until 2026-10-16, when embedding got its own page and the README a link.
 
 use std::fs;
 
@@ -32,18 +33,18 @@ fn example_body() -> Vec<String> {
     inner[..end]
         .lines()
         .map(|l| l.strip_prefix("    ").unwrap_or(l).to_string())
-        // The example prints so it can run; the README does not need that.
+        // The example prints so it can run; the guide does not need that.
         .filter(|l| !l.starts_with("println!"))
         .map(|l| l.trim_end().to_string())
         .filter(|l| !l.is_empty())
         .collect()
 }
 
-fn readme_body() -> Vec<String> {
-    let src = read("../README.md");
+fn guide_body() -> Vec<String> {
+    let src = read("../docs/embedding.md");
     let start = src
         .find("```rust")
-        .expect("README must show a Rust example");
+        .expect("docs/embedding.md must show a Rust example");
     let rest = &src[start + "```rust".len()..];
     let end = rest.find("```").expect("unterminated code fence");
     rest[..end]
@@ -54,9 +55,9 @@ fn readme_body() -> Vec<String> {
 }
 
 #[test]
-fn the_readme_example_is_the_compiled_example() {
+fn the_embedding_guide_example_is_the_compiled_example() {
     let ex = example_body();
-    let rd = readme_body();
+    let rd = guide_body();
     assert!(
         ex.len() > 5,
         "extracted {} lines from the example -- the parser stopped matching it",
@@ -64,8 +65,8 @@ fn the_readme_example_is_the_compiled_example() {
     );
     assert_eq!(
         rd, ex,
-        "README.md's Rust block has drifted from \
+        "docs/embedding.md's Rust block has drifted from \
          baud-core/examples/quickstart.rs.\nThe example is the one that compiles; \
-         update the README to match it."
+         update the guide to match it."
     );
 }

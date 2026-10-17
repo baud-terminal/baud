@@ -93,38 +93,13 @@ the benchmarks, and [CONTRIBUTING.md](CONTRIBUTING.md) what a change needs.
 
 **Configuration** is optional: copy [config.toml.example](config.toml.example)
 to `~/.config/baud/config.toml` and keep only the keys you change.
-[docs/contributing/build.md](docs/contributing/build.md) lists every place
-baud looks.
+[docs/guide/configuration.md](docs/guide/configuration.md) lists every key
+and every place baud looks.
 
 ## Embedding the core
 
-`baud-core` is a `no_std` library, usable by any program that needs to
-interpret a VT stream:
-
-```rust
-use baud_core::{BytePos, Owned, ReadLen, Term, WinSize};
-
-// Storage is the caller's, and its size is the geometry: no allocator on
-// the ingest path. `Owned` is the convenience behind the `alloc` feature;
-// without it, `Storage::new` takes the same buffers as borrows.
-let ws = WinSize {
-    ws_row: 50,
-    ws_col: 200,
-};
-let mut store = Owned::new(&ws);
-let mut term = Term::new(store.storage(), &ws);
-
-// Feed bytes exactly as they arrive from read(2) -- split anywhere. The
-// core never copies on the parse path: a read writes into the arena and
-// `feed` parses it in place.
-let bytes = b"\x1b[1;32mhello\x1b[m";
-term.write_at(BytePos::ZERO, bytes);
-term.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
-
-// A terminal is not write-only: drain anything it owes the host.
-let owed = term.reply().len(); // e.g. the answer to a DSR
-let cells = term.cells().len(); // the grid, ring and all
-```
+`baud-core`, the `no_std` library that interprets a VT stream, can be used
+by any program: [docs/embedding.md](docs/embedding.md).
 
 ## Documentation
 
@@ -145,5 +120,5 @@ third-party files the research and tests hold are under their own licences:
 LICENSE names the files it does not cover, and
 [THIRD_PARTY.md](THIRD_PARTY.md) lists each with its licence and source.
 Nothing is published to a registry, so build from source.
-[FUNDING.md](FUNDING.md) covers sponsorship and how to arrange a commercial
-licence.
+[docs/guide/licensing.md](docs/guide/licensing.md) covers sponsorship and how
+to arrange a commercial licence.

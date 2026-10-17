@@ -18,6 +18,10 @@ to the workflow** ([CONTRIBUTING.md](../../CONTRIBUTING.md)).
 
 ## The terminal
 
+For installing and running baud as a user, see
+[the install guide](../guide/install.md); this section is how the build
+fits together.
+
 ```sh
 cargo run --release                   # the terminal, `baud`, from the shell you are in
 scripts/bundle-macos.sh               # target/baud.app: the release build as a macOS application
@@ -44,13 +48,9 @@ writes into the binary as `LC_BUILD_VERSION minos`; and the Metal library's targ
 on an older system meets the app's own check, which prints why on stderr
 and exits 1 (forced on macOS 27; not run below 26).
 
-**Configuration** is optional. Copy `config.toml.example` to one of the places
-baud looks -- `$BAUD_CONFIG`, then `$XDG_CONFIG_HOME/baud/config.toml`,
-then `~/.config/baud/config.toml`; no entry of its own under the directory
-baud starts in, though a relative `$BAUD_CONFIG` names a file there -- and
-keep only the keys you change. A relative font or theme path in it is read
-beside the file. With no config baud draws with the fonts compiled into it, and the
-system's own faces behind them for what those lack.
+**Configuration** is optional; [the configuration guide](../guide/configuration.md)
+has every key and every place baud looks, and `config.toml.example` is the
+file to copy.
 
 **The Metal shaders ship compiled.** `baud-present-macos/src/baud.metallib` is
 committed, so a build needs no Metal toolchain.
@@ -92,7 +92,7 @@ The test suite is layered, and each layer catches a different class:
 | `properties.rs` | chunk invariance — the kernel hands you arbitrary slices, and a sequence split across two reads must parse identically |
 | `golden.rs` | what `baud-core2` rendered for 54 fixtures and 9 recordings, frozen as data before that crate was deleted, and moved since only where `recordings.txt` records a decision (two recordings). It finds regressions on recorded bytes and nothing else |
 | `cell_table.rs` | the three-byte cell table against the write path, on all 65,536 sequences — so turning `cell-table` on cannot change the screen |
-| `docs.rs`, `coverage.rs`, `readme.rs`, `api_coverage.rs` | the documents checking the code: every cited path and test name resolves, every `done` row has a test, the README's example compiles, every `pub fn` has a caller |
+| `docs.rs`, `coverage.rs`, `embedding.rs`, `api_coverage.rs` | the documents checking the code: every cited path and test name resolves, every `done` row has a test, the embedding guide's example compiles, every `pub fn` has a caller |
 | `baud-difftest/tests/alacritty.rs` | cell-by-cell agreement with alacritty |
 | `baud-sfte-difftest/tests/sfte.rs` | agreement with sfte, a second implementation, on the grid, the cursor and the replies, at every 4096-byte read of every fixture and recording; what differs is pinned with its reason. Its build copies the header pinned in `docs/research/sources/`, applies `baud-sfte-difftest/patches/` to the copy, and compiles that with `cc` |
 

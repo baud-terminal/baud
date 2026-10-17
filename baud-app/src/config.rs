@@ -2957,3 +2957,120 @@ mod lookup {
         let _ = std::fs::remove_dir_all(launch);
     }
 }
+
+/// The user guide's configuration page, held to the reader.
+#[cfg(test)]
+mod guide {
+    use std::collections::BTreeSet;
+
+    /// Every `(section, key)` the reader matches by name, read from
+    /// `Config::apply`'s own arms: a line in that function that opens with
+    /// `("` and holds `") =>`. The catch-all arms bind a name rather than a
+    /// literal, so they are not read as keys.
+    fn reader_keys() -> BTreeSet<(String, String)> {
+        let src = include_str!("config.rs");
+        let start = src.find("fn apply(").expect("Config::apply");
+        let body = &src[start..];
+        let end = body
+            .find("if let Some(mut faces) = named")
+            .expect("the end of apply's match");
+        body[..end]
+            .lines()
+            .map(str::trim)
+            .filter(|l| l.starts_with("(\"") && l.contains("\") =>"))
+            .filter_map(|l| {
+                let mut q = l.split('"');
+                let section = q.nth(1)?.to_string();
+                let key = q.nth(1)?.to_string();
+                Some((section, key))
+            })
+            .collect()
+    }
+
+    /// Every `(section, key)` docs/guide/configuration.md lists: a table row
+    /// opening with a backticked key under `## Top level` or `## [section]`,
+    /// and under `## Keys baud no longer reads` a backticked key that may
+    /// carry its `[section]` in front.
+    fn documented_keys(page: &str) -> BTreeSet<(String, String)> {
+        enum In {
+            Section(String),
+            Gone,
+            Elsewhere,
+        }
+        let mut at = In::Elsewhere;
+        let mut keys = BTreeSet::new();
+        for line in page.lines() {
+            if let Some(h) = line.strip_prefix("## ") {
+                at = if h == "Top level" {
+                    In::Section(String::new())
+                } else if let Some(s) = h.strip_prefix('[').and_then(|h| h.strip_suffix(']')) {
+                    In::Section(s.to_string())
+                } else if h == "Keys baud no longer reads" {
+                    In::Gone
+                } else {
+                    In::Elsewhere
+                };
+                continue;
+            }
+            let Some(cell) = line
+                .strip_prefix("| `")
+                .and_then(|r| r.split_once('`'))
+                .map(|(c, _)| c)
+            else {
+                continue;
+            };
+            match &at {
+                In::Section(s) => {
+                    keys.insert((s.clone(), cell.to_string()));
+                }
+                In::Gone => {
+                    let (s, k) = match cell.strip_prefix('[').and_then(|c| c.split_once("] ")) {
+                        Some((s, k)) => (s.to_string(), k.to_string()),
+                        None => (String::new(), cell.to_string()),
+                    };
+                    keys.insert((s, k));
+                }
+                In::Elsewhere => {}
+            }
+        }
+        keys
+    }
+
+    /// **docs/guide/configuration.md lists every key the reader acts on, and
+    /// no other.** The example file is held to the reader in one direction
+    /// (`the_committed_example_parses_to_what_it_documents`: every key it
+    /// writes reaches an arm); this holds the user's page in both, so a key
+    /// added to `apply` fails here until the page has its row, and a row for
+    /// a key the reader never matches fails as an invented one. The positive
+    /// controls are a first and a last arm and a retired key, which the scan
+    /// must find on each side.
+    #[test]
+    fn the_configuration_page_lists_every_key_the_reader_knows() {
+        let page = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../docs/guide/configuration.md"
+        ))
+        .expect("docs/guide/configuration.md");
+        let reader = reader_keys();
+        let documented = documented_keys(&page);
+        for side in [&reader, &documented] {
+            for (s, k) in [
+                ("", "font_size"),
+                ("glass", "saturation"),
+                ("images", "body_kb"),
+            ] {
+                assert!(
+                    side.contains(&(s.to_string(), k.to_string())),
+                    "a scan stopped matching: no [{s}] {k} in {side:?}"
+                );
+            }
+        }
+        let missing: Vec<_> = reader.difference(&documented).collect();
+        let invented: Vec<_> = documented.difference(&reader).collect();
+        assert!(
+            missing.is_empty() && invented.is_empty(),
+            "docs/guide/configuration.md is out of step with Config::apply:\n  \
+             read but not documented: {missing:?}\n  documented but never read: {invented:?}"
+        );
+    }
+}

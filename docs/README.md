@@ -135,8 +135,9 @@ A claim is either mechanically checked or it is not made.
 
 - `vt-coverage.md`'s **done** rows are checked by
   `baud-core/tests/coverage.rs`.
-- The README's Rust example is `baud-core/examples/quickstart.rs`, compiled by
-  the gate, with `baud-core/tests/readme.rs` asserting they have not drifted.
+- The embedding guide's Rust example is `baud-core/examples/quickstart.rs`,
+  compiled by the gate, with `baud-core/tests/embedding.rs` asserting they
+  have not drifted.
 - Every source citation is checked by `scripts/check-sources.sh`, which
   re-hashes the file behind each key.
 - Type-system claims are checked by `audit_all.sh`.
@@ -160,7 +161,7 @@ the build instead:
 | `baud-core/tests/encoding/width.rs` | the generated width tables still match the pinned `EastAsianWidth.txt` and general category |
 | `baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists; **nothing listed as absent is also marked done**; every research note and every manifest group has a row in the index above |
 | `scripts/check-sources.sh` | every `[[source: …]]` citation — in the docs **and** in the code — resolves to a document pinned by SHA-256 in `MANIFEST.toml` |
-| `baud-core/tests/readme.rs` | the README's usage example is compiled, and is byte-identical to the block in the file |
+| `baud-core/tests/embedding.rs` | the usage example in `docs/embedding.md` is compiled, and is byte-identical to the block in the file |
 
 Each was written after the corresponding claim turned out to be false. The
 coverage document spent most of this project's life naming `tests/coverage.rs`

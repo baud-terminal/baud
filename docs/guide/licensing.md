@@ -1,12 +1,14 @@
-# Funding
+# Licensing and sponsorship
 
-This is a solo-maintained open-source project. Funding is optional and buys no
-obligation — see [What sponsorship does not buy](#what-sponsorship-does-not-buy)
-below.
+baud is free to use for anything that is not commercial. Using it inside a
+commercial product or service needs a separate licence, which you can ask
+for. baud is maintained by one person, and sponsoring it is optional and
+buys no obligation — see
+[What sponsorship does not buy](#what-sponsorship-does-not-buy) below.
 
 ## Sponsoring
 
-The platforms are declared in [`.github/FUNDING.yml`](.github/FUNDING.yml),
+The platforms are declared in [`.github/FUNDING.yml`](../../.github/FUNDING.yml),
 which is what drives the **Sponsor** button on the repository page. That file
 is the single source of truth; currently:
 
@@ -15,7 +17,7 @@ is the single source of truth; currently:
 
 ## Commercial use
 
-The licence is [CC BY-NC-SA 4.0](LICENSE), and the **NonCommercial** clause is
+The licence is [CC BY-NC-SA 4.0](../../LICENSE), and the **NonCommercial** clause is
 load-bearing rather than decorative: using this project as part of a commercial
 product or service is not covered by it, no matter how the code is obtained.
 Neither is redistributing a derivative under different terms — **ShareAlike**
@@ -40,14 +42,14 @@ Stated plainly so nobody sponsors expecting otherwise:
 - **No priority queue.** Bugs are triaged by severity, not by sponsor status.
 
 What it does buy is maintenance time — the unglamorous half of the work.
-Dependency bumps, MSRV moves, CI upkeep and release plumbing are what keep a
-project usable, and they are the first thing to lapse when there is none.
+Dependency bumps and CI upkeep are what keep a project usable, and they
+are the first thing to lapse when there is none.
 
 ## Other ways to help
 
 They cost nothing and several are worth more than a small donation:
 
 - Report a bug with a minimal reproduction.
-- Open a PR — see [CONTRIBUTING.md](CONTRIBUTING.md).
-- Report a vulnerability privately — see [SECURITY.md](SECURITY.md).
+- Open a PR — see [CONTRIBUTING.md](../../CONTRIBUTING.md).
+- Report a vulnerability privately — see [SECURITY.md](../../SECURITY.md).
 - Tell someone the project exists.

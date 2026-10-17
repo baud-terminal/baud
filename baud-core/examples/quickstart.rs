@@ -1,8 +1,8 @@
-//! The README quickstart, compiled.
+//! The embedding guide's quickstart, compiled.
 //!
-//! `baud-core/tests/readme.rs` asserts this file's body and the README's Rust
-//! block are the same text, so the example cannot rot: it is built by
-//! `cargo check --all-targets`, which the gate runs.
+//! `baud-core/tests/embedding.rs` asserts this file's body and the Rust block
+//! in `docs/embedding.md` are the same text, so the example cannot rot: it is
+//! built by `cargo check --all-targets`, which the gate runs.
 //!
 //! **The README used to show `baud-core2`'s API under `use baud_core`** --
 //! `Storage::boxed`, `OpMode`, `read_slot`/`commit_read` -- none of which this
