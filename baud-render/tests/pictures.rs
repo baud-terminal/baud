@@ -6,7 +6,7 @@
 //!
 //! The rule is only worth having if it is quiet on every TUI and fires on
 //! every preview, so both halves are gated on real bytes: the corpus and
-//! three themed-editor captures (`tests/panels/`) at every read boundary,
+//! the four panel captures (`tests/panels/`) at every read boundary,
 //! and chafa's two captures (`tests/previews/`) placed as yazi places them.
 //! Quiet on every TUI holds on a normal screen; under `?5`, where every
 //! cell draws its foreground as its background, btop and cava are found
@@ -27,6 +27,10 @@ const WS: WinSize = WinSize {
     ws_row: 8,
     ws_col: 40,
 };
+
+/// `tests/panels/`'s captures: three themed editors, and herdr stepping
+/// through the seventeen themes of its settings menu.
+const PANELS: [&str; 4] = ["helix", "vimdiff", "vimhl", "herdr-themes"];
 
 /// The corpus geometry, which the recordings and the panels were taken at.
 const CORPUS: WinSize = WinSize {
@@ -206,10 +210,12 @@ fn every_chafa_capture_is_a_picture_in_every_cell() {
 /// **On a normal screen no recording and no themed editor draws a
 /// picture, at any read boundary.** Under `?5` two of them do, and
 /// `under_reverse_video_only_btop_and_cava_draw_a_picture` holds that arm.
-/// The nine recordings and `tests/panels/`'s three captures --
+/// The nine recordings and `tests/panels/`'s four captures --
 /// vim's diff mode under `habamax`, the busiest block measured at 8
-/// colours, helix, and vim with a search highlighted -- each fed a read at
-/// a time, with the finder asked after every read.
+/// colours, helix, vim with a search highlighted, and herdr previewing
+/// each of its seventeen themes, whose busiest block is 3 colours on a
+/// finished screen and 5 at a read that splits a frame -- each fed a read
+/// at a time, with the finder asked after every read.
 ///
 /// Positive control: the same harness, fed a chafa capture after the
 /// last read, finds it -- so a zero is the rule being quiet, not the
@@ -220,7 +226,7 @@ fn no_recording_or_panel_draws_a_picture_at_any_read_boundary() {
     let streams = support::RECORDINGS
         .iter()
         .map(|r| format!("{root}/recordings/{r}"))
-        .chain(["helix", "vimdiff", "vimhl"].map(|p| format!("{root}/panels/{p}.raw")));
+        .chain(PANELS.map(|p| format!("{root}/panels/{p}.raw")));
     let (preview, _) = placed("chafa-truecolour.ans", 3, 20);
     let mut boundaries = 0usize;
     let mut set_bg_seen = 0usize;
@@ -260,7 +266,7 @@ fn no_recording_or_panel_draws_a_picture_at_any_read_boundary() {
 }
 
 /// **Under `?5` btop and cava draw pictures, and nothing else in the
-/// corpus does.** The same twelve streams as the normal-screen guard
+/// corpus does.** The same thirteen streams as the normal-screen guard
 /// above, fed a read at a time with the finder asked under
 /// [`Video::Reverse`] after every read. Every cell is exchanged under `?5`,
 /// so a cell's drawn background is its stored foreground, and the
@@ -276,15 +282,15 @@ fn no_recording_or_panel_draws_a_picture_at_any_read_boundary() {
 /// with a set foreground over the default background, which `?5`
 /// exchanges a second time onto the default.
 ///
-/// And the zeros were asked of colour: the ten quiet streams' last
-/// screens hold 33,327 cells whose drawn background under `?5` is set.
+/// And the zeros were asked of colour: the eleven quiet streams' last
+/// screens hold 33,449 cells whose drawn background under `?5` is set.
 #[test]
 fn under_reverse_video_only_btop_and_cava_draw_a_picture() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../tests");
     let streams = support::RECORDINGS
         .iter()
         .map(|r| format!("{root}/recordings/{r}"))
-        .chain(["helix", "vimdiff", "vimhl"].map(|p| format!("{root}/panels/{p}.raw")));
+        .chain(PANELS.map(|p| format!("{root}/panels/{p}.raw")));
     let (preview, _) = placed("chafa-truecolour.ans", 3, 20);
     let mut quiet_set_bg = 0usize;
     // Each stream: its name, reads, reads with a picture, the most cells
@@ -336,14 +342,14 @@ fn under_reverse_video_only_btop_and_cava_draw_a_picture() {
     }
     assert_eq!(
         want.iter().map(|w| w.1).collect::<Vec<_>>(),
-        [82, 128, 110, 123, 8, 80, 156, 21, 34, 16, 8, 4],
+        [82, 128, 110, 123, 8, 80, 156, 21, 34, 16, 8, 4, 54],
         "the reads each stream is fed in"
     );
     assert_eq!(
         got, want,
         "name, reads, with a picture, most cells, control"
     );
-    assert_eq!(quiet_set_bg, 33_327, "set backgrounds drawn under ?5");
+    assert_eq!(quiet_set_bg, 33_449, "set backgrounds drawn under ?5");
 }
 
 fn dim_renderer<'f, 'a>(faces: &'f [Face<'a>], pictures: PictureBg) -> Renderer<'f, 'a> {

@@ -1,7 +1,7 @@
-# Themed editors, as they draw their panels
+# Themed panels, as programs draw them
 
 Real captures of three full-screen editors under colour schemes that set a
-background on every cell. They are the false-positive half of the gate for
+background on every cell, and of a multiplexer drawing its own themes. They are the false-positive half of the gate for
 `[glass] pictures`: `baud-render/tests/pictures.rs` feeds each one a read at
 a time and requires that no read leaves a picture on the screen. A picture
 there is a connected block of set backgrounds holding sixteen colours or
@@ -15,8 +15,10 @@ its count is gated, and these are here only for what their panels look like.
 | `vimdiff.raw` | vim's diff mode over two of baud's own sources, `habamax`, cursorline and numbers | **8**, the busiest block measured |
 | `helix.raw` | helix editing `baud-core/src/prompt.rs` under its default theme, with a few edits | 5 |
 | `vimhl.raw` | vim under `desert` with a search highlighted and a visual selection | 3 |
+| `herdr-themes.raw` | herdr 0.9.5's settings menu, the cursor stepped down its seventeen themes, each previewed over the whole screen | 3 on a finished screen, 5 at a read that splits a frame |
 
-Every screen shows this repository's own source and nothing else. Two other
+Every editor screen shows this repository's own source and nothing else;
+herdr's shows a shell prompt in a directory named `demo`. Two other
 captures taken the same afternoon, of `mc` and of `delta`, were measured (3
 and 2) and not committed, because they show a home directory's paths.
 
@@ -46,3 +48,20 @@ Taken on 2026-09-22 with helix 25.07.1 and vim 9.1. The md5 digests are
 
 Like the recordings, they stop mid-session: the capture ends while the
 editor is still drawing, so the alternate screen is never left.
+
+## `herdr-themes.raw`
+
+217,939 bytes, md5 `fe1850f62554eca2844a70b03ec3fbd7`, taken
+2026-10-16 at 200x50 with herdr 0.9.5 under `TERM=xterm-256color`, `COLORTERM=truecolor` and
+`TERM_PROGRAM=baud`, from a scratch harness: herdr in a pty, its output fed
+to `baud-core`'s `Term` set to the dark half's colours, and each reply the
+`Term` owed written back after each 4096-byte read, as the app drains. So
+herdr's DA, `CSI ? u`, DECRQM, `CSI ? 996 n`, OSC 10, OSC 11 and the 256
+`OSC 4` queries were answered as the app answers them, the reply
+buffer's overflow included: 25 of the 256 entries (the replies are not in
+the file). Keys, encoded by `Term::key`: three seconds, `ctrl+b` `s` (the
+settings menu), then Down sixteen times 0.9 s apart, then Esc. herdr ran
+against a private `HOME`, config and socket, with `onboarding = false`,
+both update checks off and `[ui] window_title = "{workspace}"`, so the
+title carries no host name. Nothing in the file was edited. The record has
+what it shows: "herdr's themes under the glass".
