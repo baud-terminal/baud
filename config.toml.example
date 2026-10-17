@@ -145,8 +145,9 @@ ambiguous_width = "narrow"
 #
 # `light` and `dark` name a theme file for each half of the palette; `theme`
 # above still picks which half is drawn. A theme is a base16 or base24 scheme
-# (tinted-theming), or a ghostty, kitty or foot theme, told apart by what is in
-# the file and not by its name; each load says what the file was read as. A
+# (tinted-theming), or a ghostty, kitty, foot or alacritty theme (TOML, or the
+# YAML before alacritty 0.13), told apart by what is in the file and not by its
+# name; each load says what the file was read as. A
 # foot file holding both [colors-dark] and [colors-light] is refused: save the
 # half you want on its own. Theme files of other terminals are named for what
 # they are, and a file mixing two formats is refused with the line of each.

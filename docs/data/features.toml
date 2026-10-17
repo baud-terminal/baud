@@ -1238,10 +1238,10 @@ tests = ["baud-app/src/host.rs::osc_4_answers_the_light_themes_modus_green"]
 id = "themes"
 area = "window"
 name = "Your own themes"
-does = "A base16, base24, ghostty, kitty or foot theme for each of light and dark, recognised by what is in the file whatever its name; a broken theme, a file in another format, or a light one used for dark, is reported and baud's colours are kept."
+does = "A base16, base24, ghostty, kitty, foot or alacritty theme for each of light and dark, recognised by what is in the file whatever its name; a broken theme, a file in another format, or a light one used for dark, is reported and baud's colours are kept."
 status = "built"
 platform = "both"
-tests = ["baud-app/src/palette.rs::the_halves_load_and_say_what_they_must", "baud-app/src/palette.rs::a_polarity_notice_says_what_came_from_baud", "baud-app/src/palette.rs::a_ghostty_theme_named_yaml_is_read_as_ghostty_and_the_name_reported", "baud-app/src/palette.rs::a_base16_file_without_an_extension_is_read_as_base16", "baud-app/src/palette.rs::kitty_and_foot_files_read_as_the_colours_they_carry"]
+tests = ["baud-app/src/palette.rs::the_halves_load_and_say_what_they_must", "baud-app/src/palette.rs::a_polarity_notice_says_what_came_from_baud", "baud-app/src/palette.rs::a_ghostty_theme_named_yaml_is_read_as_ghostty_and_the_name_reported", "baud-app/src/palette.rs::a_base16_file_without_an_extension_is_read_as_base16", "baud-app/src/palette.rs::kitty_and_foot_files_read_as_the_colours_they_carry", "baud-app/src/palette.rs::an_alacritty_yaml_config_reads_as_the_colours_it_carries"]
 
 [[feature]]
 id = "program-colours"

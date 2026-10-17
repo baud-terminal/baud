@@ -1,0 +1,32 @@
+# A hand-made alacritty YAML config, before 0.13; not from a published
+# collection. The same dark colours as alacritty.toml, spelled with 0x.
+colors:
+  primary:
+    background: '0x161719'
+    foreground: '0xc5c8c7'
+  cursor:
+    text: '0x1d1f22'
+    cursor: '0xaeafad'
+  selection:
+    text: '0xc5c8c8'
+    background: '0x373b41'
+  normal:
+    black:   '0x1d1f21'
+    red:     '0xcc6666'
+    green:   '0xb5bd68'
+    yellow:  '0xf0c674'
+    blue:    '0x81a2be'
+    magenta: '0xb294bb'
+    cyan:    '0x8abeb7'
+    white:   '0xc5c8c6'
+  bright:
+    black:   '0x666666'
+    red:     '0xd54e53'
+    green:   '0xb9ca4a'
+    yellow:  '0xe7c547'
+    blue:    '0x7aa6da'
+    magenta: '0xc397d8'
+    cyan:    '0x70c0b1'
+    white:   '0xeaeaea'
+  indexed_colors:
+    - { index: 16, color: '#ff00ff' }

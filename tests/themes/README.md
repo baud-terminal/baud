@@ -26,3 +26,5 @@ with the others':
 - `tinted8.yaml`: tinted8's shape, `scheme:` holding `system: "tinted8"`.
 - `mixed`: YAML lines and a ghostty line in one file.
 - `slots-eq`: base16's slot names in `key = value` syntax.
+- `alacritty.yml`: the same colours as alacritty's YAML config before 0.13,
+  spelled `0x`, with one `indexed_colors` entry.

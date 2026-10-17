@@ -25706,6 +25706,63 @@ status = "external"
 group  = "Y"
 # Read 2026-10-17 for note AR's O4: the x17 branch is taken only for a
 # four-character "#rgb"; a bare "abc" splits into components a, b, c.
+
+[sources.alacritty-display-color-0c405d5]
+key    = "alacritty-display-color-0c405d5"
+title  = "alacritty 0c405d5, alacritty/src/display/color.rs -- Rgb::from_str (#rrggbb, 0xrrggbb), the {r,g,b} struct form, and CellRgb's CellForeground/CellBackground"
+author = "the Alacritty contributors"
+year   = 2026
+venue  = "alacritty/alacritty (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/0c405d53e74ace2980fc5e6c6d5b710c144bc075/alacritty/src/display/color.rs"
+file   = ""
+sha256 = "3570b2f1b05d45908c811af8aaadc0d1756510884a2209ccbacab8af5ae8084b"
+bytes  = 10935
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the alacritty theme reader (note AR); not committed.
+
+[sources.alacritty-config-color-0c405d5]
+key    = "alacritty-config-color-0c405d5"
+title  = "alacritty 0c405d5, alacritty/src/config/color.rs -- Colors, InvertedCellColors' text/cursor aliases, IndexedColor's index of 16 and up"
+author = "the Alacritty contributors"
+year   = 2026
+venue  = "alacritty/alacritty (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/0c405d53e74ace2980fc5e6c6d5b710c144bc075/alacritty/src/config/color.rs"
+file   = ""
+sha256 = "41e223b67a315b6d7a26fe18fb83e65bb5cd2ee979d7c1e2f3c290bd767d2941"
+bytes  = 7424
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the alacritty theme reader (note AR); not committed.
+
+[sources.alacritty-0-12-3-yml]
+key    = "alacritty-0-12-3-yml"
+title  = "alacritty v0.12.3 (eb35f43), alacritty.yml -- the YAML config's colors section, the last before TOML"
+author = "the Alacritty contributors"
+year   = 2023
+venue  = "alacritty/alacritty (Apache-2.0)"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.12.3/alacritty.yml"
+file   = ""
+sha256 = "3110fbf1d8cbeaaa388670dc6a86493a052903610bbdaa4d17150da833029e2b"
+bytes  = 31779
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the alacritty YAML reader (note AR); not committed.
+
+[sources.toml-1-0-0]
+key    = "toml-1-0-0"
+title  = "TOML v1.0.0 (8e29e84), toml.md -- the language alacritty's config is written in"
+author = "Tom Preston-Werner, Pradyun Gedam, et al."
+year   = 2021
+venue  = "toml-lang/toml (MIT)"
+url    = "https://raw.githubusercontent.com/toml-lang/toml/1.0.0/toml.md"
+file   = ""
+sha256 = "db2ee7bd0bd4145cf9621313f0cfaa42977bb17da7d176b09a1b866f2b8b5ffa"
+bytes  = 25584
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the alacritty theme reader's TOML subset (note AR).
+
 [sources.kitty-color-names-1e1486e]
 key    = "kitty-color-names-1e1486e"
 title  = "kitty 1e1486e, gen/color_names.py -- the 753 colour names parse_color looks up first"

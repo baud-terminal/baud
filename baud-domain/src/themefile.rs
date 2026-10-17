@@ -27,10 +27,12 @@
 
 use crate::{Chan, Color, ColorScheme, ColorWord};
 
+mod alacritty;
 mod colour_names;
 pub mod detect;
 mod terminals;
 
+pub use alacritty::{alacritty, alacritty_yaml};
 pub use terminals::{Skipped, foot, kitty};
 
 /// Why a colour value was refused.
@@ -93,6 +95,8 @@ pub enum Format {
     Ghostty,
     Kitty,
     Foot,
+    Alacritty,
+    AlacrittyYaml,
     /// A file with nothing in it but blank lines and comments: no format
     /// to name, and it sets nothing.
     Empty,
@@ -185,6 +189,10 @@ pub enum SchemeErrorKind {
     /// which half to read is undecided (note AR, O8): the line of the
     /// second.
     Pair,
+    /// A byte that is not UTF-8, in a format whose own text requires it:
+    /// TOML, JSON and XML without another encoding declared. The line of
+    /// the first such byte.
+    NotUtf8,
 }
 
 /// A base16/base24 slot number, `0x00` to `0x17`.
@@ -442,6 +450,20 @@ pub fn ghostty(text: &[u8], mut ignored: impl FnMut(Line, &[u8])) -> Result<Sche
         };
     }
     Ok(s)
+}
+
+/// `text` is UTF-8, or the line of its first byte that is not.
+fn utf8(text: &[u8]) -> Result<(), SchemeError> {
+    core::str::from_utf8(text).map(drop).map_err(|e| {
+        let n = text[..e.valid_up_to()]
+            .iter()
+            .filter(|&&b| b == b'\n')
+            .count();
+        SchemeError {
+            line: Line(u32::try_from(n).map_or(u32::MAX, |n| n.saturating_add(1))),
+            kind: SchemeErrorKind::NotUtf8,
+        }
+    })
 }
 
 /// `t` without the bytes of `set` at either end.

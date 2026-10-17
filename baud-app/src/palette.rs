@@ -216,6 +216,8 @@ fn format_name(f: Format) -> &'static str {
         Format::Ghostty => "a ghostty theme",
         Format::Kitty => "a kitty theme",
         Format::Foot => "a foot theme",
+        Format::Alacritty => "an alacritty theme",
+        Format::AlacrittyYaml => "an alacritty YAML config",
         Format::Empty => "an empty file",
     }
 }
@@ -366,13 +368,15 @@ fn load(spec: &str, half: Half, dirs: &Dirs, said: &mut Vec<String>) -> Option<S
             }),
             Some(m),
         ),
-        Verdict::Is(k @ (Kind::Kitty | Kind::Foot), m) => {
+        Verdict::Is(k @ (Kind::Kitty | Kind::Foot | Kind::Alacritty | Kind::AlacrittyYaml), m) => {
             let mut skip = |line: themefile::Line, key: &[u8], why: Skipped| {
                 ignored.push(skipped(&at, k, line, key, why));
             };
             let read = match k {
                 Kind::Kitty => themefile::kitty(body, &mut skip),
-                _ => themefile::foot(body, &mut skip),
+                Kind::Foot => themefile::foot(body, &mut skip),
+                Kind::Alacritty => themefile::alacritty(body, &mut skip),
+                _ => themefile::alacritty_yaml(body, &mut skip),
             };
             (read, Some(m))
         }
@@ -423,6 +427,7 @@ fn skipped(at: &str, k: Kind, line: themefile::Line, key: &[u8], why: Skipped) -
     let terminal = match k {
         Kind::Kitty => "kitty",
         Kind::Foot => "foot",
+        Kind::Alacritty | Kind::AlacrittyYaml => "alacritty",
         _ => "its terminal",
     };
     let what = match why {
@@ -432,6 +437,14 @@ fn skipped(at: &str, k: Kind, line: themefile::Line, key: &[u8], why: Skipped) -
         }
         Skipped::Section => format!("{key} holds no colours and is ignored"),
         Skipped::Syntax => format!("{key} is not a {terminal} setting and is ignored"),
+        Skipped::Unheld => format!(
+            "{key} is one of {terminal}'s own colours, which a theme here has no place for; ignored"
+        ),
+        Skipped::CellRelative => {
+            format!(
+                "{key} names the cell's own colour, which a theme here cannot hold; baud's stays"
+            )
+        }
     };
     format!("{at}: line {}: {what}", line.0)
 }
@@ -476,7 +489,7 @@ fn notice(at: &str, half: Half, scheme: &Scheme, said: &mut Vec<String>) {
     // a choice the file made.
     let numbered = matches!(
         scheme.format,
-        Format::Ghostty | Format::Kitty | Format::Foot
+        Format::Ghostty | Format::Kitty | Format::Foot | Format::Alacritty | Format::AlacrittyYaml
     );
     if numbered && scheme.extended.iter().any(Option::is_some) {
         said.push(format!(
@@ -525,6 +538,7 @@ fn reason(kind: SchemeErrorKind) -> String {
         SchemeErrorKind::PaletteIndex => "a palette number that is not 0-255".into(),
         SchemeErrorKind::ColourName => "a colour name, which baud does not resolve yet".into(),
         SchemeErrorKind::WideGamut => "an OKLCH or CIE LAB colour, which baud does not convert yet".into(),
+        SchemeErrorKind::NotUtf8 => "a byte that is not UTF-8, which the format requires".into(),
         SchemeErrorKind::Pair => {
             "a second theme: the file holds a dark and a light one, so save the one for this half alone".into()
         }
@@ -845,6 +859,33 @@ mod tests {
             "the search match colour is the page: {said}"
         );
         assert!(said.contains("an alacritty theme"), "{said}");
+        let colours = dark.map(|s| Scheme {
+            format: Format::Empty,
+            ..s
+        });
+        assert_eq!(colours, Some(fixture_night()), "{said}");
+        assert!(
+            said.contains("line 16: background is one of alacritty's own colours"),
+            "the search colours are said, not drawn: {said}"
+        );
+    }
+
+    /// **alacritty's YAML config, before 0.13, is read too**, with `0x`
+    /// colours and an `indexed_colors` entry.
+    #[test]
+    fn an_alacritty_yaml_config_reads_as_the_colours_it_carries() {
+        let (got, said) = dark_of("alacritty-yml", "alacritty.yml");
+        let colours = got.map(|s| Scheme {
+            format: Format::Empty,
+            ..s
+        });
+        let mut want = fixture_night();
+        want.extended[0] = Some(rgb("#ff00ff"));
+        assert_eq!(colours, Some(want), "{said}");
+        assert!(
+            said.contains("read as an alacritty YAML config (line 4: primary)"),
+            "{said}"
+        );
     }
 
     /// **A base16 file with no extension is read as base16**, with the
