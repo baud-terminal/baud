@@ -1534,6 +1534,7 @@ files   = [
   "rfc3986-uri.txt",
   "rfc4648-base64.txt",
   "rfc8089-file-uri.txt",
+  "rfc8259-json.txt",
 ]
 
 [upstream.uapi]

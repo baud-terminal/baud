@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 10 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 265 | 19 | redistributable, and its notice is satisfied |
+| kept | 266 | 19 | redistributable, and its notice is satisfied |
 | own | 187 | 0 | the owner's work |
-| total | 717 | 31 | |
+| total | 718 | 31 | |
 
 ## Licence texts in LICENSES/
 
@@ -1137,7 +1137,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** LicenseRef-IETF-RFC (https://trustee.ietf.org/documents/trust-legal-provisions/)
 - **Notice:** in the file
-- **Files:** 5
+- **Files:** 6
 
 | file | copied from |
 |---|---|
@@ -1146,6 +1146,7 @@ notice is, and the URL each file was copied from.
 | [rfc3986-uri.txt](docs/research/sources/rfc3986-uri.txt) | https://www.rfc-editor.org/rfc/rfc3986.txt |
 | [rfc4648-base64.txt](docs/research/sources/rfc4648-base64.txt) | https://www.rfc-editor.org/rfc/rfc4648.txt |
 | [rfc8089-file-uri.txt](docs/research/sources/rfc8089-file-uri.txt) | https://www.rfc-editor.org/rfc/rfc8089.txt |
+| [rfc8259-json.txt](docs/research/sources/rfc8259-json.txt) | https://www.rfc-editor.org/rfc/rfc8259.txt |
 
 ### iTerm2-Color-Schemes
 

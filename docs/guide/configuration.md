@@ -64,8 +64,10 @@ Menlo, emoji, symbol and Chinese, Japanese and Korean fonts behind them.
 | `light` | a theme file or name | baud's light colours | The colours used when the light appearance is in effect. |
 | `dark` | a theme file or name | baud's dark colours | The colours used when the dark appearance is in effect. |
 
-A theme can be a base16 or base24 scheme, or a ghostty, kitty, foot or
-alacritty theme (alacritty's TOML, or its older YAML). baud tells which by what is in the file, not by its name, and says
+A theme can be a base16 or base24 scheme, a ghostty, kitty, foot or
+alacritty theme (alacritty's TOML, or its older YAML), an iTerm2 colour
+preset (`.itermcolors`, its colours converted as macOS converts them) or a
+Windows Terminal colour scheme. baud tells which by what is in the file, not by its name, and says
 what it read it as; a foot file with both a dark and a light section is
 refused, so save the one you want on its own; a file whose name says another format is still read, and the name is
 mentioned. Other terminals' theme files are recognised and named, and a

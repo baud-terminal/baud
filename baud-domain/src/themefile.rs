@@ -30,9 +30,12 @@ use crate::{Chan, Color, ColorScheme, ColorWord};
 mod alacritty;
 mod colour_names;
 pub mod detect;
+pub mod gamut;
+mod iterm;
 mod terminals;
 
 pub use alacritty::{alacritty, alacritty_yaml};
+pub use iterm::{iterm, windows_terminal};
 pub use terminals::{Skipped, foot, kitty};
 
 /// Why a colour value was refused.
@@ -97,6 +100,8 @@ pub enum Format {
     Foot,
     Alacritty,
     AlacrittyYaml,
+    ITermPlist,
+    WindowsTerminal,
     /// A file with nothing in it but blank lines and comments: no format
     /// to name, and it sets nothing.
     Empty,
@@ -189,6 +194,10 @@ pub enum SchemeErrorKind {
     /// which half to read is undecided (note AR, O8): the line of the
     /// second.
     Pair,
+    /// A Windows Terminal scheme without the `name` it requires.
+    NoName,
+    /// A Windows Terminal scheme without its sixteen table colours.
+    Count,
     /// A byte that is not UTF-8, in a format whose own text requires it:
     /// TOML, JSON and XML without another encoding declared. The line of
     /// the first such byte.

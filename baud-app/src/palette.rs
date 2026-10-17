@@ -218,6 +218,8 @@ fn format_name(f: Format) -> &'static str {
         Format::Foot => "a foot theme",
         Format::Alacritty => "an alacritty theme",
         Format::AlacrittyYaml => "an alacritty YAML config",
+        Format::ITermPlist => "an iTerm2 colour preset",
+        Format::WindowsTerminal => "a Windows Terminal scheme",
         Format::Empty => "an empty file",
     }
 }
@@ -368,7 +370,15 @@ fn load(spec: &str, half: Half, dirs: &Dirs, said: &mut Vec<String>) -> Option<S
             }),
             Some(m),
         ),
-        Verdict::Is(k @ (Kind::Kitty | Kind::Foot | Kind::Alacritty | Kind::AlacrittyYaml), m) => {
+        Verdict::Is(
+            k @ (Kind::Kitty
+            | Kind::Foot
+            | Kind::Alacritty
+            | Kind::AlacrittyYaml
+            | Kind::ITermPlist
+            | Kind::WindowsTerminal),
+            m,
+        ) => {
             let mut skip = |line: themefile::Line, key: &[u8], why: Skipped| {
                 ignored.push(skipped(&at, k, line, key, why));
             };
@@ -376,7 +386,9 @@ fn load(spec: &str, half: Half, dirs: &Dirs, said: &mut Vec<String>) -> Option<S
                 Kind::Kitty => themefile::kitty(body, &mut skip),
                 Kind::Foot => themefile::foot(body, &mut skip),
                 Kind::Alacritty => themefile::alacritty(body, &mut skip),
-                _ => themefile::alacritty_yaml(body, &mut skip),
+                Kind::AlacrittyYaml => themefile::alacritty_yaml(body, &mut skip),
+                Kind::ITermPlist => themefile::iterm(body, &mut skip),
+                _ => themefile::windows_terminal(body, &mut skip),
             };
             (read, Some(m))
         }
@@ -428,6 +440,8 @@ fn skipped(at: &str, k: Kind, line: themefile::Line, key: &[u8], why: Skipped) -
         Kind::Kitty => "kitty",
         Kind::Foot => "foot",
         Kind::Alacritty | Kind::AlacrittyYaml => "alacritty",
+        Kind::ITermPlist => "iTerm2",
+        Kind::WindowsTerminal => "Windows Terminal",
         _ => "its terminal",
     };
     let what = match why {
@@ -440,6 +454,7 @@ fn skipped(at: &str, k: Kind, line: themefile::Line, key: &[u8], why: Skipped) -
         Skipped::Unheld => format!(
             "{key} is one of {terminal}'s own colours, which a theme here has no place for; ignored"
         ),
+        Skipped::Clipped => format!("{key} is outside sRGB and is clipped, as macOS clips it"),
         Skipped::CellRelative => {
             format!(
                 "{key} names the cell's own colour, which a theme here cannot hold; baud's stays"
@@ -538,6 +553,8 @@ fn reason(kind: SchemeErrorKind) -> String {
         SchemeErrorKind::PaletteIndex => "a palette number that is not 0-255".into(),
         SchemeErrorKind::ColourName => "a colour name, which baud does not resolve yet".into(),
         SchemeErrorKind::WideGamut => "an OKLCH or CIE LAB colour, which baud does not convert yet".into(),
+        SchemeErrorKind::NoName => "no name, which a Windows Terminal scheme requires".into(),
+        SchemeErrorKind::Count => "fewer than the sixteen colours a Windows Terminal scheme requires".into(),
         SchemeErrorKind::NotUtf8 => "a byte that is not UTF-8, which the format requires".into(),
         SchemeErrorKind::Pair => {
             "a second theme: the file holds a dark and a light one, so save the one for this half alone".into()
@@ -979,6 +996,40 @@ mod tests {
             assert!(said.contains(why), "{file}: {said}");
             assert!(!said.contains("ignored"), "{file}: {said}");
         }
+    }
+
+    /// **iTerm2's presets and Windows Terminal's schemes are read**, each
+    /// to the colours it carries; Windows Terminal has no cursor text or
+    /// selection text colour.
+    #[test]
+    fn iterm2_and_windows_terminal_files_read_as_the_colours_they_carry() {
+        let (got, said) = dark_of("iterm", "night.itermcolors");
+        let colours = got.map(|s| Scheme {
+            format: Format::Empty,
+            ..s
+        });
+        assert_eq!(colours, Some(fixture_night()), "{said}");
+        assert!(
+            said.contains("read as an iTerm2 colour preset (line 6: Ansi 0 Color)"),
+            "{said}"
+        );
+        assert!(
+            said.contains("Bold Color is one of iTerm2's own colours"),
+            "{said}"
+        );
+        let (got, said) = dark_of("wt", "windows-terminal.json");
+        let colours = got.map(|s| Scheme {
+            format: Format::Empty,
+            ..s
+        });
+        let mut want = fixture_night();
+        want.cursor_text = None;
+        want.selection_text = None;
+        assert_eq!(colours, Some(want), "{said}");
+        assert!(
+            said.contains("read as a Windows Terminal scheme (line 16: brightBlack)"),
+            "{said}"
+        );
     }
 
     /// **A file is read as bytes wherever its format is**: a ghostty

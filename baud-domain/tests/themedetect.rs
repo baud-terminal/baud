@@ -196,11 +196,15 @@ fn documents_are_told_by_their_first_byte() {
         "<?xml version=\"1.0\"?>\n<plist version=\"1.0\">\n<dict>\n<key>Ansi 0 Color</key>\n";
     assert_eq!(
         decided(plist),
-        (Kind::ITermPlist, Line(4), "<key>Ansi 0 Color</key>".into())
+        (Kind::ITermPlist, Line(4), "Ansi 0 Color".into())
     );
     assert_eq!(classify(b"<html></html>\n"), Verdict::Unknown(Unknown::Xml));
-    let wt = "{\n  \"name\": \"x\",\n  \"background\": \"#000000\",\n  \"foreground\": \"#ffffff\",\n  \"purple\": \"#880088\"\n}\n";
-    assert_eq!(decided(wt).0, Kind::WindowsTerminal);
+    let wt =
+        "{\n  \"name\": \"x\",\n  \"brightBlack\": \"#000000\",\n  \"magenta\": \"#880088\"\n}\n";
+    assert_eq!(
+        decided(wt),
+        (Kind::WindowsTerminal, Line(3), "brightBlack".into())
+    );
     assert!(matches!(
         classify(b"{\n  \"schemes\": [\n"),
         Verdict::Unknown(Unknown::JsonSchemes(_))

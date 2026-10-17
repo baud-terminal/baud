@@ -769,6 +769,8 @@ re-asked 680/681, jev-1.13.0, none cached):
 | O4 hex forms | keep all four (0.45 / 0.59) | keep all four (0.44 / 0.49) | open; today's stays |
 | O8 a light/dark pair in one file | read the named half (0.50 / 0.56) | read the named half (0.82 / 0.90) | open; refused naming both |
 | an empty or comments-only file | load empty (0.76 / 0.88) | load empty (0.74 / 0.72) | open; today's (load empty) stays |
+| iTerm2 `Calibrated` or no `Color Space` | convert as macOS's generic RGB (0.97 / 0.97) | | **decided** (682/683) |
+| a float component to 8 bits | round (0.80 / 0.72) | round (0.96 / 0.92) | **decided** (684/685) |
 
 The facts asked with:
 
@@ -812,7 +814,7 @@ hash and never committed) are read as kitty reads them, and so is which
 
 **O14. How an `oklch(` or `lab(` colour is drawn: open.** kitty's code and
 its documentation ([[source: kitty-wide-gamut-docs-1e1486e]]) disagree,
-and both differ from CSS Color 4's 2026-10-09 draft:
+and both differ from [[source: css-color-4-20261009]]:
 
 | | kitty's code | kitty's docs | CSS Color 4 |
 |---|---|---|---|
@@ -830,3 +832,16 @@ and out-of-gamut cases refuse 0.25 / 0.52. Below the bar, a file holding
 a value kitty reads as `oklch(` or `lab(` stays refused at its line
 (`WideGamut`), and one kitty refuses is skipped. The owner's, or Jev's with
 a fact these asks did not have.
+
+## Bytes that are not UTF-8 (2026-10-17)
+
+**The detector reads bytes.** A byte that is not UTF-8 decides no verdict,
+so a ghostty theme with a Latin-1 comment loads as it did before
+detection, and so do kitty (which reads its config with `errors='replace'`,
+[[source: kitty-conf-utils-1e1486e]] 468) and foot. Three
+formats' own texts require UTF-8, and their readers refuse other bytes,
+naming the line: TOML ("A TOML file must be a valid UTF-8 encoded Unicode
+document", [[source: toml-1-0-0]] 44), JSON exchanged as a file
+([[source: rfc8259-json]] 8.1) and XML that declares no encoding or UTF-8
+([[source: xml-1-0-5e]] 4.3.3). A plist declaring another encoding is read
+as bytes. base16 and alacritty's YAML read bytes, as base did.

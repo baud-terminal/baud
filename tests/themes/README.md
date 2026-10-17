@@ -28,3 +28,8 @@ with the others':
 - `slots-eq`: base16's slot names in `key = value` syntax.
 - `alacritty.yml`: the same colours as alacritty's YAML config before 0.13,
   spelled `0x`, with one `indexed_colors` entry.
+- `night.itermcolors` and `windows-terminal.json`: the same colours as an
+  iTerm2 preset in sRGB (each component a byte over 255) and as a Windows
+  Terminal scheme, which has no cursor text or selection text colour; the
+  JSON keeps a comment and a trailing comma, as Windows Terminal's reader
+  allows.

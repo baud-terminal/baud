@@ -55,7 +55,8 @@ pub enum Kind {
     AlacrittyYaml,
     /// An iTerm2 colour preset, an XML plist with `Ansi 0 Color`.
     ITermPlist,
-    /// A Windows Terminal scheme: a JSON object with `purple`.
+    /// A Windows Terminal scheme: a JSON object with `brightBlack` and
+    /// `purple` or `magenta`.
     WindowsTerminal,
     /// X resources: `*.color0: ...`.
     Xresources,
@@ -238,7 +239,14 @@ fn find<'a>(text: &'a [u8], needle: &'static [u8]) -> Option<Mark<'a>> {
 
 fn xml(text: &[u8]) -> Verdict<'_> {
     match find(text, b"<key>Ansi 0 Color</key>") {
-        Some(m) => Verdict::Is(Kind::ITermPlist, m),
+        // The mark names the key, not its tags.
+        Some(m) => Verdict::Is(
+            Kind::ITermPlist,
+            Mark {
+                key: &m.key[5..m.key.len() - 6],
+                ..m
+            },
+        ),
         None => Verdict::Unknown(Unknown::Xml),
     }
 }
@@ -247,12 +255,18 @@ fn json(text: &[u8]) -> Verdict<'_> {
     if let Some(m) = find(text, b"\"schemes\"") {
         return Verdict::Unknown(Unknown::JsonSchemes(m));
     }
-    match (
-        find(text, b"\"purple\""),
-        find(text, b"\"background\""),
-        find(text, b"\"foreground\""),
-    ) {
-        (Some(m), Some(_), Some(_)) => Verdict::Is(Kind::WindowsTerminal, m),
+    // Windows Terminal's table names: `brightBlack`, and `purple` or its
+    // alternate `magenta` (`[[source: windows-terminal-colorscheme-9fd41b2]]`
+    // 24-45); the page and the text are optional there.
+    let magenta = find(text, b"\"purple\"").or_else(|| find(text, b"\"magenta\""));
+    match (find(text, b"\"brightBlack\""), magenta) {
+        (Some(m), Some(_)) => Verdict::Is(
+            Kind::WindowsTerminal,
+            Mark {
+                key: &m.key[1..m.key.len() - 1],
+                ..m
+            },
+        ),
         _ => Verdict::Unknown(Unknown::Json),
     }
 }

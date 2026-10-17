@@ -25763,6 +25763,202 @@ status = "external"
 group  = "Y"
 # Read 2026-10-17 for the alacritty theme reader's TOML subset (note AR).
 
+[sources.iterm2-nsdictionary-9e29604]
+key    = "iterm2-nsdictionary-9e29604"
+title  = "iTerm2 9e29604, sources/Categories/NSDictionary+iTerm.m -- colorValueForKey: 'sRGB' is sRGB, 'P3' Display P3, anything else calibrated RGB"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 (GPL-2.0-or-later)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/9e296042e4a89670c150b43267244836c2388eaf/sources/Categories/NSDictionary%2BiTerm.m"
+file   = ""
+sha256 = "4388c4924b5b1f104c48cffe2fd2547a05eb10af61ba3705398de2d99ffc463c"
+bytes  = 19796
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the .itermcolors reader (note AR); not committed: GPL.
+
+[sources.iterm2-color-presets-9e29604]
+key    = "iterm2-color-presets-9e29604"
+title  = "iTerm2 9e29604, sources/Settings/iTermColorPresets.m -- iTermColorPresetHasModes: a preset with 'Foreground Color (Light)' holds a light and a dark scheme"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 (GPL-2.0-or-later)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/9e296042e4a89670c150b43267244836c2388eaf/sources/Settings/iTermColorPresets.m"
+file   = ""
+sha256 = "f820fdb6fe6934c2f810008098793be7ac2582e74e42c4d4e50008dd43a48798"
+bytes  = 13993
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the .itermcolors reader (note AR); not committed: GPL.
+
+[sources.iterm2-nscolor-9e29604]
+key    = "iterm2-nscolor-9e29604"
+title  = "iTerm2 9e29604, sources/Categories/NSColor+iTerm.m -- the plist's colour keys and space names, and the hex display's truncation"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 (GPL-2.0-or-later)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/9e296042e4a89670c150b43267244836c2388eaf/sources/Categories/NSColor%2BiTerm.m"
+file   = ""
+sha256 = "6c6b1e05f21ef574dbf6c55d5bc6dac5b27b16472e91f40790028ad1ffc71ff0"
+bytes  = 48445
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the .itermcolors reader (note AR); not committed: GPL.
+
+[sources.windows-terminal-colorscheme-9fd41b2]
+key    = "windows-terminal-colorscheme-9fd41b2"
+title  = "microsoft/terminal 9fd41b2, src/cascadia/TerminalSettingsModel/ColorScheme.cpp -- the table names, magenta as purple's alternate, and a scheme valid with a name and sixteen colours"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/9fd41b2/src/cascadia/TerminalSettingsModel/ColorScheme.cpp"
+file   = ""
+sha256 = "4e1b16e71640aa88587fba8bea066e379ac0bbda9924e9aaa892ffe9200e0485"
+bytes  = 6089
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the Windows Terminal scheme reader (note AR).
+
+[sources.windows-terminal-jsonutils-9fd41b2]
+key    = "windows-terminal-jsonutils-9fd41b2"
+title  = "microsoft/terminal 9fd41b2, src/cascadia/TerminalSettingsModel/JsonUtils.h -- GetValueForKey throws on a value it cannot convert; a colour is #rgb or #rrggbb"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/9fd41b2/src/cascadia/TerminalSettingsModel/JsonUtils.h"
+file   = ""
+sha256 = "312cdca95ee09427db673370ca2c5a6ede7bdadb02218b86378ebd0f7d510566"
+bytes  = 34636
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the Windows Terminal scheme reader (note AR).
+
+[sources.windows-terminal-utils-9fd41b2]
+key    = "windows-terminal-utils-9fd41b2"
+title  = "microsoft/terminal 9fd41b2, src/types/utils.cpp -- ColorFromHexString: #rgb each digit doubled, #rrggbb, std::stoul on each pair"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/9fd41b2/src/types/utils.cpp"
+file   = ""
+sha256 = "f336dca77e5e2c65ddd718a19213f0217c3ef77151e6a7ba0c56f0e2eb4b172f"
+bytes  = 51345
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the Windows Terminal scheme reader (note AR).
+
+[sources.windows-terminal-schema-9fd41b2]
+key    = "windows-terminal-schema-9fd41b2"
+title  = "microsoft/terminal 9fd41b2, doc/cascadia/profiles.schema.json -- the Color pattern and the schemes' keys"
+author = "Microsoft"
+year   = 2026
+venue  = "microsoft/terminal (MIT)"
+url    = "https://raw.githubusercontent.com/microsoft/terminal/9fd41b2/doc/cascadia/profiles.schema.json"
+file   = ""
+sha256 = "66e717363481603277855cd321c0cf5cc8c0940b18afae45763305502306b3c2"
+bytes  = 115943
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the Windows Terminal scheme reader (note AR).
+
+[sources.jsoncpp-reader-1-9-6]
+key    = "jsoncpp-reader-1-9-6"
+title  = "jsoncpp 1.9.6 (89e2973), src/lib_json/json_reader.cpp -- CharReaderBuilder::setDefaults: comments and trailing commas allowed, duplicate keys and trailing text not refused"
+author = "Baptiste Lepilleur and the JsonCpp authors"
+year   = 2024
+venue  = "open-source-parsers/jsoncpp (MIT), the version Windows Terminal 9fd41b2 builds"
+url    = "https://raw.githubusercontent.com/open-source-parsers/jsoncpp/1.9.6/src/lib_json/json_reader.cpp"
+file   = ""
+sha256 = "d2a4cf73844f81bce79b7943daccbaecf64738ccd0c71bd892bb97dcc9d90da3"
+bytes  = 59135
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the Windows Terminal scheme reader (note AR).
+
+[sources.css-color-4-20261009]
+key    = "css-color-4-20261009"
+title  = "CSS Color Module Level 4, W3C Candidate Recommendation Draft, 9 October 2026 -- 10.2 sRGB and 10.4 display-p3: primaries, D65 and the transfer curve"
+author = "Tab Atkins Jr., Chris Lilley, Lea Verou"
+year   = 2026
+venue  = "W3C"
+url    = "https://www.w3.org/TR/2026/CRD-css-color-4-20261009/"
+file   = ""
+sha256 = "2174f6360440f9820b30934368308a68bd514160f86621476b83eb2004c2c63f"
+bytes  = 1048849
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the .itermcolors reader's P3 to sRGB matrices (note AR).
+
+[sources.apple-cgcolorspace-displayp3]
+key    = "apple-cgcolorspace-displayp3"
+title  = "Core Graphics, CGColorSpace displayP3 -- \"uses the DCI P3 primaries, a D65 white point, and the sRGB transfer function\""
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/coregraphics"
+url    = "https://developer.apple.com/tutorials/data/documentation/coregraphics/cgcolorspace/displayp3.json"
+file   = ""
+sha256 = "cac0e57ff3d88fb2566a5323b8f024caa9ebb27a1b941de794004aded33803ec"
+bytes  = 29247
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the .itermcolors reader; not committed -- vendor documentation.
+
+[sources.apple-nscolor-calibrated]
+key    = "apple-nscolor-calibrated"
+title  = "AppKit, NSColor init(calibratedRed:green:blue:alpha:) -- \"Values below 0.0 are interpreted as 0.0, and values above 1.0 are interpreted as 1.0\""
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nscolor/init(calibratedred:green:blue:alpha:).json"
+file   = ""
+sha256 = "ab569ebfd7834adfe26cf8095241d2088e3b40093170ae440a6c88807bd50639"
+bytes  = 26276
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the .itermcolors reader; not committed -- vendor documentation.
+
+[sources.apple-nscolorspace-genericrgb]
+key    = "apple-nscolorspace-genericrgb"
+title  = "AppKit, NSColorSpace genericRGB -- \"a device-independent RGB color space\""
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nscolorspace/genericrgb.json"
+file   = ""
+sha256 = "f1d32ba4ce5a9cc29c6e55d4fcacd1947914af1ad4b0ea12825f443fb8d59cd8"
+bytes  = 21456
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the .itermcolors reader; not committed -- vendor documentation.
+
+[sources.macos-generic-rgb-icc]
+key    = "macos-generic-rgb-icc"
+title  = "macOS 27.0 (26A5425a), Generic RGB Profile.icc -- the calibrated RGB space's colorants, read as s15Fixed16"
+author = "Apple"
+year   = 2026
+venue  = "macOS 27.0 (26A5425a), /System/Library/ColorSync/Profiles"
+url    = "file:///System/Library/ColorSync/Profiles/Generic%20RGB%20Profile.icc"
+file   = ""
+sha256 = "49429d4dd70f439f6fa47a298e5ffbd280375d2cbd18708b1e05a34aafe5d219"
+bytes  = 1992
+status = "external"
+group  = "Y"
+# Read 2026-10-17: its rXYZ, gXYZ and bXYZ are copied into gamut.rs as stored; not committed -- an operating-system file.
+
+[sources.macos-srgb-icc]
+key    = "macos-srgb-icc"
+title  = "macOS 27.0 (26A5425a), sRGB Profile.icc -- the sRGB space's D50 colorants, read as s15Fixed16"
+author = "Apple"
+year   = 2026
+venue  = "macOS 27.0 (26A5425a), /System/Library/ColorSync/Profiles"
+url    = "file:///System/Library/ColorSync/Profiles/sRGB%20Profile.icc"
+file   = ""
+sha256 = "2b3aa1645779a9e634744faf9b01e9102b0c9b88fd6deced7934df86b949af7e"
+bytes  = 3144
+status = "external"
+group  = "Y"
+# Read 2026-10-17: its rXYZ, gXYZ and bXYZ are copied into gamut.rs as stored; not committed -- an operating-system file.
+
 [sources.kitty-color-names-1e1486e]
 key    = "kitty-color-names-1e1486e"
 title  = "kitty 1e1486e, gen/color_names.py -- the 753 colour names parse_color looks up first"
@@ -25824,3 +26020,35 @@ group  = "Y"
 # The last rgb.txt before the 2014 CSS names; kitty's table is it,
 # lower-cased, plus debianred (note AR). baud-domain's colour_names.rs is
 # generated from it.
+
+[sources.rfc8259-json]
+key    = "rfc8259-json"
+title  = "RFC 8259: The JavaScript Object Notation (JSON) Data Interchange Format"
+author = "T. Bray"
+year   = 2017
+venue  = "IETF RFC 8259 (STD 90)"
+url    = "https://www.rfc-editor.org/rfc/rfc8259.txt"
+file   = "rfc8259-json.txt"
+sha256 = "61a5378f4255c720beb2a4b4a63b29540147c140f36988bf086291989b4cd2d7"
+bytes  = 28360
+status = "retrieved"
+group  = "Y"
+# 8.1: "JSON text exchanged between systems that are not part of a closed
+# ecosystem MUST be encoded using UTF-8", which the Windows Terminal
+# scheme reader holds a file to (note AR).
+
+[sources.xml-1-0-5e]
+key    = "xml-1-0-5e"
+title  = "Extensible Markup Language (XML) 1.0 (Fifth Edition), W3C Recommendation 26 November 2008 -- 4.3.3 Character Encoding in Entities"
+author = "Tim Bray, Jean Paoli, C. M. Sperberg-McQueen, Eve Maler, Francois Yergeau"
+year   = 2008
+venue  = "W3C"
+url    = "https://www.w3.org/TR/2008/REC-xml-20081126/"
+file   = ""
+sha256 = "f58a4b9e1e5b8bac13fb55c4e5c7c8c5e2c176aa45ee68e2f1ab2498511927ec"
+bytes  = 219926
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the .itermcolors reader: an entity in UTF-8 with an
+# ill-formed sequence, or with no encoding declaration and not UTF-8, is a
+# fatal error (4.3.3; line 1421 of the fetched page).
