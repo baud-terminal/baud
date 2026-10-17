@@ -3425,6 +3425,84 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
         "the bar cursor on a line was drawn as asked, not floored"
     );
     feed(t, b"\x1b[?25l\x1b[0 q");
+
+    // **A selected line's background is the floored text, as a selected
+    // letter's is** (the owner's call of 2026-10-17, decisions 702/703): a
+    // swap hands the background `fg` and the line rule leaves it alone.
+    // Row 8 holds `x` and `U+2502` in herdr's divider colour, which says
+    // where each glyph inks; row 9 holds them again, selected. All three
+    // arms draw it; on the pixels neither glyph inks, the selected line's
+    // equal the selected letter's, and move with the floor.
+    feed(
+        t,
+        "\x1b[9;41H\x1b[38;2;21;22;27mx\u{2502}\x1b[10;41Hx\u{2502}\x1b[0m".as_bytes(),
+    );
+    arms.highlight = Some(Highlight {
+        from: (Row::from_index(9), Col::at_index(40)),
+        to: (Row::from_index(9), Col::at_index(41)),
+        region: Region::Stream,
+    });
+    let cell = |f: &[u32], row: usize, col: usize| -> Vec<u32> {
+        (0..ch)
+            .flat_map(|y| (0..cw).map(move |x| (row * ch + y) * fw + col * cw + x))
+            .map(|i| f[i])
+            .collect()
+    };
+    let mut seen = Vec::new();
+    for floor in [baud_render::Floor::DEFAULT, baud_render::Floor::Off] {
+        arms.renderer.set_theme(Theme {
+            app_bg: baud_render::AppBg::Dimmed,
+            picture_bg: baud_render::PictureBg::Opaque,
+            floor,
+            ..resting.clone()
+        });
+        let (a, b) = arms.draw(t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "{floor:?}: the GPU arms disagree over a selected line"
+        );
+        let cpu = cpu_frame(arms, t);
+        let all = channel_diff(&cpu, &a, |_| true);
+        assert_eq!(
+            all.0, 0,
+            "{floor:?}: CPU and GPU differ over a selected line, by up to {}",
+            all.1
+        );
+        // The letter, the line and a blank beside them, unselected; then
+        // the letter and the line, selected.
+        seen.push([
+            cell(&b, 8, 40),
+            cell(&b, 8, 41),
+            cell(&b, 8, 44),
+            cell(&b, 9, 40),
+            cell(&b, 9, 41),
+        ]);
+    }
+    arms.highlight = None;
+    let bare: Vec<usize> = (0..cw * ch)
+        .filter(|&i| {
+            seen.iter()
+                .all(|f| f[0][i] == f[2][i] && f[1][i] == f[2][i])
+        })
+        .collect();
+    assert!(
+        bare.len() * 4 > cw * ch,
+        "the control: most of the cell is bare, {} of {}",
+        bare.len(),
+        cw * ch
+    );
+    let pick = |floor: usize, k: usize| bare.iter().map(|&i| seen[floor][k][i]).collect::<Vec<_>>();
+    assert_eq!(
+        pick(0, 4),
+        pick(0, 3),
+        "a selected line's background is a selected letter's, floored"
+    );
+    assert_ne!(
+        pick(0, 4),
+        pick(1, 4),
+        "the control: the floor moved the selected line's background"
+    );
 }
 
 /// The CPU arm: [`Renderer::render_at`] into a [`Target`], each pixel then

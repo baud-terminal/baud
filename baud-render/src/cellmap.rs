@@ -705,8 +705,11 @@ impl Resolved {
     ///   **Text over a page left dimmed is [`Resolved::glass`]**, and over
     ///   a solid one [`Resolved::fg`]; a swap takes `fg`, since it draws
     ///   both sides solid. **A box-drawing line is [`Resolved::line`]** on
-    ///   either page; what a swap hands the background stays `fg` (Jev did
-    ///   not decide it: decisions 674-677).
+    ///   either page; what a swap hands the background stays `fg`, floored,
+    ///   as a selected letter's: Jev's lean, below the bar (decisions
+    ///   702/703, 0.54 and 0.68), taken on the owner's "use the recommended
+    ///   answers" of 2026-10-17, and pinned on the CPU arm by
+    ///   `a_selected_line_takes_the_floored_background_a_letter_does`.
     /// * **The selection swaps, then a block cursor swaps again**, and both
     ///   leave the two colours opaque: the foreground a swap hands back is
     ///   the old background, which carries the dim, and a glyph at 0.22 over
