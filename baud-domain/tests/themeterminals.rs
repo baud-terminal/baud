@@ -257,3 +257,21 @@ fn foot_with_both_halves_is_refused_and_either_alone_is_read() {
     let empty_light = "[colors-dark]\nbackground=000000\n[colors-light]\n";
     assert_eq!(foot_of(empty_light).0.unwrap().page, Some(c("#000000")));
 }
+
+/// A list of sixteen colours lands on ANSI 0 to 15 in order, either
+/// case; the page and the text stay unset; any other count is refused.
+#[test]
+fn a_plain_list_is_ansi_0_to_15() {
+    let lines: Vec<String> = (0..16).map(|i| format!("#0{i:x}0{i:X}0A")).collect();
+    let s = plain_list(lines.join("\n").as_bytes()).unwrap();
+    assert_eq!(s.ansi[0], Some(c("#00000a")));
+    assert_eq!(s.ansi[15], Some(c("#0f0f0a")));
+    assert_eq!((s.page, s.text, s.format), (None, None, Format::PlainList));
+    assert_eq!(
+        plain_list(lines[..15].join("\n").as_bytes()).map(|_| ()),
+        Err(SchemeError {
+            line: Line(15),
+            kind: SchemeErrorKind::Count
+        })
+    );
+}

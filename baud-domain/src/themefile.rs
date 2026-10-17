@@ -36,7 +36,7 @@ mod terminals;
 
 pub use alacritty::{alacritty, alacritty_yaml};
 pub use iterm::{iterm, windows_terminal};
-pub use terminals::{Skipped, foot, kitty};
+pub use terminals::{Skipped, foot, kitty, plain_list};
 
 /// Why a colour value was refused.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -102,6 +102,8 @@ pub enum Format {
     AlacrittyYaml,
     ITermPlist,
     WindowsTerminal,
+    /// Sixteen `#rrggbb` lines.
+    PlainList,
     /// A file with nothing in it but blank lines and comments: no format
     /// to name, and it sets nothing.
     Empty,
@@ -196,7 +198,8 @@ pub enum SchemeErrorKind {
     Pair,
     /// A Windows Terminal scheme without the `name` it requires.
     NoName,
-    /// A Windows Terminal scheme without its sixteen table colours.
+    /// A Windows Terminal scheme without its sixteen table colours, or a
+    /// list of colours that is not sixteen.
     Count,
     /// A byte that is not UTF-8, in a format whose own text requires it:
     /// TOML, JSON and XML without another encoding declared. The line of

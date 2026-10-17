@@ -144,14 +144,16 @@ ambiguous_width = "narrow"
 # "off" turns it off.
 #
 # `light` and `dark` name a theme file for each half of the palette; `theme`
-# above still picks which half is drawn. A theme is a base16 or base24 scheme
-# (tinted-theming), a ghostty, kitty, foot or alacritty theme (TOML, or the
-# YAML before alacritty 0.13), an iTerm2 .itermcolors preset (its sRGB, P3 and
-# calibrated colours converted as macOS converts them) or a Windows Terminal
-# scheme, told apart by what is in the file and not by its name; each load says what the file was read as. A
-# foot file holding both [colors-dark] and [colors-light] is refused: save the
-# half you want on its own. Theme files of other terminals are named for what
-# they are, and a file mixing two formats is refused with the line of each.
+# above still picks which half is drawn. baud reads base16 and base24 schemes
+# (tinted-theming), ghostty, kitty, foot and alacritty themes (alacritty's TOML,
+# or its YAML from before 0.13), iTerm2 .itermcolors presets (their sRGB, P3
+# and calibrated colours converted as macOS converts them), Windows Terminal
+# schemes, and a list of 16 colours, one per line, like pywal's colors file. It
+# tells them apart by what is in the file, not by its name, and says what it
+# read each file as. A foot file or iTerm2 preset holding both a dark and a
+# light theme is refused: save the one you want on its own. Other theme
+# formats are named for what they are, and a file mixing two is refused with
+# the line of each.
 # A value with a / is a path: ~/ is your home, and a path that does not start
 # with / or ~/ is read beside this file. A bare name is looked up in the
 # `themes` directory beside this file, then

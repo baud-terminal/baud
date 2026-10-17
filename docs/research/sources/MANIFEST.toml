@@ -25959,6 +25959,119 @@ status = "external"
 group  = "Y"
 # Read 2026-10-17: its rXYZ, gXYZ and bXYZ are copied into gamut.rs as stored; not committed -- an operating-system file.
 
+[sources.libx11-ch15-b8d5a70]
+key    = "libx11-ch15-b8d5a70"
+title  = "libX11 b8d5a70, specs/libX11/CH15.xml -- the Xlib manual's Resource File Syntax and IncludeFile"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11 (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/specs/libX11/CH15.xml"
+file   = ""
+sha256 = "317d3b8d1f4f4ecaeeaec98d6944bd53c869623cfe9139bafc6bc62a9c8d6270"
+bytes  = 79133
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for an X resources reader (note AR); its open questions are recorded there.
+
+[sources.libx11-ch06-b8d5a70]
+key    = "libx11-ch06-b8d5a70"
+title  = "libX11 b8d5a70, specs/libX11/CH06.xml -- XParseColor's rgb:, the old # syntax as most significant bits, rgbi: and the CIE forms"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11 (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/specs/libX11/CH06.xml"
+file   = ""
+sha256 = "18213161b274510036749e262e80137b6ee5348b5b67ddaccc562988f78c81c1"
+bytes  = 222727
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for an X resources reader (note AR).
+
+[sources.xrdb-man-aaf6f3d]
+key    = "xrdb-man-aaf6f3d"
+title  = "xrdb aaf6f3d, man/xrdb.man -- the input is passed through cpp by default, with COLOR and the server's other symbols defined"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/app/xrdb (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/app/xrdb/-/raw/aaf6f3df9377a44081af49a7fb2ae14aa3a18e60/man/xrdb.man"
+file   = ""
+sha256 = "ea384be3b42afcc7fb3e11382470c93f347cb0503a736cd7132c4c6aa4bce9e6"
+bytes  = 12656
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for an X resources reader (note AR).
+
+[sources.xserver-colormap-98aed9d]
+key    = "xserver-colormap-98aed9d"
+title  = "xserver 98aed9d, dix/colormap.c -- AllocColor on TrueColor takes FindBestPixel, the least squared difference, the first on a tie"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/xserver (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/xserver/-/raw/98aed9ddba7b42d2a46fcc1f343f4b392967b838/dix/colormap.c"
+file   = ""
+sha256 = "bb194484cde1fd385e1f36e88a6876b46d50184886c105c0582e021b3a505d0d"
+bytes  = 85773
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for how an X colour's 16-bit components reach 8 bits (note AR).
+
+[sources.xserver-micmap-98aed9d]
+key    = "xserver-micmap-98aed9d"
+title  = "xserver 98aed9d, mi/micmap.c -- miInitializeColormap fills an 8-bit TrueColor map with i * 257"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/xserver (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/xserver/-/raw/98aed9ddba7b42d2a46fcc1f343f4b392967b838/mi/micmap.c"
+file   = ""
+sha256 = "e0e91c3c1d7acfc87fefe33ed3a4abb67d04f1b47d305d8f1141664d42044904"
+bytes  = 17704
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for how an X colour's 16-bit components reach 8 bits (note AR).
+
+[sources.pywal-colors-template-236aa48]
+key    = "pywal-colors-template-236aa48"
+title  = "pywal 236aa48, pywal/templates/colors -- sixteen lines, {color0} to {color15}"
+author = "Dylan Araps"
+year   = 2021
+venue  = "dylanaraps/pywal (MIT; archived)"
+url    = "https://raw.githubusercontent.com/dylanaraps/pywal/236aa48e741ff8d65c4c3826db2813bf2ee6f352/pywal/templates/colors"
+file   = ""
+sha256 = "4fbec52377e7e29b07764fa7b8145cff3006760b1cf8cec7b7c65611df8a756b"
+bytes  = 150
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the plain-list reader (note AR, O9).
+
+[sources.pywal-util-236aa48]
+key    = "pywal-util-236aa48"
+title  = "pywal 236aa48, pywal/util.py -- Color.__str__ is hex_color, written by rgb_to_hex as #%02x%02x%02x"
+author = "Dylan Araps"
+year   = 2021
+venue  = "dylanaraps/pywal (MIT; archived)"
+url    = "https://raw.githubusercontent.com/dylanaraps/pywal/236aa48e741ff8d65c4c3826db2813bf2ee6f352/pywal/util.py"
+file   = ""
+sha256 = "9dceb5c6cac47adbec8c763c725a92bd46de4d93329f85c96e86690ab8c325c7"
+bytes  = 6407
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for the plain-list reader (note AR, O9).
+
+[sources.tinted-builder-rust-utils-ae1cc37]
+key    = "tinted-builder-rust-utils-ae1cc37"
+title  = "tinted-builder-rust ae1cc37, tinted-builder-rust/src/operations/build/utils.rs -- the CLI's loader: system base24 or any other string, scheme.system tinted8, else E111"
+author = "the Tinted Theming contributors"
+year   = 2026
+venue  = "tinted-theming/tinted-builder-rust (MIT)"
+url    = "https://raw.githubusercontent.com/tinted-theming/tinted-builder-rust/ae1cc3765830c55d685715ca2b8ece8affb63b3a/tinted-builder-rust/src/operations/build/utils.rs"
+file   = ""
+sha256 = "586157c1f9b8e5105290c08e3568cafdd2710ea74090d339f2e2f6304edd1e60"
+bytes  = 13829
+status = "external"
+group  = "Y"
+# Read 2026-10-17 for note AR's O2: the reference builder never infers the
+# system from the slots.
+
 [sources.kitty-color-names-1e1486e]
 key    = "kitty-color-names-1e1486e"
 title  = "kitty 1e1486e, gen/color_names.py -- the 753 colour names parse_color looks up first"

@@ -220,6 +220,7 @@ fn format_name(f: Format) -> &'static str {
         Format::AlacrittyYaml => "an alacritty YAML config",
         Format::ITermPlist => "an iTerm2 colour preset",
         Format::WindowsTerminal => "a Windows Terminal scheme",
+        Format::PlainList => "a list of 16 colours",
         Format::Empty => "an empty file",
     }
 }
@@ -392,6 +393,7 @@ fn load(spec: &str, half: Half, dirs: &Dirs, said: &mut Vec<String>) -> Option<S
             };
             (read, Some(m))
         }
+        Verdict::Is(Kind::PlainList, m) => (themefile::plain_list(body), Some(m)),
         Verdict::Empty => (Ok(Scheme::empty(Format::Empty)), None),
         other => {
             said.push(format!("{at}: {}; {own}", refusal(other)));
@@ -554,7 +556,7 @@ fn reason(kind: SchemeErrorKind) -> String {
         SchemeErrorKind::ColourName => "a colour name, which baud does not resolve yet".into(),
         SchemeErrorKind::WideGamut => "an OKLCH or CIE LAB colour, which baud does not convert yet".into(),
         SchemeErrorKind::NoName => "no name, which a Windows Terminal scheme requires".into(),
-        SchemeErrorKind::Count => "fewer than the sixteen colours a Windows Terminal scheme requires".into(),
+        SchemeErrorKind::Count => "not the sixteen colours the format requires".into(),
         SchemeErrorKind::NotUtf8 => "a byte that is not UTF-8, which the format requires".into(),
         SchemeErrorKind::Pair => {
             "a second theme: the file holds a dark and a light one, so save the one for this half alone".into()
@@ -934,7 +936,6 @@ mod tests {
         for (file, name) in [
             ("tinted8.yaml", "a tinted8 scheme"),
             ("Xresources", "X resources"),
-            ("colors", "a list of 16 colours"),
         ] {
             let (_, said) = dark_of(file, file);
             assert!(said.contains(name), "{file}: {said}");
@@ -1028,6 +1029,35 @@ mod tests {
         assert_eq!(colours, Some(want), "{said}");
         assert!(
             said.contains("read as a Windows Terminal scheme (line 16: brightBlack)"),
+            "{said}"
+        );
+    }
+
+    /// **A list of sixteen colours is read** as ANSI 0 to 15, as pywal's
+    /// `colors` file holds them; its page and text stay baud's own (Jev,
+    /// O11), and the notice says so.
+    #[test]
+    fn a_list_of_sixteen_colours_reads_as_ansi_0_to_15() {
+        let (got, said) = dark_of("colors", "colors");
+        let mut want = fixture_night();
+        (want.page, want.text) = (None, None);
+        (
+            want.cursor,
+            want.cursor_text,
+            want.selection,
+            want.selection_text,
+        ) = (None, None, None, None);
+        let colours = got.map(|s| Scheme {
+            format: Format::Empty,
+            ..s
+        });
+        assert_eq!(colours, Some(want), "{said}");
+        assert!(
+            said.contains("read as a list of 16 colours (line 1: #1d1f21)"),
+            "{said}"
+        );
+        assert!(
+            said.contains("2 of the sixteen, the page and the text are unset"),
             "{said}"
         );
     }

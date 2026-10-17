@@ -771,6 +771,7 @@ re-asked 680/681, jev-1.13.0, none cached):
 | an empty or comments-only file | load empty (0.76 / 0.88) | load empty (0.74 / 0.72) | open; today's (load empty) stays |
 | iTerm2 `Calibrated` or no `Color Space` | convert as macOS's generic RGB (0.97 / 0.97) | | **decided** (682/683) |
 | a float component to 8 bits | round (0.80 / 0.72) | round (0.96 / 0.92) | **decided** (684/685) |
+| O2 base24 threshold, unlabelled | any one (0.87 / 0.95) | any one (0.76 / 0.89) | open; today's (any one) stays (694-697) |
 
 The facts asked with:
 
@@ -780,6 +781,11 @@ The facts asked with:
   `/dev/null` (`lsof`, 2026-10-17); baud.app was not launched for it, so
   that it does the same is inferred. A user who opens the `.app` sees no
   notice and no refusal; only a shell launch shows them.
+- **O2.** The same builder never infers the system from the slots: with no
+  `system` its CLI fails "E111: Missing required field `system`"
+  ([[source: tinted-builder-rust-utils-ae1cc37]] 48-93), against
+  builder.md:30's MUST. With O3 decided, "any one" and "all eight, else
+  refuse" give every file the same result and differ only in the words.
 - **O3.** tinted-builder-rust `ae1cc37` refuses a base24 scheme missing any
   of its 24 keys ([[source: tinted-builder-rust-base24-ae1cc37]] 8-11,
   86-93) and never applies the fallback table.
@@ -798,6 +804,26 @@ are not a foot theme: "The default section is usually unnamed"
 (`foot-2705e36-foot-ini-5` 9-11) is `[main]`, which has no colours, so a
 sectionless `regular0=` is refused as outside a section; with no foot
 reading of a sectionless file, "also valid foot" does not arise.
+
+## X resources: what was built, and what is open (2026-10-17)
+
+**The plain list is read** (the owner's O9): sixteen `#rrggbb` lines are
+ANSI 0 to 15, the page and the text baud's own (O11).
+
+**X resources stay detected and refused.** Each choice its reader needs
+was put to Jev with the texts and re-asked once with more facts; none
+reached 0.9 on both asks (decisions.jsonl 686-693, none cached):
+
+| question | first ask | re-ask | the texts |
+|---|---|---|---|
+| the C preprocessor | run object-like `#define`/`#undef` and `#ifdef`/`#ifndef`/`#else`/`#endif` with xrdb's `COLOR` defined (0.40 / 0.47) | same (0.73 / 0.81) | xrdb passes the file "through the C preprocessor" by default with `COLOR` "defined if, and only if" the class is a colour one ([[source: xrdb-man-aaf6f3d]]) |
+| which names are baud's | only names any client matches, `*color0`, `*.color0`, `?.color0` (0.79 / 0.80) | same (0.73 / 0.85) | Xrm's grammar ([[source: libx11-ch15-b8d5a70]]); a program's entry matches only that program |
+| `#include` | refuse naming it (0.64 / 0.84) | same (0.36 / 0.54) | "IncludeFile lines are interpreted by replacing the line with the contents of the specified file" (the same) |
+| a 16-bit component to 8 bits | nearest (0.14 / 0.26) | the nearest of `i * 257`, a tie to the lower (0.92 / 0.88) | XParseColor's `#` forms are "the most significant bits" ([[source: libx11-ch06-b8d5a70]]), so `#ab0000` is red `0xab00`; an 8-bit TrueColor X server takes the nearest entry of a map filled with `i * 257` ([[source: xserver-colormap-98aed9d]] 981-985, 1243-1285; [[source: xserver-micmap-98aed9d]] 119-138), which is `0xaa` |
+
+The last row decides nearly every value: under the X server's reduction
+`#ab0000` is drawn as `#aa0000`, and under the high byte as written. It is
+the owner's to settle, or Jev's with a fact these asks did not have.
 
 ## kitty's names and wide-gamut colours (2026-10-17)
 
