@@ -24,8 +24,8 @@ programs, and pictures.
   drawing is not started. It is not ready to use.
 - **A few control sequences.** The single shifts SS2 and SS3, and the
   locking shifts LS2, LS3 and LS1R to LS3R, are not supported. The other
-  gaps are listed with its reason in [vt-coverage](../vt-coverage.md), as a row
-  at **partial** or **out**.
+  gaps are each listed with their reason in [vt-coverage](../vt-coverage.md),
+  as a row at **partial** or **out**.
 
 ## Known departures from the standards
 

@@ -78,7 +78,7 @@ and `~/.config/baud/themes/`.
 | `blink_interval_ms` | number, milliseconds | macOS's setting, else `333` | How long the cursor stays shown, and then hidden, in each blink. |
 | `blink_animation` | `"plasma"`, `"fade"`, `"fire"`, `"ufo"`, `"none"` | `"plasma"` | What the cursor does while it is hidden. `"none"` switches it straight off. |
 | `stop_blinking_after` | number, seconds | `0` | Stop blinking, with the cursor shown, after this long without typing, clicking or pasting. `0` means never. |
-| `trail` | `"plasma"`, `"fire"`, `"lightning"`, `"ice"`, `"ufo"`, `"orb"`, `"liquid"`, `"quad"`, `"sweep"`, `"ghost"`, `"off"` | `"plasma"` | The effect left behind when the cursor jumps. [The cursor gallery](../cursor.md) shows each one. |
+| `trail` | `"plasma"`, `"fire"`, `"lightning"`, `"ice"`, `"ufo"`, `"orb"`, `"liquid"`, `"quad"`, `"sweep"`, `"ghost"`, `"off"` (`true` also means the default) | `"plasma"` | The effect left behind when the cursor jumps. [The cursor gallery](../cursor.md) shows each one. |
 | `trail_scroll` | `"ride"`, `"stay"` | `"ride"` | Whether a trail in flight moves up with the text when output scrolls. |
 
 When Reduce Motion is on, the blink animation is always `"none"` and the
@@ -133,8 +133,9 @@ On Linux only `dim_dark` has an effect, and `theme = "auto"` means dark.
 
 ## Keys baud no longer reads
 
-A config written for an older baud keeps working: these keys are accepted
-and baud warns that they do nothing now.
+A config written for an older baud keeps working: baud accepts these keys
+and prints a warning for each. Three of them do nothing now, and
+`[glass] images` is still read, as `app_backgrounds`.
 
 | key | what replaced it |
 |---|---|

@@ -197,7 +197,7 @@ the build instead:
 | `baud-core/tests/encoding/width.rs` | the generated width tables still match the pinned `EastAsianWidth.txt` and general category |
 | `baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists; **nothing listed as absent is also marked done**; every research note and every manifest group has a row in the index above |
 | `scripts/check-sources.sh` | every `[[source: …]]` citation — in the docs **and** in the code — resolves to a document pinned by SHA-256 in `MANIFEST.toml` |
-| `baud-core/tests/embedding.rs` | the usage example in `docs/embedding.md` is compiled, and is byte-identical to the block in the file |
+| `baud-core/tests/embedding.rs` | the usage example in `docs/embedding.md` is compiled, and its block matches the example's body line for line, apart from blank lines, `use` lines and the example's `println!` |
 | `baud-app/src/config.rs` | `docs/guide/configuration.md` lists every key `Config::apply` matches and no other; `config.toml.example` writes only keys the reader acts on; `docs/cursor.md` and `docs/cursor.html` show every trail |
 
 Each was written after the corresponding claim turned out to be false. The
