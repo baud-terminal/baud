@@ -47,12 +47,26 @@
 //! and a lower bound on it, since the trail's pixels over those cells go
 //! too.
 //!
-//! Usage: `flash [effects] [sizes] [rates] [inks] [grounds]`, each a comma
-//! list or `all`: effects by name or `off`; sizes such as
-//! `13x1,13x2,32x1,32x2,72x1` (points x scale); rates `60,120`; inks
-//! `default,white,black,red`; grounds `dark,light,red,darkred`. One
-//! tab-separated line a case on stdout, the sizes and progress on stderr.
-//! macOS only.
+//! **The smears and a third motion** (note AL section 6): the quad and the
+//! sweep, which a config can name, run as arms beside the effects, and the
+//! cursor also cycles three cells on the diagonal every 100 ms, a first, a
+//! third and two thirds of the way in equal whole steps.
+//!
+//! **Two instruments, by environment.** `FLASH_HASH=1` fills the `fnv`
+//! column with FNV-1a over every frame's pixels, so two builds can be shown
+//! to draw the same frames byte for byte; `-` without it. `FLASH_PATH=cpu`
+//! draws each frame on the CPU path instead, [`Renderer::render_at`], which
+//! the app takes under `BAUD_GPU=0` or with no Metal device, and where an
+//! effect runs as the quad (`chase_style` in `app.rs`): so its arms are the
+//! smears and off, and the `path` column says which path drew the line.
+//!
+//! Usage: `flash [effects] [sizes] [rates] [inks] [grounds] [motions]`, each
+//! a comma list or `all`: effects by name, `quad`, `sweep` or `off`; sizes
+//! such as `13x1,13x2,32x1,32x2,72x1` (points x scale); rates `60,120`; inks
+//! `default,white,black,red`; grounds `dark,light,red,darkred`; motions by
+//! the names the lines print (`long-diag`, `every-100ms-across`,
+//! `tri-100ms`, ...). One tab-separated line a case on stdout, the sizes and
+//! progress on stderr. macOS only.
 
 #[cfg(target_os = "macos")]
 #[allow(dead_code, unused_imports)]
@@ -115,7 +129,7 @@ fn main() {
     use baud_render::effect::Effect;
     use baud_render::{
         Argb, Blend, Candidate, GlyphMap, Instance, Kind, Overlay, PxSize, Rect, Renderer,
-        Resolved, Scene, Stack, StyleStamp, Tally, Theme, TrailLook,
+        Resolved, Scene, Shape, Stack, StyleStamp, Tally, Theme, TrailLook,
     };
     use core::time::Duration;
     use std::collections::BTreeSet;
@@ -150,6 +164,8 @@ fn main() {
     enum Arm {
         Off,
         Effect(Effect),
+        /// The quad or the sweep, the smears a config can name.
+        Smear(Shape),
         /// The positive control: a block toggled white and black at this
         /// many flashes a second, no trail.
         Block(u32),
@@ -162,6 +178,19 @@ fn main() {
         Long(Path),
         /// Back and forth between them, a move every period, for 3 s.
         Retarget(Duration, Path),
+        /// Around three cells on the diagonal -- the first, then a third and
+        /// two thirds of the way in equal whole steps -- a move every period,
+        /// for 3 s: each move's band meets the last one's but not the one
+        /// before.
+        Tri(Duration),
+    }
+
+    /// Which path draws the frames: the app's cell path on the GPU, or its
+    /// CPU path.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Drawer {
+        Cells,
+        Cpu,
     }
 
     /// The second cell, from the first.
@@ -254,6 +283,7 @@ fn main() {
             match self {
                 Arm::Off => "off".to_string(),
                 Arm::Effect(e) => format!("{e:?}").to_lowercase(),
+                Arm::Smear(s) => format!("{s:?}").to_lowercase(),
                 Arm::Block(hz) => format!("block-{hz}hz"),
             }
         }
@@ -264,12 +294,14 @@ fn main() {
             match self {
                 Motion::Long(path) => format!("long-{}", path.name()),
                 Motion::Retarget(p, path) => format!("every-{}ms-{}", p.as_millis(), path.name()),
+                Motion::Tri(p) => format!("tri-{}ms", p.as_millis()),
             }
         }
 
         fn path(self) -> Path {
             match self {
                 Motion::Long(path) | Motion::Retarget(_, path) => path,
+                Motion::Tri(_) => Path::Diagonal,
             }
         }
     }
@@ -303,6 +335,7 @@ fn main() {
         stamp: StyleStamp,
         target: Target,
         pixels: Vec<u32>,
+        drawer: Drawer,
     }
 
     impl World<'_, '_, '_> {
@@ -331,6 +364,20 @@ fn main() {
             self.renderer.set_scrollbar(None);
             self.renderer.set_screen_fade(None);
             self.renderer.set_trail(look);
+            if self.drawer == Drawer::Cpu {
+                // The CPU path, whole: every pixel repainted, as a frame
+                // with no damage carried over.
+                let (fw, fh) = self.renderer.frame_size();
+                let mut target =
+                    baud_render::Target::new(&mut self.pixels, fw, fw, fh).expect("a CPU target");
+                self.renderer.render_at(
+                    &mut self.term,
+                    back,
+                    &mut target,
+                    baud_render::Damage::Full,
+                );
+                return;
+            }
             self.renderer.set_images(&self.term, back);
             self.renderer
                 .sync_styles(&self.term, self.styles_mem, &mut self.stamp);
@@ -438,6 +485,7 @@ fn main() {
         did: &Did,
         rep: &Report,
         t0: Instant,
+        (drawer, fnv): (Drawer, Option<u64>),
     ) {
         let area = |a: Area| format!("{:.0}", a.0);
         let outcome = |o: Outcome| match o {
@@ -445,7 +493,7 @@ fn main() {
             Outcome::Fails => "FAIL",
         };
         println!(
-            "{pt}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}",
+            "{pt}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\t{}\t{}",
             scale.0,
             rate.0,
             ground.name(),
@@ -483,6 +531,11 @@ fn main() {
             outcome(rep.apart_outcome()),
             outcome(rep.apart_strict_outcome()),
             t0.elapsed().as_secs_f64() * 1e3,
+            match drawer {
+                Drawer::Cells => "cells",
+                Drawer::Cpu => "cpu",
+            },
+            fnv.map_or_else(|| "-".to_string(), |h| format!("{h:016x}")),
         );
     }
 
@@ -493,10 +546,12 @@ fn main() {
     let rates = list(args.next()).unwrap_or_else(|| "60,120".to_string());
     let inks = list(args.next());
     let grounds = list(args.next());
+    let motion_names = list(args.next());
     let picks =
         |s: &Option<String>, name: &str| s.as_ref().is_none_or(|l| l.split(',').any(|x| x == name));
     let arms: Vec<Arm> = core::iter::once(Arm::Off)
         .chain(Effect::ALL.iter().map(|&e| Arm::Effect(e)))
+        .chain([Arm::Smear(Shape::Quad), Arm::Smear(Shape::Sweep)])
         .filter(|a| picks(&effects, &a.name()))
         .collect();
     let sizes: Vec<(f32, u32)> = sizes
@@ -526,7 +581,24 @@ fn main() {
         Motion::Long(Path::Across),
         every(100, Path::Across),
         every(200, Path::Across),
+        Motion::Tri(Duration::from_millis(100)),
     ];
+    let motions: Vec<Motion> = motions
+        .into_iter()
+        .filter(|m| picks(&motion_names, &m.name()))
+        .collect();
+    let hashing = std::env::var("FLASH_HASH").is_ok_and(|v| v == "1");
+    let drawer = match std::env::var("FLASH_PATH").as_deref() {
+        Ok("cpu") => Drawer::Cpu,
+        Ok("cells") | Err(_) => Drawer::Cells,
+        Ok(other) => panic!("FLASH_PATH={other:?} is not cells or cpu"),
+    };
+    if drawer == Drawer::Cpu {
+        assert!(
+            arms.iter().all(|a| !matches!(a, Arm::Effect(_))),
+            "on the CPU path an effect runs as the quad: ask for off, quad and sweep"
+        );
+    }
 
     let face_data = std::fs::read(format!(
         "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
@@ -536,7 +608,7 @@ fn main() {
     let faces = [Face::parse(&face_data).expect("parse")];
 
     println!(
-        "pt\tscale\trate\tground\tink\tarm\tmotion\tframes\tmoves\tvfx\tignitions\toff_colour\tlit\tedge\ttranslucent\tgen_trans\tgen_flashes\tgen_chained\tgen_over\tgen_ever\tred_trans\tred_flashes\tred_chained\tred_over\tred_ever\tredenc_flashes\tredenc_chained\tarea\tcontiguous\tsecond\tstrict\toutcome\tstrict_outcome\tapart\tapart_strict\tapart_outcome\tapart_strict_outcome\tms"
+        "pt\tscale\trate\tground\tink\tarm\tmotion\tframes\tmoves\tvfx\tignitions\toff_colour\tlit\tedge\ttranslucent\tgen_trans\tgen_flashes\tgen_chained\tgen_over\tgen_ever\tred_trans\tred_flashes\tred_chained\tred_over\tred_ever\tredenc_flashes\tredenc_chained\tarea\tcontiguous\tsecond\tstrict\toutcome\tstrict_outcome\tapart\tapart_strict\tapart_outcome\tapart_strict_outcome\tms\tpath\tfnv"
     );
 
     let started = Instant::now();
@@ -571,6 +643,15 @@ fn main() {
         let a = (Row::from_index(mr), Col::at_index(mc));
         let diagonal = (Row::from_index(mr + dr), Col::at_index(mc + dc));
         let across = (Row::from_index(mr), Col::at_index(mc + dc));
+        // The three cells of `tri`: the first, then a third and two thirds of
+        // the diagonal in equal whole steps, so every leg is the same move.
+        let third = |d: usize| usize::try_from((d as f64 / 3.0).round() as i64).unwrap();
+        let (sc, sr) = (third(dc), third(dr));
+        let tri = [
+            a,
+            (Row::from_index(mr + sr), Col::at_index(mc + sc)),
+            (Row::from_index(mr + 2 * sr), Col::at_index(mc + 2 * sc)),
+        ];
         let (bw, bh) = block_cells(cw, ch, s);
         eprintln!(
             "size {pt} pt x{scale}: cell {cw}x{ch} px, grid {}x{}, path {dc} cols {dr} rows = {:.0} x {:.0} pt; control block {bw}x{bh} cells = {:.0} pt^2",
@@ -646,6 +727,7 @@ fn main() {
                 stamp: StyleStamp::default(),
                 target,
                 pixels: vec![0; w * h],
+                drawer,
             };
             // A steady block, the ground, the cursor colour, the first cell.
             world.feed(b"\x1b[2 q");
@@ -697,16 +779,29 @@ fn main() {
                 for motion in case_motions {
                     for &rate in &rates {
                         let t0 = Instant::now();
-                        let b = match motion.path() {
-                            Path::Diagonal => diagonal,
-                            Path::Across => across,
+                        // The cells the cursor rests at: the first and the
+                        // second, or `tri`'s three.
+                        let stops: Vec<(Row, Col)> = match motion {
+                            Motion::Tri(_) => tri.to_vec(),
+                            _ => vec![
+                                a,
+                                match motion.path() {
+                                    Path::Diagonal => diagonal,
+                                    Path::Across => across,
+                                },
+                            ],
                         };
-                        world.go(b);
-                        let rest_b = world.cursor_rect();
+                        let rests: Vec<Rect> = stops
+                            .iter()
+                            .map(|&s| {
+                                world.go(s);
+                                world.cursor_rect()
+                            })
+                            .collect();
                         world.go(a);
-                        let rest_a = world.cursor_rect();
                         world.draw(None);
                         let first = world.pixels.clone();
+                        let rested = |x: usize, y: usize| rests.iter().any(|&r| inside(x, y, r));
                         // The schedule: moves from 0.2 s, then time for the
                         // effect to burn out and a full second to close.
                         let (moves, end): (Vec<f64>, f64) = match (arm, motion) {
@@ -714,7 +809,7 @@ fn main() {
                             // only thing that changes.
                             (Arm::Block(_), _) => (Vec::new(), 2.2),
                             (_, Motion::Long(_)) => (vec![0.2], 2.2),
-                            (_, Motion::Retarget(p, _)) => {
+                            (_, Motion::Retarget(p, _) | Motion::Tri(p)) => {
                                 let p = p.as_secs_f64();
                                 let n = (3.0 / p).round() as i64;
                                 ((0..=n).map(|j| 0.2 + j as f64 * p).collect(), 4.4)
@@ -724,15 +819,18 @@ fn main() {
                             Arm::Effect(e) => {
                                 Some(trail::Chase::<HostTime>::new(trail::Style::Effect(e)))
                             }
+                            Arm::Smear(s) => {
+                                Some(trail::Chase::<HostTime>::new(trail::Style::Smear(s)))
+                            }
                             _ => None,
                         };
                         let r = f64::from(rate);
                         let frames = (end * r).round() as i64;
                         let mut census = Census::new(fw, fh, Scale(scale), Rate(rate));
-                        // The cursor's two cells, which it flashes by jumping
+                        // The cursor's cells, which it flashes by jumping
                         // between them with or without a trail: left out of the
                         // apart areas, so what is left is what the trail adds.
-                        for r in [rest_a, rest_b] {
+                        for r in &rests {
                             let px = |v: f32| Px::of(u32::try_from(v.max(0.0) as i64).unwrap_or(0));
                             census.exclude(
                                 px(r.left),
@@ -744,7 +842,9 @@ fn main() {
                         let mut did = Did::default();
                         let mut seeds: BTreeSet<u32> = BTreeSet::new();
                         let mut next = 0usize;
-                        let mut at_b = false;
+                        let mut at = 0usize;
+                        // FNV-1a over every frame's words, little-endian.
+                        let mut fnv: u64 = 0xcbf2_9ce4_8422_2325;
                         let mut block_on = None::<bool>;
                         for k in 0..frames {
                             let now = k as f64 / r;
@@ -770,8 +870,8 @@ fn main() {
                                 }
                             }
                             while next < moves.len() && moves[next] <= now + 1e-9 {
-                                at_b = !at_b;
-                                world.go(if at_b { b } else { a });
+                                at = (at + 1) % stops.len();
+                                world.go(stops[at]);
                                 did.moves.bump();
                                 next += 1;
                             }
@@ -782,9 +882,13 @@ fn main() {
                                     cell,
                                 )
                             });
-                            if let Some(TrailLook::Vfx(v)) = look {
-                                did.vfx.bump();
-                                seeds.insert(v.ignition.seed.0);
+                            match look {
+                                Some(TrailLook::Vfx(v)) => {
+                                    did.vfx.bump();
+                                    seeds.insert(v.ignition.seed.0);
+                                }
+                                Some(TrailLook::Smear(_)) => did.vfx.bump(),
+                                _ => {}
                             }
                             world.draw(look);
                             for rec in world.renderer.trail() {
@@ -804,7 +908,7 @@ fn main() {
                                     if x == 0 || y == 0 || x + 1 == w || y + 1 == h {
                                         edge += 1;
                                     }
-                                    if !inside(x, y, rest_a) && !inside(x, y, rest_b) {
+                                    if !rested(x, y) {
                                         lit += 1;
                                     }
                                 }
@@ -813,6 +917,14 @@ fn main() {
                                 did.lit = Tally::of(lit);
                             }
                             did.edge.add(Tally::of(edge));
+                            if hashing {
+                                for &p in &world.pixels {
+                                    for byte in p.to_le_bytes() {
+                                        fnv ^= u64::from(byte);
+                                        fnv = fnv.wrapping_mul(0x0000_0100_0000_01b3);
+                                    }
+                                }
+                            }
                             census.frame(&world.pixels);
                             did.frames.bump();
                         }
@@ -829,6 +941,7 @@ fn main() {
                             &did,
                             &rep,
                             t0,
+                            (drawer, hashing.then_some(fnv)),
                         );
                         if let Arm::Block(hz) = arm {
                             let want = if hz > 3 {
