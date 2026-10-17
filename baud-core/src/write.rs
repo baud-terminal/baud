@@ -1816,17 +1816,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // call site -- `docs/vt-coverage.md`'s rule is that answering in the
         // wrong shape is worse than silence, because an application parses
         // whatever arrives as the report it asked for.
-        DomCsi::DeviceAttributes => {
-            // Advertise Sixel (attribute `4`) only when the embedder opted in
-            // (`Term::set_sixel_claim`) and the store is provisioned, so the
-            // claim is honest: an application that reads it
-            // then draws with Sixel rather than a text fallback, and an
-            // unprovisioned baud that refuses every Sixel must not claim it.
-            p.want_reply(Report::PrimaryDeviceAttributes(
-                DeviceAttribute::Vt102,
-                p.sixel_claim(),
-            ))
-        }
+        DomCsi::DeviceAttributes => primary_device_attributes(p),
         // **`DSR 6` is the cursor, `DSR 5` is health, and nothing else is
         // answered.** An unimplemented `DSR` gets no reply at all rather than
         // a plausible one.
@@ -1973,6 +1963,20 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
     }
 }
 
+/// Answer a primary DA, for `CSI c` and for DECID, `ESC Z`, one answer.
+///
+/// Advertise Sixel (attribute `4`) only when the embedder opted in
+/// (`Term::set_sixel_claim`) and the store is provisioned, so the claim is
+/// honest: an application that reads it then draws with Sixel rather than a
+/// text fallback, and an unprovisioned baud that refuses every Sixel must not
+/// claim it.
+fn primary_device_attributes(p: &mut Paint<'_, '_>) {
+    p.want_reply(Report::PrimaryDeviceAttributes(
+        DeviceAttribute::Vt102,
+        p.sixel_claim(),
+    ))
+}
+
 /// Perform a two-byte `ESC` sequence.
 ///
 /// **`#[cold]`, like `csi_final`**: one call a sequence against the loop's one
@@ -2104,6 +2108,10 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         // from ground or from a sequence it cancels were counted as functions
         // baud lacks (`a_bare_st_closes_nothing_and_is_counted_nowhere`).
         Esc::StringTerminator => {}
+        // **DECID answers what DA answers**, by the same function, so the
+        // Sixel claim and `S8C1T` reach it: `[[source: dec-std-070]]` 070-4,
+        // "identical to a primary DA control with an omitted parameter".
+        Esc::Identify => primary_device_attributes(p),
         // **Counted, and it was a bare `{}`.** `spec_inventory` asks one
         // question per form the specification lists -- "was this acted on, or
         // *counted*" -- and it asks it by snapshotting the terminal either

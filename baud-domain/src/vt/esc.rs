@@ -49,6 +49,14 @@ pub enum Esc {
     /// `[[source: williams]]` draws `9C / (no action)` (line 268). Named, so it
     /// does not fall to [`Esc::Unsupported`] and get counted.
     StringTerminator,
+    /// DECID -- Identify Terminal, `ESC Z` (`9A` as a C1).
+    ///
+    /// `[[source: dec-std-070]]` 070-4 (PDF 232): "This control is
+    /// identical to a primary DA control with an omitted parameter or a
+    /// parameter value of zero (0)", and "DECID is not recognized at Level
+    /// 3 or above"; baud's DA names a Level 1 device, so it is recognised.
+    /// VT52 mode never reaches this table: its `ESC Z` is VT52's identify.
+    Identify,
     /// Recognised as an `ESC Fe` and deliberately not acted on.
     Unsupported,
 }
@@ -66,6 +74,7 @@ impl Esc {
             b'>' => Esc::KeypadNumeric,
             b'H' => Esc::TabSet,
             b'\\' => Esc::StringTerminator,
+            b'Z' => Esc::Identify,
             _ => Esc::Unsupported,
         }
     }

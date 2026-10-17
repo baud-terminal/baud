@@ -171,7 +171,7 @@ left out of the tally.
 | 4 | SO (LS1) | §1.6.2; LS1 p. 3-74 (PDF 179) | the `0x0E` row | implemented |
 | 5 | SS2 | §1.6.2; SS2 p. 3-80 (PDF 185), Levels 1, 2, 3 | `ESC N` counted in `unsupported`; unbuilt, note AE | missing |
 | 6 | SS3 | §1.6.2; SS3 p. 3-81 (PDF 186) | `ESC O` counted | missing |
-| 7 | DECID | §1.6.2; 070-4 DECID (PDF 232), Levels 1, 2: "The device responds by transmitting an appropriate primary Device Attributes (DA) response" | in ANSI mode `ESC Z` is counted: `Esc::parse` (`baud-domain/src/vt/esc.rs`) has no `Z`. VT52 mode answers `ESC / Z`, `docs/protocols/vt52.md` | missing |
+| 7 | DECID | §1.6.2; 070-4 DECID (PDF 232), Levels 1, 2: "The device responds by transmitting an appropriate primary Device Attributes (DA) response" | in ANSI mode `ESC Z` was counted: `Esc::parse` (`baud-domain/src/vt/esc.rs`) had no `Z`. Since 2026-10-16 it answers what `CSI c` answers (`Esc::Identify`, the `ESC Z` row of `docs/vt-coverage.md`). VT52 mode answers `ESC / Z`, `docs/protocols/vt52.md` | implemented 2026-10-16 |
 | 8 | DSR | §1.6.2; 070-4 DSR (PDF 239), at Levels 1-4 only `5`, answered `0` or `3` | `CSI 5 n` answers `CSI 0 n`; the `CSI n` row | implemented |
 | 9 | DECSTBM | §1.6.2; p. 5-25 (PDF 280) | the `CSI r` row | implemented |
 | 10 | SCS, ASCII into G0, G1 | §1.6.2; SCS p. 5-117 (PDF 372), note 1: "In Level 1 operation character sets can only be designated into G0 and G1" | the `ESC (` rows | implemented |
@@ -346,7 +346,7 @@ route in section 3.
 
 1. **Nine required functions, each counted and not acted on:**
    - SS2 and SS3 (§1.6.2; 070-3 pp. 3-80 and 3-81);
-   - DECID in ANSI mode (§1.6.2; 070-4 PDF p. 232);
+   - DECID in ANSI mode (§1.6.2; 070-4 PDF p. 232), built 2026-10-16;
    - DECSWL, DECDWL, DECDHLT and DECDHLB (§1.6.2; 070-5 pp. 5-96 to 5-99);
    - KAM (§1.6.2; 070-6 §6.2.1 e);
    - SRM (070-5 p. 5-135, `Levels: 1-4`, though not in §1.6.2).
