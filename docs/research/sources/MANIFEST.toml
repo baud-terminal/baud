@@ -6482,6 +6482,23 @@ group  = "O"
 # Read for the comment the spec's clock table cites; there is none. The unit
 # comes from apple-nsevent-timestamp only.
 
+[sources.macos-sdk-events-h]
+key    = "macos-sdk-events-h"
+title  = "Events.h (HIToolbox) -- the virtual keycodes: one per physical key, the keypad's by digit (kVK_ANSI_Keypad0..9, lines 244-261)"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 SDK (macosx27.0, Xcode 27.0 build 27A266a)"
+url    = "$SDKROOT/System/Library/Frameworks/Carbon.framework/Frameworks/HIToolbox.framework/Headers/Events.h"
+file   = ""
+sha256 = "b80b0c6e10ea4a06494d02399424cb806cc04a2971724688cb2063e04f2149d6"
+bytes  = 29094
+status = "external"
+group  = "O"
+# Lines 186-188: the codes "identify physical keys on a keyboard". The keypad
+# has kVK_ANSI_Keypad0..9, Decimal, Multiply, Plus, Clear (0x47, where a PC
+# keypad has NumLock), Divide, Enter, Minus and Equals, and no code for a
+# navigation function: a Mac keypad names no KP_LEFT.
+
 [sources.macos-sdk-cgeventtypes-h]
 key    = "macos-sdk-cgeventtypes-h"
 title  = "CGEventTypes.h -- '/* Event timestamp; roughly, nanoseconds since startup. */ typedef uint64_t CGEventTimestamp;'; kCGHIDEventTap"

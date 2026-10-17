@@ -588,8 +588,9 @@ fn kitty_functional(code: KeyCode) -> Option<(u16, u8)> {
     })
 }
 
-/// A keypad key's `[[source: kitty-keyboard]]` number, from the functional-key
-/// table's `KP_*` rows. `PF1`-`PF4` are not here -- they share F1-F4's forms
+/// A keypad key's `[[source: kitty-keyboard]]` number and final, from the
+/// functional-key table's `KP_*` rows, navigation keys included; `KP_BEGIN`
+/// is the one letter final, `1 E`. `PF1`-`PF4` are not here -- they share F1-F4's forms
 /// and the caller routes them there -- and `Space`/`Tab` have no keypad form in
 /// the table, so they send nothing under the enhancement. Gated against the
 /// source by `keypad_keys_match_the_source`.
@@ -614,6 +615,19 @@ fn kitty_keypad(k: KeypadKey) -> Option<(u32, u8)> {
         Enter => 57414,    // KP_ENTER
         Equal => 57415,    // KP_EQUAL
         Comma => 57416,    // KP_SEPARATOR
+        Left => 57417,
+        Right => 57418,
+        Up => 57419,
+        Down => 57420,
+        PageUp => 57421,
+        PageDown => 57422,
+        Home => 57423,
+        End => 57424,
+        Insert => 57425,
+        Delete => 57426,
+        // `1 E or 57427 ~`: the first spelling, the one the extractor keeps
+        // and the legacy layer already sends.
+        Begin => return Some((1, b'E')),
         Space | Tab | Pf1 | Pf2 | Pf3 | Pf4 => return None,
     };
     Some((n, b'u'))
@@ -808,7 +822,12 @@ fn vt52(
             Some(f) => vt52_esc(o, f),
             None => return false,
         },
-        KeyCode::Keypad(k) => return vt52_keypad(o, k, s),
+        // A navigation key is the key it duplicates: line 2713 names the
+        // keypad's rows by digit alone, so there is no row to send.
+        KeyCode::Keypad(k) => match k.duplicates() {
+            Some(code) => return vt52(o, code, mods, text, s),
+            None => return vt52_keypad(o, k, s),
+        },
         // The text keys are the keyboard, not the emulation.
         KeyCode::Char(cp) => return text_key(o, cp, text, mods, s),
         KeyCode::Backspace => o.push(0x7f),
@@ -892,6 +911,17 @@ fn keypad_key(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> b
         function_key(o, f, mods, s);
         return true;
     }
+    // A navigation key: under DECKPAM the row of 2498 it shares with its
+    // digit ("4 (LeftArrow)"), and otherwise the key it duplicates, which
+    // `[[source: kitty-keyboard]]` says of every keypad key: "reported as
+    // their equivalent non-keypad keys". `Begin` duplicates no key, and its
+    // row's `CSI E` is the one spelling line 2518 and kitty's `1 E` give.
+    if let Some(row) = k.shares_row_with() {
+        return match (s.keypad, k.duplicates()) {
+            (KeypadMode::Numeric, Some(code)) => ansi(o, code, mods, None, s),
+            _ => keypad_application(o, row, mods, s),
+        };
+    }
     if s.keypad == KeypadMode::Numeric {
         // Enter is the one row whose numeric form is not its label: `CR`, and
         // LNM governs it exactly as it governs the main Return.
@@ -907,6 +937,12 @@ fn keypad_key(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> b
             None => false,
         };
     }
+    keypad_application(o, k, mods, s)
+}
+
+/// The application column of `[[source: ctlseqs]]` line 2498, `PF1`-`PF4`
+/// aside.
+fn keypad_application(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> bool {
     // The rows that are cursor keys in disguise, whose introducer is fixed by
     // the table rather than by DECCKM.
     if let Some((intro, f)) = k.cursor_shaped() {

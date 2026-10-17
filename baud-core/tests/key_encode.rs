@@ -996,6 +996,124 @@ fn vt52_keypad_press(k: KeypadKey, app: bool) -> Vec<u8> {
 // for keys no table lists -- every combination of code, modifier and mode --
 // and they exist because 23 example tests cannot cover a product of five axes.
 
+/// The keypad's navigation keys, with the label each carries in
+/// parentheses at `[[source: ctlseqs]]` line 2498 and the key it duplicates.
+/// `Begin` duplicates none: no other key sends `CSI E`.
+const NAVIGATION: [(KeypadKey, &str, Option<KeyCode>); 11] = [
+    (KeypadKey::Left, "LeftArrow", Some(KeyCode::Left)),
+    (KeypadKey::Right, "RightArrow", Some(KeyCode::Right)),
+    (KeypadKey::Up, "UpArrow", Some(KeyCode::Up)),
+    (KeypadKey::Down, "DownArrow", Some(KeyCode::Down)),
+    (KeypadKey::PageUp, "PageUp", Some(KeyCode::PageUp)),
+    (KeypadKey::PageDown, "PageDown", Some(KeyCode::PageDown)),
+    (KeypadKey::Home, "Home", Some(KeyCode::Home)),
+    (KeypadKey::End, "End", Some(KeyCode::End)),
+    (KeypadKey::Insert, "Insert", Some(KeyCode::Insert)),
+    (KeypadKey::Delete, "Delete", Some(KeyCode::Delete)),
+    (KeypadKey::Begin, "Begin", None),
+];
+
+/// **A navigation key sends its row of line 2498 under DECKPAM and the key
+/// it duplicates under DECKPNM.**
+///
+/// Under DECKPAM the row is the one the digit on the same key sends: line
+/// 2498 names each row by both, "4 (LeftArrow)", and line 2493 says "Use the
+/// NumLock key to override the application mode". Under DECKPNM the key is
+/// what `[[source: kitty-keyboard]]`'s legacy encoding says of every keypad
+/// key -- "reported as their equivalent non-keypad keys" -- so DECCKM, a
+/// modifier and `modifyOtherKeys` reach it exactly as they reach that key.
+/// `Begin` has no equivalent and is `CSI E` in both, the one spelling
+/// line 2518 and kitty's `1 E` give.
+#[test]
+fn the_keypad_navigation_keys_follow_their_rows_and_their_keys() {
+    let src = ctlseqs();
+    let rows = table_at(&src, 2498);
+    let mods = [
+        Modifiers::NONE,
+        Modifiers::CTRL,
+        Modifiers::SHIFT.with(Modifiers::ALT),
+    ];
+    let deckpam: &[u8] = b"\x1b=";
+    let decckm: &[u8] = b"\x1b[?1h";
+    let other_keys: &[u8] = b"\x1b[>4;2m";
+    for (k, label, equivalent) in NAVIGATION {
+        let paren = format!("({label})");
+        let (name, _, app) = rows
+            .iter()
+            .find(|(n, _, _)| n.ends_with(&paren))
+            .unwrap_or_else(|| panic!("no 2498 row labelled {paren}"));
+        let digit = keypad_of(name).expect("a keypad row");
+        let nav = KeyCode::Keypad(k);
+        // DECKPAM, unmodified: the table's application column, whatever
+        // DECCKM says.
+        for setup in [&[deckpam][..], &[deckpam, decckm]] {
+            let (sent, got) = encode(nav, Modifiers::NONE, setup);
+            assert!(sent, "{label}");
+            assert_eq!(got, spec_bytes(app), "{label}: DECKPAM {setup:?}");
+        }
+        for m in mods {
+            // DECKPAM, any modifier: the digit's row, byte for byte.
+            for setup in [&[deckpam][..], &[deckpam, decckm]] {
+                let want = encode(KeyCode::Keypad(digit), m, setup);
+                assert_eq!(encode(nav, m, setup), want, "{label} {m:?} {setup:?}");
+            }
+            // DECKPNM: the key it duplicates, under every mode that key reads.
+            for setup in [&[][..], &[decckm], &[other_keys], &[decckm, other_keys]] {
+                let want = match equivalent {
+                    Some(code) => encode(code, m, setup),
+                    None if m.is_none() => (true, spec_bytes(app)),
+                    None => {
+                        let mut v = b"\x1b[1;".to_vec();
+                        v.extend_from_slice(m.wire().to_string().as_bytes());
+                        v.push(b'E');
+                        (true, v)
+                    }
+                };
+                assert_eq!(encode(nav, m, setup), want, "{label} {m:?} {setup:?}");
+            }
+        }
+    }
+    // The rows where the two rules part, spelled out.
+    let home = KeyCode::Keypad(KeypadKey::Home);
+    let left = KeyCode::Keypad(KeypadKey::Left);
+    let begin = KeyCode::Keypad(KeypadKey::Begin);
+    assert_eq!(encode(home, Modifiers::NONE, &[deckpam]).1, b"\x1bOH");
+    assert_eq!(encode(home, Modifiers::NONE, &[]).1, b"\x1b[H");
+    assert_eq!(
+        encode(left, Modifiers::NONE, &[deckpam, decckm]).1,
+        b"\x1b[D"
+    );
+    assert_eq!(encode(left, Modifiers::NONE, &[decckm]).1, b"\x1bOD");
+    assert_eq!(encode(begin, Modifiers::NONE, &[decckm]).1, b"\x1b[E");
+    assert_eq!(encode(begin, Modifiers::CTRL, &[]).1, b"\x1b[1;5E");
+    let page_up = KeyCode::Keypad(KeypadKey::PageUp);
+    assert_eq!(encode(page_up, Modifiers::CTRL, &[deckpam]).1, b"\x1b[5;5~");
+}
+
+/// **A VT52 keypad navigates with its arrows and nothing else.** Line 2713
+/// names the keypad's rows by digit alone, so a navigation key is the key it
+/// duplicates: the arrows are `ESC A`-`ESC D` in both keypad modes, and Home,
+/// the editing keys and `Begin` send nothing, as the keys they duplicate do.
+#[test]
+fn a_vt52_keypad_navigates_with_its_arrows_and_nothing_else() {
+    let vt52: &[u8] = b"\x1b[?2l";
+    let deckpam: &[u8] = b"\x1b=";
+    for (k, label, equivalent) in NAVIGATION {
+        for setup in [&[vt52][..], &[deckpam, vt52]] {
+            let got = encode(KeyCode::Keypad(k), Modifiers::NONE, setup);
+            let want = match equivalent {
+                Some(code) => encode(code, Modifiers::NONE, setup),
+                None => (false, Vec::new()),
+            };
+            assert_eq!(got, want, "{label} {setup:?}");
+        }
+    }
+    let left = KeyCode::Keypad(KeypadKey::Left);
+    assert_eq!(encode(left, Modifiers::NONE, &[vt52]).1, b"\x1bD");
+    let home = KeyCode::Keypad(KeypadKey::Home);
+    assert_eq!(encode(home, Modifiers::NONE, &[vt52]), (false, Vec::new()));
+}
+
 use proptest::prelude::*;
 
 fn any_key() -> impl Strategy<Value = KeyCode> {
@@ -1017,6 +1135,11 @@ fn any_key() -> impl Strategy<Value = KeyCode> {
             Just(KeypadKey::Digit5),
             Just(KeypadKey::Digit9),
             Just(KeypadKey::Equal),
+            Just(KeypadKey::Left),
+            Just(KeypadKey::Home),
+            Just(KeypadKey::PageDown),
+            Just(KeypadKey::Delete),
+            Just(KeypadKey::Begin),
         ]
         .prop_map(KeyCode::Keypad),
         Just(KeyCode::Up),

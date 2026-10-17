@@ -100,9 +100,10 @@ const NAMED: [KeyCode; 14] = every!(KeyCode;
     Escape;
     carrying Char, Function, Keypad, Pua);
 
-const KEYPAD: [KeypadKey; 24] = every!(KeypadKey;
+const KEYPAD: [KeypadKey; 35] = every!(KeypadKey;
     Space, Tab, Enter, Pf1, Pf2, Pf3, Pf4, Multiply, Add, Comma, Minus, Period, Divide, Digit0,
-    Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9, Equal);
+    Digit1, Digit2, Digit3, Digit4, Digit5, Digit6, Digit7, Digit8, Digit9, Equal,
+    Left, Right, Up, Down, PageUp, PageDown, Home, End, Insert, Delete, Begin);
 
 const PUA: [PuaKey; 48] = every!(PuaKey;
     CapsLock, ScrollLock, NumLock, PrintScreen, Pause, Menu,

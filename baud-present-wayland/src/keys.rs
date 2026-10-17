@@ -78,6 +78,20 @@ fn code_of(sym: Keysym) -> Option<KeyCode> {
         0xff92 => KeyCode::Keypad(KeypadKey::Pf2),
         0xff93 => KeyCode::Keypad(KeypadKey::Pf3),
         0xff94 => KeyCode::Keypad(KeypadKey::Pf4),
+        // The keypad with NumLock off, `XKB_KEY_KP_Home` to `XKB_KEY_KP_Delete`
+        // (`[[source: xkbcommon-keysyms]]` lines 299-311); with NumLock on the
+        // same keys produce `KP_0`-`KP_9` and `KP_Decimal` below.
+        0xff95 => KeyCode::Keypad(KeypadKey::Home),
+        0xff96 => KeyCode::Keypad(KeypadKey::Left),
+        0xff97 => KeyCode::Keypad(KeypadKey::Up),
+        0xff98 => KeyCode::Keypad(KeypadKey::Right),
+        0xff99 => KeyCode::Keypad(KeypadKey::Down),
+        0xff9a => KeyCode::Keypad(KeypadKey::PageUp),
+        0xff9b => KeyCode::Keypad(KeypadKey::PageDown),
+        0xff9c => KeyCode::Keypad(KeypadKey::End),
+        0xff9d => KeyCode::Keypad(KeypadKey::Begin),
+        0xff9e => KeyCode::Keypad(KeypadKey::Insert),
+        0xff9f => KeyCode::Keypad(KeypadKey::Delete),
         0xffaa => KeyCode::Keypad(KeypadKey::Multiply),
         0xffab => KeyCode::Keypad(KeypadKey::Add),
         0xffac => KeyCode::Keypad(KeypadKey::Comma),

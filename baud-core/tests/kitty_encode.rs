@@ -11,10 +11,11 @@
 //! discipline the base layer keeps against `extract-keys.py`.
 //!
 //! `Char` reports its unshifted codepoint; the keypad reports its dedicated
-//! kitty numbers and the Private Use Area keys -- the locks, F21-F35, the media
-//! and the individual modifier keys -- theirs, both gated against the source. The
-//! one key family not modelled is the keypad's navigation keys (`KP_LEFT` to
-//! `KP_BEGIN`), because baud's keypad is digit-based.
+//! kitty numbers, navigation keys (`KP_LEFT` to `KP_BEGIN`) included, and the
+//! Private Use Area keys -- the locks, F21-F35, the media and the individual
+//! modifier keys -- theirs, all gated against the source, and
+//! `every_row_of_the_table_is_gated` requires every row to be named by one of
+//! them.
 
 #[path = "support/mod.rs"]
 mod support;
@@ -77,8 +78,26 @@ fn functional_keys_match_the_source() {
     assert!(table.len() >= 80, "extractor returned too few rows");
 
     let ctrl = Modifiers::CTRL; // kitty_wire = 5
-    // (KeyCode, its name in the functional table)
-    let mut cases: Vec<(KeyCode, &str)> = vec![
+    let cases = functional_cases();
+    for (code, name) in cases {
+        let (number, fin) = table[name];
+        let got = pressed(b"\x1b[=1u", KeyEvent::press(code, ctrl));
+        let want = csi_u(number, fin, 5);
+        assert_eq!(got, want, "{name}: encoded the wrong CSI-u form");
+    }
+    // Enter, Tab and Backspace keep their legacy bytes under disambiguate
+    // alone, so their numbers are read under all-keys.
+    for (code, name) in c0_cases() {
+        let (number, fin) = table[name];
+        let got = pressed(b"\x1b[=8u", KeyEvent::press(code, ctrl));
+        assert_eq!(got, csi_u(number, fin, 5), "{name}: under all-keys");
+    }
+}
+
+/// (KeyCode, its name in the functional table): Esc, the cursor and editing
+/// keys and F1-F20.
+fn functional_cases() -> Vec<(KeyCode, &'static str)> {
+    let mut cases: Vec<(KeyCode, &'static str)> = vec![
         (KeyCode::Escape, "ESCAPE"),
         (KeyCode::Up, "UP"),
         (KeyCode::Down, "DOWN"),
@@ -96,19 +115,23 @@ fn functional_keys_match_the_source() {
         "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "F14",
         "F15", "F16", "F17", "F18", "F19", "F20",
     ];
-    for (i, name) in fnames.iter().enumerate() {
+    for (i, name) in fnames.into_iter().enumerate() {
         cases.push((
             KeyCode::Function(FnKey::new(u8::try_from(i + 1).unwrap()).unwrap()),
             name,
         ));
     }
 
-    for (code, name) in cases {
-        let (number, fin) = table[name];
-        let got = pressed(b"\x1b[=1u", KeyEvent::press(code, ctrl));
-        let want = csi_u(number, fin, 5);
-        assert_eq!(got, want, "{name}: encoded the wrong CSI-u form");
-    }
+    cases
+}
+
+/// The three keys disambiguate leaves on their legacy bytes.
+fn c0_cases() -> [(KeyCode, &'static str); 3] {
+    [
+        (KeyCode::Enter, "ENTER"),
+        (KeyCode::Tab, "TAB"),
+        (KeyCode::Backspace, "BACKSPACE"),
+    ]
 }
 
 /// The worked forms the spec names in prose, spelled out.
@@ -419,41 +442,39 @@ fn alternate_keys_attach_to_the_number() {
 }
 
 /// **Every keypad key encodes to its dedicated kitty number from the source.**
-/// Under all-keys, with no modifier, that is `CSI <number> u`.
+/// Under all-keys, with no modifier, that is `CSI <number> u`; `KP_BEGIN` is
+/// the one letter-final row, `1 E`, whose number is omitted when nothing
+/// else is carried. Under disambiguate alone with ctrl held, every row,
+/// navigation included: "all non text keypad keys will be reported as
+/// separate keys with CSI u encoding, using dedicated numbers from the
+/// table".
 #[test]
 fn keypad_keys_match_the_source() {
     let table = functional_table();
-    let cases: [(KeypadKey, &str); 18] = [
-        (KeypadKey::Digit0, "KP_0"),
-        (KeypadKey::Digit1, "KP_1"),
-        (KeypadKey::Digit2, "KP_2"),
-        (KeypadKey::Digit3, "KP_3"),
-        (KeypadKey::Digit4, "KP_4"),
-        (KeypadKey::Digit5, "KP_5"),
-        (KeypadKey::Digit6, "KP_6"),
-        (KeypadKey::Digit7, "KP_7"),
-        (KeypadKey::Digit8, "KP_8"),
-        (KeypadKey::Digit9, "KP_9"),
-        (KeypadKey::Period, "KP_DECIMAL"),
-        (KeypadKey::Divide, "KP_DIVIDE"),
-        (KeypadKey::Multiply, "KP_MULTIPLY"),
-        (KeypadKey::Minus, "KP_SUBTRACT"),
-        (KeypadKey::Add, "KP_ADD"),
-        (KeypadKey::Enter, "KP_ENTER"),
-        (KeypadKey::Equal, "KP_EQUAL"),
-        (KeypadKey::Comma, "KP_SEPARATOR"),
-    ];
+    let cases = keypad_cases();
     for (k, name) in cases {
-        let (number, _) = table[name];
+        let (number, fin) = table[name];
         let got = pressed(
             b"\x1b[=8u",
             KeyEvent::press(KeyCode::Keypad(k), Modifiers::NONE),
         );
         let mut want = vec![0x1b, b'['];
-        want.extend_from_slice(number.to_string().as_bytes());
-        want.push(b'u');
+        if fin == b'u' || fin == b'~' {
+            want.extend_from_slice(number.to_string().as_bytes());
+        }
+        want.push(fin);
         assert_eq!(got, want, "{name}");
+        let ctrl = pressed(
+            b"\x1b[=1u",
+            KeyEvent::press(KeyCode::Keypad(k), Modifiers::CTRL),
+        );
+        assert_eq!(ctrl, csi_u(number, fin, 5), "{name} with ctrl");
     }
+    // A release under event types carries the modifier field as `1`, so the
+    // letter form writes its `1` too.
+    let mut release = KeyEvent::press(KeyCode::Keypad(KeypadKey::Begin), Modifiers::NONE);
+    release.kind = KeyEventKind::Release;
+    assert_eq!(pressed(b"\x1b[=3u", release), b"\x1b[1;1:3E");
 
     // PF1-PF4 share F1-F4's forms from the table. With no modifier a letter
     // final omits its number, 1, so they are `CSI P`, `CSI Q`, `CSI 13 ~` and
@@ -495,7 +516,58 @@ fn keypad_keys_match_the_source() {
 #[test]
 fn pua_keys_match_the_source() {
     let table = functional_table();
-    let cases: [(PuaKey, &str); 48] = [
+    let cases = pua_cases();
+    for (k, name) in cases {
+        let (number, _) = table[name];
+        let got = pressed(
+            b"\x1b[=8u",
+            KeyEvent::press(KeyCode::Pua(k), Modifiers::NONE),
+        );
+        let mut want = vec![0x1b, b'['];
+        want.extend_from_slice(number.to_string().as_bytes());
+        want.push(b'u');
+        assert_eq!(got, want, "{name}");
+    }
+}
+
+/// (KeypadKey, its name in the functional table), `PF1`-`PF4` aside.
+fn keypad_cases() -> Vec<(KeypadKey, &'static str)> {
+    vec![
+        (KeypadKey::Digit0, "KP_0"),
+        (KeypadKey::Digit1, "KP_1"),
+        (KeypadKey::Digit2, "KP_2"),
+        (KeypadKey::Digit3, "KP_3"),
+        (KeypadKey::Digit4, "KP_4"),
+        (KeypadKey::Digit5, "KP_5"),
+        (KeypadKey::Digit6, "KP_6"),
+        (KeypadKey::Digit7, "KP_7"),
+        (KeypadKey::Digit8, "KP_8"),
+        (KeypadKey::Digit9, "KP_9"),
+        (KeypadKey::Period, "KP_DECIMAL"),
+        (KeypadKey::Divide, "KP_DIVIDE"),
+        (KeypadKey::Multiply, "KP_MULTIPLY"),
+        (KeypadKey::Minus, "KP_SUBTRACT"),
+        (KeypadKey::Add, "KP_ADD"),
+        (KeypadKey::Enter, "KP_ENTER"),
+        (KeypadKey::Equal, "KP_EQUAL"),
+        (KeypadKey::Comma, "KP_SEPARATOR"),
+        (KeypadKey::Left, "KP_LEFT"),
+        (KeypadKey::Right, "KP_RIGHT"),
+        (KeypadKey::Up, "KP_UP"),
+        (KeypadKey::Down, "KP_DOWN"),
+        (KeypadKey::PageUp, "KP_PAGE_UP"),
+        (KeypadKey::PageDown, "KP_PAGE_DOWN"),
+        (KeypadKey::Home, "KP_HOME"),
+        (KeypadKey::End, "KP_END"),
+        (KeypadKey::Insert, "KP_INSERT"),
+        (KeypadKey::Delete, "KP_DELETE"),
+        (KeypadKey::Begin, "KP_BEGIN"),
+    ]
+}
+
+/// (PuaKey, its name in the functional table).
+fn pua_cases() -> Vec<(PuaKey, &'static str)> {
+    vec![
         (PuaKey::CapsLock, "CAPS_LOCK"),
         (PuaKey::ScrollLock, "SCROLL_LOCK"),
         (PuaKey::NumLock, "NUM_LOCK"),
@@ -544,16 +616,35 @@ fn pua_keys_match_the_source() {
         (PuaKey::RightMeta, "RIGHT_META"),
         (PuaKey::IsoLevel3Shift, "ISO_LEVEL3_SHIFT"),
         (PuaKey::IsoLevel5Shift, "ISO_LEVEL5_SHIFT"),
-    ];
-    for (k, name) in cases {
-        let (number, _) = table[name];
-        let got = pressed(
-            b"\x1b[=8u",
-            KeyEvent::press(KeyCode::Pua(k), Modifiers::NONE),
-        );
-        let mut want = vec![0x1b, b'['];
-        want.extend_from_slice(number.to_string().as_bytes());
-        want.push(b'u');
-        assert_eq!(got, want, "{name}");
-    }
+    ]
+}
+
+/// **Every row of the source's functional table is gated by a test above.**
+///
+/// The keypad's navigation rows sat ungated for as long as the protocol was
+/// called complete, because each test named its own keys and nothing asked
+/// which rows no test named. This asks: the names the three tables map,
+/// with the keypad's `PF` keys counted under F1-F4, must be exactly the
+/// extractor's rows.
+#[test]
+fn every_row_of_the_table_is_gated() {
+    let table = functional_table();
+    assert!(table.contains_key("ESCAPE"), "positive control");
+    let mut gated: Vec<&str> = functional_cases().into_iter().map(|(_, n)| n).collect();
+    gated.extend(c0_cases().into_iter().map(|(_, n)| n));
+    gated.extend(keypad_cases().into_iter().map(|(_, n)| n));
+    gated.extend(pua_cases().into_iter().map(|(_, n)| n));
+    let mut missing: Vec<&str> = table
+        .keys()
+        .map(String::as_str)
+        .filter(|n| !gated.contains(n))
+        .collect();
+    missing.sort_unstable();
+    assert!(missing.is_empty(), "rows no test gates: {missing:?}");
+    let mut extra: Vec<&str> = gated
+        .into_iter()
+        .filter(|n| !table.contains_key(*n))
+        .collect();
+    extra.sort_unstable();
+    assert!(extra.is_empty(), "names not in the source: {extra:?}");
 }

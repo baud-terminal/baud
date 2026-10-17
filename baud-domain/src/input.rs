@@ -202,6 +202,26 @@ pub enum KeypadKey {
     Digit8,
     Digit9,
     Equal,
+    /// The navigation keys: what the digit keys and `.` are with NumLock
+    /// off, `[[source: kitty-keyboard]]`'s `KP_LEFT` to `KP_BEGIN`.
+    /// `[[source: ctlseqs]]` line 2462: the PC keypad has "cursor and
+    /// scrolling operations printed on the keypad, which duplicate the
+    /// smaller cursor and scrolling keypads". A separate identity from the
+    /// digit on the same key, because kitty numbers them apart: `KP_4` is
+    /// 57403 and `KP_LEFT` 57417.
+    Left,
+    Right,
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+    Insert,
+    Delete,
+    /// The key in the middle, labelled `5 (Begin)` at ctlseqs line 2518.
+    /// It has no key of its own outside the keypad.
+    Begin,
 }
 
 /// Which introducer a key sequence carries.
@@ -251,6 +271,8 @@ impl KeypadKey {
             | KeypadKey::Pf2
             | KeypadKey::Pf3
             | KeypadKey::Pf4 => return None,
+            // A navigation key produces no character; NumLock on is the digit.
+            _ => return None,
         };
         Some(StreamByte::from_stream(b))
     }
@@ -309,6 +331,9 @@ impl KeypadKey {
             KeypadKey::Digit9 => b'y',
             KeypadKey::Equal => b'X',
             KeypadKey::Pf1 | KeypadKey::Pf2 | KeypadKey::Pf3 | KeypadKey::Pf4 => return None,
+            // The 2713 table names its rows by digit alone: a VT52 keypad
+            // has no navigation labels to send.
+            _ => return None,
         };
         Some(StreamByte::from_stream(b))
     }
@@ -346,6 +371,49 @@ impl KeypadKey {
             KeypadKey::Digit3 => 6,
             _ => return None,
         }))
+    }
+
+    /// The key a navigation key duplicates (`[[source: ctlseqs]]` line
+    /// 2462), which is what it sends outside application keypad mode:
+    /// `[[source: kitty-keyboard]]`, "All keypad keys are reported as their
+    /// equivalent non-keypad keys". `None` for every other row, and for
+    /// `Begin`, which duplicates no key.
+    pub fn duplicates(self) -> Option<KeyCode> {
+        Some(match self {
+            KeypadKey::Left => KeyCode::Left,
+            KeypadKey::Right => KeyCode::Right,
+            KeypadKey::Up => KeyCode::Up,
+            KeypadKey::Down => KeyCode::Down,
+            KeypadKey::PageUp => KeyCode::PageUp,
+            KeypadKey::PageDown => KeyCode::PageDown,
+            KeypadKey::Home => KeyCode::Home,
+            KeypadKey::End => KeyCode::End,
+            KeypadKey::Insert => KeyCode::Insert,
+            KeypadKey::Delete => KeyCode::Delete,
+            _ => return None,
+        })
+    }
+
+    /// The digit sharing a navigation key's row of `[[source: ctlseqs]]`
+    /// line 2498, which names each row by both -- "4 (LeftArrow)",
+    /// "5 (Begin)", ". (Delete)". Under DECKPAM a navigation key sends that
+    /// row's application column. `None` for every key that is not a
+    /// navigation key.
+    pub fn shares_row_with(self) -> Option<KeypadKey> {
+        Some(match self {
+            KeypadKey::Delete => KeypadKey::Period,
+            KeypadKey::Insert => KeypadKey::Digit0,
+            KeypadKey::End => KeypadKey::Digit1,
+            KeypadKey::Down => KeypadKey::Digit2,
+            KeypadKey::PageDown => KeypadKey::Digit3,
+            KeypadKey::Left => KeypadKey::Digit4,
+            KeypadKey::Begin => KeypadKey::Digit5,
+            KeypadKey::Right => KeypadKey::Digit6,
+            KeypadKey::Home => KeypadKey::Digit7,
+            KeypadKey::Up => KeypadKey::Digit8,
+            KeypadKey::PageUp => KeypadKey::Digit9,
+            _ => return None,
+        })
     }
 
     /// `PF1`-`PF4` as function keys, which is what they send.
@@ -463,9 +531,9 @@ pub enum KeyCode {
 /// **The individual modifier keys are why this exists.** Flag 8, "report all
 /// keys as escape codes", reports a lone `Left Shift` press, which needs a key
 /// identity the base layer never had. The locks, F21-F35 and media keys come
-/// with them. The keypad *navigation* keys (`KP_LEFT` and friends) are not here
-/// -- baud's keypad is digit-based -- which is a stated boundary rather than a
-/// slip. `pua_keys_match_the_source` gates every number against the extractor.
+/// with them. The keypad's navigation keys (`KP_LEFT` to `KP_BEGIN`) are
+/// [`KeypadKey`]s, because they have legacy forms. `pua_keys_match_the_source`
+/// gates every number against the extractor.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PuaKey {
     CapsLock,
@@ -596,7 +664,8 @@ impl KeyCode {
     ///
     /// Home and End are here because `[[source: ctlseqs]]` line 2485 puts them
     /// in the arrows' table and calls them cursor keys, so DECCKM governs them
-    /// too. `Begin` has no `KeyCode` -- it exists only as keypad `5`.
+    /// too. `Begin` has no `KeyCode` -- it exists only on the keypad, as
+    /// [`KeypadKey::Begin`].
     pub fn cursor_final(self) -> Option<FinalByte> {
         Some(FinalByte(match self {
             KeyCode::Up => b'A',

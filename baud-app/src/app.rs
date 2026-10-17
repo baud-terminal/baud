@@ -2031,6 +2031,12 @@ fn kind_of(key: &KeyPress) -> KeyEventKind {
 }
 
 /// The keys a macOS virtual key code names outright, before any text.
+///
+/// No keypad navigation key (`KeypadKey::Left` to `KeypadKey::Begin`) is
+/// named, because a Mac keypad has none: `[[source: macos-sdk-events-h]]`
+/// gives each physical keypad key one code, by its digit
+/// (`kVK_ANSI_Keypad0`-`9`), and no NumLock key -- `0x47` is
+/// `kVK_ANSI_KeypadClear`. Linux names them from the keysym NumLock picks.
 fn special(key: &KeyPress) -> Option<KeyCode> {
     Some(match key.key_code {
         0x7E => KeyCode::Up,
