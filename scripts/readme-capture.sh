@@ -11,7 +11,8 @@
 #
 # What it makes, each at the same window -- BAUD_GRID=80x24 at 16 pt, the
 # 776x548 pt window scripts/trail-clips.sh films -- in the system's
-# appearance (Dark for the committed set) with the defaults otherwise:
+# appearance, which nothing here sets or checks: set System Settings to Dark
+# before a run, as the committed set was, with the defaults otherwise:
 # plasma trail, smooth scroll, glass. The one setting changed is
 # `[cursor] blink = false`, so a clip's first and last frames can match.
 #
@@ -41,6 +42,8 @@
 # kitten runs with --transfer-mode=stream. Its default, detect, timed out
 # after its ten seconds in baud at 6f630fb4 ("Timed out waiting for a
 # response from the terminal"), while file, memory and stream each drew.
+# Until the detect-mode timeout is settled, the README must not say plain
+# `kitten icat` draws in baud; the demos show --transfer-mode=stream on film.
 #
 # It checks what it made rather than trusting it:
 #   - baud read the generated config without a complaint;

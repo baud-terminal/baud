@@ -20,12 +20,12 @@ and decides nothing.
 |---|---|---|---|
 | no-grant | 236 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
-| open | 0 | 9 | an open question, recorded where the file is; the owner's call |
+| open | 0 | 10 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 262 | 17 | redistributable, and its notice is satisfied |
+| kept | 262 | 18 | redistributable, and its notice is satisfied |
 | own | 187 | 0 | the owner's work |
-| total | 714 | 28 | |
+| total | 714 | 30 | |
 
 ## Licence texts in LICENSES/
 
@@ -172,6 +172,14 @@ they were built from.
 - **From:** https://sw.kovidgoyal.net/kitty/keyboard-protocol/
 - **Files:** [baud-domain/src/input.rs](baud-domain/src/input.rs)
 
+### The README's text.png carries Apple Color Emoji renderings; whether to keep it is the owner's call, not decided here
+
+- **Status:** open -- an open question, recorded where the file is; the owner's call
+- **Licence:** not verified
+- **Notice:** none
+- **From:** unrecorded
+- **Files:** [assets/readme/text.png](assets/readme/text.png)
+
 ### JetBrains Mono 2.304, embedded in the app, unmodified
 
 - **Status:** kept -- redistributable, and its notice is satisfied
@@ -307,6 +315,14 @@ they were built from.
 - **Notice:** none
 - **From:** https://github.com/kovidgoyal/kitty/blob/v0.49.2/gen/rowcolumn-diacritics.txt
 - **Files:** [baud-domain/src/placeholder_data.rs](baud-domain/src/placeholder_data.rs)
+
+### The README's hero.gif and images.gif (and social.png when it is made) carry the elementary OS wallpapers 'Canazei Granite Ridges' and 'Sunset by the Pier', CC0 per elementary's debian/copyright (deb-packaging branch, 'Unsplash photos published before June 8, 2017 are CC0')
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** CC0-1.0
+- **Notice:** none needed
+- **From:** https://github.com/elementary/wallpapers
+- **Files:** [assets/readme/hero.gif](assets/readme/hero.gif), [assets/readme/images.gif](assets/readme/images.gif)
 
 ## docs/research/sources/
 

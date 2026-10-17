@@ -2014,6 +2014,22 @@ upstream = "https://github.com/kovidgoyal/kitty/blob/v0.49.2/gen/rowcolumn-diacr
 status   = "kept"
 
 [[tree]]
+what     = "The README's hero.gif and images.gif (and social.png when it is made) carry the elementary OS wallpapers 'Canazei Granite Ridges' and 'Sunset by the Pier', CC0 per elementary's debian/copyright (deb-packaging branch, 'Unsplash photos published before June 8, 2017 are CC0')"
+paths    = ["assets/readme/hero.gif", "assets/readme/images.gif"]
+licence  = "CC0-1.0"
+notice   = "none needed"
+upstream = "https://github.com/elementary/wallpapers"
+status   = "kept"
+
+[[tree]]
+what     = "The README's text.png carries Apple Color Emoji renderings; whether to keep it is the owner's call, not decided here"
+paths    = ["assets/readme/text.png"]
+licence  = "not verified"
+notice   = "none"
+upstream = "unrecorded"
+status   = "open"
+
+[[tree]]
 what     = "A recording of asciiquarium, which draws asciiquarium's sprite art; that art's licence has not been verified"
 paths    = ["tests/recordings/ascii/asciiquarium.raw"]
 licence  = "not verified"
