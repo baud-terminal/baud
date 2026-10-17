@@ -957,7 +957,7 @@ answer for each:
 
 | case | Jev | drawn |
 |---|---|---|
-| L at or past 0 or 1, or not finite | (all three agree) | black or white |
+| L at or past 0 or 1, or not finite | kitty's C, its docs and CSS agree at 0 and 1; for a number that is not finite kitty's Go refuses the value ([[source: kitty-colorspaces-go-1e1486e]] 254-259, 301-305) and its C draws black or white, which baud follows | black or white |
 | chromatic, linear sRGB inside [0, 1] before any clip | kitty_math 0.92 / 0.91, decided | kitty's C arithmetic |
 | a grey, chroma under 1e-5 | kitty_grey 0.92 / 0.79, lean | L's sRGB encoding, L taken as linear light, as kitty draws it |
 | outside sRGB | kitty_go_chroma_search 0.62 / 0.56, lean | the chroma search of kitty's Go code ([[source: kitty-colorspaces-go-1e1486e]] 101-230), which its themes kitten previews with ([[source: kitty-themes-ui-go-1e1486e]] 178-195) and which keeps [[source: kitty-pr-9325]]'s promise of CSS Color 4 gamut mapping |
@@ -974,6 +974,12 @@ library, so `baud-domain/src/themefile/oklab.rs` writes the functions kitty call
 bytes are the same whether Go and C fuse multiply-adds or not. The docs'
 own example `oklch(0.7 0.25 25)` draws `#ff5655`, what kitty's preview
 shows, where kitty's terminal draws `#ff3d46`.
+
+kitty's preview reads `%` another way. Its Go strips the `%` before it
+checks for one, so an `L%` comes out white, and it never divides a chroma
+or hue percentage ([[source: kitty-colorspaces-go-1e1486e]] 262-264,
+323-342). For a `%` value outside sRGB, baud therefore draws neither what
+kitty's terminal shows nor what its preview shows. This is open.
 
 ## Bytes that are not UTF-8 (2026-10-17)
 

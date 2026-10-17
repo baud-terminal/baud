@@ -494,6 +494,9 @@ fn skipped(at: &str, k: Kind, line: themefile::Line, key: &[u8], why: Skipped) -
             format!("{key} has a value {terminal} does not read either, and is ignored")
         }
         Skipped::Section => format!("{key} holds no colours and is ignored"),
+        Skipped::Syntax if matches!(k, Kind::Xresources) => {
+            format!("{key} has no colon, so xrdb passes it over; ignored")
+        }
         Skipped::Syntax => format!("{key} is not a {terminal} setting and is ignored"),
         Skipped::Unheld => format!(
             "{key} is one of {terminal}'s own colours, which a theme here has no place for; ignored"

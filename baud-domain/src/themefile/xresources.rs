@@ -25,6 +25,10 @@
 //! **Then each line is xrdb's**: `!` starts a comment, a line without `:` is
 //! passed over, the name and the value are trimmed of blanks before and the
 //! name after (`[[source: xrdb-c-aaf6f3d]]` 330-395), and a later line wins.
+//! That is xrdb's rule for one spelling of a name; `xrdb -load` keeps a
+//! repeated name at its first line (260-287), so where `*color0` and
+//! `*.color0` alternate the X server's database can hold the other value,
+//! which note AR lists open.
 //! The name is Xrm's: components bound by `.` or `*`, two separators with
 //! nothing between them one binding, loose if either is `*`
 //! (`[[source: libx11-xrm-b8d5a70]]` 1270-1295). **Only a name every client
@@ -246,9 +250,10 @@ impl Macros {
             body: len(body.len())?,
             state: Defined::Yes,
         };
-        // Byte by byte: with `copy_from_slice` here, ingest2's
+        // Byte by byte, here and in `Reader::file`'s copy of a directive:
+        // with `copy_from_slice` at those two sites, ingest2's
         // `put_narrow_run`, whose source this does not touch, compiled 64
-        // bytes shorter; without it, ingest2's text is byte-identical.
+        // bytes shorter; without them, ingest2's text is byte-identical.
         for (slot, &b) in self.arena[self.used..end]
             .iter_mut()
             .zip(name.iter().chain(body))
