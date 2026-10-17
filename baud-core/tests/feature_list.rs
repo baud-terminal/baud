@@ -7,8 +7,9 @@
 //! `docs/data/roadmap.toml`. Its `--check` fails when a page differs from what
 //! it writes, when a proof path or a proof test is gone, when a feature marked
 //! built names no test, done coverage row or measurement, when a built
-//! feature's coverage row is not done, and when a shipped roadmap item is
-//! claimed by no feature. Of twelve terminals surveyed, five keep a second
+//! feature's coverage row is not done, when a shipped roadmap item is
+//! claimed by no feature, and when README.md's "See all N features" is not
+//! the list's count. Of twelve terminals surveyed, five keep a second
 //! feature list by hand -- iTerm2, contour, rio, Windows Terminal and Wave --
 //! and all five drifted from their programs; this one fails the build first.
 

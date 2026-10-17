@@ -1,116 +1,137 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo/baud-lockup-dark.svg">
-  <img alt="baud" src="assets/logo/baud-lockup-light.svg" width="300">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo/baud-lockup-dark-blinking.svg">
+  <img alt="baud" src="assets/logo/baud-lockup-light-blinking.svg" width="300">
 </picture>
 
-[![Nix](https://img.shields.io/badge/Nix-2b2b2b?logo=nixos&logoColor=white)](https://nixos.org)
-[![devenv](https://img.shields.io/badge/devenv-2b2b2b?logo=nixos&logoColor=white)](https://devenv.sh)
-[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/CC%20BY--NC--SA%204.0-2b2b2b?logo=creativecommons&logoColor=white)](LICENSE)
+**The terminal with character: its own font, its own cursor effects, and the speed to keep up.**
+
+[Install](#install) · [Features](docs/guide/features.md) · [Configuration](docs/guide/configuration.md) · [Roadmap](docs/roadmap.md) · [Documentation](docs/README.md)
+
+<img src="assets/readme/hero.gif" width="776" alt="baud running btop, then a git log scrolling smoothly, a photo shown in the terminal, and the cursor leaving a plasma trail as it jumps">
 
 </div>
 
-> A terminal emulator written in Rust. It runs on macOS 26 and later; the Linux
-> port has run only headless.
+A baud is one symbol a second down a line, named for Émile Baudot, whose
+1874 code sent text over the telegraph one symbol at a time. That is still
+the job: every character a program sends, on your screen, drawn right and
+in time. baud does it with a look of its own.
 
-Named for Émile Baudot, whose 1874 code gave the unit its name: a baud measures
-how fast symbols cross a line, which is what this is about.
+**Status:** baud runs as an everyday terminal on macOS 26 and later, and
+the Linux version is in progress. [What works today, and what doesn't yet](docs/guide/status.md).
 
-## What it is
+## Highlights
 
-baud implements the standards, specifications and protocols a terminal answers
-to — ECMA-48, the DEC manuals, xterm's ctlseqs, the Unicode Standard and its
-annexes, the font formats, kitty's keyboard protocol — with the goal of running
-them faster than any shipping terminal on ingest throughput, input latency,
-frame rate under full-grid churn and memory **at once**. The standard is the
-requirement and speed is how it is met: a result that is faster because it
-departs from a standard is a defect, and the departures known today are recorded
-as such, per operation at **partial** in
-[docs/vt-coverage.md](docs/vt-coverage.md) and as a list in
-[docs/protocol-decisions.md](docs/protocol-decisions.md#open-departures).
+### The baud font
 
-Only ingest is measured against other terminals. The current sweep was taken
-at `935e4f1` on 2026-09-20: Apple M5 Max, `bench-others/multibench` in memory,
-medians of 9, interleaved and rotated, every core handed the same bytes in
-4096-byte reads and 10,000 lines of scrollback. It predates `multibench`'s
-128-byte function alignment, and MEASUREMENTS.md holds no cross-terminal sweep
-taken after it. MB/s:
+baud ships with its own font, so text looks right on the first launch with
+nothing to install: JetBrains Mono with its ligatures and real bold and
+italic faces, the Nerd Font icons prompts and file managers draw, a maths
+face for technical symbols, and glyphs baud draws itself where JetBrains
+Mono has none, such as a monospace Hebrew made to match it. Bring your own
+fonts and the baud font stays behind them, filling in what they lack.
 
-| recording | baud-core | ghostty | alacritty | **vs ghostty** |
-|---|---|---|---|---|
-| `ascii/less-pager.raw` | **1684.5** | 290.2 | 241.2 | **5.80x** |
-| `ascii/cat-scroll.raw` | **1425.1** | 424.3 | 203.3 | **3.36x** |
-| `ascii/git-log.raw` | **1637.9** | 516.9 | 211.5 | **3.17x** |
-| `ascii/asciiquarium.raw` | **524.2** | 197.2 | 243.6 | **2.66x** |
-| `utf8/less-cjk.raw` | **498.0** | 247.2 | 271.3 | **2.01x** |
-| `utf8/vim-unicode.raw` | **636.4** | 346.8 | 293.0 | **1.84x** |
-| `utf8/cava.raw` | **554.1** | 318.9 | 362.2 | **1.74x** |
-| `utf8/btop.raw` | **871.3** | 511.2 | 330.9 | **1.70x** |
-| `utf8/cat-cjk.raw` | **459.4** | 385.1 | 221.7 | **1.19x** |
+<img src="assets/readme/text.png" width="776" alt="emoji, flags, Chinese, Japanese, Nerd Font icons and code ligatures in a table whose right border stays straight">
 
-baud-core is ahead of ghostty on all nine committed recordings, by 1.19x to
-5.80x, and ahead of alacritty on all nine. baud always segments grapheme
-clusters and libghostty-vt does only when an application asks, so the CJK rows
-do not compare equal work. Input latency and frame time are baud's own numbers,
-on one Mac, and no memory figure is compared with another terminal.
-[MEASUREMENTS.md](MEASUREMENTS.md) has every table with its commit and caveats.
+### A cursor with character
 
-## What is built
+When the cursor jumps, it can leave a short trail: plasma, fire,
+lightning, ice, a flying saucer and more. While it blinks off it can
+glow, fade or burn into embers. Typing never leaves a trail, the fiery
+ones never strobe, and with Reduce Motion on there is no trail unless you
+ask for one.
+[See every effect in the cursor gallery](docs/cursor.md).
 
-On macOS: the VT core (parser, replies, and a grid that is a ring the screen is
-a window into, so a scroll copies nothing and a resize reflows the primary);
-UTF-8 decoding, widths generated from the Unicode data, and grapheme clustering;
-key encoding with `modifyOtherKeys` and kitty's protocol, mouse reports,
-selection and paste ([docs/input-coverage.md](docs/input-coverage.md)); a
-renderer on the CPU and on Metal; shaping and rasterising in `baud-font` with no
-engine dependency; and the wheel, a scrollbar and selection across the history.
-What of the protocol is done, at **partial** or out, and why, is a row per
-operation in [docs/vt-coverage.md](docs/vt-coverage.md). Some operations have no
-row yet: the single shifts SS2/SS3 and the locking shifts LS2, LS3 and
-LS1R-LS3R, which count as unsupported, and ECMA-48's bidirectional controls.
+<img src="assets/readme/trail.gif" width="776" alt="the cursor jumping diagonally across the screen and back, leaving a plasma trail">
 
-**Not built:** Linux past headless (no pointer input, nobody has looked at its
-pixels, and its GPU half is unstarted); macOS key releases and modifier keys;
-bidirectional text: UAX #9 and ECMA-48's bidirectional controls
-([note AB](docs/research/notes/ab-right-to-left.md)); and search. No discrete
-GPU has been measured: every GPU figure is this Mac's unified memory.
+### Keeps up with any output
 
-## Building and running
+A huge log, btop redrawing the whole screen, a build flooding past: baud
+takes output in as fast as programs send it, without falling behind. A
+key you press during the flood is drawn at once, and a program that
+redraws in one go never shows you a half-finished screen.
+[How fast, and how it is measured](docs/guide/performance.md).
 
-Requires [Nix](https://nixos.org) and [devenv](https://devenv.sh), which pin
-the nightly toolchain.
+### Text you can read
+
+Text too close in colour to its background is lifted to a readable
+contrast, keeping its hue, while colours a program chose on purpose are
+left alone. Smoothing suits the colour text is drawn in, so light on dark
+and dark on light both read cleanly, and the light and dark palettes
+follow your system's appearance.
+
+### Characters line up
+
+Widths come from Unicode's own data, so Chinese, Japanese and Korean take
+two columns, an emoji family or a flag stays one character, and a
+ligature takes exactly the cells it replaces. Tables, prompts and editors
+stay aligned, as the right-hand border in the picture above shows.
+Box-drawing lines join without hairline gaps at every size.
+
+### Safe by default
+
+A broken or cut-off escape code is thrown away, never half-obeyed. A
+giant title or link is cut to size, so it can't fill memory. No program
+can read your clipboard, and a broken font file can't crash the terminal.
+A question baud can't answer truthfully gets no reply rather than a wrong
+one.
+
+### And what you would expect
+
+Scroll back through the history with the wheel, select across it, and
+resize: lines rewrap to the new width.
+
+<img src="assets/readme/tools.gif" width="776" alt="scrolling back with the wheel and an overlay scrollbar, selecting text, and narrowing the window so the lines rewrap">
+
+Pictures show in the terminal, through tmux too: the kitty graphics
+protocol and Sixel are both supported. Tools that ask first whether the
+terminal draws pictures, such as yazi and plain `kitten icat`, need one
+setting turned on ([how](docs/guide/configuration.md#images)).
+
+<img src="assets/readme/images.gif" width="776" alt="a photo shown in the terminal, then a smaller one beside text">
+
+**[See all 148 features](docs/guide/features.md)** · **[See the roadmap](docs/roadmap.md)**
+
+## Install
+
+**With Nix or Cargo, once published.** baud is not on a package registry
+yet; the first published release will install with `nix profile install`
+or `cargo install`.
+
+**From source, today.** With [Nix](https://nixos.org) and
+[devenv](https://devenv.sh), which fetch the exact toolchain:
 
 ```sh
-devenv shell -- scripts/bundle-macos.sh          # target/baud.app
-devenv shell -- cargo run --release              # the terminal, from the shell you are in
-devenv test                                      # the whole gate, as CI runs it
+devenv shell -- scripts/bundle-macos.sh   # leaves baud.app in target/
+devenv shell -- cargo run --release       # or run it from the terminal you are in
 ```
 
-[docs/contributing/build.md](docs/contributing/build.md) has the suites and
-the gates, [docs/contributing/measuring.md](docs/contributing/measuring.md)
-the benchmarks, and [CONTRIBUTING.md](CONTRIBUTING.md) what a change needs.
+[Installing](docs/guide/install.md) has the details.
 
-**Configuration** is optional: copy [config.toml.example](config.toml.example)
-to `~/.config/baud/config.toml` and keep only the keys you change.
-[docs/guide/configuration.md](docs/guide/configuration.md) lists every key
-and every place baud looks.
+baud needs no configuration. To change the font, colours, cursor or window,
+copy [config.toml.example](config.toml.example) to
+`~/.config/baud/config.toml` and keep only the keys you change;
+[Configuration](docs/guide/configuration.md) lists every key.
 
-## Embedding the core
+## Proved, not promised
 
-`baud-core`, the `no_std` library that interprets a VT stream, can be used
-by any program: [docs/embedding.md](docs/embedding.md).
+baud follows the standards terminals answer to: ECMA-48, DEC's terminal
+manuals, xterm's control sequences and the Unicode Standard. Every line on
+the feature list is backed by a test or a measurement in this repository,
+and the build fails if that proof disappears. What of each standard is
+done, and why anything is not, is a row per operation in
+[the coverage table](docs/vt-coverage.md).
 
-## Documentation
+Its terminal core is a separate library any program can embed:
+[Embedding](docs/embedding.md).
 
-| | |
-|---|---|
-| [docs/README.md](docs/README.md) | the index of every document, and who each is for |
-| [docs/vt-coverage.md](docs/vt-coverage.md) | what of the protocol is implemented, per operation, against primary sources |
-| [docs/contributing/architecture.md](docs/contributing/architecture.md) | the data path, the crates and the constraints that shaped them |
-| [MEASUREMENTS.md](MEASUREMENTS.md) | the current numbers, each with the host and commit that produced it |
-| [docs/record.md](docs/record.md) | the dated record of every measured change and every decision |
-| [CLAUDE.md](CLAUDE.md) | working notes: the rules, and what was tried and lost |
+## Contributing
+
+[CONTRIBUTING.md](CONTRIBUTING.md) says what a change needs, and
+[docs/contributing/build.md](docs/contributing/build.md) has the test suites
+and the gates. [docs/README.md](docs/README.md) is the index of every
+document.
 
 ## Licence
 
@@ -119,6 +140,5 @@ baud is open source under Creative Commons Attribution-NonCommercial-ShareAlike
 third-party files the research and tests hold are under their own licences:
 LICENSE names the files it does not cover, and
 [THIRD_PARTY.md](THIRD_PARTY.md) lists each with its licence and source.
-Nothing is published to a registry, so build from source.
-[docs/guide/licensing.md](docs/guide/licensing.md) covers sponsorship and how
-to arrange a commercial licence.
+[Licensing](docs/guide/licensing.md) covers sponsorship and how to arrange a
+commercial licence.

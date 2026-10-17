@@ -25,6 +25,8 @@ to be able to fail:
   - every done roadmap item is claimed by a feature, or listed as not a
     feature with the reason, so a built feature cannot be missing from the
     list;
+  - the count README.md links the list with ("See all N features") is the
+    number of features the data holds;
   - both pages are byte for byte what this script writes.
 
 The data files' headers say what each field means.
@@ -40,6 +42,7 @@ FEATURES = "docs/data/features.toml"
 ROADMAP = "docs/data/roadmap.toml"
 FEATURES_MD = "docs/guide/features.md"
 ROADMAP_MD = "docs/roadmap.md"
+README = "README.md"
 TABLES = {"vt": "docs/vt-coverage.md", "input": "docs/input-coverage.md"}
 MEASUREMENTS = "MEASUREMENTS.md"
 
@@ -335,13 +338,22 @@ def render_roadmap(feat, road):
     return "\n".join(out) + "\n"
 
 
+def check_readme(feat):
+    """The front page's count of the list, which no generator writes."""
+    n = len(feat.get("feature", []))
+    said = re.findall(r"See all (\S+) features", read(README))
+    if not said:
+        return [f"{README}: no 'See all N features' link, so its count is unchecked"]
+    return [f"{README}: says 'See all {s} features', the list has {n}" for s in said if s != str(n)]
+
+
 def main():
     check = sys.argv[1:] == ["--check"]
     if sys.argv[1:] not in ([], ["--check"]):
         sys.exit(__doc__)
     feat, road = load(FEATURES), load(ROADMAP)
     rows, dupes = coverage_rows()
-    errs = check_data(feat, road, rows, dupes)
+    errs = check_data(feat, road, rows, dupes) + check_readme(feat)
     if errs:
         print(f"{len(errs)} problem(s) in {FEATURES} / {ROADMAP}:", file=sys.stderr)
         for e in errs:
