@@ -61,6 +61,9 @@ fn tinted_without_system_is_named_by_its_first_slot() {
     // A multi-line description is skipped as the reader skips it, so its
     // lines are neither a slot nor a second grammar.
     let folded = "description: >\n  some words = and more\n  base00 x\nbase00: \"#000000\"\n";
+    // A line of a description that looks like a section header is text.
+    let literal = "system: \"base16\"\ndescription: |\n  [draft]\nbase00: \"#000000\"\n";
+    assert_eq!(decided(literal), (Kind::Tinted, Line(1), "system".into()));
     assert_eq!(decided(folded), (Kind::Tinted, Line(4), "base00".into()));
 }
 

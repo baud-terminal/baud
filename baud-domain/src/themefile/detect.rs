@@ -193,7 +193,9 @@ pub fn classify(text: &[u8]) -> Verdict<'_> {
         b'[' if !is_header(first) => return json(text),
         _ => {}
     }
-    if lines(text).any(|(_, raw)| is_header(trim(raw))) {
+    // A section header, where a line can be one: not inside a YAML block
+    // scalar, whose lines are text.
+    if significant(text).any(|(_, _, g, key, _)| g == Grammar::Other && is_header(key)) {
         return sections(text);
     }
     grammar(text)
