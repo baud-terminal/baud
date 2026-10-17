@@ -13,8 +13,8 @@ use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, StyleWord, WinSize};
 use baud_font::Face;
 use baud_render::{
-    Argb, Blend, BlinkPhases, BlockCursor, Floor, Pictured, Pictures, PxSize, Renderer, Resolved,
-    Selected, Shapes, Stack, Swaps, Theme, Video, xterm_palette,
+    Argb, Blend, BlinkPhases, BlockCursor, Floor, Line, Pictured, Pictures, PxSize, Renderer,
+    Resolved, Selected, Shapes, Stack, Swaps, Theme, Video, xterm_palette,
 };
 use support::font;
 
@@ -395,7 +395,22 @@ fn glass() -> Theme {
 fn drawn_fg(slot: Resolved, pictured: Pictured, selected: Selected) -> (Argb, Argb) {
     let d = slot.drawn(Swaps {
         pictured,
+        line: Line::No,
         selected,
+        block: BlockCursor::No,
+        blink: BlinkPhases::SHOWN,
+        cursor: Chan::from_u8(0xFF),
+    });
+    (d.fg, d.bg)
+}
+
+/// A slot's text as a cell of `line` draws it unswapped, inside a picture
+/// or not.
+fn drawn_as(slot: Resolved, pictured: Pictured, line: Line) -> (Argb, Argb) {
+    let d = slot.drawn(Swaps {
+        pictured,
+        line,
+        selected: Selected::No,
         block: BlockCursor::No,
         blink: BlinkPhases::SHOWN,
         cursor: Chan::from_u8(0xFF),
@@ -424,7 +439,8 @@ fn dimmed(bg: Argb, page: Argb) -> Argb {
 /// glass"). At every read boundary of the capture, under the glass at the
 /// default dim: every glyph on a page the program set, whose pair reads at
 /// the trigger or above as asked, reads at the trigger or above against
-/// that page dimmed over the default page.
+/// that page dimmed over the default page, and one asked at 3 or above
+/// reads at 3 or above. Box-drawing lines are drawn as asked and left out.
 #[test]
 fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
     let bytes = std::fs::read(format!(
@@ -447,7 +463,7 @@ fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
     .unwrap();
     let mut s = Owned::new(&WS);
     let mut t = Term::new(s.storage(), &WS);
-    let (mut below, mut lifted, mut asked_set) = (0usize, 0usize, 0usize);
+    let (mut below, mut below3, mut lifted, mut asked_set) = (0usize, 0usize, 0usize, 0usize);
     for chunk in bytes.chunks(4096) {
         t.write_at(BytePos::ZERO, chunk);
         t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
@@ -457,6 +473,10 @@ fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
             for cell in t.row(Row::from_index(y)).expect("a row on the grid") {
                 let glyph = t.base_of(*cell).as_codepoint();
                 if glyph.is_none_or(|c| c.value() == u32::from(b' ')) {
+                    continue;
+                }
+                // A line is drawn as asked, which the capture test pins.
+                if Line::of(cell.content) == Line::Yes {
                     continue;
                 }
                 let style = t.style_of(*cell);
@@ -474,8 +494,12 @@ fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
                 }
                 asked_set += 1;
                 let (text, _) = drawn_fg(table[cell.style.index()], Pictured::No, Selected::No);
-                if contrast(text, dimmed(bg, page)) < 1.2 {
+                let drawn = contrast(text, dimmed(bg, page));
+                if drawn < 1.2 {
                     below += 1;
+                }
+                if contrast(fg, bg) >= 3.0 && drawn < 3.0 {
+                    below3 += 1;
                 }
                 if rgb(text) != rgb(fg) {
                     lifted += 1;
@@ -484,14 +508,212 @@ fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
         }
     }
     assert!(
-        asked_set > 10_000,
+        asked_set > 8_000,
         "the premise: {asked_set} set-page glyphs"
     );
     assert_eq!(
         below, 0,
         "{below} glyphs read below the trigger as drawn ({lifted} lifted)"
     );
+    assert_eq!(
+        below3, 0,
+        "{below3} glyphs asked at 3:1 or above read below it as drawn"
+    );
     assert!(lifted > 0, "the positive control: nothing was lifted");
+}
+
+/// **The glass trigger is 3** (the owner, 2026-10-17): catppuccin's
+/// selected row in herdr, `#181825` on `#89b4fa`, reads 8.34:1 as asked and
+/// 1.40:1 dimmed over the dark page -- above 1.2, so the floor's own
+/// trigger left it, and below 3 -- and is lifted to the target against the
+/// page as drawn.
+#[test]
+fn catppuccins_selected_row_is_lifted_at_the_glass_trigger() {
+    let sgr = "38;2;24;24;37;48;2;137;180;250";
+    let (_, _, (fg, bg), slot) = cells(glass(), &[sgr.into()]).remove(0);
+    let drawn = dimmed(bg, glass().bg);
+    assert!(
+        contrast(fg, bg) >= 3.0,
+        "the premise: 3:1 or above as asked"
+    );
+    let before = contrast(fg, drawn);
+    assert!(
+        (1.2..3.0).contains(&before),
+        "the premise: between the two triggers as drawn, {before:.3}"
+    );
+    let (text, _) = drawn_fg(slot, Pictured::No, Selected::No);
+    assert!(
+        contrast(text, drawn) >= 4.5,
+        "lifted against the dimmed page: {:?}, {:.2}",
+        rgb(text),
+        contrast(text, drawn)
+    );
+}
+
+/// **The glass trigger never lifts a pair asked below it.** btop's
+/// `#4e4e4e` on its own `#000000`, the darkest grey of its process list's
+/// fade, reads 2.52:1 as asked and below 3 as drawn, but above 1.2 both
+/// ways: drawn as asked.
+#[test]
+fn a_pair_asked_below_the_glass_trigger_is_left_alone() {
+    let sgr = "38;2;78;78;78;48;2;0;0;0";
+    let (_, _, (fg, bg), slot) = cells(glass(), &[sgr.into()]).remove(0);
+    let drawn = dimmed(bg, glass().bg);
+    assert!(
+        (1.2..3.0).contains(&contrast(fg, bg)),
+        "the premise: {:.3} as asked",
+        contrast(fg, bg)
+    );
+    assert!(
+        (1.2..3.0).contains(&contrast(fg, drawn)),
+        "the premise: {:.3} as drawn",
+        contrast(fg, drawn)
+    );
+    let (text, _) = drawn_fg(slot, Pictured::No, Selected::No);
+    assert_eq!(rgb(text), rgb(fg));
+}
+
+/// The pixels of the cell at column `col` of row 0.
+fn cell_pixels(r: &Renderer<'_, '_>, c: &support::Canvas, col: usize) -> Vec<u32> {
+    let m = r.metrics();
+    let (cw, ch) = (
+        usize::try_from(m.cell_w.value()).unwrap(),
+        usize::try_from(m.cell_h.value()).unwrap(),
+    );
+    (0..ch)
+        .flat_map(|y| (col * cw..(col + 1) * cw).map(move |x| (y, x)))
+        .map(|(y, x)| c.pixels[y * c.width + x])
+        .collect()
+}
+
+/// **Box drawing is left out of the floor; block elements are not** (the
+/// owner, 2026-10-17). herdr draws its dividers `#15161b` on the default
+/// dark page, 1.05:1, and the floor lifted them to a grey that glares. The
+/// Box Drawing block, `U+2500..=U+257F`, where DEC Special Graphics' line
+/// drawing lands, is drawn as asked with the floor on: each cell's pixels
+/// equal the floor off's, on the plain and the glass theme. Block Elements,
+/// `U+2580..=U+259F`, which btop and cava draw graphs with, keep the floor:
+/// their pixels move. `U+257F` and `U+2580` are the two sides of the edge.
+/// The CPU arm; `baud-present-macos`'s `cells.rs` holds the other two to it.
+#[test]
+fn box_drawing_is_drawn_as_asked_and_block_elements_are_floored() {
+    let glyphs = [
+        '\u{2500}', '\u{2502}', '\u{256d}', '\u{257f}', '\u{2580}', '\u{2588}',
+    ];
+    let lines = 4;
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    for theme in [Theme::dark(), glass()] {
+        let mut r = Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            theme.clone(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let mut bytes = b"\x1b[?25l\x1b[38;2;21;22;27m".to_vec();
+        for g in glyphs {
+            bytes.extend(format!("{g} ").into_bytes());
+        }
+        t.write_at(BytePos::ZERO, &bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+        let mut frames = Vec::new();
+        for floor in [Floor::DEFAULT, Floor::Off] {
+            r.set_theme(Theme {
+                floor,
+                ..theme.clone()
+            });
+            let mut canvas = support::Canvas::for_renderer(&r);
+            support::paint(&mut r, &mut t, &mut canvas, baud_render::Damage::Full);
+            frames.push(
+                (0..2 * glyphs.len())
+                    .map(|k| cell_pixels(&r, &canvas, k))
+                    .collect::<Vec<_>>(),
+            );
+        }
+        for (k, g) in glyphs.iter().enumerate() {
+            // Against the blank cell after it.
+            let (cell, blank) = (&frames[1][2 * k], &frames[1][2 * k + 1]);
+            let ink = cell.iter().zip(blank).filter(|(p, q)| p != q).count();
+            assert!(ink > 0, "{g:?}: the control, the glyph drew");
+            let same = frames[0][2 * k] == frames[1][2 * k];
+            assert_eq!(
+                same,
+                k < lines,
+                "U+{:04X}: {}",
+                u32::from(*g),
+                if k < lines {
+                    "floored"
+                } else {
+                    "left out of the floor"
+                }
+            );
+        }
+    }
+}
+
+/// **A bar or underline cursor over a box-drawing line keeps the colour it
+/// always had.** The owner's call 3 draws a line as asked; it names lines,
+/// not the cursor. herdr's divider `#15161b` reads 1.05:1 on the default
+/// page, and a bar over it was drawn in that colour, invisible, where base
+/// lifted it. The bar's pixels over `U+2500` equal the bar's over a letter
+/// of the same colour with the floor on, and differ from the floor off's.
+/// The CPU arm; `glass_floor_gate` in `baud-present-macos`'s `cells.rs`
+/// holds the other two to it.
+#[test]
+fn a_bar_cursor_on_a_line_takes_the_floored_colour() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    for shape in ["\x1b[6 q", "\x1b[4 q"] {
+        let mut bar = Vec::new();
+        for (g, floor) in [
+            ('\u{2500}', Floor::DEFAULT),
+            ('x', Floor::DEFAULT),
+            ('\u{2500}', Floor::Off),
+        ] {
+            let mut r = Renderer::new(
+                Stack::new(&faces).unwrap(),
+                PxSize::of(14.0).unwrap(),
+                Theme {
+                    floor,
+                    ..Theme::dark()
+                },
+                Blend::Native,
+                Cols::of_index(usize::from(WS.ws_col)),
+                Rows::of_index(usize::from(WS.ws_row)),
+            )
+            .unwrap();
+            let mut s = Owned::new(&WS);
+            let mut t = Term::new(s.storage(), &WS);
+            let bytes = format!("\x1b[38;2;21;22;27m{g}\x1b[1;1H{shape}\x1b[?25h").into_bytes();
+            t.write_at(BytePos::ZERO, &bytes);
+            t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+            let mut canvas = support::Canvas::for_renderer(&r);
+            support::paint(&mut r, &mut t, &mut canvas, baud_render::Damage::Full);
+            // The cursor's own pixels: a bar's column 0 on the cell's top
+            // row, an underline's last row, either clear of the glyph.
+            let m = r.metrics();
+            let (cw, ch) = (
+                usize::try_from(m.cell_w.value()).unwrap(),
+                usize::try_from(m.cell_h.value()).unwrap(),
+            );
+            let (x, y) = if shape.contains('6') {
+                (0, 0)
+            } else {
+                (cw / 2, ch - 1)
+            };
+            bar.push(canvas.pixels[y * canvas.width + x]);
+        }
+        assert_eq!(
+            bar[0], bar[1],
+            "{shape:?}: a line under the cursor takes a letter's floored colour"
+        );
+        assert_ne!(bar[0], bar[2], "{shape:?}: the control, the floor moved it");
+    }
 }
 
 /// **A program's own low-contrast pair stays as asked.** `#222222` text on
@@ -553,19 +775,54 @@ fn light_theme_text_on_the_glass_reaches_the_target_where_the_page_is_dimmed() {
     }
 }
 
-/// **What moves on every capture, and why.** The nine recordings,
+/// Every `.raw` recording in `tests/recordings`, held to the directory so a
+/// new one is read too.
+const RECORDINGS: [&str; 12] = [
+    "ascii/asciiquarium.raw",
+    "ascii/cat-scroll.raw",
+    "ascii/git-log.raw",
+    "ascii/less-pager.raw",
+    "kitty/grad-80x24-placeholder.raw",
+    "sixel/swirl.raw",
+    "sixel/yazi-walk.raw",
+    "utf8/btop.raw",
+    "utf8/cat-cjk.raw",
+    "utf8/cava.raw",
+    "utf8/less-cjk.raw",
+    "utf8/vim-unicode.raw",
+];
+
+/// **What moves on every capture, and why.** Every `.raw` recording,
 /// `tests/panels/`'s four captures and the two chafa previews, each fed a
 /// read at a time under the glass: at every read boundary, a glyph whose
-/// text is drawn otherwise than [`Floor::lift`] made it sits on a page the
-/// program set, reads at the trigger or above on that page, and below it
-/// against the page dimmed. The glyphs so moved on each final screen are
-/// counted and pinned. The chafa previews are found as pictures and drawn
-/// solid, so nothing in them moves.
+/// text is drawn otherwise than [`Floor::lift`] made it is either a
+/// box-drawing line, drawn as asked, or sits on a page the program set and
+/// reads at a trigger or above on that page and below it against the page
+/// dimmed -- 1.2, or [`Floor::GLASS_TRIGGER`] for a pair asked at 3 or
+/// above. The glyphs so moved on each final screen are counted and pinned,
+/// and the lines the floor and the glass lift would have moved, over every
+/// read. The chafa
+/// previews are found as pictures and drawn solid, so nothing in them
+/// moves.
 #[test]
 fn every_capture_moves_only_text_the_dim_made_unreadable() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../tests");
+    let mut on_disk: Vec<String> = Vec::new();
+    for dir in std::fs::read_dir(format!("{root}/recordings")).expect("the recordings") {
+        let dir = dir.expect("an entry").path();
+        for f in std::fs::read_dir(&dir).into_iter().flatten() {
+            let f = f.expect("an entry").path();
+            if f.extension().is_some_and(|e| e == "raw") {
+                let sub = dir.file_name().expect("a name").to_string_lossy();
+                let name = f.file_name().expect("a name").to_string_lossy();
+                on_disk.push(format!("{sub}/{name}"));
+            }
+        }
+    }
+    on_disk.sort();
+    assert_eq!(on_disk, RECORDINGS, "every recording is read");
     let read = |p: String| std::fs::read(p).expect("the stream");
-    let streams: Vec<(&str, Vec<u8>)> = support::RECORDINGS
+    let streams: Vec<(&str, Vec<u8>)> = RECORDINGS
         .iter()
         .map(|r| (*r, read(format!("{root}/recordings/{r}"))))
         .chain(
@@ -590,7 +847,7 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
         .unwrap();
         let mut s = Owned::new(&WS);
         let mut t = Term::new(s.storage(), &WS);
-        let mut moved = 0;
+        let (mut moved, mut lines, mut glass_lines) = (0, 0, 0);
         for chunk in bytes.chunks(support::CHUNK) {
             t.write_at(BytePos::ZERO, chunk);
             t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
@@ -608,31 +865,64 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
                     }
                     let slot = table[cell.style.index()];
                     let pictured = pictures.at(Row::from_index(y), Col::at_index(x));
-                    let (text, _) = drawn_fg(slot, pictured, Selected::No);
+                    let line = Line::of(cell.content);
+                    let (text, _) = drawn_as(slot, pictured, line);
+                    let style = t.style_of(*cell);
+                    if line == Line::Yes {
+                        let (asked, _) = theme.resolve(
+                            style,
+                            Video::Normal,
+                            |ch| t.palette(ch),
+                            |d| t.dynamic_color(d),
+                        );
+                        assert_eq!(rgb(text), rgb(asked), "{name}: a line was floored");
+                        let (other, _) = drawn_as(slot, pictured, Line::No);
+                        if rgb(slot.fg) != rgb(asked) {
+                            lines += 1;
+                        } else if rgb(other) != rgb(asked) {
+                            glass_lines += 1;
+                        }
+                        continue;
+                    }
                     if rgb(text) == rgb(slot.fg) {
                         continue;
                     }
                     moved += 1;
                     let bg = slot.bg.with_alpha(Chan::from_u8(0xFF));
-                    let style = t.style_of(*cell);
                     assert!(!words(style).1.is_default(), "{name}: the default page");
-                    assert!(contrast(slot.fg, bg) >= 1.2, "{name}: asked below");
+                    let (asked, drawn) = (
+                        contrast(slot.fg, bg),
+                        contrast(slot.fg, dimmed(bg, theme.bg)),
+                    );
                     assert!(
-                        contrast(slot.fg, dimmed(bg, theme.bg)) < 1.2,
-                        "{name}: readable as drawn"
+                        (asked >= 1.2 && drawn < 1.2) || (asked >= 3.0 && drawn < 3.0),
+                        "{name}: {asked:.2} asked, {drawn:.2} drawn"
                     );
                     assert!(contrast(text, dimmed(bg, theme.bg)) >= 4.5, "{name}");
                 }
             }
         }
-        got.push((*name, moved));
+        got.push((*name, moved, lines, glass_lines));
     }
-    // vimdiff's 22: `habamax`'s `#1c1c1c` on `#767676`, 3.75:1 asked and
-    // 1.13:1 drawn. herdr's lifts are on the screens before its last,
-    // which `text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted` reads.
-    let want: Vec<(&str, usize)> = streams
+    // On the final screens: vimdiff's `habamax` greys, `#1c1c1c` on
+    // `#767676` and on `#9e9e9e`; btop's one grey of its fade that crosses
+    // 3; yazi-walk's status bar and powerline caps; herdr's after its
+    // settings close. Over its reads, herdr's lines: 2546 its dividers on
+    // the default page, which the floor lifted, and 3150 its panels'
+    // borders on pages it set, which the glass trigger would lift (3.11-5.82
+    // as asked, 1.54-2.69 drawn).
+    let want: Vec<(&str, usize, usize, usize)> = streams
         .iter()
-        .map(|(n, _)| (*n, if *n == "vimdiff" { 22 } else { 0 }))
+        .map(|(n, _)| {
+            let (moved, lines, glass) = match *n {
+                "vimdiff" => (45, 0, 0),
+                "utf8/btop.raw" => (53, 0, 0),
+                "sixel/yazi-walk.raw" => (27, 0, 0),
+                "herdr-themes" => (1, 2546, 3150),
+                _ => (0, 0, 0),
+            };
+            (*n, moved, lines, glass)
+        })
         .collect();
     assert_eq!(got, want);
 }

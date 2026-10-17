@@ -244,6 +244,27 @@ fn edge(m: &[u8], c: Cell, d: Dir) -> (u32, u32) {
     (covered, runs)
 }
 
+/// **The floor's lines are the Box Drawing block, and only it**
+/// (`baud_render::Line`): every character in `Line::FIRST..=Line::LAST`
+/// is named `BOX DRAWINGS` in the pinned file, and the characters either
+/// side of it -- `U+24FF`, and `U+2580` UPPER HALF BLOCK, the first of the
+/// Block Elements btop draws graphs with -- are not.
+#[test]
+fn the_floors_lines_are_the_box_drawing_block() {
+    use baud_render::Line;
+    let inside = names(Line::FIRST, Line::LAST);
+    assert_eq!(inside.len(), 128);
+    assert!(
+        inside.iter().all(|(_, n)| n.starts_with("BOX DRAWINGS ")),
+        "every name in the range is a box drawing"
+    );
+    for v in [Line::FIRST - 1, Line::LAST + 1] {
+        let (_, name) = names(v, v).remove(0);
+        assert!(!name.starts_with("BOX DRAWINGS"), "U+{v:04X} {name}");
+    }
+    assert_eq!(names(0x2580, 0x2580)[0].1, "UPPER HALF BLOCK");
+}
+
 #[test]
 fn the_box_descriptors_agree_with_the_unicode_names() {
     let table = names(0x2500, 0x257F);

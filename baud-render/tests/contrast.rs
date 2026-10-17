@@ -13,8 +13,8 @@ use baud_domain::contrast::{self, CurveRow};
 use baud_domain::{BytePos, Chan, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{
-    Argb, Blend, BlinkPhases, BlockCursor, Curves, Damage, Ink, Instance, Kind, Pictured, PxSize,
-    Renderer, Resolved, Selected, Shapes, Stack, Swaps, Theme,
+    Argb, Blend, BlinkPhases, BlockCursor, Curves, Damage, Ink, Instance, Kind, Line, Pictured,
+    PxSize, Renderer, Resolved, Selected, Shapes, Stack, Swaps, Theme,
 };
 use support::font;
 
@@ -202,7 +202,11 @@ fn the_cpu_path_bends_every_mask_by_the_curve() {
 /// picture, the two must name one row.
 #[test]
 fn the_ink_is_the_drawn_foregrounds_row() {
-    let (fg, bg) = (Argb(0xFF_FF_FF_FF), Argb(0x38_10_10_10));
+    let (fg, bg, line) = (
+        Argb(0xFF_FF_FF_FF),
+        Argb(0x38_10_10_10),
+        Argb(0xFF_15_16_1B),
+    );
     let row = |c: Argb| {
         let (r, g, b) = rgb(c);
         CurveRow::of(r, g, b)
@@ -215,8 +219,11 @@ fn the_ink_is_the_drawn_foregrounds_row() {
         curves: Curves::of(row(fg), row(bg)),
         glass: fg,
         glass_curves: Curves::of(row(fg), row(bg)),
+        line,
+        line_curves: Curves::of(row(line), row(bg)),
     };
     assert_ne!(row(fg), row(bg), "the control: two rows");
+    assert_ne!(row(line), row(fg), "the control: a line's row of its own");
     let mut swapped = 0;
     for selected in [Selected::No, Selected::Yes] {
         for block in [
@@ -224,16 +231,22 @@ fn the_ink_is_the_drawn_foregrounds_row() {
             BlockCursor::Yes(None),
             BlockCursor::Yes(Some(Argb(0xFF_FF_00_00))),
         ] {
-            for pictured in [Pictured::No, Pictured::Yes] {
+            for (pictured, line) in [Pictured::No, Pictured::Yes]
+                .into_iter()
+                .flat_map(|p| [(p, Line::No), (p, Line::Yes)])
+            {
                 let s = Swaps {
                     pictured,
+                    line,
                     selected,
                     block,
                     blink: BlinkPhases::SHOWN,
                     cursor: Chan::from_u8(0xFF),
                 };
                 let drawn = slot.drawn(s);
-                assert_eq!(slot.curves.row(s.ink()), row(drawn.fg), "{s:?}");
+                if line == Line::No {
+                    assert_eq!(slot.curves.row(s.ink()), row(drawn.fg), "{s:?}");
+                }
                 assert_eq!(drawn.curve, row(drawn.fg), "{s:?}");
                 swapped += usize::from(s.ink() == Ink::Swapped);
                 // **A block part way through a fade takes the row of the side
@@ -254,10 +267,12 @@ fn the_ink_is_the_drawn_foregrounds_row() {
                     };
                     let want = row(slot.drawn(side).fg);
                     assert_eq!(slot.drawn(f).curve, want, "{f:?}");
-                    assert_eq!(slot.curves.row(f.ink()), want, "{f:?}");
+                    if line == Line::No {
+                        assert_eq!(slot.curves.row(f.ink()), want, "{f:?}");
+                    }
                 }
             }
         }
     }
-    assert_eq!(swapped, 6, "the odd swaps: selected or block, not both");
+    assert_eq!(swapped, 12, "the odd swaps: selected or block, not both");
 }

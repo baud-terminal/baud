@@ -60,9 +60,9 @@ pub use atlas::{
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use caret::{CursorPhase, Play};
 pub use cellmap::{
-    BlockCursor, Candidate, CellKey, CellSpan, Curves, Drawn, GlyphMap, Ground, Ink, MAP_BITS,
-    MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK, Resolved, Selected, Shapes, Swaps, Text,
-    copy_for_shader,
+    BlockCursor, Candidate, CellKey, CellSpan, Curves, Drawn, GlyphMap, Ground, Ink, Line,
+    MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK, Resolved, Selected, Shapes,
+    Swaps, Text, copy_for_shader,
 };
 pub use color::{
     AppBg, Argb, Floor, MODUS_OPERANDI, PictureBg, Theme, Video, light_palette, xterm_palette,

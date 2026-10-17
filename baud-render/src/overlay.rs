@@ -17,7 +17,7 @@
 
 use crate::atlas::Code;
 use crate::cellmap::CellSpan;
-use crate::cellmap::{BlockCursor, Candidate, GlyphMap, Resolved, Selected, Swaps, Text};
+use crate::cellmap::{BlockCursor, Candidate, GlyphMap, Line, Resolved, Selected, Swaps, Text};
 use crate::color::Argb;
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
@@ -853,6 +853,7 @@ impl Overlay {
             .map_or(Pictured::No, |p| p.at(Row::from_index(y), Col::at_index(x)));
         let d = resolved.drawn(Swaps {
             pictured,
+            line: Line::of(cell.content),
             selected: if selected {
                 Selected::Yes
             } else {
@@ -866,7 +867,7 @@ impl Overlay {
             blink: paint.blink,
             cursor: paint.cursor,
         });
-        let bar = geom.bar.and_then(|b| b.over(at, d.fg, geom));
+        let bar = geom.bar.and_then(|b| b.over(at, d.cursor_fg, geom));
         if d.text == Text::Hidden {
             records.extend(bar);
             return;
@@ -1048,6 +1049,7 @@ pub(crate) fn composition_records(
         let under_cursor = block.is_some_and(|(br, bc, _)| br == c.row && bc.index() == x);
         let d = resolved.drawn(Swaps {
             pictured: Pictured::No,
+            line: Line::No,
             selected: Selected::No,
             block: if under_cursor {
                 BlockCursor::Yes(None)

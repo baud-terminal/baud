@@ -1120,7 +1120,8 @@ struct CU {
     // side binds that many: `CellUniforms`, which checks it.
     uint cursor_alpha;
 };
-struct Style { uint fg; uint bg; uint ul; uint shapes; uint curves; uint glass; uint gcurves; };
+struct Style { uint fg; uint bg; uint ul; uint shapes; uint curves; uint glass; uint gcurves;
+               uint line; uint lcurves; };
 struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
 
 struct FlatOut { float4 pos [[position]]; float4 color; };
@@ -1239,16 +1240,26 @@ static bool solid(constant CU& u, uint shapes, device const uchar* overlay,
         || (lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & 2u) != 0u);
 }
 
-// The contrast curve row a cell's glyph takes: the glass text's
-// (`gcurves`) while it is drawn unswapped over a page left dimmed, else
-// the solid text's, each by the swaps' parity. Must match
-// `Resolved::drawn` and `Curves::row`.
+// Whether the cell is a box-drawing line, which the contrast floor leaves
+// as asked: Unicode's Box Drawing block. Must match `Line::of`, pinned by
+// `the_line_range_matches_the_shader`.
+#define LINE_FIRST 0x2500u
+#define LINE_LAST 0x257Fu
+static bool is_line(uint content) {
+    return content >= LINE_FIRST && content <= LINE_LAST;
+}
+
+// The contrast curve row a cell's glyph takes, while it is drawn
+// unswapped: a line's (`lcurves`), else the glass text's (`gcurves`) over
+// a page left dimmed; else the solid text's, each by the swaps' parity.
+// Must match `Resolved::drawn` and `Curves::row`.
 static uint glyph_curve(constant CU& u, Style s, device const uchar* overlay,
                         uint content, uint col, int lrow) {
     bool swap = swapped(u, content, col, uint(lrow));
-    bool glass = !solid(u, s.shapes, overlay, col, lrow) && !swap
-                 && !selected(u, content, col, uint(lrow));
-    uint curves = glass ? s.gcurves : s.curves;
+    bool own = !swap && !selected(u, content, col, uint(lrow));
+    uint curves = own && is_line(content) ? s.lcurves
+                : own && !solid(u, s.shapes, overlay, col, lrow) ? s.gcurves
+                : s.curves;
     return swap ? (curves >> 16) : (curves & 0xffffu);
 }
 
@@ -1258,18 +1269,24 @@ static uint glyph_curve(constant CU& u, Style s, device const uchar* overlay,
 // colour: the glyph and shape passes skip a hidden cell's text.
 static void colors(constant CU& u, device const Style* styles,
                    device const uchar* overlay, uint2 cell,
-                   uint col, int lrow, thread uint& fgw, thread uint& bgw) {
+                   uint col, int lrow, thread uint& fgw, thread uint& bgw,
+                   thread uint& curw) {
     Style s = styles[cell.y & 0xffffu];
     uint row = uint(lrow);
     // A page drawn solid -- `[glass] app_backgrounds = "opaque"` or a
     // picture -- takes the solid text, `fg`; a page left dimmed takes the
-    // text the floor lifted against it, `glass`. Must match
-    // `Resolved::drawn`.
+    // text the floor lifted against it, `glass`; a line takes `line`.
+    // Must match `Resolved::drawn`.
     if (solid(u, s.shapes, overlay, col, lrow)) {
         fgw = s.fg; bgw = s.bg | 0xff000000u;
     } else {
         fgw = s.glass; bgw = s.bg;
     }
+    // What a bar or underline cursor falls back to: the text before the
+    // line rule, `Drawn::cursor_fg`.
+    curw = fgw;
+    // A box-drawing line draws the text as asked, `line`, on either page.
+    if (is_line(cell.x)) fgw = s.line;
     // Opaque on BOTH sides of a swap, and the text a swap hands to the
     // background is the solid one. Every background carries the
     // window's dim now, so the foreground a swap hands back would be
@@ -1279,6 +1296,7 @@ static void colors(constant CU& u, device const Style* styles,
     uint ink = s.fg;
     if (selected(u, cell.x, col, row)) {
         fgw = bgw | 0xff000000u; bgw = ink | 0xff000000u; ink = fgw;
+        curw = fgw;
     }
     if (u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y) {
         uint f0 = fgw, b0 = bgw;
@@ -1332,8 +1350,8 @@ vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     }
     // A cell of a picture drawn in text keeps its background solid under
     // the dim, inside `colors()`. Must match `Renderer::convert_row`.
-    uint fgw, bgw;
-    colors(u, styles, overlay, cell, col, lrow, fgw, bgw);
+    uint fgw, bgw, curw;
+    colors(u, styles, overlay, cell, col, lrow, fgw, bgw, curw);
     float2 c = float2(vid & 1u, vid >> 1u);
     float2 p = float2((float(col) + c.x) * float(u.cell.x),
                       (float(lrow) + c.y) * float(u.cell.y) + float(u.pan));
@@ -1384,8 +1402,8 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         i = (i + 1u) & mask;
     }
     if (!found || e.kind > 2u) return o;
-    uint fgw, bgw;
-    colors(u, styles, overlay, cell, col, lrow, fgw, bgw);
+    uint fgw, bgw, curw;
+    colors(u, styles, overlay, cell, col, lrow, fgw, bgw, curw);
     float2 c = float2(vid & 1u, vid >> 1u);
     float2 origin = float2(float(col * u.cell.x) + float(e.at.x),
                            float(lrow) * float(u.cell.y) + float(u.baseline)
@@ -1423,8 +1441,8 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     uint2 cell = cell_at(u, cells, col, dr);
     Style s = styles[cell.y & 0xffffu];
     if (which != 3u && hidden(u, s.shapes)) return o;
-    uint fgw, bgw;
-    colors(u, styles, overlay, cell, col, lrow, fgw, bgw);
+    uint fgw, bgw, curw;
+    colors(u, styles, overlay, cell, col, lrow, fgw, bgw, curw);
     float2 at; float2 wh; uint colw;
     float thick = float(max(u.thickness, 2u));
     if (which == 0u) {
@@ -1463,7 +1481,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         }
         // `OSC 12`: the bar or underline cursor draws in the cursor colour,
         // at the fade's opacity (`Argb::scaled`).
-        colw = scaled((u.cursor_color != 0u) ? u.cursor_color : fgw, u.cursor_alpha);
+        colw = scaled((u.cursor_color != 0u) ? u.cursor_color : curw, u.cursor_alpha);
     } else {
         // Segment k of a styled underline: the same arithmetic as the CPU
         // compositor's, so the two arms agree pixel for pixel.

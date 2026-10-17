@@ -134,7 +134,11 @@ ambiguous_width = "narrow"
 # [glass] app_backgrounds = "dim" makes unreadable: a page the program set,
 # drawn at the dim over the window's own background, is measured as drawn,
 # and text that reads at this ratio on the page as asked but not on the page
-# as drawn is lifted. A pair below it as asked is still the program's. What
+# as drawn is lifted; so is text that reads at 3:1 as asked and below 3:1 as
+# drawn (or at this ratio, when it is higher). A pair below it as asked is
+# still the program's. Box-drawing lines (U+2500-U+257F, where the lines and
+# corners of DEC Special Graphics land) are left out: a divider is drawn in
+# the colour asked. Block elements, which graphs are drawn with, are not. What
 # a program asked for is unchanged in what the terminal reports; only the
 # pixel moves. 1.2, the default, lifts only text that is nearly invisible;
 # "off" turns it off.

@@ -146,19 +146,33 @@ impl Floor {
         Floor::lift_to(text, page, target)
     }
 
+    /// The trigger for text the window's dim made unreadable, beside the
+    /// floor's own: the owner's call of 2026-10-17, measured on every
+    /// capture first (the record, "A trigger of 3 for text the dim broke,
+    /// measured: the owner's call"). WCAG 2.2's 3:1 is SC 1.4.3's minimum
+    /// for large-scale text and SC 1.4.11's for graphical objects
+    /// (`[[source: wcag22]]`).
+    pub const GLASS_TRIGGER: f64 = 3.0;
+
     /// `text` as drawn on `page`, which the window's dim draws as `drawn`:
-    /// lifted against `drawn` when the pair reads below the trigger there
-    /// and **not** below it on `page`. `text` is what [`Floor::lift`] made
-    /// of the pair, so a pair the floor covers has already been lifted on
-    /// the page, and what is left below the trigger on it -- a program's
-    /// own low-contrast pair on its own page -- the program chose and keeps.
-    /// The colour drawn over a page the dim leaves solid is `text` itself.
+    /// lifted against `drawn` when the pair reads below a trigger there and
+    /// **not** below it on `page`. Two bands: the floor's own trigger, and
+    /// [`Floor::GLASS_TRIGGER`] (or the floor's, when that is higher) for a
+    /// pair asked at it or above, so a pair asked below 3 is never lifted by
+    /// the second. `text` is what [`Floor::lift`] made of the pair, so a
+    /// pair the floor covers has already been lifted on the page, and what
+    /// is left below the trigger on it -- a program's own low-contrast pair
+    /// on its own page -- the program chose and keeps. The colour drawn
+    /// over a page the dim leaves solid is `text` itself.
     pub fn lift_on_glass(self, text: Argb, page: Argb, drawn: Argb) -> Argb {
         let Floor::Lift { trigger, target } = self else {
             return text;
         };
         let lt = Lum::of(text);
-        if lt.ratio(Lum::of(drawn)) >= trigger || lt.ratio(Lum::of(page)) < trigger {
+        let asked = lt.ratio(Lum::of(page));
+        let glass = trigger.max(Floor::GLASS_TRIGGER);
+        let k = if asked >= glass { glass } else { trigger };
+        if lt.ratio(Lum::of(drawn)) >= k || asked < k {
             return text;
         }
         Floor::lift_to(text, drawn, target)

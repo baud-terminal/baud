@@ -7,7 +7,7 @@ use crate::cache::{
 };
 use crate::caret::{self, CursorPhase, Play};
 use crate::cellmap::{
-    BlockCursor, CellSpan, Curves, Ground, Resolved, Selected, Shapes, Swaps, Text,
+    BlockCursor, CellSpan, Curves, Ground, Line, Resolved, Selected, Shapes, Swaps, Text,
 };
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Blit, Page, Target, Texels};
@@ -3048,6 +3048,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // section 8). The words are the ones drawn, exchanged under `SGR 7`
         // and under `?5` by the one rule the colours took.
         let (text_word, page_word) = self.video.drawn(style.attrs(), style.fg(), style.bg());
+        // A box-drawing line draws the text as asked (`Line`).
+        let line = fg;
         let fg = self.theme.floor.lift(fg, bg, (text_word, page_word));
         let opaque_bg = self.theme.opaque_bg(style, self.video);
         // **The floor again, on the page as the dim draws it** (Jev,
@@ -3082,6 +3084,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // glyph is painted in; alpha never enters the curve.
         let curves = Curves::of(curve_row(fg), curve_row(bg));
         let glass_curves = Curves::of(curve_row(glass), curve_row(bg));
+        let line_curves = Curves::of(curve_row(line), curve_row(bg));
         // Which underline is drawn is the style's own bit. The three colon
         // styles *replace* the straight line rather than adding to it, so the
         // straight-line bit is set only for the two that draw one.
@@ -3123,6 +3126,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             curves,
             glass,
             glass_curves,
+            line,
+            line_curves,
         }
     }
 
@@ -3220,6 +3225,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             };
             let d = res.drawn(Swaps {
                 pictured: self.pictures.at(r, col),
+                line: Line::of(cell.content),
                 selected,
                 block,
                 blink: self.blink,
@@ -3309,7 +3315,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             // The bar or underline cursor draws in the application's cursor
             // colour (`OSC 12`) if it set one, else the cell's foreground.
-            let cur = cursor_color.unwrap_or(fg);
+            let cur = cursor_color.unwrap_or(d.cursor_fg);
             let cur = here.map_or(cur, |(_, _, s)| cur.scaled(self.cursor_opacity(s)));
             if let Some((
                 _,

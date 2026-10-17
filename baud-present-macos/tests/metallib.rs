@@ -269,6 +269,31 @@ fn the_wide_tail_value_matches_the_shader() {
     );
 }
 
+/// **`LINE_FIRST` and `LINE_LAST` in the shader and `Line::FIRST` and
+/// `Line::LAST` are one fact spelled twice.** A drift would draw a
+/// box-drawing line floored on the cell path and as asked on the others,
+/// or a block element as asked.
+#[test]
+fn the_line_range_matches_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    for (name, want) in [
+        ("LINE_FIRST", baud_render::Line::FIRST),
+        ("LINE_LAST", baud_render::Line::LAST),
+    ] {
+        let prefix = format!("#define {name} ");
+        let line = src
+            .lines()
+            .find(|l| l.starts_with(&prefix))
+            .unwrap_or_else(|| panic!("shaders.metal defines {name}"));
+        let hex = line[prefix.len()..]
+            .trim()
+            .trim_end_matches('u')
+            .trim_start_matches("0x");
+        let got = u32::from_str_radix(hex, 16).unwrap_or_else(|_| panic!("{name} is hex"));
+        assert_eq!(got, want, "{line:?} against {name}");
+    }
+}
+
 /// **`SHAPE_BLINK`, `SHAPE_RAPID_BLINK` and `SHAPE_CONCEAL` in the shader
 /// and `Shapes::BLINK`, `Shapes::RAPID_BLINK` and `Shapes::CONCEAL` are one
 /// fact spelled twice.** The resolved table carries

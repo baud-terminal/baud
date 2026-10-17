@@ -23,6 +23,8 @@ fn styles() -> Vec<Resolved> {
             curves: Curves::default(),
             glass: Argb(0xFFFFFFFF),
             glass_curves: Curves::default(),
+            line: Argb(0xFFFFFFFF),
+            line_curves: Curves::default(),
         };
         8
     ]

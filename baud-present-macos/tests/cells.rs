@@ -3287,7 +3287,9 @@ fn partial_image_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
 /// record, as a one-page panel, under a selection and under a block
 /// cursor. The panel's glyphs are lifted, so they differ from the same
 /// frame with the floor off; the picture's, the selection's and the
-/// cursor's are drawn solid and take the text asked, so they do not. The
+/// cursor's are drawn solid and take the text asked, so they do not; nor
+/// do box-drawing lines, on the panel and in herdr's divider colour on the
+/// default page, while two block elements in that colour are floored. The
 /// two GPU arms read one resolved table but choose between its two texts
 /// in two spellings, `Resolved::drawn` and the shader's `colors()`, and
 /// the CPU arm composites the instance arm's colours: this compares all
@@ -3316,7 +3318,14 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
     }
     feed(
         t,
-        format!("\x1b[5;3H\x1b[{pair}mpanel text here\x1b[0m").as_bytes(),
+        format!("\x1b[5;3H\x1b[{pair}mpanel text here\x1b[5;19H\u{2500}\x1b[0m").as_bytes(),
+    );
+    // herdr's divider colour on the default page, 1.05:1: four box-drawing
+    // lines, one of them DEC Special Graphics' `q`, then two block elements.
+    feed(
+        t,
+        "\x1b[7;3H\x1b[38;2;21;22;27m\u{2500} \u{2502} \u{256d} \u{257f} \x1b(0q\x1b(B \u{2580} \u{2588}\x1b[0m"
+            .as_bytes(),
     );
     feed(t, b"\x1b[5;14H\x1b[?25h");
     arms.highlight = Some(Highlight {
@@ -3372,9 +3381,50 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
         n
     };
     assert!(moved(4..5, 8..11) > 0, "the panel's glyphs were not lifted");
+    assert_eq!(moved(4..5, 18..19), 0, "a line on the panel was lifted");
+    assert_eq!(moved(6..7, 2..11), 0, "a box-drawing line was floored");
+    for col in [12, 14] {
+        assert!(
+            moved(6..7, col..col + 1) > 0,
+            "the block element at {col} was not floored"
+        );
+    }
     assert_eq!(moved(1..3, 2..22), 0, "a picture's text was lifted");
     assert_eq!(moved(4..5, 2..7), 0, "a selected cell's text was lifted");
     assert_eq!(moved(4..5, 13..14), 0, "the block cursor's cell was lifted");
+
+    // **A bar cursor on a line keeps the floored colour it always had**: the
+    // line rule is the text's, not the cursor's. All three arms draw it, and
+    // the bar's pixels move with the floor.
+    feed(t, b"\x1b[7;3H\x1b[6 q\x1b[?25h");
+    let mut bars = Vec::new();
+    for floor in [baud_render::Floor::DEFAULT, baud_render::Floor::Off] {
+        arms.renderer.set_theme(Theme {
+            app_bg: baud_render::AppBg::Dimmed,
+            picture_bg: baud_render::PictureBg::Opaque,
+            floor,
+            ..resting.clone()
+        });
+        let (a, b) = arms.draw(t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "{floor:?}: the GPU arms disagree over a bar cursor on a line"
+        );
+        let cpu = cpu_frame(arms, t);
+        let all = channel_diff(&cpu, &a, |_| true);
+        assert_eq!(
+            all.0, 0,
+            "{floor:?}: CPU and GPU differ under a bar cursor on a line, by up to {}",
+            all.1
+        );
+        bars.push(b[6 * ch * fw + 2 * cw]);
+    }
+    assert_ne!(
+        bars[0], bars[1],
+        "the bar cursor on a line was drawn as asked, not floored"
+    );
+    feed(t, b"\x1b[?25l\x1b[0 q");
 }
 
 /// The CPU arm: [`Renderer::render_at`] into a [`Target`], each pixel then

@@ -576,9 +576,10 @@ impl Shapes {
 /// One rendition table slot resolved to what a cell draws with: the
 /// foreground, the background with the default background's alpha applied,
 /// the underline colour, which shapes to draw, the text-contrast curve
-/// rows its glyph takes on either side ([`Curves`]), and the foreground
-/// and curves again for text over the page as the window's dim draws it.
-/// Twenty-eight bytes, `repr(C)`, seven `u32`s.
+/// rows its glyph takes on either side ([`Curves`]), the foreground and
+/// curves again for text over the page as the window's dim draws it, and
+/// once more as asked, for a line ([`Line`]). Thirty-six bytes, `repr(C)`,
+/// nine `u32`s.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Resolved {
@@ -595,6 +596,47 @@ pub struct Resolved {
     pub glass: Argb,
     /// [`Resolved::curves`] with `glass`'s row in the own half.
     pub glass_curves: Curves,
+    /// The text as the program asked for it, before either floor: what a
+    /// box-drawing line draws ([`Line`]).
+    pub line: Argb,
+    /// [`Resolved::curves`] with `line`'s row in the own half.
+    pub line_curves: Curves,
+}
+
+/// **Whether a cell is a box-drawing line**, which the contrast floor
+/// leaves as asked (the owner, 2026-10-17): its character is in Unicode's
+/// Box Drawing block, `U+2500..=U+257F`, every one of whose 128 names in
+/// `UnicodeData.txt` begins `BOX DRAWINGS` (`[[source: unicode-data]]`),
+/// where DEC Special Graphics stores its lines, corners and tees; its scan
+/// lines, `o p r s`, are `U+23BA..=U+23BD`, outside it. herdr draws
+/// its dividers below 1.2:1 on the default page, and the floor lifted
+/// them into grey rules at 4.5:1. WCAG 2.2's SC 1.4.3 puts
+/// text that is "pure decoration" under no contrast requirement
+/// (`[[source: wcag22]]`); the call is the owner's, not the standard's.
+/// **Block Elements, `U+2580..=U+259F`, are not lines**: btop and cava
+/// draw graphs with them, and they keep the floor. A line carrying a mark
+/// is a cluster, drawn as other text.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Line {
+    No,
+    Yes,
+}
+
+impl Line {
+    /// The first and last character of the Box Drawing block. The cell
+    /// shader's `is_line` spells the same range, pinned by
+    /// `the_line_range_matches_the_shader`.
+    pub const FIRST: u32 = 0x2500;
+    pub const LAST: u32 = 0x257F;
+
+    pub fn of(content: Content) -> Line {
+        let v = content.bits();
+        if (Line::FIRST..=Line::LAST).contains(&v) {
+            Line::Yes
+        } else {
+            Line::No
+        }
+    }
 }
 
 /// The contrast curve rows a glyph of one rendition is drawn with
@@ -627,7 +669,7 @@ impl Curves {
 const _: () = assert!(core::mem::size_of::<Resolved>() == Resolved::BYTES);
 
 impl Resolved {
-    pub const BYTES: usize = 28;
+    pub const BYTES: usize = 36;
 
     /// Whether the cell's own text draws: its glyph, its underline and its
     /// strike. **Hidden text draws its background and nothing of its own**,
@@ -660,7 +702,9 @@ impl Resolved {
     ///   its backgrounds solid under it, or it splits into slivers and holes.
     ///   **Text over a page left dimmed is [`Resolved::glass`]**, and over
     ///   a solid one [`Resolved::fg`]; a swap takes `fg`, since it draws
-    ///   both sides solid.
+    ///   both sides solid. **A box-drawing line is [`Resolved::line`]** on
+    ///   either page; what a swap hands the background stays `fg` (Jev did
+    ///   not decide it: decisions 674-677).
     /// * **The selection swaps, then a block cursor swaps again**, and both
     ///   leave the two colours opaque: the foreground a swap hands back is
     ///   the old background, which carries the dim, and a glyph at 0.22 over
@@ -672,22 +716,38 @@ impl Resolved {
     ///
     /// **Inlined always**: CPU instructions a 200x50 glass frame of herdr,
     /// before the glass text 20.26M as compiled and 19.91M inlined, with it
-    /// 20.49M as compiled and 19.97M inlined.
+    /// 20.49M as compiled and 19.97M inlined; the line's cost is in the
+    /// record, "Box drawing is left out of the floor, and the glass trigger
+    /// is 3".
     #[inline(always)]
     pub fn drawn(self, s: Swaps) -> Drawn {
         let opaque = Chan::from_u8(0xFF);
         let solid = self.shapes.has(Shapes::OPAQUE_BG) || s.pictured == Pictured::Yes;
+        let line = s.line == Line::Yes;
         let (mut fg, mut bg) = if solid {
             (self.fg, self.bg.with_alpha(opaque))
         } else {
             (self.glass, self.bg)
         };
+        // What a bar or underline cursor falls back to over this cell: the
+        // text without the line rule, so a line under a bar cursor keeps the
+        // floored colour the cursor always had (the owner's call covers
+        // lines, not the cursor).
+        let plain = fg;
+        if line {
+            fg = self.line;
+        }
         // The text a swap hands to the background: the solid one.
         let mut ink = self.fg;
         if s.selected == Selected::Yes {
             (fg, bg) = (bg.with_alpha(opaque), ink.with_alpha(opaque));
             ink = fg;
         }
+        let cursor_fg = if line && s.selected == Selected::No {
+            plain
+        } else {
+            fg
+        };
         if let BlockCursor::Yes(fill) = s.block {
             let off = (fg, bg);
             (fg, bg) = (bg.with_alpha(opaque), ink.with_alpha(opaque));
@@ -701,11 +761,14 @@ impl Resolved {
                 (fg, bg) = (fg.mix(off.0, s.cursor), bg.mix(off.1, s.cursor));
             }
         }
-        // The curve rows the glyph takes from: the glass text's while it is
-        // drawn unswapped over a page left dimmed, else the solid text's.
-        // The cell shader's `glyph_curve` mirrors it.
+        // The curve rows the glyph takes from, while it is drawn unswapped:
+        // a line's, else the glass text's over a page left dimmed; else the
+        // solid text's. The cell shader's `glyph_curve` mirrors it.
         let side = s.ink();
-        let curves = if !solid && s.selected == Selected::No && side == Ink::Own {
+        let own = s.selected == Selected::No && side == Ink::Own;
+        let curves = if own && line {
+            self.line_curves
+        } else if own && !solid {
             self.glass_curves
         } else {
             self.curves
@@ -713,6 +776,7 @@ impl Resolved {
         Drawn {
             fg,
             bg,
+            cursor_fg,
             text: self.text(s.blink),
             curve: curves.row(side),
         }
@@ -772,6 +836,8 @@ pub enum BlockCursor {
 #[derive(Clone, Copy, Debug)]
 pub struct Swaps {
     pub pictured: Pictured,
+    /// Whether the cell is a box-drawing line, by its content: [`Line::of`].
+    pub line: Line,
     pub selected: Selected,
     pub block: BlockCursor,
     pub blink: BlinkPhases,
@@ -785,6 +851,9 @@ pub struct Swaps {
 pub struct Drawn {
     pub fg: Argb,
     pub bg: Argb,
+    /// The colour a bar or underline cursor takes when the application set
+    /// none: [`Drawn::fg`] as it would be with [`Line::No`].
+    pub cursor_fg: Argb,
     pub text: Text,
     /// The contrast curve row the glyph takes: the slot's row for the side
     /// the swaps leave the glyph's colour on.
