@@ -3303,9 +3303,13 @@ fn partial_image_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
 /// two GPU arms read one resolved table but choose between its two texts
 /// in two spellings, `Resolved::drawn` and the shader's `colors()`, and
 /// the CPU arm composites the instance arm's colours: this compares all
-/// three, at the default dim.
+/// three, at the old default dim, alpha 56.
 fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) {
-    assert_eq!(resting.bg_alpha.get(), 56, "the premise: the default dim");
+    assert_eq!(
+        resting.bg_alpha.get(),
+        56,
+        "the premise: alpha 56, the pre-2026-10-17 default"
+    );
     assert_eq!(arms.margin, (0, 0), "the premise: the frame at the origin");
     let pair = "38;2;60;56;54;48;2;251;241;199";
     feed(t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[2 q");
@@ -3651,7 +3655,8 @@ fn channel_diff(a: &[u32], b: &[u32], keep: impl Fn(usize) -> bool) -> (usize, u
 }
 
 /// **The CPU arm draws what the GPU arms draw, over an opaque page and over
-/// the default glass page** (`[glass] dim_dark = 0.22`, alpha 56): text in
+/// the old default glass page** (`[glass] dim_dark = 0.22`, alpha 56; the
+/// default is 0.70 since 2026-10-17): text in
 /// the default and in set colours, a block cursor, and a 40x30 image of
 /// partly transparent pixels over the text; then over the glass the same
 /// image over text on a set background, dimmed as the app's default
@@ -3686,7 +3691,7 @@ fn cpu_page_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     assert_eq!(
         glass.bg_alpha.get(),
         56,
-        "the premise: the default glass dim"
+        "the premise: alpha 56, the pre-2026-10-17 default"
     );
     let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
     // Text in the default colours, and `partial_image_gate`'s text on a

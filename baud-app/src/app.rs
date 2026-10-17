@@ -2338,7 +2338,11 @@ fn accessible(mut theme: Theme, display: Display) -> Theme {
 /// ([[source: apple-hig-accessibility]]). It overrides `floor = "off"` while
 /// the setting is on, as Reduce Transparency overrides the dim -- decided
 /// by analogy in note Y, which the owner can reverse. A reader's stricter
-/// floor is kept: "at least" is this reading of "stricter".
+/// floor is kept: "at least" is this reading of "stricter". The brief's
+/// "target 4.5" and `max(configured, 4.5)` agree for every config whose
+/// floor is at or below 4.5, because the config's `floor()` already parses
+/// every target to at least 4.5; they differ only for a floor above 4.5,
+/// such as `floor = 7`, which a literal 4.5 would loosen.
 fn stricter(floor: baud_render::Floor) -> baud_render::Floor {
     let (trigger, target) = match floor {
         baud_render::Floor::Off => (0.0, 0.0),
@@ -7928,7 +7932,9 @@ impl Driver {
     /// display-options notification invalidates the cached answers, which
     /// the Reduce Motion design probed for that setting, so no observer of
     /// baud's is added; that a live toggle of these two reads fresh within
-    /// a frame is the owner's check. **Not through `apply_style`**, whose early return for a
+    /// a frame is the owner's check, and the cost of these two reads is
+    /// carried over from Reduce Motion's, not measured for them.
+    /// **Not through `apply_style`**, whose early return for a
     /// pinned theme would leave a pinned reader's cells as they were: this
     /// rebuilds whichever theme is in force. The core is told nothing,
     /// because the settings move no colour it reports.

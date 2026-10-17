@@ -32,7 +32,8 @@ const WS: WinSize = WinSize {
     ws_col: 12,
 };
 
-/// `[glass] dim_dark`'s default, 0.22 of 255 rounded.
+/// The old default dim, 0.22 of 255 (alpha 56; the default is 0.70 since
+/// 2026-10-17).
 const DIM: u8 = 56;
 
 fn alpha(c: Argb) -> u8 {

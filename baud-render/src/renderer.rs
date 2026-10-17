@@ -1442,7 +1442,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// records are rebuilt when it moves. Run where the frame's styles are
     /// read ([`Renderer::sync_styles`]), after the trail is set, on every
     /// path. A pass whose records meet an image placed under the text, or
-    /// below the backgrounds, draws nothing: a cap of 0. A selection or a
+    /// below the backgrounds, draws nothing: a cap of 0. The image test is a
+    /// rectangle overlap of each such placement with each record, so a
+    /// partly transparent image also counts as a ground, the safe
+    /// direction. A selection or a
     /// block cursor under the trail, and the desktop under a dimmed page,
     /// are not grounds it reads.
     fn bound_trail(&mut self, term: &Term<'_>) {
@@ -1515,10 +1518,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 }
             }
         }
-        // **Bounded a frame, and sound while it is**: past
-        // [`FLASH_GROUNDS`] grounds under the pass -- a picture, a gradient
-        // -- or an image under the text beneath one of its records, or while a ground's cap is not yet scanned, the repeat draws
-        // nothing, a cap of 0; [`FLASH_SCANS`] new caps are scanned a frame.
+        // **Bounded a frame, and sound while it is**: the repeat draws
+        // nothing, a cap of 0, when more than [`FLASH_GROUNDS`] grounds lie
+        // under the pass (a picture, a gradient), when an image placed under
+        // the text lies beneath one of its records, or while a ground's cap
+        // is not yet scanned; [`FLASH_SCANS`] new caps are scanned a frame.
         if self.flash_caps.len() > FLASH_CACHED {
             self.flash_caps.clear();
         }

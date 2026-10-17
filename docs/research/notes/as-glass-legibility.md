@@ -81,7 +81,7 @@ high-contrast UI." Apple asks that custom colours be tested under both
 settings, separately and together ([[source: apple-adopting-liquid-glass]]).
 
 **Apple's own Terminal.** Its guide ([[source: apple-terminal-guide-text-settings]])
-offers opacity and blur sliders. Its default profile, Clear Dark
+offers opacity and blur sliders. Its Clear Dark profile
 ([[source: macos-terminal-clear-dark]]), is a background at alpha 0.95 with
 blur 0.5; Clear Light ([[source: macos-terminal-clear-light]]) is white at
 0.93. That is a nearly opaque background, not Liquid Glass and not a 22% dim.
@@ -179,7 +179,12 @@ the default window, which stays material that the system frosts.
 **Increase Contrast's floor is the owner's** (note Y, decision 9), and so is
 its overriding `floor = "off"`, by analogy (note Y; the owner can reverse
 it). A configured trigger or target above 3.0 or 4.5 is kept rather than
-lowered. That is this note's reading of "stricter".
+lowered. That is this note's reading of "stricter". The brief's "target
+4.5" and the code's `max(configured, 4.5)` agree for every config whose
+floor is at or below 4.5, because the config's `floor()` already parses
+every target to at least 4.5. They differ only for a floor above 4.5, such
+as `floor = 7`, which a literal 4.5 would loosen against decision 9's
+"stricter floor"; that is not a departure.
 
 ## 6. Open
 
@@ -204,4 +209,8 @@ lowered. That is this note's reading of "stricter".
 - **Under Increase Contrast at trigger 3.0, btop's greys did not change**
   (0 of 4234 glyphs on dark btop), where note Y predicted they would
   brighten. Not checked.
+- **The CPU/GPU pixel oracle's glass arms** (`glass_floor_gate` and the
+  image-over-glass gate in `baud-present-macos/tests/cells.rs`) still run
+  only at alpha 56 and do not exercise the shipped alphas 179 (dark) and
+  153 (light).
 - **Linux reads neither setting**; it has no counterpart wired.

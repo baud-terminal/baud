@@ -339,9 +339,8 @@ style = "regular"
 # The body dim: the opacity EVERY background is painted at, 0 clear to 1
 # opaque, so the desktop shows through it. Not just the default background --
 # a colour an application sets is translucent too, so btop and anything else
-# that paints its own panels is glass rather than a slab. The defaults are the
-# lowest that keep the default text at 4.5:1 over a white desktop and over a
-# black one; turn them down for more glass, at the cost of text over a bright
+# that paints its own panels is glass rather than a slab. The defaults keep the
+# default text at 4.5:1 or more over a white desktop and over a black one; turn them down for more glass, at the cost of text over a bright
 # window behind. While Accessibility's Reduce Transparency is on, every
 # background and the margin are drawn opaque, whatever these say.
 dim_dark = 0.70

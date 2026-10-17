@@ -379,8 +379,9 @@ fn black_text_on_a_black_page_set_by_osc_11_is_lifted() {
     );
 }
 
-/// `[glass] dim_dark`'s default, 0.22 of 255 rounded: the alpha every
-/// background is drawn at under `app_backgrounds = "dim"`.
+/// The old default dim, 0.22 of 255 (alpha 56; the default is 0.70 since
+/// 2026-10-17): the alpha every background is drawn at under
+/// `app_backgrounds = "dim"`.
 const DIM: u8 = 56;
 
 fn glass() -> Theme {
@@ -437,7 +438,7 @@ fn dimmed(bg: Argb, page: Argb) -> Argb {
 /// **Text the dim makes unreadable is lifted, on herdr's own themes**
 /// (`tests/panels/herdr-themes.raw`; the record, "herdr's themes under the
 /// glass"). At every read boundary of the capture, under the glass at the
-/// default dim: every glyph on a page the program set, whose pair reads at
+/// old default dim, alpha 56: every glyph on a page the program set, whose pair reads at
 /// the trigger or above as asked, reads at the trigger or above against
 /// that page dimmed over the default page, and one asked at 3 or above
 /// reads at 3 or above. Box-drawing lines are drawn as asked and left out.

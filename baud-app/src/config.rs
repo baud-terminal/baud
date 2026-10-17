@@ -227,10 +227,11 @@ impl Clipboard {
 /// the example's calibration.** The HIG says to use the regular material
 /// "when components have a significant amount of text"
 /// ([[source: apple-hig-materials]]), and a terminal is all text; the dims
-/// are the lowest that keep default text at 4.5:1, the HIG's minimum
-/// ([[source: apple-hig-dark-mode]]), over flat white and flat black with
-/// the material darkening nothing, which
-/// `the_default_dims_keep_text_readable_over_white_and_black` computes.
+/// are Jev's decided 0.70 and 0.60, which keep default text at or above
+/// 4.5:1, the HIG's minimum ([[source: apple-hig-dark-mode]]), over flat
+/// white and flat black with the material darkening nothing;
+/// `the_default_dims_keep_text_readable_over_white_and_black` computes
+/// that, and is a floor under them, not their derivation.
 /// The tints, the hue, the saturation and the shadow are the example's,
 /// which its header records as "tuned against the system widget over one
 /// wallpaper rather than derived from a measurement" -- a starting point a
