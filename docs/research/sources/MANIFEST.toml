@@ -25560,3 +25560,62 @@ bytes  = 7948
 status = "external"
 group  = "J"
 # Read 2026-10-12 from Xcode 27.0 (27A266a), macOS SDK 27.0; hash recorded only, not committed -- a vendor header. Compare the sha256 of the file at the url.
+
+[sources.xterm-version]
+key    = "xterm-version"
+title  = "xterm 411, version.c and version.h -- xtermVersion, the text XTVERSION sends: \"%.80s(%d)\", vendor and XTERM_PATCH, so XTerm(411)"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/version.c"
+file   = "xterm-version.c"
+sha256 = "3343c255b9da8b22f952cdfc6cd0a86b22af2f747dafcb2d78beb32967a26178"
+bytes  = 2692
+status = "retrieved"
+group  = "C"
+# Read 2026-10-16 for baud's XTVERSION text. charproc.c's CASE_REPORT_VERSION
+# (xterm-sgr, the same commit) writes DCS > | xtermVersion() ST; version.h
+# (xterm-version-h) defines __vendorversion__ "XTerm" and XTERM_PATCH 411.
+
+[sources.xterm-version-h]
+key    = "xterm-version-h"
+title  = "xterm 411, version.h -- XTERM_PATCH 411 and __vendorversion__ \"XTerm\""
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/version.h"
+file   = "xterm-version.h"
+sha256 = "fc570d1b31c2b6096c141ad182469c9b7d93172c29909427a6c0bfae3a013437"
+bytes  = 2050
+status = "retrieved"
+group  = "C"
+
+[sources.apple-cfbundleshortversionstring]
+key    = "apple-cfbundleshortversionstring"
+title  = "Bundle Resources, Information Property List: CFBundleShortVersionString -- \"three period-separated integers ... only numeric characters (0-9) and periods\""
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/bundleresources"
+url    = "https://developer.apple.com/tutorials/data/documentation/bundleresources/information-property-list/cfbundleshortversionstring.json"
+file   = ""
+sha256 = "1574b97f4c4ab92accca00a6eacf5814530a52339dacf7022e6b379a71dd534f"
+bytes  = 11670
+status = "external"
+group  = "J"
+# Read 2026-10-16 for the bundle's version keys; not committed -- vendor
+# documentation. The url is the JSON the documentation page renders from.
+
+[sources.apple-cfbundleversion]
+key    = "apple-cfbundleversion"
+title  = "Bundle Resources, Information Property List: CFBundleVersion -- \"one to three period-separated integers\", and \"increment the build version before you distribute a build\""
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/bundleresources"
+url    = "https://developer.apple.com/tutorials/data/documentation/bundleresources/information-property-list/cfbundleversion.json"
+file   = ""
+sha256 = "19a21e227db1deadc5eade728dea5f861544965278992ebb071223099bae844c"
+bytes  = 12091
+status = "external"
+group  = "J"
+# Read 2026-10-16 for the bundle's version keys; not committed -- vendor
+# documentation. "You can include more integers but the system ignores them."

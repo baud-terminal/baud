@@ -1186,6 +1186,8 @@ files   = [
   "xterm-ptyx.h",
   "xterm-tabs.c",
   "xterm-util.c",
+  "xterm-version.c",
+  "xterm-version.h",
   "xterm-wcwidth.c",
   "xterm-wcwidth.h",
   "xterm-xterm.h",

@@ -25,7 +25,7 @@ BASE = {
     "TERM": "xterm-256color",
     "COLORTERM": "truecolor",
     "TERM_PROGRAM": "baud",
-    "TERM_PROGRAM_VERSION": "0.1.0",
+    "TERM_PROGRAM_VERSION": "1.0.0-beta.1",
     "PS1": "PROMPT> ",
 }
 ARMS = [

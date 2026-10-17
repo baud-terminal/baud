@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 10 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 262 | 18 | redistributable, and its notice is satisfied |
+| kept | 264 | 18 | redistributable, and its notice is satisfied |
 | own | 187 | 0 | the owner's work |
-| total | 714 | 30 | |
+| total | 716 | 30 | |
 
 ## Licence texts in LICENSES/
 
@@ -1704,7 +1704,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11
 - **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
-- **Files:** 20
+- **Files:** 22
 
 | file | copied from |
 |---|---|
@@ -1722,6 +1722,8 @@ notice is, and the URL each file was copied from.
 | [xterm-ptyx.h](docs/research/sources/xterm-ptyx.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/ptyx.h |
 | [xterm-tabs.c](docs/research/sources/xterm-tabs.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/tabs.c |
 | [xterm-util.c](docs/research/sources/xterm-util.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/util.c |
+| [xterm-version.c](docs/research/sources/xterm-version.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/version.c |
+| [xterm-version.h](docs/research/sources/xterm-version.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/version.h |
 | [xterm-wcwidth.c](docs/research/sources/xterm-wcwidth.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/wcwidth.c |
 | [xterm-wcwidth.h](docs/research/sources/xterm-wcwidth.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/wcwidth.h |
 | [xterm-xterm.h](docs/research/sources/xterm-xterm.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/xterm.h |

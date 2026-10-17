@@ -1553,6 +1553,24 @@ pub fn host_now() -> HostTime {
 mod tests {
     use super::*;
 
+    /// **What the environment says baud is, XTVERSION says too.** A
+    /// program reads `TERM_PROGRAM` and `TERM_PROGRAM_VERSION` before it
+    /// starts and asks `CSI > q` once running (yazi does both); the two
+    /// answers come from two crates, so this holds them to one text:
+    /// `DCS > | baud(<workspace version>) ST`.
+    #[test]
+    fn the_environment_names_what_xtversion_reports() {
+        let get = |k: &str| OURS.iter().find(|(o, _)| *o == k).map(|(_, v)| *v);
+        let (name, version) = (get("TERM_PROGRAM"), get("TERM_PROGRAM_VERSION"));
+        let want = format!("\x1bP>|{}({})\x1b\\", name.unwrap(), version.unwrap());
+        let got = baud_domain::Report::Version.encode(baud_domain::C1Transmit::SevenBit);
+        assert_eq!(
+            String::from_utf8_lossy(got.as_bytes()),
+            want,
+            "XTVERSION against TERM_PROGRAM and TERM_PROGRAM_VERSION"
+        );
+    }
+
     /// **The positive control for the switch.** A misspelt symbol, or a
     /// framework path that moved, reads as the switch off forever with every
     /// other test green. So the lookup is held to the OS version, asked of

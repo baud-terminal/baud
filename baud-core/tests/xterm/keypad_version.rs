@@ -93,6 +93,20 @@ fn xtversion_answers_with_a_dcs() {
     assert!(r.len() > 6, "and it names something");
 }
 
+/// The text is the name and then the version, `baud(<workspace version>)`.
+///
+/// `[[source: ctlseqs]]` asks for both ("Report xterm name and version"),
+/// and a bare `baud` identified no version. The form is xterm's own reply,
+/// `XTerm(411)` (`[[source: xterm-version]]`, `sprintf("%.80s(%d)", ...)`
+/// behind `CASE_REPORT_VERSION` in `[[source: xterm-sgr]]`), and foot's
+/// (`[[source: foot-readme]]`); the version is the workspace's, which every
+/// crate inherits, so this and `TERM_PROGRAM_VERSION` cannot drift apart.
+#[test]
+fn xtversion_names_baud_and_its_version() {
+    let want = concat!("\x1bP>|baud(", env!("CARGO_PKG_VERSION"), ")\x1b\\");
+    assert_eq!(replies(b"\x1b[>0q"), want.as_bytes());
+}
+
 /// An omitted parameter is 0, so a bare `CSI > q` is still XTVERSION.
 #[test]
 fn xtversion_defaults_to_zero() {

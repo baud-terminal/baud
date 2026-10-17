@@ -4,29 +4,53 @@
 # like an app, and carries its own Dock icon. The icon is generated from
 # assets/logo/baud-icon-dock.svg; the binary is the release build.
 #
-#   scripts/bundle-macos.sh [--no-build]
+#   scripts/bundle-macos.sh [--no-build | --info-plist]
+#
+# --info-plist prints the Info.plist it would write and stops, before any
+# build; baud-app/tests/version.rs reads the version keys from it. The
+# release build and the bundle go under $CARGO_TARGET_DIR when it is set,
+# else target/.
 #
 # Needs iconutil (macOS) and rsvg-convert (via `nix shell nixpkgs#librsvg`).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+# The owner's scheme is 1.0.0-beta.N. CFBundleShortVersionString is "three
+# period-separated integers ... only numeric characters (0-9) and periods"
+# (Apple, [[source: apple-cfbundleshortversionstring]]), so it takes the
+# version less its pre-release part; any other shape stops the bundle here
+# rather than writing a plist Apple refuses.
+if [[ $VERSION =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-beta\.[0-9]+)?$ ]]; then
+  SHORT_VERSION=${BASH_REMATCH[1]}
+else
+  echo "version $VERSION is neither X.Y.Z nor X.Y.Z-beta.N" >&2
+  exit 1
+fi
+plist() {
+  sed -e "s/__SHORT_VERSION__/$SHORT_VERSION/g" packaging/macos/Info.plist
+}
+if [ "${1:-}" = "--info-plist" ]; then
+  plist
+  exit 0
+fi
+TARGET=${CARGO_TARGET_DIR:-$ROOT/target}
 
 if [ "${1:-}" != "--no-build" ]; then
   cargo build --release -p baud-app
 fi
-BIN="$ROOT/target/release/baud"
+BIN="$TARGET/release/baud"
 [ -x "$BIN" ] || {
   echo "no release binary at $BIN (run without --no-build)"
   exit 1
 }
 
-APP="$ROOT/target/baud.app"
+APP="$TARGET/baud.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 # Info.plist with the version substituted in.
-sed "s/__VERSION__/$VERSION/g" packaging/macos/Info.plist >"$APP/Contents/Info.plist"
+plist >"$APP/Contents/Info.plist"
 
 # The icon: render the padded dock squircle to every iconset size, then pack.
 # The sizes come in pairs (Nx and its @2x) per Apple's iconset layout.

@@ -247,6 +247,11 @@ impl GraphicsReply {
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(core::mem::size_of::<Report>() == 40);
 
+// `ESC P > |`, the text and `ESC \` fit, or a longer version would lose the
+// `ST` to `ReportBytes::push`'s silent drop and send a reply of the wrong
+// shape. Checked at compile time because the text is the build's.
+const _: () = assert!(4 + Report::VERSION_TEXT.len() + 2 <= Report::MAX_LEN);
+
 /// Whether the Primary DA advertises Sixel graphics (attribute `4`). A typed
 /// flag rather than a `bool` so the call site reads as what it is, and so the
 /// audit sees a name; `Yes` only when the image store is provisioned, since an
@@ -497,6 +502,13 @@ impl Report {
     /// past it in silence, which is why that test names every variant.
     pub const MAX_LEN: usize = 39;
 
+    /// XTVERSION's text: the name and then the workspace version,
+    /// `baud(<version>)`. `[[source: ctlseqs]]` asks for "name and
+    /// version"; the parenthesised form is xterm's own reply, `XTerm(411)`
+    /// (`[[source: xterm-version]]`), and foot's. `TERM_PROGRAM_VERSION`
+    /// reads the same `CARGO_PKG_VERSION`, since every crate inherits it.
+    pub const VERSION_TEXT: &'static str = concat!("baud(", env!("CARGO_PKG_VERSION"), ")");
+
     /// Render the report to bytes.
     ///
     /// No allocator and no `format!`. The shape is chosen here, once per
@@ -714,7 +726,7 @@ impl Report {
                 e.push(b'P');
                 e.push(b'>');
                 e.push(b'|');
-                for &b in b"baud" {
+                for &b in Report::VERSION_TEXT.as_bytes() {
                     e.push(b);
                 }
                 e.push(0x1b);

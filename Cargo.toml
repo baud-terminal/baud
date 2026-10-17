@@ -55,7 +55,9 @@ exclude = ["bench-others"]
 default-members = ["baud-app"]
 
 [workspace.package]
-version = "0.1.0"
+# The owner, 2026-10-16: "1.0.0-beta.N". Every crate inherits this, and
+# `baud-app/tests/version.rs` holds it to that scheme.
+version = "1.0.0-beta.1"
 # Deliberately 2021, not the 2024 the rust-template scaffold ships. An edition
 # migration across a measured hot path is a change that needs a benchmark, not
 # a flag flip.

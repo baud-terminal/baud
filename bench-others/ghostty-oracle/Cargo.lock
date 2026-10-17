@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "baud-core"
-version = "0.1.0"
+version = "1.0.0-beta.1"
 dependencies = [
  "baud-domain",
  "baud-isa",
@@ -13,21 +13,21 @@ dependencies = [
 
 [[package]]
 name = "baud-domain"
-version = "0.1.0"
+version = "1.0.0-beta.1"
 dependencies = [
  "zerocopy",
 ]
 
 [[package]]
 name = "baud-isa"
-version = "0.1.0"
+version = "1.0.0-beta.1"
 dependencies = [
  "baud-domain",
 ]
 
 [[package]]
 name = "baud-isa-aarch64"
-version = "0.1.0"
+version = "1.0.0-beta.1"
 dependencies = [
  "baud-domain",
  "baud-isa",
