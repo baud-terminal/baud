@@ -1260,4 +1260,80 @@ os.waitpid(pid, 0)
         assert!(!temp.exists(), "the query's temporary file is deleted");
         assert!(file.exists());
     }
+
+    /// Feed `bytes` in the reads `cuts` ends, the last running to the
+    /// end, and answer every reply in order.
+    fn replies_in_reads(files: LocalFiles, bytes: &[u8], cuts: &[usize]) -> Vec<u8> {
+        let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_kitty_files(Box::leak(Box::new(files)));
+        let mut out = Vec::new();
+        let mut from = 0;
+        for &to in cuts.iter().chain([bytes.len()].iter()) {
+            let read = &bytes[from..to];
+            from = to;
+            t.write_at(BytePos::ZERO, read);
+            t.feed(BytePos::ZERO, ReadLen::from_index(read.len()));
+            while t.decode_step(baud_domain::DecodeBudget::ALL) == baud_domain::DecodeProgress::More
+            {
+            }
+            out.extend_from_slice(t.reply());
+            t.clear_reply();
+        }
+        out
+    }
+
+    /// **kitten's detection burst, byte for byte, gets one reply a
+    /// query** (`[[source: kitty-icat-detect]]`): `t=d`, then a `t=t`
+    /// temporary file holding the three bytes of a 1x1 RGB pixel with `S`
+    /// set to the length of its path, then `t=s`, unpadded base64 as
+    /// kitten writes it, then `CSI c`. The text refuses an object
+    /// "smaller than the client claimed" with "a single, identical, error
+    /// response", so the `t=t` answer is byte for byte a missing file's,
+    /// the file is deleted, and the DA comes last, in a whole read, in
+    /// reads of every size and split at every byte. The same file
+    /// claimed at its own size answers `OK`.
+    #[test]
+    fn kittens_detection_burst_gets_one_reply_a_query() {
+        let d = Dir::new();
+        let unpadded = |p: &[u8]| {
+            let mut v = b64(p);
+            v.retain(|&b| b != b'=');
+            v
+        };
+        let burst = |path: &[u8], claim: usize| {
+            let mut s = b"\x1b_Ga=q,f=24,s=1,v=1,S=3,i=1;MTIz\x1b\\".to_vec();
+            s.extend(format!("\x1b_Ga=q,f=24,t=t,s=1,v=1,S={claim},i=2;").bytes());
+            s.extend(unpadded(path));
+            s.extend_from_slice(b"\x1b\\");
+            let shm = b"/icat-baud-absent-object";
+            s.extend(format!("\x1b_Ga=q,f=24,t=s,s=1,v=1,S={},i=3;", shm.len()).bytes());
+            s.extend(unpadded(shm));
+            s.extend_from_slice(b"\x1b\\\x1b[c");
+            s
+        };
+        let probe = d.at("tmp/kitty-tty-graphics-protocol-4057690545");
+        let path = bytes_of(&probe).to_vec();
+        let kitten = burst(&path, path.len());
+        let err = |i: u8| format!("\x1b_Gi={i};EBADF:Failed to read image file\x1b\\");
+        let expect = format!("\x1b_Gi=1;OK\x1b\\{}{}\x1b[?6c", err(2), err(3));
+        let missing = replies_in_reads(d.files(), &kitten, &[]);
+        assert_eq!(String::from_utf8_lossy(&missing), expect, "no file there");
+        let mut reads: Vec<Vec<usize>> = vec![vec![]];
+        reads.extend((1..kitten.len()).map(|k| vec![k]));
+        reads.extend((1..kitten.len()).map(|n| (n..kitten.len()).step_by(n).collect()));
+        for cuts in &reads {
+            d.put("tmp/kitty-tty-graphics-protocol-4057690545", &[1, 2, 3]);
+            let got = replies_in_reads(d.files(), &kitten, cuts);
+            assert_eq!(
+                got, missing,
+                "the short file answers as a missing one, {cuts:?}"
+            );
+            assert!(!probe.exists(), "the probe is deleted, {cuts:?}");
+        }
+        d.put("tmp/kitty-tty-graphics-protocol-4057690545", &[1, 2, 3]);
+        let own = replies_in_reads(d.files(), &burst(&path, 3), &[]);
+        let ok = format!("\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;OK\x1b\\{}\x1b[?6c", err(3));
+        assert_eq!(String::from_utf8_lossy(&own), ok, "claimed at its size");
+    }
 }
