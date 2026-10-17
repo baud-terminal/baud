@@ -32,6 +32,7 @@ mod colour_names;
 pub mod detect;
 pub mod gamut;
 mod iterm;
+mod oklab;
 mod terminals;
 mod xresources;
 
@@ -193,9 +194,6 @@ pub enum SchemeErrorKind {
     /// baud does not yet; kitty's names are read (by X.Org's `rgb.txt`,
     /// `[[source: xorg-rgb-749182c]]`, and kitty's one addition).
     ColourName,
-    /// kitty's `oklch(` or `lab(` colour, which kitty reads and baud does
-    /// not draw yet: how is note AR's O14, open.
-    WideGamut,
     /// A dark and a light theme in one file (foot's two sections), where
     /// which half to read is undecided (note AR, O8): the line of the
     /// second.

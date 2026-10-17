@@ -808,26 +808,26 @@ rgbi:0.5/0.5/0.5	-
 rgb:	-
 rgb:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/1/1	-
 rgb:1/1/1 # c	111111
-oklch(0.5 0.1 30)	944b40
-lab(50 0.5 20)	847655
-oklch(1 0.1 30)	ffffff
-lab(50 1 20)	857555
-oklch(0 0.1 30)	000000
-lab(50 0 20)	837655
-oklch(-0.2 0.1 30)	000000
-lab(50 -0.2 20)	837655
-oklch(50% 0.1 30)	944b40
-lab(50 50% 20)	c94d58
-oklch(1. 0.1 30)	ffffff
-lab(50 1. 20)	857555
-oklch(.5 0.1 30)	944b40
-lab(50 .5 20)	847655
-oklch(+.5 0.1 30)	944b40
-lab(50 +.5 20)	847655
-oklch(1e-1 0.1 30)	1a0000
-lab(50 1e-1 20)	837655
-oklch(1E-1 0.1 30)	1a0000
-lab(50 1E-1 20)	837655
+oklch(0.5 0.1 30)	944b40	in
+lab(50 0.5 20)	847655	in
+oklch(1 0.1 30)	ffffff	edge
+lab(50 1 20)	857555	in
+oklch(0 0.1 30)	000000	edge
+lab(50 0 20)	837655	in
+oklch(-0.2 0.1 30)	000000	edge
+lab(50 -0.2 20)	837655	in
+oklch(50% 0.1 30)	944b40	in
+lab(50 50% 20)	c94d58	in
+oklch(1. 0.1 30)	ffffff	edge
+lab(50 1. 20)	857555	in
+oklch(.5 0.1 30)	944b40	in
+lab(50 .5 20)	847655	in
+oklch(+.5 0.1 30)	944b40	in
+lab(50 +.5 20)	847655	in
+oklch(1e-1 0.1 30)	1a0000	out	120000
+lab(50 1e-1 20)	837655	in
+oklch(1E-1 0.1 30)	1a0000	out	120000
+lab(50 1E-1 20)	837655	in
 oklch(1e 0.1 30)	-
 lab(50 1e 20)	-
 oklch(1e+ 0.1 30)	-
@@ -836,68 +836,68 @@ oklch(. 0.1 30)	-
 lab(50 . 20)	-
 oklch(e5 0.1 30)	-
 lab(50 e5 20)	-
-oklch(inf 0.1 30)	ffffff
-lab(50 inf 20)	000000
-oklch(INF 0.1 30)	ffffff
-lab(50 INF 20)	000000
-oklch(infinity 0.1 30)	ffffff
-lab(50 infinity 20)	000000
+oklch(inf 0.1 30)	ffffff	edge
+lab(50 inf 20)	000000	edge
+oklch(INF 0.1 30)	ffffff	edge
+lab(50 INF 20)	000000	edge
+oklch(infinity 0.1 30)	ffffff	edge
+lab(50 infinity 20)	000000	edge
 oklch(infinit 0.1 30)	-
 lab(50 infinit 20)	-
-oklch(nan 0.1 30)	ffffff
-lab(50 nan 20)	000000
-oklch(NaN 0.1 30)	ffffff
-lab(50 NaN 20)	000000
-oklch(nan(abc) 0.1 30)	ffffff
-lab(50 nan(abc) 20)	000000
-oklch(nan() 0.1 30)	ffffff
-lab(50 nan() 20)	000000
+oklch(nan 0.1 30)	ffffff	edge
+lab(50 nan 20)	000000	edge
+oklch(NaN 0.1 30)	ffffff	edge
+lab(50 NaN 20)	000000	edge
+oklch(nan(abc) 0.1 30)	ffffff	edge
+lab(50 nan(abc) 20)	000000	edge
+oklch(nan() 0.1 30)	ffffff	edge
+lab(50 nan() 20)	000000	edge
 oklch(nan( 0.1 30)	-
 lab(50 nan( 20)	-
-oklch(0x1p-1 0.1 30)	944b40
-lab(50 0x1p-1 20)	847655
-oklch(0X1P3 0.1 30)	ffffff
-lab(50 0X1P3 20)	907155
-oklch(0x.8 0.1 30)	944b40
-lab(50 0x.8 20)	847655
+oklch(0x1p-1 0.1 30)	944b40	in
+lab(50 0x1p-1 20)	847655	in
+oklch(0X1P3 0.1 30)	ffffff	edge
+lab(50 0X1P3 20)	907155	in
+oklch(0x.8 0.1 30)	944b40	in
+lab(50 0x.8 20)	847655	in
 oklch(0x 0.1 30)	-
 lab(50 0x 20)	-
 oklch(0x.p1 0.1 30)	-
 lab(50 0x.p1 20)	-
 oklch(0x1p 0.1 30)	-
 lab(50 0x1p 20)	-
-oklch(1e308 0.1 30)	ffffff
-lab(50 1e308 20)	000000
+oklch(1e308 0.1 30)	ffffff	edge
+lab(50 1e308 20)	000000	edge
 oklch(1.8e308 0.1 30)	-
 lab(50 1.8e308 20)	-
 oklch(1e-310 0.1 30)	-
 lab(50 1e-310 20)	-
-oklch(2.2250738585072014e-308 0.1 30)	010000
-lab(50 2.2250738585072014e-308 20)	837655
+oklch(2.2250738585072014e-308 0.1 30)	010000	out	000000
+lab(50 2.2250738585072014e-308 20)	837655	in
 oklch(2.2250738585072011e-308 0.1 30)	-
 lab(50 2.2250738585072011e-308 20)	-
 oklch(1e-400 0.1 30)	-
 lab(50 1e-400 20)	-
-oklch(0e-400 0.1 30)	000000
-lab(50 0e-400 20)	837655
-oklch(0x1p-1074 0.1 30)	010000
-lab(50 0x1p-1074 20)	837655
-oklch(0x1p-1022 0.1 30)	010000
-lab(50 0x1p-1022 20)	837655
-oklch(0x1.8p-1023 0.1 30)	010000
-lab(50 0x1.8p-1023 20)	837655
-oklch(0x1p1023 0.1 30)	ffffff
-lab(50 0x1p1023 20)	000000
+oklch(0e-400 0.1 30)	000000	edge
+lab(50 0e-400 20)	837655	in
+oklch(0x1p-1074 0.1 30)	010000	out	000000
+lab(50 0x1p-1074 20)	837655	in
+oklch(0x1p-1022 0.1 30)	010000	out	000000
+lab(50 0x1p-1022 20)	837655	in
+oklch(0x1.8p-1023 0.1 30)	010000	out	000000
+lab(50 0x1.8p-1023 20)	837655	in
+oklch(0x1p1023 0.1 30)	ffffff	edge
+lab(50 0x1p1023 20)	000000	edge
 oklch(0x1p1024 0.1 30)	-
 lab(50 0x1p1024 20)	-
-oklch(0x1.fffffffffffffp1023 0.1 30)	ffffff
-lab(50 0x1.fffffffffffffp1023 20)	000000
+oklch(0x1.fffffffffffffp1023 0.1 30)	ffffff	edge
+lab(50 0x1.fffffffffffffp1023 20)	000000	edge
 oklch(0x1.fffffffffffff8p1023 0.1 30)	-
 lab(50 0x1.fffffffffffff8p1023 20)	-
-oklch(0x1.fffffffffffff7p1023 0.1 30)	ffffff
-lab(50 0x1.fffffffffffff7p1023 20)	000000
-oklch(0x3.ffffffffffffep1022 0.1 30)	ffffff
-lab(50 0x3.ffffffffffffep1022 20)	000000
+oklch(0x1.fffffffffffff7p1023 0.1 30)	ffffff	edge
+lab(50 0x1.fffffffffffff7p1023 20)	000000	edge
+oklch(0x3.ffffffffffffep1022 0.1 30)	ffffff	edge
+lab(50 0x3.ffffffffffffep1022 20)	000000	edge
 oklch(0x1p-1075 0.1 30)	-
 lab(50 0x1p-1075 20)	-
 oklch(0x3p-1075 0.1 30)	-
@@ -910,36 +910,36 @@ oklch(5%% 0.1 30)	-
 lab(50 5%% 20)	-
 oklch(1_0 0.1 30)	-
 lab(50 1_0 20)	-
-oklch(0.5% 0.1 30)	010000
-lab(50 0.5% 20)	847655
-OKLCH(0.5 0.1 30)	944b40
-oklch(0.5,0.1,30)	944b40
-oklch(0.5, 0.1, 30)	944b40
-oklch( 0.5 0.1 30 )	944b40
+oklch(0.5% 0.1 30)	010000	out	000000
+lab(50 0.5% 20)	847655	in
+OKLCH(0.5 0.1 30)	944b40	in
+oklch(0.5,0.1,30)	944b40	in
+oklch(0.5, 0.1, 30)	944b40	in
+oklch( 0.5 0.1 30 )	944b40	in
 oklch(0.5 0.1)	-
-oklch(0.5 0.1 30 40)	944b40
-oklch(0.5 0.1 30 x)	944b40
-oklch(1 2 3)	ffffff
+oklch(0.5 0.1 30 40)	944b40	in
+oklch(0.5 0.1 30 x)	944b40	in
+oklch(1 2 3)	ffffff	edge
 oklch(1 2)	-
 oklch(0.5	0.1 30)	-
-oklch(0.5 	0.1 30)	944b40
+oklch(0.5 	0.1 30)	944b40	in
 oklch(0.5 0.1 30	-
 oklch 0.5 0.1 30)	-
 oklab(0.5 0.1 0.1)	-
 lch(50 30 20)	-
-lab(50 20 30)	a46945
-LAB(50 20 30)	a46945
-lab(1 2 3)	0c0200
+lab(50 20 30)	a46945	in
+LAB(50 20 30)	a46945	in
+lab(1 2 3)	0c0200	out	060400
 lab(1 2)	-
-lab(50,20,30)	a46945
-lab(50 20 30) # c	a46945
-oklch(0.5 0.1 30) # c	944b40
-lab(50 20 30)#c	a46945
+lab(50,20,30)	a46945	in
+lab(50 20 30) # c	a46945	in
+oklch(0.5 0.1 30) # c	944b40	in
+lab(50 20 30)#c	a46945	in
 oklch(0.5 0.1 30)x	-
 oklch(1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1)	-
-oklch(1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 1 1)	ffffff
-oklch(11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 1 1)	ffffff
-lab(11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 1 1)	ffffff
+oklch(1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 1 1)	ffffff	edge
+oklch(11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 1 1)	ffffff	edge
+lab(11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 1 1)	ffffff	edge
 lab(111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 1 1)	-
 oklch	-
 lab	-
@@ -948,3 +948,1353 @@ l	-
 o	-
 ox	-
 none2	-
+oklch(0.05 0 0)	3f3f3f	grey
+oklch(0.05 0 30)	3f3f3f	grey
+oklch(0.05 0 60)	3f3f3f	grey
+oklch(0.05 0 90)	3f3f3f	grey
+oklch(0.05 0 120)	3f3f3f	grey
+oklch(0.05 0 150)	3f3f3f	grey
+oklch(0.05 0 180)	3f3f3f	grey
+oklch(0.05 0 210)	3f3f3f	grey
+oklch(0.05 0 240)	3f3f3f	grey
+oklch(0.05 0 270)	3f3f3f	grey
+oklch(0.05 0 300)	3f3f3f	grey
+oklch(0.05 0 330)	3f3f3f	grey
+oklch(0.05 2e-05 0)	000000	in
+oklch(0.05 2e-05 30)	000000	in
+oklch(0.05 2e-05 60)	000000	in
+oklch(0.05 2e-05 90)	000000	in
+oklch(0.05 2e-05 120)	000000	in
+oklch(0.05 2e-05 150)	000000	in
+oklch(0.05 2e-05 180)	000000	in
+oklch(0.05 2e-05 210)	000000	in
+oklch(0.05 2e-05 240)	000000	in
+oklch(0.05 2e-05 270)	000000	in
+oklch(0.05 2e-05 300)	000000	in
+oklch(0.05 2e-05 330)	000000	in
+oklch(0.05 0.05 0)	040000	out	030000
+oklch(0.05 0.05 30)	040000	out	030000
+oklch(0.05 0.05 60)	030000	out	020000
+oklch(0.05 0.05 90)	020000	out	010000
+oklch(0.05 0.05 120)	000100	out	000100
+oklch(0.05 0.05 150)	000100	out	000100
+oklch(0.05 0.05 180)	000101	out	000100
+oklch(0.05 0.05 210)	000103	out	000102
+oklch(0.05 0.05 240)	000007	out	000006
+oklch(0.05 0.05 270)	000008	out	000008
+oklch(0.05 0.05 300)	010006	out	010006
+oklch(0.05 0.05 330)	020002	out	020002
+oklch(0.05 0.1 0)	090000	out	030000
+oklch(0.05 0.1 30)	0b0000	out	030000
+oklch(0.05 0.1 60)	080000	out	020000
+oklch(0.05 0.1 90)	040000	out	010000
+oklch(0.05 0.1 120)	000100	out	000100
+oklch(0.05 0.1 150)	000100	out	000100
+oklch(0.05 0.1 180)	000201	out	000100
+oklch(0.05 0.1 210)	00000a	out	000102
+oklch(0.05 0.1 240)	010015	out	000006
+oklch(0.05 0.1 270)	030019	out	000009
+oklch(0.05 0.1 300)	030013	out	010006
+oklch(0.05 0.1 330)	050007	out	020002
+oklch(0.05 0.15 0)	100000	out	030000
+oklch(0.05 0.15 30)	130000	out	030000
+oklch(0.05 0.15 60)	0e0000	out	020000
+oklch(0.05 0.15 90)	050200	out	010000
+oklch(0.05 0.15 120)	000200	out	000100
+oklch(0.05 0.15 150)	000200	out	000100
+oklch(0.05 0.15 180)	000201	out	000100
+oklch(0.05 0.15 210)	000013	out	000102
+oklch(0.05 0.15 240)	050026	out	000006
+oklch(0.05 0.15 270)	09002b	out	000009
+oklch(0.05 0.15 300)	080022	out	010006
+oklch(0.05 0.15 330)	09000d	out	020002
+oklch(0.05 0.2 0)	170000	out	030000
+oklch(0.05 0.2 30)	1b0000	out	030000
+oklch(0.05 0.2 60)	140000	out	020000
+oklch(0.05 0.2 90)	030700	out	010000
+oklch(0.05 0.2 120)	000600	out	000100
+oklch(0.05 0.2 150)	000200	out	000100
+oklch(0.05 0.2 180)	000301	out	000100
+oklch(0.05 0.2 210)	00001d	out	000102
+oklch(0.05 0.2 240)	0d0037	out	000006
+oklch(0.05 0.2 270)	12003f	out	000009
+oklch(0.05 0.2 300)	0e0032	out	010006
+oklch(0.05 0.2 330)	0e0015	out	020002
+oklch(0.05 0.25 0)	1f0000	out	030000
+oklch(0.05 0.25 30)	230000	out	030000
+oklch(0.05 0.25 60)	190300	out	020000
+oklch(0.05 0.25 90)	001100	out	010000
+oklch(0.05 0.25 120)	000c00	out	000100
+oklch(0.05 0.25 150)	000300	out	000100
+oklch(0.05 0.25 180)	000401	out	000100
+oklch(0.05 0.25 210)	000027	out	000102
+oklch(0.05 0.25 240)	140049	out	000006
+oklch(0.05 0.25 270)	1b0054	out	000009
+oklch(0.05 0.25 300)	150042	out	010006
+oklch(0.05 0.25 330)	13001d	out	020002
+oklch(0.05 0.3 0)	260000	out	030000
+oklch(0.05 0.3 30)	2c0000	out	030000
+oklch(0.05 0.3 60)	1d0b00	out	020000
+oklch(0.05 0.3 90)	001b00	out	010000
+oklch(0.05 0.3 120)	001400	out	000100
+oklch(0.05 0.3 150)	000500	out	000100
+oklch(0.05 0.3 180)	000601	out	000100
+oklch(0.05 0.3 210)	000032	out	000102
+oklch(0.05 0.3 240)	1c005c	out	000006
+oklch(0.05 0.3 270)	25006a	out	000009
+oklch(0.05 0.3 300)	1d0054	out	010006
+oklch(0.05 0.3 330)	190025	out	020002
+oklch(0.05 0.4 0)	360000	out	030000
+oklch(0.05 0.4 30)	3d0000	out	030000
+oklch(0.05 0.4 60)	251f00	out	020000
+oklch(0.05 0.4 90)	003200	out	010000
+oklch(0.05 0.4 120)	002500	out	000100
+oklch(0.05 0.4 150)	000a00	out	000100
+oklch(0.05 0.4 180)	000b02	out	000100
+oklch(0.05 0.4 210)	000049	out	000102
+oklch(0.05 0.4 240)	2b0085	out	000006
+oklch(0.05 0.4 270)	390097	out	000009
+oklch(0.05 0.4 300)	2c0078	out	010006
+oklch(0.05 0.4 330)	230036	out	020002
+oklch(0.15 0 0)	6c6c6c	grey
+oklch(0.15 0 30)	6c6c6c	grey
+oklch(0.15 0 60)	6c6c6c	grey
+oklch(0.15 0 90)	6c6c6c	grey
+oklch(0.15 0 120)	6c6c6c	grey
+oklch(0.15 0 150)	6c6c6c	grey
+oklch(0.15 0 180)	6c6c6c	grey
+oklch(0.15 0 210)	6c6c6c	grey
+oklch(0.15 0 240)	6c6c6c	grey
+oklch(0.15 0 270)	6c6c6c	grey
+oklch(0.15 0 300)	6c6c6c	grey
+oklch(0.15 0 330)	6c6c6c	grey
+oklch(0.15 2e-05 0)	0b0b0b	in
+oklch(0.15 2e-05 30)	0b0b0b	in
+oklch(0.15 2e-05 60)	0b0b0b	in
+oklch(0.15 2e-05 90)	0b0b0b	in
+oklch(0.15 2e-05 120)	0b0b0b	in
+oklch(0.15 2e-05 150)	0b0b0b	in
+oklch(0.15 2e-05 180)	0b0b0b	in
+oklch(0.15 2e-05 210)	0b0b0b	in
+oklch(0.15 2e-05 240)	0b0b0b	in
+oklch(0.15 2e-05 270)	0b0b0b	in
+oklch(0.15 2e-05 300)	0b0b0b	in
+oklch(0.15 2e-05 330)	0b0b0b	in
+oklch(0.15 0.05 0)	1b020a	in
+oklch(0.15 0.05 30)	1c0201	in
+oklch(0.15 0.05 60)	190500	out	190500
+oklch(0.15 0.05 90)	130900	out	130900
+oklch(0.15 0.05 120)	090e00	out	090e00
+oklch(0.15 0.05 150)	001002	out	001002
+oklch(0.15 0.05 180)	00110c	out	00110c
+oklch(0.15 0.05 210)	001017	out	001016
+oklch(0.15 0.05 240)	000d1e	out	000d1e
+oklch(0.15 0.05 270)	050920	in
+oklch(0.15 0.05 300)	0f051d	in
+oklch(0.15 0.05 330)	160315	in
+oklch(0.15 0.1 0)	260009	out	22000a
+oklch(0.15 0.1 30)	290000	out	240000
+oklch(0.15 0.1 60)	250000	out	1b0400
+oklch(0.15 0.1 90)	1b0400	out	130900
+oklch(0.15 0.1 120)	080e00	out	090e00
+oklch(0.15 0.1 150)	001400	out	001200
+oklch(0.15 0.1 180)	00150d	out	00110c
+oklch(0.15 0.1 210)	001222	out	001016
+oklch(0.15 0.1 240)	000930	out	000c22
+oklch(0.15 0.1 270)	030034	out	030034
+oklch(0.15 0.1 300)	14002d	out	14002d
+oklch(0.15 0.1 330)	1f001e	out	1d001c
+oklch(0.15 0.15 0)	300009	out	22000a
+oklch(0.15 0.15 30)	340000	out	240000
+oklch(0.15 0.15 60)	2f0000	out	1b0400
+oklch(0.15 0.15 90)	210000	out	130900
+oklch(0.15 0.15 120)	070f00	out	090e00
+oklch(0.15 0.15 150)	001700	out	001200
+oklch(0.15 0.15 180)	00190e	out	00110c
+oklch(0.15 0.15 210)	00122d	out	001016
+oklch(0.15 0.15 240)	000042	out	000c22
+oklch(0.15 0.15 270)	080049	out	05003c
+oklch(0.15 0.15 300)	19003f	out	14002e
+oklch(0.15 0.15 330)	260027	out	1d001c
+oklch(0.15 0.2 0)	3a0008	out	22000a
+oklch(0.15 0.2 30)	3f0000	out	240000
+oklch(0.15 0.2 60)	390000	out	1b0400
+oklch(0.15 0.2 90)	270000	out	130900
+oklch(0.15 0.2 120)	070f00	out	090e00
+oklch(0.15 0.2 150)	001900	out	001200
+oklch(0.15 0.2 180)	001b0e	out	00110c
+oklch(0.15 0.2 210)	000f38	out	001016
+oklch(0.15 0.2 240)	000056	out	000c22
+oklch(0.15 0.2 270)	13005f	out	05003c
+oklch(0.15 0.2 300)	200050	out	14002e
+oklch(0.15 0.2 330)	2d0030	out	1d001c
+oklch(0.15 0.25 0)	440007	out	22000a
+oklch(0.15 0.25 30)	4a0000	out	240000
+oklch(0.15 0.25 60)	420000	out	1b0400
+oklch(0.15 0.25 90)	2c0000	out	130900
+oklch(0.15 0.25 120)	051000	out	090e00
+oklch(0.15 0.25 150)	001b00	out	001200
+oklch(0.15 0.25 180)	001d0f	out	00110c
+oklch(0.15 0.25 210)	000a44	out	001016
+oklch(0.15 0.25 240)	070069	out	000c22
+oklch(0.15 0.25 270)	1e0075	out	05003c
+oklch(0.15 0.25 300)	270062	out	14002e
+oklch(0.15 0.25 330)	340039	out	1d001c
+oklch(0.15 0.3 0)	4d0006	out	22000a
+oklch(0.15 0.3 30)	550000	out	240000
+oklch(0.15 0.3 60)	4a0000	out	1b0400
+oklch(0.15 0.3 90)	300000	out	130900
+oklch(0.15 0.3 120)	021300	out	090e00
+oklch(0.15 0.3 150)	001c00	out	001200
+oklch(0.15 0.3 180)	001f10	out	00110c
+oklch(0.15 0.3 210)	000150	out	001016
+oklch(0.15 0.3 240)	17007e	out	000c22
+oklch(0.15 0.3 270)	29008c	out	05003c
+oklch(0.15 0.3 300)	2e0075	out	14002e
+oklch(0.15 0.3 330)	3b0042	out	1d001c
+oklch(0.15 0.4 0)	600005	out	22000a
+oklch(0.15 0.4 30)	6a0000	out	240000
+oklch(0.15 0.4 60)	5a0000	out	1b0400
+oklch(0.15 0.4 90)	351000	out	130900
+oklch(0.15 0.4 120)	001d00	out	090e00
+oklch(0.15 0.4 150)	001f00	out	001200
+oklch(0.15 0.4 180)	002212	out	00110c
+oklch(0.15 0.4 210)	000068	out	001016
+oklch(0.15 0.4 240)	3000a8	out	000c22
+oklch(0.15 0.4 270)	4000bc	out	05003c
+oklch(0.15 0.4 300)	3e009b	out	14002e
+oklch(0.15 0.4 330)	480055	out	1d001c
+oklch(0.25 0 0)	898989	grey
+oklch(0.25 0 30)	898989	grey
+oklch(0.25 0 60)	898989	grey
+oklch(0.25 0 90)	898989	grey
+oklch(0.25 0 120)	898989	grey
+oklch(0.25 0 150)	898989	grey
+oklch(0.25 0 180)	898989	grey
+oklch(0.25 0 210)	898989	grey
+oklch(0.25 0 240)	898989	grey
+oklch(0.25 0 270)	898989	grey
+oklch(0.25 0 300)	898989	grey
+oklch(0.25 0 330)	898989	grey
+oklch(0.25 2e-05 0)	222222	in
+oklch(0.25 2e-05 30)	222222	in
+oklch(0.25 2e-05 60)	222222	in
+oklch(0.25 2e-05 90)	222222	in
+oklch(0.25 2e-05 120)	222222	in
+oklch(0.25 2e-05 150)	222222	in
+oklch(0.25 2e-05 180)	222222	in
+oklch(0.25 2e-05 210)	222222	in
+oklch(0.25 2e-05 240)	222222	in
+oklch(0.25 2e-05 270)	222222	in
+oklch(0.25 2e-05 300)	222222	in
+oklch(0.25 2e-05 330)	222222	in
+oklch(0.25 0.05 0)	351621	in
+oklch(0.25 0.05 30)	361713	in
+oklch(0.25 0.05 60)	331b06	in
+oklch(0.25 0.05 90)	2b2001	in
+oklch(0.25 0.05 120)	1f2506	in
+oklch(0.25 0.05 150)	0d2814	in
+oklch(0.25 0.05 180)	002922	out	002922
+oklch(0.25 0.05 210)	00282f	out	00282f
+oklch(0.25 0.05 240)	062437	in
+oklch(0.25 0.05 270)	18203a	in
+oklch(0.25 0.05 300)	251c36	in
+oklch(0.25 0.05 330)	2f182d	in
+oklch(0.25 0.1 0)	430120	in
+oklch(0.25 0.1 30)	460200	in
+oklch(0.25 0.1 60)	410e00	out	3c1500
+oklch(0.25 0.1 90)	341c00	out	2e1f00
+oklch(0.25 0.1 120)	1d2700	out	1d2600
+oklch(0.25 0.1 150)	002d02	out	002d02
+oklch(0.25 0.1 180)	002f23	out	002b23
+oklch(0.25 0.1 210)	002c3b	out	002932
+oklch(0.25 0.1 240)	00244c	out	002445
+oklch(0.25 0.1 270)	111a50	in
+oklch(0.25 0.1 300)	2a1049	in
+oklch(0.25 0.1 330)	3a0738	in
+oklch(0.25 0.15 0)	51001f	out	49001f
+oklch(0.25 0.15 30)	550000	out	4d0000
+oklch(0.25 0.15 60)	4e0000	out	3c1500
+oklch(0.25 0.15 90)	3c1500	out	2e1f00
+oklch(0.25 0.15 120)	1b2800	out	1d2600
+oklch(0.25 0.15 150)	003100	out	002d01
+oklch(0.25 0.15 180)	003424	out	002b23
+oklch(0.25 0.15 210)	002e48	out	002932
+oklch(0.25 0.15 240)	002060	out	002445
+oklch(0.25 0.15 270)	0e0967	in
+oklch(0.25 0.15 300)	30005c	out	30005c
+oklch(0.25 0.15 330)	440042	out	41003f
+oklch(0.25 0.2 0)	5d001e	out	49001f
+oklch(0.25 0.2 30)	620000	out	4d0000
+oklch(0.25 0.2 60)	5a0000	out	3c1500
+oklch(0.25 0.2 90)	440a00	out	2e1f00
+oklch(0.25 0.2 120)	1a2800	out	1d2600
+oklch(0.25 0.2 150)	003500	out	002d01
+oklch(0.25 0.2 180)	003825	out	002b23
+oklch(0.25 0.2 210)	002f55	out	002932
+oklch(0.25 0.2 240)	001575	out	002445
+oklch(0.25 0.2 270)	13007f	out	110078
+oklch(0.25 0.2 300)	36006f	out	30005e
+oklch(0.25 0.2 330)	4d004c	out	41003f
+oklch(0.25 0.25 0)	68001d	out	49001f
+oklch(0.25 0.25 30)	6f0000	out	4d0000
+oklch(0.25 0.25 60)	660000	out	3c1500
+oklch(0.25 0.25 90)	4c0000	out	2e1f00
+oklch(0.25 0.25 120)	1a2800	out	1d2600
+oklch(0.25 0.25 150)	003800	out	002d01
+oklch(0.25 0.25 180)	003b26	out	002b23
+oklch(0.25 0.25 210)	002e62	out	002932
+oklch(0.25 0.25 240)	00008a	out	002445
+oklch(0.25 0.25 270)	1c0097	out	110078
+oklch(0.25 0.25 300)	3d0083	out	30005e
+oklch(0.25 0.25 330)	550056	out	41003f
+oklch(0.25 0.3 0)	73001c	out	49001f
+oklch(0.25 0.3 30)	7c0000	out	4d0000
+oklch(0.25 0.3 60)	710000	out	3c1500
+oklch(0.25 0.3 90)	530000	out	2e1f00
+oklch(0.25 0.3 120)	192800	out	1d2600
+oklch(0.25 0.3 150)	003a00	out	002d01
+oklch(0.25 0.3 180)	003e27	out	002b23
+oklch(0.25 0.3 210)	002c6e	out	002932
+oklch(0.25 0.3 240)	0000a0	out	002445
+oklch(0.25 0.3 270)	2800af	out	110078
+oklch(0.25 0.3 300)	440097	out	30005e
+oklch(0.25 0.3 330)	5d0060	out	41003f
+oklch(0.25 0.4 0)	89001a	out	49001f
+oklch(0.25 0.4 30)	950000	out	4d0000
+oklch(0.25 0.4 60)	860000	out	3c1500
+oklch(0.25 0.4 90)	5f0000	out	2e1f00
+oklch(0.25 0.4 120)	162a00	out	1d2600
+oklch(0.25 0.4 150)	003e00	out	002d01
+oklch(0.25 0.4 180)	004329	out	002b23
+oklch(0.25 0.4 210)	002289	out	002932
+oklch(0.25 0.4 240)	0f00cd	out	002445
+oklch(0.25 0.4 270)	4100e1	out	110078
+oklch(0.25 0.4 300)	5300c0	out	30005e
+oklch(0.25 0.4 330)	6d0075	out	41003f
+oklch(0.35 0 0)	a0a0a0	grey
+oklch(0.35 0 30)	a0a0a0	grey
+oklch(0.35 0 60)	a0a0a0	grey
+oklch(0.35 0 90)	a0a0a0	grey
+oklch(0.35 0 120)	a0a0a0	grey
+oklch(0.35 0 150)	a0a0a0	grey
+oklch(0.35 0 180)	a0a0a0	grey
+oklch(0.35 0 210)	a0a0a0	grey
+oklch(0.35 0 240)	a0a0a0	grey
+oklch(0.35 0 270)	a0a0a0	grey
+oklch(0.35 0 300)	a0a0a0	grey
+oklch(0.35 0 330)	a0a0a0	grey
+oklch(0.35 2e-05 0)	3a3a3a	in
+oklch(0.35 2e-05 30)	3a3a3a	in
+oklch(0.35 2e-05 60)	3a3a3a	in
+oklch(0.35 2e-05 90)	3a3a3a	in
+oklch(0.35 2e-05 120)	3a3a3a	in
+oklch(0.35 2e-05 150)	3a3a3a	in
+oklch(0.35 2e-05 180)	3a3a3a	in
+oklch(0.35 2e-05 210)	3a3a3a	in
+oklch(0.35 2e-05 240)	3a3a3a	in
+oklch(0.35 2e-05 270)	3a3a3a	in
+oklch(0.35 2e-05 300)	3a3a3a	in
+oklch(0.35 2e-05 330)	3a3a3a	in
+oklch(0.35 0.05 0)	502f39	in
+oklch(0.35 0.05 30)	52302b	in
+oklch(0.35 0.05 60)	4e341f	in
+oklch(0.35 0.05 90)	45391a	in
+oklch(0.35 0.05 120)	373e20	in
+oklch(0.35 0.05 150)	27422c	in
+oklch(0.35 0.05 180)	17433b	in
+oklch(0.35 0.05 210)	144249	in
+oklch(0.35 0.05 240)	203e52	in
+oklch(0.35 0.05 270)	303955	in
+oklch(0.35 0.05 300)	3e3451	in
+oklch(0.35 0.05 330)	493147	in
+oklch(0.35 0.1 0)	621f38	in
+oklch(0.35 0.1 30)	652118	in
+oklch(0.35 0.1 60)	5e2a00	out	5e2a00
+oklch(0.35 0.1 90)	4f3600	out	4d3700
+oklch(0.35 0.1 120)	344100	out	344100
+oklch(0.35 0.1 150)	00481b	out	00481b
+oklch(0.35 0.1 180)	004a3c	out	00483c
+oklch(0.35 0.1 210)	004757	out	004551
+oklch(0.35 0.1 240)	003f69	out	003f69
+oklch(0.35 0.1 270)	27356e	in
+oklch(0.35 0.1 300)	432b66	in
+oklch(0.35 0.1 330)	562353	in
+oklch(0.35 0.15 0)	710037	out	710037
+oklch(0.35 0.15 30)	760000	out	760000
+oklch(0.35 0.15 60)	6e1800	out	5f2900
+oklch(0.35 0.15 90)	583100	out	4d3700
+oklch(0.35 0.15 120)	324300	out	344100
+oklch(0.35 0.15 150)	004d00	out	004b0d
+oklch(0.35 0.15 180)	00503e	out	00483c
+oklch(0.35 0.15 210)	004a65	out	004551
+oklch(0.35 0.15 240)	003d7f	out	003f6c
+oklch(0.35 0.15 270)	1f2d87	in
+oklch(0.35 0.15 300)	491c7b	in
+oklch(0.35 0.15 330)	62095e	in
+oklch(0.35 0.2 0)	7f0036	out	740037
+oklch(0.35 0.2 30)	850000	out	7a0000
+oklch(0.35 0.2 60)	7c0000	out	602900
+oklch(0.35 0.2 90)	622a00	out	4d3700
+oklch(0.35 0.2 120)	314400	out	344100
+oklch(0.35 0.2 150)	005200	out	004b0d
+oklch(0.35 0.2 180)	00553f	out	00483c
+oklch(0.35 0.2 210)	004d72	out	004551
+oklch(0.35 0.2 240)	003995	out	003f6c
+oklch(0.35 0.2 270)	1c1ba0	in
+oklch(0.35 0.2 300)	4f0090	out	4f0090
+oklch(0.35 0.2 330)	6c006a	out	680065
+oklch(0.35 0.25 0)	8d0035	out	740037
+oklch(0.35 0.25 30)	940000	out	7a0000
+oklch(0.35 0.25 60)	890000	out	602900
+oklch(0.35 0.25 90)	6a1f00	out	4d3700
+oklch(0.35 0.25 120)	304400	out	344100
+oklch(0.35 0.25 150)	005600	out	004b0d
+oklch(0.35 0.25 180)	005a40	out	00483c
+oklch(0.35 0.25 210)	004e80	out	004551
+oklch(0.35 0.25 240)	0030ac	out	003f6c
+oklch(0.35 0.25 270)	1f00b9	out	1f00b9
+oklch(0.35 0.25 300)	5500a4	out	500093
+oklch(0.35 0.25 330)	760075	out	680065
+oklch(0.35 0.3 0)	9a0034	out	740037
+oklch(0.35 0.3 30)	a30000	out	7a0000
+oklch(0.35 0.3 60)	960000	out	5f2900
+oklch(0.35 0.3 90)	730d00	out	4d3700
+oklch(0.35 0.3 120)	2f4400	out	344100
+oklch(0.35 0.3 150)	005900	out	004b0d
+oklch(0.35 0.3 180)	005e41	out	00483c
+oklch(0.35 0.3 210)	004e8e	out	004551
+oklch(0.35 0.3 240)	001ec3	out	003f6c
+oklch(0.35 0.3 270)	2800d3	out	2000ba
+oklch(0.35 0.3 300)	5c00b9	out	500093
+oklch(0.35 0.3 330)	800080	out	680065
+oklch(0.35 0.4 0)	b20032	out	740037
+oklch(0.35 0.4 30)	bf0000	out	7a0000
+oklch(0.35 0.4 60)	af0000	out	602900
+oklch(0.35 0.4 90)	820000	out	4d3700
+oklch(0.35 0.4 120)	2e4500	out	344100
+oklch(0.35 0.4 150)	005f00	out	004b0d
+oklch(0.35 0.4 180)	006543	out	00483c
+oklch(0.35 0.4 210)	004baa	out	004551
+oklch(0.35 0.4 240)	0000f1	out	003f6c
+oklch(0.35 0.4 270)	3f00ff	out	2000ba
+oklch(0.35 0.4 300)	6b00e4	out	500093
+oklch(0.35 0.4 330)	920096	out	680065
+oklch(0.45 0 0)	b3b3b3	grey
+oklch(0.45 0 30)	b3b3b3	grey
+oklch(0.45 0 60)	b3b3b3	grey
+oklch(0.45 0 90)	b3b3b3	grey
+oklch(0.45 0 120)	b3b3b3	grey
+oklch(0.45 0 150)	b3b3b3	grey
+oklch(0.45 0 180)	b3b3b3	grey
+oklch(0.45 0 210)	b3b3b3	grey
+oklch(0.45 0 240)	b3b3b3	grey
+oklch(0.45 0 270)	b3b3b3	grey
+oklch(0.45 0 300)	b3b3b3	grey
+oklch(0.45 0 330)	b3b3b3	grey
+oklch(0.45 2e-05 0)	555555	in
+oklch(0.45 2e-05 30)	555555	in
+oklch(0.45 2e-05 60)	555555	in
+oklch(0.45 2e-05 90)	555555	in
+oklch(0.45 2e-05 120)	555555	in
+oklch(0.45 2e-05 150)	555555	in
+oklch(0.45 2e-05 180)	555555	in
+oklch(0.45 2e-05 210)	555555	in
+oklch(0.45 2e-05 240)	555555	in
+oklch(0.45 2e-05 270)	555555	in
+oklch(0.45 2e-05 300)	555555	in
+oklch(0.45 2e-05 330)	555555	in
+oklch(0.45 0.05 0)	6d4a54	in
+oklch(0.45 0.05 30)	6e4b45	in
+oklch(0.45 0.05 60)	6a4f39	in
+oklch(0.45 0.05 90)	605434	in
+oklch(0.45 0.05 120)	515a3a	in
+oklch(0.45 0.05 150)	415d47	in
+oklch(0.45 0.05 180)	345f56	in
+oklch(0.45 0.05 210)	315d65	in
+oklch(0.45 0.05 240)	3b596e	in
+oklch(0.45 0.05 270)	4a5472	in
+oklch(0.45 0.05 300)	594f6d	in
+oklch(0.45 0.05 330)	654b63	in
+oklch(0.45 0.1 0)	803b53	in
+oklch(0.45 0.1 30)	843d33	in
+oklch(0.45 0.1 60)	7d460b	in
+oklch(0.45 0.1 90)	6b5200	out	6b5200
+oklch(0.45 0.1 120)	4e5d0e	in
+oklch(0.45 0.1 150)	236436	in
+oklch(0.45 0.1 180)	006757	out	006757
+oklch(0.45 0.1 210)	006374	out	006373
+oklch(0.45 0.1 240)	085b87	in
+oklch(0.45 0.1 270)	40518d	in
+oklch(0.45 0.1 300)	5e4784	in
+oklch(0.45 0.1 330)	743f6f	in
+oklch(0.45 0.15 0)	922452	in
+oklch(0.45 0.15 30)	97271b	in
+oklch(0.45 0.15 60)	8e3800	out	863f00
+oklch(0.45 0.15 90)	754d00	out	6d5100
+oklch(0.45 0.15 120)	4c5f00	out	4d5e00
+oklch(0.45 0.15 150)	006a20	out	006a20
+oklch(0.45 0.15 180)	006d58	out	006757
+oklch(0.45 0.15 210)	006882	out	006373
+oklch(0.45 0.15 240)	005b9f	out	005b95
+oklch(0.45 0.15 270)	364ba7	in
+oklch(0.45 0.15 300)	643b9a	in
+oklch(0.45 0.15 330)	802d7c	in
+oklch(0.45 0.2 0)	a20051	out	a20051
+oklch(0.45 0.2 30)	a90000	out	a90000
+oklch(0.45 0.2 60)	9d2200	out	863f00
+oklch(0.45 0.2 90)	804700	out	6d5100
+oklch(0.45 0.2 120)	4a6100	out	4d5e00
+oklch(0.45 0.2 150)	007000	out	006b1d
+oklch(0.45 0.2 180)	00745a	out	006757
+oklch(0.45 0.2 210)	006b91	out	006373
+oklch(0.45 0.2 240)	0059b6	out	005b95
+oklch(0.45 0.2 270)	2f40c2	in
+oklch(0.45 0.2 300)	6928b0	in
+oklch(0.45 0.2 330)	8c0888	in
+oklch(0.45 0.25 0)	b10050	out	a30051
+oklch(0.45 0.25 30)	b90000	out	aa0000
+oklch(0.45 0.25 60)	ac0000	out	863f00
+oklch(0.45 0.25 90)	893f00	out	6d5100
+oklch(0.45 0.25 120)	496200	out	4d5e00
+oklch(0.45 0.25 150)	007500	out	006b1d
+oklch(0.45 0.25 180)	00795b	out	006757
+oklch(0.45 0.25 210)	006ea0	out	006373
+oklch(0.45 0.25 240)	0054ce	out	005b95
+oklch(0.45 0.25 270)	2c2edc	in
+oklch(0.45 0.25 300)	7000c7	out	7000c7
+oklch(0.45 0.25 330)	980094	out	93008e
+oklch(0.45 0.3 0)	c0004e	out	a30051
+oklch(0.45 0.3 30)	ca0000	out	aa0000
+oklch(0.45 0.3 60)	bb0000	out	863f00
+oklch(0.45 0.3 90)	933500	out	6d5100
+oklch(0.45 0.3 120)	476200	out	4d5e00
+oklch(0.45 0.3 150)	007900	out	006b1d
+oklch(0.45 0.3 180)	007e5c	out	006757
+oklch(0.45 0.3 210)	0070ae	out	006373
+oklch(0.45 0.3 240)	004ce6	out	005b95
+oklch(0.45 0.3 270)	2e00f7	out	2e00f7
+oklch(0.45 0.3 300)	7700dd	out	7200cc
+oklch(0.45 0.3 330)	a200a0	out	93008e
+oklch(0.45 0.4 0)	db004c	out	a30051
+oklch(0.45 0.4 30)	e80000	out	aa0000
+oklch(0.45 0.4 60)	d60000	out	863f00
+oklch(0.45 0.4 90)	a50d00	out	6d5100
+oklch(0.45 0.4 120)	466300	out	4d5e00
+oklch(0.45 0.4 150)	008000	out	006b1d
+oklch(0.45 0.4 180)	00875e	out	006757
+oklch(0.45 0.4 210)	0070cc	out	006373
+oklch(0.45 0.4 240)	0025ff	out	005b95
+oklch(0.45 0.4 270)	3f00ff	out	3000ff
+oklch(0.45 0.4 300)	8500ff	out	7200cc
+oklch(0.45 0.4 330)	b700b7	out	93008e
+oklch(0.55 0 0)	c4c4c4	grey
+oklch(0.55 0 30)	c4c4c4	grey
+oklch(0.55 0 60)	c4c4c4	grey
+oklch(0.55 0 90)	c4c4c4	grey
+oklch(0.55 0 120)	c4c4c4	grey
+oklch(0.55 0 150)	c4c4c4	grey
+oklch(0.55 0 180)	c4c4c4	grey
+oklch(0.55 0 210)	c4c4c4	grey
+oklch(0.55 0 240)	c4c4c4	grey
+oklch(0.55 0 270)	c4c4c4	grey
+oklch(0.55 0 300)	c4c4c4	grey
+oklch(0.55 0 330)	c4c4c4	grey
+oklch(0.55 2e-05 0)	717171	in
+oklch(0.55 2e-05 30)	717171	in
+oklch(0.55 2e-05 60)	717171	in
+oklch(0.55 2e-05 90)	717171	in
+oklch(0.55 2e-05 120)	717171	in
+oklch(0.55 2e-05 150)	717171	in
+oklch(0.55 2e-05 180)	717171	in
+oklch(0.55 2e-05 210)	717171	in
+oklch(0.55 2e-05 240)	717171	in
+oklch(0.55 2e-05 270)	717171	in
+oklch(0.55 2e-05 300)	717171	in
+oklch(0.55 2e-05 330)	717171	in
+oklch(0.55 0.05 0)	8b6670	in
+oklch(0.55 0.05 30)	8d6760	in
+oklch(0.55 0.05 60)	886b54	in
+oklch(0.55 0.05 90)	7d7150	in
+oklch(0.55 0.05 120)	6e7655	in
+oklch(0.55 0.05 150)	5d7a62	in
+oklch(0.55 0.05 180)	507b73	in
+oklch(0.55 0.05 210)	4e7a82	in
+oklch(0.55 0.05 240)	57768c	in
+oklch(0.55 0.05 270)	66718f	in
+oklch(0.55 0.05 300)	766b8b	in
+oklch(0.55 0.05 330)	836780	in
+oklch(0.55 0.1 0)	a0576f	in
+oklch(0.55 0.1 30)	a45a4e	in
+oklch(0.55 0.1 60)	9c622f	in
+oklch(0.55 0.1 90)	886e1f	in
+oklch(0.55 0.1 120)	6a7a31	in
+oklch(0.55 0.1 150)	428252	in
+oklch(0.55 0.1 180)	008474	out	008474
+oklch(0.55 0.1 210)	008192	out	008192
+oklch(0.55 0.1 240)	3179a6	in
+oklch(0.55 0.1 270)	5b6eac	in
+oklch(0.55 0.1 300)	7b63a3	in
+oklch(0.55 0.1 330)	925b8d	in
+oklch(0.55 0.15 0)	b4446e	in
+oklch(0.55 0.15 30)	b94739	in
+oklch(0.55 0.15 60)	ae5600	out	ae5600
+oklch(0.55 0.15 90)	936b00	out	8f6c00
+oklch(0.55 0.15 120)	677d00	out	677d00
+oklch(0.55 0.15 150)	05893e	in
+oklch(0.55 0.15 180)	008c75	out	008774
+oklch(0.55 0.15 210)	0086a1	out	008396
+oklch(0.55 0.15 240)	0079bf	out	0079bf
+oklch(0.55 0.15 270)	5069c8	in
+oklch(0.55 0.15 300)	8059bb	in
+oklch(0.55 0.15 330)	a04c9a	in
+oklch(0.55 0.2 0)	c5256d	in
+oklch(0.55 0.2 30)	cc2a1b	in
+oklch(0.55 0.2 60)	c04600	out	ae5600
+oklch(0.55 0.2 90)	9e6500	out	8f6c00
+oklch(0.55 0.2 120)	657f00	out	677d00
+oklch(0.55 0.2 150)	008f23	out	008d2e
+oklch(0.55 0.2 180)	009376	out	008774
+oklch(0.55 0.2 210)	008bb1	out	008396
+oklch(0.55 0.2 240)	0079d8	out	0079c1
+oklch(0.55 0.2 270)	4761e4	in
+oklch(0.55 0.2 300)	864ad2	in
+oklch(0.55 0.2 330)	ad36a7	in
+oklch(0.55 0.25 0)	d6006c	out	d4006c
+oklch(0.55 0.25 30)	df0000	out	dd0000
+oklch(0.55 0.25 60)	d02c00	out	ae5600
+oklch(0.55 0.25 90)	a95f00	out	8f6c00
+oklch(0.55 0.25 120)	638000	out	677d00
+oklch(0.55 0.25 150)	009400	out	008d2e
+oklch(0.55 0.25 180)	009977	out	008774
+oklch(0.55 0.25 210)	008ec0	out	008396
+oklch(0.55 0.25 240)	0076f1	out	0079c1
+oklch(0.55 0.25 270)	4055ff	out	4055ff
+oklch(0.55 0.25 300)	8c34e9	in
+oklch(0.55 0.25 330)	ba02b4	in
+oklch(0.55 0.3 0)	e6006a	out	d4006c
+oklch(0.55 0.3 30)	f00000	out	dd0000
+oklch(0.55 0.3 60)	e00000	out	ae5600
+oklch(0.55 0.3 90)	b35700	out	8f6c00
+oklch(0.55 0.3 120)	618100	out	677d00
+oklch(0.55 0.3 150)	009900	out	008d2e
+oklch(0.55 0.3 180)	009f78	out	008774
+oklch(0.55 0.3 210)	0091d0	out	008396
+oklch(0.55 0.3 240)	0071ff	out	0079c1
+oklch(0.55 0.3 270)	3d42ff	out	3e4eff
+oklch(0.55 0.3 300)	9300ff	out	9300ff
+oklch(0.55 0.3 330)	c600c1	out	bf00ba
+oklch(0.55 0.4 0)	ff0068	out	d4006c
+oklch(0.55 0.4 30)	ff0000	out	dd0000
+oklch(0.55 0.4 60)	fe0000	out	ae5600
+oklch(0.55 0.4 90)	c73f00	out	8f6c00
+oklch(0.55 0.4 120)	5f8300	out	677d00
+oklch(0.55 0.4 150)	00a200	out	008d2e
+oklch(0.55 0.4 180)	00a97b	out	008774
+oklch(0.55 0.4 210)	0094ee	out	008396
+oklch(0.55 0.4 240)	005dff	out	0079c1
+oklch(0.55 0.4 270)	4300ff	out	3e4eff
+oklch(0.55 0.4 300)	a100ff	out	9500ff
+oklch(0.55 0.4 330)	dc00da	out	bf00ba
+oklch(0.65 0 0)	d3d3d3	grey
+oklch(0.65 0 30)	d3d3d3	grey
+oklch(0.65 0 60)	d3d3d3	grey
+oklch(0.65 0 90)	d3d3d3	grey
+oklch(0.65 0 120)	d3d3d3	grey
+oklch(0.65 0 150)	d3d3d3	grey
+oklch(0.65 0 180)	d3d3d3	grey
+oklch(0.65 0 210)	d3d3d3	grey
+oklch(0.65 0 240)	d3d3d3	grey
+oklch(0.65 0 270)	d3d3d3	grey
+oklch(0.65 0 300)	d3d3d3	grey
+oklch(0.65 0 330)	d3d3d3	grey
+oklch(0.65 2e-05 0)	8f8f8f	in
+oklch(0.65 2e-05 30)	8f8f8f	in
+oklch(0.65 2e-05 60)	8f8f8f	in
+oklch(0.65 2e-05 90)	8f8f8f	in
+oklch(0.65 2e-05 120)	8f8f8f	in
+oklch(0.65 2e-05 150)	8f8f8f	in
+oklch(0.65 2e-05 180)	8f8f8f	in
+oklch(0.65 2e-05 210)	8f8f8f	in
+oklch(0.65 2e-05 240)	8f8f8f	in
+oklch(0.65 2e-05 270)	8f8f8f	in
+oklch(0.65 2e-05 300)	8f8f8f	in
+oklch(0.65 2e-05 330)	8f8f8f	in
+oklch(0.65 0.05 0)	aa838e	in
+oklch(0.65 0.05 30)	ac847d	in
+oklch(0.65 0.05 60)	a78871	in
+oklch(0.65 0.05 90)	9b8e6c	in
+oklch(0.65 0.05 120)	8b9472	in
+oklch(0.65 0.05 150)	7a987f	in
+oklch(0.65 0.05 180)	6d9a90	in
+oklch(0.65 0.05 210)	6b98a0	in
+oklch(0.65 0.05 240)	7494ab	in
+oklch(0.65 0.05 270)	838eae	in
+oklch(0.65 0.05 300)	9489aa	in
+oklch(0.65 0.05 330)	a1859e	in
+oklch(0.65 0.1 0)	c1758d	in
+oklch(0.65 0.1 30)	c5776a	in
+oklch(0.65 0.1 60)	bc804d	in
+oklch(0.65 0.1 90)	a78c41	in
+oklch(0.65 0.1 120)	87984f	in
+oklch(0.65 0.1 150)	60a06e	in
+oklch(0.65 0.1 180)	38a391	in
+oklch(0.65 0.1 210)	2f9fb1	in
+oklch(0.65 0.1 240)	5197c6	in
+oklch(0.65 0.1 270)	778ccd	in
+oklch(0.65 0.1 300)	9981c3	in
+oklch(0.65 0.1 330)	b278ac	in
+oklch(0.65 0.15 0)	d6638b	in
+oklch(0.65 0.15 30)	db6656	in
+oklch(0.65 0.15 60)	d0750a	in
+oklch(0.65 0.15 90)	b38900	out	b38900
+oklch(0.65 0.15 120)	849b11	in
+oklch(0.65 0.15 150)	3aa85b	in
+oklch(0.65 0.15 180)	00ab93	out	00aa92
+oklch(0.65 0.15 210)	00a6c1	out	00a4bb
+oklch(0.65 0.15 240)	0099e0	out	0099e0
+oklch(0.65 0.15 270)	6c88ea	in
+oklch(0.65 0.15 300)	9e77dc	in
+oklch(0.65 0.15 330)	c16aba	in
+oklch(0.65 0.2 0)	e94b8a	in
+oklch(0.65 0.2 30)	f0503d	in
+oklch(0.65 0.2 60)	e26700	out	d96f00
+oklch(0.65 0.2 90)	be8400	out	b38900
+oklch(0.65 0.2 120)	819e00	out	839d00
+oklch(0.65 0.2 150)	00af44	out	00af45
+oklch(0.65 0.2 180)	00b394	out	00aa92
+oklch(0.65 0.2 210)	00abd1	out	00a4bb
+oklch(0.65 0.2 240)	0099fa	out	0099ee
+oklch(0.65 0.2 270)	6281ff	out	6281ff
+oklch(0.65 0.2 300)	a46bf5	in
+oklch(0.65 0.2 330)	cf57c8	in
+oklch(0.65 0.25 0)	fb2189	in
+oklch(0.65 0.25 30)	ff2815	out	ff2815
+oklch(0.65 0.25 60)	f45400	out	d96f00
+oklch(0.65 0.25 90)	c97f00	out	b38900
+oklch(0.65 0.25 120)	7fa000	out	839d00
+oklch(0.65 0.25 150)	00b522	out	00b03f
+oklch(0.65 0.25 180)	00ba95	out	00aa92
+oklch(0.65 0.25 210)	00afe1	out	00a4bb
+oklch(0.65 0.25 240)	0097ff	out	0099ee
+oklch(0.65 0.25 270)	5978ff	out	6080ff
+oklch(0.65 0.25 300)	aa5aff	out	aa5aff
+oklch(0.65 0.25 330)	dc3dd5	in
+oklch(0.65 0.3 0)	ff0088	out	ff0088
+oklch(0.65 0.3 30)	ff0000	out	ff1300
+oklch(0.65 0.3 60)	ff3600	out	d96f00
+oklch(0.65 0.3 90)	d57700	out	b38900
+oklch(0.65 0.3 120)	7da200	out	839d00
+oklch(0.65 0.3 150)	00ba00	out	00b03f
+oklch(0.65 0.3 180)	00c196	out	00aa92
+oklch(0.65 0.3 210)	00b3f2	out	00a4bb
+oklch(0.65 0.3 240)	0094ff	out	0099ee
+oklch(0.65 0.3 270)	526bff	out	6080ff
+oklch(0.65 0.3 300)	b140ff	out	aa5aff
+oklch(0.65 0.3 330)	e900e2	out	e900e2
+oklch(0.65 0.4 0)	ff0085	out	ff0088
+oklch(0.65 0.4 30)	ff0000	out	ff1300
+oklch(0.65 0.4 60)	ff0000	out	d96f00
+oklch(0.65 0.4 90)	ea6400	out	b38900
+oklch(0.65 0.4 120)	7aa300	out	839d00
+oklch(0.65 0.4 150)	00c400	out	00b03f
+oklch(0.65 0.4 180)	00cc99	out	00aa92
+oklch(0.65 0.4 210)	00b8ff	out	00a4bb
+oklch(0.65 0.4 240)	0087ff	out	0099ee
+oklch(0.65 0.4 270)	4e35ff	out	6080ff
+oklch(0.65 0.4 300)	bf00ff	out	aa5aff
+oklch(0.65 0.4 330)	ff00fd	out	ee00e7
+oklch(0.75 0 0)	e1e1e1	grey
+oklch(0.75 0 30)	e1e1e1	grey
+oklch(0.75 0 60)	e1e1e1	grey
+oklch(0.75 0 90)	e1e1e1	grey
+oklch(0.75 0 120)	e1e1e1	grey
+oklch(0.75 0 150)	e1e1e1	grey
+oklch(0.75 0 180)	e1e1e1	grey
+oklch(0.75 0 210)	e1e1e1	grey
+oklch(0.75 0 240)	e1e1e1	grey
+oklch(0.75 0 270)	e1e1e1	grey
+oklch(0.75 0 300)	e1e1e1	grey
+oklch(0.75 0 330)	e1e1e1	grey
+oklch(0.75 2e-05 0)	aeaeae	in
+oklch(0.75 2e-05 30)	aeaeae	in
+oklch(0.75 2e-05 60)	aeaeae	in
+oklch(0.75 2e-05 90)	aeaeae	in
+oklch(0.75 2e-05 120)	aeaeae	in
+oklch(0.75 2e-05 150)	aeaeae	in
+oklch(0.75 2e-05 180)	aeaeae	in
+oklch(0.75 2e-05 210)	aeaeae	in
+oklch(0.75 2e-05 240)	aeaeae	in
+oklch(0.75 2e-05 270)	aeaeae	in
+oklch(0.75 2e-05 300)	aeaeae	in
+oklch(0.75 2e-05 330)	aeaeae	in
+oklch(0.75 0.05 0)	caa1ac	in
+oklch(0.75 0.05 30)	cca39b	in
+oklch(0.75 0.05 60)	c6a78f	in
+oklch(0.75 0.05 90)	baad8a	in
+oklch(0.75 0.05 120)	a9b390	in
+oklch(0.75 0.05 150)	98b79e	in
+oklch(0.75 0.05 180)	8cb9af	in
+oklch(0.75 0.05 210)	89b7bf	in
+oklch(0.75 0.05 240)	92b3cb	in
+oklch(0.75 0.05 270)	a1adcf	in
+oklch(0.75 0.05 300)	b2a7ca	in
+oklch(0.75 0.05 330)	c1a3bd	in
+oklch(0.75 0.1 0)	e293ab	in
+oklch(0.75 0.1 30)	e69688	in
+oklch(0.75 0.1 60)	dd9f6b	in
+oklch(0.75 0.1 90)	c6ab60	in
+oklch(0.75 0.1 120)	a6b86e	in
+oklch(0.75 0.1 150)	7fc08c	in
+oklch(0.75 0.1 180)	5cc3b0	in
+oklch(0.75 0.1 210)	55bfd1	in
+oklch(0.75 0.1 240)	70b6e7	in
+oklch(0.75 0.1 270)	95abee	in
+oklch(0.75 0.1 300)	b7a0e4	in
+oklch(0.75 0.1 330)	d297cc	in
+oklch(0.75 0.15 0)	f982aa	in
+oklch(0.75 0.15 30)	fe8674	in
+oklch(0.75 0.15 60)	f2943c	in
+oklch(0.75 0.15 90)	d3a813	in
+oklch(0.75 0.15 120)	a2bb40	in
+oklch(0.75 0.15 150)	5dc879	in
+oklch(0.75 0.15 180)	00ccb2	out	00ccb2
+oklch(0.75 0.15 210)	00c6e2	out	00c6e2
+oklch(0.75 0.15 240)	3db9ff	out	3db9ff
+oklch(0.75 0.15 270)	89a7ff	out	89a7ff
+oklch(0.75 0.15 300)	bd96fe	in
+oklch(0.75 0.15 330)	e289db	in
+oklch(0.75 0.2 0)	ff6da9	out	ff71a9
+oklch(0.75 0.2 30)	ff725c	out	ff7c68
+oklch(0.75 0.2 60)	ff8700	out	ff8800
+oklch(0.75 0.2 90)	dfa400	out	d8a700
+oklch(0.75 0.2 120)	9fbe00	out	9fbe00
+oklch(0.75 0.2 150)	1dcf64	in
+oklch(0.75 0.2 180)	00d4b3	out	00cdb2
+oklch(0.75 0.2 210)	00ccf3	out	00c6e2
+oklch(0.75 0.2 240)	00baff	out	15b9ff
+oklch(0.75 0.2 270)	7ea2ff	out	89a7ff
+oklch(0.75 0.2 300)	c38bff	out	c090ff
+oklch(0.75 0.2 330)	f178e9	in
+oklch(0.75 0.25 0)	ff50a7	out	ff71a9
+oklch(0.75 0.25 30)	ff5640	out	ff7c68
+oklch(0.75 0.25 60)	ff7700	out	ff8800
+oklch(0.75 0.25 90)	eb9f00	out	d8a700
+oklch(0.75 0.25 120)	9cc100	out	9fbe00
+oklch(0.75 0.25 150)	00d649	out	00d451
+oklch(0.75 0.25 180)	00dcb4	out	00cdb2
+oklch(0.75 0.25 210)	00d1ff	out	00c6e2
+oklch(0.75 0.25 240)	00b9ff	out	15b9ff
+oklch(0.75 0.25 270)	749aff	out	89a7ff
+oklch(0.75 0.25 300)	c97cff	out	c090ff
+oklch(0.75 0.25 330)	ff62f7	out	ff62f7
+oklch(0.75 0.3 0)	ff12a6	out	ff71a9
+oklch(0.75 0.3 30)	ff1f02	out	ff7c68
+oklch(0.75 0.3 60)	ff6100	out	ff8800
+oklch(0.75 0.3 90)	f69900	out	d8a700
+oklch(0.75 0.3 120)	9ac300	out	9fbe00
+oklch(0.75 0.3 150)	00dc1d	out	00d451
+oklch(0.75 0.3 180)	00e3b5	out	00cdb2
+oklch(0.75 0.3 210)	00d6ff	out	00c6e2
+oklch(0.75 0.3 240)	00b7ff	out	15b9ff
+oklch(0.75 0.3 270)	6b90ff	out	89a7ff
+oklch(0.75 0.3 300)	d069ff	out	c090ff
+oklch(0.75 0.3 330)	ff44ff	out	ff4eff
+oklch(0.75 0.4 0)	ff00a4	out	ff71a9
+oklch(0.75 0.4 30)	ff0000	out	ff7c68
+oklch(0.75 0.4 60)	ff0000	out	ff8800
+oklch(0.75 0.4 90)	ff8800	out	d8a700
+oklch(0.75 0.4 120)	96c500	out	9fbe00
+oklch(0.75 0.4 150)	00e700	out	00d451
+oklch(0.75 0.4 180)	00f0b8	out	00cdb2
+oklch(0.75 0.4 210)	00dcff	out	00c6e2
+oklch(0.75 0.4 240)	00aeff	out	15b9ff
+oklch(0.75 0.4 270)	606dff	out	89a7ff
+oklch(0.75 0.4 300)	de02ff	out	c090ff
+oklch(0.75 0.4 330)	ff00ff	out	ff4eff
+oklch(0.85 0 0)	ededed	grey
+oklch(0.85 0 30)	ededed	grey
+oklch(0.85 0 60)	ededed	grey
+oklch(0.85 0 90)	ededed	grey
+oklch(0.85 0 120)	ededed	grey
+oklch(0.85 0 150)	ededed	grey
+oklch(0.85 0 180)	ededed	grey
+oklch(0.85 0 210)	ededed	grey
+oklch(0.85 0 240)	ededed	grey
+oklch(0.85 0 270)	ededed	grey
+oklch(0.85 0 300)	ededed	grey
+oklch(0.85 0 330)	ededed	grey
+oklch(0.85 2e-05 0)	cecece	in
+oklch(0.85 2e-05 30)	cecece	in
+oklch(0.85 2e-05 60)	cecece	in
+oklch(0.85 2e-05 90)	cecece	in
+oklch(0.85 2e-05 120)	cecece	in
+oklch(0.85 2e-05 150)	cecece	in
+oklch(0.85 2e-05 180)	cecece	in
+oklch(0.85 2e-05 210)	cecece	in
+oklch(0.85 2e-05 240)	cecece	in
+oklch(0.85 2e-05 270)	cecece	in
+oklch(0.85 2e-05 300)	cecece	in
+oklch(0.85 2e-05 330)	cecece	in
+oklch(0.85 0.05 0)	ebc1cc	in
+oklch(0.85 0.05 30)	edc2bb	in
+oklch(0.85 0.05 60)	e7c7ae	in
+oklch(0.85 0.05 90)	dacda9	in
+oklch(0.85 0.05 120)	c9d3af	in
+oklch(0.85 0.05 150)	b8d8bd	in
+oklch(0.85 0.05 180)	abd9cf	in
+oklch(0.85 0.05 210)	a9d7e0	in
+oklch(0.85 0.05 240)	b1d3ec	in
+oklch(0.85 0.05 270)	c1cdef	in
+oklch(0.85 0.05 300)	d2c7ea	in
+oklch(0.85 0.05 330)	e1c3de	in
+oklch(0.85 0.1 0)	ffb2cb	out	ffb2cb
+oklch(0.85 0.1 30)	ffb5a7	out	ffb5a7
+oklch(0.85 0.1 60)	ffbe8a	in
+oklch(0.85 0.1 90)	e7cb80	in
+oklch(0.85 0.1 120)	c5d88d	in
+oklch(0.85 0.1 150)	9ee1ab	in
+oklch(0.85 0.1 180)	7ee3d0	in
+oklch(0.85 0.1 210)	77e0f2	in
+oklch(0.85 0.1 240)	90d7ff	out	90d7ff
+oklch(0.85 0.1 270)	b4cbff	out	b5cbff
+oklch(0.85 0.1 300)	d8bfff	out	d7bfff
+oklch(0.85 0.1 330)	f4b6ed	in
+oklch(0.85 0.15 0)	ffa2ca	out	ffaecb
+oklch(0.85 0.15 30)	ffa692	out	ffb4a5
+oklch(0.85 0.15 60)	ffb45f	out	ffb973
+oklch(0.85 0.15 90)	f4c947	in
+oklch(0.85 0.15 120)	c1dc63	in
+oklch(0.85 0.15 150)	7fe998	in
+oklch(0.85 0.15 180)	22edd1	in
+oklch(0.85 0.15 210)	00e7ff	out	00e7ff
+oklch(0.85 0.15 240)	63daff	out	8ad7ff
+oklch(0.85 0.15 270)	a8c8ff	out	b5cbff
+oklch(0.85 0.15 300)	ddb6ff	out	d9bdff
+oklch(0.85 0.15 330)	ffa8fc	out	ffa8fc
+oklch(0.85 0.2 0)	ff8ec8	out	ffaecb
+oklch(0.85 0.2 30)	ff937c	out	ffb4a5
+oklch(0.85 0.2 60)	ffa800	out	ffb973
+oklch(0.85 0.2 90)	ffc500	out	fec500
+oklch(0.85 0.2 120)	bedf0d	in
+oklch(0.85 0.2 150)	52f184	in
+oklch(0.85 0.2 180)	00f6d3	out	00f2d2
+oklch(0.85 0.2 210)	00eeff	out	00e9ff
+oklch(0.85 0.2 240)	00dbff	out	8ad7ff
+oklch(0.85 0.2 270)	9cc3ff	out	b5cbff
+oklch(0.85 0.2 300)	e3abff	out	d9bdff
+oklch(0.85 0.2 330)	ff98ff	out	ffa2ff
+oklch(0.85 0.25 0)	ff76c7	out	ffaecb
+oklch(0.85 0.25 30)	ff7c62	out	ffb4a5
+oklch(0.85 0.25 60)	ff9900	out	ffb973
+oklch(0.85 0.25 90)	ffc000	out	fec500
+oklch(0.85 0.25 120)	bbe200	out	bde100
+oklch(0.85 0.25 150)	00f86c	out	00f86c
+oklch(0.85 0.25 180)	00fed4	out	00f2d2
+oklch(0.85 0.25 210)	00f4ff	out	00e9ff
+oklch(0.85 0.25 240)	00dbff	out	8ad7ff
+oklch(0.85 0.25 270)	91bcff	out	b5cbff
+oklch(0.85 0.25 300)	e99eff	out	d9bdff
+oklch(0.85 0.25 330)	ff85ff	out	ffa2ff
+oklch(0.85 0.3 0)	ff53c6	out	ffaecb
+oklch(0.85 0.3 30)	ff5a40	out	ffb4a5
+oklch(0.85 0.3 60)	ff8700	out	ffb973
+oklch(0.85 0.3 90)	ffba00	out	fec500
+oklch(0.85 0.3 120)	b8e400	out	bde100
+oklch(0.85 0.3 150)	00ff4d	out	00fa63
+oklch(0.85 0.3 180)	00ffd5	out	00f2d2
+oklch(0.85 0.3 210)	00f9ff	out	00e9ff
+oklch(0.85 0.3 240)	00daff	out	8ad7ff
+oklch(0.85 0.3 270)	86b3ff	out	b5cbff
+oklch(0.85 0.3 300)	f08eff	out	d9bdff
+oklch(0.85 0.3 330)	ff6dff	out	ffa2ff
+oklch(0.85 0.4 0)	ff00c3	out	ffaecb
+oklch(0.85 0.4 30)	ff0000	out	ffb4a5
+oklch(0.85 0.4 60)	ff4900	out	ffb973
+oklch(0.85 0.4 90)	ffab00	out	fec500
+oklch(0.85 0.4 120)	b4e800	out	bde100
+oklch(0.85 0.4 150)	00ff00	out	00fa63
+oklch(0.85 0.4 180)	00ffd8	out	00f2d2
+oklch(0.85 0.4 210)	00ffff	out	00e9ff
+oklch(0.85 0.4 240)	00d4ff	out	8ad7ff
+oklch(0.85 0.4 270)	7798ff	out	b5cbff
+oklch(0.85 0.4 300)	fe5aff	out	d9bdff
+oklch(0.85 0.4 330)	ff00ff	out	ffa2ff
+oklch(0.95 0 0)	f9f9f9	grey
+oklch(0.95 0 30)	f9f9f9	grey
+oklch(0.95 0 60)	f9f9f9	grey
+oklch(0.95 0 90)	f9f9f9	grey
+oklch(0.95 0 120)	f9f9f9	grey
+oklch(0.95 0 150)	f9f9f9	grey
+oklch(0.95 0 180)	f9f9f9	grey
+oklch(0.95 0 210)	f9f9f9	grey
+oklch(0.95 0 240)	f9f9f9	grey
+oklch(0.95 0 270)	f9f9f9	grey
+oklch(0.95 0 300)	f9f9f9	grey
+oklch(0.95 0 330)	f9f9f9	grey
+oklch(0.95 2e-05 0)	eeeeee	in
+oklch(0.95 2e-05 30)	eeeeee	in
+oklch(0.95 2e-05 60)	eeeeee	in
+oklch(0.95 2e-05 90)	eeeeee	in
+oklch(0.95 2e-05 120)	eeeeee	in
+oklch(0.95 2e-05 150)	eeeeee	in
+oklch(0.95 2e-05 180)	eeeeee	in
+oklch(0.95 2e-05 210)	eeeeee	in
+oklch(0.95 2e-05 240)	eeeeee	in
+oklch(0.95 2e-05 270)	eeeeee	in
+oklch(0.95 2e-05 300)	eeeeee	in
+oklch(0.95 2e-05 330)	eeeeee	in
+oklch(0.95 0.05 0)	ffe1ed	out	ffe1ed
+oklch(0.95 0.05 30)	ffe3db	out	ffe3dc
+oklch(0.95 0.05 60)	ffe7ce	out	ffe7ce
+oklch(0.95 0.05 90)	fbeec9	in
+oklch(0.95 0.05 120)	eaf4cf	in
+oklch(0.95 0.05 150)	d8f9dd	in
+oklch(0.95 0.05 180)	cbfaf0	in
+oklch(0.95 0.05 210)	c9f8ff	out	c9f8ff
+oklch(0.95 0.05 240)	d1f4ff	out	d1f4ff
+oklch(0.95 0.05 270)	e1eeff	out	e3eeff
+oklch(0.95 0.05 300)	f3e8ff	out	f3e8ff
+oklch(0.95 0.05 330)	ffe3ff	out	ffe3ff
+oklch(0.95 0.1 0)	ffd3ec	out	ffe1ed
+oklch(0.95 0.1 30)	ffd6c7	out	ffe3dc
+oklch(0.95 0.1 60)	ffdfaa	out	ffe6c8
+oklch(0.95 0.1 90)	ffeca0	out	ffeca0
+oklch(0.95 0.1 120)	e5f9ad	in
+oklch(0.95 0.1 150)	beffcb	out	beffcb
+oklch(0.95 0.1 180)	9ffff1	out	9ffff1
+oklch(0.95 0.1 210)	99ffff	out	abfeff
+oklch(0.95 0.1 240)	b0f8ff	out	d1f4ff
+oklch(0.95 0.1 270)	d4ecff	out	e3eeff
+oklch(0.95 0.1 300)	f8e0ff	out	f3e7ff
+oklch(0.95 0.1 330)	ffd7ff	out	ffdeff
+oklch(0.95 0.15 0)	ffc2ea	out	ffe1ed
+oklch(0.95 0.15 30)	ffc7b2	out	ffe3dc
+oklch(0.95 0.15 60)	ffd581	out	ffe6c8
+oklch(0.95 0.15 90)	ffea6c	out	ffeb8f
+oklch(0.95 0.15 120)	e2fd84	in
+oklch(0.95 0.15 150)	a0ffb8	out	b1ffc2
+oklch(0.95 0.15 180)	5bfff2	out	99fff1
+oklch(0.95 0.15 210)	4affff	out	abfeff
+oklch(0.95 0.15 240)	87fbff	out	d1f4ff
+oklch(0.95 0.15 270)	c7e9ff	out	e3eeff
+oklch(0.95 0.15 300)	fed7ff	out	f3e7ff
+oklch(0.95 0.15 330)	ffc9ff	out	ffdeff
+oklch(0.95 0.2 0)	ffb0e9	out	ffe1ed
+oklch(0.95 0.2 30)	ffb59b	out	ffe3dc
+oklch(0.95 0.2 60)	ffca47	out	ffe6c8
+oklch(0.95 0.2 90)	ffe600	out	ffeb8f
+oklch(0.95 0.2 120)	deff4c	out	deff4d
+oklch(0.95 0.2 150)	79ffa4	out	b1ffc2
+oklch(0.95 0.2 180)	00fff4	out	99fff1
+oklch(0.95 0.2 210)	00ffff	out	abfeff
+oklch(0.95 0.2 240)	45fdff	out	d1f4ff
+oklch(0.95 0.2 270)	bbe5ff	out	e3eeff
+oklch(0.95 0.2 300)	ffccff	out	f3e7ff
+oklch(0.95 0.2 330)	ffb9ff	out	ffdeff
+oklch(0.95 0.25 0)	ff99e8	out	ffe1ed
+oklch(0.95 0.25 30)	ff9f83	out	ffe3dc
+oklch(0.95 0.25 60)	ffbc00	out	ffe6c8
+oklch(0.95 0.25 90)	ffe200	out	ffeb90
+oklch(0.95 0.25 120)	dbff00	out	dbff00
+oklch(0.95 0.25 150)	35ff8d	out	b1ffc2
+oklch(0.95 0.25 180)	00fff5	out	99fff1
+oklch(0.95 0.25 210)	00ffff	out	abfeff
+oklch(0.95 0.25 240)	00feff	out	d1f4ff
+oklch(0.95 0.25 270)	afdfff	out	e3eeff
+oklch(0.95 0.25 300)	ffc0ff	out	f3e7ff
+oklch(0.95 0.25 330)	ffa7ff	out	ffdeff
+oklch(0.95 0.3 0)	ff7de6	out	ffe1ed
+oklch(0.95 0.3 30)	ff8466	out	ffe3dc
+oklch(0.95 0.3 60)	ffab00	out	ffe6c8
+oklch(0.95 0.3 90)	ffdc00	out	ffeb8f
+oklch(0.95 0.3 120)	d8ff00	out	dbff00
+oklch(0.95 0.3 150)	00ff72	out	b1ffc2
+oklch(0.95 0.3 180)	00fff6	out	99fff1
+oklch(0.95 0.3 210)	00ffff	out	abfeff
+oklch(0.95 0.3 240)	00feff	out	d1f4ff
+oklch(0.95 0.3 270)	a4d7ff	out	e3eeff
+oklch(0.95 0.3 300)	ffb1ff	out	f3e7ff
+oklch(0.95 0.3 330)	ff91ff	out	ffdeff
+oklch(0.95 0.4 0)	ff00e4	out	ffe1ed
+oklch(0.95 0.4 30)	ff0000	out	ffe3dc
+oklch(0.95 0.4 60)	ff7c00	out	ffe6c8
+oklch(0.95 0.4 90)	ffcf00	out	ffeb8f
+oklch(0.95 0.4 120)	d3ff00	out	dbff00
+oklch(0.95 0.4 150)	00ff00	out	b1ffc2
+oklch(0.95 0.4 180)	00fff9	out	99fff1
+oklch(0.95 0.4 210)	00ffff	out	abfeff
+oklch(0.95 0.4 240)	00f9ff	out	d1f4ff
+oklch(0.95 0.4 270)	91c0ff	out	e3eeff
+oklch(0.95 0.4 300)	ff88ff	out	f3e7ff
+oklch(0.95 0.4 330)	ff4cff	out	ffdeff
+lab(5 -80 -80)	003382	out	000808
+lab(5 -80 -40)	002d46	out	000504
+lab(5 -80 0)	002b0e	out	000403
+lab(5 -80 40)	002a00	out	000400
+lab(5 -80 80)	002900	out	000400
+lab(5 -40 -80)	002a82	out	000909
+lab(5 -40 -40)	002447	out	000706
+lab(5 -40 0)	002110	out	000705
+lab(5 -40 40)	001f00	out	021000
+lab(5 -40 80)	061e00	out	0c0e00
+lab(5 0 -80)	002082	out	000b0b
+lab(5 0 -40)	001647	out	000c0c
+lab(5 0 0)	757575	grey
+lab(5 0 40)	260e00	out	141100
+lab(5 0 80)	330b00	out	160f00
+lab(5 40 -80)	000983	out	000e0f
+lab(5 40 -40)	220047	out	220045
+lab(5 40 0)	3b0012	out	330013
+lab(5 40 40)	440000	out	1f1200
+lab(5 40 80)	4b0000	out	1e0f00
+lab(5 80 -80)	140083	out	0a006b
+lab(5 80 -40)	520048	out	380030
+lab(5 80 0)	5d0015	out	3b0017
+lab(5 80 40)	630000	out	2b1100
+lab(5 80 80)	680000	out	281000
+lab(15 -80 -80)	00419d	out	001615
+lab(15 -80 -40)	003b5f	out	001614
+lab(15 -80 0)	003924	out	00261e
+lab(15 -80 40)	003800	out	002900
+lab(15 -80 80)	003700	out	142700
+lab(15 -40 -80)	003b9d	out	001717
+lab(15 -40 -40)	00345f	out	001b19
+lab(15 -40 0)	003125	out	002c24
+lab(15 -40 40)	003000	out	192a00
+lab(15 -40 80)	182f00	out	202800
+lab(15 0 -80)	00329d	out	001a1a
+lab(15 0 -40)	002a5f	out	002a40
+lab(15 0 0)	8d8d8d	grey
+lab(15 0 40)	342400	out	282900
+lab(15 0 80)	3e2300	out	292800
+lab(15 40 -80)	001b9e	out	002224
+lab(15 40 -40)	3b0660	in
+lab(15 40 0)	540027	out	540027
+lab(15 40 40)	5b0000	out	461c00
+lab(15 40 80)	610000	out	352800
+lab(15 80 -80)	3f009e	out	3a008a
+lab(15 80 -40)	6e0060	out	59004e
+lab(15 80 0)	7c0029	out	5f002b
+lab(15 80 40)	800000	out	630000
+lab(15 80 80)	840000	out	422800
+lab(25 -80 -80)	0057b9	out	002624
+lab(25 -80 -40)	005278	out	002d29
+lab(25 -80 0)	004f3a	out	004237
+lab(25 -80 40)	004e00	out	00451a
+lab(25 -80 80)	004d00	out	244000
+lab(25 -40 -80)	0052b9	out	002827
+lab(25 -40 -40)	004c78	out	004047
+lab(25 -40 0)	00493a	out	00453a
+lab(25 -40 40)	004800	out	004800
+lab(25 -40 80)	164700	out	2f4000
+lab(25 0 -80)	0046b9	out	002e2d
+lab(25 0 -40)	003f78	out	00406b
+lab(25 0 0)	a0a0a0	grey
+lab(25 0 40)	493a00	out	493a00
+lab(25 0 80)	503900	out	3e4000
+lab(25 40 -80)	002eb9	out	004277
+lab(25 40 -40)	552179	in
+lab(25 40 0)	6f193d	in
+lab(25 40 40)	761600	out	761600
+lab(25 40 80)	7a1300	out	4f3e00
+lab(25 80 -80)	6000ba	out	5d00af
+lab(25 80 -40)	8b007a	out	7c006d
+lab(25 80 0)	9a003f	out	850040
+lab(25 80 40)	9f0001	out	89001d
+lab(25 80 80)	a20000	out	782400
+lab(35 -80 -80)	0071d5	out	003836
+lab(35 -80 -40)	006c91	out	005558
+lab(35 -80 0)	006a51	out	005b4e
+lab(35 -80 40)	006900	out	005f2b
+lab(35 -80 80)	006800	out	006000
+lab(35 -40 -80)	006ad5	out	003d3b
+lab(35 -40 -40)	006492	out	005a68
+lab(35 -40 0)	006151	out	005f51
+lab(35 -40 40)	106003	in
+lab(35 -40 80)	266000	out	335c00
+lab(35 0 -80)	005cd5	out	00596e
+lab(35 0 -40)	005692	out	005692
+lab(35 0 0)	b1b1b1	grey
+lab(35 0 40)	63510a	in
+lab(35 0 80)	685000	out	635200
+lab(35 40 -80)	0043d6	out	0046d1
+lab(35 40 -40)	6f3a93	in
+lab(35 40 0)	8a3454	in
+lab(35 40 40)	943112	in
+lab(35 40 80)	973000	out	8d3b00
+lab(35 80 -80)	7f00d6	out	7f00d6
+lab(35 80 -40)	a80094	out	a2008e
+lab(35 80 0)	b90055	out	ae0056
+lab(35 80 40)	c00019	out	b30028
+lab(35 80 80)	c20000	out	b50000
+lab(45 -80 -80)	008cf2	out	004f4b
+lab(45 -80 -40)	0088ac	out	007177
+lab(45 -80 0)	008569	out	007766
+lab(45 -80 40)	00841e	out	007b3b
+lab(45 -80 80)	008300	out	007d00
+lab(45 -40 -80)	0083f2	out	006e78
+lab(45 -40 -40)	007ead	out	007589
+lab(45 -40 0)	007b69	out	007b69
+lab(45 -40 40)	317921	in
+lab(45 -40 80)	3f7900	out	447800
+lab(45 0 -80)	0074f2	out	00749e
+lab(45 0 -40)	236ead	in
+lab(45 0 0)	c0c0c0	grey
+lab(45 0 40)	7d6924	in
+lab(45 0 80)	836800	out	816900
+lab(45 40 -80)	315bf3	in
+lab(45 40 -40)	8a52ae	in
+lab(45 40 0)	a64d6c	in
+lab(45 40 40)	b24b29	in
+lab(45 40 80)	b54a00	out	b44b00
+lab(45 80 -80)	9d1cf4	in
+lab(45 80 -40)	c600af	out	c600af
+lab(45 80 0)	d9006e	out	d8006e
+lab(45 80 40)	e1002e	out	de0030
+lab(45 80 80)	e30000	out	e10000
+lab(55 -80 -80)	00a8ff	out	008388
+lab(55 -80 -40)	00a4c8	out	008e96
+lab(55 -80 0)	00a182	out	00937f
+lab(55 -80 40)	009f37	out	00984c
+lab(55 -80 80)	009f00	out	009b00
+lab(55 -40 -80)	009dff	out	008da4
+lab(55 -40 -40)	0098c8	out	0090ab
+lab(55 -40 0)	009583	out	009583
+lab(55 -40 40)	4d943a	in
+lab(55 -40 80)	5c9300	out	5d9300
+lab(55 0 -80)	008dff	out	008ecd
+lab(55 0 -40)	4787c9	in
+lab(55 0 0)	cdcdcd	grey
+lab(55 0 40)	98823c	in
+lab(55 0 80)	9f8100	out	9f8100
+lab(55 40 -80)	5b73ff	out	5c75ff
+lab(55 40 -40)	a56cc9	in
+lab(55 40 0)	c36785	in
+lab(55 40 40)	d06440	in
+lab(55 40 80)	d56300	out	d56300
+lab(55 80 -80)	bc41ff	out	ba48ff
+lab(55 80 -40)	e431cb	in
+lab(55 80 0)	f82387	in
+lab(55 80 40)	ff1844	out	ff1844
+lab(55 80 80)	ff1300	out	ff1300
+lab(65 -80 -80)	00c4ff	out	00a5b3
+lab(65 -80 -40)	00c0e4	out	00abb6
+lab(65 -80 0)	00bd9c	out	00b199
+lab(65 -80 40)	00bc50	out	00b75e
+lab(65 -80 80)	00bb00	out	00b900
+lab(65 -40 -80)	00b8ff	out	00aacd
+lab(65 -40 -40)	00b4e4	out	00adcd
+lab(65 -40 0)	26b09d	in
+lab(65 -40 40)	68af53	in
+lab(65 -40 80)	79ae00	out	79ae00
+lab(65 0 -80)	00a7ff	out	00a8fe
+lab(65 0 -40)	66a1e5	in
+lab(65 0 0)	dadada	grey
+lab(65 0 40)	b49c55	in
+lab(65 0 80)	bd9b00	out	bd9b00
+lab(65 40 -80)	7e8dff	out	8596ff
+lab(65 40 -40)	c186e6	in
+lab(65 40 0)	e0819f	in
+lab(65 40 40)	ef7e58	in
+lab(65 40 80)	f57d00	out	f57d00
+lab(65 80 -80)	db60ff	out	cd7dff
+lab(65 80 -40)	ff54e7	out	ff54e7
+lab(65 80 0)	ff4ca1	out	ff62a2
+lab(65 80 40)	ff465c	out	ff6c70
+lab(65 80 80)	ff4400	out	ff6f4d
+lab(75 -80 -80)	00e1ff	out	00c4da
+lab(75 -80 -40)	00ddff	out	00c9d6
+lab(75 -80 0)	00dab6	out	00cfb4
+lab(75 -80 40)	00d96a	out	00d671
+lab(75 -80 80)	00d800	out	00d800
+lab(75 -40 -80)	00d4ff	out	00c7f5
+lab(75 -40 -40)	00cfff	out	00cbf1
+lab(75 -40 0)	4cccb7	in
+lab(75 -40 40)	83ca6c	in
+lab(75 -40 80)	96c900	out	96c900
+lab(75 0 -80)	00c1ff	out	53c2ff
+lab(75 0 -40)	83bcff	out	83bcff
+lab(75 0 0)	e5e5e5	grey
+lab(75 0 40)	d1b66e	in
+lab(75 0 80)	dcb500	out	dcb500
+lab(75 40 -80)	9fa7ff	out	abb6ff
+lab(75 40 -40)	dea0ff	out	dea0ff
+lab(75 40 0)	fd9cba	in
+lab(75 40 40)	ff9971	out	ff9b75
+lab(75 40 80)	ff9804	out	ff9f41
+lab(75 80 -80)	f97dff	out	dfa8ff
+lab(75 80 -40)	ff73ff	out	ff90f3
+lab(75 80 0)	ff6cbc	out	ff9bbf
+lab(75 80 40)	ff6874	out	ffa09d
+lab(75 80 80)	ff661c	out	ffa387
+lab(85 -80 -80)	00ffff	out	00e3ff
+lab(85 -80 -40)	00fbff	out	00e8f7
+lab(85 -80 0)	00f8d2	out	00efd0
+lab(85 -80 40)	00f684	out	00f684
+lab(85 -80 80)	34f50e	in
+lab(85 -40 -80)	00f1ff	out	4ae1ff
+lab(85 -40 -40)	00ecff	out	0fe7ff
+lab(85 -40 0)	6ce9d3	in
+lab(85 -40 40)	9ee786	in
+lab(85 -40 80)	b3e61c	in
+lab(85 0 -80)	00ddff	out	9fdbff
+lab(85 0 -40)	a0d8ff	out	aed8ff
+lab(85 0 0)	f0f0f0	grey
+lab(85 0 40)	eed288	in
+lab(85 0 80)	fbd127	in
+lab(85 40 -80)	bfc2ff	out	ced5ff
+lab(85 40 -40)	fbbcff	out	f2c5ff
+lab(85 40 0)	ffb8d6	out	ffc1d7
+lab(85 40 40)	ffb58b	out	ffc7af
+lab(85 40 80)	ffb331	out	ffc996
+lab(85 80 -80)	ff9aff	out	f1d0ff
+lab(85 80 -40)	ff91ff	out	ffc5fc
+lab(85 80 0)	ff8bd7	out	ffcadc
+lab(85 80 40)	ff878e	out	ffccc9
+lab(85 80 80)	ff853b	out	ffcdbb
+lab(95 -80 -80)	ffffff	edge
+lab(95 -80 -40)	00ffff	out	57ffff
+lab(95 -80 0)	00ffee	out	60ffec
+lab(95 -80 40)	00ff9f	out	89ffba
+lab(95 -80 80)	60ff3d	out	9dff8c
+lab(95 -40 -80)	00ffff	out	b6f5ff
+lab(95 -40 -40)	00ffff	out	aef9ff
+lab(95 -40 0)	8affef	out	8affef
+lab(95 -40 40)	bbffa1	out	bbffa1
+lab(95 -40 80)	d1ff43	out	d1ff43
+lab(95 0 -80)	00f9ff	out	d8f4ff
+lab(95 0 -40)	bdf4ff	out	dff3ff
+lab(95 0 0)	fafafa	grey
+lab(95 0 40)	ffeea3	out	ffeea3
+lab(95 0 80)	ffed49	out	ffef8e
+lab(95 40 -80)	dedeff	out	f1f4ff
+lab(95 40 -40)	ffd8ff	out	ffeeff
+lab(95 40 0)	ffd4f2	out	ffecf5
+lab(95 40 40)	ffd1a6	out	ffeee3
+lab(95 40 80)	ffcf4f	out	ffefd9
+lab(95 80 -80)	ffb7ff	out	fff7ff
+lab(95 80 -40)	ffafff	out	fff3ff
+lab(95 80 0)	ffaaf4	out	fff4fa
+lab(95 80 40)	ffa6a8	out	fff4f3
+lab(95 80 80)	ffa356	out	fff5ed
+oklch(0.9 0.05 140)	cde7c7	in
+oklch(0.7 0.25 25)	ff3d46	out	ff5655
+oklch(0.65 0.25 29)	ff271e	out	ff271e
+oklch(0.65 0.25 142)	00b100	out	00b000
+oklch(0.70 0.19 90)	cc9500	out	c59800
+oklch(0.7 0.4 25)	ff0000	out	ff5655
+lab(20 5 -10)	302f3f	in
+lab(50 0 -50)	007ccc	out	007ccc
+lab(10 0 0)	828282	grey
+lab(90 0 0)	f5f5f5	grey
+lab(50 60 40)	d93d36	in
+oklch(0.5 0.1 180)	007565	out	007565
+oklch(0.7 0.15 140)	68b457	in
+oklch(0.9 0.05 265)	cedeff	out	cedeff
+lab(70 50 -30)	ea88e2	in
+lab(50 0 0)	c7c7c7	grey
+oklch(0.5 0 180)	bcbcbc	grey
+oklch(0.5 0 0)	bcbcbc	grey
+oklch(0.5 0.00002 0)	636363	in
+oklch(0.7 0.35 25)	ff0000	out	ff5655

@@ -1,6 +1,6 @@
 # AR. Theme file formats, and telling them apart by content
 
-Status: built 2026-10-17 for every option the results sections below mark decided, plus the owner's decision 4; O2, O4, O8, O14, the empty file and X resources stay open, as recorded there. Sections 0-5 are the design as researched on 2026-10-16. The owner asked (2026-10-16, verbatim): "we probably want to autodetect ansi/base16/base24", then "we might want to research on that". The surveys this design rests on are in `docs/research/notes/ar/` (the specs, the peers, and baud today). Every option in section 4 goes to Jev before anything is built.
+Status: built 2026-10-17 for every option the results sections below mark decided, plus the owner's decision 4, X resources and O14 (the owner's "use the recommended answers"); O2, O4, O8 and the empty file stay as built, as recorded there. Sections 0-5 are the design as researched on 2026-10-16. The owner asked (2026-10-16, verbatim): "we probably want to autodetect ansi/base16/base24", then "we might want to research on that". The surveys this design rests on are in `docs/research/notes/ar/` (the specs, the peers, and baud today). Every option in section 4 goes to Jev before anything is built.
 
 
 The owner, 2026-10-16, verbatim: "we probably want to autodetect
@@ -903,6 +903,30 @@ and out-of-gamut cases refuse 0.25 / 0.52. Below the bar, a file holding
 a value kitty reads as `oklch(` or `lab(` stays refused at its line
 (`WideGamut`), and one kitty refuses is skipped. The owner's, or Jev's with
 a fact these asks did not have.
+
+**Built, 2026-10-17.** The research round re-asked O14 in three cases
+(decisions.jsonl 712/713, uncached) and the owner took the recommended
+answer for each:
+
+| case | Jev | drawn |
+|---|---|---|
+| L at or past 0 or 1, or not finite | (all three agree) | black or white |
+| chromatic, linear sRGB inside [0, 1] before any clip | kitty_math 0.92 / 0.91, decided | kitty's C arithmetic |
+| a grey, chroma under 1e-5 | kitty_grey 0.92 / 0.79, lean | `linear_to_srgb(L)`, as kitty draws it |
+| outside sRGB | kitty_go_chroma_search 0.62 / 0.56, lean | the chroma search of kitty's Go code ([[source: kitty-colorspaces-go-1e1486e]] 101-230), which its themes kitten previews with ([[source: kitty-themes-ui-go-1e1486e]] 178-195) and which keeps [[source: kitty-pr-9325]]'s promise of CSS Color 4 gamut mapping |
+
+The numbers are the ones kitty's terminal reads, `%` and C's `strtod`
+forms included; for Lab the case is decided on kitty's C numbers and its
+linear channels before the clip, and an `out` Lab takes the Go path from
+the start. `scripts/kitty-colour-oracle.sh` now runs kitty's Go too and
+names each value's case: `baud-domain/tests/kitty-colours.txt` holds the 950
+values and the research grid's 1350, 2300 rows (35 edge, 135 grey, 415 in,
+845 out; on 744 `out` rows kitty's terminal and its Go code draw different
+bytes), and baud draws every one byte for byte. baud-domain has no maths
+library, so `baud-domain/src/themefile/oklab.rs` writes the functions kitty calls; the
+bytes are the same whether Go and C fuse multiply-adds or not. The docs'
+own example `oklch(0.7 0.25 25)` draws `#ff5655`, what kitty's preview
+shows, where kitty's terminal draws `#ff3d46`.
 
 ## Bytes that are not UTF-8 (2026-10-17)
 

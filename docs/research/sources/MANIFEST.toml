@@ -26363,3 +26363,101 @@ group  = "Y"
 # Read 2026-10-17. BuiltinColors 65-849: 782 names, 30 of them (aqua,
 # crimson, rebeccapurple, the web and x11 variants) not in X.Org's rgb.txt
 # at 749182c; for the X resources reader (note AR).
+
+[sources.kitty-colorspaces-go-1e1486e]
+key    = "kitty-colorspaces-go-1e1486e"
+title  = "kitty 1e1486e, tools/utils/style/colorspaces.go -- the Go OKLCH and Lab conversions, with the CSS Color 4 chroma search kitty's C never runs"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/tools/utils/style/colorspaces.go"
+file   = ""
+sha256 = "316a4dc08e0c5ef818a1f063357c9c36302074a64b4e35ddba923f2aa19c980f"
+bytes  = 9051
+status = "external"
+group  = "Y"
+# Read 2026-10-17. oklchToSrgbGamutMap 101-178, labToOklch 181-230; run by scripts/kitty-colour-oracle.sh, never committed (note AR, O14).
+
+[sources.kitty-colorspaces-test-go-1e1486e]
+key    = "kitty-colorspaces-test-go-1e1486e"
+title  = "kitty 1e1486e, tools/utils/style/colorspaces_test.go -- nine values the Go conversions are pinned to"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/tools/utils/style/colorspaces_test.go"
+file   = ""
+sha256 = "295828877ad7c93990ca967fbff6d1376b0c4061c57ca0778612ce514917692c"
+bytes  = 1201
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 24-32; the research oracle reproduced all nine (note AR, O14).
+
+[sources.kitty-datatypes-py-1e1486e]
+key    = "kitty-datatypes-py-1e1486e"
+title  = "kitty 1e1486e, kitty_tests/datatypes.py -- the oklch( and lab( values kitty's own tests pin, the greys among them"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kitty_tests/datatypes.py"
+file   = ""
+sha256 = "b3b2c10dc6f41d4cb5c91dd0d70effd3fe3a609ad7bb47db3456e1cda89082ff"
+bytes  = 44267
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 103, 139-149, 214 (note AR, O14).
+
+[sources.kitty-themes-collection-go-1e1486e]
+key    = "kitty-themes-collection-go-1e1486e"
+title  = "kitty 1e1486e, tools/themes/collection.go -- a theme's colours parsed through the Go colour code"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/tools/themes/collection.go"
+file   = ""
+sha256 = "cafc59fda9fd20b432af0ecba26560fbf2964b579f8d219818bb3109a9426ebe"
+bytes  = 30850
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 650-710 (note AR, O14).
+
+[sources.kitty-themes-ui-go-1e1486e]
+key    = "kitty-themes-ui-go-1e1486e"
+title  = "kitty 1e1486e, kittens/themes/ui.go -- the themes kitten previews a theme in the colours the Go code gives"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/kittens/themes/ui.go"
+file   = ""
+sha256 = "2afb8511f7a1cfcfc42753e25704cebe73391dc4e38e1b51e476d2b3881557df"
+bytes  = 16366
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 178-195 (note AR, O14).
+
+[sources.kitty-style-wrapper-go-1e1486e]
+key    = "kitty-style-wrapper-go-1e1486e"
+title  = "kitty 1e1486e, tools/utils/style/wrapper.go -- ParseColor hands oklch( and lab( to the Go conversions"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/1e1486ebbae6e66a35205dbde23f1e15a1fbc72d/tools/utils/style/wrapper.go"
+file   = ""
+sha256 = "49bb66794d7bd1c9df587af1bb943591cce8a87fdea27f5ef8c4e8e8c8b42696"
+bytes  = 11461
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 186-222 (note AR, O14).
+
+[sources.kitty-pr-9325]
+key    = "kitty-pr-9325"
+title  = "kitty pull request 9325, \"Add wide gamut color support with OKLCH and LAB formats\" -- the GitHub API's record of it, promising CSS Color 4 gamut mapping"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://api.github.com/repos/kovidgoyal/kitty/issues/9325"
+file   = ""
+sha256 = "c86ce8459c59a0330c057c76d367f5f50afe76b5ef869d6f3c989c8b99897a5a"
+bytes  = 5400
+status = "external"
+group  = "Y"
+# Read 2026-10-17. The API's answer as fetched; its counts change, so a re-fetch need not hash the same (note AR, O14).

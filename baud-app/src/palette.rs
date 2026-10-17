@@ -622,7 +622,6 @@ fn reason(kind: SchemeErrorKind) -> String {
         SchemeErrorKind::Syntax => "a line that is not a key and a value".into(),
         SchemeErrorKind::PaletteIndex => "a palette number that is not 0-255".into(),
         SchemeErrorKind::ColourName => "a colour name, which baud does not resolve yet".into(),
-        SchemeErrorKind::WideGamut => "an OKLCH or CIE LAB colour, which baud does not convert yet".into(),
         SchemeErrorKind::NoName => "no name, which a Windows Terminal scheme requires".into(),
         SchemeErrorKind::Count => "not the sixteen colours the format requires".into(),
         SchemeErrorKind::NotUtf8 => "a byte that is not UTF-8, which the format requires".into(),

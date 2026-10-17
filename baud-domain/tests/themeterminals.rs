@@ -94,49 +94,70 @@ fn kitty_none_unsets_and_high_entries_are_extended() {
 }
 
 /// kitty's own parse_color, from `scripts/kitty-colour-oracle.sh`: each
-/// value and what kitty 1e1486e reads it as, `-` for nothing.
+/// value and what kitty 1e1486e reads it as, `-` for nothing; an `oklch(`
+/// or `lab(` value kitty reads then its case, and for `out` what kitty's Go
+/// code draws. A value may hold a tab, so a row is read from its right.
 const KITTY: &str = include_str!("kitty-colours.txt");
 
-/// **Every value reads as kitty reads it**, on the 950 the oracle ran:
+/// A row: the value, what kitty's terminal reads it as, and the case.
+fn kitty_row(row: &str) -> (String, &str, Option<&str>, Option<&str>) {
+    let f: Vec<&str> = row.split('\t').collect();
+    let n = f.len();
+    let (cols, case, go) = match f[n - 1] {
+        "edge" | "grey" | "in" => (2, Some(f[n - 1]), None),
+        _ if n >= 4 && f[n - 2] == "out" => (3, Some("out"), Some(f[n - 1])),
+        _ => (1, None, None),
+    };
+    (f[..n - cols].join("\t"), f[n - cols], case, go)
+}
+
+/// **Every value reads as kitty reads it**, on the 2300 the oracle ran:
 /// all 753 names in three cases, every `#` and `rgb:` form, and `oklch(` and
 /// `lab(` with each number form C's `strtod` takes or refuses. A value kitty
 /// refuses skips its line; a name resolves; an `oklch(` or `lab(` kitty
-/// reads refuses the file, its drawing open (note AR, O14).
+/// reads is drawn by the owner's call on note AR's O14: black or white at an
+/// edge, a grey and a colour inside sRGB as kitty's terminal draws them, a
+/// colour outside sRGB as kitty's Go code does -- byte for byte.
 #[test]
 fn every_value_reads_as_kittys_own_parser_reads_it() {
     let mut n = 0;
+    let mut cases = std::collections::BTreeMap::new();
+    let mut apart = 0;
     for row in KITTY.lines() {
-        let (value, want) = row.rsplit_once('\t').unwrap();
+        let (value, want, case, go) = kitty_row(row);
         let text = format!("color0 #000000\ncolor1 {value}\n");
         let (got, skipped) = kitty_of(&text);
-        let functional = value.contains('(');
-        match (want, got) {
-            ("-", Ok(s)) => {
-                assert_eq!(s.ansi[1], None, "{value:?}");
-                assert_eq!(
-                    skipped,
-                    [(Line(2), "color1".into(), Skipped::Refused)],
-                    "{value:?}"
-                );
-            }
-            ("-", got) => panic!("{value:?}: kitty skips it, baud {got:?}"),
-            (_, Err(e)) if functional => assert_eq!(
-                e,
-                SchemeError {
-                    line: Line(2),
-                    kind: SchemeErrorKind::WideGamut
-                },
+        let got = got.unwrap_or_else(|e| panic!("{value:?}: {e:?}"));
+        if want == "-" {
+            assert_eq!(got.ansi[1], None, "{value:?}");
+            assert_eq!(
+                skipped,
+                [(Line(2), "color1".into(), Skipped::Refused)],
                 "{value:?}"
-            ),
-            (hex6, Ok(s)) if !functional => {
-                assert_eq!(s.ansi[1], Some(c(hex6)), "{value:?}");
-                assert!(skipped.is_empty(), "{value:?}: {skipped:?}");
-            }
-            (want, got) => panic!("{value:?}: kitty {want}, baud {got:?}"),
+            );
+        } else {
+            let drawn = go.unwrap_or(want);
+            assert_eq!(got.ansi[1], Some(c(drawn)), "{value:?} ({case:?})");
+            assert!(skipped.is_empty(), "{value:?}: {skipped:?}");
         }
+        *cases.entry(case.unwrap_or("")).or_insert(0) += 1;
+        apart += usize::from(go.is_some_and(|g| g != want));
         n += 1;
     }
-    assert_eq!(n, 950);
+    assert_eq!(n, 2300);
+    assert_eq!(
+        cases.into_iter().collect::<Vec<_>>(),
+        [
+            ("", 870),
+            ("edge", 35),
+            ("grey", 135),
+            ("in", 415),
+            ("out", 845)
+        ]
+    );
+    // Rows where kitty's terminal and its Go code draw different bytes, so
+    // the case decides.
+    assert_eq!(apart, 744);
 }
 
 /// **kitty's names are X.Org's rgb.txt and `debianred`**, each found in

@@ -72,7 +72,10 @@ Windows Terminal colour scheme, X resources, or a list of 16 colours, one
 `xrdb` loads them: their `#define`, `#ifdef` and `#include "file"` lines
 are run, an included file is looked for next to the one including it, and
 only the entries every program reads (`*color0`, `*.color0`) are used; an
-entry for one program, such as `URxvt*color0`, is skipped and named. baud tells which by what is in the
+entry for one program, such as `URxvt*color0`, is skipped and named. A
+kitty theme's `oklch()` and `lab()` colours are drawn as kitty draws them,
+and one outside what the screen can show as kitty's theme preview shows
+it. baud tells which by what is in the
 file, not by its name, and says what it read it as; a file whose name says
 another format is still read, and the name is mentioned. A foot file or
 iTerm2 preset holding both a dark and a light theme is refused, so save the

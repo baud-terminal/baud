@@ -151,7 +151,8 @@ ambiguous_width = "narrow"
 # schemes, X resources (as xrdb loads them: their #define, #ifdef and
 # #include "file" lines run, and only the entries every program reads,
 # *color0 or *.color0, used), and a list of 16 colours, one per line, like
-# pywal's colors file. It
+# pywal's colors file. A kitty theme's oklch() and lab() colours are drawn
+# as kitty draws them, one outside sRGB as kitty's theme preview shows it. It
 # tells them apart by what is in the file, not by its name, and says what it
 # read each file as. A foot file or iTerm2 preset holding both a dark and a
 # light theme is refused: save the one you want on its own. Other theme

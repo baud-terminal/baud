@@ -26,6 +26,10 @@
 // `core::mem::variant_count` rather than naming the last one, which went stale
 // twice (`vt/mode.rs`).
 #![feature(variant_count)]
+// kitty's `oklch(` and `lab(` colours take square roots
+// (`baud-domain/src/themefile/oklab.rs`), and the hardware's is correctly rounded, as
+// kitty's libm and Go's `math.Sqrt` are; `core` has it only behind this.
+#![feature(core_float_math)]
 #![forbid(unsafe_code)]
 
 // `Pixel::zeroed_vec`, for a host with an allocator: the arena from zeroed
