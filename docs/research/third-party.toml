@@ -2016,7 +2016,7 @@ upstream = "https://github.com/kovidgoyal/kitty/blob/v0.49.2/gen/rowcolumn-diacr
 status   = "kept"
 
 [[tree]]
-what     = "The README's hero.gif and images.gif (and social.png when it is made) carry the elementary OS wallpapers 'Canazei Granite Ridges' and 'Sunset by the Pier', CC0 per elementary's debian/copyright (deb-packaging branch, 'Unsplash photos published before June 8, 2017 are CC0')"
+what     = "The README's hero.gif and images.gif carry the elementary OS wallpapers 'Canazei Granite Ridges' and 'Sunset by the Pier', CC0 per elementary's debian/copyright (deb-packaging branch, 'Unsplash photos published before June 8, 2017 are CC0')"
 paths    = ["assets/readme/hero.gif", "assets/readme/images.gif"]
 licence  = "CC0-1.0"
 notice   = "none needed"
@@ -2024,12 +2024,12 @@ upstream = "https://github.com/elementary/wallpapers"
 status   = "kept"
 
 [[tree]]
-what     = "The README's text.png carries Apple Color Emoji renderings; whether to keep it is the owner's call, not decided here"
+what     = "The README's text.png carries renderings of Noto Color Emoji v2.051 and Noto Sans CJK SC 2.004 (Google), fetched at capture time by scripts/readme-capture.sh, pinned by sha256 and not committed; the rest is baud's embedded faces. No Apple face is in its stack (the owner, 2026-10-17: re-shoot with an open emoji font). The OFL covers the fonts, not what is drawn with them"
 paths    = ["assets/readme/text.png"]
-licence  = "not verified"
-notice   = "none"
-upstream = "unrecorded"
-status   = "open"
+licence  = "OFL-1.1"
+notice   = "none needed"
+upstream = "https://github.com/googlefonts/noto-emoji/tree/v2.051/fonts, https://github.com/notofonts/noto-cjk/tree/Sans2.004"
+status   = "kept"
 
 [[tree]]
 what     = "A recording of asciiquarium, which draws asciiquarium's sprite art; that art's licence has not been verified"

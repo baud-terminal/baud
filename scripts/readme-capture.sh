@@ -17,7 +17,10 @@
 # `[cursor] blink = false`, so a clip's first and last frames can match.
 #
 #   text.png    scripts/readme-demo-text.sh: emoji, flags, Chinese,
-#               Japanese, Nerd Font icons and ligatures, in straight columns
+#               Japanese, Nerd Font icons and ligatures, in straight columns,
+#               drawn from open faces only: baud's embedded Regular and icon
+#               face, Noto Color Emoji and Noto Sans CJK SC (OFL-1.1 all),
+#               so no Apple glyph is published (the owner, 2026-10-17)
 #   hero.gif    scripts/readme-demo-hero.sh: btop, a git log scrolling,
 #               a photo through kitten icat, the cursor trail
 #   images.gif  scripts/readme-demo-images.sh: a photo, then a smaller one
@@ -29,11 +32,13 @@
 #   trail.gif   the last two moves of docs/cursor/plasma.mp4, which
 #               scripts/trail-clips.sh records (at the 776x488 pt window it
 #               was taken at, not this one)
-#   social.png  1280x640, only when TAGLINE is set: the lockup and the
-#               tagline over a darkened frame of the hero's btop
+#   social.png  1280x640: the lockup and the tagline over a darkened frame
+#               of the hero's btop
 #
 # Everything outside the repository is pinned: kitten, btop and the
-# converters by nixpkgs revision, the two photos by sha256 as well. The
+# converters by nixpkgs revision, the two photos by sha256 as well, and the
+# two Noto faces by tag and sha256, fetched once into a cache directory
+# outside the repository (NOTO_CACHE, default ~/.cache/baud-readme). The
 # photos are elementary OS wallpapers, both Unsplash photographs published
 # before June 2017 and so CC0, as elementary's debian/copyright records:
 # "Canazei Granite Ridges" (unsplash.com/photos/yrwpJwDNSHE) and "Sunset by
@@ -66,20 +71,9 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 baud=${BAUD:-$root/target/release/baud}
 dest=$root/assets/readme
 only=${ONLY:-"text hero images tools trail social"}
-# The social card's tagline. It must equal the README's tagline, and the
-# owner has not picked it yet, so it is empty and the card is not made.
-# ONLY=social TAGLINE='first line|second line' remakes only the card; the
-# bar splits the two lines.
-TAGLINE=${TAGLINE:-}
-if [ -z "$TAGLINE" ]; then
-  case " $only " in *" social "*)
-    echo "social card skipped: TAGLINE not set; the owner has not picked the tagline" >&2
-    only=" $only "
-    only=${only// social / }
-    [ -n "${only// /}" ] || exit 0
-    ;;
-  esac
-fi
+# The social card's tagline, which must equal the README's: the owner's
+# pick of 2026-10-17. Each bar starts a new line on the card.
+TAGLINE=${TAGLINE:-"The terminal with character:|its own font,|its own cursor effects,|and the speed to keep up."}
 NIXPKGS=github:NixOS/nixpkgs/319e4cebef10cbb636c6ea392137b52ad105336a
 # The revision of this repository whose log the clips show.
 REV=6f630fb4
@@ -126,6 +120,31 @@ photo2="$walls/Sunset by the Pier.jpg"
 pinned "$photo" 0eff9cd7fe92aabb8937644ca154436ba926310808dd99a2902cdde335b0868c
 pinned "$photo2" b13f5a16af1cecb399a1c533b00a4fc935a3e8ce80b2b34ed435eadb3f1b9481
 
+# The text still's emoji and CJK faces: open fonts, so no Apple glyph is in
+# the picture. Noto Color Emoji is the CBDT build baud-font reads, not the
+# COLRv1 one; both are OFL-1.1, the licence beside each in its tag's tree
+# (fonts/LICENSE and LICENSE). 10.7 and 16.4 MB, so they are cached rather
+# than committed.
+NOTO_EMOJI=https://raw.githubusercontent.com/googlefonts/noto-emoji/v2.051/fonts/NotoColorEmoji.ttf
+NOTO_EMOJI_SHA=72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b
+NOTO_CJK=https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf
+NOTO_CJK_SHA=2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b
+cache=${NOTO_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/baud-readme}
+# fetch <url> <sha256>: the file's path in the cache, downloaded when it is
+# missing, and refused unless it hashes to the pin.
+fetch() {
+  local f=$cache/${1##*/}
+  if [ ! -e "$f" ]; then
+    mkdir -p "$cache"
+    curl -sSfL -o "$f.part" "$1" || die "could not fetch $1"
+    mv "$f.part" "$f"
+  fi
+  pinned "$f" "$2"
+  printf '%s' "$f"
+}
+emoji=$(fetch "$NOTO_EMOJI" "$NOTO_EMOJI_SHA")
+cjk=$(fetch "$NOTO_CJK" "$NOTO_CJK_SHA")
+
 for tool in trail-record winid front readme-pointer; do
   DEVELOPER_DIR=$X env -u SDKROOT $X/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc \
     -O -suppress-warnings -sdk $X/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk \
@@ -137,6 +156,22 @@ out=$tmp/out
 mkdir -p "$out" "$tmp/btop"
 
 printf 'font_size = 16\n\n[cursor]\nblink = false\n' >"$tmp/baud.toml"
+# The text still's: the same, with a stack of open faces only. A named stack
+# replaces the default and nothing of the system follows it -- only the
+# embedded Regular, icon face and STIX Two Math, which font_fallback adds
+# behind it -- so Menlo, Apple Color Emoji, Apple Symbols and Hiragino are
+# out. The embedded Regular comes first, by its file, as in the default; a
+# named stack has no styled faces, so the prompt's bold draws regular.
+# TEXT_WITHOUT="emoji", "cjk" or both leaves a face out, to show what it
+# drew: its characters then have no face, and nothing of Apple's takes them.
+{
+  printf 'font_size = 16\nfonts = [\n'
+  printf '  "%s",\n' "$root/baud-app/fonts/built/Regular.ttf" \
+    "$root/baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"
+  case " ${TEXT_WITHOUT-} " in *" emoji "*) ;; *) printf '  "%s",\n' "$emoji" ;; esac
+  case " ${TEXT_WITHOUT-} " in *" cjk "*) ;; *) printf '  "%s",\n' "$cjk" ;; esac
+  printf ']\n\n[cursor]\nblink = false\n'
+} >"$tmp/text.toml"
 # btop without its process list, which names the user and every command
 # line, and without the network box, which names the address; on the
 # terminal's background rather than its own.
@@ -165,16 +200,17 @@ raise() {
 }
 wait_file() { while [ ! -e "$1" ]; do sleep 0.02; done; }
 
-# launch <name> <grid or ""> <command>: baud running <command>, its pid in
-# $pid. Not in a subshell, so the trap sees the pid.
+# launch <name> <grid or ""> <command> [<config>]: baud running <command>
+# under <config> (the shared one by default), its pid in $pid. Not in a
+# subshell, so the trap sees the pid.
 launch() {
-  local name=$1 grid=$2 cmd=$3
-  env ${grid:+"BAUD_GRID=$grid"} BAUD_DEBUG_RESIZE=1 BAUD_LOG=info BAUD_CONFIG="$tmp/baud.toml" BAUD_MOTION=full \
+  local name=$1 grid=$2 cmd=$3 config=${4:-$tmp/baud.toml}
+  env ${grid:+"BAUD_GRID=$grid"} BAUD_DEBUG_RESIZE=1 BAUD_LOG=info BAUD_CONFIG="$config" BAUD_MOTION=full \
     BAUD_SCROLLER=overlay BAUD_PTYLOG="$tmp/$name.pty" BAUD_CMD="$cmd" "$baud" >"$tmp/$name.log" 2>&1 &
   pid=$!
   sleep 1.5
-  grep -qx "config: $tmp/baud.toml" "$tmp/$name.log" || die "$name: baud did not read its config"
-  if grep '^config: ' "$tmp/$name.log" | grep -vx "config: $tmp/baud.toml" >&2; then
+  grep -qx "config: $config" "$tmp/$name.log" || die "$name: baud did not read its config"
+  if grep '^config: ' "$tmp/$name.log" | grep -vx "config: $config" >&2; then
     die "$name: baud complained about its config"
   fi
 }
@@ -326,16 +362,16 @@ drive_tools() {
 
 # social: the lockup, without its baked-in ground, and the tagline in
 # JetBrains Mono over a frame of the hero's btop, darkened toward the
-# lockup's ground (#15171B). rsvg-convert finds the face through a
-# fontconfig file naming the repository's fonts; the repository carries no
-# 500 weight, so the wordmark is drawn at the nearest it has.
+# lockup's ground (#15171B), a line for each bar-separated part, centred on
+# the card's height. rsvg-convert finds the face through a fontconfig file
+# naming the repository's fonts; the repository carries no 500 weight, so
+# the wordmark is drawn at the nearest it has.
 social() {
-  if [ -z "$TAGLINE" ]; then
-    echo "social card skipped: TAGLINE not set; the owner has not picked the tagline" >&2
-    return 0
-  fi
-  local fonts line1=${TAGLINE%%|*} line2=''
-  case $TAGLINE in *'|'*) line2=${TAGLINE#*|} ;; esac
+  local fonts part n=0 y step=56 args=()
+  local IFS='|'
+  # shellcheck disable=SC2206 # split on the bars, nothing else
+  local lines=($TAGLINE)
+  unset IFS
   local hero=$tmp/hero.mp4
   [ -e "$hero" ] || hero=$dest/hero.gif
   [ -e "$hero" ] || die "social: needs hero.mp4 in the run or the committed hero.gif"
@@ -344,12 +380,17 @@ social() {
     "$fonts" "$tmp/fc" >"$tmp/fonts.conf"
   "$ff/ffmpeg" -v error -ss 3.0 -i "$hero" -frames:v 1 "$tmp/btop.png"
   grep -v '<rect width="300" height="130"' "$root/assets/logo/baud-lockup-dark.svg" >"$tmp/lockup.svg"
-  FONTCONFIG_FILE=$tmp/fonts.conf "$rsvg" -w 540 "$tmp/lockup.svg" -o "$tmp/lockup.png"
+  FONTCONFIG_FILE=$tmp/fonts.conf "$rsvg" -w 440 "$tmp/lockup.svg" -o "$tmp/lockup.png"
+  y=$((-(${#lines[@]} - 1) * step / 2))
+  for part in "${lines[@]}"; do
+    args+=(-annotate "+560$(printf '%+d' $((y + n * step)))" "$part")
+    n=$((n + 1))
+  done
   "$magick" "$tmp/btop.png" -resize 1280x -gravity north -chop 0x96 -crop 1280x640+0+0 +repage \
     -blur 0x2 -fill '#15171B' -colorize 84% \
-    "$tmp/lockup.png" -gravity west -geometry +70+0 -composite \
-    -font "$fonts/JetBrainsMono-Regular.ttf" -fill '#F3F4F6' -pointsize 50 -gravity west \
-    -annotate +700-34 "$line1" -annotate +700+34 "$line2" \
+    "$tmp/lockup.png" -gravity west -geometry +60+0 -composite \
+    -font "$fonts/JetBrainsMono-Regular.ttf" -fill '#F3F4F6' -pointsize 38 -gravity west \
+    "${args[@]}" \
     "$out/social.png"
   "$magick" identify -format 'social.png: %wx%h\n' "$out/social.png"
 }
@@ -376,7 +417,7 @@ for what in $only; do
   case $what in
   text)
     rm -f "$tmp/text.done"
-    launch text 80x24 "$root/scripts/readme-demo-text.sh $tmp/text.done"
+    launch text 80x24 "$root/scripts/readme-demo-text.sh $tmp/text.done" "$tmp/text.toml"
     wait_file "$tmp/text.done"
     raise
     sleep 0.8
