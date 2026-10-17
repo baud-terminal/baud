@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use baud_domain::ColorScheme;
 use baud_domain::themefile::detect::{self, Grammar, Kind, Mark, NotText, Shape, Unknown, Verdict};
-use baud_domain::themefile::{self, Format, Scheme, SchemeErrorKind, Skipped};
+use baud_domain::themefile::{self, Cpp, Format, Scheme, SchemeErrorKind, Skipped};
 use baud_render::Theme;
 
 /// Which half of the palette a file is named for.
@@ -221,6 +221,7 @@ fn format_name(f: Format) -> &'static str {
         Format::ITermPlist => "an iTerm2 colour preset",
         Format::WindowsTerminal => "a Windows Terminal scheme",
         Format::PlainList => "a list of 16 colours",
+        Format::Xresources => "X resources",
         Format::Empty => "an empty file",
     }
 }
@@ -246,6 +247,17 @@ fn shape_name(s: Shape) -> &'static str {
 /// `line N: key`, for a report.
 fn at_line(m: Mark<'_>) -> String {
     format!("line {}: {}", m.line.0, String::from_utf8_lossy(m.key))
+}
+
+/// An `#include "name"`: an absolute name as it is, else beside the
+/// including file, as cpp looks for a quoted name first.
+fn included(from: &Path, name: &[u8]) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+    let name = Path::new(std::ffi::OsStr::from_bytes(name));
+    match from.parent() {
+        Some(dir) if name.is_relative() => dir.join(name),
+        _ => name.to_path_buf(),
+    }
 }
 
 /// Why a file was not read, from what was seen in it.
@@ -359,6 +371,8 @@ fn load(spec: &str, half: Half, dirs: &Dirs, said: &mut Vec<String>) -> Option<S
     // Only the verdict's reader runs; what it ignored is said after what
     // the file was read as.
     let mut ignored = Vec::new();
+    // The included file a refusal is in, for X resources.
+    let mut failed_in = None;
     let (read, mark) = match verdict {
         Verdict::Is(Kind::Tinted, m) => (themefile::base16(body), Some(m)),
         Verdict::Is(Kind::Ghostty, m) => (
@@ -394,6 +408,30 @@ fn load(spec: &str, half: Half, dirs: &Dirs, said: &mut Vec<String>) -> Option<S
             (read, Some(m))
         }
         Verdict::Is(Kind::PlainList, m) => (themefile::plain_list(body), Some(m)),
+        Verdict::Is(Kind::Xresources, m) => {
+            let root = path.clone();
+            let read = themefile::xresources(
+                body,
+                &root,
+                |from: &PathBuf, name: &[u8]| {
+                    let p = included(from, name);
+                    std::fs::read(&p).ok().map(|b| (p, b))
+                },
+                |file: &PathBuf, line, key: &[u8], why| {
+                    let at = if *file == root {
+                        at.clone()
+                    } else {
+                        format!("{at}: in {}", file.display())
+                    };
+                    ignored.push(skipped(&at, Kind::Xresources, line, key, why));
+                },
+            )
+            .map_err(|(file, e)| {
+                failed_in = file;
+                e
+            });
+            (read, Some(m))
+        }
         Verdict::Empty => (Ok(Scheme::empty(Format::Empty)), None),
         other => {
             said.push(format!("{at}: {}; {own}", refusal(other)));
@@ -413,8 +451,11 @@ fn load(spec: &str, half: Half, dirs: &Dirs, said: &mut Vec<String>) -> Option<S
             let why = mark
                 .map(|m| format!(", {}", at_line(m)))
                 .unwrap_or_default();
+            let inside = failed_in
+                .map(|f| format!(" in {}", f.display()))
+                .unwrap_or_default();
             said.push(format!(
-                "{at}: line {}: {} (read as {name}{why}); {own}",
+                "{at}: line {}{inside}: {} (read as {name}{why}); {own}",
                 e.line.0,
                 reason(e.kind)
             ));
@@ -444,6 +485,7 @@ fn skipped(at: &str, k: Kind, line: themefile::Line, key: &[u8], why: Skipped) -
         Kind::Alacritty | Kind::AlacrittyYaml => "alacritty",
         Kind::ITermPlist => "iTerm2",
         Kind::WindowsTerminal => "Windows Terminal",
+        Kind::Xresources => "xterm",
         _ => "its terminal",
     };
     let what = match why {
@@ -460,6 +502,27 @@ fn skipped(at: &str, k: Kind, line: themefile::Line, key: &[u8], why: Skipped) -
         Skipped::CellRelative => {
             format!(
                 "{key} names the cell's own colour, which a theme here cannot hold; baud's stays"
+            )
+        }
+        Skipped::Program => {
+            let program = key
+                .split(['.', '*'])
+                .find(|c| !c.is_empty())
+                .unwrap_or_default();
+            format!(
+                "{key} is for {program} alone, and baud reads only the names every client reads (*name or *.name); ignored"
+            )
+        }
+        Skipped::NoFile => {
+            format!("#include \"{key}\" names a file that cannot be read; passed over")
+        }
+        Skipped::Nested => format!(
+            "#include \"{key}\" is nested more than {} files deep, where X stops; not read",
+            themefile::XRM_DEPTH
+        ),
+        Skipped::Directive => {
+            format!(
+                "#{key} is a C preprocessor directive baud does not run; passed over, as cpp passes it"
             )
         }
     };
@@ -506,7 +569,12 @@ fn notice(at: &str, half: Half, scheme: &Scheme, said: &mut Vec<String>) {
     // a choice the file made.
     let numbered = matches!(
         scheme.format,
-        Format::Ghostty | Format::Kitty | Format::Foot | Format::Alacritty | Format::AlacrittyYaml
+        Format::Ghostty
+            | Format::Kitty
+            | Format::Foot
+            | Format::Alacritty
+            | Format::AlacrittyYaml
+            | Format::Xresources
     );
     if numbered && scheme.extended.iter().any(Option::is_some) {
         said.push(format!(
@@ -558,6 +626,25 @@ fn reason(kind: SchemeErrorKind) -> String {
         SchemeErrorKind::NoName => "no name, which a Windows Terminal scheme requires".into(),
         SchemeErrorKind::Count => "not the sixteen colours the format requires".into(),
         SchemeErrorKind::NotUtf8 => "a byte that is not UTF-8, which the format requires".into(),
+        SchemeErrorKind::XcmsColour => {
+            "an X colour in rgbi: or a CIE or TekHVC space, which baud does not convert yet".into()
+        }
+        SchemeErrorKind::Cpp(c) => format!(
+            "{}, which baud's C preprocessor subset does not run",
+            match c {
+                Cpp::If => "#if",
+                Cpp::Elif => "#elif",
+                Cpp::MacroArguments => "a #define with arguments",
+                Cpp::AngleInclude => "#include <...>, which searches the system's include path",
+                Cpp::IncludeName => "an #include with no quoted file name",
+                Cpp::NoName => "a directive with no macro name",
+                Cpp::Unmatched => "an #else or #endif with no #ifdef open",
+                Cpp::Unterminated => "an #ifdef or /* comment the file does not close",
+                Cpp::Nesting => "conditionals nested more than 64 deep",
+                Cpp::Macros => "more #define text than baud holds",
+                Cpp::Long => "a directive longer than 4096 bytes",
+            }
+        ),
         SchemeErrorKind::Pair => {
             "a second theme: the file holds a dark and a light one, so save the one for this half alone".into()
         }
@@ -1130,5 +1217,60 @@ mod tests {
             (dark.floor, dark.app_bg, dark.picture_bg),
             (floor, glass.app_backgrounds, glass.pictures)
         );
+    }
+
+    /// **X resources are read as xrdb loads them**: a tinted file through
+    /// its `#define`s, as `cpp -P -DCOLOR` gives it.
+    #[test]
+    fn a_tinted_xresources_file_reads_as_cpp_gives_it() {
+        let (got, said) = dark_of("xres-tinted", "base16-0x96f.Xresources");
+        let s = got.unwrap_or_else(|| panic!("{said}"));
+        assert_eq!(s.page, Some(rgb("#262427")), "{said}");
+        assert_eq!(s.ansi[1], Some(rgb("#ff7272")), "{said}");
+        assert!(
+            said.contains("read as X resources (line 22: *foreground)"),
+            "{said}"
+        );
+        assert!(!said.contains("ignored"), "{said}");
+    }
+
+    /// **A file of urxvt's entries alone loads empty, naming urxvt**: its
+    /// names are for that program, and baud reads only every client's.
+    #[test]
+    fn an_xresources_file_for_urxvt_alone_loads_empty_naming_it() {
+        let (got, said) = dark_of("xres-urxvt", "urxvt.Xresources");
+        let s = got.unwrap_or_else(|| panic!("{said}"));
+        assert_eq!(
+            Scheme {
+                format: Format::Empty,
+                ..s
+            },
+            Scheme::empty(Format::Empty)
+        );
+        assert!(
+            said.contains("line 2: URxvt*foreground is for URxvt alone"),
+            "{said}"
+        );
+        assert!(
+            said.contains("line 5: urxvt*color1 is for urxvt alone"),
+            "{said}"
+        );
+        assert!(
+            said.contains("18 of the sixteen, the page and the text are unset"),
+            "{said}"
+        );
+    }
+
+    /// **An `#include` beside the file is read**, its macro used after it.
+    #[test]
+    fn an_xresources_include_beside_the_file_is_read() {
+        let h = home_with("xres-include", &["xres-main", "xres-colours"]);
+        let (halves, said) = load_halves(None, Some("xres-main"), &dirs(&h));
+        let _ = std::fs::remove_dir_all(h);
+        let said = said.join("\n");
+        let s = halves.dark.unwrap_or_else(|| panic!("{said}"));
+        assert_eq!(s.page, Some(rgb("#161719")), "{said}");
+        assert_eq!(s.text, Some(rgb("#c5c8c7")), "{said}");
+        assert_eq!(s.cursor, Some(rgb("#aeafad")), "{said}");
     }
 }

@@ -1,0 +1,5 @@
+! The hand-made dark scheme under urxvt's names alone.
+URxvt*foreground: #c5c8c7
+URxvt*background: #161719
+URxvt.color0: #1d1f21
+urxvt*color1: #cc6666

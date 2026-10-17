@@ -148,7 +148,10 @@ ambiguous_width = "narrow"
 # (tinted-theming), ghostty, kitty, foot and alacritty themes (alacritty's TOML,
 # or its YAML from before 0.13), iTerm2 .itermcolors presets (their sRGB, P3
 # and calibrated colours converted as macOS converts them), Windows Terminal
-# schemes, and a list of 16 colours, one per line, like pywal's colors file. It
+# schemes, X resources (as xrdb loads them: their #define, #ifdef and
+# #include "file" lines run, and only the entries every program reads,
+# *color0 or *.color0, used), and a list of 16 colours, one per line, like
+# pywal's colors file. It
 # tells them apart by what is in the file, not by its name, and says what it
 # read each file as. A foot file or iTerm2 preset holding both a dark and a
 # light theme is refused: save the one you want on its own. Other theme

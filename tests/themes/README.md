@@ -1,7 +1,7 @@
 # Theme file fixtures
 
 Hand-made, for `baud-app/src/palette.rs`'s tests; none is from a published
-theme collection.
+theme collection but `base16-0x96f.Xresources`.
 
 - `day.yaml`: a whole base16 light scheme in the current nested form,
   declared `light`.
@@ -33,3 +33,9 @@ with the others':
   Terminal scheme, which has no cursor text or selection text colour; the
   JSON keeps a comment and a trailing comma, as Windows Terminal's reader
   allows.
+- `base16-0x96f.Xresources`: tinted-xresources b97e7eca's file of that name,
+  verbatim (MIT, `LICENSES/tinted-xresources-MIT.txt`), and
+  `base16-0x96f.cpp`, clang's `cpp -P -DCOLOR` output of it.
+- `urxvt.Xresources`: some of the dark scheme under urxvt's names alone.
+- `xres-main` and `xres-colours`: X resources whose `#include "xres-colours"`
+  brings in a colour and a `#define` used after it.

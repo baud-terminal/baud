@@ -251,6 +251,12 @@ from    = "https://raw.githubusercontent.com/tinted-theming/home/38fdf7d4c74417e
 how     = "fetched"
 sha256  = "4e287e2ce0ff0679a8fc20120c7116d972ef1d96e317540ce4c23a1025cf8d1d"
 
+[text."tinted-xresources-MIT.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/tinted-theming/tinted-xresources/b97e7eca0fd20a80110f82d7485114db2387c368/LICENSE.md"
+how     = "fetched"
+sha256  = "f22c838ab1f27f243291f7bdfba6452d78fecc45fd36d4c79d6d6b5a56a661b5"
+
 [text."tinted-shell-MIT.txt"]
 licence = "MIT"
 from    = "https://raw.githubusercontent.com/tinted-theming/tinted-shell/d1a0085b06670b770b818b00592b1f1e37d65bc5/LICENSE"
@@ -1958,6 +1964,14 @@ licence  = "MIT-open-group (rgb.txt); the debianred entry, the owner's call"
 notice   = "LICENSES/xorg-rgb-COPYING.txt"
 upstream = "docs/research/sources/xorg-rgb-749182c.txt"
 status   = "open"
+
+[[tree]]
+what     = "tinted-xresources' base16-0x96f theme, verbatim, and clang's cpp -P -DCOLOR output of it, the X resources reader's fixture; the scheme's colours are Filip Janevski's 0x96f"
+paths    = ["tests/themes/base16-0x96f.Xresources", "tests/themes/base16-0x96f.cpp"]
+licence  = "MIT"
+notice   = "LICENSES/tinted-xresources-MIT.txt"
+upstream = "https://github.com/tinted-theming/tinted-xresources/blob/b97e7eca0fd20a80110f82d7485114db2387c368/xresources/base16-0x96f.Xresources"
+status   = "kept"
 
 [[tree]]
 what     = "National Replacement Character Sets, generated from xterm's charsets.h macros with their keysyms resolved through X.Org's keysymdef.h"

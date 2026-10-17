@@ -828,6 +828,48 @@ The last row decides nearly every value: under the X server's reduction
 `#ab0000` is drawn as `#aa0000`, and under the high byte as written. It is
 the owner's to settle, or Jev's with a fact these asks did not have.
 
+**Built, 2026-10-17, on the owner's "use the recommended answers".** The
+research round re-asked all four with a corpus measurement and corrected
+facts (decisions.jsonl 714/715, none cached), none reached 0.9 on both
+asks, and the owner took each lean. Two leans flipped from the table above
+because two facts in 690-693 were false: the X server does not round, it
+resolves through `miResolveColor`'s `(v >> 8) * 257`
+([[source: xserver-fbcmap-mi-98aed9d]] 57-61, [[source: xserver-micmap-98aed9d]]
+95-112), and xterm and libXft take the top bits themselves
+([[source: xterm-misc-9489b20]] 2725-2733, [[source: libxft-xftcolor-6b333a3]]
+81-95); and following an include is what the text says to do
+([[source: libx11-ch15-b8d5a70]] 176).
+
+| question | lean taken | built |
+|---|---|---|
+| the C preprocessor | the subset with xrdb's `COLOR` (0.72 / 0.72) | C comments, splices, object-like `#define`/`#undef`, `#ifdef`/`#ifndef`/`#else`/`#endif`; `#if`, `#elif`, a macro with arguments and `#include <f>` refuse the file by name; another directive is passed over and named, as cpp prints nothing for it and xrdb does not look at cpp's status ([[source: xrdb-c-aaf6f3d]] 1448-1453) |
+| which names | every client's only (0.14 / 0.61) | one loose component, `*color0` or `*.color0`; a program's entry is passed over naming the program |
+| `#include` | follow it (0.76 / 0.60) | `#include "f"` beside the including file, macros carried both ways, nested to Xrm's 100 ([[source: libx11-xrm-b8d5a70]] 245, 1621-1650); a file that cannot be read is passed over and named |
+| 16 bits to 8 | the high byte (0.84 / 0.86) | `#ab0000` is 0xab, `#fff` is `#f0f0f0`, `rgb:f/f/f` 0xff ([[source: libx11-parsecol-b8d5a70]] 52-86, [[source: libx11-lrgb-b8d5a70]] 1286-1375) |
+
+On the corpus -- tinted-xresources b97e7eca (575), iTerm2-Color-Schemes
+c379d7a3 `Xresources/` (815) and xcolors b424d25e `themes/` (113) -- the
+reader gives the same scheme from each file as from clang 21's
+`cpp -P -DCOLOR` output of it, 1503 of 1503. Tests:
+`baud-domain/tests/themexresources.rs` and three in `baud-app/src/palette.rs`,
+red on dad9260c (refused as "X resources, which baud does not read").
+
+**Open, found while building.**
+
+- `#include <f>` is refused: cpp searches the system's include path, which
+  no theme in the corpus uses.
+- A class name (`*Foreground`) is passed over as not a colour; Xrm matches
+  it, below a name at the same level ([[source: libx11-ch15-b8d5a70]]
+  272-290). None in the corpus.
+- A later line wins. `xrdb -load` keeps a repeated name at its first line
+  and its last value ([[source: xrdb-c-aaf6f3d]] 260-287), so where `*color0`
+  and `*.color0` alternate, the X server's database can hold the other one.
+- A file of nothing but `#include` lines and comments is detected as empty:
+  `#` starts a comment in every other format.
+- A display's symbols (`WIDTH`, `PLANES`, `CLASS`) are not defined, and
+  neither are cpp's own (`__STDC__`, `linux`, `unix`).
+- X colour names, `rgbi:`, CIE and TekHVC values refuse the file, as before.
+
 ## kitty's names and wide-gamut colours (2026-10-17)
 
 **kitty's colour names are read.** kitty looks a value up as a name before

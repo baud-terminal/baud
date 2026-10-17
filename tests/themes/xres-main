@@ -1,0 +1,4 @@
+! X resources that keep a colour, and a name for one, in a file beside them.
+#include "xres-colours"
+*.background: page
+*.cursorColor: #aeafad

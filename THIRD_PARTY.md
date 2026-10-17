@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 10 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 266 | 19 | redistributable, and its notice is satisfied |
+| kept | 266 | 20 | redistributable, and its notice is satisfied |
 | own | 187 | 0 | the owner's work |
-| total | 718 | 31 | |
+| total | 718 | 32 | |
 
 ## Licence texts in LICENSES/
 
@@ -69,6 +69,7 @@ they were built from.
 | [tinted-base24-MIT.txt](LICENSES/tinted-base24-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/base24/fb96d3c6396eb27f94efadfa3c416abd9d54b488/LICENSE.md | 80a4a39d52cf4764 |
 | [tinted-home-MIT.txt](LICENSES/tinted-home-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/home/38fdf7d4c74417ea86f1e354c628fc2d2aeb5d96/LICENSE | 4e287e2ce0ff0679 |
 | [tinted-shell-MIT.txt](LICENSES/tinted-shell-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/tinted-shell/d1a0085b06670b770b818b00592b1f1e37d65bc5/LICENSE | f17613282ac66e6b |
+| [tinted-xresources-MIT.txt](LICENSES/tinted-xresources-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/tinted-xresources/b97e7eca0fd20a80110f82d7485114db2387c368/LICENSE.md | f22c838ab1f27f24 |
 | [Unicode-3.0.txt](LICENSES/Unicode-3.0.txt) | Unicode-3.0 | fetched: https://www.unicode.org/license.txt | e7a93b009565cfce |
 | [vma-MIT.txt](LICENSES/vma-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/3aa921224c154a0d2c43912bc88e1c42ce1f7607/LICENSE.txt | 52df2c03d6cfc9ff |
 | [W3C-software-and-document-license-2023.txt](LICENSES/W3C-software-and-document-license-2023.txt) | LicenseRef-W3C-Software-and-Document-2023 | built: https://www.w3.org/copyright/software-license/ | 15c2b580995ed692 |
@@ -276,6 +277,14 @@ they were built from.
 - **Notice:** [LICENSES/Unicode-3.0.txt](LICENSES/Unicode-3.0.txt)
 - **From:** https://www.unicode.org/Public/
 - **Files:** [baud-domain/src/grapheme_data.rs](baud-domain/src/grapheme_data.rs), [baud-domain/src/width_data.rs](baud-domain/src/width_data.rs), [baud-domain/src/merged_data.rs](baud-domain/src/merged_data.rs), [baud-font/src/compose.rs](baud-font/src/compose.rs), [baud-font/src/ignorable.rs](baud-font/src/ignorable.rs)
+
+### tinted-xresources' base16-0x96f theme, verbatim, and clang's cpp -P -DCOLOR output of it, the X resources reader's fixture; the scheme's colours are Filip Janevski's 0x96f
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** [LICENSES/tinted-xresources-MIT.txt](LICENSES/tinted-xresources-MIT.txt)
+- **From:** https://github.com/tinted-theming/tinted-xresources/blob/b97e7eca0fd20a80110f82d7485114db2387c368/xresources/base16-0x96f.Xresources
+- **Files:** [tests/themes/base16-0x96f.Xresources](tests/themes/base16-0x96f.Xresources), [tests/themes/base16-0x96f.cpp](tests/themes/base16-0x96f.cpp)
 
 ### National Replacement Character Sets, generated from xterm's charsets.h macros with their keysyms resolved through X.Org's keysymdef.h
 

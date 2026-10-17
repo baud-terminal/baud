@@ -33,10 +33,12 @@ pub mod detect;
 pub mod gamut;
 mod iterm;
 mod terminals;
+mod xresources;
 
 pub use alacritty::{alacritty, alacritty_yaml};
 pub use iterm::{iterm, windows_terminal};
 pub use terminals::{Skipped, foot, kitty, plain_list};
+pub use xresources::{Cpp, DEPTH as XRM_DEPTH, XresourcesError, xresources};
 
 /// Why a colour value was refused.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -104,6 +106,8 @@ pub enum Format {
     WindowsTerminal,
     /// Sixteen `#rrggbb` lines.
     PlainList,
+    /// X resources, as `xrdb` loads them.
+    Xresources,
     /// A file with nothing in it but blank lines and comments: no format
     /// to name, and it sets nothing.
     Empty,
@@ -201,6 +205,12 @@ pub enum SchemeErrorKind {
     /// A Windows Terminal scheme without its sixteen table colours, or a
     /// list of colours that is not sixteen.
     Count,
+    /// A C preprocessor construct baud's X resources reader does not run.
+    Cpp(Cpp),
+    /// An X colour in `rgbi:` or a device-independent space (`CIEXYZ:`,
+    /// `CIELab:`, `TekHVC:` and the rest), which xterm draws and baud does
+    /// not read yet.
+    XcmsColour,
     /// A byte that is not UTF-8, in a format whose own text requires it:
     /// TOML, JSON and XML without another encoding declared. The line of
     /// the first such byte.

@@ -67,8 +67,12 @@ Menlo, emoji, symbol and Chinese, Japanese and Korean fonts behind them.
 A theme can be a base16 or base24 scheme, a ghostty, kitty, foot or
 alacritty theme (alacritty's TOML, or its older YAML), an iTerm2 colour
 preset (`.itermcolors`, its colours converted as macOS converts them), a
-Windows Terminal colour scheme, or a list of 16 colours, one `#rrggbb` a
-line, such as pywal's `colors` file. baud tells which by what is in the
+Windows Terminal colour scheme, X resources, or a list of 16 colours, one
+`#rrggbb` a line, such as pywal's `colors` file. X resources are read as
+`xrdb` loads them: their `#define`, `#ifdef` and `#include "file"` lines
+are run, an included file is looked for next to the one including it, and
+only the entries every program reads (`*color0`, `*.color0`) are used; an
+entry for one program, such as `URxvt*color0`, is skipped and named. baud tells which by what is in the
 file, not by its name, and says what it read it as; a file whose name says
 another format is still read, and the name is mentioned. A foot file or
 iTerm2 preset holding both a dark and a light theme is refused, so save the

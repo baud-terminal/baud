@@ -26165,3 +26165,201 @@ group  = "Y"
 # Read 2026-10-17 for the .itermcolors reader: an entity in UTF-8 with an
 # ill-formed sequence, or with no encoding declaration and not UTF-8, is a
 # fatal error (4.3.3; line 1421 of the fetched page).
+
+[sources.xrdb-c-aaf6f3d]
+key    = "xrdb-c-aaf6f3d"
+title  = "xrdb aaf6f3d, xrdb.c -- runs cpp -P with its -D symbols (COLOR on a colour visual), reads the output whatever cpp exits with, and parses name: value lines"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/app/xrdb (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/app/xrdb/-/raw/aaf6f3df9377a44081af49a7fb2ae14aa3a18e60/xrdb.c"
+file   = ""
+sha256 = "3a6cfafb19ef9fe351baada71e28cf88b26a494f9f4af703a3820c9763ac52d9"
+bytes  = 45194
+status = "external"
+group  = "Y"
+# Read 2026-10-17. GetEntries 330-395, the defines 664-672, the cpp command 1362-1433, pclose unchecked 1448-1453; for the X resources reader (note AR).
+
+[sources.xrdb-meson-aaf6f3d]
+key    = "xrdb-meson-aaf6f3d"
+title  = "xrdb aaf6f3d, meson.build -- the cpp program xrdb runs is found at build time"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/app/xrdb (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/app/xrdb/-/raw/aaf6f3df9377a44081af49a7fb2ae14aa3a18e60/meson.build"
+file   = ""
+sha256 = "099500f9feb5a18fc3043f9ef55e1c739a0719433ba3317223b896e62a0cda80"
+bytes  = 4318
+status = "external"
+group  = "Y"
+# Read 2026-10-17. For the X resources reader (note AR).
+
+[sources.libx11-xrm-b8d5a70]
+key    = "libx11-xrm-b8d5a70"
+title  = "libX11 b8d5a70, src/Xrm.c -- the resource file reader: bindings, comments, #include \"f\" relative to the including file, MAXDBDEPTH 100"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11 (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/Xrm.c"
+file   = ""
+sha256 = "61c88a71ee19267f16cc6d0916c79c07dbe52c868e86a82e7d06aca7aecdd68d"
+bytes  = 69137
+status = "external"
+group  = "Y"
+# Read 2026-10-17. MAXDBDEPTH 245, GetDatabase 1092-1440 (bindings 1270-1295), GetIncludeFile 1621-1650; for the X resources reader (note AR).
+
+[sources.libx11-parsecol-b8d5a70]
+key    = "libx11-parsecol-b8d5a70"
+title  = "libX11 b8d5a70, src/ParseCol.c -- XParseColor: the # forms shifted into the most significant bits, the rest to Xcms and the server"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11 (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/ParseCol.c"
+file   = ""
+sha256 = "b5f82e2c4fece4ea738805364c78371e604b457bc414cfdbc8e66bbac3cf85f1"
+bytes  = 3551
+status = "external"
+group  = "Y"
+# Read 2026-10-17. For the X resources reader (note AR).
+
+[sources.libx11-lrgb-b8d5a70]
+key    = "libx11-lrgb-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/LRGB.c -- XcmsLRGB_RGB_ParseString: rgb: with one to four hex digits a component, scaled to 16 bits"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11 (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/LRGB.c"
+file   = ""
+sha256 = "52b9a3b9d8d3d6913bb5014daba84f460446b25d0da9146dca997c125ee80fa6"
+bytes  = 48009
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 1265-1375; for the X resources reader (note AR).
+
+[sources.libx11-cmscolnm-b8d5a70]
+key    = "libx11-cmscolnm-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/cmsColNm.c -- _XcmsParseColorString lower-cases a colour string before matching its colour space prefix"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11 (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/cmsColNm.c"
+file   = ""
+sha256 = "1e9da33b74e797b5f0db2d8f5b253146c5cdbee429f105710138310ae1a0cb81"
+bytes  = 24530
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 107-235; for the X resources reader (note AR).
+
+[sources.xserver-fbscreen-98aed9d]
+key    = "xserver-fbscreen-98aed9d"
+title  = "xserver 98aed9d, fb/fbscreen.c -- the fb screen resolves a colour with fbResolveColor"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/xserver (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/xserver/-/raw/98aed9ddba7b42d2a46fcc1f343f4b392967b838/fb/fbscreen.c"
+file   = ""
+sha256 = "fc10253b7e2dac98cbba8d54dd8f02b724dbcfc7b5812d5856eded28b06b37c0"
+bytes  = 7047
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 135; for how an X colour reaches 8 bits (note AR).
+
+[sources.xserver-fbcmap-mi-98aed9d]
+key    = "xserver-fbcmap-mi-98aed9d"
+title  = "xserver 98aed9d, fb/fbcmap_mi.c -- fbResolveColor is miResolveColor"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/xserver (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/xserver/-/raw/98aed9ddba7b42d2a46fcc1f343f4b392967b838/fb/fbcmap_mi.c"
+file   = ""
+sha256 = "3ed3e467298e3a4ad1ba3d3ff9b9b3e17ba09ae890718963fbba8ac444758711"
+bytes  = 4157
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 57-61; for how an X colour reaches 8 bits (note AR).
+
+[sources.xserver-wincmap-98aed9d]
+key    = "xserver-wincmap-98aed9d"
+title  = "xserver 98aed9d, hw/xwin/wincmap.c -- the Windows server resolves colours through miResolveColor too"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/xserver (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/xserver/-/raw/98aed9ddba7b42d2a46fcc1f343f4b392967b838/hw/xwin/wincmap.c"
+file   = ""
+sha256 = "efd4b3c27cb26fb94f814401d95a7c844fda1c6c40e676387129766fd9904da4"
+bytes  = 18699
+status = "external"
+group  = "Y"
+# Read 2026-10-17. For how an X colour reaches 8 bits (note AR).
+
+[sources.xserver-xnest-screen-98aed9d]
+key    = "xserver-xnest-screen-98aed9d"
+title  = "xserver 98aed9d, hw/xnest/Screen.c -- the nested server resolves colours through miResolveColor too"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/xserver (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/xserver/-/raw/98aed9ddba7b42d2a46fcc1f343f4b392967b838/hw/xnest/Screen.c"
+file   = ""
+sha256 = "cd7ffb7d0170f56a1f05c101c5e13b44eea40d16f38d8c46aaea9086ad01847e"
+bytes  = 14433
+status = "external"
+group  = "Y"
+# Read 2026-10-17. For how an X colour reaches 8 bits (note AR).
+
+[sources.xterm-misc-9489b20]
+key    = "xterm-misc-9489b20"
+title  = "xterm-snapshots 9489b20 (xterm-411), misc.c -- AllocOneColor takes each 16-bit component's top bits on a TrueColor visual"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/misc.c"
+file   = ""
+sha256 = "1ea4c69b2e1b0824956c4991eaa62da1ff93804b735dc0f9cba65b03a8b406ce"
+bytes  = 204973
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 2715-2733; for how an X colour reaches 8 bits (note AR).
+
+[sources.libxft-xftcolor-6b333a3]
+key    = "libxft-xftcolor-6b333a3"
+title  = "libXft 6b333a3, src/xftcolor.c -- XftColorAllocValue takes each 16-bit component's top bits on a TrueColor visual"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libxft (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libxft/-/raw/6b333a36e41b81b98961de1d10af9a627d28841e/src/xftcolor.c"
+file   = ""
+sha256 = "0549d05ee0478ad9c77572fcf7ed625fcf574227172410325af26e2c1ba53fbb"
+bytes  = 3450
+status = "external"
+group  = "Y"
+# Read 2026-10-17. 81-95; for how an X colour reaches 8 bits (note AR).
+
+[sources.pywal-xresources-template-236aa48]
+key    = "pywal-xresources-template-236aa48"
+title  = "pywal 236aa48, pywal/templates/colors.Xresources -- the cursor colour under URxvt*, XTerm* and UXTerm* alone"
+author = "Dylan Araps"
+year   = 2021
+venue  = "dylanaraps/pywal (MIT; archived)"
+url    = "https://raw.githubusercontent.com/dylanaraps/pywal/236aa48e741ff8d65c4c3826db2813bf2ee6f352/pywal/templates/colors.Xresources"
+file   = ""
+sha256 = "a4fff889084eb2efa5faeaedf37167016eb74c10591f5dc683f445fc823b7a85"
+bytes  = 1655
+status = "external"
+group  = "Y"
+# Read 2026-10-17. For the X resources reader: which names are every client's (note AR).
+
+[sources.xserver-oscolor-98aed9d]
+key    = "xserver-oscolor-98aed9d"
+title  = "xserver 98aed9d, os/oscolor.c -- the X server's built-in colour names, which OsLookupColor matches without regard to case"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/xserver (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/xserver/-/raw/98aed9ddba7b42d2a46fcc1f343f4b392967b838/os/oscolor.c"
+file   = ""
+sha256 = "95d6dbcf862944e5dcfcc6bb685a3053862dbc832a12cc425cfb27a015c57f58"
+bytes  = 41951
+status = "external"
+group  = "Y"
+# Read 2026-10-17. BuiltinColors 65-849: 782 names, 30 of them (aqua,
+# crimson, rebeccapurple, the web and x11 variants) not in X.Org's rgb.txt
+# at 749182c; for the X resources reader (note AR).
