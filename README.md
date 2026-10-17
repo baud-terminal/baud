@@ -34,6 +34,10 @@ fonts and the baud font stays behind them, filling in what they lack.
 
 <img src="assets/readme/text.png" width="776" alt="emoji, flags, Chinese, Japanese, Nerd Font icons and code ligatures in a table whose right border stays straight">
 
+<sub>The emoji, Chinese and Japanese in this picture are Noto Color Emoji
+and Noto Sans CJK, named for the shot. The baud font has neither; by
+default baud uses your system's emoji and CJK fonts.</sub>
+
 ### A cursor with character
 
 When the cursor jumps, it can leave a short trail: plasma, fire,
@@ -58,8 +62,8 @@ redraws in one go never shows you a half-finished screen.
 Text too close in colour to its background is lifted to a readable
 contrast, keeping its hue, while colours a program chose on purpose are
 left alone. Smoothing suits the colour text is drawn in, so light on dark
-and dark on light both read cleanly, and the light and dark palettes
-follow your system's appearance.
+and dark on light both read cleanly, and on macOS the light and dark
+palettes follow your system's appearance.
 
 ### Characters line up
 
@@ -96,8 +100,7 @@ setting turned on ([how](docs/guide/configuration.md#images)).
 ## Install
 
 **With Nix or Cargo, once published.** baud is not on a package registry
-yet; the first published release will install with `nix profile install`
-or `cargo install`.
+yet; Nix and Cargo packages are planned for the first published release.
 
 **From source, today.** With [Nix](https://nixos.org) and
 [devenv](https://devenv.sh), which fetch the exact toolchain:
@@ -117,9 +120,9 @@ copy [config.toml.example](config.toml.example) to
 ## Proved, not promised
 
 baud follows the standards terminals answer to: ECMA-48, DEC's terminal
-manuals, xterm's control sequences and the Unicode Standard. Every line on
-the feature list is backed by a test or a measurement in this repository,
-and the build fails if that proof disappears. What of each standard is
+manuals, xterm's control sequences and the Unicode Standard. Every built
+feature on the list names the test, coverage row or measurement that
+proves it, and the build fails if that proof disappears. What of each standard is
 done, and why anything is not, is a row per operation in
 [the coverage table](docs/vt-coverage.md).
 

@@ -10,7 +10,7 @@ scrollbar).
 
 | file | what it shows | made by |
 |---|---|---|
-| `text.png` | emoji sequences, flags, Chinese, Japanese, Nerd Font icons and JetBrains Mono ligatures, in a table whose right border stays straight; drawn from open faces only, baud's own with Noto Color Emoji and Noto Sans CJK SC, so no Apple glyph is in it | `scripts/readme-demo-text.sh`, `scripts/readme-text.txt` |
+| `text.png` | emoji sequences, flags, Chinese, Japanese, Nerd Font icons and JetBrains Mono ligatures, in a table whose right border stays straight; drawn from open faces only, baud's own with Noto Color Emoji and Noto Sans CJK SC, so no Apple font drew any of it (the icons row does show the Nerd Font's Apple logo) | `scripts/readme-demo-text.sh`, `scripts/readme-text.txt` |
 | `hero.gif` | btop, then a git log scrolling smoothly, a photo drawn by `kitten icat`, and the plasma trail | `scripts/readme-demo-hero.sh` |
 | `images.gif` | a photo, then a smaller one beside text, through `kitten icat` | `scripts/readme-demo-images.sh` |
 | `tools.gif` | the wheel into the scrollback with the overlay scrollbar, a selection, and a narrowing resize that rewraps (the recording keeps the full window's frame, so the narrowed window shows black to its right) | `scripts/readme-demo-tools.sh`, `scripts/readme-pointer.swift` |

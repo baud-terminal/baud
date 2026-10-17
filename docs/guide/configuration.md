@@ -101,7 +101,7 @@ trail is off, unless you name a trail here.
 | key | values | default | what it changes |
 |---|---|---|---|
 | `pixels_mb` | number, MiB | `95` | How much memory pictures shown in the terminal may use. The default holds three full 4K screens. A picture that does not fit is refused with a warning rather than shown in part. |
-| `advertise_sixel` | `true`, `false` | `false` | Tell programs that baud can show Sixel pictures. Turn it on so a file manager such as yazi shows real image previews instead of a picture made of text characters. Plain `kitten icat` waits for this claim too and, without it, gives up after ten seconds: turn it on, or run `kitten icat --transfer-mode=stream`, which skips the check. |
+| `advertise_sixel` | `true`, `false` | `false` | Tell programs that baud can show Sixel pictures. Turn it on so a file manager such as yazi shows real image previews instead of a picture made of text characters. Plain `kitten icat` does not accept baud's default answer to its terminal question, so without this setting it waits ten seconds and gives up: turn it on, or run `kitten icat --transfer-mode=stream`, which skips the check. |
 
 ## [clipboard]
 
