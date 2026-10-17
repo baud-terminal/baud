@@ -2302,6 +2302,184 @@ fn a_refusal_after_the_read_keeps_nothing() {
     assert!(differ.is_empty(), "{} differ: {differ:#?}", differ.len());
 }
 
+/// **A refusal after the read evicts nothing a missing file keeps**: an
+/// older image with no placement fills the arena, an `a=T` through `t=f`,
+/// `t=t` and `t=s` whose placement is refused once its file is read --
+/// relative, the store's placements full, the virtual table full --
+/// needs its space, raw or PNG, each direct or through zlib, and the
+/// `a=p` of the older image after it answers what it answers after a
+/// missing file: `OK` for a PNG, whose size is
+/// known only once read, and ENOENT for raw, which reserves, and
+/// deletes, before the read ("must not allow such a program to use the
+/// responses to these commands to learn anything about files it cannot
+/// read itself", "The transmission medium"). The control that the arena
+/// is tight: the same PNG placed deletes the older image. A PNG at every
+/// read size and every two-read split.
+#[test]
+fn a_refusal_after_the_read_evicts_nothing_a_missing_file_keeps() {
+    let small = png(2, 2, png::ColorType::Rgba, &bytes(16, 3), 8);
+    let raw = bytes(12, 4);
+    let raw_z = zlib_mixed(&raw);
+    let small_z = zlib_mixed(&small);
+    let png_z = format!("f=100,o=z,S={}", small.len());
+    // Image 7, 63 of the arena's 64 pixels, beside image 3's one.
+    let older = apc("a=t,i=7,f=24,s=7,v=9,q=2", &b64(&bytes(7 * 9 * 3, 5)));
+    let fill = |placement: &dyn Fn(usize) -> String, n: usize| {
+        let mut s = apc("a=t,i=3,f=24,s=1,v=1,q=2", &b64(&[1, 2, 3]));
+        for p in 1..=n {
+            s.extend(apc(&placement(p), b""));
+        }
+        s
+    };
+    let physical = fill(&|p| format!("a=p,i=3,p={p},C=1,q=2"), 64);
+    let virtuals = fill(
+        &|p| format!("a=p,U=1,i=3,p={p},c=1,r=1,q=2"),
+        baud_domain::KITTY_VIRTUALS,
+    );
+    let undo = b"\x1b_Ga=d,d=i,i=3,q=2\x1b\\";
+    let cases: [(&str, &[u8], &str, &[u8]); 3] = [
+        ("relative", b"", ",P=5", b""),
+        ("placements", &physical, ",C=1", undo),
+        ("virtuals", &virtuals, ",U=1,c=1,r=1", undo),
+    ];
+    let mediums: [(char, &[u8]); 3] = [
+        ('f', b"/pics/a"),
+        ('t', b"/tmp/tty-graphics-protocol-a"),
+        ('s', b"/shm-a"),
+    ];
+    let stream = |before: &[u8], keys: &str, path: &[u8], after: &[u8]| {
+        let mut s = b"\x1b[3;4H".to_vec();
+        s.extend_from_slice(before);
+        s.extend_from_slice(&older);
+        s.extend(apc(keys, &b64(path)));
+        s.extend_from_slice(after);
+        s.extend(apc("a=p,i=7", b""));
+        s
+    };
+    for (medium, name) in mediums {
+        let placed = file_state(
+            64,
+            &[(name, &small)],
+            &[&stream(
+                b"",
+                &format!("a=T,i=1,t={medium},f=100"),
+                name,
+                b"",
+            )],
+        );
+        assert!(
+            placed.contains("i=1;OK\\u{1b}\\\\\\u{1b}_Gi=7;ENOENT") && placed.contains("evicted 1"),
+            "t={medium}: the arena is tight: {placed}"
+        );
+    }
+    let mut differ = Vec::new();
+    for (what, before, extra, after) in cases {
+        for (format, data, older_after) in [
+            ("f=24,s=2,v=2", &raw, "ENOENT"),
+            ("f=24,s=2,v=2,o=z", &raw_z, "ENOENT"),
+            ("f=100", &small, "OK"),
+            (png_z.as_str(), &small_z, "OK"),
+        ] {
+            for (medium, name) in mediums {
+                let keys = format!("a=T,i=1,t={medium},{format}{extra}");
+                let named: [(&[u8], &[u8]); 1] = [(name, data)];
+                let missing = file_state(64, &named, &[&stream(before, &keys, b"/gone", after)]);
+                let want = format!(
+                    "i=1;EBADF:Failed to read image file\\u{{1b}}\\\\\\u{{1b}}_Gi=7;{older_after}"
+                );
+                assert!(
+                    missing.contains(&want),
+                    "{what} {format} t={medium}: the control: {missing}"
+                );
+                let s = stream(before, &keys, name, after);
+                let read = |pieces: &[&[u8]]| {
+                    file_state(64, &named, pieces)
+                        .replace("virtuals_refused: 1", "virtuals_refused: 0")
+                };
+                if read(&[&s]) != missing {
+                    differ.push(format!(
+                        "{what} {format} t={medium}:\n{}{missing}",
+                        read(&[&s])
+                    ));
+                    continue;
+                }
+                if what != "relative" || format != "f=100" {
+                    continue;
+                }
+                for n in 1..=s.len() {
+                    let pieces: Vec<&[u8]> = s.chunks(n).collect();
+                    assert_eq!(read(&pieces), missing, "t={medium} read size {n}");
+                }
+                for cut in 1..s.len() {
+                    assert_eq!(
+                        read(&[&s[..cut], &s[cut..]]),
+                        missing,
+                        "t={medium} cut at {cut}"
+                    );
+                }
+            }
+        }
+    }
+    assert!(differ.is_empty(), "{} differ: {differ:#?}", differ.len());
+}
+
+/// **A virtual placement whose image was freed is room for a file PNG's**:
+/// the stream's table filled but for one by image 3's placements, the last
+/// slot by a `t=d` PNG placed `U=1` whose decode then failed, freeing its
+/// image under the placement, and a file PNG placed `U=1` after them is
+/// answered `OK`, as `place` makes room by dropping what names no live
+/// image. The control: the last slot's PNG decoded, the table is full and
+/// the file PNG is the one error.
+#[test]
+fn a_virtual_naming_a_freed_image_is_room_for_a_file_png() {
+    let good = png(21, 23, png::ColorType::Rgba, &bytes(21 * 23 * 4, 7), 50);
+    let mut late = good.clone();
+    let at = late.len() - 12 - 4 - 10;
+    late[at] ^= 0xFF;
+    let small = png(2, 2, png::ColorType::Rgba, &bytes(16, 3), 8);
+    let run = |last: &[u8]| {
+        let m = Mem::new(&[(b"/pics/a", &small)], 7);
+        with_files(4096, &m, |t| {
+            let mut r = Vec::new();
+            feed(
+                t,
+                &apc("a=t,i=3,f=24,s=1,v=1,q=2", &b64(&[1, 2, 3])),
+                &mut r,
+            );
+            for p in 1..baud_domain::KITTY_VIRTUALS {
+                let keys = format!("a=p,U=1,i=3,p={p},c=1,r=1,q=2");
+                feed(t, &apc(&keys, b""), &mut r);
+            }
+            feed(t, &apc("a=T,U=1,i=9,f=100,c=1,r=1", &b64(last)), &mut r);
+            settle(t, &mut r);
+            let first = core::mem::take(&mut r);
+            let keys = "a=T,U=1,i=1,t=f,f=100,c=1,r=1";
+            feed(t, &apc(keys, &b64(b"/pics/a")), &mut r);
+            settle(t, &mut r);
+            // An image no id names is given no virtual placement, full
+            // table or not, and is kept, as `place` keeps it.
+            let images = t.kitty().images;
+            feed(
+                t,
+                &apc("a=T,U=1,t=f,f=100,c=1,r=1", &b64(b"/pics/a")),
+                &mut r,
+            );
+            settle(t, &mut r);
+            assert_eq!(t.kitty().images, images + 1, "the nameless image is kept");
+            (first, r)
+        })
+    };
+    let live = run(&good);
+    assert_eq!(live.0, b"\x1b_Gi=9;OK\x1b\\", "the control: placed");
+    assert_eq!(live.1, FILE_ERR, "the control: the table is full");
+    let dead = run(&late);
+    assert!(
+        dead.0.starts_with(b"\x1b_Gi=9;EBADPNG:"),
+        "the last slot's image died"
+    );
+    assert_eq!(dead.1, b"\x1b_Gi=1;OK\x1b\\");
+}
+
 /// **A file PNG that fails late moves nothing and answers before the next
 /// byte**: a PNG whose header and first `IDAT` parse and whose last does
 /// not, through `t=f`, `t=t` and `t=s`, then a CPR and a DA, leaves the

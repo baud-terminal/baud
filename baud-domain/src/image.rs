@@ -2371,6 +2371,13 @@ impl<'b> ImageStore<'b> {
         self.placements.iter().position(|p| p.is_empty())
     }
 
+    /// Whether the placement table has a free slot: what
+    /// [`ImageStore::place`] refuses without, for a stream that decides a
+    /// placement's outcome before it reserves the image.
+    pub(crate) fn placement_free(&self) -> bool {
+        self.free_placement().is_some()
+    }
+
     /// The lowest offset at which `area` pixels fit in a gap between live spans,
     /// or `None` if the arena has no such gap: where [`ImageStore::store`]
     /// puts an image, and where a Sixel decoded in its claim moves to. Free space is the gaps between

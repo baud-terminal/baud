@@ -1757,6 +1757,15 @@ impl KittyStream {
             self.reply(&cmd, Err(KittyError::TOO_MUCH));
             return None;
         }
+        // After a file read a refused placement keeps no image, as a missing
+        // file keeps none, so it must delete none for space either: decided
+        // before the reserve, which may.
+        if cmd.read == KittyFileRead::Asked && cmd.act() == KittyAction::TransmitPut {
+            if let Some(e) = self.placement_refusal(&cmd, store) {
+                self.reply(&cmd, Err(e));
+                return None;
+            }
+        }
         let owner = match cmd.act() {
             KittyAction::Query => ImageOwner::Kitty(KittyId::NONE, KittyNumber::NONE),
             _ => ImageOwner::Kitty(cmd.id, cmd.number),
@@ -1772,6 +1781,39 @@ impl KittyStream {
         // The decode makes its scanlines in `[len, len + raw)`.
         self.scratch_hi = self.scratch_hi.max(len + raw);
         self.defer(Deferred::Png { image, len }, cmd, at, store, scratch)
+    }
+
+    /// **The refusal [`KittyStream::place`] would make of `cmd` for an
+    /// image not yet reserved**, in its order, counted as it counts them:
+    /// a relative placement, the stream's virtual table with no slot empty
+    /// or naming a freed image, the store's placement table full. Exact
+    /// only for a new image, which no placement of the same id can make
+    /// room for; an `a=p` goes through `place` alone.
+    fn placement_refusal(
+        &mut self,
+        cmd: &KittyCommand,
+        store: &mut ImageStore,
+    ) -> Option<KittyError> {
+        if let Some(e) = unplaceable(cmd) {
+            return Some(e);
+        }
+        if cmd.virtual_place != 0 {
+            let room = cmd.id.is_none()
+                || self
+                    .virtuals
+                    .iter()
+                    .any(|v| v.image.is_none() || !KittyStream::live(v, store));
+            if room {
+                return None;
+            }
+            self.counts.virtuals_refused += 1;
+            return Some(KittyError::VIRTUALS_FULL);
+        }
+        if store.placement_free() {
+            return None;
+        }
+        store.placements_refused += 1;
+        Some(KittyError::PLACEMENTS_FULL)
     }
 
     /// Hand a decode to [`KittyStream::step`]: placed now, and the cursor
