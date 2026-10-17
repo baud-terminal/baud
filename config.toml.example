@@ -313,32 +313,36 @@ body_kb = 256
 
 # The window's material and how it is dimmed. Every key here is one the
 # macos-liquid-glass example sweeps with a GN_* environment variable -- the
-# content both its examples draw, and what was built as "glassterm" -- and the
-# defaults below are that example's own calibration, which its header records
-# as tuned against the system widget over one wallpaper rather than derived
-# from a measurement. So they are a starting point, which is why they are keys.
+# content both its examples draw, and what was built as "glassterm". The
+# material and the two dims follow Apple's guidance: the regular material for a
+# surface that is mostly text, and dims that keep text at 4.5:1, Apple's
+# minimum contrast, whatever is behind the window. The rest are that example's
+# own calibration, a starting point, which is why they are keys.
 #
 # Four of the eight are PAIRS, because macOS light/dark is two different
 # surfaces: the same darkening that reads right over a dark desktop is far too
 # much over a light one. baud picks the one the system appearance names and
 # changes it when that changes -- so does the palette, unless "theme" above
 # pins it. On Linux there is no appearance signal yet, so "dim_dark" is used
-# and the rest of this section has no counterpart at all.
+# unless theme = "light", and the style, tint, hue, saturation and shadow keys
+# have no counterpart at all.
 [glass]
 
-# Which material. "clear" is the thinner, more transparent one, which Apple's
-# HIG pairs with a dimming layer over bright content -- which is what a
-# terminal body is. "regular" is the standard frosted material.
-style = "clear"
+# Which material. "regular", the default, is the standard frosted material,
+# which Apple's guidelines give a surface with a lot of text. "clear" is the
+# thinner, more transparent one, which they keep for controls over photos and
+# video.
+style = "regular"
 
 # The body dim: the opacity EVERY background is painted at, 0 clear to 1
 # opaque, so the desktop shows through it. Not just the default background --
 # a colour an application sets is translucent too, so btop and anything else
-# that paints its own panels is glass rather than a slab. This is the key to
-# turn up if the text over those panels is hard to read, and down for more
-# glass.
-dim_dark = 0.22
-dim_light = 0.12
+# that paints its own panels is glass rather than a slab. The defaults are the
+# lowest that keep the default text at 4.5:1 over a white desktop and over a
+# black one; turn them down for more glass, at the cost of text over a bright
+# window behind.
+dim_dark = 0.70
+dim_light = 0.60
 
 # Whether a background an application sets is dimmed with the default one.
 # "dim" draws it at the body dim, so btop's panels are glass. "opaque" draws

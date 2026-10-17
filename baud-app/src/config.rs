@@ -223,10 +223,18 @@ impl Clipboard {
 /// environment variable** -- `examples/common/mod.rs` in
 /// `macos-liquid-glass`, the content both `titled` and `borderless` draw,
 /// and what was built as `glassterm` before the examples were renamed.
-/// The defaults are that example's own calibration, which its header
-/// records as "tuned against the system widget over one wallpaper rather
-/// than derived from a measurement" -- so they are a starting point a
-/// reader adjusts, which is why every one of them is a key.
+/// **The material and the two dims follow Apple's guidance; the rest is
+/// the example's calibration.** The HIG says to use the regular material
+/// "when components have a significant amount of text"
+/// ([[source: apple-hig-materials]]), and a terminal is all text; the dims
+/// are the lowest that keep default text at 4.5:1, the HIG's minimum
+/// ([[source: apple-hig-dark-mode]]), over flat white and flat black with
+/// the material darkening nothing, which
+/// `the_default_dims_keep_text_readable_over_white_and_black` computes.
+/// The tints, the hue, the saturation and the shadow are the example's,
+/// which its header records as "tuned against the system widget over one
+/// wallpaper rather than derived from a measurement" -- a starting point a
+/// reader adjusts, which is why every value here is a key.
 ///
 /// **Four of the eight are pairs, because the example's are.** The
 /// material darkening and the body dim both change with the system's
@@ -237,9 +245,13 @@ impl Clipboard {
 /// on Linux where there is no such signal.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Glass {
-    /// `style`: which material. `Clear` is the example's default and the
-    /// one Apple's HIG pairs with a dimming layer over bright content,
-    /// which is what a terminal body is.
+    /// `style`: which material. `Regular`, the default, is the one the HIG
+    /// gives surfaces with "a significant amount of text"; `Clear` is the
+    /// example's, which the HIG keeps for components "that appear over
+    /// visually rich backgrounds" ([[source: apple-hig-materials]]).
+    /// **Not Jev's pick**: Jev chose clear at 0.92 and 0.95 (decisions
+    /// 716/717), on a request that modelled only clear and left regular
+    /// unmeasured, and the owner asked for Apple's recommendations.
     pub style: Material,
     /// `dim_dark`: the body dim under a dark appearance, 0 to 1. The
     /// palette's background is painted at this.
@@ -290,8 +302,8 @@ pub struct Glass {
 /// choice and the driver maps it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Material {
-    #[default]
     Clear,
+    #[default]
     Regular,
 }
 
@@ -307,15 +319,16 @@ pub enum Shadow {
 }
 
 impl Glass {
-    /// The example's own calibration, the values its `GN_*` knobs default
-    /// to: `GN_PAPER_D` 0.22, `GN_PAPER_L` 0.12, `GN_GT_D` 0.54,
-    /// `GN_GT_L` 0.14, `GN_HUE` 0.60, `GN_HSAT` 0.80, `GN_GLASS` clear,
-    /// `GN_SHADOW` auto.
+    /// The regular material, dims of 0.70 and 0.60 -- where the example's
+    /// `GN_GLASS` is clear, `GN_PAPER_D` 0.22 and `GN_PAPER_L` 0.12, which
+    /// put default text at 1.14:1 and 1.13:1 over white and black -- and
+    /// the rest the example's own `GN_*` defaults: `GN_GT_D` 0.54,
+    /// `GN_GT_L` 0.14, `GN_HUE` 0.60, `GN_HSAT` 0.80, `GN_SHADOW` auto.
     pub fn defaults() -> Glass {
         Glass {
-            style: Material::Clear,
-            dim_dark: 0.22,
-            dim_light: 0.12,
+            style: Material::Regular,
+            dim_dark: 0.70,
+            dim_light: 0.60,
             tint_dark: 0.54,
             tint_light: 0.14,
             hue: 0.60,
@@ -1010,9 +1023,9 @@ impl Config {
                         other => {
                             said.push(format!(
                                 "config: glass style {other:?} is not clear or regular; \
-                                 using clear"
+                                 using regular"
                             ));
-                            Material::Clear
+                            Glass::defaults().style
                         }
                     };
                 }
@@ -1537,17 +1550,60 @@ mod reader {
         c
     }
 
-    /// The defaults are the crate example's own calibration, so a config
-    /// that names no `[glass]` key at all gets what `glassterm` draws.
-    /// Pinned by value: these are what the record quotes.
+    /// The defaults: the material and the dims Apple's guidance gives, and
+    /// the crate example's own calibration for the rest. Pinned by value:
+    /// these are what the record quotes.
     #[test]
-    fn the_defaults_are_the_examples_calibration() {
+    fn the_glass_defaults_are_pinned_by_value() {
         let g = Config::defaults().glass;
-        assert_eq!(g.style, Material::Clear);
+        assert_eq!(g.style, Material::Regular);
+        assert_eq!(g.style, Material::default(), "the enum agrees");
         assert_eq!(g.shadow, Shadow::Auto);
-        assert_eq!((g.dim_dark, g.dim_light), (0.22, 0.12));
+        assert_eq!((g.dim_dark, g.dim_light), (0.70, 0.60));
         assert_eq!((g.tint_dark, g.tint_light), (0.54, 0.14));
         assert_eq!((g.hue, g.saturation), (0.60, 0.80));
+    }
+
+    /// **The default dims keep default text at 4.5:1 over any backdrop**,
+    /// the HIG's minimum ([[source: apple-hig-dark-mode]]), at the bound
+    /// where the material darkens nothing and the tint is off: the page at
+    /// its dim, source-over in encoded sRGB, over flat white and flat black.
+    /// Those two are the worst cases for the two halves, and blur cannot
+    /// move a flat backdrop. The ratio is WCAG 2.2's, written out here so
+    /// the renderer's own arithmetic is not checking itself.
+    #[test]
+    fn the_default_dims_keep_text_readable_over_white_and_black() {
+        use baud_domain::Chan;
+        use baud_render::{Argb, Theme};
+        fn lum(c: Argb) -> f64 {
+            let lin = |c: Chan| {
+                let v = f64::from(c.get()) / 255.0;
+                if v <= 0.04045 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+        }
+        let ratio = |a: Argb, b: Argb| {
+            let (hi, lo) = (lum(a).max(lum(b)), lum(a).min(lum(b)));
+            (hi + 0.05) / (lo + 0.05)
+        };
+        let g = Glass::defaults();
+        let grey = |v: u8| Argb::rgb(Chan::from_u8(v), Chan::from_u8(v), Chan::from_u8(v));
+        let mut seen = Vec::new();
+        for (half, theme, dim) in [
+            ("dark", Theme::dark(), g.dim_dark),
+            ("light", Theme::light(), g.dim_light),
+        ] {
+            for (backdrop, over) in [("white", grey(0xFF)), ("black", grey(0x00))] {
+                let page = theme.bg.mix(over, Chan::from_unit(dim));
+                seen.push((half, dim, backdrop, ratio(theme.fg, page)));
+            }
+        }
+        let low: Vec<_> = seen.iter().filter(|s| s.3 < 4.5).collect();
+        assert!(low.is_empty(), "under 4.5:1: {low:.2?} of {seen:.2?}");
     }
 
     /// **Reduce Motion turns the default off and leaves a named trail**, the
@@ -2077,7 +2133,7 @@ mod reader {
         let c = read(
             r#"
 [glass]
-style      = "regular"
+style      = "clear"
 dim_dark   = 0.3
 dim_light  = 0.05
 tint_dark  = 0.4
@@ -2087,7 +2143,7 @@ saturation = 0.9
 shadow     = "never"
 "#,
         );
-        assert_eq!(c.glass.style, Material::Regular);
+        assert_eq!(c.glass.style, Material::Clear);
         assert_eq!(c.glass.shadow, Shadow::Never);
         assert_eq!((c.glass.dim_dark, c.glass.dim_light), (0.3, 0.05));
         assert_eq!((c.glass.tint_dark, c.glass.tint_light), (0.4, 0.2));
@@ -2100,8 +2156,8 @@ shadow     = "never"
     /// is not hypothetical.
     #[test]
     fn a_top_level_key_does_not_reach_the_glass_section() {
-        let c = read("style = \"regular\"\nhue = 0.1\nshadow = \"never\"\n");
-        assert_eq!(c.glass.style, Material::Clear, "top-level style leaked");
+        let c = read("style = \"clear\"\nhue = 0.1\nshadow = \"never\"\n");
+        assert_eq!(c.glass.style, Material::Regular, "top-level style leaked");
         assert_eq!(c.glass.hue, 0.60, "top-level hue leaked");
         assert_eq!(c.glass.shadow, Shadow::Auto, "top-level shadow leaked");
     }
@@ -2455,7 +2511,7 @@ shadow     = "never"
     #[test]
     fn an_unknown_material_or_shadow_falls_back() {
         let c = read("[glass]\nstyle = \"frosted\"\nshadow = \"sometimes\"\n");
-        assert_eq!(c.glass.style, Material::Clear);
+        assert_eq!(c.glass.style, Glass::defaults().style);
         assert_eq!(c.glass.shadow, Shadow::Auto);
     }
 
@@ -2466,8 +2522,8 @@ shadow     = "never"
     #[test]
     fn background_alpha_no_longer_reaches_a_dim() {
         let c = read("background_alpha = 255\nfont_size = 20\n");
-        assert_eq!(c.glass.dim_dark, 0.22);
-        assert_eq!(c.glass.dim_light, 0.12);
+        assert_eq!(c.glass.dim_dark, Glass::defaults().dim_dark);
+        assert_eq!(c.glass.dim_light, Glass::defaults().dim_light);
         assert_eq!(c.font_size, 20.0, "the keys after it stopped being read");
     }
 
@@ -2587,6 +2643,8 @@ shadow     = "never"
         assert_eq!(c.padding, 8.0);
         assert_eq!(c.theme, ThemeChoice::Auto);
         assert_eq!(c.colorspace, Space::Srgb);
+        // Its `[glass]` section is written at the defaults it describes.
+        assert_eq!(c.glass, Glass::defaults());
         // Its `fonts` examples are commented out -- an uncommented one would
         // make a copied example replace the embedded default -- so the
         // stack is the built-in one, embedded face first.

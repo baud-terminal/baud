@@ -81,8 +81,9 @@ fn main() {
     let data = std::fs::read(&path).expect("recording");
     // `FRAME_GLASS`: the window's dim, which `Theme::dark()` leaves at full
     // alpha -- where `[glass] pictures`'s finder never runs, so no default
-    // arm can price it. `dim` is the app's own default (0.22 of 255, every
-    // background dimmed, pictures found and kept solid); `dim-nopictures`
+    // arm can price it. `dim` is the app's default until 2026-10-17 (0.22
+    // of 255, every background dimmed, pictures found and kept solid; the
+    // default is 0.70 since), kept so its recorded figures re-run; `dim-nopictures`
     // is the same with `pictures = "dim"`, the finder off.
     let glass = std::env::var("FRAME_GLASS").unwrap_or_else(|_| "off".to_string());
     let theme = match glass.as_str() {

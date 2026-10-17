@@ -134,9 +134,9 @@ that suits a dark desktop is far too much over a light one.
 
 | key | values | default | what it changes |
 |---|---|---|---|
-| `style` | `"clear"`, `"regular"` | `"clear"` | The glass: `"clear"` is thinner and more see-through, `"regular"` is frosted. |
-| `dim_dark` | 0 to 1 | `0.22` | How solid the background is under the dark appearance, from 0 (clear) to 1 (opaque). Turn it up if text is hard to read over your desktop. |
-| `dim_light` | 0 to 1 | `0.12` | The same, under the light appearance. |
+| `style` | `"regular"`, `"clear"` | `"regular"` | The glass: `"regular"` is frosted, the material Apple recommends behind a lot of text; `"clear"` is thinner and more see-through. |
+| `dim_dark` | 0 to 1 | `0.70` | How solid the background is under the dark appearance, from 0 (clear) to 1 (opaque). The default keeps text readable at Apple's minimum contrast even over a white window behind; turn it down for more glass. |
+| `dim_light` | 0 to 1 | `0.60` | The same, under the light appearance, where the default keeps text readable over a black window behind. |
 | `app_backgrounds` | `"dim"`, `"opaque"` | `"dim"` | Whether backgrounds a program paints, such as btop's panels, are see-through like the rest (`"dim"`) or solid (`"opaque"`). |
 | `pictures` | `"opaque"`, `"dim"` | `"opaque"` | Whether a picture drawn with text characters, such as a file manager's photo preview, is kept solid so it reads as a picture. |
 | `tint_dark` | 0 to 1 | `0.54` | How much the glass itself is darkened under the dark appearance. `0` turns it off. |
@@ -145,7 +145,9 @@ that suits a dark desktop is far too much over a light one.
 | `saturation` | 0 to 1 | `0.80` | How strong that colour is. |
 | `shadow` | `"auto"`, `"always"`, `"never"` | `"auto"` | Whether the window casts a shadow. `"auto"` casts one only under the dark appearance. |
 
-On Linux only `dim_dark` has an effect, and `theme = "auto"` means dark.
+On Linux `theme = "auto"` means dark, so `dim_dark` is used unless
+`theme = "light"`; `style`, the tints, `hue`, `saturation` and `shadow` have
+no effect there.
 
 ## Keys baud no longer reads
 

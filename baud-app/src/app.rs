@@ -7351,15 +7351,17 @@ pub fn run() {
     }
     let inset = measured;
     let frame = NSRect::new(NSPoint::new(0.0, 0.0), size);
-    // **The material is the config's, and it is chosen once.** `Regular` is
-    // the standard frosted material and `Clear` the thinner, more transparent
-    // one, which Apple's HIG pairs with a dimming layer over bright content.
-    // baud *is* that dimming layer -- it paints its palette's background over
-    // the material -- so asking for the thicker one and then covering it at
-    // 85%, which is what a fixed `background_alpha = 216` did, was paying for
-    // a material twice and seeing neither. Unlike the dim, the tint and the
-    // shadow, the style does not change with the appearance, so there is no
-    // setter call anywhere: it is a constructor argument and nothing else.
+    // **The material is the config's, and it is chosen once.** `Regular`,
+    // the default, is the standard material, which the HIG gives surfaces
+    // with "a significant amount of text"; `Clear` is the more transparent
+    // one, kept for components "that appear over visually rich backgrounds"
+    // ([[source: apple-hig-materials]]). A terminal body is text over
+    // whatever is behind the window, so it is the first case. Jev picked
+    // clear (0.92/0.95, decisions 716/717) and is not followed: its request
+    // modelled only clear, and the owner asked for Apple's recommendations.
+    // Unlike the dim, the tint and the shadow, the style does not change
+    // with the appearance, so there is no setter call anywhere: it is a
+    // constructor argument and nothing else.
     let glass = GlassSurface::new(
         mtm,
         frame,

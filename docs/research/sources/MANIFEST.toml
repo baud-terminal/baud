@@ -26700,3 +26700,20 @@ bytes  = 641671
 status = "external"
 group  = "Y"
 # Read 2026-10-17. 313.3(C) p. 24, 313.4(C) p. 28, 313.4(K) p. 33; for the licence row of kitty's colour names (note AR).
+
+# Group Y, for the glass's default dims (2026-10-17): the HIG's minimum contrast,
+# which the dims are set to keep over any backdrop.
+
+[sources.apple-hig-dark-mode]
+key    = "apple-hig-dark-mode"
+title  = "Human Interface Guidelines: Dark Mode -- 'make sure the contrast ratio between colors is no lower than 4.5:1', 7:1 for custom colours in small text (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/dark-mode.json"
+file   = ""
+sha256 = "cf352a73655e616568441efefb295802ade3e7f34980f33c35f0ee778cf4f3e7"
+bytes  = 38687
+status = "external"
+group  = "Y"
+# Read and hash-verified; not committed -- a vendor page.
