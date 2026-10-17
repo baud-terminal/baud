@@ -8,7 +8,8 @@ them.
 
 | | read it for |
 |---|---|
-| [guide/features.md](guide/features.md) | everything baud does for you, by area |
+| [guide/features.md](guide/features.md) | everything baud does for you, by area, each line backed by a test |
+| [roadmap.md](roadmap.md) | what is being built, what is planned, and what has shipped |
 | [guide/install.md](guide/install.md) | building baud and getting it running |
 | [guide/configuration.md](guide/configuration.md) | the config file: where it goes, every key, its default and what it changes |
 | [guide/status.md](guide/status.md) | what works today and what is not built yet |
@@ -198,6 +199,7 @@ the build instead:
 | `baud-core/tests/encoding/width.rs` | the generated width tables still match the pinned `EastAsianWidth.txt` and general category |
 | `baud-core/tests/docs.rs` | every relative link resolves; every repository path named in backticks exists; every test named as evidence exists; **nothing listed as absent is also marked done**; every research note and every manifest group has a row in the index above |
 | `scripts/check-sources.sh` | every `[[source: …]]` citation — in the docs **and** in the code — resolves to a document pinned by SHA-256 in `MANIFEST.toml` |
+| `baud-core/tests/feature_list.rs` | `guide/features.md` and `roadmap.md` are what `scripts/gen-features.py` writes from `docs/data/`; every proof path and test a feature names exists; a feature marked built names a test, a done coverage row or a measurement; every shipped roadmap item is claimed by a feature |
 | `baud-core/tests/embedding.rs` | the usage example in `docs/embedding.md` is compiled, and its block matches the example's body line for line, apart from blank lines, `use` lines and the example's `println!` |
 | `baud-app/src/config.rs` | `docs/guide/configuration.md` lists every key `Config::apply` matches and no other; `config.toml.example` writes only keys the reader acts on; `docs/cursor.md` and `docs/cursor.html` show every trail |
 

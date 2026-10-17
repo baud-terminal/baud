@@ -1,0 +1,1692 @@
+# Every feature baud has, in plain words, with the proof behind it.
+#
+# scripts/gen-features.py renders this as docs/guide/features.md and fails
+# (`--check`, run by baud-core/tests/feature_list.rs) when a proof is gone,
+# when a feature marked built names none, or when the page differs from what
+# it writes. Edit this file, never the page.
+#
+# [[area]]      id, title and a one-line intro, in the order the page shows them
+#
+# [[feature]]
+#   id          a stable key
+#   area        an [[area]] id
+#   name        a few words
+#   does        what it does for you, in one or two sentences
+#   status      built | partial | interim (a stopgap until a decided
+#               replacement lands)
+#   gap         for partial and interim: what is missing
+#   platform    both (the shared core and renderer: the macOS app, and the
+#               Linux version, which has run only headless) | macos | linux
+#   tests       "<path>::<fn>" -- the fn must be in that file
+#   rows        "vt:<first cell>" or "input:<first cell>" of a row in
+#               docs/vt-coverage.md or docs/input-coverage.md; a built
+#               feature's rows must all be done
+#   paths       files that hold it
+#   measured    headings of MEASUREMENTS.md
+#   chips       protocol names, from [[protocol]], shown small after the line
+#   behind      where other terminals do more; listed under "Where baud is
+#               behind"
+#   roadmap     ids in docs/data/roadmap.toml that close a gap
+#   shipped     done ids in docs/data/roadmap.toml this feature covers
+#
+# A built feature names at least one test, a done row or a measurement.
+#
+# [[missing]]   what is not built: name, does, area, roadmap
+# [[unlisted]]  a done roadmap item that is not a feature: id, why
+# [[protocol]]  name, origin, row
+
+intro = """
+What baud does for you today, by area. Every line is backed by a test or a
+measurement in the repository, and the build fails if that proof disappears,
+so this list cannot quietly fall out of date. What is coming next is on the
+[roadmap](../roadmap.md).
+"""
+
+legend = """
+Lines with no mark work in the macOS app and in the shared terminal core,
+which the Linux version also runs; the Linux version has run only headless so
+far. *macOS* marks what only the macOS app does, and *Linux, headless so far*
+what only the Linux version does. **Partly** says what part is missing, and
+**For now** marks a stopgap until its replacement lands.
+"""
+
+protocols_intro = """
+The protocols and extensions baud speaks, for anyone checking a particular
+one. Every control sequence has its own row in the
+[coverage table](../vt-coverage.md), and every key in the
+[input table](../input-coverage.md).
+"""
+
+behind_intro = """
+Where other terminals do more today, and what baud does not do yet, with a
+link where the [roadmap](../roadmap.md) plans it.
+"""
+
+footer = """
+This page is generated from `docs/data/features.toml` by
+`scripts/gen-features.py`, which fails the build when a feature's proof is gone,
+when a feature marked built names none, when a done item on the
+[roadmap](../roadmap.md) is missing from this list, or when this page has been
+edited by hand. `feature_list_matches_its_data_and_its_proofs` runs it with
+every test suite.
+"""
+
+[[area]]
+id = "programs"
+title = "Programs just work"
+intro = "Shells, editors and full-screen programs get the terminal they expect, and a broken one can't upset it."
+
+[[area]]
+id = "speed"
+title = "Speed"
+intro = "Measured on real recordings and real keystrokes, with the numbers kept in [MEASUREMENTS.md](../../MEASUREMENTS.md)."
+
+[[area]]
+id = "text"
+title = "Text, fonts and emoji"
+intro = "Text that lines up, in any script, with fonts that work out of the box."
+
+[[area]]
+id = "input"
+title = "Keyboard, mouse and clipboard"
+intro = "Every key reaches the program, and copying and pasting stay safe."
+
+[[area]]
+id = "scroll"
+title = "Scrollback, selection and resizing"
+intro = "Your history stays where you left it, through output, selection and resizing."
+
+[[area]]
+id = "window"
+title = "Window, colours and bell"
+intro = "A see-through window that follows your Mac's appearance."
+
+[[area]]
+id = "cursor"
+title = "The cursor"
+intro = "Your shape and blink, and an optional trail when it jumps."
+
+[[area]]
+id = "images"
+title = "Pictures"
+intro = "Image viewers and file-manager previews show real pictures."
+
+[[area]]
+id = "platforms"
+title = "Platforms and settings"
+intro = "Where baud runs, and the one settings file."
+
+[[area]]
+id = "embedding"
+title = "Embedding the core"
+intro = "The part of baud that understands a program's output, as a library."
+
+# --- Programs just work ---------------------------------------------------
+
+[[feature]]
+id = "true-answers"
+area = "programs"
+name = "No wrong answers"
+does = "A question baud cannot answer truthfully gets no reply rather than a wrong one, and a setting baud does not have is reported as unknown, never as off."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/color_scheme.rs::other_private_dsrs_stay_unsupported"]
+rows = ["vt:`CSI $ p`", "vt:`CSI n`"]
+
+[[feature]]
+id = "damaged-codes"
+area = "programs"
+name = "A damaged escape code can't clear your screen"
+does = "A broken or cut-off control sequence is thrown away instead of being half-obeyed, and hidden data in the stream is never printed."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/esc_abandons.rs::an_esc_in_the_parameters_starts_a_new_sequence", "baud-core/tests/xterm/osc.rs::a_bare_esc_cancels_the_osc"]
+rows = ["vt:`sos_pm_apc_string`"]
+
+[[feature]]
+id = "no-flooding"
+area = "programs"
+name = "No flooding memory"
+does = "A giant title, link or other string a program sends is cut to size, so it can't fill memory."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/xterm/osc.rs::an_overlong_title_is_truncated"]
+
+[[feature]]
+id = "compatible"
+area = "programs"
+name = "Compatible with what programs expect"
+does = "baud answers to the VT100, VT220, VT420 and xterm feature sets, checked against the original manuals, and works under every common terminal type from xterm-256color to vt100."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/conformance/input_caps.rs::the_profiles_input_counts_are_what_baud_can_send"]
+paths = ["docs/protocols/README.md"]
+
+[[feature]]
+id = "identify"
+area = "programs"
+name = "Programs can tell what they are talking to"
+does = "A program that asks gets baud's name and version, and the VT100's original question gets the same answer as the modern one."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/xterm/keypad_version.rs::xtversion_answers_with_a_dcs", "baud-core/tests/decid.rs::decid_answers_the_primary_da"]
+rows = ["vt:`CSI c`", "vt:`ESC Z`"]
+shipped = ["2026-10-16-the-old-terminal-id-request-answers"]
+
+[[feature]]
+id = "two-arities"
+area = "programs"
+name = "One letter, two meanings, kept apart"
+does = "A program asking to highlight a region no longer scrolls the screen: two controls that share a letter are told apart by their arguments."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/conformance/spec_inventory.rs::a_final_with_two_arities_means_two_things"]
+rows = ["vt:`CSI Ps ; Ps ; Ps ; Ps ; Ps T`"]
+
+[[feature]]
+id = "editing"
+area = "programs"
+name = "Cursor movement and editing"
+does = "Cursor moves, inserting and deleting, erasing, tab stops, repeats and the alignment test behave as programs expect."
+status = "built"
+platform = "both"
+rows = ["vt:`CSI A`", "vt:`CSI J`", "vt:`CSI L`", "vt:`0x09` HT", "vt:`CSI b`", "vt:`ESC # 8`"]
+
+[[feature]]
+id = "soft-reset"
+area = "programs"
+name = "A soft reset keeps you where you were"
+does = "A soft reset leaves a full-screen program on its screen, with its history and mouse tracking."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/xterm/soft_reset_scope.rs::soft_reset_stays_on_the_alternate_screen", "baud-core/tests/xterm/soft_reset_scope.rs::soft_reset_leaves_mouse_tracking_alone"]
+rows = ["vt:`CSI ! p`"]
+shipped = ["2026-10-14-several-reset-and-cursor-save-sequences"]
+
+[[feature]]
+id = "protected-text"
+area = "programs"
+name = "Protected text and saved settings"
+does = "Text a program protects survives its selective erase, and programs can save and restore their own settings."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/vt220/selective_erase.rs::decsed_spares_protected_characters"]
+rows = ["vt:`CSI \" q`", "vt:`CSI ? J`", "vt:`CSI ? s`", "vt:`CSI ? r`"]
+
+[[feature]]
+id = "cursor-save"
+area = "programs"
+name = "Cursor save and restore"
+does = "Saving the cursor keeps its position, colours, wrap, origin and protection."
+status = "partial"
+gap = "two of the character-set details are not saved yet."
+platform = "both"
+rows = ["vt:`ESC 7`", "vt:`ESC 8`"]
+
+[[feature]]
+id = "columns-132"
+area = "programs"
+name = "132 columns when a program asks"
+does = "A program that asks for 132 columns, and is allowed to, gets a wider window, and a reset puts your width back."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/width.rs::decide_over_every_host_and_width"]
+rows = ["vt:`?3`", "vt:`?40`"]
+shipped = ["2026-10-14-programs-can-now-change-the-terminal"]
+
+[[feature]]
+id = "page-width"
+area = "programs"
+name = "Exact page widths"
+does = "Programs can ask to keep the screen across a column change, or for an exact page width."
+status = "partial"
+gap = "both are honoured in part; each row names the part."
+platform = "both"
+rows = ["vt:`?95`", "vt:`CSI Pn $ \\|`"]
+
+[[feature]]
+id = "vt52"
+area = "programs"
+name = "VT52 mode"
+does = "Very old software that speaks the VT52's language, keyboard included, still runs."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/vt52/sequences.rs::esc_less_than_leaves_vt52"]
+rows = ["vt:`CSI ? 2 l`"]
+
+[[feature]]
+id = "eight-bit"
+area = "programs"
+name = "8-bit replies for programs that ask"
+does = "Replies and keys switch to 8-bit control codes when a program asks."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/vt220/replies.rs::s8c1t_switches_replies_to_eight_bit", "baud-core/tests/key_encode.rs::a_key_follows_s8c1t_as_a_reply_does"]
+
+# --- Speed ----------------------------------------------------------------
+
+[[feature]]
+id = "ingest"
+area = "speed"
+name = "Takes in output fast"
+does = "On real recorded program output, baud's core was faster than ghostty's and alacritty's on all nine recordings, from 1.19 to 5.80 times ghostty's rate; on the Chinese, Japanese and Korean recordings baud also does more work, grouping every character."
+status = "built"
+platform = "both"
+measured = ["Against other implementations, on real capture"]
+
+[[feature]]
+id = "pty-ingest"
+area = "speed"
+name = "Ahead through a real terminal connection"
+does = "On one Mac, through the same kind of connection a shell uses, baud led four other terminals on four of five recordings and used the least CPU on all but one."
+status = "interim"
+gap = "measured before scrollback existed and not taken again since."
+platform = "macos"
+measured = ["Five terminals through a pty"]
+
+[[feature]]
+id = "echo-early"
+area = "speed"
+name = "What you type shows before the shell answers"
+does = "At a prompt your shell marks, a typed character is drawn about 3 ms sooner, and quietly taken back if the shell shows something else."
+status = "built"
+platform = "macos"
+tests = ["baud-render/tests/predicted.rs::a_prediction_gives_way_to_a_cell_the_walk_already_drew", "baud-app/src/app.rs::a_reset_drops_outstanding_predictions_as_contradicted"]
+measured = ["A key's echo drawn before the pty answers (row 9)"]
+
+[[feature]]
+id = "key-during-flood"
+area = "speed"
+name = "Keys first, even during a flood"
+does = "A key typed while a program streams output is drawn at once, about 2.8 ms sooner, instead of waiting for the next frame."
+status = "built"
+platform = "macos"
+measured = ["Pacing a keystroke's frame by completion (row 6)"]
+
+[[feature]]
+id = "key-to-screen"
+area = "speed"
+name = "About 3 ms from key to screen"
+does = "A keystroke reaches the screen in about 3 ms through cat on a 120 Hz Mac, and `BAUD_KEYLAT=1` prints your own."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/latency.rs::off_stores_nothing_and_never_reads_the_clock"]
+measured = ["Keystroke to pixel"]
+
+[[feature]]
+id = "idle"
+area = "speed"
+name = "Quiet when idle"
+does = "An idle window draws nothing and uses about half a percent of one core; a steady cursor costs no frames at all."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/caret.rs::never_is_never"]
+measured = ["Idle CPU (row 11, measured, no change)"]
+
+[[feature]]
+id = "no-half-drawn"
+area = "speed"
+name = "No half-drawn screens"
+does = "Programs that redraw in one go, such as btop, neovim and helix, never show a half-finished screen, and a program that stalls can't hold the window for more than 33 ms."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/xterm/embedder_modes.rs::synchronized_output_toggles", "baud-core/tests/reverse_flips.rs::a_change_inside_a_synchronised_update_is_held"]
+rows = ["vt:`CSI ? 2026 h/l`"]
+chips = ["synchronised output"]
+
+[[feature]]
+id = "cold-launch"
+area = "speed"
+name = "Quick to start"
+does = "The GPU shaders ship already built, which took a cold launch from 390 ms to 134 ms when it was measured."
+status = "built"
+platform = "macos"
+tests = ["baud-present-macos/tests/metallib.rs::the_library_was_built_from_the_shaders_beside_it"]
+measured = ["The shipped `.metallib` (row 1, kept)"]
+
+[[feature]]
+id = "smooth-resize"
+area = "speed"
+name = "Smooth resizing and zoom"
+does = "A resize or zoom step costs well under a microsecond of the core's time against an 8 ms frame."
+status = "built"
+platform = "macos"
+measured = ["A drag step's core work (row 10, measured, no change)"]
+
+[[feature]]
+id = "memory"
+area = "speed"
+name = "Light on memory"
+does = "A 200 by 50 terminal adds about 0.3 MB of real memory until it fills, because space nothing has written costs nothing."
+status = "interim"
+gap = "measured on the previous core and argued, not measured again, on this one."
+platform = "both"
+measured = ["Storage"]
+
+# --- Text, fonts and emoji ------------------------------------------------
+
+[[feature]]
+id = "fonts-built-in"
+area = "text"
+name = "Fonts built in"
+does = "JetBrains Mono is built in, with its ligatures and its real bold, italic and bold-italic faces, so text looks right with no setup."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/config.rs::the_default_stack_starts_with_the_embedded_font", "baud-render/tests/styled_faces.rs::a_styled_cell_draws_its_own_face", "baud-app/src/embedded.rs::every_style_forms_the_ligatures"]
+
+[[feature]]
+id = "ligatures"
+area = "text"
+name = "Ligatures that keep the grid"
+does = "Ligatures such as => and != take exactly the cells of the characters they replace, in every style and in your own fonts."
+status = "built"
+platform = "both"
+tests = ["baud-font/tests/shape.rs::a_ligature_spans_the_cells_of_its_components"]
+
+[[feature]]
+id = "icons"
+area = "text"
+name = "Nerd Font icons built in"
+does = "The icons prompts, file managers and git tools draw work out of the box, one cell wide."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/narrow_in_wide.rs::an_icon_keeps_the_grid_phase"]
+
+[[feature]]
+id = "maths-font"
+area = "text"
+name = "Maths and technical symbols"
+does = "A built-in maths font draws technical symbols, including the ones Claude Code shows."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/host.rs::claude_codes_symbols_draw_from_stix_behind_a_configured_font"]
+
+[[feature]]
+id = "hebrew-font"
+area = "text"
+name = "Hebrew built in"
+does = "Hebrew letters and points are drawn from baud's own monospace Hebrew, made to match the built-in font, in regular and bold."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/hebrew_embedded.rs::bold_hebrew_draws_from_the_built_bold_and_italic_from_the_chain", "baud-app/src/embedded.rs::every_style_maps_the_hebrew_it_ships"]
+shipped = ["2026-10-15-hebrew-ligatures-now-form-in-apple"]
+
+[[feature]]
+id = "hebrew-italic"
+area = "text"
+name = "Italic Hebrew"
+does = "Italic Hebrew is drawn upright in the regular weight."
+status = "interim"
+gap = "the built-in italic faces carry no Hebrew yet."
+platform = "both"
+paths = ["baud-app/src/embedded.rs"]
+roadmap = ["SQ-v1.0-11"]
+
+[[feature]]
+id = "pointed-hebrew"
+area = "text"
+name = "Pointed Hebrew keeps every point"
+does = "Every vowel point and cantillation mark stays on its letter, even several in one cell, however the output was split and after it scrolls into history."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/cluster_bounds.rs::every_point_of_genesis_1_1_to_5_is_kept", "baud-render/tests/script_runs.rs::a_hebrew_point_draws_in_its_letters_cell"]
+shipped = ["2026-10-15-hebrew-vowel-points-now-sit-on"]
+
+[[feature]]
+id = "system-fallback"
+area = "text"
+name = "Every script, from your Mac's fonts"
+does = "Chinese, Japanese, Korean, Devanagari, colour emoji and extra symbols draw out of the box from the Mac's own fonts, and Menlo fills in some 1,600 characters JetBrains Mono lacks."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/config.rs::the_default_stack_carries_han_kana_hangul_devanagari_and_emoji"]
+
+[[feature]]
+id = "fallback-list"
+area = "text"
+name = "A fixed list of fallback fonts"
+does = "A character the first font lacks comes from the next font that has it, one character at a time."
+status = "partial"
+gap = "the system fonts searched are a fixed list, so a script outside it and outside your own fonts shows boxes."
+platform = "macos"
+tests = ["baud-render/tests/refused_glyph.rs::a_refused_glyph_falls_back_to_the_next_face_that_carries_it"]
+behind = "most terminals search every installed font for a character the others lack; baud searches a fixed list."
+
+[[feature]]
+id = "missing-glyph"
+area = "text"
+name = "A box, never a blank"
+does = "A character no font can draw shows a missing-glyph box, never an empty cell."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/refused_glyph.rs::a_refused_glyph_no_other_face_carries_draws_the_primarys_notdef"]
+shipped = ["2026-10-14-glyphs-too-complex-to-draw-show"]
+
+[[feature]]
+id = "missing-mark"
+area = "text"
+name = "Accents no font can draw"
+does = "If your font lacks one accent on a letter, the letter's other accents still show."
+status = "partial"
+gap = "an accent no installed font can draw is left off rather than shown as a placeholder, which the Unicode Standard asks for."
+platform = "both"
+tests = ["baud-render/tests/missing_mark.rs::a_missing_mark_takes_no_other_mark_with_it", "baud-render/tests/mark_coverage.rs::a_mark_no_face_draws_is_dropped_not_boxed"]
+
+[[feature]]
+id = "own-fonts"
+area = "text"
+name = "Your own fonts"
+does = "List your own fonts in order, each filling in what the ones before it lack, including one face of a font collection; baud's built-in fonts stay behind yours unless you turn that off."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/config.rs::a_configured_stack_keeps_the_embedded_font_behind_it", "baud-app/src/config.rs::font_fallback_reads_true_and_false_and_says_anything_else"]
+
+[[feature]]
+id = "own-fonts-styles"
+area = "text"
+name = "Bold and italic in your own fonts"
+does = "With your own fonts, bold and italic text is drawn."
+status = "partial"
+gap = "it uses your font's regular face for now, because fonts can't yet be named by family."
+platform = "both"
+paths = ["config.toml.example"]
+behind = "other terminals find your font's bold and italic faces by family name."
+roadmap = ["SQ-v1.0-12", "SQ-v1.0-06"]
+
+[[feature]]
+id = "variable-fonts"
+area = "text"
+name = "Variable fonts"
+does = "Variable fonts and the TrueType, OpenType, CFF2 and collection formats are read and drawn."
+status = "partial"
+gap = "there is no setting yet to pick a weight."
+platform = "both"
+tests = ["baud-render/tests/varied_face.rs::the_atlas_draws_a_varied_glyph_at_its_coordinates", "baud-font/tests/cff2.rs::every_sampled_cff2_outline_is_harfbuzzs"]
+shipped = ["2026-10-12-more-variable-and-cff2-fonts-load"]
+
+[[feature]]
+id = "hostile-fonts"
+area = "text"
+name = "A bad font can't crash it"
+does = "A broken or malicious font file cannot crash the terminal."
+status = "built"
+platform = "both"
+tests = ["baud-font/tests/hostile.rs::a_mutated_face_never_panics", "baud-font/tests/hostile.rs::arbitrary_bytes_never_panic"]
+
+[[feature]]
+id = "own-text-engine"
+area = "text"
+name = "Its own text engine"
+does = "baud reads fonts and arranges glyphs itself, each script by its own font rules, matching HarfBuzz on 576 test cases, with no third-party font library."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/script_runs.rs::a_run_is_cut_where_the_scripts_lookups_change", "baud-render/tests/script_runs.rs::a_bracket_pair_is_in_the_enclosing_run"]
+shipped = ["2026-10-13-each-script-is-shaped-with-its", "2026-10-15-brackets-take-the-script-of-the"]
+
+[[feature]]
+id = "font-size"
+area = "text"
+name = "Sharp at every size"
+does = "The font size is in points, scaled for the display, so text stays sharp on Retina screens and keeps its size when the window moves between screens."
+status = "built"
+platform = "macos"
+tests = ["baud-render/tests/rescale.rs::a_rescale_moves_the_metrics_and_restarts_the_atlas"]
+
+[[feature]]
+id = "zoom"
+area = "text"
+name = "Zoom"
+does = "Cmd +, Cmd - and Cmd 0 or the View menu zoom from 6 to 72 points without touching your settings file, and the window keeps its size."
+status = "built"
+platform = "macos"
+tests = ["baud-core/tests/zoomcycle.rs::a_zoom_cycle_does_not_duplicate_a_line"]
+
+[[feature]]
+id = "colour-emoji"
+area = "text"
+name = "Colour emoji"
+does = "Apple Color Emoji is drawn crisply at every size, and Noto Color Emoji style fonts work too."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/apple_strikes.rs::every_glyph_with_an_image_in_any_strike_draws_at_every_size", "baud-render/tests/cblc_sizes.rs::a_refused_size_is_never_drawn_from"]
+
+[[feature]]
+id = "gradient-emoji"
+area = "text"
+name = "Layered colour fonts"
+does = "Layered colour fonts are drawn in their flat-colour form."
+status = "partial"
+gap = "gradient glyphs are not drawn."
+platform = "both"
+paths = ["baud-font/src/colr.rs"]
+behind = "kitty and wezterm draw the gradient form of layered colour fonts."
+
+[[feature]]
+id = "emoji-one-character"
+area = "text"
+name = "Emoji stay whole"
+does = "Families, flags, skin tones and other joined emoji each stay one character, taking the columns of one."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/marks.rs::a_zwj_family_keeps_all_of_its_codepoints", "baud-core/tests/marks.rs::a_flag_sequence_keeps_all_of_its_codepoints"]
+
+[[feature]]
+id = "emoji-width"
+area = "text"
+name = "Choose how wide an emoji is"
+does = "An emoji with the emoji-style selector takes two cells, as tmux, fish and helix count it, or one if you choose."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/vs16_width.rs::a_tmux_style_redraw_lands_where_tmux_counts", "baud-app/src/config.rs::vs16_width_is_two_unless_named"]
+
+[[feature]]
+id = "keycap-emoji"
+area = "text"
+name = "Keycap emoji"
+does = "Keycap emoji such as #️⃣ and 1️⃣ show."
+status = "partial"
+gap = "they stay one cell wide until their width is decided."
+platform = "both"
+paths = ["baud-domain/src/vs16.rs"]
+
+[[feature]]
+id = "emoji-presentation"
+area = "text"
+name = "Symbols as text or as emoji"
+does = "Choose whether symbols such as a lightning bolt draw as text or in colour; text that asks for one always gets it, and a change redraws at once."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/emoji_presentation.rs::the_selector_wins_and_a_bare_character_takes_the_default", "baud-render/tests/emoji_presentation.rs::changing_the_default_redraws_in_the_new_mode"]
+
+[[feature]]
+id = "no-colour-font"
+area = "text"
+name = "No colour font, still a symbol"
+does = "A request for a colour emoji with no colour font installed shows the plain symbol, not a box."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/emoji_presentation.rs::the_stack_finds_a_face_that_draws_the_way_asked"]
+
+[[feature]]
+id = "widths"
+area = "text"
+name = "Columns that line up"
+does = "Chinese, Japanese and Korean take two columns and marks take none, with widths from Unicode's own data, so tables, prompts and editors stay aligned."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/encoding/width.rs::wide_and_fullwidth_are_two_columns", "baud-core/tests/encoding/width.rs::width_tables_match_the_pinned_data"]
+
+[[feature]]
+id = "ambiguous-width"
+area = "text"
+name = "Ambiguous-width characters, your way"
+does = "Characters whose width differs between Western and East Asian fonts take one column or two, to match vim's ambiwidth, and programs can ask which."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/encoding/width.rs::ambiguous_width_follows_the_policy", "baud-app/src/config.rs::ambiguous_width_is_narrow_unless_wide"]
+shipped = ["2026-10-15-a-setting-makes-east-asian-ambiguous"]
+
+[[feature]]
+id = "ambiguous-boxes"
+area = "text"
+name = "Box drawing under wide ambiguous characters"
+does = "With ambiguous characters set to two columns, box-drawing lines and blocks still draw."
+status = "partial"
+gap = "each is drawn one cell wide, in the first of its two cells."
+platform = "both"
+rows = ["vt:`CSI ? 1021 $ p` — DECRQM on xterm's `cjkWidth` resource"]
+
+[[feature]]
+id = "wide-halves"
+area = "text"
+name = "No half characters left behind"
+does = "Overwriting half of a wide character clears the other half."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/wide_halves.rs::every_way_onto_a_written_row_blanks_the_tail"]
+
+[[feature]]
+id = "clusters"
+area = "text"
+name = "Characters made of pieces stay together"
+does = "Accented letters, Indic conjuncts and emoji sequences stay one character: all 766 of Unicode's own test cases pass."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/encoding/graphemes.rs::matches_the_unicode_grapheme_break_suite"]
+shipped = ["2026-10-14-cell-clusters-survive-long-documents"]
+
+[[feature]]
+id = "cluster-limit"
+area = "text"
+name = "A thousand accented clusters at once"
+does = "About 1,024 different accented clusters fit on screen and in history at once, and those no longer shown are recycled."
+status = "partial"
+gap = "past that limit, extra accents are dropped."
+platform = "both"
+tests = ["baud-core/tests/cluster_sweep.rs::a_cluster_grown_a_mark_at_a_time_keeps_its_base"]
+
+[[feature]]
+id = "broken-utf8"
+area = "text"
+name = "Broken text can't eat good text"
+does = "Broken UTF-8 shows one replacement mark per bad piece and never swallows the good character after it, disguised characters are refused, and a character split across two reads appears whole."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/text.rs::an_overlong_form_is_rejected", "baud-core/tests/encoding/utf8.rs::overlong_forms_are_not_characters"]
+
+[[feature]]
+id = "latin1"
+area = "text"
+name = "Latin-1 for older systems"
+does = "Programs can switch to Latin-1 and back, with the 8-bit controls old software sends, a Latin-1 keyboard and an eight-bit Meta key."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/encoding/latin1.rs::the_encoding_switches_both_ways", "baud-core/tests/encoding/latin1.rs::eight_bit_osc_and_dcs_work_in_latin1"]
+
+[[feature]]
+id = "line-drawing"
+area = "text"
+name = "Line drawing from old programs"
+does = "Lines and corners from older curses programs show as lines."
+status = "partial"
+gap = "one position of the 32 still shows an underscore."
+platform = "both"
+tests = ["baud-core/tests/vt100/charsets.rs::the_line_drawing_set_maps_as_the_pinned_source_says"]
+rows = ["vt:`ESC ( 0` / `ESC F` (VT52)"]
+
+[[feature]]
+id = "national-sets"
+area = "text"
+name = "National character sets"
+does = "Fourteen national character sets of old DEC terminals, DEC Supplemental and JIS Katakana show the right characters."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/vt100/charsets.rs::the_national_sets_substitute"]
+rows = ["vt:`ESC ( A`", "vt:`ESC ( <` / `ESC ( % 5`", "vt:`ESC ( I`"]
+shipped = ["2026-10-12-three-more-character-sets-draw-correctly"]
+
+[[feature]]
+id = "other-sets"
+area = "text"
+name = "Other old character sets"
+does = "JIS-Roman, DEC Technical and the DEC Hebrew, Greek, Turkish and Cyrillic sets are recognised."
+status = "partial"
+gap = "most of their characters still show as plain ASCII."
+platform = "both"
+rows = ["vt:`ESC ( J`", "vt:`ESC ( >`", "vt:`ESC ( & 4`"]
+
+[[feature]]
+id = "boxes"
+area = "text"
+name = "Boxes without gaps"
+does = "Box-drawing lines, blocks and shades join with no hairline gap at every size, whatever the font, and braille dots, as in btop's graphs, are sharp."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/boxes.rs::a_frame_drawn_across_cells_has_no_seam", "baud-render/tests/boxes.rs::braille_dots_come_from_the_low_byte"]
+
+[[feature]]
+id = "centring"
+area = "text"
+name = "Glyphs sit centred"
+does = "Each glyph is centred in its cell, and one narrower than its two cells is centred across both."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/centring.rs::a_symmetric_glyph_is_centred_in_its_cell", "baud-render/tests/narrow_in_wide.rs::a_glyph_narrower_than_its_two_cells_is_centred_in_them"]
+
+[[feature]]
+id = "smoothing"
+area = "text"
+name = "Smoothing to suit the colour"
+does = "Text is smoothed to suit the colour it is drawn in, so light on dark and dark on light both read cleanly."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/contrast.rs::the_row_follows_the_drawn_colour"]
+
+[[feature]]
+id = "contrast-floor"
+area = "text"
+name = "Nearly invisible text made readable"
+does = "Text too close in colour to its background is lifted to a readable contrast, keeping its hue, while colours a program chose on purpose and pictures drawn with text are left alone. Adjustable, or off."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/floor.rs::the_worked_examples_lift_to_their_colours", "baud-render/tests/floor.rs::chosen_pairs_and_an_off_floor_are_untouched"]
+
+[[feature]]
+id = "faint"
+area = "text"
+name = "Faint text on any theme"
+does = "Faint text fades toward the background on light and dark themes alike."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/faint.rs::faint_default_text_is_half_way_to_the_page_on_both_themes"]
+
+[[feature]]
+id = "styles"
+area = "text"
+name = "Every text style"
+does = "Bold, faint, italic, strikethrough, reversed and hidden text, with hidden text fully invisible on the see-through window."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/hidden_text.rs::concealed_text_is_the_frame_of_its_spaces"]
+rows = ["vt:`CSI m`"]
+
+[[feature]]
+id = "underlines"
+area = "text"
+name = "Five underline styles"
+does = "Single, double, curly, dotted and dashed underlines, each in its own colour if a program asks."
+status = "built"
+platform = "both"
+tests = ["baud-render/tests/underline_styles.rs::every_style_paints_the_band_and_no_two_paint_it_alike", "baud-render/tests/underline_styles.rs::the_underline_colour_reaches_a_styled_line"]
+
+[[feature]]
+id = "blinking-text"
+area = "text"
+name = "Blinking text"
+does = "Slow and fast blinking text, each at its own rate, held steady under Reduce Motion."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/app.rs::each_blink_rate_flips_at_its_own_rate", "baud-app/src/app.rs::reduce_motion_holds_blinking_text_shown"]
+
+[[feature]]
+id = "rare-styles"
+area = "text"
+name = "Rare text styles"
+does = "Overline, framed and encircled text, Fraktur, alternate fonts and ideogram marks are remembered and reported back to programs."
+status = "partial"
+gap = "they are not drawn yet."
+platform = "both"
+tests = ["baud-core/tests/sgr/ideogram.rs::sgr_65_cancels_all_five", "baud-core/tests/sgr/fonts.rs::sgr_11_to_19_select_the_alternates"]
+behind = "ghostty and wezterm draw overlined text."
+
+[[feature]]
+id = "text-art"
+area = "text"
+name = "Text art keeps its colours"
+does = "Colourful text art and photo previews drawn with characters keep every cell's colour, up to one distinct colour per cell of the screen."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/marks.rs::the_style_table_is_exact_below_capacity"]
+shipped = ["2026-10-14-rendition-colours-no-longer-change-on"]
+
+# --- Keyboard, mouse and clipboard -----------------------------------------
+
+[[feature]]
+id = "keys"
+area = "input"
+name = "Every key sends what programs expect"
+does = "Arrows, Home and End, Insert and Delete, Page Up and Down, F1 to F20 and the keypad, with Shift, Ctrl and Alt, in every mode programs switch between."
+status = "built"
+platform = "both"
+rows = ["input:2473", "input:2485", "input:2529", "input:2685"]
+
+[[feature]]
+id = "meta"
+area = "input"
+name = "Option works as Meta"
+does = "Alt or Option works as Meta out of the box."
+status = "built"
+platform = "both"
+rows = ["vt:`?1036`", "vt:`?1039`"]
+
+[[feature]]
+id = "ambiguous-keys"
+area = "input"
+name = "Keys that look alike, told apart"
+does = "Programs that ask can tell apart keys that normally send the same thing, such as Ctrl-I and Tab, and bind combinations other terminals swallow."
+status = "built"
+platform = "both"
+rows = ["vt:`CSI > 4 ; 2 m`", "vt:`CSI > 4 ; 1 f`"]
+chips = ["modifyOtherKeys"]
+
+[[feature]]
+id = "kitty-keyboard"
+area = "input"
+name = "Full keyboard reporting"
+does = "Every key and modifier unambiguous, repeats reported, alternate keys and the text a key types, for editors such as Neovim and helix."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/kitty_encode.rs::every_row_of_the_table_is_gated", "baud-core/tests/kitty_encode.rs::alternate_keys_attach_to_the_number"]
+rows = ["vt:`CSI = 1 ; 1 u`, `CSI ? u`, `CSI > 1 u`, `CSI < 1 u`"]
+chips = ["kitty keyboard protocol"]
+shipped = ["2026-10-16-keypad-arrows-reach-kitty-protocol-programs"]
+
+[[feature]]
+id = "key-releases"
+area = "input"
+name = "Key releases"
+does = "Programs that ask are told when a key is let go."
+status = "partial"
+gap = "only the Linux version reports releases; the macOS app does not yet report releases or modifier keys pressed alone."
+platform = "linux"
+tests = ["baud-present-wayland/tests/handshake.rs::a_held_key_repeats_until_it_is_released"]
+behind = "the macOS app does not yet tell programs when a key is let go, or when a modifier key is pressed alone."
+roadmap = ["B1-01"]
+
+[[feature]]
+id = "key-repeat"
+area = "input"
+name = "Held keys repeat"
+does = "A held key repeats, and a program can switch repeat off."
+status = "built"
+platform = "both"
+tests = ["baud-present-wayland/tests/handshake.rs::no_repeat_before_its_rate_and_no_burst_after_a_stall"]
+rows = ["vt:`?8`"]
+
+[[feature]]
+id = "menus-own-cmd"
+area = "input"
+name = "Cmd belongs to the menus"
+does = "Cmd shortcuts go to the menus and never type into the program."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/app.rs::a_held_composition_takes_every_key_but_the_menus"]
+
+[[feature]]
+id = "input-methods"
+area = "input"
+name = "Input methods and dead keys"
+does = "Text you compose with a macOS input method is drawn underlined at the cursor, at the width it will take, and Return, Delete and the arrows edit it instead of reaching the shell."
+status = "built"
+platform = "macos"
+tests = ["baud-render/tests/composition.rs::a_dead_key_accent_draws_as_one_underlined_cell", "baud-app/src/app.rs::key_asks_the_composition_before_naming_a_special_key"]
+shipped = ["2026-10-15-text-being-composed-follows-the-wide"]
+
+[[feature]]
+id = "backspace-letter"
+area = "input"
+name = "Backspace erases the whole letter"
+does = "Backspace after a Hebrew, accented or other multi-byte letter erases the whole letter."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/pty.rs::backspace_after_a_hebrew_letter_erases_the_whole_letter"]
+
+[[feature]]
+id = "mouse"
+area = "input"
+name = "The mouse in programs"
+does = "Clicks, drags, scrolls and hovers reach programs such as vim, htop and tmux, with Shift, Ctrl and Option, in every report format including pixel-precise."
+status = "built"
+platform = "macos"
+tests = ["baud-core/tests/xterm/mouse.rs::decrqm_answers_every_mouse_mode", "baud-core/tests/xterm/mouse.rs::x10_encodes_up_to_223_inclusive"]
+rows = ["vt:`CSI ? 1000/1002/1003 h/l`", "vt:`CSI ? 1006 h/l`", "vt:`CSI ? 1016 h/l`"]
+chips = ["SGR mouse"]
+shipped = ["2026-10-09-every-mouse-reporting-mode-works-and"]
+
+[[feature]]
+id = "highlight-tracking"
+area = "input"
+name = "Programs can highlight what you drag"
+does = "A program can have the region you drag over drawn as a highlight."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/app.rs::the_program_s_region_is_drawn_through_the_selection_highlight"]
+rows = ["vt:`CSI ? 1001 h/l`"]
+
+[[feature]]
+id = "wheel-pagers"
+area = "input"
+name = "The wheel scrolls pagers"
+does = "The wheel scrolls less, man and git log, and a long fling arrives whole, even through tmux."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/wheel.rs::a_long_fling_under_herdr_reaches_the_child_whole"]
+rows = ["vt:`CSI ? 1007 h/l`"]
+
+[[feature]]
+id = "focus-reports"
+area = "input"
+name = "Programs know when you switch away"
+does = "Programs that ask are told when you switch to the window and away from it."
+status = "built"
+platform = "both"
+rows = ["vt:`CSI ? 1004 h/l`"]
+
+[[feature]]
+id = "shift-select"
+area = "input"
+name = "Shift selects inside mouse programs"
+does = "Hold Shift to select text inside a program that uses the mouse; the choice holds until you let go."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/app.rs::shift_let_go_mid_drag_leaves_the_selection_its_release"]
+
+[[feature]]
+id = "copy-paste"
+area = "input"
+name = "Copy and paste"
+does = "Cmd-C copies the selection and Cmd-V pastes."
+status = "built"
+platform = "macos"
+tests = ["baud-render/tests/select.rs::a_wrapped_row_joins_the_next_and_a_newline_ends_a_row"]
+
+[[feature]]
+id = "safe-paste"
+area = "input"
+name = "Pastes can't run commands"
+does = "A paste is marked as one for programs that ask, so a line break in it never runs a command and pasted text can't break out of the paste."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/app.rs::a_paste_is_bracketed_when_asked_and_its_line_endings_are_typed_otherwise"]
+rows = ["vt:`CSI ? 2004 h/l`"]
+chips = ["bracketed paste"]
+
+[[feature]]
+id = "long-paste"
+area = "input"
+name = "A long paste never freezes the window"
+does = "A long paste, or one into a stopped program, is fed as the program reads it, and keys typed afterwards arrive afterwards."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/pty.rs::a_full_queue_keeps_the_rest_owed_in_order_and_never_waits"]
+
+[[feature]]
+id = "program-copy"
+area = "input"
+name = "Remote programs can copy to your clipboard"
+does = "Programs, even over ssh or inside tmux, can put text on your clipboard; you can turn it off, and a copy over the size limit is refused whole with a warning."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/clip.rs::off_refuses_every_copy", "baud-app/src/config.rs::a_clipboard_section_sets_the_policy_and_the_size"]
+rows = ["vt:`OSC 52`"]
+chips = ["OSC 52"]
+shipped = ["2026-10-11-osc-52-clipboard-writes-reach-the"]
+
+[[feature]]
+id = "no-clipboard-read"
+area = "input"
+name = "No program can read your clipboard"
+does = "Requests to read the clipboard get no answer, and no setting turns them on."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/xterm/osc.rs::a_clipboard_read_is_refused_silently"]
+
+[[feature]]
+id = "links"
+area = "input"
+name = "Links open safely"
+does = "Cmd-click opens web and mail links programs mark as links; a link to a file is shown in Finder, never launched, and any other kind is refused."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/link.rs::a_file_link_is_local_or_refused", "baud-app/src/link.rs::a_hostless_web_url_is_refused"]
+rows = ["vt:`OSC 8`"]
+chips = ["hyperlinks"]
+behind = "plain web addresses printed as text are not clickable yet, and a link's address is not shown before it opens."
+roadmap = ["F1-03", "F1-04"]
+
+[[feature]]
+id = "link-honest"
+area = "input"
+name = "A link goes where it says"
+does = "A link never leads anywhere but the address the program wrote: when the link table is full, the text stays plain."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/xterm/hyperlinks.rs::the_link_table_is_bounded_and_refuses_rather_than_grows"]
+
+# --- Scrollback, selection and resizing ------------------------------------
+
+[[feature]]
+id = "scroll-back"
+area = "scroll"
+name = "Scroll back through everything"
+does = "The wheel and trackpad move through the lines that scrolled off the top, with trackpad movement adding up to whole lines."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/wheel.rs::whole_lines_land_at_once", "baud-app/src/wheel.rs::settling_drops_the_remainder"]
+
+[[feature]]
+id = "read-back"
+area = "scroll"
+name = "Reading back stays put"
+does = "New output doesn't drag you down while you read back; typing, pasting or clearing the history takes you back to the live screen."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/app.rs::a_window_looking_back_follows_the_ring_and_is_bounded_by_it", "baud-app/src/app.rs::an_erased_history_puts_the_window_on_the_live_screen_however_the_read_falls"]
+shipped = ["2026-10-14-the-terminal-remembers-where-you-scrolled"]
+
+[[feature]]
+id = "scrollbar"
+area = "scroll"
+name = "A scrollbar like macOS's"
+does = "It appears while you scroll and fades away, widens when you point at it, and can be dragged or clicked; with \"Show scroll bars: Always\" it gets its own strip beside the text."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/reveal.rs::the_look_changes_only_while_it_fades", "baud-app/src/app.rs::a_legacy_gutter_takes_its_columns_and_the_frame_fits"]
+
+[[feature]]
+id = "smooth-scroll"
+area = "scroll"
+name = "Smooth scrolling"
+does = "Output slides up instead of jumping, never more than one row behind, so a fast program never makes it lag; it can be set to jump instead."
+status = "partial"
+gap = "it slides only on the default GPU path, and lines with accents or ligatures jump rather than slide."
+platform = "macos"
+tests = ["baud-render/src/scroll.rs::a_burst_is_capped_at_one_row_so_latency_cannot_accumulate", "baud-app/src/config.rs::the_scroll_mode_is_smooth_unless_asked_for"]
+measured = ["Smooth scroll's per-frame cost (measured, under the floor)"]
+
+[[feature]]
+id = "selection"
+area = "scroll"
+name = "Select anything, history included"
+does = "Drag to select, double-click for a word, triple-click for a line, Shift-click to extend and Option-drag for a rectangle, reaching back into the scrollback."
+status = "built"
+platform = "macos"
+tests = ["baud-render/src/select.rs::a_word_stops_at_delimiters_blanks_and_empty_cells", "baud-render/tests/select.rs::a_range_over_the_history_reads_the_lines_the_ring_kept", "baud-app/src/app.rs::option_starts_a_block_and_wins_over_shift"]
+
+[[feature]]
+id = "selection-honest"
+area = "scroll"
+name = "You never copy text that is gone"
+does = "A selection disappears when the text under it is redrawn, scrolled away, reset or switched."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/app.rs::rows_moved_in_place_drop_a_selection_on_them_and_only_there", "baud-app/src/app.rs::a_reset_drops_a_selection_even_with_no_history"]
+
+[[feature]]
+id = "reflow"
+area = "scroll"
+name = "Resizing rewraps"
+does = "Making the window narrower or wider rewraps long lines instead of cutting them, and keeps your history."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/reflow.rs::the_history_reflows_with_the_screen", "baud-core/tests/resize_matrix.rs::output_comes_back_when_the_window_does"]
+shipped = ["2026-10-15-wrapped-lines-re-wrap-correctly-after"]
+
+[[feature]]
+id = "one-prompt"
+area = "scroll"
+name = "One prompt after a resize"
+does = "Resizing at a prompt your shell marks leaves one prompt, not a stack of repeats."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/resize_recorded.rs::a_gesture_leaves_one_prompt_on_screen", "baud-core/tests/semantic.rs::a_prompt_is_not_recut_by_a_resize"]
+rows = ["vt:`OSC 133`"]
+
+[[feature]]
+id = "resize-place"
+area = "scroll"
+name = "Resizing keeps your place"
+does = "Resizing while scrolled back keeps you on the line you were reading, and full-screen programs redraw into the new size as you drag."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/app.rs::a_width_reflow_keeps_the_window_on_its_line", "baud-app/src/app.rs::honour_resizes_inside_the_read_and_keeps_the_rows"]
+
+[[feature]]
+id = "alt-screen"
+area = "scroll"
+name = "Full-screen programs give your screen back"
+does = "vim, less and htop get a screen of their own, and your earlier output comes back exactly as it was when they exit."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/legacy_alt_screen.rs::a_47_round_trip_leaves_the_primary_as_it_was"]
+rows = ["vt:`CSI ? 1049 h/l`", "vt:`?47`"]
+
+[[feature]]
+id = "regions"
+area = "scroll"
+name = "Headers and status lines stay still"
+does = "Scroll regions and left and right margins keep a program's headers, status lines and side panes still, and lines leaving a region at the top go into your history."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/scrollback.rs::a_top_log_pane_keeps_every_line_it_scrolls_off", "baud-core/tests/vt420/side_margins.rs::ris_resets_the_side_margins"]
+rows = ["vt:`CSI r`", "vt:`CSI s` (DECSLRM)", "vt:`?69`"]
+shipped = ["2026-10-15-side-margins-are-finished-vt420-style", "2026-10-15-new-lines-and-cursor-moves-stay", "2026-10-15-cursor-up-and-down-stop-at", "2026-10-13-side-margins-and-scroll-regions-follow"]
+
+[[feature]]
+id = "clear-history"
+area = "scroll"
+name = "Clear means clear"
+does = "Clearing the scrollback empties the history and leaves the screen; a reset leaves nothing of the old text behind."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/scrollback.rs::a_full_reset_leaves_nothing_of_the_old_text_in_the_ring"]
+rows = ["vt:`CSI 3 J`", "vt:`ESC c`"]
+shipped = ["2026-10-09-csi-3-j-clears-saved-history"]
+
+# --- Window, colours and bell -------------------------------------------------
+
+[[feature]]
+id = "glass"
+area = "window"
+name = "Liquid Glass"
+does = "The window is macOS's glass, clear or frosted, with how see-through, how tinted and how shadowed it is set separately for light and dark."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/config.rs::a_glass_section_sets_every_one_of_its_keys", "baud-render/src/composite.rs::glass_presents_as_the_gpu_blends"]
+
+[[feature]]
+id = "panels-and-pictures"
+area = "window"
+name = "Panels see-through, pictures solid"
+does = "Backgrounds programs paint, such as btop's panels, let the glass through, or stay solid if you prefer, while photos drawn with characters stay solid so they don't dissolve."
+status = "built"
+platform = "macos"
+tests = ["baud-render/tests/pictures.rs::every_chafa_capture_is_a_picture_in_every_cell", "baud-app/src/config.rs::app_backgrounds_are_dimmed_unless_asked_for_opaque"]
+
+[[feature]]
+id = "linux-glass"
+area = "window"
+name = "See-through on Linux"
+does = "The background's see-through level and the panel and picture rules carry over to Linux, with the same shades as on macOS."
+status = "partial"
+gap = "nobody has looked at the result on a real Linux screen yet."
+platform = "linux"
+paths = ["baud-app/src/linux.rs"]
+shipped = ["2026-10-16-linux-and-macos-give-the-same"]
+roadmap = ["F2-02"]
+
+[[feature]]
+id = "window-frame"
+area = "window"
+name = "A margin around the text"
+does = "8 points around the text by default, or none, with the first line below the window buttons."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/width.rs::the_content_width_is_the_cells_the_gutter_and_the_padding"]
+
+[[feature]]
+id = "window-title"
+area = "window"
+name = "Window titles"
+does = "A title a program sets is cleaned of hidden codes and set on the window, where the Window menu, Mission Control and accessibility tools show it."
+status = "partial"
+gap = "the glass window does not draw it in its title bar."
+platform = "macos"
+tests = ["baud-app/src/title.rs::an_empty_or_blank_title_is_the_fallback", "baud-app/src/title.rs::ill_formed_utf8_is_the_replacement_character"]
+behind = "every other terminal draws the window title in its title bar."
+roadmap = ["SQ-v1.0-05"]
+
+[[feature]]
+id = "appearance"
+area = "window"
+name = "Light and dark, automatically"
+does = "baud follows System Settings and switches the moment you do, from the first frame, or you can pin one."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/app.rs::the_palette_switches_only_under_auto_and_only_on_a_change"]
+
+[[feature]]
+id = "appearance-programs"
+area = "window"
+name = "Programs follow the appearance too"
+does = "When the appearance flips, colours a program changed are reset, and programs that asked are told, so their colours can follow."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/app.rs::only_the_appearance_switch_drops_program_colours", "baud-core/tests/color_scheme.rs::a_flip_without_the_mode_is_silent"]
+rows = ["vt:`CSI ? 2031 h/l`"]
+
+[[feature]]
+id = "linux-theme"
+area = "window"
+name = "Light and dark on Linux"
+does = "The Linux version uses dark colours, or light if you choose."
+status = "partial"
+gap = "the desktop's own light or dark setting is not read yet."
+platform = "linux"
+paths = ["baud-app/src/linux.rs"]
+roadmap = ["F2-06"]
+
+[[feature]]
+id = "built-in-colours"
+area = "window"
+name = "Colours built in"
+does = "xterm's sixteen colours on dark, and Modus Operandi's on light."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/host.rs::osc_4_answers_the_light_themes_modus_green"]
+
+[[feature]]
+id = "themes"
+area = "window"
+name = "Your own themes"
+does = "A base16, base24 or ghostty theme for each of light and dark; a broken theme, or a light one used for dark, is reported and baud's colours are kept."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/palette.rs::the_halves_load_and_say_what_they_must", "baud-app/src/palette.rs::a_polarity_notice_says_what_came_from_baud"]
+
+[[feature]]
+id = "program-colours"
+area = "window"
+name = "Programs can set and ask colours"
+does = "Programs can set and reset the palette and default colours, ask for them, and ask whether your theme is dark or light; reverse video swaps every colour."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/palette_query.rs::an_override_wins_over_the_table", "baud-core/tests/palette_reset.rs::both_resets_clear_every_palette_override"]
+rows = ["vt:`OSC 4`", "vt:`OSC 10` / `OSC 11`", "vt:`CSI ? 996 n`", "vt:`?5`"]
+shipped = ["2026-10-14-reverse-video-swaps-every-cell-s"]
+
+[[feature]]
+id = "true-colour"
+area = "window"
+name = "Millions of colours"
+does = "16, 256 and 24-bit colour, in both spellings programs use."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/sgr/subparams.rs::a_colon_group_is_one_attribute"]
+rows = ["vt:`CSI m`"]
+
+[[feature]]
+id = "reduce-motion"
+area = "window"
+name = "Reduce Motion respected"
+does = "With macOS's Reduce Motion on there is no default cursor trail, a plain blink, still blinking text and no flash for the bell, and switching it takes effect within a frame."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/config.rs::reduce_motion_turns_the_default_off_and_leaves_a_named_trail", "baud-app/src/caret.rs::reduce_motion_draws_a_hard_blink", "baud-app/src/app.rs::the_tick_polls_the_motion_preference"]
+
+[[feature]]
+id = "screen-fade"
+area = "window"
+name = "A fade for full-screen programs"
+does = "An optional fade when a full-screen program opens or exits, off by default."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/config.rs::the_screen_transition_is_off_unless_asked_for", "baud-render/tests/cpu_overlays.rs::the_cpu_path_draws_the_screen_fade"]
+
+[[feature]]
+id = "bell"
+area = "window"
+name = "The bell, your way"
+does = "The Mac's alert sound, a short flash or nothing; a burst rings once, and a bell in a background window never makes a sound."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/bell.rs::bells_within_one_frame_ring_once", "baud-app/src/config.rs::bell_is_sound_unless_named"]
+shipped = ["2026-10-14-the-bell-now-rings-on-macos"]
+
+[[feature]]
+id = "bell-attention"
+area = "window"
+name = "A bell can ask for attention"
+does = "A program can ask for the Dock icon to bounce, or for the window to come forward without taking the keyboard."
+status = "built"
+platform = "macos"
+tests = ["baud-core/tests/xterm/bell_modes.rs::the_bell_modes_land_the_same_at_every_read_split"]
+rows = ["vt:`CSI ? 1042 h/l`", "vt:`CSI ? 1043 h/l`"]
+
+[[feature]]
+id = "linux-bell"
+area = "window"
+name = "The bell on Linux"
+does = "A bell on Linux is counted."
+status = "partial"
+gap = "it rings nothing yet."
+platform = "linux"
+rows = ["vt:`0x07` BEL"]
+
+# --- The cursor -------------------------------------------------------------
+
+[[feature]]
+id = "cursor-shape"
+area = "cursor"
+name = "Your shape"
+does = "Block, underline or bar, which programs can still change, as vim does in insert mode, and which a reset returns to."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/config.rs::the_cursor_is_a_blinking_block_unless_configured"]
+rows = ["vt:`CSI SP q`"]
+
+[[feature]]
+id = "cursor-colour"
+area = "cursor"
+name = "Programs can hide and recolour it"
+does = "Programs can hide, show and recolour the cursor, and every shape takes the colour."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/xterm/osc.rs::osc_12_sets_and_reads_the_cursor_colour"]
+rows = ["vt:`?25`", "vt:`OSC 12` / `OSC 112`"]
+
+[[feature]]
+id = "cursor-blink"
+area = "cursor"
+name = "Your blink"
+does = "The cursor follows macOS's \"prefer non-blinking cursor\" and its caret rate, or your own interval; it blinks only while the window is in front, shows at once when you type, and can stop after a quiet spell."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/config.rs::blink_interval_reads_milliseconds_and_refuses_the_rest", "baud-app/src/config.rs::stop_blinking_after_reads_seconds_and_zero_is_never"]
+
+[[feature]]
+id = "vim-blink"
+area = "cursor"
+name = "vim can't stop your blink"
+does = "vim's start-up and exit codes no longer stop a cursor you set to blink."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/cursor_blink_rule.rs::twelve_ors_with_the_styles_blink"]
+rows = ["vt:`?12`"]
+
+[[feature]]
+id = "blink-animations"
+area = "cursor"
+name = "A blink that animates"
+does = "While blinked off, the cursor can glow like plasma, fade, burn into embers, be lifted away by a tiny flying saucer, or simply switch off."
+status = "built"
+platform = "macos"
+tests = ["baud-render/src/caret.rs::the_glow_stays_on_the_cursor_cell", "baud-render/src/caret.rs::the_fire_burns_down_into_embers_and_relights", "baud-render/src/caret.rs::the_ufo_lifts_the_cursor_and_sets_it_down"]
+shipped = ["2026-10-15-fire-and-ufo-cursor-blinks", "2026-10-15-the-cursor-blinks-evenly-with-a"]
+
+[[feature]]
+id = "trails"
+area = "cursor"
+name = "Trails"
+does = "When the cursor jumps it can leave a short trail of plasma, fire, lightning, ice, a flying saucer and more; typing never leaves one, the fiery ones never strobe, and a trail follows helix even when helix hides its cursor. Each is shown in [the cursor gallery](../cursor.md)."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/trail.rs::two_cells_or_fewer_from_rest_snap", "baud-app/src/config.rs::the_cursor_page_shows_every_trail", "baud-app/src/app.rs::helix_trails_on_ge_and_gg"]
+
+[[feature]]
+id = "trails-cpu"
+area = "cursor"
+name = "Trails on the CPU path"
+does = "When the Mac's GPU can't be used, the CPU path still draws a trail, in the same shades as the GPU."
+status = "partial"
+gap = "every trail style is drawn as the plain stretching one there."
+platform = "macos"
+tests = ["baud-app/src/app.rs::an_effect_on_the_cpu_path_runs_as_the_quad", "baud-render/tests/cpu_overlays.rs::the_cpu_path_draws_the_trail"]
+shipped = ["2026-10-16-the-cursor-trail-and-see-through"]
+
+# --- Pictures -----------------------------------------------------------------
+
+[[feature]]
+id = "sixel"
+area = "images"
+name = "Inline images"
+does = "Images from img2sixel, chafa, yazi and gnuplot show inline, partly transparent where they ask, at any length, decoded as they arrive."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/sixel.rs::a_sixel_is_decoded_and_placed", "baud-core/tests/sixel.rs::a_sixel_is_chunk_invariant"]
+rows = ["vt:`DCS Pa ; Pb ; Ph q ... ST`"]
+chips = ["Sixel"]
+shipped = ["2026-10-15-images-can-be-partly-transparent-and", "2026-10-14-large-sixel-images-are-decoded-as"]
+
+[[feature]]
+id = "sixel-background"
+area = "images"
+name = "Solid image backgrounds"
+does = "A Sixel image is drawn whatever background it asks for."
+status = "partial"
+gap = "an image that asks for a solid background is drawn without it."
+platform = "both"
+tests = ["baud-core/tests/sixel.rs::a_transparent_p2_is_not_counted"]
+behind = "foot and wezterm fill the solid background a Sixel image asks for."
+roadmap = ["B2-23"]
+
+[[feature]]
+id = "sixel-options"
+area = "images"
+name = "Image scrolling and colour options"
+does = "Images that scroll or stay put, the cursor left beside the image, private colours per image, and a colour query."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/sixel_modes.rs::decrqm_answers_each_sixel_mode_from_its_state"]
+rows = ["vt:`CSI ? 80 h/l`", "vt:`CSI ? 1070 h/l`", "vt:`CSI ? 8452 h/l`", "vt:`CSI ? 1 ; 1 ; 0 S`"]
+shipped = ["2026-10-15-programs-can-control-how-sixel-pictures"]
+
+[[feature]]
+id = "sixel-advertise"
+area = "images"
+name = "Images announced only when you say so"
+does = "baud tells programs it draws Sixel only once you turn on `advertise_sixel`, so file managers keep their text previews until then."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/config.rs::advertising_sixel_is_off_unless_asked"]
+
+[[feature]]
+id = "kitty-graphics"
+area = "images"
+name = "Pictures from image tools"
+does = "Raw, compressed and PNG pictures from kitten icat, yazi and timg, sent in pieces of any size and decoded quickly."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/kitty_graphics.rs::each_image_is_marked_by_its_own_pixels"]
+rows = ["vt:`APC G a=t` / `a=T` / `a=q`"]
+chips = ["kitty graphics protocol"]
+shipped = ["2026-10-16-kitty-s-image-protocol-works", "2026-10-16-raw-pixel-kitty-pictures-arrive-ten", "2026-10-16-png-decoding-three-times-faster", "2026-10-16-png-decoding-14-faster", "2026-10-15-interlaced-png-images-now-decode"]
+
+[[feature]]
+id = "image-placement"
+area = "images"
+name = "Pictures placed, cropped and layered"
+does = "Pictures are placed, cropped, scaled and layered under or over text, behind coloured text when asked and through the tinted glass, and scroll with it."
+status = "partial"
+gap = "scaled pictures use blocky nearest-pixel sampling for now."
+platform = "both"
+tests = ["baud-render/tests/kitty_draw.rs::a_negative_z_draws_under_the_text", "baud-render/tests/kitty_draw.rs::the_source_rectangle_is_what_is_drawn"]
+rows = ["vt:`APC G a=p`"]
+shipped = ["2026-10-16-kitty-pictures-are-cropped-scaled-and", "2026-10-16-background-pictures-sit-behind-coloured-text", "2026-10-16-background-pictures-show-through-tinted-glass", "2026-10-16-pictures-over-the-see-through-window"]
+roadmap = ["F1-43"]
+
+[[feature]]
+id = "image-placeholders"
+area = "images"
+name = "Pictures through tmux"
+does = "Pictures sent as placeholder characters work inside tmux and editors, and stay put while scrolling."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/kitty_placeholder.rs::the_texts_examples_resolve_as_it_says", "baud-render/tests/kitty_placeholder.rs::kittens_placeholders_place_the_picture"]
+rows = ["vt:`APC G a=p,U=1` / `a=T,U=1`, `U+10EEEE`"]
+shipped = ["2026-10-16-kitty-pictures-work-through-tmux", "2026-10-16-pictures-through-tmux-stay-put-while"]
+
+[[feature]]
+id = "image-delete"
+area = "images"
+name = "Pictures go when asked"
+does = "Programs can delete pictures; typing over them does not erase them, and clearing the screen or a reset does."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/kitty_graphics.rs::a_delete_aborts_an_upload_in_flight"]
+rows = ["vt:`APC G a=d`"]
+
+[[feature]]
+id = "image-memory"
+area = "images"
+name = "Picture memory under control"
+does = "Pictures use up to 95 MiB by default, adjustable, and nothing until one arrives; the oldest off-screen ones make room, one too big is refused whole with a warning, and a deleted one gives its memory back."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/pages.rs::a_deleted_png_gives_its_pages_back", "baud-app/src/host.rs::a_refusal_is_said_by_the_limit_it_hit", "baud-app/src/config.rs::an_images_section_sets_the_arena_and_says_body_kb_is_gone"]
+shipped = ["2026-10-16-deleting-a-picture-gives-its-memory", "2026-10-16-even-more-picture-memory-goes-back", "2026-10-16-a-picture-that-can-t-be", "2026-10-16-full-window-pictures-fit-at-no"]
+
+[[feature]]
+id = "image-files"
+area = "images"
+name = "Pictures from files, safely"
+does = "Pictures can be read from a file, a temporary file or shared memory, and a program can't use this to read system files or to probe yours."
+status = "partial"
+gap = "a relative path is accepted for now, and the Linux side has not run."
+platform = "macos"
+tests = ["baud-app/src/kitty_files.rs::proc_sys_and_dev_are_refused_by_component", "baud-core/tests/kitty_graphics.rs::every_file_failure_answers_one_identical_reply"]
+rows = ["vt:`APC G t=f` / `t=t` / `t=s`"]
+shipped = ["2026-10-16-kitty-pictures-can-be-sent-as", "2026-10-16-picture-files-can-t-be-used", "2026-10-16-a-refused-picture-file-no-longer"]
+
+[[feature]]
+id = "image-anchor"
+area = "images"
+name = "Pictures stay with their line"
+does = "Pictures stay with their line through scrolling, resizing and a shell redrawing its prompt."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/image_anchor.rs::il_and_dl_carry_an_image_with_its_line", "baud-core/tests/image_anchor.rs::a_narrower_screen_keeps_the_image_under_its_line"]
+
+[[feature]]
+id = "image-size-reports"
+area = "images"
+name = "Image tools know the cell size"
+does = "Image tools can ask the cell and window size in pixels, and are told the new size after every resize or zoom."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/inband.rs::a_resize_reports_what_the_terminal_has"]
+rows = ["vt:`CSI ? 2048 h/l`", "vt:`CSI 14 t`, `CSI 16 t`, `CSI 18 t`"]
+
+# --- Platforms and settings -------------------------------------------------
+
+[[feature]]
+id = "macos-app"
+area = "platforms"
+name = "macOS app"
+does = "Needs macOS 26 or later, draws on the GPU with Metal and falls back to the CPU; on an older Mac it says what it needs and quits instead of crashing."
+status = "built"
+platform = "macos"
+tests = ["baud-app/tests/macos_floor.rs::the_bundle_the_binary_and_the_shaders_name_one_floor", "baud-app/src/app.rs::a_system_without_the_glass_is_refused_with_the_release_named"]
+shipped = ["2026-10-13-baud-requires-macos-26-and-says"]
+
+[[feature]]
+id = "linux"
+area = "platforms"
+name = "Linux"
+does = "The same terminal core on Wayland, drawn on the CPU, with keyboard input and window titles."
+status = "partial"
+gap = "it has run only on a headless compositor: no mouse, paste, clipboard or bell yet, font sizes are in pixels, and GPU drawing has not started."
+platform = "linux"
+tests = ["baud-present-wayland/tests/handshake.rs::a_window_opens_shows_a_frame_and_types"]
+behind = "the Linux version has run only headless, with no mouse, paste, clipboard or GPU drawing yet."
+roadmap = ["F2-03", "F2-02", "SQ-1.x-06"]
+
+[[feature]]
+id = "shell"
+area = "platforms"
+name = "Your shell, set up right"
+does = "baud starts your login shell, in your home folder when opened from the Dock and with your language setting, or one command with `BAUD_CMD`."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/pty.rs::a_shell_spawned_under_launchd_starts_home", "baud-app/src/pty.rs::a_child_with_no_locale_is_given_the_one_baud_found"]
+shipped = ["2026-10-14-a-baud-opened-from-the-dock"]
+
+[[feature]]
+id = "clean-environment"
+area = "platforms"
+name = "A clean environment"
+does = "Programs see baud with full colour, and nothing of the terminal you started it from."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/pty.rs::the_child_names_baud_and_no_outer_terminal"]
+
+[[feature]]
+id = "settings-file"
+area = "platforms"
+name = "One optional settings file"
+does = "Keep only what you change in one file; baud never reads a stray file from the folder it started in."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/config.rs::the_lookup_is_three_places_and_no_relative_one", "baud-app/src/config.rs::the_working_directory_is_not_searched_for_a_config"]
+
+[[feature]]
+id = "settings-forgiving"
+area = "platforms"
+name = "A typo never stops baud starting"
+does = "An unknown setting is skipped with a warning naming it, a bad value falls back and baud says so, and settings from older versions are explained rather than dropped."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/config.rs::a_value_outside_the_unit_range_is_clamped_and_a_word_is_refused", "baud-app/src/config.rs::font_smoothing_is_reported_gone"]
+
+[[feature]]
+id = "settings-example"
+area = "platforms"
+name = "An example file that does what it says"
+does = "The example settings file is checked by a test to do what its comments say."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/config.rs::the_committed_example_parses_to_what_it_documents"]
+
+[[feature]]
+id = "logging"
+area = "platforms"
+name = "Quiet unless asked"
+does = "baud is quiet by default, and `BAUD_LOG` turns on its messages."
+status = "built"
+platform = "both"
+tests = ["baud-app/src/log.rs::baud_log_names_its_levels_and_defaults_to_warn"]
+
+# --- Embedding the core -------------------------------------------------------
+
+[[feature]]
+id = "embed"
+area = "embedding"
+name = "A library any program can use"
+does = "The core that interprets a terminal's output is a library with no operating-system dependency, and the guide's example is compiled with every build."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/embedding.rs::the_embedding_guide_example_is_the_compiled_example"]
+paths = ["docs/embedding.md", "baud-core/examples/quickstart.rs"]
+
+# --- Not built yet ------------------------------------------------------------
+
+[[missing]]
+name = "Search"
+area = "scroll"
+does = "Searching the scrollback is not built yet."
+roadmap = ["SQ-v1.0-08"]
+
+[[missing]]
+name = "Right-to-left text"
+area = "text"
+does = "Hebrew and Arabic are shown left to right, in the order the program sent them; reordering is not built yet."
+roadmap = ["SQ-v1.0-01"]
+
+[[missing]]
+name = "Copy on select"
+area = "input"
+does = "Selecting text does not copy it yet; Cmd-C does."
+roadmap = ["SQ-v1.0-07"]
+
+[[missing]]
+name = "More than one window"
+area = "window"
+does = "baud opens one window; Cmd-N for another is not built yet."
+roadmap = ["SQ-v1.0-10"]
+
+# --- Done roadmap items that are not a feature of their own -------------------
+
+[[unlisted]]
+id = "2026-10-16-the-character-grouping-rules-can-no"
+why = "a check that the grouping rules agree with each other; what it protects is the clusters feature"
+
+[[unlisted]]
+id = "2026-10-16-generated-text-tables-are-checked-against"
+why = "a build check on generated tables, not something a person uses"
+
+# --- Protocols ------------------------------------------------------------------
+
+[[protocol]]
+name = "synchronised output"
+origin = "the terminal working group"
+row = "vt:`CSI ? 2026 h/l`"
+
+[[protocol]]
+name = "modifyOtherKeys"
+origin = "xterm"
+row = "vt:`CSI > 4 ; 2 m`"
+
+[[protocol]]
+name = "kitty keyboard protocol"
+origin = "kitty"
+row = "vt:`CSI = 1 ; 1 u`, `CSI ? u`, `CSI > 1 u`, `CSI < 1 u`"
+
+[[protocol]]
+name = "SGR mouse"
+origin = "xterm"
+row = "vt:`CSI ? 1006 h/l`"
+
+[[protocol]]
+name = "bracketed paste"
+origin = "xterm"
+row = "vt:`CSI ? 2004 h/l`"
+
+[[protocol]]
+name = "OSC 52"
+origin = "xterm"
+row = "vt:`OSC 52`"
+
+[[protocol]]
+name = "hyperlinks"
+origin = "VTE and iTerm2"
+row = "vt:`OSC 8`"
+
+[[protocol]]
+name = "Sixel"
+origin = "DEC"
+row = "vt:`DCS Pa ; Pb ; Ph q ... ST`"
+
+[[protocol]]
+name = "kitty graphics protocol"
+origin = "kitty"
+row = "vt:`APC G a=t` / `a=T` / `a=q`"

@@ -93,6 +93,7 @@ The test suite is layered, and each layer catches a different class:
 | `golden.rs` | what `baud-core2` rendered for 54 fixtures and 9 recordings, frozen as data before that crate was deleted, and moved since only where `recordings.txt` records a decision (two recordings). It finds regressions on recorded bytes and nothing else |
 | `cell_table.rs` | the three-byte cell table against the write path, on all 65,536 sequences — so turning `cell-table` on cannot change the screen |
 | `docs.rs`, `coverage.rs`, `embedding.rs`, `api_coverage.rs` | the documents checking the code: every cited path and test name resolves, every `done` row has a test, the embedding guide's example compiles, every `pub fn` has a caller |
+| `feature_list.rs` | the feature list and the roadmap: it runs `python3 scripts/gen-features.py --check`, which fails when `docs/guide/features.md` or `docs/roadmap.md` differs from what the script writes from `docs/data/`, when a feature's proof path or test is gone, or when a feature marked built names none. Edit the data and rerun the script; the pages are never edited by hand |
 | `baud-difftest/tests/alacritty.rs` | cell-by-cell agreement with alacritty |
 | `baud-sfte-difftest/tests/sfte.rs` | agreement with sfte, a second implementation, on the grid, the cursor and the replies, at every 4096-byte read of every fixture and recording; what differs is pinned with its reason. Its build copies the header pinned in `docs/research/sources/`, applies `baud-sfte-difftest/patches/` to the copy, and compiles that with `cc` |
 
