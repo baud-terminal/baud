@@ -145,7 +145,8 @@ Your history stays where you left it, through output, selection and resizing.
 
 A see-through window that follows your Mac's appearance.
 
-- **Liquid Glass** — The window is macOS's glass, clear or frosted, with how see-through, how tinted and how shadowed it is set separately for light and dark. *macOS.* <sub>[proof](../../baud-app/src/config.rs)</sub>
+- **Liquid Glass** — The window is macOS's glass, frosted by default as Apple recommends behind text, or clear, and see-through only as far as text stays readable over a white or a black window behind. How see-through, how tinted and how shadowed it is are set separately for light and dark. *macOS.* <sub>[proof](../../baud-app/src/config.rs)</sub>
+- **Reduce Transparency and Increase Contrast** — With Reduce Transparency on, the text area turns solid; with Increase Contrast on, text too close to its background is lifted further. Both follow the settings as you change them. *macOS.* <sub>[proof](../../baud-app/src/app.rs)</sub>
 - **Panels see-through, pictures solid** — Backgrounds programs paint, such as btop's panels, let the glass through, or stay solid if you prefer, while photos drawn with characters stay solid so they don't dissolve. *macOS.* <sub>[proof](../../baud-render/tests/pictures.rs)</sub>
 - **See-through on Linux** — The background's see-through level and the panel and picture rules carry over to Linux, with the same shades as on macOS. *Linux, headless so far.* **Partly:** nobody has looked at the result on a real Linux screen yet. <sub>[proof](../../baud-app/src/linux.rs)</sub>
 - **A margin around the text** — 8 points around the text by default, or none, with the first line below the window buttons. *macOS.* <sub>[proof](../../baud-app/src/width.rs)</sub>

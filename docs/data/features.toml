@@ -1148,10 +1148,19 @@ shipped = ["2026-10-09-csi-3-j-clears-saved-history"]
 id = "glass"
 area = "window"
 name = "Liquid Glass"
-does = "The window is macOS's glass, clear or frosted, with how see-through, how tinted and how shadowed it is set separately for light and dark."
+does = "The window is macOS's glass, frosted by default as Apple recommends behind text, or clear, and see-through only as far as text stays readable over a white or a black window behind. How see-through, how tinted and how shadowed it is are set separately for light and dark."
 status = "built"
 platform = "macos"
-tests = ["baud-app/src/config.rs::a_glass_section_sets_every_one_of_its_keys", "baud-render/src/composite.rs::glass_presents_as_the_gpu_blends"]
+tests = ["baud-app/src/config.rs::a_glass_section_sets_every_one_of_its_keys", "baud-app/src/config.rs::the_default_dims_keep_text_readable_over_white_and_black", "baud-render/src/composite.rs::glass_presents_as_the_gpu_blends"]
+
+[[feature]]
+id = "glass-accessibility"
+area = "window"
+name = "Reduce Transparency and Increase Contrast"
+does = "With Reduce Transparency on, the text area turns solid; with Increase Contrast on, text too close to its background is lifted further. Both follow the settings as you change them."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/app.rs::reduce_transparency_draws_every_background_opaque", "baud-app/src/app.rs::increase_contrast_makes_the_floor_stricter", "baud-app/src/app.rs::the_tick_and_the_launch_read_the_display_settings"]
 
 [[feature]]
 id = "panels-and-pictures"

@@ -26717,3 +26717,192 @@ bytes  = 38687
 status = "external"
 group  = "Y"
 # Read and hash-verified; not committed -- a vendor page.
+
+# Group AS, for the glass's legibility (note AS, the owner's 2026-10-17 "we should
+# follow apple recommendations for osx"): Apple's guidance on the material, the
+# dimming and the Reduce Transparency and Increase Contrast settings, and Apple's
+# own Terminal. Each page was fetched 2026-10-17 from the documentation JSON
+# endpoint or as HTML; the Terminal profiles were read on macOS 27.0. Re-fetch or
+# re-read and compare the sha256.
+
+[sources.apple-hig-color]
+key    = "apple-hig-color"
+title  = "Human Interface Guidelines: Color -- 'Liquid Glass appears more opaque in larger elements like sidebars to preserve legibility' (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/design/human-interface-guidelines"
+url    = "https://developer.apple.com/tutorials/data/design/human-interface-guidelines/color.json"
+file   = ""
+sha256 = "262ce33cb88d41ac0238bf1e3f59b7957e8ddb030379c41b35a6cbdb9ab11a39"
+bytes  = 182037
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-wwdc25-219]
+key    = "apple-wwdc25-219"
+title  = "WWDC25 session 219, Meet Liquid Glass -- Regular and Clear, the three conditions for Clear, its dimming layer, and what Reduce Transparency and Increase Contrast do to the material (page with transcript, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/videos"
+url    = "https://developer.apple.com/videos/play/wwdc2025/219/"
+file   = ""
+sha256 = "4c4bde021010843c8665cf901d78dc74b1366b9d9068e956014aa73d164def01"
+bytes  = 156313
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-wwdc25-310]
+key    = "apple-wwdc25-310"
+title  = "WWDC25 session 310, Build an AppKit app with the new design -- content goes in NSGlassEffectView's contentView, not beside it (page with transcript, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/videos"
+url    = "https://developer.apple.com/videos/play/wwdc2025/310/"
+file   = ""
+sha256 = "e5ebdd26e65061008eb40edd0c52907c45f1da91502abcd7b387fc4546f00b78"
+bytes  = 170551
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-nsworkspace-reduce-transparency]
+key    = "apple-nsworkspace-reduce-transparency"
+title  = "NSWorkspace.accessibilityDisplayShouldReduceTransparency -- 'don't use semitransparent backgrounds in the user interface. For example, use only opaque windows' (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsworkspace/accessibilitydisplayshouldreducetransparency.json"
+file   = ""
+sha256 = "05509a2d728aa7fc0b733eefc9475932b83e2e01af10ff58429e755211219260"
+bytes  = 21313
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-nsworkspace-increase-contrast]
+key    = "apple-nsworkspace-increase-contrast"
+title  = "NSWorkspace.accessibilityDisplayShouldIncreaseContrast -- 'present a high-contrast UI. For example, use a less subtle color palette or bolder lines' (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsworkspace/accessibilitydisplayshouldincreasecontrast.json"
+file   = ""
+sha256 = "edf118631907aa09690696dc92d6c64c95df81b0394bdd2c3bf7d1e2599b5725"
+bytes  = 21287
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-swiftui-glass-clear]
+key    = "apple-swiftui-glass-clear"
+title  = "SwiftUI Glass.clear -- 'ensure content remains legible by adding a dimming layer or other treatment beneath the glass'; its example dims at black 0.3 (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/swiftui/glass/clear.json"
+file   = ""
+sha256 = "517519045f92327898cb2a08da823fe279e501467da355bce490b782afef16d4"
+bytes  = 5191
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-adopting-liquid-glass]
+key    = "apple-adopting-liquid-glass"
+title  = "Adopting Liquid Glass -- test custom elements and colours under each accessibility setting (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/technologyoverviews/adopting-liquid-glass.json"
+file   = ""
+sha256 = "bd122cfa76a26fb434543cc0bddc6a012768a91f1a4f01a3e6c27de980c1c083"
+bytes  = 152174
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-nsvisualeffectview-2026-10-17]
+key    = "apple-nsvisualeffectview-2026-10-17"
+title  = "NSVisualEffectView -- 'pick a material based on its intended use'; the page as re-fetched 2026-10-17, whose bytes differ from apple-nsvisualeffectview's (documentation JSON)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsvisualeffectview.json"
+file   = ""
+sha256 = "57b6b2b54c09b9561ea20171b660912ad84bcca9b15fb84ebed44e5465d38b96"
+bytes  = 63109
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-nsvisualeffectview-underwindowbackground]
+key    = "apple-nsvisualeffectview-underwindowbackground"
+title  = "NSVisualEffectView.Material.underWindowBackground -- 'create a sense of peeking through the back of the window' (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsvisualeffectview/material-swift.enum/underwindowbackground.json"
+file   = ""
+sha256 = "b7adec3e0be703b1c03a2d959c26beebe49b70330dfe8bbff04fe6d54bdcd098"
+bytes  = 27872
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-mac-help-display-accessibility-26]
+key    = "apple-mac-help-display-accessibility-26"
+title  = "Mac User Guide (macOS 26), Change Display settings for accessibility -- Reduce transparency 'Replace the transparent effect ... with a solid background'; Increase contrast (retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "support.apple.com/guide/mac-help"
+url    = "https://support.apple.com/guide/mac-help/change-display-settings-for-accessibility-unac089/26/mac"
+file   = ""
+sha256 = "254fbc2a23ae9a44f5bcb81134e39712772b742e73836cbfa7516c9cae7ffa0d"
+bytes  = 738953
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-terminal-guide-text-settings]
+key    = "apple-terminal-guide-text-settings"
+title  = "Terminal User Guide 2.15 (macOS 26), Change Profiles Text settings -- the window's opacity and blur sliders, and Inactive Windows (retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "support.apple.com/guide/terminal"
+url    = "https://support.apple.com/guide/terminal/change-profiles-text-settings-trmltxt/2.15/mac/26"
+file   = ""
+sha256 = "a1e2d94e14b69ae7f203e400186775a46d7915e8f608d32f51dba395870a7c2f"
+bytes  = 565259
+status = "external"
+group  = "AS"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.macos-terminal-clear-dark]
+key    = "macos-terminal-clear-dark"
+title  = "Terminal 2.15, Clear Dark.terminal, the default profile -- background (0.098, 0.114, 0.153) at alpha 0.95, blur 0.5"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0, Terminal.app Initial Settings"
+url    = "/System/Applications/Utilities/Terminal.app/Contents/Resources/Initial Settings/Clear Dark.terminal"
+file   = ""
+sha256 = "f37090a588ab964b78a758c3cf0fd825b3de8613b13409dc1cd2cfca4aa62f89"
+bytes  = 9701
+status = "external"
+group  = "AS"
+# Read on this Mac; not committed -- part of the OS.
+
+[sources.macos-terminal-clear-light]
+key    = "macos-terminal-clear-light"
+title  = "Terminal 2.15, Clear Light.terminal -- white at alpha 0.93, blur 0.5"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0, Terminal.app Initial Settings"
+url    = "/System/Applications/Utilities/Terminal.app/Contents/Resources/Initial Settings/Clear Light.terminal"
+file   = ""
+sha256 = "90e0985103924b1a3772b1ae04ca55f90659a543c164f9356c224fb6e35a8fb8"
+bytes  = 21144
+status = "external"
+group  = "AS"
+# Read on this Mac; not committed -- part of the OS.
