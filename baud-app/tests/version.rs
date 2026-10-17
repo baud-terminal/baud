@@ -4,7 +4,9 @@
 //! source: every crate inherits it, `TERM_PROGRAM_VERSION` and XTVERSION
 //! read it at compile time (`baud-app/src/pty.rs` holds those two to each
 //! other), and `scripts/bundle-macos.sh` writes it into the app bundle's
-//! Info.plist, which Apple allows only digits and periods.
+//! Info.plist, which Apple allows only digits and periods. Beside it the
+//! script writes the build number, a counter committed in
+//! `packaging/macos/build-number` and raised by hand per release.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -95,5 +97,45 @@ fn the_bundle_says_the_version_as_apple_allows() {
     assert!(
         (1..=3).contains(&parts.len()) && parts.iter().all(|p| integer(p)),
         "CFBundleVersion {build}: one to three integers"
+    );
+}
+
+/// The build number committed beside the plist: one line, raised by hand
+/// for each release.
+fn build_number() -> String {
+    let path = workspace().join("packaging/macos/build-number");
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
+    text.trim_end_matches('\n').to_owned()
+}
+
+/// **`CFBundleVersion` is the committed counter, not anything git knows.**
+///
+/// The owner, 2026-10-17 (decision 7, the recommended answer): a counter
+/// raised by hand per release, kept in the repository, so a build from a
+/// tarball or nix, with no `.git`, writes the same number. The script is
+/// run, so what is checked is what it emits.
+#[test]
+fn the_bundles_build_number_is_the_committed_counter() {
+    let counter = build_number();
+    let parts: Vec<&str> = counter.split('.').collect();
+    assert!(
+        (1..=3).contains(&parts.len()) && parts.iter().all(|p| integer(p)),
+        "packaging/macos/build-number {counter:?}: one to three integers, one line"
+    );
+    let out = Command::new("bash")
+        .arg(workspace().join("scripts/bundle-macos.sh"))
+        .arg("--info-plist")
+        .output()
+        .expect("bash runs");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let plist = String::from_utf8(out.stdout).expect("UTF-8");
+    assert_eq!(
+        plist_string(&plist, "CFBundleVersion"),
+        counter,
+        "the bundle's CFBundleVersion is packaging/macos/build-number"
     );
 }

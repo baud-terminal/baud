@@ -11,9 +11,10 @@
   <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
   <key>CFBundleShortVersionString</key>  <string>__SHORT_VERSION__</string>
   <!-- The build number: "one to three period-separated integers", raised
-       before each distributed build (Apple, CFBundleVersion). 1 is the first;
-       where later numbers come from is the owner's open call. -->
-  <key>CFBundleVersion</key>             <string>1</string>
+       before each distributed build (Apple, CFBundleVersion). The bundle
+       script writes packaging/macos/build-number here, a counter raised by
+       hand per release (the owner, 2026-10-17). -->
+  <key>CFBundleVersion</key>             <string>__BUILD_NUMBER__</string>
   <key>LSMinimumSystemVersion</key>      <string>26.0</string>
   <key>NSPrincipalClass</key>            <string>NSApplication</string>
   <key>NSHighResolutionCapable</key>     <true/>

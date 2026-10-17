@@ -27,8 +27,19 @@ else
   echo "version $VERSION is neither X.Y.Z nor X.Y.Z-beta.N" >&2
   exit 1
 fi
+# CFBundleVersion is the counter committed beside the plist, raised by hand
+# for each release (the owner, 2026-10-17), so a build with no .git -- nix,
+# a source tarball -- writes the same number. Apple allows "one to three
+# period-separated integers" ([[source: apple-cfbundleversion]]); anything
+# else stops the bundle here.
+BUILD_NUMBER=$(cat packaging/macos/build-number)
+if ! [[ $BUILD_NUMBER =~ ^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){0,2}$ ]]; then
+  echo "packaging/macos/build-number \"$BUILD_NUMBER\" is not one to three integers" >&2
+  exit 1
+fi
 plist() {
-  sed -e "s/__SHORT_VERSION__/$SHORT_VERSION/g" packaging/macos/Info.plist
+  sed -e "s/__SHORT_VERSION__/$SHORT_VERSION/g" -e "s/__BUILD_NUMBER__/$BUILD_NUMBER/g" \
+    packaging/macos/Info.plist
 }
 if [ "${1:-}" = "--info-plist" ]; then
   plist

@@ -57,6 +57,16 @@ push that is not a Release PR's merge and finds nothing to release on one,
 release. Do not publish by hand. `cargo metadata --no-deps
 --format-version 1` shows `"publish": []` for every package.
 
+**Cutting a release, when there is one, raises two numbers in one commit.**
+The version, `1.0.0-beta.N` in `[workspace.package]` of `Cargo.toml`, which
+every crate, XTVERSION and the app's short version read; and the build
+number in `packaging/macos/build-number`, one line raised by one, which
+`scripts/bundle-macos.sh` writes as the app's `CFBundleVersion`. The
+counter lives in the repository rather than coming from git, so a build
+with no `.git`, from nix or a source tarball, writes the same number.
+`baud-app/tests/version.rs` holds both to the shapes Apple allows and the
+bundle to the counter.
+
 ## Code of Conduct
 
 This project follows the [Code of Conduct](CODE_OF_CONDUCT.md).
