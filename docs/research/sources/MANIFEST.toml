@@ -25347,3 +25347,199 @@ sha256 = "a867950a4e0373a48e35c2323162359ad3b0754d1e5166882648fc9175807aed"
 bytes  = 2118
 status = "retrieved"
 group  = "C"
+
+[sources.dyld-1066-10-loader]
+key    = "dyld-1066-10-loader"
+title  = "dyld-1066.10 (macOS 13.5's dyld), dyld/Loader.cpp -- tooNewErrorAddendum: a binary's minOS above the running OS is named only as ' (built for %s %s which is newer than running OS)', which this file appends to a fatal 'Symbol not found' error"
+author = "Apple"
+year   = 2023
+venue  = "dyld, apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/dyld/3e5ba1a2d04c3a221eab66b99e0e0dd90a470150/dyld/Loader.cpp"
+file   = ""
+sha256 = "89f0c233b52e19577b6be56b9e4e302bf955ef6778761861a61db06d1f888a25"
+bytes  = 141597
+status = "external"
+group  = "J"
+# Fetched twice 2026-10-12, the two copies byte-identical; hash-verified, not committed -- a source file at a pinned commit. Re-fetch the url and compare the sha256.
+
+[sources.dyld-1042-1-loader]
+key    = "dyld-1042-1-loader"
+title  = "dyld-1042.1 (macOS 13.0's dyld), dyld/Loader.cpp -- the same tooNewErrorAddendum as dyld-1066.10, byte for byte"
+author = "Apple"
+year   = 2022
+venue  = "dyld, apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/dyld/c8a445f88f9fc1713db34674e79b00e30723e79d/dyld/Loader.cpp"
+file   = ""
+sha256 = "e634435679e944b586769912f2d0d1557de0f30bdbaf5a32a3059f021a75ff45"
+bytes  = 140013
+status = "external"
+group  = "J"
+# Fetched twice 2026-10-12, the two copies byte-identical; hash-verified, not committed -- a source file at a pinned commit. Re-fetch the url and compare the sha256.
+
+[sources.xnu-8796-mach-loader]
+key    = "xnu-8796-mach-loader"
+title  = "XNU xnu-8796.141.3 (macOS 13.5), bsd/kern/mach_loader.c -- LC_BUILD_VERSION's minos stored as lr_min_sdk, and nothing in this file refuses on it"
+author = "Apple"
+year   = 2023
+venue  = "XNU, apple-oss-distributions"
+url    = "https://raw.githubusercontent.com/apple-oss-distributions/xnu/1b191cb58250d0705d8a51287127505aa4bc0789/bsd/kern/mach_loader.c"
+file   = ""
+sha256 = "58a36847003e7eaf0bc5e2cc76cd206e0152ec601253888504a2a9f65dec7486"
+bytes  = 107426
+status = "external"
+group  = "J"
+# Fetched twice 2026-10-12, the two copies byte-identical; hash-verified, not committed -- a source file at a pinned commit. Re-fetch the url and compare the sha256.
+
+[sources.oss-macos-130-dyld]
+key    = "oss-macos-130-dyld"
+title  = "distribution-macOS at tag macos-130: the dyld submodule is commit c8a445f8 (dyld-1042.1) -- macOS 13.0's dyld (GitHub contents API JSON)"
+author = "Apple"
+year   = 2022
+venue  = "apple-oss-distributions/distribution-macOS"
+url    = "https://api.github.com/repos/apple-oss-distributions/distribution-macOS/contents/dyld?ref=macos-130"
+file   = ""
+sha256 = "898ccaccde57a29cf4a10e3a3fa05b3659935a25514541605b4c7228d9be19df"
+bytes  = 939
+status = "external"
+group  = "J"
+# Fetched twice 2026-10-12, the two copies byte-identical; hash-verified, not committed. Re-fetch the url and compare the sha256.
+
+[sources.oss-macos-135-dyld]
+key    = "oss-macos-135-dyld"
+title  = "distribution-macOS at tag macos-135: the dyld submodule is commit 3e5ba1a2 (dyld-1066.10) -- macOS 13.5's dyld (GitHub contents API JSON)"
+author = "Apple"
+year   = 2023
+venue  = "apple-oss-distributions/distribution-macOS"
+url    = "https://api.github.com/repos/apple-oss-distributions/distribution-macOS/contents/dyld?ref=macos-135"
+file   = ""
+sha256 = "d0975536b8951f9b310052f6c351a631d92c0b8f983086e20644214a37f168d9"
+bytes  = 939
+status = "external"
+group  = "J"
+# Fetched twice 2026-10-12, the two copies byte-identical; hash-verified, not committed. Re-fetch the url and compare the sha256.
+
+[sources.oss-macos-135-xnu]
+key    = "oss-macos-135-xnu"
+title  = "distribution-macOS at tag macos-135: the xnu submodule is commit 1b191cb5 (xnu-8796.141.3) -- macOS 13.5's kernel (GitHub contents API JSON)"
+author = "Apple"
+year   = 2023
+venue  = "apple-oss-distributions/distribution-macOS"
+url    = "https://api.github.com/repos/apple-oss-distributions/distribution-macOS/contents/xnu?ref=macos-135"
+file   = ""
+sha256 = "0444e8d8e865abe4682f3f6da2be3f971315134cc20e4dcc6522ff159fd01ad7"
+bytes  = 930
+status = "external"
+group  = "J"
+# Fetched twice 2026-10-12, the two copies byte-identical; hash-verified, not committed. Re-fetch the url and compare the sha256.
+
+[sources.apple-running-code-on-a-specific-version]
+key    = "apple-running-code-on-a-specific-version"
+title  = "Running code on a specific platform or OS version -- 'Your app's minimum deployment target defines the range of operating system versions your app supports'; wrap newer features in availability checks (documentation JSON, retrieved 2026-10-16)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/xcode/running-code-on-a-specific-version.json"
+file   = ""
+sha256 = "6903f11e6a3a4ca25031424c2cb11e122e61861d5984c789eccfb650df7f7ab8"
+bytes  = 17803
+status = "external"
+group  = "J"
+# Fetched twice 2026-10-16, the two copies byte-identical (the 2026-10-12 fetch, 16956 bytes, hashed 476e9682...; the quote is unchanged); hash-verified, not committed -- a vendor page. Re-fetch at the pinned url and compare the sha256.
+
+[sources.sdk27-nsapplication-h]
+key    = "sdk27-nsapplication-h"
+title  = "macOS SDK 27.0, AppKit NSApplication.h -- '- (void)activate API_AVAILABLE(macos(14.0));'"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a), MacOSX.sdk 27.0"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSApplication.h"
+file   = ""
+sha256 = "33ed7a975710fc58046253c6d12f5210acb99418ae5e2c3f6a89c585fc3ee793"
+bytes  = 46376
+status = "external"
+group  = "J"
+# Read 2026-10-12 from Xcode 27.0 (27A266a), macOS SDK 27.0; hash recorded only, not committed -- a vendor header. Compare the sha256 of the file at the url.
+
+[sources.sdk27-nsview-h]
+key    = "sdk27-nsview-h"
+title  = "macOS SDK 27.0, AppKit NSView.h -- 'API_AVAILABLE(macos(14.0)) @interface NSView (NSDisplayLink)', displayLinkWithTarget:selector:"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a), MacOSX.sdk 27.0"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSView.h"
+file   = ""
+sha256 = "af91fb647759eccbc205c2db73a20f7d73cd3850b90ae13d4a211745abeb372c"
+bytes  = 48886
+status = "external"
+group  = "J"
+# Read 2026-10-12 from Xcode 27.0 (27A266a), macOS SDK 27.0; hash recorded only, not committed -- a vendor header. Compare the sha256 of the file at the url.
+
+[sources.sdk27-nsglasseffectview-h]
+key    = "sdk27-nsglasseffectview-h"
+title  = "macOS SDK 27.0, AppKit NSGlassEffectView.h -- 'API_AVAILABLE(macos(26.0)) @interface NSGlassEffectView: NSView'; effectIsInteractive macOS 27.0"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a), MacOSX.sdk 27.0"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSGlassEffectView.h"
+file   = ""
+sha256 = "cea54a3472014e6bb561e0a0f17dd279f2bd12e8ae92435cb50b5a2dfeb11cc6"
+bytes  = 3018
+status = "external"
+group  = "J"
+# Read 2026-10-12 from Xcode 27.0 (27A266a), macOS SDK 27.0; hash recorded only, not committed -- a vendor header. Compare the sha256 of the file at the url.
+
+[sources.sdk27-nsvisualeffectview-h]
+key    = "sdk27-nsvisualeffectview-h"
+title  = "macOS SDK 27.0, AppKit NSVisualEffectView.h -- 'API_AVAILABLE(macos(10.10)) @interface NSVisualEffectView : NSView'; materials 10.10-10.14"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a), MacOSX.sdk 27.0"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/AppKit.framework/Headers/NSVisualEffectView.h"
+file   = ""
+sha256 = "39cd1010675c5ecc9da580b00940b5ee32bf1175fa62852be2f68e67949bd84c"
+bytes  = 6828
+status = "external"
+group  = "J"
+# Read 2026-10-12 from Xcode 27.0 (27A266a), macOS SDK 27.0; hash recorded only, not committed -- a vendor header. Compare the sha256 of the file at the url.
+
+[sources.sdk27-cadisplaylink-h]
+key    = "sdk27-cadisplaylink-h"
+title  = "macOS SDK 27.0, QuartzCore CADisplayLink.h -- 'API_AVAILABLE(macos(14.0))' on @interface CADisplayLink"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a), MacOSX.sdk 27.0"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/QuartzCore.framework/Headers/CADisplayLink.h"
+file   = ""
+sha256 = "2635ee47f7d5d80a7525de009c819c89076e95f603e07213edc007e41674c9a4"
+bytes  = 4041
+status = "external"
+group  = "J"
+# Read 2026-10-12 from Xcode 27.0 (27A266a), macOS SDK 27.0; hash recorded only, not committed -- a vendor header. Compare the sha256 of the file at the url.
+
+[sources.sdk27-lsconstants-h]
+key    = "sdk27-lsconstants-h"
+title  = "macOS SDK 27.0, LaunchServices LSConstants.h -- 'kLSIncompatibleSystemVersionErr = -10825, //!< The app cannot run on the current OS version'"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a), MacOSX.sdk 27.0"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Headers/LSConstants.h"
+file   = ""
+sha256 = "2e31eed1a9cf3b988f20c7c985690dff36ca07e5ee70d9ac69ce41ab345a7d00"
+bytes  = 4036
+status = "external"
+group  = "J"
+# Read 2026-10-12 from Xcode 27.0 (27A266a), macOS SDK 27.0; hash recorded only, not committed -- a vendor header. Compare the sha256 of the file at the url.
+
+[sources.sdk27-sdksettings-json]
+key    = "sdk27-sdksettings-json"
+title  = "macOS SDK 27.0, SDKSettings.json -- the SDK the availability audit read ('DisplayName':'macOS 27.0')"
+author = "Apple Inc."
+year   = 2026
+venue  = "Xcode 27.0 (27A266a), MacOSX.sdk 27.0"
+url    = "file:///Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/SDKSettings.json"
+file   = ""
+sha256 = "7b93ad7e534cc4b31c6a4e39d19b5e0288acf2168c2649479a796d1cb51939fb"
+bytes  = 7948
+status = "external"
+group  = "J"
+# Read 2026-10-12 from Xcode 27.0 (27A266a), macOS SDK 27.0; hash recorded only, not committed -- a vendor header. Compare the sha256 of the file at the url.

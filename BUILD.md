@@ -33,7 +33,8 @@ fonts' licences; it needs `iconutil` (macOS) and takes `rsvg-convert` from
 `nix shell nixpkgs#librsvg`.
 
 **macOS 26 and later** (the owner, 2026-10-13): the window is Liquid Glass,
-`NSGlassEffectView`, which macOS 26 introduced. The release is said in three
+`NSGlassEffectView`, which macOS 26 introduced
+(`[[source: sdk27-nsglasseffectview-h]]`). The release is said in three
 places and `baud-app/tests/macos_floor.rs` holds them equal: the bundle's
 `LSMinimumSystemVersion`, on which Launch Services refuses to open it on an
 older system; the deployment target in `.cargo/config.toml`, forced over the
