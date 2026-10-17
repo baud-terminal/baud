@@ -1272,4 +1272,34 @@ mod tests {
         assert_eq!(s.text, Some(rgb("#c5c8c7")), "{said}");
         assert_eq!(s.cursor, Some(rgb("#aeafad")), "{said}");
     }
+
+    /// **An empty or comments-only file loads empty**, setting nothing and
+    /// saying so (Jev decided load_empty_with_notice 0.98 / 0.98,
+    /// decisions.jsonl 710/711): TOML's grammar allows an empty document,
+    /// and ghostty, kitty, foot and alacritty each load one and set nothing.
+    #[test]
+    fn an_empty_or_comments_only_file_loads_empty_with_the_unset_notice() {
+        for (tag, text) in [
+            ("empty", ""),
+            ("comments", "# a theme to come\n\n! later\n"),
+        ] {
+            let h = home_with(&format!("empty-{tag}"), &[]);
+            std::fs::write(h.join(".config/baud/themes/blank"), text).unwrap();
+            let (halves, said) = load_halves(None, Some("blank"), &dirs(&h));
+            let _ = std::fs::remove_dir_all(h);
+            let said = said.join("\n");
+            assert_eq!(
+                halves.dark,
+                Some(Scheme::empty(Format::Empty)),
+                "{tag}: {said}"
+            );
+            assert!(said.contains("read as an empty file"), "{tag}: {said}");
+            assert!(
+                said.contains(
+                    "18 of the sixteen, the page and the text are unset and stay baud's own"
+                ),
+                "{tag}: {said}"
+            );
+        }
+    }
 }

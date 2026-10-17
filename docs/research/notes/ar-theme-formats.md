@@ -586,7 +586,12 @@ Each asserts the verdict **and** the report line. A detector that returns
 - The current form without `system`: `Base16` by inference.
 - 16 hex lines: `PlainList` (O9).
 - 15 hex lines and 17 hex lines: `Unknown(n hex lines)`.
-- Empty, and comments only: `Unknown(empty)`, refused (O12).
+- Empty, and comments only: `Empty`, loaded with nothing set and the notice
+  that the sixteen, the page and the text stay baud's own (decided
+  2026-10-17, load_empty_with_notice 0.98 / 0.98, decisions.jsonl 710/711:
+  TOML's grammar allows an empty document, and ghostty, kitty, foot and
+  alacritty each load one and set nothing). This line read `Unknown(empty)`,
+  refused, until then.
 - `color0 #000000` alone: `Kitty`.
 - `[colors-dark]` alone: `Foot`, empty.
 
@@ -597,7 +602,9 @@ Each asserts the verdict **and** the report line. A detector that returns
 - `palette = 0=…` and `color0 …`: `Mixed(Eq, Space)`.
 - `system: "base16"` and `base12`: `Base16`, with a report naming base12 as
   unused.
-- Partial base24 without `system`: per O2 and O3.
+- Partial base24 without `system`: any one of base10-base17 makes it base24
+  (O2, any_one 1.00 / 1.00, decisions.jsonl 710/711), and then it is refused
+  at its first missing slot (O3).
 - Partial base24 with `system: "base24"`: `Missing(base15)` today, filled
   under O3b.
 - A slot at the top level and under `palette:`: `Duplicate`, and the message
