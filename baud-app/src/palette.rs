@@ -275,7 +275,7 @@ fn refusal(v: Verdict<'_>) -> String {
             ),
             Unknown::Sections(m) => format!("sections no theme format uses ({})", at_line(m)),
             Unknown::FootRemovedSection(m) => format!(
-                "foot's [colors] section ({}), which foot 1.28.0 removed; name it [colors-dark] or [colors-light]",
+                "foot's [colors] section ({}), which foot no longer reads; name it [colors-dark] or [colors-light]",
                 at_line(m)
             ),
             Unknown::FootOutsideSection(m) => format!(

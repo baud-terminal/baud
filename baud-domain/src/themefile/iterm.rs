@@ -187,7 +187,10 @@ fn iterm_slot<'s>(s: &'s mut Scheme, key: &[u8]) -> Option<&'s mut Option<Color>
 /// dictionary of fewer than three entries as black
 /// (`[[source: iterm2-nsdictionary-9e29604]]` 214-243); each is converted
 /// to sRGB here (Jev, decisions.jsonl 682/683, for `Calibrated`), and a
-/// colour outside sRGB is clipped and said.
+/// colour outside sRGB is clipped and said. A colour dictionary of three
+/// or more entries that lacks a component is said and left unset, where
+/// iTerm2 reads the missing component as 0 (`[nil floatValue]`,
+/// `[[source: iterm2-nsdictionary-9e29604]]` 225-241).
 ///
 /// **A preset with `Foreground Color (Light)`** holds a light and a dark
 /// scheme, iTerm2's own test (`[[source: iterm2-color-presets-9e29604]]`

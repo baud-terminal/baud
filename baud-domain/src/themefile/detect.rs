@@ -114,7 +114,10 @@ pub enum Unknown<'a> {
     JsonSchemes(Mark<'a>),
     /// INI or TOML sections no theme format uses; the first one.
     Sections(Mark<'a>),
-    /// foot's `[colors]` or `[colors2]`, removed in foot 1.28.0.
+    /// foot's `[colors]` or `[colors2]`, which foot no longer reads: its
+    /// section table has neither (`[[source: foot-config]]`, config.c
+    /// 3121-3142), and an unknown section is "invalid section name"
+    /// (3281-3283).
     FootRemovedSection(Mark<'a>),
     /// foot's colour keys with no section around them.
     FootOutsideSection(Mark<'a>),

@@ -610,9 +610,11 @@ pub struct Resolved {
 /// where DEC Special Graphics stores its lines, corners and tees; its scan
 /// lines, `o p r s`, are `U+23BA..=U+23BD`, outside it. herdr draws
 /// its dividers below 1.2:1 on the default page, and the floor lifted
-/// them into grey rules at 4.5:1. WCAG 2.2's SC 1.4.3 puts
-/// text that is "pure decoration" under no contrast requirement
-/// (`[[source: wcag22]]`); the call is the owner's, not the standard's.
+/// them into grey rules at 4.5:1. WCAG 2.2 exempts text that is "pure
+/// decoration" from SC 1.4.3 and asks 3:1 of graphical objects needed
+/// to understand the content (SC 1.4.11; `[[source: wcag22]]`); neither
+/// settles a divider, and leaving lines out is the owner's call, not the
+/// standard's.
 /// **Block Elements, `U+2580..=U+259F`, are not lines**: btop and cava
 /// draw graphs with them, and they keep the floor. A line carrying a mark
 /// is a cluster, drawn as other text.

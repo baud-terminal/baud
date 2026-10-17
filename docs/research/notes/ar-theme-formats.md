@@ -1,13 +1,13 @@
 # AR. Theme file formats, and telling them apart by content
 
-Status: research, 2026-10-16. Nothing here is decided or built. The owner asked (2026-10-16, verbatim): "we probably want to autodetect ansi/base16/base24", then "we might want to research on that". The surveys this design rests on are in `docs/research/notes/ar/` (the specs, the peers, and baud today). Every option in section 4 goes to Jev before anything is built.
+Status: built 2026-10-17 for every option the results sections below mark decided, plus the owner's decision 4; O2, O4, O8, O14, the empty file and X resources stay open, as recorded there. Sections 0-5 are the design as researched on 2026-10-16. The owner asked (2026-10-16, verbatim): "we probably want to autodetect ansi/base16/base24", then "we might want to research on that". The surveys this design rests on are in `docs/research/notes/ar/` (the specs, the peers, and baud today). Every option in section 4 goes to Jev before anything is built.
 
 
 The owner, 2026-10-16, verbatim: "we probably want to autodetect
 ansi/base16/base24" and "we might want to research on that" (TODO.md, the item
 "Detect a theme file's format from its content").
 
-**This is a design. Nothing in it is decided.** Every choice the texts leave
+**Sections 0-5 are the design as researched.** Every choice the texts leave
 open is in section 4 as an option, marked conforming or not, for Jev to decide
 at 0.9 both times, with the owner able to veto. If a decision rests on this
 file, the file moves to `docs/research/notes/` in the same session, because a
@@ -779,7 +779,10 @@ The facts asked with:
   On this Mac every process launchd started from Finder or the Dock that
   was looked at -- Finder, Dock, 1Password and its helpers -- has fd 2 on
   `/dev/null` (`lsof`, 2026-10-17); baud.app was not launched for it, so
-  that it does the same is inferred. A user who opens the `.app` sees no
+  that it does the same is inferred. The code path agrees: `warn!` is
+  `eprintln!` (baud-app/src/log.rs:82-84), and nothing in baud-app or
+  packaging/ redirects fd 2 (no dup2 or freopen, and no
+  StandardErrorPath or LSEnvironment). A user who opens the `.app` sees no
   notice and no refusal; only a shell launch shows them.
 - **O2.** The same builder never infers the system from the slots: with no
   `system` its CLI fails "E111: Missing required field `system`"
@@ -871,3 +874,8 @@ document", [[source: toml-1-0-0]] 44), JSON exchanged as a file
 ([[source: rfc8259-json]] 8.1) and XML that declares no encoding or UTF-8
 ([[source: xml-1-0-5e]] 4.3.3). A plist declaring another encoding is read
 as bytes. base16 and alacritty's YAML read bytes, as base did.
+
+**Found 2026-10-17, not fixed.** kitty lower-cases a value with Python's
+`str.lower()`, which turns some non-ASCII characters into ASCII (U+212A
+KELVIN SIGN becomes `k`), so a name spelled with one resolves in kitty and
+is skipped by baud. The oracle feeds only ASCII values and cannot see it.
