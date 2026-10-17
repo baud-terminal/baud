@@ -575,17 +575,26 @@ impl Shapes {
 
 /// One rendition table slot resolved to what a cell draws with: the
 /// foreground, the background with the default background's alpha applied,
-/// the underline colour, which shapes to draw, and the text-contrast curve
-/// rows its glyph takes on either side ([`Curves`]). Twenty bytes,
-/// `repr(C)`, five `u32`s.
+/// the underline colour, which shapes to draw, the text-contrast curve
+/// rows its glyph takes on either side ([`Curves`]), and the foreground
+/// and curves again for text over the page as the window's dim draws it.
+/// Twenty-eight bytes, `repr(C)`, seven `u32`s.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Resolved {
+    /// The text over the page drawn solid: a picture's, an opaque
+    /// rendition's, an opaque window's, and both sides of a swap.
     pub fg: Argb,
     pub bg: Argb,
     pub underline: Argb,
     pub shapes: Shapes,
     pub curves: Curves,
+    /// The text over the page drawn at the window's dim: `fg` lifted by
+    /// [`crate::Floor::lift_on_glass`] where the dim makes it unreadable,
+    /// else `fg` itself.
+    pub glass: Argb,
+    /// [`Resolved::curves`] with `glass`'s row in the own half.
+    pub glass_curves: Curves,
 }
 
 /// The contrast curve rows a glyph of one rendition is drawn with
@@ -618,7 +627,7 @@ impl Curves {
 const _: () = assert!(core::mem::size_of::<Resolved>() == Resolved::BYTES);
 
 impl Resolved {
-    pub const BYTES: usize = 20;
+    pub const BYTES: usize = 28;
 
     /// Whether the cell's own text draws: its glyph, its underline and its
     /// strike. **Hidden text draws its background and nothing of its own**,
@@ -649,6 +658,9 @@ impl Resolved {
     /// * **A picture's or an opaque rendition's background is solid.** Every
     ///   background carries the window's dim; a picture drawn in text keeps
     ///   its backgrounds solid under it, or it splits into slivers and holes.
+    ///   **Text over a page left dimmed is [`Resolved::glass`]**, and over
+    ///   a solid one [`Resolved::fg`]; a swap takes `fg`, since it draws
+    ///   both sides solid.
     /// * **The selection swaps, then a block cursor swaps again**, and both
     ///   leave the two colours opaque: the foreground a swap hands back is
     ///   the old background, which carries the dim, and a glyph at 0.22 over
@@ -657,20 +669,28 @@ impl Resolved {
     /// * **Hiding comes last**, after the swaps, as xterm's does: hidden
     ///   first, a block cursor would paint its block in the colour the text
     ///   vanished into and disappear with it.
+    ///
+    /// **Inlined always**: CPU instructions a 200x50 glass frame of herdr,
+    /// before the glass text 20.26M as compiled and 19.91M inlined, with it
+    /// 20.49M as compiled and 19.97M inlined.
+    #[inline(always)]
     pub fn drawn(self, s: Swaps) -> Drawn {
-        let (mut fg, mut bg) = (self.fg, self.bg);
         let opaque = Chan::from_u8(0xFF);
-        if self.shapes.has(Shapes::OPAQUE_BG) || s.pictured == Pictured::Yes {
-            bg = bg.with_alpha(opaque);
-        }
+        let solid = self.shapes.has(Shapes::OPAQUE_BG) || s.pictured == Pictured::Yes;
+        let (mut fg, mut bg) = if solid {
+            (self.fg, self.bg.with_alpha(opaque))
+        } else {
+            (self.glass, self.bg)
+        };
+        // The text a swap hands to the background: the solid one.
+        let mut ink = self.fg;
         if s.selected == Selected::Yes {
-            core::mem::swap(&mut fg, &mut bg);
-            (fg, bg) = (fg.with_alpha(opaque), bg.with_alpha(opaque));
+            (fg, bg) = (bg.with_alpha(opaque), ink.with_alpha(opaque));
+            ink = fg;
         }
         if let BlockCursor::Yes(fill) = s.block {
             let off = (fg, bg);
-            core::mem::swap(&mut fg, &mut bg);
-            (fg, bg) = (fg.with_alpha(opaque), bg.with_alpha(opaque));
+            (fg, bg) = (bg.with_alpha(opaque), ink.with_alpha(opaque));
             if let Some(c) = fill {
                 bg = c;
             }
@@ -681,11 +701,20 @@ impl Resolved {
                 (fg, bg) = (fg.mix(off.0, s.cursor), bg.mix(off.1, s.cursor));
             }
         }
+        // The curve rows the glyph takes from: the glass text's while it is
+        // drawn unswapped over a page left dimmed, else the solid text's.
+        // The cell shader's `glyph_curve` mirrors it.
+        let side = s.ink();
+        let curves = if !solid && s.selected == Selected::No && side == Ink::Own {
+            self.glass_curves
+        } else {
+            self.curves
+        };
         Drawn {
             fg,
             bg,
             text: self.text(s.blink),
-            curve: self.curves.row(s.ink()),
+            curve: curves.row(side),
         }
     }
 }

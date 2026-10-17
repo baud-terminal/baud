@@ -3049,13 +3049,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // and under `?5` by the one rule the colours took.
         let (text_word, page_word) = self.video.drawn(style.attrs(), style.fg(), style.bg());
         let fg = self.theme.floor.lift(fg, bg, (text_word, page_word));
+        let opaque_bg = self.theme.opaque_bg(style, self.video);
+        // **The floor again, on the page as the dim draws it** (Jev,
+        // logged: 0.96 and 0.99): a page the program set, drawn at the
+        // window's alpha, over the default page as stored -- the model,
+        // since the renderer draws onto a target with nothing under it and
+        // the glass is the window server's. The default page is the same
+        // alpha over the same glass, so it reads as itself under the model
+        // and nothing on it moves. A picture's, an opaque rendition's and
+        // a swap's page is solid, and `Resolved::drawn` gives them `fg`.
+        let glass = if page_word.is_default() || opaque_bg || self.theme.bg_alpha.get() == 0xFF {
+            fg
+        } else {
+            let drawn = bg.mix(self.page_default, self.theme.bg_alpha);
+            self.theme.floor.lift_on_glass(fg, bg, drawn)
+        };
         // **Every background is translucent, not only the default one**:
         // the owner's call of 2026-09-20. A picture's and an opaque
         // rendition's are made solid by `Resolved::drawn`.
         let bg = bg.with_alpha(self.theme.bg_alpha);
         let attrs = style.attrs();
         let mut shapes = Shapes::default().with_face(self.stack.effective(FaceStyle::of(attrs)));
-        if self.theme.opaque_bg(style, self.video) {
+        if opaque_bg {
             shapes = shapes.with(Shapes::OPAQUE_BG);
         }
         if Theme::default_bg(bg, self.page_default) {
@@ -3066,6 +3081,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // pixel only looks its row up: from the opaque colours, the ones a
         // glyph is painted in; alpha never enters the curve.
         let curves = Curves::of(curve_row(fg), curve_row(bg));
+        let glass_curves = Curves::of(curve_row(glass), curve_row(bg));
         // Which underline is drawn is the style's own bit. The three colon
         // styles *replace* the straight line rather than adding to it, so the
         // straight-line bit is set only for the two that draw one.
@@ -3105,6 +3121,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             underline,
             shapes,
             curves,
+            glass,
+            glass_curves,
         }
     }
 

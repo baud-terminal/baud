@@ -213,6 +213,8 @@ fn the_ink_is_the_drawn_foregrounds_row() {
         underline: fg,
         shapes: Shapes::default(),
         curves: Curves::of(row(fg), row(bg)),
+        glass: fg,
+        glass_curves: Curves::of(row(fg), row(bg)),
     };
     assert_ne!(row(fg), row(bg), "the control: two rows");
     let mut swapped = 0;

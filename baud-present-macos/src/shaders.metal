@@ -1120,7 +1120,7 @@ struct CU {
     // side binds that many: `CellUniforms`, which checks it.
     uint cursor_alpha;
 };
-struct Style { uint fg; uint bg; uint ul; uint shapes; uint curves; };
+struct Style { uint fg; uint bg; uint ul; uint shapes; uint curves; uint glass; uint gcurves; };
 struct Entry { uint key; uint kind; ushort4 rect; short2 at; uint pad; };
 
 struct FlatOut { float4 pos [[position]]; float4 color; };
@@ -1229,32 +1229,60 @@ static bool swapped(constant CU& u, uint content, uint col, uint row) {
     return selected(u, content, col, row) != block;
 }
 
+// Whether the cell's page is drawn solid under the dim: its rendition's
+// `[glass] app_backgrounds = "opaque"`, baked into the slot as bit 128
+// (`Shapes::OPAQUE_BG`), or a picture drawn in text (`MASK_PICTURE`, bit 2
+// of the overlay, never on the leaving row above the window).
+static bool solid(constant CU& u, uint shapes, device const uchar* overlay,
+                  uint col, int lrow) {
+    return (shapes & 128u) != 0u
+        || (lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & 2u) != 0u);
+}
+
+// The contrast curve row a cell's glyph takes: the glass text's
+// (`gcurves`) while it is drawn unswapped over a page left dimmed, else
+// the solid text's, each by the swaps' parity. Must match
+// `Resolved::drawn` and `Curves::row`.
+static uint glyph_curve(constant CU& u, Style s, device const uchar* overlay,
+                        uint content, uint col, int lrow) {
+    bool swap = swapped(u, content, col, uint(lrow));
+    bool glass = !solid(u, s.shapes, overlay, col, lrow) && !swap
+                 && !selected(u, content, col, uint(lrow));
+    uint curves = glass ? s.gcurves : s.curves;
+    return swap ? (curves >> 16) : (curves & 0xffffu);
+}
+
 // The cell's colours after the selection's swap and then the block
 // cursor's, which the CPU path applies in the same order after the
 // rendition rules (`Resolved::drawn`). Hiding comes after both and is not a
 // colour: the glyph and shape passes skip a hidden cell's text.
-static void colors(constant CU& u, device const Style* styles, uint2 cell,
-                   uint col, uint row, thread uint& fgw, thread uint& bgw) {
+static void colors(constant CU& u, device const Style* styles,
+                   device const uchar* overlay, uint2 cell,
+                   uint col, int lrow, thread uint& fgw, thread uint& bgw) {
     Style s = styles[cell.y & 0xffffu];
-    fgw = s.fg; bgw = s.bg;
-    // `[glass] app_backgrounds = "opaque"`: a background the application
-    // set is drawn as it chose it, not as glass. The whole test is the
-    // rendition's, baked into the slot as bit 128 (`Shapes::OPAQUE_BG`).
-    // Must match `Renderer::convert_row`.
-    if ((s.shapes & 128u) != 0u) {
-        bgw |= 0xff000000u;
+    uint row = uint(lrow);
+    // A page drawn solid -- `[glass] app_backgrounds = "opaque"` or a
+    // picture -- takes the solid text, `fg`; a page left dimmed takes the
+    // text the floor lifted against it, `glass`. Must match
+    // `Resolved::drawn`.
+    if (solid(u, s.shapes, overlay, col, lrow)) {
+        fgw = s.fg; bgw = s.bg | 0xff000000u;
+    } else {
+        fgw = s.glass; bgw = s.bg;
     }
-    // Opaque on BOTH sides of a swap. Every background carries the
+    // Opaque on BOTH sides of a swap, and the text a swap hands to the
+    // background is the solid one. Every background carries the
     // window's dim now, so the foreground a swap hands back would be
     // drawn at that alpha -- a glyph at 0.22 over its own cursor block.
     // This must match `Renderer::convert_row`, and the pixel gate
     // compares the two arms to say so.
+    uint ink = s.fg;
     if (selected(u, cell.x, col, row)) {
-        uint t = fgw; fgw = bgw | 0xff000000u; bgw = t | 0xff000000u;
+        fgw = bgw | 0xff000000u; bgw = ink | 0xff000000u; ink = fgw;
     }
     if (u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y) {
         uint f0 = fgw, b0 = bgw;
-        uint t = fgw; fgw = bgw | 0xff000000u; bgw = t | 0xff000000u;
+        fgw = bgw | 0xff000000u; bgw = ink | 0xff000000u;
         // `OSC 12`: the block fills with the application's cursor colour
         // instead of the swapped foreground; the glyph stays `fgw`.
         if (u.cursor_color != 0u) bgw = u.cursor_color;
@@ -1302,15 +1330,10 @@ vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         none.color = float4(0.0);
         return none;
     }
-    uint fgw, bgw;
-    colors(u, styles, cell, col, uint(lrow), fgw, bgw);
     // A cell of a picture drawn in text keeps its background solid under
-    // the dim (`MASK_PICTURE`, bit 2 of the overlay). After the swaps is
-    // the same as before them: a swap already leaves both sides opaque.
-    // Must match `Renderer::convert_row`.
-    if (lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & 2u) != 0u) {
-        bgw |= 0xff000000u;
-    }
+    // the dim, inside `colors()`. Must match `Renderer::convert_row`.
+    uint fgw, bgw;
+    colors(u, styles, overlay, cell, col, lrow, fgw, bgw);
     float2 c = float2(vid & 1u, vid >> 1u);
     float2 p = float2((float(col) + c.x) * float(u.cell.x),
                       (float(lrow) + c.y) * float(u.cell.y) + float(u.pan));
@@ -1345,8 +1368,7 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     // The contrast curve row for the side the swaps leave the glyph on:
     // the slot's foreground half, or its background half when swapped
     // (`Curves::row`).
-    uint curves = styles[cell.y & 0xffffu].curves;
-    uint curve = swapped(u, content, col, uint(lrow)) ? (curves >> 16) : (curves & 0xffffu);
+    uint curve = glyph_curve(u, styles[cell.y & 0xffffu], overlay, content, col, lrow);
     // Two cells when the next cell is this one's wide tail: the grid says
     // the width there (`CellSpan::at`), not the cell's flags.
     uint two = (col + 1u < u.grid.x && cell_at(u, cells, col + 1u, dr).x == WIDE_TAIL) ? 1u : 0u;
@@ -1363,7 +1385,7 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     }
     if (!found || e.kind > 2u) return o;
     uint fgw, bgw;
-    colors(u, styles, cell, col, uint(lrow), fgw, bgw);
+    colors(u, styles, overlay, cell, col, lrow, fgw, bgw);
     float2 c = float2(vid & 1u, vid >> 1u);
     float2 origin = float2(float(col * u.cell.x) + float(e.at.x),
                            float(lrow) * float(u.cell.y) + float(u.baseline)
@@ -1402,7 +1424,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     Style s = styles[cell.y & 0xffffu];
     if (which != 3u && hidden(u, s.shapes)) return o;
     uint fgw, bgw;
-    colors(u, styles, cell, col, uint(lrow), fgw, bgw);
+    colors(u, styles, overlay, cell, col, lrow, fgw, bgw);
     float2 at; float2 wh; uint colw;
     float thick = float(max(u.thickness, 2u));
     if (which == 0u) {

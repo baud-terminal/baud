@@ -143,6 +143,31 @@ impl Floor {
         if lt.ratio(lp) >= trigger {
             return text;
         }
+        Floor::lift_to(text, page, target)
+    }
+
+    /// `text` as drawn on `page`, which the window's dim draws as `drawn`:
+    /// lifted against `drawn` when the pair reads below the trigger there
+    /// and **not** below it on `page`. `text` is what [`Floor::lift`] made
+    /// of the pair, so a pair the floor covers has already been lifted on
+    /// the page, and what is left below the trigger on it -- a program's
+    /// own low-contrast pair on its own page -- the program chose and keeps.
+    /// The colour drawn over a page the dim leaves solid is `text` itself.
+    pub fn lift_on_glass(self, text: Argb, page: Argb, drawn: Argb) -> Argb {
+        let Floor::Lift { trigger, target } = self else {
+            return text;
+        };
+        let lt = Lum::of(text);
+        if lt.ratio(Lum::of(drawn)) >= trigger || lt.ratio(Lum::of(page)) < trigger {
+            return text;
+        }
+        Floor::lift_to(text, drawn, target)
+    }
+
+    /// `text` moved toward black or white until it reads at `target` on
+    /// `page`, or as far as it can: [`Floor::lift`]'s arithmetic, ungated.
+    fn lift_to(text: Argb, page: Argb, target: f64) -> Argb {
+        let (lt, lp) = (Lum::of(text), Lum::of(page));
         // The text's luminance at most (darker) or at least (lighter) for
         // the pair to read at `target`.
         let dark = (lp.0 + 0.05) / target - 0.05;

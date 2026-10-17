@@ -21,6 +21,8 @@ fn styles() -> Vec<Resolved> {
             underline: Argb(0xFFFFFFFF),
             shapes: Shapes::default(),
             curves: Curves::default(),
+            glass: Argb(0xFFFFFFFF),
+            glass_curves: Curves::default(),
         };
         8
     ]

@@ -235,6 +235,10 @@ struct Paint<'p> {
     /// ([`Renderer::cursor_opacity`]): a fade's records are its glyph part
     /// way to the swapped colour, as the cell under it is.
     cursor: Chan,
+    /// The frame's pictures drawn in text, where the records are the
+    /// screen's: a record in one takes the solid text, as the cell under it
+    /// does on every arm ([`Resolved::drawn`]).
+    pictures: Option<&'p Pictures>,
 }
 
 /// The opacity a record under `block` is drawn with: its style's, or all
@@ -316,24 +320,8 @@ impl Overlay {
         mask: &mut [u8],
         records: &mut Vec<Instance>,
     ) {
-        // Twice at most: a cluster resolved on this walk can grow the
-        // atlas, which moves every slot resolved before it.
-        for _ in 0..2 {
-            if r.atlas_stats().grown.value() != self.grown.value() {
-                self.grown = r.atlas_stats().grown;
-                self.clusters.clear();
-                self.windows.clear();
-            }
-            self.walk(scene, r, mask, records);
-            if r.atlas_stats().grown.value() == self.grown.value() {
-                break;
-            }
-        }
-        self.stats.records = Tally::of(records.len());
-        self.stats.clusters = Tally::of(self.clusters.len());
-        // Last, over the mask the walk just filled: the picture bit rides
-        // beside the record bit, and the walk's own tests read the record
-        // bit alone.
+        // The pictures first, from the term, the view and the video alone:
+        // a record in one is coloured as the cell under it is.
         let view = &scene.view;
         let (cols, rows) = (view.cols(), view.rows());
         self.stats.pictured = if r.theme().finds_pictures() {
@@ -342,6 +330,26 @@ impl Overlay {
             self.pictures.clear(cols, rows);
             Tally::default()
         };
+        let pictures = core::mem::take(&mut self.pictures);
+        // Twice at most: a cluster resolved on this walk can grow the
+        // atlas, which moves every slot resolved before it.
+        for _ in 0..2 {
+            if r.atlas_stats().grown.value() != self.grown.value() {
+                self.grown = r.atlas_stats().grown;
+                self.clusters.clear();
+                self.windows.clear();
+            }
+            self.walk(scene, r, mask, records, &pictures);
+            if r.atlas_stats().grown.value() == self.grown.value() {
+                break;
+            }
+        }
+        self.pictures = pictures;
+        self.stats.records = Tally::of(records.len());
+        self.stats.clusters = Tally::of(self.clusters.len());
+        // Last, over the mask the walk just filled: the picture bit rides
+        // beside the record bit, and the walk's own tests read the record
+        // bit alone.
         if self.stats.pictured.value() > 0 {
             let w = cols.index();
             for y in 0..rows.index() {
@@ -363,6 +371,7 @@ impl Overlay {
         r: &mut Renderer<'_, '_>,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
+        pictures: &Pictures,
     ) {
         let (term, view, styles, cursor) = (scene.term, scene.view, scene.styles, scene.cursor);
         records.clear();
@@ -428,6 +437,7 @@ impl Overlay {
                     covered,
                     mask,
                     records,
+                    pictures,
                 );
             }
         }
@@ -490,6 +500,7 @@ impl Overlay {
                         highlight: scene.highlight,
                         blink: r.blink(),
                         cursor: opacity_of(r, block),
+                        pictures: Some(pictures),
                     },
                     &geom,
                 );
@@ -523,6 +534,7 @@ impl Overlay {
         covered: Covered,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
+        pictures: &Pictures,
     ) {
         let row = scene.view.row(y);
         let mut piece: Vec<(usize, PackedCell, Vec<Codepoint>)> = Vec::new();
@@ -558,6 +570,7 @@ impl Overlay {
                 highlight: scene.highlight,
                 blink: r.blink(),
                 cursor: opacity_of(r, block),
+                pictures: Some(pictures),
             };
             // `ceiling-no-window-cache` prices the miss: nothing is found.
             let hit = if cfg!(feature = "ceiling-no-window-cache") {
@@ -752,6 +765,7 @@ impl Overlay {
                 highlight,
                 blink: r.blink(),
                 cursor: opacity_of(r, block),
+                pictures: None,
             },
             &geom,
         );
@@ -834,8 +848,11 @@ impl Overlay {
         // `Renderer::convert_row` and the cell shader mirror, which the pixel
         // gate compares at a translucent alpha. A record draws a glyph, so
         // only the foreground is taken.
+        let pictured = paint
+            .pictures
+            .map_or(Pictured::No, |p| p.at(Row::from_index(y), Col::at_index(x)));
         let d = resolved.drawn(Swaps {
-            pictured: Pictured::No,
+            pictured,
             selected: if selected {
                 Selected::Yes
             } else {
@@ -1002,6 +1019,7 @@ pub(crate) fn composition_records(
         highlight: None,
         blink: r.blink(),
         cursor: opacity_of(r, block),
+        pictures: None,
     };
     let face = crate::cellmap::face_of(styles, under);
     let y = c.row.index();

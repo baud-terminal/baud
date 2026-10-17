@@ -3,14 +3,18 @@
 //! The pixel oracle cannot check it -- both GPU arms read one resolved table,
 //! so a wrong floor is drawn identically twice -- so it is held here to the
 //! WCAG 2.2 formula computed in `f64`, through the renderer's own resolve.
+//! Which of a slot's two texts a cell draws under the glass is chosen per
+//! cell on each arm, and `glass_floor_gate` in `baud-present-macos`'s
+//! `cells.rs` compares the three.
 
 mod support;
 
 use baud_core::{Owned, Term};
-use baud_domain::{BytePos, Chan, Cols, ReadLen, Row, Rows, StyleWord, WinSize};
+use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, StyleWord, WinSize};
 use baud_font::Face;
 use baud_render::{
-    Argb, Blend, Floor, PxSize, Renderer, Resolved, Shapes, Stack, Theme, Video, xterm_palette,
+    Argb, Blend, BlinkPhases, BlockCursor, Floor, Pictured, Pictures, PxSize, Renderer, Resolved,
+    Selected, Shapes, Stack, Swaps, Theme, Video, xterm_palette,
 };
 use support::font;
 
@@ -373,4 +377,279 @@ fn black_text_on_a_black_page_set_by_osc_11_is_lifted() {
         "lifted: {:?}",
         rgb(slot.fg)
     );
+}
+
+/// `[glass] dim_dark`'s default, 0.22 of 255 rounded: the alpha every
+/// background is drawn at under `app_backgrounds = "dim"`.
+const DIM: u8 = 56;
+
+fn glass() -> Theme {
+    Theme {
+        bg_alpha: Chan::from_u8(DIM),
+        ..Theme::dark()
+    }
+}
+
+/// A slot's text as a frame draws it with nothing laid over the cell, or
+/// with the cell inside a picture drawn in text, or selected.
+fn drawn_fg(slot: Resolved, pictured: Pictured, selected: Selected) -> (Argb, Argb) {
+    let d = slot.drawn(Swaps {
+        pictured,
+        selected,
+        block: BlockCursor::No,
+        blink: BlinkPhases::SHOWN,
+        cursor: Chan::from_u8(0xFF),
+    });
+    (d.fg, d.bg)
+}
+
+/// The page a dimmed background is taken to be drawn as: `bg` at the dim
+/// over the default page, channel by channel in encoded sRGB, rounded as
+/// `Argb::mix` rounds -- computed here and not through it.
+fn dimmed(bg: Argb, page: Argb) -> Argb {
+    let a = u32::from(DIM);
+    let m = |x: Chan, y: Chan| {
+        let v = (u32::from(x.get()) * a + u32::from(y.get()) * (255 - a) + 127) / 255;
+        Chan::from_u8(u8::try_from(v).unwrap())
+    };
+    Argb::rgb(
+        m(bg.r(), page.r()),
+        m(bg.g(), page.g()),
+        m(bg.b(), page.b()),
+    )
+}
+
+/// **Text the dim makes unreadable is lifted, on herdr's own themes**
+/// (`tests/panels/herdr-themes.raw`; the record, "herdr's themes under the
+/// glass"). At every read boundary of the capture, under the glass at the
+/// default dim: every glyph on a page the program set, whose pair reads at
+/// the trigger or above as asked, reads at the trigger or above against
+/// that page dimmed over the default page.
+#[test]
+fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
+    let bytes = std::fs::read(format!(
+        "{}/../tests/panels/herdr-themes.raw",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("the capture");
+    let theme = glass();
+    let page = theme.bg;
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        theme.clone(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    let mut s = Owned::new(&WS);
+    let mut t = Term::new(s.storage(), &WS);
+    let (mut below, mut lifted, mut asked_set) = (0usize, 0usize, 0usize);
+    for chunk in bytes.chunks(4096) {
+        t.write_at(BytePos::ZERO, chunk);
+        t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+        let mut table = vec![Resolved::default(); t.styles().len()];
+        r.resolve_styles_into(&t, &mut table);
+        for y in 0..usize::from(WS.ws_row) {
+            for cell in t.row(Row::from_index(y)).expect("a row on the grid") {
+                let glyph = t.base_of(*cell).as_codepoint();
+                if glyph.is_none_or(|c| c.value() == u32::from(b' ')) {
+                    continue;
+                }
+                let style = t.style_of(*cell);
+                if words(style).1.is_default() {
+                    continue;
+                }
+                let (fg, bg) = theme.resolve(
+                    style,
+                    Video::Normal,
+                    |ch| t.palette(ch),
+                    |d| t.dynamic_color(d),
+                );
+                if contrast(fg, bg) < 1.2 {
+                    continue;
+                }
+                asked_set += 1;
+                let (text, _) = drawn_fg(table[cell.style.index()], Pictured::No, Selected::No);
+                if contrast(text, dimmed(bg, page)) < 1.2 {
+                    below += 1;
+                }
+                if rgb(text) != rgb(fg) {
+                    lifted += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        asked_set > 10_000,
+        "the premise: {asked_set} set-page glyphs"
+    );
+    assert_eq!(
+        below, 0,
+        "{below} glyphs read below the trigger as drawn ({lifted} lifted)"
+    );
+    assert!(lifted > 0, "the positive control: nothing was lifted");
+}
+
+/// **A program's own low-contrast pair stays as asked.** `#222222` text on
+/// a `#1e1e1e` page reads 1.04:1 as asked and 1.17:1 dimmed over the dark
+/// page: below the trigger both ways, so the program chose it and it is
+/// drawn as chosen, inside a picture or out.
+#[test]
+fn a_programs_own_low_contrast_pair_is_left_alone_under_the_glass() {
+    let (_, _, (fg, bg), slot) = cells(glass(), &["38;2;34;34;34;48;2;30;30;30".into()]).remove(0);
+    assert!(contrast(fg, bg) < 1.2, "the control: below as asked");
+    let drawn = dimmed(bg, glass().bg);
+    assert!(
+        contrast(fg, drawn) < 1.2,
+        "the control: below as drawn, {:.3}",
+        contrast(fg, drawn)
+    );
+    for p in [Pictured::No, Pictured::Yes] {
+        assert_eq!(rgb(drawn_fg(slot, p, Selected::No).0), rgb(fg), "{p:?}");
+    }
+}
+
+/// **Light-theme text on the glass**: gruvbox-light's text on its page,
+/// 10.2:1 as asked and 1.14:1 dimmed over the dark page, is lifted until it
+/// reads at the target against the page as drawn -- and only where the page
+/// is drawn dimmed: inside a picture, selected, on an opaque window, or with
+/// `app_backgrounds = "opaque"` the text is the colour asked.
+#[test]
+fn light_theme_text_on_the_glass_reaches_the_target_where_the_page_is_dimmed() {
+    let sgr = "38;2;60;56;54;48;2;251;241;199";
+    let (_, _, (fg, bg), slot) = cells(glass(), &[sgr.into()]).remove(0);
+    let drawn = dimmed(bg, glass().bg);
+    assert!(contrast(fg, bg) >= 4.5, "the premise: readable as asked");
+    assert!(
+        contrast(fg, drawn) < 1.2,
+        "the premise: unreadable as drawn"
+    );
+    let (text, page) = drawn_fg(slot, Pictured::No, Selected::No);
+    assert!(
+        contrast(text, drawn) >= 4.5,
+        "lifted against the dimmed page: {:?}, {:.2}",
+        rgb(text),
+        contrast(text, drawn)
+    );
+    assert_eq!(page.a().get(), DIM, "the page stays glass");
+    let (text, page) = drawn_fg(slot, Pictured::Yes, Selected::No);
+    assert_eq!((rgb(text), page.a().get()), (rgb(fg), 0xFF), "a picture");
+    let (text, page) = drawn_fg(slot, Pictured::No, Selected::Yes);
+    assert_eq!((rgb(text), rgb(page)), (rgb(bg), rgb(fg)), "selected");
+    for theme in [
+        Theme::dark(),
+        Theme {
+            app_bg: baud_render::AppBg::Opaque,
+            ..glass()
+        },
+    ] {
+        let (_, _, _, slot) = cells(theme, &[sgr.into()]).remove(0);
+        let (text, _) = drawn_fg(slot, Pictured::No, Selected::No);
+        assert_eq!(rgb(text), rgb(fg), "a page drawn solid");
+    }
+}
+
+/// **What moves on every capture, and why.** The nine recordings,
+/// `tests/panels/`'s four captures and the two chafa previews, each fed a
+/// read at a time under the glass: at every read boundary, a glyph whose
+/// text is drawn otherwise than [`Floor::lift`] made it sits on a page the
+/// program set, reads at the trigger or above on that page, and below it
+/// against the page dimmed. The glyphs so moved on each final screen are
+/// counted and pinned. The chafa previews are found as pictures and drawn
+/// solid, so nothing in them moves.
+#[test]
+fn every_capture_moves_only_text_the_dim_made_unreadable() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../tests");
+    let read = |p: String| std::fs::read(p).expect("the stream");
+    let streams: Vec<(&str, Vec<u8>)> = support::RECORDINGS
+        .iter()
+        .map(|r| (*r, read(format!("{root}/recordings/{r}"))))
+        .chain(
+            ["helix", "vimdiff", "vimhl", "herdr-themes"]
+                .map(|p| (p, read(format!("{root}/panels/{p}.raw")))),
+        )
+        .chain(["chafa-240.ans", "chafa-truecolour.ans"].map(|p| (p, placed(p))))
+        .collect();
+    let theme = glass();
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut got = Vec::new();
+    for (name, bytes) in &streams {
+        let mut r = Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            theme.clone(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap();
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        let mut moved = 0;
+        for chunk in bytes.chunks(support::CHUNK) {
+            t.write_at(BytePos::ZERO, chunk);
+            t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
+            let mut table = vec![Resolved::default(); t.styles().len()];
+            r.resolve_styles_into(&t, &mut table);
+            let mut pictures = Pictures::new();
+            pictures.find(&t, &t.view(Rows::ZERO), Video::Normal);
+            moved = 0;
+            for y in 0..usize::from(WS.ws_row) {
+                let row = t.row(Row::from_index(y)).expect("a row on the grid");
+                for (x, cell) in row.iter().enumerate() {
+                    let glyph = t.base_of(*cell).as_codepoint();
+                    if glyph.is_none_or(|c| c.value() == u32::from(b' ')) {
+                        continue;
+                    }
+                    let slot = table[cell.style.index()];
+                    let pictured = pictures.at(Row::from_index(y), Col::at_index(x));
+                    let (text, _) = drawn_fg(slot, pictured, Selected::No);
+                    if rgb(text) == rgb(slot.fg) {
+                        continue;
+                    }
+                    moved += 1;
+                    let bg = slot.bg.with_alpha(Chan::from_u8(0xFF));
+                    let style = t.style_of(*cell);
+                    assert!(!words(style).1.is_default(), "{name}: the default page");
+                    assert!(contrast(slot.fg, bg) >= 1.2, "{name}: asked below");
+                    assert!(
+                        contrast(slot.fg, dimmed(bg, theme.bg)) < 1.2,
+                        "{name}: readable as drawn"
+                    );
+                    assert!(contrast(text, dimmed(bg, theme.bg)) >= 4.5, "{name}");
+                }
+            }
+        }
+        got.push((*name, moved));
+    }
+    // vimdiff's 22: `habamax`'s `#1c1c1c` on `#767676`, 3.75:1 asked and
+    // 1.13:1 drawn. herdr's lifts are on the screens before its last,
+    // which `text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted` reads.
+    let want: Vec<(&str, usize)> = streams
+        .iter()
+        .map(|(n, _)| (*n, if *n == "vimdiff" { 22 } else { 0 }))
+        .collect();
+    assert_eq!(got, want);
+}
+
+/// A preview placed as yazi places it, each line at the pane's origin a
+/// row further down: `pictures.rs`'s placement, where chafa's lines are one
+/// picture in every cell.
+fn placed(name: &str) -> Vec<u8> {
+    let text = std::fs::read_to_string(format!(
+        "{}/../tests/previews/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("the capture");
+    let mut bytes = b"\x1b[1;1H~/photos $ yazi".to_vec();
+    for (i, line) in text.split('\n').filter(|l| !l.is_empty()).enumerate() {
+        bytes.extend(format!("\x1b[{};21H", i + 4).into_bytes());
+        bytes.extend(line.as_bytes());
+    }
+    bytes
 }

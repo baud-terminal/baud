@@ -2848,6 +2848,8 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     assert_eq!(alpha(8, 17), 0xFF, "?5: the sixteen letters' last cell");
     assert_eq!(alpha(4, 2), 56, "?5: the fifteen blanks draw the page");
     feed(&mut t, b"\x1b[?5l");
+    arms.renderer.set_theme(resting.clone());
+    glass_floor_gate(&mut arms, &mut t, &resting);
     arms.renderer.set_theme(resting);
 
     // **The image gate, last so a lingering placement disturbs nothing.** A
@@ -3282,6 +3284,103 @@ fn partial_image_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
 /// put through the macOS presenter's own `premultiply`, as
 /// `Presenter::present` copies a frame into its surface -- the form the
 /// two GPU arms' readback is in.
+/// **The floor on the page the glass draws**, on all three arms: dark
+/// text on a light page the program set (gruvbox-light's pair, 10.2:1 as
+/// asked, 1.14:1 dimmed over the dark page), drawn as a 2x20 picture of
+/// forty pages, one cell of it a marked glyph the cell arm draws from a
+/// record, as a one-page panel, under a selection and under a block
+/// cursor. The panel's glyphs are lifted, so they differ from the same
+/// frame with the floor off; the picture's, the selection's and the
+/// cursor's are drawn solid and take the text asked, so they do not. The
+/// two GPU arms read one resolved table but choose between its two texts
+/// in two spellings, `Resolved::drawn` and the shader's `colors()`, and
+/// the CPU arm composites the instance arm's colours: this compares all
+/// three, at the default dim.
+fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) {
+    assert_eq!(resting.bg_alpha.get(), 56, "the premise: the default dim");
+    assert_eq!(arms.margin, (0, 0), "the premise: the frame at the origin");
+    let pair = "38;2;60;56;54;48;2;251;241;199";
+    feed(t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[2 q");
+    for y in 0..2u32 {
+        feed(t, format!("\x1b[{};3H", y + 2).as_bytes());
+        for x in 0..20u32 {
+            // One marked glyph, which the cell arm draws from a record.
+            let glyph = if (x, y) == (5, 0) { "e\u{301}" } else { "X" };
+            feed(
+                t,
+                format!(
+                    "\x1b[38;2;60;56;54;48;2;{};{};199m{glyph}",
+                    251 - x,
+                    241 - y * 8
+                )
+                .as_bytes(),
+            );
+        }
+        feed(t, b"\x1b[0m");
+    }
+    feed(
+        t,
+        format!("\x1b[5;3H\x1b[{pair}mpanel text here\x1b[0m").as_bytes(),
+    );
+    feed(t, b"\x1b[5;14H\x1b[?25h");
+    arms.highlight = Some(Highlight {
+        from: (Row::from_index(4), Col::at_index(2)),
+        to: (Row::from_index(4), Col::at_index(6)),
+        region: Region::Stream,
+    });
+    let fw = usize::try_from(arms.renderer.frame_size().0.value()).unwrap();
+    let (cw, ch) = (
+        usize::try_from(arms.renderer.metrics().cell_w.value()).unwrap(),
+        usize::try_from(arms.renderer.metrics().cell_h.value()).unwrap(),
+    );
+    let mut frames = Vec::new();
+    for floor in [baud_render::Floor::DEFAULT, baud_render::Floor::Off] {
+        arms.renderer.set_theme(Theme {
+            app_bg: baud_render::AppBg::Dimmed,
+            picture_bg: baud_render::PictureBg::Opaque,
+            floor,
+            ..resting.clone()
+        });
+        let (a, b) = arms.draw(t);
+        assert_eq!(
+            arms.exceptions.stats().pictured.value(),
+            40,
+            "{floor:?}: the cell arm's overlay found the picture"
+        );
+        let bx = diff_box(&a, &b, fw, (cw, ch));
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "{floor:?}: the GPU arms disagree over the glass floor, cells {bx:?}"
+        );
+        let cpu = cpu_frame(arms, t);
+        let all = channel_diff(&cpu, &a, |_| true);
+        assert_eq!(
+            all.0, 0,
+            "{floor:?}: CPU and GPU differ on {} pixels, by up to {}",
+            all.0, all.1
+        );
+        frames.push(b);
+    }
+    arms.highlight = None;
+    feed(t, b"\x1b[?25l\x1b[0 q");
+    // Pixels that differ between the floor on and off, over the cells of
+    // `rows` by `cols`.
+    let moved = |rows: std::ops::Range<usize>, cols: std::ops::Range<usize>| {
+        let mut n = 0;
+        for y in rows.start * ch..rows.end * ch {
+            for x in cols.start * cw..cols.end * cw {
+                n += usize::from(frames[0][y * fw + x] != frames[1][y * fw + x]);
+            }
+        }
+        n
+    };
+    assert!(moved(4..5, 8..11) > 0, "the panel's glyphs were not lifted");
+    assert_eq!(moved(1..3, 2..22), 0, "a picture's text was lifted");
+    assert_eq!(moved(4..5, 2..7), 0, "a selected cell's text was lifted");
+    assert_eq!(moved(4..5, 13..14), 0, "the block cursor's cell was lifted");
+}
+
 fn cpu_frame(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) -> Vec<u32> {
     let (fw, fh) = arms.renderer.frame_size();
     let n = usize::try_from(fw.value() * fh.value()).unwrap();

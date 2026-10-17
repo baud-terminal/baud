@@ -981,7 +981,7 @@ impl Gpu {
     pub fn styles(&self, term: &Term<'_>) -> Option<(StylesBuffer, &'static mut [Resolved])> {
         let n = term.styles().len();
         let buffer = self.shared(Span(n.saturating_mul(Resolved::BYTES)))?;
-        // SAFETY: `Resolved` is `repr(C)` over four `u32` newtypes, valid
+        // SAFETY: `Resolved` is `repr(C)` over seven `u32` newtypes, valid
         // for every bit pattern, and written before it is read.
         let styles = unsafe { lend::<Resolved>(&buffer, Elems(n)) }?;
         styles.fill(Resolved::default());
