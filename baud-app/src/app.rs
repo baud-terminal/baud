@@ -6784,13 +6784,15 @@ fn icon_titlebar() -> Option<Retained<NSImage>> {
 /// layers. Launch Services refuses the bundle, from Info.plist's
 /// `LSMinimumSystemVersion` of 26.0. A bare `baud` run from a shell meets
 /// no such check -- macOS 13's dyld and kernel do not refuse on the
-/// binary's `minos` (`[[source: dyld-1066-10-loader]]`,
-/// `[[source: xnu-8796-mach-loader]]`; the record, "macOS 26 is the
-/// floor") -- so it reaches this, which prints `GlassError`'s
-/// message on stderr and exits 1 where it used to panic on
-/// `.expect("glass")`. It runs first in [`run`], ahead of the display link
-/// and `-[NSApplication activate]` (macOS 14) and ahead of the shell's
-/// spawn, so nothing is started that it would then abandon.
+/// binary's `minos` (`[[source: dyld-1042-1-loader]]`,
+/// `[[source: dyld-1066-10-loader]]`, `[[source: xnu-8796-mach-loader]]`;
+/// the record, "macOS 26 is the floor") -- so it reaches this, which
+/// prints `GlassError`'s message on stderr and exits 1 where it used to
+/// panic on `.expect("glass")`. It runs first in [`run`], ahead of the
+/// display link and `-[NSApplication activate]` (macOS 14:
+/// `[[source: sdk27-nsview-h]]`, `[[source: sdk27-nsapplication-h]]`) and
+/// ahead of the shell's spawn, so nothing is started that it would then
+/// abandon.
 fn refusal(glass: Glass) -> Option<String> {
     match glass {
         Glass::Present => None,

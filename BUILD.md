@@ -37,9 +37,10 @@ fonts' licences; it needs `iconutil` (macOS) and takes `rsvg-convert` from
 (`[[source: sdk27-nsglasseffectview-h]]`). The release is said in three
 places and `baud-app/tests/macos_floor.rs` holds them equal: the bundle's
 `LSMinimumSystemVersion`, on which Launch Services refuses to open it on an
-older system; the deployment target in `.cargo/config.toml`, forced over the
-devenv shell's 14.0, which the linker writes into the binary as
-`LC_BUILD_VERSION minos`; and the Metal library's target. A bare `baud` run
+older system (`kLSIncompatibleSystemVersionErr`,
+`[[source: sdk27-lsconstants-h]]`); the deployment target in
+`.cargo/config.toml`, forced over the devenv shell's 14.0, which the linker
+writes into the binary as `LC_BUILD_VERSION minos`; and the Metal library's target. A bare `baud` run
 on an older system meets the app's own check, which prints why on stderr
 and exits 1 (forced on macOS 27; not run below 26).
 

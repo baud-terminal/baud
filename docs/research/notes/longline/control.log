@@ -1,0 +1,24 @@
+  A: fourteen lines, half long, half bars: -
+  A: narrow to 20 at a prompt: clear_one_cell=15 measure_calls=1
+  A: line feeds: row_fills=2 row_cells=38
+  A: top region scrolls: copy_calls=3 copy_pairs=6 copy_cells=120 repair_open_clear_cells=60 swept_paint_calls=1 swept_paint_rows=3 swept_paint_cells=60 clear_at_rows_cleared=6
+  A: IL DL: copy_pairs=4 copy_cells=80 il_calls=1 dl_calls=1 ildl_cells=80
+  A: RI at the top: incoming_calls=2 incoming_cells=40 clear_at_rows_cleared=2 row_fills=1 row_cells=19
+  A: line feeds 2: row_fills=1 row_cells=19
+  A: resize height: swept_resize_calls=1 swept_resize_rows=3 swept_resize_cells=20 held_whole=5 held_scanned=7 measure_calls=1 clear_at_rows_cleared=1
+  A: blue EL on each row: erase1_calls=9 erase1_rows_cleared=1 erase1_cells=20 clear_at_rows_cleared=1
+  A: EL 0, EL 2: erase1_calls=2
+  A: ED 2: eraseN_calls=1
+  B: one bar, narrowed: clear_one_cell=15 measure_calls=1
+  B: EL 2 on it: erase1_calls=1 erase1_rows_cleared=1 erase1_cells=20 reach_lowered=1 clear_at_rows_cleared=1
+  B: narrow again: clear_one_cell=15 measure_calls=1
+  B: grow, narrow, grow less: clear_one_cell=15 measure_calls=1 widened_fills=10 widened_cells=40
+  C: block of 12 long rows, narrowed at a prompt: clear_one_cell=2010 measure_calls=1
+  C: cursor (Row(6), Col(0)) prompt None hist 7
+  C: CUU, ED, redraw mark: redraw_clears=1 erase1_calls=11 erase1_rows_cleared=10 erase1_cells=80 eraseN_calls=1 eraseN_rows_cleared=2 eraseN_cells=16 fill_past_calls=3 fill_past_cells=36 clear_at_rows_cleared=12 redraw_erase_calls=10 at_fills=9 at_cells=108
+  C: cursor (Row(0), Col(6)) prompt Some(Row(0)) hist 4
+  B2: three bars, narrowed: clear_one_cell=15 measure_calls=1
+  B2: ED 2: eraseN_calls=1 eraseN_rows_cleared=3 eraseN_cells=60 reach_lowered=1 clear_at_rows_cleared=3
+control totals:
+  all: copy_calls=3 copy_pairs=10 copy_cells=200 il_calls=1 dl_calls=1 ildl_cells=80 repair_open_clear_cells=60 swept_paint_calls=1 swept_paint_rows=3 swept_paint_cells=60 redraw_clears=1 swept_resize_calls=1 swept_resize_rows=3 swept_resize_cells=20 incoming_calls=2 incoming_cells=40 erase1_calls=23 erase1_rows_cleared=12 erase1_cells=120 eraseN_calls=3 eraseN_rows_cleared=5 eraseN_cells=76 reach_lowered=2 held_whole=5 held_scanned=7 clear_one_cell=2085 fill_past_calls=3 fill_past_cells=36 measure_calls=7 clear_at_rows_cleared=26 redraw_erase_calls=10 widened_fills=10 widened_cells=40 row_fills=4 row_cells=76 at_fills=9 at_cells=108
+control missing: ["x", "x"]
