@@ -93,6 +93,7 @@ its filename's prefix, and several notes share one.
 | [ar-theme-formats.md](research/notes/ar-theme-formats.md) | AR. Theme file formats, and telling them apart by content | open |
 | [as-glass-legibility.md](research/notes/as-glass-legibility.md) | AS. Glass legibility: what Apple recommends, and what baud draws | open |
 | [at-standard-materials.md](research/notes/at-standard-materials.md) | AT. A standard material for the window body | open |
+| [au-floor-hue.md](research/notes/au-floor-hue.md) | AU. How the contrast floor keeps a lifted colour's hue | open |
 | [b-data-parallel-fsm.md](research/notes/b-data-parallel-fsm.md) | Data-parallel finite-state machines — vectorising the parser itself | open |
 | [b-parser-as-a-graph.md](research/notes/b-parser-as-a-graph.md) | The parser as a graph — how to store 20 nodes and 5,120 edges | open |
 | [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified | done 2026-09-11, `f920ea3` |
