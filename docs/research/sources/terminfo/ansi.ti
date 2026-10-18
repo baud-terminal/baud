@@ -1,9 +1,11 @@
 #	Reconstructed via infocmp from file: /usr/share/terminfo/61/ansi
 ansi|ansi/pc-term compatible with color,
+	OTbs,
 	am,
 	mc5i,
 	mir,
 	msgr,
+	AX,
 	colors#8,
 	cols#80,
 	it#8,

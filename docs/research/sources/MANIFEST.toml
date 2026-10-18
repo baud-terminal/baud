@@ -583,10 +583,15 @@ status = "retrieved"
 group  = "C"
 
 # ── terminfo fixtures ──────────────────────────────────────────────────
-# `infocmp -1` output from ncurses 6.0.20150808, captured verbatim, and
-# for xterm-256color `infocmp -x -1`, the entry baud gives its child. These
-# are the conformance targets: `baud-core/tests/conformance/` replays every
-# output capability of each entry and requires baud to drop none of them.
+# `infocmp -x -1` output from ncurses 6.0.20150808, captured verbatim from
+# macOS 27.0's /usr/share/terminfo, with the user-defined capabilities a
+# program reading the database gets. xterm-256color is the entry baud gives
+# its child. The other nine were `infocmp -1` until 2026-10-18; the -x
+# recapture adds AX, XT or OTbs to eight, the six strings Cr, Cs, E3, Ms,
+# Se and Ss and 52 modified keys to xterm and xterm-16color, TS and six keys
+# to nsterm and 22 keys to rxvt. These are the conformance targets:
+# `baud-core/tests/conformance/` replays every output capability of each
+# entry and requires baud to drop none of them.
 # A $TERM value is a capability *profile*, not a protocol -- xterm-256color
 # is xterm with a different colour capability, not a different parser.
 
@@ -611,104 +616,104 @@ group  = "C"
 [sources.terminfo-ansi]
 key    = "terminfo-ansi"
 title  = "terminfo entry: ansi"
-author = "ncurses 6.0.20150808 (infocmp -1)"
+author = "ncurses 6.0.20150808 (infocmp -x -1)"
 year   = 2015
-venue  = "ncurses terminfo database"
+venue  = "ncurses terminfo database, /usr/share/terminfo/61/ansi on macOS"
 url    = "https://invisible-island.net/ncurses/"
 file   = "terminfo/ansi.ti"
-sha256 = "ff273cfa1907a692f0e14dea28440c34a2114f1b62014054ee8a015f15dd0ffb"
-bytes  = 1393
+sha256 = "c63c45093575780295ca187fd6901878b1e76bd2221d1b93671a4961558fd652"
+bytes  = 1405
 status = "retrieved"
 group  = "C"
 
 [sources.terminfo-dtterm]
 key    = "terminfo-dtterm"
 title  = "terminfo entry: dtterm"
-author = "ncurses 6.0.20150808 (infocmp -1)"
+author = "ncurses 6.0.20150808 (infocmp -x -1)"
 year   = 2015
-venue  = "ncurses terminfo database"
+venue  = "ncurses terminfo database, /usr/share/terminfo/64/dtterm on macOS"
 url    = "https://invisible-island.net/ncurses/"
 file   = "terminfo/dtterm.ti"
-sha256 = "82537170f1fee27b6c29b36d7d4064eb4b5fd2ed2fc668a49b0abef4f10e00e4"
-bytes  = 1586
+sha256 = "5c0c5c9a465472bd3f7d6224aceb0226e626bb961d8fd4a14141873f239d10bf"
+bytes  = 1591
 status = "retrieved"
 group  = "C"
 
 [sources.terminfo-nsterm]
 key    = "terminfo-nsterm"
 title  = "terminfo entry: nsterm"
-author = "ncurses 6.0.20150808 (infocmp -1)"
+author = "ncurses 6.0.20150808 (infocmp -x -1)"
 year   = 2015
-venue  = "ncurses terminfo database"
+venue  = "ncurses terminfo database, /usr/share/terminfo/6e/nsterm on macOS"
 url    = "https://invisible-island.net/ncurses/"
 file   = "terminfo/nsterm.ti"
-sha256 = "86839adac228ec525e271b23874829946ffb08b1cb736129ff067fbf86664636"
-bytes  = 1986
+sha256 = "6699bb1a395db030bdc16a46b803df029d4d88f40cbef95933b9d232eeaf015e"
+bytes  = 2083
 status = "retrieved"
 group  = "C"
 
 [sources.terminfo-rxvt]
 key    = "terminfo-rxvt"
 title  = "terminfo entry: rxvt"
-author = "ncurses 6.0.20150808 (infocmp -1)"
+author = "ncurses 6.0.20150808 (infocmp -x -1)"
 year   = 2015
-venue  = "ncurses terminfo database"
+venue  = "ncurses terminfo database, /usr/share/terminfo/72/rxvt on macOS"
 url    = "https://invisible-island.net/ncurses/"
 file   = "terminfo/rxvt.ti"
-sha256 = "1bc72c1e0192dce2ddc2420977fe7c9c63461f1cce6f7b53d6bfe9e1d9e798bf"
-bytes  = 2405
+sha256 = "bb255272283722b1cc57408393d61821fb526112946af9a46e47578d42f8323a"
+bytes  = 2708
 status = "retrieved"
 group  = "C"
 
 [sources.terminfo-vt100]
 key    = "terminfo-vt100"
 title  = "terminfo entry: vt100"
-author = "ncurses 6.0.20150808 (infocmp -1)"
+author = "ncurses 6.0.20150808 (infocmp -x -1)"
 year   = 2015
-venue  = "ncurses terminfo database"
+venue  = "ncurses terminfo database, /usr/share/terminfo/76/vt100 on macOS"
 url    = "https://invisible-island.net/ncurses/"
 file   = "terminfo/vt100.ti"
-sha256 = "6eedd89badb47adfed39cdaa1f9a9f0afd304db85272be22358b4873fa384ead"
-bytes  = 1265
+sha256 = "f85609c5f3858c90e5bfe3e8a0260dc06113484a6cb327f5accdd025c83e0217"
+bytes  = 1272
 status = "retrieved"
 group  = "C"
 
 [sources.terminfo-vt102]
 key    = "terminfo-vt102"
 title  = "terminfo entry: vt102"
-author = "ncurses 6.0.20150808 (infocmp -1)"
+author = "ncurses 6.0.20150808 (infocmp -x -1)"
 year   = 2015
-venue  = "ncurses terminfo database"
+venue  = "ncurses terminfo database, /usr/share/terminfo/76/vt102 on macOS"
 url    = "https://invisible-island.net/ncurses/"
 file   = "terminfo/vt102.ti"
-sha256 = "d7e07673399c5a7ba5717e8187a16881d72a987c13e009a28b64d9cec1332773"
-bytes  = 1297
+sha256 = "948a4f247d9bcf45cc6570b914f6ed597e452ade2afc1382e1d986d30ff5f564"
+bytes  = 1304
 status = "retrieved"
 group  = "C"
 
 [sources.terminfo-vt52]
 key    = "terminfo-vt52"
 title  = "terminfo entry: vt52"
-author = "ncurses 6.0.20150808 (infocmp -1)"
+author = "ncurses 6.0.20150808 (infocmp -x -1)"
 year   = 2015
-venue  = "ncurses terminfo database"
+venue  = "ncurses terminfo database, /usr/share/terminfo/76/vt52 on macOS"
 url    = "https://invisible-island.net/ncurses/"
 file   = "terminfo/vt52.ti"
-sha256 = "93594ae44fc5b3657540d007283e68eb05bf305c4b407abd39b7f6a7b0cc0c1e"
-bytes  = 393
+sha256 = "c6eb9d05d2f4b4c009e802094a87a3aca9fd7401dde6589d63ebf757eb2104ea"
+bytes  = 400
 status = "retrieved"
 group  = "C"
 
 [sources.terminfo-xterm-16color]
 key    = "terminfo-xterm-16color"
 title  = "terminfo entry: xterm-16color"
-author = "ncurses 6.0.20150808 (infocmp -1)"
+author = "ncurses 6.0.20150808 (infocmp -x -1)"
 year   = 2015
-venue  = "ncurses terminfo database"
+venue  = "ncurses terminfo database, /usr/share/terminfo/78/xterm-16color on macOS"
 url    = "https://invisible-island.net/ncurses/"
 file   = "terminfo/xterm-16color.ti"
-sha256 = "8119b8aedb65bbdcfe3d4bcaa9085ac8768d3685c64b6bb3b8c13e387bb27d9e"
-bytes  = 3220
+sha256 = "4d385faa5c005b266f9cd8616cda2ecf499d83eda6c3b29d13b7127da4db77f1"
+bytes  = 4148
 status = "retrieved"
 group  = "C"
 
@@ -718,7 +723,7 @@ group  = "C"
 # capabilities a program reading the database gets -- `tput Se` here prints
 # `ESC [ 2 SP q` -- so the profile never replayed Ss, Se, Cs, Cr, Ms or E3.
 # The conformance suite gives `Cs`'s string a colour (terminfo.rs's
-# `string_argument`); the other nine entries stay `infocmp -1`.
+# `string_argument`). The other nine followed the same day.
 [sources.terminfo-xterm-256color]
 key    = "terminfo-xterm-256color"
 title  = "terminfo entry: xterm-256color, with user-defined capabilities"
@@ -735,13 +740,13 @@ group  = "C"
 [sources.terminfo-xterm]
 key    = "terminfo-xterm"
 title  = "terminfo entry: xterm"
-author = "ncurses 6.0.20150808 (infocmp -1)"
+author = "ncurses 6.0.20150808 (infocmp -x -1)"
 year   = 2015
-venue  = "ncurses terminfo database"
+venue  = "ncurses terminfo database, /usr/share/terminfo/78/xterm on macOS"
 url    = "https://invisible-island.net/ncurses/"
 file   = "terminfo/xterm.ti"
-sha256 = "030ca24cf4d216ed60b22a260cf7c80825934720254add5e2ace1e4454e6125c"
-bytes  = 2966
+sha256 = "62a48b4859f71489a552bf5b49b14bc301fb94aec0a1bf6bfe4c0eaae2577ae2"
+bytes  = 3894
 status = "retrieved"
 group  = "C"
 
@@ -21275,10 +21280,11 @@ group  = "AM"
 #   - `expand`, or the profile's treatment of `Cs`, for the failure above;
 #   - baud-core/tests/conformance/main.rs 16 and terminfo.rs 3, which call the
 #     fixtures `infocmp -1` output; this one is `infocmp -x -1`.
-# Pinned as a source only, one statement already leaves it out:
+# Pinned as a source only, one statement left it out until 2026-10-18:
 # baud-domain/tests/terminfo.rs's "Every pinned `.ti` is a positive control"
-# runs over a hard-coded list of 11 cases (ten .ti and terminfo.5), and this
-# file is not among them. Nothing in note AM moves either way: its section 8.4
+# ran over a hard-coded list of 11 cases (ten .ti and terminfo.5) without
+# this file; it now lists all eleven .ti and checks the directory holds no
+# other. Nothing in note AM moves either way: its section 8.4
 # and question 5 count the ten entries besides the capture and the capture
 # apart, and bounds.py leaves the capture out of its ten-entry count by name.
 #

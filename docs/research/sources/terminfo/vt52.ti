@@ -1,5 +1,6 @@
 #	Reconstructed via infocmp from file: /usr/share/terminfo/76/vt52
 vt52|dec vt52,
+	OTbs,
 	cols#80,
 	it#8,
 	lines#24,

@@ -1,9 +1,8 @@
 //! A terminfo entry, parsed far enough to replay its output capabilities.
 //!
-//! The fixtures in `docs/research/sources/terminfo/` are `infocmp -1` output,
-//! and `xterm-256color` `infocmp -x -1` output, with the user-defined
-//! capabilities programs read, captured verbatim and hash-pinned in
-//! `MANIFEST.toml`. Parsing them here
+//! The fixtures in `docs/research/sources/terminfo/` are `infocmp -x -1`
+//! output, with the user-defined capabilities programs read, captured
+//! verbatim and hash-pinned in `MANIFEST.toml`. Parsing them here
 //! rather than checking in a pre-expanded list keeps the source of truth the
 //! thing ncurses actually ships.
 

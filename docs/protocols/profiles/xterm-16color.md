@@ -8,11 +8,11 @@ Differs from `xterm` in **five** capabilities, all colour: `setaf`, `setab`, `se
 
 | | |
 |---|---|
-| output capabilities | **84** — all handled |
-| input capabilities | 88 — **85 sent**, measured against the pinned terminfo by `the_profiles_input_counts_are_what_baud_can_send` |
+| output capabilities | **90** — all handled |
+| input capabilities | 140 — **137 sent**, measured against the pinned terminfo by `the_profiles_input_counts_are_what_baud_can_send` |
 | shared with `vt100` | 43 |
 | conformance test | `baud-core/tests/conformance/` → `xterm_16color` |
-| source | `../../research/sources/terminfo/xterm-16color.ti`, hash-pinned |
+| source | `../../research/sources/terminfo/xterm-16color.ti`, `infocmp -x -1`, hash-pinned |
 
 Conformance replays every output capability and requires that none is
 recognised-and-dropped. Input capabilities are the keys a terminal *sends*, and that half is

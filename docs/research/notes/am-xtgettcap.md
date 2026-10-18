@@ -1107,6 +1107,10 @@ to retrieve, so for XTSETTCAP each reduces to option 1.
      `is_input` tests. They include the boolean `km` and nsterm's
      `kbs=\177`, which `input_caps.rs`'s parser leaves out because they
      carry no `\E` or `^`: nsterm counts 40 here and 39 there.
+     * *Since 2026-10-18 every pin is an `infocmp -x -1` capture:* rxvt has
+       99 k-prefixed capabilities, nsterm 46, xterm and xterm-16color 141, and
+       `bounds.py` counts 1,130 names and 11,466 B over the ten. The counts
+       above describe the pins before that day.
 3. **Build `?1050` with XTSETTCAP.** Under the tcap keyboard the text and
    xterm's code agree: the keys send the loaded entry's strings, and
    XTGETTCAP answers them (section 3).

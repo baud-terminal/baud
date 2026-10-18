@@ -31,24 +31,24 @@ requires that nothing was recognised and dropped:
 | `vt52` | 17 | ✅ (after `CSI ? 2 l`) |
 | `vt100` | 44 | ✅ |
 | `vt102` | 49 | ✅ |
-| `xterm` | 83 | ✅ |
-| `xterm-16color` | 84 | ✅ |
-| `xterm-256color` | 82 | ✅ |
+| `xterm` | 89 | ✅ |
+| `xterm-16color` | 90 | ✅ |
+| `xterm-256color` | 88 | ✅ |
 | `rxvt` | 66 | ✅ |
 | `dtterm` | 58 | ✅ |
-| `nsterm` | 70 | ✅ |
+| `nsterm` | 71 | ✅ |
 
 One page each in [profiles/](profiles/), with what the name means and what it
 draws on.
 
 Input capabilities — those whose terminfo name begins with `k`, the keys a
-terminal *sends* — are counted separately and not required. xterm declares 88
+terminal *sends* — are counted separately and not required. xterm declares 140
 of them. **That sentence used to end "and baud has no input path", which has
 been false since `encode_key` landed** -- see each profile's measured count. It is stated rather
 than skipped.
 
 The entries themselves are in `../research/sources/terminfo/`, captured with
-`infocmp -1` from ncurses 6.0.20150808 and hash-pinned in `MANIFEST.toml`, so
+`infocmp -x -1` from ncurses 6.0.20150808 and hash-pinned in `MANIFEST.toml`, so
 the conformance target cannot drift without the source gate noticing.
 
 ## What baud declines, across all levels

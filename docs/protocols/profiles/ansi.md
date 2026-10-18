@@ -12,7 +12,7 @@ VT100's CSI operations without the DEC private modes. If baud handles VT100 it h
 | input capabilities | 8 — **6 sent**, measured against the pinned terminfo by `the_profiles_input_counts_are_what_baud_can_send` |
 | shared with `vt100` | 33 |
 | conformance test | `baud-core/tests/conformance/` → `ansi` |
-| source | `../../research/sources/terminfo/ansi.ti`, hash-pinned |
+| source | `../../research/sources/terminfo/ansi.ti`, `infocmp -x -1`, hash-pinned |
 
 Conformance replays every output capability and requires that none is
 recognised-and-dropped. Input capabilities are the keys a terminal *sends*, and that half is

@@ -1,5 +1,6 @@
 #	Reconstructed via infocmp from file: /usr/share/terminfo/76/vt100
 vt100|vt100-am|dec vt100 (w/advanced video),
+	OTbs,
 	am,
 	mc5i,
 	msgr,

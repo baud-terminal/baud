@@ -1,5 +1,6 @@
 #	Reconstructed via infocmp from file: /usr/share/terminfo/76/vt102
 vt102|dec vt102,
+	OTbs,
 	am,
 	mc5i,
 	msgr,

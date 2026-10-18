@@ -13,10 +13,10 @@
 //! *sends*; they are the input path, which `input_caps.rs` measures, and are
 //! counted separately rather than silently skipped.
 //!
-//! Fixtures are `infocmp -1` output, and `xterm-256color` `infocmp -x -1`,
-//! with the user-defined capabilities (`Ss`, `Se`, `Cs`, `Ms` ...) programs
-//! read, captured verbatim and hash-pinned in
-//! `docs/research/sources/MANIFEST.toml`, from ncurses 6.0.20150808.
+//! Fixtures are `infocmp -x -1` output, with the user-defined capabilities
+//! (`Ss`, `Se`, `Cs`, `Ms` ...) programs read, captured verbatim and
+//! hash-pinned in `docs/research/sources/MANIFEST.toml`, from ncurses
+//! 6.0.20150808.
 
 #[path = "../support/mod.rs"]
 mod support;

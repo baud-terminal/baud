@@ -4,7 +4,7 @@
 
 Differs from the system's `xterm` entry in the **same five** capabilities. `setaf` becomes a conditional emitting `\E[3<n>m`, `\E[9<n>m` or `\E[38;5;<n>m` by range — three spellings baud already implements. Same protocol.
 
-This is the entry baud gives its child, so it is pinned with the capabilities programs read beyond the standard set (`infocmp -x`): the cursor style (`Ss`, `Se`), the cursor colour (`Cs`, `Cr`), the clipboard (`Ms`), clearing the scrollback (`E3`) and the modified keys. The `xterm` entry beside it is pinned without them, so against that pin it also differs in those six strings, three booleans (`AX`, `XT`, `OTbs`) and 52 modified-key inputs; the system's `xterm` entry read with `-x` carries all of them.
+This is the entry baud gives its child. Like every profile here it is pinned with the capabilities programs read beyond the standard set (`infocmp -x`): the cursor style (`Ss`, `Se`), the cursor colour (`Cs`, `Cr`), the clipboard (`Ms`), clearing the scrollback (`E3`) and the modified keys. The `xterm` and `xterm-16color` entries carry the same ones.
 
 ## Status
 

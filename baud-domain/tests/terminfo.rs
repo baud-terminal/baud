@@ -2,8 +2,9 @@
 //!
 //! **Every pinned `.ti` is a positive control**: the parser has to find the
 //! flash each entry carries and nothing where an entry has none, or a probe
-//! that cannot fire would read every entry as `Absent` and pass. Then one
-//! test for each refusal the grammar leaves to this reader.
+//! that cannot fire would read every entry as `Absent` and pass. The test
+//! lists the directory, so a pin added beside them fails until it is a
+//! case. Then one test for each refusal the grammar leaves to this reader.
 use baud_domain::terminfo::{
     Delay, Flash, FlashError, Force, Padding, PaddingError, Per, flash, string_capability,
 };
@@ -28,11 +29,18 @@ fn padded(millis: u16, force: Force) -> Flash {
 
 #[test]
 fn every_pinned_entry_reads_as_the_flash_it_carries() {
-    let cases: [(&str, &[u8], Flash); 11] = [
+    let cases: [(&str, &[u8], Flash); 12] = [
         ("xterm", pinned!("xterm"), padded(100, Force::Mandatory)),
         (
             "xterm-256color",
             pinned!("xterm-256color"),
+            padded(100, Force::Mandatory),
+        ),
+        // Note AM's capture, the same bytes as `xterm-256color` since
+        // 2026-10-18, pinned under its own key for the note's citations.
+        (
+            "xterm-256color-x",
+            pinned!("xterm-256color-x"),
             padded(100, Force::Mandatory),
         ),
         (
@@ -60,6 +68,30 @@ fn every_pinned_entry_reads_as_the_flash_it_carries() {
     for (name, entry, want) in cases {
         assert_eq!(flash(entry), Ok(want), "{name}");
     }
+    // Every `.ti` in the directory is one of the cases, so a pin added
+    // beside them cannot escape the control.
+    let dir = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/research/sources/terminfo"
+    );
+    let mut on_disk: Vec<String> = std::fs::read_dir(dir)
+        .expect("the pinned directory")
+        .map(|e| {
+            e.expect("an entry")
+                .file_name()
+                .into_string()
+                .expect("ASCII")
+        })
+        .filter_map(|n| n.strip_suffix(".ti").map(str::to_owned))
+        .collect();
+    on_disk.sort();
+    let mut listed: Vec<String> = cases
+        .iter()
+        .map(|(name, _, _)| (*name).to_owned())
+        .filter(|n| *n != "terminfo.5")
+        .collect();
+    listed.sort();
+    assert_eq!(on_disk, listed);
 }
 
 /// The value is found raw, escapes and all, and a field that cancels or
