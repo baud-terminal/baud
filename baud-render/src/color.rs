@@ -406,8 +406,9 @@ impl Oklab {
     /// clamp included, with [`Hue`]'s closed-form clip, so the end of the
     /// bracket returned reads at `y` whatever the clip's own error. The
     /// nested bisection this replaces took 8.3 us for btop's `#7f3b3b` and
-    /// this 55 ns, 205 ns where the gamut clips (`#dbbfef` under the light
-    /// glass), against 17-30 ns for the linear-light mix. IEEE arithmetic
+    /// this 55 ns, about 200-240 ns where the gamut clips (205 for
+    /// `#dbbfef` under the light glass, 240 for `#cd0000` on black at alpha
+    /// 179), against 17-30 ns for the linear-light mix. IEEE arithmetic
     /// only, `sqrt` included, so the colour does not depend on a platform
     /// maths library; not yet run on Linux.
     fn lift(text: Argb, toward: Toward, y: f64) -> Argb {

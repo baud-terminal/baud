@@ -217,10 +217,11 @@ as `floor = 7`, which a literal 4.5 would loosen against decision 9's
   lifted colour keeps its OKLab hue and as much chroma as sRGB
   holds, at the same target, so btop's red meter part and grey track stay
   apart on the glass (0.095 in OKLab where the linear-light mix left
-  0.017). Jev's lean, 0.80/0.55 with note Y decision 6 quoted
-  (`decisions.jsonl` 754-755); it departs from decision 6's linear-light
-  mix, keeping its "just far enough" and its hue, open to the owner's
-  veto. On a black page at 0.70 the room from 4.5:1
+  0.017). Below the bar (0.80/0.55, with note Y decision 6 quoted,
+  `decisions.jsonl` 754-755), so decision 6's "just far enough" and its
+  hue are kept, as the fix allowed; the move from the linear-light mix
+  to OKLab is the owner's to veto, and the question is with the owner
+  with the renders. On a black page at 0.70 the room from 4.5:1
   to white is 1.91:1, so no lift makes two lifted colours SC 1.4.11's 3:1
   apart ([[source: wcag22-understanding-non-text-contrast]]). **Open, the
   owner's call**: greys, which have no hue, still land on one grey (btop's

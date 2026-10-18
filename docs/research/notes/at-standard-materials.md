@@ -19,8 +19,9 @@ material:
 - under Reduce Transparency the system would probably swap in the
   material's opaque variant (an inference from the catalogs, section 5).
 
-Default text passes 4.5:1 over every modelled wallpaper either way. Panels
-fared worse than default text on glass (note AS, section 4). So the choice
+Default text passes 4.5:1 over every modelled wallpaper either way.
+Coloured panel text fared worse than default text on glass (note AS,
+section 4). So the choice
 is about which of Apple's texts baud follows and how much of the desktop
 shows through.
 
@@ -35,8 +36,8 @@ shows through.
   same length as note AS's pins but their bytes differ, so today's copies
   are pinned under new keys. Every quote below was checked against today's
   copy.
-- **WCAG was not re-fetched.** The contrast ratio is
-  [[source: wcag22]]'s, the committed copy.
+- **WCAG 2.2 was not re-fetched.** The committed copy is cited: the
+  contrast ratio is [[source: wcag22]]'s.
 - **Local files.** The material recipes and Apple's app binaries were read
   on macOS 27.0 (26A5425a). baud is cited at `a0822e39`. The owner's crate
   is cited at 1.0.0-beta.5, the version baud links.
@@ -103,9 +104,11 @@ such as the desktop or other windows"
 `followsWindowActiveState` ([[source: apple-nsvisualeffectview-state]]): it
 appears "active when the window is active, and inactive when it is not"
 ([[source: apple-nsvisualeffectview-state-enum]]). The HIG's Windows page
-says "inactive windows don't use Materials", "which makes them appear
+says "inactive windows don't use vibrancy (an effect that can pull color
+into a window from the content underneath it), which makes them appear
 subdued", and "if you use custom implementations, you need to do this work
-yourself" ([[source: apple-hig-windows]]). `NSGlassEffectView` is "A view
+yourself" ([[source: apple-hig-windows]]). Its "vibrancy" links to the
+Materials page. `NSGlassEffectView` is "A view
 that embeds its content view in a dynamic glass effect"
 ([[source: apple-nsglasseffectview-2026-10-17]]). Its page lists no state
 property.
@@ -177,8 +180,9 @@ path.
 
 - The crate has no `NSVisualEffectView` surface in 1.0.0-beta.5 or anywhere
   in its history.
-- No new dependency is needed. objc2-app-kit 0.3.2, which the crate already
-  uses, binds the class in its default features.
+- No new dependency should be needed. objc2-app-kit 0.3.2, which the
+  crate already uses, lists `NSVisualEffectView` among its default
+  features. Whether the crate keeps default features on was not checked.
 - The change is a feature-gated module with an effect surface: material,
   blending mode, state, emphasis and its view.
 - `NSVisualEffectView` has no content view, so the surface adds the
@@ -203,16 +207,16 @@ section 6's model.
 
 | body | dims 0.70 / 0.60 | the contrast floor | spread |
 |---|---|---|---|
-| regular glass (today) | hold: set at the bound where the material darkens nothing (note AS, section 3) | at `a0822e39`, reads against the page mixed over the default page at the dim (note AS, section 6) | 41-78 (glass rows, both halves, both bounds) |
+| regular glass (today) | hold: set at the bound where the material darkens nothing (note AS, section 3) | at `a0822e39`, reads against the page mixed over the default page at the dim (note AS, section 6); since `a15c6a9c`, reads against the page at its alpha over black to white (record, "The glass floor reads against the whole backdrop") | 41-78 (glass rows, both halves, both bounds) |
 | see-through standard (Sidebar stand-in) | hold by the same bound; could come down, unmeasured | same as glass | 10-11 |
 | `.windowBackground` / `.contentBackground` | no effect on what shows through: the body is opaque at any dim | its page is what is behind the text | 0 |
 
 **btop's meters.** The floor change that reads text against the whole
-backdrop, black to white, covers either glass bound. It is not in this
-note's base. With it, btop's `#404040` meter ground on its black page goes
-to `#bcbcbc` at dark 0.70, so its meters read full. The figures are in the
-record entry "The glass floor reads against the whole backdrop", which
-lands with that change.
+backdrop, black to white, covers either glass bound. It landed at
+`a15c6a9c`, after this note's base. With it, btop's `#404040` meter ground
+on its black page goes to `#bcbcbc` at dark 0.70, so its meters read full.
+The figures are in the record entry
+"The glass floor reads against the whole backdrop".
 
 A standard material cuts the desktop's spread from 41-78 to about 10 luma,
 and an opaque one to none. Over glass anything can be behind the page,
@@ -343,7 +347,11 @@ question is put. Every ask did agree on one result:
   0.00-0.01;
 - the three options with a standard default together scored 0.97 or more.
 
-**Nothing reached 0.9, so Jev decided nothing.**
+**Nothing reached 0.9, so Jev decided nothing.** After the re-ask, Jev's
+lean is to move to `.underWindowBackground` (0.49/0.81, decisions
+732/733). The proposal below keeps that material as the default and adds
+glass as an opt-in, which Jev scored 0.36/0.10. It goes to the owner
+because it needs the owner's crate.
 
 **The research's proposal**, which is not Jev's pick, since Jev never ranked
 it first:
@@ -354,7 +362,8 @@ it first:
 - the dims stay until an on-screen look says otherwise.
 
 If the owner wants a body that does not show the desktop, `.windowBackground`
-is Apple's material "for opaque windows".
+is Apple's "material for the background of opaque windows"
+([[source: apple-nsvisualeffectview-windowbackground]]).
 
 **It is the owner's call.** Every option but staying on glass needs a new
 surface in the owner's crate, so it is the owner's call even at 0.9 (note
