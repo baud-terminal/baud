@@ -3211,6 +3211,9 @@ const DOT: &[u8] = b"\x1bPq\"1;1;8;6#1;2;100;0;0#1!8~\x1b\\";
 /// 58` colour, both double ideogram lines, framed runs that start at the
 /// left edge, end at the right edge, end at a wide character, and touch an
 /// overline, a selected framed run and a framed run in blink and conceal,
+/// encircled runs alone and in a run, framed, wide, reversed, blinking, over
+/// an overline, a set background and a stress mark, at either edge,
+/// selected and slid, and a hidden neighbour of each outline,
 /// and stress marks over narrow and wide characters, punctuation, spaces
 /// and an ideographic space, under an overline, reversed, blinking and
 /// concealed. The instance and cell arms must agree pixel for pixel and
@@ -3219,7 +3222,11 @@ const DOT: &[u8] = b"\x1bPq\"1;1;8;6#1;2;100;0;0#1!8~\x1b\\";
 /// cannot agree here vacuously.
 fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     let cols = usize::from(WS.ws_col);
-    let edge = format!("\x1b[1;{}H\x1b[51mend\x1b[0m", cols - 2);
+    let edge = format!(
+        "\x1b[1;{}H\x1b[51mend\x1b[0m\x1b[7;{}H\x1b[52mfin\x1b[0m",
+        cols - 2,
+        cols - 2
+    );
     let lines = [
         "\x1b[53mover\x1b[0m \x1b[53;4mover under\x1b[0m \x1b[53;4:3mcurl\x1b[0m \
          \x1b[53;21mdouble\x1b[0m \x1b[58;5;196;53;4mul red\x1b[0m \x1b[31;53m    \x1b[0m",
@@ -3231,6 +3238,10 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         "\x1b[64mstress \u{4e2d}\u{6587}, a.b\x1b[0m \x1b[64;53mover\x1b[0m \
          \x1b[64;7mrev\x1b[0m \x1b[64;5mblink\x1b[0m \x1b[64;8mhid\x1b[0m \
          \x1b[64;34m\u{3000}x\x1b[0m \x1b[64me\u{301},\u{301}\u{203c}\u{fe0f} \u{301} ,\u{301}->\x1b[0m",
+        "\x1b[52mok\x1b[0m \x1b[52mA B C\x1b[0m \x1b[52m1\x1b[0m \x1b[51;52mboth\x1b[0m \
+         \x1b[52mwide \u{231a}\x1b[0m \x1b[52;7mrev\x1b[0m \x1b[52;5mblink\x1b[0m \
+         \x1b[52;53mover\x1b[0m \x1b[52;44mbg\x1b[0m \x1b[52;64mstress\x1b[0m \
+         \x1b[52me\u{301}\x1b[0m \x1b[52m->\x1b[0m \x1b[51mx\u{301}y\x1b[0m",
     ];
     let mut text = String::from("\x1bc\x1b[?25l\x1b[51mstart\x1b[0m\r\n");
     for l in lines {
@@ -3251,7 +3262,15 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         .replace("\x1b[63m", "")
         .replace("\x1b[60;62m", "")
         .replace("\x1b[64m", "")
-        .replace("64;", "");
+        .replace("64;", "")
+        .replace("52;", "")
+        .replace("\x1b[52m", "");
+    // The text with only the encircled runs taken out: a control of their
+    // own, as the stress marks have.
+    let unringed = text
+        .replace("52;", "")
+        .replace(";52m", "m")
+        .replace("\x1b[52m", "");
     // The text with only the stress marks taken out: a control of their
     // own, since the other decorations would satisfy the one above.
     let unstressed = text.replace("\x1b[64m", "").replace("64;", "");
@@ -3259,11 +3278,17 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     let (none, _) = arms.draw(t);
     feed(t, unstressed.as_bytes());
     let (bare, _) = arms.draw(t);
+    feed(t, unringed.as_bytes());
+    let (unringed, _) = arms.draw(t);
     feed(t, text.as_bytes());
     let (a, b) = arms.draw(t);
     assert!(
         differing(&none, &a) > 0,
         "the decorations never reached the instance arm's pixels"
+    );
+    assert!(
+        differing(&unringed, &a) > 0,
+        "the encircled runs never reached the instance arm's pixels"
     );
     assert!(
         differing(&bare, &a) > 0,
@@ -3280,10 +3305,11 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         0,
         "the CPU arm disagrees on the decorations"
     );
-    // A selection across a framed run swaps its colours on both arms.
+    // A selection across a framed run and an encircled one swaps their
+    // colours on both arms.
     arms.highlight = Some(Highlight {
         from: (Row::from_index(3), Col::at_index(2)),
-        to: (Row::from_index(3), Col::at_index(20)),
+        to: (Row::from_index(5), Col::at_index(20)),
         region: Region::Stream,
     });
     let (a, b) = arms.draw(t);
@@ -3292,6 +3318,23 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         differing(&a, &b),
         0,
         "the GPU arms disagree on a selected frame"
+    );
+    // A full-row slide is the screen one line up, encircled runs and all:
+    // the cell arm places a ring's mask by the pan as it places a glyph.
+    let rows = usize::from(WS.ws_row);
+    feed(t, format!("\x1b[{rows};1H\n").as_bytes());
+    let cell_h = arms.renderer.metrics().cell_h;
+    arms.back = Rows::ZERO;
+    arms.slide = Some(cell_h);
+    let (_, slid) = arms.draw(t);
+    arms.slide = None;
+    arms.back = Rows::of_count(1);
+    let (_, one_up) = arms.draw(t);
+    arms.back = Rows::ZERO;
+    assert_eq!(
+        differing(&slid, &one_up),
+        0,
+        "a full-row slide over the decorations is not the screen one line up"
     );
     hidden_seam_gate(arms, t);
 }
@@ -3334,17 +3377,50 @@ fn hidden_seam_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             off,
             "rapid blink off",
         ),
+        (
+            "\x1b[52mab\x1b[8mcd",
+            "\x1b[52mab\x1b[0;8mcd",
+            shown,
+            "encircled, concealed",
+        ),
+        (
+            "\x1b[52mab\x1b[5mcd",
+            "\x1b[52mab\x1b[0;5mcd",
+            off,
+            "encircled, blink off",
+        ),
     ] {
         arms.renderer.set_blink(blink);
         let scene = |s: &str| format!("\x1bc\x1b[?25l\x1b[2;3H{s}\x1b[0m");
         feed(t, scene(closed).as_bytes());
         let (want_a, want_b) = arms.draw(t);
-        feed(t, scene("\x1b[51mabcd").as_bytes());
+        let whole = if seam.starts_with("\x1b[52") {
+            "\x1b[52mabcd"
+        } else {
+            "\x1b[51mabcd"
+        };
+        feed(t, scene(whole).as_bytes());
         let (open_a, _) = arms.draw(t);
         assert_ne!(
             differing(&want_a, &open_a),
             0,
             "{name}: the premise, the hidden cells hide something"
+        );
+        let bare = closed
+            .replace("\x1b[51m", "")
+            .replace("\x1b[52m", "")
+            .replace(";51m", "m");
+        feed(t, scene(&bare).as_bytes());
+        let (bare_a, bare_b) = arms.draw(t);
+        assert_ne!(
+            differing(&want_a, &bare_a),
+            0,
+            "{name}: the premise, the outline is drawn on the instance arm"
+        );
+        assert_ne!(
+            differing(&want_b, &bare_b),
+            0,
+            "{name}: the premise, the outline is drawn on the cell arm"
         );
         feed(t, scene(seam).as_bytes());
         let (a, b) = arms.draw(t);

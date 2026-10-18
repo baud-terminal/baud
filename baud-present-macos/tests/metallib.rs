@@ -330,9 +330,11 @@ fn the_hidden_text_bits_match_the_shader() {
 }
 
 /// **The cell shader draws the lines the CPU resolves**: `Shapes::OVERLINE`,
-/// `Shapes::DOUBLE_OVERLINE` and `Shapes::FRAMED` and their `SHAPE_`
-/// spellings are one fact twice, and a drift would draw `SGR 53`, `63` or
-/// `51` on the instance path alone.
+/// `Shapes::DOUBLE_OVERLINE`, `Shapes::FRAMED`, `Shapes::STRESS` and
+/// `Shapes::ENCIRCLED` and their `SHAPE_` spellings are one fact twice, and
+/// a drift would draw `SGR 53`, `63`, `51`, `64` or `52` on the instance
+/// path alone; so are `Ring::KEY` and `RING_KEY`, the keys the encircled
+/// run's parts sit under in the glyph map.
 #[test]
 fn the_line_shape_bits_match_the_shader() {
     let src = include_str!("../src/shaders.metal");
@@ -344,6 +346,8 @@ fn the_line_shape_bits_match_the_shader() {
         ),
         ("SHAPE_FRAMED", baud_render::Shapes::FRAMED.0),
         ("SHAPE_STRESS", baud_render::Shapes::STRESS.0),
+        ("SHAPE_ENCIRCLED", baud_render::Shapes::ENCIRCLED.0),
+        ("RING_KEY", baud_render::boxes::Ring::KEY),
     ] {
         let prefix = format!("#define {name} ");
         let line = src
@@ -357,6 +361,26 @@ fn the_line_shape_bits_match_the_shader() {
             .unwrap_or_else(|_| panic!("{name} is an unsigned literal"));
         assert_eq!(got, want, "{line:?} against Shapes' {name}");
     }
+}
+
+/// **The cell shader leaves a record's ring to the record**: the overlay's
+/// `MASK_RING` and the shader's are one bit spelled twice, and a drift
+/// would draw an encircled run's end twice, or under its glyph, on the
+/// cell path alone.
+#[test]
+fn the_ring_mask_bit_matches_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    let prefix = "#define MASK_RING ";
+    let line = src
+        .lines()
+        .find(|l| l.starts_with(prefix))
+        .expect("shaders.metal defines MASK_RING");
+    let got: u8 = line[prefix.len()..]
+        .trim()
+        .trim_end_matches('u')
+        .parse()
+        .expect("an unsigned literal");
+    assert_eq!(got, baud_render::MASK_RING, "{line:?}");
 }
 
 /// **The bare-cluster bit is one bit**: `baud_render::MASK_BARE` and the

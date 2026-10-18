@@ -1763,8 +1763,19 @@ static bool takes_stress_mark(uint content, bool bare) {
 #define SHAPE_OVERLINE 16384u
 #define SHAPE_DOUBLE_OVERLINE 32768u
 #define SHAPE_FRAMED 65536u
-// `Shapes::STRESS`, pinned by the same test.
+// `Shapes::STRESS` and `Shapes::ENCIRCLED`, pinned by the same test.
 #define SHAPE_STRESS 131072u
+#define SHAPE_ENCIRCLED 262144u
+// `baud_render::boxes::Ring::KEY`: the glyph map holds an encircled run's
+// three parts under this key plus 1 (the left end), 2 (the right end) and
+// 3 (a cell alone), above every codepoint, face style and span. Pinned by
+// `the_line_shape_bits_match_the_shader`.
+#define RING_KEY 134217728u
+// `baud_render::MASK_RING`: over a cell the records draw, a record draws
+// its end of an encircled run after its glyph, as the instance path draws
+// it after the row's glyphs, and the shape pass leaves it out. Pinned by
+// `the_ring_mask_bit_matches_the_shader`.
+#define MASK_RING 8u
 // The face style's two bits in a resolved slot's shapes -- the style whose
 // face the cell's text is drawn from, already fallen back by the stack --
 // and where they sit in a glyph-map key, above the 21-bit codepoint. The
@@ -1786,6 +1797,22 @@ static bool takes_stress_mark(uint content, bool bare) {
 static bool hidden(constant CU& u, uint shapes) {
     uint blinks = u.blink_hidden & (SHAPE_BLINK | SHAPE_RAPID_BLINK);
     return (shapes & (SHAPE_CONCEAL | blinks)) != 0u;
+}
+
+// Whether the cell beside column `col` of draw row `dr` -- to its left or
+// its right -- carries a run of `shape` on: it has the shape and its text
+// draws, since a hidden cell draws nothing of its own and the run's
+// outline closes beside it. The row's edge carries nothing on. Must match
+// `carries_on` in baud-render's renderer.rs (called from `Renderer::edges`
+// and `ring_part`).
+static bool carries(constant CU& u, device const uint2* cells,
+                    device const Style* styles, uint col, uint dr, bool left,
+                    uint shape) {
+    bool edge = left ? col == 0u : col + 1u >= u.grid.x;
+    if (edge) return false;
+    uint2 n = cell_at(u, cells, left ? col - 1u : col + 1u, dr);
+    uint ns = styles[n.y & 0xffffu].shapes;
+    return (ns & shape) != 0u && !hidden(u, ns);
 }
 
 // Whether the cell is inside the selection, both ends inclusive: a stream
@@ -2024,17 +2051,19 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
 // Shapes a cell: its underline, its strike, a second underline line for a
 // double underline, the cursor when it is an underline or a bar, the
 // overline (or a frame's top), a double overline's second line, a frame's
-// bottom and its two sides, the stress mark, and then SEGMENTS quads for a curly, dotted or
+// bottom and its two sides, the stress mark, an end of an encircled run
+// (a mask from the glyph map, as a glyph is), and then SEGMENTS quads for a curly, dotted or
 // dashed underline (kitty's 4:3/4:4/4:5) -- each a run of thickness-wide
 // solids across the cell, so the styles need no texel and composite exactly
 // as the straight line does. A shape not drawn is a zero-area quad.
-#define SHAPE_SLOTS 26u
-#define FIXED_SLOTS 10u
+#define SHAPE_SLOTS 27u
+#define FIXED_SLOTS 11u
 #define SEGMENTS (SHAPE_SLOTS - FIXED_SLOTS)
 vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uint2* cells [[buffer(0)]],
                               device const Style* styles [[buffer(1)]],
                               constant CU& u [[buffer(2)]],
+                              device const Entry* entries [[buffer(3)]],
                               device const uchar* overlay [[buffer(4)]]) {
     GOut o;
     o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 2u; o.curve = 0u;
@@ -2088,15 +2117,21 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         // at the fade's opacity (`Argb::scaled`).
         colw = scaled((u.cursor_color != 0u) ? u.cursor_color : curw, u.cursor_alpha);
     } else if (which < FIXED_SLOTS) {
-        // The overline, the frame, the double overline's second line and
-        // the stress mark, in the text's colour as the strike is, with the CPU compositor's
-        // arithmetic: the overline and the frame's top are one line.
+        // The overline, the frame, the double overline's second line, the
+        // stress mark and an encircled run, in the text's colour as the
+        // strike is, with the CPU compositor's arithmetic: the overline,
+        // the frame's top and the top between an encircled run's ends are
+        // one line, and the frame's bottom and that run's bottom are one.
         float th = float(u.thickness);
         float th1 = max(th, 1.0);
         bool framed = (s.shapes & SHAPE_FRAMED) != 0u;
+        bool encircled = (s.shapes & SHAPE_ENCIRCLED) != 0u;
+        bool lc = encircled && carries(u, cells, styles, col, dr, true, SHAPE_ENCIRCLED);
+        bool rc = encircled && carries(u, cells, styles, col, dr, false, SHAPE_ENCIRCLED);
+        bool between = lc && rc;
         float x = float(col * u.cell.x);
         if (which == 4u) {
-            if (!framed && (s.shapes & SHAPE_OVERLINE) == 0u) return o;
+            if (!framed && !between && (s.shapes & SHAPE_OVERLINE) == 0u) return o;
             at = float2(x, rowy);
             wh = float2(u.cell.x, th);
         } else if (which == 5u) {
@@ -2120,25 +2155,46 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
             at = float2(x + floor(max(span - d, 0.0) * 0.5),
                         rowy + min(d, max(float(u.cell.y) - d, 0.0)));
             wh = float2(d, d);
+        } else if (which == 10u) {
+            // An end of an encircled run: its part of the outline, the
+            // mask the glyph map holds under `RING_KEY`, placed at the cell
+            // origin as a procedural glyph is, in the text's colour and
+            // bent by the glyph's curve.
+            if (!encircled || between) return o;
+            if (lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & MASK_RING) != 0u) return o;
+            uint key = RING_KEY + (lc ? 2u : (rc ? 1u : 3u));
+            uint mask = u.map_slots - 1u;
+            uint i = (key * 0x9E3779B1u) >> u.map_shift;
+            Entry e; bool found = false;
+            for (uint n = 0u; n < u.map_slots; n++) {
+                e = entries[i];
+                if (e.key == 0xFFFFFFFFu) break;
+                if (e.key == key) { found = true; break; }
+                i = (i + 1u) & mask;
+            }
+            if (!found || e.kind > 2u) return o;
+            float2 c = float2(vid & 1u, vid >> 1u);
+            float2 origin = float2(x + float(e.at.x), rowy + float(u.baseline) + float(e.at.y));
+            float2 rwh = float2(e.rect.zw);
+            o.pos = clip(origin + c * rwh, u);
+            float side = e.kind == 1u ? float(u.sides.y) : float(u.sides.x);
+            o.uv = (float2(e.rect.xy) + c * rwh) / side;
+            o.color = unpack(fgw);
+            o.kind = e.kind;
+            o.curve = glyph_curve(u, s, overlay, cell.x, col, lrow);
+            return o;
+        } else if (which == 6u) {
+            if (!framed && !between) return o;
+            at = float2(x, rowy + float(u.cell.y) - th1);
+            wh = float2(u.cell.x, th);
         } else {
             if (!framed) return o;
-            if (which == 6u) {
-                at = float2(x, rowy + float(u.cell.y) - th1);
-                wh = float2(u.cell.x, th);
-            } else {
-                // A side only where the run of framed cells starts or ends:
-                // the row's edge, or a neighbour that is not framed or whose
-                // text is hidden, which draws nothing of its own.
-                bool left = which == 7u;
-                bool edge = left ? col == 0u : col + 1u >= u.grid.x;
-                if (!edge) {
-                    uint2 n = cell_at(u, cells, left ? col - 1u : col + 1u, dr);
-                    uint ns = styles[n.y & 0xffffu].shapes;
-                    if ((ns & SHAPE_FRAMED) != 0u && !hidden(u, ns)) return o;
-                }
-                at = float2(left ? x : x + float(u.cell.x) - th1, rowy);
-                wh = float2(th1, u.cell.y);
-            }
+            // A side only where the run of framed cells starts or ends:
+            // the row's edge, or a neighbour that does not carry it on.
+            bool left = which == 7u;
+            if (carries(u, cells, styles, col, dr, left, SHAPE_FRAMED)) return o;
+            at = float2(left ? x : x + float(u.cell.x) - th1, rowy);
+            wh = float2(th1, u.cell.y);
         }
         colw = fgw;
     } else {

@@ -52,7 +52,7 @@ use crate::units::{Coverage, Tally, slots};
 use baud_domain::{Chan, Codepoint, GlyphId};
 use baud_font::bytes::Index;
 use baud_font::{
-    Bounds, Canvas, Drawn, Face, Fit, Mirror, Palette, PaletteEntry, Phase, Png, Ppem, Px,
+    Bounds, Canvas, Drawn, Extent, Face, Fit, Mirror, Palette, PaletteEntry, Phase, Png, Ppem, Px,
     Rasterizer, Scale, Sink, Strike, VarPoint,
 };
 use std::collections::HashMap;
@@ -1020,6 +1020,32 @@ impl Atlas {
         baseline: Px,
     ) -> Option<Slot> {
         let extent = crate::boxes::draw(cp, cell, &mut self.scratch, &mut self.coverage)?;
+        self.place_cell_mask(extent, baseline)
+    }
+
+    /// The mask for one part of an encircled run's outline (`SGR 52`),
+    /// drawn at exactly `cell` with a stroke `th` wide and placed at the
+    /// cell origin as a procedural glyph is, memoised the same way under
+    /// the part's key ([`crate::boxes::Ring::key`]), above every codepoint.
+    pub fn ring(
+        &mut self,
+        ring: crate::boxes::Ring,
+        cell: crate::boxes::Cell,
+        th: Px,
+        baseline: Px,
+    ) -> Option<Slot> {
+        if let Some(slot) = self.procedural.get(&ring.key().0) {
+            return *slot;
+        }
+        let slot = crate::boxes::draw_ring(ring, cell, th, &mut self.scratch, &mut self.coverage)
+            .and_then(|extent| self.place_cell_mask(extent, baseline));
+        self.procedural.insert(ring.key().0, slot);
+        slot
+    }
+
+    /// Places the mask in the first cells of `coverage` on the mask sheet
+    /// at the cell origin: `left` zero, `top` `-baseline`.
+    fn place_cell_mask(&mut self, extent: Extent, baseline: Px) -> Option<Slot> {
         self.stats.synthesised.bump();
         let (w, h) = (extent.w, extent.h);
         let (x, y) = loop {

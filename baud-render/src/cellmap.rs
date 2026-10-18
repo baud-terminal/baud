@@ -246,6 +246,28 @@ impl MapEntry {
         }
     }
 
+    /// An entry drawing `slot` under `key`, with no glyph behind it: an
+    /// encircled run's outline ([`crate::boxes::Ring`]).
+    fn of_slot(key: CellKey, slot: Option<crate::atlas::Slot>) -> MapEntry {
+        match slot {
+            None => MapEntry {
+                key,
+                ..MapEntry::EMPTY
+            },
+            Some(s) => MapEntry {
+                key,
+                kind: s.kind.code(),
+                x: s.x,
+                y: s.y,
+                w: s.w,
+                h: s.h,
+                left: Screen(i16::try_from(s.left).unwrap_or(i16::MAX)),
+                top: Screen(i16::try_from(s.top).unwrap_or(i16::MAX)),
+                pad: Code(0),
+            },
+        }
+    }
+
     /// The glyph the entry draws.
     pub fn glyph(&self) -> GlyphId {
         GlyphId::from_shaper(u16::try_from(self.pad.0 & 0xffff).unwrap_or(0))
@@ -379,7 +401,11 @@ impl<'m> GlyphMap<'m> {
         style: crate::FaceStyle,
         span: CellSpan,
     ) -> Option<&MapEntry> {
-        let key = CellKey::of(cp, style, span);
+        self.probe_key(CellKey::of(cp, style, span))
+    }
+
+    /// The entry under `key`, if the map holds one.
+    fn probe_key(&self, key: CellKey) -> Option<&MapEntry> {
         let mut i = MapSlot::home(key);
         for _ in 0..MAP_SLOTS {
             let e = &self.entries[i.0];
@@ -437,7 +463,7 @@ impl<'m> GlyphMap<'m> {
             self.clear();
         }
         candidates.clear();
-        let mut changed = false;
+        let mut changed = self.rings(r);
         let cols = vp.cols().index();
         for y in 0..vp.rows().index() {
             let row = vp.row(Row::from_index(y));
@@ -489,9 +515,48 @@ impl<'m> GlyphMap<'m> {
                 prev = starts.then_some((glyph, face));
             }
         }
+        // A clear on the walk took the rings' entries with it.
+        changed |= self.rings(r);
         if changed {
             self.generation = MapGeneration(self.generation.0.wrapping_add(1));
         }
+    }
+
+    /// Makes sure the map holds the three parts of an encircled run's
+    /// outline under their keys ([`crate::boxes::Ring::key`]), which the
+    /// cell shader probes as it probes a cell's glyph -- once any slot the
+    /// renderer resolved has been encircled, so a screen that never was
+    /// draws no ring into the atlas. Whether an entry was added.
+    fn rings(&mut self, r: &mut Renderer<'_, '_>) -> bool {
+        use crate::boxes::Ring;
+        if !r.rings_used() {
+            return false;
+        }
+        let mut changed = false;
+        // Twice at most: a part drawn into a full atlas grows it, which
+        // moves every slot and empties the map, and the parts already in
+        // go in again at the new places.
+        for _ in 0..2 {
+            let mut grew = false;
+            for ring in [Ring::Starts, Ring::Ends, Ring::Alone] {
+                let key = ring.key();
+                if self.probe_key(key).is_some() {
+                    continue;
+                }
+                let slot = r.ring_slot(ring);
+                if r.atlas_stats().grown.value() != self.grown.value() {
+                    self.grown = r.atlas_stats().grown;
+                    self.clear();
+                    grew = true;
+                }
+                self.insert(MapEntry::of_slot(key, slot));
+                changed = true;
+            }
+            if !grew {
+                break;
+            }
+        }
+        changed
     }
 }
 
@@ -608,6 +673,22 @@ impl Shapes {
     /// colour, one across a wide character's two cells. `SHAPE_STRESS` in
     /// the cell shader.
     pub const STRESS: Shapes = Shapes(131072);
+    /// `SGR 52`, encircled: one enclosure a run, as the frame is one box a
+    /// run -- the frame's top and bottom lines between the ends and a half
+    /// ellipse at each end ([`crate::boxes::Ring`]). `SHAPE_ENCIRCLED` in
+    /// the cell shader.
+    pub const ENCIRCLED: Shapes = Shapes(262144);
+    /// The shapes drawn at a cell's edges and over it, whose neighbours
+    /// some of them read: the overline, its double, the frame, an
+    /// encircled run and the stress mark. A cell with none skips them all
+    /// on one test.
+    pub const EDGES: Shapes = Shapes(
+        Shapes::OVERLINE.0
+            | Shapes::DOUBLE_OVERLINE.0
+            | Shapes::FRAMED.0
+            | Shapes::ENCIRCLED.0
+            | Shapes::STRESS.0,
+    );
     /// Both blink shapes: a slot holds at most one, since `SGR 5` and `6`
     /// replace each other (`Attrs::BLINKS`).
     pub const BLINKS: Shapes = Shapes(Shapes::BLINK.0 | Shapes::RAPID_BLINK.0);
@@ -639,6 +720,11 @@ impl Shapes {
     /// Whether the slot blinks at either rate.
     pub fn blinks(self) -> bool {
         self.0 & Shapes::BLINKS.0 != 0
+    }
+
+    /// Whether any of `s`'s shapes is set.
+    pub fn any(self, s: Shapes) -> bool {
+        self.0 & s.0 != 0
     }
 }
 

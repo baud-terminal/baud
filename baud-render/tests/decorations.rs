@@ -154,6 +154,7 @@ fn sixty_five_and_fifty_five_cancel_their_lines() {
         (&b"\x1b[60;61;62;63;65m  "[..], "65 after 60-63"),
         (b"\x1b[53;55m  ", "55 after 53"),
         (b"\x1b[51;54m  ", "54 after 51"),
+        (b"\x1b[52;54m  ", "54 after 52"),
     ] {
         assert!(painted(bytes, 14.0).0 == none, "{name} leaves nothing");
     }
@@ -196,6 +197,103 @@ fn a_framed_run_is_one_box() {
         .chain(4 * cw..8 * cw)
         .any(|x| (0..ch).any(|y| lit(&p, w, x, y)));
     assert!(!outside, "nothing outside the run");
+}
+
+/// The coverage of `ring`'s mask at the metrics' cell, as the renderer
+/// draws it into the atlas.
+fn ring_mask(m: Metrics, ring: baud_render::boxes::Ring) -> Vec<u8> {
+    let cell = baud_render::boxes::Cell {
+        w: m.cell_w,
+        h: m.cell_h,
+    };
+    let th = baud_font::Px::of(m.thickness.value().max(1));
+    let (mut scratch, mut cov) = (Vec::new(), Vec::new());
+    baud_render::boxes::draw_ring(ring, cell, th, &mut scratch, &mut cov).expect("a mask");
+    cov
+}
+
+/// Whether cell `col` of the canvas is lit exactly where `mask` covers:
+/// dark where it is zero, lit where it is at least half.
+fn follows(p: &[u32], w: usize, m: Metrics, col: usize, mask: &[u8]) -> bool {
+    let (cw, ch) = (px(m.cell_w), px(m.cell_h));
+    (0..ch).all(|y| {
+        (0..cw).all(|x| {
+            let c = mask[y * cw + x];
+            let on = lit(p, w, col * cw + x, y);
+            (c != 0 || !on) && (c < 128 || on)
+        })
+    })
+}
+
+/// **An encircled run is one enclosure**: `[[source: ecma48]]` § 8.3.117
+/// says only "52 encircled", and baud draws it as `SGR 51`'s frame is
+/// drawn, one outline a run -- the frame's top and bottom lines across
+/// the cells between the ends, and a half ellipse filling each end cell,
+/// so a lone cell is the ellipse inscribed in it and a two-cell run one
+/// ellipse. In the text's colour, as the frame is.
+#[test]
+fn an_encircled_run_is_one_enclosure() {
+    use baud_render::boxes::Ring;
+    let (p, w, m) = painted(b" \x1b[52m   \x1b[54m  ", 14.0);
+    let (cw, ch) = (px(m.cell_w), px(m.cell_h));
+    let th = px(m.thickness).max(1);
+    let want: Vec<usize> = (0..th).chain(ch - th..ch).collect();
+    assert_eq!(
+        full_rows(&p, w, m, 2, 3),
+        want,
+        "top and bottom of the cell between the ends"
+    );
+    assert!(
+        follows(&p, w, m, 1, &ring_mask(m, Ring::Starts)),
+        "the left end"
+    );
+    assert!(
+        follows(&p, w, m, 3, &ring_mask(m, Ring::Ends)),
+        "the right end"
+    );
+    let outside = (0..cw)
+        .chain(4 * cw..8 * cw)
+        .any(|x| (0..ch).any(|y| lit(&p, w, x, y)));
+    assert!(!outside, "nothing outside the run");
+    let (alone, ..) = painted(b" \x1b[52m \x1b[54m", 14.0);
+    assert!(
+        follows(&alone, w, m, 1, &ring_mask(m, Ring::Alone)),
+        "a lone cell"
+    );
+    let (two, ..) = painted(b" \x1b[52m  \x1b[54m", 14.0);
+    let mirrored =
+        (0..ch).all(|y| (0..2 * cw).all(|x| two[y * w + cw + x] == two[y * w + 3 * cw - 1 - x]));
+    assert!(
+        mirrored,
+        "a two-cell run is one ellipse, its halves mirrored"
+    );
+    assert!(
+        (0..ch).any(|y| lit(&two, w, cw, y)) && (0..ch).any(|y| lit(&two, w, 3 * cw - 1, y)),
+        "the premise: the two-cell run is drawn"
+    );
+    let sgr = b"\x1b[38;2;40;220;90;58;2;230;30;30m";
+    let (ring, ..) = painted(&[sgr.as_slice(), b"\x1b[52m   "].concat(), 14.0);
+    let (strike, ..) = painted(&[sgr.as_slice(), b"\x1b[9m   "].concat(), 14.0);
+    assert_eq!(
+        ring[cw + cw / 2],
+        strike[px(m.strike) * w + cw],
+        "the line between the ends is the text colour"
+    );
+}
+
+/// **An encircled run closes beside hidden text**, as the frame does.
+#[test]
+fn an_encircled_run_closes_beside_a_hidden_cell() {
+    let (got, ..) = painted(b" \x1b[52mab\x1b[8mcd", 14.0);
+    let (want, ..) = painted(b" \x1b[52mab\x1b[0;8mcd", 14.0);
+    let (open, ..) = painted(b" \x1b[52mabcd", 14.0);
+    let (bare, ..) = painted(b" ab\x1b[8mcd", 14.0);
+    assert!(want != open, "the premise: the hidden cells hide something");
+    assert!(got != bare, "the premise: the enclosure is drawn");
+    assert!(
+        got == want,
+        "the visible cells close the enclosure at the seam"
+    );
 }
 
 /// **A framed run closes beside a framed cell whose text is hidden**: a

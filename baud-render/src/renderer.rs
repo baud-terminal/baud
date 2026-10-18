@@ -587,6 +587,80 @@ pub(crate) fn drawn_base(term: &Term<'_>, cell: PackedCell) -> Option<Codepoint>
         .filter(|c| !baud_domain::is_placeholder(*c))
 }
 
+/// Whether the cell at `at` of `row` carries a run of `shape` on: it has
+/// the shape and its text draws -- a hidden cell draws nothing of its own
+/// (`Resolved::text`), so a run's outline closes beside it. Past the row's
+/// edge nothing does. The cell shader's `carries` is the same test.
+pub(crate) fn carries_on(
+    styles: &[Resolved],
+    row: &[PackedCell],
+    at: Option<Col>,
+    shape: Shapes,
+    blink: BlinkPhases,
+) -> bool {
+    at.and_then(|c| row.get(c.index()))
+        .and_then(|n| styles.get(n.style.index()))
+        .is_some_and(|n| n.shapes.has(shape) && n.text(blink) == Text::Drawn)
+}
+
+/// Which end of its encircled run (`SGR 52`) the cell at `col` of `row`
+/// is: `None` for a cell that is not encircled or is between the ends.
+pub(crate) fn ring_part(
+    styles: &[Resolved],
+    row: &[PackedCell],
+    col: Col,
+    blink: BlinkPhases,
+) -> Option<crate::boxes::Ring> {
+    use crate::boxes::Ring;
+    let here = row.get(col.index())?;
+    if !styles
+        .get(here.style.index())?
+        .shapes
+        .has(Shapes::ENCIRCLED)
+    {
+        return None;
+    }
+    let c = col.index();
+    let left = carries_on(
+        styles,
+        row,
+        c.checked_sub(1).map(Col::at_index),
+        Shapes::ENCIRCLED,
+        blink,
+    );
+    let right = carries_on(
+        styles,
+        row,
+        Some(Col::at_index(c + 1)),
+        Shapes::ENCIRCLED,
+        blink,
+    );
+    match (left, right) {
+        (true, true) => None,
+        (false, true) => Some(Ring::Starts),
+        (true, false) => Some(Ring::Ends),
+        (false, false) => Some(Ring::Alone),
+    }
+}
+
+/// Whether any slot a renderer resolved has been encircled (`SGR 52`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Rings {
+    Unused,
+    Used,
+}
+
+impl Rings {
+    /// Used from the first encircled slot on.
+    fn after(self, shapes: Shapes) -> Rings {
+        if shapes.has(Shapes::ENCIRCLED) {
+            Rings::Used
+        } else {
+            self
+        }
+    }
+}
+
 /// Where the cursor is, when it is shown, and its shape.
 type Cursor = Option<(Row, Col, CursorStyle)>;
 
@@ -957,6 +1031,10 @@ pub struct Renderer<'f, 'a> {
     /// blinking. The cell path's walk tests a cell for blinking only while
     /// this is not zero.
     blink_slots: Tally,
+    /// Whether a slot this renderer resolved has been encircled (`SGR
+    /// 52`): from then on the glyph map holds the outline's parts for the
+    /// cell shader, and before, nothing draws them into the atlas.
+    rings: Rings,
     /// This frame's cursor blink phase, set by [`Renderer::set_cursor_blink`]:
     /// a phase of its own, because a blinking cursor keeps its own timing and
     /// restarts on input where `SGR 5` text keeps neither -- and a fade or
@@ -1136,6 +1214,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_clusters: None,
             blink: BlinkPhases::SHOWN,
             blink_slots: Tally::default(),
+            rings: Rings::Unused,
             blink_seen: Blinking::default(),
             cursor_blink: CursorPhase::SHOWN,
             glow: None,
@@ -3254,6 +3333,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if dst.shapes.blinks() {
                 blinking.bump();
             }
+            self.rings = self.rings.after(dst.shapes);
             n.bump();
         }
         self.blink_slots = blinking;
@@ -3318,6 +3398,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     if new.shapes.blinks() {
                         stamp.blinking.bump();
                     }
+                    self.rings = self.rings.after(new.shapes);
                     *dst = new;
                     sync.resolved.bump();
                 }
@@ -3330,6 +3411,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     if dst.shapes.blinks() {
                         stamp.blinking.bump();
                     }
+                    self.rings = self.rings.after(dst.shapes);
                     sync.resolved.bump();
                 }
             }
@@ -3434,6 +3516,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             (Attrs::IDEOGRAM_DOUBLE_UNDERLINE, Shapes::DOUBLE_UNDERLINE),
             (Attrs::IDEOGRAM_DOUBLE_OVERLINE, Shapes::DOUBLE_OVERLINE),
             (Attrs::FRAMED, Shapes::FRAMED),
+            (Attrs::ENCIRCLED, Shapes::ENCIRCLED),
             (Attrs::IDEOGRAM_STRESS, Shapes::STRESS),
             (Attrs::DOUBLE_UNDERLINE, Shapes::DOUBLE_UNDERLINE),
             (Attrs::CURLY_UNDERLINE, Shapes::CURLY_UNDERLINE),
@@ -3656,92 +3739,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     fg,
                 ));
             }
-            // The overline and the frame, in the text's colour as the strike
-            // is: `SGR 58` is "the underline color" (`[[source:
-            // kitty-underlines]]`) and neither is an underline. The frame's
-            // top is the overline's line, drawn once when both are set.
-            let framed = res.shapes.has(Shapes::FRAMED);
-            if !hidden && (framed || res.shapes.has(Shapes::OVERLINE)) {
-                shapes.push(solid(
-                    screen(x),
-                    screen(top),
-                    self.metrics.cell_w,
-                    self.metrics.thickness,
-                    fg,
-                ));
-            }
-            if !hidden && res.shapes.has(Shapes::DOUBLE_OVERLINE) {
-                // A second line starting one thickness and a pixel below the
-                // first, as the double underline's does, clamped inside the
-                // cell.
-                let th = px_i32(self.metrics.thickness);
-                let low = px_i32(self.metrics.cell_h) - th;
-                let y = (th.max(1) + 1).min(low.max(0));
-                shapes.push(solid(
-                    screen(x),
-                    screen(top + y),
-                    self.metrics.cell_w,
-                    self.metrics.thickness,
-                    fg,
-                ));
-            }
-            if !hidden && framed {
-                let th = px_i32(self.metrics.thickness).max(1);
-                let h = px_i32(self.metrics.cell_h);
-                shapes.push(solid(
-                    screen(x),
-                    screen(top + h - th),
-                    self.metrics.cell_w,
-                    self.metrics.thickness,
-                    fg,
-                ));
-                // A side only where the run of framed cells starts or ends:
-                // the row's edge, or a neighbour that is not framed or whose
-                // text is hidden, since a hidden cell draws nothing of its
-                // own (`Resolved::text`) and the drawn box closes beside it.
-                let framed_at = |i: Option<usize>| {
-                    i.and_then(|i| row.get(i))
-                        .and_then(|n| self.styles.get(n.style.index()))
-                        .is_some_and(|n| {
-                            n.shapes.has(Shapes::FRAMED) && n.text(self.blink) == Text::Drawn
-                        })
-                };
-                let side = Px::of(u32::try_from(th).unwrap_or(1));
-                if !framed_at(c.checked_sub(1)) {
-                    shapes.push(solid(screen(x), screen(top), side, self.metrics.cell_h, fg));
-                }
-                if !framed_at(c.checked_add(1)) {
-                    shapes.push(solid(
-                        screen(x + cell_w - th),
-                        screen(top),
-                        side,
-                        self.metrics.cell_h,
-                        fg,
-                    ));
-                }
-            }
-            // `SGR 64`'s stress mark, as the web draws an emphasis mark for
-            // text with no language (`[[source: css-text-decor-3]]`): over
-            // the character, a filled dot, in the text's colour, once a
-            // character, so across a wide character's two cells, judged by
-            // its base and marks. Inside the cell, a square two thicknesses
-            // on a side, as all three paths draw a decoration.
-            if !hidden
-                && res.shapes.has(Shapes::STRESS)
-                && takes_stress_mark(term.base_of(*cell), term.cluster_marks(*cell))
-            {
-                let wide = row.get(c + 1).is_some_and(|n| n.content.is_wide_tail());
-                let d = 2 * px_i32(self.metrics.thickness).max(1);
-                let h = px_i32(self.metrics.cell_h);
-                let dx = ((if wide { 2 } else { 1 }) * cell_w - d).max(0) / 2;
-                let side = Px::of(u32::try_from(d).unwrap_or(2));
-                shapes.push(solid(
-                    screen(x + dx),
-                    screen(top + d.min((h - d).max(0))),
-                    side,
-                    side,
-                    fg,
-                ));
+            // The overline, the frame, an encircled run and the stress mark,
+            // out of line behind one test: most cells carry none of them.
+            if !hidden && res.shapes.any(Shapes::EDGES) {
+                self.edges(term, r, col, &row, res, d, &mut shapes);
             }
             // The bar or underline cursor draws in the application's cursor
             // colour (`OSC 12`) if it set one, else the cell's foreground.
@@ -4081,6 +4082,157 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 exc.differs.bump();
             }
         }
+    }
+
+    /// The decorations drawn at a cell's edges and over it -- the overline
+    /// and its double, the frame, an end of an encircled run and the
+    /// stress mark -- for cell `col` of row `r`, whose text draws, into
+    /// `shapes`, after the glyphs. `row` is the row's cells, whose
+    /// neighbours decide where a run's outline starts and ends; `term`
+    /// holds a cluster's base and marks, which decide its stress mark.
+    #[allow(clippy::too_many_arguments)]
+    fn edges(
+        &mut self,
+        term: &Term<'_>,
+        r: Row,
+        col: Col,
+        row: &[PackedCell],
+        res: Resolved,
+        d: crate::cellmap::Drawn,
+        shapes: &mut Vec<Instance>,
+    ) {
+        let c = col.index();
+        let fg = d.fg;
+        let cell = row.get(c).copied().unwrap_or(PackedCell::EMPTY);
+        let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0);
+        let top = i32::try_from(self.band(r).top.value()).unwrap_or(0);
+        let x = i32::try_from(c).unwrap_or(0) * cell_w;
+        // The overline and the frame, in the text's colour as the strike
+        // is: `SGR 58` is "the underline color" (`[[source:
+        // kitty-underlines]]`) and neither is an underline. The frame's
+        // top is the overline's line, drawn once when both are set.
+        let framed = res.shapes.has(Shapes::FRAMED);
+        let (styles, blink) = (&self.styles, self.blink);
+        let carries = |at: Option<usize>, shape: Shapes| {
+            carries_on(styles, row, at.map(Col::at_index), shape, blink)
+        };
+        // `SGR 52`: which end of its run an encircled cell is at, and
+        // whether it is between the ends, where it draws the frame's
+        // top and bottom lines.
+        let encircled = res.shapes.has(Shapes::ENCIRCLED);
+        let ring = ring_part(styles, row, col, blink);
+        let between = encircled && ring.is_none();
+        if framed || between || res.shapes.has(Shapes::OVERLINE) {
+            shapes.push(solid(
+                screen(x),
+                screen(top),
+                self.metrics.cell_w,
+                self.metrics.thickness,
+                fg,
+            ));
+        }
+        if res.shapes.has(Shapes::DOUBLE_OVERLINE) {
+            // A second line starting one thickness and a pixel below the
+            // first, as the double underline's does, clamped inside the
+            // cell.
+            let th = px_i32(self.metrics.thickness);
+            let low = px_i32(self.metrics.cell_h) - th;
+            let y = (th.max(1) + 1).min(low.max(0));
+            shapes.push(solid(
+                screen(x),
+                screen(top + y),
+                self.metrics.cell_w,
+                self.metrics.thickness,
+                fg,
+            ));
+        }
+        if framed || between {
+            let th = px_i32(self.metrics.thickness).max(1);
+            let h = px_i32(self.metrics.cell_h);
+            shapes.push(solid(
+                screen(x),
+                screen(top + h - th),
+                self.metrics.cell_w,
+                self.metrics.thickness,
+                fg,
+            ));
+        }
+        if framed {
+            let th = px_i32(self.metrics.thickness).max(1);
+            // A side only where the run of framed cells starts or ends:
+            // the row's edge, or a neighbour that is not framed or whose
+            // text is hidden (`carries`).
+            let framed_at = |i: Option<usize>| carries(i, Shapes::FRAMED);
+            let side = Px::of(u32::try_from(th).unwrap_or(1));
+            if !framed_at(c.checked_sub(1)) {
+                shapes.push(solid(screen(x), screen(top), side, self.metrics.cell_h, fg));
+            }
+            if !framed_at(c.checked_add(1)) {
+                shapes.push(solid(
+                    screen(x + cell_w - th),
+                    screen(top),
+                    side,
+                    self.metrics.cell_h,
+                    fg,
+                ));
+            }
+        }
+        // An end of an encircled run: its part of the outline, a mask
+        // at the cell origin as a procedural glyph is, in the text's
+        // colour and bent by its curve as the glyph is.
+        if let Some(ring) = ring {
+            if let Some(slot) = self.ring_slot(ring) {
+                shapes.push(Instance {
+                    x: screen(x + slot.left),
+                    y: screen(top + px_i32(self.metrics.baseline) + slot.top),
+                    w: slot.w,
+                    h: slot.h,
+                    u: slot.x,
+                    v: slot.y,
+                    color: fg,
+                    kind: slot.kind,
+                    curve: d.curve,
+                });
+            }
+        }
+        // `SGR 64`'s stress mark, as the web draws an emphasis mark for
+        // text with no language (`[[source: css-text-decor-3]]`): over
+        // the character, a filled dot, in the text's colour, once a
+        // character, so across a wide character's two cells, judged by
+        // its base and marks. Inside the cell, a square two thicknesses
+        // on a side, as all three paths draw a decoration.
+        if res.shapes.has(Shapes::STRESS)
+            && takes_stress_mark(term.base_of(cell), term.cluster_marks(cell))
+        {
+            let wide = row.get(c + 1).is_some_and(|n| n.content.is_wide_tail());
+            let d = 2 * px_i32(self.metrics.thickness).max(1);
+            let h = px_i32(self.metrics.cell_h);
+            let dx = ((if wide { 2 } else { 1 }) * cell_w - d).max(0) / 2;
+            let side = Px::of(u32::try_from(d).unwrap_or(2));
+            shapes.push(solid(
+                screen(x + dx),
+                screen(top + d.min((h - d).max(0))),
+                side,
+                side,
+                fg,
+            ));
+        }
+    }
+
+    /// Whether a slot this renderer resolved has been encircled.
+    pub(crate) fn rings_used(&self) -> bool {
+        self.rings == Rings::Used
+    }
+
+    /// The atlas mask for one part of an encircled run's outline at this
+    /// cell size, in the line thickness the frame's lines take.
+    pub(crate) fn ring_slot(&mut self, ring: crate::boxes::Ring) -> Option<crate::atlas::Slot> {
+        let cell = crate::boxes::Cell {
+            w: self.metrics.cell_w,
+            h: self.metrics.cell_h,
+        };
+        let th = Px::of(self.metrics.thickness.value().max(1));
+        self.atlas.ring(ring, cell, th, self.metrics.baseline)
     }
 
     /// The atlas mask for a procedural codepoint at this cell size.

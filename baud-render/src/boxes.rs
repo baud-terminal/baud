@@ -1118,6 +1118,170 @@ pub fn draw(
     Some(extent)
 }
 
+/// Which part of an encircled run's outline a cell draws: `SGR 52`,
+/// "encircled" (`[[source: ecma48]]` § 8.3.117), one enclosure a run as
+/// `SGR 51`'s frame is one box a run. A cell between the ends draws the
+/// top and bottom lines the frame draws; the end cells draw a half
+/// ellipse that fills the cell and meets those lines at its edge, so a
+/// run of two cells, a wide character among them, is one ellipse; a cell
+/// alone draws the ellipse inscribed in it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Ring {
+    /// The left end: a half ellipse bulging left, open at the right edge.
+    Starts,
+    /// The right end: a half ellipse bulging right, open at the left edge.
+    Ends,
+    /// Both ends in one cell: the whole ellipse.
+    Alone,
+}
+
+impl Ring {
+    /// Where the ring's masks sit among the procedural keys, above every
+    /// codepoint, the face style and the span: `RING_KEY` in the cell
+    /// shader, which probes the glyph map for the same keys.
+    pub const KEY: u32 = 1 << 27;
+
+    /// The glyph map's key for this part: `RING_KEY + 1`, `+ 2`, `+ 3`.
+    pub fn key(self) -> crate::CellKey {
+        crate::CellKey(
+            Ring::KEY
+                + match self {
+                    Ring::Starts => 1,
+                    Ring::Ends => 2,
+                    Ring::Alone => 3,
+                },
+        )
+    }
+}
+
+/// A whole number of quarter turns round from the right, clockwise on
+/// screen (y down): 0 the right, 1 the bottom, 2 the left, 3 or -1 the
+/// top.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Quarter(i32);
+
+impl Quarter {
+    const TOP: Quarter = Quarter(3);
+
+    /// The unit point at this turn: exact, so a point on an axis lies on
+    /// it and no edge of a ring strays a fraction of a pixel outside the
+    /// cell, where the accumulation would lose it.
+    fn unit(self) -> (f32, f32) {
+        match self.0.rem_euclid(4) {
+            0 => (1.0, 0.0),
+            1 => (0.0, 1.0),
+            2 => (-1.0, 0.0),
+            _ => (0.0, -1.0),
+        }
+    }
+
+    /// The next turn toward `to`.
+    fn toward(self, to: Quarter) -> Quarter {
+        Quarter(self.0 + (to.0 - self.0).signum())
+    }
+}
+
+/// A quarter of an ellipse about `c` with semi-axes `rx`, `ry`, from turn
+/// `from` to the adjacent turn `to`, as one cubic: the circle's
+/// [`Pen::arc`] with each axis scaled by its own radius. Every control
+/// point lies inside the ellipse's box, so the curve does too.
+fn quarter(canvas: &mut Canvas<'_>, c: Point, rx: f32, ry: f32, from: Quarter, to: Quarter) {
+    const KAPPA: f32 = 0.552_284_8;
+    let (c0, s0) = from.unit();
+    let (c1, s1) = to.unit();
+    let sign = if to.0 > from.0 { 1.0 } else { -1.0 };
+    let p0 = Point::new(c.x + rx * c0, c.y + ry * s0);
+    let p3 = Point::new(c.x + rx * c1, c.y + ry * s1);
+    let p1 = Point::new(p0.x - sign * KAPPA * rx * s0, p0.y + sign * KAPPA * ry * c0);
+    let p2 = Point::new(p3.x + sign * KAPPA * rx * s1, p3.y - sign * KAPPA * ry * c1);
+    canvas.cubic(p0, p1, p2, p3);
+}
+
+/// The arc of an ellipse from turn `from` to turn `to`, a quarter at a
+/// time, clockwise on screen when `to` is the greater.
+fn arc_turns(canvas: &mut Canvas<'_>, c: Point, rx: f32, ry: f32, from: Quarter, to: Quarter) {
+    let mut at = from;
+    while at != to {
+        let next = at.toward(to);
+        quarter(canvas, c, rx, ry, at, next);
+        at = next;
+    }
+}
+
+/// Rasterises `ring`'s part of an encircled run's outline into a mask of
+/// exactly `cell`, a stroke `th` pixels wide, into the first `w * h`
+/// bytes of `coverage`, growing both buffers as required.
+///
+/// The outer edge of the stroke is the ellipse that touches the cell's
+/// top and bottom and, at an end, its outer side; the inner edge is that
+/// ellipse shrunk by `th` on each axis. At an end cell's open edge the
+/// stroke is the rows `0..th` and `h - th..h`, which are the rows of the
+/// top and bottom lines the cells between the ends draw, so the outline
+/// is continuous across the run. The right end is the left end mirrored,
+/// pixel for pixel. `None` for a cell too small for a mask.
+pub fn draw_ring(
+    ring: Ring,
+    cell: Cell,
+    th: Px,
+    scratch: &mut Vec<f32>,
+    coverage: &mut Vec<u8>,
+) -> Option<Extent> {
+    let extent = Extent::new(cell.w, cell.h);
+    let cells = extent.cells()?;
+    let w = slots(cell.w);
+    if coverage.len() < cells {
+        coverage.resize(cells, 0);
+    }
+    coverage[..cells].fill(0);
+    let need = extent.scratch()?;
+    if scratch.len() < need {
+        scratch.resize(need, 0.0);
+    }
+    let (wf, hf) = (fx(cell.w), fx(cell.h));
+    let t = fx(Px::of(th.value().max(1)));
+    let ry = hf / 2.0;
+    let iy = (ry - t).max(0.0);
+    let mut canvas = Canvas::new(extent, scratch)?;
+    // The outer edge clockwise on screen and the inner one back, so the
+    // accumulation leaves the inside of the stroke at zero. Quarter turn
+    // 3 is the top, 2 the left.
+    match ring {
+        Ring::Alone => {
+            let c = Point::new(wf / 2.0, ry);
+            let ix = (wf / 2.0 - t).max(0.0);
+            let top = Quarter::TOP;
+            arc_turns(&mut canvas, c, wf / 2.0, ry, top, Quarter(top.0 + 4));
+            arc_turns(&mut canvas, c, ix, iy, top, Quarter(top.0 - 4));
+        }
+        Ring::Starts | Ring::Ends => {
+            // The left end, about the middle of its open right edge: top,
+            // left, bottom on the outer edge, and back on the inner one.
+            let c = Point::new(wf, ry);
+            let ix = (wf - t).max(0.0);
+            let (top, end) = (Quarter::TOP, Quarter(Quarter::TOP.0 - 2));
+            arc_turns(&mut canvas, c, wf, ry, top, end);
+            let (ce, se) = end.unit();
+            canvas.line(
+                Point::new(c.x + wf * ce, c.y + ry * se),
+                Point::new(c.x + ix * ce, c.y + iy * se),
+            );
+            arc_turns(&mut canvas, c, ix, iy, end, top);
+            let (c0, s0) = top.unit();
+            canvas.line(
+                Point::new(c.x + ix * c0, c.y + iy * s0),
+                Point::new(c.x + wf * c0, c.y + ry * s0),
+            );
+        }
+    }
+    canvas.coverage(&mut coverage[..cells])?;
+    if ring == Ring::Ends {
+        for row in coverage[..cells].chunks_mut(w.max(1)) {
+            row.reverse();
+        }
+    }
+    Some(extent)
+}
+
 /// The double-line glyph's segments, for the tests that check them against
 /// the names: `None` for a codepoint outside `U+2550..=U+256C`.
 pub fn double_arms(cp: Codepoint) -> Option<Arms> {

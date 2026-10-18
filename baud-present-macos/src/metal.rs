@@ -97,12 +97,12 @@ const UNIFORM_FLOATS: usize = 12;
 /// How many shapes a cell may draw in the cell path's shape pass: the
 /// underline, the strike, the double underline's second line, the cursor,
 /// the overline, the double overline's second line, a frame's bottom and
-/// its two sides, the stress mark, and sixteen segments for a curly,
-/// dotted or dashed underline. **Must equal `SHAPE_SLOTS` in
+/// its two sides, the stress mark, an end of an encircled run, and
+/// sixteen segments for a curly, dotted or dashed underline. **Must equal `SHAPE_SLOTS` in
 /// `shaders.metal`**, which is the divisor the vertex stage turns an
 /// instance id into a cell and a slot with; `the_shape_slot_
 /// count_matches_the_shader` pins the pair.
-pub const SHAPES_PER_CELL: usize = 26;
+pub const SHAPES_PER_CELL: usize = 27;
 
 /// The shaders, as the compiler and the runtime both read them.
 /// `scripts/build-metallib.sh` compiles this file to `baud.metallib`;
