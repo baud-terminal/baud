@@ -20,7 +20,7 @@
 # Notes cite with `[[source: <key>]]`. A claim that matters carries a section
 # or page alongside — "simdjson § 3", not "simdjson".
 #
-# Groups map to docs/research/notes/:
+# Groups map to docs/research/notes/, except where a line says otherwise:
 #   A  SIMD parsing and vectorised classification
 #   B  data-parallel finite-state machines
 #   C  the terminal parser as specified
@@ -34,19 +34,29 @@
 #   O  keystroke to pixel: the clocks on the path, and how typing latency has been measured
 #   L  the scrollbar, and the window over the history it indicates
 #   P  the shader cache at launch: binary archives, precompiled libraries, the Metal toolchain
+#   Q  local echo prediction: mosh's prediction engine and its paper
 #   R  sfte: a second external implementation, as an oracle and a feature catalogue
 #   U  who holds the window over the history across a resize: the re-cut, the viewport, the anchors
+#   V  the cursor trails and an editor's own cursor: kitty's and Neovide's trails, helix's drawn cursor and its exit reset (cited by notes W and X)
 #   Y  palettes: light/dark pairs, scheme formats, colour-scheme notifications, contrast floors
+#   AA  where a launched terminal's shell starts and what PWD names, what launchd is, and where a GUI terminal looks for its config (note AA section 9)
 #   AH  title-bar activity lights: the tty LED trigger, modem panels, per-process counters
 #   AI  where a launched terminal's log lines go: unified logging, files, the journal
 #   AJ  a launch splash: launch guidance, flashing, splash prior art
 #   AK  the window title: OSC titles, derived facts, platform conventions
 #   AL  the cursor trails' flashes: WCAG 2.3.1, broadcast flash rules, OS settings, trail prior art
 #   AM  XTGETTCAP: what a terminal reports about its own capabilities
-#   AN  the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper
-#   AO  the rendition table: how terminals store a cell's colours, and how a table of renditions frees its slots
-#   BL  the bell: what a BEL does in a macOS window -- the alert sound, an attention request, a raise
-#   BU  bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click
+#   AN  the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper (cited by the record; note AN cites C and Y)
+#   AO  the rendition table: how terminals store a cell's colours, and how a table of renditions frees its slots (no note)
+#   AS  the glass's legibility: Apple's material, dimming and accessibility settings, Terminal's profiles
+#   AT  a standard material behind the window body: NSVisualEffectView, the material catalogs, TextEdit
+#   BL  the bell: what a BEL does in a macOS window -- the alert sound, an attention request, a raise (baud-app/src/bell.rs; no note)
+#   BU  bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (baud-app/src/link.rs; no note)
+#
+# Notes K (selection), M (resize and reflow), S (Sixel) and T (images) have
+# no group of their own: what they cite is filed under C, and T's also under
+# J. Note N (making it faster) cites none itself; groups O, P and Q are its
+# rows 0, 1 and 9.
 
 [sources.simdjson]
 key    = "simdjson"
