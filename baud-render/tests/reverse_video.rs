@@ -206,17 +206,18 @@ fn every_cell_exchanges_its_colours_explicit_ones_included() {
 /// 1.69 against the page over white where black reads 1:1.
 ///
 /// Which side is the page decides whether the floor may touch the pair at
-/// all (`Floor::covers`): `38;5;1` on a truecolour `48;2;200;0;0` is a page
-/// the application chose, and its red letters are left at 1.03:1 on a
-/// normal screen. Under `?5` the letter is the truecolour and the page is
-/// entry 1, one of the sixteen, so the floor lifts it.
+/// all (`Floor::covers`): `38;5;1`, `#e93327`, on a truecolour
+/// `48;2;220;40;30` is a page the application chose, and its red letters
+/// are left at 1.14:1 on a normal screen. Under `?5` the letter is the
+/// truecolour and the page is entry 1, one of the sixteen, so the floor
+/// lifts it.
 #[test]
 fn the_floor_reads_the_exchanged_pair() {
     render(b"\x1b[?5h\x1b[30mA\x1b[0;47mB\x1b[0m\x1b[2;12H", |r| {
         let got: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
         assert_eq!(got, vec![0x00ff_ffff, 0x005e_5e5e]);
     });
-    let chosen = b"\x1b[38;5;1;48;2;200;0;0mA\x1b[0m\x1b[2;12H";
+    let chosen = b"\x1b[38;5;1;48;2;220;40;30mA\x1b[0m\x1b[2;12H";
     render(chosen, |r| {
         let got: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
         assert_eq!(got, vec![rgb(dim_theme().palette[1])], "the control");
@@ -224,7 +225,7 @@ fn the_floor_reads_the_exchanged_pair() {
     render(&[&b"\x1b[?5h"[..], chosen].concat(), |r| {
         let got: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
         assert_eq!(got.len(), 1);
-        assert_ne!(got[0], 0x00c8_0000, "the letter was lifted off its page");
+        assert_ne!(got[0], 0x00dc_281e, "the letter was lifted off its page");
     });
 }
 
@@ -365,14 +366,14 @@ fn osc_10_and_11_under_reverse_reach_an_exchanged_cell() {
 
 /// Faint dims the text that is drawn toward the colour it is drawn on,
 /// after the exchange: `SGR 2;31` under `?5` is the default page's
-/// `#101010` mixed half way to red, `#6f0808`, on red. Before the exchange it
+/// `#101010` mixed half way to red, `#7d221c`, on red. Before the exchange it
 /// would dim the red toward the page and draw `#101010` on the dimmed red.
 #[test]
 fn faint_dims_the_exchanged_text() {
     let theme = dim_theme();
     render_with(floor_off(), b"\x1b[?5h\x1b[2;31mA\x1b[0m\x1b[2;12H", |r| {
         let text: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
-        assert_eq!(text, vec![0x006f_0808]);
+        assert_eq!(text, vec![0x007d_221c]);
         assert_eq!(rgb(r.background()[0]), rgb(theme.palette[1]));
     });
 }

@@ -1238,10 +1238,10 @@ roadmap = ["F2-06"]
 id = "built-in-colours"
 area = "window"
 name = "Colours built in"
-does = "xterm's sixteen colours on dark, and Modus Operandi's on light."
+does = "xterm's sixteen colours on dark and Modus Operandi's on light, with the five that were hard to read on their page made lighter or darker, keeping their colour, so every one but the page's own black or white reads at 4.5:1. Colours your own theme sets are drawn as written."
 status = "built"
 platform = "both"
-tests = ["baud-app/src/host.rs::osc_4_answers_the_light_themes_modus_green"]
+tests = ["baud-app/src/host.rs::osc_4_answers_the_light_themes_modus_green", "baud-render/tests/readable_defaults.rs::the_five_corrected_entries_read_at_four_and_a_half_on_their_page"]
 
 [[feature]]
 id = "themes"

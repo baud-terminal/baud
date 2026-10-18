@@ -1279,6 +1279,11 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
     // default page, which the floor lifted (2546 dark, 1211 light), and
     // the borders on pages the program set that the glass trigger would
     // lift: btop's 211707, helix's 123 and herdr's panels.
+    // yazi-walk's 17 on dark came with the dark sixteen's corrections of
+    // 2026-10-18: its 11 blue letters on `SGR 47`, `#3771ff` on `#e5e5e5`
+    // (3.36 asked, `#0000ee` was 7.46), and 6 reversed letters in the
+    // page's `#101010` on the blue, 4.50 asked where `#0000ee` gave 2.02,
+    // both below 3 over the glass.
     let want: Vec<(&str, &str, usize, usize, usize)> = ["dark", "light"]
         .into_iter()
         .flat_map(|h| streams.iter().map(move |(n, _)| (h, *n)))
@@ -1290,6 +1295,7 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
                 ("dark", "vimdiff") => (2667, 0, 0),
                 ("dark", "vimhl") => (70, 0, 0),
                 ("dark", "herdr-themes") => (2, 2546, 7610),
+                ("dark", "sixel/yazi-walk.raw") => (17, 0, 0),
                 ("light", "ascii/asciiquarium.raw") => (914, 0, 0),
                 ("light", "sixel/yazi-walk.raw") => (27, 0, 0),
                 ("light", "utf8/btop.raw") => (1745, 0, 211_707),

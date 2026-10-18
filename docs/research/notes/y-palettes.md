@@ -156,6 +156,13 @@ twelve owner questions; nothing in this list is open.
    files are pinned as `external` (GPL: [[source: modus-themes-el]],
    [[source: modus-operandi-theme-el]], [[source: modus-copying]]); the
    committed test holds the sixteen values as constants.
+
+   **2026-10-18, the owner: "use the recommendations".** The decisions
+   page's recommendation for this call read: "darken ansi 7 to #6c6c6c
+   (4.57:1), the one change to Operandi." Built: `Theme::light()` draws
+   entry 7 as `#6c6c6c`, 4.57:1 on 0xEF where `#a6a6a6` is 2.12;
+   `MODUS_OPERANDI` keeps Operandi's own sixteen, the values its credit
+   names, and `light_palette()` makes the one change over it.
 4. **The palette follows System Settings > Appearance** (AppleInterfaceStyle).
    The glass keeps following Icon & widget style. On the owner's Mac the two
    disagree (Appearance Dark, widget ClearLight), so by default they see the
@@ -200,6 +207,16 @@ twelve owner questions; nothing in this list is open.
    dark text, so the number does not transfer.
 8. **A readable dark set is researched next**, Modus Vivendi first, after the
    light set lands, and then put to the owner.
+
+   **2026-10-18, the owner: "use the recommendations".** The decisions
+   page's recommendation for this call read: "xterm with four colours
+   corrected by OKLCH lightness only (#e93327, #3771ff, #d61bd5, #6469fe),
+   so every colour reaches 4.5:1 and the rest stay xterm's." Built:
+   `Theme::dark()` draws `dark_palette()`, xterm's 256 with entries 1, 4,
+   5 and 12 replaced; on 0x10 they read 4.50, 4.50, 4.51 and 4.52, where
+   xterm's read 3.26, 2.02, 4.06 and 4.01 (computed). The two blues lose
+   chroma as well as gaining lightness, because sRGB holds no blue that
+   light at xterm's chroma. `xterm_palette()` stays xterm's.
 9. **Reduce Transparency draws every background opaque** while it is on. That
    overrides the 2026-09-22 rule that application backgrounds stay dim, and
    only then. **Increase Contrast makes the floor stricter**: trigger 3.0,
@@ -442,6 +459,8 @@ decision 3's sixteen. As text on baud's 0xEF page (computed): 18.26, 6.97,
 1.15. **Every colour entry is at least 6.09**; GNU ls and lsd executables go
 from 1.19 to 6.14 and symlinks from 1.09 to 6.52; SGR 30 stays 18.26 and SGR
 90 is 6.09.
+Since 2026-10-18 baud draws entry 7 as `#6c6c6c`, 4.57 (decision 3's
+dated line), so every entry but 15 is at least 4.5.
 
 - **Not AAA on baud's page.** The option text called Modus "the only AAA set
   found". On its own `#ffffff` page Modus clears 7:1; on 0xEF **nothing
@@ -1056,7 +1075,8 @@ Each rule is written once, in the crate where its inputs live.
 - **The scheme type**: sixteen slots, page, text, optional 16-21, optional
   cursor and selection, the format; polarity derived by the WCAG rule.
 - **`Theme::light()` gets Modus Operandi** in entries 0-15; 16-255 stay
-  xterm's. `xterm_palette()` and `Theme::dark()` do not change. The doc comment
+  xterm's. `xterm_palette()` and `Theme::dark()` do not change (until
+  2026-10-18, when `Theme::dark()` took decision 8's four). The doc comment
   on `Theme::light` (`baud-render/src/color.rs` lines 162-176, "Choosing the
   numbers is the owner's call and is not made here") is rewritten in the same
   commit.
@@ -1403,7 +1423,9 @@ still runs, to show it.
      the poll routed through the pinned early return. Measure: `scripts/idle-cpu.py`
      for the poll, expected inside the floor like Reduce Motion's.
 9. **A readable dark sixteen**: research, Modus Vivendi first, then the owner
-   (decision 8). Not designed here.
+   (decision 8). Not designed here. **Built 2026-10-18** as the owner's
+   answer took it: xterm's sixteen with four corrected (decision 8's dated
+   line), held by `baud-render/tests/readable_defaults.rs`.
 
 **Separate, now unblocked**: V17 (OSC 4/10/11 act on the colour shown under
 `?5`), using [[source: xterm-misc]]; once built, 996 follows it and no

@@ -792,7 +792,8 @@ impl Default for Theme {
 }
 
 impl Theme {
-    /// Light text on near-black, xterm's palette.
+    /// Light text on near-black, with [`dark_palette`]: xterm's 256 with
+    /// four of the sixteen made readable on this page.
     pub fn dark() -> Theme {
         Theme {
             fg: grey(0xD8),
@@ -801,11 +802,12 @@ impl Theme {
             app_bg: AppBg::Dimmed,
             picture_bg: PictureBg::Opaque,
             floor: Floor::DEFAULT,
-            palette: xterm_palette(),
+            palette: dark_palette(),
         }
     }
 
-    /// Dark text on near-white, with [`MODUS_OPERANDI`] as the sixteen.
+    /// Dark text on near-white, with [`light_palette`]: [`MODUS_OPERANDI`]
+    /// as the sixteen, entry 7 made readable on this page.
     ///
     /// The two greys are [`Theme::dark`]'s mirrored channel for channel --
     /// `0xFF - 0xD8` is `0x27` and `0xFF - 0x10` is `0xEF` -- so the pair
@@ -1040,7 +1042,9 @@ fn grey(v: u8) -> Argb {
 /// `[[source: modus-operandi-theme-el]]`, pinned external). Designed as text
 /// on a near-white page: every colour entry from 1 to 6 and 9 to 14 is at
 /// least 6.09:1 on this theme's `0xEF`. Entries 7 and 15 are the light greys
-/// that sit near the page, which the contrast floor exists for.
+/// that sit near the page, 2.12 and 1.15; [`light_palette`] darkens 7, and
+/// 15 is the page's own extreme. These are Modus Operandi's own values, and
+/// baud's one change is made over them, not in them.
 pub const MODUS_OPERANDI: [(u8, u8, u8); 16] = [
     (0x00, 0x00, 0x00),
     (0xA6, 0x00, 0x00),
@@ -1063,10 +1067,38 @@ pub const MODUS_OPERANDI: [(u8, u8, u8); 16] = [
 /// xterm's 256 with [`MODUS_OPERANDI`] as the sixteen: the cube and the grey
 /// ramp stay xterm's, because an application addresses them by number and
 /// expects their fixed values.
+///
+/// **Entry 7 is `#6c6c6c`, not Operandi's `#a6a6a6`**: 4.57:1 on the page
+/// where Operandi's grey reads at 2.12, the one change to Operandi, its OKLCH
+/// lightness only. The owner's answer of 2026-10-18 to note Y's decision 3.
 pub fn light_palette() -> [Argb; 256] {
     let mut p = xterm_palette();
     for (slot, &(r, g, b)) in p.iter_mut().zip(&MODUS_OPERANDI) {
         *slot = triple(r, g, b);
+    }
+    p[7] = triple(0x6C, 0x6C, 0x6C);
+    p
+}
+
+/// The four of xterm's sixteen that read below 4.5:1 on the dark page,
+/// `0x10`, and what each becomes: the colour with its OKLCH lightness raised
+/// until it reads at 4.5, hue kept (note Y, decision 8; the owner's answer of
+/// 2026-10-18). Red 3.26 to 4.50, blue 2.02 to 4.50, magenta 4.06 to 4.51,
+/// bright blue 4.01 to 4.52. The two blues lose chroma too, because sRGB
+/// holds no blue that light at xterm's chroma.
+const DARK_FIXES: [(usize, (u8, u8, u8)); 4] = [
+    (1, (0xE9, 0x33, 0x27)),
+    (4, (0x37, 0x71, 0xFF)),
+    (5, (0xD6, 0x1B, 0xD5)),
+    (12, (0x64, 0x69, 0xFE)),
+];
+
+/// xterm's 256 with `DARK_FIXES` over four of the sixteen: every other
+/// entry is xterm's.
+pub fn dark_palette() -> [Argb; 256] {
+    let mut p = xterm_palette();
+    for &(i, (r, g, b)) in &DARK_FIXES {
+        p[i] = triple(r, g, b);
     }
     p
 }

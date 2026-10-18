@@ -263,6 +263,14 @@ as `floor = 7`, which a literal 4.5 would loosen against decision 9's
   renders show only keep against the corrections. Under Increase
   Contrast the two differ: dark ansi4, light ansi7 and light faint are
   lifted.
+  **2026-10-18, the owner: "use the recommendations"**: the corrections
+  are built (note Y, decisions 3 and 8). With no glass, dark ansi1 now
+  reads 4.50, ansi4 4.50, ansi5 4.51, ansi12 4.52 and light ansi7 4.57,
+  so of this bullet's slots only faint, dark 4.07 and light 2.96, stays
+  below 4.5, and under Increase Contrast only light faint is lifted. As
+  pages the trade goes the other way: default text on dark ansi1, 4, 5
+  and 12 reads 2.97, 2.97, 2.96 and 2.95 (4.10, 6.59, 3.29 and 3.33
+  before), and on light ansi7 2.84 (6.14), computed.
 - **Under Increase Contrast at trigger 3.0, btop's greys did not change**
   (0 of 4234 glyphs on dark btop), where note Y predicted they would
   brighten. Not checked.

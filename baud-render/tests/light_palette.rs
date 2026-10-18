@@ -1,4 +1,5 @@
-//! The light theme's sixteen are Modus Operandi (note Y, decision 3).
+//! The light theme's sixteen are Modus Operandi (note Y, decision 3), but
+//! entry 7, which the owner's answer of 2026-10-18 darkened to `#6c6c6c`.
 //!
 //! The values are held here as constants rather than read from the Modus
 //! `.el` files, which are GPL and pinned `external`. What the change is for is
@@ -8,7 +9,7 @@
 
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Chan, ReadLen, Row, WinSize};
-use baud_render::{Argb, MODUS_OPERANDI, Theme, Video, light_palette, xterm_palette};
+use baud_render::{Argb, MODUS_OPERANDI, Theme, Video, dark_palette, light_palette, xterm_palette};
 
 fn lin(c: Chan) -> f64 {
     let v = f64::from(c.get()) / 255.0;
@@ -32,17 +33,24 @@ fn hex(c: Argb) -> u32 {
     (u32::from(c.r().get()) << 16) | (u32::from(c.g().get()) << 8) | u32::from(c.b().get())
 }
 
-/// Decision 3's values, as the owner took them.
+/// Decision 3's values, as the owner took them: Modus Operandi's own.
 const DECIDED: [u32; 16] = [
     0x000000, 0xa60000, 0x006800, 0x6f5500, 0x0031a9, 0x721045, 0x005e8b, 0xa6a6a6, 0x595959,
     0x972500, 0x00663f, 0x884900, 0x3548cf, 0x531ab6, 0x005f5f, 0xffffff,
 ];
 
+/// The owner's one change to Operandi, 2026-10-18: entry 7 at 4.57:1 on
+/// the page, where Operandi's `#a6a6a6` reads at 2.12.
+const ENTRY_7: u32 = 0x6c6c6c;
+
+/// Every entry is Operandi's but 7, and [`MODUS_OPERANDI`] itself stays
+/// Operandi's whole, the values its credit names.
 #[test]
 fn the_light_sixteen_are_the_decided_values() {
     let light = Theme::light();
     for (i, want) in DECIDED.iter().enumerate() {
-        assert_eq!(hex(light.palette[i]), *want, "entry {i}");
+        let drawn = if i == 7 { ENTRY_7 } else { *want };
+        assert_eq!(hex(light.palette[i]), drawn, "entry {i}");
         let (r, g, b) = MODUS_OPERANDI[i];
         assert_eq!(
             (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b),
@@ -61,7 +69,8 @@ fn every_colour_entry_reads_at_six_to_one_on_the_light_page() {
 }
 
 /// Only the sixteen change: the cube and the ramp stay xterm's, the dark
-/// theme is xterm's whole, and xterm's table itself is unmoved.
+/// theme is xterm's but for the four the owner corrected on 2026-10-18,
+/// and xterm's table itself is unmoved.
 #[test]
 fn nothing_but_the_light_sixteen_moves() {
     let x = xterm_palette();
@@ -72,9 +81,13 @@ fn nothing_but_the_light_sixteen_moves() {
         assert_eq!(hex(*light), hex(*xterm), "entry {i}");
     }
     let d = Theme::dark();
-    for (i, (dark, xterm)) in d.palette.iter().zip(&x).enumerate() {
-        assert_eq!(hex(*dark), hex(*xterm), "dark entry {i}");
-    }
+    assert_eq!(d.palette, dark_palette());
+    let moved: Vec<usize> = (0..256).filter(|&i| d.palette[i] != x[i]).collect();
+    assert_eq!(
+        moved,
+        [1, 4, 5, 12],
+        "the dark entries that are not xterm's"
+    );
 }
 
 /// `ls`, `lsd` and `bat --theme=ansi` captured through a pty

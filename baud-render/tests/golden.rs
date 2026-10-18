@@ -48,9 +48,12 @@ fn dump_ppm(c: &Canvas, path: &str) {
 /// cluster store grew to 1024 slots: two wide kana on its final screen,
 /// U+30C5 and U+30C7, keep the U+3099 the 63-slot store refused them, and
 /// all 96 pixels that changed are in their tails, where JetBrains Mono
-/// draws the mark; no other cell's base or marks moved.
+/// draws the mark; no other cell's base or marks moved. asciiquarium and
+/// vim-unicode moved when four of the dark sixteen were made readable on
+/// the page (2026-10-18), both drawing cells in those four; with xterm's
+/// sixteen back under the dark theme both frames are their old pins again.
 const GOLDEN: [(&str, u64); 9] = [
-    ("ascii/asciiquarium.raw", 0xac3842702a843af5),
+    ("ascii/asciiquarium.raw", 0x02759005377d677c),
     ("utf8/btop.raw", 0x378fe94215f0d9b5),
     ("ascii/cat-scroll.raw", 0x1a613c1d646560b1),
     ("ascii/git-log.raw", 0x2303bd10c2107db7),
@@ -58,7 +61,7 @@ const GOLDEN: [(&str, u64); 9] = [
     ("utf8/cat-cjk.raw", 0x253f57b6a135417d),
     ("utf8/cava.raw", 0x5428b240a6ca62e5),
     ("utf8/less-cjk.raw", 0x08602238a4813a25),
-    ("utf8/vim-unicode.raw", 0x815f9ce9bf960756),
+    ("utf8/vim-unicode.raw", 0x0be499a38a8a8396),
 ];
 
 #[test]

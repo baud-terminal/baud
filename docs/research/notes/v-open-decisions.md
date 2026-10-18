@@ -3666,7 +3666,8 @@ Appearance while the glass follows Icon & widget style; an OS flip under
 `auto` resetting program colours (OSC 4/10/11/12), with 996/997 reporting the
 class of what OSC 10/11 answer; a contrast floor on by default, trigger about
 1.2, lifted to 4.5:1; dim_light measured, then set; a readable dark set
-researched next; Reduce Transparency drawing backgrounds opaque and Increase
+researched next (answered 2026-10-18: xterm's sixteen with four
+lightened, note Y decision 8); Reduce Transparency drawing backgrounds opaque and Increase
 Contrast raising the floor; faint blended toward the background. Corrections
 note Y makes to this section: ghostty's floor snaps to black or white rather
 than nudging; iTerm2 applies Minimum Contrast per appearance; the WCAG formula

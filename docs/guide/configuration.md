@@ -64,6 +64,14 @@ Menlo, emoji, symbol and Chinese, Japanese and Korean fonts behind them.
 | `light` | a theme file or name | baud's light colours | The colours used when the light appearance is in effect. |
 | `dark` | a theme file or name | baud's dark colours | The colours used when the dark appearance is in effect. |
 
+baud's own colours are xterm's sixteen on dark and Modus Operandi's on
+light, with five made readable on their page: on dark, red, blue, magenta
+and bright blue are lighter, and on light, colour 7, the light grey, is
+darker, each keeping its hue. Every colour but the page's own black or
+white then reads at 4.5:1 as text. As backgrounds the five go the other
+way: the default text on any of them reads below 3:1. A theme you set is drawn in its own colours; only a colour it leaves
+out is baud's.
+
 A theme can be a base16 or base24 scheme, a ghostty, kitty, foot or
 alacritty theme (alacritty's TOML, or its older YAML), an iTerm2 colour
 preset (`.itermcolors`, its colours converted as macOS converts them), a
