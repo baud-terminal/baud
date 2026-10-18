@@ -171,6 +171,17 @@ impl Floor {
     /// that either to the extreme that reads better: a pair the floor
     /// cannot bring to 4.5 ends where an untouched pair may already sit,
     /// keeping what hue it can (Jev's lean, `decisions.jsonl` 744-747).
+    ///
+    /// **Just far enough, in OKLab** (`Oklab::lift`): note Y decision 6
+    /// lifts "just far enough to reach 4.5:1, keeping the hue", and over
+    /// the glass a linear-light mix toward white washes the hue out. It drew
+    /// btop's red `#7f3b3b` used segment `#c8b9b9` beside its `#404040`
+    /// track at `#bcbcbc`, 0.017 apart in OKLab where btop drew them 0.118
+    /// apart, so every meter read full. Moving the lightness with the hue
+    /// and chroma kept draws them `#f7a8a5` and `#bcbcbc`, 0.095 apart, at
+    /// the same contrast. Greys have no hue, so greys lifted to one target
+    /// still land on one grey. Jev's lean, below the bar (`decisions.jsonl`
+    /// 754-755), and open to the owner.
     pub fn lift_on_glass(self, text: Argb, page: Argb, alpha: Chan) -> Argb {
         let Floor::Lift { trigger, target } = self else {
             return text;
@@ -188,7 +199,13 @@ impl Floor {
         } else {
             glass
         };
-        Floor::lift_to(text, lp, behind, to)
+        let toward = Toward::of(lt, lp, behind, to);
+        let (dark, light) = behind.bounds(to);
+        let y = match toward {
+            Toward::White => light.min(1.0),
+            Toward::Black => dark.max(0.0),
+        };
+        Oklab::lift(text, toward, y)
     }
 
     /// `text` moved toward black or white until it reads at `target`
@@ -199,17 +216,13 @@ impl Floor {
         let lt = Lum::of(text);
         let (dark, light) = behind.bounds(target);
         let (dark_ok, light_ok) = (dark >= 0.0, light <= 1.0);
-        let toward_white = match (lt.0 >= page.0, dark_ok, light_ok) {
-            (true, _, true) | (false, false, true) => true,
-            (false, true, _) | (true, true, false) => false,
-            _ => behind.ratio(Lum(1.0)) >= behind.ratio(Lum(0.0)),
-        };
+        let toward = Toward::of(lt, page, behind, target);
         let [a, r, g, b] = text.channels();
         let out = |f: &dyn Fn(Linear) -> Chan| {
             let l = |v: u8| Linear::of(Chan::from_u8(v));
             [a, f(l(r)).get(), f(l(g)).get(), f(l(b)).get()]
         };
-        let channels = if toward_white {
+        let channels = if toward == Toward::White {
             let want = if light_ok { light } else { 1.0 };
             let t = if lt.0 >= 1.0 {
                 0.0
@@ -292,6 +305,362 @@ impl Behind {
             1.0
         }
     }
+}
+
+/// Which way the floor moves text: toward white or toward black.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Toward {
+    White,
+    Black,
+}
+
+impl Toward {
+    /// The text's own side of `page` -- lighter text gets lighter -- unless
+    /// that side cannot reach `target` against `behind`, and then the other;
+    /// where neither can, the extreme with the higher ratio.
+    fn of(text: Lum, page: Lum, behind: Behind, target: f64) -> Toward {
+        let (dark, light) = behind.bounds(target);
+        let (dark_ok, light_ok) = (dark >= 0.0, light <= 1.0);
+        match (text.0 >= page.0, dark_ok, light_ok) {
+            (true, _, true) | (false, false, true) => Toward::White,
+            (false, true, _) | (true, true, false) => Toward::Black,
+            _ if behind.ratio(Lum(1.0)) >= behind.ratio(Lum(0.0)) => Toward::White,
+            _ => Toward::Black,
+        }
+    }
+}
+
+/// A colour in OKLab (`[[source: ottosson-oklab]]`'s matrices): lightness
+/// `l` and the opponent axes `a` and `b`, whose angle is the hue and length
+/// the chroma.
+#[derive(Clone, Copy)]
+struct Oklab {
+    l: f64,
+    a: f64,
+    b: f64,
+}
+
+/// The rows of OKLab's last matrix, which give each linear sRGB channel
+/// from the cubed LMS: red, green, blue.
+const TO_RGB: [[f64; 3]; 3] = [
+    [4.076_741_662_1, -3.307_711_591_3, 0.230_969_929_2],
+    [-1.268_438_004_6, 2.609_757_401_1, -0.341_319_396_5],
+    [-0.004_196_086_3, -0.703_418_614_7, 1.707_614_701],
+];
+
+/// WCAG's luminance as weights on the cubed LMS: its three weights times
+/// [`TO_RGB`].
+const LUM_OF_LMS: [f64; 3] = {
+    let (w, m) = ([0.2126, 0.7152, 0.0722], TO_RGB);
+    [
+        w[0] * m[0][0] + w[1] * m[1][0] + w[2] * m[2][0],
+        w[0] * m[0][1] + w[1] * m[1][1] + w[2] * m[2][1],
+        w[0] * m[0][2] + w[1] * m[1][2] + w[2] * m[2][2],
+    ]
+};
+
+/// How a unit step of `(a, b)` moves the cube roots of L, M and S.
+fn lms_step(a: f64, b: f64) -> [f64; 3] {
+    [
+        0.396_337_777_4 * a + 0.215_803_757_3 * b,
+        -0.105_561_345_8 * a - 0.063_854_172_8 * b,
+        -0.089_484_177_5 * a - 1.291_485_548 * b,
+    ]
+}
+
+fn dot(w: [f64; 3], x: [f64; 3]) -> f64 {
+    w[0] * x[0] + w[1] * x[1] + w[2] * x[2]
+}
+
+impl Oklab {
+    fn of(r: f64, g: f64, b: f64) -> Oklab {
+        let l = cbrt(0.412_221_470_8 * r + 0.536_332_536_3 * g + 0.051_445_992_9 * b);
+        let m = cbrt(0.211_903_498_2 * r + 0.680_699_545_1 * g + 0.107_396_956_6 * b);
+        let s = cbrt(0.088_302_461_9 * r + 0.281_718_837_6 * g + 0.629_978_700_5 * b);
+        Oklab {
+            l: 0.210_454_255_3 * l + 0.793_617_785 * m - 0.004_072_046_8 * s,
+            a: 1.977_998_495_1 * l - 2.428_592_205 * m + 0.450_593_709_9 * s,
+            b: 0.025_904_037_1 * l + 0.782_771_766_2 * m - 0.808_675_766 * s,
+        }
+    }
+
+    /// Linear sRGB, unclamped.
+    fn rgb(self) -> [f64; 3] {
+        let lms = lms_step(self.a, self.b).map(|k| {
+            let v = self.l + k;
+            v * v * v
+        });
+        TO_RGB.map(|w| dot(w, lms))
+    }
+
+    /// `text` with its hue and as much of its chroma as the sRGB gamut
+    /// holds, at the lightness whose WCAG luminance is `y`: at least `y`
+    /// toward white, at most toward black, the encoded channels rounded the
+    /// same way so the contrast reached is never undershot.
+    ///
+    /// **The lightness is solved, not stepped.** A grey has no hue and its
+    /// luminance is its linear channel, so it is `y` itself. Where the
+    /// whole chroma fits, the luminance is a cubic in the lightness and
+    /// four Newton steps settle it. Otherwise a secant, kept inside a
+    /// bracket, runs on the luminance of the colour as drawn, clip and
+    /// clamp included, with [`Hue`]'s closed-form clip, so the end of the
+    /// bracket returned reads at `y` whatever the clip's own error. The
+    /// nested bisection this replaces took 8.3 us for btop's `#7f3b3b` and
+    /// this 55 ns, 205 ns where the gamut clips (`#dbbfef` under the light
+    /// glass), against 17-30 ns for the linear-light mix. IEEE arithmetic
+    /// only, `sqrt` included, so the colour does not depend on a platform
+    /// maths library; not yet run on Linux.
+    fn lift(text: Argb, toward: Toward, y: f64) -> Argb {
+        let [alpha, r, g, b] = text.channels();
+        let enc = match toward {
+            Toward::White => Linear::encode_up,
+            Toward::Black => Linear::encode_down,
+        };
+        if r == g && g == b {
+            return Oklab::grey(Chan::from_u8(alpha), enc(Linear(y)), toward, y);
+        }
+        let lin = |v: u8| Linear::of(Chan::from_u8(v)).0;
+        let lab = Oklab::of(lin(r), lin(g), lin(b));
+        let lum = |c: [f64; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        let draw = |c: [f64; 3]| {
+            let [r, g, b] = c.map(|v| enc(Linear(v)).get());
+            Argb(u32::from_be_bytes([alpha, r, g, b]))
+        };
+        // The bracket's ends are known without drawing them: the text at
+        // its own lightness, and white or black, which no clip moves.
+        let own = Lum::of(text).0 - y;
+        let ((mut lo, mut flo), (mut hi, mut fhi)) = match toward {
+            Toward::White if own >= 0.0 => return text,
+            Toward::Black if own < 0.0 => return text,
+            Toward::White => ((lab.l, own), (1.0, 1.0 - y)),
+            Toward::Black => ((0.0, -y), (lab.l, own)),
+        };
+        // Aimed a hair past `y`, on the side that reads, so the lightness
+        // found is one that may be drawn.
+        let aim = match toward {
+            Toward::White => 5e-8,
+            Toward::Black => -5e-8,
+        };
+        // **Where the whole chroma fits**, the luminance is a cubic in the
+        // lightness alone, and Newton's method from the grey's lightness,
+        // the cube root of `y`, takes four steps to settle; the colour is
+        // drawn if it is inside sRGB and reads, and otherwise the clip
+        // decides it below.
+        let d = lms_step(lab.a, lab.b);
+        let newton = (0..4).fold(cbrt(y), |l, _| {
+            let v = d.map(|d| l + d);
+            let err = dot(LUM_OF_LMS, v.map(|v| v * v * v)) - y - aim;
+            l - err / (3.0 * dot(LUM_OF_LMS, v.map(|v| v * v)))
+        });
+        let whole = Oklab { l: newton, ..lab }.rgb();
+        let fits = whole.iter().all(|v| (0.0..=1.0).contains(v)) && newton > lo && newton < hi;
+        let reads = match toward {
+            Toward::White => lum(whole) >= y,
+            Toward::Black => lum(whole) < y,
+        };
+        if fits && reads {
+            return draw(whole);
+        }
+        let chroma = (lab.a * lab.a + lab.b * lab.b).sqrt();
+        let hue = Hue::of(lab.a / chroma, lab.b / chroma);
+        let at = |l: f64| hue.at(l, chroma.min(hue.max_chroma(l)));
+        let f = |l: f64| lum(at(l)) - y;
+        let seed = if newton > lo && newton < hi {
+            newton
+        } else {
+            cbrt(y)
+        };
+        let (mut p, mut q) = ((lo, flo), (seed, f64::NAN));
+        for _ in 0..24 {
+            let short = match toward {
+                Toward::White => fhi,
+                Toward::Black => -flo,
+            };
+            if short <= 1e-7 || hi - lo <= 1e-12 {
+                break;
+            }
+            let x = if q.1.is_nan() {
+                q.0
+            } else {
+                q.0 - (q.1 - aim) * (q.0 - p.0) / (q.1 - p.1)
+            };
+            let x = if x > lo && x < hi { x } else { (lo + hi) / 2.0 };
+            let fx = f(x);
+            if fx >= 0.0 {
+                (hi, fhi) = (x, fx);
+            } else {
+                (lo, flo) = (x, fx);
+            }
+            (p, q) = (if q.1.is_nan() { p } else { q }, (x, fx));
+        }
+        draw(at(match toward {
+            Toward::White => hi,
+            Toward::Black => lo,
+        }))
+    }
+
+    /// The grey `v`, stepped a code at a time until it reads at `y`: a
+    /// grey's luminance is its linear channel times weights that sum to 1
+    /// only to within rounding.
+    fn grey(alpha: Chan, v: Chan, toward: Toward, y: f64) -> Argb {
+        let grey = |v: u8| Argb(u32::from_be_bytes([alpha.get(), v, v, v]));
+        let mut v = v.get();
+        match toward {
+            Toward::White => {
+                while Lum::of(grey(v)).0 < y && v < u8::MAX {
+                    v += 1;
+                }
+            }
+            Toward::Black => {
+                while Lum::of(grey(v)).0 > y && v > 0 {
+                    v -= 1;
+                }
+            }
+        }
+        grey(v)
+    }
+}
+
+/// One OKLab hue, the unit direction `(a, b)`, with the sRGB gamut's cusp
+/// at it: the lightness and chroma of its most saturated colour
+/// (`[[source: ottosson-gamutclipping]]`, `find_cusp`). At one hue the
+/// gamut is bounded below by the line from black to the cusp, exactly --
+/// scaling linear sRGB keeps the hue and keeps the zero channel at zero --
+/// and above by a curve from the cusp to white, reached from its chord by
+/// one Halley step (`find_gamut_intersection`).
+struct Hue {
+    a: f64,
+    b: f64,
+    k: [f64; 3],
+    cusp_l: f64,
+    cusp_c: f64,
+}
+
+impl Hue {
+    fn of(a: f64, b: f64) -> Hue {
+        let k = lms_step(a, b);
+        let s = Hue::max_saturation(a, b, k);
+        let [r, g, bl] = Oklab {
+            l: 1.0,
+            a: s * a,
+            b: s * b,
+        }
+        .rgb();
+        let cusp_l = cbrt(1.0 / r.max(g).max(bl));
+        Hue {
+            a,
+            b,
+            k,
+            cusp_l,
+            cusp_c: cusp_l * s,
+        }
+    }
+
+    /// The largest chroma over lightness this hue has inside sRGB, where
+    /// the first channel to fall to zero does: Ottosson's fitted polynomial,
+    /// then one Halley step on that channel (`compute_max_saturation`).
+    fn max_saturation(a: f64, b: f64, k: [f64; 3]) -> f64 {
+        let (c, w) = if -1.881_703_28 * a - 0.809_364_93 * b > 1.0 {
+            (
+                [
+                    1.190_862_77,
+                    1.765_767_28,
+                    0.596_626_41,
+                    0.755_151_97,
+                    0.567_712_45,
+                ],
+                TO_RGB[0],
+            )
+        } else if 1.814_441_04 * a - 1.194_452_76 * b > 1.0 {
+            (
+                [
+                    0.739_565_15,
+                    -0.459_544_04,
+                    0.082_854_27,
+                    0.125_410_7,
+                    0.145_032_04,
+                ],
+                TO_RGB[1],
+            )
+        } else {
+            (
+                [
+                    1.357_336_52,
+                    -0.009_157_99,
+                    -1.151_302_1,
+                    -0.505_596_06,
+                    0.006_921_67,
+                ],
+                TO_RGB[2],
+            )
+        };
+        let s = c[0] + c[1] * a + c[2] * b + c[3] * a * a + c[4] * a * b;
+        let v = k.map(|k| 1.0 + s * k);
+        let f = dot(w, v.map(|v| v * v * v));
+        let f1 = dot(w, [0, 1, 2].map(|i| 3.0 * k[i] * v[i] * v[i]));
+        let f2 = dot(w, [0, 1, 2].map(|i| 6.0 * k[i] * k[i] * v[i]));
+        s - f * f1 / (f1 * f1 - 0.5 * f * f2)
+    }
+
+    /// The largest chroma this hue has inside sRGB at lightness `l`.
+    fn max_chroma(&self, l: f64) -> f64 {
+        if l <= self.cusp_l {
+            return self.cusp_c * l / self.cusp_l;
+        }
+        let c = self.cusp_c * (1.0 - l) / (1.0 - self.cusp_l);
+        let v = self.k.map(|k| l + c * k);
+        let cube = v.map(|v| v * v * v);
+        let d1 = [0, 1, 2].map(|i| 3.0 * self.k[i] * v[i] * v[i]);
+        let d2 = [0, 1, 2].map(|i| 6.0 * self.k[i] * self.k[i] * v[i]);
+        let step = TO_RGB
+            .map(|w| {
+                let (f, f1, f2) = (dot(w, cube) - 1.0, dot(w, d1), dot(w, d2));
+                let u = f1 / (f1 * f1 - 0.5 * f * f2);
+                if u >= 0.0 { -f * u } else { f64::MAX }
+            })
+            .into_iter()
+            .fold(f64::MAX, f64::min);
+        (c + step).max(0.0)
+    }
+
+    /// Linear sRGB of lightness `l` and chroma `c` at this hue, clamped
+    /// into the gamut.
+    fn at(&self, l: f64, c: f64) -> [f64; 3] {
+        Oklab {
+            l,
+            a: self.a * c,
+            b: self.b * c,
+        }
+        .rgb()
+        .map(|v| v.clamp(0.0, 1.0))
+    }
+}
+
+/// The cube root of a positive `x`, by IEEE arithmetic alone: scaled by
+/// eights into [1/8, 1], seeded there by the cubic through cube roots at
+/// four Chebyshev nodes (1.3% at worst), then two Halley steps, which
+/// cube that error each.
+fn cbrt(x: f64) -> f64 {
+    if x <= 0.0 {
+        return 0.0;
+    }
+    let (mut m, mut scale) = (x, 1.0);
+    while m < 0.125 {
+        m *= 8.0;
+        scale /= 2.0;
+    }
+    while m > 1.0 {
+        m /= 8.0;
+        scale *= 2.0;
+    }
+    let seed = 0.358_367_320_930_220_9
+        + m * (1.315_345_817_852_591
+            + m * (-1.088_833_716_892_957_4 + m * 0.416_638_806_536_472_3));
+    let y = (0..2).fold(seed, |y: f64, _| {
+        let c = y * y * y;
+        y * (c + 2.0 * m) / (2.0 * c + m)
+    });
+    y * scale
 }
 
 /// WCAG 2.2 relative luminance (`[[source: wcag22]]`), 0 to 1, through

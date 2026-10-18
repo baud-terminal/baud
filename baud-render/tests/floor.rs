@@ -647,7 +647,7 @@ fn a_pair_no_colour_lifts_to_the_target_is_lifted_to_the_glass_trigger() {
 /// reads 1.11:1 where the backdrop is dark; btop's `#cccccc` on `#000000`
 /// at the old dim, alpha 56, to `#4b4b4b`, which reads 1:1 against a grey
 /// backdrop. Against the range neither pair can reach 4.5. Helix's can
-/// reach 3 and is lightened to it, `#eee3f8`; btop's cannot and goes
+/// reach 3 and is lightened to it, `#f2e1ff`, its hue kept; btop's cannot and goes
 /// white, which reads 1.69 where black would read 1.
 #[test]
 fn light_text_on_a_dark_page_under_the_light_glass_goes_light() {
@@ -659,7 +659,7 @@ fn light_text_on_a_dark_page_under_the_light_glass_goes_light() {
         (
             "38;2;219;191;239;48;2;69;40;89",
             LIGHT_DIM,
-            [0xee, 0xe3, 0xf8],
+            [0xf2, 0xe1, 0xff],
             3.0,
         ),
         ("38;2;204;204;204;48;2;0;0;0", 56, [255, 255, 255], 1.69),
@@ -699,6 +699,238 @@ fn a_pair_asked_below_the_glass_trigger_is_left_alone() {
     );
     let (text, _) = drawn_fg(slot, Pictured::No, Selected::No);
     assert_eq!(rgb(text), rgb(fg));
+}
+
+/// A colour in OKLab, through the same sRGB decode as [`lum`]: the
+/// distance between two of them is how far apart they look.
+fn oklab(c: Argb) -> [f64; 3] {
+    let (r, g, b) = (lin(c.r()), lin(c.g()), lin(c.b()));
+    let l = (0.412_221_470_8 * r + 0.536_332_536_3 * g + 0.051_445_992_9 * b).cbrt();
+    let m = (0.211_903_498_2 * r + 0.680_699_545_1 * g + 0.107_396_956_6 * b).cbrt();
+    let s = (0.088_302_461_9 * r + 0.281_718_837_6 * g + 0.629_978_700_5 * b).cbrt();
+    [
+        0.210_454_255_3 * l + 0.793_617_785 * m - 0.004_072_046_8 * s,
+        1.977_998_495_1 * l - 2.428_592_205 * m + 0.450_593_709_9 * s,
+        0.025_904_037_1 * l + 0.782_771_766_2 * m - 0.808_675_766 * s,
+    ]
+}
+
+fn apart(a: Argb, b: Argb) -> f64 {
+    let (x, y) = (oklab(a), oklab(b));
+    ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2)).sqrt()
+}
+
+/// **A meter stays a meter under the glass.** btop draws its disk meters
+/// in U+25A0, the used part in a red ramp and the empty track in
+/// `#404040`, all on `#000000`. At alpha 179 both are lifted to the
+/// target, and the room above it to white is under 3:1, so SC 1.4.11's
+/// 3:1 between adjacent parts cannot be met by any lift there, and btop's
+/// own pair is 1.28:1. The bar here is this file's, not WCAG's: the two
+/// stay at least half as far apart to the eye (OKLab) as btop drew them,
+/// which only the hue can give at one luminance. A linear-light mix to
+/// the target washed the red out and drew every meter full.
+#[test]
+fn a_meters_used_part_stays_apart_from_its_track_under_the_glass() {
+    let (used, track) = ("38;2;127;59;59;48;2;0;0;0", "38;2;64;64;64;48;2;0;0;0");
+    let got = cells(glass(), &[used.into(), track.into()]);
+    let (_, hi) = range(got[0].2.1, DIM);
+    let low = 4.5 * (hi + 0.05) - 0.05;
+    assert!(
+        1.05 / (low + 0.05) < 3.0,
+        "the premise: under 3:1 of room above the target"
+    );
+    let drawn: Vec<(Argb, Argb)> = got
+        .iter()
+        .map(|(sgr, _, (fg, bg), slot)| {
+            let (text, _) = drawn_fg(*slot, Pictured::No, Selected::No);
+            assert_ne!(rgb(text), rgb(*fg), "{sgr}: the premise, lifted");
+            let reads = behind(text, *bg, DIM);
+            assert!(reads >= 4.5, "{sgr}: {reads:.2} against the range");
+            (*fg, text)
+        })
+        .collect();
+    let ((u, u2), (t, t2)) = (drawn[0], drawn[1]);
+    let (asked, now) = (apart(u, t), apart(u2, t2));
+    assert!(
+        now >= asked / 2.0,
+        "{:?} and {:?}: {now:.3} apart, asked {asked:.3}",
+        rgb(u2),
+        rgb(t2)
+    );
+}
+
+/// Linear sRGB of an OKLab colour, unclamped: the inverse of [`oklab`].
+fn from_oklab([l, a, b]: [f64; 3]) -> [f64; 3] {
+    let cube = |v: f64| v * v * v;
+    let l_ = cube(l + 0.396_337_777_4 * a + 0.215_803_757_3 * b);
+    let m_ = cube(l - 0.105_561_345_8 * a - 0.063_854_172_8 * b);
+    let s_ = cube(l - 0.089_484_177_5 * a - 1.291_485_548 * b);
+    [
+        4.076_741_662_1 * l_ - 3.307_711_591_3 * m_ + 0.230_969_929_2 * s_,
+        -1.268_438_004_6 * l_ + 2.609_757_401_1 * m_ - 0.341_319_396_5 * s_,
+        -0.004_196_086_3 * l_ - 0.703_418_614_7 * m_ + 1.707_614_701 * s_,
+    ]
+}
+
+/// Which way the glass floor moved a colour.
+#[derive(Clone, Copy, PartialEq)]
+enum Way {
+    Lighter,
+    Darker,
+}
+
+/// Where the glass floor lands `fg` moved `way` to reach the luminance
+/// `y`, found by brute force: `fg`'s OKLab hue at the
+/// lightness, bisected sixty times, whose colour first reads at `y`, its
+/// chroma bisected forty times at each lightness to the largest sRGB holds.
+/// The linear channels, before any rounding to a code.
+fn landing(fg: Argb, way: Way, y: f64) -> [f64; 3] {
+    let [l0, a, b] = oklab(fg);
+    let inside = |c: [f64; 3]| c.iter().all(|v| (-1e-12..=1.0 + 1e-12).contains(v));
+    let at = |l: f64| {
+        let (mut lo, mut hi) = (0.0, 1.0);
+        if inside(from_oklab([l, a, b])) {
+            lo = 1.0;
+        } else {
+            for _ in 0..40 {
+                let mid = (lo + hi) / 2.0;
+                if inside(from_oklab([l, a * mid, b * mid])) {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+        }
+        from_oklab([l, a * lo, b * lo]).map(|v| v.clamp(0.0, 1.0))
+    };
+    let y_of = |c: [f64; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    let (mut lo, mut hi) = if way == Way::Lighter {
+        (l0, 1.0)
+    } else {
+        (0.0, l0)
+    };
+    for _ in 0..60 {
+        let mid = (lo + hi) / 2.0;
+        if y_of(at(mid)) >= y {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    at(if way == Way::Lighter { hi } else { lo })
+}
+
+/// **The glass floor lands where the brute force does, and reads where it
+/// must.** Every colour eight steps a channel, on five pages at the shipped
+/// alphas -- btop's black and helix's purple under the dark and light
+/// glass, a white page and gruvbox-light's `bg4` -- through
+/// [`Floor::lift_on_glass`]. Each lifted colour reads at its target against
+/// the page's range and less than 2% above it -- just far enough, but for
+/// the rounding to a code -- or is the extreme where no colour does, and
+/// lies within 0.006 in OKLab of [`landing`]'s, a third of a
+/// just-noticeable difference. The floor solves the lightness by Newton's
+/// method or a secant and clips to the gamut in closed form, so this is
+/// what holds the shortcut to the definition.
+#[test]
+fn the_glass_floor_lands_where_the_brute_force_does() {
+    let level = |i: u8| i * 36 + 3;
+    let pages = [
+        (
+            Argb::rgb(Chan::from_u8(0), Chan::from_u8(0), Chan::from_u8(0)),
+            DIM,
+        ),
+        (
+            Argb::rgb(
+                Chan::from_u8(0x45),
+                Chan::from_u8(0x28),
+                Chan::from_u8(0x59),
+            ),
+            LIGHT_DIM,
+        ),
+        (
+            Argb::rgb(
+                Chan::from_u8(0xff),
+                Chan::from_u8(0xff),
+                Chan::from_u8(0xff),
+            ),
+            LIGHT_DIM,
+        ),
+        (
+            Argb::rgb(
+                Chan::from_u8(0xa8),
+                Chan::from_u8(0x99),
+                Chan::from_u8(0x84),
+            ),
+            DIM,
+        ),
+        (
+            Argb::rgb(
+                Chan::from_u8(0x45),
+                Chan::from_u8(0x28),
+                Chan::from_u8(0x59),
+            ),
+            DIM,
+        ),
+    ];
+    let (mut lifted, mut worst, mut over) = (0, (0.0, [0u8; 3], [0u8; 3]), 0.0_f64);
+    for (page, alpha) in pages {
+        let (lo, hi) = range(page, alpha);
+        let to = if reachable(page, alpha, 4.5) || !reachable(page, alpha, 3.0) {
+            4.5
+        } else {
+            3.0
+        };
+        for (r, g, b) in
+            (0..8).flat_map(|r| (0..8).flat_map(move |g| (0..8).map(move |b| (r, g, b))))
+        {
+            let fg = Argb::rgb(
+                Chan::from_u8(level(r)),
+                Chan::from_u8(level(g)),
+                Chan::from_u8(level(b)),
+            );
+            let got = Floor::DEFAULT.lift_on_glass(fg, page, Chan::from_u8(alpha));
+            if got == fg {
+                continue;
+            }
+            lifted += 1;
+            let way = if lum(got) > lum(fg) {
+                Way::Lighter
+            } else {
+                Way::Darker
+            };
+            let y = if way == Way::Lighter {
+                (to * (hi + 0.05) - 0.05).min(1.0)
+            } else {
+                ((lo + 0.05) / to - 0.05).max(0.0)
+            };
+            let reads = behind(got, page, alpha);
+            if !extreme(got) {
+                over = over.max(reads / to);
+            }
+            assert!(
+                reads >= to * (1.0 - 1e-9) || extreme(got),
+                "{:?} on {:?} at {alpha}: {:?} reads {reads:.4}",
+                rgb(fg),
+                rgb(page),
+                rgb(got)
+            );
+            let want = landing(fg, way, y);
+            let code = |v: f64| {
+                (0..=u8::MAX)
+                    .map(Chan::from_u8)
+                    .min_by(|x, y| (lin(*x) - v).abs().total_cmp(&(lin(*y) - v).abs()))
+                    .unwrap()
+            };
+            let want = Argb::rgb(code(want[0]), code(want[1]), code(want[2]));
+            let off = apart(got, want);
+            if off > worst.0 {
+                worst = (off, rgb(got), rgb(want));
+            }
+        }
+    }
+    assert!(lifted > 200, "the premise: {lifted} colours lifted");
+    assert!(worst.0 <= 0.006, "{worst:?}");
+    assert!(over < 1.02, "{over:.4} times the target");
 }
 
 /// The pixels of the cell at column `col` of row 0.

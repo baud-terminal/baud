@@ -26985,6 +26985,48 @@ status = "retrieved"
 # Read for note AS (2026-10-17); committed: a W3C documentation page.
 group  = "AS"
 
+[sources.ottosson-oklab]
+key    = "ottosson-oklab"
+title  = "A perceptual color space for image processing -- OKLab's two matrices from linear sRGB, the cube root between them, and the inverse (matrices updated 2021-01-25)"
+author = "Björn Ottosson"
+year   = 2020
+venue  = "bottosson.github.io"
+url    = "https://bottosson.github.io/posts/oklab/"
+file   = ""
+sha256 = "763738fd931b6d3feea3d91b61db5d40028758c3e228d11748f6b00ad1df7cf7"
+bytes  = 207451
+status = "external"
+group  = "AS"
+# Read 2026-10-17 for the glass floor's OKLab lift (color.rs); not committed -- a personal blog page.
+
+[sources.ottosson-gamutclipping]
+key    = "ottosson-gamutclipping"
+title  = "sRGB gamut clipping -- compute_max_saturation's fitted polynomial and Halley step, find_cusp, and find_gamut_intersection: the lower edge from black to the cusp a straight line, the upper edge from its chord by one Halley step"
+author = "Björn Ottosson"
+year   = 2021
+venue  = "bottosson.github.io"
+url    = "https://bottosson.github.io/posts/gamutclipping/"
+file   = ""
+sha256 = "94dfab2f7eabd1f11e7c01fe7b3951772b21811f95907415f75158b1f0dcd707"
+bytes  = 410043
+status = "external"
+group  = "AS"
+# Read 2026-10-17; its code, MIT, (c) 2021 Björn Ottosson, is re-expressed in color.rs's Hue (the coefficients as published); not committed -- a personal blog page.
+
+[sources.wcag22-understanding-non-text-contrast]
+key    = "wcag22-understanding-non-text-contrast"
+title  = "Understanding SC 1.4.11 Non-text Contrast -- graphical objects, 'required for understanding'; a pie chart fails when 'the contrast between the slices is not 3:1', and is not applicable where labels and values convey the same; text characters used as symbols are non-text"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Understanding WCAG 2.2"
+url    = "https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html"
+file   = "wcag22-understanding-non-text-contrast.html"
+sha256 = "2f48093e72b1070c07a7d4aa9e9c5c07815607e8af7c46da9b292cd40086bb7a"
+bytes  = 203097
+status = "retrieved"
+# Read for note AS, section 6 (2026-10-17); committed: a W3C documentation page.
+group  = "AS"
+
 [sources.xdg-portal-settings-v2]
 key    = "xdg-portal-settings-v2"
 title  = "xdg-desktop-portal ee298d1, org.freedesktop.portal.Settings.xml -- version 2: org.freedesktop.appearance contrast (0 no preference, 1 higher contrast), reduced-motion, accent-color; no transparency key"

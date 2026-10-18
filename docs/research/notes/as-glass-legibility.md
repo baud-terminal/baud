@@ -211,6 +211,24 @@ as `floor = 7`, which a literal 4.5 would loosen against decision 9's
   most land near white. Under the light half at 0.22 btop's `#cccccc` on
   its black page, which went to `#4b4b4b`, now goes white (1.69:1); at
   0.60 it reads 3.58 and moves under neither rule.
+- **Distinct colours lifted to one: built for colours with a hue.** A
+  lifted colour keeps its OKLab hue and as much chroma as sRGB
+  holds, at the same target, so btop's red meter part and grey track stay
+  apart on the glass (0.095 in OKLab where the linear-light mix left
+  0.017). Jev's lean, 0.80/0.55 with note Y decision 6 quoted
+  (`decisions.jsonl` 754-755); it departs from decision 6's linear-light
+  mix, keeping its "just far enough" and its hue, open to the owner's
+  veto. On a black page at 0.70 the room from 4.5:1
+  to white is 1.91:1, so no lift makes two lifted colours SC 1.4.11's 3:1
+  apart ([[source: wcag22-understanding-non-text-contrast]]). **Open, the
+  owner's call**: greys, which have no hue, still land on one grey (btop's
+  fade, `#404040` to `#979797`, all `#bcbcbc`; herdr's `#f7f7f7` and
+  `#ffffff` on the opaque floor); keeping them apart means landing above
+  decision 6's "just far enough". A spread over the room above the target
+  did that, led Jev at 0.47/0.58 before decision 6 was quoted, fell to
+  0.03/0.04 after, and is withdrawn. The opaque floor keeps the mix,
+  which washes the hue where it lifts toward white (a dark theme, or
+  Increase Contrast's trigger 3); whether it follows is open too.
 - **Text on the default page is left out of the glass floor.** Its own text
   is held at the bound by the dims (section 3); palette text on it is not:
   at 0.70/0.60 cava's bars, git-log's colours and yazi-walk's read below 3

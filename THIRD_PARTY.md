@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 267 | 21 | redistributable, and its notice is satisfied |
+| kept | 268 | 21 | redistributable, and its notice is satisfied |
 | own | 197 | 0 | the owner's work |
-| total | 729 | 32 | |
+| total | 730 | 32 | |
 
 ## Licence texts in LICENSES/
 
@@ -1590,7 +1590,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** LicenseRef-W3C-Document (https://www.w3.org/copyright/document-license/)
 - **Notice:** in the file
-- **Files:** 14
+- **Files:** 15
 
 | file | copied from |
 |---|---|
@@ -1602,6 +1602,7 @@ notice is, and the URL each file was copied from.
 | [wcag22-technique-g176.html](docs/research/sources/wcag22-technique-g176.html) | https://www.w3.org/WAI/WCAG22/Techniques/general/G176 |
 | [wcag22-technique-g19.html](docs/research/sources/wcag22-technique-g19.html) | https://www.w3.org/WAI/WCAG22/Techniques/general/G19 |
 | [wcag22-understanding-animation-from-interactions.html](docs/research/sources/wcag22-understanding-animation-from-interactions.html) | https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html |
+| [wcag22-understanding-non-text-contrast.html](docs/research/sources/wcag22-understanding-non-text-contrast.html) | https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html |
 | [wcag22-understanding-pause-stop-hide.html](docs/research/sources/wcag22-understanding-pause-stop-hide.html) | https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html |
 | [wcag22-understanding-seizures-and-physical-reactions.html](docs/research/sources/wcag22-understanding-seizures-and-physical-reactions.html) | https://www.w3.org/WAI/WCAG22/Understanding/seizures-and-physical-reactions.html |
 | [wcag22-understanding-three-flashes-aaa.html](docs/research/sources/wcag22-understanding-three-flashes-aaa.html) | https://www.w3.org/WAI/WCAG22/Understanding/three-flashes.html |

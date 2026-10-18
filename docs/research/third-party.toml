@@ -1580,6 +1580,7 @@ files   = [
   "wcag22-technique-g176.html",
   "wcag22-technique-g19.html",
   "wcag22-understanding-animation-from-interactions.html",
+  "wcag22-understanding-non-text-contrast.html",
   "wcag22-understanding-pause-stop-hide.html",
   "wcag22-understanding-seizures-and-physical-reactions.html",
   "wcag22-understanding-three-flashes-aaa.html",
