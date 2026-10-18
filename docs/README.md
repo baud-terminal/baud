@@ -163,6 +163,7 @@ their entries' titles:
 | AS | the glass's legibility: Apple's materials, contrast, Reduce Transparency and Increase Contrast, and Terminal's own profiles |
 | AT | a standard material behind the window body: Apple's NSVisualEffectView materials, the shipped material catalogs, Apple's own text apps, and the modelled renders |
 | BL | the bell: what a `BEL` does in a macOS window -- the alert sound, an attention request, a raise (no note; `baud-app/src/bell.rs` and the record's section cite them) |
+| BU | bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click (no note; `baud-app/src/link.rs` and the record's section cite them) |
 
 A group's letter and a note's need not match: group H's sources are key
 encoding, and note H is the session context budget. Both tables are held to

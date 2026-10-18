@@ -45,6 +45,16 @@ impl AbsLine {
                 .saturating_sub(u64::try_from(rows.index()).unwrap_or(u64::MAX)),
         )
     }
+
+    /// The line after this one.
+    pub fn below(self) -> AbsLine {
+        self.plus(Rows::of_count(1))
+    }
+
+    /// The line before this one; `None` above the session's first.
+    pub fn above(self) -> Option<AbsLine> {
+        self.0.checked_sub(1).map(AbsLine)
+    }
 }
 
 /// How far the live surface's rotation has advanced since the session
@@ -502,7 +512,10 @@ fn row_in(top: AbsLine, line: AbsLine) -> Row {
 
 /// The cells of absolute line `line` and how the row ended, or `None`
 /// when the line is past the live screen or the ring no longer holds it.
-fn row_of<'t>(
+///
+/// The one reader of a line by number, for a selection's text and for a
+/// bare URI's walk across the rows a soft wrap joined.
+pub fn row_of<'t>(
     term: &'t Term<'_>,
     scrolled: Scrolled,
     line: AbsLine,

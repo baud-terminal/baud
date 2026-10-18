@@ -87,7 +87,7 @@ pub use scrollbar::{
     thumb, track,
 };
 pub use select::{
-    AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span,
+    AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span, row_of,
 };
 pub use stack::{EmojiDefault, FaceIx, FaceRole, FaceStyle, FaceTable, Presentation, Stack};
 pub use trail::{

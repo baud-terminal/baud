@@ -1004,14 +1004,14 @@ tests = ["baud-core/tests/xterm/osc.rs::a_clipboard_read_is_refused_silently"]
 id = "links"
 area = "input"
 name = "Links open safely"
-does = "Cmd-click opens web and mail links programs mark as links; a link to a file is shown in Finder, never launched, and any other kind is refused."
+does = "Cmd-click opens web and mail links, whether a program marks them as links or prints the address as plain text, even one that wraps onto the next line; a link to a file is shown in Finder, never launched, and any other kind is refused."
 status = "built"
 platform = "macos"
-tests = ["baud-app/src/link.rs::a_file_link_is_local_or_refused", "baud-app/src/link.rs::a_hostless_web_url_is_refused"]
+tests = ["baud-app/src/link.rs::a_file_link_is_local_or_refused", "baud-app/src/link.rs::a_hostless_web_url_is_refused", "baud-app/src/link.rs::a_cmd_click_on_a_soft_wrapped_url_opens_the_whole_url"]
 rows = ["vt:`OSC 8`"]
 chips = ["hyperlinks"]
-behind = "plain web addresses printed as text are not clickable yet, and a link's address is not shown before it opens."
-roadmap = ["F1-03", "F1-04"]
+behind = "a link's address is not shown before it opens."
+roadmap = ["F1-04"]
 
 [[feature]]
 id = "link-honest"

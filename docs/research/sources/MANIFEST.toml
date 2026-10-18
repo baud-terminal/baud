@@ -46,6 +46,7 @@
 #   AN  the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper
 #   AO  the rendition table: how terminals store a cell's colours, and how a table of renditions frees its slots
 #   BL  the bell: what a BEL does in a macOS window -- the alert sound, an attention request, a raise
+#   BU  bare URIs in text: what a URI is, where one ends in prose, and how terminals find one under a click
 
 [sources.simdjson]
 key    = "simdjson"
@@ -27382,3 +27383,148 @@ status = "retrieved"
 group  = "Y"
 # Read 2026-10-18 for SGR 64, ECMA-48's "ideogram stress marking", which
 # gives no shape or side; this is the web's definition of the same marks.
+
+# How a bare URI is found in a terminal's text, read 2026-10-18 for the
+# bare-URL Cmd-click (`baud-app/src/link.rs`). RFC 3986 (`rfc3986`, above)
+# says what a URI is and that its wrappers are not part of it (Appendix C);
+# the rest is practice. The terminals' files are `external`: other
+# projects' source under GPL and MIT, as the group F comment says.
+
+[sources.whatwg-url]
+key    = "whatwg-url"
+title  = "WHATWG URL Standard, commit snapshot fde3f74 -- 'URL code points': ASCII alphanumerics, the listed punctuation, and U+00A0 to U+10FFFD; code points past U+007F are percent-encoded by the URL parser"
+author = "WHATWG"
+year   = 2026
+venue  = "url.spec.whatwg.org commit snapshot (CC BY 4.0)"
+url    = "https://url.spec.whatwg.org/commit-snapshots/fde3f74f063341a28d437216f75735b8b40128f5/"
+file   = ""
+sha256 = "eeb362524eb76f1fdf85f1c8a856d5b76cfc8edb66e5d9a658fc332233be0fff"
+bytes  = 741151
+status = "external"
+group  = "BU"
+# Read 2026-10-18 for the bare-URL Cmd-click; not committed -- 741 KB of HTML.
+# What a browser parses: a letter past ASCII running on from a URI is part
+# of it, which is why baud-app's reader refuses such a URI rather than
+# opening the ASCII prefix.
+
+[sources.gfm-autolinks]
+key    = "gfm-autolinks"
+title  = "GitHub Flavored Markdown Spec 0.29-gfm (2019-04-06), 6.9 Autolinks (extension) -- where a bare URL starts, the trailing punctuation that is not part of it, and the unmatched trailing parenthesis"
+author = "GitHub"
+year   = 2019
+venue  = "github.github.com/gfm (CC BY-SA 4.0)"
+url    = "https://github.github.com/gfm/"
+file   = ""
+sha256 = "b153d814fdfc8624bb6da7449162c1cd707a637f7d1c1b636eb44b9cf63fa220"
+bytes  = 508310
+status = "external"
+group  = "BU"
+# Read 2026-10-18; not committed -- 508 KB of HTML. The page is the current
+# version, 0.29-gfm, unchanged since 2022-09-07 by its Last-Modified header;
+# the hash pins what was read. The one published specification of finding
+# a URL in plain text, Markdown's: baud-app's trailing set and paren
+# balance follow its shape.
+
+[sources.kitty-url-line]
+key    = "kitty-url-line"
+title  = "kitty v0.39.1, kitty/line.c -- URL detection: line_url_start_at, line_url_end_at, the hostname-only brackets"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.39.1/kitty/line.c"
+file   = ""
+sha256 = "6b6e5faf67d6853ffbe51688e93c44e23582ca39b1e7db3cd9b4d25befb44caf"
+bytes  = 37285
+status = "external"
+group  = "BU"
+
+[sources.kitty-url-screen]
+key    = "kitty-url-screen"
+title  = "kitty v0.39.1, kitty/screen.c -- screen_detect_url, get_url_sentinel and extend_url: the wrapper sentinel and the join across wrapped and hard-broken rows"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.39.1/kitty/screen.c"
+file   = ""
+sha256 = "87d7e15b0e4b72329ee03b0ceb12d48bb3d0af52a76a1f892e9c90eaedefa098"
+bytes  = 203368
+status = "external"
+group  = "BU"
+
+[sources.kitty-url-chars]
+key    = "kitty-url-chars"
+title  = "kitty v0.39.1, kitty/unicode-data.h -- is_url_legal_char (WHATWG code points) and can_strip_from_end_of_url (category P except / & - ) ] })"
+author = "Kovid Goyal"
+year   = 2025
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.39.1/kitty/unicode-data.h"
+file   = ""
+sha256 = "6dcdb26877456e0cf2e64ca1922486df9d3045b605e2bf236c4cd1b7bd7697dd"
+bytes  = 2605
+status = "external"
+group  = "BU"
+
+[sources.foot-url-mode]
+key    = "foot-url-mode"
+title  = "foot 1.21.0, url-mode.c -- regex_detected over each logical line, soft wraps joined, and OSC 8 winning an overlap"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/url-mode.c"
+file   = ""
+sha256 = "6a76305e90a8231519d49a7d5f24b1aaf937026671d719127087d3efd2ad70e1"
+bytes  = 23163
+status = "external"
+group  = "BU"
+
+[sources.foot-url-regex]
+key    = "foot-url-regex"
+title  = "foot 1.21.0, config.c -- the default URL regex, after Gruber: balanced () and [], and the characters a URL may not end in"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator (MIT)"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/config.c"
+file   = ""
+sha256 = "25fb6bf3c06264e18b261132d4204deaf9cc70f7b8e5c80ff55a8916bae02c62"
+bytes  = 123777
+status = "external"
+group  = "BU"
+
+[sources.wezterm-hyperlink-rules]
+key    = "wezterm-hyperlink-rules"
+title  = "wezterm 20240203-110809-5046fc22, config/src/config.rs -- default_hyperlink_rules: the bracketed forms first, then a URL ending in ) / alphanumeric or -"
+author = "Wez Furlong"
+year   = 2024
+venue  = "wezterm (MIT)"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/20240203-110809-5046fc22/config/src/config.rs"
+file   = ""
+sha256 = "c0e52a0648bba197acdc053b4efdbef5426c072fec1ae633070f91095a2c0134"
+bytes  = 67679
+status = "external"
+group  = "BU"
+
+[sources.iterm2-url-in-string]
+key    = "iterm2-url-in-string"
+title  = "iTerm2 v3.5.10, sources/NSStringITerm.m -- rangeOfURLInString: one enclosing wrapper removed, then one trailing punctuation mark"
+author = "George Nachman"
+year   = 2024
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/v3.5.10/sources/NSStringITerm.m"
+file   = ""
+sha256 = "ac0a37ca5472027f53eedde1df5e31cc8db0b085f69866bb8c85a42b37778c60"
+bytes  = 112125
+status = "external"
+group  = "BU"
+
+[sources.iterm2-url-settings]
+key    = "iterm2-url-settings"
+title  = "iTerm2 v3.5.10, sources/iTermAdvancedSettingsModel.m -- trailingPunctuationMarks and URLCharacterSet defaults"
+author = "George Nachman"
+year   = 2024
+venue  = "iTerm2 (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/v3.5.10/sources/iTermAdvancedSettingsModel.m"
+file   = ""
+sha256 = "d1b29399cd8b8234707f13e376d93d6631b2e33b131579cb273ee0d5ce3a45c3"
+bytes  = 92650
+status = "external"
+group  = "BU"

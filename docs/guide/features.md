@@ -121,7 +121,7 @@ Every key reaches the program, and copying and pasting stay safe.
 - **A long paste never freezes the window** — A long paste, or one into a stopped program, is fed as the program reads it, and keys typed afterwards arrive afterwards. *macOS.* <sub>[proof](../../baud-app/src/pty.rs)</sub>
 - **Remote programs can copy to your clipboard** — Programs, even over ssh or inside tmux, can put text on your clipboard; you can turn it off, and a copy over the size limit is refused whole with a warning. *macOS.* <sub>[OSC 52](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) · [proof](../../baud-app/src/clip.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
 - **No program can read your clipboard** — Requests to read the clipboard get no answer, and no setting turns them on. <sub>[proof](../../baud-core/tests/xterm/osc.rs)</sub>
-- **Links open safely** — Cmd-click opens web and mail links programs mark as links; a link to a file is shown in Finder, never launched, and any other kind is refused. *macOS.* <sub>[hyperlinks](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) · [proof](../../baud-app/src/link.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
+- **Links open safely** — Cmd-click opens web and mail links, whether a program marks them as links or prints the address as plain text, even one that wraps onto the next line; a link to a file is shown in Finder, never launched, and any other kind is refused. *macOS.* <sub>[hyperlinks](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) · [proof](../../baud-app/src/link.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
 - **A link goes where it says** — A link never leads anywhere but the address the program wrote: when the link table is full, the text stays plain. <sub>[proof](../../baud-core/tests/xterm/hyperlinks.rs)</sub>
 
 ## Scrollback, selection and resizing
@@ -241,7 +241,7 @@ link where the [roadmap](../roadmap.md) plans it.
 - **Layered colour fonts** — kitty and wezterm draw the gradient form of layered colour fonts.
 - **Rare text styles** — ghostty and wezterm draw overlined text.
 - **Key releases** — the macOS app does not yet tell programs when a key is let go, or when a modifier key is pressed alone. [Roadmap](../roadmap.md#keyboard-mouse-and-clipboard)
-- **Links open safely** — plain web addresses printed as text are not clickable yet, and a link's address is not shown before it opens. [Roadmap](../roadmap.md#keyboard-mouse-and-clipboard)
+- **Links open safely** — a link's address is not shown before it opens. [Roadmap](../roadmap.md#keyboard-mouse-and-clipboard)
 - **Window titles** — every other terminal draws the window title in its title bar. [Roadmap](../roadmap.md#window-colours-and-bell)
 - **Solid image backgrounds** — foot and wezterm fill the solid background a Sixel image asks for. [Roadmap](../roadmap.md#pictures)
 - **Linux** — the Linux version has run only headless, with no mouse, paste, clipboard or GPU drawing yet. [Roadmap](../roadmap.md#platforms-and-settings)

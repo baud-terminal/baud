@@ -7285,9 +7285,10 @@ impl Responder for Driver {
         if self.scrollbar(event) == Took::Yes {
             return;
         }
-        // A Cmd press over an `OSC 8` link is the terminal's, the whole
-        // gesture -- before the child's tracking, like Shift below, so a
-        // child never sees a release without its press.
+        // A Cmd press over a link -- an `OSC 8` run or a URI in the text
+        // -- is the terminal's, the whole gesture, before the child's
+        // tracking, like Shift below, so a child never sees a release
+        // without its press.
         if self.links(event) == Took::Yes {
             return;
         }
@@ -8378,12 +8379,14 @@ impl Driver {
         }
     }
 
-    /// `OSC 8` activation: a Cmd press over a link takes the whole gesture
-    /// for the terminal, and its release over the same link opens it. The
-    /// rules are `crate::link::gesture`'s; this maps the view's event onto
-    /// them and the answer onto the driver's state.
+    /// Link activation: a Cmd press over an `OSC 8` link or a URI in the
+    /// text takes the whole gesture for the terminal, and its release over
+    /// the same link opens it. The rules are `crate::link::gesture`'s, and
+    /// what is under the pointer `crate::link::under`'s, which reads the
+    /// text only for the press and its release; this maps the view's event
+    /// onto them and the answer onto the driver's state.
     fn links(&mut self, event: &Mouse) -> Took {
-        use crate::link::{Chord, Clicks, Gesture, Press};
+        use crate::link::{Chord, Clicks, Gesture, Press, Spot};
         let press = match (event.kind, event.button) {
             (ViewMouseKind::Down, ViewButton::Left) => Press::Down,
             (ViewMouseKind::Up, ViewButton::Left) => Press::Up,
@@ -8402,15 +8405,18 @@ impl Driver {
             Clicks::Repeat
         };
         let (row, col) = self.cell_under(event.x, event.y);
-        let under = {
-            // The cell the pointer is over in the *view* -- scrolled back
-            // included -- read the way `select` reads it; a wide tail
-            // carries its lead's link, so either half resolves.
-            let view = self.app.term.view(self.app.term.window_back());
-            let id = view.row(row)[col.index()].flags.link();
-            self.app.term.link_uri(id).map(|_| id)
+        // The cell the pointer is over in the *view* -- scrolled back
+        // included -- read the way `select` reads it; a wide tail carries
+        // its lead's link, so either half resolves.
+        let spot = Spot {
+            scrolled: self.app.scrolled,
+            back: self.app.term.window_back(),
+            row,
+            col,
         };
-        match crate::link::gesture(press, chord, clicks, self.app.focus, self.armed, under) {
+        let armed = self.armed.as_ref();
+        let under = crate::link::under(&self.app.term, spot, press, chord, self.app.focus, armed);
+        match crate::link::gesture(press, chord, clicks, self.app.focus, armed, under.as_ref()) {
             Gesture::Pass => Took::No,
             Gesture::Arm(a) => {
                 self.armed = Some(a);
@@ -8421,34 +8427,51 @@ impl Driver {
                 self.armed = None;
                 Took::Yes
             }
-            Gesture::Open(id) => {
+            Gesture::Open(link) => {
                 self.armed = None;
-                self.open_link(id);
+                self.open_link(&link);
                 Took::Yes
             }
         }
     }
 
     /// Hand a link to the OS, or refuse it and say why. The one call site
-    /// of the opener, and it holds a `Target` the policy built rather than
-    /// a string, so a URI the policy did not admit cannot reach it.
-    fn open_link(&mut self, id: baud_domain::LinkId) {
-        use crate::link::{Action, Host};
+    /// of the opener, for an `OSC 8` link and a URI in the text alike, and
+    /// it holds a `Target` the policy built rather than a string, so a URI
+    /// the policy did not admit cannot reach it.
+    fn open_link(&mut self, link: &crate::link::Under) {
+        use crate::link::{Action, Host, Under};
         use baud_present_macos::link::{self as opener, Opened};
-        let Some(uri) = self.app.term.link_uri(id) else {
-            // The table never frees a slot, so a link that resolved at the
-            // press resolves at the release; counted rather than trusted.
-            self.app.links.refused.bump();
-            crate::warn!("link refused (gone)");
-            return;
+        let shown = |uri: &[u8]| {
+            uri.iter()
+                .take(80)
+                .copied()
+                .collect::<Vec<u8>>()
+                .escape_ascii()
+                .to_string()
         };
-        let shown = uri
-            .iter()
-            .take(80)
-            .copied()
-            .collect::<Vec<u8>>()
-            .escape_ascii()
-            .to_string();
+        let uri = match link {
+            Under::Osc8(id) => match self.app.term.link_uri(*id) {
+                Some(uri) => uri,
+                None => {
+                    // The table never frees a slot, so a link that resolved
+                    // at the press resolves at the release; counted rather
+                    // than trusted.
+                    self.app.links.refused.bump();
+                    crate::warn!("link refused (gone)");
+                    return;
+                }
+            },
+            Under::Bare(bare) => match bare.uri() {
+                Ok(uri) => uri,
+                Err(why) => {
+                    self.app.links.refused.bump();
+                    crate::warn!("link refused ({why:?}): {}", shown(bare.text()));
+                    return;
+                }
+            },
+        };
+        let shown = shown(uri);
         let host = opener::host_name();
         match crate::link::admit(uri, Host(&host)) {
             Err(why) => {
