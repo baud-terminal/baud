@@ -3344,14 +3344,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let line = fg;
         let fg = self.theme.floor.lift(fg, bg, (text_word, page_word));
         let opaque_bg = self.theme.opaque_bg(style, self.video);
-        // **The floor again, on the page as the glass shows it** (Jev,
-        // logged: 0.96 and 0.99): a page the program set, drawn at the
-        // window's alpha over anything from black to white, since the
+        // **The floor again, on the glass** (Jev, logged: 0.96 and 0.99),
+        // measured against the page at its alpha over anything from black
+        // to white (Jev's lean, 0.60/0.59, decisions 736-737), since the
         // renderer draws onto a target with nothing under it and the glass
-        // is the window server's (`Floor::lift_on_glass`). The default
-        // page is left out: its own text is held at the bound by the dims
-        // (note AS, section 3). A picture's, an opaque rendition's and a
-        // swap's page is solid, and `Resolved::drawn` gives them `fg`.
+        // is the window server's (`Floor::lift_on_glass`). It covers a page
+        // the program set; the default page is left out: its own text is
+        // held at the bound by the dims (note AS, section 3). A picture's,
+        // an opaque rendition's and a swap's page is solid, and
+        // `Resolved::drawn` gives them `fg`.
         let glass = if page_word.is_default() || opaque_bg || self.theme.bg_alpha.get() == 0xFF {
             fg
         } else {

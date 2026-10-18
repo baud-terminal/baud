@@ -1125,6 +1125,10 @@ or measured.
   disjoint and strict ones, so G19's count can be decided (section 1.8).
 - ~~A ghost-trail arm, counted before the ghost is claimed either way.~~
   Built: the census's `ghost` arm.
+- A census series over the glass page at alphas 179 and 153 on the GPU
+  path. The grounds stay opaque, and the glass is held only by
+  `a_repeat_pass_over_the_glass_page_reads_the_desktop` on the CPU path,
+  over a bare page.
 
 ## 7. Unmeasured
 
@@ -1137,8 +1141,11 @@ Flashing Lights change to the local or the default notification centre;
 whether a poll of the setting sees a live toggle; what kitty's dwell would
 do here. The ghost was counted since, and grounds through the glass are
 read at note AS's bound of a white and a black desktop, held by a test on
-the CPU path rather than by the census, whose grounds stay opaque; a
-coloured desktop is not read (the record, "A repeat pass reads the selection, the cursor and the glass, and the ghost takes the bound"). O2's 2x above 24 pt, 72 pt at 2x, text under the trail and its
+the CPU path rather than by the census, whose grounds stay opaque. A
+coloured desktop is not read, and neither is a grey one between white
+and black: a glyph's edge over such a desktop is a mixture inside the
+triangle of text, page over white and page over black, and only that
+triangle's edges are scanned (the record, "A repeat pass reads the selection, the cursor and the glass, and the ghost takes the bound"). O2's 2x above 24 pt, 72 pt at 2x, text under the trail and its
 CPU path were measured since ([[source: al-obs-b68-analysis]]).
 
 ## 8. The owner's questions

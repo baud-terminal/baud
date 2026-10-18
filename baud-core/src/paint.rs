@@ -1063,11 +1063,12 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// it: at the function's head, where the row was found, a scratch arm
     /// of this test cost `cat-cjk` 0.53% of its instructions over an arm
     /// without it, in the registers the rest of the function lost to it;
-    /// here it costs 0.12% over that arm, and the change as a whole equals
-    /// the base before the watch (b122f7bf) on `cat-cjk` (the record, "A
-    /// selection is numbered by the lines the surface moved"). A mark past
-    /// a cluster's capacity changes no cell and is told too, as xterm's
-    /// row is written whether or not a combining slot was free.
+    /// here, before the capacity branch called it, it cost 0.12% over that
+    /// arm, and the change as a whole equals the base before the watch
+    /// (b122f7bf) on `cat-cjk` (the record, "A selection is numbered by the
+    /// lines the surface moved"). A mark past a cluster's capacity changes
+    /// no cell and is told too, as xterm's row is written whether or not a
+    /// combining slot was free.
     #[inline(always)]
     fn marked(&mut self, r: Row) {
         if self.hooks == WriteHooks::On {

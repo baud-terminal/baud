@@ -23,7 +23,10 @@
 //! whose pixels the cells do not name. **A selection and the cursor under
 //! the pass are grounds too**, by the colours they draw, and **a dimmed page
 //! is read over the desktop**, a flat white and a flat black, note AS's
-//! bound; a coloured desktop is not read.
+//! bound. A coloured desktop is not read, and neither is a grey one
+//! between white and black: a glyph's edge over such a desktop is a
+//! mixture inside the triangle of text, page over white and page over
+//! black, and only that triangle's edges are scanned.
 //!
 //! The thresholds are WCAG 2.2's definition of the general and red flash
 //! thresholds ([[source: wcag22]]), as `baud_bench::flash` counts them: a

@@ -215,6 +215,18 @@ as `floor = 7`, which a literal 4.5 would loosen against decision 9's
   is held at the bound by the dims (section 3); palette text on it is not:
   at 0.70/0.60 cava's bars, git-log's colours and yazi-walk's read below 3
   against the range. Not decided.
+- **A lift that keeps distinct colours distinct.** At dark 0.70 btop's
+  meter and graph ground, `#404040` on `#000000` (asked 2.03), is lifted
+  to `#bcbcbc`, so every meter reads full. The cause is the lift rule,
+  which takes every colour below the trigger to one target, and not the
+  choice of bound: at k = 1 the range lifts the ground and the two
+  endpoints would keep it dark, but at section 4's fitted k = 0.695 both
+  the range and the endpoints lift it. btop's process-list fade,
+  `#4e4e4e`-`#979797`, goes to the same grey; the owner accepted that
+  (decision 2 of 2026-10-17, "btop's grey fade change is accepted"). A
+  lift that keeps distinct colours distinct is being built next: WCAG 2.2
+  SC 1.4.11 asks 3:1 "against adjacent color(s)" of the "parts of
+  graphics required to understand the content" ([[source: wcag22]]).
 - **Palette colours that fail with no glass at all** (dim 1.0): dark faint
   4.07, ansi1 3.26, ansi4 `#0000ee` 2.02, ansi5 4.06, ansi12 4.01; light faint
   2.96, ansi7 2.12. These are the palette's, not the glass's. The floor at
@@ -224,7 +236,12 @@ as `floor = 7`, which a literal 4.5 would loosen against decision 9's
   Modus Vivendi first. Jev: research that set first, 0.92/0.82 (738/739).
   **For the owner**, with renders of keep against OKLCH-lightness
   corrections (dark ansi1 `#e93327`, ansi4 `#3771ff`, ansi5 `#d61bd5`,
-  ansi12 `#6469fe`; light ansi7 `#6c6c6c`).
+  ansi12 `#6469fe`; light ansi7 `#6c6c6c`). Leaving these slots to the
+  floor draws the same as keeping them at the default trigger 1.2,
+  because the floor moves none of the failing slots, which is why the
+  renders show only keep against the corrections. Under Increase
+  Contrast the two differ: dark ansi4, light ansi7 and light faint are
+  lifted.
 - **Under Increase Contrast at trigger 3.0, btop's greys did not change**
   (0 of 4234 glyphs on dark btop), where note Y predicted they would
   brighten. Not checked.
