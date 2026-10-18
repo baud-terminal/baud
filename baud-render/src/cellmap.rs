@@ -495,6 +495,36 @@ impl<'m> GlyphMap<'m> {
     }
 }
 
+/// The codepoints a stress mark skips, as inclusive ranges: the Unicode
+/// separator classes Zs, Zl and Zp (`[[source: gc-data]]`), since
+/// emphasis marks "are not drawn for: Word separators or other characters
+/// that belong to the Unicode separator classes (Z*)" (`[[source:
+/// css-text-decor-3]]`). `SEPARATORS` in the cell shader, pinned by
+/// `the_stress_mark_separators_match_the_shader`.
+pub const SEPARATORS: [(u32, u32); 8] = [
+    (0x20, 0x20),
+    (0xa0, 0xa0),
+    (0x1680, 0x1680),
+    (0x2000, 0x200a),
+    (0x2028, 0x2029),
+    (0x202f, 0x202f),
+    (0x205f, 0x205f),
+    (0x3000, 0x3000),
+];
+
+/// Whether a cell holding `content` takes `SGR 64`'s stress mark: one
+/// "drawn once for each typographic character unit" (`[[source:
+/// css-text-decor-3]]`), so not a blank, not a wide character's tail
+/// (its lead draws the mark across both cells), and not a separator. A
+/// cluster takes it, as "a space that combines with any combining
+/// characters" does.
+pub fn takes_stress_mark(content: Content) -> bool {
+    let c = content.bits();
+    !content.is_empty()
+        && !content.is_wide_tail()
+        && !SEPARATORS.iter().any(|&(a, b)| (a..=b).contains(&c))
+}
+
 /// Which rendition shapes a cell draws, as the shader tests them.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[repr(transparent)]
@@ -539,6 +569,23 @@ impl Shapes {
     /// holds it. `SHAPE_DEFAULT_BG` in the cell shader, pinned by
     /// `the_default_background_bit_matches_the_shader`.
     pub const DEFAULT_BG: Shapes = Shapes(8192);
+    /// A line across the top of the cell: `SGR 53`, overlined, and `SGR
+    /// 62`, "ideogram overline", which horizontal text draws alike
+    /// (`[[source: ecma48]]` § 8.3.117). In the text's colour, as the
+    /// strike is. `SHAPE_OVERLINE` in the cell shader.
+    pub const OVERLINE: Shapes = Shapes(16384);
+    /// A second line below the overline: `SGR 63`, "ideogram double
+    /// overline". `SHAPE_DOUBLE_OVERLINE` in the cell shader.
+    pub const DOUBLE_OVERLINE: Shapes = Shapes(32768);
+    /// `SGR 51`, framed: a line across the top and bottom of the cell, and
+    /// a side where the run of framed cells starts and where it ends, so a
+    /// run is one box. `SHAPE_FRAMED` in the cell shader.
+    pub const FRAMED: Shapes = Shapes(65536);
+    /// `SGR 64`, "ideogram stress marking": a filled dot over each
+    /// character but a separator ([`takes_stress_mark`]), in the text's
+    /// colour, one across a wide character's two cells. `SHAPE_STRESS` in
+    /// the cell shader.
+    pub const STRESS: Shapes = Shapes(131072);
     /// Both blink shapes: a slot holds at most one, since `SGR 5` and `6`
     /// replace each other (`Attrs::BLINKS`).
     pub const BLINKS: Shapes = Shapes(Shapes::BLINK.0 | Shapes::RAPID_BLINK.0);

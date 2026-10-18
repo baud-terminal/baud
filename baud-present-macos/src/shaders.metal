@@ -1153,6 +1153,32 @@ static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint d
 // first value past U+10FFFF but one. `metallib.rs` pins it to the Rust
 // constant, because the two are one fact spelled twice.
 #define WIDE_TAIL 0x110001u
+// `Content::EMPTY`: nothing was written here, pinned beside it.
+#define EMPTY_CELL 0x110000u
+
+// The stress mark's separators, `baud_render::SEPARATORS`: the Unicode
+// separator classes Zs, Zl and Zp as inclusive ranges, pinned by
+// `the_stress_mark_separators_match_the_shader`.
+constant uint2 SEPARATORS[8] = {
+    uint2(0x20u, 0x20u),
+    uint2(0xa0u, 0xa0u),
+    uint2(0x1680u, 0x1680u),
+    uint2(0x2000u, 0x200au),
+    uint2(0x2028u, 0x2029u),
+    uint2(0x202fu, 0x202fu),
+    uint2(0x205fu, 0x205fu),
+    uint2(0x3000u, 0x3000u),
+};
+
+// `takes_stress_mark`: whether a cell's word takes `SGR 64`'s mark -- not
+// a blank, not a wide tail (its lead marks both cells), not a separator.
+static bool takes_stress_mark(uint content) {
+    if (content == EMPTY_CELL || content == WIDE_TAIL) return false;
+    for (uint i = 0u; i < 8u; i++) {
+        if (content >= SEPARATORS[i].x && content <= SEPARATORS[i].y) return false;
+    }
+    return true;
+}
 
 // `Shapes::BLINK`, `Shapes::CONCEAL` and `Shapes::RAPID_BLINK`, one fact
 // spelled twice and pinned by `the_hidden_text_bits_match_the_shader`.
@@ -1162,6 +1188,13 @@ static uint2 cell_at(constant CU& u, device const uint2* cells, uint col, uint d
 // `Shapes::DEFAULT_BG`: the rendition draws the default background colour,
 // pinned by `the_default_background_bit_matches_the_shader`.
 #define SHAPE_DEFAULT_BG 8192u
+// `Shapes::OVERLINE`, `Shapes::DOUBLE_OVERLINE` and `Shapes::FRAMED`,
+// pinned by `the_line_shape_bits_match_the_shader`.
+#define SHAPE_OVERLINE 16384u
+#define SHAPE_DOUBLE_OVERLINE 32768u
+#define SHAPE_FRAMED 65536u
+// `Shapes::STRESS`, pinned by the same test.
+#define SHAPE_STRESS 131072u
 // The face style's two bits in a resolved slot's shapes -- the style whose
 // face the cell's text is drawn from, already fallen back by the stack --
 // and where they sit in a glyph-map key, above the 21-bit codepoint. The
@@ -1419,13 +1452,15 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
 }
 
 // Shapes a cell: its underline, its strike, a second underline line for a
-// double underline, the cursor when it is an underline or a bar, and then
-// SEGMENTS quads for a curly, dotted or dashed underline (kitty's 4:3/4:4/4:5)
-// -- each a run of thickness-wide solids across the cell, so the styles need
-// no texel and composite exactly as the straight line does. A shape not drawn
-// is a zero-area quad.
-#define SHAPE_SLOTS 20u
-#define SEGMENTS (SHAPE_SLOTS - 4u)
+// double underline, the cursor when it is an underline or a bar, the
+// overline (or a frame's top), a double overline's second line, a frame's
+// bottom and its two sides, the stress mark, and then SEGMENTS quads for a curly, dotted or
+// dashed underline (kitty's 4:3/4:4/4:5) -- each a run of thickness-wide
+// solids across the cell, so the styles need no texel and composite exactly
+// as the straight line does. A shape not drawn is a zero-area quad.
+#define SHAPE_SLOTS 26u
+#define FIXED_SLOTS 10u
+#define SEGMENTS (SHAPE_SLOTS - FIXED_SLOTS)
 vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uint2* cells [[buffer(0)]],
                               device const Style* styles [[buffer(1)]],
@@ -1482,10 +1517,57 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         // `OSC 12`: the bar or underline cursor draws in the cursor colour,
         // at the fade's opacity (`Argb::scaled`).
         colw = scaled((u.cursor_color != 0u) ? u.cursor_color : curw, u.cursor_alpha);
+    } else if (which < FIXED_SLOTS) {
+        // The overline, the frame, the double overline's second line and
+        // the stress mark, in the text's colour as the strike is, with the CPU compositor's
+        // arithmetic: the overline and the frame's top are one line.
+        float th = float(u.thickness);
+        float th1 = max(th, 1.0);
+        bool framed = (s.shapes & SHAPE_FRAMED) != 0u;
+        float x = float(col * u.cell.x);
+        if (which == 4u) {
+            if (!framed && (s.shapes & SHAPE_OVERLINE) == 0u) return o;
+            at = float2(x, rowy);
+            wh = float2(u.cell.x, th);
+        } else if (which == 5u) {
+            if ((s.shapes & SHAPE_DOUBLE_OVERLINE) == 0u) return o;
+            float low = float(u.cell.y) - th;
+            at = float2(x, rowy + min(th1 + 1.0, max(low, 0.0)));
+            wh = float2(u.cell.x, th);
+        } else if (which == 9u) {
+            // `SGR 64`'s stress mark: a filled square two thicknesses on a
+            // side, centred across the character (both cells of a wide
+            // one), a side's length below the cell's top, clamped inside.
+            if ((s.shapes & SHAPE_STRESS) == 0u || !takes_stress_mark(cell.x)) return o;
+            float d = 2.0 * th1;
+            bool wide = col + 1u < u.grid.x && cell_at(u, cells, col + 1u, dr).x == WIDE_TAIL;
+            float span = float(wide ? 2u * u.cell.x : u.cell.x);
+            at = float2(x + floor(max(span - d, 0.0) * 0.5),
+                        rowy + min(d, max(float(u.cell.y) - d, 0.0)));
+            wh = float2(d, d);
+        } else {
+            if (!framed) return o;
+            if (which == 6u) {
+                at = float2(x, rowy + float(u.cell.y) - th1);
+                wh = float2(u.cell.x, th);
+            } else {
+                // A side only where the run of framed cells starts or ends:
+                // the row's edge, or a neighbour that is not framed.
+                bool left = which == 7u;
+                bool edge = left ? col == 0u : col + 1u >= u.grid.x;
+                if (!edge) {
+                    uint2 n = cell_at(u, cells, left ? col - 1u : col + 1u, dr);
+                    if ((styles[n.y & 0xffffu].shapes & SHAPE_FRAMED) != 0u) return o;
+                }
+                at = float2(left ? x : x + float(u.cell.x) - th1, rowy);
+                wh = float2(th1, u.cell.y);
+            }
+        }
+        colw = fgw;
     } else {
         // Segment k of a styled underline: the same arithmetic as the CPU
         // compositor's, so the two arms agree pixel for pixel.
-        uint k = which - 4u;
+        uint k = which - FIXED_SLOTS;
         bool curly = (s.shapes & 16u) != 0u, dotted = (s.shapes & 32u) != 0u,
              dashed = (s.shapes & 64u) != 0u;
         if (!(curly || dotted || dashed)) return o;

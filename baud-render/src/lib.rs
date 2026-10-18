@@ -62,8 +62,8 @@ pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use caret::{CursorPhase, Play};
 pub use cellmap::{
     BlockCursor, Candidate, CellKey, CellSpan, Curves, Drawn, GlyphMap, Ground, Ink, Line,
-    MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK, Resolved, Selected, Shapes,
-    Swaps, Text, copy_for_shader,
+    MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK, Resolved, SEPARATORS, Selected,
+    Shapes, Swaps, Text, copy_for_shader, takes_stress_mark,
 };
 pub use color::{
     AppBg, Argb, Floor, MODUS_OPERANDI, PictureBg, Theme, Video, light_palette, xterm_palette,

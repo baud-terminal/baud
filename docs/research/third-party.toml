@@ -865,12 +865,14 @@ status  = "kept"
 files   = [
   "ghostty-MetallibStep.zig",
   "ghostty-d9840f3-Config.zig",
+  "ghostty-d9840f3-Metrics.zig",
   "ghostty-d9840f3-Terminal.zig",
   "ghostty-d9840f3-Termio.zig",
   "ghostty-d9840f3-args.zig",
   "ghostty-d9840f3-cell.zig",
   "ghostty-d9840f3-color.zig",
   "ghostty-d9840f3-fraction.zig",
+  "ghostty-d9840f3-generic.zig",
   "ghostty-d9840f3-graphics_storage.zig",
   "ghostty-d9840f3-shaders.metal",
 ]
@@ -1573,11 +1575,12 @@ files   = [
 ]
 
 [upstream.w3c-docs]
-name    = "W3C Recommendations and notes: PNG 2003, WCAG 2.2 and its techniques, WCAG2ICT, WCAG 3 draft"
+name    = "W3C Recommendations and notes: PNG 2003, WCAG 2.2 and its techniques, WCAG2ICT, WCAG 3 draft, CSS Text Decoration 3"
 licence = "LicenseRef-W3C-Document"
 notice  = "in file"
 status  = "kept"
 files   = [
+  "w3c-css-text-decor-3.html",
   "w3c-png-2003.html",
   "wcag22-20241212.html",
   "wcag22-errata.html",

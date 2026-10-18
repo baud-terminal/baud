@@ -33,7 +33,7 @@ Status values are deliberately blunt:
 | | meaning |
 |---|---|
 | **done** | implemented, dispatched, and covered by a test that would fail if it regressed |
-| **partial** | implemented but known-incomplete; the gap is named in the row. Fifteen rows carry it: DECSC, DECRC, DECNCSM, DECSCPP, the DEC Special Graphics glyph table, the national sets' translation, JIS-Roman, DEC Technical, the DEC Hebrew, Greek and Turkish Supplementals, DEC Cyrillic, SCS and Russian NRCS, the `dcs_param` and `dcs_passthrough` states, and kitty graphics' `a=p` and file mediums |
+| **partial** | implemented but known-incomplete; the gap is named in the row. Nineteen rows carry it: DECSC, DECRC, DECNCSM, DECSCPP, the DEC Special Graphics glyph table, the national sets' translation, JIS-Roman, DEC Technical, the DEC Hebrew, Greek and Turkish Supplementals, DEC Cyrillic, SCS and Russian NRCS, the `dcs_param` and `dcs_passthrough` states, kitty graphics' `a=p` and file mediums, and SGR 10-19, 20, 26 and 50, and 52 |
 | **parsed** | recognised by the parser and then **dropped** — worse than missing, because it looks supported |
 | **todo** | in scope, not implemented |
 | **out** | deliberately not in scope; the reason is in the row |
@@ -53,7 +53,7 @@ a handler for every operation this table claims. It does **not** prove the
 handler is correct — that is what the per-protocol suites are for, and no
 mechanism can prove it in general.
 
-**No row carries `parsed` or `todo`. Fifteen carry `**partial**`, and
+**No row carries `parsed` or `todo`. Twenty carry `**partial**`, and
 `no_row_is_unfinished` in `baud-core/tests/coverage.rs` does not see them.**
 This paragraph said no row carried any of the three and that the test fails if
 one ever does. The test matches a status cell that starts with the bare word,
@@ -67,7 +67,8 @@ national sets' translation, which read `done` beside a gate DEC's texts
 disagree on, and since 2026-10-14 DECNCSM and DECSCPP, whose width change
 the embedder's resize reflows, and since 2026-10-16 kitty graphics' `a=p`,
 whose resampling filter and default-background readings are interim, and
-its file mediums. Unicode placeholders carried it on 2026-10-16 until the owner
+its file mediums, and since 2026-10-18 four SGR rows, 10-19, 20, 26 and 50,
+and 52, recorded and drawn by no path. Unicode placeholders carried it on 2026-10-16 until the owner
 picked its two forks the same day. DECALN carried it from 2026-10-13 to
 2026-10-14, while it kept DECOM, the rendition and the side margins.
 DECCOLM carried it from 2026-10-13 to 2026-10-14, while it kept the
@@ -840,27 +841,34 @@ Enumerated against `[[source: ecma48]]` § 8.3.117 and, for the extensions,
 | 90-97, 100-107 aixterm bright | done — palette indices 8..15 |
 | 38/48 `;5;n` 256-colour, `;2;r;g;b` truecolour | done — **a cell keeps its rendition while the cells name no more renditions than the table has slots** (65,536 at the app's provisioning): `[[source: dec-std-070]]`'s SGR, page 5-104, "In no way does the selection of current rendition affect the rendition of characters already entered into the display". Since 2026-10-14 the rendition table sweeps -- at 7/8 load and before an eviction, at most once a sixteenth of its writes -- freeing every slot no cell of either screen or the history names, slot 0 never, and the renderer repaints a frame whose slots were reclaimed (`live_cells_keep_their_renditions_through_five_tables_of_churn`, `the_other_screens_cells_are_marked`, `the_historys_cells_are_marked`, `the_primarys_history_is_marked_from_the_alternate_screen`, `an_erased_rows_rendition_is_marked`, `a_churned_table_sweeps_before_it_fills`, `a_full_table_sweeps_before_it_evicts`, `a_sweep_is_chunk_invariant`, `a_swept_slot_reused_in_place_is_repainted`). Until then a session that had minted more renditions than slots evicted a named slot and recoloured its cells: yazi's chafa previews left 191 of 7,110 final cells differing from alacritty, 0 of 7,093 now. **Open**: with more distinct renditions named at once than slots it still evicts and recolours, as chafa printing into the shell does (81 cells of 7,199 differ); and a full table evicts without sweeping within a sixteenth of its writes of the last sweep, which happens only where the cells name more than 15/16 of the slots (`a_full_table_evicts_without_sweeping_within_a_sixteenth_of_its_writes`; options in the record, "A full rendition table sweeps before it evicts") |
 | 38/48 `:5:n` / `:2:Pi:r:g:b` sub-parameter form | done — both the six-part form with a colour-space id and the five-part form without |
-| 10-19 fonts | done — recorded in `StyleWord`'s spare bits; `Term::style_of` is how a renderer reads one |
+| 10-19 fonts | **partial** — **a font selection changes nothing on screen**: recorded in `StyleWord`'s spare bits, answered by DECRQSS and readable through `Term::style_of`, and drawn by no path. `[[source: ecma48]]` § 8.3.117 names "primary (default) font" and nine alternatives and says nothing of what each is, so drawing one needs a configured face per slot, which baud has no setting for. The gap is that setting and its drawing |
 | 58/59 underline colour | done — `StyleWord` grew to sixteen bytes; the *cell* holds a `StyleId` index and did not change |
-| 20 Fraktur, 26/50 proportional, 51-55 framed/encircled/overlined | done — recorded in `Attrs`, all from `[[source: ecma48]]` § 8.3.117; 23 clears italic **and** fraktur, 54 clears framed **and** encircled. 26 is a *reservation* there ("for proportional spacing as specified in CCITT Recommendation T.61"), so baud records the bit and resolves nothing |
+| 20 Fraktur | **partial** — **recorded in `Attrs` and drawn as plain text**: § 8.3.117's "Fraktur (Gothic)" needs a Fraktur face, and baud has neither an embedded one nor a setting for one. 23 clears italic **and** fraktur, as "not italicized, not fraktur" says. The gap is the face |
+| 26, 50 proportional spacing | **partial** — **recorded in `Attrs` and changes nothing on screen**: § 8.3.117 reserves 26 "for proportional spacing as specified in CCITT Recommendation T.61" and 50 for its cancel, and defines neither; T.61 is not a pinned source, and a fixed cell grid has no proportional advance to give. The gap is a reading of T.61 and what a cell grid would do with it |
+| 51 framed, 53 overlined, 54, 55 | done — **drawn on all three paths**, the software compositor, the instance path and the cell shader, in the text's colour as the strike is: `SGR 58` is "the underline color" (`[[source: kitty-underlines]]`) and neither is an underline; ghostty draws its overline in the foreground too (`[[source: ghostty-generic-d9840f3]]`). 53 is a line across the top of the cell, one underline thickness tall, where ghostty puts it (`[[source: ghostty-metrics-d9840f3]]`). 51 is one box around each run of framed cells on a row: a line across the top and the bottom of every cell, and a side only where the run starts and where it ends. Both choices were Jev's at 1.00 in both orders, since § 8.3.117 says only "framed" and "overlined". 54 clears framed **and** encircled, 55 the overline. **Open**: a visible framed cell beside a framed cell that is concealed, or in its blink's off phase, draws no side at the seam, so that run's box is open there. `an_overline_is_a_line_across_the_top_of_its_cells`, `the_overline_is_the_text_colour_and_not_the_underline_colour`, `a_framed_run_is_one_box`, `sixty_five_and_fifty_five_cancel_their_lines`, and the pixel oracle's `decoration_gate` |
+| 52 encircled | **partial** — **recorded in `Attrs` and not drawn.** A circle is an anti-aliased curve and all three paths draw decorations as solid rectangles; drawing it needs a coverage kind of its own on each, agreeing pixel for pixel, as the cursor trail's quad has. Jev chose to leave it undrawn in this change at 0.98 in both orders, over an ellipse a cell and a rounded box a run, asked with the owner's "we need to support such protocols fully, always!" quoted: the curve is a change of its own. 54 clears it. The gap is that coverage kind and the shape |
 | 56, 57 | **out** — `[[source: ecma48]]` § 8.3.117 reserves 56-59 for future standardization and `[[source: ctlseqs]]` assigns 56 and 57 nothing. 58/59 are done only because ctlseqs assigns *them* the underline colour, which is an extension over ECMA-48 rather than a reading of it. `sgr_56_and_57_are_reserved_and_set_nothing` |
-| 60-65 ideogram attributes | done — `[[source: ecma48]]` § 8.3.117 defines all six: 60-64 are ideogram underline, double underline, overline, double overline and stress marking, each named for two edges because which edge is marked follows the writing direction, and 65 cancels all five. `Attrs` went to `u32` for the five bits. See `tests/sgr/ideogram.rs` |
+| 60-63, 65 ideogram lines | done — `[[source: ecma48]]` § 8.3.117 defines 60-63 as "ideogram underline or right side line", "ideogram double underline or double line on the right side", "ideogram overline or left side line" and "ideogram double overline or double line on the left side", each named for two edges because which edge is marked follows the writing direction, and 65 "cancels the effect of the rendition aspects established by parameter values 60 to 64". **baud's text is horizontal, so they are drawn as the under and over lines**, on all three paths: 60 the straight underline and 61 the double, beside whatever `SGR 4` style is in force, 62 the overline and 63 two lines at the top, one thickness and a pixel apart. 60 and 61 take `SGR 58`'s colour as an underline does, and 62 and 63 the text's as the overline does: Jev leaned to 58 for the underlines at 0.60 and 0.30, then 0.46 and 0.56 asked again, and the lean is taken. They stay a separate aspect from 4 and 21: 24 leaves them and 65 clears them. `Attrs` went to `u32` for the five bits. `tests/sgr/ideogram.rs`, `ideogram_lines_are_the_under_and_over_lines_of_horizontal_text`, `ideogram_double_lines_are_two_lines`, `sixty_five_and_fifty_five_cancel_their_lines`, and the pixel oracle's `decoration_gate` |
+| 64 ideogram stress marking | done — **a filled dot over each marked character**, on all three paths, in the text's colour. § 8.3.117 names it and gives no shape or side, so baud draws what the web draws for text with no language (`[[source: css-text-decor-3]]`): `text-emphasis-position`'s "Initial: over right", over in horizontal text; a filled `dot`, "Display small circles as marks. The filled dot is U+2022"; `text-emphasis-color`'s "Initial: currentcolor", the text's colour, so `SGR 58` does not reach it. A mark given only as filled or open is a circle in horizontal text ("If only filled or open is specified, the shape keyword computes to circle in horizontal typographic modes"); filled is U+25CF. The marks are "drawn once for each typographic character unit", so a wide character takes one, centred across its two cells, and "not drawn for ... the Unicode separator classes (Z*)", so a space or an ideographic space takes none; the list is `[[source: gc-data]]`'s, pinned by a test. The cell has no ruby space above the line, so the mark is a square two line thicknesses on a side, centred, a side's length below the cell's top. Jev chose it at 0.94 and 0.92 over a dot under each cell and leaving it undrawn, asked with the owner's "we need to support such protocols fully, always!" quoted. 65 clears it. **Open**: CSS also leaves unmarked the P\* punctuation outside its list of exceptions (`#`, `%`, `&`, `@`, `§`, `¶` and a few more keep the mark) and the Cf and Cn classes, a soft hyphen or an unassigned codepoint; baud marks them. `a_stress_mark_is_a_dot_over_each_character`, `sixty_five_cancels_the_stress_mark`, `the_stress_mark_skips_exactly_the_separator_classes`, `the_stress_mark_separators_match_the_shader`, and the pixel oracle's `decoration_gate` |
 
-**Fonts moved from `out` to `done` by measuring rather than assuming.** The row
+**Fonts moved from `out` to recorded by measuring rather than assuming.** The row
 said they needed cell bits that did not exist. A font is a *rendition*, and
 rendition lives in `StyleWord` -- which carried sixteen bits of explicit
 padding, put there because zerocopy rejects implicit padding. `PackedCell`
 never had to grow, and the eight-byte cell was never the constraint. "A bit set
 and never read" resolved the way it did for charset designations: baud records
-the selection and `Term::style_of` is where a renderer reads it.
+the selection and `Term::style_of` is where a renderer reads it. No renderer
+does yet, and since 2026-10-18 the row says so.
 
-Every SGR parameter above is **done** or **out**; 6 was **partial** from 2026-10-10 to 2026-10-14, while it blinked at 5's slow rate where § 8.3.117 asks 150 a minute or more. `CSI m` used
+Every SGR parameter above is **done** or **out** but four rows at **partial**:
+10-19, 20, 26 and 50, and 52, which read `done` until 2026-10-18 while no
+path drew them. 51, 53 and 60-64 read `done` over the same gap and are drawn
+since that day. 6 was **partial** from 2026-10-10 to 2026-10-14, while it blinked at 5's slow rate where § 8.3.117 asks 150 a minute or more. `CSI m` used
 to be listed as `partial` on the strength of that last row, which conflated two
-different things. `out` is a scope decision with a reason — storing a font
-selection no renderer can read would be a bit set and never used, which is the
-failure this table exists to catch. `partial` means the row claims something it
-does not do. No SGR row does now; the 5, 6 row did until 2026-10-14, and
-said what.
+different things. `out` is a scope decision with a reason; `partial` is a row
+that names what it does not do yet. A font selection that no renderer reads is
+that second case, and the 10-19 row says so. The four SGR rows above say what
+they do not do; the 5, 6 row did until 2026-10-14.
 
 **This was the largest `parsed` gap in the codebase and the table did not show
 it.** `SgrAttr::fold` handled `Reset` and foreground only, falling through to "no

@@ -27291,3 +27291,46 @@ group  = "AT"
 # Local evidence for note AT, made 2026-10-17 on macOS 27.0 (26A5425a); a model, not a
 # screen capture. Committed because the scratch directory it came from does not
 # survive a reboot, and a claim in the note rests on it.
+
+[sources.ghostty-generic-d9840f3]
+key    = "ghostty-generic-d9840f3"
+title  = "ghostty d9840f3, renderer/generic.zig -- SGR 53's overline drawn in the foreground, addOverline(x, y, fg, alpha), where the underline takes underlineColor() orelse fg"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/generic.zig"
+file   = "ghostty-d9840f3-generic.zig"
+sha256 = "2e01ea541c1e71f5751e06595f54e59f0f31b16d532b29f543269ccf57fc528a"
+bytes  = 152936
+status = "retrieved"
+group  = "Y"
+# Read 2026-10-18 for how SGR 53 is drawn: practice, not the standard.
+
+[sources.ghostty-metrics-d9840f3]
+key    = "ghostty-metrics-d9840f3"
+title  = "ghostty d9840f3, font/Metrics.zig -- overline_position = 0, the top of the cell, overline_thickness the underline's"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator (MIT)"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/font/Metrics.zig"
+file   = "ghostty-d9840f3-Metrics.zig"
+sha256 = "ddbdfc6d1fd76f98e2cf5109e72320546dd8ccf9741f76b4298cd08a18e1a596"
+bytes  = 31639
+status = "retrieved"
+group  = "Y"
+# Read 2026-10-18 for where an overline sits: practice, not the standard.
+
+[sources.css-text-decor-3]
+key    = "css-text-decor-3"
+title  = "CSS Text Decoration Module Level 3, W3C Candidate Recommendation Draft, 5 May 2022 -- emphasis marks drawn as ruby, 'the preferred position of emphasis marks depends on the language', over for Japanese, under for Chinese"
+author = "W3C CSS Working Group"
+year   = 2022
+venue  = "W3C"
+url    = "https://www.w3.org/TR/css-text-decor-3/"
+file   = "w3c-css-text-decor-3.html"
+sha256 = "feebf9327271a19fdffe0d6e70fb8d01e3f3c1fca78abd3b7f223646ac3b6b95"
+bytes  = 179502
+status = "retrieved"
+group  = "Y"
+# Read 2026-10-18 for SGR 64, ECMA-48's "ideogram stress marking", which
+# gives no shape or side; this is the web's definition of the same marks.

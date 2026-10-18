@@ -8,6 +8,7 @@ use crate::cache::{
 use crate::caret::{self, CursorPhase, Play};
 use crate::cellmap::{
     BlockCursor, CellSpan, Curves, Ground, Line, Resolved, Selected, Shapes, Swaps, Text,
+    takes_stress_mark,
 };
 use crate::color::{Argb, Theme, Video};
 use crate::composite::{Blend, Blit, Page, Target, Texels};
@@ -3380,10 +3381,31 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // Which underline is drawn is the style's own bit. The three colon
         // styles *replace* the straight line rather than adding to it, so the
         // straight-line bit is set only for the two that draw one.
-        if attrs.has(Attrs::UNDERLINE) || attrs.has(Attrs::DOUBLE_UNDERLINE) {
+        //
+        // `SGR 60` and `61` are the "ideogram underline" and "ideogram
+        // double underline" of `[[source: ecma48]]` § 8.3.117, a line "on
+        // the right side" in vertical text and under it in horizontal
+        // text, which is all baud writes; so they draw the straight and the
+        // double line, beside whatever `SGR 4` style is in force. `62` and
+        // `63` are the overline and the double overline the same way.
+        if attrs.has(Attrs::UNDERLINE)
+            || attrs.has(Attrs::DOUBLE_UNDERLINE)
+            || attrs.has(Attrs::IDEOGRAM_UNDERLINE)
+            || attrs.has(Attrs::IDEOGRAM_DOUBLE_UNDERLINE)
+        {
             shapes = shapes.with(Shapes::UNDERLINE);
         }
+        if attrs.has(Attrs::OVERLINED)
+            || attrs.has(Attrs::IDEOGRAM_OVERLINE)
+            || attrs.has(Attrs::IDEOGRAM_DOUBLE_OVERLINE)
+        {
+            shapes = shapes.with(Shapes::OVERLINE);
+        }
         for (attr, shape) in [
+            (Attrs::IDEOGRAM_DOUBLE_UNDERLINE, Shapes::DOUBLE_UNDERLINE),
+            (Attrs::IDEOGRAM_DOUBLE_OVERLINE, Shapes::DOUBLE_OVERLINE),
+            (Attrs::FRAMED, Shapes::FRAMED),
+            (Attrs::IDEOGRAM_STRESS, Shapes::STRESS),
             (Attrs::DOUBLE_UNDERLINE, Shapes::DOUBLE_UNDERLINE),
             (Attrs::CURLY_UNDERLINE, Shapes::CURLY_UNDERLINE),
             (Attrs::DOTTED_UNDERLINE, Shapes::DOTTED_UNDERLINE),
@@ -3602,6 +3624,86 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     screen(top + px_i32(self.metrics.strike)),
                     self.metrics.cell_w,
                     self.metrics.thickness,
+                    fg,
+                ));
+            }
+            // The overline and the frame, in the text's colour as the strike
+            // is: `SGR 58` is "the underline color" (`[[source:
+            // kitty-underlines]]`) and neither is an underline. The frame's
+            // top is the overline's line, drawn once when both are set.
+            let framed = res.shapes.has(Shapes::FRAMED);
+            if !hidden && (framed || res.shapes.has(Shapes::OVERLINE)) {
+                shapes.push(solid(
+                    screen(x),
+                    screen(top),
+                    self.metrics.cell_w,
+                    self.metrics.thickness,
+                    fg,
+                ));
+            }
+            if !hidden && res.shapes.has(Shapes::DOUBLE_OVERLINE) {
+                // A second line starting one thickness and a pixel below the
+                // first, as the double underline's does, clamped inside the
+                // cell.
+                let th = px_i32(self.metrics.thickness);
+                let low = px_i32(self.metrics.cell_h) - th;
+                let y = (th.max(1) + 1).min(low.max(0));
+                shapes.push(solid(
+                    screen(x),
+                    screen(top + y),
+                    self.metrics.cell_w,
+                    self.metrics.thickness,
+                    fg,
+                ));
+            }
+            if !hidden && framed {
+                let th = px_i32(self.metrics.thickness).max(1);
+                let h = px_i32(self.metrics.cell_h);
+                shapes.push(solid(
+                    screen(x),
+                    screen(top + h - th),
+                    self.metrics.cell_w,
+                    self.metrics.thickness,
+                    fg,
+                ));
+                // A side only where the run of framed cells starts or ends:
+                // the row's edge, or a neighbour that is not framed.
+                let framed_at = |i: Option<usize>| {
+                    i.and_then(|i| row.get(i))
+                        .and_then(|n| self.styles.get(n.style.index()))
+                        .is_some_and(|n| n.shapes.has(Shapes::FRAMED))
+                };
+                let side = Px::of(u32::try_from(th).unwrap_or(1));
+                if !framed_at(c.checked_sub(1)) {
+                    shapes.push(solid(screen(x), screen(top), side, self.metrics.cell_h, fg));
+                }
+                if !framed_at(c.checked_add(1)) {
+                    shapes.push(solid(
+                        screen(x + cell_w - th),
+                        screen(top),
+                        side,
+                        self.metrics.cell_h,
+                        fg,
+                    ));
+                }
+            }
+            // `SGR 64`'s stress mark, as the web draws an emphasis mark for
+            // text with no language (`[[source: css-text-decor-3]]`): over
+            // the character, a filled dot, in the text's colour, once a
+            // character, so across a wide character's two cells. Inside
+            // the cell, a square two thicknesses on a side, as all three
+            // paths draw a decoration.
+            if !hidden && res.shapes.has(Shapes::STRESS) && takes_stress_mark(cell.content) {
+                let wide = row.get(c + 1).is_some_and(|n| n.content.is_wide_tail());
+                let d = 2 * px_i32(self.metrics.thickness).max(1);
+                let h = px_i32(self.metrics.cell_h);
+                let dx = ((if wide { 2 } else { 1 }) * cell_w - d).max(0) / 2;
+                let side = Px::of(u32::try_from(d).unwrap_or(2));
+                shapes.push(solid(
+                    screen(x + dx),
+                    screen(top + d.min((h - d).max(0))),
+                    side,
+                    side,
                     fg,
                 ));
             }

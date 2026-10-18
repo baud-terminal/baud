@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 268 | 22 | redistributable, and its notice is satisfied |
+| kept | 271 | 22 | redistributable, and its notice is satisfied |
 | own | 198 | 0 | the owner's work |
-| total | 733 | 33 | |
+| total | 736 | 33 | |
 
 ## Licence texts in LICENSES/
 
@@ -1064,18 +1064,20 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT
 - **Notice:** [LICENSES/ghostty-MIT.txt](LICENSES/ghostty-MIT.txt)
-- **Files:** 10
+- **Files:** 12
 
 | file | copied from |
 |---|---|
 | [ghostty-MetallibStep.zig](docs/research/sources/ghostty-MetallibStep.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/b32f20f3e8d25bb925ec545c54498e93518e7ced/src/build/MetallibStep.zig |
 | [ghostty-d9840f3-Config.zig](docs/research/sources/ghostty-d9840f3-Config.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/config/Config.zig |
+| [ghostty-d9840f3-Metrics.zig](docs/research/sources/ghostty-d9840f3-Metrics.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/font/Metrics.zig |
 | [ghostty-d9840f3-Terminal.zig](docs/research/sources/ghostty-d9840f3-Terminal.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/Terminal.zig |
 | [ghostty-d9840f3-Termio.zig](docs/research/sources/ghostty-d9840f3-Termio.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/termio/Termio.zig |
 | [ghostty-d9840f3-args.zig](docs/research/sources/ghostty-d9840f3-args.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/cli/args.zig |
 | [ghostty-d9840f3-cell.zig](docs/research/sources/ghostty-d9840f3-cell.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/cell.zig |
 | [ghostty-d9840f3-color.zig](docs/research/sources/ghostty-d9840f3-color.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/color.zig |
 | [ghostty-d9840f3-fraction.zig](docs/research/sources/ghostty-d9840f3-fraction.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/fraction.zig |
+| [ghostty-d9840f3-generic.zig](docs/research/sources/ghostty-d9840f3-generic.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/generic.zig |
 | [ghostty-d9840f3-graphics_storage.zig](docs/research/sources/ghostty-d9840f3-graphics_storage.zig) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/kitty/graphics_storage.zig |
 | [ghostty-d9840f3-shaders.metal](docs/research/sources/ghostty-d9840f3-shaders.metal) | https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/renderer/shaders/shaders.metal |
 
@@ -1606,15 +1608,16 @@ notice is, and the URL each file was copied from.
 | [vulkan-VK_KHR_wayland_surface.adoc](docs/research/sources/vulkan-VK_KHR_wayland_surface.adoc) | https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/main/appendices/VK_KHR_wayland_surface.adoc |
 | [vulkan-VK_KHR_xcb_surface.adoc](docs/research/sources/vulkan-VK_KHR_xcb_surface.adoc) | https://raw.githubusercontent.com/KhronosGroup/Vulkan-Docs/main/appendices/VK_KHR_xcb_surface.adoc |
 
-### W3C Recommendations and notes: PNG 2003, WCAG 2.2 and its techniques, WCAG2ICT, WCAG 3 draft
+### W3C Recommendations and notes: PNG 2003, WCAG 2.2 and its techniques, WCAG2ICT, WCAG 3 draft, CSS Text Decoration 3
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** LicenseRef-W3C-Document (https://www.w3.org/copyright/document-license/)
 - **Notice:** in the file
-- **Files:** 15
+- **Files:** 16
 
 | file | copied from |
 |---|---|
+| [w3c-css-text-decor-3.html](docs/research/sources/w3c-css-text-decor-3.html) | https://www.w3.org/TR/css-text-decor-3/ |
 | [w3c-png-2003.html](docs/research/sources/w3c-png-2003.html) | https://www.w3.org/TR/2003/REC-PNG-20031110/ |
 | [wcag22-20241212.html](docs/research/sources/wcag22-20241212.html) | https://www.w3.org/TR/2024/REC-WCAG22-20241212/ |
 | [wcag22-errata.html](docs/research/sources/wcag22-errata.html) | https://www.w3.org/WAI/WCAG22/errata/ |

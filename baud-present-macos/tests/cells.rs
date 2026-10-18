@@ -2983,6 +2983,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     partial_image_gate(&mut arms, &mut t);
     cpu_page_gate(&mut arms, &mut t);
     kitty_draw_gate(&mut arms, &mut t);
+    decoration_gate(&mut arms, &mut t);
     // **Styled faces.** Bold, italic and bold-italic text -- a ligature and
     // a Nerd Fonts icon among it -- on both arms, and a positive control
     // that each style reached the pixels: the same row regular paints
@@ -3203,6 +3204,96 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
 /// A one-band Sixel, 8 pixels wide and 6 high: shorter than any cell this
 /// file draws, so the whole image lies inside one row.
 const DOT: &[u8] = b"\x1bPq\"1;1;8;6#1;2;100;0;0#1!8~\x1b\\";
+
+/// **`SGR 53` overlined, `51` framed, the ideogram lines `60-63` and
+/// `64`'s stress mark on all three arms**: the overline over text and over
+/// spaces, beside a straight, a curly and a double underline and an `SGR
+/// 58` colour, both double ideogram lines, framed runs that start at the
+/// left edge, end at the right edge, end at a wide character, and touch an
+/// overline, a selected framed run and a framed run in blink and conceal,
+/// and stress marks over narrow and wide characters, punctuation, spaces
+/// and an ideographic space, under an overline, reversed, blinking and
+/// concealed. The instance and cell arms must agree pixel for pixel and
+/// the CPU arm with them, and a positive control: the same text without
+/// the renditions paints differently, so two arms that both dropped them
+/// cannot agree here vacuously.
+fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let cols = usize::from(WS.ws_col);
+    let edge = format!("\x1b[1;{}H\x1b[51mend\x1b[0m", cols - 2);
+    let lines = [
+        "\x1b[53mover\x1b[0m \x1b[53;4mover under\x1b[0m \x1b[53;4:3mcurl\x1b[0m \
+         \x1b[53;21mdouble\x1b[0m \x1b[58;5;196;53;4mul red\x1b[0m \x1b[31;53m    \x1b[0m",
+        "\x1b[60mideo under\x1b[0m \x1b[61mideo double\x1b[0m \x1b[62mideo over\x1b[0m \
+         \x1b[63mideo double over\x1b[0m \x1b[60;62mboth\x1b[0m",
+        "\x1b[51mframed\x1b[0m \x1b[51;53mframe over\x1b[0m \x1b[51mwide \u{231a}\x1b[0m\
+         \x1b[51;32m a b \x1b[0m\x1b[51;44mset bg\x1b[0m \x1b[51;5mblink\x1b[0m \
+         \x1b[51;8mhid\x1b[0m \x1b[51;7mrev\x1b[0m",
+        "\x1b[64mstress \u{4e2d}\u{6587}, a.b\x1b[0m \x1b[64;53mover\x1b[0m \
+         \x1b[64;7mrev\x1b[0m \x1b[64;5mblink\x1b[0m \x1b[64;8mhid\x1b[0m \
+         \x1b[64;34m\u{3000}x\x1b[0m",
+    ];
+    let mut text = String::from("\x1bc\x1b[?25l\x1b[51mstart\x1b[0m\r\n");
+    for l in lines {
+        text.push_str(l);
+        text.push_str("\r\n");
+    }
+    text.push_str(&edge);
+    // The same characters and colours with every decoration taken out.
+    let plain = text
+        .replace("51;", "")
+        .replace("53;", "")
+        .replace("\x1b[53m", "")
+        .replace("\x1b[51m", "")
+        .replace(";53m", "m")
+        .replace("\x1b[60m", "")
+        .replace("\x1b[61m", "")
+        .replace("\x1b[62m", "")
+        .replace("\x1b[63m", "")
+        .replace("\x1b[60;62m", "")
+        .replace("\x1b[64m", "")
+        .replace("64;", "");
+    // The text with only the stress marks taken out: a control of their
+    // own, since the other decorations would satisfy the one above.
+    let unstressed = text.replace("\x1b[64m", "").replace("64;", "");
+    feed(t, plain.as_bytes());
+    let (none, _) = arms.draw(t);
+    feed(t, unstressed.as_bytes());
+    let (bare, _) = arms.draw(t);
+    feed(t, text.as_bytes());
+    let (a, b) = arms.draw(t);
+    assert!(
+        differing(&none, &a) > 0,
+        "the decorations never reached the instance arm's pixels"
+    );
+    assert!(
+        differing(&bare, &a) > 0,
+        "the stress marks never reached the instance arm's pixels"
+    );
+    let cpu = cpu_frame(arms, t);
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the GPU arms disagree on the decorations"
+    );
+    assert_eq!(
+        differing(&a, &cpu),
+        0,
+        "the CPU arm disagrees on the decorations"
+    );
+    // A selection across a framed run swaps its colours on both arms.
+    arms.highlight = Some(Highlight {
+        from: (Row::from_index(3), Col::at_index(2)),
+        to: (Row::from_index(3), Col::at_index(20)),
+        region: Region::Stream,
+    });
+    let (a, b) = arms.draw(t);
+    arms.highlight = None;
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the GPU arms disagree on a selected frame"
+    );
+}
 
 /// **A partly transparent image over coloured text** (V19 step 1). Both GPU
 /// arms draw it through the same `draw_images`, so their agreeing says

@@ -245,28 +245,35 @@ fn the_liquids_constants_match_the_shader() {
 }
 
 /// **`WIDE_TAIL` in the shader and `Content::WIDE_TAIL` are one fact spelled
-/// twice.** The cell shader reads the grid in place and gives a wide tail
-/// its lead's selection by comparing the cell's word against the literal;
-/// a literal that drifted from the reserved value would half-select every
-/// wide character a block's edge cuts on one GPU arm and not the other.
+/// twice, and `EMPTY_CELL` and `Content::EMPTY` another.** The cell shader
+/// reads the grid in place and gives a wide tail its lead's selection by
+/// comparing the cell's word against the literal; a literal that drifted
+/// from the reserved value would half-select every wide character a
+/// block's edge cuts on one GPU arm and not the other. The stress mark
+/// skips a blank cell by the second.
 #[test]
 fn the_wide_tail_value_matches_the_shader() {
     let src = include_str!("../src/shaders.metal");
-    let prefix = "#define WIDE_TAIL ";
-    let line = src
-        .lines()
-        .find(|l| l.starts_with(prefix))
-        .expect("shaders.metal defines WIDE_TAIL");
-    let hex = line[prefix.len()..]
-        .trim()
-        .trim_end_matches('u')
-        .trim_start_matches("0x");
-    let value = u32::from_str_radix(hex, 16).expect("WIDE_TAIL is a hex literal");
-    assert_eq!(
-        value,
-        baud_domain::Content::WIDE_TAIL.bits(),
-        "the shader tests {line:?} for a wide tail; it must be the grid's word"
-    );
+    for (name, want) in [
+        ("WIDE_TAIL", baud_domain::Content::WIDE_TAIL.bits()),
+        ("EMPTY_CELL", baud_domain::Content::EMPTY.bits()),
+    ] {
+        let prefix = format!("#define {name} ");
+        let line = src
+            .lines()
+            .find(|l| l.starts_with(&prefix))
+            .unwrap_or_else(|| panic!("shaders.metal defines {name}"));
+        let hex = line[prefix.len()..]
+            .trim()
+            .trim_end_matches('u')
+            .trim_start_matches("0x");
+        let value =
+            u32::from_str_radix(hex, 16).unwrap_or_else(|_| panic!("{name} is a hex literal"));
+        assert_eq!(
+            value, want,
+            "the shader tests {line:?}; it must be the grid's word"
+        );
+    }
 }
 
 /// **`LINE_FIRST` and `LINE_LAST` in the shader and `Line::FIRST` and
@@ -320,6 +327,63 @@ fn the_hidden_text_bits_match_the_shader() {
             .unwrap_or_else(|_| panic!("{name} is an unsigned literal"));
         assert_eq!(got, want, "{line:?} against Shapes' {name}");
     }
+}
+
+/// **The cell shader draws the lines the CPU resolves**: `Shapes::OVERLINE`,
+/// `Shapes::DOUBLE_OVERLINE` and `Shapes::FRAMED` and their `SHAPE_`
+/// spellings are one fact twice, and a drift would draw `SGR 53`, `63` or
+/// `51` on the instance path alone.
+#[test]
+fn the_line_shape_bits_match_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    for (name, want) in [
+        ("SHAPE_OVERLINE", baud_render::Shapes::OVERLINE.0),
+        (
+            "SHAPE_DOUBLE_OVERLINE",
+            baud_render::Shapes::DOUBLE_OVERLINE.0,
+        ),
+        ("SHAPE_FRAMED", baud_render::Shapes::FRAMED.0),
+        ("SHAPE_STRESS", baud_render::Shapes::STRESS.0),
+    ] {
+        let prefix = format!("#define {name} ");
+        let line = src
+            .lines()
+            .find(|l| l.starts_with(&prefix))
+            .unwrap_or_else(|| panic!("shaders.metal defines {name}"));
+        let got: u32 = line[prefix.len()..]
+            .trim()
+            .trim_end_matches('u')
+            .parse()
+            .unwrap_or_else(|_| panic!("{name} is an unsigned literal"));
+        assert_eq!(got, want, "{line:?} against Shapes' {name}");
+    }
+}
+
+/// **The cell shader skips the separators the CPU skips**: the stress
+/// mark's `SEPARATORS` in the shader and `baud_render::SEPARATORS` are one
+/// list spelled twice, and a drift would mark a space, or leave a
+/// character bare, on the cell path alone.
+#[test]
+fn the_stress_mark_separators_match_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    let start = src
+        .find("constant uint2 SEPARATORS[")
+        .expect("shaders.metal defines SEPARATORS");
+    let body = &src[start..start + src[start..].find("};").expect("its end")];
+    let hex = |s: &str| {
+        let s = s.trim().trim_start_matches("0x").trim_end_matches('u');
+        u32::from_str_radix(s, 16).unwrap_or_else(|_| panic!("{s:?} is a hex literal"))
+    };
+    let got: Vec<(u32, u32)> = body
+        .split("uint2(")
+        .skip(1)
+        .map(|e| {
+            let pair = &e[..e.find(')').expect("a closing parenthesis")];
+            let (a, b) = pair.split_once(',').expect("two fields");
+            (hex(a), hex(b))
+        })
+        .collect();
+    assert_eq!(got, baud_render::SEPARATORS.to_vec());
 }
 
 /// **The cell shader reads the default-background bit the CPU resolves**:
