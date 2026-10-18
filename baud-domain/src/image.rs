@@ -48,7 +48,7 @@
 use crate::pos::LineIdx;
 use crate::quantity::{Col, Cols, Count, Rows};
 use crate::style::Chan;
-use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+use zerocopy::{FromBytes, FromZeros, Immutable, IntoBytes, KnownLayout};
 
 /// **One image pixel, straight ARGB**: `0xAARRGGBB`, the colour not
 /// multiplied by its alpha (`[[source: w3c-png-2003]]` 6.2). Zero is
@@ -79,7 +79,6 @@ impl Pixel {
     /// is `vec!`'s: the allocator's error handler, or a capacity overflow.
     #[cfg(feature = "alloc")]
     pub fn zeroed_vec(n: usize) -> alloc::vec::Vec<Pixel> {
-        use zerocopy::FromZeros;
         match Pixel::new_vec_zeroed(n) {
             Ok(v) => v,
             Err(_) => match core::alloc::Layout::array::<Pixel>(n) {
@@ -170,7 +169,7 @@ impl ImageAlpha {
 /// A pixel dimension of a stored image, width or height. `u16` covers any image
 /// a terminal draws -- 65535 pixels a side is far past a screen -- and the area
 /// is a `usize` so the arena index cannot overflow the type it is stored at.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, FromZeros)]
 pub struct ImagePx(u16);
 
 impl ImagePx {
@@ -211,7 +210,7 @@ impl ImagePx {
 /// A signed draw-order index, the Kitty `z` (`[[source: kitty-graphics]]`).
 /// Negative draws below text; ties are broken by image id elsewhere. It is
 /// stored on a placement and read by the renderer, never on the ingest path.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, FromZeros)]
 pub struct ZIndex(i32);
 
 impl ZIndex {
@@ -232,7 +231,7 @@ impl ZIndex {
 /// A handle to a stored image. `NONE` is zero, so a zeroed slot names no image;
 /// a live handle is [`ImageId::from_index`] of the slot it occupies, the
 /// `ClusterId`/`LinkId` shape.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, FromZeros)]
 pub struct ImageId(u32);
 
 impl ImageId {
@@ -357,7 +356,7 @@ impl KittyNumber {
 
 /// A kitty placement id, the `p` key: with the image id, it names one
 /// placement, and a second put with the same pair replaces the first.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, FromZeros)]
 pub struct KittyPlacement(u32);
 
 impl KittyPlacement {
@@ -419,7 +418,7 @@ pub enum ImageState {
 /// of the two counts the client gave. What the deletes that name a cell, a
 /// row or a column intersect, what the cursor moves by, and what
 /// [`KittyPlace::draw`] turns into the pixels the renderer draws.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, FromZeros)]
 pub struct KittyPlace {
     /// The client's placement id, or none.
     pub id: KittyPlacement,
@@ -455,7 +454,8 @@ pub struct KittyPlace {
 /// displayed image layout"): the counts a placement stores are the cells
 /// it covers whichever it was, and from them alone a derived count and a
 /// given one cannot be told apart.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, FromZeros)]
+#[repr(u8)]
 pub enum KittyFit {
     /// Neither: "the entire image will be displayed", one image pixel a
     /// device pixel.
@@ -716,7 +716,8 @@ impl ImageSlot {
 /// when the editor leaves. A placement is drawn only while its screen is up
 /// -- the shell's image is not drawn over the editor -- and the alternate
 /// screen's are deleted when it is left, which is foot's rule and ghostty's.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, FromZeros)]
+#[repr(u8)]
 pub enum ImageScreen {
     Primary,
     Alternate,
@@ -816,7 +817,8 @@ pub struct ImageOrigin {
 /// A placement's progress through one reflow: not in one, or staged at its
 /// row in the old layout, or mapped to its row in the new one. Rows count
 /// from the oldest retained row, which a reflow does not move.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, FromZeros)]
+#[repr(u8)]
 enum Staged {
     Idle,
     From(Rows),
@@ -829,7 +831,7 @@ enum Staged {
 /// with its line; the scroll and view arithmetic is the renderer's, and this
 /// only holds the anchor. Empty when [`PlacementSlot::image`] is
 /// [`ImageId::NONE`].
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, FromZeros)]
 pub struct PlacementSlot {
     /// The image this places, or [`ImageId::NONE`] for a free slot.
     pub image: ImageId,
@@ -869,6 +871,24 @@ impl PlacementSlot {
 
     fn is_empty(self) -> bool {
         self.image.is_none()
+    }
+
+    /// **`n` free slots from zeroed memory**: [`PlacementSlot::EMPTY`] is
+    /// all zero bytes, so the table comes from the allocator's zeroed pages
+    /// and a page is committed only when a placement first lands on it --
+    /// a table sized to a 400x150 screen, 60,000 slots, is 7.2 MB of
+    /// address space and none of it resident until used, where writing
+    /// `EMPTY` into each slot would make it all resident at construction.
+    /// Allocation failure is `vec!`'s, as [`Pixel::zeroed_vec`]'s is.
+    #[cfg(feature = "alloc")]
+    pub fn zeroed_vec(n: usize) -> alloc::vec::Vec<PlacementSlot> {
+        match PlacementSlot::new_vec_zeroed(n) {
+            Ok(v) => v,
+            Err(_) => match core::alloc::Layout::array::<PlacementSlot>(n) {
+                Ok(layout) => alloc::alloc::handle_alloc_error(layout),
+                Err(_) => panic!("capacity overflow"),
+            },
+        }
     }
 }
 
@@ -1160,6 +1180,26 @@ pub struct ImageStore<'b> {
     /// overwrite check (does this write land on an image, so free it) costs
     /// one comparison on the common path where no image is on screen.
     placed: usize,
+    /// **One past the highest placement slot that can be live**: every
+    /// slot at or above it is free, so every walk of the table stops here
+    /// and costs the placements a client made, not the table's length. A
+    /// table sized to the screen (60,000 slots for a 400x150 one) walked
+    /// whole on every put, delete, scroll and frame would cost a
+    /// per-cell picture's 660 puts 40 million slot visits. Raised by a
+    /// placement past it, lowered past the free slots below it whenever a
+    /// slot is freed ([`ImageStore::trim`]), zero with nothing placed.
+    live: usize,
+    /// **No slot below it is free**: where the search for a free slot
+    /// starts, so filling the table one put after another is a step a put
+    /// rather than a walk over every slot already taken. Raised past a
+    /// slot a placement takes, lowered to any slot freed below it.
+    free_from: usize,
+    /// **How many live placements show a local image**, a Sixel's or the
+    /// embedder's: the ones text written over erases. The gate for
+    /// [`ImageStore::overwrite`], so a screen of kitty placements -- yazi's
+    /// preview puts 660, and redraws its file list in the same rows --
+    /// pays one compare a write, not a walk of them all.
+    local_placed: usize,
     /// Each screen's [`Reach`], `None` when nothing was placed on it since
     /// the last scan found it empty.
     reach: [Option<Reach>; 2],
@@ -1201,6 +1241,9 @@ impl<'b> ImageStore<'b> {
             sixel_p2_ignored: 0,
             epoch: ImageGen::ZERO,
             placed: 0,
+            live: 0,
+            free_from: 0,
+            local_placed: 0,
             reach: [None; 2],
             tallest: ImagePx::ZERO,
             release: None,
@@ -1346,7 +1389,7 @@ impl<'b> ImageStore<'b> {
     /// Recompute `screen`'s reach from its live placements, exactly.
     fn rescan(&mut self, screen: ImageScreen) {
         self.reach[screen.slot()] = None;
-        for i in 0..self.placements.len() {
+        for i in 0..self.live {
             let p = self.placements[i];
             if !p.is_empty() && p.screen == screen {
                 self.widen(screen, p.line);
@@ -1620,10 +1663,10 @@ impl<'b> ImageStore<'b> {
         place: KittyPlace,
     ) -> PlacementId {
         if !place.id.is_none() {
-            for p in self.placements.iter_mut() {
-                if !p.is_empty() && p.image == id && p.kitty.id == place.id {
-                    *p = PlacementSlot::EMPTY;
-                    self.placed = self.placed.saturating_sub(1);
+            for p in 0..self.live {
+                let s = self.placements[p];
+                if !s.is_empty() && s.image == id && s.kitty.id == place.id {
+                    self.vacate(p);
                     if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
                         s.placements = Count::of(s.placements.index().saturating_sub(1));
                     }
@@ -1650,7 +1693,7 @@ impl<'b> ImageStore<'b> {
         hit: impl Fn(&PlacementSlot, KittyId, KittyNumber) -> bool,
     ) -> usize {
         let mut n = 0;
-        for p in 0..self.placements.len() {
+        for p in 0..self.live {
             let slot = self.placements[p];
             if slot.is_empty() {
                 continue;
@@ -1664,8 +1707,7 @@ impl<'b> ImageStore<'b> {
             if !hit(&slot, kid, num) {
                 continue;
             }
-            self.placements[p] = PlacementSlot::EMPTY;
-            self.placed = self.placed.saturating_sub(1);
+            self.vacate(p);
             n += 1;
             let s = &mut self.slots[i];
             s.placements = Count::of(s.placements.index().saturating_sub(1));
@@ -1675,6 +1717,7 @@ impl<'b> ImageStore<'b> {
                 self.epoch = self.epoch.bumped();
             }
         }
+        self.trim();
         n
     }
 
@@ -1862,6 +1905,11 @@ impl<'b> ImageStore<'b> {
         };
         self.slots[i].placements = Count::of(self.slots[i].placements.index() + 1);
         self.placed += 1;
+        self.live = self.live.max(p + 1);
+        self.free_from = p + 1;
+        if self.slots[i].owner == ImageOwner::Local {
+            self.local_placed += 1;
+        }
         self.widen(screen, line);
         PlacementId::from_index(p)
     }
@@ -1877,8 +1925,8 @@ impl<'b> ImageStore<'b> {
             return;
         }
         let image = slot.image;
-        self.placements[p] = PlacementSlot::EMPTY;
-        self.placed = self.placed.saturating_sub(1);
+        self.vacate(p);
+        self.trim();
         let Some(i) = image.index() else { return };
         let Some(s) = self.slots.get_mut(i) else {
             return;
@@ -1919,15 +1967,18 @@ impl<'b> ImageStore<'b> {
         }
         let Some(i) = id.index() else { return };
         match self.slots.get(i) {
-            Some(s) if !s.is_empty() => self.forget(i),
+            Some(s) if !s.is_empty() => {}
             _ => return,
         }
-        for p in self.placements.iter_mut() {
-            if p.image == id {
-                *p = PlacementSlot::EMPTY;
-                self.placed = self.placed.saturating_sub(1);
+        // The placements first, while the slot still says whose image it
+        // is, then the slot.
+        for p in 0..self.live {
+            if self.placements[p].image == id {
+                self.vacate(p);
             }
         }
+        self.forget(i);
+        self.trim();
         self.images_dropped += 1;
         self.epoch = self.epoch.bumped();
     }
@@ -1935,7 +1986,7 @@ impl<'b> ImageStore<'b> {
     /// Every live placement, for the renderer to draw. Order is slot order, not
     /// `z` order; the renderer sorts by `z`.
     pub fn placements(&self) -> impl Iterator<Item = (PlacementId, &PlacementSlot)> + '_ {
-        self.placements
+        self.placements[..self.live]
             .iter()
             .enumerate()
             .filter(|(_, p)| !p.is_empty())
@@ -1953,10 +2004,13 @@ impl<'b> ImageStore<'b> {
                 self.forget(i);
             }
         }
-        for p in self.placements.iter_mut() {
+        for p in self.placements[..self.live].iter_mut() {
             *p = PlacementSlot::EMPTY;
         }
         self.placed = 0;
+        self.live = 0;
+        self.free_from = 0;
+        self.local_placed = 0;
         self.reach = [None; 2];
         self.tallest = ImagePx::ZERO;
         self.probe_size = None;
@@ -2013,7 +2067,7 @@ impl<'b> ImageStore<'b> {
             return 0;
         }
         let mut n = 0;
-        for p in 0..self.placements.len() {
+        for p in 0..self.live {
             let s = self.placements[p];
             if s.is_empty() || s.screen != screen {
                 continue;
@@ -2087,7 +2141,7 @@ impl<'b> ImageStore<'b> {
         n: Rows,
     ) -> usize {
         let mut n_gone = 0;
-        for p in 0..self.placements.len() {
+        for p in 0..self.live {
             let s = self.placements[p];
             if s.is_empty() || s.screen != screen || s.line >= hi {
                 continue;
@@ -2151,7 +2205,7 @@ impl<'b> ImageStore<'b> {
             return 0;
         }
         let mut n_gone = 0;
-        for p in 0..self.placements.len() {
+        for p in 0..self.live {
             let s = self.placements[p];
             if s.is_empty() || s.screen != screen || s.line < lo || s.line >= hi {
                 continue;
@@ -2209,7 +2263,7 @@ impl<'b> ImageStore<'b> {
     /// top of a screen with no history -- so its text moved down and the
     /// numbering, which cannot go below zero, moves the images instead.
     pub fn shift(&mut self, screen: ImageScreen, n: Rows) {
-        for p in self.placements.iter_mut() {
+        for p in self.placements[..self.live].iter_mut() {
             if !p.is_empty() && p.screen == screen {
                 p.line = p.line.plus(n);
             }
@@ -2228,7 +2282,7 @@ impl<'b> ImageStore<'b> {
     /// Returns how many are staged, so a caller with none skips the hook.
     pub fn follow_begin(&mut self, screen: ImageScreen, floor: LineIdx) -> usize {
         let mut n = 0;
-        for p in self.placements.iter_mut() {
+        for p in self.placements[..self.live].iter_mut() {
             if p.is_empty() || p.screen != screen {
                 continue;
             }
@@ -2250,7 +2304,7 @@ impl<'b> ImageStore<'b> {
     /// before the line is copied, while its cells can still be read.
     pub fn follow_line(&mut self, from: Rows, rows: Rows, land: &dyn Fn(Rows, Col) -> (Rows, Col)) {
         let end = from.index() + rows.index();
-        for p in self.placements.iter_mut() {
+        for p in self.placements[..self.live].iter_mut() {
             match p.staged {
                 Staged::From(r) if (from.index()..end).contains(&r.index()) => {
                     let (row, at) = land(r, p.follows);
@@ -2265,7 +2319,7 @@ impl<'b> ImageStore<'b> {
     /// where it was. For a reflow that returned before re-cutting anything,
     /// which [`ImageStore::follow_end`] would read as every line dropped.
     pub fn follow_cancel(&mut self) {
-        for p in self.placements.iter_mut() {
+        for p in self.placements[..self.live].iter_mut() {
             p.staged = Staged::Idle;
         }
     }
@@ -2276,7 +2330,7 @@ impl<'b> ImageStore<'b> {
     /// many were dropped.
     pub fn follow_end(&mut self, floor: LineIdx) -> usize {
         let mut n = 0;
-        for p in 0..self.placements.len() {
+        for p in 0..self.live {
             match self.placements[p].staged {
                 Staged::Idle => continue,
                 Staged::To(r, at) => {
@@ -2317,7 +2371,7 @@ impl<'b> ImageStore<'b> {
         cell_h: ImagePx,
     ) -> usize {
         let (cw, ch) = (cell_w.index(), cell_h.index());
-        if self.placed == 0 || cw == 0 || ch == 0 || col1 <= col0 {
+        if self.local_placed == 0 || cw == 0 || ch == 0 || col1 <= col0 {
             return 0;
         }
         // The write's row against the rows any image on this screen can
@@ -2333,7 +2387,7 @@ impl<'b> ImageStore<'b> {
         }
         let wl = usize::try_from(line.value()).unwrap_or(usize::MAX);
         let mut freed = 0;
-        for p in 0..self.placements.len() {
+        for p in 0..self.live {
             let slot = self.placements[p];
             if slot.is_empty() || slot.screen != screen {
                 continue;
@@ -2367,8 +2421,47 @@ impl<'b> ImageStore<'b> {
         self.slots.iter().position(|s| s.is_empty())
     }
 
+    /// The lowest free slot: among the slots from
+    /// [`ImageStore::free_from`] to [`ImageStore::live`] first, else the
+    /// one at `live`, else none -- the table is full.
     fn free_placement(&self) -> Option<usize> {
-        self.placements.iter().position(|p| p.is_empty())
+        let from = self.free_from.min(self.live);
+        self.placements[from..self.live]
+            .iter()
+            .position(|p| p.is_empty())
+            .map(|i| from + i)
+            .or((self.live < self.placements.len()).then_some(self.live))
+    }
+
+    /// **Free slot `p`**: emptied, counted out of the live placements, and
+    /// the free-slot search moved back to it if it is lower. Its image's
+    /// count is the caller's.
+    fn vacate(&mut self, p: usize) {
+        let local = self.placements[p]
+            .image
+            .index()
+            .and_then(|i| self.slots.get(i))
+            .is_some_and(|s| s.owner == ImageOwner::Local);
+        if local {
+            self.local_placed = self.local_placed.saturating_sub(1);
+        }
+        self.placements[p] = PlacementSlot::EMPTY;
+        self.placed = self.placed.saturating_sub(1);
+        self.free_from = self.free_from.min(p);
+    }
+
+    /// **Lower [`ImageStore::live`] past the free slots below it**, after a
+    /// slot is freed: each step is a slot the walks no longer visit, so the
+    /// trimming over a table's life costs no more than its placements did.
+    fn trim(&mut self) {
+        while self.live > 0 && self.placements[self.live - 1].is_empty() {
+            self.live -= 1;
+        }
+    }
+
+    /// How many placements the table can hold: the slots it was lent.
+    pub fn placement_slots(&self) -> usize {
+        self.placements.len()
     }
 
     /// Whether the placement table has a free slot: what

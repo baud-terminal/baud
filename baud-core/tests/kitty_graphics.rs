@@ -1644,6 +1644,14 @@ fn with_files<R>(pixels: usize, files: &Mem, f: impl FnOnce(&mut Term<'_>) -> R)
     f(&mut t)
 }
 
+/// How many placements a terminal at [`WS`] holds: what a test fills to
+/// refuse the next one.
+fn placement_slots() -> usize {
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(64));
+    let t = Term::new(owned.storage(), &WS);
+    t.images().placement_slots()
+}
+
 /// The single error, for image 1.
 const FILE_ERR: &[u8] = b"\x1b_Gi=1;EBADF:Failed to read image file\x1b\\";
 
@@ -2223,7 +2231,7 @@ fn file_state(pixels: usize, named: &[(&[u8], &[u8])], pieces: &[&[u8]]) -> Stri
 
 /// **A refusal after the read keeps nothing**: an `a=T` through `t=f`,
 /// `t=t` and `t=s` whose placement is refused once its file is read -- a
-/// relative placement, the store's 64 placements full, the stream's
+/// relative placement, the store's placements full, the stream's
 /// virtual table full -- leaves what a missing file leaves, raw and PNG:
 /// the one error, the image gone, so the `a=p` after it answers ENOENT,
 /// and the cursor where it was ("all failures to read an image file ...
@@ -2240,7 +2248,7 @@ fn a_refusal_after_the_read_keeps_nothing() {
         }
         s
     };
-    let physical = fill(&|p| format!("a=p,i=3,p={p},C=1,q=2"), 64);
+    let physical = fill(&|p| format!("a=p,i=3,p={p},C=1,q=2"), placement_slots());
     let virtuals = fill(
         &|p| format!("a=p,U=1,i=3,p={p},c=1,r=1,q=2"),
         baud_domain::KITTY_VIRTUALS,
@@ -2331,7 +2339,7 @@ fn a_refusal_after_the_read_evicts_nothing_a_missing_file_keeps() {
         }
         s
     };
-    let physical = fill(&|p| format!("a=p,i=3,p={p},C=1,q=2"), 64);
+    let physical = fill(&|p| format!("a=p,i=3,p={p},C=1,q=2"), placement_slots());
     let virtuals = fill(
         &|p| format!("a=p,U=1,i=3,p={p},c=1,r=1,q=2"),
         baud_domain::KITTY_VIRTUALS,

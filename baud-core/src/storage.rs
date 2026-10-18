@@ -563,6 +563,10 @@ impl Owned {
         // floor and the NSTYLE_MAX ceiling; the ceiling clamp precedes
         // `next_power_of_two()`, which panics past 2^63.
         let styles = span.len().min(NSTYLE_MAX).next_power_of_two().max(NSTYLE);
+        // A placement for every cell of the largest screen this storage
+        // displays, `span.len()` as the rendition table's is, so a picture
+        // placed one cell at a time fits however large it is drawn.
+        let places = span.len().max(NPLACEMENT);
         Owned {
             stride,
             depth,
@@ -585,14 +589,15 @@ impl Owned {
             palette: vec![ColorWord::DEFAULT; PALETTE_LEN],
             links: vec![0u8; NLINK * LINK_MAX],
             link_len: vec![ByteLen::ZERO; NLINK],
-            // The slot and placement tables are tiny and always allocated, and
-            // so is the Sixel decoder's state, its 256 registers the most of
-            // it; the pixel arena is the large buffer and defaults absent,
-            // provisioned by [`Owned::with_images`].
+            // The slot table is tiny and always allocated, and so is the
+            // Sixel decoder's state, its 256 registers the most of it; the
+            // placement table comes from zeroed pages, resident only where
+            // placements land; the pixel arena is the large buffer and
+            // defaults absent, provisioned by [`Owned::with_images`].
             img_pixels: vec::Vec::new(),
             img_probe: vec::Vec::new(),
             img_slots: vec![ImageSlot::EMPTY; NIMAGE],
-            img_places: vec![PlacementSlot::EMPTY; NPLACEMENT],
+            img_places: PlacementSlot::zeroed_vec(places),
             sixel: alloc::boxed::Box::new(SixelStream::NEW),
             kitty: alloc::boxed::Box::new(KittyStream::NEW),
             kitty_scratch: vec::Vec::new(),
@@ -875,9 +880,19 @@ pub const REPLY: usize = 256;
 #[cfg(feature = "alloc")]
 pub const NIMAGE: usize = 32;
 
-/// How many placements can be live at once. An image can be placed more than
-/// once, so this is larger than [`NIMAGE`], and also small and always
-/// allocated.
+/// **The fewest placements [`Owned`] provisions**; the table is sized to
+/// the screen, a placement for every cell of the largest screen the
+/// storage displays, and this is its floor for a screen under 64 cells.
+///
+/// The text sets no limit on placements -- "there can be many placements
+/// per image", and its only quota is on image data
+/// (`[[source: kitty-graphics]]`) -- and a client may place a picture one
+/// cell at a time: yazi 26.9.1 sends an `a=p` per cell of its preview, 660
+/// for a 44 by 15 one, and the 64-slot table this replaced placed one row
+/// and twenty cells of it (Jev, SCREEN_CELLS, 0.80 and 0.80 then 0.71 and
+/// 0.80 after research, under the bar and taken as the lean). The table
+/// comes from zeroed memory, and every walk of it stops at its highest live
+/// slot, so an idle terminal pays nothing for its size.
 #[cfg(feature = "alloc")]
 pub const NPLACEMENT: usize = 64;
 

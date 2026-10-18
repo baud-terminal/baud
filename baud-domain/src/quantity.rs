@@ -152,7 +152,7 @@ impl ByteLen {
 }
 
 /// A column on the grid. Advances only by [`Width`].
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, zerocopy::FromZeros)]
 #[repr(transparent)]
 pub struct Col(pub(crate) usize);
 
@@ -269,7 +269,7 @@ pub struct Row(pub(crate) usize);
 
 /// Grid width. Distinct from [`Rows`] so the two cannot be swapped at a call
 /// site — `Layout::new(rows, cols)` transposed is a bug that used to compile.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, zerocopy::FromZeros)]
 #[repr(transparent)]
 pub struct Cols(pub(crate) usize);
 
@@ -298,7 +298,7 @@ impl Cols {
 }
 
 /// Grid height.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, zerocopy::FromZeros)]
 #[repr(transparent)]
 pub struct Rows(pub(crate) usize);
 

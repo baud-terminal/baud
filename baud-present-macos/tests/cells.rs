@@ -2985,6 +2985,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     partial_image_gate(&mut arms, &mut t);
     cpu_page_gate(&mut arms, &mut t);
     kitty_draw_gate(&mut arms, &mut t);
+    kitty_per_cell_gate(&mut arms, &mut t);
     decoration_gate(&mut arms, &mut t);
     // **Styled faces.** Bold, italic and bold-italic text -- a ligature and
     // a Nerd Fonts icon among it -- on both arms, and a positive control
@@ -4515,6 +4516,103 @@ fn kitty_expect(ctrl: &str, cw: u32, ch: u32) -> [[u32; 4]; 2] {
         }
     };
     [[dx, dy, dw, dh], [sx, sy, sw, sh]]
+}
+
+/// **A picture placed one cell at a time is drawn whole, on all three
+/// paths**: one image and a put per cell of a 40 by 7 block, each with
+/// its own source rectangle and `c=1,r=1,z=-1,C=1`, the shape yazi 26.9.1
+/// sends (280 placements; the store held 64 until 2026-10-18 and drew one
+/// row and 24 cells of this). Each source rectangle is 3 by 3 pixels, so
+/// the image fits the gate's arena, and each is fitted into its cell with
+/// the aspect kept and centred, the text's letterbox (`[[source:
+/// kitty-graphics]]`, "Controlling displayed image layout"). Every arm is
+/// held to the pixels computed here, then the GPU arms to each other.
+fn kitty_per_cell_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    const COLS: u32 = 40;
+    const ROWS: u32 = 7;
+    const S: u32 = 3;
+    let texel = |x: u32, y: u32| 0xFF00_0000 | ((x * 2 + 9) << 16) | ((y * 11 + 7) << 8) | 90;
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let px16 = |v: u32| ImagePx::of(u16::try_from(v).unwrap());
+    t.set_cell_size(px16(cw), px16(ch));
+    let fw = arms.renderer.frame_size().0.value();
+    let at = |x: u32, y: u32| usize::try_from(y * fw + x).unwrap();
+    feed(t, b"\x1bc\x1b[?25l");
+    let (before, _) = arms.draw(t);
+    const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut rgba = Vec::new();
+    for y in 0..ROWS * S {
+        for x in 0..COLS * S {
+            let [a, r, g, b] = texel(x, y).to_be_bytes();
+            rgba.extend_from_slice(&[r, g, b, a]);
+        }
+    }
+    let mut data = Vec::new();
+    for q in rgba.chunks(3) {
+        let n = u32::from_be_bytes([0, q[0], q[1], q[2]]);
+        for k in 0..4 {
+            data.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]);
+        }
+    }
+    let chunks: Vec<&[u8]> = data.chunks(4096).collect();
+    for (k, c) in chunks.iter().enumerate() {
+        let more = u8::from(k + 1 < chunks.len());
+        let keys = match k {
+            0 => format!("q=2,a=t,i=9,f=32,s={},v={},m={more}", COLS * S, ROWS * S),
+            _ => format!("m={more}"),
+        };
+        let mut cmd = format!("\x1b_G{keys};").into_bytes();
+        cmd.extend_from_slice(c);
+        cmd.extend_from_slice(b"\x1b\\");
+        feed(t, &cmd);
+    }
+    for y in 0..ROWS {
+        for x in 0..COLS {
+            let put = format!(
+                "\x1b[{};{}H\x1b_Gq=2,a=p,i=9,p={},x={},y={},w={S},h={S},c=1,r=1,z=-1,C=1\x1b\\",
+                3 + y,
+                5 + x,
+                y * COLS + x + 1,
+                x * S,
+                y * S,
+            );
+            feed(t, put.as_bytes());
+        }
+    }
+    assert_eq!(
+        t.images().placements().count(),
+        usize::try_from(COLS * ROWS).unwrap(),
+        "the premise: every cell placed"
+    );
+    // Each cell's square: the side the shorter of the cell's two sides,
+    // centred along the longer.
+    let side = cw.min(ch);
+    let (ox, oy) = ((cw - side) / 2, (ch - side) / 2);
+    let mut want = before.clone();
+    for y in 0..ROWS {
+        for x in 0..COLS {
+            let (x0, y0) = ((4 + x) * cw + ox, (2 + y) * ch + oy);
+            for j in 0..side {
+                for i in 0..side {
+                    want[at(x0 + i, y0 + j)] = texel(
+                        x * S + (2 * i + 1) * S / (2 * side),
+                        y * S + (2 * j + 1) * S / (2 * side),
+                    );
+                }
+            }
+        }
+    }
+    let (a, b) = arms.draw(t);
+    let cpu = cpu_frame(arms, t);
+    for (arm, got) in [("instance", &a), ("cell", &b), ("cpu", &cpu)] {
+        assert_eq!(
+            differing(got, &want),
+            0,
+            "per cell: the {arm} arm is not the text's pixels"
+        );
+    }
+    assert_eq!(differing(&a, &b), 0, "per cell: the GPU arms disagree");
 }
 
 /// **Kitty placements draw what they store, on all three paths**

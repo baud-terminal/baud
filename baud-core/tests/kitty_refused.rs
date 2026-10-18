@@ -4,7 +4,7 @@
 //! acknowledgement code"; "Suppressing responses from the terminal": `q=1`
 //! suppresses `OK` and `q=2` failures too).
 //!
-//! A full placement table -- the store's 64 on screen, the
+//! A full placement table -- the store's, one a cell of the screen, the
 //! stream's [`KITTY_VIRTUALS`] virtual ones -- refuses the placement and
 //! answers `ENOSPC`, the code the text names for storage that has run
 //! out, in its error form (a code, a colon, a message). Each case is fed
@@ -17,14 +17,12 @@ use baud_domain::{
     DecodeBudget, DecodeProgress, ImageBudget, ImagePx, KITTY_VIRTUALS, KittyId, KittyPlacement,
 };
 
+/// A small screen: the placement table holds a placement a cell of it,
+/// and a small table is quick to fill again at every read size.
 const WS: WinSize = WinSize {
-    ws_row: 24,
-    ws_col: 80,
+    ws_row: 4,
+    ws_col: 16,
 };
-
-/// The store's placement table, `storage.rs`'s `NPLACEMENT`, which the
-/// crate does not export; `fill_placements` holds the premise.
-const NPLACEMENT: usize = 64;
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -127,13 +125,13 @@ fn fill_virtuals(t: &mut Term<'_>) {
     assert_eq!(t.kitty().virtuals_refused, 0, "the premise: all held");
 }
 
-/// Fill the placement table with placements of image 3, the cursor kept.
+/// Fill the placement table with placements of image 3, the cursor kept,
+/// none of them with a placement id, so none is the one a test puts.
 fn fill_placements(t: &mut Term<'_>) {
-    for p in 1..=NPLACEMENT {
-        let r = feed(t, &apc(&format!("a=p,i=3,p={p},C=1,q=2"), b""));
-        assert!(r.is_empty());
-    }
-    assert_eq!(t.images().placements().count(), NPLACEMENT, "the premise");
+    let slots = t.images().placement_slots();
+    let r = feed(t, &apc("a=p,i=3,C=1,q=2", b"").repeat(slots));
+    assert!(r.is_empty());
+    assert_eq!(t.images().placements().count(), slots, "the premise");
     assert_eq!(t.images().placements_refused, 0, "the premise");
 }
 
