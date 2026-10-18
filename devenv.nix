@@ -397,6 +397,25 @@ in
       exec = "bash ./scripts/check-paths.sh";
       after = [ "test:features" ];
     };
+
+    # RustSec advisories, which SECURITY.md asks reporters for. Run by hand
+    # (`devenv tasks run test:advisories`) and not in `enterTest`: it fetches
+    # the advisory database over the network, and an unchanged tree can pass
+    # today and fail once an advisory is published, where every check in the
+    # push hook is offline and gives the same answer every run. Four
+    # lockfiles: the workspace's, and the three harnesses under bench-others,
+    # each its own workspace. A vulnerability fails it; an unmaintained or
+    # unsound crate is printed as a warning.
+    "test:advisories" = {
+      exec = ''
+        status=0
+        for lock in Cargo.lock bench-others/*/Cargo.lock; do
+          echo "=== $lock ==="
+          ${pkgs.cargo-audit}/bin/cargo-audit audit --file "$lock" || status=1
+        done
+        exit $status
+      '';
+    };
   };
 
   # https://devenv.sh/tests/

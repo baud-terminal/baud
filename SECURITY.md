@@ -141,7 +141,9 @@ report them as gaps; if you think one is wrong, the reasoning is in
 - `RUSTSEC` advisories in the dependency tree. `zerocopy` is the only
   dependency of `baud-core` and `baud-domain`; the macOS app adds the `objc2`
   family, `block2`, `dispatch2` and `macos-liquid-glass`, and through them
-  `libc` and `bitflags`.
+  `libc` and `bitflags`. `devenv tasks run test:advisories` checks every
+  lockfile in the repository against the RustSec database with `cargo audit`.
+  It needs the network, so it is run by hand rather than on every push.
 
 ## Reporting a Vulnerability
 
