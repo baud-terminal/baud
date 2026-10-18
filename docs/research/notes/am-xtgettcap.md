@@ -485,7 +485,8 @@ it encodes the key ncurses' convention names.
 `baud-core/tests/conformance/input_caps.rs` enumerates every byte string
 baud's key encoder produces, over every modifier and every mode, and counts
 the entry's input capabilities among them. Re-run at `5477bf7` it gives
-**xterm-256color: 85 of 88** (M, `input-caps-output.txt`). It misses three:
+**xterm-256color: 85 of 88** (M, `input-caps-output.txt`). It misses three
+(*since 2026-10-18 the pin is the `-x` capture: 137 of 140*):
 
 * `kb2` (`\EOE`, the keypad centre key), which baud has no code for;
 * `kmous` (`\E[M`), the mouse-report prefix, which is not a key;

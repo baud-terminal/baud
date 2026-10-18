@@ -53,7 +53,7 @@ a handler for every operation this table claims. It does **not** prove the
 handler is correct — that is what the per-protocol suites are for, and no
 mechanism can prove it in general.
 
-**No row carries `parsed` or `todo`. Nineteen carry `**partial**`, and
+**No row carries `parsed` or `todo`. Eighteen carry `**partial**`, and
 `no_row_is_unfinished` in `baud-core/tests/coverage.rs` does not see them.**
 This paragraph said no row carried any of the three and that the test fails if
 one ever does. The test matches a status cell that starts with the bare word,

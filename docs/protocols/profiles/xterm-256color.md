@@ -2,16 +2,16 @@
 
 `xterm`, with the 256-colour palette as a colour formula. The common default.
 
-Differs from `xterm` in the **same five** capabilities. `setaf` becomes a conditional emitting `\E[3<n>m`, `\E[9<n>m` or `\E[38;5;<n>m` by range — three spellings baud already implements. Same protocol.
+Differs from the system's `xterm` entry in the **same five** capabilities. `setaf` becomes a conditional emitting `\E[3<n>m`, `\E[9<n>m` or `\E[38;5;<n>m` by range — three spellings baud already implements. Same protocol.
 
-This is the entry baud gives its child, so it is pinned with the capabilities programs read beyond the standard set (`infocmp -x`): the cursor style (`Ss`, `Se`), the cursor colour (`Cs`, `Cr`), the clipboard (`Ms`), clearing the scrollback (`E3`) and the modified keys. The `xterm` entry beside it is pinned without them, so these six show as differences too; the system's `xterm` entry carries the same six.
+This is the entry baud gives its child, so it is pinned with the capabilities programs read beyond the standard set (`infocmp -x`): the cursor style (`Ss`, `Se`), the cursor colour (`Cs`, `Cr`), the clipboard (`Ms`), clearing the scrollback (`E3`) and the modified keys. The `xterm` entry beside it is pinned without them, so against that pin it also differs in those six strings, three booleans (`AX`, `XT`, `OTbs`) and 52 modified-key inputs; the system's `xterm` entry read with `-x` carries all of them.
 
 ## Status
 
 | | |
 |---|---|
 | output capabilities | **88** — all handled |
-| input capabilities | 140 — **137 sent**, measured against the pinned terminfo by `the_profiles_input_counts_are_what_baud_can_send` |
+| input capabilities | 140 — **137 sent**, counted against the pinned terminfo and printed by `the_profiles_input_counts_are_what_baud_can_send`, which pins no number |
 | shared with `vt100` | 43 |
 | conformance test | `baud-core/tests/conformance/` → `xterm_256color` |
 | source | `../../research/sources/terminfo/xterm-256color.ti`, `infocmp -x -1`, hash-pinned |

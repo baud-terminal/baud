@@ -37,7 +37,7 @@
 #   Q  local echo prediction: mosh's prediction engine and its paper
 #   R  sfte: a second external implementation, as an oracle and a feature catalogue
 #   U  who holds the window over the history across a resize: the re-cut, the viewport, the anchors
-#   V  the cursor trails and an editor's own cursor: kitty's and Neovide's trails, helix's drawn cursor and its exit reset (cited by notes W and X)
+#   V  the cursor trails and an editor's own cursor: kitty's and Neovide's trails, helix's drawn cursor and its exit reset (cited by note W, and by path in note X)
 #   Y  palettes: light/dark pairs, scheme formats, colour-scheme notifications, contrast floors
 #   AA  where a launched terminal's shell starts and what PWD names, what launchd is, and where a GUI terminal looks for its config (note AA section 9)
 #   AH  title-bar activity lights: the tty LED trigger, modem panels, per-process counters
