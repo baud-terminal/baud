@@ -230,10 +230,13 @@ Four OSC decisions are refusals or limits, and each is deliberate rather than a 
   after `52;` goes to its own two areas, the copy being collected and the last
   one finished, and a copy past them is refused whole rather than cut. A `Pd`
   that is not base64 clears the selection, as `[[source: ctlseqs]]` says.
-* **Colour *names* are not resolved.** `[[source: ctlseqs]]` allows a name "as
-  per XParseColor", which needs X11's `rgb.txt`; baud has no citable copy, and
-  approximating it would be inventing a protocol. The entry is left alone and
-  the request is counted as unsupported.
+* **A colour *name* is the X server's.** `[[source: ctlseqs]]` allows a name
+  "as per XParseColor", which sends it to the X server; X.Org's server finds
+  it in its rgb.txt table ignoring case and nothing else
+  (`[[source: xserver-oscolor-98aed9d]]` 852-884), so baud resolves the 782
+  names of `[[source: xorg-rgb-0d2caec]]` the same way, from a table built
+  at build time. A name the server lacks, `rgbi:` and the CIE forms are left
+  alone and counted as unsupported. Until 2026-10-18 every name was.
 * **A colour query answers a colour something set, and nothing else.**
   `OSC 4 ; c ; ?` answers a program's override, else the entry the embedder
   handed over (`Term::set_theme`, or `Term::set_default_palette` alone), else

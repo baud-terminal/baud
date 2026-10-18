@@ -246,10 +246,17 @@ impl PromptKind {
 /// An X11 colour specification, as `XParseColor` accepts it.
 ///
 /// `[[source: ctlseqs]]`: "The spec can be a name or RGB specification as per
-/// XParseColor." Names are deliberately *not* resolved -- that needs the X11
-/// `rgb.txt` table, which baud has no citable copy of, and inventing the
-/// mapping would be guessing at a protocol. A name parses to
-/// [`XColor::Unresolved`] and is ignored rather than approximated.
+/// XParseColor." XParseColor reads the `#` forms itself and sends anything
+/// else Xcms does not take to the X server (`[[source: libx11-parsecol-b8d5a70]]`
+/// 114-139), whose `OsLookupColor` compares with `strncasecmp` and an exact
+/// length (`[[source: xserver-oscolor-98aed9d]]` 852-884): **case is ignored
+/// and nothing else**, so `lime green` and `LimeGreen` are colours, each
+/// spelled in the table, and `lime  green` is not. The table is X.Org's
+/// rgb.txt (`[[source: xorg-rgb-0d2caec]]`), 782 names, generated into
+/// `baud-domain/src/vt/x_colour_names.rs` and found by two hashes and one
+/// comparison. What none
+/// of these reads -- `rgbi:`, the CIE forms, a name the server lacks --
+/// parses to [`XColor::Unresolved`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum XColor<'a> {
     Rgb(Chan, Chan, Chan),
@@ -259,8 +266,8 @@ pub enum XColor<'a> {
 }
 
 impl<'a> XColor<'a> {
-    /// `rgb:R/G/B` with 1-4 hex digits per channel, or `#RGB` / `#RRGGBB` /
-    /// `#RRRGGGBBB` / `#RRRRGGGGBBBB`.
+    /// `rgb:R/G/B` with 1-4 hex digits per channel, `#RGB` / `#RRGGBB` /
+    /// `#RRRGGGBBB` / `#RRRRGGGGBBBB`, or an X11 colour name.
     ///
     /// Channels are scaled to 8 bits by taking the *high* bits, which is what
     /// XParseColor does: `rgb:f/f/f` is white, not rgb(15,15,15).
@@ -290,8 +297,13 @@ impl<'a> XColor<'a> {
                     return XColor::Rgb(r, g, b);
                 }
             }
+            return XColor::Unresolved(s);
         }
-        XColor::Unresolved(s)
+        use super::x_colour_names::{POOL, SEEDS, SLOTS};
+        match crate::colour_name::find(&SEEDS, &SLOTS, POOL, s) {
+            Some([r, g, b]) => XColor::Rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)),
+            None => XColor::Unresolved(s),
+        }
     }
 }
 

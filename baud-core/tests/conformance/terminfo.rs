@@ -145,12 +145,13 @@ pub fn expand(v: &str, string: &[u8]) -> Vec<u8> {
 /// The single string parameter is the color name/number, according to the
 /// implementation." xterm's `OSC 12` takes a colour specification, so the
 /// digit replayed `ESC ] 12 ; 1 BEL`, which names no colour and was counted
-/// as dropped; `rgb:ff/00/00` is one it names. `Ms` keeps the digit for
-/// both its strings, "the storage unit" and "the base64-encoded clipboard
-/// content", and baud does not count what that makes as dropped.
+/// as dropped. `red` is a name, as a program passes a user's colour, and
+/// one in xterm's FAQ (`[[source: xterm-faq]]` 7645-7646). `Ms` keeps the digit
+/// for both its strings, "the storage unit" and "the base64-encoded
+/// clipboard content", and baud does not count what that makes as dropped.
 fn string_argument(name: &str) -> &'static [u8] {
     match name {
-        "Cs" => b"rgb:ff/00/00",
+        "Cs" => b"red",
         _ => b"1",
     }
 }

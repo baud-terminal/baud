@@ -1256,10 +1256,10 @@ tests = ["baud-app/src/palette.rs::the_halves_load_and_say_what_they_must", "bau
 id = "program-colours"
 area = "window"
 name = "Programs can set and ask colours"
-does = "Programs can set and reset the palette and default colours, ask for them, and ask whether your theme is dark or light; reverse video swaps every colour."
+does = "Programs can set and reset the palette and default colours, by value or by X11 name such as red or lime green, ask for them, and ask whether your theme is dark or light; reverse video swaps every colour."
 status = "built"
 platform = "both"
-tests = ["baud-core/tests/palette_query.rs::an_override_wins_over_the_table", "baud-core/tests/palette_reset.rs::both_resets_clear_every_palette_override"]
+tests = ["baud-core/tests/palette_query.rs::an_override_wins_over_the_table", "baud-core/tests/palette_reset.rs::both_resets_clear_every_palette_override", "baud-core/tests/xterm/osc.rs::xterms_own_colour_names_resolve"]
 rows = ["vt:`OSC 4`", "vt:`OSC 10` / `OSC 11`", "vt:`CSI ? 996 n`", "vt:`?5`"]
 shipped = ["2026-10-14-reverse-video-swaps-every-cell-s"]
 

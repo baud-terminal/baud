@@ -26376,6 +26376,30 @@ group  = "Y"
 # lower-cased, plus Debian's debianred (debian-xorg-rgb-7-7-26, note AR).
 # baud-domain's colour_names.rs is generated from it.
 
+[sources.xorg-rgb-0d2caec]
+key    = "xorg-rgb-0d2caec"
+title  = "X.Org app/rgb 0d2caec, rgb.txt -- the X11 colour names an X server answers today"
+author = "The Open Group, X.Org Foundation"
+year   = 2023
+venue  = "gitlab.freedesktop.org/xorg/app/rgb (MIT-open-group)"
+url    = "https://gitlab.freedesktop.org/xorg/app/rgb/-/raw/0d2caecebf0e2a10994c22960921f366dd98d19a/rgb.txt"
+file   = "xorg-rgb-0d2caec.txt"
+sha256 = "f8e3a7bea17acc0b91e6285c5d32001db27d84c4461c655afdbce9dbeb4fb6f0"
+bytes  = 17780
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-18. The last commit to touch rgb.txt ("rgb: Make color
+# entries uniform", 2023-07-10); master at 2b2019c serves the same bytes.
+# 782 names, 749182c's 752 and the 30 the 2014 commits ee2c453 and ca05c39
+# added from CSS (aqua, crimson, fuchsia, indigo, lime, olive, silver,
+# teal, RebeccaPurple and the Web/X11 aliases), every value of a shared
+# name unchanged. Name for name and value for value it is the table the
+# X.Org server answers from (xserver-oscolor-98aed9d), checked the same
+# day. baud-domain's x_colour_names.rs, the names OSC 4/10/11/12 resolve,
+# is generated from it; COPYING at this commit begins with the Open Group
+# notice in LICENSES/xorg-rgb-COPYING.txt, and its Oracle block covers
+# the package's code.
+
 [sources.rfc8259-json]
 key    = "rfc8259-json"
 title  = "RFC 8259: The JavaScript Object Notation (JSON) Data Interchange Format"
@@ -26605,6 +26629,14 @@ group  = "Y"
 # Read 2026-10-17. BuiltinColors 65-849: 782 names, 30 of them (aqua,
 # crimson, rebeccapurple, the web and x11 variants) not in X.Org's rgb.txt
 # at 749182c; for the X resources reader (note AR).
+# Read again 2026-10-18 for OSC 4/10/11/12's names: what a LookupColor
+# request XParseColor sends (libx11-parsecol-b8d5a70 114-139) is answered
+# by OsLookupColor, a binary search of the 782 with
+# `strncasecmp(c->name, name, min(len, currentLen))` and a match only when
+# `len == currentLen` (852-884), so case is ignored and a space is not; the
+# components come back as `c->red * 0x101` (869-871), exactly the 8-bit
+# value. Name for name and value for value the table equals rgb.txt at
+# 0d2caec (xorg-rgb-0d2caec).
 
 [sources.kitty-colorspaces-go-1e1486e]
 key    = "kitty-colorspaces-go-1e1486e"

@@ -42,6 +42,7 @@ mod brand;
 mod cache;
 mod cell;
 mod cluster_data;
+mod colour_name;
 pub mod contrast;
 
 /// One entry of the UAX #29 transition table: bit 7 is the break decision,

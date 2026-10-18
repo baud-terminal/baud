@@ -317,14 +317,13 @@ impl Paint<'_, '_> {
             Osc::SetColor { index, spec } => match spec {
                 XColor::Rgb(r, g, b) => self.set_palette(index, ColorWord::rgb(r, g, b)),
                 XColor::Query => self.report_color(index, term),
-                // A colour *name*. Resolving it needs X11's `rgb.txt` and this
-                // repo has no citable copy, so it is left alone rather than
-                // set to something plausible-but-wrong -- which is the same
-                // reason the DEC line-drawing table was refused until a
-                // machine-readable source was cited. **Counted**, because a
-                // spec this core cannot resolve is a request it did not
-                // honour, and `every_spec_osc_code_is_handled_or_counted`
-                // probes with exactly such a name.
+                // A spec no reader takes: a name the X server lacks, `rgbi:`
+                // or a CIE form (a name it holds is `Rgb` already, from
+                // `XColor::parse`). Left alone rather than set to something
+                // plausible-but-wrong, and **counted**, because a spec this
+                // core cannot resolve is a request it did not honour;
+                // `every_spec_osc_code_is_handled_or_counted` probes with
+                // `1`, which is such a spec.
                 XColor::Unresolved(_) => self.unsupported_total += 1,
             },
             Osc::ResetColor(Some(c)) => self.set_palette(c, ColorWord::DEFAULT),

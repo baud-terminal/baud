@@ -209,13 +209,85 @@ fn querying_an_unset_colour_is_silent() {
     assert!(run(b"\x1b]4;7;?\x07").reply.is_empty());
 }
 
-/// A colour *name* is not guessed at.
-///
-/// Resolving `red` needs X11's rgb.txt, which baud has no citable copy of.
-/// Approximating it would be inventing a protocol, so the entry is left alone.
+/// **A colour name is the X server's.** `[[source: ctlseqs]]`: "The spec can
+/// be a name or RGB specification as per XParseColor", which sends a name to
+/// the server, whose table is X.Org's rgb.txt
+/// (`[[source: xorg-rgb-0d2caec]]`) and whose lookup ignores case and
+/// nothing else (`[[source: xserver-oscolor-98aed9d]]`). The sixteen
+/// colours are the resource file in xterm's FAQ
+/// (`[[source: xterm-faq]]` 7609-7669), and its `cursorColor`, `lime
+/// green` (7683), is a name with a space in it.
 #[test]
-fn a_colour_name_is_not_approximated() {
-    assert_eq!(run(b"\x1b]4;3;red\x07").pal[3], None);
+fn xterms_own_colour_names_resolve() {
+    let mut bytes = Vec::new();
+    for (i, name, _) in FAQ {
+        bytes.extend_from_slice(format!("\x1b]4;{i};").as_bytes());
+        bytes.extend_from_slice(name);
+        bytes.push(0x07);
+    }
+    let o = run(&bytes);
+    for (i, name, want) in FAQ {
+        let at = usize::from(i);
+        assert_eq!(o.pal[at], Some(want), "{}", String::from_utf8_lossy(name));
+    }
+
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(
+        &mut t,
+        b"\x1b]12;lime green\x07\x1b]10;Red\x07\x1b]11;GRAY90\x07",
+    );
+    assert_eq!(t.unsupported, 0, "every name is resolved, none counted");
+    assert_eq!(t.dynamic_color(DynamicColor::Cursor), Some((50, 205, 50)));
+    assert_eq!(t.dynamic_color(DynamicColor::Foreground), Some((255, 0, 0)));
+    assert_eq!(
+        t.dynamic_color(DynamicColor::Background),
+        Some((229, 229, 229))
+    );
+    support::feed(&mut t, b"\x1b]12;?\x07");
+    assert_eq!(t.reply(), b"\x1b]12;rgb:3232/cdcd/3232\x07");
+}
+
+const FAQ: [(u8, &[u8], Rgb); 16] = [
+    (0, b"black", (0, 0, 0)),
+    (1, b"red3", (205, 0, 0)),
+    (2, b"green3", (0, 205, 0)),
+    (3, b"yellow3", (205, 205, 0)),
+    (4, b"blue3", (0, 0, 205)),
+    (5, b"magenta3", (205, 0, 205)),
+    (6, b"cyan3", (0, 205, 205)),
+    (7, b"gray90", (229, 229, 229)),
+    (8, b"gray30", (77, 77, 77)),
+    (9, b"red", (255, 0, 0)),
+    (10, b"green", (0, 255, 0)),
+    (11, b"yellow", (255, 255, 0)),
+    (12, b"blue", (0, 0, 255)),
+    (13, b"magenta", (255, 0, 255)),
+    (14, b"cyan", (0, 255, 255)),
+    (15, b"white", (255, 255, 255)),
+];
+
+/// **A name the server does not hold is left alone and counted**: case is
+/// the only thing its lookup forgives, so a doubled or trailing space is a
+/// different name, and Debian's `DebianRed`, which kitty's table carries,
+/// is not in X.Org's.
+#[test]
+fn a_name_the_server_lacks_is_counted() {
+    for spec in [
+        &b"notacolour"[..],
+        b"ghost  white",
+        b"red ",
+        b"DebianRed",
+        b"1",
+    ] {
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        support::feed(&mut t, &[&b"\x1b]4;3;"[..], spec, b"\x07"].concat());
+        assert_eq!(t.palette(Chan::from_u8(3)), None, "{spec:?}");
+        assert_eq!(t.unsupported, 1, "{spec:?}");
+    }
 }
 
 /// A malformed spec does not corrupt the entry.

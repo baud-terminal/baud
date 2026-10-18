@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate baud-domain/src/themefile/colour_names.rs, kitty's colour names.
+"""Generate baud-domain's two colour-name tables: kitty's, and the X server's.
 
 kitty 1e1486e looks a colour name up before any other form
 (`[[source: kitty-colors-1e1486e]]` 1525-1526), in a table its
@@ -13,8 +13,8 @@ Debian's addition to its rgb.txt in 2004
 the table is built from rgb.txt and the one name, and `--kitty FILE` checks the result against kitty's own file,
 fetched at the pinned commit:
 
-    python3 scripts/gen-colour-names.py                write the table
-    python3 scripts/gen-colour-names.py --check        fail if it is stale
+    python3 scripts/gen-colour-names.py                write both tables
+    python3 scripts/gen-colour-names.py --check        fail if one is stale
     python3 scripts/gen-colour-names.py --kitty F      fail unless kitty's F
                                                        holds the same names
 
@@ -22,6 +22,13 @@ The lookup is a two-level perfect hash, so a name is found by two hashes and
 one comparison, never a scan: FNV-1a over the lower-cased name picks one of
 256 buckets, the bucket's seed picks one of 1024 slots, and the slot's name
 is compared.
+
+The second table, baud-domain/src/vt/x_colour_names.rs, is the names an
+`OSC 4`, `10`, `11` or `12` resolves, as xterm's XParseColor sends a name to
+the X server (`[[source: xserver-oscolor-98aed9d]]`): X.Org's rgb.txt at
+0d2caec (`[[source: xorg-rgb-0d2caec]]`), 782 names, lower-cased, with the
+same two-level hash. The server ignores case and nothing else, and both
+tables are keyed the same way.
 """
 
 import pathlib
@@ -31,6 +38,8 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "docs/research/sources/xorg-rgb-749182c.txt"
 OUT = ROOT / "baud-domain/src/themefile/colour_names.rs"
+X_SRC = ROOT / "docs/research/sources/xorg-rgb-0d2caec.txt"
+X_OUT = ROOT / "baud-domain/src/vt/x_colour_names.rs"
 BUCKETS = 256
 SLOTS = 1024
 # The one name kitty's table holds that X.Org's rgb.txt at 749182c does
@@ -45,13 +54,21 @@ def fnv(name: bytes, seed: int) -> int:
     return h
 
 
-def names() -> dict:
+def rgb_txt(path: pathlib.Path) -> dict:
     out = {}
-    for line in SRC.read_text(encoding="ascii").splitlines():
+    for line in path.read_text(encoding="ascii").splitlines():
         if not line or line.startswith("!"):
             continue
         r, g, b, name = line.split(None, 3)
-        out.setdefault(name.strip().lower(), (int(r), int(g), int(b)))
+        v = (int(r), int(g), int(b))
+        # Two spellings of one name differ only in case, and with one
+        # value: a lower-cased key loses nothing.
+        assert out.setdefault(name.strip().lower(), v) == v, name
+    return out
+
+
+def names() -> dict:
+    out = rgb_txt(SRC)
     for k, v in EXTRA.items():
         assert k not in out, k
         out[k] = v
@@ -79,7 +96,39 @@ def build(table: dict):
     return seeds, slots
 
 
-def render(table: dict) -> str:
+KITTY_HEAD = [
+    "//! kitty's colour names, generated from the source pinned in",
+    "//! `docs/research/sources/MANIFEST.toml`.",
+    "//!",
+    "//! **Do not edit by hand.** Regenerate with `scripts/gen-colour-names.py`;",
+    "//! `kitty_names_are_rgb_txt_and_debianred` fails if this file and the",
+    "//! pinned source disagree.",
+    "//!",
+    "//! {n} names: X.Org's rgb.txt at 749182c",
+    "//! (`[[source: xorg-rgb-749182c]]`), lower-cased, and `debianred`, Debian's",
+    "//! addition to its rgb.txt (`[[source: debian-xorg-rgb-7-7-26]]` 478), which",
+    "//! kitty's table carries (`[[source: kitty-color-names-1e1486e]]` 161): a",
+    "//! name and a value. A name is looked up by",
+    "//! [`SEEDS`] then [`SLOTS`]: two hashes and one comparison.",
+]
+
+X_HEAD = [
+    "//! The X server's colour names, generated from the source pinned in",
+    "//! `docs/research/sources/MANIFEST.toml`.",
+    "//!",
+    "//! **Do not edit by hand.** Regenerate with `scripts/gen-colour-names.py`;",
+    "//! `every_name_in_rgb_txt_resolves_in_any_case` fails if this file and the",
+    "//! pinned source disagree.",
+    "//!",
+    "//! {n} names: X.Org's rgb.txt at 0d2caec",
+    "//! (`[[source: xorg-rgb-0d2caec]]`), lower-cased, the table the X.Org",
+    "//! server answers XParseColor's LookupColor from",
+    "//! (`[[source: xserver-oscolor-98aed9d]]`). A name is looked up by",
+    "//! [`SEEDS`] then [`SLOTS`]: two hashes and one comparison.",
+]
+
+
+def render(table: dict, head: list) -> str:
     seeds, slots = build(table)
     pool = b""
     rows = []
@@ -92,19 +141,7 @@ def render(table: dict) -> str:
         r, g, b = table[n]
         rows.append(f"    ({at}, {len(n)}, [{r}, {g}, {b}]), // {n}")
     out = [
-        "//! kitty's colour names, generated from the source pinned in",
-        "//! `docs/research/sources/MANIFEST.toml`.",
-        "//!",
-        "//! **Do not edit by hand.** Regenerate with `scripts/gen-colour-names.py`;",
-        "//! `kitty_names_are_rgb_txt_and_debianred` fails if this file and the",
-        "//! pinned source disagree.",
-        "//!",
-        f"//! {len(table)} names: X.Org's rgb.txt at 749182c",
-        "//! (`[[source: xorg-rgb-749182c]]`), lower-cased, and `debianred`, Debian's",
-        "//! addition to its rgb.txt (`[[source: debian-xorg-rgb-7-7-26]]` 478), which",
-        "//! kitty's table carries (`[[source: kitty-color-names-1e1486e]]` 161): a",
-        "//! name and a value. A name is looked up by",
-        "//! [`SEEDS`] then [`SLOTS`]: two hashes and one comparison.",
+        *(line.format(n=len(table)) for line in head),
         "",
         "/// The seed of each of the 256 buckets the first hash picks.",
         "#[rustfmt::skip]",
@@ -150,15 +187,18 @@ def main() -> None:
             sys.exit(f"kitty's table differs: names {only}, values {diff}")
         print(f"OK: kitty's {len(theirs)} names are rgb.txt's and debianred")
         return
-    out = render(table)
+    x = rgb_txt(X_SRC)
+    pairs = [(OUT, render(table, KITTY_HEAD), table), (X_OUT, render(x, X_HEAD), x)]
     if "--check" in sys.argv:
-        if OUT.read_text() != out:
-            print("STALE")
+        stale = [str(path.relative_to(ROOT)) for path, out, _ in pairs if path.read_text() != out]
+        if stale:
+            print("STALE", *stale)
             sys.exit(1)
         print("OK")
     else:
-        OUT.write_text(out)
-        print(f"{len(table)} names")
+        for path, out, t in pairs:
+            path.write_text(out)
+            print(f"{path.relative_to(ROOT)}: {len(t)} names")
 
 
 if __name__ == "__main__":
