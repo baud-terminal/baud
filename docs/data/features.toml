@@ -748,7 +748,7 @@ name = "Nearly invisible text made readable"
 does = "Text too close in colour to its background is lifted to a readable contrast, keeping its hue, while colours a program chose on purpose, pictures drawn with text and the lines programs draw boxes and dividers with are left alone. Text the see-through window would make hard to read is lifted too, keeping its hue there as well, so a coloured meter's filled part stays apart from its grey track. Adjustable, or off."
 status = "built"
 platform = "both"
-tests = ["baud-render/tests/floor.rs::the_worked_examples_lift_to_their_colours", "baud-render/tests/floor.rs::chosen_pairs_and_an_off_floor_are_untouched", "baud-render/tests/floor.rs::box_drawing_is_drawn_as_asked_and_block_elements_are_floored", "baud-render/tests/floor.rs::a_pair_between_the_triggers_against_the_range_is_lifted", "baud-render/tests/floor.rs::a_meters_used_part_stays_apart_from_its_track_under_the_glass", "baud-render/tests/floor.rs::the_glass_floor_lands_where_the_brute_force_does"]
+tests = ["baud-render/tests/floor.rs::the_worked_examples_lift_to_their_colours", "baud-render/tests/floor.rs::chosen_pairs_and_an_off_floor_are_untouched", "baud-render/tests/floor.rs::box_drawing_is_drawn_as_asked_and_block_elements_are_floored", "baud-render/tests/floor.rs::a_pair_between_the_triggers_against_the_range_is_lifted", "baud-render/tests/floor.rs::a_meters_used_part_stays_apart_from_its_track_under_the_glass", "baud-render/tests/floor.rs::the_glass_floor_lands_where_the_brute_force_does", "baud-render/tests/floor.rs::the_floor_over_the_standard_material_keeps_its_promise"]
 
 [[feature]]
 id = "faint"
@@ -1147,11 +1147,11 @@ shipped = ["2026-10-09-csi-3-j-clears-saved-history"]
 [[feature]]
 id = "glass"
 area = "window"
-name = "Liquid Glass"
-does = "The window is macOS's glass, frosted by default as Apple recommends behind text, or clear, and see-through only as far as text stays readable over a white or a black window behind. How see-through, how tinted and how shadowed it is are set separately for light and dark."
+name = "The Mac's own window material"
+does = "The window is drawn in the standard see-through material Apple puts behind an app's content: the desktop shows through faintly, and the window looks subdued while you work in another. Liquid Glass, frosted or clear, is one setting away. Text stays readable over any desktop, and how see-through and how shadowed the window is are set separately for light and dark."
 status = "built"
 platform = "macos"
-tests = ["baud-app/src/config.rs::a_glass_section_sets_every_one_of_its_keys", "baud-app/src/config.rs::the_default_dims_keep_text_readable_over_white_and_black", "baud-render/src/composite.rs::glass_presents_as_the_gpu_blends"]
+tests = ["baud-app/src/config.rs::style_selects_the_standard_material_or_either_glass", "baud-app/src/app.rs::the_floor_reads_against_the_body_drawn", "baud-app/src/config.rs::a_glass_section_sets_every_one_of_its_keys", "baud-app/src/config.rs::the_default_dims_keep_text_readable_over_white_and_black", "baud-render/src/composite.rs::glass_presents_as_the_gpu_blends"]
 
 [[feature]]
 id = "glass-accessibility"
@@ -1166,7 +1166,7 @@ tests = ["baud-app/src/app.rs::reduce_transparency_draws_every_background_opaque
 id = "panels-and-pictures"
 area = "window"
 name = "Panels see-through, pictures solid"
-does = "Backgrounds programs paint, such as btop's panels, let the glass through, or stay solid if you prefer, while photos drawn with characters stay solid so they don't dissolve."
+does = "Backgrounds programs paint, such as btop's panels, let the desktop show through, or stay solid if you prefer, while photos drawn with characters stay solid so they don't dissolve."
 status = "built"
 platform = "macos"
 tests = ["baud-render/tests/pictures.rs::every_chafa_capture_is_a_picture_in_every_cell", "baud-app/src/config.rs::app_backgrounds_are_dimmed_unless_asked_for_opaque"]
@@ -1198,7 +1198,7 @@ area = "window"
 name = "Window titles"
 does = "A title a program sets is cleaned of hidden codes and set on the window, where the Window menu, Mission Control and accessibility tools show it."
 status = "partial"
-gap = "the glass window does not draw it in its title bar."
+gap = "the window does not draw it in its title bar."
 platform = "macos"
 tests = ["baud-app/src/title.rs::an_empty_or_blank_title_is_the_fallback", "baud-app/src/title.rs::ill_formed_utf8_is_the_replacement_character"]
 behind = "every other terminal draws the window title in its title bar."
@@ -1454,7 +1454,7 @@ shipped = ["2026-10-16-kitty-s-image-protocol-works", "2026-10-16-raw-pixel-kitt
 id = "image-placement"
 area = "images"
 name = "Pictures placed, cropped and layered"
-does = "Pictures are placed, cropped, scaled and layered under or over text, behind coloured text when asked and through the tinted glass, and scroll with it."
+does = "Pictures are placed, cropped, scaled and layered under or over text, behind coloured text when asked and through the see-through window, and scroll with it."
 status = "partial"
 gap = "scaled pictures use blocky nearest-pixel sampling for now."
 platform = "both"

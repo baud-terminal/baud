@@ -17,8 +17,8 @@
 # Points; pixels are this times the display's backing scale.
 font_size = 13
 
-# The gutter in points around the grid -- left, right and below -- so the glass
-# shows through rather than the cells meeting the window's edge. The titlebar
+# The gutter in points around the grid -- left, right and below -- so the window
+# material shows through rather than the cells meeting the window's edge. The titlebar
 # strip is the top gutter. 8 is the default; 0 turns it off.
 padding = 8
 
@@ -330,26 +330,28 @@ body_kb = 256
 # have no counterpart at all.
 [glass]
 
-# Which material. "regular", the default, is the standard frosted material,
-# which Apple's guidelines give a surface with a lot of text. "clear" is the
-# thinner, more transparent one, which they keep for controls over photos and
-# video.
-style = "regular"
+# Which material. "standard", the default, is macOS's standard see-through
+# window material, the one Apple's guidelines put behind an app's content:
+# the desktop shows through faintly, and the window looks subdued while
+# another one is in front. "regular" is Liquid Glass, frosted, and "clear"
+# the thinner, more see-through Liquid Glass, which Apple keeps for controls
+# over photos and video.
+style = "standard"
 
 # The body dim: the opacity EVERY background is painted at, 0 clear to 1
 # opaque, so the desktop shows through it. Not just the default background --
 # a colour an application sets is translucent too, so btop and anything else
-# that paints its own panels is glass rather than a slab. The defaults keep the
-# default text at 4.5:1 or more over a white desktop and over a black one; turn them down for more glass, at the cost of text over a bright
+# that paints its own panels is see-through rather than a slab. The defaults keep the
+# default text at 4.5:1 or more over a white desktop and over a black one; turn them down to see more of the desktop, at the cost of text over a bright
 # window behind. While Accessibility's Reduce Transparency is on, every
 # background and the margin are drawn opaque, whatever these say.
 dim_dark = 0.70
 dim_light = 0.60
 
 # Whether a background an application sets is dimmed with the default one.
-# "dim" draws it at the body dim, so btop's panels are glass. "opaque" draws
+# "dim" draws it at the body dim, so btop's panels are see-through. "opaque" draws
 # every background an application sets as it chose it, and leaves only the
-# default background glass, so btop's panels are solid.
+# default background see-through, so btop's panels are solid.
 app_backgrounds = "dim"
 
 # Under "dim" above, whether a picture drawn in text keeps its backgrounds
@@ -361,9 +363,10 @@ app_backgrounds = "dim"
 # vim's diff mode, has 8) -- and draws only those solid. "dim" dims them too.
 pictures = "opaque"
 
-# The material darkening, applied to the material itself rather than as a
+# The glass darkening, applied to the material itself rather than as a
 # layer over it, so the titlebar strip and the body are one surface. 0 turns
-# it off.
+# it off. It and the hue and saturation below darken Liquid Glass only;
+# the standard material has no tint.
 tint_dark = 0.54
 tint_light = 0.14
 

@@ -67,8 +67,8 @@ pub use cellmap::{
     Swaps, Text, copy_for_shader, takes_stress_mark,
 };
 pub use color::{
-    AppBg, Argb, Floor, MODUS_OPERANDI, PictureBg, Theme, Video, dark_palette, light_palette,
-    xterm_palette,
+    AppBg, Argb, Backdrop, Floor, MODUS_OPERANDI, PictureBg, Theme, Video, dark_palette,
+    light_palette, xterm_palette,
 };
 pub use composite::{Blend, Blit, Page, Target, Texels};
 pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold_over};

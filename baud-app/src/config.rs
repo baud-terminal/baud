@@ -224,14 +224,17 @@ impl Clipboard {
 /// `macos-liquid-glass`, the content both `titled` and `borderless` draw,
 /// and what was built as `glassterm` before the examples were renamed.
 /// **The material and the two dims follow Apple's guidance; the rest is
-/// the example's calibration.** The HIG says to use the regular material
-/// "when components have a significant amount of text"
-/// ([[source: apple-hig-materials]]), and a terminal is all text; the dims
+/// the example's calibration.** The HIG puts a standard material behind
+/// app backgrounds and Liquid Glass on controls
+/// ([[source: apple-hig-materials]]), and a terminal's body is its
+/// content; the dims
 /// are Jev's decided 0.70 and 0.60, which keep default text at or above
 /// 4.5:1, the HIG's minimum ([[source: apple-hig-dark-mode]]), over flat
 /// white and flat black with the material darkening nothing;
 /// `the_default_dims_keep_text_readable_over_white_and_black` computes
 /// that, and is a floor under them, not their derivation.
+/// The tints, the hue and the saturation darken the glass and do nothing
+/// on the standard material, which has no tint.
 /// The tints, the hue, the saturation and the shadow are the example's,
 /// which its header records as "tuned against the system widget over one
 /// wallpaper rather than derived from a measurement" -- a starting point a
@@ -246,13 +249,15 @@ impl Clipboard {
 /// on Linux where there is no such signal.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Glass {
-    /// `style`: which material. `Regular`, the default, is the one the HIG
-    /// gives surfaces with "a significant amount of text"; `Clear` is the
-    /// example's, which the HIG keeps for components "that appear over
-    /// visually rich backgrounds" ([[source: apple-hig-materials]]).
-    /// **Not Jev's pick**: Jev chose clear at 0.92 and 0.95 (decisions
-    /// 716/717), on a request that modelled only clear and left regular
-    /// unmeasured, and the owner asked for Apple's recommendations.
+    /// `style`: which material. `Standard`, the default, is the HIG's
+    /// "Standard materials" for "app backgrounds", where "Don't use Liquid
+    /// Glass in the content layer" ([[source: apple-hig-materials]]; note
+    /// AT). `Regular` is the glass the HIG gives surfaces with "a
+    /// significant amount of text"; `Clear` the example's, which it keeps
+    /// for components "that appear over visually rich backgrounds". One
+    /// key with a third value rather than a sibling, so a config naming a
+    /// glass keeps it: Jev's lean, 0.83/0.73 and after research 0.79/0.77
+    /// (`decisions.jsonl` 796-799).
     pub style: Material,
     /// `dim_dark`: the body dim under a dark appearance, 0 to 1. The
     /// palette's background is painted at this.
@@ -296,15 +301,23 @@ pub struct Glass {
     pub pictures: baud_render::PictureBg,
 }
 
-/// Which `NSGlassEffectView` style the surface asks for.
+/// Which material the window's body is: the see-through standard
+/// material, or an `NSGlassEffectView` style.
 ///
-/// Named for what it selects rather than `GlassStyle`, which is the
-/// crate's own type: this one has to compile on Linux, so it carries the
+/// Named for what it selects rather than for the crate's types, which
+/// are macOS-only: this one has to compile on Linux, so it carries the
 /// choice and the driver maps it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Material {
-    Clear,
+    /// `.underWindowBackground`, behind-window blending, its state
+    /// following the window's: Apple's standard material for app
+    /// backgrounds ([[source: apple-hig-materials]]; note AT). The default
+    /// since the owner took that recommendation, 2026-10-18.
     #[default]
+    Standard,
+    /// Clear Liquid Glass.
+    Clear,
+    /// Regular Liquid Glass.
     Regular,
 }
 
@@ -320,14 +333,14 @@ pub enum Shadow {
 }
 
 impl Glass {
-    /// The regular material, dims of 0.70 and 0.60 -- where the example's
+    /// The standard material, dims of 0.70 and 0.60 -- where the example's
     /// `GN_GLASS` is clear, `GN_PAPER_D` 0.22 and `GN_PAPER_L` 0.12, which
     /// put default text at 1.14:1 and 1.13:1 over white and black -- and
     /// the rest the example's own `GN_*` defaults: `GN_GT_D` 0.54,
     /// `GN_GT_L` 0.14, `GN_HUE` 0.60, `GN_HSAT` 0.80, `GN_SHADOW` auto.
     pub fn defaults() -> Glass {
         Glass {
-            style: Material::Regular,
+            style: Material::Standard,
             dim_dark: 0.70,
             dim_light: 0.60,
             tint_dark: 0.54,
@@ -1019,12 +1032,13 @@ impl Config {
                 }
                 ("glass", "style") => {
                     self.glass.style = match value.trim().trim_matches('"') {
+                        "standard" => Material::Standard,
                         "clear" => Material::Clear,
                         "regular" => Material::Regular,
                         other => {
                             said.push(format!(
-                                "config: glass style {other:?} is not clear or regular; \
-                                 using regular"
+                                "config: glass style {other:?} is not standard, regular or clear; \
+                                 using standard"
                             ));
                             Glass::defaults().style
                         }
@@ -1557,7 +1571,7 @@ mod reader {
     #[test]
     fn the_glass_defaults_are_pinned_by_value() {
         let g = Config::defaults().glass;
-        assert_eq!(g.style, Material::Regular);
+        assert_eq!(g.style, Material::Standard);
         assert_eq!(g.style, Material::default(), "the enum agrees");
         assert_eq!(g.shadow, Shadow::Auto);
         assert_eq!((g.dim_dark, g.dim_light), (0.70, 0.60));
@@ -2158,7 +2172,7 @@ shadow     = "never"
     #[test]
     fn a_top_level_key_does_not_reach_the_glass_section() {
         let c = read("style = \"clear\"\nhue = 0.1\nshadow = \"never\"\n");
-        assert_eq!(c.glass.style, Material::Regular, "top-level style leaked");
+        assert_eq!(c.glass.style, Material::Standard, "top-level style leaked");
         assert_eq!(c.glass.hue, 0.60, "top-level hue leaked");
         assert_eq!(c.glass.shadow, Shadow::Auto, "top-level shadow leaked");
     }
@@ -2514,6 +2528,23 @@ shadow     = "never"
         let c = read("[glass]\nstyle = \"frosted\"\nshadow = \"sometimes\"\n");
         assert_eq!(c.glass.style, Glass::defaults().style);
         assert_eq!(c.glass.shadow, Shadow::Auto);
+    }
+
+    /// **The standard material is the default and Liquid Glass is a word
+    /// away** (the owner, 2026-10-18: "use the recommendations"): a config
+    /// that names `regular` or `clear` keeps the glass it asked for, and
+    /// `standard` names the default.
+    #[test]
+    fn style_selects_the_standard_material_or_either_glass() {
+        assert_eq!(read("").glass.style, Material::Standard);
+        for (word, want) in [
+            ("standard", Material::Standard),
+            ("regular", Material::Regular),
+            ("clear", Material::Clear),
+        ] {
+            let c = read(&format!("[glass]\nstyle = \"{word}\"\n"));
+            assert_eq!(c.glass.style, want, "{word}");
+        }
     }
 
     /// `background_alpha` is recognised only to be reported gone. The

@@ -1,9 +1,14 @@
 # AT. A standard material for the window body
 
-Status: researched 2026-10-17. Nothing is built. Moving the body to a
-standard material needs the owner's crate, so it is the owner's call
-(section 7). The figures in sections 5 and 6 come from a model. They were
-not measured in pixels, and no window was opened.
+Status: researched 2026-10-17; built 2026-10-18, after the owner took
+the proposal ("use the recommendations"). The body is
+`.underWindowBackground` by default, `[glass] style = "standard"`, and
+regular and clear Liquid Glass stay selectable; the dims hold. The
+contrast floor reads text against this note's model of the material, the
+Sidebar recipe's ends over a black and a white desktop (record, "The
+window body is the standard material"). The figures in sections 5 and 6
+come from a model. They were not measured in pixels, and no window was
+opened.
 
 The owner, 2026-10-17, verbatim: "we should follow apple recommendations for
 osx" (note AS).

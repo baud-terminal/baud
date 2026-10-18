@@ -43,7 +43,7 @@ baud-present-macos = { path = "../baud-present-macos" }
 # asked returns (`widen_later`). The version `baud-present-macos` takes, with
 # only what `MainThreadBound` needs.
 dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
-macos-liquid-glass = { version = "1.0.0-beta.5", features = ["drawable"] }
+macos-liquid-glass = { version = "1.0.0-beta.6", features = ["drawable"] }
 
 [features]
 # **A ceiling arm for row 11, off.** `present` returns early when nothing

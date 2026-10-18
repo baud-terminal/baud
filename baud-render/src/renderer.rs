@@ -3558,8 +3558,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let fg = self.theme.floor.lift(fg, bg, (text_word, page_word));
         let opaque_bg = self.theme.opaque_bg(style, self.video);
         // **The floor again, on the glass** (Jev, logged: 0.96 and 0.99),
-        // measured against the page at its alpha over anything from black
-        // to white (Jev's lean, 0.60/0.59, decisions 736-737), since the
+        // measured against the page at its alpha over what the material
+        // can show, `Theme::backdrop` -- black to white on the glass (Jev's
+        // lean, 0.60/0.59, decisions 736-737) -- since the
         // renderer draws onto a target with nothing under it and the glass
         // is the window server's (`Floor::lift_on_glass`). It covers a page
         // the program set; the default page is left out: its own text is
@@ -3569,7 +3570,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let glass = if page_word.is_default() || opaque_bg || self.theme.bg_alpha.get() == 0xFF {
             fg
         } else {
-            self.theme.floor.lift_on_glass(fg, bg, self.theme.bg_alpha)
+            self.theme
+                .floor
+                .lift_on_glass(fg, bg, self.theme.bg_alpha, self.theme.backdrop)
         };
         // **Every background is translucent, not only the default one**:
         // the owner's call of 2026-09-20. A picture's and an opaque

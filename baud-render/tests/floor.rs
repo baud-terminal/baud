@@ -13,8 +13,8 @@ use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, StyleWord, WinSize};
 use baud_font::Face;
 use baud_render::{
-    Argb, Blend, BlinkPhases, BlockCursor, Floor, Line, Pictured, Pictures, PxSize, Renderer,
-    Resolved, Selected, Shapes, Stack, Swaps, Theme, Video, xterm_palette,
+    Argb, Backdrop, Blend, BlinkPhases, BlockCursor, Floor, Line, Pictured, Pictures, PxSize,
+    Renderer, Resolved, Selected, Shapes, Stack, Swaps, Theme, Video, xterm_palette,
 };
 use support::font;
 
@@ -434,6 +434,15 @@ fn drawn_as(slot: Resolved, pictured: Pictured, line: Line) -> (Argb, Argb) {
 /// channel in encoded sRGB, rounded as `Argb::mix` rounds -- computed here
 /// and not through it.
 fn range(bg: Argb, alpha: u8) -> (f64, f64) {
+    range_over(bg, alpha, ANY)
+}
+
+/// Every grey, black to white: the glass's backdrop, [`Backdrop::any`].
+const ANY: (u8, u8) = (0, 255);
+
+/// `bg`'s range at `alpha` over a material whose every channel lies
+/// between the greys `dark` and `light`.
+fn range_over(bg: Argb, alpha: u8, (dark, light): (u8, u8)) -> (f64, f64) {
     let a = u32::from(alpha);
     let over = |v: u32| {
         let m = |x: Chan| {
@@ -442,14 +451,19 @@ fn range(bg: Argb, alpha: u8) -> (f64, f64) {
         };
         lum(Argb::rgb(m(bg.r()), m(bg.g()), m(bg.b())))
     };
-    (over(0), over(255))
+    (over(u32::from(dark)), over(u32::from(light)))
 }
 
 /// `text`'s contrast against the part of `bg`'s range most like it, WCAG
 /// F83's "those parts of the image that are most like the text": 1 when
 /// the text falls inside the range.
 fn behind(text: Argb, bg: Argb, alpha: u8) -> f64 {
-    let ((lo, hi), l) = (range(bg, alpha), lum(text));
+    behind_over(text, bg, alpha, ANY)
+}
+
+/// [`behind`] over a material between the greys `greys`.
+fn behind_over(text: Argb, bg: Argb, alpha: u8, greys: (u8, u8)) -> f64 {
+    let ((lo, hi), l) = (range_over(bg, alpha, greys), lum(text));
     if l >= hi {
         (l + 0.05) / (hi + 0.05)
     } else if l <= lo {
@@ -461,7 +475,12 @@ fn behind(text: Argb, bg: Argb, alpha: u8) -> f64 {
 
 /// Whether any colour reads at `target` against all of `bg`'s range.
 fn reachable(bg: Argb, alpha: u8, target: f64) -> bool {
-    let (lo, hi) = range(bg, alpha);
+    reachable_over(bg, alpha, target, ANY)
+}
+
+/// [`reachable`] over a material between the greys `greys`.
+fn reachable_over(bg: Argb, alpha: u8, target: f64, greys: (u8, u8)) -> bool {
+    let (lo, hi) = range_over(bg, alpha, greys);
     (lo + 0.05) / target - 0.05 >= 0.0 || target * (hi + 0.05) - 0.05 <= 1.0
 }
 
@@ -888,7 +907,7 @@ fn the_glass_floor_lands_where_the_brute_force_does() {
                 Chan::from_u8(level(g)),
                 Chan::from_u8(level(b)),
             );
-            let got = Floor::DEFAULT.lift_on_glass(fg, page, Chan::from_u8(alpha));
+            let got = Floor::DEFAULT.lift_on_glass(fg, page, Chan::from_u8(alpha), Backdrop::any());
             if got == fg {
                 continue;
             }
@@ -1326,4 +1345,135 @@ fn placed(name: &str) -> Vec<u8> {
         bytes.extend(line.as_bytes());
     }
     bytes
+}
+
+/// The see-through standard material's greys (note AT's Sidebar recipe
+/// over a black desktop and a white one, rounded outward), as
+/// [`Backdrop::under_window_dark`] and [`Backdrop::under_window_light`]
+/// carry them.
+const UNDER_DARK: (u8, u8) = (33, 92);
+const UNDER_LIGHT: (u8, u8) = (196, 235);
+
+/// **Default text reads at 4.5:1 over the standard material, whatever the
+/// desktop**, at the shipped dims: the text on the default page at alpha
+/// 179 and 153, against the page over either end of its half's greys.
+/// The ends bound every desktop, so this holds over each of note AT's 21
+/// wallpapers; at the ends it is note AT's white and black rows, 10.52
+/// and 12.77 dark, 12.78 and 11.10 light, to within the greys' rounding
+/// outward and the mix's rounding to a code.
+#[test]
+fn default_text_reads_at_the_target_over_the_standard_material() {
+    for (theme, alpha, greys, want) in [
+        (Theme::dark(), DIM, UNDER_DARK, (10.52, 12.77)),
+        (Theme::light(), LIGHT_DIM, UNDER_LIGHT, (11.10, 12.78)),
+    ] {
+        let (lo, hi) = range_over(theme.bg, alpha, greys);
+        let t = lum(theme.fg);
+        let ratio = |b: f64| (t.max(b) + 0.05) / (t.min(b) + 0.05);
+        let (a, b) = (ratio(lo), ratio(hi));
+        let (low, high) = (a.min(b), a.max(b));
+        assert!(low >= 4.5, "{low:.2}");
+        assert!(
+            (low - want.0).abs() < 0.05 && (high - want.1).abs() < 0.05,
+            "note AT's rows: {low:.2} / {high:.2}"
+        );
+    }
+}
+
+/// **Over the standard material the floor reads text against the
+/// material's own range** (note AT): far narrower than the glass's black
+/// to white, so far less is lifted. btop's `#404040` meter ground on its
+/// black page reads 1.03:1 against the glass's range at alpha 179 and is
+/// lifted to `#bcbcbc`; against the standard material's it reads 1.66:1,
+/// above the trigger, and is drawn as btop drew it.
+#[test]
+fn btops_meter_ground_is_drawn_as_asked_over_the_standard_material() {
+    let sgr = "38;2;64;64;64;48;2;0;0;0";
+    let standard = Theme {
+        bg_alpha: Chan::from_u8(DIM),
+        backdrop: Backdrop::under_window_dark(),
+        ..Theme::dark()
+    };
+    let (_, _, (fg, bg), slot) = cells(glass(), &[sgr.into()]).remove(0);
+    let (text, _) = drawn_fg(slot, Pictured::No, Selected::No);
+    assert_eq!(rgb(text), [0xbc; 3], "the control: lifted over the glass");
+    assert!(behind_over(fg, bg, DIM, UNDER_DARK) >= 1.2, "the premise");
+    let (_, _, _, slot) = cells(standard, &[sgr.into()]).remove(0);
+    let (text, _) = drawn_fg(slot, Pictured::No, Selected::No);
+    assert_eq!(rgb(text), rgb(fg), "drawn as asked");
+}
+
+/// **Every pair reads where the floor promises, over the standard
+/// material.** Every colour eight steps a channel on the five pages of
+/// [`the_glass_floor_lands_where_the_brute_force_does`], each half under
+/// its own material's greys: a pair asked at a trigger or above that the
+/// floor keeps reads at it against the range, and a lifted one reads at
+/// its target -- 4.5, or 3 where 4.5 is out of reach -- or is the extreme.
+/// Fewer are lifted than over the glass on every page.
+#[test]
+fn the_floor_over_the_standard_material_keeps_its_promise() {
+    let level = |i: u8| i * 36 + 3;
+    let page =
+        |r: u8, g: u8, b: u8| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b));
+    let dark = (Backdrop::under_window_dark(), UNDER_DARK, DIM);
+    let light = (Backdrop::under_window_light(), UNDER_LIGHT, LIGHT_DIM);
+    let cases = [
+        (page(0, 0, 0), dark),
+        (page(0x45, 0x28, 0x59), light),
+        (page(0xff, 0xff, 0xff), light),
+        (page(0xa8, 0x99, 0x84), dark),
+        (page(0x45, 0x28, 0x59), dark),
+    ];
+    let mut total = 0;
+    for (page, (backdrop, greys, alpha)) in cases {
+        let to = if reachable_over(page, alpha, 4.5, greys)
+            || !reachable_over(page, alpha, 3.0, greys)
+        {
+            4.5
+        } else {
+            3.0
+        };
+        let (mut lifted, mut over_glass) = (0, 0);
+        for (r, g, b) in
+            (0..8).flat_map(|r| (0..8).flat_map(move |g| (0..8).map(move |b| (r, g, b))))
+        {
+            let fg = Argb::rgb(
+                Chan::from_u8(level(r)),
+                Chan::from_u8(level(g)),
+                Chan::from_u8(level(b)),
+            );
+            let a = Chan::from_u8(alpha);
+            if Floor::DEFAULT.lift_on_glass(fg, page, a, Backdrop::any()) != fg {
+                over_glass += 1;
+            }
+            let got = Floor::DEFAULT.lift_on_glass(fg, page, a, backdrop);
+            let asked = contrast(fg, page);
+            let k = if asked >= 3.0 { 3.0 } else { 1.2 };
+            let reads = behind_over(got, page, alpha, greys);
+            if got == fg {
+                assert!(
+                    asked < k || reads >= k,
+                    "{:?} on {:?}: kept at {reads:.3}",
+                    rgb(fg),
+                    rgb(page)
+                );
+            } else {
+                lifted += 1;
+                assert!(
+                    reads >= to * (1.0 - 1e-9) || extreme(got),
+                    "{:?} on {:?}: {:?} reads {reads:.4}",
+                    rgb(fg),
+                    rgb(page),
+                    rgb(got)
+                );
+            }
+        }
+        assert!(
+            lifted < over_glass,
+            "{:?}: {lifted} lifted, {over_glass} over the glass",
+            rgb(page)
+        );
+        total += lifted;
+    }
+    assert!(total > 50, "the premise: {total} colours lifted");
 }

@@ -169,7 +169,8 @@ pub fn run() {
     }
     // The theme `half_theme` builds is the one macOS builds for the same
     // half, dim included: `[glass]`'s material has no counterpart here,
-    // and the dim follows the half drawn.
+    // and the dim follows the half drawn. Only the backdrop differs: with
+    // no material modelled, the floor reads text against black to white.
     let theme = crate::palette::half_theme(half, &cfg.glass, cfg.floor, &halves);
     let margin = theme.bg.with_alpha(theme.bg_alpha);
     let mut renderer = Renderer::new(

@@ -155,8 +155,9 @@ impl Floor {
     pub const GLASS_TRIGGER: f64 = 3.0;
 
     /// `text` as drawn on `page`, which the window draws at `alpha` over
-    /// whatever the glass shows: lifted when the pair reads below a trigger
-    /// against what can be behind it ([`Behind::glass`]) and **not** below
+    /// whatever its material shows, `backdrop`: lifted when the pair reads
+    /// below a trigger against what can be behind it ([`Behind::over`]) and
+    /// **not** below
     /// it on `page`. Two bands: the floor's own trigger, and
     /// [`Floor::GLASS_TRIGGER`] (or the floor's, when that is higher) for a
     /// pair asked at it or above, so a pair asked below 3 is never lifted by
@@ -182,7 +183,7 @@ impl Floor {
     /// the same contrast. Greys have no hue, so greys lifted to one target
     /// still land on one grey. Jev's lean, below the bar (`decisions.jsonl`
     /// 754-755), and open to the owner.
-    pub fn lift_on_glass(self, text: Argb, page: Argb, alpha: Chan) -> Argb {
+    pub fn lift_on_glass(self, text: Argb, page: Argb, alpha: Chan, backdrop: Backdrop) -> Argb {
         let Floor::Lift { trigger, target } = self else {
             return text;
         };
@@ -190,7 +191,7 @@ impl Floor {
         let asked = lt.ratio(lp);
         let glass = trigger.max(Floor::GLASS_TRIGGER);
         let k = if asked >= glass { glass } else { trigger };
-        let behind = Behind::glass(page, alpha);
+        let behind = Behind::over(page, alpha, backdrop);
         if behind.ratio(lt) >= k || asked < k {
             return text;
         }
@@ -243,9 +244,64 @@ impl Floor {
     }
 }
 
+/// What the window's material can show under a page drawn below full
+/// alpha: every channel of it lies between two greys, in encoded sRGB.
+///
+/// **[`Backdrop::any`], black to white, is Liquid Glass's**, bounded where
+/// the material darkens nothing (note AS, section 3), and the bound for
+/// any window whose material is not modelled, Linux's among them.
+///
+/// **The see-through standard material is far narrower**, because its
+/// recipe lays an opaque grey over the blurred desktop (note AT, section
+/// 4). Fed a black desktop and a white one, the recipe gives the two ends
+/// of each half, and every desktop lands between them: the blurred,
+/// saturated desktop is clipped to black..white, and every later step --
+/// the grey over it, the lighten or darken, the tint -- rises with what it
+/// is given. Rounded outward, they are
+/// [`Backdrop::under_window_dark`] and [`Backdrop::under_window_light`].
+/// **Modelled, not measured**: the recipe is the shipped Sidebar's, which
+/// note AT takes as a stand-in for `.underWindowBackground`, whose own was
+/// found in none of the system's catalogs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Backdrop {
+    dark: Chan,
+    light: Chan,
+}
+
+impl Backdrop {
+    /// Anything from black to white.
+    pub fn any() -> Backdrop {
+        Backdrop {
+            dark: Chan::from_u8(0x00),
+            light: Chan::from_u8(0xFF),
+        }
+    }
+
+    /// The see-through standard material under the dark appearance: grey
+    /// 33.9 over a black desktop and 91.6 over a white one (the Sidebar
+    /// recipe: a 0.1569 grey at alpha 0.80 over the blurred desktop,
+    /// lightened to 0.14, and 5% of the desktop's mean tint).
+    pub fn under_window_dark() -> Backdrop {
+        Backdrop {
+            dark: Chan::from_u8(33),
+            light: Chan::from_u8(92),
+        }
+    }
+
+    /// The same under the light appearance: grey 196.3 over a black
+    /// desktop and 234.4 over a white one (a 0.9647 grey at alpha 0.84,
+    /// darkened to 0.915, and 5% of the tint).
+    pub fn under_window_light() -> Backdrop {
+        Backdrop {
+            dark: Chan::from_u8(196),
+            light: Chan::from_u8(235),
+        }
+    }
+}
+
 /// What can be behind text, as the darkest and the lightest luminance of
 /// it: one colour for a page drawn solid, a range for a page the window
-/// draws over the glass.
+/// draws over its material.
 #[derive(Clone, Copy)]
 struct Behind {
     dark: Lum,
@@ -260,22 +316,22 @@ impl Behind {
         }
     }
 
-    /// `page` at `alpha` over anything the glass can show, bounded where
-    /// the material darkens nothing (note AS, section 3): source-over in
-    /// encoded sRGB, rounded as [`Argb::mix`] rounds, over black for the
-    /// darkest and over white for the lightest. A channel of the result
-    /// rises with the backdrop's, so every backdrop lands between the two.
+    /// `page` at `alpha` over anything the material can show, `backdrop`:
+    /// source-over in encoded sRGB, rounded as [`Argb::mix`] rounds, over
+    /// its darkest grey for the darkest and its lightest for the lightest.
+    /// A channel of the result rises with the backdrop's, so every colour
+    /// whose channels lie between the two greys lands between the two.
     /// **The text reads against the part most like it**: WCAG 2.2's
     /// contrast is "with respect to the specified background over which
     /// the text is rendered" (`[[source: wcag22]]`, contrast ratio, note
     /// 3), and over an image, against "those parts of the image that are
     /// most like the text and behind the text"
     /// (`[[source: wcag22-technique-f83]]`).
-    fn glass(page: Argb, alpha: Chan) -> Behind {
-        let over = |v: u8| page.mix(grey(v), alpha);
+    fn over(page: Argb, alpha: Chan, backdrop: Backdrop) -> Behind {
+        let over = |v: Chan| page.mix(grey(v.get()), alpha);
         Behind {
-            dark: Lum::of(over(0)),
-            light: Lum::of(over(0xFF)),
+            dark: Lum::of(over(backdrop.dark)),
+            light: Lum::of(over(backdrop.light)),
         }
     }
 
@@ -730,6 +786,10 @@ pub struct Theme {
     pub picture_bg: PictureBg,
     /// The contrast floor, [`Floor::DEFAULT`] on both built-in themes.
     pub floor: Floor,
+    /// What the window's material can show under a page drawn below full
+    /// alpha, which the floor reads text against ([`Floor::lift_on_glass`]).
+    /// [`Backdrop::any`] on both built-in themes.
+    pub backdrop: Backdrop,
     pub palette: [Argb; 256],
 }
 
@@ -802,6 +862,7 @@ impl Theme {
             app_bg: AppBg::Dimmed,
             picture_bg: PictureBg::Opaque,
             floor: Floor::DEFAULT,
+            backdrop: Backdrop::any(),
             palette: dark_palette(),
         }
     }
@@ -828,6 +889,7 @@ impl Theme {
             app_bg: AppBg::Dimmed,
             picture_bg: PictureBg::Opaque,
             floor: Floor::DEFAULT,
+            backdrop: Backdrop::any(),
             palette: light_palette(),
         }
     }

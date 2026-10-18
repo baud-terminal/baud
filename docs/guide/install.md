@@ -6,8 +6,8 @@ Applications.
 
 ## What you need
 
-- **A Mac running macOS 26 or later.** baud's window is made of macOS 26's
-  Liquid Glass, so it will not open on an older system.
+- **A Mac running macOS 26 or later.** On an older system baud says what
+  it needs and quits.
 - **[Nix](https://nixos.org) and [devenv](https://devenv.sh).** They fetch
   the exact compiler and tools baud is built with, so you do not install a
   Rust toolchain yourself.

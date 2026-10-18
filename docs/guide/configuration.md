@@ -1,8 +1,8 @@
 # Configuration
 
 baud needs no configuration. With none it uses JetBrains Mono at 13 points,
-follows your Mac's light or dark appearance, and draws its window in Liquid
-Glass. A config file changes only what you put in it.
+follows your Mac's light or dark appearance, and draws its window in the
+Mac's standard see-through material. A config file changes only what you put in it.
 
 ## Where the file goes
 
@@ -136,18 +136,18 @@ trail is off, unless you name a trail here.
 
 ## [glass]
 
-The window's material and how dark it is. Four of these come in pairs, one
-for the dark appearance and one for the light, because the same darkening
-that suits a dark desktop is far too much over a light one.
+The window's material and how solid it is. Several of these come in pairs,
+one for the dark appearance and one for the light, because the same
+darkening that suits a dark desktop is far too much over a light one.
 
 | key | values | default | what it changes |
 |---|---|---|---|
-| `style` | `"regular"`, `"clear"` | `"regular"` | The glass: `"regular"` is frosted, the material Apple recommends behind a lot of text; `"clear"` is thinner and more see-through. |
-| `dim_dark` | 0 to 1 | `0.70` | How solid the background is under the dark appearance, from 0 (clear) to 1 (opaque). The default keeps text readable at Apple's minimum contrast even over a white window behind; turn it down for more glass. |
+| `style` | `"standard"`, `"regular"`, `"clear"` | `"standard"` | The window's material. `"standard"` is the Mac's standard see-through window material, the one Apple puts behind an app's content: the desktop shows through faintly, and the window looks subdued while another one is in front. `"regular"` is Liquid Glass, frosted; `"clear"` is thinner, more see-through Liquid Glass. |
+| `dim_dark` | 0 to 1 | `0.70` | How solid the background is under the dark appearance, from 0 (clear) to 1 (opaque). The default keeps text readable at Apple's minimum contrast even over a white window behind; turn it down to see more of the desktop. |
 | `dim_light` | 0 to 1 | `0.60` | The same, under the light appearance, where the default keeps text readable over a black window behind. |
 | `app_backgrounds` | `"dim"`, `"opaque"` | `"dim"` | Whether backgrounds a program paints, such as btop's panels, are see-through like the rest (`"dim"`) or solid (`"opaque"`). |
 | `pictures` | `"opaque"`, `"dim"` | `"opaque"` | Whether a picture drawn with text characters, such as a file manager's photo preview, is kept solid so it reads as a picture. |
-| `tint_dark` | 0 to 1 | `0.54` | How much the glass itself is darkened under the dark appearance. `0` turns it off. |
+| `tint_dark` | 0 to 1 | `0.54` | How much Liquid Glass itself is darkened under the dark appearance. `0` turns it off. This and the next three keys change Liquid Glass only. |
 | `tint_light` | 0 to 1 | `0.14` | The same, under the light appearance. |
 | `hue` | 0 to 1 | `0.60` | The colour of that darkening; `0.60` is a blue. |
 | `saturation` | 0 to 1 | `0.80` | How strong that colour is. |
@@ -155,7 +155,7 @@ that suits a dark desktop is far too much over a light one.
 
 While Reduce Transparency is on in System Settings, Accessibility, Display,
 every background and the margin around the text are drawn solid, whatever
-the dims say, and go back to glass when it is turned off.
+the dims say, and go back to see-through when it is turned off.
 
 On Linux `theme = "auto"` means dark, so `dim_dark` is used unless
 `theme = "light"`; `style`, the tints, `hue`, `saturation` and `shadow` have

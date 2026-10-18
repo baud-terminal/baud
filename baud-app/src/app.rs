@@ -38,6 +38,7 @@ use macos_liquid_glass::drawable::{
     MouseKind as ViewMouseKind, Rect, Responder, Scroll, Waker,
 };
 use macos_liquid_glass::glass::{GlassError, GlassStyle, GlassSurface};
+use macos_liquid_glass::material::MaterialSurface;
 use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{MainThreadOnly, Message};
 use macos_liquid_glass::objc2_app_kit::{
@@ -788,7 +789,7 @@ impl Boot {
             crate::config::ThemeChoice::Light => Appearance::Light,
             _ => Appearance::Dark,
         };
-        let theme = theme_for(appearance, &cfg.glass, cfg.floor, &halves);
+        let theme = theme_for(appearance, &cfg.glass, cfg.theme, cfg.floor, &halves);
         let space = match cfg.colorspace {
             crate::config::Space::Srgb => SurfaceSpace::Srgb,
             crate::config::Space::DisplayP3 => SurfaceSpace::DisplayP3,
@@ -2203,15 +2204,18 @@ fn hsb(h: f32, sat: f32, b: f32, alpha: f32) -> Retained<NSColor> {
 /// that painting and no key for it, so a Tinted desktop gets the material
 /// darkening and no theme colour.
 fn apply_glass(
-    glass: &GlassSurface,
+    body: &Body,
     window: &GlassWindow,
     cfg: &crate::config::Glass,
     appearance: Appearance,
 ) {
     let dark = appearance == Appearance::Dark;
-    let strength = if dark { cfg.tint_dark } else { cfg.tint_light };
-    let color = (strength > 0.0).then(|| hsb(cfg.hue, cfg.saturation, 0.10, strength));
-    glass.set_tint_color(color.as_deref());
+    // A visual effect view has no tint: the darkening is the glass's.
+    if let Body::Glass(glass) = body {
+        let strength = if dark { cfg.tint_dark } else { cfg.tint_light };
+        let color = (strength > 0.0).then(|| hsb(cfg.hue, cfg.saturation, 0.10, strength));
+        glass.set_tint_color(color.as_deref());
+    }
     window.set_has_shadow(match cfg.shadow {
         crate::config::Shadow::Always => true,
         crate::config::Shadow::Never => false,
@@ -2219,11 +2223,121 @@ fn apply_glass(
     });
 }
 
+/// The window's body, from `[glass] style`: the see-through standard
+/// material, `.underWindowBackground`, by default -- Apple's material for
+/// app backgrounds, where Liquid Glass belongs to controls
+/// ([[source: apple-hig-materials]]; note AT) -- or Liquid Glass, regular
+/// or clear. Both are retains: a clone addresses the one AppKit view.
+#[derive(Clone)]
+enum Body {
+    Standard(MaterialSurface),
+    Glass(GlassSurface),
+}
+
+impl Body {
+    /// The body `style` names, at `frame`. Only the glass can fail, on a
+    /// system without it, and that refuses the launch as the check in
+    /// [`run`] does.
+    fn of(mtm: MainThreadMarker, frame: NSRect, style: crate::config::Material) -> Body {
+        let glass = |style| {
+            GlassSurface::new(mtm, frame, style, 16.0)
+                .unwrap_or_else(|e| refuse(refusal_message(&e)))
+        };
+        match style {
+            crate::config::Material::Standard => Body::Standard(MaterialSurface::new(
+                mtm,
+                frame,
+                macos_liquid_glass::material::Material::UnderWindowBackground,
+            )),
+            crate::config::Material::Regular => Body::Glass(glass(GlassStyle::Regular)),
+            crate::config::Material::Clear => Body::Glass(glass(GlassStyle::Clear)),
+        }
+    }
+
+    /// The body as a plain view, for the window's content.
+    fn view(&self) -> &NSView {
+        match self {
+            Body::Standard(m) => m.view(),
+            Body::Glass(g) => g.view(),
+        }
+    }
+
+    /// Which kind of body this is, for [`drawn_in`].
+    fn kind(&self) -> BodyKind {
+        match self {
+            Body::Standard(_) => BodyKind::Standard,
+            Body::Glass(_) => BodyKind::Glass,
+        }
+    }
+
+    /// The appearance this body draws in, which the shadow follows.
+    fn appearance(&self, window: &GlassWindow) -> Appearance {
+        drawn_in(
+            self.kind(),
+            appearance_of(window),
+            material_appearance(window),
+        )
+    }
+
+    /// Put the terminal's container on the material.
+    fn set_content_view(&self, content: &NSView) {
+        match self {
+            Body::Standard(m) => m.set_content_view(content),
+            Body::Glass(g) => g.set_content_view(content),
+        }
+    }
+}
+
+/// The two kinds of [`Body`], without the views.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BodyKind {
+    Standard,
+    Glass,
+}
+
+/// The appearance a body draws in: **the standard material follows the
+/// view's effective appearance** ("their exact look depends on the view's
+/// effectiveAppearance", [[source: sdk27-nsvisualeffectview-h]] line 18),
+/// which baud leaves the system's, `system`; the glass follows Icon &
+/// widget style, `widget` ([`material_appearance`]). A Dark system under
+/// a ClearLight widget style draws a dark standard material, so `shadow =
+/// "auto"` casts one.
+fn drawn_in(kind: BodyKind, system: Appearance, widget: Appearance) -> Appearance {
+    match kind {
+        BodyKind::Standard => system,
+        BodyKind::Glass => widget,
+    }
+}
+
+/// What the floor reads text against under the page: the see-through
+/// standard material's greys for the half, from note AT's model, while
+/// the palette follows the system -- the material follows the window's
+/// appearance, so a palette that follows it too sits on that half's
+/// material. Black to white over the glass (note AS), and under a pinned
+/// palette, which can sit on either half's material. Jev, 0.98/0.97
+/// (`decisions.jsonl` 796/797).
+fn backdrop(
+    style: crate::config::Material,
+    half: crate::palette::Half,
+    choice: crate::config::ThemeChoice,
+) -> baud_render::Backdrop {
+    use crate::config::{Material, ThemeChoice};
+    use crate::palette::Half;
+    use baud_render::Backdrop;
+    match (style, choice, half) {
+        (Material::Standard, ThemeChoice::Auto, Half::Dark) => Backdrop::under_window_dark(),
+        (Material::Standard, ThemeChoice::Auto, Half::Light) => Backdrop::under_window_light(),
+        _ => Backdrop::any(),
+    }
+}
+
 /// The palette an appearance resolves to, at the configured opacity: the
-/// built-in half, with the theme file named for it laid over it.
+/// built-in half, with the theme file named for it laid over it, read
+/// against what the body can show under it ([`backdrop`]).
 fn theme_for(
     appearance: Appearance,
     glass: &crate::config::Glass,
+    choice: crate::config::ThemeChoice,
     floor: baud_render::Floor,
     halves: &crate::palette::Halves,
 ) -> Theme {
@@ -2231,7 +2345,9 @@ fn theme_for(
         Appearance::Dark => crate::palette::Half::Dark,
         Appearance::Light => crate::palette::Half::Light,
     };
-    crate::palette::half_theme(half, glass, floor, halves)
+    let mut theme = crate::palette::half_theme(half, glass, floor, halves);
+    theme.backdrop = backdrop(glass.style, half, choice);
+    theme
 }
 
 /// Both palettes, built once at launch from the config: an appearance flip
@@ -2244,12 +2360,13 @@ struct Themes {
 impl Themes {
     fn of(
         glass: &crate::config::Glass,
+        choice: crate::config::ThemeChoice,
         floor: baud_render::Floor,
         halves: &crate::palette::Halves,
     ) -> Themes {
         Themes {
-            dark: theme_for(Appearance::Dark, glass, floor, halves),
-            light: theme_for(Appearance::Light, glass, floor, halves),
+            dark: theme_for(Appearance::Dark, glass, choice, floor, halves),
+            light: theme_for(Appearance::Light, glass, choice, floor, halves),
         }
     }
 
@@ -2267,7 +2384,12 @@ pub(crate) fn themes_for_test(
     glass: &crate::config::Glass,
     floor: baud_render::Floor,
 ) -> (baud_render::Floor, baud_render::Floor) {
-    let t = Themes::of(glass, floor, &crate::palette::Halves::default());
+    let t = Themes::of(
+        glass,
+        crate::config::ThemeChoice::Auto,
+        floor,
+        &crate::palette::Halves::default(),
+    );
     (t.dark.floor, t.light.floor)
 }
 
@@ -2276,6 +2398,7 @@ pub(crate) fn themes_for_test(
 pub(crate) fn themes_with(halves: &crate::palette::Halves) -> (Theme, Theme) {
     let t = Themes::of(
         &crate::config::Glass::defaults(),
+        crate::config::ThemeChoice::Auto,
         baud_render::Floor::DEFAULT,
         halves,
     );
@@ -2476,7 +2599,7 @@ struct Driver {
     /// is a leak of exactly one window on a process that never tears its
     /// window down before it exits, and is the same trade the style
     /// observer is deliberately `forget`ten for.
-    glass: GlassSurface,
+    glass: Body,
     window: GlassWindow,
     /// The title the window was last given, so a program's `OSC 0` or
     /// `OSC 2` reaches it once rather than on every read.
@@ -7675,7 +7798,9 @@ fn refusal(glass: Glass) -> Option<String> {
     }
 }
 
-/// Whether this system has `NSGlassEffectView`, the window's material.
+/// Whether this system has `NSGlassEffectView`, Liquid Glass. The
+/// launch still asks for it under the standard material: macOS 26 is the
+/// release baud is built and measured on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Glass {
     Present,
@@ -7847,32 +7972,22 @@ pub fn run() {
     }
     let inset = measured;
     let frame = NSRect::new(NSPoint::new(0.0, 0.0), size);
-    // **The material is the config's, and it is chosen once.** `Regular`,
-    // the default, is the standard material, which the HIG gives surfaces
-    // with "a significant amount of text"; `Clear` is the more transparent
-    // one, kept for components "that appear over visually rich backgrounds"
-    // ([[source: apple-hig-materials]]). A terminal body is text over
-    // whatever is behind the window, so it is the first case. Jev picked
-    // clear (0.92/0.95, decisions 716/717) and is not followed: its request
-    // modelled only clear, and the owner asked for Apple's recommendations.
-    // Unlike the dim, the tint and the shadow, the style does not change
-    // with the appearance, so there is no setter call anywhere: it is a
-    // constructor argument and nothing else.
-    let glass = GlassSurface::new(
-        mtm,
-        frame,
-        match glass_cfg.style {
-            crate::config::Material::Clear => GlassStyle::Clear,
-            crate::config::Material::Regular => GlassStyle::Regular,
-        },
-        16.0,
-    )
-    .unwrap_or_else(|e| refuse(refusal_message(&e)));
+    // **The body is the config's, and it is chosen once.** `Standard`, the
+    // default, is `.underWindowBackground`: the HIG puts "Standard
+    // materials" behind "app backgrounds" and keeps Liquid Glass out of the
+    // content layer ([[source: apple-hig-materials]]; note AT), and the
+    // owner took that recommendation (2026-10-18). `Regular` is the glass
+    // the HIG gives surfaces with "a significant amount of text"; `Clear`
+    // the more transparent glass. Unlike the dim, the tint and the shadow,
+    // the body does not change with the appearance -- the standard material
+    // follows the window's appearance and active state itself -- so it is
+    // a constructor argument and nothing else.
+    let glass = Body::of(mtm, frame, glass_cfg.style);
     // Tinted before it is shown rather than after: the surface is not the
     // window's content until the first frame is on the layer, so doing it
     // here costs nothing and there is no frame in which an untinted
     // material is visible.
-    apply_glass(&glass, &window, &glass_cfg, material_appearance(&window));
+    apply_glass(&glass, &window, &glass_cfg, glass.appearance(&window));
     let view = DrawableView::new(mtm, frame);
     startup_mark("window");
     let _ = late.set(view.waker());
@@ -8015,7 +8130,7 @@ pub fn run() {
         style: style.clone(),
         theme_choice,
         glass_cfg,
-        themes: Themes::of(&glass_cfg, floor, &halves),
+        themes: Themes::of(&glass_cfg, theme_choice, floor, &halves),
         display: Display::default(),
         palette_for: None,
         glass: glass.clone(),
@@ -8096,7 +8211,7 @@ pub fn run() {
                 &glass_cb,
                 &window_cb,
                 &glass_cfg,
-                material_appearance(&window_cb),
+                glass_cb.appearance(&window_cb),
             );
         });
         // The window is never torn down before the process ends, so the
@@ -9009,7 +9124,7 @@ impl Driver {
             &self.glass,
             &self.window,
             &self.glass_cfg,
-            material_appearance(&self.window),
+            self.glass.appearance(&self.window),
         );
         let PaletteSwitch::To(appearance) =
             palette_switch(self.theme_choice, self.palette_for, appearance)
@@ -9229,6 +9344,87 @@ mod tests {
         }
     }
 
+    /// **The standard material draws in the system's appearance, the glass
+    /// in Icon & widget style's**, so the shadow follows the body drawn: on
+    /// a Dark system under a ClearLight widget style the standard material
+    /// is dark and `shadow = "auto"` casts one.
+    #[test]
+    fn each_body_draws_in_its_own_appearance() {
+        for (system, widget) in [
+            (Appearance::Dark, Appearance::Light),
+            (Appearance::Light, Appearance::Dark),
+            (Appearance::Dark, Appearance::Dark),
+        ] {
+            assert_eq!(drawn_in(BodyKind::Standard, system, widget), system);
+            assert_eq!(drawn_in(BodyKind::Glass, system, widget), widget);
+        }
+    }
+
+    /// **The floor reads text against the body actually drawn**: the
+    /// standard material's own greys for each half while the palette
+    /// follows the system, and black to white over either glass and under
+    /// a pinned palette, which can sit on the other half's material
+    /// (Jev, 0.98/0.97, `decisions.jsonl` 796/797).
+    #[test]
+    fn the_floor_reads_against_the_body_drawn() {
+        use crate::config::{Glass, Material, ThemeChoice};
+        use baud_render::{Backdrop, Floor};
+        let halves = crate::palette::Halves::default();
+        let of = |style, choice| {
+            let glass = Glass {
+                style,
+                ..Glass::defaults()
+            };
+            let t = Themes::of(&glass, choice, Floor::DEFAULT, &halves);
+            (t.dark.backdrop, t.light.backdrop)
+        };
+        assert_eq!(
+            of(Material::Standard, ThemeChoice::Auto),
+            (
+                Backdrop::under_window_dark(),
+                Backdrop::under_window_light()
+            )
+        );
+        assert_eq!(
+            of(Glass::defaults().style, ThemeChoice::Auto),
+            (
+                Backdrop::under_window_dark(),
+                Backdrop::under_window_light()
+            ),
+            "the default body is the standard material"
+        );
+        for (style, choice) in [
+            (Material::Standard, ThemeChoice::Dark),
+            (Material::Standard, ThemeChoice::Light),
+            (Material::Regular, ThemeChoice::Auto),
+            (Material::Clear, ThemeChoice::Auto),
+            (Material::Regular, ThemeChoice::Dark),
+        ] {
+            assert_eq!(
+                of(style, choice),
+                (Backdrop::any(), Backdrop::any()),
+                "{style:?} {choice:?}"
+            );
+        }
+        // Reduce Transparency leaves the backdrop alone: at alpha 1.0 the
+        // floor's second pass reads nothing behind the page.
+        let theme = theme_for(
+            Appearance::Dark,
+            &Glass::defaults(),
+            ThemeChoice::Auto,
+            Floor::DEFAULT,
+            &halves,
+        );
+        let on = accessible(
+            theme.clone(),
+            Display {
+                transparency: Transparency::Reduced,
+                ..Display::default()
+            },
+        );
+        assert_eq!((on.backdrop, on.bg_alpha.get()), (theme.backdrop, 0xFF));
+    }
+
     /// **Reduce Transparency draws every background opaque**, the default
     /// one and every one a program sets, so the margin, which clears to the
     /// default background at the theme's alpha, is opaque too (note Y,
@@ -9242,6 +9438,7 @@ mod tests {
                 theme_for(
                     Appearance::Dark,
                     &glass,
+                    crate::config::ThemeChoice::Auto,
                     baud_render::Floor::DEFAULT,
                     &Default::default(),
                 ),
@@ -9251,6 +9448,7 @@ mod tests {
                 theme_for(
                     Appearance::Light,
                     &glass,
+                    crate::config::ThemeChoice::Auto,
                     baud_render::Floor::DEFAULT,
                     &Default::default(),
                 ),
@@ -9306,7 +9504,13 @@ mod tests {
             (lift(7.0, 7.0), lift(7.0, 7.0)),
             (lift(1.0, 4.5), lift(3.0, 4.5)),
         ] {
-            let theme = theme_for(Appearance::Dark, &glass, configured, &Default::default());
+            let theme = theme_for(
+                Appearance::Dark,
+                &glass,
+                crate::config::ThemeChoice::Auto,
+                configured,
+                &Default::default(),
+            );
             assert_eq!(theme.floor, configured, "the control");
             assert_eq!(accessible(theme.clone(), on).floor, want, "{configured:?}");
             let off = accessible(theme.clone(), Display::default());
@@ -9321,6 +9525,7 @@ mod tests {
         let theme = theme_for(
             Appearance::Light,
             &glass,
+            crate::config::ThemeChoice::Auto,
             Floor::DEFAULT,
             &Default::default(),
         );

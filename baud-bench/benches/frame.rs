@@ -20,6 +20,12 @@
 //! `Theme::dark()`'s opaque page: the compositor blends the two pages by
 //! two loops (`baud_render::Page`).
 //!
+//! `FRAME_BACKDROP=standard` reads the contrast floor's second pass
+//! against the see-through standard material's dark greys
+//! (`Backdrop::under_window_dark`), which the app draws by default, where
+//! the default is the glass's black to white. It matters only below
+//! alpha 255.
+//!
 //! `FRAME_BLINK=none|fade|plasma|fire|ufo` prices instead what an idle blinking
 //! cursor's frame costs over the recording's last screen: 2000 incremental
 //! frames alternating two phases of that animation -- the hard switch's
@@ -39,7 +45,7 @@ use baud_core::{Owned, Term};
 use baud_domain::Chan;
 use baud_domain::{BytePos, Cols, ImageBudget, ImagePx, ReadLen, Rows, WinSize};
 use baud_font::Face;
-use baud_render::{Blend, CursorPhase, Damage, PxSize, Renderer, Stack, Target, Theme};
+use baud_render::{Backdrop, Blend, CursorPhase, Damage, PxSize, Renderer, Stack, Target, Theme};
 use std::time::Duration;
 
 fn main() {
@@ -105,6 +111,10 @@ fn main() {
             .ok()
             .and_then(|s| s.parse().ok())
             .map_or(Theme::dark().bg_alpha, Chan::from_u8),
+        backdrop: match std::env::var("FRAME_BACKDROP").as_deref() {
+            Ok("standard") => Backdrop::under_window_dark(),
+            _ => Backdrop::any(),
+        },
         ..Theme::dark()
     };
     let fresh = || {
