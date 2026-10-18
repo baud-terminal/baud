@@ -55,7 +55,8 @@ API. But `Parser` is declared `PyObject_HEAD`, and
 kitty's global window registry, so there is nothing to link against.
 
 What kitty does expose is the buffer-protocol cycle its own test suite uses,
-which is the same shape as baud's `read_slot` / `write` / `feed`:
+which is the same shape as baud's `Term::write_at` / `Term::feed`: bytes
+placed in the terminal's arena, the way a `read(2)` would, and parsed there:
 
 ```python
 dest = screen.test_create_write_buffer()

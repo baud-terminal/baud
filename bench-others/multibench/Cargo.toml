@@ -17,8 +17,9 @@ publish = false
 alacritty_terminal = "0.26"
 vt100 = "0.16"
 termwiz = { version = "0.23", default-features = false }
-# The new core. No `alloc` feature: it owns nothing, so the harness provides
-# every buffer -- which is the point of it and has to be visible here too.
+# The core. It allocates nothing itself; `alloc` turns on `Owned`, which
+# allocates the terminal's storage before each timed run
+# (`Owned::with_history` in `src/cores.rs`), as the tests do.
 baud-core = { path = "../../baud-core", features = ["alloc"] }
 # sfte, through the oracle crate's shim: one description of how sfte is
 # configured and driven -- the compile-time geometry, the locale assert, the
