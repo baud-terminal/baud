@@ -3293,6 +3293,73 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         0,
         "the GPU arms disagree on a selected frame"
     );
+    hidden_seam_gate(arms, t);
+}
+
+/// **A framed run closes beside a framed cell whose text is hidden**, on
+/// each arm against itself: a concealed cell, or one in its blink's off
+/// phase, draws its background and nothing of its own, so the visible
+/// cells draw a side at the seam -- the frame of the same text with the
+/// hidden cells never framed. Both arms shared the open seam, so their
+/// agreeing could not show it; each arm is held to its own reference.
+fn hidden_seam_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let off = BlinkPhases {
+        slow: Blink::Hidden,
+        rapid: Blink::Hidden,
+    };
+    let shown = BlinkPhases::SHOWN;
+    let mut open_at = Vec::new();
+    for (seam, closed, blink, name) in [
+        (
+            "\x1b[51mab\x1b[8mcd",
+            "\x1b[51mab\x1b[0;8mcd",
+            shown,
+            "concealed after",
+        ),
+        (
+            "\x1b[51;8mab\x1b[28mcd",
+            "\x1b[8mab\x1b[0;51mcd",
+            shown,
+            "concealed before",
+        ),
+        (
+            "\x1b[51mab\x1b[5mcd",
+            "\x1b[51mab\x1b[0;5mcd",
+            off,
+            "slow blink off",
+        ),
+        (
+            "\x1b[51mab\x1b[6mcd",
+            "\x1b[51mab\x1b[0;6mcd",
+            off,
+            "rapid blink off",
+        ),
+    ] {
+        arms.renderer.set_blink(blink);
+        let scene = |s: &str| format!("\x1bc\x1b[?25l\x1b[2;3H{s}\x1b[0m");
+        feed(t, scene(closed).as_bytes());
+        let (want_a, want_b) = arms.draw(t);
+        feed(t, scene("\x1b[51mabcd").as_bytes());
+        let (open_a, _) = arms.draw(t);
+        assert_ne!(
+            differing(&want_a, &open_a),
+            0,
+            "{name}: the premise, the hidden cells hide something"
+        );
+        feed(t, scene(seam).as_bytes());
+        let (a, b) = arms.draw(t);
+        if differing(&a, &want_a) != 0 {
+            open_at.push(format!("instance arm, {name}"));
+        }
+        if differing(&b, &want_b) != 0 {
+            open_at.push(format!("cell arm, {name}"));
+        }
+    }
+    arms.renderer.set_blink(shown);
+    assert!(
+        open_at.is_empty(),
+        "the box is open at the seam beside hidden cells: {open_at:?}"
+    );
 }
 
 /// **A partly transparent image over coloured text** (V19 step 1). Both GPU

@@ -1552,12 +1552,14 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                 wh = float2(u.cell.x, th);
             } else {
                 // A side only where the run of framed cells starts or ends:
-                // the row's edge, or a neighbour that is not framed.
+                // the row's edge, or a neighbour that is not framed or whose
+                // text is hidden, which draws nothing of its own.
                 bool left = which == 7u;
                 bool edge = left ? col == 0u : col + 1u >= u.grid.x;
                 if (!edge) {
                     uint2 n = cell_at(u, cells, left ? col - 1u : col + 1u, dr);
-                    if ((styles[n.y & 0xffffu].shapes & SHAPE_FRAMED) != 0u) return o;
+                    uint ns = styles[n.y & 0xffffu].shapes;
+                    if ((ns & SHAPE_FRAMED) != 0u && !hidden(u, ns)) return o;
                 }
                 at = float2(left ? x : x + float(u.cell.x) - th1, rowy);
                 wh = float2(th1, u.cell.y);

@@ -3696,11 +3696,15 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     fg,
                 ));
                 // A side only where the run of framed cells starts or ends:
-                // the row's edge, or a neighbour that is not framed.
+                // the row's edge, or a neighbour that is not framed or whose
+                // text is hidden, since a hidden cell draws nothing of its
+                // own (`Resolved::text`) and the drawn box closes beside it.
                 let framed_at = |i: Option<usize>| {
                     i.and_then(|i| row.get(i))
                         .and_then(|n| self.styles.get(n.style.index()))
-                        .is_some_and(|n| n.shapes.has(Shapes::FRAMED))
+                        .is_some_and(|n| {
+                            n.shapes.has(Shapes::FRAMED) && n.text(self.blink) == Text::Drawn
+                        })
                 };
                 let side = Px::of(u32::try_from(th).unwrap_or(1));
                 if !framed_at(c.checked_sub(1)) {

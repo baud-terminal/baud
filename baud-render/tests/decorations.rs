@@ -17,7 +17,7 @@ mod support;
 use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
-use baud_render::{Blend, Damage, Metrics, PxSize, Renderer, Stack, Theme};
+use baud_render::{Blend, Blink, BlinkPhases, Damage, Metrics, PxSize, Renderer, Stack, Theme};
 use support::font;
 
 const WS: WinSize = WinSize {
@@ -27,6 +27,11 @@ const WS: WinSize = WinSize {
 
 /// The canvas after `bytes` at `size` px, its width, and the metrics.
 fn painted(bytes: &[u8], size: f32) -> (Vec<u32>, usize, Metrics) {
+    painted_in(bytes, size, BlinkPhases::SHOWN)
+}
+
+/// [`painted`] in the blink phases `blink`.
+fn painted_in(bytes: &[u8], size: f32, blink: BlinkPhases) -> (Vec<u32>, usize, Metrics) {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).expect("parse")];
     let mut r = Renderer::new(
@@ -43,6 +48,7 @@ fn painted(bytes: &[u8], size: f32) -> (Vec<u32>, usize, Metrics) {
     let all = [b"\x1b[?25l".as_slice(), bytes].concat();
     t.write_at(BytePos::ZERO, &all);
     t.feed(BytePos::ZERO, ReadLen::from_index(all.len()));
+    r.set_blink(blink);
     let mut c = support::Canvas::for_renderer(&r);
     support::paint(&mut r, &mut t, &mut c, Damage::Full);
     let m = r.metrics();
@@ -190,6 +196,62 @@ fn a_framed_run_is_one_box() {
         .chain(4 * cw..8 * cw)
         .any(|x| (0..ch).any(|y| lit(&p, w, x, y)));
     assert!(!outside, "nothing outside the run");
+}
+
+/// **A framed run closes beside a framed cell whose text is hidden**: a
+/// concealed cell (`SGR 8`, "concealed characters", `[[source: ecma48]]`
+/// § 8.3.117) or one in its blink's off phase draws its background and
+/// nothing of its own, frame included, so the visible cells draw a side
+/// at the seam -- the same pixels as the hidden cells never framed.
+#[test]
+fn a_framed_run_closes_beside_a_hidden_cell() {
+    let off = BlinkPhases {
+        slow: Blink::Hidden,
+        rapid: Blink::Hidden,
+    };
+    let shown = BlinkPhases::SHOWN;
+    let mut open_at = Vec::new();
+    for (seam, closed, blink, name) in [
+        (
+            " \x1b[51mab\x1b[8mcd",
+            " \x1b[51mab\x1b[0;8mcd",
+            shown,
+            "concealed after",
+        ),
+        (
+            " \x1b[51;8mab\x1b[28mcd",
+            " \x1b[8mab\x1b[0;51mcd",
+            shown,
+            "concealed before",
+        ),
+        (
+            " \x1b[51mab\x1b[5mcd",
+            " \x1b[51mab\x1b[0;5mcd",
+            off,
+            "slow blink off",
+        ),
+        (
+            " \x1b[51mab\x1b[6mcd",
+            " \x1b[51mab\x1b[0;6mcd",
+            off,
+            "rapid blink off",
+        ),
+    ] {
+        let (got, ..) = painted_in(seam.as_bytes(), 14.0, blink);
+        let (want, ..) = painted_in(closed.as_bytes(), 14.0, blink);
+        let (open, ..) = painted_in(b" \x1b[51mabcd", 14.0, blink);
+        assert!(
+            want != open,
+            "{name}: the premise, the hidden cells hide something"
+        );
+        if got != want {
+            open_at.push(name);
+        }
+    }
+    assert!(
+        open_at.is_empty(),
+        "the visible cells leave the box open at the seam: {open_at:?}"
+    );
 }
 
 /// The top-left corner and the side of the stress mark over a character
