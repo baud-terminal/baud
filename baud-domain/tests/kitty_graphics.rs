@@ -102,7 +102,8 @@ fn a_reply_with_no_room_is_dropped_whole_and_counted() {
         [ImageSlot::EMPTY; 4],
         [PlacementSlot::EMPTY; 4],
     );
-    let mut store = ImageStore::new(&mut px, &mut slots, &mut places);
+    let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
+    let mut store = ImageStore::new(&mut px, &mut slots, &mut places, &mut places_index);
     let one = b"\x1b_Gi=1;ENOENT:Put command refers to non-existent image\x1b\\";
     for _ in 0..4 {
         command(&mut k, &mut store, b"a=p,i=1");
@@ -145,7 +146,8 @@ fn a_lent_reader_serves_the_file_mediums_and_ris_keeps_it() {
         [ImageSlot::EMPTY; 4],
         [PlacementSlot::EMPTY; 4],
     );
-    let mut store = ImageStore::new(&mut px, &mut slots, &mut places);
+    let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
+    let mut store = ImageStore::new(&mut px, &mut slots, &mut places, &mut places_index);
     command(&mut k, &mut store, b"a=t,i=1,t=f,f=100;L3A=");
     assert_eq!(
         k.replies(),

@@ -37,7 +37,8 @@ fn a_sixel_lands_in_the_lowest_gap_that_holds_it() {
     let base = px.as_ptr().addr();
     let mut slots = [ImageSlot::EMPTY; 4];
     let mut places = [PlacementSlot::EMPTY; 4];
-    let mut store = ImageStore::new(&mut px, &mut slots, &mut places);
+    let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
+    let mut store = ImageStore::new(&mut px, &mut slots, &mut places, &mut places_index);
     let ten = ImagePx::of(10);
     let six = ImagePx::of(6);
     let a = store
@@ -86,7 +87,8 @@ fn an_overstated_extent_writes_one_band_of_its_stride() {
     let mut px = vec![Pixel::CLEAR; 1 << 20];
     let mut slots = [ImageSlot::EMPTY; 4];
     let mut places = [PlacementSlot::EMPTY; 4];
-    let mut store = ImageStore::new(&mut px, &mut slots, &mut places);
+    let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
+    let mut store = ImageStore::new(&mut px, &mut slots, &mut places, &mut places_index);
     let (got, written) = stream(
         &mut store,
         b"\"1;1;65535;24#1;2;100;0;0#1!10~-!10~-!10~-!10~",
@@ -107,7 +109,8 @@ fn with_no_extent_a_decode_writes_the_image_and_no_more() {
     let mut px = vec![Pixel::CLEAR; 1 << 20];
     let mut slots = [ImageSlot::EMPTY; 4];
     let mut places = [PlacementSlot::EMPTY; 4];
-    let mut store = ImageStore::new(&mut px, &mut slots, &mut places);
+    let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
+    let mut store = ImageStore::new(&mut px, &mut slots, &mut places, &mut places_index);
     let mut band = vec![b'~'; 600];
     band.push(b'-');
     let body = band.repeat(10);
@@ -128,7 +131,8 @@ fn a_sixel_that_fits_only_the_largest_gap_is_drawn() {
     let base = px.as_ptr().addr();
     let mut slots = [ImageSlot::EMPTY; 4];
     let mut places = [PlacementSlot::EMPTY; 4];
-    let mut store = ImageStore::new(&mut px, &mut slots, &mut places);
+    let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
+    let mut store = ImageStore::new(&mut px, &mut slots, &mut places, &mut places_index);
     let ten = ImagePx::of(10);
     let six = ImagePx::of(6);
     // Spans at 0, 60 and 120; free the first, leaving a 60-word gap at 0

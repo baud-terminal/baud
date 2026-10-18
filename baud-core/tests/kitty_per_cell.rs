@@ -18,7 +18,7 @@
 //! placement must be live, at its cell, with its rectangle.
 
 use baud_core::*;
-use baud_domain::{DecodeBudget, DecodeProgress, ImageBudget, ImagePx, KittyPlacement};
+use baud_domain::{DecodeBudget, DecodeProgress, ImageBudget, ImagePx, KittyId, KittyPlacement};
 
 const WS: WinSize = WinSize {
     ws_row: 24,
@@ -295,4 +295,226 @@ fn the_table_holds_a_placement_for_every_cell_of_the_screen() {
         assert_eq!(t.images().placements_refused, 1, "the freed slot is taken");
         assert_eq!(t.images().placements().count(), slots, "full again");
     });
+}
+
+/// yazi 26.9.1's `image_erase`: a lowercase `a=d,d=i,i,p` per cell.
+fn erase() -> Vec<u8> {
+    let mut v = Vec::new();
+    for p in 1..=COLS * ROWS {
+        v.extend_from_slice(format!("\x1b_Gq=2,a=d,d=i,i={ID},p={p}\x1b\\").as_bytes());
+    }
+    v
+}
+
+/// **A put and a delete that name a placement find it by its key**: "If
+/// you send two placements with the same image id and placement id the
+/// second one will replace the first", and a delete with `i` and `p`
+/// takes "only the placement with the specified image id and placement
+/// id" (`[[source: kitty-graphics]]`, "Display images on screen",
+/// "Deleting images"). Each finds its placement by the pair, a few slots
+/// examined, not every slot placed before it: on the commit before,
+/// yazi's first 660 puts examined 217,470 slots, 660 that replace or
+/// erase 435,600, and this test 3,483,480 for its 6,600 lookups. Three rounds of replace, erase and place again, so a lookup that
+/// degrades as slots are freed and taken again shows.
+#[test]
+fn a_put_and_a_delete_find_their_placement_by_its_key() {
+    with(|t| {
+        let read = ReadLen::from_index(1024);
+        feed_reads(t, &transmit(), read);
+        let start = t.images().key_probes;
+        let puts = cells(COLS * ROWS);
+        let mut lookups = 0;
+        feed_reads(t, &place(), read);
+        lookups += puts;
+        for round in 0..3 {
+            feed_reads(t, &place(), read);
+            assert_whole(t, &format!("replaced, round {round}"));
+            feed_reads(t, &erase(), read);
+            assert_eq!(t.images().placements().count(), 0, "round {round}");
+            feed_reads(t, &place(), read);
+            assert_whole(t, &format!("placed again, round {round}"));
+            lookups += 3 * puts;
+        }
+        let spent = t.images().key_probes - start;
+        assert!(
+            spent <= 3 * lookups,
+            "{spent} entries examined for {lookups} lookups"
+        );
+    });
+}
+
+/// **A replacing put takes the new geometry and keeps the image**: the
+/// pair names the placement, so the second put of `(i, p)` moves it to
+/// its cell and source rectangle, the image is not freed between the two
+/// (a lowercase delete of every other placement leaves it named), and the
+/// same `p` on another image is another placement.
+#[test]
+fn a_replacing_put_takes_the_new_geometry() {
+    with(|t| {
+        let read = ReadLen::from_index(1024);
+        feed_reads(t, &[transmit(), place()].concat(), read);
+        let moved =
+            format!("\x1b[1;1H\x1b_Gq=2,a=p,i={ID},p=1,x=8,y=12,w=4,h=6,c=1,r=1,z=5,C=1\x1b\\");
+        feed_reads(t, moved.as_bytes(), read);
+        let imgs = t.images();
+        assert_eq!(
+            imgs.placements().count(),
+            cells(COLS * ROWS),
+            "replaced, not added"
+        );
+        assert_eq!(imgs.images_dropped, 0, "the image stays");
+        let ones: Vec<_> = imgs
+            .placements()
+            .filter(|(_, s)| s.kitty.id == KittyPlacement::of(1))
+            .map(|(_, s)| *s)
+            .collect();
+        assert_eq!(ones.len(), 1, "one placement 1");
+        let s = ones[0];
+        assert_eq!((s.col.index(), s.z.raw()), (0, 5), "at its new cell and z");
+        assert_eq!(
+            [s.kitty.src_x, s.kitty.src_y].map(|v| v.raw()),
+            [8, 12],
+            "with its new rectangle"
+        );
+        let other = format!("\x1b_Gq=2,a=T,i={},f=24,s=1,v=1,p=1,C=1;AAAA\x1b\\", ID + 1);
+        feed_reads(t, other.as_bytes(), read);
+        assert_eq!(
+            t.images().placements().count(),
+            cells(COLS * ROWS) + 1,
+            "the same p on another image is another placement"
+        );
+    });
+}
+
+/// **Puts and deletes in any order leave each pair found by its key**: a
+/// fixed pseudo-random run of 20,000 puts and deletes over 3,000 placement
+/// ids, at most 1,920 live in the 24x80 table, against a model of which
+/// ids are placed and where. Ids that collide in the index, entries
+/// shifted back by a delete and slots taken again are all on its path; a
+/// pair the index lost would be placed twice, and one it kept after its
+/// delete would take a live placement with it.
+#[test]
+fn puts_and_deletes_in_any_order_leave_each_pair_found() {
+    with(|t| {
+        feed_reads(t, &transmit(), ReadLen::from_index(4096));
+        let mut model = std::collections::BTreeMap::<u32, u32>::new();
+        let mut seed = 0x2545_f491_u32;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        let cap = t.images().placement_slots();
+        for step in 0..20_000 {
+            let pid = next() % 3000 + 1;
+            let col = next() % 80;
+            let put = next() % 3 != 0;
+            let cmd = match put && (model.contains_key(&pid) || model.len() < cap) {
+                true => {
+                    model.insert(pid, col);
+                    format!(
+                        "\x1b[1;{}H\x1b_Gq=2,a=p,i={ID},p={pid},c=1,r=1,C=1\x1b\\",
+                        col + 1
+                    )
+                }
+                false => {
+                    model.remove(&pid);
+                    format!("\x1b_Gq=2,a=d,d=i,i={ID},p={pid}\x1b\\")
+                }
+            };
+            feed_reads(t, cmd.as_bytes(), ReadLen::from_index(4096));
+            if step % 1000 == 999 || step == 19_999 {
+                let mut got: Vec<(u32, u32)> = t
+                    .images()
+                    .placements()
+                    .map(|(_, s)| (s.kitty.id.raw(), u32::try_from(s.col.index()).unwrap()))
+                    .collect();
+                got.sort_unstable();
+                let want: Vec<(u32, u32)> = model.iter().map(|(&p, &c)| (p, c)).collect();
+                assert_eq!(got, want, "after step {step}");
+            }
+        }
+        assert_eq!(t.images().placements_refused, 0);
+    });
+}
+
+/// **A reset takes every placement out of the index**: eight rounds of a
+/// preview placed, in row order and then backwards, and `RIS`, and every
+/// put still finds its pair in a step or so. An index that kept the
+/// placements a reset dropped would fill with entries naming slots
+/// other placements hold, and every probe would lengthen with it.
+#[test]
+fn a_reset_takes_every_placement_out_of_the_index() {
+    with(|t| {
+        let read = ReadLen::from_index(4096);
+        let start = t.images().key_probes;
+        let forward = place();
+        let mut backward = Vec::new();
+        for put in forward.split_inclusive(|&b| b == b'\\').rev() {
+            backward.extend_from_slice(put);
+        }
+        for round in 0..8 {
+            feed_reads(t, &transmit(), read);
+            let order = match round % 2 {
+                0 => &forward,
+                _ => &backward,
+            };
+            feed_reads(t, order, read);
+            assert_whole(t, &format!("round {round}"));
+            feed_reads(t, b"\x1bc", read);
+            assert_eq!(t.images().placements().count(), 0, "round {round}");
+        }
+        let lookups = 8 * cells(COLS * ROWS);
+        let spent = t.images().key_probes - start;
+        assert!(
+            spent <= 3 * lookups,
+            "{spent} entries examined for {lookups} lookups"
+        );
+    });
+}
+
+/// **A preview whose rows leave the history goes, and its image stays**:
+/// "images must be scrolled along with text" (`[[source:
+/// kitty-graphics]]`, "Interaction with other terminal actions"), and
+/// kitty removes a placement scrolled off its history and, with its
+/// last, the image only when nothing can name it again (`[[source:
+/// kitty-graphics-c]]`, `scroll_filter_func` and `modify_refs`). A 30-line
+/// history: the 660 placements go, each slot is free, the image `i`
+/// names is kept and places whole again, and an image placed with no
+/// id or number goes with its placement.
+#[test]
+fn a_preview_scrolled_out_of_the_history_frees_its_slots_and_keeps_its_image() {
+    let mut owned = Owned::with_history(&WS, &CacheGeometry::UNKNOWN, Depth::of(30))
+        .with_images(ImageBudget::of(1 << 16));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(
+        ImagePx::of(u16::try_from(CW).unwrap()),
+        ImagePx::of(u16::try_from(CH).unwrap()),
+    );
+    let read = ReadLen::from_index(1024);
+    feed_reads(&mut t, &[transmit(), place()].concat(), read);
+    feed_reads(&mut t, b"\x1b_Gq=2,a=T,f=24,s=1,v=1,C=1;AAAA\x1b\\", read);
+    assert_eq!(t.images().placements().count(), cells(COLS * ROWS) + 1);
+    // The bottom row, then the history's 30 lines and the screen's 24
+    // scrolled past every placement's row.
+    feed_reads(
+        &mut t,
+        &[b"\x1b[24;1H".as_slice(), &[b'\n'; 60]].concat(),
+        read,
+    );
+    let imgs = t.images();
+    assert_eq!(imgs.placements().count(), 0, "every placement went");
+    assert_eq!(
+        imgs.placements_expired,
+        cells(COLS * ROWS) + 1,
+        "and is counted"
+    );
+    assert_eq!(imgs.images_dropped, 1, "the nameless image went with it");
+    assert!(
+        imgs.kitty_image(KittyId::of(ID)).is_some(),
+        "the named image stays"
+    );
+    feed_reads(&mut t, &place(), read);
+    assert_whole(&t, "placed again from the kept image");
 }

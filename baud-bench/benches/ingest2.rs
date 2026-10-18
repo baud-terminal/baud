@@ -10,7 +10,9 @@
 //! ```
 
 use baud_core::*;
-use baud_domain::{Depth, ImagePx, ImageSlot, ImageStore, PlacementSlot, SixelStream, Stride};
+use baud_domain::{
+    Depth, ImagePx, ImageSlot, ImageStore, PlacementId, PlacementSlot, SixelStream, Stride,
+};
 
 fn recording(name: &str) -> Vec<u8> {
     let p = format!("{}/../tests/recordings/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -320,6 +322,7 @@ fn main() {
     let mut img_pixels = vec![baud_domain::Pixel::CLEAR; px];
     let mut img_slots = vec![ImageSlot::EMPTY; slots];
     let mut img_places = vec![PlacementSlot::EMPTY; places];
+    let mut img_index = vec![PlacementId::NONE; PlacementId::index_len(places)];
     let mut sixel = Box::new(SixelStream::NEW);
     let mut kitty = Box::new(baud_domain::KittyStream::NEW);
     let mut kitty_scratch: Vec<u8> = Vec::new();
@@ -354,7 +357,12 @@ fn main() {
                 &mut kitty,
                 &mut kitty_scratch,
             ),
-            ImageStore::new(&mut img_pixels, &mut img_slots, &mut img_places),
+            ImageStore::new(
+                &mut img_pixels,
+                &mut img_slots,
+                &mut img_places,
+                &mut img_index,
+            ),
         ),
         &ws,
     );

@@ -135,7 +135,7 @@ impl Pixel {
 /// **How an image's pixels blend**, marked once at decode: what decides
 /// whether a renderer that keeps its last frame may blit the image again
 /// over its own last blit.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ImageAlpha {
     /// Every pixel opaque or clear: a blit over the pixel the last one left
     /// changes nothing, so the rows under a still image need no repaint. A
@@ -231,7 +231,7 @@ impl ZIndex {
 /// A handle to a stored image. `NONE` is zero, so a zeroed slot names no image;
 /// a live handle is [`ImageId::from_index`] of the slot it occupies, the
 /// `ClusterId`/`LinkId` shape.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, FromZeros)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, FromZeros)]
 pub struct ImageId(u32);
 
 impl ImageId {
@@ -266,7 +266,7 @@ impl ImageId {
 /// the textures of the others -- are the follow-on if images ever churn per
 /// frame; the corpus stores an image a handful of times a session, so the
 /// coarse epoch re-uploads nothing that is hot.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct ImageGen(u32);
 
 impl ImageGen {
@@ -284,12 +284,42 @@ impl ImageGen {
 }
 
 /// A handle to a placement. `NONE` is zero, the [`ImageId`] shape.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+///
+/// **It is also an entry of the placement index**, which finds a kitty
+/// placement by its image and placement id: an open-addressed table of
+/// handles, `NONE` an empty entry, lent to [`ImageStore::new`] beside the
+/// placement table at [`PlacementId::index_len`] entries.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, FromZeros)]
+#[repr(transparent)]
 pub struct PlacementId(u32);
 
 impl PlacementId {
     /// Names no placement.
     pub const NONE: PlacementId = PlacementId(0);
+
+    /// **The index length for a table of `slots` placements**: a power of
+    /// two at least twice as many, so the index is never more than half
+    /// full and a lookup ends at an empty entry in a step or two. A table
+    /// sized to a 400x150 screen, 60,000 slots, has 131,072 entries, 512
+    /// KiB of address space beside the table's 7.2 MB.
+    pub fn index_len(slots: usize) -> usize {
+        slots.saturating_mul(2).max(2).next_power_of_two()
+    }
+
+    /// **An empty index for a table of `slots` placements**, from zeroed
+    /// memory as [`PlacementSlot::zeroed_vec`]'s table is, so a page is
+    /// committed only when an entry first lands on it.
+    #[cfg(feature = "alloc")]
+    pub fn zeroed_index(slots: usize) -> alloc::vec::Vec<PlacementId> {
+        let n = PlacementId::index_len(slots);
+        match PlacementId::new_vec_zeroed(n) {
+            Ok(v) => v,
+            Err(_) => match core::alloc::Layout::array::<PlacementId>(n) {
+                Ok(layout) => alloc::alloc::handle_alloc_error(layout),
+                Err(_) => panic!("capacity overflow"),
+            },
+        }
+    }
 
     fn from_index(i: usize) -> PlacementId {
         PlacementId((i as u32).wrapping_add(1))
@@ -475,7 +505,7 @@ pub enum KittyFit {
 /// names, `w` and `h` its size. Four fields of one unit, so a `u32` each:
 /// the source rectangle is in image pixels and the drawn one in device
 /// pixels, and [`ImageDraw`] keeps them apart by name.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct PxRect {
     pub x: u32,
     pub y: u32,
@@ -495,7 +525,7 @@ impl PxRect {
 /// anchor cell's top-left. The one description every drawing path reads
 /// ([`KittyPlace::draw`]), so the paths cannot disagree about a placement's
 /// geometry.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct ImageDraw {
     pub src: PxRect,
     pub dest: PxRect,
@@ -1130,6 +1160,19 @@ pub struct ImageStore<'b> {
     probe_size: Option<(ImagePx, ImagePx)>,
     slots: &'b mut [ImageSlot],
     placements: &'b mut [PlacementSlot],
+    /// **The kitty placements by image and placement id**
+    /// ([`ImageStore::find_kitty`]): open addressing over the lent index's
+    /// largest power-of-two prefix, linear probing, and a removal that
+    /// shifts the entries after it back, so no tombstone lengthens a probe
+    /// as a client erases and places again.
+    index: &'b mut [PlacementId],
+    /// The index's length less one, a power of two less one; zero with no
+    /// usable index.
+    index_mask: usize,
+    /// How many placements the store holds: the table's length, or half
+    /// the index's usable length if that is fewer, so the index is never
+    /// more than half full.
+    place_cap: usize,
     /// Images refused, whatever the cause. Never silent: a refused image is
     /// not drawn, and how often is a number. [`ImageStore::refusals`] says
     /// which limit each hit, and this is their total.
@@ -1160,6 +1203,11 @@ pub struct ImageStore<'b> {
     /// in, a reflow dropped its line, or its screen was the alternate one
     /// and was left. Never silent -- an image that vanished has a count.
     pub placements_expired: usize,
+    /// **Index entries examined finding a kitty placement by its image
+    /// and placement id**, for a put that replaces and a delete that names
+    /// one: a step or two each, where a walk of the table was one a
+    /// placement already made.
+    pub key_probes: usize,
     /// Sixels that stored *and* explicitly asked for an opaque background
     /// (`P2` = 0 or 2) that baud renders transparent instead. baud draws
     /// unpainted pixels transparent -- the `P2` = 1 behaviour, and the more
@@ -1219,18 +1267,30 @@ pub struct ImageStore<'b> {
 
 impl<'b> ImageStore<'b> {
     /// A store over caller memory: `pixels` the arena, `slots` the
-    /// image-slot table, `placements` the placement table.
+    /// image-slot table, `placements` the placement table and `index` its
+    /// index, [`PlacementId::index_len`] of the table's length, all
+    /// [`PlacementId::NONE`]. A shorter index holds fewer placements: half
+    /// its largest power-of-two prefix.
     pub fn new(
         pixels: &'b mut [Pixel],
         slots: &'b mut [ImageSlot],
         placements: &'b mut [PlacementSlot],
+        index: &'b mut [PlacementId],
     ) -> ImageStore<'b> {
+        let usable = match index.len() {
+            0 | 1 => 0,
+            n => 1 << n.ilog2(),
+        };
+        let place_cap = placements.len().min(usable / 2);
         ImageStore {
             pixels,
             probe: Default::default(),
             probe_size: None,
             slots,
             placements,
+            index,
+            index_mask: usable.saturating_sub(1),
+            place_cap,
             images_refused: 0,
             refusals: ImageRefusals::NONE,
             placements_refused: 0,
@@ -1238,6 +1298,7 @@ impl<'b> ImageStore<'b> {
             bytes_released: 0,
             images_evicted: 0,
             placements_expired: 0,
+            key_probes: 0,
             sixel_p2_ignored: 0,
             epoch: ImageGen::ZERO,
             placed: 0,
@@ -1662,22 +1723,149 @@ impl<'b> ImageStore<'b> {
         z: ZIndex,
         place: KittyPlace,
     ) -> PlacementId {
-        if !place.id.is_none() {
-            for p in 0..self.live {
-                let s = self.placements[p];
-                if !s.is_empty() && s.image == id && s.kitty.id == place.id {
-                    self.vacate(p);
-                    if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
-                        s.placements = Count::of(s.placements.index().saturating_sub(1));
-                    }
-                }
+        if let Some(p) = self.find_kitty(id, place.id) {
+            self.vacate(p);
+            if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
+                s.placements = Count::of(s.placements.index().saturating_sub(1));
             }
         }
         let pid = self.place(id, screen, line, col, z);
         if let Some(p) = pid_index(pid) {
             self.placements[p].kitty = place;
+            if !place.id.is_none() {
+                self.index_insert(p);
+            }
         }
         pid
+    }
+
+    /// **Delete the kitty placement of `image` with placement id `pid`**,
+    /// found by the pair, and the image with it as
+    /// [`ImageStore::kitty_delete`] would: a delete with `i` and `p`, or
+    /// `I` and `p`, takes "only the placement with the specified image id
+    /// and placement id" (`[[source: kitty-graphics]]`, "Deleting
+    /// images"). Returns how many placements went, one or none.
+    pub fn kitty_delete_placement(
+        &mut self,
+        free: KittyFree,
+        image: ImageId,
+        pid: KittyPlacement,
+    ) -> usize {
+        let Some(p) = self.find_kitty(image, pid) else {
+            return 0;
+        };
+        let Some(i) = image.index() else {
+            return 0;
+        };
+        self.vacate(p);
+        self.drop_ref(i, free);
+        self.trim();
+        1
+    }
+
+    /// One placement of image `i` gone: its count lowered, and the image
+    /// freed with its last as `free` or its namelessness says, kitty's
+    /// `filter_refs` (`[[source: kitty-graphics-c]]`).
+    fn drop_ref(&mut self, i: usize, free: KittyFree) {
+        let s = &mut self.slots[i];
+        s.placements = Count::of(s.placements.index().saturating_sub(1));
+        if s.placements.index() == 0 && (free == KittyFree::Data || s.goes_with_placements()) {
+            self.forget(i);
+            self.images_dropped += 1;
+            self.epoch = self.epoch.bumped();
+        }
+    }
+
+    /// The index entry a kitty placement's pair starts its probe at: the
+    /// high bits of a multiplicative hash of the image and placement ids,
+    /// as `StyleId::bucket` takes them, since a client's
+    /// ids run in sequence and low bits would collide them.
+    fn bucket(&self, image: ImageId, pid: KittyPlacement) -> usize {
+        let key = u64::from(image.0) << 32 | u64::from(pid.raw());
+        let bits = self.index_mask.count_ones();
+        match bits {
+            0 => 0,
+            b => usize::try_from(key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - b)).unwrap_or(0),
+        }
+    }
+
+    /// The pair a placement slot is indexed by.
+    fn key_of(&self, p: usize) -> (ImageId, KittyPlacement) {
+        let s = &self.placements[p];
+        (s.image, s.kitty.id)
+    }
+
+    /// **The slot of the kitty placement of `image` with id `pid`**, from
+    /// the index: the probe from the pair's bucket ends at it or at an
+    /// empty entry, each entry examined counted in
+    /// [`ImageStore::key_probes`]. `None` for a placement id of none,
+    /// which names no placement.
+    fn find_kitty(&mut self, image: ImageId, pid: KittyPlacement) -> Option<usize> {
+        if pid.is_none() || self.index_mask == 0 {
+            return None;
+        }
+        let mut j = self.bucket(image, pid);
+        // Bounded by the index, which is never more than half full: the
+        // probe meets an empty entry long before the bound.
+        for _ in 0..=self.index_mask {
+            self.key_probes += 1;
+            let p = pid_index(self.index[j])?;
+            if self.key_of(p) == (image, pid) {
+                return Some(p);
+            }
+            j = (j + 1) & self.index_mask;
+        }
+        None
+    }
+
+    /// Index slot `p`, a kitty placement with a placement id that no other
+    /// live placement of its image has.
+    fn index_insert(&mut self, p: usize) {
+        let (image, pid) = self.key_of(p);
+        let mut j = self.bucket(image, pid);
+        for _ in 0..=self.index_mask {
+            if self.index[j].is_none() {
+                self.index[j] = PlacementId::from_index(p);
+                return;
+            }
+            j = (j + 1) & self.index_mask;
+        }
+    }
+
+    /// **Take slot `p` out of the index** while it still holds its pair,
+    /// shifting back each entry after it that its probe passed through, so
+    /// every remaining probe still ends where it did.
+    fn index_remove(&mut self, p: usize) {
+        let (image, pid) = self.key_of(p);
+        if pid.is_none() || self.index_mask == 0 {
+            return;
+        }
+        let me = PlacementId::from_index(p);
+        let mask = self.index_mask;
+        let mut hole = self.bucket(image, pid);
+        let mut seen = 0;
+        while self.index[hole] != me {
+            if self.index[hole].is_none() || seen == mask {
+                return;
+            }
+            hole = (hole + 1) & mask;
+            seen += 1;
+        }
+        let mut k = hole;
+        for _ in 0..mask {
+            k = (k + 1) & mask;
+            let Some(q) = pid_index(self.index[k]) else {
+                break;
+            };
+            let (qi, qp) = self.key_of(q);
+            let home = self.bucket(qi, qp);
+            // It stays unless its home is no nearer `k` than the hole is.
+            if (k.wrapping_sub(home) & mask) >= (k.wrapping_sub(hole) & mask) {
+                self.index[hole] = self.index[k];
+                hole = k;
+            }
+        }
+        self.index[hole] = PlacementId::NONE;
     }
 
     /// **Delete the kitty placements `hit` picks**, and with them each
@@ -1709,13 +1897,7 @@ impl<'b> ImageStore<'b> {
             }
             self.vacate(p);
             n += 1;
-            let s = &mut self.slots[i];
-            s.placements = Count::of(s.placements.index().saturating_sub(1));
-            if s.placements.index() == 0 && (free == KittyFree::Data || s.goes_with_placements()) {
-                self.forget(i);
-                self.images_dropped += 1;
-                self.epoch = self.epoch.bumped();
-            }
+            self.drop_ref(i, free);
         }
         self.trim();
         n
@@ -2004,8 +2186,9 @@ impl<'b> ImageStore<'b> {
                 self.forget(i);
             }
         }
-        for p in self.placements[..self.live].iter_mut() {
-            *p = PlacementSlot::EMPTY;
+        for p in 0..self.live {
+            self.index_remove(p);
+            self.placements[p] = PlacementSlot::EMPTY;
         }
         self.placed = 0;
         self.live = 0;
@@ -2430,7 +2613,7 @@ impl<'b> ImageStore<'b> {
             .iter()
             .position(|p| p.is_empty())
             .map(|i| from + i)
-            .or((self.live < self.placements.len()).then_some(self.live))
+            .or((self.live < self.place_cap).then_some(self.live))
     }
 
     /// **Free slot `p`**: emptied, counted out of the live placements, and
@@ -2445,6 +2628,7 @@ impl<'b> ImageStore<'b> {
         if local {
             self.local_placed = self.local_placed.saturating_sub(1);
         }
+        self.index_remove(p);
         self.placements[p] = PlacementSlot::EMPTY;
         self.placed = self.placed.saturating_sub(1);
         self.free_from = self.free_from.min(p);
@@ -2459,9 +2643,10 @@ impl<'b> ImageStore<'b> {
         }
     }
 
-    /// How many placements the table can hold: the slots it was lent.
+    /// How many placements the table can hold: the slots it was lent, or
+    /// half the index's usable entries if fewer.
     pub fn placement_slots(&self) -> usize {
-        self.placements.len()
+        self.place_cap
     }
 
     /// Whether the placement table has a free slot: what

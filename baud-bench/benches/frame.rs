@@ -40,6 +40,17 @@
 //! then 500 full frames, reporting the cost a frame. The instructions the
 //! whole run retires, `/usr/bin/time -l`, less those of `none`'s, over 500,
 //! are the image's a frame.
+//!
+//! `FRAME_PERCELL=<cols>x<rows>` prices instead a picture placed one cell
+//! at a time, yazi 26.9.1's shape (an `a=p,i,p,x,y,w,h,c=1,r=1,z=-1,C=1`
+//! per cell): over the recording's last screen, a `cols` by `rows` pixel
+//! image placed from the top-left, a source pixel a cell, then a full
+//! frame and `FRAME_PERCELL_FRAMES` (default 20) incremental ones over the
+//! still screen, reporting the cost a frame, the rows dirtied and an
+//! FNV-1a of the last frame's pixels. `FRAME_PERCELL_CHURN=1` re-puts
+//! placement 1 with another source pixel before every frame, so each
+//! frame has a placement gone and one arrived. `FRAME_WS=<cols>x<rows>`
+//! sets the screen, 200x50 by default.
 
 use baud_core::{Owned, Term};
 use baud_domain::Chan;
@@ -96,10 +107,19 @@ fn main() {
         .iter()
         .map(|(data, i)| Face::parse_index(data, baud_font::FaceIndex::of(*i)).unwrap())
         .collect();
-    let ws = WinSize {
-        ws_row: 50,
-        ws_col: 200,
-    };
+    let ws = std::env::var("FRAME_WS")
+        .ok()
+        .and_then(|v| {
+            let (c, r) = v.split_once('x')?;
+            Some(WinSize {
+                ws_row: r.parse().ok()?,
+                ws_col: c.parse().ok()?,
+            })
+        })
+        .unwrap_or(WinSize {
+            ws_row: 50,
+            ws_col: 200,
+        });
     // **A fresh renderer per rep.** The run cache and the atlas persist for
     // a session, so a renderer reused across reps reports the second rep
     // with every run already shaped and every glyph already rasterised --
@@ -306,6 +326,92 @@ fn main() {
         println!(
             "image {keys} over {which}: {us:.1} us/frame, {} placements",
             ri.image_placements().len()
+        );
+        return;
+    }
+    if let Ok(size) = std::env::var("FRAME_PERCELL") {
+        let (pc, pr) = size.split_once('x').expect("FRAME_PERCELL=<cols>x<rows>");
+        let (pc, pr): (u32, u32) = (pc.parse().unwrap(), pr.parse().unwrap());
+        let frames: u32 = std::env::var("FRAME_PERCELL_FRAMES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(20);
+        let churn = std::env::var("FRAME_PERCELL_CHURN").is_ok_and(|v| v == "1");
+        let mut ri = fresh();
+        let m = ri.metrics();
+        let cell = |p: baud_font::Px| ImagePx::of(u16::try_from(p.value()).unwrap_or(u16::MAX));
+        let area = usize::try_from(pc * pr).unwrap();
+        let mut owned = Owned::new(&ws).with_images(ImageBudget::of(area + 64));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(cell(m.cell_w), cell(m.cell_h));
+        const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut rgb = Vec::new();
+        for y in 0..pr {
+            for x in 0..pc {
+                let [_, _, a, b] = (x * 7 + y * 13).to_be_bytes();
+                rgb.extend_from_slice(&[a, b, 90]);
+            }
+        }
+        let mut tail = data.clone();
+        tail.extend_from_slice(format!("\x1b_Gq=2,a=t,i=1,f=24,s={pc},v={pr};").as_bytes());
+        for q in rgb.chunks(3) {
+            let mut b = [0u8; 3];
+            b[..q.len()].copy_from_slice(q);
+            let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+            for k in 0..4 {
+                tail.push(B64[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap_or(0)]);
+            }
+        }
+        tail.extend_from_slice(b"\x1b\\");
+        for y in 0..pr {
+            for x in 0..pc {
+                tail.extend_from_slice(
+                    format!(
+                        "\x1b[{};{}H\x1b_Gq=2,a=p,i=1,p={},x={x},y={y},w=1,h=1,c=1,r=1,z=-1,C=1\x1b\\",
+                        y + 1,
+                        x + 1,
+                        y * pc + x + 1
+                    )
+                    .as_bytes(),
+                );
+            }
+        }
+        let feed = |t: &mut Term<'_>, b: &[u8]| {
+            for c in b.chunks(4096) {
+                t.write_at(BytePos::ZERO, c);
+                t.feed(BytePos::ZERO, ReadLen::from_index(c.len()));
+            }
+        };
+        feed(&mut t, &tail);
+        let mut rows = 0u64;
+        let us = {
+            let mut target = Target::new(&mut pixels, w, w, h).unwrap();
+            ri.render(&mut t, &mut target, Damage::Full);
+            let start = std::time::Instant::now();
+            for k in 0..frames {
+                if churn {
+                    let put = format!(
+                        "\x1b[1;1H\x1b_Gq=2,a=p,i=1,p=1,x={},y=0,w=1,h=1,c=1,r=1,z=-1,C=1\x1b\\",
+                        (k + 1) % 2
+                    );
+                    feed(&mut t, put.as_bytes());
+                }
+                rows += ri
+                    .render(&mut t, &mut target, Damage::Incremental)
+                    .rows_dirty
+                    .value();
+            }
+            start.elapsed().as_secs_f64() * 1e6 / f64::from(frames)
+        };
+        let fnv = pixels.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &p| {
+            (h ^ u64::from(p)).wrapping_mul(0x0000_0100_0000_01b3)
+        });
+        println!(
+            "percell {pc}x{pr} over {which} at {}x{}: {us:.1} us/frame, {} placements drawn, {} live, {rows} rows dirtied in {frames} frames, pixels {fnv:016x}",
+            ws.ws_col,
+            ws.ws_row,
+            ri.image_placements().len(),
+            t.images().placements().count(),
         );
         return;
     }

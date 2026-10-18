@@ -513,6 +513,7 @@ pub struct Owned {
     img_probe: alloc::vec::Vec<Pixel>,
     img_slots: alloc::vec::Vec<ImageSlot>,
     img_places: alloc::vec::Vec<PlacementSlot>,
+    img_index: alloc::vec::Vec<PlacementId>,
     sixel: alloc::boxed::Box<SixelStream>,
     kitty: alloc::boxed::Box<KittyStream>,
     kitty_scratch: alloc::vec::Vec<u8>,
@@ -591,13 +592,15 @@ impl Owned {
             link_len: vec![ByteLen::ZERO; NLINK],
             // The slot table is tiny and always allocated, and so is the
             // Sixel decoder's state, its 256 registers the most of it; the
-            // placement table comes from zeroed pages, resident only where
-            // placements land; the pixel arena is the large buffer and
-            // defaults absent, provisioned by [`Owned::with_images`].
+            // placement table and its index come from zeroed pages,
+            // resident only where placements land; the pixel arena is the
+            // large buffer and defaults absent, provisioned by
+            // [`Owned::with_images`].
             img_pixels: vec::Vec::new(),
             img_probe: vec::Vec::new(),
             img_slots: vec![ImageSlot::EMPTY; NIMAGE],
             img_places: PlacementSlot::zeroed_vec(places),
+            img_index: PlacementId::zeroed_index(places),
             sixel: alloc::boxed::Box::new(SixelStream::NEW),
             kitty: alloc::boxed::Box::new(KittyStream::NEW),
             kitty_scratch: vec::Vec::new(),
@@ -719,6 +722,7 @@ impl Owned {
                 &mut self.img_pixels,
                 &mut self.img_slots,
                 &mut self.img_places,
+                &mut self.img_index,
             )
             .with_probe(&mut self.img_probe),
         )
@@ -761,6 +765,7 @@ impl Owned {
                 &mut self.img_pixels,
                 &mut self.img_slots,
                 &mut self.img_places,
+                &mut self.img_index,
             )
             .with_probe(&mut self.img_probe),
         )

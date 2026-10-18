@@ -20,7 +20,7 @@
 use baud_core::*;
 use baud_domain::{
     ImageAlpha, ImageBudget, ImageId, ImagePx, ImageRefusal, ImageRefusals, ImageSlot, ImageStore,
-    Pixel, PlacementSlot, SixelAspect, SixelStream, StreamByte,
+    Pixel, PlacementId, PlacementSlot, SixelAspect, SixelStream, StreamByte,
 };
 use proptest::prelude::*;
 
@@ -118,6 +118,7 @@ struct Arena {
     px: Vec<Pixel>,
     slots: Vec<ImageSlot>,
     places: Vec<PlacementSlot>,
+    index: Vec<PlacementId>,
 }
 
 impl Arena {
@@ -131,6 +132,7 @@ impl Arena {
             px: vec![sentinel; len],
             slots: vec![ImageSlot::EMPTY; 4],
             places: vec![PlacementSlot::EMPTY; 4],
+            index: vec![PlacementId::NONE; PlacementId::index_len(4)],
         }
     }
 }
@@ -172,7 +174,7 @@ fn through_buffered(arena: usize, prog: &[Step]) -> Trace {
 fn through_buffered_counting(arena: usize, prog: &[Step], inside: &mut Vec<Inside>) -> Trace {
     let mut a = Arena::new(arena);
     let base = a.px.as_ptr().addr();
-    let mut store = ImageStore::new(&mut a.px, &mut a.slots, &mut a.places);
+    let mut store = ImageStore::new(&mut a.px, &mut a.slots, &mut a.places, &mut a.index);
     let mut ids: Vec<ImageId> = Vec::new();
     let mut out = Vec::new();
     for step in prog {
@@ -259,7 +261,7 @@ fn buffered_sixel(
 fn through_stream(arena: usize, prog: &[Step]) -> Trace {
     let mut a = Arena::new(arena);
     let base = a.px.as_ptr().addr();
-    let mut store = ImageStore::new(&mut a.px, &mut a.slots, &mut a.places);
+    let mut store = ImageStore::new(&mut a.px, &mut a.slots, &mut a.places, &mut a.index);
     let mut s = Box::new(SixelStream::NEW);
     let mut ids: Vec<ImageId> = Vec::new();
     let mut out = Vec::new();

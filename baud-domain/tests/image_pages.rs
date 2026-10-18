@@ -14,7 +14,7 @@
 
 use baud_domain::{
     ImageAlpha, ImageId, ImagePx, ImageSlot, ImageStore, PageRelease, PagesBack, Pixel,
-    PlacementSlot, SixelAspect, SixelStream, StreamByte,
+    PlacementId, PlacementSlot, SixelAspect, SixelStream, StreamByte,
 };
 use proptest::prelude::*;
 use std::cell::RefCell;
@@ -166,7 +166,8 @@ fn run(ops: &[Op]) {
     let arena = base..base + ARENA * 4;
     let mut slots = [ImageSlot::EMPTY; 8];
     let mut places = [PlacementSlot::EMPTY; 4];
-    let mut store = ImageStore::new(&mut px, &mut slots, &mut places);
+    let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
+    let mut store = ImageStore::new(&mut px, &mut slots, &mut places, &mut places_index);
     store.set_release(PageRelease::new(PAGE, record).expect("a power of two"));
     let mut sixel = Box::new(SixelStream::NEW);
     let mut live: Vec<Live> = Vec::new();

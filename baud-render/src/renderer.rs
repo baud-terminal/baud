@@ -777,17 +777,86 @@ fn covers(p: &ImagePlacement, band: Band) -> bool {
 /// rect. Whole placements are compared -- image, epoch and rect -- so a
 /// different image in the same rect still counts. One that *arrives* needs no
 /// repaint: its blit lands on the cells, which is what a repaint would give.
-fn left_from(now: &[ImagePlacement], last: &[ImagePlacement], band: Band) -> bool {
-    last.iter().any(|p| covers(p, band) && !now.contains(p))
+/// `gone` is [`PlaceDiff::gone`], the last frame's placements this one
+/// does not hold.
+fn left_from(last: &[ImagePlacement], gone: &[usize], band: Band) -> bool {
+    gone.iter().any(|&j| covers(&last[j], band))
 }
 
 /// Whether a placement under the text arrived on the band, or changed
 /// there, since the last CPU frame. Its blit lands only in a row being
 /// repainted, under the row's text, so a row it arrives on is repainted
-/// where one over the text needs none.
-fn arrived_under(now: &[ImagePlacement], last: &[ImagePlacement], band: Band) -> bool {
-    now.iter()
-        .any(|p| p.layer.under_text() && covers(p, band) && !last.contains(p))
+/// where one over the text needs none. `arrived` is
+/// [`PlaceDiff::arrived`].
+fn arrived_under(now: &[ImagePlacement], arrived: &[usize], band: Band) -> bool {
+    arrived
+        .iter()
+        .any(|&i| now[i].layer.under_text() && covers(&now[i], band))
+}
+
+/// **Which placements differ between two CPU frames**, found once a frame
+/// by sorting rather than by searching one list for each of the other's:
+/// a per-cell picture is a placement a cell, 660 for yazi's preview and
+/// 10,000 for a 200x50 screen, and a search a placement a row made the
+/// frame's diff quadratic in them. Each list is a set, as `contains`
+/// read it: a placement held twice is held.
+#[derive(Default)]
+struct PlaceDiff {
+    /// The last frame's placements this frame does not hold, by index.
+    gone: Vec<usize>,
+    /// This frame's placements the last did not hold, by index.
+    arrived: Vec<usize>,
+    /// Scratch: each list's indices in key order.
+    now_order: Vec<usize>,
+    last_order: Vec<usize>,
+}
+
+impl PlaceDiff {
+    /// Fill both lists from this frame's placements and the last's. Two
+    /// equal lists, a still picture's every frame, are one comparison.
+    fn diff(&mut self, now: &[ImagePlacement], last: &[ImagePlacement]) {
+        self.gone.clear();
+        self.arrived.clear();
+        if now == last {
+            return;
+        }
+        let order = |v: &[ImagePlacement], o: &mut Vec<usize>| {
+            o.clear();
+            o.extend(0..v.len());
+            o.sort_unstable_by_key(|&i| v[i].key());
+        };
+        order(now, &mut self.now_order);
+        order(last, &mut self.last_order);
+        missing(
+            now,
+            &self.now_order,
+            last,
+            &self.last_order,
+            &mut self.arrived,
+        );
+        missing(last, &self.last_order, now, &self.now_order, &mut self.gone);
+    }
+}
+
+/// The indices of `a`'s placements that `b` does not hold, both walked in
+/// key order once.
+fn missing(
+    a: &[ImagePlacement],
+    a_order: &[usize],
+    b: &[ImagePlacement],
+    b_order: &[usize],
+    out: &mut Vec<usize>,
+) {
+    let mut j = 0;
+    for &i in a_order {
+        let k = a[i].key();
+        while j < b_order.len() && b[b_order[j]].key() < k {
+            j += 1;
+        }
+        if j == b_order.len() || b[b_order[j]].key() != k {
+            out.push(i);
+        }
+    }
 }
 
 /// Whether [`Renderer::set_images`] keeps a copy of each image's pixels for a
@@ -840,7 +909,7 @@ impl ImageLayer {
 /// copies a row at a time; or through the placement's nearest-neighbour
 /// tables, [`Renderer::image_map`], which every path reads when it is
 /// scaled and the GPU paths read always.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ImageScale {
     Unit { x: ImagePx, y: ImagePx },
     Mapped,
@@ -895,16 +964,37 @@ pub struct ImagePlacement {
 /// this frame's tables happen to sit.
 impl PartialEq for ImagePlacement {
     fn eq(&self, o: &ImagePlacement) -> bool {
-        (
-            self.id, self.epoch, self.x, self.y, self.w, self.h, self.alpha, self.z, self.tie,
-            self.draw, self.scale,
-        ) == (
-            o.id, o.epoch, o.x, o.y, o.w, o.h, o.alpha, o.z, o.tie, o.draw, o.scale,
-        )
+        self.key() == o.key()
     }
 }
 
 impl Eq for ImagePlacement {}
+
+impl ImagePlacement {
+    /// What [`PartialEq`] compares, in an order: two placements are equal
+    /// exactly when their keys are, so two lists are matched by sorting.
+    #[allow(clippy::type_complexity)]
+    fn key(
+        &self,
+    ) -> (
+        ImageId,
+        ImageGen,
+        i16,
+        i16,
+        u16,
+        u16,
+        ImageAlpha,
+        ZIndex,
+        KittyId,
+        ImageDraw,
+        ImageScale,
+    ) {
+        (
+            self.id, self.epoch, self.x, self.y, self.w, self.h, self.alpha, self.z, self.tie,
+            self.draw, self.scale,
+        )
+    }
+}
 
 /// One image's pixels to upload once: keyed by `id` and `epoch`, the store's
 /// straight `0xAARRGGBB` words, `w * h` of them, row-major, unconverted. A
@@ -1127,6 +1217,8 @@ pub struct Renderer<'f, 'a> {
     /// The placements the last CPU frame drew, so the next one repaints the
     /// rows an image left as well as the rows it is on.
     last_image_places: Vec<ImagePlacement>,
+    /// Which placements this CPU frame and the last differ by.
+    place_diff: PlaceDiff,
     /// Each referenced image's pixels, straight, for a GPU to upload
     /// once. Keyed by id and store epoch; the CPU path reads the term's
     /// pixels directly instead. **Kept across frames** and refreshed only for a
@@ -1288,6 +1380,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             image_places: Vec::new(),
             image_maps: Vec::new(),
             last_image_places: Vec::new(),
+            place_diff: PlaceDiff::default(),
             image_uploads: Vec::new(),
             image_epoch: ImageGen::ZERO,
             image_snapshots: Tally::of(0),
@@ -2875,13 +2968,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut rows_dirty = Tally::default();
         let mut rows_partial = Tally::default();
         let mut exceptions = Exceptions::default();
-        // Whether a placement under the text arrived or changed: once a
-        // frame, so a frame with none asks no row about it.
+        // Which placements left and arrived, and whether one under the
+        // text arrived or changed, and whether one partly transparent is
+        // over it: once a frame, so a frame with none asks no row about it.
+        let mut diff = core::mem::take(&mut self.place_diff);
+        if images == ImageRows::Repainted {
+            diff.diff(&self.image_places, &self.last_image_places);
+        }
         let under_new = images == ImageRows::Repainted
+            && diff
+                .arrived
+                .iter()
+                .any(|&i| self.image_places[i].layer.under_text());
+        let any_partial = images == ImageRows::Repainted
             && self
                 .image_places
                 .iter()
-                .any(|p| p.layer.under_text() && !self.last_image_places.contains(p));
+                .any(|p| p.alpha == ImageAlpha::Partial && p.layer == ImageLayer::Over);
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
             let changed = self.cur[range.clone()] != self.prev[range];
@@ -2917,13 +3020,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // An image the CPU path blitted over this row last frame is not
             // there now: see `render_at`.
             let imaged = images == ImageRows::Repainted
-                && left_from(&self.image_places, &self.last_image_places, band);
+                && left_from(&self.last_image_places, &diff.gone, band);
             // And one the CPU path blits over this row that is partly
             // transparent: repainted every frame, and counted.
-            let partial = images == ImageRows::Repainted && partial_over(&self.image_places, band);
+            let partial = any_partial && partial_over(&self.image_places, band);
             // And one under the text that arrived or changed on this row.
-            let imaged = imaged
-                || (under_new && arrived_under(&self.image_places, &self.last_image_places, band));
+            let imaged =
+                imaged || (under_new && arrived_under(&self.image_places, &diff.arrived, band));
             if partial {
                 rows_partial.bump();
             }
@@ -2939,6 +3042,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 || partial
                 || composed;
         }
+        self.place_diff = diff;
         if images == ImageRows::Repainted {
             self.last_image_places.clone_from(&self.image_places);
         }
@@ -4470,5 +4574,111 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 curve,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod place_diff {
+    use super::*;
+    use baud_domain::PxRect;
+
+    /// The search the sorted diff replaced, one list against the other.
+    fn searched_left(now: &[ImagePlacement], last: &[ImagePlacement], band: Band) -> bool {
+        last.iter().any(|p| covers(p, band) && !now.contains(p))
+    }
+
+    fn searched_arrived(now: &[ImagePlacement], last: &[ImagePlacement], band: Band) -> bool {
+        now.iter()
+            .any(|p| p.layer.under_text() && covers(p, band) && !last.contains(p))
+    }
+
+    /// A pool of placements: equal draws are equal placements, so two
+    /// lists share some, differ by others and repeat a few.
+    fn pool() -> Vec<ImagePlacement> {
+        let placement_of = |n: u32| -> ImagePlacement {
+            let rect = PxRect {
+                x: n % 3,
+                y: 0,
+                w: 4,
+                h: 4,
+            };
+            let layer = [ImageLayer::Below, ImageLayer::Under, ImageLayer::Over]
+                [usize::try_from(n % 3).unwrap()];
+            ImagePlacement {
+                id: ImageId::NONE,
+                epoch: ImageGen::ZERO,
+                x: i16::try_from(n % 5 * 8).unwrap(),
+                y: i16::try_from(n % 7 * 9).unwrap() - 9,
+                w: 8,
+                h: u16::try_from(n % 4 * 7 + 1).unwrap(),
+                alpha: match n % 4 {
+                    0 => ImageAlpha::Partial,
+                    _ => ImageAlpha::OpaqueOrClear,
+                },
+                z: ZIndex::of(i32::try_from(n % 2).unwrap() - 1),
+                layer,
+                tie: KittyId::of(n % 6),
+                draw: ImageDraw {
+                    src: rect,
+                    dest: rect,
+                },
+                scale: match n % 5 {
+                    0 => ImageScale::Mapped,
+                    k => ImageScale::Unit {
+                        x: ImagePx::of(u16::try_from(k).unwrap()),
+                        y: ImagePx::ZERO,
+                    },
+                },
+                map: MapAt(usize::try_from(n).unwrap()),
+            }
+        };
+        (0..40u32).map(placement_of).collect()
+    }
+
+    /// **The sorted diff answers every row as the search did**: 4,000
+    /// pairs of lists drawn from a pool of 40 placements, repeats among
+    /// them, against eight 9-pixel bands, for the rows an image left and
+    /// the rows one arrived on under the text.
+    #[test]
+    fn the_sorted_diff_answers_every_row_as_the_search_did() {
+        let mut seed = 0x9e37_79b9_u32;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+        let pool = pool();
+        let mut diff = PlaceDiff::default();
+        let (mut left, mut arrived) = (0, 0);
+        for _ in 0..4000 {
+            let list = |next: &mut dyn FnMut() -> u32| -> Vec<ImagePlacement> {
+                let n = next() % 24;
+                (0..n)
+                    .map(|_| pool[usize::try_from(next() % 40).unwrap()])
+                    .collect()
+            };
+            let now = list(&mut next);
+            let last = match next() % 4 {
+                0 => now.clone(),
+                _ => list(&mut next),
+            };
+            diff.diff(&now, &last);
+            for r in 0..8u32 {
+                let band = Band {
+                    top: Px::of(r * 9),
+                    bottom: Px::of(r * 9 + 9),
+                };
+                let l = left_from(&last, &diff.gone, band);
+                let a = arrived_under(&now, &diff.arrived, band);
+                assert_eq!(l, searched_left(&now, &last, band));
+                assert_eq!(a, searched_arrived(&now, &last, band));
+                left += usize::from(l);
+                arrived += usize::from(a);
+            }
+        }
+        // Both answers were taken both ways, so neither side is constant.
+        assert!(left > 0 && arrived > 0, "{left} {arrived}");
+        assert!(left < 32_000 && arrived < 32_000, "{left} {arrived}");
     }
 }

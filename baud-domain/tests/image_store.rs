@@ -8,7 +8,7 @@
 
 use baud_domain::{
     BandMove, Col, ImageAlpha, ImagePx, ImageScreen, ImageSlot, ImageStore, LineIdx, Pixel,
-    PlacementSlot, Rows, Sixel, SixelAspect, SixelCanvas, SixelPx, ZIndex,
+    PlacementId, PlacementSlot, Rows, Sixel, SixelAspect, SixelCanvas, SixelPx, ZIndex,
 };
 
 fn red() -> Pixel {
@@ -26,6 +26,7 @@ struct Buffers {
     pixels: [Pixel; 64],
     slots: [ImageSlot; 4],
     places: [PlacementSlot; 4],
+    index: [PlacementId; 8],
 }
 impl Buffers {
     fn new() -> Buffers {
@@ -33,10 +34,16 @@ impl Buffers {
             pixels: [Pixel::CLEAR; 64],
             slots: [ImageSlot::EMPTY; 4],
             places: [PlacementSlot::EMPTY; 4],
+            index: [PlacementId::NONE; 8],
         }
     }
     fn store(&mut self) -> ImageStore<'_> {
-        ImageStore::new(&mut self.pixels, &mut self.slots, &mut self.places)
+        ImageStore::new(
+            &mut self.pixels,
+            &mut self.slots,
+            &mut self.places,
+            &mut self.index,
+        )
     }
 }
 
@@ -237,7 +244,8 @@ fn a_freed_gap_is_reused_so_a_full_arena_still_stores() {
     let mut pixels = [Pixel::CLEAR; 12];
     let mut slots = [ImageSlot::EMPTY; 4];
     let mut places = [PlacementSlot::EMPTY; 4];
-    let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places);
+    let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
+    let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places, &mut places_index);
 
     let (_, _) = store
         .store(ImagePx::of(2), ImagePx::of(2), ImageAlpha::OpaqueOrClear)
@@ -349,7 +357,8 @@ fn a_real_sixel_decodes_into_the_store_in_place() {
     let mut pixels = [Pixel::CLEAR; 64 * 48 + 16];
     let mut slots = [ImageSlot::EMPTY; 2];
     let mut places = [PlacementSlot::EMPTY; 2];
-    let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places);
+    let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
+    let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places, &mut places_index);
 
     let (id, buf) = store
         .store(ImagePx::of(64), ImagePx::of(48), ImageAlpha::OpaqueOrClear)
@@ -488,7 +497,8 @@ fn expiry_keeps_the_retained_span_and_drops_a_blanked_row() {
     let mut pixels = [Pixel::CLEAR; 4];
     let mut slots = [ImageSlot::EMPTY; 1];
     let mut places = [PlacementSlot::EMPTY; 8];
-    let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places);
+    let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
+    let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places, &mut places_index);
     let (id, _) = store
         .store(ImagePx::of(1), ImagePx::of(1), ImageAlpha::OpaqueOrClear)
         .unwrap();
@@ -563,7 +573,8 @@ fn a_band_moves_its_placements_and_drops_the_ones_that_leave_it() {
     let mut pixels = [Pixel::CLEAR; 4];
     let mut slots = [ImageSlot::EMPTY; 1];
     let mut places = [PlacementSlot::EMPTY; 8];
-    let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places);
+    let mut places_index = vec![PlacementId::NONE; PlacementId::index_len(places.len())];
+    let mut store = ImageStore::new(&mut pixels, &mut slots, &mut places, &mut places_index);
     let (id, _) = store
         .store(ImagePx::of(1), ImagePx::of(1), ImageAlpha::OpaqueOrClear)
         .unwrap();

@@ -2186,19 +2186,30 @@ impl KittyStream {
                         && p.line.plus(Rows::of_count(rows)) > at.top
                 });
             }
+            // With a placement id, the one placement the pair names, found
+            // by it: an id names one live image, a transmission replacing
+            // the image it named.
+            KittyDelete::Id if !pid.is_none() => {
+                if let Some(img) = store.kitty_image(cmd.id) {
+                    store.kitty_delete_placement(free, img, pid);
+                }
+            }
             KittyDelete::Id => {
                 let id = cmd.id;
-                store.kitty_delete(free, |p, i, _| {
-                    !id.is_none() && i == id && (pid.is_none() || p.kitty.id == pid)
-                });
+                store.kitty_delete(free, |_, i, _| !id.is_none() && i == id);
             }
             KittyDelete::Number => {
                 let Some(img) = store.kitty_newest(cmd.number) else {
                     return;
                 };
-                store.kitty_delete(free, |p, _, _| {
-                    p.image == img && (pid.is_none() || p.kitty.id == pid)
-                });
+                match pid.is_none() {
+                    true => {
+                        store.kitty_delete(free, |p, _, _| p.image == img);
+                    }
+                    false => {
+                        store.kitty_delete_placement(free, img, pid);
+                    }
+                }
             }
             KittyDelete::Cursor => {
                 let line = at.top.plus(at.row);
