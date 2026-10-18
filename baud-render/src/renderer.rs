@@ -376,13 +376,26 @@ pub enum GlyphSource {
 }
 
 /// What a codepoint shapes to alone: the glyph the cell shader draws for
-/// it, its atlas slot when it has ink, and its pair role.
+/// it, its atlas slot when it has ink, its pair role, and whether that
+/// glyph is all of it.
 #[derive(Clone, Copy, Debug)]
 pub struct Single {
     pub slot: Option<crate::atlas::Slot>,
     pub glyph: GlyphId,
     pub role: PairRole,
     pub face: FaceIx,
+    pub glyphs: Glyphs,
+}
+
+/// How many glyphs a codepoint shapes to alone. One is what a map entry
+/// draws. Several is a precomposed letter its face lacks, drawn
+/// decomposed -- U+01FA as an `A`, a ring and an acute -- or a face's
+/// multiple substitution: the map holds the first, and the cell is drawn
+/// by records ([`crate::Overlay`]), as a marked cell is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Glyphs {
+    One,
+    Several,
 }
 
 /// What one frame cost and did.
@@ -3231,6 +3244,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 glyph: GlyphId::from_shaper(0),
                 role: PairRole::Neither,
                 face: FaceIx::PRIMARY,
+                glyphs: Glyphs::One,
             });
         }
         let face = self.face_for(core::slice::from_ref(&cp), style);
@@ -3247,6 +3261,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // begins on a Greek capital, which no Common code point is.
         let shaped = self.shape(face, Script::of(cp), &clusters, ..);
         let p = *shaped.glyphs().first()?;
+        let glyphs = match shaped.glyphs().len() {
+            1 => Glyphs::One,
+            _ => Glyphs::Several,
+        };
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
         let role = self.pairs[face.index()].role(p.id);
@@ -3264,6 +3282,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             glyph: p.id,
             role,
             face,
+            glyphs,
         })
     }
 

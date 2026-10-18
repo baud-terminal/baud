@@ -1146,6 +1146,69 @@ fn diff_box(
     (lo.0 != usize::MAX).then(|| (lo.0 / cell.0, lo.1 / cell.1, hi.0 / cell.0, hi.1 / cell.1))
 }
 
+/// Both GPU arms over `$renderer`, on the scene's grid, bound to `$arms`
+/// and `$t` in the caller's scope: the terminal whose grid is the GPU's
+/// shared memory, the core writing it and the shader reading it.
+macro_rules! arms {
+    ($renderer:expr => $arms:ident, $t:ident) => {
+        let gpu = Gpu::new().expect("a Metal device; this test cannot skip itself");
+        // The viewport is the GPU's memory: the core writes it, the shader
+        // reads it.
+        // With image memory: without it a stored Sixel is *refused*, both arms
+        // draw nothing, and the image comparison passes while proving the opposite
+        // -- the `golden.rs` trap this file exists not to fall into.
+        let mut owned = Owned::without_surfaces(&WS, &CacheGeometry::UNKNOWN, Depth::of(12))
+            .with_images(ImageBudget::of(64 * 48 + 64));
+        let (grid, cells) = gpu
+            .grid(owned.ring(), owned.stride())
+            .expect("a shared grid");
+        let (_, alt) = gpu
+            .grid(owned.rows(), owned.stride())
+            .expect("a shared alternate");
+        let owned_stride = owned.stride();
+        let mut $t = Term::new(owned.storage_over(cells, alt), &WS);
+        let (styles, styles_mem) = gpu.styles(&$t).expect("shared styles");
+        let (map_buffer, map_mem) = gpu.map().expect("a shared map");
+        let (overlay, overlay_mem) = gpu
+            .overlay(
+                Cols::of_index(usize::from(WS.ws_col)),
+                Rows::of_index(usize::from(WS.ws_row)),
+            )
+            .expect("a shared overlay");
+        // The window's own buffer: the screen's height plus one, so a smooth
+        // scroll can append the leaving row, at the core's pitch -- what the
+        // app provisions.
+        let (copy, copy_mem) = gpu
+            .grid(Rows::of_index(usize::from(WS.ws_row) + 1), owned_stride)
+            .expect("a shared window copy");
+        let mut $arms = Arms {
+            gpu,
+            renderer: $renderer,
+            grid,
+            styles,
+            styles_mem,
+            map_buffer,
+            map: GlyphMap::over(map_mem),
+            overlay,
+            overlay_mem,
+            exceptions: Overlay::new(),
+            records: Vec::new(),
+            candidates: Vec::new(),
+            back: Rows::ZERO,
+            highlight: None,
+            window: None,
+            trail: None,
+            fade: None,
+            composition: None,
+            copy,
+            copy_mem,
+            slide: None,
+            stamp: StyleStamp::default(),
+            margin: (0, 0),
+        };
+    };
+}
+
 #[test]
 fn the_cell_arm_draws_what_the_instance_arm_draws() {
     let data = std::fs::read(format!(
@@ -1232,61 +1295,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         Rows::of_index(usize::from(WS.ws_row)),
     )
     .unwrap();
-    let gpu = Gpu::new().expect("a Metal device; this test cannot skip itself");
-    // The viewport is the GPU's memory: the core writes it, the shader
-    // reads it.
-    // With image memory: without it a stored Sixel is *refused*, both arms
-    // draw nothing, and the image comparison passes while proving the opposite
-    // -- the `golden.rs` trap this file exists not to fall into.
-    let mut owned = Owned::without_surfaces(&WS, &CacheGeometry::UNKNOWN, Depth::of(12))
-        .with_images(ImageBudget::of(64 * 48 + 64));
-    let (grid, cells) = gpu
-        .grid(owned.ring(), owned.stride())
-        .expect("a shared grid");
-    let (_, alt) = gpu
-        .grid(owned.rows(), owned.stride())
-        .expect("a shared alternate");
-    let owned_stride = owned.stride();
-    let mut t = Term::new(owned.storage_over(cells, alt), &WS);
-    let (styles, styles_mem) = gpu.styles(&t).expect("shared styles");
-    let (map_buffer, map_mem) = gpu.map().expect("a shared map");
-    let (overlay, overlay_mem) = gpu
-        .overlay(
-            Cols::of_index(usize::from(WS.ws_col)),
-            Rows::of_index(usize::from(WS.ws_row)),
-        )
-        .expect("a shared overlay");
-    // The window's own buffer: the screen's height plus one, so a smooth
-    // scroll can append the leaving row, at the core's pitch -- what the
-    // app provisions.
-    let (copy, copy_mem) = gpu
-        .grid(Rows::of_index(usize::from(WS.ws_row) + 1), owned_stride)
-        .expect("a shared window copy");
-    let mut arms = Arms {
-        gpu,
-        renderer,
-        grid,
-        styles,
-        styles_mem,
-        map_buffer,
-        map: GlyphMap::over(map_mem),
-        overlay,
-        overlay_mem,
-        exceptions: Overlay::new(),
-        records: Vec::new(),
-        candidates: Vec::new(),
-        back: Rows::ZERO,
-        highlight: None,
-        window: None,
-        trail: None,
-        fade: None,
-        composition: None,
-        copy,
-        copy_mem,
-        slide: None,
-        stamp: StyleStamp::default(),
-        margin: (0, 0),
-    };
+    arms!(renderer => arms, t);
     scene(&mut t);
     // Every cursor shape, block first.
     for (shape, name) in [
@@ -5214,4 +5223,243 @@ fn kitty_placeholder_leaving_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         }
     }
     feed(t, b"\x1bc");
+}
+
+/// The precomposed letters of the Latin, Greek and Cyrillic blocks: Latin-1
+/// Supplement's letters, Latin Extended-A and -B, Latin Extended
+/// Additional, Greek and Coptic, Greek Extended and Cyrillic -- every
+/// alphabetic code point there of one column, whether or not a face maps
+/// it.
+fn precomposed_letters() -> Vec<char> {
+    [
+        0x00c0..=0x024f,
+        0x0386..=0x03ff,
+        0x0400..=0x04ff,
+        0x1e00..=0x1eff,
+        0x1f00..=0x1fff,
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(char::from_u32)
+    .filter(|c| c.is_alphabetic())
+    .filter(|&c| {
+        let cp = baud_domain::Codepoint::new(u32::from(c)).unwrap();
+        baud_domain::Classified::of(cp).width(baud_domain::AmbiguousWidth::Narrow)
+            == baud_domain::Width::NARROW
+    })
+    .collect()
+}
+
+/// Every letter of `letters`, in rendition `sgr`, drawn on all three arms:
+/// one a cell, two empty columns and two empty rows between them, so each
+/// letter has the cells around it to itself -- a stacked accent the row
+/// above, a hook the row below. The letters whose pixels differ between the arms: each with
+/// the count on the cell arm and on the CPU arm, and how many glyphs it
+/// shapes to alone.
+fn letters_gate(
+    arms: &mut Arms<'_, '_>,
+    t: &mut Term<'_>,
+    letters: &[char],
+    sgr: &str,
+    style: FaceStyle,
+) -> Vec<(char, usize, usize, usize)> {
+    let (pw, _) = arms.renderer.frame_size();
+    let w = usize::try_from(pw.value()).unwrap();
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (
+        usize::try_from(m.cell_w.value()).unwrap(),
+        usize::try_from(m.cell_h.value()).unwrap(),
+    );
+    let (cols, rows) = (usize::from(WS.ws_col), usize::from(WS.ws_row));
+    let per_row = cols / 3;
+    let per_screen = per_row * (rows / 3);
+    // The screen with nothing on it, drawn once the map holds the first
+    // screen's letters (`Arms::draw` asserts the map is in use).
+    let mut empty: Option<Vec<u32>> = None;
+    let mut split = Vec::new();
+    let mut inked = 0;
+    for screen in letters.chunks(per_screen) {
+        let mut text = format!("\x1bc\x1b[?25l{sgr}");
+        let mut at = Vec::new();
+        for (i, &c) in screen.iter().enumerate() {
+            let (col, row) = (1 + 3 * (i % per_row), 1 + 3 * (i / per_row));
+            text.push_str(&format!("\x1b[{};{}H{c}", row + 1, col + 1));
+            at.push((c, col, row));
+        }
+        feed(t, text.as_bytes());
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        let empty = match &empty {
+            Some(e) => e.clone(),
+            None => {
+                feed(t, b"\x1bc\x1b[?25l");
+                let e = arms.draw(t).0;
+                empty = Some(e.clone());
+                e
+            }
+        };
+        // A letter's cell and the eight around it.
+        let near = |col: usize, row: usize| {
+            ((row - 1) * ch..(row + 2) * ch)
+                .flat_map(move |py| ((col - 1) * cw..(col + 2) * cw).map(move |px| py * w + px))
+        };
+        let count =
+            |x: &[u32], y: &[u32], col, row| near(col, row).filter(|&i| x[i] != y[i]).count();
+        // The premise of the attribution: no letter's ink, on any arm,
+        // leaves its nine cells.
+        let mut mine = vec![false; a.len()];
+        for &(_, col, row) in &at {
+            for i in near(col, row) {
+                mine[i] = true;
+            }
+        }
+        for (arm, px) in [("instance", &a), ("cell", &b), ("CPU", &cpu)] {
+            let stray = (0..a.len())
+                .filter(|&i| !mine[i] && px[i] != empty[i])
+                .count();
+            assert_eq!(
+                stray, 0,
+                "{stray} pixels of the {arm} arm lie outside every letter's cells"
+            );
+        }
+        for (c, col, row) in at {
+            inked += usize::from(count(&a, &empty, col, row) > 0);
+            let (gpu, soft) = (count(&a, &b, col, row), count(&a, &cpu, col, row));
+            if gpu + soft != 0 {
+                let cp = baud_domain::Codepoint::new(u32::from(c)).unwrap();
+                let glyphs = arms
+                    .renderer
+                    .cluster(&[cp], style, baud_render::CellSpan::One)
+                    .len();
+                split.push((c, gpu, soft, glyphs));
+            }
+        }
+    }
+    assert!(
+        inked > letters.len() / 2,
+        "the premise: the instance arm drew most of the letters, {inked} of {}",
+        letters.len()
+    );
+    split
+}
+
+/// **A precomposed letter draws the same pixels on every arm.** A face that
+/// lacks one draws it decomposed, a base and its marks (`baud_font`'s
+/// normalisation, as HarfBuzz's), so one code point can shape to several
+/// glyphs. Run over stock JetBrains Mono with the scene's faces behind it,
+/// where U+01FA shapes to several and U+00E9 to one -- the premise -- and
+/// over the macOS default chain: the embedded faces with the system's
+/// behind them, in the app's order.
+#[test]
+fn every_precomposed_letter_draws_alike_on_every_arm() {
+    let letters = precomposed_letters();
+    for c in ['Ǻ', 'Ȁ', 'Ṩ', 'Ȅ', 'Ǡ', 'Ḉ', 'ǰ', 'ḉ', 'é'] {
+        assert!(letters.contains(&c), "the premise: {c} is swept");
+    }
+    let read = |p: &str| std::fs::read(p).unwrap_or_else(|e| panic!("{p}: {e}"));
+    let here = |p: &str| read(&format!("{}/../{p}", env!("CARGO_MANIFEST_DIR")));
+    let theme = Theme {
+        bg_alpha: baud_domain::Chan::from_u8(56),
+        ..Theme::dark()
+    };
+    let fallback = |b: Vec<u8>, i: u32| (b, i, FaceRole::Fallback);
+    let styled = |p: &str, s: FaceStyle| (here(p), 0, FaceRole::Style(s));
+    let stock: Vec<(Vec<u8>, u32, FaceRole)> = vec![
+        fallback(here("baud-font/tests/fonts/JetBrainsMono-Regular.ttf"), 0),
+        fallback(here("baud-font/tests/fonts/NotoColorEmoji-subset.ttf"), 0),
+        styled(
+            "baud-app/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf",
+            FaceStyle::Bold,
+        ),
+        styled(
+            "baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf",
+            FaceStyle::Italic,
+        ),
+    ];
+    // `default_faces` on macOS, in its order.
+    let embedded: Vec<(Vec<u8>, u32, FaceRole)> = vec![
+        fallback(here("baud-app/fonts/built/Regular.ttf"), 0),
+        fallback(
+            here("baud-app/fonts/symbols-nerd-font/SymbolsNerdFontMono-Regular.ttf"),
+            0,
+        ),
+        fallback(read("/System/Library/Fonts/Menlo.ttc"), 0),
+        fallback(read("/System/Library/Fonts/Apple Color Emoji.ttc"), 0),
+        fallback(read("/System/Library/Fonts/Apple Symbols.ttf"), 0),
+        fallback(read("/System/Library/Fonts/Hiragino Sans GB.ttc"), 0),
+        fallback(read("/System/Library/Fonts/AppleSDGothicNeo.ttc"), 0),
+        fallback(read("/System/Library/Fonts/Kohinoor.ttc"), 0),
+        fallback(
+            here("baud-app/fonts/stix-two-math/STIXTwoMath-Regular.otf"),
+            0,
+        ),
+        styled("baud-app/fonts/built/Bold.ttf", FaceStyle::Bold),
+        styled(
+            "baud-app/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf",
+            FaceStyle::Italic,
+        ),
+        styled(
+            "baud-app/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf",
+            FaceStyle::BoldItalic,
+        ),
+    ];
+    let mut split = Vec::new();
+    for (chain, files) in [("stock", &stock), ("embedded", &embedded)] {
+        let faces: Vec<Face<'_>> = files
+            .iter()
+            .map(|(b, i, _)| Face::parse_index(b, baud_font::FaceIndex::of(*i)).expect("parse"))
+            .collect();
+        let roles: Vec<FaceRole> = files.iter().map(|(_, _, r)| *r).collect();
+        let mut renderer = Renderer::new(
+            Stack::with_roles(&faces, &roles).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            theme.clone(),
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap();
+        if chain == "stock" {
+            let alone = |r: &mut Renderer<'_, '_>, c: char| {
+                let cp = baud_domain::Codepoint::new(u32::from(c)).unwrap();
+                r.cluster(&[cp], FaceStyle::Regular, baud_render::CellSpan::One)
+                    .len()
+            };
+            assert!(
+                alone(&mut renderer, 'Ǻ') > 1,
+                "the premise: U+01FA shapes to several glyphs"
+            );
+            assert_eq!(
+                alone(&mut renderer, 'é'),
+                1,
+                "the premise: U+00E9 shapes to one"
+            );
+        }
+        arms!(renderer => arms, t);
+        for (name, sgr, style) in [
+            ("regular", "", FaceStyle::Regular),
+            ("bold", "\x1b[1m", FaceStyle::Bold),
+            ("italic", "\x1b[3m", FaceStyle::Italic),
+        ] {
+            for (letter, gpu, soft, glyphs) in letters_gate(&mut arms, &mut t, &letters, sgr, style)
+            {
+                let cp = baud_domain::Codepoint::new(u32::from(letter)).unwrap();
+                let mapped = faces.iter().any(|f| f.glyph(cp).is_some());
+                split.push(format!(
+                    "{chain} {name} U+{:04X} {}: cell arm {} px, CPU arm {} px, {} glyphs alone, {}",
+                    u32::from(letter),
+                    letter,
+                    gpu,
+                    soft,
+                    glyphs,
+                    if mapped { "mapped" } else { "unmapped" }
+                ));
+            }
+        }
+    }
+    assert!(
+        split.is_empty(),
+        "{} letters draw differently across the arms: {split:#?}",
+        split.len()
+    );
 }

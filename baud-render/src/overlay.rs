@@ -392,6 +392,14 @@ impl Overlay {
         // so a screen with none pays one compare a frame.
         let blinks = r.blink_slots() != Blinking::UNSEEN;
         let mut seen = Blinking::UNSEEN;
+        let paint = Paint {
+            styles,
+            block,
+            highlight: scene.highlight,
+            blink: r.blink(),
+            cursor: opacity_of(r, block),
+            pictures: Some(pictures),
+        };
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
             for (x, cell) in row.iter().enumerate().take(cols) {
@@ -411,55 +419,78 @@ impl Overlay {
                 {
                     continue;
                 }
-                let Some(cp) = crate::renderer::drawn_base(term, *cell) else {
-                    continue;
-                };
-                let mut cps = vec![cp];
-                let style = crate::cellmap::face_of(styles, *cell);
-                let mut key = ClusterKey::start().word(style.code()).fold(cp);
-                for mk in term.cluster_marks(*cell) {
-                    if let Some(c) = Codepoint::new(mk) {
-                        cps.push(c);
-                        key = key.fold(c);
-                    }
-                }
-                if crate::cellmap::CellSpan::at(row, Col::at_index(x))
-                    == crate::cellmap::CellSpan::Two
-                {
-                    key = key.wide();
-                }
-                let glyphs = match self.clusters.get(&key) {
-                    Some(g) => g.clone(),
-                    None => {
-                        self.stats.misses.bump();
-                        let g = r.cluster(&cps, style, CellSpan::at(row, Col::at_index(x)));
-                        self.clusters.insert(key, g.clone());
-                        g
-                    }
-                };
-                self.stats.cells.bump();
-                mask[y * cols + x] |= MASK_RECORD;
-                Overlay::emit(
-                    records,
-                    &mut self.over,
-                    (x, y),
-                    &glyphs,
-                    *cell,
-                    &Paint {
-                        styles,
-                        block,
-                        highlight: scene.highlight,
-                        blink: r.blink(),
-                        cursor: opacity_of(r, block),
-                        pictures: Some(pictures),
-                    },
-                    &geom,
-                );
+                self.whole(scene, r, (x, y), mask, records, &paint, &geom);
             }
+        }
+        // Then the cells whose codepoint shapes to several glyphs alone --
+        // a precomposed letter its face lacks, drawn decomposed -- which
+        // the map's walk listed (`GlyphMap::several`): an entry draws one
+        // glyph, so they are drawn whole, as a marked cell is. A list, so
+        // a screen without one pays nothing a cell.
+        for &(y, x) in scene.map.several() {
+            let (y, x) = (y.index(), x.index());
+            let Some(cell) = view.row(Row::from_index(y)).get(x) else {
+                continue;
+            };
+            if cell.flags.is_marked()
+                || mask.get(y * cols + x).is_none_or(|m| m & MASK_RECORD != 0)
+                || covered.holds(Row::from_index(y), Col::at_index(x))
+            {
+                continue;
+            }
+            self.whole(scene, r, (x, y), mask, records, &paint, &geom);
         }
         self.under = Tally::of(records.len());
         records.append(&mut self.over);
         r.set_blink_seen(seen);
+    }
+
+    /// The cell at `at` drawn whole by records: its base and every
+    /// codepoint attached to it, shaped once as a cluster and kept, the
+    /// cell masked off the map.
+    #[allow(clippy::too_many_arguments)]
+    fn whole(
+        &mut self,
+        scene: &Scene<'_, '_>,
+        r: &mut Renderer<'_, '_>,
+        at: (usize, usize),
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+        paint: &Paint<'_>,
+        geom: &Geom,
+    ) {
+        let (x, y) = at;
+        let (term, styles) = (scene.term, scene.styles);
+        let row = scene.view.row(Row::from_index(y));
+        let cell = row[x];
+        let Some(cp) = crate::renderer::drawn_base(term, cell) else {
+            return;
+        };
+        let mut cps = vec![cp];
+        let style = crate::cellmap::face_of(styles, cell);
+        let mut key = ClusterKey::start().word(style.code()).fold(cp);
+        for mk in term.cluster_marks(cell) {
+            if let Some(c) = Codepoint::new(mk) {
+                cps.push(c);
+                key = key.fold(c);
+            }
+        }
+        let span = CellSpan::at(row, Col::at_index(x));
+        if span == CellSpan::Two {
+            key = key.wide();
+        }
+        let glyphs = match self.clusters.get(&key) {
+            Some(g) => g.clone(),
+            None => {
+                self.stats.misses.bump();
+                let g = r.cluster(&cps, style, span);
+                self.clusters.insert(key, g.clone());
+                g
+            }
+        };
+        self.stats.cells.bump();
+        mask[y * geom.cols.index() + x] |= MASK_RECORD;
+        Overlay::emit(records, &mut self.over, (x, y), &glyphs, cell, paint, geom);
     }
 
     /// One window of a row: its cells' clusters gathered, cut where the

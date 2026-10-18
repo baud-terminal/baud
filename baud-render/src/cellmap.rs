@@ -211,12 +211,18 @@ impl MapEntry {
             PairRole::Ends => MapEntry::ENDS,
             PairRole::Both => MapEntry::STARTS | MapEntry::ENDS,
         };
-        Code(glyph | role | face)
+        let several = match s.glyphs {
+            crate::Glyphs::One => 0,
+            crate::Glyphs::Several => MapEntry::SEVERAL,
+        };
+        Code(glyph | role | face | several)
     }
 
     const STARTS: u32 = 1 << 16;
     const ENDS: u32 = 1 << 17;
     const FACE_SHIFT: u32 = 18;
+    /// Past the face's eight bits: the glyph is the first of several.
+    const SEVERAL: u32 = 1 << 26;
 
     /// The face the entry's glyph is on, as the code the renderer indexes
     /// its faces by.
@@ -281,6 +287,15 @@ impl MapEntry {
         self.pad.0 & MapEntry::ENDS != 0
     }
 
+    /// How many glyphs the codepoint shapes to alone: the entry draws
+    /// the first, which is all of it only for one.
+    pub fn glyphs(&self) -> crate::Glyphs {
+        match self.pad.0 & MapEntry::SEVERAL {
+            0 => crate::Glyphs::One,
+            _ => crate::Glyphs::Several,
+        }
+    }
+
     /// The entry's kind as the atlas names it; `None` for no ink.
     pub fn kind(&self) -> Option<Kind> {
         match self.kind {
@@ -320,6 +335,12 @@ pub struct GlyphMap<'m> {
     /// atlas has moved every slot.
     grown: Tally,
     stats: MapStats,
+    /// The cells whose codepoint shapes to several glyphs alone, in screen
+    /// order, from the last walk: the overlay draws them by records.
+    several: Vec<(Row, Col)>,
+    /// How many entries since the map was last emptied draw the first of
+    /// several glyphs.
+    decomposed: Tally,
 }
 
 /// A position in the map.
@@ -356,6 +377,8 @@ impl<'m> GlyphMap<'m> {
             generation: MapGeneration::default(),
             grown: Tally::default(),
             stats: MapStats::default(),
+            several: Vec::new(),
+            decomposed: Tally::default(),
         }
     }
 
@@ -386,9 +409,17 @@ impl<'m> GlyphMap<'m> {
         self.stats
     }
 
+    /// The cells on the last walk's screen whose codepoint shapes to
+    /// several glyphs alone, which no entry can draw whole, in screen
+    /// order.
+    pub fn several(&self) -> &[(Row, Col)] {
+        &self.several
+    }
+
     fn clear(&mut self) {
         self.entries.fill(MapEntry::EMPTY);
         self.stats.live = Tally::default();
+        self.decomposed = Tally::default();
         self.stats.cleared.bump();
         self.generation = MapGeneration(self.generation.0.wrapping_add(1));
     }
@@ -462,8 +493,43 @@ impl<'m> GlyphMap<'m> {
             self.grown = r.atlas_stats().grown;
             self.clear();
         }
-        candidates.clear();
         let mut changed = self.rings(r);
+        // The cells a decomposed letter is in are listed only while the map
+        // holds an entry for one, so a screen that never showed one walks
+        // as it did before they were listed. The walk that meets the
+        // map's first such entry lists none before it, and walks again.
+        let tallies = (self.stats.dropped_marks, self.stats.pair_tests);
+        let listed = self.decomposed.value() > 0;
+        changed |= match listed {
+            false => self.walk::<false>(term, vp, styles, r, candidates),
+            true => self.walk::<true>(term, vp, styles, r, candidates),
+        };
+        if !listed && self.decomposed.value() > 0 {
+            (self.stats.dropped_marks, self.stats.pair_tests) = tallies;
+            changed |= self.walk::<true>(term, vp, styles, r, candidates);
+        }
+        // A clear on the walk took the rings' entries with it.
+        changed |= self.rings(r);
+        if changed {
+            self.generation = MapGeneration(self.generation.0.wrapping_add(1));
+        }
+    }
+
+    /// One walk over the screen for [`GlyphMap::ensure`]: every cell's
+    /// entry made present, the pair candidates into `candidates`, and with
+    /// `LIST` the cells whose entry draws the first of several glyphs into
+    /// [`GlyphMap::several`]. Whether an entry was added.
+    fn walk<const LIST: bool>(
+        &mut self,
+        term: &Term<'_>,
+        vp: Viewport<'_>,
+        styles: &[Resolved],
+        r: &mut Renderer<'_, '_>,
+        candidates: &mut Vec<Candidate>,
+    ) -> bool {
+        candidates.clear();
+        self.several.clear();
+        let mut changed = false;
         let cols = vp.cols().index();
         for y in 0..vp.rows().index() {
             let row = vp.row(Row::from_index(y));
@@ -480,8 +546,13 @@ impl<'m> GlyphMap<'m> {
                 };
                 let style = face_of(styles, *cell);
                 let span = CellSpan::at(row, Col::at_index(x));
-                let (glyph, starts, ends, face) = match self.probe(cp, style, span) {
-                    Some(e) => (e.glyph(), e.starts_pair(), e.ends_pair(), e.face()),
+                let (glyph, starts, ends, face) = match self.probe(cp, style, span).copied() {
+                    Some(e) => {
+                        if LIST && e.glyphs() == crate::Glyphs::Several {
+                            self.several.push((Row::from_index(y), Col::at_index(x)));
+                        }
+                        (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
+                    }
                     None => {
                         self.stats.misses.bump();
                         let single = r.single(cp, style, span);
@@ -497,6 +568,12 @@ impl<'m> GlyphMap<'m> {
                         let e = MapEntry::of(CellKey::of(cp, style, span), single);
                         self.insert(e);
                         changed = true;
+                        if e.glyphs() == crate::Glyphs::Several {
+                            self.decomposed.bump();
+                            if LIST {
+                                self.several.push((Row::from_index(y), Col::at_index(x)));
+                            }
+                        }
                         (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
                     }
                 };
@@ -515,11 +592,7 @@ impl<'m> GlyphMap<'m> {
                 prev = starts.then_some((glyph, face));
             }
         }
-        // A clear on the walk took the rings' entries with it.
-        changed |= self.rings(r);
-        if changed {
-            self.generation = MapGeneration(self.generation.0.wrapping_add(1));
-        }
+        changed
     }
 
     /// Makes sure the map holds the three parts of an encircled run's
