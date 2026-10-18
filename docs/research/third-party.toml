@@ -2066,7 +2066,7 @@ upstream = "https://github.com/microsoft/terminal/blob/4e2b8bd9264642475d1398c11
 status   = "kept"
 
 [[tree]]
-what     = "The light theme's sixteen colours, Modus Operandi's (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant; no file text is copied. Whether a chosen set of sixteen values is protectable is unverified (note Y)"
+what     = "The light theme's sixteen colours, Modus Operandi's but entry 7, which baud darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant, which keeps Operandi's own sixteen; no file text is copied. Whether a chosen set of sixteen values is protectable is unverified (note Y)"
 paths    = ["baud-render/src/color.rs"]
 licence  = "none claimed; Modus itself is GPL-3.0-or-later"
 notice   = "credit at MODUS_OPERANDI"

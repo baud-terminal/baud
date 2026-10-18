@@ -269,8 +269,10 @@ impl<'a> XColor<'a> {
     /// `rgb:R/G/B` with 1-4 hex digits per channel, `#RGB` / `#RRGGBB` /
     /// `#RRRGGGBBB` / `#RRRRGGGGBBBB`, or an X11 colour name.
     ///
-    /// Channels are scaled to 8 bits by taking the *high* bits, which is what
-    /// XParseColor does: `rgb:f/f/f` is white, not rgb(15,15,15).
+    /// For `rgb:`, channels are scaled by value, as Xcms does: `rgb:f/f/f` is
+    /// white. The `#` forms are scaled the same way here, where XParseColor
+    /// shifts them into the high bits (`#fff` is `#f0f0f0`), an open
+    /// departure.
     pub fn parse(s: &'a [u8]) -> XColor<'a> {
         if s == b"?" {
             return XColor::Query;
@@ -311,7 +313,8 @@ fn strip<'a>(s: &'a [u8], p: &[u8]) -> Option<&'a [u8]> {
     (s.len() >= p.len() && &s[..p.len()] == p).then(|| &s[p.len()..])
 }
 
-/// One to four hex digits, scaled to eight bits from the top.
+/// One to four hex digits, scaled to eight bits by value: the widest
+/// value a run can hold maps to 255.
 fn hex_chan(s: &[u8]) -> Option<Chan> {
     if s.is_empty() || s.len() > 4 {
         return None;
@@ -327,7 +330,7 @@ fn hex_chan(s: &[u8]) -> Option<Chan> {
         v = (v << 4) | d as u32;
     }
     // Scale so the widest digit run maps its maximum to 255: `f` -> 255,
-    // `ffff` -> 255. Left-align then take the top byte.
+    // `ffff` -> 255, rounding to the nearest step.
     let bits = s.len() * 4;
     let max = (1u32 << bits) - 1;
     Some(Chan::from_u8(((v * 255 + max / 2) / max) as u8))

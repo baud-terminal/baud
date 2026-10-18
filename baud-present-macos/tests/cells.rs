@@ -3352,9 +3352,10 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
 /// cluster with marks) as much as the map's, lies under that cell's
 /// ring, frame, overline and strike, and under its own underline; a
 /// glyph reaching up from the row below lies over them; one reaching
-/// down from the row above lies under them. Each scene carries two premises -- the reaching ink lands in the
-/// decorated cell, and the decoration is drawn there -- so three arms that
-/// all dropped either could not agree here vacuously.
+/// down from the row above lies under them. Each scene carries two
+/// premises -- the reaching ink lands in the decorated cell, and the
+/// decoration is drawn there -- so three arms that all dropped either
+/// could not agree here vacuously.
 fn reach_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     let (pw, _) = arms.renderer.frame_size();
     let w = usize::try_from(pw.value()).unwrap();

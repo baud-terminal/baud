@@ -322,8 +322,8 @@ impl Paint<'_, '_> {
                 // `XColor::parse`). Left alone rather than set to something
                 // plausible-but-wrong, and **counted**, because a spec this
                 // core cannot resolve is a request it did not honour;
-                // `every_spec_osc_code_is_handled_or_counted` probes with
-                // `1`, which is such a spec.
+                // `every_spec_osc_code_is_handled_or_counted` probes each
+                // code with `;1`, which for OSC 10/11/12 is such a spec.
                 XColor::Unresolved(_) => self.unsupported_total += 1,
             },
             Osc::ResetColor(Some(c)) => self.set_palette(c, ColorWord::DEFAULT),

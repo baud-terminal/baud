@@ -69,8 +69,8 @@ light, with five made readable on their page: on dark, red, blue, magenta
 and bright blue are lighter, and on light, colour 7, the light grey, is
 darker, each keeping its hue. Every colour but the page's own black or
 white then reads at 4.5:1 as text. As backgrounds the five go the other
-way: the default text on any of them reads below 3:1. A theme you set is drawn in its own colours; only a colour it leaves
-out is baud's.
+way: the default text on any of them reads below 3:1. A theme you set is
+drawn in its own colours; only a colour it leaves out is baud's.
 
 A theme can be a base16 or base24 scheme, a ghostty, kitty, foot or
 alacritty theme (alacritty's TOML, or its older YAML), an iTerm2 colour
@@ -142,7 +142,7 @@ darkening that suits a dark desktop is far too much over a light one.
 
 | key | values | default | what it changes |
 |---|---|---|---|
-| `style` | `"standard"`, `"regular"`, `"clear"` | `"standard"` | The window's material. `"standard"` is the Mac's standard see-through window material, the one Apple puts behind an app's content: the desktop shows through faintly, and the window looks subdued while another one is in front. `"regular"` is Liquid Glass, frosted; `"clear"` is thinner, more see-through Liquid Glass. |
+| `style` | `"standard"`, `"regular"`, `"clear"` | `"standard"` | The window's material. `"standard"` is the Mac's standard see-through window material, the one Apple puts behind an app's content: the desktop shows through faintly, and Apple draws it subdued while another window is in front. `"regular"` is Liquid Glass, frosted; `"clear"` is thinner, more see-through Liquid Glass. |
 | `dim_dark` | 0 to 1 | `0.70` | How solid the background is under the dark appearance, from 0 (clear) to 1 (opaque). The default keeps text readable at Apple's minimum contrast even over a white window behind; turn it down to see more of the desktop. |
 | `dim_light` | 0 to 1 | `0.60` | The same, under the light appearance, where the default keeps text readable over a black window behind. |
 | `app_backgrounds` | `"dim"`, `"opaque"` | `"dim"` | Whether backgrounds a program paints, such as btop's panels, are see-through like the rest (`"dim"`) or solid (`"opaque"`). |

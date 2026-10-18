@@ -2,8 +2,10 @@
 //! `docs/research/sources/MANIFEST.toml`.
 //!
 //! **Do not edit by hand.** Regenerate with `scripts/gen-colour-names.py`;
-//! `kitty_names_are_rgb_txt_and_debianred` fails if this file and the
-//! pinned source disagree.
+//! `kitty_names_are_rgb_txt_and_debianred` fails if a name of the pinned
+//! source is missing or has the wrong colour; an extra entry is caught
+//! only by `python3 scripts/gen-colour-names.py --check`, which no gate
+//! runs.
 //!
 //! 753 names: X.Org's rgb.txt at 749182c
 //! (`[[source: xorg-rgb-749182c]]`), lower-cased, and `debianred`, Debian's

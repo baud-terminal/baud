@@ -233,12 +233,12 @@ impl Clipboard {
 /// white and flat black with the material darkening nothing;
 /// `the_default_dims_keep_text_readable_over_white_and_black` computes
 /// that, and is a floor under them, not their derivation.
-/// The tints, the hue and the saturation darken the glass and do nothing
-/// on the standard material, which has no tint.
 /// The tints, the hue, the saturation and the shadow are the example's,
 /// which its header records as "tuned against the system widget over one
 /// wallpaper rather than derived from a measurement" -- a starting point a
-/// reader adjusts, which is why every value here is a key.
+/// reader adjusts, which is why every value here is a key; the tints, hue
+/// and saturation darken the glass only, since the standard material has
+/// no tint.
 ///
 /// **Four of the eight are pairs, because the example's are.** The
 /// material darkening and the body dim both change with the system's

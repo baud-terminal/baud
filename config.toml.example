@@ -27,8 +27,11 @@ padding = 8
 # resolves to dark, because no appearance signal is wired there yet.
 #
 # The sixteen ANSI colours are xterm's on the dark palette and Modus Operandi's
-# on the light one (by Protesilaos Stavrou, GPL-3.0-or-later), whose six
-# colours and their bright forms read at 6:1 or better on its page. When the system flips under "auto",
+# on the light one (by Protesilaos Stavrou, GPL-3.0-or-later), with five made
+# readable on their page: on dark, red, blue, magenta and bright blue are
+# lighter, and on light, colour 7 is darker, each keeping its hue, so every
+# colour but the page's own black or white reads at 4.5:1 as text. A theme
+# you set is drawn in its own colours. When the system flips under "auto",
 # colours a program set with OSC 4, 10, 11 or 12 are dropped with the old
 # palette, and a program that asked (mode 2031) is told dark or light.
 theme = "auto"
@@ -332,10 +335,10 @@ body_kb = 256
 
 # Which material. "standard", the default, is macOS's standard see-through
 # window material, the one Apple's guidelines put behind an app's content:
-# the desktop shows through faintly, and the window looks subdued while
-# another one is in front. "regular" is Liquid Glass, frosted, and "clear"
-# the thinner, more see-through Liquid Glass, which Apple keeps for controls
-# over photos and video.
+# the desktop shows through faintly, and Apple draws it subdued while
+# another window is in front. "regular" is Liquid Glass, frosted, and
+# "clear" the thinner, more see-through Liquid Glass, which Apple keeps
+# for controls over photos and video.
 style = "standard"
 
 # The body dim: the opacity EVERY background is painted at, 0 clear to 1

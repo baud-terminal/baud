@@ -7820,7 +7820,9 @@ impl Glass {
 }
 
 /// The line a refusal prints: the crate's own reason, which names the
-/// release ("Liquid Glass requires macOS 26 or later").
+/// release ("Liquid Glass requires macOS 26 or later"). It names Liquid
+/// Glass even when the configured body is the standard material, because
+/// the launch check still requires macOS 26 for either.
 fn refusal_message(err: &GlassError) -> String {
     format!("baud: {err}")
 }

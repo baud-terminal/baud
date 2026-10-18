@@ -48,10 +48,11 @@
 //! `fbResolveColor` gives it on an 8-bit visual, `miResolveColor`'s
 //! `(v >> 8) * 257` (`[[source: xserver-fbscreen-98aed9d]]` 135,
 //! `[[source: xserver-fbcmap-mi-98aed9d]]` 57-61,
-//! `[[source: xserver-micmap-98aed9d]]` 95-112): so `#fff` is `#f0f0f0`. A
-//! colour name, `rgbi:` and the CIE and TekHVC forms refuse the file, as a
-//! ghostty file's name does: xterm draws them, and baud does not read them
-//! yet.
+//! `[[source: xserver-micmap-98aed9d]]` 95-112): so `#fff` is `#f0f0f0`.
+//! `rgbi:`, the CIE and TekHVC forms and a colour name refuse the file, as
+//! a ghostty file's name does: xterm draws them, and baud does not read
+//! them yet. The server's names (`x_colour_names`) are built for
+//! `OSC 4`/`10`/`11`/`12` and are not consulted here.
 //!
 //! The owner took Jev's leans on all four choices (2026-10-17;
 //! decisions.jsonl 714/715, none at 0.9 on both asks): the subset 0.72 /
@@ -565,10 +566,10 @@ fn x_colour(v: &[u8]) -> Result<Option<Color>, SchemeErrorKind> {
         return Ok(Some(rgb(c[0], c[1], c[2])));
     }
     let Some(colon) = v.iter().position(|&b| b == b':') else {
-        // A word is looked up as a name by the X server, whose table baud
-        // does not hold (it has 30 names X.Org's rgb.txt at 749182c lacks,
-        // `[[source: xserver-oscolor-98aed9d]]` 65-849), so a name-shaped
-        // value refuses the file; anything else XParseColor refuses.
+        // A word is looked up as a name by the X server. A name-shaped
+        // value refuses the file: the server's table is built for
+        // OSC 4/10/11/12 and is not consulted here yet. Anything else
+        // XParseColor refuses.
         let word = v.first().is_some_and(u8::is_ascii_alphabetic)
             && v.iter().all(|&b| b.is_ascii_alphanumeric() || b == b' ');
         return if word {

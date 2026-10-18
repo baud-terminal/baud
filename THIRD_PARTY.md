@@ -143,7 +143,7 @@ they were built from.
 - **From:** docs/research/sources/vt220-rm-chapter2.html, docs/research/sources/JIS0201.TXT and docs/research/sources/xterm-charsets.h
 - **Files:** [baud-domain/src/dec_sets_data.rs](baud-domain/src/dec_sets_data.rs)
 
-### The light theme's sixteen colours, Modus Operandi's (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant; no file text is copied. Whether a chosen set of sixteen values is protectable is unverified (note Y)
+### The light theme's sixteen colours, Modus Operandi's but entry 7, which baud darkens to #6c6c6c (Protesilaos Stavrou, (C) Free Software Foundation, GPL-3.0-or-later), credited at the constant, which keeps Operandi's own sixteen; no file text is copied. Whether a chosen set of sixteen values is protectable is unverified (note Y)
 
 - **Status:** open -- an open question, recorded where the file is; the owner's call
 - **Licence:** none claimed; Modus itself is GPL-3.0-or-later

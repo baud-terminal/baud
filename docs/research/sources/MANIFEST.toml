@@ -21270,10 +21270,10 @@ group  = "AM"
 # every %d, %c and %s (baud-core/tests/conformance/terminfo.rs 96-97), so
 # `Cs=\E]12;%p1%s\007` replays as an OSC 12 whose colour is `1`, which names
 # no colour. The fault is the replayed value's; the same OSC 12 carrying
-# rgb:ff/00/00 leaves Term::unsupported at 0. Note AM, section 9.
+# red leaves Term::unsupported at 0. Note AM, section 9.
 #
-# If a later change made it join the profiles, these would move with it in
-# the same commit:
+# Historical: if a later change made it join the profiles, these would move
+# with it in the same commit (the second and third are done):
 #   - baud-core/tests/conformance/main.rs's `profile!` list and
 #     docs/protocols/profiles/ (ten each), and input_caps.rs's list of ten
 #     profiles;
@@ -21290,7 +21290,8 @@ group  = "AM"
 #
 # Since 2026-10-18 terminfo-xterm-256color is the same `infocmp -x -1`
 # capture, byte for byte, and is the conformance profile; `Cs` passes there
-# with a colour for its string. This key stays for the citations above, and
+# with a colour for its string, and all ten fixtures are infocmp -x -1,
+# `Cs` replaying with red. This key stays for the citations above, and
 # note AM's comparisons of "the pin" with the capture describe the pin before
 # that day.
 [sources.terminfo-xterm-256color-x]
