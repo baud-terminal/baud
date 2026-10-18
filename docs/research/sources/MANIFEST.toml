@@ -26984,3 +26984,16 @@ bytes  = 30406
 status = "retrieved"
 # Read for note AS (2026-10-17); committed: a W3C documentation page.
 group  = "AS"
+
+[sources.xdg-portal-settings-v2]
+key    = "xdg-portal-settings-v2"
+title  = "xdg-desktop-portal ee298d1, org.freedesktop.portal.Settings.xml -- version 2: org.freedesktop.appearance contrast (0 no preference, 1 higher contrast), reduced-motion, accent-color; no transparency key"
+author = "the xdg-desktop-portal contributors"
+year   = 2026
+venue  = "flatpak/xdg-desktop-portal (LGPL-2.1)"
+url    = "https://raw.githubusercontent.com/flatpak/xdg-desktop-portal/ee298d1817fed18c208c9ddb638a4aef7bcecc9b/data/org.freedesktop.portal.Settings.xml"
+file   = ""
+sha256 = "48d1eb73c7f2d13fa3ff82952048e5337c117dd92278b8db6e026f66b8abcbfb"
+bytes  = 4575
+status = "external"
+group  = "AS"

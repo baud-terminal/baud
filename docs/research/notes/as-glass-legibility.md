@@ -2,8 +2,10 @@
 
 Status: researched 2026-10-17; the regular material, the 0.70/0.60 dims,
 Reduce Transparency and Increase Contrast are built on it (the record,
-"Regular glass, 4.5:1 dims, and the two display settings"). Section 6 lists
-what stays open.
+"Regular glass, 4.5:1 dims, and the two display settings"), and so are the
+floor's backdrop bound and the oracle's shipped alphas (the record, "The
+glass floor reads against the whole backdrop"). Section 6 lists what stays
+open.
 
 The owner, 2026-10-17, verbatim: "i am thinking our glass is too transparent
 so we need more research or something as text is hard to read, we should
@@ -198,19 +200,44 @@ as `floor = 7`, which a literal 4.5 would loosen against decision 9's
   the owner's crate, so it is the owner's call.
 - **An on-screen capture of regular against clear at 0.70/0.60**, which would
   replace section 4's model with pixels.
-- **The floor measures against the page as stated**, not as seen through the
-  glass: `lift_on_glass` mixes the page with the default page at the dim.
-  Under the light half at 0.22 that lifted btop's `#cccccc` on its black page
-  to `#4b4b4b`, which then passed 4.5:1 over no wallpaper modelled. Its
-  effect at 0.60 is unmeasured.
+- ~~**The floor measures against the page as stated**~~ **Built**: the
+  floor reads text against the page at its alpha over anything from black
+  to white, section 3's bound, and against the part most like the text
+  ([[source: wcag22-technique-f83]]); Jev's lean, 0.60/0.59 after a re-ask
+  (`decisions.jsonl` 734-737). Where no colour reaches 4.5 against the
+  range the text goes as far as 3, and to black or white only where 3 is
+  out of reach too (Jev's lean, 0.70/0.64 after a re-ask, 744-747): at
+  0.60 every lift on helix's and vimhl's dark pages is one of those, and
+  most land near white. Under the light half at 0.22 btop's `#cccccc` on
+  its black page, which went to `#4b4b4b`, now goes white (1.69:1); at
+  0.60 it reads 3.58 and moves under neither rule.
+- **Text on the default page is left out of the glass floor.** Its own text
+  is held at the bound by the dims (section 3); palette text on it is not:
+  at 0.70/0.60 cava's bars, git-log's colours and yazi-walk's read below 3
+  against the range. Not decided.
 - **Palette colours that fail with no glass at all** (dim 1.0): dark faint
   4.07, ansi1 3.26, ansi4 `#0000ee` 2.02, ansi5 4.06, ansi12 4.01; light faint
-  2.96, ansi7 2.12. These are the palette's, not the glass's.
+  2.96, ansi7 2.12. These are the palette's, not the glass's. The floor at
+  1.2 moves none; Increase Contrast's 3 lifts dark ansi4, light ansi7 and
+  light faint. The light values are note Y's decision 3, faint decision 10,
+  and decision 8 reserves a readable dark set for the owner after research,
+  Modus Vivendi first. Jev: research that set first, 0.92/0.82 (738/739).
+  **For the owner**, with renders of keep against OKLCH-lightness
+  corrections (dark ansi1 `#e93327`, ansi4 `#3771ff`, ansi5 `#d61bd5`,
+  ansi12 `#6469fe`; light ansi7 `#6c6c6c`).
 - **Under Increase Contrast at trigger 3.0, btop's greys did not change**
   (0 of 4234 glyphs on dark btop), where note Y predicted they would
   brighten. Not checked.
-- **The CPU/GPU pixel oracle's glass arms** (`glass_floor_gate` and the
-  image-over-glass gate in `baud-present-macos/tests/cells.rs`) still run
-  only at alpha 56 and do not exercise the shipped alphas 179 (dark) and
-  153 (light).
-- **Linux reads neither setting**; it has no counterpart wired.
+- ~~**The CPU/GPU pixel oracle's glass arms** run only at alpha 56~~
+  **Built**: `glass_floor_gate` and `cpu_page_gate` in
+  `baud-present-macos/tests/cells.rs` run at 56, 179 (dark) and 153
+  (light).
+- **Linux reads neither setting.** The Settings portal's
+  `org.freedesktop.appearance` `contrast` (0 no preference, 1 higher
+  contrast) is in version 2 of the interface
+  ([[source: xdg-portal-settings-v2]]); there is no transparency key, so
+  Reduce Transparency has no Linux counterpart. The driver speaks no D-Bus:
+  reading the key needs a first-party client over the session bus socket
+  (SASL EXTERNAL, `ReadOne`, `SettingChanged`), the way baud-wayland speaks
+  Wayland. That fits the no-dependency rule, and it is a protocol to build
+  and a Linux machine to run it on: open.
