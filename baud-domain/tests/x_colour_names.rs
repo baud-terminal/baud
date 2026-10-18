@@ -36,6 +36,27 @@ fn every_name_in_rgb_txt_resolves_in_any_case() {
     assert_eq!(n, 782);
 }
 
+/// **Both colour-name tables are what the generator writes.** The other
+/// tests here hold the X table to rgb.txt line by line, which cannot see an
+/// entry the source lacks; the generator's own comparison can, and this is
+/// the gate that runs it, as the other generated tables' tests run theirs.
+#[test]
+fn colour_name_tables_match_the_generator() {
+    let root = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
+    let out = std::process::Command::new("python3")
+        .arg(format!("{root}/scripts/gen-colour-names.py"))
+        .arg("--check")
+        .current_dir(root)
+        .output()
+        .expect("python3 to run the generator");
+    assert!(
+        out.status.success(),
+        "a colour-name table is stale -- rerun scripts/gen-colour-names.py\n{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// **Only case is forgiven.** A space the table does not spell, a name the
 /// 2008 rgb.txt lacked but the server holds, and Debian's `DebianRed`,
 /// which kitty's table carries and X.Org's does not.

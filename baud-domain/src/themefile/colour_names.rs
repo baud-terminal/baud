@@ -3,9 +3,9 @@
 //!
 //! **Do not edit by hand.** Regenerate with `scripts/gen-colour-names.py`;
 //! `kitty_names_are_rgb_txt_and_debianred` fails if a name of the pinned
-//! source is missing or has the wrong colour; an extra entry is caught
-//! only by `python3 scripts/gen-colour-names.py --check`, which no gate
-//! runs.
+//! source is missing or has the wrong colour, and
+//! `colour_name_tables_match_the_generator` fails if this file is not
+//! what the script writes, an extra entry included.
 //!
 //! 753 names: X.Org's rgb.txt at 749182c
 //! (`[[source: xorg-rgb-749182c]]`), lower-cased, and `debianred`, Debian's

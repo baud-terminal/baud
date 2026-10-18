@@ -3,9 +3,9 @@
 //!
 //! **Do not edit by hand.** Regenerate with `scripts/gen-colour-names.py`;
 //! `every_name_in_rgb_txt_resolves_in_any_case` fails if a name of the
-//! pinned source is missing or has the wrong colour; an extra entry is
-//! caught only by `python3 scripts/gen-colour-names.py --check`, which no
-//! gate runs.
+//! pinned source is missing or has the wrong colour, and
+//! `colour_name_tables_match_the_generator` fails if this file is not
+//! what the script writes, an extra entry included.
 //!
 //! 782 names: X.Org's rgb.txt at 0d2caec
 //! (`[[source: xorg-rgb-0d2caec]]`), lower-cased, the table the X.Org
