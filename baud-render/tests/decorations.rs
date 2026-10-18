@@ -140,6 +140,10 @@ fn ideogram_double_lines_are_two_lines() {
 #[test]
 fn sixty_five_and_fifty_five_cancel_their_lines() {
     let (none, ..) = painted(b"  ", 14.0);
+    assert!(
+        painted(b"\x1b[53m  ", 14.0).0 != none,
+        "the premise: 53 is drawn"
+    );
     for (bytes, name) in [
         (&b"\x1b[60;61;62;63;65m  "[..], "65 after 60-63"),
         (b"\x1b[53;55m  ", "55 after 53"),

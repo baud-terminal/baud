@@ -419,11 +419,11 @@ fn px_i32(p: Px) -> i32 {
 
 /// **The most grounds a repeat pass's cap is read from**: more under it,
 /// and it draws nothing. A cap over a text colour costs every mixture a
-/// glyph edge draws, about 2.4 ms in release on this Mac, and a picture
-/// holds thousands.
+/// glyph edge draws, 0.3-1.8 ms in release on this Mac (`flash_screens`'
+/// scan line), and a picture holds thousands.
 const FLASH_GROUNDS: usize = 64;
 
-/// The caps scanned a frame, at most: about 5 ms.
+/// The caps scanned a frame, at most: two, under 4 ms.
 const FLASH_SCANS: usize = 2;
 
 /// The caps the cache holds before it is emptied between frames: several

@@ -36,9 +36,10 @@
 //!   it, the way Shift already carves a selection out.
 //!
 //! What this does not do, stated: a URI outside such a wrapper broken
-//! across a hard line break is read only up to the break, and nothing marks a link until the
-//! pointer-cursor and hover underline land, both of which need a
-//! modifier-change callback the window crate does not carry yet.
+//! across a hard line break is read only up to the break, and nothing
+//! marks a link until the pointer-cursor and hover underline land, both
+//! of which need a modifier-change callback the window crate does not
+//! carry yet.
 #![forbid(unsafe_code)]
 
 use baud_core::{Focus, LINK_MAX, Term};
@@ -1479,10 +1480,10 @@ mod tests {
         assert_eq!(target.action(), Action::Open);
     }
 
-    /// RFC 3986 Appendix C's own example, hard-broken inside its `<`:
-    /// the text names a longer address than the row holds, so the click
-    /// refuses it rather than open the prefix; the same text on one line
-    /// opens the whole URI, and a closed wrapper opens as before.
+    /// The shape of RFC 3986 Appendix C's example, hard-broken inside its
+    /// `<`: the text names a longer address than the row holds, so the
+    /// click refuses it rather than open the prefix; the same text on one
+    /// line opens the whole URI, and a closed wrapper opens as before.
     /// Perturbation: drop the wrapper test -- the prefix opens.
     #[test]
     fn an_unclosed_wrapper_at_a_hard_break_is_refused_not_opened_short() {
