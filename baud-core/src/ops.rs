@@ -13,7 +13,7 @@
 //! costs every payload whether or not it executes.
 
 use crate::paint::Paint;
-use crate::term::{AltSaved, Saved, Screen};
+use crate::term::{AltSaved, Saved, Screen, SurfaceLine};
 use baud_domain::*;
 
 /// Which way a full-screen scroll moved the window over the ring: up one,
@@ -486,8 +486,7 @@ impl Paint<'_, '_> {
     pub(crate) fn retire(&mut self) {
         if self.cold.screen != crate::term::Screen::Normal {
             if self.cold.watched == crate::term::Watched::Rows {
-                let (top, ring) = (self.book.top, self.view.ring());
-                self.cold.watch_uncounted(Scroll::Up, top, ring);
+                self.cold.watch_uncounted(Scroll::Up);
             }
             if self.images.any_placed() {
                 self.alt_images_moved(Scroll::Up);
@@ -631,8 +630,7 @@ impl Paint<'_, '_> {
             .view
             .scroll_rect(at, bot, left, right.after(), n, way, b);
         self.cells = self.cells.plus(w);
-        let (rot, ring) = (self.view.rotation(), self.view.ring());
-        self.cold.moved_in_place(at, bot, rot, ring);
+        self.cold.moved_in_place(at, bot, self.book.top);
         if self.images.any_placed() {
             let k = n.at_least_one().min(bot.index() + 1 - at.index());
             let (screen, top) = self.image_top();
@@ -691,8 +689,7 @@ impl Paint<'_, '_> {
     pub(crate) fn unretire(&mut self) {
         if self.cold.screen != crate::term::Screen::Normal {
             if self.cold.watched == crate::term::Watched::Rows {
-                let (top, ring) = (self.book.top, self.view.ring());
-                self.cold.watch_uncounted(Scroll::Down, top, ring);
+                self.cold.watch_uncounted(Scroll::Down);
             }
             if self.images.any_placed() {
                 self.alt_images_moved(Scroll::Down);
@@ -712,8 +709,7 @@ impl Paint<'_, '_> {
             Some(t) => self.book.top = t,
             None => {
                 if self.cold.watched == crate::term::Watched::Rows {
-                    let (top, ring) = (self.book.top, self.view.ring());
-                    self.cold.watch_uncounted(Scroll::Down, top, ring);
+                    self.cold.watch_uncounted(Scroll::Down);
                 }
                 if self.images.any_placed() {
                     self.images.shift(ImageScreen::Primary, Rows::of_count(1));
@@ -817,15 +813,13 @@ impl Paint<'_, '_> {
             // **The rows under it stay, and the numbering moves.** A
             // selection numbered by the lines retired would be renumbered a
             // row up for each, onto text that is not its own, so the rows
-            // under the region are tested against the watch on it at the
-            // rotation the scroll finds -- before it advances, which is how
-            // the selection was numbered -- whatever region the read ends in.
-            let (rot, ring) = (self.view.rotation(), self.view.ring());
+            // under the region are tested against the watch on it as the
+            // scroll finds them -- before it advances, which is how the
+            // selection was numbered -- whatever region the read ends in.
             self.cold.test_watch(
                 Row::from_index(bot.index() + 1),
                 Row::from_index(last),
-                rot,
-                ring,
+                self.book.top,
             );
             // **To the furthest the rows hold, on the primary.** A growth
             // without a re-cut shows the cells past a narrower edge as they
@@ -852,8 +846,7 @@ impl Paint<'_, '_> {
         }
         // **The rows moved and no ring did**: what a reader holding a
         // selection on them has to learn (`Term::row_moves`).
-        let (rot, ring) = (self.view.rotation(), self.view.ring());
-        self.cold.moved_in_place(top, bot, rot, ring);
+        self.cold.moved_in_place(top, bot, self.book.top);
         // **Ceiling arm: the region move, priced.** Incorrect by construction --
         // a region that never scrolls leaves stale rows on the screen -- but
         // the cell accounting below still runs, so both arms attribute the
@@ -1128,8 +1121,8 @@ impl Paint<'_, '_> {
         self.clear_swept();
         for _ in 0..k.index() {
             self.view.retreat_rot(1);
-            self.watch_taken_back();
             self.unretire();
+            self.watch_taken_back();
             self.fill_row_counted(Row::ZERO);
             if self.past_edge() {
                 self.clear_incoming_past_edge(Row::ZERO);
@@ -1143,23 +1136,23 @@ impl Paint<'_, '_> {
     }
 
     /// A line the whole screen's scroll down takes back, tested against the
-    /// watch on a selection's rows at the rotation after the retreat: the
-    /// top row, which shows the line taken back and is blanked, and the row
-    /// the window gave up below, whose text a later line feed blanks as it
-    /// brings it back. Numbered as the selection is, either is a line the
-    /// selection may name; neither moved in place, and a read that takes the
-    /// line back and retires it again nets no movement, so nothing else
-    /// tells the embedder the text is gone. One compare when no watch is
-    /// armed, which is every read `ingest2` makes.
+    /// watch on a selection's lines once the line is counted (`unretire`):
+    /// the top row, which shows the line taken back and is blanked, and the
+    /// row the window gave up below, whose text a later line feed blanks as
+    /// it brings it back. Numbered as the selection is, either is a line the
+    /// selection may name -- the top row one of the history's when the
+    /// read has taken back more lines than the arm's row -- neither moved in
+    /// place, and a read that takes the line back and retires it again nets
+    /// no movement, so nothing else tells the embedder the text is gone. One
+    /// compare when no watch is armed, which is every read `ingest2` makes.
     #[inline(always)]
     fn watch_taken_back(&mut self) {
         if self.cold.watched != crate::term::Watched::Rows {
             return;
         }
-        let (rot, ring) = (self.view.rotation(), self.view.ring());
         let under = Row::from_index(self.rows.index());
-        self.cold.test_watch(Row::ZERO, Row::ZERO, rot, ring);
-        self.cold.test_watch(under, under, rot, ring);
+        self.cold.test_watch(Row::ZERO, Row::ZERO, self.book.top);
+        self.cold.test_watch(under, under, self.book.top);
     }
 
     pub(crate) fn scroll_region_down(&mut self, n: Count) {
@@ -1187,8 +1180,8 @@ impl Paint<'_, '_> {
             }
             for _ in 0..k {
                 self.view.retreat_rot(1);
-                self.watch_taken_back();
                 self.unretire();
+                self.watch_taken_back();
                 self.fill_row_counted(Row::ZERO);
             }
             return;
@@ -1197,8 +1190,7 @@ impl Paint<'_, '_> {
         {
             self.scroll_copy += k;
         }
-        let (rot, ring) = (self.view.rotation(), self.view.ring());
-        self.cold.moved_in_place(top, bot, rot, ring);
+        self.cold.moved_in_place(top, bot, self.book.top);
         if self.past_edge() {
             self.clear_swept();
         }
@@ -1272,8 +1264,7 @@ impl Paint<'_, '_> {
         }
         let (at, bot) = (self.cy, self.cold.bot);
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
-        let (rot, ring) = (self.view.rotation(), self.view.ring());
-        self.cold.moved_in_place(at, bot, rot, ring);
+        self.cold.moved_in_place(at, bot, self.book.top);
         if self.past_edge() {
             self.clear_swept();
         }
@@ -1305,8 +1296,7 @@ impl Paint<'_, '_> {
         }
         let (at, bot) = (self.cy, self.cold.bot);
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
-        let (rot, ring) = (self.view.rotation(), self.view.ring());
-        self.cold.moved_in_place(at, bot, rot, ring);
+        self.cold.moved_in_place(at, bot, self.book.top);
         if self.past_edge() {
             self.clear_swept();
         }
@@ -1444,10 +1434,21 @@ impl Paint<'_, '_> {
     /// for both forms and sets `savedlines` to zero whatever the protection
     /// (`[[source: xterm-scroll]]`). That departs from the text; this follows
     /// the text, decided 2026-10-10 (Jev, XT-2) and open to the owner's veto.
+    ///
+    /// **A selection on a saved line goes**, as one on a row a selective
+    /// erase wipes does: the lines are tested against the watch on a
+    /// selection's lines while the primary is up, whose history they are.
     pub(crate) fn selective_erase_saved_lines(&mut self) {
         let (hist, blank) = (self.book.hist, self.blank());
         let n = self.on_primary(|v| v.selective_wipe_behind(hist, blank));
         self.cells = self.cells.plus(n);
+        if self.cold.screen == Screen::Normal && hist.index() > 0 {
+            let (from, to) = (
+                SurfaceLine::Above(hist),
+                SurfaceLine::Above(Rows::of_count(1)),
+            );
+            self.cold.test_watch_lines(from, to, self.book.top);
+        }
     }
 
     /// Run `f` on the primary's surface whichever screen is up: the view

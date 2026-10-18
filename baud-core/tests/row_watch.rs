@@ -411,6 +411,100 @@ fn a_redraw_mark_reaches_the_lines_of_its_block_it_takes_back() {
     }
 }
 
+/// **A redraw mark erases a block wholly on the screen, so it reaches the
+/// rows it erases** as any erase does. The block opens on row 5 with `$ `
+/// and the shell redraws it from row 6, so the mark erases rows 5 and 6:
+/// a selection on row 6, which the `$ ` did not write, is reached, and one
+/// on row 7, under the block, is not. Until 2026-10-17 only the rows a mark
+/// took back were tested, and row 6 was kept on the blank the erase left.
+#[test]
+fn a_redraw_mark_reaches_the_rows_of_a_block_on_the_screen() {
+    let open = b"\x1b[6;1H\x1b]133;A\x07$ ";
+    let redraw = b"\x1b[7;1H\x1b]133;A\x07";
+    for (sel, want, what) in [
+        (rows(6, 6), true, "the block's second row"),
+        (rows(7, 7), false, "the row under the block"),
+    ] {
+        with_term(|t| {
+            feed(t, &history());
+            feed(t, open);
+            assert_eq!(text(t, 6), "line 11", "the control: row 6 holds its line");
+            assert_eq!(moved(t, sel, redraw), want, "{what}");
+            assert_eq!(text(t, 6), "", "the mark erased it");
+        });
+    }
+}
+
+/// **A watch on lines of the history**: a line the whole screen's scroll
+/// down takes back shows on the top row, blanked, and a line feed at the
+/// bottom sends it back, so the read nets no movement and the saved line
+/// that held "line 4" holds nothing. A selection on it is reached; one on
+/// the line above it, which no take-back reached, is not, and neither is
+/// one on the screen's rows 1 to 8. And a selective erase of the saved
+/// lines, `CSI ? 3 J`, reaches a selection on them.
+#[test]
+fn a_watch_on_saved_lines_is_reached_where_their_text_goes() {
+    let above = |n: usize| SurfaceLine::Above(Rows::of_count(n));
+    let on = |y: usize| SurfaceLine::At(Row::from_index(y));
+    for (prog, sel, want, what) in [
+        (
+            &b"\x1b[T\x1b[10;1H\n"[..],
+            (above(1), above(1)),
+            true,
+            "the newest saved line",
+        ),
+        (
+            &b"\x1b[T\x1b[10;1H\n"[..],
+            (above(2), above(2)),
+            false,
+            "the one above it",
+        ),
+        (
+            &b"\x1b[T\x1b[10;1H\n"[..],
+            (above(1), on(1)),
+            true,
+            "from it onto the screen",
+        ),
+        (
+            &b"\x1b[T\x1b[10;1H\n"[..],
+            (on(1), on(8)),
+            false,
+            "the screen's rows",
+        ),
+        (
+            &b"\x1b[?3J"[..],
+            (above(3), above(2)),
+            true,
+            "two saved lines, erased",
+        ),
+        (
+            &b"\x1b[?3J"[..],
+            (on(3), on(4)),
+            false,
+            "rows a saved-line erase leaves",
+        ),
+    ] {
+        with_term(|t| {
+            feed(t, &history());
+            let rot = t.rotation();
+            t.watch_lines(Some(sel));
+            feed(t, prog);
+            assert_eq!(t.watched_rows_changed(), want, "{what}");
+            if prog.len() > 5 {
+                assert_eq!(t.moved_since(rot), Moved::Retired(Rows::ZERO));
+                let newest: String = t
+                    .view(Rows::of_count(1))
+                    .row(Row::ZERO)
+                    .iter()
+                    .filter_map(|c| c.content.as_codepoint())
+                    .filter_map(|c| char::from_u32(c.value()))
+                    .collect();
+                assert_eq!(newest.trim_end(), "", "the saved line is blank");
+            }
+        });
+    }
+}
+
 /// `n` line feeds at the bottom of the screen.
 fn feeds(n: usize) -> Vec<u8> {
     let mut v = b"\x1b[10;1H".to_vec();
@@ -418,19 +512,21 @@ fn feeds(n: usize) -> Vec<u8> {
     v
 }
 
-/// **A read that moves the live surface further than its rotation can say
-/// reaches the watch.** The rotation is read round the ring: up to half of
-/// it retired, beyond that taken back, so more lines than that in one arm
-/// are misread, and a selection numbered by them would be renumbered onto
-/// rows that are not its own -- one ring and a line reads as one line. On
-/// the alternate screen, whose lines `top` does not count, the watch counts
-/// them: half the ring retired is not reached, a line more is, and so is the
-/// ring and a line, which [`Term::moved_since`] reads as one. Taken back by
-/// `SD`, a line under half the ring is not reached and half the ring is,
-/// which it reads as retired. The selection is on rows no line taken back
-/// blanks or pushes under the window.
+/// **The watch counts how far the live surface moved, however far.** The
+/// rotation is read round the ring: up to half of it retired, beyond that
+/// taken back, so more lines than that in one arm are misread by
+/// [`Term::moved_since`] -- one ring and a line reads as one line. The watch
+/// counts each line instead, and [`Term::watched_moved`] says how far the
+/// surface went, so the selection is numbered by that and not reached by
+/// the distance alone: half the ring retired, a line more, and the ring and
+/// a line, each on the alternate screen, whose lines `top` does not count,
+/// and taken back by `SD` a line under half the ring and half of it. The
+/// selection is on rows no line taken back blanks or pushes under the
+/// window. Until 2026-10-17 a read past half the ring reached the watch
+/// whatever it moved, which dropped a selection on text that was still its
+/// own: `ESC [ 6 S ESC [ 5 T` kept row 8's text on row 7.
 #[test]
-fn a_surface_moved_past_half_its_ring_reaches_the_watch_on_the_alternate_screen() {
+fn a_surface_moved_past_half_its_ring_is_counted_on_the_alternate_screen() {
     let n = with_term(|t| {
         feed(t, b"\x1b[?1049h");
         t.ring().index()
@@ -440,26 +536,42 @@ fn a_surface_moved_past_half_its_ring_reaches_the_watch_on_the_alternate_screen(
     let up = |k: usize| feeds(k);
     let down = |k: usize| format!("\x1b[{k}T").into_bytes();
     for (prog, sel, want, what) in [
-        (up(half), rows(9, 9), false, "half the ring retired"),
-        (up(half + 1), rows(9, 9), true, "a line more"),
-        (up(n + 1), rows(9, 9), true, "the ring and a line"),
+        (
+            up(half),
+            rows(9, 9),
+            Moved::Retired(Rows::of_count(half)),
+            "half the ring retired",
+        ),
+        (
+            up(half + 1),
+            rows(9, 9),
+            Moved::Retired(Rows::of_count(half + 1)),
+            "a line more",
+        ),
+        (
+            up(n + 1),
+            rows(9, 9),
+            Moved::Retired(Rows::of_count(n + 1)),
+            "the ring and a line",
+        ),
         (
             down(back_half - 1),
             rows(0, 0),
-            false,
+            Moved::Restored(Rows::of_count(back_half - 1)),
             "a line under half taken back",
         ),
         (
             down(back_half),
             rows(0, 0),
-            true,
+            Moved::Restored(Rows::of_count(back_half)),
             "half the ring taken back",
         ),
     ] {
         with_term(|t| {
             feed(t, b"\x1b[?1049h\x1b[10;1H");
             let rot = t.rotation();
-            assert_eq!(moved(t, sel, &prog), want, "{what}, a ring of {n}");
+            assert!(!moved(t, sel, &prog), "{what}, a ring of {n}");
+            assert_eq!(t.watched_moved(), Some(want), "{what}, a ring of {n}");
             if what == "the ring and a line" {
                 assert_eq!(
                     t.moved_since(rot),
@@ -477,24 +589,43 @@ fn a_surface_moved_past_half_its_ring_reaches_the_watch_on_the_alternate_screen(
     }
 }
 
-/// **On the primary the top line counts them**, read when the embedder
-/// asks: half its ring of lines retired is not reached, a line more is, and
-/// so is the ring and a line.
+/// **A read past half the ring and back is numbered by where it went.**
+/// On the alternate screen's ten-row ring, `ESC [ 6 S ESC [ 5 T` nets one
+/// line retired: row 8's text is on row 7, and no line the read took back
+/// blanked it or pushed it under. Six line feeds at the bottom and six `RI`
+/// at the top net none, the arm's rows 8 and 9 back where they were, a row
+/// of the ring that held them never blanked. And `ESC [ 6 T ESC [ 6 S`
+/// nets none, the arm's row 1 back where it was. Each read whole and at
+/// every read size and split. The control: row 9 of the last, which the
+/// scroll down pushed under the window, is reached.
 #[test]
-fn a_surface_moved_past_half_its_ring_reaches_the_watch_on_the_primary() {
-    let n = with_term(|t| t.ring().index());
-    for (k, want, what) in [
-        (n / 2, false, "half the ring retired"),
-        (n / 2 + 1, true, "a line more"),
-        (n + 1, true, "the ring and a line"),
+fn a_read_past_half_the_ring_and_back_reaches_no_row_it_left_alone() {
+    let ri: Vec<u8> = [&b"\x1b[1;1H"[..], &b"\x1bM".repeat(6)].concat();
+    for (prog, sel, what) in [
+        (b"\x1b[6S\x1b[5T".to_vec(), (8, 8), "six up, five down"),
+        ([feeds(6), ri].concat(), (8, 9), "six line feeds, six RI"),
+        (b"\x1b[6T\x1b[6S".to_vec(), (1, 1), "six down, six up"),
     ] {
+        assert!(
+            !changes(b"\x1b[?1049h", &prog, sel),
+            "{what}: {:?}",
+            String::from_utf8_lossy(&prog)
+        );
+    }
+    assert!(changes(b"\x1b[?1049h", b"\x1b[6T\x1b[6S", (9, 9)));
+}
+
+/// **On the primary the top line counts them**: half its ring of lines
+/// retired, a line more, and the ring and a line, each counted, and none
+/// reaching a selection on the last row.
+#[test]
+fn a_surface_moved_past_half_its_ring_is_counted_on_the_primary() {
+    let n = with_term(|t| t.ring().index());
+    for k in [n / 2, n / 2 + 1, n + 1] {
         with_term(|t| {
             let rot = t.rotation();
-            assert_eq!(
-                moved(t, rows(9, 9), &feeds(k)),
-                want,
-                "{what}, a ring of {n}"
-            );
+            assert!(!moved(t, rows(9, 9), &feeds(k)), "{k}, a ring of {n}");
+            assert_eq!(t.watched_moved(), Some(Moved::Retired(Rows::of_count(k))));
             if k == n + 1 {
                 assert_eq!(t.moved_since(rot), Moved::Retired(Rows::of_count(1)));
             }
@@ -503,21 +634,21 @@ fn a_surface_moved_past_half_its_ring_reaches_the_watch_on_the_primary() {
 }
 
 /// **And at line zero, where a line taken back moves no top line**, the
-/// watch counts it. A history of two lines makes a ring of twelve, so half
-/// of it is more lines than the screen's ten taken back, and the rows a
-/// take-back blanks or pushes under the window do not reach the selection
-/// on row 1 first: five taken back on a fresh terminal are not reached, six
-/// are, which [`Term::moved_since`] reads as six retired.
+/// watch counts it. A history of two lines makes a ring of twelve: five
+/// taken back on a fresh terminal are counted as five, and six as six,
+/// which [`Term::moved_since`] reads as six retired. Neither reaches row 1,
+/// whose text went down with the rest.
 #[test]
 fn lines_taken_back_at_line_zero_are_counted() {
-    for (k, want) in [(5usize, false), (6, true)] {
+    for k in [5usize, 6] {
         let mut owned = Owned::with_history(&WS, &CacheGeometry::UNKNOWN, Depth::of(2));
         let mut t = Term::new(owned.storage(), &WS);
         assert_eq!(t.ring().index(), 12, "the control: a ring of twelve");
         let rot = t.rotation();
         let prog = format!("\x1b[{k}T").into_bytes();
-        assert_eq!(moved(&mut t, rows(1, 1), &prog), want, "{k} taken back");
-        if want {
+        assert!(!moved(&mut t, rows(1, 1), &prog), "{k} taken back");
+        assert_eq!(t.watched_moved(), Some(Moved::Restored(Rows::of_count(k))));
+        if k == 6 {
             assert_eq!(t.moved_since(rot), Moved::Retired(Rows::of_count(6)));
         }
     }
@@ -573,19 +704,18 @@ const DRAWN: &[u8] = b"\x1b[1;1Hhello\x1b[5;1Hworld\x1b[10;1Hlast\x1b[3;1H";
 /// the one answer whole, at every read size from one byte up, and cut into
 /// two reads at every byte, each read armed as an embedder arms it.
 fn changes(setup: &[u8], read: &[u8], sel: (usize, usize)) -> bool {
-    let sel = Some(sel);
-    let whole = reached_after(setup, read, sel, &[]);
+    let whole = reached_rows(setup, read, sel, &[]);
     for size in 1..read.len() {
         let cuts: Vec<usize> = (size..read.len()).step_by(size).collect();
         assert_eq!(
-            reached_after(setup, read, sel, &cuts),
+            reached_rows(setup, read, sel, &cuts),
             whole,
             "{size} bytes to a read: {read:?}"
         );
     }
     for k in 1..read.len() {
         assert_eq!(
-            reached_after(setup, read, sel, &[k]),
+            reached_rows(setup, read, sel, &[k]),
             whole,
             "cut at {k}: {read:?}"
         );
@@ -761,15 +891,16 @@ fn keep_selection_is_not_recognised() {
 
 // ---- the same answer whatever the reads ----------------------------------
 
-/// What a program is made of. `RI` and `SD` come with a partial region set
-/// first, so no program scrolls the whole screen down, which takes lines
-/// back: the app drops a selection on a read whose net movement takes lines
-/// back, judged at the read's two ends, so with one in a program the answer
-/// would depend on the reads -- `ESC [ 2 S ESC [ 2 T` leaves a selection on
-/// row 5 unreached read whole, and split after `ESC [ 2 S` the second read
-/// takes two lines back. The rows a line taken back erases are held by
-/// their own tests above. Text, `EL`, `ED`, `ICH`, `DCH` and `ECH` reach
-/// the rows they land on.
+/// What a program is made of: regions set and set back, moves in place,
+/// the whole screen's scroll down -- `SD`, `RI` at the top, a redraw mark
+/// over a block on the screen -- reads that move the surface past half its
+/// ring and back, and text, `EL`, `ED`, `ICH`, `DCH`, `ECH` and the
+/// selective erases, the saved lines' too. Until 2026-10-17 no program
+/// scrolled the whole screen down: the app dropped a selection on a read
+/// whose net movement took lines back, judged at the read's two ends, so
+/// `ESC [ 2 S ESC [ 2 T` left a selection on row 5 kept read whole and
+/// dropped split after `ESC [ 2 S`. It renumbers one now, by the watch's
+/// count, and the watch tests every line a take-back erases.
 const ATOMS: &[&[u8]] = &[
     b"\x1b[4;6r",
     b"\x1b[8;9r",
@@ -797,32 +928,61 @@ const ATOMS: &[&[u8]] = &[
     b"\x1b[X",
     b"0123456789abcdef",
     "\u{4e2d}\u{6587}e\u{301}".as_bytes(),
+    b"\x1b[r\x1b[T",
+    b"\x1b[r\x1b[2T",
+    b"\x1b[r\x1b[1;1H\x1bM",
+    b"\x1b[r\x1b[6T",
+    b"\x1b[r\x1b[11S",
+    b"\x1b[r\x1b[12T",
+    b"\x1b[?2J",
+    b"\x1b[?3J",
+    b"\x1b[6;1H\x1b]133;A\x07$ \x1b[7;1H\x1b]133;A\x07",
 ];
 
-/// A program, the selection's rows when the first read is armed, and where
-/// to cut the bytes into reads.
-fn case() -> impl Strategy<Value = (Vec<usize>, Option<(usize, usize)>, Vec<usize>)> {
+/// The history the property starts on: forty-five numbered lines, so
+/// thirty are saved and a selection may lie in them.
+fn saved() -> Vec<u8> {
+    (0..45)
+        .flat_map(|i| format!("line {i}\r\n").into_bytes())
+        .collect()
+}
+
+/// A program, the selection's lines when the first read is armed --
+/// negative is a line of the history, `-1` the newest -- and where to cut
+/// the bytes into reads.
+fn case() -> impl Strategy<Value = (Vec<usize>, Option<(i32, i32)>, Vec<usize>)> {
     (
         prop::collection::vec(0..ATOMS.len(), 1..24),
         prop_oneof![
             1 => Just(None),
-            6 => (0usize..10, 0usize..10).prop_map(|(a, b)| Some((a.min(b), a.max(b)))),
+            6 => (-8i32..10, -8i32..10).prop_map(|(a, b)| Some((a.min(b), a.max(b)))),
         ],
         prop::collection::vec(0usize..400, 0..6),
     )
 }
 
+/// `y` as a line of the live surface: a screen row, or a line of the
+/// history `-y` lines above it.
+fn line(y: i32) -> SurfaceLine {
+    match usize::try_from(y) {
+        Ok(y) => SurfaceLine::At(Row::from_index(y)),
+        Err(_) => SurfaceLine::Above(Rows::of_count(
+            usize::try_from(y.unsigned_abs()).expect("a line the history holds"),
+        )),
+    }
+}
+
 /// Feeds `bytes` in the reads `cuts` makes of it, as an embedder does:
-/// armed on its selection's live rows before each read, and the selection
-/// renumbered after it by the lines the live surface retired -- rows that
-/// left the top are history, which no move in place reaches. Whether any
-/// read reached it.
-fn reached(bytes: &[u8], sel: Option<(usize, usize)>, cuts: &[usize]) -> bool {
-    reached_after(b"", bytes, sel, cuts)
+/// armed on its selection's lines before each read -- those the history
+/// still holds -- and the selection renumbered after it by the lines the
+/// watch counted the surface retiring or taking back. Whether any read
+/// reached it.
+fn reached(bytes: &[u8], sel: Option<(i32, i32)>, cuts: &[usize]) -> bool {
+    reached_after(&saved(), bytes, sel, cuts)
 }
 
 /// [`reached`], after `setup` fed before the first arm.
-fn reached_after(setup: &[u8], bytes: &[u8], sel: Option<(usize, usize)>, cuts: &[usize]) -> bool {
+fn reached_after(setup: &[u8], bytes: &[u8], sel: Option<(i32, i32)>, cuts: &[usize]) -> bool {
     with_term(|t| {
         feed(t, setup);
         let mut sel = sel;
@@ -831,23 +991,29 @@ fn reached_after(setup: &[u8], bytes: &[u8], sel: Option<(usize, usize)>, cuts: 
         ends.push(bytes.len());
         ends.sort_unstable();
         for end in ends {
-            let rot = t.rotation();
-            t.watch_rows(sel.map(|(a, b)| (Row::from_index(a), Row::from_index(b))));
+            let saved = i32::try_from(t.scrollback().len()).expect("a short history");
+            sel = sel.and_then(|(a, b)| (b >= -saved).then(|| (a.max(-saved), b)));
+            t.watch_lines(sel.map(|(a, b)| (line(a), line(b))));
             feed(t, &bytes[at..end]);
             at = end;
             if t.watched_rows_changed() {
                 return true;
             }
-            let Moved::Retired(n) = t.moved_since(rot) else {
-                panic!("no program takes lines back");
+            let d = match t.watched_moved() {
+                Some(Moved::Retired(n)) => i32::try_from(n.index()).expect("a short read"),
+                Some(Moved::Restored(n)) => -i32::try_from(n.index()).expect("a short read"),
+                None => 0,
             };
-            sel = sel.and_then(|(a, b)| {
-                let n = n.index();
-                (b >= n).then(|| (a.saturating_sub(n), b - n))
-            });
+            sel = sel.map(|(a, b)| (a - d, b - d));
         }
         false
     })
+}
+
+/// [`reached_after`] on screen rows, whole: the tests of one mechanism.
+fn reached_rows(setup: &[u8], bytes: &[u8], sel: (usize, usize), cuts: &[usize]) -> bool {
+    let row = |y: usize| i32::try_from(y).expect("a screen row");
+    reached_after(setup, bytes, Some((row(sel.0), row(sel.1))), cuts)
 }
 
 fn bytes_of(prog: &[usize]) -> Vec<u8> {
@@ -872,15 +1038,17 @@ proptest! {
 /// **The generator reaches the shapes the property is for**, counted over a
 /// fixed sample: two moves in one read in bands apart, a region set and set
 /// back around a move, `IL` or `DL` with no region, lines retired before a
-/// move in one read, and a scroll of a region anchored at the top; and both
-/// answers. A property whose programs
-/// never built them would pass whatever the watch did.
+/// move in one read, a scroll of a region anchored at the top, a line taken
+/// back by the whole screen's scroll down, a program that moves the
+/// surface more than half its ring, and a selection in the history; and
+/// both answers. A property whose programs never built them would pass
+/// whatever the watch did.
 #[test]
 fn the_generator_reaches_the_shapes() {
     use proptest::strategy::ValueTree;
     let mut runner = proptest::test_runner::TestRunner::deterministic();
     let (mut two, mut set_back, mut bare, mut retired_first) = (0, 0, 0, 0);
-    let mut top_scrolled = 0;
+    let (mut top_scrolled, mut taken_back, mut past_half, mut in_history) = (0, 0, 0, 0);
     let (mut yes, mut no) = (0, 0);
     for _ in 0..400 {
         let (prog, sel, _) = case().new_tree(&mut runner).expect("tree").current();
@@ -888,7 +1056,10 @@ fn the_generator_reaches_the_shapes() {
             true => yes += 1,
             false => no += 1,
         }
+        in_history += usize::from(sel.is_some_and(|(a, _)| a < 0));
         with_term(|t| {
+            feed(t, &saved());
+            let (mark, ring) = (t.history_mark(), t.ring().index());
             let start = t.scroll_region();
             let (mut bands, mut retired) = (Vec::new(), false);
             let regions = t.region_scrolls();
@@ -910,10 +1081,14 @@ fn the_generator_reaches_the_shapes() {
                     }
                     bands.push((top, bot));
                 }
-                if t.moved_since(rot) != Moved::Retired(Rows::ZERO) {
-                    retired = true;
+                match t.moved_since(rot) {
+                    Moved::Retired(n) if n.index() > 0 => retired = true,
+                    Moved::Restored(n) if n.index() > 0 => taken_back += 1,
+                    _ => {}
                 }
             }
+            let (Moved::Retired(n) | Moved::Restored(n)) = t.history_moved_since(mark);
+            past_half += usize::from(n.index() * 2 > ring);
             if t.region_scrolls() != regions {
                 top_scrolled += 1;
             }
@@ -931,7 +1106,8 @@ fn the_generator_reaches_the_shapes() {
     }
     eprintln!(
         "two bands {two}, set back {set_back}, bare IL/DL {bare}, retired first {retired_first}, \
-         top region scrolled {top_scrolled}, reached {yes}, not {no}"
+         top region scrolled {top_scrolled}, taken back {taken_back}, past half {past_half}, \
+         in the history {in_history}, reached {yes}, not {no}"
     );
     for (n, what) in [
         (two, "two bands apart"),
@@ -939,6 +1115,12 @@ fn the_generator_reaches_the_shapes() {
         (bare, "IL or DL with no region"),
         (retired_first, "lines retired before a move"),
         (top_scrolled, "a scroll of a region anchored at the top"),
+        (
+            taken_back,
+            "a line taken back by the whole screen's scroll down",
+        ),
+        (past_half, "a program past half the ring"),
+        (in_history, "a selection in the history"),
         (yes, "a selection reached"),
         (no, "a selection not reached"),
     ] {

@@ -19,6 +19,7 @@
 //! `a_gesture_on_a_fresh_terminal_creates_no_history`.
 
 use crate::paint::Paint;
+use crate::term::SurfaceLine;
 use baud_domain::*;
 
 /// Where the block the shell is at begins.
@@ -103,27 +104,17 @@ impl Paint<'_, '_> {
             return;
         }
         let gives_up = rows - above.min(rows)..rows;
-        if above > 0
+        let back = above > 0
             && gives_up
                 .into_iter()
-                .all(|y| self.view.row_is_blank(Row::from_index(y)))
-        {
+                .all(|y| self.view.row_is_blank(Row::from_index(y)));
+        if back {
             // The rows full-screen scrolls swept are found by where they lie,
             // and the window is about to move back.
             if self.past_edge() {
                 self.clear_swept();
             }
             self.view.retreat_rot(above);
-            // The lines taken back are the block's, erased below: tested
-            // against the watch on a selection's rows at the rotation after
-            // the retreat, as the whole screen's scroll down tests the line
-            // it takes back (`Paint::scroll_region_down`), so a read that
-            // retires them again nets no movement and still drops a
-            // selection on them. The rows given up below are blank, and come
-            // back blank.
-            let (rot, ring) = (self.view.rotation(), self.view.ring());
-            self.cold
-                .test_watch(Row::ZERO, Row::from_index(above - 1), rot, ring);
             let hist = self.book.hist.index() - above;
             self.book.hist = Rows::of_count(hist);
             self.book.hidden =
@@ -154,6 +145,22 @@ impl Paint<'_, '_> {
             let n = self.view.fill_at(at, blank);
             self.cells = self.cells.plus(n.index());
         }
+        // **The block's lines are erased, so a selection on one goes**, as
+        // any erase's: tested against the watch on a selection's lines with
+        // the window where the erase left it -- taken back over the block's
+        // first rows, which then run from the top row down, or left where it
+        // was, with the block's first rows in the history -- so a read that
+        // retires the lines taken back again nets no movement and still
+        // drops a selection on them. The rows given up below are blank, and
+        // come back blank. A block wholly on the screen was erased with no
+        // test until 2026-10-17.
+        let (from, to) = match (back, above) {
+            (true, _) => (SurfaceLine::At(Row::ZERO), (cy + above).min(rows - 1)),
+            (false, 0) => (SurfaceLine::At(Row::from_index(cy - d)), cy),
+            (false, _) => (SurfaceLine::Above(Rows::of_count(above)), cy),
+        };
+        self.cold
+            .test_watch_lines(from, SurfaceLine::At(Row::from_index(to)), self.book.top);
         self.set_row(Row::from_index(cy.saturating_sub(d)));
         self.prompt_erases += 1;
     }

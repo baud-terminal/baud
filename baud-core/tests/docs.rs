@@ -679,6 +679,21 @@ fn every_test_named_in_the_docs_exists() {
             "cell_has_default_bg",
             "kitty's background.slang, which cells count as default under a deep image, cited in color.rs",
         ),
+        (
+            "a_surface_moved_past_half_its_ring_reaches_the_watch_on_the_alternate_screen",
+            "a historical name, replaced on 2026-10-17 by \
+             `a_surface_moved_past_half_its_ring_is_counted_on_the_alternate_screen` \
+             when the watch began numbering by its count of lines and no longer \
+             reached a selection by the distance alone; the record cites it where \
+             it describes the latch",
+        ),
+        (
+            "a_surface_moved_past_half_its_ring_reaches_the_watch_on_the_primary",
+            "a historical name, replaced on 2026-10-17 by \
+             `a_surface_moved_past_half_its_ring_is_counted_on_the_primary`, for \
+             the reason its alternate-screen twin was; the record cites it where \
+             it describes the latch",
+        ),
     ];
 
     let mut missing = BTreeSet::new();

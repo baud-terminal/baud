@@ -18,7 +18,7 @@
 //! Option held at the press, a **block**: every row between the two
 //! endpoints, over one range of columns taken apart from the lines.
 
-use baud_core::Term;
+use baud_core::{SurfaceLine, Term};
 use baud_domain::{Col, Cols, Content, PackedCell, Row, Rows, Viewport, Wrap};
 
 /// A line of the live surface, numbered from the start of the session: the
@@ -62,6 +62,30 @@ impl Scrolled {
             self.0
                 .saturating_add(u64::try_from(rows.index()).unwrap_or(u64::MAX)),
         )
+    }
+
+    /// The count moved back `rows`: lines the live surface took back, so
+    /// the line numbers they had name the rows they came back to. `None`
+    /// past the session's first line, which a scroll down on a terminal
+    /// that has retired fewer lines than it takes back reaches: no number
+    /// is left for the rows it brings in.
+    pub fn retreated(self, rows: Rows) -> Option<Scrolled> {
+        let n = u64::try_from(rows.index()).ok()?;
+        self.0.checked_sub(n).map(Scrolled)
+    }
+
+    /// Where `line` lies on the live surface whose top is this count: a row
+    /// of the screen, numbered from the top, or a line of the history that
+    /// many lines above it; `None` below the screen's `rows`.
+    pub fn surface_line(self, line: AbsLine, rows: Rows) -> Option<SurfaceLine> {
+        let gap = |a: u64, b: u64| usize::try_from(a - b).unwrap_or(usize::MAX);
+        match line.0 < self.0 {
+            true => Some(SurfaceLine::Above(Rows::of_count(gap(self.0, line.0)))),
+            false => {
+                let y = gap(line.0, self.0);
+                (y < rows.index()).then(|| SurfaceLine::At(Row::from_index(y)))
+            }
+        }
     }
 
     /// The absolute line at the top of a view `back` lines up.

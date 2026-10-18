@@ -1625,8 +1625,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn watch_written(&mut self, from: Row, to: Row) {
-        let (rot, ring) = (self.view.rotation(), self.view.ring());
-        self.cold.test_watch(from, to, rot, ring);
+        self.cold.test_watch(from, to, self.book.top);
     }
 
     /// `LF`, `VT` and `FF`: down one line, and a carriage return **only**
