@@ -2860,7 +2860,10 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     assert_eq!(alpha(4, 2), 56, "?5: the fifteen blanks draw the page");
     feed(&mut t, b"\x1b[?5l");
     arms.renderer.set_theme(resting.clone());
-    glass_floor_gate(&mut arms, &mut t, &resting);
+    for case in glass_cases(&resting) {
+        arms.renderer.set_theme(case.resting.clone());
+        glass_floor_gate(&mut arms, &mut t, &case);
+    }
     arms.renderer.set_theme(resting);
 
     // **The image gate, last so a lingering placement disturbs nothing.** A
@@ -3291,28 +3294,85 @@ fn partial_image_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     feed(t, b"\x1bc");
 }
 
-/// **The floor on the page the glass draws**, on all three arms: dark
-/// text on a light page the program set (gruvbox-light's pair, 10.2:1 as
-/// asked, 1.14:1 dimmed over the dark page), drawn as a 2x20 picture of
-/// forty pages, one cell of it a marked glyph the cell arm draws from a
-/// record, as a one-page panel, under a selection and under a block
-/// cursor. The panel's glyphs are lifted, so they differ from the same
-/// frame with the floor off; the picture's, the selection's and the
-/// cursor's are drawn solid and take the text asked, so they do not; nor
-/// do box-drawing lines, on the panel and in herdr's divider colour on the
-/// default page, while two block elements in that colour are floored. The
-/// two GPU arms read one resolved table but choose between its two texts
-/// in two spellings, `Resolved::drawn` and the shader's `colors()`, and
-/// the CPU arm composites the instance arm's colours: this compares all
-/// three, at the old default dim, alpha 56.
-fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) {
+/// One run of [`glass_floor_gate`]: the theme at rest, a text and page
+/// pair the program sets that the floor lifts at that theme's alpha, and a
+/// line colour the floor lifts on the default page.
+struct GlassCase {
+    name: &'static str,
+    resting: Theme,
+    text: (u8, u8, u8),
+    page: (u8, u8, u8),
+    line: (u8, u8, u8),
+}
+
+/// [`glass_floor_gate`]'s three runs: the old default dim and the two
+/// shipped since 2026-10-17, `dim_dark` 0.70 (alpha 179) under the dark
+/// theme and `dim_light` 0.60 (alpha 153) under the light one. Each pair
+/// reads 3:1 or above as asked and below 3 as drawn at its alpha:
+/// gruvbox-light's 10.22 to 1.14 at 56, `#303030` on `#888888` 3.72 to
+/// 2.23 at 179, `#a0a0a0` on `#303030` 5.05 to 1.60 at 153, each dimmed
+/// over its default page. Gruvbox-light's pair is not lifted at either
+/// shipped alpha (5.20 and 10.14 drawn), which is why each has its own.
+/// The lines read 1.05:1 and 1.06:1 on their default pages.
+fn glass_cases(resting: &Theme) -> [GlassCase; 3] {
     assert_eq!(
         resting.bg_alpha.get(),
         56,
         "the premise: alpha 56, the pre-2026-10-17 default"
     );
+    let shipped = |alpha: u8, theme: Theme| Theme {
+        bg_alpha: Chan::from_u8(alpha),
+        app_bg: resting.app_bg,
+        ..theme
+    };
+    [
+        GlassCase {
+            name: "alpha 56, dark",
+            resting: resting.clone(),
+            text: (60, 56, 54),
+            page: (251, 241, 199),
+            line: (21, 22, 27),
+        },
+        GlassCase {
+            name: "alpha 179, dark",
+            resting: shipped(179, Theme::dark()),
+            text: (48, 48, 48),
+            page: (136, 136, 136),
+            line: (21, 22, 27),
+        },
+        GlassCase {
+            name: "alpha 153, light",
+            resting: shipped(153, Theme::light()),
+            text: (160, 160, 160),
+            page: (48, 48, 48),
+            line: (232, 233, 234),
+        },
+    ]
+}
+
+/// **The floor on the page the glass draws**, on all three arms, at each
+/// of [`glass_cases`]: a text and page pair the program sets, drawn as a
+/// 2x20 picture of forty pages near the pair's, one cell of it a marked
+/// glyph the cell arm draws from a record, as a one-page panel, under a
+/// selection and under a block cursor. The panel's glyphs are lifted, so
+/// they differ from the same frame with the floor off; the picture's, the
+/// selection's and the cursor's are drawn solid and take the text asked,
+/// so they do not; nor do box-drawing lines, on the panel and in the
+/// case's line colour on the default page, while two block elements in
+/// that colour are floored. The two GPU arms read one resolved table but
+/// choose between its two texts in two spellings, `Resolved::drawn` and
+/// the shader's `colors()`, and the CPU arm composites the instance arm's
+/// colours: this compares all three.
+fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, case: &GlassCase) {
+    let GlassCase {
+        name,
+        ref resting,
+        text: (tr, tg, tb),
+        page: (pr, pg, pb),
+        line: (lr, lg, lb),
+    } = *case;
     assert_eq!(arms.margin, (0, 0), "the premise: the frame at the origin");
-    let pair = "38;2;60;56;54;48;2;251;241;199";
+    let pair = format!("38;2;{tr};{tg};{tb};48;2;{pr};{pg};{pb}");
     feed(t, b"\x1b[?25l\x1b[2J\x1b[H\x1b[2 q");
     for y in 0..2u32 {
         feed(t, format!("\x1b[{};3H", y + 2).as_bytes());
@@ -3322,9 +3382,9 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
             feed(
                 t,
                 format!(
-                    "\x1b[38;2;60;56;54;48;2;{};{};199m{glyph}",
-                    251 - x,
-                    241 - y * 8
+                    "\x1b[38;2;{tr};{tg};{tb};48;2;{};{};{pb}m{glyph}",
+                    u32::from(pr) - x,
+                    u32::from(pg) - y * 8
                 )
                 .as_bytes(),
             );
@@ -3335,12 +3395,15 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
         t,
         format!("\x1b[5;3H\x1b[{pair}mpanel text here\x1b[5;19H\u{2500}\x1b[0m").as_bytes(),
     );
-    // herdr's divider colour on the default page, 1.05:1: four box-drawing
-    // lines, one of them DEC Special Graphics' `q`, then two block elements.
+    // The line colour on the default page (herdr's divider under the dark
+    // theme): four box-drawing lines, one of them DEC Special Graphics'
+    // `q`, then two block elements.
     feed(
         t,
-        "\x1b[7;3H\x1b[38;2;21;22;27m\u{2500} \u{2502} \u{256d} \u{257f} \x1b(0q\x1b(B \u{2580} \u{2588}\x1b[0m"
-            .as_bytes(),
+        format!(
+            "\x1b[7;3H\x1b[38;2;{lr};{lg};{lb}m\u{2500} \u{2502} \u{256d} \u{257f} \x1b(0q\x1b(B \u{2580} \u{2588}\x1b[0m"
+        )
+        .as_bytes(),
     );
     feed(t, b"\x1b[5;14H\x1b[?25h");
     arms.highlight = Some(Highlight {
@@ -3365,19 +3428,19 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
         assert_eq!(
             arms.exceptions.stats().pictured.value(),
             40,
-            "{floor:?}: the cell arm's overlay found the picture"
+            "{name}, {floor:?}: the cell arm's overlay found the picture"
         );
         let bx = diff_box(&a, &b, fw, (cw, ch));
         assert_eq!(
             differing(&a, &b),
             0,
-            "{floor:?}: the GPU arms disagree over the glass floor, cells {bx:?}"
+            "{name}, {floor:?}: the GPU arms disagree over the glass floor, cells {bx:?}"
         );
         let cpu = cpu_frame(arms, t);
         let all = channel_diff(&cpu, &a, |_| true);
         assert_eq!(
             all.0, 0,
-            "{floor:?}: CPU and GPU differ on {} pixels, by up to {}",
+            "{name}, {floor:?}: CPU and GPU differ on {} pixels, by up to {}",
             all.0, all.1
         );
         frames.push(b);
@@ -3395,18 +3458,37 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
         }
         n
     };
-    assert!(moved(4..5, 8..11) > 0, "the panel's glyphs were not lifted");
-    assert_eq!(moved(4..5, 18..19), 0, "a line on the panel was lifted");
-    assert_eq!(moved(6..7, 2..11), 0, "a box-drawing line was floored");
+    assert!(
+        moved(4..5, 8..11) > 0,
+        "{name}: the panel's glyphs were not lifted"
+    );
+    assert_eq!(
+        moved(4..5, 18..19),
+        0,
+        "{name}: a line on the panel was lifted"
+    );
+    assert_eq!(
+        moved(6..7, 2..11),
+        0,
+        "{name}: a box-drawing line was floored"
+    );
     for col in [12, 14] {
         assert!(
             moved(6..7, col..col + 1) > 0,
-            "the block element at {col} was not floored"
+            "{name}: the block element at {col} was not floored"
         );
     }
-    assert_eq!(moved(1..3, 2..22), 0, "a picture's text was lifted");
-    assert_eq!(moved(4..5, 2..7), 0, "a selected cell's text was lifted");
-    assert_eq!(moved(4..5, 13..14), 0, "the block cursor's cell was lifted");
+    assert_eq!(moved(1..3, 2..22), 0, "{name}: a picture's text was lifted");
+    assert_eq!(
+        moved(4..5, 2..7),
+        0,
+        "{name}: a selected cell's text was lifted"
+    );
+    assert_eq!(
+        moved(4..5, 13..14),
+        0,
+        "{name}: the block cursor's cell was lifted"
+    );
 
     // **A bar cursor on a line keeps the floored colour it always had**: the
     // line rule is the text's, not the cursor's. All three arms draw it, and
@@ -3424,20 +3506,20 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
         assert_eq!(
             differing(&a, &b),
             0,
-            "{floor:?}: the GPU arms disagree over a bar cursor on a line"
+            "{name}, {floor:?}: the GPU arms disagree over a bar cursor on a line"
         );
         let cpu = cpu_frame(arms, t);
         let all = channel_diff(&cpu, &a, |_| true);
         assert_eq!(
             all.0, 0,
-            "{floor:?}: CPU and GPU differ under a bar cursor on a line, by up to {}",
+            "{name}, {floor:?}: CPU and GPU differ under a bar cursor on a line, by up to {}",
             all.1
         );
         bars.push(b[6 * ch * fw + 2 * cw]);
     }
     assert_ne!(
         bars[0], bars[1],
-        "the bar cursor on a line was drawn as asked, not floored"
+        "{name}: the bar cursor on a line was drawn as asked, not floored"
     );
     feed(t, b"\x1b[?25l\x1b[0 q");
 
@@ -3450,7 +3532,8 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
     // equal the selected letter's, and move with the floor.
     feed(
         t,
-        "\x1b[9;41H\x1b[38;2;21;22;27mx\u{2502}\x1b[10;41Hx\u{2502}\x1b[0m".as_bytes(),
+        format!("\x1b[9;41H\x1b[38;2;{lr};{lg};{lb}mx\u{2502}\x1b[10;41Hx\u{2502}\x1b[0m")
+            .as_bytes(),
     );
     arms.highlight = Some(Highlight {
         from: (Row::from_index(9), Col::at_index(40)),
@@ -3475,13 +3558,13 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
         assert_eq!(
             differing(&a, &b),
             0,
-            "{floor:?}: the GPU arms disagree over a selected line"
+            "{name}, {floor:?}: the GPU arms disagree over a selected line"
         );
         let cpu = cpu_frame(arms, t);
         let all = channel_diff(&cpu, &a, |_| true);
         assert_eq!(
             all.0, 0,
-            "{floor:?}: CPU and GPU differ over a selected line, by up to {}",
+            "{name}, {floor:?}: CPU and GPU differ over a selected line, by up to {}",
             all.1
         );
         // The letter, the line and a blank beside them, unselected; then
@@ -3503,7 +3586,7 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
         .collect();
     assert!(
         bare.len() * 4 > cw * ch,
-        "the control: most of the cell is bare, {} of {}",
+        "{name}: the control: most of the cell is bare, {} of {}",
         bare.len(),
         cw * ch
     );
@@ -3511,12 +3594,12 @@ fn glass_floor_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, resting: &Theme) 
     assert_eq!(
         pick(0, 4),
         pick(0, 3),
-        "a selected line's background is a selected letter's, floored"
+        "{name}: a selected line's background is a selected letter's, floored"
     );
     assert_ne!(
         pick(0, 4),
         pick(1, 4),
-        "the control: the floor moved the selected line's background"
+        "{name}: the control: the floor moved the selected line's background"
     );
 }
 
@@ -3656,8 +3739,10 @@ fn channel_diff(a: &[u32], b: &[u32], keep: impl Fn(usize) -> bool) -> (usize, u
 }
 
 /// **The CPU arm draws what the GPU arms draw, over an opaque page and over
-/// the old default glass page** (`[glass] dim_dark = 0.22`, alpha 56; the
-/// default is 0.70 since 2026-10-17): text in
+/// the glass page at three dims**: the old default (`[glass] dim_dark =
+/// 0.22`, alpha 56) and the two shipped since 2026-10-17, `dim_dark` 0.70
+/// (alpha 179) under the dark theme and `dim_light` 0.60 (alpha 153) under
+/// the light one. Text in
 /// the default and in set colours, a block cursor, and a 40x30 image of
 /// partly transparent pixels over the text; then over the glass the same
 /// image over text on a set background, dimmed as the app's default
@@ -3670,7 +3755,7 @@ fn channel_diff(a: &[u32], b: &[u32], keep: impl Fn(usize) -> bool) -> (usize, u
 /// its straight result must be the one that premultiplies to the GPU's.
 ///
 /// Over the opaque page the control: every pixel equal. Over the glass page
-/// a blend that mixes the page's colour as if it were opaque differs from
+/// at alpha 56 a blend that mixes the page's colour as if it were opaque differs from
 /// the GPU on 1156 of the image's 1200 pixels, by up to 47, and on 3590
 /// pixels of text and page outside it; over the set background on 1189,
 /// by up to 45.
@@ -3703,20 +3788,24 @@ fn cpu_page_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     let set: &[u8] = b"\x1bc\x1b[2 q\x1b[48;2;20;40;160m\x1b[38;2;250;220;30m\
         \x1b[2;1HHHHHHHHHHHHHHHHH\x1b[3;1HWWWWWWWWWWWWWWWW\x1b[4;1HMMMMMMMMMMMMMMMM\
         \x1b[5;1H################\x1b[0m\x1b[7;1Hcursor here\x1b[3;4H";
-    for (page, alpha, app_bg, text) in [
-        ("opaque", 0xFF, glass.app_bg, plain),
-        ("glass", 56, glass.app_bg, plain),
-        (
-            "glass, set backgrounds",
-            56,
-            baud_render::AppBg::Dimmed,
-            set,
-        ),
+    let light = Theme {
+        app_bg: glass.app_bg,
+        ..Theme::light()
+    };
+    let dimmed = baud_render::AppBg::Dimmed;
+    for (page, base, alpha, app_bg, text) in [
+        ("opaque", &glass, 0xFF, glass.app_bg, plain),
+        ("glass", &glass, 56, glass.app_bg, plain),
+        ("glass, set backgrounds", &glass, 56, dimmed, set),
+        ("glass 179", &glass, 179, glass.app_bg, plain),
+        ("glass 179, set backgrounds", &glass, 179, dimmed, set),
+        ("light glass 153", &light, 153, glass.app_bg, plain),
+        ("light glass 153, set backgrounds", &light, 153, dimmed, set),
     ] {
         arms.renderer.set_theme(Theme {
             bg_alpha: Chan::from_u8(alpha),
             app_bg,
-            ..glass.clone()
+            ..base.clone()
         });
         feed(t, text);
         let placed = t.put_image(
@@ -3807,8 +3896,8 @@ fn cpu_page_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         arms.renderer.set_theme(Theme {
             bg_alpha: Chan::from_u8(alpha),
             app_bg,
-            fg: glass.fg.with_alpha(Chan::from_u8(180)),
-            ..glass.clone()
+            fg: base.fg.with_alpha(Chan::from_u8(180)),
+            ..base.clone()
         });
         let (a, b) = arms.draw(t);
         assert_eq!(
