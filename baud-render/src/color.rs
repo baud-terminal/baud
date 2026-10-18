@@ -143,7 +143,7 @@ impl Floor {
         if lt.ratio(lp) >= trigger {
             return text;
         }
-        Floor::lift_to(text, page, target)
+        Floor::lift_to(text, lp, Behind::solid(lp), target)
     }
 
     /// The trigger for text the window's dim made unreadable, beside the
@@ -154,9 +154,10 @@ impl Floor {
     /// (`[[source: wcag22]]`).
     pub const GLASS_TRIGGER: f64 = 3.0;
 
-    /// `text` as drawn on `page`, which the window's dim draws as `drawn`:
-    /// lifted against `drawn` when the pair reads below a trigger there and
-    /// **not** below it on `page`. Two bands: the floor's own trigger, and
+    /// `text` as drawn on `page`, which the window draws at `alpha` over
+    /// whatever the glass shows: lifted when the pair reads below a trigger
+    /// against what can be behind it ([`Behind::glass`]) and **not** below
+    /// it on `page`. Two bands: the floor's own trigger, and
     /// [`Floor::GLASS_TRIGGER`] (or the floor's, when that is higher) for a
     /// pair asked at it or above, so a pair asked below 3 is never lifted by
     /// the second. `text` is what [`Floor::lift`] made of the pair, so a
@@ -164,33 +165,44 @@ impl Floor {
     /// is left below the trigger on it -- a program's own low-contrast pair
     /// on its own page -- the program chose and keeps. The colour drawn
     /// over a page the dim leaves solid is `text` itself.
-    pub fn lift_on_glass(self, text: Argb, page: Argb, drawn: Argb) -> Argb {
+    ///
+    /// **Where no colour reaches the target against all of it**, the text
+    /// is lifted as far as the glass trigger, and only where none reaches
+    /// that either to the extreme that reads better: a pair the floor
+    /// cannot bring to 4.5 ends where an untouched pair may already sit,
+    /// keeping what hue it can (Jev's lean, `decisions.jsonl` 744-747).
+    pub fn lift_on_glass(self, text: Argb, page: Argb, alpha: Chan) -> Argb {
         let Floor::Lift { trigger, target } = self else {
             return text;
         };
-        let lt = Lum::of(text);
-        let asked = lt.ratio(Lum::of(page));
+        let (lt, lp) = (Lum::of(text), Lum::of(page));
+        let asked = lt.ratio(lp);
         let glass = trigger.max(Floor::GLASS_TRIGGER);
         let k = if asked >= glass { glass } else { trigger };
-        if lt.ratio(Lum::of(drawn)) >= k || asked < k {
+        let behind = Behind::glass(page, alpha);
+        if behind.ratio(lt) >= k || asked < k {
             return text;
         }
-        Floor::lift_to(text, drawn, target)
+        let to = if behind.reaches(target) || !behind.reaches(glass) {
+            target
+        } else {
+            glass
+        };
+        Floor::lift_to(text, lp, behind, to)
     }
 
-    /// `text` moved toward black or white until it reads at `target` on
-    /// `page`, or as far as it can: [`Floor::lift`]'s arithmetic, ungated.
-    fn lift_to(text: Argb, page: Argb, target: f64) -> Argb {
-        let (lt, lp) = (Lum::of(text), Lum::of(page));
-        // The text's luminance at most (darker) or at least (lighter) for
-        // the pair to read at `target`.
-        let dark = (lp.0 + 0.05) / target - 0.05;
-        let light = target * (lp.0 + 0.05) - 0.05;
+    /// `text` moved toward black or white until it reads at `target`
+    /// against everything `behind` spans, or as far as it can:
+    /// [`Floor::lift`]'s arithmetic, ungated. The side is the text's own
+    /// against `page`, the page as asked.
+    fn lift_to(text: Argb, page: Lum, behind: Behind, target: f64) -> Argb {
+        let lt = Lum::of(text);
+        let (dark, light) = behind.bounds(target);
         let (dark_ok, light_ok) = (dark >= 0.0, light <= 1.0);
-        let toward_white = match (lt.0 >= lp.0, dark_ok, light_ok) {
+        let toward_white = match (lt.0 >= page.0, dark_ok, light_ok) {
             (true, _, true) | (false, false, true) => true,
             (false, true, _) | (true, true, false) => false,
-            _ => Lum(1.0).ratio(lp) >= Lum(0.0).ratio(lp),
+            _ => behind.ratio(Lum(1.0)) >= behind.ratio(Lum(0.0)),
         };
         let [a, r, g, b] = text.channels();
         let out = |f: &dyn Fn(Linear) -> Chan| {
@@ -215,6 +227,70 @@ impl Floor {
             out(&|c| Linear(c.0 * s).encode_down())
         };
         Argb(u32::from_be_bytes(channels))
+    }
+}
+
+/// What can be behind text, as the darkest and the lightest luminance of
+/// it: one colour for a page drawn solid, a range for a page the window
+/// draws over the glass.
+#[derive(Clone, Copy)]
+struct Behind {
+    dark: Lum,
+    light: Lum,
+}
+
+impl Behind {
+    fn solid(page: Lum) -> Behind {
+        Behind {
+            dark: page,
+            light: page,
+        }
+    }
+
+    /// `page` at `alpha` over anything the glass can show, bounded where
+    /// the material darkens nothing (note AS, section 3): source-over in
+    /// encoded sRGB, rounded as [`Argb::mix`] rounds, over black for the
+    /// darkest and over white for the lightest. A channel of the result
+    /// rises with the backdrop's, so every backdrop lands between the two.
+    /// **The text reads against the part most like it**: WCAG 2.2's
+    /// contrast is "with respect to the specified background over which
+    /// the text is rendered" (`[[source: wcag22]]`, contrast ratio, note
+    /// 3), and over an image, against "those parts of the image that are
+    /// most like the text and behind the text"
+    /// (`[[source: wcag22-technique-f83]]`).
+    fn glass(page: Argb, alpha: Chan) -> Behind {
+        let over = |v: u8| page.mix(grey(v), alpha);
+        Behind {
+            dark: Lum::of(over(0)),
+            light: Lum::of(over(0xFF)),
+        }
+    }
+
+    /// The text's luminance at most (darker than all of this) and at least
+    /// (lighter than all of it) for it to read at `target`.
+    fn bounds(self, target: f64) -> (f64, f64) {
+        (
+            (self.dark.0 + 0.05) / target - 0.05,
+            target * (self.light.0 + 0.05) - 0.05,
+        )
+    }
+
+    /// Whether some colour reads at `target` against all of this.
+    fn reaches(self, target: f64) -> bool {
+        let (dark, light) = self.bounds(target);
+        dark >= 0.0 || light <= 1.0
+    }
+
+    /// The contrast of text of luminance `text` against the part of this
+    /// most like it: 1 when the text falls inside the range.
+    fn ratio(self, text: Lum) -> f64 {
+        if text.0 >= self.light.0 {
+            text.ratio(self.light)
+        } else if text.0 <= self.dark.0 {
+            text.ratio(self.dark)
+        } else {
+            1.0
+        }
     }
 }
 

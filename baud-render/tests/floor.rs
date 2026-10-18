@@ -379,15 +379,24 @@ fn black_text_on_a_black_page_set_by_osc_11_is_lifted() {
     );
 }
 
-/// The old default dim, 0.22 of 255 (alpha 56; the default is 0.70 since
-/// 2026-10-17): the alpha every background is drawn at under
-/// `app_backgrounds = "dim"`.
-const DIM: u8 = 56;
+/// The shipped `dim_dark`, 0.70 (alpha 179): the alpha every background
+/// is drawn at under `app_backgrounds = "dim"` and the dark theme.
+const DIM: u8 = 179;
+
+/// The shipped `dim_light`, 0.60 (alpha 153).
+const LIGHT_DIM: u8 = 153;
 
 fn glass() -> Theme {
     Theme {
         bg_alpha: Chan::from_u8(DIM),
         ..Theme::dark()
+    }
+}
+
+fn light_glass() -> Theme {
+    Theme {
+        bg_alpha: Chan::from_u8(LIGHT_DIM),
+        ..Theme::light()
     }
 }
 
@@ -419,29 +428,59 @@ fn drawn_as(slot: Resolved, pictured: Pictured, line: Line) -> (Argb, Argb) {
     (d.fg, d.bg)
 }
 
-/// The page a dimmed background is taken to be drawn as: `bg` at the dim
-/// over the default page, channel by channel in encoded sRGB, rounded as
-/// `Argb::mix` rounds -- computed here and not through it.
-fn dimmed(bg: Argb, page: Argb) -> Argb {
-    let a = u32::from(DIM);
-    let m = |x: Chan, y: Chan| {
-        let v = (u32::from(x.get()) * a + u32::from(y.get()) * (255 - a) + 127) / 255;
-        Chan::from_u8(u8::try_from(v).unwrap())
+/// What can be behind a page the program set, drawn at `alpha` over the
+/// glass, at the bound where the material darkens nothing (note AS): the
+/// luminances of `bg` at `alpha` over black and over white, channel by
+/// channel in encoded sRGB, rounded as `Argb::mix` rounds -- computed here
+/// and not through it.
+fn range(bg: Argb, alpha: u8) -> (f64, f64) {
+    let a = u32::from(alpha);
+    let over = |v: u32| {
+        let m = |x: Chan| {
+            let c = (u32::from(x.get()) * a + v * (255 - a) + 127) / 255;
+            Chan::from_u8(u8::try_from(c).unwrap())
+        };
+        lum(Argb::rgb(m(bg.r()), m(bg.g()), m(bg.b())))
     };
-    Argb::rgb(
-        m(bg.r(), page.r()),
-        m(bg.g(), page.g()),
-        m(bg.b(), page.b()),
-    )
+    (over(0), over(255))
+}
+
+/// `text`'s contrast against the part of `bg`'s range most like it, WCAG
+/// F83's "those parts of the image that are most like the text": 1 when
+/// the text falls inside the range.
+fn behind(text: Argb, bg: Argb, alpha: u8) -> f64 {
+    let ((lo, hi), l) = (range(bg, alpha), lum(text));
+    if l >= hi {
+        (l + 0.05) / (hi + 0.05)
+    } else if l <= lo {
+        (lo + 0.05) / (l + 0.05)
+    } else {
+        1.0
+    }
+}
+
+/// Whether any colour reads at `target` against all of `bg`'s range.
+fn reachable(bg: Argb, alpha: u8, target: f64) -> bool {
+    let (lo, hi) = range(bg, alpha);
+    (lo + 0.05) / target - 0.05 >= 0.0 || target * (hi + 0.05) - 0.05 <= 1.0
+}
+
+/// Black or white: where the floor puts text no colour lifts to the
+/// glass trigger against the range.
+fn extreme(c: Argb) -> bool {
+    matches!(rgb(c), [0, 0, 0] | [255, 255, 255])
 }
 
 /// **Text the dim makes unreadable is lifted, on herdr's own themes**
 /// (`tests/panels/herdr-themes.raw`; the record, "herdr's themes under the
 /// glass"). At every read boundary of the capture, under the glass at the
-/// old default dim, alpha 56: every glyph on a page the program set, whose pair reads at
-/// the trigger or above as asked, reads at the trigger or above against
-/// that page dimmed over the default page, and one asked at 3 or above
-/// reads at 3 or above. Box-drawing lines are drawn as asked and left out.
+/// shipped dark dim, alpha 179: every glyph on a page the program set,
+/// whose pair reads at the trigger or above as asked, reads at the trigger
+/// or above against everything that page can show over the glass, and one
+/// asked at 3 or above reads at 3 or above -- unless no colour reaches the
+/// target against all of it, and then the text reads at the glass trigger,
+/// or is black or white where no colour reaches that either.
+/// Box-drawing lines are drawn as asked and left out.
 #[test]
 fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
     let bytes = std::fs::read(format!(
@@ -450,7 +489,6 @@ fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
     ))
     .expect("the capture");
     let theme = glass();
-    let page = theme.bg;
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     let mut r = Renderer::new(
@@ -465,6 +503,7 @@ fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
     let mut s = Owned::new(&WS);
     let mut t = Term::new(s.storage(), &WS);
     let (mut below, mut below3, mut lifted, mut asked_set) = (0usize, 0usize, 0usize, 0usize);
+    let mut beyond = 0usize;
     for chunk in bytes.chunks(4096) {
         t.write_at(BytePos::ZERO, chunk);
         t.feed(BytePos::ZERO, ReadLen::from_index(chunk.len()));
@@ -495,15 +534,30 @@ fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
                 }
                 asked_set += 1;
                 let (text, _) = drawn_fg(table[cell.style.index()], Pictured::No, Selected::No);
-                let drawn = contrast(text, dimmed(bg, page));
+                let drawn = behind(text, bg, DIM);
+                if rgb(text) != rgb(fg) {
+                    lifted += 1;
+                }
+                if !reachable(bg, DIM, 4.5) {
+                    if rgb(text) != rgb(fg) {
+                        assert!(
+                            if reachable(bg, DIM, 3.0) {
+                                drawn >= 3.0
+                            } else {
+                                extreme(text)
+                            },
+                            "{:?} beyond the target, {drawn:.2}",
+                            rgb(text)
+                        );
+                        beyond += 1;
+                    }
+                    continue;
+                }
                 if drawn < 1.2 {
                     below += 1;
                 }
                 if contrast(fg, bg) >= 3.0 && drawn < 3.0 {
                     below3 += 1;
-                }
-                if rgb(text) != rgb(fg) {
-                    lifted += 1;
                 }
             }
         }
@@ -520,55 +574,128 @@ fn text_the_dim_makes_unreadable_on_herdrs_themes_is_lifted() {
         below3, 0,
         "{below3} glyphs asked at 3:1 or above read below it as drawn"
     );
-    assert!(lifted > 0, "the positive control: nothing was lifted");
+    assert!(lifted > beyond, "the positive control: nothing was lifted");
 }
 
-/// **The glass trigger is 3** (the owner, 2026-10-17): catppuccin's
-/// selected row in herdr, `#181825` on `#89b4fa`, reads 8.34:1 as asked and
-/// 1.40:1 dimmed over the dark page -- above 1.2, so the floor's own
-/// trigger left it, and below 3 -- and is lifted to the target against the
-/// page as drawn.
+/// **The glass trigger is 3** (the owner, 2026-10-17): gruvbox-light's
+/// text on its `bg3`, `#3c3836` on `#bdae93`, reads 5.32:1 as asked and
+/// 2.75:1 against everything its page can show over the glass at alpha
+/// 179 -- between the two triggers -- and is lifted to the target against
+/// all of it. (Catppuccin's selected row, which this test held at the old
+/// dim, reads 4.26 against the range at 179 and is not lifted.)
 #[test]
-fn catppuccins_selected_row_is_lifted_at_the_glass_trigger() {
-    let sgr = "38;2;24;24;37;48;2;137;180;250";
+fn a_pair_between_the_triggers_against_the_range_is_lifted() {
+    let sgr = "38;2;60;56;54;48;2;189;174;147";
     let (_, _, (fg, bg), slot) = cells(glass(), &[sgr.into()]).remove(0);
-    let drawn = dimmed(bg, glass().bg);
     assert!(
         contrast(fg, bg) >= 3.0,
         "the premise: 3:1 or above as asked"
     );
-    let before = contrast(fg, drawn);
+    let before = behind(fg, bg, DIM);
     assert!(
         (1.2..3.0).contains(&before),
-        "the premise: between the two triggers as drawn, {before:.3}"
+        "the premise: between the two triggers against the range, {before:.3}"
     );
     let (text, _) = drawn_fg(slot, Pictured::No, Selected::No);
     assert!(
-        contrast(text, drawn) >= 4.5,
-        "lifted against the dimmed page: {:?}, {:.2}",
+        behind(text, bg, DIM) >= 4.5,
+        "lifted against the range: {:?}, {:.2}",
         rgb(text),
-        contrast(text, drawn)
+        behind(text, bg, DIM)
     );
 }
 
-/// **The glass trigger never lifts a pair asked below it.** btop's
-/// `#4e4e4e` on its own `#000000`, the darkest grey of its process list's
-/// fade, reads 2.52:1 as asked and below 3 as drawn, but above 1.2 both
-/// ways: drawn as asked.
+/// **Where no colour reaches the target, as far as the glass trigger**
+/// (Jev's lean, decisions 744-747): gruvbox-light's text on its `bg4`,
+/// `#3c3836` on `#a89984`, reads 4.17:1 as asked and 2.23:1 against the
+/// range at alpha 179. No luminance is 4.5 times beyond either end of the
+/// range, so the text is darkened only until it reads 3 against the page
+/// over black, keeping its hue, and not to black. Where 3 is out of reach
+/// too -- `#87acf5` on `#1e66f5` under the light glass, 2.16 as asked and
+/// reading 1.0 inside the range -- it goes to the extreme that reads
+/// better, white.
+#[test]
+fn a_pair_no_colour_lifts_to_the_target_is_lifted_to_the_glass_trigger() {
+    let sgr = "38;2;60;56;54;48;2;168;153;132";
+    let (_, _, (fg, bg), slot) = cells(glass(), &[sgr.into()]).remove(0);
+    assert!(!reachable(bg, DIM, 4.5), "the premise: 4.5 out of reach");
+    assert!(reachable(bg, DIM, 3.0), "the premise: 3 in reach");
+    assert!(
+        (1.2..3.0).contains(&behind(fg, bg, DIM)),
+        "the premise: {:.3} against the range",
+        behind(fg, bg, DIM)
+    );
+    let (text, _) = drawn_fg(slot, Pictured::No, Selected::No);
+    let got = behind(text, bg, DIM);
+    assert!((3.0..3.05).contains(&got), "{:?}, {got:.3}", rgb(text));
+    assert!(!extreme(text), "{:?}: not black", rgb(text));
+    let sgr = "38;2;135;172;245;48;2;30;102;245";
+    let (_, _, (fg, bg), slot) = cells(light_glass(), &[sgr.into()]).remove(0);
+    assert!(contrast(fg, bg) >= 1.2, "the premise, as asked");
+    assert!(
+        !reachable(bg, LIGHT_DIM, 3.0),
+        "the premise: 3 out of reach"
+    );
+    let (text, _) = drawn_fg(slot, Pictured::No, Selected::No);
+    assert_eq!(rgb(text), [255, 255, 255]);
+}
+
+/// **Light text on a dark page under the light glass goes light** (note
+/// AS, section 6). The page was taken to be drawn over the light default
+/// page, so the floor lifted light text toward black: helix's `#dbbfef` on
+/// `#452859` at the shipped light dim, alpha 153, to `#18131b`, which
+/// reads 1.11:1 where the backdrop is dark; btop's `#cccccc` on `#000000`
+/// at the old dim, alpha 56, to `#4b4b4b`, which reads 1:1 against a grey
+/// backdrop. Against the range neither pair can reach 4.5. Helix's can
+/// reach 3 and is lightened to it, `#eee3f8`; btop's cannot and goes
+/// white, which reads 1.69 where black would read 1.
+#[test]
+fn light_text_on_a_dark_page_under_the_light_glass_goes_light() {
+    let theme = |alpha: u8| Theme {
+        bg_alpha: Chan::from_u8(alpha),
+        ..Theme::light()
+    };
+    for (sgr, alpha, want, ratio) in [
+        (
+            "38;2;219;191;239;48;2;69;40;89",
+            LIGHT_DIM,
+            [0xee, 0xe3, 0xf8],
+            3.0,
+        ),
+        ("38;2;204;204;204;48;2;0;0;0", 56, [255, 255, 255], 1.69),
+    ] {
+        let (_, _, (fg, bg), slot) = cells(theme(alpha), &[sgr.into()]).remove(0);
+        assert!(contrast(fg, bg) >= 3.0, "{sgr}: the premise, as asked");
+        assert!(behind(fg, bg, alpha) < 3.0, "{sgr}: the premise, the range");
+        assert!(
+            !reachable(bg, alpha, 4.5),
+            "{sgr}: the premise, out of reach"
+        );
+        let (text, _) = drawn_fg(slot, Pictured::No, Selected::No);
+        assert_eq!(rgb(text), want, "{sgr}");
+        let got = behind(text, bg, alpha);
+        assert!((ratio..ratio + 0.05).contains(&got), "{sgr}: {got:.3}");
+    }
+}
+
+/// **The glass trigger never lifts a pair asked below it.** `#595959` on
+/// `#a0a0a0` reads 2.68:1 as asked and 1.41:1 against the range at alpha
+/// 179, above 1.2 both ways: drawn as asked. (btop's `#4e4e4e` on its own
+/// `#000000`, which this test held at the old dim, reads 1.03 against the
+/// range at 179, below the floor's own trigger, and is lifted.)
 #[test]
 fn a_pair_asked_below_the_glass_trigger_is_left_alone() {
-    let sgr = "38;2;78;78;78;48;2;0;0;0";
+    let sgr = "38;2;89;89;89;48;2;160;160;160";
     let (_, _, (fg, bg), slot) = cells(glass(), &[sgr.into()]).remove(0);
-    let drawn = dimmed(bg, glass().bg);
     assert!(
         (1.2..3.0).contains(&contrast(fg, bg)),
         "the premise: {:.3} as asked",
         contrast(fg, bg)
     );
     assert!(
-        (1.2..3.0).contains(&contrast(fg, drawn)),
-        "the premise: {:.3} as drawn",
-        contrast(fg, drawn)
+        (1.2..3.0).contains(&behind(fg, bg, DIM)),
+        "the premise: {:.3} against the range",
+        behind(fg, bg, DIM)
     );
     let (text, _) = drawn_fg(slot, Pictured::No, Selected::No);
     assert_eq!(rgb(text), rgb(fg));
@@ -718,45 +845,43 @@ fn a_bar_cursor_on_a_line_takes_the_floored_colour() {
 }
 
 /// **A program's own low-contrast pair stays as asked.** `#222222` text on
-/// a `#1e1e1e` page reads 1.04:1 as asked and 1.17:1 dimmed over the dark
-/// page: below the trigger both ways, so the program chose it and it is
+/// a `#1e1e1e` page reads 1.04:1 as asked and 1:1 against the range, inside
+/// it: below the trigger both ways, so the program chose it and it is
 /// drawn as chosen, inside a picture or out.
 #[test]
 fn a_programs_own_low_contrast_pair_is_left_alone_under_the_glass() {
     let (_, _, (fg, bg), slot) = cells(glass(), &["38;2;34;34;34;48;2;30;30;30".into()]).remove(0);
     assert!(contrast(fg, bg) < 1.2, "the control: below as asked");
-    let drawn = dimmed(bg, glass().bg);
+    let drawn = behind(fg, bg, DIM);
     assert!(
-        contrast(fg, drawn) < 1.2,
-        "the control: below as drawn, {:.3}",
-        contrast(fg, drawn)
+        drawn < 1.2,
+        "the control: below against the range, {drawn:.3}"
     );
     for p in [Pictured::No, Pictured::Yes] {
         assert_eq!(rgb(drawn_fg(slot, p, Selected::No).0), rgb(fg), "{p:?}");
     }
 }
 
-/// **Light-theme text on the glass**: gruvbox-light's text on its page,
-/// 10.2:1 as asked and 1.14:1 dimmed over the dark page, is lifted until it
-/// reads at the target against the page as drawn -- and only where the page
-/// is drawn dimmed: inside a picture, selected, on an opaque window, or with
-/// `app_backgrounds = "opaque"` the text is the colour asked.
+/// **Light-theme text on the glass**: gruvbox-light's text on its `bg3`,
+/// 5.32:1 as asked and 2.75:1 against the range at alpha 179, is lifted
+/// until it reads at the target against all of it -- and only where the
+/// page is drawn dimmed: inside a picture, selected, on an opaque window,
+/// or with `app_backgrounds = "opaque"` the text is the colour asked.
 #[test]
 fn light_theme_text_on_the_glass_reaches_the_target_where_the_page_is_dimmed() {
-    let sgr = "38;2;60;56;54;48;2;251;241;199";
+    let sgr = "38;2;60;56;54;48;2;189;174;147";
     let (_, _, (fg, bg), slot) = cells(glass(), &[sgr.into()]).remove(0);
-    let drawn = dimmed(bg, glass().bg);
     assert!(contrast(fg, bg) >= 4.5, "the premise: readable as asked");
     assert!(
-        contrast(fg, drawn) < 1.2,
-        "the premise: unreadable as drawn"
+        behind(fg, bg, DIM) < 3.0,
+        "the premise: below 3 against the range"
     );
     let (text, page) = drawn_fg(slot, Pictured::No, Selected::No);
     assert!(
-        contrast(text, drawn) >= 4.5,
-        "lifted against the dimmed page: {:?}, {:.2}",
+        behind(text, bg, DIM) >= 4.5,
+        "lifted against the range: {:?}, {:.2}",
         rgb(text),
-        contrast(text, drawn)
+        behind(text, bg, DIM)
     );
     assert_eq!(page.a().get(), DIM, "the page stays glass");
     let (text, page) = drawn_fg(slot, Pictured::Yes, Selected::No);
@@ -795,16 +920,19 @@ const RECORDINGS: [&str; 12] = [
 
 /// **What moves on every capture, and why.** Every `.raw` recording,
 /// `tests/panels/`'s four captures and the two chafa previews, each fed a
-/// read at a time under the glass: at every read boundary, a glyph whose
+/// read at a time under the glass at the shipped dims, the dark theme at
+/// alpha 179 and the light at 153: at every read boundary, a glyph whose
 /// text is drawn otherwise than [`Floor::lift`] made it is either a
 /// box-drawing line, drawn as asked, or sits on a page the program set and
-/// reads at a trigger or above on that page and below it against the page
-/// dimmed -- 1.2, or [`Floor::GLASS_TRIGGER`] for a pair asked at 3 or
-/// above. The glyphs so moved on each final screen are counted and pinned,
-/// and the lines the floor and the glass lift would have moved, over every
-/// read. The chafa
-/// previews are found as pictures and drawn solid, so nothing in them
-/// moves.
+/// reads at a trigger or above on that page and below it against the
+/// range the page can show over the glass -- 1.2, or
+/// [`Floor::GLASS_TRIGGER`] for a pair asked at 3 or above -- and now
+/// reads at the target against all of it, or at the glass trigger where
+/// no colour reaches the target, or is black or white where none reaches
+/// that. The glyphs so moved on each final screen are counted and
+/// pinned, and the lines the floor and the glass lift would have moved,
+/// over every read. The chafa previews are found as pictures and drawn
+/// solid, so nothing in them moves.
 #[test]
 fn every_capture_moves_only_text_the_dim_made_unreadable() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../tests");
@@ -832,11 +960,14 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
         )
         .chain(["chafa-240.ans", "chafa-truecolour.ans"].map(|p| (p, placed(p))))
         .collect();
-    let theme = glass();
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     let mut got = Vec::new();
-    for (name, bytes) in &streams {
+    for ((half, theme, alpha), (name, bytes)) in
+        [("dark", glass(), DIM), ("light", light_glass(), LIGHT_DIM)]
+            .into_iter()
+            .flat_map(|h| streams.iter().map(move |s| (h.clone(), s)))
+    {
         let mut r = Renderer::new(
             Stack::new(&faces).unwrap(),
             PxSize::of(14.0).unwrap(),
@@ -891,38 +1022,52 @@ fn every_capture_moves_only_text_the_dim_made_unreadable() {
                     moved += 1;
                     let bg = slot.bg.with_alpha(Chan::from_u8(0xFF));
                     assert!(!words(style).1.is_default(), "{name}: the default page");
-                    let (asked, drawn) = (
-                        contrast(slot.fg, bg),
-                        contrast(slot.fg, dimmed(bg, theme.bg)),
-                    );
+                    let (asked, drawn) = (contrast(slot.fg, bg), behind(slot.fg, bg, alpha));
                     assert!(
                         (asked >= 1.2 && drawn < 1.2) || (asked >= 3.0 && drawn < 3.0),
-                        "{name}: {asked:.2} asked, {drawn:.2} drawn"
+                        "{half} {name}: {asked:.2} asked, {drawn:.2} against the range"
                     );
-                    assert!(contrast(text, dimmed(bg, theme.bg)) >= 4.5, "{name}");
+                    let reads = behind(text, bg, alpha);
+                    assert!(
+                        reads >= 4.5
+                            || (!reachable(bg, alpha, 4.5) && reads >= 3.0)
+                            || (!reachable(bg, alpha, 3.0) && extreme(text)),
+                        "{half} {name}: {:?}, {reads:.2}",
+                        rgb(text)
+                    );
                 }
             }
         }
-        got.push((*name, moved, lines, glass_lines));
+        got.push((half, *name, moved, lines, glass_lines));
     }
-    // On the final screens: vimdiff's `habamax` greys, `#1c1c1c` on
-    // `#767676` and on `#9e9e9e`; btop's one grey of its fade that crosses
-    // 3; yazi-walk's status bar and powerline caps; herdr's after its
-    // settings close. Over its reads, herdr's lines: 2546 its dividers on
-    // the default page, which the floor lifted, and 3150 its panels'
-    // borders on pages it set, which the glass trigger would lift (3.11-5.82
-    // as asked, 1.54-2.69 drawn).
-    let want: Vec<(&str, usize, usize, usize)> = streams
-        .iter()
-        .map(|(n, _)| {
-            let (moved, lines, glass) = match *n {
-                "vimdiff" => (45, 0, 0),
-                "utf8/btop.raw" => (53, 0, 0),
-                "sixel/yazi-walk.raw" => (27, 0, 0),
-                "herdr-themes" => (1, 2546, 3150),
+    // On the final screens, at the shipped dims: btop's process-list fade
+    // and graph greys, helix's and vimdiff's panels, asciiquarium's
+    // colours on its black page; under the light theme, light text on dark
+    // pages goes light. Over every read, the lines: herdr's dividers on the
+    // default page, which the floor lifted (2546 dark, 1211 light), and
+    // the borders on pages the program set that the glass trigger would
+    // lift: btop's 211707, helix's 123 and herdr's panels.
+    let want: Vec<(&str, &str, usize, usize, usize)> = ["dark", "light"]
+        .into_iter()
+        .flat_map(|h| streams.iter().map(move |(n, _)| (h, *n)))
+        .map(|(h, n)| {
+            let (moved, lines, glass) = match (h, n) {
+                ("dark", "ascii/asciiquarium.raw") => (303, 0, 0),
+                ("dark", "utf8/btop.raw") => (1330, 0, 211_707),
+                ("dark", "helix") => (1195, 0, 123),
+                ("dark", "vimdiff") => (2667, 0, 0),
+                ("dark", "vimhl") => (70, 0, 0),
+                ("dark", "herdr-themes") => (2, 2546, 7610),
+                ("light", "ascii/asciiquarium.raw") => (914, 0, 0),
+                ("light", "sixel/yazi-walk.raw") => (27, 0, 0),
+                ("light", "utf8/btop.raw") => (1745, 0, 211_707),
+                ("light", "helix") => (1665, 0, 123),
+                ("light", "vimdiff") => (5225, 0, 0),
+                ("light", "vimhl") => (1344, 0, 0),
+                ("light", "herdr-themes") => (2, 1211, 8673),
                 _ => (0, 0, 0),
             };
-            (*n, moved, lines, glass)
+            (h, n, moved, lines, glass)
         })
         .collect();
     assert_eq!(got, want);

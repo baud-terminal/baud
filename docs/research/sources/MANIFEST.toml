@@ -26970,3 +26970,17 @@ bytes  = 21144
 status = "external"
 group  = "AS"
 # Read on this Mac; not committed -- part of the OS.
+
+[sources.wcag22-technique-f83]
+key    = "wcag22-technique-f83"
+title  = "Technique F83: Failure of SC 1.4.3 and 1.4.6 due to using background images that do not provide sufficient contrast -- 'those parts of the image that are most like the text and behind the text'; the quickcheck against the darkest or lightest area"
+author = "W3C Accessibility Guidelines Working Group"
+year   = 2026
+venue  = "W3C WAI, Techniques for WCAG 2.2 (informative)"
+url    = "https://www.w3.org/WAI/WCAG22/Techniques/failures/F83"
+file   = "wcag22-technique-f83.html"
+sha256 = "1bcc293b14ed0a9fde55aa5058a905283d8bcefd37541a931622e40f67105613"
+bytes  = 30406
+status = "retrieved"
+# Read for note AS (2026-10-17); committed: a W3C documentation page.
+group  = "AS"

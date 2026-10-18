@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 266 | 21 | redistributable, and its notice is satisfied |
+| kept | 267 | 21 | redistributable, and its notice is satisfied |
 | own | 197 | 0 | the owner's work |
-| total | 728 | 32 | |
+| total | 729 | 32 | |
 
 ## Licence texts in LICENSES/
 
@@ -1590,13 +1590,14 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** LicenseRef-W3C-Document (https://www.w3.org/copyright/document-license/)
 - **Notice:** in the file
-- **Files:** 13
+- **Files:** 14
 
 | file | copied from |
 |---|---|
 | [w3c-png-2003.html](docs/research/sources/w3c-png-2003.html) | https://www.w3.org/TR/2003/REC-PNG-20031110/ |
 | [wcag22-20241212.html](docs/research/sources/wcag22-20241212.html) | https://www.w3.org/TR/2024/REC-WCAG22-20241212/ |
 | [wcag22-errata.html](docs/research/sources/wcag22-errata.html) | https://www.w3.org/WAI/WCAG22/errata/ |
+| [wcag22-technique-f83.html](docs/research/sources/wcag22-technique-f83.html) | https://www.w3.org/WAI/WCAG22/Techniques/failures/F83 |
 | [wcag22-technique-g15.html](docs/research/sources/wcag22-technique-g15.html) | https://www.w3.org/WAI/WCAG22/Techniques/general/G15 |
 | [wcag22-technique-g176.html](docs/research/sources/wcag22-technique-g176.html) | https://www.w3.org/WAI/WCAG22/Techniques/general/G176 |
 | [wcag22-technique-g19.html](docs/research/sources/wcag22-technique-g19.html) | https://www.w3.org/WAI/WCAG22/Techniques/general/G19 |

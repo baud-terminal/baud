@@ -3308,12 +3308,13 @@ struct GlassCase {
 /// [`glass_floor_gate`]'s three runs: the old default dim and the two
 /// shipped since 2026-10-17, `dim_dark` 0.70 (alpha 179) under the dark
 /// theme and `dim_light` 0.60 (alpha 153) under the light one. Each pair
-/// reads 3:1 or above as asked and below 3 as drawn at its alpha:
-/// gruvbox-light's 10.22 to 1.14 at 56, `#303030` on `#888888` 3.72 to
-/// 2.23 at 179, `#a0a0a0` on `#303030` 5.05 to 1.60 at 153, each dimmed
-/// over its default page. Gruvbox-light's pair is not lifted at either
-/// shipped alpha (5.20 and 10.14 drawn), which is why each has its own.
-/// The lines read 1.05:1 and 1.06:1 on their default pages.
+/// reads 3:1 or above as asked and below 3 at its alpha against
+/// everything its page can show over the glass, from the page over black
+/// to the page over white: gruvbox-light's 10.22 to 1.00 at 56,
+/// `#303030` on `#888888` 3.72 to 2.07 at 179, `#a0a0a0` on `#303030`
+/// 5.05 to 1.45 at 153. Gruvbox-light's pair is not lifted at either
+/// shipped alpha (4.91 and 3.66), which is why each has its own. The
+/// lines read 1.05:1 and 1.06:1 on their default pages.
 fn glass_cases(resting: &Theme) -> [GlassCase; 3] {
     assert_eq!(
         resting.bg_alpha.get(),

@@ -748,7 +748,7 @@ name = "Nearly invisible text made readable"
 does = "Text too close in colour to its background is lifted to a readable contrast, keeping its hue, while colours a program chose on purpose, pictures drawn with text and the lines programs draw boxes and dividers with are left alone. Text the see-through window would make hard to read is lifted too. Adjustable, or off."
 status = "built"
 platform = "both"
-tests = ["baud-render/tests/floor.rs::the_worked_examples_lift_to_their_colours", "baud-render/tests/floor.rs::chosen_pairs_and_an_off_floor_are_untouched", "baud-render/tests/floor.rs::box_drawing_is_drawn_as_asked_and_block_elements_are_floored", "baud-render/tests/floor.rs::catppuccins_selected_row_is_lifted_at_the_glass_trigger"]
+tests = ["baud-render/tests/floor.rs::the_worked_examples_lift_to_their_colours", "baud-render/tests/floor.rs::chosen_pairs_and_an_off_floor_are_untouched", "baud-render/tests/floor.rs::box_drawing_is_drawn_as_asked_and_block_elements_are_floored", "baud-render/tests/floor.rs::a_pair_between_the_triggers_against_the_range_is_lifted"]
 
 [[feature]]
 id = "faint"

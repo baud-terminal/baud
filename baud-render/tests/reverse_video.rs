@@ -199,7 +199,11 @@ fn every_cell_exchanges_its_colours_explicit_ones_included() {
 /// exchange: `SGR 30` under `?5` is the default page's `#101010` on entry 0,
 /// `#000000` -- 1.10:1 -- and the text is lifted to `#757575`; `SGR 47`'s
 /// letter is entry 7, `#e5e5e5`, on the reversed page `#d8d8d8`, 1.13:1,
-/// and is lifted to `#5e5e5e`.
+/// and is lifted to `#5e5e5e`. Entry 0 is a page the program set, drawn at
+/// this file's dim over the glass, where it can show anything from
+/// `#000000` to `#c7c7c7`: `#757575` reads 2.72:1 against that, no colour
+/// reaches 4.5 against all of it, and the glass text is white, which reads
+/// 1.69 against the page over white where black reads 1:1.
 ///
 /// Which side is the page decides whether the floor may touch the pair at
 /// all (`Floor::covers`): `38;5;1` on a truecolour `48;2;200;0;0` is a page
@@ -210,7 +214,7 @@ fn every_cell_exchanges_its_colours_explicit_ones_included() {
 fn the_floor_reads_the_exchanged_pair() {
     render(b"\x1b[?5h\x1b[30mA\x1b[0;47mB\x1b[0m\x1b[2;12H", |r| {
         let got: Vec<u32> = glyph_colours(r).into_iter().map(rgb).collect();
-        assert_eq!(got, vec![0x0075_7575, 0x005e_5e5e]);
+        assert_eq!(got, vec![0x00ff_ffff, 0x005e_5e5e]);
     });
     let chosen = b"\x1b[38;5;1;48;2;200;0;0mA\x1b[0m\x1b[2;12H";
     render(chosen, |r| {
