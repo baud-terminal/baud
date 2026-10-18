@@ -7,8 +7,9 @@
 //! is drawn wrong by it. This is the exception structure beside the grid:
 //! one byte a screen cell, zero for "the map is right", one for "the
 //! records draw this cell", and the records, the same twenty-byte
-//! [`Instance`] the instance path emits, drawn by one more instanced draw
-//! after the cell passes. The shaded glyphs a cluster resolves to are a
+//! [`Instance`] the instance path emits, drawn between the cell glyph pass
+//! and the decoration pass, and their parts above their rows after it. The
+//! shaded glyphs a cluster resolves to are a
 //! function of the cluster's content, so they are resolved once per
 //! distinct cluster and kept -- the glyph map's shape, one level up.
 //!
@@ -18,7 +19,6 @@
 use crate::atlas::Code;
 use crate::cellmap::CellSpan;
 use crate::cellmap::{BlockCursor, Candidate, GlyphMap, Line, Resolved, Selected, Swaps, Text};
-use crate::color::Argb;
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
 use crate::picture::{Pictured, Pictures};
@@ -63,14 +63,6 @@ pub struct OverlayStats {
 /// background pass draws it solid -- [`crate::Pictures`].
 pub const MASK_RECORD: u8 = 1;
 pub const MASK_PICTURE: u8 = 2;
-/// `CURSOR`: a record draws the bar or underline cursor over this cell, after
-/// the glyph's, and the shape pass must not draw it under them.
-pub const MASK_CURSOR: u8 = 4;
-/// `RING`: a record draws this cell's end of an encircled run (`SGR 52`)
-/// after the glyph's, as the instance path draws it after the row's
-/// glyphs, and the shape pass must not draw it under them. `MASK_RING` in
-/// the cell shader, pinned by `the_ring_mask_bit_matches_the_shader`.
-pub const MASK_RING: u8 = 8;
 /// `BARE`: the cell holds a cluster that takes no stress mark (`SGR 64`),
 /// one whose base the web leaves bare ([`crate::takes_stress_mark`]); the
 /// cell shader sees only the cluster's slot, not its base, and reads this.
@@ -122,11 +114,15 @@ pub struct Overlay {
     stats: OverlayStats,
     /// The frame's pictures, found over the same view the walk reads.
     pictures: Pictures,
-    /// What the walk's records draw after every record's glyphs: each
-    /// record cell's end of an encircled run and then the bar cursor, as
-    /// the instance path draws a row's shapes after the row's glyphs, so a
-    /// glyph that reaches into a neighbour lies under that cell's ring.
-    tail: Vec<Instance>,
+    /// The parts of the walk's glyphs above their own row's top, which the
+    /// cell path draws after its decoration pass: each row's glyphs and
+    /// then its decorations, rows top to bottom, is the instance path's
+    /// order, so a glyph reaching up from the row below lies over the
+    /// decorations of the row it reaches.
+    over: Vec<Instance>,
+    /// How many of the walk's records lie inside their rows, and are drawn
+    /// between the cell path's glyph pass and its decoration pass.
+    under: Tally,
 }
 
 /// A cluster's content, folded: the base, its marks and its width.
@@ -140,120 +136,6 @@ struct Geom {
     /// The downward pixel shift a smooth scroll applies to every record on
     /// the cell path, matching the grid passes' `u.pan`.
     pan: Px,
-    /// The bar or underline cursor, when one is drawn this frame: over a
-    /// cell the records draw, its shape is a record after the glyph's, as
-    /// the instance path draws it after the row's glyphs, and the shader's
-    /// shape pass leaves it out there.
-    bar: Option<BarCursor>,
-    /// The masks of an encircled run's three parts, once the renderer has
-    /// resolved an encircled slot: a record cell's part is a record after
-    /// its glyph's.
-    rings: Rings,
-}
-
-/// An encircled run's three parts as the atlas holds them, or none.
-#[derive(Clone, Copy, Default)]
-struct Rings {
-    starts: Option<crate::atlas::Slot>,
-    ends: Option<crate::atlas::Slot>,
-    alone: Option<crate::atlas::Slot>,
-}
-
-impl Rings {
-    /// The parts, drawn into the atlas once a slot has been encircled.
-    fn of(r: &mut Renderer<'_, '_>) -> Rings {
-        use crate::boxes::Ring;
-        if !r.rings_used() {
-            return Rings::default();
-        }
-        Rings {
-            starts: r.ring_slot(Ring::Starts),
-            ends: r.ring_slot(Ring::Ends),
-            alone: r.ring_slot(Ring::Alone),
-        }
-    }
-
-    fn get(self, ring: crate::boxes::Ring) -> Option<crate::atlas::Slot> {
-        use crate::boxes::Ring;
-        match ring {
-            Ring::Starts => self.starts,
-            Ring::Ends => self.ends,
-            Ring::Alone => self.alone,
-        }
-    }
-}
-
-/// A bar or underline cursor as a record draws it: where, which shape, the
-/// `OSC 12` colour if one is set, and how much of it a blink draws.
-#[derive(Clone, Copy)]
-struct BarCursor {
-    row: Row,
-    col: Col,
-    style: CursorStyle,
-    color: Option<Argb>,
-    opacity: Chan,
-}
-
-impl BarCursor {
-    /// The frame's bar or underline cursor, from the cursor it draws.
-    fn of(
-        r: &Renderer<'_, '_>,
-        term: &Term<'_>,
-        cursor: Option<(Row, Col, CursorStyle)>,
-    ) -> Option<BarCursor> {
-        let (row, col, style) = cursor?;
-        let bar = matches!(
-            style,
-            CursorStyle::BlinkingBar
-                | CursorStyle::SteadyBar
-                | CursorStyle::BlinkingUnderline
-                | CursorStyle::SteadyUnderline
-        );
-        bar.then(|| BarCursor {
-            row,
-            col,
-            style,
-            color: term
-                .cursor_color_in(r.video())
-                .map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b))),
-            opacity: r.cursor_opacity(style),
-        })
-    }
-
-    /// Its solid over cell `(x, y)` whose glyph is drawn in `fg`, or none
-    /// when it is not there: `Renderer::cursor_px`'s rectangle and the
-    /// shader's `which == 3` colour, `OSC 12` or the foreground, scaled.
-    fn over(self, (x, y): (usize, usize), fg: Argb, geom: &Geom) -> Option<Instance> {
-        if self.row.index() != y || self.col.index() != x {
-            return None;
-        }
-        let m = geom.m;
-        let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
-        let line = m.thickness.value().max(2);
-        let (dy, w, h) = match self.style {
-            CursorStyle::BlinkingUnderline | CursorStyle::SteadyUnderline => {
-                (ch.saturating_sub(line), cw, line)
-            }
-            _ => (0, line, ch),
-        };
-        let at = |v: u64| Screen(i16::try_from(v).unwrap_or(i16::MAX));
-        let len = |v: u32| crate::atlas::Tex(u16::try_from(v).unwrap_or(u16::MAX));
-        let left = u64::try_from(x).unwrap_or(0) * u64::from(cw);
-        let top = u64::try_from(y).unwrap_or(0) * u64::from(ch)
-            + u64::from(dy)
-            + u64::from(geom.pan.value());
-        Some(Instance {
-            x: at(left),
-            y: at(top),
-            w: len(w),
-            h: len(h),
-            u: crate::atlas::Tex(0),
-            v: crate::atlas::Tex(0),
-            color: self.color.unwrap_or(fg).scaled(self.opacity),
-            kind: crate::atlas::Kind::Solid,
-            curve: baud_domain::contrast::CurveRow::default(),
-        })
-    }
 }
 
 /// The cells a composition covers on the view, `row` and `start..end`, or
@@ -279,9 +161,6 @@ impl Covered {
 /// the block cursor, each of which swaps its cells' colours.
 struct Paint<'p> {
     styles: &'p [Resolved],
-    /// The cells of the record's row, whose neighbours say where an
-    /// encircled run ends; empty for a record that is not a grid cell.
-    row: &'p [PackedCell],
     block: Option<(Row, Col, CursorStyle)>,
     highlight: Option<Highlight>,
     /// The frame's `SGR 5` and `SGR 6` phases: a record for a hidden cell is
@@ -357,12 +236,21 @@ impl Overlay {
             grown: Tally::default(),
             stats: OverlayStats::default(),
             pictures: Pictures::new(),
-            tail: Vec::new(),
+            over: Vec::new(),
+            under: Tally::default(),
         }
     }
 
     pub fn stats(&self) -> OverlayStats {
         self.stats
+    }
+
+    /// How many of the records [`Overlay::ensure`] last wrote lie inside
+    /// their own rows: the cell path draws those between its glyph pass
+    /// and its decoration pass, and the rest -- the parts of glyphs above
+    /// their rows, and whatever the caller appends -- after it.
+    pub fn under(&self) -> Tally {
+        self.under
     }
 
     /// One frame: `mask` is one byte a screen cell in screen order, at
@@ -431,7 +319,7 @@ impl Overlay {
         pictures: &Pictures,
     ) {
         let (term, view, styles, cursor) = (scene.term, scene.view, scene.styles, scene.cursor);
-        self.tail.clear();
+        self.over.clear();
         records.clear();
         self.stats.cells = Tally::default();
         self.stats.misses = Tally::default();
@@ -448,8 +336,6 @@ impl Overlay {
             m: r.metrics(),
             cols: view.cols(),
             pan: scene.pan,
-            bar: BarCursor::of(r, scene.term, cursor),
-            rings: Rings::of(r),
         };
         let block = cursor
             .filter(|(_, _, s)| matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock));
@@ -553,15 +439,14 @@ impl Overlay {
                 };
                 self.stats.cells.bump();
                 mask[y * cols + x] |= MASK_RECORD;
-                let ring = Overlay::emit(
+                Overlay::emit(
                     records,
-                    &mut self.tail,
+                    &mut self.over,
                     (x, y),
                     &glyphs,
                     *cell,
                     &Paint {
                         styles,
-                        row,
                         block,
                         highlight: scene.highlight,
                         blink: r.blink(),
@@ -570,21 +455,10 @@ impl Overlay {
                     },
                     &geom,
                 );
-                if ring == RingDrawn::Yes {
-                    mask[y * cols + x] |= MASK_RING;
-                }
             }
         }
-        records.append(&mut self.tail);
-        // The cursor's shape over a cell the records draw is theirs.
-        if let Some(m) = geom
-            .bar
-            .and_then(|b| mask.get_mut(b.row.index() * cols + b.col.index()))
-        {
-            if *m & MASK_RECORD != 0 {
-                *m |= MASK_CURSOR;
-            }
-        }
+        self.under = Tally::of(records.len());
+        records.append(&mut self.over);
         r.set_blink_seen(seen);
     }
 
@@ -636,7 +510,6 @@ impl Overlay {
             }
             let paint = Paint {
                 styles: scene.styles,
-                row,
                 block,
                 highlight: scene.highlight,
                 blink: r.blink(),
@@ -659,7 +532,7 @@ impl Overlay {
                     &mut this.stats,
                     mask,
                     records,
-                    &mut this.tail,
+                    &mut this.over,
                 );
             } else {
                 this.stats.window_misses.bump();
@@ -694,7 +567,7 @@ impl Overlay {
                     &mut this.stats,
                     mask,
                     records,
-                    &mut this.tail,
+                    &mut this.over,
                 );
                 this.windows.insert(key, drawn);
             }
@@ -825,19 +698,16 @@ impl Overlay {
             m: r.metrics(),
             cols,
             pan: Px::of(0),
-            bar: None,
-            rings: Rings::default(),
         };
-        let mut tail = Vec::new();
+        let mut over = Vec::new();
         Overlay::emit(
             records,
-            &mut tail,
+            &mut over,
             (x, y),
             &glyphs,
             cell,
             &Paint {
                 styles,
-                row: &[],
                 block,
                 highlight,
                 blink: r.blink(),
@@ -846,7 +716,7 @@ impl Overlay {
             },
             &geom,
         );
-        records.append(&mut tail);
+        records.append(&mut over);
     }
 
     /// An input method's composition, for the cell path: the cells it covers
@@ -888,38 +758,35 @@ impl Overlay {
         stats: &mut OverlayStats,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
-        tail: &mut Vec<Instance>,
+        over: &mut Vec<Instance>,
     ) {
         for ((x, cell, _), glyphs) in piece.iter().zip(drawn) {
             if let Some(glyphs) = glyphs {
                 stats.cells.bump();
-                let at = y.index() * geom.cols.index() + x;
-                mask[at] |= MASK_RECORD;
-                let ring =
-                    Overlay::emit(records, tail, (*x, y.index()), glyphs, *cell, paint, geom);
-                if ring == RingDrawn::Yes {
-                    mask[at] |= MASK_RING;
-                }
+                mask[y.index() * geom.cols.index() + x] |= MASK_RECORD;
+                Overlay::emit(records, over, (*x, y.index()), glyphs, *cell, paint, geom);
             }
         }
     }
 
     /// The records for one cell's glyphs, coloured as the shader would
-    /// colour the cell, and bent by the contrast curve that colour takes;
-    /// then into `tail`, which is drawn after every record's glyphs, its
-    /// end of an encircled run and then the bar cursor, the order the
-    /// instance path draws them in. Whether the end was drawn here, which
-    /// the shape pass then leaves out (`MASK_RING`).
+    /// colour the cell, and bent by the contrast curve that colour takes:
+    /// the part of each inside its row and below into `records`, and the
+    /// part above its row's top into `over`. The cell path draws the first
+    /// before its decoration pass and the second after it, so a record
+    /// lies under the decorations of its own row and of the row above it
+    /// reaches into -- the instance path's order, each row's glyphs and
+    /// then its decorations, rows top to bottom.
     #[allow(clippy::too_many_arguments)]
     fn emit(
         records: &mut Vec<Instance>,
-        tail: &mut Vec<Instance>,
+        over: &mut Vec<Instance>,
         at: (usize, usize),
         glyphs: &[ClusterGlyph],
         cell: PackedCell,
         paint: &Paint<'_>,
         geom: &Geom,
-    ) -> RingDrawn {
+    ) {
         let (x, y) = at;
         let resolved = paint
             .styles
@@ -956,10 +823,8 @@ impl Overlay {
             blink: paint.blink,
             cursor: paint.cursor,
         });
-        let bar = geom.bar.and_then(|b| b.over(at, d.cursor_fg, geom));
         if d.text == Text::Hidden {
-            tail.extend(bar);
-            return RingDrawn::No;
+            return;
         }
         let color = d.fg;
         let cell_w = i32::try_from(geom.m.cell_w.value()).unwrap_or(0);
@@ -970,11 +835,13 @@ impl Overlay {
             + baseline
             + i32::try_from(geom.pan.value()).unwrap_or(0);
         let curve = d.curve;
+        // The row's top, where a glyph reaching up is cut in two.
+        let top = Screen(i16::try_from(oy - baseline).unwrap_or(i16::MAX));
         for g in glyphs {
             let Some(slot) = g.slot else {
                 continue;
             };
-            records.push(Instance {
+            let inst = Instance {
                 x: Screen(i16::try_from(ox + g.dx + slot.left).unwrap_or(i16::MAX)),
                 y: Screen(i16::try_from(oy - g.dy + slot.top).unwrap_or(i16::MAX)),
                 w: slot.w,
@@ -984,38 +851,12 @@ impl Overlay {
                 color,
                 kind: slot.kind,
                 curve,
-            });
+            };
+            let (above, inside) = inst.cut_at(top);
+            over.extend(above);
+            records.extend(inside);
         }
-        let ring =
-            crate::renderer::ring_part(paint.styles, paint.row, Col::at_index(x), paint.blink)
-                .and_then(|part| geom.rings.get(part));
-        let drawn = match ring {
-            Some(slot) => {
-                tail.push(Instance {
-                    x: Screen(i16::try_from(ox + slot.left).unwrap_or(i16::MAX)),
-                    y: Screen(i16::try_from(oy + slot.top).unwrap_or(i16::MAX)),
-                    w: slot.w,
-                    h: slot.h,
-                    u: slot.x,
-                    v: slot.y,
-                    color,
-                    kind: slot.kind,
-                    curve,
-                });
-                RingDrawn::Yes
-            }
-            None => RingDrawn::No,
-        };
-        tail.extend(bar);
-        drawn
     }
-}
-
-/// Whether a record drew its cell's end of an encircled run.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RingDrawn {
-    No,
-    Yes,
 }
 
 /// An input method's composition -- `NSTextInputClient`'s marked text: a
@@ -1129,12 +970,9 @@ pub(crate) fn composition_records(
         m: r.metrics(),
         cols,
         pan,
-        bar: None,
-        rings: Rings::default(),
     };
     let paint = Paint {
         styles,
-        row: &[],
         block,
         highlight: None,
         blink: r.blink(),
@@ -1150,17 +988,17 @@ pub(crate) fn composition_records(
             style: under.style,
             flags: baud_domain::CellFlags::NONE,
         };
-        let mut tail = Vec::new();
+        let mut over = Vec::new();
         Overlay::emit(
             records,
-            &mut tail,
+            &mut over,
             (p.col.index(), y),
             &glyphs,
             cell,
             &paint,
             &geom,
         );
-        records.append(&mut tail);
+        records.append(&mut over);
     }
     // One underline a cell, as `Renderer::convert_row` draws `SGR 4`: each
     // in its cell's colour after the swaps, so the cell under a block cursor

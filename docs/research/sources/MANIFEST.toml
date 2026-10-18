@@ -27408,6 +27408,25 @@ group  = "Y"
 # Read 2026-10-18 for SGR 64, ECMA-48's "ideogram stress marking", which
 # gives no shape or side; this is the web's definition of the same marks.
 
+[sources.css21-zindex]
+key    = "css21-zindex"
+title  = "Cascading Style Sheets Level 2 Revision 1 (CSS 2.1), Appendix E: Elaborate description of Stacking Contexts -- the painting order, each line box in turn, and in it each run's underlining, overlining, the text, then its line-through"
+author = "W3C CSS Working Group"
+year   = 2011
+venue  = "W3C Recommendation, 7 June 2011"
+url    = "https://www.w3.org/TR/CSS21/zindex.html"
+file   = ""
+sha256 = "b486aef70d4d44e7f9cbf4376da33b5f31e8d0dcb15d400aa496bf4cb2d04f13"
+bytes  = 10645
+status = "external"
+group  = "Y"
+# Read 2026-10-18 for the order a glyph that reaches out of its row takes
+# against the decorations of the row it reaches, which ECMA-48 does not
+# give: line boxes are painted in order, so a later line's text lies over
+# an earlier line's decorations. Hash-verified, not committed: the chapter
+# carries no copyright notice of its own; the specification's cover page
+# does.
+
 # How a bare URI is found in a terminal's text, read 2026-10-18 for the
 # bare-URL Cmd-click (`baud-app/src/link.rs`). RFC 3986 (`rfc3986`, above)
 # says what a URI is and that its wrappers are not part of it (Appendix C);

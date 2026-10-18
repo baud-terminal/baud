@@ -664,6 +664,46 @@ impl Rings {
 /// Where the cursor is, when it is shown, and its shape.
 type Cursor = Option<(Row, Col, CursorStyle)>;
 
+/// The pixel rows a row's glyphs cover, `top..bottom`: past the row's
+/// band where a glyph reaches out of its cell, up or down, as a stacked
+/// accent does. The CPU compositor draws those glyphs into the bands they
+/// reach, in the instance path's order.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Reach {
+    top: i32,
+    bottom: i32,
+}
+
+impl Reach {
+    /// A row with no glyph.
+    const NONE: Reach = Reach {
+        top: i32::MAX,
+        bottom: i32::MIN,
+    };
+
+    /// The rows `glyphs` cover.
+    fn of(glyphs: &[Instance]) -> Reach {
+        glyphs.iter().fold(Reach::NONE, |r, g| {
+            let top = i32::from(g.y.0);
+            Reach {
+                top: r.top.min(top),
+                bottom: r.bottom.max(top + i32::from(g.h.0)),
+            }
+        })
+    }
+
+    /// Whether it covers a pixel row of `band`.
+    fn meets(self, band: Band) -> bool {
+        let (top, bottom) = (px_i32(band.top), px_i32(band.bottom));
+        self.top < bottom && self.bottom > top
+    }
+
+    /// Whether it covers a pixel row outside `band`.
+    fn leaves(self, band: Band) -> bool {
+        self.top < self.bottom && (self.top < px_i32(band.top) || self.bottom > px_i32(band.bottom))
+    }
+}
+
 /// Whether the previous frame's copy describes what is on screen.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Prev {
@@ -966,6 +1006,14 @@ pub struct Renderer<'f, 'a> {
     /// `blink_seen` is the whole screen's.
     row_blinks: Vec<Blinking>,
     per_row: Vec<Vec<Instance>>,
+    /// Per row, how many of its instances are glyphs, which come first;
+    /// the rest are its decorations.
+    glyph_ends: Vec<usize>,
+    /// Per row, the pixel rows its glyphs cover, and what they covered
+    /// before this frame's convert: a row a glyph reaches, or reached, is
+    /// repainted with the row it belongs to.
+    reach: Vec<Reach>,
+    reach_was: Vec<Reach>,
     last_cursor: Cursor,
     /// The opacity the last converted frame drew its cursor at, so a fade
     /// that moves the cursor's opacity and nothing else still dirties its
@@ -1190,6 +1238,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             text: Vec::new(),
             row_blinks: Vec::new(),
             per_row: Vec::new(),
+            glyph_ends: Vec::new(),
+            reach: Vec::new(),
+            reach_was: Vec::new(),
             last_cursor: None,
             last_cursor_opacity: Chan::from_u8(0xFF),
             highlight: None,
@@ -2125,6 +2176,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.text = vec![Text::Drawn; cells];
         self.row_blinks = vec![Blinking::UNSEEN; rows.index()];
         self.per_row = (0..rows.index()).map(|_| Vec::new()).collect();
+        self.glyph_ends = vec![0; rows.index()];
+        self.reach = vec![Reach::NONE; rows.index()];
+        self.reach_was = vec![Reach::NONE; rows.index()];
         self.dirty = vec![false; rows.index()];
         self.known = Prev::Unknown;
     }
@@ -2891,11 +2945,32 @@ impl<'f, 'a> Renderer<'f, 'a> {
             );
             (self.styles, self.compose_inst) = (styles, records);
         }
+        self.reach_was.clone_from(&self.reach);
         for r in 0..rows.index() {
             if self.dirty[r] {
                 self.convert_row(term, Row::from_index(r), cursor, &mut exceptions);
                 rows_dirty.bump();
             }
+        }
+        // A converted row's glyphs that reach into another row's band, or
+        // reached into it before, are drawn there by the CPU compositor:
+        // that row is repainted too, from the instances it already holds.
+        let mut reached: Vec<usize> = Vec::new();
+        for q in 0..rows.index() {
+            if !self.dirty[q] {
+                continue;
+            }
+            for e in [self.reach_was[q], self.reach[q]] {
+                if !e.leaves(self.band(Row::from_index(q))) {
+                    continue;
+                }
+                reached.extend(
+                    (0..rows.index()).filter(|&r| r != q && e.meets(self.band(Row::from_index(r)))),
+                );
+            }
+        }
+        for r in reached {
+            self.dirty[r] = true;
         }
         self.blink_seen = self
             .row_blinks
@@ -2959,6 +3034,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
             ..Frame::default()
         };
         let page = self.page();
+        // Whether any row's glyphs reach out of its band, which the loop
+        // below then draws into the bands they reach: once a frame, so a
+        // screen whose glyphs stay in their rows asks no row about it.
+        let reaching =
+            (0..self.rows.index()).any(|q| self.reach[q].leaves(self.band(Row::from_index(q))));
         for r in 0..self.rows.index() {
             let row = Row::from_index(r);
             frame.instances.add(Tally::of(self.per_row[r].len()));
@@ -2982,12 +3062,33 @@ impl<'f, 'a> Renderer<'f, 'a> {
             );
             under.paint(self, target, row, page);
             // In the order `instances()` hands the GPU instance path: the
-            // row's own, then the trail under the scrollbar, then the screen
-            // fade over everything. The trail and the fade dirtied these rows
-            // (`trail_moved`, and a fade makes the frame full), so a row
-            // repainted without them would draw them out.
+            // glyphs of the rows above that reach down into this band, the
+            // row's own glyphs and decorations, the glyphs of the rows below
+            // that reach up into it -- each row's glyphs and then its
+            // decorations, rows top to bottom -- then the trail under the
+            // scrollbar, then the screen fade over everything. The trail and
+            // the fade dirtied these rows (`trail_moved`, and a fade makes
+            // the frame full), so a row repainted without them would draw
+            // them out.
+            // Only the glyphs whose own rows meet the band: a row that
+            // reaches holds mostly glyphs that do not.
+            let meets = |g: &&Instance| Reach::of(core::slice::from_ref(*g)).meets(band);
+            if reaching {
+                for q in (0..r).filter(|&q| self.reach[q].meets(band)) {
+                    for inst in self.per_row[q][..self.glyph_ends[q]].iter().filter(meets) {
+                        target.over(inst, &self.atlas, self.blend, page, band);
+                    }
+                }
+            }
             for inst in &self.per_row[r] {
                 target.over(inst, &self.atlas, self.blend, page, band);
+            }
+            if reaching {
+                for q in (r + 1..self.rows.index()).filter(|&q| self.reach[q].meets(band)) {
+                    for inst in self.per_row[q][..self.glyph_ends[q]].iter().filter(meets) {
+                        target.over(inst, &self.atlas, self.blend, page, band);
+                    }
+                }
             }
             // The composition's records, over its row: `instances()` hands
             // the GPU instance path them in the same place.
@@ -3918,6 +4019,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.count_differs(term, r, Col::at_index(start), &clusters, &shaped, exc);
             self.emit(term, face, r, Col::at_index(start), &shaped, &mut instances);
         }
+        self.glyph_ends[r.index()] = instances.len();
+        self.reach[r.index()] = Reach::of(&instances);
         instances.extend(shapes);
         self.per_row[r.index()] = instances;
     }

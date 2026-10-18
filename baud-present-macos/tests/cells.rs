@@ -249,6 +249,7 @@ impl Arms<'_, '_> {
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
+            under: self.exceptions.under(),
             // In place: the shared ring holds the leaving row one row up
             // (ring row `rot - 1`), reached by the shader's own modulo.
             slide: self.slide,
@@ -334,6 +335,7 @@ impl Arms<'_, '_> {
             highlight: self.highlight,
             overlay: &self.overlay,
             records: &self.records,
+            under: self.exceptions.under(),
             slide: self.slide,
         };
         let Some(Drawn::Frame(_)) =
@@ -3337,6 +3339,203 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         "a full-row slide over the decorations is not the screen one line up"
     );
     hidden_seam_gate(arms, t);
+    reach_gate(arms, t);
+    composed_decoration_gate(arms, t);
+}
+
+/// **A glyph that reaches out of its cell takes one order against the
+/// decorations it reaches, on all three arms**: each row's glyphs and then
+/// that row's decorations, rows top to bottom, as the instance arm draws
+/// them and as CSS paints line boxes (`[[source: css21-zindex]]`,
+/// E.2, 7.2.1). So a glyph beside a decorated cell, a record's (a
+/// cluster with marks) as much as the map's, lies under that cell's
+/// ring, frame, overline and strike, and under its own underline; a
+/// glyph reaching up from the row below lies over them; one reaching
+/// down from the row above lies under them. Each scene carries two premises -- the reaching ink lands in the
+/// decorated cell, and the decoration is drawn there -- so three arms that
+/// all dropped either could not agree here vacuously.
+fn reach_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let (pw, _) = arms.renderer.frame_size();
+    let w = usize::try_from(pw.value()).unwrap();
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (
+        usize::try_from(m.cell_w.value()).unwrap(),
+        usize::try_from(m.cell_h.value()).unwrap(),
+    );
+    // How many pixels of cell `(col, row)` differ between two frames.
+    let in_cell = |a: &[u32], b: &[u32], (col, row): (usize, usize)| {
+        (row * ch..(row + 1) * ch)
+            .flat_map(|y| (col * cw..(col + 1) * cw).map(move |x| y * w + x))
+            .filter(|&i| a[i] != b[i])
+            .count()
+    };
+    let scene = |s: &str| format!("\x1bc\x1b[?25l{s}\x1b[0m");
+    let mut split = Vec::new();
+    // (name, scene, the scene without the decoration, that one without the
+    // reaching glyph's ink as well, the decorated cell). A decorated cell
+    // beside a reaching glyph holds a space, so no glyph's ink meets
+    // another's there: the order of two glyphs is not this gate's.
+    for (name, sc, bare, plain, cell) in [
+        (
+            "a record beside a ring",
+            "\x1b[3;5H\x1b[31;3mW\u{301}\x1b[0;32;52m ",
+            "\x1b[3;5H\x1b[31;3mW\u{301}\x1b[0;32m ",
+            "\x1b[3;5H\x1b[31;3m \x1b[0;32m ",
+            (5, 2),
+        ),
+        (
+            "a record beside a frame",
+            "\x1b[3;5H\x1b[31;3mW\u{301}\x1b[0;32;51m ",
+            "\x1b[3;5H\x1b[31;3mW\u{301}\x1b[0;32m ",
+            "\x1b[3;5H\x1b[31;3m \x1b[0;32m ",
+            (5, 2),
+        ),
+        (
+            "a record beside an overline",
+            "\x1b[3;5H\x1b[31;3mW\u{301}\x1b[0;32;53m ",
+            "\x1b[3;5H\x1b[31;3mW\u{301}\x1b[0;32m ",
+            "\x1b[3;5H\x1b[31;3m \x1b[0;32m ",
+            (5, 2),
+        ),
+        (
+            "a record beside a strike",
+            "\x1b[3;5H\x1b[31;3mW\u{301}\x1b[0;32;9m ",
+            "\x1b[3;5H\x1b[31;3mW\u{301}\x1b[0;32m ",
+            "\x1b[3;5H\x1b[31;3m \x1b[0;32m ",
+            (5, 2),
+        ),
+        (
+            "a record under its own underline",
+            "\x1b[3;5H\x1b[31;58;5;33;4mg\u{301}",
+            "\x1b[3;5H\x1b[31mg\u{301}",
+            "\x1b[3;5H\x1b[31m \u{301}",
+            (4, 2),
+        ),
+        (
+            "a glyph from the row below into a ring",
+            "\x1b[3;5H\x1b[32;52mx\x1b[4;5H\x1b[0;31m\u{1d8}",
+            "\x1b[3;5H\x1b[32mx\x1b[4;5H\x1b[0;31m\u{1d8}",
+            "\x1b[3;5H\x1b[32mx\x1b[4;5H\x1b[0;31mu",
+            (4, 2),
+        ),
+        (
+            "a glyph from the row below into a double underline",
+            "\x1b[3;5H\x1b[32;21mx\x1b[4;5H\x1b[0;31m\u{1d8}",
+            "\x1b[3;5H\x1b[32mx\x1b[4;5H\x1b[0;31m\u{1d8}",
+            "\x1b[3;5H\x1b[32mx\x1b[4;5H\x1b[0;31mu",
+            (4, 2),
+        ),
+        (
+            "a glyph from the row below into a frame",
+            "\x1b[3;5H\x1b[32;51mx\x1b[4;5H\x1b[0;31m\u{1d8}",
+            "\x1b[3;5H\x1b[32mx\x1b[4;5H\x1b[0;31m\u{1d8}",
+            "\x1b[3;5H\x1b[32mx\x1b[4;5H\x1b[0;31mu",
+            (4, 2),
+        ),
+        (
+            "a record from the row below into a ring",
+            "\x1b[3;5H\x1b[32;52mx\x1b[4;5H\x1b[0;31mA\u{301}\u{301}",
+            "\x1b[3;5H\x1b[32mx\x1b[4;5H\x1b[0;31mA\u{301}\u{301}",
+            "\x1b[3;5H\x1b[32mx\x1b[4;5H\x1b[0;31mA",
+            (4, 2),
+        ),
+    ] {
+        feed(t, scene(plain).as_bytes());
+        let (none, _) = arms.draw(t);
+        feed(t, scene(bare).as_bytes());
+        let (no_dec, _) = arms.draw(t);
+        feed(t, scene(sc).as_bytes());
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        assert_ne!(
+            in_cell(&no_dec, &none, cell),
+            0,
+            "{name}: the premise, the glyph's ink reaches the decorated cell"
+        );
+        assert_ne!(
+            in_cell(&a, &no_dec, cell),
+            0,
+            "{name}: the premise, the decoration is drawn there"
+        );
+        let (gpu, soft) = (differing(&a, &b), differing(&a, &cpu));
+        if gpu + soft != 0 {
+            split.push(format!("{name}: cell arm {gpu} px, CPU arm {soft} px"));
+        }
+    }
+    assert!(
+        split.is_empty(),
+        "the arms put a reaching glyph on different sides of a decoration: {split:#?}"
+    );
+}
+
+/// **A composition lies over the decorations of the text under it, the
+/// ring as the underline, on all three arms.** The instance and CPU paths
+/// blank the cells it covers in their own renditions and draw its records
+/// after every row, so the decorations of those cells -- an underline, a
+/// strike, a frame, an encircled run's outline -- stay, under its
+/// glyphs, and its own underline lies over theirs; the cell
+/// path draws them in its decoration pass and the composition's records
+/// after it. The composition covers the run's last two cells, its outline's
+/// right end among them. Each scene's premise: the decoration under the
+/// composition reaches the pixels of those cells on both GPU arms.
+fn composed_decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let (pw, _) = arms.renderer.frame_size();
+    let w = usize::try_from(pw.value()).unwrap();
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (
+        usize::try_from(m.cell_w.value()).unwrap(),
+        usize::try_from(m.cell_h.value()).unwrap(),
+    );
+    // How many pixels of the composition's cells, columns 6 and 7 of row
+    // 2, differ between two frames.
+    let under = |a: &[u32], b: &[u32]| {
+        (2 * ch..3 * ch)
+            .flat_map(|y| (6 * cw..8 * cw).map(move |x| y * w + x))
+            .filter(|&i| a[i] != b[i])
+            .count()
+    };
+    let scene = |s: &str| format!("\x1bc\x1b[?25l\x1b[3;3H\x1b[32{s}mabcdef\x1b[3;7H");
+    let mut split = Vec::new();
+    for (name, sgr) in [
+        ("encircled", ";52"),
+        ("double underlined", ";21"),
+        ("struck", ";9"),
+        ("framed", ";51"),
+    ] {
+        arms.composition = Some(Composition {
+            row: Row::from_index(2),
+            col: Col::at_index(6),
+            text: "Wg"
+                .chars()
+                .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
+                .collect(),
+            ambiguous: baud_domain::AmbiguousWidth::Narrow,
+        });
+        feed(t, scene("").as_bytes());
+        let (bare_a, bare_b) = arms.draw(t);
+        feed(t, scene(sgr).as_bytes());
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        arms.composition = None;
+        assert_ne!(
+            under(&a, &bare_a),
+            0,
+            "{name}: the premise, the decoration is drawn on the instance arm"
+        );
+        assert_ne!(
+            under(&b, &bare_b),
+            0,
+            "{name}: the premise, the decoration is drawn on the cell arm"
+        );
+        let (gpu, soft) = (differing(&a, &b), differing(&a, &cpu));
+        if gpu + soft != 0 {
+            split.push(format!("{name}: cell arm {gpu} px, CPU arm {soft} px"));
+        }
+    }
+    assert!(
+        split.is_empty(),
+        "the arms disagree on the decorations under a composition: {split:#?}"
+    );
 }
 
 /// **A framed run closes beside a framed cell whose text is hidden**, on

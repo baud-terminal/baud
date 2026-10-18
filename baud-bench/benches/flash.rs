@@ -463,6 +463,7 @@ fn main() {
                 highlight: None,
                 overlay: &self.overlay,
                 records: &self.records,
+                under: self.exceptions.under(),
                 slide: None,
             };
             let Some(Drawn::Frame(_)) =

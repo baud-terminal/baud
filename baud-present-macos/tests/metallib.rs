@@ -363,26 +363,6 @@ fn the_line_shape_bits_match_the_shader() {
     }
 }
 
-/// **The cell shader leaves a record's ring to the record**: the overlay's
-/// `MASK_RING` and the shader's are one bit spelled twice, and a drift
-/// would draw an encircled run's end twice, or under its glyph, on the
-/// cell path alone.
-#[test]
-fn the_ring_mask_bit_matches_the_shader() {
-    let src = include_str!("../src/shaders.metal");
-    let prefix = "#define MASK_RING ";
-    let line = src
-        .lines()
-        .find(|l| l.starts_with(prefix))
-        .expect("shaders.metal defines MASK_RING");
-    let got: u8 = line[prefix.len()..]
-        .trim()
-        .trim_end_matches('u')
-        .parse()
-        .expect("an unsigned literal");
-    assert_eq!(got, baud_render::MASK_RING, "{line:?}");
-}
-
 /// **The bare-cluster bit is one bit**: `baud_render::MASK_BARE` and the
 /// shader's are one fact spelled twice, and a drift would mark a stressed
 /// comma with an accent, or leave a stressed accented letter bare, on the

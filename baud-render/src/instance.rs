@@ -29,6 +29,28 @@ impl Instance {
         b[16..20].copy_from_slice(&word.to_le_bytes());
         b
     }
+
+    /// The record cut at screen row `top`: the rows above it and the rows
+    /// from it down, each its own record over its own texels, either
+    /// `None` when the record has no rows there. The two cover exactly the
+    /// pixels the whole did, from the same texels, so drawing both is
+    /// drawing it -- in two places in the order.
+    pub fn cut_at(self, top: Screen) -> (Option<Instance>, Option<Instance>) {
+        let (y, h) = (i32::from(self.y.0), i32::from(self.h.0));
+        let up = (i32::from(top.0) - y).clamp(0, h);
+        let rows = |n: i32| Tex(u16::try_from(n).unwrap_or(0));
+        let above = (up > 0).then_some(Instance {
+            h: rows(up),
+            ..self
+        });
+        let inside = (up < h).then(|| Instance {
+            y: Screen(i16::try_from(y + up).unwrap_or(i16::MAX)),
+            h: rows(h - up),
+            v: Tex(self.v.0.saturating_add(u16::try_from(up).unwrap_or(0))),
+            ..self
+        });
+        (above, inside)
+    }
 }
 
 /// One drawn glyph: where on screen, which atlas rectangle on which

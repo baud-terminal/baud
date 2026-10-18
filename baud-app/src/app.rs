@@ -1761,6 +1761,7 @@ impl App {
                     highlight,
                     overlay: &cell.overlay[set],
                     records: &cell.records,
+                    under: cell.exceptions.under(),
                     slide: sliding.then_some(pan),
                     set: at,
                 };

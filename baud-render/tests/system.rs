@@ -29,8 +29,11 @@ fn fnv64(data: &[u8]) -> u64 {
 /// base's face with nothing left out, the frame is its old pin again. It
 /// moved again when the cluster store grew to 1024 slots: two wide kana,
 /// U+30C5 and U+30C7, keep the U+3099 the 63-slot store refused them, and
-/// all 128 pixels that changed are in those two cells.
-const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0x6c88130c3c7a4fcd);
+/// all 128 pixels that changed are in those two cells. It moved again when
+/// the CPU compositor began drawing a glyph's ink past its row into the
+/// row it reaches, as the GPU paths draw it: 438 pixels in 138 cells, every
+/// one on the first or last pixel row of a band.
+const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0xdd1522ec94abec3b);
 
 #[test]
 fn the_macos_stack_paints_cat_cjk_to_its_pinned_frame() {

@@ -1771,11 +1771,6 @@ static bool takes_stress_mark(uint content, bool bare) {
 // 3 (a cell alone), above every codepoint, face style and span. Pinned by
 // `the_line_shape_bits_match_the_shader`.
 #define RING_KEY 134217728u
-// `baud_render::MASK_RING`: over a cell the records draw, a record draws
-// its end of an encircled run after its glyph, as the instance path draws
-// it after the row's glyphs, and the shape pass leaves it out. Pinned by
-// `the_ring_mask_bit_matches_the_shader`.
-#define MASK_RING 8u
 // The face style's two bits in a resolved slot's shapes -- the style whose
 // face the cell's text is drawn from, already fallen back by the stack --
 // and where they sit in a glyph-map key, above the 21-bit codepoint. The
@@ -1994,12 +1989,21 @@ vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
 
 fragment float4 flat_fragment(FlatOut in [[stage_in]]) { return in.color; }
 
+// Which part of a glyph a pass draws: the rows from its cell's row top down
+// (`PART_INSIDE`, before the shape pass), or the rows above it
+// (`PART_ABOVE`, after): each row's glyphs and then its decorations, rows
+// top to bottom, as the instance path draws, so a glyph reaching up from
+// the row below lies over the decorations of the row it reaches. The
+// overlay's records are cut the same way (`Instance::cut_at`).
+#define PART_INSIDE 0u
+#define PART_ABOVE 1u
 vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               device const uint2* cells [[buffer(0)]],
                               device const Style* styles [[buffer(1)]],
                               constant CU& u [[buffer(2)]],
                               device const Entry* entries [[buffer(3)]],
-                              device const uchar* overlay [[buffer(4)]]) {
+                              device const uchar* overlay [[buffer(4)]],
+                              constant uint& part [[buffer(5)]]) {
     GOut o;
     o.pos = float4(0.0); o.uv = float2(0.0); o.color = float4(0.0); o.kind = 0u; o.curve = 0u;
     uint col = iid % u.grid.x, dr = iid / u.grid.x;
@@ -2035,13 +2039,21 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     uint fgw, bgw, curw;
     colors(u, styles, overlay, cell, col, lrow, fgw, bgw, curw);
     float2 c = float2(vid & 1u, vid >> 1u);
+    float rowy = float(lrow) * float(u.cell.y) + float(u.pan);
     float2 origin = float2(float(col * u.cell.x) + float(e.at.x),
-                           float(lrow) * float(u.cell.y) + float(u.baseline)
-                               + float(u.pan) + float(e.at.y));
+                           rowy + float(u.baseline) + float(e.at.y));
     float2 wh = float2(e.rect.zw);
-    o.pos = clip(origin + c * wh, u);
+    // The rows of the glyph this part draws, cut at the row's top: whole
+    // pixels on both sides, so the two parts draw every pixel once.
+    float y0 = origin.y, y1 = origin.y + wh.y;
+    float a = part == PART_ABOVE ? y0 : max(y0, rowy);
+    float b = part == PART_ABOVE ? min(y1, rowy) : y1;
+    if (b <= a) return o;
+    float2 at = float2(origin.x, a);
+    float2 size = float2(wh.x, b - a);
+    o.pos = clip(at + c * size, u);
     float side = e.kind == 1u ? float(u.sides.y) : float(u.sides.x);
-    o.uv = (float2(e.rect.xy) + c * wh) / side;
+    o.uv = (float2(e.rect.xy) + float2(0.0, a - y0) + c * size) / side;
     o.color = unpack(fgw);
     o.kind = e.kind;
     o.curve = curve;
@@ -2102,10 +2114,6 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         colw = (s.shapes & 4u) != 0u ? fgw : s.ul;
     } else if (which == 3u) {
         if (col != u.cursor.x || lrow != int(u.cursor.y) || u.cursor_kind < 2u) return o;
-        // Over a cell the records draw, a record draws the cursor after the
-        // glyph (`MASK_CURSOR`, 4 in the overlay), as the instance path
-        // draws it after the row's glyphs.
-        if (lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & 4u) != 0u) return o;
         if (u.cursor_kind == 2u) {
             at = float2(float(col * u.cell.x), rowy + float(u.cell.y) - thick);
             wh = float2(u.cell.x, thick);
@@ -2161,7 +2169,6 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
             // origin as a procedural glyph is, in the text's colour and
             // bent by the glyph's curve.
             if (!encircled || between) return o;
-            if (lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & MASK_RING) != 0u) return o;
             uint key = RING_KEY + (lc ? 2u : (rc ? 1u : 3u));
             uint mask = u.map_slots - 1u;
             uint i = (key * 0x9E3779B1u) >> u.map_shift;

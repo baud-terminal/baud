@@ -372,6 +372,12 @@ pub struct CellInput<'a> {
     pub overlay: &'a OverlayBuffer,
     /// What draws the cells the overlay masks, in the instance layout.
     pub records: &'a [Instance],
+    /// How many of `records`, from the first, lie inside their own rows
+    /// ([`baud_render::Overlay::under`]): drawn after the glyph pass and
+    /// before the decoration pass, so each row's glyphs are under its
+    /// decorations, as the instance path draws a row. The rest are drawn
+    /// after the decoration pass.
+    pub under: Tally,
     /// Smooth scroll: `Some(pan)` shifts the screen down by `pan` pixels and
     /// draws one extra "leaving" row above the window -- ring row -1, the
     /// line just retired, which the shader reaches by the same modulo.
@@ -1390,7 +1396,7 @@ impl Gpu {
         })
     }
 
-    /// **Draws the records `0..end` of `buffer`**: the glyph pipeline for
+    /// **Draws the records `from..end` of `buffer`**: the glyph pipeline for
     /// each run of them, and the trail's pipeline for its records `trail`
     /// -- a quad's one, an effect's bands and particles -- so the trail stays where
     /// the renderer put it in the order: over the cells and their records,
@@ -1406,6 +1412,7 @@ impl Gpu {
         &self,
         enc: &Encoder,
         buffer: &Buffer,
+        from: At,
         end: At,
         trail: Option<(At, At)>,
         draw: Option<&TrailDraw>,
@@ -1441,15 +1448,15 @@ impl Gpu {
                 );
             }
         };
-        let At(n) = end;
+        let (At(f), At(n)) = (from, end);
         match (trail, draw) {
-            (Some((At(a), At(b))), None) if a < n => {
-                run(0, a);
+            (Some((At(a), At(b))), None) if a < n && a >= f => {
+                run(f, a);
                 run(b.min(n), n);
             }
-            (Some((At(a), At(b))), Some(draw)) if a < n => {
+            (Some((At(a), At(b))), Some(draw)) if a < n && a >= f => {
                 let b = b.min(n);
-                run(0, a);
+                run(f, a);
                 let (tbytes, tlen) = draw.uniform.bytes();
                 // SAFETY: records `a..b` are inside the buffer, and the
                 // trail's pipeline reads the vertex bindings the glyph one
@@ -1472,7 +1479,7 @@ impl Gpu {
                 }
                 run(b, n);
             }
-            _ => run(0, n),
+            _ => run(f, n),
         }
     }
 
@@ -1686,6 +1693,7 @@ impl Gpu {
                 self.draw_records(
                     &enc,
                     &self.instances[slot],
+                    At(0),
                     At(count),
                     trail_at,
                     trail.as_ref(),
@@ -1710,8 +1718,9 @@ impl Gpu {
 
     /// The cell path: binds the grid, the styles and the map where they
     /// already are, brings the sheets up by the texels new glyphs wrote,
-    /// and draws a background pass, a glyph pass and a shape pass, each one
-    /// instanced draw over every cell. Nothing is copied. `None` when a
+    /// and draws a background pass, a glyph pass, a shape pass and a pass
+    /// of the glyphs' parts above their rows, each one instanced draw over
+    /// every cell, with the records between the glyphs and the shapes. Nothing is copied. `None` when a
     /// resource could not be made; [`Drawn::Busy`] while a frame is in
     /// flight.
     pub fn draw_cells(
@@ -1813,6 +1822,63 @@ impl Gpu {
         // with `col < cols <= stride` and `rows <= ring`; the style buffer holds every slot a
         // cell can name; the map buffer holds every slot the probe reaches.
         unsafe {
+            // The records, written once and drawn in two places: those
+            // inside their rows after the glyph pass, the rest after the
+            // decoration pass.
+            let n = input.records.len();
+            let under = usize::try_from(input.under.value()).map_or(n, |u| u.min(n));
+            let mut trail_at = None;
+            let mut records = None;
+            if n > 0 {
+                let bytes = n.saturating_mul(Instance::BYTES);
+                let slot = self.ring.0;
+                if self.instances[slot].length() < bytes {
+                    let want = bytes.max(BUFFER_FLOOR).next_power_of_two();
+                    self.instances[slot] = self.shared(Span(want))?;
+                }
+                {
+                    let buffer = &self.instances[slot];
+                    let ptr = buffer.contents().cast::<u8>();
+                    let dst = core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes);
+                    for (i, (chunk, inst)) in dst
+                        .chunks_exact_mut(Instance::BYTES)
+                        .zip(input.records)
+                        .enumerate()
+                    {
+                        if matches!(inst.kind, Kind::Quad | Kind::Band | Kind::Particle) {
+                            trail_at = widen(trail_at, i);
+                        }
+                        chunk.copy_from_slice(&inst.to_bytes());
+                    }
+                }
+                self.ring = Ring((slot + 1) % RING);
+                records = Some(slot);
+            }
+            let side_m = px_f32(Px::of(self.mask.as_ref()?.side.value()));
+            let side_c = px_f32(Px::of(self.color.as_ref()?.side.value()));
+            let ru: [f32; UNIFORM_FLOATS] = [
+                px_f32(frame_px.0),
+                px_f32(frame_px.1),
+                px_f32(metrics.cell_w),
+                px_f32(metrics.cell_h),
+                0.0,
+                0.0,
+                side_m,
+                side_m,
+                side_c,
+                side_c,
+                pad[0],
+                pad[1],
+            ];
+            // The cell passes: the backgrounds, the glyphs inside their
+            // rows, the decorations, and then the parts of glyphs above
+            // their rows -- each row's glyphs and then its decorations,
+            // rows top to bottom, as the instance path draws them, so a
+            // glyph reaching up from the row below lies over the
+            // decorations of the row it reaches. `cell_glyph_vertex`'s
+            // `part`: `PART_INSIDE` and `PART_ABOVE`.
+            let inside: u32 = 0;
+            let above: u32 = 1;
             let passes = [
                 (self.cell_bg_pipe.clone(), count),
                 (self.cell_glyph_pipe.clone(), count),
@@ -1820,6 +1886,7 @@ impl Gpu {
                     self.cell_shape_pipe.clone(),
                     count.saturating_mul(SHAPES_PER_CELL),
                 ),
+                (self.cell_glyph_pipe.clone(), count),
             ];
             // `cell_bg_vertex`'s `ground_pass`: `GROUND_EVERY`,
             // `GROUND_ONLY_SET` and `GROUND_CLEAR_SET`.
@@ -1860,6 +1927,23 @@ impl Gpu {
                     }
                     self.draw_images(&enc, &images, staged.as_ref(), ImageLayer::Under, frame_px)?;
                 }
+                // The records inside their rows, between the glyphs and the
+                // decorations.
+                if k == 2 {
+                    if let Some(slot) = records {
+                        self.draw_records(
+                            &enc,
+                            &self.instances[slot],
+                            At(0),
+                            At(under),
+                            trail_at,
+                            trail.as_ref(),
+                            &ru,
+                            &mask,
+                            &color,
+                        );
+                    }
+                }
                 let instances = *instances;
                 enc.setRenderPipelineState(pipe);
                 enc.setVertexBuffer_offset_atIndex(Some(&input.grid.0), 0, 0);
@@ -1869,6 +1953,8 @@ impl Gpu {
                 enc.setVertexBuffer_offset_atIndex(Some(&input.overlay.0), 0, 4);
                 let pass = match (k, &below) {
                     (0, Some(_)) => &clear_set,
+                    (1, _) => &inside,
+                    (3, _) => &above,
                     _ => &every,
                 };
                 enc.setVertexBytes_length_atIndex(word(pass), wlen, 5);
@@ -1883,56 +1969,19 @@ impl Gpu {
                     instances,
                 );
             }
-            // The records: the cells the overlay masked, drawn as the
-            // instance path draws, after every cell pass.
-            let n = input.records.len();
-            let mut trail_at = None;
-            if n > 0 {
-                let bytes = n.saturating_mul(Instance::BYTES);
-                let slot = self.ring.0;
-                if self.instances[slot].length() < bytes {
-                    let want = bytes.max(BUFFER_FLOOR).next_power_of_two();
-                    self.instances[slot] = self.shared(Span(want))?;
-                }
-                {
-                    let buffer = &self.instances[slot];
-                    let ptr = buffer.contents().cast::<u8>();
-                    let dst = core::slice::from_raw_parts_mut(ptr.as_ptr(), bytes);
-                    for (i, (chunk, inst)) in dst
-                        .chunks_exact_mut(Instance::BYTES)
-                        .zip(input.records)
-                        .enumerate()
-                    {
-                        if matches!(inst.kind, Kind::Quad | Kind::Band | Kind::Particle) {
-                            trail_at = widen(trail_at, i);
-                        }
-                        chunk.copy_from_slice(&inst.to_bytes());
-                    }
-                }
-                self.ring = Ring((slot + 1) % RING);
-                let side_m = px_f32(Px::of(self.mask.as_ref()?.side.value()));
-                let side_c = px_f32(Px::of(self.color.as_ref()?.side.value()));
-                let u: [f32; UNIFORM_FLOATS] = [
-                    px_f32(frame_px.0),
-                    px_f32(frame_px.1),
-                    px_f32(metrics.cell_w),
-                    px_f32(metrics.cell_h),
-                    0.0,
-                    0.0,
-                    side_m,
-                    side_m,
-                    side_c,
-                    side_c,
-                    pad[0],
-                    pad[1],
-                ];
+            // The rest of the records after every cell pass: the parts of
+            // glyphs above their rows, then what the caller appended -- a
+            // prediction, a composition, the trail, the thumb, the fade --
+            // drawn as the instance path draws them.
+            if let Some(slot) = records {
                 self.draw_records(
                     &enc,
                     &self.instances[slot],
+                    At(under),
                     At(n),
                     trail_at,
                     trail.as_ref(),
-                    &u,
+                    &ru,
                     &mask,
                     &color,
                 );
