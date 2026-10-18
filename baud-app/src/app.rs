@@ -592,12 +592,11 @@ struct App {
     motion: crate::config::SystemMotion,
     motion_source: MotionSource,
     trail: Option<TrailState>,
-    /// The quad or sweep trail's state between frames (`trail.rs`).
+    /// The quad or sweep trail's state between frames (`trail.rs`), and
+    /// the one ledger of full passes every trail weighs against, the
+    /// ghost's sweeps included (`Chase::ledger`): one screen, one second,
+    /// whichever trail drew them, so a change of trail starts no fresh one.
     chase: crate::trail::Chase<HostTime>,
-    /// The ghost's full sweeps, which it weighs each one against: kept
-    /// across a snap, a screen switch and a change of trail, as the
-    /// chase's own ledger is.
-    ghosts: crate::trail::Ledger<HostTime>,
     last_cursor_cell: Option<(Row, Col)>,
     tick_target: f64,
     /// Whether an alternate-screen switch fades, from `[screen] transition`,
@@ -1126,7 +1125,6 @@ impl App {
             motion_source,
             trail: None,
             chase: crate::trail::Chase::new(chase_style(cursor_trail.style(), wanted)),
-            ghosts: crate::trail::Ledger::new(),
             last_cursor_cell: None,
             tick_target: 0.0,
             screen_transition,
@@ -1283,7 +1281,7 @@ impl App {
             };
             let sweep = HostTime::of_secs(self.tick_target).and_then(|now| {
                 crate::trail::ghost_sweep(
-                    &mut self.ghosts,
+                    self.chase.ledger(),
                     self.last_cursor_cell,
                     cursor_cell,
                     now,
@@ -5739,6 +5737,121 @@ mod motion_tests {
         for k in 0..1200u32 {
             let now = at(1.021 + f64::from(k) / 120.0);
             assert_eq!(chase.owes(now), Owes::Nothing, "tick {k}");
+        }
+    }
+
+    /// A cell 40 points tall, above the flash bound's gate.
+    const ABOVE: baud_render::Points = baud_render::Points(40.0);
+
+    /// The ghost's sweep from `from` to `to` at `t`, on `ledger`, on the
+    /// 10x20 cells of [`cell`] `pt` points tall.
+    fn sweep(
+        ledger: &mut crate::trail::Ledger<HostTime>,
+        (from, to): ((usize, usize), (usize, usize)),
+        t: f64,
+        pt: baud_render::Points,
+    ) -> Option<baud_render::Strength> {
+        let rc = |(r, c): (usize, usize)| (Row::from_index(r), Col::at_index(c));
+        let rect = |(r, c): (Row, Col)| {
+            let n = |v: usize| f32::from(u16::try_from(v).unwrap());
+            cell(n(c.index()), n(r.index()))
+        };
+        crate::trail::ghost_sweep(
+            ledger,
+            Some(rc(from)),
+            Some(rc(to)),
+            at(t),
+            rect,
+            ((10.0, 20.0), pt),
+        )
+        .map(|s| s.strength)
+    }
+
+    /// **A switch of trail keeps the second's passes**, both ways: a
+    /// plasma's full pass, then a switch to the ghost and its sweep back
+    /// over the same row inside the second, is a repeat above the gate; and
+    /// a ghost's full sweep, then a switch to the plasma and its move back,
+    /// is too. WCAG 2.3.1 counts flashes in "any one second period",
+    /// whichever trail drew them. The controls: the same sweep a second
+    /// later is full, and below the gate every pass is.
+    #[test]
+    fn a_switch_of_trail_keeps_the_seconds_passes() {
+        use baud_render::Strength::{Full, UnderThreshold};
+        for (pt, t, want) in [
+            (ABOVE, 1.3, UnderThreshold),
+            (ABOVE, 2.1, Full),
+            (PT, 1.3, Full),
+        ] {
+            let mut chase: Chase<HostTime> =
+                Chase::new(chase_style(T::Plasma.style(), Path::Cells));
+            chase.frame(Some(cell(5.0, 3.0)), at(1.0), (10.0, 20.0), pt);
+            chase.frame(Some(cell(60.0, 3.0)), at(1.008), (10.0, 20.0), pt);
+            let lit = chase.frame(Some(cell(60.0, 3.0)), at(1.020), (10.0, 20.0), pt);
+            let strength = |l: Option<baud_render::TrailLook>| match l {
+                Some(baud_render::TrailLook::Vfx(v)) => Some(v.emitter.strength),
+                Some(baud_render::TrailLook::Smear(s)) => Some(s.strength),
+                _ => None,
+            };
+            assert_eq!(strength(lit), Some(Full), "the control: a full plasma");
+            let (mut ghost, mut last) = (None, None);
+            let _ = retrail(
+                &mut chase,
+                &mut ghost,
+                &mut last,
+                T::Ghost,
+                Path::Cells,
+                None,
+            );
+            let back = sweep(chase.ledger(), ((3, 60), (3, 5)), t, pt);
+            assert_eq!(
+                back,
+                Some(want),
+                "the ghost after the plasma, {pt:?} at {t}"
+            );
+
+            let mut chase: Chase<HostTime> = Chase::new(chase_style(T::Ghost.style(), Path::Cells));
+            let first = sweep(chase.ledger(), ((3, 5), (3, 60)), 1.0, pt);
+            assert_eq!(first, Some(Full), "the control: a full ghost");
+            let _ = retrail(
+                &mut chase,
+                &mut ghost,
+                &mut last,
+                T::Plasma,
+                Path::Cells,
+                None,
+            );
+            chase.frame(Some(cell(60.0, 3.0)), at(t - 0.02), (10.0, 20.0), pt);
+            chase.frame(Some(cell(5.0, 3.0)), at(t - 0.012), (10.0, 20.0), pt);
+            let moved = chase.frame(Some(cell(5.0, 3.0)), at(t), (10.0, 20.0), pt);
+            assert_eq!(
+                strength(moved),
+                Some(want),
+                "the plasma after the ghost, {pt:?} at {t}"
+            );
+        }
+    }
+
+    /// **The app weighs the ghost on the chase's ledger**: the frame that
+    /// starts a sweep is AppKit-bound, so the source is what can fail. Each
+    /// call of the ghost's rule on the app's own state names the one
+    /// ledger, and there is such a call.
+    #[test]
+    fn the_app_weighs_the_ghost_on_the_chases_ledger() {
+        const SRC: &str = include_str!("app.rs");
+        let bare: String = SRC.split_whitespace().collect();
+        // Spelled apart, so this test does not match its own source first.
+        let calls: Vec<&str> = bare
+            .split(concat!("crate::trail::ghost_", "sweep("))
+            .skip(1)
+            .filter(|rest| rest.starts_with("self.") || rest.starts_with("&mutself."))
+            .collect();
+        assert!(!calls.is_empty(), "the control: the app sweeps the ghost");
+        for rest in calls {
+            assert!(
+                rest.starts_with("self.chase.ledger(),"),
+                "a ghost weighed apart: {}",
+                &rest[..40.min(rest.len())]
+            );
         }
     }
 
