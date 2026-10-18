@@ -314,62 +314,161 @@ fn sixty_five_cancels_the_stress_mark() {
     assert!(painted(b"\x1b[64;65mox", 14.0).0 == none, "65 after 64");
 }
 
-/// **The separators the mark skips are the Unicode Standard's Z\*
-/// classes**, as `[[source: gc-data]]` lists them:
-/// a hand-written range that drifted from the file would mark a space or
-/// leave a letter bare.
+/// **The mark skips what the web's emphasis marks leave bare**, at every
+/// codepoint: `[[source: css-text-decor-3]]` draws none for "the Unicode
+/// separator classes (Z*)", for "any characters that belong to the
+/// Unicode P* general category and do not NFKD normalize [UAX15] to any
+/// of the following symbols" -- `#`, `%`, U+2030, U+2031, U+066A,
+/// U+0609, U+060A, `&`, U+204A, `@`, U+00A7, U+00B6, U+204B, U+2053,
+/// U+303D -- and for "the Unicode classes for control codes and
+/// unassigned characters (Cc, Cf, Cn)". The categories are
+/// `[[source: gc-data]]`'s; NFKD of one codepoint is its compatibility
+/// decomposition (`[[source: unicode17-ch3]]` D65), `[[source:
+/// unicode-data]]`'s mappings applied until nothing decomposes. This is
+/// the set computed a second way, beside the generator's.
 #[test]
-fn the_stress_mark_skips_exactly_the_separator_classes() {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../docs/research/sources/unicode-derivedgeneralcategory.txt"
-    );
-    let ucd = std::fs::read_to_string(path).expect("the pinned UCD file");
-    let mut want: Vec<(u32, u32)> = ucd
-        .lines()
-        .filter_map(|l| {
-            let (field, rest) = l.split_once(';')?;
-            let class = rest.split('#').next()?.trim();
-            if !matches!(class, "Zs" | "Zl" | "Zp") {
-                return None;
-            }
-            let field = field.trim();
-            let (a, b) = field.split_once("..").unwrap_or((field, field));
-            let hex = |s: &str| u32::from_str_radix(s, 16).expect("a hex codepoint");
-            Some((hex(a), hex(b)))
-        })
-        .collect();
-    want.sort_unstable();
-    // Adjacent ranges, Zl's U+2028 beside Zp's U+2029, are one range.
-    want.dedup_by(|b, a| {
-        let joins = b.0 == a.1 + 1;
-        if joins {
-            a.1 = b.1;
-        }
-        joins
-    });
-    assert!(!want.is_empty(), "the positive control: the file names Z*");
-    assert_eq!(baud_render::SEPARATORS.to_vec(), want);
+fn the_stress_mark_skips_what_css_leaves_bare() {
     use baud_domain::{Codepoint, Content};
+    use std::collections::HashMap;
+    let read = |f: &str| {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/research/sources/");
+        std::fs::read_to_string(format!("{dir}{f}")).expect("a pinned UCD file")
+    };
+    let hex = |s: &str| u32::from_str_radix(s.trim(), 16).expect("a hex codepoint");
+    let mut gc: HashMap<u32, String> = HashMap::new();
+    for l in read("unicode-derivedgeneralcategory.txt").lines() {
+        let l = l.split('#').next().unwrap_or("");
+        let Some((field, class)) = l.split_once(';') else {
+            continue;
+        };
+        let field = field.trim();
+        let (a, b) = field.split_once("..").unwrap_or((field, field));
+        for cp in hex(a)..=hex(b) {
+            gc.insert(cp, class.trim().to_string());
+        }
+    }
+    assert_eq!(gc.len(), 0x11_0000, "the file lists every codepoint");
+    let mut dec: HashMap<u32, Vec<u32>> = HashMap::new();
+    for l in read("unicode-unicodedata.txt").lines() {
+        let f: Vec<&str> = l.split(';').collect();
+        if f[5].is_empty() {
+            continue;
+        }
+        let to = f[5]
+            .split_whitespace()
+            .filter(|t| !t.starts_with('<'))
+            .map(hex)
+            .collect();
+        dec.insert(hex(f[0]), to);
+    }
+    fn nfkd(cp: u32, dec: &HashMap<u32, Vec<u32>>, out: &mut Vec<u32>) {
+        match dec.get(&cp) {
+            Some(to) => to.iter().for_each(|&c| nfkd(c, dec, out)),
+            None => out.push(cp),
+        }
+    }
+    let keeps = [
+        0x23, 0x25, 0x2030, 0x2031, 0x66a, 0x609, 0x60a, 0x26, 0x204a, 0x40, 0xa7, 0xb6, 0x204b,
+        0x2053, 0x303d,
+    ];
+    let mut wrong = Vec::new();
+    for cp in 0..0x11_0000u32 {
+        let class = gc[&cp].as_str();
+        let skips = if class.starts_with('Z') || matches!(class, "Cc" | "Cf" | "Cn") {
+            true
+        } else if class.starts_with('P') {
+            let mut n = Vec::new();
+            nfkd(cp, &dec, &mut n);
+            !(n.len() == 1 && keeps.contains(&n[0]))
+        } else {
+            false
+        };
+        let Some(c) = Codepoint::new(cp) else {
+            continue;
+        };
+        if baud_render::takes_stress_mark(Content::codepoint(c), []) == skips {
+            wrong.push(cp);
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} codepoints marked against the rule, the first U+{:04X}",
+        wrong.len(),
+        wrong.first().copied().unwrap_or(0)
+    );
     for (cp, marks) in [
         (u32::from('o'), true),
         (0x4e2d, true),
+        (u32::from('#'), true),
+        (0xff03, true),
+        (0xe000, true),
+        (u32::from(','), false),
+        (0x3001, false),
+        (0xad, false),
+        (0x378, false),
         (0x20, false),
         (0x3000, false),
-        (0x2029, false),
     ] {
-        assert_eq!(
-            baud_render::takes_stress_mark(Content::codepoint(Codepoint::new(cp).unwrap())),
-            marks,
-            "U+{cp:04X}"
-        );
+        let c = Content::codepoint(Codepoint::new(cp).unwrap());
+        assert_eq!(baud_render::takes_stress_mark(c, []), marks, "U+{cp:04X}");
     }
     assert!(
-        !baud_render::takes_stress_mark(Content::EMPTY),
+        !baud_render::takes_stress_mark(Content::EMPTY, []),
         "a blank cell"
     );
     assert!(
-        !baud_render::takes_stress_mark(Content::WIDE_TAIL),
+        !baud_render::takes_stress_mark(Content::WIDE_TAIL, []),
         "a wide tail"
     );
+    // A cluster is classed by its base, and a separator base takes the
+    // mark only with a combining character -- gc M* (`[[source:
+    // unicode17-ch3]]` D52) -- attached: every codepoint as the one mark
+    // on a space, against the categories above.
+    let space = Content::codepoint(Codepoint::new(0x20).unwrap());
+    let mut wrong = Vec::new();
+    for cp in 0..0x11_0000u32 {
+        if baud_render::takes_stress_mark(space, [cp]) != gc[&cp].starts_with('M') {
+            wrong.push(cp);
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} marks on a space judged against D52, the first U+{:04X}",
+        wrong.len(),
+        wrong.first().copied().unwrap_or(0)
+    );
+}
+
+/// **A cluster takes the mark as its base character does**: CSS classes
+/// a typographic character unit by its base, and its one exception for a
+/// bare base is the separators' -- "emphasis marks are drawn for a space
+/// that combines with any combining characters" (`[[source:
+/// css-text-decor-3]]`). So `e` with an acute accent is marked, a comma
+/// with one is not, nor `‼` with its emoji selector (P*, whose NFKD is
+/// `!!`, off CSS's list), and a space with an acute accent is marked while
+/// a space with only a zero width joiner (Cf, not a combining character)
+/// is not. Each is painted with and without `SGR 64`.
+#[test]
+fn a_cluster_takes_the_mark_as_its_base_does() {
+    for (text, marks) in [
+        ("e\u{301}", true),
+        ("a\u{308}\u{301}", true),
+        (",\u{301}", false),
+        ("\u{203c}\u{fe0f}", false),
+        ("#\u{fe0f}\u{20e3}", true),
+        (" \u{301}", true),
+        (" \u{200d}", false),
+        ("\u{3001}\u{3099}", false),
+    ] {
+        let (none, ..) = painted(format!("x{text}").as_bytes(), 14.0);
+        let (marked, ..) = painted(format!("x\x1b[64m{text}").as_bytes(), 14.0);
+        assert_eq!(marked != none, marks, "{text:?}");
+    }
+    // The controls: each base alone, so the cluster's answer is not the
+    // base's by accident where the two differ.
+    for (text, marks) in [("e", true), (",", false), ("\u{203c}", false), (" ", false)] {
+        let (none, ..) = painted(format!("x{text}").as_bytes(), 14.0);
+        let (marked, ..) = painted(format!("x\x1b[64m{text}").as_bytes(), 14.0);
+        assert_eq!(marked != none, marks, "{text:?} alone");
+    }
 }

@@ -3723,10 +3723,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             // `SGR 64`'s stress mark, as the web draws an emphasis mark for
             // text with no language (`[[source: css-text-decor-3]]`): over
             // the character, a filled dot, in the text's colour, once a
-            // character, so across a wide character's two cells. Inside
-            // the cell, a square two thicknesses on a side, as all three
-            // paths draw a decoration.
-            if !hidden && res.shapes.has(Shapes::STRESS) && takes_stress_mark(cell.content) {
+            // character, so across a wide character's two cells, judged by
+            // its base and marks. Inside the cell, a square two thicknesses
+            // on a side, as all three paths draw a decoration.
+            if !hidden
+                && res.shapes.has(Shapes::STRESS)
+                && takes_stress_mark(term.base_of(*cell), term.cluster_marks(*cell))
+            {
                 let wide = row.get(c + 1).is_some_and(|n| n.content.is_wide_tail());
                 let d = 2 * px_i32(self.metrics.thickness).max(1);
                 let h = px_i32(self.metrics.cell_h);

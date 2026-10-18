@@ -49,6 +49,7 @@ mod scroll;
 mod scrollbar;
 mod select;
 mod stack;
+mod stress_data;
 mod trail;
 mod transition;
 pub mod ufo;
@@ -62,8 +63,8 @@ pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
 pub use caret::{CursorPhase, Play};
 pub use cellmap::{
     BlockCursor, Candidate, CellKey, CellSpan, Curves, Drawn, GlyphMap, Ground, Ink, Line,
-    MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK, Resolved, SEPARATORS, Selected,
-    Shapes, Swaps, Text, copy_for_shader, takes_stress_mark,
+    MAP_BITS, MAP_SLOTS, MapEntry, MapGeneration, MapStats, NO_INK, Resolved, Selected, Shapes,
+    Swaps, Text, copy_for_shader, takes_stress_mark,
 };
 pub use color::{
     AppBg, Argb, Floor, MODUS_OPERANDI, PictureBg, Theme, Video, light_palette, xterm_palette,
@@ -73,7 +74,7 @@ pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{
-    Composition, MASK_CURSOR, MASK_PICTURE, MASK_RECORD, Overlay, OverlayStats, Scene,
+    Composition, MASK_BARE, MASK_CURSOR, MASK_PICTURE, MASK_RECORD, Overlay, OverlayStats, Scene,
 };
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use renderer::{
@@ -90,6 +91,7 @@ pub use select::{
     AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span, row_of,
 };
 pub use stack::{EmojiDefault, FaceIx, FaceRole, FaceStyle, FaceTable, Presentation, Stack};
+pub use stress_data::{STRESS_SKIP_BLOCKS, STRESS_SKIP_INDEX};
 pub use trail::{
     Corners, Pt, Rect, Segment, Shape, Smear, Trail, TrailLook, coverage as quad_coverage,
 };

@@ -495,34 +495,56 @@ impl<'m> GlyphMap<'m> {
     }
 }
 
-/// The codepoints a stress mark skips, as inclusive ranges: the Unicode
-/// separator classes Zs, Zl and Zp (`[[source: gc-data]]`), since
-/// emphasis marks "are not drawn for: Word separators or other characters
-/// that belong to the Unicode separator classes (Z*)" (`[[source:
-/// css-text-decor-3]]`). `SEPARATORS` in the cell shader, pinned by
-/// `the_stress_mark_separators_match_the_shader`.
-pub const SEPARATORS: [(u32, u32); 8] = [
-    (0x20, 0x20),
-    (0xa0, 0xa0),
-    (0x1680, 0x1680),
-    (0x2000, 0x200a),
-    (0x2028, 0x2029),
-    (0x202f, 0x202f),
-    (0x205f, 0x205f),
-    (0x3000, 0x3000),
-];
+/// Whether a character takes `SGR 64`'s stress mark: one "drawn once for
+/// each typographic character unit" (`[[source: css-text-decor-3]]`), so
+/// not a blank and not a wide character's tail (its lead draws the mark
+/// across both cells), and not one the web's emphasis marks leave bare.
+/// `base` is the character's base -- a cell's own codepoint, or its
+/// cluster's (`Term::base_of`) -- and `marks` what attaches to it.
+///
+/// A unit is classed by its base: Z*, P* outside CSS's exceptions, Cc, Cf
+/// and Cn are bare, which `STRESS_SKIP_INDEX` and `STRESS_SKIP_BLOCKS`
+/// hold as a two-stage bit trie, two loads. The one way a bare base
+/// takes the mark is the Z* bullet's own: "emphasis marks are drawn for a
+/// space that combines with any combining characters", a combining
+/// character being gc M* (`[[source: unicode17-ch3]]` D52), so a comma
+/// with an acute accent stays bare and a space with one is marked. A base
+/// above U+10FFFF, a slot the store no longer holds, takes it, as the
+/// cell shader's `takes_stress_mark` does for a cluster the overlay has
+/// not marked bare ([`crate::MASK_BARE`]).
+pub fn takes_stress_mark(base: Content, marks: impl IntoIterator<Item = u32>) -> bool {
+    use crate::stress_data::{
+        COMBINING_BLOCKS, COMBINING_INDEX, SEPARATORS, STRESS_SKIP_BLOCKS, STRESS_SKIP_INDEX,
+    };
+    if base.is_empty() || base.is_wide_tail() {
+        return false;
+    }
+    let Some(c) = base.as_codepoint() else {
+        return true;
+    };
+    if !in_trie(c, STRESS_SKIP_INDEX, STRESS_SKIP_BLOCKS) {
+        return true;
+    }
+    SEPARATORS.binary_search(&c.value()).is_ok()
+        && marks
+            .into_iter()
+            .filter_map(Codepoint::new)
+            .any(|m| in_trie(m, COMBINING_INDEX, COMBINING_BLOCKS))
+}
 
-/// Whether a cell holding `content` takes `SGR 64`'s stress mark: one
-/// "drawn once for each typographic character unit" (`[[source:
-/// css-text-decor-3]]`), so not a blank, not a wide character's tail
-/// (its lead draws the mark across both cells), and not a separator. A
-/// cluster takes it, as "a space that combines with any combining
-/// characters" does.
-pub fn takes_stress_mark(content: Content) -> bool {
-    let c = content.bits();
-    !content.is_empty()
-        && !content.is_wide_tail()
-        && !SEPARATORS.iter().any(|&(a, b)| (a..=b).contains(&c))
+/// Whether `c` is in a two-stage bit trie: stage 1 maps the codepoint's
+/// high bits (`>> 8`) to a block, stage 2 holds each block's 256 bits,
+/// low bit first.
+fn in_trie(c: Codepoint, index: &[u8], blocks: &[u8]) -> bool {
+    let v = c.value();
+    let block = usize::try_from(v >> 8)
+        .ok()
+        .and_then(|i| index.get(i))
+        .map_or(0, |&b| usize::from(b));
+    let at = block * 32 + usize::try_from((v & 0xff) >> 3).unwrap_or(0);
+    blocks
+        .get(at)
+        .is_some_and(|&byte| (byte >> (v & 7)) & 1 == 1)
 }
 
 /// Which rendition shapes a cell draws, as the shader tests them.
@@ -582,7 +604,7 @@ impl Shapes {
     /// run is one box. `SHAPE_FRAMED` in the cell shader.
     pub const FRAMED: Shapes = Shapes(65536);
     /// `SGR 64`, "ideogram stress marking": a filled dot over each
-    /// character but a separator ([`takes_stress_mark`]), in the text's
+    /// character the web marks ([`takes_stress_mark`]), in the text's
     /// colour, one across a wide character's two cells. `SHAPE_STRESS` in
     /// the cell shader.
     pub const STRESS: Shapes = Shapes(131072);

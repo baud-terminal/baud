@@ -66,6 +66,13 @@ pub const MASK_PICTURE: u8 = 2;
 /// `CURSOR`: a record draws the bar or underline cursor over this cell, after
 /// the glyph's, and the shape pass must not draw it under them.
 pub const MASK_CURSOR: u8 = 4;
+/// `BARE`: the cell holds a cluster that takes no stress mark (`SGR 64`),
+/// one whose base the web leaves bare ([`crate::takes_stress_mark`]); the
+/// cell shader sees only the cluster's slot, not its base, and reads this.
+/// Set for every such cell on screen, whether or not a record draws it.
+/// `MASK_BARE` in the cell shader, pinned by
+/// `the_bare_mask_bit_matches_the_shader`.
+pub const MASK_BARE: u8 = 16;
 
 /// What one frame's walk reads: the core for the marks, the view it is
 /// drawing, the resolved rendition table the shader reads, and the cursor.
@@ -454,6 +461,11 @@ impl Overlay {
                     if let Some(s) = styles.get(cell.style.index()) {
                         seen = seen.with(Blinking::of(s.shapes));
                     }
+                }
+                if cell.content.cluster_id().is_some()
+                    && !crate::takes_stress_mark(term.base_of(*cell), term.cluster_marks(*cell))
+                {
+                    mask[y * cols + x] |= MASK_BARE;
                 }
                 if !cell.flags.is_marked()
                     || mask[y * cols + x] & MASK_RECORD != 0

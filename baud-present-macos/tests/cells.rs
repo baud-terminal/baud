@@ -3230,7 +3230,7 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
          \x1b[51;8mhid\x1b[0m \x1b[51;7mrev\x1b[0m",
         "\x1b[64mstress \u{4e2d}\u{6587}, a.b\x1b[0m \x1b[64;53mover\x1b[0m \
          \x1b[64;7mrev\x1b[0m \x1b[64;5mblink\x1b[0m \x1b[64;8mhid\x1b[0m \
-         \x1b[64;34m\u{3000}x\x1b[0m",
+         \x1b[64;34m\u{3000}x\x1b[0m \x1b[64me\u{301},\u{301}\u{203c}\u{fe0f} \u{301} ,\u{301}->\x1b[0m",
     ];
     let mut text = String::from("\x1bc\x1b[?25l\x1b[51mstart\x1b[0m\r\n");
     for l in lines {

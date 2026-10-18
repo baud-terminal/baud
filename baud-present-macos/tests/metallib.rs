@@ -359,31 +359,57 @@ fn the_line_shape_bits_match_the_shader() {
     }
 }
 
-/// **The cell shader skips the separators the CPU skips**: the stress
-/// mark's `SEPARATORS` in the shader and `baud_render::SEPARATORS` are one
-/// list spelled twice, and a drift would mark a space, or leave a
-/// character bare, on the cell path alone.
+/// **The bare-cluster bit is one bit**: `baud_render::MASK_BARE` and the
+/// shader's are one fact spelled twice, and a drift would mark a stressed
+/// comma with an accent, or leave a stressed accented letter bare, on the
+/// cell path alone.
 #[test]
-fn the_stress_mark_separators_match_the_shader() {
+fn the_bare_mask_bit_matches_the_shader() {
     let src = include_str!("../src/shaders.metal");
-    let start = src
-        .find("constant uint2 SEPARATORS[")
-        .expect("shaders.metal defines SEPARATORS");
-    let body = &src[start..start + src[start..].find("};").expect("its end")];
-    let hex = |s: &str| {
-        let s = s.trim().trim_start_matches("0x").trim_end_matches('u');
-        u32::from_str_radix(s, 16).unwrap_or_else(|_| panic!("{s:?} is a hex literal"))
+    let prefix = "#define MASK_BARE ";
+    let line = src
+        .lines()
+        .find(|l| l.starts_with(prefix))
+        .expect("shaders.metal defines MASK_BARE");
+    let got: u8 = line[prefix.len()..]
+        .trim()
+        .trim_end_matches('u')
+        .parse()
+        .expect("an unsigned literal");
+    assert_eq!(got, baud_render::MASK_BARE, "{line:?}");
+}
+
+/// **The cell shader skips what the CPU skips**: the stress mark's two
+/// tables in the shader and `baud_render::STRESS_SKIP_INDEX` and
+/// `STRESS_SKIP_BLOCKS` are one set of bytes spelled twice, and a drift
+/// would mark a comma, or leave a letter bare, on the cell path alone.
+#[test]
+fn the_stress_mark_table_matches_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    let table = |name: &str| -> Vec<u8> {
+        let head = format!("constant uchar {name}[");
+        let start = src
+            .find(&head)
+            .unwrap_or_else(|| panic!("shaders.metal defines {name}"));
+        let open = start + src[start..].find('{').expect("its body");
+        let body = &src[open + 1..open + src[open..].find("};").expect("its end")];
+        body.split(',')
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(|t| u8::from_str_radix(t.trim_start_matches("0x"), 16).expect("a hex byte"))
+            .collect()
     };
-    let got: Vec<(u32, u32)> = body
-        .split("uint2(")
-        .skip(1)
-        .map(|e| {
-            let pair = &e[..e.find(')').expect("a closing parenthesis")];
-            let (a, b) = pair.split_once(',').expect("two fields");
-            (hex(a), hex(b))
-        })
-        .collect();
-    assert_eq!(got, baud_render::SEPARATORS.to_vec());
+    let index = table("STRESS_SKIP_INDEX");
+    let blocks = table("STRESS_SKIP_BLOCKS");
+    assert!(
+        !blocks.is_empty(),
+        "the positive control: the table has bytes"
+    );
+    assert_eq!(index.as_slice(), baud_render::STRESS_SKIP_INDEX.as_slice());
+    assert_eq!(
+        blocks.as_slice(),
+        baud_render::STRESS_SKIP_BLOCKS.as_slice()
+    );
 }
 
 /// **The cell shader reads the default-background bit the CPU resolves**:
