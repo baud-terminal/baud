@@ -1,7 +1,9 @@
 //! A terminfo entry, parsed far enough to replay its output capabilities.
 //!
 //! The fixtures in `docs/research/sources/terminfo/` are `infocmp -1` output,
-//! captured verbatim and hash-pinned in `MANIFEST.toml`. Parsing them here
+//! and `xterm-256color` `infocmp -x -1` output, with the user-defined
+//! capabilities programs read, captured verbatim and hash-pinned in
+//! `MANIFEST.toml`. Parsing them here
 //! rather than checking in a pre-expanded list keeps the source of truth the
 //! thing ncurses actually ships.
 
@@ -28,8 +30,9 @@ pub fn is_input(name: &str) -> bool {
 /// Parameter arithmetic (`%p1%d`, `%{8}%<%t...`) is substituted with a fixed
 /// digit rather than evaluated: the point is to exercise the *shape* a terminal
 /// must parse, and a real parameter value does not change which sequence it is.
+/// A `%s` takes `string`, which [`string_argument`] picks by capability.
 /// Padding (`$<100/>`) is dropped, as a terminal would.
-pub fn expand(v: &str) -> Vec<u8> {
+pub fn expand(v: &str, string: &[u8]) -> Vec<u8> {
     let b: Vec<char> = v.chars().collect();
     let mut out = Vec::new();
     let mut i = 0;
@@ -93,8 +96,12 @@ pub fn expand(v: &str) -> Vec<u8> {
                         out.push(b'%');
                         i += 1;
                     }
-                    'd' | 'c' | 's' => {
+                    'd' | 'c' => {
                         out.push(b'1');
+                        i += 1;
+                    }
+                    's' => {
+                        out.extend_from_slice(string);
                         i += 1;
                     }
                     '\'' => {
@@ -132,7 +139,24 @@ pub fn expand(v: &str) -> Vec<u8> {
     out
 }
 
-/// Every capability in an `infocmp -1` fixture that carries an escape sequence.
+/// What a `%s` stands for, by capability.
+///
+/// **A digit is a number, and `Cs` takes a colour.** ncurses' `terminfo.src`:
+/// "Cs is a string capability which sets the cursor color to a given value.
+/// The single string parameter is the color name/number, according to the
+/// implementation." xterm's `OSC 12` takes a colour specification, so the
+/// digit replayed `ESC ] 12 ; 1 BEL`, which names no colour and was counted
+/// as dropped; `rgb:ff/00/00` is one it names. `Ms` keeps the digit for
+/// both its strings, "the storage unit" and "the base64-encoded clipboard
+/// content", and baud does not count what that makes as dropped.
+fn string_argument(name: &str) -> &'static [u8] {
+    match name {
+        "Cs" => b"rgb:ff/00/00",
+        _ => b"1",
+    }
+}
+
+/// Every capability in an `infocmp` fixture that carries an escape sequence.
 pub fn parse(src: &str) -> Vec<Cap> {
     let mut out = Vec::new();
     for line in src.lines() {
@@ -151,7 +175,7 @@ pub fn parse(src: &str) -> Vec<Cap> {
         }
         out.push(Cap {
             name: name.to_string(),
-            bytes: expand(val),
+            bytes: expand(val, string_argument(name)),
         });
     }
     out

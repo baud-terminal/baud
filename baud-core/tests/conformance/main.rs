@@ -10,10 +10,12 @@
 //! feed it to a fresh `Term`, and require that nothing was recognised and
 //! dropped. `Term::unsupported` counts exactly that — the `parsed` failure made
 //! observable. Capabilities whose name begins with `k` are keys the terminal
-//! *sends*; they are the input path, which baud does not have, and are counted
-//! separately rather than silently skipped.
+//! *sends*; they are the input path, which `input_caps.rs` measures, and are
+//! counted separately rather than silently skipped.
 //!
-//! Fixtures are `infocmp -1` output, captured verbatim and hash-pinned in
+//! Fixtures are `infocmp -1` output, and `xterm-256color` `infocmp -x -1`,
+//! with the user-defined capabilities (`Ss`, `Se`, `Cs`, `Ms` ...) programs
+//! read, captured verbatim and hash-pinned in
 //! `docs/research/sources/MANIFEST.toml`, from ncurses 6.0.20150808.
 
 #[path = "../support/mod.rs"]

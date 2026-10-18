@@ -573,7 +573,8 @@ status = "retrieved"
 group  = "C"
 
 # ── terminfo fixtures ──────────────────────────────────────────────────
-# `infocmp -1` output from ncurses 6.0.20150808, captured verbatim. These
+# `infocmp -1` output from ncurses 6.0.20150808, captured verbatim, and
+# for xterm-256color `infocmp -x -1`, the entry baud gives its child. These
 # are the conformance targets: `baud-core/tests/conformance/` replays every
 # output capability of each entry and requires baud to drop none of them.
 # A $TERM value is a capability *profile*, not a protocol -- xterm-256color
@@ -701,16 +702,23 @@ bytes  = 3220
 status = "retrieved"
 group  = "C"
 
+# Recaptured 2026-10-18 on macOS 27.0 (26A5425a) as
+# `infocmp -x -1 xterm-256color`, from /usr/share/terminfo/78/xterm-256color.
+# The first capture was `infocmp -1`, which leaves out the user-defined
+# capabilities a program reading the database gets -- `tput Se` here prints
+# `ESC [ 2 SP q` -- so the profile never replayed Ss, Se, Cs, Cr, Ms or E3.
+# The conformance suite gives `Cs`'s string a colour (terminfo.rs's
+# `string_argument`); the other nine entries stay `infocmp -1`.
 [sources.terminfo-xterm-256color]
 key    = "terminfo-xterm-256color"
-title  = "terminfo entry: xterm-256color"
-author = "ncurses 6.0.20150808 (infocmp -1)"
+title  = "terminfo entry: xterm-256color, with user-defined capabilities"
+author = "ncurses 6.0.20150808 (infocmp -x -1)"
 year   = 2015
-venue  = "ncurses terminfo database"
+venue  = "ncurses terminfo database, /usr/share/terminfo/78/xterm-256color on macOS"
 url    = "https://invisible-island.net/ncurses/"
 file   = "terminfo/xterm-256color.ti"
-sha256 = "ec52a7879f3b6a857c0cabad5be0caee3558ff06c8363e405ca4aaed1617b7f4"
-bytes  = 3032
+sha256 = "3efe945da1810e50a82ce8bd1564dd6eb9615082f2f0459c5c94d7cdf335e0e7"
+bytes  = 3960
 status = "retrieved"
 group  = "C"
 
@@ -21263,6 +21271,12 @@ group  = "AM"
 # file is not among them. Nothing in note AM moves either way: its section 8.4
 # and question 5 count the ten entries besides the capture and the capture
 # apart, and bounds.py leaves the capture out of its ten-entry count by name.
+#
+# Since 2026-10-18 terminfo-xterm-256color is the same `infocmp -x -1`
+# capture, byte for byte, and is the conformance profile; `Cs` passes there
+# with a colour for its string. This key stays for the citations above, and
+# note AM's comparisons of "the pin" with the capture describe the pin before
+# that day.
 [sources.terminfo-xterm-256color-x]
 key    = "terminfo-xterm-256color-x"
 title  = "terminfo entry: xterm-256color, with user-defined capabilities (infocmp -x -1)"

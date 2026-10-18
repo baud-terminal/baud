@@ -825,6 +825,8 @@ The task says vim and every curses `endwin` send cnorm (`\E[?12l\E[?25h`) at exi
 
 **Finding: the pinned terminfo lost `Se`.** `docs/research/sources/terminfo/xterm-256color.ti` says "Reconstructed via infocmp" at line 1. It was made without `-x`, so the extended `Se`/`Ss` were dropped. The sentence at `CLAUDE.md:18972` ("the pinned `xterm-256color` entry carries no `Ss` or `Se`, so it cannot say which reset an editor sends") is an artefact of that pin, and the pin should be retaken with `infocmp -x`.
 
+*Since 2026-10-18 the pin is retaken:* `docs/research/sources/terminfo/xterm-256color.ti` is `infocmp -x -1` output and carries `Se=\E[2 q` and `Ss=\E[%p1%d q`, and the conformance profile replays both. The sentence quoted above is struck through in `docs/record.md`, where it moved from CLAUDE.md.
+
 **Why macOS's `Se` is `\E[2 q`, and why baud is the odd one out.**
 
 - `2 q` is xterm's own power-on cursor, a steady block (`DEF_CURSOR_BLINK "false"`, xterm `main.h:126-127`, scratch, unpinned).
@@ -836,6 +838,7 @@ The task says vim and every curses `endwin` send cnorm (`\E[?12l\E[?25h`) at exi
   - foot `Se=\E[ q` (`foot.info:43`);
   - kitty's cnorm turns the blink *on*: `\E[?12h\E[?25h` (`kitty/terminfo.py:129`).
 - Whether Linux ncurses' `xterm-256color` also has `Se=\E[2 q` is **not verified**; there is no ncurses terminfo on this box.
+  - *Read 2026-10-18:* ncurses' own source moved it. In `[[source: ncurses-terminfo-src]]` (snapshot 6.6.20260926), `xterm-256color` uses `xterm-new`, which reaches `xterm+nofkeys`, which uses `xterm+tmux2`: `Se=\E[ q`, Ps 0, with `Ss`, `Cs`, `Cr` and `Ms` (5804-5806). Its log dates the change 2026-08-15, "use xterm+tmux2 in xterm+nofkeys to match xterm patch #407". Before it, `xterm+tmux`'s `Se=\E[2 q` (5801-5803), which is macOS's. A Linux box's value is its ncurses version's.
 
 **Two more programs, by reading** (neither is installed here, so neither was run):
 
@@ -1007,6 +1010,7 @@ This is a recommendation, not a decision.
   - re-pin `xterm-256color` with `infocmp -x`;
   - correct `CLAUDE.md:18972-18975`, and `docs/vt-coverage.md:579` (the `?12` row "done") and `:646` (the `cursorBlinkXOR` sentence);
   - rename any renamed test at `CLAUDE.md:18988-18998` too, or `docs.rs` fails.
+  - *2026-10-18:* the re-pin is done, and the CLAUDE.md lines named here now live in `docs/record.md`, corrected there.
 
 **The gates it needs**, each red first:
 

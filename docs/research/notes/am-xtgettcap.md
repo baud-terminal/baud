@@ -1190,6 +1190,9 @@ Costs, with every other N2 value as section 8.1 prices it (**C**,
   (XTGETXRES). It has none for `?1050`-`?1061` either.
 * **The pinned entry is not the entry programs read.** The `-1` capture lacks
   the `-x` capabilities (section 2.2).
+  * *Since 2026-10-18 it is:* the conformance fixture is the `-x` capture,
+    and the suite replays all six strings below, `Cs` with a colour for its
+    string. The rest of this item describes the pin before that day.
   * The conformance suite therefore replays none of the six output strings
     the database adds: `Cr`, `Cs`, `E3`, `Ms`, `Se` and `Ss`.
   * baud acts on five of them. `Ms` writes are dropped and counted, pending
