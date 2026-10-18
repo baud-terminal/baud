@@ -6,7 +6,10 @@ be measured.** (Built since, 2026-10-17: O2, Jev's lean, with section 6's
 harness first. A repeat pass drops its particles and reads its cap from
 the cells under it, text included, and the CPU path's quad takes it: 0
 FAIL on the full grid at 1x and 2x; the record, "A trail's repeat pass is
-drawn under the flash thresholds". The ghost is still unbounded.) The owner's questions are in section 8. Jev is consulted on
+drawn under the flash thresholds". Since, the same day: the ghost was
+counted, failed at 72 pt and takes the same bound, and a selection, the
+cursor and the desktop under the dimmed glass are grounds the cap reads;
+the record, "A repeat pass reads the selection, the cursor and the glass, and the ghost takes the bound".) The owner's questions are in section 8. Jev is consulted on
 each and the review page shows each with a visual, as the owner's rules
 require; the frames staged with this note (section 4) are the material.
 
@@ -856,7 +859,11 @@ O4's mechanisms are in `trail.rs` and `config.rs` and reach it by
 construction, unmeasured. In the app the ground is one colour (the default
 background); mixed backgrounds, text and glass are unmeasured, and the
 production answer (the least cap over the cells under the band, or a
-per-pixel clamp in the shader) is open.
+per-pixel clamp in the shader) is open. (Built since: the least cap over
+the colours the cells under the pass draw, a selection and the cursor
+among them, and a dimmed page over a white and a black desktop; the
+record, "A repeat pass reads the selection, the cursor and the glass, and
+the ghost takes the bound".)
 
 **What a person sees.** Up to 24 pt, nothing changes. Above, a single jump
 and the first sweep over any stretch in a second look as today; a jump back
@@ -1088,8 +1095,10 @@ or measured.
   The record's census did not run them; a record entry is owed.
 - **Note AJ section 1.3 quotes the 2024 definition of motion animation**,
   which a 2025-06-27 erratum corrected (section 1.8).
-- **The ghost trail has never been counted.** A bench arm that drives
-  `app.rs`'s ghost path is needed before any claim about it.
+- **~~The ghost trail has never been counted.~~** Counted since, by a
+  `ghost` arm that runs the ghost's rules from `trail.rs`: it passes up to
+  32 pt and fails at 72 pt, 1x and 2x, and takes O2's bound (the record,
+  "A repeat pass reads the selection, the cursor and the glass, and the ghost takes the bound").
 - **24 pt sits exactly on O2's, O3's and O4's 32 pt gate** (section 3.5); a
   font whose cell rounds one pixel taller puts 24 pt above it.
 - **A configured `font_size` outside `PxSize::of`'s range stops the launch**
@@ -1114,7 +1123,8 @@ or measured.
   sizes up to it.
 - A census series that counts seven transitions in a second, beside the
   disjoint and strict ones, so G19's count can be decided (section 1.8).
-- A ghost-trail arm, counted before the ghost is claimed either way.
+- ~~A ghost-trail arm, counted before the ghost is claimed either way.~~
+  Built: the census's `ghost` arm.
 
 ## 7. Unmeasured
 
@@ -1125,7 +1135,10 @@ cursors; any combination; any option's cost in time; O1's veiled glyph;
 the launch splash's plasma under any option; whether macOS posts the Dim
 Flashing Lights change to the local or the default notification centre;
 whether a poll of the setting sees a live toggle; what kitty's dwell would
-do here. O2's 2x above 24 pt, 72 pt at 2x, text under the trail and its
+do here. The ghost was counted since, and grounds through the glass are
+read at note AS's bound of a white and a black desktop, held by a test on
+the CPU path rather than by the census, whose grounds stay opaque; a
+coloured desktop is not read (the record, "A repeat pass reads the selection, the cursor and the glass, and the ghost takes the bound"). O2's 2x above 24 pt, 72 pt at 2x, text under the trail and its
 CPU path were measured since ([[source: al-obs-b68-analysis]]).
 
 ## 8. The owner's questions
@@ -1237,6 +1250,11 @@ put with the same measures, from section 4.6.
    fails 5 at 24 pt, which O2, O3 and O4 keep. On G19's count every one of
    those strict failures is undecided until a census series counts seven.
 9. **The ghost trail**: count it first, then the same option, or O4's floor.
+   (Counted and bounded since, 2026-10-17: it failed at 72 pt only, and
+   takes O2's bound, its sweeps weighed on a ledger of their own, on the
+   lane's instruction under the owner's "use the recommended answers" of
+   that day, Jev not asked; the
+   record, "A repeat pass reads the selection, the cursor and the glass, and the ghost takes the bound".)
 10. **May a bound override a trail the config names?** All four prototypes
     do, above a size: O1-O3 change named trails, and O4 removes them, the
     ghost included. The owner's rule of 2026-09-25 keeps a named trail over

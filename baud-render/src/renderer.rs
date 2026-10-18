@@ -437,6 +437,22 @@ enum Inked {
     No,
 }
 
+/// The cursor on a cell under a repeat pass, as this frame draws it: a
+/// block, which swaps the cell's colours, or a bar or an underline, a shape
+/// in its own colour over them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Cursored {
+    No,
+    Block,
+    Shape,
+}
+
+/// **The desktops a dimmed page is read over**, white and black: note AS's
+/// bound (section 3), where the glass material darkens nothing and the tint
+/// is off, a flat backdrop that no blur can move. A translucent ground is
+/// read as itself over each, the way the window server composites it.
+const DESKTOPS: [Argb; 2] = [Argb(0xFFFF_FFFF), Argb(0xFF00_0000)];
+
 /// A screen position from pixel arithmetic, pinned to the record's range.
 fn screen(v: i32) -> Screen {
     Screen(i16::try_from(v).unwrap_or(i16::MAX))
@@ -1423,12 +1439,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
     }
 
-    /// How this frame's trail is drawn: a ghost always as it is.
+    /// How this frame's trail is drawn, as the driver weighed it.
     fn strength(&self) -> Strength {
         match &self.trail {
+            Some(Drawn::Ghost(g)) => g.strength,
             Some(Drawn::Smear(s)) => s.strength,
             Some(Drawn::Vfx(v, ..)) => v.emitter.strength,
-            _ => Strength::Full,
+            None => Strength::Full,
         }
     }
 
@@ -1445,9 +1462,17 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// below the backgrounds, draws nothing: a cap of 0. The image test is a
     /// rectangle overlap of each such placement with each record, so a
     /// partly transparent image also counts as a ground, the safe
-    /// direction. A selection or a
-    /// block cursor under the trail, and the desktop under a dimmed page,
-    /// are not grounds it reads.
+    /// direction.
+    ///
+    /// **What the frame lays over a cell is a ground too.** A selected cell
+    /// and the cell under the cursor add the colours [`Resolved::drawn`]
+    /// gives them this frame -- the swapped background and text, a fading
+    /// block's mixture, a bar's or an underline's own colour -- beside the
+    /// rendition's. **A dimmed page is read over the desktop**: a ground
+    /// drawn translucent adds itself over [`DESKTOPS`], white and black,
+    /// note AS's bound, since what a screen shows there is the page over
+    /// what is behind the window. A coloured desktop between them is not
+    /// read.
     fn bound_trail(&mut self, term: &Term<'_>) {
         if self.strength() == Strength::Full {
             return;
@@ -1463,20 +1488,56 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let blank = |c: baud_domain::Content| {
             c.is_empty() || c.as_codepoint().is_some_and(|p| p.value() == 0x20)
         };
-        let mut ids: Vec<(baud_domain::StyleId, Inked)> = Vec::new();
+        // The cursor as `convert_with` finds it: the live screen's, at an
+        // input method's composition while one is shown, and only while
+        // this frame's phase draws it.
+        let live = term.looking_back(term.window_back()).index() == 0;
+        let cursor = (term.cursor_visible() && live)
+            .then(|| {
+                let (r, c) = match &self.composition {
+                    Some(c) if c.row.index() < rows => c.cursor(view.cols()),
+                    _ => term.cursor(),
+                };
+                (r, c, term.cursor_style())
+            })
+            .filter(|&(_, _, style)| self.cursor_drawn(style));
+        let mut ids: Vec<(baud_domain::StyleId, Inked, Selected, Cursored)> = Vec::new();
         'walk: for r in &self.trail_inst {
             let (x, y) = (i32::from(r.x.0), i32::from(r.y.0));
             let (x1, y1) = (x + i32::from(r.w.0), y + i32::from(r.h.0));
             for row in at(y) / ch..at(y1).div_ceil(ch).min(rows) {
-                let cells = view.row(Row::from_index(row));
-                for cell in &cells[(at(x) / cw).min(cols)..at(x1).div_ceil(cw).min(cols)] {
+                let row = Row::from_index(row);
+                let cells = view.row(row);
+                let first = (at(x) / cw).min(cols);
+                for (c, cell) in cells[first..at(x1).div_ceil(cw).min(cols)]
+                    .iter()
+                    .enumerate()
+                {
+                    let col = Col::at_index(first + c);
                     let inked = if blank(cell.content) {
                         Inked::No
                     } else {
                         Inked::Yes
                     };
-                    if !ids.contains(&(cell.style, inked)) {
-                        ids.push((cell.style, inked));
+                    let selected = match self
+                        .highlight
+                        .is_some_and(|h| h.selects(row, col, cell.content))
+                    {
+                        true => Selected::Yes,
+                        false => Selected::No,
+                    };
+                    let cursored = match cursor {
+                        Some((cr, cc, style)) if cr == row && cc == col => match style {
+                            CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock => {
+                                Cursored::Block
+                            }
+                            _ => Cursored::Shape,
+                        },
+                        _ => Cursored::No,
+                    };
+                    let id = (cell.style, inked, selected, cursored);
+                    if !ids.contains(&id) {
+                        ids.push(id);
                         if ids.len() > FLASH_GROUNDS {
                             break 'walk;
                         }
@@ -1498,7 +1559,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let ink = self.cursor_fill.with_alpha(Chan::from_u8(0xFF));
         let opaque = |c: Argb| c.with_alpha(Chan::from_u8(0xFF));
         let mut triples: Vec<(Argb, Argb)> = Vec::new();
-        for &(id, inked) in &ids {
+        // A text colour over a page, and each over the desktops while the
+        // page is drawn translucent.
+        let ground = |text: Argb, page: Argb, triples: &mut Vec<(Argb, Argb)>| {
+            let (text, solid) = (opaque(text), opaque(page));
+            let seen = core::iter::once(solid).chain(
+                DESKTOPS
+                    .into_iter()
+                    .filter(|_| page.a().get() < 0xFF)
+                    .map(|d| solid.mix(d, page.a())),
+            );
+            for page in seen {
+                if !triples.contains(&(text, page)) {
+                    triples.push((text, page));
+                }
+            }
+        };
+        let cursor_color = term
+            .cursor_color_in(self.video)
+            .map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)));
+        for &(id, inked, selected, cursored) in &ids {
             let word = term
                 .styles()
                 .get(id.index())
@@ -1508,14 +1588,36 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let res = self.resolve_slot(term, word);
             let text = inked == Inked::Yes || word.attrs() != baud_domain::Attrs::NONE;
             let n = if text { 5 } else { 1 };
-            let page = opaque(res.bg);
             for colour in [res.bg, res.fg, res.glass, res.line, res.underline]
                 .into_iter()
                 .take(n)
             {
-                if !triples.contains(&(opaque(colour), page)) {
-                    triples.push((opaque(colour), page));
+                ground(colour, res.bg, &mut triples);
+            }
+            if selected == Selected::No && cursored == Cursored::No {
+                continue;
+            }
+            // The cell as this frame draws it under the selection and the
+            // cursor, the swaps `convert_row` takes.
+            let d = res.drawn(Swaps {
+                pictured: crate::picture::Pictured::No,
+                line: Line::No,
+                selected,
+                block: match cursored {
+                    Cursored::Block => BlockCursor::Yes(cursor_color),
+                    _ => BlockCursor::No,
+                },
+                blink: self.blink,
+                cursor: cursor.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s)),
+            });
+            ground(d.bg, d.bg, &mut triples);
+            if text {
+                for colour in [d.fg, res.line, res.underline] {
+                    ground(colour, d.bg, &mut triples);
                 }
+            }
+            if cursored == Cursored::Shape {
+                ground(cursor_color.unwrap_or(d.cursor_fg), d.bg, &mut triples);
             }
         }
         // **Bounded a frame, and sound while it is**: the repeat draws

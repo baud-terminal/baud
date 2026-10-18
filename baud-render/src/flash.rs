@@ -20,8 +20,10 @@
 //! caps, and over more than 64 grounds, or one not yet scanned, the pass
 //! draws nothing (Jev, 728/729, 0.98 and 1.00), and so does one whose
 //! records meet an image placed under the text or below the backgrounds,
-//! whose pixels the cells do not name. A selection or a block cursor under
-//! the pass, and the desktop under a dimmed page, are not grounds it reads.
+//! whose pixels the cells do not name. **A selection and the cursor under
+//! the pass are grounds too**, by the colours they draw, and **a dimmed page
+//! is read over the desktop**, a flat white and a flat black, note AS's
+//! bound; a coloured desktop is not read.
 //!
 //! The thresholds are WCAG 2.2's definition of the general and red flash
 //! thresholds ([[source: wcag22]]), as `baud_bench::flash` counts them: a

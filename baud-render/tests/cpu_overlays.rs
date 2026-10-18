@@ -54,6 +54,7 @@ fn trail(from: (usize, usize), to: (usize, usize), progress: f32) -> TrailLook {
         progress,
         origin_dy: 0.0,
         lift: Px::of(0),
+        strength: baud_render::Strength::Full,
     })
 }
 

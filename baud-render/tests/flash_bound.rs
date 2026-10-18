@@ -465,3 +465,329 @@ fn a_repeat_pass_over_an_image_under_the_text_draws_nothing() {
         assert_eq!(drew, z.is_none(), "it draws only on a bare page, {at}");
     }
 }
+
+/// The pixels of `frame` that are a general transition from `bare`: a
+/// change in relative luminance of 0.10 or more, the darker below 0.80.
+fn general(frame: &[u32], bare: &[u32]) -> usize {
+    frame
+        .iter()
+        .zip(bare)
+        .filter(|&(&p, &q)| {
+            let (a, b) = (lum(p), lum(q));
+            (a - b).abs() >= 0.10 && a.min(b) < 0.80
+        })
+        .count()
+}
+
+/// Whether two words are a red transition, the Understanding page's
+/// working definition: either a saturated red, R/(R+G+B) of 0.8 or more on
+/// the linear values, and their u'v' more than 0.2 apart.
+fn red(p: u32, q: u32) -> bool {
+    let see = |w: u32| {
+        let [_, r, g, b] = w.to_be_bytes();
+        let lin = |c: u8| {
+            let c = f64::from(c) / 255.0;
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let (r, g, b) = (lin(r), lin(g), lin(b));
+        let x = 0.412_456_4 * r + 0.357_576_1 * g + 0.180_437_5 * b;
+        let y = 0.212_672_9 * r + 0.715_152_2 * g + 0.072_175 * b;
+        let z = 0.019_333_9 * r + 0.119_192 * g + 0.950_304_1 * b;
+        let d = x + 15.0 * y + 3.0 * z;
+        let (u, v) = if d > 0.0 {
+            (4.0 * x / d, 9.0 * y / d)
+        } else {
+            (0.197_8, 0.468_3)
+        };
+        let sum = r + g + b;
+        (u, v, sum > 0.0 && r / sum >= 0.8)
+    };
+    let ((u, v, a), (s, t, b)) = (see(p), see(q));
+    (a || b) && (u - s).hypot(v - t) > 0.2
+}
+
+/// A quad over rows 1 to 8 whole, its hole on the last row, away from them.
+fn over_rows(r: &Renderer<'_, '_>) -> TrailLook {
+    let style = baud_core::CursorStyle::SteadyBlock;
+    let (a, b) = (
+        r.cursor_rect(Row::from_index(1), Col::at_index(0), style),
+        r.cursor_rect(Row::from_index(8), Col::at_index(29), style),
+    );
+    repeat(TrailLook::Smear(Smear {
+        corners: baud_render::Rect {
+            left: a.left,
+            top: a.top,
+            right: b.right,
+            bottom: b.bottom,
+        }
+        .corners(),
+        hole: r.cursor_rect(Row::from_index(9), Col::at_index(29), style),
+        shape: Shape::Quad,
+        strength: Strength::Full,
+    }))
+}
+
+/// **A repeat pass over a selection is capped against the selection's
+/// colours**: selected blank cells on the dark page draw the theme's text,
+/// `#D8D8D8`, as their background, and a black cursor over that ground has
+/// a cap well under the page's 255, at which black never flashes on
+/// `#101010`. No pixel of the pass is a general transition from the frame
+/// without it; the controls: the pass draws, and the same pass with no
+/// selection keeps the page's cap.
+#[test]
+fn a_repeat_pass_over_a_selection_is_capped_against_its_colours() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let black = opaque(0, 0, 0);
+    let selected = Theme::dark().fg.with_alpha(Chan::from_u8(0xFF));
+    for selection in [false, true] {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"\x1b[?25l\x1b]12;rgb:00/00/00\x07");
+        let mut r = renderer(&faces);
+        r.set_highlight(selection.then_some(baud_render::Highlight {
+            from: (Row::from_index(2), Col::at_index(0)),
+            to: (Row::from_index(7), Col::at_index(29)),
+            region: baud_render::Region::Stream,
+        }));
+        let bare = paint(&mut r, &mut t);
+        r.set_trail(Some(over_rows(&r)));
+        let _ = paint(&mut r, &mut t);
+        let frame = paint(&mut r, &mut t);
+        if !selection {
+            assert_eq!(r.flash_cap().get(), 0xFF, "the control: the page's cap");
+            continue;
+        }
+        assert!(
+            frame.iter().zip(&bare).any(|(p, q)| p != q),
+            "the control: the pass draws"
+        );
+        assert_eq!(
+            general(&frame, &bare),
+            0,
+            "a pixel over the selection flashes"
+        );
+        let k = under_threshold(black, selected);
+        assert!(k.get() < 0x40, "the control: a cap over the selection");
+        assert_eq!(r.flash_cap(), k, "the cap over the selected cells");
+    }
+}
+
+/// **A repeat pass over a block cursor is capped against the block's
+/// colours**: a block on a blank cell whose text is `#1A0000` on the
+/// page's own colour fills with that dark red, the reverse video a block
+/// draws, where the cell's own rendition draws only the page. The theme's
+/// cursor over dark red takes 4 of 255 (note AL's table, by the red rule),
+/// against the page's 95, at which its pixels over the block are red
+/// transitions. The pass here is a constructed one, its hole away from the
+/// cursor, since on the CPU path a quad always spares the cursor's cell; on
+/// the GPU an effect's bands can cover it, and they do here (the control
+/// below), which the cap is for.
+#[test]
+fn a_repeat_pass_over_a_block_cursor_is_capped_against_the_block() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let ink = Theme::dark().fg.with_alpha(Chan::from_u8(0xFF));
+    let page = Theme::dark().bg.with_alpha(Chan::from_u8(0xFF));
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    // Both colours set as truecolour, the page's own `#101010` under the
+    // dark red, so the contrast floor leaves the pair as asked.
+    feed(
+        &mut t,
+        b"\x1b[2 q\x1b[5;11H\x1b[38;2;26;0;0;48;2;16;16;16m \x1b[0m\x1b[5;11H",
+    );
+    let mut r = renderer(&faces);
+    let bare = paint(&mut r, &mut t);
+    r.set_trail(Some(over_rows(&r)));
+    let _ = paint(&mut r, &mut t);
+    let frame = paint(&mut r, &mut t);
+    let k = under_threshold(ink, opaque(0x1A, 0, 0));
+    assert_eq!(
+        k.get(),
+        4,
+        "note AL's cap for the theme's cursor on dark red"
+    );
+    assert!(
+        under_threshold(ink, page).get() > 0x40,
+        "the control: the page's cap is far above it"
+    );
+    let (w, _) = r.pixel_size();
+    let cell = r.cursor_rect(
+        Row::from_index(4),
+        Col::at_index(10),
+        baud_core::CursorStyle::SteadyBlock,
+    );
+    let inside = |i: usize| {
+        let (x, y) = ((i % px(w)) as f32 + 0.5, (i / px(w)) as f32 + 0.5);
+        x > cell.left && x < cell.right && y > cell.top && y < cell.bottom
+    };
+    let (mut drew, mut flashed) = (false, 0);
+    for (i, (p, q)) in frame.iter().zip(&bare).enumerate() {
+        if inside(i) {
+            drew |= p != q;
+            flashed += general(&[*p], &[*q]) + usize::from(red(*p, *q));
+        }
+    }
+    assert!(drew, "the control: the pass draws over the block");
+    assert_eq!(flashed, 0, "a pixel over the block makes a transition");
+    assert_eq!(r.flash_cap(), k, "the cap over the block");
+    // The GPU's case: a repeat fire landed on the cursor, its bands over
+    // the cursor's cell, reads the block too.
+    let style = baud_core::CursorStyle::SteadyBlock;
+    let hole = r.cursor_rect(Row::from_index(4), Col::at_index(10), style);
+    let from = r.cursor_rect(Row::from_index(1), Col::at_index(2), style);
+    let emitter = Smear {
+        corners: Segment::new(from.corners(), hole).at(0.3),
+        hole,
+        shape: Shape::Quad,
+        strength: Strength::Full,
+    };
+    let unit = f32::from(u16::try_from(r.metrics().cell_h.value()).unwrap());
+    let tail = Pt {
+        x: (from.left + from.right) * 0.5,
+        y: (from.top + from.bottom) * 0.5,
+    };
+    r.set_trail(Some(repeat(TrailLook::Vfx(Vfx {
+        effect: Effect::Fire,
+        emitter,
+        ignition: Ignition::ignite(tail, hole, Seed(5), unit).at(0.3),
+        axis: Pt { x: 1.0, y: 0.0 },
+    }))));
+    let _ = paint(&mut r, &mut t);
+    let _ = paint(&mut r, &mut t);
+    let covers = r.trail().iter().any(|i| {
+        let (x, y) = (f32::from(i.x.0), f32::from(i.y.0));
+        x < hole.right
+            && hole.left < x + f32::from(i.w.0)
+            && y < hole.bottom
+            && hole.top < y + f32::from(i.h.0)
+    });
+    assert!(
+        covers,
+        "the control: the fire's bands cover the cursor's cell"
+    );
+    assert_eq!(r.flash_cap(), k, "the fire's cap over the block");
+}
+
+/// The frame as a screen shows it over a flat desktop `d`: each straight
+/// pixel premultiplied as the presenter does, then over `d`.
+fn on_desktop(frame: &[u32], d: u8) -> Vec<u32> {
+    frame
+        .iter()
+        .map(|&p| {
+            let [a, r, g, b] = p.to_be_bytes();
+            let f = |c: u8| {
+                let pc = baud_domain::premultiply_chan(Chan::from_u8(c), Chan::from_u8(a)).get();
+                let v = u32::from(pc) + (u32::from(d) * (255 - u32::from(a)) + 127) / 255;
+                u8::try_from(v.min(255)).unwrap()
+            };
+            u32::from_be_bytes([0xFF, f(r), f(g), f(b)])
+        })
+        .collect()
+}
+
+/// **A repeat pass over the dimmed glass page is capped against the page
+/// as the screen shows it**: the page over the desktop behind the window,
+/// which note AS bounds by a flat white and a flat black, the material
+/// darkening nothing. At the shipped dims, 0.70 dark and 0.60 light (alpha
+/// 179 and 153), the dark page over white is a mid grey that the theme's
+/// cursor at the opaque page's cap of 95 flashes, and the light page over
+/// black is a grey that a white cursor, which never flashes on the opaque
+/// light page, flashes at any alpha. No pixel of either pass is a general
+/// transition over either desktop; the control: each pass draws.
+#[test]
+fn a_repeat_pass_over_the_glass_page_reads_the_desktop() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut flashed = Vec::new();
+    for (theme, alpha, ink) in [
+        (Theme::dark(), 179u8, &b""[..]),
+        (Theme::light(), 153, &b"\x1b]12;rgb:ff/ff/ff\x07"[..]),
+    ] {
+        let mut theme = theme;
+        theme.bg_alpha = Chan::from_u8(alpha);
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"\x1b[?25l");
+        feed(&mut t, ink);
+        let mut r = Renderer::new(
+            Stack::new(&faces).unwrap(),
+            PxSize::of(14.0).unwrap(),
+            theme,
+            Blend::Native,
+            Cols::of_index(usize::from(WS.ws_col)),
+            Rows::of_index(usize::from(WS.ws_row)),
+        )
+        .unwrap();
+        let bare = paint(&mut r, &mut t);
+        r.set_trail(Some(over_rows(&r)));
+        let _ = paint(&mut r, &mut t);
+        let frame = paint(&mut r, &mut t);
+        let at = format!("alpha {alpha}, cap {}", r.flash_cap().get());
+        assert!(
+            frame.iter().zip(&bare).any(|(p, q)| p != q),
+            "the control: the pass draws, {at}"
+        );
+        for d in [0xFF, 0] {
+            let (seen, under) = (on_desktop(&frame, d), on_desktop(&bare, d));
+            let n = general(&seen, &under);
+            if n > 0 {
+                flashed.push(format!("{n} over the desktop {d:#04x}, {at}"));
+            }
+        }
+    }
+    assert!(flashed.is_empty(), "pixels flash: {flashed:?}");
+}
+
+/// **A repeat ghost is drawn under the cap**: the ghost's one record, a
+/// cell-sized box that starts at alpha 176, carries at most the cap of the
+/// cursor's colour over the page, and no pixel of it is a general
+/// transition from the frame without it. The control: the same sweep at
+/// full strength flashes.
+#[test]
+fn a_repeat_ghost_is_drawn_under_the_cap() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(&mut t, b"\x1b[?25l");
+    let mut r = renderer(&faces);
+    let bare = paint(&mut r, &mut t);
+    let k = under_threshold(
+        Theme::dark().fg.with_alpha(Chan::from_u8(0xFF)),
+        Theme::dark().bg.with_alpha(Chan::from_u8(0xFF)),
+    );
+    let mut flashed = Vec::new();
+    for strength in [Strength::Full, Strength::UnderThreshold] {
+        r.set_trail(Some(TrailLook::Ghost(baud_render::Trail {
+            from: (Row::from_index(1), Col::at_index(1)),
+            to: (Row::from_index(8), Col::at_index(25)),
+            progress: 0.1,
+            origin_dy: 0.0,
+            lift: baud_font::Px::of(0),
+            strength,
+        })));
+        let _ = paint(&mut r, &mut t);
+        let frame = paint(&mut r, &mut t);
+        let drawn = r.trail().iter().map(|i| i.color.a().get()).max();
+        flashed.push((general(&frame, &bare), drawn));
+    }
+    assert!(flashed[0].0 > 0, "the control: a full ghost flashes");
+    assert!(
+        flashed[0].1.is_some_and(|a| a > k.get()),
+        "the control: a full ghost is over the cap"
+    );
+    assert_eq!(r.flash_cap(), k, "the page's cap");
+    assert!(
+        flashed[1].1.is_some_and(|a| a > 0 && a <= k.get()),
+        "the repeat's record: {:?} against the cap {}",
+        flashed[1].1,
+        k.get()
+    );
+    assert_eq!(flashed[1].0, 0, "a repeat ghost's pixel flashes");
+}

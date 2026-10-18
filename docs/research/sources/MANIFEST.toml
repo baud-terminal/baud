@@ -20040,6 +20040,70 @@ status = "retrieved"
 # outlive a reboot.
 group  = "AL"
 
+[sources.al-obs-b71-census]
+key    = "al-obs-b71-census"
+title  = "The ghost arm's flash census, base (master's renderer, the harness with the ghost arm) against the bound build: 13 to 72 pt at 1x and 2x, both rates, four grounds and inks, seven motions, on the cell and CPU paths"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench ghost arm, FLASH_HASH=1, base and bound, sharded by size and ground; the build column says which"
+file   = "al-observed/b71-ghost-census.tsv.gz"
+sha256 = "a24fcd8b73f5aea7009228183bac07e4bf45612fd73221b9c932c1c4e1dc9a99"
+bytes  = 221431
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-17 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
+group  = "AL"
+
+[sources.al-obs-b71-other-arms]
+key    = "al-obs-b71-other-arms"
+title  = "The other ten arms, base against the bound build, frame hashes: 72x1 and 32x2 at 60 Hz on the dark and light pages with the default and white inks, and 72x1 over text (FLASH_TEXT=1) with the red and white inks"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench, FLASH_HASH=1 (and FLASH_TEXT=1), base and bound"
+file   = "al-observed/b71-other-arms-hashes.tsv.gz"
+sha256 = "1ba6cf34c571be9acbb98dcc4b0cd986b435f74bfc3dfc9010ab275c69246bc6"
+bytes  = 42934
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-17 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
+group  = "AL"
+
+[sources.al-obs-b71-summary-tool]
+key    = "al-obs-b71-summary-tool"
+title  = "b71_summary.py: the ghost census read back, per size, scale and path, and the frame hashes between the two builds"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "written for lane b71"
+file   = "al-observed/b71_summary.py"
+sha256 = "e6000f89ecb3b5910443fc59aa6d5c2deeedf91d59a9b5e25ad3a3325d01e3e4"
+bytes  = 1815
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-17 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
+group  = "AL"
+
+[sources.al-obs-b71-analysis]
+key    = "al-obs-b71-analysis"
+title  = "The ghost census read back: FAIL drawn/apart, strict, the pixel check and the frame hashes per size, base against bound"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 b71_summary.py b71-ghost-census.tsv.gz"
+file   = "al-observed/b71-analysis.txt"
+sha256 = "7bd7db51857a4e051ef367d0f451099ede14d046fd876d0b81173ba77b7a59fb"
+bytes  = 1757
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-17 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
+group  = "AL"
+
 [sources.al-obs-o3-census]
 key    = "al-obs-o3-census"
 title  = "Prototype O3 (dc2fce3: one ignition or sweep a second above a 32 pt cell): the flash census per case on the full 1x grid, quad and sweep included, base beside O3, 9,600 cases"

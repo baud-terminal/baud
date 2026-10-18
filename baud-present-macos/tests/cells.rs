@@ -1974,6 +1974,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         progress: 0.5,
         origin_dy: 0.0,
         lift: Px::of(0),
+        strength: baud_render::Strength::Full,
     }));
     let (trail_a, trail_b) = arms.draw(&mut t);
     {
@@ -3872,6 +3873,7 @@ fn trail_over_page(arms: &mut Arms<'_, '_>, t: &mut Term<'_>, page: &str) {
                 progress: 0.5,
                 origin_dy: 0.0,
                 lift: Px::of(0),
+                strength: baud_render::Strength::Full,
             }),
             "the trail's ghost",
         ),

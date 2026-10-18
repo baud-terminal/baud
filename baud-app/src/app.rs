@@ -122,9 +122,6 @@ fn text_blink(target: f64, motion: crate::config::SystemMotion) -> BlinkPhases {
         },
     }
 }
-/// How long a cursor trail's ghost takes to sweep from the old cell to the
-/// new, seconds -- short and snappy, and only paid when the trail is on.
-const TRAIL_S: f64 = 0.1;
 /// How long the alternate-screen fade takes to reveal the new screen,
 /// seconds. Only paid on a screen switch when the transition is on.
 const TRANSITION_S: f64 = 0.15;
@@ -139,7 +136,7 @@ struct TransitionState {
 
 /// A cursor move being animated: the cell the cursor left, the cell it
 /// reached, and the display-link timestamp the sweep began at. `progress`
-/// is `(now - start) / TRAIL_S`, computed off the tick's own clock the way
+/// is [`crate::trail::ghost_progress`]'s, computed off the tick's own clock the way
 /// the blink phase is, so the renderer only interpolates.
 #[derive(Clone, Copy, PartialEq, Debug)]
 struct TrailState {
@@ -151,6 +148,9 @@ struct TrailState {
     origin_dy: f32,
     /// How far the ghost itself has ridden, and whether it has stopped.
     ride: GhostRide,
+    /// How the sweep is drawn, weighed on the ghost's ledger when it
+    /// started (`trail::Ledger`).
+    strength: baud_render::Strength,
 }
 
 /// **How far a ghost has ridden a smooth scroll**, pixels, y down: at most
@@ -594,6 +594,10 @@ struct App {
     trail: Option<TrailState>,
     /// The quad or sweep trail's state between frames (`trail.rs`).
     chase: crate::trail::Chase<HostTime>,
+    /// The ghost's full sweeps, which it weighs each one against: kept
+    /// across a snap, a screen switch and a change of trail, as the
+    /// chase's own ledger is.
+    ghosts: crate::trail::Ledger<HostTime>,
     last_cursor_cell: Option<(Row, Col)>,
     tick_target: f64,
     /// Whether an alternate-screen switch fades, from `[screen] transition`,
@@ -1122,6 +1126,7 @@ impl App {
             motion_source,
             trail: None,
             chase: crate::trail::Chase::new(chase_style(cursor_trail.style(), wanted)),
+            ghosts: crate::trail::Ledger::new(),
             last_cursor_cell: None,
             tick_target: 0.0,
             screen_transition,
@@ -1266,23 +1271,41 @@ impl App {
         // program placed a cursor it hid and draws its own.
         let followed = trail_cursor(&self.term);
         let cursor_cell = followed.map(TrailCursor::cell);
+        let m = self.renderer.metrics();
+        let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
+        let cell = (side(m.cell_w), side(m.cell_h));
+        // The cell's height in points, the flash bound's size gate.
+        let height = baud_render::Points(cell.1 / self.scale as f32);
         if self.cursor_trail == crate::config::CursorTrail::Ghost {
-            if let (Some(from), Some(to)) = (self.last_cursor_cell, cursor_cell) {
-                if from != to {
-                    self.trail = Some(TrailState {
-                        from,
-                        to,
-                        start: self.tick_target,
-                        origin_dy: 0.0,
-                        ride: GhostRide::Riding(0.0),
-                    });
-                }
+            let rect = |(r, c): (Row, Col)| {
+                self.renderer
+                    .cursor_rect(r, c, baud_core::CursorStyle::SteadyBlock)
+            };
+            let sweep = HostTime::of_secs(self.tick_target).and_then(|now| {
+                crate::trail::ghost_sweep(
+                    &mut self.ghosts,
+                    self.last_cursor_cell,
+                    cursor_cell,
+                    now,
+                    rect,
+                    (cell, height),
+                )
+            });
+            if let Some(sw) = sweep {
+                self.trail = Some(TrailState {
+                    from: sw.from,
+                    to: sw.to,
+                    start: self.tick_target,
+                    origin_dy: 0.0,
+                    ride: GhostRide::Riding(0.0),
+                    strength: sw.strength,
+                });
             }
         }
         self.last_cursor_cell = cursor_cell;
         let ghost = match self.trail {
             Some(st) => {
-                let p = ((self.tick_target - st.start) / TRAIL_S) as f32;
+                let p = crate::trail::ghost_progress(st.start, self.tick_target);
                 if p >= 1.0 {
                     // Landed: this frame draws `set_trail(None)`, whose
                     // `trail_moved` dirties the ghost's last rows to clear it,
@@ -1296,6 +1319,7 @@ impl App {
                         progress: p.max(0.0),
                         origin_dy: st.origin_dy,
                         lift: Px::of(0),
+                        strength: st.strength,
                     })
                 }
             }
@@ -1324,11 +1348,6 @@ impl App {
                     let (r, c) = f.cell();
                     self.renderer.cursor_rect(r, c, f.style(style))
                 });
-                let m = self.renderer.metrics();
-                let side = |p: Px| f32::from(u16::try_from(p.value()).unwrap_or(u16::MAX));
-                let cell = (side(m.cell_w), side(m.cell_h));
-                // The cell's height in points, the flash bound's size gate.
-                let height = baud_render::Points(cell.1 / self.scale as f32);
                 HostTime::of_secs(self.tick_target)
                     .and_then(|now| self.chase.frame(rect, now, cell, height))
             }
@@ -5225,6 +5244,7 @@ mod ride_tests {
             start: 0.0,
             origin_dy: 0.0,
             ride: GhostRide::Riding(0.0),
+            strength: baud_render::Strength::Full,
         }
     }
 
@@ -7886,7 +7906,7 @@ impl Driver {
         }
         let tick = self.app.tick_target;
         self.app.trail = self.app.trail.and_then(|st| {
-            let p = ((tick - st.start) / TRAIL_S) as f32;
+            let p = crate::trail::ghost_progress(st.start, tick);
             ride_ghost(st, dy, p, cell_h)
         });
     }

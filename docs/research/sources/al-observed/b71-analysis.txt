@@ -1,0 +1,49 @@
+base
+pt	x	path	cases	FAIL drawn/apart	strict	worst pass area	repeat frames	under_over	under_red	over_cap
+13	1	cells	224	0/0	0	2312	0	0	0	0
+13	1	cpu	224	0/0	0	2312	0	0	0	0
+13	2	cells	224	0/0	0	2312	0	0	0	0
+13	2	cpu	224	0/0	0	2312	0	0	0	0
+24	1	cells	224	0/0	0	6272	0	0	0	0
+24	1	cpu	224	0/0	0	6272	0	0	0	0
+24	2	cells	224	0/0	0	6394	0	0	0	0
+24	2	cpu	224	0/0	0	6394	0	0	0	0
+26	1	cells	224	0/0	0	7208	0	0	0	0
+26	1	cpu	224	0/0	0	7208	0	0	0	0
+26	2	cells	224	0/0	0	6863	0	0	0	0
+26	2	cpu	224	0/0	0	6863	0	0	0	0
+32	1	cells	224	0/0	0	9576	0	0	0	0
+32	1	cpu	224	0/0	0	9576	0	0	0	0
+32	2	cells	224	0/0	0	9576	0	0	0	0
+32	2	cpu	224	0/0	0	9576	0	0	0	0
+72	1	cells	224	44/27	71	21779	0	0	0	0
+72	1	cpu	224	44/27	71	21779	0	0	0	0
+72	2	cells	224	44/26	71	21790	0	0	0	0
+72	2	cpu	224	44/26	71	21790	0	0	0	0
+bound
+pt	x	path	cases	FAIL drawn/apart	strict	worst pass area	repeat frames	under_over	under_red	over_cap
+13	1	cells	224	0/0	0	2312	0	0	0	0
+13	1	cpu	224	0/0	0	2312	0	0	0	0
+13	2	cells	224	0/0	0	2312	0	0	0	0
+13	2	cpu	224	0/0	0	2312	0	0	0	0
+24	1	cells	224	0/0	0	6272	0	0	0	0
+24	1	cpu	224	0/0	0	6272	0	0	0	0
+24	2	cells	224	0/0	0	6394	0	0	0	0
+24	2	cpu	224	0/0	0	6394	0	0	0	0
+26	1	cells	224	0/0	0	714	30240	0	0	0
+26	1	cpu	224	0/0	0	714	30240	0	0	0
+26	2	cells	224	0/0	0	535	30240	0	0	0
+26	2	cpu	224	0/0	0	535	30240	0	0	0
+32	1	cells	224	0/0	0	798	30240	0	0	0
+32	1	cpu	224	0/0	0	798	30240	0	0	0
+32	2	cells	224	0/0	0	798	30240	0	0	0
+32	2	cpu	224	0/0	0	798	30240	0	0	0
+72	1	cells	224	0/0	0	4085	30240	0	0	0
+72	1	cpu	224	0/0	0	4085	30240	0	0	0
+72	2	cells	224	0/0	0	4085	30240	0	0	0
+72	2	cpu	224	0/0	0	4085	30240	0	0	0
+13 pt: 896/896 frame hashes equal
+24 pt: 896/896 frame hashes equal
+26 pt: 396/896 frame hashes equal
+32 pt: 396/896 frame hashes equal
+72 pt: 396/896 frame hashes equal

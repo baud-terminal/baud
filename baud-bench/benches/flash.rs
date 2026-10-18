@@ -48,7 +48,8 @@
 //! too.
 //!
 //! **The smears and a third motion** (note AL section 6): the quad and the
-//! sweep, which a config can name, run as arms beside the effects, and the
+//! sweep, which a config can name, run as arms beside the effects, as does
+//! the ghost, by `trail.rs`'s rules as the app calls them; and the
 //! cursor also cycles three cells on the diagonal every 100 ms, a first, a
 //! third and two thirds of the way in equal whole steps.
 //!
@@ -76,7 +77,8 @@
 //! that carry more alpha than the renderer's cap.
 //!
 //! Usage: `flash [effects] [sizes] [rates] [inks] [grounds] [motions]`, each
-//! a comma list or `all`: effects by name, `quad`, `sweep` or `off`; sizes
+//! a comma list or `all`: effects by name, `quad`, `sweep`, `ghost` or
+//! `off`; sizes
 //! such as `13x1,13x2,32x1,32x2,72x1` (points x scale); rates `60,120`; inks
 //! `default,white,black,red`; grounds `dark,light,red,darkred`; motions by
 //! the names the lines print (`long-diag`, `every-100ms-across`,
@@ -181,6 +183,9 @@ fn main() {
         Effect(Effect),
         /// The quad or the sweep, the smears a config can name.
         Smear(Shape),
+        /// The ghost: a cell-sized box sweeping from the cell the cursor
+        /// left, by `trail.rs`'s rules as the app calls them.
+        Ghost,
         /// The positive control: a block toggled white and black at this
         /// many flashes a second, no trail.
         Block(u32),
@@ -299,6 +304,7 @@ fn main() {
                 Arm::Off => "off".to_string(),
                 Arm::Effect(e) => format!("{e:?}").to_lowercase(),
                 Arm::Smear(s) => format!("{s:?}").to_lowercase(),
+                Arm::Ghost => "ghost".to_string(),
                 Arm::Block(hz) => format!("block-{hz}hz"),
             }
         }
@@ -581,7 +587,11 @@ fn main() {
         |s: &Option<String>, name: &str| s.as_ref().is_none_or(|l| l.split(',').any(|x| x == name));
     let arms: Vec<Arm> = core::iter::once(Arm::Off)
         .chain(Effect::ALL.iter().map(|&e| Arm::Effect(e)))
-        .chain([Arm::Smear(Shape::Quad), Arm::Smear(Shape::Sweep)])
+        .chain([
+            Arm::Smear(Shape::Quad),
+            Arm::Smear(Shape::Sweep),
+            Arm::Ghost,
+        ])
         .filter(|a| picks(&effects, &a.name()))
         .collect();
     let sizes: Vec<(f32, u32)> = sizes
@@ -663,7 +673,7 @@ fn main() {
     if drawer == Drawer::Cpu {
         assert!(
             arms.iter().all(|a| !matches!(a, Arm::Effect(_))),
-            "on the CPU path an effect runs as the quad: ask for off, quad and sweep"
+            "on the CPU path an effect runs as the quad: ask for off, quad, sweep and ghost"
         );
     }
 
@@ -924,6 +934,12 @@ fn main() {
                                 px(r.bottom - r.top),
                             );
                         }
+                        // The ghost's state as the app keeps it: the cell
+                        // the cursor was last seen at, and the sweep in
+                        // flight, its two cells and when it started.
+                        let mut ghost_last: Option<(Row, Col)> = None;
+                        let mut ghost: Option<(trail::GhostSweep, f64)> = None;
+                        let mut ghosts = trail::Ledger::<HostTime>::new();
                         let mut did = Did::default();
                         let mut seeds: BTreeSet<u32> = BTreeSet::new();
                         let mut next = 0usize;
@@ -960,7 +976,7 @@ fn main() {
                                 did.moves.bump();
                                 next += 1;
                             }
-                            let look = chase.as_mut().and_then(|c| {
+                            let mut look = chase.as_mut().and_then(|c| {
                                 c.frame(
                                     Some(world.cursor_rect()),
                                     HostTime::of_secs(1000.0 + now).expect("a time"),
@@ -968,18 +984,59 @@ fn main() {
                                     height,
                                 )
                             });
+                            if arm == Arm::Ghost {
+                                // `app.rs`'s ghost, on the same clock: a
+                                // sweep on any move, weighed on its own
+                                // ledger, gone once landed.
+                                let tick = 1000.0 + now;
+                                let seen = Some(world.term.cursor());
+                                let rect = |(r, c): (Row, Col)| {
+                                    world.renderer.cursor_rect(
+                                        r,
+                                        c,
+                                        baud_core::CursorStyle::SteadyBlock,
+                                    )
+                                };
+                                let at = HostTime::of_secs(tick).expect("a time");
+                                if let Some(sw) = trail::ghost_sweep(
+                                    &mut ghosts,
+                                    ghost_last,
+                                    seen,
+                                    at,
+                                    rect,
+                                    (cell, height),
+                                ) {
+                                    ghost = Some((sw, tick));
+                                }
+                                ghost_last = seen;
+                                look = ghost.and_then(|(sw, start)| {
+                                    let p = trail::ghost_progress(start, tick);
+                                    (p < 1.0).then_some(TrailLook::Ghost(baud_render::Trail {
+                                        from: sw.from,
+                                        to: sw.to,
+                                        progress: p.max(0.0),
+                                        origin_dy: 0.0,
+                                        lift: Px::of(0),
+                                        strength: sw.strength,
+                                    }))
+                                });
+                                if look.is_none() {
+                                    ghost = None;
+                                }
+                            }
                             match look {
                                 Some(TrailLook::Vfx(v)) => {
                                     did.vfx.bump();
                                     seeds.insert(v.ignition.seed.0);
                                 }
-                                Some(TrailLook::Smear(_)) => did.vfx.bump(),
+                                Some(TrailLook::Smear(_) | TrailLook::Ghost(_)) => did.vfx.bump(),
                                 _ => {}
                             }
                             let repeat = match look {
                                 Some(TrailLook::Vfx(v)) => v.emitter.strength,
                                 Some(TrailLook::Smear(s)) => s.strength,
-                                _ => Strength::Full,
+                                Some(TrailLook::Ghost(t)) => t.strength,
+                                None => Strength::Full,
                             } == Strength::UnderThreshold;
                             world.draw(look);
                             for rec in world.renderer.trail() {

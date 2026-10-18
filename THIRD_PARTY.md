@@ -24,8 +24,8 @@ and decides nothing.
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 266 | 21 | redistributable, and its notice is satisfied |
-| own | 193 | 0 | the owner's work |
-| total | 724 | 32 | |
+| own | 197 | 0 | the owner's work |
+| total | 728 | 32 | |
 
 ## Licence texts in LICENSES/
 
@@ -1830,7 +1830,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the owner's work
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 187
+- **Files:** 191
 
 | file | copied from |
 |---|---|
@@ -1956,6 +1956,10 @@ notice is, and the URL each file was copied from.
 | [al-observed/b68-cpu-o2-census.tsv.gz](docs/research/sources/al-observed/b68-cpu-o2-census.tsv.gz) | flash bench with O2, FLASH_PATH=cpu |
 | [al-observed/b68-o2-census.tsv.gz](docs/research/sources/al-observed/b68-o2-census.tsv.gz) | flash bench with O2, FLASH_HASH=1, sharded by size and ground |
 | [al-observed/b68_analyze.py](docs/research/sources/al-observed/b68_analyze.py) | written for lane b68 |
+| [al-observed/b71-analysis.txt](docs/research/sources/al-observed/b71-analysis.txt) | python3 b71_summary.py b71-ghost-census.tsv.gz |
+| [al-observed/b71-ghost-census.tsv.gz](docs/research/sources/al-observed/b71-ghost-census.tsv.gz) | flash bench ghost arm, FLASH_HASH=1, base and bound, sharded by size and ground; the build column says which |
+| [al-observed/b71-other-arms-hashes.tsv.gz](docs/research/sources/al-observed/b71-other-arms-hashes.tsv.gz) | flash bench, FLASH_HASH=1 (and FLASH_TEXT=1), base and bound |
+| [al-observed/b71_summary.py](docs/research/sources/al-observed/b71_summary.py) | written for lane b71 |
 | [al-observed/base-fire13-f39.png](docs/research/sources/al-observed/base-fire13-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build |
 | [al-observed/base-fire32-f19.png](docs/research/sources/al-observed/base-fire32-f19.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build |
 | [al-observed/base-fire32-f39.png](docs/research/sources/al-observed/base-fire32-f39.png) | baud-bench's flash bench (FLASH_PNG_DIR) on this Mac's GPU, base build |
