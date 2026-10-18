@@ -307,6 +307,37 @@ impl MapEntry {
     }
 }
 
+/// How far the ink of the glyphs a map holds reaches from a cell's origin
+/// on its baseline, in pixels: the least left and top edge of any, and the
+/// most right and bottom. Where a glyph the map draws can lie.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Reach {
+    pub left: Screen,
+    pub top: Screen,
+    pub right: Screen,
+    pub bottom: Screen,
+}
+
+impl Reach {
+    /// No glyph: every edge past the others, so nothing lies inside.
+    pub const NONE: Reach = Reach {
+        left: Screen(i16::MAX),
+        top: Screen(i16::MAX),
+        right: Screen(i16::MIN),
+        bottom: Screen(i16::MIN),
+    };
+
+    fn with(self, e: &MapEntry) -> Reach {
+        let far = |a: i16, b: u16| Screen(a.saturating_add(i16::try_from(b).unwrap_or(i16::MAX)));
+        Reach {
+            left: Screen(self.left.0.min(e.left.0)),
+            top: Screen(self.top.0.min(e.top.0)),
+            right: Screen(self.right.0.max(far(e.left.0, e.w.0).0)),
+            bottom: Screen(self.bottom.0.max(far(e.top.0, e.h.0).0)),
+        }
+    }
+}
+
 /// Counts every change to the entries, so a copy on the GPU knows when it
 /// is stale.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -341,6 +372,8 @@ pub struct GlyphMap<'m> {
     /// How many entries since the map was last emptied draw the first of
     /// several glyphs.
     decomposed: Tally,
+    /// Where the ink of the entries since the map was last emptied lies.
+    reach: Reach,
 }
 
 /// A position in the map.
@@ -379,6 +412,7 @@ impl<'m> GlyphMap<'m> {
             stats: MapStats::default(),
             several: Vec::new(),
             decomposed: Tally::default(),
+            reach: Reach::NONE,
         }
     }
 
@@ -409,6 +443,12 @@ impl<'m> GlyphMap<'m> {
         self.stats
     }
 
+    /// Where a glyph the map draws can lie, from its cell's origin on the
+    /// baseline: no entry it holds reaches further.
+    pub fn reach(&self) -> Reach {
+        self.reach
+    }
+
     /// The cells on the last walk's screen whose codepoint shapes to
     /// several glyphs alone, which no entry can draw whole, in screen
     /// order.
@@ -420,6 +460,7 @@ impl<'m> GlyphMap<'m> {
         self.entries.fill(MapEntry::EMPTY);
         self.stats.live = Tally::default();
         self.decomposed = Tally::default();
+        self.reach = Reach::NONE;
         self.stats.cleared.bump();
         self.generation = MapGeneration(self.generation.0.wrapping_add(1));
     }
@@ -452,6 +493,9 @@ impl<'m> GlyphMap<'m> {
     }
 
     fn insert(&mut self, entry: MapEntry) {
+        if entry.kind().is_some() {
+            self.reach = self.reach.with(&entry);
+        }
         let mut i = MapSlot::home(entry.key);
         for _ in 0..MAP_SLOTS {
             if self.entries[i.0].key == CellKey::EMPTY {

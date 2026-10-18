@@ -3350,7 +3350,82 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     );
     hidden_seam_gate(arms, t);
     reach_gate(arms, t);
+    overlap_gate(arms, t);
     composed_decoration_gate(arms, t);
+}
+
+/// **Two glyphs whose ink meets are drawn in the order the instance arm
+/// draws them, on all three arms**: rows top to bottom and each row left
+/// to right, so the later lies over the earlier where they cross. The cell
+/// arm draws most glyphs from its map and a cell the map cannot draw --
+/// a mark, a decomposed letter, a ligature -- by a record after them, so a
+/// map glyph to the right of a record, or in the row below it, is drawn
+/// whole by a record too, and the records go in the cells' order. Each
+/// scene's premise: drawn alone, the two glyphs' ink meets.
+fn overlap_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let scene = |s: &str| format!("\x1bc\x1b[?25l\x1b[3;5H{s}\x1b[0m");
+    feed(t, scene("").as_bytes());
+    let (empty, _) = arms.draw(t);
+    let mut split = Vec::new();
+    // (name, scene, the first glyph alone, the second alone).
+    for (name, sc, first, second) in [
+        (
+            "a record and a glyph to its right",
+            "\x1b[31;3mW\u{301}\x1b[0;32mW",
+            "\x1b[31;3mW\u{301}\x1b[0;32m ",
+            "\x1b[31;3m \x1b[0;32mW",
+        ),
+        (
+            "a record and a run to its right, each glyph meeting the next",
+            "\x1b[31;3mW\u{301}\x1b[32mW\x1b[34mW",
+            "\x1b[31;3mW\u{301}\x1b[32mW\x1b[34m ",
+            "\x1b[31;3m \x1b[32m \x1b[34mW",
+        ),
+        (
+            "a decomposed letter and a glyph to its right",
+            "\x1b[31m\u{1fa}\x1b[0;32;3m\u{c5}",
+            "\x1b[31m\u{1fa}\x1b[0;32;3m ",
+            "\x1b[31m \x1b[0;32;3m\u{c5}",
+        ),
+        (
+            "a record and a glyph in the row below",
+            "\x1b[31mg\u{323}\u{323}\u{323}\x1b[4;5H\x1b[32m\u{c5}",
+            "\x1b[31mg\u{323}\u{323}\u{323}",
+            "\x1b[4;5H\x1b[32m\u{c5}",
+        ),
+        (
+            "a record and a ligature to its right",
+            "\x1b[31mW\u{301}\x1b[32;3m&&",
+            "\x1b[31mW\u{301}\x1b[32;3m  ",
+            "\x1b[31m \x1b[32;3m&&",
+        ),
+        (
+            "a ligature and a glyph to its right",
+            "\x1b[31;3m&&\x1b[0;32mW",
+            "\x1b[31;3m&&\x1b[0;32m ",
+            "\x1b[31;3m  \x1b[0;32mW",
+        ),
+    ] {
+        feed(t, scene(first).as_bytes());
+        let (one, _) = arms.draw(t);
+        feed(t, scene(second).as_bytes());
+        let (two, _) = arms.draw(t);
+        let meet = (0..empty.len())
+            .filter(|&i| one[i] != empty[i] && two[i] != empty[i])
+            .count();
+        feed(t, scene(sc).as_bytes());
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        assert_ne!(meet, 0, "{name}: the premise, the two glyphs' ink meets");
+        let (gpu, soft) = (differing(&a, &b), differing(&a, &cpu));
+        if gpu + soft != 0 {
+            split.push(format!("{name}: cell arm {gpu} px, CPU arm {soft} px"));
+        }
+    }
+    assert!(
+        split.is_empty(),
+        "the arms draw two glyphs that meet in different orders: {split:#?}"
+    );
 }
 
 /// **A glyph that reaches out of its cell takes one order against the

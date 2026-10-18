@@ -616,7 +616,9 @@ fn key(i: &Instance) -> (i16, i16, u16, u16, u16, u16) {
 
 /// **The run path and the overlay draw a marked cell alike**: every record
 /// the cell path's overlay draws for a marked cell is a glyph the run path
-/// draws there, and there are as many as the cluster has glyphs. The ligature
+/// draws there, and there are as many as the cluster has glyphs -- and one
+/// more for a glyph after it whose box meets its ink, which the overlay draws
+/// by a record too so the two lie in the run path's order. The ligature
 /// case is the overlay's window: `-` starts JetBrains Mono's `->`, so a
 /// marked `-` is gathered into a window shaped on the face its *base* maps
 /// to, and must instead be left to the cluster path when its marks move it.
@@ -625,13 +627,15 @@ fn the_run_path_and_the_overlay_draw_a_marked_cell_alike() {
     let (j, f) = jbm_and_fira();
     let both = [Face::parse(&j).unwrap(), Face::parse(&f).unwrap()];
     premises(&both[0], &both[1]);
-    for (text, marked) in [
-        (" q\u{301}", &[0x71, 0x301][..]),
-        (" q\u{305}", &[0x71, 0x305]),
-        (" q\u{316}\u{301}", &[0x71, 0x316, 0x301]),
-        (" q\u{305}\u{309}", &[0x71, 0x305, 0x309]),
-        (" -\u{305}>", &[0x2D, 0x305]),
-        (" -\u{301}>", &[0x2D, 0x301]),
+    // (the screen, the marked cell's cluster, the glyphs after it whose
+    // box meets its ink: the `>` beside a `-`).
+    for (text, marked, met) in [
+        (" q\u{301}", &[0x71, 0x301][..], 0),
+        (" q\u{305}", &[0x71, 0x305], 0),
+        (" q\u{316}\u{301}", &[0x71, 0x316, 0x301], 0),
+        (" q\u{305}\u{309}", &[0x71, 0x305, 0x309], 0),
+        (" -\u{305}>", &[0x2D, 0x305], 1),
+        (" -\u{301}>", &[0x2D, 0x301], 1),
     ] {
         let (run, records) = both_paths(&both, text);
         let mut r = renderer(&both);
@@ -639,8 +643,8 @@ fn the_run_path_and_the_overlay_draw_a_marked_cell_alike() {
         let inked = glyphs.iter().filter(|g| g.slot.is_some()).count();
         assert_eq!(
             records.len(),
-            inked,
-            "{text:?}: the overlay drew the cluster's {inked} inked glyphs"
+            inked + met,
+            "{text:?}: the overlay drew the cluster's {inked} inked glyphs and {met} it meets"
         );
         let mut pool: Vec<_> = run.iter().map(key).collect();
         for rec in &records {

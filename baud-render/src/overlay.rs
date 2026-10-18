@@ -123,6 +123,85 @@ pub struct Overlay {
     /// How many of the walk's records lie inside their rows, and are drawn
     /// between the cell path's glyph pass and its decoration pass.
     under: Tally,
+    /// The cells the walk drew by records, in the order it drew them, with
+    /// where each one's records lie in the two lists.
+    emitted: Vec<Emitted>,
+    /// Where [`Overlay::order`] puts the records while it reorders them.
+    staged: Vec<Instance>,
+}
+
+/// One cell the walk drew by records: where it is, its records' places in
+/// the frame's records and in the parts above their rows, and the box
+/// around their ink.
+struct Emitted {
+    at: (Row, Col),
+    inside: core::ops::Range<usize>,
+    above: core::ops::Range<usize>,
+    ink: Option<InkBox>,
+}
+
+impl Emitted {
+    /// The cell at `at`, whose records are `records[inside]` and
+    /// `over[above]`.
+    fn of(
+        at: (Row, Col),
+        records: &[Instance],
+        over: &[Instance],
+        inside: core::ops::Range<usize>,
+        above: core::ops::Range<usize>,
+    ) -> Emitted {
+        let ink = records[inside.clone()]
+            .iter()
+            .chain(&over[above.clone()])
+            .map(InkBox::of)
+            .reduce(InkBox::with);
+        Emitted {
+            at,
+            inside,
+            above,
+            ink,
+        }
+    }
+
+    /// The cell's place in the instance path's order: rows top to bottom,
+    /// each left to right.
+    fn order(&self) -> (Row, Col) {
+        self.at
+    }
+}
+
+/// A box of screen pixels, `x0..x1` by `y0..y1`.
+#[derive(Clone, Copy)]
+struct InkBox {
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+}
+
+impl InkBox {
+    fn of(i: &Instance) -> InkBox {
+        let (x, y) = (i32::from(i.x.0), i32::from(i.y.0));
+        InkBox {
+            x0: x,
+            y0: y,
+            x1: x + i32::from(i.w.0),
+            y1: y + i32::from(i.h.0),
+        }
+    }
+
+    fn with(self, o: InkBox) -> InkBox {
+        InkBox {
+            x0: self.x0.min(o.x0),
+            y0: self.y0.min(o.y0),
+            x1: self.x1.max(o.x1),
+            y1: self.y1.max(o.y1),
+        }
+    }
+
+    fn meets(self, o: InkBox) -> bool {
+        self.x0 < o.x1 && o.x0 < self.x1 && self.y0 < o.y1 && o.y0 < self.y1
+    }
 }
 
 /// A cluster's content, folded: the base, its marks and its width.
@@ -238,6 +317,8 @@ impl Overlay {
             pictures: Pictures::new(),
             over: Vec::new(),
             under: Tally::default(),
+            emitted: Vec::new(),
+            staged: Vec::new(),
         }
     }
 
@@ -320,6 +401,7 @@ impl Overlay {
     ) {
         let (term, view, styles, cursor) = (scene.term, scene.view, scene.styles, scene.cursor);
         self.over.clear();
+        self.emitted.clear();
         records.clear();
         self.stats.cells = Tally::default();
         self.stats.misses = Tally::default();
@@ -440,9 +522,145 @@ impl Overlay {
             }
             self.whole(scene, r, (x, y), mask, records, &paint, &geom);
         }
+        if !self.emitted.is_empty() {
+            self.reach(scene, r, mask, records, &paint, &geom, covered);
+            self.order(records);
+        }
         self.under = Tally::of(records.len());
         records.append(&mut self.over);
         r.set_blink_seen(seen);
+    }
+
+    /// **The map's glyphs a record's ink meets that the instance path draws
+    /// after it, drawn by records too.** The cell path draws every map
+    /// glyph before any record, and the instance path each row's glyphs
+    /// left to right, rows top to bottom, so a map glyph later in that
+    /// order -- to the record's right, or in a row below -- whose ink
+    /// meets the record's would lie under it on the one path and over it
+    /// on the other. Such a cell is drawn by a record of its own, and is
+    /// met in turn, so a run of glyphs that each meet the next goes whole.
+    /// A record draws what the map would have, so a box that meets but
+    /// whose ink does not costs a record and no pixel. Looked for among
+    /// the cells within the map's reach of each record's ink
+    /// ([`GlyphMap::reach`]).
+    #[allow(clippy::too_many_arguments)]
+    fn reach(
+        &mut self,
+        scene: &Scene<'_, '_>,
+        r: &mut Renderer<'_, '_>,
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+        paint: &Paint<'_>,
+        geom: &Geom,
+        covered: Covered,
+    ) {
+        let px = |p: Px| i32::try_from(p.value()).unwrap_or(0);
+        let (cw, ch) = (px(geom.m.cell_w).max(1), px(geom.m.cell_h).max(1));
+        let (cols, rows) = (geom.cols.index(), scene.view.rows().index());
+        let origin = px(geom.m.baseline) + px(geom.pan);
+        // A map glyph lies within the map's reach of its cell's origin, so
+        // only the cells within that reach of a record's ink are probed:
+        // none, around a record inside its cell, on a screen of glyphs
+        // that keep to theirs.
+        let reach = scene.map.reach();
+        let (left, right) = (i32::from(reach.left.0), i32::from(reach.right.0));
+        let (top, bottom) = (i32::from(reach.top.0), i32::from(reach.bottom.0));
+        let index = |v: i32, last: usize| usize::try_from(v.max(0)).unwrap_or(0).min(last);
+        // Every record once, the cells it draws included: a cell drawn
+        // here is met in turn.
+        let mut k = 0;
+        while let Some(e) = self.emitted.get(k) {
+            k += 1;
+            let ((y, x), Some(ink)) = (e.at, e.ink) else {
+                continue;
+            };
+            // Most records keep clear of every later cell's reach: the
+            // nearest such glyph starts at the next cell's left plus the
+            // reach, or at the next row's top plus it.
+            let (ox, oy) = (
+                i32::try_from(x.index() + 1).unwrap_or(i32::MAX),
+                i32::try_from(y.index() + 1).unwrap_or(i32::MAX),
+            );
+            if ink.x1 <= ox.saturating_mul(cw).saturating_add(left)
+                && ink.y1 <= oy.saturating_mul(ch).saturating_add(origin + top)
+            {
+                continue;
+            }
+            let first_row = (ink.y0 - origin - bottom).div_euclid(ch) + 1;
+            let last_row = (ink.y1 - 1 - origin - top).div_euclid(ch);
+            let first_col = (ink.x0 - right).div_euclid(cw) + 1;
+            let last_col = (ink.x1 - 1 - left).div_euclid(cw);
+            if last_row < i32::try_from(y.index()).unwrap_or(i32::MAX) || last_col < 0 {
+                continue;
+            }
+            let rows_in = index(first_row, rows - 1).max(y.index())..=index(last_row, rows - 1);
+            let cols_in = index(first_col, cols - 1)..=index(last_col, cols - 1);
+            for yy in rows_in {
+                let row = scene.view.row(Row::from_index(yy));
+                for xx in cols_in.clone() {
+                    if yy == y.index() && xx <= x.index() {
+                        continue;
+                    }
+                    let Some(cell) = row.get(xx) else {
+                        continue;
+                    };
+                    if cell.content == Content::WIDE_TAIL
+                        || mask[yy * cols + xx] & MASK_RECORD != 0
+                        || covered.holds(Row::from_index(yy), Col::at_index(xx))
+                    {
+                        continue;
+                    }
+                    let Some(cp) = crate::renderer::drawn_base(scene.term, *cell) else {
+                        continue;
+                    };
+                    let style = crate::cellmap::face_of(scene.styles, *cell);
+                    let Some(e) = scene
+                        .map
+                        .probe(cp, style, CellSpan::at(row, Col::at_index(xx)))
+                        .filter(|e| e.kind().is_some())
+                    else {
+                        continue;
+                    };
+                    let left = i32::try_from(xx).unwrap_or(0) * cw + i32::from(e.left.0);
+                    let top = i32::try_from(yy).unwrap_or(0) * ch + origin + i32::from(e.top.0);
+                    let glyph = InkBox {
+                        x0: left,
+                        y0: top,
+                        x1: left + i32::from(e.w.0),
+                        y1: top + i32::from(e.h.0),
+                    };
+                    if glyph.meets(ink) {
+                        self.whole(scene, r, (xx, yy), mask, records, paint, geom);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The walk's records put in the instance path's order, cell by cell:
+    /// rows top to bottom, each left to right, a cell's own glyphs in the
+    /// order it drew them. The windows are drawn before the marked cells
+    /// and [`Overlay::reach`]'s cells after both, so two records whose ink
+    /// meets would otherwise lie the other way round.
+    fn order(&mut self, records: &mut Vec<Instance>) {
+        if self.emitted.is_sorted_by_key(Emitted::order) {
+            return;
+        }
+        // A cell is drawn by records once, so no two keys are equal.
+        self.emitted.sort_unstable_by_key(Emitted::order);
+        // Through one kept buffer, so a frame allocates nothing here.
+        self.staged.clear();
+        for e in &self.emitted {
+            self.staged.extend_from_slice(&records[e.inside.clone()]);
+        }
+        records.clear();
+        records.extend_from_slice(&self.staged);
+        self.staged.clear();
+        for e in &self.emitted {
+            self.staged.extend_from_slice(&self.over[e.above.clone()]);
+        }
+        self.over.clear();
+        self.over.extend_from_slice(&self.staged);
     }
 
     /// The cell at `at` drawn whole by records: its base and every
@@ -490,7 +708,15 @@ impl Overlay {
         };
         self.stats.cells.bump();
         mask[y * geom.cols.index() + x] |= MASK_RECORD;
+        let (inside, above) = (records.len(), self.over.len());
         Overlay::emit(records, &mut self.over, (x, y), &glyphs, cell, paint, geom);
+        self.emitted.push(Emitted::of(
+            (Row::from_index(y), Col::at_index(x)),
+            records,
+            &self.over,
+            inside..records.len(),
+            above..self.over.len(),
+        ));
     }
 
     /// One window of a row: its cells' clusters gathered, cut where the
@@ -564,6 +790,7 @@ impl Overlay {
                     mask,
                     records,
                     &mut this.over,
+                    &mut this.emitted,
                 );
             } else {
                 this.stats.window_misses.bump();
@@ -599,6 +826,7 @@ impl Overlay {
                     mask,
                     records,
                     &mut this.over,
+                    &mut this.emitted,
                 );
                 this.windows.insert(key, drawn);
             }
@@ -790,12 +1018,21 @@ impl Overlay {
         mask: &mut [u8],
         records: &mut Vec<Instance>,
         over: &mut Vec<Instance>,
+        emitted: &mut Vec<Emitted>,
     ) {
         for ((x, cell, _), glyphs) in piece.iter().zip(drawn) {
             if let Some(glyphs) = glyphs {
                 stats.cells.bump();
                 mask[y.index() * geom.cols.index() + x] |= MASK_RECORD;
+                let (inside, above) = (records.len(), over.len());
                 Overlay::emit(records, over, (*x, y.index()), glyphs, *cell, paint, geom);
+                emitted.push(Emitted::of(
+                    (y, Col::at_index(*x)),
+                    records,
+                    over,
+                    inside..records.len(),
+                    above..over.len(),
+                ));
             }
         }
     }
