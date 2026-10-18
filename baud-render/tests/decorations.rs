@@ -228,9 +228,10 @@ fn follows(p: &[u32], w: usize, m: Metrics, col: usize, mask: &[u8]) -> bool {
 /// **An encircled run is one enclosure**: `[[source: ecma48]]` § 8.3.117
 /// says only "52 encircled", and baud draws it as `SGR 51`'s frame is
 /// drawn, one outline a run -- the frame's top and bottom lines across
-/// the cells between the ends, and a half ellipse filling each end cell,
-/// so a lone cell is the ellipse inscribed in it and a two-cell run one
-/// ellipse. In the text's colour, as the frame is.
+/// the cells between the ends, and at each end a side between two
+/// rounded corners: a lone cell is a stadium; a run of two cells is a
+/// rectangle with rounded corners of radius half a cell's width.
+/// In the text's colour, as the frame is.
 #[test]
 fn an_encircled_run_is_one_enclosure() {
     use baud_render::boxes::Ring;
@@ -265,7 +266,7 @@ fn an_encircled_run_is_one_enclosure() {
         (0..ch).all(|y| (0..2 * cw).all(|x| two[y * w + cw + x] == two[y * w + 3 * cw - 1 - x]));
     assert!(
         mirrored,
-        "a two-cell run is one ellipse, its halves mirrored"
+        "a two-cell run is one rounded rectangle, its halves mirrored"
     );
     assert!(
         (0..ch).any(|y| lit(&two, w, cw, y)) && (0..ch).any(|y| lit(&two, w, 3 * cw - 1, y)),
@@ -279,6 +280,49 @@ fn an_encircled_run_is_one_enclosure() {
         strike[px(m.strike) * w + cw],
         "the line between the ends is the text colour"
     );
+}
+
+/// **An encircled run's ends keep to the corners**, at 9-13 px and
+/// 18-26 px, 9-13 pt at 1x and 2x: between the rounded
+/// corners an end is the stroke at the cell's outer edge and nothing
+/// further in, and its corner is round, not the frame's square. A half
+/// ellipse filling the end cell crossed most end glyphs' ink at every one
+/// of those sizes; Jev leaned to the rounded corners at 0.85 and 0.88
+/// over the ellipse and over the frame's square box.
+#[test]
+fn an_encircled_end_keeps_to_its_corners() {
+    use baud_render::boxes::Ring;
+    for size in [9.0, 10.0, 11.0, 12.0, 13.0, 18.0, 20.0, 22.0, 24.0, 26.0] {
+        let (_, _, m) = painted(b"", size);
+        let (cw, ch) = (px(m.cell_w), px(m.cell_h));
+        let th = px(m.thickness).max(1);
+        // The rows between the corners: below the top corner's radius,
+        // half the cell's width, and above the bottom one's. The side is
+        // whole there, but for where a corner's curve meets it.
+        let r = cw.div_ceil(2);
+        for (ring, sides) in [
+            (Ring::Starts, [0..th, 0..0]),
+            (Ring::Ends, [cw - th..cw, 0..0]),
+            (Ring::Alone, [0..th, cw - th..cw]),
+        ] {
+            let mask = ring_mask(m, ring);
+            for y in r..ch - r {
+                for x in 0..cw {
+                    let side = sides.iter().any(|s| s.contains(&x));
+                    let c = mask[y * cw + x];
+                    assert!(
+                        if side { c >= 250 } else { c == 0 },
+                        "{size} px, {ring:?}: row {y}, column {x} covers {c}"
+                    );
+                }
+            }
+            let corner = if ring == Ring::Ends { cw - 1 } else { 0 };
+            assert!(
+                mask[corner] < 255,
+                "{size} px, {ring:?}: the corner is round"
+            );
+        }
+    }
 }
 
 /// **An encircled run closes beside hidden text**, as the frame does.

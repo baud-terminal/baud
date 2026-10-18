@@ -27408,6 +27408,37 @@ group  = "Y"
 # Read 2026-10-18 for SGR 64, ECMA-48's "ideogram stress marking", which
 # gives no shape or side; this is the web's definition of the same marks.
 
+[sources.mintty-termout-3-7-8]
+key    = "mintty-termout-3-7-8"
+title  = "mintty 3.7.8 src/termout.c -- 'when 51 or 52: /* \"framed\" or \"encircled\" */ attr.attr |= ATTR_FRAMED;', encircled drawn as the frame"
+author = "Andy Koppe, Thomas Wolff and contributors (GPL-3.0-or-later)"
+year   = 2025
+venue  = "github.com/mintty/mintty @ 3.7.8"
+url    = "https://raw.githubusercontent.com/mintty/mintty/3.7.8/src/termout.c"
+file   = ""
+sha256 = "6ce293100e1f75c50debbeef57dff59641c4f88ea3abe06f3f7561cfbd11bef9"
+bytes  = 196909
+status = "external"
+group  = "Y"
+# Read 2026-10-18 for how a shipping terminal draws SGR 52: practice, not
+# the standard. Hash-verified, not committed (GPL).
+
+[sources.contour-decoration-renderer-0-7-0]
+key    = "contour-decoration-renderer-0-7-0"
+title  = "contour v0.7.0.8982 src/vtrasterizer/DecorationRenderer.cpp -- 'case Decorator::Encircle: // TODO (default to Underline for now)'"
+author = "Christian Parpart and contributors (Apache-2.0)"
+year   = 2026
+venue  = "github.com/contour-terminal/contour @ 374755de"
+url    = "https://raw.githubusercontent.com/contour-terminal/contour/374755def5cea3c5bb4e9be08c26d0c8cbed4e2c/src/vtrasterizer/DecorationRenderer.cpp"
+file   = ""
+sha256 = "702b9b11f63babec97d4515afc593865ffda2bcf59e10e7a2bec72e38682c4b2"
+bytes  = 16242
+status = "external"
+group  = "Y"
+# Read 2026-10-18 for how a shipping terminal draws SGR 52: an underline
+# until it is built. Practice, not the standard; hash-verified, not
+# committed.
+
 [sources.css21-zindex]
 key    = "css21-zindex"
 title  = "Cascading Style Sheets Level 2 Revision 1 (CSS 2.1), Appendix E: Elaborate description of Stacking Contexts -- the painting order, each line box in turn, and in it each run's underlining, overlining, the text, then its line-through"

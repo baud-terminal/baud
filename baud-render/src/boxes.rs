@@ -1121,17 +1121,23 @@ pub fn draw(
 /// Which part of an encircled run's outline a cell draws: `SGR 52`,
 /// "encircled" (`[[source: ecma48]]` § 8.3.117), one enclosure a run as
 /// `SGR 51`'s frame is one box a run. A cell between the ends draws the
-/// top and bottom lines the frame draws; the end cells draw a half
-/// ellipse that fills the cell and meets those lines at its edge, so a
-/// run of two cells, a wide character among them, is one ellipse; a cell
-/// alone draws the ellipse inscribed in it.
+/// top and bottom lines the frame draws; the end cells draw a side at the
+/// run's edge between two quarter circles half a cell wide, which meet
+/// those lines: a lone cell is a stadium; a run of two cells, a wide
+/// character among them, is a rectangle with rounded corners of radius
+/// half a cell's width. The curves keep to the corners, where the end
+/// glyph has less ink than the half ellipse crossed. A stroke at the
+/// cell's edge still touches ink at small sizes: 64 of 94 glyphs at
+/// 13 px on a lone cell.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Ring {
-    /// The left end: a half ellipse bulging left, open at the right edge.
+    /// The left end: a side at the cell's left edge between two rounded
+    /// corners, open at the right edge.
     Starts,
-    /// The right end: a half ellipse bulging right, open at the left edge.
+    /// The right end: the left end mirrored, open at the left edge.
     Ends,
-    /// Both ends in one cell: the whole ellipse.
+    /// Both ends in one cell: a stadium, its sides at the cell's edges
+    /// and its top and bottom round.
     Alone,
 }
 
@@ -1161,8 +1167,6 @@ impl Ring {
 struct Quarter(i32);
 
 impl Quarter {
-    const TOP: Quarter = Quarter(3);
-
     /// The unit point at this turn: exact, so a point on an axis lies on
     /// it and no edge of a ring strays a fraction of a pixel outside the
     /// cell, where the accumulation would lose it.
@@ -1173,11 +1177,6 @@ impl Quarter {
             2 => (-1.0, 0.0),
             _ => (0.0, -1.0),
         }
-    }
-
-    /// The next turn toward `to`.
-    fn toward(self, to: Quarter) -> Quarter {
-        Quarter(self.0 + (to.0 - self.0).signum())
     }
 }
 
@@ -1197,24 +1196,14 @@ fn quarter(canvas: &mut Canvas<'_>, c: Point, rx: f32, ry: f32, from: Quarter, t
     canvas.cubic(p0, p1, p2, p3);
 }
 
-/// The arc of an ellipse from turn `from` to turn `to`, a quarter at a
-/// time, clockwise on screen when `to` is the greater.
-fn arc_turns(canvas: &mut Canvas<'_>, c: Point, rx: f32, ry: f32, from: Quarter, to: Quarter) {
-    let mut at = from;
-    while at != to {
-        let next = at.toward(to);
-        quarter(canvas, c, rx, ry, at, next);
-        at = next;
-    }
-}
-
 /// Rasterises `ring`'s part of an encircled run's outline into a mask of
 /// exactly `cell`, a stroke `th` pixels wide, into the first `w * h`
 /// bytes of `coverage`, growing both buffers as required.
 ///
-/// The outer edge of the stroke is the ellipse that touches the cell's
-/// top and bottom and, at an end, its outer side; the inner edge is that
-/// ellipse shrunk by `th` on each axis. At an end cell's open edge the
+/// The outer edge of the stroke runs along the cell's top and bottom and,
+/// at an end, its outer side, its corners quarter circles of radius half
+/// the cell's width; the inner edge is that shape `th` inside it, its
+/// corners' radius less `th`. At an end cell's open edge the
 /// stroke is the rows `0..th` and `h - th..h`, which are the rows of the
 /// top and bottom lines the cells between the ends draw, so the outline
 /// is continuous across the run. The right end is the left end mirrored,
@@ -1239,38 +1228,54 @@ pub fn draw_ring(
     }
     let (wf, hf) = (fx(cell.w), fx(cell.h));
     let t = fx(Px::of(th.value().max(1)));
-    let ry = hf / 2.0;
-    let iy = (ry - t).max(0.0);
+    // The corners' radius: half the cell's width, so a cell alone is a
+    // stadium and an end's curve stays in the corner, where the end
+    // glyph has less ink; the inner edge's, less the stroke.
+    let r = (wf / 2.0).min(hf / 2.0);
+    let ri = (r - t).max(0.0);
     let mut canvas = Canvas::new(extent, scratch)?;
-    // The outer edge clockwise on screen and the inner one back, so the
+    // The outer edge one way round and the inner one back, so the
     // accumulation leaves the inside of the stroke at zero. Quarter turn
-    // 3 is the top, 2 the left.
+    // 3 is the top, 2 the left, 1 the bottom, 0 the right.
+    let (tl, bl) = (Point::new(r, r), Point::new(r, hf - r));
     match ring {
         Ring::Alone => {
-            let c = Point::new(wf / 2.0, ry);
-            let ix = (wf / 2.0 - t).max(0.0);
-            let top = Quarter::TOP;
-            arc_turns(&mut canvas, c, wf / 2.0, ry, top, Quarter(top.0 + 4));
-            arc_turns(&mut canvas, c, ix, iy, top, Quarter(top.0 - 4));
+            let (tr, br) = (Point::new(wf - r, r), Point::new(wf - r, hf - r));
+            canvas.line(Point::new(wf - r, 0.0), Point::new(r, 0.0));
+            quarter(&mut canvas, tl, r, r, Quarter(3), Quarter(2));
+            canvas.line(Point::new(0.0, r), Point::new(0.0, hf - r));
+            quarter(&mut canvas, bl, r, r, Quarter(2), Quarter(1));
+            canvas.line(Point::new(r, hf), Point::new(wf - r, hf));
+            quarter(&mut canvas, br, r, r, Quarter(1), Quarter(0));
+            canvas.line(Point::new(wf, hf - r), Point::new(wf, r));
+            quarter(&mut canvas, tr, r, r, Quarter(0), Quarter(-1));
+            canvas.line(Point::new(wf - r, t), Point::new(r, t));
+            quarter(&mut canvas, tr, ri, ri, Quarter(3), Quarter(4));
+            canvas.line(Point::new(wf - t, r), Point::new(wf - t, hf - r));
+            quarter(&mut canvas, br, ri, ri, Quarter(4), Quarter(5));
+            canvas.line(Point::new(wf - r, hf - t), Point::new(r, hf - t));
+            quarter(&mut canvas, bl, ri, ri, Quarter(5), Quarter(6));
+            canvas.line(Point::new(t, hf - r), Point::new(t, r));
+            quarter(&mut canvas, tl, ri, ri, Quarter(6), Quarter(7));
+            canvas.line(Point::new(r, t), Point::new(wf - r, t));
         }
         Ring::Starts | Ring::Ends => {
-            // The left end, about the middle of its open right edge: top,
-            // left, bottom on the outer edge, and back on the inner one.
-            let c = Point::new(wf, ry);
-            let ix = (wf - t).max(0.0);
-            let (top, end) = (Quarter::TOP, Quarter(Quarter::TOP.0 - 2));
-            arc_turns(&mut canvas, c, wf, ry, top, end);
-            let (ce, se) = end.unit();
-            canvas.line(
-                Point::new(c.x + wf * ce, c.y + ry * se),
-                Point::new(c.x + ix * ce, c.y + iy * se),
-            );
-            arc_turns(&mut canvas, c, ix, iy, end, top);
-            let (c0, s0) = top.unit();
-            canvas.line(
-                Point::new(c.x + ix * c0, c.y + iy * s0),
-                Point::new(c.x + wf * c0, c.y + ry * s0),
-            );
+            // The left end, open at its right edge, where the lines between
+            // the ends go on: along the top, round the corner, down the
+            // side, round the corner and along the bottom on the outer
+            // edge, and back on the inner one.
+            canvas.line(Point::new(wf, 0.0), Point::new(r, 0.0));
+            quarter(&mut canvas, tl, r, r, Quarter(3), Quarter(2));
+            canvas.line(Point::new(0.0, r), Point::new(0.0, hf - r));
+            quarter(&mut canvas, bl, r, r, Quarter(2), Quarter(1));
+            canvas.line(Point::new(r, hf), Point::new(wf, hf));
+            canvas.line(Point::new(wf, hf), Point::new(wf, hf - t));
+            canvas.line(Point::new(wf, hf - t), Point::new(r, hf - t));
+            quarter(&mut canvas, bl, ri, ri, Quarter(1), Quarter(2));
+            canvas.line(Point::new(t, hf - r), Point::new(t, r));
+            quarter(&mut canvas, tl, ri, ri, Quarter(2), Quarter(3));
+            canvas.line(Point::new(r, t), Point::new(wf, t));
+            canvas.line(Point::new(wf, t), Point::new(wf, 0.0));
         }
     }
     canvas.coverage(&mut coverage[..cells])?;
