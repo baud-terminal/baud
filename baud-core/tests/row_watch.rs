@@ -835,6 +835,32 @@ fn every_writer_reaches_the_row() {
     assert!(!changes(margin, vs16, (2, 2)), "and not row 2");
 }
 
+/// **A mark past a cluster's capacity reaches the row, as a mark that
+/// joins does.** Eight `U+0301` fill the cluster on `a`, and a ninth is
+/// dropped and counted with the cell unchanged; xterm disowns there too,
+/// for the row is written whether or not `addXtermCombining` found a slot
+/// (`[[source: xterm-411-util-c]]`; `[[source: xterm-reset]]`, charproc.c's
+/// combining path). The control: seven marks and an eighth, which joins.
+#[test]
+fn a_mark_past_a_clusters_capacity_reaches_the_row() {
+    let mark = "\u{301}";
+    let full = format!("\x1b[1;1Ha{}", mark.repeat(8));
+    with_term(|t| {
+        feed(t, full.as_bytes());
+        let (before, dropped) = (t.row(Row::ZERO).map(<[_]>::to_vec), t.marks_dropped);
+        feed(t, mark.as_bytes());
+        assert_eq!(t.row(Row::ZERO).map(<[_]>::to_vec), before, "unchanged");
+        assert_eq!(t.marks_dropped, dropped + 1, "the ninth is dropped");
+    });
+    assert!(changes(full.as_bytes(), mark.as_bytes(), (0, 0)), "a ninth");
+    assert!(!changes(full.as_bytes(), mark.as_bytes(), (1, 1)), "row 1");
+    let seven = format!("\x1b[1;1Ha{}", mark.repeat(7));
+    assert!(
+        changes(seven.as_bytes(), mark.as_bytes(), (0, 0)),
+        "an eighth"
+    );
+}
+
 /// **A write after a pending wrap lands on the next row**: row 0 filled to
 /// its last column holds the wrap, and the `X` after it is row 1's, so a
 /// selection on row 0 is not reached and one on row 1 is. With `DECAWM`

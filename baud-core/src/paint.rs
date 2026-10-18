@@ -1003,8 +1003,6 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.clusters.refused += 1;
             return;
         }
-        // A mark joins the cell's text, so its row is written.
-        self.wrote_rows(r, r);
         if cell.content.is_placeholder_base() {
             return self.attach_placeholder(r, owner, cell.content, cp);
         }
@@ -1026,9 +1024,10 @@ impl<'a, 'b> Paint<'a, 'b> {
         };
         if n == cps.len() {
             // A cluster past the table's capacity keeps what it has rather
-            // than losing its head, and says one was lost.
+            // than losing its head, and says one was lost; its row counts
+            // as written, as xterm's does.
             self.clusters.refused += 1;
-            return;
+            return self.marked(r);
         }
         cps[n] = cp.value();
         n += 1;
@@ -1054,6 +1053,26 @@ impl<'a, 'b> Paint<'a, 'b> {
                 self.widen(r, owner.col());
             }
         }
+        self.marked(r);
+    }
+
+    /// **A mark joined a cell on row `r`, so its row is written**: told to
+    /// the watch on a selection's lines behind the byte the text writers
+    /// test (`Paint::hooks`), on while a watch is armed or an image placed.
+    /// Called last, where nothing `attach_before` holds must live across
+    /// it: at the function's head, where the row was found, a scratch arm
+    /// of this test cost `cat-cjk` 0.53% of its instructions over an arm
+    /// without it, in the registers the rest of the function lost to it;
+    /// here it costs 0.12% over that arm, and the change as a whole equals
+    /// the base before the watch (b122f7bf) on `cat-cjk` (the record, "A
+    /// selection is numbered by the lines the surface moved"). A mark past
+    /// a cluster's capacity changes no cell and is told too, as xterm's
+    /// row is written whether or not a combining slot was free.
+    #[inline(always)]
+    fn marked(&mut self, r: Row) {
+        if self.hooks == WriteHooks::On {
+            self.wrote_rows(r, r);
+        }
     }
 
     /// **A mark after a kitty Unicode placeholder** (`[[source:
@@ -1070,6 +1089,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn attach_placeholder(&mut self, r: Row, owner: LeadCol, content: Content, cp: Codepoint) {
+        self.marked(r);
         if let Some(word) = content.with_diacritic(cp) {
             self.view.set_placeholder(r, owner, word);
             return;
@@ -1613,8 +1633,8 @@ impl<'a, 'b> Paint<'a, 'b> {
     ///
     /// **One compare of the watch's state a call, and the test out of
     /// line**: `ingest2` arms no watch, so an erase pays the compare. Text
-    /// reaches it only through [`Paint::overwrote`]'s gate, but for a mark
-    /// joined to a cell.
+    /// reaches it only through [`Paint::overwrote`]'s gate, and a mark
+    /// joined to a cell through the same byte.
     #[inline(always)]
     pub(crate) fn wrote_rows(&mut self, from: Row, to: Row) {
         if self.cold.watched == crate::term::Watched::Rows {
