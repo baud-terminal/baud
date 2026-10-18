@@ -27039,3 +27039,255 @@ sha256 = "48d1eb73c7f2d13fa3ff82952048e5337c117dd92278b8db6e026f66b8abcbfb"
 bytes  = 4575
 status = "external"
 group  = "AS"
+
+# Group AT, for a standard material behind the window body (note AT, the
+# owner's 2026-10-17 "we should follow apple recommendations for osx"): the
+# NSVisualEffectView pages note AS did not pin, today's copies of two WWDC pages
+# whose bytes moved, the shipped material catalogs, TextEdit, and the modelled
+# contact sheets. Pages fetched 2026-10-17 from the documentation JSON endpoint
+# or as HTML; local files read on macOS 27.0 (26A5425a). Re-fetch or re-read and
+# compare the sha256.
+
+[sources.apple-wwdc25-219-refetch]
+key    = "apple-wwdc25-219-refetch"
+title  = "WWDC25 session 219, Meet Liquid Glass -- 'Liquid Glass is best reserved for the navigation layer', 'Avoid putting glass in the content layer'; the page re-fetched 2026-10-17 for note AT, the same length as apple-wwdc25-219 and different bytes (page with transcript)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/videos"
+url    = "https://developer.apple.com/videos/play/wwdc2025/219/"
+file   = ""
+sha256 = "c7e7e906a4e7b3fbf8b780bd2c63de26ac605b83d28446a031c4eae420ccb8b6"
+bytes  = 156313
+status = "external"
+group  = "AT"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-wwdc25-310-refetch]
+key    = "apple-wwdc25-310-refetch"
+title  = "WWDC25 session 310, Build an AppKit app with the new design -- 'limit your use of Liquid Glass to the most important elements in your app'; the page re-fetched 2026-10-17 for note AT, the same length as apple-wwdc25-310 and different bytes (page with transcript)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/videos"
+url    = "https://developer.apple.com/videos/play/wwdc2025/310/"
+file   = ""
+sha256 = "9cd7b32350e6f192b1a7115225568a73fb185cc68762509baf9e032feab35485"
+bytes  = 170551
+status = "external"
+group  = "AT"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-wwdc25-356]
+key    = "apple-wwdc25-356"
+title  = "WWDC25 session 356, Get to know the new design system -- 'controls sit on top of a system material, not directly on content' (page with transcript, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com/videos"
+url    = "https://developer.apple.com/videos/play/wwdc2025/356/"
+file   = ""
+sha256 = "8f04dc14018305f77f70949ee4e2ddaace8fa57dbc326ab19499e22c076ccb9c"
+bytes  = 151042
+status = "external"
+group  = "AT"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-nsglasseffectview-2026-10-17]
+key    = "apple-nsglasseffectview-2026-10-17"
+title  = "NSGlassEffectView -- 'A view that embeds its content view in a dynamic glass effect'; properties contentView, cornerRadius, effectIsInteractive, style, tintColor; the page as re-fetched 2026-10-17, whose bytes differ from apple-nsglasseffectview's (documentation JSON)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsglasseffectview.json"
+file   = ""
+sha256 = "a603324d9fbd853bc9bf12342d298af2ba24bc6d6f55e96af132605c4bd528e3"
+bytes  = 33873
+status = "external"
+group  = "AT"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-nsvisualeffectview-windowbackground]
+key    = "apple-nsvisualeffectview-windowbackground"
+title  = "NSVisualEffectView.Material.windowBackground -- 'The material for the background of opaque windows'; 'supports Desktop Tinting in Dark Mode' (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsvisualeffectview/material-swift.enum/windowbackground.json"
+file   = ""
+sha256 = "0d1adfdb2221730372dac83c68dd96f1e21d11ba43b1bd2b4cb08ffd0ec98a9c"
+bytes  = 24920
+status = "external"
+group  = "AT"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-nsvisualeffectview-contentbackground]
+key    = "apple-nsvisualeffectview-contentbackground"
+title  = "NSVisualEffectView.Material.contentBackground -- 'The material for the background of opaque content' (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsvisualeffectview/material-swift.enum/contentbackground.json"
+file   = ""
+sha256 = "31b77832167b381c5c75464b45e3195e45c557d3ee0f154efe3050b0476e516c"
+bytes  = 25101
+status = "external"
+group  = "AT"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-nsvisualeffectview-sidebar]
+key    = "apple-nsvisualeffectview-sidebar"
+title  = "NSVisualEffectView.Material.sidebar -- 'The material for the background of window sidebars' (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsvisualeffectview/material-swift.enum/sidebar.json"
+file   = ""
+sha256 = "deb056334d1ed817d9f783f0eebf2628c6f1e3384a0625e7bfd0ac8e65df53e0"
+bytes  = 24474
+status = "external"
+group  = "AT"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-nsvisualeffectview-behindwindow]
+key    = "apple-nsvisualeffectview-behindwindow"
+title  = "NSVisualEffectView.BlendingMode.behindWindow -- blends 'with the contents behind the window, such as the desktop or other windows' (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsvisualeffectview/blendingmode-swift.enum/behindwindow.json"
+file   = ""
+sha256 = "85b9ca1a765beeadae89a6a3e1abbf0e8b7d5a1a4bcf751f6669b5d94c1b8ec4"
+bytes  = 9451
+status = "external"
+group  = "AT"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-nsvisualeffectview-state]
+key    = "apple-nsvisualeffectview-state"
+title  = "NSVisualEffectView.state -- 'The default value of this property is NSVisualEffectView.State.followsWindowActiveState' (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsvisualeffectview/state-swift.property.json"
+file   = ""
+sha256 = "50a4e0773dbd55b88a3a6794d612127abb064c3f23329502c3dfcba4b47713bf"
+bytes  = 10253
+status = "external"
+group  = "AT"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-nsvisualeffectview-state-enum]
+key    = "apple-nsvisualeffectview-state-enum"
+title  = "NSVisualEffectView.State -- followsWindowActiveState: 'appear active when the window is active, and inactive when it is not' (documentation JSON, retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsvisualeffectview/state-swift.enum.json"
+file   = ""
+sha256 = "aa4e6b3ecffbeccdad66ea844187f7c0895e00823beb7ff052a3da29a61442b8"
+bytes  = 17518
+status = "external"
+group  = "AT"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.apple-mac-help-display-colors-26]
+key    = "apple-mac-help-display-colors-26"
+title  = "Mac User Guide (macOS 26), Change display colors on Mac to make it easier to see what's onscreen -- transparent areas 'appear transparent by default'; 'You can turn these transparent areas a solid gray' (retrieved 2026-10-17)"
+author = "Apple Inc."
+year   = 2026
+venue  = "support.apple.com/guide/mac-help"
+url    = "https://support.apple.com/guide/mac-help/adjust-the-display-colors-mchl11ddd4b3/26/mac/26"
+file   = ""
+sha256 = "dfbd154bf9ec243f100f42caeb1fc2fed5839380171309cb708cf48a5d6facd6"
+bytes  = 737793
+status = "external"
+group  = "AT"
+# Read and hash-verified; not committed -- a vendor page.
+
+[sources.macos-systemappearance-darkaqua-car]
+key    = "macos-systemappearance-darkaqua-car"
+title  = "SystemAppearance.bundle DarkAqua.car, macOS 27.0 -- the dark NSVisualEffectView materials as Core Animation archives: WindowBackground and ContentBackground an opaque fill with no backdrop layer, Sidebar a blurred backdrop under a grey"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (build 26A5425a)"
+url    = "file:///System/Library/CoreServices/SystemAppearance.bundle/Contents/Resources/DarkAqua.car"
+file   = ""
+sha256 = "c2e1a29728d400d53a1fd9c6be4d3a461bf181e4bec6b01bdfb679cd68922803"
+bytes  = 7795064
+status = "external"
+group  = "AT"
+# Read on this Mac; not committed -- part of the OS.
+
+[sources.macos-systemappearance-aqua-car]
+key    = "macos-systemappearance-aqua-car"
+title  = "SystemAppearance.bundle Aqua.car, macOS 27.0 -- the light NSVisualEffectView materials as Core Animation archives: WindowBackground and ContentBackground an opaque fill with no backdrop layer, Sidebar a blurred backdrop under a grey"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (build 26A5425a)"
+url    = "file:///System/Library/CoreServices/SystemAppearance.bundle/Contents/Resources/Aqua.car"
+file   = ""
+sha256 = "baa5d901ba455b1ea905d83de9348f1010c0467f5ecae124d2d26bfb6362b5f7"
+bytes  = 7916504
+status = "external"
+group  = "AT"
+# Read on this Mac; not committed -- part of the OS.
+
+[sources.macos-textedit-1-21-binary]
+key    = "macos-textedit-1-21-binary"
+title  = "TextEdit 1.21, Contents/MacOS/TextEdit, macOS 27.0 -- neither NSVisualEffectView nor NSGlassEffectView named anywhere in the bundle"
+author = "Apple Inc."
+year   = 2026
+venue  = "macOS 27.0 (build 26A5425a)"
+url    = "file:///System/Applications/TextEdit.app/Contents/MacOS/TextEdit"
+file   = ""
+sha256 = "683c92716a349c850edd13bbfd5c2a942932b21e16212a9f5353c4cb66414877"
+bytes  = 411040
+status = "external"
+group  = "AT"
+# Read on this Mac; not committed -- part of the OS.
+
+[sources.at-obs-png-sheet-btop-dark-tahoe-evening]
+key    = "at-obs-png-sheet-btop-dark-tahoe-evening"
+title  = "Contact sheet, MODEL: btop, dark palette at dim 0.70, over Tahoe Evening; glass (clear fit), the see-through standard (Sidebar recipe), windowBackground and contentBackground, 2x2"
+author = "baud research (note AT)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud's CPU-rendered cells composited over each body by the note AT material model, a0822e39"
+file   = "at-observed/sheet-btop-dark-tahoe-evening.png"
+sha256 = "6de7bf9f305ae19e1dab3f31aae72f81723f8c650ec50bf758ab885ac37c7fc6"
+bytes  = 285768
+status = "retrieved"
+group  = "AT"
+# Local evidence for note AT, made 2026-10-17 on macOS 27.0 (26A5425a); a model, not a
+# screen capture. Committed because the scratch directory it came from does not
+# survive a reboot, and a claim in the note rests on it.
+
+[sources.at-obs-png-sheet-git-log-light-tahoe-evening]
+key    = "at-obs-png-sheet-git-log-light-tahoe-evening"
+title  = "Contact sheet, MODEL: git log, light palette at dim 0.60, over Tahoe Evening; glass (clear fit), the see-through standard (Sidebar recipe), windowBackground and contentBackground, 2x2"
+author = "baud research (note AT)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud's CPU-rendered cells composited over each body by the note AT material model, a0822e39"
+file   = "at-observed/sheet-git-log-light-tahoe-evening.png"
+sha256 = "a5f0857b365bd024b3e15164f73c41db137c063df3e142279f67c8369504b291"
+bytes  = 296748
+status = "retrieved"
+group  = "AT"
+# Local evidence for note AT, made 2026-10-17 on macOS 27.0 (26A5425a); a model, not a
+# screen capture. Committed because the scratch directory it came from does not
+# survive a reboot, and a claim in the note rests on it.
+
+[sources.at-obs-png-sheet-btop-dark-white]
+key    = "at-obs-png-sheet-btop-dark-white"
+title  = "Contact sheet, MODEL: btop, dark palette at dim 0.70, over a flat white wallpaper; glass (clear fit), the see-through standard (Sidebar recipe), windowBackground and contentBackground, 2x2"
+author = "baud research (note AT)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "baud's CPU-rendered cells composited over each body by the note AT material model, a0822e39"
+file   = "at-observed/sheet-btop-dark-white.png"
+sha256 = "3d360784039b92c07101d1ee92f9d23cabc12c2f1a3ec0a200bdb5e54b85a360"
+bytes  = 211049
+status = "retrieved"
+group  = "AT"
+# Local evidence for note AT, made 2026-10-17 on macOS 27.0 (26A5425a); a model, not a
+# screen capture. Committed because the scratch directory it came from does not
+# survive a reboot, and a claim in the note rests on it.

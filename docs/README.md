@@ -92,6 +92,7 @@ its filename's prefix, and several notes share one.
 | [aq-docs-structure.md](research/notes/aq-docs-structure.md) | AQ. How the documentation is arranged, and for whom | open |
 | [ar-theme-formats.md](research/notes/ar-theme-formats.md) | AR. Theme file formats, and telling them apart by content | open |
 | [as-glass-legibility.md](research/notes/as-glass-legibility.md) | AS. Glass legibility: what Apple recommends, and what baud draws | open |
+| [at-standard-materials.md](research/notes/at-standard-materials.md) | AT. A standard material for the window body | open |
 | [b-data-parallel-fsm.md](research/notes/b-data-parallel-fsm.md) | Data-parallel finite-state machines — vectorising the parser itself | open |
 | [b-parser-as-a-graph.md](research/notes/b-parser-as-a-graph.md) | The parser as a graph — how to store 20 nodes and 5,120 edges | open |
 | [c-vt-parser.md](research/notes/c-vt-parser.md) | C — the terminal parser as specified | done 2026-09-11, `f920ea3` |
@@ -160,6 +161,7 @@ their entries' titles:
 | AN | the build's own tooling: cargo's publish field, release-plz, the dev shell's treefmt wrapper |
 | AO | the rendition table: how terminals store a cell's colours, and how a table of renditions frees its slots |
 | AS | the glass's legibility: Apple's materials, contrast, Reduce Transparency and Increase Contrast, and Terminal's own profiles |
+| AT | a standard material behind the window body: Apple's NSVisualEffectView materials, the shipped material catalogs, Apple's own text apps, and the modelled renders |
 | BL | the bell: what a `BEL` does in a macOS window -- the alert sound, an attention request, a raise (no note; `baud-app/src/bell.rs` and the record's section cite them) |
 
 A group's letter and a note's need not match: group H's sources are key

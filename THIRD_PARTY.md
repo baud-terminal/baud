@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 236 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 238 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 268 | 21 | redistributable, and its notice is satisfied |
-| own | 197 | 0 | the owner's work |
-| total | 730 | 32 | |
+| own | 198 | 0 | the owner's work |
+| total | 733 | 32 | |
 
 ## Licence texts in LICENSES/
 
@@ -605,6 +605,18 @@ notice is, and the URL each file was copied from.
 | file | copied from |
 |---|---|
 | [vt100-avr-terminal.cpp](docs/research/sources/vt100-avr-terminal.cpp) | https://raw.githubusercontent.com/mikee47/VT100/2334dfa06e2ec677acd288b1504057efd924e353/src/Terminal.cpp |
+
+### Note AT's modelled contact sheets composited over Apple's Tahoe Evening wallpaper, blurred and dimmed (Apple's wallpaper art carries no grant)
+
+- **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
+- **Licence:** LicenseRef-NoGrant
+- **Notice:** none
+- **Files:** 2
+
+| file | copied from |
+|---|---|
+| [at-observed/sheet-btop-dark-tahoe-evening.png](docs/research/sources/at-observed/sheet-btop-dark-tahoe-evening.png) | baud's CPU-rendered cells composited over each body by the note AT material model, a0822e39 |
+| [at-observed/sheet-git-log-light-tahoe-evening.png](docs/research/sources/at-observed/sheet-git-log-light-tahoe-evening.png) | baud's CPU-rendered cells composited over each body by the note AT material model, a0822e39 |
 
 ### Papers with no redistribution grant: ACM ASPLOS 2014, USENIX ATC 2012 and NSDI 2019, the Parabix paper
 
@@ -1832,7 +1844,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the owner's work
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 191
+- **Files:** 192
 
 | file | copied from |
 |---|---|
@@ -2026,5 +2038,6 @@ notice is, and the URL each file was copied from.
 | [al-observed/replica-trailx.rs](docs/research/sources/al-observed/replica-trailx.rs) | written for the flash-fix analysis |
 | [al-observed/thresholds-out.txt](docs/research/sources/al-observed/thresholds-out.txt) | python3 thresholds.py |
 | [al-observed/thresholds.py](docs/research/sources/al-observed/thresholds.py) | written for the flash-fix analysis |
+| [at-observed/sheet-btop-dark-white.png](docs/research/sources/at-observed/sheet-btop-dark-white.png) | baud's CPU-rendered cells composited over each body by the note AT material model, a0822e39 |
 | [xcode-27-metal-toolchain-component.txt](docs/research/sources/xcode-27-metal-toolchain-component.txt) | /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild and .../Toolchains/XcodeDefault.xctoolchain/usr/bin/metal, 27A266a, output captured 2026-09-18 |
 

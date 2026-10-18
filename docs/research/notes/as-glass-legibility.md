@@ -198,6 +198,8 @@ as `floor = 7`, which a literal 4.5 would loosen against decision 9's
   sense of peeking through the back of the window"), picked "based on its
   intended use" ([[source: apple-nsvisualeffectview-2026-10-17]]). It needs
   the owner's crate, so it is the owner's call.
+  [Note AT](at-standard-materials.md) has the research: Apple's text, the
+  shipped materials, modelled renders and Jev's answers.
 - **An on-screen capture of regular against clear at 0.70/0.60**, which would
   replace section 4's model with pixels.
 - ~~**The floor measures against the page as stated**~~ **Built**: the

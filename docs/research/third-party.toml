@@ -1625,6 +1625,16 @@ files   = [
   "ad-observed/webkit-zoom.png",
 ]
 
+[upstream.apple-wallpaper-renders]
+name    = "Note AT's modelled contact sheets composited over Apple's Tahoe Evening wallpaper, blurred and dimmed (Apple's wallpaper art carries no grant)"
+licence = "LicenseRef-NoGrant"
+notice  = "none"
+status  = "no-grant"
+files   = [
+  "at-observed/sheet-btop-dark-tahoe-evening.png",
+  "at-observed/sheet-git-log-light-tahoe-evening.png",
+]
+
 [upstream.owner-observations]
 name    = "The owner's own probes, captures and renders"
 licence = "CC-BY-NC-SA-4.0"
@@ -1821,6 +1831,7 @@ files   = [
   "al-observed/replica-trailx.rs",
   "al-observed/thresholds-out.txt",
   "al-observed/thresholds.py",
+  "at-observed/sheet-btop-dark-white.png",
   "xcode-27-metal-toolchain-component.txt",
 ]
 
