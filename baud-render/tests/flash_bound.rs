@@ -11,7 +11,7 @@ use baud_domain::{BytePos, Chan, Col, Cols, ImageBudget, ImagePx, ReadLen, Row, 
 use baud_font::{Face, Px};
 use baud_render::effect::{Effect, Ignition, Seed, Vfx};
 use baud_render::{
-    Argb, Blend, Damage, Kind, Pt, PxSize, Renderer, Segment, Shape, Smear, Stack, Strength,
+    Argb, Blend, Damage, Held, Kind, Pt, PxSize, Renderer, Segment, Shape, Smear, Stack, Strength,
     Target, Theme, TrailLook, under_threshold, under_threshold_over,
 };
 use support::font;
@@ -303,14 +303,16 @@ fn a_repeat_quad_on_the_cpu_path_makes_no_transition() {
 /// a frame. Over a few grounds, two new caps are scanned a frame and the
 /// pass draws nothing until all are: three colours under it read 0 on the
 /// first frame and their least cap on the second. The control: the same
-/// three colours' least cap, scanned directly.
+/// three colours' least cap, scanned directly. And the renderer says why
+/// ([`Held`]): over 70, too many grounds on both frames; over three, still
+/// scanning, then capped.
 #[test]
 fn a_repeat_pass_over_many_grounds_draws_nothing() {
     let mono = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&mono).unwrap()];
     let black = opaque(0, 0, 0);
     let colour = |n: u8| opaque(0x40 + n, 0x80, 0x20 + 2 * n);
-    let mut caps = Vec::new();
+    let (mut caps, mut held) = (Vec::new(), Vec::new());
     for count in [70u8, 3] {
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
@@ -350,11 +352,14 @@ fn a_repeat_pass_over_many_grounds_draws_nothing() {
             strength: Strength::Full,
         }))));
         let _ = paint(&mut r, &mut t);
-        let first = r.flash_cap();
+        let first = (r.flash_cap(), r.flash_held());
         let _ = paint(&mut r, &mut t);
-        caps.push((first, r.flash_cap()));
+        caps.push((first.0, r.flash_cap()));
+        held.push((first.1, r.flash_held()));
     }
     assert_eq!(caps[0], (Chan::from_u8(0), Chan::from_u8(0)), "70 grounds");
+    assert_eq!(held[0], (Held::Grounds, Held::Grounds), "70 grounds");
+    assert_eq!(held[1], (Held::Scanning, Held::Capped), "three grounds");
     let least = (0..3)
         .map(|n| under_threshold(black, colour(n)).get())
         .min()
@@ -405,7 +410,8 @@ fn apc(t: &mut Term<'_>, ctrl: &str, payload: &[u8]) {
 /// over a `#404040` image made 672 general transitions on a 30 by 10 grid.
 /// An image over the text hides the pass, which keeps the page's cap: the
 /// control for the layer. The control for the pass: the same quad on a
-/// bare page draws at the page's cap.
+/// bare page draws at the page's cap. The renderer says which: imaged
+/// under the text, capped otherwise.
 #[test]
 fn a_repeat_pass_over_an_image_under_the_text_draws_nothing() {
     let mono = font("JetBrainsMono-Regular.ttf");
@@ -416,11 +422,11 @@ fn a_repeat_pass_over_an_image_under_the_text_draws_nothing() {
     );
     assert!(page.get() > 0, "the control: the page has a cap");
     // No image, then one over the text, under it, below the backgrounds.
-    for (z, cap) in [
-        (None, page),
-        (Some(1i32), page),
-        (Some(-1), Chan::from_u8(0)),
-        (Some(-1_073_741_825), Chan::from_u8(0)),
+    for (z, cap, why) in [
+        (None, page, Held::Capped),
+        (Some(1i32), page, Held::Capped),
+        (Some(-1), Chan::from_u8(0), Held::Imaged),
+        (Some(-1_073_741_825), Chan::from_u8(0), Held::Imaged),
     ] {
         let mut r = renderer(&faces);
         let m = r.metrics();
@@ -457,6 +463,7 @@ fn a_repeat_pass_over_an_image_under_the_text_draws_nothing() {
             .count();
         let at = format!("z {z:?}");
         assert_eq!(r.flash_cap(), cap, "the cap, {at}");
+        assert_eq!(r.flash_held(), why, "why, {at}");
         assert_eq!(
             transitions, 0,
             "a repeat pass flashes over the ground, {at}"
@@ -790,4 +797,47 @@ fn a_repeat_ghost_is_drawn_under_the_cap() {
         k.get()
     );
     assert_eq!(flashed[1].0, 0, "a repeat ghost's pixel flashes");
+}
+
+/// **The renderer says when the bound itself draws nothing**: over a ground
+/// where every alpha of the cursor's colour flashes -- the darkest red a
+/// white cursor's red transition leaves no byte under -- the scanned cap is
+/// 0, [`Held::Bound`], not a ground waiting to be read; the same pass at
+/// full strength is [`Held::Full`]. The control: such a ground exists, and
+/// one shade lighter has a cap.
+#[test]
+fn a_repeat_pass_says_when_the_bound_draws_nothing() {
+    let mono = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&mono).unwrap()];
+    let white = opaque(0xFF, 0xFF, 0xFF);
+    let red = (1..=0x40u8)
+        .find(|&v| under_threshold(white, opaque(v, 0, 0)).get() == 0)
+        .expect("the control: a dark red no white alpha is safe over");
+    let mut owned = Owned::new(&WS);
+    let mut t = Term::new(owned.storage(), &WS);
+    feed(
+        &mut t,
+        format!("\x1b[?25l\x1b]12;rgb:ff/ff/ff\x07\x1b[48;2;{red};0;0m\x1b[2J").as_bytes(),
+    );
+    let mut r = renderer(&faces);
+    let _ = paint(&mut r, &mut t);
+    let look = over_rows(&r);
+    let full = match look {
+        TrailLook::Smear(s) => TrailLook::Smear(Smear {
+            strength: Strength::Full,
+            ..s
+        }),
+        other => other,
+    };
+    r.set_trail(Some(look));
+    let _ = paint(&mut r, &mut t);
+    let _ = paint(&mut r, &mut t);
+    assert_eq!(
+        (r.flash_cap().get(), r.flash_held()),
+        (0, Held::Bound),
+        "over #{red:02X}0000"
+    );
+    r.set_trail(Some(full));
+    let _ = paint(&mut r, &mut t);
+    assert_eq!(r.flash_held(), Held::Full, "a full pass after it");
 }

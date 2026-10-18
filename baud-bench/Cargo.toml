@@ -161,6 +161,13 @@ harness = false
 name = "flash"
 harness = false
 
+# How often a trail's repeat pass draws nothing for want of a ground's
+# cap, over the recordings' last screens on the default glass (note AL).
+# No GPU: the cells decide it, through the shipped renderer and driver.
+[[bench]]
+name = "flash_screens"
+harness = false
+
 [[bench]]
 name = "glyphs"
 harness = false

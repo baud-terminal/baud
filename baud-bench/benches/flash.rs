@@ -22,9 +22,7 @@
 //! larger fonts at 1x and 2x; 60 and 120 frames a second; the cursor colour
 //! the theme's default, or white, black or a saturated red by `OSC 12`; the
 //! ground the dark or light theme's page, or `#CD0000` or `#1A0000` behind
-//! every cell. Every ground is opaque: the app's glass dims every background
-//! over whatever is behind the window, and a luminance read off a translucent
-//! pixel is not what a screen shows.
+//! every cell. Every ground is opaque, unless `FLASH_GLASS=1` (below).
 //!
 //! **Its controls, read before any verdict.** Before the cases at each size,
 //! a block of cells about 30% of a window toggled white and black at 4 Hz
@@ -60,6 +58,15 @@
 //! the app takes under `BAUD_GPU=0` or with no Metal device, and where an
 //! effect runs as the quad (`chase_style` in `app.rs`): so its arms are the
 //! smears and off, and the `path` column says which path drew the line.
+//!
+//! **The glass.** `FLASH_GLASS=1` draws every ground through the default
+//! config's glass: the page and every background a program sets dimmed to
+//! `dim_dark` 0.70 (alpha 179) under the dark theme and `dim_light` 0.60
+//! (153) under the light, as `half_theme` sets `bg_alpha`. A luminance read
+//! off a translucent pixel is not what a screen shows, so each frame read
+//! back is laid over a flat white and a flat black desktop, note AS's
+//! bound, the premultiplied pixel plus the desktop at one minus its alpha,
+//! and each desktop is counted as its own case, the `desktop` column.
 //!
 //! `FLASH_TEXT=1` fills every cell with an `X` in the default colour once
 //! a combination's controls have read the bare ground, so the trail passes
@@ -469,7 +476,7 @@ fn main() {
     }
 
     /// What a case's run did, beside its count.
-    #[derive(Default)]
+    #[derive(Default, Clone)]
     struct Did {
         frames: Tally,
         moves: Tally,
@@ -516,6 +523,7 @@ fn main() {
         rep: &Report,
         t0: Instant,
         (drawer, fnv): (Drawer, Option<u64>),
+        (alpha, desk): (Chan, Option<u8>),
     ) {
         let area = |a: Area| format!("{:.0}", a.0);
         let outcome = |o: Outcome| match o {
@@ -523,7 +531,7 @@ fn main() {
             Outcome::Fails => "FAIL",
         };
         println!(
-            "{pt}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t{}",
+            "{pt}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.2}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.0}\t{}\t{}\t{}\t{:.4}\t{:.4}\t{}\t{}\t{}\t{}\t{}",
             scale.0,
             rate.0,
             ground.name(),
@@ -572,7 +580,37 @@ fn main() {
             did.under_over.value(),
             did.under_red.value(),
             did.over_cap.value(),
+            alpha.get(),
+            match desk {
+                None => "-",
+                Some(0xFF) => "white",
+                Some(_) => "black",
+            },
         );
+    }
+
+    /// A frame as a desktop shows it: the pixels as read back, or under the
+    /// glass laid over a flat desktop `d`, the premultiplied pixel plus the
+    /// desktop at one minus its alpha, opaque. The CPU path's pixels are
+    /// straight and premultiplied first.
+    fn on_desk(px: &[u32], d: Option<u8>, drawer: Drawer) -> Vec<u32> {
+        let Some(d) = d else {
+            return px.to_vec();
+        };
+        px.iter()
+            .map(|&p| {
+                let p = match drawer {
+                    Drawer::Cells => p,
+                    Drawer::Cpu => baud_domain::premultiply(p),
+                };
+                let [a, r, g, b] = p.to_be_bytes();
+                let f = |c: u8| {
+                    let v = u32::from(c) + (u32::from(d) * (255 - u32::from(a)) + 127) / 255;
+                    u8::try_from(v.min(255)).unwrap_or(u8::MAX)
+                };
+                u32::from_be_bytes([0xFF, f(r), f(g), f(b)])
+            })
+            .collect()
     }
 
     let mut args = baud_bench::args();
@@ -629,6 +667,12 @@ fn main() {
         .collect();
     let hashing = std::env::var("FLASH_HASH").is_ok_and(|v| v == "1");
     let text = std::env::var("FLASH_TEXT").is_ok_and(|v| v == "1");
+    let glass = std::env::var("FLASH_GLASS").is_ok_and(|v| v == "1");
+    // The desktops a glass frame is laid over, or none.
+    let desks: Vec<Option<u8>> = match glass {
+        true => vec![Some(0xFF), Some(0)],
+        false => vec![None],
+    };
     // WCAG's curve a byte at a time, and a word's relative luminance, u'v'
     // and saturated redness, as `baud_bench::flash` reads them: the pixel
     // check's.
@@ -685,7 +729,7 @@ fn main() {
     let faces = [Face::parse(&face_data).expect("parse")];
 
     println!(
-        "pt\tscale\trate\tground\tink\tarm\tmotion\tframes\tmoves\tvfx\tignitions\toff_colour\tlit\tedge\ttranslucent\tgen_trans\tgen_flashes\tgen_chained\tgen_over\tgen_ever\tred_trans\tred_flashes\tred_chained\tred_over\tred_ever\tredenc_flashes\tredenc_chained\tarea\tcontiguous\tsecond\tstrict\toutcome\tstrict_outcome\tapart\tapart_strict\tapart_outcome\tapart_strict_outcome\tms\tpath\tfnv\trepeat\tunder_dl\tunder_raw\tunder_over\tunder_red\tover_cap"
+        "pt\tscale\trate\tground\tink\tarm\tmotion\tframes\tmoves\tvfx\tignitions\toff_colour\tlit\tedge\ttranslucent\tgen_trans\tgen_flashes\tgen_chained\tgen_over\tgen_ever\tred_trans\tred_flashes\tred_chained\tred_over\tred_ever\tredenc_flashes\tredenc_chained\tarea\tcontiguous\tsecond\tstrict\toutcome\tstrict_outcome\tapart\tapart_strict\tapart_outcome\tapart_strict_outcome\tms\tpath\tfnv\trepeat\tunder_dl\tunder_raw\tunder_over\tunder_red\tover_cap\tglass\tdesktop"
     );
 
     let started = Instant::now();
@@ -755,7 +799,14 @@ fn main() {
         }
         for (ground, ink, case_arms) in combos {
             // One combination: a fresh terminal, renderer and GPU path.
-            let theme = ground.theme();
+            let mut theme = ground.theme();
+            if glass {
+                theme.bg_alpha = Chan::from_u8(match ground {
+                    Ground::Light => 153,
+                    _ => 179,
+                });
+            }
+            let alpha = theme.bg_alpha;
             let fill = ink.fill(&theme);
             let renderer = Renderer::new(
                 Stack::new(&faces).unwrap(),
@@ -823,6 +874,13 @@ fn main() {
             // **The combination's controls**: the ground and the cursor's
             // own pixels, exactly, before any trail.
             world.draw(None);
+            // The ground as the target holds it: at the glass's alpha,
+            // premultiplied on the GPU and straight on the CPU path.
+            let straight = (ground.word() & 0x00FF_FFFF) | (u32::from(alpha.get()) << 24);
+            let ground_px = match drawer {
+                Drawer::Cells => baud_domain::premultiply(straight),
+                Drawer::Cpu => straight,
+            };
             let rect = world.cursor_rect();
             let inside = |x: usize, y: usize, r: Rect| {
                 let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
@@ -835,7 +893,7 @@ fn main() {
                     if inside(x, y, rect) {
                         cursor_off += usize::from(p != fill);
                     } else {
-                        ground_off += usize::from(p != ground.word());
+                        ground_off += usize::from(p != ground_px);
                     }
                 }
             }
@@ -844,7 +902,7 @@ fn main() {
                 (0, 0),
                 "{} ground {:08x}, {} cursor {:08x}: pixels off",
                 ground.name(),
-                ground.word(),
+                ground_px,
                 ink.name(),
                 fill
             );
@@ -896,7 +954,13 @@ fn main() {
                         world.draw(None);
                         let first = world.pixels.clone();
                         let rested = |x: usize, y: usize| rests.iter().any(|&r| inside(x, y, r));
-                        let first_l: Vec<f32> = first.iter().map(|&p| see(p).0).collect();
+                        // The first frame as each desktop shows it.
+                        let firsts: Vec<Vec<u32>> =
+                            desks.iter().map(|&d| on_desk(&first, d, drawer)).collect();
+                        let first_ls: Vec<Vec<f32>> = firsts
+                            .iter()
+                            .map(|f| f.iter().map(|&p| see(p).0).collect())
+                            .collect();
                         // The schedule: moves from 0.2 s, then time for the
                         // effect to burn out and a full second to close.
                         let (moves, end): (Vec<f64>, f64) = match (arm, motion) {
@@ -921,18 +985,23 @@ fn main() {
                         };
                         let r = f64::from(rate);
                         let frames = (end * r).round() as i64;
-                        let mut census = Census::new(fw, fh, Scale(scale), Rate(rate));
+                        let mut censuses: Vec<Census> = desks
+                            .iter()
+                            .map(|_| Census::new(fw, fh, Scale(scale), Rate(rate)))
+                            .collect();
                         // The cursor's cells, which it flashes by jumping
                         // between them with or without a trail: left out of the
                         // apart areas, so what is left is what the trail adds.
                         for r in &rests {
                             let px = |v: f32| Px::of(u32::try_from(v.max(0.0) as i64).unwrap_or(0));
-                            census.exclude(
-                                px(r.left),
-                                px(r.top),
-                                px(r.right - r.left),
-                                px(r.bottom - r.top),
-                            );
+                            for census in &mut censuses {
+                                census.exclude(
+                                    px(r.left),
+                                    px(r.top),
+                                    px(r.right - r.left),
+                                    px(r.bottom - r.top),
+                                );
+                            }
                         }
                         // The ghost's state as the app keeps it: the cell
                         // the cursor was last seen at, and the sweep in
@@ -941,6 +1010,8 @@ fn main() {
                         let mut ghost: Option<(trail::GhostSweep, f64)> = None;
                         let mut ghosts = trail::Ledger::<HostTime>::new();
                         let mut did = Did::default();
+                        // The pixel check's figures, a desktop each.
+                        let mut checks: Vec<Did> = desks.iter().map(|_| Did::default()).collect();
                         let mut seeds: BTreeSet<u32> = BTreeSet::new();
                         let mut next = 0usize;
                         let mut at = 0usize;
@@ -1073,24 +1144,37 @@ fn main() {
                                         continue;
                                     }
                                     lit += 1;
-                                    // The pixel check, over a repeat
-                                    // frame: against the first frame, by
-                                    // luminance and by the red rule.
-                                    if repeat {
-                                        let p = world.pixels[i];
-                                        let (l, u, v, red) = see(p);
-                                        let (_, fu, fv, fred) = see(first[i]);
-                                        let dl = (l - first_l[i]).abs();
-                                        did.under_raw = did.under_raw.max(dl);
-                                        if l.min(first_l[i]) < 0.80 {
-                                            did.under_dl = did.under_dl.max(dl);
-                                            if dl >= 0.10 {
-                                                did.under_over.bump();
-                                            }
+                                }
+                            }
+                            // Each desktop's frame, and over a repeat frame
+                            // the pixel check: against the first frame, by
+                            // luminance and by the red rule.
+                            let seen: Vec<Vec<u32>> = desks
+                                .iter()
+                                .map(|&d| on_desk(&world.pixels, d, drawer))
+                                .collect();
+                            for (j, frame) in seen.iter().enumerate() {
+                                if !repeat {
+                                    break;
+                                }
+                                let (first, first_l, check) =
+                                    (&firsts[j], &first_ls[j], &mut checks[j]);
+                                for (i, (&p, &q)) in frame.iter().zip(first).enumerate() {
+                                    if p == q || rested(i % w, i / w) {
+                                        continue;
+                                    }
+                                    let (l, u, v, red) = see(p);
+                                    let (_, fu, fv, fred) = see(q);
+                                    let dl = (l - first_l[i]).abs();
+                                    check.under_raw = check.under_raw.max(dl);
+                                    if l.min(first_l[i]) < 0.80 {
+                                        check.under_dl = check.under_dl.max(dl);
+                                        if dl >= 0.10 {
+                                            check.under_over.bump();
                                         }
-                                        if (red || fred) && (u - fu).hypot(v - fv) > 0.2 {
-                                            did.under_red.bump();
-                                        }
+                                    }
+                                    if (red || fred) && (u - fu).hypot(v - fv) > 0.2 {
+                                        check.under_red.bump();
                                     }
                                 }
                             }
@@ -1106,7 +1190,9 @@ fn main() {
                                     }
                                 }
                             }
-                            census.frame(&world.pixels);
+                            for (census, frame) in censuses.iter_mut().zip(&seen) {
+                                census.frame(frame);
+                            }
                             did.frames.bump();
                         }
                         did.ignitions = Tally::of(seeds.len());
@@ -1115,26 +1201,36 @@ fn main() {
                             world.feed(ground.bytes().as_bytes());
                             world.go(a);
                         }
-                        let rep = census.finish();
-                        print_line(
-                            (pt, Scale(scale), Rate(rate)),
-                            (ground, ink, arm, motion),
-                            &did,
-                            &rep,
-                            t0,
-                            (drawer, hashing.then_some(fnv)),
-                        );
-                        if let Arm::Block(hz) = arm {
-                            let want = if hz > 3 {
-                                Outcome::Fails
-                            } else {
-                                Outcome::Passes
-                            };
-                            assert_eq!(
-                                rep.outcome(),
-                                want,
-                                "the positive control at {hz} Hz: {rep:?}"
+                        for ((census, check), &desk) in
+                            censuses.into_iter().zip(&checks).zip(&desks)
+                        {
+                            let rep = census.finish();
+                            let mut did = did.clone();
+                            did.under_dl = check.under_dl;
+                            did.under_raw = check.under_raw;
+                            did.under_over = check.under_over;
+                            did.under_red = check.under_red;
+                            print_line(
+                                (pt, Scale(scale), Rate(rate)),
+                                (ground, ink, arm, motion),
+                                &did,
+                                &rep,
+                                t0,
+                                (drawer, hashing.then_some(fnv)),
+                                (alpha, desk),
                             );
+                            if let Arm::Block(hz) = arm {
+                                let want = if hz > 3 {
+                                    Outcome::Fails
+                                } else {
+                                    Outcome::Passes
+                                };
+                                assert_eq!(
+                                    rep.outcome(),
+                                    want,
+                                    "the positive control at {hz} Hz over {desk:?}: {rep:?}"
+                                );
+                            }
                         }
                     }
                 }

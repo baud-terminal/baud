@@ -69,7 +69,7 @@ pub use color::{
     AppBg, Argb, Floor, MODUS_OPERANDI, PictureBg, Theme, Video, light_palette, xterm_palette,
 };
 pub use composite::{Blend, Blit, Page, Target, Texels};
-pub use flash::{Points, Strength, capped, under_threshold, under_threshold_over};
+pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold_over};
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{

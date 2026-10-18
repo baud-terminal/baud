@@ -932,6 +932,8 @@ pub struct Renderer<'f, 'a> {
     /// the backgrounds of the cells they cover, set by
     /// [`Renderer::bound_trail`] and read when the records are built.
     flash_cap: Chan,
+    /// Why [`Renderer::flash_cap`] is what it is.
+    flash_held: flash::Held,
     /// The caps already scanned, by cursor colour, text colour and page:
     /// a screen's worth, [`FLASH_CACHED`], emptied between frames when full.
     flash_caps: std::collections::HashMap<(Argb, Argb, Argb), Chan>,
@@ -1126,6 +1128,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             compose_inst: Vec::new(),
             cursor_fill: Argb::default(),
             flash_cap: Chan::from_u8(0),
+            flash_held: flash::Held::Full,
             flash_caps: std::collections::HashMap::new(),
             fade: None,
             last_fade: None,
@@ -1476,6 +1479,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// read.
     fn bound_trail(&mut self, term: &Term<'_>) {
         if self.strength() == Strength::Full {
+            self.flash_held = flash::Held::Full;
             return;
         }
         let view = term.view(term.window_back());
@@ -1631,9 +1635,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         let mut budget = FLASH_SCANS;
         let mut k = Chan::from_u8(0xFF);
-        if imaged || ids.len() > FLASH_GROUNDS || triples.len() > FLASH_GROUNDS {
+        let over = ids.len() > FLASH_GROUNDS || triples.len() > FLASH_GROUNDS;
+        if imaged || over {
             k = Chan::from_u8(0);
         }
+        let mut bound = false;
         for (text, page) in triples {
             if k.get() == 0 && budget == 0 {
                 break;
@@ -1646,12 +1652,23 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     self.flash_caps.insert((ink, text, page), c);
                     c
                 }
-                None => Chan::from_u8(0),
+                None => {
+                    k = Chan::from_u8(0);
+                    continue;
+                }
             };
+            bound |= c.get() == 0;
             if c.get() < k.get() {
                 k = c;
             }
         }
+        self.flash_held = match () {
+            _ if k.get() > 0 => flash::Held::Capped,
+            _ if imaged => flash::Held::Imaged,
+            _ if over => flash::Held::Grounds,
+            _ if bound => flash::Held::Bound,
+            _ => flash::Held::Scanning,
+        };
         if k != self.flash_cap {
             self.flash_cap = k;
             self.build_trail();
@@ -1662,6 +1679,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// pass, for a bench or a test to hold them to.
     pub fn flash_cap(&self) -> Chan {
         self.flash_cap
+    }
+
+    /// Why this frame's repeat pass carries [`Renderer::flash_cap`]: drawn
+    /// as it is, capped, or drawing nothing, and for which reason.
+    pub fn flash_held(&self) -> flash::Held {
+        self.flash_held
+    }
+
+    /// The caps scanned and kept, which a bench reads to see the cache
+    /// emptied.
+    pub fn flash_cached(&self) -> Tally {
+        Tally::of(self.flash_caps.len())
     }
 
     /// The effect this frame draws, for a GPU path to hand its fragment

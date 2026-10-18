@@ -20072,6 +20072,54 @@ status = "retrieved"
 # outlive a reboot.
 group  = "AL"
 
+[sources.al-obs-b76-screens]
+key    = "al-obs-b76-screens"
+title  = "How often a repeat pass draws nothing on the default glass: the last screen of every .raw recording, seven motions from nine origins, 13, 24 and 32 pt, both rates, the plasma, dark 179 and light 153 against the same themes opaque, cold and warm"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash_screens bench, 13,24,32 all"
+file   = "al-observed/b76-glass-screens.tsv.gz"
+sha256 = "47bac926513c33624d9848d79298bce803526ac2d6c3ec5c2a4e025d58ed6806"
+bytes  = 255543
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-18 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
+group  = "AL"
+
+[sources.al-obs-b76-glass]
+key    = "al-obs-b76-glass"
+title  = "The flash census over the default glass on the cell path: every arm, ground, ink, motion and rate at 13, 24 and 32 pt, 1x and 2x, each frame over a white and a black desktop"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench, FLASH_GLASS=1 FLASH_HASH=1, sharded by size and ground; the desktop column says which"
+file   = "al-observed/b76-glass-census.tsv.gz"
+sha256 = "1c06c163432179ac65d67fc99f147086569accd315624548b7b63026b3a61266"
+bytes  = 895869
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-18 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
+group  = "AL"
+
+[sources.al-obs-b76-opaque-hashes]
+key    = "al-obs-b76-opaque-hashes"
+title  = "The opaque census at 13x1 and 32x1, 60 Hz, dark and light pages, default ink, every arm and motion, frame hashes of 7f0c58b5 against the glass series' build"
+author = "baud research (note AL)"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "flash bench, FLASH_HASH=1, both builds; the build column says which"
+file   = "al-observed/b76-opaque-hashes.tsv.gz"
+sha256 = "3ae95a6fcfa58642424cfd98eb1c35f9dd76cb6682e1aee79de4a20b0da98096"
+bytes  = 22674
+status = "retrieved"
+# Local evidence for note AL, made 2026-10-18 on this Mac; not fetched -- the
+# url says how it was made. Committed because a scratch directory does not
+# outlive a reboot.
+group  = "AL"
+
 [sources.al-obs-b71-summary-tool]
 key    = "al-obs-b71-summary-tool"
 title  = "b71_summary.py: the ghost census read back, per size, scale and path, and the frame hashes between the two builds"

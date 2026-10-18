@@ -50,6 +50,25 @@ pub enum Strength {
     UnderThreshold,
 }
 
+/// **Why a frame's repeat pass carries the cap it does**, for a bench or a
+/// test to tell a pass the bound held under the thresholds from one it drew
+/// nothing for want of time or room.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Held {
+    /// Not a repeat: the trail is drawn as it is.
+    Full,
+    /// Capped at the least cap of its grounds, more than nothing.
+    Capped,
+    /// A ground's scanned cap is nothing: every alpha flashes over it.
+    Bound,
+    /// Its records meet an image placed under the text.
+    Imaged,
+    /// More grounds lie under it than a frame reads.
+    Grounds,
+    /// A ground under it is not scanned yet.
+    Scanning,
+}
+
 /// **A length in points**: device pixels over the backing scale, the unit a
 /// size gate is set in so it reads the same at 1x and 2x.
 #[derive(Clone, Copy, PartialEq, PartialOrd, Debug)]
