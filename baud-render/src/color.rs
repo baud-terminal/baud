@@ -527,7 +527,8 @@ impl Oklab {
 /// gamut is bounded below by the line from black to the cusp, exactly --
 /// scaling linear sRGB keeps the hue and keeps the zero channel at zero --
 /// and above by a curve from the cusp to white, reached from its chord by
-/// one Halley step (`find_gamut_intersection`).
+/// one Halley step (`find_gamut_intersection`). Re-expressed from that
+/// post's code, MIT, (c) 2021 Björn Ottosson: LICENSES/ottosson-MIT.txt.
 struct Hue {
     a: f64,
     b: f64,

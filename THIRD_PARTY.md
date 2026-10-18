@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 268 | 21 | redistributable, and its notice is satisfied |
+| kept | 268 | 22 | redistributable, and its notice is satisfied |
 | own | 198 | 0 | the owner's work |
-| total | 733 | 32 | |
+| total | 733 | 33 | |
 
 ## Licence texts in LICENSES/
 
@@ -60,6 +60,7 @@ they were built from.
 | [neovide-MIT.txt](LICENSES/neovide-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/neovide/neovide/105fd640f83616501d7c6bfedb0b4c15ab9515e1/LICENSE | 60c7b5e1d0b3daee |
 | [neovim-LICENSE.txt](LICENSES/neovim-LICENSE.txt) | Apache-2.0 AND Vim | fetched: https://raw.githubusercontent.com/neovim/neovim/fc3f0041fbe01c96f38224d65d27664b22b5ef78/LICENSE.txt | de23202ef9a51f5e |
 | [ots-BSD-3-Clause.txt](LICENSES/ots-BSD-3-Clause.txt) | BSD-3-Clause | fetched: https://raw.githubusercontent.com/khaledhosny/ots/6263433/LICENSE | 0d74de3c3cd3196a |
+| [ottosson-MIT.txt](LICENSES/ottosson-MIT.txt) | MIT | built: https://bottosson.github.io/posts/gamutclipping/#source-code, the block under "Source code" (the page as read 2026-10-17, sha256 94dfab2f7eabd1f11e7c01fe7b3951772b21811f95907415f75158b1f0dcd707) | e1f3008c91f40e2d |
 | [regex-MIT.txt](LICENSES/regex-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/rust-lang/regex/72d650cb0a880a01ab6dc2137c0888e8f89740f7/LICENSE-MIT | 6485b8ed310d3f03 |
 | [rust-MIT.txt](LICENSES/rust-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/rust-lang/rust/bcded331651b60a0383b3ff51db4f24c4495ac53/LICENSE-MIT | b71bd43a069ca064 |
 | [rust-reference-MIT.txt](LICENSES/rust-reference-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/rust-lang/reference/9fa1d6fba4ca87ca2d4e1b2c3807488bd8b4a85c/LICENSE-MIT | 0621878e61f0d0fd |
@@ -261,6 +262,14 @@ they were built from.
 - **Notice:** [LICENSES/yazi-MIT.txt](LICENSES/yazi-MIT.txt)
 - **From:** https://github.com/sxyazi/yazi/blob/aa526434f00bb44e2e902d9a4ac5f810da1018b9/yazi-emulator/src/emulator.rs
 - **Files:** [baud-core/tests/image_geometry.rs](baud-core/tests/image_geometry.rs)
+
+### The OKLab conversions and Hue in color.rs (the cusp, compute_max_saturation's polynomial and Halley step, the gamut intersection), re-expressed from Björn Ottosson's sRGB gamut clipping code, whose page puts all of it under MIT; the OKLab post offers the same conversions in the public domain
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** [LICENSES/ottosson-MIT.txt](LICENSES/ottosson-MIT.txt)
+- **From:** https://bottosson.github.io/posts/gamutclipping/ and https://bottosson.github.io/posts/oklab/
+- **Files:** [baud-render/src/color.rs](baud-render/src/color.rs)
 
 ### Tables generated from the Unicode Character Database files pinned in the manifest: grapheme clusters, widths, the two merged into one table, canonical composition, Default_Ignorable_Code_Point
 

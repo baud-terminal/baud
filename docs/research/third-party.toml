@@ -203,6 +203,12 @@ from    = "https://raw.githubusercontent.com/khaledhosny/ots/6263433/LICENSE"
 how     = "fetched"
 sha256  = "0d74de3c3cd3196a9ed1bc612cfd5f81d7509d66c4be34a50f99d61bd1ad00d4"
 
+[text."ottosson-MIT.txt"]
+licence = "MIT"
+from    = "https://bottosson.github.io/posts/gamutclipping/#source-code, the block under \"Source code\" (the page as read 2026-10-17, sha256 94dfab2f7eabd1f11e7c01fe7b3951772b21811f95907415f75158b1f0dcd707)"
+how     = "built"
+sha256  = "e1f3008c91f40e2ddb32fec172fdf7e1db5e480e43c68849b9a4ae856d2c4f45"
+
 [text."regex-MIT.txt"]
 licence = "MIT"
 from    = "https://raw.githubusercontent.com/rust-lang/regex/72d650cb0a880a01ab6dc2137c0888e8f89740f7/LICENSE-MIT"
@@ -1962,6 +1968,14 @@ paths    = ["baud-core/tests/image_geometry.rs"]
 licence  = "MIT"
 notice   = "LICENSES/yazi-MIT.txt"
 upstream = "https://github.com/sxyazi/yazi/blob/aa526434f00bb44e2e902d9a4ac5f810da1018b9/yazi-emulator/src/emulator.rs"
+status   = "kept"
+
+[[tree]]
+what     = "The OKLab conversions and Hue in color.rs (the cusp, compute_max_saturation's polynomial and Halley step, the gamut intersection), re-expressed from Björn Ottosson's sRGB gamut clipping code, whose page puts all of it under MIT; the OKLab post offers the same conversions in the public domain"
+paths    = ["baud-render/src/color.rs"]
+licence  = "MIT"
+notice   = "LICENSES/ottosson-MIT.txt"
+upstream = "https://bottosson.github.io/posts/gamutclipping/ and https://bottosson.github.io/posts/oklab/"
 status   = "kept"
 
 [[tree]]

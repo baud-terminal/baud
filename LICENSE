@@ -107,8 +107,10 @@ Other projects' code:
 
   Lines ported from other projects into baud's files keep their own
   licence: the test helper sfte in baud-render/src/trail.rs, from sfte
-  (zlib; LICENSES/sfte-Zlib.txt); and two test helpers in
-  baud-core/tests/image_geometry.rs, from yazi (MIT; LICENSES/yazi-MIT.txt).
+  (zlib; LICENSES/sfte-Zlib.txt); two test helpers in
+  baud-core/tests/image_geometry.rs, from yazi (MIT; LICENSES/yazi-MIT.txt);
+  and the OKLab conversions and the gamut clip in baud-render/src/color.rs,
+  from Björn Ottosson's published code (MIT; LICENSES/ottosson-MIT.txt).
 
 Third-party research sources:
 
