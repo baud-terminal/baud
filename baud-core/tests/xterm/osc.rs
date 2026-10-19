@@ -271,7 +271,12 @@ const FAQ: [(u8, &[u8], Rgb); 16] = [
 /// **A name the server does not hold is left alone and counted**: case is
 /// the only thing its lookup forgives, so a doubled or trailing space is a
 /// different name, and Debian's `DebianRed`, which kitty's table carries,
-/// is not in X.Org's.
+/// is not in X.Org's. `cms red`, one of the three sample names a stock
+/// libX11 installs in its client-side `Xcms.txt`
+/// (`[[source: libx11-xcms-txt-b8d5a70]]`), is not built: the Xlib manual
+/// reads "zero or more client-side databases" (`[[source:
+/// xlib-ch06-b8d5a70]]` 533-537), and the file is "provided just as an
+/// example".
 #[test]
 fn a_name_the_server_lacks_is_counted() {
     for spec in [
@@ -279,6 +284,7 @@ fn a_name_the_server_lacks_is_counted() {
         b"ghost  white",
         b"red ",
         b"DebianRed",
+        b"cms red",
         b"1",
     ] {
         let ws = support::CORPUS;

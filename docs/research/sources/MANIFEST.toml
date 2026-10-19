@@ -26794,6 +26794,79 @@ status = "external"
 group  = "Y"
 # Read 2026-10-17. 107-235; for the X resources reader (note AR).
 
+[sources.libx11-xcms-txt-b8d5a70]
+key    = "libx11-xcms-txt-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/Xcms.txt -- the client-side colour name database a stock libX11 installs: three sample names, 'provided just as an example'"
+author = "Tektronix Inc.; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11 (Tektronix notice, in the file)"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/Xcms.txt"
+file   = ""
+sha256 = "7a3f9b068488408d8a3422013209db1b32e5cc57d500c0f069c06490c1f41c29"
+bytes  = 1723
+status = "external"
+group  = "Y"
+# Read 2026-10-18. 31-44: "cms red", "cms green", "cms blue", each a
+# CIEXYZ spec, and "There are no claims that these color specifications
+# are or should be bound to the corresponding color name." nixpkgs'
+# libX11 1.8.13 share/X11/Xcms.txt is byte-identical.
+
+[sources.libx11-xcms-makefile-b8d5a70]
+key    = "libx11-xcms-makefile-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/Makefile.am -- Xcms.txt installed to X11_DATADIR by every build"
+author = "The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11 (MIT)"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/Makefile.am"
+file   = ""
+sha256 = "ff2dbec0b16ea06a156277f9d7424369921fd68b5b8c31898792b1af9da2e5b4"
+bytes  = 2609
+status = "external"
+group  = "Y"
+# Read 2026-10-18. 88-89: "X11dir = $(X11_DATADIR)", "dist_X11_DATA =
+# Xcms.txt", outside any `if XCMS`.
+
+[sources.xparsecolor-obs-xcms-names-specs]
+key    = "xparsecolor-obs-xcms-names-specs"
+title  = "The Xcms.txt names fed to the probe: the three stock names in several spellings, the CIEXYZ spec behind cms red, an rgb.txt name and an absent one"
+author = "baud research"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "probe < xcms-names-specs.txt"
+file   = "xparsecolor-observed/xcms-names-specs.txt"
+sha256 = "b1a31a16ebb81644761991b92d9b08d564ead3e852bae02a7a66cc0e0ff4d5ad"
+bytes  = 104
+status = "retrieved"
+group  = "C"
+
+[sources.xparsecolor-obs-xcms-names-out]
+key    = "xparsecolor-obs-xcms-names-out"
+title  = "The probe's output for those names: libX11 1.8.13 resolves the three stock names, case and spaces ignored"
+author = "baud research"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "xparsecolor-observed/probe.c built against nixpkgs libX11 1.8.13, on Xvfb 21.1.24 -screen 0 1024x768x24, 2026-10-18"
+file   = "xparsecolor-observed/xcms-names.out"
+sha256 = "c866a38204903ad12aa1904daf734fda214326bcf115c68351f6c97ae02d53c8"
+bytes  = 442
+status = "retrieved"
+group  = "C"
+# cms red, CMS RED, cmsred, cms  red and "  cms red" give ff00/0000/0000;
+# cms purple fails.
+
+[sources.xparsecolor-obs-xcms-names-nodb]
+key    = "xparsecolor-obs-xcms-names-nodb"
+title  = "The same names with XCMSDB=/dev/null: every stock name fails, the numeric spec and rgb.txt's red still resolve"
+author = "baud research"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "XCMSDB=/dev/null probe < xcms-names-specs.txt, same build and server, 2026-10-18"
+file   = "xparsecolor-observed/xcms-names-nodb.out"
+sha256 = "6c4c0f991d8576e72060521e93f72e00fd2c6ebdd5d84b5d96037656b42d9b6f"
+bytes  = 218
+status = "retrieved"
+group  = "C"
+
 [sources.xserver-fbscreen-98aed9d]
 key    = "xserver-fbscreen-98aed9d"
 title  = "xserver 98aed9d, fb/fbscreen.c -- the fb screen resolves a colour with fbResolveColor"
