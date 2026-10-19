@@ -158,6 +158,19 @@ fn kitty_longest() -> usize {
         + 1 // u
 }
 
+/// Every state of DECBKM, `?1037` and `?1035` together.
+fn key_modes() -> Vec<(BackarrowKey, DeleteKey, NumLockKeypad)> {
+    let mut out = Vec::new();
+    for b in [BackarrowKey::Delete, BackarrowKey::Backspace] {
+        for d in [DeleteKey::Remove, DeleteKey::Del] {
+            for n in [NumLockKeypad::Overrides, NumLockKeypad::Ignored] {
+                out.push((b, d, n));
+            }
+        }
+    }
+    out
+}
+
 /// The longest base-layer key: `modifyOtherKeys`' xterm format, `CSI 27 ;
 /// modifier ; codepoint ~`, with xterm's widest modifier parameter (16, all
 /// four modifiers) and the widest codepoint a `u16` parameter names.
@@ -176,6 +189,9 @@ fn all_flags() -> KeyState {
         terminal: TerminalMode::default(),
         encoding: InputEncoding::default(),
         kitty: KittyFlags::ALL,
+        backarrow: BackarrowKey::default(),
+        delete: DeleteKey::default(),
+        num_lock: NumLockKeypad::default(),
     }
 }
 
@@ -309,16 +325,22 @@ fn no_base_layer_key_is_longer_than_fourteen_bytes() {
                     for c1 in [C1Transmit::SevenBit, C1Transmit::EightBit] {
                         for terminal in [TerminalMode::Ansi, TerminalMode::Vt52] {
                             for encoding in [InputEncoding::Utf8, InputEncoding::Latin1] {
-                                states.push(KeyState {
-                                    modes: modes(m),
-                                    keypad,
-                                    other_keys,
-                                    other_keys_format,
-                                    c1,
-                                    terminal,
-                                    encoding,
-                                    kitty: KittyFlags::NONE,
-                                });
+                                // DECBKM, `?1037` and `?1035`, every pair.
+                                for (backarrow, delete, num_lock) in key_modes() {
+                                    states.push(KeyState {
+                                        modes: modes(m),
+                                        keypad,
+                                        other_keys,
+                                        other_keys_format,
+                                        c1,
+                                        terminal,
+                                        encoding,
+                                        kitty: KittyFlags::NONE,
+                                        backarrow,
+                                        delete,
+                                        num_lock,
+                                    });
+                                }
                             }
                         }
                     }
@@ -327,7 +349,14 @@ fn no_base_layer_key_is_longer_than_fourteen_bytes() {
         }
     }
     let masks: Vec<Modifiers> = (0..16u8)
-        .flat_map(|low| [mods(low), mods(low).with(Modifiers::SUPER)])
+        .flat_map(|low| {
+            [
+                mods(low),
+                mods(low).with(Modifiers::SUPER),
+                // NumLock reaches `?1035`'s override.
+                mods(low).with(Modifiers::NUM_LOCK),
+            ]
+        })
         .collect();
     let mut longest = 0;
     for &(code, text) in &keys {

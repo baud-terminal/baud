@@ -1,5 +1,7 @@
 //! KAM (`CSI 2 h`) and SRM (`CSI 12 l`): the keyboard locked, and the keys
-//! a user types drawn by the terminal itself.
+//! a user types drawn by the terminal itself. And the DEC private modes
+//! that choose what a key sends: DECNKM `?66`, DECBKM `?67`, `?1035` and
+//! `?1037`, below.
 //!
 //! `[[source: vt510-kam]]`: "If KAM is set, then the keyboard cannot send
 //! characters to the host ... The terminal ignores all keystrokes that send
@@ -216,5 +218,242 @@ fn ris_sets_srm_and_decstr_keeps_it() {
         assert!(!t.local_echo(), "RIS: no local echo, the power-on state");
         support::feed(t, b"\x1b[12l\x1b[12$p");
         assert_eq!(t.reply(), b"\x1b[12;2$y");
+    });
+}
+
+// ── ?66 DECNKM ──────────────────────────────────────────────────────────────
+
+fn keys(t: &mut Term<'_>, code: KeyCode, mods: Modifiers) -> Vec<u8> {
+    t.clear_reply();
+    t.key(KeyEvent::press(code, mods));
+    t.reply().to_vec()
+}
+
+/// `[[source: vt510-decnkm]]`: "This control function works like the
+/// DECKPAM and DECKPNM functions. DECNKM is provided mainly for use with the
+/// request and report mode (DECRQM/DECRPM) control functions."
+#[test]
+fn decnkm_is_the_keypad_mode_and_decrqm_reads_it() {
+    support::with_corpus(|t| {
+        let one = KeyCode::Keypad(KeypadKey::Digit1);
+        assert_eq!(keys(t, one, Modifiers::NONE), b"1");
+        support::feed(t, b"\x1b[?66h");
+        assert_eq!(t.keypad(), KeypadMode::Application);
+        assert_eq!(
+            keys(t, one, Modifiers::NONE),
+            b"\x1bOF",
+            "the application column"
+        );
+        t.clear_reply();
+        support::feed(t, b"\x1b[?66$p");
+        assert_eq!(t.reply(), b"\x1b[?66;1$y");
+        support::feed(t, b"\x1b[?66l\x1b[?66$p");
+        assert_eq!(t.reply(), b"\x1b[?66;1$y\x1b[?66;2$y");
+        assert_eq!(t.keypad(), KeypadMode::Numeric);
+        t.clear_reply();
+        support::feed(t, b"\x1b=\x1b[?66$p\x1b>\x1b[?66$p");
+        assert_eq!(
+            t.reply(),
+            b"\x1b[?66;1$y\x1b[?66;2$y",
+            "DECKPAM and DECKPNM"
+        );
+        assert_eq!(t.unsupported_param, 0);
+    });
+}
+
+// ── ?67 DECBKM ──────────────────────────────────────────────────────────────
+
+/// `[[source: vt510-decbkm]]`: "Default: Delete key ... If DECBKM is set,
+/// ⌫ works as a backspace key ... sends a BS character". Control inverts
+/// it, xterm's `backarrowKey` ("Pressing the control key toggles this
+/// behavior") and the kitty protocol's legacy table (Jev's lean,
+/// XTERM_TOGGLE, 0.62/0.70).
+#[test]
+fn decbkm_chooses_what_the_backarrow_key_sends() {
+    support::with_corpus(|t| {
+        let bs = KeyCode::Backspace;
+        assert_eq!(keys(t, bs, Modifiers::NONE), b"\x7f", "reset: DEL");
+        assert_eq!(keys(t, bs, Modifiers::CTRL), b"\x08", "Control: BS");
+        support::feed(t, b"\x1b[?67h");
+        assert_eq!(keys(t, bs, Modifiers::NONE), b"\x08", "set: BS");
+        assert_eq!(keys(t, bs, Modifiers::CTRL), b"\x7f", "Control: DEL");
+        support::feed(t, b"\x1b[?2l");
+        assert_eq!(keys(t, bs, Modifiers::NONE), b"\x08", "and in VT52");
+    });
+}
+
+#[test]
+fn decbkm_names_the_byte_modify_other_keys_reports() {
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b[>4;2m");
+        assert_eq!(
+            keys(t, KeyCode::Backspace, Modifiers::CTRL),
+            b"\x1b[27;5;8~"
+        );
+        support::feed(t, b"\x1b[?67h");
+        assert_eq!(
+            keys(t, KeyCode::Backspace, Modifiers::CTRL),
+            b"\x1b[27;5;127~"
+        );
+    });
+}
+
+#[test]
+fn decbkm_is_reported_kept_by_decstr_and_reset_by_ris() {
+    support::with_corpus(|t| {
+        support::feed(
+            t,
+            b"\x1b[?67$p\x1b[?67h\x1b[?67$p\x1b[!p\x1b[?67$p\x1bc\x1b[?67$p",
+        );
+        assert_eq!(
+            t.reply(),
+            b"\x1b[?67;2$y\x1b[?67;1$y\x1b[?67;1$y\x1b[?67;2$y".as_slice()
+        );
+    });
+}
+
+// ── ?1037 ───────────────────────────────────────────────────────────────────
+
+/// `[[source: ctlseqs]]`: "Send DEL from the editing-keypad Delete key", and
+/// reset "Send VT220 Remove". A modified Delete stays `CSI 3 ; m ~` and the
+/// numeric keypad's Delete is not the editing keypad's, as in xterm's
+/// input.c (`[[source: xterm-input-c]]`).
+#[test]
+fn mode_1037_makes_the_editing_delete_send_del() {
+    support::with_corpus(|t| {
+        let del = KeyCode::Delete;
+        let kp = KeyCode::Keypad(KeypadKey::Delete);
+        assert_eq!(keys(t, del, Modifiers::NONE), b"\x1b[3~", "reset: Remove");
+        support::feed(t, b"\x1b[?1037h");
+        assert_eq!(keys(t, del, Modifiers::NONE), b"\x7f", "set: DEL");
+        assert_eq!(
+            keys(t, del, Modifiers::SHIFT),
+            b"\x1b[3;2~",
+            "modified: Remove"
+        );
+        assert_eq!(
+            keys(t, kp, Modifiers::NONE),
+            b"\x1b[3~",
+            "the keypad's Delete"
+        );
+        t.clear_reply();
+        support::feed(t, b"\x1b[?1037$p\x1b[?1037l\x1b[?1037$p");
+        assert_eq!(t.reply(), b"\x1b[?1037;1$y\x1b[?1037;2$y");
+        assert_eq!(keys(t, del, Modifiers::NONE), b"\x1b[3~");
+    });
+}
+
+// ── ?1035 ───────────────────────────────────────────────────────────────────
+
+/// `[[source: ctlseqs]]`: "Use the NumLock key to override the application
+/// mode", which `?1035` enables, xterm's `numLock` resource; set at
+/// power-on, as that resource is (Jev's lean, SET, 0.66/0.58).
+#[test]
+fn mode_1035_lets_num_lock_override_the_application_keypad() {
+    support::with_corpus(|t| {
+        let one = KeyCode::Keypad(KeypadKey::Digit1);
+        let enter = KeyCode::Keypad(KeypadKey::Enter);
+        support::feed(t, b"\x1b[?1035$p");
+        assert_eq!(t.reply(), b"\x1b[?1035;1$y", "set at power-on");
+        support::feed(t, b"\x1b=");
+        assert_eq!(
+            keys(t, one, Modifiers::NUM_LOCK),
+            b"1",
+            "NumLock: the digit"
+        );
+        assert_eq!(keys(t, enter, Modifiers::NUM_LOCK), b"\r");
+        assert_eq!(
+            keys(t, one, Modifiers::NONE),
+            b"\x1bOF",
+            "without it, DECKPAM"
+        );
+        support::feed(t, b"\x1b[?1035l");
+        assert_eq!(
+            keys(t, one, Modifiers::NUM_LOCK),
+            b"\x1bOF",
+            "reset: DECKPAM"
+        );
+        support::feed(t, b"\x1b[?1035h\x1b[?2l");
+        assert_eq!(keys(t, one, Modifiers::NUM_LOCK), b"1", "and in VT52");
+    });
+}
+
+/// **A navigation key keeps DECKPAM with NumLock on.** xterm overrides the
+/// application keypad only for a keypad key that produced one byte of
+/// text, `kd.nbytes == 1` (`[[source: xterm-input-c]]`), and `KP_End`
+/// produces none. A keymap that maps Shift with NumLock back to the
+/// navigation level sends one, and the Wayland driver reports NumLock on
+/// every keypad key.
+#[test]
+fn a_navigation_key_with_num_lock_keeps_the_application_keypad() {
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b=");
+        let held = Modifiers::NUM_LOCK.with(Modifiers::SHIFT);
+        let end = KeyCode::Keypad(KeypadKey::End);
+        let home = KeyCode::Keypad(KeypadKey::Home);
+        assert_eq!(keys(t, end, Modifiers::NUM_LOCK), b"\x1bOF");
+        assert_eq!(keys(t, home, Modifiers::NUM_LOCK), b"\x1bOH");
+        assert_eq!(keys(t, end, held), b"\x1b[1;2F", "Shift is still sent");
+        assert_eq!(
+            keys(t, KeyCode::Keypad(KeypadKey::Digit1), Modifiers::NUM_LOCK),
+            b"1",
+            "the digit leaves it"
+        );
+    });
+}
+
+/// **A lock is not a modifier the base layer can send.** NumLock and
+/// CapsLock have no ctlseqs code, so a key carrying only them is the key
+/// unmodified: `CSI A`, not `CSI 1 ; 1 A`, which named a modifier of
+/// nothing. xterm maps no lock into its parameter either. The Wayland
+/// driver reports both on any key whose type does not consume them.
+#[test]
+fn a_lock_alone_adds_no_modifier_parameter() {
+    support::with_corpus(|t| {
+        let locks = Modifiers::NUM_LOCK.with(Modifiers::CAPS_LOCK);
+        assert_eq!(keys(t, KeyCode::Up, locks), b"\x1b[A");
+        assert_eq!(keys(t, KeyCode::Delete, locks), b"\x1b[3~");
+        assert_eq!(
+            keys(t, KeyCode::Function(FnKey::new(1).expect("F1")), locks),
+            b"\x1bOP"
+        );
+        assert_eq!(
+            keys(t, KeyCode::Up, locks.with(Modifiers::SHIFT)),
+            b"\x1b[1;2A"
+        );
+        support::feed(t, b"\x1b[>4;2m");
+        assert_eq!(
+            keys(t, ch('a'), locks),
+            b"a",
+            "modifyOtherKeys takes no lock"
+        );
+    });
+}
+
+#[test]
+fn the_key_modes_are_saved_and_restored() {
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b[?66;67;1037h\x1b[?1035l\x1b[?66;67;1035;1037s");
+        support::feed(t, b"\x1b[?66;67;1037l\x1b[?1035h\x1b[?66;67;1035;1037r");
+        support::feed(t, b"\x1b[?66$p\x1b[?67$p\x1b[?1035$p\x1b[?1037$p");
+        assert_eq!(
+            t.reply(),
+            b"\x1b[?66;1$y\x1b[?67;1$y\x1b[?1035;2$y\x1b[?1037;1$y".as_slice()
+        );
+        assert_eq!(t.unsupported_param, 0);
+    });
+}
+
+#[test]
+fn ris_returns_the_key_modes_to_power_on() {
+    support::with_corpus(|t| {
+        support::feed(
+            t,
+            b"\x1b[?67;1037h\x1b[?1035l\x1bc\x1b[?67$p\x1b[?1035$p\x1b[?1037$p",
+        );
+        assert_eq!(
+            t.reply(),
+            b"\x1b[?67;2$y\x1b[?1035;1$y\x1b[?1037;2$y".as_slice()
+        );
     });
 }

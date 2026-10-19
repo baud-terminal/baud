@@ -523,6 +523,17 @@ pub enum PrivateMode {
     /// `?117` DECECM, erase colour mode ([`ModeBit`]'s
     /// `EraseScreenBackground`).
     EraseColor,
+    /// `?66` DECNKM, the keypad mode as a mode: `[[source: vt510-decnkm]]`,
+    /// "works like the DECKPAM and DECKPNM functions ... provided mainly for
+    /// use with the request and report mode (DECRQM/DECRPM)". Set,
+    /// application; reset, numeric.
+    NumericKeypad,
+    /// `?67` DECBKM ([`BackarrowKey`]): set, the backarrow key sends BS.
+    BackarrowKey,
+    /// `?1035`, xterm's `numLock` resource ([`NumLockKeypad`]).
+    NumLockModifiers,
+    /// `?1037`, xterm's `deleteIsDEL` ([`DeleteKey`]).
+    DeleteIsDel,
     Other(Param),
 }
 
@@ -762,6 +773,10 @@ impl PrivateMode {
             PrivateMode::SixelPrivateRegisters => 37,
             PrivateMode::SixelScrollsRight => 38,
             PrivateMode::EraseColor => 39,
+            PrivateMode::NumericKeypad => 40,
+            PrivateMode::BackarrowKey => 41,
+            PrivateMode::NumLockModifiers => 42,
+            PrivateMode::DeleteIsDel => 43,
             PrivateMode::Utf8Resource
             | PrivateMode::CjkWidthResource
             | PrivateMode::EmojiWidthResource
@@ -795,6 +810,10 @@ impl PrivateMode {
             1070 => PrivateMode::SixelPrivateRegisters,
             8452 => PrivateMode::SixelScrollsRight,
             117 => PrivateMode::EraseColor,
+            66 => PrivateMode::NumericKeypad,
+            67 => PrivateMode::BackarrowKey,
+            1035 => PrivateMode::NumLockModifiers,
+            1037 => PrivateMode::DeleteIsDel,
             1034 => PrivateMode::EightBitInput,
             1036 => PrivateMode::MetaSendsEscape,
             1039 => PrivateMode::AltSendsEscape,

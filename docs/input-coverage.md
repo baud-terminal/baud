@@ -127,6 +127,10 @@ created the demand.
 | LNM `20` | — | Return: `CR` vs `CR LF` |
 | KAM `2` | `keyboard_locked` | every key: while a program has locked the keyboard, a key sends nothing and draws nothing. **partial** -- VT510's Wait indicator waits on a status line (`vt-coverage.md`'s KAM row) |
 | SRM `12` | `local_echo` | reset, a key is drawn as well as sent, through a parser of the echo's own; set at power-on. **done** -- `baud-core/tests/keyboard_modes.rs` |
+| DECNKM `?66` | `keypad` | the keypad, as DECKPAM/DECKPNM, and `DECRQM` reads it. **done** |
+| DECBKM `?67` | — | Backspace: reset, the default, DEL; set, BS; Control inverts it (xterm's toggle, the kitty legacy table). **done** |
+| `?1035` | — | the keypad: set at power-on, NumLock overrides DECKPAM and a keypad key sends its digit, the whole keypad on Linux; on macOS, whose keypad has no NumLock key, nothing changes. **done** |
+| `?1037` | — | Delete on the editing keypad: reset, `CSI 3 ~`; set, DEL, unmodified only; the numeric keypad's Delete stays `CSI 3 ~`. **done** |
 | `?1036` / `?1039` | `meta_sends_escape`, `alt_sends_escape` | whether Meta/Alt prefix `ESC` |
 | `?1034` | `eight_bit_input` | whether Meta/Alt add 128, under ISO 8859-1 |
 | `ESC % @` / `ESC % G` | `input_encoding` | whether a typed character is sent as ISO 8859-1 or UTF-8 |

@@ -3050,6 +3050,31 @@ impl Paint<'_, '_> {
             PrivateMode::MetaSendsEscape => self.cold.modes.apply(ModeBit::MetaSendsEscape, on),
             PrivateMode::AltSendsEscape => self.cold.modes.apply(ModeBit::AltSendsEscape, on),
             PrivateMode::EightBitInput => self.cold.modes.apply(ModeBit::EightBitInput, on),
+            // DECNKM is DECKPAM and DECKPNM as a mode, one state with them.
+            PrivateMode::NumericKeypad => {
+                self.cold.keypad = match change {
+                    ModeChange::Set => KeypadMode::Application,
+                    ModeChange::Reset => KeypadMode::Numeric,
+                }
+            }
+            PrivateMode::BackarrowKey => {
+                self.cold.backarrow = match change {
+                    ModeChange::Set => BackarrowKey::Backspace,
+                    ModeChange::Reset => BackarrowKey::Delete,
+                }
+            }
+            PrivateMode::NumLockModifiers => {
+                self.cold.num_lock = match change {
+                    ModeChange::Set => NumLockKeypad::Overrides,
+                    ModeChange::Reset => NumLockKeypad::Ignored,
+                }
+            }
+            PrivateMode::DeleteIsDel => {
+                self.cold.delete = match change {
+                    ModeChange::Set => DeleteKey::Del,
+                    ModeChange::Reset => DeleteKey::Remove,
+                }
+            }
             // **Every hide decides where a program placed the cursor**, a hide
             // of a hidden cursor too, and a show forgets it (`placed.rs`).
             PrivateMode::CursorVisible => {
@@ -3653,6 +3678,9 @@ impl Paint<'_, '_> {
         s.kitty.reset(self.images, s.kitty_scratch);
         self.reset_tabs();
         self.cold.line_stops.clear_all();
+        self.cold.backarrow = BackarrowKey::Delete;
+        self.cold.delete = DeleteKey::Remove;
+        self.cold.num_lock = NumLockKeypad::Overrides;
         self.last_cp = None;
         self.goto(Row::ZERO, Col::ZERO);
     }
@@ -3864,6 +3892,22 @@ impl Paint<'_, '_> {
             PrivateMode::MetaSendsEscape => bit_state(self.cold.modes, ModeBit::MetaSendsEscape),
             PrivateMode::AltSendsEscape => bit_state(self.cold.modes, ModeBit::AltSendsEscape),
             PrivateMode::EightBitInput => bit_state(self.cold.modes, ModeBit::EightBitInput),
+            PrivateMode::NumericKeypad => match self.cold.keypad {
+                KeypadMode::Application => ModeState::Set,
+                KeypadMode::Numeric => ModeState::Reset,
+            },
+            PrivateMode::BackarrowKey => match self.cold.backarrow {
+                BackarrowKey::Backspace => ModeState::Set,
+                BackarrowKey::Delete => ModeState::Reset,
+            },
+            PrivateMode::NumLockModifiers => match self.cold.num_lock {
+                NumLockKeypad::Overrides => ModeState::Set,
+                NumLockKeypad::Ignored => ModeState::Reset,
+            },
+            PrivateMode::DeleteIsDel => match self.cold.delete {
+                DeleteKey::Del => ModeState::Set,
+                DeleteKey::Remove => ModeState::Reset,
+            },
             PrivateMode::Column132 => bit_state(self.cold.modes, ModeBit::Column132),
             PrivateMode::CursorVisible => bit_state(self.cold.modes, ModeBit::CursorVisible),
             // **`?1020` mirrors the encoding rather than carrying a bit.**

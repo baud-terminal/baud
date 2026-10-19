@@ -39,7 +39,16 @@ pub fn press(state: &State<'_>, keycode: Keycode) -> Option<KeyEvent> {
     let eff = state.mods().effective();
     // The modifiers the lookup consumed are not reported again: Shift that
     // made a capital is in the character, not beside it.
-    let mods = modifiers(eff & !lookup.consumed);
+    let mut mods = modifiers(eff & !lookup.consumed);
+    // **Except NumLock on a keypad key**, `XK_KP_Space` to `XK_KP_Equal`:
+    // the keymap's `KEYPAD` type consumes it to make a digit, and `?1035`
+    // asks whether it is on. xterm tests it against the event's whole
+    // state, `xw->work.num_lock & evt_state` for `IsKeypadKey`
+    // (`[[source: xterm-input-c]]` lines 1131-1136), so a digit leaves
+    // DECKPAM as `KP_Add` does. A lock adds no modifier parameter.
+    if (0xff80..=0xffbd).contains(&sym.0) && eff & (1 << 4) != 0 {
+        mods = mods.with(Modifiers::NUM_LOCK);
+    }
     let code = code_of(sym).or_else(|| {
         let c = state.text(keycode)?;
         // Control's transformation is `Term::key`'s to make from the

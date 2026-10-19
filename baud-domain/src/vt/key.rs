@@ -245,10 +245,49 @@ impl KittyStack {
     }
 }
 
+/// DECBKM, `?67`: what the backarrow key sends (`[[source: vt510-decbkm]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum BackarrowKey {
+    /// Reset, the default: "If DECBKM is reset, ⌫ works as a delete key
+    /// ... sends a DEL character", and "To be compatible with some software,
+    /// DECBKM should be reset".
+    #[default]
+    Delete,
+    /// Set: "the terminal sends a BS character to the host".
+    Backspace,
+}
+
+/// `?1037`: what the editing keypad's Delete sends (`[[source: ctlseqs]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum DeleteKey {
+    /// Reset, the default: "Send VT220 Remove from the editing-keypad Delete
+    /// key", `CSI 3 ~`.
+    #[default]
+    Remove,
+    /// Set: "Send DEL from the editing-keypad Delete key".
+    Del,
+}
+
+/// `?1035`: whether NumLock overrides the application keypad, xterm's
+/// `numLock` resource (`[[source: ctlseqs]]`, "Use the NumLock key to
+/// override the application mode").
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum NumLockKeypad {
+    /// Set, the default, as the resource's is (Jev's lean, SET,
+    /// 0.66/0.58): a keypad key with NumLock on sends its numeric column
+    /// under DECKPAM too. The embedder reports NumLock on a keypad key
+    /// whenever it is on, as the Wayland driver does; macOS reports none,
+    /// its keypad having no NumLock key.
+    #[default]
+    Overrides,
+    /// Reset: NumLock does not change what the keypad sends.
+    Ignored,
+}
+
 /// The mode state the encoder reads. [`encode_key`] reads the key, this and
 /// nothing else, and it reads every field.
 ///
-/// **Eight fields and not twelve, because `Modes` carries five of them.**
+/// **Eleven fields and not fifteen, because `Modes` carries five of them.**
 /// DECCKM, LNM, `?1036` metaSendsEscape, `?1039` altSendsEscape and `?1034`
 /// eightBitInput are the five `ModeBit`s the encoder reads, so they travel as
 /// one word and this struct needs no `bool` -- which `audit_all.sh` gates this
@@ -279,6 +318,39 @@ pub struct KeyState {
     /// base layer -- every key its legacy form -- and any bit set routes the
     /// key through the kitty encoding instead.
     pub kitty: KittyFlags,
+    /// DECBKM, `?67`.
+    pub backarrow: BackarrowKey,
+    /// `?1037`.
+    pub delete: DeleteKey,
+    /// `?1035`.
+    pub num_lock: NumLockKeypad,
+}
+
+impl KeyState {
+    /// The keypad's column for `k` carrying `mods`: DECKPAM's, unless
+    /// `?1035` lets NumLock override it, as xterm's input.c forces
+    /// `keypad_mode` off for a keypad key while NumLock is on
+    /// (`[[source: xterm-input-c]]`). **Not for a navigation key**: xterm
+    /// overrides only a key that produced one byte of text, `kd.nbytes ==
+    /// 1`, and `KP_End` produces none.
+    fn keypad_for(self, k: KeypadKey, mods: Modifiers) -> KeypadMode {
+        let text = k.shares_row_with().is_none();
+        match self.num_lock == NumLockKeypad::Overrides && mods.has(Modifiers::NUM_LOCK) && text {
+            true => KeypadMode::Numeric,
+            false => self.keypad,
+        }
+    }
+
+    /// The backarrow key's byte: DECBKM's, **and Control inverts it**, xterm's
+    /// `IsBackarrowToggle` ("Pressing the control key toggles this
+    /// behavior") and the legacy table of `[[source: kitty-keyboard]]`, whose
+    /// Control-Backspace is `0x8` (Jev's lean, XTERM_TOGGLE, 0.62/0.70).
+    fn backarrow_byte(self, mods: Modifiers) -> u8 {
+        match (self.backarrow == BackarrowKey::Backspace) != mods.has(Modifiers::CTRL) {
+            true => 0x08,
+            false => 0x7f,
+        }
+    }
 }
 
 /// The bytes one key press produces.
@@ -758,6 +830,10 @@ fn ansi(
         // gives VT220 forms, `CSI 1 ~` and `CSI 4 ~`, and those are an
         // *alternative* reached through `sunKeyboard` rather than an addition:
         // sending both would be sending two different keys.
+        // `?1037` set: the editing keypad's Delete sends DEL, unmodified only
+        // -- xterm's input.c sends Remove when `modify_parm != 0 ||
+        // !xtermDeleteIsDEL` (`[[source: xterm-input-c]]`).
+        KeyCode::Delete if s.delete == DeleteKey::Del && !carries(mods) => o.push(0x7f),
         KeyCode::Insert | KeyCode::Delete | KeyCode::PageUp | KeyCode::PageDown => {
             match code.tilde_param() {
                 Some(p) => tilde_key(o, p, mods, s),
@@ -786,14 +862,17 @@ fn ansi(
             }
         }
         // `[[source: ctlseqs]]` line 253: BS is Ctrl-H. Which byte the
-        // *Backspace key* sends is a different question -- DECBKM (`?67`)
-        // chooses, and baud does not implement it, so this is xterm's default
-        // with `backarrowKey` false.
+        // *Backspace key* sends is a different question, which DECBKM (`?67`)
+        // answers, Control inverting it ([`KeyState::backarrow_byte`]).
         // The C0 keys. `[[source: fixterms]]`'s "Modified C0 controls" names the
         // codepoint each is encoded with -- Enter 13, Escape 27, Backspace 127,
-        // Tab 9 -- which are their ASCII values rather than anything new.
-        KeyCode::Backspace if other_keys_takes(mods, s) => other_key(o, 0x7f, mods, s),
-        KeyCode::Backspace => o.push(0x7f),
+        // Tab 9 -- which are their ASCII values rather than anything new; the
+        // backarrow key's is the byte it sends, as xterm's toggle sets that
+        // byte before `modifyOtherKeys` reads it.
+        KeyCode::Backspace if other_keys_takes(mods, s) => {
+            other_key(o, u16::from(s.backarrow_byte(mods)), mods, s)
+        }
+        KeyCode::Backspace => o.push(s.backarrow_byte(mods)),
         KeyCode::Escape if other_keys_takes(mods, s) => other_key(o, 0x1b, mods, s),
         KeyCode::Escape => o.push(0x1b),
         // **Shift-Tab is the discriminating case for level 2**, and
@@ -848,11 +927,11 @@ fn vt52(
         // keypad's rows by digit alone, so there is no row to send.
         KeyCode::Keypad(k) => match k.duplicates() {
             Some(code) => return vt52(o, code, mods, text, s),
-            None => return vt52_keypad(o, k, s),
+            None => return vt52_keypad(o, k, mods, s),
         },
         // The text keys are the keyboard, not the emulation.
         KeyCode::Char(cp) => return text_key(o, cp, text, mods, s),
-        KeyCode::Backspace => o.push(0x7f),
+        KeyCode::Backspace => o.push(s.backarrow_byte(mods)),
         KeyCode::Escape => o.push(0x1b),
         // No CBT on a VT52: `CSI Z` is an ANSI sequence, so Tab is HT whatever
         // is held.
@@ -872,14 +951,14 @@ fn vt52_esc(o: &mut KeyBytes, final_byte: FinalByte) {
 }
 
 /// The VT52 keypad, `[[source: ctlseqs]]` line 2713.
-fn vt52_keypad(o: &mut KeyBytes, k: KeypadKey, s: KeyState) -> bool {
+fn vt52_keypad(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> bool {
     // `ESC P`-`ESC S` in both columns, so the mode is not consulted. Same four
     // finals as the ANSI side's `SS3 P`-`SS3 S`.
     if let Some(f) = k.pf().and_then(FnKey::ss3_final) {
         vt52_esc(o, f);
         return true;
     }
-    if s.keypad == KeypadMode::Numeric {
+    if s.keypad_for(k, mods) == KeypadMode::Numeric {
         return match k {
             KeypadKey::Enter => {
                 o.ret(s);
@@ -939,13 +1018,26 @@ fn keypad_key(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> b
     // their equivalent non-keypad keys". `Begin` duplicates no key, and its
     // row's `CSI E` is line 2518's spelling and the first of kitty's two
     // (`1 E or 57427 ~`).
+    let mode = s.keypad_for(k, mods);
     if let Some(row) = k.shares_row_with() {
-        return match (s.keypad, k.duplicates()) {
+        return match (mode, k.duplicates()) {
+            // The keypad's Delete is not the editing keypad's, so `?1037`
+            // leaves it `CSI 3 ~` (xterm's `KP_Delete` is a keysym of its own).
+            (KeypadMode::Numeric, Some(KeyCode::Delete)) => ansi(
+                o,
+                KeyCode::Delete,
+                mods,
+                None,
+                KeyState {
+                    delete: DeleteKey::Remove,
+                    ..s
+                },
+            ),
             (KeypadMode::Numeric, Some(code)) => ansi(o, code, mods, None, s),
             _ => keypad_application(o, row, mods, s),
         };
     }
-    if s.keypad == KeypadMode::Numeric {
+    if mode == KeypadMode::Numeric {
         // Enter is the one row whose numeric form is not its label: `CR`, and
         // LNM governs it exactly as it governs the main Return.
         if k == KeypadKey::Enter {
@@ -1123,7 +1215,7 @@ fn function_key(o: &mut KeyBytes, f: FnKey, mods: Modifiers, s: KeyState) {
 fn tilde_key(o: &mut KeyBytes, param: Param, mods: Modifiers, s: KeyState) {
     o.introducer(Introducer::Csi, s.c1);
     o.num(param.value());
-    if !mods.is_none() {
+    if carries(mods) {
         o.all(b";");
         o.num(u16::from(mods.wire()));
     }
@@ -1147,8 +1239,19 @@ fn other_keys_takes(mods: Modifiers, s: KeyState) -> bool {
     match s.other_keys {
         OtherKeys::Off => false,
         OtherKeys::Level1 => mods.has(Modifiers::ALT) || mods.has(Modifiers::META),
-        OtherKeys::Level2 => !mods.is_none(),
+        OtherKeys::Level2 => carries(mods),
     }
+}
+
+/// Whether the base layer has a modifier to send: one of the four
+/// `[[source: ctlseqs]]` codes. **A modifier with no code there is none**,
+/// a lock, Super or Hyper ([`Modifiers::wire`] drops them), so a key
+/// carrying only a lock is the key unmodified -- `CSI A`, where this sent
+/// `CSI 1 ; 1 A`, a parameter naming no modifier, for every arrow on a
+/// Wayland keyboard with NumLock on. xterm's `xtermStateToParam` maps no
+/// lock either (`[[source: xterm-input-c]]`).
+fn carries(mods: Modifiers) -> bool {
+    mods.wire() != 1
 }
 
 /// An ordinary key, sent as a sequence because `modifyOtherKeys` is set.
@@ -1222,7 +1325,7 @@ fn cursor_shaped(
     mods: Modifiers,
     s: KeyState,
 ) {
-    if mods.is_none() {
+    if !carries(mods) {
         o.introducer(intro, s.c1);
         o.byte(final_byte.byte());
         return;

@@ -908,6 +908,13 @@ pub struct Cold {
     /// and TBC and CTC clear; none at power-on and after `RIS`, kept by
     /// `DECSTR`, which names no tab stops.
     pub(crate) line_stops: LineStops,
+    /// DECBKM `?67`, `?1037` and `?1035`, which `Term::key` hands the
+    /// encoder: each its power-on value at power-on and after `RIS`, and
+    /// kept by `DECSTR`, whose table names none of them (`[[source:
+    /// vt510-decstr]]`) and whose xterm counterpart clears none.
+    pub(crate) backarrow: BackarrowKey,
+    pub(crate) delete: DeleteKey,
+    pub(crate) num_lock: NumLockKeypad,
     /// XTSAVE's one-level cache of the private modes, which XTRESTORE reads
     /// back: written and read once per `CSI ? Pm s` and `r`, emptied by
     /// `RIS`, never on the write path.
@@ -1068,6 +1075,8 @@ pub struct Cold {
 // rest by control functions and reports.
 // The line tabulation stops took it to 808: ten words, written by VTS, CTC,
 // TBC and RIS and read by CVT and by VT's out-of-line arm, never by a glyph.
+// DECBKM, `?1037` and `?1035` are three bytes that fit in its padding
+// (760 on a base with only the tab stops), read by `Term::key` alone.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 808);
@@ -1321,6 +1330,9 @@ impl Cold {
             pinned: Pinned::Before,
             keypad: KeypadMode::Numeric,
             line_stops: LineStops::NONE,
+            backarrow: BackarrowKey::Delete,
+            delete: DeleteKey::Remove,
+            num_lock: NumLockKeypad::Overrides,
             protect: CellFlags::NONE,
             guard_open: None,
             guards: Guards::None,
@@ -4113,7 +4125,7 @@ impl<'b> Term<'b> {
     /// lines and having two spellings of the input protocol, which is what a
     /// hand-written CSI recogniser beside the table cost this repo once.
     ///
-    /// **Every one of `KeyState`'s eight fields is read off `Term`, and two
+    /// **Every one of `KeyState`'s eleven fields is read off `Term`, and two
     /// used to be constants.**
     ///
     /// * **`c1` was `C1Transmit::SevenBit`**, on the grounds that the core did
@@ -4180,6 +4192,9 @@ impl<'b> Term<'b> {
             other_keys: self.cold.other_keys,
             other_keys_format: self.cold.other_keys_format,
             kitty: self.cold.kitty.current(),
+            backarrow: self.cold.backarrow,
+            delete: self.cold.delete,
+            num_lock: self.cold.num_lock,
         };
         let k = encode_key(e, s)?;
         let b = k.as_bytes();
