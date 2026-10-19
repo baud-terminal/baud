@@ -5694,6 +5694,44 @@ fn kitty_placeholder_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         0,
         "the CPU arm disagrees on a Sixel on a double line"
     );
+    // **Moved by IL, DL, DECIC and DECDC**: IL and DL carry the line, its
+    // rendition and the Sixel on it (`[[source: dec-std-070]]` pp. 5-146 to
+    // 5-149), so every arm draws what the same line and Sixel put straight
+    // on the row they reach draws; DECIC and DECDC shift the text under a
+    // Sixel that stays (Jev 2026-10-19, IMAGES_STAY), so every arm draws
+    // the shifted text with the Sixel put where it was. A kitty placement
+    // on a sized line under the four is held by the core tests alone
+    // (`il_and_dl_carry_an_image_on_a_sized_line_with_its_line`,
+    // `decic_and_decdc_leave_an_image_on_a_sized_line_where_it_is`).
+    let put = |row: usize, text: &str| {
+        let mut b = format!("\x1bc\x1b[?25l\x1b[{row};1H\x1b#6{text}\x1b[{row};9H").into_bytes();
+        b.extend_from_slice(sixel);
+        b
+    };
+    let plain = {
+        feed(t, &put(5, "Doubled text"));
+        frames(arms, t)[0].clone()
+    };
+    for (op, row, text) in [
+        ("\x1b[2;1H\x1b[2L", 7, "Doubled text"),
+        ("\x1b[2;1H\x1b[2M", 3, "Doubled text"),
+        ("\x1b[5;1H\x1b[2'}", 5, "  Doubled text"),
+        ("\x1b[5;1H\x1b[2'~", 5, "ubled text"),
+    ] {
+        feed(t, &put(row, text));
+        let want = frames(arms, t)[0].clone();
+        feed(t, &put(5, "Doubled text"));
+        feed(t, op.as_bytes());
+        let got = frames(arms, t);
+        assert!(differing(&plain, &got[0]) > 0, "{op:?} moved nothing");
+        for (k, arm) in ["instance", "cell", "cpu"].into_iter().enumerate() {
+            assert_eq!(
+                differing(&want, &got[k]),
+                0,
+                "{op:?}: the {arm} arm is not the line and Sixel put on row {row}"
+            );
+        }
+    }
 }
 
 /// **A placeholder picture in a smooth scroll's leaving row** (`[[source:

@@ -1121,6 +1121,131 @@ fn sixel_scrolls_right_counts_a_double_line_s_characters() {
     });
 }
 
+/// Each placement's screen row and display column, in slot order.
+fn placed_at(t: &Term<'_>) -> Vec<(i128, usize)> {
+    let top = i128::from(t.image_origin(Rows::ZERO).top.value());
+    t.images()
+        .placements()
+        .map(|(_, p)| (i128::from(p.line.value()) - top, p.col.index()))
+        .collect()
+}
+
+/// A 32x48 RGBA kitty placement, four columns by three rows at the cursor,
+/// the cursor left where it was (`C=1`).
+fn kitty_32x48() -> String {
+    let px = [255u8, 0, 0, 255].repeat(32 * 48);
+    format!(
+        "\x1b_Ga=T,f=32,s=32,v=48,i=5,c=4,r=3,C=1,q=2;{}\x1b\\",
+        base64(&px)
+    )
+}
+
+/// **IL and DL carry an image on a sized line with the line**: "Data in
+/// the display is scrolled downward to the Bottom Margin" and the line's
+/// rendition with it, State Affected naming both (`[[source: dec-std-070]]`
+/// pp. 5-146 to 5-149). The image keeps the display column it began at,
+/// so on the moved double line the cell at a character position meets it
+/// by the display columns the cell covers there: position 11 (display
+/// 21-22) misses an image from display column 17, position 10 (19-20)
+/// meets it -- text over a Sixel frees it, and a kitty delete by the
+/// cursor's cell (`d=c`) takes the placement. On each rendition, for a
+/// Sixel and a kitty placement, by IL and by DL above the line.
+#[test]
+fn il_and_dl_carry_an_image_on_a_sized_line_with_its_line() {
+    let kitty = kitty_32x48();
+    for set in ["\x1b#6", "\x1b#3", "\x1b#4"] {
+        for (image, name) in [(SIXEL_24, "sixel"), (kitty.as_bytes(), "kitty")] {
+            for (op, to) in [("\x1b[2;1H\x1b[2L", 6), ("\x1b[2;1H\x1b[2M", 2)] {
+                with_images(|t| {
+                    support::feed(t, format!("\x1b[5;1H{set}\x1b[5;9H").as_bytes());
+                    support::feed(t, image);
+                    assert_eq!(placed_at(t), vec![(4, 16)], "{set:?} {name}");
+                    support::feed(t, op.as_bytes());
+                    assert_eq!(size(t, to), size_of(set), "{set:?} {op:?}: the rendition");
+                    assert_eq!(
+                        placed_at(t),
+                        vec![(to as i128, 16)],
+                        "{set:?} {name} {op:?}"
+                    );
+                    let at = |c: usize| match name {
+                        "sixel" => format!("\x1b[{};{c}Hx", to + 1),
+                        _ => format!("\x1b[{};{c}H\x1b_Ga=d,d=c,q=2\x1b\\", to + 1),
+                    };
+                    support::feed(t, at(11).as_bytes());
+                    assert_eq!(placed_at(t).len(), 1, "{set:?} {name} {op:?}: past it");
+                    support::feed(t, at(10).as_bytes());
+                    assert!(placed_at(t).is_empty(), "{set:?} {name} {op:?}: over it");
+                });
+            }
+        }
+    }
+}
+
+fn size_of(set: &str) -> LineRendition {
+    match set {
+        "\x1b#6" => LineRendition::DoubleWidth,
+        "\x1b#3" => LineRendition::DoubleTop,
+        "\x1b#4" => LineRendition::DoubleBottom,
+        _ => LineRendition::Single,
+    }
+}
+
+/// **DECIC and DECDC leave an image where it is**, on a sized line as on
+/// any: the kitty text moves images only when "scrolling the screen" and
+/// gives erases "no effect on graphics" (`[[source: kitty-graphics]]`,
+/// "Interaction with other terminal actions"), no DEC text puts a Sixel
+/// under DECIC, and xterm and kitty move none. Decided by Jev 2026-10-19,
+/// IMAGES_STAY, 1.00 both orders. The text shifts under it.
+#[test]
+fn decic_and_decdc_leave_an_image_on_a_sized_line_where_it_is() {
+    let kitty = kitty_32x48();
+    let forty = letters(40, true);
+    for (image, name) in [(SIXEL_24, "sixel"), (kitty.as_bytes(), "kitty")] {
+        for (op, want) in [
+            ("\x1b[3'}", format!("...{}", &forty[..37])),
+            ("\x1b[3'~", forty[3..].to_string()),
+        ] {
+            with_images(|t| {
+                support::feed(t, format!("\x1b[5;1H\x1b#6{forty}\x1b[5;9H").as_bytes());
+                support::feed(t, image);
+                assert_eq!(placed_at(t), vec![(4, 16)], "{name}");
+                support::feed(t, format!("\x1b[5;1H{op}").as_bytes());
+                assert_eq!(&text(t, 4)[..want.len()], want, "{name} {op:?}: the text");
+                assert_eq!(placed_at(t), vec![(4, 16)], "{name} {op:?}: the image");
+            });
+        }
+    }
+}
+
+/// **DECIC and DECDC shift every row of the region to the right margin**,
+/// a sized line's included. Their texts say "The contents of the display
+/// are shifted to the right from the active column to the right margin"
+/// (DECIC, p. 5-150; DECDC, p. 5-151), are silent on a sized line and
+/// leave the algorithms "to be supplied"; ICH's and DCH's algorithms bound
+/// their shift by the line's end (pp. 5-143 and 5-145,
+/// `ich_and_dch_shift_within_the_half`), and the scroll_left and
+/// scroll_right of DECIC's own horizontal-scrolling extension run every
+/// row to the right margin (§ 5.14.4 and § 5.14.5, pp. 5-212 and 5-213).
+/// So three letters DECIC pushes past a double line's fortieth position
+/// are kept past it and come back on DECSWL, which "does not cause data
+/// contained in the Active Line to be lost" (p. 5-96), and DECDC after it
+/// brings them back in. Jev's lean, RIGHT_MARGIN, taken below the bar
+/// after one re-ask (confidence 0.84 and 0.90, then 0.52 and 0.66,
+/// 2026-10-19); xterm shifts each row to its right margin
+/// (`[[source: xterm-scroll]]`, `xtermColScroll`).
+#[test]
+fn decic_and_decdc_shift_a_sized_line_to_the_right_margin() {
+    let forty = letters(40, true);
+    on(
+        format!("\x1b[2;1H\x1b#6{forty}\x1b[1;1H\x1b[3'}}\x1b[2;1H\x1b#5").as_bytes(),
+        |t| assert_eq!(text(t, 1), format!("...{forty}{}", dots(37))),
+    );
+    on(
+        format!("\x1b[2;1H\x1b#6{forty}\x1b[1;1H\x1b[3'}}\x1b[3'~").as_bytes(),
+        |t| assert_eq!(text(t, 1), format!("{forty}{}", dots(40))),
+    );
+}
+
 fn base64(data: &[u8]) -> String {
     const B: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
