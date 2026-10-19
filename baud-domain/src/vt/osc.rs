@@ -27,16 +27,13 @@ pub enum Osc<'a> {
     /// `OSC 104 ; c` — reset the palette entries named, "Any number of c
     /// parameters", and with none "the entire table": [`ColorResets`].
     ResetColors(ColorResets<'a>),
-    /// `OSC 10 ; spec` / `OSC 11 ; spec` -- the default foreground and
-    /// background. `[[source: ctlseqs]]`: "Change VT100 text foreground
-    /// color to Pt", and `?` in place of a spec is a query "with a control
-    /// sequence of the same form". Only the first spec is taken, as with
-    /// `OSC 4`: xterm lets one sequence carry several and answer each, and a
-    /// fixed reply buffer does not.
-    SetDynamic {
-        which: DynamicColor,
-        spec: XColor<'a>,
-    },
+    /// `OSC 10 ; spec` to `OSC 19 ; spec` -- the dynamic colours.
+    /// `[[source: ctlseqs]]`: "Change VT100 text foreground color to Pt",
+    /// and `?` in place of a spec is a query "with a control sequence of the
+    /// same form". "Each successive parameter changes the next color in the
+    /// list. The value of Ps tells the starting point in the list":
+    /// [`DynamicSpecs`].
+    SetDynamic(DynamicSpecs<'a>),
     /// `OSC 110` / `OSC 111` -- reset the default foreground or background
     /// to what the embedder's theme says.
     ResetDynamic(DynamicColor),
@@ -78,6 +75,18 @@ pub enum DynamicColor {
 }
 
 impl DynamicColor {
+    /// The colour an `OSC` number names, of the ten xterm numbers 10 to 19
+    /// ([`DYNAMIC_FIRST`] to [`DYNAMIC_LAST`]); `None` for one baud keeps no
+    /// colour for.
+    pub fn of_code(code: u16) -> Option<DynamicColor> {
+        match code {
+            10 => Some(DynamicColor::Foreground),
+            11 => Some(DynamicColor::Background),
+            12 => Some(DynamicColor::Cursor),
+            _ => None,
+        }
+    }
+
     /// The `Ps` that sets this colour; the reset is `100 + Ps`.
     pub fn code(self) -> u16 {
         match self {
@@ -495,6 +504,71 @@ impl<'a> Iterator for ColorPairs<'a> {
     }
 }
 
+/// The first and last of xterm's ten dynamic colour numbers: "The 10
+/// colors (below) which may be set or queried using 1 0 through 1 9"
+/// (`[[source: ctlseqs]]`).
+pub const DYNAMIC_FIRST: u16 = 10;
+pub const DYNAMIC_LAST: u16 = 19;
+
+/// One spec of an `OSC 10`-family sequence.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DynamicSpec<'a> {
+    /// The colour the spec's place in the list names, set to or, with
+    /// [`XColor::Query`], asked for by `spec`.
+    Color {
+        which: DynamicColor,
+        spec: XColor<'a>,
+    },
+    /// A request baud does not honour: a number it keeps no colour for (the
+    /// pointer's 13 and 14, Tektronix's 15, 16 and 18), the specs past 19,
+    /// counted once, or a sequence with no spec at all.
+    Unheld,
+}
+
+/// The specs of an `OSC 10`-family sequence, each naming the next colour
+/// from `Ps` on, as xterm's `ChangeColorsRequest` walks them
+/// (`[[source: xterm-misc]]` 3680-3703): an empty field passes over its
+/// colour, a spec no reader takes leaves its colour and the walk goes on,
+/// and the walk ends at 19.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DynamicSpecs<'a> {
+    code: u16,
+    rest: &'a [u8],
+    walk: Walk,
+}
+
+impl<'a> Iterator for DynamicSpecs<'a> {
+    type Item = DynamicSpec<'a>;
+    fn next(&mut self) -> Option<DynamicSpec<'a>> {
+        loop {
+            if self.walk == Walk::Done {
+                return None;
+            }
+            if self.rest.is_empty() || self.code > DYNAMIC_LAST {
+                let asked = self.rest.iter().any(|&b| b != b';');
+                let none = self.walk == Walk::Start;
+                self.walk = Walk::Done;
+                return (asked || none).then_some(DynamicSpec::Unheld);
+            }
+            let field = Split::new(self.rest, b';').next().unwrap_or(b"");
+            self.rest = self.rest.get(field.len() + 1..).unwrap_or(&[]);
+            let code = self.code;
+            self.code += 1;
+            if field.is_empty() {
+                continue;
+            }
+            self.walk = Walk::Going;
+            return Some(match DynamicColor::of_code(code) {
+                Some(which) => DynamicSpec::Color {
+                    which,
+                    spec: XColor::parse(field),
+                },
+                None => DynamicSpec::Unheld,
+            });
+        }
+    }
+}
+
 /// One parameter of an `OSC 104`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ColorReset {
@@ -563,20 +637,12 @@ impl<'a> Osc<'a> {
                 rest,
                 walk: Walk::Start,
             }),
-            b"10" | b"11" | b"12" => {
-                let which = match ps {
-                    b"10" => DynamicColor::Foreground,
-                    b"11" => DynamicColor::Background,
-                    _ => DynamicColor::Cursor,
-                };
-                let mut p = Split::new(rest, b';');
-                match p.next() {
-                    Some(spec) if !spec.is_empty() => Osc::SetDynamic {
-                        which,
-                        spec: XColor::parse(spec),
-                    },
-                    _ => Osc::Unsupported,
-                }
+            b"10" | b"11" | b"12" | b"13" | b"14" | b"15" | b"16" | b"17" | b"18" | b"19" => {
+                Osc::SetDynamic(DynamicSpecs {
+                    code: ps.iter().fold(0, |v, &b| v * 10 + u16::from(b - b'0')),
+                    rest,
+                    walk: Walk::Start,
+                })
             }
             b"110" => Osc::ResetDynamic(DynamicColor::Foreground),
             b"111" => Osc::ResetDynamic(DynamicColor::Background),

@@ -363,15 +363,24 @@ impl Paint<'_, '_> {
             // land, on its swapped tables (`[[source: xterm-misc]]` misc.c
             // 3568-3750). A query keeps the code the program sent, as xterm's
             // replies do.
-            Osc::SetDynamic { which, spec } => match spec {
-                XColor::Rgb(r, g, b) => {
-                    let slot = self.cold.video().role(which);
-                    self.set_dynamic(slot, ColorWord::rgb(r, g, b));
+            // Each spec in turn, from the number sent on: a query answered
+            // where it stands.
+            Osc::SetDynamic(specs) => {
+                for spec in specs {
+                    match spec {
+                        DynamicSpec::Color { which, spec } => match spec {
+                            XColor::Rgb(r, g, b) => {
+                                let slot = self.cold.video().role(which);
+                                self.set_dynamic(slot, ColorWord::rgb(r, g, b));
+                            }
+                            XColor::Query => self.report_dynamic(which, term),
+                            // Counted, as `OSC 4`'s unresolvable name is.
+                            XColor::Unresolved(_) => self.unsupported_total += 1,
+                        },
+                        DynamicSpec::Unheld => self.unsupported_total += 1,
+                    }
                 }
-                XColor::Query => self.report_dynamic(which, term),
-                // Counted, as `OSC 4`'s unresolvable name is.
-                XColor::Unresolved(_) => self.unsupported_total += 1,
-            },
+            }
             Osc::ResetDynamic(which) => {
                 let slot = self.cold.video().role(which);
                 self.set_dynamic(slot, ColorWord::DEFAULT);

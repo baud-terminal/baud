@@ -574,6 +574,78 @@ fn osc_12_sets_and_reads_the_cursor_colour() {
     );
 }
 
+/// The three dynamic colours a sequence sets, and the count of requests
+/// not honoured.
+fn walked(defaults: Option<(Rgb, Rgb)>, bytes: &[u8]) -> ([Option<Rgb>; 3], Vec<u8>, usize) {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    if let Some((fg, bg)) = defaults {
+        t.set_default_colors(fg, bg);
+    }
+    support::feed(&mut t, bytes);
+    (
+        [
+            t.dynamic_color(DynamicColor::Foreground),
+            t.dynamic_color(DynamicColor::Background),
+            t.dynamic_color(DynamicColor::Cursor),
+        ],
+        t.reply().to_vec(),
+        t.unsupported,
+    )
+}
+
+/// **Each spec after the first sets the next colour.** `[[source:
+/// ctlseqs]]`: "Each successive parameter changes the next color in the
+/// list. The value of Ps tells the starting point in the list", so `OSC 10
+/// ; fg ; bg ; cursor` sets all three and `OSC 11 ; bg ; cursor` starts at
+/// the background.
+#[test]
+fn each_spec_after_the_first_sets_the_next_colour() {
+    let (d, _, n) = walked(None, b"\x1b]10;#ff0000;#00ff00;#0000ff\x07");
+    assert_eq!(d, [Some((255, 0, 0)), Some((0, 255, 0)), Some((0, 0, 255))]);
+    assert_eq!(n, 0);
+    let (d, _, _) = walked(None, b"\x1b]11;#102030;red\x07");
+    assert_eq!(d, [None, Some((0x10, 0x20, 0x30)), Some((255, 0, 0))]);
+}
+
+/// **An empty field passes over its colour**, as xterm's
+/// `ChangeColorsRequest` takes a field that begins with `;` as no name
+/// (`[[source: xterm-misc]]` 3685-3700): `OSC 10 ; ; bg` sets the
+/// background alone.
+#[test]
+fn an_empty_field_leaves_its_colour() {
+    let (d, _, n) = walked(None, b"\x1b]10;;#00ff00\x07");
+    assert_eq!(d, [None, Some((0, 255, 0)), None]);
+    assert_eq!(n, 0);
+}
+
+/// **Each `?` in the list is answered, in turn and in its own reply**:
+/// "Because more than one pair of color number and specification can be
+/// given in one control sequence, xterm can make more than one reply"
+/// (`[[source: ctlseqs]]`).
+#[test]
+fn each_query_in_the_list_is_answered() {
+    let defaults = Some(((0xe0, 0xe0, 0xe0), (0x11, 0x11, 0x11)));
+    let (_, reply, _) = walked(defaults, b"\x1b]10;?;?\x1b\\");
+    assert_eq!(
+        reply,
+        &b"\x1b]10;rgb:e0e0/e0e0/e0e0\x1b\\\x1b]11;rgb:1111/1111/1111\x1b\\"[..]
+    );
+}
+
+/// **A number baud keeps no colour for is counted, and the walk goes on**:
+/// the pointer's two (13, 14) and Tektronix's three (15, 16, 18), and a spec
+/// past 19, the last of xterm's ten.
+#[test]
+fn a_colour_baud_does_not_keep_is_counted_and_the_walk_goes_on() {
+    let (d, _, n) = walked(None, b"\x1b]12;red;blue;blue\x07");
+    assert_eq!(d, [None, None, Some((255, 0, 0))]);
+    assert_eq!(n, 2, "13 and 14");
+    let (_, _, n) = walked(None, b"\x1b]18;red;red;red\x07");
+    assert!(n >= 2, "18, and the spec past 19: {n}");
+}
+
 /// The same bytes at every read size produce the same colours and the same
 /// reply: an `OSC` spans reads, and the value must not depend on where they
 /// fell. The core's own chunk-invariance sweep does not reach this, because
