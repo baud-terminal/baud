@@ -1993,7 +1993,7 @@ upstream = "https://github.com/sxyazi/yazi/blob/aa526434f00bb44e2e902d9a4ac5f810
 status   = "kept"
 
 [[tree]]
-what     = "The Xcms conversions in xcms.rs (u'v'Y, xyY, TekHVC, the TekHVC gamut clip and its searches, Xcms's roots and trigonometry), ported from libX11's src/xcms, and in its test module the Tektronix CRT data and table search of LRGB.c. The TekHVC notice's three conditions: its notice is reproduced in xcms.rs and LICENSES; baud displays no TekHVC coordinates, since a TekHVC: spec is read, drawn as sRGB and answered to a query as rgb:; and the term TekHVC names that space and nothing else, wherever baud's text names it"
+what     = "The Xcms conversions in xcms.rs (u'v'Y, xyY, TekHVC, the TekHVC gamut clip and its searches, Xcms's roots and trigonometry), ported from libX11's src/xcms, and in its test module the Tektronix CRT data and table search of LRGB.c. The TekHVC notice's three conditions: its notice is reproduced in xcms.rs and LICENSES; baud displays no TekHVC coordinates, since a TekHVC: spec is read, drawn as sRGB and answered to a query as rgb:; and baud's text calls that space TekHVC wherever it names it, and uses the term for nothing else"
 paths    = ["baud-domain/src/vt/xcms.rs", "baud-domain/src/vt/xcms/tests.rs"]
 licence  = "LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group"
 notice   = "LICENSES/libx11-xcms.txt"

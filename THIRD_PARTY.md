@@ -264,7 +264,7 @@ they were built from.
 - **From:** https://github.com/sxyazi/yazi/blob/aa526434f00bb44e2e902d9a4ac5f810da1018b9/yazi-emulator/src/emulator.rs
 - **Files:** [baud-core/tests/image_geometry.rs](baud-core/tests/image_geometry.rs)
 
-### The Xcms conversions in xcms.rs (u'v'Y, xyY, TekHVC, the TekHVC gamut clip and its searches, Xcms's roots and trigonometry), ported from libX11's src/xcms, and in its test module the Tektronix CRT data and table search of LRGB.c. The TekHVC notice's three conditions: its notice is reproduced in xcms.rs and LICENSES; baud displays no TekHVC coordinates, since a TekHVC: spec is read, drawn as sRGB and answered to a query as rgb:; and the term TekHVC names that space and nothing else, wherever baud's text names it
+### The Xcms conversions in xcms.rs (u'v'Y, xyY, TekHVC, the TekHVC gamut clip and its searches, Xcms's roots and trigonometry), ported from libX11's src/xcms, and in its test module the Tektronix CRT data and table search of LRGB.c. The TekHVC notice's three conditions: its notice is reproduced in xcms.rs and LICENSES; baud displays no TekHVC coordinates, since a TekHVC: spec is read, drawn as sRGB and answered to a query as rgb:; and baud's text calls that space TekHVC wherever it names it, and uses the term for nothing else
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group

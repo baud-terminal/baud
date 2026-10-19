@@ -5411,11 +5411,9 @@ fn kitty_placeholder_leaving_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     feed(t, b"\x1bc");
 }
 
-/// The precomposed letters of the Latin, Greek and Cyrillic blocks: Latin-1
-/// Supplement's letters, Latin Extended-A and -B, Latin Extended
-/// Additional, Greek and Coptic, Greek Extended and Cyrillic -- every
-/// alphabetic code point there of one column, whether or not a face maps
-/// it.
+/// The precomposed letters of the Latin, Greek and Cyrillic blocks: every
+/// alphabetic one-column code point from U+00C0 to U+024F, U+0386 to U+04FF
+/// and U+1E00 to U+1FFF, whether or not a face maps it.
 fn precomposed_letters() -> Vec<char> {
     [
         0x00c0..=0x024f,
