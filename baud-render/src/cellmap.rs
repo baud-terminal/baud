@@ -598,25 +598,10 @@ impl<'m> GlyphMap<'m> {
                         (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
                     }
                     None => {
-                        self.stats.misses.bump();
-                        let single = r.single(cp, style, span);
-                        if r.atlas_stats().grown.value() != self.grown.value() {
-                            self.grown = r.atlas_stats().grown;
-                            self.clear();
-                        }
-                        if self.stats.live.value().saturating_mul(4)
-                            >= u64::try_from(MAP_SLOTS * 3).unwrap_or(0)
-                        {
-                            self.clear();
-                        }
-                        let e = MapEntry::of(CellKey::of(cp, style, span), single);
-                        self.insert(e);
+                        let e = self.miss(r, cp, style, span);
                         changed = true;
-                        if e.glyphs() == crate::Glyphs::Several {
-                            self.decomposed.bump();
-                            if LIST {
-                                self.several.push((Row::from_index(y), Col::at_index(x)));
-                            }
+                        if LIST && e.glyphs() == crate::Glyphs::Several {
+                            self.several.push((Row::from_index(y), Col::at_index(x)));
                         }
                         (e.glyph(), e.starts_pair(), e.ends_pair(), e.face())
                     }
@@ -637,6 +622,36 @@ impl<'m> GlyphMap<'m> {
             }
         }
         changed
+    }
+
+    /// The entry for a cell the map has none for, made and inserted. Out
+    /// of line, so each copy of the walk holds only the probe: inlined into
+    /// both, it cost 0.7% of the instructions of a `frame_gpu` run of btop
+    /// on the cell path and 1.0% of vim's.
+    #[cold]
+    #[inline(never)]
+    fn miss(
+        &mut self,
+        r: &mut Renderer<'_, '_>,
+        cp: Codepoint,
+        style: crate::FaceStyle,
+        span: CellSpan,
+    ) -> MapEntry {
+        self.stats.misses.bump();
+        let single = r.single(cp, style, span);
+        if r.atlas_stats().grown.value() != self.grown.value() {
+            self.grown = r.atlas_stats().grown;
+            self.clear();
+        }
+        if self.stats.live.value().saturating_mul(4) >= u64::try_from(MAP_SLOTS * 3).unwrap_or(0) {
+            self.clear();
+        }
+        let e = MapEntry::of(CellKey::of(cp, style, span), single);
+        self.insert(e);
+        if e.glyphs() == crate::Glyphs::Several {
+            self.decomposed.bump();
+        }
+        e
     }
 
     /// Makes sure the map holds the three parts of an encircled run's
