@@ -106,9 +106,10 @@ fn without_a_cell_size_only_the_cell_count_is_answered() {
         assert_eq!(t.reply(), b"\x1b[8;24;80t");
         assert_eq!(t.unsupported_param, counted + 2);
         // And a form baud refuses is counted the same way, not as an unknown
-        // operation: `CSI 22 ; 2 t` is vim's title push.
+        // operation: `CSI 24 t` is DECSLPP, and `CSI 14 ; 2 t` is the window,
+        // which no embedder has described here.
         let (param, unknown) = (t.unsupported_param, t.unsupported);
-        support::feed(t, b"\x1b[22;2t\x1b[14;2t\x1b[t");
+        support::feed(t, b"\x1b[24t\x1b[14;2t\x1b[t");
         assert_eq!(t.reply(), b"\x1b[8;24;80t", "a refused form was answered");
         assert_eq!(t.unsupported_param, param + 3);
         assert_eq!(t.unsupported, unknown, "XTWINOPS is a known operation");

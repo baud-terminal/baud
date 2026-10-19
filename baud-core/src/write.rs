@@ -2019,21 +2019,13 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             p.cell_width,
             p.cell_height,
         )),
-        // **XTWINOPS 14, 16 and 18: the size of the text area, which an image
-        // client sizes its pictures from.** `[[source: yazi-emulator]]` sends
-        // `CSI 16 t` in its DA1 burst and takes the cell size from the
+        // **XTWINOPS: the reports, the title stack and the refusals**, out
+        // of line (`crate::window`). The size of the text area is what an
+        // image client sizes its pictures from: `[[source: yazi-emulator]]`
+        // sends `CSI 16 t` in its DA1 burst and takes the cell size from the
         // `CSI 6 ; h ; w t` it gets back; without it, and without pixels in
         // the pty's `winsize`, it draws every image at a fixed 600x900.
-        // The pixel answers need the cell size the embedder gives
-        // [`Term::set_cell_size`]; until then they are counted and unanswered,
-        // the same silence an unanswerable `DSR` gets -- and so is every other
-        // form of the family, which acts on a window this core is not handed.
-        DomCsi::Window(op) => {
-            match Report::window(op, p.rows, p.cols, p.cell_width, p.cell_height) {
-                Some(r) => p.want_reply(r),
-                None => p.unsupported_param += 1,
-            }
-        }
+        DomCsi::Window(op) => p.window_op(op, csi),
         // **XTMODKEYS and XTFMTKEYS: recorded here and read by `Term::key`.**
         // They land in `Cold` rather than on `Paint` because no byte of the
         // ingest loop reads them -- they are written once per control sequence

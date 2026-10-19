@@ -458,6 +458,19 @@ impl Resets {
     }
 }
 
+/// A count of the `CSI 20 t` and `CSI 21 t` title reports refused, as a
+/// reading to compare: two equal readings saw no request.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TitleReportsRefused(u32);
+
+impl TitleReportsRefused {
+    pub(crate) const FIRST: TitleReportsRefused = TitleReportsRefused(0);
+
+    pub(crate) fn next(self) -> TitleReportsRefused {
+        TitleReportsRefused(self.0.wrapping_add(1))
+    }
+}
+
 /// A count of the page widths the core has asked the embedder for, as a
 /// reading to compare: two equal readings saw no request, and a moved one
 /// says [`Term::requested_width`] holds the latest. A count rather than a
@@ -3518,6 +3531,27 @@ impl<'b> Term<'b> {
             false => col,
         };
         self.store.images.place(id, screen, line, col, ZIndex::ZERO)
+    }
+
+    /// **What the embedder knows about its window and screen**, for
+    /// XTWINOPS's reports (`[[source: ctlseqs]]`): `CSI 11 t` the state,
+    /// `CSI 13 t` the window's position, `CSI 13 ; 2 t` the text area's,
+    /// `CSI 14 ; 2 t` the window's size, `CSI 15 t` the screen's and,
+    /// divided by the cell, `CSI 19 t`. Every position and size in device
+    /// pixels, the unit [`Term::set_cell_size`] takes. A fact left `None` is
+    /// a report answered with silence and counted in `unsupported_param`,
+    /// never a made-up number; the last facts handed over are the ones
+    /// answered, so an embedder re-sends them when they change.
+    pub fn set_window(&mut self, facts: baud_domain::WindowFacts) {
+        self.store.strs.window = facts;
+    }
+
+    /// `CSI 20 t` and `CSI 21 t` refused: the icon label and title reports,
+    /// whose reply would put text a program set back into the input
+    /// stream. Counted so an embedder can see the requests arrive, as
+    /// `clipboard_reads_refused` counts `OSC 52` reads.
+    pub fn title_reports_refused(&self) -> TitleReportsRefused {
+        self.store.strs.title_reports_refused
     }
 
     /// Tell the core the cell size in device pixels, so it can advance the

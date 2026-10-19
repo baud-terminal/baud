@@ -71,6 +71,7 @@ mod sixel;
 mod storage;
 mod term;
 mod vt52;
+mod window;
 mod write;
 
 pub use baud_domain::{
@@ -127,6 +128,8 @@ pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Mo
 /// [`WidthHold`] cannot call [`Term::set_width_hold`], nor read what
 /// [`Term::requested_width`] answers without a [`WidthRequest`].
 pub use baud_domain::{PageWidth, WidthHold, WidthRequest};
+/// The window facts `Term::set_window` takes.
+pub use baud_domain::{PixelSize, ScreenCoord, ScreenPoint, WindowFacts, WindowState};
 /// A reading of how many `OSC 52` writes have been published.
 pub use clip::ClipboardWrites;
 pub use graph::Node;
@@ -148,12 +151,12 @@ pub use storage::Owned;
 pub use storage::{
     ARENA, CELLS3, CELLS3_PREFIXES, GRID, LINK_MAX, MAX_COLS, MAX_ROWS, NCLUSTER, NLINK, NSTYLE,
     NSTYLE_MAX, OSC_MAX, PALETTE_LEN, READ_CHUNK, REPLY, Storage, StrBuf, StyleBook, StyleTable,
-    grid_stride,
+    TITLE_SLOTS, TITLE_STACK, grid_stride,
 };
 /// Which surface is live, for a caller asking `Term::screen`.
 pub use term::{
     ColumnRefusals, Erasure, HistoryErasures, HistoryMark, Looking, Moved, Overrides,
     RegionScrolls, Resets, Resized, Rest, ReverseFlips, RowMoves, Screen, ScreenEpoch,
-    SelectionColors, SurfaceLine, Term, ThemeColors, UpdatesOpened, WidthRequests, WrapPending,
-    Written, Zone,
+    SelectionColors, SurfaceLine, Term, ThemeColors, TitleReportsRefused, UpdatesOpened,
+    WidthRequests, WrapPending, Written, Zone,
 };

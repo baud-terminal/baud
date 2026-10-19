@@ -447,31 +447,82 @@ pub enum EraseList {
     SelectiveLine,
 }
 
-/// An XTWINOPS operation, `CSI Ps ; Ps ; Ps t`: one of the three reports
-/// baud answers, or the rest of the family.
+/// An XTWINOPS operation, `CSI Ps ; Ps ; Ps t` (`[[source: ctlseqs]]`,
+/// "Window manipulation (XTWINOPS)"): a report baud answers, the title
+/// stack, a title report refused, or the rest of the family.
 ///
-/// `[[source: ctlseqs]]`, "Window manipulation (XTWINOPS)": `Ps = 1 4` "Report
-/// xterm text area size in pixels. Result is CSI 4 ; height ; width t",
-/// `Ps = 1 6` "Report xterm character cell size in pixels. Result is CSI 6 ;
-/// height ; width t", and `Ps = 1 8` "Report the size of the text area in
-/// characters. Result is CSI 8 ; height ; width t".
+/// **Fieldless**, as [`Csi::Area`] is: the title stack's `Ps` and slot are
+/// read where the operation is performed, so the variant adds no payload to
+/// every `CSI`.
 ///
-/// **Every other form is recognised and refused**, which is why it is a
-/// variant and not `Csi::Unsupported`: the operation is known, and what it
-/// asks -- move, resize, iconify or report the *window*, a thing this core is
-/// never handed, or push the title -- is not done. The core counts it as an
-/// unsupported parameter, the way it counts a `DSR` it cannot answer.
+/// **Only the forms ctlseqs gives are anything but [`WindowOp::Refused`]**:
+/// `CSI 13 ; 2 t` and `CSI 14 ; 2 t` are the second forms of 13 and 14, any
+/// other second parameter on a report is undefined, and an answer to a
+/// question that was not asked is the wrong shape.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WindowOp {
-    /// `CSI 14 t`, the text area in pixels. Not `CSI 14 ; 2 t`, which is the
-    /// window including its frame, and nothing here knows the frame.
+    /// `CSI 11 t`, "Report xterm window state": `CSI 1 t` open, `CSI 2 t`
+    /// iconified.
+    WindowState,
+    /// `CSI 13 t`, "Report xterm window position": `CSI 3 ; x ; y t`.
+    WindowPosition,
+    /// `CSI 13 ; 2 t`, "Report xterm text-area position": `CSI 3 ; x ; y t`.
+    TextAreaPosition,
+    /// `CSI 14 t`, the text area in pixels.
     TextAreaPixels,
+    /// `CSI 14 ; 2 t`, "Report xterm window size in pixels", the frame
+    /// included: `CSI 4 ; height ; width t`.
+    WindowPixels,
+    /// `CSI 15 t`, "Report size of the screen in pixels": `CSI 5 ; height ;
+    /// width t`.
+    ScreenPixels,
     /// `CSI 16 t`, one cell in pixels.
     CellPixels,
     /// `CSI 18 t`, the text area in cells.
     TextAreaChars,
-    /// Any other `Ps`, any extra parameter, or none at all.
+    /// `CSI 19 t`, "Report the size of the screen in characters": `CSI 9 ;
+    /// height ; width t`.
+    ScreenChars,
+    /// `CSI 20 t` and `CSI 21 t`, the icon label and the window title
+    /// reports. **Refused, and counted on their own**: the reply would put
+    /// text a program chose back into the input stream, which a remote
+    /// program can use to make the terminal type for it.
+    TitleReport,
+    /// `CSI 22 ; Ps t`, the title push; `Ps` 0, 1 or 2 and an optional slot,
+    /// 1 to 10, read where it is performed.
+    PushTitle,
+    /// `CSI 23 ; Ps t`, the title pop, read as [`WindowOp::PushTitle`] is.
+    PopTitle,
+    /// Any other form: the window-changing operations 1-10, DECSLPP (24 and
+    /// up), an undefined parameter, or none at all.
     Refused,
+}
+
+impl WindowOp {
+    /// The form `p` spells, from its first two parameters' values and the
+    /// list's length.
+    fn of(p: &Params<'_>) -> WindowOp {
+        let first = p.at(ParamIdx::FIRST).map_or(0, |x| x.0);
+        let second = p.at(ParamIdx::FIRST.plus(1)).map_or(0, |x| x.0);
+        match (first, p.len(), second) {
+            (11, 1, _) => WindowOp::WindowState,
+            (13, 1, _) => WindowOp::WindowPosition,
+            (13, 2, 2) => WindowOp::TextAreaPosition,
+            (14, 1, _) => WindowOp::TextAreaPixels,
+            (14, 2, 2) => WindowOp::WindowPixels,
+            (15, 1, _) => WindowOp::ScreenPixels,
+            (16, 1, _) => WindowOp::CellPixels,
+            (18, 1, _) => WindowOp::TextAreaChars,
+            (19, 1, _) => WindowOp::ScreenChars,
+            (20 | 21, _, _) => WindowOp::TitleReport,
+            // An omitted `Ps` is 0, both titles, as xterm reads it
+            // (`zero_if_default`, `[[source: xterm-reset]]`'s file); the slot
+            // is checked where it is read.
+            (22, 1..=3, 0..=2) => WindowOp::PushTitle,
+            (23, 1..=3, 0..=2) => WindowOp::PopTitle,
+            _ => WindowOp::Refused,
+        }
+    }
 }
 
 /// A half-open span of columns within one row, `[from, to)`.
@@ -800,10 +851,9 @@ pub enum Csi {
     /// baud has none to block: an answer that never comes leaves the next
     /// release a normal one.
     HighlightMouseTracking(HighlightRegion),
-    /// XTWINOPS, `CSI Ps ; Ps ; Ps t`. Three forms are *questions* about the
-    /// text area's size, answered with [`Report::TextAreaPixels`],
-    /// [`Report::CellPixels`] and [`Report::TextAreaChars`]; the rest are
-    /// [`WindowOp::Refused`].
+    /// XTWINOPS, `CSI Ps ; Ps ; Ps t`: the reports about the text area, the
+    /// window and the screen ([`Report::window`]), the title stack, and the
+    /// refused rest ([`WindowOp`]).
     Window(WindowOp),
     /// XTSMGRAPHICS, `CSI ? Pi ; Pa ; Pv S`: "Set or request graphics
     /// attribute" (`[[source: ctlseqs]]`), answered with
@@ -1188,17 +1238,10 @@ impl Csi {
                 last_row: p.raw(ParamIdx::FIRST.plus(4), 1),
             }),
             b'T' => Csi::ScrollDown(p.count(ParamIdx::FIRST)),
-            // XTWINOPS. **Only the exact forms `[[source: ctlseqs]]` gives**,
-            // one parameter each: `CSI 14 ; 2 t` is the *window* in pixels
-            // and a second parameter on the other two is undefined, so both
-            // fall to `Unsupported` rather than being read as the bare form --
-            // an answer to a question that was not asked is the wrong shape.
-            b't' => Csi::Window(match (p.len(), p.at(ParamIdx::FIRST).map_or(0, |x| x.0)) {
-                (1, 14) => WindowOp::TextAreaPixels,
-                (1, 16) => WindowOp::CellPixels,
-                (1, 18) => WindowOp::TextAreaChars,
-                _ => WindowOp::Refused,
-            }),
+            // XTWINOPS. **Only the forms `[[source: ctlseqs]]` gives**
+            // (`WindowOp::of`); any other is `WindowOp::Refused`, never read
+            // as a neighbouring form.
+            b't' => Csi::Window(WindowOp::of(&p)),
             b'h' => Csi::Mode {
                 change: ModeChange::Set,
                 mode: AnsiMode::from_wire(p.at(ParamIdx::FIRST)),

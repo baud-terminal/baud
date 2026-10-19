@@ -2612,6 +2612,9 @@ struct Driver {
     /// The Accessibility Display settings the theme in force was drawn
     /// for, read on the tick (`poll_display`).
     display: Display,
+    /// The window and screen as last handed to the core for XTWINOPS's
+    /// reports, read on the tick (`poll_window`).
+    window_facts: baud_core::WindowFacts,
     /// The appearance the palette was last set for under `auto`: `None`
     /// before the first, and always under a pinned theme.
     palette_for: Option<Appearance>,
@@ -6048,6 +6051,27 @@ mod motion_tests {
         assert_eq!(asked.get(), 1, "the system's: asked once");
     }
 
+    /// **The window's facts are read before every feed**, on a wake as on a
+    /// tick: `pump` is AppKit-bound, so its source is what can fail.
+    #[test]
+    fn every_turn_reads_the_window_before_it_feeds() {
+        const SRC: &str = include_str!("app.rs");
+        let pump = SRC
+            .split_once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"))
+            .map(|(_, rest)| rest)
+            .expect("pump");
+        let poll = pump
+            .find("self.poll_window();")
+            .expect("pump polls the window");
+        let tick = pump
+            .find(concat!("if let Trigger::", "Tick = trigger {"))
+            .expect("the tick arm");
+        let arm_end = tick + pump[tick..].find('}').expect("its end");
+        assert!(poll > arm_end, "the poll is outside the tick arm");
+        let feed = pump.find("crate::reads::feed(").expect("the feed");
+        assert!(poll < feed, "the poll comes before the feed");
+    }
+
     /// **The tick polls the motion preference**: `pump` is AppKit-bound, so
     /// the one thing that can fail on a removed call is its source.
     #[test]
@@ -7047,6 +7071,10 @@ impl Driver {
             self.poll_motion();
             self.poll_display();
         }
+        // **The window's facts before any byte is fed**, on every turn and
+        // not only on a tick: a report answers the window as it is when the
+        // program's question is read.
+        self.poll_window();
         // **The parser is not held here, and that is research decision D4
         // arriving.** This used to return while a frame was in flight,
         // because the shader read the core's grid where the core writes it,
@@ -8242,6 +8270,7 @@ pub fn run() {
         glass_cfg,
         themes: Themes::of(&glass_cfg, theme_choice, floor, &halves),
         display: Display::default(),
+        window_facts: baud_core::WindowFacts::UNKNOWN,
         palette_for: None,
         glass: glass.clone(),
         window: window.clone(),
@@ -8376,6 +8405,46 @@ impl Driver {
             if let Some(now) = HostTime::of_secs(self.app.tick_target) {
                 self.app.reveal.reveal(now);
             }
+        }
+    }
+
+    /// **The window and its screen, for XTWINOPS's reports**: whether it is
+    /// minimized (`[[source: apple-nswindow-isminiaturized]]`), its frame
+    /// "in screen coordinates, including the title bar" (`[[source:
+    /// apple-nswindow-frame]]`), the drawable view's rectangle taken to the
+    /// screen through the window (`[[source: apple-nswindow-converttoscreen]]`),
+    /// the screen "where most of the window is" (`[[source:
+    /// apple-nswindow-screen]]`) and its full frame, "menu bar and dock"
+    /// included (`[[source: apple-nsscreen-frame]]`), against the primary
+    /// screen, "whose origin is at the point (0, 0)" (`[[source:
+    /// apple-nsscreen-screens]]`), and the backing scale (`[[source:
+    /// apple-nswindow-backingscalefactor]]`). Read on every turn of the
+    /// loop, before the bytes are fed, and handed to the core when it
+    /// changed; `window_facts` does the arithmetic.
+    fn poll_window(&mut self) {
+        let Some(w) = self.view.window() else {
+            return;
+        };
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let primary = NSScreen::screens(mtm).firstObject().map(|s| s.frame());
+        let view = w.convertRectToScreen(self.view.convertRect_toView(self.view.bounds(), None));
+        let facts = window_facts(&Placed {
+            minimized: match w.isMiniaturized() {
+                true => Miniaturized::Yes,
+                false => Miniaturized::No,
+            },
+            frame: w.frame(),
+            view,
+            pad: (self.app.pad_px.0.value(), self.app.pad_px.1.value()),
+            screen: w.screen().map(|s| s.frame()),
+            primary,
+            scale: w.backingScaleFactor(),
+        });
+        if facts != self.window_facts {
+            self.window_facts = facts;
+            self.app.term.set_window(facts);
         }
     }
 
@@ -9401,6 +9470,69 @@ fn pointer_under(
     (Row::from_index(row), Col::at_index(col), PointerPx { x, y })
 }
 
+/// Whether AppKit has the window minimized.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Miniaturized {
+    Yes,
+    No,
+}
+
+/// What `poll_window` reads from AppKit, in points with AppKit's origin at
+/// the primary screen's bottom-left and y up: the window's frame, the
+/// drawable view's rectangle on the screen, the grid's letterbox inside
+/// that view in device pixels, the window's screen and the primary one.
+struct Placed {
+    minimized: Miniaturized,
+    frame: NSRect,
+    view: NSRect,
+    pad: (u32, u32),
+    screen: Option<NSRect>,
+    primary: Option<NSRect>,
+    scale: CGFloat,
+}
+
+/// The facts XTWINOPS reports, from what AppKit said: positions measured
+/// from the primary screen's top-left with y down, as X11 measures them,
+/// and every position and size in device pixels -- points times the
+/// window's backing scale, the unit the cell size and `?1016` use. The text
+/// area's position is the grid's first pixel, the origin a pixel mouse
+/// report counts from. With no primary screen there is no top to measure
+/// down from, so neither position is known.
+fn window_facts(p: &Placed) -> baud_core::WindowFacts {
+    use baud_core::{PixelSize, ScreenCoord, ScreenPoint, WindowFacts, WindowState};
+    let px = |pt: CGFloat| (pt * p.scale).round();
+    // Through `i64`, where a float saturates, and then the narrow type,
+    // which saturates again: a size past a `u16` is its widest.
+    let wide = |v: f64| ImagePx::of(u16::try_from((v as i64).max(0)).unwrap_or(u16::MAX));
+    let size = |r: NSRect| PixelSize {
+        width: wide(px(r.size.width)),
+        height: wide(px(r.size.height)),
+    };
+    let coord = |v: f64| {
+        let v = v as i64;
+        ScreenCoord::of(i32::try_from(v).unwrap_or(if v < 0 { i32::MIN } else { i32::MAX }))
+    };
+    let top_left = |r: NSRect, pad: (u32, u32)| {
+        p.primary.map(|primary| {
+            let top = primary.origin.y + primary.size.height;
+            ScreenPoint {
+                x: coord(px(r.origin.x) + f64::from(pad.0)),
+                y: coord(px(top - (r.origin.y + r.size.height)) + f64::from(pad.1)),
+            }
+        })
+    };
+    WindowFacts {
+        state: Some(match p.minimized {
+            Miniaturized::Yes => WindowState::Iconified,
+            Miniaturized::No => WindowState::Open,
+        }),
+        position: top_left(p.frame, (0, 0)),
+        text_area: top_left(p.view, p.pad),
+        window: Some(size(p.frame)),
+        screen: p.screen.map(size),
+    }
+}
+
 /// What a left press does to the selection, from the modifiers held:
 /// Option starts a block and wins over Shift, because under mouse tracking
 /// Shift is the only way into a selection at all -- were Shift to win, a
@@ -10182,6 +10314,60 @@ mod tests {
             assert_eq!(px.y.index() / 40, r.index(), "y at {p}");
             assert_eq!((r, c), cell_under((p, p * 0.3), scale, cell, grid, pad));
         }
+    }
+
+    /// **XTWINOPS's facts from AppKit's geometry**: a 2x window whose frame
+    /// sits 100 pt from the primary screen's left and whose top is 50 pt
+    /// below its top, the view 28 pt under the frame's top, the grid 6 and 4
+    /// px into the view. Positions come out top-left with y down, in device
+    /// pixels; a window on a screen left of the primary one is at a
+    /// negative x; and with no primary screen no position is guessed.
+    #[test]
+    fn the_window_facts_are_appkits_geometry_in_device_pixels_from_the_top() {
+        use baud_core::{PixelSize, ScreenCoord, ScreenPoint, WindowState};
+        let rect = |x, y, w, h| NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
+        let primary = rect(0.0, 0.0, 1512.0, 982.0);
+        let mut placed = Placed {
+            minimized: Miniaturized::No,
+            frame: rect(100.0, 332.0, 960.0, 600.0),
+            view: rect(100.0, 332.0, 960.0, 572.0),
+            pad: (6, 4),
+            screen: Some(primary),
+            primary: Some(primary),
+            scale: 2.0,
+        };
+        let f = window_facts(&placed);
+        let at = |x, y| ScreenPoint {
+            x: ScreenCoord::of(x),
+            y: ScreenCoord::of(y),
+        };
+        assert_eq!(f.state, Some(WindowState::Open));
+        assert_eq!(f.position, Some(at(200, 100)));
+        assert_eq!(f.text_area, Some(at(206, 160)), "28 pt titlebar, 4 px pad");
+        assert_eq!(
+            f.window,
+            Some(PixelSize {
+                width: ImagePx::of(1920),
+                height: ImagePx::of(1200)
+            })
+        );
+        assert_eq!(
+            f.screen,
+            Some(PixelSize {
+                width: ImagePx::of(3024),
+                height: ImagePx::of(1964)
+            })
+        );
+        placed.frame.origin.x = -400.0;
+        placed.minimized = Miniaturized::Yes;
+        let f = window_facts(&placed);
+        assert_eq!(f.position, Some(at(-800, 100)));
+        assert_eq!(f.state, Some(WindowState::Iconified));
+        placed.primary = None;
+        placed.screen = None;
+        let f = window_facts(&placed);
+        assert_eq!((f.position, f.text_area, f.screen), (None, None, None));
+        assert!(f.window.is_some(), "the frame is still the window's");
     }
 
     /// **`BAUD_LOG` governs the trace lines.** They were bare `eprintln!`s,

@@ -28736,3 +28736,77 @@ sha256 = "2c7aed6964be78d1052d90f3fcbb7f8dc5d9a1e23f3adb9217b2de89d0b8fd57"
 bytes  = 131837
 status = "retrieved"
 group  = "C"
+[sources.apple-nswindow-frame]
+key    = "apple-nswindow-frame"
+title  = "NSWindow frame -- the window's frame rectangle in screen coordinates, including the title bar (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/frame.json"
+file   = "apple-nswindow-frame.json"
+sha256 = "024e44adfdee02641aaba390122a60adfffee25964e0f8583e16693334ba5c6a"
+bytes  = 26929
+status = "retrieved"
+group  = "BL"
+# Fetched 2026-10-19 (lane b104) for XTWINOPS's window and screen reports, read by the
+# macOS app's poll_window.
+
+[sources.apple-nswindow-converttoscreen]
+key    = "apple-nswindow-converttoscreen"
+title  = "NSWindow convertToScreen(_:) -- converts a rectangle to the screen coordinate system from the window's (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/converttoscreen(_:).json"
+file   = "apple-nswindow-converttoscreen.json"
+sha256 = "f9498a6c1c4f602515f646063a7eab2d4d42534e35c7478ff8e239d75f17e79e"
+bytes  = 22108
+status = "retrieved"
+group  = "BL"
+# Fetched 2026-10-19 (lane b104) for XTWINOPS's window and screen reports, read by the
+# macOS app's poll_window.
+
+[sources.apple-nswindow-screen]
+key    = "apple-nswindow-screen"
+title  = "NSWindow screen -- the screen where most of the window is on (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/screen.json"
+file   = "apple-nswindow-screen.json"
+sha256 = "1452fce8330c61694121ac8dae420bfd499d47581c1bbbf0a0d4056b298230ee"
+bytes  = 10313
+status = "retrieved"
+group  = "BL"
+# Fetched 2026-10-19 (lane b104) for XTWINOPS's window and screen reports, read by the
+# macOS app's poll_window.
+
+[sources.apple-nsscreen-frame]
+key    = "apple-nsscreen-frame"
+title  = "NSScreen frame -- the full screen rectangle, menu bar and dock included (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/frame.json"
+file   = "apple-nsscreen-frame.json"
+sha256 = "cdd59ee0bed68ec7f31084587973ebe007ac6204ade07e7f484d5cb3184ae99d"
+bytes  = 20398
+status = "retrieved"
+group  = "BL"
+# Fetched 2026-10-19 (lane b104) for XTWINOPS's window and screen reports, read by the
+# macOS app's poll_window.
+
+[sources.apple-nsscreen-screens]
+key    = "apple-nsscreen-screens"
+title  = "NSScreen screens -- every screen; index 0 is the primary, whose origin is (0, 0) (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/screens.json"
+file   = "apple-nsscreen-screens.json"
+sha256 = "bdd7f75be3db942a1e27625b6a1852ffcc5ec250ed5af3b758edf874f3ca0311"
+bytes  = 12205
+status = "retrieved"
+group  = "BL"
+# Fetched 2026-10-19 (lane b104) for XTWINOPS's window and screen reports, read by the
+# macOS app's poll_window.

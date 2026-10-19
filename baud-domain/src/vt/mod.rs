@@ -14,6 +14,7 @@ mod report;
 mod scheme;
 mod sgr;
 mod vt52;
+mod window;
 mod x_colour_names;
 mod xcms;
 
@@ -33,3 +34,4 @@ pub use report::*;
 pub use scheme::*;
 pub use sgr::*;
 pub use vt52::*;
+pub use window::*;

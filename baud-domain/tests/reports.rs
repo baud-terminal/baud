@@ -484,6 +484,43 @@ fn report_encodings_fit() {
             },
             b't',
         ),
+        (
+            "window state",
+            Report::WindowState(WindowState::Iconified),
+            b't',
+        ),
+        (
+            "position",
+            Report::Position(ScreenPoint {
+                x: ScreenCoord::of(-1),
+                y: ScreenCoord::of(-1),
+            }),
+            b't',
+        ),
+        (
+            "window pixels",
+            Report::WindowPixels(PixelSize {
+                width: ImagePx::of(65535),
+                height: ImagePx::of(65535),
+            }),
+            b't',
+        ),
+        (
+            "screen pixels",
+            Report::ScreenPixels(PixelSize {
+                width: ImagePx::of(65535),
+                height: ImagePx::of(65535),
+            }),
+            b't',
+        ),
+        (
+            "screen chars",
+            Report::ScreenChars {
+                rows: 65535,
+                cols: 65535,
+            },
+            b't',
+        ),
         ("version", Report::Version, b'\\'),
         (
             "area checksum",
@@ -664,6 +701,11 @@ fn report_encodings_fit() {
             | Report::TextAreaPixels { .. }
             | Report::CellPixels { .. }
             | Report::TextAreaChars { .. }
+            | Report::WindowState(_)
+            | Report::Position(_)
+            | Report::WindowPixels(_)
+            | Report::ScreenPixels(_)
+            | Report::ScreenChars { .. }
             | Report::Version
             | Report::AreaChecksum { .. }
             | Report::Color { .. }

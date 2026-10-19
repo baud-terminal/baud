@@ -468,6 +468,19 @@ impl Driver {
         // change (a font or scale change would arrive as one).
         self.term
             .set_cell_size(cell_px(m.cell_w), cell_px(m.cell_h));
+        // XTWINOPS's window size, `CSI 14 ; 2 t`: the surface the
+        // compositor configured, which is the whole window -- nothing here
+        // asks for server-side decorations, so none frame it. The rest is
+        // not known: xdg-shell tells a client neither its position nor
+        // whether it is minimized, and no `wl_output` is bound, so those
+        // reports stay silent rather than guessed.
+        self.term.set_window(baud_core::WindowFacts {
+            window: Some(baud_core::PixelSize {
+                width: baud_core::ImagePx::of(u16::try_from(width.0).unwrap_or(u16::MAX)),
+                height: baud_core::ImagePx::of(u16::try_from(height.0).unwrap_or(u16::MAX)),
+            }),
+            ..baud_core::WindowFacts::UNKNOWN
+        });
         let cols = (width.0 / m.cell_w.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_col));
         let rows = (height.0 / m.cell_h.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_row));
         let ws = WinSize {

@@ -112,6 +112,21 @@ pub enum Report {
     /// `CSI 8 ; rows ; cols t`, the answer to `CSI 18 t`: the text area in
     /// cells. `[[source: ctlseqs]]`, XTWINOPS `Ps = 1 8`.
     TextAreaChars { rows: Rows, cols: Cols },
+    /// `CSI 1 t` or `CSI 2 t`, the answer to `CSI 11 t`: open or iconified.
+    WindowState(WindowState),
+    /// `CSI 3 ; x ; y t`, the answer to `CSI 13 t` and `CSI 13 ; 2 t`: a
+    /// position on the screen, **x first**, unlike every size XTWINOPS
+    /// reports, and each coordinate in [`ScreenCoord::wire`]'s range.
+    Position(ScreenPoint),
+    /// `CSI 4 ; height ; width t`, the answer to `CSI 14 ; 2 t`: the window,
+    /// frame included, in pixels -- the shape `CSI 14 t` answers in.
+    WindowPixels(PixelSize),
+    /// `CSI 5 ; height ; width t`, the answer to `CSI 15 t`: the screen in
+    /// pixels.
+    ScreenPixels(PixelSize),
+    /// `CSI 9 ; height ; width t`, the answer to `CSI 19 t`: the screen in
+    /// characters, its pixels divided by the cell's.
+    ScreenChars { rows: u16, cols: u16 },
     /// XTVERSION, the answer to `CSI > 0 q`.
     ///
     /// `[[source: ctlseqs]]`: "Report xterm name and version (XTVERSION). The
@@ -458,36 +473,58 @@ impl Report {
         }
     }
 
-    /// The answer to an XTWINOPS operation, or `None` when there is none to
-    /// give: a [`WindowOp::Refused`] form, or a pixel question before the
-    /// cell size is known.
+    /// The answer to an XTWINOPS report, or `None` when there is none to
+    /// give: an operation that is not a report, or a report whose numbers
+    /// nobody has handed over.
     ///
-    /// **The two pixel answers need the cell size, and without it there is
-    /// no answer at all** rather than `CSI 6 ; 0 ; 0 t`. Mode 2048's
+    /// **A pixel answer needs its pixels, and without them there is no
+    /// answer at all** rather than `CSI 6 ; 0 ; 0 t`. Mode 2048's
     /// specification defines zero as "not capable"; XTWINOPS defines no such
     /// value, and a client that divides by the cell size is better served by
     /// the silence it already has to handle than by a zero it may not. The
-    /// text area in cells is always known.
+    /// text area in cells is always known; the window and the screen are
+    /// known when the embedder says (`facts`), and the screen in characters
+    /// when both the screen and the cell are -- xterm divides the screen's
+    /// pixels by the font's (`ewGetScreenSizeChars`, `[[source:
+    /// xterm-reset]]`'s file).
     pub fn window(
         op: WindowOp,
         rows: Rows,
         cols: Cols,
         cell_w: ImagePx,
         cell_h: ImagePx,
+        facts: &WindowFacts,
     ) -> Option<Report> {
-        let known = cell_w != ImagePx::ZERO && cell_h != ImagePx::ZERO;
-        match (op, known) {
-            (WindowOp::Refused, _) => None,
-            (WindowOp::TextAreaChars, _) => Some(Report::TextAreaChars { rows, cols }),
-            (_, false) => None,
-            (WindowOp::TextAreaPixels, true) => Some(Report::TextAreaPixels {
-                height: cell_h.span(rows.index()),
-                width: cell_w.span(cols.index()),
+        let cell = match cell_w != ImagePx::ZERO && cell_h != ImagePx::ZERO {
+            true => Some((cell_w, cell_h)),
+            false => None,
+        };
+        match op {
+            WindowOp::TextAreaChars => Some(Report::TextAreaChars { rows, cols }),
+            WindowOp::TextAreaPixels => cell.map(|(w, h)| Report::TextAreaPixels {
+                height: h.span(rows.index()),
+                width: w.span(cols.index()),
             }),
-            (WindowOp::CellPixels, true) => Some(Report::CellPixels {
-                height: cell_h,
-                width: cell_w,
+            WindowOp::CellPixels => cell.map(|(w, h)| Report::CellPixels {
+                height: h,
+                width: w,
             }),
+            WindowOp::WindowState => facts.state.map(Report::WindowState),
+            WindowOp::WindowPosition => facts.position.map(Report::Position),
+            WindowOp::TextAreaPosition => facts.text_area.map(Report::Position),
+            WindowOp::WindowPixels => facts.window.map(Report::WindowPixels),
+            WindowOp::ScreenPixels => facts.screen.map(Report::ScreenPixels),
+            WindowOp::ScreenChars => match (facts.screen, cell) {
+                (Some(s), Some((w, h))) => Some(Report::ScreenChars {
+                    rows: s.height.raw() / h.raw(),
+                    cols: s.width.raw() / w.raw(),
+                }),
+                _ => None,
+            },
+            WindowOp::TitleReport
+            | WindowOp::PushTitle
+            | WindowOp::PopTitle
+            | WindowOp::Refused => None,
         }
     }
 
@@ -643,6 +680,37 @@ impl Report {
                 e.push_num(u16::try_from(rows.index()).unwrap_or(u16::MAX));
                 e.push(b';');
                 e.push_num(u16::try_from(cols.index()).unwrap_or(u16::MAX));
+                e.push(b't');
+            }
+            Report::WindowState(w) => {
+                e.push_num(w.code());
+                e.push(b't');
+            }
+            Report::Position(at) => {
+                e.push_num(3);
+                e.push(b';');
+                e.push_num(at.x.wire());
+                e.push(b';');
+                e.push_num(at.y.wire());
+                e.push(b't');
+            }
+            Report::WindowPixels(s) | Report::ScreenPixels(s) => {
+                e.push_num(match self {
+                    Report::WindowPixels(_) => 4,
+                    _ => 5,
+                });
+                e.push(b';');
+                e.push_num(s.height.raw());
+                e.push(b';');
+                e.push_num(s.width.raw());
+                e.push(b't');
+            }
+            Report::ScreenChars { rows, cols } => {
+                e.push_num(9);
+                e.push(b';');
+                e.push_num(rows);
+                e.push(b';');
+                e.push_num(cols);
                 e.push(b't');
             }
             Report::KittyFlags(f) => {

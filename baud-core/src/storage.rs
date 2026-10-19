@@ -435,10 +435,23 @@ pub struct StrBuf<'b> {
     /// [`ImageBudget::scratch`] bytes. Empty by default, the arena's opt-in,
     /// so every PNG is refused for its size until [`Owned::with_images`].
     pub(crate) kitty_scratch: &'b mut [u8],
+    /// XTWINOPS's title stack (`CSI 22 t`, `CSI 23 t`): [`TITLE_SLOTS`]
+    /// slots of an icon name and a title, [`OSC_MAX`] bytes each,
+    /// [`TITLE_STACK`] in all. Here for the reason `clip_area` is: only a
+    /// push and a pop reach it.
+    pub(crate) titles: &'b mut [u8],
+    /// Which halves of which slots hold a title, and their lengths
+    /// (`crate::window`).
+    pub(crate) title_stack: crate::window::TitleStack,
+    /// What the embedder has said about its window and screen
+    /// (`Term::set_window`), read by XTWINOPS's reports alone.
+    pub(crate) window: baud_domain::WindowFacts,
+    /// `CSI 20 t` and `CSI 21 t` refused (`Term::title_reports_refused`).
+    pub(crate) title_reports_refused: crate::term::TitleReportsRefused,
 }
 
 impl<'b> StrBuf<'b> {
-    /// Lend the eight, in the one order that is correct.
+    /// Lend the eleven, in the one order that is correct.
     ///
     /// A constructor rather than public fields, because `Storage::new` is
     /// public and takes a `StrBuf`: without this an embedder outside the crate
@@ -459,6 +472,7 @@ impl<'b> StrBuf<'b> {
         sixel: &'b mut SixelStream,
         kitty: &'b mut KittyStream,
         kitty_scratch: &'b mut [u8],
+        titles: &'b mut [u8],
     ) -> StrBuf<'b> {
         StrBuf {
             pending,
@@ -472,6 +486,10 @@ impl<'b> StrBuf<'b> {
             sixel,
             kitty,
             kitty_scratch,
+            titles,
+            title_stack: crate::window::TitleStack::EMPTY,
+            window: baud_domain::WindowFacts::UNKNOWN,
+            title_reports_refused: crate::term::TitleReportsRefused::FIRST,
         }
     }
 }
@@ -507,6 +525,7 @@ pub struct Owned {
     pending: alloc::vec::Vec<u8>,
     title: alloc::vec::Vec<u8>,
     icon: alloc::vec::Vec<u8>,
+    titles: alloc::vec::Vec<u8>,
     palette: alloc::vec::Vec<ColorWord>,
     links: alloc::vec::Vec<u8>,
     link_len: alloc::vec::Vec<ByteLen>,
@@ -588,6 +607,7 @@ impl Owned {
             pending: vec![0u8; OSC_MAX],
             title: vec![0u8; OSC_MAX],
             icon: vec![0u8; OSC_MAX],
+            titles: vec![0u8; TITLE_STACK],
             palette: vec![ColorWord::DEFAULT; PALETTE_LEN],
             links: vec![0u8; NLINK * LINK_MAX],
             link_len: vec![ByteLen::ZERO; NLINK],
@@ -718,6 +738,10 @@ impl Owned {
                 sixel: &mut self.sixel,
                 kitty: &mut self.kitty,
                 kitty_scratch: &mut self.kitty_scratch,
+                titles: &mut self.titles,
+                title_stack: crate::window::TitleStack::EMPTY,
+                window: baud_domain::WindowFacts::UNKNOWN,
+                title_reports_refused: crate::term::TitleReportsRefused::FIRST,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -761,6 +785,10 @@ impl Owned {
                 sixel: &mut self.sixel,
                 kitty: &mut self.kitty,
                 kitty_scratch: &mut self.kitty_scratch,
+                titles: &mut self.titles,
+                title_stack: crate::window::TitleStack::EMPTY,
+                window: baud_domain::WindowFacts::UNKNOWN,
+                title_reports_refused: crate::term::TitleReportsRefused::FIRST,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -843,6 +871,14 @@ pub const CELLS3: usize = CELLS3_PREFIXES * 256;
 /// `Term::string_truncations` says how often -- the same contract every
 /// bounded table here carries. `baud-core2` used the same 512.
 pub const OSC_MAX: usize = 512;
+
+/// The title stack's depth: xterm's `MAX_SAVED_TITLES` (`[[source:
+/// xterm-ptyx-h]]`), and ctlseqs' direct-access range, "1 through 10".
+pub const TITLE_SLOTS: usize = 10;
+
+/// The bytes the title stack takes: [`TITLE_SLOTS`] slots of an icon name
+/// and a title, [`OSC_MAX`] each -- 10,240.
+pub const TITLE_STACK: usize = TITLE_SLOTS * 2 * OSC_MAX;
 
 /// Entries in the palette slice: the first 256 are the application's `OSC 4`
 /// overrides, the second 256 the embedder's own table
@@ -1043,6 +1079,10 @@ impl<'b> Storage<'b> {
         );
         assert!(strs.title.len() >= OSC_MAX, "title is shorter than OSC_MAX");
         assert!(strs.icon.len() >= OSC_MAX, "icon is shorter than OSC_MAX");
+        assert!(
+            strs.titles.len() >= TITLE_STACK,
+            "titles is shorter than TITLE_STACK"
+        );
         assert!(
             strs.palette.len() >= PALETTE_LEN,
             "palette is not PALETTE_LEN entries"

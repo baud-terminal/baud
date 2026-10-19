@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 266 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 271 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 282 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 786 | 36 | |
+| total | 791 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -388,7 +388,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 111
+- **Files:** 116
 
 | file | copied from |
 |---|---|
@@ -464,11 +464,16 @@ notice is, and the URL each file was copied from.
 | [apple-nsbeep.json](docs/research/sources/apple-nsbeep.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsbeep.json |
 | [apple-nsevent-timestamp.json](docs/research/sources/apple-nsevent-timestamp.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsevent/timestamp.json |
 | [apple-nsevent.json](docs/research/sources/apple-nsevent.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsevent.json |
+| [apple-nsscreen-frame.json](docs/research/sources/apple-nsscreen-frame.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/frame.json |
+| [apple-nsscreen-screens.json](docs/research/sources/apple-nsscreen-screens.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/screens.json |
+| [apple-nswindow-converttoscreen.json](docs/research/sources/apple-nswindow-converttoscreen.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/converttoscreen(_:).json |
+| [apple-nswindow-frame.json](docs/research/sources/apple-nswindow-frame.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/frame.json |
 | [apple-nswindow-iskeywindow.json](docs/research/sources/apple-nswindow-iskeywindow.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/iskeywindow.json |
 | [apple-nswindow-isminiaturized.json](docs/research/sources/apple-nswindow-isminiaturized.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/isminiaturized.json |
 | [apple-nswindow-miniwindowtitle.json](docs/research/sources/apple-nswindow-miniwindowtitle.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/miniwindowtitle.json |
 | [apple-nswindow-orderfrontregardless.json](docs/research/sources/apple-nswindow-orderfrontregardless.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/orderfrontregardless().json |
 | [apple-nswindow-representedurl.json](docs/research/sources/apple-nswindow-representedurl.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/representedurl.json |
+| [apple-nswindow-screen.json](docs/research/sources/apple-nswindow-screen.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/screen.json |
 | [apple-nswindow-subtitle.json](docs/research/sources/apple-nswindow-subtitle.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/subtitle.json |
 | [apple-nswindow-title.json](docs/research/sources/apple-nswindow-title.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/title.json |
 | [apple-nswindow-titlebarappearstransparent.json](docs/research/sources/apple-nswindow-titlebarappearstransparent.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/titlebarappearstransparent.json |

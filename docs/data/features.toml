@@ -1216,6 +1216,25 @@ behind = "every other terminal draws the window title in its title bar."
 roadmap = ["SQ-v1.0-05"]
 
 [[feature]]
+id = "title-restore"
+area = "window"
+name = "Your title back after vim"
+does = "A program that changes the window title can save the old one first and put it back when it exits, as vim does, so the shell's title returns."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/window_reports.rs::vims_title_push_and_pop_restore_the_shells_title", "baud-core/tests/window_reports.rs::the_eleventh_push_overwrites_the_oldest"]
+rows = ["vt:`CSI 22 ; Ps t`, `CSI 23 ; Ps t`"]
+
+[[feature]]
+id = "window-reports"
+area = "window"
+name = "Programs can ask where the window is"
+does = "A program can ask whether the window is minimized, where it and its text sit on the screen, and how big the window and the screen are. A program cannot read the title back, so it cannot make the terminal type it."
+status = "built"
+platform = "macos"
+tests = ["baud-core/tests/window_reports.rs::the_window_reports_answer_from_what_the_embedder_handed_over", "baud-core/tests/window_reports.rs::the_title_reports_are_refused_and_counted", "baud-app/src/app.rs::the_window_facts_are_appkits_geometry_in_device_pixels_from_the_top"]
+
+[[feature]]
 id = "appearance"
 area = "window"
 name = "Light and dark, automatically"
@@ -1534,7 +1553,7 @@ does = "Image tools can ask the cell and window size in pixels, and are told the
 status = "built"
 platform = "both"
 tests = ["baud-core/tests/inband.rs::a_resize_reports_what_the_terminal_has"]
-rows = ["vt:`CSI ? 2048 h/l`", "vt:`CSI 14 t`, `CSI 16 t`, `CSI 18 t`"]
+rows = ["vt:`CSI ? 2048 h/l`", "vt:`CSI 11 t`, `CSI 13 t`, `CSI 13 ; 2 t`, `CSI 14 t`, `CSI 14 ; 2 t`, `CSI 15 t`, `CSI 16 t`, `CSI 18 t`, `CSI 19 t`"]
 
 # --- Platforms and settings -------------------------------------------------
 
