@@ -3388,6 +3388,8 @@ impl Paint<'_, '_> {
             AnsiMode::InsertReplace => self.cold.modes.apply(ModeBit::InsertReplace, on),
             AnsiMode::LineFeedNewLine => self.cold.modes.apply(ModeBit::LineFeedNewLine, on),
             AnsiMode::Erasure => self.cold.modes.apply(ModeBit::EraseGuarded, on),
+            AnsiMode::KeyboardAction => self.cold.modes.apply(ModeBit::KeyboardAction, on),
+            AnsiMode::SendReceive => self.cold.modes.apply(ModeBit::SendReceive, on),
             _ => self.unsupported_param += 1,
         }
     }
@@ -3685,6 +3687,9 @@ impl Paint<'_, '_> {
             ModeBit::ReverseWrap,
             ModeBit::InsertReplace,
             ModeBit::SynchronizedOutput,
+            // "Keyboard action KAM: Unlocked" (`[[source: vt510-decstr]]`
+            // Table 5-9), and xterm's common reset path clears `MODE_KAM`.
+            ModeBit::KeyboardAction,
         ] {
             self.cold.modes.apply(m, power_on.is_set(m));
         }
@@ -3837,6 +3842,8 @@ impl Paint<'_, '_> {
                 AnsiMode::InsertReplace => bit_state(self.cold.modes, ModeBit::InsertReplace),
                 AnsiMode::Erasure => bit_state(self.cold.modes, ModeBit::EraseGuarded),
                 AnsiMode::TabulationStop => ModeState::PermanentlyReset,
+                AnsiMode::KeyboardAction => bit_state(self.cold.modes, ModeBit::KeyboardAction),
+                AnsiMode::SendReceive => bit_state(self.cold.modes, ModeBit::SendReceive),
                 _ => ModeState::NotRecognized,
             };
         }

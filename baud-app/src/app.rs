@@ -1183,7 +1183,10 @@ impl App {
         let encoded = crate::reads::input(&mut self.term, |t| t.key(e), |b| self.outbox.push(b));
         // A key shows the cursor and restarts its blink, whether or not the
         // child echoes it back, and is input to the stop (`caret.rs`). The
-        // wheel's arrow keys on the alternate screen come through here too.
+        // wheel's arrow keys on the alternate screen do not come through
+        // here: `Route::Keys` sends them through `Term::wheel_key`, which
+        // KAM does not lock and SRM does not draw, and restarts the caret
+        // itself.
         self.caret.input(host_now());
         match (encoded, self.flush_reply()) {
             (true, Sent::Bytes) => Sent::Bytes,
@@ -6751,8 +6754,9 @@ impl Driver {
     /// A key the user pressed: sent to the core and on to the child, with
     /// the instrument's first two stamps around it -- the key event's own
     /// timestamp and this responder running, then the `write(2)` having
-    /// returned. The wheel on the alternate screen sends arrow keys through
-    /// `App::send` directly: it is not a keystroke and is not stamped.
+    /// returned. The wheel on the alternate screen sends its arrow keys
+    /// through `Term::wheel_key` in `Route::Keys`, not here: it is not a
+    /// keystroke and is not stamped.
     fn typed(&mut self, e: KeyEvent) {
         let e = KeyEvent {
             kind: std::mem::take(&mut self.key_kind),
@@ -6770,9 +6774,15 @@ impl Driver {
             }
             Sent::Nothing => self.app.latency.unsent(),
         }
-        // A prediction is owed its frame now, not at the next wake: the
-        // keystroke is the event, and nothing else pumps the loop for it.
-        if self.app.guess == Guess::Owed {
+        // SRM reset: the core drew the key itself, so its frame is owed now,
+        // as a read's echo is, and nothing else pumps the loop for it.
+        if self.app.term.local_echo() {
+            self.app.pending = Pending::Dirty;
+            self.app.echo = Echo::Fed;
+            self.pump(Trigger::Wake);
+        } else if self.app.guess == Guess::Owed {
+            // A prediction is owed its frame now, not at the next wake: the
+            // keystroke is the event, and nothing else pumps the loop for it.
             self.pump(Trigger::Wake);
         }
     }
@@ -6823,6 +6833,10 @@ impl Driver {
             Some("back")
         } else if app.term.synchronized_output() {
             Some("sync")
+        } else if app.term.local_echo() {
+            // SRM reset: the terminal drew the key itself, and the child's
+            // echo, if it echoes too, is not one to predict.
+            Some("srm")
         } else if !app.term.cursor_visible() {
             Some("cursor")
         } else if !printable {
@@ -7533,9 +7547,18 @@ impl Responder for Driver {
                 return;
             }
             Route::Keys => {
+                // The wheel's keys, not keystrokes: KAM does not lock them
+                // and SRM does not draw them (`Term::wheel_key`).
                 for key in crate::wheel::keys(lines) {
-                    self.app.send(key);
+                    let outbox = &mut self.app.outbox;
+                    crate::reads::input(
+                        &mut self.app.term,
+                        |t| t.wheel_key(key),
+                        |b| outbox.push(b),
+                    );
                 }
+                self.app.caret.input(host_now());
+                self.app.flush_reply();
                 return;
             }
             Route::Nothing => return,

@@ -617,6 +617,29 @@ pub(crate) enum Pinned {
     OnLast,
 }
 
+/// The host stream's parser state, which the local echo swaps for its own
+/// while it runs (`Term::echo`).
+pub(crate) struct EchoParse {
+    node: Node,
+    utf8: Utf8Acc,
+    utf8_min: Utf8Min,
+    csi: crate::write::Csi,
+}
+
+/// A parser at rest moved into the protocol the terminal is in: the
+/// echo's, after DECANM moved the host, so in VT52 an Up key's `ESC A` is
+/// VT52's cursor up, and the host's, after an echoed DECANM moved the
+/// terminal. A node inside a sequence is left where it is.
+fn at_rest_in(t: TerminalMode, n: Node) -> Node {
+    match (t, n) {
+        (TerminalMode::Vt52, Node::Ground) => Node::Vt52Ground,
+        (TerminalMode::Vt52, Node::AfterControl) => Node::Vt52AfterControl,
+        (TerminalMode::Ansi, Node::Vt52Ground) => Node::Ground,
+        (TerminalMode::Ansi, Node::Vt52AfterControl) => Node::AfterControl,
+        (_, n) => n,
+    }
+}
+
 /// Every line the grid can have can carry a line tabulation stop.
 const _: () = assert!(
     MAX_ROWS <= LineStops::LINES,
@@ -1442,6 +1465,12 @@ pub struct Term<'b> {
     /// The parameters of the `CSI` being parsed, beside the node for the same
     /// reason `utf8` is.
     pub(crate) csi: crate::write::Csi,
+    /// The parser the local echo runs through while SRM is reset
+    /// ([`Term::key`]): a state of its own, so a key typed between the halves
+    /// of a host sequence split across reads lands on its own, and kept from
+    /// key to key, as xterm's echo keeps `myState` (Jev 2026-10-19,
+    /// OWN_STATE, 1.00/1.00).
+    pub(crate) echo: EchoParse,
     /// Bytes ingested, the denominator of every amplification figure.
     pub(crate) bytes_in: usize,
     /// Cells written, the numerator. Two arms of an experiment that disagree
@@ -2412,6 +2441,12 @@ impl<'b> Term<'b> {
             utf8: Utf8Acc::lead(0),
             utf8_min: Utf8Min::Two,
             csi: crate::write::Csi::NEW,
+            echo: EchoParse {
+                node: Node::Ground,
+                utf8: Utf8Acc::lead(0),
+                utf8_min: Utf8Min::Two,
+                csi: crate::write::Csi::NEW,
+            },
             bytes_in: 0,
             cells_written: 0,
             #[cfg(feature = "diag")]
@@ -4100,12 +4135,41 @@ impl<'b> Term<'b> {
     ///   `ESC A` -- a gap that opened the moment the *parser* gained a feature
     ///   the *encoder* had carried all along.
     pub fn key(&mut self, e: KeyEvent) -> bool {
+        // **KAM set: the keyboard is locked.** "The terminal ignores all
+        // keystrokes that send characters to the host" (`[[source:
+        // vt510-kam]]`): nothing sent and nothing echoed. A focus or mouse
+        // report is the terminal's own and goes on (Jev, KEYS_ONLY).
+        if self.cold.modes.is_set(ModeBit::KeyboardAction) {
+            return false;
+        }
+        let Some(k) = self.queue_key(e) else {
+            return false;
+        };
+        // **SRM reset: the key is drawn as well as sent**, "to the host and
+        // to the screen" (`[[source: vt510-srm]]`).
+        if !self.cold.modes.is_set(ModeBit::SendReceive) {
+            self.echo(k.as_bytes());
+        }
+        true
+    }
+
+    /// A cursor key the wheel sends under `?1007`, encoded as [`Term::key`]
+    /// encodes it. **Not a keystroke**: KAM does not lock it and SRM does
+    /// not draw it, as neither touches a mouse report (Jev 2026-10-19,
+    /// KEYS_ONLY, 1.00/1.00).
+    pub fn wheel_key(&mut self, e: KeyEvent) -> bool {
+        self.queue_key(e).is_some()
+    }
+
+    /// Encode a key into the reply buffer: the bytes queued, or `None` for a
+    /// key that sends nothing or does not fit.
+    fn queue_key(&mut self, e: KeyEvent) -> Option<KeyBytes> {
         // **DECARM reset: a held key does not repeat.** `[[source: vt510-decarm]]`:
         // "Reset: keys do not autorepeat". The embedder delivers what its
         // keyboard does, and the terminal decides what a repeat is worth --
         // nothing here, on every layer, kitty's event types included.
         if e.kind == KeyEventKind::Repeat && !self.cold.modes.is_set(ModeBit::AutoRepeat) {
-            return false;
+            return None;
         }
         let s = KeyState {
             modes: self.cold.modes,
@@ -4117,9 +4181,7 @@ impl<'b> Term<'b> {
             other_keys_format: self.cold.other_keys_format,
             kitty: self.cold.kitty.current(),
         };
-        let Some(k) = encode_key(e, s) else {
-            return false;
-        };
+        let k = encode_key(e, s)?;
         let b = k.as_bytes();
         let at = self.reply_len.index();
         // A truncated key is a wrong answer, so it is dropped whole and
@@ -4130,13 +4192,44 @@ impl<'b> Term<'b> {
             true => {
                 self.store.reply[at..at + b.len()].copy_from_slice(b);
                 self.reply_len = ByteLen::from_index(at + b.len());
-                true
+                Some(k)
             }
             false => {
                 self.reply_overflows += 1;
-                false
+                None
             }
         }
+    }
+
+    /// Run a key's bytes through the screen as the host's bytes run, in a
+    /// parser state of the echo's own ([`EchoParse`]).
+    ///
+    /// **The arena's last bytes**, not its first: a host read lands at its
+    /// start, and the echo comes between reads, so it writes where no read
+    /// left anything a later step reads. What the echo must not disturb is
+    /// put back: the host's parser state, the placement look-back's tail
+    /// and the count of bytes ingested, which is the host's. Out of line,
+    /// so the ingest loop `feed` inlines is in one place on this path.
+    #[inline(never)]
+    fn echo(&mut self, bytes: &[u8]) {
+        let at = BytePos::from_index(self.store.arena.len() - bytes.len());
+        let (placement, bytes_in) = (self.cold.placement, self.bytes_in);
+        self.echo.node = at_rest_in(self.cold.terminal, self.echo.node);
+        self.swap_parser();
+        self.write_at(at, bytes);
+        self.feed(at, ReadLen::from_index(bytes.len()));
+        self.swap_parser();
+        self.node = at_rest_in(self.cold.terminal, self.node);
+        self.cold.placement = placement;
+        self.bytes_in = bytes_in;
+    }
+
+    /// Exchange the host stream's parser state with the echo's.
+    fn swap_parser(&mut self) {
+        core::mem::swap(&mut self.node, &mut self.echo.node);
+        core::mem::swap(&mut self.utf8, &mut self.echo.utf8);
+        core::mem::swap(&mut self.utf8_min, &mut self.echo.utf8_min);
+        core::mem::swap(&mut self.csi, &mut self.echo.csi);
     }
 }
 
@@ -4169,5 +4262,19 @@ impl Term<'_> {
     /// `?1034` eightBitInput. Whether Alt/Meta add 128 instead of prefixing.
     pub fn eight_bit_input(&self) -> bool {
         self.cold.modes.is_set(ModeBit::EightBitInput)
+    }
+
+    /// KAM. Whether a program has locked the keyboard, so [`Term::key`]
+    /// sends nothing. **Exposed, and not drawn yet**: VT510 shows a Wait
+    /// indicator on its keyboard indicator line, and baud has no status line
+    /// to put one on (Jev 2026-10-19, EXPOSE_STATE, 1.00/1.00).
+    pub fn keyboard_locked(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::KeyboardAction)
+    }
+
+    /// SRM reset. Whether [`Term::key`] draws the key as well as sending it,
+    /// so an embedder owes a frame after a key, not after the next read.
+    pub fn local_echo(&self) -> bool {
+        !self.cold.modes.is_set(ModeBit::SendReceive)
     }
 }

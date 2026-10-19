@@ -125,6 +125,8 @@ created the demand.
 |---|---|---|
 | DECCKM `?1` | `cursor_keys_application` | cursor keys: `CSI A` vs `SS3 A` |
 | LNM `20` | — | Return: `CR` vs `CR LF` |
+| KAM `2` | `keyboard_locked` | every key: while a program has locked the keyboard, a key sends nothing and draws nothing. **partial** -- VT510's Wait indicator waits on a status line (`vt-coverage.md`'s KAM row) |
+| SRM `12` | `local_echo` | reset, a key is drawn as well as sent, through a parser of the echo's own; set at power-on. **done** -- `baud-core/tests/keyboard_modes.rs` |
 | `?1036` / `?1039` | `meta_sends_escape`, `alt_sends_escape` | whether Meta/Alt prefix `ESC` |
 | `?1034` | `eight_bit_input` | whether Meta/Alt add 128, under ISO 8859-1 |
 | `ESC % @` / `ESC % G` | `input_encoding` | whether a typed character is sent as ISO 8859-1 or UTF-8 |

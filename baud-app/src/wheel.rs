@@ -124,8 +124,9 @@ pub fn route(term: &Term<'_>) -> Route {
 
 /// `lines` of wheel as the cursor keys: Up for each line that shows earlier
 /// lines and Down for each that shows later ones, at most `WHEEL_MAX`. Keys,
-/// not bytes, so each goes through `Term::key` and is the cursor key as
-/// DECCKM has it -- `CSI A` normally and `SS3 A` in application mode.
+/// not bytes, so each goes through `Term::wheel_key` and is the cursor key
+/// as DECCKM has it -- `CSI A` normally and `SS3 A` in application mode --
+/// and not a keystroke, which KAM would lock and SRM draw.
 pub fn keys(lines: Lines) -> impl Iterator<Item = KeyEvent> {
     let code = if lines.0 > 0 {
         KeyCode::Up
@@ -370,7 +371,7 @@ mod tests {
         let sent = |t: &mut Term<'_>, lines| {
             let mut out = Vec::new();
             for k in keys(lines) {
-                crate::reads::input(t, |t| t.key(k), |b| out.extend_from_slice(b));
+                crate::reads::input(t, |t| t.wheel_key(k), |b| out.extend_from_slice(b));
             }
             out
         };

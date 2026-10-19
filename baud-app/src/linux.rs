@@ -351,6 +351,11 @@ pub fn run() {
                     // A key shows the cursor, restarts its blink, and is
                     // input to its stop.
                     d.caret.input(Instant::now());
+                    // SRM reset: the core drew the key itself, a frame owed
+                    // now rather than at the next read.
+                    if d.term.local_echo() {
+                        d.pending = Pending::Dirty;
+                    }
                 }
                 // Reported to the child only if it asked with `?1004`, into
                 // an empty buffer like a key, and written with the keys'

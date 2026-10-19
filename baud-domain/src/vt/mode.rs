@@ -112,6 +112,13 @@ pub enum AnsiMode {
     /// may have one state only"). `DECRQM` answers it permanently reset and
     /// SM and RM are counted (Jev 2026-10-19, PERMANENTLY_RESET, 0.98/0.98).
     TabulationStop,
+    /// KAM, mode 2 (`[[source: vt510-kam]]`, `[[source: ecma48]]` 7.2.11):
+    /// set locks the keyboard, "The terminal ignores all keystrokes that send
+    /// characters to the host".
+    KeyboardAction,
+    /// SRM, mode 12 (`[[source: vt510-srm]]`, 7.2.15): reset, "the terminal
+    /// sends keyboard characters to the host and to the screen".
+    SendReceive,
     Other(Param),
 }
 
@@ -122,6 +129,8 @@ impl AnsiMode {
             20 => AnsiMode::LineFeedNewLine,
             6 => AnsiMode::Erasure,
             18 => AnsiMode::TabulationStop,
+            2 => AnsiMode::KeyboardAction,
+            12 => AnsiMode::SendReceive,
             n => AnsiMode::Other(Param(n)),
         }
     }
@@ -280,6 +289,18 @@ pub enum ModeBit {
     /// factory default (Set-Up 2.9.7, p. 2-32); kept by `DECSTR`, whose
     /// table 5-6 does not name it.
     EraseScreenBackground,
+    /// KAM, `SM 2`, set: the keyboard is locked, and `Term::key` sends
+    /// nothing. Reset at power-on, by `RIS` and by `DECSTR`, "Keyboard action
+    /// KAM: Unlocked" (`[[source: vt510-decstr]]`). Read only by `Term::key`.
+    KeyboardAction,
+    /// SRM, `SM 12`, set: no local echo. **Set at power-on and by `RIS`**,
+    /// `[[source: vt510-srm]]`'s "Default: No local echo" and xterm's
+    /// `MODE_SRM` (`[[source: xterm-reset]]`'s file), where `[[source:
+    /// ecma48]]` 7.1 recommends the reset state as the initial one: every
+    /// pty echoes a typed key itself, and a terminal that echoed too would
+    /// draw it twice (Jev's lean, SET_NO_ECHO, 0.80/0.72). Kept by `DECSTR`,
+    /// whose table names no SRM. Read only by `Term::key`.
+    SendReceive,
 }
 
 impl ModeBit {
@@ -342,7 +363,8 @@ impl Default for Modes {
                 | ModeBit::MetaSendsEscape.bit()
                 | ModeBit::AltSendsEscape.bit()
                 | ModeBit::AutoRepeat.bit()
-                | ModeBit::SixelPrivateRegisters.bit(),
+                | ModeBit::SixelPrivateRegisters.bit()
+                | ModeBit::SendReceive.bit(),
         )
     }
 }
