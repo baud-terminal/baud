@@ -979,8 +979,9 @@ impl<'a> View<'a> {
         for k in 1..=hist.index().min(self.ring.index()) {
             let p = self.rot.retreat(k, self.ring).index();
             for x in 0..cols {
-                if !self.cells[p * s + x].is_protected() {
-                    self.cells[p * s + x] = blank;
+                let old = self.cells[p * s + x];
+                if !old.is_protected() {
+                    self.cells[p * s + x] = PackedCell::erased_from(old, blank);
                     self.used[p] = self.used[p].reached(x + 1);
                     n += 1;
                 }
@@ -2158,7 +2159,77 @@ impl<'a> View<'a> {
         self.fill_raw(r, a, b, cell)
     }
 
+    /// **Guard the positions `[from, to)` of a row**, widened to whole
+    /// characters: EPA's mark (`[[source: ecma48]]` 6.5.2.2). Each cell keeps
+    /// what it holds and takes [`CellFlags::GUARDED`], and **the row's mark
+    /// rises over every position marked**, so a row a scroll later recycles
+    /// is blanked over them rather than to an extent that stops short and
+    /// leaves the guard on the line coming in. Returns the cells marked.
+    pub fn guard_span(&mut self, r: Row, from: Col, to: Col) -> usize {
+        if r.index() >= self.rows.index() {
+            return 0;
+        }
+        let (a, b) = self.snap(r, from, to);
+        if a >= b {
+            return 0;
+        }
+        let p = self.phys(r);
+        let base = p * self.stride.index();
+        for c in &mut self.cells[base + a..base + b] {
+            c.flags = c.flags.with(CellFlags::GUARDED);
+        }
+        self.used[p] = self.used[p].reached(b);
+        b - a
+    }
+
+    /// **ED, EL and ECH over `[from, to)` of a row while a guarded area may
+    /// exist**: the runs of unguarded cells are filled with `blank`, and the
+    /// runs of guarded ones are left (`GuardedErasure::Protect`) or filled
+    /// with `blank` keeping the guard (`GuardedErasure::All`), each run
+    /// through the fill every erase takes, so the row's mark follows the same
+    /// rule. The span
+    /// is widened to whole characters once; EPA guards whole characters, so
+    /// no run inside it splits one. Returns the cells written.
+    pub fn fill_sparing(
+        &mut self,
+        r: Row,
+        from: Col,
+        to: Col,
+        blank: PackedCell,
+        how: GuardedErasure,
+    ) -> usize {
+        if r.index() >= self.rows.index() {
+            return 0;
+        }
+        let (a, b) = self.snap(r, from, to);
+        let base = self.at(r, Col::ZERO);
+        let guarded = PackedCell {
+            flags: blank.flags.with(CellFlags::GUARDED),
+            ..blank
+        };
+        let (mut n, mut x) = (0, a);
+        while x < b {
+            let g = self.cells[base + x].flags.is_guarded();
+            let mut y = x + 1;
+            while y < b && self.cells[base + y].flags.is_guarded() == g {
+                y += 1;
+            }
+            n += match (g, how) {
+                (false, _) => self.fill_raw(r, x, y, blank),
+                (true, GuardedErasure::Protect) => 0,
+                (true, GuardedErasure::All) => self.fill_raw(r, x, y, guarded),
+            };
+            x = y;
+        }
+        n
+    }
+
     /// The unsnapped fill, for spans already known to be whole rows.
+    ///
+    /// **Inlined into each caller**: with [`View::fill_sparing`] calling it
+    /// too, LLVM took it out of line, and every ED and EL paid a call that
+    /// `fill` had not made.
+    #[inline(always)]
     fn fill_raw(&mut self, r: Row, a: usize, b: usize, cell: PackedCell) -> usize {
         if r.index() >= self.rows.index() || a >= b {
             return 0;

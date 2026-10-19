@@ -395,6 +395,24 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **A guarded area, and an erase over it**: SPA, `ab`, EPA guards the
+    // positions from SPA's through the cursor, and EL 1 spares them under
+    // ERM reset. A split can fall between SPA and EPA, where the open start
+    // is all that carries across.
+    Atom {
+        name: "spa-epa-el",
+        bytes: b"\x1bVab\x1bW\x1b[1K",
+        stride: 0,
+        count: 0,
+    },
+    // **ERM set for one erase**: EL 2 erases a guarded position and keeps
+    // its guard, then ERM is reset again.
+    Atom {
+        name: "erm-el",
+        bytes: b"\x1b[6h\x1b[2K\x1b[6l",
+        stride: 0,
+        count: 0,
+    },
     // **GR bytes in a DCS prefix, under ISO 8859-1**: `90`, then `B1 BB B2`
     // for the parameters `1;2`, `A4` for `$` and `F1` for `q`, so the string
     // is a DECRQSS for `m`, closed by `9C`. Each GR byte is read as its
@@ -822,6 +840,32 @@ fn fed(name: &str, f: &dyn Fn(&Term<'_>)) {
     t.write_at(BytePos::ZERO, &bytes);
     t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
     f(&t);
+}
+
+/// **The guarded-area atoms reach the guard**, the control the C1 atoms
+/// have: `spa-epa-el` leaves `ab` guarded through EL 1, and `erm-el` after
+/// it erases them and keeps the guard. An atom whose SPA never reached the
+/// handler would guard nothing, and every property would compare cells with
+/// no guard in them.
+#[test]
+fn the_guard_atoms_reach_the_guard() {
+    let row = |cells: &[PackedCell]| {
+        cells[..3]
+            .iter()
+            .map(|c| {
+                let g = if c.flags.is_guarded() { 'G' } else { '.' };
+                let ch = c
+                    .content
+                    .as_codepoint()
+                    .map_or(' ', |c| char::from_u32(c.value()).unwrap_or(' '));
+                format!("{ch}{g}")
+            })
+            .collect::<String>()
+    };
+    let (cells, ..) = drive(&bytes_of(&[atom("spa-epa-el")]), 4096);
+    assert_eq!(row(&cells), "aGbG G");
+    let (cells, ..) = drive(&bytes_of(&[atom("spa-epa-el"), atom("erm-el")]), 4096);
+    assert_eq!(row(&cells), " G G G");
 }
 
 /// **The `OSC 52` atoms reach the arms they were added for**, the control

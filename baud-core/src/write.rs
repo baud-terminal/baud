@@ -2113,6 +2113,8 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         // Sixel claim and `S8C1T` reach it: `[[source: dec-std-070]]` 070-4,
         // "identical to a primary DA control with an omitted parameter".
         Esc::Identify => primary_device_attributes(p),
+        Esc::StartGuardedArea => p.start_guarded_area(),
+        Esc::EndGuardedArea => p.end_guarded_area(),
         // **Counted, and it was a bare `{}`.** `spec_inventory` asks one
         // question per form the specification lists -- "was this acted on, or
         // *counted*" -- and it asks it by snapshotting the terminal either

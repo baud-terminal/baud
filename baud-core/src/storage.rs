@@ -228,8 +228,9 @@ pub struct Book<'b> {
     /// at the depth, so two images past a full ring get distinct lines.
     pub(crate) top: LineIdx,
     /// The same for the alternate screen, which keeps no history: its line at
-    /// the top of the window. Kept only while an image is placed -- nothing
-    /// else reads it -- and restarted each time the screen is entered.
+    /// the top of the window. Kept only while an image is placed or an SPA
+    /// is open -- nothing else reads it -- and restarted each time the
+    /// screen is entered.
     pub(crate) alt_top: LineIdx,
     /// **How far the primary's rows hold anything**: the width `Term::new` is
     /// given, raised by a growth to the new width, and at every resize that

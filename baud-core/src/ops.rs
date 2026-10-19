@@ -453,12 +453,6 @@ impl Paint<'_, '_> {
         PackedCell::empty_with(self.style)
     }
 
-    fn fill_counted(&mut self, r: Row, from: Col, to: Col) {
-        let b = self.blank();
-        let n = self.view.fill(r, from, to, b);
-        self.cells = self.cells.plus(n);
-    }
-
     fn fill_row_counted(&mut self, r: Row) {
         let b = self.blank();
         let n = self.view.fill_row(r, b);
@@ -488,7 +482,7 @@ impl Paint<'_, '_> {
             if self.cold.watched == crate::term::Watched::Rows {
                 self.cold.watch_uncounted(Scroll::Up);
             }
-            if self.images.any_placed() {
+            if self.images.any_placed() || self.cold.guard_open.is_some() {
                 self.alt_images_moved(Scroll::Up);
             }
             return;
@@ -540,7 +534,8 @@ impl Paint<'_, '_> {
     /// keeps no history, so a row that leaves the window leaves the screen,
     /// and an image goes with the last of its rows; one on the row the
     /// scroll blanked goes too. Its top
-    /// line is kept only while an image is placed, which is when this runs.
+    /// line is kept only while an image is placed or an SPA is open, which is
+    /// when this runs: an open SPA's start is a line in its numbering.
     #[cold]
     #[inline(never)]
     pub(crate) fn alt_images_moved(&mut self, way: Scroll) {
@@ -553,7 +548,10 @@ impl Paint<'_, '_> {
             Scroll::Down => {
                 match self.book.alt_top.minus(Rows::of_count(1)) {
                     Some(t) => self.book.alt_top = t,
-                    None => self.images.shift(ImageScreen::Alternate, Rows::of_count(1)),
+                    None => {
+                        self.images.shift(ImageScreen::Alternate, Rows::of_count(1));
+                        self.guard_shift(ImageScreen::Alternate);
+                    }
                 }
                 self.book.alt_top
             }
@@ -561,6 +559,17 @@ impl Paint<'_, '_> {
         let top = self.book.alt_top;
         self.images
             .expire(ImageScreen::Alternate, top, top.plus(rows), Some(blanked));
+    }
+
+    /// An open SPA's start, on `screen`, after the window moved back over a
+    /// row its numbering cannot count below line zero: it moves down a row
+    /// with its text, as the images do (`ImageStore::shift`).
+    #[cold]
+    #[inline(never)]
+    fn guard_shift(&mut self, screen: ImageScreen) {
+        if let Some(g) = self.cold.guard_open.as_mut().filter(|g| g.screen == screen) {
+            g.line = g.line.plus(Rows::of_count(1));
+        }
     }
 
     /// **The live screen's images after the rows `[from, to]` moved `k`
@@ -641,6 +650,16 @@ impl Paint<'_, '_> {
             self.images
                 .scroll_rect(screen, lo, hi, (left, right), Rows::of_count(k), way);
         }
+        // An open SPA's start moves with the rectangle only when its column
+        // is in it: the columns outside the side margins do not move.
+        if self
+            .cold
+            .guard_open
+            .is_some_and(|g| g.col >= left && g.col <= right)
+        {
+            let k = n.at_least_one().min(bot.index() + 1 - at.index());
+            self.guard_band_moved(at, bot, Rows::of_count(k), way);
+        }
         self.row_changed_to(self.cy);
     }
 
@@ -693,7 +712,7 @@ impl Paint<'_, '_> {
             if self.cold.watched == crate::term::Watched::Rows {
                 self.cold.watch_uncounted(Scroll::Down);
             }
-            if self.images.any_placed() {
+            if self.images.any_placed() || self.cold.guard_open.is_some() {
                 self.alt_images_moved(Scroll::Down);
             }
             return;
@@ -715,6 +734,9 @@ impl Paint<'_, '_> {
                 }
                 if self.images.any_placed() {
                     self.images.shift(ImageScreen::Primary, Rows::of_count(1));
+                }
+                if self.cold.guard_open.is_some() {
+                    self.guard_shift(ImageScreen::Primary);
                 }
             }
         }
@@ -870,6 +892,9 @@ impl Paint<'_, '_> {
         if self.images.any_placed() {
             self.band_images_moved(top, bot, Rows::of_count(k), BandMove::Up);
         }
+        if self.cold.guard_open.is_some() {
+            self.guard_band_moved(top, bot, Rows::of_count(k), BandMove::Up);
+        }
         // **The whole region, not `k` rows.** `delete_lines_in` moves every
         // row inside the region and blanks `k`; counting only the blanks
         // undercounted the copying path by the height of the region, which is
@@ -930,6 +955,9 @@ impl Paint<'_, '_> {
             // into the region a row a scroll while its text stays put.
             if self.images.any_placed() {
                 self.band_images_put_back(bot, Row::from_index(last));
+            }
+            if self.cold.guard_open.is_some() {
+                self.guard_put_back(bot, Row::from_index(last));
             }
         }
         self.cells = self.cells.plus(moved);
@@ -1204,6 +1232,9 @@ impl Paint<'_, '_> {
         if self.images.any_placed() {
             self.band_images_moved(top, bot, Rows::of_count(k), BandMove::Down);
         }
+        if self.cold.guard_open.is_some() {
+            self.guard_band_moved(top, bot, Rows::of_count(k), BandMove::Down);
+        }
         self.cells = self
             .cells
             .plus((bot.index() + 1 - top.index()) * self.cols.index());
@@ -1278,6 +1309,9 @@ impl Paint<'_, '_> {
         if self.images.any_placed() {
             self.band_images_moved(at, bot, Rows::of_count(k), BandMove::Down);
         }
+        if self.cold.guard_open.is_some() {
+            self.guard_band_moved(at, bot, Rows::of_count(k), BandMove::Down);
+        }
         self.cells = self.cells.plus(k * self.cols.index());
         self.row_changed_to(self.cy);
     }
@@ -1310,6 +1344,9 @@ impl Paint<'_, '_> {
         if self.images.any_placed() {
             self.band_images_moved(at, bot, Rows::of_count(k), BandMove::Up);
         }
+        if self.cold.guard_open.is_some() {
+            self.guard_band_moved(at, bot, Rows::of_count(k), BandMove::Up);
+        }
         self.cells = self.cells.plus(k * self.cols.index());
         self.row_changed_to(self.cy);
     }
@@ -1320,7 +1357,8 @@ impl Paint<'_, '_> {
     pub(crate) fn erase_chars(&mut self, n: Count) {
         let (r, from) = (self.cy, self.cx.col());
         let to = Col::at_index((from.index() + n.at_least_one()).min(self.cols.index()));
-        self.fill_counted(r, from, to);
+        let b = self.blank();
+        self.erase_span(r, from, to, b);
         self.wrote_rows(r, r);
     }
 
@@ -1359,6 +1397,121 @@ impl Paint<'_, '_> {
         self.wrote_rows(r, r);
     }
 
+    /// **ED, EL and ECH over `[a, b)` of row `r`**: the fill every erase
+    /// took, while no EPA has guarded a position since the last `RIS` -- one
+    /// compare of a byte the erase's dispatch already has in cache -- and
+    /// otherwise the fill that spares a guarded position under ERM reset and
+    /// keeps its guard under ERM set (`View::fill_sparing`). Counts the
+    /// cells written.
+    #[inline(always)]
+    pub(crate) fn erase_span(&mut self, r: Row, a: Col, b: Col, blank: PackedCell) {
+        let n = match self.cold.guards {
+            crate::term::Guards::None => self.view.fill(r, a, b, blank),
+            crate::term::Guards::Marked => self.erase_sparing(r, a, b, blank).index(),
+        };
+        self.cells = self.cells.plus(n);
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn erase_sparing(&mut self, r: Row, a: Col, b: Col, blank: PackedCell) -> Cols {
+        // `[[source: ecma48]]` 7.2.4: PROTECT, "Only the contents of
+        // unprotected areas are affected by an erasure control function";
+        // ALL, "The contents of protected as well as of unprotected areas".
+        let how = match self.cold.modes.is_set(ModeBit::EraseGuarded) {
+            true => GuardedErasure::All,
+            false => GuardedErasure::Protect,
+        };
+        Cols::of_index(self.view.fill_sparing(r, a, b, blank, how))
+    }
+
+    /// **SPA**: the active position starts a guarded area
+    /// (`[[source: ecma48]]` 6.5.2.2). A second SPA before EPA starts it
+    /// again: Jev's lean (docs/record.md, "SPA, EPA and ERM are built").
+    /// The position is the cursor's as `CPR` reports it, so a pending wrap is
+    /// the last column, where the cursor is shown.
+    pub(crate) fn start_guarded_area(&mut self) {
+        let (screen, line) = self.image_anchor();
+        let col = self.cx.reported(self.cold.right, self.cols);
+        self.cold.guard_open = Some(crate::term::GuardStart { screen, line, col });
+    }
+
+    /// **EPA**: guard every position from SPA's through the cursor, in the
+    /// order of the character path -- the rest of the first row, the rows
+    /// between whole, the last row to the cursor -- whichever of the two
+    /// comes first. Nothing is guarded before it (Jev's lean). A start
+    /// whose line scrolled above the screen is its first position, and one
+    /// below it its last. With no SPA open it does nothing.
+    pub(crate) fn end_guarded_area(&mut self) {
+        let Some(g) = self.cold.guard_open.take() else {
+            return;
+        };
+        let (screen, top) = self.image_top();
+        if g.screen != screen {
+            return;
+        }
+        let (rows, cols) = (self.rows.index(), self.cols.index());
+        let start = match g.line.since(top) {
+            None => (0, 0),
+            Some(r) if r.index() >= rows => (rows - 1, cols - 1),
+            Some(r) => (r.index(), g.col.index().min(cols - 1)),
+        };
+        let end = (
+            self.cy.index(),
+            self.cx.reported(self.cold.right, self.cols).index(),
+        );
+        let (a, b) = match start <= end {
+            true => (start, end),
+            false => (end, start),
+        };
+        for y in a.0..=b.0 {
+            let from = if y == a.0 { a.1 } else { 0 };
+            let to = if y == b.0 { b.1 + 1 } else { cols };
+            self.view
+                .guard_span(Row::from_index(y), Col::at_index(from), Col::at_index(to));
+        }
+        self.cold.guards = crate::term::Guards::Marked;
+        // The cursor's row took cells past its written extent, perhaps.
+        self.row_changed_to(self.cy);
+    }
+
+    /// **An open SPA's start after rows `[from, to]` of the live screen
+    /// moved `k` `way`**: IL, DL and a region's scroll. A start inside the
+    /// band moves with its line, 8.3.67's and 8.3.32's "the start ... of a
+    /// qualified area ... in the shifted part, are also shifted", and one
+    /// whose line left the band was deleted with it and is forgotten, as an
+    /// image is. Out of line; the callers test that an SPA is open.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn guard_band_moved(&mut self, from: Row, to: Row, k: Rows, way: BandMove) {
+        let (screen, top) = self.image_top();
+        let Some(g) = self.cold.guard_open.as_mut() else {
+            return;
+        };
+        let lo = top.plus(Rows::of_count(from.index()));
+        let hi = top.plus(Rows::of_count(to.index() + 1));
+        if g.screen != screen || g.line < lo || g.line >= hi {
+            return;
+        }
+        let moved = match way {
+            BandMove::Up => g.line.minus(k).filter(|l| *l >= lo),
+            BandMove::Down => Some(g.line.plus(k)).filter(|l| *l < hi),
+        };
+        match moved {
+            Some(l) => g.line = l,
+            None => self.cold.guard_open = None,
+        }
+    }
+
+    /// An open SPA's start after a top-anchored region's scroll put the rows
+    /// `[from, to]` under it back down a row: it goes back with its row, as
+    /// an image does (`ImageStore::put_back_band`).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn guard_put_back(&mut self, from: Row, to: Row) {
+        self.guard_band_moved(from, to, Rows::of_count(1), BandMove::Down);
+    }
+
     /// DECSED / DECSEL: erase only what DECSCA left unprotected.
     pub(crate) fn selective_erase_line(&mut self, e: EraseExtent) {
         let (a, b) = self.line_span(e);
@@ -1381,8 +1534,9 @@ impl Paint<'_, '_> {
         let b = self.blank();
         for x in from.index()..to.index() {
             let c = Col::at_index(x);
-            if !self.view.get(r, c).is_protected() {
-                self.view.put(r, c, b);
+            let old = self.view.get(r, c);
+            if !old.is_protected() {
+                self.view.put(r, c, PackedCell::erased_from(old, b));
                 self.cells = self.cells.plus(1);
             }
         }
@@ -2639,13 +2793,33 @@ impl Paint<'_, '_> {
     /// way out; only `?1049` saves the cursor and clears on the way in and
     /// restores it on the way out.
     fn set_alt_screen(&mut self, change: ModeChange, how: AltSwitch) {
-        use crate::term::Screen;
         // A placement names a position on the screen it was made on, and a
         // switch leaves that screen, clears it or restores a saved cursor
         // (`placed.rs`). The calls that do none of these -- `?47 l` on the
         // primary, `?47 h` while it is up -- forget it too, at no cost that
         // matters: a hide after any of them is not right after a move.
         self.cold.placement.forget();
+        // **An open SPA's start is kept as its screen position** across the
+        // switch, Jev's lean: its row on the screen left, anchored again on
+        // the screen shown below.
+        let open = self.cold.guard_open.take().map(|g| {
+            let (_, top) = self.image_top();
+            (g.line.since(top), g.col)
+        });
+        self.switch_screen(change, how);
+        if let Some((row, col)) = open {
+            let (screen, top) = self.image_top();
+            let line = match row {
+                Some(r) => top.plus(r),
+                None => top,
+            };
+            self.cold.guard_open = Some(crate::term::GuardStart { screen, line, col });
+        }
+    }
+
+    /// [`Paint::set_alt_screen`]'s switch itself.
+    fn switch_screen(&mut self, change: ModeChange, how: AltSwitch) {
+        use crate::term::Screen;
         match (change == ModeChange::Set, self.cold.screen) {
             (true, Screen::Normal) => {
                 if how == AltSwitch::SaveAndClear {
@@ -2784,6 +2958,7 @@ impl Paint<'_, '_> {
         match mode {
             AnsiMode::InsertReplace => self.cold.modes.apply(ModeBit::InsertReplace, on),
             AnsiMode::LineFeedNewLine => self.cold.modes.apply(ModeBit::LineFeedNewLine, on),
+            AnsiMode::Erasure => self.cold.modes.apply(ModeBit::EraseGuarded, on),
             _ => self.unsupported_param += 1,
         }
     }
@@ -2904,6 +3079,10 @@ impl Paint<'_, '_> {
             }
         }
         self.cold.modes = Modes::default();
+        // `RIS` "remove[s] qualified areas" (`[[source: ecma48]]` 8.3.105):
+        // the screens were cleared above, and ED, EL and ECH take their
+        // fill again.
+        self.cold.guards = crate::term::Guards::None;
         // The shared Sixel registers go with `?1070`, which `Modes::default`
         // has just set: xterm's full reset restores the mode
         // (`[[source: xterm-reset]]`), and a terminal made operational has
@@ -3093,6 +3272,11 @@ impl Paint<'_, '_> {
         self.cold.top = Row::ZERO;
         self.cold.bot = Row::from_index(self.rows.index() - 1);
         self.cold.protect = CellFlags::NONE;
+        // **An open SPA is forgotten**, as xterm's soft reset clears the
+        // flag its SPA set (`bitclr(&xw->flags, PROTECTED)`,
+        // `[[source: xterm-reset]]`'s file); what EPA guarded stays, and ERM
+        // with it, neither in DEC's table (`[[source: vt510-decstr]]`).
+        self.cold.guard_open = None;
         self.style_raw = StyleWord::DEFAULT;
         self.cold.saved = None;
         self.style = StyleId::DEFAULT;
@@ -3209,6 +3393,7 @@ impl Paint<'_, '_> {
             return match AnsiMode::from_wire(Some(mode)) {
                 AnsiMode::LineFeedNewLine => bit_state(self.cold.modes, ModeBit::LineFeedNewLine),
                 AnsiMode::InsertReplace => bit_state(self.cold.modes, ModeBit::InsertReplace),
+                AnsiMode::Erasure => bit_state(self.cold.modes, ModeBit::EraseGuarded),
                 _ => ModeState::NotRecognized,
             };
         }

@@ -1439,8 +1439,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             let at = self.view.rotation().advance(cy.index(), self.view.ring());
             self.clear_erased_past_edge(at, blank);
         }
-        let n = self.view.fill(cy, a, b, blank);
-        self.cells = self.cells.plus(n);
+        self.erase_span(cy, a, b, blank);
         self.wrote_rows(cy, cy);
     }
 
@@ -1459,8 +1458,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             self.clear_erased_rows_past_edge(Row::from_index(from), Row::from_index(to));
         }
         for y in from..to {
-            let n = self.view.fill(Row::from_index(y), Col::ZERO, cols, blank);
-            self.cells = self.cells.plus(n);
+            self.erase_span(Row::from_index(y), Col::ZERO, cols, blank);
         }
         if from < to {
             self.wrote_rows(Row::from_index(from), Row::from_index(to - 1));

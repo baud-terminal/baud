@@ -537,6 +537,16 @@ fn every_spec_esc_form_is_handled_or_counted() {
             "HTS sets a tab stop at the cursor; the snapshot has no tab-stop state, \
              and a stop at the cursor does not move the next tab from there",
         ),
+        (
+            b'V',
+            "SPA records where a guarded area starts; nothing is guarded \
+             until EPA (baud-core/tests/guarded_area.rs)",
+        ),
+        (
+            b'W',
+            "EPA with no SPA open ends no area, which is the whole of its \
+             effect from the prepared state (baud-core/tests/guarded_area.rs)",
+        ),
     ];
 
     let (bare, probed) = (snapshot(b"", false), snapshot(b"", true));

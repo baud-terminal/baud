@@ -64,6 +64,23 @@ pub enum Esc {
     /// representation ECMA-48 defines no behaviour for.
     /// VT52 mode never reaches this table: its `ESC Z` is VT52's identify.
     Identify,
+    /// SPA -- Start of Guarded Area, `ESC V` (`96` as a C1).
+    ///
+    /// `[[source: ecma48]]` 8.3.129: "SPA is used to indicate that the active
+    /// presentation position is the first of a string of character positions
+    /// in the presentation component, the contents of which are protected
+    /// against manual alteration, are guarded against transmission or
+    /// transfer, depending on the setting of the GUARDED AREA TRANSFER MODE
+    /// (GATM) and may be protected against erasure, depending on the setting
+    /// of the ERASURE MODE (ERM). The end of this string is indicated by END
+    /// OF GUARDED AREA (EPA)."
+    StartGuardedArea,
+    /// EPA -- End of Guarded Area, `ESC W` (`97` as a C1).
+    ///
+    /// `[[source: ecma48]]` 8.3.46: "EPA is used to indicate that the active
+    /// presentation position is the last of a string of character positions
+    /// in the presentation component" whose beginning SPA indicates.
+    EndGuardedArea,
     /// Recognised as an `ESC Fe` and deliberately not acted on.
     Unsupported,
 }
@@ -82,6 +99,8 @@ impl Esc {
             b'H' => Esc::TabSet,
             b'\\' => Esc::StringTerminator,
             b'Z' => Esc::Identify,
+            b'V' => Esc::StartGuardedArea,
+            b'W' => Esc::EndGuardedArea,
             _ => Esc::Unsupported,
         }
     }

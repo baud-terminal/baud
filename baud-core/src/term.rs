@@ -758,6 +758,11 @@ pub struct Cold {
     /// DECSCA protection, kept apart from the cell flags so the charset and
     /// the protection each change without recomputing the other wrongly.
     pub(crate) protect: CellFlags,
+    /// **An open SPA**: where the guarded area EPA will close starts.
+    pub(crate) guard_open: Option<GuardStart>,
+    /// Whether an EPA has guarded a position since the last `RIS`: the one
+    /// compare that keeps ED, EL and ECH on their fill when it has not.
+    pub(crate) guards: Guards,
     pub(crate) screen: Screen,
     /// Moves on every switch of `screen`: [`Term::screen_epoch`].
     pub(crate) epoch: ScreenEpoch,
@@ -939,10 +944,41 @@ pub struct Cold {
 // The selection's two colours, `OSC 17` and `OSC 19`, took it to 640: a
 // `ColorWord` each in `dynamic` and in `defaults`, written by an `OSC 17`,
 // `19`, `117` or `119` and read by the renderer once a frame, never by a
-// glyph.
+// glyph. An open SPA's start took it to 664, 24 bytes with none in padding,
+// and whether any position is guarded landed in padding: the start is
+// written by SPA, EPA, a screen switch, the resets and a resize, and read
+// by EPA and by every move of rows while it is open -- **on the per-byte
+// path**, one compare in `Paint::index`'s alternate-screen scroll beside
+// the image test there; the guard byte is read once an ED, EL or ECH.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 640);
+const _: () = assert!(core::mem::size_of::<Cold>() == 664);
+
+/// **Where an open SPA starts**: `[[source: ecma48]]` 6.5.2.2, "The
+/// character position which is the active presentation position after
+/// receipt of SPA is the first character position of the guarded area".
+///
+/// **A line, numbered as an image's anchor is** (`Book::top`,
+/// `Book::alt_top`), so the start moves with its line until EPA: a scroll of
+/// the screen moves the numbering, and IL, DL and a region's scroll move the
+/// line by name, as 8.3.67 and 8.3.32 shift "the start ... of a qualified
+/// area" in the shifted part. A switch of screens keeps it as its screen
+/// position, re-anchored on the screen shown.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct GuardStart {
+    pub(crate) screen: ImageScreen,
+    pub(crate) line: LineIdx,
+    pub(crate) col: Col,
+}
+
+/// Whether any position may be guarded: [`Cold::guards`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Guards {
+    /// No EPA has guarded a position since power-on or `RIS`.
+    None,
+    /// One has: ED, EL and ECH test each cell.
+    Marked,
+}
 
 /// The colours a selection is drawn in, [`Term::highlight_colors`]: the
 /// page, `OSC 17`'s, and the text, `OSC 19`'s, each `None` where no
@@ -1107,6 +1143,8 @@ impl Cold {
             pinned: Pinned::Before,
             keypad: KeypadMode::Numeric,
             protect: CellFlags::NONE,
+            guard_open: None,
+            guards: Guards::None,
             screen: Screen::Normal,
             epoch: ScreenEpoch::FIRST,
             top: Row::ZERO,
@@ -2082,6 +2120,9 @@ impl<'b> Term<'b> {
             self.cold.pinned = Pinned::Before;
         }
         self.cx = CursorCol::moved(clamped);
+        // **A resize forgets an open SPA**: its start was a line of the old
+        // geometry, which a reflow renumbers.
+        self.cold.guard_open = None;
         self.cold.top = Row::ZERO;
         self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
         self.cold.left = Col::ZERO;

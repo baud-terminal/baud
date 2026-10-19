@@ -308,7 +308,8 @@ impl CellFlags {
     /// `grapheme_map`, so the map is consulted only for cells that have one.
     pub const MARKED: CellFlags = CellFlags(4);
 
-    /// Bits 3..10 carry the [`LinkId`] (`LINK_BITS`); 10..16 are free. The
+    /// Bits 3..10 carry the [`LinkId`] (`LINK_BITS`); bit 10 is
+    /// [`CellFlags::GUARDED`] and 11..16 are free. The
     /// [`ClusterId`] took them until it moved into the cell's [`Content`],
     /// whose range above U+10FFFF names 1024 slots where six bits named 63.
     ///
@@ -337,6 +338,28 @@ impl CellFlags {
         LinkId::from_index(((self.0 >> CellFlags::LINK_SHIFT) & CellFlags::LINK_MASK) as usize)
     }
 
+    /// Bit 10: the position is in a guarded area, `SPA` to `EPA`.
+    ///
+    /// `[[source: ecma48]]` 6.5.2.2: "The character position which is the
+    /// active presentation position after receipt of SPA is the first
+    /// character position of the guarded area. The character position which
+    /// is the active presentation position before the receipt of EPA is the
+    /// last character position of the guarded area." EPA sets it on every
+    /// position of that string; ED, EL and ECH spare it while ERM is reset
+    /// (7.2.4) and keep it while ERM is set, as DECSED and DECSEL keep it.
+    ///
+    /// **A bit apart from [`CellFlags::PROTECTED`]**: DECSCA's attribute is
+    /// DEC's and decides DECSED and DECSEL alone, where the guard is
+    /// ECMA-48's and decides the erasures ERM names. xterm and ghostty keep
+    /// one bit and a mode naming whichever control set it last.
+    ///
+    /// **A write replaces it**: a host write builds a fresh cell from the
+    /// terminal's flags, which never carry it, so the write path reads no
+    /// old cell for it.
+    pub const GUARDED: CellFlags = CellFlags(1 << 10);
+    pub fn is_guarded(self) -> bool {
+        self.0 & CellFlags::GUARDED.0 != 0
+    }
     pub fn protection(on: bool) -> CellFlags {
         CellFlags(u16::from(on))
     }
@@ -385,7 +408,8 @@ impl PackedCell {
     };
     /// An erased cell.
     ///
-    /// Takes no flags on purpose: an erase leaves a position with no character
+    /// Takes no flags on purpose (but for the guard an erasure that keeps
+    /// it puts back, [`PackedCell::erased_from`]): an erase leaves a position with no character
     /// in it, and `[[source: vt510-decsca]]` scopes protection to "characters
     /// that follow the DECSCA function". A blank that inherited the protection
     /// would make the first selective erase under `DECSCA 1` protect everything
@@ -395,6 +419,22 @@ impl PackedCell {
             content: Content::EMPTY,
             style,
             flags: CellFlags::NONE,
+        }
+    }
+    /// The erased state of `old`'s position: `blank`, keeping `old`'s
+    /// guard. **For the erasures that leave a guarded position guarded**: ED,
+    /// EL and ECH under ERM set -- `[[source: ecma48]]` 4.2.38, to erase is
+    /// "To remove the contents from character positions and leaving the
+    /// resulting gap open" -- and DECSED and DECSEL, whose
+    /// `[[source: dec-std-070]]` text says "The character rendition and
+    /// attributes associated with each position do not change".
+    pub fn erased_from(old: PackedCell, blank: PackedCell) -> PackedCell {
+        match old.flags.is_guarded() {
+            true => PackedCell {
+                flags: blank.flags.with(CellFlags::GUARDED),
+                ..blank
+            },
+            false => blank,
         }
     }
     /// An ASCII byte under whatever character set `flags` says is invoked.

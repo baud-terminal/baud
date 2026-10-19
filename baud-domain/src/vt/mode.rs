@@ -101,6 +101,11 @@ pub enum AnsiMode {
     InsertReplace,
     /// LNM, mode 20. When set, LF also performs a carriage return.
     LineFeedNewLine,
+    /// ERM, mode 6, `[[source: ecma48]]` 7.2.4. Reset, PROTECT, the initial
+    /// state: "Only the contents of unprotected areas are affected by an
+    /// erasure control function". Set, ALL: "The contents of protected as
+    /// well as of unprotected areas are affected".
+    Erasure,
     Other(Param),
 }
 
@@ -109,9 +114,20 @@ impl AnsiMode {
         match p.map_or(0, |x| x.0) {
             4 => AnsiMode::InsertReplace,
             20 => AnsiMode::LineFeedNewLine,
+            6 => AnsiMode::Erasure,
             n => AnsiMode::Other(Param(n)),
         }
     }
+}
+
+/// What ED, EL and ECH do to a guarded position: ERM's two states
+/// (`[[source: ecma48]]` 7.2.4).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GuardedErasure {
+    /// Reset, the initial state: a guarded position is not erased.
+    Protect,
+    /// Set: it is erased, and stays guarded.
+    All,
 }
 
 /// One bit of terminal mode state.
@@ -243,6 +259,12 @@ pub enum ModeBit {
     /// (`[[source: ctlseqs]]`). Off at power-on and after `RIS`, kept by
     /// `DECSTR`.
     SixelScrollsRight,
+    /// ERM, `SM 6`, set: ED, EL and ECH erase a guarded position too
+    /// ([`AnsiMode::Erasure`]). Reset at power-on and by `RIS`, as
+    /// `[[source: ecma48]]` 7.1 recommends and 8.3.105 has RIS "set the
+    /// modes into the reset state"; kept by `DECSTR`, whose DEC table and
+    /// xterm's soft reset name no ERM.
+    EraseGuarded,
 }
 
 impl ModeBit {
