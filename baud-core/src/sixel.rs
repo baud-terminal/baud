@@ -165,9 +165,8 @@ impl Paint<'_, '_> {
             return;
         }
         let (screen, line) = self.image_anchor();
-        let _ = self
-            .images
-            .place(id, screen, line, self.cx.col(), ZIndex::ZERO);
+        let at = self.display_col(self.cx.col());
+        let _ = self.images.place(id, screen, line, at, ZIndex::ZERO);
         // Text written later in this read may land on it (`Paint::hooks`).
         self.rehook();
         // Advance the cursor below the image, through the scroll path so a
@@ -208,18 +207,53 @@ impl Paint<'_, '_> {
         // the image as without the mode.
         let right_of =
             self.cold.modes.is_set(ModeBit::SixelScrollsRight) && self.cell_width != ImagePx::ZERO;
+        // The image's right edge on the display, from where it began.
+        let edge = Col::at_index(
+            at.index() + usize::from(w.raw()).div_ceil(self.cell_width.index().max(1)),
+        );
         for _ in 0..rows - usize::from(right_of) {
             self.index();
         }
         if right_of {
-            let right =
-                self.cx.col().index() + usize::from(w.raw()).div_ceil(self.cell_width.index());
-            if right > self.cold.right.index() {
+            // As a column of the row the cursor ends on: a character
+            // position on a double line (`Paint::char_at_display`).
+            let right = self.char_at_display(edge);
+            if right > self.line_fence() {
                 self.index();
                 self.cx = CursorCol::moved(self.cold.left);
             } else {
-                self.cx = CursorCol::moved(Col::at_index(right));
+                self.cx = CursorCol::moved(right);
             }
+        }
+    }
+
+    /// **The display column character position `c` of the cursor's line
+    /// starts at**: `c` on a single-width line, and on any other the left
+    /// edge of its doubled field, "column 9 of the physical display" for
+    /// position 5 (`[[source: dec-std-070]]` § 5.6.1, p. 5-95). Where an
+    /// image begun at the cursor is placed: "the sixel active position
+    /// begins at the upper-left corner of the ANSI text active position"
+    /// (`[[source: vt3xx-sixel]]`), unscaled, as "No other information is
+    /// carried from the ANSI text state" (070-9 § 11.1) -- decided by Jev
+    /// 2026-10-19, UNSCALED_AT_CURSOR, 0.97 and 0.94 on a re-ask; xterm
+    /// places it at the character position's single-width column
+    /// (`[[source: xterm-graphics-c]]`, `charcol * FontWidth` in
+    /// `refresh_graphic`). An image's columns are the
+    /// display's from then on: it stays where it was drawn.
+    pub(crate) fn display_col(&self, c: Col) -> Col {
+        match self.view.rendition(self.cy).is_double() {
+            true => Col::at_index((c.index() * 2).min(self.cols.index() - 1)),
+            false => c,
+        }
+    }
+
+    /// The character position of the cursor's line that display column
+    /// `edge` begins, rounded up: `edge` on a single-width line, half of it
+    /// on any other. Where the cursor goes right of an image.
+    pub(crate) fn char_at_display(&self, edge: Col) -> Col {
+        match self.view.rendition(self.cy).is_double() {
+            true => Col::at_index(edge.index().div_ceil(2)),
+            false => edge,
         }
     }
 
@@ -255,17 +289,22 @@ impl Paint<'_, '_> {
     /// pays one comparison; the anchor is [`Paint::image_anchor`], the one
     /// `sixel_end` places against, so a placement and its overwrite name the
     /// same cell on the same screen.
+    ///
+    /// **By the display columns the write covers**, which is what an
+    /// image's columns are ([`Paint::display_col`]): twice the character
+    /// positions on a double line.
     #[inline(always)]
     pub(crate) fn overwrite_images(&mut self, col0: Col, col1: Col) {
         if !self.images.any_placed() {
             return;
         }
         let (screen, line) = self.image_anchor();
+        let k = 1 + usize::from(self.view.rendition(self.cy).is_double());
         self.images.overwrite(
             screen,
             line,
-            col0.index(),
-            col1.index(),
+            col0.index() * k,
+            col1.index() * k,
             self.cell_width,
             self.cell_height,
         );

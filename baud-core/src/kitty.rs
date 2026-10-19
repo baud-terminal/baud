@@ -80,7 +80,14 @@ impl Paint<'_, '_> {
             screen,
             top,
             row: Rows::of_count(self.cy.index()),
-            col: self.cx.col(),
+            // The display's column, where a placement begins, and the
+            // columns a delete by the cursor's cell compares
+            // (`Paint::display_col`).
+            col: self.display_col(self.cx.col()),
+            span: Cols::of_index(match self.view.rendition(self.cy).is_double() {
+                true => 2,
+                false => 1,
+            }),
             rows: self.rows,
             cols: self.cols,
             cell_w: self.cell_width,
@@ -100,19 +107,28 @@ impl Paint<'_, '_> {
     /// exact positioning of the cursor is undefined, and up to
     /// implementations". A move longer than the ring scrolls no further
     /// than the ring, which it has blanked by then.
+    ///
+    /// **Right of the image on the row it lands on**: its right edge on the
+    /// display, from the column it began at, as a column of that row, so a
+    /// character position on a double line (`Paint::char_at_display`).
     fn kitty_move(&mut self, m: KittyMove) {
+        let edge = Col::at_index(
+            self.display_col(self.cx.col())
+                .index()
+                .saturating_add(m.cols.index()),
+        );
         for _ in 0..m.rows.index().min(self.view.ring().index()) {
             self.index();
         }
         if m.cols.index() == 0 {
             return;
         }
-        let right = self.cx.col().index().saturating_add(m.cols.index());
-        if right > self.cold.right.index() {
+        let right = self.char_at_display(edge);
+        if right > self.line_fence() {
             self.index();
             self.cx = CursorCol::moved(self.cold.left);
         } else {
-            self.cx = CursorCol::moved(Col::at_index(right));
+            self.cx = CursorCol::moved(right);
         }
     }
 

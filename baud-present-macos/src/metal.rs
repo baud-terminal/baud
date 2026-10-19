@@ -1007,9 +1007,11 @@ impl Gpu {
         Some((StylesBuffer(buffer), styles))
     }
 
-    /// The overlay for a screen of at most `cols` by `rows`.
+    /// The overlay for a screen of at most `cols` by `rows`, and one row
+    /// more: a smooth scroll's leaving row, which the shader reads after
+    /// the screen's (`baud_render::Overlay::leaving`).
     pub fn overlay(&self, cols: Cols, rows: Rows) -> Option<(OverlayBuffer, &'static mut [u8])> {
-        let n = cols.index().saturating_mul(rows.index());
+        let n = cols.index().saturating_mul(rows.index().saturating_add(1));
         let buffer = self.shared(Span(n.max(BUFFER_FLOOR)))?;
         let bytes = unsafe { lend::<u8>(&buffer, Elems(n)) }?;
         bytes.fill(0);

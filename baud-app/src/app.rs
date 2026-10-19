@@ -1592,7 +1592,7 @@ impl App {
                 // instance and CPU paths do in their convert.
                 let cursor_at = match (cursor_at, &composition) {
                     (Some((_, _, style)), Some(c)) => {
-                        let (r, col) = c.cursor(view.cols());
+                        let (r, col) = c.cursor(c.width_on(&view));
                         Some((r, col, style))
                     }
                     (c, _) => c,
@@ -1712,7 +1712,24 @@ impl App {
                         &cell.styles_mem[set][..],
                         cursor,
                         view.cols(),
+                        view.rendition(c.row),
                         if sliding { pan } else { Px::of(0) },
+                        &mut cell.overlay_mem[set][..],
+                        &mut cell.records,
+                    );
+                }
+                // The leaving row, when its line is not single-width: drawn
+                // at its size by its records, its row of the mask the one
+                // after the screen's (`Overlay::leaving`).
+                if sliding {
+                    let above = self.term.view(Rows::of_index(back.index() + 1));
+                    cell.exceptions.leaving(
+                        &mut self.renderer,
+                        &self.term,
+                        above.row(Row::from_index(0)),
+                        above.rendition(Row::from_index(0)),
+                        (view.cols(), view.rows()),
+                        pan,
                         &mut cell.overlay_mem[set][..],
                         &mut cell.records,
                     );

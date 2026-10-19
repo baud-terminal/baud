@@ -353,6 +353,12 @@ group  = "C"
 # (pp. 5-154 to 5-164); insert_or_replace_character, ICH and DCH (pp. 5-139 to 5-145);
 # end_of_line, scroll_up and scroll_down (pp. 5-209 to 5-211); DECALN (pp. D-19 and D-20);
 # and the waiver for ED 1 from a double line's last column (p. C-40).
+# Read 2026-10-19 (lane b95), the copy whose sha256 matches, on the text layer [text],
+# a positive control ("Notes on DECFRA") found first: each rectangle operation's note 1,
+# "character positions 5 through 10 affected" on single and double lines, DECCRA's
+# destination taking "the line attributes of that area" (PDF 424-431, pp. 5-169 to
+# 5-176); 070-9 § 11.1, "The Sixel active position is set equal to the ANSI text active
+# position ... No other information is carried from the ANSI text state" (PDF 927).
 
 # Read 2026-10-19 for the selective erases and the column operations (lane b94), the
 # copy whose sha256 matches, on the text layer [text]: DECSEL and DECSED, their notes
@@ -14211,6 +14217,10 @@ group  = "C"
 # lines: `scroll_displayed_graphics` (1787-1808) moves every graphic up by
 # the rows scrolled and drops none, and `get_new_graphic` (780-797)
 # recycles the graphic scrolled back farthest when every slot is used.
+# Read 2026-10-19 (lane b95) for an image begun on a double line, the
+# sha256 matching: `refresh_graphic` takes `graph_x = graphic->charcol *
+# FontWidth(screen)` (945) and `refresh_displayed_graphics` `draw_x` the
+# same (1453); nothing in the file reads a line's double-size attribute.
 
 [sources.xterm-xterm-h]
 key    = "xterm-xterm-h"

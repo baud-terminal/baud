@@ -771,6 +771,10 @@ pub struct KittyAt {
     pub row: Rows,
     /// The cursor's column.
     pub col: Col,
+    /// The display columns the cursor's cell covers from `col`: one, and
+    /// two on a line not single-width, where a character is drawn twice as
+    /// wide. What a delete by the cursor's cell intersects.
+    pub span: Cols,
     /// The screen's rows.
     pub rows: Rows,
     /// The screen's columns.
@@ -2211,11 +2215,15 @@ impl KittyStream {
                     }
                 }
             }
+            // "All placements that intersect with the current cursor
+            // position": any display column of the cursor's cell.
             KittyDelete::Cursor => {
                 let line = at.top.plus(at.row);
-                let col = at.col.index();
+                let cols = at.col.index()..at.col.index() + at.span.index();
                 store.kitty_delete(free, |p, _, _| {
-                    p.screen == screen && covers_line(p, line) && covers_col(p, col)
+                    p.screen == screen
+                        && covers_line(p, line)
+                        && cols.clone().any(|c| covers_col(p, c))
                 });
             }
             KittyDelete::Cell | KittyDelete::CellZ => {

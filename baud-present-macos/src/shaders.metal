@@ -1744,9 +1744,21 @@ constant uchar STRESS_SKIP_BLOCKS[4704] = {
 // single-width (DEC STD 070 5.6.1), which the records draw whole. The
 // background pass draws column `col` from the cell under `col / 2`, so a
 // character's background covers both its columns, and the decoration pass
-// draws nothing there. Never on the leaving row above the window, which
-// has no mask. Pinned by `the_sized_mask_bit_matches_the_shader`.
+// draws nothing there. Pinned by `the_sized_mask_bit_matches_the_shader`.
 #define MASK_SIZED 4u
+// `baud_render::MASK_RECORD`: a record draws the cell. Pinned by
+// `the_record_mask_bit_matches_the_shader`.
+#define MASK_RECORD 1u
+
+// The record and sized bits of the cell at column `col` of logical row
+// `lrow`: the screen's row of the overlay, and for the leaving row above
+// the window (`lrow` -1) the row after the screen's, which carries only
+// those two bits and only when the leaving line is not single-width
+// (`baud_render::Overlay::leaving`).
+static uint sized_bits(constant CU& u, device const uchar* overlay, uint col, int lrow) {
+    uint row = lrow >= 0 ? uint(lrow) : u.grid.y;
+    return uint(overlay[row * u.grid.x + col]) & (MASK_RECORD | MASK_SIZED);
+}
 
 // `takes_stress_mark`: whether a cell's word takes `SGR 64`'s mark -- not
 // a blank, not a wide tail (its lead marks both cells), not a codepoint
@@ -1992,7 +2004,7 @@ vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     uint col = iid % u.grid.x, dr = iid / u.grid.x;
     int lrow = int(dr) - int(u.slide_rows);
     // On a sized line the column shows the character under half of it.
-    bool sized = lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & MASK_SIZED) != 0u;
+    bool sized = (sized_bits(u, overlay, col, lrow) & MASK_SIZED) != 0u;
     uint at = sized ? col / 2u : col;
     uint2 cell = cell_at(u, cells, at, dr);
     bool set = ground_pass != GROUND_EVERY && ground_set(u, styles, cell, at, uint(lrow));
@@ -2038,9 +2050,10 @@ vertex GOut cell_glyph_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     uint col = iid % u.grid.x, dr = iid / u.grid.x;
     int lrow = int(dr) - int(u.slide_rows);
     // The overlay is a screen-cell mask; index it by the screen row, not
-    // the draw row, and never for the leaving row above the window.
-    // Bit 1 (`MASK_RECORD`) is a cell a record draws; bit 2 is a picture's.
-    if (lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & 1u) != 0u) return o;
+    // the draw row, and the leaving row above the window by the row after
+    // the screen's (`sized_bits`). Bit 1 (`MASK_RECORD`) is a cell a record
+    // draws; bit 2 is a picture's, never on the leaving row.
+    if ((sized_bits(u, overlay, col, lrow) & MASK_RECORD) != 0u) return o;
     uint2 cell = cell_at(u, cells, col, dr);
     uint content = cell.x;
     if (content > 0x10FFFFu) return o;
@@ -2112,7 +2125,7 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     uint col = ci % u.grid.x, dr = ci / u.grid.x;
     int lrow = int(dr) - int(u.slide_rows);
     // A sized line's decorations and cursor are its records'.
-    if (lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & MASK_SIZED) != 0u) return o;
+    if ((sized_bits(u, overlay, col, lrow) & MASK_SIZED) != 0u) return o;
     // The top of this row's cell, shifted down by the smooth-scroll pan.
     float rowy = float(lrow) * float(u.cell.y) + float(u.pan);
     uint2 cell = cell_at(u, cells, col, dr);

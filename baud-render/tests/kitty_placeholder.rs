@@ -624,3 +624,56 @@ fn the_leaving_row_places_the_strip_it_placed_on_screen() {
         "the alternate screen: {alt:?}"
     );
 }
+
+/// **On a line that is not single-width a placeholder is drawn as the
+/// character it is** (`[[source: dec-std-070]]` § 5.6.1; Jev 2026-10-19,
+/// AS_TEXT): its part of the image fills the box its character takes, twice
+/// as wide on a double-width line, and twice as wide and tall on a
+/// double-height pair, each row its half. The image is two cells by one at
+/// the cell's own size, so the single-width strip is the image texel for
+/// texel, and each sized strip is it with every texel drawn twice across
+/// (and twice down on the pair).
+#[test]
+fn a_placeholder_on_a_sized_line_is_drawn_as_its_character() {
+    let (cw, ch) = draw(|_| {}).cell;
+    let (w, h) = (u32::try_from(2 * cw).unwrap(), u32::try_from(ch).unwrap());
+    let mut px = Vec::new();
+    for y in 0..h {
+        for x in 0..w {
+            let (r, g) = ((9 * x).to_le_bytes()[0], (11 * y).to_le_bytes()[0]);
+            px.extend_from_slice(&[r, g, 99, 0xFF]);
+        }
+    }
+    let f = draw(|t| {
+        let ctrl = format!("a=t,f=32,s={w},v={h},i=9,q=2");
+        feed(t, &apc(&ctrl, &b64(&px)));
+        feed(t, &apc("a=p,U=1,i=9,c=2,r=1,q=2", b""));
+        for (row, set) in [(2, ""), (4, "\x1b#6"), (6, "\x1b#3"), (7, "\x1b#4")] {
+            let s = format!(
+                "\x1b[{row};1H{set}\x1b[{row};3H\x1b[38;5;9m\u{10EEEE}{}{}\u{10EEEE}\x1b[m",
+                d(0),
+                d(0)
+            );
+            feed(t, s.as_bytes());
+        }
+    });
+    let at = |x: usize, y: usize| f.c.pixels[y * f.c.width + x];
+    let mut drawn = 0;
+    for y in 0..ch {
+        for x in 0..2 * cw {
+            let single = at(2 * cw + x, ch + y);
+            if single != at(0, 0) {
+                drawn += 1;
+            }
+            for dx in 0..2 {
+                let sx = 4 * cw + 2 * x + dx;
+                assert_eq!(at(sx, 3 * ch + y), single, "double width at {x},{y}");
+                let top = at(2 * cw + x, ch + y / 2);
+                assert_eq!(at(sx, 5 * ch + y), top, "top half at {x},{y}");
+                let bottom = at(2 * cw + x, ch + (ch + y) / 2);
+                assert_eq!(at(sx, 6 * ch + y), bottom, "bottom half at {x},{y}");
+            }
+        }
+    }
+    assert!(drawn > cw * ch, "the single-width strip drew the image");
+}

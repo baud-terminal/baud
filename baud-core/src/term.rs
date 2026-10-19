@@ -3286,6 +3286,15 @@ impl<'b> Term<'b> {
             Screen::Normal => (ImageScreen::Primary, self.store.book.top.plus(cy)),
             Screen::Alternate => (ImageScreen::Alternate, self.store.book.alt_top.plus(cy)),
         };
+        // At the cursor's displayed place, its doubled field's left edge on
+        // a line not single-width, as a Sixel is (`Paint::display_col`).
+        let col = match self
+            .line_rendition(row)
+            .is_some_and(LineRendition::is_double)
+        {
+            true => Col::at_index((col.index() * 2).min(self.cols.index() - 1)),
+            false => col,
+        };
         self.store.images.place(id, screen, line, col, ZIndex::ZERO)
     }
 
@@ -3385,6 +3394,7 @@ impl<'b> Term<'b> {
             top: LineIdx::FIRST,
             row: Rows::ZERO,
             col: Col::ZERO,
+            span: Cols::of_index(1),
             rows: self.rows,
             cols: self.cols,
             cell_w: self.cell_width,

@@ -19,6 +19,7 @@
 mod support;
 
 use baud_core::*;
+use baud_domain::ImageBudget;
 
 /// The DEC screen: 80 columns, so a double-width line holds 40.
 const VT: WinSize = WinSize {
@@ -984,4 +985,155 @@ fn deccra_reads_a_double_line_past_its_end_as_unoccupied() {
         let abc = letters(40, false);
         assert_eq!(text(t, to), format!("{}{}", &abc[..30], dots(30)));
     });
+}
+
+// ---- Images placed on a sized line ---------------------------------------
+//
+// An image is not text, and is not stretched with the line: "No other
+// information is carried from the ANSI text state" (`[[source: dec-std-070]]`
+// 070-9 § 11.1). It starts at the cursor's displayed place, "the upper-left
+// corner of the ANSI text active position" (`[[source: vt3xx-sixel]]`), which
+// on a double line is the doubled character field, "column 9 of the
+// physical display" for character position 5 (p. 5-95). Decided by Jev
+// 2026-10-19, UNSCALED_AT_CURSOR, 0.97 and 0.94 on a re-ask; xterm places it
+// at the single-width column of the character position
+// (`[[source: xterm-graphics-c]]`, `charcol * FontWidth`).
+
+/// A 24x6 red Sixel: three columns at an eight-pixel cell.
+const SIXEL_24: &[u8] = b"\x1bP0;1;0q#0;2;100;0;0!24~\x1b\\";
+
+/// A terminal with image memory and an 8x16 cell.
+fn with_images<R>(f: impl FnOnce(&mut Term<'_>) -> R) -> R {
+    let mut owned = Owned::new(&VT).with_images(ImageBudget::of(1 << 16));
+    let mut t = Term::new(owned.storage(), &VT);
+    t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
+    f(&mut t)
+}
+
+fn placed_cols(t: &Term<'_>) -> Vec<usize> {
+    t.images()
+        .placements()
+        .map(|(_, p)| p.col.index())
+        .collect()
+}
+
+/// A Sixel begun at character position 9 of a double-width line is placed
+/// at display column 17, its doubled field's left edge; on a single-width
+/// line at column 9.
+#[test]
+fn a_sixel_on_a_double_line_starts_at_the_cursor_s_displayed_place() {
+    for (set, want) in [("\x1b#6", 16), ("\x1b#3", 16), ("", 8)] {
+        with_images(|t| {
+            support::feed(t, format!("\x1b[3;1H{set}\x1b[3;9H").as_bytes());
+            support::feed(t, SIXEL_24);
+            assert_eq!(placed_cols(t), vec![want], "{set:?}");
+        });
+    }
+}
+
+/// A kitty placement likewise, and the cursor moves past it to the column
+/// right of the image on the row it lands on: three display columns from
+/// display column 17, so column 20 of the single-width row below.
+#[test]
+fn a_kitty_placement_on_a_double_line_starts_at_the_cursor_s_displayed_place() {
+    // A 24x16 RGBA image, all red, base64 of 24 * 16 * 4 bytes.
+    let px = [255u8, 0, 0, 255].repeat(24 * 16);
+    let b64 = base64(&px);
+    with_images(|t| {
+        support::feed(t, b"\x1b[3;1H\x1b#6\x1b[3;9H");
+        support::feed(
+            t,
+            format!("\x1b_Ga=T,f=32,s=24,v=16,i=5,c=3,r=1,q=2;{b64}\x1b\\").as_bytes(),
+        );
+        assert_eq!(placed_cols(t), vec![16]);
+        assert_eq!(cursor(t), (3, 19), "right of the image, a row down");
+    });
+}
+
+/// Text over the image frees it by the columns it covers on the display: a
+/// character at position 11 of a double line covers display columns 21 and
+/// 22, past a three-column image at 17, and frees nothing; one at 10 covers
+/// 19 and 20 and frees it.
+#[test]
+fn text_over_an_image_on_a_double_line_frees_it_by_the_columns_it_covers() {
+    with_images(|t| {
+        support::feed(t, b"\x1b[3;1H\x1b#6\x1b[3;9H");
+        support::feed(t, SIXEL_24);
+        assert_eq!(placed_cols(t), vec![16]);
+        support::feed(t, b"\x1b[3;11Hx");
+        assert_eq!(placed_cols(t), vec![16], "past the image");
+        support::feed(t, b"\x1b[3;10Hx");
+        assert!(placed_cols(t).is_empty(), "over the image");
+    });
+}
+
+/// **A delete by the cursor's cell takes every placement the cell
+/// intersects** (`[[source: kitty-graphics]]`, "c or C Delete all
+/// placements that intersect with the current cursor position"), and on a
+/// double line the cell is two display columns. Counted from 1: a
+/// four-column, three-row image at display columns 12 to 15, its rows
+/// crossing a double line below; the cursor there at character position 6
+/// covers display columns 11 and 12 and at 8 covers 15 and 16, so the
+/// image goes, and at 5 (9 and 10) or 9 (17 and 18) it stays; on a
+/// single-width line column 11 misses it and column 15 meets it.
+#[test]
+fn a_delete_by_the_cursor_on_a_double_line_takes_both_display_columns() {
+    let px = [255u8, 0, 0, 255].repeat(32 * 48);
+    let b64 = base64(&px);
+    for (set, at, gone) in [
+        ("\x1b#6", 6, true),
+        ("\x1b#3", 6, true),
+        ("\x1b#6", 8, true),
+        ("\x1b#6", 5, false),
+        ("\x1b#6", 9, false),
+        ("", 11, false),
+        ("", 15, true),
+    ] {
+        for d in ["c", "C"] {
+            with_images(|t| {
+                support::feed(t, format!("\x1b[3;1H{set}\x1b[1;12H").as_bytes());
+                support::feed(
+                    t,
+                    format!("\x1b_Ga=T,f=32,s=32,v=48,i=5,c=4,r=3,C=1,q=2;{b64}\x1b\\").as_bytes(),
+                );
+                // Display column 12, index 11.
+                assert_eq!(placed_cols(t), vec![11], "{set:?}");
+                support::feed(
+                    t,
+                    format!("\x1b[3;{at}H\x1b_Ga=d,d={d},q=2\x1b\\").as_bytes(),
+                );
+                assert_eq!(placed_cols(t).is_empty(), gone, "{set:?} at {at}, d={d}");
+            });
+        }
+    }
+}
+
+/// `?8452` leaves the cursor right of the image on its last row: on the
+/// double line, the character position after display column 19.
+#[test]
+fn sixel_scrolls_right_counts_a_double_line_s_characters() {
+    with_images(|t| {
+        // The mode is recognized while DA lists Sixel.
+        t.set_sixel_claim(baud_domain::SixelClaim::Yes);
+        support::feed(t, b"\x1b[?8452h\x1b[3;1H\x1b#6\x1b[3;9H");
+        support::feed(t, SIXEL_24);
+        assert_eq!(cursor(t), (2, 10));
+    });
+}
+
+fn base64(data: &[u8]) -> String {
+    const B: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for q in data.chunks(3) {
+        let mut b = [0u8; 3];
+        b[..q.len()].copy_from_slice(q);
+        let n = u32::from_be_bytes([0, b[0], b[1], b[2]]);
+        for k in 0..4 {
+            out.push(match k <= q.len() {
+                true => char::from(B[usize::try_from((n >> (18 - 6 * k)) & 63).unwrap()]),
+                false => '=',
+            });
+        }
+    }
+    out
 }

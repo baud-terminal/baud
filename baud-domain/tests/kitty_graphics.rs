@@ -77,6 +77,7 @@ fn command(k: &mut KittyStream, store: &mut ImageStore, body: &[u8]) {
         top: LineIdx::FIRST,
         row: Rows::ZERO,
         col: Col::ZERO,
+        span: Cols::of_index(1),
         rows: Rows::of_count(24),
         cols: Cols::of_index(80),
         cell_w: ImagePx::of(10),

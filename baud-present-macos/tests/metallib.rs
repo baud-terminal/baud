@@ -403,6 +403,23 @@ fn the_sized_mask_bit_matches_the_shader() {
     assert_eq!(got, baud_render::MASK_SIZED, "{line:?}");
 }
 
+/// The record bit, which the leaving row's mask reads too (`sized_bits`).
+#[test]
+fn the_record_mask_bit_matches_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    let prefix = "#define MASK_RECORD ";
+    let line = src
+        .lines()
+        .find(|l| l.starts_with(prefix))
+        .expect("shaders.metal defines MASK_RECORD");
+    let got: u8 = line[prefix.len()..]
+        .trim()
+        .trim_end_matches('u')
+        .parse()
+        .expect("an unsigned literal");
+    assert_eq!(got, baud_render::MASK_RECORD, "{line:?}");
+}
+
 /// **The cell shader skips what the CPU skips**: the stress mark's two
 /// tables in the shader and `baud_render::STRESS_SKIP_INDEX` and
 /// `STRESS_SKIP_BLOCKS` are one set of bytes spelled twice, and a drift

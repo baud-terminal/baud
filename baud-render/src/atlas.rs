@@ -475,7 +475,8 @@ pub struct Atlas {
     /// mask is a function of the cell, so `reset` voids it with `map`.
     procedural: HashMap<u32, Option<Slot>>,
     /// The same for a line not single-width: drawn at the doubled cell,
-    /// by codepoint and stretch, and voided with the rest.
+    /// by codepoint, or a ring part's key, and stretch, and voided with the
+    /// rest.
     procedural_stretched: HashMap<(u32, Stretch), Option<Slot>>,
     scratch: Vec<f32>,
     /// The points of a varied outline ([`outline`]), grown to the largest
@@ -1133,16 +1134,7 @@ impl Atlas {
             }
             _ => crate::boxes::draw(cp, cell, &mut self.scratch, &mut self.coverage).and_then(
                 |extent| {
-                    let (w, h) = (slots(extent.w), slots(extent.h));
-                    let mut wide = vec![0u8; 2 * w * h];
-                    for y in 0..h {
-                        for x in 0..w {
-                            let v = self.coverage[y * w + x];
-                            wide[y * 2 * w + 2 * x] = v;
-                            wide[y * 2 * w + 2 * x + 1] = v;
-                        }
-                    }
-                    self.coverage[..2 * w * h].copy_from_slice(&wide);
+                    self.double_columns(extent);
                     self.place_cell_mask(
                         Extent::new(Px::of(extent.w.value() * 2), extent.h),
                         baseline,
@@ -1175,6 +1167,69 @@ impl Atlas {
             .and_then(|extent| self.place_cell_mask(extent, baseline));
         self.procedural.insert(ring.key().0, slot);
         slot
+    }
+
+    /// [`Atlas::ring`] for a line drawn at `stretch`: the part's mask at
+    /// the box a character there takes, built as box drawing is
+    /// ([`Atlas::synthetic_at`]) -- at twice the cell with twice the stroke
+    /// on a double-height line, each column doubled on a double-width one
+    /// -- so its strokes meet the frame's lines, which the line's geometry
+    /// stretches the same way. Memoised under the part's key and the
+    /// stretch.
+    pub fn ring_at(
+        &mut self,
+        ring: crate::boxes::Ring,
+        cell: crate::boxes::Cell,
+        th: Px,
+        baseline: Px,
+        stretch: Stretch,
+    ) -> Option<Slot> {
+        if stretch == Stretch::One {
+            return self.ring(ring, cell, th, baseline);
+        }
+        let key = (ring.key().0, stretch);
+        if let Some(slot) = self.procedural_stretched.get(&key) {
+            return *slot;
+        }
+        let slot = match stretch {
+            Stretch::Tall => {
+                let big = crate::boxes::Cell {
+                    w: Px::of(cell.w.value() * 2),
+                    h: Px::of(cell.h.value() * 2),
+                };
+                let th = Px::of(th.value() * 2);
+                crate::boxes::draw_ring(ring, big, th, &mut self.scratch, &mut self.coverage)
+                    .and_then(|extent| self.place_cell_mask(extent, Px::of(baseline.value() * 2)))
+            }
+            _ => crate::boxes::draw_ring(ring, cell, th, &mut self.scratch, &mut self.coverage)
+                .and_then(|extent| {
+                    self.double_columns(extent);
+                    self.place_cell_mask(
+                        Extent::new(Px::of(extent.w.value() * 2), extent.h),
+                        baseline,
+                    )
+                }),
+        };
+        self.procedural_stretched.insert(key, slot);
+        slot
+    }
+
+    /// The mask in the first cells of `coverage`, `extent` in size, made
+    /// twice as wide in place: each column drawn twice.
+    fn double_columns(&mut self, extent: Extent) {
+        let (w, h) = (slots(extent.w), slots(extent.h));
+        let mut wide = vec![0u8; 2 * w * h];
+        for y in 0..h {
+            for x in 0..w {
+                let v = self.coverage[y * w + x];
+                wide[y * 2 * w + 2 * x] = v;
+                wide[y * 2 * w + 2 * x + 1] = v;
+            }
+        }
+        if self.coverage.len() < wide.len() {
+            self.coverage.resize(wide.len(), 0);
+        }
+        self.coverage[..wide.len()].copy_from_slice(&wide);
     }
 
     /// Places the mask in the first cells of `coverage` on the mask sheet

@@ -177,7 +177,7 @@ impl Arms<'_, '_> {
         let composition = self.composition.clone().filter(|_| live);
         let shown = (t.cursor_visible() && live).then(|| {
             let (r, c) = match &composition {
-                Some(c) => c.cursor(view.cols()),
+                Some(c) => c.cursor(c.width_on(&view)),
                 None => t.cursor(),
             };
             (r, c, t.cursor_style())
@@ -224,10 +224,30 @@ impl Arms<'_, '_> {
                 self.styles_mem,
                 cursor,
                 view.cols(),
+                view.rendition(c.row),
                 self.slide.unwrap_or(Px::of(0)),
                 self.overlay_mem,
                 &mut self.records,
             );
+        }
+        // The leaving row of a slide, when its line is not single-width,
+        // as the app draws it: masked after the screen's rows and drawn by
+        // its records. Only where the history holds one.
+        if let Some(pan) = self.slide {
+            let above = Rows::of_index(self.back.index() + 1);
+            if t.looking_back(above) == above {
+                let up = t.view(above);
+                self.exceptions.leaving(
+                    &mut self.renderer,
+                    t,
+                    up.row(Row::ZERO),
+                    up.rendition(Row::ZERO),
+                    (view.cols(), view.rows()),
+                    pan,
+                    self.overlay_mem,
+                    &mut self.records,
+                );
+            }
         }
         self.records.extend_from_slice(self.renderer.trail());
         // The plasma blink's glow, from the cursor before the phase's
@@ -316,7 +336,7 @@ impl Arms<'_, '_> {
         let cursor = (t.cursor_visible() && live)
             .then(|| {
                 let (r, c) = match self.composition.as_ref().filter(|_| live) {
-                    Some(c) => c.cursor(view.cols()),
+                    Some(c) => c.cursor(c.width_on(&view)),
                     None => t.cursor(),
                 };
                 (r, c, t.cursor_style())
@@ -3479,6 +3499,107 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         0,
         "the CPU arm disagrees on a selected sized line"
     );
+    // An encircled run (`SGR 52`) on each rendition: the rings drawn at the
+    // character's box, on all three arms.
+    feed(
+        t,
+        format!(
+            "{base}\x1b[2;3H\x1b#6\x1b[52mo\x1b[0m \x1b[52mring\x1b[0m\x1b[4;3H\x1b#3\x1b[52mab\x1b[0m\x1b[5;3H\x1b#4\x1b[52mab\x1b[0m"
+        )
+        .as_bytes(),
+    );
+    let (a, b) = arms.draw(t);
+    let cpu = cpu_frame(arms, t);
+    assert_eq!(differing(&a, &b), 0, "the GPU arms disagree on rings");
+    assert_eq!(differing(&a, &cpu), 0, "the CPU arm disagrees on rings");
+    // An input method's composition on a double-width line and on each half
+    // of a double-height pair, a wide character among it.
+    for at in ["\x1b[2;5H", "\x1b[4;5H", "\x1b[5;5H"] {
+        feed(t, format!("{}\x1b[?25h{at}", lines(true)).as_bytes());
+        let (row, col) = t.cursor();
+        arms.composition = Some(Composition {
+            row,
+            col,
+            text: "x\u{231a}y"
+                .chars()
+                .map(|c| baud_domain::Codepoint::new(u32::from(c)).unwrap())
+                .collect(),
+            ambiguous: baud_domain::AmbiguousWidth::Narrow,
+        });
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        arms.composition = None;
+        let (plain, _) = arms.draw(t);
+        assert!(
+            differing(&a, &plain) > 0,
+            "the composition at {at:?} is drawn"
+        );
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the GPU arms disagree on a composition at {at:?}"
+        );
+        assert_eq!(
+            differing(&a, &cpu),
+            0,
+            "the CPU arm disagrees on a composition at {at:?}"
+        );
+    }
+    // **A sized line leaving the window under a smooth scroll** is drawn
+    // at its size: a full-row slide with a double-width line just above
+    // the window is the screen one line up, where that line is row 0 and
+    // drawn by its records; and mid-slide the two cell layouts agree.
+    {
+        let rows = usize::from(WS.ws_row);
+        let mut s = format!("{base}\x1b#6Wide \x1b[52mo\x1b[0m \x1b[4mleaving\x1b[0m 0123");
+        for i in 0..rows {
+            s.push_str(&format!("\r\nrow {i:02} single width below"));
+        }
+        feed(t, s.as_bytes());
+        let above = t.view(Rows::of_count(1));
+        assert_eq!(
+            above.rendition(Row::ZERO),
+            baud_domain::LineRendition::DoubleWidth,
+            "the premise: the line above the window is double-width"
+        );
+        let cell_h = arms.renderer.metrics().cell_h;
+        arms.back = Rows::ZERO;
+        arms.slide = Some(cell_h);
+        let (_, full_slid) = arms.draw(t);
+        arms.slide = None;
+        arms.back = Rows::of_count(1);
+        let (_, one_up) = arms.draw(t);
+        arms.back = Rows::ZERO;
+        assert_eq!(
+            differing(&full_slid, &one_up),
+            0,
+            "a full-row slide off a double-width line is not the screen one line up"
+        );
+        arms.slide = Some(Px::of(cell_h.value() / 2));
+        let (_, mid) = arms.draw(t);
+        let mid_copy = arms.draw_copied(t);
+        arms.slide = None;
+        assert_eq!(
+            differing(&mid, &mid_copy),
+            0,
+            "the two cell layouts disagree mid-slide off a double-width line"
+        );
+        // One line more: the leaving row is single-width again, and draws
+        // from the map, the sized row's mask gone with it.
+        feed(t, b"\r\nrow single width last");
+        assert!(!t.view(Rows::of_count(1)).rendition(Row::ZERO).is_double());
+        arms.slide = Some(cell_h);
+        let (_, full_slid) = arms.draw(t);
+        arms.slide = None;
+        arms.back = Rows::of_count(1);
+        let (_, one_up) = arms.draw(t);
+        arms.back = Rows::ZERO;
+        assert_eq!(
+            differing(&full_slid, &one_up),
+            0,
+            "a full-row slide off the single-width line after it is not the screen one line up"
+        );
+    }
     // A sized line scrolled back into the history and drawn there.
     let rows = usize::from(WS.ws_row);
     feed(t, format!("{}\x1b[{rows};1H\n\n\n", lines(true)).as_bytes());
@@ -5431,6 +5552,58 @@ fn kitty_placeholder_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             );
         }
     }
+    // **On sized lines**: a 4x2 grid whose first row is on a double-width
+    // line and whose second is on the top half of a double-height pair,
+    // the pair's bottom half writing that row again, drawn as characters
+    // there (`[[source: dec-std-070]]` § 5.6.1; Jev 2026-10-19, AS_TEXT),
+    // alike on every arm and unlike the same grid on single-width lines;
+    // and a Sixel begun on a double-width line, at the cursor's displayed
+    // place (UNSCALED_AT_CURSOR).
+    let sized = |set: [&str; 3]| {
+        let mut g =
+            format!("\x1b[3;1H{}\x1b[4;1H{}\x1b[5;1H{}", set[0], set[1], set[2]).into_bytes();
+        g.extend(placeholder_grid("38;5;1", &all(4, 2), 0, true));
+        g.extend(placeholder_grid(
+            "38;5;1",
+            &[(2, 0), (2, 1), (2, 2), (2, 3)],
+            0,
+            false,
+        ));
+        g
+    };
+    let mut got = Vec::new();
+    for set in [["", "", ""], ["\x1b#6", "\x1b#3", "\x1b#4"]] {
+        feed(t, b"\x1bc\x1b[?25l");
+        kitty_put(t, 1, kitty_texel, &["U=1,c=4,r=3"]);
+        feed(t, &sized(set));
+        got.push(frames(arms, t));
+    }
+    let [plain, doubled] = [&got[0], &got[1]];
+    assert!(
+        differing(&plain[0], &doubled[0]) > 0,
+        "the sized grid is drawn otherwise"
+    );
+    for (k, arm) in ["cell", "cpu"].into_iter().enumerate() {
+        assert_eq!(
+            differing(&doubled[0], &doubled[k + 1]),
+            0,
+            "the {arm} arm disagrees on placeholders on sized lines"
+        );
+    }
+    let sixel = b"\x1bP0;1;0q#0;2;100;0;0!24~-!24~\x1b\\";
+    feed(t, b"\x1bc\x1b[?25l\x1b[3;1H\x1b#6Doubled text\x1b[3;9H");
+    feed(t, sixel);
+    let [a, b, cpu] = frames(arms, t);
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the GPU arms disagree on a Sixel on a double line"
+    );
+    assert_eq!(
+        differing(&a, &cpu),
+        0,
+        "the CPU arm disagrees on a Sixel on a double line"
+    );
 }
 
 /// **A placeholder picture in a smooth scroll's leaving row** (`[[source:

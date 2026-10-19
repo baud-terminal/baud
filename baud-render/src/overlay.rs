@@ -29,8 +29,8 @@ use crate::select::Highlight;
 use crate::units::Tally;
 use baud_core::Term;
 use baud_domain::{
-    AmbiguousWidth, Chan, Classified, Codepoint, Col, Cols, Content, CursorStyle, PackedCell, Row,
-    Viewport, Width,
+    AmbiguousWidth, Chan, Classified, Codepoint, Col, Cols, Content, CursorStyle, LineRendition,
+    PackedCell, Row, Rows, Viewport, Width,
 };
 use baud_font::Px;
 use std::collections::HashMap;
@@ -425,6 +425,13 @@ impl Overlay {
         self.stats.window_cells = Tally::default();
         let cols = view.cols().index();
         let rows = view.rows().index();
+        // The row after the screen's too, where present: the leaving row's
+        // ([`Overlay::leaving`]), set again on each frame that slides.
+        if let Some(leaving) =
+            mask.get_mut(cols.saturating_mul(rows)..cols.saturating_mul(rows + 1))
+        {
+            leaving.fill(0);
+        }
         let Some(mask) = mask.get_mut(..cols.saturating_mul(rows)) else {
             return;
         };
@@ -436,7 +443,10 @@ impl Overlay {
         };
         let block = cursor
             .filter(|(_, _, s)| matches!(s, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock));
-        let covered = Covered::of(scene.composition, view.cols());
+        let covered = Covered::of(
+            scene.composition,
+            scene.composition.map_or(view.cols(), |c| c.width_on(&view)),
+        );
         if self.windows.len() > WINDOWS_MAX {
             self.windows.clear();
         }
@@ -446,7 +456,7 @@ impl Overlay {
         // every cell masked and marked sized, so the shader draws their
         // backgrounds from half the column and nothing else of them.
         let mut sized = core::mem::take(&mut self.sized);
-        r.sized_lines(term, &view, cursor, &mut sized);
+        r.sized_lines(term, &view, cursor, scene.composition, &mut sized);
         let (cell_h, pan) = (
             i32::try_from(geom.m.cell_h.value()).unwrap_or(0),
             i32::try_from(geom.pan.value()).unwrap_or(0),
@@ -1044,7 +1054,9 @@ impl Overlay {
     /// masked off the shader, and its records -- glyphs and the underline
     /// -- appended, the same records the instance and CPU paths draw
     /// ([`composition_records`]). `block` is the cursor the frame draws,
-    /// which [`Composition::cursor`] put after it.
+    /// which [`Composition::cursor`] put after it; `size` is the rendition
+    /// of the line it is on, whose row the walk has masked whole when it is
+    /// not single-width.
     #[allow(clippy::too_many_arguments)]
     pub fn composed(
         &mut self,
@@ -1054,17 +1066,58 @@ impl Overlay {
         styles: &[Resolved],
         block: Option<(Row, Col, CursorStyle)>,
         cols: Cols,
+        size: LineRendition,
         pan: Px,
         mask: &mut [u8],
         records: &mut Vec<Instance>,
     ) {
-        let (start, end) = c.columns(cols);
+        let (start, end) = c.columns(size.end_of_line(cols));
         for x in start..end {
             if let Some(slot) = mask.get_mut(c.row.index() * cols.index() + x) {
                 *slot |= MASK_RECORD;
             }
         }
-        composition_records(r, c, under, styles, block, cols, pan, records);
+        composition_records(r, c, under, styles, block, cols, size, pan, records);
+    }
+
+    /// **The leaving row of a smooth scroll, for the cell path, when its
+    /// line is not single-width**: `cells` and `size`, the line just above
+    /// the window, drawn by the records the instance path converts it to
+    /// ([`Renderer::sized_leaving`]) slid by `pan`, and its row of the mask
+    /// -- the one after the screen's `rows`, which the shader reads for
+    /// draw row -1 -- marked `RECORD` and `SIZED`, so the shader draws its
+    /// backgrounds from half the column and nothing else of it, as on a
+    /// sized screen row. Nothing for a single-width line, which the shader
+    /// draws from the map, or where the mask has no such row.
+    #[allow(clippy::too_many_arguments)]
+    pub fn leaving(
+        &mut self,
+        r: &mut Renderer<'_, '_>,
+        term: &Term<'_>,
+        cells: &[PackedCell],
+        size: LineRendition,
+        (cols, rows): (Cols, Rows),
+        pan: Px,
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+    ) {
+        if !size.is_double() {
+            return;
+        }
+        let at = rows.index().saturating_mul(cols.index());
+        let Some(row) = mask.get_mut(at..at.saturating_add(cols.index())) else {
+            return;
+        };
+        for b in row {
+            *b |= MASK_RECORD | MASK_SIZED;
+        }
+        let mut lifted = Vec::new();
+        r.sized_leaving(term, cells, size, &mut lifted);
+        let pan = i16::try_from(pan.value()).unwrap_or(0);
+        records.extend(lifted.into_iter().map(|i| Instance {
+            y: Screen(i.y.0.saturating_add(pan)),
+            ..i
+        }));
     }
 
     /// A window's cells that the map does not draw: masked, counted and
@@ -1259,6 +1312,19 @@ impl Composition {
         out
     }
 
+    /// **The width its line gives it on `view`**: the screen's on a
+    /// single-width line, and on a line that is not, the line's half
+    /// (`[[source: dec-std-070]]` § 5.6.1), where its clusters are laid in
+    /// the line's own character positions as a write of the same text
+    /// would lay them. What [`Composition::columns`] and
+    /// [`Composition::cursor`] take.
+    pub fn width_on(&self, view: &baud_domain::Viewport<'_>) -> Cols {
+        match self.row.index() < view.rows().index() {
+            true => view.rendition(self.row).end_of_line(view.cols()),
+            false => view.cols(),
+        }
+    }
+
     /// The columns it covers, `start..end`.
     pub fn columns(&self, cols: Cols) -> (usize, usize) {
         let start = self.col.index();
@@ -1286,6 +1352,12 @@ impl Composition {
 /// and one underline across the cells, at the face's underline position and
 /// thickness, in the colour the text takes. The instance and CPU paths draw
 /// these after their rows; the cell path after its passes.
+///
+/// **On a line that is not single-width** (`size`) every glyph and the
+/// underline are drawn at the box a character there takes, as the line's
+/// own text is (`[[source: dec-std-070]]` § 5.6.1): rasterised at the
+/// doubled size ([`Renderer::cluster_at`]), and on a double-height line
+/// each row's half of it.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn composition_records(
     r: &mut Renderer<'_, '_>,
@@ -1294,9 +1366,13 @@ pub(crate) fn composition_records(
     styles: &[Resolved],
     block: Option<(Row, Col, CursorStyle)>,
     cols: Cols,
+    size: LineRendition,
     pan: Px,
     records: &mut Vec<Instance>,
 ) {
+    if size.is_double() {
+        return sized_composition(r, c, under, styles, block, cols, size, pan, records);
+    }
     let geom = Geom {
         m: r.metrics(),
         cols,
@@ -1374,5 +1450,119 @@ pub(crate) fn composition_records(
             kind: crate::atlas::Kind::Solid,
             curve: baud_domain::contrast::CurveRow::default(),
         });
+    }
+}
+
+/// [`composition_records`] on a line that is not single-width: each
+/// cluster laid in the line's own character positions, its glyphs at the
+/// doubled size from the box its character takes there, and the underline
+/// stretched with the line, each on a double-height line cut to the row's
+/// half, as `Renderer::convert_row` draws the line's text.
+#[allow(clippy::too_many_arguments)]
+fn sized_composition(
+    r: &mut Renderer<'_, '_>,
+    c: &Composition,
+    under: PackedCell,
+    styles: &[Resolved],
+    block: Option<(Row, Col, CursorStyle)>,
+    cols: Cols,
+    size: LineRendition,
+    pan: Px,
+    records: &mut Vec<Instance>,
+) {
+    use crate::atlas::Stretch;
+    use crate::renderer::{box_top, clip_to};
+    let st = Stretch::of(size);
+    let line = size.end_of_line(cols);
+    let m = r.metrics();
+    let px = |p: Px| i32::try_from(p.value()).unwrap_or(0);
+    let (cell_w, cell_h) = (px(m.cell_w), px(m.cell_h));
+    let row_top = i32::try_from(c.row.index()).unwrap_or(0) * cell_h + px(pan);
+    let band = crate::units::Band {
+        top: Px::of(u32::try_from(row_top).unwrap_or(0)),
+        bottom: Px::of(u32::try_from(row_top + cell_h).unwrap_or(0)),
+    };
+    let top = box_top(size, band);
+    let (blink, cursor, hilite) = (r.blink(), opacity_of(r, block), r.hilite());
+    let resolved = styles.get(under.style.index()).copied().unwrap_or_default();
+    let drawn = |x: usize, line: Line| {
+        let under_cursor = block.is_some_and(|(br, bc, _)| br == c.row && bc.index() == x);
+        resolved.drawn(Swaps {
+            pictured: Pictured::No,
+            line,
+            selected: Selected::No,
+            hilite,
+            block: if under_cursor {
+                BlockCursor::Yes(None)
+            } else {
+                BlockCursor::No
+            },
+            blink,
+            cursor,
+        })
+    };
+    let fit = |inst: Instance, out: &mut Vec<Instance>, over: &mut Vec<Instance>| match st.y() {
+        1 => {
+            let (a, i) = inst.cut_at(Screen(i16::try_from(row_top).unwrap_or(i16::MAX)));
+            over.extend(a);
+            out.extend(i);
+        }
+        _ => out.extend(clip_to(inst, band)),
+    };
+    let face = crate::cellmap::face_of(styles, under);
+    let mut over = Vec::new();
+    for p in c.pieces(line) {
+        let d = drawn(p.col.index(), Line::of(Content::codepoint(p.cps[0])));
+        if d.text == Text::Hidden {
+            continue;
+        }
+        let glyphs = r.cluster_at(&p.cps, face, p.span, st);
+        let ox = i32::try_from(p.col.index()).unwrap_or(0) * cell_w * st.x();
+        let oy = top + px(m.baseline) * st.y();
+        for g in glyphs {
+            let Some(slot) = g.slot else {
+                continue;
+            };
+            let inst = Instance {
+                x: Screen(i16::try_from(ox + g.dx + slot.left).unwrap_or(i16::MAX)),
+                y: Screen(i16::try_from(oy - g.dy + slot.top).unwrap_or(i16::MAX)),
+                w: slot.w,
+                h: slot.h,
+                u: slot.x,
+                v: slot.y,
+                color: d.fg,
+                kind: slot.kind,
+                curve: d.curve,
+            };
+            fit(inst, records, &mut over);
+        }
+    }
+    records.append(&mut over);
+    let (start, end) = c.columns(line);
+    let wide =
+        u16::try_from(m.cell_w.value() * u32::try_from(st.x()).unwrap_or(1)).unwrap_or(u16::MAX);
+    let thick =
+        u16::try_from(m.thickness.value() * u32::try_from(st.y()).unwrap_or(1)).unwrap_or(u16::MAX);
+    for x in start..end {
+        let d = drawn(x, Line::No);
+        if d.text == Text::Hidden {
+            continue;
+        }
+        let left = i32::try_from(x).unwrap_or(0) * cell_w * st.x();
+        let y = top + px(m.underline) * st.y();
+        let inst = Instance {
+            x: Screen(i16::try_from(left).unwrap_or(i16::MAX)),
+            y: Screen(i16::try_from(y).unwrap_or(i16::MAX)),
+            w: crate::atlas::Tex(wide),
+            h: crate::atlas::Tex(thick),
+            u: crate::atlas::Tex(0),
+            v: crate::atlas::Tex(0),
+            color: d.fg,
+            kind: crate::atlas::Kind::Solid,
+            curve: baud_domain::contrast::CurveRow::default(),
+        };
+        let mut none = Vec::new();
+        fit(inst, records, &mut none);
+        records.append(&mut none);
     }
 }

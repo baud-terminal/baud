@@ -258,3 +258,31 @@ fn a_composition_takes_the_configured_ambiguous_width() {
         assert_eq!(c.cursor(cols).1.index(), width, "{text:?} {ambiguous:?}");
     }
 }
+
+/// **On a line that is not single-width a composition draws as its text
+/// would there** (`[[source: dec-std-070]]` § 5.6.1): on a double-width
+/// line and on each half of a double-height one, the composition over
+/// `cde` equals `xyz` written underlined on the same line, each character
+/// over two columns and the cursor after it -- a mark riding on its
+/// letter and a wide character over four columns included.
+#[test]
+fn a_composition_on_a_sized_line_draws_as_its_text_would() {
+    let data = jbm();
+    let noto = font("NotoColorEmoji-subset.ttf");
+    let faces = [Face::parse(&data).unwrap(), Face::parse(&noto).unwrap()];
+    let mut r = renderer(&faces);
+    for set in ["\x1b#6", "\x1b#3", "\x1b#4"] {
+        for text in ["xyz", "e\u{301}x", "q\u{231a}z"] {
+            let base = format!("\x1b[3;1H{set}abcdef\x1b[5D");
+            let composed = frame(&mut r, base.as_bytes(), Some(text));
+            let written = frame(
+                &mut r,
+                format!("{base}\x1b[4m{text}\x1b[24m").as_bytes(),
+                None,
+            );
+            let plain = frame(&mut r, base.as_bytes(), None);
+            assert_ne!(composed, plain, "{set:?} {text:?}: drawn");
+            assert!(composed == written, "{set:?} {text:?}: as written");
+        }
+    }
+}

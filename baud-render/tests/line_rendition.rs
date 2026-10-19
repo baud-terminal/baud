@@ -252,3 +252,48 @@ fn a_selection_on_a_sized_line_copies_its_characters() {
     s.extend(pick(2, 9));
     assert_eq!(s.text(&t, Scrolled::START), "hello worl");
 }
+
+/// **An encircled character's ring is drawn at its character's box**
+/// (`SGR 52`): on a double-width line the ring around a lone character is
+/// about twice as wide as the single one's and as tall, and on a
+/// double-height pair twice as wide and twice as tall, crossing the
+/// boundary between the two lines.
+#[test]
+fn an_encircled_ring_is_drawn_at_the_line_s_size() {
+    let data = faces();
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let (cw, ch) = cell(&r);
+    // A space: the ring is all the ink.
+    let one = draw(&mut r, b"\x1b[?25l\x1b[2;3H\x1b[52m \x1b[m");
+    let wide = draw(&mut r, b"\x1b[?25l\x1b[2;3H\x1b#6\x1b[52m \x1b[m");
+    let tall = draw(
+        &mut r,
+        b"\x1b[?25l\x1b[2;3H\x1b#3\x1b[52m \x1b[m\x1b[3;3H\x1b#4\x1b[52m \x1b[m",
+    );
+    let (a0, ay0, a1, ay1) = ink(&one, ch, 2 * ch).expect("the single ring");
+    let (b0, by0, b1, by1) = ink(&wide, ch, 2 * ch).expect("the wide ring");
+    let (c0, cy0, c1, cy1) = ink(&tall, ch, 3 * ch).expect("the tall ring");
+    let (w1, h1) = (a1 - a0, ay1 - ay0);
+    assert!(
+        b0 >= 4 * cw && b1 <= 6 * cw,
+        "the wide ring is in its two columns: {b0}..{b1}"
+    );
+    assert!(
+        b1 - b0 + 2 >= 2 * w1 && b1 - b0 <= 2 * w1 + 2,
+        "twice as wide: {w1} and {}",
+        b1 - b0
+    );
+    assert_eq!((ay0, ay1), (by0, by1), "as tall");
+    assert!(
+        c1 - c0 + 2 >= 2 * w1 && c1 - c0 <= 2 * w1 + 2,
+        "the tall ring twice as wide: {w1} and {}",
+        c1 - c0
+    );
+    assert!(
+        cy1 - cy0 + 2 >= 2 * h1 && cy1 - cy0 <= 2 * h1 + 2,
+        "twice as tall: {h1} and {}",
+        cy1 - cy0
+    );
+    assert!(cy0 < 2 * ch && cy1 > 2 * ch, "it crosses the boundary");
+}
