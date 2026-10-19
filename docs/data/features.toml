@@ -383,6 +383,17 @@ platform = "both"
 tests = ["baud-font/tests/shape.rs::a_ligature_spans_the_cells_of_its_components"]
 
 [[feature]]
+id = "double-size-lines"
+area = "text"
+name = "Double-width and double-height lines"
+does = "Banner lines drawn twice as wide, or twice as wide and twice as tall over two lines, the way vttest and DEC-era programs draw them, with line drawing that joins up and text that stays sharp."
+status = "built"
+platform = "both"
+tests = ["baud-core/tests/line_rendition.rs::a_double_width_line_wraps_at_its_half", "baud-core/tests/vttest_double_size.rs::the_double_height_frame_and_the_half_that_remains", "baud-render/tests/line_rendition.rs::a_double_height_pair_draws_the_top_and_the_bottom_half"]
+rows = ["vt:`ESC # 6`", "vt:`ESC # 3` / `ESC # 4`", "vt:`ESC # 5`"]
+shipped = ["F1-63"]
+
+[[feature]]
 id = "icons"
 area = "text"
 name = "Nerd Font icons built in"

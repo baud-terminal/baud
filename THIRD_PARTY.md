@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 240 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 243 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 272 | 24 | redistributable, and its notice is satisfied |
+| kept | 274 | 24 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 750 | 35 | |
+| total | 755 | 35 | |
 
 ## Licence texts in LICENSES/
 
@@ -74,6 +74,7 @@ they were built from.
 | [tinted-xresources-MIT.txt](LICENSES/tinted-xresources-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/tinted-theming/tinted-xresources/b97e7eca0fd20a80110f82d7485114db2387c368/LICENSE.md | f22c838ab1f27f24 |
 | [Unicode-3.0.txt](LICENSES/Unicode-3.0.txt) | Unicode-3.0 | fetched: https://www.unicode.org/license.txt | e7a93b009565cfce |
 | [vma-MIT.txt](LICENSES/vma-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator/3aa921224c154a0d2c43912bc88e1c42ce1f7607/LICENSE.txt | 52df2c03d6cfc9ff |
+| [vttest-COPYING.txt](LICENSES/vttest-COPYING.txt) | MIT | fetched: https://raw.githubusercontent.com/ThomasDickey/vttest-snapshots/0229d7171a8574a2bf406c6ce14549f65d810e51/COPYING | cc6c4b5fc68b6c26 |
 | [W3C-software-and-document-license-2023.txt](LICENSES/W3C-software-and-document-license-2023.txt) | LicenseRef-W3C-Software-and-Document-2023 | built: https://www.w3.org/copyright/software-license/ | 15c2b580995ed692 |
 | [wayland-rs-MIT.txt](LICENSES/wayland-rs-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/Smithay/wayland-rs/b9e6f573a94d46b6d76142ebfc737a01af548f47/LICENSE.txt | 1cb6f4dee8c649f1 |
 | [wezterm-MIT.txt](LICENSES/wezterm-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/wezterm/wezterm/b09b56c29c1e367e598b60ca266e2cc9038751e0/LICENSE.md | 37db33bbbd734896 |
@@ -525,7 +526,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 51
+- **Files:** 54
 
 | file | copied from |
 |---|---|
@@ -551,6 +552,8 @@ notice is, and the URL each file was copied from.
 | [vt510-DECCOLM.html](docs/research/sources/vt510-DECCOLM.html) | https://vt100.net/docs/vt510-rm/DECCOLM.html |
 | [vt510-DECCRA.html](docs/research/sources/vt510-DECCRA.html) | https://vt100.net/docs/vt510-rm/DECCRA.html |
 | [vt510-DECDC.html](docs/research/sources/vt510-DECDC.html) | https://vt100.net/docs/vt510-rm/DECDC.html |
+| [vt510-DECDHL.html](docs/research/sources/vt510-DECDHL.html) | https://vt100.net/docs/vt510-rm/DECDHL.html |
+| [vt510-DECDWL.html](docs/research/sources/vt510-DECDWL.html) | https://vt100.net/docs/vt510-rm/DECDWL.html |
 | [vt510-DECIC.html](docs/research/sources/vt510-DECIC.html) | https://vt100.net/docs/vt510-rm/DECIC.html |
 | [vt510-DECNCSM.html](docs/research/sources/vt510-DECNCSM.html) | https://vt100.net/docs/vt510-rm/DECNCSM.html |
 | [vt510-DECOM.html](docs/research/sources/vt510-DECOM.html) | https://vt100.net/docs/vt510-rm/DECOM.html |
@@ -566,6 +569,7 @@ notice is, and the URL each file was copied from.
 | [vt510-DECSLRM.html](docs/research/sources/vt510-DECSLRM.html) | https://vt100.net/docs/vt510-rm/DECSLRM.html |
 | [vt510-DECSTBM.html](docs/research/sources/vt510-DECSTBM.html) | https://vt100.net/docs/vt510-rm/DECSTBM.html |
 | [vt510-DECSTR.html](docs/research/sources/vt510-DECSTR.html) | https://vt100.net/docs/vt510-rm/DECSTR.html |
+| [vt510-DECSWL.html](docs/research/sources/vt510-DECSWL.html) | https://vt100.net/docs/vt510-rm/DECSWL.html |
 | [vt510-DL.html](docs/research/sources/vt510-DL.html) | https://vt100.net/docs/vt510-rm/DL.html |
 | [vt510-HPA.html](docs/research/sources/vt510-HPA.html) | https://vt100.net/docs/vt510-rm/HPA.html |
 | [vt510-HPR.html](docs/research/sources/vt510-HPR.html) | https://vt100.net/docs/vt510-rm/HPR.html |
@@ -1599,6 +1603,17 @@ notice is, and the URL each file was copied from.
 | [vello-flatten.rs](docs/research/sources/vello-flatten.rs) | https://raw.githubusercontent.com/linebender/vello/main/vello_common/src/flatten.rs |
 | [vello-strip.rs](docs/research/sources/vello-strip.rs) | https://raw.githubusercontent.com/linebender/vello/main/vello_common/src/strip.rs |
 
+### vttest (Thomas E. Dickey)
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** [LICENSES/vttest-COPYING.txt](LICENSES/vttest-COPYING.txt)
+- **Files:** 1
+
+| file | copied from |
+|---|---|
+| [vttest-main.c](docs/research/sources/vttest-main.c) | https://raw.githubusercontent.com/ThomasDickey/vttest-snapshots/0229d7171a8574a2bf406c6ce14549f65d810e51/main.c |
+
 ### Vulkan Memory Allocator documentation (AMD)
 
 - **Status:** kept -- redistributable, and its notice is satisfied
@@ -1780,7 +1795,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11
 - **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
-- **Files:** 22
+- **Files:** 23
 
 | file | copied from |
 |---|---|
@@ -1790,6 +1805,7 @@ notice is, and the URL each file was copied from.
 | [xterm-charsets.h](docs/research/sources/xterm-charsets.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/charsets.h |
 | [xterm-ctlseqs.txt](docs/research/sources/xterm-ctlseqs.txt) | https://invisible-island.net/xterm/ctlseqs/ctlseqs.txt |
 | [xterm-cursor.c](docs/research/sources/xterm-cursor.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/cursor.c |
+| [xterm-doublechr.c](docs/research/sources/xterm-doublechr.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/doublechr.c |
 | [xterm-faq.html](docs/research/sources/xterm-faq.html) | https://invisible-island.net/xterm/xterm.faq.html |
 | [xterm-graphics_sixel.c](docs/research/sources/xterm-graphics_sixel.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/graphics_sixel.c |
 | [xterm-main.h](docs/research/sources/xterm-main.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/main.h |

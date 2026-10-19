@@ -576,6 +576,62 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **The line renditions**: a line of half the columns, which the fit
+    // test, the wrap, the pin and every move read through the fence, and
+    // whose size rides in the row's mark through every scroll. DECDWL and
+    // DECDHL empty the half past the line's end and pull the cursor in.
+    Atom {
+        name: "decdwl",
+        bytes: b"\x1b#6",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decdhl-top",
+        bytes: b"\x1b#3",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decdhl-bottom",
+        bytes: b"\x1b#4",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decswl",
+        bytes: b"\x1b#5",
+        stride: 0,
+        count: 0,
+    },
+    // **What brings a line under the cursor in place**: `RI` and `SD` move
+    // the rows with the cursor's row fixed, and `?47` swaps the surface, so
+    // a sized line can arrive under a cursor that did not move onto it --
+    // the direction a fence must never lag.
+    Atom {
+        name: "ri",
+        bytes: b"\x1bM",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "sd",
+        bytes: b"\x1b[T",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "alt47-enter",
+        bytes: b"\x1b[?47h",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "alt47-leave",
+        bytes: b"\x1b[?47l",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -605,7 +661,30 @@ fn ws() -> WinSize {
 /// What a driver reads back: every cell, whether the cursor is shown, the
 /// title, the reply, and the clipboard -- how many writes were published and
 /// what the last left, `None` in its octets for a clear.
-type Seen = (Vec<PackedCell>, bool, Vec<u8>, Vec<u8>, Clipped);
+type Seen = (
+    Vec<PackedCell>,
+    bool,
+    Vec<u8>,
+    Vec<u8>,
+    Clipped,
+    Vec<LineRendition>,
+);
+
+/// Every row's line rendition, which the cells do not show -- and the
+/// promise the rendition's bits ride on: a sized row's mark is at least the
+/// width, so `RowExtent::reached`'s bare `max` never has to raise it.
+fn renditions(t: &Term<'_>) -> Vec<LineRendition> {
+    (0..ROWS)
+        .map(|y| {
+            let r = t.line_rendition(Row::from_index(y)).expect("a row");
+            if r.is_double() {
+                let mark = t.row_extent(Row::from_index(y)).index();
+                assert!(mark >= COLS, "row {y} is {r:?} under a mark of {mark}");
+            }
+            r
+        })
+        .collect()
+}
 
 type Clipped = (ClipboardWrites, Option<(Selections, Option<Vec<u8>>)>);
 
@@ -652,6 +731,7 @@ fn drive_at(bytes: &[u8], chunk: usize, a: AmbiguousWidth) -> Seen {
         t.title().to_vec(),
         t.reply().to_vec(),
         clipped(&t),
+        renditions(&t),
     )
 }
 
@@ -678,6 +758,7 @@ fn drive_atomwise(prog: &[usize], a: AmbiguousWidth) -> Seen {
         t.title().to_vec(),
         t.reply().to_vec(),
         clipped(&t),
+        renditions(&t),
     )
 }
 
@@ -734,7 +815,7 @@ fn the_alphabet_emits_what_it_claims() {
 /// title keeps it.
 #[test]
 fn the_c1_atoms_reach_the_string_arms() {
-    let (_, _, title, _, _) = drive(&bytes_of(&[atom("osc-c1-utf8")]), 4096);
+    let (_, _, title, _, _, _) = drive(&bytes_of(&[atom("osc-c1-utf8")]), 4096);
     assert_eq!(title, b"t\x85u", "UTF-8: the 85 is payload");
 
     fed("latin1-osc-nel", &|t| {

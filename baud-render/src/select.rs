@@ -513,6 +513,24 @@ fn row_in(top: AbsLine, line: AbsLine) -> Row {
 /// The cells of absolute line `line` and how the row ended, or `None`
 /// when the line is past the live screen or the ring no longer holds it.
 ///
+/// **The character under display column `col` of view row `y`**: the
+/// column itself on a single-width line, and on a line that is not half of
+/// it, since such a line draws each character over two columns and is
+/// addressed by its characters (`[[source: dec-std-070]]` § 5.6.1, "the
+/// character in column 5 ... will still be addressed as column 5"). Where a
+/// pointer becomes a cell for a selection and a link, so a selection's
+/// points are the lines' own columns and its text reads them as they are;
+/// xterm halves the columns as it copies (`SaveText`, `[[source:
+/// xterm-button]]`), and a mouse report keeps the display column, as
+/// xterm's does -- Jev's lean of 2026-10-18, taken below the bar (the
+/// record, "Double-width and double-height lines").
+pub fn char_col(view: &Viewport<'_>, y: Row, col: Col) -> Col {
+    match view.rendition(y).is_double() {
+        true => Col::at_index(col.index() / 2),
+        false => col,
+    }
+}
+
 /// The one reader of a line by number, for a selection's text and for a
 /// bare URI's walk across the rows a soft wrap joined.
 pub fn row_of<'t>(

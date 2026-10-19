@@ -24,7 +24,7 @@
 use crate::cell::PackedCell;
 use crate::grid::RowRot;
 use crate::quantity::{Cols, Rows};
-use crate::store::RowExtent;
+use crate::store::{LineRendition, RowExtent};
 
 /// How a stored line ended: at a newline, or by the writer wrapping onto the
 /// next row. The fact a reflow needs and the cells do not carry; it rides in
@@ -146,6 +146,17 @@ impl<'a> Scrollback<'a> {
             false => Wrap::Ended,
         };
         Some((&self.cells[start..start + n], wrap))
+    }
+
+    /// A retained line's rendition, `back` lines before the newest: a line
+    /// keeps the size it had on the screen as it scrolls off, as it keeps
+    /// its cells. `None` past what is retained.
+    pub fn rendition(&self, back: Back) -> Option<LineRendition> {
+        if back.0 >= self.len.index() {
+            return None;
+        }
+        let p = self.rot.retreat(back.0 + 1, self.ring).index();
+        Some(self.used[p].rendition())
     }
 }
 

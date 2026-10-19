@@ -214,12 +214,31 @@ impl Paint<'_, '_> {
     /// **A cursor a move placed one past the margin is beyond it** (note
     /// 2), and only the sentinel a write leaves there reads as on it
     /// ([`Paint::at_or_inside_right`]).
+    ///
+    /// **And a double line's half**: with `DECLRMM` reset the fence is the
+    /// last column of the cursor's line, so `CUF` stops at it at no cost
+    /// over stopping at the screen's (`[[source: dec-std-070]]` CUF, p. 5-46,
+    /// `column < end_of_line`). Only a move that reaches it is checked, out
+    /// of line, against a fence a sized line left ([`Paint::line_fence`]).
     #[inline(always)]
     pub(crate) fn forward_in_margins(&self, n: Count) -> CursorCol {
         match self.cold.modes.is_set(ModeBit::SideMargins) {
-            false => CursorCol::moved(self.cx.raw().forward(n, self.cols)),
+            false => {
+                let to = self.cx.raw().forward_to(n, self.cold.fence);
+                match to == self.cold.fence {
+                    false => CursorCol::moved(to),
+                    true => self.forward_to_line_end(n),
+                }
+            }
             true => self.forward_fenced(n),
         }
+    }
+
+    /// `CUF` that reached the fence, to the end of the cursor's line.
+    #[cold]
+    #[inline(never)]
+    fn forward_to_line_end(&self, n: Count) -> CursorCol {
+        CursorCol::moved(self.cx.raw().forward_to(n, self.line_fence()))
     }
 
     #[cold]
@@ -330,7 +349,7 @@ impl Paint<'_, '_> {
             origin: ModeChange::of(self.cold.modes.is_set(ModeBit::Origin)),
             // The sentinel, and not a cursor a move placed on its column.
             pending: ModeChange::of(
-                !self.cx.is_placed() && self.cx.col().index() == self.cold.right.index() + 1,
+                !self.cx.is_placed() && self.cx.col().index() == self.line_fence().index() + 1,
             ),
         }
     }
@@ -401,6 +420,8 @@ impl Paint<'_, '_> {
             true => CursorCol::written(c),
             false => self.place(c),
         };
+        // Onto a double line, inside its half, as every move lands.
+        self.cx = self.on_line(self.cx);
         // **Interned again, not the saved id.** An eviction between the save
         // and the restore can give the saved id's slot to another rendition,
         // and writing under the old id would draw in its colours. The
@@ -1356,7 +1377,8 @@ impl Paint<'_, '_> {
     /// ECH: blank `n` cells from the cursor, without moving anything.
     pub(crate) fn erase_chars(&mut self, n: Count) {
         let (r, from) = (self.cy, self.cx.col());
-        let to = Col::at_index((from.index() + n.at_least_one()).min(self.cols.index()));
+        // To the line's end, the half on a double line.
+        let to = Col::at_index((from.index() + n.at_least_one()).min(self.line_cols().index()));
         let b = self.blank();
         self.erase_span(r, from, to, b);
         self.wrote_rows(r, r);
@@ -1368,8 +1390,11 @@ impl Paint<'_, '_> {
         // **The right margin, not the row.** `to` was `cols` before the
         // margins existed, so a `DCH` inside a region pulled text in from
         // *outside* it -- correct only while the margin is the edge, which is
-        // every stream that never sends `DECSLRM`.
-        let to = self.cold.right.after();
+        // every stream that never sends `DECSLRM`. **And the line's end**: a
+        // double line's half, `margin = end_of_line(line)` where the right
+        // margin is past it (`[[source: dec-std-070]]` p. 5-145), which the
+        // fence is.
+        let to = self.line_fence().after();
         // Right of the fence it is ignored, `[[source: dec-std-070]]` DCH
         // note 3 (p. 5-144); `to - at` below underflowed there, a panic in a
         // debug build.
@@ -1385,7 +1410,8 @@ impl Paint<'_, '_> {
     /// ICH: push the rest of the row right over `n` blanks.
     pub(crate) fn insert_blanks(&mut self, n: Count) {
         let (r, at, b) = (self.cy, self.cx.col(), self.blank());
-        let to = self.cold.right.after();
+        // The line's end on a double line too (p. 5-143), as `DCH`.
+        let to = self.line_fence().after();
         // Right of the fence it is ignored, `[[source: dec-std-070]]` ICH
         // note 2 (p. 5-142), as `DCH` is.
         if at > to {
@@ -1519,10 +1545,12 @@ impl Paint<'_, '_> {
     }
 
     pub(crate) fn selective_erase_display(&mut self, e: EraseExtent) {
-        let cols = Col::at_index(self.cols.index());
         let (from, to) = self.display_rows(e);
         for y in from.index()..to.index() {
-            self.selective_wipe(Row::from_index(y), Col::ZERO, cols);
+            // Each line to its own end, `x <= end_of_line(y)` (p. 5-163).
+            let r = Row::from_index(y);
+            let end = self.view.rendition(r).end_of_line(self.cols);
+            self.selective_wipe(r, Col::ZERO, Col::at_index(end.index()));
         }
         if e != EraseExtent::All {
             let (a, b) = self.line_span(e);
@@ -1630,7 +1658,7 @@ impl Paint<'_, '_> {
 
     /// The span `EraseExtent` names on the cursor's row.
     pub(crate) fn line_span(&self, e: EraseExtent) -> (Col, Col) {
-        let cols = Col::at_index(self.cols.index());
+        let cols = Col::at_index(self.line_cols().index());
         match e {
             EraseExtent::ToStart => (Col::ZERO, Col::at_index(self.cx.col().index() + 1)),
             EraseExtent::All => (Col::ZERO, cols),
@@ -2027,7 +2055,9 @@ impl Paint<'_, '_> {
     /// one past the edge, comes back to it, as at full width.
     pub(crate) fn tab_forward(&mut self, n: Count) {
         let last = self.cols.index() - 1;
-        let end = match self.cold.right.index() == last {
+        // The fence: on a double line its half's last column, which goes
+        // out of line with the margins' case.
+        let end = match self.line_fence().index() == last {
             true => last,
             false => return self.tab_forward_fenced(n),
         };
@@ -2094,6 +2124,13 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     fn tab_end(&self) -> Col {
+        // A double line ends at its half, which is where `HT` stops when no
+        // stop comes first: `active_position.column < end_of_line(...)`
+        // (p. 5-68). Side margins and a sized line never meet (p. 5-29).
+        let fence = self.line_fence();
+        if fence != self.cold.right {
+            return fence;
+        }
         let right = self.cold.right;
         let y = self.cy.index();
         let inside =
@@ -2127,7 +2164,8 @@ impl Paint<'_, '_> {
             self.set_col(CursorCol::moved(Col::at_index(x - 1)));
         } else if self.cold.modes.is_set(ModeBit::ReverseWrap) && y > self.cold.top.index() {
             self.set_row(Row::from_index(y - 1));
-            self.set_col(CursorCol::moved(self.cold.right));
+            // The previous line's end, its half if it is a double line.
+            self.set_col(CursorCol::moved(self.line_fence()));
         }
     }
 
@@ -2268,7 +2306,35 @@ impl Paint<'_, '_> {
     pub(crate) fn reset_side_margins(&mut self) {
         self.cold.left = Col::ZERO;
         self.cold.right = Col::at_index(self.cols.index() - 1);
+        self.cold.fence = self.cold.right;
         self.cx = CursorCol::moved(self.cx.col());
+        self.row_changed_to(self.cy);
+    }
+
+    /// **`DECLRMM` set: every line single-width**, on both screens.
+    /// `[[source: dec-std-070]]` p. 5-29: "When DECLRMM is set, all line
+    /// attributes currently in Page Memory for the Session will be reset to
+    /// Single Wide, Single High", its algorithm setting `line_rendition[i] =
+    /// SINGLE_WIDTH` for every line of the page memory, which is the screen
+    /// of each surface and not the history behind it. A line keeps its
+    /// cells: the reset is DECSWL's, which loses nothing (p. 5-96).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn single_width_pages(&mut self) {
+        for live in [true, false] {
+            for y in 0..self.rows.index() {
+                let r = Row::from_index(y);
+                if self.view.rendition(r).is_double() {
+                    self.view.set_rendition(r, LineRendition::Single);
+                    // A watch on a selection's rows is the live screen's.
+                    if live {
+                        self.wrote_rows(r, r);
+                    }
+                }
+            }
+            self.view.swap_surface(&mut self.other);
+        }
+        self.cold.fence = self.cold.right;
     }
 
     /// `DECSLRM`, `CSI Pl ; Pr s`.
@@ -2307,6 +2373,8 @@ impl Paint<'_, '_> {
         }
         self.cold.left = Col::at_index(l);
         self.cold.right = Col::at_index(r);
+        // Only under `DECLRMM`, which no sized line survives (p. 5-29).
+        self.cold.fence = self.cold.right;
         self.home();
     }
 
@@ -2598,8 +2666,9 @@ impl Paint<'_, '_> {
             PrivateMode::ReverseWrap => self.cold.modes.apply(ModeBit::ReverseWrap, on),
             PrivateMode::LeftRightMargin => {
                 self.cold.modes.apply(ModeBit::SideMargins, on);
-                if !on {
-                    self.reset_side_margins();
+                match on {
+                    false => self.reset_side_margins(),
+                    true => self.single_width_pages(),
                 }
             }
             PrivateMode::BracketedPaste => self.cold.modes.apply(ModeBit::BracketedPaste, on),

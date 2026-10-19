@@ -3020,6 +3020,7 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
     kitty_draw_gate(&mut arms, &mut t);
     kitty_per_cell_gate(&mut arms, &mut t);
     decoration_gate(&mut arms, &mut t);
+    line_rendition_gate(&mut arms, &mut t);
     // **Styled faces.** Bold, italic and bold-italic text -- a ligature and
     // a Nerd Fonts icon among it -- on both arms, and a positive control
     // that each style reached the pixels: the same row regular paints
@@ -3376,6 +3377,125 @@ fn decoration_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     reach_gate(arms, t);
     overlap_gate(arms, t);
     composed_decoration_gate(arms, t);
+}
+
+/// **A line that is not single-width is drawn alike on all three arms**
+/// (`[[source: dec-std-070]]` § 5.6.1): the cell arm masks it and draws it
+/// by the records the instance arm converts it to, and its backgrounds from
+/// the cell under half of each column. Each scene against its premise --
+/// the renditions moved the instance arm's pixels -- so three arms that
+/// all drew the lines single-width could not agree here vacuously: a
+/// double-width line with a ligature and an underline, a double-height pair
+/// with a coloured background, a frame of DEC line drawing on double-height
+/// pairs, the cursor in each shape on a sized line, a selection across
+/// one, and a sized line scrolled back into the history.
+fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let base = "\x1bc\x1b[?25l";
+    let lines = |sized: bool| {
+        let (w, top, bottom) = match sized {
+            true => ("\x1b#6", "\x1b#3", "\x1b#4"),
+            false => ("", "", ""),
+        };
+        format!(
+            "{base}\x1b[2;3H{w}Wide a -> b \x1b[4mtext\x1b[0m 0123\x1b[4;3H{top}\x1b[44;33mTall\x1b[0m line             \x1b[5;3H{bottom}\x1b[44;33mTall\x1b[0m line\x1b[7;1Hsingle below"
+        )
+    };
+    feed(t, lines(false).as_bytes());
+    let (plain, _) = arms.draw(t);
+    feed(t, lines(true).as_bytes());
+    let (a, b) = arms.draw(t);
+    let cpu = cpu_frame(arms, t);
+    assert!(
+        differing(&plain, &a) > 0,
+        "the renditions never reached the instance arm's pixels"
+    );
+    assert_eq!(differing(&a, &b), 0, "the GPU arms disagree on sized lines");
+    assert_eq!(
+        differing(&a, &cpu),
+        0,
+        "the CPU arm disagrees on sized lines"
+    );
+    // The frame of line drawing on double-height pairs, vttest's shape.
+    let mut frame = format!("{base}\x1b(0");
+    for (k, row) in [
+        "lqqqqqqk", "lqqqqqqk", "x      x", "x      x", "mqqqqqqj", "mqqqqqqj",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let half = if k % 2 == 0 { "\x1b#3" } else { "\x1b#4" };
+        frame.push_str(&format!("\x1b[{};1H{half}{row}", k + 2));
+    }
+    frame.push_str("\x1b(B\x1b[4;3H\x1b[1;31mhi\x1b[5;3Hhi\x1b[0m");
+    feed(t, frame.as_bytes());
+    let (a, b) = arms.draw(t);
+    let cpu = cpu_frame(arms, t);
+    assert_eq!(differing(&a, &b), 0, "the GPU arms disagree on the frame");
+    assert_eq!(differing(&a, &cpu), 0, "the CPU arm disagrees on the frame");
+    // The cursor in each shape, on a double-width line and on each half of a
+    // double-height pair.
+    for (shape, name) in [
+        ("\x1b[2 q", "block"),
+        ("\x1b[4 q", "underline"),
+        ("\x1b[6 q", "bar"),
+    ] {
+        for (at, what) in [
+            ("\x1b[2;5H", "double width"),
+            ("\x1b[4;5H", "top half"),
+            ("\x1b[5;5H", "bottom half"),
+        ] {
+            feed(t, format!("{}\x1b[?25h{shape}{at}", lines(true)).as_bytes());
+            let (a, b) = arms.draw(t);
+            let cpu = cpu_frame(arms, t);
+            assert_eq!(
+                differing(&a, &b),
+                0,
+                "the GPU arms disagree on a {name} cursor, {what}"
+            );
+            assert_eq!(
+                differing(&a, &cpu),
+                0,
+                "the CPU arm disagrees on a {name} cursor, {what}"
+            );
+        }
+    }
+    // A selection from a single line into the double-width one and the pair.
+    feed(t, lines(true).as_bytes());
+    arms.highlight = Some(Highlight {
+        from: (Row::from_index(0), Col::at_index(30)),
+        to: (Row::from_index(4), Col::at_index(5)),
+        region: Region::Stream,
+    });
+    let (a, b) = arms.draw(t);
+    let cpu = cpu_frame(arms, t);
+    arms.highlight = None;
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the GPU arms disagree on a selected sized line"
+    );
+    assert_eq!(
+        differing(&a, &cpu),
+        0,
+        "the CPU arm disagrees on a selected sized line"
+    );
+    // A sized line scrolled back into the history and drawn there.
+    let rows = usize::from(WS.ws_row);
+    feed(t, format!("{}\x1b[{rows};1H\n\n\n", lines(true)).as_bytes());
+    arms.back = Rows::of_count(3);
+    let (a, b) = arms.draw(t);
+    let cpu = cpu_frame(arms, t);
+    arms.back = Rows::ZERO;
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the GPU arms disagree on a sized line looked back at"
+    );
+    assert_eq!(
+        differing(&a, &cpu),
+        0,
+        "the CPU arm disagrees on a sized line looked back at"
+    );
 }
 
 /// **Two glyphs whose ink meets are drawn in the order the instance arm

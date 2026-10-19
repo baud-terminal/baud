@@ -1052,6 +1052,14 @@ impl<'b> Storage<'b> {
         );
         let ring = RowBlock::leading(Rows::of_index(used.len()), stride);
         assert!(ring.fits(vp), "the ring is short of its rows");
+        // A row's mark shares its word with the wrap and the line rendition,
+        // so the pitch must fit what is left of it.
+        assert!(
+            stride.index() <= RowExtent::MAX_MARK,
+            "a pitch of {} cells is past the {} a row's mark holds",
+            stride.index(),
+            RowExtent::MAX_MARK
+        );
         assert!(
             past.len() >= used.len(),
             "the past-edge flags are one per row of the ring"

@@ -35,8 +35,8 @@
 
 use super::{RowRot, View};
 use crate::PackedCell;
-use crate::RowExtent;
 use crate::{Col, Cols, Row, Rows};
+use crate::{LineRendition, RowExtent};
 
 /// Where the window and the cursor landed after a reflow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,6 +103,8 @@ struct Line {
     dest: usize,
     /// The blank the last row is uniform in past its mark.
     tail: PackedCell,
+    /// Its rendition: any but single-width is a line of one row, kept whole.
+    rendition: LineRendition,
 }
 
 impl<'a> View<'a> {
@@ -151,10 +153,21 @@ impl<'a> View<'a> {
         }
     }
 
+    /// Whether the row at linear index `i` is not single-width.
+    fn sized(&self, c: Cut, i: usize) -> bool {
+        self.used[self.lin(c, i)].rendition().is_double()
+    }
+
     fn line_at(&self, c: Cut, start: usize, n_src: usize) -> Line {
         let (old, new) = (c.old, c.new);
+        if self.sized(c, start) {
+            return self.sized_line(c, start);
+        }
         let mut rows = 1;
-        while start + rows < n_src && self.used[self.lin(c, start + rows - 1)].wrapped() {
+        while start + rows < n_src
+            && self.used[self.lin(c, start + rows - 1)].wrapped()
+            && !self.sized(c, start + rows)
+        {
             rows += 1;
         }
         let last = self.lin(c, start + rows - 1);
@@ -171,14 +184,57 @@ impl<'a> View<'a> {
             spacers,
             dest,
             tail,
+            rendition: LineRendition::Single,
         }
+    }
+
+    /// **A line not single-width is a line of its own, one row, kept
+    /// whole.** No DEC text resizes a page but DECCOLM, which clears it (`[[source:
+    /// dec-std-070]]` p. 5-72); asked with the texts and xterm's, mintty's
+    /// and konsole's practice, Jev leaned to keeping every character the
+    /// row holds, 0.78 and 0.71 in the two orders, below the bar, and the
+    /// lean is taken (the record, "Double-width and double-height lines").
+    /// So it is never joined to the rows round it by a wrap -- a
+    /// double-height pair would interleave -- and its cells go where they
+    /// were, those past the new half unseen until a growth shows them:
+    /// xterm keeps a double line's cells, and konsole never splits a
+    /// double-height line.
+    fn sized_line(&self, c: Cut, start: usize) -> Line {
+        let p = self.lin(c, start);
+        Line {
+            start,
+            rows: 1,
+            cells: self.used[p].index().min(self.stride.index()),
+            spacers: 0,
+            dest: 1,
+            tail: PackedCell::EMPTY,
+            rendition: self.used[p].rendition(),
+        }
+    }
+
+    /// A sized line copied to row `dst`: its cells where they were, blank
+    /// past them to the pitch, and its rendition on a mark raised to the new
+    /// width. Rows are distinct or the same, and the order the module's head
+    /// states puts the read first either way.
+    fn copy_sized(&mut self, c: Cut, l: &Line, dst: usize) {
+        let s = self.stride.index();
+        let (ps, pd) = (self.lin(c, l.start), self.lin(c, dst));
+        if ps != pd {
+            self.cells.copy_within(ps * s..ps * s + l.cells, pd * s);
+        }
+        self.cells[pd * s + l.cells..pd * s + s].fill(PackedCell::EMPTY);
+        self.used[pd] = RowExtent::of(l.cells).with_rendition(l.rendition, Cols::of_index(c.new));
     }
 
     /// The line ending at linear index `end` (exclusive), found from its
     /// marks: the row before its first is the nearest that does not wrap.
     fn line_ending_at(&self, c: Cut, end: usize, first: usize) -> Line {
         let mut start = end - 1;
-        while start > first && self.used[self.lin(c, start - 1)].wrapped() {
+        while start > first
+            && self.used[self.lin(c, start - 1)].wrapped()
+            && !self.sized(c, start - 1)
+            && !self.sized(c, start)
+        {
             start -= 1;
         }
         self.line_at(c, start, end)
@@ -214,6 +270,9 @@ impl<'a> View<'a> {
 
     /// Widening: cells ascending, every write at or before its read.
     fn copy_up(&mut self, c: Cut, l: &Line, dst: usize) {
+        if l.rendition.is_double() {
+            return self.copy_sized(c, l, dst);
+        }
         let new = c.new;
         let mut sp = 0;
         for k in 0..l.cells {
@@ -234,6 +293,9 @@ impl<'a> View<'a> {
     /// `k + sp`, and it owns a spacer at `k + sp - 1` when that is a row's
     /// last column and `k` is a lead -- the forward layout read backwards.
     fn copy_down(&mut self, c: Cut, l: &Line, dst: usize) {
+        if l.rendition.is_double() {
+            return self.copy_sized(c, l, dst);
+        }
         let new = c.new;
         let mut sp = l.spacers;
         for k in (0..l.cells).rev() {
@@ -255,6 +317,10 @@ impl<'a> View<'a> {
     /// Where the cell at (`r`, `x`) of line `l` lands: its destination row
     /// and column, for the cursor and for the window's bottom row.
     fn landing(&self, c: Cut, l: &Line, dst: usize, r: usize, x: usize) -> (usize, usize) {
+        // A sized line's cells stay where they were.
+        if l.rendition.is_double() {
+            return (dst, x);
+        }
         let (old, new) = (c.old, c.new);
         let k = (r - l.start) * old + x.min(old);
         if k < l.cells {

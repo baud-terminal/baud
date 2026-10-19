@@ -648,6 +648,11 @@ impl Col {
     pub fn forward(self, c: Count, cols: Cols) -> Col {
         Col((self.0 + c.0 as usize).min(cols.0.saturating_sub(1)))
     }
+    /// `c` columns on, stopping at column `last`: [`Col::forward`] to a
+    /// column rather than a width, for a line that ends before the screen.
+    pub fn forward_to(self, c: Count, last: Col) -> Col {
+        Col((self.0 + c.0 as usize).min(last.0))
+    }
     pub fn back(self, c: Count) -> Col {
         Col(self.0.saturating_sub(c.0 as usize))
     }

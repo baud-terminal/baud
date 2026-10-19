@@ -477,6 +477,14 @@ impl<'a> Viewport<'a> {
         }
     }
 
+    /// Screen row `y`'s line rendition: how wide, and which half tall, its
+    /// characters are drawn ([`LineRendition`]). A line not single-width
+    /// holds [`LineRendition::end_of_line`] characters, each drawn two
+    /// columns wide, and its cells past them are empty.
+    pub fn rendition(&self, y: Row) -> LineRendition {
+        self.used[self.phys(y.index())].rendition()
+    }
+
     /// Screen row `y` at the full pitch, which is what an index at the pitch
     /// addresses.
     fn pitch_row(&self, y: usize) -> &'a [PackedCell] {
@@ -820,12 +828,18 @@ impl<'a> View<'a> {
             let r = Row::from_index(y);
             let (a, b) = self.snap(r, from, to);
             let p = self.phys(r);
+            let kept = self.used[p].rendition();
             if self.used[p].index() > self.cols.index() {
                 self.fill_past_edge(p, a, PackedCell::EMPTY);
+                self.used[p] = self.used[p].with_rendition(kept, self.cols);
                 continue;
             }
             self.cells[p * s + a..p * s + b].fill(PackedCell::EMPTY);
-            self.used[p] = RowExtent::of(a);
+            // The line keeps its rendition: a growth reveals columns, it does
+            // not erase the line (`[[source: dec-std-070]]` resets a rendition
+            // only where a line is erased whole or scrolled in, pp. 5-156 and
+            // 5-210).
+            self.used[p] = RowExtent::of(a).with_rendition(kept, self.cols);
         }
         self.rows = rows;
     }
@@ -866,7 +880,9 @@ impl<'a> View<'a> {
             if m >= new {
                 continue;
             }
-            if self.used[p].wrapped() {
+            // A sized row's mark is the width it was sized at, and `reached`
+            // keeps it by `max` alone on the same promise the wrap's makes.
+            if self.used[p].flagged() {
                 self.used[p] = self.used[p].raised_to(new);
                 raised += 1;
                 continue;
@@ -1412,6 +1428,25 @@ impl<'a> View<'a> {
     /// The mark for screen row `r`.
     pub fn extent(&self, r: Row) -> RowExtent {
         self.used[self.phys(r)]
+    }
+
+    /// Screen row `r`'s line rendition.
+    pub fn rendition(&self, r: Row) -> LineRendition {
+        self.used[self.phys(r)].rendition()
+    }
+
+    /// Give screen row `r` rendition `to`, through
+    /// [`RowExtent::with_rendition`], which raises the mark to the live
+    /// width for any rendition but single-width. The cells are the caller's:
+    /// DECDWL and DECDHL empty the ones past the line's end first.
+    #[cold]
+    #[inline(never)]
+    pub fn set_rendition(&mut self, r: Row, to: LineRendition) {
+        if r.index() >= self.rows.index() {
+            return;
+        }
+        let p = self.phys(r);
+        self.used[p] = self.used[p].with_rendition(to, self.cols);
     }
 
     pub fn cols(&self) -> Cols {

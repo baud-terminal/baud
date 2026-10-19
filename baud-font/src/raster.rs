@@ -366,6 +366,12 @@ impl Phase {
             .then_some(Phase(q as i16))
     }
 
+    /// The offset in a span twice as wide: a glyph drawn twice as wide
+    /// sits at the same place in it.
+    pub fn doubled(self) -> Phase {
+        Phase(self.0.saturating_mul(2))
+    }
+
     /// The whole pixels of the offset, rounded: what a bitmap, which
     /// cannot be drawn at a fraction, is moved by.
     pub fn whole(self) -> i32 {
@@ -511,14 +517,24 @@ impl Fit {
     /// rasteriser draws it at that fraction of a pixel; `left` still counts
     /// whole pixels from the glyph origin.
     pub fn at(bounds: &Bounds, scale: Scale, phase: Phase) -> Option<Fit> {
+        Fit::stretched(bounds, scale, phase, 1.0, 1.0)
+    }
+
+    /// [`Fit::at`] with the outline drawn `sx` times as wide and `sy` times
+    /// as tall about its origin: a character on a double-width line, two
+    /// and one, or on a double-height line, two and two, rasterised from
+    /// its outline at the size it is drawn rather than scaled from its mask
+    /// (`[[source: dec-std-070]]` § 5.6.1). `phase` is in the drawn
+    /// pixels.
+    pub fn stretched(bounds: &Bounds, scale: Scale, phase: Phase, sx: f32, sy: f32) -> Option<Fit> {
         if bounds.seen == Seen::Nothing {
             return None;
         }
-        let s = scale.0;
+        let (s, t) = (scale.0 * sx, scale.0 * sy);
         let dx = phase.px();
         // y flips: the outline's top is the canvas's smallest row.
         let (x0, x1) = (bounds.min_x * s + dx, bounds.max_x * s + dx);
-        let (y0, y1) = (-bounds.max_y * s, -bounds.min_y * s);
+        let (y0, y1) = (-bounds.max_y * t, -bounds.min_y * t);
         if !(x0.is_finite() && x1.is_finite() && y0.is_finite() && y1.is_finite()) {
             return None;
         }
@@ -537,7 +553,14 @@ impl Fit {
         }
         Some(Fit {
             extent: Extent::new(Px(w), Px(h)),
-            transform: scale.placing(dx - left as f32, -(top as f32)),
+            transform: Transform {
+                a: s,
+                b: 0.0,
+                c: 0.0,
+                d: -t,
+                e: dx - left as f32,
+                f: -(top as f32),
+            },
             left,
             top,
         })

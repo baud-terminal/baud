@@ -38,7 +38,7 @@ impl Paint<'_, '_> {
             }
             Vt52::CursorRight => {
                 let c = self.confine_col(self.cx.col().forward(Count::ONE, self.cols));
-                self.set_col(self.place(c))
+                self.set_col(self.on_line(self.place(c)))
             }
             Vt52::CursorLeft => {
                 let c = self.confine_col(self.cx.col().back(Count::ONE));

@@ -318,6 +318,20 @@ impl Term<'_> {
         // one short copy a read (`placed.rs`).
         let read = &self.store.arena[base.index()..base.index() + n.less(held).index()];
         self.cold.placement.end(StreamByte::slice_from(read));
+        // **The fence may lag a line the cursor left, never one it is on**:
+        // a fence above the line's own would let a write past a double
+        // line's half (`Paint::enter_row`), and a sized line exists only
+        // with `DECLRMM` reset (`[[source: dec-std-070]]` p. 5-29).
+        debug_assert!(
+            self.cold.fence <= self.line_fence(),
+            "the fence {:?} is past the cursor line's {:?}",
+            self.cold.fence,
+            self.line_fence()
+        );
+        debug_assert!(
+            self.cold.fence == self.cold.right || !self.cold.modes.is_set(ModeBit::SideMargins),
+            "a sized line's fence under side margins"
+        );
     }
 }
 

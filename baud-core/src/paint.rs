@@ -515,9 +515,12 @@ impl<'a, 'b> Paint<'a, 'b> {
     fn open_gap(&mut self, n: Count) {
         // After the fit test, so never a tagged value.
         let (r, at, b) = (self.cy, self.cx.raw(), self.blank());
-        let to = Col::at_index(self.cols.index());
+        // The line's end: the gap pushes off a double line's last column,
+        // not into the half past it (`[[source: dec-std-070]]` p. 5-140,
+        // `margin = end_of_line(line)`).
+        let to = Col::at_index(self.line_cols().index());
         self.view.insert_cells(r, at, n, to, b);
-        self.cells = self.cells.plus(self.cols.index() - at.index());
+        self.cells = self.cells.plus(to.index() - at.index());
         self.row_changed_to(r);
     }
 
@@ -598,10 +601,14 @@ impl<'a, 'b> Paint<'a, 'b> {
     fn wrapped(&mut self, from: BytePos, n: ByteLen) {
         let (mut at, mut left) = (from.index(), n.index());
         while left > 0 {
-            let k = match self.cx.raw().index() > self.cold.right.index() + 1 {
+            // The fence as the cursor's line has it, which the fit test that
+            // sent the run here may have read low, and which a wrap onto
+            // another line leaves as the last line's (`Paint::refresh_fence`).
+            self.refresh_fence();
+            let k = match self.cx.raw().index() > self.cold.fence.index() + 1 {
                 true => self.past_margin_room().index(),
                 false => {
-                    if self.cx.raw() > self.cold.right {
+                    if self.cx.raw() > self.cold.fence {
                         self.wrap();
                     }
                     self.room().index()
@@ -628,7 +635,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             return Count::ONE;
         }
         self.past_margin(Count::ONE);
-        match self.cx.raw().index() > self.cold.right.index() {
+        match self.cx.raw().index() > self.cold.fence.index() {
             true => Count::of(self.cols.index() - self.cx.raw().index()),
             false => self.room(),
         }
@@ -718,9 +725,10 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn pin(&mut self, to: Col) -> CursorCol {
-        let right = match self.cx.raw() > self.cold.right {
+        self.refresh_fence();
+        let right = match self.cx.raw() > self.cold.fence {
             true => Col::at_index(self.cols.index() - 1),
-            false => self.cold.right,
+            false => self.cold.fence,
         };
         self.cold.pinned = match to > right {
             true => crate::term::Pinned::OnLast,
@@ -742,7 +750,13 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn overflow(&mut self, need: Count) {
-        match self.cx.raw().index() > self.cold.right.index() + 1 {
+        // A fence read low after the cursor left a sized line: the
+        // character fits after all, and goes where the cursor is.
+        self.refresh_fence();
+        if self.cx.raw().index() + need.index() <= self.cold.fence.index() + 1 {
+            return;
+        }
+        match self.cx.raw().index() > self.cold.fence.index() + 1 {
             false => self.wrap(),
             true => self.past_margin(need),
         }
@@ -791,7 +805,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cfg(feature = "cell-table")]
     pub(crate) fn indexed(&mut self, e: PackedCell) {
         let need = e.flags.advance_of();
-        if self.cx.raw().index() + need > self.cold.right.index() + 1 {
+        if self.cx.raw().index() + need > self.cold.fence.index() + 1 {
             self.overflow(Count::of(need));
         }
         let (style, flags) = (self.style, self.flags);
@@ -847,7 +861,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             return;
         }
         let need = 1 + usize::from(w == Width::WIDE);
-        if self.cx.raw().index() + need > self.cold.right.index() + 1 {
+        if self.cx.raw().index() + need > self.cold.fence.index() + 1 {
             self.overflow(Count::of(need));
         }
         // After the wrap, because the gap belongs in the row the character
@@ -1268,6 +1282,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[cold]
     #[inline(never)]
     fn widen(&mut self, r: Row, o: Col) {
+        self.refresh_fence();
         let x = o.index();
         if x + 1 != self.cx.col().index()
             || self
@@ -1281,14 +1296,14 @@ impl<'a, 'b> Paint<'a, 'b> {
         let cell = self.view.get(r, o);
         let tail = PackedCell::wide_tail(cell.style, cell.flags.without_cluster());
         let blank = PackedCell::empty_with(self.style);
-        if o < self.cold.right {
+        if o < self.cold.fence {
             self.view.put_glyph(r, o, cell, Some(tail), blank);
             self.cells = self.cells.plus(1);
             self.overwrote(Col::at_index(x + 1), Col::at_index(x + 2));
             self.advance(Count::ONE);
             // The new tail, which a pinned cursor stops short of.
             self.row_written = self.row_written.max(Col::at_index(x + 2));
-        } else if o == self.cold.right && self.cold.right > self.cold.left {
+        } else if o == self.cold.fence && self.cold.fence > self.cold.left {
             self.view.put_glyph(r, o, blank, None, blank);
             self.wrap();
             let start = self.cx.raw();
@@ -1366,7 +1381,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// value, past every column, has none either.
     #[inline(always)]
     pub(crate) fn room(&self) -> Count {
-        Count::of((self.cold.right.index() + 1).saturating_sub(self.cx.raw().index()))
+        Count::of((self.cold.fence.index() + 1).saturating_sub(self.cx.raw().index()))
     }
 
     /// Move the cursor anywhere on the screen.
@@ -1421,16 +1436,22 @@ impl<'a, 'b> Paint<'a, 'b> {
 
     /// Which state the cursor is in, under the margins in force.
     pub(crate) fn cursor_at(&self) -> CursorAt {
-        self.cx.at(self.cold.right, self.cols)
+        self.cx.at(self.line_fence(), self.cols)
     }
 
     /// Erase within the cursor's row. 0 to the end, 1 from the start, 2 all.
+    ///
+    /// **To the line's end**, which on a line not single-width is its half:
+    /// `x <= end_of_line(line)` (`[[source: dec-std-070]]` EL, p. 5-155).
+    /// So the rendition stays, as EL's note 1 has it: a fill short of the
+    /// row's end keeps the mark's flags, and on a single-width line there
+    /// is no rendition to keep.
     pub(crate) fn erase_line(&mut self, e: EraseExtent) {
-        let (cy, cols) = (self.cy, self.cols);
+        let (cy, end) = (self.cy, self.line_cols());
         let (a, b) = match e {
             EraseExtent::ToStart => (Col::ZERO, Col::at_index(self.cx.col().index() + 1)),
-            EraseExtent::All => (Col::ZERO, Col::at_index(cols.index())),
-            EraseExtent::ToEnd => (self.cx.col(), Col::at_index(cols.index())),
+            EraseExtent::All => (Col::ZERO, Col::at_index(end.index())),
+            EraseExtent::ToEnd => (self.cx.col(), Col::at_index(end.index())),
         };
         // To its end, the line is being cleared: what it held past a
         // narrower edge goes first (`Paint::clear_erased_past_edge`).
@@ -1468,7 +1489,35 @@ impl<'a, 'b> Paint<'a, 'b> {
         match e {
             EraseExtent::All if self.images.any_placed() => self.kitty_clear(),
             EraseExtent::All => {}
-            e => self.erase_line(e),
+            e => {
+                self.erase_line(e);
+                if self.line_fence() != self.cold.right {
+                    self.erased_line_whole(e);
+                }
+            }
+        }
+    }
+
+    /// ED on a sized cursor line: "The Line Renditions of all lines
+    /// completely erased ... are set to single-width" (ED note 1,
+    /// `[[source: dec-std-070]]` p. 5-156) -- the rows ED covers whole are
+    /// filled to the row's end, which leaves them single-width, and the
+    /// cursor's line is erased whole by ED 0 from its first column and by
+    /// ED 1 through its last (pp. 5-157 and 5-158, `if (active_position.
+    /// column == 1)` and `== end_of_line(line)`; a product that did not
+    /// reset it for ED 1 was granted a waiver, p. C-40).
+    #[cold]
+    #[inline(never)]
+    fn erased_line_whole(&mut self, e: EraseExtent) {
+        let whole = match e {
+            EraseExtent::ToEnd => self.cx.col() == Col::ZERO,
+            EraseExtent::ToStart => self.cx.col() >= self.line_fence(),
+            EraseExtent::All => true,
+        };
+        if whole {
+            self.view.set_rendition(self.cy, LineRendition::Single);
+            self.row_changed_to(self.cy);
+            self.cold.fence = self.cold.right;
         }
     }
 
@@ -1522,7 +1571,8 @@ impl<'a, 'b> Paint<'a, 'b> {
         // the **left** margin -- `[[source: vt510-decslrm]]` makes the region
         // a rectangle, so text confined to it stays confined across the wrap.
         if !self.cold.modes.is_set(ModeBit::AutoWrap) {
-            self.cx = CursorCol::written(self.cold.right);
+            self.refresh_fence();
+            self.cx = CursorCol::written(self.cold.fence);
             return;
         }
         self.cx = CursorCol::moved(self.cold.left);
@@ -1578,7 +1628,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// and re-read through [`Paint::row_changed_to`].
     pub(crate) fn set_row(&mut self, r: Row) {
         self.cy = r;
-        self.row_changed_to(r);
+        self.enter_row(r, Arrival::Moved);
     }
 
     /// The cursor now sits on `r`, whose contents an operation has just
@@ -1588,7 +1638,176 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// real extent is what keeps a wide character from being split in half by
     /// the next write.
     pub(crate) fn row_changed_to(&mut self, r: Row) {
-        self.row_written = Col::at_index(self.view.extent(r).index());
+        self.enter_row(r, Arrival::InPlace);
+    }
+
+    /// The cursor is on row `r`, by a move or with the row changed under it:
+    /// read how far it is written, and **its line's rendition from the same
+    /// word**: one test of a flag in a value already loaded, and a sized
+    /// line out of line ([`Paint::enter_sized`]).
+    ///
+    /// **Arriving on a single-width line writes nothing**, not even the
+    /// fence back to the right margin: the fence a sized line left is too
+    /// low, which only ever sends the fit test out of line early, and the
+    /// cold paths it reaches read the line's own ([`Paint::refresh_fence`],
+    /// [`Paint::line_fence`]). A store here, and in the scroll's blank,
+    /// was 0.3-0.6% more instructions retired on `cat`, `btop`, `vim` and
+    /// `less` (the record, "Double-width and double-height lines").
+    #[inline(always)]
+    fn enter_row(&mut self, r: Row, how: Arrival) {
+        let e = self.view.extent(r);
+        self.row_written = Col::at_index(e.index());
+        if e.rendition().is_double() {
+            self.enter_sized(e.rendition(), how);
+        }
+    }
+
+    /// **The fence of the cursor's line**, for a reader that must not see
+    /// one a sized line left behind: `right` while they agree, which is
+    /// every single-width line the cursor reached from another, and the
+    /// line's own otherwise, read from its mark.
+    #[inline(always)]
+    pub(crate) fn line_fence(&self) -> Col {
+        match self.cold.fence == self.cold.right {
+            true => self.cold.right,
+            false => self.fence_of_line(),
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn fence_of_line(&self) -> Col {
+        fence_of(self.view.rendition(self.cy), self.cold.right, self.cols)
+    }
+
+    /// The fence set to the cursor's line's, for the cold paths a fit test
+    /// sends a write to: it may have read one a sized line left, too low.
+    #[inline(always)]
+    pub(crate) fn refresh_fence(&mut self) {
+        if self.cold.fence != self.cold.right {
+            self.cold.fence = self.fence_of_line();
+        }
+    }
+
+    /// The fence for a line of rendition `r`, and on a line not single-width
+    /// the cursor inside its half: every move onto one ends with
+    /// `if (column > end_of_line(line)) column = end_of_line(line)`
+    /// (`[[source: dec-std-070]]` CUU, CUD, CUP, IND, RI, LF, pp. 5-41 to
+    /// 5-60). A move can land past the half; the sentinel a write left one
+    /// past it is kept where the line changed under the cursor in place,
+    /// and a move ends it, as a move resets the Last Column Flag (D.6.1,
+    /// pp. D-13 and D-14).
+    #[cold]
+    #[inline(never)]
+    fn enter_sized(&mut self, r: LineRendition, how: Arrival) {
+        self.cold.fence = fence_of(r, self.cold.right, self.cols);
+        if !r.is_double() {
+            return;
+        }
+        let last = match how {
+            Arrival::Moved => self.cold.fence.index(),
+            Arrival::InPlace => self.cold.fence.index() + 1,
+        };
+        if self.cx.raw().index() > last {
+            self.set_col(CursorCol::moved(self.cold.fence));
+        }
+    }
+
+    /// **The width of the cursor's line**, one past its last column: the
+    /// screen's on a single-width line and the half on any other. `right`
+    /// less the fence is zero on a single-width line and the hidden half on
+    /// a sized one, where `right` is the screen's last column.
+    #[inline(always)]
+    pub(crate) fn line_cols(&self) -> Cols {
+        Cols::of_index(self.cols.index() - (self.cold.right.index() - self.line_fence().index()))
+    }
+
+    /// A horizontal move's column, kept on the cursor's line: past a
+    /// double line's last column it lands there, as `CUF`, `HPR`, `CHA` and
+    /// `HPA` stop (`[[source: dec-std-070]]` p. 5-46, "character positions
+    /// cannot be addressed which are more than half the current value of the
+    /// right edge of the display", p. 5-95). Everything else is `c`.
+    /// One compare inline: a column at or inside the fence is on the line
+    /// whichever line it is, and only one past it asks the line's own.
+    #[inline(always)]
+    pub(crate) fn on_line(&self, c: CursorCol) -> CursorCol {
+        match c.raw() > self.cold.fence {
+            false => c,
+            true => self.past_the_fence(c),
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn past_the_fence(&self, c: CursorCol) -> CursorCol {
+        let f = self.line_fence();
+        match f != self.cold.right && c.raw() > f {
+            true => CursorCol::moved(f),
+            false => c,
+        }
+    }
+
+    /// `ESC # 3`, `# 4`, `# 5` and `# 6`: DECDHLT, DECDHLB, DECSWL and
+    /// DECDWL, the cursor's line made `to` (`[[source: dec-std-070]]` §
+    /// 5.6.1, pp. 5-95 to 5-100; `[[source: vt100-ug-ch3]]`;
+    /// `[[source: vt510-decdhl]]`, `[[source: vt510-decdwl]]`,
+    /// `[[source: vt510-decswl]]`).
+    ///
+    /// **Any rendition but single-width empties the line past its half and
+    /// pulls the cursor back into it**: "data which is beyond the end of the
+    /// Active Line after execution of the control [is] lost", the algorithm
+    /// setting each cell past `end_of_line` to `EMPTY_CHARACTER`, and the
+    /// column clamped to `end_of_line` (pp. 5-97 to 5-100) -- so DECSWL,
+    /// which loses nothing (p. 5-96), brings nothing back. xterm's
+    /// `repaint_line` keeps the cells (`[[source: xterm-doublechr]]`), and
+    /// vttest's "Bug L" calls the loss a misfeature: practice departing from
+    /// the text, and the text is followed. DECDHLB's algorithm assigns
+    /// `DOUBLE_HEIGHT_TOP`; its description and purpose say the bottom half,
+    /// and the bottom half is set.
+    ///
+    /// **Not under `DECLRMM`**: DECDWL note 3 and DECDHL note 4, "This
+    /// control does not operate when DECLRMM (Left Right Margin Mode) is
+    /// set", and xterm's `repaint_line` tests the same mode. DECSWL still
+    /// does, on a line that is single-width already.
+    ///
+    /// A wrap pending before the control is ended on the column it was
+    /// pending on, the old line's last column, because DECSWL leaves the
+    /// active position where it is (p. 5-96) and DECDWL and DECDHL clamp it
+    /// to their end of line.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn line_rendition(&mut self, to: LineRendition) {
+        if to.is_double() && self.cold.modes.is_set(ModeBit::SideMargins) {
+            return;
+        }
+        let (cy, cols) = (self.cy, self.cols.index());
+        // Read against the old line's fence: DECSWL widens it, and the
+        // sentinel one past the old half would read as a column after.
+        let pending = matches!(self.cursor_at(), CursorAt::Pending(_));
+        let on = self.cx.reported(self.line_fence(), self.cols);
+        if to.is_double() {
+            let eol = Col::at_index(to.end_of_line(self.cols).index());
+            let n = self
+                .view
+                .fill(cy, eol, Col::at_index(cols), PackedCell::EMPTY);
+            self.cells = self.cells.plus(n);
+            self.overwrote(eol, Col::at_index(cols));
+        }
+        self.view.set_rendition(cy, to);
+        self.row_changed_to(cy);
+        self.cold.fence = fence_of(to, self.cold.right, self.cols);
+        // **And none of the four leaves a wrap pending**: D.6.1 (pp. D-13
+        // and D-14) lists SINGLE_WIDTH_LINE, DOUBLE_WIDTH_LINE and both
+        // DOUBLE_HEIGHT_LINE controls among those that reset the Last
+        // Column Flag, so the cursor is on the column the wrap was pending
+        // on, and a double line's clamp below pulls it into the half.
+        if pending {
+            self.set_col(CursorCol::moved(on));
+        }
+        if to.is_double() && self.cx.raw() > self.cold.fence {
+            self.set_col(CursorCol::moved(self.cold.fence));
+        }
+        self.wrote_rows(cy, cy);
     }
 
     /// A write on the cursor's row over columns `[start, end)`: an image
@@ -1739,6 +1958,25 @@ impl<'a, 'b> Paint<'a, 'b> {
         let n = self.view.extent(Row::from_index(last));
         self.cells = self.cells.plus(n.index());
         rot
+    }
+}
+
+/// How the cursor came to be on a row ([`Paint::enter_row`]): a move put it
+/// there, or the row changed under it in place.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Arrival {
+    Moved,
+    InPlace,
+}
+
+/// The write path's fence on a line of rendition `r` under right margin
+/// `right` on a screen `cols` wide: `right` on a single-width line, and the
+/// last column of the half on any other, where `right` is the screen's last
+/// column because a line is sized only with `DECLRMM` reset.
+pub(crate) fn fence_of(r: LineRendition, right: Col, cols: Cols) -> Col {
+    match r.is_double() {
+        false => right,
+        true => Col::at_index(r.end_of_line(cols).index() - 1).min(right),
     }
 }
 

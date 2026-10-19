@@ -694,6 +694,17 @@ pub struct Cold {
     /// margin per character.
     pub(crate) left: Col,
     pub(crate) right: Col,
+    /// **The last column the cursor's line writes to**: `right`, or on a
+    /// line that is not single-width the last of its half
+    /// (`LineRendition::end_of_line`, `[[source: dec-std-070]]` p. 5-209).
+    /// What the write path's fit test, the wrap and the pin read where they
+    /// read `right` before, so the per-character path compares against one
+    /// field as it did and a double-width line costs it nothing. Equal to
+    /// `right` on every single-width line -- a line is sized only with
+    /// `DECLRMM` reset, where `right` is the last column (p. 5-29) -- and
+    /// set where the cursor arrives on a line or its line changes size
+    /// (`Paint::enter_row`).
+    pub(crate) fence: Col,
     /// `S7C1T` / `S8C1T`. How wide a `CSI` this core *writes*.
     ///
     /// Reading is a different question and is settled by `encoding`: an
@@ -954,9 +965,14 @@ pub struct Cold {
 // by EPA and by every move of rows while it is open -- **on the per-byte
 // path**, one compare in `Paint::index`'s alternate-screen scroll beside
 // the image test there; the guard byte is read once an ED, EL or ECH.
+// The write path's fence took it to 672: a `Col`, the last column the
+// cursor's line writes to, `right` on every single-width line. **Read on the
+// write path where `right` was read** -- the fit test, the wrap, the pin --
+// so a character compares against one field of `Cold` as it did, at another
+// offset; written where the cursor reaches a line or its line changes size.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 664);
+const _: () = assert!(core::mem::size_of::<Cold>() == 672);
 
 /// **Where an open SPA starts**: `[[source: ecma48]]` 6.5.2.2, "The
 /// character position which is the active presentation position after
@@ -1139,6 +1155,7 @@ impl Cold {
             encoding: InputEncoding::Utf8,
             left: Col::ZERO,
             right: Col::at_index(cols.index() - 1),
+            fence: Col::at_index(cols.index() - 1),
             ambiguous: AmbiguousWidth::Narrow,
             sixel_claim: SixelClaim::No,
             cursor_style: CursorStyle::BlinkingBlock,
@@ -1539,6 +1556,27 @@ impl<'b> Term<'b> {
         let ring = ring.index();
         let p = y.index() + rot.index();
         used[if p >= ring { p - ring } else { p }]
+    }
+
+    /// The fence of the cursor's line, as `Paint::line_fence` reads it: the
+    /// stored one can be a sized line's the cursor has left.
+    pub(crate) fn line_fence(&self) -> Col {
+        match self.cold.fence == self.cold.right {
+            true => self.cold.right,
+            false => crate::paint::fence_of(
+                self.row_extent(self.cy).rendition(),
+                self.cold.right,
+                self.cols,
+            ),
+        }
+    }
+
+    /// Screen row `y`'s line rendition (`ESC # 3`, `# 4`, `# 5`, `# 6`):
+    /// single-width, or drawn two columns a character and, for the two
+    /// double-height renditions, the top or the bottom half of each.
+    /// `None` past the last row, as [`Term::row`] answers.
+    pub fn line_rendition(&self, y: Row) -> Option<LineRendition> {
+        (y.index() < self.rows.index()).then(|| self.row_extent(y).rendition())
     }
 
     /// The live surface: its cells, its marks, its ring and its rotation, by
@@ -2132,6 +2170,14 @@ impl<'b> Term<'b> {
         self.cold.bot = Row::from_index(rows.index().saturating_sub(1));
         self.cold.left = Col::ZERO;
         self.cold.right = Col::at_index(cols.index().saturating_sub(1));
+        // The cursor's line keeps its rendition through the resize, so its
+        // half is taken at the new width and the cursor kept inside it.
+        let r = self.row_extent(self.cy).rendition();
+        self.cold.fence = crate::paint::fence_of(r, self.cold.right, self.cols);
+        if self.cx.raw() > self.cold.fence && r.is_double() {
+            self.cx = CursorCol::moved(self.cold.fence);
+            self.cold.pinned = Pinned::Before;
+        }
         // **An image whose row the resize took away goes with it**: a row
         // past what the primary's ring now retains, or past the bottom of a
         // shorter alternate screen, which keeps nothing below it.
@@ -3108,7 +3154,7 @@ impl<'b> Term<'b> {
         // application counting columns then disagrees with. **Only the
         // sentinel is clamped**: a cursor a move placed one past the margin,
         // or right of the fence, is on its own column ([`CursorCol::reported`]).
-        (self.cy, self.cx.reported(self.cold.right, self.cols))
+        (self.cy, self.cx.reported(self.line_fence(), self.cols))
     }
 
     /// **Whether the next graphic character wraps before it is written**:
@@ -3123,7 +3169,10 @@ impl<'b> Term<'b> {
     /// margin, and any column right of the fence, answer `No`, as a
     /// terminal with a flag answers, because a write from there writes on.
     pub fn wrap_pending(&self) -> WrapPending {
-        let pending = matches!(self.cx.at(self.cold.right, self.cols), CursorAt::Pending(_));
+        let pending = matches!(
+            self.cx.at(self.line_fence(), self.cols),
+            CursorAt::Pending(_)
+        );
         match pending && self.cold.modes.is_set(ModeBit::AutoWrap) {
             true => WrapPending::Yes,
             false => WrapPending::No,

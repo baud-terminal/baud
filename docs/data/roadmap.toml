@@ -347,9 +347,10 @@ summary = "Programs can copy, fill and erase rectangles of the screen, as on a V
 [[item]]
 id = "F1-63"
 area = "text"
-status = "planned"
+status = "done"
+date = "2026-10-19"
 title = "Double-height and double-width lines"
-summary = "Banner lines drawn twice as tall or twice as wide, as vttest and some programs use."
+summary = "Banner lines drawn twice as wide, or twice as wide and twice as tall over two lines, as vttest and DEC-era programs draw them."
 
 [[item]]
 id = "F1-64"

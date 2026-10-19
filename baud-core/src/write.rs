@@ -1728,6 +1728,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // notes 1 and 2 (pp. 5-41, 5-43), in `Paint::up_in_margins`.
         DomCsi::CursorUp(c) => p.set_row(p.up_in_margins(c)),
         DomCsi::CursorDown(c) => p.set_row(p.down_in_margins(c)),
+        // On a double line it stops at the half (`Paint::forward_in_margins`).
         DomCsi::CursorForward(c) => p.set_col(p.forward_in_margins(c)),
         DomCsi::CursorBack(c) => p.set_col(p.back_in_margins(c)),
         // **`CNL` and `CPL` start the line they land on as `CR` would**:
@@ -1750,7 +1751,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // **Absolute, and clamped into the margins under DECOM**: option
         // (a') of the record's "DECOM's origin is the left margin too", which
         // no text settles against xterm's (b), counted from the left margin.
-        DomCsi::ColumnAbsolute(c) => p.set_col(p.place(p.confine_col(c.to_col(p.cols)))),
+        DomCsi::ColumnAbsolute(c) => p.set_col(p.on_line(p.place(p.confine_col(c.to_col(p.cols))))),
         DomCsi::LineAbsolute(r) => {
             let base = p.origin_row().index();
             let want = Row::from_index(base + r.to_row(p.rows).index());
@@ -1762,7 +1763,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // 68-90) and ghostty's pass the right margin too. Under DECOM it is
         // confined as every move is.
         DomCsi::ColumnRelative(c) => {
-            p.set_col(p.place(p.confine_col(p.cx.col().forward(c, p.cols))))
+            p.set_col(p.on_line(p.place(p.confine_col(p.cx.col().forward(c, p.cols)))))
         }
         DomCsi::LineRelative(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
         DomCsi::EraseInLine(e) => p.erase_line(e),
@@ -1843,7 +1844,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
                 // **A cursor placed one past it, or right of the fence,
                 // reports its own column**: only the sentinel waits on a
                 // column it is not on ([`CursorCol::reported`]).
-                let col = p.cx.reported(p.cold.right, p.cols);
+                let col = p.cx.reported(p.line_fence(), p.cols);
                 // **And the column from the left margin under DECOM**:
                 // `active_position.column - left_margin + 1`
                 // (`[[source: dec-std-070]]` CPR, p. 5-54), so a `CUP` and the
@@ -2025,8 +2026,17 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
                 }
             }
             // `ESC # 8` -- DECALN fills the screen with `E`, and it is how
-            // vttest checks alignment.
-            b'#' if b.raw_byte() == b'8' => p.screen_alignment(),
+            // vttest checks alignment. `ESC # 3`, `# 4`, `# 5` and `# 6` are
+            // the line renditions, DECDHLT, DECDHLB, DECSWL and DECDWL
+            // (`Paint::line_rendition`); any other final is counted.
+            b'#' => match b.raw_byte() {
+                b'8' => p.screen_alignment(),
+                b'3' => p.line_rendition(LineRendition::DoubleTop),
+                b'4' => p.line_rendition(LineRendition::DoubleBottom),
+                b'5' => p.line_rendition(LineRendition::Single),
+                b'6' => p.line_rendition(LineRendition::DoubleWidth),
+                _ => p.unsupported_total += 1,
+            },
             // **`S7C1T` and `S8C1T`, `ESC SP F` and `ESC SP G`.**
             // `docs/vt-coverage.md` marked both **done** while this core
             // implemented neither and answered every query seven-bit, and
@@ -2039,11 +2049,10 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
             // cannot be a UTF-8 continuation byte.
             b' ' if b.raw_byte() == b'F' => p.cold.c1 = C1Transmit::SevenBit,
             b' ' if b.raw_byte() == b'G' => p.cold.c1 = C1Transmit::EightBit,
-            // **`ESC SP L/M/N` and `ESC # 3/4/5`, counted rather than
-            // dropped.** The first three are ANSI conformance levels and the
-            // last three double-height and double-width lines -- none
-            // implemented, and all three previously indistinguishable from an
-            // implemented form because the wildcard below did nothing at all.
+            // **`ESC SP L/M/N`, counted rather than dropped.** ANSI
+            // conformance levels -- not implemented, and previously
+            // indistinguishable from an implemented form because the
+            // wildcard below did nothing at all.
             // **`ESC % @` and `ESC % G`, and this arm was the whole gap.**
             // Both tables are built at compile time and `Edge::of` selects
             // between them, so the Latin-1 half of the graph has existed and

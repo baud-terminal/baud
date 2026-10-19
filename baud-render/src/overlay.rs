@@ -72,6 +72,13 @@ pub const MASK_PICTURE: u8 = 2;
 /// `MASK_BARE` in the cell shader, pinned by
 /// `the_bare_mask_bit_matches_the_shader`.
 pub const MASK_BARE: u8 = 16;
+/// `SIZED`: the cell is on a line that is not single-width
+/// (`[[source: dec-std-070]]` § 5.6.1). The records draw the whole line
+/// ([`Renderer::sized_lines`]) and the cell carries `RECORD` too; the
+/// background pass draws the column from the cell under half of it, a
+/// character's background under both its columns, and the decoration pass
+/// draws nothing there. `MASK_SIZED` in the cell shader.
+pub const MASK_SIZED: u8 = 4;
 
 /// What one frame's walk reads: the core for the marks, the view it is
 /// drawing, the resolved rendition table the shader reads, and the cursor.
@@ -130,6 +137,9 @@ pub struct Overlay {
     emitted: Vec<Emitted>,
     /// Where [`Overlay::order`] puts the records while it reorders them.
     staged: Vec<Instance>,
+    /// The lines that are not single-width, as the instance path converts
+    /// them: kept, so a frame reuses the buffers.
+    sized: Vec<(Row, Vec<Instance>)>,
 }
 
 /// One cell the walk drew by records: where it is, its records' places in
@@ -323,6 +333,7 @@ impl Overlay {
             under: Tally::default(),
             emitted: Vec::new(),
             staged: Vec::new(),
+            sized: Vec::new(),
         }
     }
 
@@ -429,6 +440,44 @@ impl Overlay {
         if self.windows.len() > WINDOWS_MAX {
             self.windows.clear();
         }
+        // **The lines that are not single-width**, drawn whole by the records
+        // the instance path converts them to -- glyphs at their doubled size,
+        // decorations and the cursor through the line's geometry -- with
+        // every cell masked and marked sized, so the shader draws their
+        // backgrounds from half the column and nothing else of them.
+        let mut sized = core::mem::take(&mut self.sized);
+        r.sized_lines(term, &view, cursor, &mut sized);
+        let (cell_h, pan) = (
+            i32::try_from(geom.m.cell_h.value()).unwrap_or(0),
+            i32::try_from(geom.pan.value()).unwrap_or(0),
+        );
+        for (row, insts) in &sized {
+            let y = row.index();
+            for b in &mut mask[y * cols..(y + 1) * cols] {
+                *b |= MASK_RECORD | MASK_SIZED;
+            }
+            let top = Screen(
+                i16::try_from(i32::try_from(y).unwrap_or(0) * cell_h + pan).unwrap_or(i16::MAX),
+            );
+            let (inside, above) = (records.len(), self.over.len());
+            for inst in insts {
+                let inst = Instance {
+                    y: Screen(i16::try_from(i32::from(inst.y.0) + pan).unwrap_or(i16::MAX)),
+                    ..*inst
+                };
+                let (a, i) = inst.cut_at(top);
+                self.over.extend(a);
+                records.extend(i);
+            }
+            self.emitted.push(Emitted::of(
+                (*row, Col::ZERO),
+                records,
+                &self.over,
+                inside..records.len(),
+                above..self.over.len(),
+            ));
+        }
+        self.sized = sized;
         // The windows: around each admitted pair, as wide as the face's
         // longest rule, merged where they touch, shaped as one run and
         // cached by content.
@@ -441,6 +490,9 @@ impl Overlay {
         while i < scene.candidates.len() {
             let y = scene.candidates[i].row.index();
             let mut ranges: Vec<(usize, usize)> = Vec::new();
+            // A sized line's records are the instance path's own, its
+            // ligatures among them.
+            let sized_row = view.rendition(Row::from_index(y)).is_double();
             while i < scene.candidates.len() && scene.candidates[i].row.index() == y {
                 let c = scene.candidates[i].col.index();
                 let face = scene.candidates[i].face;
@@ -456,6 +508,9 @@ impl Overlay {
                     Some(last) if lo <= last.1 + 1 => last.1 = last.1.max(hi),
                     _ => ranges.push((lo, hi)),
                 }
+            }
+            if sized_row {
+                continue;
             }
             for (lo, hi) in ranges {
                 self.window(

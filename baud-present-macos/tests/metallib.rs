@@ -383,6 +383,26 @@ fn the_bare_mask_bit_matches_the_shader() {
     assert_eq!(got, baud_render::MASK_BARE, "{line:?}");
 }
 
+/// **The sized-line bit is one fact spelled twice**: the overlay marks a
+/// cell of a line that is not single-width with `baud_render::MASK_SIZED`,
+/// and the cell shader reads the same bit as `MASK_SIZED` to draw the
+/// column from half of it and leave the line's decorations to its records.
+#[test]
+fn the_sized_mask_bit_matches_the_shader() {
+    let src = include_str!("../src/shaders.metal");
+    let prefix = "#define MASK_SIZED ";
+    let line = src
+        .lines()
+        .find(|l| l.starts_with(prefix))
+        .expect("shaders.metal defines MASK_SIZED");
+    let got: u8 = line[prefix.len()..]
+        .trim()
+        .trim_end_matches('u')
+        .parse()
+        .expect("an unsigned literal");
+    assert_eq!(got, baud_render::MASK_SIZED, "{line:?}");
+}
+
 /// **The cell shader skips what the CPU skips**: the stress mark's two
 /// tables in the shader and `baud_render::STRESS_SKIP_INDEX` and
 /// `STRESS_SKIP_BLOCKS` are one set of bytes spelled twice, and a drift

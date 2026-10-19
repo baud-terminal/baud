@@ -1740,6 +1740,13 @@ constant uchar STRESS_SKIP_BLOCKS[4704] = {
 // marks; the shader sees only the cluster's slot. Pinned by
 // `the_bare_mask_bit_matches_the_shader`.
 #define MASK_BARE 16u
+// `baud_render::MASK_SIZED`: the cell is on a line that is not
+// single-width (DEC STD 070 5.6.1), which the records draw whole. The
+// background pass draws column `col` from the cell under `col / 2`, so a
+// character's background covers both its columns, and the decoration pass
+// draws nothing there. Never on the leaving row above the window, which
+// has no mask. Pinned by `the_sized_mask_bit_matches_the_shader`.
+#define MASK_SIZED 4u
 
 // `takes_stress_mark`: whether a cell's word takes `SGR 64`'s mark -- not
 // a blank, not a wide tail (its lead marks both cells), not a codepoint
@@ -1984,8 +1991,11 @@ vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                               constant uint& ground_pass [[buffer(5)]]) {
     uint col = iid % u.grid.x, dr = iid / u.grid.x;
     int lrow = int(dr) - int(u.slide_rows);
-    uint2 cell = cell_at(u, cells, col, dr);
-    bool set = ground_pass != GROUND_EVERY && ground_set(u, styles, cell, col, uint(lrow));
+    // On a sized line the column shows the character under half of it.
+    bool sized = lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & MASK_SIZED) != 0u;
+    uint at = sized ? col / 2u : col;
+    uint2 cell = cell_at(u, cells, at, dr);
+    bool set = ground_pass != GROUND_EVERY && ground_set(u, styles, cell, at, uint(lrow));
     if (ground_pass == GROUND_ONLY_SET && !set) {
         FlatOut none;
         none.pos = float4(2.0, 2.0, 0.0, 1.0);
@@ -1995,7 +2005,7 @@ vertex FlatOut cell_bg_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     // A cell of a picture drawn in text keeps its background solid under
     // the dim, inside `colors()`. Must match `Renderer::convert_row`.
     uint fgw, bgw, curw;
-    colors(u, styles, overlay, cell, col, lrow, fgw, bgw, curw);
+    colors(u, styles, overlay, cell, at, lrow, fgw, bgw, curw);
     float2 c = float2(vid & 1u, vid >> 1u);
     float2 p = float2((float(col) + c.x) * float(u.cell.x),
                       (float(lrow) + c.y) * float(u.cell.y) + float(u.pan));
@@ -2101,6 +2111,8 @@ vertex GOut cell_shape_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     uint which = iid % SHAPE_SLOTS, ci = iid / SHAPE_SLOTS;
     uint col = ci % u.grid.x, dr = ci / u.grid.x;
     int lrow = int(dr) - int(u.slide_rows);
+    // A sized line's decorations and cursor are its records'.
+    if (lrow >= 0 && (overlay[uint(lrow) * u.grid.x + col] & MASK_SIZED) != 0u) return o;
     // The top of this row's cell, shifted down by the smooth-scroll pan.
     float rowy = float(lrow) * float(u.cell.y) + float(u.pan);
     uint2 cell = cell_at(u, cells, col, dr);

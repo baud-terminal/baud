@@ -8523,12 +8523,16 @@ impl Driver {
             Clicks::Repeat
         };
         let (row, col) = self.cell_under(event.x, event.y);
+        // The character under it, half the column on a sized line
+        // (`baud_render::char_col`).
+        let back = self.app.term.window_back();
+        let col = baud_render::char_col(&self.app.term.view(back), row, col);
         // The cell the pointer is over in the *view* -- scrolled back
         // included -- read the way `select` reads it; a wide tail carries
         // its lead's link, so either half resolves.
         let spot = Spot {
             scrolled: self.app.scrolled,
-            back: self.app.term.window_back(),
+            back,
             row,
             col,
         };
@@ -8631,6 +8635,8 @@ impl Driver {
         let scrolled = self.app.scrolled;
         let back = self.app.term.window_back();
         let view = self.app.term.view(back);
+        // The line's own column: half the display's on a sized line.
+        let col = baud_render::char_col(&view, row, col);
         let top = scrolled.top(back);
         let line = scrolled.line(back, row);
         let span_at = |grain: Grain| match grain {

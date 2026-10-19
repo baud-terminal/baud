@@ -53,6 +53,7 @@ Text that lines up, in any script, with fonts that work out of the box.
 
 - **Fonts built in** — JetBrains Mono is built in, with its ligatures and its real bold, italic and bold-italic faces, so text looks right with no setup. <sub>[proof](../../baud-app/src/config.rs)</sub>
 - **Ligatures that keep the grid** — Ligatures such as => and != take exactly the cells of the characters they replace, in every style and in your own fonts. <sub>[proof](../../baud-font/tests/shape.rs)</sub>
+- **Double-width and double-height lines** — Banner lines drawn twice as wide, or twice as wide and twice as tall over two lines, the way vttest and DEC-era programs draw them, with line drawing that joins up and text that stays sharp. <sub>[proof](../../baud-core/tests/line_rendition.rs) · [reference](../vt-coverage.md#esc-sequences)</sub>
 - **Nerd Font icons built in** — The icons prompts, file managers and git tools draw work out of the box, one cell wide. <sub>[proof](../../baud-render/tests/narrow_in_wide.rs)</sub>
 - **Maths and technical symbols** — A built-in maths font draws technical symbols, including the ones Claude Code shows. <sub>[proof](../../baud-app/src/host.rs)</sub>
 - **Hebrew built in** — Hebrew letters and points are drawn from baud's own monospace Hebrew, made to match the built-in font, in regular and bold. <sub>[proof](../../baud-render/tests/hebrew_embedded.rs)</sub>

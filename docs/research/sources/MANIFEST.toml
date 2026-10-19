@@ -158,6 +158,50 @@ bytes  = 19930
 status = "retrieved"
 group  = "C"
 
+# The line renditions, DECDHL, DECDWL and DECSWL, in the VT510's own pages:
+# "If the line was single width and single height, then all characters to the
+# right of the screen center are lost" (DECDHL and DECDWL), and DECSWL "is the
+# standard for all new lines on the screen". Fetched 2026-10-18 for the line
+# renditions (lane b92), with DEC STD 070 pp. 5-95 to 5-100 beside them.
+[sources.vt510-decdhl]
+key    = "vt510-decdhl"
+title  = "DECDHL — Double-Width, Double-Height Line (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECDHL.html"
+file   = "vt510-DECDHL.html"
+sha256 = "009e113be6110d4d753231fc1d270f4b31aaa3f534300d3aec713c2c67495959"
+bytes  = 19925
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-decdwl]
+key    = "vt510-decdwl"
+title  = "DECDWL — Double-Width, Single-Height Line (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECDWL.html"
+file   = "vt510-DECDWL.html"
+sha256 = "1559e0df686d015271854a5bfea9dbf4fd616bbce50041bcb737a56cc43907b8"
+bytes  = 19245
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-decswl]
+key    = "vt510-decswl"
+title  = "DECSWL — Single-Width, Single-Height Line (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECSWL.html"
+file   = "vt510-DECSWL.html"
+sha256 = "5814d0c2d34a6672f1f543011487751bbef63d052957b44d5c70338669f3c25f"
+bytes  = 19189
+status = "retrieved"
+group  = "C"
+
 [sources.vt510-decaln]
 key    = "vt510-decaln"
 title  = "DECALN — Screen Alignment Pattern (VT510 Programmer Information)"
@@ -299,6 +343,14 @@ group  = "C"
 # marking both "0" for the top and bottom margins; host_state_init, "attribute change
 # extent = STREAM" (070-4 p. 15, PDF 219); DECSTR's state table, which does not list it
 # (070-4 p. 31, PDF 235).
+
+# Read 2026-10-18 for the line renditions (lane b92), the copy whose sha256 matches, on
+# the text layer [text]: § 5.4.1's display structure (p. 5-20); DECLRMM, which resets
+# every line and refuses DECDWL and DECDHL (pp. 5-29 and 5-30); DECCOLM (p. 5-72); § 5.6.1
+# and DECSWL, DECDWL, DECDHLT and DECDHLB (pp. 5-95 to 5-100); ED, EL, DECSEL and DECSED
+# (pp. 5-154 to 5-164); insert_or_replace_character, ICH and DCH (pp. 5-139 to 5-145);
+# end_of_line, scroll_up and scroll_down (pp. 5-209 to 5-211); DECALN (pp. D-19 and D-20);
+# and the waiver for ED 1 from a double line's last column (p. C-40).
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -14011,6 +14063,41 @@ status = "retrieved"
 group  = "C"
 # Fetched 2026-10-08 for note AE: the sets the VT510 supports (7.2) and how VT mode
 # selects and maps them (7.3).
+
+[sources.xterm-doublechr]
+key    = "xterm-doublechr"
+title  = "xterm 411, doublechr.c -- repaint_line, xterm_DECDHL, xterm_DECDWL, xterm_DECSWL and xterm_ResetDouble"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/doublechr.c"
+file   = "xterm-doublechr.c"
+sha256 = "b0b62d501ea623e843c714bf8abd9f36b35a05ff2ec180dca5d96a057fdb070a"
+bytes  = 9329
+status = "retrieved"
+group  = "C"
+# Read 2026-10-18 for the line renditions (lane b92), at the commit the other
+# xterm files are pinned to: repaint_line ignores the controls in left-right
+# margin mode, clamps the cursor to width/2 on a double line and clears no
+# cell, so the half past the line comes back on DECSWL.
+
+# vttest's main.c, for the tests the line renditions replay (tests/vttest/):
+# tst_doublesize, "Test of double-sized characters", and the known-bug tests
+# B, E and L, whose prose calls the loss of the right half a "common
+# misfeature". Fetched 2026-10-18 (lane b92) at the snapshot the captures
+# were built from; the tarball's main.c is byte for byte this file.
+[sources.vttest-main]
+key    = "vttest-main"
+title  = "vttest 2.7 (20251205), main.c -- tst_doublesize, tst_insdel, bug_b, bug_e and bug_l"
+author = "Thomas E. Dickey"
+year   = 2025
+venue  = "vttest-snapshots @ 0229d717 (MIT-style licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/vttest-snapshots/0229d7171a8574a2bf406c6ce14549f65d810e51/main.c"
+file   = "vttest-main.c"
+sha256 = "4bd1d88d41c2cc346ae9ec858f11d87243eafbb829b4a0bf40168c45a364c3c1"
+bytes  = 52752
+status = "retrieved"
+group  = "C"
 
 [sources.xterm-cursor-c]
 key    = "xterm-cursor-c"

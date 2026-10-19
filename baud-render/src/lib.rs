@@ -56,7 +56,7 @@ pub mod ufo;
 mod units;
 
 pub use atlas::{
-    Atlas, AtlasStats, Code, Dirty, Generation, Kind, Replaced, Side, Slot, Tex, TexRect,
+    Atlas, AtlasStats, Code, Dirty, Generation, Kind, Replaced, Side, Slot, Stretch, Tex, TexRect,
     VAR_POINTS_MAX,
 };
 pub use cache::{CacheStats, PLACED_MAX, Placed, RUN_CELLS, RunCache, Shaped};
@@ -75,7 +75,7 @@ pub use flash::{Held, Points, Strength, capped, under_threshold, under_threshold
 pub use instance::{Instance, Screen};
 pub use metrics::{Metrics, PxSize};
 pub use overlay::{
-    Composition, MASK_BARE, MASK_PICTURE, MASK_RECORD, Overlay, OverlayStats, Scene,
+    Composition, MASK_BARE, MASK_PICTURE, MASK_RECORD, MASK_SIZED, Overlay, OverlayStats, Scene,
 };
 pub use picture::{PICTURE_COLOURS, Pictured, Pictures};
 pub use renderer::{
@@ -89,7 +89,8 @@ pub use scrollbar::{
     thumb, track,
 };
 pub use select::{
-    AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span, row_of,
+    AbsLine, Clip, Grain, Highlight, Point, Press, Region, Scrolled, Selection, Span, char_col,
+    row_of,
 };
 pub use stack::{EmojiDefault, FaceIx, FaceRole, FaceStyle, FaceTable, Presentation, Stack};
 pub use stress_data::{STRESS_SKIP_BLOCKS, STRESS_SKIP_INDEX};

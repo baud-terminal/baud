@@ -316,6 +316,9 @@ struct Snapshot {
     /// `DECRQM`'s answers for `?40` and `?95`, which act through `?3` alone
     /// and have no other reading, asked after everything above is read.
     column_gates: Vec<u8>,
+    /// Every row's line rendition: `ESC # 3`, `# 4` and `# 6` size the
+    /// cursor's line, which a grid of cells does not show.
+    renditions: Vec<LineRendition>,
 }
 
 /// A prepared terminal: one palette entry set, text on two rows, and the
@@ -402,6 +405,9 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         c1: t.c1_transmit(),
         asked: t.requested_width(),
         column_refusals: t.column_mode_refusals(),
+        renditions: (0..t.geometry().1.index())
+            .map(|y| t.line_rendition(Row::from_index(y)).expect("a row"))
+            .collect(),
         column_gates: {
             t.clear_reply();
             let ask = b"\x1b[?40$p\x1b[?95$p";
@@ -863,6 +869,8 @@ fn every_spec_esc_intermediate_form_is_handled_or_counted() {
             | (b'%', b'G')
             // Designate ASCII into a slot that already holds it.
             | (b'(' | b')' | b'*' | b'+', b'B')
+            // DECSWL: make single-width a line that already is.
+            | (b'#', b'5')
         )
     };
 

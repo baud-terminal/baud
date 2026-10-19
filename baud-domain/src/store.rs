@@ -173,20 +173,42 @@ impl RowExtent {
     /// and wrapped, rather than ending at a newline. The fact a reflow needs
     /// and the cells do not carry, kept in the mark's top bit because the
     /// mark is the one word per row every write already touches, and a
-    /// pitch is never past 32,767 cells. A fill to the row's end clears it
-    /// -- a blanked row ends where it stops -- and a newline clears it on
-    /// the row it leaves.
+    /// pitch is never past [`RowExtent::MAX_MARK`] cells. A fill to the
+    /// row's end clears it -- a blanked row ends where it stops -- and a
+    /// newline clears it on the row it leaves.
     const WRAP: u16 = 0x8000;
-    const MARK: u16 = 0x7fff;
+    /// **The row's line rendition** ([`LineRendition`]), in the two bits
+    /// under the wrap: `[[source: dec-std-070]]` § 5.6.1 gives every line
+    /// one of four, and they belong to the row the way the wrap does --
+    /// every move of a row moves its mark, so a scroll, `IL`, `DL`, the
+    /// region repair, the ring and the alternate surface carry them with no
+    /// code of their own. A fill to the row's end builds a fresh mark and
+    /// so leaves the row single-width, which is what 5-210 and 5-211 give
+    /// the line a scroll brings in and ED's note 1 a line it erases whole
+    /// (p. 5-156).
+    ///
+    /// **Set only through [`RowExtent::with_rendition`], which raises the
+    /// mark to the live width**, the shape [`RowExtent::wrapping`] gives the
+    /// wrap: a flagged word is larger than any column, so `reached`'s bare
+    /// `max` keeps it whole and never needs to raise it -- true while the
+    /// mark is at least the width, and every write on the row stops before
+    /// it. Too large is the safe direction for a mark.
+    const SIZE: u16 = 0x6000;
+    const SIZE_SHIFT: u32 = 13;
+    const MARK: u16 = 0x1fff;
+    /// The widest mark a row can carry: a pitch past it would not fit
+    /// beside the wrap and the rendition, and `Storage::new` refuses one.
+    pub const MAX_MARK: usize = Self::MARK as usize;
     /// The mark after a write that reached column `to` (exclusive).
     ///
-    /// **One `max`, and the wrap survives it without being looked at.** A
-    /// wrapped row's mark is at least the width it wrapped at -- `wrapping`
-    /// raises it there -- and a write reaches no further than the width, so
-    /// the flagged word is the larger operand and comes through whole. This
-    /// runs once a character on the per-character path, and the masked
-    /// form measured 3% on cat-cjk; the cold paths that must see past the
-    /// flag mask for themselves.
+    /// **One `max`, and the wrap and the rendition survive it without being
+    /// looked at.** A wrapped row's mark is at least the width it wrapped
+    /// at -- `wrapping` raises it there -- and a sized row's at least the
+    /// width it was sized at, and a write reaches no further than the
+    /// width, so the flagged word is the larger operand and comes through
+    /// whole. This runs once a character on the per-character path, and
+    /// the masked form measured 3% on cat-cjk; the cold paths that must see
+    /// past the flags mask for themselves.
     ///
     /// Saturating rather than wrapping: a caller that somehow presents a column
     /// past `u16` must end up with a mark that is too *large*, never one that
@@ -216,14 +238,96 @@ impl RowExtent {
     pub fn wrapping(self, cols: usize) -> RowExtent {
         RowExtent(self.reached(cols).0 | Self::WRAP)
     }
+    /// The mark with the wrap cleared and the rendition kept: a newline
+    /// ends the line, it does not change its size. `& !WRAP` is the
+    /// immediate the mask before the rendition was, `0x7fff`.
     pub fn ended(self) -> RowExtent {
-        RowExtent(self.0 & Self::MARK)
+        RowExtent(self.0 & !Self::WRAP)
     }
-    /// The mark raised to at least `n`, the wrap kept: the cold path's form
-    /// of `reached`, for a raise that may exceed a flagged mark.
+    /// The mark raised to at least `n`, the wrap and the rendition kept:
+    /// the cold path's form of `reached`, for a raise that may exceed a
+    /// flagged mark.
     pub fn raised_to(self, n: usize) -> RowExtent {
         let n = u16::try_from(n).unwrap_or(Self::MARK).min(Self::MARK);
-        RowExtent((self.0 & Self::WRAP) | (self.0 & Self::MARK).max(n))
+        RowExtent((self.0 & (Self::WRAP | Self::SIZE)) | (self.0 & Self::MARK).max(n))
+    }
+    /// Whether the word carries a flag above its mark, the wrap or a
+    /// rendition other than single-width: a mark `reached` cannot raise,
+    /// which a growth past the width it was flagged at has to.
+    pub fn flagged(self) -> bool {
+        self.0 & (Self::WRAP | Self::SIZE) != 0
+    }
+    /// The row's line rendition.
+    pub fn rendition(self) -> LineRendition {
+        LineRendition::from_bits((self.0 & Self::SIZE) >> Self::SIZE_SHIFT)
+    }
+    /// The word with rendition `r`, and with any rendition but single-width
+    /// the mark raised to `cols`, the live width: the one way a rendition
+    /// gets into a mark (see [`RowExtent::SIZE`]). Single-width clears the
+    /// bits and keeps the mark, which is already true of the row.
+    pub fn with_rendition(self, r: LineRendition, cols: Cols) -> RowExtent {
+        let bare = RowExtent(self.0 & !Self::SIZE);
+        match r {
+            LineRendition::Single => bare,
+            _ => RowExtent(bare.raised_to(cols.index()).0 | (r.bits() << Self::SIZE_SHIFT)),
+        }
+    }
+}
+
+/// **A line's rendition**, `[[source: dec-std-070]]` § 5.6.1 (p. 5-95): "A
+/// conforming device shall support the following line renditions:
+/// single-height, single-width; single-height, double-width; double-height,
+/// double-width top; double-height, double-width bottom", one a line and
+/// "mutually exclusive". `ESC # 5`, `ESC # 6`, `ESC # 3` and `ESC # 4` set
+/// them (DECSWL, DECDWL, DECDHLT, DECDHLB, pp. 5-96 to 5-100).
+///
+/// Every rendition but single-width "doubles the character cell width
+/// within the line, but does not affect the addressing of characters in the
+/// line": the line holds half the columns, and column 5 is still column 5.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[repr(u8)]
+pub enum LineRendition {
+    #[default]
+    Single = 0,
+    DoubleWidth = 1,
+    DoubleTop = 2,
+    DoubleBottom = 3,
+}
+
+impl LineRendition {
+    fn from_bits(b: u16) -> LineRendition {
+        match b & 3 {
+            0 => LineRendition::Single,
+            1 => LineRendition::DoubleWidth,
+            2 => LineRendition::DoubleTop,
+            _ => LineRendition::DoubleBottom,
+        }
+    }
+    /// The two bits the row's mark carries it in, below their shift.
+    fn bits(self) -> u16 {
+        match self {
+            LineRendition::Single => 0,
+            LineRendition::DoubleWidth => 1,
+            LineRendition::DoubleTop => 2,
+            LineRendition::DoubleBottom => 3,
+        }
+    }
+    /// Whether characters on the line take two columns of the display:
+    /// every rendition but single-width.
+    pub fn is_double(self) -> bool {
+        self != LineRendition::Single
+    }
+    /// The line's `end_of_line`, as a count of columns, on a screen `cols`
+    /// wide: `[[source: dec-std-070]]` § 5.14.1 (p. 5-209) halves the width
+    /// on any line not single-width, `end_line /= 2`, an integer division,
+    /// so on an odd width the last column of the display is in no
+    /// character's field. At least one, so a one-column screen keeps a
+    /// column to write on.
+    pub fn end_of_line(self, cols: Cols) -> Cols {
+        match self {
+            LineRendition::Single => cols,
+            _ => Cols::of_index((cols.index() / 2).max(1)),
+        }
     }
 }
 

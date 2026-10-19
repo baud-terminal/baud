@@ -1,6 +1,6 @@
 //! The frame: rows that changed, converted and painted.
 
-use crate::atlas::{Atlas, AtlasStats, Code, Kind, Tex};
+use crate::atlas::{Atlas, AtlasStats, Code, Kind, Stretch, Tex};
 use crate::cache::{
     CacheStats, CellIx, ClusterMemo, Cover, Key, PLACED_MAX, Placed, Question, RUN_CELLS, RunCache,
     Shaped,
@@ -29,7 +29,8 @@ use baud_core::Term;
 use baud_domain::contrast::CurveRow;
 use baud_domain::{
     Attrs, Chan, ClusterEpoch, ClusterSlot, Codepoint, Col, Cols, CursorStyle, GlyphId, ImageAlpha,
-    ImageDraw, ImageGen, ImageId, ImagePx, ImageStore, KittyId, PackedCell, Row, Rows, ZIndex,
+    ImageDraw, ImageGen, ImageId, ImagePx, ImageStore, KittyId, LineRendition, PackedCell, Row,
+    Rows, Viewport, ZIndex,
 };
 use baud_font::bytes::Count;
 use baud_font::{
@@ -489,6 +490,63 @@ fn solid(x: Screen, y: Screen, w: Px, h: Px, color: Argb) -> Instance {
         color,
         kind: Kind::Solid,
         curve: CurveRow::default(),
+    }
+}
+
+/// **A line's geometry, the one function every drawn thing on it goes
+/// through.** A character on a line of rendition `size` takes a box
+/// `stretch.x()` cells wide and `stretch.y()` tall (`[[source:
+/// dec-std-070]]` § 5.6.1): column `c`'s box starts at `x() * c` cells, and
+/// a double-height line's box starts at its row's top for the top half and
+/// a row above it for the bottom half, each row showing its half of it.
+/// What this returns is the top of that box, in pixels, for a row whose
+/// band begins at `top`.
+fn box_top(size: LineRendition, band: Band) -> i32 {
+    let top = px_i32(band.top);
+    match size {
+        LineRendition::DoubleBottom => top - (px_i32(band.bottom) - top),
+        _ => top,
+    }
+}
+
+/// The part of `inst` inside `band`, or nothing: a double-height line's
+/// row draws only its half of each character's box.
+fn clip_to(inst: Instance, band: Band) -> Option<Instance> {
+    let (top, bottom) = (px_i32(band.top), px_i32(band.bottom));
+    let (_, inside) = inst.cut_at(screen(top));
+    let (above, _) = inside?.cut_at(screen(bottom));
+    above
+}
+
+/// A shape built in a single-width cell's coordinates -- an underline, a
+/// strike, an edge -- moved onto a line of rendition `size`: a solid is
+/// stretched with the character it belongs to, `x` and its width by the
+/// stretch across, and on a double-height line its offset in the cell and
+/// its height by two down, then cut to the row's half; a mask keeps its
+/// texels and only moves to its box.
+fn stretched(inst: Instance, size: LineRendition, band: Band) -> Option<Instance> {
+    let st = Stretch::of(size);
+    let top = px_i32(band.top);
+    let x = i32::from(inst.x.0) * st.x();
+    let off = i32::from(inst.y.0) - top;
+    let y = box_top(size, band) + off * st.y();
+    let moved = match inst.kind {
+        Kind::Solid => Instance {
+            x: screen(x),
+            y: screen(y),
+            w: Tex(inst.w.0.saturating_mul(u16::try_from(st.x()).unwrap_or(1))),
+            h: Tex(inst.h.0.saturating_mul(u16::try_from(st.y()).unwrap_or(1))),
+            ..inst
+        },
+        _ => Instance {
+            x: screen(x),
+            y: screen(y),
+            ..inst
+        },
+    };
+    match st.y() {
+        1 => Some(moved),
+        _ => clip_to(moved, band),
     }
 }
 
@@ -1202,6 +1260,11 @@ pub struct Renderer<'f, 'a> {
     prev: Vec<PackedCell>,
     known: Prev,
     cur: Vec<PackedCell>,
+    /// Each row's line rendition in the frame being converted, and in the
+    /// last: part of a row's damage, since DECDWL on a line whose cells it
+    /// leaves alone, or DECSWL, changes how the row is drawn and no cell.
+    cur_size: Vec<LineRendition>,
+    prev_size: Vec<LineRendition>,
     /// The cells of the frame being converted that belong to a picture
     /// drawn in text, whose backgrounds are drawn solid under the dim --
     /// [`Theme::finds_pictures`]. Found over the whole screen, because a
@@ -1459,6 +1522,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
             prev: Vec::new(),
             known: Prev::Unknown,
             cur: Vec::new(),
+            cur_size: Vec::new(),
+            prev_size: Vec::new(),
             pictures: Pictures::new(),
             styles: Vec::new(),
             styles_stamp: StyleStamp::default(),
@@ -2094,6 +2159,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
     }
 
     /// [`Renderer::cursor_rect`] in whole pixels: left, top, width, height.
+    ///
+    /// **On a line that is not single-width the cursor is its character's
+    /// box's**, through the line's geometry ([`stretched`]): two cells wide,
+    /// and on a double-height line each row's half of a shape twice as tall,
+    /// so an underline cursor shows on the bottom half alone.
     fn cursor_px(&self, row: Row, col: Col, style: CursorStyle) -> (Px, Px, Px, Px) {
         let x = u32::try_from(col.index())
             .unwrap_or(0)
@@ -2108,6 +2178,26 @@ impl<'f, 'a> Renderer<'f, 'a> {
             CursorStyle::BlinkingBar | CursorStyle::SteadyBar => (x, top, line, ch),
             _ => (x, top, cw, ch),
         };
+        let size = self.size_of(row);
+        if size.is_double() {
+            let i = |v: u32| i32::try_from(v).unwrap_or(i32::MAX);
+            let shape = solid(
+                screen(i(left)),
+                screen(i(top)),
+                Px::of(w),
+                Px::of(h),
+                Argb(0),
+            );
+            return match stretched(shape, size, self.band(row)) {
+                Some(s) => (
+                    Px::of(u32::try_from(s.x.0).unwrap_or(0)),
+                    Px::of(u32::try_from(s.y.0).unwrap_or(0)),
+                    Px::of(u32::from(s.w.0)),
+                    Px::of(u32::from(s.h.0)),
+                ),
+                None => (Px::of(left * 2), Px::of(top), Px::of(0), Px::of(0)),
+            };
+        }
         (Px::of(left), Px::of(top), Px::of(w), Px::of(h))
     }
 
@@ -2424,6 +2514,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let cells = cols.index() * rows.index();
         self.prev = vec![PackedCell::EMPTY; cells];
         self.cur = vec![PackedCell::EMPTY; cells];
+        self.prev_size = vec![LineRendition::Single; rows.index()];
+        self.cur_size = vec![LineRendition::Single; rows.index()];
         self.bg = vec![Argb(0); cells];
         self.fg = vec![Argb(0); cells];
         self.curve = vec![CurveRow::default(); cells];
@@ -3017,6 +3109,55 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// [`Renderer::pixel_size`] for a surface: the app once built its
     /// surface for the 80x24 grid the renderer started with, and the layer
     /// stretched those cells over a 200x50 window.
+    /// **The lines of `view` that are not single-width, converted as the
+    /// instance path converts them**, for the path that draws the grid
+    /// itself: each such row and its glyphs and decorations, cursor shapes
+    /// included, in the order the instance path draws them. The cell shader
+    /// draws their backgrounds from the grid, a character's under both its
+    /// columns, and leaves the rest to these (`Overlay::ensure`, which masks
+    /// the rows), so a sized line is drawn by one conversion on every path.
+    /// Nothing is read or converted when every line is single-width.
+    pub fn sized_lines(
+        &mut self,
+        term: &Term<'_>,
+        view: &Viewport<'_>,
+        cursor: Option<(Row, Col, CursorStyle)>,
+        out: &mut Vec<(Row, Vec<Instance>)>,
+    ) {
+        out.clear();
+        let (cols, rows) = (view.cols(), view.rows());
+        if !(0..rows.index()).any(|y| view.rendition(Row::from_index(y)).is_double()) {
+            return;
+        }
+        self.fit(term);
+        let mut styles = core::mem::take(&mut self.styles);
+        if styles.len() != term.styles().len() {
+            styles = vec![Resolved::default(); term.styles().len()];
+            self.styles_stamp = StyleStamp::default();
+        }
+        let mut stamp = self.styles_stamp;
+        let _ = self.sync_styles(term, &mut styles, &mut stamp);
+        (self.styles, self.styles_stamp) = (styles, stamp);
+        if self.theme.finds_pictures() {
+            self.pictures.find(term, view, self.video);
+        } else {
+            self.pictures.clear(cols, rows);
+        }
+        let ncols = cols.index();
+        for y in 0..rows.index() {
+            let r = Row::from_index(y);
+            let size = view.rendition(r);
+            if !size.is_double() {
+                continue;
+            }
+            self.cur[y * ncols..(y + 1) * ncols].copy_from_slice(view.row(r));
+            self.cur_size[y] = size;
+            let mut exc = Exceptions::default();
+            self.convert_row(term, r, cursor, &mut exc);
+            out.push((r, self.per_row[y].clone()));
+        }
+    }
+
     pub fn fit(&mut self, term: &Term<'_>) {
         let (cols, rows) = term.geometry();
         if cols.index() != self.cols.index() || rows.index() != self.rows.index() {
@@ -3066,6 +3207,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let vp = term.view(back);
         for r in 0..rows.index() {
             self.cur[r * ncols..(r + 1) * ncols].copy_from_slice(vp.row(Row::from_index(r)));
+            self.cur_size[r] = vp.rendition(Row::from_index(r));
         }
         // An input method's composition, on the live view: the cells under it
         // converted blank in their own renditions, so their backgrounds stay
@@ -3158,7 +3300,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         }
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
-            let changed = self.cur[range.clone()] != self.prev[range];
+            let changed = self.cur[range.clone()] != self.prev[range]
+                || self.cur_size[r] != self.prev_size[r];
             let cursor_here = cursor_row(cursor) == Some(r);
             let cursor_was = cursor_row(self.last_cursor) == Some(r);
             let cursor_moved = cursor_here != cursor_was
@@ -3266,6 +3409,10 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .iter()
             .fold(Blinking::UNSEEN, |a, &b| a.with(b));
         core::mem::swap(&mut self.prev, &mut self.cur);
+        // Copied, not swapped as the cells are: `cur_size` stays this
+        // frame's after it, for the cursor's box a caller asks for between
+        // frames (`Renderer::cursor_rect`).
+        self.prev_size.clone_from(&self.cur_size);
         self.known = Prev::Known;
         self.last_cursor = cursor;
         self.last_cursor_opacity = opacity;
@@ -4016,6 +4163,21 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let row: Vec<PackedCell> = self.cur[range.clone()].to_vec();
         let mut instances = core::mem::take(&mut self.per_row[r.index()]);
         instances.clear();
+        // **The line's rendition** (`[[source: dec-std-070]]` § 5.6.1): on a
+        // line that is not single-width each character is drawn over two
+        // columns, from the half of the cells it holds -- one more on an odd
+        // width, the column no character's field covers, drawn as the cell
+        // past the line is -- and every shape through the line's geometry.
+        let size = self.size_of(r);
+        let st = Stretch::of(size);
+        let (chars, line_end) = match size.is_double() {
+            true => (
+                row.len().div_ceil(2),
+                size.end_of_line(Cols::of_index(row.len())).index(),
+            ),
+            false => (row.len(), row.len()),
+        };
+        let mut cursor_shapes: Vec<Instance> = Vec::new();
         // Colours first, cell by cell, with the shapes a rendition asks
         // for: an underline, a strike, an underline or bar cursor. A block
         // cursor is the cell's colours swapped. Shapes go on after the
@@ -4033,7 +4195,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .cursor_color_in(self.video)
             .map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)));
         let mut blinks = Blinking::UNSEEN;
-        for (c, cell) in row.iter().enumerate() {
+        for (c, cell) in row.iter().enumerate().take(chars) {
             let col = Col::at_index(c);
             // One load from the resolved table, which `sync_styles` keeps.
             let res = self
@@ -4071,8 +4233,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let (fg, hidden) = (d.fg, d.text == Text::Hidden);
             self.fg[range.start + c] = fg;
             self.curve[range.start + c] = d.curve;
-            self.bg[range.start + c] = d.bg;
             self.text[range.start + c] = d.text;
+            // The background is the screen's, a column at a time: a sized
+            // line's character covers two.
+            let wide = usize::try_from(st.x()).unwrap_or(1);
+            for x in c * wide..(c * wide + wide).min(row.len()) {
+                self.bg[range.start + x] = d.bg;
+            }
             let x = i32::try_from(c).unwrap_or(0) * cell_w;
             // The underline's own colour, or the foreground after the swaps.
             let ul_color = if res.shapes.has(Shapes::UNDERLINE_FOLLOWS_FG) {
@@ -4168,10 +4335,19 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 | CursorStyle::SteadyBar),
             )) = here
             {
+                // Already on the line's geometry (`Renderer::cursor_px`).
                 let (left, y, w, h) = self.cursor_px(r, col, style);
-                shapes.push(solid(screen(px_i32(left)), screen(px_i32(y)), w, h, cur));
+                cursor_shapes.push(solid(screen(px_i32(left)), screen(px_i32(y)), w, h, cur));
             }
         }
+        if size.is_double() {
+            let band = self.band(r);
+            shapes = shapes
+                .into_iter()
+                .filter_map(|s| stretched(s, size, band))
+                .collect();
+        }
+        shapes.extend(cursor_shapes);
         self.row_blinks[r.index()] = blinks;
         // Then runs of cells shaped by one face, in one selection of its
         // lookups. The row's scripts are settled the first time a run is on
@@ -4180,7 +4356,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // every row the embedded faces draw alone.
         let mut settled = false;
         let mut c = 0usize;
-        while c < row.len() {
+        while c < line_end {
             let Some(base) = drawn_base(term, row[c]) else {
                 c += 1;
                 continue;
@@ -4188,7 +4364,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             if crate::boxes::covers(base) {
                 // Box drawing, a block element or braille: baud's own mask
                 // at the cell origin, never shaped, never in a run.
-                if let Some(slot) = self.procedural(base) {
+                if let Some(slot) = self.procedural_at(base, st) {
                     self.emit_at(r, Col::at_index(c), slot, &mut instances);
                 }
                 c = CellSpan::at(&row, Col::at_index(c))
@@ -4238,7 +4414,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             let mut prev_glyph: Option<GlyphId> = None;
             #[cfg(feature = "exceptions")]
             let mut pair_here = Tally::default();
-            while c < row.len() && c - start < RUN_CELLS {
+            while c < line_end && c - start < RUN_CELLS {
                 let cell = row[c];
                 let Some(cp) = drawn_base(term, cell) else {
                     break;
@@ -4654,21 +4830,38 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.atlas.ring(ring, cell, th, self.metrics.baseline)
     }
 
+    /// Row `r`'s line rendition in the frame being converted: what its
+    /// glyphs are drawn at.
+    fn size_of(&self, r: Row) -> LineRendition {
+        self.cur_size
+            .get(r.index())
+            .copied()
+            .unwrap_or(LineRendition::Single)
+    }
+
     /// The atlas mask for a procedural codepoint at this cell size.
     fn procedural(&mut self, cp: Codepoint) -> Option<crate::atlas::Slot> {
+        self.procedural_at(cp, Stretch::One)
+    }
+
+    /// The same for a line drawn at `stretch` ([`Atlas::synthetic_at`]).
+    fn procedural_at(&mut self, cp: Codepoint, stretch: Stretch) -> Option<crate::atlas::Slot> {
         let cell = crate::boxes::Cell {
             w: self.metrics.cell_w,
             h: self.metrics.cell_h,
         };
-        self.atlas.synthetic(cp, cell, self.metrics.baseline)
+        self.atlas
+            .synthetic_at(cp, cell, self.metrics.baseline, stretch)
     }
 
     /// One instance for a slot placed at the origin of cell `col` of row
     /// `r`, in the cell's foreground: the procedural glyphs' emitter.
     fn emit_at(&mut self, r: Row, col: Col, slot: crate::atlas::Slot, out: &mut Vec<Instance>) {
-        let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0);
-        let baseline = i32::try_from(self.metrics.baseline.value()).unwrap_or(0);
-        let top = i32::try_from(self.band(r).top.value()).unwrap_or(0);
+        let size = self.size_of(r);
+        let st = Stretch::of(size);
+        let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0) * st.x();
+        let baseline = i32::try_from(self.metrics.baseline.value()).unwrap_or(0) * st.y();
+        let top = box_top(size, self.band(r));
         let range = self.row_cells(r);
         // A hidden cell draws nothing of its own (`Resolved::text`).
         if self.text.get(range.start + col.index()) == Some(&Text::Hidden) {
@@ -4686,7 +4879,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .unwrap_or_default();
         let x = i32::try_from(col.index()).unwrap_or(0) * cell_w + slot.left;
         let y = top + baseline + slot.top;
-        out.push(Instance {
+        let inst = Instance {
             x: Screen(i16::try_from(x).unwrap_or(i16::MAX)),
             y: Screen(i16::try_from(y).unwrap_or(i16::MAX)),
             w: slot.w,
@@ -4696,7 +4889,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
             color,
             kind: slot.kind,
             curve,
-        });
+        };
+        // A double-height row draws its half of the character's box.
+        let inst = match st.y() {
+            1 => Some(inst),
+            _ => clip_to(inst, self.band(r)),
+        };
+        out.extend(inst);
     }
 
     /// Instances for a shaped run starting at column `start` of row `r`.
@@ -4709,11 +4908,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
         shaped: &Shaped,
         out: &mut Vec<Instance>,
     ) {
+        let size = self.size_of(r);
+        let st = Stretch::of(size);
         let scale = self.scales[face.index()];
         let f = self.stack.face(face);
-        let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0);
-        let baseline = i32::try_from(self.metrics.baseline.value()).unwrap_or(0);
-        let top = i32::try_from(self.band(r).top.value()).unwrap_or(0);
+        let cell_w = i32::try_from(self.metrics.cell_w.value()).unwrap_or(0) * st.x();
+        let baseline = i32::try_from(self.metrics.baseline.value()).unwrap_or(0) * st.y();
+        let band = self.band(r);
+        let top = box_top(size, band);
         let range = self.row_cells(r);
         for p in shaped.glyphs() {
             let col = start.index() + usize::from(p.cell.0);
@@ -4745,14 +4947,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     }),
                 _ => self.metrics.phase,
             };
-            let Some(slot) = self.atlas.slot(f, face, p.id, scale, phase) else {
+            // On a sized line the glyph rasterised at its box's size, its
+            // offsets and its place in the box with it.
+            let phase = match st.x() {
+                1 => phase,
+                _ => phase.doubled(),
+            };
+            let Some(slot) = self.atlas.slot_at(f, face, p.id, scale, phase, st) else {
                 continue;
             };
-            let dx = scale.px(f32::from(p.dx)).round() as i32;
-            let dy = scale.px(f32::from(p.dy)).round() as i32;
+            let dx = scale.px(f32::from(p.dx)).round() as i32 * st.x();
+            let dy = scale.px(f32::from(p.dy)).round() as i32 * st.y();
             let x = i32::try_from(col).unwrap_or(0) * cell_w + dx + slot.left;
             let y = top + baseline - dy + slot.top;
-            out.push(Instance {
+            let inst = Instance {
                 x: Screen(i16::try_from(x).unwrap_or(i16::MAX)),
                 y: Screen(i16::try_from(y).unwrap_or(i16::MAX)),
                 w: slot.w,
@@ -4762,7 +4970,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 color,
                 kind: slot.kind,
                 curve,
-            });
+            };
+            // A double-height row draws its half of the character's box.
+            let inst = match st.y() {
+                1 => Some(inst),
+                _ => clip_to(inst, band),
+            };
+            out.extend(inst);
         }
     }
 }

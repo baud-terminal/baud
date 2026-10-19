@@ -48,9 +48,9 @@ being built now; the rest are planned. Nothing here is a promised date.
 - [ ] **Hebrew in every style** — Italic and bold italic Hebrew with its points, to match the regular and bold already built in. *In progress.*
 - [ ] **Hebrew points in fonts without positioning data** — Points on some Hebrew letters can land one cell to the right in fonts that do not position them. *In progress.*
 - [ ] **Choose fonts by name** — Name a font family and size instead of pointing at a font file. File paths keep working.
-- [ ] **Double-height and double-width lines** — Banner lines drawn twice as tall or twice as wide, as vttest and some programs use.
 - [ ] **Real bold and italic for your own fonts** — When you choose your own font, its bold and italic faces are used instead of the regular one.
 - [ ] **Right-to-left text** — Hebrew and Arabic lines laid out right to left, with the cursor and selection following.
+- [x] **Double-height and double-width lines** — Banner lines drawn twice as wide, or twice as wide and twice as tall over two lines, as vttest and DEC-era programs draw them. (2026-10-19)
 - [x] **Generated text tables are checked against their generators** — A tool that rebuilds the grapheme-cluster table had been writing one wrong byte since August; the shipped table was right. The tool is fixed and the test suite now fails if either generated table drifts from its source. (2026-10-16)
 - [x] **The character-grouping rules can no longer disagree with themselves** — The machine that decides where one on-screen character ends and the next begins kept its state in two forms that could drift apart. They are now two separate types, so neither can be built out of step with the other; the text path runs slightly fewer instructions as a result and draws exactly the same cells. (2026-10-16)
 - [x] **A setting makes East Asian ambiguous characters two columns wide** — Set [text] ambiguous_width = "wide" and characters like ±, α and ① take two columns, as CJK fonts draw them. Nerd Font icons stay one column so prompts stay aligned. Programs can ask for the setting with ?1021. (2026-10-15)

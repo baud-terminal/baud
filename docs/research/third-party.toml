@@ -340,6 +340,12 @@ from    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/bccd46
 how     = "fetched"
 sha256  = "f272fa007de2cffdb22b4df09e9a3aaec3555d5a6913229b70006ee137ab22b5"
 
+[text."vttest-COPYING.txt"]
+licence = "MIT"
+from    = "https://raw.githubusercontent.com/ThomasDickey/vttest-snapshots/0229d7171a8574a2bf406c6ce14549f65d810e51/COPYING"
+how     = "fetched"
+sha256  = "cc6c4b5fc68b6c26c954596e962687f51ded5860a86c88b392d924358afaebc3"
+
 [text."yazi-MIT.txt"]
 licence = "MIT"
 from    = "https://raw.githubusercontent.com/sxyazi/yazi/aa526434f00bb44e2e902d9a4ac5f810da1018b9/LICENSE"
@@ -508,6 +514,8 @@ files   = [
   "vt510-DECCOLM.html",
   "vt510-DECCRA.html",
   "vt510-DECDC.html",
+  "vt510-DECDHL.html",
+  "vt510-DECDWL.html",
   "vt510-DECIC.html",
   "vt510-DECNCSM.html",
   "vt510-DECOM.html",
@@ -523,6 +531,7 @@ files   = [
   "vt510-DECSLRM.html",
   "vt510-DECSTBM.html",
   "vt510-DECSTR.html",
+  "vt510-DECSWL.html",
   "vt510-DL.html",
   "vt510-HPA.html",
   "vt510-HPR.html",
@@ -1217,6 +1226,7 @@ files   = [
   "xterm-charsets.h",
   "xterm-ctlseqs.txt",
   "xterm-cursor.c",
+  "xterm-doublechr.c",
   "xterm-faq.html",
   "xterm-graphics_sixel.c",
   "xterm-main.h",
@@ -1233,6 +1243,15 @@ files   = [
   "xterm-xterm.log.html",
   "xterm-xterm.man",
   "xterm-xtermcap.c",
+]
+
+[upstream.vttest]
+name    = "vttest (Thomas E. Dickey)"
+licence = "MIT"
+notice  = "LICENSES/vttest-COPYING.txt"
+status  = "kept"
+files   = [
+  "vttest-main.c",
 ]
 
 [upstream.xterm-x11r5]

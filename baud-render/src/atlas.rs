@@ -178,10 +178,59 @@ pub struct Slot {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct GlyphIx(u16);
 
+/// How a glyph is drawn for the line it is on: at its size, or for a line
+/// that is not single-width two cells wide, and for either half of a
+/// double-height line two cells tall as well (`[[source: dec-std-070]]` §
+/// 5.6.1). Rasterised from the outline at that size, not scaled from the
+/// single mask: Jev's call of 2026-10-19 at 0.98 in both orders, over
+/// repeating pixels and linear filtering (the record, "Double-width and
+/// double-height lines").
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Stretch {
+    One,
+    Wide,
+    Tall,
+}
+
+impl Stretch {
+    /// The stretch a line of rendition `r` draws its characters at.
+    pub fn of(r: baud_domain::LineRendition) -> Stretch {
+        match r {
+            baud_domain::LineRendition::Single => Stretch::One,
+            baud_domain::LineRendition::DoubleWidth => Stretch::Wide,
+            baud_domain::LineRendition::DoubleTop | baud_domain::LineRendition::DoubleBottom => {
+                Stretch::Tall
+            }
+        }
+    }
+    /// How many times as wide a character is drawn.
+    pub fn x(self) -> i32 {
+        match self {
+            Stretch::One => 1,
+            Stretch::Wide | Stretch::Tall => 2,
+        }
+    }
+    /// How many times as tall.
+    pub fn y(self) -> i32 {
+        match self {
+            Stretch::One | Stretch::Wide => 1,
+            Stretch::Tall => 2,
+        }
+    }
+    fn xf(self) -> f32 {
+        f32::from(i16::try_from(self.x()).unwrap_or(1))
+    }
+    fn yf(self) -> f32 {
+        f32::from(i16::try_from(self.y()).unwrap_or(1))
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct GlyphKey {
     face: FaceIx,
     glyph: GlyphIx,
+    /// The size it is drawn at for its line: one key a stretch.
+    stretch: Stretch,
     /// Where the glyph sits in its span: the grid phase for one cell, or
     /// the cluster's centring in two. One glyph is drawn at each phase it
     /// is asked at -- a one-cell text glyph in a two-cell span, a cluster's
@@ -425,6 +474,9 @@ pub struct Atlas {
     /// by codepoint, drawn once per size the way a font glyph is; a cell
     /// mask is a function of the cell, so `reset` voids it with `map`.
     procedural: HashMap<u32, Option<Slot>>,
+    /// The same for a line not single-width: drawn at the doubled cell,
+    /// by codepoint and stretch, and voided with the rest.
+    procedural_stretched: HashMap<(u32, Stretch), Option<Slot>>,
     scratch: Vec<f32>,
     /// The points of a varied outline ([`outline`]), grown to the largest
     /// need asked so far and kept.
@@ -454,6 +506,7 @@ impl Atlas {
             color_replaced: Replaced::No,
             map: HashMap::new(),
             procedural: HashMap::new(),
+            procedural_stretched: HashMap::new(),
             scratch: Vec::new(),
             var: Vec::new(),
             coverage: Vec::new(),
@@ -554,6 +607,7 @@ impl Atlas {
         let (mask, color) = (self.mask.side, self.color.side);
         self.map.clear();
         self.procedural.clear();
+        self.procedural_stretched.clear();
         self.clear_mask(mask);
         self.clear_color(color);
         self.generation = Generation(self.generation.0.wrapping_add(1));
@@ -626,10 +680,25 @@ impl Atlas {
         scale: Scale,
         phase: Phase,
     ) -> Option<Slot> {
+        self.slot_at(face, ix, id, scale, phase, Stretch::One)
+    }
+
+    /// [`Atlas::slot`] for a line that draws its characters at `stretch`:
+    /// the glyph rasterised at that size, `phase` in its pixels.
+    pub fn slot_at(
+        &mut self,
+        face: &Face<'_>,
+        ix: FaceIx,
+        id: GlyphId,
+        scale: Scale,
+        phase: Phase,
+        stretch: Stretch,
+    ) -> Option<Slot> {
         let glyph = GlyphIx(u16::try_from(id.index()).unwrap_or(u16::MAX));
         let key = GlyphKey {
             face: ix,
             glyph,
+            stretch,
             phase,
         };
         if let Some(known) = self.map.get(&key) {
@@ -637,13 +706,13 @@ impl Atlas {
         }
         let before = self.stats.refused;
         if let Some(s) = self
-            .bitmap(face, id, scale, phase)
-            .or_else(|| self.layered(face, id, scale, phase))
+            .bitmap(face, id, scale, phase, stretch)
+            .or_else(|| self.layered(face, id, scale, phase, stretch))
         {
             self.map.insert(key, Some(s));
             return Some(s);
         }
-        let slot = self.rasterise(face, id, scale, phase);
+        let slot = self.rasterise(face, id, scale, phase, stretch);
         if slot.is_none() && id != GlyphId::NOTDEF && self.stats.refused != before {
             // A glyph that drew nothing after a refusal -- its outline or a
             // `COLR` layer refused by the face ([`Drawn::Refused`]) or past
@@ -664,10 +733,11 @@ impl Atlas {
             // once then; a `.notdef` that does not fit even after growing is
             // not recorded, so neither is this glyph, which every later ask
             // draws and counts again.
-            let notdef = self.slot(face, ix, GlyphId::NOTDEF, scale, phase);
+            let notdef = self.slot_at(face, ix, GlyphId::NOTDEF, scale, phase, stretch);
             let own = GlyphKey {
                 face: ix,
                 glyph: GlyphIx(0),
+                stretch,
                 phase,
             };
             if self.map.contains_key(&own) {
@@ -677,7 +747,7 @@ impl Atlas {
         }
         // An image that would not fit even after growing is not recorded,
         // so a later, larger atlas may take it.
-        if slot.is_some() || self.fits_nothing_anyway(face, id, scale, phase) {
+        if slot.is_some() || self.fits_nothing_anyway(face, id, scale, phase, stretch) {
             self.map.insert(key, slot);
         }
         slot
@@ -690,7 +760,14 @@ impl Atlas {
     /// size and is not followed here -- then mirrored if a
     /// `'flip'` said so, and scaled to fit. A bitmap cannot be drawn at a
     /// fraction of a pixel, so only `phase`'s whole pixels move it.
-    fn bitmap(&mut self, face: &Face<'_>, id: GlyphId, scale: Scale, phase: Phase) -> Option<Slot> {
+    fn bitmap(
+        &mut self,
+        face: &Face<'_>,
+        id: GlyphId,
+        scale: Scale,
+        phase: Phase,
+        stretch: Stretch,
+    ) -> Option<Slot> {
         let strikes = face.strikes();
         if strikes.is_zero() {
             return None;
@@ -745,8 +822,9 @@ impl Atlas {
         }
         let factor = target / f32::from(bitmap.ppem.value());
         let (sw, sh) = (size.width, size.height);
-        let dw = (sw as f32 * factor).round().max(1.0) as i64;
-        let dh = (sh as f32 * factor).round().max(1.0) as i64;
+        let (fx, fy) = (factor * stretch.xf(), factor * stretch.yf());
+        let dw = (sw as f32 * fx).round().max(1.0) as i64;
+        let dh = (sh as f32 * fy).round().max(1.0) as i64;
         let (dw, dh) = (u32::try_from(dw).ok()?, u32::try_from(dh).ok()?);
         if dw > Side::LIMIT.0 || dh > Side::LIMIT.0 {
             return None;
@@ -789,13 +867,12 @@ impl Atlas {
         // origin, `CBDT` bears its top-left; both in the strike's pixels.
         let (left, top) = match bitmap.strike {
             Strike::Sbix => (
-                (f32::from(bitmap.placement.x) * factor).round() as i32,
-                -((f32::from(bitmap.placement.y) * factor).round() as i32)
-                    - i32::try_from(dh).ok()?,
+                (f32::from(bitmap.placement.x) * fx).round() as i32,
+                -((f32::from(bitmap.placement.y) * fy).round() as i32) - i32::try_from(dh).ok()?,
             ),
             Strike::Cbdt => (
-                (f32::from(bitmap.placement.x) * factor).round() as i32,
-                -((f32::from(bitmap.placement.y) * factor).round() as i32),
+                (f32::from(bitmap.placement.x) * fx).round() as i32,
+                -((f32::from(bitmap.placement.y) * fy).round() as i32),
             ),
         };
         self.stats.coloured.bump();
@@ -818,6 +895,7 @@ impl Atlas {
         id: GlyphId,
         scale: Scale,
         phase: Phase,
+        stretch: Stretch,
     ) -> Option<Slot> {
         let layers = face.layers(id)?;
         // The union box of every layer decides the image. A layer refused
@@ -831,7 +909,7 @@ impl Atlas {
                 return None;
             }
         }
-        let fit = Fit::at(&b, scale, phase)?;
+        let fit = Fit::stretched(&b, scale, phase, stretch.xf(), stretch.yf())?;
         let cells = fit.extent.cells()?;
         let need = fit.extent.scratch()?;
         if self.scratch.len() < need {
@@ -925,12 +1003,13 @@ impl Atlas {
         id: GlyphId,
         scale: Scale,
         phase: Phase,
+        stretch: Stretch,
     ) -> bool {
         let mut b = Bounds::new();
         if let Drawn::NeedsScratch(_) | Drawn::Refused = outline(&mut self.var, face, id, &mut b) {
             return true;
         }
-        Fit::at(&b, scale, phase).is_none()
+        Fit::stretched(&b, scale, phase, stretch.xf(), stretch.yf()).is_none()
     }
 
     fn rasterise(
@@ -939,13 +1018,14 @@ impl Atlas {
         id: GlyphId,
         scale: Scale,
         phase: Phase,
+        stretch: Stretch,
     ) -> Option<Slot> {
         let mut b = Bounds::new();
         if let Drawn::NeedsScratch(_) | Drawn::Refused = outline(&mut self.var, face, id, &mut b) {
             self.stats.refused.bump();
             return None;
         }
-        let fit = Fit::at(&b, scale, phase)?;
+        let fit = Fit::stretched(&b, scale, phase, stretch.xf(), stretch.yf())?;
         let cells = fit.extent.cells()?;
         if self.coverage.len() < cells {
             self.coverage.resize(cells, 0);
@@ -1021,6 +1101,60 @@ impl Atlas {
     ) -> Option<Slot> {
         let extent = crate::boxes::draw(cp, cell, &mut self.scratch, &mut self.coverage)?;
         self.place_cell_mask(extent, baseline)
+    }
+
+    /// [`Atlas::synthetic`] for a line drawn at `stretch`: a double-height
+    /// line's mask drawn at the doubled cell, two cells wide and two tall,
+    /// with its baseline doubled, so the two halves cut from it join at the
+    /// row boundary; a double-width line's drawn at the cell and each
+    /// column repeated, which doubles the vertical strokes and keeps the
+    /// horizontal ones, a stroke being whole pixels.
+    pub fn synthetic_at(
+        &mut self,
+        cp: Codepoint,
+        cell: crate::boxes::Cell,
+        baseline: Px,
+        stretch: Stretch,
+    ) -> Option<Slot> {
+        if stretch == Stretch::One {
+            return self.synthetic(cp, cell, baseline);
+        }
+        if let Some(slot) = self.procedural_stretched.get(&(cp.value(), stretch)) {
+            return *slot;
+        }
+        let slot = match stretch {
+            Stretch::Tall => {
+                let big = crate::boxes::Cell {
+                    w: Px::of(cell.w.value() * 2),
+                    h: Px::of(cell.h.value() * 2),
+                };
+                crate::boxes::draw(cp, big, &mut self.scratch, &mut self.coverage)
+                    .and_then(|extent| self.place_cell_mask(extent, Px::of(baseline.value() * 2)))
+            }
+            _ => crate::boxes::draw(cp, cell, &mut self.scratch, &mut self.coverage).and_then(
+                |extent| {
+                    let (w, h) = (slots(extent.w), slots(extent.h));
+                    let mut wide = vec![0u8; 2 * w * h];
+                    for y in 0..h {
+                        for x in 0..w {
+                            let v = self.coverage[y * w + x];
+                            wide[y * 2 * w + 2 * x] = v;
+                            wide[y * 2 * w + 2 * x + 1] = v;
+                        }
+                    }
+                    self.coverage[..2 * w * h].copy_from_slice(&wide);
+                    self.place_cell_mask(
+                        Extent::new(Px::of(extent.w.value() * 2), extent.h),
+                        baseline,
+                    )
+                },
+            ),
+        };
+        if slot.is_some() || !crate::boxes::covers(cp) {
+            self.procedural_stretched
+                .insert((cp.value(), stretch), slot);
+        }
+        slot
     }
 
     /// The mask for one part of an encircled run's outline (`SGR 52`),
