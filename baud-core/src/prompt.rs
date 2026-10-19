@@ -136,7 +136,7 @@ impl Paint<'_, '_> {
             }
             self.book.swept = self.book.top;
         }
-        let blank = PackedCell::empty_with(self.style);
+        let blank = self.blank();
         for k in 0..=d {
             let at = start.advance(k, ring);
             if self.past_edge() {

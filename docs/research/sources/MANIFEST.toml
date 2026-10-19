@@ -460,6 +460,114 @@ bytes  = 19795
 status = "retrieved"
 group  = "C"
 
+# ED, EL and ECH in the VT510's own pages, read 2026-10-19 (lane b97) for the
+# rendition an erase leaves: ED "with all visual character attributes cleared",
+# EL "clears all character attributes from erased character positions", ECH
+# "clears character attributes from erased character positions" [text]. The
+# VT520/VT525 manual (`vt520-rm`, pp. 5-179 and 5-180) prints the same three.
+[sources.vt510-ed]
+key    = "vt510-ed"
+title  = "ED — Erase in Display (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/ED.html"
+file   = "vt510-ED.html"
+sha256 = "1aba42f13b832e2b0d5dd88a7df1011136dd840a499bd28b33398ee9bdd74b0b"
+bytes  = 19792
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-el]
+key    = "vt510-el"
+title  = "EL — Erase in Line (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/EL.html"
+file   = "vt510-EL.html"
+sha256 = "7613de1cba154a391b60bb797bad4bfb43b11bc62b621722473b08db47237100"
+bytes  = 19580
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-ech]
+key    = "vt510-ech"
+title  = "ECH — Erase Character (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/ECH.html"
+file   = "vt510-ECH.html"
+sha256 = "0f0468f834a25488bca9ff80d09405444c14a09ba35e18236d8aa92bd6080792"
+bytes  = 19418
+status = "retrieved"
+group  = "C"
+
+# Read 2026-10-19 (lane b97): "Pch can be any value from 32 to 126 or from 160
+# to 255 ... The decimal value refers to the character in the current GL or GR
+# in-use table", one character a position [text].
+[sources.vt510-decfra]
+key    = "vt510-decfra"
+title  = "DECFRA — Fill Rectangular Area (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECFRA.html"
+file   = "vt510-DECFRA.html"
+sha256 = "fa0ec27c6a36315f4b254baa89842e711e7e42677087b1deb0e5f054966bd6ec"
+bytes  = 20969
+status = "retrieved"
+group  = "C"
+
+# Read 2026-10-19 (lane b97): `erase_cell_range` writes `.bg_src` and `.bg`
+# alone into each erased cell, every other attribute cleared, and memsets a
+# cell when the background is the default [text].
+[sources.foot-erase]
+key    = "foot-erase"
+title  = "foot 1.21.0, terminal.c -- erase_cell_range, the background an erased cell keeps"
+author = "Daniel Eklof"
+year   = 2025
+venue  = "foot terminal emulator"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/terminal.c"
+file   = "foot-terminal.c"
+sha256 = "5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501"
+bytes  = 143121
+status = "retrieved"
+group  = "C"
+
+# Read 2026-10-19 (lane b97), with `ghostty-screen`'s blankCell: an erase in
+# ghostty carries the background colour alone, `bgCell` building a cell from
+# `bg_color` with no other attribute [text].
+[sources.ghostty-style]
+key    = "ghostty-style"
+title  = "ghostty d9840f3, terminal/style.zig -- Style.bgCell, the background an erased cell keeps"
+author = "Mitchell Hashimoto and the Ghostty contributors"
+year   = 2026
+venue  = "Ghostty terminal emulator"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/terminal/style.zig"
+file   = ""
+sha256 = "b26507489473b7b2158adf3e70c9aac2665417e582eb5c3cab5a491e6d2cf5c9"
+bytes  = 44977
+status = "external"
+group  = "F"
+
+# Read 2026-10-19 (lane b97): `GridCell::reset`, `Cell { bg: template.bg,
+# ..Cell::default() }`, the background alone in every erased or scrolled-in
+# cell [text]. The same file as the crate baud-difftest builds against.
+[sources.alacritty-cell]
+key    = "alacritty-cell"
+title  = "alacritty_terminal 0.26.0, src/term/cell.rs -- Cell and GridCell::reset"
+author = "The Alacritty contributors"
+year   = 2025
+venue  = "Alacritty terminal emulator"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/alacritty_terminal_v0.26.0/alacritty_terminal/src/term/cell.rs"
+file   = ""
+sha256 = "b3b0e1495c492cbc7970fdd470ee84d7321ebc00629db49429367eaef6cabdd2"
+bytes  = 9609
+status = "external"
+group  = "F"
+
 [sources.vt510-decsc]
 key    = "vt510-decsc"
 title  = "DECSC — Save Cursor (VT510 Programmer Information)"
@@ -14391,6 +14499,11 @@ group  = "C"
 # and the designator rows (wf-untranslated, wf-check) [text]: no character-set charts,
 # "DEC Cyrillic" in the designator table with no chart to follow, and Greek only in
 # keyboard figures.
+# Re-fetched 2026-10-19 (lane b97), the sha256 matching [text]: DECECM, "Erase Color
+# Mode ... Default: Erase to text background ... Set: erase to screen background (VT)
+# ... Reset: erase to text background (PC)" (p. 5-48); Set-Up 2.9.7, "Text background
+# ... is the factory default" (p. 2-32); ED, EL and ECH clear "all character
+# attributes" (pp. 5-179, 5-180); DECSTR's table 5-6 names no DECECM (p. 5-150).
 
 # No `year`: the scan carries no date on its cover (PDF p. 1), the blank p. 2, the
 # contents (p. 3) or its last two pages (Appendix C, pp. C-1 and C-2), and none is

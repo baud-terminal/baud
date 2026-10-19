@@ -1499,7 +1499,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         };
         // To its end, the line is being cleared: what it held past a
         // narrower edge goes first (`Paint::clear_erased_past_edge`).
-        let blank = PackedCell::empty_with(self.style);
+        let blank = self.blank();
         if e != EraseExtent::ToStart && self.past_edge() {
             let at = self.view.rotation().advance(cy.index(), self.view.ring());
             self.clear_erased_past_edge(at, blank);
@@ -1511,7 +1511,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// Erase the screen. 0 below the cursor, 1 above it, 2 all of it.
     pub(crate) fn erase_display(&mut self, e: EraseExtent) {
         let (rows, cols) = (self.rows.index(), Col::at_index(self.cols.index()));
-        let blank = PackedCell::empty_with(self.style);
+        let blank = self.blank();
         let (from, to) = match e {
             EraseExtent::ToStart => (0, self.cy.index()),
             EraseExtent::All => (0, rows),
@@ -1995,9 +1995,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // blanking arm got wrong, reporting a full row on one side and the
         // used extent on the other.
         #[cfg(not(feature = "ceiling-no-blank"))]
-        let n = self
-            .view
-            .fill_row(Row::from_index(last), PackedCell::empty_with(self.style));
+        let n = self.view.fill_row(Row::from_index(last), self.blank());
         #[cfg(feature = "ceiling-no-blank")]
         let n = self.view.extent(Row::from_index(last));
         self.cells = self.cells.plus(n.index());

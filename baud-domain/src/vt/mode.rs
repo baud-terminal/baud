@@ -265,6 +265,14 @@ pub enum ModeBit {
     /// modes into the reset state"; kept by `DECSTR`, whose DEC table and
     /// xterm's soft reset name no ERM.
     EraseGuarded,
+    /// DECECM, `?117`, set: an erase, and a line scrolled or opened onto the
+    /// screen, takes the screen background, the default rendition, where
+    /// reset it takes the current rendition (`[[source: vt520-rm]]`
+    /// p. 5-48, "Set: erase to screen background (VT) ... Reset: erase to
+    /// text background (PC)"). Reset at power-on and by `RIS`, the
+    /// factory default (Set-Up 2.9.7, p. 2-32); kept by `DECSTR`, whose
+    /// table 5-6 does not name it.
+    EraseScreenBackground,
 }
 
 impl ModeBit {
@@ -483,6 +491,9 @@ pub enum PrivateMode {
     /// `?8452`, the cursor to the right of a Sixel rather than at its
     /// column.
     SixelScrollsRight,
+    /// `?117` DECECM, erase colour mode ([`ModeBit`]'s
+    /// `EraseScreenBackground`).
+    EraseColor,
     Other(Param),
 }
 
@@ -721,6 +732,7 @@ impl PrivateMode {
             PrivateMode::SixelDisplay => 36,
             PrivateMode::SixelPrivateRegisters => 37,
             PrivateMode::SixelScrollsRight => 38,
+            PrivateMode::EraseColor => 39,
             PrivateMode::Utf8Resource
             | PrivateMode::CjkWidthResource
             | PrivateMode::EmojiWidthResource
@@ -753,6 +765,7 @@ impl PrivateMode {
             95 => PrivateMode::NoClearOnColumn,
             1070 => PrivateMode::SixelPrivateRegisters,
             8452 => PrivateMode::SixelScrollsRight,
+            117 => PrivateMode::EraseColor,
             1034 => PrivateMode::EightBitInput,
             1036 => PrivateMode::MetaSendsEscape,
             1039 => PrivateMode::AltSendsEscape,

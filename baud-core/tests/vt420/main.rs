@@ -9,6 +9,7 @@ mod support;
 
 mod corner;
 mod decaln;
+mod erase_colour;
 mod index_columns;
 mod line_starts;
 mod origin;

@@ -470,8 +470,19 @@ impl Paint<'_, '_> {
         self.invoke();
     }
 
+    /// **What an erase leaves, and what a line scrolled or opened onto the
+    /// screen holds**: an empty cell in the current rendition, or under
+    /// DECECM set the screen background, the default rendition
+    /// (`[[source: vt520-rm]]` p. 5-48, "Controls the background color used
+    /// when text is erased or new text is scrolled on to the screen"). The
+    /// mode is one bit of a word the erase's caller reads anyway; a blank is
+    /// built once an erase or a line, never per byte.
+    #[inline(always)]
     pub(crate) fn blank(&self) -> PackedCell {
-        PackedCell::empty_with(self.style)
+        match self.cold.modes.is_set(ModeBit::EraseScreenBackground) {
+            true => PackedCell::empty_with(StyleId::DEFAULT),
+            false => PackedCell::empty_with(self.style),
+        }
     }
 
     fn fill_row_counted(&mut self, r: Row) {
@@ -2656,6 +2667,9 @@ impl Paint<'_, '_> {
             // **`?40` and `?95` act through `?3`**, which reads both.
             PrivateMode::AllowColumnMode => self.cold.modes.apply(ModeBit::AllowColumnMode, on),
             PrivateMode::NoClearOnColumn => self.cold.modes.apply(ModeBit::NoClearOnColumn, on),
+            // DECECM: read by `Paint::blank`, which every erase and every line
+            // brought onto the screen takes its blank from.
+            PrivateMode::EraseColor => self.cold.modes.apply(ModeBit::EraseScreenBackground, on),
             // **`?4` and `?8` are recorded and exposed, which is what acting
             // on them means here.** Smooth scroll is renderer policy and
             // auto-repeat is keyboard policy; this core has neither, and an
@@ -3611,6 +3625,11 @@ impl Paint<'_, '_> {
             // xterm-misc]]`); `?95`'s level gate is note AF's Q-Level.
             PrivateMode::AllowColumnMode => bit_state(self.cold.modes, ModeBit::AllowColumnMode),
             PrivateMode::NoClearOnColumn => bit_state(self.cold.modes, ModeBit::NoClearOnColumn),
+            // "DECECM can be reported using DECRQM and DECRPM"
+            // (`[[source: vt520-rm]]` p. 5-48). xterm answers `4`,
+            // permanently reset, at a VT500 level and above (`vtXX_level >=
+            // 5`, `[[source: xterm-misc]]`), and acts on neither state.
+            PrivateMode::EraseColor => bit_state(self.cold.modes, ModeBit::EraseScreenBackground),
             // The alternate screen is a whole buffer rather than a flag, and it
             // is implemented, so `DECRQM` must not deny it.
             //
