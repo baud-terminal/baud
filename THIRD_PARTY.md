@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 282 | 25 | redistributable, and its notice is satisfied |
+| kept | 283 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 791 | 36 | |
+| total | 792 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -1872,13 +1872,14 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** HPND
 - **Notice:** in the file
-- **Files:** 4
+- **Files:** 5
 
 | file | copied from |
 |---|---|
 | [xterm-X11R5-button.c](docs/research/sources/xterm-X11R5-button.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/button.c |
 | [xterm-X11R5-charproc.c](docs/research/sources/xterm-X11R5-charproc.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/charproc.c |
 | [xterm-X11R5-ctlseqs.ms](docs/research/sources/xterm-X11R5-ctlseqs.ms) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/ctlseqs.ms |
+| [xterm-X11R5-cursor.c](docs/research/sources/xterm-X11R5-cursor.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/cursor.c |
 | [xterm-X11R5-misc.c](docs/research/sources/xterm-X11R5-misc.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/ac3ede58758f9b36fdc45cc2a36f8be309e5357a/misc.c |
 
 ### yazi 26.5.6

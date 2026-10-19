@@ -2396,11 +2396,101 @@ impl Paint<'_, '_> {
             x < self.cold.left.index() || y < self.cold.top.index() || y > self.cold.bot.index();
         if free && x > 0 {
             self.set_col(CursorCol::moved(Col::at_index(x - 1)));
+        } else if self.wraps_back_extended() {
+            // **`?1045` wraps past the top margin too**, to the bottom
+            // margin's line, and needs `?7`, as xterm's `REVERSEWRAP2` acts
+            // only with `WRAPAROUND` (`[[source: xterm-cursor-c]]`,
+            // `CursorBack`; Jev's lean, WITH_DECAWM). Above the top margin
+            // it goes up a line, and not off the screen.
+            let to = match y {
+                y if y == self.cold.top.index() => Some(self.cold.bot),
+                0 => None,
+                y => Some(Row::from_index(y - 1)),
+            };
+            if let Some(row) = to {
+                self.set_row(row);
+                self.set_col(CursorCol::moved(self.line_fence()));
+            }
         } else if self.cold.modes.is_set(ModeBit::ReverseWrap) && y > self.cold.top.index() {
             self.set_row(Row::from_index(y - 1));
             // The previous line's end, its half if it is a double line.
             self.set_col(CursorCol::moved(self.line_fence()));
         }
+    }
+
+    /// Whether `?1045` reverse-wraps: set, with `?7` set, as xterm's
+    /// `REVERSEWRAP2` acts only with `WRAPAROUND`.
+    #[inline(always)]
+    pub(crate) fn wraps_back_extended(&self) -> bool {
+        self.cold.resources.is_set(Resource::ReverseWrapExtended)
+            && self.cold.modes.is_set(ModeBit::AutoWrap)
+    }
+
+    /// **`CUB` under `?1045`: a count of columns back, each step past the
+    /// left margin to the end of the line above, and from the top margin
+    /// to the bottom margin's line**, xterm's `CursorBack` with
+    /// `REVERSEWRAP2` (`[[source: xterm-cursor-c]]` 121-190), which serves
+    /// `CUB` as it serves `BS` (`[[source: xterm-reset]]`,
+    /// `CASE_CUB`). From left of the left margin the walk turns at the
+    /// screen's first column, as xterm lets it go there. Within a line it
+    /// moves as `CUB` without the mode does, a pending wrap included, as
+    /// the original `CursorBack` counts one (`[[source:
+    /// xterm-x11r5-cursor-c]]` 81-84), where today's takes it off twice
+    /// (Jev's lean, SAME_AS_CUB, 0.84/0.72).
+    /// Above the top margin it goes up a line and not off the screen, as
+    /// `BS` does ([`Paint::back_space_at_left`]).
+    ///
+    /// **A whole lap of the region is taken off the count** the first time
+    /// the walk turns from the top margin to the bottom, so `CSI 65535 D`
+    /// walks at most two laps rather than a line at a time.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn back_wrapping(&mut self, n: Count) {
+        let start = self.cx.col().index();
+        let left = match start < self.cold.left.index() {
+            true => 0,
+            false => self.cold.left.index(),
+        };
+        let (top, bot) = (self.cold.top.index(), self.cold.bot.index());
+        let end = |p: &Self, y: usize| {
+            crate::paint::fence_of(p.view.rendition(Row::from_index(y)), p.cold.right, p.cols)
+                .index()
+        };
+        let (mut x, mut y) = (start, self.cy.index());
+        let mut steps = n.at_least_one();
+        let mut lapped = false;
+        loop {
+            let room = x - left;
+            if steps <= room {
+                x -= steps;
+                break;
+            }
+            steps -= room + 1;
+            y = match y {
+                y if y == top => {
+                    if !lapped {
+                        lapped = true;
+                        let lap: usize = (top..=bot).map(|r| end(self, r) - left + 1).sum();
+                        steps %= lap;
+                    }
+                    bot
+                }
+                0 => {
+                    x = left;
+                    break;
+                }
+                y => y - 1,
+            };
+            x = end(self, y);
+        }
+        if y != self.cy.index() {
+            self.set_row(Row::from_index(y));
+        }
+        self.set_col(CursorCol::placed(
+            Col::at_index(x),
+            self.cold.right,
+            self.cols,
+        ));
     }
 
     /// `BS` from outside the margins: at or left of the left one, or right
@@ -3172,6 +3262,14 @@ impl Paint<'_, '_> {
                     _ => *node = to,
                 }
             }
+            // **`?1046` reset holds the screen where it is**: "Enable
+            // switching to/from Alternate Screen Buffer" (`[[source:
+            // ctlseqs]]`), and xterm's `?47`, `?1047` and `?1049` do nothing
+            // while its titeInhibit is set (`[[source: xterm-reset]]`'s
+            // file). Its `tiXtraScroll`, a resource no mode sets and off by
+            // default, has no counterpart here.
+            PrivateMode::AltScreen | PrivateMode::AltScreenLegacy
+                if !self.cold.resources.is_set(Resource::AltScreenAllowed) => {}
             PrivateMode::AltScreen => self.set_alt_screen(change, AltSwitch::SaveAndClear),
             // **`?47` switches buffers and does nothing else.** xterm's
             // `srm_ALTBUF` is `ToAlternate(xw, False)` in and
@@ -3191,6 +3289,23 @@ impl Paint<'_, '_> {
             PrivateMode::SixelScrollsRight => {
                 self.set_sixel_mode(ModeBit::SixelScrollsRight, change)
             }
+            // **Resetting `?1046` on the alternate screen leaves it**, as
+            // xterm's `srm_ALLOW_ALTBUF` calls `FromAlternate` when titeInhibit
+            // turns on: the bare switch back, no cursor restored, the
+            // primary as it was.
+            PrivateMode::Resource(Resource::AltScreenAllowed) => {
+                if !on && self.cold.screen == crate::term::Screen::Alternate {
+                    self.set_alt_screen(ModeChange::Reset, AltSwitch::Bare);
+                }
+                self.cold
+                    .resources
+                    .apply(Resource::AltScreenAllowed, change);
+            }
+            // The rest are read where they act: `?1010` by `Term::feed`,
+            // `?1045` by `BS` at the left margin and by the `CUB` arm, and
+            // `?1011`, `?1041`, `?2001`, `?2005` and `?2006` by the embedder
+            // through `Term::resource`.
+            PrivateMode::Resource(r) => self.cold.resources.apply(r, change),
             // **Counted, as the ANSI table's wildcard is.** This was a bare
             // `{}` while `?1004` was named nowhere in the code, so the request
             // `vim-unicode.raw` sends on its first line arrived and vanished
@@ -3541,6 +3656,10 @@ impl Paint<'_, '_> {
             }
         }
         self.cold.modes = Modes::default();
+        // The xterm resources a program set go back with the modes, as
+        // `?1042` and `?1043` do: ECMA-48's "set the modes into the reset
+        // state". `DECSTR` keeps them, as its list names none.
+        self.cold.resources = baud_domain::Resources::POWER_ON;
         // `RIS` "remove[s] qualified areas" (`[[source: ecma48]]` 8.3.105):
         // the screens were cleared above, and ED, EL and ECH take their
         // fill again.
@@ -4025,6 +4144,28 @@ impl Paint<'_, '_> {
             PrivateMode::SixelDisplay => self.sixel_state(ModeBit::SixelDisplay),
             PrivateMode::SixelPrivateRegisters => self.sixel_state(ModeBit::SixelPrivateRegisters),
             PrivateMode::SixelScrollsRight => self.sixel_state(ModeBit::SixelScrollsRight),
+            // `?13` answers the blink the embedder configured, `1` or `2`, as
+            // xterm answers its `cursorBlink` resource while it can still
+            // change (`[[source: xterm-misc]]`, `srm_CURSOR_BLINK_OPS`; Jev's
+            // lean, ONE_OR_TWO, 0.80/0.78). `?14`, `cursorBlinkXOR`, is never
+            // what baud does: `?12` is or-ed with the style's blink (rule F).
+            PrivateMode::CursorBlinkResource => {
+                match self.cold.initial_cursor == self.cold.initial_cursor.with_blink(true) {
+                    true => ModeState::Set,
+                    false => ModeState::Reset,
+                }
+            }
+            PrivateMode::CursorBlinkXor => ModeState::PermanentlyReset,
+            // `?1014` and `?1044` are behaviour baud always has (Jev's
+            // leans, PERMANENT_SET, 0.88/0.88 and 0.89/0.86).
+            PrivateMode::FastScroll | PrivateMode::KeepClipboard => ModeState::PermanentlySet,
+            // **`?1046` answers whether switching is allowed**, the mode's own
+            // sense; xterm answers its titeInhibit bit, the inverse, a
+            // departure not followed (Jev's lean, TRUTHFUL, 0.50/0.50).
+            PrivateMode::Resource(r) => match self.cold.resources.is_set(r) {
+                true => ModeState::Set,
+                false => ModeState::Reset,
+            },
             _ => ModeState::NotRecognized,
         }
     }

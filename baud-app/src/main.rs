@@ -64,6 +64,11 @@ mod pty;
 // run on every platform, and both drivers feed through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod reads;
+// xterm's readline modes, a click's cursor keys and a paste's shape: pure,
+// so its tests run on every platform; only the macOS driver has a pointer
+// and a paste, so the bin builds it there alone.
+#[cfg(any(target_os = "macos", test))]
+mod readline;
 // The scrollbar's reveal is pure and its tests run on every platform; only
 // the macOS driver draws a scrollbar, so the bin builds it there alone.
 #[cfg(any(target_os = "macos", test))]

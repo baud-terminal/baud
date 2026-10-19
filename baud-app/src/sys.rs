@@ -372,17 +372,48 @@ pub type TcFlag = c_ulong;
 #[cfg(not(target_os = "macos"))]
 pub type TcFlag = core::ffi::c_uint;
 
-/// **`struct termios`, opaque but for its first field.** What the kernel
-/// hands out is handed back with one bit of `c_iflag` set or cleared, so
-/// nothing else is read or built and nothing else is named. The size, the alignment and
-/// `c_iflag`'s offset are the header's, which the tests below hold: a block
-/// smaller than the header's would let `tcgetattr` write past it.
+/// **`struct termios`, opaque but for `c_iflag` and `c_cc`.** What the
+/// kernel hands out is handed back with one bit of `c_iflag` set or
+/// cleared, and `c_cc` is read for the literal-next character a `?2005`
+/// paste quotes with; nothing else is read or built. The size, the
+/// alignment and both offsets are the header's, which the tests below hold:
+/// a block smaller than the header's would let `tcgetattr` write past it.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Termios {
     pub c_iflag: TcFlag,
-    rest: [u8; TERMIOS_SIZE - core::mem::size_of::<TcFlag>()],
+    flags: [TcFlag; 3],
+    #[cfg(not(target_os = "macos"))]
+    c_line: [u8; 1],
+    pub c_cc: [u8; NCCS],
+    rest: [u8; TERMIOS_SIZE - CC_AT - NCCS],
 }
+
+/// Where `c_cc` starts: after the four flag words, and on glibc the line
+/// discipline's byte.
+#[cfg(target_os = "macos")]
+const CC_AT: usize = 4 * core::mem::size_of::<TcFlag>();
+#[cfg(not(target_os = "macos"))]
+const CC_AT: usize = 4 * core::mem::size_of::<TcFlag>() + 1;
+
+/// `NCCS`, the control characters a termios holds.
+#[cfg(target_os = "macos")]
+pub const NCCS: usize = 20;
+#[cfg(not(target_os = "macos"))]
+pub const NCCS: usize = 32;
+
+/// `VLNEXT`, the literal-next character's index in `c_cc`. Only the macOS
+/// paste reads it; the header probe holds it on Linux too.
+#[cfg(target_os = "macos")]
+pub const VLNEXT: usize = 14;
+#[cfg(all(not(target_os = "macos"), test))]
+pub const VLNEXT: usize = 15;
+
+/// `_POSIX_VDISABLE`, a control character that is switched off.
+#[cfg(target_os = "macos")]
+pub const POSIX_VDISABLE: u8 = 0xff;
+#[cfg(all(not(target_os = "macos"), test))]
+pub const POSIX_VDISABLE: u8 = 0;
 
 /// Four `unsigned long` flag words, twenty control characters, padding and
 /// two `unsigned long` speeds on Darwin; four `unsigned int` flag words,
@@ -635,6 +666,10 @@ int main(void) {
     printf("termios.size=%zu\n", sizeof(struct termios));
     printf("termios.align=%zu\n", _Alignof(struct termios));
     printf("termios.iflag=%zu\n", offsetof(struct termios, c_iflag));
+    printf("termios.cc=%zu\n", offsetof(struct termios, c_cc));
+    printf("NCCS=%lld\n", (long long)NCCS);
+    printf("VLNEXT=%lld\n", (long long)VLNEXT);
+    printf("_POSIX_VDISABLE=%lld\n", (long long)_POSIX_VDISABLE);
     printf("tcflag.size=%zu\n", sizeof(tcflag_t));
     printf("TIOCSWINSZ=%llu\n", (unsigned long long)TIOCSWINSZ);
     printf("TIOCGWINSZ=%llu\n", (unsigned long long)TIOCGWINSZ);
@@ -770,6 +805,7 @@ int main(void) {
         assert_eq!(h["termios.size"], size_of::<Termios>() as i128);
         assert_eq!(h["termios.align"], align_of::<Termios>() as i128);
         assert_eq!(h["termios.iflag"], offset_of!(Termios, c_iflag) as i128);
+        assert_eq!(h["termios.cc"], offset_of!(Termios, c_cc) as i128);
         assert_eq!(h["tcflag.size"], size_of::<TcFlag>() as i128);
         assert_eq!(h["size_t.size"], size_of::<MapLen>() as i128);
         #[cfg(target_os = "macos")]
@@ -827,6 +863,9 @@ int main(void) {
         assert_eq!(h["MAP_PRIVATE"], i128::from(MAP_PRIVATE));
         assert_eq!(h["MAP_FAILED"], MAP_FAILED as isize as i128);
         assert_eq!(h["IUTF8"], i128::from(IUTF8));
+        assert_eq!(h["NCCS"], NCCS as i128);
+        assert_eq!(h["VLNEXT"], VLNEXT as i128);
+        assert_eq!(h["_POSIX_VDISABLE"], i128::from(POSIX_VDISABLE));
         assert_eq!(h["TCSANOW"], i128::from(TCSANOW));
         assert_eq!(h["MAP_FIXED"], i128::from(MAP_FIXED));
         // **The page size is the system's**: what `getpagesize` answers here

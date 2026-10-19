@@ -1293,6 +1293,7 @@ files   = [
   "xterm-X11R5-button.c",
   "xterm-X11R5-charproc.c",
   "xterm-X11R5-ctlseqs.ms",
+  "xterm-X11R5-cursor.c",
   "xterm-X11R5-misc.c",
 ]
 

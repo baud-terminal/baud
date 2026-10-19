@@ -1159,6 +1159,26 @@ impl Pty {
         unsafe { BorrowedFd::borrow_raw(self.master) }
     }
 
+    /// The tty's literal-next character, which a `?2005` paste puts
+    /// before each byte: `c_cc[VLNEXT]` as `tcgetattr` reads it on the
+    /// manager, or Control-V when it cannot be read or is switched off, as
+    /// xterm's `get_tty_lnext` falls back to `XTERM_LNEXT`.
+    #[cfg(target_os = "macos")]
+    pub fn literal_next(&self) -> crate::readline::Quote {
+        let mut t = core::mem::MaybeUninit::<crate::sys::Termios>::uninit();
+        // SAFETY: a termios-sized, termios-aligned block, which the call
+        // fills when it succeeds.
+        if unsafe { crate::sys::tcgetattr(self.master, t.as_mut_ptr()) } != 0 {
+            return crate::readline::Quote::LNEXT;
+        }
+        // SAFETY: the call above succeeded, so the block is initialised.
+        let t = unsafe { t.assume_init() };
+        match t.c_cc[crate::sys::VLNEXT] {
+            crate::sys::POSIX_VDISABLE => crate::readline::Quote::LNEXT,
+            b => crate::readline::Quote(b),
+        }
+    }
+
     /// One read of the master, taken after a wait said it was ready: at
     /// most `READ_CHUNK` bytes, empty when a signal interrupted the read or
     /// the wait woke for room to write rather than for bytes, and `Closed`

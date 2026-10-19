@@ -10,6 +10,7 @@ use crate::host::{
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
+use crate::readline::{self, Arrow, Newlines};
 use crate::reveal::{Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes};
 use crate::wheel::{Delta, Route, Travel};
 use baud_core::{Depth, Erasure, Looking, Owned, Screen, SurfaceLine, Term, Zone, grid_stride};
@@ -7399,7 +7400,11 @@ impl Responder for Driver {
             // here, and one it does not sends nothing to the child.
             return Handled::Consumed;
         }
-        self.snap_to_live();
+        // `?1011`, scroll to the bottom on a key press: set at power-on, so a
+        // key snaps as it always has, and a program can turn it off.
+        if self.app.term.resource(baud_core::Resource::ScrollOnKey) {
+            self.snap_to_live();
+        }
         if composing_first(key, &self.app.composing) {
             return Handled::Interpret;
         }
@@ -8845,12 +8850,67 @@ impl Driver {
                 self.held = None;
                 if self.app.selection.is_some_and(|s| s.is_click()) {
                     self.app.selection = None;
+                    self.move_point(event);
+                } else if self
+                    .app
+                    .term
+                    .resource(baud_core::Resource::SelectToClipboard)
+                {
+                    // `?1041`: the selection made is the clipboard's, as
+                    // xterm's selectToClipboard puts SELECT on CLIPBOARD.
+                    self.copy();
                 }
             }
             _ => return,
         }
         self.app.pending = Pending::Dirty;
         self.pump(Trigger::Wake);
+    }
+
+    /// **`?2001`: a click on the cursor's line moves the shell's point
+    /// there**, with as many cursor keys as `readline::point_move` counts,
+    /// sent as the wheel's are -- the terminal's, not keystrokes, so KAM
+    /// does not lock them and SRM does not draw them. Only an unmodified
+    /// click, the program not tracking the mouse (a click it tracks never
+    /// reaches here) and the window on the live screen: xterm's
+    /// `isClick1_clean` refuses a Shift click and a tracked one, and its
+    /// rows are the screen's. A click is a press and a release with no drag
+    /// between; xterm also bounds its time by `multiClickTime`, which this
+    /// does not.
+    fn move_point(&mut self, event: &Mouse) {
+        let m = event.modifiers;
+        let t = &self.app.term;
+        if event.button != ViewButton::Left
+            || m.shift
+            || m.option
+            || m.control
+            || m.command
+            || !t.resource(baud_core::Resource::ClickMovesPoint)
+            || t.window_back().index() != 0
+        {
+            return;
+        }
+        let (row, _, px) = self.pointer_under(event.x, event.y);
+        let col = readline::boundary(px.x, cell_px(self.app.renderer.metrics().cell_w));
+        let view = t.viewport();
+        let Some((arrow, n)) =
+            readline::point_move(|r| view.wrapped(r), t.cursor(), (row, col), t.geometry().0)
+        else {
+            return;
+        };
+        let code = match arrow {
+            Arrow::Left => KeyCode::Left,
+            Arrow::Right => KeyCode::Right,
+        };
+        for _ in 0..n {
+            let outbox = &mut self.app.outbox;
+            crate::reads::input(
+                &mut self.app.term,
+                |t| t.wheel_key(KeyEvent::press(code, Modifiers::default())),
+                |b| outbox.push(b),
+            );
+        }
+        self.app.flush_reply();
     }
 
     /// The scrollbar's strip: the overlay scroller's frame at the grid's
@@ -9362,7 +9422,22 @@ impl Driver {
         // typed after it: a paste longer than the slave's queue -- 1022
         // bytes on Darwin -- waited in `write(2)` for the child to read it.
         self.app.flush_reply();
-        self.app.outbox.push(&paste_bytes(&text, bracket));
+        let form = PasteForm {
+            bracket,
+            newlines: match self
+                .app
+                .term
+                .resource(baud_core::Resource::PasteLiteralNewline)
+            {
+                true => Newlines::Literal,
+                false => Newlines::AsReturn,
+            },
+            quote: match self.app.term.resource(baud_core::Resource::PasteQuoted) {
+                true => Some(self.app.pty.literal_next()),
+                false => None,
+            },
+        };
+        self.app.outbox.push(&paste_bytes(&text, form));
         self.app.flush_reply();
     }
 
@@ -9399,16 +9474,34 @@ enum Bracket {
     Off,
 }
 
+/// How a paste goes to the child: bracketed or not (`?2004`), its line
+/// breaks (`?2006`), and the literal-next byte that quotes each of its
+/// bytes (`?2005`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct PasteForm {
+    bracket: Bracket,
+    newlines: Newlines,
+    quote: Option<readline::Quote>,
+}
+
 /// The bytes a paste sends: bracketed as `?2004` specifies, with a forged
 /// end inside the text removed, because the child would take it as the
-/// end; or, unbracketed, with line endings as typed input carries them.
-fn paste_bytes(text: &str, bracket: Bracket) -> Vec<u8> {
-    match bracket {
+/// end; or, unbracketed, with line endings as typed input carries them
+/// unless `?2006` keeps them. Under `?2005` each byte of the text, never of
+/// a bracket, follows the literal-next byte, as xterm quotes the selection
+/// and writes the brackets apart (`[[source: xterm-button]]`).
+fn paste_bytes(text: &str, form: PasteForm) -> Vec<u8> {
+    match form.bracket {
         Bracket::On => {
             let body = text.replace("\x1b[201~", "");
-            [b"\x1b[200~".as_slice(), body.as_bytes(), b"\x1b[201~"].concat()
+            [
+                b"\x1b[200~".as_slice(),
+                &readline::quoted(body.as_bytes(), form.quote),
+                b"\x1b[201~",
+            ]
+            .concat()
         }
-        Bracket::Off => text.replace("\r\n", "\r").replace('\n', "\r").into_bytes(),
+        Bracket::Off => readline::body(text, form.newlines, form.quote),
     }
 }
 
@@ -10010,14 +10103,45 @@ mod tests {
     #[test]
     fn a_paste_is_bracketed_when_asked_and_its_line_endings_are_typed_otherwise() {
         let forged = "a\x1b[201~b\r\nc\n";
+        let form = |bracket| PasteForm {
+            bracket,
+            newlines: Newlines::AsReturn,
+            quote: None,
+        };
         assert_eq!(
-            paste_bytes(forged, Bracket::On),
+            paste_bytes(forged, form(Bracket::On)),
             b"\x1b[200~ab\r\nc\n\x1b[201~".to_vec()
         );
         assert_eq!(
-            paste_bytes(forged, Bracket::Off),
+            paste_bytes(forged, form(Bracket::Off)),
             b"a\x1b[201~b\rc\r".to_vec()
         );
+    }
+
+    /// **`?2005` quotes the text and never a bracket; `?2006` keeps an
+    /// unbracketed paste's line breaks.**
+    #[test]
+    fn readline_quoting_and_newlines_shape_a_paste() {
+        let quoted = PasteForm {
+            bracket: Bracket::On,
+            newlines: Newlines::AsReturn,
+            quote: Some(readline::Quote::LNEXT),
+        };
+        assert_eq!(
+            paste_bytes("ab", quoted),
+            b"\x1b[200~\x16a\x16b\x1b[201~".to_vec()
+        );
+        let literal = PasteForm {
+            bracket: Bracket::Off,
+            newlines: Newlines::Literal,
+            quote: None,
+        };
+        assert_eq!(paste_bytes("a\r\nb\n", literal), b"a\r\nb\n".to_vec());
+        let typed = PasteForm {
+            bracket: Bracket::Off,
+            ..quoted
+        };
+        assert_eq!(paste_bytes("a\n", typed), b"\x16a\x16\r".to_vec());
     }
 
     /// **A legacy scroller's gutter comes out of the grid's columns, and the

@@ -88,6 +88,8 @@ pub use baud_domain::Focus;
 /// What [`Term::style_reclaims`] returns: the rendition table's evictions,
 /// sweeps and the slots they freed.
 pub use baud_domain::Reclaims;
+/// The resources `Term::resource` reads.
+pub use baud_domain::Resource;
 /// VT52 is a protocol an embedder can be in, so it can be asked about.
 pub use baud_domain::TerminalMode;
 /// Mouse reporting's vocabulary: an embedder that cannot name a

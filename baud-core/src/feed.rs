@@ -320,6 +320,24 @@ impl Term<'_> {
         // one short copy a read (`placed.rs`).
         let read = &self.store.arena[base.index()..base.index() + n.less(held).index()];
         self.cold.placement.end(StreamByte::slice_from(read));
+        // **`?1010`, scroll to the bottom on output**: a read sends the
+        // primary's window over the history live, as xterm's scrollTtyOutput
+        // does on every read from the pty (`[[source: xterm-reset]]`'s file,
+        // the read loop). Once a read, never a byte; reset at power-on.
+        // **Here, after the read, and not before it**: the same test at the
+        // read's start moved the inlined write loop's code, +0.9% to +1.1%
+        // of `ingest2`'s instructions on cat, vim and btop, out of line or
+        // not; here it reads within 0.1% of none. A read that ends on the
+        // alternate screen leaves the primary's window.
+        if n.index() != 0
+            && self.cold.screen == crate::term::Screen::Normal
+            && self
+                .cold
+                .resources
+                .is_set(baud_domain::Resource::ScrollOnOutput)
+        {
+            self.store.book.window = crate::storage::HistoryWindow::Live;
+        }
         // **The fence may lag a line the cursor left, never one it is on**:
         // a fence above the line's own would let a write past a double
         // line's half (`Paint::enter_row`), and a sized line exists only

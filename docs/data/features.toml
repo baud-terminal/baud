@@ -991,6 +991,15 @@ platform = "macos"
 tests = ["baud-app/src/pty.rs::a_full_queue_keeps_the_rest_owed_in_order_and_never_waits"]
 
 [[feature]]
+id = "readline-modes"
+area = "input"
+name = "Click to move the shell's cursor"
+does = "A program can ask that a click on the command line move the cursor there, that a selection be copied the moment it is made, and that a paste be quoted for the line editor or keep its line breaks."
+status = "built"
+platform = "macos"
+tests = ["baud-app/src/readline.rs::a_click_on_the_cursors_line_moves_the_point_by_the_columns_between", "baud-app/src/app.rs::readline_quoting_and_newlines_shape_a_paste", "baud-core/tests/xterm_resources.rs::each_switch_sets_resets_saves_and_restores"]
+
+[[feature]]
 id = "program-copy"
 area = "input"
 name = "Remote programs can copy to your clipboard"

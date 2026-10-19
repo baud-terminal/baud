@@ -933,6 +933,12 @@ pub struct Cold {
     /// vt510-decstr]]`) and whose xterm counterpart clears none.
     pub(crate) backarrow: BackarrowKey,
     pub(crate) delete: DeleteKey,
+    /// The xterm resources a program sets with a private mode
+    /// (`baud_domain::Resource`): `?1010`, `?1011`, `?1041`, `?1045`,
+    /// `?1046`, `?2001`, `?2005` and `?2006`. One byte, read by `Term::feed`
+    /// once a read, by `BS` at the left margin, by the alternate-screen
+    /// switches and by the embedder, never by a glyph.
+    pub(crate) resources: baud_domain::Resources,
     pub(crate) num_lock: NumLockKeypad,
     /// XTSAVE's one-level cache of the private modes, which XTRESTORE reads
     /// back: written and read once per `CSI ? Pm s` and `r`, emptied by
@@ -1356,6 +1362,7 @@ impl Cold {
             line_stops: LineStops::NONE,
             backarrow: BackarrowKey::Delete,
             delete: DeleteKey::Remove,
+            resources: baud_domain::Resources::POWER_ON,
             num_lock: NumLockKeypad::Overrides,
             protect: CellFlags::NONE,
             guard_open: None,
@@ -2840,6 +2847,15 @@ impl<'b> Term<'b> {
         self.cold.cursor_style = s;
     }
 
+    /// Whether a program has set one of the xterm resources
+    /// (`baud_domain::Resource`): the embedder's to act on for `?1011` (a key
+    /// sends the window live), `?1041` (a selection is copied as it is
+    /// made), `?2001` (a click moves the shell's point), `?2005` and
+    /// `?2006` (how a paste is sent). `?1010`, `?1045` and `?1046` act here.
+    pub fn resource(&self, r: baud_domain::Resource) -> bool {
+        self.cold.resources.is_set(r)
+    }
+
     /// What [`Term::set_initial_cursor_style`] last set.
     pub fn initial_cursor_style(&self) -> CursorStyle {
         self.cold.initial_cursor
@@ -4239,10 +4255,10 @@ impl<'b> Term<'b> {
         true
     }
 
-    /// A cursor key the wheel sends under `?1007`, encoded as [`Term::key`]
-    /// encodes it. **Not a keystroke**: KAM does not lock it and SRM does
-    /// not draw it, as neither touches a mouse report (Jev 2026-10-19,
-    /// KEYS_ONLY, 1.00/1.00).
+    /// A cursor key the wheel sends under `?1007`, or a `?2001` click sends
+    /// to move the shell's point, encoded as [`Term::key`] encodes it. **Not
+    /// a keystroke**: KAM does not lock it and SRM does not draw it, as
+    /// neither touches a mouse report (Jev 2026-10-19, KEYS_ONLY, 1.00/1.00).
     pub fn wheel_key(&mut self, e: KeyEvent) -> bool {
         self.queue_key(e).is_some()
     }

@@ -534,7 +534,84 @@ pub enum PrivateMode {
     NumLockModifiers,
     /// `?1037`, xterm's `deleteIsDEL` ([`DeleteKey`]).
     DeleteIsDel,
+    /// `?13`, xterm's `cursorBlink` resource, "read-only, set only via
+    /// resource or menu" (`[[source: ctlseqs]]`): the blink the user
+    /// configured, which `DECRQM` answers `1` or `2` as xterm does for its
+    /// changeable resource.
+    CursorBlinkResource,
+    /// `?14`, xterm's `cursorBlinkXOR`, "read-only, set via resource". baud
+    /// ORs `?12` with the style's blink and never XORs, so `DECRQM` answers
+    /// `4`, permanently reset.
+    CursorBlinkXor,
+    /// `?1014`, xterm's `fastScroll`. baud draws a frame at most once a
+    /// display refresh and never one output already shifted away, which is
+    /// what the resource selects, so `DECRQM` answers `3`.
+    FastScroll,
+    /// `?1044`, xterm's `keepClipboard`: the clipboard keeps the data copied
+    /// whatever is selected later. The macOS pasteboard holds what baud
+    /// wrote to it, so `DECRQM` answers `3`.
+    KeepClipboard,
+    /// One of the xterm resources a program can set ([`Resource`]).
+    Resource(Resource),
     Other(Param),
+}
+
+/// The xterm resources a program can set with a private mode, each a switch
+/// baud acts on, kept apart from [`Modes`], whose bits the write loop reads.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Resource {
+    /// `?1010`, scrollTtyOutput: output sends the window over the history to
+    /// the live screen. Reset at power-on, the owner's V2 behaviour.
+    ScrollOnOutput,
+    /// `?1011`, scrollKey: a key sends the window to the live screen. Set
+    /// at power-on.
+    ScrollOnKey,
+    /// `?1041`, selectToClipboard: a selection is copied to the clipboard
+    /// as it is made.
+    SelectToClipboard,
+    /// `?1045`, XTREVWRAP2: backspace at the left margin wraps to the line
+    /// above's end, and from the top margin to the bottom margin.
+    ReverseWrapExtended,
+    /// `?1046`, xterm's titeInhibit inverted: whether the alternate screen
+    /// may be switched to and from. Set at power-on.
+    AltScreenAllowed,
+    /// `?2001`, readline mouse button-1: a click on the cursor's line moves
+    /// the shell's point there with cursor keys.
+    ClickMovesPoint,
+    /// `?2005`, readline character-quoting: each pasted byte preceded by the
+    /// tty's literal-next character.
+    PasteQuoted,
+    /// `?2006`, readline newline pasting: a paste keeps its newlines.
+    PasteLiteralNewline,
+}
+
+impl Resource {
+    const fn bit(self) -> u8 {
+        1 << (self as u8)
+    }
+}
+
+const _: () = assert!(core::mem::variant_count::<Resource>() <= 8);
+
+/// The [`Resource`] switches as a bitset.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Resources(u8);
+
+impl Resources {
+    /// Power-on: `?1011` and `?1046` set, the rest reset.
+    pub const POWER_ON: Resources =
+        Resources(Resource::ScrollOnKey.bit() | Resource::AltScreenAllowed.bit());
+
+    pub fn is_set(self, r: Resource) -> bool {
+        self.0 & r.bit() != 0
+    }
+
+    pub fn apply(&mut self, r: Resource, change: ModeChange) {
+        match change {
+            ModeChange::Set => self.0 |= r.bit(),
+            ModeChange::Reset => self.0 &= !r.bit(),
+        }
+    }
 }
 
 /// `?1042`, xterm's `bellIsUrgent` resource. `[[source: ctlseqs]]`: "Enable
@@ -718,11 +795,11 @@ impl SavedModes {
 
 impl PrivateMode {
     /// The slot XTSAVE keeps this mode in: **every mode DECSET acts on, and
-    /// no other** -- "Ps values are the same as for DECSET". The two named
-    /// modes without one are the five DECSET cannot change: `?1020` to
-    /// `?1023` are read-only (`[[source: ctlseqs]]` marks them so, and
-    /// xterm's `savemodes` keeps none of them) and `?2027` is permanent
-    /// here. An unnamed mode has none, and DECSET counts it, as a
+    /// no other** -- "Ps values are the same as for DECSET". The named modes
+    /// without one are the nine DECSET cannot change: `?13`, `?14` and
+    /// `?1020` to `?1023` are read-only (`[[source: ctlseqs]]` marks them
+    /// so, and xterm's `savemodes` keeps none of them), and `?1014`,
+    /// `?1044` and `?2027` are permanent here. An unnamed mode has none, and DECSET counts it, as a
     /// save and a restore of it are counted.
     ///
     /// xterm saves a different set (`savemodes`, `[[source: xterm-reset]]`):
@@ -777,11 +854,23 @@ impl PrivateMode {
             PrivateMode::BackarrowKey => 41,
             PrivateMode::NumLockModifiers => 42,
             PrivateMode::DeleteIsDel => 43,
+            PrivateMode::Resource(Resource::ScrollOnOutput) => 44,
+            PrivateMode::Resource(Resource::ScrollOnKey) => 45,
+            PrivateMode::Resource(Resource::SelectToClipboard) => 46,
+            PrivateMode::Resource(Resource::ReverseWrapExtended) => 47,
+            PrivateMode::Resource(Resource::AltScreenAllowed) => 48,
+            PrivateMode::Resource(Resource::ClickMovesPoint) => 49,
+            PrivateMode::Resource(Resource::PasteQuoted) => 50,
+            PrivateMode::Resource(Resource::PasteLiteralNewline) => 51,
             PrivateMode::Utf8Resource
             | PrivateMode::CjkWidthResource
             | PrivateMode::EmojiWidthResource
             | PrivateMode::PrivateWidthResource
             | PrivateMode::GraphemeClustering
+            | PrivateMode::CursorBlinkResource
+            | PrivateMode::CursorBlinkXor
+            | PrivateMode::FastScroll
+            | PrivateMode::KeepClipboard
             | PrivateMode::Other(_) => {
                 return None;
             }
@@ -840,6 +929,18 @@ impl PrivateMode {
             2026 => PrivateMode::SynchronizedOutput,
             2048 => PrivateMode::InbandResize,
             2031 => PrivateMode::ColorPaletteUpdates,
+            13 => PrivateMode::CursorBlinkResource,
+            14 => PrivateMode::CursorBlinkXor,
+            1014 => PrivateMode::FastScroll,
+            1044 => PrivateMode::KeepClipboard,
+            1010 => PrivateMode::Resource(Resource::ScrollOnOutput),
+            1011 => PrivateMode::Resource(Resource::ScrollOnKey),
+            1041 => PrivateMode::Resource(Resource::SelectToClipboard),
+            1045 => PrivateMode::Resource(Resource::ReverseWrapExtended),
+            1046 => PrivateMode::Resource(Resource::AltScreenAllowed),
+            2001 => PrivateMode::Resource(Resource::ClickMovesPoint),
+            2005 => PrivateMode::Resource(Resource::PasteQuoted),
+            2006 => PrivateMode::Resource(Resource::PasteLiteralNewline),
             n => PrivateMode::Other(Param(n)),
         }
     }
