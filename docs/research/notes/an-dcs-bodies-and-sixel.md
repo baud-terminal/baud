@@ -9,7 +9,12 @@ a `SPACE` in a Sixel body ignored and a GR byte in one read as its GL byte
 under ISO 8859-1, since 2026-10-13 (the record, "A SPACE in a Sixel body is
 ignored, and a GR byte is its GL byte under ISO 8859-1"). Item 9, a GR byte
 in the DCS introducer, was built by 3c34afe (the record, "A GR byte in a DCS
-prefix is its 7-bit byte under ISO 8859-1"). Nothing else here is built.** Part 1 is what every text says a terminal does with each byte of a
+prefix is its 7-bit byte under ISO 8859-1"). Items 1, 10 and 11 are built
+since 2026-10-19, by Jev's decision B_PUT_ALL (0.99/0.99) and lean STRIP
+(0.60/0.56): every C0 of a DCS body is put, DECRQSS and DECRSPS drop them
+and read a GR byte as GL, and a Sixel rings a `BEL` (the record, "Every C0
+of a DCS body reaches its handler, and a Sixel rings a BEL"). Nothing else
+here is built.** Part 1 is what every text says a terminal does with each byte of a
 DCS command string, and what baud does since `e6a817f`. Part 2 reads DEC STD
 070's Sixel chapter, 070-9, byte by byte against the other Sixel texts the
 manifest pins, and against baud's Sixel handler. Where the texts agree and
@@ -21,7 +26,9 @@ text, it is a question with options, each option marked against each text
 owner's rule of 2026-10-10: Jev at or above 0.9 confidence both times
 decides, a departure from a standard included, and otherwise the owner does,
 from the review page. So items 10, 11 and 12 are work, for Jev, and questions
-1 and 2 go to Jev before the owner. None has been put to Jev yet.
+1 and 2 go to Jev before the owner. All but item 12 went to Jev on
+2026-10-19 (the record, "Every C0 of a DCS body reaches its handler, and
+a Sixel rings a BEL").
 
 **Base.** Line numbers in baud's code are at `e6a817f`, which built the two
 classes the texts agree on in a DCS body: the format effectors `08-0D` are put
@@ -1356,8 +1363,9 @@ Items 10, 11 and 12 rest on this note's readings (**R**); 10 and 12 carry
 alternatives considered (sections 5.4 and 8), and 11 has the alternative of
 keeping the byte raw (section 5.5). Each is work, for Jev:
 by the owner's rule of 2026-10-10, Jev at or above 0.9 confidence both times
-decides between the options, and otherwise the owner does. None is built
-before that.
+decides between the options, and otherwise the owner does. Items 1, 10 and
+11 were built on 2026-10-19 (Jev: B_PUT_ALL 0.99/0.99; the lean STRIP
+0.60/0.56 for item 11).
 
 ### 10.2 Questions, the texts conflicting
 

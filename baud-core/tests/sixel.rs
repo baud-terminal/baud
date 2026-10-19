@@ -83,22 +83,24 @@ fn drawn(t: &Term) -> Drawn {
     (image, support::screen(t), t.cursor())
 }
 
-/// **A BEL inside a Sixel is payload, and draws nothing; one in its
-/// parameters is ignored.** Each program must leave what the same program
-/// without the BEL leaves -- the image pixel for pixel, the screen, the
-/// cursor -- at every read size, and ring nothing.
+/// **A BEL inside a Sixel rings and draws nothing; one in its parameters is
+/// ignored.** Each program must leave what the same program without the
+/// BEL leaves -- the image pixel for pixel, the screen, the cursor -- at
+/// every read size, and ring once for a BEL in the body:
+/// `[[source: dec-std-070]]` 070-9 §9.1, "BEL - same action as in text
+/// mode" (PDF p. 926). It rang nothing until 2026-10-19.
 ///
 /// `[[source: williams]]` puts `00-17,19,1C-1F` in `dcs passthrough` (line
 /// 388) and ignores them in `dcs param` (361); `[[source: ecma48]]` 5.6 ends
 /// a control string with ST alone, and `[[source: ctlseqs]]` lets BEL end an
 /// OSC (2023-2024) and nothing else. The body BEL is put, and the Sixel
-/// handler drops it before the decoder; here it falls between two data
+/// handler rings it and keeps it from the decoder; here it falls between two data
 /// bytes, and `a_c0_or_del_inside_a_sixel_number_splits_nothing` holds the
 /// places where a decoder that saw it would read a different image. Before,
 /// the BEL ended the Sixel: the image was cut at it and the rest of the body
 /// was drawn as `~~-~~`.
 #[test]
-fn a_bel_inside_a_sixel_is_payload_and_draws_nothing() {
+fn a_bel_inside_a_sixel_rings_and_draws_nothing() {
     let without: &[u8] = b"\x1bP0;1q#1;2;100;0;0#1~~~~-~~\x1b\\Z";
     let cases: [(&str, &[u8]); 2] = [
         ("in the body", b"\x1bP0;1q#1;2;100;0;0#1~~\x07~~-~~\x1b\\Z"),
@@ -120,7 +122,8 @@ fn a_bel_inside_a_sixel_is_payload_and_draws_nothing() {
         for size in 1..=bytes.len() {
             run(bytes, size, budget, |t| {
                 assert_eq!(drawn(t), want, "{name}: read size {size}");
-                assert_eq!(t.bells, 0, "{name}: no bell, read size {size}");
+                let rings = usize::from(name == "in the body");
+                assert_eq!(t.bells, rings, "{name}: bells, read size {size}");
             });
         }
     }
@@ -144,10 +147,11 @@ type Split = (&'static str, &'static [u8], &'static [u8], (u16, u16));
 /// drops every C0 it is put before the decoder, and the graph ignores a
 /// `DEL`.** Each program must leave what the same program without the byte
 /// leaves -- the image pixel for pixel, the screen, the cursor -- at every
-/// read size, in both encodings, and ring nothing.
+/// read size, in both encodings, and ring once for each `BEL`, as 070-9
+/// §9.1 gives it text mode's action; `ENQ`'s text-mode action is nothing.
 ///
-/// The decoder reads a number up to its first non-digit. The graph puts a
-/// DCS body's `BEL` and its format effectors `08-0D`, `[[source: williams]]`'s
+/// The decoder reads a number up to its first non-digit. The graph puts
+/// every C0 of a DCS body, `[[source: williams]]`'s
 /// `dcs passthrough` (388), so before the handler dropped them `!1 BEL 0~`
 /// drew one column where `!10~` draws ten, `#1;2;10 BEL 0;0;0` made register
 /// 1 10% red where it is 100%, and `#1 BEL 2` selected register 1 for 12.
@@ -169,7 +173,7 @@ type Split = (&'static str, &'static [u8], &'static [u8], (u16, u16));
 /// show the harness is not what changed.
 #[test]
 fn a_c0_or_del_inside_a_sixel_number_splits_nothing() {
-    let cases: [Split; 19] = [
+    let cases: [Split; 21] = [
         (
             "BEL inside the repeat count",
             b"\x1bP0;1q#1;2;100;0;0#1!1\x070~\x1b\\Z",
@@ -243,6 +247,18 @@ fn a_c0_or_del_inside_a_sixel_number_splits_nothing() {
             (10, 12),
         ),
         (
+            "ENQ inside the repeat count, text mode's nothing",
+            b"\x1bP0;1q#1;2;100;0;0#1!1\x050~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
+            (10, 12),
+        ),
+        (
+            "NUL, SOH, DC1 and US inside a colour component",
+            b"\x1bP0;1q#1;2;1\x000\x01\x110;0;0\x1f#1~~\x1b\\Z",
+            b"\x1bP0;1q#1;2;100;0;0#1~~\x1b\\Z",
+            (2, 12),
+        ),
+        (
             "CR inside the repeat count",
             b"\x1bP0;1q#1;2;100;0;0#1!1\r0~\x1b\\Z",
             b"\x1bP0;1q#1;2;100;0;0#1!10~\x1b\\Z",
@@ -302,7 +318,8 @@ fn a_c0_or_del_inside_a_sixel_number_splits_nothing() {
             for read in 1..=with.len() {
                 run(&with, read, budget, |t| {
                     assert_eq!(drawn(t), want, "{name}, {enc}: read size {read}");
-                    assert_eq!(t.bells, 0, "{name}, {enc}: no bell, read size {read}");
+                    let rings = usize::from(name.contains("BEL"));
+                    assert_eq!(t.bells, rings, "{name}, {enc}: bells, read size {read}");
                 });
             }
         }

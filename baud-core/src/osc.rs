@@ -95,26 +95,28 @@ impl Paint<'_, '_> {
         // gap of the image arena its `q` claimed (`SixelStream`): no copy of
         // it is kept, so no length limits it, and its pixels do.
         if self.cold.str_kind == StrKind::Sixel {
-            // **A C0 is dropped here, before the decoder.** The graph puts a DCS
-            // body's `BEL` and its format effectors `08-0D`,
+            // **A C0 is dropped here, before the decoder, and a `BEL`
+            // rings.** The graph puts every C0 of a DCS body,
             // `[[source: williams]]`'s `dcs passthrough` row (388), and the
             // decoder reads a number up to its first non-digit, so any of them
             // inside one split it: `!1 BEL 0~` drew one column where `!10~` draws
             // ten, and `#1;2;10 BEL 0;0;0` set red to 10%. DEC's own Sixel text
             // gives the format effectors no meaning: `[[source: dec-std-070]]`
             // 070-9 §9.1, "These codes shall have no effect on the interpretation
-            // of Sixel Control strings" (PDF p. 925). `[[source: vt3xx-sixel]]`
-            // says nothing of C0. xterm skips `HT LF VT FF CR` as white space and
-            // ends a number on `BS`, its departure
-            // (`[[source: xterm-graphics-sixel]]` 541-555), and never sees a
-            // `BEL`: its Sixel parser is handed only bytes its string table calls
-            // `CASE_IGNORE` (`[[source: xterm-reset]]`'s file, 3408-3412), and
-            // `BEL` is `CASE_BELL` (`[[source: xterm-vtprstbl-c]]` 7630). The
-            // other C0 never get here, the graph ignoring them, and neither does
-            // `DEL`, which the graph ignores in a DCS body as williams' row does
-            // and as 070-9 §9.2 lists for Sixel, "7/15 (DELETE) Ignored" (926).
-            // The `DEL` was stored until 2026-10-10 and this arm dropped it; xterm
-            // hands its parser one, which ends a number there, its departure.
+            // of Sixel Control strings" (PDF p. 925), and of the rest: "4. BEL -
+            // same action as in text mode. 5. ENQ - same action as in text
+            // mode. All other C0 Codes are ignored" (926). Text mode counts a
+            // bell for `BEL` and does nothing for `ENQ`, baud keeping no
+            // answerback, so `ENQ` is dropped with the rest
+            // (`Paint::sixel_put_rare`). `[[source: vt3xx-sixel]]` says nothing
+            // of C0. xterm skips `HT LF VT FF CR` as white space and ends a
+            // number on `BS`, its departure (`[[source: xterm-graphics-sixel]]`
+            // 541-555), and rings a `BEL` without handing it to its parser
+            // (`[[source: xterm-reset]]`'s file, 3408-3412 and 3691-3705).
+            // `DEL` never gets here, the graph ignoring it in a DCS body as
+            // williams' row does and as 070-9 §9.2 lists for Sixel, "7/15
+            // (DELETE) Ignored" (926); xterm hands its parser one, which ends a
+            // number there, its departure.
             //
             // **Under ISO 8859-1 a GR byte is its 7-bit byte, and a `SPACE` is
             // dropped with the C0** (`Sixel::body_byte`, which quotes 070-9
@@ -152,30 +154,38 @@ impl Paint<'_, '_> {
             }
             self.cold.str_kind = StrKind::Other;
         }
-        // **A DECRQSS drops a format effector, `08-0D`, before its `Pt` is
-        // kept.** The graph puts them in a DCS body for the handler to judge
-        // (`graph::string`), and this one gives them no meaning:
-        // `[[source: dec-std-070]]` 3.5.4 says their inclusion "is intended
-        // for convenience in formatting and storing control strings" and
-        // recommends "that these characters not affect the interpretation of
-        // the control string" (PDF p. 133), and of DEC's practice
-        // `[[source: williams]]` says a C0 with no meaning to the device
-        // function is "silently ignored" (818-822). So `m CR` names SGR, as
-        // it did while the graph dropped the byte, and the answer is
-        // unchanged. xterm's `strcmp` against `m` fails on it
+        // **DECRQSS and DECRSPS drop every C0 before their data is kept,
+        // and read a GR byte as its 7-bit byte under ISO 8859-1.** The graph
+        // puts every C0 of a DCS body for the handler to judge
+        // (`graph::string`), and these give none a meaning:
+        // `[[source: dec-std-070]]` 3.5.4 says the format effectors' inclusion
+        // "is intended for convenience in formatting and storing control
+        // strings" and recommends "that these characters not affect the
+        // interpretation of the control string" (PDF p. 133), and 3.5.4.4
+        // "that all other control codes not used within a command string be
+        // ignored by hardware"; of DEC's practice `[[source: williams]]` says
+        // a C0 with no meaning to the device function is "silently ignored"
+        // (818-822). So `m CR`, `m BEL` and `m NUL` name SGR (Jev,
+        // B_PUT_ALL, 0.99/0.99). xterm's `strcmp` against `m` fails on any
         // (`[[source: xterm-misc]]`'s file, 4935), practice and not followed;
         // `[[source: ctlseqs]]` leaves error recovery to the implementation
-        // (133-137). The other C0 the graph puts, `BEL`, stays in the `Pt`,
-        // and the request then names nothing, which is the owner's open call.
-        if self.cold.str_kind == StrKind::RestoreTabs {
-            return self.restore_tab_put(b);
-        }
+        // (133-137). The data of either is a control sequence's characters
+        // ("the identifying intermediate and final characters", DECRQSS, p.
+        // 5-196), whose GR STD 070 3.5.3 g reads as "the character from the
+        // corresponding row in columns 02 to 07" (PDF p. 129); `[[source:
+        // ecma48]]` §9 gives GR in "the contents of the command string" "the
+        // same meanings as" 02/00-07/14, and williams (462) and ctlseqs read
+        // GR as GL in a control string, as xterm's `AsciiOf` does; so `DCS $
+        // q ED ST`
+        // names SGR, and `FF`, read as `7F`, is dropped as a `DEL` is (Jev's
+        // lean STRIP, 0.60/0.56, the texts' reading). Both were kept raw, so
+        // the request named nothing and answered invalid. Under UTF-8
+        // `gr_as_gl` maps nothing: the bytes are a character's.
         if matches!(
             self.cold.str_kind,
-            StrKind::Decrqss | StrKind::RestoreCursor
-        ) && b.is_format_effector()
-        {
-            return;
+            StrKind::Decrqss | StrKind::RestoreCursor | StrKind::RestoreTabs
+        ) {
+            return self.status_data_put(b);
         }
         // **Under ISO 8859-1 an `OSC` keeps a GR byte as its 7-bit byte**,
         // its clipboard body included. `[[source: dec-std-070]]` 3.5.4.5: "GR
@@ -202,6 +212,12 @@ impl Paint<'_, '_> {
         if self.cold.str_kind == StrKind::Clipboard {
             return self.clip_put(b);
         }
+        self.keep_pending(b);
+    }
+
+    /// Keep one body byte for the terminator, counting one past `OSC_MAX`.
+    #[inline(always)]
+    fn keep_pending(&mut self, b: StreamByte) {
         let n = self.cold.str_len.index();
         if n < OSC_MAX {
             self.strs.pending[n] = b.raw_byte();
@@ -218,6 +234,20 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// One byte of a DECRQSS or DECRSPS body: a C0 or a `DEL` dropped, a
+    /// GR byte read as its 7-bit byte under ISO 8859-1 (`str_put`), and the
+    /// rest kept for the terminator, or, for DECTABSR, read as it arrives.
+    fn status_data_put(&mut self, b: StreamByte) {
+        let b = self.cold.str_enc.gr_as_gl(b);
+        if b.is_c0() || b.raw_byte() == 0x7f {
+            return;
+        }
+        if self.cold.str_kind == StrKind::RestoreTabs {
+            return self.restore_tab_put(b);
+        }
+        self.keep_pending(b);
+    }
+
     /// Decode one Sixel body byte the handler keeps.
     #[inline]
     fn sixel_put(&mut self, b: StreamByte) {
@@ -230,6 +260,11 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     fn sixel_put_rare(&mut self, b: StreamByte) {
+        // 070-9 §9.1, "BEL - same action as in text mode" (`str_put`).
+        if b.is(StreamByte::BEL) {
+            self.bells += 1;
+            return;
+        }
         if let Some(b) = Sixel::body_byte(self.cold.str_enc, b) {
             self.sixel_put(b);
         }

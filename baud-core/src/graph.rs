@@ -1715,19 +1715,16 @@ const fn string(node: Node, b: StreamByte) -> Edge {
         // `sos/pm/apc string` ignores it (426). One shared row ended all five,
         // so a DCS answered at the `BEL` and drew what followed it.
         //
-        // **Neither rings**: put and ignore do not execute the byte. xterm
-        // does, which is its departure and not followed: its `sos_table`
-        // holds every string, `BEL` there is `CASE_BELL`
-        // (`[[source: xterm-vtprstbl-c]]` 7630), and `CASE_BELL` ends an
-        // `OSC` and otherwise calls `Bell` and leaves the string open
-        // (`[[source: xterm-reset]]`'s file, 3691-3705). Not a terminator, it
-        // agrees: the byte is appended to a DCS's buffer (3454) before that
-        // case is reached, as put does here, so a DECRQSS with one fails its
-        // `strcmp` (`[[source: xterm-misc]]`'s file, 4935), and its Sixel
-        // parser is handed only `CASE_IGNORE` bytes (3408-3412), so never the
-        // `BEL`. Here the Sixel handler drops it, with every C0 it is put,
-        // before the decoder (`Paint::str_put`): the decoder reads a number
-        // up to its first non-digit, so a `BEL` put inside one split it.
+        // **The parser executes it in neither**: put and ignore do not ring.
+        // In a DCS the handler decides, as williams' `put` says, "C0
+        // controls are also passed to the handler" (726): a Sixel rings it,
+        // as `[[source: dec-std-070]]` 070-9 §9.1 gives `BEL` the "same
+        // action as in text mode", and every other handler ignores it
+        // (`Paint::str_put`). xterm rings it in every string but an `OSC`
+        // (`[[source: xterm-reset]]`'s file, 3691-3705), practice; its
+        // DECRQSS keeps the byte and fails its `strcmp`
+        // (`[[source: xterm-misc]]`'s file, 4935), where baud's ignores it as
+        // STD 070 3.5.4.4 recommends.
         0x07 => match node {
             Node::OscStr => edge(Act::StrEnd, Node::AfterControl),
             Node::DcsStr => edge(Act::StrPut, Node::DcsStr),
@@ -1776,16 +1773,25 @@ const fn string(node: Node, b: StreamByte) -> Edge {
         // `ESC ] 0 ; t i <01> t l e BEL` set the title to `ti\x01tle` where
         // `baud-core2` set it to `title`.
         //
-        // **In a DCS body this row departs from williams, and it is the
-        // owner's call.** `dcs passthrough` puts these too (388), where
-        // `[[source: dec-std-070]]` 3.5.4.4 recommends "that all other control
-        // codes not used within a command string be ignored by hardware", and
-        // `[[source: vt510-rm-b]]` Table 4-1 says the terminal ignores NUL.
-        // `[[source: ecma48]]` puts them outside a command string, an error
-        // whose recovery the implementation picks (Annex D, item 10). The
-        // texts conflict, so the row stays what it was; `BEL` alone is put,
-        // above.
-        0x00..=0x06 | 0x0e..=0x17 | 0x19 | 0x1c..=0x1f => edge(Act::Consume, node),
+        // **In a DCS body they are put, williams' row whole, and each
+        // handler decides** (`dcs passthrough`, 388; "C0 controls are also
+        // passed to the handler", 726). Of DEC's practice williams says a C0
+        // with "no meaning for the device function" is "silently ignored"
+        // by it (818-822), which is `[[source: dec-std-070]]` 3.5.4.4's
+        // recommendation "that all other control codes not used within a
+        // command string be ignored by hardware", and 3.5.5 leaves a control
+        // string's handling "at a higher level than the parser". So DECRQSS
+        // and DECRSPS ignore every C0 before they read their data, a Sixel
+        // acts on `BEL` and `ENQ` as 070-9 §9.1 says and ignores the rest,
+        // and any other DCS is stored and discarded whole (`Paint::str_put`).
+        // `[[source: ecma48]]` leaves error recovery to the implementation
+        // (Annex D, item 10). Decided by Jev, B_PUT_ALL, 0.99/0.99
+        // (2026-10-19). The graph ignored the 22 and put `BEL` alone, so
+        // `DCS $ q m BEL ST` answered invalid and a Sixel `BEL` rang nothing.
+        0x00..=0x06 | 0x0e..=0x17 | 0x19 | 0x1c..=0x1f => match node {
+            Node::DcsStr => edge(Act::StrPut, node),
+            _ => edge(Act::Consume, node),
+        },
         // **`DEL` is ignored in a DCS body and kept in the other two.** For a
         // DCS every text that speaks of it drops it or lets it be dropped:
         // `[[source: williams]]`'s `dcs passthrough` ignores `7F` with no
@@ -2383,10 +2389,14 @@ mod classes {
         // and, under ISO 8859-1, `BA` in `Dcs` lead to the ignored body,
         // where both were `Sep`. Stride 1 does not move; 2,256 -> 2,248,
         // 68,083 -> 67,636 and 1,818,823 -> 1,801,914 at strides 2 to 4.
+        // **Every C0 of a DCS body is put** (Jev's B_PUT_ALL, 2026-10-19): 44
+        // edges, `00-06`, `0E-17`, `19` and `1C-1F` in `DcsStr` under each
+        // encoding, from `Consume` to `StrPut`. Strides 1 and 2 do not move;
+        // 67,636 -> 67,669 and 1,801,914 -> 1,805,035 at strides 3 and 4.
         assert_eq!(one.len(), CLASSES, "stride 1");
         assert_eq!(two.len(), 2_248, "stride 2");
-        assert_eq!(three.len(), 67_636, "stride 3");
-        assert_eq!(four.len(), 1_801_914, "stride 4");
+        assert_eq!(three.len(), 67_669, "stride 3");
+        assert_eq!(four.len(), 1_805_035, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2843,19 +2853,19 @@ mod classes {
         }
     }
 
-    /// **A DCS body puts the six format effectors `08-0D` and ignores `DEL`;
-    /// an `OSC`, an `SOS`, `PM` or `APC` and the DCS prefix keep their rows**,
-    /// checked against the shipped table in both encodings, at the node each
-    /// introducer reaches -- the 8-bit introducers too, under ISO 8859-1.
+    /// **A DCS body puts every C0 but `CAN`, `SUB` and `ESC`, and ignores
+    /// `DEL`; an `OSC`, an `SOS`, `PM` or `APC` and the DCS prefix keep their
+    /// rows**, checked against the shipped table in both encodings, at the
+    /// node each introducer reaches -- the 8-bit introducers too, under ISO
+    /// 8859-1.
     ///
     /// `[[source: williams]]`'s `dcs passthrough` puts `00-17,19,1C-1F,20-7E`
     /// and ignores `7F` (388); `[[source: ecma48]]` 8.3.27 lets DCS's command
     /// string hold `00/08` to `00/13`, and F.8.1 lets a `DEL` be removed
     /// without changing its content. The DCS body took the `osc string` row
-    /// for both classes, ignoring the six and putting the `DEL`. The classes
-    /// the texts conflict on are held where they were, so a change that
-    /// followed williams' row whole would fail here: `00-06`, `0E-17`, `19`
-    /// and `1C-1F` ignored and `BEL` put in the body, and every C0 and `DEL`
+    /// until 2026-10-10, ignoring the format effectors and putting the
+    /// `DEL`, and until 2026-10-19 it ignored `00-06`, `0E-17`, `19` and
+    /// `1C-1F` and put `BEL` alone (Jev, B_PUT_ALL). Every C0 and `DEL` stay
     /// ignored in the prefix (354-368).
     #[test]
     fn a_dcs_body_puts_the_format_effectors_and_ignores_del() {
@@ -2905,7 +2915,7 @@ mod classes {
                 assert_eq!(at(n, 0x7f), edge(Act::Consume, n), "{enc:?} {body:?} DEL");
                 assert_eq!(at(n, 0x07), edge(Act::StrPut, n), "{enc:?} {body:?} BEL");
                 for v in other_c0() {
-                    assert_eq!(at(n, v), edge(Act::Consume, n), "{enc:?} {body:?} {v:#04x}");
+                    assert_eq!(at(n, v), edge(Act::StrPut, n), "{enc:?} {body:?} {v:#04x}");
                 }
             }
             for body in &others {

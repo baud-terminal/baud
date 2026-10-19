@@ -238,12 +238,20 @@ fn a_bare_esc_cancels_the_dcs() {
 /// `[[source: ecma48]]` 5.6 closes every control string with ST, and
 /// `[[source: williams]]` puts a BEL in `dcs passthrough` (line 388). So the
 /// request is still open after the BEL and answers nothing, and the ST that
-/// closes it answers for a `Pt` of `r BEL`, which names no setting.
+/// closes it answers for `r`: DECRQSS drops every C0 before it keeps its
+/// `Pt` (`[[source: dec-std-070]]` 3.5.4.4; Jev, B_PUT_ALL, 2026-10-19),
+/// where it kept the BEL and answered invalid. `r BEL X` would answer for
+/// `rX` were the BEL a terminator's.
 /// `tests/control_strings.rs` holds the rest at every read size.
 #[test]
 fn a_bel_does_not_terminate_a_dcs() {
     assert_eq!(replies(b"\x1bP$qr\x07"), b"", "the request is still open");
-    assert_eq!(replies(b"\x1bP$qr\x07\x1b\\"), b"\x1bP0$r\x1b\\");
+    assert_eq!(replies(b"\x1bP$qr\x07\x1b\\"), b"\x1bP1$r1;50r\x1b\\");
+    assert_eq!(
+        replies(b"\x1bP$qr\x07X\x1b\\"),
+        b"\x1bP0$r\x1b\\",
+        "r X names nothing"
+    );
     assert_eq!(
         replies(b"\x1bP$qr\x1b\\"),
         b"\x1bP1$r1;50r\x1b\\",

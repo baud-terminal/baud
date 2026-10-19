@@ -309,3 +309,41 @@ fn a_cancelled_tab_restore_leaves_the_stops() {
         after(&b, |t| assert_eq!(t.reply(), want.as_bytes(), "{cancel:?}"));
     }
 }
+
+/// **A C0 in a DECRSPS body is dropped, and under ISO 8859-1 a GR byte is
+/// its 7-bit byte**, as DECRQSS's: the graph puts every C0 of a DCS body
+/// and these handlers give none a meaning (`[[source: dec-std-070]]`
+/// 3.5.4.4, "that all other control codes not used within a command string
+/// be ignored by hardware"; Jev, B_PUT_ALL), and the data is a control
+/// sequence's characters, whose GR STD 070 3.5.3 g reads as "the character
+/// from the corresponding row in columns 02 to 07", as `[[source: ecma48]]`
+/// §9 does in a command string (Jev's lean STRIP). Until 2026-10-19 a `BEL` inside a column was kept and
+/// ended the restore as an invalid value, and a GR digit was one too.
+#[test]
+fn a_c0_or_gr_byte_in_a_decrsps_body_is_dropped_or_read_as_gl() {
+    let tail = b"\t\tx\tx\ty";
+    for (name, body) in [
+        ("BEL inside a column", &b"\x1bP2$t5/1\x070/40\x1b\\"[..]),
+        ("NUL and SOH", b"\x1bP2$t5\x00/10\x01/40\x1b\\"),
+        (
+            "GR digits under ISO 8859-1",
+            b"\x1b%@\x1bP2$t\xb5/\xb1\xb0/\xb4\xb0\x1b\\",
+        ),
+    ] {
+        let b = [body, tail].concat();
+        after(&b, |t| {
+            assert_eq!(ch(t, 0, 9), 'x', "{name}");
+            assert_eq!(ch(t, 0, 39), 'x', "{name}");
+            assert_eq!(ch(t, 0, 199), 'y', "{name}: no stop past 40");
+        });
+    }
+    let mut b = rsps(1, "5;7;1;@;@;\x07@;0;2;@;BB<<");
+    b.extend_from_slice(b"\x1b[1$w");
+    after(&b, |t| {
+        assert_eq!(
+            t.reply(),
+            cir("5;7;1;@;@;@;0;2;@;BB<<"),
+            "DECCIR with a BEL"
+        )
+    });
+}

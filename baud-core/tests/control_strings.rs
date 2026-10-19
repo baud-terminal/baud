@@ -276,12 +276,14 @@ const INVALID: &[u8] = b"\x1bP0$r\x1b\\";
 /// took the OSC's edge, so a BEL ended a DECRQSS, answered it, and drew what
 /// followed it.
 ///
-/// `m BEL` is told apart three ways: put, the payload is `m\x07` and the
-/// request is invalid; ignored, it is `m` and valid; a terminator, it is `m`
-/// and the `X` after it is drawn. No bell rings: put executes nothing. Every
-/// read size, and the 8-bit form under ISO 8859-1. The control is the same
-/// request without the BEL, which answers valid, so `INVALID` is not the
-/// only reply this harness can see.
+/// **The handler drops it**, since 2026-10-19: DECRQSS ignores every C0
+/// before it keeps its `Pt`, as `[[source: dec-std-070]]` 3.5.4.4
+/// recommends (Jev, B_PUT_ALL), so `m BEL` names SGR and answers valid. A
+/// terminator would answer `m` too, so `m BEL X` tells them apart: `mX`
+/// names nothing and nothing is drawn, where a terminator would answer `m`
+/// and draw the `X`. No bell rings. Every read size, and the 8-bit form
+/// under ISO 8859-1. The control is the same request without the BEL, which
+/// answers valid, so `INVALID` is not the only reply this harness can see.
 #[test]
 fn a_bel_in_a_dcs_body_is_payload_and_only_st_ends_it() {
     let control = b"\x1bP$qm\x1b\\";
@@ -313,9 +315,10 @@ fn a_bel_in_a_dcs_body_is_payload_and_only_st_ends_it() {
             assert_eq!(got.screen, want.screen, "{name}: screen, read size {size}");
             assert_eq!(got.cursor, want.cursor, "{name}: cursor, read size {size}");
             let decrqss = name.starts_with("DECRQSS");
-            let reply: &[u8] = match decrqss {
-                true => INVALID,
-                false => b"",
+            let reply: &[u8] = match (decrqss, name.contains(" X")) {
+                (true, true) => INVALID,
+                (true, false) => b"\x1bP1$r0m\x1b\\",
+                (false, _) => b"",
             };
             assert_eq!(got.reply, reply, "{name}: reply, read size {size}");
             fed(bytes, size, |t| {
@@ -611,8 +614,8 @@ fn full_dcs(intro: &[u8], tail: &[u8], latin1: bool) -> (Vec<u8>, Vec<u8>) {
     }
 }
 
-/// **A format effector in a DCS body reaches the handler, and a `DEL` does
-/// not.** No handler here gives either a meaning, so only the accumulator
+/// **Every C0 in a DCS body reaches the handler, and a `DEL` does not.**
+/// No handler here gives either a meaning, so only the accumulator
 /// can tell: a DCS this core ignores (`StrKind::Other`, here DECUDK-shaped)
 /// whose `OSC_MAX` printable bytes fill it counts one truncation for a byte
 /// put after them and none for a byte ignored.
@@ -623,21 +626,19 @@ fn full_dcs(intro: &[u8], tail: &[u8], latin1: bool) -> (Vec<u8>, Vec<u8>) {
 /// and ignores `7F` (line 388), and "C0 controls are also passed to the
 /// handler" (726). The graph ignored the six and put the `DEL`, the
 /// `osc string` row, so a handler could never see the first and always saw
-/// the second.
+/// the second; and until 2026-10-19 it ignored the other C0 but `BEL`
+/// (Jev, B_PUT_ALL), so `SOH` counted none.
 ///
 /// The control is one more printable byte, which counts one, so the counter
-/// is live for this string. The classes the texts conflict on keep their
-/// rows and are held here too: a `BEL` is put (one) and `SOH` ignored
-/// (none). None of them is executed: the screen and cursor are `AFTER`'s.
+/// is live for this string. None of them is executed: the screen and cursor
+/// are `AFTER`'s.
 #[test]
 fn a_format_effector_in_a_dcs_body_reaches_the_handler_and_a_del_does_not() {
     let mut cases: Vec<(String, Vec<u8>, usize)> = vec![
         ("control: one more printable byte".into(), b"x".to_vec(), 1),
         ("DEL".into(), b"\x7f".to_vec(), 0),
-        ("BEL, put as before".into(), b"\x07".to_vec(), 1),
-        ("SOH, ignored as before".into(), b"\x01".to_vec(), 0),
     ];
-    for v in [0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d] {
+    for v in (0x00..=0x17u8).chain([0x19]).chain(0x1c..=0x1f) {
         cases.push((format!("{v:#04x}"), vec![v], 1));
     }
     for (name, tail, truncated) in &cases {
@@ -796,23 +797,49 @@ const GR_SGR: [(&str, &[u8], &[u8]); 7] = [
     ),
 ];
 
-/// **A GR byte in a DCS body, and the same prefixes under UTF-8, are what
-/// they were**, the guard beside the test above, green before the change and
-/// after it. The body is not the prefix: a GR byte in a `Pt` is stored as
-/// it was, the owner's call (`dcs_passthrough`), so `$ q ED` answers
-/// invalid. Under UTF-8 the GR bytes are a character's, nothing reads them
-/// as a prefix, and each string is ignored: no reply, and only the `Y` drawn.
+/// **Under ISO 8859-1 a GR byte in a DECRQSS body is its 7-bit byte**, as
+/// in the prefix: the data is "the identifying intermediate and final
+/// characters of the control sequence" (`[[source: dec-std-070]]` p.
+/// 5-196), whose GR STD 070 3.5.3 g reads as "the character from the
+/// corresponding row in columns 02 to 07" (PDF p. 129); `[[source: ecma48]]`
+/// §9 gives GR in "the contents of the command string" "the same meanings
+/// as" 02/00-07/14, and `[[source: williams]]` (462) reads GR as GL in a
+/// control string (Jev's lean STRIP, 0.60/0.56, 2026-10-19). `ED` is
+/// `m`, `A0 F1` is `SP q`, DECSCUSR's, and an `FF`, read as `7F`, is dropped
+/// as a `DEL` is. Until then the byte was kept raw and every one answered
+/// invalid. Every framing and read size; under UTF-8 `ED` is a character's
+/// lead and the request names nothing, the control.
 #[test]
-fn a_gr_byte_in_a_dcs_body_or_under_utf8_is_what_it_was() {
-    for (frame, bytes) in support::latin1_framings(b"\x1bP$q\xed\x1b\\Y") {
-        for size in 1..=bytes.len() {
-            assert_eq!(
-                left(&bytes, size).reply,
-                INVALID,
-                "$ q ED, {frame}, read size {size}"
-            );
+fn a_gr_byte_in_a_decrqss_body_is_its_seven_bit_byte_under_latin1() {
+    for (gr, gl) in [
+        (&b"\x1bP$q\xed\x1b\\Y"[..], &b"\x1bP$qm\x1b\\Y"[..]),
+        (b"\x1bP$q\xa0\xf1\x1b\\Y", b"\x1bP$q q\x1b\\Y"),
+        (b"\x1bP$qm\xff\x1b\\Y", b"\x1bP$qm\x1b\\Y"),
+    ] {
+        let want = left(gl, gl.len()).reply;
+        assert_ne!(want, INVALID, "the control answers valid");
+        for (frame, bytes) in support::latin1_framings(gr) {
+            for size in 1..=bytes.len() {
+                assert_eq!(
+                    left(&bytes, size).reply,
+                    want,
+                    "{gr:?}, {frame}, read size {size}"
+                );
+            }
         }
     }
+    let utf8 = b"\x1bP$q\xed\x1b\\Y";
+    for size in 1..=utf8.len() {
+        assert_eq!(left(utf8, size).reply, INVALID, "UTF-8, read size {size}");
+    }
+}
+
+/// **The same prefixes under UTF-8 are what they were**, the guard beside
+/// the GR prefix test above: the GR bytes are a character's, nothing reads
+/// them as a prefix, and each string is ignored: no reply, and only the
+/// `Y` drawn.
+#[test]
+fn a_gr_prefix_under_utf8_is_what_it_was() {
     let want = left(b"Y", 1);
     for (name, gr, _) in GR_SGR {
         for size in 1..=gr.len() {
@@ -825,5 +852,59 @@ fn a_gr_byte_in_a_dcs_body_or_under_utf8_is_what_it_was() {
                 assert_eq!(t.strings_ignored, 1, "{at}: one string")
             });
         }
+    }
+}
+
+/// **Every C0 in a DECRQSS `Pt` is dropped before the `Pt` is read**, so
+/// `m` followed by any of the 23 C0 that are not a format effector, `CAN`,
+/// `SUB` or `ESC` answers as `m` does: the graph puts them all, williams' row whole,
+/// and DECRQSS gives none a meaning, as `[[source: dec-std-070]]` 3.5.4.4
+/// recommends (Jev, B_PUT_ALL, 0.99/0.99, 2026-10-19). Until then the graph
+/// ignored 22 and put `BEL`, which the `Pt` kept, so `m BEL` alone answered
+/// invalid. Every read size, under UTF-8 and the 8-bit form under ISO
+/// 8859-1.
+#[test]
+fn every_c0_in_a_decrqss_pt_is_dropped() {
+    let valid = b"\x1bP1$r0m\x1b\\";
+    for c in (0x00..=0x07u8)
+        .chain(0x0e..=0x17)
+        .chain([0x19])
+        .chain(0x1c..=0x1f)
+    {
+        for (enc, bytes) in [
+            ("UTF-8", vec![0x1b, b'P', b'$', b'q', b'm', c, 0x1b, b'\\']),
+            (
+                "ISO 8859-1",
+                vec![0x1b, b'%', b'@', 0x90, b'$', b'q', b'm', c, 0x9c],
+            ),
+        ] {
+            for size in 1..=bytes.len() {
+                assert_eq!(
+                    left(&bytes, size).reply,
+                    valid,
+                    "{c:#04x}, {enc}, read size {size}"
+                );
+            }
+        }
+    }
+}
+
+/// **Any other DCS holding every C0 is discarded whole**, counted once,
+/// nothing drawn and nothing rung, the handler storing the bytes with the
+/// rest of the string (`[[source: dec-std-070]]` 3.5.4.6, "all data ...
+/// will be discarded without being displayed").
+#[test]
+fn another_dcs_holding_every_c0_is_discarded_whole() {
+    let mut bytes = b"\x1bP0;1|".to_vec();
+    bytes.extend((0x00..=0x17u8).chain([0x19]).chain(0x1c..=0x1f));
+    bytes.extend_from_slice(b"17/31\x1b\\Y");
+    let want = left(b"Y", 1);
+    for size in [1, 2, 7, bytes.len()] {
+        let got = left(&bytes, size);
+        assert_eq!(got.screen, want.screen, "read size {size}: screen");
+        assert_eq!(got.cursor, want.cursor, "read size {size}: cursor");
+        fed(&bytes, size, |t| {
+            assert_eq!((t.strings_ignored, t.bells), (1, 0), "read size {size}");
+        });
     }
 }

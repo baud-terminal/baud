@@ -460,6 +460,21 @@ fn every_test_named_in_the_docs_exists() {
              run past. The record cites it where it describes the refusals by cause",
         ),
         (
+            "a_gr_byte_in_a_dcs_body_or_under_utf8_is_what_it_was",
+            "a historical name, replaced on 2026-10-19 by \
+             `a_gr_byte_in_a_decrqss_body_is_its_seven_bit_byte_under_latin1` and \
+             `a_gr_prefix_under_utf8_is_what_it_was` when a GR byte in a DECRQSS \
+             body began to be read as its 7-bit byte; the record cites the old \
+             name where it describes the GR prefix build",
+        ),
+        (
+            "a_bel_inside_a_sixel_is_payload_and_draws_nothing",
+            "a historical name, replaced on 2026-10-19 by \
+             `a_bel_inside_a_sixel_rings_and_draws_nothing` when a BEL inside a Sixel began \
+             to ring; the record and note AN cite the old name where the BEL \
+             was first put to the Sixel",
+        ),
+        (
             "the_extension_chooses_the_reader",
             "a historical name, replaced on 2026-10-17 by \
              `the_content_chooses_the_reader_and_the_name_only_cross_checks` when \

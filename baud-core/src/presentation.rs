@@ -128,12 +128,9 @@ impl Paint<'_, '_> {
     /// One byte of a tab-stop restore's body ([`TabRestore`]); a column
     /// outside the screen is an invalid value too (Jev's lean STOP: SKIP at
     /// confidence 0.28 and STOP at 0.06, then STOP at 0.36 and 0.34 after
-    /// research). The format effectors are dropped first, as DECRQSS drops
-    /// them (070-3 §3.5.4).
+    /// research). Every C0 and a `DEL` are dropped first, and a GR byte read
+    /// as its 7-bit byte, as for DECRQSS (`Paint::status_data_put`).
     pub(crate) fn restore_tab_put(&mut self, b: StreamByte) {
-        if b.is_format_effector() {
-            return;
-        }
         self.cold.tab_restore = match self.cold.tab_restore.put(b) {
             TabRestore::Ended(c) => self.restore_tab_stop(c),
             next => next,
