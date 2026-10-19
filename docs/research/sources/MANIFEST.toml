@@ -428,8 +428,10 @@ status = "external"
 group  = "C"
 # Fetched and read 2026-10-18 (lane b91), not committed: a source tarball. vt420.c:
 # `#define CHK(n) ((-(n)) & 0xffff)` and tst_DSR_area_sum, which asks one 1x1 DECRQCRA a
-# cell and counts each character's code plus attribute weights, a space only as the
-# first cell; tst_VT420_rectangle's title adds "(should not work)" for a terminal whose
+# cell and counts each character's code plus attribute weights; its title-row sum runs to
+# the last non-space cell, so the spaces between words count, and its "All:" page sum adds
+# every cell it wrote, skipping only SOH, its marker for a cell it never wrote;
+# tst_VT420_rectangle's title adds "(should not work)" for a terminal whose
 # DA is below level 4.
 
 [sources.vt510-decsed]

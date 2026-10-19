@@ -165,7 +165,11 @@ fn under_erm_set_they_erase_a_guarded_position_and_it_stays_guarded() {
 }
 
 /// **A host write into a guarded position replaces the guard**: Jev's lean
-/// in all six asks (0.70/0.78 on 2026-10-16, 0.46/0.54 on 2026-10-18).
+/// in the two asks that put the question alone, each in both orders:
+/// confidence 0.70/0.78 (log 652/653, 2026-10-16) and 0.46/0.54 (log
+/// 832/833, 2026-10-18). The joint question of log 650/651 leaned the other
+/// way, toward the position staying guarded (positions_kept, probability
+/// 0.59/0.60, confidence 0.38/0.40).
 #[test]
 fn a_later_write_replaces_the_guard() {
     let g = run(b"0123456789\x1b[1;3H\x1bV\x1b[1;5H\x1bW\x1b[1;4HZ\x1b[2K");
@@ -340,6 +344,30 @@ fn a_start_pushed_off_the_bottom() {
         .map(|c| if c.flags.is_guarded() { 'G' } else { '.' })
         .collect();
     assert_eq!(row, "GGGGGGGGGGGGGGGGGGGG");
+}
+
+/// An open start under a top-anchored region goes back with its row when
+/// the region scrolls (`Paint::guard_put_back`), with history behind the
+/// window and without, and one inside the region moves up with its line.
+#[test]
+fn an_open_start_through_a_top_anchored_regions_scroll() {
+    for depth in [Depth::NONE, Depth::DEFAULT] {
+        let play = |bytes: &[u8]| {
+            let mut s = Owned::with_history(&WS, &CacheGeometry::UNKNOWN, depth);
+            let mut t = Term::new(s.storage(), &WS);
+            support::feed(&mut t, bytes);
+            let v = t.viewport();
+            (0..usize::from(WS.ws_row))
+                .map(|y| v.row(Row::from_index(y)).to_vec())
+                .collect::<Vec<_>>()
+        };
+        // The start under the region stays on its row.
+        let g = play(b"\x1b[1;8r\x1b[9;3H\x1bV\x1b[8;1H\n\x1b[9;5H\x1bW");
+        assert_eq!(guards(&g, 8), "..GGG...............");
+        // The start inside it moves up a row with its line.
+        let g = play(b"\x1b[1;8r\x1b[5;3H\x1bV\x1b[8;1H\n\x1b[4;5H\x1bW");
+        assert_eq!(guards(&g, 3), "..GGG...............");
+    }
 }
 
 /// A resize forgets an open SPA: its start was a line of the old geometry.

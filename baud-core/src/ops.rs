@@ -3388,6 +3388,9 @@ impl Paint<'_, '_> {
         // flag its SPA set (`bitclr(&xw->flags, PROTECTED)`,
         // `[[source: xterm-reset]]`'s file); what EPA guarded stays, and ERM
         // with it, neither in DEC's table (`[[source: vt510-decstr]]`).
+        // xterm's reset also sets `protected_mode = OFF_PROTECT`, so its
+        // guarded characters become erasable; baud's stay spared, as DEC's
+        // table names no guarded area.
         self.cold.guard_open = None;
         self.style_raw = StyleWord::DEFAULT;
         self.cold.saved = None;
