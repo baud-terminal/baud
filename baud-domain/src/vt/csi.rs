@@ -610,7 +610,8 @@ pub enum Csi {
     SelectiveEraseSavedLines,
     /// REP, `CSI b`. Repeat the preceding graphic character.
     Repeat(Count),
-    /// DA, `CSI c`. Primary Device Attributes: "what are you?".
+    /// DA, `CSI c` or `CSI 0 c`. Primary Device Attributes: "what are
+    /// you?". Any other first parameter is [`Csi::Unsupported`].
     DeviceAttributes,
     /// DSR, `CSI n`. `[[source: ctlseqs]]` defines 5 (status) and 6 (CPR); any
     /// other value is a report baud does not produce, and answering it with the
@@ -1018,7 +1019,18 @@ impl Csi {
             },
             b'L' => Csi::InsertLines(p.count(ParamIdx::FIRST)),
             b'b' => Csi::Repeat(p.count(ParamIdx::FIRST)),
-            b'c' => Csi::DeviceAttributes,
+            // **Only a request is answered**: `[[source: ecma48]]` 8.3.24,
+            // "With a parameter value not equal to 0, DA is used to identify
+            // the device which sends the DA ... If the parameter value is 0,
+            // DA is used to request an identifying DA from a device", and
+            // xterm answers only `GetParam(0) <= 0` (`CASE_DA1`,
+            // `[[source: xterm-reset]]`'s file). A device identifying itself
+            // to baud is not a function baud has, so it is counted.
+            b'c' if p.raw(ParamIdx::FIRST, 0) == 0 => Csi::DeviceAttributes,
+            b'c' => Csi::Unsupported {
+                marker,
+                final_byte: f,
+            },
             b'n' => Csi::DeviceStatus(StatusKind::from_param(p.at(ParamIdx::FIRST))),
             b'I' => Csi::CursorForwardTab(p.count(ParamIdx::FIRST)),
             b'Z' => Csi::CursorBackTab(p.count(ParamIdx::FIRST)),

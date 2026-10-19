@@ -40,6 +40,46 @@ fn da_identifies_as_vt102() {
     );
 }
 
+/// **A `DA` with a parameter other than 0 is not a request, and gets no
+/// answer**: `[[source: ecma48]]` 8.3.24, "With a parameter value not equal
+/// to 0, DA is used to identify the device which sends the DA ... If the
+/// parameter value is 0, DA is used to request an identifying DA from a
+/// device"; xterm answers only `GetParam(0) <= 0` (`CASE_DA1`,
+/// `[[source: xterm-reset]]`'s file). Each is counted in `unsupported`, so a
+/// refusal is not invisible. The controls are the bare form, `0`, and `0`
+/// with a second parameter, which xterm answers too.
+#[test]
+fn a_da_with_a_nonzero_parameter_is_not_answered_and_is_counted() {
+    let ws = support::CORPUS;
+    for (bytes, answered) in [
+        (&b"\x1b[c"[..], true),
+        (b"\x1b[0c", true),
+        (b"\x1b[0;1c", true),
+        (b"\x1b[1c", false),
+        (b"\x1b[2c", false),
+        (b"\x1b[6c", false),
+        (b"\x1b[62c", false),
+        (b"\x1b[65535c", false),
+        (b"\x1b[1;0c", false),
+    ] {
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        let before = t.unsupported;
+        support::feed(&mut t, bytes);
+        let name = String::from_utf8_lossy(bytes).escape_debug().to_string();
+        match answered {
+            true => {
+                assert_eq!(t.reply(), b"\x1b[?6c", "{name}: answered");
+                assert_eq!(t.unsupported, before, "{name}: not counted");
+            }
+            false => {
+                assert_eq!(t.reply(), b"", "{name}: no answer");
+                assert_eq!(t.unsupported, before + 1, "{name}: counted");
+            }
+        }
+    }
+}
+
 // ── Device Status Report ────────────────────────────────────────────────────
 
 /// `CSI 5 n` is "are you there?" and the answer is OK.
