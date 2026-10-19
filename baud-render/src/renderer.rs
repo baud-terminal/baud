@@ -127,7 +127,7 @@ struct StyleInputs {
 /// many of its slots blink. One a copy -- the CPU path's own, and one for each
 /// of the cell path's buffer sets, since a set the GPU is reading cannot be
 /// written and so falls behind the others by a frame.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct StyleStamp {
     table: Option<baud_domain::TableSerial>,
     at: baud_domain::StyleWrites,
@@ -740,6 +740,35 @@ impl Rings {
 /// Where the cursor is, when it is shown, and its shape.
 type Cursor = Option<(Row, Col, CursorStyle)>;
 
+/// **Everything a sized line's records are converted from**
+/// ([`Renderer::sized_lines`]) beside the renderer's own glyph caches,
+/// which give the same glyph for the same question: the row's cells and
+/// rendition, the cursor on it with its opacity, the selection over it, the
+/// blink's phases, the video, the selection's colours, `OSC 12`'s cursor
+/// colour, where the
+/// rendition table stands, the cluster store's epoch and the atlas's
+/// generation, which moves with every glyph placed and every reset.
+#[derive(Clone, PartialEq, Eq)]
+struct SizedKey {
+    cells: Vec<PackedCell>,
+    size: LineRendition,
+    cursor: Option<(Col, CursorStyle, Chan)>,
+    selection: Option<Highlight>,
+    blink: BlinkPhases,
+    video: Video,
+    hilite: Hilite,
+    cursor_color: Option<(u8, u8, u8)>,
+    styles: StyleStamp,
+    clusters: ClusterEpoch,
+    atlas: crate::atlas::Generation,
+}
+
+/// One sized line's records and what they were converted from.
+struct SizedRow {
+    key: SizedKey,
+    records: Vec<Instance>,
+}
+
 /// The pixel rows a row's glyphs cover, `top..bottom`: past the row's
 /// band where a glyph reaches out of its cell, up or down, as a stacked
 /// accent does. The CPU compositor draws those glyphs into the bands they
@@ -1276,6 +1305,10 @@ pub struct Renderer<'f, 'a> {
     /// or an input changed. A cell's colours are one load from it.
     styles: Vec<Resolved>,
     styles_stamp: StyleStamp,
+    /// Each screen row's records the last time [`Renderer::sized_lines`]
+    /// converted it as a sized line, and what they were converted from:
+    /// a frame whose row and inputs are the same reuses them.
+    sized_rows: Vec<Option<SizedRow>>,
     /// Moves on every [`Renderer::set_theme`].
     theme_gen: ThemeGen,
     bg: Vec<Argb>,
@@ -1527,6 +1560,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             pictures: Pictures::new(),
             styles: Vec::new(),
             styles_stamp: StyleStamp::default(),
+            sized_rows: Vec::new(),
             theme_gen: ThemeGen::default(),
             bg: Vec::new(),
             fg: Vec::new(),
@@ -3172,6 +3206,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.pictures.clear(cols, rows);
         }
         let ncols = cols.index();
+        if self.sized_rows.len() != rows.index() {
+            self.sized_rows = (0..rows.index()).map(|_| None).collect();
+        }
         for y in 0..rows.index() {
             let r = Row::from_index(y);
             let size = view.rendition(r);
@@ -3190,9 +3227,44 @@ impl<'f, 'a> Renderer<'f, 'a> {
                     };
                 }
             }
-            let mut exc = Exceptions::default();
-            self.convert_row(term, r, cursor, &mut exc);
-            out.push((r, self.per_row[y].clone()));
+            // **Converted again only when something it is drawn from moved**:
+            // a steady screen, or one whose other rows change, reuses the
+            // line's records. Not under the picture finder, whose blocks a
+            // row can enter without a cell of its own changing.
+            let key = SizedKey {
+                cells: self.cur[y * ncols..(y + 1) * ncols].to_vec(),
+                size,
+                cursor: cursor
+                    .filter(|&(cr, _, _)| cr == r)
+                    .map(|(_, c, s)| (c, s, self.cursor_opacity(s))),
+                selection: self.highlight.filter(|h| h.covers_row(r)),
+                blink: self.blink,
+                video: self.video,
+                hilite: self.hilite(),
+                cursor_color: term.cursor_color_in(self.video),
+                styles: self.styles_stamp,
+                clusters: term.cluster_epoch(),
+                atlas: self.atlas.generation(),
+            };
+            let reuse = !self.theme.finds_pictures()
+                && self.sized_rows[y].as_ref().is_some_and(|s| s.key == key);
+            if !reuse {
+                let mut exc = Exceptions::default();
+                self.convert_row(term, r, cursor, &mut exc);
+                // The generation after the conversion, which may have
+                // placed the row's own glyphs.
+                let key = SizedKey {
+                    atlas: self.atlas.generation(),
+                    ..key
+                };
+                self.sized_rows[y] = Some(SizedRow {
+                    key,
+                    records: self.per_row[y].clone(),
+                });
+            }
+            if let Some(s) = &self.sized_rows[y] {
+                out.push((r, s.records.clone()));
+            }
         }
     }
 

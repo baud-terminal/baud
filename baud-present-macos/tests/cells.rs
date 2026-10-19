@@ -3600,6 +3600,96 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             "a full-row slide off the single-width line after it is not the screen one line up"
         );
     }
+    // **A sized line's records reused across frames** stay what a fresh
+    // conversion draws: frame after frame on one renderer, with only
+    // another row changing, then a palette entry the line uses redefined,
+    // the cursor moving onto the line and along it, a blink phase, the
+    // cluster store and the selection's colours, the arms agree at each.
+    feed(
+        t,
+        format!(
+            "{base}\x1b[2;3H\x1b#6\x1b[31mred\x1b[0m \x1b[5mblink\x1b[0m e\u{301}\x1b[6;1Hother"
+        )
+        .as_bytes(),
+    );
+    for (step, bytes) in [
+        ("as it was", ""),
+        ("another row", "\x1b[6;1Hchanged"),
+        ("the palette", "\x1b]4;1;rgb:00/c0/40\x1b\\"),
+        ("the cursor onto it", "\x1b[?25h\x1b[2;2H"),
+        ("the cursor along it", "\x1b[2;4H"),
+        ("the cursor's shape", "\x1b[4 q"),
+        ("the cursor colour", "\x1b]12;rgb:ff/00/ff\x1b\\"),
+        ("the cursor hidden", "\x1b[?25l"),
+        ("a cell of the line, its glyph drawn already", "\x1b[2;4Hr"),
+    ] {
+        feed(t, bytes.as_bytes());
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "the GPU arms disagree after {step}");
+        assert_eq!(differing(&a, &cpu), 0, "the CPU arm disagrees after {step}");
+    }
+    arms.renderer.set_blink(BlinkPhases {
+        slow: Blink::Hidden,
+        rapid: Blink::Shown,
+    });
+    let (a, b) = arms.draw(t);
+    arms.renderer.set_blink(BlinkPhases::SHOWN);
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the GPU arms disagree in the blink's off phase"
+    );
+    let (a, b) = arms.draw(t);
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the GPU arms disagree back in the on phase"
+    );
+    // A selection over the line while its records are kept, and taken
+    // off again, nothing else changing.
+    let (a, b) = arms.draw(t);
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the GPU arms disagree before the selection"
+    );
+    for (step, region) in [
+        (
+            "a selection over the line",
+            Some(Highlight {
+                from: (Row::from_index(1), Col::at_index(0)),
+                to: (Row::from_index(1), Col::at_index(6)),
+                region: Region::Stream,
+            }),
+        ),
+        ("the selection taken off", None),
+    ] {
+        arms.highlight = region;
+        let (a, b) = arms.draw(t);
+        let cpu = cpu_frame(arms, t);
+        assert_eq!(differing(&a, &b), 0, "the GPU arms disagree after {step}");
+        assert_eq!(differing(&a, &cpu), 0, "the CPU arm disagrees after {step}");
+    }
+    feed(t, b"\x1b]112\x1b\\\x1b[0 q");
+    // vttest's double-size test from its own bytes, a frame every 128
+    // bytes on one renderer: the cell arm's reused lines are the instance
+    // arm's conversion at every frame.
+    let vttest = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/vttest/doublesize.raw"
+    ))
+    .expect("the recording");
+    feed(t, b"\x1bc");
+    for (k, piece) in vttest.chunks(128).enumerate() {
+        feed(t, piece);
+        let (a, b) = arms.draw(t);
+        assert_eq!(
+            differing(&a, &b),
+            0,
+            "the GPU arms disagree on vttest's double-size test at read {k}"
+        );
+    }
     // A sized line scrolled back into the history and drawn there.
     let rows = usize::from(WS.ws_row);
     feed(t, format!("{}\x1b[{rows};1H\n\n\n", lines(true)).as_bytes());
