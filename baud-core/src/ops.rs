@@ -12,7 +12,7 @@
 //! this repo has measured that a large `match` inlined into a per-byte body
 //! costs every payload whether or not it executes.
 
-use crate::paint::Paint;
+use crate::paint::{Paint, Pen};
 use crate::term::{AltSaved, Saved, Screen, SurfaceLine};
 use baud_domain::*;
 
@@ -2146,8 +2146,33 @@ impl Paint<'_, '_> {
     /// `Paint::charset` -- called by every path that moves a slot or `gl`, so
     /// the resolved byte cannot go stale behind them.
     pub(crate) fn invoke(&mut self) {
-        self.charset = self.cold.g[self.cold.gl.index()];
+        let next = self.cold.g[self.cold.gl.index()];
+        if next != self.charset {
+            self.keep_repeated_set();
+        }
+        self.charset = next;
         self.refresh_flags();
+    }
+
+    /// **What REP repeats keeps the set it was received under** when GL's
+    /// set changes. ECMA-48 8.3.103 repeats "the preceding character in the
+    /// data stream, if it is a graphic character", one "that has a coded
+    /// representation consisting of one or more bit combinations" (4.2.43),
+    /// and does not settle a copy made after a control: "If the character
+    /// preceding REP is a control function or part of a control function,
+    /// the effect of REP is not defined by this Standard." The copy is the
+    /// character as drawn, counted as the code it was received as, by Jev's
+    /// lean, AS_SHOWN (0.71 and 0.57, asked with renders), the text leaving
+    /// it undefined. A copy under GL's pen took the new set's tag, so a
+    /// German `[` drawn `Ä`, copied after `ESC ( B`, counted 0xC4 where the
+    /// original counts 0x5B. Resolved here, once a set change, so the write
+    /// path stores the same constant pen it did.
+    #[cold]
+    #[inline(never)]
+    fn keep_repeated_set(&mut self) {
+        if let Some((cp, w, Pen::Gl)) = self.last_cp {
+            self.last_cp = Some((cp, w, Pen::Kept(Received::of(self.charset))));
+        }
     }
 
     /// [`Paint::invoke`] after a designation or a locking shift, which move
@@ -2204,7 +2229,9 @@ impl Paint<'_, '_> {
         };
         // The copy takes the pen of the character it copies: a UTF-8 `Ä`
         // under German is copied as itself, counting 0xC4, and a GL `[`
-        // German drew as `Ä` takes GL's pen as it is now, counting 0x5B.
+        // German drew as `Ä` counts 0x5B, under GL's pen while the set is
+        // unchanged and under the set `invoke` kept for it once GL's set
+        // changes.
         for _ in 0..c.at_least_one().min(self.cols.index()) {
             self.glyph_as(cp, w, pen);
         }

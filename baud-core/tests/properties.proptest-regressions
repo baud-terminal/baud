@@ -9,3 +9,5 @@ cc 4468b158bec85cd8bec3479f5ae750d61fecd243aaeb31b371a03da561a34f26 # shrinks to
 cc cfa20f0f1ba89f5cadb32b6edbc74f879699fb30923776dfebf1b6f9f60eb432 # shrinks to prog = [19, 0, 11]
 cc 971817fff40aa2f1a8b963fa955a60e2f2091f23b91f8a5191ae90d5ddf35ee3 # shrinks to prog = [32, 27, 28, 4, 11, 19, 4, 11, 3, 2, 7, 30, 5, 5, 30, 23, 15, 23, 0, 11], a = 1
 cc 21d1af8e14464a103a167df30120e0db1333a77bc9919263e7d3c646fb8fc987 # shrinks to prog = [3, 27, 1, 65, 48, 64, 41], w = Narrow
+cc 38d84f6afd72b860e5baeca53b09abcd361554a2bef04868498aa52eb41ea7d1 # shrinks to prog = [9, 2, 64], a = 1, w = Narrow
+cc 855639deb2b40fe3fdf925dd14d958d3269da9debeb4542c840303d3c57f6ee2 # shrinks to prog = [5, 3, 64], w = Narrow

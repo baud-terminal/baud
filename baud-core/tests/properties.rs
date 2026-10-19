@@ -597,6 +597,16 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **REP after whatever wrote last**: each writer above records the
+    // preceding graphic character its own way, the bulk ones once a run,
+    // and a split read sends a run's characters through the per-character
+    // writer instead.
+    Atom {
+        name: "rep",
+        bytes: b"\x1b[2b",
+        stride: 0,
+        count: 0,
+    },
     Atom {
         name: "decbi",
         bytes: b"\x1b6",

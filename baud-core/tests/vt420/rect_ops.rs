@@ -700,6 +700,37 @@ fn decrqcra_counts_a_utf8_character_as_itself_under_a_national_set() {
     }
 }
 
+/// **REP's copy keeps the set its character was received under** when GL's
+/// set changes before it: ECMA-48 8.3.103 repeats "the preceding
+/// character", and a graphic character is one "that has a coded
+/// representation" (4.2.43), the character and not its code. The copy is the
+/// character as drawn, and counts the code the original was received as.
+#[test]
+fn rep_after_a_set_change_copies_the_character_and_its_code() {
+    let cases: [(&str, &str, u32, u32); 4] = [
+        ("German [ then ASCII", "\x1b(K[\x1b(B", 0xC4, 0x5B),
+        ("line drawing q then ASCII", "\x1b(0q\x1b(B", 0x2500, 0x71),
+        ("German [ in G1, SO then SI", "\x1b)K\x0e[\x0f", 0xC4, 0x5B),
+        ("German [ then line drawing", "\x1b(K[\x1b(0", 0xC4, 0x5B),
+    ];
+    for (name, text, cp, code) in cases {
+        after(&format!("{text}\x1b[2b\x1b[1;1;1;1;1;3*y"), |t| {
+            for col in 1..=3 {
+                assert_eq!(
+                    cell(t, 1, col).content.as_codepoint().map(|c| c.value()),
+                    Some(cp),
+                    "{name}: column {col}"
+                );
+            }
+            assert_eq!(
+                t.reply(),
+                format!("\x1bP1!~{}\x1b\\", chk(3 * code)).as_bytes(),
+                "{name}"
+            );
+        });
+    }
+}
+
 /// **Every set that replaces a code counts the code received**, the rule
 /// the national sets follow (Jev, CODE_RECEIVED, 2026-10-19): DEC
 /// Supplemental's `@` drawn `À` counts 0x40 and its `W` drawn `Œ` 0x57,

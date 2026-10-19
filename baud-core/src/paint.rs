@@ -35,6 +35,11 @@ const SHORT_TEXT: usize = 2;
 pub(crate) enum Pen {
     Gl,
     Decoded,
+    /// REP's copy of a GL character written before GL's set changed: the
+    /// decoded pen with the set it was received under ([`Paint::invoke`]).
+    /// One byte with the other two, in the niche the set leaves, so
+    /// `last_cp` keeps its size.
+    Kept(Option<Received>),
 }
 
 /// The grid, the bytes, and the cursor, borrowed together for one read.
@@ -913,6 +918,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         let flags = match pen {
             Pen::Gl => self.flags,
             Pen::Decoded => self.decoded_pen(),
+            Pen::Kept(set) => self.flags.with_received(set),
         };
         // **Making the wide tail implicit is worth 3%, not the 23% the store
         // accounting implied.** A wide character occupies two cells and writes
@@ -1390,6 +1396,12 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.cx = self.end_at(end);
         self.row_written = self.row_written.max(end);
         self.overwrote(start, end);
+        // What `REP` repeats, once a run, as `piece` records an ASCII run's:
+        // the run never set it, so sixteen UTF-8 `Ä` and `CSI 2 b` wrote
+        // no cell (`rep_repeats_the_last_character_of_every_writer`).
+        if let Some(&last) = cps.last() {
+            self.last_cp = Some((last, w, Pen::Decoded));
+        }
     }
 
     /// Does a run of `n` characters of width `w` fit the rest of the row?

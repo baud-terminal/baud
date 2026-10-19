@@ -139,6 +139,98 @@ fn rep_sees_bulk_ascii() {
     assert_eq!(grid(b"abc\x1b[2b"), grid(b"abccc"));
 }
 
+/// **Every writer leaves REP the character it wrote last**: ECMA-48
+/// 8.3.103, "the preceding character in the data stream ... is to be
+/// repeated n times". Each run here is long enough for its writer's bulk
+/// arm and ends on a character unlike its first, so a record of the run's
+/// first character, or of the wrong width, is a different screen.
+///
+/// Until 2026-10-19 the narrow and wide UTF-8 runs (`Paint::run`) told REP
+/// nothing: sixteen `Ä` and `CSI 2 b` wrote no cell.
+#[test]
+fn rep_repeats_the_last_character_of_every_writer() {
+    let runs: [(&str, &str, char); 7] = [
+        ("short ASCII", "ab", 'b'),
+        ("bulk ASCII", "abcdefghijklmnopq", 'q'),
+        (
+            "narrow two-byte",
+            "\u{C0}\u{C1}\u{C2}\u{C3}\u{C4}\u{C5}\u{C6}\u{C7}",
+            '\u{C7}',
+        ),
+        (
+            "narrow three-byte",
+            "\u{20A0}\u{20A1}\u{20A2}\u{20A3}\u{20A4}\u{20A5}",
+            '\u{20A5}',
+        ),
+        (
+            "wide three-byte",
+            "\u{4E00}\u{4E8C}\u{4E09}\u{56DB}\u{4E94}\u{516D}",
+            '\u{516D}',
+        ),
+        (
+            "wide four-byte",
+            "\u{20000}\u{20001}\u{20002}\u{20003}",
+            '\u{20003}',
+        ),
+        (
+            "sixteen U+00C4",
+            "\u{C4}\u{C4}\u{C4}\u{C4}\u{C4}\u{C4}\u{C4}\u{C4}\u{C4}\u{C4}\u{C4}\u{C4}\u{C4}\u{C4}\u{C4}\u{C4}",
+            '\u{C4}',
+        ),
+    ];
+    let mut red = Vec::new();
+    for (name, run, last) in runs {
+        let rep = format!("{run}\x1b[2b");
+        let typed = format!("{run}{last}{last}");
+        if grid(rep.as_bytes()) != grid(typed.as_bytes())
+            || cursor(rep.as_bytes()) != cursor(typed.as_bytes())
+        {
+            red.push(name);
+        }
+    }
+    // GR bytes under ISO 8859-1, a writer of their own.
+    let latin1 = b"\x1b%@\xc0\xc1\xc2\xc3\xc4\xc5";
+    if grid(&[latin1.as_slice(), b"\x1b[2b"].concat())
+        != grid(&[latin1.as_slice(), b"\xc5\xc5"].concat())
+    {
+        red.push("ISO 8859-1 GR bytes");
+    }
+    assert!(
+        red.is_empty(),
+        "REP after {red:?} is not the last character twice"
+    );
+}
+
+/// **After a cluster REP repeats its first character**, each copy a cell
+/// of its own: a bare `e` after `e U+0301`, the woman after a ZWJ family,
+/// the first regional indicator after a flag, and a narrow U+2620 after
+/// U+2620 U+FE0F widened it (Jev's lean, BASE, 0.98 and 0.97, then 0.88
+/// and 0.76 asked with renders, 2026-10-19; xterm repeats the last
+/// codepoint, and nothing when it takes no column).
+#[test]
+fn rep_after_a_cluster_repeats_its_first_character() {
+    let cases: [(&str, &str, &str); 4] = [
+        ("e U+0301", "e\u{301}", "ee"),
+        (
+            "woman ZWJ man",
+            "\u{1F469}\u{200D}\u{1F468}",
+            "\u{1F469}\u{1F469}",
+        ),
+        ("a flag", "\u{1F1E9}\u{1F1EA}", "\u{1F1E9}\x1b[m\u{1F1E9}"),
+        (
+            "U+2620 U+FE0F",
+            "\u{2620}\u{FE0F}",
+            "\u{2620}\x1b[m\u{2620}",
+        ),
+    ];
+    for (name, cluster, copies) in cases {
+        let rep = format!("{cluster}\x1b[2b");
+        let typed = format!("{cluster}\x1b[m{copies}");
+        assert_eq!(grid(rep.as_bytes()), grid(typed.as_bytes()), "{name}");
+        assert_eq!(cursor(rep.as_bytes()), cursor(typed.as_bytes()), "{name}");
+    }
+}
+
 /// An omitted parameter is 1.
 #[test]
 fn rep_defaults_to_one() {

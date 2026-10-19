@@ -8381,6 +8381,8 @@ sha256 = "e73f7eaa9d01d40bb0cbe6a3232691bc864c9b8ab3770cef983106bf40c32fe0"
 bytes  = 305999
 status = "external"
 group  = "C"
+# Read 2026-10-19 (lane b99) for REP: `last_graphic_char` is stored after map_char, and
+# screen_repeat_character draws it again.
 # Practice for the placeholder section's inheritance: a run continues only
 # from the cell immediately to the left, when the ids taken from the
 # foreground and underline colours (`color_to_id`, the colour's 24 bits or
@@ -8491,6 +8493,8 @@ sha256 = "f3e838a4494c1093d831246a0cb0ed301d1af14e52aa5ab8f66e6a8bb0db63a0"
 bytes  = 413144
 status = "retrieved"
 group  = "C"
+# Read 2026-10-19 (lane b99) for REP: doparsing's `thischar = -1` resets `lastchar` after
+# any byte that leaves the parser in ground, and CASE_REP writes it through gsets[curgl].
 # Title widened 2026-10-08 for note AF; the key keeps its name, and url, file and hash
 # are unchanged. The file is all of charproc.c, and note AF cites `xtermDecodeSCS`
 # (line 1915), whose table lookup admits an NRC set only `(scs_table[n].need_nrc == 0
@@ -8620,6 +8624,8 @@ sha256 = "5f7aaa2e700cb2966cf7f4352713ffcd3dd1fc65c2fb781afad835e47f191501"
 bytes  = 143121
 status = "retrieved"
 group  = "C"
+# Read 2026-10-19 (lane b99) for REP: term_print translates line drawing before it stores
+# `cell->wc = term->vt.last_printed = wc`, so REP repeats the character as drawn.
 
 # `term_linefeed` (terminal.c 3193-3203): scroll when the cursor is on the
 # region's last row, whatever row that is, and otherwise `term_cursor_down`,
@@ -8663,6 +8669,7 @@ sha256 = "45e1a839714c7670bd6a1a924dd8e8d8e8e55916f10f9aaf17c8a558a542d969"
 bytes  = 73284
 status = "retrieved"
 group  = "L"
+# Read 2026-10-19 (lane b99) for REP: `b` prints `last_printed` again through term_print.
 
 [sources.foot-input]
 key    = "foot-input"
@@ -8874,6 +8881,8 @@ sha256 = "c39b749ce345139bf0061d0a44d669cc783afa2d60406dfa9c59ea8615627dff"
 bytes  = 578262
 status = "external"
 group  = "U"
+# Read 2026-10-19 (lane b99) for REP: print stores `previous_char` before printCell applies
+# GL's set, so printRepeat re-maps the code under the set in force.
 
 [sources.ghostty-termio-thread-9bbb9b2]
 key    = "ghostty-termio-thread-9bbb9b2"
