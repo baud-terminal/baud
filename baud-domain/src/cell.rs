@@ -388,14 +388,6 @@ impl CellFlags {
     pub fn without_cluster(self) -> CellFlags {
         CellFlags(self.0 & !CellFlags::MARKED.0)
     }
-    /// The byte, for the one place a flag set has to survive a round trip
-    /// through [`Run`]'s fixed layout.
-    pub fn bits(self) -> u8 {
-        self.0 as u8
-    }
-    pub fn from_bits(b: u8) -> CellFlags {
-        CellFlags(b as u16)
-    }
 }
 
 impl PackedCell {

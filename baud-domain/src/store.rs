@@ -98,16 +98,16 @@ pub struct Run {
     /// field stays because removing it changes the layout of a struct that
     /// crosses the mmap boundary, which is a change of its own.
     pub charset: u8,
-    /// [`CellFlags`] as a byte, for the same reason `encoding` is one: the
-    /// struct crosses the mmap boundary and zerocopy will not take a type whose
-    /// bit patterns are not all valid. Recover it with [`Run::flags`].
+    /// **Dead, like `charset`: nothing writes or reads it.** It held
+    /// [`CellFlags`] as a byte for `promote`, which replayed a run into cells:
+    /// the run *was* the storage in `baud-core2`'s `OpMode::Runs`, and a
+    /// promotion that dropped the flag would have made protection depend on
+    /// when the line happened to materialise. A cell carries its own
+    /// [`CellFlags`] from the moment it is written.
     ///
-    /// **Unused, like `charset`.** It was for `promote`, which replayed a run
-    /// into cells: the run *was* the storage in `baud-core2`'s `OpMode::Runs`,
-    /// and a promotion that dropped the flag would have made protection depend
-    /// on when the line happened to materialise. Nothing in this core builds a
-    /// `Run` or calls [`Run::flags`]; a cell carries its own [`CellFlags`] from
-    /// the moment it is written.
+    /// **Its accessors are gone** (2026-10-19): a byte cannot hold the
+    /// sixteen-bit flags, and the round trip dropped bit 10, the ECMA-48
+    /// guard. The field stays for `charset`'s reason, the struct's layout.
     pub flags: u8,
     pub _pad: [u8; 1],
 }
@@ -116,11 +116,6 @@ impl Run {
     /// Checked: a byte off disk is not necessarily a valid [`Encoding`].
     pub fn encoding(&self) -> Option<Encoding> {
         Encoding::try_read_from_bytes(&[self.encoding]).ok()
-    }
-    /// Unchecked, unlike [`Run::encoding`]: every bit pattern is a valid flag
-    /// set, so there is nothing to reject.
-    pub fn flags(&self) -> CellFlags {
-        CellFlags::from_bits(self.flags)
     }
 }
 
@@ -622,10 +617,6 @@ impl Run {
     /// through the checked [`Run::encoding`].
     pub fn with_encoding(mut self, e: Encoding) -> Run {
         self.encoding = e as u8;
-        self
-    }
-    pub fn with_flags(mut self, f: CellFlags) -> Run {
-        self.flags = f.bits();
         self
     }
 }

@@ -329,7 +329,7 @@ fn screen(t: &Term<'_>) -> String {
         let row = t.row(Row::from_index(y)).unwrap();
         for c in row {
             let marks: Vec<u32> = t.cluster_marks(*c).collect();
-            s += &format!("{:x}/{:?}/{marks:x?} ", c.content.bits(), c.flags.bits());
+            s += &format!("{:x}/{:?}/{marks:x?} ", c.content.bits(), c.flags);
         }
         s += &format!("{:?}\n", shape(&runs(t, y)));
     }
