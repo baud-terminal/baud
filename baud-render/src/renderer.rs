@@ -746,8 +746,12 @@ type Cursor = Option<(Row, Col, CursorStyle)>;
 /// rendition, the cursor on it with its opacity, the selection over it, the
 /// blink's phases, the video, the selection's colours, `OSC 12`'s cursor
 /// colour, where the
-/// rendition table stands, the cluster store's epoch and the atlas's
-/// generation, which moves with every glyph placed and every reset.
+/// rendition table stands, the cluster store's epoch, the cells of the row
+/// the picture finder put in a picture, and how many times the atlas was
+/// reset. Only a reset moves a slot a record names: a glyph placed
+/// anywhere takes a free place and a growth keeps every slot at its texels
+/// (`Atlas::grow_mask`), so the atlas's generation, which every placement
+/// moves, would reconvert every sized row for a glyph on another line.
 #[derive(Clone, PartialEq, Eq)]
 struct SizedKey {
     cells: Vec<PackedCell>,
@@ -760,7 +764,8 @@ struct SizedKey {
     cursor_color: Option<(u8, u8, u8)>,
     styles: StyleStamp,
     clusters: ClusterEpoch,
-    atlas: crate::atlas::Generation,
+    pictured: Vec<crate::Pictured>,
+    atlas: Tally,
 }
 
 /// One sized line's records and what they were converted from.
@@ -1309,6 +1314,8 @@ pub struct Renderer<'f, 'a> {
     /// converted it as a sized line, and what they were converted from:
     /// a frame whose row and inputs are the same reuses them.
     sized_rows: Vec<Option<SizedRow>>,
+    /// How many of those conversions were made rather than reused.
+    sized_converted: Tally,
     /// Moves on every [`Renderer::set_theme`].
     theme_gen: ThemeGen,
     bg: Vec<Argb>,
@@ -1561,6 +1568,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             styles: Vec::new(),
             styles_stamp: StyleStamp::default(),
             sized_rows: Vec::new(),
+            sized_converted: Tally::default(),
             theme_gen: ThemeGen::default(),
             bg: Vec::new(),
             fg: Vec::new(),
@@ -2482,6 +2490,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.atlas.stats()
     }
 
+    /// How many sized rows [`Renderer::sized_lines`] has converted, rather
+    /// than reused, since the renderer was made.
+    pub fn sized_converted(&self) -> Tally {
+        self.sized_converted
+    }
+
     /// The default-background colour, straight (not premultiplied), for a
     /// presenter to clear the margin around the grid to -- so the gutter is
     /// the terminal's own background rather than a see-through edge. It is
@@ -3229,8 +3243,9 @@ impl<'f, 'a> Renderer<'f, 'a> {
             }
             // **Converted again only when something it is drawn from moved**:
             // a steady screen, or one whose other rows change, reuses the
-            // line's records. Not under the picture finder, whose blocks a
-            // row can enter without a cell of its own changing.
+            // line's records. Under the picture finder a row enters a block
+            // without a cell of its own changing, so the key holds what the
+            // finder found on the row this frame.
             let key = SizedKey {
                 cells: self.cur[y * ncols..(y + 1) * ncols].to_vec(),
                 size,
@@ -3244,19 +3259,14 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 cursor_color: term.cursor_color_in(self.video),
                 styles: self.styles_stamp,
                 clusters: term.cluster_epoch(),
-                atlas: self.atlas.generation(),
+                pictured: self.pictures.row(r).to_vec(),
+                atlas: self.atlas.stats().grown,
             };
-            let reuse = !self.theme.finds_pictures()
-                && self.sized_rows[y].as_ref().is_some_and(|s| s.key == key);
+            let reuse = self.sized_rows[y].as_ref().is_some_and(|s| s.key == key);
             if !reuse {
                 let mut exc = Exceptions::default();
                 self.convert_row(term, r, cursor, &mut exc);
-                // The generation after the conversion, which may have
-                // placed the row's own glyphs.
-                let key = SizedKey {
-                    atlas: self.atlas.generation(),
-                    ..key
-                };
+                self.sized_converted.bump();
                 self.sized_rows[y] = Some(SizedRow {
                     key,
                     records: self.per_row[y].clone(),

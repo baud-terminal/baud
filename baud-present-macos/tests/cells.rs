@@ -3690,24 +3690,137 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         assert_eq!(differing(&a, &cpu), 0, "the CPU arm disagrees after {step}");
     }
     feed(t, b"\x1b]112\x1b\\\x1b[0 q");
+    // **What moves a sized line's records, and what does not.** A glyph
+    // placed in the atlas for another row leaves them (a placement takes a
+    // free place and moves no slot they name); a reset of the atlas, which
+    // voids every slot, reconverts the line; and under the picture finder a
+    // steady frame reuses them while a block that reaches the line through
+    // another row reconverts it. The arms agree at each.
+    let converted = |arms: &Arms<'_, '_>| arms.renderer.sized_converted().value();
+    // The map holds a screen's worth of glyphs again after the reset.
+    let abc = "abcdefghijklmnopqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789";
+    feed(
+        t,
+        format!("{base}\x1b[2;3H\x1b#6\x1b[31mred\x1b[0m line\x1b[6;1Hother\x1b[8;1H{abc}")
+            .as_bytes(),
+    );
+    let _ = arms.draw(t);
+    let (before, drawn) = (converted(arms), arms.renderer.atlas_stats().rasterised);
+    feed(t, "\x1b[6;1H\u{20ac}\u{151}\u{3a9}\u{416}".as_bytes());
+    let (a, b) = arms.draw(t);
+    assert!(
+        arms.renderer.atlas_stats().rasterised.value() > drawn.value(),
+        "the premise: the other row's glyphs were placed"
+    );
+    assert_eq!(
+        converted(arms),
+        before,
+        "a glyph placed for another row reconverted the line"
+    );
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the GPU arms disagree after a glyph elsewhere"
+    );
+    for (emoji, step) in [
+        (baud_render::EmojiDefault::System, "an atlas reset"),
+        (baud_render::EmojiDefault::Font, "an atlas reset back"),
+    ] {
+        let before = converted(arms);
+        arms.renderer.set_emoji_default(emoji);
+        let (a, b) = arms.draw(t);
+        assert!(converted(arms) > before, "{step} kept the line's records");
+        assert_eq!(differing(&a, &b), 0, "the GPU arms disagree after {step}");
+    }
+    let resting = arms.renderer.theme().clone();
+    arms.renderer.set_theme(Theme {
+        app_bg: baud_render::AppBg::Dimmed,
+        picture_bg: baud_render::PictureBg::Opaque,
+        ..resting.clone()
+    });
+    // Ten colours on the line and ten more on the row below, apart from
+    // it: a picture only once the row below joins the block
+    // (`PICTURE_COLOURS`), which a DCH there does without a rendition
+    // minted or a cell of the line changed.
+    let colours = |row: usize, col: usize, from: u32| {
+        let mut b = format!("\x1b[{row};{col}H");
+        for k in 0..10u32 {
+            let c = from + k * 9;
+            b.push_str(&format!("\x1b[38;2;250;250;250;48;2;{c};{};90mx", 255 - c));
+        }
+        b.push_str("\x1b[0m");
+        b
+    };
+    feed(
+        t,
+        format!(
+            "{base}\x1b[2;1H\x1b#6{}{}\x1b[8;1H{abc}",
+            colours(2, 3, 10),
+            colours(3, 41, 100)
+        )
+        .as_bytes(),
+    );
+    let (a, b) = arms.draw(t);
+    assert_eq!(
+        arms.exceptions.stats().pictured.value(),
+        0,
+        "ten colours make no picture"
+    );
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the GPU arms disagree before the picture"
+    );
+    let before = converted(arms);
+    let (a, b) = arms.draw(t);
+    assert_eq!(
+        converted(arms),
+        before,
+        "a steady frame under the finder reconverted the line"
+    );
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the GPU arms disagree on the steady frame"
+    );
+    feed(t, b"\x1b[3;1H\x1b[38P");
+    let (a, b) = arms.draw(t);
+    assert!(
+        arms.exceptions.stats().pictured.value() >= 20,
+        "the premise: the row below made the line a picture"
+    );
+    assert!(
+        converted(arms) > before,
+        "the picture reaching the line kept its records"
+    );
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the GPU arms disagree once the line is a picture"
+    );
+    let finder = arms.renderer.theme().clone();
     // vttest's double-size test from its own bytes, a frame every 128
-    // bytes on one renderer: the cell arm's reused lines are the instance
-    // arm's conversion at every frame.
+    // bytes on one renderer, with the picture finder off and on: the cell
+    // arm's reused lines are the instance arm's conversion at every frame.
     let vttest = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../tests/vttest/doublesize.raw"
     ))
     .expect("the recording");
-    feed(t, b"\x1bc");
-    for (k, piece) in vttest.chunks(128).enumerate() {
-        feed(t, piece);
-        let (a, b) = arms.draw(t);
-        assert_eq!(
-            differing(&a, &b),
-            0,
-            "the GPU arms disagree on vttest's double-size test at read {k}"
-        );
+    for (theme, name) in [(resting.clone(), "off"), (finder, "on")] {
+        arms.renderer.set_theme(theme);
+        feed(t, b"\x1bc");
+        for (k, piece) in vttest.chunks(128).enumerate() {
+            feed(t, piece);
+            let (a, b) = arms.draw(t);
+            assert_eq!(
+                differing(&a, &b),
+                0,
+                "the GPU arms disagree on vttest's double-size test at read {k}, the finder {name}"
+            );
+        }
     }
+    arms.renderer.set_theme(resting);
     // A sized line scrolled back into the history and drawn there.
     let rows = usize::from(WS.ws_row);
     feed(t, format!("{}\x1b[{rows};1H\n\n\n", lines(true)).as_bytes());

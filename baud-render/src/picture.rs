@@ -264,6 +264,13 @@ impl Pictures {
             .unwrap_or_default()
     }
 
+    /// `row`'s cells as the last frame found them, a picture's or not.
+    pub fn row(&self, row: Row) -> &[Pictured] {
+        let cols = self.cols.index();
+        let at = row.index() * cols;
+        self.mask.get(at..at + cols).unwrap_or_default()
+    }
+
     /// Whether `row`'s picture cells differ from the frame before -- a row
     /// whose cells did not change can still need repainting, because a
     /// picture is a property of the block and the block may have changed

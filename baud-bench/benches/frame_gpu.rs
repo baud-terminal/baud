@@ -639,6 +639,12 @@ fn main() {
                 s.pict.value() as f64 / s.frames as f64,
                 per(s.wait),
             );
+            if r.sized_converted().value() > 0 {
+                println!(
+                    "      sized rows converted: {}",
+                    r.sized_converted().value()
+                );
+            }
             for (kind, p) in ["after a read", "nothing read"].iter().zip(s.parts) {
                 if p.frames.value() == 0 {
                     continue;
