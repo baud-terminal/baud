@@ -897,6 +897,10 @@ red on dad9260c (refused as "X resources, which baud does not read").
   table holds 30 names X.Org's rgb.txt at 749182c does not (aqua, crimson,
   rebeccapurple, the web and x11 variants;
   [[source: xserver-oscolor-98aed9d]] 65-849).
+- **Superseded 2026-10-18**: a value is read by `XColor::parse`, the
+  parser `OSC 4` reads with, so names, `rgbi:`, CIE and TekHVC values are
+  colours, and what it refuses -- a name the server lacks, `rgb:1/2/3/4` --
+  is passed over and named, as xterm skips it.
 
 ## kitty's names and wide-gamut colours (2026-10-17)
 

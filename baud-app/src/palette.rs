@@ -628,9 +628,6 @@ fn reason(kind: SchemeErrorKind) -> String {
         SchemeErrorKind::NoName => "no name, which a Windows Terminal scheme requires".into(),
         SchemeErrorKind::Count => "not the sixteen colours the format requires".into(),
         SchemeErrorKind::NotUtf8 => "a byte that is not UTF-8, which the format requires".into(),
-        SchemeErrorKind::XcmsColour => {
-            "an X colour in rgbi: or a CIE or TekHVC space, which baud does not convert yet".into()
-        }
         SchemeErrorKind::Cpp(c) => format!(
             "{}, which baud's C preprocessor subset does not run",
             match c {

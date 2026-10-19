@@ -1,8 +1,8 @@
 //! X resources, read as xrdb loads them: the C preprocessor subset, Xrm's
 //! names and XParseColor's colours, each case one rule.
 
-use baud_domain::Color;
 use baud_domain::themefile::*;
+use baud_domain::{Color, XColor};
 
 fn c(h: &str) -> Color {
     hex(h.as_bytes()).unwrap()
@@ -122,32 +122,51 @@ fn comments_splices_and_rescanning_are_cpps() {
     );
 }
 
-/// An X colour name refuses the file, as a ghostty file's does: xterm
-/// resolves it and baud does not yet -- `crimson` too, which the X server
-/// holds and X.Org's rgb.txt at 749182c does not. So do `rgbi:` and the CIE
-/// forms.
+/// A spec read as `*color0` and as `OSC 4`'s parser reads it, and whether
+/// the reader named it refused.
+fn alike(v: &str) -> (Option<Color>, Option<Color>, bool) {
+    let (r, skipped) = read(&format!("*color0: {v}\n"));
+    let got = r.unwrap_or_else(|e| panic!("{v}: {e:?}")).ansi[0];
+    let want = match XColor::parse(v.as_bytes()) {
+        XColor::Rgb(r, g, b) => Some(Color::Rgb(r, g, b)),
+        XColor::Query | XColor::Unresolved(_) => None,
+    };
+    let refused = skipped.iter().any(|(_, _, _, w)| *w == Skipped::Refused);
+    (got, want, refused)
+}
+
+/// **A resource reads every form `OSC 4` reads**: one parser,
+/// `XColor::parse`, for both, so a name, `rgbi:` and the CIE and TekHVC
+/// forms are colours here as in an escape. The reader had its own parser,
+/// which refused the file at each of them.
 #[test]
-fn a_colour_name_rgbi_and_cie_refuse_the_file() {
-    for (v, kind) in [
-        ("red", SchemeErrorKind::ColourName),
-        ("crimson", SchemeErrorKind::ColourName),
-        ("light blue", SchemeErrorKind::ColourName),
-        ("rgbi:1/0/0", SchemeErrorKind::XcmsColour),
-        ("CIEXYZ:0.3227/0.28133/0.2493", SchemeErrorKind::XcmsColour),
-        ("TekHVC:0/50/0", SchemeErrorKind::XcmsColour),
+fn a_resource_reads_every_form_osc_4_reads() {
+    for v in [
+        "red",
+        "light blue",
+        "LimeGreen",
+        "rgbi:1/0/0",
+        "CIEXYZ:0.3227/0.28133/0.2493",
+        "TekHVC:0/50/0",
+        "#fff",
+        "RGB:8/80/800",
     ] {
-        let (r, _) = read(&format!("*color0: {v}\n"));
-        assert_eq!(
-            r,
-            Err((
-                None,
-                SchemeError {
-                    line: Line(1),
-                    kind
-                }
-            )),
-            "{v}"
-        );
+        let (got, want, refused) = alike(v);
+        assert!(want.is_some(), "{v}: the control, a colour");
+        assert_eq!((got, refused), (want, false), "{v}");
+    }
+}
+
+/// **And refuses what `OSC 4` refuses**, naming it: `rgb:1/2/3/4` and
+/// `rgb:1/2/3/`, off the Xlib manual's three fields, which the reader's
+/// own parser took; a name the server lacks; and `?`, a query only in an
+/// escape.
+#[test]
+fn a_resource_refuses_what_osc_4_refuses() {
+    for v in ["rgb:1/2/3/4", "rgb:1/2/3/", "notacolour", "?"] {
+        let (got, want, refused) = alike(v);
+        assert_eq!(want, None, "{v}: the control, refused");
+        assert_eq!((got, refused), (None, true), "{v}");
     }
 }
 
@@ -159,7 +178,7 @@ fn a_colour_name_rgbi_and_cie_refuse_the_file() {
 fn a_component_is_its_high_byte() {
     let (s, skipped) = read(
         "*color0: #ab0000\n*color1: #fff\n*color2: rgb:f/f/f\n*color3: #123456789\n\
-         *color4: #1234abcd5678\n*color5: RGB:8/80/800\n*color6: rgb:1234/5/6/7\n\
+         *color4: #1234abcd5678\n*color5: RGB:8/80/800\n*color6: rgb:1234/5/6\n\
          *color7: #12345\n*color8: rgb:12345/0/0\n*color9: [90]#000000\n",
     );
     let s = s.unwrap();

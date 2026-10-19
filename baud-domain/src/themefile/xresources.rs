@@ -36,23 +36,24 @@
 //! a program's own entry (`URxvt*color0`) is passed over naming the program
 //! (Jev's lean, decisions.jsonl 714/715).
 //!
-//! **A colour is XParseColor's** (`[[source: libx11-parsecol-b8d5a70]]`
-//! 52-86, `[[source: libx11-lrgb-b8d5a70]]` 1286-1375): `#` and 3, 6, 9 or 12
-//! hex digits, the most significant bits of each 16-bit component; `rgb:`
-//! with one to four digits a component, scaled to 16 bits, in either case
-//! (Xcms lower-cases it first, `[[source: libx11-cmscolnm-b8d5a70]]`
-//! 214-235). A 16-bit component
-//! is drawn as its high byte, `v >> 8`, as xterm computes it on TrueColor
+//! **A colour is XParseColor's, read by the parser `OSC 4` reads with**,
+//! [`crate::XColor::parse`], so a resource file and an application's escape
+//! read one spec alike: `#` and 3, 6, 9 or 12 hex digits, the most
+//! significant bits of each 16-bit component; `rgb:` with one to four
+//! digits a component, scaled to 16 bits, in any case; `rgbi:` and the CIE
+//! and TekHVC forms, converted to sRGB; and the X server's names, case
+//! ignored (`[[source: xlib-ch06-b8d5a70]]` 484-695,
+//! `[[source: libx11-parsecol-b8d5a70]]` 52-139). A 16-bit component is
+//! drawn as its high byte, `v >> 8`, as xterm computes it on TrueColor
 //! (`[[source: xterm-misc-9489b20]]` 2725-2733), as libXft does
 //! (`[[source: libxft-xftcolor-6b333a3]]` 81-95), and as the X server's
 //! `fbResolveColor` gives it on an 8-bit visual, `miResolveColor`'s
 //! `(v >> 8) * 257` (`[[source: xserver-fbscreen-98aed9d]]` 135,
 //! `[[source: xserver-fbcmap-mi-98aed9d]]` 57-61,
 //! `[[source: xserver-micmap-98aed9d]]` 95-112): so `#fff` is `#f0f0f0`.
-//! `rgbi:`, the CIE and TekHVC forms and a colour name refuse the file, as
-//! a ghostty file's name does: xterm draws them, and baud does not read
-//! them yet. The server's names (`x_colour_names`) are built for
-//! `OSC 4`/`10`/`11`/`12` and are not consulted here.
+//! A value the parser refuses -- a name the server lacks, a spec off the
+//! manual's grammar such as `rgb:1/2/3/4` -- is passed over and named, as
+//! xterm skips a colour XParseColor refuses.
 //!
 //! The owner took Jev's leans on all four choices (2026-10-17;
 //! decisions.jsonl 714/715, none at 0.9 on both asks): the subset 0.72 /
@@ -64,7 +65,7 @@
 
 use super::terminals::Skipped;
 use super::{Format, Line, Scheme, SchemeError, SchemeErrorKind, rgb};
-use crate::Color;
+use crate::{Color, XColor};
 use core::marker::PhantomData;
 
 /// A C preprocessor construct baud's subset does not run, which refuses
@@ -534,82 +535,14 @@ fn slot<'s>(s: &'s mut Scheme, r: &[u8]) -> Option<&'s mut Option<Color>> {
     }
 }
 
-fn hex_digit(c: u8) -> Option<u16> {
-    (c as char).to_digit(16).and_then(|d| u16::try_from(d).ok())
-}
-
-/// The 8 bits drawn for a 16-bit X component.
-fn high_byte(v: u16) -> u8 {
-    v.to_be_bytes()[0]
-}
-
-/// An X colour by XParseColor: `Ok(Some)` a colour, `Ok(None)` a value X
-/// refuses (xterm skips it), `Err` one baud does not read.
-fn x_colour(v: &[u8]) -> Result<Option<Color>, SchemeErrorKind> {
-    if let Some(d) = v.strip_prefix(b"#") {
-        let w = match d.len() {
-            3 | 6 | 9 | 12 => d.len() / 3,
-            _ => return Ok(None),
-        };
-        let mut c = [0u8; 3];
-        for (k, chunk) in d.chunks(w).enumerate() {
-            let mut n = 0u16;
-            for &x in chunk {
-                let Some(x) = hex_digit(x) else {
-                    return Ok(None);
-                };
-                n = n << 4 | x;
-            }
-            // The most significant bits: shifted, not scaled.
-            c[k] = high_byte(n << (16 - 4 * w));
-        }
-        return Ok(Some(rgb(c[0], c[1], c[2])));
+/// An X colour by XParseColor: `Some` a colour, `None` a value X refuses
+/// (xterm skips it). A `?` is no colour here: it is a query only in an
+/// escape.
+fn x_colour(v: &[u8]) -> Option<Color> {
+    match XColor::parse(v) {
+        XColor::Rgb(r, g, b) => Some(rgb(r.get(), g.get(), b.get())),
+        XColor::Query | XColor::Unresolved(_) => None,
     }
-    let Some(colon) = v.iter().position(|&b| b == b':') else {
-        // A word is looked up as a name by the X server. A name-shaped
-        // value refuses the file: the server's table is built for
-        // OSC 4/10/11/12 and is not consulted here yet. Anything else
-        // XParseColor refuses.
-        let word = v.first().is_some_and(u8::is_ascii_alphabetic)
-            && v.iter().all(|&b| b.is_ascii_alphanumeric() || b == b' ');
-        return if word {
-            Err(SchemeErrorKind::ColourName)
-        } else {
-            Ok(None)
-        };
-    };
-    let prefix = &v[..colon];
-    let lower = |p: &[u8]| prefix.eq_ignore_ascii_case(p);
-    if lower(b"rgb") {
-        // `/`-separated, one to four digits each, a fourth piece unread.
-        let mut parts = v[colon + 1..].split(|&b| b == b'/');
-        let mut c = [0u8; 3];
-        for out in &mut c {
-            let Some(p) = parts.next().filter(|p| (1..=4).contains(&p.len())) else {
-                return Ok(None);
-            };
-            let mut n = 0u32;
-            for &x in p {
-                let Some(x) = hex_digit(x) else {
-                    return Ok(None);
-                };
-                n = n << 4 | u32::from(x);
-            }
-            let bits = 4 * u32::try_from(p.len()).unwrap_or(4);
-            if bits < 16 {
-                n = n * 0xffff / ((1 << bits) - 1);
-            }
-            *out = high_byte(u16::try_from(n).unwrap_or(u16::MAX));
-        }
-        return Ok(Some(rgb(c[0], c[1], c[2])));
-    }
-    const XCMS: [&[u8]; 7] = [
-        b"rgbi", b"ciexyz", b"cieuvy", b"ciexyy", b"cielab", b"cieluv", b"tekhvc",
-    ];
-    if XCMS.iter().any(|p| lower(p)) {
-        return Err(SchemeErrorKind::XcmsColour);
-    }
-    Ok(None)
 }
 
 /// The reader's state across the files it reads.
@@ -851,8 +784,7 @@ where
             return Ok(());
         };
         match (fit, x_colour(value)) {
-            (Fit::Whole, Ok(Some(c))) => *slot = Some(c),
-            (Fit::Whole, Err(kind)) => return Err(SchemeError { line, kind }),
+            (Fit::Whole, Some(c)) => *slot = Some(c),
             _ => (self.ignored)(at, line, tag, Skipped::Refused),
         }
         Ok(())

@@ -205,10 +205,6 @@ pub enum SchemeErrorKind {
     Count,
     /// A C preprocessor construct baud's X resources reader does not run.
     Cpp(Cpp),
-    /// An X colour in `rgbi:` or a device-independent space (`CIEXYZ:`,
-    /// `CIELab:`, `TekHVC:` and the rest), which xterm draws and baud does
-    /// not read yet.
-    XcmsColour,
     /// A byte that is not UTF-8, in a format whose own text requires it:
     /// TOML, JSON and XML without another encoding declared. The line of
     /// the first such byte.
