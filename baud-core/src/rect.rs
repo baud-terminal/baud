@@ -1,8 +1,9 @@
-//! The VT420 rectangular area operations.
+//! The VT420 rectangular area operations, DECBI and DECFI.
 //!
-//! `[[source: dec-std-070]]` § 5.12.1 and § 5.12.2 (pp. 5-168 to 5-181).
-//! Every one is a control function the write loop never reaches:
-//! `csi_final`, which is `#[cold]`, calls in here.
+//! `[[source: dec-std-070]]` § 5.12.1 and § 5.12.2 (pp. 5-168 to 5-181) and
+//! § 5.4.3's DECFI and DECBI (pp. 5-37 to 5-39). Every one is a control
+//! function the write loop never reaches: `csi_final` and `esc_final`, both
+//! `#[cold]`, call in here.
 //!
 //! **One cold entry, [`Paint::area_op`], which reads the parameters too.**
 //! With a variant a rectangle each in `baud_domain::Csi`, read and passed
@@ -394,5 +395,52 @@ impl Paint<'_, '_> {
             }
         }
         self.want_reply(Report::AreaChecksum { id, sum });
+    }
+
+    /// DECBI, `ESC 6`.
+    ///
+    /// `[[source: dec-std-070]]` p. 5-39: "If the active position was
+    /// already at the left margin, the contents of the Logical Display within
+    /// the left, right, top and bottom margin shifts right one column. The
+    /// column shifted beyond the right margin is deleted. A new column is
+    /// inserted at the left margin with all attributes turned off ... If the
+    /// active position is outside the left or right margin when the command
+    /// is received the active position moves backwards one column. If the
+    /// active position was at the left edge of the page, the command is
+    /// ignored." Its algorithm tests the column alone, so the rectangle
+    /// moves whatever row the cursor is on, as IND and RI do from outside
+    /// the margins (p. 5-24, "Continues to work"); xterm moves nothing from
+    /// a row outside them (`xtermColScroll`, `[[source: xterm-scroll]]`).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn back_index(&mut self) {
+        let x = self.cx.reported(self.cold.right, self.cols);
+        if x == self.cold.left && !self.cx.is_placed() {
+            let left = self.cold.left;
+            self.shift_columns_at(left, Count::ONE, ColumnShift::Insert, PackedCell::EMPTY);
+            self.set_col(CursorCol::moved(left));
+            return;
+        }
+        if x.index() > 0 {
+            self.set_col(CursorCol::moved(x.before()));
+        }
+    }
+
+    /// DECFI, `ESC 9`: the mirror (p. 5-37), shifting left at the right
+    /// margin, the new column at the right margin "and the cursor appears in
+    /// this column"; at the page's right edge it is ignored.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn forward_index(&mut self) {
+        let x = self.cx.reported(self.cold.right, self.cols);
+        if x == self.cold.right && !self.cx.is_placed() {
+            let (left, right) = (self.cold.left, self.cold.right);
+            self.shift_columns_at(left, Count::ONE, ColumnShift::Delete, PackedCell::EMPTY);
+            self.set_col(CursorCol::moved(right));
+            return;
+        }
+        if x.index() + 1 < self.cols.index() {
+            self.set_col(self.place(x.after()));
+        }
     }
 }

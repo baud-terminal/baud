@@ -506,7 +506,7 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
-    // **The VT420 rectangle operations**: each rewrites
+    // **The VT420 rectangle operations, DECBI and DECFI**: each rewrites
     // cells on rows the cursor may be on, so a read that begins after one
     // must find the cursor's row as the operation left it, wide halves
     // included.
@@ -561,6 +561,18 @@ const ALPHABET: &[Atom] = &[
     Atom {
         name: "decrqcra",
         bytes: b"\x1b[1;1;1;1;3;5*y",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decbi",
+        bytes: b"\x1b6",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decfi",
+        bytes: b"\x1b9",
         stride: 0,
         count: 0,
     },
@@ -847,6 +859,9 @@ fn the_rectangle_atoms_reach_their_operations() {
     fed("decrqcra", &|t| {
         assert!(t.reply().starts_with(b"\x1bP1!~"), "DECRQCRA answered")
     });
+    fed("decfi", &|t| {
+        assert_eq!(t.cursor(), (Row::ZERO, Col::at_index(1)), "DECFI moved")
+    });
     for name in [
         "deccra",
         "decera",
@@ -854,6 +869,7 @@ fn the_rectangle_atoms_reach_their_operations() {
         "deccara",
         "decrara",
         "decsace-rectangle",
+        "decbi",
     ] {
         fed(name, &|t| {
             assert_eq!(t.unsupported, 0, "{name} is acted on")

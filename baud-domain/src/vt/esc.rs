@@ -81,6 +81,14 @@ pub enum Esc {
     /// presentation position is the last of a string of character positions
     /// in the presentation component" whose beginning SPA indicates.
     EndGuardedArea,
+
+    /// DECBI -- Back Index, `ESC 6`. Back one column, and at the left margin
+    /// the rectangle the margins bound moves right one column instead
+    /// (`[[source: dec-std-070]]` p. 5-39).
+    BackIndex,
+    /// DECFI -- Forward Index, `ESC 9`. Forward one column, and at the right
+    /// margin the rectangle moves left one column instead (p. 5-37).
+    ForwardIndex,
     /// Recognised as an `ESC Fe` and deliberately not acted on.
     Unsupported,
 }
@@ -101,6 +109,9 @@ impl Esc {
             b'Z' => Esc::Identify,
             b'V' => Esc::StartGuardedArea,
             b'W' => Esc::EndGuardedArea,
+
+            b'6' => Esc::BackIndex,
+            b'9' => Esc::ForwardIndex,
             _ => Esc::Unsupported,
         }
     }

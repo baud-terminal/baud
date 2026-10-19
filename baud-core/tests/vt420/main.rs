@@ -9,6 +9,7 @@ mod support;
 
 mod corner;
 mod decaln;
+mod index_columns;
 mod line_starts;
 mod origin;
 mod rect_ops;
@@ -33,6 +34,7 @@ fn the_known_vt420_gaps() {
         &[
             "corner.rs",
             "decaln.rs",
+            "index_columns.rs",
             "line_starts.rs",
             "origin.rs",
             "rect_ops.rs",

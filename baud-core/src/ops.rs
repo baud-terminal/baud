@@ -2350,14 +2350,22 @@ impl Paint<'_, '_> {
     /// only while the margin *is* the edge, which is every stream that never
     /// sends `DECSLRM`.
     pub(crate) fn shift_columns(&mut self, n: Count, dir: ColumnShift) {
-        let (b, to) = (self.blank(), self.cold.right.after());
+        let (at, b) = (self.cx.col(), self.blank());
+        self.shift_columns_at(at, n, dir, b);
+    }
+
+    /// The same from column `at`, filling with `b`: `DECBI` and `DECFI` move
+    /// the rectangle from the left margin, filling with "all attributes
+    /// turned off" (`crate::rect`).
+    pub(crate) fn shift_columns_at(&mut self, at: Col, n: Count, dir: ColumnShift, b: PackedCell) {
+        let to = self.cold.right.after();
         for y in self.cold.top.index()..=self.cold.bot.index() {
             let r = Row::from_index(y);
             match dir {
-                ColumnShift::Insert => self.view.insert_cells(r, self.cx.col(), n, to, b),
-                ColumnShift::Delete => self.view.delete_cells(r, self.cx.col(), n, to, b),
+                ColumnShift::Insert => self.view.insert_cells(r, at, n, to, b),
+                ColumnShift::Delete => self.view.delete_cells(r, at, n, to, b),
             }
-            self.cells = self.cells.plus(to.index() - self.cx.col().index());
+            self.cells = self.cells.plus(to.index() - at.index());
         }
         self.wrote_rows(self.cold.top, self.cold.bot);
         // DECIC moved the cursor's row right under it, past the mark.
