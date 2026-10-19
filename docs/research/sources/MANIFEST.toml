@@ -7995,6 +7995,12 @@ group  = "C"
 # by `finish_command_response` before `handle_put_command` runs, so a put
 # that fails there (EINVAL for a virtual placement with a parent) is
 # answered OK.
+# Re-read 2026-10-18 for the history's far end: `scroll_filter_func`
+# (2309-2314) moves a placement and removes it when `start_row +
+# effective_num_rows <= limit`, its last row past the limit;
+# `scroll_filter_margins_func` (2341-2380) clips one inside the margins
+# row by row and removes it once wholly outside; `clear_filter_func`
+# (2424-2428), `ED 2`'s, removes one with any row on screen.
 
 [sources.kitty-utils-py]
 key    = "kitty-utils-py"
@@ -8139,6 +8145,12 @@ group  = "C"
 # foreground and underline colours (`color_to_id`, the colour's 24 bits or
 # its 8-bit index) are equal and row, column and msb are absent or
 # compatible; a run's first cell takes 0 for what it lacks.
+# Re-fetched and hash-verified 2026-10-18 for the history's far end:
+# `INDEX_GRAPHICS` (430-442) scrolls the images with `s.limit = is_main ?
+# -self->historybuf->ynum : 0`, the history's capacity on the main screen
+# and the top row on the alternate one; `INDEX_DOWN` (445-456) and
+# `INDEX_UP` (2493-2509) call it. `screen_erase_in_display` (2972, 2995)
+# clears every image on `ED 3` and the scrollback after it.
 
 [sources.kitty-fonts-c]
 key    = "kitty-fonts-c"
@@ -14017,6 +14029,23 @@ group  = "C"
 # (3408-3412): lines 541-555 return early on NUL and isspace (a NUL inside a repeat
 # ends the image), accumulate a digit, and let every other byte fall to the code
 # that consumes the number.
+
+[sources.xterm-graphics-c]
+key    = "xterm-graphics-c"
+title  = "xterm 411, graphics.c -- scroll_displayed_graphics, and the slot a new graphic recycles"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/graphics.c"
+file   = ""
+sha256 = "447846c4a6120d24962f97b653538794df888a88b25b4c74a1c5ac5a5d0019c0"
+bytes  = 51358
+status = "external"
+group  = "C"
+# Fetched 2026-10-18 for what a Sixel does at the far end of the saved
+# lines: `scroll_displayed_graphics` (1787-1808) moves every graphic up by
+# the rows scrolled and drops none, and `get_new_graphic` (780-797)
+# recycles the graphic scrolled back farthest when every slot is used.
 
 [sources.xterm-xterm-h]
 key    = "xterm-xterm-h"

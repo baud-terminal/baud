@@ -3202,7 +3202,10 @@ impl<'b> Term<'b> {
     /// change, a backing-scale change -- because a stale size mis-advances and
     /// mis-frees every image from then on. Zero (the default, and a headless
     /// caller that never sets it) means "do not advance and do not free",
-    /// leaving a Sixel where it landed.
+    /// leaving a Sixel where it landed. It also counts the rows a Sixel is
+    /// drawn over, and a Sixel stays until the last of them leaves the
+    /// history or the alternate screen's top (`ImageStore::expire`); at
+    /// zero that is its anchor's row alone.
     ///
     /// **It also sizes the text area in pixels**, which `CSI 14 t`, `CSI 16 t`
     /// and the `?2048` report answer with -- and a change of it with `?2048`
@@ -3215,8 +3218,16 @@ impl<'b> Term<'b> {
     /// nothing about how often one is sent.
     pub fn set_cell_size(&mut self, width: ImagePx, height: ImagePx) {
         let before = Report::inband(self.rows, self.cols, self.cell_width, self.cell_height);
+        let changed = height != self.cell_height;
         self.cell_width = width;
         self.cell_height = height;
+        // The rows a Sixel is drawn over follow the cell: one whose rows a
+        // taller cell leaves all in the gone history goes now. Only on a
+        // change, since an embedder re-sets the size on every configure.
+        if changed {
+            self.store.images.set_cell_height(height);
+            self.expire_images();
+        }
         let after = Report::inband(self.rows, self.cols, width, height);
         if after != before && self.cold.modes.is_set(ModeBit::InbandResize) {
             self.queue(after);

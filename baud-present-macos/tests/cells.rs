@@ -4837,12 +4837,99 @@ fn kitty_draw_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
             "a margin scroll: the {arm} arm does not clip at the margin"
         );
     }
+    kitty_history_gate(arms, t);
     kitty_below_gate(arms, t);
     kitty_picks_gate(arms, t);
     kitty_placeholder_gate(arms, t);
     kitty_placeholder_leaving_gate(arms, t);
     t.set_cell_size(ImagePx::ZERO, ImagePx::ZERO);
     feed(t, b"\x1bc");
+}
+
+/// **A tall picture keeps its rows in the history until its last row
+/// leaves, on all three paths**: images "must be scrolled along with
+/// text" (`[[source: kitty-graphics]]`, "Interaction with other terminal
+/// actions"), and kitty drops a placement only when its last row passes
+/// the history's far end (`[[source: kitty-graphics-c]]`,
+/// `scroll_filter_func`). A four-row placement is scrolled until the
+/// oldest retained line is its third row, and the window looked back to
+/// that line: its third and fourth rows draw over the two oldest lines,
+/// and nothing of its first two. Expected pixels are the frame with the
+/// placement deleted, the texels written where the text puts them.
+fn kitty_history_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let (fw, fh) = arms.renderer.frame_size();
+    let (fw, fh) = (fw.value(), fh.value());
+    let at = |x: u32, y: u32| usize::try_from(y * fw + x).unwrap();
+    feed(t, b"\x1bc\x1b[?25l");
+    for i in 0..30 {
+        feed(
+            t,
+            format!("{i:02} the history under a picture\r\n").as_bytes(),
+        );
+    }
+    kitty_put(t, 1, kitty_texel, &["C=1,r=4"]);
+    let anchor = t
+        .images()
+        .placements()
+        .map(|(_, p)| p.line.value())
+        .next()
+        .expect("the picture was placed");
+    let mut i = 30;
+    let oldest = |t: &Term<'_>| {
+        t.image_origin(Rows::ZERO).top.value() - u64::try_from(t.scrollback().len()).unwrap()
+    };
+    feed(t, format!("\x1b[{};1H", WS.ws_row).as_bytes());
+    while oldest(t) < anchor + 2 {
+        feed(
+            t,
+            format!("\r\n{i:02} the history under a picture").as_bytes(),
+        );
+        i += 1;
+    }
+    assert_eq!(
+        oldest(t),
+        anchor + 2,
+        "the premise: two of its rows retained"
+    );
+    assert_eq!(t.scrollback().len(), 12, "the premise: the history is full");
+    arms.back = Rows::of_count(t.scrollback().len());
+    let (a, b) = arms.draw(t);
+    let cpu = cpu_frame(arms, t);
+    let kept = t.images().placements().count();
+    feed(t, b"\x1b_Ga=d,d=i,i=1,q=2\x1b\\");
+    let (without, _) = arms.draw(t);
+    arms.back = Rows::ZERO;
+    let [[dx, dy, dw, dh], [sx, sy, sw, sh]] = kitty_expect("r=4", cw, ch);
+    let mut want = without.clone();
+    let top = i64::from(dy) - 2 * i64::from(ch);
+    for j in 0..dh {
+        let Ok(y) = u32::try_from(top + i64::from(j)) else {
+            continue;
+        };
+        if y >= fh {
+            continue;
+        }
+        for i in 0..dw {
+            want[at(4 * cw + dx + i, y)] = kitty_texel(
+                sx + (2 * i + 1) * sw / (2 * dw),
+                sy + (2 * j + 1) * sh / (2 * dh),
+            );
+        }
+    }
+    assert!(
+        differing(&want, &without) > 0,
+        "the premise: the retained rows hold drawn pixels"
+    );
+    for (arm, got) in [("instance", &a), ("cell", &b), ("cpu", &cpu)] {
+        assert_eq!(
+            differing(got, &want),
+            0,
+            "the history's far end: the {arm} arm does not draw the rows still retained"
+        );
+    }
+    assert_eq!(kept, 1, "the picture is kept while a row of it is retained");
 }
 
 /// **Below `INT32_MIN/2`, under the non-default backgrounds, on all three

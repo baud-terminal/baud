@@ -528,8 +528,11 @@ top of that screen's window (`Book::top`, `Book::alt_top`). So:
   the view, with `top` from `Term::image_origin(back)`. Output scrolling
   under it moves `top` and not the anchor, so the image moves up with its
   line and nothing re-registers.
-* **Off the top clips**, and when its anchor row leaves what the ring
-  retains the placement is dropped and counted in `placements_expired`.
+* **Off the top clips**, and when its last row leaves what the ring
+  retains, or the alternate screen's top, the placement is dropped and
+  counted in `placements_expired` (its anchor row until 2026-10-18; the
+  record, "A tall picture keeps its rows in the history until its last
+  row leaves").
 * **The live view and the scrollback view** both draw it, because both are
   a rotation of the ring the anchor is expressed against -- the same
   property that made the scrollbar and selection survive `Term::view(back)`.
@@ -568,7 +571,7 @@ the one where the picture stays beside the text it was printed with.
   by the row's own first (docs/record.md, "An image on a continuation row
   follows the cell its row began with"). A line the reflow drops takes its
   image with it.
-* **An image goes when its row does**: past the far end of the history, cut
+* **An image goes when its rows do**: its last past the far end of the history, its anchor cut
   below a shorter window past what the ring keeps, blanked as a reverse
   scroll takes the newest history line back, or dropped by a reflow. Each is
   counted. Without this a placement in the history never left the 64-slot

@@ -525,8 +525,9 @@ impl Paint<'_, '_> {
         self.expire_primary_images(Some(blanked));
     }
 
-    /// Drop the primary's placements whose anchor row the ring no longer
-    /// retains -- before the oldest history line, or past the rows a shorter
+    /// Drop the primary's placements whose rows the ring no longer retains
+    /// -- one whose last row, a kitty placement's last shown row, is before
+    /// the oldest history line, or whose anchor is past the rows a shorter
     /// window cut -- and one on `blanked`.
     pub(crate) fn expire_primary_images(&mut self, blanked: Option<LineIdx>) {
         let b = &self.book;
@@ -537,7 +538,8 @@ impl Paint<'_, '_> {
 
     /// **The alternate screen's images after its window moved one row.** It
     /// keeps no history, so a row that leaves the window leaves the screen,
-    /// and its image with it; the row the scroll blanked goes too. Its top
+    /// and an image goes with the last of its rows; one on the row the
+    /// scroll blanked goes too. Its top
     /// line is kept only while an image is placed, which is when this runs.
     #[cold]
     #[inline(never)]
@@ -1405,9 +1407,15 @@ impl Paint<'_, '_> {
     /// window cut below the cursor stay**: they are the bottom of the screen
     /// a growth brings back, not lines that scrolled off its top.
     ///
-    /// An image anchored to an erased line goes, as one whose line leaves a
-    /// full ring does, and the erasure is counted for an embedder's window
-    /// over the history ([`crate::Term::history_erasures`]).
+    /// An image whose rows were all on the erased lines goes, as one whose
+    /// last row leaves a full ring does; one with a row still on screen
+    /// stays, a kitty picture
+    /// (`erasing_the_history_keeps_a_picture_with_rows_on_screen`) and a
+    /// Sixel (`erasing_the_history_keeps_a_sixel_with_rows_on_screen`),
+    /// which xterm's `case 3` keeps too: it zeroes the count and touches no
+    /// graphic (`[[source: xterm-scroll]]`). The erasure is counted for an
+    /// embedder's window over the history
+    /// ([`crate::Term::history_erasures`]).
     pub(crate) fn erase_saved_lines(&mut self) {
         let keep = Rows::of_count(self.rows.index() + self.book.hidden.index());
         let n = self.on_primary(|v| v.erase_outside(keep));

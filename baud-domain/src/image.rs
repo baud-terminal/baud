@@ -788,6 +788,12 @@ pub enum BandMove {
 struct Reach {
     first: LineIdx,
     last: LineIdx,
+    /// The earliest line past a placement's last row: no placement's
+    /// rows all lie before it, so a scroll whose oldest retained line is
+    /// not past it drops nothing. A new placement widens it by its
+    /// anchor's row alone, which only lowers it, and a scan sets it from
+    /// the rows each is drawn over ([`ImageStore::rows_over`]).
+    ends: LineIdx,
 }
 
 /// What a band move does to a kitty placement: leaves it, moves it with
@@ -1198,10 +1204,10 @@ pub struct ImageStore<'b> {
     /// (`[[source: kitty-graphics]]`, "Image persistence and storage
     /// quotas"). Each is in `images_dropped` too.
     pub images_evicted: usize,
-    /// Placements removed because the row their anchor is on no longer
-    /// exists: it left the retained history, a scroll blanked it as it came
-    /// in, a reflow dropped its line, or its screen was the alternate one
-    /// and was left. Never silent -- an image that vanished has a count.
+    /// Placements removed because their rows no longer exist: the last of
+    /// them left the retained history or the alternate screen's top, a
+    /// scroll blanked the anchor's as it came in, a reflow dropped its
+    /// line, or its screen was the alternate one and was left. Never silent -- an image that vanished has a count.
     pub placements_expired: usize,
     /// **Index entries examined finding a kitty placement by its image
     /// and placement id**, for a put that replaces and a delete that names
@@ -1255,6 +1261,10 @@ pub struct ImageStore<'b> {
     /// with the cell height, how far below its anchor any image can reach.
     /// Widened by every store and never narrowed -- a bound, like `reach`.
     tallest: ImagePx,
+    /// The cell height in device pixels, which a Sixel's or an
+    /// embedder's image is drawn over `ceil(h / cell_h)` rows of; zero
+    /// until the embedder says, and then one row.
+    cell_h: ImagePx,
     /// The embedder's way to give freed pages back, `None` until lent.
     release: Option<PageRelease>,
     /// What the open Sixel claim has written, words `[start, end)` of the
@@ -1307,6 +1317,7 @@ impl<'b> ImageStore<'b> {
             local_placed: 0,
             reach: [None; 2],
             tallest: ImagePx::ZERO,
+            cell_h: ImagePx::ZERO,
             release: None,
             claim: None,
         }
@@ -1432,17 +1443,24 @@ impl<'b> ImageStore<'b> {
         Some(ImageId::PROBE)
     }
 
-    /// Widen `screen`'s reach to hold `line`.
-    fn widen(&mut self, screen: ImageScreen, line: LineIdx) {
+    /// Widen `screen`'s reach to hold a placement anchored at `line` whose
+    /// last shown row ends before `ends`.
+    fn widen(&mut self, screen: ImageScreen, line: LineIdx, ends: LineIdx) {
         let r = &mut self.reach[screen.slot()];
         *r = Some(match *r {
             None => Reach {
                 first: line,
                 last: line,
+                ends,
             },
-            Some(Reach { first, last }) => Reach {
+            Some(Reach {
+                first,
+                last,
+                ends: e,
+            }) => Reach {
                 first: first.min(line),
                 last: last.max(line),
+                ends: e.min(ends),
             },
         });
     }
@@ -1453,9 +1471,36 @@ impl<'b> ImageStore<'b> {
         for i in 0..self.live {
             let p = self.placements[i];
             if !p.is_empty() && p.screen == screen {
-                self.widen(screen, p.line);
+                self.widen(screen, p.line, p.line.plus(self.rows_over(p)));
             }
         }
+    }
+
+    /// **The rows placement `p` is drawn over, from its anchor down**: a
+    /// kitty placement's shown rows ([`KittyPlace::shown`]), and a
+    /// Sixel's or an embedder's `ceil(h / cell_h)` at the cell height
+    /// [`ImageStore::set_cell_height`] last gave, the rows text written
+    /// over it counts ([`ImageStore::overwrite`]); one while no height
+    /// was given.
+    fn rows_over(&self, p: PlacementSlot) -> Rows {
+        let ch = self.cell_h.index();
+        match p.image.index().and_then(|i| self.slots.get(i)) {
+            Some(img) if img.owner == ImageOwner::Local && ch != 0 => {
+                Rows::of_count(img.height.index().div_ceil(ch).max(1))
+            }
+            _ => p.kitty.shown(),
+        }
+    }
+
+    /// **Tell the store the cell height in device pixels**, which sizes
+    /// the rows a Sixel's or an embedder's image is drawn over
+    /// ([`ImageStore::rows_over`]). Each screen's reach is recounted, so
+    /// a taller cell, fewer rows, is seen by the next
+    /// [`ImageStore::expire`]. An embedder setting, which `RIS` keeps.
+    pub fn set_cell_height(&mut self, h: ImagePx) {
+        self.cell_h = h;
+        self.rescan(ImageScreen::Primary);
+        self.rescan(ImageScreen::Alternate);
     }
 
     /// The store's epoch: bumped on every `store`, `free`, `reset`, and every
@@ -2092,7 +2137,7 @@ impl<'b> ImageStore<'b> {
         if self.slots[i].owner == ImageOwner::Local {
             self.local_placed += 1;
         }
-        self.widen(screen, line);
+        self.widen(screen, line, line.plus(Rows::of_count(1)));
         PlacementId::from_index(p)
     }
 
@@ -2227,14 +2272,34 @@ impl<'b> ImageStore<'b> {
         !self.pixels.is_empty()
     }
 
-    /// Drop every placement on `screen` whose anchor row is gone: one before
-    /// `lo` or at or past `hi`, the rows the screen retains, or one on
-    /// `blanked`, a row a scroll blanked as it came in. Each is counted in
+    /// Drop every placement on `screen` whose rows are gone: one whose last
+    /// shown row is before `lo`, one anchored at or past `hi` -- `[lo, hi)`
+    /// the rows the screen retains -- or one anchored on `blanked`, a row a
+    /// scroll blanked as it came in. Each is counted in
     /// [`ImageStore::placements_expired`]. Returns how many.
     ///
-    /// An image goes whole when its **anchor** row goes, foot's rule: a
-    /// placement names one row, and an image half off the far end of the
-    /// history is a picture of nothing a reader is looking at.
+    /// **A kitty placement goes when its last row leaves**, not its anchor:
+    /// images "must be scrolled along with text" (`[[source:
+    /// kitty-graphics]]`, "Interaction with other terminal actions"), and
+    /// the rows below a gone anchor are over text the history still holds.
+    /// It is kitty's `start_row + effective_num_rows <= limit`
+    /// (`[[source: kitty-graphics-c]]` `scroll_filter_func`, the limit the
+    /// history's far end or the alternate screen's top, `[[source:
+    /// kitty-screen-c]]` `INDEX_GRAPHICS`), the rows a margin scroll cut
+    /// not counted, as [`ImageStore::scroll_band`] keeps one until its last
+    /// shown row leaves the band. Its anchor stays where it was, uncut, as
+    /// kitty's does: no view reaches above `lo`. Jev decided it at 1.00
+    /// both ways (2026-10-18). **A Sixel or an embedder's image goes with
+    /// its last row too**, the `ceil(h / cell_h)` rows it is drawn over
+    /// ([`ImageStore::rows_over`]): the Sixel texts describe no history,
+    /// but they describe the screen's top -- "The top line of the sixel
+    /// image may scroll off the screen" (`[[source: vt3xx-sixel]]`,
+    /// "Sixel Scrolling Enabled"), the rest still shown -- and xterm
+    /// moves a graphic up with each scroll and drops none (`[[source:
+    /// xterm-graphics-c]]` 1787-1808). The history's far end takes the
+    /// same rule, as kitty's does; foot drops a Sixel with its start row
+    /// (`[[source: foot-1280-sixel-c]]` 417-441), where its ring
+    /// overwrites the row, which baud's retains.
     pub fn expire(
         &mut self,
         screen: ImageScreen,
@@ -2246,7 +2311,7 @@ impl<'b> ImageStore<'b> {
             return 0;
         };
         let clear = blanked.is_none_or(|b| b < r.first || b > r.last);
-        if r.first >= lo && r.last < hi && clear {
+        if r.ends > lo && r.last < hi && clear {
             return 0;
         }
         let mut n = 0;
@@ -2255,7 +2320,7 @@ impl<'b> ImageStore<'b> {
             if s.is_empty() || s.screen != screen {
                 continue;
             }
-            if s.line < lo || s.line >= hi || Some(s.line) == blanked {
+            if s.line.plus(self.rows_over(s)) <= lo || s.line >= hi || Some(s.line) == blanked {
                 self.unplace(PlacementId::from_index(p));
                 self.placements_expired += 1;
                 n += 1;

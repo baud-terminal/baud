@@ -10,7 +10,8 @@
 
 use baud_core::*;
 use baud_domain::{
-    DecodeBudget, DecodeProgress, ImageAlpha, ImageBudget, ImagePx, KittyPlacement, LineIdx, Pixel,
+    CacheGeometry, DecodeBudget, DecodeProgress, Depth, ImageAlpha, ImageBudget, ImagePx,
+    KittyPlacement, LineIdx, Pixel,
 };
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -1287,6 +1288,210 @@ fn a_rectangle_scroll_moves_only_an_image_inside_its_margins_and_clips_it() {
         (vec![4], 0),
         "inside, scrolled"
     );
+}
+
+/// A terminal with `pixels` of arena, a 10x20 cell and six lines of
+/// history, so a picture reaches the history's far end in a few lines.
+fn with_history<R>(pixels: usize, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
+    let mut owned = Owned::with_history(&WS, &CacheGeometry::UNKNOWN, Depth::of(6))
+        .with_images(ImageBudget::of(pixels));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+    f(&mut t)
+}
+
+/// The oldest line the primary screen retains.
+fn oldest(t: &Term<'_>) -> u64 {
+    let hist = u64::try_from(t.scrollback().len()).unwrap();
+    t.image_origin(Rows::ZERO).top.value() - hist
+}
+
+/// Line feeds at the bottom row until the oldest retained line is `line`.
+fn scroll_until(t: &mut Term<'_>, line: u64, r: &mut Vec<u8>) {
+    feed(t, b"\x1b[24;1H", r);
+    while oldest(t) < line {
+        feed(t, b"\n", r);
+    }
+    assert_eq!(oldest(t), line, "the premise: scrolled exactly there");
+}
+
+/// **A tall picture goes when its last row leaves the history, not its
+/// first**: images "must be scrolled along with text"
+/// (`[[source: kitty-graphics]]`, "Interaction with other terminal
+/// actions"), and the rows of a placement below its anchor are over text
+/// the history still holds. Kitty drops a placement when
+/// `start_row + effective_num_rows <= limit`, the limit the history's far
+/// end (`[[source: kitty-graphics-c]]` `scroll_filter_func`,
+/// `[[source: kitty-screen-c]]` `INDEX_GRAPHICS`). A four-row picture on
+/// line 2 is kept with its anchor gone, kept with only its last row
+/// retained, and gone, counted, once that row goes.
+#[test]
+fn a_tall_picture_goes_when_its_last_row_leaves_the_history() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, b"\x1b[3;1H", &mut r);
+        feed(
+            t,
+            &apc("a=T,f=24,s=10,v=40,i=1,r=4,q=2,C=1", &b64(&[7u8; 1200])),
+            &mut r,
+        );
+        assert_eq!(kitty_lines(t), vec![2], "the premise: anchored on line 2");
+        scroll_until(t, 3, &mut r);
+        assert_eq!(kitty_lines(t), vec![2], "its anchor gone, three rows kept");
+        scroll_until(t, 5, &mut r);
+        assert_eq!(kitty_lines(t), vec![2], "its last row kept");
+        assert_eq!(t.images().placements_expired, 0);
+        scroll_until(t, 6, &mut r);
+        assert_eq!(kitty_lines(t), Vec::<u64>::new(), "its last row gone");
+        assert_eq!(t.images().placements_expired, 1, "and counted");
+    });
+}
+
+/// The same on the alternate screen, which keeps no history: kitty's
+/// limit there is the screen's top (`[[source: kitty-screen-c]]`
+/// `INDEX_GRAPHICS`, `is_main ? -self->historybuf->ynum : 0`), so a
+/// picture whose anchor scrolled off the top keeps its rows still on
+/// the screen.
+#[test]
+fn a_tall_picture_on_the_alternate_screen_goes_with_its_last_row() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, b"\x1b[?1049h\x1b[2;1H", &mut r);
+        feed(
+            t,
+            &apc("a=T,f=24,s=10,v=40,i=1,r=4,q=2,C=1", &b64(&[7u8; 1200])),
+            &mut r,
+        );
+        let line = kitty_lines(t);
+        assert_eq!(line.len(), 1, "the premise: placed");
+        feed(t, b"\x1b[24;1H\n\n", &mut r);
+        assert_eq!(kitty_lines(t), line, "its anchor off the top, kept");
+        feed(t, b"\n\n", &mut r);
+        assert_eq!(kitty_lines(t), line, "its last row on the top row, kept");
+        feed(t, b"\n", &mut r);
+        assert_eq!(kitty_lines(t), Vec::<u64>::new(), "its last row gone");
+    });
+}
+
+/// **The rows a margin scroll cut are not counted**: a picture two rows
+/// tall moved down by `SD` inside margins 5 to 10 shows one row, its last
+/// cut at the margin (`[[source: kitty-graphics]]`, "they must be
+/// clipped"), so it goes when that one row leaves the history -- kitty's
+/// `effective_num_rows`, which its margin filter reduces.
+#[test]
+fn a_cut_picture_goes_when_its_last_shown_row_leaves_the_history() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, b"\x1b[5;10r\x1b[9;1H", &mut r);
+        feed(
+            t,
+            &apc("a=T,f=24,s=10,v=40,i=1,q=2,C=1", &b64(&[7u8; 1200])),
+            &mut r,
+        );
+        feed(t, b"\x1b[T\x1b[r", &mut r);
+        assert_eq!(kitty_lines(t), vec![9], "the premise: moved down a row");
+        scroll_until(t, 9, &mut r);
+        assert_eq!(kitty_lines(t), vec![9], "its one shown row kept");
+        scroll_until(t, 10, &mut r);
+        assert_eq!(kitty_lines(t), Vec::<u64>::new(), "its cut row not counted");
+    });
+}
+
+/// A three-row Sixel: four bands of six sixels at the default 2:1
+/// aspect are 48 pixels, over three 20-pixel rows.
+const TALL_SIXEL: &[u8] = b"\x1bPq#0;2;100;0;0#0~~-~~-~~-~~\x1b\\";
+
+/// **A tall Sixel goes when its last row leaves the history, not its
+/// first**: "The top line of the sixel image may scroll off the screen"
+/// (`[[source: vt3xx-sixel]]`, "Sixel Scrolling Enabled"), the rest of
+/// it still shown, and xterm moves a graphic up a row a scroll and drops
+/// none (`[[source: xterm-graphics-c]]` 1787-1808). Its rows are the
+/// `ceil(h / cell_h)` it is drawn over, as text written over it counts
+/// them. Three rows on line 2 are kept with their anchor gone, kept with
+/// only the last retained, and gone, counted, once that row goes.
+#[test]
+fn a_tall_sixel_goes_when_its_last_row_leaves_the_history() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, b"\x1b[3;1H", &mut r);
+        feed(t, TALL_SIXEL, &mut r);
+        assert_eq!(visible(t), vec![(2, 48)], "the premise: three rows tall");
+        scroll_until(t, 3, &mut r);
+        assert_eq!(visible(t).len(), 1, "its anchor gone, two rows kept");
+        scroll_until(t, 4, &mut r);
+        assert_eq!(visible(t).len(), 1, "its last row kept");
+        assert_eq!(t.images().placements_expired, 0);
+        scroll_until(t, 5, &mut r);
+        assert_eq!(visible(t), Vec::<(u16, u16)>::new(), "its last row gone");
+        assert_eq!(t.images().placements_expired, 1, "and counted");
+    });
+}
+
+/// **The same at the alternate screen's top**, the case the VT3xx text
+/// describes: a three-row Sixel on row 2 whose top line scrolled off the
+/// screen keeps its rows still on it, and goes, counted, with its last.
+#[test]
+fn a_tall_sixel_on_the_alternate_screen_goes_with_its_last_row() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, b"\x1b[?1049h\x1b[2;1H", &mut r);
+        feed(t, TALL_SIXEL, &mut r);
+        assert_eq!(visible(t), vec![(2, 48)], "the premise: placed");
+        feed(t, b"\x1b[24;1H\n\n", &mut r);
+        assert_eq!(visible(t).len(), 1, "its top line off the screen, kept");
+        feed(t, b"\n", &mut r);
+        assert_eq!(visible(t).len(), 1, "its last row on the top row, kept");
+        assert_eq!(t.images().placements_expired, 0);
+        feed(t, b"\n", &mut r);
+        assert_eq!(visible(t), Vec::<(u16, u16)>::new(), "its last row gone");
+        assert_eq!(t.images().placements_expired, 1, "and counted");
+    });
+}
+
+/// **`ED 3` keeps a Sixel with rows on screen**, as it keeps a kitty
+/// picture: xterm's erase of the saved lines zeroes their count and
+/// touches no graphic (`[[source: xterm-scroll]]`, `case 3`). A
+/// three-row Sixel on the top row, two lines into the history, keeps its
+/// row on screen; one wholly in the history goes, counted.
+#[test]
+fn erasing_the_history_keeps_a_sixel_with_rows_on_screen() {
+    for (lfs, kept) in [(2, true), (3, false)] {
+        with_history(4096, |t| {
+            let mut r = Vec::new();
+            feed(t, TALL_SIXEL, &mut r);
+            feed(t, b"\x1b[24;1H", &mut r);
+            for _ in 0..lfs {
+                feed(t, b"\n", &mut r);
+            }
+            assert_eq!(visible(t).len(), 1, "{lfs}: the premise, in the history");
+            feed(t, b"\x1b[3J", &mut r);
+            match kept {
+                true => assert_eq!(visible(t).len(), 1, "{lfs}: a row on screen, kept"),
+                false => {
+                    assert_eq!(visible(t), Vec::<(u16, u16)>::new(), "{lfs}: gone");
+                    assert_eq!(t.images().placements_expired, 1, "{lfs}: counted");
+                }
+            }
+        });
+    }
+}
+
+/// **A taller cell counts a Sixel's rows anew**: the three rows of a
+/// 48-pixel Sixel at 20 pixels a row are one at 48, so with its anchor
+/// gone from the history and two rows kept, a change of cell size takes
+/// it at once, counted -- the rows it is drawn over are all gone.
+#[test]
+fn a_taller_cell_takes_a_sixel_whose_rows_are_then_all_gone() {
+    with_history(4096, |t| {
+        let mut r = Vec::new();
+        feed(t, b"\x1b[3;1H", &mut r);
+        feed(t, TALL_SIXEL, &mut r);
+        scroll_until(t, 3, &mut r);
+        assert_eq!(visible(t).len(), 1, "the premise: two rows kept");
+        t.set_cell_size(ImagePx::of(10), ImagePx::of(48));
+        assert_eq!(visible(t), Vec::<(u16, u16)>::new(), "one row, gone");
+        assert_eq!(t.images().placements_expired, 1, "and counted");
+    });
 }
 
 /// A 10 by 40 image placed at `row` (one-based) with `keys` under a
@@ -2566,5 +2771,97 @@ fn a_file_png_is_decoded_whole_at_its_terminator() {
             r
         });
         assert_eq!(r, b"\x1b_Gi=1;OK\x1b\\", "t={medium}");
+    }
+}
+
+/// **`ED 3` takes a picture with the history only when all of it was
+/// there**: erasing the saved lines makes the screen's top the oldest
+/// retained line, so a four-row picture two rows into the history and
+/// two on screen keeps its rows on screen, and one wholly in the history
+/// goes, counted.
+#[test]
+fn erasing_the_history_keeps_a_picture_with_rows_on_screen() {
+    for (lfs, kept) in [(2, true), (5, false)] {
+        with_history(4096, |t| {
+            let mut r = Vec::new();
+            feed(
+                t,
+                &apc("a=T,f=24,s=10,v=40,i=1,r=4,q=2,C=1", &b64(&[7u8; 1200])),
+                &mut r,
+            );
+            feed(t, b"\x1b[24;1H", &mut r);
+            for _ in 0..lfs {
+                feed(t, b"\n", &mut r);
+            }
+            assert_eq!(
+                kitty_lines(t),
+                vec![0],
+                "{lfs}: the premise, in the history"
+            );
+            feed(t, b"\x1b[3J", &mut r);
+            assert_eq!(
+                oldest(t),
+                u64::try_from(lfs).unwrap(),
+                "{lfs}: the history erased"
+            );
+            match kept {
+                true => assert_eq!(kitty_lines(t), vec![0], "{lfs}: rows on screen, kept"),
+                false => {
+                    assert_eq!(kitty_lines(t), Vec::<u64>::new(), "{lfs}: gone");
+                    assert_eq!(t.images().placements_expired, 1, "{lfs}: counted");
+                }
+            }
+        });
+    }
+}
+
+/// **A reflow keeps a picture whose anchor is past the history's far end
+/// at its place, and drops it with its rows**: the reflow re-cuts the
+/// lines from the oldest retained one, which it does not move, so a
+/// placement anchored above that line keeps its distance from it. Under
+/// short lines a narrower screen re-cuts nothing and the picture's last
+/// two rows stay over the two oldest lines; under long ones each line
+/// takes two rows, the ring drops the oldest, and the picture goes with
+/// the rows it was over, counted.
+#[test]
+fn a_reflow_keeps_a_picture_past_the_far_end_and_drops_it_with_its_rows() {
+    for (text, kept) in [("short", true), ("long line ".repeat(7).as_str(), false)] {
+        with_history(4096, |t| {
+            let mut r = Vec::new();
+            feed(t, b"\x1b[3;1H", &mut r);
+            feed(
+                t,
+                &apc("a=T,f=24,s=10,v=40,i=1,r=4,q=2,C=1", &b64(&[7u8; 1200])),
+                &mut r,
+            );
+            for i in 0..24 {
+                feed(
+                    t,
+                    format!("\x1b[{};1H{i:02} {text}", i + 1).as_bytes(),
+                    &mut r,
+                );
+            }
+            scroll_until(t, 4, &mut r);
+            assert_eq!(
+                kitty_lines(t),
+                vec![2],
+                "the premise: its last two rows kept"
+            );
+            let ws = WinSize {
+                ws_row: 24,
+                ws_col: 40,
+            };
+            assert_eq!(t.resize(&ws), Resized::Ok);
+            match kept {
+                true => {
+                    assert_eq!(kitty_lines(t), vec![2], "{text}: kept at its line");
+                    assert_eq!(oldest(t), 4, "{text}: the oldest line did not move");
+                }
+                false => {
+                    assert_eq!(kitty_lines(t), Vec::<u64>::new(), "{text}: gone");
+                    assert_eq!(t.images().placements_expired, 1, "{text}: counted");
+                }
+            }
+        });
     }
 }
