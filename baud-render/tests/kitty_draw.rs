@@ -1009,3 +1009,84 @@ fn on_the_glass_a_coloured_cell_is_blended_over_a_deep_image() {
     let (wrong, all) = deep_cells(text, &opaque, 0xFF, RED_SET);
     assert_eq!(wrong, 0, "an opaque coloured cell replaces, of {all}");
 }
+
+/// **A repainted row examines only the placements on it**: a picture
+/// placed one cell at a time, 20 by 6 at `z=-1` with one more three rows
+/// tall, over a 50-row screen, and a full frame. Each placement is
+/// examined twice for each row it covers -- the cells the row's
+/// placements reach, then the draw -- and never for a row it is not
+/// on, where every repainted row once asked every placement. A frame
+/// repainting one row walks them all instead, cheaper than an index.
+#[test]
+fn a_repainted_row_examines_only_the_placements_on_it() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    let m = r.metrics();
+    let (cw, ch) = (m.cell_w.value(), m.cell_h.value());
+    let mut c = Canvas::for_renderer(&r);
+    let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
+    let mut t = Term::new(owned.storage(), &WS);
+    t.set_cell_size(
+        ImagePx::of(u16::try_from(cw).unwrap()),
+        ImagePx::of(u16::try_from(ch).unwrap()),
+    );
+    feed(&mut t, b"\x1b[?25l");
+    transmit(&mut t, 1, texel);
+    let mut p = 1;
+    for y in 0..6 {
+        for x in 0..20 {
+            feed(
+                &mut t,
+                format!(
+                    "\x1b[{};{}H\x1b_Ga=p,i=1,p={p},x={},y={},w=1,h=1,c=1,r=1,z=-1,C=1,q=2\x1b\\",
+                    y + 3,
+                    x + 5,
+                    x % IW,
+                    y % IH
+                )
+                .as_bytes(),
+            );
+            p += 1;
+        }
+    }
+    feed(
+        &mut t,
+        b"\x1b[20;5H\x1b_Ga=p,i=1,p=999,r=3,z=-1,C=1,q=2\x1b\\",
+    );
+    assert_eq!(t.images().placements().count(), 121, "the premise: placed");
+    let frame = {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Full)
+    };
+    assert_eq!(
+        frame.rows_dirty.value(),
+        u64::from(WS.ws_row),
+        "every row repainted"
+    );
+    assert_eq!(
+        frame.places_examined.value(),
+        2 * (120 + 3),
+        "each placement examined twice for each row it covers"
+    );
+    // One row repainted -- a placement put again with another source
+    // pixel -- is too few to index, and walks every placement.
+    feed(
+        &mut t,
+        b"\x1b[3;5H\x1b_Ga=p,i=1,p=1,x=1,y=1,w=1,h=1,c=1,r=1,z=-1,C=1,q=2\x1b\\",
+    );
+    let frame = {
+        let mut target = c.target();
+        r.render(&mut t, &mut target, Damage::Incremental)
+    };
+    assert_eq!(
+        frame.rows_dirty.value(),
+        1,
+        "the premise: one row repainted"
+    );
+    assert_eq!(
+        frame.places_examined.value(),
+        2 * 121,
+        "one row, every placement"
+    );
+}

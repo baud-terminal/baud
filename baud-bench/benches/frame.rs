@@ -49,7 +49,10 @@
 //! still screen, reporting the cost a frame, the rows dirtied and an
 //! FNV-1a of the last frame's pixels. `FRAME_PERCELL_CHURN=1` re-puts
 //! placement 1 with another source pixel before every frame, so each
-//! frame has a placement gone and one arrived. `FRAME_WS=<cols>x<rows>`
+//! frame has a placement gone and one arrived. `FRAME_PERCELL_OVER=1`
+//! places a partly transparent 2x2 image over the text, `c` and `r` the
+//! screen's, so every row is repainted every frame, and the picture's
+//! placements under it with it. `FRAME_WS=<cols>x<rows>`
 //! sets the screen, 200x50 by default.
 
 use baud_core::{Owned, Term};
@@ -337,6 +340,7 @@ fn main() {
             .and_then(|s| s.parse().ok())
             .unwrap_or(20);
         let churn = std::env::var("FRAME_PERCELL_CHURN").is_ok_and(|v| v == "1");
+        let over = std::env::var("FRAME_PERCELL_OVER").is_ok_and(|v| v == "1");
         let mut ri = fresh();
         let m = ri.metrics();
         let cell = |p: baud_font::Px| ImagePx::of(u16::try_from(p.value()).unwrap_or(u16::MAX));
@@ -383,6 +387,19 @@ fn main() {
             }
         };
         feed(&mut t, &tail);
+        if over {
+            // Four RGBA pixels at half alpha: `f=32`, base64 of 16 bytes.
+            let put = format!(
+                "\x1b[1;1H\x1b_Gq=2,a=T,i=2,f=32,s=2,v=2,c={},r={},z=1,C=1;gEAggIBAIICAQCCAgEAggA==\x1b\\",
+                ws.ws_col, ws.ws_row
+            );
+            feed(&mut t, put.as_bytes());
+            assert_eq!(
+                t.images().placements().count(),
+                area + 1,
+                "FRAME_PERCELL_OVER: the overlay was placed; leave it a slot"
+            );
+        }
         let mut rows = 0u64;
         let us = {
             let mut target = Target::new(&mut pixels, w, w, h).unwrap();

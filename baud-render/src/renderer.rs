@@ -402,6 +402,11 @@ pub enum Glyphs {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Frame {
     pub rows_dirty: Tally,
+    /// The image placements the repainted rows examined to find those
+    /// under their text, twice a row -- the cells they reach, then the
+    /// draw: a row's own when the frame indexed them, every one when it
+    /// repainted too few rows to ([`INDEX_ROWS`]).
+    pub places_examined: Tally,
     /// Of the dirty rows, those under a partly transparent image, which are
     /// repainted on every frame it is on (`ImageAlpha::Partial`).
     pub rows_partial: Tally,
@@ -737,7 +742,17 @@ enum ImageRows {
 /// What [`Renderer::paint_rows`] draws between a repainted row's background
 /// and its glyphs.
 trait Under {
-    fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, row: Row, page: Page);
+    /// Paints, returning how many placements it examined for the row.
+    fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, row: Row, page: Page) -> Tally;
+    /// Whether it reads the placements by row ([`PlaceRows`]).
+    fn by_row(&self) -> Indexed;
+}
+
+/// Whether an [`Under`] reads the placements by row.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Indexed {
+    No,
+    Yes,
 }
 
 /// Nothing: no placement is under the text.
@@ -745,15 +760,25 @@ struct NoUnder;
 
 impl Under for NoUnder {
     #[inline(always)]
-    fn paint(&self, _: &Renderer<'_, '_>, _: &mut Target<'_>, _: Row, _: Page) {}
+    fn paint(&self, _: &Renderer<'_, '_>, _: &mut Target<'_>, _: Row, _: Page) -> Tally {
+        Tally::of(0)
+    }
+
+    fn by_row(&self) -> Indexed {
+        Indexed::No
+    }
 }
 
 /// The placements under the text, from the term's images.
 struct UnderImages<'s, 'b>(&'s ImageStore<'b>);
 
 impl Under for UnderImages<'_, '_> {
-    fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, row: Row, page: Page) {
-        r.paint_under(self.0, target, row, page);
+    fn paint(&self, r: &Renderer<'_, '_>, target: &mut Target<'_>, row: Row, page: Page) -> Tally {
+        r.paint_under(self.0, target, row, page)
+    }
+
+    fn by_row(&self) -> Indexed {
+        Indexed::Yes
     }
 }
 
@@ -761,9 +786,9 @@ impl Under for UnderImages<'_, '_> {
 /// its rows are repainted every CPU frame, since its blit over its own last
 /// blit would blend it twice. One under the text is blitted only into a
 /// row being repainted, over the row's fresh background, so never twice.
-fn partial_over(now: &[ImagePlacement], band: Band) -> bool {
-    now.iter()
-        .any(|p| p.alpha == ImageAlpha::Partial && p.layer == ImageLayer::Over && covers(p, band))
+fn partial_over(now: &[ImagePlacement], on: &[usize]) -> bool {
+    on.iter()
+        .any(|&i| now[i].alpha == ImageAlpha::Partial && now[i].layer == ImageLayer::Over)
 }
 
 /// Whether a placement's pixel rows meet the band's.
@@ -792,6 +817,101 @@ fn arrived_under(now: &[ImagePlacement], arrived: &[usize], band: Band) -> bool 
     arrived
         .iter()
         .any(|&i| now[i].layer.under_text() && covers(&now[i], band))
+}
+
+/// **The frame's placements by the screen rows they cover**: row `r`'s
+/// are `items[start[r]..start[r + 1]]`, indices into the frame's list in
+/// its draw order, each a placement whose pixel rows meet the row's band
+/// ([`covers`]). Built by a count and a fill, on the CPU path only and
+/// only when enough rows ask ([`INDEX_ROWS`]), so a repainted row reads
+/// its own placements and not every one: a picture placed one cell at a
+/// time over a 400x150 screen is 60,000 placements, and each row asked
+/// about all of them twice made a frame rows times placements.
+#[derive(Default)]
+struct PlaceRows {
+    start: Vec<usize>,
+    items: Vec<usize>,
+    /// Scratch: each placement's rows, then each row's next free item.
+    spans: Vec<(usize, usize)>,
+    fill: Vec<usize>,
+    built: Built,
+}
+
+/// Whether [`PlaceRows`] indexes this frame's placements.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum Built {
+    #[default]
+    Stale,
+    Fresh,
+}
+
+/// **The rows that must ask before the placements are indexed**: a build
+/// costs about what three rows' walks of every placement cost -- 4.5 M
+/// instructions against 1.4 M a row for 59,600 placements, its count and
+/// fill against the two passes [`Renderer::paint_under`] makes a row,
+/// measured with `frame`'s `FRAME_PERCELL` -- so a frame repainting
+/// fewer than four rows walks, and one repainting more indexes.
+const INDEX_ROWS: usize = 4;
+
+impl PlaceRows {
+    /// Index `places` over `rows` rows of `cell_h` pixels, unless this
+    /// frame's are indexed already.
+    fn ensure(&mut self, places: &[ImagePlacement], rows: Rows, cell_h: Px) {
+        if self.built == Built::Fresh {
+            return;
+        }
+        self.built = Built::Fresh;
+        let n = rows.index();
+        self.start.clear();
+        self.start.resize(n + 1, 0);
+        self.spans.clear();
+        let ch = i64::from(cell_h.value().max(1));
+        let last = i64::try_from(n).unwrap_or(0) - 1;
+        // The rows `r` with `r * ch < y + h` and `(r + 1) * ch > y`,
+        // [`covers`] solved for `r`, on the screen; empty as `(1, 0)`.
+        for p in places {
+            let top = i64::from(p.y);
+            let first = top.div_euclid(ch).max(0);
+            let end = ((top + i64::from(p.h) + ch - 1).div_euclid(ch) - 1).min(last);
+            let span = match first <= end {
+                true => (
+                    usize::try_from(first).unwrap_or(0),
+                    usize::try_from(end).unwrap_or(0),
+                ),
+                false => (1, 0),
+            };
+            for r in span.0..=span.1 {
+                self.start[r + 1] += 1;
+            }
+            self.spans.push(span);
+        }
+        for r in 0..n {
+            self.start[r + 1] += self.start[r];
+        }
+        self.items.clear();
+        self.items.resize(self.start[n], 0);
+        self.fill.clear();
+        self.fill.extend_from_slice(&self.start[..n]);
+        for (i, &(first, end)) in self.spans.iter().enumerate() {
+            for r in first..=end {
+                self.items[self.fill[r]] = i;
+                self.fill[r] += 1;
+            }
+        }
+    }
+
+    /// The placements on `row`, in draw order, if this frame's are
+    /// indexed: none past the rows built.
+    fn row(&self, row: Row) -> Option<&[usize]> {
+        if self.built == Built::Stale {
+            return None;
+        }
+        let r = row.index();
+        match (self.start.get(r), self.start.get(r + 1)) {
+            (Some(&a), Some(&b)) => Some(&self.items[a..b]),
+            _ => Some(&[]),
+        }
+    }
 }
 
 /// **Which placements differ between two CPU frames**, found once a frame
@@ -1212,6 +1332,8 @@ pub struct Renderer<'f, 'a> {
     /// both the CPU `paint_images` and the two GPU arms -- one description
     /// of where an image goes, not three.
     image_places: Vec<ImagePlacement>,
+    /// [`Renderer::image_places`] by the rows each covers, built with it.
+    place_rows: PlaceRows,
     /// Each placement's nearest-neighbour tables, at its [`MapAt`]: the
     /// texel x of every visible drawn column, then the texel y of every
     /// visible drawn row, from `baud_domain::ImageDraw::nearest`. Built
@@ -1383,6 +1505,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             glow_inst: Vec::new(),
             flash: VideoFlash::default(),
             image_places: Vec::new(),
+            place_rows: PlaceRows::default(),
             image_maps: Vec::new(),
             last_image_places: Vec::new(),
             place_diff: PlaceDiff::default(),
@@ -2516,6 +2639,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // The text's order: by `z`, then by the client's id; stable, so
         // placement order breaks what is left.
         self.image_places.sort_by_key(|p| (p.z, p.tie.raw()));
+        self.place_rows.built = Built::Stale;
         // Drop snapshots of images no longer on screen, so an image scrolled off
         // the top does not hold its pixels until the next epoch change -- which
         // on a terminal showing one image is forever. The clear-every-frame
@@ -2744,16 +2868,31 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// image (the owner's pick of 2026-10-16), so the default ones show the
     /// image and the others show it through their alpha; then the rest.
     /// The GPU paths draw the same steps.
-    fn paint_under(&self, imgs: &ImageStore<'_>, target: &mut Target<'_>, row: Row, page: Page) {
+    fn paint_under(
+        &self,
+        imgs: &ImageStore<'_>,
+        target: &mut Target<'_>,
+        row: Row,
+        page: Page,
+    ) -> Tally {
         let band = self.band(row);
+        // The row's own placements if they are indexed, else every one
+        // asked whether it covers the row.
+        let (on, all): (&[usize], &[ImagePlacement]) = match self.place_rows.row(row) {
+            Some(on) => (on, &[]),
+            None => (&[], &self.image_places),
+        };
+        let places = || {
+            on.iter()
+                .map(|&i| &self.image_places[i])
+                .chain(all.iter().filter(move |p| covers(p, band)))
+        };
         // The cells the placements below the backgrounds reach in this
         // row: the only ones cleared and composited again, so a frame pays
         // for the image's columns and not the row's.
         let cw = i64::from(self.metrics.cell_w.value()).max(1);
-        let reach = self
-            .image_places
-            .iter()
-            .filter(|p| p.layer == ImageLayer::Below && covers(p, band))
+        let reach = places()
+            .filter(|p| p.layer == ImageLayer::Below)
             .map(|p| (i64::from(p.x), i64::from(p.x) + i64::from(p.w)))
             .reduce(|(a, b), (x0, x1)| (a.min(x0), b.max(x1)))
             .map_or(0..0, |(a, b)| {
@@ -2762,7 +2901,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             });
         let set = |c: usize| reach.contains(&c) && self.set_at(row, Col::at_index(c));
         let mut below = false;
-        for p in self.image_places.iter().filter(|p| covers(p, band)) {
+        for p in places() {
             if p.layer == ImageLayer::Under && below {
                 self.cover_set(target, row, page, set);
                 below = false;
@@ -2782,6 +2921,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if below {
             self.cover_set(target, row, page, set);
         }
+        // Each of the two passes examined these.
+        Tally::of(2 * (on.len() + all.len()))
     }
 
     /// Whether `row`'s cell at `col` draws a background that is not the
@@ -3010,6 +3151,11 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 .image_places
                 .iter()
                 .any(|p| p.alpha == ImageAlpha::Partial && p.layer == ImageLayer::Over);
+        // Every row asks whether one is over it.
+        if any_partial {
+            self.place_rows
+                .ensure(&self.image_places, self.rows, self.metrics.cell_h);
+        }
         for r in 0..rows.index() {
             let range = self.row_cells(Row::from_index(r));
             let changed = self.cur[range.clone()] != self.prev[range];
@@ -3048,7 +3194,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 && left_from(&self.last_image_places, &diff.gone, band);
             // And one the CPU path blits over this row that is partly
             // transparent: repainted every frame, and counted.
-            let partial = any_partial && partial_over(&self.image_places, band);
+            let partial = any_partial
+                && partial_over(&self.image_places, self.place_rows.row(row).unwrap_or(&[]));
             // And one under the text that arrived or changed on this row.
             let imaged =
                 imaged || (under_new && arrived_under(&self.image_places, &diff.arrived, band));
@@ -3181,6 +3328,16 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // screen whose glyphs stay in their rows asks no row about it.
         let reaching =
             (0..self.rows.index()).any(|q| self.reach[q].leaves(self.band(Row::from_index(q))));
+        if under.by_row() == Indexed::Yes
+            && self.dirty[..self.rows.index()]
+                .iter()
+                .filter(|&&d| d)
+                .count()
+                >= INDEX_ROWS
+        {
+            self.place_rows
+                .ensure(&self.image_places, self.rows, self.metrics.cell_h);
+        }
         for r in 0..self.rows.index() {
             let row = Row::from_index(r);
             frame.instances.add(Tally::of(self.per_row[r].len()));
@@ -3202,7 +3359,8 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 self.metrics.cell_w,
                 margin,
             );
-            under.paint(self, target, row, page);
+            let examined = under.paint(self, target, row, page);
+            frame.places_examined.add(examined);
             // In the order `instances()` hands the GPU instance path: the
             // glyphs of the rows above that reach down into this band, the
             // row's own glyphs and decorations, the glyphs of the rows below
@@ -4706,5 +4864,41 @@ mod place_diff {
         // Both answers were taken both ways, so neither side is constant.
         assert!(left > 0 && arrived > 0, "{left} {arrived}");
         assert!(left < 32_000 && arrived < 32_000, "{left} {arrived}");
+    }
+    /// **The row index names every placement a row's band meets, in draw
+    /// order, and no other**: the pool's 40 placements, some above the
+    /// top, some taller than a row, some no taller than a pixel, against
+    /// [`covers`] on each of eight 9-pixel bands -- the test every row
+    /// asked of every placement before the index.
+    #[test]
+    fn the_row_index_names_what_covers_answers_in_draw_order() {
+        let pool = pool();
+        let mut rows = PlaceRows::default();
+        for (n, ch) in [(8usize, 9u32), (3, 9), (8, 1), (5, 40)] {
+            rows.built = Built::Stale;
+            rows.ensure(&pool, Rows::of_count(n), Px::of(ch));
+            let mut named = 0;
+            for r in 0..n {
+                let top = u32::try_from(r).unwrap() * ch;
+                let band = Band {
+                    top: Px::of(top),
+                    bottom: Px::of(top + ch),
+                };
+                let want: Vec<usize> = (0..pool.len())
+                    .filter(|&i| covers(&pool[i], band))
+                    .collect();
+                assert_eq!(
+                    rows.row(Row::from_index(r)),
+                    Some(&want[..]),
+                    "{n} rows of {ch}, row {r}"
+                );
+                named += want.len();
+            }
+            assert!(
+                named > 0,
+                "{n} rows of {ch}: the premise, some placement on screen"
+            );
+            assert_eq!(rows.row(Row::from_index(n)), Some(&[][..]), "past the rows");
+        }
     }
 }
