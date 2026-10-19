@@ -317,8 +317,9 @@ impl Paint<'_, '_> {
             Osc::SetColor { index, spec } => match spec {
                 XColor::Rgb(r, g, b) => self.set_palette(index, ColorWord::rgb(r, g, b)),
                 XColor::Query => self.report_color(index, term),
-                // A spec no reader takes: a name the X server lacks, `rgbi:`
-                // or a CIE form (a name it holds is `Rgb` already, from
+                // A spec no reader takes: a name the X server lacks, or a
+                // spec off the grammar or its range (a name it holds, and
+                // every Xcms form in range, is `Rgb` already, from
                 // `XColor::parse`). Left alone rather than set to something
                 // plausible-but-wrong, and **counted**, because a spec this
                 // core cannot resolve is a request it did not honour;

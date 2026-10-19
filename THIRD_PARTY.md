@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 272 | 23 | redistributable, and its notice is satisfied |
-| own | 201 | 0 | the owner's work |
-| total | 740 | 34 | |
+| kept | 272 | 24 | redistributable, and its notice is satisfied |
+| own | 206 | 0 | the owner's work |
+| total | 745 | 35 | |
 
 ## Licence texts in LICENSES/
 
@@ -49,6 +49,7 @@ they were built from.
 | [harfbuzz-COPYING.txt](LICENSES/harfbuzz-COPYING.txt) | MIT-Modern-Variant | fetched: https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/COPYING | ba8f810f2455c2f0 |
 | [highway-LICENSE.txt](LICENSES/highway-LICENSE.txt) | Apache-2.0 OR BSD-3-Clause | fetched: https://raw.githubusercontent.com/google/highway/b93ad441d9cbeb7d7629281992b796a73033996a/LICENSE | 85de9303e7a81f35 |
 | [iterm2-color-schemes-MIT.txt](LICENSES/iterm2-color-schemes-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/99d9701ba3cf4a06d24eea6ca4f25a64656b446b/LICENSE | 2373168614b52749 |
+| [libx11-xcms.txt](LICENSES/libx11-xcms.txt) | LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group | built: the notices at the head of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVC.c (Tektronix's TekHVC notice, which HVCGcC.c, HVCMxC.c and HVCMxVC.c carry too), src/xcms/cmsTrig.c (Tektronix's Xcms notice, which the other ported files carry) and src/xcms/cmsMath.c (The Open Group), with a paragraph saying which ported lines fall under which | e401afaad5a23d6d |
 | [libxkbcommon-LICENSE.txt](LICENSES/libxkbcommon-LICENSE.txt) | MIT AND HPND | fetched: https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/LICENSE | 967e97b28658f003 |
 | [lscolors-MIT.txt](LICENSES/lscolors-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/sharkdp/lscolors/fd932f838d055990378e3d73fbd5d61185da495e/LICENSE-MIT | f9c4c77baa382800 |
 | [macos-man-notices.txt](LICENSES/macos-man-notices.txt) | APSL-2.0 AND BSD-2-Clause AND BSD-3-Clause AND BSD-4-Clause-UC | built: $SDKROOT/usr/share/man/{man2/kqueue.2,man3/clock_gettime.3,man3/tcgetpgrp.3}, macOS 27.0 SDK | 8f831f5ead7d9f05 |
@@ -262,6 +263,14 @@ they were built from.
 - **Notice:** [LICENSES/yazi-MIT.txt](LICENSES/yazi-MIT.txt)
 - **From:** https://github.com/sxyazi/yazi/blob/aa526434f00bb44e2e902d9a4ac5f810da1018b9/yazi-emulator/src/emulator.rs
 - **Files:** [baud-core/tests/image_geometry.rs](baud-core/tests/image_geometry.rs)
+
+### The Xcms conversions in xcms.rs (u'v'Y, xyY, TekHVC, the TekHVC gamut clip and its searches, Xcms's roots and trigonometry), ported from libX11's src/xcms, and in its test module the Tektronix CRT data and table search of LRGB.c. The TekHVC notice's three conditions: its notice is reproduced in xcms.rs and LICENSES; baud displays no TekHVC coordinates, since a TekHVC: spec is read, drawn as sRGB and answered to a query as rgb:; and the term TekHVC names that space and nothing else, wherever baud's text names it
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group
+- **Notice:** [LICENSES/libx11-xcms.txt](LICENSES/libx11-xcms.txt)
+- **From:** https://gitlab.freedesktop.org/xorg/lib/libx11/-/tree/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms
+- **Files:** [baud-domain/src/vt/xcms.rs](baud-domain/src/vt/xcms.rs), [baud-domain/src/vt/xcms/tests.rs](baud-domain/src/vt/xcms/tests.rs)
 
 ### The OKLab conversions and Hue in color.rs (the cusp, compute_max_saturation's polynomial and Halley step, the gamut intersection), re-expressed from Björn Ottosson's sRGB gamut clipping code, whose page puts all of it under MIT; the OKLab post offers the same conversions in the public domain
 
@@ -1865,7 +1874,7 @@ notice is, and the URL each file was copied from.
 - **Status:** own -- the owner's work
 - **Licence:** CC-BY-NC-SA-4.0
 - **Notice:** [LICENSE](LICENSE)
-- **Files:** 195
+- **Files:** 200
 
 | file | copied from |
 |---|---|
@@ -2064,4 +2073,9 @@ notice is, and the URL each file was copied from.
 | [al-observed/thresholds.py](docs/research/sources/al-observed/thresholds.py) | written for the flash-fix analysis |
 | [at-observed/sheet-btop-dark-white.png](docs/research/sources/at-observed/sheet-btop-dark-white.png) | baud's CPU-rendered cells composited over each body by the note AT material model, a0822e39 |
 | [xcode-27-metal-toolchain-component.txt](docs/research/sources/xcode-27-metal-toolchain-component.txt) | /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild and .../Toolchains/XcodeDefault.xctoolchain/usr/bin/metal, 27A266a, output captured 2026-09-18 |
+| [xparsecolor-observed/probe.c](docs/research/sources/xparsecolor-observed/probe.c) | built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1; run against Xvfb 21.1.24 -screen 0 1024x768x24 |
+| [xparsecolor-observed/rgb-specs.py](docs/research/sources/xparsecolor-observed/rgb-specs.py) | python3 rgb-specs.py | probe |
+| [xparsecolor-observed/rgb.out](docs/research/sources/xparsecolor-observed/rgb.out) | output of rgb-specs.py | probe on DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor |
+| [xparsecolor-observed/xcms-specs.py](docs/research/sources/xparsecolor-observed/xcms-specs.py) | python3 xcms-specs.py | probe |
+| [xparsecolor-observed/xcms.out](docs/research/sources/xparsecolor-observed/xcms.out) | output of xcms-specs.py | probe on DISPLAY=:85, 2026-10-18; Xvfb 21.1.24 at depth 24 sets no XDCCC property |
 

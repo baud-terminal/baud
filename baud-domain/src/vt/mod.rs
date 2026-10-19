@@ -13,6 +13,7 @@ mod scheme;
 mod sgr;
 mod vt52;
 mod x_colour_names;
+mod xcms;
 
 pub use charset::*;
 pub use clipboard::*;

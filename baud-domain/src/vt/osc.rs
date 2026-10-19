@@ -254,9 +254,9 @@ impl PromptKind {
 /// spelled in the table, and `lime  green` is not. The table is X.Org's
 /// rgb.txt (`[[source: xorg-rgb-0d2caec]]`), 782 names, generated into
 /// `baud-domain/src/vt/x_colour_names.rs` and found by two hashes and one
-/// comparison. What none
-/// of these reads -- `rgbi:`, the CIE forms, a name the server lacks --
-/// parses to [`XColor::Unresolved`].
+/// comparison. `rgbi:` and the CIE and TekHVC forms are Xcms's, converted to
+/// sRGB (`baud-domain/src/vt/xcms.rs`). What none of these reads -- a name
+/// the server lacks, a malformed spec -- parses to [`XColor::Unresolved`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum XColor<'a> {
     Rgb(Chan, Chan, Chan),
@@ -267,40 +267,47 @@ pub enum XColor<'a> {
 
 impl<'a> XColor<'a> {
     /// `rgb:R/G/B` with 1-4 hex digits per channel, `#RGB` / `#RRGGBB` /
-    /// `#RRRGGGBBB` / `#RRRRGGGGBBBB`, or an X11 colour name.
+    /// `#RRRGGGBBB` / `#RRRRGGGGBBBB`, `rgbi:`, `CIEXYZ:`, `CIEuvY:`,
+    /// `CIExyY:`, `CIELab:`, `CIELuv:`, `TekHVC:`, or an X11 colour name.
     ///
-    /// For `rgb:`, channels are scaled by value, as Xcms does: `rgb:f/f/f` is
-    /// white. The `#` forms are scaled the same way here, where XParseColor
-    /// shifts them into the high bits (`#fff` is `#f0f0f0`), an open
-    /// departure.
+    /// Each form is read to XParseColor's sixteen bits a channel first, as
+    /// the Xlib manual's "Color Strings" defines them
+    /// (`[[source: xlib-ch06-b8d5a70]]`): "Color strings are
+    /// case-insensitive", so `RGB:FF/00/00` is red; `rgb:` digits are scaled,
+    /// as Xcms scales them, truncating (`[[source: libx11-lrgb-b8d5a70]]`
+    /// 1286-1375); and a `#` form's digits "represent the most significant
+    /// bits of the value", so `#3a7` is `#3000a0007000`. Xcms lower-cases the
+    /// spec before it matches a prefix (`[[source: libx11-cmscolnm-b8d5a70]]`
+    /// 214-235). The channel kept is the value's high byte, as xterm computes
+    /// it on TrueColor (`[[source: xterm-misc-9489b20]]` 2725-2733) and as the
+    /// X resources reader draws it (decided there 2026-10-17); a 24-bit
+    /// Xvfb gives the same pixel for every spec held in
+    /// `[[source: xparsecolor-obs-rgb-out]]`: `#fff` is `f0f0f0`.
     pub fn parse(s: &'a [u8]) -> XColor<'a> {
         if s == b"?" {
             return XColor::Query;
         }
-        if let Some(rest) = strip(s, b"rgb:") {
-            let mut it = Split::new(rest, b'/');
-            if let (Some(r), Some(g), Some(b), None) = (it.next(), it.next(), it.next(), it.next())
-            {
-                if let (Some(r), Some(g), Some(b)) = (hex_chan(r), hex_chan(g), hex_chan(b)) {
-                    return XColor::Rgb(r, g, b);
-                }
-            }
-            return XColor::Unresolved(s);
+        let wide = match s.split_first() {
+            Some((b'#', digits)) => sharp(digits),
+            _ => match s.iter().position(|&b| b == b':') {
+                Some(colon) if s[..colon].eq_ignore_ascii_case(b"rgb") => device(&s[colon + 1..]),
+                Some(colon) => match super::xcms::Space::of(&s[..colon]) {
+                    Some(space) => super::xcms::resolve(space, &s[colon + 1..]),
+                    // A prefix no colour space has goes to the server as a
+                    // name, as Xcms's refusal does, and no name holds a
+                    // colon.
+                    None => return XColor::named(s),
+                },
+                None => return XColor::named(s),
+            },
+        };
+        match wide {
+            Some([r, g, b]) => XColor::Rgb(high(r), high(g), high(b)),
+            None => XColor::Unresolved(s),
         }
-        if let Some(rest) = strip(s, b"#") {
-            let n = rest.len();
-            if n % 3 == 0 && (3..=12).contains(&n) {
-                let w = n / 3;
-                if let (Some(r), Some(g), Some(b)) = (
-                    hex_chan(&rest[..w]),
-                    hex_chan(&rest[w..2 * w]),
-                    hex_chan(&rest[2 * w..]),
-                ) {
-                    return XColor::Rgb(r, g, b);
-                }
-            }
-            return XColor::Unresolved(s);
-        }
+    }
+
+    fn named(s: &'a [u8]) -> XColor<'a> {
         use super::x_colour_names::{POOL, SEEDS, SLOTS};
         match crate::colour_name::find(&SEEDS, &SLOTS, POOL, s) {
             Some([r, g, b]) => XColor::Rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)),
@@ -313,27 +320,49 @@ fn strip<'a>(s: &'a [u8], p: &[u8]) -> Option<&'a [u8]> {
     (s.len() >= p.len() && &s[..p.len()] == p).then(|| &s[p.len()..])
 }
 
-/// One to four hex digits, scaled to eight bits by value: the widest
-/// value a run can hold maps to 255.
-fn hex_chan(s: &[u8]) -> Option<Chan> {
+/// The eight bits a 24-bit TrueColor visual keeps of a sixteen-bit value:
+/// its high byte.
+fn high(v: u16) -> Chan {
+    Chan::from_u8(v.to_be_bytes()[0])
+}
+
+/// One to four hex digits, case ignored, and how many there were.
+fn hex(s: &[u8]) -> Option<(u32, u32)> {
     if s.is_empty() || s.len() > 4 {
         return None;
     }
     let mut v: u32 = 0;
     for &b in s {
-        let d = match b {
-            b'0'..=b'9' => b - b'0',
-            b'a'..=b'f' => b - b'a' + 10,
-            b'A'..=b'F' => b - b'A' + 10,
-            _ => return None,
-        };
-        v = (v << 4) | d as u32;
+        v = (v << 4) | char::from(b).to_digit(16)?;
     }
-    // Scale so the widest digit run maps its maximum to 255: `f` -> 255,
-    // `ffff` -> 255, rounding to the nearest step.
-    let bits = s.len() * 4;
-    let max = (1u32 << bits) - 1;
-    Some(Chan::from_u8(((v * 255 + max / 2) / max) as u8))
+    Some((v, u32::try_from(s.len()).ok()? * 4))
+}
+
+/// `#` and three runs of equal width: each run is the high bits of its
+/// channel, the rest zero.
+fn sharp(digits: &[u8]) -> Option<[u16; 3]> {
+    let w = digits.len() / 3;
+    if !matches!(digits.len(), 3 | 6 | 9 | 12) {
+        return None;
+    }
+    let mut out = [0u16; 3];
+    for (c, run) in out.iter_mut().zip(digits.chunks(w)) {
+        let (v, bits) = hex(run)?;
+        *c = u16::try_from(v << (16 - bits)).ok()?;
+    }
+    Some(out)
+}
+
+/// `R/G/B` after `rgb:`, one to four digits each, scaled to sixteen bits as
+/// Xcms scales them: `v * 0xffff / (2^bits - 1)`, truncated.
+fn device(fields: &[u8]) -> Option<[u16; 3]> {
+    let mut it = Split::new(fields, b'/');
+    let mut out = [0u16; 3];
+    for c in &mut out {
+        let (v, bits) = hex(it.next()?)?;
+        *c = u16::try_from(v * 0xffff / ((1 << bits) - 1)).ok()?;
+    }
+    it.next().is_none().then_some(out)
 }
 
 /// Split a byte slice on a separator without allocating.

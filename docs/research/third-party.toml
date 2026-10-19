@@ -21,7 +21,8 @@
 #              LicenseRef-W3C-Document, LicenseRef-IETF-RFC,
 #              LicenseRef-Khronos-Specification, LicenseRef-AGG-2.4-permissive,
 #              LicenseRef-W3C-Software-and-Document-2023,
-#              LicenseRef-Public-Domain-US-Government
+#              LicenseRef-Public-Domain-US-Government,
+#              LicenseRef-Tektronix-Xcms, LicenseRef-Tektronix-TekHVC
 #   notice   where the notice the licence asks for is: a path from the
 #            repository root, "in file", "uri" (the licence asks only for its
 #            URI, which THIRD_PARTY.md gives), "none needed", or "none"
@@ -320,6 +321,12 @@ licence = "HPND"
 from    = "https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/raw/6d3907b6d5dc4aa7d7ee6ee5d7d8714e7466630b/COPYING-dri3proto"
 how     = "fetched"
 sha256  = "64a579d1a0b3347301d87c94698a58ea7933d0ae6ca7e8fdd702fde2ea376301"
+
+[text."libx11-xcms.txt"]
+licence = "LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group"
+from    = "the notices at the head of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVC.c (Tektronix's TekHVC notice, which HVCGcC.c, HVCMxC.c and HVCMxVC.c carry too), src/xcms/cmsTrig.c (Tektronix's Xcms notice, which the other ported files carry) and src/xcms/cmsMath.c (The Open Group), with a paragraph saying which ported lines fall under which"
+how     = "built"
+sha256  = "e401afaad5a23d6d1d43a1689a33e7c992eddf6bdc772a4e61fd836542b8c39e"
 
 [text."xorg-rgb-COPYING.txt"]
 licence = "MIT-open-group"
@@ -1846,6 +1853,11 @@ files   = [
   "al-observed/thresholds.py",
   "at-observed/sheet-btop-dark-white.png",
   "xcode-27-metal-toolchain-component.txt",
+  "xparsecolor-observed/probe.c",
+  "xparsecolor-observed/rgb-specs.py",
+  "xparsecolor-observed/rgb.out",
+  "xparsecolor-observed/xcms-specs.py",
+  "xparsecolor-observed/xcms.out",
 ]
 
 [upstream.macos-liquid-glass]
@@ -1975,6 +1987,14 @@ paths    = ["baud-core/tests/image_geometry.rs"]
 licence  = "MIT"
 notice   = "LICENSES/yazi-MIT.txt"
 upstream = "https://github.com/sxyazi/yazi/blob/aa526434f00bb44e2e902d9a4ac5f810da1018b9/yazi-emulator/src/emulator.rs"
+status   = "kept"
+
+[[tree]]
+what     = "The Xcms conversions in xcms.rs (u'v'Y, xyY, TekHVC, the TekHVC gamut clip and its searches, Xcms's roots and trigonometry), ported from libX11's src/xcms, and in its test module the Tektronix CRT data and table search of LRGB.c. The TekHVC notice's three conditions: its notice is reproduced in xcms.rs and LICENSES; baud displays no TekHVC coordinates, since a TekHVC: spec is read, drawn as sRGB and answered to a query as rgb:; and the term TekHVC names that space and nothing else, wherever baud's text names it"
+paths    = ["baud-domain/src/vt/xcms.rs", "baud-domain/src/vt/xcms/tests.rs"]
+licence  = "LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group"
+notice   = "LICENSES/libx11-xcms.txt"
+upstream = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/tree/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms"
 status   = "kept"
 
 [[tree]]

@@ -235,8 +235,13 @@ Four OSC decisions are refusals or limits, and each is deliberate rather than a 
   it in its rgb.txt table ignoring case and nothing else
   (`[[source: xserver-oscolor-98aed9d]]` 852-884), so baud resolves the 782
   names of `[[source: xorg-rgb-0d2caec]]` the same way, from a table built
-  at build time. A name the server lacks, `rgbi:` and the CIE forms are left
-  alone and counted as unsupported. Until 2026-10-18 every name was.
+  at build time. A name the server lacks is left alone and counted as
+  unsupported. Until 2026-10-18 every name was.
+* **An Xcms spec is converted for the screen baud draws on.** `rgbi:` and
+  the CIE and TekHVC forms go through sRGB, the surface's colour space,
+  where libX11 with no profile from the server uses a 1990 Tektronix CRT;
+  CIELAB and CIELUV are CIE 015:2018's, where libX11 reads them at a
+  hundredth of CIE's scale. TekHVC and the gamut clip are Xcms's own.
 * **A colour query answers a colour something set, and nothing else.**
   `OSC 4 ; c ; ?` answers a program's override, else the entry the embedder
   handed over (`Term::set_theme`, or `Term::set_default_palette` alone), else

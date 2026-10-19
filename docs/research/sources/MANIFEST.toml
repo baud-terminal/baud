@@ -26489,6 +26489,283 @@ status = "external"
 group  = "Y"
 # Read 2026-10-17. For the X resources reader (note AR).
 
+[sources.xlib-ch06-b8d5a70]
+key    = "xlib-ch06-b8d5a70"
+title  = "Xlib - C Language X Interface, chapter 6, Color Management Functions (libX11 b8d5a70, specs/libX11/CH06.xml)"
+author = "James Gettys, Robert W. Scheifler; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11 (X Consortium notice)"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/specs/libX11/CH06.xml"
+file   = ""
+sha256 = "18213161b274510036749e262e80137b6ee5348b5b67ddaccc562988f78c81c1"
+bytes  = 222727
+status = "external"
+group  = "C"
+# Read 2026-10-18. "Color Strings", 484-695: "Color strings are
+# case-insensitive" (493); the four example strings (564-567); rgb:'s
+# digits scaled (582-605); the # forms, "the most significant bits of
+# the value ... ``#3a7'' is the same as ``#3000a0007000''" (609-633);
+# rgbi: (637-661) and the six device-independent forms (665-695).
+
+[sources.libx11-xcms-uvy-b8d5a70]
+key    = "libx11-xcms-uvy-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/uvY.c -- CIE u'v'Y to and from XYZ, and its Y range"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/uvY.c"
+file   = ""
+sha256 = "a0f485d20da7e4feb9f4248acf3cefd3a15db8387c1c6538c7a1ea141c15bc7c"
+bytes  = 10525
+status = "external"
+group  = "C"
+
+[sources.libx11-xcms-xyy-b8d5a70]
+key    = "libx11-xcms-xyy-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/xyY.c -- CIE xyY to XYZ by way of u'v', and its ranges"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/xyY.c"
+file   = ""
+sha256 = "7f6f989f1c434dbe19a9091d1137761eeda2a122551cd784de74a3356e686647"
+bytes  = 9869
+status = "external"
+group  = "C"
+
+[sources.libx11-xcms-xyz-b8d5a70]
+key    = "libx11-xcms-xyz-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/XYZ.c -- CIEXYZ: parse and its Y range"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/XYZ.c"
+file   = ""
+sha256 = "423be657949edbc84c6d95e7e2ccebd6802ca2f2ad395578adc3418c41d95800"
+bytes  = 4833
+status = "external"
+group  = "C"
+
+[sources.libx11-xcms-lab-b8d5a70]
+key    = "libx11-xcms-lab-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/Lab.c -- CIELab to XYZ: a/5 and b/2, and Y = L*/9.03292 below L* 8"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/Lab.c"
+file   = ""
+sha256 = "3f776cb3c3952c8231e8fabcf81e2e78a305951629248afc56cbb1d762d2eeda"
+bytes  = 10874
+status = "external"
+group  = "C"
+
+[sources.libx11-xcms-luv-b8d5a70]
+key    = "libx11-xcms-luv-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/Luv.c -- CIELuv to u'v'Y: u* / (13 L*/100)"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/Luv.c"
+file   = ""
+sha256 = "29701699e6e3697e221cd87a5cbae1e33d2729278bb77f81bbf9ce72912d6058"
+bytes  = 10097
+status = "external"
+group  = "C"
+
+[sources.libx11-xcms-hvc-b8d5a70]
+key    = "libx11-xcms-hvc-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/HVC.c -- TekHVC to and from u'v'Y, ThetaOffset, ValidSpec, CheckModify"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVC.c"
+file   = ""
+sha256 = "fcf1cc53185292d3942a661d3867fb70c91d3dadc4367a8a872426b18d78ce8d"
+bytes  = 16116
+status = "external"
+group  = "C"
+
+[sources.libx11-xcms-hvcgcc-b8d5a70]
+key    = "libx11-xcms-hvcgcc-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/HVCGcC.c -- XcmsTekHVCClipC, the default gamut compression"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVCGcC.c"
+file   = ""
+sha256 = "b3843bc82484a7e02a5d175fc9459e86053658116adf6a815251c76534a2c2bf"
+bytes  = 4764
+status = "external"
+group  = "C"
+
+[sources.libx11-xcms-hvcmxc-b8d5a70]
+key    = "libx11-xcms-hvcmxc-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/HVCMxC.c -- XcmsTekHVCQueryMaxC"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVCMxC.c"
+file   = ""
+sha256 = "cdb713294aec5401092de8e032edd3a2ee96dfd05809eaf9e1a6a8385ffe86a8"
+bytes  = 7767
+status = "external"
+group  = "C"
+
+[sources.libx11-xcms-hvcmxvc-b8d5a70]
+key    = "libx11-xcms-hvcmxvc-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/HVCMxVC.c -- _XcmsTekHVCQueryMaxVCRGB"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVCMxVC.c"
+file   = ""
+sha256 = "2c0aa86df3f8f34f4dcc021d591b50e68d3178c930d20f67e7d2fd6dc62ffc63"
+bytes  = 6987
+status = "external"
+group  = "C"
+
+[sources.libx11-xcms-cmsmath-b8d5a70]
+key    = "libx11-xcms-cmsmath-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/cmsMath.c -- _XcmsCubeRoot and _XcmsSquareRoot (The Open Group notice)"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/cmsMath.c"
+file   = ""
+sha256 = "c76f1c65d6236a08dd714ab3c1907bb9e4fea609645235ff29cf14013efbc61d"
+bytes  = 3110
+status = "external"
+group  = "C"
+
+[sources.libx11-xcms-cmstrig-b8d5a70]
+key    = "libx11-xcms-cmstrig-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/cmsTrig.c -- _XcmsSine, _XcmsCosine, _XcmsArcTangent"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/cmsTrig.c"
+file   = ""
+sha256 = "83d2aea0d7e973fc51c2e0fa5e341cde733bc0ab47ac240e30a7af3f92884afd"
+bytes  = 14957
+status = "external"
+group  = "C"
+
+[sources.libx11-xcms-cmsint-b8d5a70]
+key    = "libx11-xcms-cmsint-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/cmsInt.c -- XCMSCOMPPROC defaults to XcmsTekHVCClipC; the default screen data when no XDCCC property is set"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/cmsInt.c"
+file   = ""
+sha256 = "759b590b3b9fd8f83385ab15419c12d9b270d51e413c988a5c8b76928450c0eb"
+bytes  = 9180
+status = "external"
+group  = "C"
+
+[sources.libx11-xcms-cvcols-b8d5a70]
+key    = "libx11-xcms-cvcols-b8d5a70"
+title  = "libX11 b8d5a70, src/xcms/CvCols.c -- XcmsConvertColors: a device-independent spec to XYZ against the screen white, then to RGB"
+author = "Tektronix, Inc.; The Open Group; The X.Org Foundation"
+year   = 2026
+venue  = "xorg/lib/libx11"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/CvCols.c"
+file   = ""
+sha256 = "bc21e1fb29b4372363c83c8c51254699a4ea8e48691477715905c4b015227f8c"
+bytes  = 26555
+status = "external"
+group  = "C"
+
+[sources.cie-015-2018]
+key    = "cie-015-2018"
+title  = "CIE 015:2018 Colorimetry, 4th Edition -- 8.2.1 CIELAB, 8.2.2 CIELUV, Annex C's reverse transformation"
+author = "Commission Internationale de l'Eclairage"
+year   = 2018
+venue  = "CIE; the copy Public.Resource.Org posts as incorporated by reference in US regulations"
+url    = "https://law.resource.org/pub/us/cfr/ibr/inc/ansi/cie.015.2018.pdf"
+file   = ""
+sha256 = "6387f20cebfa9c2b4670513323a139d628b38cb616489d16e2641194d65cf8a0"
+bytes  = 16096466
+status = "external"
+group  = "C"
+# Read 2026-10-18 with pdftotext -layout. Equations 8.3-8.11 (CIELAB),
+# 8.26-8.30 (CIELUV) and C.1-C.9: a* = 500[f(X/Xn) - f(Y/Yn)], b* =
+# 200[f(Y/Yn) - f(Z/Zn)], u* = 13 L*(u' - u'n), the linear part below
+# L* = 8 with 24/116 and 108/841. libX11's Lab.c and Luv.c read a*, b*,
+# u*, v* at one hundredth of this.
+
+[sources.xparsecolor-obs-xcms-specs]
+key    = "xparsecolor-obs-xcms-specs"
+title  = "The rgbi: and device-independent specs fed to the probe: the manual's examples, prefix case, grids in each space, axis and wrap cases, malformed forms"
+author = "baud research"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 xcms-specs.py | probe"
+file   = "xparsecolor-observed/xcms-specs.py"
+sha256 = "3de7ea4927c175acd27852b7ea4fe3e9d894556ff826a5f5a153aec1446ab6bf"
+bytes  = 2166
+status = "retrieved"
+group  = "C"
+
+[sources.xparsecolor-obs-xcms-out]
+key    = "xparsecolor-obs-xcms-out"
+title  = "The probe's output for those specs: libX11 1.8.13's value and pixel through its default Tektronix CRT characterisation"
+author = "baud research"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "output of xcms-specs.py | probe on DISPLAY=:85, 2026-10-18; Xvfb 21.1.24 at depth 24 sets no XDCCC property"
+file   = "xparsecolor-observed/xcms.out"
+sha256 = "1d3b42eec18d496f170523047099bb419302f87e131e0c732a633dca2e9ac259"
+bytes  = 52082
+status = "retrieved"
+group  = "C"
+# 979 lines, 22 refused. Among them: CIELab:7/0/0 e6e2e2 and CIELab:8/0/0
+# 262927 (Lab.c's dark branch); rgbi:1.1/0/0 0b0000 (no range check);
+# rgbi:1/0/0/9 and rgbi:0x1/0/0 drawn (sscanf).
+
+[sources.xparsecolor-obs-probe-c]
+key    = "xparsecolor-obs-probe-c"
+title  = "Source of a probe printing XParseColor's value and XAllocColor's pixel for each spec on stdin"
+author = "baud research"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "built with clang against nixpkgs libX11 1.8.13 and xorgproto 2025.1; run against Xvfb 21.1.24 -screen 0 1024x768x24"
+file   = "xparsecolor-observed/probe.c"
+sha256 = "df6c5648f1578976e9523d326aabb6e6e304757b274a84d95ea4087cd3e8a79a"
+bytes  = 844
+status = "retrieved"
+group  = "C"
+
+[sources.xparsecolor-obs-rgb-specs]
+key    = "xparsecolor-obs-rgb-specs"
+title  = "The rgb: and # specs fed to the probe: the manual's examples, prefix case, every 1- and 2-digit value, a stride of 3- and 4-digit values, and malformed forms"
+author = "baud research"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "python3 rgb-specs.py | probe"
+file   = "xparsecolor-observed/rgb-specs.py"
+sha256 = "3b8ce785a2392d0f0729b8c54abc57fdfeef5f3af75e7954ccb3275395952216"
+bytes  = 930
+status = "retrieved"
+group  = "C"
+
+[sources.xparsecolor-obs-rgb-out]
+key    = "xparsecolor-obs-rgb-out"
+title  = "The probe's output for those specs: spec, XParseColor's 16-bit value, the 24-bit TrueColor pixel, XAllocColor's value"
+author = "baud research"
+year   = 2026
+venue  = "local capture or measurement"
+url    = "output of rgb-specs.py | probe on DISPLAY=:85, 2026-10-18; the visual reported depth 24, bits_per_rgb 8, TrueColor"
+file   = "xparsecolor-observed/rgb.out"
+sha256 = "163172f16939b0368c878e95a8ac0048a628597d3175ba98ddcc804d3fa3a879"
+bytes  = 29964
+status = "retrieved"
+group  = "C"
+# 607 lines, 16 refused. The pixel is the value's high byte on every line
+# (#fff 1000/f000 -> f0; rgb:7f80 -> 7f). libX11 also takes rgb:1/2/3/ and
+# rgb:1/2/3/4, its reader stopping after the third field; the manual's
+# grammar is rgb:<red>/<green>/<blue> and baud refuses both.
+
 [sources.libx11-lrgb-b8d5a70]
 key    = "libx11-lrgb-b8d5a70"
 title  = "libX11 b8d5a70, src/xcms/LRGB.c -- XcmsLRGB_RGB_ParseString: rgb: with one to four hex digits a component, scaled to 16 bits"

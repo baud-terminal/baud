@@ -1,0 +1,106 @@
+libX11's Xcms, src/xcms at b8d5a7046a98a244ee8ca3c9c07fd617c800dde2.
+baud-domain/src/vt/xcms.rs and its test module
+baud-domain/src/vt/xcms/tests.rs port lines from files under three
+notices, each reproduced below as the files carry it.
+
+The first, Tektronix's TekHVC notice, heads HVC.c, HVCGcC.c, HVCMxC.c
+and HVCMxVC.c, word for word in each. Under it: hvc_valid,
+hvc_check_modify, hvc_to_uvy, uvy_to_hvc, hvc_to_xyz, xyz_to_hvc, the
+theta offset in Ctx::new and the constants U_BR, V_BR and
+CHROMA_SCALE_FACTOR (HVC.c); query_max_c (HVCMxC.c); query_max_vc_rgb
+(HVCMxVC.c); and the clip in xyz_to_rgbi (HVCGcC.c).
+
+The second, Tektronix's Xcms notice, heads uvY.c, xyY.c, XYZ.c,
+cmsTrig.c, LRGB.c, cmsInt.c and CvCols.c; uvY.c and XYZ.c write "Xcms"
+as "XCMS" in its second sentence. Under it: the u'v'Y, xyY and XYZ
+conversions and ranges (uvY.c, xyY.c, XYZ.c); the trigonometry
+(cmsTrig.c); the screen white in Ctx::new, xyz_to_rgbi_raw and, in the
+test module, the CRT data and table search (LRGB.c); the default
+compression (cmsInt.c); and the order of conversion (CvCols.c). The
+tolerances XMY_EPS and EPS are defined in files under both notices.
+
+The third, The Open Group's, heads cmsMath.c. Under it: cube_root and
+square_root.
+
+Code and supporting documentation (c) Copyright 1990 1991 Tektronix, Inc.
+	All Rights Reserved
+
+This file is a component of an X Window System-specific implementation
+of Xcms based on the TekColor Color Management System.  TekColor is a
+trademark of Tektronix, Inc.  The term "TekHVC" designates a particular
+color space that is the subject of U.S. Patent No. 4,985,853 (equivalent
+foreign patents pending).  Permission is hereby granted to use, copy,
+modify, sell, and otherwise distribute this software and its
+documentation for any purpose and without fee, provided that:
+
+1. This copyright, permission, and disclaimer notice is reproduced in
+   all copies of this software and any modification thereof and in
+   supporting documentation;
+2. Any color-handling application which displays TekHVC color
+   cooordinates identifies these as TekHVC color coordinates in any
+   interface that displays these coordinates and in any associated
+   documentation;
+3. The term "TekHVC" is always used, and is only used, in association
+   with the mathematical derivations of the TekHVC Color Space,
+   including those provided in this file and any equivalent pathways and
+   mathematical derivations, regardless of digital (e.g., floating point
+   or integer) representation.
+
+Tektronix makes no representation about the suitability of this software
+for any purpose.  It is provided "as is" and with all faults.
+
+TEKTRONIX DISCLAIMS ALL WARRANTIES APPLICABLE TO THIS SOFTWARE,
+INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE.  IN NO EVENT SHALL TEKTRONIX BE LIABLE FOR ANY
+SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+RESULTING FROM LOSS OF USE, DATA, OR PROFITS, WHETHER IN AN ACTION OF
+CONTRACT, NEGLIGENCE, OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+CONNECTION WITH THE USE OR THE PERFORMANCE OF THIS SOFTWARE.
+
+----------------------------------------------------------------------
+
+Code and supporting documentation (c) Copyright 1990 1991 Tektronix, Inc.
+	All Rights Reserved
+
+This file is a component of an X Window System-specific implementation
+of Xcms based on the TekColor Color Management System.  Permission is
+hereby granted to use, copy, modify, sell, and otherwise distribute this
+software and its documentation for any purpose and without fee, provided
+that this copyright, permission, and disclaimer notice is reproduced in
+all copies of this software and in supporting documentation.  TekColor
+is a trademark of Tektronix, Inc.
+
+Tektronix makes no representation about the suitability of this software
+for any purpose.  It is provided "as is" and with all faults.
+
+TEKTRONIX DISCLAIMS ALL WARRANTIES APPLICABLE TO THIS SOFTWARE,
+INCLUDING THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE.  IN NO EVENT SHALL TEKTRONIX BE LIABLE FOR ANY
+SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+RESULTING FROM LOSS OF USE, DATA, OR PROFITS, WHETHER IN AN ACTION OF
+CONTRACT, NEGLIGENCE, OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+CONNECTION WITH THE USE OR THE PERFORMANCE OF THIS SOFTWARE.
+
+----------------------------------------------------------------------
+
+Copyright 1990, 1998  The Open Group
+
+Permission to use, copy, modify, distribute, and sell this software and its
+documentation for any purpose is hereby granted without fee, provided that
+the above copyright notice appear in all copies and that both that
+copyright notice and this permission notice appear in supporting
+documentation.
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+OPEN GROUP BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN
+AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Except as contained in this notice, the name of The Open Group shall not be
+used in advertising or otherwise to promote the sale, use or other dealings
+in this Software without prior written authorization from The Open Group.
