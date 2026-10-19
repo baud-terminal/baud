@@ -126,25 +126,32 @@ fn the_columns_brought_in_take_the_scroll_fill() {
     });
 }
 
-/// **On a double-width line the text moves inside its half**, the line's
-/// own end (`[[source: dec-std-070]]`'s `end_of_line`): what a shift
-/// brings in is blank, and nothing past the half comes into view.
+/// **On a double-width line the text moves to the right margin**, as
+/// DEC's own horizontal shifts move it: DECFI and DECBI shift "one column
+/// regardless of their line attributes", and the scroll_left and
+/// scroll_right routines they call run every row of the region to the
+/// right margin (`[[source: dec-std-070]]` pp. 5-37, 5-39, 5-212 and
+/// 5-213). ECMA-48 has no double-width line. Decided by Jev, RIGHT_MARGIN,
+/// 0.94/0.96 on a second ask (0.82/0.78 on the first); xterm's SL and SR
+/// shift each row to its right margin too (`xtermColScroll`). What a shift
+/// brings in at the half is what lay past it, blank here, since DECDWL
+/// left the line's second half empty; what SR pushes past the half is
+/// kept, and the line made single-width again shows it (p. 5-96, DECSWL
+/// "does not cause data contained in the Active Line to be lost").
 #[test]
-fn a_double_width_line_shifts_inside_its_half() {
+fn a_double_width_line_shifts_to_the_right_margin() {
     let bytes = format!("{}\x1b[2;1H\x1b#6\x1b[2 @", fill());
     support::render(&WS, bytes.as_bytes(), |t| {
-        assert_eq!(&row(t, 2)[..10], "23456789..", "the half's end blanked");
+        assert_eq!(&row(t, 2)[..10], "23456789..", "what lay past the half");
         assert_eq!(
             row(t, 1),
             "23456789abcdefghij..",
             "a single line, its whole width"
         );
     });
-    // What SR pushes past the half is gone, not kept out of sight: the
-    // line made single-width again shows nothing there.
     let bytes = format!("{}\x1b[2;1H\x1b#6\x1b[3 A\x1b#5", fill());
     support::render(&WS, bytes.as_bytes(), |t| {
-        assert_eq!(row(t, 2), "...0123456..........");
+        assert_eq!(row(t, 2), "...0123456789.......");
     });
 }
 

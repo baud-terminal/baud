@@ -2060,6 +2060,68 @@ fn el_1_while_narrow_leaves_what_the_line_held_past_the_edge() {
     in_every_read(BLUE_BAR, ops, &whole);
 }
 
+/// **EA and EF clear past the edge every row they erase to its end**, as
+/// `EL 0` and `EL 2` do: `[[source: ecma48]]` 8.3.37 puts "the character
+/// positions up to the end of the qualified area" into the erased state,
+/// and 8.3.40 those of the field, and with no guarded area the qualified
+/// area runs to the page's end and a field after the line's last stop to
+/// the line's end. `EA 0` from row 3, column 6: the five `X` before it
+/// kept, rows 3 to 9 the default once grown. `EA 1` from row 4, column 6:
+/// rows 1 to 3 the default, row 4 the bar from column 7. `EA 2`: every row.
+/// The bar above is the control. Every read size and every two-read split.
+#[test]
+fn ea_while_narrow_clears_the_rows_it_erases_to_their_end() {
+    let ops = b"\x1b[3;6H\x1b[O";
+    let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+    assert_bar_from(&whole.1[1], 0, "the control: row 2, a bar grown back");
+    assert_bar_from(&whole.1[2][..5], 0, "EA 0, row 3, the X before it");
+    assert_default_from(&whole.1[2], 5, "EA 0, row 3, grown");
+    for y in 3..9 {
+        assert_default_from(&whole.1[y], 0, &format!("EA 0, row {}, grown", y + 1));
+    }
+    in_every_read(BLUE_BAR, ops, &whole);
+    let ops = b"\x1b[4;6H\x1b[1O";
+    let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+    for y in 0..3 {
+        assert_default_from(&whole.1[y], 0, &format!("EA 1, row {}, grown", y + 1));
+    }
+    assert_bar_from(&whole.1[3], 6, "EA 1, row 4, the bar from column 7");
+    assert_bar_from(&whole.1[4], 0, "EA 1, row 5, a bar");
+    in_every_read(BLUE_BAR, ops, &whole);
+    let ops = b"\x1b[2O";
+    let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+    for (y, row) in whole.1.iter().enumerate() {
+        assert_default_from(row, 0, &format!("EA 2, row {}", y + 1));
+    }
+    in_every_read(BLUE_BAR, ops, &whole);
+}
+
+/// **EF clears past the edge when its field reaches the line's end**: the
+/// stops are at columns 9 and 17 and none follows inside 20 columns, so
+/// from column 18 `EF 0` and `EF 2` erase to the line's end and a growth
+/// shows the default from 18 and from 17. From column 6 the field ends at
+/// the stop at 9, and the bar past it stays, the control.
+#[test]
+fn ef_while_narrow_clears_past_the_edge_when_its_field_reaches_the_end() {
+    for (ops, from) in [(&b"\x1b[3;18H\x1b[N"[..], 17), (b"\x1b[3;18H\x1b[2N", 16)] {
+        let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+        let what = String::from_utf8_lossy(ops);
+        assert_bar_from(
+            &whole.1[2][..from],
+            0,
+            &format!("{what:?}: before the field"),
+        );
+        assert_default_from(&whole.1[2], from, &format!("{what:?}: row 3, grown"));
+        assert_bar_from(&whole.1[3], 0, &format!("{what:?}: the control, row 4"));
+        in_every_read(BLUE_BAR, ops, &whole);
+    }
+    let ops = b"\x1b[3;6H\x1b[N";
+    let whole = erased_while_narrow(BLUE_BAR, ops, Reads::Whole);
+    assert_default_from(&whole.1[2][..8], 5, "EF 0 from column 6, to the stop");
+    assert_bar_from(&whole.1[2], 8, "the control: the bar past the stop");
+    in_every_read(BLUE_BAR, ops, &whole);
+}
+
 /// **`ED` clears past the edge every row it covers to the end.** `ED 2`:
 /// every row the default blank once grown. `ED 0` from row 4: rows 1 to
 /// 3 bars, rows 4 to 10 the default. `ED 1` from row 4, column 6: rows 1

@@ -1665,6 +1665,13 @@ impl Paint<'_, '_> {
         for r in from.0..=to.0 {
             let a = if r == from.0 { from.1 } else { 0 };
             let b = if r == to.0 { to.1 + 1 } else { end(self, r) };
+            // A row erased to its end is cleared past a narrower edge
+            // first, as `EL 0` and `EL 2` clear it
+            // (`Paint::clear_erased_past_edge`).
+            if b == end(self, r) && self.past_edge() {
+                let at = self.view.rotation().advance(r, self.view.ring());
+                self.clear_erased_past_edge(at, blank);
+            }
             self.erase_span(
                 Row::from_index(r),
                 Col::at_index(a),
@@ -1698,6 +1705,12 @@ impl Paint<'_, '_> {
             EraseExtent::All => (start, stop),
         };
         let blank = self.blank();
+        // A field that reaches the line's end clears the line past a
+        // narrower edge first, as `EA` does a row it erases to its end.
+        if b == end && self.past_edge() {
+            let at = self.view.rotation().advance(r.index(), self.view.ring());
+            self.clear_erased_past_edge(at, blank);
+        }
         self.erase_span(r, Col::at_index(a), Col::at_index(b), blank);
         self.wrote_rows(r, r);
     }
@@ -2699,25 +2712,18 @@ impl Paint<'_, '_> {
     /// vt520-rm]]` p. 5-48; SCROLL_FILL, 0.96/0.96), where DECIC and DECDC
     /// take normal rendition by their own text.
     ///
-    /// **A double-width line shifts inside its half**, the line's own end
-    /// ([`crate::paint::fence_of`], `[[source: dec-std-070]]`'s
-    /// `end_of_line`): what goes past it is gone rather than kept out of
-    /// sight. Side margins and a sized line never meet (p. 5-29), so the
-    /// left margin is column 1 on any line that is not single-width.
+    /// **A double-width line shifts to the right margin**, as DEC's own
+    /// horizontal shifts move it: DECFI and DECBI shift "one column
+    /// regardless of their line attributes", through scroll_left and
+    /// scroll_right, which run every row of the region to the right margin
+    /// (`[[source: dec-std-070]]` pp. 5-37, 5-39, 5-212 and 5-213), so what
+    /// goes past its half is kept and DECSWL shows it again (Jev 2026-10-19,
+    /// RIGHT_MARGIN, 0.94/0.96). It stopped at the half until then. Side
+    /// margins and a sized line never meet (p. 5-29), so the left margin is
+    /// column 1 on any line that is not single-width.
     pub(crate) fn scroll_columns(&mut self, n: Count, dir: ColumnShift) {
         let (left, b) = (self.cold.left, self.blank());
-        for y in self.cold.top.index()..=self.cold.bot.index() {
-            let r = Row::from_index(y);
-            let to =
-                crate::paint::fence_of(self.view.rendition(r), self.cold.right, self.cols).after();
-            match dir {
-                ColumnShift::Insert => self.view.insert_cells(r, left, n, to, b),
-                ColumnShift::Delete => self.view.delete_cells(r, left, n, to, b),
-            }
-            self.cells = self.cells.plus(to.index() - left.index());
-        }
-        self.wrote_rows(self.cold.top, self.cold.bot);
-        self.row_changed_to(self.cy);
+        self.shift_columns_at(left, n, dir, b);
     }
 
     /// `DECIC`, `CSI Pn ' }`.

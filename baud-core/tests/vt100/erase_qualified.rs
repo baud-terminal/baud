@@ -165,3 +165,45 @@ fn ef_spares_a_guarded_position_under_erm_reset() {
     let (rows, ..) = after(b"abcdefgh\x1bVijk\x1bWlmno\x1b[1;12H\x1b[2N");
     assert_eq!(rows[0], "abcdefghijk.........");
 }
+
+/// **On a double-width line EA and EF stop at the line's end**, its half,
+/// and leave the cells the half hides: `[[source: dec-std-070]]` erases a
+/// line "x <= end_of_line(line)" (EL, p. 5-155), and EL here does the
+/// same. A field's stops are the line's character positions, as HT reads
+/// them, by the line's column (p. 5-68), so on a
+/// double line the stop at column 9 is its ninth character. Row 1 is
+/// `LINE`'s first row made double-width, and a DECIC of 3 from row 2 has
+/// pushed its `hij` past the half, where they are kept
+/// (`decic_and_decdc_shift_a_sized_line_to_the_right_margin`).
+#[test]
+fn ea_and_ef_on_a_double_width_line_stop_at_its_half() {
+    let dw = |op: &[u8]| after(&[LINE, b"\x1b[1;1H\x1b#6\x1b[2;1H\x1b[3'}", op].concat()).0;
+    assert_eq!(
+        dw(b"")[0],
+        "...abcdefghij.......",
+        "the control: hij past the half"
+    );
+    let ea0 = dw(b"\x1b[1;4H\x1b[O");
+    assert_eq!(ea0[0], "..........hij.......", "EA 0, the line to its half");
+    assert_eq!(ea0[1], "....................", "EA 0, the next line whole");
+    assert_eq!(dw(b"\x1b[1;4H\x1b[K")[0], ea0[0], "the control: EL 0");
+    assert_eq!(dw(b"\x1b[2;4H\x1b[1O")[0], ea0[0], "EA 1");
+    assert_eq!(dw(b"\x1b[2O")[0], ea0[0], "EA 2");
+    assert_eq!(dw(b"\x1b[1;15H\x1b[1O")[0], ea0[0], "EA 1 past the half");
+    assert_eq!(
+        dw(b"\x1b[1;4H\x1b[N")[0],
+        "........fghij.......",
+        "EF 0, to the stop"
+    );
+    assert_eq!(
+        dw(b"\x1b[1;12H\x1b[2N")[0],
+        "...abcde..hij.......",
+        "EF 2, to the half"
+    );
+    assert_eq!(dw(b"\x1b[1;12H\x1b[1N")[0], "...abcde..hij.......", "EF 1");
+    assert_eq!(
+        dw(b"\x1b[1;12H\x1b[2N")[1],
+        "...ABCDEFGHIJKLMNOPQ",
+        "EF, one line"
+    );
+}

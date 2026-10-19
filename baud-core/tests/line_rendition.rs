@@ -1251,6 +1251,31 @@ fn decic_and_decdc_shift_a_sized_line_to_the_right_margin() {
     );
 }
 
+/// **DECFI and DECBI shift a sized line to the right margin too**, by
+/// their own texts: note 1 of each, "Lines of text are shifted one column
+/// regardless of their line attributes. This means double-wide and
+/// double-size lines will appear to shift twice as fast as single-width
+/// lines" (`[[source: dec-std-070]]` pp. 5-37 and 5-39), and their
+/// algorithms call the scroll_left and scroll_right routines, which move
+/// every row of the region "between the column designated and the Right
+/// Margin (inclusive)" (§ 5.14.4 and § 5.14.5, pp. 5-212 and 5-213). So
+/// DECBI at the left margin pushes a double line's fortieth letter past
+/// its half, where it is kept, and DECFI at the right margin brings the
+/// first of three DECIC pushed past it back into view. The cursor is on
+/// row 1, single-width, for both.
+#[test]
+fn decfi_and_decbi_shift_a_sized_line_to_the_right_margin() {
+    let forty = letters(40, true);
+    on(
+        format!("\x1b[2;1H\x1b#6{forty}\x1b[1;1H\x1b6").as_bytes(),
+        |t| assert_eq!(text(t, 1), format!(".{forty}{}", dots(39)), "DECBI"),
+    );
+    on(
+        format!("\x1b[2;1H\x1b#6{forty}\x1b[1;1H\x1b[3'}}\x1b[1;80H\x1b9").as_bytes(),
+        |t| assert_eq!(text(t, 1), format!("..{forty}{}", dots(38)), "DECFI"),
+    );
+}
+
 fn base64(data: &[u8]) -> String {
     const B: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
