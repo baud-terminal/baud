@@ -402,7 +402,7 @@ impl Driver {
         }
         let refused = self.term.images().refusals;
         // The read's answers go to the outbox now, before a key queues behind
-        // them in the 256-byte reply buffer (`reads::feed`); the loop's
+        // them in the reply buffer (`reads::feed`); the loop's
         // `flush_reply` writes them.
         // No `OSC 52` poll: this driver has no clipboard until the Wayland
         // driver speaks a data device, and it provisions no area, so the core

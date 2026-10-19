@@ -614,7 +614,101 @@ fn code_received(r: Received, cp: Codepoint) -> Option<u8> {
         Received::DecSupplemental => dec_set_byte(DEC_SETS_SUPPLEMENTAL, cp),
         Received::JisKatakana => dec_set_byte(DEC_SETS_KATAKANA, cp),
         Received::JisRoman => dec_set_byte(DEC_SETS_ROMAN, cp),
+        Received::Iso96(i) => iso96_byte(i, cp),
     }
+}
+
+/// The six 96-character sets backwards, codepoint to the 7-bit code DEC STD
+/// 070's display stores (`code = parv[0] & 0x7F`, p. 5-140), each set in a
+/// slice keyed on the codepoint modulo the smallest number that gives each
+/// of its characters a slot, chosen at compile time as [`DecSetIndex`]'s
+/// are. An unassigned position holds DEC's error character and names no
+/// code, so it counts as that character, 0x1B.
+struct Iso96Index {
+    modulus: [u16; 6],
+    start: [u16; 6],
+    slots: [(u16, u8); ISO96_SLOTS],
+}
+
+const fn iso96_table(i: usize) -> &'static [Codepoint; 96] {
+    match Iso96::from_u8(i as u8) {
+        Some(s) => s.table(),
+        None => panic!("six sets"),
+    }
+}
+
+const fn iso96_named(t: &[Codepoint; 96], j: usize) -> bool {
+    t[j].0 != crate::DEC_ERROR_CHARACTER.0
+}
+
+const fn iso96_modulus(t: &[Codepoint; 96]) -> usize {
+    let mut m = 96;
+    loop {
+        let mut seen = [false; 1024];
+        let mut ok = true;
+        let mut j = 0;
+        while j < t.len() {
+            if iso96_named(t, j) {
+                let k = (t[j].0 as usize) % m;
+                if seen[k] {
+                    ok = false;
+                }
+                seen[k] = true;
+            }
+            j += 1;
+        }
+        if ok {
+            return m;
+        }
+        m += 1;
+        assert!(m <= 1024, "a 96-set's codepoints share every slot");
+    }
+}
+
+const ISO96_SLOTS: usize = iso96_modulus(iso96_table(0))
+    + iso96_modulus(iso96_table(1))
+    + iso96_modulus(iso96_table(2))
+    + iso96_modulus(iso96_table(3))
+    + iso96_modulus(iso96_table(4))
+    + iso96_modulus(iso96_table(5));
+
+const fn iso96_index() -> Iso96Index {
+    let mut ix = Iso96Index {
+        modulus: [0; 6],
+        start: [0; 6],
+        slots: [(0, 0); ISO96_SLOTS],
+    };
+    let mut at = 0;
+    let mut i = 0;
+    while i < 6 {
+        let t = iso96_table(i);
+        let m = iso96_modulus(t);
+        ix.modulus[i] = m as u16;
+        ix.start[i] = at as u16;
+        let mut j = 0;
+        while j < t.len() {
+            if iso96_named(t, j) {
+                let cp = t[j].0;
+                assert!(cp <= 0xffff, "a 96-set codepoint past U+FFFF");
+                ix.slots[at + (cp as usize) % m] = (cp as u16, 0x20 + j as u8);
+            }
+            j += 1;
+        }
+        at += m;
+        i += 1;
+    }
+    ix
+}
+
+static ISO96_BYTE: Iso96Index = iso96_index();
+
+/// The 7-bit code 96-set `s` was sent to write `cp`: one probe, no search.
+fn iso96_byte(s: Iso96, cp: Codepoint) -> Option<u8> {
+    let i = usize::from(s.to_u8());
+    let m = usize::from(ISO96_BYTE.modulus[i]);
+    let slot = usize::from(ISO96_BYTE.start[i]) + (cp.0 as usize) % m;
+    let (c, b) = ISO96_BYTE.slots[slot];
+    (u32::from(c) == cp.0 && b != 0).then_some(b)
 }
 
 /// The three translated DEC 94-character sets backwards, codepoint to
@@ -736,6 +830,22 @@ mod tests {
         }
         assert_eq!(dec_graphics_byte(Codepoint(u32::from(b'A'))), None);
         assert_eq!(dec_graphics_byte(Codepoint(0)), None);
+    }
+
+    /// The 96-set index names every assigned position's code under its own
+    /// set, and nothing for the error character.
+    #[test]
+    fn every_96_set_character_reverses_to_its_code() {
+        for i in 0..6u8 {
+            let Some(set) = Iso96::from_u8(i) else {
+                panic!("six sets");
+            };
+            assert_eq!(set.to_u8(), i);
+            for (j, &cp) in set.table().iter().enumerate() {
+                let want = (cp != crate::DEC_ERROR_CHARACTER).then_some(0x20 + j as u8);
+                assert_eq!(iso96_byte(set, cp), want, "{set:?} {:#x}", cp.0);
+            }
+        }
     }
 
     /// The national index names every replacement's byte under its own set

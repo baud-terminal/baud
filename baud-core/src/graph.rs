@@ -188,14 +188,30 @@ pub enum Node {
     /// where a stop tested after each dispatch costs the dispatch. Last in
     /// the enum, so no other node's index moves.
     Held,
+    /// **A single shift pending**: after `ESC N`, `ESC O`, or `8E`/`8F`
+    /// under ISO 8859-1, the next graphic character is drawn from G2 or G3
+    /// (`Cold::single`). `[[source: dec-std-070]]` p. 3-81: the character,
+    /// "which must be in the range 2/0 through 7/15 or 10/0 through 15/15, [is]
+    /// rendered according to the current contents of the G3 set. If the next
+    /// character in the received data stream is not a graphic character in
+    /// this range, the single shift function is ignored and the received
+    /// character is processed as if the single shift had not been received",
+    /// SO and SI excepted, which act and keep it (Jev's lean STD070_CANCEL,
+    /// and ANY_NUMBER of SO and SI, decided).
+    ///
+    /// **A node, so the text path tests nothing**: the shift lives in the
+    /// parser's position, as VT52 and the UTF-8 continuations do, and a
+    /// byte that cancels it is handed back to the ground with `Act::Again`.
+    /// Last in the enum, so no other node's index moves.
+    SingleShift,
 }
 
-pub(crate) const NNODE: usize = 34;
+pub(crate) const NNODE: usize = 35;
 
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 40;
+pub(crate) const NACT: usize = 42;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -233,6 +249,7 @@ impl Node {
         Node::Vt52Utf8ThreeAfterF0,
         Node::Vt52Utf8ThreeAfterF4,
         Node::Held,
+        Node::SingleShift,
     ];
 }
 
@@ -398,6 +415,15 @@ pub enum Act {
     /// `Node::Held`'s every byte: the rest of the read is left for the
     /// embedder, and the step consumes all of it, so the loop ends.
     Hold,
+    /// The character after a single shift, from G2 or G3 (`Node::SingleShift`).
+    /// **May consume nothing**: `DEL` with a 94-character set in the slot is
+    /// no character of it, so the shift is cancelled and the byte goes back to
+    /// the ground, as `Again` would send it.
+    Shifted,
+    /// `DEL` in the ground: ignored with a 94-character set in GL, a
+    /// character of the set with a 96-character one (`[[source: ecma35]]`
+    /// 8.3.1).
+    Del,
 }
 
 /// Which histogram slot a node is, as an **exhaustive match rather than a
@@ -442,6 +468,7 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
         Node::Vt52Utf8ThreeAfterF0 => 31,
         Node::Vt52Utf8ThreeAfterF4 => 32,
         Node::Held => 33,
+        Node::SingleShift => 34,
     }] += 1;
 }
 
@@ -493,6 +520,7 @@ const fn node_name(n: Node) -> &'static str {
         Node::Vt52Utf8ThreeAfterF0 => "Vt52Utf8ThreeAfterF0",
         Node::Vt52Utf8ThreeAfterF4 => "Vt52Utf8ThreeAfterF4",
         Node::Held => "Held",
+        Node::SingleShift => "SingleShift",
     }
 }
 
@@ -540,6 +568,8 @@ const fn act_name(a: Act) -> &'static str {
         Act::Again => "Again",
         Act::Resync => "Resync",
         Act::Hold => "Hold",
+        Act::Shifted => "Shifted",
+        Act::Del => "Del",
     }
 }
 
@@ -586,6 +616,8 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Resync,
     Act::EscStart,
     Act::Hold,
+    Act::Shifted,
+    Act::Del,
 ];
 
 #[cfg(feature = "diag")]
@@ -695,6 +727,8 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::SixelStart => 37,
         Act::EndCluster => 38,
         Act::Hold => 39,
+        Act::Shifted => 40,
+        Act::Del => 41,
     }] += 1;
 }
 
@@ -1022,6 +1056,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // same rule (`write::act`). Under UTF-8 `escape` and `esc_inter` do
         // not drop a byte `80-FF` with the sequence: they cancel it and hand
         // the byte to the ground after a control (`escape`).
+        Node::SingleShift => return single_shift(enc, b),
         Node::Escape => return escape(enc.gr_as_gl(b)),
         Node::EscInter => return esc_inter(enc.gr_as_gl(b)),
         Node::CsiEntry => return csi_entry(enc.gr_as_gl(b)),
@@ -1112,9 +1147,12 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 _ => edge(Act::Consume, Node::DcsStr),
             };
         }
+        // **`$ t` is DECRSPS**, `DCS Ps $ t D...D ST` (`[[source:
+        // dec-std-070]]` p. 5-205), its `Ps` collected by `Dcs`'s digit
+        // edges; `DcsQuery` reads which of the two the byte names.
         Node::DcsDollar => {
             return match enc.gr_as_gl(b).raw_byte() {
-                b'q' => edge(Act::DcsQuery, Node::DcsStr),
+                b'q' | b't' => edge(Act::DcsQuery, Node::DcsStr),
                 0x1b => edge(Act::Consume, Node::StrEsc),
                 0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => edge(Act::Consume, Node::DcsDollar),
                 _ => edge(Act::Consume, Node::DcsStr),
@@ -1194,10 +1232,13 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // `Act::Bad` below and drew U+FFFD, a decoding error for a byte that is
     // well-formed in UTF-8 (`del_in_ground_is_ignored`). VT52 ground has only
     // 94-character sets and takes the same rule. A 96-character set in GL
-    // makes 0x7F a character of the set (ECMA-35 8.3.1), which waits on note
-    // AE's 96-set work.
+    // makes 0x7F a character of the set (`[[source: ecma35]]` 8.3.1), which
+    // is GL's to say at run time, so the ANSI grounds name `Act::Del`.
     if matches!(Route::of(b), Route::Del) {
-        return edge(Act::Consume, after_control_of(g));
+        return match g {
+            Node::Vt52Ground => edge(Act::Consume, after_control_of(g)),
+            _ => edge(Act::Del, after_control_of(g)),
+        };
     }
     if matches!(enc, InputEncoding::Latin1) {
         // ISO 8859-1: one byte, one character, no decoder state. **Not
@@ -1214,8 +1255,14 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
         // reach this table**: no recording is Latin-1 and no sequence switched
         // the encoding, so the wrong answer cost nothing and announced
         // nothing. A row that cannot be reached is a row nobody re-reads.
+        // `8E` and `8F` leave a single shift pending in the ANSI grounds; a
+        // VT52 ground has no G2 or G3 to shift to, and takes them as every
+        // other C1 there (note AE's D3).
         if let Some(e) = latin1_c1(enc, b) {
-            return e;
+            return match (g, e.next) {
+                (Node::Vt52Ground, Node::SingleShift) => edge(e.act, Node::AfterControl),
+                _ => e,
+            };
         }
         return match b.is_latin1_graphic() {
             true => edge(Act::Latin1, g),
@@ -1298,6 +1345,11 @@ const fn escape(b: StreamByte) -> Edge {
         // `EscInter`, williams' `escape intermediate`, where the introducers
         // above are finals (`esc_inter`).
         0x20..=0x2f => edge(Act::Inter, Node::EscInter),
+        // **SS2 and SS3 leave a single shift pending**, from this row only:
+        // after an intermediate `N` and `O` are finals (`esc_inter`), so
+        // `ESC SP N` stays what it is at every read split. The C1 `8E` and
+        // `8F` read this row too (`latin1_c1`).
+        0x4e | 0x4f => edge(Act::EscFinal, Node::SingleShift),
         0x30..=0x7e => edge(Act::EscFinal, Node::AfterControl),
         // **`DEL` is ignored and the sequence goes on.** `[[source:
         // williams]]` gives `7F` the *ignore* action in `escape` (286). It
@@ -1328,6 +1380,24 @@ const fn escape(b: StreamByte) -> Edge {
         // the owner can veto): no text read says what a character after `ESC`
         // does. `StrEsc` hands its byte here with `Again`, so after the `ESC`
         // inside a string the same byte cancels the string and is the ground's.
+        _ => edge(Act::Again, Node::AfterControl),
+    }
+}
+
+/// After a single shift: the character it applies to, or a byte that
+/// cancels it (`Node::SingleShift`).
+///
+/// `20-7F` are 070's range, and under ISO 8859-1 `A0-FF` too, stripped to
+/// seven bits by the act (`[[source: dec-std-070]]` p. 3-81 and 070-5 p.
+/// 5-140, `code = parv[0] & 0x7F`; `[[source: ecma48]]` §9; Jev's lean
+/// STRIP_BIT8). SO and SI act and the shift stays pending. Every other
+/// byte -- a C0, `ESC`, `CAN`, `SUB`, a C1, a UTF-8 lead -- cancels it and is
+/// dispatched again from the ground after a control.
+const fn single_shift(enc: InputEncoding, b: StreamByte) -> Edge {
+    match (enc, b.raw_byte()) {
+        (_, 0x0e) => edge(Act::ShiftOut, Node::SingleShift),
+        (_, 0x0f) => edge(Act::ShiftIn, Node::SingleShift),
+        (_, 0x20..=0x7f) | (InputEncoding::Latin1, 0xa0..=0xff) => edge(Act::Shifted, Node::Ground),
         _ => edge(Act::Again, Node::AfterControl),
     }
 }
@@ -1713,7 +1783,7 @@ const fn string(node: Node, b: StreamByte) -> Edge {
         // 96-set condition cannot arise here: a command string is bit
         // combinations, not characters of a set GL invokes, `[[source: ecma48]]`
         // §9 saying SO and SI "have no effect on the interpretation" of one,
-        // and baud has no 96-character set in GL. This row stored it, the
+        // whatever set GL holds. This row stored it, the
         // `osc string` row, so `DCS $ q m DEL ST` answered invalid.
         //
         // `osc string` puts `7F` (`20-7F`, 407), so an `OSC` keeps it; an
@@ -2277,10 +2347,18 @@ mod classes {
         // `Vt52Escape`. Stride 1 does not move; 1,878 -> 1,816, 55,354 ->
         // 50,852 and 1,453,919 -> 1,263,705 at strides 2, 3 and 4; the fall
         // was not decomposed.
+        // **Code extension moved all four** (2026-10-19): a node for a
+        // pending single shift, entered on `N` and `O` from `Escape` (and so
+        // on `8E` and `8F` under ISO 8859-1), whose row takes `20-7F` and,
+        // under ISO 8859-1, `A0-FF` as `Act::Shifted`; `Act::Del` for `7F` in
+        // the ANSI grounds; and `t` after `DCS $` for DECRSPS. 49 -> 54,
+        // 1,816 -> 2,151, 50,852 -> 62,208 and 1,263,705 -> 1,589,720 at
+        // strides 1 to 4, +25.8% at stride 4; which bytes parted at stride 1
+        // was not decomposed.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 1_816, "stride 2");
-        assert_eq!(three.len(), 50_852, "stride 3");
-        assert_eq!(four.len(), 1_263_705, "stride 4");
+        assert_eq!(two.len(), 2_151, "stride 2");
+        assert_eq!(three.len(), 62_208, "stride 3");
+        assert_eq!(four.len(), 1_589_720, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2491,6 +2569,9 @@ mod classes {
                             grounds.contains(&node)
                         }
                         Act::Bad => grounds.contains(&node),
+                        // The character a single shift applies to, which
+                        // starts a cluster of its own (`Paint::shifted`).
+                        Act::Shifted => node == Node::SingleShift,
                         Act::EndCluster => twins.contains(&node),
                         Act::ContEnd | Act::Resync => utf8,
                         // `CR`: the cursor is at column 0, where `glyph`
@@ -2507,7 +2588,10 @@ mod classes {
                         ));
                     }
                     let in_ground = grounds.contains(&node) || twins.contains(&node);
-                    if performs(e.act) && in_ground && !twins.contains(&e.next) {
+                    // A single shift leaves its shift pending in a node of
+                    // its own, whose every way out is checked above.
+                    let pending = e.next == Node::SingleShift;
+                    if performs(e.act) && in_ground && !twins.contains(&e.next) && !pending {
                         wrong.push(format!(
                             "{enc:?} {node:?} {:#04x}: {e:?} performs a control and leaves no twin",
                             b.raw_byte()
@@ -2599,6 +2683,9 @@ mod classes {
                     Node::Vt52Col => edge(Act::Vt52Address, Node::Vt52AfterControl),
                     // A held read: the `ESC` is the rest's, like every byte.
                     Node::Held => edge(Act::Hold, Node::AfterControl),
+                    // A pending single shift is cancelled and the `ESC` is
+                    // the ground's after a control, where it opens a sequence.
+                    Node::SingleShift => edge(Act::Again, Node::AfterControl),
                 };
                 assert_eq!(
                     Edge::of(enc, node, StreamByte::ESC),
@@ -3276,7 +3363,8 @@ mod classes {
     // leads, which made 48. Table 3-7's narrowed second bytes, read where a
     // split character waits after `E0`, `ED`, `F0` or `F4`, made 49 -- by
     // reading the rows, `80-8F` parting from the C1 finals `91-97 99 9A`.
-    const CLASSES: usize = 49;
+    // The single shifts' node, `Act::Del` and DECRSPS's `t` made 54.
+    const CLASSES: usize = 54;
     /// What `write::act` consumes, which is **not** `Act::width()`.
     ///
     /// `width` is the byte length of the *character* an act writes; two acts
@@ -3286,7 +3374,7 @@ mod classes {
     /// eighth was mine.
     fn consumed(a: Act) -> ByteLen {
         match a {
-            Act::Resync | Act::Again => ByteLen::ZERO,
+            Act::Resync | Act::Again | Act::Shifted => ByteLen::ZERO,
             _ => a.width(),
         }
     }

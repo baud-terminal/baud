@@ -10,6 +10,7 @@ mod dcs;
 mod decrqm_cursor_style;
 mod replies;
 mod selective_erase;
+mod shifts;
 
 /// **None, and the gate stays so a new one has to say so.**
 ///
@@ -38,7 +39,7 @@ mod selective_erase;
 fn the_known_vt220_gaps() {
     support::ignores_are(
         "vt220",
-        &["dcs.rs", "replies.rs", "selective_erase.rs"],
+        &["dcs.rs", "replies.rs", "selective_erase.rs", "shifts.rs"],
         &[],
     );
 }

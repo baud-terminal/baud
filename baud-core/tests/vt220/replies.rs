@@ -283,14 +283,15 @@ fn overflow_is_counted_not_silent() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
-    // Each CPR is 6-8 bytes; REPLY is 256, so well over 64 queries overflow it.
-    let flood: Vec<u8> = std::iter::repeat_n(b"\x1b[6n".as_slice(), 200)
+    // Each CPR is 6-8 bytes and REPLY holds the longest DECTABSR, 9,139
+    // bytes, so 2,000 queries overflow it.
+    let flood: Vec<u8> = std::iter::repeat_n(b"\x1b[6n".as_slice(), 2000)
         .flatten()
         .copied()
         .collect();
     support::feed(&mut t, &flood);
     assert!(
-        t.reply().len() <= 256,
+        t.reply().len() <= REPLY,
         "the buffer must not grow past REPLY"
     );
     assert!(t.reply_overflows > 0, "dropped replies must be observable");

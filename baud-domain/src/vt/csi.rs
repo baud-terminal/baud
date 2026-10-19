@@ -796,6 +796,10 @@ pub enum Csi {
     /// made the caller's dispatch keep them all live, and its prologue save
     /// six register pairs where it saved three, on every `CSI`.
     Area(AreaOp),
+    /// DECRQPSR, `CSI Ps $ w`: a presentation state report, DECCIR for 1
+    /// and DECTABSR for 2 ([`PresentationState`]). `Ps` is read where the
+    /// report is made, as [`Csi::Area`]'s rectangle is.
+    RequestPresentationState,
     Unsupported {
         marker: Marker,
         final_byte: FinalByte,
@@ -916,6 +920,10 @@ impl Csi {
                 (b'$', b't') if marker == Marker::Standard => Csi::Area(AreaOp::ReverseAttrs),
                 (b'*', b'x') if marker == Marker::Standard => Csi::Area(AreaOp::SelectExtent),
                 (b'*', b'y') if marker == Marker::Standard => Csi::Area(AreaOp::RequestChecksum),
+                // DECRQPSR, `CSI Ps $ w`: `[[source: dec-std-070]]` p. 5-198,
+                // "causes the terminal to respond with a Presentation State
+                // Report"; `[[source: vt510-decrqpsr]]`.
+                (b'$', b'w') if marker == Marker::Standard => Csi::RequestPresentationState,
                 _ => Csi::Unsupported {
                     marker,
                     final_byte: f,
@@ -1301,7 +1309,7 @@ impl Csi {
             // ctlseqs says VT340, a level this table does not carry.
             SetColumnsPerPage(_) => Level::Vt420,
             // "Level: 4" each (`[[source: dec-std-070]]` pp. 5-169 to 5-179).
-            Area(_) => Level::Vt420,
+            Area(_) | RequestPresentationState => Level::Vt420,
 
             // XTWINOPS is "dtterm, extended by xterm" -- the three reports are
             // xterm's extensions of it.

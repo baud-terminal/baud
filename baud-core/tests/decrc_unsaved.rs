@@ -16,8 +16,9 @@
 //! so a `DECRC` after either takes this path.
 //!
 //! **What none of the texts names is left alone**: `DECAWM`, which 070's
-//! buffer does not hold and vt510's no-save list does not reset. GR is not
-//! modelled. `SCORC` keeps its own path, `scorc_without_a_save_is_inert`:
+//! buffer does not hold and vt510's no-save list does not reset. GR goes back
+//! to G2 with the slots (`the_resets_restore_gr_and_the_supplemental_slots`).
+//! `SCORC` keeps its own path, `scorc_without_a_save_is_inert`:
 //! its own text, MS-DOS 2.00's ANSI.SYS (`[[source: msdos2-ansi-doc]]`),
 //! restores a position it says nothing about before a save, and what xterm
 //! does is note AE's Q13.
@@ -102,7 +103,9 @@ fn decrc_with_nothing_saved_turns_the_attributes_off() {
     });
 }
 
-/// The default mapping: ASCII in G0 and GL. A G0 designated DEC Special
+/// The default mapping: ASCII in G0 and G1 and DEC Supplemental, the
+/// user-preference supplemental set, in G2 and G3 (`[[source: dec-std-070]]`
+/// §3.6.4.3), G0 in GL and G2 in GR (`gr_slot`). A G0 designated DEC Special
 /// Graphics draws `q` as `q` again, a G1 invoked by `SO` is shifted back out,
 /// and a G1 designated DEC Special Graphics is ASCII again for a later `SO`.
 #[test]
@@ -113,9 +116,15 @@ fn decrc_with_nothing_saved_establishes_the_default_mapping() {
     // restore does not reach GL without another `SO`.
     at_every_read_size(b"\x1b)0\x0e\x1b8\x1b)0q", 'q', first);
     at_every_read_size(b"\x1b)0\x1b8\x0eq", 'q', first);
-    at_every_read_size(b"\x1b*0\x1b+0\x1b8", [Charset::Ascii; 4], |t| {
-        [GSlot::G0, GSlot::G1, GSlot::G2, GSlot::G3].map(|g| t.charset_in(g))
-    });
+    let sup = Charset::Dec(DecSet::Supplemental);
+    at_every_read_size(
+        b"\x1b*0\x1b+0\x1b|\x1b8",
+        ([Charset::Ascii, Charset::Ascii, sup, sup], GSlot::G2),
+        |t| {
+            let slots = [GSlot::G0, GSlot::G1, GSlot::G2, GSlot::G3].map(|g| t.charset_in(g));
+            (slots, t.gr_slot())
+        },
+    );
 }
 
 /// The selective erase attribute off, as 070's reset buffer and vt220's

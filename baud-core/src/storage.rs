@@ -871,12 +871,18 @@ pub const NLINK: usize = 128;
 pub const LINK_MAX: usize = 256;
 
 /// How many bytes of reply the core will hold before it starts counting
-/// losses. `baud-core2` used the same number and for the same reason: the
-/// longest single reply is a `DECRQSS` rendition string, at most
-/// `DECRQSS_MAX` = 124 bytes and const-asserted against this in `dcs.rs`,
-/// and 256 bounds it with room while staying far below anything that
-/// matters. Several replies from one read can still exceed it (note AG).
-pub const REPLY: usize = 256;
+/// losses: **the longest single reply**, which is DECTABSR with a stop at
+/// every one of `MAX_COLS` columns, 9,139 bytes (`tab_report_max`), since
+/// 2026-10-19. It was 256, which bounded the longest before it, a `DECRQSS`
+/// rendition string of at most `DECRQSS_MAX` bytes, const-asserted against
+/// this in `dcs.rs`; a DECTABSR at 2048 columns with the default stops is
+/// 1,144 bytes, so 256 would have dropped it whole. Cold: written by a
+/// report, read by the embedder. Several replies from one read can still
+/// exceed it (note AG).
+pub const REPLY: usize = match tab_report_max(MAX_COLS) > 256 {
+    true => tab_report_max(MAX_COLS),
+    false => 256,
+};
 
 /// How many images can be live at once. Small: a screen shows a handful, the
 /// table is scanned linearly, and it is tiny (a slot is a span and a refcount),

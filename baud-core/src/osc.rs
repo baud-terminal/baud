@@ -167,7 +167,14 @@ impl Paint<'_, '_> {
         // `[[source: ctlseqs]]` leaves error recovery to the implementation
         // (133-137). The other C0 the graph puts, `BEL`, stays in the `Pt`,
         // and the request then names nothing, which is the owner's open call.
-        if self.cold.str_kind == StrKind::Decrqss && b.is_format_effector() {
+        if self.cold.str_kind == StrKind::RestoreTabs {
+            return self.restore_tab_put(b);
+        }
+        if matches!(
+            self.cold.str_kind,
+            StrKind::Decrqss | StrKind::RestoreCursor
+        ) && b.is_format_effector()
+        {
             return;
         }
         // **Under ISO 8859-1 an `OSC` keeps a GR byte as its 7-bit byte**,
@@ -255,6 +262,16 @@ impl Paint<'_, '_> {
             // a body that reached the screen as text would render an
             // application's private protocol as glyphs.
             StrKind::Kitty => self.kitty_end(),
+            StrKind::RestoreCursor => {
+                // A copy of the head of the body: the data string is at most
+                // `CIR_DATA_MAX` bytes, and anything past the four
+                // designations is not read.
+                let n = self.cold.str_len.index().min(CIR_COPY);
+                let mut data = [0u8; CIR_COPY];
+                data[..n].copy_from_slice(&self.strs.pending[..n]);
+                self.restore_cursor_information(&data[..n]);
+            }
+            StrKind::RestoreTabs => self.restore_tab_end(),
             StrKind::Other | StrKind::Apc => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;
@@ -587,6 +604,10 @@ fn copy_bounded(dst: &mut [u8], src: &[u8]) -> ByteLen {
 
 /// Which control string is being accumulated.
 ///
+/// How much of a DECRSPS body in DECCIR's format is read: the longest data
+/// string with room for a byte past it, which makes it invalid.
+const CIR_COPY: usize = CIR_DATA_MAX + 1;
+
 /// Five states for five introducers. `SOS`, `PM` and `APC` share `Other`,
 /// with any `DCS` this core has no prefix parser for, because it acts on none
 /// of them and their bodies are consumed identically. `Decrqss` and `Sixel`
@@ -614,6 +635,12 @@ pub(crate) enum StrKind {
     Apc,
     /// An `APC G`: the body goes to the kitty graphics stream (`kitty.rs`).
     Kitty,
+    /// A `DCS 1 $ t`, DECRSPS in DECCIR's format: the body is kept and
+    /// restored at the terminator (`Paint::restore_cursor_information`).
+    RestoreCursor,
+    /// A `DCS 2 $ t`, DECRSPS in DECTABSR's format: each stop is set as its
+    /// column arrives (`Paint::restore_tab_put`), so no length limits it.
+    RestoreTabs,
 }
 
 impl StrKind {

@@ -50,6 +50,37 @@ pub(crate) struct AltSaved {
     pub(crate) blink: ModeChange,
 }
 
+/// **What G0-G3 hold at power-up, after DECSTR and RIS, and for a DECRC
+/// with nothing saved**: ASCII in G0 and G1 and the user-preference
+/// supplemental set in G2 and G3, GL on G0 and GR on G2.
+/// `[[source: dec-std-070]]` §3.6.4.3: "the default character set
+/// designations will be ASCII in G0 and G1, and the User Preference
+/// Supplemental Set (UPSS) in G2 and G3. Furthermore, the G0 set (ASCII)
+/// will be invoked into the GL position of the In Use Table, and the G2 set
+/// (UPSS, typically DEC Supplemental or ISO Latin-1 supplemental) will be
+/// invoked into the GR position". The UPSS is its factory value, DEC
+/// Supplemental (070-4 p. 14, `upss = DEC_SUPPLEMENTAL_G`; `[[source:
+/// vt510-decaupss]]`, "Default: DEC Supplemental Graphic"), in both
+/// encodings: Jev's leans DEC_SUPPLEMENTAL (0.85/0.88, then 0.80/0.82) and
+/// SAME_IN_BOTH_ENCODINGS (0.18/0.14 split, then 0.20/0.28), and GR on G2
+/// decided (1.00/0.96). Under ISO 8859-1 a GR byte therefore draws DEC
+/// Supplemental, which departs from `[[source: ctlseqs]]` 312's "That is
+/// ISO 8859-1" at 20 positions.
+pub(crate) const POWER_UP_SETS: [Charset; 4] = [
+    Charset::Ascii,
+    Charset::Ascii,
+    Charset::Dec(DecSet::Supplemental),
+    Charset::Dec(DecSet::Supplemental),
+];
+/// The same, as designated: `B B < <`, `[[source: dec-std-070]]`'s own
+/// default DECCIR (p. 5-203).
+pub(crate) const POWER_UP_DESIGNATIONS: [Designation; 4] = [
+    Designation::ASCII,
+    Designation::ASCII,
+    Designation::UPSS,
+    Designation::UPSS,
+];
+
 /// What `DECSC` saves and `DECRC` restores.
 #[derive(Clone, Copy)]
 pub struct Saved {
@@ -64,10 +95,18 @@ pub struct Saved {
     /// `[[source: vt510-decsc]]` lists "Character sets (G0, G1, G2, or G3)
     /// currently in GL and GR" among what DECSC saves, and a saved *resolved*
     /// set restores into slots that no longer agree with it -- the next `SI`
-    /// would recompute from `g[gl]` and throw the restore away. `GR` is not
-    /// saved because this core does not model it.
+    /// would recompute from `g[gl]` and throw the restore away. `GR` is
+    /// saved, as `[[source: dec-std-070]]` §5.13.1 saves it at Level 2 ("the
+    /// character set most recently invoked into the right hand side (GR)"),
+    /// and the slots as slots (note AE's Q11, decided). A pending single
+    /// shift is not saved: the `ESC` of `ESC 7` has cancelled it (070-3 p.
+    /// 3-81; Jev's lean STD070_CANCEL).
     pub(crate) g: [Charset; 4],
     pub(crate) gl: GSlot,
+    pub(crate) gr: GSlot,
+    /// How each slot was designated, which DECCIR reports and the slots
+    /// alone cannot say ([`Designation`]).
+    pub(crate) desig: [Designation; 4],
     /// **`DECSCA`'s protection, which is not the same word as `flags`.**
     /// `[[source: vt510-decsc]]` lists "selective erase attribute" among what
     /// `DECSC` saves. `flags` is what the write path stamps into a cell and
@@ -104,8 +143,9 @@ pub struct Saved {
     /// before where the reflow put it; and one saved at full width, restored
     /// under a right margin one before the screen's last column (`DECSLRM
     /// 1;19` on 20 columns), is put on that margin + 1 by the clamp to the
-    /// screen. A save that was not pending never reads as one. Lands in
-    /// padding: `size_of::<Saved>()` is 56 with it and without.
+    /// screen. A save that was not pending never reads as one. It landed in
+    /// padding, `size_of::<Saved>()` 56 with it and without; GR and the four
+    /// designations took it to 72.
     pub(crate) pending: ModeChange,
 }
 
@@ -605,6 +645,22 @@ pub struct Cold {
     /// `SO`/`SI` did nothing at all.
     pub(crate) g: [Charset; 4],
     pub(crate) gl: GSlot,
+    /// **Which slot GR reads through**, read only where a GR byte is
+    /// written (`Paint::gr_glyph`), under ISO 8859-1, and by DECCIR: not
+    /// resolved into `Paint`, so a designation into the slot it holds takes
+    /// effect at once (`[[source: ecma35]]` 14.3.2) with nothing to refresh.
+    pub(crate) gr: GSlot,
+    /// The slot a pending single shift draws from, G2 or G3: meaningful
+    /// only while the parser is in `Node::SingleShift`, which is what holds
+    /// the shift pending, so the text path tests nothing.
+    pub(crate) single: GSlot,
+    /// How each slot was designated ([`Designation`]), for DECCIR.
+    pub(crate) desig: [Designation; 4],
+    /// The single shift a DECRSPS restored, for the terminator's step to
+    /// leave pending (`Act::StrEnd`); `None` at every other time.
+    pub(crate) restored_shift: Option<GSlot>,
+    /// Where a DECRSPS tab-stop restore stands (`Paint::restore_tab_put`).
+    pub(crate) tab_restore: TabRestore,
     /// **Mouse reporting, all of it in `Cold`.** Every field here is written
     /// by a control sequence and read by an embedder calling
     /// [`Term::mouse_report`] -- never by the per-byte loop -- so it costs the
@@ -970,9 +1026,15 @@ pub struct Cold {
 // write path where `right` was read** -- the fit test, the wrap, the pin --
 // so a character compares against one field of `Cold` as it did, at another
 // offset; written where the cursor reaches a line or its line changes size.
+// Code extension took it to 728: which slot GR invokes, the slot a pending
+// single shift names, how each slot was designated (DECCIR's `Sdesig`), a
+// DECRSPS's restored shift and tab-stop parse, and GR and the designations
+// in both `Saved` copies, `saved` and `alt_saved` (56 to 72 bytes each).
+// None is read on the per-byte path: GR where a GR byte is written, the
+// rest by control functions and reports.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 672);
+const _: () = assert!(core::mem::size_of::<Cold>() == 728);
 
 /// **Where an open SPA starts**: `[[source: ecma48]]` 6.5.2.2, "The
 /// character position which is the active presentation position after
@@ -1127,8 +1189,13 @@ impl Cold {
         Cold {
             #[cfg(feature = "sgr-table")]
             sgr: [SgrSlot::EMPTY; NSGR],
-            g: [Charset::Ascii; 4],
+            g: POWER_UP_SETS,
             gl: GSlot::G0,
+            gr: GSlot::G2,
+            single: GSlot::G2,
+            desig: POWER_UP_DESIGNATIONS,
+            restored_shift: None,
+            tab_restore: TabRestore::Stopped,
             shell: crate::prompt::Shell::FRESH,
             shell_other: crate::prompt::Shell::FRESH,
             placement: crate::placed::Placement::NONE,
@@ -2537,6 +2604,13 @@ impl<'b> Term<'b> {
     /// conformance check on designation has to ask.
     pub fn charset_in(&self, slot: GSlot) -> Charset {
         self.cold.g[slot.index()]
+    }
+
+    /// Which slot GR invokes: G2 at power-up and after a reset, moved by
+    /// LS1R, LS2R and LS3R (`[[source: ecma35]]` 8.3.2). A GR byte reads
+    /// through it under ISO 8859-1; under UTF-8 no byte is GR's.
+    pub fn gr_slot(&self) -> GSlot {
+        self.cold.gr
     }
 
     /// The character set in force -- the resolved one, `g[gl]`.

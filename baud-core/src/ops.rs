@@ -344,6 +344,8 @@ impl Paint<'_, '_> {
             flags: self.flags,
             g: self.cold.g,
             gl: self.cold.gl,
+            gr: self.cold.gr,
+            desig: self.cold.desig,
             protect: self.cold.protect,
             autowrap: ModeChange::of(self.cold.modes.is_set(ModeBit::AutoWrap)),
             origin: ModeChange::of(self.cold.modes.is_set(ModeBit::Origin)),
@@ -432,6 +434,8 @@ impl Paint<'_, '_> {
         self.flags = s.flags;
         self.cold.g = s.g;
         self.cold.gl = s.gl;
+        self.cold.gr = s.gr;
+        self.cold.desig = s.desig;
         self.cold.protect = s.protect;
         self.invoke();
     }
@@ -442,10 +446,9 @@ impl Paint<'_, '_> {
     /// (DECOM). Turns all character attributes off (normal setting). Maps the
     /// ASCII character set into GL, and the DEC Supplemental Graphic set into
     /// GR." `[[source: vt220-rm-ch4]]` § 4.7 ends the same list "the default
-    /// character set mapping is established", so the four slots go back to
-    /// this core's power-on sets, all ASCII (DEC's G2/G3 default, the
-    /// supplemental set, is note AE's Q2), and not only G0. GR is not
-    /// modelled.
+    /// character set mapping is established", so the four slots, GL and GR
+    /// go back to this core's power-on sets ([`Paint::reset_sets`]), and not
+    /// only G0.
     ///
     /// **The selective erase attribute goes off too**, which neither vt510's
     /// list nor `[[source: vt220-rm-ch4]]` § 4.7's names and the reset save
@@ -465,9 +468,20 @@ impl Paint<'_, '_> {
         self.style_raw = StyleWord::DEFAULT;
         self.style = StyleId::DEFAULT;
         self.cold.protect = CellFlags::NONE;
-        self.cold.g = [Charset::Ascii; 4];
-        self.cold.gl = GSlot::G0;
+        self.reset_sets();
         self.invoke();
+    }
+
+    /// The power-on designations and invocations
+    /// ([`crate::term::POWER_UP_SETS`]): what DECSTR, RIS and a DECRC with
+    /// nothing saved establish. `[[source: dec-std-070]]` 070-4 p. 31,
+    /// DECSTR: "In Use Table (gl, gr) | set to current level defaults /
+    /// Designated Sets | set to current level defaults".
+    pub(crate) fn reset_sets(&mut self) {
+        self.cold.g = crate::term::POWER_UP_SETS;
+        self.cold.desig = crate::term::POWER_UP_DESIGNATIONS;
+        self.cold.gl = GSlot::G0;
+        self.cold.gr = GSlot::G2;
     }
 
     /// **What an erase leaves, and what a line scrolled or opened onto the
@@ -3595,8 +3609,7 @@ impl Paint<'_, '_> {
         self.style_raw = StyleWord::DEFAULT;
         self.cold.saved = None;
         self.style = StyleId::DEFAULT;
-        self.cold.g = [Charset::Ascii; 4];
-        self.cold.gl = GSlot::G0;
+        self.reset_sets();
         // **Both resets restore the cursor shape.** A first version put this in
         // `hard_reset` only, on the argument that `DECSCUSR` is an xterm
         // extension and xterm's soft path leaves it alone -- which is the

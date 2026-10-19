@@ -13,6 +13,7 @@ mod erase_colour;
 mod index_columns;
 mod line_starts;
 mod origin;
+mod presentation;
 mod rect_ops;
 mod rect_scroll;
 mod side_margins;
@@ -38,6 +39,7 @@ fn the_known_vt420_gaps() {
             "index_columns.rs",
             "line_starts.rs",
             "origin.rs",
+            "presentation.rs",
             "rect_ops.rs",
             "rect_scroll.rs",
             "side_margins.rs",

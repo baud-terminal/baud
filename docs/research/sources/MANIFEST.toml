@@ -14113,6 +14113,133 @@ group  = "C"
 # Fetched 2026-10-08 for note AE: the report's Pgl, Pgr, Scss and Sdesig fields and its
 # single-shift flags -- the character-set state DEC reports with the cursor.
 
+[sources.vt510-decrqpsr]
+key    = "vt510-decrqpsr"
+title  = "DECRQPSR—Request Presentation State Report (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECRQPSR.html"
+file   = "vt510-DECRQPSR.html"
+sha256 = "cab03a6d4116fae7199d3989a4c131d23975ea148b8a63e877e5ce632a96e425"
+bytes  = 19611
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 (lane b100) for DECRQPSR: Ps 0 'Error. Request ignored', 1 DECCIR, 2 DECTABSR.
+
+[sources.vt510-dectabsr]
+key    = "vt510-dectabsr"
+title  = "DECTABSR—Tab Stop Report (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECTABSR.html"
+file   = "vt510-DECTABSR.html"
+sha256 = "0a3f220995bf55e02667aacf135ac2b082a3e490dffeede49dd488d06c1e1986"
+bytes  = 20489
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 (lane b100): DCS 2 $ u D...D ST, the column of each tab stop, '/' between them.
+
+[sources.vt510-decrsps]
+key    = "vt510-decrsps"
+title  = "DECRSPS—Restore Presentation State (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECRSPS.html"
+file   = "vt510-DECRSPS.html"
+sha256 = "41d6a9aa8e458ff56fc650f8c8e4f2b831f2300911fb0fd882e2add211839c6c"
+bytes  = 21185
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 (lane b100): DCS Ps $ t D...D ST restores one report's state; 'If there is an
+# invalid value in the DECRSPS sequence, then the terminal ignores the rest of the sequence.'
+
+[sources.iso8859-1]
+key    = "iso8859-1"
+title  = "8859-1.TXT -- ISO/IEC 8859-1:1998 to Unicode"
+author = "Unicode, Inc."
+year   = 2015
+venue  = "unicode.org, Public/MAPPINGS/ISO8859"
+url    = "https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-1.TXT"
+file   = "iso8859-1.txt"
+sha256 = "2a06a462bf74ae65a77b700f235ac05156ac20f4aaefe39f09cc20d50628bb5e"
+bytes  = 9995
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 (lane b100) and read whole by scripts/gen-iso96-sets.py: the right half is ISO-IR 100, the 96-set `ESC - A` designates.
+
+[sources.iso8859-2]
+key    = "iso8859-2"
+title  = "8859-2.TXT -- ISO 8859-2:1999 to Unicode"
+author = "Unicode, Inc."
+year   = 2015
+venue  = "unicode.org, Public/MAPPINGS/ISO8859"
+url    = "https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-2.TXT"
+file   = "iso8859-2.txt"
+sha256 = "020946e114335b17e7d29fe8a8449786cffed714cf409b11d0b3a375197188d1"
+bytes  = 10219
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 (lane b100) and read whole by scripts/gen-iso96-sets.py: the right half is ISO-IR 101, `ESC - B`.
+
+[sources.iso8859-5]
+key    = "iso8859-5"
+title  = "8859-5.TXT -- ISO 8859-5:1999 to Unicode"
+author = "Unicode, Inc."
+year   = 2015
+venue  = "unicode.org, Public/MAPPINGS/ISO8859"
+url    = "https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-5.TXT"
+file   = "iso8859-5.txt"
+sha256 = "9a2efea39673f95c5daa277c46ad09a41e95f27c225270424a604d033db9bd8f"
+bytes  = 9830
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 (lane b100) and read whole by scripts/gen-iso96-sets.py: the right half is ISO-IR 144, `ESC - L`.
+
+[sources.iso8859-7]
+key    = "iso8859-7"
+title  = "8859-7.TXT -- ISO 8859-7:2003 to Unicode"
+author = "Unicode, Inc."
+year   = 2015
+venue  = "unicode.org, Public/MAPPINGS/ISO8859"
+url    = "https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-7.TXT"
+file   = "iso8859-7.txt"
+sha256 = "94f4a1c89ba6b2e1c1f8b30676cb5d15f232dbac36ae4ad20018a65e0f3fb9a3"
+bytes  = 10053
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 (lane b100) and read whole by scripts/gen-iso96-sets.py: the right half of ISO-IR 126, `ESC - F`, less 0xA4, 0xA5 and 0xAA, which its version history says 8859-7:2003 added.
+
+[sources.iso8859-8]
+key    = "iso8859-8"
+title  = "8859-8.TXT -- ISO/IEC 8859-8:1999 to Unicode"
+author = "Unicode, Inc."
+year   = 2015
+venue  = "unicode.org, Public/MAPPINGS/ISO8859"
+url    = "https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-8.TXT"
+file   = "iso8859-8.txt"
+sha256 = "cbe3205c5c6f92589d6a8673d56c51d89659ae290185457e6e2f81fee7a1ad2d"
+bytes  = 7943
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 (lane b100) and read whole by scripts/gen-iso96-sets.py: the right half of ISO-IR 138, `ESC - H`, less 0xFD and 0xFE (LRM, RLM), which its version history says the 1999 edition added.
+
+[sources.iso8859-9]
+key    = "iso8859-9"
+title  = "8859-9.TXT -- ISO/IEC 8859-9:1999 to Unicode"
+author = "Unicode, Inc."
+year   = 2015
+venue  = "unicode.org, Public/MAPPINGS/ISO8859"
+url    = "https://www.unicode.org/Public/MAPPINGS/ISO8859/8859-9.TXT"
+file   = "iso8859-9.txt"
+sha256 = "4397082eb5cbbc299264b3b73405cc0946ec5c79328eb9de75f8a5da1ab8e712"
+bytes  = 10030
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 (lane b100) and read whole by scripts/gen-iso96-sets.py: the right half is ISO-IR 148, `ESC - M`.
+
 [sources.vt510-decaupss]
 key    = "vt510-decaupss"
 title  = "DECAUPSS—Assigning User-Preferred Supplemental Sets (VT510 Programmer Information)"

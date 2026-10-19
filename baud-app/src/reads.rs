@@ -149,7 +149,7 @@ mod tests {
     /// pump takes at once.** herdr 0.9.3 asks `OSC 4 ; n ; ?` for every `n`
     /// at startup and after a resize. Here each query sits in 600 bytes of
     /// drawing, so no read of `READ_CHUNK` holds more answers than the
-    /// 256-byte reply buffer -- the test asserts that -- and a loss can only
+    /// reply buffer -- the test asserts that -- and a loss can only
     /// be the pump's. The macOS pump fed every queued read and drained once,
     /// so the answers to every read but the first few were dropped.
     #[test]

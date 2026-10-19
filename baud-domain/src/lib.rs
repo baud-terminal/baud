@@ -63,6 +63,7 @@ mod grid;
 mod history;
 mod image;
 mod input;
+mod iso96_data;
 mod kitty;
 mod layout;
 mod line;

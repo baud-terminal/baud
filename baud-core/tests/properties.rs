@@ -675,6 +675,120 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **Code extension**: the single shifts, which leave the parser in a node
+    // of their own, the locking shifts into GL and GR, a 96-character set and
+    // a line-drawing one in the shifted slots, and ISO 8859-1, so a GR byte and
+    // the 8-bit single shifts are reached; a read split falls between a shift
+    // and its character as often as anywhere.
+    Atom {
+        name: "ss2",
+        bytes: b"\x1bN",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ss3",
+        bytes: b"\x1bO",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ls2",
+        bytes: b"\x1bn",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ls3",
+        bytes: b"\x1bo",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ls1r",
+        bytes: b"\x1b~",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ls2r",
+        bytes: b"\x1b}",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ls3r",
+        bytes: b"\x1b|",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "g2-latin1-96",
+        bytes: b"\x1b.A",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "g3-graphics",
+        bytes: b"\x1b+0",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "g1-greek-96",
+        bytes: b"\x1b-F",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "latin1",
+        bytes: b"\x1b%@",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "utf8",
+        bytes: b"\x1b%G",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "gr-bytes",
+        bytes: b"\xc1\xd7\xa0\xff",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "ss2-8bit",
+        bytes: b"\x8eq",
+        stride: 0,
+        count: 0,
+    },
+    // **The presentation state reports and their restore.**
+    Atom {
+        name: "deccir",
+        bytes: b"\x1b[1$w",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "dectabsr",
+        bytes: b"\x1b[2$w",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decrsps-cir",
+        bytes: b"\x1bP1$t3;4;1;C;@;B;1;3;D;B0A<\x1b\\",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decrsps-tabs",
+        bytes: b"\x1bP2$t5/9/40\x1b\\",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.

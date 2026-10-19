@@ -53,12 +53,20 @@ fn the_encoding_switches_both_ways() {
     );
 }
 
-/// Every Latin-1 byte above `0x9F` is a character, including ones UTF-8 would
-/// reject as a lead byte.
+/// Every Latin-1 byte above `0x9F` is a GR code, including ones UTF-8 would
+/// reject as a lead byte: read through the slot GR invokes, so with ISO
+/// Latin-1 Supplemental there `0xFF` is `ÿ`; with the power-up DEC
+/// Supplemental, a 94-character set, it is ignored (`[[source: dec-std-070]]`
+/// 070-3 §3.4.4).
 #[test]
 fn latin1_has_no_ill_formed_bytes() {
-    // 0xFF is never a valid UTF-8 lead byte; in Latin-1 it is `ÿ`.
-    assert_eq!(run(b"\x1b%@\xff").0, vec![0xff], "0xFF is `ÿ`");
+    // 0xFF is never a valid UTF-8 lead byte; in ISO 8859-1 it is `ÿ`.
+    assert_eq!(run(b"\x1b%@\x1b.A\xff").0, vec![0xff], "0xFF is `ÿ`");
+    assert_eq!(
+        run(b"\x1b%@\xff").0,
+        Vec::<u32>::new(),
+        "and ignored with a 94-set in GR"
+    );
     assert_eq!(run(b"\xff").0, vec![0xfffd], "and is ill-formed in UTF-8");
 }
 

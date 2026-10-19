@@ -307,6 +307,7 @@ struct Snapshot {
     // All four G-slots, not just the invoked one: a designation into G1 is
     // recorded and was invisible from outside.
     g: [Charset; 4],
+    gr: GSlot,
     encoding: InputEncoding,
     c1: C1Transmit,
     /// The page width asked of the embedder (`?3` under `?40`, DECSCPP),
@@ -401,6 +402,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
             t.charset_in(GSlot::G2),
             t.charset_in(GSlot::G3),
         ],
+        gr: t.gr_slot(),
         encoding: t.input_encoding(),
         c1: t.c1_transmit(),
         asked: t.requested_width(),
@@ -552,6 +554,7 @@ fn every_spec_esc_form_is_handled_or_counted() {
             "DECSC saves the cursor; nothing exposes the saved slot",
         ),
         (b'8', "DECRC with no prior save restores nothing"),
+        (b'}', "LS2R invokes G2 into GR, which is where GR starts"),
         (
             b'>',
             "DECKPNM selects the numeric keypad, which is the default",
@@ -868,7 +871,10 @@ fn every_spec_esc_intermediate_form_is_handled_or_counted() {
             // Select UTF-8, the default.
             | (b'%', b'G')
             // Designate ASCII into a slot that already holds it.
-            | (b'(' | b')' | b'*' | b'+', b'B')
+            | (b'(' | b')', b'B')
+            // Designate the user-preference supplemental set into G2 or
+            // G3, which hold it at power-up.
+            | (b'*' | b'+', b'<')
             // DECSWL: make single-width a line that already is.
             | (b'#', b'5')
         )

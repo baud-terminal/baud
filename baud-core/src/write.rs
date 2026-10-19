@@ -12,7 +12,7 @@
 
 use crate::graph::{Act, Node, waits_after};
 use crate::osc::StrKind;
-use crate::paint::Paint;
+use crate::paint::{Paint, Pen};
 use crate::storage::STRIDE_MAX;
 #[cfg(feature = "sgr-table")]
 use crate::term::NSGR;
@@ -503,10 +503,20 @@ pub(crate) fn act(
             glyph(p, cp);
             ReadLen::ONE
         }
+        // **A GR byte reads through the slot GR invokes**, out of line: only
+        // ISO 8859-1 reaches this arm, and only for `A0-FF`.
         Act::Latin1 => {
-            let b = StreamByte::from_stream(p.arena[from.index()]);
-            if let Some(cp) = InputEncoding::Latin1.single_byte(b) {
-                glyph(p, cp);
+            p.gr_glyph(StreamByte::from_stream(p.arena[from.index()]));
+            ReadLen::ONE
+        }
+        // The character after a single shift, out of line; `DEL` with a
+        // 94-character set in the slot consumes nothing and goes back to the
+        // ground (`Node::SingleShift`).
+        Act::Shifted => p.shifted(StreamByte::from_stream(p.arena[from.index()])),
+        // `DEL` in the ground: a character only of a 96-character set in GL.
+        Act::Del => {
+            if p.charset.is_96() {
+                p.gl_del();
             }
             ReadLen::ONE
         }
@@ -715,8 +725,15 @@ pub(crate) fn act(
             p.vt52_address(col);
             ReadLen::ONE
         }
+        // `$ q` is DECRQSS and `$ t` DECRSPS, whose `Ps` the prefix collected.
         Act::DcsQuery => {
-            p.cold.str_kind = StrKind::Decrqss;
+            p.cold.str_kind = match enc
+                .gr_as_gl(StreamByte::from_stream(p.arena[from.index()]))
+                .raw_byte()
+            {
+                b't' => p.restore_start(csi),
+                _ => StrKind::Decrqss,
+            };
             ReadLen::ONE
         }
         // A bare-`q` DCS is a Sixel: rename the string kind so each byte the
@@ -759,8 +776,13 @@ pub(crate) fn act(
             csi.reset();
             ReadLen::ONE
         }
+        // A DECRSPS that restored a pending single shift leaves the parser
+        // where the shift is pending (`Node::SingleShift`).
         Act::StrEnd => {
             p.str_end(StreamByte::from_stream(p.arena[from.index()]));
+            if p.cold.restored_shift.take().is_some() {
+                *node = Node::SingleShift;
+            }
             ReadLen::ONE
         }
         Act::CsiFinal => {
@@ -1562,6 +1584,14 @@ fn replace(p: &mut Paint<'_, '_>) {
 /// disagrees there is not measuring what it says.
 #[inline(always)]
 fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
+    glyph_with(p, cp, Pen::Decoded);
+}
+
+/// [`glyph`] under the pen `pen` names: a character a GR byte or a single
+/// shift wrote keeps the set it was received under (`Pen::Kept`), as a GL
+/// code's does, so DECRQCRA counts its code and REP repeats it.
+#[inline(always)]
+pub(crate) fn glyph_with(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
     #[cfg(feature = "ceiling-no-classify")]
     let w = Width::NARROW;
     #[cfg(not(feature = "ceiling-no-classify"))]
@@ -1634,7 +1664,7 @@ fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
         return;
     }
     #[allow(unreachable_code)]
-    p.decoded_glyph(cp, w);
+    p.glyph_as(cp, w, pen);
 }
 
 /// What a `CSI` final byte names.
@@ -1985,6 +2015,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // The VT420 rectangle operations (`crate::rect`), their parameters
         // read out of line.
         DomCsi::Area(op) => p.area_op(op, csi),
+        DomCsi::RequestPresentationState => p.request_presentation_state(csi),
         DomCsi::Unsupported { .. } => {
             p.unsupported_total += 1;
             #[cfg(feature = "diag")]
@@ -2043,6 +2074,31 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
                         p.charset_unsupported += 1;
                     }
                     p.cold.g[slot.index()] = set;
+                    p.cold.desig[slot.index()] = Designation::of_94(csi.intermediate2(), b);
+                    p.reinvoke();
+                }
+            }
+            // **`ESC - . /` designate a 96-character set into G1, G2 or G3**
+            // (`[[source: ecma35]]` Table 6, G1D6-G3D6), from the 96-series
+            // finals, a separate series (NOTE 44). An unlisted final, or one
+            // after a second intermediate, is designated `Other` and counted
+            // as an unlisted 94-series final is. `ESC , F` (02/12, "reserved
+            // for future standardisation") falls to the count below.
+            b'-' | b'.' | b'/' => {
+                if let Some(slot) = GSlot::from_intermediate96(i) {
+                    let set = match csi.intermediate2() {
+                        Some(_) => None,
+                        None => Iso96::from_final(b),
+                    };
+                    let set = match set {
+                        Some(s) => Charset::Iso96(s),
+                        None => {
+                            p.charset_unsupported += 1;
+                            Charset::Other
+                        }
+                    };
+                    p.cold.g[slot.index()] = set;
+                    p.cold.desig[slot.index()] = Designation::of_96(b);
                     p.reinvoke();
                 }
             }
@@ -2157,6 +2213,29 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
 
         Esc::BackIndex => p.back_index(),
         Esc::ForwardIndex => p.forward_index(),
+        // **The single shifts name the slot; the graph holds them pending**
+        // (`Node::SingleShift`, the edge that brought the final here).
+        Esc::SingleShift2 => p.cold.single = GSlot::G2,
+        Esc::SingleShift3 => p.cold.single = GSlot::G3,
+        // **The locking shifts into GL go through `reinvoke`**, as SO and SI
+        // do (`[[source: ecma35]]` 8.3.1); ungated, Jev's lean UNGATED
+        // (0.52/0.56, then 0.64/0.62): `[[source: dec-std-070]]` §3.6.1.1
+        // requires LS2 and LS3 at Level 1.
+        Esc::LockingShift2 => {
+            p.cold.gl = GSlot::G2;
+            p.reinvoke();
+        }
+        Esc::LockingShift3 => {
+            p.cold.gl = GSlot::G3;
+            p.reinvoke();
+        }
+        // **Into GR, the slot alone** (8.3.2): GR is read where a GR byte is
+        // written, so nothing is resolved here. Under UTF-8, where no byte is
+        // GR's (AE5, decided), the slot is state DECCIR reports (Jev's lean
+        // STATE_ONLY).
+        Esc::LockingShift1Right => p.cold.gr = GSlot::G1,
+        Esc::LockingShift2Right => p.cold.gr = GSlot::G2,
+        Esc::LockingShift3Right => p.cold.gr = GSlot::G3,
         // **Counted, and it was a bare `{}`.** `spec_inventory` asks one
         // question per form the specification lists -- "was this acted on, or
         // *counted*" -- and it asks it by snapshotting the terminal either
@@ -2634,8 +2713,10 @@ fn fast_esc(
         }
         // A bare two-byte `ESC M`, `ESC 7`, `ESC c`. **Not the string
         // introducers**: `P`, `X`, `]`, `^`, `_` open a control string whose
-        // body the graph has to walk.
-        0x30..=0x4f | 0x51..=0x57 | 0x59 | 0x5a | 0x5c | 0x60..=0x7e => {
+        // body the graph has to walk. **Nor SS2 and SS3**, `N` and `O`,
+        // which leave a single shift pending in a node of the graph's
+        // (`Node::SingleShift`), so the protocol has one definition of them.
+        0x30..=0x4d | 0x51..=0x57 | 0x59 | 0x5a | 0x5c | 0x60..=0x7e => {
             *node = Node::AfterControl;
             esc_final(p, csi, b1, enc);
             Some(ReadLen::from_index(2))

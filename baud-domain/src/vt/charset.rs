@@ -52,6 +52,8 @@ pub enum Charset {
     /// `0` is [`Charset::DecGraphics`]; these are the other DEC sets reachable
     /// through a single final byte.
     Dec(DecSet),
+    /// A 96-character set, designated by `ESC - . /` ([`Iso96`]).
+    Iso96(Iso96),
     /// A final `[[source: ctlseqs]]` does not list, one byte or two
     /// (`an_unlisted_final_is_still_other`,
     /// `an_unlisted_multi_byte_final_is_counted`). Designated, so the slot is
@@ -181,6 +183,9 @@ pub enum Received {
     JisKatakana,
     /// JIS-Roman, `J`.
     JisRoman,
+    /// A 96-character set: every one replaces each code it is sent, SP's
+    /// and DEL's among them.
+    Iso96(Iso96),
 }
 
 impl Received {
@@ -194,11 +199,12 @@ impl Received {
             }
             Charset::Dec(DecSet::JisKatakana) => Some(Received::JisKatakana),
             Charset::Dec(DecSet::JisRoman) => Some(Received::JisRoman),
+            Charset::Iso96(i) => Some(Received::Iso96(i)),
             _ => None,
         }
     }
 
-    /// A dense index, 1-18, for the cell's five tag bits; 0 is none.
+    /// A dense index, 1-24, for the cell's five tag bits; 0 is none.
     pub const fn tag(self) -> u8 {
         match self {
             Received::National(n) => n.to_u8() + 1,
@@ -206,6 +212,7 @@ impl Received {
             Received::DecSupplemental => 16,
             Received::JisKatakana => 17,
             Received::JisRoman => 18,
+            Received::Iso96(i) => 19 + i.to_u8(),
         }
     }
 
@@ -216,6 +223,10 @@ impl Received {
             16 => Some(Received::DecSupplemental),
             17 => Some(Received::JisKatakana),
             18 => Some(Received::JisRoman),
+            19..=24 => match Iso96::from_u8(t - 19) {
+                Some(i) => Some(Received::Iso96(i)),
+                None => None,
+            },
             _ => match t.checked_sub(1) {
                 Some(i) => match Nrcs::from_u8(i) {
                     Some(n) => Some(Received::National(n)),
@@ -317,23 +328,184 @@ impl DecSet {
     }
 }
 
+/// The 96-character sets `ESC - . /` designate: `[[source: ctlseqs]]`
+/// lists the finals `A`, `B`, `F`, `H`, `L` and `M` and "These controls apply
+/// only to 96-character sets. Unlike the 94-character sets, these can have
+/// different values than ASCII space and DEL for the mapping of 0x20 and
+/// 0x7f." Each is the right half of an ISO 8859 part, the set its final is
+/// registered as, translated through [`Iso96::table`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Iso96 {
+    /// `A` -- ISO Latin-1 Supplemental, VT300 (ISO-IR 100).
+    Latin1,
+    /// `B` -- ISO Latin-2 Supplemental, VT500 (ISO-IR 101).
+    Latin2,
+    /// `F` -- ISO Greek Supplemental, VT500 (ISO-IR 126).
+    Greek,
+    /// `H` -- ISO Hebrew Supplemental, VT500 (ISO-IR 138).
+    Hebrew,
+    /// `L` -- ISO Latin-Cyrillic, VT500 (ISO-IR 144).
+    LatinCyrillic,
+    /// `M` -- ISO Latin-5 Supplemental, VT500 (ISO-IR 148).
+    Latin5,
+}
+
+impl Iso96 {
+    /// The set a 96-series final names, if `[[source: ctlseqs]]` lists it.
+    /// The 94-character and 96-character finals are separate series
+    /// (`[[source: ecma35]]` NOTE 44), so `A` here is not the UK set.
+    pub fn from_final(b: StreamByte) -> Option<Iso96> {
+        Some(match b.raw_byte() {
+            b'A' => Iso96::Latin1,
+            b'B' => Iso96::Latin2,
+            b'F' => Iso96::Greek,
+            b'H' => Iso96::Hebrew,
+            b'L' => Iso96::LatinCyrillic,
+            b'M' => Iso96::Latin5,
+            _ => return None,
+        })
+    }
+
+    /// A dense index, 0-5, for the cell's set tag.
+    pub const fn to_u8(self) -> u8 {
+        match self {
+            Iso96::Latin1 => 0,
+            Iso96::Latin2 => 1,
+            Iso96::Greek => 2,
+            Iso96::Hebrew => 3,
+            Iso96::LatinCyrillic => 4,
+            Iso96::Latin5 => 5,
+        }
+    }
+
+    /// The set [`Iso96::to_u8`] numbers `i`.
+    pub const fn from_u8(i: u8) -> Option<Iso96> {
+        Some(match i {
+            0 => Iso96::Latin1,
+            1 => Iso96::Latin2,
+            2 => Iso96::Greek,
+            3 => Iso96::Hebrew,
+            4 => Iso96::LatinCyrillic,
+            5 => Iso96::Latin5,
+            _ => return None,
+        })
+    }
+
+    /// The set's 96 positions, indexed by `code - 0x20` for the 7-bit code
+    /// 2/0 through 7/15, an unassigned one DEC's error character; generated
+    /// by `scripts/gen-iso96-sets.py`. **An index, not a search.**
+    pub const fn table(self) -> &'static [Codepoint; 96] {
+        match self {
+            Iso96::Latin1 => &crate::iso96_data::LATIN_1,
+            Iso96::Latin2 => &crate::iso96_data::LATIN_2,
+            Iso96::Greek => &crate::iso96_data::GREEK,
+            Iso96::Hebrew => &crate::iso96_data::HEBREW,
+            Iso96::LatinCyrillic => &crate::iso96_data::LATIN_CYRILLIC,
+            Iso96::Latin5 => &crate::iso96_data::LATIN_5,
+        }
+    }
+}
+
+/// Whether a designation names a 94-character or a 96-character set: which
+/// series its final is from (`[[source: ecma35]]` NOTE 44), and the bit
+/// DECCIR's `Scss` reports for the slot (`[[source: dec-std-070]]` p. 5-202).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SetSize {
+    Chars94,
+    Chars96,
+}
+
+/// **How a G slot was designated, as sent**: the size series and the
+/// designating tail, a second intermediate if there was one and the final.
+///
+/// DECCIR's `Sdesig` reports "the intermediate and final characters of the
+/// Select Character Set (SCS) designating escape sequence", and "the User
+/// Preference Supplemental Set (UPSS) designator if that is how a character
+/// set was designated" (`[[source: dec-std-070]]` p. 5-202): a property of
+/// the sequence, which [`Charset`] does not keep. Finnish has two finals and
+/// `<` and `% 5` name the same table, so the set alone cannot say which was
+/// sent.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Designation {
+    size: SetSize,
+    /// The second intermediate (0 when there is none) and the final.
+    tail: [u8; 2],
+}
+
+impl Designation {
+    /// ASCII, `ESC ( B`: G0 and G1 at power-up.
+    pub const ASCII: Designation = Designation {
+        size: SetSize::Chars94,
+        tail: [0, b'B'],
+    };
+    /// The user-preference supplemental set, `<`: G2 and G3 at power-up.
+    pub const UPSS: Designation = Designation {
+        size: SetSize::Chars94,
+        tail: [0, b'<'],
+    };
+
+    /// A 94-character designation: `ESC ( F` or `ESC ( I F`.
+    pub fn of_94(i2: Option<StreamByte>, f: StreamByte) -> Designation {
+        Designation {
+            size: SetSize::Chars94,
+            tail: [i2.map_or(0, |i| i.raw_byte()), f.raw_byte()],
+        }
+    }
+
+    /// A 96-character designation: `ESC - F`.
+    pub fn of_96(f: StreamByte) -> Designation {
+        Designation {
+            size: SetSize::Chars96,
+            tail: [0, f.raw_byte()],
+        }
+    }
+
+    pub fn size(self) -> SetSize {
+        self.size
+    }
+
+    /// The designating tail, one byte or two.
+    pub fn tail(&self) -> &[u8] {
+        match self.tail[0] {
+            0 => &self.tail[1..],
+            _ => &self.tail,
+        }
+    }
+
+    /// The set this designation names.
+    pub fn charset(self) -> Charset {
+        let f = StreamByte::from_stream(self.tail[1]);
+        match (self.size, self.tail[0]) {
+            (SetSize::Chars96, _) => Iso96::from_final(f).map_or(Charset::Other, Charset::Iso96),
+            (SetSize::Chars94, 0) => Charset::from_final(f),
+            (SetSize::Chars94, i) => Charset::from_multi(StreamByte::from_stream(i), f),
+        }
+    }
+}
+
 impl Charset {
     /// Recover the set a cell was written under from its flags.
     ///
     /// The line-drawing set has a flag of its own, and every set that
     /// replaces a code a tag ([`CellFlags::received`], for DECRQCRA), so
     /// this answers `DecGraphics`, `National`, DEC Supplemental, JIS-Katakana,
-    /// JIS-Roman or `Ascii`; `% 5` reads as `<`, whose table it shares. The
+    /// JIS-Roman, a 96-character set or `Ascii`; `% 5` reads as `<`, whose
+    /// table it shares. The
     /// UK set and the sets that draw their byte are not recorded and read as
     /// `Ascii`.
     pub fn from_flags(f: CellFlags) -> Charset {
-        match (f.is_graphics(), f.received()) {
-            (true, _) | (false, Some(Received::DecGraphics)) => Charset::DecGraphics,
-            (false, Some(Received::National(n))) => Charset::National(n),
-            (false, Some(Received::DecSupplemental)) => Charset::Dec(DecSet::Supplemental),
-            (false, Some(Received::JisKatakana)) => Charset::Dec(DecSet::JisKatakana),
-            (false, Some(Received::JisRoman)) => Charset::Dec(DecSet::JisRoman),
-            (false, None) => Charset::Ascii,
+        // **The tag before the line-drawing flag**: the flag names the set
+        // GL held (note AE, Q16(a)), and a character written through GR or
+        // a single shift while GL held line drawing carries it beside the
+        // tag of the set it was received under, which is the one written.
+        match (f.received(), f.is_graphics()) {
+            (Some(Received::DecGraphics), _) | (None, true) => Charset::DecGraphics,
+            (Some(Received::National(n)), _) => Charset::National(n),
+            (Some(Received::DecSupplemental), _) => Charset::Dec(DecSet::Supplemental),
+            (Some(Received::JisKatakana), _) => Charset::Dec(DecSet::JisKatakana),
+            (Some(Received::JisRoman), _) => Charset::Dec(DecSet::JisRoman),
+            (Some(Received::Iso96(i)), _) => Charset::Iso96(i),
+            (None, false) => Charset::Ascii,
         }
     }
 
@@ -361,6 +533,13 @@ impl Charset {
 }
 
 impl Charset {
+    /// Whether this is a 96-character set, whose 2/0 and 7/15 are characters
+    /// of the set when it is invoked into GL (`[[source: ecma35]]` 8.3.1),
+    /// and 10/0 and 15/15 in GR (8.3.2).
+    pub fn is_96(self) -> bool {
+        matches!(self, Charset::Iso96(_))
+    }
+
     pub fn from_final(b: StreamByte) -> Charset {
         match b.raw_byte() {
             b'0' => Charset::DecGraphics,
@@ -408,6 +587,30 @@ impl GSlot {
     }
     pub fn index(self) -> usize {
         self as usize
+    }
+
+    /// The intermediate that designates a 96-character set into the slot:
+    /// `-` is G1, `.` G2, `/` G3. G0 cannot hold one (`[[source: ecma35]]`
+    /// 14.3.2: "Any type of graphic character set may be designated as a G1,
+    /// G2, or G3 code element").
+    pub fn from_intermediate96(b: StreamByte) -> Option<GSlot> {
+        Some(match b.raw_byte() {
+            b'-' => GSlot::G1,
+            b'.' => GSlot::G2,
+            b'/' => GSlot::G3,
+            _ => return None,
+        })
+    }
+
+    /// The slot numbered `i`, 0-3, as DECCIR's `Pgl` and `Pgr` number them.
+    pub fn from_index(i: usize) -> Option<GSlot> {
+        Some(match i {
+            0 => GSlot::G0,
+            1 => GSlot::G1,
+            2 => GSlot::G2,
+            3 => GSlot::G3,
+            _ => return None,
+        })
     }
 }
 

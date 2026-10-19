@@ -276,7 +276,10 @@ fn a_reverse_index_onto_a_tail_under_iso_8859_1_blanks_the_lead() {
         &[&before],
         format!("ð¨â\x1bMð©{fox}").as_bytes(),
         &[
-            b"\xf0\x9f\x91\xa8\xe2\x80\x8d\xf0\x9f\x91\xa9".as_slice(),
+            // ISO Latin-1 Supplemental into G2, which GR invokes, so each
+            // byte is its ISO 8859-1 character as when this was found.
+            b"\x1b.A".as_slice(),
+            b"\xf0\x9f\x91\xa8\xe2\x80\x8d\xf0\x9f\x91\xa9",
             fox.as_bytes(),
         ]
         .concat(),

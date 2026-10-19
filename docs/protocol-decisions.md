@@ -13,7 +13,7 @@ says what it would cost to "fix" it.
 
 Two things block whole tiers and are not any single sequence.
 
-**~~No reply channel.~~** Resolved. `Storage.reply` is a 256-byte buffer the
+**~~No reply channel.~~** Resolved. `Storage.reply` is a buffer the
 core fills and the caller drains with `Term::reply()` / `Term::clear_reply()`,
 mirroring the input side -- the core is `no_std` with no I/O, so it cannot own a
 PTY. Overflow is counted in `reply_overflows`, never silent.
@@ -342,11 +342,11 @@ at **partial** in [vt-coverage.md](vt-coverage.md), which its legend names;
 of those rows the list below repeats DECSC and DECRC, the DEC Special Graphics
 table and the `dcs_passthrough` state.
 
-- **DECSC/DECRC save G0-G3 and which of them GL invokes, but not GR, which
-  baud does not model, and no single shift, since SS2/SS3 are not
-  implemented** (`[[source: vt510-decsc]]` lists "Character sets (G0, G1, G2,
-  or G3) currently in GL and GR" and "Any single shift 2 (SS2) or single shift
-  3 (SS3) functions sent").
+- **Which wrap state DECSC saves and DECRC restores is open** (note AE's
+  Q12). They save G0-G3 and which of them GL and GR invoke; a single shift
+  is never pending when DECSC runs, since its `ESC` cancels one
+  (`[[source: dec-std-070]]` p. 3-81), so vt510's "Any single shift 2 (SS2)
+  or single shift 3 (SS3) functions sent" is always empty.
 - **DEC Special Graphics leaves `0x5F` as `_`**, where every DEC text read
   replaces it with Blank; which code point Blank stores is the owner's call
   ([the record](record.md), "DEC Special Graphics begins at 0x5F, and what

@@ -197,10 +197,10 @@ fn a_bare_st_closes_nothing_and_is_counted_nowhere() {
     }
 
     for size in 1..=4 {
-        fed(b"X\x1bNY", size, |t| {
+        fed(b"X\x1blY", size, |t| {
             assert_eq!(
                 t.unsupported, 1,
-                "control: ESC N is counted, read size {size}"
+                "control: ESC l is counted, read size {size}"
             );
         });
         fed(b"X\x1b#\\Y", size, |t| {

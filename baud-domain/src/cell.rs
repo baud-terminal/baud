@@ -592,8 +592,23 @@ impl PackedCell {
                 // reason on its `DecSet` variant.
                 None => self.with_ascii(b),
             },
+            Charset::Iso96(i) => self.with_iso96(b, i.table()),
             // ASCII and anything unrecognised: the byte stands for itself.
             Charset::Ascii | Charset::Other => self.with_ascii(b),
+        }
+    }
+
+    /// The same, under a 96-character set: **one load from a 96-entry
+    /// table** indexed by `code - 0x20`, SP's and DEL's positions included
+    /// (`[[source: ecma35]]` 8.3.1). `b` is the 7-bit code, 2/0 through 7/15.
+    pub fn with_iso96(self, b: StreamByte, table: &[Codepoint; 96]) -> PackedCell {
+        let cp = match (b.raw_byte() as usize).checked_sub(0x20) {
+            Some(i) if i < table.len() => table[i],
+            _ => Codepoint::from_ascii(b),
+        };
+        PackedCell {
+            content: Content::codepoint(cp),
+            ..self
         }
     }
 

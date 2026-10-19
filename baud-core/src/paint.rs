@@ -884,12 +884,6 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.glyph_as(cp, w, Pen::Gl);
     }
 
-    /// One glyph that arrived decoded, under [`Paint::decoded_pen`].
-    #[inline(always)]
-    pub(crate) fn decoded_glyph(&mut self, cp: Codepoint, w: Width) {
-        self.glyph_as(cp, w, Pen::Decoded);
-    }
-
     /// One glyph under the cursor and the pen `pen` names, wrapping first if
     /// it will not fit.
     #[inline(always)]

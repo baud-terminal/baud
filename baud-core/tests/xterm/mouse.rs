@@ -435,7 +435,9 @@ fn a_report_that_does_not_fit_says_so() {
     let wheel = ev(MouseButton::WheelUp, MouseKind::Press, 50, 15);
     let one = b"\x1b[<64;51;16M";
     let fit = REPLY / one.len();
-    assert_eq!(fit, 21, "twelve-byte reports into REPLY bytes");
+    // 21 in the 256-byte buffer herdr met; 761 since the buffer holds the
+    // longest DECTABSR.
+    assert_eq!(fit, 761, "twelve-byte reports into REPLY bytes");
     for i in 0..fit {
         assert!(term.mouse_report(wheel), "report {i} fits and is queued");
     }

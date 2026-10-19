@@ -1,14 +1,25 @@
 # AE. Code extension: the four G slots, GL and GR, and the shifts
 
-**Status: research, unbuilt; researched 2026-10-08.** Jev answered the same
-day (§10): Q4 and Q16 are decided at 0.96 and 0.98. Every other question in
-section 4 is open and with the owner, and nothing beyond D1/D2 is built.
+**Status: built 2026-10-19 (lane b100), but for Q12, Q13's SCORC half,
+Q15, Q17 and Q18; researched 2026-10-08.** Under the owner's rules of
+2026-10-10 and 2026-10-17 every question was asked again with the owner's
+DA decision ("Keep ?6c") and standing rule quoted (decision log lines
+900/901, re-asked after research 906/907): GR on G2 decided (1.00/0.96) and
+ANY_NUMBER of SO/SI (0.92/0.96); leans taken, each consistent across its
+asks since 2026-10-08: Q2 DEC_SUPPLEMENTAL, Q4.1 SAME_IN_BOTH_ENCODINGS, Q6
+STD070_CANCEL, Q6.2 SO_ACTS, Q7 STRIP_BIT8, Q9 UNGATED, Q10 PER_AREA, Q5's
+LS1R-LS3R STATE_ONLY, Q14 UPSS. Q3 is settled by the standing rule: all six
+listed 96-sets are built. Sections 4-9 below are the research as written.
 
-- **Owner's call, whatever Jev says:** Q1, Q2 (with Q4.1), Q8, Q9, Q11, Q12
-  and Q17. In each, every option departs from some text (for Q1 under the
-  8bit-level1 reading of `ESC % @`, and for Q9 under the VT102 reading of DA,
-  each reading itself the owner's), or the option that conforms collides with
-  a practice baud already follows.
+- **Owner's call, whatever Jev says** (the routing of 2026-10-08): Q1, Q2
+  (with Q4.1), Q8, Q9, Q11, Q12 and Q17. In each, every option departs from
+  some text (for Q1 under the 8bit-level1 reading of `ESC % @`, and for Q9
+  under the VT102 reading of DA, each reading itself the owner's), or the
+  option that conforms collides with a practice baud already follows. The
+  rules of 2026-10-10 and 2026-10-17 superseded it: lane b100 decided Q1
+  and took leans on Q2 with Q4.1 and on Q9 (above), Q8 is decided at AE8
+  (§10), and Q11 is decided, SLOTS at 0.92 and 0.90 on a focused re-ask
+  of 2026-10-09 (decision log lines 187/188). Q12 and Q17 stay open.
 - **Jev first, at confidence 0.9 or better:** the premise P and Q3-Q7, Q10,
   Q13-Q16 and Q18. A departure Jev accepts still goes to the owner, so Q3, Q6
   (its two sub-points), Q10, Q13, Q14 and Q18 go on to the owner (§9).
@@ -2017,8 +2028,11 @@ reordered is built and listed for the owner's veto.
   (`baud-domain/tests/nrcs_dec.rs`). Only the codepoint is decided: Q8 itself
   (what A0 and FF do with a 94-set in GR, AE8), SUB's display and note AF's
   Q-UNDEF still decide where it is drawn. Since 2026-10-12 it is drawn at
-  DEC Supplemental's and JIS-Katakana's reserved positions (note AF, Q-UNDEF);
-  A0 and FF, SUB and the other sets' reserved positions still wait.
+  DEC Supplemental's and JIS-Katakana's reserved positions (note AF, Q-UNDEF).
+  A0 and FF with a 94-set in GR are decided too, AE8 option (d), STD070, at
+  0.99 on the asking and on the replicates (decision log lines 237/238 and
+  263/264), and built in `Paint::gr_glyph`: A0 draws the error character and
+  FF is ignored. SUB and the other sets' reserved positions still wait.
 - **AE5 part 1, GR bytes under UTF-8: (a) no GR, decided.** Re-asked on its
   own (jev-diagnosis batch 1) with `[[source: unicode18-ch3]]` C4 and D92
   added to the governing texts, each option marked as §4 marks it and this

@@ -89,6 +89,26 @@ pub enum Esc {
     /// DECFI -- Forward Index, `ESC 9`. Forward one column, and at the right
     /// margin the rectangle moves left one column instead (p. 5-37).
     ForwardIndex,
+    /// SS2 -- Single Shift Two, `ESC N` (`8E` as a C1): the next graphic
+    /// character from G2. `[[source: ecma35]]` 8.4: "the immediately
+    /// following bit combination ... shall represent the corresponding
+    /// character from the set that is designated as the code element G2";
+    /// `[[source: dec-std-070]]` p. 3-80 gives the receiver.
+    SingleShift2,
+    /// SS3 -- Single Shift Three, `ESC O` (`8F`), the same from G3.
+    SingleShift3,
+    /// LS2 -- Locking Shift Two, `ESC n`: G2 into GL (`[[source: ecma35]]`
+    /// 8.3.1; `[[source: ctlseqs]]`, "Invoke the G2 Character Set as GL").
+    LockingShift2,
+    /// LS3 -- Locking Shift Three, `ESC o`: G3 into GL.
+    LockingShift3,
+    /// LS1R -- Locking Shift One Right, `ESC ~`: G1 into GR
+    /// (`[[source: ecma35]]` 8.3.2).
+    LockingShift1Right,
+    /// LS2R -- Locking Shift Two Right, `ESC }`: G2 into GR.
+    LockingShift2Right,
+    /// LS3R -- Locking Shift Three Right, `ESC |`: G3 into GR.
+    LockingShift3Right,
     /// Recognised as an `ESC Fe` and deliberately not acted on.
     Unsupported,
 }
@@ -112,6 +132,13 @@ impl Esc {
 
             b'6' => Esc::BackIndex,
             b'9' => Esc::ForwardIndex,
+            b'N' => Esc::SingleShift2,
+            b'O' => Esc::SingleShift3,
+            b'n' => Esc::LockingShift2,
+            b'o' => Esc::LockingShift3,
+            b'~' => Esc::LockingShift1Right,
+            b'}' => Esc::LockingShift2Right,
+            b'|' => Esc::LockingShift3Right,
             _ => Esc::Unsupported,
         }
     }
