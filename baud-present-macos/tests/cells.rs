@@ -3548,7 +3548,11 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
     // **A sized line leaving the window under a smooth scroll** is drawn
     // at its size: a full-row slide with a double-width line just above
     // the window is the screen one line up, where that line is row 0 and
-    // drawn by its records; and mid-slide the two cell layouts agree.
+    // drawn by its records -- on the cell arm, and on the instance and CPU
+    // arms, which draw no slide (Jev's lean 2026-10-19, HOLD_ORACLE, taken
+    // after a re-ask at confidence 0.80 and 0.88), so the three paths
+    // agree on the leaving row's pixels; and
+    // mid-slide the two cell layouts agree.
     {
         let rows = usize::from(WS.ws_row);
         let mut s = format!("{base}\x1b#6Wide \x1b[52mo\x1b[0m \x1b[4mleaving\x1b[0m 0123");
@@ -3568,13 +3572,20 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         let (_, full_slid) = arms.draw(t);
         arms.slide = None;
         arms.back = Rows::of_count(1);
-        let (_, one_up) = arms.draw(t);
+        let (instance_up, one_up) = arms.draw(t);
+        let cpu_up = cpu_frame(arms, t);
         arms.back = Rows::ZERO;
-        assert_eq!(
-            differing(&full_slid, &one_up),
-            0,
-            "a full-row slide off a double-width line is not the screen one line up"
-        );
+        for (arm, up) in [
+            ("cell", &one_up),
+            ("instance", &instance_up),
+            ("cpu", &cpu_up),
+        ] {
+            assert_eq!(
+                differing(&full_slid, up),
+                0,
+                "a full-row slide off a double-width line is not the {arm} arm's screen one line up"
+            );
+        }
         arms.slide = Some(Px::of(cell_h.value() / 2));
         let (_, mid) = arms.draw(t);
         let mid_copy = arms.draw_copied(t);
@@ -3592,13 +3603,20 @@ fn line_rendition_gate(arms: &mut Arms<'_, '_>, t: &mut Term<'_>) {
         let (_, full_slid) = arms.draw(t);
         arms.slide = None;
         arms.back = Rows::of_count(1);
-        let (_, one_up) = arms.draw(t);
+        let (instance_up, one_up) = arms.draw(t);
+        let cpu_up = cpu_frame(arms, t);
         arms.back = Rows::ZERO;
-        assert_eq!(
-            differing(&full_slid, &one_up),
-            0,
-            "a full-row slide off the single-width line after it is not the screen one line up"
-        );
+        for (arm, up) in [
+            ("cell", &one_up),
+            ("instance", &instance_up),
+            ("cpu", &cpu_up),
+        ] {
+            assert_eq!(
+                differing(&full_slid, up),
+                0,
+                "a full-row slide off the single-width line after it is not the {arm} arm's screen one line up"
+            );
+        }
     }
     // **A sized line's records reused across frames** stay what a fresh
     // conversion draws: frame after frame on one renderer, with only
