@@ -63,6 +63,7 @@ mod osc;
 mod paint;
 mod placed;
 mod prompt;
+mod rect;
 mod sixel;
 mod storage;
 mod term;

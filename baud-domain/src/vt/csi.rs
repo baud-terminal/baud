@@ -764,6 +764,12 @@ pub enum Csi {
     /// count is counted and unanswered, decided by Jev 2026-10-15
     /// (THREE_ONLY, 0.96/0.96).
     Graphics(GraphicsRequest),
+    /// One of the VT420 rectangle operations, DECCRA to DECRQCRA
+    /// ([`AreaOp`]). **Its parameters are read where it is performed**
+    /// ([`AreaOp::with`]), not here: a variant carrying a rectangle or two
+    /// made the caller's dispatch keep them all live, and its prologue save
+    /// six register pairs where it saved three, on every `CSI`.
+    Area(AreaOp),
     Unsupported {
         marker: Marker,
         final_byte: FinalByte,
@@ -873,6 +879,17 @@ impl Csi {
                 (b'$', b'|') if marker == Marker::Standard => {
                     Csi::SetColumnsPerPage(PageWidth::per_page(p.at(ParamIdx::FIRST)))
                 }
+                // The rectangle operations, the standard namespace's alone
+                // (`[[source: ctlseqs]]` and `[[source: dec-std-070]]`
+                // § 5.12 give none of them a prefix).
+                (b'$', b'v') if marker == Marker::Standard => Csi::Area(AreaOp::Copy),
+                (b'$', b'x') if marker == Marker::Standard => Csi::Area(AreaOp::Fill),
+                (b'$', b'z') if marker == Marker::Standard => Csi::Area(AreaOp::Erase),
+                (b'$', b'{') if marker == Marker::Standard => Csi::Area(AreaOp::SelectiveErase),
+                (b'$', b'r') if marker == Marker::Standard => Csi::Area(AreaOp::ChangeAttrs),
+                (b'$', b't') if marker == Marker::Standard => Csi::Area(AreaOp::ReverseAttrs),
+                (b'*', b'x') if marker == Marker::Standard => Csi::Area(AreaOp::SelectExtent),
+                (b'*', b'y') if marker == Marker::Standard => Csi::Area(AreaOp::RequestChecksum),
                 _ => Csi::Unsupported {
                     marker,
                     final_byte: f,
@@ -1235,6 +1252,8 @@ impl Csi {
             // "Levels: 3X (Windowing), 4" (`[[source: dec-std-070]]` p. 5-73);
             // ctlseqs says VT340, a level this table does not carry.
             SetColumnsPerPage(_) => Level::Vt420,
+            // "Level: 4" each (`[[source: dec-std-070]]` pp. 5-169 to 5-179).
+            Area(_) => Level::Vt420,
 
             // XTWINOPS is "dtterm, extended by xterm" -- the three reports are
             // xterm's extensions of it.

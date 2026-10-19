@@ -291,6 +291,14 @@ group  = "C"
 # matches, on the text layer [text]: CUU notes 1-2 and algorithm, pp. 5-41 and 5-42
 # (PDF 296-297); CUD's, pp. 5-43 and 5-44 (PDF 298-299); VT52 Cursor Up and Down,
 # pp. A-23 and A-24.
+# Read 2026-10-18 for the rectangle operations (lane b91), the copy whose sha256 matches,
+# on the text layer [text]: § 5.12.1, DECCRA, DECFRA, DECERA, DECSERA, DECCARA, DECRARA
+# and DECSACE, pp. 5-169 to 5-178 (PDF 424-433); § 5.12.2, DECRQCRA and DECCKSR, pp.
+# 5-179 and 5-181 (PDF 434-436) -- no section gives a checksum algorithm; DECFI and DECBI
+# with their algorithms, pp. 5-37 to 5-39 (PDF 292-294), and the margin table on p. 5-24
+# marking both "0" for the top and bottom margins; host_state_init, "attribute change
+# extent = STREAM" (070-4 p. 15, PDF 219); DECSTR's state table, which does not list it
+# (070-4 p. 31, PDF 235).
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -304,6 +312,58 @@ sha256 = "d13269d969d16e07fa02c9ef9a2d5d72e9f722e2ac243602c0da3775bd6c9b00"
 bytes  = 19921
 status = "retrieved"
 group  = "C"
+
+[sources.vt510-deccra]
+key    = "vt510-deccra"
+title  = "DECCRA -- Copy Rectangular Area (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECCRA.html"
+file   = "vt510-DECCRA.html"
+sha256 = "94eec059257122b4bbb7ba835061bf9575019e78c59c8bd5774c053847e3c80c"
+bytes  = 21554
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-18 (lane b91). Read for its notes [text]: "If Pbs is greater than Pts,
+# or Pls is greater than Prs, the terminal ignores DECCRA" reverses the first comparison
+# against DEC STD 070 p. 5-169; "If a page value exceeds the number of pages available in
+# the current page arrangement, then the value is treated as the last available page
+# number."
+
+[sources.vt510-decrara]
+key    = "vt510-decrara"
+title  = "DECRARA -- Reverse Attributes in Rectangular Area (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECRARA.html"
+file   = "vt510-DECRARA.html"
+sha256 = "4586a9555b18900a8087d73f3da1ca4c11be50981cf55a3cd7b54e4952769136"
+bytes  = 22394
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-18 (lane b91). Read [text]: "0 Reverse all attributes (default)",
+# against DEC STD 070 p. 5-176's "There is no default"; "Pl is the left-column border
+# ... Default: Pr = 1", a slip for Pl.
+
+[sources.vttest-20251205]
+key    = "vttest-20251205"
+title  = "vttest 2.7 (20251205) source tarball -- vt420.c's DECRQCRA tests and CHK()"
+author = "Thomas E. Dickey"
+year   = 2025
+venue  = "invisible-island.net"
+url    = "https://invisible-island.net/archives/vttest/vttest-20251205.tgz"
+file   = ""
+sha256 = "cd6886f9aefe6a3f6c566fa61271a55710901a71849c630bf5376aa984bf77cc"
+bytes  = 243249
+status = "external"
+group  = "C"
+# Fetched and read 2026-10-18 (lane b91), not committed: a source tarball. vt420.c:
+# `#define CHK(n) ((-(n)) & 0xffff)` and tst_DSR_area_sum, which asks one 1x1 DECRQCRA a
+# cell and counts each character's code plus attribute weights, a space only as the
+# first cell; tst_VT420_rectangle's title adds "(should not work)" for a terminal whose
+# DA is below level 4.
 
 [sources.vt510-decsed]
 key    = "vt510-decsed"
@@ -1127,6 +1187,10 @@ sha256 = "dc7450221e30412d52d763c7a8bd61d7791a270340ad92fad2274c643d9fd72a"
 bytes  = 91264
 status = "external"
 group  = "C"
+# Read 2026-10-18 (lane b91) for xterm's rectangle operations: xtermParseRect and
+# limitedParseRow, which clamp into the margins under DECOM; ScrnFillRectangle,
+# ScrnCopyRectangle, ScrnMarkRectangle and ScrnWipeRectangle; xtermCheckRect, the
+# DECRQCRA checksum in its default csDEC mode.
 
 [sources.xterm-button]
 key    = "xterm-button"
@@ -14167,6 +14231,14 @@ group  = "C"
 # at 4/0, 5/14, 6/0 and 7/14 where the VT220 gives Ä Ü ä ü. Figure 2-7, p. 25; Figure
 # 2-10, DEC Technical, p. 30, read at 400 dpi [img], with "This 7-bit character set has
 # 94 graphic characters" [text] (wf-untranslated); Table 5-3, the finals (wf-check).
+# Re-fetched 2026-10-18 (lane b91), the sha256 matching, and read on the text layer [text]:
+# chapter 9, Rectangular Area Operations, pp. 160-173 (PDF 183-196), whose DECRARA lists
+# "0 Reverse all attributes (default)" where DEC STD 070 p. 5-176 says "There is no
+# default", and whose DECCRA note reads "If Pbs is greater than Pts, or Pls is greater
+# than Prs, the terminal ignores DECCRA", the comparison reversed against STD 070; DECBI
+# and DECFI, p. 177 (PDF 199); DECRQCRA and the checksum report, pp. 243-244 (PDF 265-266),
+# with no algorithm; Table 12-4, the DECRQSS requests, "Select attribute change extent
+# DECSACE *x" (PDF 288).
 
 [sources.vt510-rm-b]
 key    = "vt510-rm-b"
@@ -14185,6 +14257,8 @@ group  = "C"
 # searched, not its figures (wf-untranslated, wf-check) [text]: the figure list (no
 # character-set charts), "DEC Cyrillic" in the designator table with no chart to
 # follow, and Greek only in keyboard figures.
+# Re-fetched 2026-10-18 (lane b91), the sha256 matching [text]: DECRPSS's list of the
+# settings DECRQSS supports, "Select Attribute Change Extent DECSACE *x" (PDF 224).
 
 [sources.vt520-rm]
 key    = "vt520-rm"

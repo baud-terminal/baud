@@ -1710,7 +1710,7 @@ impl Paint<'_, '_> {
     /// saved rendition again it outlined it, and every `SGR` paid a call.
     /// Forced, `apply_sgr` compiles as it did with one caller.
     #[inline(always)]
-    fn intern_style(&mut self, raw: StyleWord) -> StyleId {
+    pub(crate) fn intern_style(&mut self, raw: StyleWord) -> StyleId {
         // The table is sized to the screen at construction (the screen-sizing in `Owned::with_history`), so
         // `len` is a screen's worth of slots -- a power of two, always at least
         // `NSTYLE`. Below that many distinct renditions interned since
@@ -3100,6 +3100,11 @@ impl Paint<'_, '_> {
         self.cold.mouse_encoding = MouseEncoding::X10;
         self.cold.terminal = TerminalMode::Ansi;
         self.cold.vt52_row = Vt52Coord::ZERO;
+        // DECSACE: STD 070's host_state_init sets "attribute change extent =
+        // STREAM" (`[[source: dec-std-070]]` 070-4 p. 15, PDF 219) and
+        // DECSTR's table (p. 31, PDF 235) does not name it, so only `RIS` puts it back, as xterm's
+        // `if (full)` branch does (`[[source: xterm-reset]]`).
+        self.cold.attr_extent = AttrExtent::Stream;
         // The open hyperlink is content rather than mode: a `RIS` clears the
         // screen, so a link that outlived it would apply to cells that no
         // longer exist.

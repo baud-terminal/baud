@@ -122,6 +122,15 @@ pub enum Report {
     /// instead of guessing from `$TERM` -- and guessing from `$TERM` is how a
     /// terminal ends up being sent sequences it does not implement.
     Version,
+    /// DECCKSR, `DCS Pid ! ~ D...D ST`: the answer to DECRQCRA.
+    ///
+    /// `[[source: dec-std-070]]` p. 5-181: "The numeric parameter of the
+    /// DECCKSR control string is a numeric label for the checksum report
+    /// specified in the DECRQCRA ... The data of the control string consists
+    /// of four hexadecimal digits (3/0 through 3/9 and 4/1 through 4/6)", so
+    /// the letters are capitals. The introducer and terminator follow
+    /// `S7C1T`/`S8C1T`, as DECRQSS's do.
+    AreaChecksum { id: Param, sum: Checksum },
     /// `OSC 4 ; c ; rgb:RRRR/GGGG/BBBB ST` -- the answer to `OSC 4 ; c ; ?`,
     /// four digits a channel for the reason [`ReportBytes::push_hex`] gives.
     ///
@@ -716,6 +725,23 @@ impl Report {
                 e.push(0x1b);
                 e.push(b'/');
                 e.push(b'Z');
+            }
+            Report::AreaChecksum { id, sum } => {
+                e.len = ByteLen::ZERO;
+                for b in c1.dcs() {
+                    e.push(*b);
+                }
+                e.push_num(id.0);
+                e.push(b'!');
+                e.push(b'~');
+                const HEX: &[u8; 16] = b"0123456789ABCDEF";
+                let v = sum.value();
+                for shift in [12u16, 8, 4, 0] {
+                    e.push(HEX[usize::from((v >> shift) & 0xf)]);
+                }
+                for b in c1.st() {
+                    e.push(*b);
+                }
             }
             Report::Version => {
                 // Not a CSI: `DCS > | <text> ST`. The introducer written here

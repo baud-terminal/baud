@@ -223,6 +223,12 @@ impl Csi {
         }
     }
 
+    /// The parameters as the domain reads them, for an operation that takes
+    /// a list past its fixed ones: DECCARA's and DECRARA's attributes.
+    pub(crate) fn params(&self) -> Params<'_> {
+        Params::with_subs(&self.p[..self.count().index()], self.sub)
+    }
+
     /// The operation, parsed by the **domain's** grammar rather than a second
     /// one written here, so this dispatch cannot drift from it about what a
     /// sequence means -- which is what a hand-written recogniser beside the
@@ -1954,6 +1960,9 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
                 p.want_reply(Report::ColorScheme(s));
             }
         }
+        // The VT420 rectangle operations (`crate::rect`), their parameters
+        // read out of line.
+        DomCsi::Area(op) => p.area_op(op, csi),
         DomCsi::Unsupported { .. } => {
             p.unsupported_total += 1;
             #[cfg(feature = "diag")]

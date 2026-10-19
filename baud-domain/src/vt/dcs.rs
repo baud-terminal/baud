@@ -45,6 +45,10 @@ pub enum StatusTarget {
     Protection,
     /// `$ |` — DECSCPP, the columns per page.
     ColumnsPerPage,
+    /// `* x` — DECSACE, the attribute change extent: "Select attribute change
+    /// extent DECSACE *x" in `[[source: vt420-rm]]` Table 12-4 and in the
+    /// VT510's DECRQSS list.
+    AttrExtent,
     Unknown,
 }
 
@@ -58,6 +62,7 @@ impl StatusTarget {
             b" q" => StatusTarget::CursorStyle,
             b"\"q" => StatusTarget::Protection,
             b"$|" => StatusTarget::ColumnsPerPage,
+            b"*x" => StatusTarget::AttrExtent,
             _ => StatusTarget::Unknown,
         }
     }

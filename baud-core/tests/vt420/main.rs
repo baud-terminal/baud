@@ -11,6 +11,7 @@ mod corner;
 mod decaln;
 mod line_starts;
 mod origin;
+mod rect_ops;
 mod rect_scroll;
 mod side_margins;
 mod tab_backspace;
@@ -34,6 +35,7 @@ fn the_known_vt420_gaps() {
             "decaln.rs",
             "line_starts.rs",
             "origin.rs",
+            "rect_ops.rs",
             "rect_scroll.rs",
             "side_margins.rs",
             "tab_backspace.rs",

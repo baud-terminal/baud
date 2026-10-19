@@ -1598,7 +1598,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// path, so **both tests sit behind one compare** (`Paint::hooks`) and
     /// out of line.
     #[inline(always)]
-    fn overwrote(&mut self, start: Col, end: Col) {
+    pub(crate) fn overwrote(&mut self, start: Col, end: Col) {
         if self.hooks == WriteHooks::Off {
             debug_assert!(WriteHooks::of(self.images, self.cold.watched) == WriteHooks::Off);
             return;

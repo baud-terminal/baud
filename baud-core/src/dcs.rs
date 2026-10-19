@@ -192,6 +192,14 @@ impl Paint<'_, '_> {
                 PageWidth::Eighty => b"1$r80$|",
                 PageWidth::OneThirtyTwo => b"1$r132$|",
             }),
+            // **DECSACE**, listed by `[[source: vt420-rm]]` Table 12-4 and
+            // the VT510's DECRQSS ("Select Attribute Change Extent DECSACE
+            // *x"): the extent DECCARA and DECRARA use, `0` for the stream,
+            // which `1` selects too, and `2` for the rectangle.
+            StatusTarget::AttrExtent => s.push(match self.cold.attr_extent {
+                AttrExtent::Stream => b"1$r0*x",
+                AttrExtent::Rectangle => b"1$r2*x",
+            }),
         }
         s.push(c1.st());
         let at = self.reply_len.index();

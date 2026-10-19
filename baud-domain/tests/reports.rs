@@ -453,6 +453,14 @@ fn report_encodings_fit() {
         ),
         ("version", Report::Version, b'\\'),
         (
+            "area checksum",
+            Report::AreaChecksum {
+                id: param(65535),
+                sum: Checksum::new(),
+            },
+            b'\\',
+        ),
+        (
             "colour, BEL",
             Report::Color {
                 index: Chan::from_u8(255),
@@ -624,6 +632,7 @@ fn report_encodings_fit() {
             | Report::CellPixels { .. }
             | Report::TextAreaChars { .. }
             | Report::Version
+            | Report::AreaChecksum { .. }
             | Report::Color { .. }
             | Report::DynamicColor { .. }
             | Report::ModeStatus { .. }

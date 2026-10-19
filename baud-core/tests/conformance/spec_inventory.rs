@@ -327,8 +327,10 @@ struct Snapshot {
 /// `OSC 104` resets one, and resetting a colour nobody set changes nothing.
 /// The five dynamic colours are set for the same reason: `OSC 110`, `111`,
 /// `112`, `117` and `119` reset them, and a reset of an override nobody made
-/// is invisible.
-const PREAMBLE: &[u8] = b"\x1b]4;1;rgb:12/34/56\x07\x1b]10;rgb:11/22/33\x07\x1b]11;rgb:44/55/66\x07\x1b]12;rgb:77/88/99\x07\x1b]17;rgb:aa/bb/cc\x07\x1b]19;rgb:dd/ee/ff\x07hello world\r\nsecond line\r\n\x1b[2;5H";
+/// is invisible. The `h` is bold for the same reason: DECCARA's default
+/// clears bold, underline, blink and reverse, and clearing them from text that
+/// has none changes nothing.
+const PREAMBLE: &[u8] = b"\x1b]4;1;rgb:12/34/56\x07\x1b]10;rgb:11/22/33\x07\x1b]11;rgb:44/55/66\x07\x1b]12;rgb:77/88/99\x07\x1b]17;rgb:aa/bb/cc\x07\x1b]19;rgb:dd/ee/ff\x07\x1b[1mh\x1b[mello world\r\nsecond line\r\n\x1b[2;5H";
 
 /// Written **after** the form, so that changes which only show on the next cell
 /// are visible.
@@ -442,6 +444,22 @@ fn every_spec_csi_form_is_handled_or_counted() {
             b"\x1b[?1r",
             "XTRESTORE with nothing saved restores nothing by design -- \
              only_what_was_saved_and_listed_is_restored",
+        ),
+        (
+            b"\x1b[1$v",
+            "DECCRA with every other parameter defaulted copies the whole \
+             page onto itself -- deccra_copies_the_rectangle_and_its_\
+             renditions_and_leaves_the_cursor",
+        ),
+        (
+            b"\x1b[1$t",
+            "DECRARA with no attribute parameter is ignored, as DEC STD 070 \
+             says -- decrara_reverses_and_ignores_a_request_with_no_valid_attribute",
+        ),
+        (
+            b"\x1b[1*x",
+            "DECSACE 1 is the stream, which is already the default -- \
+             decsace_is_reported_kept_by_decstr_and_reset_by_ris",
         ),
     ];
 

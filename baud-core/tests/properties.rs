@@ -506,6 +506,64 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **The VT420 rectangle operations**: each rewrites
+    // cells on rows the cursor may be on, so a read that begins after one
+    // must find the cursor's row as the operation left it, wide halves
+    // included.
+    Atom {
+        name: "deccra",
+        bytes: b"\x1b[1;1;2;6;1;3;4;1$v",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decfra",
+        bytes: b"\x1b[42;2;2;3;5$x",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decera",
+        bytes: b"\x1b[1;3;2;8$z",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decsera",
+        bytes: b"\x1b[2;1;3;6${",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "deccara",
+        bytes: b"\x1b[1;1;4;9;1;4$r",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decrara",
+        bytes: b"\x1b[1;2;3;7;7$t",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decsace-rectangle",
+        bytes: b"\x1b[2*x",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decsace-stream",
+        bytes: b"\x1b[0*x",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decrqcra",
+        bytes: b"\x1b[1;1;1;1;3;5*y",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -770,6 +828,37 @@ fn the_latin1_dcs_gr_atom_reaches_decrqss() {
         assert_eq!(t.cursor(), (Row::ZERO, Col::ZERO), "DCS: nothing drawn");
         assert_eq!(t.strings_ignored, 0, "DCS: the string was answered");
     });
+}
+
+/// **The rectangle atoms reach their operations**, the control the C1
+/// atoms have: an atom the grammar counted and dropped would change nothing
+/// in either chunking, and every property would stay green.
+#[test]
+fn the_rectangle_atoms_reach_their_operations() {
+    fed("decfra", &|t| {
+        let row = t.row(Row::from_index(1)).expect("row 2");
+        assert_eq!(
+            row[1].content.as_codepoint().map(|c| c.value()),
+            Some(0x2a),
+            "DECFRA filled"
+        );
+        assert_eq!(t.unsupported, 0);
+    });
+    fed("decrqcra", &|t| {
+        assert!(t.reply().starts_with(b"\x1bP1!~"), "DECRQCRA answered")
+    });
+    for name in [
+        "deccra",
+        "decera",
+        "decsera",
+        "deccara",
+        "decrara",
+        "decsace-rectangle",
+    ] {
+        fed(name, &|t| {
+            assert_eq!(t.unsupported, 0, "{name} is acted on")
+        });
+    }
 }
 
 /// **The intermediate atom designates and draws what follows**, in one read

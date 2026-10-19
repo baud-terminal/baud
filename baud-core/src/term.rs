@@ -700,6 +700,10 @@ pub struct Cold {
     /// 8-bit `9B` can only be a control under Latin-1. Transmitting is the
     /// application's choice and it makes it with `ESC SP F` / `ESC SP G`.
     pub(crate) c1: C1Transmit,
+    /// DECSACE: whether DECCARA and DECRARA affect a stream of positions or
+    /// the rectangle (`baud_domain::AttrExtent`). Read once per one of
+    /// those, never by the write loop.
+    pub(crate) attr_extent: AttrExtent,
     /// XTMODKEYS `modifyOtherKeys`, and XTFMTKEYS `formatOtherKeys`.
     ///
     /// **In `Cold` because they are written once per control sequence and read
@@ -1127,6 +1131,7 @@ impl Cold {
             str_len: ByteLen::ZERO,
             sixel_bg: SixelBg::Transparent,
             c1: C1Transmit::SevenBit,
+            attr_extent: AttrExtent::Stream,
             // The base layer, which is what an application that has not asked
             // for an enhancement must receive.
             other_keys: OtherKeys::Off,
