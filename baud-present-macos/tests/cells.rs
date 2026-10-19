@@ -1879,6 +1879,30 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         differing(&a, &plain) > 0,
         "the selection changed the pixels"
     );
+    // **The selection in `OSC 17`'s and `19`'s colours**, each alone and
+    // both, over the same rows and the block cursor inside them: the two
+    // arms agree, each pair reaches the pixels, and `OSC 117` and `119` put
+    // reverse video back. The black page is the 0-means-none sentinel's
+    // edge: an opaque black is a set colour.
+    let reverse = a;
+    for (set, what) in [
+        (&b"\x1b]17;#2f5f9f\x07"[..], "OSC 17"),
+        (b"\x1b]117\x07\x1b]19;#ffd75f\x07", "OSC 19"),
+        (b"\x1b]17;#000000\x07", "OSC 17 black and 19"),
+    ] {
+        feed(&mut t, set);
+        let (a, b) = arms.draw(&mut t);
+        assert_eq!(differing(&a, &b), 0, "the arms disagree under {what}");
+        assert!(differing(&a, &reverse) > 0, "{what} reached the pixels");
+    }
+    feed(&mut t, b"\x1b]117\x07\x1b]119\x07");
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(differing(&a, &b), 0, "the arms disagree after the resets");
+    assert_eq!(
+        differing(&a, &reverse),
+        0,
+        "the resets put reverse video back"
+    );
     // A block, and its edges cut a wide character on each side: U+231A
     // straddles the left edge on row 2 (lead 100, tail 101) and the right
     // edge on row 3 (lead 101, tail 102), so a tail is out on one row and

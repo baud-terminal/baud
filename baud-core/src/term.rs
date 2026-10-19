@@ -641,11 +641,12 @@ pub struct Cold {
     /// so a release is never reported against a region the program now
     /// listening did not give (`Term::mouse_report`).
     pub(crate) handshake: Handshake,
-    /// **The dynamic colours -- `OSC 10`, `11` and `12` -- as three pairs**,
-    /// indexed by [`DynamicColor::index`] (foreground, background, cursor).
-    /// `defaults` is what the embedder's theme says the foreground and
-    /// background are, pushed in through [`Term::set_default_colors`]; the
-    /// cursor has no embedder default because the renderer draws it
+    /// **The dynamic colours -- `OSC 10`, `11`, `12`, `17` and `19` -- as five
+    /// pairs**, indexed by [`DynamicColor::index`] (foreground, background,
+    /// cursor, highlight background and foreground). `defaults` is what the
+    /// embedder's theme says the foreground and background are, pushed in
+    /// through [`Term::set_default_colors`]; the cursor and the selection
+    /// have no embedder default because the renderer draws them
     /// reverse-video until an application sets one. `dynamic` is an
     /// application's override from `OSC 10`/`11`/`12`, `DEFAULT` meaning none.
     /// A query answers the override if there is one, else the default if the
@@ -654,8 +655,8 @@ pub struct Cold {
     /// the renderer does not use is a wrong-shaped answer. `OSC 110`/`111`/`112`
     /// clear the override and leave the default, which is what "reset" means.
     /// Here rather than in `StrBuf` so no caller-provided buffer grows a field.
-    pub(crate) defaults: [ColorWord; 3],
-    pub(crate) dynamic: [ColorWord; 3],
+    pub(crate) defaults: [ColorWord; DynamicColor::COUNT],
+    pub(crate) dynamic: [ColorWord; DynamicColor::COUNT],
     /// Which control string is being accumulated, and how much of it.
     ///
     /// In `Cold` because a control string is not the write path: `str_kind` is
@@ -935,9 +936,22 @@ pub struct Cold {
 // in the watch, took no byte either: the arm's rotation became the watch's
 // base, and the two rows two numbers in its numbering, a word each (the
 // record, "A selection is numbered by the lines the surface moved").
+// The selection's two colours, `OSC 17` and `OSC 19`, took it to 640: a
+// `ColorWord` each in `dynamic` and in `defaults`, written by an `OSC 17`,
+// `19`, `117` or `119` and read by the renderer once a frame, never by a
+// glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 624);
+const _: () = assert!(core::mem::size_of::<Cold>() == 640);
+
+/// The colours a selection is drawn in, [`Term::highlight_colors`]: the
+/// page, `OSC 17`'s, and the text, `OSC 19`'s, each `None` where no
+/// application set it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct SelectionColors {
+    pub bg: Option<(u8, u8, u8)>,
+    pub fg: Option<(u8, u8, u8)>,
+}
 
 impl Cold {
     /// What `OSC 10`/`11`/`12 ; ?` answers for `which`: the application's
@@ -945,13 +959,20 @@ impl Cold {
     /// neither exists -- **of the slot shown in that role**, which under `?5`
     /// is the other one ([`Video::role`]; note V, V17). The one spelling of
     /// it, so `CSI ? 996 n` and the `OSC 11` query cannot disagree.
+    ///
+    /// **A selection colour nobody set answers what a selection is drawn
+    /// in**, reverse video: the text shown is its page (`OSC 17`) and the
+    /// page shown its text (`OSC 19`), as a default xterm answers, its
+    /// `highlightColor` defaulting to the resource its text foreground does
+    /// (Jev, 0.90 both orders).
     pub(crate) fn shown(&self, which: DynamicColor) -> ColorWord {
         let slot = self.video().role(which).index();
         let w = self.dynamic[slot];
-        if w.is_default() {
-            self.defaults[slot]
-        } else {
-            w
+        match which {
+            _ if !w.is_default() => w,
+            DynamicColor::HighlightBg => self.shown(DynamicColor::Foreground),
+            DynamicColor::HighlightFg => self.shown(DynamicColor::Background),
+            _ => self.defaults[slot],
         }
     }
 
@@ -1060,8 +1081,8 @@ impl Cold {
             mouse_encoding: MouseEncoding::X10,
             mouse_at: None,
             alternate_scroll: AlternateScroll::On,
-            defaults: [ColorWord::DEFAULT; 3],
-            dynamic: [ColorWord::DEFAULT; 3],
+            defaults: [ColorWord::DEFAULT; DynamicColor::COUNT],
+            dynamic: [ColorWord::DEFAULT; DynamicColor::COUNT],
             handshake: Handshake::Idle,
             terminal: TerminalMode::Ansi,
             vt52_row: Vt52Coord::ZERO,
@@ -3653,6 +3674,15 @@ impl<'b> Term<'b> {
     /// [`Term::palette`] before its palette table.
     pub fn dynamic_color(&self, which: DynamicColor) -> Option<(u8, u8, u8)> {
         self.cold.dynamic[which.index()].as_rgb()
+    }
+
+    /// The colours a selection is drawn in: `OSC 17`'s and `OSC 19`'s where
+    /// an application set them, `None` for reverse video.
+    pub fn highlight_colors(&self) -> SelectionColors {
+        SelectionColors {
+            bg: self.dynamic_color(DynamicColor::HighlightBg),
+            fg: self.dynamic_color(DynamicColor::HighlightFg),
+        }
     }
 
     /// The `OSC 12` cursor colour as a frame drawn in `video` shows it: the

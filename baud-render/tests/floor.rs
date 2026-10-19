@@ -13,8 +13,8 @@ use baud_core::{Owned, Term};
 use baud_domain::{BytePos, Chan, Col, Cols, ReadLen, Row, Rows, StyleWord, WinSize};
 use baud_font::Face;
 use baud_render::{
-    Argb, Backdrop, Blend, BlinkPhases, BlockCursor, Floor, Line, Pictured, Pictures, PxSize,
-    Renderer, Resolved, Selected, Shapes, Stack, Swaps, Theme, Video, xterm_palette,
+    Argb, Backdrop, Blend, BlinkPhases, BlockCursor, Floor, Hilite, Line, Pictured, Pictures,
+    PxSize, Renderer, Resolved, Selected, Shapes, Stack, Swaps, Theme, Video, xterm_palette,
 };
 use support::font;
 
@@ -407,6 +407,7 @@ fn drawn_fg(slot: Resolved, pictured: Pictured, selected: Selected) -> (Argb, Ar
         pictured,
         line: Line::No,
         selected,
+        hilite: Hilite::REVERSE,
         block: BlockCursor::No,
         blink: BlinkPhases::SHOWN,
         cursor: Chan::from_u8(0xFF),
@@ -421,6 +422,7 @@ fn drawn_as(slot: Resolved, pictured: Pictured, line: Line) -> (Argb, Argb) {
         pictured,
         line,
         selected: Selected::No,
+        hilite: Hilite::REVERSE,
         block: BlockCursor::No,
         blink: BlinkPhases::SHOWN,
         cursor: Chan::from_u8(0xFF),

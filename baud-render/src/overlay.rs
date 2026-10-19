@@ -18,7 +18,9 @@
 
 use crate::atlas::Code;
 use crate::cellmap::CellSpan;
-use crate::cellmap::{BlockCursor, Candidate, GlyphMap, Line, Resolved, Selected, Swaps, Text};
+use crate::cellmap::{
+    BlockCursor, Candidate, GlyphMap, Hilite, Line, Resolved, Selected, Swaps, Text,
+};
 use crate::instance::{Instance, Screen};
 use crate::metrics::Metrics;
 use crate::picture::{Pictured, Pictures};
@@ -253,6 +255,8 @@ struct Paint<'p> {
     /// screen's: a record in one takes the solid text, as the cell under it
     /// does on every arm ([`Resolved::drawn`]).
     pictures: Option<&'p Pictures>,
+    /// The colours the selection draws in ([`Renderer::hilite`]).
+    hilite: Hilite,
 }
 
 /// The opacity a record under `block` is drawn with: its style's, or all
@@ -481,6 +485,7 @@ impl Overlay {
             blink: r.blink(),
             cursor: opacity_of(r, block),
             pictures: Some(pictures),
+            hilite: r.hilite(),
         };
         for y in 0..rows {
             let row = view.row(Row::from_index(y));
@@ -772,6 +777,7 @@ impl Overlay {
                 blink: r.blink(),
                 cursor: opacity_of(r, block),
                 pictures: Some(pictures),
+                hilite: r.hilite(),
             };
             // `ceiling-no-window-cache` prices the miss: nothing is found.
             let hit = if cfg!(feature = "ceiling-no-window-cache") {
@@ -972,6 +978,7 @@ impl Overlay {
                 blink: r.blink(),
                 cursor: opacity_of(r, block),
                 pictures: None,
+                hilite: r.hilite(),
             },
             &geom,
         );
@@ -1083,6 +1090,7 @@ impl Overlay {
             } else {
                 Selected::No
             },
+            hilite: paint.hilite,
             block: if under_cursor {
                 BlockCursor::Yes(None)
             } else {
@@ -1246,6 +1254,7 @@ pub(crate) fn composition_records(
         blink: r.blink(),
         cursor: opacity_of(r, block),
         pictures: None,
+        hilite: r.hilite(),
     };
     let face = crate::cellmap::face_of(styles, under);
     let y = c.row.index();
@@ -1286,6 +1295,7 @@ pub(crate) fn composition_records(
             pictured: Pictured::No,
             line: Line::No,
             selected: Selected::No,
+            hilite: paint.hilite,
             block: if under_cursor {
                 BlockCursor::Yes(None)
             } else {

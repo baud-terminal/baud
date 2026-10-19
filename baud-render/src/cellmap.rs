@@ -1017,7 +1017,7 @@ impl Resolved {
         // The text a swap hands to the background: the solid one.
         let mut ink = self.fg;
         if s.selected == Selected::Yes {
-            (fg, bg) = (bg.with_alpha(opaque), ink.with_alpha(opaque));
+            (fg, bg) = s.hilite.paint(bg, ink);
             ink = fg;
         }
         let cursor_fg = if line && s.selected == Selected::No {
@@ -1055,8 +1055,24 @@ impl Resolved {
             bg,
             cursor_fg,
             text: self.text(s.blink),
-            curve: curves.row(side),
+            curve: self.hilite_curve(s).unwrap_or_else(|| curves.row(side)),
         }
+    }
+
+    /// The curve row of a selected cell's glyph under a highlight colour,
+    /// `None` under reverse video: the colour the glyph is drawn in is the
+    /// selection's text, or, swapped again by a block cursor, its page, and
+    /// each is a highlight colour's row where one is set and the cell's own
+    /// text's otherwise. The cell shader's `glyph_curve` spells the same.
+    fn hilite_curve(self, s: Swaps) -> Option<CurveRow> {
+        if s.selected == Selected::No || s.hilite == Hilite::REVERSE {
+            return None;
+        }
+        let side = match s.ink() {
+            Ink::Swapped => s.hilite.fg,
+            Ink::Own => s.hilite.bg,
+        };
+        Some(side.map_or(self.curves.row(Ink::Own), |(_, row)| row))
     }
 }
 
@@ -1109,6 +1125,51 @@ pub enum BlockCursor {
     Yes(Option<Argb>),
 }
 
+/// The colours a selection is drawn in: `OSC 17`'s page and `OSC 19`'s text,
+/// each opaque and with the contrast curve row a glyph in it takes, or none
+/// of either. [`Hilite::REVERSE`], neither, is reverse video, the default.
+///
+/// [`Resolved::drawn`] takes the page from `bg` where it is set and the
+/// cell's text otherwise, and the text from `fg` where it is set, else the
+/// cell's own text on a set page, else the cell's page: so `bg` alone draws
+/// each cell's text on the highlight, and `fg` alone the highlight text on
+/// the reversed page. The cell shader's `colors()` spells the same.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Hilite {
+    pub bg: Option<(Argb, CurveRow)>,
+    pub fg: Option<(Argb, CurveRow)>,
+}
+
+impl Hilite {
+    pub const REVERSE: Hilite = Hilite { bg: None, fg: None };
+
+    /// The pair from two colours, each made opaque, with the curve row its
+    /// colour takes as text.
+    pub fn of(bg: Option<Argb>, fg: Option<Argb>) -> Hilite {
+        let with = |c: Argb| {
+            let c = c.with_alpha(Chan::from_u8(0xFF));
+            (c, CurveRow::of(c.r().get(), c.g().get(), c.b().get()))
+        };
+        Hilite {
+            bg: bg.map(with),
+            fg: fg.map(with),
+        }
+    }
+
+    /// The page and text a selected cell is drawn in, from the cell's page
+    /// and text as the selection finds them.
+    pub fn paint(self, page: Argb, text: Argb) -> (Argb, Argb) {
+        let opaque = Chan::from_u8(0xFF);
+        let bg = self.bg.map_or(text.with_alpha(opaque), |(c, _)| c);
+        let fg = match (self.fg, self.bg) {
+            (Some((c, _)), _) => c,
+            (None, Some(_)) => text.with_alpha(opaque),
+            (None, None) => page.with_alpha(opaque),
+        };
+        (fg, bg)
+    }
+}
+
 /// What a frame lays over a cell's resolved rendition.
 #[derive(Clone, Copy, Debug)]
 pub struct Swaps {
@@ -1116,6 +1177,9 @@ pub struct Swaps {
     /// Whether the cell is a box-drawing line, by its content: [`Line::of`].
     pub line: Line,
     pub selected: Selected,
+    /// The colours [`Swaps::selected`] draws in: reverse video, or `OSC 17`
+    /// and `19`'s.
+    pub hilite: Hilite,
     pub block: BlockCursor,
     pub blink: BlinkPhases,
     /// The block cursor's opacity, 255 drawn whole: below it during a fade

@@ -284,12 +284,12 @@ impl Paint<'_, '_> {
     }
 
     /// The same for a dynamic colour. `OSC 12`'s cursor colour is read where
-    /// the cursor is drawn and no rendition resolves through it, so it moves
-    /// no epoch.
+    /// the cursor is drawn, and `OSC 17`'s and `19`'s where a selection is,
+    /// and no rendition resolves through them, so they move no epoch.
     fn set_dynamic(&mut self, which: DynamicColor, w: ColorWord) {
         if self.cold.dynamic[which.index()] != w {
             self.cold.dynamic[which.index()] = w;
-            if which != DynamicColor::Cursor {
+            if moves_renditions(which) {
                 self.style_log.colors_moved();
             }
         }
@@ -552,19 +552,27 @@ pub(crate) fn clear_palette(palette: &mut [ColorWord], log: &mut StyleLog<'_>) {
     }
 }
 
-/// Every `OSC 10`/`11`/`12` override cleared, with the colour epoch moved
-/// when the foreground or background changed -- the cursor colour moves none,
-/// as in `set_dynamic`.
+/// Whether renditions resolve through a dynamic colour: the default
+/// foreground and background, and not the cursor's or the selection's.
+fn moves_renditions(which: DynamicColor) -> bool {
+    matches!(which, DynamicColor::Foreground | DynamicColor::Background)
+}
+
+/// Every `OSC 10`/`11`/`12`/`17`/`19` override cleared, with the colour epoch
+/// moved when the foreground or background changed -- the cursor's and the
+/// selection's colours move none, as in `set_dynamic`.
 pub(crate) fn clear_dynamic(cold: &mut Cold, log: &mut StyleLog<'_>) {
     for which in [
         DynamicColor::Foreground,
         DynamicColor::Background,
         DynamicColor::Cursor,
+        DynamicColor::HighlightBg,
+        DynamicColor::HighlightFg,
     ] {
         let w = &mut cold.dynamic[which.index()];
         if !w.is_default() {
             *w = ColorWord::DEFAULT;
-            if which != DynamicColor::Cursor {
+            if moves_renditions(which) {
                 log.colors_moved();
             }
         }

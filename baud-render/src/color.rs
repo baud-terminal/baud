@@ -1039,7 +1039,10 @@ impl Theme {
         let stored = |w: DynamicColor| {
             let theme = match w {
                 DynamicColor::Background => self.bg,
-                DynamicColor::Foreground | DynamicColor::Cursor => self.fg,
+                DynamicColor::Foreground
+                | DynamicColor::Cursor
+                | DynamicColor::HighlightBg
+                | DynamicColor::HighlightFg => self.fg,
             };
             dynamic(w).map_or(theme, |(r, g, b)| triple(r, g, b))
         };

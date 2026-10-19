@@ -13,8 +13,8 @@ use baud_domain::contrast::{self, CurveRow};
 use baud_domain::{BytePos, Chan, Cols, ReadLen, Rows, WinSize};
 use baud_font::Face;
 use baud_render::{
-    Argb, Blend, BlinkPhases, BlockCursor, Curves, Damage, Ink, Instance, Kind, Line, Pictured,
-    PxSize, Renderer, Resolved, Selected, Shapes, Stack, Swaps, Theme,
+    Argb, Blend, BlinkPhases, BlockCursor, Curves, Damage, Hilite, Ink, Instance, Kind, Line,
+    Pictured, PxSize, Renderer, Resolved, Selected, Shapes, Stack, Swaps, Theme,
 };
 use support::font;
 
@@ -225,50 +225,64 @@ fn the_ink_is_the_drawn_foregrounds_row() {
     assert_ne!(row(fg), row(bg), "the control: two rows");
     assert_ne!(row(line), row(fg), "the control: a line's row of its own");
     let mut swapped = 0;
-    for selected in [Selected::No, Selected::Yes] {
-        for block in [
-            BlockCursor::No,
-            BlockCursor::Yes(None),
-            BlockCursor::Yes(Some(Argb(0xFF_FF_00_00))),
-        ] {
-            for (pictured, line) in [Pictured::No, Pictured::Yes]
-                .into_iter()
-                .flat_map(|p| [(p, Line::No), (p, Line::Yes)])
-            {
-                let s = Swaps {
-                    pictured,
-                    line,
-                    selected,
-                    block,
-                    blink: BlinkPhases::SHOWN,
-                    cursor: Chan::from_u8(0xFF),
-                };
-                let drawn = slot.drawn(s);
-                if line == Line::No {
-                    assert_eq!(slot.curves.row(s.ink()), row(drawn.fg), "{s:?}");
-                }
-                assert_eq!(drawn.curve, row(drawn.fg), "{s:?}");
-                swapped += usize::from(s.ink() == Ink::Swapped);
-                // **A block part way through a fade takes the row of the side
-                // it is nearer**: the whole block's from half way, the cell's
-                // without it below -- the shader's `swapped()` at 128.
-                for opacity in [254u8, 200, 128, 127, 40, 0] {
-                    let f = Swaps {
-                        cursor: Chan::from_u8(opacity),
-                        ..s
+    // **And under each highlight pair**, `OSC 17`'s page and `19`'s text
+    // alone and together: the glyph is in one of them or in the cell's own
+    // text, and takes that colour's row.
+    let page = Some(Argb(0xFF_20_40_80));
+    let text = Some(Argb(0xFF_F0_E0_10));
+    for hilite in [
+        Hilite::REVERSE,
+        Hilite::of(page, None),
+        Hilite::of(None, text),
+        Hilite::of(page, text),
+    ] {
+        for selected in [Selected::No, Selected::Yes] {
+            for block in [
+                BlockCursor::No,
+                BlockCursor::Yes(None),
+                BlockCursor::Yes(Some(Argb(0xFF_FF_00_00))),
+            ] {
+                for (pictured, line) in [Pictured::No, Pictured::Yes]
+                    .into_iter()
+                    .flat_map(|p| [(p, Line::No), (p, Line::Yes)])
+                {
+                    let s = Swaps {
+                        pictured,
+                        line,
+                        selected,
+                        hilite,
+                        block,
+                        blink: BlinkPhases::SHOWN,
+                        cursor: Chan::from_u8(0xFF),
                     };
-                    let side = if opacity >= 128 {
-                        s
-                    } else {
-                        Swaps {
-                            block: BlockCursor::No,
+                    let drawn = slot.drawn(s);
+                    let paired = selected == Selected::Yes && hilite != Hilite::REVERSE;
+                    if line == Line::No && !paired {
+                        assert_eq!(slot.curves.row(s.ink()), row(drawn.fg), "{s:?}");
+                    }
+                    assert_eq!(drawn.curve, row(drawn.fg), "{s:?}");
+                    swapped += usize::from(s.ink() == Ink::Swapped && hilite == Hilite::REVERSE);
+                    // **A block part way through a fade takes the row of the side
+                    // it is nearer**: the whole block's from half way, the cell's
+                    // without it below -- the shader's `swapped()` at 128.
+                    for opacity in [254u8, 200, 128, 127, 40, 0] {
+                        let f = Swaps {
+                            cursor: Chan::from_u8(opacity),
                             ..s
+                        };
+                        let side = if opacity >= 128 {
+                            s
+                        } else {
+                            Swaps {
+                                block: BlockCursor::No,
+                                ..s
+                            }
+                        };
+                        let want = row(slot.drawn(side).fg);
+                        assert_eq!(slot.drawn(f).curve, want, "{f:?}");
+                        if line == Line::No && !paired {
+                            assert_eq!(slot.curves.row(f.ink()), want, "{f:?}");
                         }
-                    };
-                    let want = row(slot.drawn(side).fg);
-                    assert_eq!(slot.drawn(f).curve, want, "{f:?}");
-                    if line == Line::No {
-                        assert_eq!(slot.curves.row(f.ink()), want, "{f:?}");
                     }
                 }
             }

@@ -61,20 +61,29 @@ pub enum Osc<'a> {
     Unsupported,
 }
 
-/// Which dynamic colour an `OSC 10`-family sequence names. Three of xterm's
-/// ten: `12` (the cursor) is stored and read now that a renderer draws a
-/// cursor colour -- the deferral this enum once carried ("no renderer here
-/// reads a cursor colour yet") expired when `baud-render` landed, which is
-/// the day `docs/vt-coverage.md` named for it. `13`-`19` remain out: they are
-/// pointer, Tektronix and highlight colours this terminal has no object for.
+/// Which dynamic colour an `OSC 10`-family sequence names. Five of xterm's
+/// ten: the text's two, the cursor's (`12`), and the selection's two, the
+/// highlight background (`17`) and foreground (`19`), each drawn by the
+/// renderer. The pointer's (`13`, `14`) and Tektronix's (`15`, `16`, `18`)
+/// are out: the system draws the pointer, and baud has no Tektronix screen.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DynamicColor {
     Foreground,
     Background,
     Cursor,
+    /// `OSC 17`: "Change highlight background color" (`[[source:
+    /// ctlseqs]]`), the page a selection is drawn on.
+    HighlightBg,
+    /// `OSC 19`: "Change highlight foreground color", the text a selection
+    /// is drawn in.
+    HighlightFg,
 }
 
 impl DynamicColor {
+    /// How many there are: what a table indexed by [`DynamicColor::index`]
+    /// holds.
+    pub const COUNT: usize = 5;
+
     /// The colour an `OSC` number names, of the ten xterm numbers 10 to 19
     /// ([`DYNAMIC_FIRST`] to [`DYNAMIC_LAST`]); `None` for one baud keeps no
     /// colour for.
@@ -83,6 +92,8 @@ impl DynamicColor {
             10 => Some(DynamicColor::Foreground),
             11 => Some(DynamicColor::Background),
             12 => Some(DynamicColor::Cursor),
+            17 => Some(DynamicColor::HighlightBg),
+            19 => Some(DynamicColor::HighlightFg),
             _ => None,
         }
     }
@@ -93,6 +104,8 @@ impl DynamicColor {
             DynamicColor::Foreground => 10,
             DynamicColor::Background => 11,
             DynamicColor::Cursor => 12,
+            DynamicColor::HighlightBg => 17,
+            DynamicColor::HighlightFg => 19,
         }
     }
     pub fn index(self) -> usize {
@@ -100,6 +113,8 @@ impl DynamicColor {
             DynamicColor::Foreground => 0,
             DynamicColor::Background => 1,
             DynamicColor::Cursor => 2,
+            DynamicColor::HighlightBg => 3,
+            DynamicColor::HighlightFg => 4,
         }
     }
 }
@@ -647,6 +662,8 @@ impl<'a> Osc<'a> {
             b"110" => Osc::ResetDynamic(DynamicColor::Foreground),
             b"111" => Osc::ResetDynamic(DynamicColor::Background),
             b"112" => Osc::ResetDynamic(DynamicColor::Cursor),
+            b"117" => Osc::ResetDynamic(DynamicColor::HighlightBg),
+            b"119" => Osc::ResetDynamic(DynamicColor::HighlightFg),
             b"104" => Osc::ResetColors(ColorResets {
                 rest,
                 walk: Walk::Start,

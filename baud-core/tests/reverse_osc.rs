@@ -262,3 +262,34 @@ proptest::proptest! {
         }
     }
 }
+
+/// **The selection's colours are named as sent under `?5` too**: `OSC 17`
+/// sets, asks for and resets the highlight background and `OSC 19` the
+/// foreground, as ctlseqs names them (Jev's lean, 0.84 and 0.72 under the
+/// bar). The exchange is DEC's, which has no selection colour, and the
+/// selection is drawn after it; xterm's handlers trade the two under its
+/// own `reverseVideo` (misc.c `oppositeColor`), which leaves them where
+/// they are. Unset, a query answers the selection as drawn: a default cell
+/// exchanged and then reversed shows the text shown as its page.
+#[test]
+fn osc_17_and_19_under_reverse_name_the_colour_sent() {
+    each_read_size(
+        b"\x1b[?5h\x1b]17;rgb:12/34/56\x07\x1b]17;?\x07\x1b]19;?\x07",
+        |t| {
+            assert_eq!(
+                t.highlight_colors(),
+                SelectionColors {
+                    bg: Some(SET),
+                    fg: None
+                }
+            );
+            assert_eq!(
+                t.reply(),
+                [dynamic_reply(17, SET), dynamic_reply(19, FG)].concat()
+            );
+        },
+    );
+    each_read_size(b"\x1b]19;rgb:12/34/56\x07\x1b[?5h\x1b]119\x07", |t| {
+        assert_eq!(t.highlight_colors(), SelectionColors::default());
+    });
+}

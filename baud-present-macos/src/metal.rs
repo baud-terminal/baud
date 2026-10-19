@@ -283,10 +283,10 @@ impl Uni {
     }
 }
 
-/// The cell path's uniforms as the shader's `CU` reads them: five `uint2`
-/// then fifteen `uint`, 100 bytes, `repr(C)`. Every field is a pixel count
-/// or a cell count, and says which; the last five are the selection, a
-/// flag and its two inclusive corners.
+/// The cell path's uniforms as the shader's `CU` reads them, 34 words, 136
+/// bytes, `repr(C)`. Each field says what it counts; `sel_on` to
+/// `sel_to_row` are the selection, a flag and its two inclusive corners,
+/// and `sel_bg` to `sel_fg_curve` its colours.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct CellUniforms {
@@ -334,7 +334,18 @@ struct CellUniforms {
     /// must be too -- 29 words were 116 bytes against the shader's 120,
     /// which Metal's validation layer refused, and this word was a pad.
     cursor_alpha: Uni,
+    /// The selection's colours, `OSC 17`'s page and `OSC 19`'s text, packed
+    /// `0xFFRRGGBB`, or 0 for none -- reverse video. Opaque always
+    /// ([`baud_render::Hilite::of`]), so a set colour is never 0, black
+    /// included. With each, the contrast curve row a glyph in it takes. Four
+    /// words, so the struct stays a multiple of eight bytes.
+    sel_bg: Uni,
+    sel_fg: Uni,
+    sel_bg_curve: Uni,
+    sel_fg_curve: Uni,
 }
+
+const _: () = assert!(core::mem::size_of::<CellUniforms>() == 136);
 
 // **The bytes bound are the shader's struct**: `CU` rounds up to its 8-byte
 // alignment, so a word count that is odd binds four bytes short of it.
@@ -1768,6 +1779,7 @@ impl Gpu {
             .map_or((Uni(u32::MAX), Uni(u32::MAX)), |(r, c, _)| {
                 (Uni::of(Elems(r.index())), Uni::of(Elems(c.index())))
             });
+        let hilite = renderer.hilite();
         let uniforms = CellUniforms {
             viewport_w: frame_px.0,
             viewport_h: frame_px.1,
@@ -1810,6 +1822,10 @@ impl Gpu {
                     .map_or(0xFF, |(_, _, style)| renderer.cursor_opacity(style).get()),
             )),
             blink_hidden: Uni(renderer.blink().hidden().0),
+            sel_bg: Uni(hilite.bg.map_or(0, |(c, _)| c.0)),
+            sel_fg: Uni(hilite.fg.map_or(0, |(c, _)| c.0)),
+            sel_bg_curve: Uni(hilite.bg.map_or(0, |(_, row)| u32::from(row.get()))),
+            sel_fg_curve: Uni(hilite.fg.map_or(0, |(_, row)| u32::from(row.get()))),
         };
         let upload_time = t0.elapsed();
         let (cmd, enc) = self.encoder(target, clear, viewport)?;

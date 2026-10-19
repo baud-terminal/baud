@@ -646,6 +646,65 @@ fn a_colour_baud_does_not_keep_is_counted_and_the_walk_goes_on() {
     assert!(n >= 2, "18, and the spec past 19: {n}");
 }
 
+fn colors(bg: Option<Rgb>, fg: Option<Rgb>) -> SelectionColors {
+    SelectionColors { bg, fg }
+}
+
+/// **`OSC 17` and `OSC 19` set the selection's colours**, read through
+/// `Term::highlight_colors`, and `OSC 117` and `OSC 119` reset them to none,
+/// reverse video. `[[source: ctlseqs]]`: "Ps = 1 7 -> Change highlight
+/// background color to Pt", "Ps = 1 9 -> Change highlight foreground color
+/// to Pt", "Ps = 1 1 7 -> Reset highlight color", "Ps = 1 1 9 -> Reset
+/// highlight foreground color".
+#[test]
+fn osc_17_and_19_set_the_selection_colours_and_117_and_119_reset_them() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"\x1b]17;#2f5f9f\x07\x1b]19;gold\x1b\\");
+    assert_eq!(t.unsupported, 0, "both are honoured");
+    assert_eq!(
+        t.highlight_colors(),
+        colors(Some((0x2f, 0x5f, 0x9f)), Some((255, 215, 0)))
+    );
+    support::feed(&mut t, b"\x1b]117\x07");
+    assert_eq!(t.highlight_colors(), colors(None, Some((255, 215, 0))));
+    support::feed(&mut t, b"\x1b]119\x07");
+    assert_eq!(t.highlight_colors(), colors(None, None));
+    // Carried on from 17: 18, Tektronix's cursor, is counted, 19 is set.
+    support::feed(&mut t, b"\x1b]17;red;blue;#00ff00\x07");
+    assert_eq!(
+        t.highlight_colors(),
+        colors(Some((255, 0, 0)), Some((0, 255, 0)))
+    );
+    assert_eq!(t.unsupported, 1);
+}
+
+/// **A query answers in `OSC 10`'s shape, with the query's terminator**:
+/// the colour set, and with none set the colour a selection is drawn in --
+/// reverse video, so the text shown for `17` and the page shown for `19`,
+/// as a default xterm answers (Jev, 0.90 in both orders) -- and nothing on
+/// a core never told its colours.
+#[test]
+fn a_highlight_query_answers_the_colour_the_selection_is_drawn_in() {
+    let defaults = Some(((0xe0, 0xe0, 0xe0), (0x11, 0x11, 0x11)));
+    let (_, reply, _) = walked(defaults, b"\x1b]17;?\x07\x1b]19;?\x1b\\");
+    assert_eq!(
+        reply,
+        &b"\x1b]17;rgb:e0e0/e0e0/e0e0\x07\x1b]19;rgb:1111/1111/1111\x1b\\"[..]
+    );
+    let (_, reply, _) = walked(defaults, b"\x1b]17;#2f5f9f;?;?\x07");
+    assert_eq!(
+        reply,
+        &b"\x1b]19;rgb:1111/1111/1111\x07"[..],
+        "18 is counted and answers nothing; 19 is unset"
+    );
+    let (_, reply, _) = walked(defaults, b"\x1b]17;#2f5f9f\x07\x1b]17;?\x07");
+    assert_eq!(reply, &b"\x1b]17;rgb:2f2f/5f5f/9f9f\x07"[..]);
+    let (_, reply, _) = walked(None, b"\x1b]17;?\x07\x1b]19;?\x07");
+    assert!(reply.is_empty(), "a core never told its colours is silent");
+}
+
 /// The same bytes at every read size produce the same colours and the same
 /// reply: an `OSC` spans reads, and the value must not depend on where they
 /// fell. The core's own chunk-invariance sweep does not reach this, because

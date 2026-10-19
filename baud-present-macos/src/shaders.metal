@@ -1119,6 +1119,10 @@ struct CU {
     // struct is 8-aligned by its `uint2`s, so it is 120 bytes and the Rust
     // side binds that many: `CellUniforms`, which checks it.
     uint cursor_alpha;
+    // The selection's colours, `OSC 17`'s page and `OSC 19`'s text, packed
+    // 0xFFRRGGBB, or 0 for none -- reverse video -- each with the contrast
+    // curve row a glyph in it takes. 136 bytes with these.
+    uint sel_bg; uint sel_fg; uint sel_bg_curve; uint sel_fg_curve;
 };
 struct Style { uint fg; uint bg; uint ul; uint shapes; uint curves; uint glass; uint gcurves;
                uint line; uint lcurves; };
@@ -1881,7 +1885,16 @@ static bool is_line(uint content) {
 static uint glyph_curve(constant CU& u, Style s, device const uchar* overlay,
                         uint content, uint col, int lrow) {
     bool swap = swapped(u, content, col, uint(lrow));
-    bool own = !swap && !selected(u, content, col, uint(lrow));
+    bool sel = selected(u, content, col, uint(lrow));
+    // Under a highlight colour the glyph is in the selection's text, or,
+    // swapped again by a block, its page: a highlight colour's row where
+    // one is set, else the cell's own text's. `Resolved::hilite_curve`.
+    if (sel && (u.sel_bg | u.sel_fg) != 0u) {
+        uint word = swap ? u.sel_fg : u.sel_bg;
+        uint row = swap ? u.sel_fg_curve : u.sel_bg_curve;
+        return word != 0u ? row : (s.curves & 0xffffu);
+    }
+    bool own = !swap && !sel;
     uint curves = own && is_line(content) ? s.lcurves
                 : own && !solid(u, s.shapes, overlay, col, lrow) ? s.gcurves
                 : s.curves;
@@ -1920,7 +1933,13 @@ static void colors(constant CU& u, device const Style* styles,
     // compares the two arms to say so.
     uint ink = s.fg;
     if (selected(u, cell.x, col, row)) {
-        fgw = bgw | 0xff000000u; bgw = ink | 0xff000000u; ink = fgw;
+        // `Hilite::paint`: the page `OSC 17`'s where set, else the text; the
+        // text `OSC 19`'s where set, else the cell's own on a set page, else
+        // the page -- reverse video when neither is set.
+        uint page = u.sel_bg != 0u ? u.sel_bg : (ink | 0xff000000u);
+        fgw = u.sel_fg != 0u ? u.sel_fg
+            : (u.sel_bg != 0u ? (ink | 0xff000000u) : (bgw | 0xff000000u));
+        bgw = page; ink = fgw;
         curw = fgw;
     }
     if (u.cursor_kind == 1u && col == u.cursor.x && row == u.cursor.y) {

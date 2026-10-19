@@ -7,7 +7,7 @@ use crate::cache::{
 };
 use crate::caret::{self, CursorPhase, Play};
 use crate::cellmap::{
-    BlockCursor, CellSpan, Curves, Ground, Line, Resolved, Selected, Shapes, Swaps, Text,
+    BlockCursor, CellSpan, Curves, Ground, Hilite, Line, Resolved, Selected, Shapes, Swaps, Text,
     takes_stress_mark,
 };
 use crate::color::{Argb, Theme, Video};
@@ -1127,6 +1127,10 @@ pub struct Renderer<'f, 'a> {
     /// share of it changed is dirty, the cursor's own rule.
     highlight: Option<Highlight>,
     last_highlight: Option<Highlight>,
+    /// The colours the selection draws in, read from the terminal each frame
+    /// ([`Term::highlight_colors`]): reverse video until an application sets
+    /// `OSC 17` or `19`.
+    hilite: Hilite,
     /// The scrollbar on this frame and the last -- the knob, the track when
     /// widened, and how much of both is seen -- and its solids: a row whose
     /// slice of the bar changed is dirty (`Bar::slice`).
@@ -1350,6 +1354,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             last_cursor_opacity: Chan::from_u8(0xFF),
             highlight: None,
             last_highlight: None,
+            hilite: Hilite::REVERSE,
             bar: None,
             last_bar: None,
             gutter: Px::of(0),
@@ -1844,6 +1849,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 pictured: crate::picture::Pictured::No,
                 line: Line::No,
                 selected,
+                hilite: self.hilite,
                 block: match cursored {
                     Cursored::Block => BlockCursor::Yes(cursor_color),
                     _ => BlockCursor::No,
@@ -2113,6 +2119,13 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.flash = flash;
     }
 
+    /// The colours a selection draws in on the last convert or resolve:
+    /// `OSC 17`'s and `19`'s, as [`Term::highlight_colors`] gives them. What a
+    /// caller that draws the selection itself -- the cell path -- reads.
+    pub fn hilite(&self) -> Hilite {
+        self.hilite
+    }
+
     /// The video the last convert or resolve drew in: `?5`'s, or under a
     /// flash the other one. What a caller that draws the cursor itself -- the
     /// cell path -- reads the `OSC 12` colour in ([`Term::cursor_color_in`]).
@@ -2166,6 +2179,18 @@ impl<'f, 'a> Renderer<'f, 'a> {
             self.defaults = defaults;
             self.cursor_fill = fill;
             self.rebuild_overlays();
+        }
+        // **A change of the selection's colours repaints every row**: row
+        // damage compares cells, renditions and where the selection lies,
+        // and an `OSC 17` moves none of them. Rare, so the whole frame.
+        let rgb = |c: Option<(u8, u8, u8)>| {
+            c.map(|(r, g, b)| Argb::rgb(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)))
+        };
+        let colors = term.highlight_colors();
+        let hilite = Hilite::of(rgb(colors.bg), rgb(colors.fg));
+        if hilite != self.hilite {
+            self.hilite = hilite;
+            self.known = Prev::Unknown;
         }
     }
 
@@ -3880,6 +3905,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 pictured: self.pictures.at(r, col),
                 line: Line::of(cell.content),
                 selected,
+                hilite: self.hilite,
                 block,
                 blink: self.blink,
                 cursor: here.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s)),
