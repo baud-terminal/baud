@@ -701,10 +701,10 @@ fn decrqcra_counts_a_utf8_character_as_itself_under_a_national_set() {
 }
 
 /// **REP's copy keeps the set its character was received under** when GL's
-/// set changes before it: ECMA-48 8.3.103 repeats "the preceding
-/// character", and a graphic character is one "that has a coded
-/// representation" (4.2.43), the character and not its code. The copy is the
-/// character as drawn, and counts the code the original was received as.
+/// set changes before it: ECMA-48 8.3.103 repeats "the preceding character
+/// in the data stream, if it is a graphic character", and says no more of
+/// what a copy is after a designation. The copy is the character as drawn
+/// (Jev's lean, AS_SHOWN), and counts the code the original was received as.
 #[test]
 fn rep_after_a_set_change_copies_the_character_and_its_code() {
     let cases: [(&str, &str, u32, u32); 4] = [

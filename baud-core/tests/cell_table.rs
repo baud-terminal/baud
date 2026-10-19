@@ -209,9 +209,10 @@ const NARROW: WinSize = WinSize {
 /// its sequence: `X` then a space at column 0, ` X `, `aXb`, and `X` between
 /// two four-byte emoji, the woman and the man, where `X` = ZWJ makes one
 /// cluster of three; after `a` and a Prepend, which `X` joins (GB9b); and
-/// between two regional indicators, which `X` keeps apart. Each batch starts with `RIS`, which empties the cluster
-/// store, so 48 rows never fill its 1024 slots, and ends on row 48, short of the
-/// scroll.
+/// between two regional indicators, which `X` keeps apart; and under IRM
+/// before `abc`, which `X` shifts right. Each batch starts with `RIS`, which
+/// empties the cluster store, so 48 rows never fill its 1024 slots, and ends
+/// on row 48, short of the scroll.
 #[test]
 fn the_table_read_writes_what_the_computing_path_writes() {
     let perms = permutations();

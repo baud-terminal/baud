@@ -166,4 +166,9 @@ fn decfi_on_a_double_width_line_stops_at_the_lines_end() {
     support::render(&WS, b"\x1b#6abcdefghij\x1b[1;10H\x1b9\x1b[4hX", |t| {
         assert_eq!(&row(t, 1)[..10], "abcdefghiX");
     });
+    // A second step from the line's end stays there too; an insert under
+    // IRM after it underflowed.
+    support::render(&WS, b"\x1b#6abcdefghij\x1b[1;10H\x1b9\x1b9\x1b[4hX", |t| {
+        assert_eq!(&row(t, 1)[..10], "abcdefghiX");
+    });
 }

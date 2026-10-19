@@ -398,6 +398,7 @@ fn the_space_keeps_the_guard_and_the_link_and_drops_the_rest() {
         let c = t.row(Row::ZERO).expect("a row")[0];
         assert_eq!(c.content.as_codepoint().map(|c| c.value()), Some(0x20));
         assert_eq!(t.cluster_marks(c).count(), 0, "the mark went");
+        assert!(!c.flags.is_marked(), "MARKED went");
     });
 }
 
