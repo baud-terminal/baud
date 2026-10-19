@@ -2423,14 +2423,22 @@ impl Paint<'_, '_> {
     /// pushed text off the screen edge rather than off the margin -- correct
     /// only while the margin *is* the edge, which is every stream that never
     /// sends `DECSLRM`.
+    ///
+    /// **The columns brought in have normal rendition**, not the current
+    /// one: "The inserted columns are set to blank with normal rendition"
+    /// and "Columns containing blank characters with normal rendition are
+    /// shifted into the display" (`[[source: dec-std-070]]` DECIC and
+    /// DECDC, pp. 5-150 and 5-151); "blank columns with no visual
+    /// character attributes" (`[[source: vt510-decic]]`,
+    /// `[[source: vt510-decdc]]`). ICH and DCH take the current rendition.
     pub(crate) fn shift_columns(&mut self, n: Count, dir: ColumnShift) {
-        let (at, b) = (self.cx.col(), self.blank());
-        self.shift_columns_at(at, n, dir, b);
+        let at = self.cx.col();
+        self.shift_columns_at(at, n, dir, PackedCell::EMPTY);
     }
 
     /// The same from column `at`, filling with `b`: `DECBI` and `DECFI` move
     /// the rectangle from the left margin, filling with "all attributes
-    /// turned off" (`crate::rect`).
+    /// turned off" (`crate::rect`), as DECIC and DECDC fill.
     pub(crate) fn shift_columns_at(&mut self, at: Col, n: Count, dir: ColumnShift, b: PackedCell) {
         let to = self.cold.right.after();
         for y in self.cold.top.index()..=self.cold.bot.index() {

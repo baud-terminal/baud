@@ -376,6 +376,32 @@ fn decdc_deletes_columns_and_fills_at_the_margin() {
     assert_eq!(after[10], grid(&base)[10], "beyond it, untouched");
 }
 
+/// **The new column has normal rendition, not the current one.**
+/// `[[source: dec-std-070]]` DECIC (p. 5-150), "The inserted columns are set
+/// to blank with normal rendition", and DECDC (p. 5-151), "Columns
+/// containing blank characters with normal rendition are shifted into the
+/// display"; `[[source: vt510-decic]]` and `[[source: vt510-decdc]]`, "blank
+/// columns with no visual character attributes". Until 2026-10-19 both
+/// filled in the current SGR rendition, as ICH and DCH do.
+#[test]
+fn decic_and_decdc_bring_in_columns_with_normal_rendition() {
+    let mut v = b"".to_vec();
+    v.extend(std::iter::repeat_n(b'a', 20));
+    v.extend_from_slice(LRM);
+    v.extend_from_slice(b"\x1b[41m");
+    let empty = grid(b"")[0];
+    let mut ic = v.clone();
+    ic.extend_from_slice(b"\x1b[1;5H\x1b['}");
+    assert_eq!(grid(&ic)[4], empty, "DECIC's column at 5");
+    let mut dc = v.clone();
+    dc.extend_from_slice(b"\x1b[1;5H\x1b['~");
+    assert_eq!(grid(&dc)[9], empty, "DECDC's column at the right margin");
+    // The control: ICH under the same SGR fills in its background.
+    let mut ich = v;
+    ich.extend_from_slice(b"\x1b[1;5H\x1b[@");
+    assert_ne!(grid(&ich)[4], empty, "ICH keeps the current rendition");
+}
+
 /// Both are no-ops with the cursor outside the margins.
 ///
 /// `[[source: vt510-decic]]`: "DECIC has no effect outside the scrolling
