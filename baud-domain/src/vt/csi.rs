@@ -655,7 +655,9 @@ pub enum Csi {
     ScrollUp(Count),
     /// SD, `CSI T`. Scroll the scrolling region down, cursor unmoved.
     ScrollDown(Count),
-    /// SM / RM, the unprefixed mode namespace.
+    /// SM / RM, the unprefixed mode namespace, `CSI Pm h` and `CSI Pm l`.
+    /// `mode` is the first parameter's; the list is every parameter, which
+    /// the caller walks, as it walks [`Csi::PrivateMode`]'s.
     Mode {
         change: ModeChange,
         mode: AnsiMode,

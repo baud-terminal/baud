@@ -16,6 +16,7 @@ mod cursor;
 mod cuu_cud;
 mod erase;
 mod irm;
+mod mode_lists;
 mod modes;
 mod private_modes;
 mod save_params;

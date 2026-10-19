@@ -3030,7 +3030,19 @@ impl Paint<'_, '_> {
         }
     }
 
-    pub(crate) fn apply_ansi_mode(&mut self, change: ModeChange, mode: AnsiMode) {
+    /// SM and RM, `CSI Pm h` and `CSI Pm l`: **every parameter, in
+    /// order**, as DECSET's are. `[[source: ecma48]]` § 8.3.125 and
+    /// § 8.3.106 give both the notation `(Ps...)`, the modes "set as
+    /// specified by the parameter values"; xterm's `ansi_modes` walks them
+    /// all. Reading the first set LNM alone from `CSI 20 ; 4 h`. A mode
+    /// baud does not act on, a hole and a bare `CSI h` included, is
+    /// counted a parameter at a time.
+    #[inline(never)]
+    pub(crate) fn apply_ansi_modes(&mut self, csi: &crate::write::Csi, change: ModeChange) {
+        csi.for_each_param(|p| self.apply_ansi_mode(change, AnsiMode::from_wire(p)));
+    }
+
+    fn apply_ansi_mode(&mut self, change: ModeChange, mode: AnsiMode) {
         let on = change == ModeChange::Set;
         match mode {
             AnsiMode::InsertReplace => self.cold.modes.apply(ModeBit::InsertReplace, on),

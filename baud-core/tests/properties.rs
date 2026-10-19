@@ -413,6 +413,14 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **SM and RM with a list**: IRM second in `CSI 20 ; 4 h`, so the `X`
+    // is inserted only if the whole list applies, then both reset.
+    Atom {
+        name: "sm-list",
+        bytes: b"\x1b[20;4hX\x1b[20;4l",
+        stride: 0,
+        count: 0,
+    },
     // **GR bytes in a DCS prefix, under ISO 8859-1**: `90`, then `B1 BB B2`
     // for the parameters `1;2`, `A4` for `$` and `F1` for `q`, so the string
     // is a DECRQSS for `m`, closed by `9C`. Each GR byte is read as its
@@ -1052,6 +1060,25 @@ fn the_guard_atoms_reach_the_guard() {
     assert_eq!(row(&cells), "aGbG G");
     let (cells, ..) = drive(&bytes_of(&[atom("spa-epa-el"), atom("erm-el")]), 4096);
     assert_eq!(row(&cells), " G G G");
+}
+
+/// **The mode-list atom reaches its second mode**, the control the C1
+/// atoms have: `sm-list` after `abc` and a carriage return inserts its `X`
+/// in front of them, which only IRM, the list's second parameter, does.
+#[test]
+fn the_mode_list_atom_reaches_its_second_mode() {
+    let mut b = b"abc\r".to_vec();
+    b.extend_from_slice(&bytes_of(&[atom("sm-list")]));
+    let (cells, ..) = drive(&b, 4096);
+    let row: String = cells[..4]
+        .iter()
+        .map(|c| {
+            c.content
+                .as_codepoint()
+                .map_or(' ', |c| char::from_u32(c.value()).unwrap_or(' '))
+        })
+        .collect();
+    assert_eq!(row, "Xabc");
 }
 
 /// **The `OSC 52` atoms reach the arms they were added for**, the control
