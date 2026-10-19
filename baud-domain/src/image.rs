@@ -1207,7 +1207,8 @@ pub struct ImageStore<'b> {
     /// Placements removed because their rows no longer exist: the last of
     /// them left the retained history or the alternate screen's top, a
     /// scroll blanked the anchor's as it came in, a reflow dropped its
-    /// line, or its screen was the alternate one and was left. Never silent -- an image that vanished has a count.
+    /// line, or its screen was the alternate one and was left. Never
+    /// silent -- an image that vanished has a count.
     pub placements_expired: usize,
     /// **Index entries examined finding a kitty placement by its image
     /// and placement id**, for a put that replaces and a delete that names

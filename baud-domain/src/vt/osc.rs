@@ -590,8 +590,11 @@ pub enum ColorReset {
     Entry(Chan),
     /// One of xterm's special colours, which baud does not keep.
     Special,
-    /// No number, or one past the special colours, and the last item: xterm
-    /// stops at "no number at all" (`[[source: xterm-misc]]` 3064).
+    /// No number, or one past the special colours, or longer than three
+    /// digits, and the last item: xterm stops at "no number at all"
+    /// (`[[source: xterm-misc]]` 3064). It goes on past an out-of-range
+    /// number and reads `0001` as 1, where baud stops: `104;1;999;2` resets
+    /// 2 in xterm and not here.
     Malformed,
 }
 

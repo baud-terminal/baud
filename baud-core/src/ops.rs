@@ -553,10 +553,10 @@ impl Paint<'_, '_> {
 
     /// **The alternate screen's images after its window moved one row.** It
     /// keeps no history, so a row that leaves the window leaves the screen,
-    /// and an image goes with the last of its rows; one on the row the
-    /// scroll blanked goes too. Its top
-    /// line is kept only while an image is placed or an SPA is open, which is
-    /// when this runs: an open SPA's start is a line in its numbering.
+    /// and an image goes with the last of its rows; one on the row the scroll
+    /// blanked goes too. Its top line is kept only while an image is placed
+    /// or an SPA is open, which is when this runs: an open SPA's start is a
+    /// line in its numbering.
     #[cold]
     #[inline(never)]
     pub(crate) fn alt_images_moved(&mut self, way: Scroll) {
