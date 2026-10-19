@@ -809,3 +809,179 @@ fn the_controls_end_a_pending_wrap() {
         );
     }
 }
+
+// ---- The rectangle operations over a sized line ------------------------
+//
+// Every one of DECCRA, DECFRA, DECERA, DECSERA, DECCARA and DECRARA carries
+// the same note (`[[source: dec-std-070]]` pp. 5-169 to 5-176): "If the
+// rectangular area contains both single and double width lines, the area
+// affected may not appear rectangular on the display. For example if Pl=5
+// and Pr=10, then all lines within the rectangular area, whether single or
+// double width, will have character positions 5 through 10 affected." The
+// columns are character positions, and on a line not single-width
+// "character positions cannot be addressed which are more than half the
+// current value of the right edge of the display" (p. 5-95): a rectangle
+// stops at each line's own end. xterm's `validRect` reads the screen's
+// width for every row and acts on a double line's hidden cells
+// (`[[source: xterm-screen]]`).
+
+/// A double-width line on row 3 holding forty letters, its last ten hidden
+/// past the half a narrowing to 60 columns leaves, which a reflow keeps
+/// unseen (`a_reflow_keeps_a_sized_line_whole_and_on_its_own`).
+fn hidden_half(t: &mut Term<'_>) -> usize {
+    support::feed(t, format!("\x1b[3H\x1b#6{}", letters(40, false)).as_bytes());
+    resize(t, 24, 60);
+    (0..24)
+        .find(|&y| size(t, y) == LineRendition::DoubleWidth)
+        .expect("the double-width line survives")
+}
+
+/// The sized line found again after the growth back to 80 columns.
+fn grown(t: &mut Term<'_>) -> usize {
+    resize(t, 24, 80);
+    (0..24)
+        .find(|&y| size(t, y) == LineRendition::DoubleWidth)
+        .expect("the double-width line survives")
+}
+
+fn attrs_at(t: &Term<'_>, y: usize, x: usize) -> Attrs {
+    let cell = t.row(Row::from_index(y)).expect("a row")[x];
+    t.style_of(cell).attrs()
+}
+
+/// DECFRA fills a double line's forty positions and not the forty past.
+#[test]
+fn decfra_fills_a_double_line_to_its_end() {
+    on(b"\x1b[3H\x1b#6\x1b[88;1;1;24;80$x", |t| {
+        assert_eq!(text(t, 2), format!("{}{}", "X".repeat(40), dots(40)));
+        assert_eq!(text(t, 1), "X".repeat(80), "a single line, all eighty");
+    });
+}
+
+/// DECCRA's destination: "Text copied to the destination area take on the
+/// line attributes of that area" and "only information which will appear
+/// in valid character positions in the page will be copied" (p. 5-169).
+#[test]
+fn deccra_copies_onto_a_double_line_up_to_its_end() {
+    let row = letters(80, false);
+    let bytes = format!("{row}\x1b[3H\x1b#6\x1b[1;1;1;80;1;3;1;1$v");
+    on(bytes.as_bytes(), |t| {
+        assert_eq!(text(t, 2), format!("{}{}", &row[..40], dots(40)));
+    });
+}
+
+/// DECCARA under DECSACE's rectangle turns the unoccupied positions inside
+/// it to blanks (p. 5-177), the line's forty and no more.
+#[test]
+fn deccara_in_a_rectangle_blanks_a_double_line_to_its_end() {
+    on(b"\x1b[3H\x1b#6ab\x1b[2*x\x1b[1;1;24;80;1$r", |t| {
+        assert_eq!(text(t, 2), format!("ab{}{}", " ".repeat(38), dots(40)));
+        assert!(attrs_at(t, 2, 39).has(Attrs::BOLD), "its last position");
+        assert!(!attrs_at(t, 2, 40).has(Attrs::BOLD), "past its end");
+    });
+}
+
+/// DECCARA's stream runs each line to its own end, so the hidden half of a
+/// narrowed double line keeps its rendition.
+#[test]
+fn deccara_in_a_stream_stops_at_a_double_line_end() {
+    support::with_term(&VT, |t| {
+        hidden_half(t);
+        support::feed(t, b"\x1b[1;1;24;60;1$r");
+        let y = grown(t);
+        assert!(attrs_at(t, y, 29).has(Attrs::BOLD), "the line's last");
+        for x in 30..40 {
+            assert!(!attrs_at(t, y, x).has(Attrs::BOLD), "hidden {x}");
+        }
+    });
+}
+
+/// DECRARA under the rectangle: the same end.
+#[test]
+fn decrara_stops_at_a_double_line_end() {
+    support::with_term(&VT, |t| {
+        hidden_half(t);
+        support::feed(t, b"\x1b[2*x\x1b[1;1;24;60;7$t");
+        let y = grown(t);
+        assert!(attrs_at(t, y, 29).has(Attrs::REVERSE), "the line's last");
+        for x in 30..40 {
+            assert!(!attrs_at(t, y, x).has(Attrs::REVERSE), "hidden {x}");
+        }
+    });
+}
+
+/// DECERA leaves the positions past a double line's end as they were.
+#[test]
+fn decera_stops_at_a_double_line_end() {
+    support::with_term(&VT, |t| {
+        hidden_half(t);
+        support::feed(t, b"\x1b[1;1;24;60$z");
+        let y = grown(t);
+        let abc = letters(40, false);
+        assert_eq!(
+            text(t, y),
+            format!("{}{}{}", " ".repeat(30), &abc[30..], dots(40))
+        );
+    });
+}
+
+/// DECSERA likewise.
+#[test]
+fn decsera_stops_at_a_double_line_end() {
+    support::with_term(&VT, |t| {
+        hidden_half(t);
+        support::feed(t, b"\x1b[1;1;24;60${");
+        let y = grown(t);
+        let abc = letters(40, false);
+        assert_eq!(
+            text(t, y),
+            format!("{}{}{}", " ".repeat(30), &abc[30..], dots(40))
+        );
+    });
+}
+
+/// DECRQCRA sums a double line's own positions: a narrowed line's hidden
+/// half counts nothing, the sum a line written to its thirty gets.
+#[test]
+fn decrqcra_sums_a_double_line_to_its_end() {
+    let ask = b"\x1b[1;1;1;1;24;60*y";
+    let hidden = support::with_term(&VT, |t| {
+        hidden_half(t);
+        support::feed(t, ask);
+        t.reply().to_vec()
+    });
+    let thirty = WinSize {
+        ws_row: 24,
+        ws_col: 60,
+    };
+    let bytes = format!("\x1b[3H\x1b#6{}", letters(30, false));
+    let shown = support::render(&thirty, &[bytes.as_bytes(), ask].concat(), |t| {
+        t.reply().to_vec()
+    });
+    assert!(!shown.is_empty(), "answered");
+    assert_eq!(hidden, shown);
+}
+
+/// DECCRA's source: "characters 5 through 10 from all lines within the
+/// rectangular area will be copied" (p. 5-169), and a position past a
+/// double line's end is none, so it is copied as unoccupied -- what a DEC
+/// terminal's copy gives, whose cells there are always empty (decided by
+/// Jev 2026-10-19, UNOCCUPIED, 1.00 and 1.00 on a re-ask). A narrowed
+/// line's hidden letters never reach the single-width line.
+#[test]
+fn deccra_reads_a_double_line_past_its_end_as_unoccupied() {
+    support::with_term(&VT, |t| {
+        let y = hidden_half(t);
+        let to = y + 3;
+        support::feed(
+            t,
+            format!("\x1b[{};1H{}", to + 1, "z".repeat(60)).as_bytes(),
+        );
+        support::feed(
+            t,
+            format!("\x1b[{0};1;{0};60;1;{1};1;1$v", y + 1, to + 1).as_bytes(),
+        );
+        let abc = letters(40, false);
+        assert_eq!(text(t, to), format!("{}{}", &abc[..30], dots(30)));
+    });
+}

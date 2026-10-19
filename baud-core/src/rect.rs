@@ -60,6 +60,31 @@ impl Paint<'_, '_> {
             .unwrap_or(StyleWord::DEFAULT)
     }
 
+    /// **`right` stopped at row `r`'s own end**, or `None` when the line
+    /// ends before `left`: a rectangle's columns are character positions,
+    /// "whether single or double width" (the note of DECFRA, DECERA,
+    /// DECSERA, DECCARA and DECRARA, `[[source: dec-std-070]]` pp. 5-169
+    /// to 5-176), and on a line not single-width "character positions
+    /// cannot be addressed which are more than half the current value of
+    /// the right edge of the display" (p. 5-95), which DECRQCRA, whose text
+    /// (pp. 5-179 and 5-180) carries no such note, follows alone. xterm's `validRect` reads the screen's width for every row
+    /// and so acts on a double line's hidden cells (`[[source:
+    /// xterm-screen]]`); the text is followed. Cold: the operations' own
+    /// loops read it once a row.
+    fn line_right(&self, r: Row, left: Col, right: Col) -> Option<Col> {
+        let end = self.line_end(r).index();
+        match left.index() < end {
+            true => Some(Col::at_index(right.index().min(end - 1))),
+            false => None,
+        }
+    }
+
+    /// One past row `r`'s last position: the screen's width on a
+    /// single-width line, its half on any other.
+    fn line_end(&self, r: Row) -> Cols {
+        self.view.rendition(r).end_of_line(self.cols)
+    }
+
     /// The half of a wide character outside `[left, right]` on row `r`,
     /// where an edge cuts one: **the character goes whole**, the outside
     /// half a written space in its own rendition and protection (Jev
@@ -130,8 +155,11 @@ impl Paint<'_, '_> {
         let space = PackedCell::glyph(Codepoint::SPACE, StyleId::DEFAULT, CellFlags::NONE);
         for y in rect.top.index()..=rect.bottom.index() {
             let r = Row::from_index(y);
-            self.cut_wide_edges(r, rect.left, rect.right, Spare::Nothing);
-            for x in rect.left.index()..=rect.right.index() {
+            let Some(right) = self.line_right(r, rect.left, rect.right) else {
+                continue;
+            };
+            self.cut_wide_edges(r, rect.left, right, Spare::Nothing);
+            for x in rect.left.index()..=right.index() {
                 let c = Col::at_index(x);
                 let new = match self.view.get(r, c).content.is_empty() {
                     true => PackedCell::EMPTY,
@@ -139,7 +167,7 @@ impl Paint<'_, '_> {
                 };
                 self.view.put(r, c, new);
             }
-            self.cells = self.cells.plus(rect.cols().index());
+            self.cells = self.cells.plus(right.index() + 1 - rect.left.index());
         }
         self.area_written(rect.top, rect.bottom);
     }
@@ -161,8 +189,11 @@ impl Paint<'_, '_> {
         };
         for y in rect.top.index()..=rect.bottom.index() {
             let r = Row::from_index(y);
-            self.cut_wide_edges(r, rect.left, rect.right, Spare::Protected);
-            for x in rect.left.index()..=rect.right.index() {
+            let Some(right) = self.line_right(r, rect.left, rect.right) else {
+                continue;
+            };
+            self.cut_wide_edges(r, rect.left, right, Spare::Protected);
+            for x in rect.left.index()..=right.index() {
                 let c = Col::at_index(x);
                 let was = self.view.get(r, c);
                 if was.content.is_empty() || was.is_protected() {
@@ -207,12 +238,15 @@ impl Paint<'_, '_> {
         };
         for y in rect.top.index()..=rect.bottom.index() {
             let r = Row::from_index(y);
-            self.cut_wide_edges(r, rect.left, rect.right, Spare::Nothing);
-            for x in rect.left.index()..=rect.right.index() {
+            let Some(right) = self.line_right(r, rect.left, rect.right) else {
+                continue;
+            };
+            self.cut_wide_edges(r, rect.left, right, Spare::Nothing);
+            for x in rect.left.index()..=right.index() {
                 self.view.put(r, Col::at_index(x), cell);
             }
-            self.overwrite_images_on(r, rect.left, rect.right.after());
-            self.cells = self.cells.plus(rect.cols().index());
+            self.overwrite_images_on(r, rect.left, right.after());
+            self.cells = self.cells.plus(right.index() + 1 - rect.left.index());
         }
         self.area_written(rect.top, rect.bottom);
     }
@@ -234,6 +268,15 @@ impl Paint<'_, '_> {
     /// A wide character the source's edge cuts is copied as a space in its
     /// own rendition, as xterm's `saveCellData` copies it, and one the
     /// destination's edge cuts goes whole ([`Paint::cut_wide_edges`]).
+    ///
+    /// **Each row to its own line's end** ([`Paint::line_right`]): the
+    /// destination's positions past a double line's end are not written,
+    /// as "only information which will appear in valid character positions
+    /// in the page will be copied", and a source position past its line's
+    /// end is copied as unoccupied, which is what a DEC terminal's copy
+    /// gives, its cells there always empty (decided by Jev 2026-10-19,
+    /// UNOCCUPIED, 1.00 and 1.00 on a re-ask; xterm copies what the row
+    /// stores).
     fn copy_area(&mut self, from: Area, to_top: OneBased, to_left: OneBased) {
         let Some(src) = self.page_rect(from) else {
             return;
@@ -253,8 +296,23 @@ impl Paint<'_, '_> {
                 Row::from_index(src.top.index() + k),
                 Row::from_index(top.index() + k),
             );
-            for (j, b) in buf.iter_mut().enumerate().take(w) {
-                *b = self.view.get(sr, Col::at_index(src.left.index() + j));
+            // The destination line's own positions, and no more: "only
+            // information which will appear in valid character positions in
+            // the page will be copied", and the text "take[s] on the line
+            // attributes of that area".
+            let Some(right) = self.line_right(dr, left, Col::at_index(left.index() + w - 1)) else {
+                continue;
+            };
+            let n = right.index() + 1 - left.index();
+            // A source position past its own line's end is no character
+            // position: it is read as unoccupied.
+            let src_end = self.line_end(sr).index();
+            for (j, b) in buf.iter_mut().enumerate().take(n) {
+                let x = src.left.index() + j;
+                *b = match x < src_end {
+                    true => self.view.get(sr, Col::at_index(x)),
+                    false => PackedCell::EMPTY,
+                };
             }
             let space = |c: PackedCell| {
                 PackedCell::glyph(
@@ -268,18 +326,19 @@ impl Paint<'_, '_> {
             if buf[0].content.is_wide_tail() {
                 buf[0] = space(buf[0]);
             }
-            let after = Col::at_index(src.left.index() + w);
-            if after.index() < self.cols.index() && self.view.get(sr, after).content.is_wide_tail()
+            let after = Col::at_index(src.left.index() + n);
+            if after.index() <= src_end
+                && after.index() < self.cols.index()
+                && self.view.get(sr, after).content.is_wide_tail()
             {
-                buf[w - 1] = space(buf[w - 1]);
+                buf[n - 1] = space(buf[n - 1]);
             }
-            let right = Col::at_index(left.index() + w - 1);
             self.cut_wide_edges(dr, left, right, Spare::Nothing);
-            for (j, b) in buf.iter().enumerate().take(w) {
+            for (j, b) in buf.iter().enumerate().take(n) {
                 self.view.put(dr, Col::at_index(left.index() + j), *b);
             }
             self.overwrite_images_on(dr, left, right.after());
-            self.cells = self.cells.plus(w);
+            self.cells = self.cells.plus(n);
         }
         if h > 0 {
             let bottom = Row::from_index(top.index() + h - 1);
@@ -314,10 +373,10 @@ impl Paint<'_, '_> {
             return;
         };
         let extent = self.cold.attr_extent;
+        let last = Col::at_index(self.cols.index() - 1);
         let blank = Content::codepoint(Codepoint::SPACE);
         let mut memo = [(StyleId::DEFAULT, StyleId::DEFAULT); MEMO];
         let mut known = 0;
-        let last = Col::at_index(self.cols.index() - 1);
         for y in rect.top.index()..=rect.bottom.index() {
             let r = Row::from_index(y);
             let (from, to) = match extent {
@@ -326,6 +385,11 @@ impl Paint<'_, '_> {
                     if r == rect.top { rect.left } else { Col::ZERO },
                     if r == rect.bottom { rect.right } else { last },
                 ),
+            };
+            // Each line to its own end, a stream's rows between the corners
+            // included.
+            let Some(to) = self.line_right(r, from, to) else {
+                continue;
             };
             for x in from.index()..=to.index() {
                 let c = Col::at_index(x);
@@ -386,7 +450,10 @@ impl Paint<'_, '_> {
         let mut sum = Checksum::new();
         for y in rect.top.index()..=rect.bottom.index() {
             let r = Row::from_index(y);
-            for x in rect.left.index()..=rect.right.index() {
+            let Some(right) = self.line_right(r, rect.left, rect.right) else {
+                continue;
+            };
+            for x in rect.left.index()..=right.index() {
                 let cell = self.view.get(r, Col::at_index(x));
                 let base = self.clusters.base_of(cell.content);
                 sum.add(base, cell.flags, self.word_of(cell.style).attrs());
