@@ -1665,7 +1665,7 @@ pub(crate) fn glyph_with(p: &mut Paint<'_, '_>, cp: Codepoint, pen: Pen) {
     core::hint::black_box(Classified::of(cp));
     #[cfg(feature = "ceiling-no-write")]
     {
-        core::hint::black_box((cp, w));
+        core::hint::black_box((cp, w, pen));
         return;
     }
     #[allow(unreachable_code)]
