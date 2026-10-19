@@ -96,7 +96,7 @@ fn each_private_status_answers_what_baud_has() {
             b"\x1bP7!~0000\x1b\\",
             "memory checksum, labelled",
         ),
-        // 070-4: "783 not configured for virtual terminals".
+        // 070-4: "?83 not configured for virtual terminals".
         (b"\x1b[?85n", b"\x1b[?83n", "sessions"),
     ];
     for (ask, want, what) in cases {

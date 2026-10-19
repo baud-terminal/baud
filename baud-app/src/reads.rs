@@ -11,14 +11,14 @@ use baud_domain::{DecodeBudget, DecodeProgress};
 ///
 /// **The reply buffer is drained after every read**, not once after the
 /// batch, and once before the first, so answers an earlier writer left owed
-/// do not share it with the first read's. It is `REPLY`, 256 bytes, and the
-/// macOS pump fed every read the
-/// reader thread had queued and then drained once, so the answers of all
-/// but the first reads were dropped: a burst of `OSC 4` palette queries, one
-/// to each 600 bytes of drawing, had 10 of 256 answered. One read's answers
-/// can still overflow it on their own -- herdr's 256 queries arrive in one
-/// 4096-byte read -- and how to hold those is the owner's question in note
-/// AG; this stops the loss between reads. `sink` is the outbox's `push`,
+/// do not share it with the first read's. It is `REPLY` bytes, the longest
+/// single reply (9,139 since 2026-10-19; it was 256), and the macOS pump fed
+/// every read the reader thread had queued and then drained once, so the
+/// answers of all but the first reads were dropped: a burst of `OSC 4`
+/// palette queries, one to each 600 bytes of drawing, had 10 of 256
+/// answered. Several long replies from one read can still overflow it on
+/// their own, and how to hold those is the owner's question in note AG;
+/// this stops the loss between reads. `sink` is the outbox's `push`,
 /// which makes no system call, so draining a read at a time writes no more
 /// often than draining a batch did.
 ///

@@ -18,8 +18,10 @@ listed 96-sets are built. Sections 4-9 below are the research as written.
   option that conforms collides with a practice baud already follows. The
   rules of 2026-10-10 and 2026-10-17 superseded it: lane b100 decided Q1
   and took leans on Q2 with Q4.1 and on Q9 (above), Q8 is decided at AE8
-  (§10), and Q11 is decided, SLOTS at 0.92 and 0.90 on a focused re-ask
-  of 2026-10-09 (decision log lines 187/188). Q12 and Q17 stay open.
+  (§10), and Q11 leans SLOTS, 0.92 on a focused ask of 2026-10-09 with
+  the owner's rules (0.90 conditional on the proposed rules; decision log
+  lines 187/188), listed for the owner to confirm. Q11, Q12 and Q17 stay
+  open.
 - **Jev first, at confidence 0.9 or better:** the premise P and Q3-Q7, Q10,
   Q13-Q16 and Q18. A departure Jev accepts still goes to the owner, so Q3, Q6
   (its two sub-points), Q10, Q13, Q14 and Q18 go on to the owner (§9).
@@ -1900,6 +1902,9 @@ The work splits by what each piece waits on.
 | P, Q4, Q5, Q7, Q15, Q16 | **Jev, at 0.9 or better** | Q4 and Q16 decided (§10), and Q5's GR-bytes half on a re-asking; P, Q5's LS1R-LS3R half, Q7 and Q15 fell below the bar and are the owner's |
 | Q3 (vt510-ch7 §7.3 under the VT102 reading), Q6 (its two sub-points), Q10 (8.3.4 read literally), Q13 (xterm's SCORC; 070-5's reset buffer), Q14 (070-3 p. 3-63 and vt510-scs once the UPSS is not DEC Supplemental), Q18 (070-3 §3.8.1, by level) | **Jev, then the owner** | The recommended option carries a stated departure, or which option conforms turns on Q9's level reading |
 
+This is the routing of 2026-10-08. What lane b100 and AE8 changed since is
+in the first bullet at the head of this note.
+
 **(a) Buildable now, with no decision.**
 
 - **D1 and D2: landed in `90860a4`.** `Act::EscFinal` maps with
@@ -1996,6 +2001,9 @@ confidence 0.9.
 | Q16 | (a) as today | **0.98** | **decided** |
 | Q17 | (b) keep Latin-1, which departs | 0.16 | owner, whatever Jev says; Jev did not lean |
 | Q18 | (a) act as 070-3 §3.8.1 says | 0.68 | owner |
+
+These are the confidences and routing of 2026-10-08. What lane b100 and AE8
+changed since is in the first bullet at the head of this note.
 
 **Jev's answers conflict with each other on P and Q5.** It picked P-A at 0.68
 and Q5's LS1R-LS3R option (ii) at 0.69, and §4's table makes (ii) required only
