@@ -413,3 +413,19 @@ fn decsed_reaches_past_the_rows_mark() {
         );
     }
 }
+
+/// **DECSEL and DECSED apply every parameter in order**
+/// (`[[source: dec-std-070]]` pp. 5-160 and 5-163, `for (n=0; n<parc;
+/// n++)`): `CSI ? 1 ; 0 K` turns the erasable characters either side of
+/// the cursor into spaces and spares the protected one under it.
+#[test]
+fn the_selective_erases_apply_every_parameter_in_order() {
+    let after = grid(b"ab\x1b[1\"qP\x1b[0\"qcd\x1b[1;3H\x1b[?1;0K");
+    let want = grid(b"  \x1b[1\"qP\x1b[0\"q  ");
+    assert_eq!(after, want);
+    let after = grid(b"ab\r\ncd\r\nef\x1b[2;2H\x1b[?0;1J");
+    let want = grid(b"  \r\n  \r\n  ");
+    assert_eq!(after, want);
+    // The control: the first alone leaves the right side.
+    assert_ne!(grid(b"abcd\x1b[1;2H\x1b[?1K"), grid(b"    "));
+}

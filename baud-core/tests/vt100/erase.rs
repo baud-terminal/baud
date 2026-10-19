@@ -194,3 +194,69 @@ fn erase_to_start_with_a_pending_wrap_covers_the_whole_row() {
         "with the wrap pending, erase-to-start covers the whole row"
     );
 }
+
+/// The screen's rows as text, an empty position read as `.`, and how many
+/// parameters were counted as not acted on.
+fn listed(bytes: &[u8]) -> (Vec<String>, usize, usize) {
+    support::with_corpus(|t| {
+        support::feed(t, bytes);
+        let rows = (0..3)
+            .map(|y| {
+                t.row(Row::from_index(y)).unwrap()[..6]
+                    .iter()
+                    .map(|c| {
+                        c.content
+                            .as_codepoint()
+                            .and_then(|c| char::from_u32(c.value()))
+                            .unwrap_or('.')
+                    })
+                    .collect()
+            })
+            .collect();
+        (rows, t.unsupported_param, t.scrollback().len())
+    })
+}
+
+/// **Every parameter of ED and EL, in order**: `[[source: dec-std-070]]`'s
+/// algorithms loop `for (n=0; n<parc; n++) switch(parv[n])` (EL p. 5-155,
+/// ED p. 5-157), so `CSI 1 ; 0 K` erases from the line's start through the
+/// cursor and then from the cursor to its end. Reading the first alone left
+/// `def`.
+#[test]
+fn ed_and_el_apply_every_parameter_in_order() {
+    let (rows, ..) = listed(b"abcdef\x1b[1;3H\x1b[1;0K");
+    assert_eq!(rows[0], "......");
+    let (rows, ..) = listed(b"aaa\r\nbbb\r\nccc\x1b[2;2H\x1b[0;1J");
+    assert_eq!(rows, ["......", "......", "......"]);
+    // The control: each alone leaves its other side.
+    let (rows, ..) = listed(b"abcdef\x1b[1;3H\x1b[1K");
+    assert_eq!(rows[0], "...def");
+}
+
+/// **A value with no case is skipped and the loop goes on**, as the
+/// algorithms' `switch` has no default: `CSI 5 ; 1 K` erases through the
+/// cursor and counts the `5`. A lone `5` is still refused whole.
+#[test]
+fn a_value_with_no_case_is_skipped_and_counted() {
+    let (rows, skipped, _) = listed(b"abcdef\x1b[1;3H\x1b[5;1K");
+    assert_eq!((rows[0].as_str(), skipped), ("...def", 1));
+    let (rows, skipped, _) = listed(b"abcdef\x1b[1;3H\x1b[;9;2K");
+    assert_eq!((rows[0].as_str(), skipped), ("......", 1));
+}
+
+/// **A `3` in a list is skipped** (Jev's lean, SKIP, 2026-10-19): the
+/// algorithms' `switch` has no case 3, and xterm's "Erase Saved Lines" is
+/// the value of a lone parameter. `CSI 3 ; 1 J` keeps the history and
+/// erases through the cursor; a lone `CSI 3 J` still erases the history.
+#[test]
+fn a_three_in_a_list_is_skipped() {
+    let scroll: Vec<u8> = (0..60)
+        .flat_map(|i| format!("{i}\r\n").into_bytes())
+        .collect();
+    let (_, _, kept) = listed(&scroll);
+    assert!(kept > 0, "the control: lines went behind the screen");
+    let (_, skipped, after) = listed(&[scroll.as_slice(), b"\x1b[3;1J"].concat());
+    assert_eq!((skipped, after), (1, kept));
+    let (_, _, after) = listed(&[scroll.as_slice(), b"\x1b[3J"].concat());
+    assert_eq!(after, 0);
+}

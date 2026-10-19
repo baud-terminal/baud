@@ -1549,6 +1549,28 @@ impl Paint<'_, '_> {
         self.guard_band_moved(from, to, Rows::of_count(1), BandMove::Down);
     }
 
+    /// **ED, EL, DECSED and DECSEL with a list: every parameter, in
+    /// order**, as `[[source: dec-std-070]]`'s algorithms loop `for (n=0;
+    /// n<parc; n++) switch(parv[n])` (EL p. 5-155, ED p. 5-157, DECSEL p.
+    /// 5-160, DECSED p. 5-163). A value the `switch` has no case for is
+    /// skipped, and counted. **So is a `3`**: xterm's "Erase Saved Lines" is
+    /// the value of a lone parameter, and STD 070's `switch` has no case 3
+    /// (Jev's lean, SKIP, 2026-10-19). Out of line: a lone parameter never
+    /// comes here.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn erase_each(&mut self, csi: &crate::write::Csi, which: EraseList) {
+        csi.for_each_param(|v| match EraseExtent::from_param(v) {
+            Some(e) => match which {
+                EraseList::Display => self.erase_display(e),
+                EraseList::Line => self.erase_line(e),
+                EraseList::SelectiveDisplay => self.selective_erase_display(e),
+                EraseList::SelectiveLine => self.selective_erase_line(e),
+            },
+            None => self.unsupported_param += 1,
+        });
+    }
+
     /// DECSED / DECSEL: each character DECSCA left erasable becomes a space
     /// in its own rendition, and a protected one and an empty position stay
     /// ([`PackedCell::selectively_erased`]).

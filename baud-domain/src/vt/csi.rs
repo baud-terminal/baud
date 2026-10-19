@@ -437,6 +437,16 @@ pub enum EraseExtent {
     All,
 }
 
+/// Which erase a parameter list names, [`Csi::EraseEach`]'s: `CSI J`,
+/// `CSI K`, `CSI ? J` or `CSI ? K` with more than one parameter.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EraseList {
+    Display,
+    Line,
+    SelectiveDisplay,
+    SelectiveLine,
+}
+
 /// An XTWINOPS operation, `CSI Ps ; Ps ; Ps t`: one of the three reports
 /// baud answers, or the rest of the family.
 ///
@@ -608,6 +618,12 @@ pub enum Csi {
     /// `CSI ? 3 J`, "Selective Erase Saved Lines, xterm": the same lines,
     /// erasable characters only, as every DECSED is.
     SelectiveEraseSavedLines,
+    /// ED, EL, DECSED or DECSEL with more than one parameter: **every one,
+    /// in order**, which the caller walks. `[[source: dec-std-070]]`'s four
+    /// algorithms loop `for (n=0; n<parc; n++) switch(parv[n])` (pp. 5-155,
+    /// 5-157, 5-160 and 5-163), and a value with no case is skipped. A lone
+    /// parameter keeps the variants above.
+    EraseEach(EraseList),
     /// REP, `CSI b`. Repeat the preceding graphic character.
     Repeat(Count),
     /// DA, `CSI c` or `CSI 0 c`. Primary Device Attributes: "what are
@@ -991,6 +1007,8 @@ impl Csi {
                     })
                 }
                 b'n' if p.at(ParamIdx::FIRST).map_or(0, |x| x.0) == 996 => Csi::ColorSchemeQuery,
+                b'J' if p.has(ParamIdx::SECOND) => Csi::EraseEach(EraseList::SelectiveDisplay),
+                b'K' if p.has(ParamIdx::SECOND) => Csi::EraseEach(EraseList::SelectiveLine),
                 b'J' => match p.extent(ParamIdx::FIRST) {
                     Some(e) => Csi::SelectiveEraseDisplay(e),
                     None if p.raw(ParamIdx::FIRST, 0) == 3 => Csi::SelectiveEraseSavedLines,
@@ -1021,6 +1039,8 @@ impl Csi {
                 row: p.one_based(ParamIdx::FIRST),
                 col: p.one_based(ParamIdx::SECOND),
             },
+            b'J' if p.has(ParamIdx::SECOND) => Csi::EraseEach(EraseList::Display),
+            b'K' if p.has(ParamIdx::SECOND) => Csi::EraseEach(EraseList::Line),
             b'J' => match p.extent(ParamIdx::FIRST) {
                 Some(e) => Csi::EraseInDisplay(e),
                 None if p.raw(ParamIdx::FIRST, 0) == 3 => Csi::EraseSavedLines,
@@ -1225,6 +1245,7 @@ impl Csi {
             | RestoreCursor
             | EraseInDisplay(_)
             | EraseInLine(_)
+            | EraseEach(EraseList::Display | EraseList::Line)
             | EraseChars(_)
             | InsertBlanks(_)
             | DeleteChars(_)
@@ -1247,6 +1268,7 @@ impl Csi {
             | SelectProtection { .. }
             | SelectiveEraseDisplay(_)
             | SelectiveEraseLine(_)
+            | EraseEach(EraseList::SelectiveDisplay | EraseList::SelectiveLine)
             | RequestMode { .. }
             | CursorStyle(_) => Level::Vt220,
 

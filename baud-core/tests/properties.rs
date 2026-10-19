@@ -430,6 +430,22 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **ED, EL and the selective erases with a list**: EL `1 ; 0` erases
+    // either side of the cursor only if the second parameter applies, and
+    // DECSEL `0 ; 1` the same over erasable characters. A `5` between them
+    // is skipped and counted.
+    Atom {
+        name: "el-list",
+        bytes: b"\x1b[1;5;0K",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "decsel-list",
+        bytes: b"\x1b[?0;1K",
+        stride: 0,
+        count: 0,
+    },
     // **GR bytes in a DCS prefix, under ISO 8859-1**: `90`, then `B1 BB B2`
     // for the parameters `1;2`, `A4` for `$` and `F1` for `q`, so the string
     // is a DECRQSS for `m`, closed by `9C`. Each GR byte is read as its
@@ -1088,6 +1104,29 @@ fn the_mode_list_atom_reaches_its_second_mode() {
         })
         .collect();
     assert_eq!(row, "Xabc");
+}
+
+/// **The erase-list atoms reach their last parameter**: after `abc` and
+/// a step back, `el-list` empties the whole line, which only its `0` after
+/// the `1` does, and `decsel-list` turns all three into spaces, which only
+/// its `1` after the `0` does.
+#[test]
+fn the_erase_list_atoms_reach_their_last_parameter() {
+    let row = |name: &str| {
+        let mut b = b"abc\x1b[2D".to_vec();
+        b.extend_from_slice(&bytes_of(&[atom(name)]));
+        let (cells, ..) = drive(&b, 4096);
+        cells[..4]
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .map_or('.', |c| char::from_u32(c.value()).unwrap_or('?'))
+            })
+            .collect::<String>()
+    };
+    assert_eq!(row("el-list"), "....");
+    assert_eq!(row("decsel-list"), "   .");
 }
 
 /// **The selective-erase atom reaches DECSEL**: after `ab` its erase turns
