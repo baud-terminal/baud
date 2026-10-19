@@ -258,8 +258,15 @@ trail_scroll = "ride"
 # full-screen program like vim or less) fades the new screen in from the
 # background. Off by default; opt-in polish, and an idle terminal pays
 # nothing for it.
+#
+# checksum: whether a program that asks for a checksum of part of the screen
+# (DECRQCRA) gets one. Test suites such as vttest check what they drew this
+# way. "on" by default; "off" leaves every request unanswered. A program
+# can ask one cell at a time and so read back what is on the screen,
+# including what other programs printed there; "off" stops that.
 [screen]
 transition = false
+checksum = "on"
 
 # How output scrolls the screen: "normal" jumps it up in one step, "smooth"
 # slides it. "smooth" by default -- the slide is bounded to one row so a fast

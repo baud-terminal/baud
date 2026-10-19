@@ -158,6 +158,8 @@ pub(crate) struct Paint<'a, 'b> {
     /// Redraw marks that erased the block they replace; see `osc.rs`.
     pub(crate) prompt_erases: usize,
     pub(crate) clipboard_writes_refused: usize,
+    /// DECRQCRA requests the embedder's setting left unanswered.
+    pub(crate) checksums_refused: usize,
     /// The screen that is not live: the other surface's cells, marks, ring
     /// and rotation, reached **once per alt-screen transition** and never by
     /// the per-character loop, when `?1049` swaps it with the view's.
@@ -430,6 +432,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             semantic_marks: 0,
             prompt_erases: 0,
             clipboard_writes_refused: 0,
+            checksums_refused: 0,
             other,
             book,
             clusters,

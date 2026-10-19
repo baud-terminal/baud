@@ -832,6 +832,9 @@ pub struct Cold {
     /// in, whatever the store holds: an application that reads the claim stops
     /// drawing its text fallback, so the claim is the embedder's to make.
     pub(crate) sixel_claim: SixelClaim,
+    /// Whether DECRQCRA is answered ([`Term::set_checksum_report`]). The
+    /// embedder's, so `RIS` and `DECSTR` leave it as it is.
+    pub(crate) checksum_report: ChecksumReport,
     /// The style `DECSCUSR` set, or the configuration: its shape, and its own
     /// blink. What `DECRQSS SP q` answers. Recorded and exposed for the
     /// reason every renderer-side mode here is: an embedder cannot honour it
@@ -1323,6 +1326,7 @@ impl Cold {
             fence: Col::at_index(cols.index() - 1),
             ambiguous: AmbiguousWidth::Narrow,
             sixel_claim: SixelClaim::No,
+            checksum_report: ChecksumReport::On,
             cursor_style: CursorStyle::BlinkingBlock,
             cursor_blink: ModeChange::Reset,
             initial_cursor: CursorStyle::BlinkingBlock,
@@ -1596,6 +1600,10 @@ pub struct Term<'b> {
     /// `OSC 52` writes refused whole: their split by why is
     /// [`Term::clipboard_refusals`].
     pub clipboard_writes_refused: usize,
+    /// DECRQCRA requests left unanswered because the embedder turned the
+    /// checksum off ([`Term::set_checksum_report`]). Refused and counted,
+    /// like `clipboard_reads_refused`.
+    pub checksums_refused: usize,
     /// `OSC 133` marks seen. An embedder can tell whether the shell on the
     /// other end sends them at all, which decides whether a resize can be
     /// scoped to what the application will redraw -- see [`Zone`].
@@ -2499,6 +2507,7 @@ impl<'b> Term<'b> {
             semantic_marks: 0,
             prompt_erases: 0,
             clipboard_writes_refused: 0,
+            checksums_refused: 0,
             marks_dropped: 0,
             mouse_unencodable: 0,
             fast_try: 0,
@@ -2772,6 +2781,21 @@ impl<'b> Term<'b> {
             self.cold.modes.set(ModeBit::SixelPrivateRegisters);
             self.cold.modes.reset(ModeBit::SixelScrollsRight);
         }
+    }
+
+    /// Whether DECRQCRA is answered: `On`, the default, the owner's call
+    /// of 2026-10-19 (option 3), or `Off`, which leaves every request
+    /// unanswered and counts it in `checksums_refused`, as xterm sends
+    /// nothing with `GetChecksum` disallowed. The embedder's choice: no
+    /// sequence changes it, `RIS` included, so a program cannot turn a
+    /// refusal back into an answer.
+    pub fn set_checksum_report(&mut self, c: ChecksumReport) {
+        self.cold.checksum_report = c;
+    }
+
+    /// What [`Term::set_checksum_report`] last set.
+    pub fn checksum_report(&self) -> ChecksumReport {
+        self.cold.checksum_report
     }
 
     /// The cursor to draw: the style `DECSCUSR` (or the configuration) set,

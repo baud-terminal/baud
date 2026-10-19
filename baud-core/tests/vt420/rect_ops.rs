@@ -16,7 +16,7 @@
 
 use crate::support;
 use baud_core::*;
-use baud_domain::{ImageBudget, ImagePx};
+use baud_domain::{ChecksumReport, ImageBudget, ImagePx};
 
 const ROWS: usize = 8;
 const COLS: usize = 20;
@@ -560,6 +560,68 @@ fn decrqcra_with_inverted_corners_is_not_answered() {
             t.unsupported, 0,
             "recognised, and answered as the text says: not at all"
         );
+    });
+}
+
+/// Feed `bytes` to a fresh 20 by 8 terminal whose checksum is `c`.
+fn after_with<R>(c: ChecksumReport, bytes: &str, f: impl FnOnce(&mut Term<'_>) -> R) -> R {
+    support::with_term(&WS, |t| {
+        t.set_checksum_report(c);
+        support::feed(t, bytes.as_bytes());
+        f(t)
+    })
+}
+
+/// **Answered by default, and unanswered and counted with the checksum
+/// off** (the owner's call of 2026-10-19, option 3). xterm with
+/// `GetChecksum` disallowed sends nothing at all (`CASE_DECRQCRA`,
+/// `[[source: xterm-reset]]`'s file), so the refusal is silence, never a
+/// wrong-shaped report; every form is refused, the page, a rectangle and
+/// inverted corners alike, and none of them is counted unsupported.
+#[test]
+fn decrqcra_goes_unanswered_and_counted_with_the_checksum_off() {
+    let asks = "\x1b[7;1;1;1;1;1*y\x1b[2;0*y\x1b[1;1;3;1;1;1*y";
+    after_with(ChecksumReport::On, &format!("AB{asks}"), |t| {
+        assert_eq!(t.checksum_report(), ChecksumReport::On);
+        let want = format!(
+            "\x1bP7!~{}\x1b\\\x1bP2!~{}\x1b\\",
+            chk(0x41),
+            chk(0x41 + 0x42)
+        );
+        assert_eq!(t.reply(), want.as_bytes(), "the control: answered");
+        assert_eq!(t.checksums_refused, 0);
+    });
+    after(&format!("AB{asks}"), |t| {
+        assert_eq!(t.checksum_report(), ChecksumReport::On, "the default");
+        assert!(!t.reply().is_empty(), "answered by default");
+    });
+    after_with(ChecksumReport::Off, &format!("AB{asks}"), |t| {
+        assert_eq!(t.checksum_report(), ChecksumReport::Off);
+        assert_eq!(t.reply(), b"", "no reply at all");
+        assert_eq!(t.checksums_refused, 3, "each request counted");
+        assert_eq!(t.unsupported, 0);
+        assert_eq!(t.unsupported_param, 0);
+        assert_eq!(rows_of(t)[0], "AB..................", "the screen kept");
+    });
+}
+
+/// **No sequence turns the checksum back on**: the setting is the
+/// embedder's, so `RIS` and `DECSTR`, which reset what a program set,
+/// leave it off. The memory checksum, `DSR ?63`, is a DSR that sums no
+/// macro definitions and reads nothing of the screen; xterm answers it
+/// whatever `GetChecksum` says, and so does baud.
+#[test]
+fn no_reset_turns_the_checksum_back_on() {
+    for reset in ["\x1bc", "\x1b[!p"] {
+        after_with(ChecksumReport::Off, &format!("A{reset}B\x1b[1;1*y"), |t| {
+            assert_eq!(t.checksum_report(), ChecksumReport::Off, "{reset:?}");
+            assert_eq!(t.reply(), b"", "{reset:?}");
+            assert_eq!(t.checksums_refused, 1, "{reset:?}");
+        });
+    }
+    after_with(ChecksumReport::Off, "\x1b[?63;4n", |t| {
+        assert_eq!(t.reply(), b"\x1bP4!~0000\x1b\\");
+        assert_eq!(t.checksums_refused, 0);
     });
 }
 

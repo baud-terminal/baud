@@ -436,7 +436,16 @@ impl Paint<'_, '_> {
     /// equal to Pr or the sequence is ignored" (`[[source: dec-std-070]]`
     /// p. 5-179): no reply then. xterm answers such a request with the
     /// checksum of nothing.
+    ///
+    /// **With the checksum off** (`Term::set_checksum_report`) no request
+    /// is answered, whatever its corners, and each is counted in
+    /// `checksums_refused`: xterm with `GetChecksum` disallowed sends
+    /// nothing (`CASE_DECRQCRA`, `[[source: xterm-reset]]`'s file).
     fn request_area_checksum(&mut self, id: Param, of: ChecksumOf) {
+        if self.cold.checksum_report == ChecksumReport::Off {
+            self.checksums_refused += 1;
+            return;
+        }
         let rect = match of {
             ChecksumOf::Page => Some(PageRect {
                 top: Row::ZERO,

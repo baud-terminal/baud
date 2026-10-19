@@ -104,6 +104,12 @@ report them as gaps; if you think one is wrong, the reasoning is in
   read back whatever the user last copied, which may be a password. Any answer —
   including an empty one — tells it the feature works, so the refusal is
   silence, counted in `clipboard_reads_refused`.
+- **A screen checksum request (DECRQCRA) is answered by default**, the
+  owner's call of 2026-10-19, and `[screen] checksum = "off"` turns it off.
+  A program can ask for the checksum of one cell at a time and so read back
+  what is on the screen, other programs' output included; off, every request
+  gets no reply and is counted in `checksums_refused`, and no sequence, a
+  reset included, turns it back on.
 - **`OSC 52` clipboard *writes* are honoured by default**, the owner's V11
   (`docs/research/notes/v-open-decisions.md`), and `[clipboard] osc52 = "off"`
   turns them off. The threat is the write itself: anything printed to the

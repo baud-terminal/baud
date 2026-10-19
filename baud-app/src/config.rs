@@ -5,7 +5,8 @@
 //! span lines, and `[section]` headers. baud owns its stack rather than
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
 //! `font_size`, `padding`, `colorspace`, `vs16_width`, `emoji`, `theme`, `bell`,
-//! `[text] ambiguous_width`, and the eight under `[glass]` -- and a key it does not understand is ignored, and said,
+//! `[text] ambiguous_width`, `[screen] checksum`, and the eight under
+//! `[glass]` -- and a key it does not understand is ignored, and said,
 //! rather than fatal, so a newer config does not break an older binary.
 //!
 //! **Sections are a namespace, and they did not used to be.** The reader
@@ -134,6 +135,12 @@ pub struct Config {
     /// `[screen] transition`: whether a switch to or from the alternate
     /// screen fades the new one in from the background. Off by default.
     pub screen_transition: ScreenTransition,
+    /// `[screen] checksum`: whether a program's request for a checksum of
+    /// the screen (DECRQCRA) is answered, `"on"` by default (the
+    /// owner's call of 2026-10-19, option 3), or `"off"`, which leaves every
+    /// request unanswered. A checksum of one cell at a time reads the screen
+    /// back, other programs' output included.
+    pub checksum: baud_domain::ChecksumReport,
     /// `[scroll] mode`: whether output scrolls the screen up in one jump
     /// (`normal`) or slides it smoothly (`smooth`). `Smooth` by default,
     /// matching sfte -- the slide is bounded to one row so a burst never
@@ -610,6 +617,7 @@ impl Config {
             blink_animation: BlinkAnimation::Plasma,
             blink_interval: BlinkInterval::Default,
             screen_transition: ScreenTransition::Off,
+            checksum: baud_domain::ChecksumReport::On,
             scroll: ScrollMode::Smooth,
             trail_scroll: TrailScroll::Ride,
             glass: Glass::defaults(),
@@ -899,6 +907,19 @@ impl Config {
                                  using false"
                             ));
                             ScreenTransition::Off
+                        }
+                    };
+                }
+                ("screen", "checksum") => {
+                    self.checksum = match value.trim().trim_matches('"') {
+                        "on" => baud_domain::ChecksumReport::On,
+                        "off" => baud_domain::ChecksumReport::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [screen] checksum {other:?} is not on or off; \
+                                 using on"
+                            ));
+                            baud_domain::ChecksumReport::On
                         }
                     };
                 }
@@ -2051,6 +2072,35 @@ mod reader {
         );
     }
 
+    /// **The screen checksum is answered unless `[screen] checksum = "off"`**
+    /// (the owner's call of 2026-10-19, option 3), quoted or bare; any other
+    /// value keeps the default and says so, and the key is the `[screen]`
+    /// section's, not the top level's.
+    #[test]
+    fn the_screen_checksum_is_answered_unless_turned_off() {
+        use baud_domain::ChecksumReport;
+        assert_eq!(Config::defaults().checksum, ChecksumReport::On);
+        assert_eq!(read("").checksum, ChecksumReport::On);
+        for off in ["\"off\"", "off"] {
+            let text = format!("[screen]\nchecksum = {off}\n");
+            assert_eq!(read(&text).checksum, ChecksumReport::Off, "{off}");
+        }
+        assert_eq!(
+            read("[screen]\nchecksum = \"on\"\n").checksum,
+            ChecksumReport::On
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[screen]\nchecksum = \"maybe\"\n");
+        assert_eq!(c.checksum, ChecksumReport::On);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("checksum"), "{said:?}");
+        assert_eq!(
+            read("checksum = \"off\"\n").checksum,
+            ChecksumReport::On,
+            "not a top-level key"
+        );
+    }
+
     /// Scroll is smooth unless `[scroll] mode = normal`, and a value that is
     /// neither `normal` nor `smooth` falls back to the default, smooth, with
     /// a warning. The quoted form is the one `config.toml.example` writes,
@@ -2740,6 +2790,11 @@ shadow     = "never"
             ScreenTransition::Off,
             "the [screen] section did not land"
         );
+        assert!(
+            text.contains("\n[screen]\ntransition = false\nchecksum = \"on\"\n"),
+            "the [screen] checksum"
+        );
+        assert_eq!(c.checksum, baud_domain::ChecksumReport::On);
         assert_eq!(
             c.scroll,
             ScrollMode::Smooth,

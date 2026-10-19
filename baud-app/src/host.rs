@@ -306,6 +306,13 @@ pub fn set_widths(
     term.set_ambiguous_width(ambiguous);
 }
 
+/// Tell the core whether a program's request for a screen checksum
+/// (DECRQCRA) is answered, from `[screen] checksum`. One function for both
+/// drivers, called after `Term::new` and before the first feed.
+pub fn set_checksum(term: &mut baud_core::Term<'_>, checksum: baud_domain::ChecksumReport) {
+    term.set_checksum_report(checksum);
+}
+
 /// Tell the core what the theme draws the default foreground and background
 /// as, so `OSC 10 ; ?` and `OSC 11 ; ?` answer on a fresh terminal -- the
 /// query every theme-aware program sends to learn whether it is on a light
@@ -669,6 +676,52 @@ mod tests {
             let want = format!("\x1b[?1021;{rqm}$y");
             assert_eq!(t.reply(), want.as_bytes(), "{ambiguous:?}");
         }
+    }
+
+    /// **`[screen] checksum` reaches the core, from both drivers.** The
+    /// config text read into a `Config`, handed to `set_checksum`, decides
+    /// whether DECRQCRA is answered: by default with the checksum report,
+    /// with `"off"` with nothing, counted. Both drivers start AppKit or
+    /// Wayland, which no test drives, so their call is held in the source:
+    /// each calls `set_checksum` once with the configured value.
+    #[test]
+    fn the_checksum_setting_reaches_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (text, answered) in [("", true), ("[screen]\nchecksum = \"off\"\n", false)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_checksum(&mut t, cfg.checksum);
+            feed(&mut t, b"A\x1b[1;1;1;1;1;1*y");
+            let want: &[u8] = if answered { b"\x1bP1!~FFBF\x1b\\" } else { b"" };
+            assert_eq!(t.reply(), want, "{text:?}");
+            assert_eq!(t.checksums_refused, usize::from(!answered), "{text:?}");
+        }
+        // Spelled apart, so this test's own text is not what it finds.
+        const CALL: &str = concat!("crate::host::", "set_checksum(&mut term, ");
+        for (driver, src, arg) in [
+            ("macOS", include_str!("app.rs"), "checksum);"),
+            ("Linux", include_str!("linux.rs"), "cfg.checksum);"),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+        }
+        assert_eq!(
+            include_str!("app.rs")
+                .matches("checksum: cfg.checksum,")
+                .count(),
+            1,
+            "macOS carries it from the config"
+        );
     }
 
     /// **The core's copy of the palette is the renderer's.** After

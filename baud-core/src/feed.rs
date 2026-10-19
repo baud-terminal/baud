@@ -262,6 +262,7 @@ impl Term<'_> {
         self.semantic_marks += p.semantic_marks;
         self.prompt_erases += p.prompt_erases;
         self.clipboard_writes_refused += p.clipboard_writes_refused;
+        self.checksums_refused += p.checksums_refused;
         self.marks_dropped = p.clusters.refused;
         self.cells_written += p.cells.index();
         #[cfg(feature = "diag")]

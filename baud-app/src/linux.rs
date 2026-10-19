@@ -192,6 +192,7 @@ pub fn run() {
     );
     term.set_sixel_claim(cfg.sixel);
     crate::host::set_widths(&mut term, cfg.vs16_width, cfg.ambiguous_width);
+    crate::host::set_checksum(&mut term, cfg.checksum);
     term.set_initial_cursor_style(baud_core::CursorStyle::of(
         cfg.cursor_shape,
         cfg.cursor_blink.power_on(),

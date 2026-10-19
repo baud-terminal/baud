@@ -303,6 +303,21 @@ pub enum SixelClaim {
     Yes,
 }
 
+/// Whether DECRQCRA, `CSI Pi ; Pp ; Pt ; Pl ; Pb ; Pr * y`, is answered
+/// with a checksum report. The embedder's choice: `On` by default, the
+/// owner's call of 2026-10-19 (option 3), and `Off` makes every request go
+/// unanswered, as xterm does with `GetChecksum` among its disallowed window
+/// operations (`CASE_DECRQCRA`, `[[source: xterm-reset]]`'s file; its
+/// default list, `[[source: xterm-man]]`). A checksum of
+/// one cell at a time reads the screen back, other programs' output
+/// included, which is why a setting turns it off.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum ChecksumReport {
+    #[default]
+    On,
+    Off,
+}
+
 /// Which terminal baud claims to be, in a Primary DA response.
 ///
 /// An enum with one variant on purpose. `[[source: ctlseqs]]` lists the

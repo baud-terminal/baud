@@ -113,6 +113,7 @@ trail is off, unless you name a trail here.
 | key | values | default | what it changes |
 |---|---|---|---|
 | `transition` | `true`, `false` | `false` | Fade the screen in when a full-screen program such as vim or less opens or closes. |
+| `checksum` | `"on"`, `"off"` | `"on"` | Whether a program that asks for a checksum of part of the screen gets one. Test suites such as vttest use it to check what they drew. A program can ask about one character at a time and so read back what is on your screen, including what other programs printed there; `"off"` stops that, and the request then gets no answer. |
 
 ## [scroll]
 
