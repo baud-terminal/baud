@@ -1805,6 +1805,8 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::EraseSavedLines => p.erase_saved_lines(),
         DomCsi::SelectiveEraseSavedLines => p.selective_erase_saved_lines(),
         DomCsi::EraseEach(which) => p.erase_each(csi, which),
+        DomCsi::EraseInArea(e) => p.erase_in_area(e, csi),
+        DomCsi::EraseInField(e) => p.erase_in_field(e, csi),
         // **REP's copy is written, so the cluster goes on from it**: the node
         // goes back to the ground the edge left, and `Paint::repeat` has told
         // the machine what the copy leaves. With nothing to repeat it wrote

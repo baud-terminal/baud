@@ -1571,6 +1571,116 @@ impl Paint<'_, '_> {
         });
     }
 
+    /// **EA**: the active qualified area, `[[source: ecma48]]` 8.3.37 --
+    /// from the active position to the area's end, from its start through
+    /// the active position, or all of it. baud's qualified areas are SPA and
+    /// EPA's guarded areas, kept as a flag on each position, so **the active
+    /// area is the run, in the character path, of positions that share the
+    /// active position's guard**: a guarded area, or the unguarded positions
+    /// between two, or between one and the page's edge, each line to its own
+    /// end (Jev's lean, RUN, 2026-10-19). Two guarded areas that touch read
+    /// as one. Guarded positions go as ERM says, through `erase_span`, and
+    /// the blank is DECECM's. Out of line, and a walk over the area it
+    /// erases.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn erase_in_area(&mut self, e: EraseExtent, csi: &crate::write::Csi) {
+        self.count_past_first(csi);
+        let end = |p: &Self, r: usize| {
+            p.view
+                .rendition(Row::from_index(r))
+                .end_of_line(p.cols)
+                .index()
+        };
+        let guarded = |p: &Self, r: usize, c: usize| {
+            p.view
+                .get(Row::from_index(r), Col::at_index(c))
+                .flags
+                .is_guarded()
+        };
+        let at = (
+            self.cy.index(),
+            self.cx.col().index().min(end(self, self.cy.index()) - 1),
+        );
+        let g = guarded(self, at.0, at.1);
+        let mut start = at;
+        loop {
+            let prev = match start {
+                (r, c) if c > 0 => (r, c - 1),
+                (r, _) if r > 0 => (r - 1, end(self, r - 1) - 1),
+                _ => break,
+            };
+            if guarded(self, prev.0, prev.1) != g {
+                break;
+            }
+            start = prev;
+        }
+        let last_row = self.rows.index() - 1;
+        let mut stop = at;
+        loop {
+            let next = match stop {
+                (r, c) if c + 1 < end(self, r) => (r, c + 1),
+                (r, _) if r < last_row => (r + 1, 0),
+                _ => break,
+            };
+            if guarded(self, next.0, next.1) != g {
+                break;
+            }
+            stop = next;
+        }
+        let (from, to) = match e {
+            EraseExtent::ToEnd => (at, stop),
+            EraseExtent::ToStart => (start, at),
+            EraseExtent::All => (start, stop),
+        };
+        let blank = self.blank();
+        for r in from.0..=to.0 {
+            let a = if r == from.0 { from.1 } else { 0 };
+            let b = if r == to.0 { to.1 + 1 } else { end(self, r) };
+            self.erase_span(
+                Row::from_index(r),
+                Col::at_index(a),
+                Col::at_index(b),
+                blank,
+            );
+        }
+        self.wrote_rows(Row::from_index(from.0), Row::from_index(to.0));
+    }
+
+    /// **EF**: the active field, `[[source: ecma48]]` 8.3.40 -- "the
+    /// character position at a character tabulation stop (beginning of the
+    /// field) and the character positions up to, but not including, the
+    /// character position at the following character tabulation stop"
+    /// (4.2.40). **A field stays in its line**: the line's start bounds the
+    /// positions before its first stop, its end the positions after its last,
+    /// and with no stops the line is one field (Jev's lean, LINE_BOUNDED,
+    /// 2026-10-19). Guarded positions go as ERM says, as for EA.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn erase_in_field(&mut self, e: EraseExtent, csi: &crate::write::Csi) {
+        self.count_past_first(csi);
+        let r = self.cy;
+        let end = self.line_cols().index();
+        let x = self.cx.col().index().min(end - 1);
+        let start = (0..=x).rev().find(|&c| self.tabs[c]).unwrap_or(0);
+        let stop = (x + 1..end).find(|&c| self.tabs[c]).unwrap_or(end);
+        let (a, b) = match e {
+            EraseExtent::ToEnd => (x, stop),
+            EraseExtent::ToStart => (start, x + 1),
+            EraseExtent::All => (start, stop),
+        };
+        let blank = self.blank();
+        self.erase_span(r, Col::at_index(a), Col::at_index(b), blank);
+        self.wrote_rows(r, r);
+    }
+
+    /// The parameters past the first, which EA and EF do not act on.
+    fn count_past_first(&mut self, csi: &crate::write::Csi) {
+        let mut n = 0;
+        csi.for_each_param(|_| n += 1);
+        self.unsupported_param += core::cmp::max(n, 1) - 1;
+    }
+
     /// DECSED / DECSEL: each character DECSCA left erasable becomes a space
     /// in its own rendition, and a protected one and an empty position stay
     /// ([`PackedCell::selectively_erased`]).

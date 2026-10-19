@@ -624,6 +624,14 @@ pub enum Csi {
     /// 5-157, 5-160 and 5-163), and a value with no case is skipped. A lone
     /// parameter keeps the variants above.
     EraseEach(EraseList),
+    /// EA, `CSI Ps O`, erase in the active qualified area
+    /// (`[[source: ecma48]]` 8.3.37). The first parameter only: ECMA-48
+    /// gives it `(Ps)` and no DEC text has it (decided by Jev, FIRST_ONLY,
+    /// 0.90/0.90); the caller counts the rest.
+    EraseInArea(EraseExtent),
+    /// EF, `CSI Ps N`, erase in the active field (8.3.40), as EA reads its
+    /// parameter.
+    EraseInField(EraseExtent),
     /// REP, `CSI b`. Repeat the preceding graphic character.
     Repeat(Count),
     /// DA, `CSI c` or `CSI 0 c`. Primary Device Attributes: "what are
@@ -1057,6 +1065,20 @@ impl Csi {
                 },
             },
             b'L' => Csi::InsertLines(p.count(ParamIdx::FIRST)),
+            b'O' => match p.extent(ParamIdx::FIRST) {
+                Some(e) => Csi::EraseInArea(e),
+                None => Csi::Unsupported {
+                    marker,
+                    final_byte: f,
+                },
+            },
+            b'N' => match p.extent(ParamIdx::FIRST) {
+                Some(e) => Csi::EraseInField(e),
+                None => Csi::Unsupported {
+                    marker,
+                    final_byte: f,
+                },
+            },
             b'b' => Csi::Repeat(p.count(ParamIdx::FIRST)),
             // **Only a request is answered**: `[[source: ecma48]]` 8.3.24,
             // "With a parameter value not equal to 0, DA is used to identify
@@ -1246,6 +1268,8 @@ impl Csi {
             | EraseInDisplay(_)
             | EraseInLine(_)
             | EraseEach(EraseList::Display | EraseList::Line)
+            | EraseInArea(_)
+            | EraseInField(_)
             | EraseChars(_)
             | InsertBlanks(_)
             | DeleteChars(_)

@@ -15,6 +15,7 @@ mod charsets;
 mod cursor;
 mod cuu_cud;
 mod erase;
+mod erase_qualified;
 mod irm;
 mod mode_lists;
 mod modes;
