@@ -204,14 +204,27 @@ pub enum Node {
     /// byte that cancels it is handed back to the ground with `Act::Again`.
     /// Last in the enum, so no other node's index moves.
     SingleShift,
+    /// **A Sixel's body**, `DcsStr`'s row but for the bytes DEC's Sixel
+    /// chapter gives their own meaning (`[[source: dec-std-070]]` 070-9
+    /// §9.1 and §9.3): `SUB` is a blank sixel and the image goes on, where
+    /// it ends every other string; `CAN` and, under ISO 8859-1, a C1 end it
+    /// after placing what it received, and the C1 then runs. Its own node
+    /// because `DcsStr` is every DCS's, and DECRQSS and the rest end on
+    /// `SUB`. Last, with the next, so no other node's index moves.
+    SixelStr,
+    /// An `ESC` inside a Sixel's body: `\` ends it, as `StrEsc`; any other
+    /// byte places what it received and is dispatched again from `Escape`
+    /// (070-9 §9.1, "exit DCS mode processing, exit Sixel mode, begin
+    /// processing escape sequence").
+    SixelEsc,
 }
 
-pub(crate) const NNODE: usize = 35;
+pub(crate) const NNODE: usize = 37;
 
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 43;
+pub(crate) const NACT: usize = 44;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -250,6 +263,8 @@ impl Node {
         Node::Vt52Utf8ThreeAfterF4,
         Node::Held,
         Node::SingleShift,
+        Node::SixelStr,
+        Node::SixelEsc,
     ];
 }
 
@@ -425,8 +440,13 @@ pub enum Act {
     /// 8.3.1).
     Del,
     /// VT, `0x0B`: the following line tabulation stop, or `LF` where none
-    /// follows. Last, so no other action's encoding moves.
+    /// follows.
     LineTab,
+    /// A Sixel cut off by `CAN`, an `ESC` that is not `ST` or a C1: what it
+    /// received is placed, as at `ST`, and the byte is read again from the
+    /// edge's node, which performs it. Consumes nothing. Last, so no other
+    /// action's encoding moves.
+    SixelCut,
 }
 
 /// Which histogram slot a node is, as an **exhaustive match rather than a
@@ -472,6 +492,8 @@ pub(crate) fn count_node(h: &mut Hist, n: Node) {
         Node::Vt52Utf8ThreeAfterF4 => 32,
         Node::Held => 33,
         Node::SingleShift => 34,
+        Node::SixelStr => 35,
+        Node::SixelEsc => 36,
     }] += 1;
 }
 
@@ -524,6 +546,8 @@ const fn node_name(n: Node) -> &'static str {
         Node::Vt52Utf8ThreeAfterF4 => "Vt52Utf8ThreeAfterF4",
         Node::Held => "Held",
         Node::SingleShift => "SingleShift",
+        Node::SixelStr => "SixelStr",
+        Node::SixelEsc => "SixelEsc",
     }
 }
 
@@ -574,6 +598,7 @@ const fn act_name(a: Act) -> &'static str {
         Act::Shifted => "Shifted",
         Act::Del => "Del",
         Act::LineTab => "LineTab",
+        Act::SixelCut => "SixelCut",
     }
 }
 
@@ -623,6 +648,7 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Shifted,
     Act::Del,
     Act::LineTab,
+    Act::SixelCut,
 ];
 
 #[cfg(feature = "diag")]
@@ -735,6 +761,7 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::Shifted => 40,
         Act::Del => 41,
         Act::LineTab => 42,
+        Act::SixelCut => 43,
     }] += 1;
 }
 
@@ -879,6 +906,24 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // **Back to the ground it was in, not to ANSI ground.** A `CAN` inside a
     // VT52 escape cancels the escape; it does not switch protocols, and
     // `ground_of` is what says so in one place rather than at each return.
+    // **A Sixel's body is the exception, 070-9 §9.1's own rule**: `SUB` is
+    // processed "as if a 3/15 code (blank Sixel) was received" and the image
+    // goes on, and `CAN` exits Sixel mode, the sixels it received placed, as
+    // williams' "Cancelling a control string does not undo these effects"
+    // (501-503) has them. Jev decided BLANK_SIXEL (0.92/0.94) and leaned to
+    // KEEP for `CAN` (0.72/0.68), 2026-10-19. After its `ESC`, either places
+    // the image and cancels the escape sequence from `Escape`.
+    if matches!(node, Node::SixelStr) {
+        if b.is(StreamByte::SUB) {
+            return edge(Act::StrPut, Node::SixelStr);
+        }
+        if b.is(StreamByte::CAN) {
+            return edge(Act::SixelCut, Node::AfterControl);
+        }
+    }
+    if matches!(node, Node::SixelEsc) && (b.is(StreamByte::CAN) || b.is(StreamByte::SUB)) {
+        return edge(Act::SixelCut, Node::Escape);
+    }
     if !ground_like && (b.is(StreamByte::CAN) || b.is(StreamByte::SUB)) {
         return edge(Act::Consume, after_control_of(node));
     }
@@ -928,8 +973,10 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
     // (`[[source: xterm-vtprstbl-c]]` 7781-7820). Its `CASE_OSC` keeps the
     // old string's bytes, where williams' `osc string` begins anew on entry;
     // the text is followed. A cancelled string is not dispatched here, by any
-    // of the four; whether it should keep what it has done, as williams'
-    // `unhook` and `osc_end` suggest, is open (`docs/record.md`).
+    // of the four, but a Sixel, whose body places what it received
+    // (`Node::SixelStr`); whether the others should keep what they have
+    // done, as williams' `unhook` and `osc_end` suggest, is open
+    // (`docs/record.md`).
     //
     // Under UTF-8 `latin1_c1` answers `None` for every byte, so these nodes'
     // rows there are what they were: `80-9F` are continuation bytes of the
@@ -945,6 +992,16 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 _ => e,
             };
         }
+    }
+    // A C1 in a Sixel's body places what it received and is then read again
+    // from the ground after a control, where it runs: 070-9 §9.3, "exit DCS
+    // mode processing, exit Sixel mode, and the C1 control code is processed
+    // outside of the Sixel mode" (Jev, KEEP, 0.94/0.94).
+    if matches!(node, Node::SixelStr) && latin1_c1(enc, b).is_some() {
+        return match b.raw_byte() {
+            0x9c => edge(Act::StrEnd, Node::AfterControl),
+            _ => edge(Act::SixelCut, Node::AfterControl),
+        };
     }
     // **And from an escape or control sequence**, the rule's other half: the
     // same six nodes the `1B` edge above cancels from, `Escape` and
@@ -1123,7 +1180,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 // A bare `q` (no `$` before it) is a Sixel: rename the string
                 // kind and route the body through the `StrPut`/`StrEnd` path,
                 // which now decodes it rather than dropping it.
-                b'q' => edge(Act::SixelStart, Node::DcsStr),
+                b'q' => edge(Act::SixelStart, Node::SixelStr),
                 // **A Sixel is `DCS Pa;Pb;Ph q` -- a `q` after *numeric
                 // parameters* and no intermediate.** So the parameters `30-3F`
                 // (`0-9 : ; < = > ?`) collect and stay in `Node::Dcs`, and a
@@ -1197,6 +1254,24 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 0x5c => edge(Act::StrEnd, Node::AfterControl),
                 0x7f => edge(Act::Consume, Node::StrEsc),
                 _ => edge(Act::Again, Node::Escape),
+            };
+        }
+        // As `StrEsc`, but a byte that is not `\` places the Sixel first
+        // (`Node::SixelEsc`; Jev, KEEP, 0.94/0.94).
+        Node::SixelEsc => {
+            return match enc.gr_as_gl(b).raw_byte() {
+                0x5c => edge(Act::StrEnd, Node::AfterControl),
+                0x7f => edge(Act::Consume, Node::SixelEsc),
+                _ => edge(Act::SixelCut, Node::Escape),
+            };
+        }
+        // `DcsStr`'s row, its `ESC` to `SixelEsc` and its own node kept.
+        Node::SixelStr => {
+            let e = string(Node::DcsStr, b);
+            return match (e.act, e.next) {
+                (_, Node::StrEsc) => edge(Act::Consume, Node::SixelEsc),
+                (a, Node::DcsStr) => edge(a, Node::SixelStr),
+                _ => e,
             };
         }
         Node::AfterControl | Node::Vt52AfterControl => return after_control(enc, node, b),
@@ -2393,10 +2468,15 @@ mod classes {
         // edges, `00-06`, `0E-17`, `19` and `1C-1F` in `DcsStr` under each
         // encoding, from `Consume` to `StrPut`. Strides 1 and 2 do not move;
         // 67,636 -> 67,669 and 1,801,914 -> 1,805,035 at strides 3 and 4.
+        // **A Sixel's body is a node of its own, and its `ESC` another**
+        // (2026-10-19): `SUB` there is a blank sixel, and `CAN`, a C1 and a
+        // byte after its `ESC` that is not `\` place the image first
+        // (`Act::SixelCut`). 55 -> 56, 2,248 -> 2,342, 67,669 -> 71,712 and
+        // 1,805,035 -> 1,945,172 at strides 1 to 4, +7.8% at stride 4.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 2_248, "stride 2");
-        assert_eq!(three.len(), 67_669, "stride 3");
-        assert_eq!(four.len(), 1_805_035, "stride 4");
+        assert_eq!(two.len(), 2_342, "stride 2");
+        assert_eq!(three.len(), 71_712, "stride 3");
+        assert_eq!(four.len(), 1_945_172, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2541,9 +2621,16 @@ mod classes {
                             "{node:?} {enc:?} byte {:#04x}",
                             b.raw_byte()
                         ),
+                        // A Sixel's body and its `ESC` keep 070-9 §9.1's
+                        // rule: `SUB` a blank sixel, `CAN` the image placed.
                         false => assert_eq!(
                             got,
-                            edge(Act::Consume, after_control_of(node)),
+                            match (node, b.raw_byte()) {
+                                (Node::SixelStr, 0x1a) => edge(Act::StrPut, Node::SixelStr),
+                                (Node::SixelStr, _) => edge(Act::SixelCut, Node::AfterControl),
+                                (Node::SixelEsc, _) => edge(Act::SixelCut, Node::Escape),
+                                _ => edge(Act::Consume, after_control_of(node)),
+                            },
                             "{node:?} {enc:?} byte {:#04x} does not cancel",
                             b.raw_byte()
                         ),
@@ -2715,6 +2802,10 @@ mod classes {
                         edge(Act::Consume, Node::StrEsc)
                     }
                     Node::StrEsc => edge(Act::Again, Node::Escape),
+                    // A Sixel's: its `ESC` may begin `ST`, and after it the
+                    // byte places the image first.
+                    Node::SixelStr => edge(Act::Consume, Node::SixelEsc),
+                    Node::SixelEsc => edge(Act::SixelCut, Node::Escape),
                     Node::Vt52Ground | Node::Vt52AfterControl | Node::Vt52Escape => {
                         edge(Act::Consume, Node::Vt52Escape)
                     }
@@ -2827,9 +2918,14 @@ mod classes {
                 b"\x1b^",
                 b"\x1b_",
             ] {
+                let n = walk(intro);
+                let esc = match n {
+                    Node::SixelStr => Node::SixelEsc,
+                    _ => Node::StrEsc,
+                };
                 assert_eq!(
-                    Edge::of(enc, walk(intro), StreamByte::ESC),
-                    edge(Act::Consume, Node::StrEsc),
+                    Edge::of(enc, n, StreamByte::ESC),
+                    edge(Act::Consume, esc),
                     "{enc:?} {intro:?}: not inside a string"
                 );
             }
@@ -2901,9 +2997,14 @@ mod classes {
             // Positive control: each walk ends inside a string, where an
             // `ESC` is the first half of `ST`, and not back in ground.
             for intro in bodies.iter().chain(&others).chain(&prefixes) {
+                let n = walk(intro);
+                let esc = match n {
+                    Node::SixelStr => Node::SixelEsc,
+                    _ => Node::StrEsc,
+                };
                 assert_eq!(
-                    at(walk(intro), 0x1b),
-                    edge(Act::Consume, Node::StrEsc),
+                    at(n, 0x1b),
+                    edge(Act::Consume, esc),
                     "{enc:?} {intro:?}: not inside a string"
                 );
             }
@@ -2999,7 +3100,7 @@ mod classes {
                 }
                 assert_eq!(at(Node::Dcs, 0xbb), edge(Act::Sep, Node::Dcs));
                 assert_eq!(at(Node::Dcs, 0xba), edge(Act::Consume, Node::DcsStr));
-                assert_eq!(at(Node::Dcs, 0xf1), edge(Act::SixelStart, Node::DcsStr));
+                assert_eq!(at(Node::Dcs, 0xf1), edge(Act::SixelStart, Node::SixelStr));
                 assert_eq!(at(Node::DcsDollar, 0xf1), edge(Act::DcsQuery, Node::DcsStr));
                 assert_eq!(at(Node::Dcs, 0xff), edge(Act::Consume, Node::Dcs));
                 assert_eq!(
@@ -3404,7 +3505,9 @@ mod classes {
     // reading the rows, `80-8F` parting from the C1 finals `91-97 99 9A`.
     // The single shifts' node, `Act::Del` and DECRSPS's `t` made 54, and VT's own action, the line
     // tabulation stop it reaches, parting `0B` from `0A` and `0C`, made 55.
-    const CLASSES: usize = 55;
+    // A Sixel's body, where `SUB` is a blank sixel and `CAN` places the
+    // image, parting `1A` from `18`, made 56.
+    const CLASSES: usize = 56;
     /// What `write::act` consumes, which is **not** `Act::width()`.
     ///
     /// `width` is the byte length of the *character* an act writes; two acts

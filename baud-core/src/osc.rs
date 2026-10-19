@@ -44,10 +44,11 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn str_start(&mut self, b: StreamByte, enc: InputEncoding) {
-        // **A Sixel body that never reached its terminator lets its claim
-        // go here**: `CAN`, `SUB` and an `ESC` that is not `ST` abandon it
-        // with no action of their own, and this is the next one the core
-        // takes. Nothing to do after a body that ended.
+        // **A Sixel body that never reached its end lets its claim go
+        // here.** `CAN`, an `ESC` that is not `ST` and a C1 place what it
+        // received (`Paint::sixel_cut`) and `SUB` is a blank sixel, so none
+        // of them leaves one; this stays for a body no byte ended. Nothing
+        // to do after a body that ended.
         if self.cold.str_kind == StrKind::Sixel {
             self.strs.sixel.abandon(self.images);
         }
@@ -265,8 +266,35 @@ impl Paint<'_, '_> {
             self.bells += 1;
             return;
         }
-        if let Some(b) = Sixel::body_byte(self.cold.str_enc, b) {
+        // 070-9 §9.1, "SUB - process as if a 3/15 code (blank Sixel) was
+        // received" (`Node::SixelStr`). One call to the decoder: a second
+        // made the compiler inline its ground walk here and move its data
+        // step out of line, a quarter of a percent on `sixel-cat`.
+        let kept = match b.is(StreamByte::SUB) {
+            true => Some(StreamByte::from_stream(b'?')),
+            false => Sixel::body_byte(self.cold.str_enc, b),
+        };
+        if let Some(b) = kept {
             self.sixel_put(b);
+        }
+    }
+
+    /// **A Sixel cut off by `CAN`, an `ESC` that is not `ST` or a C1** is
+    /// placed from what it received, as at `ST`: williams, "Cancelling a
+    /// control string does not undo these effects" (501-503), and its
+    /// `unhook` lets the handler "finish neatly" (728-729); `[[source:
+    /// dec-std-070]]` 070-9 prints "each Sixel in received order" (§5) and
+    /// on exit updates the text position "to reflect the vertical motion
+    /// commands executed in the Sixel printing" (§11.3). Jev, KEEP,
+    /// 0.94/0.94 for `ESC` and a C1, and the lean KEEP, 0.72/0.68, for
+    /// `CAN` (2026-10-19). Until then the image was discarded and its claim
+    /// let go at the next string.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn sixel_cut(&mut self) {
+        if self.cold.str_kind == StrKind::Sixel {
+            self.sixel_end();
+            self.cold.str_kind = StrKind::Other;
         }
     }
 

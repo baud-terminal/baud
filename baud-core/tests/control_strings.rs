@@ -908,3 +908,15 @@ fn another_dcs_holding_every_c0_is_discarded_whole() {
         });
     }
 }
+
+/// **A `SUB` still cancels a DECRQSS**, and every DCS but a Sixel: STD 070
+/// 3.5.4.4 ends a control string on it, and only a Sixel's own chapter
+/// makes it a blank sixel (`a_sub_inside_a_sixel_is_a_blank_sixel`). No
+/// reply, and the `Y` after the abandoned `ST` drawn.
+#[test]
+fn a_sub_still_cancels_a_decrqss() {
+    let bytes = b"\x1bP$qm\x1a\x1b\\Y";
+    for size in 1..=bytes.len() {
+        assert_eq!(left(bytes, size).reply, b"", "read size {size}");
+    }
+}

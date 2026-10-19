@@ -460,6 +460,19 @@ fn every_test_named_in_the_docs_exists() {
              run past. The record cites it where it describes the refusals by cause",
         ),
         (
+            "an_abandoned_body_leaves_nothing_and_the_next_sixel_draws_as_alone",
+            "a historical name, replaced on 2026-10-19 by \
+             `a_body_cut_off_is_placed_from_what_it_received` when a Sixel cut \
+             off by CAN, ESC or a C1 began to be placed from what it received; \
+             the record cites the old name where the streaming decode built it",
+        ),
+        (
+            "an_abandoned_sixel_gives_its_claim_back",
+            "a historical name, replaced on 2026-10-19 by \
+             `a_sixel_cut_off_keeps_its_claim_and_ris_gives_it_back`, for the \
+             same change",
+        ),
+        (
             "a_gr_byte_in_a_dcs_body_or_under_utf8_is_what_it_was",
             "a historical name, replaced on 2026-10-19 by \
              `a_gr_byte_in_a_decrqss_body_is_its_seven_bit_byte_under_latin1` and \

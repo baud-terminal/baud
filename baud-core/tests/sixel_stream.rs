@@ -627,41 +627,52 @@ fn shown_at(data: &[u8], budget: ImageBudget) -> Shown {
     (placed, im.refusals, im.sixel_p2_ignored, t.cursor())
 }
 
-/// **A body that never reaches its terminator leaves nothing**: half the
-/// swirl's body, then what abandons it -- `CAN`, `SUB`, an `ESC` and a final
-/// that is not `\`, `RIS`, a new DCS -- then the whole swirl, which draws
-/// what it draws alone, refused for nothing. Abandoned forty times first,
-/// past the 32 image slots: a body that kept a slot or a span would leave
-/// the last refused.
+/// **A body cut off is placed from what it received**: four fifths of the
+/// swirl's body, past its colour definitions and into its data, then what
+/// cuts it off -- `CAN`, an `ESC` and a final that is not `\`, a new DCS
+/// -- leaves what the same four fifths ended by `ST` and followed by the
+/// cut's own escape sequence leaves, then the whole swirl at home: williams'
+/// "Cancelling a control string does not undo these effects" (501-503) and
+/// 070-9's printing in received order (Jev, KEEP, 0.94/0.94; the lean KEEP,
+/// 0.72/0.68, for `CAN`). Until 2026-10-19 each left nothing. `RIS` still
+/// leaves nothing: it places the image and then removes every one, and
+/// done forty times, past the 32 image slots, the swirl after it still
+/// draws alone, so no cut keeps a slot or a span.
 #[test]
-fn an_abandoned_body_leaves_nothing_and_the_next_sixel_draws_as_alone() {
+fn a_body_cut_off_is_placed_from_what_it_received() {
     let want = swirl_alone();
     assert_eq!(want.0.len(), 1, "the control draws one image");
     assert_eq!(want.1, ImageRefusals::NONE, "and refuses nothing");
-    let half = &SWIRL[..SWIRL.len() / 2];
-    for (name, cut) in [
-        ("CAN", &b"\x18"[..]),
-        ("SUB", b"\x1a"),
-        ("ESC then a final", b"\x1b7"),
-        ("RIS", b"\x1bc"),
-        ("a new DCS", b"\x1bP$qm\x1b\\"),
+    let part = &SWIRL[..SWIRL.len() * 4 / 5];
+    let budget = ImageBudget::of(64 * 48 + 64);
+    for (name, cut, then) in [
+        ("CAN", &b"\x18"[..], &b""[..]),
+        ("ESC then a final", b"\x1b7", b"\x1b7"),
+        ("a new DCS", b"\x1bP$qm\x1b\\", b"\x1bP$qm\x1b\\"),
     ] {
-        for times in [1, 40] {
-            let mut data = Vec::new();
-            for _ in 0..times {
-                data.extend_from_slice(half);
-                data.extend_from_slice(cut);
-            }
-            data.extend_from_slice(b"\x1b[H");
-            data.extend_from_slice(SWIRL);
-            let got = shown_at(&data, ImageBudget::of(64 * 48 + 64));
-            assert_eq!(got.0, want.0, "{name} x{times}: the image as alone");
-            assert_eq!(
-                got.1,
-                ImageRefusals::NONE,
-                "{name} x{times}: refused for nothing"
-            );
+        let cut_off = shown_at(&[part, cut].concat(), budget);
+        let ended = shown_at(&[part, b"\x1b\\", then].concat(), budget);
+        assert_eq!(cut_off, ended, "{name}: as if ST had come first");
+        assert_eq!(cut_off.0.len(), 1, "{name}: the part is placed");
+        let got = shown_at(&[part, cut, b"\x1b[H", SWIRL].concat(), budget);
+        let ended = shown_at(&[part, b"\x1b\\", then, b"\x1b[H", SWIRL].concat(), budget);
+        assert_eq!(got, ended, "{name}: and the swirl after it");
+    }
+    for times in [1, 40] {
+        let mut data = Vec::new();
+        for _ in 0..times {
+            data.extend_from_slice(part);
+            data.extend_from_slice(b"\x1bc");
         }
+        data.extend_from_slice(b"\x1b[H");
+        data.extend_from_slice(SWIRL);
+        let got = shown_at(&data, budget);
+        assert_eq!(got.0, want.0, "RIS x{times}: the image as alone");
+        assert_eq!(
+            got.1,
+            ImageRefusals::NONE,
+            "RIS x{times}: refused for nothing"
+        );
     }
 }
 

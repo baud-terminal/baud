@@ -601,31 +601,46 @@ fn a_moved_sixel_gives_back_the_rows_it_left() {
     );
 }
 
-/// **A Sixel body abandoned gives its claim back** at the next control
-/// string or a reset: the parser reports no abandoning byte, `CAN` here,
-/// so the claim is let go where the core next begins a string.
+/// **A Sixel cut off by `CAN` keeps its claim as the image it placed**,
+/// and gives it back when the image goes: a title or another Sixel after it
+/// hands back none of its rows, and `RIS`, which removes every image, all
+/// of them. The cut placed what it received (Jev's lean KEEP, 0.72/0.68,
+/// 2026-10-19); until then the claim was let go at the next string.
 #[test]
-fn an_abandoned_sixel_gives_its_claim_back() {
-    for (what, next) in [
-        ("a title", &b"\x1b]2;x\x07"[..]),
-        ("another Sixel", &b"\x1bPq#0!1~\x1b\\"[..]),
-        ("RIS", &b"\x1bc"[..]),
+fn a_sixel_cut_off_keeps_its_claim_and_ris_gives_it_back() {
+    let green = Pixel::opaque(Chan::from_u8(0), Chan::from_u8(255), Chan::from_u8(0));
+    for (what, next, back) in [
+        ("a title", &b"\x1b]2;x\x07"[..], false),
+        ("another Sixel", &b"\x1bPq#0!1~\x1b\\"[..], false),
+        ("RIS", &b"\x1bc"[..], true),
     ] {
         let mut owned = Owned::new(&WS).with_images(ImageBudget::of(4096));
         let mut t = recorded(&mut owned);
         feed(&mut t, &green_sixel(40, 60, b"\x18"));
         assert_eq!(handed_raw(), Vec::<usize>::new(), "{what}: not yet");
+        {
+            let im = t.images();
+            let (_, p) = im.placements().next().expect("the cut-off Sixel is placed");
+            let v = im.image(p.image).expect("live");
+            assert_eq!((v.width.raw(), v.height.raw()), (40, 60), "{what}");
+            assert!(v.pixels.iter().all(|&p| p == green), "{what}: whole");
+        }
         feed(&mut t, next);
-        // Another Sixel writes over the pages it lets go and gives back
-        // its own tail, so a page may go twice there.
         let mut got = handed_raw();
         got.sort_unstable();
         got.dedup();
-        assert!(
-            got.len() * PAGE >= 40 * 60 * 4 - 2 * PAGE,
-            "{what}: its rows went back: {} pages",
-            got.len()
-        );
+        match back {
+            true => assert!(
+                got.len() * PAGE >= 40 * 60 * 4 - 2 * PAGE,
+                "{what}: its rows went back: {} pages",
+                got.len()
+            ),
+            false => assert!(
+                got.len() * PAGE < 40 * 60 * 4 - 2 * PAGE,
+                "{what}: the image keeps its rows: {} pages back",
+                got.len()
+            ),
+        }
     }
 }
 

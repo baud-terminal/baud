@@ -3489,7 +3489,7 @@ impl<'b> Term<'b> {
         fill: impl FnOnce(&mut [Pixel]),
     ) -> PlacementId {
         let in_sixel = self.cold.str_kind == StrKind::Sixel
-            && matches!(self.node, Node::DcsStr | Node::StrEsc);
+            && matches!(self.node, Node::SixelStr | Node::SixelEsc);
         if in_sixel {
             self.store.images.refuse(ImageRefusal::Arena(width, height));
             return PlacementId::NONE;

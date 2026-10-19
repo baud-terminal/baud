@@ -276,9 +276,11 @@ impl Csi {
 /// what keeps the vectored writers -- `put_ascii_run` and `put_wide_run` both
 /// write eight cells to one store -- on a loop that dispatches per character.
 ///
-/// Zero only for [`Act::Resync`], [`Act::Again`] and [`Act::EndCluster`],
-/// each of which leaves the node somewhere the same byte cannot produce it
-/// again: `Ground` for the first and the last, `Escape` for `Again`.
+/// Zero only for [`Act::Resync`], [`Act::Again`], [`Act::EndCluster`] and
+/// [`Act::SixelCut`], each of which leaves the node somewhere the same byte
+/// cannot produce it again: `Ground` for the first and `EndCluster`,
+/// `Escape` for `Again`, and for `SixelCut` the ground after a control or
+/// `Escape`, neither of them a Sixel's body.
 ///
 /// Nine parameters because nine things vary per step and every one of them is
 /// either read or written by the dispatch. `act` is `#[inline(always)]` into
@@ -871,6 +873,12 @@ pub(crate) fn act(
             ReadLen::ONE
         }
         Act::Again => ReadLen::ZERO,
+        // A Sixel cut off: placed from what it received, then the byte is
+        // read again from the edge's node (`Node::SixelStr`), as `Again`.
+        Act::SixelCut => {
+            p.sixel_cut();
+            ReadLen::ZERO
+        }
         // **A held read**: the rest, from this byte, is the embedder's to
         // feed once it has resized (`Node::Held`), and the step takes all of
         // it, so the loop ends here. The rest goes on from the node the

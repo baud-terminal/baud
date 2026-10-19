@@ -13,8 +13,12 @@ prefix is its 7-bit byte under ISO 8859-1"). Items 1, 10 and 11 are built
 since 2026-10-19, by Jev's decision B_PUT_ALL (0.99/0.99) and lean STRIP
 (0.60/0.56): every C0 of a DCS body is put, DECRQSS and DECRSPS drop them
 and read a GR byte as GL, and a Sixel rings a `BEL` (the record, "Every C0
-of a DCS body reaches its handler, and a Sixel rings a BEL"). Nothing else
-here is built.** Part 1 is what every text says a terminal does with each byte of a
+of a DCS body reaches its handler, and a Sixel rings a BEL"). Item 4 and
+questions 1 and 2 are built the same day: a Sixel cut off by `ESC` or a C1
+(KEEP, 0.94/0.94) or by `CAN` (the lean KEEP, 0.72/0.68) is placed from
+what it received, and a `SUB` in one is a blank sixel (BLANK_SIXEL,
+0.92/0.94) (the record, "A Sixel cut off keeps what it drew, and a SUB in
+one is a blank sixel"). Nothing else here is built.** Part 1 is what every text says a terminal does with each byte of a
 DCS command string, and what baud does since `e6a817f`. Part 2 reads DEC STD
 070's Sixel chapter, 070-9, byte by byte against the other Sixel texts the
 manifest pins, and against baud's Sixel handler. Where the texts agree and
@@ -1363,9 +1367,10 @@ Items 10, 11 and 12 rest on this note's readings (**R**); 10 and 12 carry
 alternatives considered (sections 5.4 and 8), and 11 has the alternative of
 keeping the byte raw (section 5.5). Each is work, for Jev:
 by the owner's rule of 2026-10-10, Jev at or above 0.9 confidence both times
-decides between the options, and otherwise the owner does. Items 1, 10 and
-11 were built on 2026-10-19 (Jev: B_PUT_ALL 0.99/0.99; the lean STRIP
-0.60/0.56 for item 11).
+decides between the options, and otherwise the owner does. Items 1, 4, 10
+and 11 and questions 1 and 2 were built on 2026-10-19 (Jev: B_PUT_ALL
+0.99/0.99, BLANK_SIXEL 0.92/0.94, KEEP 0.94/0.94; leans STRIP 0.60/0.56
+and KEEP 0.72/0.68 for CAN); item 12 is still open.
 
 ### 10.2 Questions, the texts conflicting
 

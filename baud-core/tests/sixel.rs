@@ -1387,3 +1387,83 @@ fn a_two_to_one_sixel_doubles_each_row_and_the_cursor_follows() {
         assert_eq!(t.cursor().0.index(), 2, "12 rows at 8 a cell is two rows");
     });
 }
+
+/// Each program, at every read size, against its counterpart fed whole:
+/// the image pixel for pixel, the screen, the cursor and the bells.
+fn same_as(name: &str, got: &[u8], want: &[u8]) {
+    let budget = ImageBudget::of(64 * 48 + 64);
+    let mut w = None;
+    run(want, want.len(), budget, |t| w = Some((drawn(t), t.bells)));
+    let w = w.unwrap();
+    assert!(w.0.0.is_some(), "{name}: the control places an image");
+    for size in 1..=got.len() {
+        run(got, size, budget, |t| {
+            assert_eq!((drawn(t), t.bells), w, "{name}: read size {size}");
+        });
+    }
+}
+
+/// **A `SUB` inside a Sixel is a blank sixel, and the image goes on**:
+/// `[[source: dec-std-070]]` 070-9 §9.1, "SUB - process as if a 3/15 code
+/// (blank Sixel) was received - this is to limit the affect of some
+/// communication line errors" (PDF p. 926), and ECMA-48 8.3.148's SUB "in
+/// the place of a character that has been found to be invalid or in
+/// error". Decided by Jev, BLANK_SIXEL, 0.92/0.94 (2026-10-19), over STD
+/// 070 3.5.4.4's and williams' end of the string, which every other string
+/// keeps (`a_sub_still_cancels_a_decrqss`). Until then the string ended at
+/// the `SUB` and the rest of the body was drawn as text.
+#[test]
+fn a_sub_inside_a_sixel_is_a_blank_sixel() {
+    let with: &[u8] = b"\x1bP0;1q#1;2;100;0;0#1~~\x1a~~\x1b\\Z";
+    let blank: &[u8] = b"\x1bP0;1q#1;2;100;0;0#1~~?~~\x1b\\Z";
+    same_as("UTF-8", with, blank);
+    same_as("ISO 8859-1", &latin1(with), &latin1(blank));
+    same_as(
+        "inside a number",
+        b"\x1bP0;1q#1;2;100;0;0#1!1\x1a0~\x1b\\Z",
+        b"\x1bP0;1q#1;2;100;0;0#1!1?0~\x1b\\Z",
+    );
+}
+
+/// **A Sixel cut off by `CAN`, an `ESC` that is not `ST`, or a C1 is placed
+/// from what it received**, and then the byte does what it does outside a
+/// string: each program leaves what the same body ended by `ST` and
+/// followed by that byte's effect leaves. williams: "Cancelling a control
+/// string does not undo these effects" (501-503), and its `unhook` lets the
+/// handler "finish neatly" (728-729); 070-9 prints "each Sixel in received
+/// order" (§5), and of `ESC` and a C1 says "exit Sixel mode, begin
+/// processing escape sequence" and "the C1 control code is processed
+/// outside of the Sixel mode" (§9.1, §9.3). Jev, KEEP, 0.94/0.94 for `ESC`
+/// and a C1; the lean KEEP, 0.72/0.68, for `CAN`, where ECMA-48 8.3.6's
+/// "the data preceding it ... shall be ignored" fixes no scope (2026-10-19).
+/// Until then none of them placed anything.
+#[test]
+fn a_sixel_cut_off_is_placed_from_what_it_received() {
+    let body: &[u8] = b"\x1bP0;1q#1;2;100;0;0#1~~-~~";
+    same_as(
+        "CAN",
+        &[body, b"\x18Z"].concat(),
+        &[body, b"\x1b\\Z"].concat(),
+    );
+    same_as(
+        "ESC [ 5 C",
+        &[body, b"\x1b[5CZ"].concat(),
+        &[body, b"\x1b\\\x1b[5CZ"].concat(),
+    );
+    same_as(
+        "ESC 7, then ESC 8",
+        &[body, b"\x1b7AB\x1b8Z"].concat(),
+        &[body, b"\x1b\\\x1b7AB\x1b8Z"].concat(),
+    );
+    let l1 = &body[2..];
+    same_as(
+        "85 NEL under ISO 8859-1",
+        &[b"\x1b%@\x90", l1, b"\x85Z"].concat(),
+        &[b"\x1b%@\x90", l1, b"\x9c\x85Z"].concat(),
+    );
+    same_as(
+        "9B, a CSI, under ISO 8859-1",
+        &[b"\x1b%@\x90", l1, b"\x9b3CZ"].concat(),
+        &[b"\x1b%@\x90", l1, b"\x9c\x9b3CZ"].concat(),
+    );
+}
