@@ -379,9 +379,41 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// the character draws it, else the primary's `.notdef`: TUS § 5.3
     /// (`[[source: unicode18-ch5]]`) leaves a character a face cannot
     /// render "some placeholder", never a blank.
+    ///
+    /// **A character with a canonical decomposition is carried taken
+    /// apart, too**, by a face that lacks it and has its parts
+    /// ([`Normalised::covered`]): the face its decomposition typed would
+    /// take ([`Stack::select_cluster`]), since the two are canonical
+    /// equivalents (`[[source: unicode18-ch3]]` C6), and in the chain's
+    /// own order -- so Ǻ is the embedded face's Å and acute, in bold
+    /// where the bold face has them, rather than Menlo's Ǻ two faces down
+    /// (Jev, F1_COVERAGE 0.96 and 0.98).
     fn carries(&self, ix: FaceIx, c: Codepoint) -> Draws {
         let f = self.face(ix);
-        f.glyph(c).map_or(Draws::No, |g| drawing(f, g))
+        match f.glyph(c) {
+            Some(g) => drawing(f, g),
+            None if baud_font::decompose(c).is_some() && Normalised::comes_apart(f, c) => {
+                Draws::Text
+            }
+            None => Draws::No,
+        }
+    }
+
+    /// `c`, or -- when it has a canonical decomposition and no face carries
+    /// it whole or taken apart -- its first part all the way down, whose
+    /// face then draws its `.notdef`, as that face would for its
+    /// decomposition typed (`Stack::select_cluster` keeps the base's face).
+    fn drawn_as(&self, c: Codepoint) -> Codepoint {
+        if baud_font::decompose(c).is_none()
+            || self.each().any(|ix| self.carries(ix, c) != Draws::No)
+        {
+            return c;
+        }
+        let mut base = c;
+        while let Some((a, _)) = baud_font::decompose(base) {
+            base = a;
+        }
+        base
     }
 
     /// The face a character of `style` is drawn from: the style's own
@@ -403,6 +435,7 @@ impl<'f, 'a> Stack<'f, 'a> {
     /// `select_styled` picks: a heart with `U+FE0F` and no colour face is the
     /// text heart, not `.notdef`.
     pub fn select_presented(&self, c: Codepoint, style: FaceStyle, p: Presentation) -> FaceIx {
+        let c = self.drawn_as(c);
         let want = match p {
             Presentation::Text => Draws::Text,
             Presentation::Colour => Draws::Colour,
@@ -457,14 +490,30 @@ impl<'f, 'a> Stack<'f, 'a> {
                 }
             });
         }
+        // A block that holds a character with a canonical decomposition is
+        // decided by `fill` whoever proposes it: a face may draw such a
+        // character taken apart, or its first part's `.notdef`, without
+        // mapping anything in its block (U+1F00 in bold, from the bold
+        // face's alpha; U+2F800 from a CJK face's U+4E3D).
+        let mut decomposing = vec![false; FaceTable::BLOCKS];
+        baud_font::each_decomposable(|a, b| {
+            for blk in (a >> 8)..=(b >> 8) {
+                if let Some(d) = usize::try_from(blk)
+                    .ok()
+                    .and_then(|i| decomposing.get_mut(i))
+                {
+                    *d = true;
+                }
+            }
+        });
         let mut t = FaceTable::empty(proposed);
         let none = vec![Draws::No; self.faces.len()];
         for (combo, (style, p)) in FaceTable::combos().enumerate() {
             let row = [self.choose(&none, style, p).0; 256];
             t.idle[combo] = t.intern(row).0;
         }
-        for blk in 0..FaceTable::BLOCKS {
-            if t.proposed[blk].is_empty() {
+        for (blk, decomposes) in decomposing.into_iter().enumerate() {
+            if t.proposed[blk].is_empty() && !decomposes {
                 for combo in 0..FaceTable::COMBOS {
                     t.blocks[combo * FaceTable::BLOCKS + blk] = t.idle[combo];
                 }
@@ -484,6 +533,12 @@ impl<'f, 'a> Stack<'f, 'a> {
         let mut draws = vec![Draws::No; self.faces.len()];
         let mut refused = vec![false; self.faces.len()];
         let mut rows = [[0u8; 256]; FaceTable::COMBOS];
+        // Each face's answers for the parts and first parts of the block's
+        // precomposed characters, asked once each.
+        let mut parts: std::collections::HashMap<(usize, u32), bool> =
+            std::collections::HashMap::new();
+        let mut leaves: std::collections::HashMap<(usize, u32), Draws> =
+            std::collections::HashMap::new();
         for lo in 0..256u32 {
             let v = u32::try_from(blk).unwrap_or(0) * 256 + lo;
             let cp = Codepoint::new(v);
@@ -500,8 +555,45 @@ impl<'f, 'a> Stack<'f, 'a> {
                 refused[usize::from(i)] = gone;
             }
             let at = usize::try_from(lo).unwrap_or(0);
+            // A character with a canonical decomposition is decided by
+            // every face, as `Stack::carries` and `Stack::drawn_as` decide
+            // it: any face may draw it taken apart, whether or not its
+            // `cmap` reaches the block.
+            let decomposed = cp.filter(|&c| baud_font::decompose(c).is_some()).map(|c| {
+                // `draws` and `refused` say what the proposing faces map; a
+                // face that does not propose the block maps nothing in it.
+                // The rest of `Stack::carries` is the parts, asked of every
+                // face through the block's answers.
+                let mut d = draws.clone();
+                for (i, f) in self.faces.iter().enumerate() {
+                    let mapped = d[i] != Draws::No || refused[i];
+                    let mut has = |x: Codepoint| match parts.entry((i, x.value())) {
+                        std::collections::hash_map::Entry::Occupied(e) => *e.get(),
+                        std::collections::hash_map::Entry::Vacant(e) => {
+                            *e.insert(f.glyph(x).is_some())
+                        }
+                    };
+                    if !mapped && Normalised::comes_apart_by(c, &mut has) {
+                        d[i] = Draws::Text;
+                    }
+                }
+                if d.iter().all(|&x| x == Draws::No) {
+                    // `Stack::drawn_as`: the first part's faces.
+                    let mut base = c;
+                    while let Some((a, _)) = baud_font::decompose(base) {
+                        base = a;
+                    }
+                    for (i, f) in self.faces.iter().enumerate() {
+                        d[i] = *leaves
+                            .entry((i, base.value()))
+                            .or_insert_with(|| f.glyph(base).map_or(Draws::No, |g| drawing(f, g)));
+                    }
+                }
+                d
+            });
+            let chosen = decomposed.as_deref().unwrap_or(&draws);
             for (combo, (style, p)) in FaceTable::combos().enumerate() {
-                rows[combo][at] = self.choose(&draws, style, p).0;
+                rows[combo][at] = self.choose(chosen, style, p).0;
             }
             for &i in &faces {
                 if refused[usize::from(i)] && rows.iter().all(|row| row[at] != i) {

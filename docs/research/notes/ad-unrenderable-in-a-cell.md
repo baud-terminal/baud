@@ -4,6 +4,19 @@
 note reopens the rule built in e0a611d (note AB, Q23) and sets out the questions
 for Jev and then the owner.
 
+**2026-10-18, the composite subset of Case A answered.** That subset is a
+typed base the kept face draws plus a mark it lacks, where a canonical
+composite exists: A + U+0311 is Ȃ. Like a letter that is precomposed in
+the text and that no face draws whole or in parts (Ȃ, ἀ, a Hangul
+syllable, a kana with a voiced mark), it is now one `.notdef` for the
+whole letter in its own cells. That is b2's shape, which this note marks
+partly against § 5.21.6's "how many are present". It was built as Jev's
+H_BOX lean under the bar (0.86 and 0.95), on C6: A + U+0311 is the one
+character Ȃ. The owner's veto with Q2 applies to it (the record, "A
+letter no face draws is one box, typed either way"). A mark with no
+composite on its base, such as q + U+0316 or a Hebrew point, stays
+dropped and counted pending Q2 and Q4.
+
 Evidence is tagged as in the other notes: measured, source (a citation to a
 manifest key, or file:line at e0a611d), inferred, or unknown. Five read-only
 research lenses ran on 2026-10-08 (standards, terminals, engines, frequency, design). Their

@@ -5529,6 +5529,106 @@ fn letters_gate(
     split
 }
 
+/// `c`'s full canonical decomposition in canonical order
+/// (`[[source: unicode18-ch3]]` D68, D109), from `baud_font`'s tables:
+/// `None` for a letter that has none.
+fn canonical_decomposition(c: char) -> Option<String> {
+    fn push(c: baud_domain::Codepoint, out: &mut Vec<baud_domain::Codepoint>) {
+        match baud_font::decompose(c) {
+            Some((a, b)) => {
+                push(a, out);
+                if let Some(b) = b {
+                    push(b, out);
+                }
+            }
+            None => out.push(c),
+        }
+    }
+    let cp = baud_domain::Codepoint::new(u32::from(c)).unwrap();
+    baud_font::decompose(cp)?;
+    let mut out = Vec::new();
+    push(cp, &mut out);
+    // Marks after a starter in canonical order: a stable sort by class.
+    let mut i = 1;
+    while i < out.len() {
+        let class = baud_font::combining_class(out[i]).0;
+        let mut j = i;
+        while class != 0 && j > 0 && baud_font::combining_class(out[j - 1]).0 > class {
+            out.swap(j - 1, j);
+            j -= 1;
+        }
+        i += 1;
+    }
+    Some(
+        out.into_iter()
+            .filter_map(|c| char::from_u32(c.value()))
+            .collect(),
+    )
+}
+
+/// Every letter of `letters` that has a canonical decomposition drawn on
+/// all three arms twice, as the precomposed letter and as its
+/// decomposition typed, at the places `letters_gate` uses: the letters
+/// whose two forms differ on some arm, each with the pixels by which they
+/// differ on the instance, cell and CPU arms.
+fn forms_gate(
+    arms: &mut Arms<'_, '_>,
+    t: &mut Term<'_>,
+    letters: &[char],
+    sgr: &str,
+) -> Vec<(char, String, [usize; 3])> {
+    let (pw, _) = arms.renderer.frame_size();
+    let w = usize::try_from(pw.value()).unwrap();
+    let m = arms.renderer.metrics();
+    let (cw, ch) = (
+        usize::try_from(m.cell_w.value()).unwrap(),
+        usize::try_from(m.cell_h.value()).unwrap(),
+    );
+    let (cols, rows) = (usize::from(WS.ws_col), usize::from(WS.ws_row));
+    let per_row = cols / 3;
+    let per_screen = per_row * (rows / 3);
+    let pairs: Vec<(char, String)> = letters
+        .iter()
+        .filter_map(|&c| canonical_decomposition(c).map(|d| (c, d)))
+        .collect();
+    let mut split = Vec::new();
+    for screen in pairs.chunks(per_screen) {
+        let mut frames = Vec::new();
+        for decomposed in [false, true] {
+            let mut text = format!("\x1bc\x1b[?25l{sgr}");
+            for (i, (c, d)) in screen.iter().enumerate() {
+                let (col, row) = (1 + 3 * (i % per_row), 1 + 3 * (i / per_row));
+                text.push_str(&format!("\x1b[{};{}H", row + 1, col + 1));
+                match decomposed {
+                    false => text.push(*c),
+                    true => text.push_str(d),
+                }
+            }
+            feed(t, text.as_bytes());
+            let (a, b) = arms.draw(t);
+            let cpu = cpu_frame(arms, t);
+            frames.push([a, b, cpu]);
+        }
+        let near = |col: usize, row: usize| {
+            ((row - 1) * ch..(row + 2) * ch)
+                .flat_map(move |py| ((col - 1) * cw..(col + 2) * cw).map(move |px| py * w + px))
+        };
+        for (i, (c, d)) in screen.iter().enumerate() {
+            let (col, row) = (1 + 3 * (i % per_row), 1 + 3 * (i / per_row));
+            let n = |k: usize| {
+                near(col, row)
+                    .filter(|&p| frames[0][k][p] != frames[1][k][p])
+                    .count()
+            };
+            let d3 = [n(0), n(1), n(2)];
+            if d3 != [0, 0, 0] {
+                split.push((*c, d.clone(), d3));
+            }
+        }
+    }
+    split
+}
+
 /// **A precomposed letter draws the same pixels on every arm.** A face that
 /// lacks one draws it decomposed, a base and its marks (`baud_font`'s
 /// normalisation, as HarfBuzz's), so one code point can shape to several
@@ -5536,6 +5636,16 @@ fn letters_gate(
 /// where U+01FA shapes to several and U+00E9 to one -- the premise -- and
 /// over the macOS default chain: the embedded faces with the system's
 /// behind them, in the app's order.
+///
+/// **And as its canonical decomposition typed** (`forms_gate`): the two are
+/// one text (`[[source: unicode18-ch3]]` D70, C6), so each arm draws the
+/// same pixels for both. Before, 1838 letter draws differed: on stock
+/// JetBrains Mono a letter no face has drew its parts' boxes over the next
+/// cell where its decomposition lost its marks, and a bold or italic letter
+/// the styled face lacked fell to the regular face where its decomposition
+/// stayed styled; on the default chain the letter came whole from Menlo,
+/// Apple Symbols or STIX where its decomposition came apart in the
+/// embedded face.
 #[test]
 fn every_precomposed_letter_draws_alike_on_every_arm() {
     let letters = precomposed_letters();
@@ -5627,6 +5737,17 @@ fn every_precomposed_letter_draws_alike_on_every_arm() {
             ("bold", "\x1b[1m", FaceStyle::Bold),
             ("italic", "\x1b[3m", FaceStyle::Italic),
         ] {
+            for (letter, d, [inst, cell, cpu]) in forms_gate(&mut arms, &mut t, &letters, sgr) {
+                split.push(format!(
+                    "{chain} {name} U+{:04X} {} against {:04X?}: the decomposition differs by {} px on the instance arm, {} on the cell arm, {} on the CPU arm",
+                    u32::from(letter),
+                    letter,
+                    d.chars().map(u32::from).collect::<Vec<_>>(),
+                    inst,
+                    cell,
+                    cpu
+                ));
+            }
             for (letter, gpu, soft, glyphs) in letters_gate(&mut arms, &mut t, &letters, sgr, style)
             {
                 let cp = baud_domain::Codepoint::new(u32::from(letter)).unwrap();

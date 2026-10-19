@@ -52,16 +52,23 @@ fn dump_ppm(c: &Canvas, path: &str) {
 /// vim-unicode moved when four of the dark sixteen were made readable on
 /// the page (2026-10-18), both drawing cells in those four; with xterm's
 /// sixteen back under the dark theme both frames are their old pins again.
+/// cat-cjk and vim-unicode moved when a precomposed character the face
+/// lacks and cannot draw in parts stayed whole (2026-10-18): each Hangul
+/// syllable, and in cat-cjk each kana with a voiced mark, is one `.notdef`
+/// in its own cells where its parts' boxes had spilled into the cells after
+/// it -- 334 and 77 cells changed, every one a syllable's or such a kana's
+/// or just right of one; with the letter taken apart as before both frames
+/// are their old pins again.
 const GOLDEN: [(&str, u64); 9] = [
     ("ascii/asciiquarium.raw", 0x02759005377d677c),
     ("utf8/btop.raw", 0x378fe94215f0d9b5),
     ("ascii/cat-scroll.raw", 0x1a613c1d646560b1),
     ("ascii/git-log.raw", 0x2303bd10c2107db7),
     ("ascii/less-pager.raw", 0x41e082191ab41018),
-    ("utf8/cat-cjk.raw", 0x253f57b6a135417d),
+    ("utf8/cat-cjk.raw", 0xe4b2047605e4168d),
     ("utf8/cava.raw", 0x5428b240a6ca62e5),
     ("utf8/less-cjk.raw", 0x08602238a4813a25),
-    ("utf8/vim-unicode.raw", 0x0be499a38a8a8396),
+    ("utf8/vim-unicode.raw", 0x6be56a08d456ef96),
 ];
 
 #[test]

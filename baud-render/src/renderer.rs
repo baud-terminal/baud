@@ -4375,6 +4375,12 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 // normalisation. The dropped set follows from the face and the
                 // codepoints alone, which the run cache's key folds, so a cached
                 // run never needs it recomputed.
+                //
+                // `without_unmapped` starts from the cluster's canonical form,
+                // so a base and a mark whose canonical composite no face draws
+                // are that composite's one `.notdef`, nothing left out: A +
+                // U+0311 is Ȃ's box. Only a mark with no composite is left out
+                // and counted.
                 let pushed = match cl.cps.as_slice() {
                     [_, _, ..] => {
                         let cover = self.cluster_covers.answer(face, &cl.cps, || {

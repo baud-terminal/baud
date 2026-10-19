@@ -9,7 +9,8 @@
 //! **The pipeline is HarfBuzz's `hb-ot-shape`, cut to the grid.**
 //! Normalise: a base and its marks compose canonically when the face has
 //! the composed glyph, and a precomposed character the face lacks
-//! decomposes (`[[source: unicode-data]]`); a variation selector resolves
+//! decomposes into parts it has, else stays whole
+//! (`[[source: unicode-data]]`); a variation selector resolves
 //! through `cmap` format 14. Map through `cmap`. Substitute: `GSUB` with
 //! the grid feature set, or `morx` where a face has that instead.
 //! Position: `GPOS` marks, with a fallback. Hide the default-ignorables
@@ -92,6 +93,15 @@ pub fn decompose(c: Codepoint) -> Option<(Codepoint, Option<Codepoint>)> {
         )),
         _ => None,
     }
+}
+
+/// Every character with a canonical decomposition, as inclusive ranges in
+/// ascending order: each listed one alone, then the Hangul syllables.
+pub fn each_decomposable(mut f: impl FnMut(u32, u32)) {
+    for &(x, _, _) in DECOMPOSE {
+        f(x, x);
+    }
+    f(S_BASE, S_BASE + S_COUNT - 1);
 }
 
 /// The canonical combining class of `c`; zero for a starter.
@@ -368,9 +378,108 @@ impl BaseBox {
     }
 }
 
+/// A cluster's codepoints while it is normalised: at most `CLUSTER_MAX`,
+/// the rest cut, as a cluster is.
+#[derive(Clone, Copy)]
+struct Seq {
+    cps: [Codepoint; CLUSTER_MAX],
+    len: Count,
+}
+
+impl Seq {
+    fn empty() -> Seq {
+        Seq {
+            cps: [Codepoint::from_char(' '); CLUSTER_MAX],
+            len: Count::ZERO,
+        }
+    }
+
+    fn as_slice(&self) -> &[Codepoint] {
+        &self.cps[..self.len.slot()]
+    }
+
+    /// `c` after the rest, unless the sequence is full.
+    fn push(&mut self, c: Codepoint) {
+        if let Some(slot) = self.cps.get_mut(self.len.slot()) {
+            *slot = c;
+            self.len = self.len.plus(Count::of(1u8)).unwrap_or(self.len);
+        }
+    }
+
+    /// `c`'s full canonical decomposition after the rest (D68).
+    fn decompose_fully(&mut self, c: Codepoint) {
+        match decompose(c) {
+            Some((a, b)) => {
+                self.decompose_fully(a);
+                if let Some(b) = b {
+                    self.decompose_fully(b);
+                }
+            }
+            None => self.push(c),
+        }
+    }
+
+    /// The marks after each starter sorted stably by `key`, a starter's
+    /// key being zero. Insertion sort, because a cluster holds at most
+    /// `CLUSTER_MAX` codepoints.
+    fn order(&mut self, key: impl Fn(Codepoint) -> CombiningClass) {
+        let seq = &mut self.cps[..self.len.slot()];
+        let mut i = 1usize;
+        while i < seq.len() {
+            let class = key(seq[i]).0;
+            let mut j = i;
+            while class != 0 && j > 0 {
+                let before = key(seq[j - 1]).0;
+                if before == 0 || before <= class {
+                    break;
+                }
+                seq.swap(j - 1, j);
+                j -= 1;
+            }
+            i += 1;
+        }
+    }
+
+    /// The sequence with each mark composed onto its starter where `takes`
+    /// accepts the composite. A mark is blocked from the starter by any
+    /// mark between them of class zero or of its own class or higher
+    /// (`[[source: unicode-ch3]]` D115); two adjacent starters compose as
+    /// a Hangul jamo pair does. A default-ignorable never composes.
+    fn composed(&self, takes: impl Fn(Codepoint) -> bool) -> Seq {
+        let mut out = Seq::empty();
+        let mut starter: Option<usize> = None;
+        let mut blocking: u8 = 0;
+        for &c in self.as_slice() {
+            let class = combining_class(c).0;
+            let m = out.len.slot();
+            if let Some(s) = starter {
+                let blocked = m > s + 1 && (blocking == 0 || blocking >= class);
+                let pair = class == 0 && m == s + 1;
+                if (class != 0 && !blocked || pair) && Ignorable::of(c) == Ignorable::No {
+                    if let Some(composed) = compose(out.cps[s], c) {
+                        if takes(composed) {
+                            out.cps[s] = composed;
+                            continue;
+                        }
+                    }
+                }
+            }
+            if class == 0 {
+                starter = Some(m);
+                blocking = 0;
+            } else {
+                blocking = blocking.max(class);
+            }
+            out.push(c);
+        }
+        out
+    }
+}
+
 /// A cluster as the shaper maps it on one face: a base and its
-/// attachments after [`Shaper::push_cluster`]'s normalisation -- what the
-/// face cannot draw decomposed, the marks in the shaper's order
+/// attachments after [`Shaper::push_cluster`]'s normalisation -- a
+/// character the face lacks decomposed only into parts the face has,
+/// else kept whole, the marks in the shaper's order
 /// ([`CombiningClass::sort_key`]: canonical but for Hebrew points), and each
 /// composed onto its starter where the face has the composite.
 ///
@@ -395,31 +504,21 @@ impl<'f, 'a> Normalised<'f, 'a> {
     /// `cps` -- a base followed by its attachments, at most `CLUSTER_MAX` of
     /// them read -- normalised for `face`.
     pub fn of(face: &'f Face<'a>, cps: &[Codepoint]) -> Normalised<'f, 'a> {
-        // Normalise into a small local sequence: compose what the face can
-        // draw composed, decompose what it cannot draw at all.
-        let mut seq = [Codepoint::from_char(' '); CLUSTER_MAX];
-        let mut n = 0usize;
+        // A character the face lacks comes apart only into parts it has,
+        // as HarfBuzz's `decompose` takes it: each level's mark mapped, its
+        // first part mapped or coming apart the same way. Otherwise it
+        // stays whole, and is the one `.notdef` that stands for it
+        // (`[[source: unicode18-ch5]]` 5.3), in its own cell -- rather than
+        // a base and a box for the part the face lacks, which a full
+        // advance put in the next cell.
+        let mut seq = Seq::empty();
         for &c in cps.iter().take(CLUSTER_MAX) {
-            if face.glyph(c).is_none() {
-                if let Some((a, b)) = decompose(c) {
-                    // One level, then again on the first part, which is how a
-                    // doubly precomposed character (U+1E09) comes apart.
-                    let (a, a2) = match decompose(a) {
-                        Some((a0, Some(a1))) if face.glyph(a).is_none() => (a0, Some(a1)),
-                        _ => (a, None),
-                    };
-                    for part in [Some(a), a2, b].into_iter().flatten() {
-                        if n < CLUSTER_MAX {
-                            seq[n] = part;
-                            n += 1;
-                        }
-                    }
-                    continue;
-                }
-            }
-            if n < CLUSTER_MAX {
-                seq[n] = c;
-                n += 1;
+            let mut parts = Seq::empty();
+            let taken = face.glyph(c).is_none()
+                && Normalised::parts_by(&mut |x| face.glyph(x).is_some(), c, &mut parts).is_some();
+            match taken {
+                true => parts.as_slice().iter().for_each(|&part| seq.push(part)),
+                false => seq.push(c),
             }
         }
         // Mark ordering: marks after a starter sort stably by
@@ -427,67 +526,70 @@ impl<'f, 'a> Normalised<'f, 'a> {
         // (`[[source: unicode-ch3]]` D109) over a permutation of the
         // classes that differs from Unicode's only for Hebrew points -- so
         // grave + dot-below composes the same as dot-below + grave.
-        // Insertion sort, because a cluster holds at most `CLUSTER_MAX`
-        // codepoints.
-        let mut i = 1usize;
-        while i < n {
-            let class = combining_class(seq[i]).sort_key().0;
-            let mut j = i;
-            while class != 0 && j > 0 {
-                let before = combining_class(seq[j - 1]).sort_key().0;
-                if before == 0 || before <= class {
-                    break;
-                }
-                seq.swap(j - 1, j);
-                j -= 1;
-            }
-            i += 1;
-        }
-        // Compose onto the starter while the face has the result. A mark is
-        // blocked from the starter by any mark between them of class zero
-        // or of its own class or higher (`[[source: unicode-ch3]]` D115),
-        // so `a` + dot-below + acute composes to `a-acute` + dot-below when
+        seq.order(|c| combining_class(c).sort_key());
+        // Compose onto the starter while the face has the result, so
+        // `a` + dot-below + acute composes to `a-acute` + dot-below when
         // the face lacks `a-dot-below`, as HarfBuzz does.
-        let mut out = [Codepoint::from_char(' '); CLUSTER_MAX];
-        let mut m = 0usize;
-        let mut starter: Option<usize> = None;
-        let mut blocking: u8 = 0;
-        for &c in &seq[..n] {
-            let class = combining_class(c).0;
-            if let Some(s) = starter {
-                let blocked = m > s + 1 && (blocking == 0 || blocking >= class);
-                if class != 0 && !blocked && Ignorable::of(c) == Ignorable::No {
-                    if let Some(composed) = compose(out[s], c) {
-                        if face.glyph(composed).is_some() {
-                            out[s] = composed;
-                            continue;
-                        }
-                    }
-                }
-                if class == 0 && m == s + 1 && Ignorable::of(c) == Ignorable::No {
-                    // Two starters adjacent: a Hangul jamo pair.
-                    if let Some(composed) = compose(out[s], c) {
-                        if face.glyph(composed).is_some() {
-                            out[s] = composed;
-                            continue;
-                        }
-                    }
-                }
-            }
-            if class == 0 {
-                starter = Some(m);
-                blocking = 0;
-            } else {
-                blocking = blocking.max(class);
-            }
-            out[m] = c;
-            m += 1;
-        }
+        let out = seq.composed(|composed| face.glyph(composed).is_some());
         Normalised {
             face,
-            seq: out,
-            len: Count::of(u8::try_from(m).unwrap_or(0)),
+            seq: out.cps,
+            len: out.len,
         }
+    }
+
+    /// `cps` in Normalization Form C (`[[source: unicode18-ch3]]` 3.11):
+    /// every character taken apart all the way (D68), the marks put in
+    /// canonical order (D109) and composed back by the Canonical
+    /// Composition Algorithm, whatever any face maps. Two canonical
+    /// equivalents come out the same.
+    fn canonical(cps: &[Codepoint]) -> Seq {
+        let mut seq = Seq::empty();
+        for &c in cps.iter().take(CLUSTER_MAX) {
+            seq.decompose_fully(c);
+        }
+        seq.order(combining_class);
+        seq.composed(|_| true)
+    }
+
+    /// Whether `c`, a character `face` lacks, comes apart into parts it
+    /// has: what [`Normalised::covered`] answers for `c` alone, without
+    /// normalising -- the parts are mapped by construction, and composing
+    /// them takes only composites the face maps.
+    pub fn comes_apart(face: &Face<'_>, c: Codepoint) -> bool {
+        Normalised::comes_apart_by(c, &mut |x| face.glyph(x).is_some())
+    }
+
+    /// [`Normalised::comes_apart`] for a face whose `cmap` answers `has`, so
+    /// a caller asking it of many characters can remember the answers --
+    /// the parts of 256 Hangul syllables are 67 jamo.
+    pub fn comes_apart_by(c: Codepoint, has: &mut impl FnMut(Codepoint) -> bool) -> bool {
+        Normalised::parts_by(has, c, &mut Seq::empty()).is_some()
+    }
+
+    /// `c` -- a character the face whose `cmap` answers `has` lacks --
+    /// taken apart onto `out` as far as the face needs; `None` when a part
+    /// the face lacks would be left over. The second part of each level
+    /// must be mapped; the first is kept where the face maps it and taken
+    /// apart again where it does not (U+1E09 is U+00E7 and an acute, U+00E7
+    /// a `c` and a cedilla). A singleton is its one part.
+    fn parts_by(
+        has: &mut impl FnMut(Codepoint) -> bool,
+        c: Codepoint,
+        out: &mut Seq,
+    ) -> Option<()> {
+        let (a, b) = decompose(c)?;
+        if b.is_some_and(|b| !has(b)) {
+            return None;
+        }
+        match has(a) {
+            true => out.push(a),
+            false => Normalised::parts_by(has, a, out)?,
+        }
+        if let Some(b) = b {
+            out.push(b);
+        }
+        Some(())
     }
 
     /// The sequence the shaper maps, base first.
@@ -512,46 +614,43 @@ impl<'f, 'a> Normalised<'f, 'a> {
     /// left out: the codepoints to hand [`Shaper::push_cluster`], whose
     /// normalisation of them maps nothing after the first that is not
     /// default-ignorable and that the face lacks. The first codepoint of
-    /// the normalised sequence is never left out: it is the base, or the
-    /// first part of a base the face lacks, and a base no face draws is the
-    /// `.notdef` that says so. (A cluster that begins with a mark -- which
-    /// only a caller of `Renderer::cluster` can build, since the core hangs a
-    /// mark on the cell before it -- is the exception: the mark order can
-    /// sort a lower-class mark the face lacks to the front, and that is kept
-    /// as a `.notdef`.)
+    /// the normalised sequence is never left out: it is the base, whole
+    /// where the face cannot draw it in parts, and a base no face draws is
+    /// the `.notdef` that says so. (A cluster that begins with a mark --
+    /// which only a caller of `Renderer::cluster` can build, since the core
+    /// hangs a mark on the cell before it -- is the exception: the mark
+    /// order can sort a lower-class mark the face lacks to the front, and
+    /// that is kept as a `.notdef`.)
+    ///
+    /// **It starts from the cluster's canonical form**, so canonical
+    /// equivalents lose the same marks: A + U+0311, on a face with neither
+    /// Ȃ nor U+0311, is Ȃ, one `.notdef` and nothing left out, as Ȃ is.
     ///
     /// **One pass is not enough, so it passes until nothing is dropped.**
-    /// What is left is normalised again, and that can change it two ways.
-    /// A composition a dropped mark blocked takes place -- `a` + U+0305 +
-    /// U+0309 on JetBrains Mono draws the `ả` it has for `a` + U+0309,
-    /// which is what the letter looks like with the overline never typed.
-    /// And a base the face lacks comes apart further, since the
-    /// normalisation takes two levels of a decomposition at a time: U+1F82 +
-    /// U+0301 is U+1F00, the grave, the acute and U+0345 after one pass, and
-    /// U+1F00 is alpha + U+0313, which JetBrains Mono also lacks -- left at
-    /// one pass, the shaper took it apart and drew U+0313 as a `.notdef` a
-    /// cell to the right, uncounted. So each pass normalises what the last
+    /// What is left is normalised again, and a composition a dropped mark
+    /// blocked takes place -- `a` + U+0305 + U+0309 on JetBrains Mono draws
+    /// the `ả` it has for `a` + U+0309, which is what the letter looks like
+    /// with the overline never typed. So each pass normalises what the last
     /// one kept and drops from that, and the codepoints returned are the
-    /// last pass's input, whose normalisation was judged and found to
-    /// need nothing dropped: `push_cluster` maps exactly what was judged.
-    /// The walk ends because a pass that does not end it drops a codepoint,
-    /// and a codepoint enters only as typed or as a part of a codepoint the
-    /// face lacks taken apart -- the base, or a mark the first pass splits
-    /// (U+0344 is U+0308 + U+0301) -- and every decomposition is finite:
-    /// U+1F82's is three levels, so it takes three passes. A cap of
-    /// `CLUSTER_MAX` passes bounds a hang the argument rules out.
+    /// last pass's input, whose normalisation was judged and found to need
+    /// nothing dropped: `push_cluster` maps exactly what was judged. The
+    /// walk ends because a pass that does not end it drops a codepoint, and
+    /// a cluster holds at most `CLUSTER_MAX`; a cap of `CLUSTER_MAX` passes
+    /// bounds a hang the argument rules out.
     pub fn without_unmapped(face: &'f Face<'a>, cps: &[Codepoint]) -> Kept {
         let mut kept = Kept {
             seq: [Codepoint::from_char(' '); CLUSTER_MAX],
             len: Count::ZERO,
             dropped: Count::ZERO,
         };
-        let mut n = 0usize;
-        for &c in cps.iter().take(CLUSTER_MAX) {
-            kept.seq[n] = c;
-            n += 1;
-        }
-        kept.len = Count::of(u8::try_from(n).unwrap_or(0));
+        // **From the cluster's canonical form**, so a letter typed as a
+        // base and a mark the face lacks is the precomposed letter it is
+        // canonically equivalent to (C6): Ȃ, and A + U+0311 as Ȃ, are one
+        // `.notdef` the face has for neither, not an `A` with its breve
+        // left out.
+        let canonical = Normalised::canonical(cps);
+        kept.seq = canonical.cps;
+        kept.len = canonical.len;
         for _ in 0..CLUSTER_MAX {
             let normalised = Normalised::of(face, kept.as_slice());
             let mut next = [Codepoint::from_char(' '); CLUSTER_MAX];

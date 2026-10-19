@@ -288,18 +288,19 @@ fn an_ignorable_beside_a_dropped_mark_is_not_counted() {
     }
 }
 
-/// **A base the face lacks comes apart until nothing it leaves is missing.**
-/// U+1F82 is U+1F02 + U+0345, U+1F02 is U+1F00 + U+0300, and U+1F00 is
-/// alpha + U+0313: three levels, of which the shaper's normalisation takes
-/// two, so the first pass leaves U+1F00 as the base. JetBrains Mono has
-/// alpha, the grave and the acute and none of the rest. Judged once, the
-/// drop left U+1F00 in place, the shaper took it apart again, and U+0313
-/// came out a `.notdef` one cell right that nothing counted; now what is
-/// left is normalised and judged again until nothing more is dropped, so
-/// both clusters draw what alpha with the marks the face has draws, and
-/// every mark the face lacks is counted.
+/// **A base the face lacks and cannot draw in parts is one box, typed
+/// either way.** U+1F82 is U+1F02 + U+0345, U+1F02 is U+1F00 + U+0300,
+/// and U+1F00 is alpha + U+0313. JetBrains Mono has alpha, the grave and
+/// the acute and neither U+0313 nor U+0345, so it cannot draw U+1F82 at
+/// all: the letter is the one `.notdef` that stands for it
+/// (`[[source: unicode18-ch5]]` 5.3), the acute typed after it is drawn,
+/// and U+0316 is left out and counted. Its canonical decomposition typed
+/// is the same text (`[[source: unicode18-ch3]]` C6) and draws the same.
+/// Before, the letter came apart into alpha with the grave, its other
+/// parts left out and counted, while U+1F82 alone in a cell drew its
+/// parts' boxes a cell to the right.
 #[test]
-fn a_base_the_face_lacks_comes_apart_until_every_mark_left_is_drawn() {
+fn a_base_the_face_cannot_draw_in_parts_is_one_box_typed_either_way() {
     let data = font("JetBrainsMono-Regular.ttf");
     let faces = [Face::parse(&data).unwrap()];
     for c in [0x1F82, 0x1F02, 0x1F00, 0x313, 0x345, 0x316] {
@@ -315,26 +316,30 @@ fn a_base_the_face_lacks_comes_apart_until_every_mark_left_is_drawn() {
         );
     }
     let mut r = renderer(&faces);
-    for (typed, left, n) in [
-        (&[0x1F82, 0x301][..], &[0x3B1, 0x300, 0x301][..], 2),
-        (&[0x1F82, 0x316], &[0x3B1, 0x300], 3),
+    let acute = faces[0].glyph(cp(0x301)).unwrap();
+    for (typed, decomposed, want, n) in [
+        (
+            &[0x1F82, 0x301][..],
+            &[0x3B1, 0x313, 0x300, 0x345, 0x301][..],
+            vec![GlyphId::NOTDEF, acute],
+            0,
+        ),
+        (
+            &[0x1F82, 0x316],
+            &[0x3B1, 0x316, 0x313, 0x300, 0x345],
+            vec![GlyphId::NOTDEF],
+            1,
+        ),
     ] {
-        let (control, none) = dropped_by(&mut r, left);
-        assert_eq!(none, 0, "the control {left:x?}: nothing left out");
         let (got, k) = dropped_by(&mut r, typed);
-        assert!(
-            !ids(&got).contains(&GlyphId::NOTDEF),
-            "{typed:x?}: a missing-glyph box drew: {:?}",
-            ids(&got)
-        );
+        assert_eq!(ids(&got), want, "{typed:x?}: one box for the letter");
         assert_eq!(k, n, "{typed:x?}: every mark the face lacks, counted");
+        let (alike, j) = dropped_by(&mut r, decomposed);
+        assert_eq!(j, n, "{decomposed:x?}: counted as its equivalent is");
         assert_eq!(
+            alike.iter().map(|g| (g.id, g.dx, g.dy)).collect::<Vec<_>>(),
             got.iter().map(|g| (g.id, g.dx, g.dy)).collect::<Vec<_>>(),
-            control
-                .iter()
-                .map(|g| (g.id, g.dx, g.dy))
-                .collect::<Vec<_>>(),
-            "{typed:x?}: drawn as {left:x?}, every glyph where it sits there"
+            "{decomposed:x?}: drawn as {typed:x?}, every glyph where it sits there"
         );
     }
 }
@@ -724,4 +729,164 @@ fn the_overlay_counts_a_dropped_mark_once_across_window_chunks() {
             "U+0316 on the row's cell {k}: counted once"
         );
     }
+}
+
+/// `c`'s full canonical decomposition in canonical order, from
+/// `baud_font`'s tables.
+fn decomposed(c: Codepoint) -> Vec<Codepoint> {
+    fn push(c: Codepoint, out: &mut Vec<Codepoint>) {
+        match baud_font::decompose(c) {
+            Some((a, b)) => {
+                push(a, out);
+                if let Some(b) = b {
+                    push(b, out);
+                }
+            }
+            None => out.push(c),
+        }
+    }
+    let mut out = Vec::new();
+    push(c, &mut out);
+    let mut i = 1;
+    while i < out.len() {
+        let class = baud_font::combining_class(out[i]).0;
+        let mut j = i;
+        while class != 0 && j > 0 && baud_font::combining_class(out[j - 1]).0 > class {
+            out.swap(j - 1, j);
+            j -= 1;
+        }
+        i += 1;
+    }
+    out
+}
+
+/// **A precomposed letter takes the face its decomposition takes.** With
+/// Fira Code behind JetBrains Mono, U+0400 Ѐ is one Fira Code glyph, and
+/// JetBrains Mono, which lacks it, has Е and the grave: the first face that
+/// draws it, whole or taken apart, is JetBrains Mono, as for Е + grave
+/// typed -- canonical equivalents (`[[source: unicode18-ch3]]` C6), in the
+/// chain's order. Swept over every precomposed character to U+1FFF but the
+/// singletons a face maps; before, 190 were drawn unlike their
+/// decompositions -- from Fira Code where it has them whole, or as their
+/// parts' boxes where neither face draws them.
+#[test]
+fn a_precomposed_letter_takes_the_face_its_decomposition_takes() {
+    let (j, f) = jbm_and_fira();
+    let faces = [Face::parse(&j).unwrap(), Face::parse(&f).unwrap()];
+    premises(&faces[0], &faces[1]);
+    assert!(
+        faces[0].glyph(cp(0x400)).is_none() && faces[1].glyph(cp(0x400)).is_some(),
+        "the premise: U+0400 is Fira Code's alone"
+    );
+    let mut r = renderer(&faces);
+    let mut moved = Vec::new();
+    for v in 0xC0..0x2000u32 {
+        let Some(c) = Codepoint::new(v) else { continue };
+        // A singleton (U+037E is U+003B) a face maps is drawn as its own
+        // glyph, as HarfBuzz keeps it: never composed back to, it is the
+        // practical distinction C6 allows.
+        match baud_font::decompose(c) {
+            None => continue,
+            Some((_, None)) if faces.iter().any(|f| f.glyph(c).is_some()) => continue,
+            Some(_) => {}
+        }
+        let d = decomposed(c);
+        let (whole, apart) = (
+            r.face_for(&[c], FaceStyle::Regular),
+            r.face_for(&d, FaceStyle::Regular),
+        );
+        if whole != apart
+            || ids(&cluster(&mut r, &[v])) != ids(&r.cluster(&d, FaceStyle::Regular, CellSpan::One))
+        {
+            moved.push(v);
+        }
+    }
+    assert!(
+        moved.is_empty(),
+        "drawn unlike their decompositions: {moved:04X?}"
+    );
+    assert_eq!(r.face_for(&[cp(0x400)], FaceStyle::Regular).index(), 0);
+}
+
+/// **A letter no face draws is one box, typed either way.** On JetBrains
+/// Mono alone, Ȃ, Ḇ, ἀ and the syllable 안 have no glyph and no parts the
+/// face has all of: each is the one `.notdef` that stands for it
+/// (`[[source: unicode18-ch5]]` 5.3), at the cell's origin, and its
+/// canonical decomposition typed is the same box, nothing left out
+/// (`[[source: unicode18-ch3]]` C6). Before, the letter drew its base and
+/// its parts' boxes a full advance to the right, over the next cell,
+/// uncounted, and the decomposition its base with the marks left out.
+#[test]
+fn a_letter_no_face_draws_is_one_box_typed_either_way() {
+    let data = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&data).unwrap()];
+    let mut r = renderer(&faces);
+    for v in [0x0202, 0x1E06, 0x1F00, 0xC548] {
+        let c = cp(v);
+        assert!(faces[0].glyph(c).is_none(), "the premise: no U+{v:04X}");
+        let d: Vec<u32> = decomposed(c).iter().map(|c| c.value()).collect();
+        let span = match v {
+            0xC548 => CellSpan::Two,
+            _ => CellSpan::One,
+        };
+        let before = unmapped(&r);
+        let whole = r.cluster(&[c], FaceStyle::Regular, span);
+        let apart = r.cluster(&cps(&d), FaceStyle::Regular, span);
+        assert_eq!(unmapped(&r) - before, 0, "U+{v:04X}: nothing left out");
+        assert_eq!(
+            whole.iter().map(|g| (g.id, g.dx, g.dy)).collect::<Vec<_>>(),
+            vec![(GlyphId::NOTDEF, whole[0].dx, 0)],
+            "U+{v:04X}: one box"
+        );
+        assert_eq!(whole[0].dx, 0, "U+{v:04X}: at the cell's origin");
+        assert_eq!(
+            apart.iter().map(|g| (g.id, g.dx, g.dy)).collect::<Vec<_>>(),
+            whole.iter().map(|g| (g.id, g.dx, g.dy)).collect::<Vec<_>>(),
+            "U+{v:04X} typed as {d:04X?}"
+        );
+    }
+}
+
+/// **A letter no face draws is the box of the face its first part comes
+/// from**, as its decomposition typed is. With Bungee Tint, which has no
+/// Greek, before JetBrains Mono, which has alpha and not U+0313, U+1F00 ἀ
+/// is JetBrains Mono's `.notdef`, as alpha + U+0313 typed is; before, the
+/// letter took the primary's.
+#[test]
+fn a_letter_no_face_draws_is_the_box_of_its_first_parts_face() {
+    let b = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/BungeeTint-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let j = font("JetBrainsMono-Regular.ttf");
+    let faces = [Face::parse(&b).unwrap(), Face::parse(&j).unwrap()];
+    for c in [0x1F00, 0x3B1, 0x313] {
+        assert!(
+            faces[0].glyph(cp(c)).is_none(),
+            "the premise: Bungee Tint lacks U+{c:04X}"
+        );
+    }
+    assert!(
+        faces[1].glyph(cp(0x3B1)).is_some(),
+        "the premise: JetBrains Mono has alpha"
+    );
+    for c in [0x1F00, 0x313] {
+        assert!(
+            faces[1].glyph(cp(c)).is_none(),
+            "the premise: JetBrains Mono lacks U+{c:04X}"
+        );
+    }
+    let mut r = renderer(&faces);
+    let typed = r.face_for(&cps(&[0x3B1, 0x313]), FaceStyle::Regular);
+    assert_eq!(
+        typed.index(),
+        1,
+        "the control: alpha + U+0313 is JetBrains Mono's"
+    );
+    assert_eq!(r.face_for(&[cp(0x1F00)], FaceStyle::Regular), typed);
+    assert_eq!(
+        faces_of(&cluster(&mut r, &[0x1F00])),
+        faces_of(&r.cluster(&cps(&[0x3B1, 0x313]), FaceStyle::Regular, CellSpan::One)),
+    );
 }

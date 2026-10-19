@@ -965,15 +965,19 @@ The alternatives scored 0.01 or less:
   deep, and the normalisation takes two. So for U+1F82 + U+0301 the first pass
   kept U+1F00 as the base and dropped only U+0345, its ypogegrammeni. The
   shaper then took U+1F00 apart again, and U+0313, which JetBrains Mono lacks,
-  drew as an uncounted box one cell right.
-  `mark_coverage::a_base_the_face_lacks_comes_apart_until_every_mark_left_is_drawn`
+  drew as an uncounted box one cell right. Since 2026-10-18 a base the face
+  cannot draw in parts stays whole, one `.notdef`, and its decomposition typed
+  draws the same (the record, "A letter no face draws is one box, typed either
+  way");
+  `mark_coverage::a_base_the_face_cannot_draw_in_parts_is_one_box_typed_either_way`
   pins that.
 - `Renderer::marks_unmapped` counts what was dropped, per shaping: every
   codepoint after the first of the normalised cluster that the kept face lacks
   and that is not default-ignorable.
-  - That includes attached codepoints that are not combining marks, and the
-    parts of a precomposed base the face lacks: U+1F82 + U+0301 counts 2, for
-    U+0345 and U+0313.
+  - That includes attached codepoints that are not combining marks. The parts
+    of a precomposed base the face lacks were counted too (U+1F82 + U+0301
+    counted 2, for U+0345 and U+0313) until 2026-10-18, when such a base
+    became one `.notdef` and counts nothing.
   - A ligature window shaped in chunks counts a cell only in the chunk that
     owns it.
   - Not counted: codepoints the normalisation cuts past its sixteenth, and marks

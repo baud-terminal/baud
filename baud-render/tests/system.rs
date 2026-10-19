@@ -32,8 +32,12 @@ fn fnv64(data: &[u8]) -> u64 {
 /// all 128 pixels that changed are in those two cells. It moved again when
 /// the CPU compositor began drawing a glyph's ink past its row into the
 /// row it reaches, as the GPU paths draw it: 438 pixels in 138 cells, every
-/// one on the first or last pixel row of a band.
-const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0xdd1522ec94abec3b);
+/// one on the first or last pixel row of a band. It moved again when a
+/// precomposed character no face here has, and none can draw in parts,
+/// stayed whole (2026-10-18): each Hangul syllable and each kana with a
+/// voiced mark is one `.notdef` in its own cells where its parts' boxes had
+/// spilled into the cells after it, 340 cells.
+const PINNED: (u64, u64, u64) = (0x04a5a3bd3567bfeb, 0xf937979684a91195, 0xff8c8a54df759923);
 
 #[test]
 fn the_macos_stack_paints_cat_cjk_to_its_pinned_frame() {
