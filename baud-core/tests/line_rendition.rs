@@ -1224,14 +1224,19 @@ fn decic_and_decdc_leave_an_image_on_a_sized_line_where_it_is() {
 /// leave the algorithms "to be supplied"; ICH's and DCH's algorithms bound
 /// their shift by the line's end (pp. 5-143 and 5-145,
 /// `ich_and_dch_shift_within_the_half`), and the scroll_left and
-/// scroll_right of DECIC's own horizontal-scrolling extension run every
-/// row to the right margin (§ 5.14.4 and § 5.14.5, pp. 5-212 and 5-213).
-/// So three letters DECIC pushes past a double line's fortieth position
-/// are kept past it and come back on DECSWL, which "does not cause data
-/// contained in the Active Line to be lost" (p. 5-96), and DECDC after it
-/// brings them back in. Jev's lean, RIGHT_MARGIN, taken below the bar
-/// after one re-ask (confidence 0.84 and 0.90, then 0.52 and 0.66,
-/// 2026-10-19); xterm shifts each row to its right margin
+/// scroll_right routines of the horizontal-scrolling extension, which
+/// DECFI and DECBI call, run every row to the right margin (§ 5.14.4 and
+/// § 5.14.5, pp. 5-212 and 5-213). So three letters DECIC pushes past a
+/// double line's fortieth position are kept past it and come back on
+/// DECSWL, which "does not cause data contained in the Active Line to be
+/// lost" (p. 5-96), and DECDC after it brings them back in. The one
+/// STD 070 note on a sized line under a horizontal shift is note 1 of
+/// DECFI and of DECBI (pp. 5-37 and 5-39), not of DECIC: "Lines of text
+/// are shifted one column regardless of their line attributes. This
+/// means double-wide and double-size lines will appear to shift twice as
+/// fast as single-width lines." Jev's lean, RIGHT_MARGIN, taken
+/// below the bar after one re-ask (confidence 0.84 and 0.90, then 0.52
+/// and 0.66, 2026-10-19); xterm shifts each row to its right margin
 /// (`[[source: xterm-scroll]]`, `xtermColScroll`).
 #[test]
 fn decic_and_decdc_shift_a_sized_line_to_the_right_margin() {
