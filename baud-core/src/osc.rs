@@ -298,8 +298,11 @@ impl Paint<'_, '_> {
     fn dispatch_osc(&mut self, term: StringTerm) {
         let n = self.cold.str_len.index();
         // Split the borrow: `Osc::parse` holds the payload while the setters
-        // want the other buffers. Every arm resolves to owned values first.
-        match Osc::parse(&self.strs.pending[..n]) {
+        // want the other buffers, and an `OSC 4`'s pairs are walked while
+        // each is applied. The payload is lent out of `strs` for the match
+        // and put back after it; no arm returns early.
+        let pending = core::mem::take(&mut self.strs.pending);
+        match Osc::parse(&pending[..n]) {
             // **No trailing-NUL trim, because a NUL cannot get here.**
             // `baud-core2` carried a `clip` helper for emitters that put a NUL
             // before the real terminator, and this core had one too until the
@@ -314,21 +317,44 @@ impl Paint<'_, '_> {
                 self.title_len = copy_bounded(self.strs.title, t);
                 self.icon_len = copy_bounded(self.strs.icon, t);
             }
-            Osc::SetColor { index, spec } => match spec {
-                XColor::Rgb(r, g, b) => self.set_palette(index, ColorWord::rgb(r, g, b)),
-                XColor::Query => self.report_color(index, term),
-                // A spec no reader takes: a name the X server lacks, or a
-                // spec off the grammar or its range (a name it holds, and
-                // every Xcms form in range, is `Rgb` already, from
-                // `XColor::parse`). Left alone rather than set to something
-                // plausible-but-wrong, and **counted**, because a spec this
-                // core cannot resolve is a request it did not honour;
-                // `every_spec_osc_code_is_handled_or_counted` probes each
-                // code with `;1`, which for OSC 10/11/12 is such a spec.
-                XColor::Unresolved(_) => self.unsupported_total += 1,
-            },
-            Osc::ResetColor(Some(c)) => self.set_palette(c, ColorWord::DEFAULT),
-            Osc::ResetColor(None) => self.reset_palette(),
+            // Each pair in turn, a query answered where it stands, so a set
+            // before it is what it reports.
+            Osc::SetColors(pairs) => {
+                for pair in pairs {
+                    match pair {
+                        ColorPair::Entry { index, spec } => match spec {
+                            XColor::Rgb(r, g, b) => {
+                                self.set_palette(index, ColorWord::rgb(r, g, b));
+                            }
+                            XColor::Query => self.report_color(index, term),
+                            // A spec no reader takes: a name the X server
+                            // lacks, or a spec off the grammar or its range
+                            // (a name it holds, and every Xcms form in range,
+                            // is `Rgb` already, from `XColor::parse`). Left
+                            // alone rather than set to something
+                            // plausible-but-wrong, and **counted**, because a
+                            // spec this core cannot resolve is a request it
+                            // did not honour;
+                            // `every_spec_osc_code_is_handled_or_counted`
+                            // probes each code with `;1`, which for OSC
+                            // 10/11/12 is such a spec.
+                            XColor::Unresolved(_) => self.unsupported_total += 1,
+                        },
+                        // A special colour baud does not keep, or a pair
+                        // off the grammar: a request not honoured.
+                        ColorPair::Special | ColorPair::Malformed => self.unsupported_total += 1,
+                    }
+                }
+            }
+            Osc::ResetColors(resets) if resets.all() => self.reset_palette(),
+            Osc::ResetColors(resets) => {
+                for reset in resets {
+                    match reset {
+                        ColorReset::Entry(c) => self.set_palette(c, ColorWord::DEFAULT),
+                        ColorReset::Special | ColorReset::Malformed => self.unsupported_total += 1,
+                    }
+                }
+            }
             // **Under `?5` each names the colour shown in its role** (note V,
             // V17): every cell is drawn exchanged, so a default cell shows the
             // stored background as its text and the stored foreground as its
@@ -440,6 +466,7 @@ impl Paint<'_, '_> {
                 self.unsupported_total += 1;
             }
         }
+        self.strs.pending = pending;
     }
 
     /// Answer `OSC 4 ; c ; ?` in the same shape as the setter.

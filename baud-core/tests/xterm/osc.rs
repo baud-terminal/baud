@@ -297,6 +297,84 @@ fn a_malformed_spec_is_ignored() {
     assert_eq!(run(b"\x1b]4;999;rgb:ff/ff/ff\x07").pal[255], None);
 }
 
+/// **Every pair of an `OSC 4` is applied, in order.** `[[source: ctlseqs]]`:
+/// "Any number of c/spec pairs may be given."
+#[test]
+fn osc_4_applies_every_pair() {
+    let o = run(b"\x1b]4;1;#ff0000;2;rgb:00/ff/00;255;blue\x07");
+    assert_eq!(o.pal[1], Some((0xff, 0, 0)));
+    assert_eq!(o.pal[2], Some((0, 0xff, 0)));
+    assert_eq!(o.pal[255], Some((0, 0, 0xff)));
+    assert_eq!(o.pal[3], None, "only the named entries change");
+}
+
+/// **A `?` in any pair queries that entry**, each answered in its own
+/// reply in the order asked and with the query's terminator: "Because more
+/// than one pair of color number and specification can be given in one
+/// control sequence, xterm can make more than one reply" (`[[source:
+/// ctlseqs]]`). A set between two queries is applied before the second is
+/// answered, as xterm's `ChangeAnsiColorRequest` walks the pairs
+/// (`[[source: xterm-misc]]` 2993-3023).
+#[test]
+fn a_query_in_any_pair_is_answered_in_turn() {
+    let o = run(b"\x1b]4;9;rgb:ff/00/80;9;?;10;#102030;10;?\x1b\\");
+    assert_eq!(
+        o.reply,
+        &b"\x1b]4;9;rgb:ffff/0000/8080\x1b\\\x1b]4;10;rgb:1010/2020/3030\x1b\\"[..]
+    );
+}
+
+/// **A bad pair ends the walk and keeps what came before**: xterm "quit[s]
+/// on any error" in the index and stops "on any error" in the spec
+/// (`[[source: xterm-misc]]` 3003-3020). The request not honoured is
+/// counted, once.
+#[test]
+fn a_bad_pair_stops_the_walk_and_is_counted() {
+    for (bytes, kept) in [
+        (&b"\x1b]4;1;red;x;blue;3;green\x07"[..], "a bad index"),
+        (b"\x1b]4;1;red;2;notacolour;3;green\x07", "a bad spec"),
+        (
+            b"\x1b]4;1;red;300;blue;3;green\x07",
+            "an index past the table",
+        ),
+        (b"\x1b]4;1;red;3\x07", "an index with no spec"),
+    ] {
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        support::feed(&mut t, bytes);
+        assert_eq!(t.palette(Chan::from_u8(1)), Some((255, 0, 0)), "{kept}");
+        assert_eq!(t.palette(Chan::from_u8(3)), None, "{kept}");
+        assert_eq!(t.unsupported, 1, "{kept}");
+    }
+}
+
+/// **An index past 255 names one of xterm's special colours** -- "The
+/// special colors can also be set by adding the maximum number of colors
+/// (e.g., 88 or 256) to these codes in an OSC 4 control" (`[[source:
+/// ctlseqs]]`), `MAXCOLORS` being 261 (`[[source: xterm-ptyx-h]]`) -- which
+/// baud does not keep: counted, and the walk goes on, as xterm's does.
+#[test]
+fn a_special_colour_is_counted_and_the_walk_goes_on() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"\x1b]4;256;red;260;red;5;#00ff00\x07");
+    assert_eq!(t.palette(Chan::from_u8(5)), Some((0, 255, 0)));
+    assert_eq!(t.unsupported, 2);
+}
+
+/// **`OSC 104` resets every entry it names.** `[[source: ctlseqs]]`: "Any
+/// number of c parameters may be given ... If no parameters are given, the
+/// entire table will be reset."
+#[test]
+fn osc_104_resets_every_entry_it_names() {
+    let set = b"\x1b]4;1;red;2;red;3;red\x07";
+    let o = run(&[&set[..], b"\x1b]104;1;2\x07"].concat());
+    assert_eq!((o.pal[1], o.pal[2]), (None, None));
+    assert_eq!(o.pal[3], Some((255, 0, 0)), "an entry not named is kept");
+}
+
 // ── clipboard ───────────────────────────────────────────────────────────────
 
 /// `OSC 52` read gets **no** answer.

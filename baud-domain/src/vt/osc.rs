@@ -21,11 +21,12 @@ pub enum Osc<'a> {
     /// `OSC 2` — "Change Window Title to Pt."
     SetTitle(&'a [u8]),
     /// `OSC 4 ; c ; spec` — "Change Color Number c to the color specified by
-    /// spec." Only the first pair is taken; see [`Osc::parse`].
-    SetColor { index: Chan, spec: XColor<'a> },
-    /// `OSC 104` — reset the palette. `None` resets every entry, which is what
-    /// an omitted parameter means.
-    ResetColor(Option<Chan>),
+    /// spec." "Any number of c/spec pairs may be given", and each is applied
+    /// in turn: [`ColorPairs`].
+    SetColors(ColorPairs<'a>),
+    /// `OSC 104 ; c` — reset the palette entries named, "Any number of c
+    /// parameters", and with none "the entire table": [`ColorResets`].
+    ResetColors(ColorResets<'a>),
     /// `OSC 10 ; spec` / `OSC 11 ; spec` -- the default foreground and
     /// background. `[[source: ctlseqs]]`: "Change VT100 text foreground
     /// color to Pt", and `?` in place of a spec is a query "with a control
@@ -400,14 +401,151 @@ impl<'a> Iterator for Split<'a> {
     }
 }
 
+/// xterm's `MAXCOLORS`: the 256 entries and the five special colours an
+/// `OSC 4` names at 256 to 260 (`[[source: xterm-ptyx-h]]`).
+const MAX_COLORS: u16 = 261;
+
+/// A palette index as `OSC 4` and `OSC 104` name it: an entry, one of
+/// xterm's special colours past the table, or neither.
+enum Index {
+    Entry(Chan),
+    Special,
+    Bad,
+}
+
+impl Index {
+    fn of(s: &[u8]) -> Index {
+        if s.is_empty() || s.len() > 3 || !s.iter().all(u8::is_ascii_digit) {
+            return Index::Bad;
+        }
+        let v = s.iter().fold(0u16, |v, &b| v * 10 + u16::from(b - b'0'));
+        match u8::try_from(v) {
+            Ok(i) => Index::Entry(Chan::from_u8(i)),
+            Err(_) if v < MAX_COLORS => Index::Special,
+            Err(_) => Index::Bad,
+        }
+    }
+}
+
+/// Where a walk over an `OSC` list is: before its first item, inside it, or
+/// ended -- by its end, or by an item xterm stops at.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Walk {
+    Start,
+    Going,
+    Done,
+}
+
+/// One pair of an `OSC 4`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ColorPair<'a> {
+    /// Entry `index` set to, or with [`XColor::Query`] asked for, `spec`.
+    Entry { index: Chan, spec: XColor<'a> },
+    /// One of xterm's special colours, `256 + c` ("The special colors can
+    /// also be set by adding the maximum number of colors ... to these codes
+    /// in an OSC 4 control", `[[source: ctlseqs]]`), which baud does not
+    /// keep. The walk goes on past it, as xterm's does.
+    Special,
+    /// A pair off the grammar -- an index that is no number or lies past
+    /// the special colours, an index with no spec, or no pair at all -- and
+    /// the last item: xterm's walk will "quit on any error"
+    /// (`[[source: xterm-misc]]` 3003).
+    Malformed,
+}
+
+/// The pairs of an `OSC 4`, in order, walked as xterm's
+/// `ChangeAnsiColorRequest` walks them (`[[source: xterm-misc]]`
+/// 2993-3023): each `c ; spec` in turn, the walk ending after a malformed
+/// pair or a spec no reader takes, the pairs before it applied. A `;` at
+/// the end ends the list.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ColorPairs<'a> {
+    rest: &'a [u8],
+    walk: Walk,
+}
+
+impl<'a> Iterator for ColorPairs<'a> {
+    type Item = ColorPair<'a>;
+    fn next(&mut self) -> Option<ColorPair<'a>> {
+        if self.walk == Walk::Done || (self.walk == Walk::Going && self.rest.is_empty()) {
+            return None;
+        }
+        self.walk = Walk::Done;
+        let mut p = Split::new(self.rest, b';');
+        let (Some(c), Some(spec)) = (p.next(), p.next()) else {
+            return Some(ColorPair::Malformed);
+        };
+        let used = c.len() + 1 + spec.len();
+        self.rest = self.rest.get(used + 1..).unwrap_or(&[]);
+        let item = match Index::of(c) {
+            Index::Entry(index) => {
+                let spec = XColor::parse(spec);
+                if !matches!(spec, XColor::Unresolved(_)) {
+                    self.walk = Walk::Going;
+                }
+                ColorPair::Entry { index, spec }
+            }
+            Index::Special => {
+                self.walk = Walk::Going;
+                ColorPair::Special
+            }
+            Index::Bad => ColorPair::Malformed,
+        };
+        Some(item)
+    }
+}
+
+/// One parameter of an `OSC 104`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ColorReset {
+    Entry(Chan),
+    /// One of xterm's special colours, which baud does not keep.
+    Special,
+    /// No number, or one past the special colours, and the last item: xterm
+    /// stops at "no number at all" (`[[source: xterm-misc]]` 3064).
+    Malformed,
+}
+
+/// The entries an `OSC 104` names, in order, as xterm's
+/// `ResetAnsiColorRequest` reads them (`[[source: xterm-misc]]` 3050-3083).
+/// [`ColorResets::all`] when it names none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ColorResets<'a> {
+    rest: &'a [u8],
+    walk: Walk,
+}
+
+impl ColorResets<'_> {
+    /// Whether the sequence named no entry: "If no parameters are given, the
+    /// entire table will be reset" (`[[source: ctlseqs]]`).
+    pub fn all(&self) -> bool {
+        self.rest.is_empty() && self.walk == Walk::Start
+    }
+}
+
+impl Iterator for ColorResets<'_> {
+    type Item = ColorReset;
+    fn next(&mut self) -> Option<ColorReset> {
+        if self.walk == Walk::Done || self.rest.is_empty() {
+            return None;
+        }
+        self.walk = Walk::Going;
+        let c = Split::new(self.rest, b';').next().unwrap_or(b"");
+        self.rest = self.rest.get(c.len() + 1..).unwrap_or(&[]);
+        Some(match Index::of(c) {
+            Index::Entry(i) => ColorReset::Entry(i),
+            Index::Special => ColorReset::Special,
+            Index::Bad => {
+                self.walk = Walk::Done;
+                ColorReset::Malformed
+            }
+        })
+    }
+}
+
 impl<'a> Osc<'a> {
     /// Resolve an OSC payload -- the bytes between the introducer and the
     /// string terminator, with neither included.
-    ///
-    /// `OSC 4` may carry "any number of c/spec pairs"; baud takes the first and
-    /// ignores the rest, which is a deliberate under-implementation rather than
-    /// a silent one: applications emit one pair per sequence in practice, and
-    /// handling n pairs means n replies from a fixed reply buffer.
     pub fn parse(payload: &'a [u8]) -> Osc<'a> {
         let mut it = Split::new(payload, b';');
         let Some(ps) = it.next() else {
@@ -421,19 +559,10 @@ impl<'a> Osc<'a> {
             b"0" => Osc::SetIconAndTitle(rest),
             b"1" => Osc::SetIcon(rest),
             b"2" => Osc::SetTitle(rest),
-            b"4" => {
-                let mut p = Split::new(rest, b';');
-                match (p.next(), p.next()) {
-                    (Some(c), Some(spec)) => match dec_chan(c) {
-                        Some(index) => Osc::SetColor {
-                            index,
-                            spec: XColor::parse(spec),
-                        },
-                        None => Osc::Unsupported,
-                    },
-                    _ => Osc::Unsupported,
-                }
-            }
+            b"4" => Osc::SetColors(ColorPairs {
+                rest,
+                walk: Walk::Start,
+            }),
             b"10" | b"11" | b"12" => {
                 let which = match ps {
                     b"10" => DynamicColor::Foreground,
@@ -452,16 +581,10 @@ impl<'a> Osc<'a> {
             b"110" => Osc::ResetDynamic(DynamicColor::Foreground),
             b"111" => Osc::ResetDynamic(DynamicColor::Background),
             b"112" => Osc::ResetDynamic(DynamicColor::Cursor),
-            b"104" => {
-                if rest.is_empty() {
-                    Osc::ResetColor(None)
-                } else {
-                    match dec_chan(rest) {
-                        Some(c) => Osc::ResetColor(Some(c)),
-                        None => Osc::Unsupported,
-                    }
-                }
-            }
+            b"104" => Osc::ResetColors(ColorResets {
+                rest,
+                walk: Walk::Start,
+            }),
             b"8" => {
                 // `OSC 8 ; params ; URI`. The params field carries `id=...`
                 // and is allowed to be empty; the URI is everything after the
@@ -507,19 +630,4 @@ fn link_id(params: &[u8]) -> &[u8] {
         }
     }
     b""
-}
-
-/// A decimal palette index, 0-255.
-fn dec_chan(s: &[u8]) -> Option<Chan> {
-    if s.is_empty() || s.len() > 3 {
-        return None;
-    }
-    let mut v: u32 = 0;
-    for &b in s {
-        if !b.is_ascii_digit() {
-            return None;
-        }
-        v = v * 10 + (b - b'0') as u32;
-    }
-    (v <= 255).then(|| Chan::from_u8(v as u8))
 }
