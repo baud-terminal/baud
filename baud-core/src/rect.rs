@@ -428,7 +428,11 @@ impl Paint<'_, '_> {
 
     /// DECFI, `ESC 9`: the mirror (p. 5-37), shifting left at the right
     /// margin, the new column at the right margin "and the cursor appears in
-    /// this column"; at the page's right edge it is ignored.
+    /// this column"; at the page's right edge it is ignored. **A step stops
+    /// at the line's end**, a double line's half: "active line may not be
+    /// columns_per_page long", and the column is cut back to
+    /// `end_of_line` (p. 5-38). It stepped into the half past it, a wrap
+    /// pending there.
     #[cold]
     #[inline(never)]
     pub(crate) fn forward_index(&mut self) {
@@ -439,7 +443,7 @@ impl Paint<'_, '_> {
             self.set_col(CursorCol::moved(right));
             return;
         }
-        if x.index() + 1 < self.cols.index() {
+        if x.index() + 1 < self.line_cols().index() {
             self.set_col(self.place(x.after()));
         }
     }

@@ -146,3 +146,24 @@ fn decfi_with_a_pending_wrap_is_at_the_right_margin() {
         assert_eq!(t.cursor(), (Row::from_index(2), Col::at_index(19)));
     });
 }
+
+/// **On a double-width line DECFI stops at the line's end**: the algorithm
+/// moves the column on and then "active line may not be columns_per_page
+/// long", `if (active_position.column > end_of_line(...)) active_position.column
+/// = end_of_line(...)` (p. 5-38). It stepped into the half past the line,
+/// where an insert under IRM then underflowed.
+#[test]
+fn decfi_on_a_double_width_line_stops_at_the_lines_end() {
+    // From the last column it stays, with no wrap pending: the `X` lands
+    // there, not on the next row.
+    support::render(&WS, b"\x1b#6\x1b[1;10H\x1b9X", |t| {
+        assert_eq!(&row(t, 1)[..10], ".........X");
+        assert_eq!(&row(t, 2)[..10], "..........");
+    });
+    support::render(&WS, b"\x1b#6\x1b[1;9H\x1b9X", |t| {
+        assert_eq!(&row(t, 1)[..10], ".........X");
+    });
+    support::render(&WS, b"\x1b#6abcdefghij\x1b[1;10H\x1b9\x1b[4hX", |t| {
+        assert_eq!(&row(t, 1)[..10], "abcdefghiX");
+    });
+}
