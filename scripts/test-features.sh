@@ -28,7 +28,11 @@
 #             apart from it. `diag` adds counters and
 #             the tests that read them (`tests/bulk_paths.rs`), and is built
 #             alone: `probe-double-scan` runs `run_of` a second time, and the
-#             stride counts with it.
+#             stride counts with it. `cell-table` is built alone: it reads
+#             a three-byte character's cell from a table where the default
+#             build decodes it, and was EXCLUDED until its read wrote what
+#             the computing path writes: it asks the cluster machine what
+#             that path asks, leaves IRM to it and frees an image under it.
 #   TOGETHER  additive probes, each running a second copy of some work into
 #             `black_box` (or a scratch) and leaving every counter and the
 #             screen as they were. One build carries them all: an arm that is
@@ -41,16 +45,11 @@
 #             and `neon-scan` is on in every test build of baud-core: its
 #             dev-dependency on itself turns the default features back on,
 #             so `--no-default-features` does not take it off.
-#   EXCLUDED  not run, for one of four reasons: wrong by construction,
+#   EXCLUDED  not run, for one of three reasons: wrong by construction,
 #             naming a test it turns red, or for `ceiling-no-act` the tests
-#             that ran past 1320 s under it; covered by another gate; not
+#             that ran past 1320 s under it; covered by another gate; or not
 #             additive, `probe-double-intern-full`, naming the test it turns
-#             red; or wrong and not yet fixed, naming the test that shows
-#             it. `cell-table` is the last: its read writes a cell of its
-#             own for a character the computing path joins to the cell
-#             before (such as a combining mark or ZWJ), and
-#             the_table_read_writes_what_the_computing_path_writes is red
-#             under it.
+#             red.
 #
 # nextest only, with no `cargo test --doc` after it: baud-core has no
 # doctest to run (its two doc fences, both in `graph.rs`, are `text`).
@@ -66,6 +65,7 @@ FLOOR=49
 
 BUILDS="
 two-pass-csi,probe-double-final-scan
+cell-table
 sgr-table
 diag
 param3,probe-no-fast-csi,colour-in-match
@@ -104,7 +104,6 @@ probe-no-csi-op          wrong by construction: every_recording_renders_to_its_p
 probe-no-csi-params      wrong by construction: every_recording_renders_to_its_pinned_digest
 ascii-only               wrong by construction: every_recording_renders_to_its_pinned_digest
 probe-double-intern-full not additive, it writes the bucket slot whatever holds it: a_hit_writes_nothing
-cell-table               wrong: the_table_read_writes_what_the_computing_path_writes
 "
 
 if [ "$#" -ne 0 ]; then

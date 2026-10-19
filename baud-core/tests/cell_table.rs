@@ -23,11 +23,14 @@
 //! `the_table_read_writes_what_the_computing_path_writes` feeds the same
 //! bytes to a terminal with the table and one without and compares the
 //! screens and the cursors, which tests the read when `cell-table` is on.
-//! **It is red under the feature**: the read writes a cell of its own for
-//! every zero-width character the computing path attaches to the cell before
-//! (combining marks, ZWJ, format characters such as U+200B, U+FEFF and the
-//! bidi controls, three Prepend), and for 235 spacing marks and Extend
-//! characters that take a column.
+//! **It was red under the feature until 2026-10-19**: the read wrote a cell
+//! of its own for every zero-width character the computing path attaches to
+//! the cell before (combining marks, ZWJ, format characters such as U+200B,
+//! U+FEFF and the bidi controls, three Prepend), and for 235 spacing marks
+//! and Extend characters that take a column. It asks the cluster machine
+//! now what the run gate asks (`put_one`), leaves a character under IRM to
+//! the computing path, which opens the gap for it, and frees an image it
+//! writes over (`a_character_the_table_writes_over_an_image_frees_it`).
 //!
 //! In `the_cell_table_is_what_the_write_path_writes`, feeding is one
 //! character per row, so row *i* of a batch is permutation *i* and no cursor
@@ -40,6 +43,7 @@
 mod support;
 
 use baud_core::*;
+use baud_domain::{ImageBudget, ImagePx};
 use std::collections::HashSet;
 
 const ROWS: usize = 50;
@@ -204,13 +208,14 @@ const NARROW: WinSize = WinSize {
 /// sequence `X` sits in a context, one per row, and a row that differs names
 /// its sequence: `X` then a space at column 0, ` X `, `aXb`, and `X` between
 /// two four-byte emoji, the woman and the man, where `X` = ZWJ makes one
-/// cluster of three. Each batch starts with `RIS`, which empties the cluster
-/// store, so 48 rows never fill its 63 slots, and ends on row 48, short of the
+/// cluster of three; after `a` and a Prepend, which `X` joins (GB9b); and
+/// between two regional indicators, which `X` keeps apart. Each batch starts with `RIS`, which empties the cluster
+/// store, so 48 rows never fill its 1024 slots, and ends on row 48, short of the
 /// scroll.
 #[test]
 fn the_table_read_writes_what_the_computing_path_writes() {
     let perms = permutations();
-    let contexts: [(&str, &[u8], &[u8]); 4] = [
+    let contexts: [(&str, &[u8], &[u8]); 7] = [
         ("X, space, at column 0", b"", b" "),
         ("space, X, space", b" ", b" "),
         ("a, X, b", b"a", b"b"),
@@ -219,6 +224,16 @@ fn the_table_read_writes_what_the_computing_path_writes() {
             "\u{1F469}".as_bytes(),
             "\u{1F468}".as_bytes(),
         ),
+        // A Prepend joins what follows it (GB9b), so a read that asks the
+        // cluster machine nothing puts `X` in a cell of its own.
+        ("a, Prepend, X, b", "a\u{0600}".as_bytes(), b"b"),
+        // `X` ends the regional indicator before it: a read that leaves the
+        // machine where the first indicator left it joins the second to `X`
+        // as a pair (GB12, GB13).
+        ("RI, X, RI", "\u{1F1E9}".as_bytes(), "\u{1F1EA}".as_bytes()),
+        // Under IRM (ECMA-48 7.2.10) `X` goes in before the `abc` and shifts
+        // it right: a read that overwrites puts `X` over the `a`.
+        ("IRM, X before abc", b"abc\r\x1b[4h", b""),
     ];
     assert_eq!(usize::from(NARROW.ws_row), ROWS);
     let batch_rows = ROWS - 2;
@@ -286,6 +301,65 @@ fn a_character_the_table_writes_takes_no_national_tag() {
         Some(0x4E2D)
     );
     assert_eq!(row[0].flags.national(), None);
+}
+
+/// **REP repeats a character the table wrote**, as it repeats one the
+/// computing path wrote: the read recorded nothing, so `a` and a lone
+/// `中` then `CSI 2 b` repeated the `a`. The read is the table's under
+/// `cell-table` and the computing path's without it.
+#[test]
+fn rep_repeats_a_character_the_table_writes() {
+    let screen = |bytes: &str| {
+        let mut owned = Owned::with_cell_table(&NARROW);
+        let mut t = Term::new(owned.storage(), &NARROW);
+        support::feed(&mut t, bytes.as_bytes());
+        (support::screen(&t), t.cursor())
+    };
+    assert_eq!(
+        screen("a\u{4E2D}\x1b[2b"),
+        screen("a\u{4E2D}\u{4E2D}\u{4E2D}")
+    );
+    assert_eq!(
+        screen("a\u{20AC}\x1b[2b"),
+        screen("a\u{20AC}\u{20AC}\u{20AC}")
+    );
+}
+
+/// **A character the table writes over an image frees it**, as one the
+/// computing path writes does: the read told the selection's watch of the
+/// write and not the image store, so a CJK character written inside a
+/// Sixel's cells left the image placed. The read is the table's under
+/// `cell-table` and the computing path's without it.
+#[test]
+fn a_character_the_table_writes_over_an_image_frees_it() {
+    const SWIRL: &[u8] = include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../tests/recordings/sixel/swirl.raw"
+    ));
+    let placed = |table: bool, text: &str| {
+        let ws = support::CORPUS;
+        let owned = match table {
+            true => Owned::with_cell_table(&ws),
+            false => Owned::new(&ws),
+        };
+        let mut owned = owned.with_images(ImageBudget::of(64 * 48 + 64));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(ImagePx::of(8), ImagePx::of(16));
+        support::feed(&mut t, b"\x1b[1;1H");
+        support::feed(&mut t, SWIRL);
+        assert_eq!(t.images().placements().count(), 1, "placed");
+        // Row 2, column 3: inside the 64x48 image's 8x3 cells.
+        support::feed(&mut t, format!("\x1b[3;4H{text}").as_bytes());
+        t.images().placements().count()
+    };
+    for text in ["\u{4E2D}", "\u{20AC}"] {
+        assert_eq!(
+            placed(false, text),
+            0,
+            "{text:?}: the computing path frees it"
+        );
+        assert_eq!(placed(true, text), 0, "{text:?}: the table frees it");
+    }
 }
 
 /// **How much of the write table would a pointer array save?**

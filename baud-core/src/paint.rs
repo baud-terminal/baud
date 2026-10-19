@@ -543,7 +543,7 @@ impl<'a, 'b> Paint<'a, 'b> {
 
     /// Whether `CSI 4 h` is in force.
     #[inline(always)]
-    fn inserting(&self) -> bool {
+    pub(crate) fn inserting(&self) -> bool {
         self.cold.modes.is_set(ModeBit::InsertReplace)
     }
 
@@ -853,11 +853,18 @@ impl<'a, 'b> Paint<'a, 'b> {
             ),
         }
         self.cells = self.cells.plus(need);
-        self.wrote_rows(self.cy, self.cy);
+        // The images under the write and the selection's watch, as `glyph`
+        // tells them: a character written inside an image's cells frees it.
+        let start = self.cx.raw();
         // Where the write ended, not where the cursor stops: see `glyph`.
-        let end = Col::at_index(self.cx.raw().index() + need);
+        let end = Col::at_index(start.index() + need);
+        self.overwrote(start, end);
         self.advance(Count::of(need));
         self.row_written = self.row_written.max(end);
+        // What `REP` repeats, as `glyph` records it.
+        if let Some(cp) = e.content.as_codepoint() {
+            self.last_cp = Some((cp, e.flags.width_of(), Pen::Decoded));
+        }
     }
 
     /// The pen for a character that arrived decoded: [`Paint::flags`] with

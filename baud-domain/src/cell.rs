@@ -239,16 +239,34 @@ impl CellFlags {
     /// (U+0816 SAMARITAN MARK IN), which is the test saying the entry no longer
     /// carried enough.
     ///
-    /// Low two bits the advance, next two the width. A write replaces the flags
-    /// with the terminal's own, so the field is free until then.
-    pub fn of_entry(w: Width) -> CellFlags {
-        CellFlags((1 + (w.cells() == 2) as u16) | ((w.cells() as u16) << 2))
+    /// Low two bits the advance, next two the width, and bit 4 whether the
+    /// character is one the table may write without asking the cluster
+    /// machine anything but whether it breaks before it
+    /// ([`CellFlags::is_ordinary_entry`]). A write replaces the flags with the
+    /// terminal's own, so the field is free until then.
+    pub fn of_entry(w: Width, c: &Classified) -> CellFlags {
+        let ordinary = c.class == GraphemeClass::Other && c.lookback.is_none();
+        CellFlags(
+            (1 + (w.cells() == 2) as u16)
+                | ((w.cells() as u16) << 2)
+                | ((ordinary as u16) << CellFlags::ORDINARY_SHIFT),
+        )
     }
+    const ORDINARY_SHIFT: u16 = 4;
     pub fn advance_of(self) -> usize {
         (self.0 & 0b11) as usize
     }
     pub fn width_of(self) -> Width {
-        Width((self.0 >> 2) as u8)
+        Width(((self.0 >> 2) & 0b11) as u8)
+    }
+    /// **The entry's class is `Other` with no lookback**, the run gate's
+    /// test (`all_ordinary` in `put_run`): such a character starts a
+    /// cluster wherever the machine breaks before an `Other`, and the read
+    /// asks it that. Anything else -- a mark, a ZWJ, a Prepend, a spacing
+    /// mark, an emoji -- goes to the computing path, where the machine
+    /// decides whether it joins the cell before.
+    pub fn is_ordinary_entry(self) -> bool {
+        self.0 & (1 << CellFlags::ORDINARY_SHIFT) != 0
     }
     pub fn is_wide(self) -> bool {
         self.0 & 0b11 == 2

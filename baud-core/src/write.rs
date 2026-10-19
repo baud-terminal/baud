@@ -1160,20 +1160,38 @@ fn put_one(p: &mut Paint<'_, '_>, from: BytePos, len: ByteLen) {
     // call site, so this test folds; the three-byte plane is 81% of
     // `cat-cjk.raw`. The table is built once at construction.
     // `the_cell_table_is_what_the_write_path_writes` holds each entry's
-    // content to the computing path's; the read writes a different screen:
-    // a mark that path attaches to the cell before gets a cell of its own,
-    // and `the_table_read_writes_what_the_computing_path_writes` is red.
+    // content to the computing path's, and
+    // `the_table_read_writes_what_the_computing_path_writes` the screen.
+    //
+    // **The read asks the cluster machine what `glyph` asks it**, the run
+    // gate's two questions: is the character `Other` with no lookback, and
+    // does the machine break before it. It asked neither, so a mark, a ZWJ
+    // or a spacing mark took a cell of its own where the computing path
+    // joins it to the cell before, a character after a Prepend did too
+    // (GB9b), and the machine still stood where the character before had
+    // left it, so a ZWJ after the read joined the next emoji to it (GB11).
+    // Anything else goes on to the computing path below, which asks again.
+    //
+    // **Under IRM the computing path writes it**, which opens the gap the
+    // character goes into (`[[source: ecma48]]` 7.2.10); the read wrote
+    // over the character at the cursor.
     #[cfg(feature = "cell-table")]
-    if len == 3 && !p.cells3.is_empty() {
+    if len == 3 && !p.cells3.is_empty() && !p.inserting() {
         let s = StreamByte::slice_from(&p.arena[at..at + 3]);
         let row = (s[0].index() - 0xE0) * 64 * 256 + (s[1].index() - 0x80) * 256;
         let e = p.cells3[row + s[2].index()];
-        #[cfg(feature = "diag")]
+        let mut probe = p.cluster;
+        if e.flags.is_ordinary_entry()
+            && probe.is_break_classified(GraphemeClass::Other, Lookback::from_bits(0))
         {
-            p.table_hits += 1;
+            #[cfg(feature = "diag")]
+            {
+                p.table_hits += 1;
+            }
+            p.cluster = probe;
+            p.indexed(e);
+            return;
         }
-        p.indexed(e);
-        return;
     }
     // **Ceiling arm: the per-character decode.** `put_one` takes 84% of this
     // recording's multi-byte runs, so an arm that covers only `put_run` --

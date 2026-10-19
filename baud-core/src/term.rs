@@ -1493,7 +1493,7 @@ impl<'b> Term<'b> {
     /// nothing in it depends on the terminal.
     /// `the_cell_table_is_what_the_write_path_writes` holds each entry's
     /// content to the path it replaces; the read in `put_one` is held by
-    /// `the_table_read_writes_what_the_computing_path_writes`, red under it.
+    /// `the_table_read_writes_what_the_computing_path_writes`.
     ///
     /// **An empty slice is how a caller declines it, and that is the whole
     /// switch.** The only read is in `put_one` behind `cell-table`, so a
@@ -1528,9 +1528,12 @@ impl<'b> Term<'b> {
                     // cell, how wide it is, and how far the cursor moves. Both are
                     // bounded functions of the three bytes, so both are settled
                     // here rather than at ingest.
-                    let w = Classified::of(cp).width(a);
-                    store.cells3[row + b2] =
-                        PackedCell::glyph(cp, StyleId::DEFAULT, CellFlags::of_entry(w));
+                    let c = Classified::of(cp);
+                    store.cells3[row + b2] = PackedCell::glyph(
+                        cp,
+                        StyleId::DEFAULT,
+                        CellFlags::of_entry(c.width(a), &c),
+                    );
                 }
             }
         }
