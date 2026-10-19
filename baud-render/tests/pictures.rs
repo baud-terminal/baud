@@ -274,8 +274,10 @@ fn no_recording_or_panel_draws_a_picture_at_any_read_boundary() {
 /// exchanges every cell's colours", open question 3, where the owner is
 /// asked whether it should be). btop's and cava's coloured text then makes
 /// a block of sixteen colours or more: btop at 125 of its 128 reads, 7200
-/// cells at most, and cava at 152 of 156, the whole screen's 10,000 cells
-/// at most.
+/// cells at most, and cava at 152 of 156, 4257 cells at most. cava erases
+/// under a foreground, and an erase keeps only the background (the record,
+/// "An erase clears every attribute but the background"), so its erased
+/// cells carry no foreground and draw the default page under `?5`.
 ///
 /// Positive control: chafa's capture, fed after each stream, is 1139 of
 /// its 1148 cells under `?5`. The nine it loses are its own `SGR 7` cells
@@ -283,7 +285,9 @@ fn no_recording_or_panel_draws_a_picture_at_any_read_boundary() {
 /// exchanges a second time onto the default.
 ///
 /// And the zeros were asked of colour: the eleven quiet streams' last
-/// screens hold 33,449 cells whose drawn background under `?5` is set.
+/// screens hold 17,598 cells whose drawn background under `?5` is set.
+/// asciiquarium, vimdiff and vimhl erase under a foreground too, and their
+/// erased cells draw the default page under `?5` for the same reason.
 #[test]
 fn under_reverse_video_only_btop_and_cava_draw_a_picture() {
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../tests");
@@ -314,7 +318,7 @@ fn under_reverse_video_only_btop_and_cava_draw_a_picture() {
         }
         let (expect_pictured, expect_most) = match name.as_str() {
             "btop.raw" => (125, 7200),
-            "cava.raw" => (152, 10_000),
+            "cava.raw" => (152, 4_257),
             _ => {
                 let view = t.view(Rows::ZERO);
                 for y in 0..usize::from(CORPUS.ws_row) {
@@ -349,7 +353,7 @@ fn under_reverse_video_only_btop_and_cava_draw_a_picture() {
         got, want,
         "name, reads, with a picture, most cells, control"
     );
-    assert_eq!(quiet_set_bg, 33_449, "set backgrounds drawn under ?5");
+    assert_eq!(quiet_set_bg, 17_598, "set backgrounds drawn under ?5");
 }
 
 fn dim_renderer<'f, 'a>(faces: &'f [Face<'a>], pictures: PictureBg) -> Renderer<'f, 'a> {

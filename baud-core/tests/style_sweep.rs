@@ -351,8 +351,11 @@ fn a_full_table_sweeps_before_it_evicts() {
         let mut out = Vec::new();
         for i in 0..len - 1 {
             out.extend(format!("{}X", rendition(i, 13)).as_bytes());
+            // The line feed in the default rendition: a scroll under a
+            // coloured one interns that background alone, one rendition
+            // more than the cells were written in.
             if (i + 1) % 40 == 0 {
-                out.extend(b"\r\n");
+                out.extend(b"\x1b[0m\r\n");
             }
         }
         feed(t, &out);
@@ -393,8 +396,11 @@ fn a_full_table_evicts_without_sweeping_within_a_sixteenth_of_its_writes() {
         let mut out = Vec::new();
         for i in 0..len - 1 {
             out.extend(format!("{}X", rendition(i, 15)).as_bytes());
+            // The line feed in the default rendition: a scroll under a
+            // coloured one interns that background alone, one rendition
+            // more than the cells were written in.
             if (i + 1) % 40 == 0 {
-                out.extend(b"\r\n");
+                out.extend(b"\x1b[0m\r\n");
             }
         }
         feed(t, &out);

@@ -1995,7 +1995,10 @@ impl<'a, 'b> Paint<'a, 'b> {
         // blanking arm got wrong, reporting a full row on one side and the
         // used extent on the other.
         #[cfg(not(feature = "ceiling-no-blank"))]
-        let n = self.view.fill_row(Row::from_index(last), self.blank());
+        let n = {
+            let b = self.blank();
+            self.view.fill_row(Row::from_index(last), b)
+        };
         #[cfg(feature = "ceiling-no-blank")]
         let n = self.view.extent(Row::from_index(last));
         self.cells = self.cells.plus(n.index());

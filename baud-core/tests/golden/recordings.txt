@@ -4,12 +4,15 @@
 # utf8/vim-unicode moved on 2026-10-10: vim writes U+1F1EF, then CUP two columns on,
 # then U+1F1F5, as two cells, and a cursor move now ends the cluster (GB4), so the
 # eleven JP pairs on its final screen are the two cells vim addressed, not one flag.
+# ascii/asciiquarium and utf8/cava moved on 2026-10-19: each erases under a foreground
+# or an attribute, and an erased cell now keeps the background alone (the record, "An erase
+# clears every attribute but the background"); the frame baud-render pins did not move.
 ascii/cat-scroll digest 42b6a6104ae72a23 nonblank 1786 cursor 49 0
 ascii/git-log digest f33412141bf803db nonblank 2712 cursor 49 0
 ascii/less-pager digest 8c6560cc6c896b52 nonblank 2172 cursor 49 1
-ascii/asciiquarium digest fdb2a3f22c4cc7f7 nonblank 2878 cursor 14 106
+ascii/asciiquarium digest fd5f2306ae73184c nonblank 2878 cursor 14 106
 utf8/btop digest aa23c0ea93c75f59 nonblank 7200 cursor 30 73
 utf8/vim-unicode digest 4dbfab8372d41ddc nonblank 3344 cursor 0 0
 utf8/cat-cjk digest 0f8154d88c3d25b5 nonblank 2182 cursor 49 0
 utf8/less-cjk digest 11b7328a6fa84ae5 nonblank 0 cursor 0 0
-utf8/cava digest 099bb5dffb224ac2 nonblank 4159 cursor 19 0
+utf8/cava digest c08e5b286eb21051 nonblank 4159 cursor 19 0

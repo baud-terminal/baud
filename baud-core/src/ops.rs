@@ -471,18 +471,32 @@ impl Paint<'_, '_> {
     }
 
     /// **What an erase leaves, and what a line scrolled or opened onto the
-    /// screen holds**: an empty cell in the current rendition, or under
-    /// DECECM set the screen background, the default rendition
-    /// (`[[source: vt520-rm]]` p. 5-48, "Controls the background color used
-    /// when text is erased or new text is scrolled on to the screen"). The
-    /// mode is one bit of a word the erase's caller reads anyway; a blank is
-    /// built once an erase or a line, never per byte.
+    /// screen holds**: an empty cell in the current text background with
+    /// every other attribute cleared, or under DECECM set the screen
+    /// background, the default rendition (`[[source: vt520-rm]]` p. 5-48,
+    /// "Controls the background color used when text is erased or new text
+    /// is scrolled on to the screen"; ED, EL and ECH "clear all character
+    /// attributes", pp. 5-179 and 5-180). Reverse is an attribute and goes
+    /// too, so the background is the colour word SGR 40-49 set, as xterm,
+    /// ghostty, foot and alacritty erase (Jev's lean, UNSWAPPED, 0.60/0.66).
+    /// The mode is one bit of a word the erase's caller reads anyway; a blank
+    /// is built once an erase or a line, never per byte, and in the default
+    /// rendition it interns nothing.
     #[inline(always)]
-    pub(crate) fn blank(&self) -> PackedCell {
-        match self.cold.modes.is_set(ModeBit::EraseScreenBackground) {
-            true => PackedCell::empty_with(StyleId::DEFAULT),
-            false => PackedCell::empty_with(self.style),
+    pub(crate) fn blank(&mut self) -> PackedCell {
+        if self.style == StyleId::DEFAULT || self.cold.modes.is_set(ModeBit::EraseScreenBackground)
+        {
+            return PackedCell::empty_with(StyleId::DEFAULT);
         }
+        PackedCell::empty_with(self.text_background())
+    }
+
+    /// The current background alone, interned: the rendition an erase
+    /// leaves under DECECM reset. Out of line, behind the default test.
+    #[cold]
+    #[inline(never)]
+    fn text_background(&mut self) -> StyleId {
+        self.intern_style(StyleWord::DEFAULT.with_bg(self.style_raw.bg()))
     }
 
     fn fill_row_counted(&mut self, r: Row) {

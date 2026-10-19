@@ -79,6 +79,25 @@ fn set_erases_to_the_screen_background() {
     }
 }
 
+/// **Reset, an erase keeps the background and clears every other
+/// attribute**: "EL clears all character attributes from erased character
+/// positions" (`[[source: vt510-el]]`, and ED and ECH the same), and the
+/// VT525's text background is "the current text background color". Bold,
+/// underline, reverse, strike and a foreground go: the erased cells name
+/// the rendition `ESC [ 41 m` alone gives. Reverse is an attribute too, so
+/// the background is the colour word, not the swapped one (Jev's lean,
+/// UNSWAPPED). The default rendition interns nothing.
+#[test]
+fn reset_keeps_the_background_alone() {
+    for (name, bytes, y) in ERASES {
+        let program = [b"\x1b[1;4;7;9;32m".as_slice(), bytes].concat();
+        let (row, red) = after(&program, y);
+        assert!(row.iter().all(|c| c.style == red), "{name}");
+    }
+    let (row, _) = after(b"\x1b[1;4;7m\x1b[2K", 0);
+    assert!(row.iter().all(|c| c.style == StyleId::DEFAULT));
+}
+
 /// A selective erase keeps each character's own rendition under either
 /// state: `[[source: dec-std-070]]` DECSED and DECSEL, "The character
 /// rendition and attributes associated with each position do not change".
