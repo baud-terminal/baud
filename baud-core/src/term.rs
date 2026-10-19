@@ -617,6 +617,12 @@ pub(crate) enum Pinned {
     OnLast,
 }
 
+/// Every line the grid can have can carry a line tabulation stop.
+const _: () = assert!(
+    MAX_ROWS <= LineStops::LINES,
+    "widen LineStops past MAX_ROWS"
+);
+
 /// The state a control sequence changes that the write loop does not read.
 #[derive(Clone, Copy)]
 pub struct Cold {
@@ -875,6 +881,10 @@ pub struct Cold {
     /// whichever cursor the primary will have when the alternate screen goes.
     pub(crate) alt_entry: crate::ops::AltSwitch,
     pub(crate) modes: Modes,
+    /// The line tabulation stops VTS and CTC 1 set, which CVT and VT reach
+    /// and TBC and CTC clear; none at power-on and after `RIS`, kept by
+    /// `DECSTR`, which names no tab stops.
+    pub(crate) line_stops: LineStops,
     /// XTSAVE's one-level cache of the private modes, which XTRESTORE reads
     /// back: written and read once per `CSI ? Pm s` and `r`, emptied by
     /// `RIS`, never on the write path.
@@ -1033,9 +1043,11 @@ pub struct Cold {
 // in both `Saved` copies, `saved` and `alt_saved` (56 to 72 bytes each).
 // None is read on the per-byte path: GR where a GR byte is written, the
 // rest by control functions and reports.
+// The line tabulation stops took it to 808: ten words, written by VTS, CTC,
+// TBC and RIS and read by CVT and by VT's out-of-line arm, never by a glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 728);
+const _: () = assert!(core::mem::size_of::<Cold>() == 808);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -1285,6 +1297,7 @@ impl Cold {
             vs16: Vs16Width::Two,
             pinned: Pinned::Before,
             keypad: KeypadMode::Numeric,
+            line_stops: LineStops::NONE,
             protect: CellFlags::NONE,
             guard_open: None,
             guards: Guards::None,

@@ -57,6 +57,14 @@ fn table_finals() -> BTreeSet<u8> {
         if !(l.starts_with("| `CSI") || l.starts_with("| ``CSI")) {
             continue;
         }
+        // A row whose status is **out** records a refusal, and a refusal is
+        // counted: `CSI Ps ^`, SIMD, claims no final the parser acts on.
+        if l.split('|')
+            .nth(3)
+            .is_some_and(|c| c.trim().starts_with("**out**"))
+        {
+            continue;
+        }
         let mut cell = l
             .trim_matches('|')
             .split('|')
@@ -469,6 +477,12 @@ fn every_spec_csi_form_is_handled_or_counted() {
             "DECSACE 1 is the stream, which is already the default -- \
              decsace_is_reported_kept_by_decstr_and_reset_by_ris",
         ),
+        (
+            b"\x1b[1g",
+            "TBC 1 clears the line tabulation stop at the active line, and the \
+             prepared state sets none -- \
+             tbc_1_clears_the_line_stop_at_the_cursor_and_nothing_else",
+        ),
     ];
 
     let (bare, probed) = (snapshot(b"", false), snapshot(b"", true));
@@ -573,6 +587,11 @@ fn every_spec_esc_form_is_handled_or_counted() {
             b'W',
             "EPA with no SPA open ends no area, which is the whole of its \
              effect from the prepared state (baud-core/tests/guarded_area.rs)",
+        ),
+        (
+            b'J',
+            "VTS sets a line tabulation stop at the cursor's line; the snapshot \
+             has no tab-stop state (baud-core/tests/vt100/line_tabs.rs)",
         ),
     ];
 

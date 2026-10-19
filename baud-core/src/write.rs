@@ -441,6 +441,11 @@ pub(crate) fn act(
             p.tab_forward(Count::ONE);
             ReadLen::ONE
         }
+        // VT: to the following line tabulation stop, `LF` where none follows.
+        Act::LineTab => {
+            p.vertical_tab();
+            ReadLen::ONE
+        }
 
         // **The locking shifts: which slot `GL` reads through.** `SO` invokes
         // G1 and `SI` invokes G0, and both go through the same `reinvoke`
@@ -1830,6 +1835,8 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             p.scroll_region_down(c);
             p.row_changed_to(p.cy);
         }
+        DomCsi::ScrollLeft(c) => p.scroll_columns(c, ColumnShift::Delete),
+        DomCsi::ScrollRight(c) => p.scroll_columns(c, ColumnShift::Insert),
         DomCsi::SetScrollRegion { top, bottom } => p.set_scroll_region(top, bottom),
         DomCsi::Sgr => p.apply_sgr(csi),
         DomCsi::SaveCursor => p.cold.saved = Some(p.save()),
@@ -1840,6 +1847,9 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::CursorForwardTab(c) => p.tab_forward(c),
         DomCsi::CursorBackTab(c) => p.tab_back(c),
         DomCsi::TabClear(w) => p.tab_clear(w),
+        DomCsi::CursorTabControl => p.tab_control(csi),
+        DomCsi::CursorLineTab(c) => p.line_tab(c),
+        DomCsi::TabsEveryEight => p.reset_tabs(),
         DomCsi::PrivateMode { change, .. } => p.apply_private_modes(csi, change, node, at),
         DomCsi::SaveModes => p.save_private_modes(csi),
         DomCsi::RestoreModes => p.restore_private_modes(csi, node, at),
@@ -2162,12 +2172,8 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
             p.carriage_return();
             p.index();
         }
-        Esc::TabSet => {
-            let x = p.cx.col().index();
-            if x < p.tabs.len() {
-                p.tabs[x] = true;
-            }
-        }
+        Esc::TabSet => p.tab_set(),
+        Esc::LineTabSet => p.cold.line_stops.set(p.cy),
         Esc::Reset => p.hard_reset(),
         // **DECKPAM and DECKPNM, recorded and exposed.** They decide what the
         // keypad sends, so the terminal's whole part is to know which mode is

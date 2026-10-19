@@ -117,6 +117,7 @@ impl Term<'_> {
                     Act::Index => {
                         p.index();
                     }
+                    Act::LineTab => p.vertical_tab(),
                     Act::Return => p.set_col(CursorCol::moved(Col::ZERO)),
                     Act::Backspace if p.cx.raw() > Col::ZERO => p.set_col(p.cx.before()),
                     _ => {}

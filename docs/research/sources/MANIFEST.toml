@@ -21671,10 +21671,10 @@ author = "Thomas E. Dickey"
 year   = 2026
 venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
 url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/input.c"
-file   = ""
+file   = "xterm-input.c"
 sha256 = "8b78c08a8b0ed1598185b5aebe0d48c166bc09ab2033cafa453e461ba7af5905"
 bytes  = 62870
-status = "external"
+status = "retrieved"
 group  = "AM"
 
 [sources.xterm-xstrings-c]
@@ -28605,3 +28605,80 @@ bytes  = 20210
 status = "retrieved"
 group  = "C"
 # Fetched 2026-10-19 for the VT420 reports (lane b101): CSI Ph; Pw; Pml; Pmt; Pmp " w.
+[sources.vt510-kam]
+key    = "vt510-kam"
+title  = "KAM — Keyboard Action Mode (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/KAM.html"
+file   = "vt510-KAM.html"
+sha256 = "f3099aecca3a0f5393861a07b1327173f22067c888bdba8a63c3dd9752a6e4d0"
+bytes  = 19824
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-srm]
+key    = "vt510-srm"
+title  = "SRM — Local Echo: Send/Receive Mode (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/SRM.html"
+file   = "vt510-SRM.html"
+sha256 = "ac32a356647d3a4a3baefd3075a71d5e51fa92145e422ffe3649fb68e3ebae9d"
+bytes  = 20049
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-decnkm]
+key    = "vt510-decnkm"
+title  = "DECNKM — Numeric Keypad Mode (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECNKM.html"
+file   = "vt510-DECNKM.html"
+sha256 = "a846039f8f4e44d91d8c110af8f4bc4c7ed62f24bc0490c532c2253be0ee02ed"
+bytes  = 19713
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-decbkm]
+key    = "vt510-decbkm"
+title  = "DECBKM — Backarrow Key Mode (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECBKM.html"
+file   = "vt510-DECBKM.html"
+sha256 = "1cfcae76c3033e5be7bbe626379e685a406ccedfcf3ac3cbda20427d6ace36ba"
+bytes  = 19960
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-decst8c]
+key    = "vt510-decst8c"
+title  = "DECST8C — Set Tab at Every 8 Columns (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECST8C.html"
+file   = "vt510-DECST8C.html"
+sha256 = "67b5b73fe4e7922a663f12942825e2f4e5a179938a059ff9ab47a47f093feb98"
+bytes  = 19354
+status = "retrieved"
+group  = "C"
+
+[sources.vt510-tbc]
+key    = "vt510-tbc"
+title  = "TBC — Tab Clear (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/TBC.html"
+file   = "vt510-TBC.html"
+sha256 = "ce52e8c48f10e3826024a7e19df95cf43558950d3dd26bd89ee793386828a9b6"
+bytes  = 19343
+status = "retrieved"
+group  = "C"

@@ -17,10 +17,12 @@ mod cuu_cud;
 mod erase;
 mod erase_qualified;
 mod irm;
+mod line_tabs;
 mod mode_lists;
 mod modes;
 mod private_modes;
 mod save_params;
+mod scroll_columns;
 mod scrolling;
 mod tabs;
 

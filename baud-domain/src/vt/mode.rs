@@ -106,6 +106,12 @@ pub enum AnsiMode {
     /// erasure control function". Set, ALL: "The contents of protected as
     /// well as of unprotected areas are affected".
     Erasure,
+    /// TSM, mode 18, `[[source: ecma48]]` 7.2.17. baud's character stops are
+    /// the same in every line, MULTIPLE, the reset state, and cannot be made
+    /// per-line: one state only, which 7.1 allows ("some or all of the modes
+    /// may have one state only"). `DECRQM` answers it permanently reset and
+    /// SM and RM are counted (Jev 2026-10-19, PERMANENTLY_RESET, 0.98/0.98).
+    TabulationStop,
     Other(Param),
 }
 
@@ -115,6 +121,7 @@ impl AnsiMode {
             4 => AnsiMode::InsertReplace,
             20 => AnsiMode::LineFeedNewLine,
             6 => AnsiMode::Erasure,
+            18 => AnsiMode::TabulationStop,
             n => AnsiMode::Other(Param(n)),
         }
     }

@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 260 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 266 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 280 | 25 | redistributable, and its notice is satisfied |
+| kept | 281 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 778 | 36 | |
+| total | 785 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -534,7 +534,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 71
+- **Files:** 77
 
 | file | copied from |
 |---|---|
@@ -556,6 +556,7 @@ notice is, and the URL each file was copied from.
 | [vt510-DECARM.html](docs/research/sources/vt510-DECARM.html) | https://vt100.net/docs/vt510-rm/DECARM.html |
 | [vt510-DECAUPSS.html](docs/research/sources/vt510-DECAUPSS.html) | https://vt100.net/docs/vt510-rm/DECAUPSS.html |
 | [vt510-DECAWM.html](docs/research/sources/vt510-DECAWM.html) | https://vt100.net/docs/vt510-rm/DECAWM.html |
+| [vt510-DECBKM.html](docs/research/sources/vt510-DECBKM.html) | https://vt100.net/docs/vt510-rm/DECBKM.html |
 | [vt510-DECCIR.html](docs/research/sources/vt510-DECCIR.html) | https://vt100.net/docs/vt510-rm/DECCIR.html |
 | [vt510-DECCKSR.html](docs/research/sources/vt510-DECCKSR.html) | https://vt100.net/docs/vt510-rm/DECCKSR.html |
 | [vt510-DECCOLM.html](docs/research/sources/vt510-DECCOLM.html) | https://vt100.net/docs/vt510-rm/DECCOLM.html |
@@ -566,6 +567,7 @@ notice is, and the URL each file was copied from.
 | [vt510-DECFRA.html](docs/research/sources/vt510-DECFRA.html) | https://vt100.net/docs/vt510-rm/DECFRA.html |
 | [vt510-DECIC.html](docs/research/sources/vt510-DECIC.html) | https://vt100.net/docs/vt510-rm/DECIC.html |
 | [vt510-DECNCSM.html](docs/research/sources/vt510-DECNCSM.html) | https://vt100.net/docs/vt510-rm/DECNCSM.html |
+| [vt510-DECNKM.html](docs/research/sources/vt510-DECNKM.html) | https://vt100.net/docs/vt510-rm/DECNKM.html |
 | [vt510-DECOM.html](docs/research/sources/vt510-DECOM.html) | https://vt100.net/docs/vt510-rm/DECOM.html |
 | [vt510-DECRARA.html](docs/research/sources/vt510-DECRARA.html) | https://vt100.net/docs/vt510-rm/DECRARA.html |
 | [vt510-DECRC.html](docs/research/sources/vt510-DECRC.html) | https://vt100.net/docs/vt510-rm/DECRC.html |
@@ -581,6 +583,7 @@ notice is, and the URL each file was copied from.
 | [vt510-DECSED.html](docs/research/sources/vt510-DECSED.html) | https://vt100.net/docs/vt510-rm/DECSED.html |
 | [vt510-DECSEL.html](docs/research/sources/vt510-DECSEL.html) | https://vt100.net/docs/vt510-rm/DECSEL.html |
 | [vt510-DECSLRM.html](docs/research/sources/vt510-DECSLRM.html) | https://vt100.net/docs/vt510-rm/DECSLRM.html |
+| [vt510-DECST8C.html](docs/research/sources/vt510-DECST8C.html) | https://vt100.net/docs/vt510-rm/DECST8C.html |
 | [vt510-DECSTBM.html](docs/research/sources/vt510-DECSTBM.html) | https://vt100.net/docs/vt510-rm/DECSTBM.html |
 | [vt510-DECSTR.html](docs/research/sources/vt510-DECSTR.html) | https://vt100.net/docs/vt510-rm/DECSTR.html |
 | [vt510-DECSWL.html](docs/research/sources/vt510-DECSWL.html) | https://vt100.net/docs/vt510-rm/DECSWL.html |
@@ -600,13 +603,16 @@ notice is, and the URL each file was copied from.
 | [vt510-HPR.html](docs/research/sources/vt510-HPR.html) | https://vt100.net/docs/vt510-rm/HPR.html |
 | [vt510-IL.html](docs/research/sources/vt510-IL.html) | https://vt100.net/docs/vt510-rm/IL.html |
 | [vt510-IND.html](docs/research/sources/vt510-IND.html) | https://vt100.net/docs/vt510-rm/IND.html |
+| [vt510-KAM.html](docs/research/sources/vt510-KAM.html) | https://vt100.net/docs/vt510-rm/KAM.html |
 | [vt510-LS.html](docs/research/sources/vt510-LS.html) | https://vt100.net/docs/vt510-rm/LS.html |
 | [vt510-NEL.html](docs/research/sources/vt510-NEL.html) | https://vt100.net/docs/vt510-rm/NEL.html |
 | [vt510-RIS.html](docs/research/sources/vt510-RIS.html) | https://vt100.net/docs/vt510-rm/RIS.html |
 | [vt510-S7C1T.html](docs/research/sources/vt510-S7C1T.html) | https://vt100.net/docs/vt510-rm/S7C1T.html |
 | [vt510-S8C1T.html](docs/research/sources/vt510-S8C1T.html) | https://vt100.net/docs/vt510-rm/S8C1T.html |
 | [vt510-SCS.html](docs/research/sources/vt510-SCS.html) | https://vt100.net/docs/vt510-rm/SCS.html |
+| [vt510-SRM.html](docs/research/sources/vt510-SRM.html) | https://vt100.net/docs/vt510-rm/SRM.html |
 | [vt510-SS.html](docs/research/sources/vt510-SS.html) | https://vt100.net/docs/vt510-rm/SS.html |
+| [vt510-TBC.html](docs/research/sources/vt510-TBC.html) | https://vt100.net/docs/vt510-rm/TBC.html |
 | [vt510-chapter4.html](docs/research/sources/vt510-chapter4.html) | https://vt100.net/docs/vt510-rm/chapter4.html |
 | [vt510-chapter7.html](docs/research/sources/vt510-chapter7.html) | https://vt100.net/docs/vt510-rm/chapter7.html |
 
@@ -1826,7 +1832,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11
 - **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
-- **Files:** 23
+- **Files:** 24
 
 | file | copied from |
 |---|---|
@@ -1839,6 +1845,7 @@ notice is, and the URL each file was copied from.
 | [xterm-doublechr.c](docs/research/sources/xterm-doublechr.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/doublechr.c |
 | [xterm-faq.html](docs/research/sources/xterm-faq.html) | https://invisible-island.net/xterm/xterm.faq.html |
 | [xterm-graphics_sixel.c](docs/research/sources/xterm-graphics_sixel.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/graphics_sixel.c |
+| [xterm-input.c](docs/research/sources/xterm-input.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/input.c |
 | [xterm-main.h](docs/research/sources/xterm-main.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/main.h |
 | [xterm-misc.c](docs/research/sources/xterm-misc.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/misc.c |
 | [xterm-ptydata.c](docs/research/sources/xterm-ptydata.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/ptydata.c |

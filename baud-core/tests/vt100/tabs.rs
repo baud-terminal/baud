@@ -72,14 +72,19 @@ fn tbc_all_leaves_no_stops() {
     assert_eq!(col(b"\x1b[3g\t"), 199);
 }
 
-/// A TBC value xterm does not implement is ignored rather than treated as 0.
+/// TBC 1 and 4 clear line stops, never a character stop.
 ///
-/// Silently aliasing an unknown parameter onto a known one is how a terminal
-/// ends up clearing stops an application asked to keep.
+/// Silently aliasing one value onto another is how a terminal ends up
+/// clearing stops an application asked to keep. `tests/vt100/line_tabs.rs`
+/// holds the line stops themselves, and TBC 2 and 5.
 #[test]
-fn tbc_with_an_unimplemented_parameter_is_inert() {
-    assert_eq!(col(b"\x1b[1g\x1b[1G\t"), 8, "TBC 1 must not clear anything");
-    assert_eq!(col(b"\x1b[5g\x1b[1G\t"), 8, "TBC 5 likewise");
+fn tbc_line_forms_leave_the_character_stops() {
+    assert_eq!(
+        col(b"\x1b[1g\x1b[1G\t"),
+        8,
+        "TBC 1 clears no character stop"
+    );
+    assert_eq!(col(b"\x1b[4g\x1b[1G\t"), 8, "TBC 4 likewise");
 }
 
 // ── CHT and CBT ─────────────────────────────────────────────────────────────

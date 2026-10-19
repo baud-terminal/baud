@@ -659,8 +659,23 @@ pub enum Csi {
     CursorForwardTab(Count),
     /// CBT, `CSI Z`. Backward `n` tab stops.
     CursorBackTab(Count),
-    /// TBC, `CSI g`. `None` for the values xterm does not implement.
+    /// TBC, `CSI g`: `[[source: ecma48]]` 8.3.154's six values, `None` for
+    /// any other.
     TabClear(Option<TabClear>),
+    /// CTC, `CSI Ps... W` (`[[source: ecma48]]` 8.3.17, "Notation:
+    /// (Ps...)"): sets and clears stops of both kinds,
+    /// every parameter in order, which the caller walks through
+    /// [`TabControl::from_param`].
+    CursorTabControl,
+    /// CVT, `CSI Pn Y` (8.3.23): to the line of the n-th following line
+    /// tabulation stop, the column kept.
+    CursorLineTab(Count),
+    /// DECST8C, `CSI ? 5 W` (`[[source: vt510-decst8c]]`): "Set a tab stop at
+    /// every eight columns starting with column 9 ... Any tab stop setting
+    /// before this command is executed is cleared automatically." Only the
+    /// one form the texts give; `CSI ? W` and any other value are
+    /// [`Csi::Unsupported`] (Jev's lean, FIVE_ONLY, 0.74/0.90).
+    TabsEveryEight,
     /// CNL, `CSI E`. Down `n` lines, to column 1.
     CursorNextLine(Count),
     /// CPL, `CSI F`. Up `n` lines, to column 1.
@@ -684,6 +699,11 @@ pub enum Csi {
     ScrollUp(Count),
     /// SD, `CSI T`. Scroll the scrolling region down, cursor unmoved.
     ScrollDown(Count),
+    /// SL, `CSI Pn SP @` (`[[source: ecma48]]` 8.3.121): the rectangle the
+    /// margins bound moves left, cursor unmoved.
+    ScrollLeft(Count),
+    /// SR, `CSI Pn SP A` (8.3.135): the mirror.
+    ScrollRight(Count),
     /// SM / RM, the unprefixed mode namespace, `CSI Pm h` and `CSI Pm l`.
     /// `mode` is the first parameter's; the list is every parameter, which
     /// the caller walks, as it walks [`Csi::PrivateMode`]'s.
@@ -902,6 +922,15 @@ impl Csi {
                         final_byte: f,
                     },
                 },
+                // SL and SR, the standard namespace's alone: `[[source:
+                // ecma48]]` 8.3.121 and 8.3.135 give `CSI Pn 02/00 04/00`
+                // and `04/01`, and no prefix.
+                (b' ', b'@') if marker == Marker::Standard => {
+                    Csi::ScrollLeft(p.count(ParamIdx::FIRST))
+                }
+                (b' ', b'A') if marker == Marker::Standard => {
+                    Csi::ScrollRight(p.count(ParamIdx::FIRST))
+                }
                 // `[[source: vt510-decic]]` / `[[source: vt510-decdc]]`.
                 (b'\'', b'}') => Csi::InsertColumns(p.count(ParamIdx::FIRST)),
                 (b'\'', b'~') => Csi::DeleteColumns(p.count(ParamIdx::FIRST)),
@@ -1025,6 +1054,10 @@ impl Csi {
                 },
                 // `[[source: kitty-keyboard]]` query, `CSI ? u`.
                 b'u' => Csi::KittyQuery,
+                // DECST8C, one parameter and that one 5.
+                b'W' if p.raw(ParamIdx::FIRST, 0) == 5 && !p.has(ParamIdx::SECOND) => {
+                    Csi::TabsEveryEight
+                }
                 // XTSAVE and XTRESTORE. Not SCOSC or DECSLRM, not DECSTBM:
                 // those are the standard namespace's `s` and `r`.
                 b's' => Csi::SaveModes,
@@ -1129,6 +1162,15 @@ impl Csi {
             b'I' => Csi::CursorForwardTab(p.count(ParamIdx::FIRST)),
             b'Z' => Csi::CursorBackTab(p.count(ParamIdx::FIRST)),
             b'g' => Csi::TabClear(TabClear::from_param(p.at(ParamIdx::FIRST))),
+            b'W' => Csi::CursorTabControl,
+            b'Y' => Csi::CursorLineTab(p.count(ParamIdx::FIRST)),
+            // **`CSI Ps ^` is SIMD, not SD**, and falls to `Unsupported`: the
+            // pinned `[[source: ecma48]]` gives `CSI Ps 05/14` to SELECT
+            // IMPLICIT MOVEMENT DIRECTION and SD `05/04`. ctlseqs keeps it
+            // as SD: "This was a publication error in the original ECMA-48
+            // 5th edition (1991) corrected in 2003". baud has no
+            // implicit-movement directions to select (Jev's lean,
+            // SIMD_COUNTED, 0.80/0.84).
             b'E' => Csi::CursorNextLine(p.count(ParamIdx::FIRST)),
             b'F' => Csi::CursorPrevLine(p.count(ParamIdx::FIRST)),
             b'G' | b'`' => Csi::ColumnAbsolute(p.one_based(ParamIdx::FIRST)),
@@ -1202,22 +1244,116 @@ impl Csi {
     }
 }
 
-/// TBC, `CSI g`. ECMA-48 defines six values; `[[source: ctlseqs]]` notes xterm
-/// implements 0 and 3, which are the two any application sends.
+/// TBC, `CSI g`: `[[source: ecma48]]` 8.3.154's six values, the line
+/// tabulation stops' included. `[[source: vt510-tbc]]` and xterm keep 0 and
+/// 3 ("There are only two values for Ps"); ECMA-48's whole set was decided
+/// by Jev 2026-10-19 (BUILD_ECMA, 0.98/0.94).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TabClear {
-    /// 0: the stop at the cursor.
+    /// 0: "the character tabulation stop at the active presentation
+    /// position".
     AtCursor,
-    /// 3: every stop.
+    /// 1: "the line tabulation stop at the active line".
+    LineAtCursor,
+    /// 2: "all character tabulation stops in the active line". A stop is
+    /// in every line under TSM MULTIPLE, the one state baud has, so every
+    /// character stop.
+    InLine,
+    /// 3: "all character tabulation stops".
     All,
+    /// 4: "all line tabulation stops".
+    AllLines,
+    /// 5: "all tabulation stops".
+    Everything,
 }
 
 impl TabClear {
     pub fn from_param(p: Option<Param>) -> Option<TabClear> {
         match p.map_or(0, |x| x.0) {
             0 => Some(TabClear::AtCursor),
+            1 => Some(TabClear::LineAtCursor),
+            2 => Some(TabClear::InLine),
             3 => Some(TabClear::All),
+            4 => Some(TabClear::AllLines),
+            5 => Some(TabClear::Everything),
             _ => None,
+        }
+    }
+}
+
+/// One CTC parameter (`[[source: ecma48]]` 8.3.17): 0
+/// and 1 set a stop, 2 to 6 clear what TBC 0, 1, 2, 3 and 4 clear.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TabControl {
+    /// 0: "a character tabulation stop is set at the active presentation
+    /// position", as HTS.
+    SetHere,
+    /// 1: "a line tabulation stop is set at the active line", as VTS.
+    SetLine,
+    Clear(TabClear),
+}
+
+impl TabControl {
+    pub fn from_param(p: Option<Param>) -> Option<TabControl> {
+        Some(match p.map_or(0, |x| x.0) {
+            0 => TabControl::SetHere,
+            1 => TabControl::SetLine,
+            2 => TabControl::Clear(TabClear::AtCursor),
+            3 => TabControl::Clear(TabClear::LineAtCursor),
+            4 => TabControl::Clear(TabClear::InLine),
+            5 => TabControl::Clear(TabClear::All),
+            6 => TabControl::Clear(TabClear::AllLines),
+            _ => return None,
+        })
+    }
+}
+
+/// The line tabulation stops, one bit a line (`[[source: ecma48]]` 8.3.162,
+/// VTS: "a line tabulation stop ... at the active line"). Fixed to the
+/// screen's lines, as the character stops are fixed to its columns: a
+/// scroll moves the text and leaves them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LineStops([u64; LineStops::WORDS]);
+
+impl LineStops {
+    const WORDS: usize = 10;
+    /// How many lines can carry a stop.
+    pub const LINES: usize = LineStops::WORDS * 64;
+    pub const NONE: LineStops = LineStops([0; LineStops::WORDS]);
+
+    pub fn set(&mut self, y: Row) {
+        if y.index() < Self::LINES {
+            self.0[y.index() / 64] |= 1 << (y.index() % 64);
+        }
+    }
+    pub fn clear(&mut self, y: Row) {
+        if y.index() < Self::LINES {
+            self.0[y.index() / 64] &= !(1 << (y.index() % 64));
+        }
+    }
+    pub fn clear_all(&mut self) {
+        *self = Self::NONE;
+    }
+    /// The first stop after line `y` and not past line `last`: a word at a
+    /// time, so at most ten words whatever the screen.
+    pub fn next_after(self, y: Row, last: Row) -> Option<Row> {
+        let from = y.index() + 1;
+        let to = last.index().min(Self::LINES - 1);
+        if from > to {
+            return None;
+        }
+        let mut w = from / 64;
+        let mut bits = self.0[w] & (u64::MAX << (from % 64));
+        loop {
+            if bits != 0 {
+                let at = w * 64 + bits.trailing_zeros() as usize;
+                return (at <= to).then(|| Row::from_index(at));
+            }
+            w += 1;
+            if w > to / 64 {
+                return None;
+            }
+            bits = self.0[w];
         }
     }
 }
@@ -1314,10 +1450,14 @@ impl Csi {
             | DeleteLines(_)
             | ScrollUp(_)
             | ScrollDown(_)
+            | ScrollLeft(_)
+            | ScrollRight(_)
             | SetScrollRegion { .. }
             | CursorForwardTab(_)
             | CursorBackTab(_)
             | TabClear(_)
+            | CursorTabControl
+            | CursorLineTab(_)
             | Mode { .. }
             | PrivateMode { .. }
             | Sgr
@@ -1334,6 +1474,9 @@ impl Csi {
             | CursorStyle(_) => Level::Vt220,
 
             SetSideMargins { .. } | InsertColumns(_) | DeleteColumns(_) => Level::Vt420,
+            // "VT510" (`[[source: ctlseqs]]`), a level this table does not
+            // carry; VT420 is the nearest it has.
+            TabsEveryEight => Level::Vt420,
             // "Levels: 3X (Windowing), 4" (`[[source: dec-std-070]]` p. 5-73);
             // ctlseqs says VT340, a level this table does not carry.
             SetColumnsPerPage(_) => Level::Vt420,

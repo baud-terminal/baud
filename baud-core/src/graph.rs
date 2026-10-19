@@ -211,7 +211,7 @@ pub(crate) const NNODE: usize = 35;
 /// How many actions there are. Only `diag` reads it, to size the histogram
 /// that says which of them a wider key would collapse.
 #[cfg(feature = "diag")]
-pub(crate) const NACT: usize = 42;
+pub(crate) const NACT: usize = 43;
 
 impl Node {
     const FROM_INDEX: [Node; NNODE] = [
@@ -424,6 +424,9 @@ pub enum Act {
     /// character of the set with a 96-character one (`[[source: ecma35]]`
     /// 8.3.1).
     Del,
+    /// VT, `0x0B`: the following line tabulation stop, or `LF` where none
+    /// follows. Last, so no other action's encoding moves.
+    LineTab,
 }
 
 /// Which histogram slot a node is, as an **exhaustive match rather than a
@@ -570,6 +573,7 @@ const fn act_name(a: Act) -> &'static str {
         Act::Hold => "Hold",
         Act::Shifted => "Shifted",
         Act::Del => "Del",
+        Act::LineTab => "LineTab",
     }
 }
 
@@ -618,6 +622,7 @@ const ALL_ACTS: [Act; NACT] = [
     Act::Hold,
     Act::Shifted,
     Act::Del,
+    Act::LineTab,
 ];
 
 #[cfg(feature = "diag")]
@@ -729,6 +734,7 @@ pub(crate) fn count_act(h: &mut Hist, a: Act) {
         Act::Hold => 39,
         Act::Shifted => 40,
         Act::Del => 41,
+        Act::LineTab => 42,
     }] += 1;
 }
 
@@ -825,7 +831,10 @@ const fn build(enc: InputEncoding) -> Nodes<Bytes<Edge>> {
 /// whether or not it moves anything.
 const fn c0(b: StreamByte) -> Act {
     match b.raw_byte() {
-        0x0a..=0x0c => Act::Index,
+        // VT has its own action: it reaches a line tabulation stop
+        // (`Paint::vertical_tab`), and is `LF` only where none follows.
+        0x0a | 0x0c => Act::Index,
+        0x0b => Act::LineTab,
         0x0d => Act::Return,
         0x08 => Act::Backspace,
         0x09 => Act::Tab,
@@ -2355,10 +2364,15 @@ mod classes {
         // 1,816 -> 2,151, 50,852 -> 62,208 and 1,263,705 -> 1,589,720 at
         // strides 1 to 4, +25.8% at stride 4; which bytes parted at stride 1
         // was not decomposed.
+        // **VT parts from LF and FF**: it reaches a line tabulation stop
+        // (`Act::LineTab`), so `0B` is a class of its own: 49 -> 50, and
+        // 1,816 -> 1,911, 50,852 -> 55,856 and 1,263,705 -> 1,452,629 at
+        // strides 2, 3 and 4, each lane on the base without the other.
+        // **Both together**: 55, 2,256, 68,083 and 1,818,823.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 2_151, "stride 2");
-        assert_eq!(three.len(), 62_208, "stride 3");
-        assert_eq!(four.len(), 1_589_720, "stride 4");
+        assert_eq!(two.len(), 2_256, "stride 2");
+        assert_eq!(three.len(), 68_083, "stride 3");
+        assert_eq!(four.len(), 1_818_823, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2544,6 +2558,7 @@ mod classes {
             matches!(
                 a,
                 Act::Index
+                    | Act::LineTab
                     | Act::Backspace
                     | Act::Tab
                     | Act::ShiftOut
@@ -3363,8 +3378,9 @@ mod classes {
     // leads, which made 48. Table 3-7's narrowed second bytes, read where a
     // split character waits after `E0`, `ED`, `F0` or `F4`, made 49 -- by
     // reading the rows, `80-8F` parting from the C1 finals `91-97 99 9A`.
-    // The single shifts' node, `Act::Del` and DECRSPS's `t` made 54.
-    const CLASSES: usize = 54;
+    // The single shifts' node, `Act::Del` and DECRSPS's `t` made 54, and VT's own action, the line
+    // tabulation stop it reaches, parting `0B` from `0A` and `0C`, made 55.
+    const CLASSES: usize = 55;
     /// What `write::act` consumes, which is **not** `Act::width()`.
     ///
     /// `width` is the byte length of the *character* an act writes; two acts

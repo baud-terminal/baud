@@ -2455,27 +2455,104 @@ impl Paint<'_, '_> {
         self.set_col(self.place(c));
     }
 
+    /// TBC, and CTC 2 to 6. **2 is 3 here**: a character stop is in every
+    /// line under TSM MULTIPLE, the one state baud has, so the stops "in the
+    /// active line" are all of them (`[[source: ecma48]]` 8.3.154, "the
+    /// number of lines affected depends on the setting of" TSM).
     pub(crate) fn tab_clear(&mut self, w: Option<TabClear>) {
         match w {
-            Some(TabClear::All) => self.tabs.fill(false),
+            Some(TabClear::All | TabClear::InLine) => self.tabs.fill(false),
             Some(TabClear::AtCursor) => {
                 let x = self.cx.col().index();
                 if x < self.tabs.len() {
                     self.tabs[x] = false;
                 }
             }
-            // **`None` was clearing the stop at the cursor, and that is a
-            // wrong action rather than a missing one.** `TabClear::from_param`
-            // answers `None` for everything but 0 and 3, and ECMA-48 § 8.3.154
-            // gives 1 and 4 to *line* tab stops and 2 to the character stops in
-            // the active line. baud has no vertical tabs, so `CSI 1 g` -- a
-            // request about a line stop -- silently removed a **character**
-            // stop and the next `HT` went somewhere else.
-            //
-            // Counted instead, which is also what the conformance inventory
-            // asks: the wildcard made an unimplemented parameter observationally
-            // identical to an implemented one.
+            Some(TabClear::LineAtCursor) => self.cold.line_stops.clear(self.cy),
+            Some(TabClear::AllLines) => self.cold.line_stops.clear_all(),
+            Some(TabClear::Everything) => {
+                self.tabs.fill(false);
+                self.cold.line_stops.clear_all();
+            }
+            // A value 8.3.154 does not define: counted, and no stop moves.
+            // `None` once cleared the stop at the cursor, so `CSI 1 g` -- a
+            // request about a line stop -- removed a character stop.
             None => self.unsupported_param += 1,
+        }
+    }
+
+    /// HTS, `ESC H`, and CTC 0: a character stop at the cursor's column.
+    pub(crate) fn tab_set(&mut self) {
+        let x = self.cx.col().index();
+        if x < self.tabs.len() {
+            self.tabs[x] = true;
+        }
+    }
+
+    /// CTC, `CSI Ps... W`: every parameter, in order ("Notation: (Ps...)",
+    /// `[[source: ecma48]]` 8.3.17); a value it does not define is counted.
+    pub(crate) fn tab_control(&mut self, csi: &crate::write::Csi) {
+        csi.for_each_param(|p| match TabControl::from_param(p) {
+            Some(TabControl::SetHere) => self.tab_set(),
+            Some(TabControl::SetLine) => self.cold.line_stops.set(self.cy),
+            Some(TabControl::Clear(w)) => self.tab_clear(Some(w)),
+            None => self.unsupported_param += 1,
+        });
+    }
+
+    /// The last line a line tabulation stop is read to from the cursor's:
+    /// the bottom margin inside the scrolling region, the last line outside
+    /// it -- HT's rule from `[[source: dec-std-070]]`'s note 1, turned
+    /// vertical, which CVT's text leaves open (Jev 2026-10-19, BOTTOM,
+    /// 0.96/0.90). A region is its rows here: the side margins bound no
+    /// line.
+    fn line_tab_end(&self) -> Row {
+        let y = self.cy.index();
+        match y >= self.cold.top.index() && y <= self.cold.bot.index() {
+            true => self.cold.bot,
+            false => Row::from_index(self.rows.index() - 1),
+        }
+    }
+
+    /// CVT, `CSI Pn Y` (`[[source: ecma48]]` 8.3.23): to "the line
+    /// corresponding to the n-th following line tabulation stop", the column
+    /// kept, and to [`Paint::line_tab_end`] when the stops run out first.
+    /// A cursor movement: it never scrolls.
+    pub(crate) fn line_tab(&mut self, n: Count) {
+        let end = self.line_tab_end();
+        let mut y = self.cy;
+        for _ in 0..n.at_least_one().min(self.rows.index()) {
+            match self.cold.line_stops.next_after(y, end) {
+                Some(next) => y = next,
+                None => {
+                    y = end.max(y);
+                    break;
+                }
+            }
+        }
+        self.set_row(y);
+    }
+
+    /// VT, `0x0B` (`[[source: ecma48]]` 8.3.161): to "the corresponding
+    /// character position on the line at which the following line
+    /// tabulation stop is set", read to [`Paint::line_tab_end`]; with none
+    /// following, `LF`, as DEC's table treats VT (Jev 2026-10-19,
+    /// NEXT_LINE_STOP, 0.94/0.92). Out of line: the per-byte loop's arm is
+    /// one call, and its own table entry rather than a test in `LF`'s.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn vertical_tab(&mut self) {
+        match self
+            .cold
+            .line_stops
+            .next_after(self.cy, self.line_tab_end())
+        {
+            Some(y) => {
+                // A line ends where the cursor leaves it, as at `LF`.
+                self.view.set_ended(self.cy);
+                self.set_row(y);
+            }
+            None => self.line_feed(),
         }
     }
 
@@ -2610,6 +2687,37 @@ impl Paint<'_, '_> {
             && x <= self.cold.right.index()
             && y >= self.cold.top.index()
             && y <= self.cold.bot.index()
+    }
+
+    /// SL and SR, `CSI Pn SP @` and `CSI Pn SP A` (`[[source: ecma48]]`
+    /// 8.3.121 and 8.3.135): the rectangle the four margins bound moves left
+    /// or right "and the active presentation position is not affected",
+    /// whatever line or column the cursor is on (Jev 2026-10-19, NO_GATE,
+    /// 0.96/0.96). The columns brought in take the fill SU and SD give a
+    /// line, [`Paint::blank`], DECECM's "background color used when text is
+    /// erased or new text is scrolled on to the screen" (`[[source:
+    /// vt520-rm]]` p. 5-48; SCROLL_FILL, 0.96/0.96), where DECIC and DECDC
+    /// take normal rendition by their own text.
+    ///
+    /// **A double-width line shifts inside its half**, the line's own end
+    /// ([`crate::paint::fence_of`], `[[source: dec-std-070]]`'s
+    /// `end_of_line`): what goes past it is gone rather than kept out of
+    /// sight. Side margins and a sized line never meet (p. 5-29), so the
+    /// left margin is column 1 on any line that is not single-width.
+    pub(crate) fn scroll_columns(&mut self, n: Count, dir: ColumnShift) {
+        let (left, b) = (self.cold.left, self.blank());
+        for y in self.cold.top.index()..=self.cold.bot.index() {
+            let r = Row::from_index(y);
+            let to =
+                crate::paint::fence_of(self.view.rendition(r), self.cold.right, self.cols).after();
+            match dir {
+                ColumnShift::Insert => self.view.insert_cells(r, left, n, to, b),
+                ColumnShift::Delete => self.view.delete_cells(r, left, n, to, b),
+            }
+            self.cells = self.cells.plus(to.index() - left.index());
+        }
+        self.wrote_rows(self.cold.top, self.cold.bot);
+        self.row_changed_to(self.cy);
     }
 
     /// `DECIC`, `CSI Pn ' }`.
@@ -3542,6 +3650,7 @@ impl Paint<'_, '_> {
         let s = &mut *self.strs;
         s.kitty.reset(self.images, s.kitty_scratch);
         self.reset_tabs();
+        self.cold.line_stops.clear_all();
         self.last_cp = None;
         self.goto(Row::ZERO, Col::ZERO);
     }
@@ -3727,6 +3836,7 @@ impl Paint<'_, '_> {
                 AnsiMode::LineFeedNewLine => bit_state(self.cold.modes, ModeBit::LineFeedNewLine),
                 AnsiMode::InsertReplace => bit_state(self.cold.modes, ModeBit::InsertReplace),
                 AnsiMode::Erasure => bit_state(self.cold.modes, ModeBit::EraseGuarded),
+                AnsiMode::TabulationStop => ModeState::PermanentlyReset,
                 _ => ModeState::NotRecognized,
             };
         }

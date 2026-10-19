@@ -39,6 +39,11 @@ pub enum Esc {
     KeypadNumeric,
     /// HTS — Horizontal Tab Set, `ESC H`. Sets a tab stop at the cursor column.
     TabSet,
+    /// VTS — Line Tabulation Set, `ESC J` (`8A` as a C1). `[[source:
+    /// ecma48]]` 8.3.162: "VTS causes a line tabulation stop to be set at
+    /// the active line (the line that contains the active presentation
+    /// position)". VT52 mode never reaches this table: its `ESC J` erases.
+    LineTabSet,
     /// ST — String Terminator, `ESC \`, with no control string open.
     ///
     /// `[[source: ecma48]]` § 8.3.143: "ST is used as the closing delimiter of
@@ -125,6 +130,7 @@ impl Esc {
             b'=' => Esc::KeypadApplication,
             b'>' => Esc::KeypadNumeric,
             b'H' => Esc::TabSet,
+            b'J' => Esc::LineTabSet,
             b'\\' => Esc::StringTerminator,
             b'Z' => Esc::Identify,
             b'V' => Esc::StartGuardedArea,
