@@ -309,7 +309,8 @@ impl CellFlags {
     pub const MARKED: CellFlags = CellFlags(4);
 
     /// Bits 3..10 carry the [`LinkId`] (`LINK_BITS`); bit 10 is
-    /// [`CellFlags::GUARDED`] and 11..16 are free. The
+    /// [`CellFlags::GUARDED`], 11..15 the national set
+    /// ([`CellFlags::national`]) and 15 is free. The
     /// [`ClusterId`] took them until it moved into the cell's [`Content`],
     /// whose range above U+10FFFF names 1024 slots where six bits named 63.
     ///
@@ -336,6 +337,40 @@ impl CellFlags {
     }
     pub fn link(self) -> LinkId {
         LinkId::from_index(((self.0 >> CellFlags::LINK_SHIFT) & CellFlags::LINK_MASK) as usize)
+    }
+    /// The flags without the link: a cell built from the pen that names no
+    /// text that was written, DECFRA's fill.
+    pub fn without_link(self) -> CellFlags {
+        CellFlags(self.0 & !(CellFlags::LINK_MASK << CellFlags::LINK_SHIFT))
+    }
+
+    /// Bits 11..15: the national replacement set GL held when a GL code
+    /// wrote the cell, 0 for none, else [`Nrcs::to_u8`] plus one.
+    ///
+    /// **What lets DECRQCRA count the code a character was received as**:
+    /// `[[source: dec-std-070]]`'s display stores "code = parv[0] & 0x7F"
+    /// and the set beside it (p. 5-140), and the cell holds the translated
+    /// codepoint alone, from which the code cannot be recovered -- German's
+    /// `[` and Norwegian/Danish's `@` are both `Ä`. Carried in the pen a GL
+    /// code is written with, beside [`CellFlags::GRAPHICS`], so the write
+    /// path ORs what it already ORs; the pen a decoded character is written
+    /// with, a UTF-8 `Ä`'s among them, has it cleared, since no national
+    /// set replaced that character (decided by Jev 2026-10-19,
+    /// CODE_RECEIVED, 0.98 and 0.98).
+    const NATIONAL_SHIFT: u16 = 11;
+    const NATIONAL_MASK: u16 = 0xf;
+
+    /// These flags with `n` as the set GL holds, or none.
+    pub fn with_national(self, n: Option<Nrcs>) -> CellFlags {
+        let keep = self.0 & !(CellFlags::NATIONAL_MASK << CellFlags::NATIONAL_SHIFT);
+        let tag = n.map_or(0, |n| u16::from(n.to_u8()) + 1);
+        CellFlags(keep | (tag << CellFlags::NATIONAL_SHIFT))
+    }
+
+    /// The national set GL held when a GL code wrote the cell.
+    pub fn national(self) -> Option<Nrcs> {
+        let tag = (self.0 >> CellFlags::NATIONAL_SHIFT) & CellFlags::NATIONAL_MASK;
+        (tag as u8).checked_sub(1).and_then(Nrcs::from_u8)
     }
 
     /// Bit 10: the position is in a guarded area, `SPA` to `EPA`.
@@ -440,9 +475,9 @@ impl PackedCell {
     /// `promote` replayed stored runs with their flags. Nothing in this core
     /// calls it. The bulk path translates through `with_charset` in
     /// `View::put_ascii_run` and the per-byte path through `translate`, both
-    /// with the set `Term` has invoked. The flags name only the line-drawing
-    /// set (`Charset::from_flags`), so this would leave a national set's byte
-    /// untranslated.
+    /// with the set `Term` has invoked. The flags name the line-drawing set
+    /// and a national one (`Charset::from_flags`), not the UK set or the
+    /// other DEC sets, so this would leave those sets' bytes untranslated.
     pub fn from_wire(b: StreamByte, style: StyleId, flags: CellFlags) -> PackedCell {
         let proto = PackedCell {
             content: Content::EMPTY,

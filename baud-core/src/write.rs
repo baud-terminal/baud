@@ -1616,7 +1616,7 @@ fn glyph(p: &mut Paint<'_, '_>, cp: Codepoint) {
         return;
     }
     #[allow(unreachable_code)]
-    p.glyph(cp, w);
+    p.decoded_glyph(cp, w);
 }
 
 /// What a `CSI` final byte names.

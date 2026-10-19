@@ -268,7 +268,7 @@ static TURKISH: [(u8, u32); 12] = [
 static UK: [(u8, u32); 1] = [(0x23, 0x00a3)];
 
 /// The replacement table for a set: the positions it replaces, by byte.
-pub fn nrcs_table(set: Nrcs) -> &'static [(u8, u32)] {
+pub const fn nrcs_table(set: Nrcs) -> &'static [(u8, u32)] {
     match set {
         Nrcs::Dutch => &DUTCH,
         Nrcs::Finnish => &FINNISH,
@@ -288,6 +288,6 @@ pub fn nrcs_table(set: Nrcs) -> &'static [(u8, u32)] {
 }
 
 /// United Kingdom, which is a `Charset` of its own rather than an `Nrcs`.
-pub fn uk_table() -> &'static [(u8, u32)] {
+pub const fn uk_table() -> &'static [(u8, u32)] {
     &UK
 }

@@ -231,7 +231,7 @@ impl Paint<'_, '_> {
             (Some(b), _) => PackedCell::glyph(
                 PackedCell::translate(b, self.charset),
                 self.style,
-                self.flags.bare(),
+                self.flags.without_link(),
             ),
             (None, Some(cp)) => PackedCell::glyph(cp, self.style, self.cold.protect),
             (None, None) => return,

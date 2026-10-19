@@ -1234,7 +1234,7 @@ pub struct Term<'b> {
     /// `cat-scroll`** when this lived there: `Paint` writes it once a run and
     /// `feed` copies it back once a read, which is the same shape `cx` and
     /// `style` already have.
-    pub(crate) last_cp: Option<(Codepoint, Width)>,
+    pub(crate) last_cp: Option<(Codepoint, Width, crate::paint::Pen)>,
 
     pub(crate) cy: Row,
     pub(crate) cx: CursorCol,

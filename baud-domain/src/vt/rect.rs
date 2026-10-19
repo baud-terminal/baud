@@ -116,8 +116,8 @@ impl AreaOp {
             }
             AreaOp::RequestChecksum => AreaCall::RequestChecksum {
                 id: p.at(ParamIdx::FIRST).unwrap_or(Param::ZERO),
-                of: match p.raw(ParamIdx::SECOND, 0) {
-                    0 => ChecksumOf::Page,
+                of: match (p.raw(ParamIdx::SECOND, 0), ChecksumOf::unspecified(p)) {
+                    (0, _) | (_, true) => ChecksumOf::Page,
                     _ => ChecksumOf::Area(Area::from_params(p, ParamIdx::THIRD)),
                 },
             },
@@ -259,11 +259,23 @@ impl AttrExtent {
 /// memory" and the rectangle is ignored (`[[source: dec-std-070]]` p.
 /// 5-179); any other page is baud's one page, "If Pp is higher than the total
 /// number of pages available in the device, the highest numbered page is
-/// used".
+/// used", and with no corner given it is that page whole.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ChecksumOf {
     Page,
     Area(Area),
+}
+
+impl ChecksumOf {
+    /// Whether the four corners are all unspecified: "If the final four
+    /// parameters are unspecified, a checksum of page Pp is generated"
+    /// (`[[source: dec-std-070]]` p. 5-179), the whole page whatever DECOM
+    /// says, where a corner given counts from the origin it sets. "A zero or
+    /// omitted numeric parameter represents a default" (§ 3.5.3.2), so a
+    /// zero is unspecified too.
+    fn unspecified(p: &Params<'_>) -> bool {
+        (0..4).all(|k| p.raw(ParamIdx::THIRD.plus(k), 0) == 0)
+    }
 }
 
 impl Attrs {
@@ -416,12 +428,20 @@ impl Checksum {
 
     /// Count one cell, whose base character is `base`.
     ///
-    /// **A character's code is its 8-bit value**: the DEC Special Graphics
-    /// byte for a cell written under that set (xterm counts the byte it
-    /// received there, `charSeen`), the codepoint up to U+00FF, and 0x1B, the
-    /// value xterm's `xtermCharSetDec` gives, for anything above. A wide
-    /// character's tail is not a character and is not counted; combining
-    /// marks are not either, as `csDEC` leaves them out.
+    /// **A character's code is the code it was received as**, the one
+    /// `[[source: dec-std-070]]`'s display stores beside the set ("code =
+    /// parv[0] & 0x7F", p. 5-140): the byte for a cell written under DEC
+    /// Special Graphics, and for one a national set replaced ([`nrcs_byte`];
+    /// German's `Ä` counts `[`, 0x5B, as xterm's `charSeen` does), else the
+    /// codepoint up to U+00FF, and 0x1B, the value xterm's `xtermCharSetDec`
+    /// gives, for anything above. Both decided by Jev 2026-10-19 on a second
+    /// ask, CODE_RECEIVED, line drawing 0.98 and 0.96 and the national sets
+    /// 0.98 and 0.98; xterm counts its own internal codes for line drawing.
+    /// The UK set's `£` counts 0xA3, its codepoint's, as xterm special-cases
+    /// it (Jev's lean, 0.52 and 0.44, taken). A wide character's tail is not
+    /// a character and is not counted. Nor is a combining mark, where xterm's
+    /// `xtermCheckRect` adds each mark's code in `csDEC` too: a departure of
+    /// baud's, open.
     pub fn add(&mut self, base: Content, flags: CellFlags, attrs: Attrs) {
         if base.is_empty() || base.is_wide_tail() {
             return;
@@ -431,7 +451,10 @@ impl Checksum {
                 Some(b) => u16::from(b),
                 None => Checksum::eight_bit(cp),
             },
-            Some(cp) => Checksum::eight_bit(cp),
+            Some(cp) => match flags.national().and_then(|n| nrcs_byte(n, cp)) {
+                Some(b) => u16::from(b),
+                None => Checksum::eight_bit(cp),
+            },
             None => 0x1b,
         };
         let weight = |on: bool, w: u16| if on { w } else { 0 };
@@ -481,6 +504,96 @@ const fn dec_graphics_reversed() -> [(u32, u8); 127] {
     t
 }
 
+/// The national sets backwards, codepoint to byte, for the checksum of a
+/// cell one of them wrote: each set's replacements in a slice of its own,
+/// keyed on the codepoint modulo the smallest number that gives each of
+/// them a slot, chosen at compile time (277 slots for the 164
+/// replacements). The build fails if a set's codepoints are not distinct or
+/// one is past U+FFFF.
+struct NrcsIndex {
+    modulus: [u16; 14],
+    start: [u16; 14],
+    slots: [(u16, u8); NRCS_SLOTS],
+}
+
+const fn nrcs_modulus(t: &[(u8, u32)]) -> usize {
+    let mut m = t.len();
+    loop {
+        let mut seen = [false; 64];
+        let mut ok = true;
+        let mut i = 0;
+        while i < t.len() {
+            let k = (t[i].1 as usize) % m;
+            if seen[k] {
+                ok = false;
+            }
+            seen[k] = true;
+            i += 1;
+        }
+        if ok {
+            return m;
+        }
+        m += 1;
+        assert!(m <= 64, "a national set's codepoints share every slot");
+    }
+}
+
+const fn nrcs_slots() -> usize {
+    let mut n = 0;
+    let mut i = 0;
+    while i < 14 {
+        let Some(set) = Nrcs::from_u8(i as u8) else {
+            panic!("fourteen sets");
+        };
+        n += nrcs_modulus(crate::nrcs_table(set));
+        i += 1;
+    }
+    n
+}
+
+const NRCS_SLOTS: usize = nrcs_slots();
+
+const fn nrcs_index() -> NrcsIndex {
+    let mut ix = NrcsIndex {
+        modulus: [0; 14],
+        start: [0; 14],
+        slots: [(0, 0); NRCS_SLOTS],
+    };
+    let mut at = 0;
+    let mut i = 0;
+    while i < 14 {
+        let Some(set) = Nrcs::from_u8(i as u8) else {
+            panic!("fourteen sets");
+        };
+        let t = crate::nrcs_table(set);
+        let m = nrcs_modulus(t);
+        ix.modulus[i] = m as u16;
+        ix.start[i] = at as u16;
+        let mut j = 0;
+        while j < t.len() {
+            let (b, cp) = t[j];
+            assert!(cp <= 0xffff, "a national codepoint past U+FFFF");
+            ix.slots[at + (cp as usize) % m] = (cp as u16, b);
+            j += 1;
+        }
+        at += m;
+        i += 1;
+    }
+    ix
+}
+
+static NRCS_BYTE: NrcsIndex = nrcs_index();
+
+/// The byte national set `n` was sent to write `cp`, if `cp` is one of the
+/// set's replacements: one probe of the set's slots, no search.
+fn nrcs_byte(n: Nrcs, cp: Codepoint) -> Option<u8> {
+    let i = usize::from(n.to_u8());
+    let m = usize::from(NRCS_BYTE.modulus[i]);
+    let slot = usize::from(NRCS_BYTE.start[i]) + (cp.0 as usize) % m;
+    let (c, b) = NRCS_BYTE.slots[slot];
+    (u32::from(c) == cp.0 && b != 0).then_some(b)
+}
+
 /// The byte a DEC Special Graphics cell was written with, if `cp` is one the
 /// set translates to.
 fn dec_graphics_byte(cp: Codepoint) -> Option<u8> {
@@ -501,6 +614,29 @@ mod tests {
         }
         assert_eq!(dec_graphics_byte(Codepoint(u32::from(b'A'))), None);
         assert_eq!(dec_graphics_byte(Codepoint(0)), None);
+    }
+
+    /// The national index names every replacement's byte under its own set
+    /// and under no other, and nothing that is not a replacement.
+    #[test]
+    fn every_national_replacement_reverses_to_its_byte() {
+        for i in 0..14u8 {
+            let Some(n) = Nrcs::from_u8(i) else {
+                panic!("fourteen sets");
+            };
+            assert_eq!(n.to_u8(), i);
+            for &(b, cp) in crate::nrcs_table(n) {
+                assert_eq!(nrcs_byte(n, Codepoint(cp)), Some(b), "{n:?} {cp:#x}");
+            }
+            assert_eq!(nrcs_byte(n, Codepoint(u32::from(b'A'))), None);
+        }
+        assert_eq!(
+            nrcs_byte(Nrcs::NorwegianDanish, Codepoint(0xc4)),
+            Some(0x40)
+        );
+        assert_eq!(nrcs_byte(Nrcs::German, Codepoint(0xc4)), Some(0x5b));
+        assert_eq!(nrcs_byte(Nrcs::German, Codepoint(0xc6)), None);
+        assert_eq!(NRCS_SLOTS, 277);
     }
 
     /// DECCARA's parameters each do what the same SGR parameter does to the

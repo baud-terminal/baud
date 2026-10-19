@@ -117,11 +117,9 @@ pub enum Nrcs {
 impl Nrcs {
     /// A dense index, 0-13.
     ///
-    /// It was for storing a [`Charset`] in one byte, through `Charset::to_u8`,
-    /// in a `Run` field nothing reads. `Charset::to_u8` is gone, and the one
-    /// caller left is `every_national_replacement_renders_as_its_table_says`,
-    /// which counts the distinct sets its designator discovery reaches.
-    pub fn to_u8(self) -> u8 {
+    /// It numbers the set a cell was written under, in
+    /// [`CellFlags::national`], and the DECRQCRA index that reads it back.
+    pub const fn to_u8(self) -> u8 {
         match self {
             Nrcs::Finnish => 0,
             Nrcs::Swedish => 1,
@@ -138,6 +136,27 @@ impl Nrcs {
             Nrcs::Turkish => 12,
             Nrcs::Hebrew => 13,
         }
+    }
+
+    /// The set [`Nrcs::to_u8`] numbers `i`.
+    pub const fn from_u8(i: u8) -> Option<Nrcs> {
+        Some(match i {
+            0 => Nrcs::Finnish,
+            1 => Nrcs::Swedish,
+            2 => Nrcs::German,
+            3 => Nrcs::FrenchCanadian,
+            4 => Nrcs::French,
+            5 => Nrcs::Italian,
+            6 => Nrcs::Spanish,
+            7 => Nrcs::Dutch,
+            8 => Nrcs::Swiss,
+            9 => Nrcs::NorwegianDanish,
+            10 => Nrcs::Portuguese,
+            11 => Nrcs::Greek,
+            12 => Nrcs::Turkish,
+            13 => Nrcs::Hebrew,
+            _ => return None,
+        })
     }
 }
 
@@ -234,19 +253,15 @@ impl DecSet {
 impl Charset {
     /// Recover the set a cell was written under from its flags.
     ///
-    /// Only the line-drawing set has a flag of its own -- `CellFlags` has no
-    /// spare bits, the link index having taken them -- so this answers
-    /// `DecGraphics` or `Ascii`. A national set cannot be recovered from a
-    /// cell at all: the cell holds the codepoint the set translated the byte
-    /// to when it was written (`PackedCell::with_charset`), and nothing
-    /// records the set. This said the national sets "reach the cell through
-    /// `Run::charset`"; nothing in this core builds a `Run`, and nothing reads
-    /// that field.
+    /// The line-drawing set has a flag of its own and a national set a tag
+    /// ([`CellFlags::national`], since 2026-10-19, for DECRQCRA), so this
+    /// answers `DecGraphics`, `National` or `Ascii`. The UK set and the DEC
+    /// sets other than line drawing are not recorded and read as `Ascii`.
     pub fn from_flags(f: CellFlags) -> Charset {
-        if f.is_graphics() {
-            Charset::DecGraphics
-        } else {
-            Charset::Ascii
+        match (f.is_graphics(), f.national()) {
+            (true, _) => Charset::DecGraphics,
+            (false, Some(n)) => Charset::National(n),
+            (false, None) => Charset::Ascii,
         }
     }
 

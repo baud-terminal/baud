@@ -27,6 +27,16 @@ use baud_domain::*;
 /// repair, extent -- is what a one- or two-character run cannot amortise.
 const SHORT_TEXT: usize = 2;
 
+/// Which pen a glyph is written with: [`Paint::flags`] for a character
+/// received as a GL code, [`Paint::decoded_pen`] for one that arrived
+/// decoded. A constant at every call but REP's, so the match on it folds
+/// away where text is written.
+#[derive(Clone, Copy)]
+pub(crate) enum Pen {
+    Gl,
+    Decoded,
+}
+
 /// The grid, the bytes, and the cursor, borrowed together for one read.
 pub(crate) struct Paint<'a, 'b> {
     pub(crate) arena: &'a [u8],
@@ -60,6 +70,8 @@ pub(crate) struct Paint<'a, 'b> {
     /// Sixel a write overwrites. Zero (a headless caller) frees nothing.
     pub(crate) cell_width: ImagePx,
     pub(crate) style: StyleId,
+    /// The pen for a character received as a GL code: the set GL holds is
+    /// in it, as [`CellFlags::GRAPHICS`] or a national tag.
     pub(crate) flags: CellFlags,
     pub(crate) charset: Charset,
     pub(crate) cluster: ClusterBreak,
@@ -72,10 +84,10 @@ pub(crate) struct Paint<'a, 'b> {
     /// region, the modes and the saved cursor keeps that struct out of
     /// registers for the whole loop.
     pub(crate) style_raw: StyleWord,
-    /// What `REP` repeats. **A flat field and not part of `cold`**: it is
+    /// What `REP` repeats, and which pen wrote it. **A flat field and not part of `cold`**: it is
     /// written once per character, and a per-character store into the cold
     /// struct is what keeps that struct out of registers for the whole loop.
-    pub(crate) last_cp: Option<(Codepoint, Width)>,
+    pub(crate) last_cp: Option<(Codepoint, Width, Pen)>,
     /// Bytes owed to the host, and how many are pending.
     ///
     /// **A slice rather than a report queued for later.** A single read can
@@ -327,7 +339,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         flags: CellFlags,
         charset: Charset,
         cluster: ClusterBreak,
-        last_cp: Option<(Codepoint, Width)>,
+        last_cp: Option<(Codepoint, Width, Pen)>,
         cold: &'a mut crate::term::Cold,
         reply_len: ByteLen,
         title_len: ByteLen,
@@ -587,7 +599,11 @@ impl<'a, 'b> Paint<'a, 'b> {
         // above already has, and for the same reason: this is a router, and
         // per-byte is what this file is careful about.
         let last = StreamByte::from_stream(self.arena[from.index() + n.index() - 1]);
-        self.last_cp = Some((PackedCell::translate(last, self.charset), Width::NARROW));
+        self.last_cp = Some((
+            PackedCell::translate(last, self.charset),
+            Width::NARROW,
+            Pen::Gl,
+        ));
         self.blit(from, n);
     }
 
@@ -808,7 +824,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         if self.cx.raw().index() + need > self.cold.fence.index() + 1 {
             self.overflow(Count::of(need));
         }
-        let (style, flags) = (self.style, self.flags);
+        let (style, flags) = (self.style, self.decoded_pen());
         let lead = PackedCell {
             content: e.content,
             style,
@@ -839,9 +855,33 @@ impl<'a, 'b> Paint<'a, 'b> {
         self.row_written = self.row_written.max(end);
     }
 
-    /// One glyph under the cursor, wrapping first if it will not fit.
+    /// The pen for a character that arrived decoded: [`Paint::flags`] with
+    /// the national tag cleared, since no national set replaced such a
+    /// character (`[[source: dec-std-070]]` p. 5-140 stores a code above 126
+    /// with the GR set, never with GL). Cleared at each write rather than
+    /// kept in a field beside `flags`, which counted more instructions on
+    /// `cat-cjk`.
+    #[inline(always)]
+    pub(crate) fn decoded_pen(&self) -> CellFlags {
+        self.flags.with_national(None)
+    }
+
+    /// One glyph received as a GL code, under the pen that names GL's set.
     #[inline(always)]
     pub(crate) fn glyph(&mut self, cp: Codepoint, w: Width) {
+        self.glyph_as(cp, w, Pen::Gl);
+    }
+
+    /// One glyph that arrived decoded, under [`Paint::decoded_pen`].
+    #[inline(always)]
+    pub(crate) fn decoded_glyph(&mut self, cp: Codepoint, w: Width) {
+        self.glyph_as(cp, w, Pen::Decoded);
+    }
+
+    /// One glyph under the cursor and the pen `pen` names, wrapping first if
+    /// it will not fit.
+    #[inline(always)]
+    pub(crate) fn glyph_as(&mut self, cp: Codepoint, w: Width, pen: Pen) {
         // **A zero-width codepoint gets no cell, and that needs no cluster
         // machine.** A combining mark, a ZWJ or a variation selector took a
         // full cell here and advanced the cursor a column, so everything after
@@ -869,7 +909,11 @@ impl<'a, 'b> Paint<'a, 'b> {
         if self.inserting() {
             self.open_gap(Count::of(need));
         }
-        let (style, flags) = (self.style, self.flags);
+        let style = self.style;
+        let flags = match pen {
+            Pen::Gl => self.flags,
+            Pen::Decoded => self.decoded_pen(),
+        };
         // **Making the wide tail implicit is worth 3%, not the 23% the store
         // accounting implied.** A wide character occupies two cells and writes
         // both, which is two stores on the path 69% of runs take, so a width
@@ -901,7 +945,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         };
         let lead = PackedCell::glyph(cp, style, flags);
         // What `REP` repeats, recorded where the character is written.
-        self.last_cp = Some((cp, w));
+        self.last_cp = Some((cp, w, pen));
         // **The whole per-character write, priced by doing it twice.**
         // `put_glyph_fresh` is idempotent -- same row, same column, same cell,
         // same extent -- so the second call changes nothing and costs exactly
@@ -1330,7 +1374,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// showed and the tests did not.
     #[inline(always)]
     pub(crate) fn run(&mut self, cps: &[Codepoint], w: Width) {
-        let (style, flags) = (self.style, self.flags);
+        let (style, flags) = (self.style, self.decoded_pen());
         match w == Width::WIDE {
             true => self
                 .view

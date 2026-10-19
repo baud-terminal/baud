@@ -563,6 +563,193 @@ fn decrqcra_with_inverted_corners_is_not_answered() {
     });
 }
 
+/// **Under DECOM a request with a page and no rectangle sums the page**:
+/// "If the final four parameters are unspecified, a checksum of page Pp is
+/// generated" (`[[source: dec-std-070]]` p. 5-179), and the page is the
+/// whole page, not the margins' share of it -- the same answer `Pp` 0 gets.
+#[test]
+fn decrqcra_of_a_page_under_decom_sums_the_whole_page() {
+    let set = "A\x1b[8;1HB\x1b[3;6r\x1b[?6h";
+    let page = after(&format!("{set}\x1b[1;0*y"), |t| t.reply().to_vec());
+    assert_eq!(
+        page,
+        format!("\x1bP1!~{}\x1b\\", chk(0x41 + 0x42)).as_bytes()
+    );
+    after(&format!("{set}\x1b[1;1*y"), |t| {
+        assert_eq!(
+            t.reply(),
+            page.as_slice(),
+            "Pp 1, the rectangle unspecified"
+        );
+    });
+    after(&format!("{set}\x1b[1;1;;;;*y"), |t| {
+        assert_eq!(t.reply(), page.as_slice(), "the four given empty");
+    });
+    // The controls: one corner given, so the rectangle counts from the
+    // margins' origin, row 3, and row 1's A is outside it -- the first
+    // corner, or the last parameter alone.
+    after(&format!("{set}\x1b[1;1;1*y"), |t| {
+        assert_eq!(t.reply(), format!("\x1bP1!~{}\x1b\\", chk(0x42)).as_bytes());
+    });
+    after(&format!("{set}\x1b[1;1;;;;20*y"), |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(0x42)).as_bytes(),
+            "Pr alone"
+        );
+    });
+}
+
+/// **A cell written under a national replacement set counts the code it
+/// was received as**: DEC STD 070's display stores "code = parv[0] & 0x7F"
+/// and the set beside it (p. 5-140), and xterm's checksum sums that code
+/// (`charSeen` through `xtermCharSetDec`, whose national arms keep it,
+/// `[[source: xterm-charsets-c]]`). German's `[` is `Ä` and counts 0x5B;
+/// Norwegian/Danish draws the same `Ä` from `@` and counts 0x40; an `Ä`
+/// sent as UTF-8 under ASCII counts its own value, 0xC4.
+#[test]
+fn decrqcra_counts_a_national_character_as_the_code_received() {
+    after("\x1b(K[\x1b(B\x1b[1;1;1;1;1;1*y", |t| {
+        assert_eq!(
+            cell(t, 1, 1).content.as_codepoint().map(|c| c.value()),
+            Some(0xC4)
+        );
+        assert_eq!(t.reply(), format!("\x1bP1!~{}\x1b\\", chk(0x5B)).as_bytes());
+    });
+    after("\x1b(E@\x1b(B\x1b[1;1;1;1;1;1*y", |t| {
+        assert_eq!(
+            cell(t, 1, 1).content.as_codepoint().map(|c| c.value()),
+            Some(0xC4)
+        );
+        assert_eq!(t.reply(), format!("\x1bP1!~{}\x1b\\", chk(0x40)).as_bytes());
+    });
+    after("\u{C4}\x1b[1;1;1;1;1;1*y", |t| {
+        assert_eq!(t.reply(), format!("\x1bP1!~{}\x1b\\", chk(0xC4)).as_bytes());
+    });
+    // A long run takes the bulk path, a short one the per-character path.
+    after("\x1b(K[[[[[[[[[[[[[[[[\x1b[1;1;1;1;1;16*y", |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(16 * 0x5B)).as_bytes()
+        );
+    });
+    // DECFRA's Pch "refers to the character in the current GL ... table"
+    // (p. 5-170): the code is Pch.
+    after("\x1b(K\x1b[91;1;1;1;2$x\x1b[1;1;1;1;1;2*y", |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(2 * 0x5B)).as_bytes()
+        );
+    });
+}
+
+/// **A character sent as UTF-8 counts its own value whatever set GL
+/// holds**: it was not received as a GL code, and p. 5-140 stores a code
+/// above 126 with the GR set, never with GL. So a UTF-8 `Ä` under German
+/// counts 0xC4, as it does under ASCII, beside a GL `[` that German draws
+/// as the same `Ä` and that counts 0x5B. REP copies each as it was
+/// written, under the same set. A wide character carries no tag either,
+/// which its sum cannot show, so the cells say it.
+#[test]
+fn decrqcra_counts_a_utf8_character_as_itself_under_a_national_set() {
+    for (ch, code) in [('\u{C4}', 0xC4), ('\u{E4}', 0xE4), ('\u{DC}', 0xDC)] {
+        after(&format!("\x1b(K{ch}\x1b(B\x1b[1;1;1;1;1;1*y"), |t| {
+            assert_eq!(
+                t.reply(),
+                format!("\x1bP1!~{}\x1b\\", chk(code)).as_bytes(),
+                "U+{code:04X}"
+            );
+        });
+    }
+    // A run long enough for the bulk writer.
+    let run = "\u{C4}".repeat(16);
+    after(&format!("\x1b(K{run}\x1b(B\x1b[1;1;1;1;1;16*y"), |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(16 * 0xC4)).as_bytes()
+        );
+    });
+    after("\x1b(K[\u{C4}\x1b(B\x1b[1;1;1;1;1;2*y", |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(0x5B + 0xC4)).as_bytes(),
+            "a GL `[` and a UTF-8 `Ä`, side by side"
+        );
+    });
+    after("\x1b(K\u{C4}\x1b[2b\x1b(B\x1b[1;1;1;1;1;3*y", |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(3 * 0xC4)).as_bytes(),
+            "REP after a UTF-8 `Ä`"
+        );
+    });
+    after("\x1b(K[\x1b[2b\x1b(B\x1b[1;1;1;1;1;3*y", |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(3 * 0x5B)).as_bytes(),
+            "REP after a GL `[`"
+        );
+    });
+    let cjk = "\u{4E2D}".repeat(8);
+    for text in ["\u{4E2D}", cjk.as_str()] {
+        after(&format!("\x1b(K{text}"), |t| {
+            for col in (1..=2 * text.chars().count()).step_by(2) {
+                assert_eq!(cell(t, 1, col).flags.national(), None, "column {col}");
+            }
+        });
+    }
+}
+
+/// **An erased position the text leaves unoccupied counts nothing**: DECERA
+/// "Any unoccupied character positions remain unoccupied" (p. 5-171),
+/// DECSERA "Unoccupied character positions are not affected" (p. 5-172),
+/// and ED, EL and ECH store the empty character (pp. 5-153 to 5-157). An
+/// occupied position DECERA spaces counts as a space. xterm marks every
+/// erased cell drawn and counts each (`ScrnFillRectangle`,
+/// `ScrnWipeRectangle`, `ClearInLine`), a departure from those texts.
+#[test]
+fn decrqcra_leaves_out_what_an_erase_leaves_unoccupied() {
+    after("AB\x1b[1;1;2;20$z\x1b[1;1;1;1;2;20*y", |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(2 * 0x20)).as_bytes()
+        );
+    });
+    after("AB\x1b[1;1;2;20${\x1b[1;1;1;1;2;20*y", |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(2 * 0x20)).as_bytes()
+        );
+    });
+    after(
+        "ABCD\x1b[1;2H\x1b[1K\x1b[1;4H\x1b[X\x1b[2;1H\x1b[J\x1b[1;1;1;1;2;20*y",
+        |t| {
+            assert_eq!(t.reply(), format!("\x1bP1!~{}\x1b\\", chk(0x43)).as_bytes());
+        },
+    );
+}
+
+/// **DECSED and DECSEL write a space and keep the rendition**: "changed to
+/// the Space character (2/0) ... The character rendition and attributes
+/// associated with each position do not change ... empty character
+/// positions, are not affected" (pp. 5-159, 5-162). The space counts with
+/// its rendition's weight, bold 0x80 here; the empty position nothing.
+#[test]
+fn decrqcra_counts_what_decsed_spaced_with_its_rendition() {
+    after("\x1b[1mAB\x1b[m\x1b[?2K\x1b[1;1;1;1;1;20*y", |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(2 * (0x20 + 0x80))).as_bytes()
+        );
+    });
+    after("\x1b[1mAB\x1b[m\x1b[?2J\x1b[1;1;1;1;1;20*y", |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(2 * (0x20 + 0x80))).as_bytes()
+        );
+    });
+}
+
 // ---- wide characters at an edge ----------------------------------------
 
 /// **A wide character an edge cuts goes whole**: the half outside becomes a

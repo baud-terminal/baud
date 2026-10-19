@@ -271,6 +271,23 @@ fn the_table_read_writes_what_the_computing_path_writes() {
     assert!(report.is_empty(), "{}", report.join("\n"));
 }
 
+/// **A character the table writes carries no national tag**: it arrived
+/// decoded, not as a GL code a national set replaced, so DECRQCRA counts
+/// it as itself whatever GL holds. The read is the table's under
+/// `cell-table` and the computing path's without it.
+#[test]
+fn a_character_the_table_writes_takes_no_national_tag() {
+    let mut owned = Owned::with_cell_table(&NARROW);
+    let mut t = Term::new(owned.storage(), &NARROW);
+    support::feed(&mut t, "\x1b(K\u{4E2D}".as_bytes());
+    let row = t.row(Row::ZERO).expect("a row");
+    assert_eq!(
+        row[0].content.as_codepoint().map(|c| c.value()),
+        Some(0x4E2D)
+    );
+    assert_eq!(row[0].flags.national(), None);
+}
+
 /// **How much of the write table would a pointer array save?**
 ///
 /// The proposal is to intern the entries -- one array of the distinct cells,

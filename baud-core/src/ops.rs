@@ -2006,6 +2006,7 @@ impl Paint<'_, '_> {
     pub(crate) fn refresh_flags(&mut self) {
         let base = match self.charset {
             Charset::DecGraphics => self.cold.protect.with(CellFlags::GRAPHICS),
+            Charset::National(n) => self.cold.protect.with_national(Some(n)),
             _ => self.cold.protect,
         };
         self.flags = base.with_link(self.link);
@@ -2028,11 +2029,14 @@ impl Paint<'_, '_> {
     /// the control before it must stay in force
     /// (`a_rep_with_nothing_to_repeat_leaves_the_control_before_it_in_force`).
     pub(crate) fn repeat(&mut self, c: Count) -> Wrote {
-        let Some((cp, w)) = self.last_cp else {
+        let Some((cp, w, pen)) = self.last_cp else {
             return Wrote::Nothing;
         };
+        // The copy takes the pen of the character it copies: a UTF-8 `Ä`
+        // under German is copied as itself, counting 0xC4, and a GL `[`
+        // German drew as `Ä` takes GL's pen as it is now, counting 0x5B.
         for _ in 0..c.at_least_one().min(self.cols.index()) {
-            self.glyph(cp, w);
+            self.glyph_as(cp, w, pen);
         }
         // Through `Classified::of`, the table `glyph` asks: `is_break` takes
         // the class from a trie of its own, which nothing else on the write
