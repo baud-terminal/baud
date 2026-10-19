@@ -358,3 +358,39 @@ fn a_resize_forgets_an_open_spa() {
     let g = run(b"\x1b[3;3H\x1bV\x1b[3;5H\x1bW");
     assert_eq!(guards(&g, 2), "..GGG...............");
 }
+
+/// **A guarded empty position is line content to a reflow**, as a styled
+/// blank is: ECMA-48 defines no reflow and guards character positions
+/// (6.5.2.2), and the re-cut keeps every one of them -- a row of 20 guarded
+/// empty positions narrowed to 12 columns is a line of two rows, 12 and 8
+/// guarded, and widened back it is one row of 20 again. Jev's lean,
+/// AS_CONTENT, 0.89 and 0.92 on a second ask, against trimming them from
+/// the line's end (which loses the guard on the positions past the narrow
+/// width for good, or on all of them).
+#[test]
+fn a_guarded_empty_row_keeps_every_guard_through_a_reflow() {
+    let mut s = Owned::with_history(&WS, &CacheGeometry::UNKNOWN, Depth::of(20));
+    let mut t = Term::new(s.storage(), &WS);
+    support::feed(&mut t, b"\x1bV\x1b[1;20H\x1bW\x1b[2;1HX");
+    let row = |t: &Term<'_>, y: usize| -> String {
+        t.viewport()
+            .row(Row::from_index(y))
+            .iter()
+            .map(|c| match (c.flags.is_guarded(), c.content.as_codepoint()) {
+                (true, _) => 'G',
+                (false, Some(cp)) => char::from_u32(cp.value()).unwrap_or('?'),
+                (false, None) => '.',
+            })
+            .collect()
+    };
+    let _ = t.resize(&WinSize {
+        ws_row: 10,
+        ws_col: 12,
+    });
+    assert_eq!(row(&t, 0), "GGGGGGGGGGGG");
+    assert_eq!(row(&t, 1), "GGGGGGGG....");
+    assert_eq!(row(&t, 2), "X...........");
+    let _ = t.resize(&WS);
+    assert_eq!(row(&t, 0), "GGGGGGGGGGGGGGGGGGGG");
+    assert_eq!(row(&t, 1), "X...................");
+}
