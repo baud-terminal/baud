@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 250 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 260 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 280 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 768 | 36 | |
+| total | 778 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -534,7 +534,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 61
+- **Files:** 71
 
 | file | copied from |
 |---|---|
@@ -557,6 +557,7 @@ notice is, and the URL each file was copied from.
 | [vt510-DECAUPSS.html](docs/research/sources/vt510-DECAUPSS.html) | https://vt100.net/docs/vt510-rm/DECAUPSS.html |
 | [vt510-DECAWM.html](docs/research/sources/vt510-DECAWM.html) | https://vt100.net/docs/vt510-rm/DECAWM.html |
 | [vt510-DECCIR.html](docs/research/sources/vt510-DECCIR.html) | https://vt100.net/docs/vt510-rm/DECCIR.html |
+| [vt510-DECCKSR.html](docs/research/sources/vt510-DECCKSR.html) | https://vt100.net/docs/vt510-rm/DECCKSR.html |
 | [vt510-DECCOLM.html](docs/research/sources/vt510-DECCOLM.html) | https://vt100.net/docs/vt510-rm/DECCOLM.html |
 | [vt510-DECCRA.html](docs/research/sources/vt510-DECCRA.html) | https://vt100.net/docs/vt510-rm/DECCRA.html |
 | [vt510-DECDC.html](docs/research/sources/vt510-DECDC.html) | https://vt100.net/docs/vt510-rm/DECDC.html |
@@ -568,6 +569,8 @@ notice is, and the URL each file was copied from.
 | [vt510-DECOM.html](docs/research/sources/vt510-DECOM.html) | https://vt100.net/docs/vt510-rm/DECOM.html |
 | [vt510-DECRARA.html](docs/research/sources/vt510-DECRARA.html) | https://vt100.net/docs/vt510-rm/DECRARA.html |
 | [vt510-DECRC.html](docs/research/sources/vt510-DECRC.html) | https://vt100.net/docs/vt510-rm/DECRC.html |
+| [vt510-DECRPDE.html](docs/research/sources/vt510-DECRPDE.html) | https://vt100.net/docs/vt510-rm/DECRPDE.html |
+| [vt510-DECRQDE.html](docs/research/sources/vt510-DECRQDE.html) | https://vt100.net/docs/vt510-rm/DECRQDE.html |
 | [vt510-DECRQPSR.html](docs/research/sources/vt510-DECRQPSR.html) | https://vt100.net/docs/vt510-rm/DECRQPSR.html |
 | [vt510-DECRQUPSS.html](docs/research/sources/vt510-DECRQUPSS.html) | https://vt100.net/docs/vt510-rm/DECRQUPSS.html |
 | [vt510-DECRSPS.html](docs/research/sources/vt510-DECRSPS.html) | https://vt100.net/docs/vt510-rm/DECRSPS.html |
@@ -583,6 +586,13 @@ notice is, and the URL each file was copied from.
 | [vt510-DECSWL.html](docs/research/sources/vt510-DECSWL.html) | https://vt100.net/docs/vt510-rm/DECSWL.html |
 | [vt510-DECTABSR.html](docs/research/sources/vt510-DECTABSR.html) | https://vt100.net/docs/vt510-rm/DECTABSR.html |
 | [vt510-DL.html](docs/research/sources/vt510-DL.html) | https://vt100.net/docs/vt510-rm/DL.html |
+| [vt510-DSR-DIR.html](docs/research/sources/vt510-DSR-DIR.html) | https://vt100.net/docs/vt510-rm/DSR-DIR.html |
+| [vt510-DSR-KBD.html](docs/research/sources/vt510-DSR-KBD.html) | https://vt100.net/docs/vt510-rm/DSR-KBD.html |
+| [vt510-DSR-MSR.html](docs/research/sources/vt510-DSR-MSR.html) | https://vt100.net/docs/vt510-rm/DSR-MSR.html |
+| [vt510-DSR-PP.html](docs/research/sources/vt510-DSR-PP.html) | https://vt100.net/docs/vt510-rm/DSR-PP.html |
+| [vt510-DSR-UDK.html](docs/research/sources/vt510-DSR-UDK.html) | https://vt100.net/docs/vt510-rm/DSR-UDK.html |
+| [vt510-DSR-XCPR.html](docs/research/sources/vt510-DSR-XCPR.html) | https://vt100.net/docs/vt510-rm/DSR-XCPR.html |
+| [vt510-DSR.html](docs/research/sources/vt510-DSR.html) | https://vt100.net/docs/vt510-rm/DSR.html |
 | [vt510-ECH.html](docs/research/sources/vt510-ECH.html) | https://vt100.net/docs/vt510-rm/ECH.html |
 | [vt510-ED.html](docs/research/sources/vt510-ED.html) | https://vt100.net/docs/vt510-rm/ED.html |
 | [vt510-EL.html](docs/research/sources/vt510-EL.html) | https://vt100.net/docs/vt510-rm/EL.html |

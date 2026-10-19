@@ -131,6 +131,38 @@ pub enum Report {
     /// the letters are capitals. The introducer and terminator follow
     /// `S7C1T`/`S8C1T`, as DECRQSS's do.
     AreaChecksum { id: Param, sum: Checksum },
+    /// DECXCPR, `CSI ? Pl ; Pc ; Pp R`: the cursor and its page, which is
+    /// always the first. `[[source: dec-std-070]]` p. 5-55's report format,
+    /// with the `?` that the standard and `[[source: ctlseqs]]` give and
+    /// `[[source: vt420-rm]]` and `[[source: vt510-dsr-xcpr]]` print without
+    /// (decided for STD 070 by Jev, 0.92 and 0.92).
+    ExtendedCursorPosition { row: OneBased, col: OneBased },
+    /// A DEC private status, `CSI ? Ps n` ([`DecReply`]).
+    DecStatus(DecReply),
+    /// DECMSR, `CSI 0 * {`: "the number of bytes available for macro
+    /// definitions divided by 16" (`[[source: dec-std-070]]` p. 5-185), and
+    /// baud has no macro memory.
+    MacroSpace,
+    /// DECREPTPARM, `CSI sol ; 1 ; 1 ; 120 ; 120 ; 1 ; 0 x`
+    /// (`[[source: vt100-ug-ch3]]`): no parity, eight bits, 19200 both ways
+    /// -- the highest speed the table defines, for a pty that has no line
+    /// speed (Jev's lean, 0.86 and 0.80; xterm sends 128, a code the table
+    /// does not have) -- the clock multiplier 1 and no STP flags.
+    TerminalParameters { sol: u16 },
+    /// DECAUPSS, `DCS 0 ! u % 5 ST`, the answer to DECRQUPSS: the
+    /// user-preference supplemental set is DEC Supplemental
+    /// (`[[source: dec-std-070]]` p. 5-125).
+    PreferredSupplemental,
+    /// DECRPDE, `CSI Ph ; Pw ; 1 ; 1 ; 1 " w`: every line and column of the
+    /// one page, shown from its first cell (`[[source: dec-std-070]]`
+    /// p. 5-88).
+    DisplayedExtent { rows: Rows, cols: Cols },
+    /// The answer to XTQMODKEYS or XTQFMTKEYS: `CSI > 4 ; Pv m` or `f`, the
+    /// control that sets the resource, so "the response can be used to
+    /// restore this state" (`[[source: ctlseqs]]`; `report_mod_fkeys` and
+    /// `report_fmt_fkeys`, `[[source: xterm-reset]]`'s file). `Pp` is 4,
+    /// `modifyOtherKeys` or `formatOtherKeys`, the one resource baud holds.
+    KeyOption { which: KeyOption, value: u8 },
     /// `OSC 4 ; c ; rgb:RRRR/GGGG/BBBB ST` -- the answer to `OSC 4 ; c ; ?`,
     /// four digits a channel for the reason [`ReportBytes::push_hex`] gives.
     ///
@@ -743,6 +775,65 @@ impl Report {
                     e.push(*b);
                 }
             }
+            Report::ExtendedCursorPosition { row, col } => {
+                e.push(b'?');
+                e.push_num(row.get());
+                e.push(b';');
+                e.push_num(col.get());
+                e.push(b';');
+                e.push_num(1);
+                e.push(b'R');
+            }
+            Report::DecStatus(r) => {
+                e.push(b'?');
+                for (k, v) in r.params().iter().enumerate() {
+                    if k > 0 {
+                        e.push(b';');
+                    }
+                    e.push_num(*v);
+                }
+                e.push(b'n');
+            }
+            Report::MacroSpace => {
+                e.push_num(0);
+                e.push(b'*');
+                e.push(b'{');
+            }
+            Report::TerminalParameters { sol } => {
+                for v in [sol, 1, 1, 120, 120, 1] {
+                    e.push_num(v);
+                    e.push(b';');
+                }
+                e.push_num(0);
+                e.push(b'x');
+            }
+            Report::PreferredSupplemental => {
+                e.len = ByteLen::ZERO;
+                for b in c1.dcs() {
+                    e.push(*b);
+                }
+                for b in b"0!u%5" {
+                    e.push(*b);
+                }
+                for b in c1.st() {
+                    e.push(*b);
+                }
+            }
+            Report::DisplayedExtent { rows, cols } => {
+                e.push_num(u16::try_from(rows.index()).unwrap_or(u16::MAX));
+                e.push(b';');
+                e.push_num(u16::try_from(cols.index()).unwrap_or(u16::MAX));
+                for b in b";1;1;1\"w" {
+                    e.push(*b);
+                }
+            }
+            Report::KeyOption { which, value } => {
+                e.push(b'>');
+                e.push_num(4);
+                e.push(b';');
+                e.push_num(u16::from(value));
+                e.push(which.final_byte());
+            }
             Report::Version => {
                 // Not a CSI: `DCS > | <text> ST`. The introducer written here
                 // replaces the `ESC [` the encoder starts with, so the branch
@@ -927,6 +1018,227 @@ impl StatusKind {
             5 => Some(StatusKind::Operating),
             6 => Some(StatusKind::CursorPosition),
             _ => None,
+        }
+    }
+}
+
+/// A report answered out of line, its parameters read where it is answered
+/// ([`QueryOp::with`]), as [`AreaOp`]'s are: the variant carries nothing, so
+/// `csi_final`'s dispatch keeps nothing live for it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum QueryOp {
+    /// `CSI ? Ps n`, one of the DEC private device status reports
+    /// [`DecStatus`] names.
+    DecStatus,
+    /// DECREQTPARM, `CSI Ps x` with `Ps` 0 or 1 (`[[source: vt100-ug-ch3]]`).
+    TerminalParameters,
+    /// DECRQUPSS, `CSI & u` (`[[source: dec-std-070]]` p. 5-125).
+    PreferredSupplemental,
+    /// DECRQDE, `CSI " v` (`[[source: dec-std-070]]` p. 5-88).
+    DisplayedExtent,
+    /// XTQMODKEYS, `CSI ? Pp m`, one answer a parameter.
+    ModifyKeys,
+    /// XTQFMTKEYS, `CSI > Pp g`, one answer a parameter.
+    FormatKeys,
+}
+
+/// A [`QueryOp`] with its parameters read.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum QueryCall {
+    DecStatus(DecStatus),
+    /// DECREPTPARM's first parameter: the request's `<sol>` plus two.
+    TerminalParameters {
+        sol: u16,
+    },
+    PreferredSupplemental,
+    DisplayedExtent,
+    /// The keyboard queries take a list, which the caller walks.
+    ModifyKeys,
+    FormatKeys,
+}
+
+impl QueryOp {
+    /// The query `p` asks, or `None` when the parameters name none, which
+    /// the caller counts as it counts an unsupported sequence: a private
+    /// `n` no text gives, a DECREPTPARM, or a parameter on DECRQUPSS or
+    /// DECRQDE, which "take no parameters" (`[[source: dec-std-070]]`
+    /// pp. 5-125 and 5-88), so only the bare form is the request, as SCOSC's
+    /// is.
+    pub fn with(self, p: &Params<'_>) -> Option<QueryCall> {
+        Some(match self {
+            QueryOp::DecStatus => QueryCall::DecStatus(DecStatus::of(p)?),
+            QueryOp::TerminalParameters => QueryCall::TerminalParameters {
+                sol: QueryOp::solicit(p)? + 2,
+            },
+            QueryOp::PreferredSupplemental if p.all_default() => QueryCall::PreferredSupplemental,
+            QueryOp::DisplayedExtent if p.all_default() => QueryCall::DisplayedExtent,
+            QueryOp::PreferredSupplemental | QueryOp::DisplayedExtent => return None,
+            QueryOp::ModifyKeys => QueryCall::ModifyKeys,
+            QueryOp::FormatKeys => QueryCall::FormatKeys,
+        })
+    }
+
+    /// The final byte the query arrived with, for the count of a sequence
+    /// it does not answer.
+    pub fn final_byte(self) -> FinalByte {
+        let b = match self {
+            QueryOp::DecStatus => b'n',
+            QueryOp::TerminalParameters => b'x',
+            QueryOp::PreferredSupplemental => b'u',
+            QueryOp::DisplayedExtent => b'v',
+            QueryOp::ModifyKeys => b'm',
+            QueryOp::FormatKeys => b'g',
+        };
+        FinalByte::of_final(StreamByte::from_stream(b))
+    }
+
+    /// DECREQTPARM's `<sol>`: "0 or none" and "1" are requests
+    /// (`[[source: vt100-ug-ch3]]`); 2 and 3 are the reports a terminal
+    /// sends, and a terminal does not answer them.
+    pub fn solicit(p: &Params<'_>) -> Option<u16> {
+        match p.raw(ParamIdx::FIRST, 0) {
+            v @ (0 | 1) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// The level each report is the text's at, for [`Csi::level`].
+    pub fn level(self) -> Level {
+        match self {
+            // "Request Terminal Parameters" is the VT100's, and no later
+            // DEC text has it.
+            QueryOp::TerminalParameters => Level::Vt100,
+            // "Levels: 2x (8-bit Interface Architecture), 3-4".
+            QueryOp::PreferredSupplemental => Level::Vt220,
+            // "Levels: 3x, 4x (Windowing)"; this table has no third level,
+            // and the private DSRs run from Level 1x to Level 4 by report.
+            QueryOp::DisplayedExtent | QueryOp::DecStatus => Level::Vt420,
+            QueryOp::ModifyKeys | QueryOp::FormatKeys => Level::Xterm,
+        }
+    }
+}
+
+/// The DEC private device status reports, `CSI ? Ps n`, each by the
+/// report its text gives (`[[source: dec-std-070]]`, `[[source: vt420-rm]]`
+/// chapter 12, `[[source: vt510-dsr]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DecStatus {
+    /// `?6`, DECXCPR: the cursor with its page.
+    ExtendedCursor,
+    /// `?15`, the printer port.
+    Printer,
+    /// `?25`, the user-defined keys.
+    UserKeys,
+    /// `?26`, the keyboard.
+    Keyboard,
+    /// `?55`, the locator's status.
+    LocatorStatus,
+    /// `?56`, the locator's type.
+    LocatorType,
+    /// `?62`, DECMSR, the macro space.
+    MacroSpace,
+    /// `?63 ; Pid`, DECCKSR of the macro definitions, labelled `id`.
+    MemoryChecksum { id: Param },
+    /// `?75`, the data integrity flag.
+    DataIntegrity,
+    /// `?85`, the multiple-session configuration.
+    Sessions,
+}
+
+impl DecStatus {
+    /// The report `CSI ? Ps n` asks for, or `None` for a `Ps` no text gives.
+    /// `?996` is the colour preference query and not a DEC report.
+    pub fn of(p: &Params<'_>) -> Option<DecStatus> {
+        Some(match p.raw(ParamIdx::FIRST, 0) {
+            6 => DecStatus::ExtendedCursor,
+            15 => DecStatus::Printer,
+            25 => DecStatus::UserKeys,
+            26 => DecStatus::Keyboard,
+            55 => DecStatus::LocatorStatus,
+            56 => DecStatus::LocatorType,
+            62 => DecStatus::MacroSpace,
+            // "pid is an optional numeric parameter" (p. 5-180); omitted, the
+            // label is 0, as DECRQCRA's is.
+            63 => DecStatus::MemoryChecksum {
+                id: p.at(ParamIdx::SECOND).unwrap_or(Param::ZERO),
+            },
+            75 => DecStatus::DataIntegrity,
+            85 => DecStatus::Sessions,
+            _ => return None,
+        })
+    }
+}
+
+/// The data integrity flag of `[[source: dec-std-070]]` 070-4 § 3.3.2:
+/// "Power-up, No request since last power-up or reset" until the first
+/// report, and then "OK, no comm error detected since last report". The
+/// third state, "Error, a comm error has been detected", needs a line that
+/// can fail parity or framing, and a pty has neither.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Integrity {
+    /// Set at power-up and by RIS; `?73`.
+    #[default]
+    PowerUp,
+    /// Reported since; `?70`.
+    Ok,
+}
+
+/// What a [`DecStatus`] other than the cursor, the macro space and the
+/// checksum answers: `CSI ? Ps n` with one parameter, or the keyboard's and
+/// the locator type's longer forms.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DecReply {
+    /// `CSI ? 13 n`: "The printer is not connected to the terminal"
+    /// (070-7 p. 7-33).
+    NoPrinter,
+    /// `CSI ? 23 n`: "No User Defined Keys are present. The device does not
+    /// support this extension" (070-11 p. 11-7).
+    NoUserKeys,
+    /// `CSI ? 27 ; 0 ; 0 n`: the keyboard language "cannot be determined"
+    /// and the keyboard ready (`[[source: vt510-dsr-kbd]]`). No keyboard
+    /// type: each `Ptyp` names a DEC keyboard, none an unidentified one, and
+    /// the three-parameter form is ctlseqs' VT300 one (Jev's lean, 0.81 and
+    /// 0.93, taken).
+    KeyboardUnknown,
+    /// `CSI ? 53 n`: "No locator" (070-13).
+    NoLocator,
+    /// `CSI ? 57 ; 0 n`: "Unknown Locator" (070-13).
+    UnknownLocator,
+    /// `CSI ? 73 n` or `CSI ? 70 n`, from the flag.
+    DataIntegrity(Integrity),
+    /// `CSI ? 83 n`: "not configured for virtual terminals" (070-4).
+    SingleSession,
+}
+
+impl DecReply {
+    fn params(self) -> &'static [u16] {
+        match self {
+            DecReply::NoPrinter => &[13],
+            DecReply::NoUserKeys => &[23],
+            DecReply::KeyboardUnknown => &[27, 0, 0],
+            DecReply::NoLocator => &[53],
+            DecReply::UnknownLocator => &[57, 0],
+            DecReply::DataIntegrity(Integrity::PowerUp) => &[73],
+            DecReply::DataIntegrity(Integrity::Ok) => &[70],
+            DecReply::SingleSession => &[83],
+        }
+    }
+}
+
+/// Which of xterm's two key-option queries a [`Report::KeyOption`] answers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KeyOption {
+    /// XTQMODKEYS, answered as XTMODKEYS, `CSI > Pp ; Pv m`.
+    Modify,
+    /// XTQFMTKEYS, answered as XTFMTKEYS, `CSI > Pp ; Pv f`.
+    Format,
+}
+
+impl KeyOption {
+    fn final_byte(self) -> u8 {
+        match self {
+            KeyOption::Modify => b'm',
+            KeyOption::Format => b'f',
         }
     }
 }

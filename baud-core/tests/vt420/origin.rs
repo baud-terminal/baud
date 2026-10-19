@@ -209,11 +209,16 @@ fn cpr_under_origin_mode_counts_from_the_left_margin() {
     assert_eq!(s.reply, b"\x1b[3;8R", "absolute");
 }
 
-/// DECXCPR stays unanswered: baud implements no DECXCPR, under DECOM or not.
+/// DECXCPR counts from the same origin: "If Origin Mode is set, addressing
+/// is performed relative to the origin of the current scrolling region (the
+/// Top and Left Margin)" (`[[source: dec-std-070]]` p. 5-55), so it names
+/// the cell CPR names, with the page.
 #[test]
-fn decxcpr_stays_unanswered_under_origin_mode() {
-    let s = seen(&format!("{TB}{LRM}{OM}\x1b[?6n"));
-    assert!(s.reply.is_empty(), "{:?}", s.reply);
+fn decxcpr_under_origin_mode_counts_from_the_margins() {
+    let s = seen(&format!("{TB}{LRM}{OM}\x1b[3d\x1b[8G\x1b[?6n"));
+    assert_eq!(s.reply, b"\x1b[?3;4;1R");
+    let s = seen(&format!("{TB}{LRM}\x1b[3;8H\x1b[?6n"));
+    assert_eq!(s.reply, b"\x1b[?3;8;1R", "absolute");
 }
 
 // ── confinement ─────────────────────────────────────────────────────────────

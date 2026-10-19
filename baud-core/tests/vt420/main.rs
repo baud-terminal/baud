@@ -16,6 +16,7 @@ mod origin;
 mod presentation;
 mod rect_ops;
 mod rect_scroll;
+mod reports;
 mod side_margins;
 mod tab_backspace;
 
@@ -42,6 +43,7 @@ fn the_known_vt420_gaps() {
             "presentation.rs",
             "rect_ops.rs",
             "rect_scroll.rs",
+            "reports.rs",
             "side_margins.rs",
             "tab_backspace.rs",
         ],

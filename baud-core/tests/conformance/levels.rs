@@ -39,11 +39,14 @@ fn doc_tiers() -> Vec<(String, u8)> {
     out
 }
 
-fn level_of_tier(t: u8) -> Option<Level> {
+/// The levels a tier's heading names: "Tier 2 — VT220 / VT420" is both, so
+/// a VT420 operation under it -- DECRQDE, whose row is a bare sequence this
+/// parser reads -- is where the heading puts it.
+fn level_of_tier(t: u8) -> Option<&'static [Level]> {
     match t {
-        1 => Some(Level::Vt100),
-        2 => Some(Level::Vt220),
-        3 => Some(Level::Xterm),
+        1 => Some(&[Level::Vt100]),
+        2 => Some(&[Level::Vt220, Level::Vt420]),
+        3 => Some(&[Level::Xterm]),
         _ => None,
     }
 }
@@ -98,7 +101,7 @@ fn documented_tiers_match_the_code() {
             continue; // ambiguous or parameterised rows; not this test's job
         };
         checked += 1;
-        if got != want {
+        if !want.contains(&got) {
             wrong.push(format!(
                 "`{seq}` is under Tier {tier} ({want:?}) but the code says {got:?}"
             ));

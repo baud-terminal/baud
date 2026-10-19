@@ -3426,6 +3426,11 @@ impl Paint<'_, '_> {
         // DECSTR's table (p. 31, PDF 235) does not name it, so only `RIS` puts it back, as xterm's
         // `if (full)` branch does (`[[source: xterm-reset]]`).
         self.cold.attr_extent = AttrExtent::Stream;
+        // "power-up. data integrity flag has not been reported since last
+        // power-up or RIS" (`[[source: dec-std-070]]` 070-4, DSR); `DECSTR`
+        // is neither.
+        self.cold.replies = self.cold.replies.with_integrity(Integrity::PowerUp);
+
         // The open hyperlink is content rather than mode: a `RIS` clears the
         // screen, so a link that outlived it would apply to cells that no
         // longer exist.

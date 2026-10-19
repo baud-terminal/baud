@@ -64,6 +64,7 @@ mod paint;
 mod placed;
 mod presentation;
 mod prompt;
+mod query;
 mod rect;
 mod shift;
 mod sixel;

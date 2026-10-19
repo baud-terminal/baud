@@ -137,10 +137,12 @@ fn an_unsupported_dsr_is_not_answered() {
 }
 
 /// Private DSR (`CSI ? n`) is a different namespace and is not answered as if
-/// it were the ANSI one.
+/// it were the ANSI one: `CSI ? 6 n` is DECXCPR, the cursor with its page,
+/// and not CPR.
 #[test]
 fn private_dsr_is_a_different_namespace() {
-    assert!(replies(b"\x1b[?6n").is_empty());
+    assert_eq!(replies(b"\x1b[?6n"), b"\x1b[?1;1;1R");
+    assert_eq!(replies(b"\x1b[6n"), b"\x1b[1;1R");
 }
 
 // ── the channel ─────────────────────────────────────────────────────────────

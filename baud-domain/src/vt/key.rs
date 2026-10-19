@@ -69,6 +69,28 @@ pub enum OtherKeysFormat {
     CsiU,
 }
 
+impl OtherKeys {
+    /// The `Pv` of `CSI > 4 ; Pv m` that selects this level, which is what
+    /// XTQMODKEYS and DECRQSS report so the answer sets it back.
+    pub fn level(self) -> u8 {
+        match self {
+            OtherKeys::Off => 0,
+            OtherKeys::Level1 => 1,
+            OtherKeys::Level2 => 2,
+        }
+    }
+}
+
+impl OtherKeysFormat {
+    /// The `Pv` of `CSI > 4 ; Pv f` that selects this format.
+    pub fn code(self) -> u8 {
+        match self {
+            OtherKeysFormat::Xterm => 0,
+            OtherKeysFormat::CsiU => 1,
+        }
+    }
+}
+
 /// The five progressive enhancements of `[[source: kitty-keyboard]]`, as the
 /// bitfield `CSI = flags ; mode u` carries them.
 ///

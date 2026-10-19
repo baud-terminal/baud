@@ -761,12 +761,13 @@ pub struct Cold {
     /// set where the cursor arrives on a line or its line changes size
     /// (`Paint::enter_row`).
     pub(crate) fence: Col,
-    /// `S7C1T` / `S8C1T`. How wide a `CSI` this core *writes*.
+    /// `S7C1T` / `S8C1T`, how wide a `CSI` this core *writes*, and the data
+    /// integrity flag `CSI ? 75 n` reports ([`Replies`]).
     ///
     /// Reading is a different question and is settled by `encoding`: an
     /// 8-bit `9B` can only be a control under Latin-1. Transmitting is the
     /// application's choice and it makes it with `ESC SP F` / `ESC SP G`.
-    pub(crate) c1: C1Transmit,
+    pub(crate) replies: Replies,
     /// DECSACE: whether DECCARA and DECRARA affect a stream of positions or
     /// the rectangle (`baud_domain::AttrExtent`). Read once per one of
     /// those, never by the write loop.
@@ -1036,6 +1037,59 @@ pub struct Cold {
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 728);
 
+/// What the reply path keeps between replies: how wide a C1 it writes
+/// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
+/// power-up until `CSI ? 75 n` reports it, and again after `RIS`).
+///
+/// **Two two-state values as one four-state byte, in the byte `c1` had**:
+/// `Cold`'s size is pinned, a byte more is a word more, and with the flag a
+/// field of its own the write loop's register allocation moved, where with
+/// this its code is the base's. An enum rather than a packed integer, so
+/// neither value is a raw bit.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Replies {
+    SevenBitPowerUp,
+    SevenBitOk,
+    EightBitPowerUp,
+    EightBitOk,
+}
+
+impl Replies {
+    /// Seven-bit, and the flag at power-up.
+    pub(crate) const POWER_ON: Replies = Replies::SevenBitPowerUp;
+
+    fn of(c1: C1Transmit, integrity: Integrity) -> Replies {
+        match (c1, integrity) {
+            (C1Transmit::SevenBit, Integrity::PowerUp) => Replies::SevenBitPowerUp,
+            (C1Transmit::SevenBit, Integrity::Ok) => Replies::SevenBitOk,
+            (C1Transmit::EightBit, Integrity::PowerUp) => Replies::EightBitPowerUp,
+            (C1Transmit::EightBit, Integrity::Ok) => Replies::EightBitOk,
+        }
+    }
+
+    pub(crate) fn c1(self) -> C1Transmit {
+        match self {
+            Replies::SevenBitPowerUp | Replies::SevenBitOk => C1Transmit::SevenBit,
+            Replies::EightBitPowerUp | Replies::EightBitOk => C1Transmit::EightBit,
+        }
+    }
+
+    pub(crate) fn integrity(self) -> Integrity {
+        match self {
+            Replies::SevenBitPowerUp | Replies::EightBitPowerUp => Integrity::PowerUp,
+            Replies::SevenBitOk | Replies::EightBitOk => Integrity::Ok,
+        }
+    }
+
+    pub(crate) fn with_c1(self, c1: C1Transmit) -> Replies {
+        Replies::of(c1, self.integrity())
+    }
+
+    pub(crate) fn with_integrity(self, integrity: Integrity) -> Replies {
+        Replies::of(self.c1(), integrity)
+    }
+}
+
 /// **Where an open SPA starts**: `[[source: ecma48]]` 6.5.2.2, "The
 /// character position which is the active presentation position after
 /// receipt of SPA is the first character position of the guarded area".
@@ -1213,7 +1267,7 @@ impl Cold {
             str_enc: InputEncoding::Utf8,
             str_len: ByteLen::ZERO,
             sixel_bg: SixelBg::Transparent,
-            c1: C1Transmit::SevenBit,
+            replies: Replies::POWER_ON,
             attr_extent: AttrExtent::Stream,
             // The base layer, which is what an application that has not asked
             // for an enhancement must receive.
@@ -2594,7 +2648,7 @@ impl<'b> Term<'b> {
 
     /// How wide a `CSI` this core writes, as `S7C1T` / `S8C1T` last set it.
     pub fn c1_transmit(&self) -> C1Transmit {
-        self.cold.c1
+        self.cold.replies.c1()
     }
 
     /// What a G-slot holds, as distinct from which slot is invoked.
@@ -3796,7 +3850,7 @@ impl<'b> Term<'b> {
     /// resize or a cell-size change, `?2031` after a theme change -- are
     /// counted and nothing more.
     fn queue(&mut self, r: Report) -> bool {
-        let bytes = r.encode(self.cold.c1);
+        let bytes = r.encode(self.cold.replies.c1());
         let b = bytes.as_bytes();
         let at = self.reply_len.index();
         match at + b.len() <= self.store.reply.len() {
@@ -4017,7 +4071,7 @@ impl<'b> Term<'b> {
     /// * **`c1` was `C1Transmit::SevenBit`**, on the grounds that the core did
     ///   not implement `S8C1T` and `want_reply` passed the same constant, so a
     ///   key and a `DA` could not disagree about how wide a `CSI` is. When
-    ///   `S8C1T` landed every reply followed `cold.c1` and a key did not: after
+    ///   `S8C1T` landed every reply followed `cold.c1` (now `cold.replies`) and a key did not: after
     ///   `ESC SP G` a `DA` answered with `9B` and an arrow key still sent
     ///   `ESC [`. `[[source: ctlseqs]]` says xterm "generates 7-bit controls
     ///   (by default) or 8-bit if S8C1T is enabled", and xterm's keyboard
@@ -4043,7 +4097,7 @@ impl<'b> Term<'b> {
         let s = KeyState {
             modes: self.cold.modes,
             keypad: self.cold.keypad,
-            c1: self.cold.c1,
+            c1: self.cold.replies.c1(),
             terminal: self.cold.terminal,
             encoding: self.cold.encoding,
             other_keys: self.cold.other_keys,

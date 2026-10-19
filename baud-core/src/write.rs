@@ -1883,31 +1883,8 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             // `[[source: vt510-decom]]` requires: an application inside a
             // margin asks where it is and must be told in its own coordinates.
             Some(StatusKind::CursorPosition) => {
-                let base = p.origin_row().index();
-                let row = Row::from_index(p.cy.index().saturating_sub(base));
-                // **The last writable column, not the sentinel one past
-                // it.** With `DECAWM` on, the cursor parks one past the right
-                // margin until the next character wraps it, and `CPR`
-                // reported that -- a column the application cannot address,
-                // off the end of its own row. The same clamp `Term::cursor`
-                // carries, which is where this was found the first time.
-                //
-                // **A cursor placed one past it, or right of the fence,
-                // reports its own column**: only the sentinel waits on a
-                // column it is not on ([`CursorCol::reported`]).
-                let col = p.cx.reported(p.line_fence(), p.cols);
-                // **And the column from the left margin under DECOM**:
-                // `active_position.column - left_margin + 1`
-                // (`[[source: dec-std-070]]` CPR, p. 5-54), so a `CUP` and the
-                // report agree. The subtraction cannot saturate: under DECOM
-                // every move lands inside the margins (`Paint::confine` and
-                // `Paint::confine_col`), and the record, "DECOM's origin is
-                // the left margin too", lists every place the column is set.
-                let col = Col::at_index(col.index().saturating_sub(p.origin_col().index()));
-                p.want_reply(Report::CursorPosition {
-                    row: row.one_based(),
-                    col: col.one_based(),
-                });
+                let (row, col) = p.reported_cursor();
+                p.want_reply(Report::CursorPosition { row, col });
             }
             Some(StatusKind::Operating) => p.want_reply(Report::OperatingStatus),
             // **A `DSR` this core cannot answer gets silence, and silence is
@@ -2016,6 +1993,9 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // read out of line.
         DomCsi::Area(op) => p.area_op(op, csi),
         DomCsi::RequestPresentationState => p.request_presentation_state(csi),
+        // The reports a VT420 and xterm answer (`crate::query`), their
+        // parameters read out of line.
+        DomCsi::Query(op) => p.answer_query(op, csi),
         DomCsi::Unsupported { .. } => {
             p.unsupported_total += 1;
             #[cfg(feature = "diag")]
@@ -2124,8 +2104,12 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
             // It changes only what baud *writes*. What it reads is settled by
             // the encoding, because a `9B` can be a control only where it
             // cannot be a UTF-8 continuation byte.
-            b' ' if b.raw_byte() == b'F' => p.cold.c1 = C1Transmit::SevenBit,
-            b' ' if b.raw_byte() == b'G' => p.cold.c1 = C1Transmit::EightBit,
+            b' ' if b.raw_byte() == b'F' => {
+                p.cold.replies = p.cold.replies.with_c1(C1Transmit::SevenBit)
+            }
+            b' ' if b.raw_byte() == b'G' => {
+                p.cold.replies = p.cold.replies.with_c1(C1Transmit::EightBit)
+            }
             // **`ESC SP L/M/N`, counted rather than dropped.** ANSI
             // conformance levels -- not implemented, and previously
             // indistinguishable from an implemented form because the

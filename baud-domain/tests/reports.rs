@@ -401,6 +401,38 @@ fn report_encodings_fit() {
         ),
         ("dsr", Report::OperatingStatus, b'n'),
         (
+            "decxcpr",
+            Report::ExtendedCursorPosition {
+                row: one(65535),
+                col: one(65535),
+            },
+            b'R',
+        ),
+        (
+            "dec status, keyboard",
+            Report::DecStatus(DecReply::KeyboardUnknown),
+            b'n',
+        ),
+        ("decmsr", Report::MacroSpace, b'{'),
+        ("decreptparm", Report::TerminalParameters { sol: 3 }, b'x'),
+        ("decaupss", Report::PreferredSupplemental, b'\\'),
+        (
+            "decrpde",
+            Report::DisplayedExtent {
+                rows: Rows::of_count(65535),
+                cols: Cols::of_index(65535),
+            },
+            b'w',
+        ),
+        (
+            "key option",
+            Report::KeyOption {
+                which: KeyOption::Format,
+                value: 255,
+            },
+            b'f',
+        ),
+        (
             "colour scheme",
             Report::ColorScheme(ColorScheme::Light),
             b'n',
@@ -642,7 +674,14 @@ fn report_encodings_fit() {
             | Report::MouseUrxvt(_)
             | Report::MouseSgrPixels(..)
             | Report::Highlight(..)
-            | Report::Graphics { .. } => {}
+            | Report::Graphics { .. }
+            | Report::ExtendedCursorPosition { .. }
+            | Report::DecStatus(_)
+            | Report::MacroSpace
+            | Report::TerminalParameters { .. }
+            | Report::PreferredSupplemental
+            | Report::DisplayedExtent { .. }
+            | Report::KeyOption { .. } => {}
         }
         let b = enc(r);
         assert!(

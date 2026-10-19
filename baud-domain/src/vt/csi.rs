@@ -643,9 +643,14 @@ pub enum Csi {
     DeviceStatus(Option<StatusKind>),
     /// `CSI ? 996 n`: the colour preference query of
     /// `[[source: contour-palette-notifications]]`, answered `CSI ? 997 ; 1 n`
-    /// for dark and `; 2 n` for light. The only private `n` baud answers --
-    /// `CSI ? 6 n`, DECXCPR, and the rest stay [`Csi::Unsupported`].
+    /// for dark and `; 2 n` for light. The DEC private `n`s are
+    /// [`Csi::Query`]'s, and a `Ps` neither names is [`Csi::Unsupported`].
     ColorSchemeQuery,
+    /// A report answered out of line ([`QueryOp`]): the DEC private device
+    /// status reports, DECREQTPARM, DECRQUPSS, DECRQDE, XTQMODKEYS and
+    /// XTQFMTKEYS. **Its parameters are read where it is answered**, as
+    /// [`Csi::Area`]'s are.
+    Query(QueryOp),
     /// DECSTR, `CSI ! p`. Soft reset: modes, region, cursor and attributes to
     /// their defaults, but **not** the screen contents -- that is what makes it
     /// soft, and what distinguishes it from RIS.
@@ -830,7 +835,7 @@ impl Csi {
     /// resolved without the mode -- so the mode is a parameter rather than
     /// something the caller patches up afterwards.
     /// **`#[inline]` so the construct-and-match pair can collapse.** This
-    /// builds a 57-variant enum that `baud-core`'s `csi_final` destructures
+    /// builds a 58-variant enum that `baud-core`'s `csi_final` destructures
     /// immediately -- two dispatches on the same final byte where one would
     /// do. Across a call boundary LLVM cannot see that; inlined it can thread
     /// the construction straight into the caller's arms. The caller is
@@ -924,6 +929,12 @@ impl Csi {
                 // "causes the terminal to respond with a Presentation State
                 // Report"; `[[source: vt510-decrqpsr]]`.
                 (b'$', b'w') if marker == Marker::Standard => Csi::RequestPresentationState,
+                // DECRQUPSS and DECRQDE. Their parameters, which neither
+                // takes, are read where they are answered ([`QueryOp::with`]).
+                (b'&', b'u') if marker == Marker::Standard => {
+                    Csi::Query(QueryOp::PreferredSupplemental)
+                }
+                (b'"', b'v') if marker == Marker::Standard => Csi::Query(QueryOp::DisplayedExtent),
                 _ => Csi::Unsupported {
                     marker,
                     final_byte: f,
@@ -977,6 +988,13 @@ impl Csi {
                 final_byte: f,
             };
         }
+        // XTQFMTKEYS, `CSI > Pp g`: xterm 411's parse table
+        // (`[[source: xterm-vtprstbl-c]]`, `dec2_table`) and not the
+        // `CSI ? Pp g` `[[source: ctlseqs]]` line 884 documents, which xterm
+        // ignores (Jev's lean, 0.48 and 0.34, taken).
+        if marker == Marker::Gt && f.raw() == b'g' {
+            return Csi::Query(QueryOp::FormatKeys);
+        }
         // `[[source: kitty-keyboard]]` push, `CSI > flags u`.
         if marker == Marker::Gt && f.raw() == b'u' {
             return Csi::KittyPush {
@@ -1023,6 +1041,13 @@ impl Csi {
                     })
                 }
                 b'n' if p.at(ParamIdx::FIRST).map_or(0, |x| x.0) == 996 => Csi::ColorSchemeQuery,
+                // The DEC private DSRs, `Ps` read where they are answered:
+                // a test of it here put a clamp of the parameter count on
+                // `csi_final`'s entry, three instructions on every `CSI` but
+                // SGR, as `S` once did.
+                b'n' => Csi::Query(QueryOp::DecStatus),
+                // XTQMODKEYS (`[[source: ctlseqs]]` line 1356).
+                b'm' => Csi::Query(QueryOp::ModifyKeys),
                 b'J' if p.has(ParamIdx::SECOND) => Csi::EraseEach(EraseList::SelectiveDisplay),
                 b'K' if p.has(ParamIdx::SECOND) => Csi::EraseEach(EraseList::SelectiveLine),
                 b'J' => match p.extent(ParamIdx::FIRST) {
@@ -1165,6 +1190,10 @@ impl Csi {
                 bottom: p.far_margin(ParamIdx::SECOND),
             },
             b'm' => Csi::Sgr,
+            // DECREQTPARM (`[[source: vt100-ug-ch3]]`); a `<sol>` of 2 or 3
+            // is a report, sent to baud rather than asked of it, and is told
+            // apart where the parameter is read.
+            b'x' => Csi::Query(QueryOp::TerminalParameters),
             _ => Csi::Unsupported {
                 marker,
                 final_byte: f,
@@ -1334,6 +1363,7 @@ impl Csi {
             // contour's extension, not xterm's; this table has no level of its
             // own for it and it is not a VT level either.
             ColorSchemeQuery => Level::Xterm,
+            Query(q) => q.level(),
 
             Unsupported { .. } => return None,
         })

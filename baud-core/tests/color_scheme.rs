@@ -236,7 +236,7 @@ fn other_private_dsrs_stay_unsupported() {
     support::with_corpus(|t| {
         t.set_theme(&theme(DARK_FG, DARK_BG), Overrides::Keep);
         let before = t.unsupported;
-        support::feed(t, b"\x1b[?6n\x1b[?995n\x1b[?997n");
+        support::feed(t, b"\x1b[?99n\x1b[?995n\x1b[?997n");
         assert_eq!(t.reply(), b"");
         assert_eq!(t.unsupported, before + 3);
     });

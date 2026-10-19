@@ -366,6 +366,15 @@ group  = "C"
 # attributes associated with each position do not change" (pp. 5-159 to 5-164); DECIC
 # and DECDC, "blank with normal rendition" (pp. 5-150 and 5-151); DECFI's algorithm,
 # which cuts the column back to end_of_line (p. 5-38).
+# Read 2026-10-19 for the VT420 reports (lane b101), the copy whose sha256 matches, on
+# the text layer [text], and PDF 239, 240, 310 and 974 against the page image [img]: 070-4 DSR, ?75 -> ?70/?71/?73 and
+# ?85 -> ?81/?83/?87, with the algorithm (PDF 239-240); DECXCPR, CSI ? Pl ; Pc ; Pp R,
+# Levels 3x, 4 (p. 5-55, PDF 310); DECRQDE/DECRPDE (p. 5-88, PDF 343); DECAUPSS and
+# DECRQUPSS (pp. 5-123 to 5-125, PDF 378-380); the memory checksum DSR and DECCKSR
+# (pp. 5-180 and 5-181, PDF 435-436); DECMSR (p. 5-185, PDF 440); 070-7's printer DSR,
+# ?13 not connected (p. 7-33, PDF 711); 070-11's UDK DSR, ?23 no UDKs, "A report will be
+# given even if the UDK extension is not supported" (p. 11-7, PDF 974); 070-13's locator
+# DSR, ?53 and ?57;0 (PDF 1030).
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -28456,3 +28465,143 @@ sha256 = "d1b29399cd8b8234707f13e376d93d6631b2e33b131579cb273ee0d5ce3a45c3"
 bytes  = 92650
 status = "external"
 group  = "BU"
+
+[sources.vt510-dsr]
+key    = "vt510-dsr"
+title  = "DSR—Device Status Reports (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DSR.html"
+file   = "vt510-DSR.html"
+sha256 = "6bccefc6d824b0a8b2b75414ffdafd8496f2e196d8c84b7d64a1cd2b109965c0"
+bytes  = 20263
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 for the VT420 reports (lane b101): the request and report formats, ANSI and DEC, and the list of reports.
+
+[sources.vt510-dsr-xcpr]
+key    = "vt510-dsr-xcpr"
+title  = "DSR—Extended Cursor Position Report (DECXCPR) (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DSR-XCPR.html"
+file   = "vt510-DSR-XCPR.html"
+sha256 = "9f05127505b58d8ab845faee3bf024135671e0a4898f4e478aceba301e8758dd"
+bytes  = 19590
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 for the VT420 reports (lane b101): the response printed CSI Pl; Pc; Pp R, without the ? that DEC STD 070 p. 5-55 and ctlseqs give.
+
+[sources.vt510-dsr-pp]
+key    = "vt510-dsr-pp"
+title  = "DSR—Printer Port (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DSR-PP.html"
+file   = "vt510-DSR-PP.html"
+sha256 = "c7eaaf4c6d0365854e6ec89265ddb5609e56687099d5934ed4290dacf96945ab"
+bytes  = 20597
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 for the VT420 reports (lane b101): CSI ? 13 n, no printer, among the responses.
+
+[sources.vt510-dsr-udk]
+key    = "vt510-dsr-udk"
+title  = "DSR—User-Defined Keys (VT Level 4 Only) (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DSR-UDK.html"
+file   = "vt510-DSR-UDK.html"
+sha256 = "8b5d668df5cdb7184b00a16752e8332fbc27a7f1b991bbc60d498c2ec2aa2946"
+bytes  = 19497
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 for the VT420 reports (lane b101): responses ?20 and ?21 only; STD 070-11 adds ?23.
+
+[sources.vt510-dsr-kbd]
+key    = "vt510-dsr-kbd"
+title  = "DSR—Keyboard (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DSR-KBD.html"
+file   = "vt510-DSR-KBD.html"
+sha256 = "e85634c690c1b478e8dfaaa6c720c919ab365ed9777bc279df5738e40b4bc45d"
+bytes  = 21969
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 for the VT420 reports (lane b101): CSI ? 27; Pn; Pst; Ptyp n; Pn 0 "Keyboard language cannot be determined"; Ptyp 4 LK450 and 5 PCXAL, no unknown type.
+
+[sources.vt510-dsr-msr]
+key    = "vt510-dsr-msr"
+title  = "DSR—Macro Space Report (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DSR-MSR.html"
+file   = "vt510-DSR-MSR.html"
+sha256 = "7b003b2c695e5d14c0a9805d71d3d80960dc27a7504fe9d64e4597c813ab7ce2"
+bytes  = 19726
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 for the VT420 reports (lane b101): CSI Pn * {, bytes available over 16.
+
+[sources.vt510-dsr-dir]
+key    = "vt510-dsr-dir"
+title  = "DSR—Data Integrity Report (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DSR-DIR.html"
+file   = "vt510-DSR-DIR.html"
+sha256 = "3b98f468ee4e083cdbb71892bdfe580b0fa7f58aa31147be0a210c5a49bf7857"
+bytes  = 20315
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 for the VT420 reports (lane b101): ?70, ?71 and ?73, the flag reset by each report.
+
+[sources.vt510-deccksr]
+key    = "vt510-deccksr"
+title  = "DECCKSR—Memory Checksum Report (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECCKSR.html"
+file   = "vt510-DECCKSR.html"
+sha256 = "7e9c62b553d8f3fb00efbc15b5e36ce64e65dc585b29e3cfaff1639456d8e325"
+bytes  = 20472
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 for the VT420 reports (lane b101): DCS Pid ! ~ D...D ST, the checksum of the macro definitions.
+
+[sources.vt510-decrqde]
+key    = "vt510-decrqde"
+title  = "DECRQDE—Request Displayed Extent (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECRQDE.html"
+file   = "vt510-DECRQDE.html"
+sha256 = "671506b67b7a24d7824331f85275880767555cb4aebeca9d2846e974011fdb51"
+bytes  = 19165
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 for the VT420 reports (lane b101): the request, CSI " v.
+
+[sources.vt510-decrpde]
+key    = "vt510-decrpde"
+title  = "DECRPDE—Report Displayed Extent (VT510 Programmer Information)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1993
+venue  = "VT510 Video Terminal Programmer Information"
+url    = "https://vt100.net/docs/vt510-rm/DECRPDE.html"
+file   = "vt510-DECRPDE.html"
+sha256 = "4b7a014727f9106e502fa30e5960ab6aedfcbda9e1b98c18a53f26897027a6ee"
+bytes  = 20210
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-19 for the VT420 reports (lane b101): CSI Ph; Pw; Pml; Pmt; Pmp " w.

@@ -217,15 +217,14 @@ fn an_unrepresentable_level_is_refused_and_counted() {
         &b"\x1b[>0;1m"[..], // modifyKeyboard
         &b"\x1b[>1;1m"[..], // modifyCursorKeys
         &b"\x1b[>4;2f"[..], // a formatOtherKeys value with no meaning here
-        &b"\x1b[?4m"[..],   // XTQMODKEYS
-        &b"\x1b[?4g"[..],   // XTQFMTKEYS
+        &b"\x1b[?4g"[..],   // XTQFMTKEYS as ctlseqs spells it; xterm parses `>`
     ] {
         t.write_at(BytePos::ZERO, b);
         t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
     }
     assert_eq!(
         t.unsupported - before,
-        6,
+        5,
         "each declined resource is counted, not dropped"
     );
 

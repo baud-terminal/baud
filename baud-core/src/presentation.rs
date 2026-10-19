@@ -65,7 +65,7 @@ impl Paint<'_, '_> {
     fn report_cursor_information(&mut self) {
         let mut data = [0u8; CIR_DATA_MAX];
         let n = self.cursor_information().encode(&mut data);
-        let c1 = self.cold.c1;
+        let c1 = self.cold.replies.c1();
         self.push_reply(&[c1.dcs(), b"1$u", &data[..n], c1.st()]);
     }
 
@@ -75,7 +75,11 @@ impl Paint<'_, '_> {
     fn report_tab_stops(&mut self) {
         let cols = self.cols.index().min(self.tabs.len());
         let at = self.reply_len.index();
-        match encode_tab_report(&self.tabs[..cols], self.cold.c1, &mut self.reply[at..]) {
+        match encode_tab_report(
+            &self.tabs[..cols],
+            self.cold.replies.c1(),
+            &mut self.reply[at..],
+        ) {
             Some(n) => self.reply_len = ByteLen::from_index(at + n.index()),
             None => self.reply_overflows += 1,
         }

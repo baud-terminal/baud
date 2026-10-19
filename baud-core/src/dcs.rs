@@ -80,6 +80,7 @@ pub const DECRQSS_MAX: usize = {
         b"255 q".len(),
         b"255\"q".len(),
         b"132$|".len(),
+        b">4;2m".len(),
     ];
     let mut body = sgr;
     let mut k = 0;
@@ -128,7 +129,7 @@ impl Paint<'_, '_> {
         // itself with `ESC P` -- read as the start of something else by an
         // application that asked for eight-bit replies and parses them as
         // such. `[[source: ctlseqs]]`: `DCS` is `90` and `ST` is `9C`.
-        let c1 = self.cold.c1;
+        let c1 = self.cold.replies.c1();
         let mut s = Status::new();
         s.push(c1.dcs());
         match t {
@@ -200,6 +201,22 @@ impl Paint<'_, '_> {
                 AttrExtent::Stream => b"1$r0*x",
                 AttrExtent::Rectangle => b"1$r2*x",
             }),
+            // **XTMODKEYS and XTFMTKEYS, answered as the controls that set
+            // them**: "replacing the Pt with the corresponding CSI string"
+            // (`[[source: ctlseqs]]`), so `> 4 ; Pv m` and `> 4 ; Pv f`.
+            // xterm's `do_dcs` spells the second `>%d;%dm`
+            // (`[[source: xterm-misc]]`), an XTMODKEYS, which would set the
+            // other resource: a departure not followed.
+            StatusTarget::OtherKeys => {
+                s.push(b"1$r>4;");
+                s.dec(WireByte::of(self.cold.other_keys.level()));
+                s.push(b"m");
+            }
+            StatusTarget::OtherKeysFormat => {
+                s.push(b"1$r>4;");
+                s.dec(WireByte::of(self.cold.other_keys_format.code()));
+                s.push(b"f");
+            }
         }
         s.push(c1.st());
         let at = self.reply_len.index();
