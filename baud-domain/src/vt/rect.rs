@@ -439,19 +439,29 @@ impl Checksum {
     /// 0.98 and 0.98; xterm counts its own internal codes for line drawing.
     /// The UK set's `£` counts 0xA3, its codepoint's, as xterm special-cases
     /// it (Jev's lean, 0.52 and 0.44, taken). A wide character's tail is not
-    /// a character and is not counted. Nor is a combining mark, where xterm's
-    /// `xtermCheckRect` adds each mark's code in `csDEC` too: a departure of
-    /// baud's, open.
+    /// a character and is not counted. Nor is a combining mark: xterm's
+    /// `xtermCheckRect` adds marks only to the total its `csNOTRIM`
+    /// extension reports, so its default `csDEC` sum leaves them out too
+    /// (Jev, LEFT_OUT, 1.00 and 0.97, 2026-10-19).
+    ///
+    /// **Every set that replaces a code is read back through the cell's
+    /// tag** ([`CellFlags::received`]): line drawing, the national sets,
+    /// DEC Supplemental, JIS-Katakana and JIS-Roman, so Supplemental's `W`
+    /// drawn `Œ` counts 0x57 and JIS-Katakana's `1` drawn U+FF71 0x31
+    /// (Jev's lean, CODE_RECEIVED, 0.70 and 0.86 after a second ask).
+    /// **Open**: a reserved DEC Supplemental position counts DEC's error
+    /// character, 0x1B, as xterm's `unmap_DEC_Supp_Graphic` does, where
+    /// CODE_RECEIVED would count the code sent; the cell does not keep it.
+    /// A character sent as UTF-8 carries no tag and counts itself
+    /// under line drawing too, a UTF-8 `─` 0x1B, though its cell keeps the
+    /// line-drawing flag (note AE, Q16(a); Jev's lean, OWN_VALUE, 0.82 and
+    /// 0.94 after a second ask), as xterm's `charSeen` counts it.
     pub fn add(&mut self, base: Content, flags: CellFlags, attrs: Attrs) {
         if base.is_empty() || base.is_wide_tail() {
             return;
         }
         let code = match base.as_codepoint() {
-            Some(cp) if flags.is_graphics() => match dec_graphics_byte(cp) {
-                Some(b) => u16::from(b),
-                None => Checksum::eight_bit(cp),
-            },
-            Some(cp) => match flags.national().and_then(|n| nrcs_byte(n, cp)) {
+            Some(cp) => match flags.received().and_then(|r| code_received(r, cp)) {
                 Some(b) => u16::from(b),
                 None => Checksum::eight_bit(cp),
             },
@@ -591,6 +601,118 @@ fn nrcs_byte(n: Nrcs, cp: Codepoint) -> Option<u8> {
     let m = usize::from(NRCS_BYTE.modulus[i]);
     let slot = usize::from(NRCS_BYTE.start[i]) + (cp.0 as usize) % m;
     let (c, b) = NRCS_BYTE.slots[slot];
+    (u32::from(c) == cp.0 && b != 0).then_some(b)
+}
+
+/// The code set `r` was sent to write `cp`, if `cp` is one the set
+/// replaced a code with; else the cell holds the code, or a character
+/// counted as itself.
+fn code_received(r: Received, cp: Codepoint) -> Option<u8> {
+    match r {
+        Received::DecGraphics => dec_graphics_byte(cp),
+        Received::National(n) => nrcs_byte(n, cp),
+        Received::DecSupplemental => dec_set_byte(DEC_SETS_SUPPLEMENTAL, cp),
+        Received::JisKatakana => dec_set_byte(DEC_SETS_KATAKANA, cp),
+        Received::JisRoman => dec_set_byte(DEC_SETS_ROMAN, cp),
+    }
+}
+
+/// The three translated DEC 94-character sets backwards, codepoint to
+/// code, each in a slice of its own keyed on the codepoint modulo the
+/// smallest number that gives each of its characters a slot, chosen at
+/// compile time as [`NrcsIndex`]'s are. **A reserved position holds DEC's
+/// error character** at every position it fills, so no code comes back
+/// for it and it counts as that character, 0x1B; nor does a position
+/// whose character is its own code (JIS-Roman's letters), which counts the
+/// same either way.
+struct DecSetIndex {
+    modulus: [u16; 3],
+    start: [u16; 3],
+    slots: [(u16, u8); DEC_SET_SLOTS],
+}
+
+const DEC_SETS_SUPPLEMENTAL: usize = 0;
+const DEC_SETS_KATAKANA: usize = 1;
+const DEC_SETS_ROMAN: usize = 2;
+
+const fn dec_set_table(i: usize) -> &'static [Codepoint; 94] {
+    match i {
+        DEC_SETS_SUPPLEMENTAL => &crate::dec_sets_data::DEC_SUPPLEMENTAL,
+        DEC_SETS_KATAKANA => &crate::dec_sets_data::JIS_KATAKANA,
+        _ => &crate::dec_sets_data::JIS_ROMAN,
+    }
+}
+
+/// Whether position `j` of a table names a code: not the error character,
+/// and not the code's own character.
+const fn dec_set_named(t: &[Codepoint; 94], j: usize) -> bool {
+    let cp = t[j].0;
+    cp != crate::DEC_ERROR_CHARACTER.0 && cp != 0x21 + j as u32
+}
+
+const fn dec_set_modulus(t: &[Codepoint; 94]) -> usize {
+    let mut m = 1;
+    loop {
+        let mut seen = [false; 128];
+        let mut ok = true;
+        let mut j = 0;
+        while j < t.len() {
+            if dec_set_named(t, j) {
+                let k = (t[j].0 as usize) % m;
+                if seen[k] {
+                    ok = false;
+                }
+                seen[k] = true;
+            }
+            j += 1;
+        }
+        if ok {
+            return m;
+        }
+        m += 1;
+        assert!(m <= 128, "a DEC set's codepoints share every slot");
+    }
+}
+
+const DEC_SET_SLOTS: usize = dec_set_modulus(dec_set_table(0))
+    + dec_set_modulus(dec_set_table(1))
+    + dec_set_modulus(dec_set_table(2));
+
+const fn dec_set_index() -> DecSetIndex {
+    let mut ix = DecSetIndex {
+        modulus: [0; 3],
+        start: [0; 3],
+        slots: [(0, 0); DEC_SET_SLOTS],
+    };
+    let mut at = 0;
+    let mut i = 0;
+    while i < 3 {
+        let t = dec_set_table(i);
+        let m = dec_set_modulus(t);
+        ix.modulus[i] = m as u16;
+        ix.start[i] = at as u16;
+        let mut j = 0;
+        while j < t.len() {
+            if dec_set_named(t, j) {
+                let cp = t[j].0;
+                assert!(cp <= 0xffff, "a DEC set codepoint past U+FFFF");
+                ix.slots[at + (cp as usize) % m] = (cp as u16, 0x21 + j as u8);
+            }
+            j += 1;
+        }
+        at += m;
+        i += 1;
+    }
+    ix
+}
+
+static DEC_SET_BYTE: DecSetIndex = dec_set_index();
+
+/// The code DEC set `i` was sent to write `cp`: one probe, no search.
+fn dec_set_byte(i: usize, cp: Codepoint) -> Option<u8> {
+    let m = usize::from(DEC_SET_BYTE.modulus[i]);
+    let slot = usize::from(DEC_SET_BYTE.start[i]) + (cp.0 as usize) % m;
+    let (c, b) = DEC_SET_BYTE.slots[slot];
     (u32::from(c) == cp.0 && b != 0).then_some(b)
 }
 
@@ -738,10 +860,19 @@ mod tests {
         let mut g = Checksum::new();
         g.add(
             Content::codepoint(Codepoint(0x2500)),
-            CellFlags::GRAPHICS,
+            CellFlags::GRAPHICS.with_received(Some(Received::DecGraphics)),
             Attrs::NONE,
         );
         assert_eq!(g.value(), u16::from(b'q').wrapping_neg());
+        // The flag alone names the set GL held, not a code received: a
+        // UTF-8 `─` written under it counts itself.
+        let mut u = Checksum::new();
+        u.add(
+            Content::codepoint(Codepoint(0x2500)),
+            CellFlags::GRAPHICS,
+            Attrs::NONE,
+        );
+        assert_eq!(u.value(), 0x1bu16.wrapping_neg());
         let mut w = Checksum::new();
         w.add(
             Content::codepoint(Codepoint(0x4e2d)),

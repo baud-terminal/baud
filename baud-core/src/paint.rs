@@ -863,7 +863,7 @@ impl<'a, 'b> Paint<'a, 'b> {
     /// `cat-cjk`.
     #[inline(always)]
     pub(crate) fn decoded_pen(&self) -> CellFlags {
-        self.flags.with_national(None)
+        self.flags.with_received(None)
     }
 
     /// One glyph received as a GL code, under the pen that names GL's set.

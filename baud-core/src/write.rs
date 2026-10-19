@@ -443,18 +443,18 @@ pub(crate) fn act(
         }
 
         // **The locking shifts: which slot `GL` reads through.** `SO` invokes
-        // G1 and `SI` invokes G0, and both go through the same `invoke` that
-        // designation does -- so "which set is in force" has one definition
-        // and the resolved byte the write path reads cannot go stale behind
-        // the slots.
+        // G1 and `SI` invokes G0, and both go through the same `reinvoke`
+        // that designation does -- so "which set is in force" has one
+        // definition and the resolved byte the write path reads cannot go
+        // stale behind the slots.
         Act::ShiftOut => {
             p.cold.gl = GSlot::G1;
-            p.invoke();
+            p.reinvoke();
             ReadLen::ONE
         }
         Act::ShiftIn => {
             p.cold.gl = GSlot::G0;
-            p.invoke();
+            p.reinvoke();
             ReadLen::ONE
         }
 
@@ -2025,7 +2025,7 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
                         p.charset_unsupported += 1;
                     }
                     p.cold.g[slot.index()] = set;
-                    p.invoke();
+                    p.reinvoke();
                 }
             }
             // `ESC # 8` -- DECALN fills the screen with `E`, and it is how

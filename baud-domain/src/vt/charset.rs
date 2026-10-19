@@ -160,6 +160,73 @@ impl Nrcs {
     }
 }
 
+/// The set a GL code was received under, where the cell holds a character
+/// the code cannot be read back from: what DECRQCRA reads to count the code
+/// received ([`CellFlags::received`]).
+///
+/// **Only the sets that replace a code with another character are named.**
+/// A set that draws its byte (ASCII, DEC Technical and the other untranslated
+/// DEC sets, a national set's unreplaced positions) leaves the code in the
+/// cell, and the UK set's `#` is drawn `£` and counted 0xA3, its codepoint's
+/// low byte, as xterm counts it (Jev's lean of 2026-10-19).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Received {
+    /// DEC Special Graphics, `0`.
+    DecGraphics,
+    /// A national replacement set.
+    National(Nrcs),
+    /// DEC Supplemental, `<` and `% 5`, which share a table.
+    DecSupplemental,
+    /// JIS-Katakana, `I`.
+    JisKatakana,
+    /// JIS-Roman, `J`.
+    JisRoman,
+}
+
+impl Received {
+    /// The set GL holds as a tag, if it replaces any code.
+    pub const fn of(set: Charset) -> Option<Received> {
+        match set {
+            Charset::DecGraphics => Some(Received::DecGraphics),
+            Charset::National(n) => Some(Received::National(n)),
+            Charset::Dec(DecSet::Supplemental | DecSet::SupplementalGraphics) => {
+                Some(Received::DecSupplemental)
+            }
+            Charset::Dec(DecSet::JisKatakana) => Some(Received::JisKatakana),
+            Charset::Dec(DecSet::JisRoman) => Some(Received::JisRoman),
+            _ => None,
+        }
+    }
+
+    /// A dense index, 1-18, for the cell's five tag bits; 0 is none.
+    pub const fn tag(self) -> u8 {
+        match self {
+            Received::National(n) => n.to_u8() + 1,
+            Received::DecGraphics => 15,
+            Received::DecSupplemental => 16,
+            Received::JisKatakana => 17,
+            Received::JisRoman => 18,
+        }
+    }
+
+    /// The set [`Received::tag`] numbers `t`.
+    pub const fn from_tag(t: u8) -> Option<Received> {
+        match t {
+            15 => Some(Received::DecGraphics),
+            16 => Some(Received::DecSupplemental),
+            17 => Some(Received::JisKatakana),
+            18 => Some(Received::JisRoman),
+            _ => match t.checked_sub(1) {
+                Some(i) => match Nrcs::from_u8(i) {
+                    Some(n) => Some(Received::National(n)),
+                    None => None,
+                },
+                None => None,
+            },
+        }
+    }
+}
+
 /// DEC-defined sets other than the line-drawing one.
 ///
 /// **DEC Supplemental, JIS-Katakana and JIS-Roman are translated**, through
@@ -253,14 +320,19 @@ impl DecSet {
 impl Charset {
     /// Recover the set a cell was written under from its flags.
     ///
-    /// The line-drawing set has a flag of its own and a national set a tag
-    /// ([`CellFlags::national`], since 2026-10-19, for DECRQCRA), so this
-    /// answers `DecGraphics`, `National` or `Ascii`. The UK set and the DEC
-    /// sets other than line drawing are not recorded and read as `Ascii`.
+    /// The line-drawing set has a flag of its own, and every set that
+    /// replaces a code a tag ([`CellFlags::received`], for DECRQCRA), so
+    /// this answers `DecGraphics`, `National`, DEC Supplemental, JIS-Katakana,
+    /// JIS-Roman or `Ascii`; `% 5` reads as `<`, whose table it shares. The
+    /// UK set and the sets that draw their byte are not recorded and read as
+    /// `Ascii`.
     pub fn from_flags(f: CellFlags) -> Charset {
-        match (f.is_graphics(), f.national()) {
-            (true, _) => Charset::DecGraphics,
-            (false, Some(n)) => Charset::National(n),
+        match (f.is_graphics(), f.received()) {
+            (true, _) | (false, Some(Received::DecGraphics)) => Charset::DecGraphics,
+            (false, Some(Received::National(n))) => Charset::National(n),
+            (false, Some(Received::DecSupplemental)) => Charset::Dec(DecSet::Supplemental),
+            (false, Some(Received::JisKatakana)) => Charset::Dec(DecSet::JisKatakana),
+            (false, Some(Received::JisRoman)) => Charset::Dec(DecSet::JisRoman),
             (false, None) => Charset::Ascii,
         }
     }

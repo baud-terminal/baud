@@ -309,8 +309,8 @@ impl CellFlags {
     pub const MARKED: CellFlags = CellFlags(4);
 
     /// Bits 3..10 carry the [`LinkId`] (`LINK_BITS`); bit 10 is
-    /// [`CellFlags::GUARDED`], 11..15 the national set
-    /// ([`CellFlags::national`]) and 15 is free. The
+    /// [`CellFlags::GUARDED`] and 11..15 the set a code was received under
+    /// ([`CellFlags::received`]); none is free. The
     /// [`ClusterId`] took them until it moved into the cell's [`Content`],
     /// whose range above U+10FFFF names 1024 slots where six bits named 63.
     ///
@@ -344,8 +344,9 @@ impl CellFlags {
         CellFlags(self.0 & !(CellFlags::LINK_MASK << CellFlags::LINK_SHIFT))
     }
 
-    /// Bits 11..15: the national replacement set GL held when a GL code
-    /// wrote the cell, 0 for none, else [`Nrcs::to_u8`] plus one.
+    /// Bits 11..15: the set GL held when a GL code wrote the cell, where
+    /// that set replaced the code with another character ([`Received`]),
+    /// 0 for none, else [`Received::tag`].
     ///
     /// **What lets DECRQCRA count the code a character was received as**:
     /// `[[source: dec-std-070]]`'s display stores "code = parv[0] & 0x7F"
@@ -354,23 +355,34 @@ impl CellFlags {
     /// `[` and Norwegian/Danish's `@` are both `Ä`. Carried in the pen a GL
     /// code is written with, beside [`CellFlags::GRAPHICS`], so the write
     /// path ORs what it already ORs; the pen a decoded character is written
-    /// with, a UTF-8 `Ä`'s among them, has it cleared, since no national
-    /// set replaced that character (decided by Jev 2026-10-19,
-    /// CODE_RECEIVED, 0.98 and 0.98).
-    const NATIONAL_SHIFT: u16 = 11;
-    const NATIONAL_MASK: u16 = 0xf;
+    /// with, a UTF-8 `Ä`'s among them, has it cleared, since no set
+    /// replaced that character (decided by Jev 2026-10-19, CODE_RECEIVED,
+    /// 0.98 and 0.98). **Apart from `GRAPHICS`**, which names the set GL
+    /// held whatever arrived (note AE, Q16(a)): a UTF-8 `─` written while
+    /// GL holds line drawing carries that flag and no tag.
+    const SET_SHIFT: u16 = 11;
+    const SET_MASK: u16 = 0x1f;
 
-    /// These flags with `n` as the set GL holds, or none.
-    pub fn with_national(self, n: Option<Nrcs>) -> CellFlags {
-        let keep = self.0 & !(CellFlags::NATIONAL_MASK << CellFlags::NATIONAL_SHIFT);
-        let tag = n.map_or(0, |n| u16::from(n.to_u8()) + 1);
-        CellFlags(keep | (tag << CellFlags::NATIONAL_SHIFT))
+    /// These flags with `r` as the set the code was received under, or none.
+    pub fn with_received(self, r: Option<Received>) -> CellFlags {
+        let keep = self.0 & !(CellFlags::SET_MASK << CellFlags::SET_SHIFT);
+        let tag = r.map_or(0, |r| u16::from(r.tag()));
+        CellFlags(keep | (tag << CellFlags::SET_SHIFT))
+    }
+
+    /// The set a GL code that wrote the cell was received under, if it
+    /// replaced the code.
+    pub fn received(self) -> Option<Received> {
+        let tag = (self.0 >> CellFlags::SET_SHIFT) & CellFlags::SET_MASK;
+        Received::from_tag(tag as u8)
     }
 
     /// The national set GL held when a GL code wrote the cell.
     pub fn national(self) -> Option<Nrcs> {
-        let tag = (self.0 >> CellFlags::NATIONAL_SHIFT) & CellFlags::NATIONAL_MASK;
-        (tag as u8).checked_sub(1).and_then(Nrcs::from_u8)
+        match self.received() {
+            Some(Received::National(n)) => Some(n),
+            _ => None,
+        }
     }
 
     /// Bit 10: the position is in a guarded area, `SPA` to `EPA`.
@@ -459,15 +471,20 @@ impl PackedCell {
     /// **The flags the position keeps**: DECSCA's attribute, ECMA-48's
     /// guard (Jev, 2026-10-16, 0.94/0.90; for DECSERA 1.00/0.98,
     /// 2026-10-19) and an `OSC 8` link (Jev's lean, KEEP, 2026-10-19).
-    /// The line-drawing flag and a cluster's mark belong to the character
-    /// and go with it, so the space draws as a space and its stale marks
-    /// are unreachable ([`CellFlags::MARKED`]).
+    /// The line-drawing flag, the set the character was received under and
+    /// a cluster's mark belong to the character and go with it, so the space
+    /// draws as a space, counts 0x20, and its stale marks are unreachable
+    /// ([`CellFlags::MARKED`]).
     pub fn selectively_erased(old: PackedCell) -> PackedCell {
         if old.content.is_empty() {
             return old;
         }
         let kept = old.flags.0 & !(CellFlags::GRAPHICS.0 | CellFlags::MARKED.0);
-        PackedCell::glyph(Codepoint::SPACE, old.style, CellFlags(kept))
+        PackedCell::glyph(
+            Codepoint::SPACE,
+            old.style,
+            CellFlags(kept).with_received(None),
+        )
     }
     /// An ASCII byte under whatever character set `flags` says is invoked.
     ///
@@ -475,9 +492,9 @@ impl PackedCell {
     /// `promote` replayed stored runs with their flags. Nothing in this core
     /// calls it. The bulk path translates through `with_charset` in
     /// `View::put_ascii_run` and the per-byte path through `translate`, both
-    /// with the set `Term` has invoked. The flags name the line-drawing set
-    /// and a national one (`Charset::from_flags`), not the UK set or the
-    /// other DEC sets, so this would leave those sets' bytes untranslated.
+    /// with the set `Term` has invoked. The flags name the sets that replace
+    /// a code (`Charset::from_flags`), not the UK set or the DEC sets that
+    /// draw their byte, so this would leave the UK set's `#` untranslated.
     pub fn from_wire(b: StreamByte, style: StyleId, flags: CellFlags) -> PackedCell {
         let proto = PackedCell {
             content: Content::EMPTY,

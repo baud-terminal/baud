@@ -2150,6 +2150,19 @@ impl Paint<'_, '_> {
         self.refresh_flags();
     }
 
+    /// [`Paint::invoke`] after a designation or a locking shift, which move
+    /// only a slot or GL: **where the set GL resolves to is the one in
+    /// force, nothing changes**, since the pen is built from that set, the
+    /// protection and the link, and the other two refresh it themselves.
+    /// ncurses' `sgr0` for xterm is `ESC ( B ESC [ m`, so `asciiquarium.raw`
+    /// sends 10,487 designations of the set already in G0.
+    #[inline(always)]
+    pub(crate) fn reinvoke(&mut self) {
+        if self.cold.g[self.cold.gl.index()] != self.charset {
+            self.invoke();
+        }
+    }
+
     /// Recombine DECSCA protection, the active character set and the open
     /// `OSC 8` link, so the write path reads one value instead of three.
     ///
@@ -2163,9 +2176,9 @@ impl Paint<'_, '_> {
     pub(crate) fn refresh_flags(&mut self) {
         let base = match self.charset {
             Charset::DecGraphics => self.cold.protect.with(CellFlags::GRAPHICS),
-            Charset::National(n) => self.cold.protect.with_national(Some(n)),
             _ => self.cold.protect,
         };
+        let base = base.with_received(Received::of(self.charset));
         self.flags = base.with_link(self.link);
     }
 

@@ -700,6 +700,76 @@ fn decrqcra_counts_a_utf8_character_as_itself_under_a_national_set() {
     }
 }
 
+/// **Every set that replaces a code counts the code received**, the rule
+/// the national sets follow (Jev, CODE_RECEIVED, 2026-10-19): DEC
+/// Supplemental's `@` drawn `À` counts 0x40 and its `W` drawn `Œ` 0x57,
+/// JIS-Katakana's `1` drawn U+FF71 0x31, JIS-Roman's `\` drawn `¥` 0x5C. A
+/// reserved position holds DEC's error character, U+2426, and counts it as
+/// itself, 0x1B. A set that draws its byte counts the byte: DEC Technical's
+/// `a`, and Greek's 7/9 and 7/10, which it leaves unreplaced.
+#[test]
+fn decrqcra_counts_the_code_received_under_every_set() {
+    let cases: [(&str, &str, u32); 9] = [
+        ("DEC Supplemental @", "\x1b(<@", 0x40),
+        ("DEC Supplemental W", "\x1b(<W", 0x57),
+        ("DEC Supplemental Graphics @", "\x1b(%5@", 0x40),
+        ("DEC Supplemental reserved $", "\x1b(<$", 0x1B),
+        ("JIS-Katakana 1", "\x1b(I1", 0x31),
+        ("JIS-Roman backslash", "\x1b(J\\", 0x5C),
+        ("DEC Technical a", "\x1b(>a", 0x61),
+        ("Greek y", "\x1b(\">y", 0x79),
+        ("Greek z", "\x1b(\">z", 0x7A),
+    ];
+    let mut red = Vec::new();
+    for (name, text, code) in cases {
+        after(&format!("{text}\x1b(B\x1b[1;1;1;1;1;1*y"), |t| {
+            if t.reply() != format!("\x1bP1!~{}\x1b\\", chk(code)).as_bytes() {
+                red.push((name, String::from_utf8_lossy(t.reply()).into_owned()));
+            }
+        });
+    }
+    assert!(red.is_empty(), "{red:?}");
+}
+
+/// **A character sent as UTF-8 while GL holds line drawing counts as
+/// itself**, as under a national set: it was not received as a GL code, so
+/// no set replaced it. The cell keeps the line-drawing flag, which names
+/// the set GL held (note AE, Q16(a)); a UTF-8 `─` counts 0x1B, the value
+/// for a character past U+00FF, where it counted `q`'s 0x71.
+#[test]
+fn decrqcra_counts_a_utf8_character_as_itself_under_line_drawing() {
+    after("\x1b(0\u{2500}\x1b(B\x1b[1;1;1;1;1;1*y", |t| {
+        assert!(cell(t, 1, 1).flags.is_graphics(), "Q16(a): the flag stays");
+        assert_eq!(t.reply(), format!("\x1bP1!~{}\x1b\\", chk(0x1B)).as_bytes());
+    });
+    let run = "\u{2500}".repeat(8);
+    after(&format!("\x1b(0{run}\x1b(B\x1b[1;1;1;1;1;8*y"), |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(8 * 0x1B)).as_bytes(),
+            "a run long enough for the bulk writer"
+        );
+    });
+    after("\x1b(0q\u{2500}\x1b(B\x1b[1;1;1;1;1;2*y", |t| {
+        assert_eq!(
+            t.reply(),
+            format!("\x1bP1!~{}\x1b\\", chk(0x71 + 0x1B)).as_bytes(),
+            "a GL `q` and a UTF-8 `─`, side by side"
+        );
+    });
+}
+
+/// **A cell's combining marks are left out of the sum**: its base counts
+/// and its continuations do not, as in xterm's default sum, where marks
+/// reach only the total its `csNOTRIM` extension reports (Jev, LEFT_OUT,
+/// 1.00 and 0.97, 2026-10-19).
+#[test]
+fn decrqcra_leaves_combining_marks_out() {
+    after("e\u{301}\u{323}\x1b[1;1;1;1;1;1*y", |t| {
+        assert_eq!(t.reply(), format!("\x1bP1!~{}\x1b\\", chk(0x65)).as_bytes());
+    });
+}
+
 /// **An erased position the text leaves unoccupied counts nothing**: DECERA
 /// "Any unoccupied character positions remain unoccupied" (p. 5-171),
 /// DECSERA "Unoccupied character positions are not affected" (p. 5-172),
