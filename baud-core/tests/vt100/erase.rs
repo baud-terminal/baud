@@ -94,18 +94,14 @@ fn el_splits_at_the_cursor_too() {
 }
 
 /// The selective erases split at the cursor for the same reason, and had the
-/// same bug.
+/// same bug. Nothing protected, so DECSED takes the cells ED takes, each
+/// a space (`[[source: dec-std-070]]` p. 5-162) where ED leaves it empty.
 #[test]
 fn selective_ed_splits_at_the_cursor() {
-    // Nothing protected, so DECSED must match plain ED exactly.
-    assert_eq!(
-        run(b"abcdef\x1b[1;3H\x1b[?0J"),
-        run(b"abcdef\x1b[1;3H\x1b[0J")
-    );
-    assert_eq!(
-        run(b"abcdef\x1b[1;3H\x1b[?1J"),
-        run(b"abcdef\x1b[1;3H\x1b[1J")
-    );
+    assert_eq!(row(&run(b"abcdef\x1b[1;3H\x1b[?0J"), 0, 7), "ab    .");
+    assert_eq!(row(&run(b"abcdef\x1b[1;3H\x1b[0J"), 0, 7), "ab.....");
+    assert_eq!(row(&run(b"abcdef\x1b[1;3H\x1b[?1J"), 0, 7), "   def.");
+    assert_eq!(row(&run(b"abcdef\x1b[1;3H\x1b[1J"), 0, 7), "...def.");
 }
 
 /// Protected text left of the cursor survives a selective erase-to-end, which
@@ -113,7 +109,7 @@ fn selective_ed_splits_at_the_cursor() {
 #[test]
 fn selective_ed_respects_both_the_cursor_and_protection() {
     let g = run(b"\x1b[1\"qab\x1b[0\"qcdef\x1b[1;3H\x1b[?0J");
-    assert_eq!(row(&g, 0, 6), "ab....", "protected and before the cursor");
+    assert_eq!(row(&g, 0, 6), "ab    ", "protected and before the cursor");
 }
 
 /// Erasing behaves the same however the reads are split.
@@ -145,8 +141,10 @@ fn erase_is_chunk_invariant() {
 /// remembered it existed. `EraseExtent::full_rows` / `cursor_span` is now the
 /// single definition and this asserts the two stay on it.
 ///
-/// With nothing protected, DECSED erases exactly what ED erases: DECSCA decides
-/// *which* cells are eligible, not *where* the boundary falls.
+/// With nothing protected, DECSED erases exactly the cells ED erases: DECSCA
+/// decides *which* cells are eligible, not *where* the boundary falls. DECSED
+/// leaves a space where ED leaves an empty cell, so the rows are compared
+/// with its spaces read as empty.
 #[test]
 fn selective_erase_splits_the_row_where_plain_erase_does() {
     for ps in [b'0', b'1', b'2'] {
@@ -157,8 +155,8 @@ fn selective_erase_splits_the_row_where_plain_erase_does() {
         selective.push(ps);
         selective.push(b'J');
         assert_eq!(
-            run(&plain),
-            run(&selective),
+            row(&run(&plain), 0, 20),
+            row(&run(&selective), 0, 20).replace(' ', "."),
             "CSI {} J and CSI ? {} J must split the cursor's row identically",
             ps as char,
             ps as char

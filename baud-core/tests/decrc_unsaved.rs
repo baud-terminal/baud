@@ -120,10 +120,10 @@ fn decrc_with_nothing_saved_establishes_the_default_mapping() {
 
 /// The selective erase attribute off, as 070's reset buffer and vt220's
 /// Table 4-10 hold it: a character written after `DECSCA 1` and `DECRC` is
-/// erasable, so `DECSED` takes it.
+/// erasable, so `DECSED` makes it a space.
 #[test]
 fn decrc_with_nothing_saved_writes_erasable_characters() {
-    at_every_read_size(b"\x1b[1\"q\x1b8X\x1b[?2J", '.', first);
+    at_every_read_size(b"\x1b[1\"q\x1b8X\x1b[?2J", ' ', first);
 }
 
 /// After `DECSTR` and after `RIS` nothing is saved, so a save made before

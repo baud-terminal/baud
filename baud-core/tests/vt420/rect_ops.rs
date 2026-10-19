@@ -306,6 +306,30 @@ fn decsera_spares_protected_and_unoccupied_cells_and_keeps_renditions() {
     });
 }
 
+/// DECSERA's space is DECSED's: an ECMA-48 guard on the cell stays (Jev,
+/// AGREE, 1.00 and 0.98, 2026-10-19) and so does an `OSC 8` link (Jev's
+/// lean, KEEP); the line-drawing flag goes with the character.
+#[test]
+fn decsera_keeps_the_guard_and_the_link() {
+    after("\x1bVab\x1bW\x1b[1;1;1;2${", |t| {
+        assert_eq!(&rows_of(t)[0][..2], "  ");
+        assert!(cell(t, 1, 1).flags.is_guarded() && cell(t, 1, 2).flags.is_guarded());
+    });
+    after(
+        "\x1b]8;;http://x/\x1b\\ab\x1b]8;;\x1b\\\x1b[1;1;1;2${",
+        |t| {
+            assert_eq!(&rows_of(t)[0][..2], "  ");
+            assert_eq!(
+                t.link_uri(cell(t, 1, 1).flags.link()),
+                Some(&b"http://x/"[..])
+            );
+        },
+    );
+    after("\x1b(0qq\x1b(B\x1b[1;1;1;2${", |t| {
+        assert!(!cell(t, 1, 1).flags.is_graphics());
+    });
+}
+
 // ---- DECCARA, DECRARA and DECSACE --------------------------------------
 
 /// "This sequence changes the video attributes (bold, blink, underline, and

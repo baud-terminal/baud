@@ -575,9 +575,9 @@ fn a_hard_reset_on_the_alternate_screen_leaves_the_power_on_state() {
         // DECSCA protection: a selective erase spares a protected cell only.
         with(b"\x1b[1\"q", b"p\x1b[?2J", &|_, s| {
             assert_eq!(
-                s[0].content.as_codepoint(),
-                None,
-                "{arm}: protection is off, so the selective erase took the cell"
+                s[0].content.as_codepoint().map(|c| c.value()),
+                Some(0x20),
+                "{arm}: protection is off, so the selective erase made the cell a space"
             );
         });
     }

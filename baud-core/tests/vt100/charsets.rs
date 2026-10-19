@@ -246,11 +246,13 @@ fn protection_and_charset_coexist() {
     assert!(!h[1].is_protected());
 }
 
-/// A selective erase still spares protected line-drawing text.
+/// A selective erase still spares protected line-drawing text, and the
+/// erasable characters become plain spaces, the line-drawing flag gone with
+/// them.
 #[test]
 fn selective_erase_respects_protected_graphics() {
     let after = run(b"\x1b(0\x1b[1\"qqq\x1b[0\"qww\x1b[1;1H\x1b[?2K").0;
-    let kept = run(b"\x1b(0\x1b[1\"qqq").0;
+    let kept = run(b"\x1b(0\x1b[1\"qqq\x1b(B\x1b[0\"q  ").0;
     assert_eq!(after, kept);
 }
 

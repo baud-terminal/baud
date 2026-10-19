@@ -286,6 +286,32 @@ fn selective_erase_saved_lines_spares_what_decsca_protected() {
     }
 }
 
+/// **A saved character `CSI ? 3 J` erases becomes a space in its own
+/// rendition**, as DECSED's do on the screen (`[[source: dec-std-070]]`
+/// p. 5-162), and an empty position on the line stays empty.
+#[test]
+fn selective_erase_saved_lines_leaves_spaces_in_their_rendition() {
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1b[31mred\x1b[2Cx\x1b[m\r\n");
+        support::feed(t, &lines("old", 60));
+        let line =
+            |t: &Term<'_>| t.scrollback().line(Back::of(11)).expect("the line").0[..6].to_vec();
+        let before = line(t);
+        support::feed(t, b"\x1b[?3J");
+        let after = line(t);
+        for (a, b) in after[..3].iter().zip(&before[..3]) {
+            assert_eq!(a.content.as_codepoint().map(|c| c.value()), Some(0x20));
+            assert_eq!(t.style_of(*a), t.style_of(*b), "the rendition stays");
+        }
+        assert_eq!(after[3], before[3], "an empty position is not affected");
+        assert!(after[3].content.is_empty());
+        assert_eq!(
+            after[5].content.as_codepoint().map(|c| c.value()),
+            Some(0x20)
+        );
+    });
+}
+
 /// The selective form on the alternate screen reaches the primary's
 /// history, for the plain form's reason.
 #[test]

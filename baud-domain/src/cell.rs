@@ -408,8 +408,8 @@ impl PackedCell {
     };
     /// An erased cell.
     ///
-    /// Takes no flags on purpose (but for the guard an erasure that keeps
-    /// it puts back, [`PackedCell::erased_from`]): an erase leaves a position with no character
+    /// Takes no flags on purpose (but for the guard an erasure under ERM set
+    /// puts back, `View::fill_sparing`): an erase leaves a position with no character
     /// in it, and `[[source: vt510-decsca]]` scopes protection to "characters
     /// that follow the DECSCA function". A blank that inherited the protection
     /// would make the first selective erase under `DECSCA 1` protect everything
@@ -421,21 +421,26 @@ impl PackedCell {
             flags: CellFlags::NONE,
         }
     }
-    /// The erased state of `old`'s position: `blank`, keeping `old`'s
-    /// guard. **For the erasures that leave a guarded position guarded**: ED,
-    /// EL and ECH under ERM set -- `[[source: ecma48]]` 4.2.38, to erase is
-    /// "To remove the contents from character positions and leaving the
-    /// resulting gap open" -- and DECSED and DECSEL, whose
-    /// `[[source: dec-std-070]]` text says "The character rendition and
-    /// attributes associated with each position do not change".
-    pub fn erased_from(old: PackedCell, blank: PackedCell) -> PackedCell {
-        match old.flags.is_guarded() {
-            true => PackedCell {
-                flags: blank.flags.with(CellFlags::GUARDED),
-                ..blank
-            },
-            false => blank,
+    /// What DECSED, DECSEL and DECSERA leave at an erasable position:
+    /// **U+0020 in the rendition the character had**, and an empty position
+    /// as it is. `[[source: dec-std-070]]` DECSEL and DECSED (pp. 5-159,
+    /// 5-162): "changed to the Space character (2/0). The character
+    /// rendition and attributes associated with each position do not
+    /// change. ... empty character positions, are not affected"; DECSERA
+    /// (p. 5-172) the same.
+    ///
+    /// **The flags the position keeps**: DECSCA's attribute, ECMA-48's
+    /// guard (Jev, 2026-10-16, 0.94/0.90; for DECSERA 1.00/0.98,
+    /// 2026-10-19) and an `OSC 8` link (Jev's lean, KEEP, 2026-10-19).
+    /// The line-drawing flag and a cluster's mark belong to the character
+    /// and go with it, so the space draws as a space and its stale marks
+    /// are unreachable ([`CellFlags::MARKED`]).
+    pub fn selectively_erased(old: PackedCell) -> PackedCell {
+        if old.content.is_empty() {
+            return old;
         }
+        let kept = old.flags.0 & !(CellFlags::GRAPHICS.0 | CellFlags::MARKED.0);
+        PackedCell::glyph(Codepoint::SPACE, old.style, CellFlags(kept))
     }
     /// An ASCII byte under whatever character set `flags` says is invoked.
     ///

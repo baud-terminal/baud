@@ -131,6 +131,8 @@ group  = "C"
 # control, because the earlier note reasoned from six MISSes without ever
 # checking that a probe could HIT. `--section sgr` prints § 8.3.117 entire.
 # `SGR 20/26/50-65` are implemented from this text, not transcribed by eye.
+# Read 2026-10-19 (lane b94) through `--find`: § 8.3.125 SM and § 8.3.106 RM,
+# "Notation: (Ps...)", the modes "set [reset] as specified by the parameter values".
 
 [sources.vt510-decom]
 key    = "vt510-decom"
@@ -351,6 +353,13 @@ group  = "C"
 # (pp. 5-154 to 5-164); insert_or_replace_character, ICH and DCH (pp. 5-139 to 5-145);
 # end_of_line, scroll_up and scroll_down (pp. 5-209 to 5-211); DECALN (pp. D-19 and D-20);
 # and the waiver for ED 1 from a double line's last column (p. C-40).
+
+# Read 2026-10-19 for the selective erases and the column operations (lane b94), the
+# copy whose sha256 matches, on the text layer [text]: DECSEL and DECSED, their notes
+# and algorithms, "changed to the Space character (2/0). The character rendition and
+# attributes associated with each position do not change" (pp. 5-159 to 5-164); DECIC
+# and DECDC, "blank with normal rendition" (pp. 5-150 and 5-151); DECFI's algorithm,
+# which cuts the column back to end_of_line (p. 5-38).
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -12435,6 +12444,9 @@ group  = "J"
 # copyrighted file or a source file at a pinned commit. Re-fetch the url and compare.
 # The same bytes at xterm-snapshots bccd466 (patch 412), which the terminal supplement
 # read (checked 2026-10-08): https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/bccd466414dc4ecb264a3824a6f1e41bebe65214/util.c
+# Read 2026-10-19 (lane b94), the copy whose sha256 matches: do_erase_line,
+# do_erase_display and ClearInLine2, whose selective path clears each unprotected run
+# through screen.c's ClearCells, a space in the current colours (`xterm-screen`).
 
 [sources.kitty-commit-55f457c]
 key    = "kitty-commit-55f457c"
@@ -12687,6 +12699,8 @@ status = "external"
 group  = "J"
 # Read for note AD's terminal supplement (2026-10-08), refuted once; hash-verified
 # against a fetch of the url, not committed -- a source file at a pinned commit.
+# Read 2026-10-19 (lane b94), the copy whose sha256 matches: ansi_modes, which walks
+# every SM and RM parameter, and its DECSED and DECSEL dispatch (DEC_PROTECT).
 
 [sources.urxvt-rxvtfont-5865a43]
 key    = "urxvt-rxvtfont-5865a43"

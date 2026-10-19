@@ -413,6 +413,15 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **DECSCA and the selective erases**: a protected `P`, then DECSEL 1
+    // and DECSED 0 from the cursor, which make the erasable characters
+    // spaces in their own rendition and leave empty positions.
+    Atom {
+        name: "decsca-decsel",
+        bytes: b"\x1b[1\"qP\x1b[0\"q\x1b[?1K\x1b[?0J",
+        stride: 0,
+        count: 0,
+    },
     // **SM and RM with a list**: IRM second in `CSI 20 ; 4 h`, so the `X`
     // is inserted only if the whole list applies, then both reset.
     Atom {
@@ -1079,6 +1088,25 @@ fn the_mode_list_atom_reaches_its_second_mode() {
         })
         .collect();
     assert_eq!(row, "Xabc");
+}
+
+/// **The selective-erase atom reaches DECSEL**: after `ab` its erase turns
+/// them into spaces, spares its protected `P` and leaves the empty position
+/// after it empty.
+#[test]
+fn the_selective_erase_atom_reaches_decsel() {
+    let mut b = b"ab".to_vec();
+    b.extend_from_slice(&bytes_of(&[atom("decsca-decsel")]));
+    let (cells, ..) = drive(&b, 4096);
+    let row: String = cells[..4]
+        .iter()
+        .map(|c| {
+            c.content
+                .as_codepoint()
+                .map_or('.', |c| char::from_u32(c.value()).unwrap_or('?'))
+        })
+        .collect();
+    assert_eq!(row, "  P.");
 }
 
 /// **The `OSC 52` atoms reach the arms they were added for**, the control

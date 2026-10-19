@@ -1538,7 +1538,9 @@ impl Paint<'_, '_> {
         self.guard_band_moved(from, to, Rows::of_count(1), BandMove::Down);
     }
 
-    /// DECSED / DECSEL: erase only what DECSCA left unprotected.
+    /// DECSED / DECSEL: each character DECSCA left erasable becomes a space
+    /// in its own rendition, and a protected one and an empty position stay
+    /// ([`PackedCell::selectively_erased`]).
     pub(crate) fn selective_erase_line(&mut self, e: EraseExtent) {
         let (a, b) = self.line_span(e);
         self.selective_wipe(self.cy, a, b);
@@ -1558,13 +1560,17 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// **To whole characters** (`View::snap_span`): a wide character an
+    /// edge cuts becomes two spaces, Jev's lean WHOLE_SPACE (2026-10-19),
+    /// as ED and EL snap; both halves carry its protection, so a protected
+    /// one stays whole.
     fn selective_wipe(&mut self, r: Row, from: Col, to: Col) {
-        let b = self.blank();
+        let (from, to) = self.view.snap_span(r, from, to);
         for x in from.index()..to.index() {
             let c = Col::at_index(x);
             let old = self.view.get(r, c);
-            if !old.is_protected() {
-                self.view.put(r, c, PackedCell::erased_from(old, b));
+            if !old.is_protected() && !old.content.is_empty() {
+                self.view.put(r, c, PackedCell::selectively_erased(old));
                 self.cells = self.cells.plus(1);
             }
         }
@@ -1613,9 +1619,9 @@ impl Paint<'_, '_> {
     }
 
     /// `CSI ? 3 J`, "Selective Erase Saved Lines, xterm": DECSED over the
-    /// history, so the characters DECSCA protected stay and the rest are
-    /// blanked with the current rendition's blank, as `selective_wipe` does
-    /// on the screen (`[[source: vt510-decsca]]`: "The selective erase
+    /// history, so the characters DECSCA protected stay and the rest become
+    /// spaces in their own rendition, as `selective_wipe` does on the
+    /// screen (`[[source: vt510-decsca]]`: "The selective erase
     /// control functions (DECSED and DECSEL) can only erase characters
     /// defined as erasable"). The lines stay lines of the history, as rows
     /// stay rows under DECSED, so nothing is counted as erased.
@@ -1629,8 +1635,8 @@ impl Paint<'_, '_> {
     /// erase wipes does: the lines are tested against the watch on a
     /// selection's lines while the primary is up, whose history they are.
     pub(crate) fn selective_erase_saved_lines(&mut self) {
-        let (hist, blank) = (self.book.hist, self.blank());
-        let n = self.on_primary(|v| v.selective_wipe_behind(hist, blank));
+        let hist = self.book.hist;
+        let n = self.on_primary(|v| v.selective_wipe_behind(hist));
         self.cells = self.cells.plus(n);
         if self.cold.screen == Screen::Normal && hist.index() > 0 {
             let (from, to) = (

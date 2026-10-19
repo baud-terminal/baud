@@ -694,6 +694,13 @@ fn every_test_named_in_the_docs_exists() {
              the reason its alternate-screen twin was; the record cites it where \
              it describes the latch",
         ),
+        (
+            "selective_erase_matches_plain_erase_when_nothing_is_protected",
+            "a historical name, replaced on 2026-10-19 by \
+             `selective_erase_writes_spaces_where_plain_erase_empties` when \
+             DECSED and DECSEL began writing spaces, as DEC STD 070 says; the \
+             record cites it where it describes the marked cell's extent",
+        ),
     ];
 
     let mut missing = BTreeSet::new();

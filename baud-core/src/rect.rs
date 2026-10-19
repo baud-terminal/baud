@@ -152,7 +152,9 @@ impl Paint<'_, '_> {
     /// not change or clear any video character attributes (SGR or DECSCA)"
     /// (`[[source: dec-std-070]]` p. 5-172): an unprotected occupied cell
     /// becomes U+0020 in the rendition it had, and a protected or unoccupied
-    /// one is left as it is. The protection is DECSCA's alone.
+    /// one is left as it is. The protection is DECSCA's alone. The space is
+    /// DECSED's ([`PackedCell::selectively_erased`]), so an ECMA-48 guard
+    /// and an `OSC 8` link stay (Jev, AGREE, 1.00/0.98, 2026-10-19).
     fn selective_erase_area(&mut self, a: Area) {
         let Some(rect) = self.page_rect(a) else {
             return;
@@ -166,11 +168,7 @@ impl Paint<'_, '_> {
                 if was.content.is_empty() || was.is_protected() {
                     continue;
                 }
-                self.view.put(
-                    r,
-                    c,
-                    PackedCell::glyph(Codepoint::SPACE, was.style, CellFlags::NONE),
-                );
+                self.view.put(r, c, PackedCell::selectively_erased(was));
                 self.cells = self.cells.plus(1);
             }
         }

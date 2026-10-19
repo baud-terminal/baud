@@ -984,20 +984,21 @@ impl<'a> View<'a> {
         n
     }
 
-    /// Blank every cell DECSCA left erasable in the `hist` rows behind the
-    /// window, to the live edge, and keep the rest: `CSI ? 3 J`, which is
-    /// DECSED and so spares a protected character as DECSED does on the
-    /// screen. The rows stay rows of the history. A mark only rises, as
+    /// Turn every character DECSCA left erasable in the `hist` rows behind
+    /// the window into a space in its own rendition, to the live edge, and
+    /// keep the rest, an empty position included
+    /// ([`PackedCell::selectively_erased`]): `CSI ? 3 J`, which is DECSED
+    /// and so does what DECSED does on the screen. The rows stay rows of the history. A mark only rises, as
     /// [`View::put`]'s does. Returns the cells written.
-    pub fn selective_wipe_behind(&mut self, hist: Rows, blank: PackedCell) -> usize {
+    pub fn selective_wipe_behind(&mut self, hist: Rows) -> usize {
         let (s, cols) = (self.stride.index(), self.cols.index());
         let mut n = 0;
         for k in 1..=hist.index().min(self.ring.index()) {
             let p = self.rot.retreat(k, self.ring).index();
             for x in 0..cols {
                 let old = self.cells[p * s + x];
-                if !old.is_protected() {
-                    self.cells[p * s + x] = PackedCell::erased_from(old, blank);
+                if !old.is_protected() && !old.content.is_empty() {
+                    self.cells[p * s + x] = PackedCell::selectively_erased(old);
                     self.used[p] = self.used[p].reached(x + 1);
                     n += 1;
                 }
@@ -2133,9 +2134,9 @@ impl<'a> View<'a> {
         // carrying `MARKED` is not equal to the blank in front of it. Setting
         // the bit without raising the mark left the row non-uniform beyond its
         // own extent, so a later erase skipped the cell: `CSI ? 1 J` cleared a
-        // mark that `CSI 1 J` left alone, which
-        // `selective_erase_matches_plain_erase_when_nothing_is_protected`
-        // reports.
+        // mark that `CSI 1 J` left alone, which core2's DECSED-subset
+        // property reported (the record, "A fifth marks bug: setting a bit
+        // without moving the extent").
         //
         // This is the same defect `ECH` at the last column already had, and
         // that this file records: an operation that makes a cell differ from
