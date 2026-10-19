@@ -78,6 +78,43 @@ options that keep the mix on the opaque floor total 0.83 in both orders.
 Below the bar, A stayed as built and went to the owner with the
 research recommending C. The owner chose A.
 
+## What other apps do
+
+The owner, 2026-10-18, verbatim: "i would say to research other apps
+and apple apps what they do". Read at source or from shipped assets,
+nothing run on screen; ANSI blue `#0000ee` lifted on `#101010`:
+
+| App | When it adjusts | How | Blue becomes |
+|---|---|---|---|
+| Warp, Chrome's own UI | to 4.5:1 | blend toward white in encoded sRGB | `#6b6bf5` (the mix's neighbour) |
+| xterm.js (VS Code, Tabby, JetBrains) | to its minimum ratio | encoded sRGB, 10% steps | `#6a6af7` |
+| iTerm2 | to a brightness difference | encoded sRGB | `#7a7af6` on `#1e1e1e` |
+| DevTools' suggestion | on request | HSV | `#7676ff` on `#1e1e1e` |
+| Zed | to APCA Lc 45 | HSL | `#8888ff` on black, 7.01:1 |
+| Windows Terminal | only in Windows High Contrast | OKLab lightness, a and b kept | `#256fff` where it acts, 3.81:1 |
+| libadwaita accents | OKLab L >= 0.85 | OKLab, per-channel clip | `#65bcff`, 20 degrees of OKLCH hue toward cyan |
+| Terminal.app | on by default, no target | CIELAB lightness band | `#663bff`, 3.29:1 |
+| Material (HCT) | design time | CAM16 hue held | `#5761ff` on black |
+| Apple Increase Contrast colours, Xcode High Contrast | designed | by hand | nearer OKLab where the two lifts differ |
+
+Three things follow. Every runtime floor that reaches its target lands
+next to the mix (Warp 0.007 OKLab from it, 0.057 from the OKLab lift).
+Apple's designed palettes sit nearer the OKLab lift on the colours where
+the two can be told apart (opaque dark 5 of 6, vibrant dark 2 of 2,
+Xcode High Contrast 4 of 4), and Apple changes no static colour such as
+`#0000ee` under Increase Contrast. No app reads hue one way on a
+translucent surface and another on an opaque one; those that see alpha
+ignore it, assume an opaque background, or, like DevTools, composite
+over the worst backdrop. So 4A puts the opaque floor with the runtime
+floors and the glass floor with Apple's designed colours; that split by
+surface has no precedent, and neither single rule has a case strong
+enough to overturn the decision. The research recommended keeping 4A.
+
+Under Reduce Transparency every background is drawn at alpha 1, where
+the glass lift leaves a colour unchanged and only the mix draws, so the
+open item below appears only with Increase Contrast on and Reduce
+Transparency off.
+
 **Open:** under Increase Contrast the dark glass draws ANSI blue 13
 OKLCH degrees nearer purple than at the default trigger, because the
 opaque mix runs before the glass lift.
