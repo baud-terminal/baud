@@ -792,6 +792,52 @@ fn deccara_on_a_cut_wide_character_changes_only_the_cell_inside() {
     });
 }
 
+/// **The half a cut leaves keeps DECSCA's protection and nothing else of
+/// the character's flags**: its ECMA-48 guard and its `OSC 8` link go
+/// (Jev's lean, PROTECTION_ONLY, 0.67/0.70 and 0.83/0.77 on a re-ask, log
+/// 874-877; STD 070 has no character two columns wide). xterm's
+/// `Clear1Cell` changes the character alone and keeps every attribute.
+#[test]
+fn the_half_a_cut_leaves_keeps_its_protection_alone() {
+    let bytes =
+        "\x1b[1\"q\x1bV\x1b]8;;http://example.invalid/\x1b\\\u{4e2d}\x1b]8;;\x1b\\\x1bW\x1b[0\"q";
+    after(&format!("{bytes}\x1b[1;2;1;2$z"), |t| {
+        let half = cell(t, 1, 1);
+        assert_eq!(ch(half), ' ');
+        assert!(half.is_protected(), "the protection stays");
+        assert!(!half.flags.is_guarded(), "the guard goes");
+        assert_eq!(half.flags.link(), LinkId::NONE, "the link goes");
+    });
+    // The control: before the cut the character carries all three.
+    after(bytes, |t| {
+        let lead = cell(t, 1, 1);
+        assert!(lead.is_protected() && lead.flags.is_guarded());
+        assert_ne!(lead.flags.link(), LinkId::NONE);
+    });
+}
+
+/// **DECFRA fills one character a position under the wide ambiguous-width
+/// policy too**: "the terminal fills the rectangular area of character
+/// positions ... with the character defined by the decimal value of Pch"
+/// (`[[source: dec-std-070]]` p. 5-170, `[[source: vt510-decfra]]`), and a
+/// DEC position holds one character. `Pch` 176, U+00B0, is East Asian
+/// Ambiguous: written as text under the policy it takes two columns, and
+/// filled it takes each of four.
+#[test]
+fn decfra_fills_a_position_each_under_wide_ambiguous_width() {
+    support::with_term(&WS, |t| {
+        t.set_ambiguous_width(AmbiguousWidth::Wide);
+        support::feed(t, b"\x1b[176;1;1;1;4$x\x1b[2;1H\xc2\xb0");
+        let s = rows_of(t);
+        assert_eq!(&s[0][..4 * '\u{b0}'.len_utf8()], "\u{b0}\u{b0}\u{b0}\u{b0}");
+        assert_eq!(
+            s[1].chars().take(2).collect::<String>(),
+            "\u{b0}]",
+            "the control"
+        );
+    });
+}
+
 /// **An operation is done on both screens**: on the alternate screen DECFRA
 /// fills and DECCRA copies there, and the primary keeps its text.
 #[test]

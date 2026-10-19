@@ -91,7 +91,9 @@ impl Paint<'_, '_> {
     /// 2026-10-18, ORPHAN_SPACE, the lean taken at 0.38 and 0.20 after a
     /// second ask; xterm's `Clear1Cell` on both halves, `[[source:
     /// xterm-screen]]`). It keeps the position occupied, as the character
-    /// had it.
+    /// had it, and of the character's flags DECSCA's protection alone: the
+    /// ECMA-48 guard and an `OSC 8` link go (Jev's lean, PROTECTION_ONLY,
+    /// 2026-10-19), where xterm's `Clear1Cell` keeps every attribute.
     fn cut_wide_edges(&mut self, r: Row, left: Col, right: Col, spare: Spare) {
         let keep = |c: PackedCell| spare == Spare::Protected && c.is_protected();
         if left.index() > 0 {
