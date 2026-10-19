@@ -65,8 +65,17 @@ impl Paint<'_, '_> {
             // **The one reply that is neither a CSI nor a control string.**
             // `[[source: ctlseqs]]`: "ESC / Z Report (terminal to host)".
             Vt52::Identify => self.want_reply(Report::Vt52Identity),
+            // **`ESC <` returns to Level 1, and so to seven-bit C1**:
+            // `[[source: dec-std-070]]` 070-0A EXIT VT52 EMULATION MODE
+            // (p. A-15), "causing the terminal to return to Level 1
+            // operation", whatever level it left (070-0C Category 2, p.
+            // C-28), and "Level 1 operation is 7-bits only" (070-3
+            // §3.6.4.1). xterm returns to its level 1 and keeps an `S8C1T`,
+            // a departure not followed.
             Vt52::ExitVt52 => {
                 self.cold.terminal = TerminalMode::Ansi;
+                self.cold.level = ConformanceLevel::One;
+                self.cold.replies = self.cold.replies.with_c1(C1Transmit::SevenBit);
                 *node = crate::graph::Node::AfterControl;
             }
             Vt52::KeypadApplication => self.cold.keypad = KeypadMode::Application,

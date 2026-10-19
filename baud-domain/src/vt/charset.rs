@@ -444,6 +444,13 @@ impl Designation {
         tail: [0, b'<'],
     };
 
+    /// ISO Latin-1 Supplemental, `ESC - A`: what `ESC SP L` and `ESC SP M`
+    /// designate into G1.
+    pub const LATIN1_SUPPLEMENTAL: Designation = Designation {
+        size: SetSize::Chars96,
+        tail: [0, b'A'],
+    };
+
     /// A 94-character designation: `ESC ( F` or `ESC ( I F`.
     pub fn of_94(i2: Option<StreamByte>, f: StreamByte) -> Designation {
         Designation {

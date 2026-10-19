@@ -1946,6 +1946,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             }
         }
         DomCsi::SoftReset => p.soft_reset(),
+        DomCsi::SetConformanceLevel => p.select_conformance_level(csi),
         DomCsi::InsertColumns(c) => p.insert_columns(c),
         DomCsi::DeleteColumns(c) => p.delete_columns(c),
         DomCsi::SetSideMargins { left, right } => p.set_side_margins(left, right),
@@ -2181,13 +2182,27 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
             b' ' if b.raw_byte() == b'F' => {
                 p.cold.replies = p.cold.replies.with_c1(C1Transmit::SevenBit)
             }
-            b' ' if b.raw_byte() == b'G' => {
-                p.cold.replies = p.cold.replies.with_c1(C1Transmit::EightBit)
-            }
-            // **`ESC SP L/M/N`, counted rather than dropped.** ANSI
-            // conformance levels -- not implemented, and previously
-            // indistinguishable from an implemented form because the
-            // wildcard below did nothing at all.
+            // `S8C1T` "if (conformance_level != LEVEL_1)" (`[[source:
+            // dec-std-070]]` 070-3 p. 3-72): Level 1 is seven-bit only, so
+            // there it is counted and changes nothing, as xterm ignores it
+            // below its level 2 (Jev's lean, IGNORED, 0.88/0.94).
+            b' ' if b.raw_byte() == b'G' => match p.cold.level {
+                ConformanceLevel::One => p.unsupported_total += 1,
+                _ => p.cold.replies = p.cold.replies.with_c1(C1Transmit::EightBit),
+            },
+            // **`ESC SP L`, `M` and `N` announce an ISO 4873 level, and at
+            // Level 3 and above they designate and invoke** (`[[source:
+            // dec-std-070]]` 070-3 §3.8.1, pp. 3-68 to 3-70): L and M put
+            // ASCII in G0 and ISO Latin-1 Supplemental in G1 and invoke G0
+            // into GL and G1 into GR, N puts ASCII in G0 and invokes it into
+            // GL. Its algorithm acts "if (conformance_level > 2)"; below
+            // that they are counted (Jev's lean, ACT_AT_3_PLUS, 0.91/0.88).
+            // xterm sets an ANSI level and designates nothing, a departure
+            // from the text not followed.
+            b' ' if matches!(b.raw_byte(), b'L' | b'M' | b'N') => match p.cold.level {
+                ConformanceLevel::One | ConformanceLevel::Two => p.unsupported_total += 1,
+                _ => p.announce(b),
+            },
             // **`ESC % @` and `ESC % G`, and this arm was the whole gap.**
             // Both tables are built at compile time and `Edge::of` selects
             // between them, so the Latin-1 half of the graph has existed and
@@ -2211,6 +2226,9 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
                 p.cold.encoding = want;
                 *enc = want;
             }
+            // **Any other intermediate and final, counted rather than
+            // dropped**: this wildcard did nothing at all once, and a form
+            // baud does not implement read the same as one it did.
             _ => p.unsupported_total += 1,
         }
         return;
@@ -2258,10 +2276,18 @@ fn esc_final(p: &mut Paint<'_, '_>, csi: &Csi, b: StreamByte, enc: &mut InputEnc
         // from ground or from a sequence it cancels were counted as functions
         // baud lacks (`a_bare_st_closes_nothing_and_is_counted_nowhere`).
         Esc::StringTerminator => {}
-        // **DECID answers what DA answers**, by the same function, so the
-        // Sixel claim and `S8C1T` reach it: `[[source: dec-std-070]]` 070-4,
-        // "identical to a primary DA control with an omitted parameter".
-        Esc::Identify => primary_device_attributes(p),
+        // **DECID answers what DA answers at Levels 1 and 2**, by the same
+        // function, so the Sixel claim and `S8C1T` reach it:
+        // `[[source: dec-std-070]]` 070-4, "identical to a primary DA
+        // control with an omitted parameter". **At Levels 3 and 4 it is not
+        // recognised and is counted**: note b, "DECID is not recognized at
+        // Level 3 or above", and the algorithm answers only at Level 1 or
+        // Level 2, "Ignored above Level 2" (Jev, NOT_RECOGNISED_AT_3_PLUS, 0.94/0.96). xterm answers at
+        // every level, a departure from the text not followed.
+        Esc::Identify => match p.cold.level {
+            ConformanceLevel::One | ConformanceLevel::Two => primary_device_attributes(p),
+            ConformanceLevel::Three | ConformanceLevel::Four => p.unsupported_total += 1,
+        },
         Esc::StartGuardedArea => p.start_guarded_area(),
         Esc::EndGuardedArea => p.end_guarded_area(),
 

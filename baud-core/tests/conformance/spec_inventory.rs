@@ -911,6 +911,9 @@ fn every_spec_esc_intermediate_form_is_handled_or_counted() {
             | (b'*' | b'+', b'<')
             // DECSWL: make single-width a line that already is.
             | (b'#', b'5')
+            // ESC SP N at Level 4, the power-up level: ASCII into G0 and G0
+            // into GL, which is the power-up state.
+            | (0x20, b'N')
         )
     };
 

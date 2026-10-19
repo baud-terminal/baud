@@ -1,15 +1,17 @@
-//! DECID, `ESC Z` (`9A` as a C1): the obsolete spelling of a primary DA.
+//! DECID, `ESC Z` (`9A` as a C1): the obsolete spelling of a primary DA,
+//! recognised at Levels 1 and 2 only.
 //!
-//! `[[source: dec-std-070]]` 070-4, IDENTIFY TERMINAL (PDF 232): "The device
-//! responds by transmitting an appropriate primary Device Attributes (DA)
-//! response", note a: "This control is identical to a primary DA control
-//! with an omitted parameter or a parameter value of zero (0)", note b:
-//! "DECID is not recognized at Level 3 or above", and its algorithm calls
-//! `device_attributes_1()` at levels 1 and 2. baud's DA names a VT102, which
-//! STD 070 places at Level 1, so note b's Level 3 bar is not reached and
-//! DECID answers. `[[source: ctlseqs]]`: "Return Terminal
-//! ID (DECID is 0x9a). Obsolete form of CSI c (DA)." Note c sends VT52 mode
-//! elsewhere: there `ESC Z` is VT52's own identify, `ESC / Z`.
+//! `[[source: dec-std-070]]` 070-4, IDENTIFY TERMINAL (PDF 232), "Levels:
+//! 1, 2": "The device responds by transmitting an appropriate primary
+//! Device Attributes (DA) response", note a: "This control is identical to
+//! a primary DA control with an omitted parameter or a parameter value of
+//! zero (0)", note b: "DECID is not recognized at Level 3 or above", and
+//! its algorithm calls `device_attributes_1()` only when the level is 1 or
+//! 2. baud powers up at Level 4, so there `ESC Z` answers nothing and is
+//! counted; DECSCL 61 or 62 brings the answer back (Jev,
+//! NOT_RECOGNISED_AT_3_PLUS, 0.94/0.96). `[[source: ctlseqs]]`: "Return
+//! Terminal ID (DECID is 0x9a). Obsolete form of CSI c (DA)." Note c sends
+//! VT52 mode elsewhere: there `ESC Z` is VT52's own identify, `ESC / Z`.
 //!
 //! Every case runs at every read size and at every two-read split, so the
 //! `ESC` and the `Z` meet in `fast_esc` and in the graph's escape node.
@@ -59,6 +61,33 @@ fn split(bytes: &[u8], at: usize, setup: impl Fn(&mut Term<'_>)) -> (Vec<u8>, St
     (t.reply().to_vec(), row, t.unsupported)
 }
 
+/// Feed `bytes` before the case, as DECSCL to a level.
+fn level(t: &mut Term<'_>, bytes: &[u8]) {
+    t.write_at(BytePos::ZERO, bytes);
+    t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+}
+
+/// Level 2 with seven-bit controls, `CSI 62 ; 1 " p`.
+const LEVEL_2: &[u8] = b"\x1b[62;1\"p";
+
+/// `decid` answers nothing, writes its neighbours and is counted once, at
+/// every read size and split.
+fn not_recognised(decid: &[u8], setup: impl Fn(&mut Term<'_>) + Copy) {
+    let want = (Vec::new(), "abcd....".to_string(), 1);
+    let mut wrong = Vec::new();
+    for read in 1..=decid.len() {
+        if after(decid, read, setup) != want {
+            wrong.push(format!("{read}-byte reads"));
+        }
+    }
+    for at in 1..decid.len() {
+        if split(decid, at, setup) != want {
+            wrong.push(format!("split at {at}"));
+        }
+    }
+    assert!(wrong.is_empty(), "{decid:02x?} answered at {wrong:?}");
+}
+
 /// `decid` and `da` leave the same state at every read size and split, and
 /// that state's reply is `want`.
 fn same_as_da(decid: &[u8], da: &[u8], want: &[u8], setup: impl Fn(&mut Term<'_>) + Copy) {
@@ -84,14 +113,18 @@ fn same_as_da(decid: &[u8], da: &[u8], want: &[u8], setup: impl Fn(&mut Term<'_>
     );
 }
 
+/// At Level 2, DECSCL 62;1.
 #[test]
 fn decid_answers_the_primary_da() {
-    same_as_da(b"ab\x1bZcd", b"ab\x1b[ccd", b"\x1b[?6c", |_| {});
+    same_as_da(b"ab\x1bZcd", b"ab\x1b[ccd", b"\x1b[?6c", |t| {
+        level(t, LEVEL_2)
+    });
 }
 
 #[test]
 fn decid_answers_the_sixel_claim_as_da_does() {
     same_as_da(b"ab\x1bZcd", b"ab\x1b[ccd", b"\x1b[?6;4c", |t| {
+        level(t, LEVEL_2);
         t.set_sixel_claim(SixelClaim::Yes)
     });
 }
@@ -99,13 +132,54 @@ fn decid_answers_the_sixel_claim_as_da_does() {
 /// Under `S8C1T` the answer's introducer is `9B`, as DA's is.
 #[test]
 fn decid_answers_in_eight_bits_after_s8c1t() {
-    same_as_da(b"\x1b Gab\x1bZcd", b"\x1b Gab\x1b[ccd", b"\x9b?6c", |_| {});
+    same_as_da(b"\x1b Gab\x1bZcd", b"\x1b Gab\x1b[ccd", b"\x9b?6c", |t| {
+        level(t, LEVEL_2)
+    });
 }
 
 /// `9A` is DECID's C1 under ISO 8859-1, read as `ESC Z`.
 #[test]
 fn the_c1_9a_under_latin1_is_decid() {
-    same_as_da(b"\x1b%@ab\x9acd", b"\x1b%@ab\x1b[ccd", b"\x1b[?6c", |_| {});
+    same_as_da(b"\x1b%@ab\x9acd", b"\x1b%@ab\x1b[ccd", b"\x1b[?6c", |t| {
+        level(t, LEVEL_2)
+    });
+}
+
+/// **At power-up, Level 4, `ESC Z` is not recognised**: note b, "DECID is
+/// not recognized at Level 3 or above".
+#[test]
+fn decid_is_not_recognised_at_level_four() {
+    not_recognised(b"ab\x1bZcd", |_| {});
+    not_recognised(b"ab\x1bZcd", |t| level(t, b"\x1b[64;1\"p"));
+}
+
+#[test]
+fn decid_is_not_recognised_at_level_three() {
+    not_recognised(b"ab\x1bZcd", |t| level(t, b"\x1b[63;1\"p"));
+}
+
+/// `9A` under ISO 8859-1 is the same control, silent at Level 4 and
+/// answering at Level 2.
+#[test]
+fn the_c1_9a_is_not_recognised_at_level_four() {
+    not_recognised(b"ab\x9acd", |t| level(t, b"\x1b%@"));
+}
+
+/// **DECSCL 62 with `Pc` omitted is Level 2 with eight-bit controls**, so
+/// the answer's introducer is `9B`.
+#[test]
+fn decid_answers_at_level_two_in_eight_bits() {
+    same_as_da(b"ab\x1bZcd", b"ab\x1b[ccd", b"\x9b?6c", |t| {
+        level(t, b"\x1b[62\"p")
+    });
+}
+
+/// Level 1, DECSCL 61, which is seven-bit only.
+#[test]
+fn decid_answers_at_level_one() {
+    same_as_da(b"ab\x1bZcd", b"ab\x1b[ccd", b"\x1b[?6c", |t| {
+        level(t, b"\x1b[61\"p")
+    });
 }
 
 /// In VT52 mode `ESC Z` is VT52's identify and keeps its own answer

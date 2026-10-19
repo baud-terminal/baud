@@ -706,6 +706,10 @@ pub enum Csi {
     /// their defaults, but **not** the screen contents -- that is what makes it
     /// soft, and what distinguishes it from RIS.
     SoftReset,
+    /// DECSCL, `CSI Pl ; Pc " p`: select the conformance level and, above
+    /// Level 1, the C1 transmission. **Its parameters are read where it is
+    /// performed**, as [`Csi::Area`]'s are.
+    SetConformanceLevel,
     /// CHT, `CSI I`. Forward `n` tab stops.
     CursorForwardTab(Count),
     /// CBT, `CSI Z`. Backward `n` tab stops.
@@ -957,6 +961,7 @@ impl Csi {
         if let Some(i) = inter {
             return match (i.raw_byte(), f.raw()) {
                 (b'!', b'p') => Csi::SoftReset,
+                (b'"', b'p') if marker == Marker::Standard => Csi::SetConformanceLevel,
                 (b'"', b'q') => Csi::SelectProtection {
                     protect: Protection::from_param(p.at(ParamIdx::FIRST)),
                 },
@@ -1492,7 +1497,9 @@ impl Csi {
             | DeviceAttributes
             | DeviceStatus(_) => Level::Vt100,
 
+            // "Levels: 1x, 2, 3, 4" (070-4 DECSCL), required from Level 2.
             SoftReset
+            | SetConformanceLevel
             | SelectProtection { .. }
             | SelectiveEraseDisplay(_)
             | SelectiveEraseLine(_)

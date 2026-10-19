@@ -223,6 +223,17 @@ platform = "both"
 rows = ["vt:`ESC 7`", "vt:`ESC 8`"]
 
 [[feature]]
+id = "conformance-levels"
+area = "programs"
+name = "VT100 to VT420 levels"
+does = "A program can ask for VT100, VT220, VT320 or VT420 behaviour and for 7- or 8-bit control codes, and read back which it has; a reset returns to VT420 with 7-bit codes."
+status = "partial"
+gap = "the VT100 level does not yet switch off the later terminals' features and keys."
+platform = "both"
+tests = ["baud-core/tests/conformance_level.rs::decscl_selects_the_level_and_the_c1_transmission"]
+rows = ["vt:`CSI Pl ; Pc \" p`"]
+
+[[feature]]
 id = "columns-132"
 area = "programs"
 name = "132 columns when a program asks"

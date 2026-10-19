@@ -939,6 +939,10 @@ pub struct Cold {
     /// once a read, by `BS` at the left margin, by the alternate-screen
     /// switches and by the embedder, never by a glyph.
     pub(crate) resources: baud_domain::Resources,
+    /// The conformance level DECSCL selected (`baud_domain::ConformanceLevel`),
+    /// Level 4 at power-up and after `RIS`. Read by `S8C1T`, the announcers
+    /// and DECRQSS, never by a glyph.
+    pub(crate) level: baud_domain::ConformanceLevel,
     pub(crate) num_lock: NumLockKeypad,
     /// XTSAVE's one-level cache of the private modes, which XTRESTORE reads
     /// back: written and read once per `CSI ? Pm s` and `r`, emptied by
@@ -1363,6 +1367,7 @@ impl Cold {
             backarrow: BackarrowKey::Delete,
             delete: DeleteKey::Remove,
             resources: baud_domain::Resources::POWER_ON,
+            level: baud_domain::ConformanceLevel::Four,
             num_lock: NumLockKeypad::Overrides,
             protect: CellFlags::NONE,
             guard_open: None,

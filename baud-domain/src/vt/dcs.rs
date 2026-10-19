@@ -54,6 +54,8 @@ pub enum StatusTarget {
     KeyModify(KeyResource),
     /// `> Pp f` -- XTQFMTKEYS's string, its format.
     KeyFormat(KeyResource),
+    /// `" p` -- DECSCL, the conformance level and the C1 transmission.
+    ConformanceLevel,
     Unknown,
 }
 
@@ -68,6 +70,7 @@ impl StatusTarget {
             b"\"q" => StatusTarget::Protection,
             b"$|" => StatusTarget::ColumnsPerPage,
             b"*x" => StatusTarget::AttrExtent,
+            b"\"p" => StatusTarget::ConformanceLevel,
             [b'>', rest @ ..] => StatusTarget::key_option(rest),
             _ => StatusTarget::Unknown,
         }

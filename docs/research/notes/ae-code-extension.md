@@ -349,7 +349,7 @@ Both fast paths reach that count:
 | `ESC N` (SS2) | ECMA-35 Table 2, 8.4; ECMA-48 8.3.141; ctlseqs 175-177; 070-3 p. 3-80; vt220-rm-ch4 §4.4.4.1; vt510-ss | Counted | The next graphic character is drawn from G2, after which GL (and GR) apply as before. What cancels the shift is Q6; UTF-8 is P and Q4. Entered only from a bare `ESC` and from Latin-1 `8E` (§5) |
 | `ESC O` (SS3) | The same, for G3; ctlseqs 179-181 | Counted | The same, from G3 |
 | `ESC <I…> N`, `ESC <I…> O`, e.g. `ESC SP N` | ctlseqs 300; ECMA-35 Table 7 facilities 14 (`N`) and 15 (`O`, reserved by NOTE 52) | Counted. Unsplit, `fast_esc`'s intermediate arm (write.rs:2195-2213) calls `esc_final`; split, the graph's `EscFinal` does. Both reach `esc_final`'s intermediate branch, where `ESC SP` counts every final but `F` and `G` (write.rs:1717-1747) and `ESC ( N` designates as any `ESC ( F` does | Unchanged at every read split. **Not a single shift**: the final byte follows an intermediate (§5; test 6). What `ESC SP N` itself should do is the next row's |
-| `ESC SP L`, `ESC SP M`, `ESC SP N` (Announce Subset of Code Extension Facilities) | 070-3 §3.8.1 (pp. 3-68 to 3-70), the only receiver rule read: L and M designate ASCII into G0 and ISO Latin-1 Supplemental into G1 and invoke G0 into GL and G1 into GR; N designates ASCII into G0 and invokes G0 into GL; all only at "Levels: 2X, 3". ECMA-35 Table 7 facilities 12-14 and ctlseqs 296-300 name them and give no receiver rule | Counted (`_ => p.unsupported_total += 1`, write.rs:1747; comment at 1719-1723). **DEPARTS** from 070-3 §3.8.1 at Level 3 and at Level 2 with the extension, the levels Q2's UPSS and Q3's 96-sets presuppose (§3.1.3; p. 3-63). Under the VT102 (Level 1) reading of DA, 070's algorithm does nothing, and the count matches it | Q18. Whatever it does runs in `esc_final`'s intermediate branch, which both paths reach, so it is the same at every split |
+| `ESC SP L`, `ESC SP M`, `ESC SP N` (Announce Subset of Code Extension Facilities) | 070-3 §3.8.1 (pp. 3-68 to 3-70), the only receiver rule read: L and M designate ASCII into G0 and ISO Latin-1 Supplemental into G1 and invoke G0 into GL and G1 into GR; N designates ASCII into G0 and invokes G0 into GL; all only at "Levels: 2X, 3". ECMA-35 Table 7 facilities 12-14 and ctlseqs 296-300 name them and give no receiver rule | Since 2026-10-19 (lane b104) built at Levels 3 and 4, which DECSCL now selects, Level 4 at power-up: the designations and invocations §3.8.1 gives; counted at Levels 1 and 2 (Jev's lean, ACT_AT_3_PLUS, 0.91/0.88). It counted at every level before, departing from §3.8.1 at Level 3 | Q18, answered (a). Whatever it does runs in `esc_final`'s intermediate branch, which both paths reach, so it is the same at every split |
 | `ESC n` (LS2) | ECMA-35 8.3.1, Table 2 (7/8); ctlseqs 419 | Counted | `gl = G2`, then `invoke()` |
 | `ESC o` (LS3) | ECMA-35 8.3.1; ctlseqs 421 | Counted | `gl = G3`, then `invoke()` |
 | `ESC \|` (LS3R) | ECMA-35 8.3.2; ctlseqs 423 | Counted | `gr = G3`: state in both encodings, read only by GR bytes (Q5) |
@@ -1210,6 +1210,10 @@ Options:
   encoding-neutral until the owner answers.
 
 ### Q18. `ESC SP L/M/N`, Announce Subset of Code Extension Facilities (Jev, then the owner)
+
+**Built 2026-10-19 (lane b104)**: option (a) at Levels 3 and 4, with the
+conformance level DECSCL selects and Level 4 at power-up (Jev, LEVEL_4,
+0.94/0.90; ACT_AT_3_PLUS, 0.91/0.88). DA1 still answers `?6c`.
 
 **The texts.**
 

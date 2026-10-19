@@ -40,6 +40,15 @@ const UNSYNTHESISABLE: &[(&str, &str)] = &[
     ("sos_pm_apc_string", "a parser state"),
 ];
 
+/// Rows whose function `[[source: dec-std-070]]` recognises only below
+/// Level 4, where baud powers up, each fed after the DECSCL that selects a
+/// level that has it. Kept as small as `UNSYNTHESISABLE`.
+const BELOW_LEVEL_FOUR: &[(&str, &[u8])] = &[
+    // DECID, "Levels: 1, 2", and note b: "not recognized at Level 3 or
+    // above" (the `ESC Z` row).
+    ("ESC Z", b"\x1b[62;1\"p"),
+];
+
 /// Turn a table cell such as `CSI ? 2 l` or `ESC # 8` into wire bytes.
 ///
 /// Parameters are supplied where the row writes none but the operation needs
@@ -196,6 +205,9 @@ fn every_done_sequence_reaches_a_handler() {
         let ws = support::CORPUS;
         let mut s = Owned::new(&ws);
         let mut t = Term::new(s.storage(), &ws);
+        if let Some((_, level)) = BELOW_LEVEL_FOUR.iter().find(|(r, _)| *r == seq) {
+            feed(&mut t, level);
+        }
         feed(&mut t, &bytes);
         checked += 1;
         if t.unsupported != 0 {

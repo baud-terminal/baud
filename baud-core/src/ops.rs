@@ -3660,6 +3660,13 @@ impl Paint<'_, '_> {
         // `?1042` and `?1043` do: ECMA-48's "set the modes into the reset
         // state". `DECSTR` keeps them, as its list names none.
         self.cold.resources = baud_domain::Resources::POWER_ON;
+        // **And the conformance level and the C1 transmission**: DEC STD
+        // 070's Device Initialization takes both from NVM (`host_state_init`,
+        // "conformance level = LEVEL 4"), which here is the power-up state,
+        // Level 4 and seven-bit, the VT510's factory default. `RIS` kept an
+        // `S8C1T` before.
+        self.cold.level = ConformanceLevel::Four;
+        self.cold.replies = self.cold.replies.with_c1(C1Transmit::SevenBit);
         // `RIS` "remove[s] qualified areas" (`[[source: ecma48]]` 8.3.105):
         // the screens were cleared above, and ED, EL and ECH take their
         // fill again.
@@ -3808,6 +3815,57 @@ impl Paint<'_, '_> {
         self.cold.num_lock = NumLockKeypad::Overrides;
         self.last_cp = None;
         self.goto(Row::ZERO, Col::ZERO);
+    }
+
+    /// DECSCL, `CSI Pl ; Pc " p` (`[[source: dec-std-070]]` 070-4 DECSCL):
+    /// `Pl` 61 to 64 selects Levels 1 to 4, any other is ignored and counted
+    /// ("Attempts to select conformance levels that are unsupported by the
+    /// device will be ignored", note 4). Then a soft reset, note 3's "soft
+    /// reset ... without affecting the data contained in the display", which
+    /// the VT220 manual and xterm do and the VT320 to VT520 manuals call a
+    /// hard one (Jev's lean, SOFT, 0.68/0.94); DECSTR unlocks the keyboard,
+    /// as 070-6 says DECSCL does. Then the C1 transmission: `Pc` 0 or 2
+    /// eight-bit, 1 seven-bit, at Levels 2 to 4; at Level 1 seven-bit
+    /// whatever `Pc` says, "it will be ignored in Level 1 operation" and
+    /// "Level 1 operation is 7-bits only" (070-3 §3.6.4.1). The primary DA
+    /// answer does not change: it is the terminal's identity (Jev,
+    /// STAYS_6C, 0.98/1.00).
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn select_conformance_level(&mut self, csi: &crate::write::Csi) {
+        let p = csi.params();
+        let Some(level) = ConformanceLevel::from_value(p.raw(ParamIdx::FIRST, 0)) else {
+            self.unsupported_param += 1;
+            return;
+        };
+        self.cold.level = level;
+        self.soft_reset();
+        let c1 = match (level, p.raw(ParamIdx::FIRST.plus(1), 0)) {
+            (ConformanceLevel::One, _) => Some(C1Transmit::SevenBit),
+            (_, 0 | 2) => Some(C1Transmit::EightBit),
+            (_, 1) => Some(C1Transmit::SevenBit),
+            _ => None,
+        };
+        if let Some(c1) = c1 {
+            self.cold.replies = self.cold.replies.with_c1(c1);
+        }
+    }
+
+    /// `ESC SP L`, `M` or `N` at Level 3 or 4 (`[[source: dec-std-070]]`
+    /// 070-3 §3.8.1): ASCII into G0 and G0 into GL, and for L and M ISO
+    /// Latin-1 Supplemental into G1 and G1 into GR.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn announce(&mut self, f: StreamByte) {
+        self.cold.g[GSlot::G0.index()] = Charset::Ascii;
+        self.cold.desig[GSlot::G0.index()] = Designation::ASCII;
+        self.cold.gl = GSlot::G0;
+        if f.raw_byte() != b'N' {
+            self.cold.g[GSlot::G1.index()] = Charset::Iso96(Iso96::Latin1);
+            self.cold.desig[GSlot::G1.index()] = Designation::LATIN1_SUPPLEMENTAL;
+            self.cold.gr = GSlot::G1;
+        }
+        self.reinvoke();
     }
 
     /// DECSTR. **A soft reset stays on the alternate screen and leaves the

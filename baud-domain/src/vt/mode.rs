@@ -556,6 +556,45 @@ pub enum PrivateMode {
     Other(Param),
 }
 
+/// The DEC conformance level the terminal operates at, which DECSCL selects
+/// (`[[source: dec-std-070]]` 070-4 DECSCL; `[[source: vt510-decscl]]`):
+/// `61` to `64`, Levels 1 to 4. **Level 4 at power-up and after `RIS`**,
+/// DEC STD 070's `host_state_init` ("conformance level = LEVEL 4") and the
+/// VT510's factory default, and what baud implements. The primary DA
+/// answer does not follow it: it is the terminal's identity.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ConformanceLevel {
+    One,
+    Two,
+    Three,
+    Four,
+}
+
+impl ConformanceLevel {
+    /// The level DECSCL's first parameter names, or `None` for one baud does
+    /// not support: "Attempts to select conformance levels that are
+    /// unsupported by the device will be ignored" (070-4 DECSCL, note 4).
+    pub fn from_value(pl: u16) -> Option<ConformanceLevel> {
+        match pl {
+            61 => Some(ConformanceLevel::One),
+            62 => Some(ConformanceLevel::Two),
+            63 => Some(ConformanceLevel::Three),
+            64 => Some(ConformanceLevel::Four),
+            _ => None,
+        }
+    }
+
+    /// The parameter that selects it, `61` to `64`.
+    pub fn param(self) -> u16 {
+        match self {
+            ConformanceLevel::One => 61,
+            ConformanceLevel::Two => 62,
+            ConformanceLevel::Three => 63,
+            ConformanceLevel::Four => 64,
+        }
+    }
+}
+
 /// The xterm resources a program can set with a private mode, each a switch
 /// baud acts on, kept apart from [`Modes`], whose bits the write loop reads.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

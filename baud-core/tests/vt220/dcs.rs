@@ -102,8 +102,14 @@ fn the_sgr_reply_round_trips() {
 /// no body.
 #[test]
 fn an_unknown_setting_gets_the_invalid_reply() {
-    assert_eq!(replies(b"\x1bP$q\"p\x1b\\"), b"\x1bP0$r\x1b\\", "DECSCL");
     assert_eq!(replies(b"\x1bP$qzz\x1b\\"), b"\x1bP0$r\x1b\\");
+    // DECSCL answers since it is built: invalid at Level 1 only
+    // (`conformance_level.rs`).
+    assert_eq!(
+        replies(b"\x1b[61\"p\x1bP$q\"p\x1b\\"),
+        b"\x1bP0$r\x1b\\",
+        "DECSCL at Level 1"
+    );
 }
 
 /// Valid is 1 and invalid is 0, never the other way round.

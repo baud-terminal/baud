@@ -62,9 +62,9 @@ Two rules the tests pin, because both failure modes are worse than silence:
   8 (`Levels: 2X`), not a Level 2 requirement, so a Level 2 claim without `;8`
   is the honest shape for a terminal without them. What keeps baud off Level
   1 and 2 is the list in note AP (`docs/research/notes/ap-da-level.md`):
-  eight Level 1 functions counted and dropped (SS2, SS3, the four line
-  sizes, KAM, SRM; DECID built 2026-10-16), no Level 1 operation, no DA2 or DECSCL, and for Level 2
-  LS1R-LS3R and the Level 2 keyboard. Claiming more would make applications
+  no Level 1 operation (DECSCL selects Level 1 since 2026-10-19 without
+  its restrictions), no DA2, and for Level 2 LS1R-LS3R and the Level 2
+  keyboard. Claiming more would make applications
   send sequences baud drops, which is the `parsed` failure by another
   route. This also said baud had no NRCS and no 132-column mode;
   the national sets are designated and translated, and DECCOLM is done.
