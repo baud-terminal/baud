@@ -330,6 +330,9 @@ struct Snapshot {
     /// Every row's line rendition: `ESC # 3`, `# 4` and `# 6` size the
     /// cursor's line, which a grid of cells does not show.
     renditions: Vec<LineRendition>,
+    /// XTQMODKEYS' and XTQFMTKEYS' answers for every key-modifier resource,
+    /// which only `Term::key` reads, asked after everything above.
+    key_resources: Vec<u8>,
 }
 
 /// A prepared terminal: one palette entry set, text on two rows, and the
@@ -343,8 +346,10 @@ struct Snapshot {
 /// `112`, `117` and `119` reset them, and a reset of an override nobody made
 /// is invisible. The `h` is bold for the same reason: DECCARA's default
 /// clears bold, underline, blink and reverse, and clearing them from text that
-/// has none changes nothing.
-const PREAMBLE: &[u8] = b"\x1b]4;1;rgb:12/34/56\x07\x1b]10;rgb:11/22/33\x07\x1b]11;rgb:44/55/66\x07\x1b]12;rgb:77/88/99\x07\x1b]17;rgb:aa/bb/cc\x07\x1b]19;rgb:dd/ee/ff\x07\x1b[1mh\x1b[mello world\r\nsecond line\r\n\x1b[2;5H";
+/// has none changes nothing. modifyCursorKeys and its format are moved off
+/// their first values for the same reason: `CSI > 1 m` and `CSI > 1 f` reset
+/// them.
+const PREAMBLE: &[u8] = b"\x1b[>1;3m\x1b[>1;1f\x1b]4;1;rgb:12/34/56\x07\x1b]10;rgb:11/22/33\x07\x1b]11;rgb:44/55/66\x07\x1b]12;rgb:77/88/99\x07\x1b]17;rgb:aa/bb/cc\x07\x1b]19;rgb:dd/ee/ff\x07\x1b[1mh\x1b[mello world\r\nsecond line\r\n\x1b[2;5H";
 
 /// Written **after** the form, so that changes which only show on the next cell
 /// are visible.
@@ -424,6 +429,13 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         column_gates: {
             t.clear_reply();
             let ask = b"\x1b[?40$p\x1b[?95$p";
+            t.write_at(BytePos::ZERO, ask);
+            t.feed(BytePos::ZERO, ReadLen::from_index(ask.len()));
+            t.reply().to_vec()
+        },
+        key_resources: {
+            t.clear_reply();
+            let ask = b"\x1b[?0;1;2;3;4;6;7m\x1b[>0;1;2;3;4;6;7g";
             t.write_at(BytePos::ZERO, ask);
             t.feed(BytePos::ZERO, ReadLen::from_index(ask.len()));
             t.reply().to_vec()

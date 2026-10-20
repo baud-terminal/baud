@@ -236,21 +236,23 @@ fn xtqfmtkeys_answers_format_other_keys_with_its_value() {
     });
 }
 
-/// xterm answers once a parameter (`for (value = 0; value < nparam; ...)`).
-/// baud holds `modifyOtherKeys` and `formatOtherKeys` alone, so a resource it
-/// does not hold is no answer and a count, and a query naming two gets the
-/// one it can give.
+/// xterm answers once a parameter (`for (value = 0; value < nparam; ...)`),
+/// every resource with its value, and one naming none with its `DEFAULT`
+/// written unsigned, 65535, which is counted here.
 #[test]
 fn each_queried_resource_is_answered_or_counted() {
     support::with_term(&WS, |t| {
         let before = t.unsupported_param;
         support::feed(t, b"\x1b[?1;4m");
-        assert_eq!(show(t.reply()), show(b"\x1b[>4;0m"));
-        assert_eq!(t.unsupported_param, before + 1);
+        assert_eq!(show(t.reply()), show(b"\x1b[>1;2m\x1b[>4;0m"));
+        assert_eq!(t.unsupported_param, before);
         t.clear_reply();
-        support::feed(t, b"\x1b[?4;4m\x1b[>2;4g");
-        assert_eq!(show(t.reply()), show(b"\x1b[>4;0m\x1b[>4;0m\x1b[>4;0f"));
-        assert_eq!(t.unsupported_param, before + 2);
+        support::feed(t, b"\x1b[?5;4m\x1b[>2;4g");
+        assert_eq!(
+            show(t.reply()),
+            show(b"\x1b[>5;65535m\x1b[>4;0m\x1b[>2;0f\x1b[>4;0f")
+        );
+        assert_eq!(t.unsupported_param, before + 1);
     });
 }
 
@@ -279,12 +281,13 @@ fn decrqss_answers_the_key_modifier_strings() {
     );
 }
 
-/// The DECRQSS strings baud does not act on answer invalid: the resources it
-/// does not hold, and of ctlseqs' eighteen the settings it has none of.
+/// The DECRQSS strings baud does not act on answer invalid: a key-modifier
+/// string naming no resource, and of ctlseqs' eighteen the settings it has
+/// none of.
 #[test]
 fn decrqss_answers_invalid_for_what_baud_does_not_act_on() {
     for pt in [
-        ">1m", ">m", ">0f", ">4", "\"p", "t", "$}", "$~", "){", "*|", ",|", ",}", ">0t",
+        ">5m", ">m", ">8f", ">4", "\"p", "t", "$}", "$~", "){", "*|", ",|", ",}", ">0t",
     ] {
         let ask = [b"\x1bP$q".as_slice(), pt.as_bytes(), b"\x1b\\"].concat();
         assert_eq!(show(&answer(&ask)), show(b"\x1bP0$r\x1b\\"), "{pt}");

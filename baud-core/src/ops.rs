@@ -3730,8 +3730,7 @@ impl Paint<'_, '_> {
         // calls `ResetAnsiColorRequest` for both resets and leaves `OSC 10`,
         // `11` and `12` alone (`[[source: xterm-reset]]`).
         self.reset_palette();
-        self.cold.other_keys = OtherKeys::default();
-        self.cold.other_keys_format = OtherKeysFormat::default();
+        self.cold.keys = KeyResources::default();
         // The last reported mouse cell, on both resets: `DECSTR` keeps the
         // tracking level and the encoding, and the program recovering with
         // `CSI ! p` is told where the pointer is at its next move rather than

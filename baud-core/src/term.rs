@@ -804,13 +804,13 @@ pub struct Cold {
     /// the rectangle (`baud_domain::AttrExtent`). Read once per one of
     /// those, never by the write loop.
     pub(crate) attr_extent: AttrExtent,
-    /// XTMODKEYS `modifyOtherKeys`, and XTFMTKEYS `formatOtherKeys`.
+    /// xterm's seven key-modifier resources and their formats, XTMODKEYS,
+    /// XTFMTKEYS and `CSI > Ps n`.
     ///
     /// **In `Cold` because they are written once per control sequence and read
-    /// once per key press, which is the split this struct exists for.** Neither
+    /// once per key press, which is the split this struct exists for.** None
     /// is on the ingest path at all: no byte of `feed` reads them.
-    pub(crate) other_keys: OtherKeys,
-    pub(crate) other_keys_format: OtherKeysFormat,
+    pub(crate) keys: KeyResources,
     /// How incoming bytes are decoded. `ESC % @` / `ESC % G` select it.
     ///
     /// **In `Cold` rather than on `Term` because `Paint` has to write it.**
@@ -1083,9 +1083,13 @@ pub struct Cold {
 // TBC and RIS and read by CVT and by VT's out-of-line arm, never by a glyph.
 // DECBKM, `?1037` and `?1035` are three bytes that fit in its padding
 // (760 on a base with only the tab stops), read by `Term::key` alone.
+// xterm's key-modifier resources took it to 824: seven values, seven
+// formats and modifyOtherKeys' mask, fifteen bytes where two were,
+// written by XTMODKEYS, XTFMTKEYS, `CSI > Ps n` and the resets and read by
+// `Term::key` and the queries alone.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 808);
+const _: () = assert!(core::mem::size_of::<Cold>() == 824);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -1322,8 +1326,7 @@ impl Cold {
             attr_extent: AttrExtent::Stream,
             // The base layer, which is what an application that has not asked
             // for an enhancement must receive.
-            other_keys: OtherKeys::Off,
-            other_keys_format: OtherKeysFormat::Xterm,
+            keys: KeyResources::default(),
             encoding: InputEncoding::Utf8,
             left: Col::ZERO,
             right: Col::at_index(cols.index() - 1),
@@ -4226,8 +4229,7 @@ impl<'b> Term<'b> {
             c1: self.cold.replies.c1(),
             terminal: self.cold.terminal,
             encoding: self.cold.encoding,
-            other_keys: self.cold.other_keys,
-            other_keys_format: self.cold.other_keys_format,
+            keys: self.cold.keys,
             kitty: self.cold.kitty.current(),
             backarrow: self.cold.backarrow,
             delete: self.cold.delete,

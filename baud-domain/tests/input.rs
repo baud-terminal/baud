@@ -211,8 +211,7 @@ fn the_base_encoder_sends_a_repeat_as_a_press_and_no_release() {
     let s = KeyState {
         modes: Modes::default(),
         keypad: KeypadMode::default(),
-        other_keys: OtherKeys::default(),
-        other_keys_format: OtherKeysFormat::default(),
+        keys: KeyResources::default(),
         c1: C1Transmit::default(),
         terminal: TerminalMode::default(),
         encoding: InputEncoding::default(),
@@ -240,5 +239,171 @@ fn the_base_encoder_sends_a_repeat_as_a_press_and_no_release() {
             ..press
         };
         assert_eq!(bytes(release), None, "{code:?}: no release");
+    }
+}
+
+/// Every `#define <prefix>Name 0x...` in a pinned keysym header.
+fn keysym_defines(file: &str, prefix: &str) -> std::collections::HashMap<String, u32> {
+    let src = std::fs::read_to_string(format!(
+        "{}/../docs/research/sources/{file}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("the pinned header");
+    let mut out = std::collections::HashMap::new();
+    for line in src.lines() {
+        let mut w = line.split_whitespace();
+        if let (Some("#define"), Some(name), Some(v)) = (w.next(), w.next(), w.next()) {
+            if let (Some(n), Some(hex)) = (name.strip_prefix(prefix), v.strip_prefix("0x")) {
+                if let Ok(v) = u32::from_str_radix(hex, 16) {
+                    out.insert(n.to_string(), v);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// **Every key's keysym is the header's**: what xterm classes and numbers
+/// when a key-modifier resource is at 4 is the keysym, so each row of
+/// `KeyCode::keysym` is read against `[[source: xorg-keysymdef]]` by name,
+/// and the media keys against `[[source: xkbcommon-keysyms]]`'s `XF86`
+/// names as kitty's keyboard layer maps them.
+#[test]
+fn keysyms_are_the_headers() {
+    let xk = keysym_defines("xorg-keysymdef.h", "XK_");
+    let xf = keysym_defines("xkbcommon-keysyms.h", "XKB_KEY_XF86");
+    assert!(xk.len() > 1000 && xf.len() > 100, "the headers parsed");
+    let none = Modifiers::NONE;
+    let mut rows: Vec<(KeyCode, Modifiers, &str)> = vec![
+        (KeyCode::Up, none, "Up"),
+        (KeyCode::Down, none, "Down"),
+        (KeyCode::Right, none, "Right"),
+        (KeyCode::Left, none, "Left"),
+        (KeyCode::Home, none, "Home"),
+        (KeyCode::End, none, "End"),
+        (KeyCode::Insert, none, "Insert"),
+        (KeyCode::Delete, none, "Delete"),
+        (KeyCode::PageUp, none, "Prior"),
+        (KeyCode::PageDown, none, "Next"),
+        (KeyCode::Enter, none, "Return"),
+        (KeyCode::Tab, none, "Tab"),
+        (KeyCode::Tab, Modifiers::SHIFT, "ISO_Left_Tab"),
+        (KeyCode::Backspace, none, "BackSpace"),
+        (KeyCode::Escape, none, "Escape"),
+    ];
+    let fnames: Vec<String> = (1..=20).map(|n| format!("F{n}")).collect();
+    for (n, name) in (1..=20u8).zip(&fnames) {
+        rows.push((KeyCode::Function(FnKey::new(n).expect("F")), none, name));
+    }
+    use KeypadKey as K;
+    for (k, name) in [
+        (K::Space, "KP_Space"),
+        (K::Tab, "KP_Tab"),
+        (K::Enter, "KP_Enter"),
+        (K::Pf1, "KP_F1"),
+        (K::Pf2, "KP_F2"),
+        (K::Pf3, "KP_F3"),
+        (K::Pf4, "KP_F4"),
+        (K::Home, "KP_Home"),
+        (K::Left, "KP_Left"),
+        (K::Up, "KP_Up"),
+        (K::Right, "KP_Right"),
+        (K::Down, "KP_Down"),
+        (K::PageUp, "KP_Prior"),
+        (K::PageDown, "KP_Next"),
+        (K::End, "KP_End"),
+        (K::Begin, "KP_Begin"),
+        (K::Insert, "KP_Insert"),
+        (K::Delete, "KP_Delete"),
+        (K::Multiply, "KP_Multiply"),
+        (K::Add, "KP_Add"),
+        (K::Comma, "KP_Separator"),
+        (K::Minus, "KP_Subtract"),
+        (K::Period, "KP_Decimal"),
+        (K::Divide, "KP_Divide"),
+        (K::Digit0, "KP_0"),
+        (K::Digit1, "KP_1"),
+        (K::Digit2, "KP_2"),
+        (K::Digit3, "KP_3"),
+        (K::Digit4, "KP_4"),
+        (K::Digit5, "KP_5"),
+        (K::Digit6, "KP_6"),
+        (K::Digit7, "KP_7"),
+        (K::Digit8, "KP_8"),
+        (K::Digit9, "KP_9"),
+        (K::Equal, "KP_Equal"),
+    ] {
+        rows.push((KeyCode::Keypad(k), none, name));
+    }
+    use PuaKey as P;
+    let pua: [(P, &str); 41] = [
+        (P::CapsLock, "Caps_Lock"),
+        (P::ScrollLock, "Scroll_Lock"),
+        (P::NumLock, "Num_Lock"),
+        (P::PrintScreen, "Print"),
+        (P::Pause, "Pause"),
+        (P::Menu, "Menu"),
+        (P::F21, "F21"),
+        (P::F22, "F22"),
+        (P::F23, "F23"),
+        (P::F24, "F24"),
+        (P::F25, "F25"),
+        (P::F26, "F26"),
+        (P::F27, "F27"),
+        (P::F28, "F28"),
+        (P::F29, "F29"),
+        (P::F30, "F30"),
+        (P::F31, "F31"),
+        (P::F32, "F32"),
+        (P::F33, "F33"),
+        (P::F34, "F34"),
+        (P::F35, "F35"),
+        (P::LeftShift, "Shift_L"),
+        (P::LeftControl, "Control_L"),
+        (P::LeftAlt, "Alt_L"),
+        (P::LeftSuper, "Super_L"),
+        (P::LeftHyper, "Hyper_L"),
+        (P::LeftMeta, "Meta_L"),
+        (P::RightShift, "Shift_R"),
+        (P::RightControl, "Control_R"),
+        (P::RightAlt, "Alt_R"),
+        (P::RightSuper, "Super_R"),
+        (P::RightHyper, "Hyper_R"),
+        (P::RightMeta, "Meta_R"),
+        (P::IsoLevel3Shift, "ISO_Level3_Shift"),
+        (P::IsoLevel5Shift, "ISO_Level5_Shift"),
+        (P::MediaPlay, "XF86AudioPlay"),
+        (P::MediaPause, "XF86AudioPause"),
+        (P::MediaStop, "XF86AudioStop"),
+        (P::MediaFastForward, "XF86AudioForward"),
+        (P::MediaRewind, "XF86AudioRewind"),
+        (P::MediaTrackNext, "XF86AudioNext"),
+    ];
+    for (k, name) in pua {
+        rows.push((KeyCode::Pua(k), none, name));
+    }
+    for (k, name) in [
+        (P::MediaTrackPrevious, "XF86AudioPrev"),
+        (P::MediaRecord, "XF86AudioRecord"),
+        (P::LowerVolume, "XF86AudioLowerVolume"),
+        (P::RaiseVolume, "XF86AudioRaiseVolume"),
+        (P::MuteVolume, "XF86AudioMute"),
+    ] {
+        rows.push((KeyCode::Pua(k), none, name));
+    }
+    for (code, mods, name) in &rows {
+        let want = match name.strip_prefix("XF86") {
+            Some(rest) => xf.get(rest),
+            None => xk.get(*name),
+        };
+        assert_eq!(code.keysym(*mods), want.copied(), "{code:?} is {name}");
+    }
+    // Two kitty keys no keysym maps, and a text key, which has none here.
+    for code in [
+        KeyCode::Pua(P::MediaPlayPause),
+        KeyCode::Pua(P::MediaReverse),
+        KeyCode::Char(Codepoint::from_char('a')),
+    ] {
+        assert_eq!(code.keysym(none), None, "{code:?}");
     }
 }

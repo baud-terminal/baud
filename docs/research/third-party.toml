@@ -1253,6 +1253,7 @@ files   = [
   "xterm-faq.html",
   "xterm-graphics_sixel.c",
   "xterm-input.c",
+  "xterm-keysym2ucs.c",
   "xterm-main.h",
   "xterm-misc.c",
   "xterm-ptydata.c",

@@ -75,27 +75,51 @@ impl Paint<'_, '_> {
     }
 
     /// XTQMODKEYS and XTQFMTKEYS: one answer a parameter, as xterm's
-    /// `for (value = 0; value < nparam; ++value)` gives, for the one
-    /// resource baud holds, `Pp = 4`. Any other resource is counted: baud
-    /// sends the cursor, function and keypad keys from ctlseqs' tables
-    /// rather than from a resource, so it has no value to report for them.
+    /// `for (value = 0; value < nparam; ++value)` gives, every resource
+    /// with its value, as `report_mod_fkeys` and `report_fmt_fkeys` write
+    /// it. A `Pp` naming none is answered as xterm answers it, with its
+    /// `DEFAULT` written unsigned, 65535 (Jev's lean, XTERM_65535), and
+    /// counted; a disabled one, -1, the same 65535, as `report_mod_fkeys`
+    /// writes it; an omitted one gets nothing and is counted.
     fn key_options(&mut self, which: KeyOption, csi: &crate::write::Csi) {
         let mut any = false;
         csi.for_each_param(|pp| {
             any = true;
-            match pp.map(|v| v.value()) {
-                Some(4) => {
-                    let value = match which {
-                        KeyOption::Modify => self.cold.other_keys.level(),
-                        KeyOption::Format => self.cold.other_keys_format.code(),
-                    };
-                    self.want_reply(Report::KeyOption { which, value });
+            let Some(pp) = pp.map(|v| v.value()) else {
+                self.unsupported_param += 1;
+                return;
+            };
+            let value = match (KeyResource::from_param(pp), which) {
+                (Some(r), KeyOption::Modify) => self.cold.keys.modify(r).reported(),
+                (Some(r), KeyOption::Format) => u16::from(self.cold.keys.format(r).code()),
+                (None, _) => {
+                    self.unsupported_param += 1;
+                    ModifyValue::DISABLED.reported()
                 }
-                _ => self.unsupported_param += 1,
-            }
+            };
+            self.want_reply(Report::KeyOption { which, pp, value });
         });
         if !any {
             self.unsupported_param += 1;
+        }
+    }
+
+    /// XTMODKEYS, XTFMTKEYS or `CSI > Ps n`: its parameters read here, out
+    /// of `csi_final`, as a report's are, and acted on; a shape or value the
+    /// texts do not give is counted where `csi_final` counts one.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn key_control(&mut self, op: KeyControl, csi: &crate::write::Csi) {
+        match key_change(&csi.params(), op) {
+            Some(KeyChange::Modify(set)) => self.cold.keys.apply(set),
+            Some(KeyChange::Format(set)) => self.cold.keys.apply_format(set),
+            None => {
+                self.unsupported_total += 1;
+                #[cfg(feature = "diag")]
+                {
+                    self.unsupported_by_final[op.final_byte().slot()] += 1;
+                }
+            }
         }
     }
 

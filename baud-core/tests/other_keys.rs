@@ -186,8 +186,8 @@ fn the_base_layer_is_untouched_at_levels_zero_and_one() {
         "shift-Tab at level 1: shift is a modifier level 1 leaves alone"
     );
 
-    // And an unmodified key is never taken, at either level: that is level 3,
-    // which baud declines.
+    // And an unmodified key is never taken, at either level: that is level 3
+    // (`modify_other_keys_3_sends_every_ordinary_key`).
     assert_eq!(
         press_with(LEVEL2, KeyCode::Tab, Modifiers::NONE),
         b"\t".to_vec()
@@ -199,12 +199,13 @@ fn ch(c: char) -> KeyCode {
     KeyCode::Char(Codepoint::from_char(c))
 }
 
-/// Level 3 and the six other resources are declined and counted.
+/// A level past 3 is declined and counted.
 ///
 /// **Not rounded down to a level baud can express.** An application that asks
-/// for level 3 and silently receives level 2 has no way to find out; one whose
-/// request was refused can query and see it did not take. That is the contract
-/// `DECRQM` keeps by answering `0` rather than `2`, applied to a resource.
+/// for a level that does not exist and silently receives level 3 has no way to
+/// find out; one whose request was refused can query and see it did not take.
+/// That is the contract `DECRQM` keeps by answering `0` rather than `2`,
+/// applied to a resource.
 #[test]
 fn an_unrepresentable_level_is_refused_and_counted() {
     let ws = support::CORPUS;
@@ -213,11 +214,11 @@ fn an_unrepresentable_level_is_refused_and_counted() {
     let before = t.unsupported;
 
     for b in [
-        &b"\x1b[>4;3m"[..], // level 3
-        &b"\x1b[>0;1m"[..], // modifyKeyboard
-        &b"\x1b[>1;1m"[..], // modifyCursorKeys
-        &b"\x1b[>4;2f"[..], // a formatOtherKeys value with no meaning here
-        &b"\x1b[?4g"[..],   // XTQFMTKEYS as ctlseqs spells it; xterm parses `>`
+        &b"\x1b[>4;4m"[..],  // no level 4
+        &b"\x1b[>0;16m"[..], // past modifyKeyboard's four bits
+        &b"\x1b[>1;5m"[..],  // past modifyCursorKeys' 4
+        &b"\x1b[>4;2f"[..],  // a formatOtherKeys value with no meaning here
+        &b"\x1b[?4g"[..],    // XTQFMTKEYS as ctlseqs spells it; xterm parses `>`
     ] {
         t.write_at(BytePos::ZERO, b);
         t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
@@ -228,10 +229,10 @@ fn an_unrepresentable_level_is_refused_and_counted() {
         "each declined resource is counted, not dropped"
     );
 
-    // And level 3 did not take: shift-Tab still answers from the base layer,
+    // And the level did not take: shift-Tab still answers from the base layer,
     // because the refused sequence left the resource where it was.
     assert_eq!(
-        press_with(b"\x1b[>4;3m", KeyCode::Tab, Modifiers::SHIFT),
+        press_with(b"\x1b[>4;4m", KeyCode::Tab, Modifiers::SHIFT),
         b"\x1b[Z".to_vec(),
         "a refused level must not half-apply"
     );

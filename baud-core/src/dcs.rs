@@ -203,18 +203,33 @@ impl Paint<'_, '_> {
             }),
             // **XTMODKEYS and XTFMTKEYS, answered as the controls that set
             // them**: "replacing the Pt with the corresponding CSI string"
-            // (`[[source: ctlseqs]]`), so `> 4 ; Pv m` and `> 4 ; Pv f`.
-            // xterm's `do_dcs` spells the second `>%d;%dm`
-            // (`[[source: xterm-misc]]`), an XTMODKEYS, which would set the
-            // other resource: a departure not followed.
-            StatusTarget::OtherKeys => {
-                s.push(b"1$r>4;");
-                s.dec(WireByte::of(self.cold.other_keys.level()));
+            // (`[[source: ctlseqs]]`), so `> Pp ; Pv m` and `> Pp ; Pv f`,
+            // every resource. A disabled one is `-1` and modifyOtherKeys'
+            // mask `: mask`, as xterm's `do_dcs` writes them (`[[source:
+            // xterm-misc]]`; Jev's lean, XTERM_MINUS_ONE, 0.55/0.82). xterm
+            // spells the format answer `>%d;%dm`, an XTMODKEYS, which would
+            // set the other resource: a departure not followed.
+            StatusTarget::KeyModify(r) => {
+                let v = self.cold.keys.modify(r);
+                s.push(b"1$r>");
+                s.dec(WireByte::of(r.pp()));
+                s.push(b";");
+                match u8::try_from(v.get()) {
+                    Ok(n) => s.dec(WireByte::of(n)),
+                    Err(_) => s.push(b"-1"),
+                }
+                let mask = self.cold.keys.ignore();
+                if r == KeyResource::Other && !mask.is_none() {
+                    s.push(b":");
+                    s.dec(WireByte::of(mask.wire() - 1));
+                }
                 s.push(b"m");
             }
-            StatusTarget::OtherKeysFormat => {
-                s.push(b"1$r>4;");
-                s.dec(WireByte::of(self.cold.other_keys_format.code()));
+            StatusTarget::KeyFormat(r) => {
+                s.push(b"1$r>");
+                s.dec(WireByte::of(r.pp()));
+                s.push(b";");
+                s.dec(WireByte::of(self.cold.keys.format(r).code()));
                 s.push(b"f");
             }
         }

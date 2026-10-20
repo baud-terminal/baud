@@ -716,20 +716,14 @@ pub enum Csi {
     CursorStyle(CursorPick),
     /// XTVERSION, `CSI > 0 q`. Answered with [`Report::Version`].
     RequestVersion,
-    /// XTMODKEYS, `CSI > 4 ; Pv m` -- `modifyOtherKeys`.
-    ///
-    /// **Only `Pp = 4` is represented, and only levels 0 to 2.**
-    /// `[[source: ctlseqs]]` line 1281 lists seven resources and line 2241 a
-    /// third level, and the ones this does not carry are `Unsupported` and
-    /// counted rather than approximated -- a level rounded down to one the type
-    /// can express is a mode recorded and not acted on, which this project
-    /// rates worse than not implementing it.
-    SetOtherKeys(OtherKeys),
-    /// XTFMTKEYS, `CSI > 4 ; Pv f` -- `formatOtherKeys`.
-    ///
-    /// Which of the two sequence formats [`Csi::SetOtherKeys`] sends. Same
-    /// restriction to `Pp = 4`, for the same reason.
-    SetOtherKeysFormat(OtherKeysFormat),
+    /// XTMODKEYS `CSI > Pp ; Pv m`, XTFMTKEYS `CSI > Pp ; Pv f` and the
+    /// disable form `CSI > Ps n`: xterm's seven key-modifier resources
+    /// (`[[source: ctlseqs]]`). **Its parameters are read where it is
+    /// acted on** ([`key_change`]), as [`Csi::Query`]'s are: read here, they
+    /// put a call and its live values in `csi_final`, six registers saved
+    /// on every CSI. A value no text documents is refused and counted there
+    /// rather than approximated.
+    KeyControl(KeyControl),
     /// XTSHIFTESCAPE, `CSI > Ps s`: whether Shift takes a pointer event from
     /// a program tracking the mouse.
     ShiftEscape(ShiftEscape),
@@ -983,42 +977,18 @@ impl Csi {
                 },
             };
         }
-        // XTMODKEYS and XTFMTKEYS. `[[source: ctlseqs]]` lines 1271 and 795:
-        // both are `CSI > Pp ; Pv <final>`, `Pp` naming one of seven resources
-        // and `Pv` its value, and an omitted `Pv` resets the resource.
-        //
-        // **`Pp = 4` only.** The other six name resources that decide how the
-        // cursor, function and keypad keys carry modifiers, and baud sends
-        // those from `[[source: ctlseqs]]`'s own tables rather than from a
-        // resource -- so accepting them would be recording a mode with nothing
-        // reading it. They fall to `Unsupported` and are counted.
-        if marker == Marker::Gt && matches!(f.raw(), b'm' | b'f') {
-            let pp = p.at(ParamIdx::FIRST).map_or(0, |x| x.0);
-            let pv = p.at(ParamIdx::SECOND).map_or(0, |x| x.0);
-            if pp == 4 {
-                let got = match f.raw() {
-                    b'm' => match pv {
-                        // An omitted `Pv` resets the resource, and `0` is the
-                        // initial value, so both land here.
-                        0 => Some(Csi::SetOtherKeys(OtherKeys::Off)),
-                        1 => Some(Csi::SetOtherKeys(OtherKeys::Level1)),
-                        2 => Some(Csi::SetOtherKeys(OtherKeys::Level2)),
-                        _ => None,
-                    },
-                    _ => match pv {
-                        0 => Some(Csi::SetOtherKeysFormat(OtherKeysFormat::Xterm)),
-                        1 => Some(Csi::SetOtherKeysFormat(OtherKeysFormat::CsiU)),
-                        _ => None,
-                    },
-                };
-                if let Some(c) = got {
-                    return c;
-                }
+        // XTMODKEYS, XTFMTKEYS and the disable form. `[[source: ctlseqs]]`:
+        // `CSI > Pp ; Pv <final>`, `Pp` naming one of seven resources and
+        // `Pv` its value, an omitted `Pv` resetting the resource and no
+        // parameter every one; `CSI > Ps n` disables `Ps`, an omitted one
+        // modifyFunctionKeys.
+        if marker == Marker::Gt {
+            match f.raw() {
+                b'm' => return Csi::KeyControl(KeyControl::Modify),
+                b'f' => return Csi::KeyControl(KeyControl::Format),
+                b'n' => return Csi::KeyControl(KeyControl::Disable),
+                _ => {}
             }
-            return Csi::Unsupported {
-                marker,
-                final_byte: f,
-            };
         }
         // XTQFMTKEYS, `CSI > Pp g`: xterm 411's parse table
         // (`[[source: xterm-vtprstbl-c]]`, `dec2_table`) and not the
@@ -1511,8 +1481,7 @@ impl Csi {
             // what the keyboard sends rather than what the screen shows. The
             // kitty negotiation is the same shape -- input-side, and an
             // extension rather than a VT level.
-            SetOtherKeys(_)
-            | SetOtherKeysFormat(_)
+            KeyControl(_)
             | ShiftEscape(_)
             | KittySet { .. }
             | KittyQuery
@@ -1526,6 +1495,92 @@ impl Csi {
             Unsupported { .. } => return None,
         })
     }
+}
+
+/// Which of the key-modifier controls a [`Csi::KeyControl`] is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KeyControl {
+    /// XTMODKEYS, `CSI > Pp ; Pv m`.
+    Modify,
+    /// XTFMTKEYS, `CSI > Pp ; Pv f`.
+    Format,
+    /// `CSI > Ps n`.
+    Disable,
+}
+
+impl KeyControl {
+    pub fn final_byte(self) -> FinalByte {
+        FinalByte::of_final(StreamByte::from_stream(match self {
+            KeyControl::Modify => b'm',
+            KeyControl::Format => b'f',
+            KeyControl::Disable => b'n',
+        }))
+    }
+}
+
+/// What a key-modifier control changes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KeyChange {
+    Modify(KeySet),
+    Format(FormatSet),
+}
+
+/// A [`KeyControl`]'s parameters read, or `None` for a shape or a value the
+/// texts do not give.
+///
+/// The ignore mask is `CSI > 4 ; Pv : mask m`, a sub-parameter of `Pv`, as
+/// xterm's `CASE_SET_MOD_FKEYS` parses it (Jev's lean, CODE_FORM,
+/// 0.69/0.88 then 0.80/0.89). **Open departure:** ctlseqs' own example,
+/// `CSI > 4 : 1 m`, puts it on `Pp`, which xterm's parser does not read
+/// there, and is refused and counted here. The mask is the parameter's
+/// bits, Shift 1, Alt 2, Control 4, Meta 8, as ctlseqs' "a mask of
+/// modifier bits to factor out of the parameter encoding" reads; xterm
+/// applies ignore_now to the X event state (Shift 1, Lock 2, Control 4,
+/// Mod1 8), so the two agree on Shift and Control only.
+pub fn key_change(p: &Params<'_>, op: KeyControl) -> Option<KeyChange> {
+    let final_byte = op.final_byte().raw();
+    let (first, second, third) = (ParamIdx::FIRST, ParamIdx::SECOND, ParamIdx::at(2));
+    let subs = p.is_sub(second) || p.is_sub(third) || p.has(ParamIdx::at(3));
+    let resource = || KeyResource::from_param(p.at(first)?.0);
+    if final_byte == b'n' {
+        return match (p.at(first), p.has(second) || subs) {
+            (_, true) => None,
+            (None, false) => Some(KeyChange::Modify(KeySet::Disable(KeyResource::Function))),
+            (Some(_), false) => Some(KeyChange::Modify(KeySet::Disable(resource()?))),
+        };
+    }
+    // The mask, `Pv : mask`, on modifyOtherKeys' level alone.
+    let mask = match (p.is_sub(third), p.is_sub(second), p.has(ParamIdx::at(3))) {
+        (false, false, false) if !p.has(third) => Modifiers::NONE,
+        (true, false, false) if final_byte == b'm' && resource()? == KeyResource::Other => {
+            Modifiers::from_wire(u8::try_from(p.at(third)?.0).ok()?.checked_add(1)?)?
+        }
+        _ => return None,
+    };
+    let none_at_all = p.at(first).is_none() && !p.has(second);
+    let set = match (none_at_all, p.at(second)) {
+        (true, _) => None,
+        (false, None) => Some(None),
+        (false, Some(v)) => Some(Some(v.0)),
+    };
+    Some(match (final_byte, set) {
+        (b'm', None) => KeyChange::Modify(KeySet::ResetAll),
+        (_, None) => KeyChange::Format(FormatSet::ResetAll),
+        (b'm', Some(None)) => KeyChange::Modify(KeySet::Reset(resource()?)),
+        (_, Some(None)) => KeyChange::Format(FormatSet::Reset(resource()?)),
+        (b'm', Some(Some(v))) => {
+            let r = resource()?;
+            KeyChange::Modify(KeySet::Set(r, r.value(v)?, mask))
+        }
+        (_, Some(Some(v))) => KeyChange::Format(FormatSet::Set(
+            resource()?,
+            match v {
+                0 => OtherKeysFormat::Xterm,
+                1 => OtherKeysFormat::CsiU,
+                _ => return None,
+            },
+        )),
+    })
 }
 
 #[cfg(test)]

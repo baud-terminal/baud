@@ -157,12 +157,17 @@ pub enum Report {
     /// one page, shown from its first cell (`[[source: dec-std-070]]`
     /// p. 5-88).
     DisplayedExtent { rows: Rows, cols: Cols },
-    /// The answer to XTQMODKEYS or XTQFMTKEYS: `CSI > 4 ; Pv m` or `f`, the
-    /// control that sets the resource, so "the response can be used to
+    /// The answer to XTQMODKEYS or XTQFMTKEYS: `CSI > Pp ; Pv m` or `f`,
+    /// the control that sets the resource, so "the response can be used to
     /// restore this state" (`[[source: ctlseqs]]`; `report_mod_fkeys` and
-    /// `report_fmt_fkeys`, `[[source: xterm-reset]]`'s file). `Pp` is 4,
-    /// `modifyOtherKeys` or `formatOtherKeys`, the one resource baud holds.
-    KeyOption { which: KeyOption, value: u8 },
+    /// `report_fmt_fkeys`, `[[source: xterm-reset]]`'s file). `value` is as
+    /// xterm writes it, an unsigned short, so a disabled resource and a `Pp`
+    /// naming none are 65535, xterm's `DEFAULT` (Jev's lean, XTERM_65535).
+    KeyOption {
+        which: KeyOption,
+        pp: u16,
+        value: u16,
+    },
     /// `OSC 4 ; c ; rgb:RRRR/GGGG/BBBB ST` -- the answer to `OSC 4 ; c ; ?`,
     /// four digits a channel for the reason [`ReportBytes::push_hex`] gives.
     ///
@@ -842,11 +847,11 @@ impl Report {
                     e.push(*b);
                 }
             }
-            Report::KeyOption { which, value } => {
+            Report::KeyOption { which, pp, value } => {
                 e.push(b'>');
-                e.push_num(4);
+                e.push_num(pp);
                 e.push(b';');
-                e.push_num(u16::from(value));
+                e.push_num(value);
                 e.push(which.final_byte());
             }
             Report::Version => {

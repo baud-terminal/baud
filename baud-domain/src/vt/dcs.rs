@@ -49,11 +49,11 @@ pub enum StatusTarget {
     /// extent DECSACE *x" in `[[source: vt420-rm]]` Table 12-4 and in the
     /// VT510's DECRQSS list.
     AttrExtent,
-    /// `> 4 m` -- XTQMODKEYS's string, `modifyOtherKeys` (`[[source:
-    /// ctlseqs]]`'s list, "> Pm m -> XTQMODKEYS (xterm)").
-    OtherKeys,
-    /// `> 4 f` -- XTQFMTKEYS's string, `formatOtherKeys`.
-    OtherKeysFormat,
+    /// `> Pp m` -- XTQMODKEYS's string, a key-modifier resource
+    /// (`[[source: ctlseqs]]`'s list, "> Pm m -> XTQMODKEYS (xterm)").
+    KeyModify(KeyResource),
+    /// `> Pp f` -- XTQFMTKEYS's string, its format.
+    KeyFormat(KeyResource),
     Unknown,
 }
 
@@ -73,9 +73,9 @@ impl StatusTarget {
         }
     }
 
-    /// `Pm` and a final after the `>`: the resource baud holds, `4`, with
-    /// `m` or `f`. Any other resource is one baud does not act on, so
-    /// [`StatusTarget::Unknown`], answered invalid.
+    /// `Pm` and a final after the `>`: a resource with `m` or `f`. A `Pm`
+    /// naming none is [`StatusTarget::Unknown`], answered invalid, as
+    /// xterm's `do_dcs` answers it.
     fn key_option(rest: &[u8]) -> StatusTarget {
         let Some((&last, digits)) = rest.split_last() else {
             return StatusTarget::Unknown;
@@ -87,9 +87,9 @@ impl StatusTarget {
                 _ => return StatusTarget::Unknown,
             }
         }
-        match (digits.is_empty(), pm.value(), last) {
-            (false, 4, b'm') => StatusTarget::OtherKeys,
-            (false, 4, b'f') => StatusTarget::OtherKeysFormat,
+        match (digits.is_empty(), KeyResource::from_param(pm.value()), last) {
+            (false, Some(r), b'm') => StatusTarget::KeyModify(r),
+            (false, Some(r), b'f') => StatusTarget::KeyFormat(r),
             _ => StatusTarget::Unknown,
         }
     }

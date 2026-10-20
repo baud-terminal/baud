@@ -32,12 +32,10 @@ const ESC: u8 = 0x1b;
 /// `[[source: kitty-keyboard]]`'s stack, and it is not independently
 /// implementable.
 ///
-/// `[[source: ctlseqs]]` line 2221 onward gives the levels. Level 3 -- where
-/// *unmodified* keys are also sent as sequences -- is **not** represented, and
-/// that is deliberate: a level this type cannot express must not be silently
-/// rounded down to one it can, so XTMODKEYS declines it and counts it. An
-/// application then sees that the mode did not take, which is the same contract
-/// `DECRQM` keeps by answering `0` rather than `2`.
+/// `[[source: ctlseqs]]` line 2357 onward gives the levels, 0 to 3, and
+/// [`KeyResources`] holds the resource; this is its reading for the
+/// encoder, a disabled one (`CSI > 4 n`) reading as `Off`, as xterm's
+/// `ModifyOtherKeys` takes nothing below 1.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum OtherKeys {
     /// The base layer. Every ordinary key sends its character.
@@ -48,6 +46,9 @@ pub enum OtherKeys {
     Level1,
     /// Every modifier applies, so `shift-Tab` stops being `CSI Z`.
     Level2,
+    /// "Unmodified keys also are sent as escape sequences": every ordinary
+    /// key, Return, Tab, Backspace and Escape among them.
+    Level3,
 }
 
 /// `formatOtherKeys`, which picks *which* sequence [`OtherKeys`] sends.
@@ -77,6 +78,227 @@ impl OtherKeys {
             OtherKeys::Off => 0,
             OtherKeys::Level1 => 1,
             OtherKeys::Level2 => 2,
+            OtherKeys::Level3 => 3,
+        }
+    }
+}
+
+/// One of xterm's seven key-modifier resources, by the `Pp` XTMODKEYS,
+/// XTFMTKEYS, `CSI > Ps n` and their queries name it with
+/// (`[[source: ctlseqs]]`; 5 is "reserved for input via the string action"
+/// and names none here).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KeyResource {
+    /// `modifyKeyboard`, 0: which categories the legacy and vt220 keyboards
+    /// may modify. baud's keyboard is xterm's default one, which never reads
+    /// it, so it is stored and reported and changes no key, as in xterm
+    /// (Jev's lean, STORE_AND_REPORT, 0.64/0.72).
+    Keyboard,
+    /// `modifyCursorKeys`, 1: the arrows, Home and End, and at 4 the
+    /// editing keys too.
+    Cursor,
+    /// `modifyFunctionKeys`, 2.
+    Function,
+    /// `modifyKeypadKeys`, 3.
+    Keypad,
+    /// `modifyOtherKeys`, 4: the ordinary keys.
+    Other,
+    /// `modifyModifierKeys`, 6: Shift, Control and the other modifier keys.
+    Modifier,
+    /// `modifySpecialKeys`, 7: "special keys (e.g., escape not in the other
+    /// categories)", `[[source: xterm-man]]`.
+    Special,
+}
+
+impl KeyResource {
+    /// The seven, in `Pp` order.
+    pub const ALL: [KeyResource; 7] = [
+        KeyResource::Keyboard,
+        KeyResource::Cursor,
+        KeyResource::Function,
+        KeyResource::Keypad,
+        KeyResource::Other,
+        KeyResource::Modifier,
+        KeyResource::Special,
+    ];
+
+    /// The resource `Pp` names, or `None` for 5 and anything past 7.
+    pub fn from_param(pp: u16) -> Option<KeyResource> {
+        Some(match pp {
+            0 => KeyResource::Keyboard,
+            1 => KeyResource::Cursor,
+            2 => KeyResource::Function,
+            3 => KeyResource::Keypad,
+            4 => KeyResource::Other,
+            6 => KeyResource::Modifier,
+            7 => KeyResource::Special,
+            _ => return None,
+        })
+    }
+
+    /// Its `Pp`.
+    pub fn pp(self) -> u8 {
+        match self {
+            KeyResource::Keyboard => 0,
+            KeyResource::Cursor => 1,
+            KeyResource::Function => 2,
+            KeyResource::Keypad => 3,
+            KeyResource::Other => 4,
+            KeyResource::Modifier => 6,
+            KeyResource::Special => 7,
+        }
+    }
+
+    fn slot(self) -> usize {
+        match self {
+            KeyResource::Keyboard => 0,
+            KeyResource::Cursor => 1,
+            KeyResource::Function => 2,
+            KeyResource::Keypad => 3,
+            KeyResource::Other => 4,
+            KeyResource::Modifier => 5,
+            KeyResource::Special => 6,
+        }
+    }
+
+    /// The first value, xterm's resource defaults (`[[source:
+    /// xterm-reset]]`'s file, charproc.c 686-701): 2 for the cursor and
+    /// function keys, 0 for every other.
+    fn first(self) -> ModifyValue {
+        match self {
+            KeyResource::Cursor | KeyResource::Function => ModifyValue::PARAM,
+            _ => ModifyValue(0),
+        }
+    }
+
+    /// `Pv` as this resource's value, or `None` for one no text documents
+    /// (Jev's lean, REFUSE_COUNT, 0.82/0.90): `modifyKeyboard`'s four bits,
+    /// 0 to 15; `modifyOtherKeys` 0 to 3; the others 0 to 4
+    /// (`[[source: xterm-man]]`). -1 is reached only by `CSI > Pp n`, "which
+    /// cannot be set with the other sequence".
+    pub fn value(self, pv: u16) -> Option<ModifyValue> {
+        let top = match self {
+            KeyResource::Keyboard => 15,
+            KeyResource::Other => 3,
+            _ => 4,
+        };
+        i8::try_from(pv).ok().filter(|v| *v <= top).map(ModifyValue)
+    }
+}
+
+/// A key-modifier resource's value, -1 (disabled) to 15.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ModifyValue(i8);
+
+impl ModifyValue {
+    /// -1, "a resource value of "-1", which cannot be set with the other
+    /// sequence" (`[[source: ctlseqs]]`, `CSI > Ps n`).
+    pub const DISABLED: ModifyValue = ModifyValue(-1);
+    /// 2, `mfkParam`: the modifier is the second parameter.
+    const PARAM: ModifyValue = ModifyValue(2);
+    /// 4, `mfkExtended`: the key is sent in `modifyOtherKeys` 3's form.
+    const EXTENDED: ModifyValue = ModifyValue(4);
+
+    pub fn get(self) -> i8 {
+        self.0
+    }
+    /// The value as xterm's XTQMODKEYS writes it, an unsigned short, so
+    /// -1 is 65535.
+    pub fn reported(self) -> u16 {
+        u16::from_ne_bytes(i16::from(self.0).to_ne_bytes())
+    }
+}
+
+/// What one XTMODKEYS or `CSI > Ps n` does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum KeySet {
+    /// `CSI > m`: "If no parameters are given, all resources are reset to
+    /// their initial values" -- all seven, as the text says, where xterm's
+    /// loop takes 1 to 5 (Jev's lean, ALL_SEVEN, 0.76/0.76).
+    ResetAll,
+    /// `CSI > Pp m`: "If the second parameter is omitted, the resource is
+    /// reset to its initial value."
+    Reset(KeyResource),
+    /// `CSI > Pp ; Pv m`, and for `Pp` 4 `CSI > 4 ; Pv : mask m`.
+    Set(KeyResource, ModifyValue, Modifiers),
+    /// `CSI > Ps n`, `Ps` omitted being modifyFunctionKeys.
+    Disable(KeyResource),
+}
+
+/// What one XTFMTKEYS does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FormatSet {
+    ResetAll,
+    Reset(KeyResource),
+    Set(KeyResource, OtherKeysFormat),
+}
+
+/// xterm's key-modifier resources and their formats, as XTMODKEYS,
+/// XTFMTKEYS and `CSI > Ps n` set them (xterm's `modify_now`,
+/// `format_now` and `ignore_now`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct KeyResources {
+    modify: [ModifyValue; 7],
+    format: [OtherKeysFormat; 7],
+    /// `modifyOtherKeys`' mask, in the parameter's bits: Shift 1, Alt 2,
+    /// Control 4, Meta 8.
+    ignore: Modifiers,
+}
+
+impl Default for KeyResources {
+    fn default() -> KeyResources {
+        KeyResources {
+            modify: KeyResource::ALL.map(KeyResource::first),
+            format: [OtherKeysFormat::Xterm; 7],
+            ignore: Modifiers::NONE,
+        }
+    }
+}
+
+impl KeyResources {
+    pub fn modify(&self, r: KeyResource) -> ModifyValue {
+        self.modify[r.slot()]
+    }
+    pub fn format(&self, r: KeyResource) -> OtherKeysFormat {
+        self.format[r.slot()]
+    }
+    /// `modifyOtherKeys`' ignore mask.
+    pub fn ignore(&self) -> Modifiers {
+        self.ignore
+    }
+    /// `modifyOtherKeys` as the encoder reads it.
+    pub fn other_keys(&self) -> OtherKeys {
+        match self.modify(KeyResource::Other).get() {
+            1 => OtherKeys::Level1,
+            2 => OtherKeys::Level2,
+            3 => OtherKeys::Level3,
+            _ => OtherKeys::Off,
+        }
+    }
+    pub fn apply(&mut self, set: KeySet) {
+        match set {
+            KeySet::ResetAll => {
+                self.modify = KeyResource::ALL.map(KeyResource::first);
+                self.ignore = Modifiers::NONE;
+            }
+            KeySet::Reset(r) => self.put(r, r.first(), Modifiers::NONE),
+            KeySet::Set(r, v, mask) => self.put(r, v, mask),
+            KeySet::Disable(r) => self.put(r, ModifyValue::DISABLED, Modifiers::NONE),
+        }
+    }
+    pub fn apply_format(&mut self, set: FormatSet) {
+        match set {
+            FormatSet::ResetAll => self.format = [OtherKeysFormat::Xterm; 7],
+            FormatSet::Reset(r) => self.format[r.slot()] = OtherKeysFormat::Xterm,
+            FormatSet::Set(r, f) => self.format[r.slot()] = f,
+        }
+    }
+    /// Every write sets the mask too, as xterm's `SET_MOD_FKEYS` writes
+    /// `ignore_now` beside `modify_now`; only `modifyOtherKeys` has one.
+    fn put(&mut self, r: KeyResource, v: ModifyValue, mask: Modifiers) {
+        self.modify[r.slot()] = v;
+        if r == KeyResource::Other {
+            self.ignore = mask;
         }
     }
 }
@@ -287,7 +509,7 @@ pub enum NumLockKeypad {
 /// The mode state the encoder reads. [`encode_key`] reads the key, this and
 /// nothing else, and it reads every field.
 ///
-/// **Eleven fields and not fifteen, because `Modes` carries five of them.**
+/// **Ten fields and not fourteen, because `Modes` carries five of them.**
 /// DECCKM, LNM, `?1036` metaSendsEscape, `?1039` altSendsEscape and `?1034`
 /// eightBitInput are the five `ModeBit`s the encoder reads, so they travel as
 /// one word and this struct needs no `bool` -- which `audit_all.sh` gates this
@@ -299,11 +521,9 @@ pub enum NumLockKeypad {
 pub struct KeyState {
     pub modes: Modes,
     pub keypad: KeypadMode,
-    /// Whether an ordinary key with modifiers becomes a sequence. Set by
-    /// XTMODKEYS, `CSI > 4 ; Pv m`.
-    pub other_keys: OtherKeys,
-    /// Which sequence it becomes. Set by XTFMTKEYS, `CSI > 4 ; Pv f`.
-    pub other_keys_format: OtherKeysFormat,
+    /// xterm's seven key-modifier resources and their formats, set by
+    /// XTMODKEYS, XTFMTKEYS and `CSI > Ps n`.
+    pub keys: KeyResources,
     /// Whether `CSI` and `SS3` go out as one byte or two. A key sequence is
     /// terminal-to-application, so `S8C1T` governs it exactly as it governs a
     /// report.
@@ -820,6 +1040,24 @@ fn ansi(
     text: Option<Codepoint>,
     s: KeyState,
 ) -> bool {
+    // **A resource at 4 takes its keys before anything else**, as xterm's
+    // `Input` checks `mfkExtended` first (`[[source: xterm-input-c]]`).
+    extended(o, code, mods, s) || ansi_key(o, code, mods, text, s)
+}
+
+/// The ANSI keyboard once no resource at 4 has taken the key. **A keypad
+/// navigation key comes back here as the key it duplicates, not to
+/// [`ansi`]**: xterm classes `KP_Up` a keypad key before it moves it onto
+/// `Up` (`[[source: xterm-input-c]]`, `TypeOfKeysym`, then the `XK_KP_Home`
+/// remap), so modifyCursorKeys 4 reaches it through `modifyCursorKey`
+/// alone.
+fn ansi_key(
+    o: &mut KeyBytes,
+    code: KeyCode,
+    mods: Modifiers,
+    text: Option<Codepoint>,
+    s: KeyState,
+) -> bool {
     match code {
         // The arrows plus Home and End: `[[source: ctlseqs]]` line 2485 puts
         // the latter in the arrows' table and calls them cursor keys, so
@@ -847,11 +1085,11 @@ fn ansi(
         KeyCode::Delete if s.delete == DeleteKey::Del && !carries(mods) => o.push(0x7f),
         KeyCode::Insert | KeyCode::Delete | KeyCode::PageUp | KeyCode::PageDown => {
             match code.tilde_param() {
-                Some(p) => tilde_key(o, p, mods, s),
+                Some(p) => tilde_key(o, p, mods, s, ModifyValue::PARAM),
                 None => return false,
             }
         }
-        KeyCode::Function(f) => function_key(o, f, mods, s),
+        KeyCode::Function(f) => function_key(o, f, mods, s, s.keys.modify(KeyResource::Function)),
         KeyCode::Keypad(k) => return keypad_key(o, k, mods, s),
         // The PUA keys have no legacy form; the base layer sends nothing.
         KeyCode::Pua(_) => return false,
@@ -1025,8 +1263,10 @@ fn keypad_key(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> b
     // mode does not change. They are the same four sequences F1-F4 send, so
     // they take the same path and the `SS3` -> `CSI 1 ; mod` switch under a
     // modifier is written once.
+    // modifyFunctionKeys does not reach them: xterm's PF keys are keypad
+    // keys (`IsPFKey`), sent with the modifier second as baud sends F1-F4.
     if let Some(f) = k.pf() {
-        function_key(o, f, mods, s);
+        function_key(o, f, mods, s, ModifyValue::PARAM);
         return true;
     }
     // A navigation key: under DECKPAM the row of 2498 it shares with its
@@ -1040,7 +1280,7 @@ fn keypad_key(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> b
         return match (mode, k.duplicates()) {
             // The keypad's Delete is not the editing keypad's, so `?1037`
             // leaves it `CSI 3 ~` (xterm's `KP_Delete` is a keysym of its own).
-            (KeypadMode::Numeric, Some(KeyCode::Delete)) => ansi(
+            (KeypadMode::Numeric, Some(KeyCode::Delete)) => ansi_key(
                 o,
                 KeyCode::Delete,
                 mods,
@@ -1050,7 +1290,7 @@ fn keypad_key(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> b
                     ..s
                 },
             ),
-            (KeypadMode::Numeric, Some(code)) => ansi(o, code, mods, None, s),
+            (KeypadMode::Numeric, Some(code)) => ansi_key(o, code, mods, None, s),
             _ => keypad_application(o, row, mods, s),
         };
     }
@@ -1078,12 +1318,12 @@ fn keypad_application(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeySta
     // The rows that are cursor keys in disguise, whose introducer is fixed by
     // the table rather than by DECCKM.
     if let Some((intro, f)) = k.cursor_shaped() {
-        cursor_shaped(o, intro, f, mods, s);
+        cursor_shaped(o, intro, f, mods, s, s.keys.modify(KeyResource::Cursor));
         return true;
     }
     // The editing-keypad rows: same parameters as the standalone keys.
     if let Some(p) = k.tilde_param() {
-        tilde_key(o, p, mods, s);
+        tilde_key(o, p, mods, s, ModifyValue::PARAM);
         return true;
     }
     // Everything else is `SS3 <byte>`.
@@ -1239,7 +1479,23 @@ fn text_key(
 }
 
 /// `SS3 P` for F1-F4, `CSI n ~` for the rest.
-fn function_key(o: &mut KeyBytes, f: FnKey, mods: Modifiers, s: KeyState) {
+///
+/// `level` is modifyFunctionKeys (`[[source: xterm-man]]`): at -1 "xterm
+/// uses the modifier keys to make an extended sequence of function keys
+/// rather than adding a parameter" (`[[source: ctlseqs]]`) -- Shift adds
+/// `ctrlFKeys`, 10, and Control twice it, and every other modifier is
+/// dropped, as `modifyCursorKey` zeroes it. **The sources conflict on the
+/// order:** `[[source: xterm-man]]` says that at modifyFunctionKeys 0
+/// "Control adds the value given by the ctrlFKeys resource. Shift adds
+/// twice"; xterm's `Input` does the reverse at -1, `mfkNone`, Shift adding
+/// ctrl_fkeys and Control twice it (`[[source: xterm-input-c]]`). baud
+/// follows the code, so Shift-F1 is F11.
+fn function_key(o: &mut KeyBytes, f: FnKey, mods: Modifiers, s: KeyState, level: ModifyValue) {
+    let (shift, ctrl) = (mods.has(Modifiers::SHIFT), mods.has(Modifiers::CTRL));
+    if level == ModifyValue::DISABLED && (shift || ctrl) {
+        let n = f.number() + if shift { 10 } else { 0 } + if ctrl { 20 } else { 0 };
+        return remapped_function_key(o, n, s);
+    }
     // F1-F4 share the cursor keys' shape: a single final byte after `SS3`, and
     // `CSI 1 ; mod` when modified. **`SS3` unconditionally when unmodified --
     // DECCKM does not reach here.** Routing these through `cursor_key` was
@@ -1248,13 +1504,32 @@ fn function_key(o: &mut KeyBytes, f: FnKey, mods: Modifiers, s: KeyState) {
     // where line 2529 says `SS3 P` flatly. A cursor key is the only thing
     // DECCKM governs.
     if let Some(final_byte) = f.ss3_final() {
-        cursor_shaped(o, Introducer::Ss3, final_byte, mods, s);
+        cursor_shaped(o, Introducer::Ss3, final_byte, mods, s, level);
         return;
     }
     // The gaps in the `~` parameters -- 16 and 22 skipped, then 27 and 30 --
     // live on `FnKey::tilde_param`, with the tables they came from.
     if let Some(p) = f.tilde_param() {
-        tilde_key(o, p, mods, s);
+        tilde_key(o, p, mods, s, level);
+    }
+}
+
+/// Function key `n` as modifyFunctionKeys -1 makes it, unmodified: F1-F20
+/// as their tables give them, and past F20 the number xterm's
+/// `decfuncvalue` gives, `42 + n - 21`, "made up and do not correspond to
+/// any real terminal" (`[[source: xterm-input-c]]`; decided by Jev,
+/// XTERM_42_REMAP_ONLY, 0.97/0.94 on the second ask). F31-F40 are
+/// Control-Shift-F1 to F10.
+fn remapped_function_key(o: &mut KeyBytes, n: u8, s: KeyState) {
+    match FnKey::new(n) {
+        Some(f) => function_key(o, f, Modifiers::NONE, s, ModifyValue::PARAM),
+        None => tilde_key(
+            o,
+            Param(42 + u16::from(n) - 21),
+            Modifiers::NONE,
+            s,
+            ModifyValue::PARAM,
+        ),
     }
 }
 
@@ -1263,10 +1538,19 @@ fn function_key(o: &mut KeyBytes, f: FnKey, mods: Modifiers, s: KeyState) {
 /// The editing keys and F5 upward share this shape, and unlike the cursor keys
 /// they do not change with DECCKM -- `[[source: ctlseqs]]` line 2672 gives the
 /// same sequence in both columns.
-fn tilde_key(o: &mut KeyBytes, param: Param, mods: Modifiers, s: KeyState) {
+///
+/// `level` is modifyFunctionKeys for F5 up, and 2 for the editing keys,
+/// which xterm sends with no `modifyCursorKey` (`[[source: xterm-input-c]]`):
+/// -1 drops the modifier and 3 marks the sequence `>`; 0 to 2 are one form
+/// here, the parameter already first.
+fn tilde_key(o: &mut KeyBytes, param: Param, mods: Modifiers, s: KeyState, level: ModifyValue) {
+    let carried = carries(mods) && level != ModifyValue::DISABLED;
     o.introducer(Introducer::Csi, s.c1);
+    if carried && level.get() == 3 {
+        o.push(b'>');
+    }
     o.num(param.value());
-    if carries(mods) {
+    if carried {
         o.all(b";");
         o.num(u16::from(mods.wire()));
     }
@@ -1285,13 +1569,30 @@ fn tilde_key(o: &mut KeyBytes, param: Param, mods: Modifiers, s: KeyState) {
 ///
 /// So level 1 asks whether Alt or Meta is held and level 2 whether anything is,
 /// and an unmodified key is never taken at either -- that is level 3, which
-/// [`OtherKeys`] deliberately cannot express.
+/// takes every ordinary key, modified or not. **The ignore mask**
+/// (`CSI > 4 ; Pv : mask m`) factors a key's one modifier out when it is in
+/// the mask, xterm's `allowedCharModifiers`: at levels 1 and 2, whose
+/// min_mod is 1, the key is left to the base layer; at 3, whose min_mod
+/// is 0, it is still a sequence, sent with the modifier removed
+/// ([`other_key`]), as an unmodified key is (`[[source: xterm-input-c]]`).
 fn other_keys_takes(mods: Modifiers, s: KeyState) -> bool {
-    match s.other_keys {
+    if masked(mods, s).is_some() {
+        return matches!(s.keys.other_keys(), OtherKeys::Level3);
+    }
+    match s.keys.other_keys() {
         OtherKeys::Off => false,
         OtherKeys::Level1 => mods.has(Modifiers::ALT) || mods.has(Modifiers::META),
         OtherKeys::Level2 => carries(mods),
+        OtherKeys::Level3 => true,
     }
+}
+
+/// The modifier the ignore mask factors out of this key: of the four
+/// xterm encodes, Shift, Alt, Control and Meta, exactly one held, and that
+/// one in the mask.
+fn masked(mods: Modifiers, s: KeyState) -> Option<Modifiers> {
+    let held = Modifiers::from_wire(mods.wire()).unwrap_or(Modifiers::NONE);
+    ((mods.wire() - 1).count_ones() == 1 && s.keys.ignore().has(held)).then_some(held)
 }
 
 /// Whether the base layer has a modifier to send: one of the four
@@ -1321,9 +1622,29 @@ fn carries(mods: Modifiers) -> bool {
 /// and `CSI 27 ; 32 ~` are different sequences, and the second is a modified
 /// F-key. The fixterms form keeps the modifier for symmetry with it -- a bare
 /// `CSI 9 u` would be SCORC's shape with a parameter.
+///
+/// A modifier the ignore mask factors out is not written: at level 3,
+/// Shift-a under `CSI > 4 ; 3 : 1 m` is `CSI 27 ; 1 ; 97 ~`.
 fn other_key(o: &mut KeyBytes, cp: u16, mods: Modifiers, s: KeyState) {
-    o.introducer(Introducer::Csi, s.c1);
-    match s.other_keys_format {
+    let mods = match masked(mods, s) {
+        Some(m) => mods.without(m),
+        None => mods,
+    };
+    modified_form(o, cp, mods, s.keys.format(KeyResource::Other), s.c1);
+}
+
+/// `CSI 27 ; modifier ; code ~` or `CSI code ; modifier u`, `format`'s
+/// choice, xterm's `modifyOtherKey`: for an ordinary key under
+/// modifyOtherKeys and for any key a resource at 4 takes.
+fn modified_form(
+    o: &mut KeyBytes,
+    cp: u16,
+    mods: Modifiers,
+    format: OtherKeysFormat,
+    c1: C1Transmit,
+) {
+    o.introducer(Introducer::Csi, c1);
+    match format {
         OtherKeysFormat::Xterm => {
             o.all(b"27;");
             o.num(u16::from(mods.wire()));
@@ -1356,7 +1677,14 @@ fn cursor_key(o: &mut KeyBytes, final_byte: FinalByte, mods: Modifiers, s: KeySt
         true => Introducer::Ss3,
         false => Introducer::Csi,
     };
-    cursor_shaped(o, intro, final_byte, mods, s);
+    cursor_shaped(
+        o,
+        intro,
+        final_byte,
+        mods,
+        s,
+        s.keys.modify(KeyResource::Cursor),
+    );
 }
 
 /// The same shape with the introducer supplied rather than read.
@@ -1375,17 +1703,97 @@ fn cursor_shaped(
     final_byte: FinalByte,
     mods: Modifiers,
     s: KeyState,
+    level: ModifyValue,
 ) {
-    if !carries(mods) {
+    if !carries(mods) || level == ModifyValue::DISABLED {
         o.introducer(intro, s.c1);
         o.byte(final_byte.byte());
         return;
     }
-    // A modified key uses `CSI` even in application mode: `SS3` takes no
-    // parameters, so there is nowhere to put the modifier, and an encoder that
-    // kept it would emit something no application parses.
-    o.introducer(Introducer::Csi, s.c1);
-    o.all(b"1;");
+    // `level` is modifyCursorKeys, or modifyFunctionKeys for F1-F4, as
+    // xterm's `modifyCursorKey` reads it (`[[source: xterm-input-c]]`): 0
+    // keeps the introducer and puts the modifier first, "the old/obsolete
+    // behavior"; from 1 a modified key uses `CSI` even in application mode,
+    // "prefixes modified sequences with CSI", as `SS3` takes no parameters;
+    // from 2, the first value, the modifier "is the second parameter"; and
+    // 3 "marks the sequence with a '>' to hint that it is private"
+    // (`[[source: xterm-man]]`).
+    let v = level.get();
+    o.introducer(if v >= 1 { Introducer::Csi } else { intro }, s.c1);
+    if v >= 3 {
+        o.push(b'>');
+    }
+    if v >= 2 {
+        o.all(b"1;");
+    }
     o.num(u16::from(mods.wire()));
     o.byte(final_byte.byte());
+}
+
+/// **A resource at 4 sends its keys in `modifyOtherKeys` 3's form**,
+/// "sending an escape sequence according to" its format resource
+/// (`[[source: xterm-man]]`), unmodified keys too, the modifier 1. The key's
+/// class is xterm's `TypeOfKeysym` over its keysym, and the number its
+/// keysym through `keysym2ucs` ([`KeyCode::keysym`], [`keysym_class`],
+/// [`keysym_code`]). `false` for a key no resource at 4 takes, or whose
+/// number is past a `u16` parameter -- a media key -- which then goes on as
+/// it would have.
+fn extended(o: &mut KeyBytes, code: KeyCode, mods: Modifiers, s: KeyState) -> bool {
+    let Some(sym) = code.keysym(mods) else {
+        return false;
+    };
+    let class = keysym_class(sym, s.delete);
+    if class == KeyResource::Other || s.keys.modify(class).get() < ModifyValue::EXTENDED.get() {
+        return false;
+    }
+    match keysym_code(sym) {
+        Some(cp) => {
+            modified_form(o, cp, mods, s.keys.format(class), s.c1);
+            true
+        }
+        None => false,
+    }
+}
+
+/// The resource a keysym's key belongs to, xterm's `TypeOfKeysym`
+/// (`[[source: xterm-input-c]]`) over Xlib's macros (`[[source:
+/// xlib-xutil-h]]`): the cursor keys and the editing keypad (Delete only
+/// while `?1037` leaves it Remove, xterm's `IsEditKeypad`), the function
+/// keys and the miscellaneous ones, the keypad, the modifier keys, and
+/// every other predefined keysym as special.
+pub fn keysym_class(sym: u32, delete: DeleteKey) -> KeyResource {
+    match sym {
+        0xff50..=0xff5f => KeyResource::Cursor,
+        0xff63 | 0xff68 | 0xff60 => KeyResource::Cursor,
+        0xffff if delete == DeleteKey::Remove => KeyResource::Cursor,
+        0xffbe..=0xffe0 => KeyResource::Function,
+        0xff80..=0xffbd => KeyResource::Keypad,
+        0xffe1..=0xffee | 0xfe01..=0xfe13 | 0xff7e | 0xff7f => KeyResource::Modifier,
+        0xff60..=0xff6b => KeyResource::Function,
+        0xfe01..=0xffff | 0x1000_0000.. => KeyResource::Special,
+        _ => KeyResource::Other,
+    }
+}
+
+/// The number a keysym is sent as, xterm's `keysym2ucs` (`[[source:
+/// xterm-keysym2ucs-c]]`): its table's row for the keysyms baud's keys
+/// produce in this range -- BackSpace 8, Tab 9, Return 13, Pause 19,
+/// Scroll_Lock 20, Escape 27, Delete 127 (the table also has Linefeed,
+/// Clear, Sys_Req and the dead keys, which no baud key produces) -- else,
+/// for 0xfd00 to 0xffff, the
+/// keysym less 0x1d00, "the Unicode BMP private use area beginning at
+/// U+E001" (`[[source: ctlseqs]]`). `None` past that range: a vendor
+/// keysym's number is past what a `u16` parameter names.
+pub fn keysym_code(sym: u32) -> Option<u16> {
+    Some(match sym {
+        0xff08 => 0x08,
+        0xff09 => 0x09,
+        0xff0d => 0x0d,
+        0xff13 => 0x13,
+        0xff14 => 0x14,
+        0xff1b => 0x1b,
+        0xffff => 0x7f,
+        0xfd00..=0xfffe => u16::try_from(sym - 0x1d00).ok()?,
+        _ => return None,
+    })
 }

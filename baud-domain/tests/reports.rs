@@ -428,7 +428,8 @@ fn report_encodings_fit() {
             "key option",
             Report::KeyOption {
                 which: KeyOption::Format,
-                value: 255,
+                pp: u16::MAX,
+                value: u16::MAX,
             },
             b'f',
         ),

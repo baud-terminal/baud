@@ -178,13 +178,33 @@ fn base_longest() -> usize {
     "\x1b[".len() + "27".len() + 1 + "16".len() + 1 + "65535".len() + 1
 }
 
+/// `modifyOtherKeys` at each of its four levels, in both formats, the other
+/// resources at their first values.
+fn other_keys_states() -> Vec<KeyResources> {
+    let mut out = Vec::new();
+    for level in 0..=3u16 {
+        for format in [OtherKeysFormat::Xterm, OtherKeysFormat::CsiU] {
+            out.push(resources(KeyResource::Other, level, format));
+        }
+    }
+    out
+}
+
+/// The first values with one resource at `value` and in `format`.
+fn resources(r: KeyResource, value: u16, format: OtherKeysFormat) -> KeyResources {
+    let mut k = KeyResources::default();
+    let v = r.value(value).expect("a documented value");
+    k.apply(KeySet::Set(r, v, Modifiers::NONE));
+    k.apply_format(FormatSet::Set(r, format));
+    k
+}
+
 /// A fresh terminal's state with every enhancement set.
 fn all_flags() -> KeyState {
     KeyState {
         modes: Modes::default(),
         keypad: KeypadMode::default(),
-        other_keys: OtherKeys::default(),
-        other_keys_format: OtherKeysFormat::default(),
+        keys: KeyResources::default(),
         c1: C1Transmit::SevenBit,
         terminal: TerminalMode::default(),
         encoding: InputEncoding::default(),
@@ -320,8 +340,8 @@ fn no_base_layer_key_is_longer_than_fourteen_bytes() {
     let mut states = Vec::new();
     for m in 0..32u8 {
         for keypad in [KeypadMode::Numeric, KeypadMode::Application] {
-            for other_keys in [OtherKeys::Off, OtherKeys::Level1, OtherKeys::Level2] {
-                for other_keys_format in [OtherKeysFormat::Xterm, OtherKeysFormat::CsiU] {
+            for keys in other_keys_states() {
+                {
                     for c1 in [C1Transmit::SevenBit, C1Transmit::EightBit] {
                         for terminal in [TerminalMode::Ansi, TerminalMode::Vt52] {
                             for encoding in [InputEncoding::Utf8, InputEncoding::Latin1] {
@@ -330,8 +350,7 @@ fn no_base_layer_key_is_longer_than_fourteen_bytes() {
                                     states.push(KeyState {
                                         modes: modes(m),
                                         keypad,
-                                        other_keys,
-                                        other_keys_format,
+                                        keys,
                                         c1,
                                         terminal,
                                         encoding,
@@ -364,6 +383,83 @@ fn no_base_layer_key_is_longer_than_fourteen_bytes() {
             let e = KeyEvent {
                 text,
                 ..KeyEvent::press(code, m)
+            };
+            for &s in &states {
+                if let Some(k) = encode_key(e, s) {
+                    longest = longest.max(k.as_bytes().len());
+                }
+            }
+        }
+    }
+    assert_eq!(longest, base_longest(), "the base layer's longest key");
+}
+
+/// **No key-modifier resource takes a base-layer key past 14 bytes.** Each
+/// resource at each of its values -- -1 through `CSI > Pp n`, and every
+/// documented one -- in both formats, and modifyOtherKeys under every ignore
+/// mask, the others at their first values; against DECCKM, both C1
+/// transmissions, DECBKM and `?1037`, the states they meet. One resource at a
+/// time, because each reads only its own class of key ([`keysym_class`]),
+/// and the modifyOtherKeys arms read the ordinary keys alone: two set at once
+/// cannot reach one key. The longest is still the extended form, `CSI 27 ;
+/// 16 ; code ~`, its code a keysym less 0x1d00, five digits at most.
+#[test]
+fn no_resource_value_lengthens_the_base_layer() {
+    let mut keys: Vec<(KeyCode, Option<Codepoint>)> =
+        functional().into_iter().map(|c| (c, None)).collect();
+    for id in BASE_IDS {
+        keys.push((KeyCode::Char(cp(id)), Some(cp(id))));
+    }
+    let mut configs = Vec::new();
+    for r in KeyResource::ALL {
+        for format in [OtherKeysFormat::Xterm, OtherKeysFormat::CsiU] {
+            let mut off = KeyResources::default();
+            off.apply(KeySet::Disable(r));
+            off.apply_format(FormatSet::Set(r, format));
+            configs.push(off);
+            for v in (0..=15u16).filter(|v| r.value(*v).is_some()) {
+                configs.push(resources(r, v, format));
+            }
+        }
+    }
+    for mask in 1..16u8 {
+        let mut k = KeyResources::default();
+        let m = Modifiers::from_wire(mask + 1).expect("a mask");
+        k.apply(KeySet::Set(
+            KeyResource::Other,
+            KeyResource::Other.value(2).expect("2"),
+            m,
+        ));
+        configs.push(k);
+    }
+    let mut states = Vec::new();
+    for keys in configs {
+        for ckm in [false, true] {
+            for c1 in [C1Transmit::SevenBit, C1Transmit::EightBit] {
+                for (backarrow, delete, _) in key_modes() {
+                    let mut modes = Modes::default();
+                    if ckm {
+                        modes.set(ModeBit::CursorKeys);
+                    }
+                    states.push(KeyState {
+                        modes,
+                        keys,
+                        c1,
+                        backarrow,
+                        delete,
+                        kitty: KittyFlags::NONE,
+                        ..all_flags()
+                    });
+                }
+            }
+        }
+    }
+    let mut longest = 0;
+    for &(code, text) in &keys {
+        for low in 0..16u8 {
+            let e = KeyEvent {
+                text,
+                ..KeyEvent::press(code, mods(low))
             };
             for &s in &states {
                 if let Some(k) = encode_key(e, s) {

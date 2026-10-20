@@ -99,7 +99,8 @@ fn a_non_u_final_in_a_kitty_marker_is_untouched() {
     for (marker, f) in [
         (Marker::Equals, b'c'),
         (Marker::Lt, b'c'),
-        (Marker::Gt, b'n'),
+        // `CSI > Ps n` is xterm's, disabling a key-modifier resource.
+        (Marker::Gt, b'w'),
     ] {
         match parse(marker, &[param(1)], f) {
             Csi::Unsupported { .. } => {}

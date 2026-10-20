@@ -28716,3 +28716,23 @@ sha256 = "cc053ce1c1d385d313b3b5ce5009f6f6562bf7000cfbd8e476fc7ac2c8e831f2"
 bytes  = 49402
 status = "external"
 group  = "H"
+
+# xterm's keysym-to-number map, pinned 2026-10-19 for the key-modifier
+# resources' extended form: a resource at 4 sends a key as `modifyOtherKeys`
+# 3 does, its number `keysym2ucs` of its keysym -- the table's row where it
+# has one (BackSpace 8, Tab 9, Return 13, Pause 19, Scroll_Lock 20, Escape
+# 27, Delete 127), else for 0xfd00-0xffff the keysym less 0x1d00 (1689-1690),
+# which ctlseqs states as "the Unicode BMP private use area beginning at
+# U+E001". Committed as xterm's other files are (X11 licence).
+[sources.xterm-keysym2ucs-c]
+key    = "xterm-keysym2ucs-c"
+title  = "xterm 411, keysym2ucs.c -- keysym2ucs: the table first, then 0xfd00-0xffff less 0x1d00"
+author = "Thomas E. Dickey and Markus G. Kuhn"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/keysym2ucs.c"
+file   = "xterm-keysym2ucs.c"
+sha256 = "2c7aed6964be78d1052d90f3fcbb7f8dc5d9a1e23f3adb9217b2de89d0b8fd57"
+bytes  = 131837
+status = "retrieved"
+group  = "C"

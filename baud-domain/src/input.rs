@@ -239,6 +239,48 @@ pub enum Introducer {
 }
 
 impl KeypadKey {
+    /// The X keysym, `XK_KP_*` ([`KeyCode::keysym`]).
+    pub fn keysym(self) -> u32 {
+        use KeypadKey::*;
+        match self {
+            Space => 0xff80,
+            Tab => 0xff89,
+            Enter => 0xff8d,
+            Pf1 => 0xff91,
+            Pf2 => 0xff92,
+            Pf3 => 0xff93,
+            Pf4 => 0xff94,
+            Home => 0xff95,
+            Left => 0xff96,
+            Up => 0xff97,
+            Right => 0xff98,
+            Down => 0xff99,
+            PageUp => 0xff9a,
+            PageDown => 0xff9b,
+            End => 0xff9c,
+            Begin => 0xff9d,
+            Insert => 0xff9e,
+            Delete => 0xff9f,
+            Multiply => 0xffaa,
+            Add => 0xffab,
+            Comma => 0xffac,
+            Minus => 0xffad,
+            Period => 0xffae,
+            Divide => 0xffaf,
+            Digit0 => 0xffb0,
+            Digit1 => 0xffb1,
+            Digit2 => 0xffb2,
+            Digit3 => 0xffb3,
+            Digit4 => 0xffb4,
+            Digit5 => 0xffb5,
+            Digit6 => 0xffb6,
+            Digit7 => 0xffb7,
+            Digit8 => 0xffb8,
+            Digit9 => 0xffb9,
+            Equal => 0xffbd,
+        }
+    }
+
     /// The numeric column of `[[source: ctlseqs]]` line 2498: the literal
     /// character on the key.
     ///
@@ -587,6 +629,63 @@ pub enum PuaKey {
 }
 
 impl PuaKey {
+    /// The X keysym ([`KeyCode::keysym`]): `XK_F21` to `XK_F35`, the locks,
+    /// `XK_Print`, `XK_Pause`, `XK_Menu`, the modifier keys, and the media
+    /// keys' `XF86Audio*`, as kitty's keyboard layer maps them
+    /// (`[[source: kitty-xkb-glfw-c]]`). `None` for play-pause and reverse,
+    /// which kitty numbers and maps from no keysym.
+    pub fn keysym(self) -> Option<u32> {
+        Some(match self {
+            PuaKey::CapsLock => 0xffe5,
+            PuaKey::ScrollLock => 0xff14,
+            PuaKey::NumLock => 0xff7f,
+            PuaKey::PrintScreen => 0xff61,
+            PuaKey::Pause => 0xff13,
+            PuaKey::Menu => 0xff67,
+            PuaKey::F21 => 0xffd2,
+            PuaKey::F22 => 0xffd3,
+            PuaKey::F23 => 0xffd4,
+            PuaKey::F24 => 0xffd5,
+            PuaKey::F25 => 0xffd6,
+            PuaKey::F26 => 0xffd7,
+            PuaKey::F27 => 0xffd8,
+            PuaKey::F28 => 0xffd9,
+            PuaKey::F29 => 0xffda,
+            PuaKey::F30 => 0xffdb,
+            PuaKey::F31 => 0xffdc,
+            PuaKey::F32 => 0xffdd,
+            PuaKey::F33 => 0xffde,
+            PuaKey::F34 => 0xffdf,
+            PuaKey::F35 => 0xffe0,
+            PuaKey::MediaPlay => 0x1008_ff14,
+            PuaKey::MediaPause => 0x1008_ff31,
+            PuaKey::MediaPlayPause | PuaKey::MediaReverse => return None,
+            PuaKey::MediaStop => 0x1008_ff15,
+            PuaKey::MediaFastForward => 0x1008_ff97,
+            PuaKey::MediaRewind => 0x1008_ff3e,
+            PuaKey::MediaTrackNext => 0x1008_ff17,
+            PuaKey::MediaTrackPrevious => 0x1008_ff16,
+            PuaKey::MediaRecord => 0x1008_ff1c,
+            PuaKey::LowerVolume => 0x1008_ff11,
+            PuaKey::RaiseVolume => 0x1008_ff13,
+            PuaKey::MuteVolume => 0x1008_ff12,
+            PuaKey::LeftShift => 0xffe1,
+            PuaKey::LeftControl => 0xffe3,
+            PuaKey::LeftAlt => 0xffe9,
+            PuaKey::LeftSuper => 0xffeb,
+            PuaKey::LeftHyper => 0xffed,
+            PuaKey::LeftMeta => 0xffe7,
+            PuaKey::RightShift => 0xffe2,
+            PuaKey::RightControl => 0xffe4,
+            PuaKey::RightAlt => 0xffea,
+            PuaKey::RightSuper => 0xffec,
+            PuaKey::RightHyper => 0xffee,
+            PuaKey::RightMeta => 0xffe8,
+            PuaKey::IsoLevel3Shift => 0xfe03,
+            PuaKey::IsoLevel5Shift => 0xfe11,
+        })
+    }
+
     /// The key's number in `[[source: kitty-keyboard]]`'s functional table.
     pub fn kitty_number(self) -> u32 {
         match self {
@@ -643,6 +742,36 @@ impl PuaKey {
 }
 
 impl KeyCode {
+    /// The X keysym this key is, as xterm names a key (`[[source:
+    /// xorg-keysymdef]]`): what xterm's `TypeOfKeysym` classes and
+    /// `keysym2ucs` numbers when a key-modifier resource is at 4. Tab with
+    /// Shift is `ISO_Left_Tab`, the US keymap's Shift level of Tab. `None`
+    /// for a text key, which xterm reaches through `modifyOtherKeys`.
+    /// `keysyms_are_the_headers` gates every row against the header.
+    pub fn keysym(self, mods: Modifiers) -> Option<u32> {
+        Some(match self {
+            KeyCode::Char(_) => return None,
+            KeyCode::Up => 0xff52,
+            KeyCode::Down => 0xff54,
+            KeyCode::Right => 0xff53,
+            KeyCode::Left => 0xff51,
+            KeyCode::Home => 0xff50,
+            KeyCode::End => 0xff57,
+            KeyCode::Insert => 0xff63,
+            KeyCode::Delete => 0xffff,
+            KeyCode::PageUp => 0xff55,
+            KeyCode::PageDown => 0xff56,
+            KeyCode::Function(f) => 0xffbe + u32::from(f.number()) - 1,
+            KeyCode::Keypad(k) => k.keysym(),
+            KeyCode::Enter => 0xff0d,
+            KeyCode::Tab if mods.has(Modifiers::SHIFT) => 0xfe20,
+            KeyCode::Tab => 0xff09,
+            KeyCode::Backspace => 0xff08,
+            KeyCode::Escape => 0xff1b,
+            KeyCode::Pua(p) => p.keysym()?,
+        })
+    }
+
     /// The `CSI <param> ~` parameter for the editing keypad, from
     /// `[[source: ctlseqs]]` line 2672.
     ///

@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 281 | 25 | redistributable, and its notice is satisfied |
+| kept | 282 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 785 | 36 | |
+| total | 786 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -1832,7 +1832,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11
 - **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
-- **Files:** 24
+- **Files:** 25
 
 | file | copied from |
 |---|---|
@@ -1846,6 +1846,7 @@ notice is, and the URL each file was copied from.
 | [xterm-faq.html](docs/research/sources/xterm-faq.html) | https://invisible-island.net/xterm/xterm.faq.html |
 | [xterm-graphics_sixel.c](docs/research/sources/xterm-graphics_sixel.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/graphics_sixel.c |
 | [xterm-input.c](docs/research/sources/xterm-input.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/input.c |
+| [xterm-keysym2ucs.c](docs/research/sources/xterm-keysym2ucs.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/keysym2ucs.c |
 | [xterm-main.h](docs/research/sources/xterm-main.h) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/main.h |
 | [xterm-misc.c](docs/research/sources/xterm-misc.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/misc.c |
 | [xterm-ptydata.c](docs/research/sources/xterm-ptydata.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/ptydata.c |

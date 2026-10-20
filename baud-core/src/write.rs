@@ -1978,10 +1978,9 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // recorded and never read, which `docs/vt-coverage.md` rates worse than
         // not implementing the sequence at all -- so the two halves landed in
         // one change.
-        DomCsi::SetOtherKeys(k) => p.cold.other_keys = k,
+        DomCsi::KeyControl(op) => p.key_control(op, csi),
         // XTSHIFTESCAPE: recorded here and read by the embedder's pointer.
         DomCsi::ShiftEscape(e) => p.cold.shift_escape = e,
-        DomCsi::SetOtherKeysFormat(k) => p.cold.other_keys_format = k,
         // **`[[source: kitty-keyboard]]`: the negotiation is live and the query
         // is answered.** Set, push and pop maintain the active screen's stack,
         // and `CSI ? u` replies with the current flags -- which is the
