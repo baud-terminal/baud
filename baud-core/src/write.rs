@@ -1849,11 +1849,13 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::CursorDown(c) => p.set_row(p.down_in_margins(c)),
         // On a double line it stops at the half (`Paint::forward_in_margins`).
         DomCsi::CursorForward(c) => p.set_col(p.forward_in_margins(c)),
-        // Under `?1045` a count of columns that wraps
-        // (`Paint::back_wrapping`), out of line.
-        DomCsi::CursorBack(c) => match p.wraps_back_extended() {
-            false => p.set_col(p.back_in_margins(c)),
-            true => p.back_wrapping(c),
+        // Under `?1045` a count of columns that wraps round the region
+        // (`Paint::back_wrapping`), under `?45` into wrapped lines
+        // (`Paint::back_reverse_wrapping`), both out of line.
+        DomCsi::CursorBack(c) => match (p.wraps_back_extended(), p.wraps_back()) {
+            (true, _) => p.back_wrapping(c),
+            (false, true) => p.back_reverse_wrapping(c),
+            (false, false) => p.set_col(p.back_in_margins(c)),
         },
         // **`CNL` and `CPL` start the line they land on as `CR` would**:
         // `[[source: vt510-cnl]]` and `[[source: vt510-cpl]]`, "the first

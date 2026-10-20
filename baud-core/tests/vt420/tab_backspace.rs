@@ -292,15 +292,18 @@ fn bs_on_the_margin_rows_stops_at_the_left_margin() {
 }
 
 /// **`?45` acts only where `BS` would not move**: left of the margin and on
-/// a row outside the region it moves one column as above; on the margin
-/// inside the region, and on the first column, it reverse-wraps to the
-/// previous row's right margin, as before.
+/// a row outside the region it moves one column as above. On the margin
+/// inside the region, and on the first column, it reverse-wraps only into
+/// a line that wrapped into this one, xterm's `LineTstWrapped`
+/// (`[[source: xterm-cursor-c]]`), and the fill's rows are each addressed,
+/// none wrapped, so it stays; until 2026-10-20 it went to the previous
+/// row's right margin. `tests/reverse_wrap.rs` has the wrapped lines.
 #[test]
 fn reverse_wrap_takes_over_only_where_bs_stops() {
     assert_eq!(x_at(&format!("{TB}{LRM}{RW}\x1b[3;3H\x08")), Some((2, 1)));
     assert_eq!(x_at(&format!("{TB}{LRM}{RW}\x1b[8;5H\x08")), Some((7, 3)));
-    assert_eq!(x_at(&format!("{TB}{LRM}{RW}\x1b[3;5H\x08")), Some((1, 9)));
-    assert_eq!(x_at(&format!("{TB}{LRM}{RW}\x1b[3;1H\x08")), Some((1, 9)));
+    assert_eq!(x_at(&format!("{TB}{LRM}{RW}\x1b[3;5H\x08")), Some((2, 4)));
+    assert_eq!(x_at(&format!("{TB}{LRM}{RW}\x1b[3;1H\x08")), Some((2, 0)));
 }
 
 /// Full width is the control: `BS` stops at the first column and `HT` at

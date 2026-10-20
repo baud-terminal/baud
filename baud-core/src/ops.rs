@@ -2419,8 +2419,8 @@ impl Paint<'_, '_> {
     /// before the Left Margin, the Active Position will move left one column
     /// unless it is at the first column of the Active Line." Its algorithm
     /// moves a cursor on the margin too when its line is above the top margin
-    /// or below the bottom. **Where it does not move, `?45` reverse-wraps**,
-    /// bounded by the scrolling region's top (the `Act::Backspace` arm).
+    /// or below the bottom. **Where it does not move, `?45` reverse-wraps**
+    /// into a wrapped line above ([`Paint::back_reverse_wrapping`]).
     ///
     /// At full width the left margin is column 0, so only a cursor there
     /// arrives, and it does not move.
@@ -2448,11 +2448,101 @@ impl Paint<'_, '_> {
                 self.set_row(row);
                 self.set_col(CursorCol::moved(self.line_fence()));
             }
-        } else if self.cold.modes.is_set(ModeBit::ReverseWrap) && y > self.cold.top.index() {
-            self.set_row(Row::from_index(y - 1));
-            // The previous line's end, its half if it is a double line.
-            self.set_col(CursorCol::moved(self.line_fence()));
+        } else if self.wraps_back() {
+            let (to, x) = self.reverse_walk(Count::ONE);
+            if to != y {
+                self.set_row(Row::from_index(to));
+            }
+            self.set_col(CursorCol::moved(Col::at_index(x)));
         }
+    }
+
+    /// Whether `?45` reverse-wraps: set, with `?7` set, xterm's `rev`,
+    /// `REVERSEWRAP` and `WRAPAROUND` both (`[[source: xterm-cursor-c]]`,
+    /// `CursorBack`). It acted without `?7` until 2026-10-20.
+    #[inline(always)]
+    pub(crate) fn wraps_back(&self) -> bool {
+        self.cold.modes.is_set(ModeBit::ReverseWrap) && self.cold.modes.is_set(ModeBit::AutoWrap)
+    }
+
+    /// **`CUB` under `?45`**: the walk `BS` takes, a count of columns back
+    /// ([`Paint::reverse_walk`]), as xterm's `CursorBack` serves both
+    /// (`[[source: xterm-reset]]`, `CASE_CUB`). It stopped at the left
+    /// margin until 2026-10-20.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn back_reverse_wrapping(&mut self, n: Count) {
+        let (y, x) = self.reverse_walk(n);
+        if y != self.cy.index() {
+            self.set_row(Row::from_index(y));
+        }
+        self.set_col(CursorCol::placed(
+            Col::at_index(x),
+            self.cold.right,
+            self.cols,
+        ));
+    }
+
+    /// **Where `?45`'s walk back of `n` columns ends**, as `(line, column)`,
+    /// xterm's `CursorBack` with `rev` and not `rev2` (`[[source:
+    /// xterm-cursor-c]]` 121-191): a step past the left margin goes to the
+    /// end of the line above only when that line is marked wrapped, its
+    /// text having run on into this one (`LineTstWrapped`), and otherwise
+    /// the walk stops at the left margin. **No top margin bounds it while
+    /// `DECOM` is reset**: only an unwrapped line does, and the screen's
+    /// first line, where xterm would read a line of its history. **Under
+    /// `DECOM` the walk stops at the top margin**, which confines all cursor
+    /// movement to the region (`[[source: vt510-decom]]`); xterm's `rev`
+    /// reads no `ORIGIN` and would leave it, not followed. A failed step
+    /// from below the region leaves the cursor on the line above it, xterm's
+    /// `if (row < bottom) ++row; /* reverse-wrap failed */` as written (Jev's
+    /// lean, XTERM_UP, 0.86/0.80 then 0.76/0.78). From left of the left
+    /// margin the walk turns at the screen's first column, as xterm lets it
+    /// go there; within a line it moves as `CUB` does, a pending wrap
+    /// included, as `?1045`'s walk does ([`Paint::back_wrapping`]).
+    fn reverse_walk(&self, n: Count) -> (usize, usize) {
+        let start = self.cx.col().index();
+        let left = match start < self.cold.left.index() {
+            true => 0,
+            false => self.cold.left.index(),
+        };
+        let bot = self.cold.bot.index();
+        // The highest line the walk may reach: under `DECOM` the top
+        // margin's, else the screen's first.
+        let first = match self.cold.modes.is_set(ModeBit::Origin) {
+            true => self.cold.top.index(),
+            false => 0,
+        };
+        let (mut x, mut y) = (start, self.cy.index());
+        let mut steps = n.at_least_one();
+        loop {
+            let room = x - left;
+            if steps <= room {
+                x -= steps;
+                break;
+            }
+            steps -= room + 1;
+            if y <= first {
+                x = left;
+                break;
+            }
+            let above = y - 1;
+            if !self.view.extent(Row::from_index(above)).wrapped() {
+                if above >= bot {
+                    y = above;
+                }
+                x = left;
+                break;
+            }
+            y = above;
+            x = crate::paint::fence_of(
+                self.view.rendition(Row::from_index(y)),
+                self.cold.right,
+                self.cols,
+            )
+            .index();
+        }
+        (y, x)
     }
 
     /// Whether `?1045` reverse-wraps: set, with `?7` set, as xterm's

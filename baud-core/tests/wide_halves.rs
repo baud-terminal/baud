@@ -365,10 +365,10 @@ fn every_way_onto_a_written_row_blanks_the_tail() {
         ),
         ("RI", "\u{4e16}\x1b[2;1H", &[wide], b"\x1bMa", &["a......."]),
         // `?45`: a backspace at column 0 goes to the last column of the row
-        // above, which holds a tail.
+        // above, which holds a tail and wrapped into this one.
         (
             "reverse-wrap BS",
-            "\x1b[1;7H\u{4e16}\x1b[?45h\x1b[2;1H",
+            "\x1b[1;7H\u{4e16}x\x1b[?45h\x1b[2;1H",
             &["......\u{4e16}]"],
             b"\x08a",
             &[".......a"],
