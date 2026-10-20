@@ -127,6 +127,9 @@ pub use baud_domain::{
 /// [`Term::cluster_sweeps`] return, and the store itself, which a test
 /// drives to read where a cluster lands.
 pub use baud_domain::{ClusterEpoch, ClusterLive, ClusterStore, ClusterSweeps, Refused};
+/// xterm's special colours and their modes: what [`Term::special_color`]
+/// and [`Term::color_modes`] take and return.
+pub use baud_domain::{ColorMode, ColorModes, SpecialColor};
 /// The window requests `Term::window_requests` holds, and the setting
 /// `Term::set_window_ops` takes.
 pub use baud_domain::{FullScreen, Maximize, SizeAsk, WindowOps, WindowRequest};

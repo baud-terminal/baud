@@ -1923,6 +1923,34 @@ fn the_cell_arm_draws_what_the_instance_arm_draws() {
         0,
         "the resets put reverse video back"
     );
+    // **xterm's special colours** (`OSC 5`, `OSC 6`): bold, underline and
+    // reverse drawn in their own colours, under colorAttrMode over the
+    // scene's own colours too, each attribute dropped where its colour took
+    // it -- the face, the underline, the exchange -- in the one resolved
+    // slot both arms read; and `OSC 106` and `105` put the scene back.
+    let plain_again = a;
+    feed(
+        &mut t,
+        b"\x1b]5;0;#ff5f00;1;#5fff00;3;#af00ff\x07\x1b]6;0;1;1;1;3;1;5;1\x07",
+    );
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(
+        differing(&a, &b),
+        0,
+        "the arms disagree under the special colours"
+    );
+    assert!(
+        differing(&a, &plain_again) > 0,
+        "the special colours reached the pixels"
+    );
+    feed(&mut t, b"\x1b]106;0;0;1;0;3;0;5;0\x07\x1b]105\x07");
+    let (a, b) = arms.draw(&mut t);
+    assert_eq!(differing(&a, &b), 0, "the arms disagree after OSC 106");
+    assert_eq!(
+        differing(&a, &plain_again),
+        0,
+        "OSC 106 and 105 put the scene back"
+    );
     // A block, and its edges cut a wide character on each side: U+231A
     // straddles the left edge on row 2 (lead 100, tail 101) and the right
     // edge on row 3 (lead 101, tail 102), so a tail is out on one row and

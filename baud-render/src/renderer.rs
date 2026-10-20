@@ -4249,6 +4249,28 @@ impl<'f, 'a> Renderer<'f, 'a> {
     /// spelling of the rendition rules: the cell path's table holds it a slot
     /// at a time and the CPU and instance paths take it a cell at a time.
     fn resolve_slot(&self, term: &Term<'_>, style: baud_domain::StyleWord) -> Resolved {
+        // xterm's special colours first, while a mode is on: the rendition
+        // a cell draws with, its attribute dropped where a colour replaced
+        // it (`ColorModes::apply`), so everything below -- the colours, the
+        // face, the underline, the blink -- reads the one rendition.
+        // A colour no program set is the text foreground, the stored one
+        // with any `OSC 10` override, as the core's `?` answers it -- for
+        // colorRV too, which lands on the page.
+        let style = term
+            .color_modes()
+            .apply(style, |c| match term.special_color(c) {
+                Some((r, g, b)) => baud_domain::ColorWord::rgb(
+                    Chan::from_u8(r),
+                    Chan::from_u8(g),
+                    Chan::from_u8(b),
+                ),
+                None => {
+                    let (fg, _) = self
+                        .theme
+                        .defaults(Video::Normal, |d| term.dynamic_color(d));
+                    baud_domain::ColorWord::rgb(fg.r(), fg.g(), fg.b())
+                }
+            });
         let (fg, bg) = self.theme.resolve(
             style,
             self.video,

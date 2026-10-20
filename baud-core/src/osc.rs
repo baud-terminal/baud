@@ -361,6 +361,56 @@ impl Paint<'_, '_> {
     /// colour epoch moves only if some entry was overridden.
     pub(crate) fn reset_palette(&mut self) {
         clear_palette(self.strs.palette, self.style_log);
+        clear_specials(self.strs.palette, self.style_log);
+    }
+
+    /// One special colour written, the colour epoch moved when it changed:
+    /// renditions resolve through it while its mode is on.
+    fn set_special(&mut self, which: SpecialColor, w: ColorWord) {
+        let at = crate::storage::SPECIAL_PALETTE + which.index();
+        if self.strs.palette[at] != w {
+            self.strs.palette[at] = w;
+            self.style_log.colors_moved();
+        }
+    }
+
+    /// One `c ; spec` naming a special colour, set or asked for; a spec no
+    /// reader takes is counted, as `OSC 4`'s is.
+    fn special_pair(
+        &mut self,
+        which: SpecialColor,
+        spec: XColor<'_>,
+        via: SpecialVia,
+        term: StringTerm,
+    ) {
+        match spec {
+            XColor::Rgb(r, g, b) => self.set_special(which, ColorWord::rgb(r, g, b)),
+            XColor::Query => self.report_special(which, via, term),
+            XColor::Unresolved(_) => self.unsupported_total += 1,
+        }
+    }
+
+    /// Answer a special colour's query in the shape it was asked: the
+    /// colour set, else the text foreground it draws in (the stored one, an
+    /// `OSC 10` override included), silent on a core never told its colours.
+    fn report_special(&mut self, which: SpecialColor, via: SpecialVia, term: StringTerm) {
+        let own = self.strs.palette[crate::storage::SPECIAL_PALETTE + which.index()];
+        let fg = DynamicColor::Foreground.index();
+        let word = [own, self.cold.dynamic[fg], self.cold.defaults[fg]]
+            .into_iter()
+            .find(|w| !w.is_default())
+            .unwrap_or(ColorWord::DEFAULT);
+        let Some((r, g, b)) = word.as_rgb() else {
+            return;
+        };
+        self.want_reply(Report::SpecialColor {
+            which,
+            via,
+            r,
+            g,
+            b,
+            term,
+        });
     }
 
     /// The same for a dynamic colour. `OSC 12`'s cursor colour is read where
@@ -420,9 +470,11 @@ impl Paint<'_, '_> {
                             // 10/11/12 is such a spec.
                             XColor::Unresolved(_) => self.unsupported_total += 1,
                         },
-                        // A special colour baud does not keep, or a pair
-                        // off the grammar: a request not honoured.
-                        ColorPair::Special | ColorPair::Malformed => self.unsupported_total += 1,
+                        ColorPair::Special { which, spec } => {
+                            self.special_pair(which, spec, SpecialVia::Palette, term)
+                        }
+                        // A pair off the grammar: a request not honoured.
+                        ColorPair::Malformed => self.unsupported_total += 1,
                     }
                 }
             }
@@ -431,9 +483,8 @@ impl Paint<'_, '_> {
                 for reset in resets {
                     match reset {
                         ColorReset::Entry(c) => self.set_palette(c, ColorWord::DEFAULT),
-                        ColorReset::Special | ColorReset::Past | ColorReset::Malformed => {
-                            self.unsupported_total += 1
-                        }
+                        ColorReset::Special(which) => self.set_special(which, ColorWord::DEFAULT),
+                        ColorReset::Past | ColorReset::Malformed => self.unsupported_total += 1,
                     }
                 }
             }
@@ -570,6 +621,49 @@ impl Paint<'_, '_> {
                     Semantic::Other => self.cold.shell.zone,
                 };
                 self.semantic_marks += 1;
+            }
+            Osc::SetSpecials(pairs) => {
+                for pair in pairs {
+                    match pair {
+                        ColorPair::Special { which, spec } => {
+                            self.special_pair(which, spec, SpecialVia::Special, term)
+                        }
+                        ColorPair::Entry { .. } | ColorPair::Malformed => {
+                            self.unsupported_total += 1
+                        }
+                    }
+                }
+            }
+            Osc::ResetSpecials(resets) if resets.all() => {
+                clear_specials(self.strs.palette, self.style_log);
+            }
+            Osc::ResetSpecials(resets) => {
+                for reset in resets {
+                    match reset {
+                        ColorReset::Special(which) => self.set_special(which, ColorWord::DEFAULT),
+                        ColorReset::Entry(_) | ColorReset::Past | ColorReset::Malformed => {
+                            self.unsupported_total += 1
+                        }
+                    }
+                }
+            }
+            // Each `c ; f` in turn, the colour epoch moved when a mode
+            // changes, so every rendition is resolved again under it.
+            Osc::ColorModes(sets) => {
+                for set in sets {
+                    match set {
+                        ColorModeSet::Mode(m, change) => {
+                            let next = self.strs.color_modes.with(m, change);
+                            if next != self.strs.color_modes {
+                                self.strs.color_modes = next;
+                                self.style_log.colors_moved();
+                            }
+                        }
+                        ColorModeSet::Unknown | ColorModeSet::Malformed => {
+                            self.unsupported_total += 1
+                        }
+                    }
+                }
             }
             Osc::Allowed(q) => self.report_allowed(q, term),
             // "If Pt is empty, or does not match any of the standard names,
@@ -832,6 +926,18 @@ pub(crate) fn clear_palette(palette: &mut [ColorWord], log: &mut StyleLog<'_>) {
         }
     }
     if moved {
+        log.colors_moved();
+    }
+}
+
+/// Every special colour cleared, the colour epoch moved if one was set:
+/// both resets, `OSC 104` and `OSC 105` with no parameter, and an
+/// embedder's `Overrides::Drop`, as xterm's reset of all `MAXCOLORS` takes
+/// them with the palette (`[[source: xterm-misc]]` 3070-3080).
+pub(crate) fn clear_specials(palette: &mut [ColorWord], log: &mut StyleLog<'_>) {
+    let special = &mut palette[crate::storage::SPECIAL_PALETTE..crate::storage::PALETTE_LEN];
+    if special.iter().any(|w| !w.is_default()) {
+        special.fill(ColorWord::DEFAULT);
         log.colors_moved();
     }
 }

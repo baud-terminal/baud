@@ -355,19 +355,21 @@ fn a_bad_pair_stops_the_walk_and_is_counted() {
     }
 }
 
-/// **An index past 255 names one of xterm's special colours** -- "The
-/// special colors can also be set by adding the maximum number of colors
-/// (e.g., 88 or 256) to these codes in an OSC 4 control" (`[[source:
-/// ctlseqs]]`), `MAXCOLORS` being 261 (`[[source: xterm-ptyx-h]]`) -- which
-/// baud does not keep: counted, and the walk goes on, as xterm's does.
+/// **An index of 256 to 260 names one of xterm's special colours** --
+/// "The special colors can also be set by adding the maximum number of
+/// colors (e.g., 88 or 256) to these codes in an OSC 4 control" (`[[source:
+/// ctlseqs]]`), `MAXCOLORS` being 261 (`[[source: xterm-ptyx-h]]`) -- set,
+/// and the walk goes on.
 #[test]
-fn a_special_colour_is_counted_and_the_walk_goes_on() {
+fn a_special_colour_by_osc_4_is_set_and_the_walk_goes_on() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
-    support::feed(&mut t, b"\x1b]4;256;red;260;red;5;#00ff00\x07");
+    support::feed(&mut t, b"\x1b]4;256;red;260;blue;5;#00ff00\x07");
+    assert_eq!(t.special_color(SpecialColor::Bold), Some((255, 0, 0)));
+    assert_eq!(t.special_color(SpecialColor::Italic), Some((0, 0, 255)));
     assert_eq!(t.palette(Chan::from_u8(5)), Some((0, 255, 0)));
-    assert_eq!(t.unsupported, 2);
+    assert_eq!(t.unsupported, 0);
 }
 
 /// **`OSC 104` resets every entry it names.** `[[source: ctlseqs]]`: "Any
@@ -420,6 +422,152 @@ fn osc_104_goes_on_past_a_number_out_of_range() {
         Some((255, 0, 0)),
         "3x is no number"
     );
+}
+
+// ── special colours ─────────────────────────────────────────────────────────
+
+fn special_term(bytes: &[u8], f: impl FnOnce(&Term<'_>)) {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    t.set_default_colors((0xe0, 0xe0, 0xe0), (0x11, 0x11, 0x11));
+    support::feed(&mut t, bytes);
+    f(&t);
+}
+
+/// **`OSC 5` sets and answers xterm's special colours**: "Change Special
+/// Color Number c to the color specified by spec", any number of pairs,
+/// and a `?` answered "with a control sequence of the same form"
+/// (`[[source: ctlseqs]]`): `OSC 5 ; c` when asked by `OSC 5`, `OSC 4 ;
+/// 256+c` when asked by `OSC 4`, as xterm's `ReportAnsiColorRequest`
+/// writes them. A colour no program set answers the text foreground it
+/// draws in. A number past the five ends the walk, counted.
+#[test]
+fn osc_5_sets_and_answers_the_special_colours() {
+    special_term(
+        b"\x1b]5;0;red;4;#0000ff\x07\x1b]5;0;?;1;?\x07\x1b]4;260;?\x1b\\",
+        |t| {
+            assert_eq!(t.special_color(SpecialColor::Bold), Some((255, 0, 0)));
+            assert_eq!(t.special_color(SpecialColor::Italic), Some((0, 0, 255)));
+            assert_eq!(t.special_color(SpecialColor::Underline), None);
+            assert_eq!(
+                t.reply(),
+                &b"\x1b]5;0;rgb:ffff/0000/0000\x07\x1b]5;1;rgb:e0e0/e0e0/e0e0\x07\
+\x1b]4;260;rgb:0000/0000/ffff\x1b\\"[..]
+            );
+            assert_eq!(t.unsupported, 0);
+        },
+    );
+    special_term(b"\x1b]5;2;red;5;blue;3;red\x07", |t| {
+        assert_eq!(t.special_color(SpecialColor::Blink), Some((255, 0, 0)));
+        assert_eq!(
+            t.special_color(SpecialColor::Reverse),
+            None,
+            "the walk ended"
+        );
+        assert_eq!(t.unsupported, 1);
+    });
+}
+
+/// **`OSC 105` resets the special colours it names, and all with none**:
+/// "Reset Special Color Number c ... If no parameters are given, all
+/// special colors will be reset" (`[[source: ctlseqs]]`). `OSC 104`
+/// resets them too, by 256 more and with no parameter, as xterm's reset
+/// walks all of its 261 colours.
+#[test]
+fn osc_105_and_104_reset_the_special_colours() {
+    let set = b"\x1b]5;0;red;1;red;2;red\x07";
+    special_term(&[&set[..], b"\x1b]105;0\x07"].concat(), |t| {
+        assert_eq!(t.special_color(SpecialColor::Bold), None);
+        assert_eq!(t.special_color(SpecialColor::Underline), Some((255, 0, 0)));
+    });
+    special_term(&[&set[..], b"\x1b]105\x07"].concat(), |t| {
+        assert!(
+            SpecialColor::ALL
+                .iter()
+                .all(|&c| t.special_color(c).is_none())
+        );
+    });
+    special_term(&[&set[..], b"\x1b]104;257\x07"].concat(), |t| {
+        assert_eq!(t.special_color(SpecialColor::Underline), None);
+        assert_eq!(t.special_color(SpecialColor::Bold), Some((255, 0, 0)));
+    });
+    special_term(&[&set[..], b"\x1b]104\x07"].concat(), |t| {
+        assert!(
+            SpecialColor::ALL
+                .iter()
+                .all(|&c| t.special_color(c).is_none())
+        );
+    });
+}
+
+/// **`OSC 6` and `OSC 106` turn the modes on and off**: "enable the
+/// corresponding color mode if nonzero, disable it if zero"
+/// (`[[source: ctlseqs]]`), `c` 5 being colorAttrMode as ctlseqs lists it.
+/// An empty field before a `;` is 0, as xterm reads it; a `c` with no `f`
+/// ends the walk and a `c` no mode has is passed over, each counted.
+#[test]
+fn osc_6_and_106_turn_the_modes_on_and_off() {
+    special_term(b"\x1b]6;0;1;5;7\x07", |t| {
+        assert!(t.color_modes().has(ColorMode::Bold));
+        assert!(t.color_modes().has(ColorMode::Attr));
+        assert!(!t.color_modes().has(ColorMode::Italic));
+    });
+    special_term(b"\x1b]6;0;1\x07\x1b]106;0;0\x07", |t| {
+        assert_eq!(t.color_modes(), ColorModes::NONE);
+    });
+    special_term(b"\x1b]6;;1;9;1;3;1\x07", |t| {
+        assert!(t.color_modes().has(ColorMode::Bold), "an empty c is 0");
+        assert!(
+            t.color_modes().has(ColorMode::Reverse),
+            "past the unknown 9"
+        );
+        assert_eq!(t.unsupported, 1);
+    });
+    special_term(b"\x1b]6;1\x07", |t| {
+        assert_eq!(t.color_modes(), ColorModes::NONE);
+        assert_eq!(t.unsupported, 1);
+    });
+    special_term(b"\x1b]6\x07", |t| {
+        assert_eq!(t.unsupported, 0, "no parameters: no effect");
+    });
+}
+
+/// **`RIS` turns the modes off and clears the colours; `DECSTR` clears the
+/// colours and keeps the modes**: ECMA-48's initial state for the first,
+/// and xterm's reset of its 261 colours for both.
+#[test]
+fn the_resets_clear_the_special_colours() {
+    let set = b"\x1b]5;0;red\x07\x1b]6;0;1\x07";
+    special_term(&[&set[..], b"\x1bc"].concat(), |t| {
+        assert_eq!(t.special_color(SpecialColor::Bold), None);
+        assert_eq!(t.color_modes(), ColorModes::NONE);
+    });
+    special_term(&[&set[..], b"\x1b[!p"].concat(), |t| {
+        assert_eq!(t.special_color(SpecialColor::Bold), None);
+        assert!(t.color_modes().has(ColorMode::Bold));
+    });
+}
+
+/// **A special colour or a mode that changes moves the colour epoch**, so a
+/// renderer resolves every rendition again under it; one that changes
+/// nothing does not.
+#[test]
+fn a_special_colour_or_mode_moves_the_colour_epoch() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    let e0 = t.color_epoch();
+    support::feed(&mut t, b"\x1b]6;0;1\x07");
+    let e1 = t.color_epoch();
+    assert_ne!(e0, e1, "a mode turned on");
+    support::feed(&mut t, b"\x1b]6;0;1\x07");
+    assert_eq!(t.color_epoch(), e1, "already on");
+    support::feed(&mut t, b"\x1b]5;0;red\x07");
+    let e2 = t.color_epoch();
+    assert_ne!(e2, e1, "a colour set");
+    support::feed(&mut t, b"\x1b]5;0;red\x07");
+    assert_eq!(t.color_epoch(), e2, "the same colour");
 }
 
 // ── allowed features ────────────────────────────────────────────────────────

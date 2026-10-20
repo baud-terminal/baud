@@ -3688,6 +3688,14 @@ impl Paint<'_, '_> {
         // the same text; xterm's `ReallyReset` keeps `OSC 22`'s shape, a
         // departure not followed. `DECSTR` keeps it.
         self.cold.pointer = None;
+        // The special-colour modes go back to off, "set the modes into the
+        // reset state" (`[[source: ecma48]]` 8.3.105); xterm keeps them as
+        // resources, not followed. The colours go with the palette, in
+        // `soft_reset`, as xterm's reset of all its `MAXCOLORS` does.
+        if self.strs.color_modes != ColorModes::NONE {
+            self.strs.color_modes = ColorModes::NONE;
+            self.style_log.colors_moved();
+        }
         self.cold.mouse = MouseTracking::Off;
         self.cold.mouse_encoding = MouseEncoding::X10;
         self.cold.terminal = TerminalMode::Ansi;

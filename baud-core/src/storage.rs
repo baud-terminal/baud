@@ -453,6 +453,11 @@ pub struct StrBuf<'b> {
     /// (`Term::window_requests`). Here for the reason `window` is: only an
     /// XTWINOPS operation reaches it.
     pub(crate) window_asks: crate::window::WindowAsks,
+    /// The special-colour modes `OSC 6` and `OSC 106` turn on
+    /// (`Term::color_modes`), the colours being in `palette`: here rather
+    /// than in `Cold`, whose size is pinned, as `clip` is; written by those
+    /// two and `RIS`, read by the renderer once a rendition is resolved.
+    pub(crate) color_modes: ColorModes,
 }
 
 impl<'b> StrBuf<'b> {
@@ -496,6 +501,7 @@ impl<'b> StrBuf<'b> {
             window: baud_domain::WindowFacts::UNKNOWN,
             title_reports_refused: crate::term::TitleReportsRefused::FIRST,
             window_asks: crate::window::WindowAsks::NONE,
+            color_modes: ColorModes::NONE,
         }
     }
 }
@@ -749,6 +755,7 @@ impl Owned {
                 window: baud_domain::WindowFacts::UNKNOWN,
                 title_reports_refused: crate::term::TitleReportsRefused::FIRST,
                 window_asks: crate::window::WindowAsks::NONE,
+                color_modes: ColorModes::NONE,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -797,6 +804,7 @@ impl Owned {
                 window: baud_domain::WindowFacts::UNKNOWN,
                 title_reports_refused: crate::term::TitleReportsRefused::FIRST,
                 window_asks: crate::window::WindowAsks::NONE,
+                color_modes: ColorModes::NONE,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -891,11 +899,15 @@ pub const TITLE_STACK: usize = TITLE_SLOTS * 2 * OSC_MAX;
 /// Entries in the palette slice: the first 256 are the application's `OSC 4`
 /// overrides, the second 256 the embedder's own table
 /// ([`crate::Term::set_default_palette`]), which an `OSC 4 ; c ; ?` for an
-/// entry nothing overrode is answered from.
-pub const PALETTE_LEN: usize = 512;
+/// entry nothing overrode is answered from, and the last five xterm's
+/// special colours as `OSC 5` sets them ([`crate::Term::special_color`]).
+pub const PALETTE_LEN: usize = 517;
 
 /// Where the embedder's half of the palette slice starts.
 pub(crate) const EMBEDDER_PALETTE: usize = 256;
+
+/// Where the special colours start in the palette slice.
+pub(crate) const SPECIAL_PALETTE: usize = 512;
 
 /// Distinct `OSC 8` hyperlinks live at once.
 ///

@@ -1,5 +1,13 @@
 use crate::*;
 
+/// Which sequence a special colour was asked by: `OSC 5`, by its own
+/// number, or `OSC 4`, by 256 more.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SpecialVia {
+    Special,
+    Palette,
+}
+
 /// How a control string ended.
 ///
 /// `[[source: ctlseqs]]`: "XTerm accepts either BEL or ST for terminating OSC
@@ -194,6 +202,19 @@ pub enum Report {
     /// readers stop at the terminator they expect.
     Color {
         index: Chan,
+        r: u8,
+        g: u8,
+        b: u8,
+        term: StringTerm,
+    },
+    /// `OSC 5 ; c ; rgb:RRRR/GGGG/BBBB ST`, or `OSC 4 ; 256+c ; ...` when
+    /// the query came by `OSC 4`: a special colour, in the shape it was
+    /// asked in, as xterm's `ReportAnsiColorRequest` writes "(opcode == 5) ?
+    /// (colornum - NUM_ANSI_COLORS) : colornum" (`[[source: xterm-misc]]`
+    /// 2647-2652).
+    SpecialColor {
+        which: SpecialColor,
+        via: SpecialVia,
         r: u8,
         g: u8,
         b: u8,
@@ -964,6 +985,48 @@ impl Report {
                 e.push(b'4');
                 e.push(b';');
                 e.push_num(index.get() as u16);
+                e.push(b';');
+                for &c in b"rgb:" {
+                    e.push(c);
+                }
+                e.push_hex(r);
+                e.push(b'/');
+                e.push_hex(g);
+                e.push(b'/');
+                e.push_hex(b);
+                match term {
+                    StringTerm::St => {
+                        e.push(0x1b);
+                        e.push(b'\\');
+                    }
+                    StringTerm::Bel => e.push(0x07),
+                }
+            }
+            Report::SpecialColor {
+                which,
+                via,
+                r,
+                g,
+                b,
+                term,
+            } => {
+                // `OSC 5 ; c ; spec` or `OSC 4 ; 256+c ; spec`, the rewind
+                // and spec form of `Color`.
+                e.len = ByteLen::ZERO;
+                e.push(0x1b);
+                e.push(b']');
+                match via {
+                    SpecialVia::Special => {
+                        e.push(b'5');
+                        e.push(b';');
+                        e.push_num(which.code());
+                    }
+                    SpecialVia::Palette => {
+                        e.push(b'4');
+                        e.push(b';');
+                        e.push_num(256 + which.code());
+                    }
+                }
                 e.push(b';');
                 for &c in b"rgb:" {
                     e.push(c);

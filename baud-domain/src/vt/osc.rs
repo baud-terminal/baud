@@ -27,6 +27,16 @@ pub enum Osc<'a> {
     /// `OSC 104 ; c` — reset the palette entries named, "Any number of c
     /// parameters", and with none "the entire table": [`ColorResets`].
     ResetColors(ColorResets<'a>),
+    /// `OSC 5 ; c ; spec` -- "Change Special Color Number c to the color
+    /// specified by spec", any number of pairs: [`ColorPairs`] whose items
+    /// are [`ColorPair::Special`].
+    SetSpecials(ColorPairs<'a>),
+    /// `OSC 105 ; c` -- "Reset Special Color Number c", and with none "all
+    /// special colors will be reset": [`ColorResets`].
+    ResetSpecials(ColorResets<'a>),
+    /// `OSC 6 ; c ; f` and `OSC 106 ; c ; f` -- "Enable/disable Special
+    /// Color Number c": [`ColorModeSets`].
+    ColorModes(ColorModeSets<'a>),
     /// `OSC 10 ; spec` to `OSC 19 ; spec` -- the dynamic colours.
     /// `[[source: ctlseqs]]`: "Change VT100 text foreground color to Pt",
     /// and `?` in place of a spec is a query "with a control sequence of the
@@ -551,6 +561,251 @@ impl AllowCategory {
     }
 }
 
+/// One of xterm's five special colours, "Pc = 0 <- resource colorBD
+/// (BOLD). Pc = 1 <- resource colorUL (UNDERLINE). Pc = 2 <- resource
+/// colorBL (BLINK). Pc = 3 <- resource colorRV (REVERSE). Pc = 4 <- resource
+/// colorIT (ITALIC)" (`[[source: ctlseqs]]`): the colour a cell with that
+/// attribute is drawn in while its mode is on ([`ColorModes`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SpecialColor {
+    Bold,
+    Underline,
+    Blink,
+    Reverse,
+    Italic,
+}
+
+impl SpecialColor {
+    /// In `Pc`'s order.
+    pub const ALL: [SpecialColor; 5] = [
+        SpecialColor::Bold,
+        SpecialColor::Underline,
+        SpecialColor::Blink,
+        SpecialColor::Reverse,
+        SpecialColor::Italic,
+    ];
+
+    /// `Pc`: the number `OSC 5` names it by, and `OSC 4` by 256 more.
+    pub fn code(self) -> u16 {
+        match self {
+            SpecialColor::Bold => 0,
+            SpecialColor::Underline => 1,
+            SpecialColor::Blink => 2,
+            SpecialColor::Reverse => 3,
+            SpecialColor::Italic => 4,
+        }
+    }
+
+    pub fn of_code(c: u16) -> Option<SpecialColor> {
+        SpecialColor::ALL.into_iter().find(|s| s.code() == c)
+    }
+
+    pub fn index(self) -> usize {
+        usize::from(self.code())
+    }
+
+    /// The mode that turns it on.
+    pub fn mode(self) -> ColorMode {
+        match self {
+            SpecialColor::Bold => ColorMode::Bold,
+            SpecialColor::Underline => ColorMode::Underline,
+            SpecialColor::Blink => ColorMode::Blink,
+            SpecialColor::Reverse => ColorMode::Reverse,
+            SpecialColor::Italic => ColorMode::Italic,
+        }
+    }
+}
+
+/// One of the six modes `OSC 6` and `OSC 106` turn on and off: "Pc = 0 <-
+/// resource colorBDMode (BOLD). ... Pc = 4 <- resource colorITMode
+/// (ITALIC). Pc = 5 <- resource colorAttrMode (Override ANSI)"
+/// (`[[source: ctlseqs]]`). xterm's handler stops at 4 and ignores 5
+/// ("unknown colorXXMode", `[[source: xterm-misc]]` 4197-4248); ctlseqs is
+/// followed (Jev's lean, 0.66 and 0.74 after research).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ColorMode {
+    Bold,
+    Underline,
+    Blink,
+    Reverse,
+    Italic,
+    /// colorAttrMode: "whether colorBD, colorBL, colorRV, and colorUL should
+    /// override ANSI colors. If not, these are displayed only when no ANSI
+    /// colors have been set for the corresponding position" (xterm(1)).
+    Attr,
+}
+
+impl ColorMode {
+    pub fn of_code(c: u16) -> Option<ColorMode> {
+        match c {
+            0 => Some(ColorMode::Bold),
+            1 => Some(ColorMode::Underline),
+            2 => Some(ColorMode::Blink),
+            3 => Some(ColorMode::Reverse),
+            4 => Some(ColorMode::Italic),
+            5 => Some(ColorMode::Attr),
+            _ => None,
+        }
+    }
+
+    fn bit(self) -> u8 {
+        1 << match self {
+            ColorMode::Bold => 0,
+            ColorMode::Underline => 1,
+            ColorMode::Blink => 2,
+            ColorMode::Reverse => 3,
+            ColorMode::Italic => 4,
+            ColorMode::Attr => 5,
+        }
+    }
+}
+
+/// Which of the six [`ColorMode`]s are on; all off at power-up, as xterm's
+/// resources default to "false".
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct ColorModes(u8);
+
+impl ColorModes {
+    pub const NONE: ColorModes = ColorModes(0);
+
+    pub fn has(self, m: ColorMode) -> bool {
+        self.0 & m.bit() != 0
+    }
+
+    pub fn with(self, m: ColorMode, change: ModeChange) -> ColorModes {
+        match change {
+            ModeChange::Set => ColorModes(self.0 | m.bit()),
+            ModeChange::Reset => ColorModes(self.0 & !m.bit()),
+        }
+    }
+
+    /// **The rendition a cell draws with under these modes**, the one
+    /// spelling of the rule, applied where a rendition is resolved for
+    /// drawing, so turning a mode on or off recolours what is on the screen
+    /// (Jev's lean, 0.88 and 0.90, over xterm's baking at `SGR` time: the
+    /// manual's "should be displayed in color", and xterm's own `extract_fg`
+    /// maps at draw time a cell whose colours are both default,
+    /// `[[source: xterm-scroll]]` util.c 5680-5690).
+    ///
+    /// A cell whose foreground is default, or any cell under
+    /// colorAttrMode, takes the first special colour whose mode is on and
+    /// whose attribute it carries, blink before bold before underline
+    /// before italic, as xterm's `MapToColorMode` orders them
+    /// (`[[source: xterm-xterm-h]]`), and **the attribute is no longer
+    /// drawn**: "displayed in color or as bold characters", the colour
+    /// replacing it as xterm's `veryBoldColors` default of 0 has it (Jev,
+    /// 1.00 both orders). A reversed cell whose background is default, or
+    /// any under colorAttrMode, takes colorRV as its background and is not
+    /// exchanged, so its text keeps its colour on a colorRV page, as xterm
+    /// draws it: `setExtendedBG` gives it colorRV (`[[source:
+    /// xterm-reset]]`'s file 1140-1150) and `ReverseOrHilite`, false for a
+    /// reversed cell outside the selection while colorRVMode is on
+    /// (`[[source: xterm-ptyx-h]]` 1603-1607), keeps `updatedXtermGC` from
+    /// the exchange. A reversed cell with a background of its own keeps
+    /// its exchange outside colorAttrMode, as the manual's "displayed only
+    /// when no ANSI colors have been set" reads, where xterm's
+    /// `ReverseOrHilite` drops it on every reversed cell (`[[source:
+    /// xterm-man]]`, colorAttrMode). `special` gives
+    /// each colour's word, which the renderer gives as the text
+    /// foreground's colour where none is set (Jev's lean, 0.32 and 0.28).
+    pub fn apply(self, style: StyleWord, special: impl Fn(SpecialColor) -> ColorWord) -> StyleWord {
+        if self == ColorModes::NONE {
+            return style;
+        }
+        let attr = self.has(ColorMode::Attr);
+        let a = style.attrs();
+        let mut out = style;
+        if attr || style.fg().is_default() {
+            let took = [
+                (SpecialColor::Blink, Attrs::BLINKS),
+                (SpecialColor::Bold, Attrs::BOLD),
+                (SpecialColor::Underline, Attrs::UNDERLINES),
+                (SpecialColor::Italic, Attrs::ITALIC),
+            ]
+            .into_iter()
+            .find(|&(c, family)| self.has(c.mode()) && a.bits() & family.bits() != 0);
+            if let Some((c, family)) = took {
+                out = out.with_fg(special(c)).with_attrs(a.without(family));
+            }
+        }
+        if (attr || style.bg().is_default())
+            && self.has(ColorMode::Reverse)
+            && a.has(Attrs::REVERSE)
+        {
+            out = out
+                .with_bg(special(SpecialColor::Reverse))
+                .with_attrs(out.attrs().without(Attrs::REVERSE));
+        }
+        out
+    }
+}
+
+/// One `c ; f` of an `OSC 6` or `OSC 106`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ColorModeSet {
+    /// "enable the corresponding color mode if nonzero, disable it if zero".
+    Mode(ColorMode, ModeChange),
+    /// A `c` no mode has: ignored, as xterm's "unknown colorXXMode".
+    Unknown,
+    /// A field that is no number, or a `c` with no `f`, and the last item:
+    /// xterm's walk breaks there (`[[source: xterm-misc]]` 4201-4224).
+    Malformed,
+}
+
+/// The `c ; f` pairs of an `OSC 6` or `OSC 106`, walked as xterm's
+/// `OSC_ColorMode` arm walks them: an empty field before a `;` is 0, a
+/// field that is no number ends the walk, and so does a `c` with no `f`
+/// after it. "If no parameters are given, this control has no effect"
+/// (`[[source: ctlseqs]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ColorModeSets<'a> {
+    rest: &'a [u8],
+    walk: Walk,
+}
+
+impl ColorModeSets<'_> {
+    /// One number at the head of `rest`, as xterm reads it: a `;` there is
+    /// an empty field, 0, and is passed; else digits, and the `;` after
+    /// them if there is one; anything else is no number.
+    fn number(&mut self) -> Option<u16> {
+        if let Some(r) = self.rest.strip_prefix(b";") {
+            self.rest = r;
+            return Some(0);
+        }
+        let n = self.rest.iter().take_while(|b| b.is_ascii_digit()).count();
+        if n == 0 {
+            return None;
+        }
+        let v = self.rest[..n].iter().fold(0u16, |v, &b| {
+            v.saturating_mul(10).saturating_add(u16::from(b - b'0'))
+        });
+        self.rest = &self.rest[n..];
+        if let Some(r) = self.rest.strip_prefix(b";") {
+            self.rest = r;
+        }
+        Some(v)
+    }
+}
+
+impl Iterator for ColorModeSets<'_> {
+    type Item = ColorModeSet;
+    fn next(&mut self) -> Option<ColorModeSet> {
+        if self.walk == Walk::Done || self.rest.is_empty() {
+            return None;
+        }
+        let (Some(c), Some(f)) = (self.number(), self.number()) else {
+            self.walk = Walk::Done;
+            return Some(ColorModeSet::Malformed);
+        };
+        self.walk = Walk::Going;
+        Some(match ColorMode::of_code(c) {
+            Some(m) if f != 0 => ColorModeSet::Mode(m, ModeChange::Set),
+            Some(m) => ColorModeSet::Mode(m, ModeChange::Reset),
+            None => ColorModeSet::Unknown,
+        })
+    }
+}
+
 /// Which dynamic colour an `OSC 10`-family sequence names. Five of xterm's
 /// ten: the text's two, the cursor's (`12`), and the selection's two, the
 /// highlight background (`17`) and foreground (`19`), each drawn by the
@@ -924,26 +1179,36 @@ const MAX_COLORS: u16 = 261;
 /// number at all.
 enum Index {
     Entry(Chan),
-    Special,
+    Special(SpecialColor),
     Past,
     Bad,
 }
+
+/// Where xterm's special colours begin in `OSC 4`'s numbering: "adding the
+/// maximum number of colors (e.g., 88 or 256) to these codes"
+/// (`[[source: ctlseqs]]`); `OSC 5` and `OSC 105` count from 0.
+const SPECIAL_BASE: u16 = 256;
 
 impl Index {
     /// Digits, however many: `0001` is 1, as xterm's `atoi` and `strtol`
     /// read it (`[[source: xterm-misc]]` 3001, 3064). A sign, a space or any
     /// other byte is no number, the grammar's `c` being one.
-    fn of(s: &[u8]) -> Index {
+    fn of(s: &[u8], base: u16) -> Index {
         if s.is_empty() || !s.iter().all(u8::is_ascii_digit) {
             return Index::Bad;
         }
-        let v = s.iter().fold(0u16, |v, &b| {
-            v.saturating_mul(10).saturating_add(u16::from(b - b'0'))
-        });
+        let v = s
+            .iter()
+            .fold(0u16, |v, &b| {
+                v.saturating_mul(10).saturating_add(u16::from(b - b'0'))
+            })
+            .saturating_add(base);
         match u8::try_from(v) {
             Ok(i) => Index::Entry(Chan::from_u8(i)),
-            Err(_) if v < MAX_COLORS => Index::Special,
-            Err(_) => Index::Past,
+            Err(_) => match SpecialColor::of_code(v.saturating_sub(SPECIAL_BASE)) {
+                Some(c) if v < MAX_COLORS => Index::Special(c),
+                _ => Index::Past,
+            },
         }
     }
 }
@@ -962,11 +1227,14 @@ enum Walk {
 pub enum ColorPair<'a> {
     /// Entry `index` set to, or with [`XColor::Query`] asked for, `spec`.
     Entry { index: Chan, spec: XColor<'a> },
-    /// One of xterm's special colours, `256 + c` ("The special colors can
-    /// also be set by adding the maximum number of colors ... to these codes
-    /// in an OSC 4 control", `[[source: ctlseqs]]`), which baud does not
-    /// keep. The walk goes on past it, as xterm's does.
-    Special,
+    /// One of xterm's special colours, `256 + c` in an `OSC 4` ("The
+    /// special colors can also be set by adding the maximum number of colors
+    /// ... to these codes in an OSC 4 control", `[[source: ctlseqs]]`), or
+    /// `c` in an `OSC 5`, set to or asked for by `spec`.
+    Special {
+        which: SpecialColor,
+        spec: XColor<'a>,
+    },
     /// A pair off the grammar -- an index that is no number or lies past
     /// the special colours, an index with no spec, or no pair at all -- and
     /// the last item: xterm's walk will "quit on any error"
@@ -983,6 +1251,7 @@ pub enum ColorPair<'a> {
 pub struct ColorPairs<'a> {
     rest: &'a [u8],
     walk: Walk,
+    base: u16,
 }
 
 impl<'a> Iterator for ColorPairs<'a> {
@@ -998,7 +1267,7 @@ impl<'a> Iterator for ColorPairs<'a> {
         };
         let used = c.len() + 1 + spec.len();
         self.rest = self.rest.get(used + 1..).unwrap_or(&[]);
-        let item = match Index::of(c) {
+        let item = match Index::of(c, self.base) {
             Index::Entry(index) => {
                 let spec = XColor::parse(spec);
                 if !matches!(spec, XColor::Unresolved(_)) {
@@ -1006,9 +1275,12 @@ impl<'a> Iterator for ColorPairs<'a> {
                 }
                 ColorPair::Entry { index, spec }
             }
-            Index::Special => {
-                self.walk = Walk::Going;
-                ColorPair::Special
+            Index::Special(which) => {
+                let spec = XColor::parse(spec);
+                if !matches!(spec, XColor::Unresolved(_)) {
+                    self.walk = Walk::Going;
+                }
+                ColorPair::Special { which, spec }
             }
             Index::Past | Index::Bad => ColorPair::Malformed,
         };
@@ -1085,8 +1357,8 @@ impl<'a> Iterator for DynamicSpecs<'a> {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ColorReset {
     Entry(Chan),
-    /// One of xterm's special colours, which baud does not keep.
-    Special,
+    /// One of xterm's special colours.
+    Special(SpecialColor),
     /// A number past the special colours: ignored, as xterm's
     /// `ResetOneAnsiColor` ignores it (`[[source: xterm-misc]]` 3036-3046),
     /// and the walk goes on, so `104;1;999;2` resets 1 and 2.
@@ -1103,6 +1375,7 @@ pub enum ColorReset {
 pub struct ColorResets<'a> {
     rest: &'a [u8],
     walk: Walk,
+    base: u16,
 }
 
 impl ColorResets<'_> {
@@ -1122,9 +1395,9 @@ impl Iterator for ColorResets<'_> {
         self.walk = Walk::Going;
         let c = Split::new(self.rest, b';').next().unwrap_or(b"");
         self.rest = self.rest.get(c.len() + 1..).unwrap_or(&[]);
-        Some(match Index::of(c) {
+        Some(match Index::of(c, self.base) {
             Index::Entry(i) => ColorReset::Entry(i),
-            Index::Special => ColorReset::Special,
+            Index::Special(which) => ColorReset::Special(which),
             Index::Past => ColorReset::Past,
             Index::Bad => {
                 self.walk = Walk::Done;
@@ -1153,6 +1426,21 @@ impl<'a> Osc<'a> {
             b"4" => Osc::SetColors(ColorPairs {
                 rest,
                 walk: Walk::Start,
+                base: 0,
+            }),
+            b"5" => Osc::SetSpecials(ColorPairs {
+                rest,
+                walk: Walk::Start,
+                base: SPECIAL_BASE,
+            }),
+            b"105" => Osc::ResetSpecials(ColorResets {
+                rest,
+                walk: Walk::Start,
+                base: SPECIAL_BASE,
+            }),
+            b"6" | b"106" => Osc::ColorModes(ColorModeSets {
+                rest,
+                walk: Walk::Start,
             }),
             b"10" | b"11" | b"12" | b"13" | b"14" | b"15" | b"16" | b"17" | b"18" | b"19" => {
                 Osc::SetDynamic(DynamicSpecs {
@@ -1169,6 +1457,7 @@ impl<'a> Osc<'a> {
             b"104" => Osc::ResetColors(ColorResets {
                 rest,
                 walk: Walk::Start,
+                base: 0,
             }),
             b"8" => {
                 // `OSC 8 ; params ; URI`. The params field carries `id=...`

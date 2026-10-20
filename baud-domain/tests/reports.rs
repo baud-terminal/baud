@@ -556,6 +556,18 @@ fn report_encodings_fit() {
             b't',
         ),
         (
+            "special colour by OSC 4",
+            Report::SpecialColor {
+                which: SpecialColor::Italic,
+                via: SpecialVia::Palette,
+                r: 0xff,
+                g: 0xff,
+                b: 0xff,
+                term: StringTerm::St,
+            },
+            b'\\',
+        ),
+        (
             "dynamic colour",
             Report::DynamicColor {
                 which: DynamicColor::Background,
@@ -710,6 +722,7 @@ fn report_encodings_fit() {
             | Report::AreaChecksum { .. }
             | Report::Color { .. }
             | Report::DynamicColor { .. }
+            | Report::SpecialColor { .. }
             | Report::ModeStatus { .. }
             | Report::MouseSgr(_)
             | Report::MouseX10(_)

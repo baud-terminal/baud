@@ -336,6 +336,11 @@ struct Snapshot {
     /// XTQMODKEYS' and XTQFMTKEYS' answers for every key-modifier resource,
     /// which only `Term::key` reads, asked after everything above.
     key_resources: Vec<u8>,
+    /// xterm's five special colours and their modes, which only a
+    /// rendition resolved for drawing reads, and `OSC 22`'s pointer.
+    special: Vec<Option<(u8, u8, u8)>>,
+    color_modes: ColorModes,
+    pointer: Option<PointerShape>,
 }
 
 /// A prepared terminal: one palette entry set, text on two rows, and the
@@ -351,8 +356,8 @@ struct Snapshot {
 /// clears bold, underline, blink and reverse, and clearing them from text that
 /// has none changes nothing. modifyCursorKeys and its format are moved off
 /// their first values for the same reason: `CSI > 1 m` and `CSI > 1 f` reset
-/// them.
-const PREAMBLE: &[u8] = b"\x1b[>1;3m\x1b[>1;1f\x1b]4;1;rgb:12/34/56\x07\x1b]10;rgb:11/22/33\x07\x1b]11;rgb:44/55/66\x07\x1b]12;rgb:77/88/99\x07\x1b]17;rgb:aa/bb/cc\x07\x1b]19;rgb:dd/ee/ff\x07\x1b[1mh\x1b[mello world\r\nsecond line\r\n\x1b[2;5H";
+/// them. So is special colour 1, which `OSC 105 ; 1` resets.
+const PREAMBLE: &[u8] = b"\x1b[>1;3m\x1b[>1;1f\x1b]5;1;rgb:13/57/9b\x07\x1b]4;1;rgb:12/34/56\x07\x1b]10;rgb:11/22/33\x07\x1b]11;rgb:44/55/66\x07\x1b]12;rgb:77/88/99\x07\x1b]17;rgb:aa/bb/cc\x07\x1b]19;rgb:dd/ee/ff\x07\x1b[1mh\x1b[mello world\r\nsecond line\r\n\x1b[2;5H";
 
 /// Written **after** the form, so that changes which only show on the next cell
 /// are visible.
@@ -408,6 +413,12 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         bells: t.bells,
         images_refused: t.images().images_refused,
         palette: (0..=255u8).map(|i| t.palette(Chan::from_u8(i))).collect(),
+        special: SpecialColor::ALL
+            .iter()
+            .map(|&c| t.special_color(c))
+            .collect(),
+        color_modes: t.color_modes(),
+        pointer: t.pointer_shape(),
         dynamic: [
             t.dynamic_color(DynamicColor::Foreground),
             t.dynamic_color(DynamicColor::Background),

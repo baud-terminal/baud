@@ -4080,6 +4080,20 @@ impl<'b> Term<'b> {
         self.cold.terminal
     }
 
+    /// The special colour `which` as a program set it with `OSC 5` (or
+    /// `OSC 4 ; 256+c`), `None` where none is set: then the text foreground
+    /// draws it. The renderer resolves a rendition through
+    /// [`ColorModes::apply`] with these and [`Term::color_modes`].
+    pub fn special_color(&self, which: SpecialColor) -> Option<(u8, u8, u8)> {
+        self.store.strs.palette[crate::storage::SPECIAL_PALETTE + which.index()].as_rgb()
+    }
+
+    /// Which special-colour modes `OSC 6` and `OSC 106` have on: none at
+    /// power-up and after `RIS`.
+    pub fn color_modes(&self) -> ColorModes {
+        self.store.strs.color_modes
+    }
+
     /// The pointer shape a program asked for with `OSC 22`, "Change pointer
     /// cursor shape to Pt" (`[[source: ctlseqs]]`): one of xterm's 77 names,
     /// or `None` for the embedder's own pointer, which is what an empty or
@@ -4225,6 +4239,7 @@ impl<'b> Term<'b> {
             if overrides == Overrides::Drop {
                 crate::osc::clear_palette(t.store.strs.palette, &mut t.store.style_log);
                 crate::osc::clear_dynamic(&mut t.cold, &mut t.store.style_log);
+                crate::osc::clear_specials(t.store.strs.palette, &mut t.store.style_log);
             }
         });
     }
