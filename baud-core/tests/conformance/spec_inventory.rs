@@ -311,6 +311,8 @@ struct Snapshot {
     icon: Vec<u8>,
     /// The title reports refused, and XTSMTITLE's query modes with them.
     title_reports_refused: TitleReportsRefused,
+    logs_refused: LogsRefused,
+    log_file: Option<Vec<u8>>,
     bells: usize,
     /// A Sixel `DCS ... q` is refused here because the snapshot's terminal has
     /// no image memory, so this counter moving is how a Sixel registers as
@@ -432,6 +434,8 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         title: t.title().to_vec(),
         icon: t.icon_name().to_vec(),
         title_reports_refused: t.title_reports_refused(),
+        logs_refused: t.logs_refused(),
+        log_file: t.log_file().map(<[u8]>::to_vec),
         bells: t.bells,
         images_refused: t.images().images_refused,
         palette: (0..=255u8).map(|i| t.palette(Chan::from_u8(i))).collect(),

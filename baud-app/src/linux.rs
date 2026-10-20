@@ -92,6 +92,8 @@ struct Driver {
     /// What the child is owed and the kernel has not taken: every write goes
     /// through it, in order (`pty.rs`).
     outbox: Outbox,
+    /// A program's log (`?46`, `OSC 46`), written off this thread.
+    hostlog: crate::hostlog::HostLog,
     /// The last page-width request seen (`width.rs`): this driver keeps its
     /// window and says so once.
     widths: crate::width::Widths,
@@ -236,6 +238,7 @@ pub fn run() {
     crate::host::set_widths(&mut term, cfg.vs16_width, cfg.ambiguous_width);
     crate::host::set_checksum(&mut term, cfg.checksum);
     crate::host::set_window_ops(&mut term, cfg.window_ops);
+    crate::host::set_logging(&mut term, cfg.logging);
     term.set_initial_cursor_style(baud_core::CursorStyle::of(
         cfg.cursor_shape,
         cfg.cursor_blink.power_on(),
@@ -284,6 +287,7 @@ pub fn run() {
         renderer,
         pty,
         outbox: Outbox::default(),
+        hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
         widths,
         frame: Vec::new(),
         stride: Px::of(0),
@@ -306,7 +310,7 @@ pub fn run() {
         crate::warn!("wayland: {e}");
         return;
     }
-    loop {
+    'run: loop {
         // The loop wakes for a held key's next repeat as well as for the
         // synchronised update's cap and a flash's end, whichever is sooner --
         // each only while it is ahead. One already reached is owed a frame,
@@ -372,29 +376,29 @@ pub fn run() {
             Ok(r) => r,
             Err(e) => {
                 crate::warn!("poll: {e}");
-                return;
+                break 'run;
             }
         };
         if compositor == Ready::Readable {
             match d.conn.receive() {
                 Ok(0) => {
                     crate::err!("the compositor closed the connection");
-                    return;
+                    break 'run;
                 }
                 Ok(_) => {}
                 Err(e) => {
                     crate::warn!("wayland: {e}");
-                    return;
+                    break 'run;
                 }
             }
             if let Err(e) = d.conn.dispatch(&mut d.window) {
                 crate::warn!("wayland: {e:?}");
-                return;
+                break 'run;
             }
         }
         if pty == Ready::Readable {
             match d.pty.read_chunk() {
-                Chunk::Closed => return,
+                Chunk::Closed => break 'run,
                 Chunk::Bytes(bytes) => d.feed(&bytes),
             }
         }
@@ -461,7 +465,7 @@ pub fn run() {
                 Event::PasteAbandoned(_) => crate::warn!(
                     "paste: the selection's owner sent nothing for two seconds; nothing was pasted"
                 ),
-                Event::Closed => return,
+                Event::Closed => break 'run,
             }
         }
         // The step the macOS display link takes a tick, here a turn; its
@@ -475,12 +479,51 @@ pub fn run() {
         d.present();
         if let Err(e) = d.conn.flush() {
             crate::warn!("wayland: {e}");
-            return;
+            break 'run;
         }
     }
+    // **The session's end, however it came**: the log writes what the
+    // last reads queued before the process ends (`HostLog::quit`).
+    d.quit_log();
 }
 
 impl Driver {
+    /// **The log finished before the process ends**: the writer drops its
+    /// end of a socket pair once everything before it is written and the
+    /// file closed, and this one wait wakes for that or for the bound. No
+    /// frame is owed by then; the compositor's socket waits.
+    fn quit_log(&mut self) {
+        let (mine, theirs) = match std::os::unix::net::UnixStream::pair() {
+            Ok(pair) => pair,
+            Err(e) => {
+                crate::warn!("log: no socket to hear the writer finish: {e}");
+                return;
+            }
+        };
+        let mut theirs = Some(theirs);
+        loop {
+            let end = theirs.take();
+            if self.hostlog.quit(Instant::now(), move || drop(end)) == crate::hostlog::Finished::Yes
+            {
+                return;
+            }
+            let left = self
+                .hostlog
+                .quit_by()
+                .map(|by| by.saturating_duration_since(Instant::now()));
+            if let Err(e) = wait(
+                mine.as_fd(),
+                mine.as_fd(),
+                crate::pty::Owed::Nothing,
+                &[],
+                left,
+            ) {
+                crate::warn!("poll: {e}");
+                return;
+            }
+        }
+    }
+
     /// Whether the cursor blinks now: a style that asks to, the keyboard, and
     /// a cursor on the screen (`caret.rs`).
     fn blinks(&self) -> Blinks {
@@ -503,7 +546,8 @@ impl Driver {
         // **A program's `OSC 52` copy is acted on read by read**, as the
         // macOS pump does: the core keeps only the last write it finished.
         // **A program's page width is refused and said once** (`width.rs`):
-        // nothing here resizes the window, so the read is not held either.
+        // nothing here resizes the window, so no width request holds the
+        // read; a change of `?46` does, and the feed logs each part.
         let widths = &mut self.widths;
         let (clips, window, conn, osc52) = (
             &mut self.clips,
@@ -535,6 +579,7 @@ impl Driver {
                 asked.extend_from_slice(t.window_requests());
                 t.clear_window_requests();
             },
+            &mut self.hostlog,
         );
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.

@@ -2813,11 +2813,7 @@ impl Paint<'_, '_> {
     // ---- margins and columns -------------------------------------------
 
     /// Ask the embedder for a page width, and under [`WidthHold::On`] stop
-    /// the read after this control: the parser goes to `Node::Held`, whose
-    /// every byte is the rest of the read, and the node it was in is the
-    /// one the rest goes on from. **Only the first request in a sequence
-    /// saves it**: a second, in `CSI ? 3 ; 3 h`, finds the parser already
-    /// `Held`, and saving that would park the rest for good. The first
+    /// the read after this control ([`Paint::hold_read`]). The first
     /// request since power-on or `RIS` also notes the grid's width, which
     /// `RIS` asks back for.
     pub(crate) fn ask_width(&mut self, w: PageWidth, node: &mut crate::graph::Node) {
@@ -2828,11 +2824,22 @@ impl Paint<'_, '_> {
             a.home = Some(self.cols);
         }
         if a.hold == WidthHold::On {
-            if *node != crate::graph::Node::Held {
-                a.resume = *node;
-            }
-            *node = crate::graph::Node::Held;
+            self.hold_read(node);
         }
+    }
+
+    /// Stop the read after this control: the parser goes to `Node::Held`,
+    /// whose every byte is the rest of the read, for the embedder to feed
+    /// (`Term::take_held`), and the node it was in is the one the rest goes
+    /// on from. **Only the first stop in a sequence saves it**: a second,
+    /// in `CSI ? 3 ; 3 h`, finds the parser already `Held`, and saving that
+    /// would park the rest for good. A page-width request stops here, and
+    /// a change of `?46` (`crate::logging`).
+    pub(crate) fn hold_read(&mut self, node: &mut crate::graph::Node) {
+        if *node != crate::graph::Node::Held {
+            self.cold.width.resume = *node;
+        }
+        *node = crate::graph::Node::Held;
     }
 
     /// DECSCPP, `CSI Pn $ |`: the width asked for and nothing else here.
@@ -3112,8 +3119,10 @@ impl Paint<'_, '_> {
                 return;
             };
             // A mode with a slot that is not recognized now -- a Sixel mode
-            // while DA does not list Sixel -- is counted, as its save was.
-            if self.private_state(m) == ModeState::NotRecognized {
+            // while DA does not list Sixel -- or is permanent now -- `?46`
+            // while the embedder has logging off -- is counted, as its save
+            // was.
+            if !matches!(self.private_state(m), ModeState::Set | ModeState::Reset) {
                 self.unsupported_param += 1;
                 return;
             }
@@ -3428,6 +3437,8 @@ impl Paint<'_, '_> {
                 self.rehook();
             }
             PrivateMode::PopOnBell => self.cold.modes.apply(ModeBit::PopOnBell, on),
+            // **`?46` starts and stops the embedder's log** (`logging.rs`).
+            PrivateMode::Logging => self.set_logging_mode(change, node),
             // `?1001` is the fifth level: "The remaining five modes of the
             // mouse protocols are each enabled (or disabled) by a different
             // parameter", exclusive with the other four (`[[source:
@@ -4459,6 +4470,7 @@ impl Paint<'_, '_> {
             },
             // xterm answers the flag, `MdBool(screen->marginbell)`
             // (`[[source: xterm-misc]]` 5579-5580).
+            PrivateMode::Logging => self.strs.log.state(),
             PrivateMode::MarginBell => match self.cold.bell.switch {
                 baud_domain::MarginBell::On => ModeState::Set,
                 baud_domain::MarginBell::Off => ModeState::Reset,

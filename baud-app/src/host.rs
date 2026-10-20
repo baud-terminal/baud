@@ -320,6 +320,14 @@ pub fn set_window_ops(term: &mut baud_core::Term<'_>, ops: baud_domain::WindowOp
     term.set_window_ops(ops);
 }
 
+/// Tell the core whether a program may log what it sends (`?46`, `OSC
+/// 46`), from `[screen] logging`. One function for both drivers, called
+/// after `Term::new` and before the first feed; each driver writes the log
+/// through `hostlog::HostLog`, which its one feed is handed.
+pub fn set_logging(term: &mut baud_core::Term<'_>, logging: baud_domain::Logging) {
+    term.set_logging(logging);
+}
+
 /// Tell the core what the theme draws the default foreground and background
 /// as, so `OSC 10 ; ?` and `OSC 11 ; ?` answer on a fresh terminal -- the
 /// query every theme-aware program sends to learn whether it is on a light
@@ -798,6 +806,65 @@ mod tests {
         assert_eq!(
             include_str!("app.rs")
                 .matches("window_ops: cfg.window_ops,")
+                .count(),
+            1,
+            "macOS carries it from the config"
+        );
+    }
+
+    /// **`[screen] logging` reaches the core, from both drivers, and each
+    /// hands its log to its one feed.** By default `?46 h` starts a log,
+    /// with `"off"` it is refused and counted. The drivers' calls are held
+    /// in the source, as the window operations' are.
+    #[test]
+    fn the_logging_setting_reaches_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (text, want) in [
+            ("", baud_core::LogMode::Started),
+            ("[screen]\nlogging = \"off\"\n", baud_core::LogMode::Stopped),
+        ] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_logging(&mut t, cfg.logging);
+            feed(&mut t, b"\x1b[?46h");
+            assert_eq!(t.log_mode(), want, "{text:?}");
+        }
+        const CALL: &str = concat!("crate::host::", "set_logging(&mut term, ");
+        for (driver, src, arg, log) in [
+            (
+                "macOS",
+                include_str!("app.rs"),
+                "logging);",
+                "            hostlog,\n        );",
+            ),
+            (
+                "Linux",
+                include_str!("linux.rs"),
+                "cfg.logging);",
+                "            &mut self.hostlog,\n        );",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+            assert_eq!(
+                src.matches(log).count(),
+                1,
+                "{driver} hands its feed the log"
+            );
+        }
+        assert_eq!(
+            include_str!("app.rs")
+                .matches("logging: cfg.logging,")
                 .count(),
             1,
             "macOS carries it from the config"

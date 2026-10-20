@@ -72,12 +72,36 @@ pub enum Osc<'a> {
     Allowed(AllowQuery),
     /// `OSC 22 ; Pt`: the pointer's shape, [`PointerRequest`].
     Pointer(PointerRequest),
+    /// `OSC 46 ; Pt` -- "Change Log File to Pt" (`[[source: ctlseqs]]`):
+    /// [`LogFile`].
+    LogFile(LogFile<'a>),
     /// `OSC 3 ; prop=value` -- "Set X property on top-level window. Pt
     /// should be in the form \"prop=value\", or just \"prop\" to delete
     /// the property" (`[[source: ctlseqs]]`): [`XProperty`].
     SetProperty(XProperty<'a>),
     /// Recognised as an OSC and not acted on.
     Unsupported,
+}
+
+/// What an `OSC 46` names: a file, or one of the two `Pt`s xterm takes for
+/// none -- `?`, at which it rings the bell twice and changes nothing, and
+/// an empty one, which its `do_osc` drops for want of data (`[[source:
+/// xterm-misc]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LogFile<'a> {
+    Name(&'a [u8]),
+    Query,
+    Empty,
+}
+
+impl<'a> LogFile<'a> {
+    pub fn parse(pt: &'a [u8]) -> LogFile<'a> {
+        match pt {
+            b"" => LogFile::Empty,
+            b"?" => LogFile::Query,
+            name => LogFile::Name(name),
+        }
+    }
 }
 
 /// What an `OSC 3` asks of a property: split at the first `=`, as
@@ -1496,6 +1520,7 @@ impl<'a> Osc<'a> {
             }
             b"133" => Osc::Semantic(Semantic::parse(rest)),
             b"3" => Osc::SetProperty(XProperty::parse(rest)),
+            b"46" => Osc::LogFile(LogFile::parse(rest)),
             b"22" if rest.is_empty() => Osc::Pointer(PointerRequest::Default),
             b"22" => Osc::Pointer(match PointerShape::of(rest) {
                 Some(shape) => PointerRequest::Shape(shape),

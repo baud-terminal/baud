@@ -664,10 +664,11 @@ impl ColumnRefusals {
     }
 }
 
-/// The part of a read a page-width request held back under
-/// [`WidthHold::On`]: where it starts in the arena and how long it is, which
-/// [`Term::feed`] takes once the embedder has resized. Empty when the request
-/// was the read's last byte.
+/// The part of a read held back -- by a page-width request under
+/// [`WidthHold::On`], or a change of `?46` while logging is on
+/// ([`Term::set_logging`]): where it starts in the arena and how long it is,
+/// which [`Term::feed`] takes once the embedder has resized or started or
+/// stopped its log. Empty when the request was the read's last byte.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Rest {
     pub at: BytePos,
@@ -3499,6 +3500,52 @@ impl<'b> Term<'b> {
         self.store.strs.properties_dropped
     }
 
+    /// **Whether a program may log what it sends** (`?46` and `OSC 46`,
+    /// `crate::logging`): `Off` until the embedder says `On`, which it does
+    /// only if it writes the log -- the bytes of each part of a read fed
+    /// while [`Term::log_mode`] was `Started` -- and feeds the rest of a read
+    /// [`Term::take_held`] hands back, since a read stops at each change.
+    /// Off, both are refused and counted, and `DECRQM ?46` answers `4`. No
+    /// sequence changes it, `RIS` included. Turned off while a log is
+    /// started, the log stops.
+    pub fn set_logging(&mut self, l: baud_domain::Logging) {
+        let log = &mut self.store.strs.log;
+        log.setting = l;
+        if l == baud_domain::Logging::Off {
+            log.mode = baud_domain::LogMode::Stopped;
+        }
+    }
+
+    /// What [`Term::set_logging`] last set.
+    pub fn logging(&self) -> baud_domain::Logging {
+        self.store.strs.log.setting
+    }
+
+    /// Whether `?46` has a log started.
+    pub fn log_mode(&self) -> baud_domain::LogMode {
+        self.store.strs.log.mode
+    }
+
+    /// The file `OSC 46` named, as sent, or `None` before one, when the
+    /// embedder logs to a name of its own, as xterm generates one.
+    pub fn log_file(&self) -> Option<&[u8]> {
+        self.store.strs.log.name()
+    }
+
+    /// **The embedder could not log**: the file did not open, or a write
+    /// failed. The log stops, so `DECRQM ?46` answers that it is reset, as
+    /// xterm's `StartLog` leaves logging off when its open fails (Jev,
+    /// REQUESTED_THEN_CLEARED, 0.98/0.82).
+    pub fn stop_log(&mut self) {
+        self.store.strs.log.mode = baud_domain::LogMode::Stopped;
+    }
+
+    /// The logging requests refused: with logging off, a start naming a
+    /// command, and an `OSC 46` naming no file.
+    pub fn logs_refused(&self) -> crate::logging::LogsRefused {
+        self.store.strs.log.refused
+    }
+
     /// **The rows a change of width dropped from the oldest end of the
     /// history**, summed over every resize since `Term::new`: a re-cut to a
     /// narrower width makes each line longer in rows, and what no longer
@@ -3654,8 +3701,9 @@ impl<'b> Term<'b> {
         self.cold.width.hold = hold;
     }
 
-    /// The rest of the last read, if a page-width request held it: `None`
-    /// when the read was parsed whole. Taken once; the next read clears it.
+    /// The rest of the last read, if a page-width request or a change of
+    /// `?46` held it: `None` when the read was parsed whole. Taken once; the
+    /// next read clears it.
     pub fn take_held(&mut self) -> Option<Rest> {
         self.cold.width.held.take()
     }

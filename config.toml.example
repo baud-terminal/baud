@@ -264,9 +264,18 @@ trail_scroll = "ride"
 # way. "on" by default; "off" leaves every request unanswered. A program
 # can ask one cell at a time and so read back what is on the screen,
 # including what other programs printed there; "off" stops that.
+#
+# logging: whether a program can log everything it sends to a file it names
+# (xterm's CSI ? 46 h and OSC 46). "on" by default: the file is appended to,
+# and only one you own that no one else may write; with no name the log is
+# baud.log.<host>.<date and time, UTC>.<pid> where the shell started, and a
+# relative name is read from there. A program on the other end of an ssh
+# connection, or a file you cat, can otherwise append to any such file,
+# your shell's startup files included; "off" stops that.
 [screen]
 transition = false
 checksum = "on"
+logging = "on"
 
 # How output scrolls the screen: "normal" jumps it up in one step, "smooth"
 # slides it. "smooth" by default -- the slide is bounded to one row so a fast

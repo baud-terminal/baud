@@ -177,13 +177,14 @@ pub enum Node {
     Vt52Utf8TwoAfterEd,
     Vt52Utf8ThreeAfterF0,
     Vt52Utf8ThreeAfterF4,
-    /// **After a page-width request, under `WidthHold::On`: the read stops
-    /// here.** Every byte is `Act::Hold`, which consumes the rest of the
-    /// read and leaves it for the embedder to feed once it has resized
+    /// **After a page-width request, under `WidthHold::On`, or a change of
+    /// `?46` while logging is on: the read stops here.** Every byte is
+    /// `Act::Hold`, which consumes the rest of the read and leaves it for the
+    /// embedder to feed once it has resized or started or stopped its log
     /// (`Term::take_held`), and sets the node the request's sequence left
     /// -- the edge's `AfterControl` is overwritten, as a DECANM beside the
     /// request leaves VT52's. The request's dispatch puts the parser here --
-    /// `?3` under `?40`, DECSCPP -- so the loop's step and the `CSI` paths
+    /// `?3` under `?40`, DECSCPP, `?46` -- so the loop's step and the `CSI` paths
     /// are the ones every sequence takes; a node costs one row of a table,
     /// where a stop tested after each dispatch costs the dispatch. Last in
     /// the enum, so no other node's index moves.

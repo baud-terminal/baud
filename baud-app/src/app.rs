@@ -458,6 +458,8 @@ struct App {
     /// queue that fills is retried on the clock the loop already has, and
     /// the window never waits in `write(2)` for a child that is not reading.
     outbox: Outbox,
+    /// A program's log (`?46`, `OSC 46`), written off this thread.
+    hostlog: crate::hostlog::HostLog,
     frame: Vec<u32>,
     frame_w: Px,
     frame_h: Px,
@@ -697,6 +699,8 @@ struct Boot {
     /// Whether a program's window operations are performed, from `[window]
     /// operations`.
     window_ops: baud_domain::WindowOps,
+    /// Whether a program may log what it sends, from `[screen] logging`.
+    logging: baud_domain::Logging,
     /// How many columns an ambiguous character takes, from `[text]
     /// ambiguous_width`.
     ambiguous_width: baud_domain::AmbiguousWidth,
@@ -855,6 +859,7 @@ impl Boot {
             vs16_width: cfg.vs16_width,
             checksum: cfg.checksum,
             window_ops: cfg.window_ops,
+            logging: cfg.logging,
             ambiguous_width: cfg.ambiguous_width,
             clipboard: cfg.clipboard,
             bell: cfg.bell,
@@ -898,6 +903,7 @@ impl App {
             vs16_width,
             checksum,
             window_ops,
+            logging,
             ambiguous_width,
             clipboard,
             bell: bell_style,
@@ -1060,6 +1066,7 @@ impl App {
         crate::host::set_widths(&mut term, vs16_width, ambiguous_width);
         crate::host::set_checksum(&mut term, checksum);
         crate::host::set_window_ops(&mut term, window_ops);
+        crate::host::set_logging(&mut term, logging);
         term.set_initial_cursor_style(cursor);
         let bell = Bell::new(&term, crate::bell::LENGTH);
         let ringer = crate::bell::Ringer::new(&term);
@@ -1087,6 +1094,7 @@ impl App {
             waker,
             pty,
             outbox: Outbox::default(),
+            hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
             frame: vec![0; slots(frame_w) * slots(frame_h)],
             frame_w,
             frame_h,
@@ -6218,6 +6226,7 @@ mod motion_tests {
                     t.clear_"#,
             r#"window_requests();
                 },
+                hostlog,
             );
             self.app.pty.follow("#,
             r#"self.app.term.input_encoding());
@@ -6956,12 +6965,13 @@ impl Driver {
         // **And its page width at the request**: the read stopped there, the
         // grid takes the columns before the rest is parsed, and the rest of
         // the app follows after the batch (`width.rs`, `program_resized`).
-        let (term, trace, outbox, clips, widths) = (
+        let (term, trace, outbox, clips, widths, hostlog) = (
             &mut self.app.term,
             &mut self.app.trace,
             &mut self.app.outbox,
             &mut self.app.clips,
             &mut self.app.widths,
+            &mut self.app.hostlog,
         );
         let osc52 = self.app.clipboard.osc52;
         let host = self.app.sizing.host();
@@ -6985,6 +6995,7 @@ impl Driver {
                 asked.extend_from_slice(t.window_requests());
                 t.clear_window_requests();
             },
+            hostlog,
         );
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.
@@ -7171,9 +7182,18 @@ impl Driver {
         }
         self.app.flush_reply();
         if drained.stream == Stream::Closed {
-            // The child is gone: the window has nothing left to show.
-            if let Some(mtm) = MainThreadMarker::new() {
-                NSApplication::sharedApplication(mtm).terminate(None);
+            // The child is gone: the window has nothing left to show, once
+            // the log has written what this read and the ones before it
+            // queued. Asked on the first turn after the close; the writer
+            // wakes the loop when it is done, and the tick looks for the
+            // bound (`HostLog::quit`).
+            let waker = self.app.waker;
+            if self.app.hostlog.quit(Instant::now(), move || waker.wake())
+                == crate::hostlog::Finished::Yes
+            {
+                if let Some(mtm) = MainThreadMarker::new() {
+                    NSApplication::sharedApplication(mtm).terminate(None);
+                }
             }
         }
         if self.app.pending != Pending::Dirty {
@@ -10419,6 +10439,7 @@ mod tests {
                 |t| {
                     resized = honour(widths.poll(t, host), t).or(resized);
                 },
+                &mut crate::hostlog::NoLog,
             );
             assert_eq!(resized, want, "{host:?}");
             let row = t.row(baud_core::Row::ZERO).expect("row 0");
@@ -10452,7 +10473,13 @@ mod tests {
             let mut s = baud_core::Owned::new(&room);
             let mut t = Term::new(s.storage(), &small);
             t.set_width_hold(baud_core::WidthHold::On);
-            crate::reads::feed(&mut t, [&lines[..]], |_| {}, |_| {});
+            crate::reads::feed(
+                &mut t,
+                [&lines[..]],
+                |_| {},
+                |_| {},
+                &mut crate::hostlog::NoLog,
+            );
             t.set_window_back(Rows::of_count(5));
             assert_eq!(t.window_back().index(), 5, "the control: five up");
             let mut widths = Widths::new(&t);
@@ -10463,6 +10490,7 @@ mod tests {
                 |t| {
                     let _ = honour(widths.poll(t, host), t);
                 },
+                &mut crate::hostlog::NoLog,
             );
             assert_eq!(t.window_back().index(), want, "{host:?}");
         }
@@ -10497,6 +10525,7 @@ mod tests {
             |t| {
                 resized = honour(widths.poll(t, Host::Window), t).or(resized);
             },
+            &mut crate::hostlog::NoLog,
         );
         assert_eq!(resized, Some(Grid { cols: 80, rows: 10 }));
         let Ring::Retired(n) = live_moved(&t, before) else {

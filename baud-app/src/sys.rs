@@ -537,6 +537,22 @@ unsafe extern "C" {
     pub fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
 }
 
+// **The log's checks and its generated name** (`hostlog.rs`): xterm
+// refuses a log file the real user does not own (`open_userfile`,
+// `[[source: xterm-misc]]`), and names one by the host when none is
+// given. `uid_t` is a 32-bit unsigned on Darwin and on Linux.
+pub type Uid = u32;
+
+unsafe extern "C" {
+    pub fn getuid() -> Uid;
+    pub fn gethostname(name: *mut c_char, len: NameLen) -> c_int;
+}
+
+/// The room `gethostname` is given for the name: a `size_t`.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct NameLen(pub usize);
+
 // **Freed image pages back to the system** (`pages.rs`). The page size is
 // asked, never assumed: 16 KiB on this Mac and 4 KiB on most Linux, and
 // `madvise` rounds a length up, so a page assumed too small would zero a
@@ -639,6 +655,7 @@ mod tests {
 #include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/types.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -692,6 +709,8 @@ int main(void) {
     printf("AT_FDCWD=%lld\n", (long long)AT_FDCWD);
     printf("MAP_SHARED=%lld\n", (long long)MAP_SHARED);
     printf("size_t.size=%zu\n", sizeof(size_t));
+    printf("uid_t.size=%zu\n", sizeof(uid_t));
+    printf("uid_t.signed=%d\n", (uid_t)-1 < 0);
     printf("PROT_READ=%lld\n", (long long)PROT_READ);
     printf("MAP_PRIVATE=%lld\n", (long long)MAP_PRIVATE);
     printf("MAP_FAILED=%lld\n", (long long)(intptr_t)MAP_FAILED);
@@ -808,6 +827,9 @@ int main(void) {
         assert_eq!(h["termios.cc"], offset_of!(Termios, c_cc) as i128);
         assert_eq!(h["tcflag.size"], size_of::<TcFlag>() as i128);
         assert_eq!(h["size_t.size"], size_of::<MapLen>() as i128);
+        assert_eq!(h["size_t.size"], size_of::<NameLen>() as i128);
+        assert_eq!(h["uid_t.size"], size_of::<Uid>() as i128);
+        assert_eq!(h["uid_t.signed"], 0, "uid_t is unsigned");
         #[cfg(target_os = "macos")]
         {
             assert_eq!(h["locale_t.size"], size_of::<Locale>() as i128);

@@ -127,6 +127,31 @@ pub enum WindowOps {
     Off,
 }
 
+/// Whether a program may log what it sends to a file: xterm's `?46`,
+/// "Start logging", and `OSC 46`, "Change Log File to Pt" (`[[source:
+/// ctlseqs]]`). The embedder's, since only it writes files: `Off` in a core
+/// no embedder told, and in the app `On` by default, the owner's call of
+/// 2026-10-20, with `Off` refusing both, counted, as xterm's `logInhibit`
+/// "prevent[s] the logging feature from being enabled" (`[[source:
+/// xterm-man]]`). A program on the other end of the line, a remote one
+/// included, can otherwise append what it sends to any file the user owns
+/// that no one else may write.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum Logging {
+    On,
+    #[default]
+    Off,
+}
+
+/// Whether `?46` has started logging: the mode's state, which `DECRQM`
+/// reports and XTSAVE keeps.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum LogMode {
+    Started,
+    #[default]
+    Stopped,
+}
+
 /// One dimension of a resize, as ctlseqs reads it for `CSI 4 t` and `CSI 8
 /// t`: "Omitted parameters reuse the current height or width. Zero
 /// parameters use the display's height or width."

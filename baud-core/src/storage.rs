@@ -470,6 +470,9 @@ pub struct StrBuf<'b> {
     /// The `OSC 3` properties dropped (`Term::properties_dropped`): here
     /// for the reason `window_asks` is.
     pub(crate) properties_dropped: crate::window::PropertiesDropped,
+    /// xterm's logging: the setting, `?46`'s mode and `OSC 46`'s name
+    /// (`crate::logging`). Here for the reason `window_asks` is.
+    pub(crate) log: crate::logging::Logger,
     /// The special-colour modes `OSC 6` and `OSC 106` turn on
     /// (`Term::color_modes`), the colours being in `palette`: here rather
     /// than in `Cold`, whose size is pinned, as `clip` is; written by those
@@ -540,6 +543,7 @@ impl<'b> StrBuf<'b> {
             colors: crate::stack::ColorStack::EMPTY,
             window_asks: crate::window::WindowAsks::NONE,
             properties_dropped: crate::window::PropertiesDropped::FIRST,
+            log: crate::logging::Logger::NONE,
             color_modes: ColorModes::NONE,
             shell: crate::prompt::Shell::FRESH,
             shell_other: crate::prompt::Shell::FRESH,
@@ -814,6 +818,7 @@ impl Owned {
                 colors: crate::stack::ColorStack::EMPTY,
                 window_asks: crate::window::WindowAsks::NONE,
                 properties_dropped: crate::window::PropertiesDropped::FIRST,
+                log: crate::logging::Logger::NONE,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
@@ -873,6 +878,7 @@ impl Owned {
                 colors: crate::stack::ColorStack::EMPTY,
                 window_asks: crate::window::WindowAsks::NONE,
                 properties_dropped: crate::window::PropertiesDropped::FIRST,
+                log: crate::logging::Logger::NONE,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,

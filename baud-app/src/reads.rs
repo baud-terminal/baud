@@ -32,13 +32,21 @@ use baud_domain::{DecodeBudget, DecodeProgress};
 /// under `WidthHold::On`): `after` sees the core at the request, resizes it
 /// if it honours one, and the rest of the read is fed after -- so a program
 /// that asks for 132 columns and draws in the same read draws at 132.
+///
+/// **And a program's log** (`hostlog.rs`): the core stops a read at each
+/// change of `?46` too, so each part is handed to `log` if the core was
+/// logging when it was fed, and `log` follows the core after it -- the
+/// bytes from the one after `?46 h` up to the end of `?46 l`, as xterm
+/// logs them.
 pub fn feed<'r>(
     term: &mut Term<'_>,
     reads: impl IntoIterator<Item = &'r [u8]>,
     mut sink: impl FnMut(&[u8]),
     mut after: impl FnMut(&mut Term<'_>),
+    log: &mut impl crate::hostlog::Tee,
 ) {
     owed(term, &mut sink);
+    log.follow(term);
     for bytes in reads {
         term.write_at(BytePos::ZERO, bytes);
         let mut next = Some(Rest {
@@ -46,9 +54,15 @@ pub fn feed<'r>(
             len: ReadLen::from_index(bytes.len()),
         });
         while let Some(r) = next {
+            let logging = term.log_mode();
             term.feed(r.at, r.len);
             owed(term, &mut sink);
             next = term.take_held();
+            if logging == baud_core::LogMode::Started {
+                let end = next.map_or(r.at.index() + r.len.index(), |n| n.at.index());
+                log.take(&bytes[r.at.index()..end]);
+            }
+            log.follow(term);
             after(term);
         }
     }
@@ -140,6 +154,53 @@ mod tests {
     use baud_core::{Owned, READ_CHUNK, REPLY, WinSize};
     use std::time::Duration;
 
+    /// A log that keeps each part it is handed, and the core's mode each
+    /// time it was told to follow it.
+    #[derive(Default)]
+    struct Parts {
+        parts: Vec<Vec<u8>>,
+        follows: Vec<baud_core::LogMode>,
+    }
+
+    impl crate::hostlog::Tee for Parts {
+        fn take(&mut self, part: &[u8]) {
+            self.parts.push(part.to_vec());
+        }
+        fn follow(&mut self, t: &mut Term<'_>) {
+            self.follows.push(t.log_mode());
+        }
+    }
+
+    /// **Each part of a read goes to the log by the mode it was fed
+    /// under**: the core stops the read at each `?46` change, so the part
+    /// ending in `?46 h` is not the log's and the one ending in `?46 l` is,
+    /// and the log follows the core before the batch and after every part.
+    #[test]
+    fn each_part_goes_to_the_log_by_the_mode_it_was_fed_under() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        t.set_logging(baud_core::Logging::On);
+        let mut log = Parts::default();
+        feed(
+            &mut t,
+            [&b"a\x1b[?46hb\x1b[?46lc"[..], b"d"],
+            |_| {},
+            |_| {},
+            &mut log,
+        );
+        assert_eq!(log.parts, [b"b\x1b[?46l".to_vec()]);
+        use baud_core::LogMode::{Started, Stopped};
+        assert_eq!(
+            log.follows,
+            [Stopped, Started, Stopped, Stopped, Stopped],
+            "before the batch, and after each of the four parts"
+        );
+    }
+
     const WS: WinSize = WinSize {
         ws_row: 40,
         ws_col: 120,
@@ -193,6 +254,7 @@ mod tests {
             stream.chunks(READ_CHUNK),
             |b| child.extend_from_slice(b),
             |_| {},
+            &mut crate::hostlog::NoLog,
         );
         let answered = child.windows(4).filter(|w| w == b"\x1b]4;").count();
         assert_eq!(answered, 256, "every index is answered");
@@ -223,6 +285,7 @@ mod tests {
             [read.as_slice()],
             |b| child.extend_from_slice(b),
             |_| {},
+            &mut crate::hostlog::NoLog,
         );
         let mut want = b"\x1b[0n".repeat(57);
         want.extend_from_slice(b"\x1b]4;1;rgb:1212/3434/5656\x07");
@@ -257,6 +320,7 @@ mod tests {
                     assert_eq!(t.resize(&room), baud_core::Resized::Ok);
                 }
             },
+            &mut crate::hostlog::NoLog,
         );
         assert_eq!(widths, [120, 132], "at the request, then after the rest");
         let row = t.row(Row::ZERO).expect("row 0");
@@ -330,6 +394,7 @@ mod tests {
             cmd.chunks(READ_CHUNK),
             |b| out.extend_from_slice(b),
             |_| {},
+            &mut crate::hostlog::NoLog,
         );
         let (_, p) = t.images().placements().next().expect("placed at once");
         let image = p.image;

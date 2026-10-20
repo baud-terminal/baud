@@ -315,7 +315,7 @@ impl Term<'_> {
         self.utf8 = utf8;
         self.utf8_min = min;
         self.set_rots(rots);
-        // **What a page-width request held back was not parsed**: it is
+        // **What a hold kept back was not parsed**: it is
         // neither in this read's count nor in its tail, and the feed that
         // takes it counts it (`Term::take_held`).
         let held = self.cold.width.held.map_or(ReadLen::ZERO, |r| r.len);

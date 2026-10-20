@@ -44,6 +44,9 @@ mod embedded;
 mod gesture;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod host;
+// A program's log, written off the read loop (`?46`, `OSC 46`).
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod hostlog;
 // The kitty file mediums' reader, which both drivers lend the core.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod kitty_files;

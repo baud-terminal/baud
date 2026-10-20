@@ -806,6 +806,23 @@ fn start_in(started_by: Parent, parent_env: &[(OsString, OsString)]) -> StartIn 
     }
 }
 
+/// **The directory the shell starts in**, [`start_in`]'s answer for this
+/// process: `HOME` on a Dock or Finder launch, else baud's own working
+/// directory. A program's log with no name, or a relative one, goes here
+/// (`hostlog.rs`), from the shell's point of view at its start (Jev's
+/// leans, GENERATED_START_DIR 0.85/0.72 and START_DIR 0.86/0.58).
+pub fn start_dir() -> std::path::PathBuf {
+    let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    match start_in(Parent::of_this_process(), &env) {
+        StartIn::Home(home) => {
+            std::path::PathBuf::from(std::ffi::OsStr::from_bytes(home.as_bytes()))
+        }
+        StartIn::Inherited => {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("/"))
+        }
+    }
+}
+
 /// **The child's `PWD` names where it starts.** `PWD` "shall represent an
 /// absolute pathname of the current working directory"
 /// (`[[source: posix-xbd-8]]`). A child sent home would inherit a `PWD`
@@ -2573,16 +2590,17 @@ mod tests {
                 .expect("a statement after the feed");
             assert_eq!(next, follow);
         };
-        // Each callback ends draining the window requests.
-        let end = "t.clear_window_requests();\n            },\n        );\n";
+        // Each callback ends draining the window requests, and the log is
+        // the feed's last argument.
+        let end = "t.clear_window_requests();\n            },\n";
         next_after(
             include_str!("app.rs"),
-            end,
+            &format!("{end}            hostlog,\n        );\n"),
             "self.app.pty.follow(self.app.term.input_encoding());",
         );
         next_after(
             include_str!("linux.rs"),
-            end,
+            &format!("{end}            &mut self.hostlog,\n        );\n"),
             "self.pty.follow(self.term.input_encoding());",
         );
     }

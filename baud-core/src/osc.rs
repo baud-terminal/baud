@@ -772,6 +772,13 @@ impl Paint<'_, '_> {
                 };
             }
             Osc::SetProperty(p) => self.set_property(p),
+            Osc::LogFile(f) => self.log_file(
+                f,
+                match n >= OSC_MAX {
+                    true => crate::logging::Body::Cut,
+                    false => crate::logging::Body::Whole,
+                },
+            ),
             Osc::Unsupported => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;

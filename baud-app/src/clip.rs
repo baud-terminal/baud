@@ -386,6 +386,7 @@ mod tests {
                     board.push(s.to_string());
                 }
             },
+            &mut crate::hostlog::NoLog,
         );
         assert_eq!(board, ["first", "second"]);
         assert_eq!(clips.written.value(), 2);

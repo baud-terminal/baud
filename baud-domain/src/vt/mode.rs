@@ -473,6 +473,10 @@ pub enum PrivateMode {
     /// `?44`: "Turn on margin bell, xterm" (`[[source: ctlseqs]]`), one of
     /// the margin bell's two switches ([`MarginBell`]).
     MarginBell,
+    /// `?46`: "Start logging (XTLOGGING), xterm", and reset "Stop logging"
+    /// (`[[source: ctlseqs]]`): the host's bytes appended to the file
+    /// `OSC 46` names ([`LogMode`]).
+    Logging,
     /// `?1048`: "Save cursor as in DECSC", and reset "Restore cursor as in
     /// DECRC" (`[[source: ctlseqs]]`). An action, not a state: `DECRQM`
     /// answers whether a cursor is saved.
@@ -1072,6 +1076,7 @@ impl PrivateMode {
             PrivateMode::MoreFix => 53,
             PrivateMode::Scrollbar => 54,
             PrivateMode::MarginBell => 55,
+            PrivateMode::Logging => 56,
             // XTSAVE of `?1048` saves the cursor rather than a value, as
             // xterm's `savemodes` does (`Paint::save_private_modes`).
             PrivateMode::SaveCursor
@@ -1109,6 +1114,7 @@ impl PrivateMode {
             30 => PrivateMode::Scrollbar,
             41 => PrivateMode::MoreFix,
             44 => PrivateMode::MarginBell,
+            46 => PrivateMode::Logging,
             1047 => PrivateMode::AltScreenClearing,
             1048 => PrivateMode::SaveCursor,
             69 => PrivateMode::LeftRightMargin,

@@ -77,7 +77,7 @@ none the table says so.
 | `CSI Ps SP t` DECSWBV, `CSI Ps SP u` DECSMBV | built 2026-10-20 | the VT520 manual pp. 5-154 and 5-138: off, low, high, 0 read as DEC reads it | their rows | **built**: `bell_volume.rs`; on macOS low sounds as high, their rows' gap |
 | `CSI Ps q` DECLL | counted | ctlseqs line 1536: light or put out Num, Caps and Scroll Lock | none | **the owner's**, beside note AH's title-bar lights |
 | `?1050`-`?1053`, `?1060`, `?1061` | counted | ctlseqs DECSET `1 0 5 0` to `1 0 6 1`: the termcap, Sun, HP, SCO, legacy and VT220 keyboards | the VT220 table is `out` in `docs/input-coverage.md` | **ask Jev**: each is a key encoding, and the owner's rule asks for protocols whole |
-| `CSI Ps i`, `CSI ? Ps i` MC, `?18`, `?19`, `?43`-`?46` | counted | ctlseqs lines 1047-1054 and DECSET `1 8` to `4 6`: printing and logging | none | **keep refused** where it writes a file (`?46`, `CSI 10 i`, `CSI 11 i`, which a remote program could aim at the user's disk); **the owner's** for a printer |
+| `CSI Ps i`, `CSI ? Ps i` MC, `?18`, `?19`, `?43`-`?46` | counted | ctlseqs lines 1047-1054 and DECSET `1 8` to `4 6`: printing and logging | none | `?46` **built** 2026-10-20, the owner's call (below), with `[screen] logging` to turn it off; **keep refused** `CSI 10 i` and `CSI 11 i`, which write a file; **the owner's** for a printer |
 | `OSC 22`, `OSC 13`/`14`/`113`/`114` | counted | ctlseqs lines 2118 and 2128: the pointer's shape and colours | none | **ask Jev**: AppKit has named pointer shapes and no recoloured pointer |
 | `OSC 50` | counted | ctlseqs line 2137: set or query the font | none | **ask Jev**: a program changing the user's font |
 | `DCS + Q` XTGETXRES | counted | ctlseqs line 510: the value of an X resource | none | **ask Jev**: baud has no X resources, and its configuration is not theirs |
@@ -95,7 +95,7 @@ none the table says so.
 | `?41` | counted | ctlseqs: "more(1) fix (see curses resource)"; xterm's `TabNext` wraps a pending wrap before a tab under it (`[[source: xterm-tabs-c]]` 113-118) | the `?41` row | **built** 2026-10-20: `more_fix.rs` |
 | `OSC 3` | built 2026-10-20 | ctlseqs: "Set X property on top-level window" | the `OSC 3` row | **built**, the owner's call of 2026-10-20 (below): the window's and the icon's names mapped, every other property counted (`x_property.rs`) |
 | `OSC 15`/`16`/`18`/`115`/`116`/`118`, `OSC 51` | counted | ctlseqs: the Tektronix window's colours, Emacs's reserve | none | **keep refused**: no Tektronix window, nothing assigned |
-| `OSC 46` | counted | ctlseqs line 2133: the log file's name | none | **keep refused**: a remote program naming a file to write |
+| `OSC 46` | built 2026-10-20 | ctlseqs line 2133: the log file's name | the `OSC 46` row | **built**, the owner's call of 2026-10-20 (below), with `?46` and a setting |
 | `ESC` with an ECMA-48 C1 function: `B` BPH, `C` NBH, `F` SSA, `G` ESA, `I` HTJ, `K` PLD, `L` PLU, `Q` PU1, `R` PU2, `S` STS, `T` CCH, `U` MW, `` ` `` DMI, `a` INT, `b` EMI, `d` CMD | counted | `[[source: ecma48]]` | none | **ask Jev, one at a time**: CCH (the preceding graphic character and CCH itself "are to be ignored") and DMI/EMI (manual input off and on, the keyboard lock baud has as KAM) are small; PLD/PLU need half-line rendering; the rest act on transmission baud does not do |
 | other `ESC` finals in ANSI mode (`0`-`5`, `:`, `;`, `<`, `?`, `@`, `A`, `Y`, `e`-`m`, `p`-`z`, `{`) and in VT52 mode | counted | private or unassigned; every VT52 form ctlseqs lists is acted on | none | **keep**: no function to act on |
 | `CSI` finals no text assigns, and `?`, `>`, `=` forms of the rest | counted (`unsupported_by_final`) | ECMA-48's private finals and unassigned forms | none | **keep** |
@@ -146,8 +146,12 @@ yes , ReGIS - yes". Read against the decisions page's options (TODO.md,
 "DECIDED 2026-10-20"): `OSC 3` is option B, "map the properties with a
 counterpart (window name, icon name), count the rest". The settings take
 the owner's words of 2026-10-19: "i would say on or off, not answer,
-keep it simple" (TODO.md dates this quote OWNER 2026-10-19). This
-overturns this note's "keep refused" for `OSC 3`.
+keep it simple" (TODO.md dates this quote OWNER 2026-10-19). `OSC 46`
+is option B, "log to the file the program names", "built with the
+on/off setting pattern of the window operations, on by default". This
+overturns this note's "keep refused" for both; the one for `OSC 46`
+rested on a remote program naming a file to write, a risk the owner's
+call keeps, behind a setting.
 `OSC 50`, the pointer-hiding mode and ReGIS are recorded by their own
 lanes.
 
@@ -158,3 +162,11 @@ lanes.
   any other name is counted in `Term::properties_dropped`. Refused with
   the window operations, as xterm's `allowWindowOps` gates it (Jev's
   lean, FOLLOWS_WINDOW_OPS, 0.38/0.52).
+- **`?46` and `OSC 46`, built 2026-10-20.** The host's bytes from after
+  `?46 h` to the end of `?46 l`, appended to the named file on a writer
+  thread with xterm's ownership and mode checks (Jev, XTERM_CHECKS
+  1.00/1.00); `-` standard output, `|` refused (XTERM_DEFAULT_BUILD
+  1.00/1.00); no name, a generated one where the shell started, and a
+  relative name read from there (Jev's leans, 0.85/0.72 and 0.86/0.58);
+  `DECRQM ?46` `4` with `[screen] logging = "off"` (PERMANENTLY_RESET
+  0.96/1.00); `RIS` keeps it (RIS_KEEPS 0.98/0.96).

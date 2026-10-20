@@ -59,6 +59,7 @@ mod graph;
 pub use graph::Hist;
 mod kitty;
 mod locator;
+mod logging;
 mod margin;
 mod ops;
 mod osc;
@@ -141,7 +142,7 @@ pub use baud_domain::{ClusterEpoch, ClusterLive, ClusterStore, ClusterSweeps, Re
 pub use baud_domain::{ColorMode, ColorModes, SpecialColor};
 /// The window requests `Term::window_requests` holds, and the setting
 /// `Term::set_window_ops` takes.
-pub use baud_domain::{FullScreen, Maximize, SizeAsk, WindowOps, WindowRequest};
+pub use baud_domain::{FullScreen, LogMode, Logging, Maximize, SizeAsk, WindowOps, WindowRequest};
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
 /// DEC's text locator's vocabulary: what [`Term::locator`] takes.
 pub use baud_domain::{LocatorAt, LocatorButton, LocatorButtons, LocatorInput, LocatorKind};
@@ -154,6 +155,7 @@ pub use baud_domain::{PixelSize, ScreenCoord, ScreenPoint, WindowFacts, WindowSt
 /// A reading of how many `OSC 52` writes have been published.
 pub use clip::ClipboardWrites;
 pub use graph::Node;
+pub use logging::LogsRefused;
 pub use term::{ClickHow, ClickKeys, PromptClick, PromptJump, PromptLine, PromptMark};
 pub use window::{PropertiesDropped, WINDOW_QUEUE, WindowOpsRefused, WindowRequestsDropped};
 

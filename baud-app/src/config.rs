@@ -5,7 +5,7 @@
 //! span lines, and `[section]` headers. baud owns its stack rather than
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
 //! `font_size`, `padding`, `colorspace`, `vs16_width`, `emoji`, `theme`, `bell`,
-//! `[text] ambiguous_width`, `[screen] checksum`, and the eight under
+//! `[text] ambiguous_width`, `[screen] checksum` and `logging`, and the eight under
 //! `[glass]` -- and a key it does not understand is ignored, and said,
 //! rather than fatal, so a newer config does not break an older binary.
 //!
@@ -141,6 +141,13 @@ pub struct Config {
     /// request unanswered. A checksum of one cell at a time reads the screen
     /// back, other programs' output included.
     pub checksum: baud_domain::ChecksumReport,
+    /// `[screen] logging`: whether a program may log what it sends to a
+    /// file it names (xterm's `?46` and `OSC 46`), `"on"` by default (the
+    /// owner's call of 2026-10-20), or `"off"`, which refuses both. A
+    /// program on the other end of the line, a remote one included, can
+    /// otherwise append its output to any file the user owns that no one
+    /// else may write.
+    pub logging: baud_domain::Logging,
     /// `[window] operations`: whether a program's window operations
     /// (XTWINOPS 1-10 and DECSLPP: move, resize, minimise, raise, lower,
     /// maximise, full screen) are performed, `"on"` by default (the owner's
@@ -625,6 +632,7 @@ impl Config {
             blink_interval: BlinkInterval::Default,
             screen_transition: ScreenTransition::Off,
             checksum: baud_domain::ChecksumReport::On,
+            logging: baud_domain::Logging::On,
             window_ops: baud_domain::WindowOps::On,
             scroll: ScrollMode::Smooth,
             trail_scroll: TrailScroll::Ride,
@@ -928,6 +936,19 @@ impl Config {
                                  using on"
                             ));
                             baud_domain::ChecksumReport::On
+                        }
+                    };
+                }
+                ("screen", "logging") => {
+                    self.logging = match value.trim().trim_matches('"') {
+                        "on" => baud_domain::Logging::On,
+                        "off" => baud_domain::Logging::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [screen] logging {other:?} is not on or off; \
+                                 using on"
+                            ));
+                            baud_domain::Logging::On
                         }
                     };
                 }
@@ -2093,6 +2114,31 @@ mod reader {
         );
     }
 
+    /// **A program may log unless `[screen] logging = "off"`** (the owner's
+    /// call of 2026-10-20), quoted or bare; any other value keeps the
+    /// default and says so, and the key is the `[screen]` section's.
+    #[test]
+    fn logging_is_on_unless_turned_off() {
+        use baud_domain::Logging;
+        assert_eq!(Config::defaults().logging, Logging::On);
+        assert_eq!(read("").logging, Logging::On);
+        for off in ["\"off\"", "off"] {
+            let text = format!("[screen]\nlogging = {off}\n");
+            assert_eq!(read(&text).logging, Logging::Off, "{off}");
+        }
+        assert_eq!(read("[screen]\nlogging = \"on\"\n").logging, Logging::On);
+        let mut c = Config::defaults();
+        let said = c.apply("[screen]\nlogging = \"yes\"\n");
+        assert_eq!(c.logging, Logging::On);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("logging"), "{said:?}");
+        assert_eq!(
+            read("logging = \"off\"\n").logging,
+            Logging::On,
+            "not a top-level key"
+        );
+    }
+
     /// **The window operations are performed unless `[window] operations =
     /// "off"`** (the owner's call of 2026-10-19, option 4), quoted or bare;
     /// any other value keeps the default and says so, and the key is the
@@ -2841,10 +2887,11 @@ shadow     = "never"
             "the [screen] section did not land"
         );
         assert!(
-            text.contains("\n[screen]\ntransition = false\nchecksum = \"on\"\n"),
-            "the [screen] checksum"
+            text.contains("\n[screen]\ntransition = false\nchecksum = \"on\"\nlogging = \"on\"\n"),
+            "the [screen] checksum and logging"
         );
         assert_eq!(c.checksum, baud_domain::ChecksumReport::On);
+        assert_eq!(c.logging, baud_domain::Logging::On);
         assert!(
             text.contains("\n[window]\noperations = \"on\"\n"),
             "the [window] operations"
