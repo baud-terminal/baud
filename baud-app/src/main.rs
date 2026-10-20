@@ -46,6 +46,10 @@ mod gesture;
 // run on every platform, and both drivers act on it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod hide;
+// What a program's `OSC 50` does to the font: the faces a name reaches and
+// the size a step lands on, for both drivers.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod fonts;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod host;
 // A program's log, written off the read loop (`?46`, `OSC 46`).

@@ -1,5 +1,6 @@
 //! The terminal's state, and the one borrow the parser holds.
 
+use crate::font::{FontChange, FontsRefused};
 use crate::graph::Node;
 use crate::osc::StrKind;
 use crate::storage::{LINK_MAX, MAX_COLS, MAX_ROWS, Storage};
@@ -3473,6 +3474,60 @@ impl<'b> Term<'b> {
     /// What [`Term::set_window_ops`] last set.
     pub fn window_ops(&self) -> WindowOps {
         self.store.strs.window_asks.ops
+    }
+
+    /// **The family the embedder draws in**, and whether at the size its
+    /// configuration gives: what `OSC 50 ; ?` answers (`crate::font`).
+    /// Told at start-up and after every change the embedder makes, a
+    /// program's or the user's. A name past [`crate::FONT_NAME_MAX`] is
+    /// kept as none, and an untold core leaves the query unanswered.
+    pub fn set_font(&mut self, family: &[u8], size: FontSize) {
+        self.store.strs.fonts.tell(family, size);
+    }
+
+    /// Whether a program's `OSC 50` may change the font: `On`, the default,
+    /// the owner's call of 2026-10-20 (option D), or `Off`, which queues
+    /// none and counts each in [`Term::fonts_refused`]; the query is
+    /// answered either way. The embedder's choice: no sequence changes it,
+    /// `RIS` included.
+    pub fn set_font_changes(&mut self, c: FontChanges) {
+        self.store.strs.fonts.changes = c;
+    }
+
+    /// What [`Term::set_font_changes`] last set.
+    pub fn font_changes(&self) -> FontChanges {
+        self.store.strs.fonts.changes
+    }
+
+    /// **The font changes a program asked for since the last
+    /// [`Term::clear_font_requests`]**, oldest first: a size step, a family
+    /// name, or both, each to be performed whole or not at all. Drain it
+    /// after every read: the queue holds [`crate::FONT_QUEUE`], and one past
+    /// it is dropped and counted in [`Term::fonts_refused`].
+    pub fn font_requests(&self) -> &[FontChange] {
+        self.store.strs.fonts.queued()
+    }
+
+    /// Empty the font requests after performing them.
+    pub fn clear_font_requests(&mut self) {
+        self.store.strs.fonts.clear();
+    }
+
+    /// The `OSC 50` changes that changed nothing: refused here while
+    /// changes were off, naming an entry baud has not (1-7), changing
+    /// nothing, carrying a name too long to be a family, or past a full
+    /// queue; and those the embedder could not make, told through
+    /// [`Term::refuse_font_request`].
+    pub fn fonts_refused(&self) -> FontsRefused {
+        self.store.strs.fonts.refused
+    }
+
+    /// **A queued font change the embedder could not make**, counted in
+    /// [`Term::fonts_refused`] with the core's own: a family it has not
+    /// loaded, or a size step past its bounds, which the core cannot know.
+    /// Every `OSC 50` change that changed nothing is counted in one place.
+    pub fn refuse_font_request(&mut self) {
+        self.store.strs.fonts.refuse();
     }
 
     /// **The window requests a program made since the last

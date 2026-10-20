@@ -148,6 +148,12 @@ trail is off, unless you name a trail here.
 |---|---|---|---|
 | `hide_while_typing` | `"on"`, `"off"` | `"on"` | Whether typing hides the mouse pointer until you move the mouse, as xterm does. With `"on"` it stays visible while a program is using the mouse (vim with mouse support, htop, tmux), so you can still click; `"off"` never hides it. A program can choose differently for itself, and a reset returns to this. |
 
+## [font]
+
+| key | values | default | what it changes |
+|---|---|---|---|
+| `changes` | `"on"`, `"off"` | `"on"` | Whether a program can change the font, as xterm lets it: switch to another of the fonts baud has loaded (the embedded font, which answers to its family name, "Proto Hebrew Mono C" for now -- "JetBrains Mono" does not, as only the styled faces carry it -- or one this file lists), or make the text bigger or smaller a step at a time, within 6-72 points; a step past them is refused, where Bigger and Smaller in the View menu stop at the bound. On Linux, which has no size keys, a step is of the configured pixel size. `"off"` refuses every change. A program can ask which font is in use either way. |
+
 ## [glass]
 
 The window's material and how solid it is. Several of these come in pairs,

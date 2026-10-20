@@ -779,6 +779,7 @@ impl Paint<'_, '_> {
                     false => crate::logging::Body::Whole,
                 },
             ),
+            Osc::Font(req) => self.font_request(req, term),
             Osc::Unsupported => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;
@@ -798,6 +799,11 @@ impl Paint<'_, '_> {
     /// none and does not claim the category. A malformed query is counted.
     fn report_allowed(&mut self, q: AllowQuery, term: StringTerm) {
         let facts = Facts {
+            font: match (self.strs.fonts.known(), self.strs.fonts.changes) {
+                (None, _) => Fonts::Untold,
+                (Some(_), FontChanges::On) => Fonts::Changeable,
+                (Some(_), FontChanges::Off) => Fonts::Fixed,
+            },
             checksum: self.cold.checksum_report,
             window_ops: self.strs.window_asks.ops,
             clipboard: match self.strs.clip_area.is_empty() {
@@ -907,8 +913,9 @@ impl Paint<'_, '_> {
 
 /// Whether baud honours one of xterm's feature subcategories
 /// ([`AllowCategory::subcategories`]): what each refuses is in its own row
-/// of `docs/vt-coverage.md`. Fonts (`OSC 50`) and termcap queries are not
-/// built; of the colours, `SetColor` and `GetColor`, because the pointer
+/// of `docs/vt-coverage.md`. Termcap queries are not built; `OSC 50`'s
+/// query is honoured once the embedder has told the font, and its change
+/// while the embedder has changes on; of the colours, `SetColor` and `GetColor`, because the pointer
 /// colours (`OSC 13`, `14`) and the Tektronix colours (`OSC 15`, `16`,
 /// `18`) are refused, and xterm gates them with the rest of `OSC 10` to
 /// `19` under those two (`AllocateTermColor` and `ReportColorRequest`,
@@ -921,7 +928,12 @@ fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
     match c {
         AllowCategory::ColorOps => sub == b"GetAnsiColor",
         AllowCategory::PasteControls | AllowCategory::TitleOps => true,
-        AllowCategory::FontOps | AllowCategory::TcapOps => false,
+        AllowCategory::FontOps => match sub {
+            b"GetFont" => facts.font != Fonts::Untold,
+            b"SetFont" => facts.font == Fonts::Changeable,
+            _ => false,
+        },
+        AllowCategory::TcapOps => false,
         AllowCategory::MouseOps => true,
         AllowCategory::WindowOps => match sub {
             b"GetWinState"
@@ -944,9 +956,20 @@ fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
 /// What the feature replies read of the terminal's own setup.
 #[derive(Clone, Copy)]
 struct Facts {
+    font: Fonts,
     checksum: ChecksumReport,
     window_ops: WindowOps,
     clipboard: Clipboard,
+}
+
+/// What `OSC 50` can do here: nothing with no font told
+/// (`Term::set_font`), query and change, or query alone while the embedder
+/// has changes off.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fonts {
+    Untold,
+    Changeable,
+    Fixed,
 }
 
 /// Whether the storage has an `OSC 52` area ([`crate::Owned::with_clipboard`]).

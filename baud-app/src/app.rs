@@ -9,8 +9,8 @@ use crate::gesture::{
 };
 use crate::host::{
     FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK,
-    FIRST_TICK_DONE, MAX_GRID, cell_px, describe, host_geometry, load_faces, startup_first,
-    startup_mark, startup_note,
+    FIRST_TICK_DONE, MAX_GRID, cell_px, describe, host_geometry, startup_first, startup_mark,
+    startup_note,
 };
 use crate::keep::{
     Before, Ring, followed, kept_across_resize, numbered, oldest, reset_in, snap_live,
@@ -524,6 +524,9 @@ struct App {
     /// and the config's, which Actual Size returns to.
     font_size: f32,
     font_base: f32,
+    /// The faces a program's `OSC 50` can name and the stacks they lead
+    /// (`fonts.rs`).
+    fonts: crate::fonts::Fonts,
     /// When the last frame was committed, and how far apart the display
     /// link's ticks are: a wake draws at once when a frame's worth of time
     /// has passed, and leaves it to the tick otherwise, so a flood draws
@@ -655,6 +658,10 @@ struct Boot {
     pitch: baud_domain::Stride,
     probe: std::thread::JoinHandle<Option<Gpu>>,
     renderer: Renderer<'static, 'static>,
+    /// The faces a program's `OSC 50` can name.
+    fonts: crate::fonts::Fonts,
+    /// Whether a program may change the font, from `[font] changes`.
+    font_changes: baud_domain::FontChanges,
     /// What the surfaces' bytes mean, from the config.
     space: SurfaceSpace,
     /// The font size in points; pixels are this times the backing scale.
@@ -793,7 +800,9 @@ impl Boot {
             crate::info!("face: {}", f.path);
         }
         crate::info!("{}", crate::host::describe_images(&cfg.images));
-        let faces = load_faces(&cfg);
+        let data = crate::host::map_faces(&cfg);
+        let faces = crate::host::parse_faces(&cfg, &data);
+        let fonts = crate::fonts::Fonts::new(&cfg, data, faces);
         startup_mark("faces");
         // An explicit choice is the palette; `Auto` starts dark and is
         // corrected from the window's own appearance before the first
@@ -841,6 +850,8 @@ impl Boot {
             pitch,
             probe,
             renderer,
+            fonts,
+            font_changes: cfg.font_changes,
             space,
             font_size: cfg.font_size,
             padding: f64::from(cfg.padding),
@@ -884,6 +895,8 @@ impl App {
             pitch,
             probe,
             mut renderer,
+            fonts,
+            font_changes,
             space,
             font_size,
             padding,
@@ -1073,6 +1086,8 @@ impl App {
         crate::host::set_window_ops(&mut term, window_ops);
         crate::host::set_logging(&mut term, logging);
         crate::host::set_pointer_mode(&mut term, pointer_mode);
+        crate::host::set_font_changes(&mut term, font_changes);
+        crate::host::tell_font(&mut term, &fonts, font_size, font_size);
         term.set_initial_cursor_style(cursor);
         let bell = Bell::new(&term, crate::bell::LENGTH);
         let ringer = crate::bell::Ringer::new(&term);
@@ -1131,6 +1146,7 @@ impl App {
             space,
             font_size,
             font_base: font_size,
+            fonts,
             last_commit: Instant::now(),
             interval: Duration::from_micros(8333),
             echo: Echo::Drawn,
@@ -2011,6 +2027,23 @@ impl App {
     /// moves: a pointer, no copy, no allocation, and nothing waits.
     fn rescale(&mut self, px: PxSize) -> Option<()> {
         self.renderer.rescale(px)?;
+        self.rescaled();
+        Some(())
+    }
+
+    /// Another face leads the chain, at `px`: the renderer restacked
+    /// (`Renderer::restack`), then what a rescale owes.
+    fn restack(&mut self, face: crate::fonts::Slot, px: PxSize) -> Option<()> {
+        let built = self.fonts.stack(face)?;
+        let stack = baud_render::Stack::with_roles(built.faces, &built.roles)?;
+        self.renderer.restack(stack, px)?;
+        self.fonts.set(face);
+        self.rescaled();
+        Some(())
+    }
+
+    /// What a new size or stack owes beside the renderer.
+    fn rescaled(&mut self) {
         // The row height changed, so the slide's cap did too; keep an offset
         // in flight a valid fraction of the new row. The Sixel cursor advance
         // divides by the same height, so re-take it here or every image from
@@ -2023,7 +2056,6 @@ impl App {
         if let Some(cell) = self.cell.as_mut() {
             cell.maps.rescaled();
         }
-        Some(())
     }
 
     /// The instrument's `landed` and `shown` legs, from the view's
@@ -6231,6 +6263,8 @@ mod motion_tests {
                     pasteboard("#,
             r#"clips.poll(t, osc52));
                     resized = honour(widths.poll(t, host), t).or(resized);
+                    fonts_asked.extend_from_slice(t.font_requests());
+                    t.clear_font_requests();
                     asked.extend_from_slice(t.window_requests());
                     t.clear_"#,
             r#"window_requests();
@@ -6570,6 +6604,60 @@ enum Deferred {
     /// ring in place; since D4 it reads a copy, and what the wait cost was
     /// the `SIGWINCH` below it -- see `relayout`.
     Zoom(f32),
+    /// A program's change of font (`OSC 50`): the face that leads the
+    /// chain after, if it names one, and the size in points.
+    Font(Option<crate::fonts::Slot>, f32),
+}
+
+/// The change that waits for a frame in flight once `face` at `points`
+/// is asked: a face already waiting is kept when the new change names
+/// none, so a size step after a program's `OSC 50` does not drop its
+/// family.
+fn deferred(waiting: Deferred, face: Option<crate::fonts::Slot>, points: f32) -> Deferred {
+    let face = face.or(match waiting {
+        Deferred::Font(f, _) => f,
+        Deferred::Zoom(_) | Deferred::Nothing => None,
+    });
+    match face {
+        Some(_) => Deferred::Font(face, points),
+        None => Deferred::Zoom(points),
+    }
+}
+
+/// What [`Driver::refont`] does with a change of face and size.
+#[derive(Clone, Copy)]
+enum Refont {
+    /// It changes nothing.
+    Nothing,
+    /// It waits for the frame in flight, in place of what waited.
+    Wait(Deferred),
+    /// It is performed now, restacked to the face if there is one and at
+    /// the size asked.
+    Now(Option<crate::fonts::Slot>),
+}
+
+/// **What a change to `face` at `points` does**, with `waiting` the change
+/// a frame in flight holds back, `reshape` whether one does, `size` the
+/// size in force and `leads` the face in force. A face that already leads
+/// is dropped only when the change is performed: while another waits,
+/// naming the one in force is a change back to it, and the program's
+/// latest request is the one that lands.
+fn refont_step(
+    waiting: Deferred,
+    reshape: Option<Reshape>,
+    face: Option<crate::fonts::Slot>,
+    points: f32,
+    size: f32,
+    leads: impl Fn(crate::fonts::Slot) -> bool,
+) -> Refont {
+    if reshape == Some(Reshape::Wait) {
+        return Refont::Wait(deferred(waiting, face, points));
+    }
+    let face = face.filter(|&f| !leads(f));
+    match points == size && face.is_none() {
+        true => Refont::Nothing,
+        false => Refont::Now(face),
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -6949,6 +7037,7 @@ impl Driver {
             match core::mem::replace(&mut self.deferred, Deferred::Nothing) {
                 Deferred::Nothing => {}
                 Deferred::Zoom(points) => self.zoom(points),
+                Deferred::Font(face, points) => self.refont(face, points),
             }
         }
         self.apply_style();
@@ -6991,6 +7080,8 @@ impl Driver {
         // answers are, so the core's bounded queue never fills across a
         // batch, and performed after the bell (`window_requests`).
         let mut asked = Vec::new();
+        // And its font changes, performed after the read (`fonts.rs`).
+        let mut fonts_asked = Vec::new();
         crate::reads::feed(
             term,
             drained.chunks.iter().map(|chunk| {
@@ -7003,6 +7094,8 @@ impl Driver {
             |t| {
                 pasteboard(clips.poll(t, osc52));
                 resized = honour(widths.poll(t, host), t).or(resized);
+                fonts_asked.extend_from_slice(t.font_requests());
+                t.clear_font_requests();
                 asked.extend_from_slice(t.window_requests());
                 t.clear_window_requests();
             },
@@ -7037,6 +7130,7 @@ impl Driver {
         }
         self.window_requests(&asked);
         self.scrollbar_mode();
+        self.font_requests(&fonts_asked);
         // An image the store refused is said once a pump, by the limit it
         // hit: the count was a total nothing here read, and yazi's previews
         // went blank against the body limit with no word of why.
@@ -7355,20 +7449,8 @@ impl Responder for Driver {
             // `font_size` still names what the renderer is built at, so
             // stepping from it would make every click of a burst aim at
             // the same size and twelve of them arrive as one.
-            "zoomIn:" => {
-                let at = match self.deferred {
-                    Deferred::Zoom(points) => points,
-                    _ => self.app.font_size,
-                };
-                return self.zoom(at + 1.0);
-            }
-            "zoomOut:" => {
-                let at = match self.deferred {
-                    Deferred::Zoom(points) => points,
-                    _ => self.app.font_size,
-                };
-                return self.zoom(at - 1.0);
-            }
+            "zoomIn:" => return self.zoom(self.size_ahead() + 1.0),
+            "zoomOut:" => return self.zoom(self.size_ahead() - 1.0),
             "zoomActual:" => return self.zoom(self.app.font_base),
             _ => {}
         }
@@ -8331,8 +8413,8 @@ pub fn run() {
 
 /// The font sizes a zoom may reach, in points: below six nothing reads,
 /// and past seventy-two a cell is most of a small window.
-const ZOOM_MIN: f32 = 6.0;
-const ZOOM_MAX: f32 = 72.0;
+const ZOOM_MIN: f32 = crate::fonts::SIZE_MIN;
+const ZOOM_MAX: f32 = crate::fonts::SIZE_MAX;
 
 impl Driver {
     /// Typing, and a paste, snap the window back to the live screen, where
@@ -9375,16 +9457,46 @@ impl Driver {
     /// re-laid for the same window, and a frame drawn now. The size is not
     /// written back to the config; Actual Size returns to what it said.
     fn zoom(&mut self, points: f32) {
-        let points = points.clamp(ZOOM_MIN, ZOOM_MAX);
+        self.refont(None, points.clamp(ZOOM_MIN, ZOOM_MAX));
+    }
+
+    /// The size a step is taken from: the one a waiting change will put in
+    /// force, not the one that is. While a zoom waits for a frame in
+    /// flight, `font_size` still names what the renderer is built at, so
+    /// stepping from it would make every click of a burst aim at the same
+    /// size and twelve of them arrive as one.
+    fn size_ahead(&self) -> f32 {
+        match self.deferred {
+            Deferred::Zoom(points) | Deferred::Font(_, points) => points,
+            Deferred::Nothing => self.app.font_size,
+        }
+    }
+
+    /// **A program's font changes** (`OSC 50`), each planned whole against
+    /// the faces loaded and the size bounds (`fonts.rs`) and performed as
+    /// the View menu's zoom is; one that changes nothing is counted in the
+    /// core (`host::plan_font`) and said at info.
+    fn font_requests(&mut self, asked: &[baud_core::FontChange]) {
+        for c in asked {
+            let at = self.size_ahead();
+            let app = &mut self.app;
+            let plan = crate::host::plan_font(&mut app.term, &app.fonts, c, at, app.font_base);
+            if let Some(plan) = plan {
+                self.refont(plan.face, plan.points);
+            }
+        }
+    }
+
+    /// The font led by `face`, or the one in force, at `points`: the
+    /// renderer restacked or rescaled, the grid re-laid for the same
+    /// window, the core told, and a frame drawn now.
+    fn refont(&mut self, face: Option<crate::fonts::Slot>, points: f32) {
         if std::env::var_os("BAUD_DEBUG_RESIZE").is_some() {
             eprintln!(
                 "zoom: asked {points}, at {}, busy {:?}",
                 self.app.font_size,
                 self.app.presenter.as_ref().map(Presenter::in_flight)
             );
-        }
-        if points == self.app.font_size {
-            return;
         }
         // The rescale itself is safe mid-flight now: the glyph map is built
         // over the other buffer and the atlas builds a replaced sheet
@@ -9393,18 +9505,42 @@ impl Driver {
         // ring the shader reads. The two have to land together -- a frame
         // drawn at the new cell size against the old column count is neither
         // size -- so the whole step waits for the frame that is reading.
-        if self.app.presenter.as_ref().map(Presenter::reshape) == Some(Reshape::Wait) {
-            self.deferred = Deferred::Zoom(points);
-            return;
-        }
+        let reshape = self.app.presenter.as_ref().map(Presenter::reshape);
+        let fonts = &self.app.fonts;
+        let step = refont_step(
+            self.deferred,
+            reshape,
+            face,
+            points,
+            self.app.font_size,
+            |f| fonts.leads(f),
+        );
+        let face = match step {
+            Refont::Nothing => return,
+            Refont::Wait(d) => {
+                self.deferred = d;
+                return;
+            }
+            Refont::Now(face) => face,
+        };
         let scale = self.app.scale;
         let Some(px) = PxSize::of(points * scale as f32) else {
             return;
         };
-        if self.app.rescale(px).is_none() {
+        let done = match face {
+            Some(f) => self.app.restack(f, px),
+            None => self.app.rescale(px),
+        };
+        if done.is_none() {
             return;
         }
         self.app.font_size = points;
+        crate::host::tell_font(
+            &mut self.app.term,
+            &self.app.fonts,
+            points,
+            self.app.font_base,
+        );
         // Full damage before the relayout, so the frame it draws is the
         // one at the new size: `zoom` used to ask for a second present
         // afterwards, which always found the first still in flight and so
@@ -11270,5 +11406,59 @@ mod scrollbar_mode_tests {
             0,
             "a layout that ignores ?30"
         );
+    }
+}
+
+#[cfg(test)]
+mod deferred_tests {
+    use super::{Deferred, Refont, Reshape, deferred, refont_step};
+
+    /// **A face waiting for a frame survives a size step asked after it**:
+    /// `OSC 50 ; Menlo` and then `#+1` or Bigger while a frame is in flight
+    /// leave both, the step's size and the program's face.
+    #[test]
+    fn a_waiting_face_survives_a_step_after_it() {
+        let slot = |f: Deferred| match f {
+            Deferred::Font(face, p) => (face, p),
+            Deferred::Zoom(p) => (None, p),
+            Deferred::Nothing => (None, 0.0),
+        };
+        let menlo = crate::fonts::Slot::TEST;
+        let after = deferred(Deferred::Font(Some(menlo), 13.0), None, 14.0);
+        assert_eq!(slot(after), (Some(menlo), 14.0));
+        assert!(
+            matches!(deferred(Deferred::Zoom(13.0), None, 14.0), Deferred::Zoom(p) if p == 14.0)
+        );
+        assert!(
+            matches!(deferred(Deferred::Nothing, Some(menlo), 12.0), Deferred::Font(Some(_), p) if p == 12.0)
+        );
+    }
+
+    /// **Naming the face in force replaces a face that waits**: with
+    /// Proto Hebrew Mono C leading at 13 points and a frame in flight,
+    /// `OSC 50 ; STIX Two Math` and then `OSC 50 ; Proto Hebrew Mono C`
+    /// leave Proto leading, and so does `#+1 Proto Hebrew Mono C`, at 14.
+    /// Performed, the face in force is dropped and only the size changes.
+    #[test]
+    fn naming_the_face_in_force_replaces_a_waiting_one() {
+        let (stix, proto) = (crate::fonts::Slot::TEST, crate::fonts::Slot::FIRST);
+        let leads = |f| f == proto;
+        let wait = Some(Reshape::Wait);
+        let stix_waits = Deferred::Font(Some(stix), 13.0);
+        for to in [13.0, 14.0] {
+            let got = refont_step(stix_waits, wait, Some(proto), to, 13.0, leads);
+            assert!(
+                matches!(got, Refont::Wait(Deferred::Font(Some(f), p)) if f == proto && p == to),
+                "at {to}"
+            );
+        }
+        let now = Some(Reshape::Now);
+        let done = |to| refont_step(Deferred::Nothing, now, Some(proto), to, 13.0, leads);
+        assert!(matches!(done(13.0), Refont::Nothing));
+        assert!(matches!(done(14.0), Refont::Now(None)));
+        assert!(matches!(
+            refont_step(Deferred::Nothing, now, Some(stix), 13.0, 13.0, leads),
+            Refont::Now(Some(f)) if f == stix
+        ));
     }
 }

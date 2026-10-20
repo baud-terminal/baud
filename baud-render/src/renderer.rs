@@ -1479,19 +1479,22 @@ pub struct Renderer<'f, 'a> {
     ink_scratch: Vec<VarPoint>,
 }
 
-impl<'f, 'a> Renderer<'f, 'a> {
-    /// A renderer for `cols` by `rows` cells; `None` when the primary face
-    /// yields no cell geometry at `size`.
-    pub fn new(
-        stack: Stack<'f, 'a>,
-        size: PxSize,
-        theme: Theme,
-        blend: Blend,
-        cols: Cols,
-        rows: Rows,
-    ) -> Option<Renderer<'f, 'a>> {
-        let metrics = Metrics::of(stack.primary(), size)?;
-        let scales: Vec<Scale> = stack
+/// What the renderer reads of each face of its stack, built once per
+/// stack: by [`Renderer::new`], and again by [`Renderer::restack`].
+struct PerFace {
+    scales: Vec<Scale>,
+    digests: Vec<Vec<LookupDigest>>,
+    #[cfg(feature = "exceptions")]
+    starters: Vec<Starter>,
+    pairs: Vec<Pairs>,
+    extents: Vec<Option<Count>>,
+    selections: Vec<Selections>,
+    faces: Vec<FaceIx>,
+}
+
+impl PerFace {
+    fn of(stack: &Stack<'_, '_>, size: PxSize) -> PerFace {
+        let scales = stack
             .faces()
             .iter()
             .map(|f| Scale::of(size.value(), f.units_per_em()))
@@ -1530,6 +1533,41 @@ impl<'f, 'a> Renderer<'f, 'a> {
             .collect();
         let selections: Vec<Selections> = stack.faces().iter().map(Selections::of).collect();
         let faces = stack.each().collect();
+        PerFace {
+            scales,
+            digests,
+            #[cfg(feature = "exceptions")]
+            starters,
+            pairs,
+            extents,
+            selections,
+            faces,
+        }
+    }
+}
+
+impl<'f, 'a> Renderer<'f, 'a> {
+    /// A renderer for `cols` by `rows` cells; `None` when the primary face
+    /// yields no cell geometry at `size`.
+    pub fn new(
+        stack: Stack<'f, 'a>,
+        size: PxSize,
+        theme: Theme,
+        blend: Blend,
+        cols: Cols,
+        rows: Rows,
+    ) -> Option<Renderer<'f, 'a>> {
+        let metrics = Metrics::of(stack.primary(), size)?;
+        let PerFace {
+            scales,
+            digests,
+            #[cfg(feature = "exceptions")]
+            starters,
+            pairs,
+            extents,
+            selections,
+            faces,
+        } = PerFace::of(&stack, size);
         let defaults = (theme.fg, theme.bg);
         let mut r = Renderer {
             faces_of: stack.table(),
@@ -1660,6 +1698,47 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.atlas.reset();
         #[cfg(feature = "exceptions")]
         self.singles.clear();
+        self.known = Prev::Unknown;
+        Some(())
+    }
+
+    /// **Another stack of faces at `size`** -- a program's `OSC 50` naming
+    /// another family -- so every table read per face is built again, the
+    /// faces-of table, the cluster memos, the run cache and the atlas
+    /// start over, and the next convert repaints every row: a run cache
+    /// entry names glyph ids of the faces it was shaped in, which a new
+    /// stack renumbers. `None` leaves the renderer as it was, when the new
+    /// primary face cannot be measured at that size.
+    pub fn restack(&mut self, stack: Stack<'f, 'a>, size: PxSize) -> Option<()> {
+        let metrics = Metrics::of(stack.primary(), size)?;
+        let PerFace {
+            scales,
+            digests,
+            #[cfg(feature = "exceptions")]
+            starters,
+            pairs,
+            extents,
+            selections,
+            faces,
+        } = PerFace::of(&stack, size);
+        self.faces_of = stack.table();
+        self.stack = stack;
+        self.scales = scales;
+        self.digests = digests;
+        #[cfg(feature = "exceptions")]
+        {
+            self.starters = starters;
+            self.singles.clear();
+        }
+        self.pairs = pairs;
+        self.extents = extents;
+        self.selections = selections;
+        self.faces = faces;
+        self.cluster_faces = ClusterMemo::new(Question::Face, FaceIx::PRIMARY);
+        self.cluster_covers = ClusterMemo::new(Question::Cover, Cover::Whole);
+        self.cache = RunCache::new();
+        self.metrics = metrics;
+        self.atlas.reset();
         self.known = Prev::Unknown;
         Some(())
     }

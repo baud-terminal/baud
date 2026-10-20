@@ -350,6 +350,16 @@ operations = "on"
 [pointer]
 hide_while_typing = "on"
 
+# Whether a program can change the font (xterm's OSC 50): name one of the
+# faces baud has loaded -- the embedded font, which answers to its family
+# name, "Proto Hebrew Mono C" for now ("JetBrains Mono" does not, as only
+# the styled faces carry it), or a font this file lists above -- or make
+# the text bigger or smaller a step at a time, within 6-72 points (on
+# Linux, of the configured pixel size). "on" by default; "off" refuses
+# every change. A program can ask which font is in use either way.
+[font]
+changes = "on"
+
 # The window's material and how it is dimmed. Every key here is one the
 # macos-liquid-glass example sweeps with a GN_* environment variable -- the
 # content both its examples draw, and what was built as "glassterm". The

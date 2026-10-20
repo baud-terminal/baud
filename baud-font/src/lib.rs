@@ -70,6 +70,7 @@ mod ignorable;
 pub mod ivs;
 mod layout;
 mod morx;
+mod name;
 pub mod outline;
 mod raster;
 mod script;
@@ -97,6 +98,7 @@ pub use layout::{
     Digest, Enabled, FeatureTag, Features, Gdef, GlyphClass, LookupSet, MAX_LOOKUPS, ScriptTag,
 };
 pub use morx::Morx;
+pub use name::Family;
 pub use outline::{Drawn, Flex, FlexDrawn, Sink, Transform};
 pub use raster::{Bounds, Canvas, Extent, Fit, InkBox, Phase, Point, Px, Rasterizer, Scale};
 pub use script::{Bracket, Direction, Pair, PerScript, RunText, Script, Unresolved, resolve};

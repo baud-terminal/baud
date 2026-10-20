@@ -79,6 +79,8 @@ pub enum Osc<'a> {
     /// should be in the form \"prop=value\", or just \"prop\" to delete
     /// the property" (`[[source: ctlseqs]]`): [`XProperty`].
     SetProperty(XProperty<'a>),
+    /// `OSC 50 ; Pt`: "Set Font to Pt", or its query, [`FontRequest`].
+    Font(FontRequest<'a>),
     /// Recognised as an OSC and not acted on.
     Unsupported,
 }
@@ -1526,6 +1528,7 @@ impl<'a> Osc<'a> {
                 Some(shape) => PointerRequest::Shape(shape),
                 None => PointerRequest::Unknown,
             }),
+            b"50" => Osc::Font(FontRequest::parse(rest)),
             b"60" => Osc::Allowed(match payload.len() > ps.len() && !rest.is_empty() {
                 true => AllowQuery::Malformed,
                 false => AllowQuery::Allowed,

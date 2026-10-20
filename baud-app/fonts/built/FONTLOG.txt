@@ -78,8 +78,10 @@ WHAT CHANGED AGAINST STOCK JETBRAINS MONO 2.304
   Cascadia Code is a trademark of the Microsoft group of companies." (OFL-FAQ
   1.1-update7, Q3.7: "Any trademark notices must remain in any derivative fonts").
   nameIDs 8, 9, 11 and 12 are still JetBrains' manufacturer, designers and URLs, and
-  nameID 13 is still JetBrains Mono's OFL sentence. baud reads no name table, so none
-  of this changes what baud draws. The family name is an open call; see below.
+  nameID 13 is still JetBrains Mono's OFL sentence. baud draws nothing from the name
+  table; since 2026-10-20 it reads the family to answer a program that asks which
+  font is in use (xterm's OSC 50), and the answer is this family. The family name
+  is an open call; see below.
 
 
 WHERE THE HEBREW COMES FROM AND WHAT WAS DONE TO IT

@@ -29685,3 +29685,32 @@ bytes  = 15742
 status = "external"
 group  = "J"
 # Fetched 2026-10-20 (lane b121) for XTSMPOINTER on macOS. Read, not copied.
+
+[sources.ms-opentype-name]
+key    = "ms-opentype-name"
+title  = "name -- Naming Table: the record layout, nameID 1 (Font Family name) and 16 (Typographic Family name, 'If name ID 16 is absent, then name ID 1 is considered to be the typographic family name'), the platform and encoding IDs, 'Strings for the Unicode platform must be encoded in UTF-16BE'"
+author = "Microsoft Typography"
+year   = 2026
+venue  = "OpenType specification 1.9.1, learn.microsoft.com"
+url    = "https://learn.microsoft.com/en-us/typography/opentype/spec/name"
+file   = ""
+sha256 = "a211b27cd2c9b3b48b4ca5848eec2296f8c06a30a566d0cd7089e4599b179674"
+bytes  = 88939
+status = "external"
+group  = "J"
+# Fetched 2026-10-20 (lane b121) for OSC 50's family names. Read, not copied:
+# a vendor HTML page whose spec text is a fraction of its chrome.
+
+[sources.urxvt-rxvt7-5865a43]
+key    = "urxvt-rxvt7-5865a43"
+title  = "rxvt-unicode 5865a43, doc/rxvt.7.pod -- OSC 50 'Set fontset to Pt, with the following special values of Pt (rxvt) #+n change up n #-n change down n'"
+author = "Marc Lehmann and the rxvt-unicode contributors (GPL-3.0)"
+year   = 2026
+venue  = "rxvt-unicode @ 5865a43 (the exg/rxvt-unicode mirror)"
+url    = "https://raw.githubusercontent.com/exg/rxvt-unicode/5865a435983be27c8f4a601e7a9920d3a92f102a/doc/rxvt.7.pod"
+file   = ""
+sha256 = "99edae9bba836cd33420da57de43742bc114f6f66d1a380ee8a6fe4914cb5189"
+bytes  = 87028
+status = "external"
+group  = "J"
+# Fetched 2026-10-20 (lane b121). Read, not copied.

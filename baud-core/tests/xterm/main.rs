@@ -14,6 +14,7 @@ mod column_mode;
 mod embedder_modes;
 mod erase_saved_lines;
 mod focus;
+mod font;
 mod highlight;
 mod hyperlinks;
 mod keypad_version;

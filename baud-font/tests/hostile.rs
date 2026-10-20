@@ -149,6 +149,10 @@ fn exercise(data: &[u8]) {
         let _ = face.win_metrics();
         let _ = face.underline();
         let _ = face.pitch();
+        if let Some(f) = face.family() {
+            let _ = f.utf8(&mut [0u8; 64]);
+            let _ = f.matches(b"JetBrains Mono");
+        }
         let count = u32::from(face.glyph_count().value()).min(4096);
         for g in 0..count {
             let g = baud_domain::GlyphId::from_shaper(u16::try_from(g).unwrap());

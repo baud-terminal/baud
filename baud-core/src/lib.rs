@@ -54,6 +54,7 @@ extern crate alloc;
 mod clip;
 mod dcs;
 mod feed;
+mod font;
 mod graph;
 #[cfg(feature = "diag")]
 pub use graph::Hist;
@@ -140,6 +141,9 @@ pub use baud_domain::{ClusterEpoch, ClusterLive, ClusterStore, ClusterSweeps, Re
 /// xterm's special colours and their modes: what [`Term::special_color`]
 /// and [`Term::color_modes`] take and return.
 pub use baud_domain::{ColorMode, ColorModes, SpecialColor};
+/// `OSC 50`'s vocabulary, `baud-domain`'s: what an embedder tells the core
+/// of its font and reads off a queued change.
+pub use baud_domain::{FontChanges, FontSize, SizeStep};
 /// The window requests `Term::window_requests` holds, and the setting
 /// `Term::set_window_ops` takes.
 pub use baud_domain::{FullScreen, LogMode, Logging, Maximize, SizeAsk, WindowOps, WindowRequest};
@@ -154,6 +158,7 @@ pub use baud_domain::{PageWidth, WidthHold, WidthRequest};
 pub use baud_domain::{PixelSize, ScreenCoord, ScreenPoint, WindowFacts, WindowState};
 /// A reading of how many `OSC 52` writes have been published.
 pub use clip::ClipboardWrites;
+pub use font::{FONT_NAME_MAX, FONT_QUEUE, FontChange, FontsRefused};
 pub use graph::Node;
 pub use logging::LogsRefused;
 pub use term::{ClickHow, ClickKeys, PromptClick, PromptJump, PromptLine, PromptMark};

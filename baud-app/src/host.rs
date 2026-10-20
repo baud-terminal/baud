@@ -194,9 +194,15 @@ pub fn stack<'f, 'a>(cfg: &Config, faces: &'f [Face<'a>]) -> baud_render::Stack<
 /// controllable cost; a face that cannot be mapped or parsed is fatal
 /// with its path and the reason (a `CFF2` table that does not read, say),
 /// because a terminal with no font draws nothing.
+#[cfg(test)]
 pub fn load_faces(cfg: &Config) -> &'static [Face<'static>] {
-    let data: Vec<&'static [u8]> = cfg
-        .faces
+    parse_faces(cfg, &map_faces(cfg))
+}
+
+/// The bytes of every face the config names, in its order: compiled in, or
+/// a read-only mapping for the life of the process.
+pub fn map_faces(cfg: &Config) -> Vec<&'static [u8]> {
+    cfg.faces
         .iter()
         .map(|f| match f.from {
             crate::config::FaceFrom::Embedded(bytes) => bytes,
@@ -207,7 +213,11 @@ pub fn load_faces(cfg: &Config) -> &'static [Face<'static>] {
                 bytes
             }
         })
-        .collect();
+        .collect()
+}
+
+/// `data`, which [`map_faces`] read from `cfg`, parsed in `cfg`'s order.
+pub fn parse_faces(cfg: &Config, data: &[&'static [u8]]) -> &'static [Face<'static>] {
     Box::leak(
         data.iter()
             .zip(&cfg.faces)
@@ -326,6 +336,51 @@ pub fn set_window_ops(term: &mut baud_core::Term<'_>, ops: baud_domain::WindowOp
 /// through `hostlog::HostLog`, which its one feed is handed.
 pub fn set_logging(term: &mut baud_core::Term<'_>, logging: baud_domain::Logging) {
     term.set_logging(logging);
+}
+
+/// Tell the core whether a program's `OSC 50` may change the font, from
+/// `[font] changes`. One function for both drivers, called after
+/// `Term::new` and before the first feed.
+pub fn set_font_changes(term: &mut baud_core::Term<'_>, c: baud_domain::FontChanges) {
+    term.set_font_changes(c);
+}
+
+/// Tell the core the family the chain is led by and whether `points` is
+/// `configured`, the config's size, so `OSC 50 ; ?` answers what is drawn:
+/// at start-up and after every change of face or size, a program's or the
+/// View menu's.
+pub fn tell_font(
+    term: &mut baud_core::Term<'_>,
+    fonts: &crate::fonts::Fonts,
+    points: f32,
+    configured: f32,
+) {
+    term.set_font(
+        fonts.family().as_bytes(),
+        crate::fonts::size_of(points, configured),
+    );
+}
+
+/// **What a program's font change does here**, planned against the faces
+/// loaded and the size bounds (`fonts.rs`): the plan, or `None` when it
+/// changes nothing -- a family baud has not loaded or a step past the
+/// bounds -- which is counted in `Term::fonts_refused` with the core's own
+/// refusals and said at info. One function for both drivers.
+pub fn plan_font(
+    term: &mut baud_core::Term<'_>,
+    fonts: &crate::fonts::Fonts,
+    change: &baud_core::FontChange,
+    points: f32,
+    configured: f32,
+) -> Option<crate::fonts::Plan> {
+    match fonts.plan(change, points, configured) {
+        Ok(plan) => Some(plan),
+        Err(why) => {
+            term.refuse_font_request();
+            crate::info!("OSC 50: {change:?} changes nothing: {why:?}");
+            None
+        }
+    }
 }
 
 /// Tell the core when a key hides the pointer at power-on and after `RIS`,
@@ -931,6 +986,103 @@ mod tests {
             );
             assert_eq!(src.matches(key).count(), 1, "{driver} asks at a key");
             assert_eq!(src.matches(read).count(), 1, "{driver} asks after a read");
+        }
+    }
+
+    /// **`[font] changes` and the font in use reach the core, from both
+    /// drivers, and each drains a program's font changes inside its feed
+    /// and performs them through `fonts.rs`.** The config's value handed to
+    /// `set_font_changes` decides whether `OSC 50 ; Menlo` is queued; the
+    /// family `tell_font` gives is what `OSC 50 ; ?` answers. The drivers
+    /// start AppKit or Wayland, so their calls are held in the source.
+    #[test]
+    fn the_font_setting_and_family_reach_the_core_from_both_drivers() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (text, queued) in [("", 1), ("[font]\nchanges = \"off\"\n", 0)] {
+            let mut cfg = crate::config::Config::defaults();
+            assert!(cfg.apply(text).is_empty());
+            let data = super::map_faces(&cfg);
+            let faces = super::parse_faces(&cfg, &data);
+            let fonts = crate::fonts::Fonts::new(&cfg, data, faces);
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_font_changes(&mut t, cfg.font_changes);
+            super::tell_font(&mut t, &fonts, cfg.font_size, cfg.font_size);
+            feed(&mut t, b"\x1b]50;Menlo\x07\x1b]50;?\x07");
+            assert_eq!(t.font_requests().len(), queued, "{text:?}");
+            assert_eq!(t.reply(), b"\x1b]50;Proto Hebrew Mono C\x07", "{text:?}");
+        }
+        for (driver, src, setting, told, drain, perform) in [
+            (
+                "macOS",
+                include_str!("app.rs"),
+                "crate::host::set_font_changes(&mut term, font_changes);",
+                "crate::host::tell_font(&mut term, &fonts, font_size, font_size);",
+                concat!(
+                    "fonts_asked.extend_from_slice(t.font_requests());\n",
+                    "                t.clear_font_requests();"
+                ),
+                concat!(
+                    "crate::host::plan_font(",
+                    "&mut app.term, &app.fonts, c, at, app.font_base)"
+                ),
+            ),
+            (
+                "Linux",
+                include_str!("linux.rs"),
+                "crate::host::set_font_changes(&mut term, cfg.font_changes);",
+                "crate::host::tell_font(&mut term, &fonts, cfg.font_size, cfg.font_size);",
+                concat!(
+                    "fonts_asked.extend_from_slice(t.font_requests());\n",
+                    "                t.clear_font_requests();"
+                ),
+                concat!(
+                    "let (at, base) = (self.font_size, self.font_base);\n",
+                    "            let plan = crate::host::plan_font(",
+                    "&mut self.term, &self.fonts, &c, at, base);"
+                ),
+            ),
+        ] {
+            for needle in [setting, told, drain, perform] {
+                assert_eq!(src.matches(needle).count(), 1, "{driver}: {needle}");
+            }
+        }
+    }
+
+    /// **A change the app cannot make is counted in the core**: a family
+    /// baud has not loaded and a step past the bounds change nothing and
+    /// move `Term::fonts_refused`; one it can make plans and moves nothing.
+    #[test]
+    fn a_change_the_app_cannot_make_is_counted_in_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let cfg = crate::config::Config::defaults();
+        let data = super::map_faces(&cfg);
+        let faces = super::parse_faces(&cfg, &data);
+        let fonts = crate::fonts::Fonts::new(&cfg, data, faces);
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        super::tell_font(&mut t, &fonts, cfg.font_size, cfg.font_size);
+        for (pt, plans) in [
+            (&b"Nowhere Mono"[..], false),
+            (b"#+100", false),
+            (b"#-100", false),
+            (b"#+1", true),
+            (b"Proto Hebrew Mono C", true),
+        ] {
+            feed(&mut t, &[&b"\x1b]50;"[..], pt, b"\x07"].concat());
+            let asked = t.font_requests().to_vec();
+            t.clear_font_requests();
+            assert_eq!(asked.len(), 1, "{pt:?}");
+            let before = t.fonts_refused();
+            let plan = super::plan_font(&mut t, &fonts, &asked[0], cfg.font_size, cfg.font_size);
+            assert_eq!(plan.is_some(), plans, "{pt:?}");
+            assert_eq!(t.fonts_refused() == before, plans, "{pt:?}");
         }
     }
 

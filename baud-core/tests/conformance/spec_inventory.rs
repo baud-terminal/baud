@@ -309,6 +309,10 @@ struct Snapshot {
     shift_escape: ShiftEscape,
     /// XTSMPOINTER, which only the embedder's pointer reads.
     pointer_mode: PointerMode,
+    /// The font changes `OSC 50` queued for the embedder, and those it
+    /// refused.
+    font_requests: Vec<FontChange>,
+    fonts_refused: FontsRefused,
     title: Vec<u8>,
     icon: Vec<u8>,
     /// The title reports refused, and XTSMTITLE's query modes with them.
@@ -435,6 +439,8 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         meta_escape: t.meta_sends_escape(),
         shift_escape: t.shift_escape(),
         pointer_mode: t.pointer_mode(),
+        font_requests: t.font_requests().to_vec(),
+        fonts_refused: t.fonts_refused(),
         title: t.title().to_vec(),
         icon: t.icon_name().to_vec(),
         title_reports_refused: t.title_reports_refused(),

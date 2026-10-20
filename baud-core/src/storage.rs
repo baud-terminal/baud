@@ -473,6 +473,10 @@ pub struct StrBuf<'b> {
     /// xterm's logging: the setting, `?46`'s mode and `OSC 46`'s name
     /// (`crate::logging`). Here for the reason `window_asks` is.
     pub(crate) log: crate::logging::Logger,
+    /// The font the embedder draws in, whether a program may change it and
+    /// the changes queued for the embedder (`crate::font`): here for the
+    /// reason `window_asks` is, only an `OSC 50` reaches it.
+    pub(crate) fonts: crate::font::FontAsks,
     /// The special-colour modes `OSC 6` and `OSC 106` turn on
     /// (`Term::color_modes`), the colours being in `palette`: here rather
     /// than in `Cold`, whose size is pinned, as `clip` is; written by those
@@ -544,6 +548,7 @@ impl<'b> StrBuf<'b> {
             window_asks: crate::window::WindowAsks::NONE,
             properties_dropped: crate::window::PropertiesDropped::FIRST,
             log: crate::logging::Logger::NONE,
+            fonts: crate::font::FontAsks::NONE,
             color_modes: ColorModes::NONE,
             shell: crate::prompt::Shell::FRESH,
             shell_other: crate::prompt::Shell::FRESH,
@@ -819,6 +824,7 @@ impl Owned {
                 window_asks: crate::window::WindowAsks::NONE,
                 properties_dropped: crate::window::PropertiesDropped::FIRST,
                 log: crate::logging::Logger::NONE,
+                fonts: crate::font::FontAsks::NONE,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
@@ -879,6 +885,7 @@ impl Owned {
                 window_asks: crate::window::WindowAsks::NONE,
                 properties_dropped: crate::window::PropertiesDropped::FIRST,
                 log: crate::logging::Logger::NONE,
+                fonts: crate::font::FontAsks::NONE,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,

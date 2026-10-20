@@ -32,12 +32,13 @@ is not.
   2026-10-20 (the `OSC 60` row of `docs/vt-coverage.md`).
 - **Larger, to build** (whole protocols a VT420-class terminal has): the
   DEC locator, the host-writable status line, and xterm's special colours.
-- **Built 2026-10-20, the owner's call of that day:** typing hides the
-  pointer (XTSMPOINTER).
+- **Built 2026-10-20, the owner's calls of that day:** typing hides the
+  pointer (XTSMPOINTER), and a program can ask for and change the font
+  (`OSC 50`).
 - **Decisions needed:** the tertiary DA, the keyboard
   LEDs, the alternate function-key keyboards, printing, pointer shapes
-  and colours, font changes by a program, X resources, rxvt's
-  font-shifting keys, and ECMA-48's C1 functions one at a time.
+  and colours, X resources, rxvt's font-shifting keys, and ECMA-48's C1
+  functions one at a time.
 - **Refusals that stand:** the ones whose reply would be unsafe, would
   give an identity baud does not have, or answer a function no text
   assigns.
@@ -80,7 +81,7 @@ none the table says so.
 | `?1050`-`?1053`, `?1060`, `?1061` | counted | ctlseqs DECSET `1 0 5 0` to `1 0 6 1`: the termcap, Sun, HP, SCO, legacy and VT220 keyboards | the VT220 table is `out` in `docs/input-coverage.md` | **ask Jev**: each is a key encoding, and the owner's rule asks for protocols whole |
 | `CSI Ps i`, `CSI ? Ps i` MC, `?18`, `?19`, `?43`-`?46` | counted | ctlseqs lines 1047-1054 and DECSET `1 8` to `4 6`: printing and logging | none | `?46` **built** 2026-10-20, the owner's call (below), with `[screen] logging` to turn it off; **keep refused** `CSI 10 i` and `CSI 11 i`, which write a file; **the owner's** for a printer |
 | `OSC 22`, `OSC 13`/`14`/`113`/`114` | counted | ctlseqs lines 2118 and 2128: the pointer's shape and colours | none | **ask Jev**: AppKit has named pointer shapes and no recoloured pointer |
-| `OSC 50` | counted | ctlseqs line 2137: set or query the font | none | **ask Jev**: a program changing the user's font |
+| `OSC 50` | built 2026-10-20 | ctlseqs line 2137: set or query the font | the `OSC 50` row | **built** 2026-10-20 on both systems, the owner's call of that day, verbatim: "3 46 and 50 all yes, pointer hiding - yes , ReGIS - yes", taken as option D, set and query, on by default, `[font] changes = "off"` turning changes off; a name resolves to a face baud has loaded (Jev's lean, OWN_FACES, 0.79/0.85), `#+n` and `#-n` step the size (Jev's lean, SIZE_STEPS, 0.22/0.18), a relative query is answered empty (Jev, EMPTY, 0.91/0.91) |
 | `DCS + Q` XTGETXRES | counted | ctlseqs line 510: the value of an X resource | none | **ask Jev**: baud has no X resources, and its configuration is not theirs |
 | `DCS + p` XTSETTCAP | counted | ctlseqs line 535: set a termcap entry | none | **keep refused**: it redefines what a key sends, DECUDK's reason |
 | XTWINOPS 1-10, 24 and up; `CSI Ps * \|` DECSNLS | counted | ctlseqs XTWINOPS; DECSNLS line 1947 | XTWINOPS `out`, DECSNLS none | **the owner's**, already open for XTWINOPS; DECSNLS resizes the window too and goes with it |

@@ -52,8 +52,7 @@ use crate::bell::{Bell, Update, UpdateClock};
 use crate::caret::{Blinks, Caret, Cycle, Gate, NonBlinking, Owes};
 use crate::config::Config;
 use crate::host::{
-    FIRST_PRESENT, MAX_GRID, cell_px, describe, host_geometry, load_faces, startup_first,
-    startup_mark,
+    FIRST_PRESENT, MAX_GRID, cell_px, describe, host_geometry, startup_first, startup_mark,
 };
 use crate::pty::{Chunk, Outbox, Pty, Ready, wait};
 use baud_core::{Focus, Owned, PointerHides, Resized, Term};
@@ -88,6 +87,14 @@ struct Driver {
     window: Window,
     term: Term<'static>,
     renderer: Renderer<'static, 'static>,
+    /// The faces a program's `OSC 50` can name (`fonts.rs`), the size in
+    /// force and the config's, in the pixels this driver draws at, and
+    /// the window's last configured size, which a change of font re-lays
+    /// the grid in.
+    fonts: crate::fonts::Fonts,
+    font_size: f32,
+    font_base: f32,
+    configured: Option<(baud_present_wayland::Px, baud_present_wayland::Px)>,
     pty: Pty,
     /// What the child is owed and the kernel has not taken: every write goes
     /// through it, in order (`pty.rs`).
@@ -179,7 +186,9 @@ pub fn run() {
         crate::info!("face: {}", f.path);
     }
     crate::info!("{}", crate::host::describe_images(&cfg.images));
-    let faces = load_faces(&cfg);
+    let data = crate::host::map_faces(&cfg);
+    let faces = crate::host::parse_faces(&cfg, &data);
+    let fonts = crate::fonts::Fonts::new(&cfg, data, faces);
     startup_mark("faces");
     let geom = host_geometry();
     crate::info!("cache: {}", describe(&geom));
@@ -243,6 +252,8 @@ pub fn run() {
     crate::host::set_window_ops(&mut term, cfg.window_ops);
     crate::host::set_logging(&mut term, cfg.logging);
     crate::host::set_pointer_mode(&mut term, cfg.pointer_mode);
+    crate::host::set_font_changes(&mut term, cfg.font_changes);
+    crate::host::tell_font(&mut term, &fonts, cfg.font_size, cfg.font_size);
     term.set_initial_cursor_style(baud_core::CursorStyle::of(
         cfg.cursor_shape,
         cfg.cursor_blink.power_on(),
@@ -290,6 +301,10 @@ pub fn run() {
         window,
         term,
         renderer,
+        fonts,
+        font_size: cfg.font_size,
+        font_base: cfg.font_size,
+        configured: None,
         pty,
         outbox: Outbox::default(),
         hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
@@ -574,6 +589,8 @@ impl Driver {
         );
         let mut uncopied = Copied::Set;
         let mut asked = Vec::new();
+        // A program's font changes, performed after the read (`fonts.rs`).
+        let mut fonts_asked = Vec::new();
         // The watches on the selection's lines, armed before the read
         // (`keep::Before::watched`).
         let before = self.seat.before_read(&mut self.term);
@@ -593,6 +610,8 @@ impl Driver {
                 if let Some((_, Some(line))) = widths.poll(t, crate::width::Host::NoResize) {
                     crate::warn!("{line}");
                 }
+                fonts_asked.extend_from_slice(t.font_requests());
+                t.clear_font_requests();
                 asked.extend_from_slice(t.window_requests());
                 t.clear_window_requests();
             },
@@ -619,6 +638,13 @@ impl Driver {
         self.hide_pointer(act);
         for r in asked {
             self.window_request(r);
+        }
+        for c in fonts_asked {
+            let (at, base) = (self.font_size, self.font_base);
+            let plan = crate::host::plan_font(&mut self.term, &self.fonts, &c, at, base);
+            if let Some(plan) = plan {
+                self.refont(plan.face, plan.points);
+            }
         }
         self.pending = Pending::Dirty;
         // A refused image is said by the limit it hit, once a read -- the
@@ -915,10 +941,42 @@ impl Driver {
         }
     }
 
+    /// **The font led by `face`, or the one in force, at `points`** (a
+    /// program's `OSC 50`, `fonts.rs`): the renderer restacked or rescaled,
+    /// the core told, and the grid re-laid in the window as a configure
+    /// lays it.
+    fn refont(&mut self, face: Option<crate::fonts::Slot>, points: f32) {
+        let face = face.filter(|&f| !self.fonts.leads(f));
+        if points == self.font_size && face.is_none() {
+            return;
+        }
+        let Some(px) = PxSize::of(points) else {
+            return;
+        };
+        let done = match face {
+            Some(f) => self
+                .fonts
+                .stack(f)
+                .and_then(|b| baud_render::Stack::with_roles(b.faces, &b.roles))
+                .and_then(|stack| self.renderer.restack(stack, px))
+                .map(|()| self.fonts.set(f)),
+            None => self.renderer.rescale(px),
+        };
+        if done.is_none() {
+            return;
+        }
+        self.font_size = points;
+        crate::host::tell_font(&mut self.term, &self.fonts, points, self.font_base);
+        if let Some((w, h)) = self.configured {
+            self.configure(w, h);
+        }
+    }
+
     /// The compositor's size for the window: the grid that fits it, the
     /// core and the renderer resized to that, a fresh frame at the
     /// window's size, and the child told.
     fn configure(&mut self, width: baud_present_wayland::Px, height: baud_present_wayland::Px) {
+        self.configured = Some((width, height));
         let m = self.renderer.metrics();
         // The core advances the cursor past a Sixel by cell rows: give it the
         // height. Set on every configure, which is where a cell size could

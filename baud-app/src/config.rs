@@ -6,7 +6,7 @@
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
 //! `font_size`, `padding`, `colorspace`, `vs16_width`, `emoji`, `theme`, `bell`,
 //! `[text] ambiguous_width`, `[screen] checksum` and `logging`, `[pointer]
-//! hide_while_typing`, and the eight under
+//! hide_while_typing`, `[font] changes`, and the eight under
 //! `[glass]` -- and a key it does not understand is ignored, and said,
 //! rather than fatal, so a newer config does not break an older binary.
 //!
@@ -163,6 +163,12 @@ pub struct Config {
     /// terminal powers on in and `RIS` returns to; a program may still
     /// choose any mode with XTSMPOINTER.
     pub pointer_mode: baud_domain::PointerMode,
+    /// `[font] changes`: whether a program's `OSC 50` may change the font
+    /// -- a family baud has loaded, or a step of the size -- `"on"` by
+    /// default, or `"off"`, which refuses every change; a program can ask
+    /// which font is in use either way (the owner's call of 2026-10-20,
+    /// option D).
+    pub font_changes: baud_domain::FontChanges,
     /// `[scroll] mode`: whether output scrolls the screen up in one jump
     /// (`normal`) or slides it smoothly (`smooth`). `Smooth` by default,
     /// matching sfte -- the slide is bounded to one row so a burst never
@@ -643,6 +649,7 @@ impl Config {
             logging: baud_domain::Logging::On,
             window_ops: baud_domain::WindowOps::On,
             pointer_mode: baud_domain::PointerMode::UnlessTracking,
+            font_changes: baud_domain::FontChanges::On,
             scroll: ScrollMode::Smooth,
             trail_scroll: TrailScroll::Ride,
             glass: Glass::defaults(),
@@ -971,6 +978,18 @@ impl Config {
                                  using on"
                             ));
                             baud_domain::WindowOps::On
+                        }
+                    };
+                }
+                ("font", "changes") => {
+                    self.font_changes = match value.trim().trim_matches('"') {
+                        "on" => baud_domain::FontChanges::On,
+                        "off" => baud_domain::FontChanges::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [font] changes {other:?} is not on or off; using on"
+                            ));
+                            baud_domain::FontChanges::On
                         }
                     };
                 }
@@ -2190,6 +2209,29 @@ mod reader {
         );
     }
 
+    /// **A program may change the font unless `[font] changes = "off"`**,
+    /// quoted or bare; any other value keeps the default and says so.
+    #[test]
+    fn a_program_may_change_the_font_unless_turned_off() {
+        use baud_domain::FontChanges;
+        assert_eq!(Config::defaults().font_changes, FontChanges::On);
+        assert_eq!(read("").font_changes, FontChanges::On);
+        for off in ["\"off\"", "off"] {
+            let text = format!("[font]\nchanges = {off}\n");
+            assert_eq!(read(&text).font_changes, FontChanges::Off, "{off}");
+        }
+        let mut c = Config::defaults();
+        let said = c.apply("[font]\nchanges = \"query\"\n");
+        assert_eq!(c.font_changes, FontChanges::On);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("changes"), "{said:?}");
+        assert_eq!(
+            read("changes = \"off\"\n").font_changes,
+            FontChanges::On,
+            "a top-level key is not the [font] one"
+        );
+    }
+
     /// **A key hides the pointer unless `[pointer] hide_while_typing =
     /// "off"`**, quoted or bare; any other value keeps the default and says
     /// so, and the key is the `[pointer]` section's.
@@ -2952,6 +2994,11 @@ shadow     = "never"
             "the [pointer] hide_while_typing"
         );
         assert_eq!(c.pointer_mode, baud_domain::PointerMode::UnlessTracking);
+        assert!(
+            text.contains("\n[font]\nchanges = \"on\"\n"),
+            "the [font] changes"
+        );
+        assert_eq!(c.font_changes, baud_domain::FontChanges::On);
         assert_eq!(
             c.scroll,
             ScrollMode::Smooth,
