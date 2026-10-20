@@ -729,6 +729,24 @@ fn every_test_named_in_the_docs_exists() {
              DECSED and DECSEL began writing spaces, as DEC STD 070 says; the \
              record cites it where it describes the marked cell's extent",
         ),
+        (
+            "pinned_a_cut_row_of_invisible_blanks_is_revealed_as_content",
+            "a historical name, replaced on 2026-10-20 by \
+             `a_cut_row_of_foreground_only_blanks_is_not_content` when a growth \
+             began to ask a cut row for a written character (note V, V9); the \
+             record and note V cite the old name where they pin the mark's rule",
+        ),
+        (
+            "pinned_a_cut_row_uniform_in_a_visible_colour_is_left_cut",
+            "a historical name, renamed on 2026-10-20 to \
+             `a_cut_row_in_a_colour_alone_is_not_content`, for the same change",
+        ),
+        (
+            "pinned_a_band_past_the_old_edge_goes_with_the_erase_of_its_row",
+            "a historical name, renamed on 2026-10-20 to \
+             `a_band_past_the_old_edge_is_not_content_after_a_width_growth`, for \
+             the same change",
+        ),
     ];
 
     let mut missing = BTreeSet::new();

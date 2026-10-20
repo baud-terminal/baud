@@ -489,6 +489,54 @@ fn a_block_taller_than_the_screen_is_taken_back_from_the_history_on_a_redraw() {
     });
 }
 
+/// **The retreat asks the row it would give up for a written character**,
+/// the test a growth asks a cut row since 2026-10-20 (note V, V9): the
+/// block above as `drag`'s step 146 leaves it, then between the shell's
+/// erase and its mark either nothing, three blanks erased in a red text
+/// colour, or three spaces written on the row the window would give up.
+/// Colour alone is no character and the window takes the block's row back;
+/// the spaces are, and the block is erased where it lies.
+#[test]
+fn the_redraw_retreat_asks_the_row_it_gives_up_for_a_written_character() {
+    fn retained(between: &[u8]) -> usize {
+        let tall = WinSize {
+            ws_col: 40,
+            ws_row: 8,
+        };
+        support::with_term(&tall, |t| {
+            for _ in 0..7 {
+                support::feed(t, b"out\r\n");
+            }
+            let short = WinSize {
+                ws_col: 40,
+                ws_row: 3,
+            };
+            assert_eq!(t.resize(&short), Resized::Ok);
+            support::feed(
+                t,
+                b"\x1b]133;P;k=i\x07line one\r\nline two\r\nline three\r\n$ ",
+            );
+            assert_eq!(t.scrollback().len(), 8);
+            support::feed(t, b"\r\x1b[3A\x1b[J");
+            support::feed(t, between);
+            support::feed(t, b"\x1b[1;1H\x1b]133;P;k=i\x07");
+            assert_eq!(t.prompt_erases, 1, "the redraw mark erased the block");
+            t.scrollback().len()
+        })
+    }
+    assert_eq!(retained(b""), 7, "the control: nothing there, taken back");
+    assert_eq!(
+        retained(b"\x1b[3;1H\x1b[31m\x1b[3X\x1b[0m"),
+        7,
+        "blanks erased in a colour hold no character"
+    );
+    assert_eq!(
+        retained(b"\x1b[3;1H   "),
+        8,
+        "written spaces are characters: the block is erased in place"
+    );
+}
+
 #[test]
 fn a_redraw_of_a_block_taller_than_the_screen_takes_its_rows_back_from_the_history() {
     // The mechanism the fresh-terminal tests need. A block taller than the

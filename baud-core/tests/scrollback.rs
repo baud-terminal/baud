@@ -2485,16 +2485,15 @@ fn growing_past_the_history_shows_blank_rows() {
     });
 }
 
-/// **Which cut rows a growth reveals is decided by the row's mark, and a
-/// mark is not a picture of the row.** The height rule reveals the cut rows
-/// "as far as the last one that holds anything" and pulls history after --
-/// the owner's "pull down to the bottom, and blank-fill only when nothing is
-/// left to pull" -- and it asks a cut row whether it holds anything by
-/// reading its mark. A mark says where a row stops being uniform, which is
-/// neither "shows something" nor its converse, so the test misfires both
-/// ways. The three below are pinned at what the core does, not at what the
-/// rule's words ask: what a cut row has to hold to count is the owner's to
-/// define, it is on the list, and each of these goes red the day it moves.
+/// **A cut row comes back when it holds a written character** (note V, V9,
+/// the owner's B): a space counts and colour alone does not. The height
+/// rule reveals the cut rows "as far as the last one that holds anything"
+/// and pulls history after -- the owner's "pull down to the bottom, and
+/// blank-fill only when nothing is left to pull" -- and until 2026-10-20 it
+/// asked a cut row whether it held anything by reading its mark, which says
+/// where a row stops being uniform: a run of blanks erased in a foreground
+/// colour counted, and a row erased whole in a background did not. It now
+/// asks the test the prompt's retreat asks (`View::ring_row_holds`).
 ///
 /// Sixty numbered lines on the corpus screen (eleven in the history), the
 /// rows below row 25 reshaped by `cut`, the cursor on row 20, a shrink to 25
@@ -2541,34 +2540,53 @@ fn a_growth_reveals_a_cut_row_of_text_before_pulling_history() {
     });
 }
 
-/// **Pinned: a cut row of invisible blanks is revealed as content.** Each cut
-/// row is default blanks and then ten blanks erased in a foreground-only
-/// rendition -- red text colour, default background, no attribute -- which
-/// draw nothing. The mark sits past them, so the row counts, and the growth
-/// shows a row that looks blank while a history line was left to pull.
+/// **A cut row of foreground-only blanks is not content.** Each cut row is
+/// default blanks and then ten blanks erased in a foreground-only rendition
+/// -- red text colour, default background, no attribute -- which hold no
+/// character. The growth pulls a history line. The row's mark sits past the
+/// ten, so until 2026-10-20 the row counted and the growth showed a row
+/// that looks blank while a history line was left to pull.
 #[test]
-fn pinned_a_cut_row_of_invisible_blanks_is_revealed_as_content() {
+fn a_cut_row_of_foreground_only_blanks_is_not_content() {
     support::with_corpus(|t| {
         grow_over_cut_rows(t, |t| {
             each_cut_row(t, |y| {
                 format!("\x1b[{y};1H\x1b[2K\x1b[{y};5H\x1b[31m\x1b[10X\x1b[0m")
             })
         });
+        assert_eq!(t.scrollback().len(), 10, "a history line was pulled");
+        assert_eq!(row_text(t, 0, 8), "line 010");
+        assert_eq!(row_text(t, 25, 8), "line 035", "and the row is still cut");
+    });
+}
+
+/// **A cut row of written spaces is content**, the control for the test
+/// above: ten spaces written, not erased, are characters, as foot, ghostty
+/// and kitty count them. The growth reveals the row and pulls nothing.
+#[test]
+fn a_cut_row_of_written_spaces_is_content() {
+    support::with_corpus(|t| {
+        grow_over_cut_rows(t, |t| {
+            each_cut_row(t, |y| format!("\x1b[{y};1H\x1b[2K\x1b[{y};5H{:10}", ""))
+        });
         assert_eq!(t.scrollback().len(), 11, "no history pulled");
         assert_eq!(row_text(t, 0, 8), "line 011");
-        assert!(
-            row_text(t, 25, 200).trim().is_empty(),
-            "the revealed row holds no character"
+        assert_eq!(
+            t.row(Row::from_index(25)).expect("a row on the grid")[4]
+                .content
+                .as_codepoint()
+                .map(|c| c.value()),
+            Some(0x20),
+            "the revealed row holds the spaces written"
         );
     });
 }
 
-/// **Pinned: a cut row in a visible colour is left cut.** Each cut row is
-/// erased whole in a red background, which is uniform, so its mark is zero,
-/// the row does not count, and the growth pulls a history line over a red
-/// band that stays below the window.
+/// **A cut row in a colour alone is not content.** Each cut row is erased
+/// whole in a red background: no character, so the growth pulls a history
+/// line over a red band that stays below the window.
 #[test]
-fn pinned_a_cut_row_uniform_in_a_visible_colour_is_left_cut() {
+fn a_cut_row_in_a_colour_alone_is_not_content() {
     support::with_corpus(|t| {
         grow_over_cut_rows(t, |t| {
             each_cut_row(t, |y| format!("\x1b[{y};1H\x1b[41m\x1b[2K\x1b[0m"))
@@ -2583,7 +2601,7 @@ fn pinned_a_cut_row_uniform_in_a_visible_colour_is_left_cut() {
     });
 }
 
-/// **Pinned: a band past the old edge goes with the erase of its row**,
+/// **A band past the old edge is not content after a width growth**,
 /// the owner's live drag at steps 641 to 654, in miniature. At a prompt the
 /// shell erases to the line's end in a foreground-only rendition while the
 /// screen is 36 wide, then erases the row from column 0 at 22 columns. That
@@ -2597,7 +2615,7 @@ fn pinned_a_cut_row_uniform_in_a_visible_colour_is_left_cut() {
 /// owner's answer, gives this case: a written character counts and colour
 /// alone does not (note V).
 #[test]
-fn pinned_a_band_past_the_old_edge_goes_with_the_erase_of_its_row() {
+fn a_band_past_the_old_edge_is_not_content_after_a_width_growth() {
     fn band(widen: bool) -> (usize, String, String) {
         support::with_corpus(|t| {
             let at = |rows: u16, cols: u16| WinSize {
@@ -2645,6 +2663,86 @@ fn pinned_a_band_past_the_old_edge_goes_with_the_erase_of_its_row() {
         trimmed(band(false)),
         (hist, first, last),
         "the width growth changes nothing: the row holds nothing to count"
+    );
+}
+
+/// Sixty numbered lines on the corpus screen, eleven in the history, a
+/// word written at column 151 of each row below row 25, the cursor on row
+/// 20 and a shrink to 25 rows that cuts those rows; then `first`, if any,
+/// and one resize to 26 rows and `cols`. A redraw mark first when
+/// `prompt`, so no width step re-cuts. The history's length after it.
+fn grow_over_text_past(prompt: bool, first: Option<u16>, cols: u16) -> usize {
+    support::with_corpus(|t| {
+        let lines: Vec<u8> = (0..60)
+            .flat_map(|i| format!("line {i:03}\r\n").into_bytes())
+            .collect();
+        support::feed(t, &lines);
+        if prompt {
+            support::feed(t, b"\x1b]133;A\x07");
+        }
+        each_cut_row(t, |y| format!("\x1b[{y};1H\x1b[2K\x1b[{y};151Hpast"));
+        support::feed(t, b"\x1b[21;1H");
+        let at = |rows: u16, cols: u16| WinSize {
+            ws_row: rows,
+            ws_col: cols,
+        };
+        support::shrink(t, &at(25, 200));
+        assert_eq!(
+            t.scrollback().len(),
+            11,
+            "the shrink cut, it retired nothing"
+        );
+        if let Some(c) = first {
+            assert_eq!(t.resize(&at(25, c)), Resized::Ok);
+        }
+        assert_eq!(t.resize(&at(26, cols)), Resized::Ok);
+        let zone = match prompt {
+            true => Zone::Prompt,
+            false => Zone::Output,
+        };
+        assert_eq!(t.primary_zone(), zone);
+        t.scrollback().len()
+    })
+}
+
+/// **Text only past the new edge at a prompt is not content**: a row is
+/// read at the width it will be shown at, and at a prompt nothing re-cuts
+/// it, so text at column 151 of a screen narrowed to 100 shows nothing and
+/// the growth pulls a history line. Narrowed in its own resize first, and
+/// narrowed by the growth itself, whose width is read before its height
+/// step runs. Until 2026-10-20 the row's mark, past the word, counted it.
+#[test]
+fn text_only_past_the_new_edge_at_a_prompt_is_not_content() {
+    assert_eq!(
+        grow_over_text_past(true, Some(100), 100),
+        10,
+        "narrowed first"
+    );
+    assert_eq!(
+        grow_over_text_past(true, None, 100),
+        10,
+        "narrowed by the growth"
+    );
+    assert_eq!(
+        grow_over_text_past(true, None, 200),
+        11,
+        "the control: at the width it was written at, the row counts"
+    );
+}
+
+/// **Text a re-cut will wrap into view is content**, the control for the
+/// width the test above reads: with no mark the width step re-cuts the
+/// rows to the new width, so the word at column 151 wraps onto a row of
+/// its own on screen, and the growth that narrows reads the row at the
+/// old width and reveals it rather than pulling a history line over it.
+#[test]
+fn text_a_re_cut_will_wrap_into_view_is_content() {
+    let narrowed = grow_over_text_past(false, None, 100);
+    let kept = grow_over_text_past(false, None, 200);
+    assert_eq!(kept, 11, "the control: at its own width, nothing pulled");
+    assert_eq!(
+        narrowed, 11,
+        "the cut row revealed, then re-cut with the rest: nothing pulled"
     );
 }
 

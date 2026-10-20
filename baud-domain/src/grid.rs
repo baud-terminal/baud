@@ -271,6 +271,14 @@ impl PastRows<'_> {
     }
 }
 
+/// What a ring row holds, by [`View::ring_row_holds`]: a written
+/// character, a space included, or nothing but erased cells.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Holds {
+    Text,
+    Nothing,
+}
+
 /// **Whether the flags a resize starts from were kept**, for
 /// [`View::held_past_edge`]: they are kept while the reach lies past the live
 /// width, and read only then. Not kept, they are cleared before the measure
@@ -2414,13 +2422,31 @@ impl<'a> View<'a> {
     /// and the mark a blanking fill leaves there is about what lies past
     /// the edge, not about whether the row shows anything. The question
     /// a retreat asks -- may this row leave the screen -- is about what
-    /// it shows.
+    /// it shows. [`View::ring_row_holds`] answers it, the one test the
+    /// retreat and a growth's reveal share.
     pub fn row_is_blank(&self, r: Row) -> bool {
         r.index() < self.rows.index()
-            && self
-                .row_slice(r)
-                .iter()
-                .all(|c| c.content == Content::EMPTY)
+            && self.ring_row_holds(RowRot(self.phys(r)), self.cols) == Holds::Nothing
+    }
+
+    /// **Whether the ring row `at` holds a written character** in its first
+    /// `width` columns: any cell whose content is not [`Content::EMPTY`],
+    /// a written space included, since U+0020 is a character written and
+    /// an erase leaves `EMPTY` in whatever colour it erased in. Colour alone
+    /// is not text: the renderer decides how an empty cell looks, so a row
+    /// erased in a background holds nothing here. foot, ghostty and kitty
+    /// test a row the same way (note V, V9). `width` is clamped to the
+    /// pitch.
+    pub fn ring_row_holds(&self, at: RowRot, width: Cols) -> Holds {
+        let w = width.index().min(self.stride.index());
+        let a = (at.index() % self.ring.index()) * self.stride.index();
+        match self.cells[a..a + w]
+            .iter()
+            .any(|c| c.content != Content::EMPTY)
+        {
+            true => Holds::Text,
+            false => Holds::Nothing,
+        }
     }
 
     /// Blank the row `back` lines behind the window -- a retained line --

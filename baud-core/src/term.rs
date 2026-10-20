@@ -2085,6 +2085,11 @@ impl<'b> Term<'b> {
             self.clear_swept();
         }
         let top_before = self.store.book.top;
+        // The width a cut row is read at when a growth asks what it holds.
+        let shown = match cols.index() != old_cols.index() && self.primary_recuts() {
+            true => old_cols,
+            false => cols,
+        };
         if rows.index() != old_rows.index() {
             let ring = self.store.ring_rows();
             let spare = ring.index() - rows.index();
@@ -2140,11 +2145,32 @@ impl<'b> Term<'b> {
                 // as far as the last one that holds anything, the history
                 // is pulled next, and the blank cut rows last -- which are
                 // what a fresh blank would be anyway.
-                let ring_i = ring.index();
-                let used = &self.store.used;
+                //
+                // **A cut row holds something when it holds a written
+                // character** (note V, V9, the owner's B): a space counts
+                // and colour alone does not, by the test the prompt's
+                // retreat asks (`View::ring_row_holds`). The row's mark was
+                // asked until 2026-10-20, and a mark says where a row stops
+                // being uniform: a run of blanks erased in a foreground
+                // colour came back as a row that shows nothing while a
+                // history line stayed behind. Read at the width the row
+                // will be shown at: the old one when the width step below
+                // re-cuts it, so text the re-cut wraps into view counts,
+                // and the new one otherwise.
+                let v = View::new(
+                    self.store.vp,
+                    self.store.used,
+                    self.stride,
+                    old_cols,
+                    rows,
+                    ring,
+                    self.rot,
+                );
                 let content = (0..hidden)
                     .rev()
-                    .find(|i| used[(self.rot.index() + from + i) % ring_i].index() != 0)
+                    .find(|i| {
+                        v.ring_row_holds(self.rot.advance(from + i, ring), shown) == Holds::Text
+                    })
                     .map_or(0, |i| i + 1);
                 let reveal = k.min(content);
                 hidden -= reveal;
