@@ -446,8 +446,16 @@ pub struct StrBuf<'b> {
     /// What the embedder has said about its window and screen
     /// (`Term::set_window`), read by XTWINOPS's reports alone.
     pub(crate) window: baud_domain::WindowFacts,
-    /// `CSI 20 t` and `CSI 21 t` refused (`Term::title_reports_refused`).
+    /// `CSI 20 t` and `CSI 21 t` refused, and XTSMTITLE's two query modes
+    /// with them (`Term::title_reports_refused`).
     pub(crate) title_reports_refused: crate::term::TitleReportsRefused,
+    /// XTSMTITLE's set modes (`crate::window`), read where an `OSC 0`, `1`
+    /// or `2` is: here for the reason `window` is.
+    pub(crate) title_modes: TitleModes,
+    /// The encoding the title's and the icon name's bytes are in
+    /// (`Term::title_encoding`), decided where each is set.
+    pub(crate) title_enc: InputEncoding,
+    pub(crate) icon_enc: InputEncoding,
     /// The window operations queued for the embedder, whether they are on
     /// (`Term::set_window_ops`) and the counts of those that did not go
     /// (`Term::window_requests`). Here for the reason `window` is: only an
@@ -511,6 +519,9 @@ impl<'b> StrBuf<'b> {
             title_stack: crate::window::TitleStack::EMPTY,
             window: baud_domain::WindowFacts::UNKNOWN,
             title_reports_refused: crate::term::TitleReportsRefused::FIRST,
+            title_modes: TitleModes::DEFAULT,
+            title_enc: InputEncoding::Utf8,
+            icon_enc: InputEncoding::Utf8,
             window_asks: crate::window::WindowAsks::NONE,
             color_modes: ColorModes::NONE,
             shell: crate::prompt::Shell::FRESH,
@@ -778,6 +789,9 @@ impl Owned {
                 title_stack: crate::window::TitleStack::EMPTY,
                 window: baud_domain::WindowFacts::UNKNOWN,
                 title_reports_refused: crate::term::TitleReportsRefused::FIRST,
+                title_modes: TitleModes::DEFAULT,
+                title_enc: InputEncoding::Utf8,
+                icon_enc: InputEncoding::Utf8,
                 window_asks: crate::window::WindowAsks::NONE,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
@@ -830,6 +844,9 @@ impl Owned {
                 title_stack: crate::window::TitleStack::EMPTY,
                 window: baud_domain::WindowFacts::UNKNOWN,
                 title_reports_refused: crate::term::TitleReportsRefused::FIRST,
+                title_modes: TitleModes::DEFAULT,
+                title_enc: InputEncoding::Utf8,
+                icon_enc: InputEncoding::Utf8,
                 window_asks: crate::window::WindowAsks::NONE,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,

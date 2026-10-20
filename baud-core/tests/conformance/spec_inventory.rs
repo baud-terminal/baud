@@ -306,6 +306,8 @@ struct Snapshot {
     shift_escape: ShiftEscape,
     title: Vec<u8>,
     icon: Vec<u8>,
+    /// The title reports refused, and XTSMTITLE's query modes with them.
+    title_reports_refused: TitleReportsRefused,
     bells: usize,
     /// A Sixel `DCS ... q` is refused here because the snapshot's terminal has
     /// no image memory, so this counter moving is how a Sixel registers as
@@ -410,6 +412,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         shift_escape: t.shift_escape(),
         title: t.title().to_vec(),
         icon: t.icon_name().to_vec(),
+        title_reports_refused: t.title_reports_refused(),
         bells: t.bells,
         images_refused: t.images().images_refused,
         palette: (0..=255u8).map(|i| t.palette(Chan::from_u8(i))).collect(),
@@ -506,6 +509,11 @@ fn every_spec_csi_form_is_handled_or_counted() {
             b"\x1b[1*x",
             "DECSACE 1 is the stream, which is already the default -- \
              decsace_is_reported_kept_by_decstr_and_reset_by_ris",
+        ),
+        (
+            b"\x1b[>1T",
+            "XTRMTITLE 1 resets a query mode that is never recorded -- \
+             the_query_modes_are_refused_with_the_title_reports",
         ),
         (
             b"\x1b[1g",

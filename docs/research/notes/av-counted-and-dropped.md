@@ -17,10 +17,13 @@ is not.
 - **Built 2026-10-19:** `?1047` (the alternate screen, wiped on the way
   out) and `?1048` (save and restore the cursor), `?1049`'s two effects
   as programs written for older terminfo entries send them apart.
+- **Built 2026-10-20:** the title-stack position report (`CSI # S`) and
+  the title modes (`CSI > Pm t`, `CSI > Pm T`): a title sent in
+  hexadecimal, and a UTF-8 title under `ESC % @`.
 - **Small, to build next** (the text is complete and nothing is the
-  owner's): the title-stack position report, ECMA-48's backward moves HPB
+  owner's): ECMA-48's backward moves HPB
   and VPB, the SGR stack, the palette stack, XTCHECKSUM's checksum flags,
-  the title modes, the pointer-hiding mode, the `?30` scrollbar mode,
+  the pointer-hiding mode, the `?30` scrollbar mode,
   `?41`'s tab after a pending wrap, and OSC 60-62's feature lists.
 - **Larger, to build** (whole protocols a VT420-class terminal has): the
   DEC locator, the host-writable status line, and xterm's special colours.
@@ -50,12 +53,12 @@ none the table says so.
 |---|---|---|---|---|
 | `?1047` | counted | ctlseqs DECSET/DECRST `1 0 4 7`; xterm `srm_OPT_ALTBUF` | was in the `?47` row | **built**: the `?1047` row of `docs/vt-coverage.md`, `mode_1047_clears_the_alternate_screen_on_the_way_out` |
 | `?1048` | counted | ctlseqs `1 0 4 8`, "as in DECSC" / "as in DECRC"; xterm `srm_SAVE_CURSOR` | was in the `?47` row | **built**: the `?1048` row of `docs/vt-coverage.md`, `mode_1048_saves_and_restores_the_cursor_as_decsc_and_decrc`; XTSAVE saves the cursor (Jev, 0.91/0.94) |
-| `CSI # S` XTTITLEPOS | counted | ctlseqs line 664: reply `CSI Pn ; Pm # S`, the stack's index and its maximum | none | **build**: the title stack exists (`CSI 22 ; Ps t`) |
+| `CSI # S` XTTITLEPOS | answered since 2026-10-20 | ctlseqs line 664: reply `CSI Pn ; Pm # S`, the stack's index and its maximum | `CSI # S` | **built**: `xttitlepos_reports_the_pushes_and_the_depth` |
 | `CSI Pn j` HPB, `CSI Pn k` VPB | counted | `[[source: ecma48]]` HPB and VPB, the backward twins of HPR and VPR | none | **build**: baud has HPR and VPR; a new `CSI` arm, so a timed A/B |
 | `CSI Pm # {` / `# }` / `# \|` (and `# p`, `# q`) XTPUSHSGR, XTPOPSGR, XTREPORTSGR | counted | ctlseqs lines 1871-1953: a ten-deep stack of the rendition, selectable by attribute | none | **build** |
 | `CSI # P` / `# Q` / `# R` XTPUSHCOLORS, XTPOPCOLORS, XTREPORTCOLORS | counted | ctlseqs lines 644-660: a ten-deep stack of the palette and dynamic colours | none | **build** |
 | `CSI Ps # y` XTCHECKSUM | counted | ctlseqs line 1823: five bits that change DECRQCRA's checksum | DECRQCRA's row: "not built" | **build**: DECRQCRA exists |
-| `CSI > Pm t` / `CSI > Pm T` XTSMTITLE, XTRMTITLE | counted | ctlseqs lines 1707 and 733: set titles in hex or UTF-8, and query them so | none | **build** the two set modes; the query modes act on title reports, which stay refused as unsafe |
+| `CSI > Pm t` / `CSI > Pm T` XTSMTITLE, XTRMTITLE | the set modes built 2026-10-20 | ctlseqs lines 1707 and 733: set titles in hex or UTF-8, and query them so | `CSI > Pm t` | **built** the two set modes; the query modes act on title reports, which stay refused as unsafe, and are counted with them (`the_query_modes_are_refused_with_the_title_reports`) |
 | `CSI > Ps p` XTSMPOINTER | counted | ctlseqs line 1464: whether the pointer hides while the user types -- never, unless mouse tracking is on, always but on leaving the window, always | none | **build** in the app (AppKit's hide-until-moved) |
 | `?30` | counted | ctlseqs DECSET `3 0`, "Show scrollbar (rxvt)" | none | **build**: baud has a scrollbar |
 | `OSC 60` / `61` / `62` XTQALLOWED, XTQDISALLOWED, XTQALLOWABLE | counted | ctlseqs line 2182: reply `OSC 6 0 ; Pt ST`, the allowed categories among seven xterm resource names | none | **build**, each category named for what baud does; Jev where one is partly allowed |
@@ -104,7 +107,7 @@ each has a decision behind it.
 | `clipboard_writes_refused` | `OSC 52` writes with no clipboard provisioned, no selection named, or a body past half the area (`Term::clipboard_refusals` splits them) | the area is the embedder's | **keep** |
 | `checksums_refused` | DECRQCRA while the embedder turned the checksum off | the embedder's switch | **keep** |
 | `links_refused`, `links_clipped` | `OSC 8` past 127 targets, and a URI that may have been cut | a refused link is plain text; a reclaimed slot could send a cell to another address | **for Jev**, already on the list: reclaim past 127, or keep refusing |
-| `title_reports_refused` | XTWINOPS 20 and 21 | the reply types a program's text back | **keep** |
+| `title_reports_refused` | XTWINOPS 20 and 21, and since 2026-10-20 XTSMTITLE's query modes 1 and 3 | the reply types a program's text back | **keep** |
 | `mouse_unencodable` | X10 reports past column or row 223 | X10 would name a different cell | **keep**; `?1006` has no limit |
 | `marks_dropped` | combining marks past the cluster store | note AB's Q7 | **keep** open there |
 | `sixel_p2_ignored` | a Sixel asking for an opaque background, drawn transparent | note S records why the fill is not built and what the texts leave open | **for Jev**, with note S's open points: the owner's rule asks for it built |

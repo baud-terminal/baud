@@ -7314,7 +7314,7 @@ impl Driver {
             // one place it can have changed.
             if let Some(t) = self.titles.next(
                 self.app.term.title(),
-                self.app.term.input_encoding(),
+                self.app.term.title_encoding(),
                 "baud",
             ) {
                 self.window.set_title(&t);

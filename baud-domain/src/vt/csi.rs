@@ -918,6 +918,14 @@ pub enum Csi {
     /// and DECTABSR for 2 ([`PresentationState`]). `Ps` is read where the
     /// report is made, as [`Csi::Area`]'s rectangle is.
     RequestPresentationState,
+    /// One of xterm's stack controls ([`StackOp`]), its parameters read
+    /// where it is performed, as [`Csi::Area`]'s are.
+    Stack(StackOp),
+    /// XTSMTITLE `CSI > Pm t` and XTRMTITLE `CSI > Pm T`: set or reset the
+    /// title modes each parameter names ([`crate::TitleMode`]), or with none
+    /// return them to the default. **Its parameters are read where it is
+    /// acted on.**
+    TitleModes(ModeChange),
     Unsupported {
         marker: Marker,
         final_byte: FinalByte,
@@ -1058,6 +1066,8 @@ impl Csi {
                     Csi::Query(QueryOp::PreferredSupplemental)
                 }
                 (b'"', b'v') if marker == Marker::Standard => Csi::Query(QueryOp::DisplayedExtent),
+                // XTTITLEPOS, `CSI # S` (`[[source: ctlseqs]]` 664).
+                (b'#', b'S') if marker == Marker::Standard => Csi::Stack(StackOp::TitlePosition),
                 _ => Csi::Unsupported {
                     marker,
                     final_byte: f,
@@ -1084,6 +1094,10 @@ impl Csi {
                 b'm' => return Csi::KeyControl(KeyControl::Modify),
                 b'f' => return Csi::KeyControl(KeyControl::Format),
                 b'n' => return Csi::KeyControl(KeyControl::Disable),
+                // XTSMTITLE and XTRMTITLE (`[[source: ctlseqs]]` 1707 and
+                // 733): the `>` keeps them from XTWINOPS and from SD.
+                b't' => return Csi::TitleModes(ModeChange::Set),
+                b'T' => return Csi::TitleModes(ModeChange::Reset),
                 _ => {}
             }
         }
@@ -1582,6 +1596,8 @@ impl Csi {
             // contour's extension, not xterm's; this table has no level of its
             // own for it and it is not a VT level either.
             ColorSchemeQuery => Level::Xterm,
+            // XTTITLEPOS, XTSMTITLE and XTRMTITLE are xterm's by name.
+            Stack(_) | TitleModes(_) => Level::Xterm,
             Query(q) => q.level(),
 
             Unsupported { .. } => return None,

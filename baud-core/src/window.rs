@@ -13,7 +13,10 @@
 //! default and refused, counted, while the embedder has them off
 //! ([`WindowOps::Off`]).
 
-use baud_domain::{ByteLen, ParamIdx, Report, WindowOp, WindowOps, WindowRequest};
+use baud_domain::{
+    ByteLen, InputEncoding, ModeChange, ParamIdx, Report, TitleMode, TitleModes, WindowOp,
+    WindowOps, WindowRequest,
+};
 
 use crate::paint::Paint;
 use crate::storage::{OSC_MAX, TITLE_SLOTS};
@@ -86,14 +89,14 @@ impl WindowAsks {
     }
 }
 
-/// Which halves of each title-stack slot hold a name, and how long each is:
-/// `None` is xterm's `NULL`, a half the push did not take, which a pop
-/// fills from an older slot. `used` is xterm's `saved_titles.used`, the
-/// count of pushes not yet popped.
+/// Which halves of each title-stack slot hold a name, how long each is
+/// and the encoding its bytes are in: `None` is xterm's `NULL`, a half the
+/// push did not take, which a pop fills from an older slot. `used` is
+/// xterm's `saved_titles.used`, the count of pushes not yet popped.
 #[derive(Clone, Copy)]
 pub(crate) struct TitleStack {
-    icon: [Option<ByteLen>; TITLE_SLOTS],
-    title: [Option<ByteLen>; TITLE_SLOTS],
+    icon: [Option<(ByteLen, InputEncoding)>; TITLE_SLOTS],
+    title: [Option<(ByteLen, InputEncoding)>; TITLE_SLOTS],
     used: Pushes,
 }
 
@@ -252,12 +255,12 @@ impl Paint<'_, '_> {
         if names.icon() {
             let n = self.icon_len;
             s.titles[slot.bytes(Half::Icon, n)].copy_from_slice(&s.icon[..n.index()]);
-            s.title_stack.icon[slot.0] = Some(n);
+            s.title_stack.icon[slot.0] = Some((n, s.icon_enc));
         }
         if names.title() {
             let n = self.title_len;
             s.titles[slot.bytes(Half::Title, n)].copy_from_slice(&s.title[..n.index()]);
-            s.title_stack.title[slot.0] = Some(n);
+            s.title_stack.title[slot.0] = Some((n, s.title_enc));
         }
     }
 
@@ -280,19 +283,21 @@ impl Paint<'_, '_> {
         };
         // The slot itself, then each older one: xterm's `TryHigher`, ten
         // slots at most, on a pop and never on the write path.
-        let find = |halves: &[Option<ByteLen>; TITLE_SLOTS]| {
+        let find = |halves: &[Option<(ByteLen, InputEncoding)>; TITLE_SLOTS]| {
             (0..TITLE_SLOTS)
                 .map(|k| slot.older(TitleSlot(k)))
-                .find_map(|from| halves[from.0].map(|len| (from, len)))
+                .find_map(|from| halves[from.0].map(|half| (from, half)))
         };
         let icon = find(&s.title_stack.icon).filter(|_| names.icon());
-        if let Some((from, len)) = icon {
+        if let Some((from, (len, enc))) = icon {
             s.icon[..len.index()].copy_from_slice(&s.titles[from.bytes(Half::Icon, len)]);
+            s.icon_enc = enc;
             self.icon_len = len;
         }
         let title = find(&s.title_stack.title).filter(|_| names.title());
-        if let Some((from, len)) = title {
+        if let Some((from, (len, enc))) = title {
             s.title[..len.index()].copy_from_slice(&s.titles[from.bytes(Half::Title, len)]);
+            s.title_enc = enc;
             self.title_len = len;
         }
         if popped == Popped::Yes {
@@ -300,4 +305,84 @@ impl Paint<'_, '_> {
             s.title_stack.title[slot.0] = None;
         }
     }
+
+    /// XTTITLEPOS, `CSI # S`: the pushes not yet popped and the stack's
+    /// depth, `CSI Pn ; Pm # S`, as xterm's `xtermReportTitleStack` writes
+    /// them (`[[source: xterm-misc]]`). Parameters are not read, as xterm
+    /// reads none.
+    pub(crate) fn report_title_position(&mut self) {
+        let index = u16::try_from(self.strs.title_stack.used.0).unwrap_or(u16::MAX);
+        self.want_reply(Report::TitlePosition {
+            index,
+            max: u16::try_from(TITLE_SLOTS).unwrap_or(u16::MAX),
+        });
+    }
+
+    /// XTSMTITLE `CSI > Pm t` and XTRMTITLE `CSI > Pm T`, as xterm's
+    /// `CASE_XTERM_SM_TITLE` and `CASE_XTERM_RM_TITLE` read them
+    /// (`[[source: xterm-reset]]`'s file): each parameter sets or resets one
+    /// mode, one past 3 or omitted is skipped, and **with none given every
+    /// mode returns to the default**, "If no parameters are given, title
+    /// mode features are set to the initial (compiled-in) default"
+    /// (`[[source: ctlseqs]]`). xterm's own branch for that never runs, its
+    /// `CSI` entry counting one omitted parameter, so its bare form changes
+    /// nothing: a departure from the text not followed. **The two query modes are refused and counted
+    /// with the title reports they shape**, never recorded (Jev,
+    /// REFUSE_COUNT, 0.90/0.90); resetting one changes nothing, as it is
+    /// never set. A value past 3 is counted.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn title_modes(&mut self, change: ModeChange, csi: &Csi) {
+        let mut given = false;
+        csi.for_each_param(|v| given |= v.is_some());
+        if !given {
+            self.strs.title_modes = TitleModes::DEFAULT;
+            return;
+        }
+        csi.for_each_param(|v| match v.map(TitleMode::from_param) {
+            None => {}
+            Some(Some(m)) if m.is_query() && change == ModeChange::Set => {
+                self.strs.title_reports_refused = self.strs.title_reports_refused.next();
+            }
+            Some(Some(m)) if m.is_query() => {}
+            Some(Some(m)) => self.strs.title_modes = self.strs.title_modes.with(m, change),
+            Some(None) => self.unsupported_param += 1,
+        });
+    }
+}
+
+/// The encoding a title or icon name's bytes are in, as xterm's
+/// `ChangeGroup` decides it (`[[source: xterm-misc]]`): **read as UTF-8
+/// where the UTF-8 title mode is in force and the bytes are valid UTF-8,
+/// else as ISO 8859-1.** Under UTF-8 the mode is always in force, as
+/// xterm's `utf8Title` resource follows the encoding by default (Jev,
+/// RESOURCE_FOLLOWS, 0.96/0.98), and a title that arrived as text, not in
+/// hexadecimal, is UTF-8 there, its bytes having come through as a
+/// character's.
+pub(crate) fn label_encoding(
+    string: InputEncoding,
+    modes: TitleModes,
+    sent: Spelled,
+    bytes: &[u8],
+) -> InputEncoding {
+    let utf8_titles = string == InputEncoding::Utf8 || modes.has(TitleMode::SetUtf8);
+    match (string, sent) {
+        (InputEncoding::Utf8, Spelled::Text) => InputEncoding::Utf8,
+        _ if utf8_titles && core::str::from_utf8(bytes).is_ok() => InputEncoding::Utf8,
+        _ => InputEncoding::Latin1,
+    }
+}
+
+/// How a name arrived: as its own bytes, or in hexadecimal (XTSMTITLE 0).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Spelled {
+    Text,
+    Hex,
+}
+
+/// Whether an `OSC` body kept so far names a title or an icon name, `0;`,
+/// `1;` or `2;`: under ISO 8859-1 with the UTF-8 title mode set, the rest
+/// of such a body keeps its GR bytes (`Paint::osc_gr`).
+pub(crate) fn names_a_label(kept: &[u8]) -> bool {
+    matches!(kept, [b'0' | b'1' | b'2', b';', ..])
 }

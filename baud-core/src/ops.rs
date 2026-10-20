@@ -3735,6 +3735,10 @@ impl Paint<'_, '_> {
         // (`[[source: xterm-reset]]`) -- which departs from the text; Jev
         // decided for the text on 2026-10-10 (XT-8), open to the owner's veto.
         self.cold.xtsave = SavedModes::NONE;
+        // **The title modes go back to the default**, xterm's full reset
+        // `title_modes = title_modes0` (`[[source: xterm-reset]]`'s file);
+        // `DECSTR` keeps them, as xterm's soft reset does.
+        self.strs.title_modes = TitleModes::DEFAULT;
         // **And the embedder's own pointer**, the state after power-up, for
         // the same text; xterm's `ReallyReset` keeps `OSC 22`'s shape, a
         // departure not followed. `DECSTR` keeps it.

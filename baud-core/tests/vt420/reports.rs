@@ -287,7 +287,7 @@ fn decrqss_answers_the_key_modifier_strings() {
 #[test]
 fn decrqss_answers_invalid_for_what_baud_does_not_act_on() {
     for pt in [
-        ">5m", ">m", ">8f", ">4", "t", "$}", "$~", "){", "*|", ",|", ",}", ">0t",
+        ">5m", ">m", ">8f", ">4", "t", "$}", "$~", "){", "*|", ",|", ",}", ">4t",
     ] {
         let ask = [b"\x1bP$q".as_slice(), pt.as_bytes(), b"\x1b\\"].concat();
         assert_eq!(show(&answer(&ask)), show(b"\x1bP0$r\x1b\\"), "{pt}");

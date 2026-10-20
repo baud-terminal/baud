@@ -289,6 +289,12 @@ pub enum Report {
     /// value -- one for the colour registers, `width ; height` for a
     /// geometry. Built by [`Report::graphics`].
     Graphics { item: Param, reply: GraphicsReply },
+    /// XTTITLEPOS's answer, `CSI Pn ; Pm # S` (`[[source: ctlseqs]]` 664):
+    /// the pushes not yet popped and the stack's depth, as xterm's
+    /// `xtermReportTitleStack` writes `used` and `MAX_SAVED_TITLES`
+    /// (`[[source: xterm-misc]]`), so `index` passes `max` once a push
+    /// past the tenth has overwritten the oldest (Jev, RAW, 0.90/0.96).
+    TitlePosition { index: u16, max: u16 },
 }
 
 /// What an XTSMGRAPHICS answer carries after its item: the value read,
@@ -1107,6 +1113,13 @@ impl Report {
                     }
                     _ => {}
                 }
+                e.push(b'S');
+            }
+            Report::TitlePosition { index, max } => {
+                e.push_num(index);
+                e.push(b';');
+                e.push_num(max);
+                e.push(b'#');
                 e.push(b'S');
             }
         }

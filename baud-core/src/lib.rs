@@ -68,6 +68,7 @@ mod query;
 mod rect;
 mod shift;
 mod sixel;
+mod stack;
 mod storage;
 mod term;
 mod vt52;

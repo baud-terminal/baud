@@ -205,7 +205,11 @@ impl Paint<'_, '_> {
         // `APC` or `PM` that gains a reader takes the rule then. Under UTF-8
         // `gr_as_gl` maps nothing: the bytes are a character's.
         let b = match self.cold.str_kind {
-            StrKind::Osc | StrKind::Clipboard => self.cold.str_enc.gr_as_gl(b),
+            StrKind::Osc => match self.cold.str_enc.gr_as_gl(b) {
+                folded if folded == b => b,
+                folded => self.osc_gr(b, folded),
+            },
+            StrKind::Clipboard => self.cold.str_enc.gr_as_gl(b),
             _ => b,
         };
         // An `OSC 52` body past its `52;`: decoded into the clipboard areas,
@@ -214,6 +218,61 @@ impl Paint<'_, '_> {
             return self.clip_put(b);
         }
         self.keep_pending(b);
+    }
+
+    /// **A GR byte of an `OSC` body under ISO 8859-1**: its 7-bit byte, as
+    /// above, unless XTSMTITLE's UTF-8 mode is set and the body names a
+    /// title or an icon name (`0;`, `1;` or `2;`), whose GR bytes are then
+    /// kept for [`Paint::set_labels`] to read as UTF-8, as xterm's parser
+    /// keeps a title's eight bits under its `utf8Title` (`[[source:
+    /// xterm-reset]]`'s file, `IsSetUtf8Title`). The text's "window/icon
+    /// labels" names the icon too, where xterm keeps `0` and `2` alone
+    /// (Jev, BUILD_TEXT, the lean taken at 0.41/0.82 after a second ask).
+    /// Out of line: only a GR byte under ISO 8859-1 reaches it.
+    #[cold]
+    #[inline(never)]
+    fn osc_gr(&self, b: StreamByte, folded: StreamByte) -> StreamByte {
+        let kept = &self.strs.pending[..self.cold.str_len.index()];
+        match self.strs.title_modes.has(TitleMode::SetUtf8) && crate::window::names_a_label(kept) {
+            true => b,
+            false => folded,
+        }
+    }
+
+    /// An `OSC 0`, `1` or `2` stored: the title, the icon name or both, as
+    /// XTSMTITLE's modes read it. **In hexadecimal, while that mode is
+    /// set**, decoded as xterm's `ChangeGroup` decodes it (`[[source:
+    /// xterm-misc]]`, [`decode_hex_title`]), and a body that is not even
+    /// hexadecimal changes nothing and is counted. The encoding the bytes
+    /// are in is kept beside them ([`crate::window::label_encoding`]), so
+    /// the embedder reads a name as it was sent rather than in whatever
+    /// encoding is in force later.
+    fn set_labels(&mut self, t: &[u8], which: Labels) {
+        let mut decoded = [0u8; OSC_MAX / 2];
+        let sent = match self.strs.title_modes.has(TitleMode::SetHex) {
+            false => crate::window::Spelled::Text,
+            true => crate::window::Spelled::Hex,
+        };
+        let bytes = match sent {
+            crate::window::Spelled::Text => t,
+            crate::window::Spelled::Hex => match decode_hex_title(t, &mut decoded) {
+                Some(d) => d,
+                None => {
+                    self.unsupported_param += 1;
+                    return;
+                }
+            },
+        };
+        let enc =
+            crate::window::label_encoding(self.cold.str_enc, self.strs.title_modes, sent, bytes);
+        if which != Labels::Icon {
+            self.title_len = copy_bounded(self.strs.title, bytes);
+            self.strs.title_enc = enc;
+        }
+        if which != Labels::Title {
+            self.icon_len = copy_bounded(self.strs.icon, bytes);
+            self.strs.icon_enc = enc;
+        }
     }
 
     /// Keep one body byte for the terminator, counting one past `OSC_MAX`.
@@ -441,12 +500,9 @@ impl Paint<'_, '_> {
             // Neutering the helper changed no row of the differential, which
             // is a function that cannot fire -- the shape this repo has now
             // recorded seven times.
-            Osc::SetTitle(t) => self.title_len = copy_bounded(self.strs.title, t),
-            Osc::SetIcon(t) => self.icon_len = copy_bounded(self.strs.icon, t),
-            Osc::SetIconAndTitle(t) => {
-                self.title_len = copy_bounded(self.strs.title, t);
-                self.icon_len = copy_bounded(self.strs.icon, t);
-            }
+            Osc::SetTitle(t) => self.set_labels(t, Labels::Title),
+            Osc::SetIcon(t) => self.set_labels(t, Labels::Icon),
+            Osc::SetIconAndTitle(t) => self.set_labels(t, Labels::Both),
             // Each pair in turn, a query answered where it stands, so a set
             // before it is what it reports.
             Osc::SetColors(pairs) => {
@@ -953,6 +1009,14 @@ pub(crate) fn clear_dynamic(cold: &mut Cold, log: &mut StyleLog<'_>) {
             }
         }
     }
+}
+
+/// Which names an `OSC 0`, `1` or `2` sets.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Labels {
+    Title,
+    Icon,
+    Both,
 }
 
 fn copy_bounded(dst: &mut [u8], src: &[u8]) -> ByteLen {

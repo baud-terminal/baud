@@ -697,6 +697,14 @@ fn report_encodings_fit() {
             ),
             0xbf,
         ),
+        (
+            "title position, widest",
+            Report::TitlePosition {
+                index: u16::MAX,
+                max: u16::MAX,
+            },
+            b'S',
+        ),
     ] {
         // **Exhaustive, so this list cannot fall behind the enum again.** A
         // new `Report` variant stops this match compiling, and the edit it
@@ -737,7 +745,8 @@ fn report_encodings_fit() {
             | Report::TerminalParameters { .. }
             | Report::PreferredSupplemental
             | Report::DisplayedExtent { .. }
-            | Report::KeyOption { .. } => {}
+            | Report::KeyOption { .. }
+            | Report::TitlePosition { .. } => {}
         }
         let b = enc(r);
         assert!(

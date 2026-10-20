@@ -2071,6 +2071,10 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         // The reports a VT420 and xterm answer (`crate::query`), their
         // parameters read out of line.
         DomCsi::Query(op) => p.answer_query(op, csi),
+        // xterm's stack controls (`crate::stack`) and its title modes
+        // (`crate::window`), their parameters read out of line.
+        DomCsi::Stack(op) => p.stack_op(op, csi),
+        DomCsi::TitleModes(change) => p.title_modes(change, csi),
         DomCsi::Unsupported { .. } => {
             p.unsupported_total += 1;
             #[cfg(feature = "diag")]

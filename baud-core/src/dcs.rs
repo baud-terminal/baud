@@ -81,6 +81,7 @@ pub const DECRQSS_MAX: usize = {
         b"255\"q".len(),
         b"132$|".len(),
         b">4;2m".len(),
+        b">0;2t".len(),
     ];
     let mut body = sgr;
     let mut k = 0;
@@ -245,6 +246,24 @@ impl Paint<'_, '_> {
                     s.dec(WireByte::of(mask.wire() - 1));
                 }
                 s.push(b"m");
+            }
+            // **XTSMTITLE, answered as the control that sets the modes in
+            // force**: "replacing the Pt with the corresponding CSI string"
+            // (`[[source: ctlseqs]]`), `> 0 ; 2 t`, and `> t` with none
+            // set, which sent back is XTSMTITLE's default, none set. xterm's
+            // `do_dcs` writes one 0 or 1 a mode (`[[source: xterm-misc]]`),
+            // which sent back sets the wrong modes: a departure not followed
+            // (Jev's lean, SETLIST, 0.70/0.76). A `> Ps t` naming one mode
+            // gets the same answer.
+            StatusTarget::TitleModes => {
+                s.push(b"1$r>");
+                for (i, m) in self.strs.title_modes.set().enumerate() {
+                    if i > 0 {
+                        s.push(b";");
+                    }
+                    s.dec(WireByte::of(m.code()));
+                }
+                s.push(b"t");
             }
             StatusTarget::KeyFormat(r) => {
                 s.push(b"1$r>");

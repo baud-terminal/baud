@@ -11,11 +11,11 @@ use baud_domain::InputEncoding;
 /// The title to show for the bytes a program set, or `fallback` when it set
 /// none or an empty one.
 ///
-/// **The bytes are read in the encoding the terminal is in.** Under UTF-8 an
-/// ill-formed sequence becomes U+FFFD, as the screen shows it; under ISO 8859-1
-/// each byte is its own codepoint, which is what that encoding means. A title
-/// set in one encoding and read after a switch to the other is read in the
-/// second; the core keeps no record of which was in force.
+/// **The bytes are read in the encoding the core kept with them**
+/// (`Term::title_encoding`). Under UTF-8 an ill-formed sequence becomes
+/// U+FFFD, as the screen shows it; under ISO 8859-1 each byte is its own
+/// codepoint, which is what that encoding means. A title set in one encoding
+/// reads the same after a switch to the other.
 ///
 /// **Controls become spaces**, C0, DEL and C1 alike. The parser drops most of
 /// C0 from a string's body already, but a title is shown in a title bar and a

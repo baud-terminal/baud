@@ -520,8 +520,9 @@ impl Resets {
     }
 }
 
-/// A count of the `CSI 20 t` and `CSI 21 t` title reports refused, as a
-/// reading to compare: two equal readings saw no request.
+/// A count of the `CSI 20 t` and `CSI 21 t` title reports refused, and of
+/// the XTSMTITLE query modes refused with them, as a reading to compare:
+/// two equal readings saw no request.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct TitleReportsRefused(u32);
 
@@ -3883,7 +3884,9 @@ impl<'b> Term<'b> {
     /// `CSI 20 t` and `CSI 21 t` refused: the icon label and title reports,
     /// whose reply would put text a program set back into the input
     /// stream. Counted so an embedder can see the requests arrive, as
-    /// `clipboard_reads_refused` counts `OSC 52` reads.
+    /// `clipboard_reads_refused` counts `OSC 52` reads. XTSMTITLE's two
+    /// query modes, which shape those replies, are refused and counted here
+    /// too.
     pub fn title_reports_refused(&self) -> TitleReportsRefused {
         self.store.strs.title_reports_refused
     }
@@ -4371,6 +4374,21 @@ impl<'b> Term<'b> {
     /// The window title, as the application set it. Bounded by `OSC_MAX`.
     pub fn title(&self) -> &[u8] {
         &self.store.strs.title[..self.title_len.index()]
+    }
+
+    /// The encoding [`Term::title`]'s bytes are in: UTF-8 where it arrived
+    /// under UTF-8, or as valid UTF-8 under XTSMTITLE's UTF-8 mode or in
+    /// hexadecimal, else ISO 8859-1, as xterm's `ChangeGroup` decides
+    /// (`[[source: xterm-misc]]`). Kept with the title, and with each one
+    /// the title stack holds, so a title reads as it was sent after the
+    /// input encoding changes.
+    pub fn title_encoding(&self) -> InputEncoding {
+        self.store.strs.title_enc
+    }
+
+    /// The same for [`Term::icon_name`].
+    pub fn icon_name_encoding(&self) -> InputEncoding {
+        self.store.strs.icon_enc
     }
 
     /// The last `OSC 52` write published: the selections it named and what

@@ -451,7 +451,7 @@ impl Driver {
         self.caret.restart(Instant::now());
         if let Some(t) = self
             .titles
-            .next(self.term.title(), self.term.input_encoding(), "baud")
+            .next(self.term.title(), self.term.title_encoding(), "baud")
         {
             self.window.set_title(&mut self.conn.sender(), &t);
         }

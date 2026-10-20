@@ -56,6 +56,11 @@ pub enum StatusTarget {
     KeyFormat(KeyResource),
     /// `" p` -- DECSCL, the conformance level and the C1 transmission.
     ConformanceLevel,
+    /// `> t` or `> Ps t` -- XTSMTITLE's string (`[[source: ctlseqs]]`'s
+    /// list, "> Pm t -> XTSMTITLE (xterm)"), the title modes. `Ps` names
+    /// one of the four, as xterm's `do_dcs` reads it; the answer is every
+    /// mode set either way.
+    TitleModes,
     Unknown,
 }
 
@@ -76,9 +81,10 @@ impl StatusTarget {
         }
     }
 
-    /// `Pm` and a final after the `>`: a resource with `m` or `f`. A `Pm`
-    /// naming none is [`StatusTarget::Unknown`], answered invalid, as
-    /// xterm's `do_dcs` answers it.
+    /// `Pm` and a final after the `>`: a resource with `m` or `f`, or the
+    /// title modes with `t`, `Pm` omitted or one of the four. A `Pm` naming
+    /// none is [`StatusTarget::Unknown`], answered invalid, as xterm's
+    /// `do_dcs` answers it.
     fn key_option(rest: &[u8]) -> StatusTarget {
         let Some((&last, digits)) = rest.split_last() else {
             return StatusTarget::Unknown;
@@ -93,6 +99,8 @@ impl StatusTarget {
         match (digits.is_empty(), KeyResource::from_param(pm.value()), last) {
             (false, Some(r), b'm') => StatusTarget::KeyModify(r),
             (false, Some(r), b'f') => StatusTarget::KeyFormat(r),
+            (true, _, b't') => StatusTarget::TitleModes,
+            (false, _, b't') if TitleMode::from_param(pm).is_some() => StatusTarget::TitleModes,
             _ => StatusTarget::Unknown,
         }
     }
