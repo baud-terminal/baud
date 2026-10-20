@@ -16,7 +16,7 @@ use baud_core::{Depth, Erasure, Looking, Owned, Screen, SurfaceLine, Term, Zone,
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
     KeyEventKind, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking,
-    PackedCell, PointerPx, Row, RowRot, Rows, WinSize,
+    PackedCell, PointerPx, Row, RowRot, Rows, ShiftEscape, WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -6632,6 +6632,30 @@ enum Shift {
     Up,
 }
 
+/// **Whether Shift, if held, overrides the child's tracking for this
+/// event**: XTSHIFTESCAPE's choice, `Term::shift_escape`. At 0, the
+/// default, Shift takes every event, as xterm's `ShiftOverride` does under
+/// `shiftEscape` false; at 1 it takes only a button the selection binds
+/// without Shift -- xterm's `shift_buttons` (`[[source: xterm-button-c]]`),
+/// which for baud's bindings is the left button, the one a press selects
+/// with -- and every other press goes to the child with its Shift bit
+/// (Jev's lean, SELECTION_BUTTONS, 0.80/0.88). A move with no button held
+/// is button 1's, as xterm's `MotionButton` reads one.
+fn shift_overrides(
+    held: Shift,
+    escape: ShiftEscape,
+    kind: ViewMouseKind,
+    button: ViewButton,
+) -> Shift {
+    match (held, escape, kind, button) {
+        (Shift::Up, ..) => Shift::Up,
+        (_, ShiftEscape::Override, ..) => Shift::Held,
+        (_, ShiftEscape::Conditional, ViewMouseKind::Moved, _)
+        | (_, ShiftEscape::Conditional, _, ViewButton::Left) => Shift::Held,
+        (_, ShiftEscape::Conditional, ..) => Shift::Up,
+    }
+}
+
 /// Who owns the press in progress, decided at the press. `Free` between
 /// presses.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -6744,6 +6768,42 @@ mod route_tests {
             let (t, next) = pointer_route(Owner::Free, K::Moved, MouseTracking::AnyEvent, shift);
             assert_eq!((t, next), (want, Owner::Free));
         }
+    }
+
+    /// **XTSHIFTESCAPE 1 hands Shift only the left button.** At 0 Shift
+    /// overrides tracking for every button; at 1 the middle and right
+    /// buttons, which baud's selection binds nothing to, go to the child
+    /// with their Shift bit, and the left button and a bare move stay the
+    /// selection's (`[[source: ctlseqs]]`, "conditionally allow shift-key as
+    /// modifier in mouse protocol").
+    #[test]
+    fn xtshiftescape_1_hands_shift_only_the_selection_button() {
+        use super::{ShiftEscape as E, ViewButton as B, shift_overrides};
+        let over = |e, k, b| shift_overrides(Shift::Held, e, k, b);
+        for b in [B::Left, B::Middle, B::Right] {
+            assert_eq!(over(E::Override, K::Down, b), Shift::Held, "{b:?} at 0");
+        }
+        assert_eq!(over(E::Conditional, K::Down, B::Left), Shift::Held);
+        assert_eq!(over(E::Conditional, K::Down, B::Middle), Shift::Up);
+        assert_eq!(over(E::Conditional, K::Down, B::Right), Shift::Up);
+        assert_eq!(
+            over(E::Conditional, K::Moved, B::Right),
+            Shift::Held,
+            "a bare move is button 1's"
+        );
+        assert_eq!(
+            shift_overrides(Shift::Up, E::Override, K::Down, B::Left),
+            Shift::Up,
+            "nothing held, nothing overridden"
+        );
+        // Through the route: Shift+Middle under 1 is the child's.
+        let (t, _) = pointer_route(
+            Owner::Free,
+            K::Down,
+            MouseTracking::Normal,
+            over(E::Conditional, K::Down, B::Middle),
+        );
+        assert_eq!(t, To::Child);
     }
 
     /// **A press decides again**, even over an owner whose release was lost.
@@ -7453,17 +7513,19 @@ impl Responder for Driver {
             return;
         }
         // The child's, when it tracks the mouse -- unless Shift is held,
-        // which is a selection whatever the child asked for: xterm's
-        // default, ctlseqs' XTSHIFTESCAPE at 0. Decided at the press, so
-        // Shift mid-drag cannot hand the release to the other side.
+        // which is a selection whatever the child asked for under
+        // XTSHIFTESCAPE 0, and for the left button under 1
+        // (`shift_overrides`). Decided at the press, so Shift mid-drag
+        // cannot hand the release to the other side.
+        let held = match event.modifiers.shift {
+            true => Shift::Held,
+            false => Shift::Up,
+        };
         let (to, owner) = pointer_route(
             self.owner,
             event.kind,
             self.app.term.mouse_tracking(),
-            match event.modifiers.shift {
-                true => Shift::Held,
-                false => Shift::Up,
-            },
+            shift_overrides(held, self.app.term.shift_escape(), event.kind, event.button),
         );
         self.owner = owner;
         if to == To::Select {
@@ -7540,14 +7602,15 @@ impl Responder for Driver {
         // a pager or an editor there reads; the primary screen without
         // tracking is the window over the history. `wheel::route` decides,
         // where a test can reach it.
-        match crate::wheel::route(&self.app.term) {
+        match crate::wheel::route(&self.app.term, mouse_mods(event.modifiers)) {
             Route::Report => {
                 let at = self.pointer_under(event.x, event.y);
                 // Every report into the outbox as it is queued -- the core's
                 // buffer holds 21 of them -- and then one write: what the
                 // kernel cannot take now stays owed to the next pump.
                 let outbox = &mut self.app.outbox;
-                crate::wheel::report(&mut self.app.term, lines, at, |b| outbox.push(b));
+                let mods = mouse_mods(event.modifiers);
+                crate::wheel::report(&mut self.app.term, lines, at, mods, |b| outbox.push(b));
                 self.app.flush_reply();
                 return;
             }

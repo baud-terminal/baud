@@ -6,7 +6,7 @@
 
 use baud_core::{
     AlternateScroll, Col, KeyCode, KeyEvent, Modifiers, MouseButton, MouseEvent, MouseKind,
-    MouseMods, MouseTracking, PointerPx, Row, Screen, Term,
+    MouseMods, MouseTracking, PointerPx, Row, Screen, ShiftEscape, Term,
 };
 
 /// Lines a single wheel event may turn into reports or keys: a trackpad
@@ -111,8 +111,17 @@ pub enum Route {
 /// `?1007` is set -- `[[source: ctlseqs]]`, "if Alternate Scroll mode is set,
 /// then cursor up/down controls are sent when the terminal is displaying the
 /// Alternate Screen Buffer" -- and nothing once an application resets it.
-pub fn route(term: &Term<'_>) -> Route {
-    if term.mouse_tracking() != MouseTracking::Off {
+///
+/// **Shift takes the wheel from tracking under XTSHIFTESCAPE 0**, the
+/// default, as xterm's `ShiftOverride` takes every button event Shift
+/// holds, the wheel's 4 and 5 included, to its own `scroll-back` and
+/// `scroll-forw` (`[[source: xterm-button-c]]`): the wheel is then the
+/// screen's, as it is with no tracking. Under `CSI > 1 s` the wheel binds
+/// no selection, so it stays the program's, its Shift bit sent (Jev's
+/// leans, OVERRIDE 0.78/0.94 and SELECTION_BUTTONS 0.80/0.88).
+pub fn route(term: &Term<'_>, mods: MouseMods) -> Route {
+    let shifted = mods.has(MouseMods::SHIFT) && term.shift_escape() == ShiftEscape::Override;
+    if term.mouse_tracking() != MouseTracking::Off && !shifted {
         return Route::Report;
     }
     match (term.screen(), term.alternate_scroll()) {
@@ -150,11 +159,13 @@ pub fn keys(lines: Lines) -> impl Iterator<Item = KeyEvent> {
 /// `false` from `mouse_report` is the application not wanting the event,
 /// which is the same answer for every line of it.
 ///
-/// `px` is the same position in pixels, which `?1016` reports instead.
+/// `px` is the same position in pixels, which `?1016` reports instead, and
+/// `mods` the modifiers held, which every report carries as a button's does.
 pub fn report(
     term: &mut Term<'_>,
     lines: Lines,
     (row, col, px): (Row, Col, PointerPx),
+    mods: MouseMods,
     mut sink: impl FnMut(&[u8]),
 ) {
     let button = if lines.0 > 0 {
@@ -166,7 +177,7 @@ pub fn report(
     for _ in 0..lines.0.unsigned_abs().min(WHEEL_MAX) {
         let queued = term.mouse_report(MouseEvent {
             button,
-            mods: MouseMods::NONE,
+            mods,
             kind: MouseKind::Press,
             col,
             row,
@@ -231,6 +242,7 @@ mod tests {
             &mut t,
             Lines(40),
             (Row::from_index(15), Col::at_index(50), PX),
+            MouseMods::NONE,
             |b| child.extend_from_slice(b),
         );
         let one = b"\x1b[<64;51;16M";
@@ -254,6 +266,7 @@ mod tests {
             &mut t,
             Lines(-100),
             (Row::from_index(0), Col::at_index(0), PX),
+            MouseMods::NONE,
             |b| child.extend_from_slice(b),
         );
         let one = b"\x1b[<65;1;1M";
@@ -276,6 +289,7 @@ mod tests {
             &mut t,
             Lines(2),
             (Row::from_index(0), Col::at_index(0), PX),
+            MouseMods::NONE,
             |b| child.extend_from_slice(b),
         );
         assert_eq!(child, b"\x1b[0n\x1b[<64;1;1M\x1b[<64;1;1M");
@@ -292,6 +306,7 @@ mod tests {
             &mut t,
             Lines(3),
             (Row::from_index(0), Col::at_index(0), PX),
+            MouseMods::NONE,
             |b| calls += usize::from(!b.is_empty()),
         );
         assert_eq!(calls, 0);
@@ -309,7 +324,7 @@ mod tests {
         let mut s = Owned::new(&WS);
         let mut t = Term::new(s.storage(), &WS);
         feed(&mut t, b"\x1b[?1049h\x1b[?1007l");
-        let r = route(&t);
+        let r = route(&t, MouseMods::NONE);
         assert!(
             !matches!(r, Route::Report | Route::Keys | Route::History),
             "after ?1007 l the wheel on the alternate screen sends nothing and moves nothing: {r:?}"
@@ -318,7 +333,7 @@ mod tests {
         assert_eq!(t.alternate_scroll(), AlternateScroll::Off);
         // And `?1007 h` gives the arrows back.
         feed(&mut t, b"\x1b[?1007h");
-        assert_eq!(route(&t), Route::Keys);
+        assert_eq!(route(&t, MouseMods::NONE), Route::Keys);
     }
 
     /// **The default is unchanged: arrows on the alternate screen.** baud
@@ -331,9 +346,13 @@ mod tests {
     fn the_alternate_screen_sends_arrows_until_an_application_says_otherwise() {
         let mut s = Owned::new(&WS);
         let mut t = Term::new(s.storage(), &WS);
-        assert_eq!(route(&t), Route::History, "the primary moves the history");
+        assert_eq!(
+            route(&t, MouseMods::NONE),
+            Route::History,
+            "the primary moves the history"
+        );
         feed(&mut t, b"\x1b[?1049h");
-        assert_eq!(route(&t), Route::Keys);
+        assert_eq!(route(&t, MouseMods::NONE), Route::Keys);
     }
 
     /// **Tracking takes the wheel whatever `?1007` says, and the primary
@@ -346,19 +365,57 @@ mod tests {
         let mut s = Owned::new(&WS);
         let mut t = Term::new(s.storage(), &WS);
         feed(&mut t, b"\x1b[?1007l");
-        assert_eq!(route(&t), Route::History);
+        assert_eq!(route(&t, MouseMods::NONE), Route::History);
         // An application tracking the mouse on the primary screen gets the
         // wheel too: tracking decides before the screen does.
         feed(&mut t, b"\x1b[?1000h");
-        assert_eq!(route(&t), Route::Report, "tracking on the primary screen");
+        assert_eq!(
+            route(&t, MouseMods::NONE),
+            Route::Report,
+            "tracking on the primary screen"
+        );
         feed(&mut t, b"\x1b[?1000l\x1b[?1049h\x1b[?1000h");
-        assert_eq!(route(&t), Route::Report);
+        assert_eq!(route(&t, MouseMods::NONE), Route::Report);
         feed(&mut t, b"\x1b[?1000l\x1b[?9h");
         assert_eq!(
-            route(&t),
+            route(&t, MouseMods::NONE),
             Route::Report,
             "X10 compatibility is tracking too"
         );
+    }
+
+    /// **Shift takes the wheel from tracking under XTSHIFTESCAPE 0, and
+    /// leaves it the program's, Shift bit sent, under 1.** xterm's
+    /// `ShiftOverride` takes a Shift button event from the protocol for
+    /// every button at 0, the wheel's included; at 1 only for a button the
+    /// selection binds, and the wheel binds none (`[[source:
+    /// xterm-button-c]]`). The wheel went to the program, no bit set,
+    /// whatever was held.
+    #[test]
+    fn shift_takes_the_wheel_from_tracking_only_under_xtshiftescape_0() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        feed(&mut t, b"\x1b[?1000h\x1b[?1006h");
+        assert_eq!(route(&t, MouseMods::NONE), Route::Report, "the control");
+        assert_eq!(route(&t, MouseMods::SHIFT), Route::History, "Shift, at 0");
+        feed(&mut t, b"\x1b[?1049h");
+        assert_eq!(
+            route(&t, MouseMods::SHIFT),
+            Route::Keys,
+            "the alternate screen"
+        );
+        feed(&mut t, b"\x1b[>1s");
+        assert_eq!(route(&t, MouseMods::SHIFT), Route::Report, "Shift, at 1");
+        t.clear_reply();
+        let mut child = Vec::new();
+        report(
+            &mut t,
+            Lines(1),
+            (Row::from_index(0), Col::at_index(0), PX),
+            MouseMods::SHIFT,
+            |b| child.extend_from_slice(b),
+        );
+        assert_eq!(child, b"\x1b[<68;1;1M", "button 4 with Shift's 4");
     }
 
     /// **The wheel's keys are the cursor keys as DECCKM has them**: through
@@ -403,6 +460,7 @@ mod tests {
             &mut t,
             Lines(1),
             (Row::from_index(1), Col::at_index(2), px),
+            MouseMods::NONE,
             |b| child.extend_from_slice(b),
         );
         assert_eq!(child, b"\x1b[<64;34;71M");

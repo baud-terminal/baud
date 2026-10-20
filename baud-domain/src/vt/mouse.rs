@@ -447,6 +447,41 @@ pub enum AlternateScroll {
     On,
 }
 
+/// XTSHIFTESCAPE, `CSI > Ps s`: whether Shift takes a pointer event from a
+/// program that tracks the mouse (`[[source: ctlseqs]]`, "This corresponds
+/// to the shiftEscape resource").
+///
+/// **Kept by both resets**, as xterm writes `shift_escape` only at start-up
+/// and in `CASE_XTERM_SHIFT_ESCAPE` (`[[source: xterm-reset]]`'s file).
+/// Read by the embedder's pointer, never here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ShiftEscape {
+    /// `Ps = 0`, and an omitted `Ps`: "allow shift-key to override mouse
+    /// protocol". Shift held, every event is the terminal's.
+    #[default]
+    Override,
+    /// `Ps = 1`: "conditionally allow shift-key as modifier in mouse
+    /// protocol". xterm's `ShiftOverride` takes the event only for a button
+    /// its selection binds without Shift (`[[source: xterm-button-c]]`);
+    /// every other one is the program's, its Shift bit sent.
+    Conditional,
+}
+
+impl ShiftEscape {
+    /// `Ps`, or `None` for one the control does not allow: 2 and 3 are
+    /// "disallowed in the control sequence". An omitted `Ps` is 0, "If no
+    /// parameter is given, xterm uses the default, which is 0", and so is an
+    /// explicit one, as the text gives it -- xterm's `one_if_default` reads
+    /// an explicit 0 as 1.
+    pub fn from_param(p: Option<Param>) -> Option<ShiftEscape> {
+        match p.map_or(0, |v| v.value()) {
+            0 => Some(ShiftEscape::Override),
+            1 => Some(ShiftEscape::Conditional),
+            _ => None,
+        }
+    }
+}
+
 /// A mouse button, as the wire encodes it.
 ///
 /// `[[source: ctlseqs]]`: "The low two bits of Cb encode button information:
@@ -497,6 +532,10 @@ impl MouseMods {
     pub const CONTROL: MouseMods = MouseMods(16);
     pub fn with(self, o: MouseMods) -> MouseMods {
         MouseMods(self.0 | o.0)
+    }
+    /// Whether every bit of `o` is held.
+    pub fn has(self, o: MouseMods) -> bool {
+        self.0 & o.0 == o.0
     }
     fn bits(self) -> u16 {
         self.0

@@ -95,7 +95,7 @@ pub use baud_domain::TerminalMode;
 /// `?1001`'s: what [`Term::highlight`] says to draw, in `CellAt`s.
 pub use baud_domain::{
     AlternateScroll, CellAt, Highlighted, ImagePx, MouseButton, MouseEncoding, MouseEvent,
-    MouseKind, MouseMods, MouseTracking, PointerPx,
+    MouseKind, MouseMods, MouseTracking, PointerPx, ShiftEscape,
 };
 /// The clustering and width vocabulary the encoding suites name. All of it is
 /// `baud-domain`'s -- this crate owns neither UAX #29 nor East Asian Width.

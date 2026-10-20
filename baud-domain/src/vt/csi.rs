@@ -730,6 +730,9 @@ pub enum Csi {
     /// Which of the two sequence formats [`Csi::SetOtherKeys`] sends. Same
     /// restriction to `Pp = 4`, for the same reason.
     SetOtherKeysFormat(OtherKeysFormat),
+    /// XTSHIFTESCAPE, `CSI > Ps s`: whether Shift takes a pointer event from
+    /// a program tracking the mouse.
+    ShiftEscape(ShiftEscape),
     /// `[[source: kitty-keyboard]]` set, `CSI = flags ; mode u`.
     KittySet {
         flags: KittyFlags,
@@ -1023,6 +1026,17 @@ impl Csi {
         // ignores (Jev's lean, 0.48 and 0.34, taken).
         if marker == Marker::Gt && f.raw() == b'g' {
             return Csi::Query(QueryOp::FormatKeys);
+        }
+        // XTSHIFTESCAPE, `CSI > Ps s`: the `>` keeps it from SCOSC and
+        // DECSLRM, the standard namespace's `s`.
+        if marker == Marker::Gt && f.raw() == b's' && !p.has(ParamIdx::SECOND) {
+            return match ShiftEscape::from_param(p.at(ParamIdx::FIRST)) {
+                Some(e) => Csi::ShiftEscape(e),
+                None => Csi::Unsupported {
+                    marker,
+                    final_byte: f,
+                },
+            };
         }
         // `[[source: kitty-keyboard]]` push, `CSI > flags u`.
         if marker == Marker::Gt && f.raw() == b'u' {
@@ -1499,6 +1513,7 @@ impl Csi {
             // extension rather than a VT level.
             SetOtherKeys(_)
             | SetOtherKeysFormat(_)
+            | ShiftEscape(_)
             | KittySet { .. }
             | KittyQuery
             | KittyPush { .. }

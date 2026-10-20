@@ -719,6 +719,9 @@ pub struct Cold {
     /// `alternateScroll` (no `ReallyReset` path names it, `[[source:
     /// xterm-reset]]`'s file). Read by the embedder's wheel, never here.
     pub(crate) alternate_scroll: AlternateScroll,
+    /// XTSHIFTESCAPE, `CSI > Ps s`, kept by both resets as xterm keeps
+    /// `shift_escape`. Read by the embedder's pointer, never here.
+    pub(crate) shift_escape: ShiftEscape,
     /// **`?1001`'s handshake**: idle, a button-1 press owed the program's
     /// answer, or the region tracking the mouse until the release. The level
     /// is `mouse`'s, [`MouseTracking::Highlight`]; this is only where a
@@ -1305,6 +1308,7 @@ impl Cold {
             mouse_encoding: MouseEncoding::X10,
             mouse_at: None,
             alternate_scroll: AlternateScroll::On,
+            shift_escape: ShiftEscape::Override,
             defaults: [ColorWord::DEFAULT; DynamicColor::COUNT],
             dynamic: [ColorWord::DEFAULT; DynamicColor::COUNT],
             handshake: Handshake::Idle,
@@ -3671,6 +3675,15 @@ impl<'b> Term<'b> {
     /// power-on, which is what baud did before it read the mode.
     pub fn alternate_scroll(&self) -> AlternateScroll {
         self.cold.alternate_scroll
+    }
+
+    /// XTSHIFTESCAPE: whether Shift takes a pointer event from a program
+    /// tracking the mouse -- always, at power-on and under `CSI > 0 s`, or
+    /// only for a button the selection binds, under `CSI > 1 s`
+    /// (`[[source: ctlseqs]]`). The pointer is the embedder's, so acting on
+    /// it is exposing it, as `?1007` is exposed for the wheel.
+    pub fn shift_escape(&self) -> ShiftEscape {
+        self.cold.shift_escape
     }
 
     /// `?1042`: whether a `BEL` should ask for the user's attention while

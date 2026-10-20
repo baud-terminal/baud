@@ -160,8 +160,11 @@ default (`[[source: ctlseqs]]`, XTSHIFTESCAPE: "Ps = 0 -> allow shift-key
 to override mouse protocol", "the default, which is 0"). With Shift the
 event goes to selection and the child sees nothing; the report's Shift
 bit is therefore never sent while tracking is on, which is what xterm does
-under the same default. The `CSI > Ps s` control itself is not
-implemented in this slice; the default is the behaviour.
+under the same default. Since 2026-10-19 the control is built:
+`CSI > 1 s` hands Shift only the left button, the one the selection binds,
+and sends a Shift middle or right press, and the Shift wheel, to the child
+with its Shift bit; at 0 the Shift wheel is the screen's too (the history,
+or the cursor keys under `?1007`), as xterm's `ShiftOverride` takes it.
 
 ## Copy and paste
 

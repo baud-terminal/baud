@@ -302,6 +302,8 @@ struct Snapshot {
     reverse_video: bool,
     auto_repeat: bool,
     meta_escape: bool,
+    /// XTSHIFTESCAPE, which only the embedder's pointer reads.
+    shift_escape: ShiftEscape,
     title: Vec<u8>,
     icon: Vec<u8>,
     bells: usize,
@@ -392,6 +394,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         reverse_video: t.reverse_video(),
         auto_repeat: t.auto_repeat(),
         meta_escape: t.meta_sends_escape(),
+        shift_escape: t.shift_escape(),
         title: t.title().to_vec(),
         icon: t.icon_name().to_vec(),
         bells: t.bells,

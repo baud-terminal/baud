@@ -1275,3 +1275,39 @@ fn sgr_pixels_motion_is_gated_by_the_cell_as_the_text_says() {
     );
     assert_eq!(out[2], b"\x1b[<35;41;86M", "the next cell, in its pixel");
 }
+
+/// **XTSHIFTESCAPE, `CSI > Ps s`, is the state the pointer reads.**
+/// `[[source: ctlseqs]]`: "Ps = 0 -> allow shift-key to override mouse
+/// protocol. Ps = 1 -> conditionally allow shift-key as modifier in mouse
+/// protocol", 2 and 3 "disallowed in the control sequence", and "If no
+/// parameter is given, xterm uses the default, which is 0". An explicit 0
+/// is 0 too, where xterm's `one_if_default` reads it as 1. Both resets
+/// keep it, as xterm writes `shift_escape` nowhere else; it is no SCOSC.
+#[test]
+fn xtshiftescape_is_the_state_the_pointer_reads() {
+    support::with_corpus(|t| {
+        assert_eq!(t.shift_escape(), ShiftEscape::Override, "power-on");
+        support::feed(t, b"\x1b[3;3H\x1b[>1s\x1b[H\x1b[u");
+        assert_eq!(t.shift_escape(), ShiftEscape::Conditional);
+        assert_eq!(t.cursor(), (Row::ZERO, Col::ZERO), "no cursor was saved");
+        let before = t.unsupported;
+        support::feed(t, b"\x1b[>2s\x1b[>3s\x1b[>1;1s");
+        assert_eq!(t.unsupported, before + 3, "each refused is counted");
+        assert_eq!(
+            t.shift_escape(),
+            ShiftEscape::Conditional,
+            "and changes nothing"
+        );
+        support::feed(t, b"\x1b[!p\x1bc");
+        assert_eq!(
+            t.shift_escape(),
+            ShiftEscape::Conditional,
+            "kept by DECSTR and RIS"
+        );
+        support::feed(t, b"\x1b[>0s");
+        assert_eq!(t.shift_escape(), ShiftEscape::Override, "an explicit 0");
+        support::feed(t, b"\x1b[>1s\x1b[>s");
+        assert_eq!(t.shift_escape(), ShiftEscape::Override, "no parameter is 0");
+        assert_eq!(t.unsupported, before + 3);
+    });
+}
