@@ -422,6 +422,135 @@ fn osc_104_goes_on_past_a_number_out_of_range() {
     );
 }
 
+// ── allowed features ────────────────────────────────────────────────────────
+
+fn reply_of(bytes: &[u8], f: impl Fn(&mut Term<'_>)) -> (Vec<u8>, usize) {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    f(&mut t);
+    support::feed(&mut t, bytes);
+    (t.reply().to_vec(), t.unsupported)
+}
+
+/// **`OSC 60`, XTQALLOWED, names the categories baud honours whole**, in
+/// xterm's shape:
+/// "XTerm replies with OSC 6 0 ; Pt ST where Pt is a comma-separated list
+/// of the allowed optional runtime feature categories" (`[[source:
+/// ctlseqs]]`), with the query's terminator. Fonts, termcap queries, the
+/// DEC locator, most window operations and the pointer and Tektronix
+/// colours (`OSC 13` to `16` and `18`, which xterm gates under the same
+/// `SetColor` and `GetColor` as `OSC 10`) are refused, so only the title
+/// operations are named.
+#[test]
+fn osc_60_names_the_categories_baud_honours_whole() {
+    let (r, n) = reply_of(b"\x1b]60\x07", |_| {});
+    assert_eq!(r, b"\x1b]60;allowTitleOps\x07");
+    assert_eq!(n, 0);
+    let (r, _) = reply_of(b"\x1b]60\x1b\\", |_| {});
+    assert_eq!(r, b"\x1b]60;allowTitleOps\x1b\\");
+}
+
+/// **`OSC 61 ; cat`, XTQDISALLOWED, names the subcategories baud
+/// refuses**: "the optional
+/// runtime feature subcategories which would be disallowed if the main
+/// feature is disabled" (`[[source: ctlseqs]]`), in xterm's model where a
+/// category not allowed allows all but its disallowed list. The name is
+/// matched in any case, `allowWinOps` is xterm's alias, and a name that is
+/// no category gets an empty list, as xterm's `unparse_disallowed_ops`.
+/// `OSC 52`'s write is refused on a storage with no clipboard area, and
+/// named only there.
+#[test]
+fn osc_61_names_what_baud_refuses() {
+    let windows: &[u8] = b"\x1b]61;RestoreWin,MinimizeWin,SetWinPosition,\
+SetWinSizePixels,RaiseWin,LowerWin,RefreshWin,SetWinSizeChars,MaximizeWin,\
+FullscreenWin,GetIconTitle,GetWinTitle,SetWinLines,SetChecksum,GetSelection,\
+SetSelection,SetXprop\x07";
+    for name in ["allowWindowOps", "ALLOWWINDOWOPS", "allowWinOps"] {
+        let q = format!("\x1b]61;{name}\x07");
+        assert_eq!(reply_of(q.as_bytes(), |_| {}).0, windows, "{name}");
+    }
+    assert_eq!(
+        reply_of(b"\x1b]61;allowMouseOps\x07", |_| {}).0,
+        b"\x1b]61;Locator\x07"
+    );
+    assert_eq!(
+        reply_of(b"\x1b]61;allowFontOps\x07", |_| {}).0,
+        b"\x1b]61;SetFont,GetFont\x07"
+    );
+    assert_eq!(
+        reply_of(b"\x1b]61;allowColorOps\x07", |_| {}).0,
+        b"\x1b]61;SetColor,GetColor\x07",
+        "OSC 13 to 16 and 18 are refused"
+    );
+    for empty in ["allowTitleOps", "allowPasteControls", "1"] {
+        let q = format!("\x1b]61;{empty}\x07");
+        let (r, n) = reply_of(q.as_bytes(), |_| {});
+        assert_eq!(r, b"\x1b]61\x07", "{empty}");
+        assert_eq!(n, 0, "{empty}");
+    }
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws).with_clipboard(ClipboardBudget::of_text(64));
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"\x1b]52;c;aGk=\x07\x1b]61;allowWindowOps\x07");
+    assert_eq!(t.clipboard_writes_refused, 0, "the write was honoured");
+    assert!(
+        t.reply()
+            .ends_with(b",SetChecksum,GetSelection,SetXprop\x07"),
+        "a provisioned clipboard is not refused: {}",
+        String::from_utf8_lossy(t.reply())
+    );
+    let (r, _) = reply_of(b"\x1b]61;allowWindowOps\x07", |t| {
+        t.set_checksum_report(baud_domain::ChecksumReport::Off)
+    });
+    assert!(
+        r.windows(b",GetChecksum,".len())
+            .any(|w| w == b",GetChecksum,"),
+        "DECRQCRA switched off is refused: {}",
+        String::from_utf8_lossy(&r)
+    );
+}
+
+/// **`OSC 62 ; cat`, XTQALLOWABLE, names every subcategory**, "the optional runtime
+/// feature subcategories which correspond to the main feature category"
+/// (`[[source: ctlseqs]]`), xterm's table for it.
+#[test]
+fn osc_62_names_every_subcategory() {
+    assert_eq!(
+        reply_of(b"\x1b]62;allowcolorops\x07", |_| {}).0,
+        b"\x1b]62;SetColor,GetColor,GetAnsiColor\x07"
+    );
+    assert_eq!(
+        reply_of(b"\x1b]62;nothing\x1b\\", |_| {}).0,
+        b"\x1b]62\x1b\\"
+    );
+}
+
+/// **A malformed feature query is counted and answered with silence**, as
+/// xterm's `do_osc` returns on "found unwanted data" for `OSC 60` and
+/// "found no data" for `61` and `62`.
+#[test]
+fn a_malformed_feature_query_is_counted() {
+    for q in [&b"\x1b]60;x\x07"[..], b"\x1b]61\x07", b"\x1b]62;\x07"] {
+        let (r, n) = reply_of(q, |_| {});
+        assert!(r.is_empty(), "{}", String::from_utf8_lossy(q));
+        assert_eq!(n, 1, "{}", String::from_utf8_lossy(q));
+    }
+}
+
+/// **The longest feature reply comes back whole**: `OSC 62 ;
+/// allowWindowOps`, 336 bytes with its `BEL`.
+#[test]
+fn the_longest_feature_reply_fits() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"\x1b]62;allowWindowOps\x07");
+    assert_eq!(t.reply().len(), 336);
+    assert!(t.reply().ends_with(b",SetSelection,SetXprop\x07"));
+    assert_eq!(t.reply_overflows, 0);
+}
+
 // ── clipboard ───────────────────────────────────────────────────────────────
 
 /// `OSC 52` read gets **no** answer.

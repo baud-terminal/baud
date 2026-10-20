@@ -87,7 +87,7 @@ impl Paint<'_, '_> {
 
     /// Append `parts` to the reply buffer whole, or count an overflow: a
     /// truncated reply is a wrong answer (`Paint::want_reply`).
-    fn push_reply(&mut self, parts: &[&[u8]]) {
+    pub(crate) fn push_reply(&mut self, parts: &[&[u8]]) {
         let len: usize = parts.iter().map(|p| p.len()).sum();
         let at = self.reply_len.index();
         if at + len > self.reply.len() {

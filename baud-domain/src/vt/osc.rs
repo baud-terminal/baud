@@ -57,8 +57,146 @@ pub enum Osc<'a> {
     /// back leaves the top of the old prompt on screen. See
     /// `docs/research/notes/m-resize-and-reflow.md`.
     Semantic(Semantic),
+    /// `OSC 60`, `OSC 61 ; cat`, `OSC 62 ; cat`: xterm's queries of the
+    /// features it allows, [`AllowQuery`].
+    Allowed(AllowQuery),
     /// Recognised as an OSC and not acted on.
     Unsupported,
+}
+
+/// One of xterm's three feature queries (`[[source: ctlseqs]]`): "Query
+/// allowed features (XTQALLOWED)", "Query disallowed features
+/// (XTQDISALLOWED)" and "Query allowable features (XTQALLOWABLE)". Each
+/// reply is `OSC Ps ; Pt` with a comma-separated list, the query's
+/// terminator, and no `;` when the list is empty (`report_allowed_ops` and
+/// `unparse_disallowed_ops`, `[[source: xterm-misc]]` 3939-3985 and
+/// `[[source: xterm-reset]]`'s file 10666-10722).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AllowQuery {
+    /// `OSC 60`: the categories allowed.
+    Allowed,
+    /// `OSC 61 ; cat`: the subcategories of `cat` disallowed; `None` for a
+    /// name that is no category, answered with an empty list.
+    Disallowed(Option<AllowCategory>),
+    /// `OSC 62 ; cat`: every subcategory of `cat`.
+    Allowable(Option<AllowCategory>),
+    /// `OSC 60` with data, or `OSC 61` or `62` without: xterm's `do_osc`
+    /// returns at "found unwanted data" and "found no data" (misc.c
+    /// 4100-4160) and answers nothing.
+    Malformed,
+}
+
+/// The seven categories `OSC 60` names: xterm's resources, "zero or more of
+/// these resource names" (`[[source: ctlseqs]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AllowCategory {
+    ColorOps,
+    FontOps,
+    MouseOps,
+    PasteControls,
+    TcapOps,
+    TitleOps,
+    WindowOps,
+}
+
+impl AllowCategory {
+    /// In `OSC 60`'s order.
+    pub const ALL: [AllowCategory; 7] = [
+        AllowCategory::ColorOps,
+        AllowCategory::FontOps,
+        AllowCategory::MouseOps,
+        AllowCategory::PasteControls,
+        AllowCategory::TcapOps,
+        AllowCategory::TitleOps,
+        AllowCategory::WindowOps,
+    ];
+
+    /// The resource name, as `OSC 60` spells it.
+    pub fn name(self) -> &'static [u8] {
+        match self {
+            AllowCategory::ColorOps => b"allowColorOps",
+            AllowCategory::FontOps => b"allowFontOps",
+            AllowCategory::MouseOps => b"allowMouseOps",
+            AllowCategory::PasteControls => b"allowPasteControls",
+            AllowCategory::TcapOps => b"allowTcapOps",
+            AllowCategory::TitleOps => b"allowTitleOps",
+            AllowCategory::WindowOps => b"allowWindowOps",
+        }
+    }
+
+    /// The category an `OSC 61` or `62` names, case ignored, with xterm's
+    /// alias `allowWinOps` for `allowWindowOps` (`x_strcasecmp` over
+    /// `allow_categories`, charproc.c 10653-10661). `allowTitleOps` has no
+    /// subcategories there, so it is no category for these two queries.
+    pub fn of(name: &[u8]) -> Option<AllowCategory> {
+        if name.eq_ignore_ascii_case(b"allowWinOps") {
+            return Some(AllowCategory::WindowOps);
+        }
+        AllowCategory::ALL
+            .into_iter()
+            .filter(|&c| c != AllowCategory::TitleOps)
+            .find(|c| name.eq_ignore_ascii_case(c.name()))
+    }
+
+    /// Its subcategories, in xterm's order: `tblColorOps` to
+    /// `tblWindowOps` (`[[source: xterm-reset]]`'s file 10470-10620) as a
+    /// default build compiles them, `OPT_STATUS_LINE` being off
+    /// (`[[source: xterm-ptyx-h]]` 800-801).
+    pub fn subcategories(self) -> &'static [&'static [u8]] {
+        match self {
+            AllowCategory::ColorOps => &[b"SetColor", b"GetColor", b"GetAnsiColor"],
+            AllowCategory::FontOps => &[b"SetFont", b"GetFont"],
+            AllowCategory::MouseOps => &[
+                b"X10",
+                b"Locator",
+                b"VT200Click",
+                b"VT200Hilite",
+                b"AnyButton",
+                b"AnyEvent",
+                b"FocusEvent",
+                b"Extended",
+                b"SGR",
+                b"URXVT",
+                b"AlternateScroll",
+            ],
+            AllowCategory::PasteControls => &[
+                b"NUL", b"SOH", b"STX", b"ETX", b"EOT", b"ENQ", b"ACK", b"BEL", b"BS", b"HT",
+                b"LF", b"VT", b"FF", b"CR", b"SO", b"SI", b"DLE", b"DC1", b"DC2", b"DC3", b"DC4",
+                b"NAK", b"SYN", b"ETB", b"CAN", b"EM", b"SUB", b"ESC", b"FS", b"GS", b"RS", b"US",
+                b"NL", b"C0", b"DEL", b"STTY",
+            ],
+            AllowCategory::TcapOps => &[b"SetTcap", b"GetTcap"],
+            AllowCategory::TitleOps => &[],
+            AllowCategory::WindowOps => &[
+                b"RestoreWin",
+                b"MinimizeWin",
+                b"SetWinPosition",
+                b"SetWinSizePixels",
+                b"RaiseWin",
+                b"LowerWin",
+                b"RefreshWin",
+                b"SetWinSizeChars",
+                b"MaximizeWin",
+                b"FullscreenWin",
+                b"GetWinState",
+                b"GetWinPosition",
+                b"GetWinSizePixels",
+                b"GetWinSizeChars",
+                b"GetScreenSizeChars",
+                b"GetIconTitle",
+                b"GetWinTitle",
+                b"PushTitle",
+                b"PopTitle",
+                b"SetWinLines",
+                b"ColumnMode",
+                b"GetChecksum",
+                b"SetChecksum",
+                b"GetSelection",
+                b"SetSelection",
+                b"SetXprop",
+            ],
+        }
+    }
 }
 
 /// Which dynamic colour an `OSC 10`-family sequence names. Five of xterm's
@@ -708,6 +846,13 @@ impl<'a> Osc<'a> {
                     _ => Osc::Semantic(Semantic::Other),
                 }
             }
+            b"60" => Osc::Allowed(match payload.len() > ps.len() && !rest.is_empty() {
+                true => AllowQuery::Malformed,
+                false => AllowQuery::Allowed,
+            }),
+            b"61" | b"62" if rest.is_empty() => Osc::Allowed(AllowQuery::Malformed),
+            b"61" => Osc::Allowed(AllowQuery::Disallowed(AllowCategory::of(rest))),
+            b"62" => Osc::Allowed(AllowQuery::Allowable(AllowCategory::of(rest))),
             _ => Osc::Unsupported,
         }
     }

@@ -571,12 +571,75 @@ impl Paint<'_, '_> {
                 };
                 self.semantic_marks += 1;
             }
+            Osc::Allowed(q) => self.report_allowed(q, term),
             Osc::Unsupported => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;
             }
         }
         self.strs.pending = pending;
+    }
+
+    /// Answer `OSC 60`, `61` or `62` in xterm's shape, with baud's fixed
+    /// behaviour written in xterm's model, where a subcategory is allowed
+    /// when its category is or when it is not on the category's disallowed
+    /// list (`AllowWindowOps` and its siblings, `[[source: xterm-misc]]`):
+    /// a category is allowed when baud honours every one of its
+    /// subcategories, and a category it does not lists those it refuses.
+    /// Decided by Jev, 0.98 both orders, over silence and xterm's defaults.
+    /// The paste controls are the embedder's to filter, and the core names
+    /// none and does not claim the category. A malformed query is counted.
+    fn report_allowed(&mut self, q: AllowQuery, term: StringTerm) {
+        let facts = Facts {
+            checksum: self.cold.checksum_report,
+            clipboard: match self.strs.clip_area.is_empty() {
+                true => Clipboard::Unprovisioned,
+                false => Clipboard::Provisioned,
+            },
+        };
+        let mut out = AllowList::new(match q {
+            AllowQuery::Allowed => b"60",
+            AllowQuery::Disallowed(_) => b"61",
+            AllowQuery::Allowable(_) => b"62",
+            AllowQuery::Malformed => {
+                self.unsupported_total += 1;
+                return;
+            }
+        });
+        match q {
+            AllowQuery::Allowed => {
+                for c in AllowCategory::ALL {
+                    let whole = c.subcategories().iter().all(|s| honoured(c, s, facts));
+                    if whole && c != AllowCategory::PasteControls {
+                        out.item(c.name());
+                    }
+                }
+            }
+            AllowQuery::Disallowed(Some(c)) => {
+                for s in c.subcategories() {
+                    if !honoured(c, s, facts) {
+                        out.item(s);
+                    }
+                }
+            }
+            AllowQuery::Allowable(Some(c)) => {
+                for s in c.subcategories() {
+                    out.item(s);
+                }
+            }
+            AllowQuery::Disallowed(None) | AllowQuery::Allowable(None) | AllowQuery::Malformed => {}
+        }
+        let end: &[u8] = match term {
+            StringTerm::Bel => b"\x07",
+            StringTerm::St => b"\x1b\\",
+        };
+        // A truncated reply is a wrong answer (`Paint::want_reply`).
+        if out.state == ListState::Cut {
+            self.reply_overflows += 1;
+            return;
+        }
+        let len = out.len.index();
+        self.push_reply(&[&out.buf[..len], end]);
     }
 
     /// Answer `OSC 4 ; c ; ?` in the same shape as the setter.
@@ -631,6 +694,112 @@ impl Paint<'_, '_> {
             b,
             term,
         });
+    }
+}
+
+/// Whether baud honours one of xterm's feature subcategories
+/// ([`AllowCategory::subcategories`]): what each refuses is in its own row
+/// of `docs/vt-coverage.md`. Fonts (`OSC 50`) and termcap queries are not
+/// built; of the colours, `SetColor` and `GetColor`, because the pointer
+/// colours (`OSC 13`, `14`) and the Tektronix colours (`OSC 15`, `16`,
+/// `18`) are refused, and xterm gates them with the rest of `OSC 10` to
+/// `19` under those two (`AllocateTermColor` and `ReportColorRequest`,
+/// `[[source: xterm-misc]]` 6456 and 3572); of the mouse, the DEC
+/// locator; of the window, the manipulations and the line count, the
+/// title reports, `OSC 52`'s read, XTCHECKSUM and `OSC 3`, DECRQCRA while
+/// the embedder has it off, and `OSC 52`'s write on a storage with no
+/// clipboard area, which refuses every write.
+fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
+    match c {
+        AllowCategory::ColorOps => sub == b"GetAnsiColor",
+        AllowCategory::PasteControls | AllowCategory::TitleOps => true,
+        AllowCategory::FontOps | AllowCategory::TcapOps => false,
+        AllowCategory::MouseOps => sub != b"Locator",
+        AllowCategory::WindowOps => match sub {
+            b"GetWinState"
+            | b"GetWinPosition"
+            | b"GetWinSizePixels"
+            | b"GetWinSizeChars"
+            | b"GetScreenSizeChars"
+            | b"PushTitle"
+            | b"PopTitle"
+            | b"ColumnMode" => true,
+            b"GetChecksum" => facts.checksum == ChecksumReport::On,
+            b"SetSelection" => facts.clipboard == Clipboard::Provisioned,
+            _ => false,
+        },
+    }
+}
+
+/// What the feature replies read of the terminal's own setup.
+#[derive(Clone, Copy)]
+struct Facts {
+    checksum: ChecksumReport,
+    clipboard: Clipboard,
+}
+
+/// Whether the storage has an `OSC 52` area ([`crate::Owned::with_clipboard`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Clipboard {
+    Provisioned,
+    Unprovisioned,
+}
+
+/// An `OSC 60`-family reply as it is built: `ESC ] Ps`, then `;` and the
+/// items separated by `,`. Its buffer holds the longest, `OSC 62 ;
+/// allowWindowOps`, which `the_longest_feature_reply_fits` measures.
+struct AllowList {
+    buf: [u8; AllowList::CAP],
+    len: ByteLen,
+    state: ListState,
+}
+
+/// Where an [`AllowList`] is: no item yet, items, or cut short by its
+/// buffer -- a wrong answer, never sent.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ListState {
+    Empty,
+    Items,
+    Cut,
+}
+
+impl AllowList {
+    const CAP: usize = 384;
+
+    fn new(ps: &[u8]) -> AllowList {
+        let mut l = AllowList {
+            buf: [0; AllowList::CAP],
+            len: ByteLen::ZERO,
+            state: ListState::Empty,
+        };
+        l.put(b"\x1b]");
+        l.put(ps);
+        l
+    }
+
+    fn put(&mut self, b: &[u8]) {
+        let at = self.len.index();
+        match self.buf.get_mut(at..at + b.len()) {
+            Some(to) => {
+                to.copy_from_slice(b);
+                self.len = ByteLen::from_index(at + b.len());
+            }
+            None => self.state = ListState::Cut,
+        }
+    }
+
+    fn item(&mut self, name: &[u8]) {
+        match self.state {
+            ListState::Empty => {
+                self.put(b";");
+                if self.state == ListState::Empty {
+                    self.state = ListState::Items;
+                }
+            }
+            ListState::Items => self.put(b","),
+            ListState::Cut => return,
+        }
+        self.put(name);
     }
 }
 
