@@ -1947,6 +1947,20 @@ impl<'b> Term<'b> {
         }
     }
 
+    /// **The primary's `ESC 7` slot, where a resize moves it as a point**
+    /// and nothing else: the shown screen's slot on the primary, the other
+    /// screen's under `?47`. Under `?1049` it is the cursor the primary is
+    /// anchored on ([`PrimaryCursor::Saved`]), mapped as the anchor, so
+    /// `None`. The alternate screen's slot is never moved: that screen is
+    /// cell-addressed and nothing re-cuts it.
+    fn primary_slot(&mut self, at: PrimaryCursor) -> Option<&mut Saved> {
+        match (at, self.cold.screen) {
+            (PrimaryCursor::Saved, _) => None,
+            (_, Screen::Normal) => self.cold.saved.as_mut(),
+            (_, Screen::Alternate) => self.cold.saved_other.as_mut(),
+        }
+    }
+
     /// The primary's rows full-screen scrolls swept since the last pass past
     /// the edge, cleared there under the geometry they came in at
     /// (`Paint::clear_swept`'s twin for a resize), and the cells counted.
@@ -2131,6 +2145,13 @@ impl<'b> Term<'b> {
                 hidden = (hidden + cut).min(spare - hist);
                 cy -= retire;
                 cy = cy.min(to - 1);
+                // **The primary's `ESC 7` follows its row** (note V, V4):
+                // up by the rows retired, onto the top row when its own
+                // went into the history, and kept on a row the shrink cut,
+                // which the restore clamps while it stays hidden.
+                if let Some(s) = self.primary_slot(at) {
+                    s.cy = Row::from_index(s.cy.index().saturating_sub(retire));
+                }
             } else {
                 let k = to - from;
                 // **Content first, blanks last.** xterm reveals the rows a
@@ -2198,6 +2219,9 @@ impl<'b> Term<'b> {
                     .minus(Rows::of_count(pull))
                     .unwrap_or(LineIdx::FIRST);
                 cy += pull;
+                if let Some(s) = self.primary_slot(at) {
+                    s.cy = Row::from_index(s.cy.index() + pull);
+                }
                 // The blank cut rows, after the history: revealed rather
                 // than counted as hidden, and blanked below all the same.
                 let rest = (k - reveal - pull).min(hidden);
@@ -2340,6 +2364,24 @@ impl<'b> Term<'b> {
                 Zone::Output => [None; 3],
             };
             let mut moved: [Option<(Rows, Col)>; 3] = [None; 3];
+            // **And so does the primary's `ESC 7`** (note V, V4), as a point
+            // the re-cut moves and that moves nothing: from its cell, or
+            // from the last column when it waits to wrap there.
+            let old_last = Col::at_index(old_cols.index().saturating_sub(1));
+            let decsc = match at {
+                PrimaryCursor::Saved => None,
+                PrimaryCursor::Live | PrimaryCursor::Shared => match self.cold.screen {
+                    Screen::Normal => self.cold.saved,
+                    Screen::Alternate => self.cold.saved_other,
+                },
+            }
+            .map(|s| {
+                (
+                    Rows::of_count(hist.index() + s.cy.index()),
+                    s.cx.min(old_last),
+                )
+            });
+            let mut decsc_at: Option<(Rows, Col)> = None;
             let mut hook = |from: Rows, n: Rows, land: &dyn Fn(Rows, Col) -> (Rows, Col)| {
                 visited = true;
                 if staged > 0 {
@@ -2361,9 +2403,14 @@ impl<'b> Term<'b> {
                         landed = Some(land(Rows::of_count(v), Col::ZERO).0);
                     }
                 }
+                if let Some((r, c)) = decsc {
+                    if line.contains(&r.index()) {
+                        decsc_at = Some(land(r, c));
+                    }
+                }
             };
-            let follow: Option<Follow<'_>> = match (staged, marked, view, anchors) {
-                (0, 0, None, [None, None, None]) => None,
+            let follow: Option<Follow<'_>> = match (staged, marked, view, anchors, decsc) {
+                (0, 0, None, [None, None, None], None) => None,
                 _ => Some(&mut hook),
             };
             let r = View::new(
@@ -2427,6 +2474,16 @@ impl<'b> Term<'b> {
             }
             if let Some((j, _)) = moved[2] {
                 shell.secondary = crate::prompt::Later::At(rot_of(j));
+            }
+            // The saved row from the window's new top, the top row when the
+            // re-cut put it in the history or dropped its line, kept past
+            // the bottom when it landed on a hidden row.
+            if decsc.is_some() {
+                if let Some(s) = self.primary_slot(at) {
+                    let (y, x) =
+                        decsc_at.map_or((0, s.cx), |(j, c)| (j.index().saturating_sub(top), c));
+                    (s.cy, s.cx) = (Row::from_index(y), x);
+                }
             }
             blanked = r.blanked;
             self.store.book.hist = r.hist;
