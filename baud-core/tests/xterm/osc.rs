@@ -551,6 +551,68 @@ fn the_longest_feature_reply_fits() {
     assert_eq!(t.reply_overflows, 0);
 }
 
+// ── the pointer ─────────────────────────────────────────────────────────────
+
+fn pointer_after(bytes: &[u8]) -> (Option<PointerShape>, usize) {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, bytes);
+    (t.pointer_shape(), t.unsupported)
+}
+
+/// **`OSC 22` names the pointer's shape**: "Change pointer cursor shape to
+/// Pt" (`[[source: ctlseqs]]`), one of the 77 names of xterm's table,
+/// matched as `strcmp` matches.
+#[test]
+fn osc_22_sets_the_pointer_shape() {
+    assert_eq!(
+        pointer_after(b"\x1b]22;hand2\x07"),
+        (Some(PointerShape::Hand2), 0)
+    );
+    assert_eq!(
+        pointer_after(b"\x1b]22;xterm\x1b\\"),
+        (Some(PointerShape::Xterm), 0)
+    );
+    assert_eq!(
+        pointer_after(b"\x1b]22;X_cursor\x07"),
+        (Some(PointerShape::XCursor), 0)
+    );
+    for s in PointerShape::ALL {
+        assert_eq!(PointerShape::of(s.name()), Some(s), "{:?}", s);
+    }
+}
+
+/// **An empty or unknown name is the embedder's own pointer**: "If Pt is
+/// empty, or does not match any of the standard names, xterm uses the
+/// resource's default" (`[[source: ctlseqs]]`). xterm's code returns on an
+/// empty `Pt` and changes nothing, where the text is followed. An unknown
+/// name is counted; so is a name in the wrong case.
+#[test]
+fn an_empty_or_unknown_osc_22_is_the_embedders_pointer() {
+    assert_eq!(pointer_after(b"\x1b]22;hand2\x07\x1b]22;\x07"), (None, 0));
+    assert_eq!(pointer_after(b"\x1b]22;hand2\x07\x1b]22\x07"), (None, 0));
+    assert_eq!(
+        pointer_after(b"\x1b]22;hand2\x07\x1b]22;Hand2\x07"),
+        (None, 1)
+    );
+    assert_eq!(
+        pointer_after(b"\x1b]22;hand2\x07\x1b]22;nothing\x07"),
+        (None, 1)
+    );
+}
+
+/// **`RIS` returns the embedder's pointer**, the state after power-up
+/// (`[[source: ecma48]]` 8.3.105); `DECSTR` keeps the shape.
+#[test]
+fn ris_returns_the_embedders_pointer() {
+    assert_eq!(pointer_after(b"\x1b]22;watch\x07\x1bc").0, None);
+    assert_eq!(
+        pointer_after(b"\x1b]22;watch\x07\x1b[!p").0,
+        Some(PointerShape::Watch)
+    );
+}
+
 // ── clipboard ───────────────────────────────────────────────────────────────
 
 /// `OSC 52` read gets **no** answer.

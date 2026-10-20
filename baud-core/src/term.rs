@@ -852,6 +852,9 @@ pub struct Cold {
     /// Whether DECRQCRA is answered ([`Term::set_checksum_report`]). The
     /// embedder's, so `RIS` and `DECSTR` leave it as it is.
     pub(crate) checksum_report: ChecksumReport,
+    /// The pointer shape `OSC 22` named, `None` for the embedder's own
+    /// ([`Term::pointer_shape`]).
+    pub(crate) pointer: Option<PointerShape>,
     /// The style `DECSCUSR` set, or the configuration: its shape, and its own
     /// blink. What `DECRQSS SP q` answers. Recorded and exposed for the
     /// reason every renderer-side mode here is: an embedder cannot honour it
@@ -1358,6 +1361,7 @@ impl Cold {
             ambiguous: AmbiguousWidth::Narrow,
             sixel_claim: SixelClaim::No,
             checksum_report: ChecksumReport::On,
+            pointer: None,
             cursor_style: CursorStyle::BlinkingBlock,
             cursor_blink: ModeChange::Reset,
             initial_cursor: CursorStyle::BlinkingBlock,
@@ -4074,6 +4078,16 @@ impl<'b> Term<'b> {
     /// reads the same field for the same reason.
     pub fn terminal_mode(&self) -> TerminalMode {
         self.cold.terminal
+    }
+
+    /// The pointer shape a program asked for with `OSC 22`, "Change pointer
+    /// cursor shape to Pt" (`[[source: ctlseqs]]`): one of xterm's 77 names,
+    /// or `None` for the embedder's own pointer, which is what an empty or
+    /// unknown name, and `RIS`, ask for. The embedder's to show: the macOS
+    /// app maps it to the nearest system cursor; the Linux driver has no
+    /// pointer yet.
+    pub fn pointer_shape(&self) -> Option<PointerShape> {
+        self.cold.pointer
     }
 
     /// The window title, as the application set it. Bounded by `OSC_MAX`.

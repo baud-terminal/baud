@@ -572,6 +572,20 @@ impl Paint<'_, '_> {
                 self.semantic_marks += 1;
             }
             Osc::Allowed(q) => self.report_allowed(q, term),
+            // "If Pt is empty, or does not match any of the standard names,
+            // xterm uses the resource's default" (`[[source: ctlseqs]]`):
+            // the embedder's own pointer here. A name none of the 77 spells
+            // is counted, a request not honoured as sent.
+            Osc::Pointer(req) => {
+                self.cold.pointer = match req {
+                    PointerRequest::Shape(shape) => Some(shape),
+                    PointerRequest::Default => None,
+                    PointerRequest::Unknown => {
+                        self.unsupported_total += 1;
+                        None
+                    }
+                };
+            }
             Osc::Unsupported => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;

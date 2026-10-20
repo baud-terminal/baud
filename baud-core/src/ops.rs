@@ -3684,6 +3684,10 @@ impl Paint<'_, '_> {
         // (`[[source: xterm-reset]]`) -- which departs from the text; Jev
         // decided for the text on 2026-10-10 (XT-8), open to the owner's veto.
         self.cold.xtsave = SavedModes::NONE;
+        // **And the embedder's own pointer**, the state after power-up, for
+        // the same text; xterm's `ReallyReset` keeps `OSC 22`'s shape, a
+        // departure not followed. `DECSTR` keeps it.
+        self.cold.pointer = None;
         self.cold.mouse = MouseTracking::Off;
         self.cold.mouse_encoding = MouseEncoding::X10;
         self.cold.terminal = TerminalMode::Ansi;

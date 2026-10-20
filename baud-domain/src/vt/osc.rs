@@ -60,8 +60,360 @@ pub enum Osc<'a> {
     /// `OSC 60`, `OSC 61 ; cat`, `OSC 62 ; cat`: xterm's queries of the
     /// features it allows, [`AllowQuery`].
     Allowed(AllowQuery),
+    /// `OSC 22 ; Pt`: the pointer's shape, [`PointerRequest`].
+    Pointer(PointerRequest),
     /// Recognised as an OSC and not acted on.
     Unsupported,
+}
+
+/// A pointer shape `OSC 22` names: one of the 77 of xterm's table,
+/// "adapted from <X11/cursorfont.h>" (`LookupCursorShape`,
+/// `[[source: xterm-misc]]` 889-975), matched by name with `strcmp`, case
+/// kept. `[[source: ctlseqs]]`: "Change pointer cursor shape to Pt. The
+/// parameter Pt sets the pointerShape resource."
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PointerShape {
+    /// "X_cursor"
+    XCursor,
+    /// "arrow"
+    Arrow,
+    /// "based_arrow_down"
+    BasedArrowDown,
+    /// "based_arrow_up"
+    BasedArrowUp,
+    /// "boat"
+    Boat,
+    /// "bogosity"
+    Bogosity,
+    /// "bottom_left_corner"
+    BottomLeftCorner,
+    /// "bottom_right_corner"
+    BottomRightCorner,
+    /// "bottom_side"
+    BottomSide,
+    /// "bottom_tee"
+    BottomTee,
+    /// "box_spiral"
+    BoxSpiral,
+    /// "center_ptr"
+    CenterPtr,
+    /// "circle"
+    Circle,
+    /// "clock"
+    Clock,
+    /// "coffee_mug"
+    CoffeeMug,
+    /// "cross"
+    Cross,
+    /// "cross_reverse"
+    CrossReverse,
+    /// "crosshair"
+    Crosshair,
+    /// "diamond_cross"
+    DiamondCross,
+    /// "dot"
+    Dot,
+    /// "dotbox"
+    Dotbox,
+    /// "double_arrow"
+    DoubleArrow,
+    /// "draft_large"
+    DraftLarge,
+    /// "draft_small"
+    DraftSmall,
+    /// "draped_box"
+    DrapedBox,
+    /// "exchange"
+    Exchange,
+    /// "fleur"
+    Fleur,
+    /// "gobbler"
+    Gobbler,
+    /// "gumby"
+    Gumby,
+    /// "hand1"
+    Hand1,
+    /// "hand2"
+    Hand2,
+    /// "heart"
+    Heart,
+    /// "icon"
+    Icon,
+    /// "iron_cross"
+    IronCross,
+    /// "left_ptr"
+    LeftPtr,
+    /// "left_side"
+    LeftSide,
+    /// "left_tee"
+    LeftTee,
+    /// "leftbutton"
+    Leftbutton,
+    /// "ll_angle"
+    LlAngle,
+    /// "lr_angle"
+    LrAngle,
+    /// "man"
+    Man,
+    /// "middlebutton"
+    Middlebutton,
+    /// "mouse"
+    Mouse,
+    /// "pencil"
+    Pencil,
+    /// "pirate"
+    Pirate,
+    /// "plus"
+    Plus,
+    /// "question_arrow"
+    QuestionArrow,
+    /// "right_ptr"
+    RightPtr,
+    /// "right_side"
+    RightSide,
+    /// "right_tee"
+    RightTee,
+    /// "rightbutton"
+    Rightbutton,
+    /// "rtl_logo"
+    RtlLogo,
+    /// "sailboat"
+    Sailboat,
+    /// "sb_down_arrow"
+    SbDownArrow,
+    /// "sb_h_double_arrow"
+    SbHDoubleArrow,
+    /// "sb_left_arrow"
+    SbLeftArrow,
+    /// "sb_right_arrow"
+    SbRightArrow,
+    /// "sb_up_arrow"
+    SbUpArrow,
+    /// "sb_v_double_arrow"
+    SbVDoubleArrow,
+    /// "shuttle"
+    Shuttle,
+    /// "sizing"
+    Sizing,
+    /// "spider"
+    Spider,
+    /// "spraycan"
+    Spraycan,
+    /// "star"
+    Star,
+    /// "target"
+    Target,
+    /// "tcross"
+    Tcross,
+    /// "top_left_arrow"
+    TopLeftArrow,
+    /// "top_left_corner"
+    TopLeftCorner,
+    /// "top_right_corner"
+    TopRightCorner,
+    /// "top_side"
+    TopSide,
+    /// "top_tee"
+    TopTee,
+    /// "trek"
+    Trek,
+    /// "ul_angle"
+    UlAngle,
+    /// "umbrella"
+    Umbrella,
+    /// "ur_angle"
+    UrAngle,
+    /// "watch"
+    Watch,
+    /// "xterm"
+    Xterm,
+}
+
+impl PointerShape {
+    /// Every shape, in xterm's table order.
+    pub const ALL: [PointerShape; 77] = [
+        PointerShape::XCursor,
+        PointerShape::Arrow,
+        PointerShape::BasedArrowDown,
+        PointerShape::BasedArrowUp,
+        PointerShape::Boat,
+        PointerShape::Bogosity,
+        PointerShape::BottomLeftCorner,
+        PointerShape::BottomRightCorner,
+        PointerShape::BottomSide,
+        PointerShape::BottomTee,
+        PointerShape::BoxSpiral,
+        PointerShape::CenterPtr,
+        PointerShape::Circle,
+        PointerShape::Clock,
+        PointerShape::CoffeeMug,
+        PointerShape::Cross,
+        PointerShape::CrossReverse,
+        PointerShape::Crosshair,
+        PointerShape::DiamondCross,
+        PointerShape::Dot,
+        PointerShape::Dotbox,
+        PointerShape::DoubleArrow,
+        PointerShape::DraftLarge,
+        PointerShape::DraftSmall,
+        PointerShape::DrapedBox,
+        PointerShape::Exchange,
+        PointerShape::Fleur,
+        PointerShape::Gobbler,
+        PointerShape::Gumby,
+        PointerShape::Hand1,
+        PointerShape::Hand2,
+        PointerShape::Heart,
+        PointerShape::Icon,
+        PointerShape::IronCross,
+        PointerShape::LeftPtr,
+        PointerShape::LeftSide,
+        PointerShape::LeftTee,
+        PointerShape::Leftbutton,
+        PointerShape::LlAngle,
+        PointerShape::LrAngle,
+        PointerShape::Man,
+        PointerShape::Middlebutton,
+        PointerShape::Mouse,
+        PointerShape::Pencil,
+        PointerShape::Pirate,
+        PointerShape::Plus,
+        PointerShape::QuestionArrow,
+        PointerShape::RightPtr,
+        PointerShape::RightSide,
+        PointerShape::RightTee,
+        PointerShape::Rightbutton,
+        PointerShape::RtlLogo,
+        PointerShape::Sailboat,
+        PointerShape::SbDownArrow,
+        PointerShape::SbHDoubleArrow,
+        PointerShape::SbLeftArrow,
+        PointerShape::SbRightArrow,
+        PointerShape::SbUpArrow,
+        PointerShape::SbVDoubleArrow,
+        PointerShape::Shuttle,
+        PointerShape::Sizing,
+        PointerShape::Spider,
+        PointerShape::Spraycan,
+        PointerShape::Star,
+        PointerShape::Target,
+        PointerShape::Tcross,
+        PointerShape::TopLeftArrow,
+        PointerShape::TopLeftCorner,
+        PointerShape::TopRightCorner,
+        PointerShape::TopSide,
+        PointerShape::TopTee,
+        PointerShape::Trek,
+        PointerShape::UlAngle,
+        PointerShape::Umbrella,
+        PointerShape::UrAngle,
+        PointerShape::Watch,
+        PointerShape::Xterm,
+    ];
+
+    /// The name xterm's table spells it with.
+    pub fn name(self) -> &'static [u8] {
+        match self {
+            PointerShape::XCursor => b"X_cursor",
+            PointerShape::Arrow => b"arrow",
+            PointerShape::BasedArrowDown => b"based_arrow_down",
+            PointerShape::BasedArrowUp => b"based_arrow_up",
+            PointerShape::Boat => b"boat",
+            PointerShape::Bogosity => b"bogosity",
+            PointerShape::BottomLeftCorner => b"bottom_left_corner",
+            PointerShape::BottomRightCorner => b"bottom_right_corner",
+            PointerShape::BottomSide => b"bottom_side",
+            PointerShape::BottomTee => b"bottom_tee",
+            PointerShape::BoxSpiral => b"box_spiral",
+            PointerShape::CenterPtr => b"center_ptr",
+            PointerShape::Circle => b"circle",
+            PointerShape::Clock => b"clock",
+            PointerShape::CoffeeMug => b"coffee_mug",
+            PointerShape::Cross => b"cross",
+            PointerShape::CrossReverse => b"cross_reverse",
+            PointerShape::Crosshair => b"crosshair",
+            PointerShape::DiamondCross => b"diamond_cross",
+            PointerShape::Dot => b"dot",
+            PointerShape::Dotbox => b"dotbox",
+            PointerShape::DoubleArrow => b"double_arrow",
+            PointerShape::DraftLarge => b"draft_large",
+            PointerShape::DraftSmall => b"draft_small",
+            PointerShape::DrapedBox => b"draped_box",
+            PointerShape::Exchange => b"exchange",
+            PointerShape::Fleur => b"fleur",
+            PointerShape::Gobbler => b"gobbler",
+            PointerShape::Gumby => b"gumby",
+            PointerShape::Hand1 => b"hand1",
+            PointerShape::Hand2 => b"hand2",
+            PointerShape::Heart => b"heart",
+            PointerShape::Icon => b"icon",
+            PointerShape::IronCross => b"iron_cross",
+            PointerShape::LeftPtr => b"left_ptr",
+            PointerShape::LeftSide => b"left_side",
+            PointerShape::LeftTee => b"left_tee",
+            PointerShape::Leftbutton => b"leftbutton",
+            PointerShape::LlAngle => b"ll_angle",
+            PointerShape::LrAngle => b"lr_angle",
+            PointerShape::Man => b"man",
+            PointerShape::Middlebutton => b"middlebutton",
+            PointerShape::Mouse => b"mouse",
+            PointerShape::Pencil => b"pencil",
+            PointerShape::Pirate => b"pirate",
+            PointerShape::Plus => b"plus",
+            PointerShape::QuestionArrow => b"question_arrow",
+            PointerShape::RightPtr => b"right_ptr",
+            PointerShape::RightSide => b"right_side",
+            PointerShape::RightTee => b"right_tee",
+            PointerShape::Rightbutton => b"rightbutton",
+            PointerShape::RtlLogo => b"rtl_logo",
+            PointerShape::Sailboat => b"sailboat",
+            PointerShape::SbDownArrow => b"sb_down_arrow",
+            PointerShape::SbHDoubleArrow => b"sb_h_double_arrow",
+            PointerShape::SbLeftArrow => b"sb_left_arrow",
+            PointerShape::SbRightArrow => b"sb_right_arrow",
+            PointerShape::SbUpArrow => b"sb_up_arrow",
+            PointerShape::SbVDoubleArrow => b"sb_v_double_arrow",
+            PointerShape::Shuttle => b"shuttle",
+            PointerShape::Sizing => b"sizing",
+            PointerShape::Spider => b"spider",
+            PointerShape::Spraycan => b"spraycan",
+            PointerShape::Star => b"star",
+            PointerShape::Target => b"target",
+            PointerShape::Tcross => b"tcross",
+            PointerShape::TopLeftArrow => b"top_left_arrow",
+            PointerShape::TopLeftCorner => b"top_left_corner",
+            PointerShape::TopRightCorner => b"top_right_corner",
+            PointerShape::TopSide => b"top_side",
+            PointerShape::TopTee => b"top_tee",
+            PointerShape::Trek => b"trek",
+            PointerShape::UlAngle => b"ul_angle",
+            PointerShape::Umbrella => b"umbrella",
+            PointerShape::UrAngle => b"ur_angle",
+            PointerShape::Watch => b"watch",
+            PointerShape::Xterm => b"xterm",
+        }
+    }
+
+    /// The shape a name spells, case kept, as `strcmp` compares.
+    pub fn of(name: &[u8]) -> Option<PointerShape> {
+        PointerShape::ALL.into_iter().find(|s| s.name() == name)
+    }
+}
+
+/// What an `OSC 22` asks for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PointerRequest {
+    /// A shape of xterm's table.
+    Shape(PointerShape),
+    /// `Pt` empty: "If Pt is empty, or does not match any of the standard
+    /// names, xterm uses the resource's default" (`[[source: ctlseqs]]`),
+    /// which for baud is the embedder's own pointer. xterm's code differs:
+    /// an empty `Pt` returns at "found no data" (misc.c 4136-4160) and
+    /// changes nothing; the text is followed.
+    Default,
+    /// A name none of the 77 spells: the default too, and counted, a name
+    /// baud could not honour.
+    Unknown,
 }
 
 /// One of xterm's three feature queries (`[[source: ctlseqs]]`): "Query
@@ -846,6 +1198,11 @@ impl<'a> Osc<'a> {
                     _ => Osc::Semantic(Semantic::Other),
                 }
             }
+            b"22" if rest.is_empty() => Osc::Pointer(PointerRequest::Default),
+            b"22" => Osc::Pointer(match PointerShape::of(rest) {
+                Some(shape) => PointerRequest::Shape(shape),
+                None => PointerRequest::Unknown,
+            }),
             b"60" => Osc::Allowed(match payload.len() > ps.len() && !rest.is_empty() {
                 true => AllowQuery::Malformed,
                 false => AllowQuery::Allowed,

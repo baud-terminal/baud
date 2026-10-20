@@ -44,8 +44,9 @@ use macos_liquid_glass::objc2::rc::Retained;
 use macos_liquid_glass::objc2::{MainThreadOnly, Message};
 use macos_liquid_glass::objc2_app_kit::{
     NSAppearanceCustomization, NSApplication, NSApplicationActivationPolicy,
-    NSAutoresizingMaskOptions, NSBeep, NSColor, NSImage, NSImageView, NSRequestUserAttentionType,
-    NSScreen, NSScroller, NSScrollerStyle, NSView, NSWindow, NSWindowButton, NSWindowStyleMask,
+    NSAutoresizingMaskOptions, NSBeep, NSColor, NSCursor, NSImage, NSImageView,
+    NSRequestUserAttentionType, NSScreen, NSScroller, NSScrollerStyle, NSView, NSWindow,
+    NSWindowButton, NSWindowStyleMask,
 };
 use macos_liquid_glass::objc2_core_foundation::CGFloat;
 use macos_liquid_glass::objc2_foundation::{
@@ -2645,6 +2646,9 @@ struct Driver {
     /// The title the window was last given, so a program's `OSC 0` or
     /// `OSC 2` reaches it once rather than on every read.
     titles: crate::title::Shown,
+    /// The pointer the window last showed for a program's `OSC 22`
+    /// (`pointer.rs`), unknown while the pointer is outside it.
+    pointer_shown: crate::pointer::Shown,
     /// The titlebar mark, repositioned on every resize. A manual autoresizing
     /// mask lost it after a fast drag to a tiny window -- the frame clamped
     /// and never came back -- so the driver places it itself instead: `icon_x`
@@ -7227,6 +7231,11 @@ impl Driver {
             ) {
                 self.window.set_title(&t);
             }
+            // A program's pointer shape, shown at once while the pointer is
+            // over the window; outside it, the next move in shows it.
+            if self.pointer_shown != crate::pointer::Shown::Unknown {
+                self.show_pointer();
+            }
         }
         // Looking back while output scrolls, the window stays on the lines
         // it was showing: the core holds it there, byte by byte, and sends
@@ -7554,6 +7563,10 @@ impl Responder for Driver {
     /// report a cell.
     fn mouse(&mut self, event: &Mouse) {
         self.poll_focus();
+        match event.kind {
+            ViewMouseKind::Exited => self.pointer_shown = crate::pointer::Shown::Unknown,
+            _ => self.show_pointer(),
+        }
         // Any press is input to the blink's stop -- one the scrollbar, a
         // link or a tracking child takes too -- before those take it.
         if event.kind == ViewMouseKind::Down {
@@ -8306,6 +8319,7 @@ pub fn run() {
         glass: glass.clone(),
         window: window.clone(),
         titles: crate::title::Shown::new(),
+        pointer_shown: crate::pointer::Shown::Unknown,
         icon: icon_iv,
         icon_super: container.clone(),
         icon_x,
@@ -9541,6 +9555,31 @@ impl Driver {
         };
         self.app.outbox.push(&paste_bytes(&text, form));
         self.app.flush_reply();
+    }
+
+    /// The pointer a program named with `OSC 22`, as the nearest system
+    /// cursor (`pointer.rs`), set only when it changes and never for a
+    /// session that names none.
+    fn show_pointer(&mut self) {
+        use crate::pointer::{Shown, SystemPointer, system_pointer, to_set};
+        let want = self.app.term.pointer_shape().map(system_pointer);
+        if let Some(p) = to_set(want, self.pointer_shown) {
+            let cursor = match p {
+                SystemPointer::Arrow => NSCursor::arrowCursor(),
+                SystemPointer::IBeam => NSCursor::IBeamCursor(),
+                SystemPointer::PointingHand => NSCursor::pointingHandCursor(),
+                SystemPointer::OpenHand => NSCursor::openHandCursor(),
+                SystemPointer::ClosedHand => NSCursor::closedHandCursor(),
+                SystemPointer::Crosshair => NSCursor::crosshairCursor(),
+                SystemPointer::NotAllowed => NSCursor::operationNotAllowedCursor(),
+                SystemPointer::ContextualMenu => NSCursor::contextualMenuCursor(),
+            };
+            cursor.set();
+        }
+        self.pointer_shown = match want {
+            Some(w) => Shown::Set(w),
+            None => Shown::System,
+        };
     }
 
     /// The cell under a point in the view, clamped to the grid: the view

@@ -85,6 +85,8 @@ pub use baud_domain::{
 /// Focus reporting's vocabulary, for the same reason: an embedder that cannot
 /// name a [`Focus`] cannot call [`Term::focus`].
 pub use baud_domain::Focus;
+/// What [`Term::pointer_shape`] returns: `OSC 22`'s shape.
+pub use baud_domain::PointerShape;
 /// What [`Term::style_reclaims`] returns: the rendition table's evictions,
 /// sweeps and the slots they freed.
 pub use baud_domain::Reclaims;
