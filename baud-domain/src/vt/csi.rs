@@ -1061,6 +1061,8 @@ impl Csi {
                 (b'$', b't') if marker == Marker::Standard => Csi::Area(AreaOp::ReverseAttrs),
                 (b'*', b'x') if marker == Marker::Standard => Csi::Area(AreaOp::SelectExtent),
                 (b'*', b'y') if marker == Marker::Standard => Csi::Area(AreaOp::RequestChecksum),
+                // XTCHECKSUM, `CSI Ps # y` (`[[source: ctlseqs]]`).
+                (b'#', b'y') if marker == Marker::Standard => Csi::Area(AreaOp::SelectChecksum),
                 // DECRQPSR, `CSI Ps $ w`: `[[source: dec-std-070]]` p. 5-198,
                 // "causes the terminal to respond with a Presentation State
                 // Report"; `[[source: vt510-decrqpsr]]`.
@@ -1598,6 +1600,8 @@ impl Csi {
             // "Level: 4" each (`[[source: dec-std-070]]` pp. 5-169 to 5-179).
             // XTREPORTSGR is xterm's, on DEC's rectangle.
             Area(AreaOp::ReportRendition) => Level::Xterm,
+            // "Select checksum extension (XTCHECKSUM), xterm."
+            Area(AreaOp::SelectChecksum) => Level::Xterm,
             Area(_) | RequestPresentationState => Level::Vt420,
 
             // XTWINOPS is "dtterm, extended by xterm" -- the three reports are

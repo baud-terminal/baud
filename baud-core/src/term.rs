@@ -918,6 +918,9 @@ pub struct Cold {
     /// Whether DECRQCRA is answered ([`Term::set_checksum_report`]). The
     /// embedder's, so `RIS` and `DECSTR` leave it as it is.
     pub(crate) checksum_report: ChecksumReport,
+    /// XTCHECKSUM's bits ([`baud_domain::ChecksumExtension`]), `csDEC` at
+    /// power-on and after either reset.
+    pub(crate) checksum_ext: baud_domain::ChecksumExtension,
     /// The pointer shape `OSC 22` named, `None` for the embedder's own
     /// ([`Term::pointer_shape`]).
     pub(crate) pointer: Option<PointerShape>,
@@ -1176,7 +1179,8 @@ pub struct Cold {
 // The prompt marks' two `Shell`s, 32 bytes, moved to `StrBuf` when the
 // `OSC 133` options came in, which took it to 792: a mark and a resize read
 // them, never a glyph.
-// `?41`'s byte took it to 800, read by `HT` at a pending wrap alone.
+// `?41`'s byte took it to 800, read by `HT` at a pending wrap alone, and
+// XTCHECKSUM's fits in the padding, read by DECRQCRA alone.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 800);
@@ -1423,6 +1427,7 @@ impl Cold {
             ambiguous: AmbiguousWidth::Narrow,
             sixel_claim: SixelClaim::No,
             checksum_report: ChecksumReport::On,
+            checksum_ext: baud_domain::ChecksumExtension::DEC,
             pointer: None,
             cursor_style: CursorStyle::BlinkingBlock,
             cursor_blink: ModeChange::Reset,

@@ -607,13 +607,14 @@ fn osc_60_names_the_categories_baud_honours_whole() {
 /// matched in any case, `allowWinOps` is xterm's alias, and a name that is
 /// no category gets an empty list, as xterm's `unparse_disallowed_ops`.
 /// `OSC 52`'s write is refused on a storage with no clipboard area, and
-/// named only there.
+/// named only there. XTCHECKSUM, `SetChecksum`, is honoured and not named,
+/// whatever the checksum setting.
 #[test]
 fn osc_61_names_what_baud_refuses() {
     let windows: &[u8] = b"\x1b]61;RestoreWin,MinimizeWin,SetWinPosition,\
 SetWinSizePixels,RaiseWin,LowerWin,RefreshWin,SetWinSizeChars,MaximizeWin,\
-FullscreenWin,GetIconTitle,GetWinTitle,SetWinLines,SetChecksum,GetSelection,\
-SetSelection,SetXprop\x07";
+FullscreenWin,GetIconTitle,GetWinTitle,SetWinLines,GetSelection,SetSelection,\
+SetXprop\x07";
     for name in ["allowWindowOps", "ALLOWWINDOWOPS", "allowWinOps"] {
         let q = format!("\x1b]61;{name}\x07");
         assert_eq!(reply_of(q.as_bytes(), |_| {}).0, windows, "{name}");
@@ -644,7 +645,7 @@ SetSelection,SetXprop\x07";
     assert_eq!(t.clipboard_writes_refused, 0, "the write was honoured");
     assert!(
         t.reply()
-            .ends_with(b",SetChecksum,GetSelection,SetXprop\x07"),
+            .ends_with(b",SetWinLines,GetSelection,SetXprop\x07"),
         "a provisioned clipboard is not refused: {}",
         String::from_utf8_lossy(t.reply())
     );
@@ -656,6 +657,10 @@ SetSelection,SetXprop\x07";
             .any(|w| w == b",GetChecksum,"),
         "DECRQCRA switched off is refused: {}",
         String::from_utf8_lossy(&r)
+    );
+    assert!(
+        !r.windows(b"SetChecksum".len()).any(|w| w == b"SetChecksum"),
+        "XTCHECKSUM is honoured with the checksum off"
     );
 }
 

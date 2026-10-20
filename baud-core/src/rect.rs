@@ -45,6 +45,25 @@ impl Paint<'_, '_> {
             AreaCall::SelectExtent(e) => self.select_attr_extent(e),
             AreaCall::RequestChecksum { id, of } => self.request_area_checksum(id, of),
             AreaCall::ReportRendition(a) => self.report_area_rendition(a),
+            AreaCall::SelectChecksum(ext) => self.select_checksum(ext),
+        }
+    }
+
+    /// XTCHECKSUM, `CSI Ps # y`: how the next DECRQCRA sums.
+    ///
+    /// **Honoured whatever the checksum setting**, as xterm gates
+    /// `SetChecksum` apart from `GetChecksum` and a default xterm allows
+    /// the first and refuses the second (`[[source: xterm-man]]`,
+    /// `disallowedWindowOps`; Jev's lean, ALWAYS, 0.34/0.44 after a second
+    /// ask): with the setting off it changes no reply. **Ignored and counted
+    /// below Level 4**, as xterm's `vtXX_level >= 4` (`CASE_XTERM_CHECKSUM`,
+    /// `[[source: xterm-reset]]`'s file; Jev's lean, GATE, 0.10/0.04 after a
+    /// second ask, UNGATED 0.24/0.34 on the first); DECRQCRA itself is not
+    /// gated here.
+    fn select_checksum(&mut self, ext: ChecksumExtension) {
+        match self.cold.level {
+            ConformanceLevel::Four => self.cold.checksum_ext = ext,
+            _ => self.unsupported_total += 1,
         }
     }
 
@@ -459,7 +478,7 @@ impl Paint<'_, '_> {
         let Some(rect) = rect else {
             return;
         };
-        let mut sum = Checksum::new();
+        let mut sum = Checksum::with(self.cold.checksum_ext);
         for y in rect.top.index()..=rect.bottom.index() {
             let r = Row::from_index(y);
             let Some(right) = self.line_right(r, rect.left, rect.right) else {
@@ -469,6 +488,11 @@ impl Paint<'_, '_> {
                 let cell = self.view.get(r, Col::at_index(x));
                 let base = self.clusters.base_of(cell.content);
                 sum.add(base, cell.flags, self.word_of(cell.style).attrs());
+                if sum.wants_marks() {
+                    for m in self.clusters.marks_of(cell.content) {
+                        sum.mark(m);
+                    }
+                }
             }
         }
         self.want_reply(Report::AreaChecksum { id, sum });

@@ -856,9 +856,10 @@ impl Paint<'_, '_> {
 /// `19` under those two (`AllocateTermColor` and `ReportColorRequest`,
 /// `[[source: xterm-misc]]` 6456 and 3572); of the mouse, the DEC
 /// locator; of the window, the manipulations and the line count, the
-/// title reports, `OSC 52`'s read, XTCHECKSUM and `OSC 3`, DECRQCRA while
-/// the embedder has it off, and `OSC 52`'s write on a storage with no
-/// clipboard area, which refuses every write.
+/// title reports, `OSC 52`'s read and `OSC 3`, DECRQCRA while the embedder
+/// has it off, and `OSC 52`'s write on a storage with no clipboard area,
+/// which refuses every write. XTCHECKSUM, `SetChecksum`, is honoured
+/// whatever the checksum setting (`Paint::select_checksum`).
 fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
     match c {
         AllowCategory::ColorOps => sub == b"GetAnsiColor",
@@ -873,7 +874,8 @@ fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
             | b"GetScreenSizeChars"
             | b"PushTitle"
             | b"PopTitle"
-            | b"ColumnMode" => true,
+            | b"ColumnMode"
+            | b"SetChecksum" => true,
             b"GetChecksum" => facts.checksum == ChecksumReport::On,
             b"SetSelection" => facts.clipboard == Clipboard::Provisioned,
             _ => false,

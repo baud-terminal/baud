@@ -58,6 +58,8 @@ pub enum AreaOp {
     /// common to all cells in a rectangle". xterm's, read as DEC's
     /// rectangles are read.
     ReportRendition,
+    /// XTCHECKSUM, `CSI Ps # y`: how DECRQCRA's checksum is taken.
+    SelectChecksum,
 }
 
 /// A rectangle operation with its parameters read.
@@ -93,6 +95,7 @@ pub enum AreaCall {
     },
     /// Answered with an SGR sequence, `CSI Ps... m`.
     ReportRendition(Area),
+    SelectChecksum(ChecksumExtension),
 }
 
 impl AreaOp {
@@ -120,6 +123,9 @@ impl AreaOp {
             }
             AreaOp::SelectExtent => {
                 AreaCall::SelectExtent(AttrExtent::from_param(p.at(ParamIdx::FIRST)))
+            }
+            AreaOp::SelectChecksum => {
+                AreaCall::SelectChecksum(ChecksumExtension::from_param(p.at(ParamIdx::FIRST)))
             }
             AreaOp::RequestChecksum => AreaCall::RequestChecksum {
                 id: p.at(ParamIdx::FIRST).unwrap_or(Param::ZERO),
@@ -403,6 +409,71 @@ impl AreaAttrs {
     }
 }
 
+/// XTCHECKSUM's bits, `CSI Ps # y` (`[[source: ctlseqs]]`): "The bits of
+/// Ps modify the calculation of the checksum returned by DECRQCRA". 0 is
+/// xterm's `csDEC`, "the behavior of DEC's terminals" (`[[source:
+/// xterm-man]]`), the power-on value, and what `RIS` and `DECSTR` restore
+/// (`checksum_ext = checksum_ext0`, `[[source: xterm-reset]]`'s file).
+///
+/// **Bits 0 to 4, the ones ctlseqs lists; any higher bit is ignored**, as
+/// xterm's code reads only those five (`[[source: xterm-ptyx-h]]`
+/// 490-495). The manual adds a bit 5, "do not mask cell value to 7 bits",
+/// which ctlseqs and the code lack (Jev's lean, IGNORE_HIGH, 0.02/0.30
+/// after a second ask). A bare `CSI # y` is 0, xterm's `zero_if_default`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct ChecksumExtension(u8);
+
+impl ChecksumExtension {
+    /// `csDEC`: negated, the video attributes weighed, unwritten cells
+    /// left out, each code masked to eight bits, combining marks left out.
+    pub const DEC: ChecksumExtension = ChecksumExtension(0);
+    /// Bit 0, "do not negate the result".
+    pub const POSITIVE: ChecksumExtension = ChecksumExtension(1);
+    /// Bit 1, "do not report the VT100 video attributes".
+    pub const NO_ATTRIBUTES: ChecksumExtension = ChecksumExtension(1 << 1);
+    /// Bit 2, "do not omit checksum for blanks": an unwritten cell counts
+    /// as a space unless bit 3 omits it, and combining marks count unless
+    /// bit 4 is set ([`ChecksumExtension::counts_marks`]).
+    pub const BLANKS: ChecksumExtension = ChecksumExtension(1 << 2);
+    /// Bit 3, "omit checksum for cells not explicitly initialized".
+    pub const OMIT_UNWRITTEN: ChecksumExtension = ChecksumExtension(1 << 3);
+    /// Bit 4, "do not mask cell value to 8 bits".
+    pub const FULL_CODES: ChecksumExtension = ChecksumExtension(1 << 4);
+
+    /// The extension a `Ps` selects: its five low bits.
+    pub fn from_param(p: Option<Param>) -> ChecksumExtension {
+        let low = p.map_or(0, |v| v.0 & 0x1f);
+        ChecksumExtension(u8::try_from(low).unwrap_or(0))
+    }
+
+    pub fn has(self, bit: ChecksumExtension) -> bool {
+        self.0 & bit.0 != 0
+    }
+
+    /// The two together, for a caller naming several bits.
+    pub const fn with(self, bit: ChecksumExtension) -> ChecksumExtension {
+        ChecksumExtension(self.0 | bit.0)
+    }
+
+    /// **Whether an unwritten cell counts, as a space**: under bit 2, the
+    /// blanks, unless bit 3 omits it, as ctlseqs has bit 3 (Jev's lean,
+    /// TEXT, 0.92/0.82 and 0.90/0.72 after a second ask). xterm's code reads
+    /// bit 3 the other way, "do not skip uninitialized cells" (`csDRAWN`,
+    /// `[[source: xterm-ptyx-h]]`), and counts such a cell under either
+    /// bit where it passes its trim (`xtermCheckRect`, `[[source:
+    /// xterm-screen]]`): its departure from its own text.
+    fn counts_unwritten(self) -> bool {
+        self.has(ChecksumExtension::BLANKS) && !self.has(ChecksumExtension::OMIT_UNWRITTEN)
+    }
+
+    /// **Whether combining marks count**: under bit 2 and not bit 4, as
+    /// xterm's `xtermCheckRect` adds them (Jev, CODE, 0.94/0.98), where
+    /// ctlseqs' bit 4 reads "or ignore combining characters".
+    pub fn counts_marks(self) -> bool {
+        self.has(ChecksumExtension::BLANKS) && !self.has(ChecksumExtension::FULL_CODES)
+    }
+}
+
 /// The checksum DECRQCRA reports, accumulated a cell at a time.
 ///
 /// **No DEC text defines the algorithm**: DEC STD 070 asks for "a checksum"
@@ -423,6 +494,7 @@ impl AreaAttrs {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Checksum {
     sum: u16,
+    ext: ChecksumExtension,
 }
 
 impl Default for Checksum {
@@ -433,7 +505,31 @@ impl Default for Checksum {
 
 impl Checksum {
     pub const fn new() -> Checksum {
-        Checksum { sum: 0 }
+        Checksum::with(ChecksumExtension::DEC)
+    }
+
+    /// The checksum under XTCHECKSUM's `ext`.
+    pub const fn with(ext: ChecksumExtension) -> Checksum {
+        Checksum { sum: 0, ext }
+    }
+
+    /// Whether [`Checksum::mark`] counts anything, so a caller can skip
+    /// reading the marks.
+    pub fn wants_marks(self) -> bool {
+        self.ext.counts_marks()
+    }
+
+    /// Count one combining mark of a counted cell, its code point to
+    /// sixteen bits, under [`ChecksumExtension::counts_marks`].
+    pub fn mark(&mut self, cp: u32) {
+        if self.ext.counts_marks() {
+            self.sum = self.sum.wrapping_add(Checksum::low16(cp));
+        }
+    }
+
+    fn low16(v: u32) -> u16 {
+        let [a, b, _, _] = v.to_le_bytes();
+        u16::from_le_bytes([a, b])
     }
 
     /// Count one cell, whose base character is `base`.
@@ -466,26 +562,47 @@ impl Checksum {
     /// under line drawing too, a UTF-8 `─` 0x1B, though its cell keeps the
     /// line-drawing flag (note AE, Q16(a); Jev's lean, OWN_VALUE, 0.82 and
     /// 0.94 after a second ask), as xterm's `charSeen` counts it.
+    ///
+    /// **Under XTCHECKSUM**: an unwritten cell counts as a space where
+    /// [`ChecksumExtension::counts_unwritten`] says; bit 4 counts a written
+    /// cell's whole code point, to sixteen bits, as xterm's `csBYTE` takes
+    /// `charData` (a DEC Special Graphics cell its Unicode value, which is
+    /// what the cell holds), and U+FFF0 to U+FFFF count as themselves where
+    /// xterm's `is_UCS_SPECIAL` skips them (Jev's lean, COUNT, 0.30/0.00,
+    /// then split on a second ask): baud keeps a wide character's tail,
+    /// the marker that test exists for, apart and skips it. Bit 1 leaves the
+    /// weights out.
     pub fn add(&mut self, base: Content, flags: CellFlags, attrs: Attrs) {
-        if base.is_empty() || base.is_wide_tail() {
+        if base.is_wide_tail() {
             return;
         }
-        let code = match base.as_codepoint() {
-            Some(cp) => match flags.received().and_then(|r| code_received(r, cp)) {
+        let code = match (base.is_empty(), base.as_codepoint()) {
+            (true, _) if self.ext.counts_unwritten() => 0x20,
+            (true, _) => return,
+            (false, Some(cp)) if self.ext.has(ChecksumExtension::FULL_CODES) => {
+                Checksum::low16(cp.0)
+            }
+            (false, Some(cp)) => match flags.received().and_then(|r| code_received(r, cp)) {
                 Some(b) => u16::from(b),
                 None => Checksum::eight_bit(cp),
             },
-            None => 0x1b,
+            (false, None) => 0x1b,
         };
+        if self.ext.has(ChecksumExtension::NO_ATTRIBUTES) {
+            self.sum = self.sum.wrapping_add(code);
+            return;
+        }
+        // The weights add to at most 0xFC; a bit 4 code is up to 0xFFFF,
+        // so the code and the weights wrap at sixteen bits, as xterm's
+        // `int` total does before `checksum &= 0xffff`.
         let weight = |on: bool, w: u16| if on { w } else { 0 };
-        let ch = code
-            + weight(attrs.has(Attrs::BOLD), 0x80)
+        let weights = weight(attrs.has(Attrs::BOLD), 0x80)
             + weight(attrs.0 & Attrs::BLINKS.0 != 0, 0x40)
             + weight(attrs.has(Attrs::REVERSE), 0x20)
             + weight(attrs.0 & Attrs::UNDERLINES.0 != 0, 0x10)
             + weight(attrs.has(Attrs::HIDDEN), 0x08)
             + weight(flags.is_protected(), 0x04);
-        self.sum = self.sum.wrapping_add(ch);
+        self.sum = self.sum.wrapping_add(code).wrapping_add(weights);
     }
 
     fn eight_bit(cp: Codepoint) -> u16 {
@@ -495,9 +612,12 @@ impl Checksum {
         }
     }
 
-    /// The sixteen bits the report carries: the sum, negated.
+    /// The sixteen bits the report carries: the sum, negated unless bit 0.
     pub fn value(self) -> u16 {
-        self.sum.wrapping_neg()
+        match self.ext.has(ChecksumExtension::POSITIVE) {
+            true => self.sum,
+            false => self.sum.wrapping_neg(),
+        }
     }
 }
 

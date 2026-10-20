@@ -4065,6 +4065,10 @@ impl Paint<'_, '_> {
         // And `?12` with it, on both resets, as xterm's `ReallyReset` clears
         // its escape bit in the common path.
         self.cold.cursor_blink = ModeChange::Reset;
+        // XTCHECKSUM back to `csDEC`, on both resets: "Reset checksum
+        // extension to the checksumExtension resource" (`[[source:
+        // xterm-man]]`'s soft-reset list; `checksum_ext = checksum_ext0`).
+        self.cold.checksum_ext = ChecksumExtension::DEC;
         // DECTCEM is shown above, and a shown cursor has no placement
         // (`placed.rs`).
         self.cold.placement.forget();

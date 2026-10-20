@@ -342,6 +342,9 @@ struct Snapshot {
     /// restores -- bold set, popped, and the rendition read back: a push of
     /// either stack changes these and nothing else the snapshot reads.
     stacks: Vec<u8>,
+    /// DECRQCRA's answer for the page, which XTCHECKSUM changes and
+    /// nothing else shows, asked after everything above.
+    checksum: Vec<u8>,
     /// xterm's five special colours and their modes, which only a
     /// rendition resolved for drawing reads, and `OSC 22`'s pointer.
     special: Vec<Option<(u8, u8, u8)>>,
@@ -465,6 +468,13 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         stacks: {
             t.clear_reply();
             let ask = b"\x1b[#R\x1b[0;1m\x1b[#}\x1bP$qm\x1b\\";
+            t.write_at(BytePos::ZERO, ask);
+            t.feed(BytePos::ZERO, ReadLen::from_index(ask.len()));
+            t.reply().to_vec()
+        },
+        checksum: {
+            t.clear_reply();
+            let ask = b"\x1b[1;1*y";
             t.write_at(BytePos::ZERO, ask);
             t.feed(BytePos::ZERO, ReadLen::from_index(ask.len()));
             t.reply().to_vec()
