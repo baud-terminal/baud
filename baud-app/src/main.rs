@@ -30,9 +30,9 @@ mod bell;
 // drivers read it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod caret;
-// What a program's `OSC 52` copy does to the pasteboard: pure, so its tests
-// run on every platform; only the macOS driver has a pasteboard today.
-#[cfg(any(target_os = "macos", test))]
+// What a program's `OSC 52` copy does to the pasteboard or to a Wayland
+// seat's two selections: pure, so its tests run on every platform.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod clip;
 mod config;
 // The font compiled into the binary: the default stack's first face.
@@ -64,6 +64,9 @@ mod log;
 // Freed image pages back to the system, which both drivers lend the core.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod pages;
+// What a paste sends: both drivers paste through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod paste;
 // The theme files `[palette]` names: read at launch by both drivers, and
 // its tests run on every platform.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]

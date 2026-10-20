@@ -1522,6 +1522,7 @@ files   = [
   "wp-linux-dmabuf-v1.xml",
   "wp-linux-drm-syncobj-v1.xml",
   "wp-presentation-time.xml",
+  "wp-primary-selection-unstable-v1.xml",
   "wp-tearing-control-v1.xml",
   "wp-text-input-unstable-v3.xml",
   "wp-viewporter.xml",

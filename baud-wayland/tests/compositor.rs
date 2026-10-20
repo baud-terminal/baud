@@ -264,6 +264,47 @@ fn delete_id_recycles_and_error_ends_the_connection() {
     }
 }
 
+/// **A server id the server makes again names the new object.** A
+/// clipboard offer at `0xff000001`, destroyed by the client, and then a
+/// primary-selection offer at the same id: its events read against the
+/// primary's interface, not the clipboard's -- the server frees its own
+/// ids without a `delete_id`, so only the new `new_id` can say.
+#[test]
+fn a_server_id_made_again_names_its_new_interface() {
+    let (mut conn, mut server) = pair();
+    let clipboard = conn
+        .sender()
+        .new_id(Interface::named("wl_data_device").unwrap());
+    let primary = conn
+        .sender()
+        .new_id(Interface::named("zwp_primary_selection_device_v1").unwrap());
+    let offer = ObjectId(0xff00_0001);
+    server.send(
+        clipboard,
+        Opcode(protocol::wl_data_device::event::DATA_OFFER),
+        protocol::wl_data_device::EVENTS[0].args,
+        &[Arg::NewId(offer)],
+    );
+    let mut g = Globals::default();
+    assert_eq!(conn.roundtrip_once(&mut g).unwrap(), 1);
+    assert_eq!(
+        conn.objects().interface(offer).map(|i| i.name),
+        Some("wl_data_offer")
+    );
+    server.send(
+        primary,
+        Opcode(protocol::zwp_primary_selection_device_v1::event::DATA_OFFER),
+        protocol::zwp_primary_selection_device_v1::EVENTS[0].args,
+        &[Arg::NewId(offer)],
+    );
+    assert_eq!(conn.roundtrip_once(&mut g).unwrap(), 1);
+    assert_eq!(
+        conn.objects().interface(offer).map(|i| i.name),
+        Some("zwp_primary_selection_offer_v1"),
+        "the id names what the server made last"
+    );
+}
+
 /// An xdg configure carries a serial the client must ack; the ack goes
 /// back on the same object.
 #[test]

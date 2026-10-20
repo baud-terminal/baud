@@ -47,8 +47,8 @@ impl Pool {
         let rows = usize::try_from(height.0).unwrap_or(0);
         let one = stride * rows * 4;
         let len = one * BUFFERS;
-        let fd = sys::anonymous(len.max(4096))?;
-        let map = sys::Map::shared(&fd, len.max(4096))?;
+        let fd = sys::anonymous(sys::FileLen(len.max(4096)))?;
+        let map = sys::Map::shared(&fd, sys::FileLen(len.max(4096)))?;
         let pool = s.new_id(baud_wayland::Interface::named("wl_shm_pool").expect("pinned"));
         let size = i32::try_from(len.max(4096))
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "pool size"))?;

@@ -28,6 +28,7 @@ const FILES: &[&str] = &[
     "wp-tearing-control-v1.xml",
     "wp-cursor-shape-v1.xml",
     "wp-text-input-unstable-v3.xml",
+    "wp-primary-selection-unstable-v1.xml",
 ];
 
 #[derive(Debug)]

@@ -117,9 +117,9 @@ what separates it from the "set and never read" failure. Who acts on each:
 
 * **`Term::key`**, in the core: DECCKM, the keypad mode, DECARM (a repeat is
   dropped while it is reset) and `?1034`.
-* **`baud-app`**: bracketed paste, on macOS (a paste is bracketed while it
-  is set; the Linux driver has no paste), and synchronised output, on both
-  (frames are held while an update is open, 33 ms at most).
+* **`baud-app`**: bracketed paste (a paste is bracketed while it is set)
+  and synchronised output (frames are held while an update is open, 33 ms
+  at most), on both.
 * **`baud-render`**: DECSCNM, drawn as xterm draws reverse video.
 * **The core itself**: `?45` reverse wraparound, and `?3` while `?40` allows
   it, which clears the screen unless `?95` is set, resets all four margins

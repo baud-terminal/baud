@@ -5171,6 +5171,23 @@ group  = "J"
 # Committed under docs/research/sources/ -- a spec, protocol file, paper or small
 # permissively-licensed reference source, re-hashed on commit.
 
+[sources.wp-primary-selection-unstable-v1]
+key    = "wp-primary-selection-unstable-v1"
+title  = "primary-selection-unstable-v1 -- the X primary selection on Wayland: a device per seat, sources, offers, transfers over a pipe"
+author = "Wayland contributors (Red Hat)"
+year   = 2026
+venue  = "wayland-protocols, freedesktop.org GitLab"
+url    = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/unstable/primary-selection/primary-selection-unstable-v1.xml"
+file   = "wp-primary-selection-unstable-v1.xml"
+sha256 = "d568482ba84df6e531698b1f531810860995ca24d69495427fe43aee6017f52c"
+bytes  = 10469
+status = "retrieved"
+group  = "J"
+# Committed under docs/research/sources/ -- a spec, protocol file, paper or small
+# permissively-licensed reference source, re-hashed on commit. Fetched
+# 2026-10-20 (lane b119). wayland-protocols has no ext- or staging
+# primary-selection protocol; this is the one compositors ship.
+
 [sources.wp-cursor-shape-v1]
 key    = "wp-cursor-shape-v1"
 title  = "cursor-shape-v1 -- named cursor shapes"
@@ -29553,3 +29570,73 @@ status = "external"
 group  = "J"
 # Fetched 2026-10-20 (lane b114). Lines 355-358, the mouse buttons. Read, not copied.
 # Re-fetched 2026-10-20 (lane b117), the sha256 matching: line 359, BTN_SIDE 0x113.
+
+[sources.foot-2705e36-selection]
+key    = "foot-2705e36-selection"
+title  = "foot 2705e36, selection.c -- the five text types offered (2011-2015), UTF-8 preferred on receive (2596-2640), a 2 s receive timeout re-armed on every read (2206, 2337)"
+author = "Daniel Eklof and the foot contributors (MIT)"
+year   = 2026
+venue  = "foot terminal emulator, codeberg.org/dnkl/foot @ 2705e36"
+url    = "https://codeberg.org/dnkl/foot/raw/commit/2705e36f0ecf3ef50c13b41165de852f134859d6/selection.c"
+file   = ""
+sha256 = "47188658750e1b2888f9b021d26a49901211b4e684bc16fa193ac3afdfc7019b"
+bytes  = 89408
+status = "external"
+group  = "J"
+# Fetched 2026-10-20 (lane b119). Practice for a Wayland clipboard; read, not copied.
+
+[sources.tmux-3-5a-window-copy]
+key    = "tmux-3-5a-window-copy"
+title  = "tmux 3.5a, window-copy.c -- copy mode sends OSC 52 with an empty Pc (4736, 4810)"
+author = "Nicholas Marriott and the tmux contributors (ISC)"
+year   = 2024
+venue  = "tmux, tag 3.5a"
+url    = "https://raw.githubusercontent.com/tmux/tmux/3.5a/window-copy.c"
+file   = ""
+sha256 = "79de54e6ffddb3b80d687ece7d851b55cdbabf314e347c142c70dc214a02756c"
+bytes  = 151014
+status = "external"
+group  = "J"
+# Fetched 2026-10-20 (lane b119). Where a tmux yank lands; read, not copied.
+
+[sources.kitty-6d5d0c4-clipboard-py]
+key    = "kitty-6d5d0c4-clipboard-py"
+title  = "kitty 6d5d0c4, clipboard.py -- OSC 52's empty Pc read as s0 (498), s and c the clipboard, p the primary (85-90)"
+author = "Kovid Goyal (GPL-3.0)"
+year   = 2026
+venue  = "kitty, github.com/kovidgoyal/kitty @ 6d5d0c4"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/clipboard.py"
+file   = ""
+sha256 = "d0e4f51f9166ef7614758490ea22808195d01a7acc0205823e62031af9d1dde8"
+bytes  = 29152
+status = "external"
+group  = "J"
+# Fetched 2026-10-20 (lane b119). Read, not copied.
+
+[sources.wezterm-3725482-inputmap]
+key    = "wezterm-3725482-inputmap"
+title  = "wezterm 3725482, wezterm-gui/src/inputmap.rs -- a left release completes a selection to the clipboard and the primary (185-263)"
+author = "Wez Furlong and the wezterm contributors (MIT)"
+year   = 2026
+venue  = "wezterm @ 3725482"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/372548295b0b25c9a5400f0ea56f0e89f47e0524/wezterm-gui/src/inputmap.rs"
+file   = ""
+sha256 = "c6f8c8c0983127f6b0d15491882aada229b38d86ae025ec39721d9ac56a9f1f0"
+bytes  = 30246
+status = "external"
+group  = "J"
+# Fetched 2026-10-20 (lane b119). Read, not copied.
+
+[sources.wezterm-3725482-commands]
+key    = "wezterm-3725482-commands"
+title  = "wezterm 3725482, wezterm-gui/src/commands.rs -- Shift+Insert pastes the primary, Ctrl+Insert copies to it (618-636)"
+author = "Wez Furlong and the wezterm contributors (MIT)"
+year   = 2026
+venue  = "wezterm @ 3725482"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/372548295b0b25c9a5400f0ea56f0e89f47e0524/wezterm-gui/src/commands.rs"
+file   = ""
+sha256 = "a72cc3660d73d5b87abbba42cda75611967f88f057351044245091fd37fc184f"
+bytes  = 84231
+status = "external"
+group  = "J"
+# Fetched 2026-10-20 (lane b119). Read, not copied.

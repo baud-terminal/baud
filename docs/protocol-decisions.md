@@ -261,8 +261,8 @@ Four OSC decisions are refusals or limits, and each is deliberate rather than a 
 Bracketed paste (`?2004`) and synchronised output (`?2026`) are state
 `baud-core` cannot use itself -- it draws nothing, and a paste does not pass
 through it -- so it records them and `Term::bracketed_paste()` and
-`Term::synchronized_output()` are the channel. On macOS `baud-app` brackets a
-paste while `?2004` is set; the Linux driver has no paste. Both drivers hold
+`Term::synchronized_output()` are the channel. Both `baud-app` drivers bracket a
+paste while `?2004` is set (`baud-app/src/paste.rs`). Both drivers hold
 frames while an update is open, for 33 ms at most, so a program that dies
 inside one does not freeze the window. Bracketed
 paste is a security mode, not a cosmetic one: without it a pasted newline is

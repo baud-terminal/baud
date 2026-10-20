@@ -1449,3 +1449,576 @@ fn the_keyboards_leave_lifts_its_modifiers() {
     pump(&mut conn, &mut w);
     assert_eq!(w.modifiers(), Modifiers::NONE, "lifted by the leave");
 }
+
+/// A session with both selections: the globals bound -- the data device
+/// manager advertised at 4, the primary-selection manager at 1 -- the
+/// seat's two devices asked for, the keyboard made and its keymap sent.
+struct Clipped {
+    conn: Connection,
+    server: Server,
+    w: Window,
+    keyboard: ObjectId,
+    surface: ObjectId,
+    data_manager: ObjectId,
+    data_device: ObjectId,
+    primary_manager: ObjectId,
+    primary_device: ObjectId,
+}
+
+fn clip_session() -> Clipped {
+    let (c, s) = UnixStream::pair().unwrap();
+    let mut conn = Connection::over(c);
+    let mut server = Server::new(s);
+    let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+    conn.flush().unwrap();
+    let r = server.expect("wl_display", "get_registry");
+    let Val::New(registry) = r.args[0] else {
+        panic!()
+    };
+    server
+        .objects
+        .insert(registry, Interface::named("wl_registry").unwrap());
+    let r = server.expect("wl_display", "sync");
+    let Val::New(sync) = r.args[0] else { panic!() };
+    for (name, iface, version) in [
+        (1u32, "wl_compositor", 6u32),
+        (2, "wl_shm", 2),
+        (3, "xdg_wm_base", 6),
+        (4, "wl_seat", 9),
+        (5, "wl_data_device_manager", 4),
+        (6, "zwp_primary_selection_device_manager_v1", 1),
+    ] {
+        server.send(
+            registry,
+            "wl_registry",
+            "global",
+            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(version)],
+        );
+    }
+    server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
+    pump(&mut conn, &mut w);
+    let mut ids: HashMap<String, ObjectId> = HashMap::new();
+    let mut versions: HashMap<String, u32> = HashMap::new();
+    loop {
+        let r = server.next();
+        match (r.iface, r.name, &r.args[..]) {
+            ("wl_registry", "bind", [_, Val::NewWith(i, v, id)]) => {
+                ids.insert(i.clone(), *id);
+                versions.insert(i.clone(), *v);
+            }
+            ("wl_data_device_manager", "get_data_device", [Val::New(d), Val::Obj(seat)]) => {
+                assert_eq!(Some(seat), ids.get("wl_seat"), "the seat's device");
+                ids.insert("data_device".into(), *d);
+            }
+            (
+                "zwp_primary_selection_device_manager_v1",
+                "get_device",
+                [Val::New(d), Val::Obj(seat)],
+            ) => {
+                assert_eq!(Some(seat), ids.get("wl_seat"), "the seat's device");
+                ids.insert("primary_device".into(), *d);
+            }
+            ("wl_compositor", "create_surface", [Val::New(id)]) => {
+                ids.insert("surface".into(), *id);
+            }
+            ("wl_surface", "commit", _) => break,
+            _ => {}
+        }
+    }
+    assert_eq!(versions["wl_data_device_manager"], 3, "foot's version");
+    assert_eq!(versions["zwp_primary_selection_device_manager_v1"], 1);
+    server.send(
+        ids["wl_seat"],
+        "wl_seat",
+        "capabilities",
+        &[Arg::Uint(protocol::wl_seat::capability::KEYBOARD)],
+    );
+    pump(&mut conn, &mut w);
+    let r = server.expect("wl_seat", "get_keyboard");
+    let Val::New(keyboard) = r.args[0] else {
+        panic!()
+    };
+    send_keymap(&mut server, keyboard);
+    pump(&mut conn, &mut w);
+    Clipped {
+        conn,
+        server,
+        w,
+        keyboard,
+        surface: ids["surface"],
+        data_manager: ids["wl_data_device_manager"],
+        data_device: ids["data_device"],
+        primary_manager: ids["zwp_primary_selection_device_manager_v1"],
+        primary_device: ids["primary_device"],
+    }
+}
+
+/// A key event with its own serial.
+fn key_at(server: &mut Server, keyboard: ObjectId, serial: u32, code: u32, state: u32) {
+    server.send(
+        keyboard,
+        "wl_keyboard",
+        "key",
+        &[
+            Arg::Uint(serial),
+            Arg::Uint(0),
+            Arg::Uint(code),
+            Arg::Uint(state),
+        ],
+    );
+}
+
+/// Larger than any pipe's buffer, so both directions meet a full pipe.
+fn big_text() -> String {
+    (0..300_000u32)
+        .map(|i| char::from(b'a' + u8::try_from(i % 26).unwrap()))
+        .collect::<String>()
+        + "\u{e9}"
+}
+
+/// Pump `w`'s transfers until `done` says so or five seconds pass.
+fn pump_until(w: &mut Window, mut done: impl FnMut(&mut Window) -> bool) {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !done(w) {
+        assert!(std::time::Instant::now() < until, "the transfer stalled");
+        w.pump_transfers(std::time::Instant::now());
+        std::thread::yield_now();
+    }
+}
+
+/// **A copy is a fresh source offering foot's five text types, set with
+/// the serial of the event that asked, and its text goes out through the
+/// pipe a `send` hands over** -- all of it, past a full pipe, and the pipe
+/// closed at the end so the reader sees it. A copy before any input event
+/// has no serial to name and is not made; a second copy replaces the
+/// first source, destroyed; a `cancelled` source is destroyed and its text
+/// is no longer pasted from.
+#[test]
+fn a_copy_offers_text_and_answers_send_through_the_pipe() {
+    let Clipped {
+        mut conn,
+        mut server,
+        mut w,
+        keyboard,
+        data_manager,
+        data_device,
+        ..
+    } = clip_session();
+    assert_eq!(
+        w.copy(&mut conn.sender(), Board::Clipboard, "early"),
+        Copied::Unavailable,
+        "no input event yet, so no serial"
+    );
+    key_at(&mut server, keyboard, 42, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    let text = big_text();
+    assert_eq!(
+        w.copy(&mut conn.sender(), Board::Clipboard, &text),
+        Copied::Set
+    );
+    conn.flush().unwrap();
+    let r = server.expect("wl_data_device_manager", "create_data_source");
+    assert_eq!(r.sender, data_manager);
+    let Val::New(source) = r.args[0] else {
+        panic!()
+    };
+    let mut offered = Vec::new();
+    for _ in 0..5 {
+        let r = server.expect("wl_data_source", "offer");
+        assert_eq!(r.sender, source);
+        let Val::Str(Some(m)) = &r.args[0] else {
+            panic!()
+        };
+        offered.push(m.clone());
+    }
+    assert_eq!(
+        offered,
+        [
+            "text/plain;charset=utf-8",
+            "text/plain",
+            "UTF8_STRING",
+            "TEXT",
+            "STRING"
+        ]
+    );
+    let r = server.expect("wl_data_device", "set_selection");
+    assert_eq!(r.sender, data_device);
+    assert!(
+        matches!(r.args[..], [Val::Obj(s), Val::Uint(42)] if s == source),
+        "{:?}",
+        r.args
+    );
+
+    // The compositor asks for it; another client reads the pipe.
+    let (mut reader, writer) = std::io::pipe().unwrap();
+    server.send(
+        source,
+        "wl_data_source",
+        "send",
+        &[
+            Arg::Str(Some("text/plain;charset=utf-8")),
+            Arg::Fd(writer.as_fd()),
+        ],
+    );
+    drop(writer);
+    let got = std::thread::spawn(move || {
+        let mut got = Vec::new();
+        reader.read_to_end(&mut got).unwrap();
+        got
+    });
+    pump(&mut conn, &mut w);
+    assert_eq!(w.transfers().count(), 1, "the send is waited on");
+    pump_until(&mut w, |w| w.transfers().count() == 0);
+    assert_eq!(got.join().unwrap(), text.as_bytes(), "every byte, then EOF");
+
+    // Copied again: a fresh source, and the old one destroyed.
+    assert_eq!(
+        w.copy(&mut conn.sender(), Board::Clipboard, "second"),
+        Copied::Set
+    );
+    conn.flush().unwrap();
+    let r = server.expect("wl_data_device_manager", "create_data_source");
+    let Val::New(second) = r.args[0] else {
+        panic!()
+    };
+    assert_ne!(second, source, "a used source is never set again");
+    for _ in 0..5 {
+        server.expect("wl_data_source", "offer");
+    }
+    server.expect("wl_data_device", "set_selection");
+    let r = server.expect("wl_data_source", "destroy");
+    assert_eq!(r.sender, source);
+
+    // Another client copied: the source is cancelled and destroyed, and a
+    // paste no longer reads it.
+    server.send(second, "wl_data_source", "cancelled", &[]);
+    pump(&mut conn, &mut w);
+    let r = server.expect("wl_data_source", "destroy");
+    assert_eq!(r.sender, second);
+    assert_eq!(
+        w.paste(&mut conn.sender(), Board::Clipboard),
+        Pasting::Nothing
+    );
+}
+
+/// The offer the compositor makes on `board`'s device, as its three
+/// events.
+fn offer(
+    server: &mut Server,
+    device: ObjectId,
+    board: Board,
+    offer: ObjectId,
+    mimes: &[&str],
+) -> ObjectId {
+    let (dev, off) = match board {
+        Board::Primary => (
+            "zwp_primary_selection_device_v1",
+            "zwp_primary_selection_offer_v1",
+        ),
+        Board::Clipboard => ("wl_data_device", "wl_data_offer"),
+    };
+    server.objects.insert(offer, Interface::named(off).unwrap());
+    server.send(device, dev, "data_offer", &[Arg::NewId(offer)]);
+    for m in mimes {
+        server.send(offer, off, "offer", &[Arg::Str(Some(m))]);
+    }
+    server.send(device, dev, "selection", &[Arg::Object(offer)]);
+    offer
+}
+
+/// **A paste asks the named offer for its best text type and reads the
+/// pipe to its end**: UTF-8 before plain text, an image never; the pipe's
+/// write end given to the compositor is not kept, or the end would never
+/// come; a new selection destroys the old offer, and the keyboard's leave
+/// destroys the one it had, as the protocol says each is valid until.
+#[test]
+fn a_paste_reads_the_offer_to_its_end() {
+    let Clipped {
+        mut conn,
+        mut server,
+        mut w,
+        keyboard,
+        surface,
+        data_device,
+        ..
+    } = clip_session();
+    let first = offer(
+        &mut server,
+        data_device,
+        Board::Clipboard,
+        ObjectId(0xff00_0001),
+        &[
+            "text/plain",
+            "image/png",
+            "text/plain;charset=utf-8",
+            "TEXT",
+        ],
+    );
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        w.paste(&mut conn.sender(), Board::Clipboard),
+        Pasting::Started
+    );
+    assert_eq!(
+        w.paste(&mut conn.sender(), Board::Clipboard),
+        Pasting::Nothing,
+        "one paste at a time"
+    );
+    conn.flush().unwrap();
+    let r = server.expect("wl_data_offer", "receive");
+    assert_eq!(r.sender, first);
+    assert!(
+        matches!(&r.args[..], [Val::Str(Some(m)), Val::Fd] if m == "text/plain;charset=utf-8"),
+        "{:?}",
+        r.args
+    );
+    let fd = server.fds.pop_front().expect("the pipe's write end");
+    let text = big_text();
+    let sent = text.clone();
+    let owner = std::thread::spawn(move || {
+        let mut f = std::fs::File::from(fd);
+        f.write_all(sent.as_bytes()).unwrap();
+    });
+    let mut pasted = Vec::new();
+    pump_until(&mut w, |w| {
+        pasted.extend(drain(w));
+        !pasted.is_empty()
+    });
+    owner.join().unwrap();
+    assert_eq!(pasted, [Event::Pasted(Board::Clipboard, text)]);
+
+    // A new selection: the old offer goes.
+    let second = offer(
+        &mut server,
+        data_device,
+        Board::Clipboard,
+        ObjectId(0xff00_0002),
+        &["UTF8_STRING"],
+    );
+    pump(&mut conn, &mut w);
+    let r = server.expect("wl_data_offer", "destroy");
+    assert_eq!(r.sender, first);
+    // The keyboard leaves: the offer it had goes too.
+    server.send(
+        keyboard,
+        "wl_keyboard",
+        "leave",
+        &[Arg::Uint(9), Arg::Object(surface)],
+    );
+    pump(&mut conn, &mut w);
+    let r = server.expect("wl_data_offer", "destroy");
+    assert_eq!(r.sender, second);
+    assert_eq!(
+        w.paste(&mut conn.sender(), Board::Clipboard),
+        Pasting::Nothing
+    );
+}
+
+/// **The primary is the same shape on its own protocol**, and a paste of a
+/// selection this client owns is its own text at once, with no transfer:
+/// the compositor would only hand it back to itself.
+#[test]
+fn the_primary_copies_and_pastes_on_its_own_protocol() {
+    let Clipped {
+        mut conn,
+        mut server,
+        mut w,
+        keyboard,
+        primary_manager,
+        primary_device,
+        ..
+    } = clip_session();
+    key_at(&mut server, keyboard, 7, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    assert_eq!(
+        w.copy(&mut conn.sender(), Board::Primary, "hello"),
+        Copied::Set
+    );
+    conn.flush().unwrap();
+    let r = server.expect("zwp_primary_selection_device_manager_v1", "create_source");
+    assert_eq!(r.sender, primary_manager);
+    let Val::New(source) = r.args[0] else {
+        panic!()
+    };
+    for _ in 0..5 {
+        server.expect("zwp_primary_selection_source_v1", "offer");
+    }
+    let r = server.expect("zwp_primary_selection_device_v1", "set_selection");
+    assert_eq!(r.sender, primary_device);
+    assert!(matches!(r.args[..], [Val::Obj(s), Val::Uint(7)] if s == source));
+    assert_eq!(
+        w.paste(&mut conn.sender(), Board::Primary),
+        Pasting::Started
+    );
+    assert_eq!(
+        drain(&mut w),
+        [Event::Pasted(Board::Primary, "hello".into())]
+    );
+    assert_eq!(w.transfers().count(), 0, "no pipe for its own text");
+
+    // Another client's primary, pasted through the pipe.
+    server.send(source, "zwp_primary_selection_source_v1", "cancelled", &[]);
+    let theirs = offer(
+        &mut server,
+        primary_device,
+        Board::Primary,
+        ObjectId(0xff00_0003),
+        &["text/plain"],
+    );
+    pump(&mut conn, &mut w);
+    server.expect("zwp_primary_selection_source_v1", "destroy");
+    assert_eq!(
+        w.paste(&mut conn.sender(), Board::Primary),
+        Pasting::Started
+    );
+    conn.flush().unwrap();
+    let r = server.expect("zwp_primary_selection_offer_v1", "receive");
+    assert_eq!(r.sender, theirs);
+    let fd = server.fds.pop_front().unwrap();
+    std::fs::File::from(fd).write_all(b"theirs").unwrap();
+    let mut pasted = Vec::new();
+    pump_until(&mut w, |w| {
+        pasted.extend(drain(w));
+        !pasted.is_empty()
+    });
+    assert_eq!(pasted, [Event::Pasted(Board::Primary, "theirs".into())]);
+
+    // An empty primary: a NULL source.
+    assert_eq!(w.clear(&mut conn.sender(), Board::Primary), Copied::Set);
+    conn.flush().unwrap();
+    let r = server.expect("zwp_primary_selection_device_v1", "set_selection");
+    assert!(matches!(
+        r.args[..],
+        [Val::Obj(ObjectId::NULL), Val::Uint(7)]
+    ));
+}
+
+/// **A paste whose owner sends nothing for two seconds is abandoned**,
+/// foot's timeout: the deadline is the driver's to wait to, and a pump at
+/// it reports the paste dropped and frees the next.
+#[test]
+fn a_silent_owner_is_abandoned_after_two_seconds() {
+    let Clipped {
+        mut conn,
+        mut server,
+        mut w,
+        data_device,
+        ..
+    } = clip_session();
+    offer(
+        &mut server,
+        data_device,
+        Board::Clipboard,
+        ObjectId(0xff00_0001),
+        &["TEXT"],
+    );
+    pump(&mut conn, &mut w);
+    let asked = std::time::Instant::now();
+    assert_eq!(
+        w.paste(&mut conn.sender(), Board::Clipboard),
+        Pasting::Started
+    );
+    conn.flush().unwrap();
+    server.expect("wl_data_offer", "receive");
+    let _held_open = server.fds.pop_front().unwrap();
+    let deadline = w.transfer_deadline().expect("a deadline");
+    assert!(deadline >= asked + std::time::Duration::from_secs(2));
+    w.pump_transfers(deadline - MS);
+    assert_eq!(drain(&mut w), [], "not yet");
+    w.pump_transfers(deadline);
+    assert_eq!(drain(&mut w), [Event::PasteAbandoned(Board::Clipboard)]);
+    assert_eq!(w.transfer_deadline(), None);
+    assert_eq!(
+        w.paste(&mut conn.sender(), Board::Clipboard),
+        Pasting::Started,
+        "the next paste may start"
+    );
+}
+
+// evdev codes for the shortcuts.
+const KEY_C: u32 = 46;
+const KEY_V: u32 = 47;
+const KEY_INSERT: u32 = 110;
+
+/// **The clipboard's keys are the terminal's**: Ctrl+Shift+C, Ctrl+Shift+V
+/// and Shift+Insert arrive as shortcuts, not keys, repeat nothing and
+/// release nothing; Ctrl+C, Ctrl+Caps Lock+C and Ctrl+Alt+Shift+C are keys
+/// as before, the chord being exact.
+#[test]
+fn the_clipboard_keys_are_kept_from_the_program() {
+    use baud_domain::{KeyEventKind, Modifiers};
+    let Clipped {
+        mut conn,
+        mut server,
+        mut w,
+        keyboard: kb,
+        ..
+    } = clip_session();
+    repeat_info(&mut server, kb, 25, 600);
+    let (shift, lock, ctrl, alt) = (1u32, 2u32, 4u32, 8u32);
+    for (mask, code, want) in [
+        (ctrl | shift, KEY_C, Shortcut::Copy),
+        (ctrl | shift, KEY_V, Shortcut::Paste),
+        (shift, KEY_INSERT, Shortcut::PasteSelection),
+    ] {
+        depressed(&mut server, kb, mask);
+        key_at(&mut server, kb, 3, code, PRESSED);
+        pump(&mut conn, &mut w);
+        assert_eq!(drain(&mut w), [Event::Shortcut(want)], "{want:?}");
+        assert_eq!(w.repeat_deadline(), None, "a shortcut does not repeat");
+        key_at(&mut server, kb, 4, code, RELEASED);
+        pump(&mut conn, &mut w);
+        assert_eq!(drain(&mut w), [], "nor release");
+    }
+    depressed(&mut server, kb, ctrl);
+    key_at(&mut server, kb, 5, KEY_C, PRESSED);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        drain(&mut w),
+        [typed(
+            'c',
+            Modifiers::NONE.with(Modifiers::CTRL),
+            KeyEventKind::Press
+        )]
+    );
+    key_at(&mut server, kb, 6, KEY_C, RELEASED);
+    server.send(
+        kb,
+        "wl_keyboard",
+        "modifiers",
+        &[
+            Arg::Uint(1),
+            Arg::Uint(ctrl),
+            Arg::Uint(0),
+            Arg::Uint(lock),
+            Arg::Uint(0),
+        ],
+    );
+    key_at(&mut server, kb, 7, KEY_C, PRESSED);
+    key_at(&mut server, kb, 8, KEY_C, RELEASED);
+    depressed(&mut server, kb, ctrl | alt | shift);
+    key_at(&mut server, kb, 9, KEY_C, PRESSED);
+    pump(&mut conn, &mut w);
+    let got = drain(&mut w);
+    assert!(
+        got.iter().all(|e| matches!(e, Event::Key(_))),
+        "keys, not shortcuts: {got:?}"
+    );
+    assert_eq!(got.len(), 4, "{got:?}");
+}
+
+/// **No manager, no copy**: a compositor without the globals gets no
+/// device requests, and a copy or a paste is refused rather than sent.
+#[test]
+fn without_the_globals_nothing_is_copied() {
+    let (mut conn, mut server, mut w, kb, _) = keyboard_session();
+    key_at(&mut server, kb, 3, KEY_Q, PRESSED);
+    pump(&mut conn, &mut w);
+    for b in [Board::Clipboard, Board::Primary] {
+        assert!(!w.has(b));
+        assert_eq!(w.copy(&mut conn.sender(), b, "x"), Copied::Unavailable);
+        assert_eq!(w.paste(&mut conn.sender(), b), Pasting::Nothing);
+    }
+}

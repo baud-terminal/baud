@@ -3,8 +3,7 @@
 //! quoted with the tty's literal-next character; `?2006`, a paste's newlines
 //! kept. And `OSC 133`'s click at a prompt: `cl=`'s keys and kitty's
 //! `click_events=` report. Pure, so the tests run on every platform. Both
-//! drivers call the click's; only the macOS driver has a paste, so only it
-//! and the tests build the paste's.
+//! drivers call the click's and the paste's (`paste.rs`).
 
 use baud_core::{ClickEvents, Col, Cols, ImagePx, PackedCell, Row, Rows, Wrap};
 
@@ -166,7 +165,6 @@ pub fn boundary(x: ImagePx, cell_w: ImagePx) -> Col {
 }
 
 /// How a paste's newlines go to the child.
-#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Newlines {
     /// As typed input carries them: a line break is CR (`?2006` reset).
@@ -179,7 +177,6 @@ pub enum Newlines {
 /// byte then preceded by `quote` under `?2005`, as xterm turns `\n` into
 /// `\r` and then quotes byte by byte (`_WriteSelectionData` and
 /// `_qWriteSelectionData`, `[[source: xterm-button]]`).
-#[cfg(any(target_os = "macos", test))]
 pub fn body(text: &str, newlines: Newlines, quote: Option<Quote>) -> Vec<u8> {
     let plain = match newlines {
         Newlines::AsReturn => text.replace("\r\n", "\r").replace('\n', "\r"),
@@ -189,7 +186,6 @@ pub fn body(text: &str, newlines: Newlines, quote: Option<Quote>) -> Vec<u8> {
 }
 
 /// Each byte of `bytes` preceded by `quote`, or `bytes` as they are.
-#[cfg(any(target_os = "macos", test))]
 pub fn quoted(bytes: &[u8], quote: Option<Quote>) -> Vec<u8> {
     match quote {
         None => bytes.to_vec(),
@@ -199,11 +195,9 @@ pub fn quoted(bytes: &[u8], quote: Option<Quote>) -> Vec<u8> {
 
 /// The byte a `?2005` paste puts before each of its bytes: the tty's
 /// literal-next character.
-#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Quote(pub u8);
 
-#[cfg(any(target_os = "macos", test))]
 impl Quote {
     /// When the tty gives none: xterm's `XTERM_LNEXT`, Control-V.
     pub const LNEXT: Quote = Quote(0x16);

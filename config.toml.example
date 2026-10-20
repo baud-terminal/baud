@@ -306,8 +306,9 @@ advertise_sixel = false
 
 # Whether a program can put text on the clipboard with OSC 52: remote
 # Neovim, tmux's copy mode or a multiplexer over ssh, which have no other way
-# to reach this Mac's pasteboard. "write" lets them, "off" refuses every copy
-# and logs once that it did. Reading the clipboard back is always refused --
+# to reach this Mac's pasteboard, or on Linux the desktop's clipboard and
+# primary selection. "write" lets them, "off" refuses every copy and logs
+# once that it did. Reading the clipboard back is always refused --
 # what a program would read is whatever you last copied.
 #
 # The price of "write": anything printed to the terminal, a file you cat

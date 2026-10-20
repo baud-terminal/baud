@@ -108,6 +108,13 @@ pub(crate) enum Owed {
     Frame,
     /// The wheel's cursor keys went out, which the caret counts as input.
     Keys,
+    /// A selection was made -- a drag released, or a double or triple
+    /// click's word or line -- and is drawn: the driver copies it to
+    /// SELECT (`clip::select_board`), xterm's `select-end(SELECT,
+    /// CUT_BUFFER0)` (`[[source: xterm-man]]`).
+    Selected,
+    /// The middle button's release: the driver pastes SELECT.
+    PasteSelection,
 }
 
 /// The modifier bits a mouse report carries: Alt is Meta, the way xterm
@@ -274,6 +281,19 @@ impl Seat {
             crate::reads::input(term, |t| t.locator(e), &mut sink);
         }
         let (row, col, px) = self.under(g);
+        // **The middle button pastes on its release**, as xterm binds it:
+        // `~Ctrl ~Meta <Btn2Down>: ignore()` and `~Ctrl ~Meta <Btn2Up>:
+        // insert-selection(SELECT, CUT_BUFFER0)` (`[[source: xterm-man]]`),
+        // kitty's `paste_selection middle release ungrabbed` (`[[source:
+        // kitty-options-definition]]`). Taken here, before the selection's
+        // rules, so it never ends or drops a selection the left button made.
+        if to == To::Select && button == Pressed::Middle {
+            let plain = !mods.has(Modifiers::CTRL) && !mods.has(Modifiers::ALT);
+            return match (kind, plain) {
+                (Kind::Up, true) => Owed::PasteSelection,
+                _ => Owed::Nothing,
+            };
+        }
         if to == To::Select {
             let selected = gesture::select(
                 term,
@@ -286,9 +306,8 @@ impl Seat {
             );
             return match selected {
                 Selected::Unchanged => Owed::Nothing,
-                // No clipboard on this driver, so `?1041` has nowhere to
-                // put the selection made.
-                Selected::Changed | Selected::Made => Owed::Frame,
+                Selected::Changed => Owed::Frame,
+                Selected::Made => Owed::Selected,
                 Selected::Click => {
                     let clean = button == Pressed::Left
                         && !mods.has(Modifiers::SHIFT)
@@ -387,6 +406,13 @@ impl Seat {
                 Owed::Frame
             }
         }
+    }
+
+    /// The selection's text, as Ctrl+Shift+C and a finished drag copy it;
+    /// `None` without one or for one with no text.
+    pub(crate) fn selected_text(&self, term: &Term<'_>) -> Option<String> {
+        let text = self.selection?.text(term, self.scrolled);
+        (!text.is_empty()).then_some(text)
     }
 
     /// **A key snaps the window back to the live screen**, where its effect
@@ -684,8 +710,10 @@ mod tests {
                 NONE
             )
             .0,
-            Owed::Frame
+            Owed::Selected,
+            "made: the driver copies it to SELECT"
         );
+        assert_eq!(seat.selected_text(&t).as_deref(), Some("hello"));
         let h = seat.highlight(&t).expect("drawn");
         assert_eq!(
             (h.from, h.to),
@@ -717,6 +745,11 @@ mod tests {
             up(Pressed::Left, Ms::of_millis(1200)),
             NONE,
         );
+        assert_eq!(
+            seat.selected_text(&t).as_deref(),
+            Some("world"),
+            "a double click's word is made too"
+        );
         let h = seat.highlight(&t).expect("the word");
         assert_eq!(
             (h.from, h.to),
@@ -729,6 +762,61 @@ mod tests {
         feed(&mut t, b"\x1bc");
         seat.after_read(&t, before);
         assert_eq!(seat.highlight(&t), None, "a reset drops it");
+    }
+
+    /// **The middle button pastes SELECT on its release**, xterm's
+    /// `~Ctrl ~Meta <Btn2Up>: insert-selection(SELECT, CUT_BUFFER0)`, its
+    /// press doing nothing (`ignore()`): not with Control or Alt held, not
+    /// where a tracking child takes the press -- unless Shift overrides the
+    /// tracking -- and never touching the selection a left drag made.
+    #[test]
+    fn the_middle_button_pastes_on_its_release() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"hello world");
+        let mut seat = Seat::new();
+        put(&mut seat, &mut t, Input::Moved(1.0, 1.0), NONE);
+        put(
+            &mut seat,
+            &mut t,
+            down(Pressed::Left, Ms::of_millis(0)),
+            NONE,
+        );
+        put(&mut seat, &mut t, Input::Moved(41.0, 1.0), NONE);
+        put(
+            &mut seat,
+            &mut t,
+            up(Pressed::Left, Ms::of_millis(50)),
+            NONE,
+        );
+        let middle = |seat: &mut Seat, t: &mut Term<'_>, at: u32, mods| {
+            let press = put(seat, t, down(Pressed::Middle, Ms::of_millis(at)), mods);
+            let release = put(seat, t, up(Pressed::Middle, Ms::of_millis(at + 10)), mods);
+            (press, release)
+        };
+        let (press, release) = middle(&mut seat, &mut t, 1000, NONE);
+        assert_eq!(press, (Owed::Nothing, Vec::new()), "the press does nothing");
+        assert_eq!(release, (Owed::PasteSelection, Vec::new()));
+        assert_eq!(
+            seat.selected_text(&t).as_deref(),
+            Some("hello"),
+            "the selection stands"
+        );
+        for held in [Modifiers::CTRL, Modifiers::ALT] {
+            let (_, release) = middle(&mut seat, &mut t, 2000, Modifiers::NONE.with(held));
+            assert_eq!(release.0, Owed::Nothing, "{held:?}");
+        }
+        feed(&mut t, b"\x1b[?1000h\x1b[?1006h");
+        let (press, release) = middle(&mut seat, &mut t, 3000, NONE);
+        assert_eq!(press.1, b"\x1b[<1;5;1M", "the child's");
+        assert_eq!(release, (Owed::Nothing, b"\x1b[<1;5;1m".to_vec()));
+        let shift = Modifiers::NONE.with(Modifiers::SHIFT);
+        let (_, release) = middle(&mut seat, &mut t, 4000, shift);
+        assert_eq!(
+            release,
+            (Owed::PasteSelection, Vec::new()),
+            "Shift overrides"
+        );
     }
 
     /// **A clean click moves the shell's point under `?2001`**, and a

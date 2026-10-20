@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 283 | 25 | redistributable, and its notice is satisfied |
+| kept | 284 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 806 | 36 | |
+| total | 807 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -1729,7 +1729,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT
 - **Notice:** in the file
-- **Files:** 14
+- **Files:** 15
 
 | file | copied from |
 |---|---|
@@ -1742,6 +1742,7 @@ notice is, and the URL each file was copied from.
 | [wp-linux-dmabuf-v1.xml](docs/research/sources/wp-linux-dmabuf-v1.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/linux-dmabuf/linux-dmabuf-v1.xml |
 | [wp-linux-drm-syncobj-v1.xml](docs/research/sources/wp-linux-drm-syncobj-v1.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/linux-drm-syncobj/linux-drm-syncobj-v1.xml |
 | [wp-presentation-time.xml](docs/research/sources/wp-presentation-time.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/presentation-time/presentation-time.xml |
+| [wp-primary-selection-unstable-v1.xml](docs/research/sources/wp-primary-selection-unstable-v1.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/unstable/primary-selection/primary-selection-unstable-v1.xml |
 | [wp-tearing-control-v1.xml](docs/research/sources/wp-tearing-control-v1.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/staging/tearing-control/tearing-control-v1.xml |
 | [wp-text-input-unstable-v3.xml](docs/research/sources/wp-text-input-unstable-v3.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/unstable/text-input/text-input-unstable-v3.xml |
 | [wp-viewporter.xml](docs/research/sources/wp-viewporter.xml) | https://gitlab.freedesktop.org/wayland/wayland-protocols/-/raw/main/stable/viewporter/viewporter.xml |

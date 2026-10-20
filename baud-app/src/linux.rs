@@ -26,9 +26,7 @@
 //! Motion means no trail, unless the config names one": "the Linux driver
 //! draws no trail"); `SGR 5` and `SGR 6` text blink; the system caret's
 //! rate (this keeps xterm's 600/300 until the desktop's settings are read);
-//! a clipboard -- no data device is bound, so a selection is drawn and not
-//! copied, nothing pastes, and `?1041` has nowhere to put one; the
-//! scrollbar, which this driver does not draw, and with it `?30`; a link
+//! the scrollbar, which this driver does not draw, and with it `?30`; a link
 //! opened by a click; a backing scale other than one -- the window binds no
 //! fractional-scale global; and the report every five seconds.
 //!
@@ -39,6 +37,16 @@
 //! the `OSC 133` prompt's; and `OSC 22`'s shape through `cursor-shape-v1`
 //! where the compositor offers it. Tested over a socket pair and through
 //! `seat.rs`, never on a compositor with a mouse.
+//!
+//! **Copy and paste are the Linux desktop's** (`baud_present_wayland::clip`):
+//! Ctrl+Shift+C copies the selection to the clipboard and Ctrl+Shift+V
+//! pastes it; a finished selection goes to xterm's SELECT -- the primary
+//! selection, or the clipboard under `?1041` (`clip::select_board`) -- and
+//! the middle button's release and Shift+Insert paste SELECT; a program's
+//! `OSC 52` write lands on each selection it names (`clip::boards`); a paste
+//! goes through `paste.rs` as the macOS app's does. Every transfer is a
+//! non-blocking pipe in the loop's one wait. Tested over a socket pair,
+//! never against a compositor's clipboard.
 
 use crate::bell::{Bell, Update, UpdateClock};
 use crate::caret::{Blinks, Caret, Cycle, Gate, NonBlinking, Owes};
@@ -51,7 +59,7 @@ use crate::pty::{Chunk, Outbox, Pty, Ready, wait};
 use baud_core::{Focus, Owned, Resized, Term};
 use baud_domain::{Cols, DecodeProgress, Rows, WinSize};
 use baud_font::Px;
-use baud_present_wayland::{Event, PointerEvent, Presented, Shaped, Window};
+use baud_present_wayland::{Board, Copied, Event, PointerEvent, Presented, Shaped, Window};
 use baud_render::{Argb, Blend, Damage, PxSize, Renderer, Target};
 use baud_wayland::Connection;
 use std::os::fd::AsFd;
@@ -131,6 +139,12 @@ struct Driver {
     shape: Option<baud_present_wayland::CursorShape>,
     /// Whether the missing cursor-shape global has been said.
     shapeless: Said,
+    /// What a program's `OSC 52` copies came to (`clip.rs`), the policy,
+    /// and the area the core was given.
+    clips: crate::clip::Clips,
+    clipboard: crate::config::Clipboard,
+    /// Whether a copy the compositor could not take has been said.
+    uncopied: Said,
 }
 
 /// Whether a one-time line has been logged.
@@ -142,7 +156,7 @@ enum Said {
 
 pub fn run() {
     crate::warn!(
-        "baud on Wayland: run only on a headless compositor, so nobody has looked at its pixels, typed into it or moved a mouse over it, and it has no clipboard: a selection is drawn and not copied"
+        "baud on Wayland: run only on a headless compositor, so nobody has looked at its pixels, typed into it, moved a mouse over it or pasted into it"
     );
     let cfg = Config::load();
     startup_mark("config");
@@ -165,7 +179,9 @@ pub fn run() {
     let geom = host_geometry();
     crate::info!("cache: {}", describe(&geom));
     let owned: &'static mut Owned = Box::leak(Box::new(
-        Owned::with_geometry(&MAX_GRID, &geom).with_images(cfg.images),
+        Owned::with_geometry(&MAX_GRID, &geom)
+            .with_images(cfg.images)
+            .with_clipboard(cfg.clipboard.budget),
     ));
     let mut term = Term::new(owned.storage(), &FIRST);
     // The kitty file mediums, read with the text's checks
@@ -245,6 +261,7 @@ pub fn run() {
     };
     let bell = Bell::new(&term, crate::bell::LENGTH);
     let widths = crate::width::Widths::new(&term);
+    let clips = crate::clip::Clips::for_wayland(&term);
     let mut d = Driver {
         bell,
         // The config's interval, else 333 ms a phase, and no switch: `auto`
@@ -281,6 +298,9 @@ pub fn run() {
         seat: crate::seat::Seat::new(),
         shape: None,
         shapeless: Said::Not,
+        clips,
+        clipboard: cfg.clipboard,
+        uncopied: Said::Not,
     };
     if let Err(e) = d.conn.flush() {
         crate::warn!("wayland: {e}");
@@ -318,12 +338,37 @@ pub fn run() {
         // A kitty picture's decode, a step a turn between reads: the next
         // turn at once while one is pending (`reads::decode_wait`).
         let decode = crate::reads::decode_wait(d.decode);
-        let timeout = [sync, repeat, flash, caret, decode]
+        // A paste whose owner has gone quiet, abandoned at its deadline.
+        let paste = d
+            .window
+            .transfer_deadline()
+            .filter(|&t| t > now)
+            .map(|t| t.saturating_duration_since(now));
+        let timeout = [sync, repeat, flash, caret, decode, paste]
             .into_iter()
             .flatten()
             .min();
-        let (compositor, pty) = match wait(d.conn.as_fd(), d.pty.as_fd(), d.outbox.owed(), timeout)
-        {
+        // The clipboard's pipes, each waited on for what it owes.
+        let transfers: Vec<_> = d
+            .window
+            .transfers()
+            .map(|(fd, want)| {
+                let i = match want {
+                    baud_present_wayland::Want::Read => crate::pty::Interest::Read,
+                    baud_present_wayland::Want::Write => crate::pty::Interest::Write,
+                };
+                (fd, i)
+            })
+            .collect();
+        let waited = wait(
+            d.conn.as_fd(),
+            d.pty.as_fd(),
+            d.outbox.owed(),
+            &transfers,
+            timeout,
+        );
+        drop(transfers);
+        let (compositor, pty) = match waited {
             Ok(r) => r,
             Err(e) => {
                 crate::warn!("poll: {e}");
@@ -354,9 +399,12 @@ pub fn run() {
             }
         }
         // After a timeout as much as after readiness: a repeat is due on
-        // the clock, not on an event, and so is a flash's end.
+        // the clock, not on an event, and so is a flash's end. The
+        // transfers move as far as their pipes allow, a paste finished
+        // arriving as an event below.
         let now = Instant::now();
         d.window.tick(now);
+        d.window.pump_transfers(now);
         if d.bell.is_due(now) {
             d.pending = Pending::Dirty;
         }
@@ -408,6 +456,11 @@ pub fn run() {
                     d.pending = Pending::Dirty;
                 }
                 Event::Pointer(p) => d.pointer(p),
+                Event::Shortcut(s) => d.shortcut(s),
+                Event::Pasted(_, text) => d.paste(&text),
+                Event::PasteAbandoned(_) => crate::warn!(
+                    "paste: the selection's owner sent nothing for two seconds; nothing was pasted"
+                ),
                 Event::Closed => return,
             }
         }
@@ -447,12 +500,18 @@ impl Driver {
         // The read's answers go to the outbox now, before a key queues behind
         // them in the reply buffer (`reads::feed`); the loop's
         // `flush_reply` writes them.
-        // No `OSC 52` poll: this driver has no clipboard until the Wayland
-        // driver speaks a data device, and it provisions no area, so the core
-        // refuses every write and counts it in `clipboard_writes_refused`.
+        // **A program's `OSC 52` copy is acted on read by read**, as the
+        // macOS pump does: the core keeps only the last write it finished.
         // **A program's page width is refused and said once** (`width.rs`):
         // nothing here resizes the window, so the read is not held either.
         let widths = &mut self.widths;
+        let (clips, window, conn, osc52) = (
+            &mut self.clips,
+            &mut self.window,
+            &mut self.conn,
+            self.clipboard.osc52,
+        );
+        let mut uncopied = Copied::Set;
         let mut asked = Vec::new();
         // The watches on the selection's lines, armed before the read
         // (`keep::Before::watched`).
@@ -462,6 +521,14 @@ impl Driver {
             [bytes],
             |b| self.outbox.push(b),
             |t| {
+                if let Some((d, warn)) = clips.poll(t, osc52) {
+                    if let Some(line) = warn {
+                        crate::warn!("{line}");
+                    }
+                    if program_copy(window, conn, t, d) == Copied::Unavailable {
+                        uncopied = Copied::Unavailable;
+                    }
+                }
                 if let Some((_, Some(line))) = widths.poll(t, crate::width::Host::NoResize) {
                     crate::warn!("{line}");
                 }
@@ -472,6 +539,12 @@ impl Driver {
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.
         self.pty.follow(self.term.input_encoding());
+        if let Some(line) = self.clips.core_refusals(&self.term, self.clipboard.budget) {
+            crate::warn!("{line}");
+        }
+        if uncopied == Copied::Unavailable {
+            self.uncopied_once();
+        }
         // The selection after the read: renumbered, or dropped where the
         // read wrote over it, switched or reset (`seat.rs`).
         self.seat.after_read(&self.term, before);
@@ -563,10 +636,76 @@ impl Driver {
             Owed::Nothing => {}
             Owed::Frame => self.pending = Pending::Dirty,
             Owed::Keys => self.caret.input(Instant::now()),
+            // A selection made is SELECT's: the primary, or the clipboard
+            // under `?1041`, as xterm's `select-end(SELECT, CUT_BUFFER0)`
+            // (Jev's lean, PRIMARY_ONLY, 0.73/0.88: V13's copy-on-select is
+            // this on Linux).
+            Owed::Selected => {
+                self.pending = Pending::Dirty;
+                let board = board_of(crate::clip::select_board(&self.term));
+                self.copy_selection(board);
+            }
+            Owed::PasteSelection => {
+                let board = board_of(crate::clip::select_board(&self.term));
+                self.window.paste(&mut self.conn.sender(), board);
+            }
         }
         if matches!(input, Input::Entered(..)) {
             self.show_pointer();
         }
+    }
+
+    /// **A clipboard key** (`baud_present_wayland::keys::shortcut`):
+    /// Ctrl+Shift+C copies the selection to the clipboard, Ctrl+Shift+V
+    /// pastes the clipboard, and Shift+Insert pastes SELECT. A copy with
+    /// nothing selected copies nothing.
+    fn shortcut(&mut self, s: baud_present_wayland::Shortcut) {
+        use baud_present_wayland::Shortcut;
+        match s {
+            Shortcut::Copy => self.copy_selection(Board::Clipboard),
+            Shortcut::Paste => {
+                self.window.paste(&mut self.conn.sender(), Board::Clipboard);
+            }
+            Shortcut::PasteSelection => {
+                let board = board_of(crate::clip::select_board(&self.term));
+                self.window.paste(&mut self.conn.sender(), board);
+            }
+        }
+    }
+
+    /// The selection's text to `board`, if there is a selection.
+    fn copy_selection(&mut self, board: Board) {
+        let Some(text) = self.seat.selected_text(&self.term) else {
+            return;
+        };
+        if self.window.copy(&mut self.conn.sender(), board, &text) == Copied::Unavailable {
+            self.uncopied_once();
+        }
+    }
+
+    /// The compositor could not take a copy, said once.
+    fn uncopied_once(&mut self) {
+        if self.uncopied == Said::Not {
+            self.uncopied = Said::Once;
+            crate::warn!(
+                "clipboard: the compositor took no copy -- it offers no data device or primary selection for it, or no key or click has come yet to name"
+            );
+        }
+    }
+
+    /// **A paste to the child**, the macOS app's: the window back on the
+    /// live screen, the cursor shown, and the text in the form the child's
+    /// modes give it (`paste.rs`), behind whatever is owed.
+    fn paste(&mut self, text: &str) {
+        if self.seat.key(&mut self.term) {
+            self.pending = Pending::Dirty;
+        }
+        self.caret.input(Instant::now());
+        self.flush_reply();
+        let pty = &self.pty;
+        let form = crate::paste::form(&self.term, || pty.literal_next());
+        self.outbox.push(&crate::paste::bytes(text, form));
+        self.flush_reply();
     }
 
     /// **The pointer's shape for the program's `OSC 22`, or the I-beam**
@@ -787,4 +926,42 @@ impl Driver {
             self.pending = Pending::Clean;
         }
     }
+}
+
+/// The presenter's name for a selection.
+fn board_of(b: crate::clip::Board) -> Board {
+    match b {
+        crate::clip::Board::Clipboard => Board::Clipboard,
+        crate::clip::Board::Primary => Board::Primary,
+    }
+}
+
+/// **A program's `OSC 52` write on the seat's selections**: each it names
+/// (`clip::boards`) set or emptied, or nothing where the policy refused
+/// it. `Unavailable` when the compositor could take none of them.
+fn program_copy(
+    window: &mut Window,
+    conn: &mut baud_wayland::Connection,
+    t: &Term<'_>,
+    d: crate::clip::Decision<'_>,
+) -> Copied {
+    use crate::clip::Decision;
+    let Some(targets) = t.clipboard().map(|w| w.targets) else {
+        return Copied::Set;
+    };
+    let Some(boards) = crate::clip::boards(targets, crate::clip::select_board(t)) else {
+        return Copied::Set;
+    };
+    let mut took = Copied::Unavailable;
+    for b in boards.each().map(board_of) {
+        let c = match d {
+            Decision::Set(text) => window.copy(&mut conn.sender(), b, text),
+            Decision::Clear => window.clear(&mut conn.sender(), b),
+            Decision::Refused(_) => return Copied::Set,
+        };
+        if c == Copied::Set {
+            took = Copied::Set;
+        }
+    }
+    took
 }

@@ -132,7 +132,7 @@ trail is off, unless you name a trail here.
 
 | key | values | default | what it changes |
 |---|---|---|---|
-| `osc52` | `"write"`, `"off"` | `"write"` | Whether a program can copy text to your clipboard, which is how Neovim or tmux over ssh reach your Mac's clipboard. Programs can never read your clipboard. With `"write"`, anything printed in the terminal, a file you `cat` included, can replace what you copied. |
+| `osc52` | `"write"`, `"off"` | `"write"` | Whether a program can copy text to your clipboard, which is how Neovim or tmux over ssh reach your Mac's clipboard, or on Linux the clipboard or the primary selection the program names (a copy naming neither, as tmux's does, goes where your own selection goes: the primary selection, unless a program has switched that to the clipboard). Programs can never read your clipboard. With `"write"`, anything printed in the terminal, a file you `cat` included, can replace what you copied. |
 | `body_kb` | number, KiB | `256` | The largest copy a program may make. 256 holds 192 KiB of text. A larger copy is refused whole, never cut short. |
 
 ## [window]

@@ -11,7 +11,8 @@
 //! and shows the shape `cursor-shape-v1` names where the compositor offers
 //! that global.
 
-use crate::keys;
+use crate::clip::{Board, Clip, Copied, Done, Pasting, Want};
+use crate::keys::{self, Shortcut};
 use crate::pointer::{
     At, AxisCode, Button, CursorShape, EventCode, Framing, Gather, Piece, PointerEvent, Press,
 };
@@ -24,6 +25,7 @@ use baud_wayland::{
 use baud_xkb::{Keycode, Keymap, Mods, State};
 use std::collections::VecDeque;
 use std::io;
+use std::os::fd::BorrowedFd;
 use std::time::{Duration, Instant};
 
 /// What the window reports to the app.
@@ -43,6 +45,13 @@ pub enum Event {
     Focus(Focus),
     /// What the pointer did, a `wl_pointer.frame` at a time.
     Pointer(PointerEvent),
+    /// A clipboard key the terminal keeps (`keys::shortcut`): its press,
+    /// in place of the key event, and its release goes nowhere.
+    Shortcut(Shortcut),
+    /// A paste read to its end ([`Window::paste`]).
+    Pasted(Board, String),
+    /// A paste whose owner sent nothing for `clip::RECEIVE_IDLE`.
+    PasteAbandoned(Board),
     Closed,
 }
 
@@ -147,6 +156,10 @@ struct Globals {
     cursor_shape: Option<ObjectId>,
 }
 
+/// The data device manager's version, at most: 3 is foot's, and what the
+/// selection needs is in 1; 3 changes only a drag's rules.
+const DATA_DEVICE_VERSION: u32 = 3;
+
 /// How a pointer the seat no longer has is let go.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Release {
@@ -193,6 +206,15 @@ pub struct Window {
     group: usize,
     repeat: RepeatInfo,
     held: Option<Held>,
+    /// The key a shortcut took, so its release reaches nobody.
+    swallowed: Option<Keycode>,
+    /// The serial of the last key, button or keyboard enter: what a copy's
+    /// `set_selection` names, "serial number of the event that triggered
+    /// this request" (`[[source: wayland]]`). A program's `OSC 52` has no
+    /// event of its own and names the last one, as foot names its last
+    /// keyboard serial (`[[source: foot-2705e36-osc]]`).
+    serial: Option<u32>,
+    clip: Clip,
     events: VecDeque<Event>,
 }
 
@@ -248,6 +270,9 @@ impl Window {
                 delay: Duration::ZERO,
             },
             held: None,
+            swallowed: None,
+            serial: None,
+            clip: Clip::default(),
             events: VecDeque::new(),
         })
     }
@@ -302,6 +327,56 @@ impl Window {
         ) {
             Ok(()) => Shaped::Set,
             Err(_) => Shaped::Unavailable,
+        }
+    }
+
+    /// **`text` becomes `board`'s selection** (`clip.rs`), named with the
+    /// serial of the last input event.
+    pub fn copy(&mut self, s: &mut Sender<'_>, board: Board, text: &str) -> Copied {
+        self.clip.copy(s, board, text, self.serial)
+    }
+
+    /// `board` emptied, as a program's `OSC 52` clear asks.
+    pub fn clear(&mut self, s: &mut Sender<'_>, board: Board) -> Copied {
+        self.clip.clear(s, board, self.serial)
+    }
+
+    /// Whether the compositor gave the seat a device for `board`.
+    pub fn has(&self, board: Board) -> bool {
+        self.clip.has(board)
+    }
+
+    /// **A paste from `board`**, which arrives as [`Event::Pasted`] once
+    /// read -- at once when this client owns the selection.
+    pub fn paste(&mut self, s: &mut Sender<'_>, board: Board) -> Pasting {
+        let p = self.clip.paste(s, board, Instant::now());
+        self.take_done();
+        p
+    }
+
+    /// The transfers' descriptors, for the driver's wait.
+    pub fn transfers(&self) -> impl Iterator<Item = (BorrowedFd<'_>, Want)> {
+        self.clip.fds()
+    }
+
+    /// When a paste waiting on its owner is abandoned.
+    pub fn transfer_deadline(&self) -> Option<Instant> {
+        self.clip.deadline()
+    }
+
+    /// Every transfer moved as far as its pipe allows (`Clip::pump`); a
+    /// paste finished is an [`Event::Pasted`].
+    pub fn pump_transfers(&mut self, now: Instant) {
+        self.clip.pump(now);
+        self.take_done();
+    }
+
+    fn take_done(&mut self) {
+        for d in self.clip.take_done() {
+            self.events.push_back(match d {
+                Done::Pasted(b, text) => Event::Pasted(b, text),
+                Done::Abandoned(b) => Event::PasteAbandoned(b),
+            });
         }
     }
 
@@ -427,6 +502,15 @@ impl Window {
             }
         }
         self.held = Some(held);
+    }
+
+    /// The clipboard shortcut a press of `code` makes under the modifiers in
+    /// force (`keys::shortcut`), if any.
+    fn shortcut(&self, code: Keycode) -> Option<Shortcut> {
+        let km = self.keymap.as_ref()?;
+        let mut st = State::new(km);
+        st.update(self.mods, self.group);
+        keys::shortcut(st.sym(code), st.mods().effective())
     }
 
     /// The key event `code` produces under the modifiers in force, as `kind`;
@@ -638,6 +722,9 @@ fn at(x: Fixed, y: Fixed) -> At {
 
 impl Handler for Window {
     fn event(&mut self, s: &mut Sender<'_>, ev: Wire<'_>) {
+        if self.clip.event(s, &ev) {
+            return;
+        }
         match (ev.interface.name, ev.name(), ev.args) {
             (
                 "wl_registry",
@@ -673,7 +760,27 @@ impl Handler for Window {
                             false => Release::Forget,
                         };
                         self.globals.seat =
-                            Window::bind(s, self.registry, name, iface, version.min(9))
+                            Window::bind(s, self.registry, name, iface, version.min(9));
+                        self.clip.devices(s, self.globals.seat);
+                    }
+                    "wl_data_device_manager" => {
+                        if let Some(m) = Window::bind(
+                            s,
+                            self.registry,
+                            name,
+                            iface,
+                            version.min(DATA_DEVICE_VERSION),
+                        ) {
+                            self.clip.bound(Board::Clipboard, m);
+                            self.clip.devices(s, self.globals.seat);
+                        }
+                    }
+                    "zwp_primary_selection_device_manager_v1" => {
+                        if let Some(m) = Window::bind(s, self.registry, name, iface, version.min(1))
+                        {
+                            self.clip.bound(Board::Primary, m);
+                            self.clip.devices(s, self.globals.seat);
+                        }
                     }
                     // Version 1: its 34 shapes are every one `pointer::shape`
                     // names.
@@ -789,8 +896,14 @@ impl Handler for Window {
             (
                 "wl_pointer",
                 "button",
-                [_, Read::Uint(time), Read::Uint(button), Read::Uint(state)],
+                [
+                    Read::Uint(serial),
+                    Read::Uint(time),
+                    Read::Uint(button),
+                    Read::Uint(state),
+                ],
             ) => {
+                self.serial = Some(*serial);
                 let press = match *state {
                     protocol::wl_pointer::button_state::PRESSED => Press::Pressed,
                     _ => Press::Released,
@@ -862,15 +975,24 @@ impl Handler for Window {
                 "wl_keyboard",
                 "key",
                 [
-                    Read::Uint(_),
+                    Read::Uint(serial),
                     Read::Uint(_),
                     Read::Uint(key),
                     Read::Uint(state),
                 ],
             ) => {
+                self.serial = Some(*serial);
                 let code = Keycode(*key + 8);
                 match *state {
                     protocol::wl_keyboard::key_state::PRESSED => {
+                        // A clipboard key is the terminal's: no key event,
+                        // no repeat, and its release swallowed.
+                        if let Some(sc) = self.shortcut(code) {
+                            self.events.push_back(Event::Shortcut(sc));
+                            self.swallowed = Some(code);
+                            self.held = None;
+                            return;
+                        }
                         if let Some(e) = self.key_event(code, KeyEventKind::Press) {
                             self.events.push_back(Event::Key(e));
                         }
@@ -896,6 +1018,10 @@ impl Handler for Window {
                         if self.held.is_some_and(|h| h.key == code) {
                             self.held = None;
                         }
+                        if self.swallowed == Some(code) {
+                            self.swallowed = None;
+                            return;
+                        }
                         if let Some(e) = self.key_event(code, KeyEventKind::Release) {
                             self.events.push_back(Event::Key(e));
                         }
@@ -905,7 +1031,10 @@ impl Handler for Window {
             }
             // The keymap's `enter` carries the keys already down as an array;
             // neither event's payload beyond its meaning is needed here.
-            ("wl_keyboard", "enter", _) => self.events.push_back(Event::Focus(Focus::Gained)),
+            ("wl_keyboard", "enter", [Read::Uint(serial), ..]) => {
+                self.serial = Some(*serial);
+                self.events.push_back(Event::Focus(Focus::Gained));
+            }
             // A keyboard that left the surface delivers no release for what
             // it held, so the repeat stops here, and the modifiers go back
             // to none: "In the wl_keyboard logical state, this event resets
@@ -914,6 +1043,8 @@ impl Handler for Window {
             // compositor sends a fresh `modifiers` after the next `enter`.
             ("wl_keyboard", "leave", _) => {
                 self.held = None;
+                self.swallowed = None;
+                self.clip.focus_lost(s);
                 self.mods = Mods::default();
                 self.group = 0;
                 self.events.push_back(Event::Focus(Focus::Lost));

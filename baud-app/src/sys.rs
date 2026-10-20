@@ -402,17 +402,17 @@ pub const NCCS: usize = 20;
 #[cfg(not(target_os = "macos"))]
 pub const NCCS: usize = 32;
 
-/// `VLNEXT`, the literal-next character's index in `c_cc`. Only the macOS
-/// paste reads it; the header probe holds it on Linux too.
+/// `VLNEXT`, the literal-next character's index in `c_cc`, which a
+/// `?2005` paste reads on both systems; the header probe holds both.
 #[cfg(target_os = "macos")]
 pub const VLNEXT: usize = 14;
-#[cfg(all(not(target_os = "macos"), test))]
+#[cfg(not(target_os = "macos"))]
 pub const VLNEXT: usize = 15;
 
 /// `_POSIX_VDISABLE`, a control character that is switched off.
 #[cfg(target_os = "macos")]
 pub const POSIX_VDISABLE: u8 = 0xff;
-#[cfg(all(not(target_os = "macos"), test))]
+#[cfg(not(target_os = "macos"))]
 pub const POSIX_VDISABLE: u8 = 0;
 
 /// Four `unsigned long` flag words, twenty control characters, padding and

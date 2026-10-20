@@ -1163,7 +1163,6 @@ impl Pty {
     /// before each byte: `c_cc[VLNEXT]` as `tcgetattr` reads it on the
     /// manager, or Control-V when it cannot be read or is switched off, as
     /// xterm's `get_tty_lnext` falls back to `XTERM_LNEXT`.
-    #[cfg(target_os = "macos")]
     pub fn literal_next(&self) -> crate::readline::Quote {
         let mut t = core::mem::MaybeUninit::<crate::sys::Termios>::uninit();
         // SAFETY: a termios-sized, termios-aligned block, which the call
@@ -1339,17 +1338,30 @@ pub enum Chunk {
     Closed,
 }
 
-/// Waits until either descriptor is readable or `timeout` passes -- `None`
-/// waits as long as it takes -- and says which. A signal that cuts the
-/// wait short answers `Idle` for both, so the caller simply waits again.
+/// What else a [`wait`] watches a descriptor for: a clipboard transfer's
+/// pipe, read from or written to a piece at a time.
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Interest {
+    Read,
+    Write,
+}
+
+/// Waits until either descriptor is readable, one of `also` is ready for
+/// what it is watched for, or `timeout` passes -- `None` waits as long as
+/// it takes -- and says which of the two. A signal that cuts the wait short
+/// answers `Idle` for both, so the caller simply waits again. Whatever of
+/// `also` is ready, the caller pumps them all after every wait, so it is
+/// not reported.
 #[cfg(target_os = "linux")]
 pub fn wait(
     a: BorrowedFd<'_>,
     b: BorrowedFd<'_>,
     b_owed: Owed,
+    also: &[(BorrowedFd<'_>, Interest)],
     timeout: Option<Duration>,
 ) -> std::io::Result<(Ready, Ready)> {
-    let mut fds = [
+    let mut fds = vec![
         crate::sys::PollFd {
             fd: a.as_raw_fd(),
             events: crate::sys::POLLIN,
@@ -1364,6 +1376,14 @@ pub fn wait(
             revents: 0,
         },
     ];
+    fds.extend(also.iter().map(|(fd, i)| crate::sys::PollFd {
+        fd: fd.as_raw_fd(),
+        events: match i {
+            Interest::Read => crate::sys::POLLIN,
+            Interest::Write => crate::sys::POLLOUT,
+        },
+        revents: 0,
+    }));
     // Rounded up to whole milliseconds, not down, from the nanoseconds: a
     // deadline 0.8 ms -- or 0.8 us -- ahead truncated to `poll(0)` returns
     // at once, and a caller waiting for that deadline asks again, spinning
@@ -1372,9 +1392,15 @@ pub fn wait(
         None => -1,
         Some(d) => i32::try_from(d.as_nanos().div_ceil(1_000_000)).unwrap_or(i32::MAX),
     };
-    // SAFETY: two initialised records and their count; the kernel writes
-    // only `revents`, and the array outlives the call.
-    let n = unsafe { crate::sys::poll(fds.as_mut_ptr(), 2, ms) };
+    // SAFETY: initialised records and their count; the kernel writes only
+    // `revents`, and the vector outlives the call.
+    let n = unsafe {
+        crate::sys::poll(
+            fds.as_mut_ptr(),
+            crate::sys::Nfds::try_from(fds.len()).unwrap_or(2),
+            ms,
+        )
+    };
     if n < 0 {
         let e = std::io::Error::last_os_error();
         return match e.kind() {

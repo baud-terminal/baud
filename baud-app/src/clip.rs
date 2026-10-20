@@ -15,6 +15,14 @@
 //! are not UTF-8 are refused too; a `Pd` that was not base64 clears it, which
 //! is `[[source: ctlseqs]]`'s "the selection is cleared".
 //!
+//! **Wayland has two**, the clipboard and the primary selection, so there a
+//! write lands on each it names (`boards`): `c` the clipboard, `p` the
+//! primary, and `s` -- which an empty `Pc` means -- xterm's SELECT, the
+//! primary while `?1041` is reset and the clipboard while it is set
+//! (`[[source: ctlseqs]]`; Jev, XTERM, 0.96/0.94, over foot's, alacritty's
+//! and kitty's reading of an empty `Pc` as the clipboard). The rest of the
+//! policy is the same on both.
+//!
 //! **Every accepted write is counted** in the five-second report, and every
 //! refusal warns once a reason: an accepted write is the risk -- anything
 //! printed to the terminal can replace the clipboard -- and its count is an `info` line,
@@ -25,6 +33,76 @@ use crate::config::Osc52;
 use baud_core::{ClipboardContent, ClipboardWrite, ClipboardWrites, Selection, Term};
 use baud_domain::{ClipboardBudget, ClipboardRefusals};
 use baud_render::Tally;
+
+/// Which system the writes land on, for what a refusal says.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Host {
+    /// macOS's one general pasteboard.
+    Pasteboard,
+    /// A Wayland seat's clipboard and primary selection.
+    #[cfg(any(target_os = "linux", test))]
+    Wayland,
+}
+
+/// A Wayland seat's two selections.
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Board {
+    Clipboard,
+    Primary,
+}
+
+/// The selections one write names, on a host with both.
+#[cfg(any(target_os = "linux", test))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Boards {
+    Clipboard,
+    Primary,
+    Both,
+}
+
+#[cfg(any(target_os = "linux", test))]
+impl Boards {
+    /// The selections, the clipboard first.
+    pub fn each(self) -> impl Iterator<Item = Board> {
+        let (c, p) = match self {
+            Boards::Clipboard => (Some(Board::Clipboard), None),
+            Boards::Primary => (None, Some(Board::Primary)),
+            Boards::Both => (Some(Board::Clipboard), Some(Board::Primary)),
+        };
+        c.into_iter().chain(p)
+    }
+}
+
+/// **What xterm's SELECT names now**: the clipboard while `?1041` is set,
+/// else the primary (`[[source: ctlseqs]]`, "Use the CLIPBOARD selection"
+/// and "Use the PRIMARY selection"; `[[source: xterm-man]]`,
+/// selectToClipboard, "The default is false, which tells it to use
+/// PRIMARY"). Where a finished selection goes, what the middle button and
+/// Shift+Insert paste, and where an `OSC 52` `s` lands.
+#[cfg(any(target_os = "linux", test))]
+pub fn select_board(term: &Term<'_>) -> Board {
+    match term.resource(baud_core::Resource::SelectToClipboard) {
+        true => Board::Clipboard,
+        false => Board::Primary,
+    }
+}
+
+/// **The selections a write naming `targets` lands on**, with SELECT
+/// naming `select`; `None` when it names neither the clipboard, the primary
+/// nor SELECT, which `decide` has refused already.
+#[cfg(any(target_os = "linux", test))]
+pub fn boards(targets: baud_core::Selections, select: Board) -> Option<Boards> {
+    let s = targets.contains(Selection::Select);
+    let c = targets.contains(Selection::Clipboard) || (s && select == Board::Clipboard);
+    let p = targets.contains(Selection::Primary) || (s && select == Board::Primary);
+    match (c, p) {
+        (true, true) => Some(Boards::Both),
+        (true, false) => Some(Boards::Clipboard),
+        (false, true) => Some(Boards::Primary),
+        (false, false) => None,
+    }
+}
 
 /// Why a write the core published was not put on the pasteboard.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -86,6 +164,7 @@ pub struct Clips {
     /// The core's refusals as of the last report, for the warning that says
     /// which limit refused a write.
     core: ClipboardRefusals,
+    host: Host,
 }
 
 impl Clips {
@@ -99,6 +178,16 @@ impl Clips {
             refused: Tally::default(),
             said: [Said::No; 3],
             core: term.clipboard_refusals(),
+            host: Host::Pasteboard,
+        }
+    }
+
+    /// The same for a Wayland seat, whose refusals say Wayland.
+    #[cfg(any(target_os = "linux", test))]
+    pub fn for_wayland(term: &Term<'_>) -> Clips {
+        Clips {
+            host: Host::Wayland,
+            ..Clips::new(term)
         }
     }
 
@@ -131,7 +220,7 @@ impl Clips {
             }
             Decision::Refused(why) => {
                 self.refused.bump();
-                self.first(why).then(|| describe(why))
+                self.first(why).then(|| describe(why, self.host))
             }
         };
         Some((d, warn))
@@ -173,7 +262,9 @@ impl Clips {
         (!said.is_empty()).then(|| format!("clipboard: {}", said.join("; ")))
     }
 
-    /// The five-second report's line, or `None` before any write.
+    /// The five-second report's line, or `None` before any write. The
+    /// Linux driver has no five-second report.
+    #[cfg(any(target_os = "macos", test))]
     pub fn report(&self) -> Option<String> {
         let (w, c, r) = (
             self.written.value(),
@@ -185,15 +276,22 @@ impl Clips {
 }
 
 /// The one warning for a refusal reason.
-fn describe(why: Refusal) -> String {
+fn describe(why: Refusal, host: Host) -> String {
     match why {
         Refusal::Off => {
             "clipboard: a program's copy (OSC 52) was refused; [clipboard] osc52 = \"off\""
         }
-        Refusal::NotThePasteboard => {
-            "clipboard: a program's copy named only the secondary selection or a cut \
-             buffer, which macOS does not have; refused"
-        }
+        Refusal::NotThePasteboard => match host {
+            Host::Pasteboard => {
+                "clipboard: a program's copy named only the secondary selection or a cut \
+                 buffer, which macOS does not have; refused"
+            }
+            #[cfg(any(target_os = "linux", test))]
+            Host::Wayland => {
+                "clipboard: a program's copy named only the secondary selection or a cut \
+                 buffer, which Wayland does not have; refused"
+            }
+        },
         Refusal::NotText => "clipboard: a program's copy was not UTF-8 text; refused",
     }
     .to_string()
@@ -325,6 +423,100 @@ mod tests {
         t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
         let mut clips = Clips::new(&t);
         assert_eq!(clips.poll(&t, Osc52::Write), None);
+    }
+
+    /// **On Wayland each selection named is its own**: `c` the clipboard,
+    /// `p` the primary, and `s` -- an empty `Pc` too, ctlseqs' `s 0` --
+    /// SELECT, the primary while `?1041` is reset and the clipboard while
+    /// it is set, as xterm's selectToClipboard (Jev, XTERM, 0.96/0.94).
+    #[test]
+    fn on_wayland_each_selection_named_is_its_own() {
+        use Boards::{Both, Clipboard as C, Primary as P};
+        for (pc, reset, set) in [
+            (&b"c"[..], C, C),
+            (b"p", P, P),
+            (b"s", P, C),
+            (b"", P, C),
+            (b"cp", Both, Both),
+            (b"ps", P, Both),
+            (b"cs", Both, C),
+            (b"q0s", P, C),
+        ] {
+            let w = write(pc, ClipboardContent::Set(b"hi"));
+            assert_eq!(boards(w.targets, Board::Primary), Some(reset), "{pc:?}");
+            assert_eq!(
+                boards(w.targets, Board::Clipboard),
+                Some(set),
+                "{pc:?} ?1041"
+            );
+        }
+        let w = write(b"q7", ClipboardContent::Set(b"hi"));
+        assert_eq!(boards(w.targets, Board::Primary), None);
+        assert_eq!(
+            Both.each().collect::<Vec<_>>(),
+            [Board::Clipboard, Board::Primary]
+        );
+        assert_eq!(P.each().collect::<Vec<_>>(), [Board::Primary]);
+    }
+
+    /// **`?1041` is what SELECT names**: the primary at power-on, the
+    /// clipboard once set, the primary again once reset.
+    #[test]
+    fn select_is_the_primary_until_1041() {
+        let mut s = Owned::new(&WS);
+        let mut t = Term::new(s.storage(), &WS);
+        assert_eq!(select_board(&t), Board::Primary);
+        for (b, want) in [
+            (&b"\x1b[?1041h"[..], Board::Clipboard),
+            (b"\x1b[?1041l", Board::Primary),
+        ] {
+            t.write_at(BytePos::ZERO, b);
+            t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+            assert_eq!(select_board(&t), want);
+        }
+    }
+
+    /// **A refusal says which host refused**: Wayland has no secondary
+    /// selection or cut buffers, and its warning says so, not macOS's.
+    #[test]
+    fn a_wayland_refusal_names_wayland() {
+        let mut s = Owned::new(&WS).with_clipboard(ClipboardBudget::of_text(64));
+        let mut t = Term::new(s.storage(), &WS);
+        let mut clips = Clips::for_wayland(&t);
+        let b = b"\x1b]52;q;aGk=\x07";
+        t.write_at(BytePos::ZERO, b);
+        t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
+        let (d, warn) = clips.poll(&t, Osc52::Write).expect("a write");
+        assert_eq!(d, Decision::Refused(Refusal::NotThePasteboard));
+        let warn = warn.expect("said once");
+        assert!(
+            warn.contains("Wayland") && !warn.contains("macOS"),
+            "{warn}"
+        );
+    }
+
+    /// **The Linux driver polls as the macOS pump does**, after every read
+    /// and inside the feed's per-read callback, over a core given an area.
+    /// The driver is Wayland-bound and no test drives it, so this holds its
+    /// source, as `the_clipboard_is_polled_after_every_read` holds the
+    /// macOS pump's.
+    #[test]
+    fn the_linux_driver_polls_after_every_read() {
+        const SRC: &str = include_str!("linux.rs");
+        // Spelled apart, so this test's own text is not what it finds.
+        const FEED_FN: &str = concat!("    fn feed(&mut self, ", "bytes: &[u8]) {");
+        const FEED: &str = concat!("crate::reads::", "feed(");
+        const POLL: &str = concat!("clips.poll(", "t, osc52)");
+        const AREA: &str = concat!(".with_clipboard(", "cfg.clipboard.budget)");
+        assert_eq!(SRC.matches(FEED_FN).count(), 1, "one feed");
+        let body = SRC.split(FEED_FN).nth(1).expect("the feed");
+        let body = &body[..body.find("\n    }\n").expect("the feed ends")];
+        assert_eq!(body.matches(FEED).count(), 1, "it feeds once");
+        let call = body.split(FEED).nth(1).expect("the feed call");
+        let call = &call[..call.find("\n        );").expect("the call ends")];
+        assert!(call.contains(POLL), "the poll is not the per-read callback");
+        assert_eq!(SRC.matches(POLL).count(), 1, "and nowhere else");
+        assert_eq!(SRC.matches(AREA).count(), 1, "the core has an area");
     }
 
     #[test]

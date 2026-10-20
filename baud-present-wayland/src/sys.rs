@@ -2,8 +2,10 @@
 //! mapping of it.** On Linux the file is a `memfd`; on this Mac, where the
 //! tests run against a socket pair, it is an unlinked temporary file --
 //! the compositor side of the test never maps it, and the mapping calls
-//! are the same. This is the one module in the crate that allows
-//! `unsafe`, for the four externs it declares.
+//! are the same. And a clipboard transfer's pipe, made non-blocking so
+//! the driver's one wait reads and writes it a piece at a time. This is
+//! the one module in the crate that allows `unsafe`, for the five externs
+//! it declares.
 
 #![allow(unsafe_code)]
 
@@ -18,14 +20,42 @@ unsafe extern "C" {
     fn mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, off: i64) -> *mut u8;
     fn munmap(addr: *mut u8, len: usize) -> i32;
     fn ftruncate(fd: i32, len: i64) -> i32;
+    fn fcntl(fd: i32, cmd: i32, ...) -> i32;
+}
+
+const F_GETFL: i32 = 3;
+const F_SETFL: i32 = 4;
+#[cfg(target_os = "linux")]
+const O_NONBLOCK: i32 = 0o4000;
+#[cfg(not(target_os = "linux"))]
+const O_NONBLOCK: i32 = 0x4;
+
+/// `fd` made non-blocking: a read with nothing to read, or a write the
+/// pipe has no room for, says `WouldBlock` instead of waiting.
+pub fn nonblocking(fd: &impl AsRawFd) -> io::Result<()> {
+    // SAFETY: an open descriptor and the two commands that read and set
+    // its status flags; neither touches memory.
+    let flags = unsafe { fcntl(fd.as_raw_fd(), F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: as above, with the flags just read and `O_NONBLOCK` added.
+    if unsafe { fcntl(fd.as_raw_fd(), F_SETFL, flags | O_NONBLOCK) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 const PROT_READ: i32 = 1;
 const PROT_WRITE: i32 = 2;
 const MAP_SHARED: i32 = 1;
 
+/// A shared file's length in bytes: what `ftruncate` sets and `mmap` maps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileLen(pub usize);
+
 /// An anonymous file of `len` bytes, ready to be sent as a pool.
-pub fn anonymous(len: usize) -> io::Result<OwnedFd> {
+pub fn anonymous(len: FileLen) -> io::Result<OwnedFd> {
     #[cfg(target_os = "linux")]
     let fd = {
         const MFD_CLOEXEC: u32 = 1;
@@ -54,7 +84,7 @@ pub fn anonymous(len: usize) -> io::Result<OwnedFd> {
         OwnedFd::from(f)
     };
     let len_i =
-        i64::try_from(len).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "size"))?;
+        i64::try_from(len.0).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "size"))?;
     // SAFETY: an open descriptor and a length.
     if unsafe { ftruncate(fd.as_raw_fd(), len_i) } < 0 {
         return Err(io::Error::last_os_error());
@@ -68,17 +98,17 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 /// A read-write shared mapping of `fd`'s first `len` bytes.
 pub struct Map {
     ptr: *mut u8,
-    len: usize,
+    len: FileLen,
 }
 
 impl Map {
-    pub fn shared(fd: &OwnedFd, len: usize) -> io::Result<Map> {
+    pub fn shared(fd: &OwnedFd, len: FileLen) -> io::Result<Map> {
         // SAFETY: a shared mapping of an open file at offset zero; the
         // kernel validates the length against the file.
         let ptr = unsafe {
             mmap(
                 core::ptr::null_mut(),
-                len,
+                len.0,
                 PROT_READ | PROT_WRITE,
                 MAP_SHARED,
                 fd.as_raw_fd(),
@@ -95,22 +125,22 @@ impl Map {
     pub fn words(&mut self) -> &mut [u32] {
         // SAFETY: the mapping is `len` bytes, writable, shared, and lives as
         // long as `self`; the pointer is page-aligned so the words are.
-        unsafe { core::slice::from_raw_parts_mut(self.ptr.cast::<u32>(), self.len / 4) }
+        unsafe { core::slice::from_raw_parts_mut(self.ptr.cast::<u32>(), self.len.0 / 4) }
     }
 
-    pub fn len(&self) -> usize {
+    pub fn len(&self) -> FileLen {
         self.len
     }
 
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.len.0 == 0
     }
 }
 
 impl Drop for Map {
     fn drop(&mut self) {
         // SAFETY: the mapping this struct made and nothing else refers to.
-        unsafe { munmap(self.ptr, self.len) };
+        unsafe { munmap(self.ptr, self.len.0) };
     }
 }
 

@@ -111,7 +111,14 @@ impl Objects {
             .flatten()
     }
 
+    /// A server-created object. **An id the server made before names the
+    /// new object from now on**: the server reuses an id once the client
+    /// has destroyed what it named, and no `delete_id` says so for a server
+    /// id, so the entry is replaced -- a clipboard offer's id reused for a
+    /// primary-selection offer would otherwise read its events against the
+    /// old interface, and every offer would add an entry for good.
     fn insert_server(&mut self, id: ObjectId, iface: &'static Interface) {
+        self.server.retain(|(o, _)| *o != id);
         self.server.push((id, iface));
     }
 

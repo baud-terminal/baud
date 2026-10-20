@@ -18,7 +18,6 @@ use crate::keep::{
 };
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
-use crate::readline::{self, Newlines};
 use crate::reveal::{
     Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes, shown_gutter,
 };
@@ -9435,33 +9434,15 @@ impl Driver {
         let Some(text) = clipboard::read_text() else {
             return;
         };
-        let bracket = if self.app.term.bracketed_paste() {
-            Bracket::On
-        } else {
-            Bracket::Off
-        };
         self.snap_to_live();
         self.app.caret.input(host_now());
         // Through the outbox, behind anything owed and ahead of anything
         // typed after it: a paste longer than the slave's queue -- 1022
         // bytes on Darwin -- waited in `write(2)` for the child to read it.
         self.app.flush_reply();
-        let form = PasteForm {
-            bracket,
-            newlines: match self
-                .app
-                .term
-                .resource(baud_core::Resource::PasteLiteralNewline)
-            {
-                true => Newlines::Literal,
-                false => Newlines::AsReturn,
-            },
-            quote: match self.app.term.resource(baud_core::Resource::PasteQuoted) {
-                true => Some(self.app.pty.literal_next()),
-                false => None,
-            },
-        };
-        self.app.outbox.push(&paste_bytes(&text, form));
+        let pty = &self.app.pty;
+        let form = crate::paste::form(&self.app.term, || pty.literal_next());
+        self.app.outbox.push(&crate::paste::bytes(&text, form));
         self.app.flush_reply();
     }
 
@@ -9519,44 +9500,6 @@ impl Driver {
             (self.app.grid.ws_col, self.app.grid.ws_row),
             (self.app.pad_px.0.value(), self.app.pad_px.1.value()),
         )
-    }
-}
-
-/// Whether the child asked for bracketed paste.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Bracket {
-    On,
-    Off,
-}
-
-/// How a paste goes to the child: bracketed or not (`?2004`), its line
-/// breaks (`?2006`), and the literal-next byte that quotes each of its
-/// bytes (`?2005`).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct PasteForm {
-    bracket: Bracket,
-    newlines: Newlines,
-    quote: Option<readline::Quote>,
-}
-
-/// The bytes a paste sends: bracketed as `?2004` specifies, with a forged
-/// end inside the text removed, because the child would take it as the
-/// end; or, unbracketed, with line endings as typed input carries them
-/// unless `?2006` keeps them. Under `?2005` each byte of the text, never of
-/// a bracket, follows the literal-next byte, as xterm quotes the selection
-/// and writes the brackets apart (`[[source: xterm-button]]`).
-fn paste_bytes(text: &str, form: PasteForm) -> Vec<u8> {
-    match form.bracket {
-        Bracket::On => {
-            let body = text.replace("\x1b[201~", "");
-            [
-                b"\x1b[200~".as_slice(),
-                &readline::quoted(body.as_bytes(), form.quote),
-                b"\x1b[201~",
-            ]
-            .concat()
-        }
-        Bracket::Off => readline::body(text, form.newlines, form.quote),
     }
 }
 
@@ -10380,50 +10323,6 @@ mod tests {
         // Under mouse tracking Shift is the only way into a selection, so
         // Shift+Option is how a block starts there.
         assert_eq!(press_of(held(true, true)), Press::Block);
-    }
-
-    #[test]
-    fn a_paste_is_bracketed_when_asked_and_its_line_endings_are_typed_otherwise() {
-        let forged = "a\x1b[201~b\r\nc\n";
-        let form = |bracket| PasteForm {
-            bracket,
-            newlines: Newlines::AsReturn,
-            quote: None,
-        };
-        assert_eq!(
-            paste_bytes(forged, form(Bracket::On)),
-            b"\x1b[200~ab\r\nc\n\x1b[201~".to_vec()
-        );
-        assert_eq!(
-            paste_bytes(forged, form(Bracket::Off)),
-            b"a\x1b[201~b\rc\r".to_vec()
-        );
-    }
-
-    /// **`?2005` quotes the text and never a bracket; `?2006` keeps an
-    /// unbracketed paste's line breaks.**
-    #[test]
-    fn readline_quoting_and_newlines_shape_a_paste() {
-        let quoted = PasteForm {
-            bracket: Bracket::On,
-            newlines: Newlines::AsReturn,
-            quote: Some(readline::Quote::LNEXT),
-        };
-        assert_eq!(
-            paste_bytes("ab", quoted),
-            b"\x1b[200~\x16a\x16b\x1b[201~".to_vec()
-        );
-        let literal = PasteForm {
-            bracket: Bracket::Off,
-            newlines: Newlines::Literal,
-            quote: None,
-        };
-        assert_eq!(paste_bytes("a\r\nb\n", literal), b"a\r\nb\n".to_vec());
-        let typed = PasteForm {
-            bracket: Bracket::Off,
-            ..quoted
-        };
-        assert_eq!(paste_bytes("a\n", typed), b"\x16a\x16\r".to_vec());
     }
 
     /// **A legacy scroller's gutter comes out of the grid's columns, and the

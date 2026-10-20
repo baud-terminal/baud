@@ -77,6 +77,50 @@ pub fn press(state: &State<'_>, keycode: Keycode) -> Option<KeyEvent> {
     Some(e)
 }
 
+/// **A key the terminal keeps for itself**: the clipboard's keys as the
+/// Linux desktop binds them, never sent to the program.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shortcut {
+    /// Ctrl+Shift+C: the selection to the clipboard.
+    Copy,
+    /// Ctrl+Shift+V: the clipboard to the program.
+    Paste,
+    /// Shift+Insert: xterm's `insert-selection(SELECT, CUT_BUFFER0)`, the
+    /// primary selection, or the clipboard under `?1041`.
+    PasteSelection,
+}
+
+/// **The shortcut a press of `sym` makes under the effective modifiers
+/// `eff`, if any.** Ctrl+Shift+C and Ctrl+Shift+V are foot's
+/// `clipboard-copy` and `clipboard-paste` (`[[source:
+/// foot-2705e36-foot-ini-5]]`) and kitty's `kitty_mod+c` and `kitty_mod+v`
+/// (`[[source: kitty-options-definition]]`); Shift+Insert is xterm's
+/// default translation (`[[source: xterm-man]]`), and foot's, kitty's,
+/// VTE's and wezterm's primary paste (Jev's lean, BIND, 0.66/0.44). The
+/// letter is the keysym lowered, so the Shift that made it capital is
+/// read from the modifiers, and Caps Lock, which is not Shift, makes no
+/// shortcut; Alt or Super held makes none either, the chord being exact.
+pub fn shortcut(sym: Keysym, eff: baud_xkb::ModMask) -> Option<Shortcut> {
+    let held = modifiers(eff);
+    let chord = [
+        Modifiers::SHIFT,
+        Modifiers::CTRL,
+        Modifiers::ALT,
+        Modifiers::SUPER,
+    ]
+    .into_iter()
+    .filter(|m| held.has(*m))
+    .fold(Modifiers::NONE, Modifiers::with);
+    let ctrl_shift = Modifiers::NONE.with(Modifiers::CTRL).with(Modifiers::SHIFT);
+    const INSERT: u32 = 0xff63;
+    match (sym.to_lower().0, chord) {
+        (0x63, c) if c == ctrl_shift => Some(Shortcut::Copy),
+        (0x76, c) if c == ctrl_shift => Some(Shortcut::Paste),
+        (INSERT, c) if c == Modifiers::SHIFT => Some(Shortcut::PasteSelection),
+        _ => None,
+    }
+}
+
 /// The functional keys, from the keysym values the pinned header names.
 fn code_of(sym: Keysym) -> Option<KeyCode> {
     Some(match sym.0 {
