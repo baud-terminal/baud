@@ -25993,6 +25993,36 @@ bytes  = 3929
 status = "retrieved"
 group  = "BL"
 
+[sources.apple-nssound-volume]
+key    = "apple-nssound-volume"
+title  = "NSSound volume -- the volume of the sound, 0.0 to 1.0, which does not affect the systemwide volume (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nssound/volume.json"
+file   = "apple-nssound-volume.json"
+sha256 = "bfa3cdca71cadcb82c463430fdfc8b862cb405610b9d9767757ca961c7c11490"
+bytes  = 15817
+status = "retrieved"
+group  = "AW"
+# Retrieved 2026-10-20 for note AW (bell volumes): "The valid range is between 0.0
+# and 1.0." and "The value of this property does not affect the systemwide volume."
+
+[sources.apple-nsprintoperation-showsprintpanel]
+key    = "apple-nsprintoperation-showsprintpanel"
+title  = "NSPrintOperation showsPrintPanel -- whether the print operation displays a print panel (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nsprintoperation/showsprintpanel.json"
+file   = "apple-nsprintoperation-showsprintpanel.json"
+sha256 = "ff78a6957e3e05cee7f4c6ea6b8ea7e1fc378d5d487b9e6809e8e8ae54e4f3ac"
+bytes  = 14614
+status = "retrieved"
+group  = "AW"
+# Retrieved 2026-10-20 for note AW (printing): "A Boolean value that determines
+# whether the print operation displays a print panel."
+
 [sources.apple-nswindow-orderfrontregardless]
 key    = "apple-nswindow-orderfrontregardless"
 title  = "NSWindow orderFrontRegardless() -- moves the window to the front of its level, even if its application isn't active, without changing the key or main window (documentation JSON)"

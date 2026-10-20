@@ -443,6 +443,8 @@ files   = [
   "apple-nsapplication-requestuserattention.json",
   "apple-nsapplication-requestuserattentiontype-informationalrequest.json",
   "apple-nsbeep.json",
+  "apple-nsprintoperation-showsprintpanel.json",
+  "apple-nssound-volume.json",
   "apple-nsevent-timestamp.json",
   "apple-nsevent.json",
   "apple-nsscreen-frame.json",
