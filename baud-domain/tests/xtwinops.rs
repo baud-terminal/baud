@@ -43,11 +43,13 @@ fn the_three_reports_parse_to_their_queries() {
     }
 }
 
-/// **Only the forms the specification gives are named.** The window-changing
-/// operations 1-10 and DECSLPP (24 and up) are [`WindowOp::Refused`], and so
-/// is a report with a parameter ctlseqs does not give it: `CSI 13 ; 1 t` is
-/// neither the window's position nor the text area's, and answering it as
-/// either answers a question that was not asked. `t` in the `?`, `>` and
+/// **Only the forms the specification gives are named.** 12 and 17 are
+/// [`WindowOp::Refused`], and so is a report with a parameter ctlseqs does
+/// not give it: `CSI 13 ; 1 t` is neither the window's position nor the
+/// text area's, and answering it as either answers a question that was not
+/// asked. So is a window operation past ctlseqs' list, `CSI 9 ; 4 t` and
+/// `CSI 10 ; 3 t`, where xterm's `RequestMaximize` falls through to a
+/// restore, and one with more parameters than ctlseqs gives it. `t` in the `?`, `>` and
 /// intermediate namespaces is a different operation altogether (`CSI > Pm
 /// t` is XTSMTITLE, `CSI Ps SP t` is DECSWBV) and is not XTWINOPS at all.
 #[test]
@@ -69,10 +71,25 @@ fn every_other_t_is_refused_or_not_xtwinops() {
             "22 takes three at most",
         ),
         (&[][..], "a bare CSI t"),
+        (&[param(9), param(4)][..], "9 takes 0 to 3"),
+        (&[param(10), param(3)][..], "10 takes 0 to 2"),
+        (&[param(1), param(0)][..], "1 takes no parameter"),
+        (&[param(2), param(1)][..], "2 takes no parameter"),
+        (&[param(5), param(5)][..], "5 takes no parameter"),
+        (&[param(6), param(0)][..], "6 takes no parameter"),
+        (&[param(7), param(7)][..], "7 takes no parameter"),
+        (&[param(9), param(1), param(1)][..], "9 takes one"),
+        (&[param(10), param(2), param(0)][..], "10 takes one"),
+        (&[param(3), param(1), param(2), param(3)][..], "3 takes two"),
+        (
+            &[param(8), param(24), param(80), param(1)][..],
+            "8 takes two",
+        ),
+        (&[param(24), param(80)][..], "DECSLPP takes one"),
     ] {
         assert!(refused(parse(Marker::Standard, None, ps, b't')), "{why}");
     }
-    for ps in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 17, 24, 48, 144] {
+    for ps in [0, 12, 17] {
         assert!(
             refused(parse(Marker::Standard, None, &[param(ps)], b't')),
             "CSI {ps} t"
@@ -116,6 +133,196 @@ fn the_window_and_title_forms_parse_to_their_operations() {
             Csi::Window(got) => assert_eq!(got, want, "{ps:?}"),
             _ => panic!("{ps:?} is not a window operation"),
         }
+    }
+}
+
+/// **Each window operation parses to its own name**, with the parameters
+/// ctlseqs gives it: 1, 2, 5, 6 and 7 alone, 3, 4 and 8 with up to two, 9
+/// and 10 with one, and DECSLPP, "Ps >= 2 4", alone, 24 and every value
+/// above it.
+#[test]
+fn the_window_operations_parse_to_their_names() {
+    for (ps, want) in [
+        (&[param(1)][..], WindowOp::Deiconify),
+        (&[param(2)][..], WindowOp::Iconify),
+        (&[param(3), param(10), param(20)][..], WindowOp::Move),
+        (&[param(3)][..], WindowOp::Move),
+        (
+            &[param(4), param(400), param(600)][..],
+            WindowOp::ResizePixels,
+        ),
+        (&[param(5)][..], WindowOp::Raise),
+        (&[param(6)][..], WindowOp::Lower),
+        (&[param(7)][..], WindowOp::Refresh),
+        (
+            &[param(8), param(50), param(132)][..],
+            WindowOp::ResizeCells,
+        ),
+        (&[param(8), None, param(132)][..], WindowOp::ResizeCells),
+        (&[param(9)][..], WindowOp::Maximize),
+        (&[param(9), param(3)][..], WindowOp::Maximize),
+        (&[param(10), param(2)][..], WindowOp::FullScreen),
+        (&[param(24)][..], WindowOp::Lines),
+        (&[param(25)][..], WindowOp::Lines),
+        (&[param(144)][..], WindowOp::Lines),
+        (&[param(65535)][..], WindowOp::Lines),
+    ] {
+        match parse(Marker::Standard, None, ps, b't') {
+            Csi::Window(got) => assert_eq!(got, want, "{ps:?}"),
+            _ => panic!("{ps:?} is not a window operation"),
+        }
+    }
+    assert!(
+        matches!(
+            parse(Marker::Standard, None, &[param(23)], b't'),
+            Csi::Window(WindowOp::PopTitle)
+        ),
+        "23 is the title pop, not DECSLPP"
+    );
+}
+
+/// The request one sequence makes, as [`WindowRequest::of`] reads it.
+fn request(ps: &[Option<Param>]) -> Option<WindowRequest> {
+    match parse(Marker::Standard, None, ps, b't') {
+        Csi::Window(op) => WindowRequest::of(op, &Params::new(ps)),
+        _ => None,
+    }
+}
+
+/// **Omitted and 0 are two different sizes**: ctlseqs, for 4 and 8,
+/// "Omitted parameters reuse the current height or width. Zero parameters
+/// use the display's height or width." xterm reads an empty parameter as
+/// omitted (`optional_param` gives `DEFAULT`), so `CSI 8 ; ; 132 t` keeps
+/// the rows. Height, or rows, first.
+#[test]
+fn a_resize_tells_omitted_from_zero() {
+    use SizeAsk::*;
+    assert_eq!(
+        request(&[param(4), param(400), param(600)]),
+        Some(WindowRequest::ResizePixels {
+            height: Exactly(400),
+            width: Exactly(600)
+        })
+    );
+    assert_eq!(
+        request(&[param(4)]),
+        Some(WindowRequest::ResizePixels {
+            height: Keep,
+            width: Keep
+        })
+    );
+    assert_eq!(
+        request(&[param(4), param(0), param(0)]),
+        Some(WindowRequest::ResizePixels {
+            height: Screen,
+            width: Screen
+        })
+    );
+    assert_eq!(
+        request(&[param(8), None, param(132)]),
+        Some(WindowRequest::ResizeCells {
+            rows: Keep,
+            cols: Exactly(132)
+        })
+    );
+    assert_eq!(
+        request(&[param(8), param(50)]),
+        Some(WindowRequest::ResizeCells {
+            rows: Exactly(50),
+            cols: Keep
+        })
+    );
+    assert_eq!(
+        request(&[param(8), param(0), param(80)]),
+        Some(WindowRequest::ResizeCells {
+            rows: Screen,
+            cols: Exactly(80)
+        })
+    );
+}
+
+/// DECSLPP asks for `Ps` rows and keeps the columns, as xterm's
+/// `RequestResize(xw, code, -1, True)` does; the window operations without
+/// parameters, and 9 and 10 by their `Ps`, an omitted one 0.
+#[test]
+fn the_other_requests_carry_what_ctlseqs_gives_them() {
+    use WindowRequest::*;
+    for (ps, want) in [
+        (
+            &[param(48)][..],
+            ResizeCells {
+                rows: SizeAsk::Exactly(48),
+                cols: SizeAsk::Keep,
+            },
+        ),
+        (&[param(1)][..], Deiconify),
+        (&[param(2)][..], Iconify),
+        (&[param(5)][..], Raise),
+        (&[param(6)][..], Lower),
+        (&[param(7)][..], Refresh),
+        (
+            &[param(9)][..],
+            WindowRequest::Maximize(baud_domain::Maximize::Restore),
+        ),
+        (
+            &[param(9), param(0)][..],
+            WindowRequest::Maximize(baud_domain::Maximize::Restore),
+        ),
+        (
+            &[param(9), param(1)][..],
+            WindowRequest::Maximize(baud_domain::Maximize::Both),
+        ),
+        (
+            &[param(9), param(2)][..],
+            WindowRequest::Maximize(baud_domain::Maximize::Vertically),
+        ),
+        (
+            &[param(9), param(3)][..],
+            WindowRequest::Maximize(baud_domain::Maximize::Horizontally),
+        ),
+        (
+            &[param(10)][..],
+            WindowRequest::FullScreen(baud_domain::FullScreen::Leave),
+        ),
+        (
+            &[param(10), param(1)][..],
+            WindowRequest::FullScreen(baud_domain::FullScreen::Enter),
+        ),
+        (
+            &[param(10), param(2)][..],
+            WindowRequest::FullScreen(baud_domain::FullScreen::Toggle),
+        ),
+    ] {
+        assert_eq!(request(ps), Some(want), "{ps:?}");
+    }
+    for ps in [&[param(11)][..], &[param(22)][..], &[param(12)][..]] {
+        assert_eq!(request(ps), None, "{ps:?} is no window operation");
+    }
+}
+
+/// **A move reads its coordinates as the report writes them**: 32768-65535
+/// are negative, the sixteen-bit two's complement `CSI 13 t` reports a
+/// window left of or above the primary screen in, so what is reported, sent
+/// back, is where the window goes. Omitted or 0 is 0, as xterm's
+/// `zero_if_default` reads it.
+#[test]
+fn a_move_reads_its_coordinates_as_the_report_writes_them() {
+    let at = |x: i32, y: i32| {
+        Some(WindowRequest::Move(ScreenPoint {
+            x: ScreenCoord::of(x),
+            y: ScreenCoord::of(y),
+        }))
+    };
+    assert_eq!(request(&[param(3), param(65528), param(50)]), at(-8, 50));
+    assert_eq!(
+        request(&[param(3), param(32768), param(32767)]),
+        at(-32768, 32767)
+    );
+    assert_eq!(request(&[param(3)]), at(0, 0));
+    assert_eq!(request(&[param(3), None, param(7)]), at(0, 7));
+    for v in [-32768, -1, 0, 1, 1440, 32767] {
+        let c = ScreenCoord::of(v);
+        assert_eq!(ScreenCoord::from_wire(c.wire()), c, "{v}");
     }
 }
 
@@ -212,10 +419,22 @@ fn a_window_answer_needs_the_fact_it_reports() {
         None,
         "no cell width"
     );
+    // Neither a title operation nor a window operation is a report.
     for op in [
         WindowOp::TitleReport,
         WindowOp::PushTitle,
         WindowOp::PopTitle,
+        WindowOp::Deiconify,
+        WindowOp::Iconify,
+        WindowOp::Move,
+        WindowOp::ResizePixels,
+        WindowOp::Raise,
+        WindowOp::Lower,
+        WindowOp::Refresh,
+        WindowOp::ResizeCells,
+        WindowOp::Maximize,
+        WindowOp::FullScreen,
+        WindowOp::Lines,
     ] {
         assert_eq!(Report::window(op, rows, cols, cw, ch, &facts()), None);
     }

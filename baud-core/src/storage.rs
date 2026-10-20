@@ -448,6 +448,11 @@ pub struct StrBuf<'b> {
     pub(crate) window: baud_domain::WindowFacts,
     /// `CSI 20 t` and `CSI 21 t` refused (`Term::title_reports_refused`).
     pub(crate) title_reports_refused: crate::term::TitleReportsRefused,
+    /// The window operations queued for the embedder, whether they are on
+    /// (`Term::set_window_ops`) and the counts of those that did not go
+    /// (`Term::window_requests`). Here for the reason `window` is: only an
+    /// XTWINOPS operation reaches it.
+    pub(crate) window_asks: crate::window::WindowAsks,
 }
 
 impl<'b> StrBuf<'b> {
@@ -490,6 +495,7 @@ impl<'b> StrBuf<'b> {
             title_stack: crate::window::TitleStack::EMPTY,
             window: baud_domain::WindowFacts::UNKNOWN,
             title_reports_refused: crate::term::TitleReportsRefused::FIRST,
+            window_asks: crate::window::WindowAsks::NONE,
         }
     }
 }
@@ -742,6 +748,7 @@ impl Owned {
                 title_stack: crate::window::TitleStack::EMPTY,
                 window: baud_domain::WindowFacts::UNKNOWN,
                 title_reports_refused: crate::term::TitleReportsRefused::FIRST,
+                window_asks: crate::window::WindowAsks::NONE,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -789,6 +796,7 @@ impl Owned {
                 title_stack: crate::window::TitleStack::EMPTY,
                 window: baud_domain::WindowFacts::UNKNOWN,
                 title_reports_refused: crate::term::TitleReportsRefused::FIRST,
+                window_asks: crate::window::WindowAsks::NONE,
             },
             ImageStore::new(
                 &mut self.img_pixels,

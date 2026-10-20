@@ -1,13 +1,15 @@
 //! What an embedder knows about its window and screen, for XTWINOPS's
-//! reports (`[[source: ctlseqs]]`, "Window manipulation (XTWINOPS)").
+//! reports, and what a program asks of the window, XTWINOPS 1-10 and
+//! DECSLPP (`[[source: ctlseqs]]`, "Window manipulation (XTWINOPS)").
 //!
 //! The core has no window. Each fact here is one the embedder hands over
 //! (`Term::set_window`) or leaves `None`, and a report whose fact is `None`
 //! is not answered: silence is the answer an application already handles
 //! for a terminal that does not implement the report, and a made-up number
-//! is not.
+//! is not. Each request is one the core queues for the embedder
+//! ([`WindowRequest`]), which moves, sizes or stacks its window.
 
-use crate::ImagePx;
+use crate::{ImagePx, Param, ParamIdx, Params, WindowOp};
 
 /// Whether the window is iconified, `CSI 11 t`'s answer: "If the xterm
 /// window is non-iconified, it returns CSI 1 t . If the xterm window is
@@ -40,6 +42,11 @@ impl ScreenCoord {
         ScreenCoord(px)
     }
 
+    /// The coordinate, in device pixels.
+    pub fn value(self) -> i32 {
+        self.0
+    }
+
     /// The coordinate as XTWINOPS writes it: "X Toolkit positions can be
     /// negative, but the reported values are unsigned, in the range
     /// 0-65535. Negative values correspond to 32768-65535"
@@ -47,6 +54,17 @@ impl ScreenCoord {
     /// complement, so -1 is 65535.
     pub fn wire(self) -> u16 {
         u16::try_from(self.0.rem_euclid(1 << 16)).unwrap_or(u16::MAX)
+    }
+
+    /// A coordinate a program sent, read as [`ScreenCoord::wire`] writes
+    /// one: 32768-65535 are -32768 to -1. An ECMA-48 parameter has no minus
+    /// sign ("each of which represents a number in decimal notation", 5.4.2),
+    /// and xterm's move reads its two through X's signed sixteen-bit
+    /// `Position` (`window_ops`, `[[source: xterm-reset]]`'s file), so the
+    /// position `CSI 13 t` reports, sent back, is where the window goes
+    /// (Jev's lean, SIGNED16, 0.65 and 0.68 after a second ask).
+    pub fn from_wire(v: u16) -> ScreenCoord {
+        ScreenCoord(i32::from(i16::from_ne_bytes(v.to_ne_bytes())))
     }
 }
 
@@ -92,4 +110,148 @@ impl WindowFacts {
         window: None,
         screen: None,
     };
+}
+
+/// Whether the window operations, XTWINOPS 1-10 and DECSLPP, reach the
+/// embedder. `On` by default, the owner's call of 2026-10-19 (option 4),
+/// and `Off` refuses every one, counted and nothing queued, as xterm does
+/// with them among its disallowed window operations (`AllowWindowOps`,
+/// `[[source: xterm-reset]]`'s file). A program on the other end of the
+/// line, a remote one included, can move, resize, hide or raise the
+/// window, which is why a setting turns them off. The reports and the
+/// title stack are not window operations here and answer either way.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum WindowOps {
+    #[default]
+    On,
+    Off,
+}
+
+/// One dimension of a resize, as ctlseqs reads it for `CSI 4 t` and `CSI 8
+/// t`: "Omitted parameters reuse the current height or width. Zero
+/// parameters use the display's height or width."
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SizeAsk {
+    /// Omitted, or left empty: the window keeps this dimension.
+    Keep,
+    /// `0`: the screen's, the display's height or width.
+    Screen,
+    /// This many pixels, or cells.
+    Exactly(u16),
+}
+
+impl SizeAsk {
+    /// The dimension parameter `p` asks for, xterm's `optional_param`:
+    /// absent or empty is `DEFAULT`, which keeps the size, and 0 is the
+    /// display's (`RequestResize`, `[[source: xterm-reset]]`'s file).
+    fn of(p: Option<Param>) -> SizeAsk {
+        match p {
+            None => SizeAsk::Keep,
+            Some(Param(0)) => SizeAsk::Screen,
+            Some(Param(n)) => SizeAsk::Exactly(n),
+        }
+    }
+}
+
+/// `CSI 9 ; Ps t`: "0 -> Restore maximized window. 1 -> Maximize window
+/// (i.e., resize to screen size). 2 -> Maximize window vertically. 3 ->
+/// Maximize window horizontally."
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Maximize {
+    Restore,
+    Both,
+    Vertically,
+    Horizontally,
+}
+
+/// `CSI 10 ; Ps t`: "0 -> Undo full-screen mode. 1 -> Change to
+/// full-screen. 2 -> Toggle full-screen."
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FullScreen {
+    Leave,
+    Enter,
+    Toggle,
+}
+
+/// What a program asks of the window, XTWINOPS 1-10 and DECSLPP
+/// (`[[source: ctlseqs]]`): the core queues it and the embedder, which has
+/// the window, performs it. Every value is as the program sent it; what
+/// "the screen" and "the current size" are is the embedder's to know.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WindowRequest {
+    /// `CSI 1 t`, "De-iconify window".
+    Deiconify,
+    /// `CSI 2 t`, "Iconify window".
+    Iconify,
+    /// `CSI 3 ; x ; y t`, "Move window to [x, y]": the window's top-left,
+    /// its frame included, in device pixels from the primary screen's
+    /// top-left -- where `CSI 13 t` reports it. An omitted or 0 coordinate
+    /// is 0, as xterm reads it (`zero_if_default`).
+    Move(ScreenPoint),
+    /// `CSI 4 ; height ; width t`, "Resize the xterm window to given height
+    /// and width in pixels": the text area with its padding, which xterm's
+    /// own measure is (`RequestResize` sizes its VT100 widget, the text and
+    /// its border; Jev, CONTENT_VIEW, 0.98 and 0.98).
+    ResizePixels { height: SizeAsk, width: SizeAsk },
+    /// `CSI 5 t`, "Raise the xterm window to the front of the stacking
+    /// order".
+    Raise,
+    /// `CSI 6 t`, "Lower the xterm window to the bottom of the stacking
+    /// order".
+    Lower,
+    /// `CSI 7 t`, "Refresh the xterm window".
+    Refresh,
+    /// `CSI 8 ; height ; width t`, "Resize the text area to given height and
+    /// width in characters", and DECSLPP, `CSI Ps t` with `Ps` 24 and up,
+    /// "Resize to Ps lines", the columns kept, as xterm's
+    /// `RequestResize(xw, code, -1, True)` keeps them.
+    ResizeCells { rows: SizeAsk, cols: SizeAsk },
+    /// `CSI 9 ; Ps t`.
+    Maximize(Maximize),
+    /// `CSI 10 ; Ps t`.
+    FullScreen(FullScreen),
+}
+
+impl WindowRequest {
+    /// The request `op` makes, with its parameters from `p`; `None` for an
+    /// operation that is not one of the window operations.
+    pub fn of(op: WindowOp, p: &Params<'_>) -> Option<WindowRequest> {
+        let at = |i: u8| p.at(ParamIdx::FIRST.plus(i));
+        let second = p.raw(ParamIdx::FIRST.plus(1), 0);
+        Some(match op {
+            WindowOp::Deiconify => WindowRequest::Deiconify,
+            WindowOp::Iconify => WindowRequest::Iconify,
+            WindowOp::Move => WindowRequest::Move(ScreenPoint {
+                x: ScreenCoord::from_wire(second),
+                y: ScreenCoord::from_wire(p.raw(ParamIdx::FIRST.plus(2), 0)),
+            }),
+            WindowOp::ResizePixels => WindowRequest::ResizePixels {
+                height: SizeAsk::of(at(1)),
+                width: SizeAsk::of(at(2)),
+            },
+            WindowOp::Raise => WindowRequest::Raise,
+            WindowOp::Lower => WindowRequest::Lower,
+            WindowOp::Refresh => WindowRequest::Refresh,
+            WindowOp::ResizeCells => WindowRequest::ResizeCells {
+                rows: SizeAsk::of(at(1)),
+                cols: SizeAsk::of(at(2)),
+            },
+            WindowOp::Maximize => WindowRequest::Maximize(match second {
+                0 => Maximize::Restore,
+                1 => Maximize::Both,
+                2 => Maximize::Vertically,
+                _ => Maximize::Horizontally,
+            }),
+            WindowOp::FullScreen => WindowRequest::FullScreen(match second {
+                0 => FullScreen::Leave,
+                1 => FullScreen::Enter,
+                _ => FullScreen::Toggle,
+            }),
+            WindowOp::Lines => WindowRequest::ResizeCells {
+                rows: SizeAsk::Exactly(p.raw(ParamIdx::FIRST, 0)),
+                cols: SizeAsk::Keep,
+            },
+            _ => return None,
+        })
+    }
 }

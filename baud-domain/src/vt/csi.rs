@@ -448,12 +448,14 @@ pub enum EraseList {
 }
 
 /// An XTWINOPS operation, `CSI Ps ; Ps ; Ps t` (`[[source: ctlseqs]]`,
-/// "Window manipulation (XTWINOPS)"): a report baud answers, the title
-/// stack, a title report refused, or the rest of the family.
+/// "Window manipulation (XTWINOPS)"): a window operation the embedder
+/// performs, a report baud answers, the title stack, a title report
+/// refused, or a form ctlseqs does not give.
 ///
-/// **Fieldless**, as [`Csi::Area`] is: the title stack's `Ps` and slot are
-/// read where the operation is performed, so the variant adds no payload to
-/// every `CSI`.
+/// **Fieldless**, as [`Csi::Area`] is: the title stack's `Ps` and slot, and
+/// a window operation's parameters ([`WindowRequest::of`]), are read where
+/// the operation is performed, so the variant adds no payload to every
+/// `CSI`.
 ///
 /// **Only the forms ctlseqs gives are anything but [`WindowOp::Refused`]**:
 /// `CSI 13 ; 2 t` and `CSI 14 ; 2 t` are the second forms of 13 and 14, any
@@ -461,6 +463,28 @@ pub enum EraseList {
 /// question that was not asked is the wrong shape.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WindowOp {
+    /// `CSI 1 t`, de-iconify.
+    Deiconify,
+    /// `CSI 2 t`, iconify.
+    Iconify,
+    /// `CSI 3 ; x ; y t`, move.
+    Move,
+    /// `CSI 4 ; height ; width t`, resize in pixels.
+    ResizePixels,
+    /// `CSI 5 t`, raise.
+    Raise,
+    /// `CSI 6 t`, lower.
+    Lower,
+    /// `CSI 7 t`, refresh.
+    Refresh,
+    /// `CSI 8 ; height ; width t`, resize in cells.
+    ResizeCells,
+    /// `CSI 9 ; Ps t`, `Ps` 0 to 3: maximise or restore.
+    Maximize,
+    /// `CSI 10 ; Ps t`, `Ps` 0 to 2: full screen.
+    FullScreen,
+    /// DECSLPP, `CSI Ps t` with `Ps` 24 and up: "Resize to Ps lines".
+    Lines,
     /// `CSI 11 t`, "Report xterm window state": `CSI 1 t` open, `CSI 2 t`
     /// iconified.
     WindowState,
@@ -493,8 +517,8 @@ pub enum WindowOp {
     PushTitle,
     /// `CSI 23 ; Ps t`, the title pop, read as [`WindowOp::PushTitle`] is.
     PopTitle,
-    /// Any other form: the window-changing operations 1-10, DECSLPP (24 and
-    /// up), an undefined parameter, or none at all.
+    /// Any other form: 12 and 17, an undefined parameter, a parameter more
+    /// than ctlseqs gives, or none at all.
     Refused,
 }
 
@@ -505,6 +529,23 @@ impl WindowOp {
         let first = p.at(ParamIdx::FIRST).map_or(0, |x| x.0);
         let second = p.at(ParamIdx::FIRST.plus(1)).map_or(0, |x| x.0);
         match (first, p.len(), second) {
+            // The window operations, each with the parameters ctlseqs gives
+            // it and no more; an omitted second parameter is 0, xterm's
+            // `zero_if_default`. **A `Ps` past ctlseqs' list is refused**,
+            // 9 ; 4 and 10 ; 3 among them, where xterm's `RequestMaximize`
+            // falls through to a restore: an answer to an operation that was
+            // not asked is the wrong shape.
+            (1, 1, _) => WindowOp::Deiconify,
+            (2, 1, _) => WindowOp::Iconify,
+            (3, 1..=3, _) => WindowOp::Move,
+            (4, 1..=3, _) => WindowOp::ResizePixels,
+            (5, 1, _) => WindowOp::Raise,
+            (6, 1, _) => WindowOp::Lower,
+            (7, 1, _) => WindowOp::Refresh,
+            (8, 1..=3, _) => WindowOp::ResizeCells,
+            (9, 1..=2, 0..=3) => WindowOp::Maximize,
+            (10, 1..=2, 0..=2) => WindowOp::FullScreen,
+            (24.., 1, _) => WindowOp::Lines,
             (11, 1, _) => WindowOp::WindowState,
             (13, 1, _) => WindowOp::WindowPosition,
             (13, 2, 2) => WindowOp::TextAreaPosition,
@@ -855,9 +896,10 @@ pub enum Csi {
     /// baud has none to block: an answer that never comes leaves the next
     /// release a normal one.
     HighlightMouseTracking(HighlightRegion),
-    /// XTWINOPS, `CSI Ps ; Ps ; Ps t`: the reports about the text area, the
-    /// window and the screen ([`Report::window`]), the title stack, and the
-    /// refused rest ([`WindowOp`]).
+    /// XTWINOPS, `CSI Ps ; Ps ; Ps t`: the window operations
+    /// ([`WindowRequest::of`]), the reports about the text area, the window
+    /// and the screen ([`Report::window`]), the title stack, and the refused
+    /// rest ([`WindowOp`]).
     Window(WindowOp),
     /// XTSMGRAPHICS, `CSI ? Pi ; Pa ; Pv S`: "Set or request graphics
     /// attribute" (`[[source: ctlseqs]]`), answered with

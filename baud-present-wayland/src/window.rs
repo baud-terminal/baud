@@ -37,6 +37,57 @@ pub enum Event {
     Closed,
 }
 
+/// How the compositor last configured the toplevel, from the states its
+/// `xdg_toplevel.configure` carries (`[[source: wp-xdg-shell]]`, the
+/// `state` enum): full screen, where "the window geometry specified in the
+/// configure event is a maximum"; maximised, where it "must be obeyed by
+/// the client"; or neither, where the size is a hint and the client may
+/// choose its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shown {
+    Floating,
+    Maximized,
+    FullScreen,
+}
+
+impl Shown {
+    /// The states array, "32-bit unsigned integers in native endianness":
+    /// full screen wins over maximised, as a full-screen surface keeps the
+    /// state it returns to.
+    fn of(states: &[u8]) -> Shown {
+        let has = |want: u32| {
+            states
+                .chunks_exact(4)
+                .any(|w| w.try_into().ok().map(u32::from_ne_bytes) == Some(want))
+        };
+        match (
+            has(protocol::xdg_toplevel::state::FULLSCREEN),
+            has(protocol::xdg_toplevel::state::MAXIMIZED),
+        ) {
+            (true, _) => Shown::FullScreen,
+            (false, true) => Shown::Maximized,
+            (false, false) => Shown::Floating,
+        }
+    }
+}
+
+/// Whether a request sets a toplevel state or unsets it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Toggle {
+    Set,
+    Unset,
+}
+
+/// What a resize the client chose came to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Resize {
+    /// The window takes the size; a `Configured` event follows.
+    Taken,
+    /// Maximised or full screen, the compositor's size binds; or not yet
+    /// configured.
+    Bound,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Presented {
     Yes,
@@ -87,6 +138,14 @@ pub struct Window {
     /// The size the last toplevel configure asked for, or our default.
     pending: (Px, Px),
     size: Option<(Px, Px)>,
+    /// The states the last toplevel configure carried, and those the last
+    /// acknowledged one did.
+    pending_shown: Shown,
+    shown: Shown,
+    /// `xdg_toplevel.configure_bounds`: "the bounds a window geometry size
+    /// is recommended to constrain to", such as "the size of a monitor
+    /// excluding any panels"; `None` while unknown.
+    bounds: Option<(Px, Px)>,
     pool: Option<Pool>,
     callback: Option<ObjectId>,
     keymap: Option<Keymap>,
@@ -132,6 +191,9 @@ impl Window {
             keyboard: None,
             pending: (Px(800), Px(600)),
             size: None,
+            pending_shown: Shown::Floating,
+            shown: Shown::Floating,
+            bounds: None,
             pool: None,
             callback: None,
             keymap: None,
@@ -176,6 +238,87 @@ impl Window {
                 Opcode(protocol::xdg_toplevel::request::SET_TITLE),
                 &[Arg::Str(Some(&self.title))],
             );
+        }
+    }
+
+    /// How the compositor last configured the window.
+    pub fn shown(&self) -> Shown {
+        self.shown
+    }
+
+    /// The compositor's recommended bound on the window's size, the
+    /// monitor's less its panels, once it has sent one.
+    pub fn bounds(&self) -> Option<(Px, Px)> {
+        self.bounds
+    }
+
+    /// `xdg_toplevel.set_minimized`, `CSI 2 t`'s request. "There is no way
+    /// to know if the surface is currently minimized, nor is there any way
+    /// to unset minimization on this surface", so there is no undoing it
+    /// from here.
+    pub fn minimize(&mut self, s: &mut Sender<'_>) {
+        self.toplevel_request(
+            s,
+            Opcode(protocol::xdg_toplevel::request::SET_MINIMIZED),
+            &[],
+        );
+    }
+
+    /// `xdg_toplevel.set_maximized` or `unset_maximized`; "Whether this
+    /// configure actually sets the window maximized is subject to
+    /// compositor policies", and the configure that follows says.
+    pub fn maximize(&mut self, s: &mut Sender<'_>, t: Toggle) {
+        let op = match t {
+            Toggle::Set => Opcode(protocol::xdg_toplevel::request::SET_MAXIMIZED),
+            Toggle::Unset => Opcode(protocol::xdg_toplevel::request::UNSET_MAXIMIZED),
+        };
+        self.toplevel_request(s, op, &[]);
+    }
+
+    /// `xdg_toplevel.set_fullscreen`, on the output the compositor
+    /// chooses ("If this value is NULL, it's up to the compositor"), or
+    /// `unset_fullscreen`.
+    pub fn full_screen(&mut self, s: &mut Sender<'_>, t: Toggle) {
+        match t {
+            Toggle::Set => self.toplevel_request(
+                s,
+                Opcode(protocol::xdg_toplevel::request::SET_FULLSCREEN),
+                &[Arg::Object(ObjectId::NULL)],
+            ),
+            Toggle::Unset => self.toplevel_request(
+                s,
+                Opcode(protocol::xdg_toplevel::request::UNSET_FULLSCREEN),
+                &[],
+            ),
+        }
+    }
+
+    /// **A size the client chooses**, which a floating toplevel may: the
+    /// configure's size is then "a hint", and zero means "the client should
+    /// decide its own window dimension". Maximised, the size "must be
+    /// obeyed", and full screen it "is a maximum", so neither takes one.
+    /// Taken, it is the window's size and a `Configured` event says so,
+    /// as a compositor's configure would; the next frame is presented at it.
+    pub fn resize(&mut self, width: Px, height: Px) -> Resize {
+        if self.shown != Shown::Floating || self.size.is_none() {
+            return Resize::Bound;
+        }
+        let size = (Px(width.0.max(1)), Px(height.0.max(1)));
+        self.pending = size;
+        if self.size != Some(size) {
+            self.size = Some(size);
+            self.events.push_back(Event::Configured {
+                width: size.0,
+                height: size.1,
+            });
+        }
+        Resize::Taken
+    }
+
+    /// One request on the toplevel, once it exists.
+    fn toplevel_request(&mut self, s: &mut Sender<'_>, op: Opcode, args: &[Arg<'_>]) {
+        if let Some(top) = self.toplevel {
+            let _ = s.request(top, op, args);
         }
     }
 
@@ -417,14 +560,23 @@ impl Handler for Window {
                     &[Arg::Uint(*serial)],
                 );
             }
-            // Zero means the client chooses; keep what it had.
-            ("xdg_toplevel", "configure", [Read::Int(w), Read::Int(h), Read::Array(_)])
-                if *w > 0 && *h > 0 =>
-            {
-                self.pending = (
-                    Px(u32::try_from(*w).unwrap_or(0)),
-                    Px(u32::try_from(*h).unwrap_or(0)),
-                );
+            // Zero means the client chooses; keep what it had. The states
+            // are read either way.
+            ("xdg_toplevel", "configure", [Read::Int(w), Read::Int(h), Read::Array(states)]) => {
+                self.pending_shown = Shown::of(states);
+                if *w > 0 && *h > 0 {
+                    self.pending = (
+                        Px(u32::try_from(*w).unwrap_or(0)),
+                        Px(u32::try_from(*h).unwrap_or(0)),
+                    );
+                }
+            }
+            // "If width and height are 0, it means bounds is unknown".
+            ("xdg_toplevel", "configure_bounds", [Read::Int(w), Read::Int(h)]) => {
+                self.bounds = match (u32::try_from(*w), u32::try_from(*h)) {
+                    (Ok(w), Ok(h)) if w > 0 && h > 0 => Some((Px(w), Px(h))),
+                    _ => None,
+                };
             }
             ("xdg_toplevel", "close", _) => self.events.push_back(Event::Closed),
             ("xdg_surface", "configure", [Read::Uint(serial)]) => {
@@ -433,6 +585,7 @@ impl Handler for Window {
                     Opcode(protocol::xdg_surface::request::ACK_CONFIGURE),
                     &[Arg::Uint(*serial)],
                 );
+                self.shown = self.pending_shown;
                 if self.size != Some(self.pending) {
                     self.size = Some(self.pending);
                     self.events.push_back(Event::Configured {

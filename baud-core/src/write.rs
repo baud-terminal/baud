@@ -2025,8 +2025,8 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             p.cell_width,
             p.cell_height,
         )),
-        // **XTWINOPS: the reports, the title stack and the refusals**, out
-        // of line (`crate::window`). The size of the text area is what an
+        // **XTWINOPS: the window operations queued, the reports, the title
+        // stack and the refusals**, out of line (`crate::window`). The size of the text area is what an
         // image client sizes its pictures from: `[[source: yazi-emulator]]`
         // sends `CSI 16 t` in its DA1 burst and takes the cell size from the
         // `CSI 6 ; h ; w t` it gets back; without it, and without pixels in

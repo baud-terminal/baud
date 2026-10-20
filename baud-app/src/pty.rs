@@ -2547,14 +2547,16 @@ mod tests {
                 .expect("a statement after the feed");
             assert_eq!(next, follow);
         };
+        // Each callback ends draining the window requests.
+        let end = "t.clear_window_requests();\n            },\n        );\n";
         next_after(
             include_str!("app.rs"),
-            "resized = honour(widths.poll(t, host), t).or(resized);\n            },\n        );\n",
+            end,
             "self.app.pty.follow(self.app.term.input_encoding());",
         );
         next_after(
             include_str!("linux.rs"),
-            "                    crate::warn!(\"{line}\");\n                }\n            },\n        );\n",
+            end,
             "self.pty.follow(self.term.input_encoding());",
         );
     }

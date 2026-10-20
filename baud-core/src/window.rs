@@ -1,21 +1,90 @@
 //! XTWINOPS, `CSI Ps ; Ps ; Ps t` (`[[source: ctlseqs]]`, "Window
-//! manipulation (XTWINOPS)"): the reports, the title stack and the refusals,
-//! out of the dispatch's line.
+//! manipulation (XTWINOPS)"): the window operations, the reports, the title
+//! stack and the refusals, out of the dispatch's line.
 //!
 //! **The reports answer from what the embedder has said** (`Term::set_window`,
 //! `Term::set_cell_size`) and are silent and counted where it has said
 //! nothing. **`CSI 20 t` and `CSI 21 t` are refused and counted on their
 //! own**: their reply is `OSC L label ST` and `OSC l label ST`, text a
 //! program set put back into the input stream, which a remote program can
-//! use to make the terminal type for it. **The window-changing operations,
-//! 1-10, and DECSLPP, 24 and up, are counted**: whether baud builds them is
-//! the owner's call.
+//! use to make the terminal type for it. **The window operations, 1-10,
+//! and DECSLPP, 24 and up, are queued for the embedder** ([`WindowAsks`]),
+//! which has the window: the owner's call of 2026-10-19, option 4, on by
+//! default and refused, counted, while the embedder has them off
+//! ([`WindowOps::Off`]).
 
-use baud_domain::{ByteLen, ParamIdx, Report, WindowOp};
+use baud_domain::{ByteLen, ParamIdx, Report, WindowOp, WindowOps, WindowRequest};
 
 use crate::paint::Paint;
 use crate::storage::{OSC_MAX, TITLE_SLOTS};
 use crate::write::Csi;
+
+/// How many window requests the queue holds between two drains. An embedder
+/// drains after every read, as it drains the reply, so a read would have to
+/// hold more than this many operations for one to be dropped -- and each
+/// drop is counted ([`WindowRequestsDropped`]).
+pub const WINDOW_QUEUE: usize = 16;
+
+/// A count of the window operations refused because the embedder turned
+/// them off, as a reading to compare: two equal readings saw no request.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WindowOpsRefused(u32);
+
+/// A count of the window requests dropped because the queue was full, as a
+/// reading to compare.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WindowRequestsDropped(u32);
+
+/// The window requests queued for the embedder since its last drain, the
+/// setting that lets them through, and the two counts of the ones that did
+/// not go.
+#[derive(Clone, Copy)]
+pub(crate) struct WindowAsks {
+    queue: [WindowRequest; WINDOW_QUEUE],
+    len: QueueLen,
+    pub(crate) ops: WindowOps,
+    pub(crate) refused: WindowOpsRefused,
+    pub(crate) dropped: WindowRequestsDropped,
+}
+
+/// How many of [`WindowAsks`]'s slots hold a request.
+#[derive(Clone, Copy)]
+struct QueueLen(usize);
+
+impl WindowAsks {
+    pub(crate) const NONE: WindowAsks = WindowAsks {
+        queue: [WindowRequest::Refresh; WINDOW_QUEUE],
+        len: QueueLen(0),
+        ops: WindowOps::On,
+        refused: WindowOpsRefused(0),
+        dropped: WindowRequestsDropped(0),
+    };
+
+    /// Queue `r`, or count it refused while the operations are off, or
+    /// dropped when the queue is full.
+    fn ask(&mut self, r: WindowRequest) {
+        match (self.ops, self.len.0 < WINDOW_QUEUE) {
+            (WindowOps::Off, _) => self.refused = WindowOpsRefused(self.refused.0.wrapping_add(1)),
+            (WindowOps::On, false) => {
+                self.dropped = WindowRequestsDropped(self.dropped.0.wrapping_add(1))
+            }
+            (WindowOps::On, true) => {
+                self.queue[self.len.0] = r;
+                self.len = QueueLen(self.len.0 + 1);
+            }
+        }
+    }
+
+    /// The requests queued since the last [`WindowAsks::clear`], oldest
+    /// first.
+    pub(crate) fn queued(&self) -> &[WindowRequest] {
+        &self.queue[..self.len.0]
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.len = QueueLen(0);
+    }
+}
 
 /// Which halves of each title-stack slot hold a name, and how long each is:
 /// `None` is xterm's `NULL`, a half the push did not take, which a pop
@@ -110,8 +179,8 @@ impl Names {
 }
 
 impl Paint<'_, '_> {
-    /// One XTWINOPS operation: a report, a push or a pop of the title stack,
-    /// or a refusal.
+    /// One XTWINOPS operation: a window request queued, a report, a push or
+    /// a pop of the title stack, or a refusal.
     #[cold]
     #[inline(never)]
     pub(crate) fn window_op(&mut self, op: WindowOp, csi: &Csi) {
@@ -142,17 +211,25 @@ impl Paint<'_, '_> {
                     _ => self.pop_title(names, slot),
                 }
             }
-            _ => match Report::window(
-                op,
-                self.rows,
-                self.cols,
-                self.cell_width,
-                self.cell_height,
-                &self.strs.window,
-            ) {
-                Some(r) => self.want_reply(r),
-                None => self.unsupported_param += 1,
+            _ => match WindowRequest::of(op, &csi.params()) {
+                Some(r) => self.strs.window_asks.ask(r),
+                None => self.window_report(op),
             },
+        }
+    }
+
+    /// A report, answered from what the embedder handed over, or counted.
+    fn window_report(&mut self, op: WindowOp) {
+        match Report::window(
+            op,
+            self.rows,
+            self.cols,
+            self.cell_width,
+            self.cell_height,
+            &self.strs.window,
+        ) {
+            Some(r) => self.want_reply(r),
+            None => self.unsupported_param += 1,
         }
     }
 

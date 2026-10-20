@@ -897,3 +897,156 @@ fn a_title_set_before_the_role_is_the_one_it_is_created_with() {
         }
     }
 }
+
+/// A session through its first configure, `width` x `height` with `states`:
+/// the toplevel and its xdg surface, the `Configured` event drained.
+fn configured(states: &[u32]) -> (Connection, Server, Window, ObjectId, ObjectId) {
+    let (c, s) = UnixStream::pair().unwrap();
+    let mut conn = Connection::over(c);
+    let mut server = Server::new(s);
+    let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+    conn.flush().unwrap();
+    let r = server.expect("wl_display", "get_registry");
+    let Val::New(registry) = r.args[0] else {
+        panic!()
+    };
+    server
+        .objects
+        .insert(registry, Interface::named("wl_registry").unwrap());
+    let r = server.expect("wl_display", "sync");
+    let Val::New(sync) = r.args[0] else { panic!() };
+    for (name, iface, version) in [
+        (1u32, "wl_compositor", 6u32),
+        (2, "wl_shm", 2),
+        (3, "xdg_wm_base", 6),
+    ] {
+        server.send(
+            registry,
+            "wl_registry",
+            "global",
+            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(version)],
+        );
+    }
+    server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
+    pump(&mut conn, &mut w);
+    let (mut xdg, mut top) = (None, None);
+    loop {
+        let r = server.next();
+        match (r.iface, r.name, &r.args[..]) {
+            ("xdg_wm_base", "get_xdg_surface", [Val::New(id), _]) => xdg = Some(*id),
+            ("xdg_surface", "get_toplevel", [Val::New(id)]) => top = Some(*id),
+            ("wl_surface", "commit", _) => break,
+            _ => {}
+        }
+    }
+    let (xdg, top) = (xdg.expect("xdg surface"), top.expect("toplevel"));
+    configure(&mut server, top, xdg, 640, 480, states);
+    pump(&mut conn, &mut w);
+    server.expect("xdg_surface", "ack_configure");
+    assert!(matches!(w.next_event(), Some(Event::Configured { .. })));
+    (conn, server, w, top, xdg)
+}
+
+fn configure(server: &mut Server, top: ObjectId, xdg: ObjectId, w: i32, h: i32, states: &[u32]) {
+    let bytes: Vec<u8> = states.iter().flat_map(|s| s.to_ne_bytes()).collect();
+    server.send(
+        top,
+        "xdg_toplevel",
+        "configure",
+        &[Arg::Int(w), Arg::Int(h), Arg::Array(&bytes)],
+    );
+    server.send(xdg, "xdg_surface", "configure", &[Arg::Uint(9)]);
+}
+
+/// **The window operations xdg-shell has reach the toplevel as its
+/// requests**: `set_minimized`, `set_maximized` and `unset_maximized`,
+/// `set_fullscreen` on no output in particular, and `unset_fullscreen`.
+#[test]
+fn the_window_operations_reach_the_toplevel_as_its_requests() {
+    let (mut conn, mut server, mut w, top, _xdg) = configured(&[]);
+    w.minimize(&mut conn.sender());
+    w.maximize(&mut conn.sender(), Toggle::Set);
+    w.maximize(&mut conn.sender(), Toggle::Unset);
+    w.full_screen(&mut conn.sender(), Toggle::Set);
+    w.full_screen(&mut conn.sender(), Toggle::Unset);
+    conn.flush().unwrap();
+    for name in [
+        "set_minimized",
+        "set_maximized",
+        "unset_maximized",
+        "set_fullscreen",
+        "unset_fullscreen",
+    ] {
+        let r = server.expect("xdg_toplevel", name);
+        assert_eq!(r.sender, top, "{name} on the toplevel");
+        if name == "set_fullscreen" {
+            assert!(
+                matches!(r.args[..], [Val::Obj(o)] if o == ObjectId::NULL),
+                "{:?}",
+                r.args
+            );
+        }
+    }
+}
+
+/// **The configure's states say whose size it is**: floating, the window
+/// takes a size it chooses and reports it as a configure would; maximised
+/// or full screen the compositor's binds, and full screen wins when both
+/// are set. The states are those of the configure acknowledged.
+#[test]
+fn a_floating_window_takes_its_own_size_and_a_maximised_one_does_not() {
+    let (mut conn, mut server, mut w, top, xdg) = configured(&[]);
+    assert_eq!(w.shown(), Shown::Floating);
+    assert_eq!(w.resize(Px(800), Px(600)), Resize::Taken);
+    assert_eq!(
+        w.next_event(),
+        Some(Event::Configured {
+            width: Px(800),
+            height: Px(600)
+        })
+    );
+    assert_eq!(w.size(), Some((Px(800), Px(600))));
+    let maximized = protocol::xdg_toplevel::state::MAXIMIZED;
+    let full = protocol::xdg_toplevel::state::FULLSCREEN;
+    let activated = protocol::xdg_toplevel::state::ACTIVATED;
+    for (states, shown) in [
+        (&[activated, maximized][..], Shown::Maximized),
+        (&[maximized, full][..], Shown::FullScreen),
+        (&[activated][..], Shown::Floating),
+    ] {
+        configure(&mut server, top, xdg, 1920, 1080, states);
+        pump(&mut conn, &mut w);
+        server.expect("xdg_surface", "ack_configure");
+        while w.next_event().is_some() {}
+        assert_eq!(w.shown(), shown, "{states:?}");
+        let want = match shown {
+            Shown::Floating => Resize::Taken,
+            _ => Resize::Bound,
+        };
+        assert_eq!(w.resize(Px(400), Px(300)), want, "{states:?}");
+    }
+}
+
+/// `xdg_toplevel.configure_bounds`: the size the compositor recommends
+/// staying inside, known once sent and unknown again on "0".
+#[test]
+fn the_bounds_are_the_compositors_until_it_says_unknown() {
+    let (mut conn, mut server, mut w, top, _xdg) = configured(&[]);
+    assert_eq!(w.bounds(), None);
+    server.send(
+        top,
+        "xdg_toplevel",
+        "configure_bounds",
+        &[Arg::Int(2560), Arg::Int(1400)],
+    );
+    pump(&mut conn, &mut w);
+    assert_eq!(w.bounds(), Some((Px(2560), Px(1400))));
+    server.send(
+        top,
+        "xdg_toplevel",
+        "configure_bounds",
+        &[Arg::Int(0), Arg::Int(0)],
+    );
+    pump(&mut conn, &mut w);
+    assert_eq!(w.bounds(), None);
+}

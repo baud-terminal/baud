@@ -110,6 +110,18 @@ report them as gaps; if you think one is wrong, the reasoning is in
   what is on the screen, other programs' output included; off, every request
   gets no reply and is counted in `checksums_refused`, and no sequence, a
   reset included, turns it back on.
+- **A program can move, resize, minimise, raise, lower, maximise and
+  full-screen the window by default** (xterm's window operations, `CSI 1 t`
+  to `CSI 10 t`, and DECSLPP), the owner's call of 2026-10-19, and
+  `[window] operations = "off"` turns them off. Anything printed to the
+  terminal -- a remote program, a file you `cat` -- can otherwise move the
+  window off the screen, shrink it, hide it in the Dock or put it behind
+  others; off, every request is refused and counted in
+  `Term::window_ops_refused`, and no sequence, a reset included, turns them
+  back on. A program cannot read the title back either way (`CSI 20 t` and
+  `CSI 21 t` get no reply). A resize is no larger than the screen; with no
+  screen size known, one in pixels is refused and one in cells is held to
+  the largest grid.
 - **`OSC 52` clipboard *writes* are honoured by default**, the owner's V11
   (`docs/research/notes/v-open-decisions.md`), and `[clipboard] osc52 = "off"`
   turns them off. The threat is the write itself: anything printed to the

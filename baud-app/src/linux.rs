@@ -112,6 +112,8 @@ struct Driver {
     /// Whether a kitty picture's decode is pending, so the wait does not
     /// block while it is (`reads::decode_wait`).
     decode: DecodeProgress,
+    /// What the program's window operations did and did not do.
+    performed: crate::winops::Performed,
 }
 
 pub fn run() {
@@ -193,6 +195,7 @@ pub fn run() {
     term.set_sixel_claim(cfg.sixel);
     crate::host::set_widths(&mut term, cfg.vs16_width, cfg.ambiguous_width);
     crate::host::set_checksum(&mut term, cfg.checksum);
+    crate::host::set_window_ops(&mut term, cfg.window_ops);
     term.set_initial_cursor_style(baud_core::CursorStyle::of(
         cfg.cursor_shape,
         cfg.cursor_blink.power_on(),
@@ -250,6 +253,7 @@ pub fn run() {
         titles: crate::title::Shown::new(),
         images: cfg.images,
         decode: DecodeProgress::Idle,
+        performed: crate::winops::Performed::new(),
     };
     if let Err(e) = d.conn.flush() {
         crate::warn!("wayland: {e}");
@@ -416,6 +420,7 @@ impl Driver {
         // **A program's page width is refused and said once** (`width.rs`):
         // nothing here resizes the window, so the read is not held either.
         let widths = &mut self.widths;
+        let mut asked = Vec::new();
         crate::reads::feed(
             &mut self.term,
             [bytes],
@@ -424,11 +429,16 @@ impl Driver {
                 if let Some((_, Some(line))) = widths.poll(t, crate::width::Host::NoResize) {
                     crate::warn!("{line}");
                 }
+                asked.extend_from_slice(t.window_requests());
+                t.clear_window_requests();
             },
         );
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.
         self.pty.follow(self.term.input_encoding());
+        for r in asked {
+            self.window_request(r);
+        }
         self.pending = Pending::Dirty;
         // A refused image is said by the limit it hit, once a read -- the
         // macOS pump's rule (`host::describe_refusals`).
@@ -444,6 +454,71 @@ impl Driver {
             .next(self.term.title(), self.term.input_encoding(), "baud")
         {
             self.window.set_title(&mut self.conn.sender(), &t);
+        }
+    }
+
+    /// **A program's window operation, as xdg-shell can perform it**
+    /// (`crate::winops::wayland`): minimise, maximise and restore, full
+    /// screen, and a floating window's own size, which arrives as a
+    /// `Configured` event and lays out as a compositor's would. What
+    /// xdg-shell has no request for is counted and warned once by its
+    /// reason.
+    fn window_request(&mut self, r: baud_core::WindowRequest) {
+        use crate::winops::{Set, Shown, Unbuilt, WaylandAction, WaylandWindow};
+        use baud_present_wayland::{Resize, Toggle};
+        let Some((w, h)) = self.window.size() else {
+            return;
+        };
+        let m = self.renderer.metrics();
+        let at = WaylandWindow {
+            size: (w.0, h.0),
+            bounds: self.window.bounds().map(|(bw, bh)| (bw.0, bh.0)),
+            shown: match self.window.shown() {
+                baud_present_wayland::Shown::Floating => Shown::Floating,
+                baud_present_wayland::Shown::Maximized => Shown::Maximized,
+                baud_present_wayland::Shown::FullScreen => Shown::FullScreen,
+            },
+            cell: (m.cell_w.value(), m.cell_h.value()),
+            grid: crate::width::Grid::of(&self.term),
+        };
+        let toggle = |s: Set| match s {
+            Set::On => Toggle::Set,
+            Set::Off => Toggle::Unset,
+        };
+        let unbuilt = match crate::winops::wayland(r, &at) {
+            WaylandAction::Minimize => {
+                self.window.minimize(&mut self.conn.sender());
+                None
+            }
+            WaylandAction::SetMaximized(s) => {
+                self.window.maximize(&mut self.conn.sender(), toggle(s));
+                None
+            }
+            WaylandAction::SetFullScreen(s) => {
+                self.window.full_screen(&mut self.conn.sender(), toggle(s));
+                None
+            }
+            WaylandAction::Resize(x, y) => match self
+                .window
+                .resize(baud_present_wayland::Px(x), baud_present_wayland::Px(y))
+            {
+                Resize::Taken => None,
+                Resize::Bound => Some(Unbuilt::Bound),
+            },
+            WaylandAction::Redraw => {
+                self.damage = Damage::Full;
+                self.pending = Pending::Dirty;
+                None
+            }
+            WaylandAction::Unbuilt(why) => Some(why),
+        };
+        match unbuilt {
+            None => self.performed.did(),
+            Some(why) => {
+                if let Some(line) = self.performed.unbuilt(why) {
+                    crate::warn!("{line}");
+                }
+            }
         }
     }
 

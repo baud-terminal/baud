@@ -16,4 +16,4 @@ pub mod sys;
 pub mod window;
 
 pub use shm::{Pool, Px};
-pub use window::{Event, Presented, Window};
+pub use window::{Event, Presented, Resize, Shown, Toggle, Window};

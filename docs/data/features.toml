@@ -1255,6 +1255,17 @@ platform = "macos"
 tests = ["baud-core/tests/window_reports.rs::the_window_reports_answer_from_what_the_embedder_handed_over", "baud-core/tests/window_reports.rs::the_title_reports_are_refused_and_counted", "baud-app/src/app.rs::the_window_facts_are_appkits_geometry_in_device_pixels_from_the_top"]
 
 [[feature]]
+id = "window-control"
+area = "window"
+name = "Programs can move and resize the window"
+does = "A program can move, resize, minimise, raise, lower, maximise or full-screen the window, as xterm lets it. `[window] operations = \"off\"` stops every one, so nothing printed to the terminal can move or hide it."
+status = "partial"
+gap = "On Linux a program cannot move, raise, lower or un-minimise the window, or maximise it one way only: Wayland has no request for them. Nobody has watched any of it on a screen."
+platform = "both"
+tests = ["baud-core/tests/window_ops.rs::each_window_operation_is_queued_for_the_embedder", "baud-core/tests/window_ops.rs::with_the_operations_off_nothing_is_queued_and_each_is_counted", "baud-app/src/winops.rs::a_cell_resize_gives_the_grid_asked_for", "baud-app/src/winops.rs::wayland_does_what_xdg_shell_has"]
+rows = ["vt:`CSI 1 t` to `CSI 10 t`", "vt:`CSI Ps t` with `Ps` 24 and up"]
+
+[[feature]]
 id = "appearance"
 area = "window"
 name = "Light and dark, automatically"

@@ -489,6 +489,13 @@ files   = [
   "apple-xcode-additional-components.json",
   "apple-xcode-improving-app-responsiveness.json",
   "apple-xcode-understanding-hitches.json",
+  "apple-nsscreen-visibleframe.json",
+  "apple-nswindow-deminiaturize.json",
+  "apple-nswindow-miniaturize.json",
+  "apple-nswindow-orderback.json",
+  "apple-nswindow-togglefullscreen.json",
+  "apple-nswindow-setframe.json",
+  "apple-nswindow-stylemask-fullscreen.json",
 ]
 
 [upstream.dec-manuals]
@@ -574,6 +581,7 @@ files   = [
   "vt510-TBC.html",
   "vt510-chapter4.html",
   "vt510-chapter7.html",
+  "vt510-DECSLPP.html",
 ]
 
 [upstream.vt100net-charsets]

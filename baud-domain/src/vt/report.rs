@@ -524,6 +524,17 @@ impl Report {
             WindowOp::TitleReport
             | WindowOp::PushTitle
             | WindowOp::PopTitle
+            | WindowOp::Deiconify
+            | WindowOp::Iconify
+            | WindowOp::Move
+            | WindowOp::ResizePixels
+            | WindowOp::Raise
+            | WindowOp::Lower
+            | WindowOp::Refresh
+            | WindowOp::ResizeCells
+            | WindowOp::Maximize
+            | WindowOp::FullScreen
+            | WindowOp::Lines
             | WindowOp::Refused => None,
         }
     }

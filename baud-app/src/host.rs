@@ -313,6 +313,13 @@ pub fn set_checksum(term: &mut baud_core::Term<'_>, checksum: baud_domain::Check
     term.set_checksum_report(checksum);
 }
 
+/// Tell the core whether a program's window operations reach the driver,
+/// from `[window] operations`. One function for both drivers, called after
+/// `Term::new` and before the first feed.
+pub fn set_window_ops(term: &mut baud_core::Term<'_>, ops: baud_domain::WindowOps) {
+    term.set_window_ops(ops);
+}
+
 /// Tell the core what the theme draws the default foreground and background
 /// as, so `OSC 10 ; ?` and `OSC 11 ; ?` answer on a fresh terminal -- the
 /// query every theme-aware program sends to learn whether it is on a light
@@ -718,6 +725,79 @@ mod tests {
         assert_eq!(
             include_str!("app.rs")
                 .matches("checksum: cfg.checksum,")
+                .count(),
+            1,
+            "macOS carries it from the config"
+        );
+    }
+
+    /// **`[window] operations` reaches the core, from both drivers.** The
+    /// config text read into a `Config`, handed to `set_window_ops`,
+    /// decides whether `CSI 2 t` reaches the driver: by default as a
+    /// request, with `"off"` not at all, counted. Both drivers start AppKit
+    /// or Wayland, which no test drives, so their call is held in the
+    /// source: each calls `set_window_ops` once with the configured value,
+    /// and drains the requests in the per-read callback of its one feed.
+    #[test]
+    fn the_window_operations_setting_reaches_the_core() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (text, on) in [("", true), ("[window]\noperations = \"off\"\n", false)] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            let refused = t.window_ops_refused();
+            super::set_window_ops(&mut t, cfg.window_ops);
+            feed(&mut t, b"\x1b[2t");
+            let want: &[baud_core::WindowRequest] = if on {
+                &[baud_core::WindowRequest::Iconify]
+            } else {
+                &[]
+            };
+            assert_eq!(t.window_requests(), want, "{text:?}");
+            assert_eq!(t.window_ops_refused() != refused, !on, "{text:?}");
+        }
+        // Spelled apart, so this test's own text is not what it finds.
+        const CALL: &str = concat!("crate::host::", "set_window_ops(&mut term, ");
+        const DRAIN: &str = concat!("t.clear_", "window_requests();");
+        for (driver, src, arg, body) in [
+            (
+                "macOS",
+                include_str!("app.rs"),
+                "window_ops);",
+                "    fn pump(&mut self, trigger: Trigger) {",
+            ),
+            (
+                "Linux",
+                include_str!("linux.rs"),
+                "cfg.window_ops);",
+                "    fn feed(&mut self, bytes: &[u8]) {",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+            assert_eq!(src.matches(DRAIN).count(), 1, "{driver} drains once");
+            let feed = src
+                .split_once(body)
+                .expect("the driver's feed")
+                .1
+                .split_once(concat!("crate::reads::", "feed("))
+                .expect("the feed")
+                .1;
+            let call = &feed[..feed.find("\n        );").expect("its end")];
+            assert!(call.contains(DRAIN), "{driver} drains inside the feed");
+        }
+        assert_eq!(
+            include_str!("app.rs")
+                .matches("window_ops: cfg.window_ops,")
                 .count(),
             1,
             "macOS carries it from the config"

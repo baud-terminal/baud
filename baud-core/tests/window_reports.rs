@@ -116,22 +116,6 @@ fn the_title_reports_are_refused_and_counted() {
     });
 }
 
-/// The window-changing operations and DECSLPP stay counted, as before.
-#[test]
-fn the_window_changing_operations_stay_counted() {
-    support::with_term(&WS, |t| {
-        t.set_window(facts());
-        let counted = t.unsupported_param;
-        support::feed(
-            t,
-            b"\x1b[1t\x1b[2t\x1b[3;0;0t\x1b[8;50;132t\x1b[9;1t\x1b[24t\x1b[48t",
-        );
-        assert_eq!(t.reply(), b"");
-        assert_eq!(t.unsupported_param, counted + 7);
-        assert_eq!(t.geometry(), (Cols::of_index(80), Rows::of_count(24)));
-    });
-}
-
 /// **vim's title save and restore**: `CSI 22 ; 2 t` and `CSI 22 ; 1 t` at
 /// start, `CSI 23 ; 2 t` and `CSI 23 ; 1 t` at exit, the shell's title back
 /// after vim set its own. The icon name is not: the two pushes are two

@@ -680,6 +680,9 @@ struct Boot {
     vs16_width: baud_domain::Vs16Width,
     /// Whether DECRQCRA is answered, from `[screen] checksum`.
     checksum: baud_domain::ChecksumReport,
+    /// Whether a program's window operations are performed, from `[window]
+    /// operations`.
+    window_ops: baud_domain::WindowOps,
     /// How many columns an ambiguous character takes, from `[text]
     /// ambiguous_width`.
     ambiguous_width: baud_domain::AmbiguousWidth,
@@ -837,6 +840,7 @@ impl Boot {
             sixel: cfg.sixel,
             vs16_width: cfg.vs16_width,
             checksum: cfg.checksum,
+            window_ops: cfg.window_ops,
             ambiguous_width: cfg.ambiguous_width,
             clipboard: cfg.clipboard,
             bell: cfg.bell,
@@ -879,6 +883,7 @@ impl App {
             sixel,
             vs16_width,
             checksum,
+            window_ops,
             ambiguous_width,
             clipboard,
             bell: bell_style,
@@ -1040,6 +1045,7 @@ impl App {
         term.set_sixel_claim(sixel);
         crate::host::set_widths(&mut term, vs16_width, ambiguous_width);
         crate::host::set_checksum(&mut term, checksum);
+        crate::host::set_window_ops(&mut term, window_ops);
         term.set_initial_cursor_style(cursor);
         let bell = Bell::new(&term, crate::bell::LENGTH);
         let ringer = crate::bell::Ringer::new(&term);
@@ -2616,6 +2622,12 @@ struct Driver {
     /// The window and screen as last handed to the core for XTWINOPS's
     /// reports, read on the tick (`poll_window`).
     window_facts: baud_core::WindowFacts,
+    /// The frame a program's maximise saved, which its restore returns to
+    /// (`crate::winops`), as xterm's `RequestMaximize` keeps the frame
+    /// it restores.
+    saved_frame: Option<crate::winops::Rect>,
+    /// What the program's window operations did and did not do.
+    performed: crate::winops::Performed,
     /// The appearance the palette was last set for under `auto`: `None`
     /// before the first, and always under a pinned theme.
     palette_for: Option<Appearance>,
@@ -6151,10 +6163,12 @@ mod motion_tests {
             concat!(".ring_", "bell()"),
             "NSBeep(",
             "requestUserAttention(",
-            "orderFrontRegardless(",
         ] {
             assert_eq!(code.matches(call).count(), 1, "{call}");
         }
+        // The bell's raise and `CSI 5 t`'s, the window operation's: the
+        // same call, which takes no focus.
+        assert_eq!(code.matches("orderFrontRegardless(").count(), 2);
         // `NSBeep` is AppKit's: imported from it, and named nowhere else.
         let kit = SRC
             .split_once("objc2_app_kit::{")
@@ -6186,6 +6200,9 @@ mod motion_tests {
                     pasteboard("#,
             r#"clips.poll(t, osc52));
                     resized = honour(widths.poll(t, host), t).or(resized);
+                    asked.extend_from_slice(t.window_requests());
+                    t.clear_"#,
+            r#"window_requests();
                 },
             );
             self.app.pty.follow("#,
@@ -7131,6 +7148,10 @@ impl Driver {
         let osc52 = self.app.clipboard.osc52;
         let host = self.app.sizing.host();
         let mut resized = None;
+        // A program's window operations, drained after each read as its
+        // answers are, so the core's bounded queue never fills across a
+        // batch, and performed after the bell (`window_requests`).
+        let mut asked = Vec::new();
         crate::reads::feed(
             term,
             drained.chunks.iter().map(|chunk| {
@@ -7143,6 +7164,8 @@ impl Driver {
             |t| {
                 pasteboard(clips.poll(t, osc52));
                 resized = honour(widths.poll(t, host), t).or(resized);
+                asked.extend_from_slice(t.window_requests());
+                t.clear_window_requests();
             },
         );
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
@@ -7173,6 +7196,7 @@ impl Driver {
         {
             self.ring_bell();
         }
+        self.window_requests(&asked);
         // An image the store refused is said once a pump, by the limit it
         // hit: the count was a total nothing here read, and yazi's previews
         // went blank against the body limit with no word of why.
@@ -8276,6 +8300,8 @@ pub fn run() {
         themes: Themes::of(&glass_cfg, theme_choice, floor, &halves),
         display: Display::default(),
         window_facts: baud_core::WindowFacts::UNKNOWN,
+        saved_frame: None,
+        performed: crate::winops::Performed::new(),
         palette_for: None,
         glass: glass.clone(),
         window: window.clone(),
@@ -8450,6 +8476,82 @@ impl Driver {
         if facts != self.window_facts {
             self.window_facts = facts;
             self.app.term.set_window(facts);
+        }
+    }
+
+    /// **A program's window operation, performed**: the window as AppKit
+    /// has it now -- its frame and content view, the primary screen's top,
+    /// its screen's visible frame (`[[source: apple-nsscreen-visibleframe]]`),
+    /// minimised or not, in full screen or not (`[[source:
+    /// apple-nswindow-stylemask-fullscreen]]`) -- and the grid, then
+    /// [`crate::winops::mac_batch`]'s calls. Every AppKit call runs once the
+    /// callback that asked has returned (`window_later`), as a page width's
+    /// resize does, so the window is read once and each request measured on
+    /// the window the calls before it leave; a refresh is the next frame
+    /// drawn whole.
+    fn window_requests(&mut self, asked: &[baud_core::WindowRequest]) {
+        use crate::winops::{Full, MacAction, MacWindow, Minimized, Rect};
+        if asked.is_empty() {
+            return;
+        }
+        let Some(w) = self.view.window() else {
+            return;
+        };
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let rect = |r: NSRect| Rect {
+            x: r.origin.x,
+            y: r.origin.y,
+            w: r.size.width,
+            h: r.size.height,
+        };
+        let scale = w.backingScaleFactor();
+        let bar = gutter(self.app.scroller, crate::reveal::widths(Scale(scale)));
+        let at = MacWindow {
+            frame: rect(w.frame()),
+            content: w.contentView().map_or((0.0, 0.0), |v| {
+                let s = v.frame().size;
+                (s.width, s.height)
+            }),
+            primary_top: NSScreen::screens(mtm).firstObject().map(|s| {
+                let f = s.frame();
+                f.origin.y + f.size.height
+            }),
+            visible: w.screen().map(|s| rect(s.visibleFrame())),
+            scale,
+            cell: self.app.metrics_cell(),
+            padding: self.app.padding,
+            gutter: f64::from(bar.value()),
+            grid: crate::width::Grid::of(&self.app.term),
+            minimized: match w.isMiniaturized() {
+                true => Minimized::Yes,
+                false => Minimized::No,
+            },
+            full: match w.styleMask().contains(NSWindowStyleMask::FullScreen) {
+                true => Full::Yes,
+                false => Full::No,
+            },
+            saved: self.saved_frame,
+            host: self.app.sizing.host(),
+        };
+        let (calls, left) = crate::winops::mac_batch(asked, at);
+        self.saved_frame = left.saved;
+        for action in calls {
+            match action {
+                MacAction::Nothing(why) => {
+                    if let Some(line) = self.performed.mac_nothing(why) {
+                        crate::warn!("{line}");
+                    }
+                    continue;
+                }
+                MacAction::Redraw => {
+                    self.app.next_damage = Damage::Full;
+                    self.app.pending = Pending::Dirty;
+                }
+                _ => window_later(&w, action),
+            }
+            self.performed.did();
         }
     }
 
@@ -10494,6 +10596,114 @@ mod tests {
         assert!(f.window.is_some(), "the frame is still the window's");
     }
 
+    /// **What `CSI 13 t` reports, `CSI 3 t` moves to**: the position
+    /// `window_facts` gives a frame, on the primary screen and on one left
+    /// of it, is the frame `winops::mac` puts the window at for that move,
+    /// so a program that saves the position and sends it back puts the
+    /// window where it was.
+    #[test]
+    fn the_reported_position_moved_to_is_where_the_window_was() {
+        use crate::winops::{Full, MacAction, MacWindow, Minimized, Rect, Saved};
+        let rect = |x, y, w, h| NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
+        let primary = rect(0.0, 0.0, 1512.0, 982.0);
+        for x in [100.0, -1400.0] {
+            let frame = rect(x, 332.0, 960.0, 600.0);
+            let placed = Placed {
+                minimized: Miniaturized::No,
+                frame,
+                view: rect(x, 332.0, 960.0, 572.0),
+                pad: (6, 4),
+                screen: Some(primary),
+                primary: Some(primary),
+                scale: 2.0,
+            };
+            let reported = window_facts(&placed).position.expect("a position");
+            let at = Rect {
+                x: frame.origin.x,
+                y: frame.origin.y,
+                w: frame.size.width,
+                h: frame.size.height,
+            };
+            let w = MacWindow {
+                frame: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    ..at
+                },
+                content: (960.0, 572.0),
+                primary_top: Some(982.0),
+                visible: None,
+                scale: 2.0,
+                cell: (16.0, 34.0),
+                padding: 8.0,
+                gutter: 0.0,
+                grid: crate::width::Grid { cols: 80, rows: 24 },
+                minimized: Minimized::No,
+                full: Full::No,
+                saved: None,
+                host: crate::width::Host::Window,
+            };
+            assert_eq!(
+                crate::winops::mac(baud_core::WindowRequest::Move(reported), &w),
+                MacAction::Frame(at, Saved::Keep),
+                "from x = {x}"
+            );
+        }
+    }
+
+    /// **Every window operation's AppKit call runs on the main queue, after
+    /// the callback that asked.** No test opens a window, so the source is
+    /// held: `window_requests` hands every call but the redraw to
+    /// `window_later`, and each of the six calls is made inside its
+    /// main-queue block and nowhere else in the driver.
+    #[test]
+    fn the_window_operations_run_after_the_callback_that_asked() {
+        // The file less every test module, whose strings name the calls.
+        let mut code = include_str!("app.rs").to_string();
+        while let Some(at) = code.find("#[cfg(test)]\nmod ") {
+            let end = code[at..].find("\n}\n").map_or(code.len(), |e| at + e + 3);
+            code.replace_range(at..end, "");
+        }
+        let body = code
+            .split_once(concat!(
+                "fn window_",
+                "later(window: &NSWindow, action: crate::winops::MacAction) {"
+            ))
+            .expect("window_later")
+            .1;
+        let body = &body[..body.find("\n}\n").expect("its end")];
+        let block = body
+            .split_once(concat!(".exec_", "async(move || {"))
+            .expect("a main-queue block")
+            .1;
+        // Spelled apart, so the bell's count of its raise does not find
+        // this test's.
+        for call in [
+            "w.deminiaturize(None)",
+            "w.miniaturize(None)",
+            concat!("w.orderFront", "Regardless()"),
+            "w.orderBack(None)",
+            "w.toggleFullScreen(None)",
+            "w.setFrame_display(",
+        ] {
+            assert!(block.contains(call), "{call} in the block");
+            let name = call.split_once('(').expect("a call").0;
+            let name = name.trim_start_matches("w.");
+            let elsewhere = code.matches(&format!(".{name}(")).count();
+            let want = if name == "orderFrontRegardless" { 2 } else { 1 };
+            assert_eq!(elsewhere, want, "{name} called outside the block");
+        }
+        let request = code
+            .split_once(concat!(
+                "fn window_",
+                "requests(&mut self, asked: &[baud_core::WindowRequest]) {"
+            ))
+            .expect("window_requests")
+            .1;
+        let request = &request[..request.find("\n    }\n").expect("its end")];
+        assert_eq!(request.matches("window_later(&w, action)").count(), 1);
+    }
+
     /// **`BAUD_LOG` governs the trace lines.** They were bare `eprintln!`s,
     /// so `trace: off …` printed on every launch and `BAUD_LOG=err` did not
     /// silence it (note AI, section 8). The off and writing lines are
@@ -10805,6 +11015,41 @@ fn widen_later(window: &NSWindow, width: CGFloat) {
         let w = w.get(mtm);
         let height = w.contentView().map_or(0.0, |v| v.frame().size.height);
         w.setContentSize(NSSize::new(width, height));
+    });
+}
+
+/// **A window operation's AppKit call, once the callback that asked has
+/// returned**, for the reason `widen_later` waits: a frame change resizes
+/// the view, whose `setFrameSize:` reports to the responder the window
+/// crate borrows for the callback. `deminiaturize:` (`[[source:
+/// apple-nswindow-deminiaturize]]`), `miniaturize:` (`[[source:
+/// apple-nswindow-miniaturize]]`), `orderFrontRegardless`, which raises
+/// the window "even if its application isn't active" and takes no focus
+/// (`[[source: apple-nswindow-orderfrontregardless]]`), `orderBack:`,
+/// "without changing either the key window or the main window" (`[[source:
+/// apple-nswindow-orderback]]`), `toggleFullScreen:` (`[[source:
+/// apple-nswindow-togglefullscreen]]`), and `setFrame:display:` (`[[source:
+/// apple-nswindow-setframe]]`) for a move, a resize and a maximise.
+fn window_later(window: &NSWindow, action: crate::winops::MacAction) {
+    use crate::winops::MacAction;
+    let w = dispatch2::MainThreadBound::new(window.retain(), window.mtm());
+    dispatch2::DispatchQueue::main().exec_async(move || {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let w = w.get(mtm);
+        match action {
+            MacAction::Deminiaturize => w.deminiaturize(None),
+            MacAction::Miniaturize => w.miniaturize(None),
+            MacAction::Front => w.orderFrontRegardless(),
+            MacAction::Back => w.orderBack(None),
+            MacAction::ToggleFullScreen => w.toggleFullScreen(None),
+            MacAction::Frame(f, _) => w.setFrame_display(
+                NSRect::new(NSPoint::new(f.x, f.y), NSSize::new(f.w, f.h)),
+                true,
+            ),
+            MacAction::Redraw | MacAction::Nothing(_) => {}
+        }
     });
 }
 

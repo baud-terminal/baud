@@ -141,6 +141,13 @@ pub struct Config {
     /// request unanswered. A checksum of one cell at a time reads the screen
     /// back, other programs' output included.
     pub checksum: baud_domain::ChecksumReport,
+    /// `[window] operations`: whether a program's window operations
+    /// (XTWINOPS 1-10 and DECSLPP: move, resize, minimise, raise, lower,
+    /// maximise, full screen) are performed, `"on"` by default (the owner's
+    /// call of 2026-10-19, option 4), or `"off"`, which refuses every one.
+    /// A program on the other end of the line, a remote one included, can
+    /// otherwise move or hide the window.
+    pub window_ops: baud_domain::WindowOps,
     /// `[scroll] mode`: whether output scrolls the screen up in one jump
     /// (`normal`) or slides it smoothly (`smooth`). `Smooth` by default,
     /// matching sfte -- the slide is bounded to one row so a burst never
@@ -618,6 +625,7 @@ impl Config {
             blink_interval: BlinkInterval::Default,
             screen_transition: ScreenTransition::Off,
             checksum: baud_domain::ChecksumReport::On,
+            window_ops: baud_domain::WindowOps::On,
             scroll: ScrollMode::Smooth,
             trail_scroll: TrailScroll::Ride,
             glass: Glass::defaults(),
@@ -920,6 +928,19 @@ impl Config {
                                  using on"
                             ));
                             baud_domain::ChecksumReport::On
+                        }
+                    };
+                }
+                ("window", "operations") => {
+                    self.window_ops = match value.trim().trim_matches('"') {
+                        "on" => baud_domain::WindowOps::On,
+                        "off" => baud_domain::WindowOps::Off,
+                        other => {
+                            said.push(format!(
+                                "config: [window] operations {other:?} is not on or off; \
+                                 using on"
+                            ));
+                            baud_domain::WindowOps::On
                         }
                     };
                 }
@@ -2072,6 +2093,35 @@ mod reader {
         );
     }
 
+    /// **The window operations are performed unless `[window] operations =
+    /// "off"`** (the owner's call of 2026-10-19, option 4), quoted or bare;
+    /// any other value keeps the default and says so, and the key is the
+    /// `[window]` section's, not the top level's.
+    #[test]
+    fn the_window_operations_are_on_unless_turned_off() {
+        use baud_domain::WindowOps;
+        assert_eq!(Config::defaults().window_ops, WindowOps::On);
+        assert_eq!(read("").window_ops, WindowOps::On);
+        for off in ["\"off\"", "off"] {
+            let text = format!("[window]\noperations = {off}\n");
+            assert_eq!(read(&text).window_ops, WindowOps::Off, "{off}");
+        }
+        assert_eq!(
+            read("[window]\noperations = \"on\"\n").window_ops,
+            WindowOps::On
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[window]\noperations = \"sometimes\"\n");
+        assert_eq!(c.window_ops, WindowOps::On);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("operations"), "{said:?}");
+        assert_eq!(
+            read("operations = \"off\"\n").window_ops,
+            WindowOps::On,
+            "a top-level key is not the [window] one"
+        );
+    }
+
     /// **The screen checksum is answered unless `[screen] checksum = "off"`**
     /// (the owner's call of 2026-10-19, option 3), quoted or bare; any other
     /// value keeps the default and says so, and the key is the `[screen]`
@@ -2795,6 +2845,11 @@ shadow     = "never"
             "the [screen] checksum"
         );
         assert_eq!(c.checksum, baud_domain::ChecksumReport::On);
+        assert!(
+            text.contains("\n[window]\noperations = \"on\"\n"),
+            "the [window] operations"
+        );
+        assert_eq!(c.window_ops, baud_domain::WindowOps::On);
         assert_eq!(
             c.scroll,
             ScrollMode::Smooth,

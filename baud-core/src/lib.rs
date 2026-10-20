@@ -125,6 +125,9 @@ pub use baud_domain::{
 /// [`Term::cluster_sweeps`] return, and the store itself, which a test
 /// drives to read where a cluster lands.
 pub use baud_domain::{ClusterEpoch, ClusterLive, ClusterStore, ClusterSweeps, Refused};
+/// The window requests `Term::window_requests` holds, and the setting
+/// `Term::set_window_ops` takes.
+pub use baud_domain::{FullScreen, Maximize, SizeAsk, WindowOps, WindowRequest};
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
 /// The page-width request's vocabulary: an embedder that cannot name a
 /// [`WidthHold`] cannot call [`Term::set_width_hold`], nor read what
@@ -135,6 +138,7 @@ pub use baud_domain::{PixelSize, ScreenCoord, ScreenPoint, WindowFacts, WindowSt
 /// A reading of how many `OSC 52` writes have been published.
 pub use clip::ClipboardWrites;
 pub use graph::Node;
+pub use window::{WINDOW_QUEUE, WindowOpsRefused, WindowRequestsDropped};
 
 /// What `Owned::with_history` takes beside a depth. Re-exported so a caller
 /// that chooses its scrollback -- which `multibench` must, to hand every core

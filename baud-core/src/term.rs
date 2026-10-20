@@ -3,6 +3,7 @@
 use crate::graph::Node;
 use crate::osc::StrKind;
 use crate::storage::{LINK_MAX, MAX_COLS, MAX_ROWS, Storage};
+use crate::window::{WindowOpsRefused, WindowRequestsDropped};
 use baud_domain::*;
 
 /// Which screen buffer is live.
@@ -2828,6 +2829,50 @@ impl<'b> Term<'b> {
     /// What [`Term::set_checksum_report`] last set.
     pub fn checksum_report(&self) -> ChecksumReport {
         self.cold.checksum_report
+    }
+
+    /// Whether the window operations, XTWINOPS 1-10 and DECSLPP, reach the
+    /// embedder: `On`, the default, the owner's call of 2026-10-19 (option
+    /// 4), or `Off`, which queues none and counts each in
+    /// [`Term::window_ops_refused`], as xterm performs none it disallows.
+    /// The embedder's choice: no sequence changes it, `RIS` included, so a
+    /// program cannot turn a refusal back on.
+    pub fn set_window_ops(&mut self, ops: WindowOps) {
+        self.store.strs.window_asks.ops = ops;
+    }
+
+    /// What [`Term::set_window_ops`] last set.
+    pub fn window_ops(&self) -> WindowOps {
+        self.store.strs.window_asks.ops
+    }
+
+    /// **The window requests a program made since the last
+    /// [`Term::clear_window_requests`]**, oldest first: de-iconify, iconify,
+    /// move, resize in pixels or in cells (DECSLPP among them), raise,
+    /// lower, refresh, maximise, full screen. The core has no window, so it
+    /// changes nothing for one, the grid included: the embedder performs
+    /// each, and a resize reaches the grid through [`Term::resize`] as the
+    /// user's own does. Drain it after every read, as [`Term::reply`] is
+    /// drained: the queue holds [`crate::WINDOW_QUEUE`], and a request past it is
+    /// dropped and counted in [`Term::window_requests_dropped`].
+    pub fn window_requests(&self) -> &[WindowRequest] {
+        self.store.strs.window_asks.queued()
+    }
+
+    /// Empty the window requests after performing them.
+    pub fn clear_window_requests(&mut self) {
+        self.store.strs.window_asks.clear();
+    }
+
+    /// The window operations refused while [`Term::set_window_ops`] had them
+    /// off.
+    pub fn window_ops_refused(&self) -> WindowOpsRefused {
+        self.store.strs.window_asks.refused
+    }
+
+    /// The window requests dropped because the queue was full.
+    pub fn window_requests_dropped(&self) -> WindowRequestsDropped {
+        self.store.strs.window_asks.dropped
     }
 
     /// The cursor to draw: the style `DECSCUSR` (or the configuration) set,

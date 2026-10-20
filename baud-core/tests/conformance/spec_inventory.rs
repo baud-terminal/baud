@@ -324,6 +324,9 @@ struct Snapshot {
     /// and the `?3`s `?40` refused.
     asked: Option<WidthRequest>,
     column_refusals: ColumnRefusals,
+    /// XTWINOPS 1-10 and DECSLPP, which reach the embedder and change
+    /// nothing the terminal itself shows.
+    window_requests: Vec<WindowRequest>,
     /// `DECRQM`'s answers for `?40` and `?95`, which act through `?3` alone
     /// and have no other reading, asked after everything above is read.
     column_gates: Vec<u8>,
@@ -423,6 +426,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         c1: t.c1_transmit(),
         asked: t.requested_width(),
         column_refusals: t.column_mode_refusals(),
+        window_requests: t.window_requests().to_vec(),
         renditions: (0..t.geometry().1.index())
             .map(|y| t.line_rendition(Row::from_index(y)).expect("a row"))
             .collect(),

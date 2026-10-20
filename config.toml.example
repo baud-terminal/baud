@@ -322,6 +322,15 @@ advertise_sixel = false
 osc52 = "write"
 body_kb = 256
 
+# Whether a program can move, resize, minimise, raise, lower, maximise or
+# full-screen the window (xterm's window operations, CSI 1 t to CSI 10 t, and
+# DECSLPP, which asks for a number of lines). "on" by default, as xterm ships
+# them; "off" refuses every one. A program on the other end of an ssh
+# connection, or a file you cat, can otherwise move the window off the
+# screen, shrink it or hide it; "off" stops that. Programs can still ask
+# where the window is and how big it is either way.
+[window]
+operations = "on"
 
 # The window's material and how it is dimmed. Every key here is one the
 # macos-liquid-glass example sweeps with a GN_* environment variable -- the
