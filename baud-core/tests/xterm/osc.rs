@@ -381,6 +381,47 @@ fn osc_104_resets_every_entry_it_names() {
     assert_eq!(o.pal[3], Some((255, 0, 0)), "an entry not named is kept");
 }
 
+/// **An index is its digits, however many**: `[[source: ctlseqs]]` gives
+/// `c` as a colour number, and xterm reads it with `atoi`
+/// (`[[source: xterm-misc]]` 3001), so `0001` is entry 1 in `OSC 4` and in
+/// `OSC 104`. A field that is not digits is still refused.
+#[test]
+fn an_index_with_leading_zeros_is_its_number() {
+    let o = run(b"\x1b]4;0001;red;00000000000000000002;blue\x07");
+    assert_eq!(o.pal[1], Some((255, 0, 0)));
+    assert_eq!(o.pal[2], Some((0, 0, 255)));
+    let o = run(b"\x1b]4;1;red;2;red\x07\x1b]104;0001\x07");
+    assert_eq!((o.pal[1], o.pal[2]), (None, Some((255, 0, 0))));
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"\x1b]4;+1;red\x07");
+    assert_eq!(t.palette(Chan::from_u8(1)), None, "a sign is not a digit");
+    assert_eq!(t.unsupported, 1);
+}
+
+/// **`OSC 104` goes on past a number out of range**, as xterm's
+/// `ResetAnsiColorRequest` passes it to `ResetOneAnsiColor`, which ignores
+/// it (`[[source: xterm-misc]]` 3036-3083): `104;1;999;2` resets 1 and 2.
+/// The number ignored is counted. A field that is no number still ends it.
+#[test]
+fn osc_104_goes_on_past_a_number_out_of_range() {
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    support::feed(&mut t, b"\x1b]4;1;red;2;red;3;red\x07\x1b]104;1;999;2\x07");
+    assert_eq!(t.palette(Chan::from_u8(1)), None);
+    assert_eq!(t.palette(Chan::from_u8(2)), None);
+    assert_eq!(t.palette(Chan::from_u8(3)), Some((255, 0, 0)));
+    assert_eq!(t.unsupported, 1, "999");
+    support::feed(&mut t, b"\x1b]104;3x;1\x07");
+    assert_eq!(
+        t.palette(Chan::from_u8(3)),
+        Some((255, 0, 0)),
+        "3x is no number"
+    );
+}
+
 // ── clipboard ───────────────────────────────────────────────────────────────
 
 /// `OSC 52` read gets **no** answer.
@@ -650,6 +691,29 @@ fn a_colour_baud_does_not_keep_is_counted_and_the_walk_goes_on() {
     assert_eq!(n, 2, "13 and 14");
     let (_, _, n) = walked(None, b"\x1b]18;red;red;red\x07");
     assert!(n >= 2, "18, and the spec past 19: {n}");
+}
+
+/// **A cursor colour equal to the text follows a new text colour**, as
+/// xterm's `ChangeColors` moves it when a sequence sets the text colour and
+/// not the cursor's (`[[source: xterm-scroll]]` util.c 3062-3070): a
+/// program that painted the cursor in the text colour keeps it visible. A
+/// cursor colour of its own, or one the same sequence sets, stays.
+#[test]
+fn a_cursor_colour_equal_to_the_text_follows_osc_10() {
+    let (d, _, _) = walked(None, b"\x1b]10;red\x07\x1b]12;red\x07\x1b]10;blue\x07");
+    assert_eq!(d[2], Some((0, 0, 255)), "the cursor followed the text");
+    let (d, _, _) = walked(None, b"\x1b]10;red\x07\x1b]12;lime\x07\x1b]10;blue\x07");
+    assert_eq!(d[2], Some((0, 255, 0)), "a colour of its own stays");
+    let (d, _, _) = walked(
+        None,
+        b"\x1b]10;red\x07\x1b]12;lime\x07\x1b]10;blue;;red\x07",
+    );
+    assert_eq!(d[2], Some((255, 0, 0)), "the sequence set the cursor too");
+    let defaults = Some(((0xe0, 0xe0, 0xe0), (0x11, 0x11, 0x11)));
+    let (d, _, _) = walked(defaults, b"\x1b]12;#e0e0e0\x07\x1b]10;blue\x07");
+    assert_eq!(d[2], Some((0, 0, 255)), "equal to the theme's text");
+    let (d, _, _) = walked(defaults, b"\x1b]10;blue\x07");
+    assert_eq!(d[2], None, "a cursor nobody set stays unset");
 }
 
 fn colors(bg: Option<Rgb>, fg: Option<Rgb>) -> SelectionColors {

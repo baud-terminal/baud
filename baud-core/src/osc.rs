@@ -431,7 +431,9 @@ impl Paint<'_, '_> {
                 for reset in resets {
                     match reset {
                         ColorReset::Entry(c) => self.set_palette(c, ColorWord::DEFAULT),
-                        ColorReset::Special | ColorReset::Malformed => self.unsupported_total += 1,
+                        ColorReset::Special | ColorReset::Past | ColorReset::Malformed => {
+                            self.unsupported_total += 1
+                        }
                     }
                 }
             }
@@ -445,19 +447,38 @@ impl Paint<'_, '_> {
             // replies do.
             // Each spec in turn, from the number sent on: a query answered
             // where it stands.
+            //
+            // **A cursor colour equal to the text follows a new text
+            // colour** when the sequence does not set the cursor's, as
+            // xterm's `ChangeColors` moves it (`[[source: xterm-scroll]]`
+            // util.c 3062-3070), comparing with the text before the walk.
             Osc::SetDynamic(specs) => {
+                let text = self.cold.shown(DynamicColor::Foreground);
+                let (mut new_text, mut cursor_set) = (None, false);
                 for spec in specs {
                     match spec {
                         DynamicSpec::Color { which, spec } => match spec {
                             XColor::Rgb(r, g, b) => {
                                 let slot = self.cold.video().role(which);
-                                self.set_dynamic(slot, ColorWord::rgb(r, g, b));
+                                let w = ColorWord::rgb(r, g, b);
+                                self.set_dynamic(slot, w);
+                                match which {
+                                    DynamicColor::Foreground => new_text = Some(w),
+                                    DynamicColor::Cursor => cursor_set = true,
+                                    _ => {}
+                                }
                             }
                             XColor::Query => self.report_dynamic(which, term),
                             // Counted, as `OSC 4`'s unresolvable name is.
                             XColor::Unresolved(_) => self.unsupported_total += 1,
                         },
                         DynamicSpec::Unheld => self.unsupported_total += 1,
+                    }
+                }
+                let cursor = self.cold.dynamic[DynamicColor::Cursor.index()];
+                if let Some(w) = new_text {
+                    if !cursor_set && !cursor.is_default() && cursor == text {
+                        self.set_dynamic(DynamicColor::Cursor, w);
                     }
                 }
             }

@@ -430,23 +430,30 @@ impl<'a> Iterator for Split<'a> {
 const MAX_COLORS: u16 = 261;
 
 /// A palette index as `OSC 4` and `OSC 104` name it: an entry, one of
-/// xterm's special colours past the table, or neither.
+/// xterm's special colours past the table, a number past both, or no
+/// number at all.
 enum Index {
     Entry(Chan),
     Special,
+    Past,
     Bad,
 }
 
 impl Index {
+    /// Digits, however many: `0001` is 1, as xterm's `atoi` and `strtol`
+    /// read it (`[[source: xterm-misc]]` 3001, 3064). A sign, a space or any
+    /// other byte is no number, the grammar's `c` being one.
     fn of(s: &[u8]) -> Index {
-        if s.is_empty() || s.len() > 3 || !s.iter().all(u8::is_ascii_digit) {
+        if s.is_empty() || !s.iter().all(u8::is_ascii_digit) {
             return Index::Bad;
         }
-        let v = s.iter().fold(0u16, |v, &b| v * 10 + u16::from(b - b'0'));
+        let v = s.iter().fold(0u16, |v, &b| {
+            v.saturating_mul(10).saturating_add(u16::from(b - b'0'))
+        });
         match u8::try_from(v) {
             Ok(i) => Index::Entry(Chan::from_u8(i)),
             Err(_) if v < MAX_COLORS => Index::Special,
-            Err(_) => Index::Bad,
+            Err(_) => Index::Past,
         }
     }
 }
@@ -513,7 +520,7 @@ impl<'a> Iterator for ColorPairs<'a> {
                 self.walk = Walk::Going;
                 ColorPair::Special
             }
-            Index::Bad => ColorPair::Malformed,
+            Index::Past | Index::Bad => ColorPair::Malformed,
         };
         Some(item)
     }
@@ -590,11 +597,12 @@ pub enum ColorReset {
     Entry(Chan),
     /// One of xterm's special colours, which baud does not keep.
     Special,
-    /// No number, or one past the special colours, or longer than three
-    /// digits, and the last item: xterm stops at "no number at all"
-    /// (`[[source: xterm-misc]]` 3064). It goes on past an out-of-range
-    /// number and reads `0001` as 1, where baud stops: `104;1;999;2` resets
-    /// 2 in xterm and not here.
+    /// A number past the special colours: ignored, as xterm's
+    /// `ResetOneAnsiColor` ignores it (`[[source: xterm-misc]]` 3036-3046),
+    /// and the walk goes on, so `104;1;999;2` resets 1 and 2.
+    Past,
+    /// No number, and the last item: xterm stops at "no number at all"
+    /// and at "unexpected delimiter" (`[[source: xterm-misc]]` 3064-3069).
     Malformed,
 }
 
@@ -627,6 +635,7 @@ impl Iterator for ColorResets<'_> {
         Some(match Index::of(c) {
             Index::Entry(i) => ColorReset::Entry(i),
             Index::Special => ColorReset::Special,
+            Index::Past => ColorReset::Past,
             Index::Bad => {
                 self.walk = Walk::Done;
                 ColorReset::Malformed

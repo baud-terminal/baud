@@ -118,18 +118,21 @@ fn an_unknown_colour_moves_nothing() {
     });
 }
 
-/// The move is made against the text at each flip: a text colour changed
-/// while reversed means the flip back finds no match, and the cursor keeps
-/// the colour it was moved to. That is what xterm's `OSC 12 ; ?` copy holds
-/// (`ReverseOldColors`, misc.c 6418-6431; `UpdateOldColors` copies only the
-/// `OSC 10` entry). xterm's drawn cursor differs: `ChangeColors` (util.c
-/// 3062-3070) carries a cursor equal to the text to the new `OSC 10` colour,
-/// which baud does not build (the `OSC 12` row).
+/// The move is made against the text at each flip. A cursor moved to the
+/// text shown under `?5` follows an `OSC 10` sent there, as xterm's
+/// `ChangeColors` carries a cursor equal to the text to the new colour
+/// (util.c 3062-3070), and the flip back finds it equal to the text again
+/// and moves it to the page shown after, the theme's foreground; xterm's
+/// drawn cursor ends there too. A cursor of its own colour keeps it.
 #[test]
 fn the_move_is_made_on_each_flip_against_the_text_then() {
     each_read_size(
         b"\x1b]12;rgb:d8/d8/d8\x07\x1b[?5h\x1b]10;rgb:12/34/56\x07\x1b[?5l",
-        |t| assert_eq!(cursor(t), Some(BG)),
+        |t| assert_eq!(cursor(t), Some(FG)),
+    );
+    each_read_size(
+        b"\x1b]12;rgb:aa/bb/cc\x07\x1b[?5h\x1b]10;rgb:12/34/56\x07\x1b[?5l",
+        |t| assert_eq!(cursor(t), Some((0xaa, 0xbb, 0xcc))),
     );
 }
 
