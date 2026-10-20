@@ -13,7 +13,10 @@ use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
 use crate::readline::{self, Arrow, Newlines};
 use crate::reveal::{Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes};
 use crate::wheel::{Delta, Route, Travel};
-use baud_core::{Depth, Erasure, Looking, Owned, Screen, SurfaceLine, Term, Zone, grid_stride};
+use baud_core::{
+    ClickHow, ClickKeys, Depth, Erasure, Looking, Owned, PromptJump, Screen, SurfaceLine, Term,
+    Zone, grid_stride,
+};
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
     KeyEventKind, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking,
@@ -7430,7 +7433,16 @@ impl Responder for Driver {
         self.key_kind = kind_of(key);
         if key.modifiers.command {
             // Menu territory: a key equivalent the menu carries never gets
-            // here, and one it does not sends nothing to the child.
+            // here, and one it does not sends nothing to the child -- but
+            // Command-Up and Command-Down, which jump between prompts.
+            let m = key.modifiers;
+            if !(m.shift || m.option || m.control) {
+                match key.key_code {
+                    0x7E => self.jump_to_prompt(PromptJump::Previous),
+                    0x7D => self.jump_to_prompt(PromptJump::Next),
+                    _ => {}
+                }
+            }
             return Handled::Consumed;
         }
         // `?1011`, scroll to the bottom on a key press: set at power-on, so a
@@ -8993,6 +9005,11 @@ impl Driver {
     /// rows are the screen's. A click is a press and a release with no drag
     /// between; xterm also bounds its time by `multiClickTime`, which this
     /// does not.
+    ///
+    /// **A prompt that asked with `OSC 133` takes the click first**: its
+    /// `cl=` or kitty's `click_events=` is the shell saying what it handles,
+    /// and `?2001` is reached only where no prompt asked (Jev, SPEC_LINE,
+    /// 0.80/0.89, the lean taken).
     fn move_point(&mut self, event: &Mouse) {
         let m = event.modifiers;
         let t = &self.app.term;
@@ -9001,9 +9018,15 @@ impl Driver {
             || m.option
             || m.control
             || m.command
-            || !t.resource(baud_core::Resource::ClickMovesPoint)
             || t.window_back().index() != 0
         {
+            return;
+        }
+        if self.prompt_click(event) {
+            return;
+        }
+        let t = &self.app.term;
+        if !t.resource(baud_core::Resource::ClickMovesPoint) {
             return;
         }
         let (row, _, px) = self.pointer_under(event.x, event.y);
@@ -9027,6 +9050,90 @@ impl Driver {
             );
         }
         self.app.flush_reply();
+    }
+
+    /// **A click at the prompt the shell is at, as its `A` asked**
+    /// (`Term::prompt_click`): kitty's `click_events=` sends the click as
+    /// an SGR report, `cl=` the keys that move the line editor's cursor to
+    /// it (`readline::prompt_move`) -- the cursor keys as the wheel sends
+    /// them, kitty's `special_key=1` pair, or the proposal's `move-keys=`.
+    /// Whether a prompt asked, and so took the click.
+    fn prompt_click(&mut self, event: &Mouse) -> bool {
+        let Some(asked) = self.app.term.prompt_click() else {
+            return false;
+        };
+        let click = self.cell_under(event.x, event.y);
+        match asked.how {
+            ClickHow::Report(events) => {
+                if let Some(bytes) = readline::prompt_report(events, asked.top, asked.later, click)
+                {
+                    self.app.outbox.push(&bytes);
+                }
+            }
+            ClickHow::Keys(keys) => {
+                let t = &self.app.term;
+                let view = t.viewport();
+                let rows = Rows::of_count(t.geometry().1.index());
+                let Some((arrow, n)) = readline::prompt_move(
+                    |r| view.row(r),
+                    |r| view.wrapped(r),
+                    rows,
+                    t.cursor(),
+                    click,
+                    asked.input,
+                ) else {
+                    return true;
+                };
+                let left = arrow == Arrow::Left;
+                for _ in 0..n {
+                    match keys {
+                        ClickKeys::Arrows => {
+                            let code = if left { KeyCode::Left } else { KeyCode::Right };
+                            let outbox = &mut self.app.outbox;
+                            crate::reads::input(
+                                &mut self.app.term,
+                                |t| t.wheel_key(KeyEvent::press(code, Modifiers::default())),
+                                |b| outbox.push(b),
+                            );
+                        }
+                        // `[[source: kitty-6d5d0c4-screen]]`, its fake cursor
+                        // move to a click: "1" right,
+                        // "1;1" left, each `CSI ... u`.
+                        ClickKeys::Special => self.app.outbox.push(match left {
+                            true => b"\x1b[1;1u",
+                            false => b"\x1b[1u",
+                        }),
+                        ClickKeys::Sequences(k) => self.app.outbox.push(match left {
+                            true => k.left(),
+                            false => k.right(),
+                        }),
+                    }
+                }
+            }
+        }
+        self.app.flush_reply();
+        true
+    }
+
+    /// **Command-Up and Command-Down jump to the previous and the next
+    /// prompt** (`Term::jump_to_prompt`), the prompt's first line at the
+    /// window's top: Terminal's "Jump to previous mark Command-Up Arrow"
+    /// (`[[source: apple-terminal-shortcuts]]`), and Ghostty's macOS default
+    /// ("matches Terminal.app", `[[source: ghostty-b58ef1d-config]]`). Jev's
+    /// lean, CMD_ARROWS (0.56/0.61). A jump reveals the thumb as a wheel's
+    /// move does.
+    fn jump_to_prompt(&mut self, to: PromptJump) {
+        if !self.app.term.jump_to_prompt(to) {
+            return;
+        }
+        if let Some(now) = HostTime::of_secs(self.app.tick_target) {
+            self.app.reveal.reveal(now);
+        }
+        if self.app.term.window_back().index() != 0 {
+            self.app.slide.snap();
+        }
+        self.app.pending = Pending::Dirty;
+        self.pump(Trigger::Wake);
     }
 
     /// The scrollbar's strip: the overlay scroller's frame at the grid's
