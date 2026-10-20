@@ -48,6 +48,14 @@ is at absolute line `scrolled - back + y`. So a selection:
   moved by the rows the resize retired or took back, and cleared on the
   alternate screen and where it reaches a row the shrink cut (note V, V3,
   since 2026-10-20; every resize cleared it before).
+* **moves with its text** when a program scrolls rows under it without
+  moving the ring -- a region's scroll, `IL`, `DL` -- and stays on its text
+  under a top region's scroll, losing only the lines a scroll takes out of
+  its region, pushes under the screen or sends off the alternate screen's
+  top, as xterm does with `keepSelection` at its default (the core's watch,
+  `Term::watched_lines`; Jev's decisions of 2026-10-20, where each of these
+  dropped it before). A write or an erase on it, `IL` at a row in it, `DL`
+  of a row in it, and a scroll under side margins still clear it.
 
 The alternative -- keying on physical rows and a generation -- is what the
 position-keyed marks table was, and CLAUDE.md records what that cost. An

@@ -545,7 +545,7 @@ impl Paint<'_, '_> {
     pub(crate) fn retire(&mut self) {
         if self.cold.screen != crate::term::Screen::Normal {
             if self.cold.watched == crate::term::Watched::Rows {
-                self.cold.watch_uncounted(Scroll::Up);
+                self.cold.watch_uncounted(Scroll::Up, self.book.top);
             }
             if self.images.any_placed() || self.cold.guard_open.is_some() {
                 self.alt_images_moved(Scroll::Up);
@@ -775,7 +775,7 @@ impl Paint<'_, '_> {
     pub(crate) fn unretire(&mut self) {
         if self.cold.screen != crate::term::Screen::Normal {
             if self.cold.watched == crate::term::Watched::Rows {
-                self.cold.watch_uncounted(Scroll::Down);
+                self.cold.watch_uncounted(Scroll::Down, self.book.top);
             }
             if self.images.any_placed() || self.cold.guard_open.is_some() {
                 self.alt_images_moved(Scroll::Down);
@@ -795,7 +795,7 @@ impl Paint<'_, '_> {
             Some(t) => self.book.top = t,
             None => {
                 if self.cold.watched == crate::term::Watched::Rows {
-                    self.cold.watch_uncounted(Scroll::Down);
+                    self.cold.watch_uncounted(Scroll::Down, self.book.top);
                 }
                 if self.images.any_placed() {
                     self.images.shift(ImageScreen::Primary, Rows::of_count(1));
@@ -905,11 +905,8 @@ impl Paint<'_, '_> {
             // under the region are tested against the watch on it as the
             // scroll finds them -- before it advances, which is how the
             // selection was numbered -- whatever region the read ends in.
-            self.cold.test_watch(
-                Row::from_index(bot.index() + 1),
-                Row::from_index(last),
-                self.book.top,
-            );
+            self.cold
+                .under_top_region(bot, Rows::of_count(k), self.book.top);
             // **To the furthest the rows hold, on the primary.** A growth
             // without a re-cut shows the cells past a narrower edge as they
             // are, so the rows put back carry theirs (`View::copy_row`). The
@@ -934,8 +931,10 @@ impl Paint<'_, '_> {
             self.scroll_copy += k;
         }
         // **The rows moved and no ring did**: what a reader holding a
-        // selection on them has to learn (`Term::row_moves`).
-        self.cold.moved_in_place(top, bot, self.book.top);
+        // selection on them has to learn (`Term::row_moves`), and the
+        // watched lines move with them.
+        self.cold
+            .band_moved((top, bot), Rows::of_count(k), Scroll::Up, self.book.top);
         // **Ceiling arm: the region move, priced.** Incorrect by construction --
         // a region that never scrolls leaves stale rows on the screen -- but
         // the cell accounting below still runs, so both arms attribute the
@@ -1247,7 +1246,7 @@ impl Paint<'_, '_> {
         }
         let under = Row::from_index(self.rows.index());
         self.cold.test_watch(Row::ZERO, Row::ZERO, self.book.top);
-        self.cold.test_watch(under, under, self.book.top);
+        self.cold.pushed_under(under, self.book.top);
     }
 
     pub(crate) fn scroll_region_down(&mut self, n: Count) {
@@ -1285,7 +1284,8 @@ impl Paint<'_, '_> {
         {
             self.scroll_copy += k;
         }
-        self.cold.moved_in_place(top, bot, self.book.top);
+        self.cold
+            .band_moved((top, bot), Rows::of_count(k), Scroll::Down, self.book.top);
         if self.past_edge() {
             self.clear_swept();
         }
@@ -1362,7 +1362,8 @@ impl Paint<'_, '_> {
         }
         let (at, bot) = (self.cy, self.cold.bot);
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
-        self.cold.moved_in_place(at, bot, self.book.top);
+        self.cold
+            .lines_inserted((at, bot), Rows::of_count(k), self.book.top);
         if self.past_edge() {
             self.clear_swept();
         }
@@ -1397,7 +1398,8 @@ impl Paint<'_, '_> {
         }
         let (at, bot) = (self.cy, self.cold.bot);
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
-        self.cold.moved_in_place(at, bot, self.book.top);
+        self.cold
+            .lines_deleted((at, bot), Rows::of_count(k), self.book.top);
         if self.past_edge() {
             self.clear_swept();
         }

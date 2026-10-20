@@ -1107,10 +1107,10 @@ tests = ["baud-render/src/select.rs::a_word_stops_at_delimiters_blanks_and_empty
 id = "selection-honest"
 area = "scroll"
 name = "You never copy text that is gone"
-does = "A selection disappears when the text under it is redrawn, scrolled away, reset or switched."
+does = "A selection stays on its text when a program scrolls it, and disappears when the text under it is redrawn, scrolled away, reset or switched."
 status = "built"
 platform = "macos"
-tests = ["baud-app/src/app.rs::rows_moved_in_place_drop_a_selection_on_them_and_only_there", "baud-app/src/app.rs::a_reset_drops_a_selection_even_with_no_history"]
+tests = ["baud-app/src/app.rs::a_scroll_carries_a_selection_with_its_text_at_every_read_size", "baud-app/src/app.rs::a_reset_drops_a_selection_even_with_no_history"]
 
 [[feature]]
 id = "reflow"

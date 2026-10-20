@@ -29401,3 +29401,31 @@ bytes  = 16793
 status = "external"
 group  = "H"
 # Fetched 2026-10-20 (lane b113). Lines 107-133 the numpad entries, 247-264 kpDefault and kpKeys. Read, not copied.
+
+[sources.alacritty-selection-0-15-1]
+key    = "alacritty-selection-0-15-1"
+title  = "alacritty 0.15.1, selection.rs -- Selection::rotate, a selection's ends moved with the rows a scroll moves and clamped at the region's edges (137-191)"
+author = "Joe Wilm, Christian Duerr and the Alacritty contributors"
+year   = 2025
+venue  = "Alacritty terminal emulator, tag v0.15.1"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty_terminal/src/selection.rs"
+file   = ""
+sha256 = "c3254d28ead32f975f96b1f1db1f987e861fa880d86419d08e6f2dc6dfb3e825"
+bytes  = 24388
+status = "external"
+group  = "F"
+# Fetched 2026-10-20 (lane b115). Practice for a selection under a scroll; read, not copied.
+
+[sources.alacritty-term-0-15-1]
+key    = "alacritty-term-0-15-1"
+title  = "alacritty 0.15.1, term/mod.rs -- scroll_down_relative and scroll_up_relative rotate the selection over the scrolled range; insert_blank_lines and delete_lines call them"
+author = "Joe Wilm, Christian Duerr and the Alacritty contributors"
+year   = 2025
+venue  = "Alacritty terminal emulator, tag v0.15.1"
+url    = "https://raw.githubusercontent.com/alacritty/alacritty/v0.15.1/alacritty_terminal/src/term/mod.rs"
+file   = ""
+sha256 = "3a3523c4d0996e2286a3f4b379ed99382511fb31663071f5dbf6e1124e8d17b0"
+bytes  = 112815
+status = "external"
+group  = "F"
+# Fetched 2026-10-20 (lane b115). Lines 742-780 and 1497-1517. Read, not copied.

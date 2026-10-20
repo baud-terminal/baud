@@ -329,8 +329,8 @@ impl RegionScrolls {
 /// says so: the ring did not move, so [`Term::history_moved_since`] and
 /// [`Term::region_scrolls`] read nothing. A count says a row moved and not
 /// which: an embedder holding a selection on the live screen arms
-/// [`Term::watch_rows`] on its rows, which judges each such move by the rows
-/// it moved.
+/// [`Term::watch_rows`] on its rows, which carries them through each such
+/// move by the rows it moved.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct RowMoves(u32);
 
@@ -353,6 +353,24 @@ pub enum SurfaceLine {
     At(Row),
 }
 
+/// How far the text of watched lines moved against the count of lines the
+/// live surface retired or took back: up the screen, or down it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TextMoved {
+    Up(Rows),
+    Down(Rows),
+}
+
+/// What [`Term::watched_lines`] says of the watched lines: the first and
+/// last that stay, as lines of the live surface now, and how far the text
+/// of a line that no trim reached moved against the count.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WatchedLines {
+    pub first: SurfaceLine,
+    pub last: SurfaceLine,
+    pub moved: TextMoved,
+}
+
 /// **The lines of the live surface an embedder's selection names, watched
 /// across a read** ([`Term::watch_lines`], [`Term::watched_rows_changed`]):
 /// the first and last as the arm found them, on the screen or in the
@@ -360,22 +378,34 @@ pub enum SurfaceLine {
 /// -- so a move of rows in place made after lines retired is numbered as the
 /// selection is: screen row `y` with `r` lines retired since the arm is the
 /// arm's row `y + r`, and with `b` taken back the arm's row `y - b`, which
-/// is a line of the history when `b > y`. Each move tests its own rows
-/// against them, each write or erase the rows it lands on, and so does each
-/// scroll of a region anchored at the top, for the rows under it that stay
-/// while the ring advances, and each line taken back -- by the whole
-/// screen's scroll down, for the top row it blanks and the row it gives up
-/// below, and by a redraw mark, for its block's rows -- for the rows whose
-/// text it erases: what a read decides of those does not depend on where
-/// the reads that carried it began and ended, so a region set and set back
-/// inside one read, two moves in two bands, or a line retired and taken
-/// back, are judged move by move as when they arrive apart.
+/// is a line of the history when `b > y`. Each move carries or trims them
+/// by its own rows, each write or erase tests the rows it lands on, and so
+/// does each line taken back -- by the whole screen's scroll down, for the
+/// top row it blanks, and by a redraw mark, for its block's rows -- for the
+/// rows whose text it erases: what a read decides of those does not depend
+/// on where the reads that carried it began and ended, so a region set and
+/// set back inside one read, two moves in two bands, or a line retired and
+/// taken back, are judged move by move as when they arrive apart.
 ///
 /// **Numbered by the count, not by the rotation.** The rotation is read
 /// round the ring, so past half of it a read's lines retired read as lines
 /// taken back; the count is exact however far the surface moves, and
 /// [`Term::watched_moved`] gives it to the embedder, which numbers its
 /// selection by it.
+///
+/// **And carried with their text through a move of rows** (note V, the
+/// Jev decisions of 2026-10-20, as xterm's `adjustHiliteOnFwdScroll` and
+/// `adjustHiliteOnBakScroll` do with `keepSelection` at its default,
+/// `[[source: xterm-scroll]]`): a full-width region's scroll moves the
+/// lines inside it, keeps only the part inside when they straddle its
+/// edge, and trims the lines it moves out; a scroll down trims what it
+/// pushes under the screen; on the alternate screen a line leaving the top
+/// trims the first; the rows under a top region's scroll stay where they
+/// are; `IL` and `DL` move the lines below the cursor, and reach them
+/// when the cursor's row, or a deleted row, is one of them. Only a move
+/// that leaves nothing, a move under side margins, a write, an erase and a
+/// line taken back over them still reach them. [`Term::watched_lines`]
+/// gives where they stand.
 #[derive(Clone, Copy)]
 pub(crate) struct RowWatch {
     /// The arm's screen row 0, in the watch's numbering: the live ring's
@@ -386,15 +416,28 @@ pub(crate) struct RowWatch {
     pub(crate) last: Rows,
     /// The primary's top line at the arm, which counts every line the
     /// primary retires or takes back -- but for one taken back at line zero
-    /// -- however many.
+    /// -- however many; moved on by each line the live surface took back
+    /// that the top line does not count: every one on the alternate screen,
+    /// and on the primary one taken back at line zero. Moved rather than
+    /// counted beside it, so the watch keeps its six words.
     pub(crate) top: LineIdx,
     /// The lines the live surface advanced since the arm that `top` does
     /// not count: every one on the alternate screen, whose lines are no
     /// one's.
     pub(crate) ahead: Rows,
-    /// And the lines it took back that `top` does not count: every one on
-    /// the alternate screen, and on the primary one taken back at line zero.
-    pub(crate) back: Rows,
+    /// `base` moved by every move of rows that carried the watched lines
+    /// with their text, up as a region's scroll up moves them and down as
+    /// a scroll down does or as the count moves past the rows under a top
+    /// region: how far a line of the watch that no trim reached has moved
+    /// against the count, [`Term::watched_lines`]'s `moved`.
+    pub(crate) carried: Rows,
+}
+
+/// Whether anything of the watched lines stays after a move of rows.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stays {
+    Some,
+    Nothing,
 }
 
 impl RowWatch {
@@ -404,14 +447,76 @@ impl RowWatch {
         last: Rows::ZERO,
         top: LineIdx::FIRST,
         ahead: Rows::ZERO,
-        back: Rows::ZERO,
+        carried: Rows::ZERO,
     };
+
+    /// Screen row `y` now, the primary's top line at `top`, in the watch's
+    /// numbering: the arm's row `y + r` with `r` lines retired since, and
+    /// `y - b` with `b` taken back, as [`RowWatch::touched`] numbers it.
+    fn now(self, y: Row, top: LineIdx) -> Rows {
+        let at = self.base.index() + y.index();
+        Rows::of_count(match self.net(top) {
+            Moved::Retired(r) => at + r.index(),
+            Moved::Restored(b) => at.saturating_sub(b.index()),
+        })
+    }
+
+    /// The watch's number `n` as a line of the live surface now: a screen
+    /// row, or a line of the history above it.
+    fn surface(self, n: Rows, top: LineIdx) -> SurfaceLine {
+        let row0 = self.now(Row::ZERO, top);
+        match n.index().checked_sub(row0.index()) {
+            Some(y) => SurfaceLine::At(Row::from_index(y)),
+            None => SurfaceLine::Above(Rows::of_count(row0.index() - n.index())),
+        }
+    }
+
+    /// The watched lines carried `k` rows `way` with their text.
+    fn carry(&mut self, k: Rows, way: crate::ops::Scroll) {
+        let step = |n: Rows| match way {
+            crate::ops::Scroll::Up => Rows::of_count(n.index().saturating_sub(k.index())),
+            crate::ops::Scroll::Down => Rows::of_count(n.index() + k.index()),
+        };
+        (self.first, self.last, self.carried) =
+            (step(self.first), step(self.last), step(self.carried));
+    }
+
+    /// **Rows `from` to `to`, full width, moved `k` rows `way` in place**,
+    /// the primary's top line at `top`, and the watched lines with them:
+    /// xterm's rule for a scroll of a region (`[[source: xterm-scroll]]`,
+    /// `adjustHiliteOnFwdScroll`, `adjustHiliteOnBakScroll`). Lines wholly
+    /// outside the band stay; lines straddling its edge keep the part
+    /// inside it (Jev's lean, 0.67 and 0.58); the rest move with their text
+    /// and lose what the move takes out of the band.
+    fn band(
+        &mut self,
+        from: Row,
+        to: Row,
+        k: Rows,
+        way: crate::ops::Scroll,
+        top: LineIdx,
+    ) -> Stays {
+        let (a, b) = (self.now(from, top), self.now(to, top));
+        if self.last < a || self.first > b {
+            return Stays::Some;
+        }
+        (self.first, self.last) = (self.first.max(a), self.last.min(b));
+        self.carry(k, way);
+        match way {
+            crate::ops::Scroll::Up if self.last < a => Stays::Nothing,
+            crate::ops::Scroll::Down if self.first > b => Stays::Nothing,
+            _ => {
+                (self.first, self.last) = (self.first.max(a), self.last.min(b));
+                Stays::Some
+            }
+        }
+    }
 
     /// How far the live surface moved since the arm, with the primary's
     /// top line at `top`: exact, however many lines, where
     /// [`Term::moved_since`] reads the rotation round the ring.
     fn net(self, top: LineIdx) -> Moved {
-        let (now, then) = (top.plus(self.ahead), self.top.plus(self.back));
+        let (now, then) = (top.plus(self.ahead), self.top);
         match now.since(then) {
             Some(n) => Moved::Retired(n),
             None => Moved::Restored(then.since(now).unwrap_or(Rows::ZERO)),
@@ -1193,6 +1298,9 @@ pub struct Cold {
 // embedder alone.
 // The per-screen saved cursor's slot (`saved_other`, a `Saved` where the
 // `?1049` record was) is eight bytes smaller, which took it back to 792.
+// The watch's `carried`, written by a move of rows while a selection's
+// lines are watched, takes the word its count of lines taken back had,
+// which now moves the arm's top line on instead, so it stays at 792.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 792);
@@ -1331,23 +1439,113 @@ impl Cold {
         self.test_watch(from, to, top);
     }
 
+    /// **Rows `from` to `to`, full width, moved `k` rows `way` in place** --
+    /// a scroll of a region that copies its rows -- the primary's top line
+    /// at `top`: counted for [`Term::row_moves`], and the watched lines
+    /// carried with their text ([`RowWatch::band`]), reached only when the
+    /// move leaves none of them. A move under side margins is not one of
+    /// these: xterm disowns the selection there ([`Cold::moved_in_place`]).
+    pub(crate) fn band_moved(
+        &mut self,
+        (from, to): (Row, Row),
+        k: Rows,
+        way: crate::ops::Scroll,
+        top: LineIdx,
+    ) {
+        self.row_moves = self.row_moves.next();
+        if self.watched == Watched::Rows
+            && self.row_watch.band(from, to, k, way, top) == Stays::Nothing
+        {
+            self.watched = Watched::Changed;
+        }
+    }
+
+    /// **`IL` of `k` rows at `at`, full width, in the band to `bot`**:
+    /// xterm's `InsertLine` (`[[source: xterm-scroll]]`) disowns the
+    /// selection when the cursor's row lies in it, since blank rows then
+    /// open inside it, and otherwise the rows carry it down; Jev's XTERM,
+    /// 0.91 and 0.94. Counted for [`Term::row_moves`].
+    pub(crate) fn lines_inserted(&mut self, (at, bot): (Row, Row), k: Rows, top: LineIdx) {
+        self.row_moves = self.row_moves.next();
+        if self.watched != Watched::Rows {
+            return;
+        }
+        let w = &mut self.row_watch;
+        let row = w.now(at, top);
+        let reached = w.first <= row && row <= w.last;
+        if reached || w.band(at, bot, k, crate::ops::Scroll::Down, top) == Stays::Nothing {
+            self.watched = Watched::Changed;
+        }
+    }
+
+    /// **`DL` of `k` rows at `at`, full width, in the band to `bot`**:
+    /// xterm's `DeleteLine` disowns the selection when a deleted row lies
+    /// in it, whose text goes, and otherwise the rows carry it up.
+    pub(crate) fn lines_deleted(&mut self, (at, bot): (Row, Row), k: Rows, top: LineIdx) {
+        self.row_moves = self.row_moves.next();
+        if self.watched != Watched::Rows {
+            return;
+        }
+        let w = &mut self.row_watch;
+        let gone = Row::from_index(at.index() + k.index().saturating_sub(1));
+        let (a, b) = (w.now(at, top), w.now(gone, top));
+        let reached = w.first <= b && a <= w.last;
+        if reached || w.band(at, bot, k, crate::ops::Scroll::Up, top) == Stays::Nothing {
+            self.watched = Watched::Changed;
+        }
+    }
+
+    /// **The rows under a top region the ring advances `k` lines through**,
+    /// the region's last row `bot`, the primary's top line at `top`, before
+    /// the advance: their text stays while the count moves, so watched
+    /// lines wholly under it are carried down against the count and stay on
+    /// their text (Jev's STAY, 0.96 and 0.94), and lines straddling the
+    /// region's bottom keep the part inside it, which the count moves.
+    pub(crate) fn under_top_region(&mut self, bot: Row, k: Rows, top: LineIdx) {
+        if self.watched != Watched::Rows {
+            return;
+        }
+        let w = &mut self.row_watch;
+        let edge = w.now(bot, top);
+        if w.first > edge {
+            w.carry(k, crate::ops::Scroll::Down);
+        } else if w.last > edge {
+            w.last = edge;
+        }
+    }
+
+    /// **The row a whole screen's scroll down gave up below**, `under`, the
+    /// primary's top line at `top`, after the line was counted: watched
+    /// lines on it are trimmed off the end, as xterm's
+    /// `adjustHiliteOnBakScroll` truncates them at the bottom margin, and
+    /// reached only when nothing above it stays (Jev's TRIM, 0.98 and 0.94).
+    pub(crate) fn pushed_under(&mut self, under: Row, top: LineIdx) {
+        if self.watched != Watched::Rows {
+            return;
+        }
+        let w = &mut self.row_watch;
+        let u = w.now(under, top);
+        match u.index().checked_sub(1) {
+            Some(above) if w.first < u => w.last = w.last.min(Rows::of_count(above)),
+            _ => self.watched = Watched::Changed,
+        }
+    }
+
     /// Rows `from` to `to` of the live screen, the primary's top line at
     /// `top`, whose text no longer sits where a selection numbered by the
     /// lines retired would look for it, tested against the watch on a
     /// selection's lines when one is armed and nothing has reached it yet.
-    /// Four kinds: rows moved in place, whose text moved while no ring did
-    /// ([`Cold::moved_in_place`]); rows written or erased, whose text a
-    /// selection on them no longer holds, as xterm disowns it
-    /// (`Paint::wrote_rows`); the rows under a region anchored at the top,
-    /// whose text stayed while the region's scroll advanced the ring, so the
-    /// numbering would move them a row up for each line; and the rows a line
-    /// taken back erases -- the top row the whole screen's scroll down
-    /// blanks and the row it gives up below, which a line feed brings back
-    /// blank, and the rows of a prompt block a redraw mark erases -- whose
-    /// line a read that retires it again would leave the selection on. Only
-    /// the first is counted for [`Term::row_moves`]: a write moves no row,
-    /// [`Term::region_scrolls`] already says the ring advanced through a
-    /// region, and the ring moving back is what the count says.
+    /// Three kinds: rows a scroll under side margins moved in place, whose
+    /// text moved while no ring did and which xterm disowns a selection on
+    /// ([`Cold::moved_in_place`]; a full-width move carries the watched
+    /// lines instead, [`Cold::band_moved`]); rows written or erased, whose
+    /// text a selection on them no longer holds, as xterm disowns it
+    /// (`Paint::wrote_rows`); and the rows a line taken back erases -- the
+    /// top row the whole screen's scroll down blanks, and the rows of a
+    /// prompt block a redraw mark erases -- whose line a read that retires
+    /// it again would leave the selection on. Only the first is counted for
+    /// [`Term::row_moves`]: a write moves no row, and the ring moving back
+    /// is what the count says.
     pub(crate) fn test_watch(&mut self, from: Row, to: Row, top: LineIdx) {
         self.test_watch_lines(SurfaceLine::At(from), SurfaceLine::At(to), top);
     }
@@ -1370,13 +1568,28 @@ impl Cold {
     /// `retreat_rot` of a full-screen scroll is followed by an `unretire`;
     /// the one other, the prompt block's on the primary, moves the top line
     /// with it -- each behind the one compare of the watch's state.
+    ///
+    /// **A line the alternate screen advances over is gone**, and the
+    /// watched lines lose it at that scroll, as xterm's
+    /// `adjustHiliteOnFwdScroll` truncates a selection's start at the top
+    /// there: a later scroll down in the same read then carries what stays
+    /// with its text, at every read size (Jev's TRIM_AT_SCROLL, 0.98 and
+    /// 0.94). `Up` comes from the alternate screen alone, `top` being the
+    /// primary's top line.
     #[cold]
     #[inline(never)]
-    pub(crate) fn watch_uncounted(&mut self, way: crate::ops::Scroll) {
+    pub(crate) fn watch_uncounted(&mut self, way: crate::ops::Scroll, top: LineIdx) {
         let w = &mut self.row_watch;
         match way {
-            crate::ops::Scroll::Up => w.ahead = Rows::of_count(w.ahead.index() + 1),
-            crate::ops::Scroll::Down => w.back = Rows::of_count(w.back.index() + 1),
+            crate::ops::Scroll::Up => {
+                w.ahead = Rows::of_count(w.ahead.index() + 1);
+                let row0 = w.now(Row::ZERO, top);
+                match w.last < row0 {
+                    true => self.watched = Watched::Changed,
+                    false => w.first = w.first.max(row0),
+                }
+            }
+            crate::ops::Scroll::Down => w.top = w.top.plus(Rows::of_count(1)),
         }
     }
 
@@ -3640,18 +3853,20 @@ impl<'b> Term<'b> {
 
     /// Arm the watch on the lines of the live surface a selection names,
     /// `first` to `last` as they stand now -- rows of the screen or lines of
-    /// the history above it -- or on none. Until the next arm,
-    /// [`Term::watched_rows_changed`] says whether a move of rows in place --
-    /// `IL`, `DL`, a region scroll that copies -- moved one of them, a
-    /// scroll of a region anchored at the top advanced the ring over one
-    /// that stayed under it, or a line taken back -- by `SD` or `RI` over
-    /// the whole screen, or by a redraw mark -- erased one, numbered through
-    /// every line the live surface retires or takes back in between, as
-    /// [`Term::watched_moved`] counts them for the embedder to number its
-    /// selection. Each is judged by its own rows and not by the region a
-    /// read ends in, so a read that sets a region, scrolls in it and sets
-    /// the first one back answers as the same bytes fed in any number of
-    /// reads. **And whether a write or an erase landed on one**: text, a
+    /// the history above it -- or on none. Until the next arm, the lines are
+    /// carried with their text through every move of rows -- `IL`, `DL`, a
+    /// region scroll that copies, the rows under a top region's scroll, a
+    /// scroll down that pushes some under the screen, the alternate
+    /// screen's top -- and [`Term::watched_lines`] says where they stand;
+    /// [`Term::watched_rows_changed`] says whether a move left none of them,
+    /// a move under side margins moved one, or a line taken back -- by `SD`
+    /// or `RI` over the whole screen, or by a redraw mark -- erased one,
+    /// numbered through every line the live surface retires or takes back
+    /// in between, as [`Term::watched_moved`] counts them for the embedder
+    /// to number its selection. Each is judged by its own rows and not by
+    /// the region a read ends in, so a read that sets a region, scrolls in
+    /// it and sets the first one back answers as the same bytes fed in any
+    /// number of reads. **And whether a write or an erase landed on one**: text, a
     /// mark joined to a cell, `EL`, `ED`, `ECH`, `ICH`, `DCH`, the selective
     /// erases -- of the saved lines too -- `DECIC`, `DECDC`, `DECALN`, a
     /// redraw mark's erase, whatever it leaves there. An embedder arms it
@@ -3665,6 +3880,7 @@ impl<'b> Term<'b> {
                 let mut w = RowWatch {
                     base: self.ring(),
                     top: self.store.book.top,
+                    carried: self.ring(),
                     ..RowWatch::IDLE
                 };
                 w.first = w.number(first);
@@ -3681,10 +3897,10 @@ impl<'b> Term<'b> {
         self.watch_lines(rows.map(|(a, b)| (SurfaceLine::At(a), SurfaceLine::At(b))));
     }
 
-    /// Whether, since [`Term::watch_lines`] was armed, a move of rows in
-    /// place moved a line it names, a write or an erase landed on one, a
-    /// top region's scroll left one under it while the ring advanced, or a
-    /// line taken back erased one; `false` when it was armed on none.
+    /// Whether, since [`Term::watch_lines`] was armed, a move of rows left
+    /// none of the lines it names, a move under side margins or `IL` or
+    /// `DL` reached one, a write or an erase landed on one, or a line taken
+    /// back erased one; `false` when it was armed on none.
     pub fn watched_rows_changed(&self) -> bool {
         self.cold.watched == Watched::Changed
     }
@@ -3702,6 +3918,31 @@ impl<'b> Term<'b> {
     pub fn watched_moved(&self) -> Option<Moved> {
         match self.cold.watched {
             Watched::Rows => Some(self.cold.row_watch.net(self.store.book.top)),
+            Watched::Nothing | Watched::Changed => None,
+        }
+    }
+
+    /// **Where the lines [`Term::watch_lines`] was armed on stand now**, and
+    /// how far their text moved against [`Term::watched_moved`]'s count:
+    /// carried by the moves of rows a read made, trimmed where a move took
+    /// lines out of its band or off the alternate screen's top or under the
+    /// screen. `None` when the watch was armed on none, or a line it names
+    /// has been reached ([`Term::watched_rows_changed`]). A line of the
+    /// selection that no trim reached is now `moved` from where the count
+    /// alone puts it; one outside `first` to `last` is gone.
+    pub fn watched_lines(&self) -> Option<WatchedLines> {
+        match self.cold.watched {
+            Watched::Rows => {
+                let (w, top) = (self.cold.row_watch, self.store.book.top);
+                Some(WatchedLines {
+                    first: w.surface(w.first, top),
+                    last: w.surface(w.last, top),
+                    moved: match w.carried.index().checked_sub(w.base.index()) {
+                        Some(d) => TextMoved::Down(Rows::of_count(d)),
+                        None => TextMoved::Up(Rows::of_count(w.base.index() - w.carried.index())),
+                    },
+                })
+            }
             Watched::Nothing | Watched::Changed => None,
         }
     }

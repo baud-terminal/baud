@@ -175,6 +175,6 @@ pub use storage::{
 pub use term::{
     ColumnRefusals, Erasure, HistoryErasures, HistoryMark, Looking, Moved, Overrides,
     RegionScrolls, Resets, Resized, Rest, ReverseFlips, RowMoves, Screen, ScreenEpoch,
-    SelectionColors, SurfaceLine, Term, ThemeColors, TitleReportsRefused, UpdatesOpened,
-    WidthRequests, WrapPending, Written, Zone,
+    SelectionColors, SurfaceLine, Term, TextMoved, ThemeColors, TitleReportsRefused, UpdatesOpened,
+    WatchedLines, WidthRequests, WrapPending, Written, Zone,
 };

@@ -18,7 +18,7 @@
 //! Option held at the press, a **block**: every row between the two
 //! endpoints, over one range of columns taken apart from the lines.
 
-use baud_core::{SurfaceLine, Term};
+use baud_core::{SurfaceLine, Term, TextMoved, WatchedLines};
 use baud_domain::{Col, Cols, Content, PackedCell, Row, Rows, Viewport, Wrap};
 
 /// A line of the live surface, numbered from the start of the session: the
@@ -95,6 +95,15 @@ impl Scrolled {
                 let y = gap(line.0, self.0);
                 (y < rows.index()).then(|| SurfaceLine::At(Row::from_index(y)))
             }
+        }
+    }
+
+    /// The absolute line `at` names on the live surface whose top is this
+    /// count: [`Scrolled::surface_line`]'s inverse.
+    pub fn line_of(self, at: SurfaceLine) -> AbsLine {
+        match at {
+            SurfaceLine::At(y) => self.line(Rows::ZERO, y),
+            SurfaceLine::Above(n) => self.top(n),
         }
     }
 
@@ -362,6 +371,36 @@ impl Selection {
             }
         }
         Clip::Kept
+    }
+
+    /// **Carry the selection with its text across a read**, by what the
+    /// core's watch on its lines says (`Term::watched_lines`), the count
+    /// that numbers it already moved to `scrolled`: every endpoint moved as
+    /// its text moved against the count, then held to the lines that stay
+    /// -- a stream's cut start to its line's first column and its cut end
+    /// to `last_col`, a block's in the column it had, as [`Selection::clip`]
+    /// holds one. A read that moved no rows in place moves nothing.
+    pub fn follow(&mut self, scrolled: Scrolled, watched: WatchedLines, last_col: Col) {
+        let (first, last) = (
+            scrolled.line_of(watched.first),
+            scrolled.line_of(watched.last),
+        );
+        let region = self.region;
+        for span in [&mut self.anchor, &mut self.head] {
+            for p in [&mut span.start, &mut span.end] {
+                let line = match watched.moved {
+                    TextMoved::Up(k) => p.line.minus(k),
+                    TextMoved::Down(k) => p.line.plus(k),
+                };
+                *p = match (line < first, line > last, region) {
+                    (true, _, Region::Stream) => Point::new(first, Col::ZERO),
+                    (_, true, Region::Stream) => Point::new(last, last_col),
+                    (true, _, Region::Block) => Point::new(first, p.col),
+                    (_, true, Region::Block) => Point::new(last, p.col),
+                    (false, false, _) => Point::new(line, p.col),
+                };
+            }
+        }
     }
 
     /// Where the selection falls on a view whose top row is `top`, in the
@@ -750,6 +789,82 @@ mod tests {
             (AbsLine::at(Rows::of_count(7)), 0)
         );
         assert_eq!(s.clip(AbsLine::at(Rows::of_count(9))), Clip::Cleared);
+    }
+
+    /// **A carried selection moves with its text and is held to the lines
+    /// that stay**: a stream over lines 5, column 3, to 8, column 2, moved
+    /// up two with lines 3 to 5 left, keeps line 3 from column 3 and is cut
+    /// at 5's last column; moved down two with lines 8 to 10 left, its start
+    /// is cut to line 8's first column and it keeps 10, column 2. A block
+    /// keeps the columns it had at a cut end. Unmoved and uncut, nothing
+    /// changes.
+    #[test]
+    fn a_carried_selection_moves_with_its_text_and_keeps_the_lines_that_stay() {
+        use baud_core::{SurfaceLine, TextMoved, WatchedLines};
+        let line = |n| AbsLine::at(Rows::of_count(n));
+        let span = Span {
+            start: Point::new(line(5), Col::at_index(3)),
+            end: Point::new(line(8), Col::at_index(2)),
+        };
+        let at = |y| SurfaceLine::At(Row::from_index(y));
+        let scrolled = Scrolled::START;
+        let last = Col::at_index(19);
+        let ends = |s: Selection| {
+            let (a, b) = s.ordered();
+            ((a.line, a.col.index()), (b.line, b.col.index()))
+        };
+        let watched = |first, last_line, moved| WatchedLines {
+            first: at(first),
+            last: at(last_line),
+            moved,
+        };
+        let mut s = Selection::at(span, Grain::Cell);
+        s.follow(
+            scrolled,
+            watched(3, 5, TextMoved::Up(Rows::of_count(2))),
+            last,
+        );
+        assert_eq!(
+            ends(s),
+            ((line(3), 3), (line(5), 19)),
+            "up two, cut at the end"
+        );
+        let mut s = Selection::at(span, Grain::Cell);
+        s.follow(
+            scrolled,
+            watched(8, 10, TextMoved::Down(Rows::of_count(2))),
+            last,
+        );
+        assert_eq!(
+            ends(s),
+            ((line(8), 0), (line(10), 2)),
+            "down two, cut at the start"
+        );
+        let mut s = Selection::block(span, Grain::Cell);
+        s.follow(
+            scrolled,
+            watched(3, 5, TextMoved::Up(Rows::of_count(2))),
+            last,
+        );
+        assert_eq!(
+            ends(s),
+            ((line(3), 3), (line(5), 2)),
+            "a block keeps its columns"
+        );
+        let mut s = Selection::block(span, Grain::Cell);
+        s.follow(
+            scrolled,
+            watched(8, 10, TextMoved::Down(Rows::of_count(2))),
+            last,
+        );
+        assert_eq!(ends(s), ((line(8), 3), (line(10), 2)), "at either end");
+        let mut s = Selection::at(span, Grain::Cell);
+        s.follow(scrolled, watched(5, 8, TextMoved::Down(Rows::ZERO)), last);
+        assert_eq!(
+            ends(s),
+            ((line(5), 3), (line(8), 2)),
+            "the control: unmoved"
+        );
     }
 
     /// A selection over lines 5 to 8 touches any range that shares a line

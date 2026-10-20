@@ -2882,6 +2882,21 @@ fn stale_in_moved_rows(term: &Term<'_>) -> bool {
     term.watched_rows_changed()
 }
 
+/// **The selection carried with its text across a read**, the count that
+/// numbers it already moved to `scrolled`: a region's scroll moves it with
+/// its rows and trims what it takes out of the region, a scroll down trims
+/// what it pushes under the screen, the alternate screen's top trims what
+/// leaves it, the rows under a top region keep theirs, and `IL` and `DL`
+/// move it below the cursor (`Term::watched_lines`, note V and the Jev
+/// decisions of 2026-10-20). Unchanged by a read that moved no rows in
+/// place; the caller has dropped one the watch reached.
+fn followed(term: &Term<'_>, selection: &mut Option<Selection>, scrolled: Scrolled) {
+    if let (Some(sel), Some(w)) = (selection.as_mut(), term.watched_lines()) {
+        let last = Col::at_index(term.geometry().0.index().saturating_sub(1));
+        sel.follow(scrolled, w, last);
+    }
+}
+
 /// Whether every line a read retired left with the whole screen: no scroll
 /// of a region smaller than the screen sent one to the history. A region
 /// anchored at the top retires its line the way the whole screen does, and
@@ -3536,18 +3551,17 @@ mod alt_window_tests {
         });
     }
 
-    /// **A region retire drops a selection on the rows under the region, and
-    /// only there.** The rows under it stayed, so the count that numbers a
-    /// selection is wrong for them alone; a selection in the region moved
-    /// with its rows. A whole-screen scroll moves every row. A read that
-    /// resets its region after the scroll is judged by the scroll's own rows,
-    /// as the two fed apart are: the pane moved with the ring and is kept,
-    /// where the region at the read's end -- none -- dropped every live row
-    /// until 2026-10-17.
+    /// **A region retire keeps a selection on the rows under the region on
+    /// their text, and one in the region moves with its rows.** The rows
+    /// under it stayed while the count advanced, so the core carries the
+    /// selection there against the count (Jev's STAY of 2026-10-20, where it
+    /// was dropped until then); a whole-screen scroll moves every row; a
+    /// read that resets its region after the scroll is judged by the
+    /// scroll's own rows. At every read size and every split into two reads,
+    /// each kept selection on its own text.
     #[test]
-    fn a_region_retire_drops_a_selection_only_on_the_rows_under_it() {
+    fn a_region_retire_keeps_a_selection_on_the_rows_under_it() {
         let setup: &[u8] = b"\x1b[1;5r\x1b[7;1Hdash\x1b[3;1Hpane";
-        let (under, pane) = ((0, 6), (0, 2));
         let scroll: &[u8] = b"\x1b[5;1Hx\r\ny\r\n";
         with_history(|t| {
             feed(t, setup);
@@ -3558,22 +3572,34 @@ mod alt_window_tests {
                 "the control: a region retired"
             );
         });
-        assert!(drops(setup, &[scroll], under), "under it");
-        assert!(!drops(setup, &[scroll], pane), "in it");
-        let whole: &[&[u8]] = &[b"\x1b[r", b"\x1b[10;1Hz\r\n"];
-        assert!(!drops(setup, whole, under), "every row moved");
         let reset: &[u8] = b"\x1b[5;1Hw\r\n\x1b[r";
-        assert!(!drops(setup, &[reset], pane), "the region reset after it");
-        assert!(drops(setup, &[reset], under), "and under it still");
+        // Line feeds alone, which write on no row a selection across the
+        // region's bottom holds.
+        let lfs: &[u8] = b"\x1b[5;1H\n\n";
+        let mut wrong = Vec::new();
+        for (prog, sel, what) in [
+            (scroll, (6, 6), "under it"),
+            (scroll, (2, 2), "in it"),
+            (lfs, (2, 6), "across its bottom, the region's part kept"),
+            (reset, (2, 2), "the region reset after it"),
+            (reset, (6, 6), "and under it"),
+        ] {
+            for w in wrong_feeds(Depth::DEFAULT, setup, &[prog], sel, Want::Kept) {
+                wrong.push(format!("{what}: {w}"));
+            }
+        }
+        let whole: &[&[u8]] = &[b"\x1b[r", b"\x1b[10;1Hz\r\n"];
+        assert!(!drops(setup, whole, (0, 6)), "every row moved");
+        assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
     }
 
     /// **And the same on the alternate screen**, where vim's tall region
     /// rotates the ring and the status line under it stays. The core counted
-    /// region scrolls on the primary only, so here the read looked like a
-    /// whole-screen scroll and a selection on the status line was renumbered
-    /// onto the row above it.
+    /// region scrolls on the primary only, so here the read once looked like
+    /// a whole-screen scroll and a selection on the status line was
+    /// renumbered onto the row above it; then it was dropped; now it stays.
     #[test]
-    fn a_region_rotation_on_the_alternate_screen_drops_a_selection_under_it() {
+    fn a_region_rotation_on_the_alternate_screen_keeps_a_selection_under_it() {
         // A tall region on this ten-row screen, `1;8`, so it rotates on
         // the alternate screen as vim's `1;45` does on fifty.
         let setup: &[u8] = b"\x1b[?1049h\x1b[1;8r\x1b[9;1Hstat\x1b[3;1Hpane";
@@ -3591,8 +3617,20 @@ mod alt_window_tests {
                 "and that was a region, not the whole screen"
             );
         });
-        assert!(drops(setup, &[scroll], (0, 8)), "under it");
-        assert!(!drops(setup, &[scroll], (0, 2)), "in it");
+        let mut wrong = Vec::new();
+        for (sel, what) in [((8, 8), "under it"), ((2, 2), "in it")] {
+            for w in wrong_feeds(Depth::DEFAULT, setup, &[scroll], sel, Want::Kept) {
+                wrong.push(format!("{what}: {w}"));
+            }
+        }
+        wrong.extend(wrong_feeds(
+            Depth::DEFAULT,
+            setup,
+            &[b"\x1b[8;1H\r\n\r\n\r\n"],
+            (0, 1),
+            Want::Dropped,
+        ));
+        assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
     }
 
     /// Whether the moved-rows check drops a selection on screen row `y` of
@@ -3647,24 +3685,32 @@ mod alt_window_tests {
                         }
                     },
                 };
+                let mut kept = Some(sel);
+                super::followed(t, &mut kept, scrolled);
+                if let Some(s) = kept {
+                    sel = s;
+                }
             }
         });
         dropped
     }
 
-    /// **Rows a region moved in place drop a selection on them, and only
-    /// there.** A region in the middle of the screen scrolls by copying its
-    /// rows, so no ring moves and nothing renumbers the selection: one on the
-    /// region's rows named the same screen rows while their text went up a
-    /// row. Above the region and under it nothing moved, and the history is
-    /// not the live screen. A read that copies and then resets the region is
-    /// judged by the copy's rows, as the two fed apart are; `IL` with no
-    /// region moves the rows from the cursor down, and not the row above it.
+    /// **Rows a region moved in place carry a selection on them with their
+    /// text** (Jev's MOVE of 2026-10-20, as xterm does; dropped until
+    /// then). A region in the middle of the screen scrolls by copying its
+    /// rows, so no ring moves and the count does not renumber the
+    /// selection: the core's watch carries it a row up with the pane's
+    /// line. Above the region and under it nothing moved, and the history
+    /// is not the live screen. A selection from above the region into its
+    /// first row keeps only that row, which the scroll takes out: dropped,
+    /// as xterm disowns it. A read that copies and then resets the region
+    /// is judged by the copy's rows; `IL` with no region drops one holding
+    /// the cursor's row, as xterm's `InsertLine` does, and one on the row
+    /// it pushes out, and moves the rest. At every read size and split.
     #[test]
-    fn rows_moved_in_place_drop_a_selection_on_them_and_only_there() {
+    fn rows_moved_in_place_carry_a_selection_with_their_text() {
         use baud_domain::Row;
         let setup: &[u8] = b"\x1b[3;1Habove\x1b[5;1Hpane\x1b[8;1Hunder\x1b[4;6r";
-        let (above, pane, under, history) = ((0, 2), (0, 4), (0, 7), (5, 0));
         with_history(|t| {
             feed(t, setup);
             let before = Before::of(t);
@@ -3684,43 +3730,46 @@ mod alt_window_tests {
             );
         });
         let copy: &[u8] = b"\x1b[6;1H\n";
-        assert!(drops(setup, &[copy], pane), "in the region");
-        assert!(!drops(setup, &[copy], above), "above it");
-        assert!(!drops(setup, &[copy], under), "under it");
-        assert!(!drops(setup, &[copy], history), "in the history");
-        assert!(!drops(setup, &[b"x"], pane), "a read that moved no row");
-        assert!(
-            drops_to(setup, &[copy], (0, 1), 3),
-            "a selection from above the region into its first row"
-        );
-        assert!(
-            !drops_to(setup, &[copy], (0, 0), 2),
-            "and one that ends on the row above it"
-        );
         let reset: &[u8] = b"\x1b[6;1H\n\x1b[r";
-        assert!(
-            drops(setup, &[reset], pane),
-            "copied, then the region reset"
-        );
-        assert!(!drops(setup, &[reset], above), "and not the row above it");
-        assert!(!drops(setup, &[reset], history), "nor the history");
-        let il: &[&[u8]] = &[b"\x1b[r", b"\x1b[9;1H\x1b[L"];
-        assert!(drops(setup, il, (0, 8)), "IL, at the cursor's row");
-        assert!(drops(setup, il, (0, 9)), "IL, under it");
-        assert!(!drops(setup, il, under), "IL, the row above the cursor");
-        // Lines retired through the whole screen before the copy, in the
-        // same read: row 8 was under the region when the read began, and
-        // two lines later it was the region's last row when the copy moved
-        // it. Row 3 was the region's top and is row 1 by then.
+        let il: &[u8] = b"\x1b[r\x1b[9;1H\x1b[L";
         let carried: &[u8] = b"\x1b[r\x1b[10;1H\n\n\x1b[4;6r\x1b[6;1H\n";
-        assert!(
-            drops(setup, &[carried], under),
-            "a row the retired lines carried into the region"
-        );
-        assert!(
-            !drops(setup, &[carried], (0, 3)),
-            "and one they carried above it"
-        );
+        let mut wrong = Vec::new();
+        for (prog, sel, want, what) in [
+            (copy, (4, 4), Want::Kept, "in the region"),
+            (copy, (4, 5), Want::Kept, "the region's two lower rows"),
+            (copy, (2, 2), Want::Kept, "above it"),
+            (copy, (7, 7), Want::Kept, "under it"),
+            (copy, (-5, -5), Want::Kept, "in the history"),
+            (
+                copy,
+                (1, 3),
+                Want::Dropped,
+                "from above it into its first row",
+            ),
+            (
+                copy,
+                (0, 2),
+                Want::Kept,
+                "one that ends on the row above it",
+            ),
+            (reset, (4, 4), Want::Kept, "copied, then the region reset"),
+            (reset, (2, 2), Want::Kept, "and the row above it"),
+            (il, (8, 8), Want::Dropped, "IL, at the cursor's row"),
+            (il, (9, 9), Want::Dropped, "IL, the row it pushes out"),
+            (il, (7, 7), Want::Kept, "IL, the row above the cursor"),
+            (
+                carried,
+                (7, 7),
+                Want::Kept,
+                "a row lines retired carried in",
+            ),
+            (carried, (3, 3), Want::Kept, "and one they carried above it"),
+        ] {
+            for w in wrong_feeds(Depth::DEFAULT, setup, &[prog], sel, want) {
+                wrong.push(format!("{what}: {w}"));
+            }
+        }
+        assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
     }
 
     /// **A write or an erase on a selected row drops the selection, whatever
@@ -3767,13 +3816,12 @@ mod alt_window_tests {
 
     /// **A region set after the copy does not hide it.** A read that copies
     /// in one region and then sets another -- stacked panes, each drawn
-    /// under its own -- ends with a region that never moved, and the rows of
-    /// the region in force at the read's end missed the pane's line that
-    /// went up a row under the selection. The copy's own rows are what
-    /// count: the pane's line is dropped, and the rows above it and the
-    /// history are not.
+    /// under its own -- ends with a region that never moved; the copy's own
+    /// rows are what count, and the selection on the pane's line goes up a
+    /// row with it, at every read size and split. The row above it and the
+    /// history stay.
     #[test]
-    fn a_region_set_after_the_copy_still_drops_a_selection_it_moved() {
+    fn a_region_set_after_the_copy_still_carries_a_selection_it_moved() {
         use baud_domain::Row;
         let setup: &[u8] = b"\x1b[5;1Hpane";
         let read: &[u8] = b"\x1b[4;6r\x1b[6;1H\n\x1b[8;9r";
@@ -3795,54 +3843,45 @@ mod alt_window_tests {
                 "and the pane's line is a row up"
             );
         });
-        assert!(drops(setup, &[read], (0, 4)), "on the pane's moved line");
-        assert!(!drops(setup, &[read], (0, 2)), "not on the row above it");
-        assert!(!drops(setup, &[read], (5, 0)), "not in the history");
+        let mut wrong = Vec::new();
+        for (sel, what) in [
+            ((4, 4), "the pane's moved line"),
+            ((2, 2), "the row above it"),
+            ((-5, -5), "the history"),
+        ] {
+            for w in wrong_feeds(Depth::DEFAULT, setup, &[read], sel, Want::Kept) {
+                wrong.push(format!("{what}: {w}"));
+            }
+        }
+        assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
     }
 
     /// **A region set and set back within one read**: begun in 8;9, copied
     /// in 4;6 and ended in 8;9. The pane's line went up a row and its
-    /// selection is dropped; the row above both regions and the end
-    /// region's first row are where they were, and the history is not the
-    /// live screen. The same at every read size and every split into two
-    /// reads, so the bytes and not where the reads fall decide: judged by the
-    /// region at the read's two ends, the read whole kept the pane's line,
-    /// and the reads that held the copy with only one of the two region
-    /// changes dropped the row above.
+    /// selection with it; the row above both regions and the end region's
+    /// first row are where they were, and the history is not the live
+    /// screen. The same at every read size and every split into two reads,
+    /// each kept selection on its own text, so the bytes and not where the
+    /// reads fall decide: judged by the region at the read's two ends, the
+    /// read whole kept the pane's selection on the row above its text, and
+    /// the reads that held the copy with only one of the two region changes
+    /// dropped the row above.
     #[test]
-    fn a_region_set_and_set_back_within_one_read_is_dropped_as_in_separate_reads() {
+    fn a_region_set_and_set_back_within_one_read_is_judged_as_in_separate_reads() {
         let setup: &[u8] = b"\x1b[3;1Habove\x1b[5;1Hpane\x1b[8;1Hunder\x1b[8;9r";
         let prog: &[u8] = b"\x1b[4;6r\x1b[6;1H\n\x1b[8;9r";
-        let mut feeds: Vec<(String, Vec<&[u8]>)> = vec![("whole".into(), vec![prog])];
-        for size in 1..prog.len() {
-            feeds.push((format!("read size {size}"), prog.chunks(size).collect()));
-        }
-        for at in 1..prog.len() {
-            let (a, b) = prog.split_at(at);
-            feeds.push((format!("split at {at}"), vec![a, b]));
-        }
         let mut wrong = Vec::new();
-        let mut wrong_feeds = 0;
-        for (name, reads) in &feeds {
-            let before = wrong.len();
-            for (what, at, want) in [
-                ("the pane's moved line", (0, 4), true),
-                ("the row above both regions", (0, 2), false),
-                ("the end region's first row", (0, 7), false),
-                ("the history", (5, 0), false),
-            ] {
-                if drops(setup, reads, at) != want {
-                    wrong.push(format!("{name}: {what}"));
-                }
+        for (sel, what) in [
+            ((4, 4), "the pane's moved line"),
+            ((2, 2), "the row above both regions"),
+            ((7, 7), "the end region's first row"),
+            ((-5, -5), "the history"),
+        ] {
+            for w in wrong_feeds(Depth::DEFAULT, setup, &[prog], sel, Want::Kept) {
+                wrong.push(format!("{what}: {w}"));
             }
-            wrong_feeds += usize::from(wrong.len() > before);
         }
-        assert!(
-            wrong.is_empty(),
-            "{} wrong answers on {wrong_feeds} of {} feeds: {wrong:?}",
-            wrong.len(),
-            feeds.len()
-        );
+        assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
     }
 
     /// Every feed of `prog`: the read whole, every read size, and every
@@ -3874,22 +3913,20 @@ mod alt_window_tests {
         lines.pop()
     }
 
-    /// **A region anchored at the top that scrolls drops a selection under
-    /// it, whatever region the read ends in.** The scroll advances the ring
-    /// and the rows under the region stay, so a selection there, renumbered
-    /// by the line retired, would name the row above its text. Begun in 1;9,
-    /// scrolled in 1;5: then a copy in 8;9 and back to 1;9, or straight back
-    /// to 1;9. Rows 5 to 9 were under 1;5 and are dropped at every read size
-    /// and every split into two reads. Rows 1 to 4 were in it and moved with
-    /// the ring, and row 0 went to the history: they are kept on their own
-    /// text, row 0's in the history, at every read size and every split, and
-    /// no feed keeps one on another row's text. Until 2026-10-17 a feed whose
-    /// read with the scroll ended in 8;9 dropped them as well, by the region
-    /// at its end: 29 of the first program's 63 feeds. Judged at the read's
-    /// two ends alone, the first read whole kept rows 5 to 7 on the text of
-    /// the row above, "line 37" where "line 38" had been.
+    /// **A region anchored at the top that scrolls keeps a selection under
+    /// it on its text, whatever region the read ends in.** The scroll
+    /// advances the ring and the rows under the region stay, so the core
+    /// carries a selection there against the count (Jev's STAY of
+    /// 2026-10-20; dropped until then). Begun in 1;9, scrolled in 1;5: then
+    /// a copy in 8;9 and back to 1;9, or straight back to 1;9. Rows 5 to 9
+    /// were under 1;5 and stay on their own text, but for the first
+    /// program's row 7, which the copy then takes out of 8;9's top. Rows 1
+    /// to 4 were in it and moved with the ring, and row 0 went to the
+    /// history: kept on their own text, row 0's in the history. At every
+    /// read size and every split into two reads, no feed keeps one on
+    /// another row's text.
     #[test]
-    fn a_top_regions_scroll_drops_a_selection_under_it_at_every_read_size() {
+    fn a_top_regions_scroll_keeps_a_selection_under_it_at_every_read_size() {
         use baud_domain::Row;
         let setup: &[u8] = b"\x1b[1;9r";
         let progs: [&[u8]; 2] = [
@@ -3902,15 +3939,15 @@ mod alt_window_tests {
             Some(("line 38".into(), Some("line 38".into())))
         );
         let (mut wrong, mut wrong_feeds, mut fed) = (Vec::new(), 0, 0);
-        for prog in progs {
+        for (p, prog) in progs.iter().enumerate() {
             for (name, reads) in every_feed(prog) {
                 fed += 1;
                 let before = wrong.len();
                 for y in 0..10 {
                     let got = pump_keeps(setup, &reads, Row::from_index(y));
-                    let right = match (y, &got) {
-                        (5.., None) => true,
-                        (..5, Some((label, now))) => now.as_ref() == Some(label),
+                    let right = match (p, y, &got) {
+                        (0, 7, None) => true,
+                        (_, _, Some((label, now))) => now.as_ref() == Some(label),
                         _ => false,
                     };
                     if !right {
@@ -4094,6 +4131,7 @@ mod alt_window_tests {
         };
         let mut sel = Selection::at(span(t, a), Grain::Cell);
         sel.extend(span(t, b));
+        let (mut down, mut up) = (Rows::ZERO, Rows::ZERO);
         for bytes in reads {
             let before = Before::watched(t, Some(&sel), scrolled);
             feed(t, bytes);
@@ -4104,6 +4142,19 @@ mod alt_window_tests {
                 Ring::Retired(n) => scrolled.advanced(n),
                 Ring::Restored(n) => scrolled.retreated(n)?,
             };
+            // How far the read carried the selection's text against the
+            // count, so each line it was made on is looked for where its
+            // text went.
+            match t.watched_lines().map(|w| w.moved) {
+                Some(baud_core::TextMoved::Down(k)) => {
+                    down = Rows::of_count(down.index() + k.index())
+                }
+                Some(baud_core::TextMoved::Up(k)) => up = Rows::of_count(up.index() + k.index()),
+                None => {}
+            }
+            let mut kept = Some(sel);
+            super::followed(t, &mut kept, scrolled);
+            sel = kept?;
             if switched(t, before) || super::reset_in(t, before) {
                 return None;
             }
@@ -4129,7 +4180,13 @@ mod alt_window_tests {
                 .zip(labels)
                 .map(|(y, label)| {
                     let (k, r) = at(y);
-                    let line = start.line(k, r);
+                    let mut line = start.line(k, r);
+                    for _ in 0..down.index() {
+                        line = line.below();
+                    }
+                    for _ in 0..up.index() {
+                        line = line.above().unwrap_or(line);
+                    }
                     let kept = line >= oldest(t, scrolled) && sel.touches(line, line);
                     (label, kept.then(|| now(line)).flatten())
                 })
@@ -4175,6 +4232,30 @@ mod alt_window_tests {
         wrong
     }
 
+    /// The feeds of `prog` on which a selection on lines `sel`, made after
+    /// `setup`, does not end on exactly the lines `keep` of those it was
+    /// made on, each on its own text: [`wrong_feeds`] for a selection a
+    /// scroll trims.
+    fn wrong_kept(setup: &[u8], prog: &[u8], sel: (i32, i32), keep: &[i32]) -> Vec<String> {
+        let mut wrong = Vec::new();
+        for (name, reads) in every_feed(prog) {
+            let got = pump_keeps_lines(Depth::DEFAULT, setup, &reads, sel);
+            let right = got.as_ref().is_some_and(|lines| {
+                (sel.0..=sel.1)
+                    .zip(lines)
+                    .all(|(y, (label, now))| match keep.contains(&y) {
+                        true => now.as_ref() == Some(label),
+                        false => now.is_none(),
+                    })
+            });
+            if !right {
+                let p = String::from_utf8_lossy(prog);
+                wrong.push(format!("{p:?} {name}: lines {sel:?} {got:?}"));
+            }
+        }
+        wrong
+    }
+
     /// **A scroll up and down in one read keeps the rows it brought back**,
     /// at every read size and split, on both screens. `ESC [ 2 S ESC [ 2 T`
     /// sends rows 0 and 1 off the top and takes them back blank, so a
@@ -4183,10 +4264,13 @@ mod alt_window_tests {
     /// split after `ESC [ 2 S` dropped those too, by the second read's two
     /// lines taken back, judged at its two ends. A selection from row 1 to
     /// row 9 is dropped on the primary, where row 1 waits in the history to
-    /// be taken back blank; on the alternate screen, which keeps none, a
-    /// read that ends with row 1 off the top clips it there, as xterm
+    /// be taken back blank; on the alternate screen, which keeps none, the
+    /// scroll that takes row 1 off the top trims it there, as xterm
     /// truncates a selection a scroll moves out of the screen, and the rest
-    /// is kept on its text.
+    /// is kept on its text at every feed (Jev's TRIM_AT_SCROLL of
+    /// 2026-10-20). Until then it was trimmed only where a read ended with
+    /// row 1 off the top, and dropped on the 4 of 15 feeds whose read took
+    /// it back blank.
     #[test]
     fn a_scroll_up_and_down_in_one_read_keeps_the_rows_it_brought_back() {
         let prog: &[&[u8]] = &[b"\x1b[2S\x1b[2T"];
@@ -4207,15 +4291,68 @@ mod alt_window_tests {
                 (2, 9),
                 Want::Kept,
             ));
-            if screen == Screen::Normal {
-                let all = (1, 9);
-                wrong.extend(wrong_feeds(
-                    Depth::DEFAULT,
-                    &setup,
-                    prog,
-                    all,
-                    Want::Dropped,
-                ));
+            let want = match screen {
+                Screen::Normal => Want::Dropped,
+                Screen::Alternate => Want::Kept,
+            };
+            wrong.extend(wrong_feeds(Depth::DEFAULT, &setup, prog, (1, 9), want));
+        }
+        assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
+    }
+
+    /// **A scroll carries a selection with its text, at every read size and
+    /// split, on both screens** -- the three cases the record left open on
+    /// 2026-10-17, decided by Jev on 2026-10-20 as xterm does with
+    /// `keepSelection` at its default. A scroll down keeps what it does not
+    /// push under the screen (`SD 2` over rows 5 to 9, `RI` at the top over
+    /// rows 8 and 9); a region's scroll, `3;8` (rows 2 to 7), moves the rows
+    /// inside it, keeps the part inside of one across its top or its bottom,
+    /// and drops one it scrolls out whole; `IL` and `DL` there move the rows
+    /// below the cursor, and drop one holding the cursor's row or a deleted
+    /// one. Each was dropped until then.
+    #[test]
+    fn a_scroll_carries_a_selection_with_its_text_at_every_read_size() {
+        let region: &[u8] = b"\x1b[3;8r";
+        let mut wrong = Vec::new();
+        for screen in [Screen::Normal, Screen::Alternate] {
+            let plain = labelled(screen);
+            let fenced = [plain.as_slice(), region].concat();
+            for (setup, prog, sel, keep, what) in [
+                (&plain, &b"\x1b[2T"[..], (5, 9), &[5, 6, 7][..], "SD 2"),
+                (&plain, b"\x1b[1;1H\x1bM", (8, 9), &[8], "RI at the top"),
+                (
+                    &fenced,
+                    b"\x1b[8;1H\n",
+                    (4, 5),
+                    &[4, 5],
+                    "a region's line feed",
+                ),
+                (&fenced, b"\x1b[8;1H\n", (1, 4), &[3, 4], "across its top"),
+                (
+                    &fenced,
+                    b"\x1b[8;1H\n",
+                    (6, 9),
+                    &[6, 7],
+                    "across its bottom",
+                ),
+                (&fenced, b"\x1b[T", (4, 5), &[4, 5], "SD in the region"),
+                (&fenced, b"\x1b[5;1H\x1b[2L", (5, 6), &[5], "IL 2 above it"),
+                (&fenced, b"\x1b[4;1H\x1b[M", (5, 6), &[5, 6], "DL above it"),
+            ] {
+                for w in wrong_kept(setup, prog, sel, keep) {
+                    wrong.push(format!("{screen:?} {what}: {w}"));
+                }
+            }
+            for (setup, prog, sel, what) in [
+                (&plain, &b"\x1b[2T"[..], (8, 9), "SD 2, all pushed under"),
+                (&fenced, b"\x1b[8;1H\n", (2, 2), "its top row, out"),
+                (&fenced, b"\x1b[2T", (6, 7), "SD 2, pushed out"),
+                (&fenced, b"\x1b[6;1H\x1b[L", (5, 6), "IL in it"),
+                (&fenced, b"\x1b[6;1H\x1b[M", (5, 6), "DL in it"),
+            ] {
+                for w in wrong_feeds(Depth::DEFAULT, setup, &[prog], sel, Want::Dropped) {
+                    wrong.push(format!("{screen:?} {what}: {w}"));
+                }
             }
         }
         assert!(wrong.is_empty(), "{} wrong: {wrong:?}", wrong.len());
@@ -5505,7 +5642,13 @@ mod restart_tests {
             !pump.contains("let window = "),
             "a window read at the pump's start"
         );
-        assert!(at("self.app.scrolled = match numbered(&self.app.term, before, resized) {") < call);
+        let renumbered =
+            at("self.app.scrolled = match numbered(&self.app.term, before, resized) {");
+        assert!(renumbered < call);
+        // The selection is carried by the watch after the count moved, so
+        // the lines it names are read on the count they are numbered by.
+        let carried = at("followed(&self.app.term, &mut self.app.selection, self.app.scrolled);");
+        assert!(renumbered < carried && carried < call);
         assert!(at("if erased(&self.app.term, before) {") < call);
         assert!(call < at("if thumb == Thumb::Reveal {"));
         let reveal = &pump[at("if thumb == Thumb::Reveal {")..];
@@ -7502,9 +7645,10 @@ impl Driver {
         // every line a take-back erases, so a selection still here holds
         // its text.
         let screen = self.app.term.screen();
-        // Rows a copy moved in place, a write or an erase on a selected
-        // line, a line taken back over one: their selection names text that
-        // went elsewhere or is gone, and no count renumbers it.
+        // A move that left nothing of it, a move under side margins, `IL`
+        // or `DL` reaching it, a write or an erase on a selected line, a
+        // line taken back over one: the selection names text that went
+        // elsewhere or is gone. Every other move carries it (`followed`).
         if self.app.selection.is_some() && stale_in_moved_rows(&self.app.term) {
             self.app.selection = None;
         }
@@ -7520,6 +7664,7 @@ impl Driver {
                 }
             },
         };
+        followed(&self.app.term, &mut self.app.selection, self.app.scrolled);
         match moved {
             Ring::Retired(n) => {
                 // Smooth scroll: output scrolled the live screen up on the

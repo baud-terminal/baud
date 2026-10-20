@@ -730,6 +730,78 @@ fn every_test_named_in_the_docs_exists() {
              record cites it where it describes the marked cell's extent",
         ),
         (
+            "a_copying_scroll_down_reaches_the_regions_rows_and_only_those",
+            "a historical name, renamed on 2026-10-20 to `a_copying_scroll_down_carries_the_regions_rows_and_only_those` when a \
+             scroll began to carry a selection with its text (Jev's decisions \
+             of that day); the record cites the old name where it pinned the drop",
+        ),
+        (
+            "a_copying_scroll_up_reaches_the_regions_rows_and_only_those",
+            "a historical name, renamed on 2026-10-20 to `a_copying_scroll_up_carries_the_regions_rows_and_only_those` when a \
+             scroll began to carry a selection with its text (Jev's decisions \
+             of that day); the record cites the old name where it pinned the drop",
+        ),
+        (
+            "il_reaches_the_rows_from_the_cursor_down",
+            "a historical name, renamed on 2026-10-20 to `il_carries_the_rows_from_the_cursor_down` when a \
+             scroll began to carry a selection with its text (Jev's decisions \
+             of that day); the record cites the old name where it pinned the drop",
+        ),
+        (
+            "dl_reaches_the_rows_from_the_cursor_to_the_regions_bottom",
+            "a historical name, renamed on 2026-10-20 to `dl_carries_the_rows_from_the_cursor_to_the_regions_bottom` when a \
+             scroll began to carry a selection with its text (Jev's decisions \
+             of that day); the record cites the old name where it pinned the drop",
+        ),
+        (
+            "a_top_regions_scroll_reaches_the_rows_under_it",
+            "a historical name, renamed on 2026-10-20 to `a_top_regions_scroll_keeps_the_rows_under_it` when a \
+             scroll began to carry a selection with its text (Jev's decisions \
+             of that day); the record cites the old name where it pinned the drop",
+        ),
+        (
+            "a_top_regions_scroll_reaches_the_rows_under_it_on_the_alternate_screen",
+            "a historical name, renamed on 2026-10-20 to `a_top_regions_scroll_keeps_the_rows_under_it_on_the_alternate_screen` when a \
+             scroll began to carry a selection with its text (Jev's decisions \
+             of that day); the record cites the old name where it pinned the drop",
+        ),
+        (
+            "a_region_retire_drops_a_selection_only_on_the_rows_under_it",
+            "a historical name, renamed on 2026-10-20 to `a_region_retire_keeps_a_selection_on_the_rows_under_it` when a \
+             scroll began to carry a selection with its text (Jev's decisions \
+             of that day); the record cites the old name where it pinned the drop",
+        ),
+        (
+            "a_region_rotation_on_the_alternate_screen_drops_a_selection_under_it",
+            "a historical name, renamed on 2026-10-20 to `a_region_rotation_on_the_alternate_screen_keeps_a_selection_under_it` when a \
+             scroll began to carry a selection with its text (Jev's decisions \
+             of that day); the record cites the old name where it pinned the drop",
+        ),
+        (
+            "a_region_set_after_the_copy_still_drops_a_selection_it_moved",
+            "a historical name, renamed on 2026-10-20 to `a_region_set_after_the_copy_still_carries_a_selection_it_moved` when a \
+             scroll began to carry a selection with its text (Jev's decisions \
+             of that day); the record cites the old name where it pinned the drop",
+        ),
+        (
+            "a_region_set_and_set_back_within_one_read_is_dropped_as_in_separate_reads",
+            "a historical name, renamed on 2026-10-20 to `a_region_set_and_set_back_within_one_read_is_judged_as_in_separate_reads` when a \
+             scroll began to carry a selection with its text (Jev's decisions \
+             of that day); the record cites the old name where it pinned the drop",
+        ),
+        (
+            "a_top_regions_scroll_drops_a_selection_under_it_at_every_read_size",
+            "a historical name, renamed on 2026-10-20 to `a_top_regions_scroll_keeps_a_selection_under_it_at_every_read_size` when a \
+             scroll began to carry a selection with its text (Jev's decisions \
+             of that day); the record cites the old name where it pinned the drop",
+        ),
+        (
+            "rows_moved_in_place_drop_a_selection_on_them_and_only_there",
+            "a historical name, renamed on 2026-10-20 to `rows_moved_in_place_carry_a_selection_with_their_text` when a \
+             scroll began to carry a selection with its text (Jev's decisions \
+             of that day); the record cites the old name where it pinned the drop",
+        ),
+        (
             "pinned_a_cut_row_of_invisible_blanks_is_revealed_as_content",
             "a historical name, replaced on 2026-10-20 by \
              `a_cut_row_of_foreground_only_blanks_is_not_content` when a growth \

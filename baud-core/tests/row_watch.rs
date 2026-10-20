@@ -1,19 +1,20 @@
-//! **The watch on a selection's rows: each move in place judged by the rows
-//! it moved.**
+//! **The watch on a selection's rows: each move of rows judged by the rows
+//! it moved, and the selection carried with its text.**
 //!
 //! An embedder holding a selection on the live screen arms
 //! [`Term::watch_rows`] on the rows it names before a read, and asks
-//! [`Term::watched_rows_changed`] after it whether `IL`, `DL` or a region
-//! scroll that copies moved one of them, a scroll of a region anchored at
-//! the top advanced the ring over one under it, which stayed, or a line
-//! taken back erased one -- or whether the surface moved further than its
-//! rotation can say. It used to ask
-//! whether the count of such moves had moved and judge by the region the
-//! read ended in, which a region set and set back inside one read hid: begun
-//! in 8;9, copied in 4;6 and ended in 8;9, the read was judged as one in 8;9
-//! and the selection on the copied rows stayed while their text went up a
-//! row -- and fed in two reads, the same bytes dropped a selection on rows
-//! nothing moved.
+//! [`Term::watched_lines`] after it where they stand -- carried by `IL`,
+//! `DL` and a region scroll that copies, kept under a top region's scroll,
+//! trimmed where a scroll takes them out of its region, pushes them under
+//! the screen or off the alternate screen's top, as xterm does with
+//! `keepSelection` at its default (the Jev decisions of 2026-10-20) -- and
+//! [`Term::watched_rows_changed`] whether a move left none of them, a move
+//! under side margins, `IL` or `DL` reached one, a write or an erase
+//! landed on one, or a line taken back erased one. It used to ask whether
+//! the count of moves had moved and judge by the region the read ended in,
+//! which a region set and set back inside one read hid; then whether any
+//! move reached the rows at all, which dropped a selection whose text had
+//! only moved.
 //!
 //! What is held here:
 //!
@@ -27,10 +28,11 @@
 //! * the answer is the same however the bytes are cut into reads -- whole,
 //!   one byte to a read, and at random cuts -- on generated programs that
 //!   set regions and set them back, move rows in two bands in one read,
-//!   `IL` and `DL` with no region, `RI` and `SD` in a partial region, scroll
-//!   a region anchored at the top, and retire lines before and after a move,
-//!   with the selection renumbered between reads as an embedder renumbers
-//!   it.
+//!   `IL` and `DL` with no region and in one, `RI` and `SD` in a partial
+//!   region, scroll a region anchored at the top or under side margins, and
+//!   retire lines before and after a move, with the selection moved between
+//!   reads as an embedder moves it, on the primary and on the alternate
+//!   screen; and a selection kept holds a run of the labels it was made on.
 
 use baud_core::*;
 use proptest::prelude::*;
@@ -64,93 +66,162 @@ fn moved(t: &mut Term<'_>, sel: Option<(Row, Row)>, bytes: &[u8]) -> bool {
     t.watched_rows_changed()
 }
 
-/// **A region scroll that copies moves the region's rows and no others.**
-/// A line feed at the bottom of a middle region, 4;6 (rows 3 to 5): a
-/// selection on its top row or its bottom row is reached, one on the row
-/// above it or under it is not.
+/// Where the watched lines stand after a read: the first and last as lines
+/// of the live surface now, and how far their text moved against the count.
+type Stand = (SurfaceLine, SurfaceLine, TextMoved);
+
+/// Arms the watch on `sel`, feeds `bytes` as one read, and says where the
+/// watched lines stand after it: `None` when the read reached them.
+fn carried(t: &mut Term<'_>, sel: Option<(Row, Row)>, bytes: &[u8]) -> Option<Stand> {
+    t.watch_rows(sel);
+    feed(t, bytes);
+    t.watched_lines().map(|w| (w.first, w.last, w.moved))
+}
+
+/// Screen rows `first` to `last`, their text moved `moved` against the
+/// count.
+fn on(first: usize, last: usize, moved: TextMoved) -> Option<Stand> {
+    Some((
+        SurfaceLine::At(Row::from_index(first)),
+        SurfaceLine::At(Row::from_index(last)),
+        moved,
+    ))
+}
+
+/// Text that moved with the count alone.
+const STILL: TextMoved = TextMoved::Down(Rows::ZERO);
+
+fn up(k: usize) -> TextMoved {
+    TextMoved::Up(Rows::of_count(k))
+}
+
+fn down(k: usize) -> TextMoved {
+    TextMoved::Down(Rows::of_count(k))
+}
+
+/// **A region scroll that copies carries the region's rows and no others**
+/// (xterm's `adjustHiliteOnFwdScroll`, Jev's MOVE of 2026-10-20). A line
+/// feed at the bottom of a middle region, 4;6 (rows 3 to 5): a selection
+/// on its bottom row goes up a row with its text, one on its top row
+/// leaves the region and is reached, one across the region keeps the part
+/// inside it, carried and trimmed at the region's top, and one above it
+/// or under it stays.
 #[test]
-fn a_copying_scroll_up_reaches_the_regions_rows_and_only_those() {
+fn a_copying_scroll_up_carries_the_regions_rows_and_only_those() {
     let prog = b"\x1b[4;6r\x1b[6;1H\n";
     for (sel, want, what) in [
-        (rows(3, 3), true, "the region's top row"),
-        (rows(5, 5), true, "its bottom row"),
-        (rows(2, 2), false, "the row above it"),
-        (rows(6, 6), false, "the row under it"),
-        (rows(0, 9), true, "a selection across it"),
+        (rows(3, 3), None, "the region's top row, scrolled out"),
+        (rows(5, 5), on(4, 4, up(1)), "its bottom row"),
+        (rows(4, 5), on(3, 4, up(1)), "its two lower rows"),
+        (rows(2, 2), on(2, 2, STILL), "the row above it"),
+        (rows(6, 6), on(6, 6, STILL), "the row under it"),
+        (rows(0, 9), on(3, 4, up(1)), "a selection across it"),
     ] {
         with_term(|t| {
             let count = t.row_moves();
-            assert_eq!(moved(t, sel, prog), want, "{what}");
+            assert_eq!(carried(t, sel, prog), want, "{what}");
             assert_ne!(t.row_moves(), count, "the control: a row moved");
         });
     }
 }
 
-/// **`RI` at the top of a middle region copies the region's rows down.**
+/// **`RI` at the top of a middle region carries the region's rows down**,
+/// and trims what it pushes out of the region's bottom (xterm's
+/// `adjustHiliteOnBakScroll`).
 #[test]
-fn a_copying_scroll_down_reaches_the_regions_rows_and_only_those() {
+fn a_copying_scroll_down_carries_the_regions_rows_and_only_those() {
     let prog = b"\x1b[4;6r\x1b[4;1H\x1bM";
     for (sel, want, what) in [
-        (rows(3, 3), true, "the region's top row"),
-        (rows(5, 5), true, "its bottom row"),
-        (rows(2, 2), false, "the row above it"),
-        (rows(6, 6), false, "the row under it"),
+        (rows(3, 3), on(4, 4, down(1)), "the region's top row"),
+        (rows(5, 5), None, "its bottom row, pushed out"),
+        (
+            rows(3, 5),
+            on(4, 5, down(1)),
+            "the region, its last row trimmed",
+        ),
+        (rows(2, 2), on(2, 2, STILL), "the row above it"),
+        (rows(6, 6), on(6, 6, STILL), "the row under it"),
     ] {
-        with_term(|t| assert_eq!(moved(t, sel, prog), want, "{what}"));
+        with_term(|t| assert_eq!(carried(t, sel, prog), want, "{what}"));
     }
 }
 
-/// **`IL` moves the rows from the cursor to the region's bottom**: with no
-/// region, from the cursor to the screen's. The row above the cursor keeps
-/// its text, so a selection there is not reached.
+/// **`IL` carries the rows from the cursor to the region's bottom down**:
+/// with no region, from the cursor to the screen's. xterm's `InsertLine`
+/// disowns a selection holding the cursor's row, where blank rows open
+/// inside it, so that one is reached, and so is one on the last row, pushed
+/// out; the rows above the cursor keep their text (Jev's XTERM, 0.91 and
+/// 0.94).
 #[test]
-fn il_reaches_the_rows_from_the_cursor_down() {
+fn il_carries_the_rows_from_the_cursor_down() {
     let prog = b"\x1b[6;1H\x1b[L";
     for (sel, want, what) in [
-        (rows(5, 5), true, "the cursor's row"),
-        (rows(9, 9), true, "the screen's last row"),
-        (rows(4, 4), false, "the row above the cursor"),
+        (rows(5, 5), None, "the cursor's row"),
+        (rows(4, 6), None, "a selection holding it"),
+        (rows(9, 9), None, "the screen's last row, pushed out"),
+        (rows(6, 7), on(7, 8, down(1)), "two rows under the cursor"),
+        (
+            rows(7, 9),
+            on(8, 9, down(1)),
+            "the bottom, its last row trimmed",
+        ),
+        (rows(4, 4), on(4, 4, STILL), "the row above the cursor"),
     ] {
-        with_term(|t| assert_eq!(moved(t, sel, prog), want, "{what}"));
+        with_term(|t| assert_eq!(carried(t, sel, prog), want, "{what}"));
     }
 }
 
-/// **`DL` the same**, inside a region: from the cursor to the region's
-/// bottom, and not the row under it.
+/// **`DL` the same**, inside a region: the rows under the deleted one go up
+/// to the region's bottom, a selection holding the deleted row is reached
+/// as xterm's `DeleteLine` disowns it, and the row under the region stays.
 #[test]
-fn dl_reaches_the_rows_from_the_cursor_to_the_regions_bottom() {
+fn dl_carries_the_rows_from_the_cursor_to_the_regions_bottom() {
     let prog = b"\x1b[3;8r\x1b[5;1H\x1b[M";
     for (sel, want, what) in [
-        (rows(4, 4), true, "the cursor's row"),
-        (rows(7, 7), true, "the region's last row"),
-        (rows(3, 3), false, "the row above the cursor"),
-        (rows(8, 8), false, "the row under the region"),
+        (rows(4, 4), None, "the cursor's row, deleted"),
+        (rows(3, 5), None, "a selection holding it"),
+        (rows(7, 7), on(6, 6, up(1)), "the region's last row"),
+        (
+            rows(5, 9),
+            on(4, 6, up(1)),
+            "across its bottom, trimmed there",
+        ),
+        (rows(3, 3), on(3, 3, STILL), "the row above the cursor"),
+        (rows(8, 8), on(8, 8, STILL), "the row under the region"),
     ] {
-        with_term(|t| assert_eq!(moved(t, sel, prog), want, "{what}"));
+        with_term(|t| assert_eq!(carried(t, sel, prog), want, "{what}"));
     }
 }
 
-/// **A scroll of a region anchored at the top reaches the rows under it.**
-/// The scroll advances the ring and the rows under the region stay, so a
-/// selection numbered by the lines retired would be a row up, on text that
-/// is not its own. A line feed at the bottom of 1;5 (rows 0 to 4) on the
-/// primary: a selection on the first row under it or the last is reached,
-/// one on the region's rows, which moved with the ring, is not. It is not a
-/// move in place: the count of those holds, and the region-scroll count
-/// moves.
+/// **A scroll of a region anchored at the top leaves the rows under it
+/// where they are.** The scroll advances the ring and the rows under the
+/// region stay, so a selection there is carried down against the count and
+/// stays on its own text (Jev's STAY, 0.96 and 0.94); one across the
+/// region's bottom keeps the region's part, which the ring moves; one on
+/// the region's rows moves with the ring. A line feed at the bottom of 1;5
+/// (rows 0 to 4) on the primary. It is not a move in place: the count of
+/// those holds, and the region-scroll count moves.
 #[test]
-fn a_top_regions_scroll_reaches_the_rows_under_it() {
+fn a_top_regions_scroll_keeps_the_rows_under_it() {
     let prog = b"\x1b[1;5r\x1b[5;1H\n";
     for (sel, want, what) in [
-        (rows(5, 5), true, "the first row under the region"),
-        (rows(9, 9), true, "the screen's last row"),
-        (rows(3, 6), true, "a selection across the region's bottom"),
-        (rows(4, 4), false, "the region's bottom row"),
-        (rows(1, 4), false, "the region's rows"),
+        (
+            rows(5, 5),
+            on(5, 5, down(1)),
+            "the first row under the region",
+        ),
+        (rows(9, 9), on(9, 9, down(1)), "the screen's last row"),
+        (
+            rows(3, 6),
+            on(2, 3, STILL),
+            "a selection across the region's bottom",
+        ),
+        (rows(4, 4), on(3, 3, STILL), "the region's bottom row"),
+        (rows(1, 4), on(0, 3, STILL), "the region's rows"),
     ] {
         with_term(|t| {
             let (moves, regions, rot) = (t.row_moves(), t.region_scrolls(), t.rotation());
-            assert_eq!(moved(t, sel, prog), want, "{what}");
+            assert_eq!(carried(t, sel, prog), want, "{what}");
             assert_eq!(
                 t.moved_since(rot),
                 Moved::Retired(Rows::of_count(1)),
@@ -163,19 +234,26 @@ fn a_top_regions_scroll_reaches_the_rows_under_it() {
 }
 
 /// **On the alternate screen the same**, where a top region rotates when it
-/// is taller than the rows under it: 1;6 (rows 0 to 5) over four rows.
+/// is taller than the rows under it: 1;6 (rows 0 to 5) over four rows. The
+/// region's top row leaves the screen there and is gone.
 #[test]
-fn a_top_regions_scroll_reaches_the_rows_under_it_on_the_alternate_screen() {
+fn a_top_regions_scroll_keeps_the_rows_under_it_on_the_alternate_screen() {
     let prog = b"\x1b[1;6r\x1b[6;1H\n";
     for (sel, want, what) in [
-        (rows(6, 6), true, "the first row under the region"),
-        (rows(9, 9), true, "the screen's last row"),
-        (rows(5, 5), false, "the region's bottom row"),
+        (
+            rows(6, 6),
+            on(6, 6, down(1)),
+            "the first row under the region",
+        ),
+        (rows(9, 9), on(9, 9, down(1)), "the screen's last row"),
+        (rows(5, 5), on(4, 4, STILL), "the region's bottom row"),
+        (rows(0, 2), on(0, 1, STILL), "its top, trimmed as it leaves"),
+        (rows(0, 0), None, "its top row alone, gone"),
     ] {
         with_term(|t| {
             feed(t, b"\x1b[?1049h");
             let (regions, rot) = (t.region_scrolls(), t.rotation());
-            assert_eq!(moved(t, sel, prog), want, "{what}");
+            assert_eq!(carried(t, sel, prog), want, "{what}");
             assert_eq!(t.moved_since(rot), Moved::Retired(Rows::of_count(1)));
             assert_ne!(t.region_scrolls(), regions, "the control: it rotated");
         });
@@ -184,47 +262,58 @@ fn a_top_regions_scroll_reaches_the_rows_under_it_on_the_alternate_screen() {
 
 /// **Whatever region the read ends in.** Begun in 1;9 and scrolled in 1;5,
 /// then a copy in 8;9 and back to 1;9, or straight back to 1;9: the rows
-/// that were under 1;5 are reached, the region's rows are not -- the copy's
-/// rows, the arm's 8 and 9 numbered a row on, are under 1;5 as well.
+/// that were under 1;5 stay, carried against the count, and the copy then
+/// takes the arm's row 7 out of 8;9; the region's rows move with the ring.
 #[test]
 fn a_top_regions_scroll_is_judged_by_its_own_rows_whatever_the_read_ends_in() {
-    for prog in [
-        &b"\x1b[1;5r\x1b[5;1H\n\x1b[8;9r\x1b[9;1H\n\x1b[1;9r"[..],
-        &b"\x1b[1;5r\x1b[5;1H\n\x1b[1;9r"[..],
+    let copied = &b"\x1b[1;5r\x1b[5;1H\n\x1b[8;9r\x1b[9;1H\n\x1b[1;9r"[..];
+    let back = &b"\x1b[1;5r\x1b[5;1H\n\x1b[1;9r"[..];
+    for (prog, sel, want, what) in [
+        (
+            copied,
+            rows(5, 5),
+            on(5, 5, down(1)),
+            "the arm's row 5, under 1;5",
+        ),
+        (copied, rows(7, 7), None, "its row 7, then 8;9's top row"),
+        (
+            copied,
+            rows(8, 8),
+            on(7, 7, STILL),
+            "its row 8, up a row in 8;9",
+        ),
+        (copied, rows(2, 2), on(1, 1, STILL), "its row 2, in 1;5"),
+        (back, rows(5, 5), on(5, 5, down(1)), "the arm's row 5"),
+        (back, rows(7, 7), on(7, 7, down(1)), "its row 7"),
+        (back, rows(2, 2), on(1, 1, STILL), "its row 2"),
     ] {
-        for (sel, want, what) in [
-            (rows(5, 5), true, "the arm's row 5, under 1;5"),
-            (rows(7, 7), true, "its row 7"),
-            (rows(2, 2), false, "its row 2, in 1;5"),
-        ] {
-            with_term(|t| {
-                feed(t, b"\x1b[1;9r");
-                assert_eq!(moved(t, sel, prog), want, "{what}, {prog:?}");
-                assert_eq!(t.scroll_region(), (Row::ZERO, Row::from_index(8)));
-            });
-        }
+        with_term(|t| {
+            feed(t, b"\x1b[1;9r");
+            assert_eq!(carried(t, sel, prog), want, "{what}, {prog:?}");
+            assert_eq!(t.scroll_region(), (Row::ZERO, Row::from_index(8)));
+        });
     }
 }
 
 /// **A region set and set back within one read**: begun in 8;9, copied in
-/// 4;6, ended in 8;9. The copy's rows are reached and the rows of the
-/// region the read began and ended in are not -- as when the three
-/// sequences arrive in three reads.
+/// 4;6, ended in 8;9. The copy's rows are carried and the rows of the
+/// region the read began and ended in stay -- as when the three sequences
+/// arrive in three reads.
 #[test]
 fn a_region_set_and_set_back_within_one_read_is_judged_by_the_copy() {
     let prog = b"\x1b[4;6r\x1b[6;1H\n\x1b[8;9r";
     for (sel, want, what) in [
-        (rows(4, 4), true, "a row the copy moved"),
+        (rows(4, 4), on(3, 3, up(1)), "a row the copy moved"),
         (
             rows(7, 7),
-            false,
+            on(7, 7, STILL),
             "the end region's row, which nothing moved",
         ),
-        (rows(2, 2), false, "a row above both"),
+        (rows(2, 2), on(2, 2, STILL), "a row above both"),
     ] {
         with_term(|t| {
             feed(t, b"\x1b[8;9r");
-            assert_eq!(moved(t, sel, prog), want, "{what}");
+            assert_eq!(carried(t, sel, prog), want, "{what}");
             assert_eq!(t.scroll_region(), (Row::from_index(7), Row::from_index(8)));
         });
     }
@@ -232,20 +321,32 @@ fn a_region_set_and_set_back_within_one_read_is_judged_by_the_copy() {
 
 /// **Lines retired before the move, in the same read, number its rows as
 /// the selection is numbered.** Two line feeds at the bottom of the whole
-/// screen retire two lines, so the arm's row 7 is row 5 when 4;6 copies:
-/// reached. The arm's row 3 is row 1 then: not reached, though row 3 is the
-/// region's top.
+/// screen retire two lines, so the arm's row 7 is row 5 when 4;6 copies,
+/// and goes up a row with its text. The arm's row 3 is row 1 then, and
+/// stays, though row 3 is the region's top.
 #[test]
 fn lines_retired_before_the_move_number_its_rows() {
     let prog = b"\x1b[10;1H\n\n\x1b[4;6r\x1b[6;1H\n";
     for (sel, want, what) in [
-        (rows(7, 7), true, "the arm's row 7, carried into the region"),
-        (rows(3, 3), false, "the arm's row 3, carried above it"),
-        (rows(2, 2), false, "the arm's row 2, carried above it too"),
+        (
+            rows(7, 7),
+            on(4, 4, up(1)),
+            "the arm's row 7, carried into the region",
+        ),
+        (
+            rows(3, 3),
+            on(1, 1, STILL),
+            "the arm's row 3, carried above it",
+        ),
+        (
+            rows(2, 2),
+            on(0, 0, STILL),
+            "the arm's row 2, carried above it too",
+        ),
     ] {
         with_term(|t| {
             let rot = t.rotation();
-            assert_eq!(moved(t, sel, prog), want, "{what}");
+            assert_eq!(carried(t, sel, prog), want, "{what}");
             assert_eq!(t.moved_since(rot), Moved::Retired(Rows::of_count(2)));
         });
     }
@@ -320,6 +421,46 @@ fn a_line_given_up_below_and_brought_back_blank_reaches_the_last_row() {
             assert_eq!(t.moved_since(rot), Moved::Retired(Rows::ZERO));
             assert_eq!((text(t, 9), text(t, 8)), (String::new(), "line 13".into()));
         });
+    }
+}
+
+/// **A scroll down trims what it pushes under the screen**, on either
+/// screen, as xterm's `adjustHiliteOnBakScroll` truncates a selection at
+/// the bottom margin (Jev's TRIM, 0.98 and 0.94): `SD 2` carries rows 5 to
+/// 9 down to 7 to 11 and the two pushed under go; rows 8 and 9 go whole and
+/// the selection with them; `RI` at the top keeps row 8 on row 9.
+#[test]
+fn a_scroll_down_trims_what_it_pushes_under_the_screen() {
+    for alt in [false, true] {
+        for (sel, prog, want, what) in [
+            (
+                rows(5, 9),
+                &b"\x1b[2T"[..],
+                on(7, 9, STILL),
+                "SD 2 over rows 5 to 9",
+            ),
+            (rows(8, 9), b"\x1b[2T", None, "SD 2 over rows 8 and 9"),
+            (
+                rows(8, 9),
+                b"\x1b[1;1H\x1bM",
+                on(9, 9, STILL),
+                "RI at the top",
+            ),
+            (
+                rows(2, 4),
+                b"\x1b[2T",
+                on(4, 6, STILL),
+                "the control: none pushed",
+            ),
+        ] {
+            with_term(|t| {
+                feed(t, &history());
+                if alt {
+                    feed(t, b"\x1b[?1049h");
+                }
+                assert_eq!(carried(t, sel, prog), want, "{what}, alternate {alt}");
+            });
+        }
     }
 }
 
@@ -524,7 +665,11 @@ fn feeds(n: usize) -> Vec<u8> {
 /// selection is on rows no line taken back blanks or pushes under the
 /// window. Until 2026-10-17 a read past half the ring reached the watch
 /// whatever it moved, which dropped a selection on text that was still its
-/// own: `ESC [ 6 S ESC [ 5 T` kept row 8's text on row 7.
+/// own: `ESC [ 6 S ESC [ 5 T` kept row 8's text on row 7. The ring and a
+/// line take the selection's row off the alternate screen's top, which
+/// trims it at that scroll and leaves nothing (Jev's TRIM_AT_SCROLL of
+/// 2026-10-20): reached, and the count stops, as it does once a watch is
+/// reached.
 #[test]
 fn a_surface_moved_past_half_its_ring_is_counted_on_the_alternate_screen() {
     let n = with_term(|t| {
@@ -552,7 +697,7 @@ fn a_surface_moved_past_half_its_ring_is_counted_on_the_alternate_screen() {
             up(n + 1),
             rows(9, 9),
             Moved::Retired(Rows::of_count(n + 1)),
-            "the ring and a line",
+            "the ring and a line, off the top",
         ),
         (
             down(back_half - 1),
@@ -570,9 +715,11 @@ fn a_surface_moved_past_half_its_ring_is_counted_on_the_alternate_screen() {
         with_term(|t| {
             feed(t, b"\x1b[?1049h\x1b[10;1H");
             let rot = t.rotation();
-            assert!(!moved(t, sel, &prog), "{what}, a ring of {n}");
-            assert_eq!(t.watched_moved(), Some(want), "{what}, a ring of {n}");
-            if what == "the ring and a line" {
+            let off = what.ends_with("off the top");
+            assert_eq!(moved(t, sel, &prog), off, "{what}, a ring of {n}");
+            let count = (!off).then_some(want);
+            assert_eq!(t.watched_moved(), count, "{what}, a ring of {n}");
+            if off {
                 assert_eq!(
                     t.moved_since(rot),
                     Moved::Retired(Rows::of_count(1)),
@@ -685,7 +832,7 @@ fn history() -> Vec<u8> {
 #[test]
 fn the_arm_starts_again_and_a_watch_on_no_rows_is_never_reached() {
     with_term(|t| {
-        assert!(moved(t, rows(3, 5), b"\x1b[4;6r\x1b[6;1H\n"), "the control");
+        assert!(moved(t, rows(3, 3), b"\x1b[4;6r\x1b[6;1H\n"), "the control");
         assert!(
             !moved(t, rows(3, 5), b"\x1b[1;1Hx"),
             "re-armed, a write on another row"
@@ -963,6 +1110,10 @@ const ATOMS: &[&[u8]] = &[
     b"\x1b[?2J",
     b"\x1b[?3J",
     b"\x1b[6;1H\x1b]133;A\x07$ \x1b[7;1H\x1b]133;A\x07",
+    b"\x1b[?69h\x1b[2;8s\x1b[S\x1b[?69l",
+    b"\x1b[3;8r\x1b[5;1H\x1b[2L",
+    b"\x1b[3;8r\x1b[4;1H\x1b[M",
+    b"\x1b[2;7r\x1b[2;1H\x1b[2T",
 ];
 
 /// The history the property starts on: forty-five numbered lines, so
@@ -1000,18 +1151,52 @@ fn line(y: i32) -> SurfaceLine {
 
 /// Feeds `bytes` in the reads `cuts` makes of it, as an embedder does:
 /// armed on its selection's lines before each read -- those the history
-/// still holds -- and the selection renumbered after it by the lines the
-/// watch counted the surface retiring or taking back. Whether any read
-/// reached it.
-fn reached(bytes: &[u8], sel: Option<(i32, i32)>, cuts: &[usize]) -> bool {
+/// still holds -- and the selection moved after it to where the watch says
+/// its lines stand (`Term::watched_lines`). Where it ends -- `Some(None)`
+/// for no selection -- or `None` when a read reached it.
+fn reached(bytes: &[u8], sel: Option<(i32, i32)>, cuts: &[usize]) -> Option<Option<(i32, i32)>> {
     reached_after(&saved(), bytes, sel, cuts)
 }
 
-/// [`reached`], after `setup` fed before the first arm.
-fn reached_after(setup: &[u8], bytes: &[u8], sel: Option<(i32, i32)>, cuts: &[usize]) -> bool {
+/// The text of line `y` of the live surface: a screen row, or a line of the
+/// history `-y` lines above it.
+fn label(t: &Term<'_>, y: i32) -> String {
+    let sb = t.scrollback();
+    let cells = match usize::try_from(y) {
+        Ok(y) => t.row(Row::from_index(y)).expect("a row on the grid"),
+        Err(_) => {
+            let back = usize::try_from(y.unsigned_abs()).expect("a line") - 1;
+            sb.line(Back::of(back)).expect("a line the history holds").0
+        }
+    };
+    let s: String = cells
+        .iter()
+        .map(|c| {
+            c.content
+                .as_codepoint()
+                .and_then(|cp| char::from_u32(cp.value()))
+                .unwrap_or(' ')
+        })
+        .collect();
+    s.trim_end().to_string()
+}
+
+/// [`reached`], after `setup` fed before the first arm. **A kept selection
+/// holds its own text**: the lines it ends on show a run of the labels it
+/// was made on, in order -- carried with their text and trimmed, never
+/// moved onto another line's.
+fn reached_after(
+    setup: &[u8],
+    bytes: &[u8],
+    sel: Option<(i32, i32)>,
+    cuts: &[usize],
+) -> Option<Option<(i32, i32)>> {
     with_term(|t| {
         feed(t, setup);
         let mut sel = sel;
+        let labels: Vec<String> = sel
+            .map(|(a, b)| (a..=b).map(|y| label(t, y)).collect())
+            .unwrap_or_default();
         let mut at = 0;
         let mut ends: Vec<usize> = cuts.iter().map(|c| c % (bytes.len() + 1)).collect();
         ends.push(bytes.len());
@@ -1023,23 +1208,31 @@ fn reached_after(setup: &[u8], bytes: &[u8], sel: Option<(i32, i32)>, cuts: &[us
             feed(t, &bytes[at..end]);
             at = end;
             if t.watched_rows_changed() {
-                return true;
+                return None;
             }
-            let d = match t.watched_moved() {
-                Some(Moved::Retired(n)) => i32::try_from(n.index()).expect("a short read"),
-                Some(Moved::Restored(n)) => -i32::try_from(n.index()).expect("a short read"),
-                None => 0,
+            let y = |l: SurfaceLine| match l {
+                SurfaceLine::At(r) => i32::try_from(r.index()).expect("a screen row"),
+                SurfaceLine::Above(n) => -i32::try_from(n.index()).expect("a short history"),
             };
-            sel = sel.map(|(a, b)| (a - d, b - d));
+            sel = t.watched_lines().map(|w| (y(w.first), y(w.last)));
         }
-        false
+        let saved = i32::try_from(t.scrollback().len()).expect("a short history");
+        sel = sel.and_then(|(a, b)| (b >= -saved).then(|| (a.max(-saved), b)));
+        if let Some((a, b)) = sel {
+            let now: Vec<String> = (a..=b).map(|y| label(t, y)).collect();
+            assert!(
+                labels.windows(now.len()).any(|w| w == now.as_slice()),
+                "kept on {now:?}, made on {labels:?}"
+            );
+        }
+        Some(sel)
     })
 }
 
 /// [`reached_after`] on screen rows, whole: the tests of one mechanism.
 fn reached_rows(setup: &[u8], bytes: &[u8], sel: (usize, usize), cuts: &[usize]) -> bool {
     let row = |y: usize| i32::try_from(y).expect("a screen row");
-    reached_after(setup, bytes, Some((row(sel.0), row(sel.1))), cuts)
+    reached_after(setup, bytes, Some((row(sel.0), row(sel.1))), cuts).is_none()
 }
 
 fn bytes_of(prog: &[usize]) -> Vec<u8> {
@@ -1059,6 +1252,39 @@ proptest! {
         prop_assert_eq!(whole, reached(&bytes, sel, &ones), "one byte to a read");
         prop_assert_eq!(whole, reached(&bytes, sel, &cuts), "cut at {:?}", cuts);
     }
+
+    /// **And on the alternate screen**, whose ring holds no history and
+    /// whose top loses each line it scrolls over: ten labelled rows, a
+    /// selection on any run of them.
+    #[test]
+    fn the_answer_is_the_same_however_the_reads_fall_on_the_alternate_screen(
+        (prog, sel, cuts) in alt_case()
+    ) {
+        let bytes = bytes_of(&prog);
+        let setup = alternate();
+        let whole = reached_after(&setup, &bytes, sel, &[]);
+        let ones: Vec<usize> = (1..bytes.len()).collect();
+        prop_assert_eq!(whole, reached_after(&setup, &bytes, sel, &ones), "one byte to a read");
+        prop_assert_eq!(whole, reached_after(&setup, &bytes, sel, &cuts), "cut at {:?}", cuts);
+    }
+}
+
+/// The alternate screen over the saved lines, its rows labelled `A0` to
+/// `A9`, so a row's text says which row it was.
+fn alternate() -> Vec<u8> {
+    let mut v = saved();
+    v.extend_from_slice(b"\x1b[?1049h");
+    v.extend((0..10).flat_map(|y| format!("\x1b[{};1HA{y}", y + 1).into_bytes()));
+    v
+}
+
+/// [`case`] on the alternate screen: a selection on its rows alone.
+fn alt_case() -> impl Strategy<Value = (Vec<usize>, Option<(i32, i32)>, Vec<usize>)> {
+    (
+        prop::collection::vec(0..ATOMS.len(), 1..24),
+        (0i32..10, 0i32..10).prop_map(|(a, b)| Some((a.min(b), a.max(b)))),
+        prop::collection::vec(0usize..400, 0..6),
+    )
 }
 
 /// **The generator reaches the shapes the property is for**, counted over a
@@ -1079,8 +1305,8 @@ fn the_generator_reaches_the_shapes() {
     for _ in 0..400 {
         let (prog, sel, _) = case().new_tree(&mut runner).expect("tree").current();
         match reached(&bytes_of(&prog), sel, &[]) {
-            true => yes += 1,
-            false => no += 1,
+            None => yes += 1,
+            Some(_) => no += 1,
         }
         in_history += usize::from(sel.is_some_and(|(a, _)| a < 0));
         with_term(|t| {
