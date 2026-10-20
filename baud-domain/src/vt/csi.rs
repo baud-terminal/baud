@@ -819,6 +819,12 @@ pub enum Csi {
     Sgr,
     /// DECSCUSR, `CSI Ps SP q`. Cursor shape and blink, or the initial style.
     CursorStyle(CursorPick),
+    /// DECSWBV, `CSI Ps SP t`: the warning bell's volume, "for errors and
+    /// receipt of Ctrl G" (`[[source: vt520-rm]]` p. 5-154). A `Ps` past 8
+    /// is [`Csi::Unsupported`].
+    WarningBellVolume(BellVolume),
+    /// DECSMBV, `CSI Ps SP u`: the margin bell's volume (p. 5-138).
+    MarginBellVolume(BellVolume),
     /// XTVERSION, `CSI > 0 q`. Answered with [`Report::Version`].
     RequestVersion,
     /// XTMODKEYS `CSI > Pp ; Pv m`, XTFMTKEYS `CSI > Pp ; Pv f` and the
@@ -1033,6 +1039,26 @@ impl Csi {
                         final_byte: f,
                     },
                 },
+                // DECSWBV and DECSMBV, the standard namespace's alone, as
+                // the DEC manuals and `[[source: ctlseqs]]` give them.
+                (b' ', b't') if marker == Marker::Standard => {
+                    match BellVolume::warning(p.at(ParamIdx::FIRST)) {
+                        Some(v) => Csi::WarningBellVolume(v),
+                        None => Csi::Unsupported {
+                            marker,
+                            final_byte: f,
+                        },
+                    }
+                }
+                (b' ', b'u') if marker == Marker::Standard => {
+                    match BellVolume::margin(p.at(ParamIdx::FIRST)) {
+                        Some(v) => Csi::MarginBellVolume(v),
+                        None => Csi::Unsupported {
+                            marker,
+                            final_byte: f,
+                        },
+                    }
+                }
                 // SL and SR, the standard namespace's alone: `[[source:
                 // ecma48]]` 8.3.121 and 8.3.135 give `CSI Pn 02/00 04/00`
                 // and `04/01`, and no prefix.
@@ -1608,6 +1634,9 @@ impl Csi {
             | CursorStyle(_) => Level::Vt220,
 
             SetSideMargins { .. } | InsertColumns(_) | DeleteColumns(_) => Level::Vt420,
+            // "VT520" (`[[source: ctlseqs]]`), a level this table does not
+            // carry; VT420 is the nearest it has.
+            WarningBellVolume(_) | MarginBellVolume(_) => Level::Vt420,
             // "VT510" (`[[source: ctlseqs]]`), a level this table does not
             // carry; VT420 is the nearest it has.
             TabsEveryEight => Level::Vt420,

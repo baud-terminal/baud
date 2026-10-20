@@ -906,6 +906,12 @@ pub struct Cold {
     /// pending wrap only. Off at power-on and after `RIS`, kept by
     /// `DECSTR`, as the xterm resource modes are.
     pub(crate) more_fix: baud_domain::MoreFix,
+    /// The warning and margin bells' volumes, `?44`, where the margin bell
+    /// is armed and the bells rung at each volume (`margin.rs`): set by
+    /// DECSWBV, DECSMBV and `?44`, armed by `Term::key`, read by the write
+    /// path's hook, the moves of rows in place and a top region's scroll,
+    /// and the counts credited at DECSWBV, `RIS` and a read's end.
+    pub(crate) bell: crate::margin::BellState,
     /// XTSHIFTESCAPE, `CSI > Ps s`, kept by both resets as xterm keeps
     /// `shift_escape`. Read by the embedder's pointer, never here.
     pub(crate) shift_escape: ShiftEscape,
@@ -1308,9 +1314,14 @@ pub struct Cold {
 // DEC's text locator took it to 832: DECELR's, DECSLE's and DECEFR's
 // state and the pointer, written by those controls and by
 // `Term::locator` and read by them alone, never by a glyph.
+// The bells' volumes, `?44`, the margin bell's armed line and the bells
+// rung at each volume took it to 928, 96 bytes more: written by DECSWBV,
+// DECSMBV, `?44`, the resets, a keystroke, a read that rang a `BEL` and a
+// margin bell's ring, and read by the write path only behind its hook
+// compare, which the armed line turns on (`margin.rs`).
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 832);
+const _: () = assert!(core::mem::size_of::<Cold>() == 928);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -1443,6 +1454,7 @@ impl Cold {
     /// apart.
     pub(crate) fn moved_in_place(&mut self, from: Row, to: Row, top: LineIdx) {
         self.row_moves = self.row_moves.next();
+        self.bell.rows_moved(from, to);
         self.test_watch(from, to, top);
     }
 
@@ -1460,6 +1472,7 @@ impl Cold {
         top: LineIdx,
     ) {
         self.row_moves = self.row_moves.next();
+        self.bell.rows_moved(from, to);
         if self.watched == Watched::Rows
             && self.row_watch.band(from, to, k, way, top) == Stays::Nothing
         {
@@ -1474,6 +1487,7 @@ impl Cold {
     /// 0.91 and 0.94. Counted for [`Term::row_moves`].
     pub(crate) fn lines_inserted(&mut self, (at, bot): (Row, Row), k: Rows, top: LineIdx) {
         self.row_moves = self.row_moves.next();
+        self.bell.rows_moved(at, bot);
         if self.watched != Watched::Rows {
             return;
         }
@@ -1490,6 +1504,7 @@ impl Cold {
     /// in it, whose text goes, and otherwise the rows carry it up.
     pub(crate) fn lines_deleted(&mut self, (at, bot): (Row, Row), k: Rows, top: LineIdx) {
         self.row_moves = self.row_moves.next();
+        self.bell.rows_moved(at, bot);
         if self.watched != Watched::Rows {
             return;
         }
@@ -1637,6 +1652,7 @@ impl Cold {
             mouse_at: None,
             alternate_scroll: AlternateScroll::On,
             more_fix: baud_domain::MoreFix::Off,
+            bell: crate::margin::BellState::POWER_ON,
             scrollbar: baud_domain::ScrollbarShown::Shown,
             shift_escape: ShiftEscape::Override,
             defaults: [ColorWord::DEFAULT; DynamicColor::COUNT],
@@ -1904,6 +1920,10 @@ pub struct Term<'b> {
     /// it, refusing a `-> usize` return where a public field is not a
     /// signature at all.
     pub bells: usize,
+    /// How many times the margin bell rang (`margin.rs`), counted as
+    /// [`Term::bells`](Term#structfield.bells) is; the volume each rang at
+    /// is [`Term::margin_bells_rung`]'s, for the embedder to sound.
+    pub margin_bells: usize,
     /// Character-set designations this core does not name. **Counted rather
     /// than recorded**: a name means the designation was understood, so
     /// storing an unlisted final as a set would make it look designated.
@@ -2991,6 +3011,7 @@ impl<'b> Term<'b> {
             link: LinkId::NONE,
             vt52_unsupported: 0,
             bells: 0,
+            margin_bells: 0,
             charset_unsupported: 0,
             unsupported: 0,
             unsupported_param: 0,
@@ -4459,6 +4480,41 @@ impl<'b> Term<'b> {
         }
     }
 
+    /// DECSWBV's volume, "for errors and receipt of Ctrl G" (`[[source:
+    /// vt520-rm]]` p. 5-154): how loud a `BEL` rings. High at power-on and
+    /// after `RIS`, kept by `DECSTR`. The sound is the embedder's, and an
+    /// embedder that sounds the bells after a read takes each one's volume
+    /// from [`Term::bells_rung`]: this is the volume the read left.
+    pub fn warning_bell_volume(&self) -> baud_domain::BellVolume {
+        self.cold.bell.warning
+    }
+
+    /// DECSMBV's volume (p. 5-138): how loud the margin bell rings. Off at
+    /// power-on and after `RIS`, kept by `DECSTR`.
+    pub fn margin_bell_volume(&self) -> baud_domain::BellVolume {
+        self.cold.bell.margin
+    }
+
+    /// **The `BEL`s rung, by the warning volume each rang at**: what a
+    /// sound is played at, since a read can change the volume after a
+    /// `BEL` and [`Term::warning_bell_volume`] reads what the read left.
+    /// Their sum is [`Term::bells`](Term#structfield.bells).
+    pub fn bells_rung(&self) -> baud_domain::BellsRung {
+        self.cold.bell.warning_rung
+    }
+
+    /// The margin bell's rings, by the volume each rang at; their sum is
+    /// [`Term::margin_bells`](Term#structfield.margin_bells).
+    pub fn margin_bells_rung(&self) -> baud_domain::BellsRung {
+        self.cold.bell.margin_rung
+    }
+
+    /// `?44`, xterm's margin bell switch: the margin bell rings only with
+    /// this on and [`Term::margin_bell_volume`] not off.
+    pub fn margin_bell(&self) -> baud_domain::MarginBell {
+        self.cold.bell.switch
+    }
+
     /// **What `?1001` highlights now, for the embedder to draw**: from the
     /// start the program answered with to the end that tracks the mouse,
     /// in live-screen cells, or `None` when nothing is tracked.
@@ -4987,12 +5043,27 @@ impl<'b> Term<'b> {
         let Some(k) = self.queue_key(e) else {
             return false;
         };
+        // **A normal keystroke arms the margin bell** (`margin.rs`), before
+        // the echo below prints it.
+        if crate::margin::is_normal_keystroke(k.as_bytes()) == crate::margin::Normal::Yes {
+            let at = self.margin_line();
+            self.cold.bell.keystroke(at);
+        }
         // **SRM reset: the key is drawn as well as sent**, "to the host and
         // to the screen" (`[[source: vt510-srm]]`).
         if !self.cold.modes.is_set(ModeBit::SendReceive) {
             self.echo(k.as_bytes());
         }
         true
+    }
+
+    /// The cursor's line as the margin bell tells lines apart.
+    fn margin_line(&self) -> crate::margin::Line {
+        crate::margin::Line {
+            epoch: self.cold.epoch,
+            rot: self.rotation(),
+            row: self.cy,
+        }
     }
 
     /// A cursor key the wheel sends under `?1007`, or a `?2001` click sends

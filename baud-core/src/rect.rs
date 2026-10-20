@@ -142,14 +142,15 @@ impl Paint<'_, '_> {
     /// Free an image a write over columns `[from, to)` of row `r` lands on,
     /// as text written over an image frees it ([`Paint::overwrite_images`]).
     ///
-    /// **Through the text path's own hook, on the row as the cursor's**:
+    /// **Through the text path's own hook, on the row as the cursor's**,
+    /// with the margin bell set aside ([`Paint::overwrote_unprinted`]):
     /// `ImageStore::overwrite` has that one caller, and a second, here, moved
     /// what LLVM inlines into it -- cat-cjk retired more instructions a rep,
     /// ranges apart, for a call it never makes.
     fn overwrite_images_on(&mut self, r: Row, from: Col, to: Col) {
         let cy = self.cy;
         self.cy = r;
-        self.overwrote(from, to);
+        self.overwrote_unprinted(from, to);
         self.cy = cy;
     }
 

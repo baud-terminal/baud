@@ -249,7 +249,11 @@ impl Term<'_> {
         self.icon_len = p.icon_len;
         self.link = p.link;
         self.vt52_unsupported += p.vt52_unsupported;
+        if p.bells > 0 {
+            p.bells_read_out();
+        }
         self.bells += p.bells;
+        self.margin_bells += p.margin_bells;
         self.charset_unsupported += p.charset_unsupported;
         self.unsupported += p.unsupported_total;
         self.unsupported_param += p.unsupported_param;

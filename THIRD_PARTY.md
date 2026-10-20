@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 281 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 285 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
 | kept | 283 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 802 | 36 | |
+| total | 806 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -388,10 +388,11 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 125
+- **Files:** 127
 
 | file | copied from |
 |---|---|
+| [apple-audioservicesplaysystemsound.json](docs/research/sources/apple-audioservicesplaysystemsound.json) | https://developer.apple.com/tutorials/data/documentation/audiotoolbox/audioservicesplaysystemsound(_:).json |
 | [apple-cacurrentmediatime.json](docs/research/sources/apple-cacurrentmediatime.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cacurrentmediatime().json |
 | [apple-cadisplaylink-duration.json](docs/research/sources/apple-cadisplaylink-duration.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cadisplaylink/duration.json |
 | [apple-cadisplaylink-targettimestamp.json](docs/research/sources/apple-cadisplaylink-targettimestamp.json) | https://developer.apple.com/tutorials/data/documentation/quartzcore/cadisplaylink/targettimestamp.json |
@@ -469,6 +470,7 @@ notice is, and the URL each file was copied from.
 | [apple-nsscreen-screens.json](docs/research/sources/apple-nsscreen-screens.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/screens.json |
 | [apple-nsscreen-visibleframe.json](docs/research/sources/apple-nsscreen-visibleframe.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nsscreen/visibleframe.json |
 | [apple-nssound-volume.json](docs/research/sources/apple-nssound-volume.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nssound/volume.json |
+| [apple-nssound.json](docs/research/sources/apple-nssound.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nssound.json |
 | [apple-nswindow-converttoscreen.json](docs/research/sources/apple-nswindow-converttoscreen.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/converttoscreen(_:).json |
 | [apple-nswindow-deminiaturize.json](docs/research/sources/apple-nswindow-deminiaturize.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/deminiaturize(_:).json |
 | [apple-nswindow-frame.json](docs/research/sources/apple-nswindow-frame.json) | https://developer.apple.com/tutorials/data/documentation/appkit/nswindow/frame.json |
@@ -548,11 +550,13 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 78
+- **Files:** 80
 
 | file | copied from |
 |---|---|
+| [vt100-ug-chapter1.html](docs/research/sources/vt100-ug-chapter1.html) | https://vt100.net/docs/vt100-ug/chapter1.html |
 | [vt100-ug-chapter3.html](docs/research/sources/vt100-ug-chapter3.html) | https://vt100.net/docs/vt100-ug/chapter3.html |
+| [vt102-ug-chapter3.html](docs/research/sources/vt102-ug-chapter3.html) | https://vt100.net/docs/vt102-ug/chapter3.html |
 | [vt102-ug-chapter5.html](docs/research/sources/vt102-ug-chapter5.html) | https://vt100.net/docs/vt102-ug/chapter5.html |
 | [vt220-rm-chapter2.html](docs/research/sources/vt220-rm-chapter2.html) | https://vt100.net/docs/vt220-rm/chapter2.html |
 | [vt220-rm-chapter4.html](docs/research/sources/vt220-rm-chapter4.html) | https://vt100.net/docs/vt220-rm/chapter4.html |

@@ -41,6 +41,11 @@ pub enum StatusTarget {
     SideMargins,
     /// `SP q` — DECSCUSR.
     CursorStyle,
+    /// `SP t` -- DECSWBV, the warning bell's volume, and `SP u` -- DECSMBV,
+    /// the margin bell's: the VT520's DECRQSS list names both (`[[source:
+    /// vt520-rm]]` pp. 5-103 and 5-104), where ctlseqs' list does not.
+    WarningBellVolume,
+    MarginBellVolume,
     /// `" q` — DECSCA.
     Protection,
     /// `$ |` — DECSCPP, the columns per page.
@@ -72,6 +77,8 @@ impl StatusTarget {
             b"r" => StatusTarget::ScrollRegion,
             b"s" => StatusTarget::SideMargins,
             b" q" => StatusTarget::CursorStyle,
+            b" t" => StatusTarget::WarningBellVolume,
+            b" u" => StatusTarget::MarginBellVolume,
             b"\"q" => StatusTarget::Protection,
             b"$|" => StatusTarget::ColumnsPerPage,
             b"*x" => StatusTarget::AttrExtent,

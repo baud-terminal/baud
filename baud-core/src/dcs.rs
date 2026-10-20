@@ -189,6 +189,20 @@ impl Paint<'_, '_> {
                 s.dec(WireByte::of(self.cold.cursor_style.wire()));
                 s.push(b" q");
             }
+            // **DECSWBV and DECSMBV, as the controls that set them**, the
+            // `Ps` of each band on which DEC and xterm agree
+            // (`BellVolume::reported`): the VT520's DECRPSS list names both
+            // (`[[source: vt520-rm]]` pp. 5-103 and 5-104).
+            StatusTarget::WarningBellVolume => {
+                s.push(b"1$r");
+                s.dec(WireByte::of(self.cold.bell.warning.reported()));
+                s.push(b" t");
+            }
+            StatusTarget::MarginBellVolume => {
+                s.push(b"1$r");
+                s.dec(WireByte::of(self.cold.bell.margin.reported()));
+                s.push(b" u");
+            }
             StatusTarget::Protection => {
                 s.push(b"1$r");
                 s.dec(WireByte::of(u8::from(self.cold.protect.is_protected())));

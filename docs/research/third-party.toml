@@ -442,7 +442,9 @@ files   = [
   "apple-nsapplication-currentevent.json",
   "apple-nsapplication-requestuserattention.json",
   "apple-nsapplication-requestuserattentiontype-informationalrequest.json",
+  "apple-audioservicesplaysystemsound.json",
   "apple-nsbeep.json",
+  "apple-nssound.json",
   "apple-nsprintoperation-showsprintpanel.json",
   "apple-nssound-volume.json",
   "apple-nsevent-timestamp.json",
@@ -506,7 +508,9 @@ licence = "LicenseRef-NoGrant"
 notice  = "none"
 status  = "no-grant"
 files   = [
+  "vt100-ug-chapter1.html",
   "vt100-ug-chapter3.html",
+  "vt102-ug-chapter3.html",
   "vt102-ug-chapter5.html",
   "vt220-rm-chapter2.html",
   "vt220-rm-chapter4.html",

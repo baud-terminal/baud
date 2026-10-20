@@ -285,6 +285,44 @@ group  = "C"
 # the VT52's own graphics set, its first row `137 | _ | Blank | Blank`. Table
 # 5-13 is the set as a figure, with "(BLANK)" at 5/15 in text (line 3677).
 # Fetched 2026-10-08.
+# The margin bell in the VT100's own guide: "MARGIN BELL The margin bell
+# feature is much the same as the bell in a typewriter. If the cursor is eight
+# characters from the end of the current line while typing, the VT100 sounds a
+# tone to alert the operator" (line 4749), and among the long tone's causes,
+# "The cursor is eight characters away from the right margin and the margin
+# bell feature is enabled" (1195). Fetched 2026-10-20 (lane b118).
+[sources.vt100-ug-ch1]
+key    = "vt100-ug-ch1"
+title  = "VT100 User Guide, EK-VT100-UG-003, chapter 1: Operator Information -- SET-UP B, the margin bell"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1981
+venue  = "vt100.net"
+url    = "https://vt100.net/docs/vt100-ug/chapter1.html"
+file   = "vt100-ug-chapter1.html"
+sha256 = "ea26570a1ffe5c10aca64dc37424f40de0d71cad96e1477bc515e931f8b2a816"
+bytes  = 335891
+status = "retrieved"
+group  = "C"
+
+# The VT102's: "Margin Bell (Switch 2-1: 0 = Off, 1 = On) This feature
+# generates a bell tone when the cursor moves past the eighth character
+# position from the end of the line. The margin bell can turn on or off.
+# Margin bell volume is not adjustable", and "NOTE: This feature works when
+# typing text, as in a typewriter. It may give unexpected results when
+# performing other functions" (lines 7488-7492). Fetched 2026-10-20 (lane b118).
+[sources.vt102-ug-ch3]
+key    = "vt102-ug-ch3"
+title  = "VT102 User Guide, EK-VT102-UG-003, chapter 3: SET-UP -- the margin bell"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1982
+venue  = "vt100.net"
+url    = "https://vt100.net/docs/vt102-ug/chapter3.html"
+file   = "vt102-ug-chapter3.html"
+sha256 = "80ba8e61d88dfff99ec9204488495259455ec36403b512e7be3ec6aa81da7ab4"
+bytes  = 645638
+status = "retrieved"
+group  = "C"
+
 [sources.vt102-ug-ch5]
 key    = "vt102-ug-ch5"
 title  = "VT102 User Guide, EK-VT102-UG-003, chapter 5: Programmer Information -- Tables 5-13 and 5-15"
@@ -345,6 +383,13 @@ group  = "C"
 # marking both "0" for the top and bottom margins; host_state_init, "attribute change
 # extent = STREAM" (070-4 p. 15, PDF 219); DECSTR's state table, which does not list it
 # (070-4 p. 31, PDF 235).
+# Re-fetched 2026-10-20 (lane b118), the sha256 matching, read on the text layer [text]
+# for the bells: 070-6 § 6.6.5.1, the Warning Bell, "Closely spaced bell codes will be
+# sounded individually at a rate of 4-5 per second ... The bell buffer will have 10
+# entries", and § 6.6.5.2, the Margin Bell, RING ENABLED by a "normal keystroke" (not
+# ESC, CSI or DCS first), rung by a character printed "from a column <= (RIGHT MARGIN -
+# 8) to any column on the same line > (RIGHT MARGIN - 8)", RING DISABLED when "The
+# cursor moves to a new line" (pp. 6-45 and 6-46, PDF 532-533).
 
 # Read 2026-10-18 for the line renditions (lane b92), the copy whose sha256 matches, on
 # the text layer [text]: § 5.4.1's display structure (p. 5-20); DECLRMM, which resets
@@ -14654,6 +14699,11 @@ group  = "C"
 # follow, and Greek only in keyboard figures.
 # Re-fetched 2026-10-18 (lane b91), the sha256 matching [text]: DECRPSS's list of the
 # settings DECRQSS supports, "Select Attribute Change Extent DECSACE *x" (PDF 224).
+# Re-fetched 2026-10-20 (lane b118), the sha256 matching [text]: DECSWBV and DECSMBV
+# (pp. 5-148, 5-132), the latter's table headed "Key Click Volume" and its text naming
+# "the warning bell volume", copy errors the VT520's page corrects; RIS, "Sets all
+# features listed on set-up screens to their saved settings" (p. 5-184); DECSTR's Table
+# 5-9, which names neither volume (p. 5-146).
 
 [sources.vt520-rm]
 key    = "vt520-rm"
@@ -14678,6 +14728,13 @@ group  = "C"
 # ... Reset: erase to text background (PC)" (p. 5-48); Set-Up 2.9.7, "Text background
 # ... is the factory default" (p. 2-32); ED, EL and ECH clear "all character
 # attributes" (pp. 5-179, 5-180); DECSTR's table 5-6 names no DECECM (p. 5-150).
+# Re-fetched 2026-10-20 (lane b118), the sha256 matching [text]: DECSWBV, "1 Off; 2, 3,
+# 4 Low; 5, 5, 7, 8, 0 or none High (default)" (p. 5-154); DECSMBV, "1, 0 or none Off
+# (default) ... 5, 6, 7, 8 High", "the margin bell volume, which sounds as the current
+# position nears the right margin" (p. 5-138); Table 4.7.3 with both (p. 4-18); the
+# Set-Up's "Warning bell volume High", "Margin bell volume Off", and section 2.12.7,
+# "high, low, or off, with high as the default" (p. 2-42); DECRPSS's list with "SP u"
+# and "SP t" (pp. 5-103, 5-104).
 
 # No `year`: the scan carries no date on its cover (PDF p. 1), the blank p. 2, the
 # contents (p. 3) or its last two pages (Appendix C, pp. C-1 and C-2), and none is
@@ -26014,6 +26071,37 @@ sha256 = "c78c4cc1e6cb06c507fc28ed61793fdbdb52a97889a3f9564682b1703e4e5ed8"
 bytes  = 3929
 status = "retrieved"
 group  = "BL"
+
+[sources.apple-nssound]
+key    = "apple-nssound"
+title  = "NSSound -- a simple interface for loading and playing audio files; for the system beep, use NSBeep (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/appkit"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nssound.json"
+file   = "apple-nssound.json"
+sha256 = "e0005562c376de7f71aee6dce05f0d64b5c2791a12235a0bd7993c2b5a65e2cc"
+bytes  = 58712
+status = "retrieved"
+group  = "BL"
+# Retrieved 2026-10-20 (lane b118) for the bell volumes: "If you want to play the
+# system beep sound, use the NSBeep (Swift) or NSBeep (Objective-C) function." Its
+# members name no alert sound and no alert volume.
+
+[sources.apple-audioservicesplaysystemsound]
+key    = "apple-audioservicesplaysystemsound"
+title  = "AudioServicesPlaySystemSound -- plays a system sound object, at the current system audio volume with no programmatic volume control (documentation JSON)"
+author = "Apple"
+year   = 2026
+venue  = "developer.apple.com/documentation/audiotoolbox"
+url    = "https://developer.apple.com/tutorials/data/documentation/audiotoolbox/audioservicesplaysystemsound(_:).json"
+file   = "apple-audioservicesplaysystemsound.json"
+sha256 = "7fe1d9de36f52f415193e9a0b454862c22b8b6ed4d3897c877a200f0624a3964"
+bytes  = 21067
+status = "retrieved"
+group  = "BL"
+# Retrieved 2026-10-20 (lane b118): "Sounds play at the current system audio volume,
+# with no programmatic volume control available".
 
 [sources.apple-nssound-volume]
 key    = "apple-nssound-volume"

@@ -2003,6 +2003,17 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         }
         DomCsi::CursorStyle(CursorPick::Style(c)) => p.cold.cursor_style = c,
         DomCsi::CursorStyle(CursorPick::Initial) => p.cold.cursor_style = p.cold.initial_cursor,
+        // DECSWBV and DECSMBV (`margin.rs`): the `BEL`s before DECSWBV are
+        // credited to the volume they rang at, and a margin bell turned off
+        // is disarmed and the hooks read again.
+        DomCsi::WarningBellVolume(v) => {
+            p.fold_bells();
+            p.cold.bell.warning = v;
+        }
+        DomCsi::MarginBellVolume(v) => {
+            p.cold.bell.set_margin(v);
+            p.rehook();
+        }
         // **DECRQM, answered from the modes this core actually stores.**
         // `Paint::mode_state` returns `NotRecognized` for everything else,
         // which is the rule `docs/vt-coverage.md` states: answering `Reset`

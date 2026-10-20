@@ -6154,7 +6154,10 @@ mod motion_tests {
         let bare = |s: &str| s.split_whitespace().collect::<String>();
         // Spelled apart, so this test does not match its own source first.
         const PUMP: &str = concat!("    fn pump(&mut self, ", "trigger: Trigger) {");
-        const SHIM_FN: &str = concat!("    fn ring_", "bell(&mut self) {");
+        const SHIM_FN: &str = concat!(
+            "    fn ring_",
+            "bell(&mut self, volume: baud_core::BellVolume) {"
+        );
         // Each signature once, so no copy of either -- in a comment, a
         // string or an impl configured out -- is what is read below.
         assert_eq!(SRC.matches(PUMP).count(), 1, "one pump");
@@ -6172,7 +6175,7 @@ mod motion_tests {
         ));
         for call in [
             ".hear(",
-            concat!(".ring_", "bell()"),
+            concat!(".ring_", "bell(volume)"),
             "NSBeep(",
             "requestUserAttention(",
         ] {
@@ -6224,9 +6227,9 @@ mod motion_tests {
                 .core_refusals(&self.app.term, self.app.clipboard.budget)
             { crate::warn!("{line}"); }
             if !drained.chunks.is_empty() { self.app.pending = Pending::Dirty; }
-            if self.app.ringer.hear(&self.app.term, Instant::now(), self.app.interval)
-                == Rings::Ring
-            { self.ring_bell(); }"#
+            if let Rings::Ring(volume) = self.app.ringer
+                .hear(&self.app.term, Instant::now(), self.app.interval)
+            { self.ring_bell(volume); }"#
         );
         let span = bare(READ_TO_RING);
         let fed = pump.find("crate::reads::feed(").expect("the read");
@@ -6266,6 +6269,7 @@ mod motion_tests {
             let ring = crate::bell::ring(
                 self.app.bell_style, self.app.motion, state,
                 self.app.term.bell_is_urgent(), self.app.term.pop_on_bell(),
+                volume,
             );
             if ring.sound == Sound::Beep { NSBeep(); }
             if ring.shown == Shown::Flash {
@@ -7003,13 +7007,12 @@ impl Driver {
         // for a held update or a busy frame: a sound, a bounce and a raise
         // are not drawn, and a minimized window draws nothing. Once a frame
         // interval (`Ringer`).
-        if self
-            .app
-            .ringer
-            .hear(&self.app.term, Instant::now(), self.app.interval)
-            == Rings::Ring
+        if let Rings::Ring(volume) =
+            self.app
+                .ringer
+                .hear(&self.app.term, Instant::now(), self.app.interval)
         {
-            self.ring_bell();
+            self.ring_bell(volume);
         }
         self.window_requests(&asked);
         self.scrollbar_mode();
@@ -8448,8 +8451,9 @@ impl Driver {
     /// window changed -- classed by [`Window::of`](crate::bell::Window::of),
     /// then [`ring`](crate::bell::ring)'s decision, and the calls it names.
     /// Both are tested; this is the two questions and the four calls, each
-    /// under its condition, and the source gate holds it to that text.
-    fn ring_bell(&mut self) {
+    /// under its condition, and the source gate holds it to that text. The
+    /// volume is the program's for the bells that rang ([`Rings`]).
+    fn ring_bell(&mut self, volume: baud_core::BellVolume) {
         use crate::bell::{Attention, Key, Miniaturized, Raise, Shown, Sound, Window};
         let window = self.view.window();
         let state = match &window {
@@ -8473,6 +8477,7 @@ impl Driver {
             state,
             self.app.term.bell_is_urgent(),
             self.app.term.pop_on_bell(),
+            volume,
         );
         if ring.sound == Sound::Beep {
             NSBeep();

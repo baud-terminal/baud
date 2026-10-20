@@ -62,8 +62,8 @@
 //! visual bell or nothing. [`ring`] is that decision, a pure function of the
 //! config, the motion preference, the window and the two modes, and the
 //! macOS driver's shim makes the AppKit calls it names. [`Ringer`] reads
-//! [`Term::bells`](baud_core::Term#structfield.bells) after each read and
-//! rings once for the bells of one frame interval. A flash it decides is
+//! the bells the terminal counted at each volume ([`Term::bells_rung`])
+//! after each read and rings once for the bells of one frame interval. A flash it decides is
 //! started through [`Bell::ring`], so it is planned, committed and refused
 //! as a `?5` pair's is.
 
@@ -71,7 +71,7 @@ use core::time::Duration;
 use std::time::Instant;
 
 #[cfg(any(target_os = "macos", test))]
-use baud_core::{BellIsUrgent, PopOnBell};
+use baud_core::{BellIsUrgent, BellVolume, BellsRung, PopOnBell};
 use baud_core::{ReverseFlips, Term, UpdatesOpened};
 use baud_domain::HostTime;
 use baud_domain::terminfo::{self, Flash};
@@ -426,6 +426,16 @@ impl Window {
 /// Whether the ring plays the system's alert sound, `NSBeep`: "Plays the
 /// system beep. Users can select a sound to be played as the system beep"
 /// (`[[source: apple-nsbeep]]`).
+///
+/// **Low plays it too**, as high does (Jev's lean, LOW_SAME_SOUND,
+/// 0.61/0.70 then 0.69/0.67): `NSBeep` takes no volume, NSSound's own
+/// documentation sends the system beep to it, "If you want to play the
+/// system beep sound, use the NSBeep ... function" (`[[source:
+/// apple-nssound]]`), and the system sound services play "at the current
+/// system audio volume, with no programmatic volume control available"
+/// (`[[source: apple-audioservicesplaysystemsound]]`). No documented API
+/// names the user's alert sound or plays it below the user's alert volume,
+/// so on macOS low and high sound alike, an open gap; off is silence.
 #[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Sound {
@@ -497,6 +507,13 @@ pub struct Ring {
 ///   a minimized one**, which "is removed from the screen" (`[[source:
 ///   apple-nswindow-isminiaturized]]`): its flash would wait for the next
 ///   drawn frame and show on the restore, long after the bell.
+/// * **The program's volume silences the sound alone**: DECSWBV's for a
+///   `BEL`, DECSMBV's for the margin bell. Off, nothing is heard, and the
+///   flash, the attention request and the raise act as they would, as
+///   xterm's volume reaches only `xtermBell` and its `Bell` sets the
+///   urgency, shows the visual bell and raises whatever it says
+///   (`[[source: xterm-misc]]`). The config is the user's and the volume
+///   the program's: a `none` stays silent whatever the volume.
 /// * The config does not silence the modes: an application that set one is
 ///   told by `DECRQM` that it is set, so a `none` that dropped it would be a
 ///   mode recorded and not acted on. xterm sets the hint and raises whatever
@@ -516,11 +533,12 @@ pub fn ring(
     window: Window,
     urgent: BellIsUrgent,
     pop: PopOnBell,
+    volume: BellVolume,
 ) -> Ring {
     use crate::config::{BellStyle, SystemMotion};
     let focused = window == Window::Focused;
-    let sound = match (style, focused) {
-        (BellStyle::Sound, true) => Sound::Beep,
+    let sound = match (style, focused, volume) {
+        (BellStyle::Sound, true, BellVolume::Low | BellVolume::High) => Sound::Beep,
         _ => Sound::Silent,
     };
     let shown = match (style, motion, window) {
@@ -543,35 +561,54 @@ pub fn ring(
     }
 }
 
-/// How many `BEL`s the terminal had counted when the ringer last looked.
+/// How many `BEL`s and margin bells the terminal had counted at each
+/// volume when the ringer last looked: the core counts each at the volume
+/// it rang at, so a read that changes the volume around a bell sounds it
+/// at its own.
 #[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-struct Heard(usize);
+struct Heard {
+    bells: BellsRung,
+    margin: BellsRung,
+}
 
 #[cfg(any(target_os = "macos", test))]
 impl Heard {
     fn of(term: &Term<'_>) -> Heard {
-        Heard(term.bells)
+        Heard {
+            bells: term.bells_rung(),
+            margin: term.margin_bells_rung(),
+        }
     }
 }
 
-/// Whether the bells a read brought ring.
+/// Whether the bells a read brought ring, and how loud.
 #[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Rings {
     /// No new bell, or only bells inside the frame interval of the last ring.
     Quiet,
-    Ring,
+    /// The loudest volume a bell rang at: DECSWBV's when a `BEL` rang,
+    /// DECSMBV's when the margin bell did.
+    Ring(BellVolume),
 }
 
-/// **Bells within one frame interval ring once.** The driver asks after
+/// **Bells within one frame interval ring once.** A `BEL` and the margin
+/// bell are one bell here, as xterm rings both through its `Bell`
+/// (`[[source: xterm-misc]]`), each at its own volume. The driver asks after
 /// every read; the bells ring if the count moved and the last ring is at
 /// least a frame interval old, and bells inside that interval are absorbed,
 /// not put off -- so `yes $'\a'` rings at most once a frame, and a lone bell
 /// rings on the read that brought it, drawn or not: a sound, a bounce and a
 /// raise are not frames, and a minimized window draws none.
 ///
-/// No text governs how bells coalesce. xterm suppresses for
+/// **DEC STD 070 governs it, and this departs from it**: "Closely spaced
+/// bell codes will be sounded individually at a rate of 4-5 per second.
+/// As bell characters arrive, they are stored in a bell buffer until they
+/// can be sounded. The bell buffer will have 10 entries" (070-6 § 6.6.5.1,
+/// p. 6-45, `[[source: dec-std-070]]`), and the rest are discarded. One
+/// ring a frame is an open departure from that rate and that buffer, found
+/// after it was built. xterm suppresses for
 /// `bellSuppressTime`, "Number of milliseconds after a bell command is sent
 /// during which additional bells will be suppressed. Default is 200", and
 /// until the server reports the first bell done (`[[source: xterm-man]]`;
@@ -602,12 +639,16 @@ impl<T: Moment> Ringer<T> {
         if heard == self.heard {
             return Rings::Quiet;
         }
+        let loudest = heard
+            .bells
+            .loudest_since(self.heard.bells)
+            .max(heard.margin.loudest_since(self.heard.margin));
         self.heard = heard;
         if self.last.is_some_and(|l| now.elapsed_since(l) < frame) {
             return Rings::Quiet;
         }
         self.last = Some(now);
-        Rings::Ring
+        Rings::Ring(loudest.unwrap_or(BellVolume::Off))
     }
 }
 
@@ -960,9 +1001,19 @@ mod tests {
         const WINDOWS: [Window; 3] = [Window::Focused, Window::Unfocused, Window::Minimized];
         const URGENT: [BellIsUrgent; 2] = [BellIsUrgent::Off, BellIsUrgent::On];
         const POP: [PopOnBell; 2] = [PopOnBell::Off, PopOnBell::On];
+        const VOLUMES: [BellVolume; 3] = [BellVolume::Off, BellVolume::Low, BellVolume::High];
+        /// The volume at power-on, where a test is not about the volume.
+        const HIGH: BellVolume = BellVolume::High;
 
         /// One input to [`ring`].
-        type Input = (BellStyle, SystemMotion, Window, BellIsUrgent, PopOnBell);
+        type Input = (
+            BellStyle,
+            SystemMotion,
+            Window,
+            BellIsUrgent,
+            PopOnBell,
+            BellVolume,
+        );
 
         /// Every input, with the ring it decides.
         fn every() -> Vec<(Input, Ring)> {
@@ -972,7 +1023,9 @@ mod tests {
                     for w in WINDOWS {
                         for u in URGENT {
                             for p in POP {
-                                out.push(((s, m, w, u, p), ring(s, m, w, u, p)));
+                                for v in VOLUMES {
+                                    out.push(((s, m, w, u, p, v), ring(s, m, w, u, p, v)));
+                                }
                             }
                         }
                     }
@@ -1017,7 +1070,7 @@ mod tests {
             };
             for u in URGENT {
                 for p in POP {
-                    let f = |s, m| ring(s, m, Window::Focused, u, p);
+                    let f = |s, m| ring(s, m, Window::Focused, u, p, HIGH);
                     assert_eq!(
                         f(BellStyle::Sound, SystemMotion::Full),
                         Ring {
@@ -1049,7 +1102,7 @@ mod tests {
         #[test]
         fn an_unfocused_window_does_what_the_modes_say() {
             for s in STYLES {
-                let r = |u, p| ring(s, SystemMotion::Full, Window::Unfocused, u, p);
+                let r = |u, p| ring(s, SystemMotion::Full, Window::Unfocused, u, p, HIGH);
                 assert_eq!(r(BellIsUrgent::Off, PopOnBell::Off).sound, Sound::Silent);
                 assert_eq!(
                     r(BellIsUrgent::Off, PopOnBell::Off).attention,
@@ -1085,6 +1138,7 @@ mod tests {
                     Window::Minimized,
                     BellIsUrgent::On,
                     PopOnBell::On,
+                    HIGH,
                 );
                 assert_eq!(r.raise, Raise::Stay, "{s:?}");
                 assert_eq!(r.attention, Attention::Request, "{s:?}");
@@ -1101,8 +1155,8 @@ mod tests {
         /// control: the same inputs under full motion flash.
         #[test]
         fn reduce_motion_shows_no_flash_and_rings_nothing_instead() {
-            for ((s, m, w, u, p), r) in every() {
-                let full = ring(s, SystemMotion::Full, w, u, p);
+            for ((s, m, w, u, p, v), r) in every() {
+                let full = ring(s, SystemMotion::Full, w, u, p, v);
                 match (s, m) {
                     (BellStyle::Flash, SystemMotion::Reduced) => {
                         assert_eq!(
@@ -1132,13 +1186,13 @@ mod tests {
         #[test]
         fn each_output_reads_only_its_own_inputs() {
             let all = every();
-            assert_eq!(all.len(), 72, "the control: every input");
-            for ((s, m, w, u, p), r) in all {
+            assert_eq!(all.len(), 216, "the control: every input");
+            for ((s, m, w, u, p, v), r) in all {
                 let focused = w == Window::Focused;
                 assert_eq!(
                     r.sound == Sound::Beep,
-                    s == BellStyle::Sound && focused,
-                    "{s:?} {m:?} {w:?} {u:?} {p:?}: sound"
+                    s == BellStyle::Sound && focused && v != BellVolume::Off,
+                    "{s:?} {m:?} {w:?} {u:?} {p:?} {v:?}: sound"
                 );
                 assert_eq!(
                     r.shown == Shown::Flash,
@@ -1156,6 +1210,117 @@ mod tests {
                     "{w:?} {p:?}: raise"
                 );
             }
+        }
+
+        /// **The program's volume reaches the sound alone**: off is silence
+        /// with the flash, the request and the raise as they were; low
+        /// sounds as high does, `NSBeep` (Jev's lean, LOW_SAME_SOUND).
+        #[test]
+        fn the_volume_silences_the_sound_and_nothing_else() {
+            for ((s, m, w, u, p, v), r) in every() {
+                let high = ring(s, m, w, u, p, BellVolume::High);
+                match v {
+                    BellVolume::Off => assert_eq!(
+                        r,
+                        Ring {
+                            sound: Sound::Silent,
+                            ..high
+                        },
+                        "{s:?} {m:?} {w:?} {u:?} {p:?}"
+                    ),
+                    _ => assert_eq!(r, high, "{s:?} {m:?} {w:?} {u:?} {p:?} {v:?}"),
+                }
+            }
+            assert_eq!(
+                ring(
+                    BellStyle::Sound,
+                    SystemMotion::Full,
+                    Window::Focused,
+                    BellIsUrgent::Off,
+                    PopOnBell::Off,
+                    BellVolume::Off,
+                )
+                .sound,
+                Sound::Silent,
+                "the control: off is heard nowhere"
+            );
+        }
+
+        /// **The ringer hears both bells, each at its own volume**: a
+        /// `BEL` at DECSWBV's, the margin bell at DECSMBV's, the louder
+        /// when both rang in one interval.
+        #[test]
+        fn the_ringer_hears_each_bell_at_its_own_volume() {
+            let frame = MS * 8;
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            let mut r: Ringer<HostTime> = Ringer::new(&t);
+            feed(&mut t, b"\x1b[1 t\x07");
+            assert_eq!(
+                r.hear(&t, at(MS), frame),
+                Rings::Ring(BellVolume::Off),
+                "DECSWBV 1"
+            );
+            feed(&mut t, b"\x1b[3 t\x07");
+            assert_eq!(
+                r.hear(&t, at(MS * 20), frame),
+                Rings::Ring(BellVolume::Low),
+                "DECSWBV 3"
+            );
+            // The margin bell: on at low, the cursor on the 20-column
+            // line's twelfth column (RIGHT MARGIN - 8), a key typed and
+            // echoed.
+            feed(&mut t, b"\x1b[?44h\x1b[2 u\x1b[1 t\x1b[1;12H");
+            assert!(t.key(baud_core::KeyEvent::press(
+                baud_core::KeyCode::Char(baud_core::Codepoint::from_char('a')),
+                baud_core::Modifiers::NONE,
+            )));
+            t.clear_reply();
+            feed(&mut t, b"a");
+            assert_eq!(t.margin_bells, 1, "the control: the margin bell rang");
+            assert_eq!(
+                r.hear(&t, at(MS * 40), frame),
+                Rings::Ring(BellVolume::Low),
+                "the margin bell at DECSMBV's, not DECSWBV's off"
+            );
+            feed(&mut t, b"\x1b[8 t\x07");
+            assert_eq!(
+                r.hear(&t, at(MS * 60), frame),
+                Rings::Ring(BellVolume::High)
+            );
+        }
+
+        /// **A bell rings at the volume it was sent at**, not at the one a
+        /// read leaves: DECSWBV around a `BEL` in one read, either order,
+        /// and `RIS` after it.
+        #[test]
+        fn a_bell_rings_at_the_volume_it_was_sent_at() {
+            let frame = MS * 8;
+            for (bytes, want) in [
+                (&b"\x1b[1 t\x07\x1b[5 t"[..], BellVolume::Off),
+                (b"\x07\x1b[1 t", BellVolume::High),
+                (b"\x1b[3 t\x07\x1b[1 t", BellVolume::Low),
+                (b"\x1b[1 t\x07\x1bc", BellVolume::Off),
+            ] {
+                let mut owned = Owned::new(&WS);
+                let mut t = Term::new(owned.storage(), &WS);
+                let mut r: Ringer<HostTime> = Ringer::new(&t);
+                feed(&mut t, bytes);
+                assert_eq!(r.hear(&t, at(MS), frame), Rings::Ring(want), "{bytes:?}");
+            }
+            // The margin bell, rung at low and turned up in the same read.
+            let mut owned = Owned::new(&WS);
+            let mut t = Term::new(owned.storage(), &WS);
+            feed(&mut t, b"\x1b[?44h\x1b[2 u\x1b[1 t\x1b[1;12H");
+            let mut r: Ringer<HostTime> = Ringer::new(&t);
+            assert!(t.key(baud_core::KeyEvent::press(
+                baud_core::KeyCode::Char(baud_core::Codepoint::from_char('a')),
+                baud_core::Modifiers::NONE,
+            )));
+            t.clear_reply();
+            feed(&mut t, b"a\x1b[8 u");
+            assert_eq!(t.margin_bells, 1, "the control: the margin bell rang");
+            assert_eq!(r.hear(&t, at(MS), frame), Rings::Ring(BellVolume::Low));
         }
 
         /// **Bells within one frame ring once; a lone bell rings on the
@@ -1177,7 +1342,7 @@ mod tests {
             feed(&mut t, b"\x07\x07\x07");
             assert_eq!(
                 r.hear(&t, at(MS * 2), frame),
-                Rings::Ring,
+                Rings::Ring(BellVolume::High),
                 "three in one read"
             );
             feed(&mut t, b"\x07");
@@ -1194,7 +1359,7 @@ mod tests {
             feed(&mut t, b"\x07");
             assert_eq!(
                 r.hear(&t, at(MS * 10), frame),
-                Rings::Ring,
+                Rings::Ring(BellVolume::High),
                 "a bell a frame after the last ring"
             );
         }

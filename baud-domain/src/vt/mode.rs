@@ -470,6 +470,9 @@ pub enum PrivateMode {
     /// xterm's curses hack: a tab at a pending wrap takes the wrap first
     /// ([`MoreFix`]).
     MoreFix,
+    /// `?44`: "Turn on margin bell, xterm" (`[[source: ctlseqs]]`), one of
+    /// the margin bell's two switches ([`MarginBell`]).
+    MarginBell,
     /// `?1048`: "Save cursor as in DECSC", and reset "Restore cursor as in
     /// DECRC" (`[[source: ctlseqs]]`). An action, not a state: `DECRQM`
     /// answers whether a cursor is saved.
@@ -722,6 +725,126 @@ pub enum PopOnBell {
     On,
 }
 
+/// **How loud a bell is**: the three settings DECSWBV gives the warning
+/// bell and DECSMBV the margin bell (`[[source: vt520-rm]]` pp. 5-154 and
+/// 5-138, and Table 4.7.3; `[[source: vt510-rm-b]]` pp. 5-148 and 5-132).
+/// The VT520's Set-Up offers the same three, "high, low, or off".
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord)]
+pub enum BellVolume {
+    Off,
+    Low,
+    High,
+}
+
+impl BellVolume {
+    /// The warning bell at power-on and after `RIS`: "High (default)".
+    pub const WARNING_POWER_ON: BellVolume = BellVolume::High;
+    /// The margin bell at power-on and after `RIS`: "Off (default)".
+    pub const MARGIN_POWER_ON: BellVolume = BellVolume::Off;
+
+    /// DECSWBV's `Ps`: "1 Off; 2, 3, 4 Low; 5, 5, 7, 8, 0 or none High
+    /// (default)" -- the repeated 5 is the manuals' own. The table lists
+    /// "5, 5, 7, 8", omitting 6; 6 is read as high, as DECSMBV's table and
+    /// xterm's `CASE_DECSWBV` read it. **0 and none are
+    /// high, as the three DEC texts give them** (Jev, DEC, 1.00 and 1.00):
+    /// `[[source: ctlseqs]]` and xterm's `CASE_DECSWBV` read 0 and none as
+    /// off (`[[source: xterm-reset]]`'s file), a departure not followed. A
+    /// value past 8 no text defines, so it is `None`, refused.
+    pub fn warning(p: Option<Param>) -> Option<BellVolume> {
+        match p.map_or(0, |x| x.0) {
+            0 | 5..=8 => Some(BellVolume::High),
+            1 => Some(BellVolume::Off),
+            2..=4 => Some(BellVolume::Low),
+            _ => None,
+        }
+    }
+
+    /// DECSMBV's `Ps`: "1, 0 or none Off (default); 2, 3, 4 Low; 5, 6, 7, 8
+    /// High". **0 and none are off, as the DEC texts give them**, where
+    /// ctlseqs and xterm's `CASE_DECSMBV` read 0 as high. Past 8, `None`.
+    pub fn margin(p: Option<Param>) -> Option<BellVolume> {
+        match p.map_or(0, |x| x.0) {
+            0 | 1 => Some(BellVolume::Off),
+            2..=4 => Some(BellVolume::Low),
+            5..=8 => Some(BellVolume::High),
+            _ => None,
+        }
+    }
+
+    /// **The `Ps` DECRQSS reports**: the first value of each band, 1, 2 and
+    /// 5, on which DEC and xterm agree, so the report sent back sets the
+    /// same volume under either reading; never 0 or none, which they read
+    /// apart (Jev's lean, FIRST, 0.18/0.58 then 0.12/0.56).
+    pub const fn reported(self) -> u8 {
+        match self {
+            BellVolume::Off => 1,
+            BellVolume::Low => 2,
+            BellVolume::High => 5,
+        }
+    }
+}
+
+/// **How many bells rang at each volume**, each counted at the volume set
+/// when it rang: a reader that took the volume when it heard the count
+/// would sound a `BEL` sent before a DECSWBV in the same read at the
+/// volume after it. The counts only grow, so a reader keeps the last one
+/// it saw and asks [`BellsRung::loudest_since`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BellsRung {
+    pub off: usize,
+    pub low: usize,
+    pub high: usize,
+}
+
+impl BellsRung {
+    pub const NONE: BellsRung = BellsRung {
+        off: 0,
+        low: 0,
+        high: 0,
+    };
+
+    /// The count of bells rung at `v`.
+    pub fn at_mut(&mut self, v: BellVolume) -> &mut usize {
+        match v {
+            BellVolume::Off => &mut self.off,
+            BellVolume::Low => &mut self.low,
+            BellVolume::High => &mut self.high,
+        }
+    }
+
+    /// The loudest volume a bell rang at since `before`, an earlier
+    /// reading of the same counts, or `None` when none rang.
+    pub fn loudest_since(self, before: BellsRung) -> Option<BellVolume> {
+        match (
+            self.high > before.high,
+            self.low > before.low,
+            self.off > before.off,
+        ) {
+            (true, _, _) => Some(BellVolume::High),
+            (false, true, _) => Some(BellVolume::Low),
+            (false, false, true) => Some(BellVolume::Off),
+            (false, false, false) => None,
+        }
+    }
+}
+
+/// `?44`, xterm's `marginBell` resource: "Turn on margin bell, xterm"
+/// (`[[source: ctlseqs]]`), "whether or not the bell should be rung when
+/// the user types near the right margin. The default is \"false\""
+/// (`[[source: xterm-man]]`). **Off at power-on and after `RIS`.** The
+/// margin bell rings only with this on and DECSMBV's volume not off, xterm's
+/// two switches (Jev's lean, TWO_SWITCHES, 0.37/0.27 then 0.27/0.14): DEC
+/// STD 070's "Margin Bell is enabled in Set-Up" is this, and the VT520's
+/// volume the other. DEC assigns `?44` to the VT340's DECGPCM, a graphics
+/// print mode, which xterm takes only with its ReGIS graphics on
+/// (`[[source: xterm-reset]]`'s file); baud has no ReGIS, so it is xterm's.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum MarginBell {
+    #[default]
+    Off,
+    On,
+}
+
 /// The two page widths a program asks for: DEC STD 070's `column_mode`,
 /// "Eighty (reset) and One Thirty Two (set)", and the `columns_per_page`
 /// each sets (`set_column_mode` and `reset_column_mode`,
@@ -948,6 +1071,7 @@ impl PrivateMode {
             PrivateMode::AltScreenClearing => 52,
             PrivateMode::MoreFix => 53,
             PrivateMode::Scrollbar => 54,
+            PrivateMode::MarginBell => 55,
             // XTSAVE of `?1048` saves the cursor rather than a value, as
             // xterm's `savemodes` does (`Paint::save_private_modes`).
             PrivateMode::SaveCursor
@@ -984,6 +1108,7 @@ impl PrivateMode {
             47 => PrivateMode::AltScreenLegacy,
             30 => PrivateMode::Scrollbar,
             41 => PrivateMode::MoreFix,
+            44 => PrivateMode::MarginBell,
             1047 => PrivateMode::AltScreenClearing,
             1048 => PrivateMode::SaveCursor,
             69 => PrivateMode::LeftRightMargin,

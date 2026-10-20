@@ -907,6 +907,11 @@ impl Paint<'_, '_> {
             // selection was numbered -- whatever region the read ends in.
             self.cold
                 .under_top_region(bot, Rows::of_count(k), self.book.top);
+            // The margin bell's line, if it lies under the region, is put
+            // back too (`margin.rs`).
+            if self.cold.bell.armed.is_some() {
+                self.margin_bell_under(bot, Rows::of_count(k));
+            }
             // **To the furthest the rows hold, on the primary.** A growth
             // without a re-cut shows the cells past a narrower edge as they
             // are, so the rows put back carry theirs (`View::copy_row`). The
@@ -966,6 +971,23 @@ impl Paint<'_, '_> {
         self.cells = self
             .cells
             .plus((bot.index() + 1 - top.index()) * self.cols.index());
+    }
+
+    /// **The margin bell armed on a row under a top region about to scroll
+    /// `k` rows** keeps its line: the rotation moves the ring under the
+    /// rows, and the repair puts their text back where it was, so the
+    /// armed line is read at the rotation the scroll leaves. A line armed
+    /// at another rotation is left to disarm at the write.
+    #[cold]
+    #[inline(never)]
+    fn margin_bell_under(&mut self, bot: Row, k: Rows) {
+        let rot = self.view.rot();
+        let ring = self.view.ring();
+        if let Some(a) = self.cold.bell.armed.as_mut() {
+            if a.row > bot && a.rot == rot {
+                a.rot = rot.advance(k.index(), ring);
+            }
+        }
     }
 
     /// **A top region's `n` scrolls, each a rotation and a repair**: the
@@ -3396,6 +3418,15 @@ impl Paint<'_, '_> {
                     ModeChange::Reset => baud_domain::MoreFix::Off,
                 }
             }
+            // **`?44` is the margin bell's switch** (`margin.rs`); reset, it
+            // disarms the bell, as xterm's `bellArmed = -1`.
+            PrivateMode::MarginBell => {
+                self.cold.bell.set_switch(match change {
+                    ModeChange::Set => baud_domain::MarginBell::On,
+                    ModeChange::Reset => baud_domain::MarginBell::Off,
+                });
+                self.rehook();
+            }
             PrivateMode::PopOnBell => self.cold.modes.apply(ModeBit::PopOnBell, on),
             // `?1001` is the fifth level: "The remaining five modes of the
             // mouse protocols are each enabled (or disabled) by a different
@@ -3869,6 +3900,16 @@ impl Paint<'_, '_> {
         // state". `DECSTR` keeps them, as its list names none.
         self.cold.resources = baud_domain::Resources::POWER_ON;
         self.cold.more_fix = baud_domain::MoreFix::Off;
+        // **And the bells' volumes and `?44`**: the volumes are set-up
+        // features, and "RIS replaces all set-up features with their saved
+        // settings" (`[[source: vt510-rm-b]]` p. 5-184), the power-on ones
+        // here; `?44` is a mode, and RIS sets "the modes into the reset
+        // state" (ECMA-48 8.3.105). xterm's reset keeps both volumes, a
+        // departure not followed. The `BEL`s before it are credited to the
+        // volume they rang at first.
+        self.fold_bells();
+        self.cold.bell.reset();
+        self.rehook();
         // **And the conformance level and the C1 transmission**: DEC STD
         // 070's Device Initialization takes both from NVM (`host_state_init`,
         // "conformance level = LEVEL 4"), which here is the power-up state,
@@ -4415,6 +4456,12 @@ impl Paint<'_, '_> {
             PrivateMode::MoreFix => match self.cold.more_fix {
                 baud_domain::MoreFix::On => ModeState::Set,
                 baud_domain::MoreFix::Off => ModeState::Reset,
+            },
+            // xterm answers the flag, `MdBool(screen->marginbell)`
+            // (`[[source: xterm-misc]]` 5579-5580).
+            PrivateMode::MarginBell => match self.cold.bell.switch {
+                baud_domain::MarginBell::On => ModeState::Set,
+                baud_domain::MarginBell::Off => ModeState::Reset,
             },
             PrivateMode::PopOnBell => bit_state(self.cold.modes, ModeBit::PopOnBell),
             // xterm answers both (`MdBool(screen->c132)` and, at its VT510

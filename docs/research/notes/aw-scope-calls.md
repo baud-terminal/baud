@@ -2,6 +2,8 @@
 
 **Status: 2026-10-20, research; section 2, the locator, was built the same
 day (the DECELR rows of `docs/vt-coverage.md`), and the rest is not.** Each section is
+**Status: 2026-10-20, research only; section 5, the bell volumes and the
+margin bell, was built the same day (its last paragraph).** Each section is
 one feature baud reads and drops today: what a user would see if it were
 built, what the governing text says, the options, Jev's lean and a
 recommendation. Scope is the owner's call (TODO.md). Where Jev reached 0.9 in
@@ -317,6 +319,21 @@ for high and NSSound for low. Linux app: it rings nothing yet.
 What rings the margin bell is a fork for the build: the VT520 says "as the
 current position nears the right margin", and xterm rings it on typed keys.
 
+**Built 2026-10-20 (lane b118).** DEC STD 070 settles the trigger: in
+070-6 § 6.6.5.2 (pp. 6-45 and 6-46, `[[source: dec-std-070]]`) a normal
+keystroke arms the margin bell and a character printed across RIGHT
+MARGIN - 8 on the same line rings it, so xterm's key-time test and the VT520's
+"current position" are each half of one rule. Jev decided 0 by DEC (1.00
+and 1.00), the trigger STD070 (0.94 and 0.95), eight columns (0.97 and
+0.97) and the new-line test at the write (0.94 and 0.94); the leans taken
+were TWO_SWITCHES for `?44` (0.37/0.27, then 0.27/0.14), the DECRQSS
+values 1, 2 and 5 (0.18/0.58, then 0.12/0.56) and low sounding as high on
+macOS (0.61/0.70, then 0.69/0.67), where no documented call plays the
+user's alert sound below its volume (`[[source: apple-nssound]]`,
+`[[source: apple-audioservicesplaysystemsound]]`). Log lines 1036-1037,
+1042-1045. The rows are `CSI Ps SP t`, `CSI Ps SP u` and `?44` in
+`docs/vt-coverage.md`.
+
 ## 6. The VT525's colour assignments: DECAC, DECATC and DECSTGLT
 
 **What a user sees.** A VT525 program sets the screen's default colours, and
@@ -411,7 +428,10 @@ second terminal personality with no DEC text.
   and gnuplot is the obvious program to check. The row should carry 070-8's
   "not the intent" and the owner's call once made.
 - DECSWBV and DECSMBV: ctlseqs and xterm reverse the DEC manuals' reading of
-  0, and the VT510's DECSMBV page names the warning bell (section 5).
+  0, and the VT510's DECSMBV page names the warning bell (section 5). Built
+  by DEC's reading. The VT520's own Section 2.12.7 calls high the default
+  of all three volumes, against its DECSMBV page, its Table 4.7.3 and its
+  Set-Up's "Margin bell volume Off": two to one, and off is built.
 - DECLL 21-23: xterm's code passes the value it passes to light, where its
   document says extinguish; what that does is unverified (section 4).
 - iTerm2 answers the locator status query "available" with no locator

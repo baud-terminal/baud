@@ -289,6 +289,9 @@ struct Snapshot {
     // Everything an operation can change that a grid comparison cannot see.
     cursor_visible: bool,
     cursor_style: CursorStyle,
+    /// DECSWBV's and DECSMBV's volumes and `?44`, which only the
+    /// embedder's bell reads.
+    bell_volumes: (BellVolume, BellVolume, MarginBell),
     cursor_keys: bool,
     keypad: KeypadMode,
     screen: Screen,
@@ -407,6 +410,11 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         replacements: t.replacements,
         cursor_visible: t.cursor_visible(),
         cursor_style: t.cursor_style(),
+        bell_volumes: (
+            t.warning_bell_volume(),
+            t.margin_bell_volume(),
+            t.margin_bell(),
+        ),
         cursor_keys: t.cursor_keys_application(),
         keypad: t.keypad(),
         screen: t.screen(),
@@ -531,6 +539,11 @@ fn every_spec_csi_form_is_handled_or_counted() {
         (
             b"\x1b[?1l",
             "DECCKM reset, and cursor-keys mode starts reset",
+        ),
+        (
+            b"\x1b[1 u",
+            "DECSMBV 1 is off, already the margin bell's volume -- \
+             decsmbv_reads_every_value_as_the_dec_manuals_give_it",
         ),
         (
             b"\x1b[?1s",

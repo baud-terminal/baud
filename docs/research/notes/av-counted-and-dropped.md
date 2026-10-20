@@ -25,12 +25,14 @@ is not.
 - **Built 2026-10-20:** ECMA-48's backward moves HPB and VPB,
   XTCHECKSUM's checksum flags, `?41`'s tab after a pending wrap, and the
   `?30` scrollbar mode.
+- **Built 2026-10-20:** the bell volumes (DECSWBV, DECSMBV) and the
+  margin bell (`?44`), after the owner's scope call took them in.
 - **Small, to build next** (the text is complete and nothing is the
   owner's): none is left. OSC 60-62's feature lists were built on
   2026-10-20 (the `OSC 60` row of `docs/vt-coverage.md`).
 - **Larger, to build** (whole protocols a VT420-class terminal has): the
   DEC locator, the host-writable status line, and xterm's special colours.
-- **Decisions needed:** the tertiary DA, the bell volumes, the keyboard
+- **Decisions needed:** the tertiary DA, the keyboard
   LEDs, the alternate function-key keyboards, printing, the pointer-hiding
   mode (XTSMPOINTER, in or out), pointer shapes and colours, font changes
   by a program, X resources, rxvt's font-shifting keys, and ECMA-48's C1
@@ -72,7 +74,7 @@ none the table says so.
 | `CSI Ps ; Pf ; Pb , \|` DECAC, `, }` DECATC, `CSI Ps ) {` DECSTGLT | counted | ctlseqs lines 1954-1965: the VT525's colour assignments | DECRQSS's row answers them invalid | **keep refused** while baud is VT420-class; note AP's level question decides it |
 | `OSC 5` / `6` / `105` / `106` special colours | counted | ctlseqs lines 2232-2241: the colours bold, underline, blink, reverse and italic draw in | none | **build** with the palette |
 | `CSI = Ps c` tertiary DA | counted | ctlseqs line 810: DECRPTUI, `DCS ! \| 00000000 ST` as xterm sends it | none | **ask Jev**, quoting the owner's DA1 pick: it is a VT400 report from a terminal that answers as a VT102 |
-| `CSI Ps SP t` DECSWBV, `CSI Ps SP u` DECSMBV | counted | ctlseqs lines 1720 and 1739: off, low, high | none | **ask Jev**: macOS's alert sound has no volume baud sets, so "off" is buildable and "low" is not |
+| `CSI Ps SP t` DECSWBV, `CSI Ps SP u` DECSMBV | built 2026-10-20 | the VT520 manual pp. 5-154 and 5-138: off, low, high, 0 read as DEC reads it | their rows | **built**: `bell_volume.rs`; on macOS low sounds as high, their rows' gap |
 | `CSI Ps q` DECLL | counted | ctlseqs line 1536: light or put out Num, Caps and Scroll Lock | none | **the owner's**, beside note AH's title-bar lights |
 | `?1050`-`?1053`, `?1060`, `?1061` | counted | ctlseqs DECSET `1 0 5 0` to `1 0 6 1`: the termcap, Sun, HP, SCO, legacy and VT220 keyboards | the VT220 table is `out` in `docs/input-coverage.md` | **ask Jev**: each is a key encoding, and the owner's rule asks for protocols whole |
 | `CSI Ps i`, `CSI ? Ps i` MC, `?18`, `?19`, `?43`-`?46` | counted | ctlseqs lines 1047-1054 and DECSET `1 8` to `4 6`: printing and logging | none | **keep refused** where it writes a file (`?46`, `CSI 10 i`, `CSI 11 i`, which a remote program could aim at the user's disk); **the owner's** for a printer |

@@ -115,6 +115,8 @@ pub(crate) struct Paint<'a, 'b> {
     /// `FinalByte::slot()` and a VT52 command byte is not a `FinalByte`.
     pub(crate) vt52_unsupported: usize,
     pub(crate) bells: usize,
+    /// The margin bell's rings this read (`margin.rs`).
+    pub(crate) margin_bells: usize,
     /// Character-set designations this core does not name.
     ///
     /// **Counted rather than recorded**, which is the distinction the eleven
@@ -371,7 +373,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             images,
             ..
         } = store;
-        let hooks = WriteHooks::of(images, cold.watched);
+        let hooks = WriteHooks::of(images, cold.watched, cold.bell.armed);
         // **The live surface by which screen is up.** The primary is the
         // ring -- the screen's capacity plus the scrollback -- and the
         // alternate is a ring of the capacity alone, so a scroll there
@@ -420,6 +422,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             link,
             vt52_unsupported: 0,
             bells: 0,
+            margin_bells: 0,
             charset_unsupported: 0,
             unsupported_total: 0,
             unsupported_param: 0,
@@ -1851,7 +1854,7 @@ impl<'a, 'b> Paint<'a, 'b> {
                 .view
                 .fill(cy, eol, Col::at_index(cols), PackedCell::EMPTY);
             self.cells = self.cells.plus(n);
-            self.overwrote(eol, Col::at_index(cols));
+            self.overwrote_unprinted(eol, Col::at_index(cols));
         }
         self.view.set_rendition(cy, to);
         self.row_changed_to(cy);
@@ -1879,7 +1882,10 @@ impl<'a, 'b> Paint<'a, 'b> {
     #[inline(always)]
     pub(crate) fn overwrote(&mut self, start: Col, end: Col) {
         if self.hooks == WriteHooks::Off {
-            debug_assert!(WriteHooks::of(self.images, self.cold.watched) == WriteHooks::Off);
+            debug_assert!(
+                WriteHooks::of(self.images, self.cold.watched, self.cold.bell.armed)
+                    == WriteHooks::Off
+            );
             return;
         }
         self.overwrote_hooked(start, end);
@@ -1890,13 +1896,67 @@ impl<'a, 'b> Paint<'a, 'b> {
     fn overwrote_hooked(&mut self, start: Col, end: Col) {
         self.overwrite_images(start, end);
         self.wrote_rows(self.cy, self.cy);
+        self.margin_bell(start, end);
         self.rehook();
+    }
+
+    /// [`Paint::overwrote`] for a write that prints no character -- the
+    /// half a double line clears, a rectangle's row -- which neither rings
+    /// the margin bell nor disarms it: STD 070 rings it for "Any character
+    /// is printed to the screen which causes the cursor to move"
+    /// (`margin.rs`). The armed line is set aside across the hook rather
+    /// than the hook given a second body, so the text writers' hook keeps
+    /// the one caller each of its tests has.
+    pub(crate) fn overwrote_unprinted(&mut self, start: Col, end: Col) {
+        let armed = self.cold.bell.armed.take();
+        self.overwrote(start, end);
+        self.cold.bell.armed = armed;
+        self.rehook();
+    }
+
+    /// **The margin bell's test**, on a write while one is armed: rung when
+    /// the write crossed RIGHT MARGIN - 8 on the line it was armed on, the
+    /// line's own last column the right margin (`margin.rs`).
+    fn margin_bell(&mut self, start: Col, end: Col) {
+        if self.cold.bell.armed.is_none() {
+            return;
+        }
+        let at = crate::margin::Line {
+            epoch: self.cold.epoch,
+            rot: self.view.rot(),
+            row: self.cy,
+        };
+        let fence = self.line_fence();
+        if self.cold.bell.wrote(at, start, end, fence) == crate::margin::Crossed::Rung {
+            self.margin_bells += 1;
+            let b = &mut self.cold.bell;
+            *b.margin_rung.at_mut(b.margin) += 1;
+        }
+    }
+
+    /// **The `BEL`s this read counted since the last fold, credited to the
+    /// warning volume they rang at**: before DECSWBV or `RIS` changes it, and
+    /// at the read's end ([`Paint::bells_read_out`]), so an embedder reading
+    /// the counts after the read hears each at its own volume.
+    pub(crate) fn fold_bells(&mut self) {
+        let b = &mut self.cold.bell;
+        *b.warning_rung.at_mut(b.warning) += self.bells - b.folded;
+        b.folded = self.bells;
+    }
+
+    /// [`Paint::fold_bells`] at a read's end, which leaves nothing folded
+    /// for the next.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn bells_read_out(&mut self) {
+        self.fold_bells();
+        self.cold.bell.folded = 0;
     }
 
     /// [`Paint::hooks`] read again, after anything that may have placed an
     /// image and on the hooked path itself.
     pub(crate) fn rehook(&mut self) {
-        self.hooks = WriteHooks::of(self.images, self.cold.watched);
+        self.hooks = WriteHooks::of(self.images, self.cold.watched, self.cold.bell.armed);
     }
 
     /// Rows `from` to `to` of the live screen written or erased, told to the
@@ -2041,8 +2101,8 @@ pub(crate) fn fence_of(r: LineRendition, right: Col, cols: Cols) -> Col {
     }
 }
 
-/// [`Paint::hooks`]: whether a write of text has an image or a watch to
-/// tell.
+/// [`Paint::hooks`]: whether a write of text has an image, a watch or an
+/// armed margin bell to tell.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum WriteHooks {
     Off,
@@ -2050,8 +2110,12 @@ enum WriteHooks {
 }
 
 impl WriteHooks {
-    fn of(images: &ImageStore<'_>, watched: crate::term::Watched) -> WriteHooks {
-        match images.any_placed() || watched == crate::term::Watched::Rows {
+    fn of(
+        images: &ImageStore<'_>,
+        watched: crate::term::Watched,
+        armed: Option<crate::margin::Line>,
+    ) -> WriteHooks {
+        match images.any_placed() || watched == crate::term::Watched::Rows || armed.is_some() {
             true => WriteHooks::On,
             false => WriteHooks::Off,
         }
