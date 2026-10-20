@@ -28682,3 +28682,37 @@ sha256 = "ce52e8c48f10e3826024a7e19df95cf43558950d3dd26bd89ee793386828a9b6"
 bytes  = 19343
 status = "retrieved"
 group  = "C"
+
+# kitty's own key encoder and its keyboard layer, pinned 2026-10-19 for the
+# disambiguate flag's keypad keys: key_encoding.c sends a key's text whenever
+# it has any that is not a control code and flag 8 is off
+# (`encode_glfw_key_event`, `send_text_standalone`), and xkb_glfw.c produces
+# that text only while none of Control, Alt, Super, Hyper or Meta is held
+# (1073-1081). Practice beside `kitty-keyboard`'s text, at the commit the
+# shader and font pins already use. `external`: read and hash-verified, not
+# committed (GPL-3.0).
+[sources.kitty-key-encoding-c]
+key    = "kitty-key-encoding-c"
+title  = "kitty 9710eb4, kitty/key_encoding.c -- encode_glfw_key_event sends a key's text standalone before any CSI u"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/key_encoding.c"
+file   = ""
+sha256 = "5aebe0e13233d8303bf5ee4a2f8c5a51fb4967df2893be6034866b563f27d48c"
+bytes  = 16680
+status = "external"
+group  = "H"
+
+[sources.kitty-xkb-glfw-c]
+key    = "kitty-xkb-glfw-c"
+title  = "kitty 9710eb4, glfw/xkb_glfw.c -- a key's text only while no Control, Alt, Super, Hyper or Meta is held, none for a control code"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty terminal emulator (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/glfw/xkb_glfw.c"
+file   = ""
+sha256 = "cc053ce1c1d385d313b3b5ce5009f6f6562bf7000cfbd8e476fc7ac2c8e831f2"
+bytes  = 49402
+status = "external"
+group  = "H"

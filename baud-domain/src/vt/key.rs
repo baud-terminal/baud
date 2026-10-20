@@ -555,7 +555,8 @@ fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     // `Report all keys as escape codes` routes every key through CSI-u;
     // otherwise only the ambiguous and functional keys do and the rest keep
     // their legacy bytes.
-    let route = flags.has(KittyFlags::ALL_AS_ESCAPES) || kitty_disambiguated(e.code, e.mods);
+    let route =
+        flags.has(KittyFlags::ALL_AS_ESCAPES) || kitty_disambiguated(e.code, e.mods, e.text);
     if !route {
         return encode_base(e, s);
     }
@@ -619,9 +620,19 @@ fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
 /// shift+alt+key keys", plus every non-text keypad and functional key. The
 /// Enter, Tab and Backspace keys are the exceptions -- they keep their legacy
 /// bytes so a shell stays usable after a crashed program leaves the mode set.
-fn kitty_disambiguated(code: KeyCode, mods: Modifiers) -> bool {
+///
+/// **A keypad key that typed a character is a text key**, and keeps its
+/// legacy bytes, its lock unsent: "all non text keypad keys" are the ones
+/// reported, and "the Lock modifiers are not reported for text producing
+/// keys". Typed is what the embedder's text says, as kitty's encoder sends
+/// a key's text whenever it carries any that is not a control code
+/// (`[[source: kitty-key-encoding-c]]`), and its keyboard layer gives none
+/// while Control, Alt, Super, Hyper or Meta is held (`[[source:
+/// kitty-xkb-glfw-c]]`); a digit went out as `CSI 57400 ; 129 u`.
+fn kitty_disambiguated(code: KeyCode, mods: Modifiers, text: Option<Codepoint>) -> bool {
     match code {
         KeyCode::Enter | KeyCode::Tab | KeyCode::Backspace => false,
+        KeyCode::Keypad(_) => !text.is_some_and(|c| c.value() >= 0x20 && c.value() != 0x7f),
         // A text key disambiguates only when a modifier makes it collide with a
         // control code; plain and shift-only text keys still send text.
         KeyCode::Char(_) => {

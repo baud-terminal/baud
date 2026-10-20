@@ -59,7 +59,21 @@ pub fn press(state: &State<'_>, keycode: Keycode) -> Option<KeyEvent> {
         };
         Some(KeyCode::Char(Codepoint::from_char(plain)))
     })?;
-    Some(KeyEvent::press(code, mods))
+    let mut e = KeyEvent::press(code, mods);
+    // **A keypad key carries the text it types**, which is how kitty's
+    // disambiguate flag tells a digit from a navigation key (`[[source:
+    // kitty-keyboard]]`, "all non text keypad keys"): the keymap's text,
+    // none while Control, Alt or Super is held and none for a control code,
+    // as kitty's keyboard layer gives it (`[[source: kitty-xkb-glfw-c]]`).
+    // The base layer reads the key, not the text.
+    if let KeyCode::Keypad(_) = code {
+        let held = [Modifiers::CTRL, Modifiers::ALT, Modifiers::SUPER];
+        e.text = state
+            .text(keycode)
+            .filter(|c| !c.is_control() && !held.iter().any(|m| mods.has(*m)))
+            .map(Codepoint::from_char);
+    }
+    Some(e)
 }
 
 /// The functional keys, from the keysym values the pinned header names.

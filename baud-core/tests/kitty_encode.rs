@@ -262,6 +262,49 @@ fn the_three_exceptions_stay_legacy_until_all_keys() {
     );
 }
 
+/// **A keypad key that types is its text under disambiguate alone.**
+/// `[[source: kitty-keyboard]]`: "all non text keypad keys will be reported
+/// as separate keys with CSI u", and "the Lock modifiers are not reported
+/// for text producing keys". A keypad key that carries the text it typed
+/// keeps the legacy bytes, its lock unsent; one that typed nothing -- the
+/// key Control held, Enter, a navigation key -- is its number, as kitty's
+/// own encoder sends a key's text whenever it has any (`[[source:
+/// kitty-key-encoding-c]]`). Under all keys it is the number with the lock.
+#[test]
+fn a_keypad_key_that_types_keeps_its_text_under_disambiguate() {
+    let digit = KeyCode::Keypad(KeypadKey::Digit1);
+    let typed = |mods| KeyEvent {
+        text: Some(Codepoint::from_char('1')),
+        ..KeyEvent::press(digit, mods)
+    };
+    assert_eq!(pressed(b"\x1b[=1u", typed(Modifiers::NUM_LOCK)), b"1");
+    assert_eq!(pressed(b"\x1b[=1u", typed(Modifiers::NONE)), b"1");
+    let plus = KeyEvent {
+        text: Some(Codepoint::from_char('+')),
+        ..KeyEvent::press(KeyCode::Keypad(KeypadKey::Add), Modifiers::NUM_LOCK)
+    };
+    assert_eq!(pressed(b"\x1b[=1u", plus), b"+");
+    // Typed nothing: its number, the lock with it.
+    assert_eq!(
+        pressed(
+            b"\x1b[=1u",
+            KeyEvent::press(digit, Modifiers::NUM_LOCK.with(Modifiers::CTRL))
+        ),
+        b"\x1b[57400;133u"
+    );
+    // A control code is no text: keypad Enter stays its number.
+    let enter = KeyEvent {
+        text: Some(Codepoint::from_char('\r')),
+        ..KeyEvent::press(KeyCode::Keypad(KeypadKey::Enter), Modifiers::NONE)
+    };
+    assert_eq!(pressed(b"\x1b[=1u", enter), b"\x1b[57414u");
+    // Report all keys: the number and the lock, text or not.
+    assert_eq!(
+        pressed(b"\x1b[=8u", typed(Modifiers::NUM_LOCK)),
+        b"\x1b[57400;129u"
+    );
+}
+
 /// **A `Char`'s number is its unshifted codepoint, which is the whole point of
 /// modelling `KeyCode::Char` as the identity.** `[[source: kitty-keyboard]]`:
 /// "the codepoint used is always the un-shifted version"; `ctrl+shift+a` "must
