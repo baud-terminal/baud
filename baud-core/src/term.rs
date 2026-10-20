@@ -34,19 +34,16 @@ pub enum Written<'t> {
     Every,
 }
 
-/// What `?1049 h` saves for the primary screen and `?1049 l` restores: the
-/// cursor `DECSC` saves, and the cursor's style and `?12` with it.
+/// What `?1049 h` saves from the primary screen beside the cursor, and
+/// `?1049 l` restores after it: the cursor's style and `?12`.
 ///
-/// **One record, so the three cannot drift.** A resize rewrites the saved
-/// cursor while the alternate screen is up, and a reset takes the save on its
-/// way off the alternate screen; kept in separate fields, a style could
-/// outlive the cursor saved beside it. `DECSC` does not save the style --
+/// **Not in [`Saved`]**, because `DECSC` does not save the style --
 /// `[[source: vt510-decsc]]` lists seven things and the cursor's style is not
 /// one of them, and xterm, foot, ghostty and alacritty agree; kitty and
-/// wezterm save it with the cursor.
+/// wezterm save it with the cursor. The cursor `?1049 h` saves is the
+/// primary's `DECSC` slot ([`Cold::saved`]), and this rides beside it.
 #[derive(Clone, Copy)]
-pub(crate) struct AltSaved {
-    pub(crate) cursor: Saved,
+pub(crate) struct AltStyle {
     pub(crate) style: CursorStyle,
     pub(crate) blink: ModeChange,
 }
@@ -993,11 +990,17 @@ pub struct Cold {
     pub(crate) updates_opened: UpdatesOpened,
     /// The page widths asked of the embedder: [`Term::requested_width`].
     pub(crate) width: WidthAsk,
+    /// **One saved cursor per screen**, xterm's `sc[screen->whichBuf]`
+    /// (`[[source: xterm-cursor-c]]`, `CursorSave` and `CursorRestore`):
+    /// `saved` is the shown screen's, which `ESC 7`, `ESC 8`, `CSI s`,
+    /// `CSI u`, `?1048` and `?1049` reach, and `saved_other` the other
+    /// screen's. A switch swaps them, as it swaps the kitty stacks.
     pub(crate) saved: Option<Saved>,
-    pub(crate) alt_saved: Option<AltSaved>,
+    pub(crate) saved_other: Option<Saved>,
+    pub(crate) alt_style: Option<AltStyle>,
     /// Which mode put the alternate screen up, while it is up: `?1049` saved
-    /// the primary's cursor in `alt_saved`, `?47` saved nothing and shares
-    /// the one cursor. Read by a resize, which anchors the primary on
+    /// the primary's cursor in its slot, `saved_other` while the alternate
+    /// screen is up; `?47` saved nothing and shares the one cursor. Read by a resize, which anchors the primary on
     /// whichever cursor the primary will have when the alternate screen goes.
     pub(crate) alt_entry: crate::ops::AltSwitch,
     pub(crate) modes: Modes,
@@ -1170,7 +1173,8 @@ pub struct Cold {
 // Code extension took it to 728: which slot GR invokes, the slot a pending
 // single shift names, how each slot was designated (DECCIR's `Sdesig`), a
 // DECRSPS's restored shift and tab-stop parse, and GR and the designations
-// in both `Saved` copies, `saved` and `alt_saved` (56 to 72 bytes each).
+// in both `Saved` copies, `saved` and the `?1049` save (56 to 72 bytes
+// each).
 // None is read on the per-byte path: GR where a GR byte is written, the
 // rest by control functions and reports.
 // The line tabulation stops took it to 808: ten words, written by VTS, CTC,
@@ -1187,9 +1191,11 @@ pub struct Cold {
 // `?41`'s byte took it to 800, read by `HT` at a pending wrap alone;
 // XTCHECKSUM's and `?30`'s fit in the padding, read by DECRQCRA and the
 // embedder alone.
+// The per-screen saved cursor's slot (`saved_other`, a `Saved` where the
+// `?1049` record was) is eight bytes smaller, which took it back to 792.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 800);
+const _: () = assert!(core::mem::size_of::<Cold>() == 792);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -1465,7 +1471,8 @@ impl Cold {
             updates_opened: UpdatesOpened::FIRST,
             width: WidthAsk::NONE,
             saved: None,
-            alt_saved: None,
+            saved_other: None,
+            alt_style: None,
             alt_entry: crate::ops::AltSwitch::SaveAndClear,
             kitty: KittyStack::new(),
             kitty_alt: KittyStack::new(),
@@ -2085,7 +2092,7 @@ impl<'b> Term<'b> {
             let at = self.primary_cursor();
             let mut cy = match at {
                 PrimaryCursor::Live | PrimaryCursor::Shared => self.cy.index(),
-                PrimaryCursor::Saved => self.cold.alt_saved.map_or(0, |s| s.cursor.cy.index()),
+                PrimaryCursor::Saved => self.cold.saved_other.map_or(0, |s| s.cy.index()),
             }
             .min(from - 1);
             let (mut hist, mut hidden) =
@@ -2205,8 +2212,8 @@ impl<'b> Term<'b> {
             match at {
                 PrimaryCursor::Live => self.cy = Row::from_index(cy),
                 PrimaryCursor::Saved => {
-                    if let Some(s) = self.cold.alt_saved.as_mut() {
-                        s.cursor.cy = Row::from_index(cy.min(to - 1));
+                    if let Some(s) = self.cold.saved_other.as_mut() {
+                        s.cy = Row::from_index(cy.min(to - 1));
                     }
                 }
                 // The alternate screen's cursor too, and this step does not
@@ -2245,8 +2252,8 @@ impl<'b> Term<'b> {
                 PrimaryCursor::Live | PrimaryCursor::Shared => (self.cy, self.cx.col()),
                 PrimaryCursor::Saved => self
                     .cold
-                    .alt_saved
-                    .map_or((Row::ZERO, Col::ZERO), |s| (s.cursor.cy, s.cursor.cx)),
+                    .saved_other
+                    .map_or((Row::ZERO, Col::ZERO), |s| (s.cy, s.cx)),
             };
             // **The primary's images follow their rows through the re-cut.**
             // Each is staged at its row counted from the oldest retained line,
@@ -2409,8 +2416,8 @@ impl<'b> Term<'b> {
                     (self.cy, self.cx) = (cy, CursorCol::written(cx));
                 }
                 PrimaryCursor::Saved => {
-                    if let Some(s) = self.cold.alt_saved.as_mut() {
-                        (s.cursor.cy, s.cursor.cx) = r.cursor;
+                    if let Some(s) = self.cold.saved_other.as_mut() {
+                        (s.cy, s.cx) = r.cursor;
                     }
                 }
                 PrimaryCursor::Shared => {}

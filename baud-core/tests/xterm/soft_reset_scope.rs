@@ -10,7 +10,7 @@
 //!
 //! baud reset all four, so a full-screen application sending `CSI ! p` to
 //! recover a confused terminal was dropped onto the primary screen mid-draw,
-//! and the primary's saved contents went with it (`alt_saved = None`).
+//! and the primary's saved contents went with it (the `?1049` save emptied).
 //!
 //! Found by core2's alternate-screen isolation property once the generator
 //! could emit `CSI ! p` at all — it shrank to `[Decstr, Sgr(1), El(0), ...]`.
@@ -39,7 +39,7 @@ fn soft_reset_stays_on_the_alternate_screen() {
 /// And the primary's contents survive it.
 ///
 /// This is the part that made the old behaviour destructive rather than merely
-/// wrong: `alt_saved = None` discarded what `?1049 h` had saved, so leaving
+/// wrong: emptying the `?1049` save discarded what `?1049 h` had saved, so leaving
 /// the alt screen afterwards could not restore the primary.
 #[test]
 fn the_primary_screen_survives_a_soft_reset_on_the_alternate() {

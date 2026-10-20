@@ -245,7 +245,7 @@ fn a_reset_leaves_the_alternate_cells_naming_nothing() {
 
 /// **A shrink while `?47`'s alternate screen is up anchors the primary on the
 /// cursor it will have** -- the one both screens share, since `?47 l`
-/// restores nothing. It read `alt_saved`, which `?47` never writes, and
+/// restores nothing. It read the `?1049` save, which `?47` never writes, and
 /// anchored at row 0: the shrink cut the primary's bottom rows and retired
 /// none. The same with `?1049`, which anchors on its save, is the control.
 #[test]

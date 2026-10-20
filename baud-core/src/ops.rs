@@ -13,7 +13,7 @@
 //! costs every payload whether or not it executes.
 
 use crate::paint::{Paint, Pen};
-use crate::term::{AltSaved, Saved, Screen, SurfaceLine};
+use crate::term::{AltStyle, Saved, Screen, SurfaceLine};
 use baud_domain::*;
 
 /// Which way a full-screen scroll moved the window over the ring: up one,
@@ -359,15 +359,17 @@ impl Paint<'_, '_> {
         }
     }
 
-    /// `?1049 l`'s restore: the cursor `DECSC` would restore, and the style
-    /// and `?12` saved with it, which `DECRC` leaves alone.
+    /// `?1049 l`'s restore, made on the primary: "restore cursor as in
+    /// DECRC" (`[[source: ctlseqs]]`), so the primary's slot, which it does
+    /// not empty, or with nothing saved what `DECRC` then does, xterm's
+    /// `CursorRestore` after `FromAlternate`. Then the style and `?12`
+    /// `?1049 h` saved beside it, which `DECRC` leaves alone.
     fn restore_alt(&mut self) {
-        let Some(a) = self.cold.alt_saved.take() else {
-            return;
-        };
-        self.cold.cursor_style = a.style;
-        self.cold.cursor_blink = a.blink;
-        self.restore(Some(a.cursor));
+        self.save_or_restore_cursor(ModeChange::Reset);
+        if let Some(a) = self.cold.alt_style.take() {
+            self.cold.cursor_style = a.style;
+            self.cold.cursor_blink = a.blink;
+        }
     }
 
     /// **Clamped, because the save may predate a resize.** An unclamped
@@ -3312,8 +3314,8 @@ impl Paint<'_, '_> {
             // switch to the alternate buffer, clear it. For `?1049 l`: use the
             // normal buffer and restore as DECRC.
             //
-            // **Idempotent in both directions.** A second `?1049 h` must not
-            // re-save over the cursor it saved on the way in.
+            // **A second `?1049 h` does not re-save over the cursor it saved
+            // on the way in**: it saves into the alternate screen's slot.
             // **DECANM: `CSI ? 2 l` leaves ANSI, and leaving is a parser
             // transition.** The mode is recorded *and* the node moves, because
             // the very next byte has to be read by the VT52 graph -- `ESC [`
@@ -3355,9 +3357,9 @@ impl Paint<'_, '_> {
             PrivateMode::AltScreen => self.set_alt_screen(change, AltSwitch::SaveAndClear),
             PrivateMode::AltScreenClearing => self.set_alt_screen(change, AltSwitch::ClearOnExit),
             // **`?1048` is DECSC and DECRC**, "Save cursor as in DECSC" and
-            // "Restore cursor as in DECRC" (`[[source: ctlseqs]]`), the one
-            // slot `ESC 7` and `ESC 8` share, as xterm's `CursorSave` and
-            // `CursorRestore` are (`[[source: xterm-reset]]`'s file).
+            // "Restore cursor as in DECRC" (`[[source: ctlseqs]]`), the shown
+            // screen's slot `ESC 7` and `ESC 8` use, as xterm's `CursorSave`
+            // and `CursorRestore` are (`[[source: xterm-reset]]`'s file).
             PrivateMode::SaveCursor => self.save_or_restore_cursor(change),
             // **`?47` switches buffers and does nothing else.** xterm's
             // `srm_ALTBUF` is `ToAlternate(xw, False)` in and
@@ -3473,13 +3475,20 @@ impl Paint<'_, '_> {
         use crate::term::Screen;
         match (change == ModeChange::Set, self.cold.screen) {
             (true, Screen::Normal) => {
+                // **Into the primary's `DECSC` slot**, "Save cursor as in
+                // DECSC" (`[[source: ctlseqs]]`), xterm's `CursorSave` before
+                // `ToAlternate`; the style and `?12` ride beside it.
                 if how == AltSwitch::SaveAndClear {
-                    self.cold.alt_saved = Some(AltSaved {
-                        cursor: self.save(),
+                    self.cold.saved = Some(self.save());
+                    self.cold.alt_style = Some(AltStyle {
                         style: self.cold.cursor_style,
                         blink: self.cold.cursor_blink,
                     });
                 }
+                // **Each screen has its own slot**, xterm's
+                // `sc[screen->whichBuf]` (`[[source: xterm-cursor-c]]`): the
+                // alternate screen's comes up as it was last left.
+                core::mem::swap(&mut self.cold.saved, &mut self.cold.saved_other);
                 self.cold.alt_entry = how;
                 self.cold.screen = Screen::Alternate;
                 self.cold.epoch = self.cold.epoch.next();
@@ -3563,6 +3572,7 @@ impl Paint<'_, '_> {
                 }
                 self.cold.screen = Screen::Normal;
                 self.cold.epoch = self.cold.epoch.next();
+                core::mem::swap(&mut self.cold.saved, &mut self.cold.saved_other);
                 // Restore the primary screen's kitty stack and prompt state;
                 // see the enter arm.
                 core::mem::swap(&mut self.cold.kitty, &mut self.cold.kitty_alt);
@@ -3579,31 +3589,33 @@ impl Paint<'_, '_> {
                 self.row_changed_to(self.cy);
                 // **`?47` restores nothing, and leaves the save alone.** A
                 // cursor `?1049 h` saved outlives a `?47 l` exit, as the
-                // cursor xterm saves outlives `FromAlternate`.
+                // cursor xterm saves outlives `FromAlternate`, and `ESC 8` on
+                // the primary finds it.
                 if how == AltSwitch::SaveAndClear {
                     self.restore_alt();
                 }
             }
-            // **`?1049 h` while the alternate screen is up clears it**, as
-            // xterm's does: its set arm is `CursorSave; ToAlternate;
+            // **`?1049 h` while the alternate screen is up saves and clears
+            // it**, as xterm's does: its set arm is `CursorSave; ToAlternate;
             // ClearScreen`, and `ToAlternate` is a no-op on the alternate
-            // buffer while the clear is not (`xterm-charproc.c`, the
-            // `srm_OPT_ALTBUF_CURSOR` case). It saves nothing here, because
-            // the save is the primary's and this cursor is the alternate
-            // screen's; and it does not home, because xterm's `ClearScreen`
-            // does not (`xterm-util.c`). `?47 h` then `?1049 h` used to
-            // leave the `?47` screen's text under the program that asked for
-            // a cleared one.
+            // buffer while the save and the clear are not (`xterm-charproc.c`,
+            // the `srm_OPT_ALTBUF_CURSOR` case). The save is the alternate
+            // screen's cursor into the alternate screen's slot, and the
+            // primary's save and style stay; it does not home, because
+            // xterm's `ClearScreen` does not (`xterm-util.c`). `?47 h` then
+            // `?1049 h` used to leave the `?47` screen's text under the
+            // program that asked for a cleared one.
             (true, Screen::Alternate) => {
                 if how == AltSwitch::SaveAndClear {
+                    self.cold.saved = Some(self.save());
                     self.clear_screen();
                 }
             }
-            // **`?1049 l` on the primary restores what `?1049 h` saved**, as
-            // xterm's `CursorRestore` runs whatever `FromAlternate` did. The
-            // primary can be up with a save pending only since `?47`: a
-            // `?1049 h ... ?47 l` leaves it, and a later `?1049 l`, or `RIS`,
-            // which leaves the alternate screen first, takes it here.
+            // **`?1049 l` on the primary restores as `DECRC`**, as xterm's
+            // `CursorRestore` runs whatever `FromAlternate` did: what
+            // `?1049 h` saved, if a `?47 l` left it up with a save, or an
+            // `ESC 7`, or with nothing saved home. `RIS`, which leaves the
+            // alternate screen first, comes here too.
             (false, Screen::Normal) => {
                 if how == AltSwitch::SaveAndClear {
                     self.restore_alt();
@@ -3707,6 +3719,14 @@ impl Paint<'_, '_> {
         };
         self.set_alt_screen(ModeChange::Reset, AltSwitch::SaveAndClear);
         self.soft_reset();
+        // **Both screens' saved cursors go**: `soft_reset` empties the shown
+        // screen's slot, as `DECSTR` does, and `RIS` returns to the initial
+        // state (`[[source: ecma48]]` § 8.3.105), in which nothing is saved
+        // on either. xterm's full reset saves the primary's cursor at home
+        // and leaves the alternate screen's slot (`[[source: xterm-reset]]`'s
+        // file): that departs from the initial state, and baud does not
+        // follow it.
+        self.cold.saved_other = None;
         // **What `RIS` resets and `DECSTR` does not.** `soft_reset` leaves
         // mouse tracking alone deliberately -- a full-screen application
         // recovering with `CSI ! p` must not have it pulled out from under it,
@@ -4325,9 +4345,9 @@ impl Paint<'_, '_> {
                 Screen::Alternate => ModeState::Set,
                 Screen::Normal => ModeState::Reset,
             },
-            // `?1048` answers whether a cursor is saved, xterm's
-            // `MdBool(screen->sc[screen->whichBuf].saved)` (`[[source:
-            // xterm-misc]]` 5716-5717); baud's one slot serves both screens.
+            // `?1048` answers whether a cursor is saved on the screen shown,
+            // xterm's `MdBool(screen->sc[screen->whichBuf].saved)`
+            // (`[[source: xterm-misc]]` 5716-5717).
             PrivateMode::SaveCursor => match self.cold.saved {
                 Some(_) => ModeState::Set,
                 None => ModeState::Reset,

@@ -478,10 +478,15 @@ fn entering_twice_does_not_clobber_the_saved_cursor() {
     );
 }
 
-/// Leaving when not on the alt screen is inert, not a restore of stale state.
+/// **Leaving when not on the alt screen restores as `DECRC` does**, and
+/// with nothing saved that is home: "restore cursor as in DECRC"
+/// (`[[source: ctlseqs]]`), and xterm's reset arm runs `CursorRestore` after
+/// a `FromAlternate` that does nothing on the primary (`xterm-charproc.c`,
+/// `srm_OPT_ALTBUF_CURSOR`). The screen is not touched.
 #[test]
-fn leaving_when_not_on_the_alt_screen_is_inert() {
-    assert_eq!(cursor(b"\x1b[9;20H\x1b[?1049l"), (8, 19));
+fn leaving_when_not_on_the_alt_screen_restores_as_decrc() {
+    assert_eq!(cursor(b"\x1b[9;20H\x1b[?1049l"), (0, 0));
+    assert_eq!(cursor(b"\x1b[9;20H\x1b7\x1b[1;1H\x1b[?1049l"), (8, 19));
     assert_eq!(grid(b"abc\x1b[?1049l"), grid(b"abc"));
 }
 
@@ -495,15 +500,13 @@ fn the_rendition_is_saved_and_restored() {
     );
 }
 
-/// DECSC/DECRC keep their own saved cursor, independent of the switch.
-///
-/// The switch stashes a cursor and so does DECSC; sharing one slot would make
-/// an application that does both get the wrong one back.
+/// **Each screen has its own `DECSC` slot**, xterm's
+/// `sc[screen->whichBuf]` (`[[source: xterm-cursor-c]]`): a save on the
+/// primary is not the alternate screen's, so `DECRC` there, with nothing
+/// saved on it, goes home. `tests/saved_cursor_per_screen.rs` has the rest.
 #[test]
 fn the_switch_does_not_share_decsc_state() {
-    // Save at 5;5, switch (which stashes 5;5 separately), restore inside the
-    // alt screen -- DECRC must find 5;5, not be confused by the switch.
-    assert_eq!(cursor(b"\x1b[5;5H\x1b7\x1b[?1049h\x1b[1;1H\x1b8"), (4, 4));
+    assert_eq!(cursor(b"\x1b[5;5H\x1b7\x1b[?1049h\x1b[9;9H\x1b8"), (0, 0));
 }
 
 /// RIS returns to the normal screen.
