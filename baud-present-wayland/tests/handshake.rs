@@ -1373,7 +1373,7 @@ fn a_seat_that_loses_its_pointer_releases_it() {
 /// **Below version 5 each event is its own frame**, and without the
 /// cursor-shape global nothing names a shape.
 #[test]
-fn an_old_pointer_reports_at_once_and_no_global_sets_no_shape() {
+fn an_old_pointer_reports_at_once_and_no_global_draws_its_own() {
     let Pointed {
         mut conn,
         mut server,
@@ -1383,6 +1383,12 @@ fn an_old_pointer_reports_at_once_and_no_global_sets_no_shape() {
         surface,
     } = pointer_session(4, Shapes::Absent);
     assert_eq!(device, None);
+    use protocol::wp_cursor_shape_device_v1::shape;
+    assert_eq!(
+        w.set_pointer_shape(&mut conn.sender(), CursorShape(shape::TEXT)),
+        Shaped::Unavailable,
+        "no enter, no serial"
+    );
     server.send(
         pointer,
         "wl_pointer",
@@ -1403,10 +1409,153 @@ fn an_old_pointer_reports_at_once_and_no_global_sets_no_shape() {
             PointerEvent::Scroll(Scroll::Distance(10.0))
         ]
     );
-    assert_eq!(
-        w.set_pointer_shape(&mut conn.sender(), CursorShape(1)),
-        Shaped::Unavailable
+    let cursor = drawn_pointer(
+        &mut conn,
+        &mut server,
+        &mut w,
+        (CursorShape(shape::TEXT), 3),
+        Drawing {
+            side: 24,
+            scale: 1,
+            hotspot: (12, 12),
+            image: baud_present_wayland::cursor::Drawn::IBeam,
+        },
+        None,
     );
+    // The window's surface asks for twice the pixels: the next enter's
+    // image is drawn again at two, on the same surface, and the arrow for a
+    // shape that is not text.
+    server.send(
+        surface,
+        "wl_surface",
+        "preferred_buffer_scale",
+        &[Arg::Int(2)],
+    );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(5), Arg::Object(surface), fixed(1.0), fixed(2.0)],
+    );
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    drawn_pointer(
+        &mut conn,
+        &mut server,
+        &mut w,
+        (CursorShape(shape::POINTER), 5),
+        Drawing {
+            side: 48,
+            scale: 2,
+            hotspot: (4, 3),
+            image: baud_present_wayland::cursor::Drawn::Arrow,
+        },
+        Some(cursor),
+    );
+}
+
+/// What one drawn pointer should come to: the image's side in pixels, its
+/// scale, its hotspot, and which image, the pool holding the I-beam first.
+struct Drawing {
+    side: i32,
+    scale: i32,
+    hotspot: (i32, i32),
+    image: baud_present_wayland::cursor::Drawn,
+}
+
+/// **The requests a drawn pointer makes, and its pixels**: the cursor's
+/// surface made once, a pool of two images at the scale -- the old pool
+/// destroyed when the scale changed -- the image attached at its scale and
+/// damaged in logical pixels, the cursor role given with the enter's
+/// serial and the hotspot, and a commit. The pixels are read back from the
+/// pool's file: the image's hotspot pixel is opaque black. Returns the
+/// cursor's surface.
+fn drawn_pointer(
+    conn: &mut Connection,
+    server: &mut Server,
+    w: &mut Window,
+    (shape, serial): (CursorShape, u32),
+    want: Drawing,
+    surface: Option<ObjectId>,
+) -> ObjectId {
+    use std::os::unix::fs::FileExt as _;
+    assert_eq!(
+        w.set_pointer_shape(&mut conn.sender(), shape),
+        Shaped::Drawn
+    );
+    conn.flush().unwrap();
+    let cursor = match surface {
+        Some(c) => {
+            server.expect("wl_buffer", "destroy");
+            server.expect("wl_buffer", "destroy");
+            server.expect("wl_shm_pool", "destroy");
+            c
+        }
+        None => {
+            let r = server.expect("wl_compositor", "create_surface");
+            let Val::New(c) = r.args[0] else { panic!() };
+            c
+        }
+    };
+    server.expect("wl_shm", "create_pool");
+    let pool = std::fs::File::from(server.fds.pop_front().expect("the pool's file"));
+    let mut buffers = Vec::new();
+    for _ in 0..2 {
+        let r = server.expect("wl_shm_pool", "create_buffer");
+        let [
+            Val::New(id),
+            Val::Int(offset),
+            Val::Int(wide),
+            Val::Int(high),
+            Val::Int(stride),
+            Val::Uint(format),
+        ] = r.args[..]
+        else {
+            panic!("{:?}", r.args)
+        };
+        assert_eq!((wide, high), (want.side, want.side));
+        assert_eq!(format, protocol::wl_shm::format::ARGB8888);
+        buffers.push((id, offset, stride));
+    }
+    let r = server.expect("wl_surface", "attach");
+    assert_eq!(r.sender, cursor);
+    let (buffer, offset, stride) = match want.image {
+        baud_present_wayland::cursor::Drawn::IBeam => buffers[0],
+        baud_present_wayland::cursor::Drawn::Arrow => buffers[1],
+    };
+    assert!(
+        matches!(r.args[0], Val::Obj(b) if b == buffer),
+        "{:?}",
+        r.args
+    );
+    let r = server.expect("wl_surface", "set_buffer_scale");
+    assert!(matches!(r.args[..], [Val::Int(s)] if s == want.scale));
+    let r = server.expect("wl_surface", "damage");
+    assert!(matches!(
+        r.args[..],
+        [Val::Int(0), Val::Int(0), Val::Int(24), Val::Int(24)]
+    ));
+    let r = server.expect("wl_pointer", "set_cursor");
+    let (hx, hy) = want.hotspot;
+    assert!(
+        matches!(r.args[..], [Val::Uint(n), Val::Obj(c), Val::Int(x), Val::Int(y)]
+            if n == serial && c == cursor && (x, y) == (hx, hy)),
+        "{:?}",
+        r.args
+    );
+    let r = server.expect("wl_surface", "commit");
+    assert_eq!(r.sender, cursor);
+    // The pixel just below the hotspot, in the image's own pixels.
+    let (px, py) = (hx * want.scale, hy * want.scale + want.scale);
+    let at = u64::try_from(offset + py * stride + px * 4).unwrap();
+    let mut word = [0u8; 4];
+    pool.read_exact_at(&mut word, at).unwrap();
+    assert_eq!(
+        u32::from_ne_bytes(word),
+        0xff00_0000,
+        "opaque black at the hotspot"
+    );
+    cursor
 }
 
 /// **The modifiers a button reads are the keyboard's**: the effective

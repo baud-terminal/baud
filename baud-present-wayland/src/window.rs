@@ -12,6 +12,7 @@
 //! that global.
 
 use crate::clip::{Board, Clip, Copied, Done, Pasting, Want};
+use crate::cursor::{self, Drawn, Scale};
 use crate::keys::{self, Shortcut};
 use crate::pointer::{
     At, AxisCode, Button, CursorShape, EventCode, Framing, Gather, Piece, PointerEvent, Press,
@@ -58,10 +59,23 @@ pub enum Event {
 /// Whether a pointer shape reached the compositor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Shaped {
+    /// Named through `cursor-shape-v1`.
     Set,
-    /// No cursor-shape manager global, no pointer, or the pointer
-    /// is not over the surface: no `enter` serial to name.
+    /// No cursor-shape global, so drawn here (`cursor.rs`): the I-beam or
+    /// the arrow, the nearest of the two.
+    Drawn,
+    /// No pointer, or the pointer is not over the surface: no `enter`
+    /// serial to name; or no buffer could be made for the image.
     Unavailable,
+}
+
+/// Whether the compositor's surfaces take `set_buffer_scale`, which
+/// `wl_surface` has from version 3.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Scaling {
+    Buffer,
+    #[default]
+    None,
 }
 
 /// How the compositor last configured the toplevel, from the states its
@@ -154,6 +168,7 @@ struct Globals {
     pointer_framing: Framing,
     pointer_release: Release,
     cursor_shape: Option<ObjectId>,
+    scaling: Scaling,
 }
 
 /// The data device manager's version, at most: 3 is foot's, and what the
@@ -185,8 +200,16 @@ pub struct Window {
     /// The pointer's cursor-shape device, where the global exists.
     shape_device: Option<ObjectId>,
     /// The serial of the pointer's last `enter` on the surface, while it is
-    /// over it: what `set_shape` must name.
+    /// over it: what `set_shape` and `set_cursor` must name.
     entered: Option<u32>,
+    /// The pointer image drawn here, without the shape global: its surface,
+    /// made at the first need, and the two images at the scale they were
+    /// drawn at, the I-beam's buffer first.
+    cursor_surface: Option<ObjectId>,
+    cursor_images: Option<(Scale, Pool, [ObjectId; 2])>,
+    /// `wl_surface.preferred_buffer_scale` on the window's surface, the
+    /// scale the pointer is drawn at; one until the compositor says.
+    preferred: Scale,
     gather: Gather,
     /// The size the last toplevel configure asked for, or our default.
     pending: (Px, Px),
@@ -254,6 +277,9 @@ impl Window {
             pointer: None,
             shape_device: None,
             entered: None,
+            cursor_surface: None,
+            cursor_images: None,
+            preferred: Scale(1),
             gather: Gather::new(Framing::Framed),
             pending: (Px(800), Px(600)),
             size: None,
@@ -314,11 +340,17 @@ impl Window {
     /// (`crate::pointer::shape`), named with the last `enter`'s serial, as
     /// set_shape requires: "The serial parameter must match the latest
     /// wl_pointer.enter ... serial number sent to the client. Otherwise the
-    /// request will be ignored." Without the global nothing is set: the
-    /// pointer image is left undefined and `OSC 22` is not shown.
+    /// request will be ignored." **Without the global the image is drawn
+    /// here** and set with `wl_pointer.set_cursor`, whose serial "must
+    /// match the latest wl_pointer.enter serial number" too: the I-beam for
+    /// the text shapes and the arrow for the rest (`cursor::Drawn::of`), so
+    /// the image is never left undefined.
     pub fn set_pointer_shape(&mut self, s: &mut Sender<'_>, shape: CursorShape) -> Shaped {
-        let (Some(device), Some(serial)) = (self.shape_device, self.entered) else {
+        let Some(serial) = self.entered else {
             return Shaped::Unavailable;
+        };
+        let Some(device) = self.shape_device else {
+            return self.draw_pointer(s, Drawn::of(shape));
         };
         match s.request(
             device,
@@ -328,6 +360,110 @@ impl Window {
             Ok(()) => Shaped::Set,
             Err(_) => Shaped::Unavailable,
         }
+    }
+
+    /// **The pointer drawn here**: the surface made once, the two images
+    /// drawn at the window's buffer scale into one pool -- again when the
+    /// scale changes -- and the one asked for attached, at that scale, and
+    /// given the cursor role with its hotspot in logical pixels. The
+    /// images are never written again, so a buffer the compositor holds is
+    /// never touched.
+    fn draw_pointer(&mut self, s: &mut Sender<'_>, d: Drawn) -> Shaped {
+        let (Some(compositor), Some(shm), Some(pointer), Some(serial)) = (
+            self.globals.compositor,
+            self.globals.shm,
+            self.pointer,
+            self.entered,
+        ) else {
+            return Shaped::Unavailable;
+        };
+        let scale = match self.globals.scaling {
+            Scaling::Buffer => self.preferred,
+            Scaling::None => Scale(1),
+        };
+        let surface = match self.cursor_surface {
+            Some(c) => c,
+            None => {
+                let c = s.new_id(Interface::named("wl_surface").expect("pinned"));
+                let _ = s.request(
+                    compositor,
+                    Opcode(protocol::wl_compositor::request::CREATE_SURFACE),
+                    &[Arg::NewId(c)],
+                );
+                self.cursor_surface = Some(c);
+                c
+            }
+        };
+        let side = cursor::SIZE * scale.0;
+        if self
+            .cursor_images
+            .as_ref()
+            .is_none_or(|(drawn_at, _, _)| *drawn_at != scale)
+        {
+            if let Some((_, old, _)) = self.cursor_images.take() {
+                old.destroy(s);
+            }
+            let Ok(mut pool) = Pool::new(s, shm, Px(side), Px(side)) else {
+                return Shaped::Unavailable;
+            };
+            let stride = pool.stride();
+            let wide = usize::try_from(side).unwrap_or(0);
+            let mut ids = [ObjectId::NULL; 2];
+            for ((id, pixels), (slot, image)) in pool
+                .buffers_mut()
+                .zip(ids.iter_mut().zip([Drawn::IBeam, Drawn::Arrow]))
+            {
+                let drawn = cursor::draw(image, scale);
+                for (row, src) in pixels.chunks_mut(stride).zip(drawn.chunks(wide)) {
+                    row[..wide].copy_from_slice(src);
+                }
+                *slot = id;
+            }
+            self.cursor_images = Some((scale, pool, ids));
+        }
+        let Some((_, _, ids)) = &self.cursor_images else {
+            return Shaped::Unavailable;
+        };
+        let buffer = match d {
+            Drawn::IBeam => ids[0],
+            Drawn::Arrow => ids[1],
+        };
+        let _ = s.request(
+            surface,
+            Opcode(protocol::wl_surface::request::ATTACH),
+            &[Arg::Object(buffer), Arg::Int(0), Arg::Int(0)],
+        );
+        if self.globals.scaling == Scaling::Buffer {
+            let _ = s.request(
+                surface,
+                Opcode(protocol::wl_surface::request::SET_BUFFER_SCALE),
+                &[Arg::Int(i32::try_from(scale.0).unwrap_or(1))],
+            );
+        }
+        let logical = i32::try_from(cursor::SIZE).unwrap_or(0);
+        let _ = s.request(
+            surface,
+            Opcode(protocol::wl_surface::request::DAMAGE),
+            &[
+                Arg::Int(0),
+                Arg::Int(0),
+                Arg::Int(logical),
+                Arg::Int(logical),
+            ],
+        );
+        let (hx, hy) = d.hotspot();
+        let _ = s.request(
+            pointer,
+            Opcode(protocol::wl_pointer::request::SET_CURSOR),
+            &[
+                Arg::Uint(serial),
+                Arg::Object(surface),
+                Arg::Int(hx),
+                Arg::Int(hy),
+            ],
+        );
+        let _ = s.request(surface, Opcode(protocol::wl_surface::request::COMMIT), &[]);
+        Shaped::Drawn
     }
 
     /// **`text` becomes `board`'s selection** (`clip.rs`), named with the
@@ -738,8 +874,13 @@ impl Handler for Window {
                 let (name, version) = (*name, *version);
                 match *iface {
                     "wl_compositor" => {
+                        let version = version.min(6);
+                        self.globals.scaling = match version >= 3 {
+                            true => Scaling::Buffer,
+                            false => Scaling::None,
+                        };
                         self.globals.compositor =
-                            Window::bind(s, self.registry, name, iface, version.min(6))
+                            Window::bind(s, self.registry, name, iface, version)
                     }
                     "wl_shm" => {
                         self.globals.shm =
@@ -791,6 +932,15 @@ impl Handler for Window {
                     }
                     _ => {}
                 }
+            }
+            // "This event indicates the preferred buffer scale for this
+            // surface", from version 6, and "Before receiving this event the
+            // preferred buffer scale for this surface is 1". The window
+            // draws at one; the pointer it draws itself, at this.
+            ("wl_surface", "preferred_buffer_scale", [Read::Int(f)])
+                if Some(ev.object) == self.surface =>
+            {
+                self.preferred = Scale(u32::try_from(*f).unwrap_or(1).max(1));
             }
             ("xdg_wm_base", "ping", [Read::Uint(serial)]) => {
                 let _ = s.request(

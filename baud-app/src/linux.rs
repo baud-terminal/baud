@@ -711,8 +711,8 @@ impl Driver {
     /// **The pointer's shape for the program's `OSC 22`, or the I-beam**
     /// (`baud_present_wayland::pointer::shape`), set once a change while
     /// the pointer is over the window. Without the cursor-shape global the
-    /// pointer image is left undefined and `OSC 22` is not shown, and that
-    /// is said once.
+    /// window draws the image itself, the I-beam or the arrow
+    /// (`baud_present_wayland::cursor`), and that is said once.
     fn show_pointer(&mut self) {
         if !self.seat.inside() {
             return;
@@ -723,14 +723,16 @@ impl Driver {
         }
         match self.window.set_pointer_shape(&mut self.conn.sender(), want) {
             Shaped::Set => self.shape = Some(want),
-            Shaped::Unavailable => {
+            Shaped::Drawn => {
+                self.shape = Some(want);
                 if self.shapeless == Said::Not {
                     self.shapeless = Said::Once;
-                    crate::warn!(
-                        "the compositor offers no cursor-shape global: the pointer image is left undefined and OSC 22 is not shown"
+                    crate::info!(
+                        "the compositor offers no cursor-shape global: baud draws its own pointer, an I-beam or an arrow, and a program's OSC 22 shape is the nearer of the two"
                     );
                 }
             }
+            Shaped::Unavailable => {}
         }
     }
 

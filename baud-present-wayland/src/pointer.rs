@@ -14,7 +14,8 @@
 //!
 //! What the pointer shows is `cursor-shape-v1`'s (`[[source:
 //! wp-cursor-shape-v1]]`): [`shape`] names the shape for a program's
-//! `OSC 22`.
+//! `OSC 22`. Without that global the window draws the image itself
+//! (`cursor.rs`).
 
 use baud_domain::{EventMillis, PointerShape};
 use baud_wayland::protocol;

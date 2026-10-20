@@ -127,6 +127,14 @@ impl Pool {
         }
     }
 
+    /// Each buffer's id and its pixels, in order, for images drawn once
+    /// and attached as they are -- the pointer's.
+    pub fn buffers_mut(&mut self) -> impl Iterator<Item = (ObjectId, &mut [u32])> {
+        let one = self.stride * usize::try_from(self.height.0).unwrap_or(0);
+        let ids = self.buffers.map(|(id, _)| id);
+        ids.into_iter().zip(self.map.words().chunks_mut(one.max(1)))
+    }
+
     pub fn is_buffer(&self, id: ObjectId) -> bool {
         self.buffers.iter().any(|(b, _)| *b == id)
     }
