@@ -1250,23 +1250,24 @@ fn vt52_keypad(
     }
 }
 
-/// The keypad, `[[source: ctlseqs]]` line 2498.
+/// The keypad, `[[source: ctlseqs]]` lines 2498 and 2628.
 ///
-/// **The PC-style table, not the VT220 one.** ctlseqs gives both -- line 2498
-/// for a Sun/PC keypad and line 2628 for the VT102/VT220 keypad reached
-/// through `sunKeyboard` -- and they disagree on most of the twenty-four rows.
-/// The exact count is derived from the two tables by
-/// `the_vt220_keypad_is_a_different_table_and_is_not_what_baud_sends` rather
-/// than written here: a number restated in a comment is one that goes quietly
-/// wrong if a later edition of ctlseqs reconciles them. baud sends the first,
-/// the same choice already made for Home and End and for the same reason.
+/// **A key's application row is the VT220 table's, and a navigation key's
+/// the PC table's.** ctlseqs gives both -- line 2498 for a Sun/PC keypad and
+/// line 2628 for the VT102/VT220 keypad -- and they disagree on the digits
+/// and `.`, the count derived by
+/// `the_keypad_digits_send_the_vt220_rows_where_the_tables_part` rather than
+/// written here. xterm's own code on its PC keyboard reconciles them: a
+/// digit keysym sends `SS3 p`-`SS3 y` (`kypd_apl`, `[[source: xterm-input-c]]`
+/// 1390-1396) and a NumLock-off keysym becomes the cursor or editing key
+/// whose form line 2498 lists (1185-1189). iTerm2, foot (`[[source:
+/// foot-keymap-h-1-21]]`) and ghostty (`[[source:
+/// ghostty-d9840f3-function-keys]]`) send the digits the same way (Jev,
+/// VT220_SS3, 0.94/0.94); until 2026-10-20 a digit sent line 2498's column,
+/// `5` being `CSI E`.
 ///
 /// The two columns are chosen by DECKPAM/DECKPNM. The numeric column is the
-/// literal character in every row but `Enter` and the `PF` keys, and the
-/// application column is **not uniformly `SS3`** -- `2` is `CSI B`, `0` is
-/// `CSI 2 ~`, `1` is `SS3 F`. A table that assumed one introducer would be
-/// wrong in eight rows, and wrong in a way each application would interpret as
-/// a different keystroke rather than as an error.
+/// literal character in every row but `Enter` and the `PF` keys.
 fn keypad_key(
     o: &mut KeyBytes,
     k: KeypadKey,
@@ -1306,7 +1307,7 @@ fn keypad_key(
                 },
             ),
             (KeypadMode::Numeric, Some(code)) => ansi_key(o, code, mods, None, s),
-            _ => keypad_application(o, row, mods, s),
+            _ => keypad_navigation(o, row, mods, s),
         };
     }
     if mode == KeypadMode::Numeric {
@@ -1358,28 +1359,46 @@ fn keypad_numeric(o: &mut KeyBytes, k: KeypadKey, text: Option<Codepoint>, s: Ke
     }
 }
 
-/// The application column of `[[source: ctlseqs]]` line 2498, `PF1`-`PF4`
-/// aside.
-fn keypad_application(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> bool {
+/// A navigation key under DECKPAM: the application column of
+/// `[[source: ctlseqs]]` line 2498 for the digit `row` on the same key,
+/// "4 (LeftArrow)", the rows xterm's NumLock-off keysyms send.
+fn keypad_navigation(o: &mut KeyBytes, row: KeypadKey, mods: Modifiers, s: KeyState) -> bool {
     // The rows that are cursor keys in disguise, whose introducer is fixed by
     // the table rather than by DECCKM.
-    if let Some((intro, f)) = k.cursor_shaped() {
+    if let Some((intro, f)) = row.cursor_shaped() {
         cursor_shaped(o, intro, f, mods, s, s.keys.modify(KeyResource::Cursor));
         return true;
     }
     // The editing-keypad rows: same parameters as the standalone keys.
-    if let Some(p) = k.tilde_param() {
+    if let Some(p) = row.tilde_param() {
         tilde_key(o, p, mods, s, ModifyValue::PARAM);
         return true;
     }
-    // Everything else is `SS3 <byte>`.
-    //
-    // **No modifier form, and none is invented.** ctlseqs gives the
-    // `CSI 1 ; mod` shape for the cursor and function keys and gives nothing
-    // for these, so a modified `SS3 j` would be a sequence baud made up.
-    match k.pc_application_byte() {
+    false
+}
+
+/// The application column of `[[source: ctlseqs]]` line 2628 for a keypad
+/// key, `PF1`-`PF4` aside: `SS3 <byte>` on every row, the digits and `.`
+/// included ([`KeypadKey::application_byte`]; Jev, VT220_SS3, 0.94/0.94).
+///
+/// **A modifier is the parameter between them**, `SS3 5 r` for
+/// Control-keypad-2: xterm's `MODIFIER_PARM` on a keypad key, which
+/// `allowModifierParm` allows on its default keyboard (`[[source:
+/// xterm-input-c]]` 1390-1396), as foot (`[[source: foot-keymap-h-1-21]]`,
+/// `DEFAULT_MODS_FOR_KP`), ghostty (`[[source:
+/// ghostty-d9840f3-function-keys]]`, `kpKeys`) and iTerm2 (`[[source:
+/// iterm2-7ce037e-vt100output]]`) send it. ctlseqs gives the keypad no
+/// modifier form and Jev split (NO_MODIFIER 0.10/0.06, then NO_MODIFIER
+/// 0.20 against XTERM_PARAM 0.12); built by the standing rule, the owner's
+/// "full VT420-class terminal. we need to support such protocols fully,
+/// always!" (2026-09-25). NumLock is not a modifier here ([`Modifiers::wire`]).
+fn keypad_application(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> bool {
+    match k.application_byte() {
         Some(b) => {
             o.introducer(Introducer::Ss3, s.c1);
+            if carries(mods) {
+                o.num(u16::from(mods.wire()));
+            }
             o.byte(b);
             true
         }

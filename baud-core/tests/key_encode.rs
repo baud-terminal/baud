@@ -854,15 +854,18 @@ fn latin1_input_is_encoded_as_latin1() {
     assert_eq!(t.reply(), "é".as_bytes());
 }
 
-/// **The keypad, read out of `[[source: ctlseqs]]` line 2498 rather than
-/// transcribed.**
+/// **The keypad, read out of `[[source: ctlseqs]]`'s tables rather than
+/// transcribed**: the numeric column of line 2498, and the application
+/// column of line 2628, the VT220 table, whose rows a keypad key sends.
 ///
-/// Twenty-four rows, two columns chosen by DECKPAM/DECKPNM. The application
-/// column is *not* uniformly `SS3`: `2` is `CSI B`, `0` is `CSI 2 ~`, `1` is
-/// `SS3 F`. A table written from the pattern would be wrong in eight rows, and
-/// wrong in a way each application reads as a different keystroke rather than
-/// as an error — which is why this reads the specification's own table and
-/// compares against it row by row.
+/// Twenty-four rows each, two columns chosen by DECKPAM/DECKPNM. Line
+/// 2498's application column for the digits and `.` (`2` is `CSI B`, `0`
+/// `CSI 2 ~`, `1` `SS3 F`) is what xterm's NumLock-off navigation keysyms
+/// send, which are baud's navigation keys; a digit is `SS3 p`-`SS3 y` and
+/// `.` `SS3 n`, xterm's `kypd_apl` (`[[source: xterm-input-c]]` 1390-1396),
+/// as iTerm2, foot (`[[source: foot-keymap-h-1-21]]`) and ghostty
+/// (`[[source: ghostty-d9840f3-function-keys]]`) send them (Jev, VT220_SS3,
+/// 0.94/0.94).
 ///
 /// `SP` and `TAB` are the specification's names for two bytes; every other
 /// cell is literal.
@@ -870,15 +873,17 @@ fn latin1_input_is_encoded_as_latin1() {
 fn the_keypad_matches_the_specifications_table() {
     let src = ctlseqs();
     let rows = table_at(&src, 2498);
+    let vt = table_at(&src, 2628);
     assert_eq!(
         rows.len(),
         24,
         "line 2498 has 24 rows; found {}",
         rows.len()
     );
+    assert_eq!(vt.len(), 24, "line 2628 has 24 rows");
 
     let mut checked = 0;
-    for (name, numeric, app) in &rows {
+    for (name, numeric, _) in &rows {
         let Some(k) = keypad_of(name) else {
             panic!("no KeypadKey for the table's {name:?}");
         };
@@ -886,10 +891,13 @@ fn the_keypad_matches_the_specifications_table() {
         let want_num = spec_bytes(numeric);
         assert_eq!(keypad_press(k, false), want_num, "{name}: numeric column");
 
-        let want_app = spec_bytes(app);
+        let (_, _, app) = vt
+            .iter()
+            .find(|(n, _, _)| keypad_of(n) == Some(k))
+            .unwrap_or_else(|| panic!("no 2628 row for {name:?}"));
         assert_eq!(
             keypad_press(k, true),
-            want_app,
+            spec_bytes(app),
             "{name}: application column"
         );
         checked += 1;
@@ -978,26 +986,27 @@ fn a_keypad_key_sends_what_it_types_from_the_numeric_column() {
         (b"\x1b%@", KeypadKey::Period, ',', b","),
         (b"\x1b%@", KeypadKey::Digit5, '\u{665}', b"5"),
         // DECKPAM: the key's row, not its text.
-        (b"\x1b=", KeypadKey::Period, ',', b"\x1b[3~"),
-        (b"\x1b=", KeypadKey::Digit5, '\u{665}', b"\x1b[E"),
+        (b"\x1b=", KeypadKey::Period, ',', b"\x1bOn"),
+        (b"\x1b=", KeypadKey::Digit5, '\u{665}', b"\x1bOu"),
     ] {
         assert_eq!(send(modes, k, typed), want, "{k:?} {typed:?} {modes:?}");
     }
 }
 
-/// **The VT220 keypad is a different table, and baud does not send it.**
+/// **The two keypad tables part on the digits and `.`, and a keypad key
+/// sends the VT220 table's row.**
 ///
-/// `[[source: ctlseqs]]` line 2628 gives the VT102/VT220 application keypad,
-/// reached through `sunKeyboard`. It disagrees with line 2498 on eleven rows —
-/// keypad `2` is `SS3 r` there and `CSI B` here — so they are alternatives and
-/// not additions. Same choice, and the same reason, as Home/End at 2485
-/// against the VT220 forms at 2672.
+/// `[[source: ctlseqs]]` line 2628 gives the VT102/VT220 application keypad
+/// and line 2498 the PC one. They disagree on eleven rows -- keypad `2` is
+/// `SS3 r` there and `CSI B` here -- and on each a digit or `.` sends the
+/// first, xterm's `kypd_apl` for the keysym (`[[source: xterm-input-c]]`),
+/// while the second is what the NumLock-off navigation key sends.
 ///
 /// This asserts the disagreement is real rather than assumed, so that if a
 /// later edition of ctlseqs reconciles the two tables the reason recorded here
 /// stops being true out loud.
 #[test]
-fn the_vt220_keypad_is_a_different_table_and_is_not_what_baud_sends() {
+fn the_keypad_digits_send_the_vt220_rows_where_the_tables_part() {
     let src = ctlseqs();
     let pc = table_at(&src, 2498);
     let vt = table_at(&src, 2628);
@@ -1013,12 +1022,56 @@ fn the_vt220_keypad_is_a_different_table_and_is_not_what_baud_sends() {
             continue;
         }
         differ += 1;
-        // baud sends the PC form. Asserted against the *other* table so the
-        // test fails if the wrong one is ever wired in.
-        assert_eq!(keypad_press(k, true), spec_bytes(pc_app), "{name}");
-        assert_ne!(keypad_press(k, true), spec_bytes(vt_app), "{name}");
+        // The key sends the VT220 form. Asserted against the *other* table
+        // so the test fails if the wrong one is ever wired in.
+        assert_eq!(keypad_press(k, true), spec_bytes(vt_app), "{name}");
+        assert_ne!(keypad_press(k, true), spec_bytes(pc_app), "{name}");
     }
     assert_eq!(differ, 11, "the two tables disagree on 11 rows");
+}
+
+/// **A modified keypad key under DECKPAM is its `SS3` row with the
+/// modifier as a parameter**, `SS3 <modifier> <final>`, as xterm sends it
+/// (`MODIFIER_PARM`, `[[source: xterm-input-c]]` 1390-1396) and foot
+/// (`[[source: foot-keymap-h-1-21]]`), ghostty (`[[source:
+/// ghostty-d9840f3-function-keys]]`) and iTerm2 do: Control-keypad-2 is
+/// `ESC O 5 r`, and was `CSI 1 ; 5 B`, the cursor key's form. ctlseqs gives the keypad no
+/// modifier form and Jev split on it; built by the standing rule. NumLock
+/// is no modifier here, and under `?1035` still sends the digit; VT52 takes
+/// no parameter, as xterm's `allowModifierParm` needs `vtXX_level != 0`.
+#[test]
+fn a_modified_keypad_key_under_deckpam_carries_its_modifier() {
+    let deckpam: &[u8] = b"\x1b=";
+    let two = KeyCode::Keypad(KeypadKey::Digit2);
+    let dot = KeyCode::Keypad(KeypadKey::Period);
+    let add = KeyCode::Keypad(KeypadKey::Add);
+    assert_eq!(encode(two, Modifiers::NONE, &[deckpam]).1, b"\x1bOr");
+    assert_eq!(encode(two, Modifiers::CTRL, &[deckpam]).1, b"\x1bO5r");
+    assert_eq!(encode(two, Modifiers::ALT, &[deckpam]).1, b"\x1bO3r");
+    assert_eq!(encode(dot, Modifiers::SHIFT, &[deckpam]).1, b"\x1bO2n");
+    assert_eq!(encode(add, Modifiers::CTRL, &[deckpam]).1, b"\x1bO5k");
+    // The decimal key that types `,` is the keypad's comma, `SS3 l`.
+    assert_eq!(
+        encode(
+            KeyCode::Keypad(KeypadKey::Comma),
+            Modifiers::NONE,
+            &[deckpam]
+        )
+        .1,
+        b"\x1bOl"
+    );
+    // NumLock overrides the application keypad while `?1035` is set, the
+    // power-on value, and adds no parameter once it is reset.
+    assert_eq!(encode(two, Modifiers::NUM_LOCK, &[deckpam]).1, b"2");
+    assert_eq!(
+        encode(two, Modifiers::NUM_LOCK, &[deckpam, b"\x1b[?1035l"]).1,
+        b"\x1bOr"
+    );
+    // VT52: `ESC ? r`, the modifier not sent.
+    assert_eq!(
+        encode(two, Modifiers::CTRL, &[deckpam, b"\x1b[?2l"]).1,
+        b"\x1b?r"
+    );
 }
 
 /// **The VT52 cursor keys, `[[source: ctlseqs]]` line 2703.**
@@ -1213,11 +1266,10 @@ fn the_keypad_navigation_keys_follow_their_rows_and_their_keys() {
     let other_keys: &[u8] = b"\x1b[>4;2m";
     for (k, label, equivalent) in NAVIGATION {
         let paren = format!("({label})");
-        let (name, _, app) = rows
+        let (_, _, app) = rows
             .iter()
             .find(|(n, _, _)| n.ends_with(&paren))
             .unwrap_or_else(|| panic!("no 2498 row labelled {paren}"));
-        let digit = keypad_of(name).expect("a keypad row");
         let nav = KeyCode::Keypad(k);
         // DECKPAM, unmodified: the table's application column, whatever
         // DECCKM says.
@@ -1227,10 +1279,21 @@ fn the_keypad_navigation_keys_follow_their_rows_and_their_keys() {
             assert_eq!(got, spec_bytes(app), "{label}: DECKPAM {setup:?}");
         }
         for m in mods {
-            // DECKPAM, any modifier: the digit's row, byte for byte.
-            for setup in [&[deckpam][..], &[deckpam, decckm]] {
-                let want = encode(KeyCode::Keypad(digit), m, setup);
-                assert_eq!(encode(nav, m, setup), want, "{label} {m:?} {setup:?}");
+            // DECKPAM, a modifier: the row's own `CSI` modifier form, its
+            // final kept, whatever DECCKM says.
+            if !m.is_none() {
+                for setup in [&[deckpam][..], &[deckpam, decckm]] {
+                    let (sent, got) = encode(nav, m, setup);
+                    let row = spec_bytes(app);
+                    assert!(sent, "{label} {m:?}");
+                    assert!(got.starts_with(b"\x1b["), "{label} {m:?}: {got:?}");
+                    assert_eq!(got.last(), row.last(), "{label} {m:?}");
+                    let wire = format!(";{}", m.wire());
+                    assert!(
+                        got.windows(wire.len()).any(|w| w == wire.as_bytes()),
+                        "{label} {m:?}: {got:?}"
+                    );
+                }
             }
             // DECKPNM: the key it duplicates, under every mode that key reads.
             for setup in [&[][..], &[decckm], &[other_keys], &[decckm, other_keys]] {

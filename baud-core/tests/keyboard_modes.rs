@@ -241,7 +241,7 @@ fn decnkm_is_the_keypad_mode_and_decrqm_reads_it() {
         assert_eq!(t.keypad(), KeypadMode::Application);
         assert_eq!(
             keys(t, one, Modifiers::NONE),
-            b"\x1bOF",
+            b"\x1bOq",
             "the application column"
         );
         t.clear_reply();
@@ -364,13 +364,13 @@ fn mode_1035_lets_num_lock_override_the_application_keypad() {
         assert_eq!(keys(t, enter, Modifiers::NUM_LOCK), b"\r");
         assert_eq!(
             keys(t, one, Modifiers::NONE),
-            b"\x1bOF",
+            b"\x1bOq",
             "without it, DECKPAM"
         );
         support::feed(t, b"\x1b[?1035l");
         assert_eq!(
             keys(t, one, Modifiers::NUM_LOCK),
-            b"\x1bOF",
+            b"\x1bOq",
             "reset: DECKPAM"
         );
         support::feed(t, b"\x1b[?1035h\x1b[?2l");

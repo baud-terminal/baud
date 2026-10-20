@@ -29343,3 +29343,31 @@ bytes  = 101707
 status = "external"
 group  = "H"
 # Fetched 2026-10-20 (lane b109). Line 4, xkb_symbols "basic"; line 35, include "kpdl(comma)". Read, not copied.
+
+[sources.foot-keymap-h-1-21]
+key    = "foot-keymap-h-1-21"
+title  = "foot 1.21.0, keymap.h -- DEFAULT_MODS_FOR_KP: every keypad key in application mode, digits included, as SS3 <modifier> <final> (400-434)"
+author = "Daniel Eklof (MIT)"
+year   = 2025
+venue  = "foot terminal emulator, tag 1.21.0"
+url    = "https://codeberg.org/dnkl/foot/raw/tag/1.21.0/keymap.h"
+file   = ""
+sha256 = "c412edfa82bfc66ef93167bae768d6af5976a5444e926cb0406fcfaa6ffdd14a"
+bytes  = 28207
+status = "external"
+group  = "H"
+# Fetched 2026-10-20 (lane b113). Lines 359-375, the NumLock-off keys by DECCKM; 400-434, the keypad. Read, not copied.
+
+[sources.ghostty-d9840f3-function-keys]
+key    = "ghostty-d9840f3-function-keys"
+title  = "ghostty at d9840f3, src/input/function_keys.zig -- numpad_0..9 as kpKeys('p'..'y'), SS3 <modifier> <final> under keypad application mode"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty-org/ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/d9840f3c8fc230c7768ae760c412974e9fc923bb/src/input/function_keys.zig"
+file   = ""
+sha256 = "0ad480ceba7cf481bfe9897d0e95b82420916936f72bbb0716f79b2d58ceb401"
+bytes  = 16793
+status = "external"
+group  = "H"
+# Fetched 2026-10-20 (lane b113). Lines 107-133 the numpad entries, 247-264 kpDefault and kpKeys. Read, not copied.

@@ -2213,7 +2213,7 @@ fn pressed(code: KeyCode, key: &KeyPress, m: Modifiers) -> KeyEvent {
 
 /// Whether a key's text is what it sends, so that drawing it ahead of the
 /// echo predicts the echo: a keypad key only from the numeric column
-/// (`[[source: ctlseqs]]` line 2498), under DECKPAM `5` being `CSI E`.
+/// (`[[source: ctlseqs]]` line 2498), under DECKPAM `5` being `SS3 u`.
 fn predicts(code: KeyCode, keypad: KeypadMode) -> bool {
     match code {
         KeyCode::Keypad(_) => keypad == KeypadMode::Numeric,
@@ -10510,14 +10510,15 @@ mod tests {
             (b"", 0x51, none, b"="),
             (b"", 0x4C, none, b"\r"),
             (b"", 0x47, none, b""),
-            // DECKPAM, `ESC =`: line 2498's application column.
+            // DECKPAM, `ESC =`: line 2628's application column.
+            (b"\x1b=", 0x57, none, b"\x1bOu"),
             (b"\x1b=", 0x4C, none, b"\x1bOM"),
             (b"\x1b=", 0x51, none, b"\x1bOX"),
             (b"\x1b=", 0x45, none, b"\x1bOk"),
             (b"\x1b=", 0x43, none, b"\x1bOj"),
             (b"\x1b=", 0x4B, none, b"\x1bOo"),
             (b"\x1b=", 0x4E, none, b"\x1bOm"),
-            (b"\x1b=", 0x41, none, b"\x1b[3~"),
+            (b"\x1b=", 0x41, none, b"\x1bOn"),
             (b"\x1b=", 0x47, none, b""),
             // DECNKM set is DECKPAM; `?1035` reset changes nothing here.
             (decnkm, 0x45, none, b"\x1bOk"),
@@ -10571,7 +10572,7 @@ mod tests {
     }
 
     /// **A keypad key is predicted only from the numeric column**: under
-    /// DECKPAM a `5` goes out as `CSI E`, and a `5` drawn ahead of the
+    /// DECKPAM a `5` goes out as `SS3 u`, and a `5` drawn ahead of the
     /// child's echo would be a glyph no echo confirms.
     #[test]
     fn a_keypad_key_is_predicted_only_where_it_sends_its_text() {
@@ -10607,8 +10608,8 @@ mod tests {
             (b"\x1b[>1u", 0x41, ",", b","),
             (b"\x1b[>1u", 0x57, five, five.as_bytes()),
             (b"\x1b=", 0x41, ",", b"\x1bOl"),
-            (b"\x1b=", 0x41, ".", b"\x1b[3~"),
-            (b"\x1b=", 0x57, five, b"\x1b[E"),
+            (b"\x1b=", 0x41, ".", b"\x1bOn"),
+            (b"\x1b=", 0x57, five, b"\x1bOu"),
             (b"\x1b[>9u", 0x41, ",", b"\x1b[57416u"),
             (b"\x1b[>9u", 0x41, ".", b"\x1b[57409u"),
         ] {

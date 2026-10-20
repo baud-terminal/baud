@@ -164,7 +164,7 @@ impl FnKey {
 /// **A separate type from [`KeyCode`], because the keypad is a separate
 /// table.** `[[source: ctlseqs]]` line 2498 gives twenty-four rows whose two
 /// columns are chosen by DECKPAM/DECKPNM, and the digits are not the digits
-/// above the letters: keypad `2` sends `CSI B` in application mode and the
+/// above the letters: keypad `2` sends `SS3 r` in application mode and the
 /// main-row `2` never does. Folding them into `KeyCode::Char` would lose
 /// exactly the distinction the table exists to make, and an application in
 /// application-keypad mode would see text where it expected a cursor key.
@@ -186,9 +186,9 @@ pub enum KeypadKey {
     Add,
     Comma,
     Minus,
-    /// Labelled `.` and Delete -- `[[source: ctlseqs]]` line 2508 gives its
-    /// application form as `CSI 3 ~`, the editing keypad's Delete, and not the
-    /// VT220 table's `SS3 n`.
+    /// Labelled `.` and Delete: under DECKPAM `SS3 n`, line 2628's row, and
+    /// `[[source: ctlseqs]]` line 2508's `CSI 3 ~` is what the NumLock-off
+    /// [`KeypadKey::Delete`] on the same key sends.
     Period,
     Divide,
     Digit0,
@@ -319,38 +319,25 @@ impl KeypadKey {
         Some(StreamByte::from_stream(b))
     }
 
-    /// The `SS3 <byte>` rows of line 2498's application column.
+    /// The byte after `SS3` in the application column of `[[source:
+    /// ctlseqs]]` line 2628, the VT220 keypad, which a keypad key sends
+    /// under DECKPAM: `2` is `SS3 r`, `.` is `SS3 n`, as xterm's `kypd_apl`
+    /// sends the keysym (`[[source: xterm-input-c]]` 1390-1396).
+    ///
+    /// **Not line 2498's column for the digits and `.`**: its `CSI B`,
+    /// `CSI 2 ~` and `SS3 F` are what xterm's NumLock-off navigation keysyms
+    /// send once they are made the cursor and editing keys (1185-1189), and
+    /// baud's navigation keys send them ([`KeypadKey::cursor_shaped`],
+    /// [`KeypadKey::tilde_param`]). The other rows the two tables share.
     ///
     /// **`StreamByte`, not [`FinalByte`].** `Space` is `SS3 SP` -- 0x20, below
     /// the `0x40..=0x7e` range `FinalByte` is the proof of. The byte after
     /// `SS3` is not a CSI final byte and typing it as one would either reject
     /// this row or quietly widen an invariant the parser relies on.
     ///
-    /// `None` for every row that is *not* that shape, which is the half of
-    /// this table worth naming: `2` is `CSI B`, `0` is `CSI 2 ~`, `1` is
-    /// `SS3 F`. Eight rows would be wrong under a uniform rule.
-    pub fn pc_application_byte(self) -> Option<StreamByte> {
-        let b = match self {
-            KeypadKey::Space => b' ',
-            KeypadKey::Tab => b'I',
-            KeypadKey::Enter => b'M',
-            KeypadKey::Multiply => b'j',
-            KeypadKey::Add => b'k',
-            KeypadKey::Comma => b'l',
-            KeypadKey::Minus => b'm',
-            KeypadKey::Divide => b'o',
-            KeypadKey::Equal => b'X',
-            _ => return None,
-        };
-        Some(StreamByte::from_stream(b))
-    }
-
-    /// The application column of `[[source: ctlseqs]]` line 2713, the VT52
-    /// keypad, whose introducer is `ESC ?`.
-    ///
-    /// These finals are the *VT220* table's, not 2498's: `2` is `r` here and
-    /// `CSI B` there, because a VT52 keypad has no cursor duties to borrow.
-    pub fn vt52_byte(self) -> Option<StreamByte> {
+    /// `None` for `PF1`-`PF4`, which are function keys in both columns, and
+    /// for a navigation key, which has a row of line 2498 and not of 2628.
+    pub fn application_byte(self) -> Option<StreamByte> {
         let b = match self {
             KeypadKey::Space => b' ',
             KeypadKey::Tab => b'I',
@@ -373,15 +360,22 @@ impl KeypadKey {
             KeypadKey::Digit9 => b'y',
             KeypadKey::Equal => b'X',
             KeypadKey::Pf1 | KeypadKey::Pf2 | KeypadKey::Pf3 | KeypadKey::Pf4 => return None,
-            // The 2713 table names its rows by digit alone: a VT52 keypad
-            // has no navigation labels to send.
+            // The 2628 and 2713 tables name their rows by digit alone.
             _ => return None,
         };
         Some(StreamByte::from_stream(b))
     }
 
+    /// The application column of `[[source: ctlseqs]]` line 2713, the VT52
+    /// keypad, whose introducer is `ESC ?`: the VT220 table's finals
+    /// ([`KeypadKey::application_byte`]).
+    pub fn vt52_byte(self) -> Option<StreamByte> {
+        self.application_byte()
+    }
+
     /// The rows of line 2498 that are cursor keys in disguise, as
-    /// `(introducer, final)`.
+    /// `(introducer, final)`, named by the digit and sent by the navigation
+    /// key on it.
     ///
     /// **The introducer is fixed per row and is not DECCKM's.** The arrows and
     /// Begin are `CSI`; End and Home are `SS3`. Four rows one way and two the

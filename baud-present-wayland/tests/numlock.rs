@@ -29,12 +29,13 @@ fn application(num_lock: NumLockKeypad) -> KeyState {
 }
 
 /// (key name, bytes with `?1035` set, bytes with it reset), NumLock on.
-/// Reset, a key sends its Application column of `[[source: ctlseqs]]`'s
-/// Sun/PC keypad table, the digit's row named for its navigation key.
+/// Reset, a digit and `.` send the VT220 keypad's application codes,
+/// `SS3 p`-`y` and `SS3 n`, as xterm's code sends them (Jev, VT220_SS3,
+/// 0.94/0.94), and the operators their Application column.
 const KEYS: [(&str, &[u8], &[u8]); 5] = [
-    ("KP1", b"1", b"\x1bOF"),
-    ("KP5", b"5", b"\x1b[E"),
-    ("KPDL", b".", b"\x1b[3~"),
+    ("KP1", b"1", b"\x1bOq"),
+    ("KP5", b"5", b"\x1bOu"),
+    ("KPDL", b".", b"\x1bOn"),
     ("KPAD", b"+", b"\x1bOk"),
     ("KPEN", b"\r", b"\x1bOM"),
 ];
