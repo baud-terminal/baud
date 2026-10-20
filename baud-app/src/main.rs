@@ -13,8 +13,8 @@
 //! Linux second, through `baud-present-wayland`: one loop that waits on the
 //! compositor's socket and the pty together, reads the pty where it is
 //! polled, and presents on the CPU into `wl_shm` -- `linux.rs`, which is
-//! type-checked against the Linux target from this Mac and has not yet run
-//! on a compositor.
+//! type-checked against the Linux target from this Mac and has run only on
+//! weston's headless backend, which displays nothing and was sent no input.
 //!
 //! `unsafe` lives in `pty.rs`, in `kitty_files.rs`'s shared-memory read
 //! and in `pages.rs`'s release of freed image pages, which forbid nothing
