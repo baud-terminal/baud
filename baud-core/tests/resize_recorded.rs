@@ -892,3 +892,86 @@ fn no_more_than_two_blank_rows_come_between_consecutive_prompts() {
         );
     }
 }
+
+/// The oldest numbered line the history holds whole, and the rows above
+/// it: the tail of the line before, whose first rows a scroll recycled.
+/// The recording's `awk` writes `00000` to `02599`, each followed by twenty
+/// words, 145 characters, before its clock lines.
+fn oldest_numbered(t: &Term<'_>) -> (usize, usize) {
+    let sb = t.scrollback();
+    (0..sb.len())
+        .rev()
+        .enumerate()
+        .find_map(|(tail, back)| {
+            let (cells, _) = sb
+                .line(baud_domain::Back::of(back))
+                .expect("a retained line");
+            let s = text_of(cells);
+            let n = s.get(..5).and_then(|n| n.parse().ok())?;
+            s[5..].starts_with(" word00").then_some((n, tail))
+        })
+        .expect("a numbered line in the history")
+}
+
+/// **A narrow drag through a full ring counts the rows it drops** (note V,
+/// V5). `full-ring` is `/bin/sh` running `awk` over 2,600 lines of 145
+/// characters and then `date` every 50 ms, captured by
+/// `scripts/capture-resize.py` through a drag from 200 columns to 40 and
+/// back while the clock still prints, so every width change is in the
+/// output zone and re-cuts the 2,000-line history. A narrower width makes
+/// each line more rows, and the ring keeps the newest: each step's count
+/// must move by exactly the rows the lost lines held at the width they
+/// were dropped from, `ceil(145 / cols)` a line, and a widening drops
+/// nothing and brings nothing back.
+#[test]
+fn a_narrow_drag_through_a_full_ring_counts_the_rows_it_drops() {
+    let f = load("full-ring");
+    let max = WinSize {
+        ws_col: 200,
+        ws_row: 50,
+    };
+    let owned: &'static mut Owned = Box::leak(Box::new(Owned::new(&max)));
+    let mut t = Term::new(owned.storage(), &f.steps[0].0);
+    let (mut at, mut narrowings, mut lost) = (0, 0, 0);
+    for (i, (ws, len)) in f.steps.iter().enumerate() {
+        let (cols, _) = t.geometry();
+        let fed = t.amplification().0 > 0;
+        let (before, was) = (t.reflow_dropped(), fed.then(|| oldest_numbered(&t)));
+        assert_eq!(t.resize(ws), Resized::Ok);
+        if let Some((n0, tail)) = was {
+            assert_eq!(t.primary_zone(), baud_core::Zone::Output);
+            let (n1, tail1) = oldest_numbered(&t);
+            // The tail goes first, a line of its own to the re-cut.
+            let rows = match (n1 > n0, tail1) {
+                (true, _) | (false, 0) => tail + (n1 - n0) * 145usize.div_ceil(cols.index()),
+                (false, _) => 0,
+            };
+            assert_eq!(
+                t.reflow_dropped().index() - before.index(),
+                rows,
+                "step {i}, {} to {} columns: lines {n0} to {n1} went",
+                cols.index(),
+                ws.ws_col
+            );
+            if usize::from(ws.ws_col) > cols.index() {
+                assert_eq!(n1, n0, "step {i}: a widening drops nothing");
+            }
+            narrowings += usize::from(usize::from(ws.ws_col) < cols.index());
+            lost += n1 - n0;
+        }
+        let bytes = &f.raw[at..at + len];
+        at += len;
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+    assert_eq!(narrowings, 40, "the drag narrowed forty times");
+    assert!(lost > 1000, "most of the history went: {lost} lines");
+    assert!(
+        t.reflow_dropped().index() >= lost,
+        "a dropped line is one row or more"
+    );
+    let total = t.reflow_dropped();
+    t.write_at(BytePos::ZERO, b"\x1bc");
+    t.feed(BytePos::ZERO, ReadLen::from_index(2));
+    assert_eq!(t.reflow_dropped(), total, "a reset keeps the count");
+}

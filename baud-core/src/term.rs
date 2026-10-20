@@ -2434,6 +2434,8 @@ impl<'b> Term<'b> {
             // The oldest retained line moved on by what the reflow dropped,
             // and the window's top is the history's depth after it.
             self.store.book.top = floor.plus(r.dropped).plus(r.hist);
+            self.store.strs.reflow_dropped =
+                Rows::of_count(self.store.strs.reflow_dropped.index() + r.dropped.index());
             match at {
                 // The margins go back to the screen's below, so the reflowed
                 // column carries no tag.
@@ -3188,6 +3190,16 @@ impl<'b> Term<'b> {
     /// off.
     pub fn window_ops_refused(&self) -> WindowOpsRefused {
         self.store.strs.window_asks.refused
+    }
+
+    /// **The rows a change of width dropped from the oldest end of the
+    /// history**, summed over every resize since `Term::new`: a re-cut to a
+    /// narrower width makes each line longer in rows, and what no longer
+    /// fits the ring goes, oldest first, and a later widening does not bring
+    /// it back (note V, V5). Counted rather than dropped in silence; a reset
+    /// keeps the count.
+    pub fn reflow_dropped(&self) -> Rows {
+        self.store.strs.reflow_dropped
     }
 
     /// The window requests dropped because the queue was full.

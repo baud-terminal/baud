@@ -483,6 +483,11 @@ pub struct StrBuf<'b> {
     /// [`StrBuf::new`], under which every prompt is forgotten as it is kept,
     /// and counted.
     pub(crate) prompts: PromptLog<'b>,
+    /// **The rows a re-cut dropped from the oldest end of the history**,
+    /// summed over every resize ([`crate::Term::reflow_dropped`]). Here
+    /// rather than in `Book`, which the per-byte path carries and whose
+    /// size is pinned, because only a resize writes it.
+    pub(crate) reflow_dropped: Rows,
 }
 
 impl<'b> StrBuf<'b> {
@@ -535,6 +540,7 @@ impl<'b> StrBuf<'b> {
             shell: crate::prompt::Shell::FRESH,
             shell_other: crate::prompt::Shell::FRESH,
             prompts: PromptLog::new(&mut []),
+            reflow_dropped: Rows::ZERO,
         }
     }
 }
@@ -807,6 +813,7 @@ impl Owned {
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
                 prompts: PromptLog::new(&mut self.prompts),
+                reflow_dropped: Rows::ZERO,
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -864,6 +871,7 @@ impl Owned {
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
                 prompts: PromptLog::new(&mut self.prompts),
+                reflow_dropped: Rows::ZERO,
             },
             ImageStore::new(
                 &mut self.img_pixels,
