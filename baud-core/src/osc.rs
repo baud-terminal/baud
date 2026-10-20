@@ -405,7 +405,7 @@ impl Paint<'_, '_> {
     /// A palette entry written, and the colour epoch moved when it changed:
     /// a renderer resolves the table again under a new epoch, and a write
     /// that leaves the entry as it was must not make it.
-    fn set_palette(&mut self, i: Chan, w: ColorWord) {
+    pub(crate) fn set_palette(&mut self, i: Chan, w: ColorWord) {
         if self.strs.palette[i.index()] != w {
             self.strs.palette[i.index()] = w;
             self.style_log.colors_moved();
@@ -425,7 +425,7 @@ impl Paint<'_, '_> {
 
     /// One special colour written, the colour epoch moved when it changed:
     /// renditions resolve through it while its mode is on.
-    fn set_special(&mut self, which: SpecialColor, w: ColorWord) {
+    pub(crate) fn set_special(&mut self, which: SpecialColor, w: ColorWord) {
         let at = crate::storage::SPECIAL_PALETTE + which.index();
         if self.strs.palette[at] != w {
             self.strs.palette[at] = w;
@@ -475,7 +475,7 @@ impl Paint<'_, '_> {
     /// The same for a dynamic colour. `OSC 12`'s cursor colour is read where
     /// the cursor is drawn, and `OSC 17`'s and `19`'s where a selection is,
     /// and no rendition resolves through them, so they move no epoch.
-    fn set_dynamic(&mut self, which: DynamicColor, w: ColorWord) {
+    pub(crate) fn set_dynamic(&mut self, which: DynamicColor, w: ColorWord) {
         if self.cold.dynamic[which.index()] != w {
             self.cold.dynamic[which.index()] = w;
             if moves_renditions(which) {
@@ -977,7 +977,8 @@ pub(crate) fn clear_palette(palette: &mut [ColorWord], log: &mut StyleLog<'_>) {
 /// embedder's `Overrides::Drop`, as xterm's reset of all `MAXCOLORS` takes
 /// them with the palette (`[[source: xterm-misc]]` 3070-3080).
 pub(crate) fn clear_specials(palette: &mut [ColorWord], log: &mut StyleLog<'_>) {
-    let special = &mut palette[crate::storage::SPECIAL_PALETTE..crate::storage::PALETTE_LEN];
+    let special =
+        &mut palette[crate::storage::SPECIAL_PALETTE..crate::storage::COLOR_STACK_PALETTE];
     if special.iter().any(|w| !w.is_default()) {
         special.fill(ColorWord::DEFAULT);
         log.colors_moved();

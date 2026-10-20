@@ -1079,6 +1079,11 @@ impl Csi {
                     Csi::Stack(StackOp::PopRendition)
                 }
                 (b'#', b'|') if marker == Marker::Standard => Csi::Area(AreaOp::ReportRendition),
+                // XTPUSHCOLORS, XTPOPCOLORS and XTREPORTCOLORS
+                // (`[[source: ctlseqs]]` 644-660).
+                (b'#', b'P') if marker == Marker::Standard => Csi::Stack(StackOp::PushColors),
+                (b'#', b'Q') if marker == Marker::Standard => Csi::Stack(StackOp::PopColors),
+                (b'#', b'R') if marker == Marker::Standard => Csi::Stack(StackOp::ReportColors),
                 _ => Csi::Unsupported {
                     marker,
                     final_byte: f,

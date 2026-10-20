@@ -1,11 +1,17 @@
 //! xterm's stack controls (`[[source: ctlseqs]]`), out of the dispatch's
 //! line: XTTITLEPOS, which reports the title stack `crate::window` keeps,
-//! and XTPUSHSGR and XTPOPSGR, the rendition's stack, kept here.
+//! XTPUSHSGR and XTPOPSGR, the rendition's stack, and XTPUSHCOLORS,
+//! XTPOPCOLORS and XTREPORTCOLORS, the palette's, kept here.
 //!
 //! **One cold entry, [`Paint::stack_op`], which reads the parameters too**,
 //! as `crate::rect`'s `area_op` does: no byte of the write loop reaches it.
 
-use baud_domain::{SGR_STACK_DEPTH, SgrGroups, StackOp, StyleWord, restore_rendition};
+use baud_domain::{
+    Chan, ColorWord, DynamicColor, Param, Report, SGR_STACK_DEPTH, SgrGroups, SpecialColor,
+    StackOp, StyleWord, restore_rendition,
+};
+
+use crate::storage::{COLOR_SLOT, COLOR_STACK_PALETTE, EMBEDDER_PALETTE, SPECIAL_PALETTE};
 
 use crate::paint::Paint;
 use crate::write::Csi;
@@ -19,7 +25,111 @@ impl Paint<'_, '_> {
             StackOp::TitlePosition => self.report_title_position(),
             StackOp::PushRendition => self.push_rendition(csi),
             StackOp::PopRendition => self.pop_rendition(),
+            // Each parameter in turn, as xterm's loop takes them, and a
+            // bare control as one omitted.
+            StackOp::PushColors | StackOp::PopColors => {
+                let mut any = false;
+                csi.for_each_param(|v| {
+                    any = true;
+                    self.palette_stack(op, Slot::of(v));
+                });
+                if !any {
+                    self.palette_stack(op, Slot::Next);
+                }
+            }
+            StackOp::ReportColors => self.report_colors(),
         }
+    }
+
+    fn palette_stack(&mut self, op: StackOp, slot: Slot) {
+        match op {
+            StackOp::PushColors => self.push_colors(slot),
+            _ => self.pop_colors(slot),
+        }
+    }
+
+    /// XTPUSHCOLORS, one parameter of it, as xterm's `xtermPushColors`
+    /// stores it (`[[source: xterm-misc]]`): omitted or 0, the palette goes
+    /// to the current entry and the entry moves up one, refused at ten; 1
+    /// to 10 stores it into that palette "without pushing", the entry left
+    /// where it is, as the title stack's direct slots are. xterm makes it
+    /// the current entry; Jev's lean for that, XTERM, was 0.58/0.50, below
+    /// the 0.9 a departure needs, so the text is built. One past 10, or a
+    /// push of a full stack, changes nothing and is counted.
+    fn push_colors(&mut self, slot: Slot) {
+        let used = self.strs.colors.used.0;
+        let (at, next) = match slot {
+            Slot::Next if used < SGR_STACK_DEPTH => (used, used + 1),
+            Slot::Direct(n) => (n - 1, used),
+            Slot::Next | Slot::Past => {
+                self.unsupported_param += 1;
+                return;
+            }
+        };
+        let base = COLOR_STACK_PALETTE + at * COLOR_SLOT;
+        let p = &mut *self.strs.palette;
+        p.copy_within(..EMBEDDER_PALETTE, base);
+        p.copy_within(
+            SPECIAL_PALETTE..COLOR_STACK_PALETTE,
+            base + EMBEDDER_PALETTE,
+        );
+        let dynamic = base + EMBEDDER_PALETTE + SpecialColor::ALL.len();
+        p[dynamic..dynamic + DynamicColor::COUNT].copy_from_slice(&self.cold.dynamic);
+        self.strs.colors.filled = self.strs.colors.filled.with(Entry(at));
+        self.strs.colors.used = Entry(next);
+    }
+
+    /// XTPOPCOLORS, one parameter of it, as xterm's `xtermPopColors`
+    /// restores it: omitted or 0, the entry below the current one, which
+    /// becomes the current entry; 1 to 10, that palette "without popping",
+    /// the entry left where it is (xterm moves it, not followed, as above).
+    /// Either way a palette stored there becomes the colours. A palette
+    /// never stored, an empty
+    /// stack or one past 10 changes nothing and is counted. **Each colour
+    /// goes through its setter**, so the colour epoch moves only where one
+    /// changed and the renderer repaints what a pop recoloured.
+    fn pop_colors(&mut self, slot: Slot) {
+        let used = self.strs.colors.used.0;
+        let (at, next) = match (slot, used) {
+            (Slot::Next, used) if used > 0 => (used - 1, used - 1),
+            (Slot::Direct(n), _) => (n - 1, used),
+            _ => {
+                self.unsupported_param += 1;
+                return;
+            }
+        };
+        if !self.strs.colors.filled.has(Entry(at)) {
+            self.unsupported_param += 1;
+            return;
+        }
+        let base = COLOR_STACK_PALETTE + at * COLOR_SLOT;
+        let mut saved = [ColorWord::DEFAULT; COLOR_SLOT];
+        saved.copy_from_slice(&self.strs.palette[base..base + COLOR_SLOT]);
+        for (i, &w) in (0..=u8::MAX).zip(&saved[..EMBEDDER_PALETTE]) {
+            self.set_palette(Chan::from_u8(i), w);
+        }
+        let specials = &saved[EMBEDDER_PALETTE..EMBEDDER_PALETTE + SpecialColor::ALL.len()];
+        for (&which, &w) in SpecialColor::ALL.iter().zip(specials) {
+            self.set_special(which, w);
+        }
+        let dynamic = &saved[EMBEDDER_PALETTE + SpecialColor::ALL.len()..];
+        for (&which, &w) in DYNAMIC.iter().zip(dynamic) {
+            self.set_dynamic(which, w);
+        }
+        self.strs.colors.used = Entry(next);
+    }
+
+    /// XTREPORTCOLORS: the current entry and the palettes stored,
+    /// `CSI ? Pu ; Ps # Q`. **The palettes stored are counted**, the
+    /// text's "number of palettes stored on the stack", which is xterm's
+    /// `last` wherever only bare pushes were made; xterm's does not count a
+    /// palette a direct push stored.
+    fn report_colors(&mut self) {
+        let c = self.strs.colors;
+        self.want_reply(Report::ColorStack {
+            current: u16::try_from(c.used.0).unwrap_or(u16::MAX),
+            stored: u16::try_from(c.filled.0.count_ones()).unwrap_or(u16::MAX),
+        });
     }
 
     /// XTPUSHSGR: the rendition and the groups to restore, as xterm's
@@ -96,3 +206,65 @@ impl Depth {
         self.0.checked_sub(1).map(Depth)
     }
 }
+
+/// The dynamic colours in the order [`DynamicColor::index`] numbers them.
+const DYNAMIC: [DynamicColor; DynamicColor::COUNT] = [
+    DynamicColor::Foreground,
+    DynamicColor::Background,
+    DynamicColor::Cursor,
+    DynamicColor::HighlightBg,
+    DynamicColor::HighlightFg,
+];
+
+/// Which palette a parameter of XTPUSHCOLORS or XTPOPCOLORS names: "the
+/// default 0 will push" (or pop), and 1 to 10 a palette directly; `Past`
+/// beyond.
+#[derive(Clone, Copy)]
+enum Slot {
+    Next,
+    Direct(usize),
+    Past,
+}
+
+impl Slot {
+    fn of(v: Option<Param>) -> Slot {
+        match v.map_or(0, Param::value) {
+            0 => Slot::Next,
+            n @ 1..=10 => Slot::Direct(usize::from(n)),
+            _ => Slot::Past,
+        }
+    }
+}
+
+/// The colour stack: which palettes hold one, one bit each, and the
+/// current entry, xterm's `saved_colors.used`.
+#[derive(Clone, Copy)]
+pub(crate) struct ColorStack {
+    filled: Filled,
+    used: Entry,
+}
+
+impl ColorStack {
+    pub(crate) const EMPTY: ColorStack = ColorStack {
+        filled: Filled(0),
+        used: Entry(0),
+    };
+}
+
+/// Which of the ten palettes a push has stored, one bit each: xterm never
+/// frees one, so a pop may read any stored once.
+#[derive(Clone, Copy)]
+struct Filled(u16);
+
+impl Filled {
+    fn with(self, at: Entry) -> Filled {
+        Filled(self.0 | 1 << at.0)
+    }
+    fn has(self, at: Entry) -> bool {
+        self.0 & (1 << at.0) != 0
+    }
+}
+
+/// The colour stack's current entry: the palette the next bare push takes.
+#[derive(Clone, Copy)]
+struct Entry(usize);

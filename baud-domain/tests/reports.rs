@@ -705,6 +705,14 @@ fn report_encodings_fit() {
             },
             b'S',
         ),
+        (
+            "colour stack, widest",
+            Report::ColorStack {
+                current: u16::MAX,
+                stored: u16::MAX,
+            },
+            b'Q',
+        ),
     ] {
         // **Exhaustive, so this list cannot fall behind the enum again.** A
         // new `Report` variant stops this match compiling, and the edit it
@@ -746,7 +754,8 @@ fn report_encodings_fit() {
             | Report::PreferredSupplemental
             | Report::DisplayedExtent { .. }
             | Report::KeyOption { .. }
-            | Report::TitlePosition { .. } => {}
+            | Report::TitlePosition { .. }
+            | Report::ColorStack { .. } => {}
         }
         let b = enc(r);
         assert!(

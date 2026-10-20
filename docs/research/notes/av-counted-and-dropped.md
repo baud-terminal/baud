@@ -20,10 +20,11 @@ is not.
 - **Built 2026-10-20:** the title-stack position report (`CSI # S`) and
   the title modes (`CSI > Pm t`, `CSI > Pm T`): a title sent in
   hexadecimal, and a UTF-8 title under `ESC % @`; the SGR stack
-  (`CSI # {`, `CSI # }`) and the rendition report (`CSI # |`).
+  (`CSI # {`, `CSI # }`) and the rendition report (`CSI # |`); the
+  palette stack (`CSI # P`, `CSI # Q`, `CSI # R`).
 - **Small, to build next** (the text is complete and nothing is the
   owner's): ECMA-48's backward moves HPB
-  and VPB, the palette stack, XTCHECKSUM's checksum flags,
+  and VPB, XTCHECKSUM's checksum flags,
   the pointer-hiding mode, the `?30` scrollbar mode,
   `?41`'s tab after a pending wrap, and OSC 60-62's feature lists.
 - **Larger, to build** (whole protocols a VT420-class terminal has): the
@@ -57,7 +58,7 @@ none the table says so.
 | `CSI # S` XTTITLEPOS | answered since 2026-10-20 | ctlseqs line 664: reply `CSI Pn ; Pm # S`, the stack's index and its maximum | `CSI # S` | **built**: `xttitlepos_reports_the_pushes_and_the_depth` |
 | `CSI Pn j` HPB, `CSI Pn k` VPB | counted | `[[source: ecma48]]` HPB and VPB, the backward twins of HPR and VPR | none | **build**: baud has HPR and VPR; a new `CSI` arm, so a timed A/B |
 | `CSI Pm # {` / `# }` / `# \|` (and `# p`, `# q`) XTPUSHSGR, XTPOPSGR, XTREPORTSGR | built 2026-10-20 | ctlseqs lines 1871-1953: a ten-deep stack of the rendition, selectable by attribute | `CSI # {`, `CSI # \|` | **built**: `a_list_push_restores_only_its_groups`, `xtreportsgr_answers_the_attributes_every_cell_shares` |
-| `CSI # P` / `# Q` / `# R` XTPUSHCOLORS, XTPOPCOLORS, XTREPORTCOLORS | counted | ctlseqs lines 644-660: a ten-deep stack of the palette and dynamic colours | none | **build** |
+| `CSI # P` / `# Q` / `# R` XTPUSHCOLORS, XTPOPCOLORS, XTREPORTCOLORS | built 2026-10-20 | ctlseqs lines 644-660: a ten-deep stack of the palette and dynamic colours | `CSI # P`, `CSI # R` | **built**: `a_pop_restores_the_palette_the_specials_and_the_dynamic_colours` |
 | `CSI Ps # y` XTCHECKSUM | counted | ctlseqs line 1823: five bits that change DECRQCRA's checksum | DECRQCRA's row: "not built" | **build**: DECRQCRA exists |
 | `CSI > Pm t` / `CSI > Pm T` XTSMTITLE, XTRMTITLE | the set modes built 2026-10-20 | ctlseqs lines 1707 and 733: set titles in hex or UTF-8, and query them so | `CSI > Pm t` | **built** the two set modes; the query modes act on title reports, which stay refused as unsafe, and are counted with them (`the_query_modes_are_refused_with_the_title_reports`) |
 | `CSI > Ps p` XTSMPOINTER | counted | ctlseqs line 1464: whether the pointer hides while the user types -- never, unless mouse tracking is on, always but on leaving the window, always | none | **build** in the app (AppKit's hide-until-moved) |

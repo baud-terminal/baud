@@ -3740,6 +3740,8 @@ impl Paint<'_, '_> {
         // departure from the text not followed (Jev's lean, KEEP, 0.84/0.86,
         // below the 0.9 a departure needs); `DECSTR` keeps it.
         self.strs.renditions = crate::stack::RenditionStack::EMPTY;
+        // XTPUSHCOLORS's stack too, for the same reason.
+        self.strs.colors = crate::stack::ColorStack::EMPTY;
         // **The title modes go back to the default**, xterm's full reset
         // `title_modes = title_modes0` (`[[source: xterm-reset]]`'s file);
         // `DECSTR` keeps them, as xterm's soft reset does.

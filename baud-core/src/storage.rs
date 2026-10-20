@@ -459,6 +459,9 @@ pub struct StrBuf<'b> {
     /// XTPUSHSGR's stack (`crate::stack`): read by a push and a pop alone,
     /// so here rather than in `Cold`, whose size is pinned.
     pub(crate) renditions: crate::stack::RenditionStack,
+    /// Which of XTPUSHCOLORS's ten palettes hold one and the stack's
+    /// current entry; the palettes are in `palette`.
+    pub(crate) colors: crate::stack::ColorStack,
     /// The window operations queued for the embedder, whether they are on
     /// (`Term::set_window_ops`) and the counts of those that did not go
     /// (`Term::window_requests`). Here for the reason `window` is: only an
@@ -526,6 +529,7 @@ impl<'b> StrBuf<'b> {
             title_enc: InputEncoding::Utf8,
             icon_enc: InputEncoding::Utf8,
             renditions: crate::stack::RenditionStack::EMPTY,
+            colors: crate::stack::ColorStack::EMPTY,
             window_asks: crate::window::WindowAsks::NONE,
             color_modes: ColorModes::NONE,
             shell: crate::prompt::Shell::FRESH,
@@ -797,6 +801,7 @@ impl Owned {
                 title_enc: InputEncoding::Utf8,
                 icon_enc: InputEncoding::Utf8,
                 renditions: crate::stack::RenditionStack::EMPTY,
+                colors: crate::stack::ColorStack::EMPTY,
                 window_asks: crate::window::WindowAsks::NONE,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
@@ -853,6 +858,7 @@ impl Owned {
                 title_enc: InputEncoding::Utf8,
                 icon_enc: InputEncoding::Utf8,
                 renditions: crate::stack::RenditionStack::EMPTY,
+                colors: crate::stack::ColorStack::EMPTY,
                 window_asks: crate::window::WindowAsks::NONE,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
@@ -952,9 +958,22 @@ pub const TITLE_STACK: usize = TITLE_SLOTS * 2 * OSC_MAX;
 /// Entries in the palette slice: the first 256 are the application's `OSC 4`
 /// overrides, the second 256 the embedder's own table
 /// ([`crate::Term::set_default_palette`]), which an `OSC 4 ; c ; ?` for an
-/// entry nothing overrode is answered from, and the last five xterm's
-/// special colours as `OSC 5` sets them ([`crate::Term::special_color`]).
-pub const PALETTE_LEN: usize = 517;
+/// entry nothing overrode is answered from, the next five xterm's special
+/// colours as `OSC 5` sets them ([`crate::Term::special_color`]), and after
+/// them XTPUSHCOLORS's ten palettes, [`COLOR_SLOT`] entries each
+/// (`crate::stack`): 3,177 in all, 12,708 bytes.
+pub const PALETTE_LEN: usize = COLOR_STACK_PALETTE + SGR_STACK_DEPTH * COLOR_SLOT;
+
+/// Where the special colours end and the colour stack begins.
+pub(crate) const COLOR_STACK_PALETTE: usize = SPECIAL_PALETTE + SpecialColor::ALL.len();
+
+/// One palette on the colour stack: what a pop restores, the 256 `OSC 4`
+/// overrides, the five special colours and the five dynamic ones -- the
+/// "dynamic- and ANSI-palette colors" of `[[source: ctlseqs]]`, as xterm's
+/// `ColorSlot` holds its `MAXCOLORS` and its dynamic colours
+/// (`[[source: xterm-misc]]`).
+pub(crate) const COLOR_SLOT: usize =
+    EMBEDDER_PALETTE + SpecialColor::ALL.len() + DynamicColor::COUNT;
 
 /// Where the embedder's half of the palette slice starts.
 pub(crate) const EMBEDDER_PALETTE: usize = 256;

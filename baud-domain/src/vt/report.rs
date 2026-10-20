@@ -295,6 +295,13 @@ pub enum Report {
     /// (`[[source: xterm-misc]]`), so `index` passes `max` once a push
     /// past the tenth has overwritten the oldest (Jev, RAW, 0.90/0.96).
     TitlePosition { index: u16, max: u16 },
+    /// XTREPORTCOLORS's answer, `CSI ? Pu ; Ps # Q`: the palette stack's
+    /// current entry and the palettes stored on it, "using the same form as
+    /// XTPOPCOLORS" (`[[source: ctlseqs]]` 658-660) with the `?` xterm's
+    /// `xtermReportColors` writes (`[[source: xterm-misc]]`), which keeps
+    /// the answer from popping two palettes if it is echoed back (Jev,
+    /// XTERM_Q, 0.94/0.96).
+    ColorStack { current: u16, stored: u16 },
 }
 
 /// What an XTSMGRAPHICS answer carries after its item: the value read,
@@ -1114,6 +1121,14 @@ impl Report {
                     _ => {}
                 }
                 e.push(b'S');
+            }
+            Report::ColorStack { current, stored } => {
+                e.push(b'?');
+                e.push_num(current);
+                e.push(b';');
+                e.push_num(stored);
+                e.push(b'#');
+                e.push(b'Q');
             }
             Report::TitlePosition { index, max } => {
                 e.push_num(index);

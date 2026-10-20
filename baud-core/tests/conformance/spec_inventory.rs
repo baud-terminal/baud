@@ -338,10 +338,10 @@ struct Snapshot {
     /// XTQMODKEYS' and XTQFMTKEYS' answers for every key-modifier resource,
     /// which only `Term::key` reads, asked after everything above.
     key_resources: Vec<u8>,
-    /// What an XTPOPSGR after the form restores: bold set, popped, and the
-    /// rendition read back, which a push before it changes and nothing
-    /// else the snapshot reads can see.
-    rendition_stack: Vec<u8>,
+    /// The palette stack's report, then what an XTPOPSGR after the form
+    /// restores -- bold set, popped, and the rendition read back: a push of
+    /// either stack changes these and nothing else the snapshot reads.
+    stacks: Vec<u8>,
     /// xterm's five special colours and their modes, which only a
     /// rendition resolved for drawing reads, and `OSC 22`'s pointer.
     special: Vec<Option<(u8, u8, u8)>>,
@@ -462,9 +462,9 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
             t.feed(BytePos::ZERO, ReadLen::from_index(ask.len()));
             t.reply().to_vec()
         },
-        rendition_stack: {
+        stacks: {
             t.clear_reply();
-            let ask = b"\x1b[0;1m\x1b[#}\x1bP$qm\x1b\\";
+            let ask = b"\x1b[#R\x1b[0;1m\x1b[#}\x1bP$qm\x1b\\";
             t.write_at(BytePos::ZERO, ask);
             t.feed(BytePos::ZERO, ReadLen::from_index(ask.len()));
             t.reply().to_vec()

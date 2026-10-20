@@ -23,6 +23,16 @@ pub enum StackOp {
     /// XTPOPSGR, `CSI # }` and its alias `CSI # q`: "Pop video attributes
     /// from stack".
     PopRendition,
+    /// XTPUSHCOLORS, `CSI Pm # P`: "Push current dynamic- and ANSI-palette
+    /// colors onto stack".
+    PushColors,
+    /// XTPOPCOLORS, `CSI Pm # Q`: "Pop stack to set dynamic- and
+    /// ANSI-palette colors".
+    PopColors,
+    /// XTREPORTCOLORS, `CSI # R`: "Report the current entry on the palette
+    /// stack, and the number of palettes stored on the stack"
+    /// ([`crate::Report::ColorStack`]).
+    ReportColors,
 }
 
 /// "The stack is limited to 10 levels" (`[[source: ctlseqs]]`, XTPUSHSGR),
