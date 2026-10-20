@@ -785,6 +785,11 @@ pub enum Csi {
     ColumnRelative(Count),
     /// VPR, `CSI e`. Down `n` rows, column unchanged. Unlike CNL.
     LineRelative(Count),
+    /// HPB, `CSI j` (`[[source: ecma48]]` 8.3.58): left `n` columns, HPR's
+    /// mirror.
+    ColumnBackward(Count),
+    /// VPB, `CSI k` (8.3.159): up `n` rows, column unchanged, VPR's mirror.
+    LineBackward(Count),
     /// SCOSC, `CSI s`, with DECLRMM reset: under DECLRMM the same bytes are
     /// [`Csi::SetSideMargins`]. Every parameter defaulted or none; one that
     /// is not is DECSLRM's shape and [`Csi::Unsupported`].
@@ -1288,6 +1293,8 @@ impl Csi {
             b'd' => Csi::LineAbsolute(p.one_based(ParamIdx::FIRST)),
             b'a' => Csi::ColumnRelative(p.count(ParamIdx::FIRST)),
             b'e' => Csi::LineRelative(p.count(ParamIdx::FIRST)),
+            b'j' => Csi::ColumnBackward(p.count(ParamIdx::FIRST)),
+            b'k' => Csi::LineBackward(p.count(ParamIdx::FIRST)),
             // SCOSC and SCORC take no parameter (`[[source: ctlseqs]]` 1592
             // and 1734), so a defaulted one is the bare form. Anything else
             // is DECSLRM's shape for `s`, "available only when DECLRMM is
@@ -1539,6 +1546,8 @@ impl Csi {
             | LineAbsolute(_)
             | ColumnRelative(_)
             | LineRelative(_)
+            | ColumnBackward(_)
+            | LineBackward(_)
             | CursorPosition { .. }
             | SaveCursor
             | RestoreCursor

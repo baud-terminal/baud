@@ -1890,6 +1890,14 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
             p.set_col(p.on_line(p.place(p.confine_col(p.cx.col().forward(c, p.cols)))))
         }
         DomCsi::LineRelative(c) => p.set_row(p.confine(p.cy.down(c, p.rows))),
+        // **`HPB` and `VPB` mirror `HPR` and `VPR`** (`[[source: ecma48]]`
+        // 8.3.58 and 8.3.159, "in the direction opposite"): to the line's
+        // first position and the page's first line, the margins aside, and
+        // confined under DECOM. No DEC text and no ctlseqs entry has either.
+        DomCsi::ColumnBackward(c) => p.set_col(
+            p.on_line(p.place(p.confine_col(p.cx.reported(p.line_fence(), p.cols).back(c)))),
+        ),
+        DomCsi::LineBackward(c) => p.set_row(p.confine(p.cy.up(c))),
         DomCsi::EraseInLine(e) => p.erase_line(e),
         DomCsi::EraseInDisplay(e) => p.erase_display(e),
         DomCsi::EraseChars(c) => p.erase_chars(c),
