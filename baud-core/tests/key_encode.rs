@@ -945,6 +945,46 @@ fn keypad_press(k: KeypadKey, app: bool) -> Vec<u8> {
     t.reply().to_vec()
 }
 
+/// **A keypad key sends what it types from the numeric column**, which
+/// on most layouts is its label and on others is not: a Mac's decimal key
+/// types `,` on German and French layouts and its digits type U+0660-0669
+/// on Arabic ones. kitty sends a keypad key's text and iTerm2 its
+/// characters, so line 2498's numeric column is the character typed. The
+/// application column is the key's own row whatever it typed, and a
+/// character the live encoding cannot carry leaves the key's label.
+#[test]
+fn a_keypad_key_sends_what_it_types_from_the_numeric_column() {
+    let send = |modes: &[u8], k: KeypadKey, typed: char| {
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        feed(&mut t, modes);
+        t.clear_reply();
+        let mut e = KeyEvent::press(KeyCode::Keypad(k), Modifiers::NONE);
+        e.text = Codepoint::new(u32::from(typed));
+        assert!(t.key(e), "{k:?} {typed:?} after {modes:?}");
+        t.reply().to_vec()
+    };
+    let five = "\u{665}".as_bytes();
+    for (modes, k, typed, want) in [
+        (b"".as_slice(), KeypadKey::Period, ',', b",".as_slice()),
+        (b"", KeypadKey::Digit5, '\u{665}', five),
+        // kitty's disambiguate flag leaves a key that typed text alone.
+        (b"\x1b[>1u", KeypadKey::Period, ',', b","),
+        (b"\x1b[>1u", KeypadKey::Digit5, '\u{665}', five),
+        // VT52's numeric column is the same characters (line 2713).
+        (b"\x1b[?2l", KeypadKey::Digit5, '\u{665}', five),
+        // ISO 8859-1 carries `,` and has no byte for U+0665.
+        (b"\x1b%@", KeypadKey::Period, ',', b","),
+        (b"\x1b%@", KeypadKey::Digit5, '\u{665}', b"5"),
+        // DECKPAM: the key's row, not its text.
+        (b"\x1b=", KeypadKey::Period, ',', b"\x1b[3~"),
+        (b"\x1b=", KeypadKey::Digit5, '\u{665}', b"\x1b[E"),
+    ] {
+        assert_eq!(send(modes, k, typed), want, "{k:?} {typed:?} {modes:?}");
+    }
+}
+
 /// **The VT220 keypad is a different table, and baud does not send it.**
 ///
 /// `[[source: ctlseqs]]` line 2628 gives the VT102/VT220 application keypad,

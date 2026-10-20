@@ -50,3 +50,22 @@ fn numlock_chooses_between_the_navigation_key_and_the_digit() {
         assert_eq!(on.code, KeyCode::Keypad(digit), "{name}, NumLock on");
     }
 }
+
+/// **`KP_Equal` is the keypad's `=`**, `XKB_KEY_KP_Equal` 0xffbd
+/// (`[[source: xkbcommon-keysyms]]` line 312), which the pinned keymap binds to
+/// `<KPEQ>` alone, so DECKPAM's `SS3 X` and kitty's `KP_EQUAL` reach it.
+#[test]
+fn kp_equal_is_the_keypads_equal() {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../baud-xkb/tests/fixtures/keymap-us.xkb"
+    ))
+    .expect("the pinned keymap");
+    let keymap = Keymap::from_text(&text).expect("it compiles");
+    let mut state = State::new(&keymap);
+    let kc = keymap.keycode_named("KPEQ").expect("KPEQ");
+    state.update(Mods::default(), 0);
+    assert_eq!(state.sym(kc), Keysym::named("KP_Equal").expect("KP_Equal"));
+    let e = keys::press(&state, kc).expect("KPEQ");
+    assert_eq!(e.code, KeyCode::Keypad(KeypadKey::Equal));
+}

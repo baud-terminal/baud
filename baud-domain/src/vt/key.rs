@@ -833,6 +833,11 @@ fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     }
 }
 
+/// The text a key typed, if it is a character and not a control code.
+fn typed(text: Option<Codepoint>) -> Option<Codepoint> {
+    text.filter(|c| c.value() >= 0x20 && c.value() != 0x7f)
+}
+
 /// Whether a key is reported as a CSI-u escape code under `Disambiguate escape
 /// codes` alone (without `Report all keys`).
 ///
@@ -840,6 +845,13 @@ fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
 /// shift+alt+key keys", plus every non-text keypad and functional key. The
 /// Enter, Tab and Backspace keys are the exceptions -- they keep their legacy
 /// bytes so a shell stays usable after a crashed program leaves the mode set.
+///
+/// **A lock or modifier key is not reported here**: "with this mode
+/// [report all keys], events for pressing modifier keys are reported", and
+/// `num_lock` and `caps_lock` are among the protocol's modifiers; kitty's
+/// encoder drops a key `is_modifier_key` names without that flag
+/// (`[[source: kitty-key-encoding-c]]` line 457). A Mac's Clear key,
+/// NumLock, went out as `CSI 57360 u` under disambiguate alone.
 ///
 /// **A keypad key that typed a character is a text key**, and keeps its
 /// legacy bytes, its lock unsent: "all non text keypad keys" are the ones
@@ -852,7 +864,9 @@ fn kitty_encode(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
 fn kitty_disambiguated(code: KeyCode, mods: Modifiers, text: Option<Codepoint>) -> bool {
     match code {
         KeyCode::Enter | KeyCode::Tab | KeyCode::Backspace => false,
-        KeyCode::Keypad(_) => !text.is_some_and(|c| c.value() >= 0x20 && c.value() != 0x7f),
+        KeyCode::Keypad(_) => typed(text).is_none(),
+        // A lock or modifier key waits for "report all keys".
+        KeyCode::Pua(p) => !p.is_modifier(),
         // A text key disambiguates only when a modifier makes it collide with a
         // control code; plain and shift-only text keys still send text.
         KeyCode::Char(_) => {
@@ -1090,7 +1104,7 @@ fn ansi_key(
             }
         }
         KeyCode::Function(f) => function_key(o, f, mods, s, s.keys.modify(KeyResource::Function)),
-        KeyCode::Keypad(k) => return keypad_key(o, k, mods, s),
+        KeyCode::Keypad(k) => return keypad_key(o, k, mods, text, s),
         // The PUA keys have no legacy form; the base layer sends nothing.
         KeyCode::Pua(_) => return false,
         KeyCode::Char(cp) => {
@@ -1182,7 +1196,7 @@ fn vt52(
         // keypad's rows by digit alone, so there is no row to send.
         KeyCode::Keypad(k) => match k.duplicates() {
             Some(code) => return vt52(o, code, mods, text, s),
-            None => return vt52_keypad(o, k, mods, s),
+            None => return vt52_keypad(o, k, mods, text, s),
         },
         // The text keys are the keyboard, not the emulation.
         KeyCode::Char(cp) => return text_key(o, cp, text, mods, s),
@@ -1206,7 +1220,13 @@ fn vt52_esc(o: &mut KeyBytes, final_byte: FinalByte) {
 }
 
 /// The VT52 keypad, `[[source: ctlseqs]]` line 2713.
-fn vt52_keypad(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> bool {
+fn vt52_keypad(
+    o: &mut KeyBytes,
+    k: KeypadKey,
+    mods: Modifiers,
+    text: Option<Codepoint>,
+    s: KeyState,
+) -> bool {
     // `ESC P`-`ESC S` in both columns, so the mode is not consulted. Same four
     // finals as the ANSI side's `SS3 P`-`SS3 S`.
     if let Some(f) = k.pf().and_then(FnKey::ss3_final) {
@@ -1214,19 +1234,7 @@ fn vt52_keypad(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> 
         return true;
     }
     if s.keypad_for(k, mods) == KeypadMode::Numeric {
-        return match k {
-            KeypadKey::Enter => {
-                o.ret(s);
-                true
-            }
-            _ => match k.numeric() {
-                Some(b) => {
-                    o.byte(b);
-                    true
-                }
-                None => false,
-            },
-        };
+        return keypad_numeric(o, k, text, s);
     }
     // `ESC ? <final>`. The finals are the VT220 table's, not the PC one's: `2`
     // is `ESC ? r`, where the ANSI PC keypad sends `CSI B`. A VT52 keypad has
@@ -1258,7 +1266,13 @@ fn vt52_keypad(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> 
 /// `CSI 2 ~`, `1` is `SS3 F`. A table that assumed one introducer would be
 /// wrong in eight rows, and wrong in a way each application would interpret as
 /// a different keystroke rather than as an error.
-fn keypad_key(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> bool {
+fn keypad_key(
+    o: &mut KeyBytes,
+    k: KeypadKey,
+    mods: Modifiers,
+    text: Option<Codepoint>,
+    s: KeyState,
+) -> bool {
     // `PF1`-`PF4` are `SS3 P`-`SS3 S` in **both** columns: the only rows the
     // mode does not change. They are the same four sequences F1-F4 send, so
     // they take the same path and the `SS3` -> `CSI 1 ; mod` switch under a
@@ -1295,21 +1309,52 @@ fn keypad_key(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeyState) -> b
         };
     }
     if mode == KeypadMode::Numeric {
-        // Enter is the one row whose numeric form is not its label: `CR`, and
-        // LNM governs it exactly as it governs the main Return.
-        if k == KeypadKey::Enter {
-            o.ret(s);
-            return true;
-        }
-        return match k.numeric() {
-            Some(b) => {
-                o.byte(b);
-                true
-            }
-            None => false,
-        };
+        return keypad_numeric(o, k, text, s);
     }
     keypad_application(o, k, mods, s)
+}
+
+/// The numeric column, ANSI's (line 2498) and VT52's (line 2713): **the
+/// character the key typed**, and its label where it typed none.
+///
+/// The tables give each row's label, which is what a US layout types; a
+/// Mac's decimal key types `,` on German and French layouts and its digits
+/// type U+0660-0669 on Arabic ones. kitty sends a keypad key's text
+/// (`[[source: kitty-key-encoding-c]]`) and iTerm2 its characters
+/// (`[[source: iterm2-7ce037e-vt100output]]`, `keypadDataForString`);
+/// xterm sends the keysym's own character (`kypd_num`, `[[source:
+/// xterm-input-c]]` line 1398), and an X layout whose key types `,` gives
+/// it `KP_Separator`, whose character that is. A character the live
+/// encoding cannot carry leaves the label, the key's own.
+fn keypad_numeric(o: &mut KeyBytes, k: KeypadKey, text: Option<Codepoint>, s: KeyState) -> bool {
+    // Enter is the one row whose numeric form is not its label: `CR`, and
+    // LNM governs it exactly as it governs the main Return.
+    if k == KeypadKey::Enter {
+        o.ret(s);
+        return true;
+    }
+    if let Some(c) = typed(text).and_then(|c| char::from_u32(c.value())) {
+        let mut buf = [0u8; 4];
+        match s.encoding {
+            InputEncoding::Utf8 => {
+                o.all(c.encode_utf8(&mut buf).as_bytes());
+                return true;
+            }
+            InputEncoding::Latin1 => {
+                if let Ok(b) = u8::try_from(u32::from(c)) {
+                    o.push(b);
+                    return true;
+                }
+            }
+        }
+    }
+    match k.numeric() {
+        Some(b) => {
+            o.byte(b);
+            true
+        }
+        None => false,
+    }
 }
 
 /// The application column of `[[source: ctlseqs]]` line 2498, `PF1`-`PF4`

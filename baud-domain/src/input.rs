@@ -686,6 +686,35 @@ impl PuaKey {
         })
     }
 
+    /// Whether this is a lock or modifier key, which `[[source:
+    /// kitty-keyboard]]` reports only under "Report all keys as escape
+    /// codes" ("events for pressing modifier keys are reported"): kitty's
+    /// `is_modifier_key`, `LEFT_SHIFT` to `ISO_LEVEL5_SHIFT` and the three
+    /// locks (`[[source: kitty-keys-c-9710eb4]]` lines 38-48).
+    pub fn is_modifier(self) -> bool {
+        use PuaKey::*;
+        matches!(
+            self,
+            CapsLock
+                | ScrollLock
+                | NumLock
+                | LeftShift
+                | LeftControl
+                | LeftAlt
+                | LeftSuper
+                | LeftHyper
+                | LeftMeta
+                | RightShift
+                | RightControl
+                | RightAlt
+                | RightSuper
+                | RightHyper
+                | RightMeta
+                | IsoLevel3Shift
+                | IsoLevel5Shift
+        )
+    }
+
     /// The key's number in `[[source: kitty-keyboard]]`'s functional table.
     pub fn kitty_number(self) -> u32 {
         match self {

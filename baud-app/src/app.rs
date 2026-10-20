@@ -19,8 +19,8 @@ use baud_core::{
 };
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
-    KeyEventKind, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, MouseTracking,
-    PackedCell, PointerPx, Row, RowRot, Rows, ShiftEscape, WinSize,
+    KeyEventKind, KeypadMode, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods,
+    MouseTracking, PackedCell, PointerPx, Row, RowRot, Rows, ShiftEscape, WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -2089,12 +2089,23 @@ fn kind_of(key: &KeyPress) -> KeyEventKind {
 
 /// The keys a macOS virtual key code names outright, before any text.
 ///
-/// No keypad navigation key (`KeypadKey::Left` to `KeypadKey::Begin`) is
-/// named, because a Mac keypad has none: `[[source: macos-sdk-events-h]]`
-/// gives each physical keypad key one code, by its digit
-/// (`kVK_ANSI_Keypad0`-`9`), and no NumLock key -- `0x47` is
-/// `kVK_ANSI_KeypadClear`. Linux names them from the keysym NumLock picks.
+/// **The keypad is named by its key codes**, `[[source:
+/// macos-sdk-events-h]]` lines 244-261, and not by
+/// `NSEventModifierFlagNumericPad`, which AppKit sets on the arrow keys as
+/// well. No keypad navigation key (`KeypadKey::Left` to `KeypadKey::Begin`)
+/// is named, because a Mac keypad has none: each physical keypad key has
+/// one code, by its digit, and the keypad has no NumLock state, so a digit
+/// is always the digit. Linux names them from the keysym NumLock picks.
+///
+/// `0x47`, `kVK_ANSI_KeypadClear`, is NumLock: the HID usage tables name
+/// the one key "Keypad Num Lock and Clear" (`[[source:
+/// usb-hid-usage-tables-1-6]]`, Keyboard/Keypad page, usage 0x53), and
+/// kitty's macOS layer names it `GLFW_FKEY_NUM_LOCK` (`[[source:
+/// kitty-glfw-cocoa-window-851cb80]]`). It sends nothing on the legacy
+/// layer, as a lock key does, and kitty's `57360` under "report all keys"
+/// (Jev, NUM_LOCK, 0.95/0.96).
 fn special(key: &KeyPress) -> Option<KeyCode> {
+    use baud_domain::KeypadKey as Kp;
     Some(match key.key_code {
         0x7E => KeyCode::Up,
         0x7D => KeyCode::Down,
@@ -2107,7 +2118,7 @@ fn special(key: &KeyPress) -> Option<KeyCode> {
         0x75 => KeyCode::Delete,
         0x72 => KeyCode::Insert,
         0x33 => KeyCode::Backspace,
-        0x24 | 0x4C => KeyCode::Enter,
+        0x24 => KeyCode::Enter,
         0x30 => KeyCode::Tab,
         0x35 => KeyCode::Escape,
         0x7A => KeyCode::Function(FnKey::new(1)?),
@@ -2122,8 +2133,81 @@ fn special(key: &KeyPress) -> Option<KeyCode> {
         0x6D => KeyCode::Function(FnKey::new(10)?),
         0x67 => KeyCode::Function(FnKey::new(11)?),
         0x6F => KeyCode::Function(FnKey::new(12)?),
+        0x41 => KeyCode::Keypad(decimal(key)),
+        0x43 => KeyCode::Keypad(Kp::Multiply),
+        0x45 => KeyCode::Keypad(Kp::Add),
+        0x47 => KeyCode::Pua(baud_domain::PuaKey::NumLock),
+        0x4B => KeyCode::Keypad(Kp::Divide),
+        0x4C => KeyCode::Keypad(Kp::Enter),
+        0x4E => KeyCode::Keypad(Kp::Minus),
+        0x51 => KeyCode::Keypad(Kp::Equal),
+        0x52 => KeyCode::Keypad(Kp::Digit0),
+        0x53 => KeyCode::Keypad(Kp::Digit1),
+        0x54 => KeyCode::Keypad(Kp::Digit2),
+        0x55 => KeyCode::Keypad(Kp::Digit3),
+        0x56 => KeyCode::Keypad(Kp::Digit4),
+        0x57 => KeyCode::Keypad(Kp::Digit5),
+        0x58 => KeyCode::Keypad(Kp::Digit6),
+        0x59 => KeyCode::Keypad(Kp::Digit7),
+        // `0x5A` is F20's.
+        0x5B => KeyCode::Keypad(Kp::Digit8),
+        0x5C => KeyCode::Keypad(Kp::Digit9),
         _ => return None,
     })
+}
+
+/// The keypad's decimal key, `0x41`, by what the layout types on it
+/// with Control and Option ignored (`charactersIgnoringModifiers`), so
+/// those chords do not change the key; Shift can, on the 52 layouts where
+/// it types the other separator.
+///
+/// **A decimal key that types `,` is the keypad's comma**, as it is on a
+/// German Linux keypad: xkeyboard-config makes it `KP_Separator`
+/// (`[[source: xkeyboard-config-kpdl-193cc6c]]` lines 30-35, included by
+/// the German layout, `[[source: xkeyboard-config-de-193cc6c]]` line 35),
+/// so it takes line 2498's comma row, `SS3 l` under DECKPAM, and kitty's
+/// `KP_SEPARATOR`. kitty's and iTerm2's macOS layers name it `KP_DECIMAL`
+/// by its code alone. Taken as Jev's lean, `SEPARATOR_BY_TEXT` at
+/// 0.26/0.04 and on a second ask 0.34/0.41, below the bar. U+066B, the
+/// Arabic decimal separator, and every other character keep it the
+/// decimal key.
+fn decimal(key: &KeyPress) -> baud_domain::KeypadKey {
+    match key.unmodified.starts_with(',') {
+        true => baud_domain::KeypadKey::Comma,
+        false => baud_domain::KeypadKey::Period,
+    }
+}
+
+/// The event for a key [`special`] named, carrying `m`.
+///
+/// **A keypad key carries the text it types**, as the Wayland driver's
+/// does, which is how kitty's disambiguate flag tells a typed digit from
+/// a key that typed nothing (`[[source: kitty-keyboard]]`, "all non text
+/// keypad keys"): the layout's character, none for a control code --
+/// keypad Enter is `U+0003` -- and none while Control or Option is held,
+/// as kitty's keyboard layer gives none (`[[source: kitty-xkb-glfw-c]]`).
+/// The base layer reads the key, not the text.
+fn pressed(code: KeyCode, key: &KeyPress, m: Modifiers) -> KeyEvent {
+    let mut e = KeyEvent::press(code, m);
+    if let KeyCode::Keypad(_) = code {
+        e.text = key
+            .characters
+            .chars()
+            .next()
+            .filter(|c| !c.is_control() && !key.modifiers.control && !key.modifiers.option)
+            .and_then(|c| Codepoint::new(u32::from(c)));
+    }
+    e
+}
+
+/// Whether a key's text is what it sends, so that drawing it ahead of the
+/// echo predicts the echo: a keypad key only from the numeric column
+/// (`[[source: ctlseqs]]` line 2498), under DECKPAM `5` being `CSI E`.
+fn predicts(code: KeyCode, keypad: KeypadMode) -> bool {
+    match code {
+        KeyCode::Keypad(_) => keypad == KeypadMode::Numeric,
+        _ => true,
+    }
 }
 
 /// A style change the system has announced and the loop has not applied.
@@ -6878,11 +6962,12 @@ impl Driver {
         };
         self.app.latency.key(current_event_time, host_now);
         let (text, held) = (e.text, e.mods);
+        let typed = predicts(e.code, self.app.term.keypad());
         match self.app.send(e) {
             Sent::Bytes => {
                 self.app.latency.written(host_now);
                 self.app.echo = Echo::Wanted;
-                if let Some(c) = text {
+                if let Some(c) = text.filter(|_| typed) {
                     self.predict(c, held);
                 }
             }
@@ -7455,7 +7540,7 @@ impl Responder for Driver {
         }
         let m = mods(key.modifiers);
         let e = if let Some(code) = special(key) {
-            KeyEvent::press(code, m)
+            pressed(code, key, m)
         } else if key.modifiers.control || key.modifiers.option {
             // A control or alt chord: the key's identity, folded by the core.
             let Some(c) = key
@@ -10226,6 +10311,247 @@ mod tests {
             let sweep = Style::Smear(Shape::Sweep);
             assert_eq!(chase_style(sweep, path), sweep);
         }
+    }
+
+    /// Every keypad key code of `[[source: macos-sdk-events-h]]` (lines
+    /// 244-261) and the keypad key it names. The codes skip `0x5A`, F20's,
+    /// between `kVK_ANSI_Keypad7` and `kVK_ANSI_Keypad8`.
+    const MAC_KEYPAD: [(u16, baud_domain::KeypadKey, &str); 17] = {
+        use baud_domain::KeypadKey::*;
+        [
+            (0x41, Period, "."),
+            (0x43, Multiply, "*"),
+            (0x45, Add, "+"),
+            (0x4B, Divide, "/"),
+            (0x4C, Enter, "\u{3}"),
+            (0x4E, Minus, "-"),
+            (0x51, Equal, "="),
+            (0x52, Digit0, "0"),
+            (0x53, Digit1, "1"),
+            (0x54, Digit2, "2"),
+            (0x55, Digit3, "3"),
+            (0x56, Digit4, "4"),
+            (0x57, Digit5, "5"),
+            (0x58, Digit6, "6"),
+            (0x59, Digit7, "7"),
+            (0x5B, Digit8, "8"),
+            (0x5C, Digit9, "9"),
+        ]
+    };
+
+    /// A Mac key press with `characters` as the US layout translates the
+    /// key, which `UCKeyTranslate` gives for every keypad code. A macro, so
+    /// the key code keeps `KeyPress`'s own type and no signature here
+    /// carries it.
+    macro_rules! mac_key {
+        ($code:expr, $chars:expr, $mods:expr) => {
+            KeyPress {
+                key_code: $code,
+                characters: $chars.to_string(),
+                unmodified: $chars.to_string(),
+                modifiers: $mods,
+                repeat: false,
+            }
+        };
+    }
+
+    /// **Each keypad key of a Mac names its keypad key**, the main Return
+    /// stays Return, and Clear, the key where a PC keypad has NumLock, is
+    /// NumLock: the HID usage tables name one key "Keypad Num Lock and
+    /// Clear" (`[[source: usb-hid-usage-tables-1-6]]`, usage 0x53), and
+    /// kitty's macOS layer names `0x47` `GLFW_FKEY_NUM_LOCK` (`[[source:
+    /// kitty-glfw-cocoa-window-851cb80]]`).
+    #[test]
+    fn every_mac_keypad_code_names_its_keypad_key() {
+        let none = macos_liquid_glass::drawable::Modifiers::default();
+        for (code, k, chars) in MAC_KEYPAD {
+            assert_eq!(
+                special(&mac_key!(code, chars, none)),
+                Some(KeyCode::Keypad(k)),
+                "{code:#x}"
+            );
+        }
+        assert_eq!(special(&mac_key!(0x24, "\r", none)), Some(KeyCode::Enter));
+        assert_eq!(
+            special(&mac_key!(0x47, "\u{f739}", none)),
+            Some(KeyCode::Pua(baud_domain::PuaKey::NumLock))
+        );
+    }
+
+    /// What `key` sends for `k` once `modes` is fed: the event it builds,
+    /// through the core.
+    fn sent_for(modes: &[u8], k: &KeyPress) -> Vec<u8> {
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 4,
+        };
+        let mut owned = Owned::new(&ws);
+        let mut t = Term::new(owned.storage(), &ws);
+        t.write_at(baud_domain::BytePos::ZERO, modes);
+        t.feed(
+            baud_domain::BytePos::ZERO,
+            baud_domain::ReadLen::from_index(modes.len()),
+        );
+        t.clear_reply();
+        let e = special(k)
+            .map(|code| pressed(code, k, mods(k.modifiers)))
+            .expect("a named key");
+        let mut out = Vec::new();
+        crate::reads::input(&mut t, |t| t.key(e), |b| out.extend_from_slice(b));
+        out
+    }
+
+    /// **A Mac keypad key reaches the core as a keypad key**, so DECKPAM,
+    /// DECNKM and kitty's keypad numbers act on it as on a PC keypad's,
+    /// and a digit carries the text it types, as the Wayland driver's
+    /// does: under kitty's disambiguate flag alone a typed `5` stays `5`
+    /// ("all non text keypad keys" are the ones reported, `[[source:
+    /// kitty-keyboard]]`). No NumLock is reported, a Mac keypad having no
+    /// NumLock state, so `?1035` leaves DECKPAM as it is.
+    #[test]
+    fn a_mac_keypad_key_reaches_the_core_as_a_keypad_key() {
+        use macos_liquid_glass::drawable::Modifiers as M;
+        let none = M::default();
+        let option = M {
+            option: true,
+            ..none
+        };
+        let key = |code: u16, m| {
+            let chars = MAC_KEYPAD
+                .iter()
+                .find(|(c, _, _)| *c == code)
+                .map_or("\u{f739}", |(_, _, ch)| *ch);
+            mac_key!(code, chars, m)
+        };
+        let decnkm = b"\x1b[?66h".as_slice();
+        for (modes, code, m, want) in [
+            // Numeric, the power-on column: the character on the key.
+            (b"".as_slice(), 0x57, none, b"5".as_slice()),
+            (b"", 0x51, none, b"="),
+            (b"", 0x4C, none, b"\r"),
+            (b"", 0x47, none, b""),
+            // DECKPAM, `ESC =`: line 2498's application column.
+            (b"\x1b=", 0x4C, none, b"\x1bOM"),
+            (b"\x1b=", 0x51, none, b"\x1bOX"),
+            (b"\x1b=", 0x45, none, b"\x1bOk"),
+            (b"\x1b=", 0x43, none, b"\x1bOj"),
+            (b"\x1b=", 0x4B, none, b"\x1bOo"),
+            (b"\x1b=", 0x4E, none, b"\x1bOm"),
+            (b"\x1b=", 0x41, none, b"\x1b[3~"),
+            (b"\x1b=", 0x47, none, b""),
+            // DECNKM set is DECKPAM; `?1035` reset changes nothing here.
+            (decnkm, 0x45, none, b"\x1bOk"),
+            (b"\x1b=\x1b[?1035l", 0x45, none, b"\x1bOk"),
+            // kitty, disambiguate: a typed key keeps its legacy bytes, a
+            // key that typed nothing is its number.
+            (b"\x1b[>1u", 0x57, none, b"5"),
+            (b"\x1b[>1u", 0x57, option, b"\x1b[57404;3u"),
+            (b"\x1b[>1u", 0x4C, none, b"\x1b[57414u"),
+            (b"\x1b[>1u", 0x47, none, b""),
+            // kitty, report all keys: every keypad key its number, Clear
+            // NumLock's.
+            (b"\x1b[>9u", 0x57, none, b"\x1b[57404u"),
+            (b"\x1b[>9u", 0x51, none, b"\x1b[57415u"),
+            (b"\x1b[>9u", 0x41, none, b"\x1b[57409u"),
+            (b"\x1b[>9u", 0x47, none, b"\x1b[57360u"),
+        ] {
+            assert_eq!(
+                sent_for(modes, &key(code, m)),
+                want,
+                "{code:#x} after {:?}",
+                String::from_utf8_lossy(modes)
+            );
+        }
+        // Each digit under DECKPAM sends what the core sends for that
+        // keypad key, and not the main row's digit.
+        for (code, k, chars) in MAC_KEYPAD {
+            let mut e = KeyEvent::press(KeyCode::Keypad(k), Modifiers::NONE);
+            e.text = chars
+                .chars()
+                .next()
+                .filter(|c| !c.is_control())
+                .and_then(|c| Codepoint::new(u32::from(c)));
+            let ws = WinSize {
+                ws_col: 20,
+                ws_row: 4,
+            };
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            t.write_at(baud_domain::BytePos::ZERO, b"\x1b=");
+            t.feed(
+                baud_domain::BytePos::ZERO,
+                baud_domain::ReadLen::from_index(2),
+            );
+            let mut core = Vec::new();
+            crate::reads::input(&mut t, |t| t.key(e), |b| core.extend_from_slice(b));
+            let got = sent_for(b"\x1b=", &key(code, none));
+            assert_eq!(got, core, "{code:#x}");
+            assert_ne!(got, chars.as_bytes(), "{code:#x}");
+        }
+    }
+
+    /// **A keypad key is predicted only from the numeric column**: under
+    /// DECKPAM a `5` goes out as `CSI E`, and a `5` drawn ahead of the
+    /// child's echo would be a glyph no echo confirms.
+    #[test]
+    fn a_keypad_key_is_predicted_only_where_it_sends_its_text() {
+        use baud_domain::KeypadKey::Digit5;
+        assert!(predicts(KeyCode::Keypad(Digit5), KeypadMode::Numeric));
+        assert!(!predicts(KeyCode::Keypad(Digit5), KeypadMode::Application));
+        let five = KeyCode::Char(Codepoint::new(u32::from('5')).unwrap());
+        assert!(predicts(five, KeypadMode::Application));
+    }
+
+    /// **A Mac keypad key sends what the layout types on it**: the decimal
+    /// key types `,` on 81 of the Mac's layouts, German and French among
+    /// them, and the digits type Arabic-Indic digits on Arabic ones
+    /// (`UCKeyTranslate`). From the numeric column, and under kitty's
+    /// disambiguate flag, that character goes out and is the one predicted.
+    /// A decimal key that types `,` is the keypad's comma, as a German
+    /// Linux keypad's is (`KP_Separator`, `[[source:
+    /// xkeyboard-config-kpdl-193cc6c]]`): line 2498's `SS3 l` under DECKPAM
+    /// and kitty's `KP_SEPARATOR`, whatever Option does to the text.
+    #[test]
+    fn a_mac_keypad_key_sends_what_the_layout_types_on_it() {
+        use baud_domain::KeypadKey as Kp;
+        use macos_liquid_glass::drawable::Modifiers as M;
+        let none = M::default();
+        let option = M {
+            option: true,
+            ..none
+        };
+        let five = "\u{665}";
+        for (modes, code, chars, want) in [
+            (b"".as_slice(), 0x41, ",", b",".as_slice()),
+            (b"", 0x57, five, five.as_bytes()),
+            (b"\x1b[>1u", 0x41, ",", b","),
+            (b"\x1b[>1u", 0x57, five, five.as_bytes()),
+            (b"\x1b=", 0x41, ",", b"\x1bOl"),
+            (b"\x1b=", 0x41, ".", b"\x1b[3~"),
+            (b"\x1b=", 0x57, five, b"\x1b[E"),
+            (b"\x1b[>9u", 0x41, ",", b"\x1b[57416u"),
+            (b"\x1b[>9u", 0x41, ".", b"\x1b[57409u"),
+        ] {
+            let k = mac_key!(code, chars, none);
+            assert_eq!(sent_for(modes, &k), want, "{code:#x} {chars:?} {modes:?}");
+            if modes.is_empty() {
+                let e = pressed(special(&k).unwrap(), &k, Modifiers::NONE);
+                let drawn = e.text.filter(|_| predicts(e.code, KeypadMode::Numeric));
+                let drawn = drawn.and_then(|c| char::from_u32(c.value()));
+                assert_eq!(drawn.map(String::from).as_deref(), Some(chars));
+            }
+        }
+        // The identity is the key's with Option ignored, so an Option chord
+        // that changes the characters does not change the key.
+        let chord = KeyPress {
+            characters: "\u{2026}".to_string(),
+            ..mac_key!(0x41, ",", option)
+        };
+        assert_eq!(special(&chord), Some(KeyCode::Keypad(Kp::Comma)));
+        assert_eq!(
+            special(&mac_key!(0x41, "\u{66b}", none)),
+            Some(KeyCode::Keypad(Kp::Period))
+        );
     }
 
     /// A key AppKit marks as repeated reaches the core as a repeat, which it

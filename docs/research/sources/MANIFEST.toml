@@ -29212,3 +29212,118 @@ bytes  = 44588
 status = "external"
 group  = "C"
 # Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+[sources.usb-hid-usage-tables-1-6]
+key    = "usb-hid-usage-tables-1-6"
+title  = "HID Usage Tables 1.6 -- section 10, Keyboard/Keypad page (0x07): usage 0x53 is one key, \"Keypad Num Lock and Clear\" (PDF page 91)"
+author = "USB Implementers Forum"
+year   = 2025
+venue  = "usb.org, HID Usage Tables for USB, version 1.6"
+url    = "https://usb.org/sites/default/files/hut1_6.pdf"
+file   = ""
+sha256 = "c2fbeeacdfdc813cae684d768aa5baf0a29b37216befca3b9218294d25f72c26"
+bytes  = 4454166
+status = "external"
+group  = "H"
+# Fetched 2026-10-19 (lane b109) for the macOS keypad: the Mac's Clear key and
+# the PC's NumLock are the same usage. Footnote 6: "Implemented as a
+# non-locking key". Copyrighted; hash-verified, not committed.
+
+[sources.kitty-glfw-cocoa-window-851cb80]
+key    = "kitty-glfw-cocoa-window-851cb80"
+title  = "kitty 851cb80, glfw/cocoa_window.m -- vk_code_to_functional_key_code: 0x47 is GLFW_FKEY_NUM_LOCK, 0x41-0x5C the KP_* keys"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 851cb80 (GPL-3.0; glfw's zlib licence)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/851cb804ff37fb5fed50ed9d32410274bc0f9651/glfw/cocoa_window.m"
+file   = ""
+sha256 = "bdd0de5b9b20dcb71a95cfbdd6d439117876b843889adcd5de27ad21ea92ef71"
+bytes  = 216538
+status = "external"
+group  = "H"
+# Fetched 2026-10-19 (lane b109). Lines 117-184, the keycode table (0x47 at 136); line 265,
+# NSClearLineFunctionKey also NUM_LOCK. Read, not copied.
+
+[sources.kitty-keys-c-9710eb4]
+key    = "kitty-keys-c-9710eb4"
+title  = "kitty 9710eb4, kitty/keys.c -- is_modifier_key: LEFT_SHIFT to ISO_LEVEL5_SHIFT, CAPS_LOCK, SCROLL_LOCK, NUM_LOCK (38-48)"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kovidgoyal/kitty @ 9710eb4 (GPL-3.0)"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/9710eb4460ca0ab1532b0107d7066c20d7e9a66f/kitty/keys.c"
+file   = ""
+sha256 = "f0105af70a374c2355b3d36ca821a524b57bb7ab5ed2ebcb18e069335f43849f"
+bytes  = 25757
+status = "external"
+group  = "H"
+# Fetched 2026-10-19 (lane b109). key_encoding.c line 457 drops these keys
+# unless "report all keys" is on. Read, not copied.
+
+[sources.iterm2-7ce037e-standard-key-mapper]
+key    = "iterm2-7ce037e-standard-key-mapper"
+title  = "iTerm2 7ce037e, iTermStandardKeyMapper.m -- the legacy mapper sends ESC for NSClearLineFunctionKey (375-376)"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 @ 7ce037e (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/Keyboard/iTermStandardKeyMapper.m"
+file   = ""
+sha256 = "d3799b29291f4cc4b08d9ff05f882f81fc708266467ad1f83b862df191240a5e"
+bytes  = 20359
+status = "external"
+group  = "H"
+# Fetched 2026-10-19 (lane b109). Read, not copied.
+
+[sources.iterm2-7ce037e-modern-key-mapper]
+key    = "iterm2-7ce037e-modern-key-mapper"
+title  = "iTerm2 7ce037e, iTermModernKeyMapper.swift -- its kitty mapper names kVK_ANSI_KeypadClear KP_SEPARATOR, \"a blind guess\" (1427-1428)"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 @ 7ce037e (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/Keyboard/iTermModernKeyMapper.swift"
+file   = ""
+sha256 = "0df398f905ce0ed0f34bb384a4bdfc6587b22eb6f11ffbe778c82752cbe21194"
+bytes  = 77946
+status = "external"
+group  = "H"
+# Fetched 2026-10-19 (lane b109). Read, not copied.
+
+[sources.iterm2-7ce037e-vt100output]
+key    = "iterm2-7ce037e-vt100output"
+title  = "iTerm2 7ce037e, VT100Output.m -- keypadDataForString: DECKPAM sends a keypad digit as SS3 p-y, '.' as SS3 n (707-736)"
+author = "George Nachman"
+year   = 2026
+venue  = "gnachman/iTerm2 @ 7ce037e (GPL-2.0)"
+url    = "https://raw.githubusercontent.com/gnachman/iTerm2/7ce037e1410c1a2e9152023a4c332d8dc55d321c/sources/VT100/VT100Output.m"
+file   = ""
+sha256 = "0cdb20e69996ef61ba0928039db86e5131ff679ea94f76cd037ea6750fbde703"
+bytes  = 61706
+status = "external"
+group  = "H"
+# Fetched 2026-10-19 (lane b109). Read, not copied.
+
+[sources.xkeyboard-config-kpdl-193cc6c]
+key    = "xkeyboard-config-kpdl-193cc6c"
+title  = "xkeyboard-config 193cc6c, symbols/kpdl -- the keypad decimal key: \"comma\" makes it KP_Separator under NumLock (30-35)"
+author = "Nicolas Mailhot and the xkeyboard-config contributors"
+year   = 2026
+venue  = "xkeyboard-config/xkeyboard-config @ 193cc6c (MIT-style)"
+url    = "https://gitlab.freedesktop.org/xkeyboard-config/xkeyboard-config/-/raw/193cc6c8f7294976bf3b247caa434e3174e6727b/symbols/kpdl"
+file   = ""
+sha256 = "b81ef8aa7cfa4b3272986272150fd445b8effeff986c2097cd88fba880fed1bb"
+bytes  = 3398
+status = "external"
+group  = "H"
+# Fetched 2026-10-20 (lane b109). Lines 1-10, the key's history; 30-35, "comma". Read, not copied.
+
+[sources.xkeyboard-config-de-193cc6c]
+key    = "xkeyboard-config-de-193cc6c"
+title  = "xkeyboard-config 193cc6c, symbols/de -- the German basic layout includes kpdl(comma) (line 35)"
+author = "the xkeyboard-config contributors"
+year   = 2026
+venue  = "xkeyboard-config/xkeyboard-config @ 193cc6c (MIT-style)"
+url    = "https://gitlab.freedesktop.org/xkeyboard-config/xkeyboard-config/-/raw/193cc6c8f7294976bf3b247caa434e3174e6727b/symbols/de"
+file   = ""
+sha256 = "6a67c83d10e13651d15028d5b64ff55af48d486ff0cca6bc92dccdd70f647d65"
+bytes  = 101707
+status = "external"
+group  = "H"
+# Fetched 2026-10-20 (lane b109). Line 4, xkb_symbols "basic"; line 35, include "kpdl(comma)". Read, not copied.

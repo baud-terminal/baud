@@ -131,6 +131,7 @@ fn code_of(sym: Keysym) -> Option<KeyCode> {
         0xffb7 => KeyCode::Keypad(KeypadKey::Digit7),
         0xffb8 => KeyCode::Keypad(KeypadKey::Digit8),
         0xffb9 => KeyCode::Keypad(KeypadKey::Digit9),
+        0xffbd => KeyCode::Keypad(KeypadKey::Equal),
         _ => return None,
     })
 }

@@ -573,6 +573,59 @@ fn pua_keys_match_the_source() {
     }
 }
 
+/// **A lock or modifier key is reported only under "Report all keys as
+/// escape codes"**: "Additionally, with this mode, events for pressing
+/// modifier keys are reported", and the protocol's modifiers include
+/// `num_lock` and `caps_lock` (`[[source: kitty-keyboard]]`); kitty's
+/// encoder sends nothing for a key `is_modifier_key` names -- `LEFT_SHIFT`
+/// to `ISO_LEVEL5_SHIFT`, `CAPS_LOCK`, `SCROLL_LOCK` and `NUM_LOCK`
+/// (`[[source: kitty-keys-c-9710eb4]]` lines 38-48) -- without that flag
+/// (`[[source: kitty-key-encoding-c]]` line 457). The other PUA keys are
+/// functional keys, and disambiguate reports them.
+#[test]
+fn a_lock_or_modifier_key_is_reported_only_under_report_all_keys() {
+    let modifier_keys = [
+        PuaKey::CapsLock,
+        PuaKey::ScrollLock,
+        PuaKey::NumLock,
+        PuaKey::LeftShift,
+        PuaKey::LeftControl,
+        PuaKey::LeftAlt,
+        PuaKey::LeftSuper,
+        PuaKey::LeftHyper,
+        PuaKey::LeftMeta,
+        PuaKey::RightShift,
+        PuaKey::RightControl,
+        PuaKey::RightAlt,
+        PuaKey::RightSuper,
+        PuaKey::RightHyper,
+        PuaKey::RightMeta,
+        PuaKey::IsoLevel3Shift,
+        PuaKey::IsoLevel5Shift,
+    ];
+    let press = |k| KeyEvent::press(KeyCode::Pua(k), Modifiers::NONE);
+    for k in modifier_keys {
+        for flags in [
+            b"\x1b[=1u".as_slice(),
+            b"\x1b[=3u",
+            b"\x1b[=7u",
+            b"\x1b[=23u",
+        ] {
+            assert!(
+                pressed(flags, press(k)).is_empty(),
+                "{k:?} after {:?}",
+                String::from_utf8_lossy(flags)
+            );
+        }
+        let want = format!("\x1b[{}u", k.kitty_number());
+        assert_eq!(pressed(b"\x1b[=8u", press(k)), want.as_bytes(), "{k:?}");
+    }
+    for k in [PuaKey::PrintScreen, PuaKey::F21, PuaKey::MediaPlay] {
+        let want = format!("\x1b[{}u", k.kitty_number());
+        assert_eq!(pressed(b"\x1b[=1u", press(k)), want.as_bytes(), "{k:?}");
+    }
+}
+
 /// (KeypadKey, its name in the functional table), `PF1`-`PF4` aside.
 fn keypad_cases() -> Vec<(KeypadKey, &'static str)> {
     vec![
