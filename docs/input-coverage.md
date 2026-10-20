@@ -92,6 +92,15 @@ table at line 2337 gives all sixteen combinations across three modes:
 | `?1039` | `altSendsEscape` | Alt prefixes `ESC` | **done**, and **set** at power-on |
 | `?1034` | `eightBitInput` | Alt/Meta add 128 instead | **done**, applied under ISO 8859-1 only |
 
+**Option-Backspace deletes a word in a shell**, since 2026-10-19: the
+three modes reach Return, Tab, Backspace and Escape as they reach a
+character, so with `?1039` set Alt-Backspace sends `ESC DEL` where it sent
+a bare DEL, Alt-Return `ESC CR`, Alt-Tab `ESC TAB`, Alt-Escape `ESC ESC` and
+Alt-Shift-Tab `ESC CSI Z`. xterm sends those keys down its text branch
+(`[[source: xterm-input-c]]`, `kd.nbytes > 0`), and every cell of
+`[[source: kitty-keyboard]]`'s legacy table for them is held by
+`alt_prefixes_the_c0_keys_as_it_prefixes_text`.
+
 **The defaults are baud's choice and this is where it is recorded.**
 `[[source: ctlseqs]]` documents all three and states no default for any of them,
 so following it alone would leave the question open. `[[source: foot-meta-defaults]]`

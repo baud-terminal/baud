@@ -457,6 +457,141 @@ fn the_remaining_text_keys() {
     );
 }
 
+/// A key's row of the legacy table: its name, and each column's bytes.
+type C0Row = (String, Vec<(String, Vec<u8>)>);
+
+/// `[[source: kitty-keyboard]]`'s legacy table of the C0 keys and Space:
+/// `(key, [(column, bytes)])`, every cell read from the pinned page.
+///
+/// The page's cells spell bytes as `0x1b` and `CSI`, separated by spaces;
+/// a letter stands for itself.
+fn kitty_c0_table() -> Vec<C0Row> {
+    let html = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/research/sources/kitty-keyboard-protocol.html"
+    ))
+    .expect("the pinned kitty page");
+    let mut text = String::new();
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => text.push(c),
+            _ => {}
+        }
+    }
+    let cells: Vec<String> = text
+        .lines()
+        .map(|l| l.trim().replace("&nbsp;", " "))
+        .filter(|l| !l.is_empty())
+        .collect();
+    let at = cells
+        .windows(7)
+        .position(|w| w[0] == "No mods" && w[6] == "Ctrl + Alt")
+        .expect("the legacy C0 table's header");
+    let header = cells[at..at + 7].to_vec();
+    let bytes = |cell: &str| -> Vec<u8> {
+        let mut v = Vec::new();
+        for t in cell.split_whitespace() {
+            match t {
+                "CSI" => v.extend_from_slice(b"\x1b["),
+                _ if t.starts_with("0x") => {
+                    v.push(u8::from_str_radix(&t[2..], 16).expect("a hex byte"))
+                }
+                _ => v.extend_from_slice(t.as_bytes()),
+            }
+        }
+        v
+    };
+    let mut rows = Vec::new();
+    let mut i = at + 7;
+    for key in ["Enter", "Escape", "Backspace", "Tab", "Space"] {
+        assert_eq!(cells[i], key, "the table's rows, in its order");
+        let row = header
+            .iter()
+            .zip(&cells[i + 1..i + 8])
+            .map(|(h, c)| (h.clone(), bytes(c)))
+            .collect();
+        rows.push((key.to_string(), row));
+        i += 8;
+    }
+    rows
+}
+
+/// **Alt and Meta reach the C0 keys as they reach text.** xterm sends
+/// Return, Tab, BackSpace and Escape down the same branch as a character
+/// (`[[source: xterm-input-c]]`, `kd.nbytes > 0`), so `?1039` and `?1036`
+/// prefix them with `ESC` and `?1034` shifts them, and
+/// `[[source: kitty-keyboard]]`'s legacy table gives every cell: Alt-
+/// Backspace `ESC DEL`, Ctrl-Alt-Backspace `ESC BS`, Alt-Shift-Tab
+/// `ESC CSI Z`. Alt-Backspace sent a bare DEL, so a shell's
+/// backward-kill-word never saw the Alt.
+#[test]
+fn alt_prefixes_the_c0_keys_as_it_prefixes_text() {
+    let mods = |col: &str| match col {
+        "No mods" => Modifiers::NONE,
+        "Ctrl" => Modifiers::CTRL,
+        "Alt" => Modifiers::ALT,
+        "Shift" => Modifiers::SHIFT,
+        "Ctrl + Shift" => Modifiers::CTRL.with(Modifiers::SHIFT),
+        "Alt + Shift" => Modifiers::ALT.with(Modifiers::SHIFT),
+        "Ctrl + Alt" => Modifiers::CTRL.with(Modifiers::ALT),
+        _ => panic!("a column the table does not have: {col}"),
+    };
+    let code = |key: &str| match key {
+        "Enter" => KeyCode::Enter,
+        "Escape" => KeyCode::Escape,
+        "Backspace" => KeyCode::Backspace,
+        "Tab" => KeyCode::Tab,
+        _ => ch(' '),
+    };
+    let rows = kitty_c0_table();
+    let mut cells = 0;
+    for (key, row) in &rows {
+        for (col, want) in row {
+            assert_eq!(
+                show(&press_raw(code(key), mods(col))),
+                show(want),
+                "{key} with {col}"
+            );
+            cells += 1;
+        }
+    }
+    // The control: all thirty-five cells were read, Alt-Backspace among them.
+    assert_eq!(cells, 35);
+    assert_eq!(
+        rows[2].1[2],
+        ("Alt".to_string(), b"\x1b\x7f".to_vec()),
+        "the scrape read Alt-Backspace as the page gives it"
+    );
+
+    // With the prefix off, Alt is dropped, as for text; under ISO 8859-1
+    // `?1034` shifts the byte, and Meta follows `?1036`.
+    let ws = support::CORPUS;
+    let mut s = Owned::new(&ws);
+    let mut t = Term::new(s.storage(), &ws);
+    feed(&mut t, b"\x1b[?1039l");
+    t.clear_reply();
+    assert!(t.key(KeyEvent::press(KeyCode::Backspace, Modifiers::ALT)));
+    assert_eq!(t.reply(), b"\x7f", "?1039 reset");
+    t.clear_reply();
+    assert!(t.key(KeyEvent::press(KeyCode::Backspace, Modifiers::META)));
+    assert_eq!(t.reply(), b"\x1b\x7f", "?1036 still set");
+    feed(&mut t, b"\x1b[?1034h\x1b%@");
+    t.clear_reply();
+    assert!(t.key(KeyEvent::press(KeyCode::Backspace, Modifiers::ALT)));
+    assert_eq!(t.reply(), &[0xff], "?1034 under ISO 8859-1: DEL | 0x80");
+    t.clear_reply();
+    assert!(t.key(KeyEvent::press(KeyCode::Escape, Modifiers::ALT)));
+    assert_eq!(t.reply(), &[0x9b], "ESC | 0x80");
+}
+
+/// Bytes as text, for a readable failure.
+fn show(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x} ")).collect()
+}
+
 /// **LNM makes Return send CRLF.**
 ///
 /// The mode governs what LF does on output; on input it is what Return sends,

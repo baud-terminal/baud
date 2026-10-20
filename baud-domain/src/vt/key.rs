@@ -872,9 +872,9 @@ fn ansi(
         KeyCode::Backspace if other_keys_takes(mods, s) => {
             other_key(o, u16::from(s.backarrow_byte(mods)), mods, s)
         }
-        KeyCode::Backspace => o.push(s.backarrow_byte(mods)),
+        KeyCode::Backspace => c0_key(o, s.backarrow_byte(mods), mods, s),
         KeyCode::Escape if other_keys_takes(mods, s) => other_key(o, 0x1b, mods, s),
-        KeyCode::Escape => o.push(0x1b),
+        KeyCode::Escape => c0_key(o, 0x1b, mods, s),
         // **Shift-Tab is the discriminating case for level 2**, and
         // `[[source: ctlseqs]]` line 2237 says so in the example it chooses:
         // "shift-Tab sends `CSI 2 7 ; 2 ; 9 ~` **rather than** `CSI Z`". So the
@@ -885,15 +885,21 @@ fn ansi(
         KeyCode::Tab if other_keys_takes(mods, s) => other_key(o, 0x09, mods, s),
         KeyCode::Tab => match mods.has(Modifiers::SHIFT) {
             // CBT. Shift-Tab is the one text key that is a sequence, and it is
-            // `CSI Z` rather than a modified HT.
+            // `CSI Z` rather than a modified HT -- with Alt, `ESC CSI Z`,
+            // `[[source: kitty-keyboard]]`'s legacy table, the prefix the man
+            // page says "applies as well to function key control sequences"
+            // (`[[source: xterm-man]]`). A sequence has no 8-bit shift.
             true => {
+                if meta_of(mods, s).0 == Prefix::Escape {
+                    o.push(ESC);
+                }
                 o.introducer(Introducer::Csi, s.c1);
                 o.all(b"Z");
             }
-            false => o.push(0x09),
+            false => c0_key(o, 0x09, mods, s),
         },
         KeyCode::Enter if other_keys_takes(mods, s) => other_key(o, 0x0d, mods, s),
-        KeyCode::Enter => o.ret(s),
+        KeyCode::Enter => return_key(o, mods, s),
     }
     true
 }
@@ -931,12 +937,12 @@ fn vt52(
         },
         // The text keys are the keyboard, not the emulation.
         KeyCode::Char(cp) => return text_key(o, cp, text, mods, s),
-        KeyCode::Backspace => o.push(s.backarrow_byte(mods)),
-        KeyCode::Escape => o.push(0x1b),
+        KeyCode::Backspace => c0_key(o, s.backarrow_byte(mods), mods, s),
+        KeyCode::Escape => c0_key(o, 0x1b, mods, s),
         // No CBT on a VT52: `CSI Z` is an ANSI sequence, so Tab is HT whatever
         // is held.
-        KeyCode::Tab => o.push(0x09),
-        KeyCode::Enter => o.ret(s),
+        KeyCode::Tab => c0_key(o, 0x09, mods, s),
+        KeyCode::Enter => return_key(o, mods, s),
         // Home, End, the editing keypad and the function keys. A VT52 has none
         // of them and ctlseqs gives no form, so nothing is sent.
         _ => return false,
@@ -1084,6 +1090,61 @@ fn keypad_application(o: &mut KeyBytes, k: KeypadKey, mods: Modifiers, s: KeySta
     }
 }
 
+/// How Alt and Meta reach a key that sends one byte: the `ESC` prefix, and
+/// the bit `?1034` adds, `0x80` or nothing.
+///
+/// `[[source: ctlseqs]]` line 2325 gives two ways for either modifier to
+/// apply -- prefix `ESC`, or add 128 -- and line 2337's table has a separate
+/// column per modifier: `?1039` for Alt, `?1036` for Meta. They are asked
+/// independently because four of that table's sixteen rows disagree. The
+/// prefix wins where both modes are set, which is what the table's last four
+/// rows say: with both resources ON every modified row is `ESC x`.
+///
+/// The table's other branch -- `shift`, meaning add 128 -- is `?1034`
+/// eightBitInput, and it applies only under ISO 8859-1. Under UTF-8 a byte
+/// above 127 is a continuation byte rather than a character, so shifting
+/// there would send something no application can decode.
+fn meta_of(mods: Modifiers, s: KeyState) -> (Prefix, u8) {
+    let modded = mods.has(Modifiers::ALT) || mods.has(Modifiers::META);
+    let esc = match (mods.has(Modifiers::ALT) && s.modes.is_set(ModeBit::AltSendsEscape))
+        || (mods.has(Modifiers::META) && s.modes.is_set(ModeBit::MetaSendsEscape))
+    {
+        true => Prefix::Escape,
+        false => Prefix::None,
+    };
+    let shift = modded
+        && esc == Prefix::None
+        && s.modes.is_set(ModeBit::EightBitInput)
+        && s.encoding == InputEncoding::Latin1;
+    (esc, if shift { 0x80 } else { 0 })
+}
+
+/// Backspace, Escape and Tab: one C0 byte, which Alt and Meta reach exactly
+/// as they reach a character. xterm sends these keys down the branch it
+/// sends text down (`[[source: xterm-input-c]]`, `kd.nbytes > 0`), and
+/// `[[source: kitty-keyboard]]`'s legacy table gives Alt-Backspace `0x1b
+/// 0x7f`, Alt-Tab `0x1b 0x9` and Alt-Escape `0x1b 0x1b`.
+fn c0_key(o: &mut KeyBytes, b: u8, mods: Modifiers, s: KeyState) {
+    let (esc, high) = meta_of(mods, s);
+    o.prefixed(esc, &[b | high]);
+}
+
+/// Return: `CR`, or `CR LF` under LNM, after the prefix Alt and Meta give
+/// it (`0x1b 0xd`, the legacy table's). Shifted by `?1034` it is `0x8d`
+/// alone: the byte is no longer a CR for LNM to follow, as xterm's
+/// `unparseputc` adds the LF only after a CR.
+fn return_key(o: &mut KeyBytes, mods: Modifiers, s: KeyState) {
+    match meta_of(mods, s) {
+        (_, 0x80) => o.push(0x8d),
+        (esc, _) => {
+            if esc == Prefix::Escape {
+                o.push(ESC);
+            }
+            o.ret(s);
+        }
+    }
+}
+
 /// A key that produces text.
 ///
 /// Two modifiers change the bytes rather than adding a parameter, and this
@@ -1114,42 +1175,21 @@ fn text_key(
         false => None,
     };
 
-    // `[[source: ctlseqs]]` line 2325 gives two ways for either modifier to
-    // apply -- prefix `ESC`, or add 128 -- and line 2337's table has a separate
-    // column per modifier: `?1039` for Alt, `?1036` for Meta. They are asked
-    // independently because four of that table's sixteen rows disagree.
-    //
-    // The table's other branch -- `shift`, meaning add 128 -- is `?1034`
-    // eightBitInput, and it applies only under ISO 8859-1. Under UTF-8 a byte
-    // above 127 is a continuation byte rather than a character, so shifting
-    // there would send something no application can decode.
-    let modded = mods.has(Modifiers::ALT) || mods.has(Modifiers::META);
-    let esc = match (mods.has(Modifiers::ALT) && s.modes.is_set(ModeBit::AltSendsEscape))
-        || (mods.has(Modifiers::META) && s.modes.is_set(ModeBit::MetaSendsEscape))
-    {
-        true => Prefix::Escape,
-        false => Prefix::None,
-    };
+    // Alt and Meta: the `ESC` prefix or `?1034`'s bit ([`meta_of`]).
+    let (esc, high) = meta_of(mods, s);
     // **The prefix is emitted last, not here.** Emitting it before the
     // character is known to be encodable left a bare `ESC` in the reply when
     // the encoding could not represent the key -- `Alt` plus a codepoint above
     // `U+00FF` under ISO 8859-1 returned `false` having already written a
     // byte. An application reads that `ESC` as the start of a sequence that
     // never arrives. Found by `the_return_value_agrees_with_the_bytes`.
-    //
-    // The prefix wins where both modes are set, which is what the table's last
-    // four rows say: with both resources ON every modified row is `ESC x`.
-    let shift = modded
-        && esc == Prefix::None
-        && s.modes.is_set(ModeBit::EightBitInput)
-        && s.encoding == InputEncoding::Latin1;
 
     // A control code is always one byte and always below 128, so the shift is
     // unconditional here. `Meta-Ctrl-A` becomes `0x81`, which under ISO 8859-1
     // is a C1 control -- and baud accepts 8-bit C1 controls in exactly that
     // encoding, so the two halves agree.
     if let Some(b) = base {
-        o.prefixed(esc, &[b | if shift { 0x80 } else { 0 }]);
+        o.prefixed(esc, &[b | high]);
         return true;
     }
 
@@ -1174,7 +1214,7 @@ fn text_key(
         };
         // `[[source: ctlseqs]]` line 2331: "shift the key from codes 0-127 to
         // 128-255". A character already above 127 has no shifted form.
-        o.prefixed(esc, &[b | if shift && b < 0x80 { 0x80 } else { 0 }]);
+        o.prefixed(esc, &[if b < 0x80 { b | high } else { b }]);
         return true;
     }
 
