@@ -362,6 +362,30 @@ impl Window {
         }
     }
 
+    /// **The pointer hidden** while it is over the window: `set_cursor`
+    /// with no surface, "If surface is NULL, the pointer image is hidden"
+    /// (`[[source: wayland]]`), named with the last `enter`'s serial as the
+    /// request requires. Shown again by [`Window::set_pointer_shape`], and
+    /// left to the compositor once the pointer leaves.
+    pub fn hide_pointer(&mut self, s: &mut Sender<'_>) -> Shaped {
+        let (Some(pointer), Some(serial)) = (self.pointer, self.entered) else {
+            return Shaped::Unavailable;
+        };
+        match s.request(
+            pointer,
+            Opcode(protocol::wl_pointer::request::SET_CURSOR),
+            &[
+                Arg::Uint(serial),
+                Arg::Object(ObjectId::NULL),
+                Arg::Int(0),
+                Arg::Int(0),
+            ],
+        ) {
+            Ok(()) => Shaped::Set,
+            Err(_) => Shaped::Unavailable,
+        }
+    }
+
     /// **The pointer drawn here**: the surface made once, the two images
     /// drawn at the window's buffer scale into one pool -- again when the
     /// scale changes -- and the one asked for attached, at that scale, and

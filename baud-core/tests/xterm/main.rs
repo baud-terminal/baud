@@ -19,6 +19,7 @@ mod hyperlinks;
 mod keypad_version;
 mod mouse;
 mod osc;
+mod pointer_mode;
 mod save_restore_modes;
 mod soft_reset_scope;
 

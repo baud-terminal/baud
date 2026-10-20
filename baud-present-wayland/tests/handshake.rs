@@ -1463,6 +1463,57 @@ struct Drawing {
     image: baud_present_wayland::cursor::Drawn,
 }
 
+/// **The pointer is hidden with no surface** (`[[source: wayland]]`,
+/// `wl_pointer.set_cursor`: "If surface is NULL, the pointer image is
+/// hidden"), named with the last enter's serial, and not before an enter;
+/// a shape set after shows it again, as XTSMPOINTER's motion does.
+#[test]
+fn the_pointer_hides_with_no_surface_and_a_shape_shows_it() {
+    let Pointed {
+        mut conn,
+        mut server,
+        mut w,
+        pointer,
+        device,
+        surface,
+    } = pointer_session(9, Shapes::Offered);
+    let device = device.expect("the shape device");
+    assert_eq!(
+        w.hide_pointer(&mut conn.sender()),
+        Shaped::Unavailable,
+        "no enter, no serial"
+    );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(7), Arg::Object(surface), fixed(1.0), fixed(2.0)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    pointer_drain(&mut w);
+    assert_eq!(w.hide_pointer(&mut conn.sender()), Shaped::Set);
+    conn.flush().unwrap();
+    let r = server.expect("wl_pointer", "set_cursor");
+    assert_eq!(r.sender, pointer);
+    assert!(
+        matches!(r.args[..], [Val::Uint(7), Val::Obj(c), Val::Int(0), Val::Int(0)]
+            if c == ObjectId::NULL),
+        "{:?}",
+        r.args
+    );
+    let text = CursorShape(protocol::wp_cursor_shape_device_v1::shape::TEXT);
+    assert_eq!(w.set_pointer_shape(&mut conn.sender(), text), Shaped::Set);
+    conn.flush().unwrap();
+    let r = server.expect("wp_cursor_shape_device_v1", "set_shape");
+    assert_eq!(r.sender, device);
+    assert!(
+        matches!(r.args[..], [Val::Uint(7), Val::Uint(_)]),
+        "{:?}",
+        r.args
+    );
+}
+
 /// **The requests a drawn pointer makes, and its pixels**: the cursor's
 /// surface made once, a pool of two images at the scale -- the old pool
 /// destroyed when the scale changed -- the image attached at its scale and

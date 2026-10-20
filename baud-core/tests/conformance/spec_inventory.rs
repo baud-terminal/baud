@@ -307,6 +307,8 @@ struct Snapshot {
     meta_escape: bool,
     /// XTSHIFTESCAPE, which only the embedder's pointer reads.
     shift_escape: ShiftEscape,
+    /// XTSMPOINTER, which only the embedder's pointer reads.
+    pointer_mode: PointerMode,
     title: Vec<u8>,
     icon: Vec<u8>,
     /// The title reports refused, and XTSMTITLE's query modes with them.
@@ -374,8 +376,9 @@ struct Snapshot {
 /// clears bold, underline, blink and reverse, and clearing them from text that
 /// has none changes nothing. modifyCursorKeys and its format are moved off
 /// their first values for the same reason: `CSI > 1 m` and `CSI > 1 f` reset
-/// them. So is special colour 1, which `OSC 105 ; 1` resets.
-const PREAMBLE: &[u8] = b"\x1b[>1;3m\x1b[>1;1f\x1b]5;1;rgb:13/57/9b\x07\x1b]4;1;rgb:12/34/56\x07\x1b]10;rgb:11/22/33\x07\x1b]11;rgb:44/55/66\x07\x1b]12;rgb:77/88/99\x07\x1b]17;rgb:aa/bb/cc\x07\x1b]19;rgb:dd/ee/ff\x07\x1b[1mh\x1b[mello world\r\nsecond line\r\n\x1b[2;5H";
+/// them. So is special colour 1, which `OSC 105 ; 1` resets, and the
+/// pointer mode, which `CSI > 1 p` returns to its power-on 1.
+const PREAMBLE: &[u8] = b"\x1b[>1;3m\x1b[>1;1f\x1b[>3p\x1b]5;1;rgb:13/57/9b\x07\x1b]4;1;rgb:12/34/56\x07\x1b]10;rgb:11/22/33\x07\x1b]11;rgb:44/55/66\x07\x1b]12;rgb:77/88/99\x07\x1b]17;rgb:aa/bb/cc\x07\x1b]19;rgb:dd/ee/ff\x07\x1b[1mh\x1b[mello world\r\nsecond line\r\n\x1b[2;5H";
 
 /// Written **after** the form, so that changes which only show on the next cell
 /// are visible.
@@ -431,6 +434,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         auto_repeat: t.auto_repeat(),
         meta_escape: t.meta_sends_escape(),
         shift_escape: t.shift_escape(),
+        pointer_mode: t.pointer_mode(),
         title: t.title().to_vec(),
         icon: t.icon_name().to_vec(),
         title_reports_refused: t.title_reports_refused(),

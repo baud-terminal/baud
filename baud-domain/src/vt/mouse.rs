@@ -482,6 +482,86 @@ impl ShiftEscape {
     }
 }
 
+/// XTSMPOINTER, `CSI > Ps p`: when the pointer hides as the user types
+/// (`[[source: ctlseqs]]`, "Set resource value pointerMode"). The core
+/// keeps it and answers whether a key hides the pointer
+/// (`Term::hides_pointer_on_key`); the embedder hides it.
+///
+/// **`RIS` returns it to the embedder's start value** and `DECSTR` keeps
+/// it, as xterm's man page lists "Reset title and pointer modes per
+/// resources titleModes and pointerMode" under the full reset only
+/// (`[[source: xterm-man]]`) and its `ReallyReset` restores
+/// `pointer_mode0` (`[[source: xterm-reset]]`'s file).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PointerMode {
+    /// `Ps = 0`: "never hide the pointer".
+    Never,
+    /// `Ps = 1`, and an omitted `Ps`: "hide if the mouse tracking mode is
+    /// not enabled". xterm's default, "If no parameter is given, xterm
+    /// uses the default, which is 1".
+    #[default]
+    UnlessTracking,
+    /// `Ps = 2`: "always hide the pointer, except when leaving the
+    /// window". Shown again when the pointer leaves the window or the
+    /// window loses the keyboard, as xterm's `unselectwindow` shows it
+    /// for every mode below 3 (`[[source: xterm-misc]]`).
+    Always,
+    /// `Ps = 3`: "always hide the pointer, even if leaving/entering the
+    /// window". Shown again only when the pointer moves, as xterm's
+    /// `xevents` shows it only on `MotionNotify` at this mode.
+    AlwaysEvenLeaving,
+}
+
+impl PointerMode {
+    /// `Ps`, or `None` past 3, which ctlseqs does not list among the
+    /// "Valid values for the parameter": refused and counted, as
+    /// XTSHIFTESCAPE's unlisted values are, where xterm's
+    /// `CASE_HIDE_POINTER` stores any value and acts on one past 3 as on
+    /// 3 (Jev, IGNORE, 0.96/0.92 after research: its neighbours
+    /// `CASE_XTERM_SHIFT_ESCAPE` and `CASE_DECSCUSR` range-check).
+    pub fn from_param(p: Option<Param>) -> Option<PointerMode> {
+        match p.map_or(1, |v| v.value()) {
+            0 => Some(PointerMode::Never),
+            1 => Some(PointerMode::UnlessTracking),
+            2 => Some(PointerMode::Always),
+            3 => Some(PointerMode::AlwaysEvenLeaving),
+            _ => None,
+        }
+    }
+
+    /// Whether a key that sends bytes hides the pointer, with `tracking`
+    /// the mouse tracking in force: never at 0, at 1 only while no
+    /// tracking is on -- xterm's `send_mouse_pos != MOUSE_OFF`, the DEC
+    /// locator among them -- and always at 2 and 3 (`xtermShowPointer`,
+    /// `[[source: xterm-misc]]`).
+    pub fn hides(self, tracking: MouseTracking) -> PointerHides {
+        match (self, tracking) {
+            (PointerMode::Never, _) => PointerHides::No,
+            (PointerMode::UnlessTracking, MouseTracking::Off) => PointerHides::Yes,
+            (PointerMode::UnlessTracking, _) => PointerHides::No,
+            (PointerMode::Always | PointerMode::AlwaysEvenLeaving, _) => PointerHides::Yes,
+        }
+    }
+
+    /// Whether a pointer this mode hid stays hidden when it leaves the
+    /// window or the window loses the keyboard: only at 3, as xterm's
+    /// `unselectwindow` shows it below 3 (`[[source: xterm-misc]]`).
+    pub fn hidden_on_leaving(self) -> PointerHides {
+        match self {
+            PointerMode::AlwaysEvenLeaving => PointerHides::Yes,
+            _ => PointerHides::No,
+        }
+    }
+}
+
+/// Whether the pointer is hidden: what [`PointerMode::hides`] answers for
+/// a key, and [`PointerMode::hidden_on_leaving`] for a leave.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PointerHides {
+    Yes,
+    No,
+}
+
 /// A mouse button, as the wire encodes it.
 ///
 /// `[[source: ctlseqs]]`: "The low two bits of Cb encode button information:

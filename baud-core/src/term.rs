@@ -916,6 +916,11 @@ pub struct Cold {
     /// XTSHIFTESCAPE, `CSI > Ps s`, kept by both resets as xterm keeps
     /// `shift_escape`. Read by the embedder's pointer, never here.
     pub(crate) shift_escape: ShiftEscape,
+    /// XTSMPOINTER, `CSI > Ps p`, and the value `RIS` returns it to, the
+    /// embedder's ([`Term::set_initial_pointer_mode`]). Read by the
+    /// embedder's pointer, never here.
+    pub(crate) pointer_mode: PointerMode,
+    pub(crate) initial_pointer_mode: PointerMode,
     /// **`?1001`'s handshake**: idle, a button-1 press owed the program's
     /// answer, or the region tracking the mouse until the release. The level
     /// is `mouse`'s, [`MouseTracking::Highlight`]; this is only where a
@@ -1656,6 +1661,8 @@ impl Cold {
             bell: crate::margin::BellState::POWER_ON,
             scrollbar: baud_domain::ScrollbarShown::Shown,
             shift_escape: ShiftEscape::Override,
+            pointer_mode: PointerMode::UnlessTracking,
+            initial_pointer_mode: PointerMode::UnlessTracking,
             defaults: [ColorWord::DEFAULT; DynamicColor::COUNT],
             dynamic: [ColorWord::DEFAULT; DynamicColor::COUNT],
             handshake: Handshake::Idle,
@@ -4512,6 +4519,37 @@ impl<'b> Term<'b> {
     /// it is exposing it, as `?1007` is exposed for the wheel.
     pub fn shift_escape(&self) -> ShiftEscape {
         self.cold.shift_escape
+    }
+
+    /// XTSMPOINTER: when the pointer hides as the user types -- never, unless
+    /// a program tracks the mouse (xterm's default, and baud's at power-on),
+    /// always but on leaving the window, or always (`[[source: ctlseqs]]`,
+    /// `CSI > Ps p`). The pointer is the embedder's, so acting on it is
+    /// exposing it: [`Term::hides_pointer_on_key`] is the question a key
+    /// asks.
+    pub fn pointer_mode(&self) -> PointerMode {
+        self.cold.pointer_mode
+    }
+
+    /// **Whether a key that sends bytes hides the pointer**: the mode
+    /// against the mouse tracking in force, the DEC locator included, as
+    /// xterm's `xtermShowPointer` asks it after every key
+    /// (`[[source: xterm-misc]]`). `No` with the pointer hidden means show
+    /// it, as xterm shows it at a key under mode 0, or when a program turns
+    /// tracking on under mode 1 (`really_set_mousemode`).
+    pub fn hides_pointer_on_key(&self) -> PointerHides {
+        self.cold.pointer_mode.hides(self.cold.mouse)
+    }
+
+    /// The pointer mode this terminal powers on in and `RIS` returns to:
+    /// xterm's `pointerMode` resource, the embedder's `[pointer]
+    /// hide_while_typing` (the owner's on/off settings, Jev ON_OFF
+    /// 0.96/0.91). Sets the mode in force too, so an embedder calls it once,
+    /// before the child writes anything. [`PointerMode::UnlessTracking`]
+    /// until it is called.
+    pub fn set_initial_pointer_mode(&mut self, m: PointerMode) {
+        self.cold.initial_pointer_mode = m;
+        self.cold.pointer_mode = m;
     }
 
     /// `?1042`: whether a `BEL` should ask for the user's attention while

@@ -32,11 +32,12 @@ is not.
   2026-10-20 (the `OSC 60` row of `docs/vt-coverage.md`).
 - **Larger, to build** (whole protocols a VT420-class terminal has): the
   DEC locator, the host-writable status line, and xterm's special colours.
+- **Built 2026-10-20, the owner's call of that day:** typing hides the
+  pointer (XTSMPOINTER).
 - **Decisions needed:** the tertiary DA, the keyboard
-  LEDs, the alternate function-key keyboards, printing, the pointer-hiding
-  mode (XTSMPOINTER, in or out), pointer shapes and colours, font changes
-  by a program, X resources, rxvt's font-shifting keys, and ECMA-48's C1
-  functions one at a time.
+  LEDs, the alternate function-key keyboards, printing, pointer shapes
+  and colours, font changes by a program, X resources, rxvt's
+  font-shifting keys, and ECMA-48's C1 functions one at a time.
 - **Refusals that stand:** the ones whose reply would be unsafe, would
   give an identity baud does not have, or answer a function no text
   assigns.
@@ -65,7 +66,7 @@ none the table says so.
 | `CSI # P` / `# Q` / `# R` XTPUSHCOLORS, XTPOPCOLORS, XTREPORTCOLORS | built 2026-10-20 | ctlseqs lines 644-660: a ten-deep stack of the palette and dynamic colours | `CSI # P`, `CSI # R` | **built**: `a_pop_restores_the_palette_the_specials_and_the_dynamic_colours` |
 | `CSI Ps # y` XTCHECKSUM | counted | ctlseqs line 1823: five bits that change DECRQCRA's checksum | the `CSI Ps # y` row | **built** 2026-10-20: `checksum_extension.rs` |
 | `CSI > Pm t` / `CSI > Pm T` XTSMTITLE, XTRMTITLE | the set modes built 2026-10-20 | ctlseqs lines 1707 and 733: set titles in hex or UTF-8, and query them so | `CSI > Pm t` | **built** the two set modes; the query modes act on title reports, which stay refused as unsafe, and are counted with them (`the_query_modes_are_refused_with_the_title_reports`) |
-| `CSI > Ps p` XTSMPOINTER | counted | ctlseqs line 1464: whether the pointer hides while the user types -- never, unless mouse tracking is on, always but on leaving the window, always | none | **decision**: in or out, as the summary above files it (AppKit's hide-until-moved would draw it on macOS) |
+| `CSI > Ps p` XTSMPOINTER | built 2026-10-20 | ctlseqs line 1464: whether the pointer hides while the user types -- never, unless mouse tracking is on, always but on leaving the window, always | `CSI > 2 p` | **built** 2026-10-20 on both systems, the owner's call of that day, verbatim: "3 46 and 50 all yes, pointer hiding - yes , ReGIS - yes", taken as in with xterm's default, hide while typing unless tracking; `[pointer] hide_while_typing` on or off (Jev, ON_OFF, 0.96/0.91), a value past 3 refused (Jev, IGNORE, 0.96/0.92) |
 | `?30` | counted | ctlseqs DECSET `3 0`, "Show scrollbar (rxvt)" | the `?30` row | **built** 2026-10-20: `scrollbar_mode.rs`; partial on Linux, whose driver draws no scrollbar yet |
 | `OSC 60` / `61` / `62` XTQALLOWED, XTQDISALLOWED, XTQALLOWABLE | answered since 2026-10-20 | ctlseqs line 2182: reply `OSC 6 0 ; Pt ST`, the allowed categories among seven xterm resource names | the `OSC 60` row | **built** 2026-10-20, each category named for what baud does |
 | `?35` | counted | ctlseqs DECSET `3 5`, "Enable font-shifting functions (rxvt)" | none | **ask Jev**: the text names rxvt's functions and not their keys; baud's zoom is the nearest |

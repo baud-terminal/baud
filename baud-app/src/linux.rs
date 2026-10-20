@@ -56,7 +56,7 @@ use crate::host::{
     startup_mark,
 };
 use crate::pty::{Chunk, Outbox, Pty, Ready, wait};
-use baud_core::{Focus, Owned, Resized, Term};
+use baud_core::{Focus, Owned, PointerHides, Resized, Term};
 use baud_domain::{Cols, DecodeProgress, Rows, WinSize};
 use baud_font::Px;
 use baud_present_wayland::{Board, Copied, Event, PointerEvent, Presented, Shaped, Window};
@@ -139,6 +139,9 @@ struct Driver {
     /// The shape last set since the pointer entered, so a read sets it
     /// once; `None` until the first set after an enter.
     shape: Option<baud_present_wayland::CursorShape>,
+    /// Whether a key hid the pointer, and what the core said when it was
+    /// last asked (`hide.rs`).
+    hiding: crate::hide::Hiding,
     /// Whether the missing cursor-shape global has been said.
     shapeless: Said,
     /// What a program's `OSC 52` copies came to (`clip.rs`), the policy,
@@ -239,6 +242,7 @@ pub fn run() {
     crate::host::set_checksum(&mut term, cfg.checksum);
     crate::host::set_window_ops(&mut term, cfg.window_ops);
     crate::host::set_logging(&mut term, cfg.logging);
+    crate::host::set_pointer_mode(&mut term, cfg.pointer_mode);
     term.set_initial_cursor_style(baud_core::CursorStyle::of(
         cfg.cursor_shape,
         cfg.cursor_blink.power_on(),
@@ -265,6 +269,7 @@ pub fn run() {
     let bell = Bell::new(&term, crate::bell::LENGTH);
     let widths = crate::width::Widths::new(&term);
     let clips = crate::clip::Clips::for_wayland(&term);
+    let hiding = crate::hide::Hiding::new(&term);
     let mut d = Driver {
         bell,
         // The config's interval, else 333 ms a phase, and no switch: `auto`
@@ -301,6 +306,7 @@ pub fn run() {
         performed: crate::winops::Performed::new(),
         seat: crate::seat::Seat::new(),
         shape: None,
+        hiding,
         shapeless: Said::Not,
         clips,
         clipboard: cfg.clipboard,
@@ -437,6 +443,12 @@ pub fn run() {
                     if !queued && d.term.reply_overflows != overflows {
                         crate::warn!("a key was dropped: the reply buffer had no room for it");
                     }
+                    // A key that sent bytes hides the pointer as XTSMPOINTER
+                    // says (`hide.rs`).
+                    if queued {
+                        let act = d.hiding.key(&d.term);
+                        d.hide_pointer(act);
+                    }
                     // A key shows the cursor, restarts its blink, and is
                     // input to its stop.
                     d.caret.input(Instant::now());
@@ -456,6 +468,11 @@ pub fn run() {
                     d.focus = f;
                     if f == Focus::Gained {
                         d.caret.input(Instant::now());
+                    } else {
+                        // Losing the keyboard shows a pointer a key hid, but
+                        // at mode 3, as xterm's `unselectwindow`.
+                        let act = d.hiding.crossed(&d.term);
+                        d.hide_pointer(act);
                     }
                     d.pending = Pending::Dirty;
                 }
@@ -596,6 +613,10 @@ impl Driver {
         // A program's pointer shape, shown at once while the pointer is
         // over the window; outside it, the next enter shows it.
         self.show_pointer();
+        // Tracking turned on, a new shape or `RIS` shows a pointer a key
+        // hid (`hide.rs`).
+        let act = self.hiding.read(&self.term);
+        self.hide_pointer(act);
         for r in asked {
             self.window_request(r);
         }
@@ -695,8 +716,45 @@ impl Driver {
                 self.window.paste(&mut self.conn.sender(), board);
             }
         }
-        if matches!(input, Input::Entered(..)) {
-            self.show_pointer();
+        // A move or a press shows a pointer a key hid; a crossing shows it
+        // but at mode 3, where an enter hides it again with the enter's serial, the
+        // image being the client's to set on every enter (`hide.rs`).
+        match input {
+            Input::Entered(..) => match self.hiding.crossed(&self.term) {
+                crate::hide::Act::Nothing if self.hiding.hidden() == PointerHides::Yes => {
+                    let _ = self.window.hide_pointer(&mut self.conn.sender());
+                }
+                _ => self.show_pointer(),
+            },
+            Input::Left => {
+                let act = self.hiding.crossed(&self.term);
+                self.hide_pointer(act);
+            }
+            Input::Moved(..) => {
+                let act = self.hiding.moved();
+                self.hide_pointer(act);
+            }
+            Input::Pressed { .. } => {
+                let act = self.hiding.pressed();
+                self.hide_pointer(act);
+            }
+            _ => {}
+        }
+    }
+
+    /// **What a key, a move, a press or a read did to the pointer**
+    /// (`hide.rs`): hidden with no surface while it is over the window,
+    /// shown by setting its shape again.
+    fn hide_pointer(&mut self, act: crate::hide::Act) {
+        match act {
+            crate::hide::Act::Hide if self.seat.inside() => {
+                let _ = self.window.hide_pointer(&mut self.conn.sender());
+            }
+            crate::hide::Act::Show => {
+                self.shape = None;
+                self.show_pointer();
+            }
+            _ => {}
         }
     }
 

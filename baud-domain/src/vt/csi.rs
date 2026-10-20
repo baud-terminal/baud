@@ -838,6 +838,8 @@ pub enum Csi {
     /// XTSHIFTESCAPE, `CSI > Ps s`: whether Shift takes a pointer event from
     /// a program tracking the mouse.
     ShiftEscape(ShiftEscape),
+    /// XTSMPOINTER, `CSI > Ps p`: when the pointer hides as the user types.
+    PointerMode(PointerMode),
     /// `[[source: kitty-keyboard]]` set, `CSI = flags ; mode u`.
     KittySet {
         flags: KittyFlags,
@@ -1179,6 +1181,18 @@ impl Csi {
         if marker == Marker::Gt && f.raw() == b's' && !p.has(ParamIdx::SECOND) {
             return match ShiftEscape::from_param(p.at(ParamIdx::FIRST)) {
                 Some(e) => Csi::ShiftEscape(e),
+                None => Csi::Unsupported {
+                    marker,
+                    final_byte: f,
+                },
+            };
+        }
+        // XTSMPOINTER, `CSI > Ps p` (`[[source: ctlseqs]]` 1464): the `>`
+        // keeps it from the standard namespace, which has no bare `p`.
+        // xterm reads the first parameter alone (`CASE_HIDE_POINTER`).
+        if marker == Marker::Gt && f.raw() == b'p' {
+            return match PointerMode::from_param(p.at(ParamIdx::FIRST)) {
+                Some(m) => Csi::PointerMode(m),
                 None => Csi::Unsupported {
                     marker,
                     final_byte: f,
@@ -1666,6 +1680,7 @@ impl Csi {
             // extension rather than a VT level.
             KeyControl(_)
             | ShiftEscape(_)
+            | PointerMode(_)
             | KittySet { .. }
             | KittyQuery
             | KittyPush { .. }

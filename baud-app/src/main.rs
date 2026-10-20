@@ -42,6 +42,10 @@ mod embedded;
 // and both drivers route their pointer through it.
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod gesture;
+// When the pointer hides as the user types (XTSMPOINTER): pure, so its tests
+// run on every platform, and both drivers act on it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod hide;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod host;
 // A program's log, written off the read loop (`?46`, `OSC 46`).

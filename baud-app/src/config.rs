@@ -5,7 +5,8 @@
 //! span lines, and `[section]` headers. baud owns its stack rather than
 //! pulling `serde` and a TOML crate for a handful of keys -- a font list,
 //! `font_size`, `padding`, `colorspace`, `vs16_width`, `emoji`, `theme`, `bell`,
-//! `[text] ambiguous_width`, `[screen] checksum` and `logging`, and the eight under
+//! `[text] ambiguous_width`, `[screen] checksum` and `logging`, `[pointer]
+//! hide_while_typing`, and the eight under
 //! `[glass]` -- and a key it does not understand is ignored, and said,
 //! rather than fatal, so a newer config does not break an older binary.
 //!
@@ -155,6 +156,13 @@ pub struct Config {
     /// A program on the other end of the line, a remote one included, can
     /// otherwise move or hide the window.
     pub window_ops: baud_domain::WindowOps,
+    /// `[pointer] hide_while_typing`: whether a key hides the pointer
+    /// unless a program tracks the mouse, `"on"` by default -- xterm's
+    /// `pointerMode` default, 1 -- or `"off"`, which never hides it, xterm's
+    /// 0 (the owner's on/off settings; Jev, ON_OFF, 0.96/0.91). What the
+    /// terminal powers on in and `RIS` returns to; a program may still
+    /// choose any mode with XTSMPOINTER.
+    pub pointer_mode: baud_domain::PointerMode,
     /// `[scroll] mode`: whether output scrolls the screen up in one jump
     /// (`normal`) or slides it smoothly (`smooth`). `Smooth` by default,
     /// matching sfte -- the slide is bounded to one row so a burst never
@@ -634,6 +642,7 @@ impl Config {
             checksum: baud_domain::ChecksumReport::On,
             logging: baud_domain::Logging::On,
             window_ops: baud_domain::WindowOps::On,
+            pointer_mode: baud_domain::PointerMode::UnlessTracking,
             scroll: ScrollMode::Smooth,
             trail_scroll: TrailScroll::Ride,
             glass: Glass::defaults(),
@@ -962,6 +971,19 @@ impl Config {
                                  using on"
                             ));
                             baud_domain::WindowOps::On
+                        }
+                    };
+                }
+                ("pointer", "hide_while_typing") => {
+                    self.pointer_mode = match value.trim().trim_matches('"') {
+                        "on" => baud_domain::PointerMode::UnlessTracking,
+                        "off" => baud_domain::PointerMode::Never,
+                        other => {
+                            said.push(format!(
+                                "config: [pointer] hide_while_typing {other:?} is not on or \
+                                 off; using on"
+                            ));
+                            baud_domain::PointerMode::UnlessTracking
                         }
                     };
                 }
@@ -2168,6 +2190,34 @@ mod reader {
         );
     }
 
+    /// **A key hides the pointer unless `[pointer] hide_while_typing =
+    /// "off"`**, quoted or bare; any other value keeps the default and says
+    /// so, and the key is the `[pointer]` section's.
+    #[test]
+    fn the_pointer_hides_while_typing_unless_turned_off() {
+        use baud_domain::PointerMode;
+        assert_eq!(Config::defaults().pointer_mode, PointerMode::UnlessTracking);
+        assert_eq!(read("").pointer_mode, PointerMode::UnlessTracking);
+        for off in ["\"off\"", "off"] {
+            let text = format!("[pointer]\nhide_while_typing = {off}\n");
+            assert_eq!(read(&text).pointer_mode, PointerMode::Never, "{off}");
+        }
+        assert_eq!(
+            read("[pointer]\nhide_while_typing = \"on\"\n").pointer_mode,
+            PointerMode::UnlessTracking
+        );
+        let mut c = Config::defaults();
+        let said = c.apply("[pointer]\nhide_while_typing = \"2\"\n");
+        assert_eq!(c.pointer_mode, PointerMode::UnlessTracking);
+        assert_eq!(said.len(), 1, "{said:?}");
+        assert!(said[0].contains("hide_while_typing"), "{said:?}");
+        assert_eq!(
+            read("hide_while_typing = \"off\"\n").pointer_mode,
+            PointerMode::UnlessTracking,
+            "a top-level key is not the [pointer] one"
+        );
+    }
+
     /// **The screen checksum is answered unless `[screen] checksum = "off"`**
     /// (the owner's call of 2026-10-19, option 3), quoted or bare; any other
     /// value keeps the default and says so, and the key is the `[screen]`
@@ -2897,6 +2947,11 @@ shadow     = "never"
             "the [window] operations"
         );
         assert_eq!(c.window_ops, baud_domain::WindowOps::On);
+        assert!(
+            text.contains("\n[pointer]\nhide_while_typing = \"on\"\n"),
+            "the [pointer] hide_while_typing"
+        );
+        assert_eq!(c.pointer_mode, baud_domain::PointerMode::UnlessTracking);
         assert_eq!(
             c.scroll,
             ScrollMode::Smooth,

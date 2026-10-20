@@ -29672,3 +29672,16 @@ sha256 = "566eb714ca312acfc25302b6e413a11c4ea3d550095cdb6de52bda7711c54277"
 bytes  = 46759
 status = "external"
 group  = "AK"
+[sources.apple-nscursor-sethiddenuntilmousemoves]
+key    = "apple-nscursor-sethiddenuntilmousemoves"
+title  = "NSCursor.setHiddenUntilMouseMoves(_:) -- 'hide the cursor until one of the following occurs: The mouse moves. You invoke the method again, with flag set to false'"
+author = "Apple Inc."
+year   = 2026
+venue  = "developer.apple.com documentation (JSON endpoint)"
+url    = "https://developer.apple.com/tutorials/data/documentation/appkit/nscursor/sethiddenuntilmousemoves(_:).json"
+file   = ""
+sha256 = "cb7754dcb94938d9970fb3ed7dbff34e58ec73747e3006937fab8d06919f0656"
+bytes  = 15742
+status = "external"
+group  = "J"
+# Fetched 2026-10-20 (lane b121) for XTSMPOINTER on macOS. Read, not copied.

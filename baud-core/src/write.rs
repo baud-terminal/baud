@@ -2066,6 +2066,7 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::KeyControl(op) => p.key_control(op, csi),
         // XTSHIFTESCAPE: recorded here and read by the embedder's pointer.
         DomCsi::ShiftEscape(e) => p.cold.shift_escape = e,
+        DomCsi::PointerMode(m) => p.cold.pointer_mode = m,
         // **`[[source: kitty-keyboard]]`: the negotiation is live and the query
         // is answered.** Set, push and pop maintain the active screen's stack,
         // and `CSI ? u` replies with the current flags -- which is the

@@ -3911,6 +3911,12 @@ impl Paint<'_, '_> {
         // state". `DECSTR` keeps them, as its list names none.
         self.cold.resources = baud_domain::Resources::POWER_ON;
         self.cold.more_fix = baud_domain::MoreFix::Off;
+        // XTSMPOINTER back to the embedder's start value: "Reset title and
+        // pointer modes per resources titleModes and pointerMode", in the
+        // man page's full-reset list (`[[source: xterm-man]]`), and xterm's
+        // hard branch `pointer_mode = pointer_mode0` (`[[source:
+        // xterm-reset]]`'s file). `DECSTR` keeps it.
+        self.cold.pointer_mode = self.cold.initial_pointer_mode;
         // **And the bells' volumes and `?44`**: the volumes are set-up
         // features, and "RIS replaces all set-up features with their saved
         // settings" (`[[source: vt510-rm-b]]` p. 5-184), the power-on ones

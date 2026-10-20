@@ -342,6 +342,14 @@ body_kb = 256
 [window]
 operations = "on"
 
+# Whether a key you type hides the mouse pointer until the mouse moves, as
+# xterm does. "on" by default: it hides unless a program is using the mouse
+# (vim with mouse support, htop, tmux), when the pointer stays so you can
+# click. "off" never hides it. A program can choose differently for itself
+# (xterm's XTSMPOINTER); a reset returns to this.
+[pointer]
+hide_while_typing = "on"
+
 # The window's material and how it is dimmed. Every key here is one the
 # macos-liquid-glass example sweeps with a GN_* environment variable -- the
 # content both its examples draw, and what was built as "glassterm". The

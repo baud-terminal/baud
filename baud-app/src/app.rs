@@ -701,6 +701,9 @@ struct Boot {
     window_ops: baud_domain::WindowOps,
     /// Whether a program may log what it sends, from `[screen] logging`.
     logging: baud_domain::Logging,
+    /// When a key hides the pointer at power-on, from `[pointer]
+    /// hide_while_typing`.
+    pointer_mode: baud_domain::PointerMode,
     /// How many columns an ambiguous character takes, from `[text]
     /// ambiguous_width`.
     ambiguous_width: baud_domain::AmbiguousWidth,
@@ -860,6 +863,7 @@ impl Boot {
             checksum: cfg.checksum,
             window_ops: cfg.window_ops,
             logging: cfg.logging,
+            pointer_mode: cfg.pointer_mode,
             ambiguous_width: cfg.ambiguous_width,
             clipboard: cfg.clipboard,
             bell: cfg.bell,
@@ -904,6 +908,7 @@ impl App {
             checksum,
             window_ops,
             logging,
+            pointer_mode,
             ambiguous_width,
             clipboard,
             bell: bell_style,
@@ -1067,6 +1072,7 @@ impl App {
         crate::host::set_checksum(&mut term, checksum);
         crate::host::set_window_ops(&mut term, window_ops);
         crate::host::set_logging(&mut term, logging);
+        crate::host::set_pointer_mode(&mut term, pointer_mode);
         term.set_initial_cursor_style(cursor);
         let bell = Bell::new(&term, crate::bell::LENGTH);
         let ringer = crate::bell::Ringer::new(&term);
@@ -2763,6 +2769,9 @@ struct Driver {
     /// The pointer the window last showed for a program's `OSC 22`
     /// (`pointer.rs`), unknown while the pointer is outside it.
     pointer_shown: crate::pointer::Shown,
+    /// Whether a key hid the pointer, and what the core said when it was
+    /// last asked (`hide.rs`).
+    hiding: crate::hide::Hiding,
     /// The titlebar mark, repositioned on every resize. A manual autoresizing
     /// mask lost it after a fast drag to a tiny window -- the frame clamped
     /// and never came back -- so the driver places it itself instead: `icon_x`
@@ -6700,6 +6709,8 @@ impl Driver {
         let typed = predicts(e.code, self.app.term.keypad());
         match self.app.send(e) {
             Sent::Bytes => {
+                let act = self.hiding.key(&self.app.term);
+                hide_pointer(act);
                 self.app.latency.written(host_now);
                 self.app.echo = Echo::Wanted;
                 if let Some(c) = text.filter(|_| typed) {
@@ -7061,6 +7072,9 @@ impl Driver {
             if self.pointer_shown != crate::pointer::Shown::Unknown {
                 self.show_pointer();
             }
+            // Tracking turned on, a new shape or `RIS` shows a pointer a
+            // key hid (`hide.rs`).
+            hide_pointer(self.hiding.read(&self.app.term));
         }
         // Looking back while output scrolls, the window stays on the lines
         // it was showing: the core holds it there, byte by byte, and sends
@@ -7412,6 +7426,17 @@ impl Responder for Driver {
             ViewMouseKind::Exited => self.pointer_shown = crate::pointer::Shown::Unknown,
             _ => self.show_pointer(),
         }
+        // A move shows a pointer a key hid -- AppKit has already, "until
+        // the mouse moves" -- and so does a press, any button, as xterm(1)
+        // documents `pointerMode`; a crossing shows it but at mode 3
+        // (`hide.rs`).
+        let act = match event.kind {
+            ViewMouseKind::Moved | ViewMouseKind::Dragged => self.hiding.moved(),
+            ViewMouseKind::Down => self.hiding.pressed(),
+            ViewMouseKind::Entered | ViewMouseKind::Exited => self.hiding.crossed(&self.app.term),
+            ViewMouseKind::Up => crate::hide::Act::Nothing,
+        };
+        hide_pointer(act);
         // Any press is input to the blink's stop -- one the scrollbar, a
         // link or a tracking child takes too -- before those take it.
         if event.kind == ViewMouseKind::Down {
@@ -8161,6 +8186,7 @@ pub fn run() {
     }
     // The cell the observer writes and `pump` reads; cloned into both.
     let style = PendingStyle::default();
+    let hiding = crate::hide::Hiding::new(&probe.term);
     let mut driver = Driver {
         app: probe,
         view: view.clone(),
@@ -8189,6 +8215,7 @@ pub fn run() {
         window: window.clone(),
         titles: crate::title::Shown::new(),
         pointer_shown: crate::pointer::Shown::Unknown,
+        hiding,
         icon: icon_iv,
         icon_super: container.clone(),
         icon_x,
@@ -8626,6 +8653,11 @@ impl Driver {
         self.app.focus = f;
         if self.app.term.focus(f) {
             self.app.flush_reply();
+        }
+        // Losing the keyboard shows a pointer a key hid, but at mode 3,
+        // as xterm's `unselectwindow` does on a focus-out.
+        if f == baud_core::Focus::Lost {
+            hide_pointer(self.hiding.crossed(&self.app.term));
         }
         // A gain reads the system's caret again -- a change made in System
         // Settings while baud was in the background lands here -- and is
@@ -9601,6 +9633,20 @@ fn window_facts(p: &Placed) -> baud_core::WindowFacts {
         text_area: top_left(p.view, p.pad),
         window: Some(size(p.frame)),
         screen: p.screen.map(size),
+    }
+}
+
+/// **What a key, a move, a press or a read did to the pointer**, done
+/// with AppKit: "Pass true to hide the cursor until one of the following
+/// occurs: The mouse moves. You invoke the method again, with flag set to
+/// false" (`[[source: apple-nscursor-sethiddenuntilmousemoves]]`). So a
+/// move shows it without baud, and a press, a crossing or a reset shows it
+/// by the second.
+fn hide_pointer(act: crate::hide::Act) {
+    match act {
+        crate::hide::Act::Hide => NSCursor::setHiddenUntilMouseMoves(true),
+        crate::hide::Act::Show => NSCursor::setHiddenUntilMouseMoves(false),
+        crate::hide::Act::Nothing => {}
     }
 }
 

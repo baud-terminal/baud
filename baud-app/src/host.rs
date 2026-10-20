@@ -328,6 +328,13 @@ pub fn set_logging(term: &mut baud_core::Term<'_>, logging: baud_domain::Logging
     term.set_logging(logging);
 }
 
+/// Tell the core when a key hides the pointer at power-on and after `RIS`,
+/// from `[pointer] hide_while_typing`. One function for both drivers,
+/// called after `Term::new` and before the first feed.
+pub fn set_pointer_mode(term: &mut baud_core::Term<'_>, mode: baud_domain::PointerMode) {
+    term.set_initial_pointer_mode(mode);
+}
+
 /// Tell the core what the theme draws the default foreground and background
 /// as, so `OSC 10 ; ?` and `OSC 11 ; ?` answer on a fresh terminal -- the
 /// query every theme-aware program sends to learn whether it is on a light
@@ -869,6 +876,62 @@ mod tests {
             1,
             "macOS carries it from the config"
         );
+    }
+
+    /// **`[pointer] hide_while_typing` reaches the core, from both drivers,
+    /// and each driver asks the policy at a key that sent bytes and after a
+    /// read.** The config text read into a `Config`, handed to
+    /// `set_pointer_mode`, decides whether a key hides the pointer at
+    /// power-on and after `RIS`. Both drivers start AppKit or Wayland, which
+    /// no test drives, so their calls are held in the source.
+    #[test]
+    fn the_pointer_setting_reaches_the_core_and_both_drivers_ask() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        for (text, hides) in [
+            ("", baud_core::PointerHides::Yes),
+            (
+                "[pointer]\nhide_while_typing = \"off\"\n",
+                baud_core::PointerHides::No,
+            ),
+        ] {
+            let mut cfg = crate::config::Config::defaults();
+            let said = cfg.apply(text);
+            assert!(said.is_empty(), "{said:?}");
+            let mut s = Owned::new(&ws);
+            let mut t = Term::new(s.storage(), &ws);
+            super::set_pointer_mode(&mut t, cfg.pointer_mode);
+            feed(&mut t, b"\x1b[>2p\x1bc");
+            assert_eq!(t.hides_pointer_on_key(), hides, "{text:?}: RIS returns it");
+        }
+        const CALL: &str = concat!("crate::host::", "set_pointer_mode(&mut term, ");
+        for (driver, src, arg, key, read) in [
+            (
+                "macOS",
+                include_str!("app.rs"),
+                "pointer_mode);",
+                concat!("let act = self.hiding.", "key(&self.app.term);"),
+                concat!("hide_pointer(self.hiding.", "read(&self.app.term));"),
+            ),
+            (
+                "Linux",
+                include_str!("linux.rs"),
+                "cfg.pointer_mode);",
+                concat!("let act = d.hiding.", "key(&d.term);"),
+                concat!("let act = self.hiding.", "read(&self.term);"),
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(
+                rest.starts_with(arg),
+                "{driver} passes the configured value"
+            );
+            assert_eq!(src.matches(key).count(), 1, "{driver} asks at a key");
+            assert_eq!(src.matches(read).count(), 1, "{driver} asks after a read");
+        }
     }
 
     /// **The core's copy of the palette is the renderer's.** After
