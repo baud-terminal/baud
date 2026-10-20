@@ -2946,6 +2946,50 @@ fn numbered(term: &Term<'_>, before: Before, resized: Option<crate::width::Grid>
     }
 }
 
+/// **What a window resize leaves of the selection, and how the count that
+/// numbers it moves** (note V, V3, the owner's answer of 2026-09-25): on
+/// the primary, across a change of height alone, the selection is kept on
+/// its lines and the count moves by the rows the resize retired into the
+/// history or took back from it, as a read's would -- the core counts them
+/// by the window's top line (`Term::history_moved_since`), however many.
+/// A change of columns re-cuts the lines, so the columns a selection names
+/// no longer name its cells and it goes; on the alternate screen the
+/// program redraws for the new size and the screen has no history to
+/// number by, so it goes; and it goes where it reaches a row the shrink
+/// cut below the screen, which may come back or be blanked when history is
+/// pulled instead. A line the ring recycled is clipped, as after a read.
+/// Until 2026-10-20 every change of grid cleared it. `mark`, `cols` and
+/// `screen` are read before the resize.
+fn kept_across_resize(
+    term: &Term<'_>,
+    (mark, cols, screen): (baud_core::HistoryMark, Cols, Screen),
+    selection: Option<Selection>,
+    scrolled: Scrolled,
+) -> (Option<Selection>, Scrolled) {
+    let (now_cols, rows) = term.geometry();
+    if now_cols != cols || screen != Screen::Normal || term.screen() != Screen::Normal {
+        return (None, scrolled);
+    }
+    let scrolled = match term.history_moved_since(mark) {
+        Ring::Retired(n) => scrolled.advanced(n),
+        Ring::Restored(n) => match scrolled.retreated(n) {
+            Some(s) => s,
+            None => return (None, Scrolled::START),
+        },
+    };
+    let Some(mut sel) = selection else {
+        return (None, scrolled);
+    };
+    let bottom = Row::from_index(rows.index().saturating_sub(1));
+    if sel.ordered().1.line > scrolled.line(Rows::ZERO, bottom) {
+        return (None, scrolled);
+    }
+    match sel.clip(oldest(term, scrolled)) {
+        Clip::Kept => (Some(sel), scrolled),
+        Clip::Cleared => (None, scrolled),
+    }
+}
+
 fn live_moved(term: &Term<'_>, before: Before) -> Ring {
     if switched(term, before) {
         return Ring::Retired(Rows::ZERO);
@@ -4707,6 +4751,113 @@ mod alt_window_tests {
                 assert_eq!(erased(t, before), want, "{bytes:?}");
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod resize_selection_tests {
+    use super::kept_across_resize;
+    use baud_core::{Owned, Term};
+    use baud_domain::{BytePos, Col, ReadLen, Row, Rows, WinSize};
+    use baud_render::{Grain, Scrolled, Selection, Span};
+
+    const WS: WinSize = WinSize {
+        ws_col: 20,
+        ws_row: 10,
+    };
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    /// Forty numbered lines on a ten-row screen, `setup` after them, a
+    /// selection from screen row `a` to row `b` numbered as the driver's
+    /// count would have it, then each resize as `relayout` makes it: what
+    /// the selection's text is after the last, or `None` when it went.
+    fn across(setup: &[u8], (a, b): (usize, usize), sizes: &[(u16, u16)]) -> Option<String> {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        let lines: Vec<u8> = (0..40)
+            .flat_map(|i| format!("line {i:02}\r\n").into_bytes())
+            .collect();
+        feed(&mut t, &lines);
+        feed(&mut t, setup);
+        let mut scrolled = Scrolled::START.advanced(Rows::of_count(t.scrollback().len()));
+        let span = |t: &Term<'_>, y: usize, s: Scrolled| {
+            let r = Row::from_index(y);
+            Span::cell(
+                t.row(r).expect("a row on the grid"),
+                s.line(Rows::ZERO, r),
+                Col::ZERO,
+            )
+        };
+        let mut sel = Selection::at(span(&t, a, scrolled), Grain::Line);
+        sel.extend(span(&t, b, scrolled));
+        let want = sel.text(&t, scrolled);
+        let mut kept = Some(sel);
+        for &(c, r) in sizes {
+            let was = (t.history_mark(), t.geometry().0, t.screen());
+            let _ = t.resize(&WinSize {
+                ws_col: c,
+                ws_row: r,
+            });
+            (kept, scrolled) = kept_across_resize(&t, was, kept, scrolled);
+        }
+        let got = kept.map(|s| s.text(&t, scrolled));
+        if let Some(g) = &got {
+            assert_eq!(g, &want, "a kept selection holds its own text");
+        }
+        got
+    }
+
+    /// **A height-only resize keeps the selection on its lines** (note V,
+    /// V3): with the cursor on the last row a shrink to six rows retires
+    /// four into the history and the growth back pulls them; the selection
+    /// on rows 3 to 5 holds "line 34" to "line 36" through both, and through
+    /// a growth that pulls more history than the shrink retired. Every
+    /// change of grid cleared it until 2026-10-20.
+    #[test]
+    fn a_height_only_resize_keeps_the_selection_on_its_lines() {
+        for sizes in [
+            &[(20u16, 6u16)][..],
+            &[(20, 6), (20, 10)],
+            &[(20, 16)],
+            &[(20, 4), (20, 3), (20, 12)],
+        ] {
+            let text = across(b"", (3, 5), sizes);
+            assert!(
+                text.as_deref().is_some_and(|t| t.starts_with("line 34")),
+                "{sizes:?}: {text:?}"
+            );
+        }
+    }
+
+    /// **A change of columns clears it**: the re-cut renumbers every line
+    /// and the columns no longer name its cells.
+    #[test]
+    fn a_width_change_clears_the_selection() {
+        assert_eq!(across(b"", (3, 5), &[(16, 10)]), None);
+        assert_eq!(across(b"", (3, 5), &[(20, 6), (24, 6)]), None);
+    }
+
+    /// **A resize on the alternate screen clears it**: the program redraws
+    /// for the new size and the screen keeps no history to number by.
+    #[test]
+    fn a_resize_on_the_alternate_screen_clears_the_selection() {
+        let alt: &[u8] = b"\x1b[?1049h\x1b[4;1Halt 3\r\nalt 4\r\nalt 5";
+        assert_eq!(across(alt, (3, 5), &[(20, 8)]), None);
+    }
+
+    /// **A selection touching a row the shrink cut is cleared**, and one
+    /// above the cut is kept: the cursor on row 2, so a shrink to six rows
+    /// cuts rows 6 to 9 below it and retires none.
+    #[test]
+    fn a_selection_touching_cut_rows_is_cleared() {
+        let up: &[u8] = b"\x1b[3;1H";
+        assert_eq!(across(up, (4, 7), &[(20, 6)]), None, "into the cut rows");
+        assert_eq!(across(up, (8, 9), &[(20, 6)]), None, "wholly in them");
+        assert!(across(up, (1, 5), &[(20, 6)]).is_some(), "above them, kept");
     }
 }
 
@@ -9576,9 +9727,14 @@ impl Driver {
             // line, through the re-cut, and leaves one on the live screen
             // where it is -- the owner's "we should not change the scroll
             // ever", which a zoom that repeated a banner four times broke
-            // when the app anchored it (`Term::resize`). `scrolled` is left
-            // untouched: it numbers lines for a selection, and a resize has
-            // already cleared the selection.
+            // when the app anchored it (`Term::resize`). `scrolled` is
+            // moved by what the resize retired or took back, when the
+            // selection is kept (`kept_across_resize`).
+            let was = (
+                self.app.term.history_mark(),
+                self.app.term.geometry().0,
+                self.app.term.screen(),
+            );
             let _ = self.app.term.resize(&ws);
             if let Some(t) = self.app.trace.as_mut() {
                 // What the core *has*, post-clamp, which is what a replay
@@ -9618,8 +9774,14 @@ impl Driver {
             self.app.tell_pty();
             self.app.grid = ws;
             // A reflow re-cuts every line, so the columns a selection named
-            // no longer name cells.
-            self.app.selection = None;
+            // no longer name cells; a change of height alone on the primary
+            // keeps it on its lines (note V, V3).
+            (self.app.selection, self.app.scrolled) = kept_across_resize(
+                &self.app.term,
+                was,
+                self.app.selection.take(),
+                self.app.scrolled,
+            );
             // A new grid is a new surface, so repaint every row of it rather
             // than trusting the last frame, whose rows were a different width.
             self.app.next_damage = Damage::Full;

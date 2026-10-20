@@ -42,8 +42,12 @@ is at absolute line `scrolled - back + y`. So a selection:
   retained line is `scrolled - history`, and an endpoint older than that
   moves to it; a selection both of whose endpoints are gone is cleared;
 * is **cleared** on a surface switch (`?1049` in or out: the other surface
-  is a different ring and keeps no history) and on a resize (a reflow
-  re-cuts every line, so the columns it named no longer name cells).
+  is a different ring and keeps no history) and on a change of columns (a
+  reflow re-cuts every line, so the columns it named no longer name cells);
+* is **kept** across a change of height alone on the primary, the count
+  moved by the rows the resize retired or took back, and cleared on the
+  alternate screen and where it reaches a row the shrink cut (note V, V3,
+  since 2026-10-20; every resize cleared it before).
 
 The alternative -- keying on physical rows and a generation -- is what the
 position-keyed marks table was, and CLAUDE.md records what that cost. An
