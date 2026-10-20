@@ -3287,6 +3287,14 @@ impl Paint<'_, '_> {
             // the wheel's. They were counted and dropped while `BEL` itself
             // rang nothing.
             PrivateMode::BellIsUrgent => self.cold.modes.apply(ModeBit::BellIsUrgent, on),
+            // **`?30` is the embedder's scrollbar** (`Term::scrollbar_shown`),
+            // as `?1007` is its wheel's.
+            PrivateMode::Scrollbar => {
+                self.cold.scrollbar = match change {
+                    ModeChange::Set => baud_domain::ScrollbarShown::Shown,
+                    ModeChange::Reset => baud_domain::ScrollbarShown::Hidden,
+                }
+            }
             // **`?41` is read by `HT` at a pending wrap** (`Paint::tab_wraps_first`).
             PrivateMode::MoreFix => {
                 self.cold.more_fix = match change {
@@ -4283,6 +4291,10 @@ impl Paint<'_, '_> {
             // xterm answers both flags (`MdBool(screen->bellIsUrgent)`,
             // `MdBool(screen->poponbell)`, `[[source: xterm-misc]]`).
             PrivateMode::BellIsUrgent => bit_state(self.cold.modes, ModeBit::BellIsUrgent),
+            PrivateMode::Scrollbar => match self.cold.scrollbar {
+                baud_domain::ScrollbarShown::Shown => ModeState::Set,
+                baud_domain::ScrollbarShown::Hidden => ModeState::Reset,
+            },
             // xterm answers the flag, `MdBool(screen->curses)` (`[[source:
             // xterm-misc]]` 5569-5570).
             PrivateMode::MoreFix => match self.cold.more_fix {

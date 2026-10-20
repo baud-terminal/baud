@@ -11,7 +11,9 @@ use crate::host::{
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
 use crate::readline::{self, Arrow, Newlines};
-use crate::reveal::{Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes};
+use crate::reveal::{
+    Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes, shown_gutter,
+};
 use crate::wheel::{Delta, Route, Travel};
 use baud_core::{
     ClickHow, ClickKeys, Depth, Erasure, Looking, Owned, PromptJump, Screen, SurfaceLine, Term,
@@ -488,6 +490,10 @@ struct App {
     /// The scroller "Show scroll bars" asked for when the window was last
     /// laid out: under the legacy style the grid gives up a gutter to it.
     scroller: Scroller,
+    /// `?30` as the window was last laid out for it
+    /// (`Term::scrollbar_shown`): hidden, nothing is drawn, nothing takes
+    /// a press and the legacy gutter is gone (`Driver::scrollbar_mode`).
+    bar_shown: baud_core::ScrollbarShown,
     /// Wheel travel not yet a whole line (`wheel.rs`).
     travel: Travel,
     frames: Tally,
@@ -1093,6 +1099,7 @@ impl App {
             drawn_look: Look::HIDDEN,
             pointer: Place::Grid,
             scroller,
+            bar_shown: baud_core::ScrollbarShown::Shown,
             travel: Travel::default(),
             frames: Tally::default(),
             ticks: Tally::default(),
@@ -1274,12 +1281,16 @@ impl App {
         // much as the reveal says at the display link's last target.
         let look = HostTime::of_secs(self.tick_target).map_or(Look::HIDDEN, |now| self.look(now));
         self.drawn_look = look;
-        self.renderer.set_scrollbar(Some(ScrollBar {
-            window: self.window(),
-            look,
-            widths: crate::reveal::widths(Scale(self.scale)),
-            scroller: self.scroller,
-        }));
+        // None while a program has hidden it (`?30`).
+        self.renderer.set_scrollbar(match self.bar_shown {
+            baud_core::ScrollbarShown::Shown => Some(ScrollBar {
+                window: self.window(),
+                look,
+                widths: crate::reveal::widths(Scale(self.scale)),
+                scroller: self.scroller,
+            }),
+            baud_core::ScrollbarShown::Hidden => None,
+        });
         // The cursor trail, spawned here, where the post-feed cursor is
         // known and before any path converts; advanced and cleared off
         // `tick_target`, the display link's own clock, so the renderer only
@@ -7289,6 +7300,7 @@ impl Driver {
             self.ring_bell();
         }
         self.window_requests(&asked);
+        self.scrollbar_mode();
         // An image the store refused is said once a pump, by the limit it
         // hit: the count was a total nothing here read, and yazi's previews
         // went blank against the body limit with no word of why.
@@ -8618,7 +8630,11 @@ impl Driver {
             h: r.size.height,
         };
         let scale = w.backingScaleFactor();
-        let bar = gutter(self.app.scroller, crate::reveal::widths(Scale(scale)));
+        let bar = shown_gutter(
+            self.app.scroller,
+            self.app.bar_shown,
+            crate::reveal::widths(Scale(scale)),
+        );
         let at = MacWindow {
             frame: rect(w.frame()),
             content: w.contentView().map_or((0.0, 0.0), |v| {
@@ -9245,6 +9261,11 @@ impl Driver {
         let cell_h = self.app.renderer.metrics().cell_h;
         let widths = crate::reveal::widths(crate::reveal::Scale(scale));
         let scroller = self.app.scroller;
+        // A program hid it (`?30`): nothing there takes a press.
+        if self.app.bar_shown == baud_core::ScrollbarShown::Hidden {
+            self.app.pointer = Place::Grid;
+            return Took::No;
+        }
         let strip = place(x, size.0, widths);
         self.app.pointer = match event.kind {
             ViewMouseKind::Exited => Place::Grid,
@@ -9398,11 +9419,66 @@ impl Driver {
         self.app.next_damage = Damage::Full;
         self.app.pending = Pending::Dirty;
         let scale = self.app.scale;
-        let bar = gutter(self.app.scroller, crate::reveal::widths(Scale(scale)));
+        let bar = shown_gutter(
+            self.app.scroller,
+            self.app.bar_shown,
+            crate::reveal::widths(Scale(scale)),
+        );
         let (cw, _) = self.app.metrics_cell();
         let width =
             crate::width::content_width(grid, cw, scale, self.app.padding, f64::from(bar.value()));
         widen_later(self.window.ns_window(), width);
+    }
+
+    /// **`?30`, a program showing or hiding the scrollbar** ("Show
+    /// scrollbar (rxvt)", `[[source: ctlseqs]]`), acted on after the read
+    /// that changed it: hidden, nothing is drawn and nothing takes a
+    /// press, a drag in flight dropped; under the legacy style the gutter
+    /// goes, the window narrowing by it so the grid keeps its columns, as
+    /// xterm's window does, or, where the window may not change size, the
+    /// grid taking the columns ([`crate::reveal::bar_change`]). Shown, the
+    /// reverse.
+    fn scrollbar_mode(&mut self) {
+        use crate::reveal::BarChange;
+        use crate::winops::Full;
+        let shown = self.app.term.scrollbar_shown();
+        if shown == self.app.bar_shown {
+            return;
+        }
+        self.app.bar_shown = shown;
+        self.bar_drag = None;
+        self.app.next_damage = Damage::Full;
+        self.app.pending = Pending::Dirty;
+        let full = match self.view.window() {
+            Some(w) if w.styleMask().contains(NSWindowStyleMask::FullScreen) => Full::Yes,
+            _ => Full::No,
+        };
+        match crate::reveal::bar_change(self.app.scroller, full, self.app.term.window_ops()) {
+            BarChange::Redraw => {}
+            // The grid kept: the window to its columns and the new gutter,
+            // whose resize callback then lays out the grid it already has.
+            BarChange::Resize => {
+                let scale = self.app.scale;
+                let bar = shown_gutter(
+                    self.app.scroller,
+                    shown,
+                    crate::reveal::widths(Scale(scale)),
+                );
+                let grid = crate::width::Grid::of(&self.app.term);
+                let (cw, _) = self.app.metrics_cell();
+                let width = crate::width::content_width(
+                    grid,
+                    cw,
+                    scale,
+                    self.app.padding,
+                    f64::from(bar.value()),
+                );
+                widen_later(self.window.ns_window(), width);
+            }
+            BarChange::Relayout => {
+                let _ = self.relayout(self.view.frame().size, self.app.scale);
+            }
+        }
     }
 
     /// The grid for a view of `size` points at `scale`, and the terminal,
@@ -9452,7 +9528,11 @@ impl Driver {
         // keeps for it -- before either early return below, because a frame
         // that changed width is a new frame whether or not the grid did.
         self.app.scroller = scroller_style();
-        let bar = gutter(self.app.scroller, crate::reveal::widths(Scale(scale)));
+        let bar = shown_gutter(
+            self.app.scroller,
+            self.app.bar_shown,
+            crate::reveal::widths(Scale(scale)),
+        );
         let reframed = self.app.renderer.frame_size().0.value()
             != self.app.renderer.pixel_size().0.value() + bar.value();
         self.app.renderer.set_gutter(bar);
@@ -11550,5 +11630,43 @@ fn grid_for(size: NSSize, scale: CGFloat, cell: (f64, f64)) -> WinSize {
     WinSize {
         ws_col: u16::try_from(cols).unwrap_or(2),
         ws_row: u16::try_from(rows).unwrap_or(1),
+    }
+}
+
+#[cfg(test)]
+mod scrollbar_mode_tests {
+    /// **`?30` reaches the window.** It is AppKit-bound, so the source is
+    /// held: the pump acts on a change after the read's window requests;
+    /// hidden, the frame is handed no scrollbar and a press in its strip is
+    /// cells; and every layout keeps the gutter `?30` leaves
+    /// (`shown_gutter`), never the style's alone.
+    #[test]
+    fn the_scrollbar_mode_reaches_the_window() {
+        const SRC: &str = include_str!("app.rs");
+        // Spelled apart, so this test's own text is not what it finds.
+        let once = |needle: &str| {
+            assert_eq!(SRC.matches(needle).count(), 1, "once: {needle}");
+            SRC.find(needle).expect("found")
+        };
+        let requests = once(concat!(
+            "self.window_requests(&asked);\n",
+            "        self.scrollbar_mode();"
+        ));
+        let pump = once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"));
+        assert!(pump < requests, "in the pump");
+        once(concat!("set_scrollbar(match ", "self.bar_shown {"));
+        once(concat!("baud_core::ScrollbarShown::Hidden => ", "None,"));
+        let hidden = once(concat!(
+            "if self.app.bar_shown == baud_core::",
+            "ScrollbarShown::Hidden {\n            self.app.pointer = Place::Grid;\n            return Took::No;"
+        ));
+        let strip = once(concat!("let strip = place(", "x, size.0, widths);"));
+        assert!(hidden < strip, "before the strip takes a press");
+        assert_eq!(
+            SRC.matches(concat!("gutter(self.app.", "scroller,"))
+                .count(),
+            0,
+            "a layout that ignores ?30"
+        );
     }
 }

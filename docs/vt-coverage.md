@@ -33,7 +33,7 @@ Status values are deliberately blunt:
 | | meaning |
 |---|---|
 | **done** | implemented, dispatched, and covered by a test that would fail if it regressed |
-| **partial** | implemented but known-incomplete; the gap is named in the row. Twenty-one rows carry it: `OSC 22`, DECSC, DECRC, KAM, DECNCSM, DECSCPP, DECSCL, DECAUPSS, the DEC Special Graphics glyph table, the national sets' translation, JIS-Roman, DEC Technical, the DEC Hebrew, Greek and Turkish Supplementals, DEC Cyrillic, SCS and Russian NRCS, the `dcs_passthrough` state, kitty graphics' `a=p` and file mediums, and SGR 10-19, 20, 26 and 50 |
+| **partial** | implemented but known-incomplete; the gap is named in the row. Twenty-two rows carry it: `OSC 22`, `?30`, DECSC, DECRC, KAM, DECNCSM, DECSCPP, DECSCL, DECAUPSS, the DEC Special Graphics glyph table, the national sets' translation, JIS-Roman, DEC Technical, the DEC Hebrew, Greek and Turkish Supplementals, DEC Cyrillic, SCS and Russian NRCS, the `dcs_passthrough` state, kitty graphics' `a=p` and file mediums, and SGR 10-19, 20, 26 and 50 |
 | **parsed** | recognised by the parser and then **dropped** — worse than missing, because it looks supported |
 | **todo** | in scope, not implemented |
 | **out** | deliberately not in scope; the reason is in the row |
@@ -53,7 +53,7 @@ a handler for every operation this table claims. It does **not** prove the
 handler is correct — that is what the per-protocol suites are for, and no
 mechanism can prove it in general.
 
-**No row carries `parsed` or `todo`. Twenty-one carry `**partial**`, and
+**No row carries `parsed` or `todo`. Twenty-two carry `**partial**`, and
 `no_row_is_unfinished` in `baud-core/tests/coverage.rs` does not see them.**
 This paragraph said no row carried any of the three and that the test fails if
 one ever does. The test matches a status cell that starts with the bare word,
@@ -72,7 +72,9 @@ by no path, and since 2026-10-19 KAM, whose Wait indicator needs a status
 line baud does not have, DECAUPSS, whose ISO Latin-1 assignment is not
 acted on, and DECSCL, whose Level 1 does not yet restrict what Level 1
 operation forbids, and `OSC 22`, whose shapes macOS sets as the nearest
-system cursor and the Linux driver, with no pointer, not at all. SGR 52 carried it on 2026-10-18 until its curve was drawn. Kitty graphics'
+system cursor and the Linux driver, with no pointer, not at all, and
+since 2026-10-20 `?30`, whose scrollbar the Linux driver does not draw
+yet. SGR 52 carried it on 2026-10-18 until its curve was drawn. Kitty graphics'
 file mediums carried it on 2026-10-16 until the embedder's reader landed
 the same day. Unicode placeholders carried it on 2026-10-16 until the owner
 picked its two forks the same day. DECALN carried it from 2026-10-13 to
@@ -859,6 +861,7 @@ renderer has.
 | `?13` | xterm's `cursorBlink`, read-only | done — since 2026-10-19, **a program can ask whether the user configured a blinking cursor**: `DECRQM` answers `1` or `2` from the style the embedder configured (`Term::set_initial_cursor_style`), as xterm answers its resource while it can still change (`[[source: xterm-misc]]`, `srm_CURSOR_BLINK_OPS`; Jev's lean, ONE_OR_TWO, 0.80/0.78; note X recommends this read-only answer for the owner's sub-call of 2026-09-27). DECSET and DECRST are counted, "set only via resource or menu" (`[[source: ctlseqs]]`; `the_read_only_and_permanent_modes_do_not_move`) |
 | `?14` | xterm's `cursorBlinkXOR`, read-only | done — since 2026-10-19: `DECRQM` answers `4`, permanently reset, because baud ORs `?12` with the style's blink (rule F) and never XORs; DECSET and DECRST are counted (`each_mode_answers_what_baud_does_at_power_on`) |
 | `?25` | DECTCEM cursor visible | done |
+| `?30` | show scrollbar (rxvt) | **partial** — since 2026-10-20, **a program can hide baud's scrollbar and show it again**: "Show scrollbar (rxvt)" and "Don't show scrollbar (rxvt)" (`[[source: ctlseqs]]`). Hidden, the macOS app draws none and nothing takes a press there, a drag in flight dropped; the overlay style's strip is cells, and the legacy style's gutter goes, the window narrowing by its width so the grid keeps its columns, as xterm's `ScrollBarOff` resizes its window through `DoResizeScreen` (`[[source: xterm-scrollbar-c]]` 101, 563-585), or, in full screen or with `[window] operations` off, the grid taking the columns (`a_scrollbar_change_resizes_the_window_where_it_may`, `a_hidden_scrollbar_keeps_no_gutter`; Jev's lean, AS_XTERM, 0.74/0.78 and 0.74/0.74 after a second ask). Shown at power-on, since baud has a scrollbar, where xterm's default has none, and `DECRQM` answers it as xterm's answers whether one is shown (`[[source: xterm-misc]]` 5553-5554; `the_scrollbar_is_shown_at_power_on`; Jev's lean, SET, 0.36/0.64 and 0.50/0.70). Kept by both resets, as xterm's, the scrollbar being the window's; XTSAVE keeps it (`resets_keep_it_and_xtsave_restores_it`; Jev's lean, KEPT, 0.90/0.74 and 0.92/0.58). The wheel still scrolls the history. **The gap**: the Linux driver does not draw its scrollbar yet, so there `DECRQM` answers shown with none on the screen. Counted and dropped until then |
 | `?40` | allow 80 ⇄ 132 columns (xterm's `c132`) | done — since 2026-10-14: "Allow 80 -> 132 mode, xterm" (`[[source: ctlseqs]]`), the gate `?3` reads, reset at power-on as `Bres(XtNc132, ..., False)` gives it (`[[source: xterm-reset]]`'s file). `DECRQM` answers it, as xterm's `MdBool(screen->c132)` does (`[[source: xterm-misc]]`); XTSAVE carries it; `RIS` resets it, ECMA-48 § 8.3.105's "set the modes into the reset state", where xterm's reset keeps the resource; `DECSTR` keeps it (`deccolm_is_ignored_while_40_is_reset`, `ris_in_an_80_column_window_asks_for_80_and_resets_the_modes`, `xtsave_and_xtrestore_carry_40_and_95`). It does not gate DECSCPP, which neither xterm nor STD 070 gates (the `CSI $ \|` row) |
 | `?41` | more(1) fix (xterm's `curses` resource) | done — since 2026-10-20, **a pager written for terminals that wrap at once keeps the indent of a line after a full one**: set, a tab at a pending wrap with `?7` set takes the wrap first, then the tab, as xterm's `TabNext` (`[[source: xterm-tabs-c]]` 113-118; `set_a_tab_at_a_pending_wrap_wraps_and_then_tabs`): `IND`, scrolling at the bottom margin (`at_the_bottom_the_wrap_scrolls`), the screen's first column even under `DECLRMM` (`under_side_margins_the_tab_starts_from_the_first_column`), and the row left not marked as continuing, where xterm's own character wrap marks it (`the_row_left_is_not_marked_as_continuing`; Jev's lean, XTERM_LITERAL, 0.37/0.11; a second ask split three ways, so the first stands). CHT takes the wrap once. Nothing changes with no wrap pending or `?7` reset (`without_autowrap_the_tab_does_not_wrap`). Reset at power-on, the resource's default (`[[source: xterm-man]]`, `-cu`); `DECRQM` answers it (`decrqm_answers_the_more_fix`), XTSAVE keeps it, `RIS` resets it and `DECSTR` keeps it, as the xterm resource modes go (`xtsave_keeps_it_ris_resets_it_and_decstr_keeps_it`). Counted and dropped until then |
 | `?45` | reverse wraparound | done |

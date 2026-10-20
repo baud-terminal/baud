@@ -795,6 +795,11 @@ pub struct Cold {
     /// `alternateScroll` (no `ReallyReset` path names it, `[[source:
     /// xterm-reset]]`'s file). Read by the embedder's wheel, never here.
     pub(crate) alternate_scroll: AlternateScroll,
+    /// `?30` ([`baud_domain::ScrollbarShown`]): shown at power-on and **kept
+    /// by both resets**, as xterm's scrollbar is a property of its window
+    /// that no reset path touches (Jev's lean, KEPT, 0.90/0.74 and
+    /// 0.92/0.58). Read by the embedder, never here.
+    pub(crate) scrollbar: baud_domain::ScrollbarShown,
     /// `?41`, xterm's more(1) fix ([`MoreFix`]): read by `HT` and `CHT` at a
     /// pending wrap only. Off at power-on and after `RIS`, kept by
     /// `DECSTR`, as the xterm resource modes are.
@@ -1179,8 +1184,9 @@ pub struct Cold {
 // The prompt marks' two `Shell`s, 32 bytes, moved to `StrBuf` when the
 // `OSC 133` options came in, which took it to 792: a mark and a resize read
 // them, never a glyph.
-// `?41`'s byte took it to 800, read by `HT` at a pending wrap alone, and
-// XTCHECKSUM's fits in the padding, read by DECRQCRA alone.
+// `?41`'s byte took it to 800, read by `HT` at a pending wrap alone;
+// XTCHECKSUM's and `?30`'s fit in the padding, read by DECRQCRA and the
+// embedder alone.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
 const _: () = assert!(core::mem::size_of::<Cold>() == 800);
@@ -1405,6 +1411,7 @@ impl Cold {
             mouse_at: None,
             alternate_scroll: AlternateScroll::On,
             more_fix: baud_domain::MoreFix::Off,
+            scrollbar: baud_domain::ScrollbarShown::Shown,
             shift_escape: ShiftEscape::Override,
             defaults: [ColorWord::DEFAULT; DynamicColor::COUNT],
             dynamic: [ColorWord::DEFAULT; DynamicColor::COUNT],
@@ -4060,6 +4067,13 @@ impl<'b> Term<'b> {
     /// power-on, which is what baud did before it read the mode.
     pub fn alternate_scroll(&self) -> AlternateScroll {
         self.cold.alternate_scroll
+    }
+
+    /// **Whether the embedder shows its scrollbar**, `?30`: set, "Show
+    /// scrollbar (rxvt)", reset, "Don't show scrollbar (rxvt)"
+    /// (`[[source: ctlseqs]]`). Shown at power-on and kept by both resets.
+    pub fn scrollbar_shown(&self) -> baud_domain::ScrollbarShown {
+        self.cold.scrollbar
     }
 
     /// XTSHIFTESCAPE: whether Shift takes a pointer event from a program

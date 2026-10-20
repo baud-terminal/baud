@@ -463,6 +463,9 @@ pub enum PrivateMode {
     /// ctlseqs calls `?1049` "the effects of the 1 0 4 7 and 1 0 4 8
     /// modes"; baud's `?1049` keeps its saved cursor in a slot of its own.
     AltScreenClearing,
+    /// `?30`: "Show scrollbar (rxvt)" (`[[source: ctlseqs]]`), the
+    /// embedder's ([`ScrollbarShown`]).
+    Scrollbar,
     /// `?41`: "more(1) fix (see curses resource)" (`[[source: ctlseqs]]`),
     /// xterm's curses hack: a tab at a pending wrap takes the wrap first
     /// ([`MoreFix`]).
@@ -680,6 +683,19 @@ pub enum BellIsUrgent {
     #[default]
     Off,
     On,
+}
+
+/// `?30`, "Show scrollbar (rxvt)" and reset "Don't show scrollbar (rxvt)"
+/// (`[[source: ctlseqs]]`): whether the embedder draws its scrollbar.
+/// **Shown at power-on**, since baud's app has one, and `DECRQM` answers
+/// whether one is shown, as xterm's `MdBool(sb_info.width != OFF)`
+/// (`[[source: xterm-misc]]` 5553-5554); xterm's own default is none
+/// (Jev's lean, SET, 0.36/0.64 and 0.50/0.70 after a second ask).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ScrollbarShown {
+    #[default]
+    Shown,
+    Hidden,
 }
 
 /// `?41`, xterm's `curses` resource, "more(1) fix" (`[[source: ctlseqs]]`).
@@ -931,6 +947,7 @@ impl PrivateMode {
             PrivateMode::Resource(Resource::PasteLiteralNewline) => 51,
             PrivateMode::AltScreenClearing => 52,
             PrivateMode::MoreFix => 53,
+            PrivateMode::Scrollbar => 54,
             // XTSAVE of `?1048` saves the cursor rather than a value, as
             // xterm's `savemodes` does (`Paint::save_private_modes`).
             PrivateMode::SaveCursor
@@ -965,6 +982,7 @@ impl PrivateMode {
             40 => PrivateMode::AllowColumnMode,
             45 => PrivateMode::ReverseWrap,
             47 => PrivateMode::AltScreenLegacy,
+            30 => PrivateMode::Scrollbar,
             41 => PrivateMode::MoreFix,
             1047 => PrivateMode::AltScreenClearing,
             1048 => PrivateMode::SaveCursor,

@@ -1378,6 +1378,22 @@ group  = "C"
 # ScrnCopyRectangle, ScrnMarkRectangle and ScrnWipeRectangle; xtermCheckRect, the
 # DECRQCRA checksum in its default csDEC mode.
 
+[sources.xterm-scrollbar-c]
+key    = "xterm-scrollbar-c"
+title  = "xterm patch #411, scrollbar.c -- ScrollBarOn, ScrollBarOff and DoResizeScreen: the window resized by the scrollbar's width"
+author = "Thomas Dickey"
+year   = 2026
+venue  = "xterm"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/scrollbar.c"
+file   = ""
+sha256 = "b0272f0a4a9f9383f5a4b1c22b02e7250eb4340a7a4977eeb233b59f3d8d1cce"
+bytes  = 28125
+status = "external"
+group  = "C"
+# Read 2026-10-20 (lane b112) for ?30: ToggleScrollBar (589-606) maps or
+# unmaps the scrollbar and DoResizeScreen (101) resizes the window by its
+# width, so the grid keeps its rows and columns.
+
 [sources.xterm-button]
 key    = "xterm-button"
 title  = "xterm patch #411, button.c -- SaveText, a cell holding 0 copied as a space"

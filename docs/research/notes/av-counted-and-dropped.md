@@ -23,16 +23,19 @@ is not.
   (`CSI # {`, `CSI # }`) and the rendition report (`CSI # |`); the
   palette stack (`CSI # P`, `CSI # Q`, `CSI # R`).
 - **Built 2026-10-20:** ECMA-48's backward moves HPB and VPB,
-  XTCHECKSUM's checksum flags, and `?41`'s tab after a pending wrap.
+  XTCHECKSUM's checksum flags, `?41`'s tab after a pending wrap, and the
+  `?30` scrollbar mode.
 - **Small, to build next** (the text is complete and nothing is the
   owner's): the pointer-hiding mode, the `?30` scrollbar mode, and OSC
   60-62's feature lists.
+  stack, the title modes, and OSC 60-62's feature lists.
 - **Larger, to build** (whole protocols a VT420-class terminal has): the
   DEC locator, the host-writable status line, and xterm's special colours.
 - **Decisions needed:** the tertiary DA, the bell volumes, the keyboard
-  LEDs, the alternate function-key keyboards, printing, pointer shapes and
-  colours, font changes by a program, X resources, rxvt's font-shifting
-  keys, and ECMA-48's C1 functions one at a time.
+  LEDs, the alternate function-key keyboards, printing, the pointer-hiding
+  mode (XTSMPOINTER, in or out), pointer shapes and colours, font changes
+  by a program, X resources, rxvt's font-shifting keys, and ECMA-48's C1
+  functions one at a time.
 - **Refusals that stand:** the ones whose reply would be unsafe, would
   give an identity baud does not have, or answer a function no text
   assigns.
@@ -62,7 +65,7 @@ none the table says so.
 | `CSI Ps # y` XTCHECKSUM | counted | ctlseqs line 1823: five bits that change DECRQCRA's checksum | the `CSI Ps # y` row | **built** 2026-10-20: `checksum_extension.rs` |
 | `CSI > Pm t` / `CSI > Pm T` XTSMTITLE, XTRMTITLE | the set modes built 2026-10-20 | ctlseqs lines 1707 and 733: set titles in hex or UTF-8, and query them so | `CSI > Pm t` | **built** the two set modes; the query modes act on title reports, which stay refused as unsafe, and are counted with them (`the_query_modes_are_refused_with_the_title_reports`) |
 | `CSI > Ps p` XTSMPOINTER | counted | ctlseqs line 1464: whether the pointer hides while the user types -- never, unless mouse tracking is on, always but on leaving the window, always | none | **build** in the app (AppKit's hide-until-moved) |
-| `?30` | counted | ctlseqs DECSET `3 0`, "Show scrollbar (rxvt)" | none | **build**: baud has a scrollbar |
+| `?30` | counted | ctlseqs DECSET `3 0`, "Show scrollbar (rxvt)" | the `?30` row | **built** 2026-10-20: `scrollbar_mode.rs`; partial on Linux, whose driver draws no scrollbar yet |
 | `OSC 60` / `61` / `62` XTQALLOWED, XTQDISALLOWED, XTQALLOWABLE | counted | ctlseqs line 2182: reply `OSC 6 0 ; Pt ST`, the allowed categories among seven xterm resource names | none | **build**, each category named for what baud does; Jev where one is partly allowed |
 | `?35` | counted | ctlseqs DECSET `3 5`, "Enable font-shifting functions (rxvt)" | none | **ask Jev**: the text names rxvt's functions and not their keys; baud's zoom is the nearest |
 | DEC locator: `CSI Ps ; Pu ' z` DECELR, `' {` DECSLE, `' \|` DECRQLP, `' w` DECEFR | counted | ctlseqs lines 1776-1907, the VT330/340 locator | none | **build**: a whole input protocol of the DEC terminals, beside the mouse modes baud has |

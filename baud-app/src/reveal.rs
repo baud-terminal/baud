@@ -10,7 +10,7 @@
 //! scrolled-back window reveals nothing, which is what AppKit measured for a
 //! document that grows under a view that stays on its lines.
 
-use baud_domain::{Chan, HostTime, Rows};
+use baud_domain::{Chan, HostTime, Rows, ScrollbarShown, WindowOps};
 use baud_font::Px;
 use baud_render::{Hover, Look, Place, Scroller, Widths};
 use core::time::Duration;
@@ -69,6 +69,48 @@ pub fn widths(scale: Scale) -> Widths {
 /// The backing scale, pixels to the point.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Scale(pub f64);
+
+/// **The gutter the frame keeps for the scroller under `?30`**: the
+/// style's ([`baud_render::gutter`]), or none while a program has hidden
+/// the scrollbar, "Don't show scrollbar (rxvt)" (`[[source: ctlseqs]]`).
+pub fn shown_gutter(scroller: Scroller, shown: ScrollbarShown, widths: Widths) -> Px {
+    match shown {
+        ScrollbarShown::Shown => baud_render::gutter(scroller, widths),
+        ScrollbarShown::Hidden => Px::of(0),
+    }
+}
+
+/// What a change of `?30` asks of the window.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BarChange {
+    /// The overlay scroller lies over the grid: only what is drawn changes.
+    Redraw,
+    /// The legacy gutter comes or goes and the window widens or narrows by
+    /// it, the grid kept, as xterm's `ScrollBarOn` and `ScrollBarOff`
+    /// resize its window through `DoResizeScreen` (`[[source:
+    /// xterm-scrollbar-c]]` 101, 507-585; Jev's lean, AS_XTERM, 0.74/0.78
+    /// and 0.74/0.74 after a second ask).
+    Resize,
+    /// The window may not change size -- full screen, or a program's
+    /// window operations turned off -- so the grid takes the gutter's
+    /// columns or gives them up, as xterm's grid does where its window
+    /// manager refuses the resize.
+    Relayout,
+}
+
+/// [`BarChange`] for the scroller the setting asks for, whether the window
+/// is in full screen, and whether a program may resize it (`[window]
+/// operations`).
+pub fn bar_change(scroller: Scroller, full: crate::winops::Full, ops: WindowOps) -> BarChange {
+    use crate::winops::Full;
+    match (scroller, full, ops) {
+        (Scroller::Overlay, _, _) => BarChange::Redraw,
+        (Scroller::Legacy, Full::No, WindowOps::On) => BarChange::Resize,
+        (Scroller::Legacy, Full::Yes, _) | (Scroller::Legacy, _, WindowOps::Off) => {
+            BarChange::Relayout
+        }
+    }
+}
 
 /// Where the pointer is, for the hover.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -315,6 +357,49 @@ mod tests {
     use super::*;
 
     const MS: Duration = Duration::from_millis(1);
+
+    /// **`?30` reset takes the legacy gutter away and nothing else**: the
+    /// overlay scroller had none to give up. The control is `?30` set.
+    #[test]
+    fn a_hidden_scrollbar_keeps_no_gutter() {
+        let w = widths(Scale(2.0));
+        let legacy = shown_gutter(Scroller::Legacy, ScrollbarShown::Shown, w);
+        assert!(legacy.value() > 0);
+        assert_eq!(legacy, baud_render::gutter(Scroller::Legacy, w));
+        assert_eq!(
+            shown_gutter(Scroller::Legacy, ScrollbarShown::Hidden, w),
+            Px::of(0)
+        );
+        assert_eq!(
+            shown_gutter(Scroller::Overlay, ScrollbarShown::Shown, w),
+            Px::of(0)
+        );
+    }
+
+    /// **The legacy gutter resizes the window where it may, as xterm's
+    /// does, and the grid where it may not**; the overlay only redraws.
+    #[test]
+    fn a_scrollbar_change_resizes_the_window_where_it_may() {
+        use crate::winops::Full;
+        let change = |s, f, o| bar_change(s, f, o);
+        assert_eq!(
+            change(Scroller::Legacy, Full::No, WindowOps::On),
+            BarChange::Resize
+        );
+        assert_eq!(
+            change(Scroller::Legacy, Full::Yes, WindowOps::On),
+            BarChange::Relayout
+        );
+        assert_eq!(
+            change(Scroller::Legacy, Full::No, WindowOps::Off),
+            BarChange::Relayout
+        );
+        for f in [Full::No, Full::Yes] {
+            for o in [WindowOps::On, WindowOps::Off] {
+                assert_eq!(change(Scroller::Overlay, f, o), BarChange::Redraw);
+            }
+        }
+    }
 
     fn at(d: Duration) -> HostTime {
         HostTime::of_secs(1000.0).unwrap().plus(d)
