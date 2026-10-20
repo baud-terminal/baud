@@ -1131,7 +1131,7 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 // the first digit to the passthrough body, so `q` never arrived
                 // and the image was never recognised.
                 //
-                // **Only the numeric parameters `30-3B` (`0-9 : ;`) collect,
+                // **Only the numeric parameters `30-39` and `3B` (`0-9 ;`) collect,
                 // not the private markers `3C-3F` (`< = > ?`) or the
                 // intermediates `20-2F`.** A Sixel's parameters are
                 // `Pa;Pb;Ph` -- digits and `;` -- so that is all it needs; and
@@ -1149,8 +1149,18 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 // not honour, rather than dropping the parameters unseen. A `q`
                 // is still a Sixel and `$` still a DECRQSS: neither is a digit
                 // or `;`, so both leave this edge untouched.
+                //
+                // **`3A` ignores the string**, as `[[source: williams]]`'s
+                // `dcs ignore` does, "the character 3A appears anywhere", and
+                // `[[source: dec-std-070]]` 3.5.4.1 with 3.5.3.1, "If 3/10 is
+                // received within a parameter string, the entire sequence ...
+                // shall be ignored": it goes to the body unread, discarded at
+                // `ST` and counted, as a marker after a parameter does. It
+                // separated as `;` did until 2026-10-19; Jev leaned to keeping
+                // that at 0.85/0.71 once a CSI ignored a colon, below the bar
+                // for a departure.
                 0x30..=0x39 => edge(Act::Digit, Node::Dcs),
-                0x3a..=0x3b => edge(Act::Sep, Node::Dcs),
+                0x3b => edge(Act::Sep, Node::Dcs),
                 0x1b => edge(Act::Consume, Node::StrEsc),
                 0x00..=0x17 | 0x19 | 0x1c..=0x1f | 0x7f => edge(Act::Consume, Node::Dcs),
                 _ => edge(Act::Consume, Node::DcsStr),
@@ -2369,10 +2379,14 @@ mod classes {
         // 1,816 -> 1,911, 50,852 -> 55,856 and 1,263,705 -> 1,452,629 at
         // strides 2, 3 and 4, each lane on the base without the other.
         // **Both together**: 55, 2,256, 68,083 and 1,818,823.
+        // **`3A` in a DCS prefix ignores the string** (2026-10-19): `3A`
+        // and, under ISO 8859-1, `BA` in `Dcs` lead to the ignored body,
+        // where both were `Sep`. Stride 1 does not move; 2,256 -> 2,248,
+        // 68,083 -> 67,636 and 1,818,823 -> 1,801,914 at strides 2 to 4.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 2_256, "stride 2");
-        assert_eq!(three.len(), 68_083, "stride 3");
-        assert_eq!(four.len(), 1_818_823, "stride 4");
+        assert_eq!(two.len(), 2_248, "stride 2");
+        assert_eq!(three.len(), 67_636, "stride 3");
+        assert_eq!(four.len(), 1_801_914, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -2925,7 +2939,8 @@ mod classes {
     /// williams]]` (462) and `[[source: ecma48]]` §9 read GR as GL there too.
     /// Both nodes sent every GR byte to the body. The edges are named as well
     /// as compared, so the comparison cannot pass with both sides moved: `A4`
-    /// leads to `DcsDollar`, `B0-B9` are `Digit`, `BA BB` are `Sep`, `F1` is
+    /// leads to `DcsDollar`, `B0-B9` are `Digit`, `BB` is `Sep` and `BA` leads
+    /// to the ignored body as `3A` does, `F1` is
     /// the Sixel or DECRQSS `q`, and `FF`, `DEL`'s twin, is ignored in place.
     #[test]
     fn a_gr_byte_in_a_dcs_prefix_takes_its_seven_bit_edge_under_latin1() {
@@ -2972,9 +2987,8 @@ mod classes {
                 for v in 0xb0..=0xb9 {
                     assert_eq!(at(Node::Dcs, v), edge(Act::Digit, Node::Dcs), "{v:#04x}");
                 }
-                for v in [0xba, 0xbb] {
-                    assert_eq!(at(Node::Dcs, v), edge(Act::Sep, Node::Dcs), "{v:#04x}");
-                }
+                assert_eq!(at(Node::Dcs, 0xbb), edge(Act::Sep, Node::Dcs));
+                assert_eq!(at(Node::Dcs, 0xba), edge(Act::Consume, Node::DcsStr));
                 assert_eq!(at(Node::Dcs, 0xf1), edge(Act::SixelStart, Node::DcsStr));
                 assert_eq!(at(Node::DcsDollar, 0xf1), edge(Act::DcsQuery, Node::DcsStr));
                 assert_eq!(at(Node::Dcs, 0xff), edge(Act::Consume, Node::Dcs));

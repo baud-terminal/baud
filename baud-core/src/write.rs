@@ -152,6 +152,27 @@ impl Csi {
     fn count(&self) -> Count {
         Count::of((self.n.raw_index() + 1).min(NPARAM))
     }
+    /// Did a `:` mark any parameter?
+    #[inline(always)]
+    fn has_subs(&self) -> bool {
+        self.sub != SubParams::NONE
+    }
+
+    /// Does the sequence define sub-parameters: SGR, and XTMODKEYS (`CSI >
+    /// Pp ; Pv m`), whose `[[source: ctlseqs]]` text takes "a single
+    /// subparameter"? Asked only once a `:` arrived. **Open:** the
+    /// XTMODKEYS arm reads that sub-parameter as `Pv`, so `CSI > 4 : 1 m`
+    /// sets level 1 and `CSI > 4 ; 2 : 1 m` level 2, where ctlseqs makes it
+    /// "a mask of modifier bits to factor out" and an omitted `Pv` a reset.
+    /// Inline: a call here made `csi_final` save four more registers on
+    /// every entry.
+    #[inline(always)]
+    fn takes_subs(&self, f: FinalByte) -> bool {
+        self.inter.is_none()
+            && f == FinalByte::SGR
+            && matches!(self.marker, Marker::Standard | Marker::Gt)
+    }
+
     /// Is this the plain `SGR` form -- standard namespace, no intermediate,
     /// final `m`? The one shape worth answering without building anything.
     pub(crate) fn is_plain_sgr(&self, f: FinalByte) -> bool {
@@ -637,6 +658,23 @@ pub(crate) fn act(
                     };
                     ParamStep3::of(b0, b1, nul)
                 }
+            };
+            // **In a DCS prefix a `:` is no separator**: `Node::Dcs` sends it
+            // to the ignored body (`graph::one`), so the step stops before it
+            // and the graph reads it, as when a read ends between the digit
+            // and the colon. Only a step that ends on one asks the node.
+            #[cfg(not(feature = "param3"))]
+            let e = match e.after() == After::SubSep && *node == Node::Dcs {
+                true => ParamStep::of(b0, nul),
+                false => e,
+            };
+            #[cfg(feature = "param3")]
+            let e = match e.after() == After::SubSep && *node == Node::Dcs {
+                true => match e.width().index() {
+                    2 => ParamStep3::of(b0, nul, nul),
+                    _ => ParamStep3::of(b0, StreamByte::from_stream(p.arena[at + 1]), nul),
+                },
+                false => e,
             };
             csi.fold(e);
             match e.after() {
@@ -1767,6 +1805,26 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
     // unchanged.
     if csi.is_plain_sgr(f) {
         p.apply_sgr(csi);
+        return;
+    }
+    // **A `:` ignores the whole sequence, but in the two that define
+    // sub-parameters.** `[[source: dec-std-070]]` 3.5.3.1: "The bit
+    // combination 3/10 is reserved for future standardization. If 3/10 is
+    // received within a parameter string, the entire sequence up to and
+    // including the final character shall be ignored"; `[[source:
+    // williams]]` sends `3A` to `csi ignore`. `[[source: ecma48]]` 5.4.2 b
+    // allows `03/10` only inside one parameter, never between two, and
+    // gives an integer parameter no fractional part. SGR's groups (ISO
+    // 8613-6, `38:2::r:g:b`, `4:3`) are read above, and XTMODKEYS takes one
+    // (`CSI > 4 : 1 m`, `[[source: ctlseqs]]`'s modifier mask, read there as
+    // `Pv`: open, see `takes_subs`), as xterm keeps those two and rejects
+    // the rest. Every other sequence read a parameter after `:` as
+    // if `;` had come, so `CSI 1:5 H` was CUP 1;5. Jev leaned to keeping
+    // that at 0.38/0.40, below the bar for a departure, so the text is
+    // built (2026-10-19). One test of the parser's own mask; the rest runs
+    // only once a `:` arrived.
+    if csi.has_subs() && !csi.takes_subs(f) {
+        p.unsupported_total += 1;
         return;
     }
     #[cfg(feature = "probe-double-parse")]

@@ -142,3 +142,47 @@ fn under_utf8_a_byte_80_ff_inside_the_parameters_cancels_the_sequence() {
 fn a_digit_after_an_intermediate_dispatches_nothing() {
     same_at_every_split("digit after SP", b"X\x1b[2;5 1HY", b"XY");
 }
+
+/// **A `:` in a sequence that defines no sub-parameters ignores the whole
+/// sequence**, counted: `[[source: dec-std-070]]` 3.5.3.1, "If 3/10 is
+/// received within a parameter string, the entire sequence up to and
+/// including the final character shall be ignored", and `[[source:
+/// williams]]`'s `csi ignore`. Each is held against a sequence baud counts
+/// and does nothing with, `CSI < Ps H`. Until 2026-10-19 a parameter after
+/// `:` was read as if `;` had come, so `CSI 2:5 H` went to row 2, column 5.
+#[test]
+fn a_colon_outside_sgr_ignores_the_sequence() {
+    same_at_every_split("CUP", b"X\x1b[2:5HY", b"X\x1b[<HY");
+    same_at_every_split("CUF", b"X\x1b[1:3CY", b"X\x1b[<HY");
+    same_at_every_split("a leading colon", b"X\x1b[:3CY", b"X\x1b[<HY");
+    same_at_every_split("DECSTBM", b"X\x1b[1:2;3rY", b"X\x1b[<HY");
+    same_at_every_split("ED", b"X\x1b[2:1JY", b"X\x1b[<HY");
+    same_at_every_split(
+        "DECSET",
+        b"X\x1b[?7:1l\x1b[1;40HYZ",
+        b"X\x1b[<H\x1b[1;40HYZ",
+    );
+}
+
+/// **SGR keeps its groups and XTMODKEYS its one sub-parameter**, the two
+/// `[[source: ctlseqs]]` gives them: neither is refused by the rule above.
+/// XTMODKEYS reads it as modifyOtherKeys' mask, which
+/// `the_ignore_mask_factors_a_modifier_out` pins. The controls.
+#[test]
+fn sgr_and_xtmodkeys_keep_their_sub_parameters() {
+    fed(b"\x1b[38:2::255:0:0mX\x1b[4:3mY", &[], |t| {
+        assert_eq!(t.unsupported, 0);
+        let row = t.row(Row::from_index(0)).expect("a row");
+        assert_ne!(t.style_of(row[0]), StyleWord::DEFAULT, "38:2 applied");
+        assert_ne!(t.style_of(row[1]), t.style_of(row[0]), "4:3 applied");
+    });
+    let plain = fed(b"\x1b[>4;2m", &[], |t| t.unsupported);
+    let masked = fed(b"\x1b[>4;2:1m", &[], |t| t.unsupported);
+    same_at_every_split(
+        "XTMODKEYS",
+        b"\x1b[>4;2:1mX",
+        &[&b"\x1b[>4;2m"[..], b"X"].concat(),
+    );
+    assert_eq!(plain, 0, "the control: XTMODKEYS is acted on");
+    assert_eq!(masked, 0, "its sub-parameter is no reason to refuse it");
+}

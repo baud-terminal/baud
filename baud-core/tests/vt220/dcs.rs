@@ -345,6 +345,44 @@ fn a_marker_after_a_dcs_parameter_is_ignored() {
     );
 }
 
+/// **A `:` in a DCS prefix ignores the string**: `[[source: williams]]`
+/// sends `3A` to `dcs ignore`, "the character 3A appears anywhere", and
+/// `[[source: dec-std-070]]` 3.5.4.1 makes the prefix "identical in syntax
+/// to the parameter string of a control sequence", whose 3.5.3.1 ignores
+/// the whole sequence at a 3/10. Under ISO 8859-1 `BA` is the same byte.
+/// Until 2026-10-19 it separated parameters as `;` does, so `DCS 1 : $ q m`
+/// answered; Jev leaned to keeping that, 0.85/0.71, below the bar for a
+/// departure. The control, `DCS 1 ; $ q m`, answers.
+/// Every read size: the colon is the graph's whether or not the digit
+/// before it arrived in the same read.
+#[test]
+fn a_colon_in_a_dcs_prefix_ignores_the_string() {
+    let chunked = |b: &[u8], size: usize| {
+        let ws = support::CORPUS;
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        for part in b.chunks(size) {
+            support::feed(&mut t, part);
+        }
+        (t.reply().to_vec(), t.strings_ignored)
+    };
+    for (name, bytes, answers) in [
+        ("the control, 1 ; $ q m", &b"\x1bP1;$qm\x1b\\"[..], true),
+        ("3A", b"\x1bP1:$qm\x1b\\", false),
+        ("3A after two digits", b"\x1bP12:$qm\x1b\\", false),
+        ("3A first", b"\x1bP:$qm\x1b\\", false),
+        ("a Sixel's 0:1 q", b"\x1bP0:1q#1~~\x1b\\", false),
+        ("BA under ISO 8859-1", b"\x1b%@\x1bP1\xba$qm\x1b\\", false),
+        ("BB under ISO 8859-1", b"\x1b%@\x1bP1\xbb$qm\x1b\\", true),
+    ] {
+        for size in 1..=bytes.len() {
+            let (reply, ignored) = chunked(bytes, size);
+            assert_eq!(!reply.is_empty(), answers, "{name}, read size {size}");
+            assert_eq!(ignored, usize::from(!answers), "{name}, read size {size}");
+        }
+    }
+}
+
 /// A parameter after an intermediate is malformed.
 ///
 /// williams' `dcs_intermediate` sends `30-3F` to `dcs_ignore`: once an
