@@ -98,9 +98,34 @@ impl HostTime {
     }
 }
 
+/// **An input event's millisecond stamp, "with an undefined base"** --
+/// `wl_pointer.button`'s `time` (`[[source: wayland]]`). The base is the
+/// compositor's and unknown, so a stamp means nothing alone, and the one
+/// thing it offers is [`EventMillis::since`], the time between two: a
+/// newtype for the reason [`HostTime`] is one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(transparent)]
+pub struct EventMillis(u32);
+
+impl EventMillis {
+    /// From the wire's `uint`.
+    pub const fn of_millis(ms: u32) -> EventMillis {
+        EventMillis(ms)
+    }
+
+    /// How long after `earlier` this is, read modulo 2^32: 32 bits of
+    /// milliseconds wrap after 49.7 days, and a stamp just past the wrap
+    /// follows one just before (xterm handles the same rollover in
+    /// `EvalSelectUnit`, `[[source: xterm-button-c]]`, one millisecond
+    /// short of the modular difference).
+    pub fn since(self, earlier: EventMillis) -> Duration {
+        Duration::from_millis(u64::from(self.0.wrapping_sub(earlier.0)))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::HostTime;
+    use super::{EventMillis, HostTime};
     use core::time::Duration;
 
     #[test]
@@ -160,5 +185,15 @@ mod tests {
         let t = HostTime::of_nanos(7);
         let d = Duration::from_micros(3);
         assert_eq!(t.plus(d).since(t), Some(d));
+    }
+
+    /// **An event stamp's difference is read across the wrap**: 50 ms
+    /// from ten before 2^32 to forty after it.
+    #[test]
+    fn an_event_stamp_reads_its_difference_across_the_wrap() {
+        let at = EventMillis::of_millis;
+        assert_eq!(at(1250).since(at(1000)), Duration::from_millis(250));
+        assert_eq!(at(40).since(at(u32::MAX - 9)), Duration::from_millis(50));
+        assert_eq!(at(7).since(at(7)), Duration::ZERO);
     }
 }

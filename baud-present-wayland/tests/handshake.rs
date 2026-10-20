@@ -1050,3 +1050,402 @@ fn the_bounds_are_the_compositors_until_it_says_unknown() {
     pump(&mut conn, &mut w);
     assert_eq!(w.bounds(), None);
 }
+
+/// Whether a session's compositor offers the cursor-shape global.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shapes {
+    Offered,
+    Absent,
+}
+
+/// A session with a pointer, as [`pointer_session`] opened it.
+struct Pointed {
+    conn: Connection,
+    server: Server,
+    w: Window,
+    pointer: ObjectId,
+    /// The shape device, if one was made.
+    device: Option<ObjectId>,
+    surface: ObjectId,
+}
+
+/// A session with a pointer: the globals bound -- `Shapes::Offered` adds
+/// the cursor-shape manager, advertised at 2 -- the seat at `seat_version`,
+/// and its capabilities naming the keyboard and the pointer.
+fn pointer_session(seat_version: u32, shapes: Shapes) -> Pointed {
+    let (c, s) = UnixStream::pair().unwrap();
+    let mut conn = Connection::over(c);
+    let mut server = Server::new(s);
+    let mut w = Window::open(&mut conn, "baud", "org.baud.terminal").unwrap();
+    conn.flush().unwrap();
+    let r = server.expect("wl_display", "get_registry");
+    let Val::New(registry) = r.args[0] else {
+        panic!()
+    };
+    server
+        .objects
+        .insert(registry, Interface::named("wl_registry").unwrap());
+    let r = server.expect("wl_display", "sync");
+    let Val::New(sync) = r.args[0] else { panic!() };
+    let mut globals = vec![
+        (1u32, "wl_compositor", 6u32),
+        (2, "wl_shm", 2),
+        (3, "xdg_wm_base", 6),
+        (4, "wl_seat", seat_version),
+    ];
+    if shapes == Shapes::Offered {
+        globals.push((5, "wp_cursor_shape_manager_v1", 2));
+    }
+    for (name, iface, version) in globals {
+        server.send(
+            registry,
+            "wl_registry",
+            "global",
+            &[Arg::Uint(name), Arg::Str(Some(iface)), Arg::Uint(version)],
+        );
+    }
+    server.send(sync, "wl_callback", "done", &[Arg::Uint(1)]);
+    pump(&mut conn, &mut w);
+    let (mut seat, mut surface, mut manager) = (None, None, None);
+    loop {
+        let r = server.next();
+        match (r.iface, r.name, &r.args[..]) {
+            ("wl_registry", "bind", [_, Val::NewWith(i, v, id)]) if i == "wl_seat" => {
+                assert_eq!(*v, seat_version.min(9));
+                seat = Some(*id);
+            }
+            ("wl_registry", "bind", [_, Val::NewWith(i, v, id)])
+                if i == "wp_cursor_shape_manager_v1" =>
+            {
+                assert_eq!(*v, 1, "the version whose shapes are the ones named");
+                manager = Some(*id);
+            }
+            ("wl_compositor", "create_surface", [Val::New(id)]) => surface = Some(*id),
+            ("wl_surface", "commit", _) => break,
+            _ => {}
+        }
+    }
+    assert_eq!(manager.is_some(), shapes == Shapes::Offered);
+    let (seat, surface) = (seat.expect("the seat"), surface.expect("the surface"));
+    server.send(
+        seat,
+        "wl_seat",
+        "capabilities",
+        &[Arg::Uint(
+            protocol::wl_seat::capability::KEYBOARD | protocol::wl_seat::capability::POINTER,
+        )],
+    );
+    pump(&mut conn, &mut w);
+    server.expect("wl_seat", "get_keyboard");
+    let r = server.expect("wl_seat", "get_pointer");
+    let Val::New(pointer) = r.args[0] else {
+        panic!()
+    };
+    let device = manager.map(|m| {
+        let r = server.expect("wp_cursor_shape_manager_v1", "get_pointer");
+        assert_eq!(r.sender, m);
+        assert!(matches!(r.args[1], Val::Obj(p) if p == pointer));
+        let Val::New(d) = r.args[0] else { panic!() };
+        d
+    });
+    Pointed {
+        conn,
+        server,
+        w,
+        pointer,
+        device,
+        surface,
+    }
+}
+
+fn fixed(v: f64) -> Arg<'static> {
+    Arg::Fixed(baud_wayland::Fixed::from_f64(v))
+}
+
+fn pointer_drain(w: &mut Window) -> Vec<PointerEvent> {
+    drain(w)
+        .into_iter()
+        .map(|e| match e {
+            Event::Pointer(p) => p,
+            other => panic!("not the pointer's: {other:?}"),
+        })
+        .collect()
+}
+
+const VERTICAL: u32 = protocol::wl_pointer::axis::VERTICAL_SCROLL;
+
+/// **The pointer arrives a frame at a time** (`[[source: wayland]]`,
+/// `wl_pointer.frame`): an event waits for the frame that closes its
+/// group; enter, motion and the buttons keep their order, with the
+/// kernel's button code and the event's stamp; a wheel's `axis_value120`
+/// is its detents, a touchpad's `axis` its length, and `axis_stop` follows
+/// the scroll it ends. The shape is set with the last enter's serial and
+/// not once the pointer has left.
+#[test]
+fn the_pointer_reports_by_frame_and_takes_its_shape() {
+    let Pointed {
+        mut conn,
+        mut server,
+        mut w,
+        pointer,
+        device,
+        surface,
+    } = pointer_session(9, Shapes::Offered);
+    let device = device.expect("the shape device");
+    assert_eq!(
+        w.set_pointer_shape(&mut conn.sender(), CursorShape(9)),
+        Shaped::Unavailable,
+        "no enter, no serial"
+    );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[
+            Arg::Uint(11),
+            Arg::Object(surface),
+            fixed(10.5),
+            fixed(20.25),
+        ],
+    );
+    pump(&mut conn, &mut w);
+    assert_eq!(pointer_drain(&mut w), [], "held to the frame");
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        pointer_drain(&mut w),
+        [PointerEvent::Entered(At { x: 10.5, y: 20.25 })]
+    );
+    let text = CursorShape(protocol::wp_cursor_shape_device_v1::shape::TEXT);
+    assert_eq!(w.set_pointer_shape(&mut conn.sender(), text), Shaped::Set);
+    conn.flush().unwrap();
+    let r = server.expect("wp_cursor_shape_device_v1", "set_shape");
+    assert_eq!(r.sender, device);
+    assert!(
+        matches!(r.args[..], [Val::Uint(11), Val::Uint(9)]),
+        "{:?}",
+        r.args
+    );
+
+    server.send(
+        pointer,
+        "wl_pointer",
+        "motion",
+        &[Arg::Uint(100), fixed(30.0), fixed(40.0)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    for state in [
+        protocol::wl_pointer::button_state::PRESSED,
+        protocol::wl_pointer::button_state::RELEASED,
+    ] {
+        server.send(
+            pointer,
+            "wl_pointer",
+            "button",
+            &[
+                Arg::Uint(12),
+                Arg::Uint(110),
+                Arg::Uint(0x110),
+                Arg::Uint(state),
+            ],
+        );
+        server.send(pointer, "wl_pointer", "frame", &[]);
+    }
+    // A wheel's half detent, its length beside it, and its source.
+    server.send(
+        pointer,
+        "wl_pointer",
+        "axis_source",
+        &[Arg::Uint(protocol::wl_pointer::axis_source::WHEEL)],
+    );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "axis_value120",
+        &[Arg::Uint(VERTICAL), Arg::Int(60)],
+    );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "axis",
+        &[Arg::Uint(120), Arg::Uint(VERTICAL), fixed(7.5)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    // A touchpad's last movement and its lift.
+    server.send(
+        pointer,
+        "wl_pointer",
+        "axis_source",
+        &[Arg::Uint(protocol::wl_pointer::axis_source::FINGER)],
+    );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "axis",
+        &[Arg::Uint(130), Arg::Uint(VERTICAL), fixed(-3.0)],
+    );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "axis_stop",
+        &[Arg::Uint(130), Arg::Uint(VERTICAL)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        pointer_drain(&mut w),
+        [
+            PointerEvent::Moved(At { x: 30.0, y: 40.0 }),
+            PointerEvent::Button {
+                button: Button::Left,
+                press: Press::Pressed,
+                time: baud_domain::EventMillis::of_millis(110)
+            },
+            PointerEvent::Button {
+                button: Button::Left,
+                press: Press::Released,
+                time: baud_domain::EventMillis::of_millis(110)
+            },
+            PointerEvent::Scroll(Scroll::Steps(0.5)),
+            PointerEvent::Scroll(Scroll::Distance(-3.0)),
+            PointerEvent::ScrollStopped,
+        ]
+    );
+
+    server.send(
+        pointer,
+        "wl_pointer",
+        "leave",
+        &[Arg::Uint(13), Arg::Object(surface)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    assert_eq!(pointer_drain(&mut w), [PointerEvent::Left]);
+    assert_eq!(
+        w.set_pointer_shape(&mut conn.sender(), text),
+        Shaped::Unavailable,
+        "the serial went with the pointer"
+    );
+}
+
+/// **A seat that loses its pointer lets it go**: the shape device
+/// destroyed, being inert, and the pointer released, its version having
+/// the request; the pointer that was over the surface has left.
+#[test]
+fn a_seat_that_loses_its_pointer_releases_it() {
+    let Pointed {
+        mut conn,
+        mut server,
+        mut w,
+        pointer,
+        device,
+        surface,
+    } = pointer_session(9, Shapes::Offered);
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(1), Arg::Object(surface), fixed(0.0), fixed(0.0)],
+    );
+    server.send(pointer, "wl_pointer", "frame", &[]);
+    pump(&mut conn, &mut w);
+    drain(&mut w);
+    let seat = server
+        .objects
+        .iter()
+        .find(|(_, i)| i.name == "wl_seat")
+        .map(|(id, _)| *id)
+        .unwrap();
+    server.send(
+        seat,
+        "wl_seat",
+        "capabilities",
+        &[Arg::Uint(protocol::wl_seat::capability::KEYBOARD)],
+    );
+    pump(&mut conn, &mut w);
+    let r = server.expect("wp_cursor_shape_device_v1", "destroy");
+    assert_eq!(Some(r.sender), device);
+    let r = server.expect("wl_pointer", "release");
+    assert_eq!(r.sender, pointer);
+    assert_eq!(pointer_drain(&mut w), [PointerEvent::Left]);
+}
+
+/// **Below version 5 each event is its own frame**, and without the
+/// cursor-shape global nothing names a shape.
+#[test]
+fn an_old_pointer_reports_at_once_and_no_global_sets_no_shape() {
+    let Pointed {
+        mut conn,
+        mut server,
+        mut w,
+        pointer,
+        device,
+        surface,
+    } = pointer_session(4, Shapes::Absent);
+    assert_eq!(device, None);
+    server.send(
+        pointer,
+        "wl_pointer",
+        "enter",
+        &[Arg::Uint(3), Arg::Object(surface), fixed(1.0), fixed(2.0)],
+    );
+    server.send(
+        pointer,
+        "wl_pointer",
+        "axis",
+        &[Arg::Uint(1), Arg::Uint(VERTICAL), fixed(10.0)],
+    );
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        pointer_drain(&mut w),
+        [
+            PointerEvent::Entered(At { x: 1.0, y: 2.0 }),
+            PointerEvent::Scroll(Scroll::Distance(10.0))
+        ]
+    );
+    assert_eq!(
+        w.set_pointer_shape(&mut conn.sender(), CursorShape(1)),
+        Shaped::Unavailable
+    );
+}
+
+/// **The modifiers a button reads are the keyboard's**: the effective
+/// state the last `modifiers` event left, Shift and Control here.
+#[test]
+fn a_button_reads_the_keyboards_modifiers() {
+    use baud_domain::Modifiers;
+    let (mut conn, mut server, mut w, kb, _) = keyboard_session();
+    assert_eq!(w.modifiers(), Modifiers::NONE);
+    depressed(&mut server, kb, (1 << 0) | (1 << 2));
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        w.modifiers(),
+        Modifiers::NONE.with(Modifiers::SHIFT).with(Modifiers::CTRL)
+    );
+}
+
+/// **The keyboard's leave lifts the modifiers it held**: "In the
+/// wl_keyboard logical state, this event resets all values to their
+/// defaults" (`[[source: wayland]]`, `wl_keyboard.leave`), and a pointer
+/// over an unfocused window reads them, so Alt held into an Alt-Tab is not
+/// Meta on the wheel that follows.
+#[test]
+fn the_keyboards_leave_lifts_its_modifiers() {
+    use baud_domain::Modifiers;
+    let (mut conn, mut server, mut w, kb, surface) = keyboard_session();
+    depressed(&mut server, kb, (1 << 0) | (1 << 3));
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        w.modifiers(),
+        Modifiers::NONE.with(Modifiers::SHIFT).with(Modifiers::ALT),
+        "held before the leave"
+    );
+    server.send(
+        kb,
+        "wl_keyboard",
+        "leave",
+        &[Arg::Uint(2), Arg::Object(surface)],
+    );
+    pump(&mut conn, &mut w);
+    assert_eq!(w.modifiers(), Modifiers::NONE, "lifted by the leave");
+}

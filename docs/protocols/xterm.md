@@ -87,10 +87,9 @@ one in force, and `?1007` from its flag. The rows in `docs/vt-coverage.md` name
 the tests.
 
 **The core has no pointer.** `Term::mouse_report` takes an event in cells, and
-under `?1016` the pixel too, from the embedder. The macOS app is the one
-embedder with a pointer. The Linux app binds only the keyboard, so it sends no
-report at any level or in any encoding, though DECRQM there answers from the
-same core state.
+under `?1016` the pixel too, from the embedder. Both apps are embedders with
+a pointer: the macOS app from AppKit, and since 2026-10-20 the Linux app from
+`wl_pointer`, through the same routing, selection and wheel rules.
 
 This section was headed "SGR encoding only" from 2026-08-26 until 2026-10-10.
 It said that without `?1006` baud reported nothing, and declined X10. `?9`,

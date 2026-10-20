@@ -113,11 +113,11 @@ Every key reaches the program, and copying and pasting stay safe.
 - **Cmd belongs to the menus** — Cmd shortcuts go to the menus and never type into the program. *macOS.* <sub>[proof](../../baud-app/src/app.rs)</sub>
 - **Input methods and dead keys** — Text you compose with a macOS input method is drawn underlined at the cursor, at the width it will take, and Return, Delete and the arrows edit it instead of reaching the shell. *macOS.* <sub>[proof](../../baud-render/tests/composition.rs)</sub>
 - **Backspace erases the whole letter** — Backspace after a Hebrew, accented or other multi-byte letter erases the whole letter. <sub>[proof](../../baud-app/src/pty.rs)</sub>
-- **The mouse in programs** — Clicks, drags, scrolls and hovers reach programs such as vim, htop and tmux, with Shift, Ctrl and Option, in every report format including pixel-precise. *macOS.* <sub>[SGR mouse](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) · [proof](../../baud-core/tests/xterm/mouse.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
-- **Programs can highlight what you drag** — A program can have the region you drag over drawn as a highlight. *macOS.* <sub>[proof](../../baud-app/src/app.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
-- **The wheel scrolls pagers** — The wheel scrolls less, man and git log, and a long fling arrives whole, even through tmux. *macOS.* <sub>[proof](../../baud-app/src/wheel.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
+- **The mouse in programs** — Clicks, drags, scrolls and hovers reach programs such as vim, htop and tmux, with Shift, Ctrl and Option (Alt on Linux), in every report format including pixel-precise. <sub>[SGR mouse](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) · [proof](../../baud-core/tests/xterm/mouse.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
+- **Programs can highlight what you drag** — A program can have the region you drag over drawn as a highlight. <sub>[proof](../../baud-app/src/keep.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
+- **The wheel scrolls pagers** — The wheel scrolls less, man and git log, and a long fling arrives whole, even through tmux. <sub>[proof](../../baud-app/src/wheel.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
 - **Programs know when you switch away** — Programs that ask are told when you switch to the window and away from it. <sub>[reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
-- **Shift selects inside mouse programs** — Hold Shift to select text inside a program that uses the mouse; the choice holds until you let go. *macOS.* <sub>[proof](../../baud-app/src/app.rs)</sub>
+- **Shift selects inside mouse programs** — Hold Shift to select text inside a program that uses the mouse; the choice holds until you let go. <sub>[proof](../../baud-app/src/gesture.rs)</sub>
 - **Copy and paste** — Cmd-C copies the selection and Cmd-V pastes. *macOS.* <sub>[proof](../../baud-render/tests/select.rs)</sub>
 - **Pastes can't run commands** — A paste is marked as one for programs that ask, so a line break in it never runs a command and pasted text can't break out of the paste. *macOS.* <sub>[bracketed paste](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use) · [proof](../../baud-app/src/app.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
 - **A long paste never freezes the window** — A long paste, or one into a stopped program, is fed as the program reads it, and keys typed afterwards arrive afterwards. *macOS.* <sub>[proof](../../baud-app/src/pty.rs)</sub>
@@ -131,12 +131,12 @@ Every key reaches the program, and copying and pasting stay safe.
 
 Your history stays where you left it, through output, selection and resizing.
 
-- **Scroll back through everything** — The wheel and trackpad move through the lines that scrolled off the top, with trackpad movement adding up to whole lines. *macOS.* <sub>[proof](../../baud-app/src/wheel.rs)</sub>
+- **Scroll back through everything** — The wheel and trackpad move through the lines that scrolled off the top, with trackpad movement adding up to whole lines. <sub>[proof](../../baud-app/src/wheel.rs)</sub>
 - **Reading back stays put** — New output doesn't drag you down while you read back; typing, pasting or clearing the history takes you back to the live screen. *macOS.* <sub>[proof](../../baud-app/src/app.rs)</sub>
 - **A scrollbar like macOS's** — It appears while you scroll and fades away, widens when you point at it, and can be dragged or clicked; with "Show scroll bars: Always" it gets its own strip beside the text. *macOS.* <sub>[proof](../../baud-app/src/reveal.rs)</sub>
 - **Smooth scrolling** — Output slides up instead of jumping, never more than one row behind, so a fast program never makes it lag; it can be set to jump instead. *macOS.* **Partly:** it slides only on the default GPU path, and lines with accents or ligatures jump rather than slide. <sub>[proof](../../baud-render/src/scroll.rs) · [measured](../../MEASUREMENTS.md#smooth-scrolls-per-frame-cost-measured-under-the-floor)</sub>
-- **Select anything, history included** — Drag to select, double-click for a word, triple-click for a line, Shift-click to extend and Option-drag for a rectangle, reaching back into the scrollback. *macOS.* <sub>[proof](../../baud-render/src/select.rs)</sub>
-- **You never copy text that is gone** — A selection stays on its text when a program scrolls it, and disappears when the text under it is redrawn, scrolled away, reset or switched. *macOS.* <sub>[proof](../../baud-app/src/app.rs)</sub>
+- **Select anything, history included** — Drag to select, double-click for a word, triple-click for a line, Shift-click to extend and Option-drag (Alt-drag on Linux) for a rectangle, reaching back into the scrollback. <sub>[proof](../../baud-render/src/select.rs)</sub>
+- **You never copy text that is gone** — A selection stays on its text when a program scrolls it, and disappears when the text under it is redrawn, scrolled away, reset or switched. <sub>[proof](../../baud-app/src/app.rs)</sub>
 - **Resizing rewraps** — Making the window narrower or wider rewraps long lines instead of cutting them, and keeps your history. <sub>[proof](../../baud-core/tests/reflow.rs)</sub>
 - **One prompt after a resize** — Resizing at a prompt your shell marks leaves one prompt, not a stack of repeats. <sub>[proof](../../baud-core/tests/resize_recorded.rs) · [reference](../vt-coverage.md#tier-3--xterm-extensions-in-universal-use)</sub>
 - **Resizing keeps your place** — Resizing while scrolled back keeps you on the line you were reading, and full-screen programs redraw into the new size as you drag. *macOS.* <sub>[proof](../../baud-app/src/app.rs)</sub>
@@ -204,7 +204,7 @@ Image viewers and file-manager previews show real pictures.
 Where baud runs, and the one settings file.
 
 - **macOS app** — Needs macOS 26 or later, draws on the GPU with Metal and falls back to the CPU; on an older Mac it says what it needs and quits instead of crashing. *macOS.* <sub>[proof](../../baud-app/tests/macos_floor.rs)</sub>
-- **Linux** — The same terminal core on Wayland, drawn on the CPU, with keyboard input and window titles. *Linux, headless so far.* **Partly:** it has run only on a headless compositor: no mouse, paste, clipboard or bell yet, font sizes are in pixels, and GPU drawing has not started. <sub>[proof](../../baud-present-wayland/tests/handshake.rs)</sub>
+- **Linux** — The same terminal core on Wayland, drawn on the CPU, with the keyboard, the mouse and its pointer shapes, and window titles. *Linux, headless so far.* **Partly:** it has run only on a headless compositor: no paste, clipboard or bell yet, so a selection is shown but not copied, font sizes are in pixels, and GPU drawing has not started. <sub>[proof](../../baud-present-wayland/tests/handshake.rs)</sub>
 - **Your shell, set up right** — baud starts your login shell, in your home folder when opened from the Dock and with your language setting, or one command with `BAUD_CMD`. <sub>[proof](../../baud-app/src/pty.rs)</sub>
 - **A clean environment** — Programs see baud with full colour, and nothing of the terminal you started it from. <sub>[proof](../../baud-app/src/pty.rs)</sub>
 - **One optional settings file** — Keep only what you change in one file; baud never reads a stray file from the folder it started in. <sub>[proof](../../baud-app/src/config.rs)</sub>
@@ -250,7 +250,7 @@ link where the [roadmap](../roadmap.md) plans it.
 - **Links open safely** — a link's address is not shown before it opens. [Roadmap](../roadmap.md#keyboard-mouse-and-clipboard)
 - **Window titles** — every other terminal draws the window title in its title bar. [Roadmap](../roadmap.md#window-colours-and-bell)
 - **Solid image backgrounds** — foot and wezterm fill the solid background a Sixel image asks for. [Roadmap](../roadmap.md#pictures)
-- **Linux** — the Linux version has run only headless, with no mouse, paste, clipboard or GPU drawing yet. [Roadmap](../roadmap.md#platforms-and-settings)
+- **Linux** — the Linux version has run only headless, with no paste, clipboard or GPU drawing yet. [Roadmap](../roadmap.md#platforms-and-settings)
 - **Search** — Searching the scrollback is not built yet. [Roadmap](../roadmap.md#scrollback-selection-and-resizing)
 - **Right-to-left text** — Hebrew and Arabic are shown left to right, in the order the program sent them; reordering is not built yet. [Roadmap](../roadmap.md#text-fonts-and-emoji)
 - **Copy on select** — Selecting text does not copy it yet; Cmd-C does. [Roadmap](../roadmap.md#keyboard-mouse-and-clipboard)

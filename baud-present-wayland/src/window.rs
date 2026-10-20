@@ -6,13 +6,20 @@
 //! requested, and the next frame waits for that callback -- one frame in
 //! flight, foot's pacing. The keyboard hands over a keymap as a file, which
 //! `baud-xkb` compiles, and reports keys and modifier masks the compiler
-//! turns into the key events the core encodes.
+//! turns into the key events the core encodes. The pointer reports where
+//! it is, its buttons and its scrolling a frame at a time (`pointer.rs`),
+//! and shows the shape `cursor-shape-v1` names where the compositor offers
+//! that global.
 
 use crate::keys;
+use crate::pointer::{
+    At, AxisCode, Button, CursorShape, EventCode, Framing, Gather, Piece, PointerEvent, Press,
+};
 use crate::shm::{Pool, Px};
-use baud_domain::{Focus, KeyEvent, KeyEventKind, premultiply};
+use baud_domain::{EventMillis, Focus, KeyEvent, KeyEventKind, Modifiers, premultiply};
 use baud_wayland::{
-    Arg, Connection, Event as Wire, Handler, Interface, ObjectId, Opcode, Read, Sender, protocol,
+    Arg, Connection, Event as Wire, Fixed, Handler, Interface, ObjectId, Opcode, Read, Sender,
+    protocol,
 };
 use baud_xkb::{Keycode, Keymap, Mods, State};
 use std::collections::VecDeque;
@@ -20,7 +27,7 @@ use std::io;
 use std::time::{Duration, Instant};
 
 /// What the window reports to the app.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub enum Event {
     /// The compositor sized the window; a frame of this size can be shown.
     Configured {
@@ -34,7 +41,18 @@ pub enum Event {
     /// focus. The driver hands it to `Term::focus`, which reports it to the
     /// child only if it asked with `?1004`.
     Focus(Focus),
+    /// What the pointer did, a `wl_pointer.frame` at a time.
+    Pointer(PointerEvent),
     Closed,
+}
+
+/// Whether a pointer shape reached the compositor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shaped {
+    Set,
+    /// No cursor-shape manager global, no pointer, or the pointer
+    /// is not over the surface: no `enter` serial to name.
+    Unavailable,
 }
 
 /// How the compositor last configured the toplevel, from the states its
@@ -122,6 +140,21 @@ struct Globals {
     shm: Option<ObjectId>,
     wm_base: Option<ObjectId>,
     seat: Option<ObjectId>,
+    /// What the seat's version gives the pointer, which inherits it:
+    /// `frame` from version 5, `release` from 3.
+    pointer_framing: Framing,
+    pointer_release: Release,
+    cursor_shape: Option<ObjectId>,
+}
+
+/// How a pointer the seat no longer has is let go.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Release {
+    /// Version 3 or later: `wl_pointer.release`.
+    Request,
+    /// Below 3 the interface has no request, and the object is dropped.
+    #[default]
+    Forget,
 }
 
 pub struct Window {
@@ -135,6 +168,13 @@ pub struct Window {
     xdg_surface: Option<ObjectId>,
     toplevel: Option<ObjectId>,
     keyboard: Option<ObjectId>,
+    pointer: Option<ObjectId>,
+    /// The pointer's cursor-shape device, where the global exists.
+    shape_device: Option<ObjectId>,
+    /// The serial of the pointer's last `enter` on the surface, while it is
+    /// over it: what `set_shape` must name.
+    entered: Option<u32>,
+    gather: Gather,
     /// The size the last toplevel configure asked for, or our default.
     pending: (Px, Px),
     size: Option<(Px, Px)>,
@@ -189,6 +229,10 @@ impl Window {
             xdg_surface: None,
             toplevel: None,
             keyboard: None,
+            pointer: None,
+            shape_device: None,
+            entered: None,
+            gather: Gather::new(Framing::Framed),
             pending: (Px(800), Px(600)),
             size: None,
             pending_shown: Shown::Floating,
@@ -238,6 +282,39 @@ impl Window {
                 Opcode(protocol::xdg_toplevel::request::SET_TITLE),
                 &[Arg::Str(Some(&self.title))],
             );
+        }
+    }
+
+    /// **The pointer's shape**, a `wp_cursor_shape_device_v1.shape` value
+    /// (`crate::pointer::shape`), named with the last `enter`'s serial, as
+    /// set_shape requires: "The serial parameter must match the latest
+    /// wl_pointer.enter ... serial number sent to the client. Otherwise the
+    /// request will be ignored." Without the global nothing is set: the
+    /// pointer image is left undefined and `OSC 22` is not shown.
+    pub fn set_pointer_shape(&mut self, s: &mut Sender<'_>, shape: CursorShape) -> Shaped {
+        let (Some(device), Some(serial)) = (self.shape_device, self.entered) else {
+            return Shaped::Unavailable;
+        };
+        match s.request(
+            device,
+            Opcode(protocol::wp_cursor_shape_device_v1::request::SET_SHAPE),
+            &[Arg::Uint(serial), Arg::Uint(shape.0)],
+        ) {
+            Ok(()) => Shaped::Set,
+            Err(_) => Shaped::Unavailable,
+        }
+    }
+
+    /// The modifiers held now, as the keyboard's last `modifiers` event
+    /// left them: what a mouse report and a selection read beside a button.
+    pub fn modifiers(&self) -> Modifiers {
+        match self.keymap.as_ref() {
+            Some(km) => {
+                let mut st = State::new(km);
+                st.update(self.mods, self.group);
+                keys::modifiers(st.mods().effective())
+            }
+            None => keys::modifiers(self.mods.depressed | self.mods.latched | self.mods.locked),
         }
     }
 
@@ -496,6 +573,37 @@ impl Window {
         Presented::Yes
     }
 
+    /// The pointer's shape device, once both the pointer and the
+    /// cursor-shape global exist, whichever came second.
+    fn shape_device_for_pointer(&mut self, s: &mut Sender<'_>) {
+        let (Some(manager), Some(pointer), None) =
+            (self.globals.cursor_shape, self.pointer, self.shape_device)
+        else {
+            return;
+        };
+        let device = s.new_id(Interface::named("wp_cursor_shape_device_v1").expect("pinned"));
+        let _ = s.request(
+            manager,
+            Opcode(protocol::wp_cursor_shape_manager_v1::request::GET_POINTER),
+            &[Arg::NewId(device), Arg::Object(pointer)],
+        );
+        self.shape_device = Some(device);
+    }
+
+    /// An enter, leave, motion or button event into the frame.
+    fn pointer_event(&mut self, e: PointerEvent) {
+        let events = &mut self.events;
+        self.gather
+            .event(e, &mut |e| events.push_back(Event::Pointer(e)));
+    }
+
+    /// An axis event into the frame.
+    fn axis(&mut self, axis: AxisCode, piece: Piece) {
+        let events = &mut self.events;
+        self.gather
+            .axis(axis, piece, &mut |e| events.push_back(Event::Pointer(e)));
+    }
+
     /// The keymap the compositor shares as a file of `size` bytes. Read
     /// from offset zero explicitly: the descriptor shares its offset with
     /// the compositor's, which sits wherever it last wrote.
@@ -517,6 +625,14 @@ impl Window {
         let s = core::str::from_utf8(&text[..end])
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "keymap"))?;
         Keymap::from_text(s).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+    }
+}
+
+/// A surface point from the wire's fixed-point pair.
+fn at(x: Fixed, y: Fixed) -> At {
+    At {
+        x: x.to_f64(),
+        y: y.to_f64(),
     }
 }
 
@@ -547,8 +663,24 @@ impl Handler for Window {
                             Window::bind(s, self.registry, name, iface, version.min(6))
                     }
                     "wl_seat" => {
+                        let version = version.min(9);
+                        self.globals.pointer_framing = match version >= 5 {
+                            true => Framing::Framed,
+                            false => Framing::Single,
+                        };
+                        self.globals.pointer_release = match version >= 3 {
+                            true => Release::Request,
+                            false => Release::Forget,
+                        };
                         self.globals.seat =
                             Window::bind(s, self.registry, name, iface, version.min(9))
+                    }
+                    // Version 1: its 34 shapes are every one `pointer::shape`
+                    // names.
+                    "wp_cursor_shape_manager_v1" => {
+                        self.globals.cursor_shape =
+                            Window::bind(s, self.registry, name, iface, version.min(1));
+                        self.shape_device_for_pointer(s);
                     }
                     _ => {}
                 }
@@ -594,17 +726,97 @@ impl Handler for Window {
                     });
                 }
             }
-            ("wl_seat", "capabilities", [Read::Uint(caps)])
-                if caps & protocol::wl_seat::capability::KEYBOARD != 0
-                    && self.keyboard.is_none() =>
-            {
-                let kb = s.new_id(Interface::named("wl_keyboard").expect("pinned"));
-                let _ = s.request(
-                    ev.object,
-                    Opcode(protocol::wl_seat::request::GET_KEYBOARD),
-                    &[Arg::NewId(kb)],
-                );
-                self.keyboard = Some(kb);
+            ("wl_seat", "capabilities", [Read::Uint(caps)]) => {
+                if caps & protocol::wl_seat::capability::KEYBOARD != 0 && self.keyboard.is_none() {
+                    let kb = s.new_id(Interface::named("wl_keyboard").expect("pinned"));
+                    let _ = s.request(
+                        ev.object,
+                        Opcode(protocol::wl_seat::request::GET_KEYBOARD),
+                        &[Arg::NewId(kb)],
+                    );
+                    self.keyboard = Some(kb);
+                }
+                let pointer = caps & protocol::wl_seat::capability::POINTER != 0;
+                match (pointer, self.pointer) {
+                    (true, None) => {
+                        let p = s.new_id(Interface::named("wl_pointer").expect("pinned"));
+                        let _ = s.request(
+                            ev.object,
+                            Opcode(protocol::wl_seat::request::GET_POINTER),
+                            &[Arg::NewId(p)],
+                        );
+                        self.pointer = Some(p);
+                        self.gather = Gather::new(self.globals.pointer_framing);
+                        self.shape_device_for_pointer(s);
+                    }
+                    // The seat lost its pointer: "When the pointer capability
+                    // is removed from the wl_seat, the
+                    // wp_cursor_shape_device_v1 object becomes inert", and the
+                    // pointer is released where its version has the request.
+                    (false, Some(p)) => {
+                        if let Some(d) = self.shape_device.take() {
+                            let _ = s.request(
+                                d,
+                                Opcode(protocol::wp_cursor_shape_device_v1::request::DESTROY),
+                                &[],
+                            );
+                        }
+                        if self.globals.pointer_release == Release::Request {
+                            let _ =
+                                s.request(p, Opcode(protocol::wl_pointer::request::RELEASE), &[]);
+                        }
+                        self.pointer = None;
+                        if self.entered.take().is_some() {
+                            self.events.push_back(Event::Pointer(PointerEvent::Left));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            // The pointer, gathered a frame at a time (`pointer.rs`).
+            ("wl_pointer", "enter", [Read::Uint(serial), _, Read::Fixed(x), Read::Fixed(y)]) => {
+                self.entered = Some(*serial);
+                let e = PointerEvent::Entered(at(*x, *y));
+                self.pointer_event(e);
+            }
+            ("wl_pointer", "leave", _) => {
+                self.entered = None;
+                self.pointer_event(PointerEvent::Left);
+            }
+            ("wl_pointer", "motion", [_, Read::Fixed(x), Read::Fixed(y)]) => {
+                self.pointer_event(PointerEvent::Moved(at(*x, *y)));
+            }
+            (
+                "wl_pointer",
+                "button",
+                [_, Read::Uint(time), Read::Uint(button), Read::Uint(state)],
+            ) => {
+                let press = match *state {
+                    protocol::wl_pointer::button_state::PRESSED => Press::Pressed,
+                    _ => Press::Released,
+                };
+                self.pointer_event(PointerEvent::Button {
+                    button: Button::of(EventCode(*button)),
+                    press,
+                    time: EventMillis::of_millis(*time),
+                });
+            }
+            ("wl_pointer", "axis", [_, Read::Uint(axis), Read::Fixed(v)]) => {
+                self.axis(AxisCode(*axis), Piece::Length(v.to_f64()));
+            }
+            ("wl_pointer", "axis_value120", [Read::Uint(axis), Read::Int(v)]) => {
+                self.axis(AxisCode(*axis), Piece::Value120(*v));
+            }
+            ("wl_pointer", "axis_discrete", [Read::Uint(axis), Read::Int(d)]) => {
+                self.axis(AxisCode(*axis), Piece::Discrete(*d));
+            }
+            ("wl_pointer", "axis_stop", [_, Read::Uint(axis)]) => {
+                self.axis(AxisCode(*axis), Piece::Stop);
+            }
+            ("wl_pointer", "frame", _) => {
+                let events = &mut self.events;
+                self.gather
+                    .frame(&mut |e| events.push_back(Event::Pointer(e)));
             }
             ("wl_keyboard", "keymap", [Read::Uint(format), Read::Fd(fd), Read::Uint(size)])
                 if *format == protocol::wl_keyboard::keymap_format::XKB_V1 =>
@@ -695,9 +907,15 @@ impl Handler for Window {
             // neither event's payload beyond its meaning is needed here.
             ("wl_keyboard", "enter", _) => self.events.push_back(Event::Focus(Focus::Gained)),
             // A keyboard that left the surface delivers no release for what
-            // it held, so the repeat stops here.
+            // it held, so the repeat stops here, and the modifiers go back
+            // to none: "In the wl_keyboard logical state, this event resets
+            // all values to their defaults" (`[[source: wayland]]`). The
+            // pointer reads them outside the keyboard's focus, and the
+            // compositor sends a fresh `modifiers` after the next `enter`.
             ("wl_keyboard", "leave", _) => {
                 self.held = None;
+                self.mods = Mods::default();
+                self.group = 0;
                 self.events.push_back(Event::Focus(Focus::Lost));
             }
             ("wl_buffer", "release", _) => {

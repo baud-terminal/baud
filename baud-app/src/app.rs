@@ -3,26 +3,30 @@
 
 use crate::bell::{Bell, Rings, Update, UpdateClock};
 use crate::caret::{Caret, Cycle, Gate, NonBlinking, Owes};
+use crate::gesture::{
+    Kind, Owner, Pressed, Selected, Shift, To, pointer_route, pointer_under, shift_overrides,
+};
 use crate::host::{
     FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK,
     FIRST_TICK_DONE, MAX_GRID, cell_px, describe, host_geometry, load_faces, startup_first,
     startup_mark, startup_note,
 };
+use crate::keep::{
+    Before, Ring, followed, kept_across_resize, numbered, oldest, reset_in, snap_live,
+    stale_in_moved_rows, switched, tracked_highlight,
+};
 use crate::latency::{Ended, Judged, Latency, Switch};
 use crate::pty::{Outbox, Pty, Stream, Wrote, host_now};
-use crate::readline::{self, Arrow, Newlines};
+use crate::readline::{self, Newlines};
 use crate::reveal::{
     Button as BarButton, Drag, Grab, Knob, Motion, Over, Reveal, Scale, Takes, shown_gutter,
 };
 use crate::wheel::{Delta, Route, Travel};
-use baud_core::{
-    ClickHow, ClickKeys, Depth, Erasure, Looking, Owned, PromptJump, Screen, SurfaceLine, Term,
-    Zone, grid_stride,
-};
+use baud_core::{Depth, Erasure, Looking, Owned, PromptJump, Screen, Term, Zone, grid_stride};
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
-    KeyEventKind, KeypadMode, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods,
-    MouseTracking, PackedCell, PointerPx, Row, RowRot, Rows, ShiftEscape, WinSize,
+    KeyEventKind, KeypadMode, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, PackedCell,
+    PointerPx, Row, RowRot, Rows, WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -33,11 +37,10 @@ use baud_present_macos::{
 };
 use baud_render::Place;
 use baud_render::{
-    AbsLine, Blend, Blink, BlinkPhases, Blinking, Candidate, Clip, Composition, Damage, Frame,
-    GlyphMap, Grain, Highlight, Instance, Look, MapEntry, Overlay, Point, Press, PxSize, Renderer,
-    Resolved, Scene, Scroll as ScrollBar, Scrolled, Scroller, Selection, Slide, Span, StyleStamp,
-    Tally, Target, Theme, Trail, TrailLook, Transition, Window, back_for, copy_for_shader, gutter,
-    place, thumb,
+    Blend, Blink, BlinkPhases, Blinking, Candidate, Clip, Composition, Damage, Frame, GlyphMap,
+    Instance, Look, MapEntry, Overlay, Press, PxSize, Renderer, Resolved, Scene,
+    Scroll as ScrollBar, Scrolled, Scroller, Selection, Slide, StyleStamp, Tally, Target, Theme,
+    Trail, TrailLook, Transition, Window, back_for, copy_for_shader, gutter, place, thumb,
 };
 use macos_liquid_glass::drawable::{
     Appearance, Button as ViewButton, DrawableView, Focus, Handled, KeyPress, Mouse,
@@ -2762,139 +2765,12 @@ struct Driver {
     icon_inset: CGFloat,
 }
 
-use baud_core::Moved as Ring;
-
-/// Where the live ring stood before a read or a resize, for the
-/// selection's line count and a slide, and the counts a read is judged by.
-/// The window over the history is the core's (note V, V2), so nothing here
-/// anchors it.
-#[derive(Clone, Copy)]
-struct Before {
-    live: RowRot,
-    epoch: baud_core::ScreenEpoch,
-    region: baud_core::RegionScrolls,
-    erased: baud_core::HistoryErasures,
-    resets: baud_core::Resets,
-}
-
-impl Before {
-    fn of(term: &Term<'_>) -> Before {
-        Before {
-            live: term.rotation(),
-            epoch: term.screen_epoch(),
-            region: term.region_scrolls(),
-            erased: term.history_erasures(),
-            resets: term.resets(),
-        }
-    }
-
-    /// The readings a pump takes before it feeds, with the core's watch on
-    /// the history's erasures armed at them, so the first erasure the feed
-    /// makes is kept for [`restart`] whatever erases after it -- and its
-    /// watch on the lines of the live surface `selection` names, numbered by
-    /// `scrolled`, so [`stale_in_moved_rows`] learns whether a move in place,
-    /// a write, an erase or a line taken back reached one, and [`numbered`]
-    /// how far the read moved the surface.
-    fn watched(term: &mut Term<'_>, selection: Option<&Selection>, scrolled: Scrolled) -> Before {
-        term.watch_erasures();
-        let lines = selection.and_then(|s| watched_lines(s, term, scrolled));
-        term.watch_lines(lines);
-        Before::of(term)
-    }
-}
-
-/// The first and last lines of the live surface `sel` names, numbered by
-/// `scrolled` -- rows of the screen, or lines of the history the ring still
-/// holds -- or `None` when it names none the ring holds. A selection in the
-/// history is watched too: a scroll down takes the newest saved line back
-/// and blanks it, and a read that retires it again nets no movement, so
-/// nothing at the read's two ends says its text went.
-fn watched_lines(
-    sel: &Selection,
-    term: &Term<'_>,
-    scrolled: Scrolled,
-) -> Option<(SurfaceLine, SurfaceLine)> {
-    let rows = term.geometry().1;
-    let (start, end) = sel.ordered();
-    let first = start.line.max(oldest(term, scrolled));
-    let bottom = Row::from_index(rows.index().checked_sub(1)?);
-    let last = end.line.min(scrolled.line(Rows::ZERO, bottom));
-    if first > last {
-        return None;
-    }
-    Some((
-        scrolled.surface_line(first, rows)?,
-        scrolled.surface_line(last, rows)?,
-    ))
-}
-
 /// Whether a read erased the primary's history -- `CSI 3 J` or `RIS`, from
 /// either screen -- by the core's count, because nothing else across a read
 /// says so: the erase scrolls nothing, and lines after it in the same read
 /// refill the history to a count that hides it.
 fn erased(term: &Term<'_>, before: Before) -> bool {
     term.history_erasures() != before.erased
-}
-
-/// Whether a read wrote or erased on a row of the live screen the
-/// selection names -- text, a mark, `EL`, `ED`, `ECH`, `ICH`, `DCH`, the
-/// selective erases, `DECIC`, `DECDC`, `DECALN` -- whatever it left there:
-/// the owner's answer A to B23, as xterm disowns a selection a write or an
-/// erase lands on. A copy reads the cells as they are at `Cmd-C`, so a
-/// selection kept there would copy what replaced its text. Or whether a
-/// read moved, in place,
-/// rows the selection names: an `IL` or `DL`, or a region scroll that
-/// copies its rows -- a
-/// region in the middle of the screen, a short top region
-/// on the alternate screen, `SD` and `RI` in any partial region, and every
-/// vertical scroll under side margins, the whole screen included, which
-/// moves only the rectangle. Rows are tested and columns are not, so a
-/// selection beside the rectangle on its rows is stale too, though its text
-/// did not move. No ring moves, so the selection's lines still name the
-/// same screen rows while the text on them has moved, and it would copy
-/// what took their place. Or whether a region anchored at the top
-/// scrolled over rows of the selection under it: the ring moved and the
-/// text under the region did
-/// not, so the count would renumber the selection onto the row below's
-/// text. Or whether a line taken back erased a line of the selection, on
-/// the screen or in the history: the whole screen's scroll down shows the
-/// newest saved line on the top row and blanks it, and gives up the last
-/// row to a line feed that brings it back blank, and a redraw mark erases
-/// the block it takes back, so a read that retires as many lines again
-/// nets none taken back and nothing at its two ends says the text went.
-/// The core judges each write and erase by the rows it lands on, and each
-/// move by its own rows -- the region's, from the cursor to the region's
-/// bottom for `IL` and `DL`, the rows under a top region, the rows a line
-/// taken back erases -- against the lines [`Before::watched`] armed it on,
-/// numbered through every line the read retired or took back before it, as
-/// the core counts them. Not by the region the read ends in, nor by its net
-/// movement: a read can scroll in one region and then set another, or set
-/// it back, and take lines back and retire them again. So the answer is the
-/// one the same bytes give fed in any number of reads, and a selection the
-/// watch did not reach holds its text however far the read moved the
-/// surface, and is renumbered by [`numbered`] -- back as well as on. Until
-/// 2026-10-17 the pump dropped a selection on a read that netted lines
-/// taken back, and on rows under the region a read ended in, both judged
-/// at the read's two ends, and the watch was reached by a read past half
-/// the ring whatever it moved (the record, "A selection is numbered by the
-/// lines the surface moved").
-fn stale_in_moved_rows(term: &Term<'_>) -> bool {
-    term.watched_rows_changed()
-}
-
-/// **The selection carried with its text across a read**, the count that
-/// numbers it already moved to `scrolled`: a region's scroll moves it with
-/// its rows and trims what it takes out of the region, a scroll down trims
-/// what it pushes under the screen, the alternate screen's top trims what
-/// leaves it, the rows under a top region keep theirs, and `IL` and `DL`
-/// move it below the cursor (`Term::watched_lines`, note V and the Jev
-/// decisions of 2026-10-20). Unchanged by a read that moved no rows in
-/// place; the caller has dropped one the watch reached.
-fn followed(term: &Term<'_>, selection: &mut Option<Selection>, scrolled: Scrolled) {
-    if let (Some(sel), Some(w)) = (selection.as_mut(), term.watched_lines()) {
-        let last = Col::at_index(term.geometry().0.index().saturating_sub(1));
-        sel.follow(scrolled, w, last);
-    }
 }
 
 /// Whether every line a read retired left with the whole screen: no scroll
@@ -2906,23 +2782,6 @@ fn followed(term: &Term<'_>, selection: &mut Option<Selection>, scrolled: Scroll
 /// a program can set a region, scroll it and reset it inside one read.
 fn whole_screen_scrolled(term: &Term<'_>, before: Before) -> bool {
     term.region_scrolls() == before.region
-}
-
-/// Whether a read switched surfaces -- by the core's epoch, not by the
-/// screen at its two ends: a read that left the alternate screen and
-/// entered it again ends where it began, on a surface `?1049` cleared or
-/// `?47` showed as it was left some time before, and a selection or a slide
-/// from before names rows it cannot vouch for.
-fn switched(term: &Term<'_>, before: Before) -> bool {
-    term.screen_epoch() != before.epoch
-}
-
-/// The oldest line a selection may name: as far behind the live screen's
-/// top as the live surface keeps -- the primary's history, and nothing on
-/// the alternate screen, where the history count is still the primary's.
-fn oldest(term: &Term<'_>, scrolled: Scrolled) -> AbsLine {
-    let retained = Rows::of_count(term.scrollback().len());
-    scrolled.oldest(term.looking_back(retained))
 }
 
 /// How the live surface moved over a read, for the selection's line count
@@ -2945,237 +2804,11 @@ fn read_moved(term: &Term<'_>, before: Before, resized: Option<crate::width::Gri
     }
 }
 
-/// How the selection's numbering moves across a read: by the core's count
-/// of the lines the live surface retired or took back since the watch was
-/// armed on the selection (`Term::watched_moved`), which is exact however
-/// far the read went -- where the rotation is read round the ring, so past
-/// half of it lines retired read as lines taken back, and a ring and a line
-/// as one line. With no watch armed, or one a line it names reached, the
-/// rotation, which numbers nothing kept. Nothing across a switch or a
-/// resize, after which no selection is kept.
-fn numbered(term: &Term<'_>, before: Before, resized: Option<crate::width::Grid>) -> Ring {
-    match (resized, switched(term, before), term.watched_moved()) {
-        (Some(_), _, _) | (None, true, _) => Ring::Retired(Rows::ZERO),
-        (None, false, Some(m)) => m,
-        (None, false, None) => term.moved_since(before.live),
-    }
-}
-
-/// **What a window resize leaves of the selection, and how the count that
-/// numbers it moves** (note V, V3, the owner's answer of 2026-09-25): on
-/// the primary, across a change of height alone, the selection is kept on
-/// its lines and the count moves by the rows the resize retired into the
-/// history or took back from it, as a read's would -- the core counts them
-/// by the window's top line (`Term::history_moved_since`), however many.
-/// A change of columns re-cuts the lines, so the columns a selection names
-/// no longer name its cells and it goes; on the alternate screen the
-/// program redraws for the new size and the screen has no history to
-/// number by, so it goes; and it goes where it reaches a row the shrink
-/// cut below the screen, which may come back or be blanked when history is
-/// pulled instead. A line the ring recycled is clipped, as after a read.
-/// Until 2026-10-20 every change of grid cleared it. `mark`, `cols` and
-/// `screen` are read before the resize.
-fn kept_across_resize(
-    term: &Term<'_>,
-    (mark, cols, screen): (baud_core::HistoryMark, Cols, Screen),
-    selection: Option<Selection>,
-    scrolled: Scrolled,
-) -> (Option<Selection>, Scrolled) {
-    let (now_cols, rows) = term.geometry();
-    if now_cols != cols || screen != Screen::Normal || term.screen() != Screen::Normal {
-        return (None, scrolled);
-    }
-    let scrolled = match term.history_moved_since(mark) {
-        Ring::Retired(n) => scrolled.advanced(n),
-        Ring::Restored(n) => match scrolled.retreated(n) {
-            Some(s) => s,
-            None => return (None, Scrolled::START),
-        },
-    };
-    let Some(mut sel) = selection else {
-        return (None, scrolled);
-    };
-    let bottom = Row::from_index(rows.index().saturating_sub(1));
-    if sel.ordered().1.line > scrolled.line(Rows::ZERO, bottom) {
-        return (None, scrolled);
-    }
-    match sel.clip(oldest(term, scrolled)) {
-        Clip::Kept => (Some(sel), scrolled),
-        Clip::Cleared => (None, scrolled),
-    }
-}
-
 fn live_moved(term: &Term<'_>, before: Before) -> Ring {
     if switched(term, before) {
         return Ring::Retired(Rows::ZERO);
     }
     term.moved_since(before.live)
-}
-
-/// **`?1001`'s region, through the selection's highlight**, on the view
-/// `back` lines up: `[[source: ctlseqs]]`'s highlight tracking "highlights
-/// the region covered by the mouse within that range until button
-/// release", and the core says what that region is (`Term::highlight`).
-/// Its cells are the live screen's, numbered as a selection's are, and the
-/// region is a stream from the earlier of its two ends to the later -- the
-/// core keeps them in the order the program and the mouse gave them. `None`
-/// when nothing is tracked or none of it is on this view. Drawn in place of
-/// the selection while it lasts and never stored as one, so Cmd-C still
-/// copies the user's selection and the user's selection is back after the
-/// release.
-fn tracked_highlight(term: &Term<'_>, scrolled: Scrolled, back: Rows) -> Option<Highlight> {
-    let h = term.highlight()?;
-    let point = |c: baud_core::CellAt| Point::new(scrolled.line(Rows::ZERO, c.row), c.col);
-    let (a, b) = (point(h.start), point(h.end));
-    let span = Span {
-        start: a.min(b),
-        end: a.max(b),
-    };
-    let view = term.view(back);
-    Selection::at(span, Grain::Cell).highlight(scrolled.top(back), view.rows(), view.cols())
-}
-
-/// `?1001`'s region on screen: the core's handshake drawn through the
-/// selection's highlight (`tracked_highlight`).
-#[cfg(test)]
-mod highlight_tests {
-    use super::tracked_highlight;
-    use baud_core::{CellAt, MouseButton, MouseEvent, MouseKind, MouseMods, Owned, Term};
-    use baud_domain::{BytePos, Col, ReadLen, Row, Rows, WinSize};
-    use baud_render::{Highlight, Region, Scrolled};
-
-    const WS: WinSize = WinSize {
-        ws_col: 20,
-        ws_row: 10,
-    };
-
-    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
-        t.write_at(BytePos::ZERO, bytes);
-        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
-    }
-
-    /// A cell by column and row, zero-based.
-    const fn at(col: Col, row: Row) -> CellAt {
-        CellAt { col, row }
-    }
-
-    fn left(t: &mut Term<'_>, kind: MouseKind, at: CellAt) {
-        t.mouse_report(MouseEvent {
-            button: MouseButton::Left,
-            mods: MouseMods::NONE,
-            kind,
-            col: at.col,
-            row: at.row,
-            px: None,
-        });
-        t.clear_reply();
-    }
-
-    /// The stream highlight from one cell to another, as the view draws it.
-    fn drawn(from: CellAt, to: CellAt) -> Option<Highlight> {
-        Some(Highlight {
-            from: (from.row, from.col),
-            to: (to.row, to.col),
-            region: Region::Stream,
-        })
-    }
-
-    /// **From the answer to the release, the region is what is drawn**, a
-    /// stream from the earlier end to the later, whichever way the mouse
-    /// went; nothing before the answer and nothing after the release.
-    #[test]
-    fn the_program_s_region_is_drawn_through_the_selection_highlight() {
-        let mut owned = Owned::new(&WS);
-        let mut t = Term::new(owned.storage(), &WS);
-        let live = |t: &Term<'_>| tracked_highlight(t, Scrolled::START, Rows::ZERO);
-        feed(&mut t, b"\x1b[?1001h");
-        left(
-            &mut t,
-            MouseKind::Press,
-            at(Col::at_index(3), Row::from_index(2)),
-        );
-        assert_eq!(live(&t), None, "nothing while the answer is owed");
-        feed(&mut t, b"\x1b[1;4;3;1;10T");
-        left(
-            &mut t,
-            MouseKind::Motion,
-            at(Col::at_index(7), Row::from_index(5)),
-        );
-        assert_eq!(
-            live(&t),
-            drawn(
-                at(Col::at_index(3), Row::from_index(2)),
-                at(Col::at_index(7), Row::from_index(5))
-            )
-        );
-        left(
-            &mut t,
-            MouseKind::Motion,
-            at(Col::at_index(1), Row::from_index(1)),
-        );
-        assert_eq!(
-            live(&t),
-            drawn(
-                at(Col::at_index(1), Row::from_index(1)),
-                at(Col::at_index(3), Row::from_index(2))
-            ),
-            "sorted for drawing"
-        );
-        left(
-            &mut t,
-            MouseKind::Release,
-            at(Col::at_index(1), Row::from_index(1)),
-        );
-        assert_eq!(live(&t), None, "gone at the release");
-    }
-
-    /// **On a view scrolled back it sits where the live rows are drawn**,
-    /// and what falls below the view is clipped to it.
-    #[test]
-    fn on_a_view_scrolled_back_it_moves_down_with_the_live_rows() {
-        let mut owned = Owned::new(&WS);
-        let mut t = Term::new(owned.storage(), &WS);
-        let lines: Vec<u8> = (0..40)
-            .flat_map(|i| format!("line {i}\r\n").into_bytes())
-            .collect();
-        feed(&mut t, &lines);
-        assert_eq!(t.scrollback().len(), 31);
-        // The count the driver keeps: the live top is line 31.
-        let scrolled = Scrolled::START.advanced(Rows::of_count(31));
-        feed(&mut t, b"\x1b[?1001h");
-        left(
-            &mut t,
-            MouseKind::Press,
-            at(Col::at_index(3), Row::from_index(2)),
-        );
-        feed(&mut t, b"\x1b[1;4;3;1;10T");
-        left(
-            &mut t,
-            MouseKind::Motion,
-            at(Col::at_index(7), Row::from_index(4)),
-        );
-        assert_eq!(
-            tracked_highlight(&t, scrolled, Rows::of_count(3)),
-            drawn(
-                at(Col::at_index(3), Row::from_index(5)),
-                at(Col::at_index(7), Row::from_index(7))
-            ),
-            "three lines back, three rows down"
-        );
-        left(
-            &mut t,
-            MouseKind::Motion,
-            at(Col::at_index(7), Row::from_index(8)),
-        );
-        assert_eq!(
-            tracked_highlight(&t, scrolled, Rows::of_count(3)),
-            drawn(
-                at(Col::at_index(3), Row::from_index(5)),
-                at(Col::at_index(19), Row::from_index(9))
-            ),
-            "the end below the view is clipped to its last cell"
-        );
-    }
 }
 
 /// Where the window sits in the ring, for the scrollback's thumb: the
@@ -3248,20 +2881,6 @@ fn trail_cursor(term: &Term<'_>) -> Option<TrailCursor> {
     }
 }
 
-/// A key's or a paste's snap: the primary's window to the live screen, where
-/// the key's effect is, and whether that moved it. On the alternate screen
-/// the live screen is already what is drawn, and the primary's window is
-/// kept for when the program leaves, as foot keeps a view per grid and
-/// resets only the live one on a key (`docs/research/notes/l-scrollbar.md`).
-/// The policy is the app's and the window the core's (note V, V2).
-fn snap_live(term: &mut Term<'_>) -> bool {
-    let moved = term.screen() == Screen::Normal && term.window_back().index() != 0;
-    if moved {
-        term.window_live();
-    }
-    moved
-}
-
 /// What the app keeps over the screen and a read can leave naming cells
 /// that are gone: the selection, the echoes drawn ahead of the shell and
 /// their frame, the slide, the wheel's travel not yet a line, and the
@@ -3289,15 +2908,6 @@ enum Surface {
 enum Thumb {
     Reveal,
     Leave,
-}
-
-/// Whether a read reset the terminal -- `RIS`, from either screen -- by the
-/// core's count, because nothing else across a read says so: a reset scrolls
-/// nothing and keeps the rotation, so on a terminal with no history both ends
-/// of the read look alike, and [`erased`] moves on `CSI 3 J` too, which keeps
-/// the screen and a selection on it (note V, V1).
-fn reset_in(term: &Term<'_>, before: Before) -> bool {
-    term.resets() != before.resets
 }
 
 /// **What a read that put another surface up, or reset the terminal, owes
@@ -7056,204 +6666,6 @@ enum Took {
     No,
 }
 
-/// Where a pointer event goes once the scrollbar and links have passed it:
-/// to the child, which tracks the mouse, or to the selection.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum To {
-    Child,
-    Select,
-}
-
-/// Whether Shift is held at a pointer event.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Shift {
-    Held,
-    Up,
-}
-
-/// **Whether Shift, if held, overrides the child's tracking for this
-/// event**: XTSHIFTESCAPE's choice, `Term::shift_escape`. At 0, the
-/// default, Shift takes every event, as xterm's `ShiftOverride` does under
-/// `shiftEscape` false; at 1 it takes only a button the selection binds
-/// without Shift -- xterm's `shift_buttons` (`[[source: xterm-button-c]]`),
-/// which for baud's bindings is the left button, the one a press selects
-/// with -- and every other press goes to the child with its Shift bit
-/// (Jev's lean, SELECTION_BUTTONS, 0.80/0.88 then 0.78/0.78). A move with
-/// no button held is button 1's, as xterm's `MotionButton` reads one.
-fn shift_overrides(
-    held: Shift,
-    escape: ShiftEscape,
-    kind: ViewMouseKind,
-    button: ViewButton,
-) -> Shift {
-    match (held, escape, kind, button) {
-        (Shift::Up, ..) => Shift::Up,
-        (_, ShiftEscape::Override, ..) => Shift::Held,
-        (_, ShiftEscape::Conditional, ViewMouseKind::Moved, _)
-        | (_, ShiftEscape::Conditional, _, ViewButton::Left) => Shift::Held,
-        (_, ShiftEscape::Conditional, ..) => Shift::Up,
-    }
-}
-
-/// Who owns the press in progress, decided at the press. `Free` between
-/// presses.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Owner {
-    Free,
-    Pressed(To),
-}
-
-/// **Where one pointer event goes, and who owns the press after it.** The
-/// child's when it tracks the mouse, unless Shift is held, which is a
-/// selection whatever the child asked for: xterm's default, ctlseqs'
-/// XTSHIFTESCAPE at 0. **Decided at the press and kept to its release**, as
-/// the scrollbar's grab and a link's arming are: Shift pressed or let go
-/// mid-drag moves neither the drag nor the release, so the child never sees
-/// a press without its release -- under `?1001` that release is the one
-/// that ends the drawn region and sends the report (`[[source: ctlseqs]]`,
-/// "until button release, and then sends the program the release
-/// coordinates") -- and a selection never loses the release that ends it.
-/// A move with no button held has no press to follow and is decided as it
-/// comes, as is a drag or release whose press nothing here saw. A second
-/// button pressed mid-drag decides again, so a press whose release was lost
-/// cannot hold the next gesture.
-fn pointer_route(
-    owner: Owner,
-    kind: ViewMouseKind,
-    tracking: MouseTracking,
-    shift: Shift,
-) -> (To, Owner) {
-    let now = match (tracking, shift) {
-        (MouseTracking::Off, _) | (_, Shift::Held) => To::Select,
-        _ => To::Child,
-    };
-    match (kind, owner) {
-        (ViewMouseKind::Down, _) => (now, Owner::Pressed(now)),
-        (ViewMouseKind::Dragged, Owner::Pressed(to)) => (to, owner),
-        (ViewMouseKind::Up, Owner::Pressed(to)) => (to, Owner::Free),
-        (ViewMouseKind::Up, Owner::Free) => (now, Owner::Free),
-        _ => (now, owner),
-    }
-}
-
-/// `pointer_route`: the press decides, and Shift mid-drag does not.
-#[cfg(test)]
-mod route_tests {
-    use super::{Owner, Shift, To, ViewMouseKind as K, pointer_route};
-    use baud_domain::MouseTracking;
-
-    /// Feed `events` (kind, Shift held) from `Free`, and say where each went.
-    fn routed(tracking: MouseTracking, events: &[(K, Shift)]) -> (Vec<To>, Owner) {
-        let mut owner = Owner::Free;
-        let mut to = Vec::new();
-        for &(kind, shift) in events {
-            let (t, next) = pointer_route(owner, kind, tracking, shift);
-            to.push(t);
-            owner = next;
-        }
-        (to, owner)
-    }
-
-    /// **Shift pressed mid-drag keeps the release the child's.** Under
-    /// `?1001` that release ends the drawn region and sends the report; per
-    /// event, the selection took it and the region stayed drawn.
-    #[test]
-    fn shift_pressed_mid_drag_leaves_the_release_with_the_child() {
-        let (to, owner) = routed(
-            MouseTracking::Highlight,
-            &[
-                (K::Down, Shift::Up),
-                (K::Dragged, Shift::Held),
-                (K::Up, Shift::Held),
-            ],
-        );
-        assert_eq!(to, [To::Child, To::Child, To::Child]);
-        assert_eq!(owner, Owner::Free, "the release frees it");
-    }
-
-    /// **Shift let go mid-drag keeps a selection the selection's**, to the
-    /// release that ends it.
-    #[test]
-    fn shift_let_go_mid_drag_leaves_the_selection_its_release() {
-        let (to, owner) = routed(
-            MouseTracking::Normal,
-            &[
-                (K::Down, Shift::Held),
-                (K::Dragged, Shift::Up),
-                (K::Up, Shift::Up),
-            ],
-        );
-        assert_eq!(to, [To::Select, To::Select, To::Select]);
-        assert_eq!(owner, Owner::Free);
-    }
-
-    /// **Tracking switched on or off mid-drag moves nothing either**: the
-    /// press decided.
-    #[test]
-    fn a_tracking_change_mid_drag_leaves_the_press_s_owner() {
-        let mut owner = Owner::Free;
-        let (t, next) = pointer_route(owner, K::Down, MouseTracking::Off, Shift::Up);
-        owner = next;
-        assert_eq!(t, To::Select);
-        let (t, next) = pointer_route(owner, K::Up, MouseTracking::Normal, Shift::Up);
-        assert_eq!((t, next), (To::Select, Owner::Free));
-    }
-
-    /// **A move with no press is decided as it comes**, so `?1003` hover
-    /// reaches the child and Shift hover does not, and it leaves the owner.
-    #[test]
-    fn a_move_with_no_press_is_decided_as_it_comes() {
-        for (shift, want) in [(Shift::Up, To::Child), (Shift::Held, To::Select)] {
-            let (t, next) = pointer_route(Owner::Free, K::Moved, MouseTracking::AnyEvent, shift);
-            assert_eq!((t, next), (want, Owner::Free));
-        }
-    }
-
-    /// **XTSHIFTESCAPE 1 hands Shift only the left button.** At 0 Shift
-    /// overrides tracking for every button; at 1 the middle and right
-    /// buttons, which baud's selection binds nothing to, go to the child
-    /// with their Shift bit, and the left button and a bare move stay the
-    /// selection's (`[[source: ctlseqs]]`, "conditionally allow shift-key as
-    /// modifier in mouse protocol").
-    #[test]
-    fn xtshiftescape_1_hands_shift_only_the_selection_button() {
-        use super::{ShiftEscape as E, ViewButton as B, shift_overrides};
-        let over = |e, k, b| shift_overrides(Shift::Held, e, k, b);
-        for b in [B::Left, B::Middle, B::Right] {
-            assert_eq!(over(E::Override, K::Down, b), Shift::Held, "{b:?} at 0");
-        }
-        assert_eq!(over(E::Conditional, K::Down, B::Left), Shift::Held);
-        assert_eq!(over(E::Conditional, K::Down, B::Middle), Shift::Up);
-        assert_eq!(over(E::Conditional, K::Down, B::Right), Shift::Up);
-        assert_eq!(
-            over(E::Conditional, K::Moved, B::Right),
-            Shift::Held,
-            "a bare move is button 1's"
-        );
-        assert_eq!(
-            shift_overrides(Shift::Up, E::Override, K::Down, B::Left),
-            Shift::Up,
-            "nothing held, nothing overridden"
-        );
-        // Through the route: Shift+Middle under 1 is the child's.
-        let (t, _) = pointer_route(
-            Owner::Free,
-            K::Down,
-            MouseTracking::Normal,
-            over(E::Conditional, K::Down, B::Middle),
-        );
-        assert_eq!(t, To::Child);
-    }
-
-    /// **A press decides again**, even over an owner whose release was lost.
-    #[test]
-    fn a_press_decides_again() {
-        let stale = Owner::Pressed(To::Child);
-        let (t, next) = pointer_route(stale, K::Down, MouseTracking::Normal, Shift::Held);
-        assert_eq!((t, next), (To::Select, Owner::Pressed(To::Select)));
-    }
-}
-
 impl Driver {
     /// A key the user pressed: sent to the core and on to the child, with
     /// the instrument's first two stamps around it -- the key event's own
@@ -7997,11 +7409,12 @@ impl Responder for Driver {
             true => Shift::Held,
             false => Shift::Up,
         };
+        let (kind, button) = (mouse_kind(event.kind), mouse_button(event.button));
         let (to, owner) = pointer_route(
             self.owner,
-            event.kind,
+            kind,
             self.app.term.mouse_tracking(),
-            shift_overrides(held, self.app.term.shift_escape(), event.kind, event.button),
+            shift_overrides(held, self.app.term.shift_escape(), kind, button),
         );
         self.owner = owner;
         if to == To::Select {
@@ -8009,12 +7422,7 @@ impl Responder for Driver {
             return;
         }
         let (row, col, px) = self.pointer_under(event.x, event.y);
-        let pressed = match event.button {
-            ViewButton::Left => MouseButton::Left,
-            ViewButton::Middle => MouseButton::Middle,
-            ViewButton::Right => MouseButton::Right,
-            ViewButton::Other(_) => MouseButton::None,
-        };
+        let pressed = button.reported();
         let (kind, button) = match event.kind {
             ViewMouseKind::Down => {
                 self.held = Some(pressed);
@@ -9339,178 +8747,60 @@ impl Driver {
     /// the only way in, so Shift+Option is how a block starts there, where
     /// letting Shift win would extend whatever was already on screen.
     fn select(&mut self, event: &Mouse) {
-        let (row, col) = self.cell_under(event.x, event.y);
-        let scrolled = self.app.scrolled;
-        let back = self.app.term.window_back();
-        let view = self.app.term.view(back);
-        // The line's own column: half the display's on a sized line.
-        let col = baud_render::char_col(&view, row, col);
-        let top = scrolled.top(back);
-        let line = scrolled.line(back, row);
-        let span_at = |grain: Grain| match grain {
-            Grain::Cell => Span::cell(view.row(row), line, col),
-            Grain::Word => Span::word(&self.app.term, view.row(row), line, col),
-            Grain::Line => Span::line(&view, top, row),
-        };
-        match event.kind {
-            ViewMouseKind::Down if event.button == ViewButton::Left => {
-                let grain = match event.clicks {
-                    0 | 1 => Grain::Cell,
-                    2 => Grain::Word,
-                    _ => Grain::Line,
-                };
-                self.app.selection = Some(Selection::pressed(
-                    self.app.selection,
-                    press_of(event.modifiers),
-                    grain,
-                    span_at,
-                ));
-                self.held = Some(MouseButton::Left);
-            }
-            ViewMouseKind::Dragged if self.held == Some(MouseButton::Left) => {
-                if let Some(sel) = self.app.selection.as_mut() {
-                    sel.extend(span_at(sel.grain()));
-                }
-            }
-            ViewMouseKind::Up => {
-                self.held = None;
-                if self.app.selection.is_some_and(|s| s.is_click()) {
-                    self.app.selection = None;
-                    self.move_point(event);
-                } else if self
+        let at = self.cell_under(event.x, event.y);
+        let selected = crate::gesture::select(
+            &self.app.term,
+            self.app.scrolled,
+            &mut self.app.selection,
+            &mut self.held,
+            (
+                mouse_kind(event.kind),
+                mouse_button(event.button),
+                event.clicks,
+            ),
+            press_of(event.modifiers),
+            at,
+        );
+        match selected {
+            Selected::Unchanged => return,
+            Selected::Changed => {}
+            Selected::Click => self.move_point(event),
+            // `?1041`: the selection made is the clipboard's, as xterm's
+            // selectToClipboard puts SELECT on CLIPBOARD.
+            Selected::Made => {
+                if self
                     .app
                     .term
                     .resource(baud_core::Resource::SelectToClipboard)
                 {
-                    // `?1041`: the selection made is the clipboard's, as
-                    // xterm's selectToClipboard puts SELECT on CLIPBOARD.
                     self.copy();
                 }
             }
-            _ => return,
         }
         self.app.pending = Pending::Dirty;
         self.pump(Trigger::Wake);
     }
 
-    /// **`?2001`: a click on the cursor's line moves the shell's point
-    /// there**, with as many cursor keys as `readline::point_move` counts,
-    /// sent as the wheel's are -- the terminal's, not keystrokes, so KAM
-    /// does not lock them and SRM does not draw them. Only an unmodified
-    /// click, the program not tracking the mouse (a click it tracks never
-    /// reaches here) and the window on the live screen: xterm's
-    /// `isClick1_clean` refuses a Shift click and a tracked one, and its
-    /// rows are the screen's. A click is a press and a release with no drag
-    /// between; xterm also bounds its time by `multiClickTime`, which this
-    /// does not.
-    ///
-    /// **A prompt that asked with `OSC 133` takes the click first**: its
-    /// `cl=` or kitty's `click_events=` is the shell saying what it handles,
-    /// and `?2001` is reached only where no prompt asked (Jev, SPEC_LINE,
-    /// 0.80/0.89, the lean taken).
+    /// **A click, to the prompt that asked for it or to `?2001`**
+    /// (`gesture::clicked`): only an unmodified left click, the program not
+    /// tracking the mouse (a click it tracks never reaches here) and the
+    /// window on the live screen.
     fn move_point(&mut self, event: &Mouse) {
         let m = event.modifiers;
-        let t = &self.app.term;
         if event.button != ViewButton::Left
             || m.shift
             || m.option
             || m.control
             || m.command
-            || t.window_back().index() != 0
+            || self.app.term.window_back().index() != 0
         {
             return;
         }
-        if self.prompt_click(event) {
-            return;
-        }
-        let t = &self.app.term;
-        if !t.resource(baud_core::Resource::ClickMovesPoint) {
-            return;
-        }
-        let (row, _, px) = self.pointer_under(event.x, event.y);
-        let col = readline::boundary(px.x, cell_px(self.app.renderer.metrics().cell_w));
-        let view = t.viewport();
-        let Some((arrow, n)) =
-            readline::point_move(|r| view.wrapped(r), t.cursor(), (row, col), t.geometry().0)
-        else {
-            return;
-        };
-        let code = match arrow {
-            Arrow::Left => KeyCode::Left,
-            Arrow::Right => KeyCode::Right,
-        };
-        for _ in 0..n {
-            let outbox = &mut self.app.outbox;
-            crate::reads::input(
-                &mut self.app.term,
-                |t| t.wheel_key(KeyEvent::press(code, Modifiers::default())),
-                |b| outbox.push(b),
-            );
-        }
+        let at = self.pointer_under(event.x, event.y);
+        let cell_w = cell_px(self.app.renderer.metrics().cell_w);
+        let outbox = &mut self.app.outbox;
+        crate::gesture::clicked(&mut self.app.term, at, cell_w, |b| outbox.push(b));
         self.app.flush_reply();
-    }
-
-    /// **A click at the prompt the shell is at, as its `A` asked**
-    /// (`Term::prompt_click`): kitty's `click_events=` sends the click as
-    /// an SGR report, `cl=` the keys that move the line editor's cursor to
-    /// it (`readline::prompt_move`) -- the cursor keys as the wheel sends
-    /// them, kitty's `special_key=1` pair, or the proposal's `move-keys=`.
-    /// Whether a prompt asked, and so took the click.
-    fn prompt_click(&mut self, event: &Mouse) -> bool {
-        let Some(asked) = self.app.term.prompt_click() else {
-            return false;
-        };
-        let click = self.cell_under(event.x, event.y);
-        match asked.how {
-            ClickHow::Report(events) => {
-                if let Some(bytes) = readline::prompt_report(events, asked.top, asked.later, click)
-                {
-                    self.app.outbox.push(&bytes);
-                }
-            }
-            ClickHow::Keys(keys) => {
-                let t = &self.app.term;
-                let view = t.viewport();
-                let rows = Rows::of_count(t.geometry().1.index());
-                let Some((arrow, n)) = readline::prompt_move(
-                    |r| view.row(r),
-                    |r| view.wrapped(r),
-                    rows,
-                    t.cursor(),
-                    click,
-                    asked.input,
-                ) else {
-                    return true;
-                };
-                let left = arrow == Arrow::Left;
-                for _ in 0..n {
-                    match keys {
-                        ClickKeys::Arrows => {
-                            let code = if left { KeyCode::Left } else { KeyCode::Right };
-                            let outbox = &mut self.app.outbox;
-                            crate::reads::input(
-                                &mut self.app.term,
-                                |t| t.wheel_key(KeyEvent::press(code, Modifiers::default())),
-                                |b| outbox.push(b),
-                            );
-                        }
-                        // `[[source: kitty-6d5d0c4-screen]]`, its fake cursor
-                        // move to a click: "1" right,
-                        // "1;1" left, each `CSI ... u`.
-                        ClickKeys::Special => self.app.outbox.push(match left {
-                            true => b"\x1b[1;1u",
-                            false => b"\x1b[1u",
-                        }),
-                        ClickKeys::Sequences(k) => self.app.outbox.push(match left {
-                            true => k.left(),
-                            false => k.right(),
-                        }),
-                    }
-                }
-            }
-        }
-        self.app.flush_reply();
-        true
     }
 
     /// **Command-Up and Command-Down jump to the previous and the next
@@ -10244,46 +9534,6 @@ fn cell_under(
     (row, col)
 }
 
-/// The cell under a point **and the pixel it is at, from one computation**,
-/// so the two cannot name different places: `?1016` reports the pixel where
-/// every other encoding reports the cell, and an application divides one by
-/// the cell size to get the other.
-///
-/// The pixel is the point in device pixels -- the unit `Term::set_cell_size`
-/// is given, and so the unit `CSI 16 t` and `?2048` answer in -- less the
-/// padding, zero-based from the grid's first pixel. It is clamped to the
-/// text area the way the cell is clamped to the grid, so a pointer over the
-/// padding or past the last cell reports the edge pixel of the edge cell.
-/// xterm does not clamp: it reports `event->y - OriginY(screen)` whatever it
-/// is (`EditorButton`, `[[source: xterm-button]]`), which over the border is
-/// zero or negative and on the wire a `0` or a `-1` -- a position no cell
-/// has, and one this cell would contradict.
-///
-/// The cell is the pixel divided by the cell size. It was the point divided
-/// by the cell size before the pixel existed, and for a whole-pixel cell,
-/// which the renderer's metrics always are, the two are the same number.
-fn pointer_under(
-    at: (f64, f64),
-    scale: CGFloat,
-    cell: (f64, f64),
-    grid: (u16, u16),
-    pad: (u32, u32),
-) -> (Row, Col, PointerPx) {
-    let axis = |p: f64, pad: u32, cell: f64, cells: u16| {
-        let extent = (cell * f64::from(cells)).floor() as i64;
-        let px = ((p * scale - f64::from(pad)).floor() as i64).clamp(0, (extent - 1).max(0));
-        let index =
-            ((px as f64 / cell).floor() as i64).clamp(0, i64::from(cells).saturating_sub(1).max(0));
-        (
-            usize::try_from(index).unwrap_or(0),
-            ImagePx::of(u16::try_from(px).unwrap_or(u16::MAX)),
-        )
-    };
-    let (col, x) = axis(at.0, pad.0, cell.0, grid.0);
-    let (row, y) = axis(at.1, pad.1, cell.1, grid.1);
-    (Row::from_index(row), Col::at_index(col), PointerPx { x, y })
-}
-
 /// Whether AppKit has the window minimized.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Miniaturized {
@@ -10344,6 +9594,27 @@ fn window_facts(p: &Placed) -> baud_core::WindowFacts {
         text_area: top_left(p.view, p.pad),
         window: Some(size(p.frame)),
         screen: p.screen.map(size),
+    }
+}
+
+/// The view's event as the shared routing names it (`gesture.rs`).
+fn mouse_kind(k: ViewMouseKind) -> Kind {
+    match k {
+        ViewMouseKind::Down => Kind::Down,
+        ViewMouseKind::Up => Kind::Up,
+        ViewMouseKind::Moved => Kind::Moved,
+        ViewMouseKind::Dragged => Kind::Dragged,
+        ViewMouseKind::Entered | ViewMouseKind::Exited => Kind::Crossed,
+    }
+}
+
+/// The view's button as the shared routing names it.
+fn mouse_button(b: ViewButton) -> Pressed {
+    match b {
+        ViewButton::Left => Pressed::Left,
+        ViewButton::Middle => Pressed::Middle,
+        ViewButton::Right => Pressed::Right,
+        ViewButton::Other(_) => Pressed::Other,
     }
 }
 

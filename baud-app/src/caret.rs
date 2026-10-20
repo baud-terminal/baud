@@ -389,7 +389,6 @@ impl<M: Moment> Caret<M> {
     /// A click or the wheel: the stop is a whole quiet time away again, and
     /// the phase is left alone -- unless the blink had stopped, when it
     /// starts again, shown.
-    #[cfg(any(target_os = "macos", test))]
     pub fn quiet(&mut self, now: M) {
         self.quiet_since = now;
     }

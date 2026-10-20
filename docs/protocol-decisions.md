@@ -157,9 +157,8 @@ The core has no input device, so `Term::mouse_report` takes an event in
 the embedder, which is where the off-by-one would otherwise hide. **Under
 `?1016` the embedder gives the pixel too**, on `MouseEvent::px`, and an event
 without one is refused and counted rather than made up from the cell, whose
-corner is a pixel the pointer was probably not at. The macOS app derives the
-cell and the pixel in one function; the Linux app has no pointer and gives
-neither.
+corner is a pixel the pointer was probably not at. Both apps derive the cell
+and the pixel in one function (`gesture::pointer_under`).
 
 **Character sets are designated, invoked and translated.** `ESC ( ) * + C`
 designate G0-G3, SO and SI invoke G1 and G0 into GL, and a byte written under a

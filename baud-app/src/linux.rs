@@ -26,10 +26,19 @@
 //! Motion means no trail, unless the config names one": "the Linux driver
 //! draws no trail"); `SGR 5` and `SGR 6` text blink; the system caret's
 //! rate (this keeps xterm's 600/300 until the desktop's settings are read);
-//! a pointer -- the seat binds only the keyboard, so there is no wheel onto
-//! the scrollback, no mouse report and no selection; a backing scale other
-//! than one -- the window binds no fractional-scale global; and the report
-//! every five seconds.
+//! a clipboard -- no data device is bound, so a selection is drawn and not
+//! copied, nothing pastes, and `?1041` has nowhere to put one; the
+//! scrollbar, which this driver does not draw, and with it `?30`; a link
+//! opened by a click; a backing scale other than one -- the window binds no
+//! fractional-scale global; and the report every five seconds.
+//!
+//! **The pointer is the macOS app's, through the same rules** (`seat.rs`):
+//! the wheel over the history, the alternate screen's cursor keys and a
+//! tracking child's reports; every report encoding the core has; stream and
+//! block selection with Shift's override of tracking; `?2001`'s click and
+//! the `OSC 133` prompt's; and `OSC 22`'s shape through `cursor-shape-v1`
+//! where the compositor offers it. Tested over a socket pair and through
+//! `seat.rs`, never on a compositor with a mouse.
 
 use crate::bell::{Bell, Update, UpdateClock};
 use crate::caret::{Blinks, Caret, Cycle, Gate, NonBlinking, Owes};
@@ -42,7 +51,7 @@ use crate::pty::{Chunk, Outbox, Pty, Ready, wait};
 use baud_core::{Focus, Owned, Resized, Term};
 use baud_domain::{Cols, DecodeProgress, Rows, WinSize};
 use baud_font::Px;
-use baud_present_wayland::{Event, Presented, Window};
+use baud_present_wayland::{Event, PointerEvent, Presented, Shaped, Window};
 use baud_render::{Argb, Blend, Damage, PxSize, Renderer, Target};
 use baud_wayland::Connection;
 use std::os::fd::AsFd;
@@ -114,11 +123,26 @@ struct Driver {
     decode: DecodeProgress,
     /// What the program's window operations did and did not do.
     performed: crate::winops::Performed,
+    /// The pointer: its position, the press that owns a gesture, the
+    /// wheel's travel and the selection (`seat.rs`).
+    seat: crate::seat::Seat,
+    /// The shape last set since the pointer entered, so a read sets it
+    /// once; `None` until the first set after an enter.
+    shape: Option<baud_present_wayland::CursorShape>,
+    /// Whether the missing cursor-shape global has been said.
+    shapeless: Said,
+}
+
+/// Whether a one-time line has been logged.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Said {
+    Not,
+    Once,
 }
 
 pub fn run() {
     crate::warn!(
-        "baud on Wayland: run only on a headless compositor, so nobody has looked at its pixels or typed into it, and it has no pointer: no wheel, mouse reports or selection"
+        "baud on Wayland: run only on a headless compositor, so nobody has looked at its pixels, typed into it or moved a mouse over it, and it has no clipboard: a selection is drawn and not copied"
     );
     let cfg = Config::load();
     startup_mark("config");
@@ -254,6 +278,9 @@ pub fn run() {
         images: cfg.images,
         decode: DecodeProgress::Idle,
         performed: crate::winops::Performed::new(),
+        seat: crate::seat::Seat::new(),
+        shape: None,
+        shapeless: Said::Not,
     };
     if let Err(e) = d.conn.flush() {
         crate::warn!("wayland: {e}");
@@ -342,6 +369,11 @@ pub fn run() {
                 Event::Configured { width, height } => d.configure(width, height),
                 Event::Frame => {}
                 Event::Key(k) => {
+                    // A key snaps the window back to the live screen,
+                    // where its effect is.
+                    if d.seat.key(&mut d.term) {
+                        d.pending = Pending::Dirty;
+                    }
                     // Into an empty buffer, so it always fits and a `false`
                     // is a key that sends nothing (`reads::input`). It was
                     // queued behind the read's answers and its `false`
@@ -375,6 +407,7 @@ pub fn run() {
                     }
                     d.pending = Pending::Dirty;
                 }
+                Event::Pointer(p) => d.pointer(p),
                 Event::Closed => return,
             }
         }
@@ -421,6 +454,9 @@ impl Driver {
         // nothing here resizes the window, so the read is not held either.
         let widths = &mut self.widths;
         let mut asked = Vec::new();
+        // The watches on the selection's lines, armed before the read
+        // (`keep::Before::watched`).
+        let before = self.seat.before_read(&mut self.term);
         crate::reads::feed(
             &mut self.term,
             [bytes],
@@ -436,6 +472,12 @@ impl Driver {
         // Before any key is encoded: a key `Term::key` sends as ISO 8859-1
         // must reach a line discipline whose `IUTF8` is clear.
         self.pty.follow(self.term.input_encoding());
+        // The selection after the read: renumbered, or dropped where the
+        // read wrote over it, switched or reset (`seat.rs`).
+        self.seat.after_read(&self.term, before);
+        // A program's pointer shape, shown at once while the pointer is
+        // over the window; outside it, the next enter shows it.
+        self.show_pointer();
         for r in asked {
             self.window_request(r);
         }
@@ -454,6 +496,101 @@ impl Driver {
             .next(self.term.title(), self.term.title_encoding(), "baud")
         {
             self.window.set_title(&mut self.conn.sender(), &t);
+        }
+    }
+
+    /// **One pointer event** into the seat (`seat.rs`): the wheel, a
+    /// button, a move, an enter or a leave, with the modifiers the keyboard
+    /// holds. Bytes for the child go to the outbox, flushed at the loop's
+    /// end with the core's reply.
+    fn pointer(&mut self, p: PointerEvent) {
+        use crate::gesture::Pressed;
+        use crate::seat::{Input, Owed};
+        use baud_present_wayland::{Button, Press, Scroll};
+        let input = match p {
+            PointerEvent::Entered(at) => {
+                self.shape = None;
+                Input::Entered(at.x, at.y)
+            }
+            PointerEvent::Left => {
+                self.shape = None;
+                Input::Left
+            }
+            PointerEvent::Moved(at) => Input::Moved(at.x, at.y),
+            PointerEvent::Button {
+                button,
+                press,
+                time,
+            } => {
+                let button = match button {
+                    Button::Left => Pressed::Left,
+                    Button::Middle => Pressed::Middle,
+                    Button::Right => Pressed::Right,
+                    Button::Other(_) => Pressed::Other,
+                };
+                match press {
+                    Press::Pressed => Input::Pressed { button, time },
+                    Press::Released => Input::Released { button, time },
+                }
+            }
+            PointerEvent::Scroll(Scroll::Steps(s)) => Input::Steps(s),
+            PointerEvent::Scroll(Scroll::Distance(d)) => Input::Distance(d),
+            PointerEvent::ScrollStopped => Input::Stopped,
+        };
+        // A press and the wheel are input to the blink's stop, as on macOS.
+        if matches!(
+            input,
+            Input::Pressed { .. } | Input::Steps(_) | Input::Distance(_)
+        ) {
+            self.caret.quiet(Instant::now());
+        }
+        let m = self.renderer.metrics();
+        let (cols, rows) = self.term.geometry();
+        let g = crate::seat::Geometry {
+            cell: (f64::from(m.cell_w.value()), f64::from(m.cell_h.value())),
+            grid: (
+                u16::try_from(cols.index()).unwrap_or(u16::MAX),
+                u16::try_from(rows.index()).unwrap_or(u16::MAX),
+            ),
+        };
+        let mods = self.window.modifiers();
+        let outbox = &mut self.outbox;
+        match self
+            .seat
+            .input(&mut self.term, input, mods, g, |b| outbox.push(b))
+        {
+            Owed::Nothing => {}
+            Owed::Frame => self.pending = Pending::Dirty,
+            Owed::Keys => self.caret.input(Instant::now()),
+        }
+        if matches!(input, Input::Entered(..)) {
+            self.show_pointer();
+        }
+    }
+
+    /// **The pointer's shape for the program's `OSC 22`, or the I-beam**
+    /// (`baud_present_wayland::pointer::shape`), set once a change while
+    /// the pointer is over the window. Without the cursor-shape global the
+    /// pointer image is left undefined and `OSC 22` is not shown, and that
+    /// is said once.
+    fn show_pointer(&mut self) {
+        if !self.seat.inside() {
+            return;
+        }
+        let want = baud_present_wayland::pointer::shape(self.term.pointer_shape());
+        if self.shape == Some(want) {
+            return;
+        }
+        match self.window.set_pointer_shape(&mut self.conn.sender(), want) {
+            Shaped::Set => self.shape = Some(want),
+            Shaped::Unavailable => {
+                if self.shapeless == Said::Not {
+                    self.shapeless = Said::Once;
+                    crate::warn!(
+                        "the compositor offers no cursor-shape global: the pointer image is left undefined and OSC 22 is not shown"
+                    );
+                }
+            }
         }
     }
 
@@ -562,6 +699,11 @@ impl Driver {
             ws_col: u16::try_from(cols).unwrap_or(u16::MAX),
             ws_row: u16::try_from(rows).unwrap_or(u16::MAX),
         };
+        let was = (
+            self.term.history_mark(),
+            self.term.geometry().0,
+            self.term.screen(),
+        );
         if let Resized::Truncated { cols, rows } = self.term.resize(&ws) {
             crate::warn!(
                 "the window is larger than the grid; {}x{} of it is drawn",
@@ -570,6 +712,9 @@ impl Driver {
             );
         }
         self.renderer.fit(&self.term);
+        // A reflow re-cuts every line, so a selection's columns are gone;
+        // a change of height alone on the primary keeps it (note V, V3).
+        self.seat.resized(&self.term, was);
         let words = usize::try_from(u64::from(width.0) * u64::from(height.0)).unwrap_or(0);
         self.frame = vec![self.margin.0; words];
         self.stride = Px::of(width.0);
@@ -614,6 +759,8 @@ impl Driver {
         let blinks = self.blinks();
         let caret = self.caret.plan(Instant::now(), blinks);
         self.renderer.set_cursor_blink(caret);
+        // The selection's share of the view, or `?1001`'s region.
+        self.renderer.set_highlight(self.seat.highlight(&self.term));
         let margin = self.renderer.clear_color_of(&self.term);
         if margin != self.margin {
             self.margin = margin;

@@ -20,8 +20,9 @@ programs, and pictures.
   when a key is let go, or when Shift or Control alone is pressed, are not
   told yet. Key presses themselves work.
 - **Linux.** The Linux version builds and has run in a headless session, but
-  it takes no mouse input, nobody has looked at what it draws, and its GPU
-  drawing is not started. It is not ready to use.
+  nobody has looked at what it draws or used its mouse on a real desktop, it
+  cannot copy or paste, and its GPU drawing is not started. It is not ready
+  to use.
 - **A few control sequences.** The single shifts SS2 and SS3, and the
   locking shifts LS2, LS3 and LS1R to LS3R, are not supported. The other
   gaps are each listed with their reason in [vt-coverage](../vt-coverage.md),

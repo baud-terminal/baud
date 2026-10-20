@@ -29429,3 +29429,16 @@ bytes  = 112815
 status = "external"
 group  = "F"
 # Fetched 2026-10-20 (lane b115). Lines 742-780 and 1497-1517. Read, not copied.
+[sources.linux-input-event-codes]
+key    = "linux-input-event-codes"
+title  = "Linux v6.12, include/uapi/linux/input-event-codes.h -- BTN_LEFT 0x110, BTN_RIGHT 0x111, BTN_MIDDLE 0x112, the codes wl_pointer.button carries"
+author = "Vojtech Pavlik, Hans de Goede and others (GPL-2.0-only WITH Linux-syscall-note)"
+year   = 2024
+venue  = "torvalds/linux, tag v6.12"
+url    = "https://raw.githubusercontent.com/torvalds/linux/v6.12/include/uapi/linux/input-event-codes.h"
+file   = ""
+sha256 = "f9889a73d7d4f7e303d2d346a3622657169c5e8d7d354cb7a030ff47a7fdfdee"
+bytes  = 30213
+status = "external"
+group  = "J"
+# Fetched 2026-10-20 (lane b114). Lines 355-358, the mouse buttons. Read, not copied.

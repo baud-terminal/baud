@@ -37,11 +37,21 @@ mod clip;
 mod config;
 // The font compiled into the binary: the default stack's first face.
 mod embedded;
+// A pointer event to the child or the selection, the cell under it, its
+// clicks and a clean click's keys: pure, so its tests run on every platform,
+// and both drivers route their pointer through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod gesture;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod host;
 // The kitty file mediums' reader, which both drivers lend the core.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod kitty_files;
+// What the app keeps over the screen across a read -- the selection's
+// numbering and what a switch or a reset drops: pure, so its tests run on
+// every platform, and both drivers keep a selection through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod keep;
 #[cfg(target_os = "macos")]
 mod latency;
 // The link policy is pure and its tests run on every platform; only the
@@ -65,18 +75,23 @@ mod pty;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod reads;
 // xterm's readline modes, a click's cursor keys and a paste's shape: pure,
-// so its tests run on every platform; only the macOS driver has a pointer
-// and a paste, so the bin builds it there alone.
-#[cfg(any(target_os = "macos", test))]
+// so its tests run on every platform; both drivers have a pointer, and only
+// the macOS driver a paste.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod readline;
-// What a program's pointer shape (`OSC 22`) shows as: pure, so its tests run
-// on every platform; only the macOS driver has a pointer.
+// What a program's pointer shape (`OSC 22`) shows as among AppKit's
+// cursors: pure, so its tests run on every platform; the Linux driver's
+// shapes are `baud-present-wayland`'s.
 #[cfg(any(target_os = "macos", test))]
 mod pointer;
 // The scrollbar's reveal is pure and its tests run on every platform; only
 // the macOS driver draws a scrollbar, so the bin builds it there alone.
 #[cfg(any(target_os = "macos", test))]
 mod reveal;
+// The Linux driver's pointer between the compositor and the core: pure, so
+// its tests run on every platform; only the Linux driver drives it.
+#[cfg(any(target_os = "linux", test))]
+mod seat;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod sys;
 // The quad trail's driver is pure and its tests run on every platform; only
@@ -96,9 +111,8 @@ mod width;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod winops;
 // The wheel's travel and its reports to a tracking application: pure, so its
-// tests run on every platform; only the macOS driver has a pointer today, so
-// the bin builds it there alone.
-#[cfg(any(target_os = "macos", test))]
+// tests run on every platform, and both drivers scroll through it.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod wheel;
 
 fn main() {

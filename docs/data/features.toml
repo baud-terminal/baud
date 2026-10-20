@@ -926,10 +926,10 @@ tests = ["baud-app/src/pty.rs::backspace_after_a_hebrew_letter_erases_the_whole_
 id = "mouse"
 area = "input"
 name = "The mouse in programs"
-does = "Clicks, drags, scrolls and hovers reach programs such as vim, htop and tmux, with Shift, Ctrl and Option, in every report format including pixel-precise."
+does = "Clicks, drags, scrolls and hovers reach programs such as vim, htop and tmux, with Shift, Ctrl and Option (Alt on Linux), in every report format including pixel-precise."
 status = "built"
-platform = "macos"
-tests = ["baud-core/tests/xterm/mouse.rs::decrqm_answers_every_mouse_mode", "baud-core/tests/xterm/mouse.rs::x10_encodes_up_to_223_inclusive"]
+platform = "both"
+tests = ["baud-core/tests/xterm/mouse.rs::decrqm_answers_every_mouse_mode", "baud-core/tests/xterm/mouse.rs::x10_encodes_up_to_223_inclusive", "baud-app/src/seat.rs::alt_is_meta_in_a_report_and_drags_a_block"]
 rows = ["vt:`CSI ? 1000/1002/1003 h/l`", "vt:`CSI ? 1006 h/l`", "vt:`CSI ? 1016 h/l`"]
 chips = ["SGR mouse"]
 shipped = ["2026-10-09-every-mouse-reporting-mode-works-and"]
@@ -940,8 +940,8 @@ area = "input"
 name = "Programs can highlight what you drag"
 does = "A program can have the region you drag over drawn as a highlight."
 status = "built"
-platform = "macos"
-tests = ["baud-app/src/app.rs::the_program_s_region_is_drawn_through_the_selection_highlight"]
+platform = "both"
+tests = ["baud-app/src/keep.rs::the_program_s_region_is_drawn_through_the_selection_highlight"]
 rows = ["vt:`CSI ? 1001 h/l`"]
 
 [[feature]]
@@ -950,7 +950,7 @@ area = "input"
 name = "The wheel scrolls pagers"
 does = "The wheel scrolls less, man and git log, and a long fling arrives whole, even through tmux."
 status = "built"
-platform = "macos"
+platform = "both"
 tests = ["baud-app/src/wheel.rs::a_long_fling_under_herdr_reaches_the_child_whole"]
 rows = ["vt:`CSI ? 1007 h/l`"]
 
@@ -969,8 +969,8 @@ area = "input"
 name = "Shift selects inside mouse programs"
 does = "Hold Shift to select text inside a program that uses the mouse; the choice holds until you let go."
 status = "built"
-platform = "macos"
-tests = ["baud-app/src/app.rs::shift_let_go_mid_drag_leaves_the_selection_its_release"]
+platform = "both"
+tests = ["baud-app/src/gesture.rs::shift_let_go_mid_drag_leaves_the_selection_its_release"]
 
 [[feature]]
 id = "copy-paste"
@@ -1061,7 +1061,7 @@ area = "scroll"
 name = "Scroll back through everything"
 does = "The wheel and trackpad move through the lines that scrolled off the top, with trackpad movement adding up to whole lines."
 status = "built"
-platform = "macos"
+platform = "both"
 tests = ["baud-app/src/wheel.rs::whole_lines_land_at_once", "baud-app/src/wheel.rs::settling_drops_the_remainder"]
 
 [[feature]]
@@ -1098,10 +1098,10 @@ measured = ["Smooth scroll's per-frame cost (measured, under the floor)"]
 id = "selection"
 area = "scroll"
 name = "Select anything, history included"
-does = "Drag to select, double-click for a word, triple-click for a line, Shift-click to extend and Option-drag for a rectangle, reaching back into the scrollback."
+does = "Drag to select, double-click for a word, triple-click for a line, Shift-click to extend and Option-drag (Alt-drag on Linux) for a rectangle, reaching back into the scrollback."
 status = "built"
-platform = "macos"
-tests = ["baud-render/src/select.rs::a_word_stops_at_delimiters_blanks_and_empty_cells", "baud-render/tests/select.rs::a_range_over_the_history_reads_the_lines_the_ring_kept", "baud-app/src/app.rs::option_starts_a_block_and_wins_over_shift"]
+platform = "both"
+tests = ["baud-render/src/select.rs::a_word_stops_at_delimiters_blanks_and_empty_cells", "baud-render/tests/select.rs::a_range_over_the_history_reads_the_lines_the_ring_kept", "baud-app/src/app.rs::option_starts_a_block_and_wins_over_shift", "baud-app/src/seat.rs::alt_is_meta_in_a_report_and_drags_a_block"]
 
 [[feature]]
 id = "selection-honest"
@@ -1109,8 +1109,8 @@ area = "scroll"
 name = "You never copy text that is gone"
 does = "A selection stays on its text when a program scrolls it, and disappears when the text under it is redrawn, scrolled away, reset or switched."
 status = "built"
-platform = "macos"
-tests = ["baud-app/src/app.rs::a_scroll_carries_a_selection_with_its_text_at_every_read_size", "baud-app/src/app.rs::a_reset_drops_a_selection_even_with_no_history"]
+platform = "both"
+tests = ["baud-app/src/app.rs::a_scroll_carries_a_selection_with_its_text_at_every_read_size", "baud-app/src/seat.rs::a_region_scroll_carries_the_selection", "baud-app/src/app.rs::a_reset_drops_a_selection_even_with_no_history"]
 
 [[feature]]
 id = "reflow"
@@ -1602,12 +1602,12 @@ shipped = ["2026-10-13-baud-requires-macos-26-and-says"]
 id = "linux"
 area = "platforms"
 name = "Linux"
-does = "The same terminal core on Wayland, drawn on the CPU, with keyboard input and window titles."
+does = "The same terminal core on Wayland, drawn on the CPU, with the keyboard, the mouse and its pointer shapes, and window titles."
 status = "partial"
-gap = "it has run only on a headless compositor: no mouse, paste, clipboard or bell yet, font sizes are in pixels, and GPU drawing has not started."
+gap = "it has run only on a headless compositor: no paste, clipboard or bell yet, so a selection is shown but not copied, font sizes are in pixels, and GPU drawing has not started."
 platform = "linux"
-tests = ["baud-present-wayland/tests/handshake.rs::a_window_opens_shows_a_frame_and_types"]
-behind = "the Linux version has run only headless, with no mouse, paste, clipboard or GPU drawing yet."
+tests = ["baud-present-wayland/tests/handshake.rs::a_window_opens_shows_a_frame_and_types", "baud-present-wayland/tests/handshake.rs::the_pointer_reports_by_frame_and_takes_its_shape", "baud-app/src/seat.rs::a_tracking_child_gets_the_buttons_and_the_wheel"]
+behind = "the Linux version has run only headless, with no paste, clipboard or GPU drawing yet."
 roadmap = ["F2-03", "F2-02", "SQ-1.x-06"]
 
 [[feature]]
