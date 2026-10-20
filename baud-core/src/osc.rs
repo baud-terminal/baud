@@ -227,7 +227,9 @@ impl Paint<'_, '_> {
     /// keeps a title's eight bits under its `utf8Title` (`[[source:
     /// xterm-reset]]`'s file, `IsSetUtf8Title`). The text's "window/icon
     /// labels" names the icon too, where xterm keeps `0` and `2` alone
-    /// (Jev, BUILD_TEXT, the lean taken at 0.41/0.82 after a second ask).
+    /// (Jev's lean, BUILD_TEXT: after a second ask the orders split,
+    /// BUILD_XTERM at 0.38 in one and BUILD_TEXT at 0.82 in the other, and
+    /// the one with the higher mean probability was taken).
     /// Out of line: only a GR byte under ISO 8859-1 reaches it.
     #[cold]
     #[inline(never)]
