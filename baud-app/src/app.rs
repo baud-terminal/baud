@@ -2197,7 +2197,8 @@ fn decimal(key: &KeyPress) -> baud_domain::KeypadKey {
 /// keypad keys"): the layout's character, none for a control code --
 /// keypad Enter is `U+0003` -- and none while Control or Option is held,
 /// as kitty's keyboard layer gives none (`[[source: kitty-xkb-glfw-c]]`).
-/// The base layer reads the key, not the text.
+/// The numeric column sends that text (`keypad_numeric`); the application
+/// column reads the key.
 fn pressed(code: KeyCode, key: &KeyPress, m: Modifiers) -> KeyEvent {
     let mut e = KeyEvent::press(code, m);
     if let KeyCode::Keypad(_) = code {
@@ -10587,7 +10588,8 @@ mod tests {
     /// key types `,` on 81 of the Mac's layouts, German and French among
     /// them, and the digits type Arabic-Indic digits on Arabic ones
     /// (`UCKeyTranslate`). From the numeric column, and under kitty's
-    /// disambiguate flag, that character goes out and is the one predicted.
+    /// disambiguate flag, that character goes out and is the text handed to
+    /// prediction, which draws only an ASCII printable (`Driver::predict`).
     /// A decimal key that types `,` is the keypad's comma, as a German
     /// Linux keypad's is (`KP_Separator`, `[[source:
     /// xkeyboard-config-kpdl-193cc6c]]`): line 2498's `SS3 l` under DECKPAM

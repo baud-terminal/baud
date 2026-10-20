@@ -26,9 +26,8 @@ is not.
   XTCHECKSUM's checksum flags, `?41`'s tab after a pending wrap, and the
   `?30` scrollbar mode.
 - **Small, to build next** (the text is complete and nothing is the
-  owner's): the pointer-hiding mode, the `?30` scrollbar mode, and OSC
-  60-62's feature lists.
-  stack, the title modes, and OSC 60-62's feature lists.
+  owner's): none is left. OSC 60-62's feature lists were built on
+  2026-10-20 (the `OSC 60` row of `docs/vt-coverage.md`).
 - **Larger, to build** (whole protocols a VT420-class terminal has): the
   DEC locator, the host-writable status line, and xterm's special colours.
 - **Decisions needed:** the tertiary DA, the bell volumes, the keyboard
@@ -66,7 +65,7 @@ none the table says so.
 | `CSI > Pm t` / `CSI > Pm T` XTSMTITLE, XTRMTITLE | the set modes built 2026-10-20 | ctlseqs lines 1707 and 733: set titles in hex or UTF-8, and query them so | `CSI > Pm t` | **built** the two set modes; the query modes act on title reports, which stay refused as unsafe, and are counted with them (`the_query_modes_are_refused_with_the_title_reports`) |
 | `CSI > Ps p` XTSMPOINTER | counted | ctlseqs line 1464: whether the pointer hides while the user types -- never, unless mouse tracking is on, always but on leaving the window, always | none | **build** in the app (AppKit's hide-until-moved) |
 | `?30` | counted | ctlseqs DECSET `3 0`, "Show scrollbar (rxvt)" | the `?30` row | **built** 2026-10-20: `scrollbar_mode.rs`; partial on Linux, whose driver draws no scrollbar yet |
-| `OSC 60` / `61` / `62` XTQALLOWED, XTQDISALLOWED, XTQALLOWABLE | counted | ctlseqs line 2182: reply `OSC 6 0 ; Pt ST`, the allowed categories among seven xterm resource names | none | **build**, each category named for what baud does; Jev where one is partly allowed |
+| `OSC 60` / `61` / `62` XTQALLOWED, XTQDISALLOWED, XTQALLOWABLE | answered since 2026-10-20 | ctlseqs line 2182: reply `OSC 6 0 ; Pt ST`, the allowed categories among seven xterm resource names | the `OSC 60` row | **built** 2026-10-20, each category named for what baud does |
 | `?35` | counted | ctlseqs DECSET `3 5`, "Enable font-shifting functions (rxvt)" | none | **ask Jev**: the text names rxvt's functions and not their keys; baud's zoom is the nearest |
 | DEC locator: `CSI Ps ; Pu ' z` DECELR, `' {` DECSLE, `' \|` DECRQLP, `' w` DECEFR | counted | ctlseqs lines 1776-1907, the VT330/340 locator | none | **build**: a whole input protocol of the DEC terminals, beside the mouse modes baud has |
 | `CSI Ps $ }` DECSASD, `CSI Ps $ ~` DECSSDT | counted | ctlseqs lines 1993 and 2001, the host-writable status line | DECRQSS's row answers them invalid, "no status line" | **build**: a VT420 feature |

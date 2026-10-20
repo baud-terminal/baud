@@ -65,7 +65,8 @@ pub fn press(state: &State<'_>, keycode: Keycode) -> Option<KeyEvent> {
     // kitty-keyboard]]`, "all non text keypad keys"): the keymap's text,
     // none while Control, Alt or Super is held and none for a control code,
     // as kitty's keyboard layer gives it (`[[source: kitty-xkb-glfw-c]]`).
-    // The base layer reads the key, not the text.
+    // The numeric column sends that text (`keypad_numeric`); the application
+    // column reads the key.
     if let KeyCode::Keypad(_) = code {
         let held = [Modifiers::CTRL, Modifiers::ALT, Modifiers::SUPER];
         e.text = state

@@ -117,8 +117,9 @@ fn an_explicit_colour_wins_unless_attr_mode() {
 /// xterm-ptyx-h]]` 1603-1607), so `updatedXtermGC` makes no exchange
 /// (`[[source: xterm-scroll]]` util.c 5546). A cell with a page of its
 /// own keeps the exchange, "displayed only when no ANSI colors have been
-/// set" (`[[source: xterm-man]]`, colorAttrMode), where xterm's code drops
-/// it there too.
+/// set" (`[[source: xterm-man]]`, colorAttrMode), where xterm's
+/// `ReverseOrHilite` drops it there too (`[[source: xterm-ptyx-h]]`
+/// 1603-1607).
 #[test]
 fn a_reversed_cell_shows_colorrv() {
     let text = first_cell(b"X");

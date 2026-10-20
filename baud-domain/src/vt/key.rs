@@ -92,7 +92,7 @@ pub enum KeyResource {
     /// `modifyKeyboard`, 0: which categories the legacy and vt220 keyboards
     /// may modify. baud's keyboard is xterm's default one, which never reads
     /// it, so it is stored and reported and changes no key, as in xterm
-    /// (Jev's lean, STORE_AND_REPORT, 0.64/0.72).
+    /// (Jev's lean, STORE_AND_REPORT, 0.64/0.72 on the second ask).
     Keyboard,
     /// `modifyCursorKeys`, 1: the arrows, Home and End, and at 4 the
     /// editing keys too.

@@ -703,9 +703,9 @@ impl ColorModes {
     /// (`[[source: xterm-ptyx-h]]` 1603-1607), keeps `updatedXtermGC` from
     /// the exchange. A reversed cell with a background of its own keeps
     /// its exchange outside colorAttrMode, as the manual's "displayed only
-    /// when no ANSI colors have been set" reads, where xterm's
-    /// `ReverseOrHilite` drops it on every reversed cell (`[[source:
-    /// xterm-man]]`, colorAttrMode). `special` gives
+    /// when no ANSI colors have been set" reads (`[[source: xterm-man]]`,
+    /// colorAttrMode), where xterm's `ReverseOrHilite` drops it on every
+    /// reversed cell (`[[source: xterm-ptyx-h]]` 1603-1607). `special` gives
     /// each colour's word, which the renderer gives as the text
     /// foreground's colour where none is set (Jev's lean, 0.32 and 0.28).
     pub fn apply(self, style: StyleWord, special: impl Fn(SpecialColor) -> ColorWord) -> StyleWord {

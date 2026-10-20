@@ -118,8 +118,8 @@ pub enum Route {
 /// `scroll-forw` (`[[source: xterm-button-c]]`): the wheel is then the
 /// screen's, as it is with no tracking. Under `CSI > 1 s` the wheel binds
 /// no selection, so it stays the program's, its Shift bit sent (Jev's
-/// leans, OVERRIDE 0.78/0.94 and SELECTION_BUTTONS 0.80/0.88 then
-/// 0.78/0.78).
+/// leans, OVERRIDE 0.78/0.94 on the second ask and SELECTION_BUTTONS
+/// 0.80/0.88 then 0.78/0.78).
 pub fn route(term: &Term<'_>, mods: MouseMods) -> Route {
     let shifted = mods.has(MouseMods::SHIFT) && term.shift_escape() == ShiftEscape::Override;
     if term.mouse_tracking() != MouseTracking::Off && !shifted {
