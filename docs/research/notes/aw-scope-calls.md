@@ -68,13 +68,13 @@ DSR `?15` with "no printer" (`[[source: iterm2-7ce037e-vt100terminal]]`
 branch (`[[source: kitty-9710eb4-vt-parser-c]]` 1455-1461;
 `[[source: foot-csi-c-cb27717]]` 2260-2268).
 
-**Safety.** Under any option two kinds of request stay refused and counted
-for safety. `CSI 2 i` would type the screen's text back into the program's
-input, the reason the XTWINOPS 20 and 21 title reports are refused. xterm's
-file dumps and `?46` logging write files a remote program names. Printer
+**Safety.** Under any option two kinds of request stay refused and counted for
+safety. `CSI 2 i` would type the screen's text back into the program's input,
+the reason the XTWINOPS 20 and 21 title reports are refused. xterm's file dumps
+and `?46` logging write files a remote program names. Under IN, printer
 controller mode is built, not refused: it hides output from the screen until
-`CSI 4 i`, as the text says, and the app would mark a run while it collects,
-so the screen going quiet is explained.
+`CSI 4 i`, as the text says, and the app marks a run while it collects, so the
+screen going quiet is explained.
 
 **Options.**
 - OUT: as today. DSR `?15` keeps answering "no printer".
@@ -223,11 +223,10 @@ the owner's decision of 2026-10-19 ("4 it is"). Where the window cannot grow
 row.
 
 **Building it.** 070-14 calls the host-writable line "a permanent separate
-logical display, that contains its own ANSI text state and settings". So
-the core gains a second, one-row display with its own cursor and state,
-DECSASD routing writes to it, and the exceptions of whichever text governs
-(above). All three
-render paths draw a row outside the grid, and both apps grow the window.
+logical display, that contains its own ANSI text state and settings". So the
+core gains a second, one-row display with its own cursor and state, DECSASD
+routing writes to it, and the exceptions of whichever text governs (above). All
+three render paths draw a row outside the grid, and both apps grow the window.
 
 **What changes.** DECRQSS answers `$ ~` and `$ }` as valid. xterm's manual
 names StatusLine among its window operations; baud's `OSC 62` list does not
@@ -237,11 +236,11 @@ carry the name today and would gain it.
 types, BOTH leads: 0.76 and 0.71, then 0.41 and 0.56. HOST_WRITABLE's
 probability was 0.10-0.24.
 
-**Recommendation: in.** The window grows a row, Jev's pick at 0.9 in both
-orders, if the owner takes the line in. Both types is the lean, below the
-bar. Refusing the indicator would leave a VT420
-control value unbuilt, which the standing rule asks against. 070-14's "not
-mandatory" permits leaving it out; it does not ask for that.
+**Recommendation: in.** The window grows a row, Jev's pick above the 0.9 bar in
+both orders, if the owner takes the line in. Both types is the lean, below the
+bar. Refusing the indicator would leave a VT420 control value unbuilt, which
+the standing rule asks against. 070-14's "not mandatory" permits leaving it
+out; it does not ask for that.
 
 ## 4. DECLL: the keyboard lights
 
@@ -263,10 +262,9 @@ lists it as "VT100" with the VT510's three LEDs and no gate.
 **Sources that conflict.** The VT100 lights on every DECLL; the VT510 only
 under DECKLHIM. xterm's code passes the same `True` for 21-23 as for 1-3,
 `xtermShowLED(screen, (Cardinal) (op - 20), True)`, where ctlseqs says
-"Extinguish" (`[[source: xterm-reset]]` 5009-5043). The function's
-definition is outside the pinned files, so whether that lights the LED is
-unverified. iTerm2,
-kitty and foot have none; kitty reports a bare `q` as unknown
+"Extinguish" (`[[source: xterm-reset]]` 5009-5043). The function's definition
+is outside the pinned files, so whether that lights the LED is unverified.
+iTerm2, kitty and foot have none; kitty reports a bare `q` as unknown
 (`[[source: kitty-9710eb4-vt-parser-c]]` 1418).
 
 **Options.**
@@ -316,11 +314,11 @@ requirement and xterm is practice.
 types near the right margin, off by default (`marginBell`,
 `[[source: xterm-man]]` 4449-4452). iTerm2, kitty and foot have neither.
 
-**The owner's bell and the volume.** The macOS app rings with NSBeep, "Plays the system beep"
-(`[[source: apple-nsbeep]]`), which takes no volume. This is the owner's bell
-decision of 2026-10-13, "System sound + Dock bounce (Recommended)". "Low" can
-be built by playing the user's alert sound through NSSound at a lower volume,
-whose value "does not affect the systemwide volume"
+**The owner's bell and the volume.** The macOS app rings with NSBeep, "Plays
+the system beep" (`[[source: apple-nsbeep]]`), which takes no volume. This is
+the owner's bell decision of 2026-10-13, "System sound + Dock bounce
+(Recommended)". "Low" can be built by playing the user's alert sound through
+NSSound at a lower volume, whose value "does not affect the systemwide volume"
 (`[[source: apple-nssound-volume]]`). Building only "off" would leave the
 protocol half built. Linux rings nothing yet, and the volumes wait on it.
 

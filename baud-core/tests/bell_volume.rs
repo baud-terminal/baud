@@ -552,7 +552,7 @@ fn a_scroll_away_from_the_cursors_line_keeps_it_armed() {
     use Step::*;
     let region = |r: &[u8], row: usize, col: usize| [ON, r, &at(row, col)].concat();
     let fenced = b"\x1b[?69h\x1b[1;50s";
-    let cases: [(&str, Vec<u8>, &[u8], usize); 10] = [
+    let cases: [(&str, Vec<u8>, &[u8], usize); 12] = [
         (
             "SU, the region below",
             region(b"\x1b[4;6r", 2, 72),
@@ -587,6 +587,18 @@ fn a_scroll_away_from_the_cursors_line_keeps_it_armed() {
         (
             "SU, a top region holding it",
             region(b"\x1b[1;4r", 2, 72),
+            b"\x1b[S",
+            0,
+        ),
+        (
+            "SU, a top region ending on it",
+            region(b"\x1b[1;4r", 4, 72),
+            b"\x1b[S",
+            0,
+        ),
+        (
+            "SU, a top region ending on it, alternate screen",
+            region(b"\x1b[?1049h\x1b[1;4r", 4, 72),
             b"\x1b[S",
             0,
         ),

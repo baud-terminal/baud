@@ -929,8 +929,9 @@ impl Paint<'_, '_> {
 /// `[[source: xterm-misc]]` 6456 and 3572); of the window, the
 /// manipulations and the line count, the title reports, `OSC 52`'s read,
 /// `OSC 3` and DECRQCRA while the embedder has each off, and `OSC 52`'s
-/// write on a storage with no clipboard area, which refuses every write. XTCHECKSUM, `SetChecksum`, is honoured
-/// whatever the checksum setting (`Paint::select_checksum`).
+/// write on a storage with no clipboard area, which refuses every write.
+/// XTCHECKSUM, `SetChecksum`, is honoured whatever the checksum setting
+/// (`Paint::select_checksum`).
 fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
     match c {
         AllowCategory::ColorOps => sub == b"GetAnsiColor",
