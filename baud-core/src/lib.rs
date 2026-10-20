@@ -58,6 +58,7 @@ mod graph;
 #[cfg(feature = "diag")]
 pub use graph::Hist;
 mod kitty;
+mod locator;
 mod ops;
 mod osc;
 mod paint;
@@ -140,6 +141,8 @@ pub use baud_domain::{ColorMode, ColorModes, SpecialColor};
 /// `Term::set_window_ops` takes.
 pub use baud_domain::{FullScreen, Maximize, SizeAsk, WindowOps, WindowRequest};
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
+/// DEC's text locator's vocabulary: what [`Term::locator`] takes.
+pub use baud_domain::{LocatorAt, LocatorButton, LocatorButtons, LocatorInput, LocatorKind};
 /// The page-width request's vocabulary: an embedder that cannot name a
 /// [`WidthHold`] cannot call [`Term::set_width_hold`], nor read what
 /// [`Term::requested_width`] answers without a [`WidthRequest`].

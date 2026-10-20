@@ -743,6 +743,10 @@ pub enum Csi {
     /// XTQFMTKEYS. **Its parameters are read where it is answered**, as
     /// [`Csi::Area`]'s are.
     Query(QueryOp),
+    /// DEC's text locator, `CSI ... '` with `z`, `{`, `w` or `|`
+    /// ([`LocatorOp`]), its parameters read where it is acted on, as
+    /// [`Csi::Query`]'s are.
+    Locator(LocatorOp),
     /// DECSTR, `CSI ! p`. Soft reset: modes, region, cursor and attributes to
     /// their defaults, but **not** the screen contents -- that is what makes it
     /// soft, and what distinguishes it from RIS.
@@ -1041,6 +1045,19 @@ impl Csi {
                 // `[[source: vt510-decic]]` / `[[source: vt510-decdc]]`.
                 (b'\'', b'}') => Csi::InsertColumns(p.count(ParamIdx::FIRST)),
                 (b'\'', b'~') => Csi::DeleteColumns(p.count(ParamIdx::FIRST)),
+                // DEC's text locator, the standard namespace's (`[[source:
+                // dec-std-070]]` 070-13 pp. 5-10, `[[source: ctlseqs]]`
+                // 1777-1918): DECELR, DECSLE, DECEFR and DECRQLP.
+                (b'\'', b'z') if marker == Marker::Standard => Csi::Locator(LocatorOp::Enable),
+                (b'\'', b'{') if marker == Marker::Standard => {
+                    Csi::Locator(LocatorOp::SelectEvents)
+                }
+                (b'\'', b'w') if marker == Marker::Standard => {
+                    Csi::Locator(LocatorOp::FilterRectangle)
+                }
+                (b'\'', b'|') if marker == Marker::Standard => {
+                    Csi::Locator(LocatorOp::RequestPosition)
+                }
                 (b'$', b'p') => Csi::RequestMode {
                     marker,
                     mode: p.at(ParamIdx::FIRST).unwrap_or(Param::ZERO),
@@ -1630,6 +1647,9 @@ impl Csi {
             // XTTITLEPOS, XTSMTITLE and XTRMTITLE are xterm's by name.
             Stack(_) | TitleModes(_) => Level::Xterm,
             Query(q) => q.level(),
+            // "Levels: 1x, 2x, 3x, 4x (Text Locator)" each, and "Both can be
+            // implemented at any conformance level" (070-13 § 1.2).
+            Locator(_) => Level::Vt100,
 
             Unsupported { .. } => return None,
         })

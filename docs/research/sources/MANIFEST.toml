@@ -375,6 +375,15 @@ group  = "C"
 # ?13 not connected (p. 7-33, PDF 711); 070-11's UDK DSR, ?23 no UDKs, "A report will be
 # given even if the UDK extension is not supported" (p. 11-7, PDF 974); 070-13's locator
 # DSR, ?53 and ?57;0 (PDF 1030).
+# Re-read 2026-10-20 (lane b117) from a copy whose sha256 matched, 070-13 whole on the
+# text layer [text], PDF 1013-1036: § 1.2 (the Text Locator and Locator Port extensions,
+# DA 29 and 15); § 3 and § 3.1 (each report's event, buttons and position, simultaneous
+# events by increasing code, "outside the range of defined coordinates" with the DECOM
+# example); DECELR p. 5 (PDF 1020, "Undefined values for Ps or Pu causes the entire
+# sequence to be ignored"); DECLRP pp. 6-7 (PDF 1021-1022, Pp "may be omitted if the
+# locator is on page one", notes 1-3); DECRQLP p. 8 (PDF 1023); DECSLE p. 9 (PDF 1024);
+# DECEFR pp. 10-11 (PDF 1025-1026, notes 1-4); DECLKD § 5.4 (PDF 1028); the locator DSR,
+# ?50 ready, ?57;1 mouse (p. 15, PDF 1030); locator controller mode § 7 (PDF 1031).
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -8518,6 +8527,10 @@ sha256 = "f3e838a4494c1093d831246a0cb0ed301d1af14e52aa5ab8f66e6a8bb0db63a0"
 bytes  = 413144
 status = "retrieved"
 group  = "C"
+# Read 2026-10-20 (lane b117) for DEC's locator: CASE_DECEFR, CASE_DECELR (any Ps but 1
+# and 2 stores MOUSE_OFF), CASE_DECSLE and CASE_DECRQLP (5517-5596); the locator DSRs, ?50
+# and ?57;1 when compiled in (4676-4699); `really_set_mousemode` (7432) and RIS's
+# `send_mouse_pos = MOUSE_OFF` (14439), DECSTR keeping it.
 # Read 2026-10-19 (lane b99) for REP: doparsing's `thischar = -1` resets `lastchar` after
 # any byte that leaves the parser in ground, and CASE_REP writes it through gsets[curgl].
 # Title widened 2026-10-08 for note AF; the key keeps its name, and url, file and hash
@@ -14747,6 +14760,10 @@ group  = "C"
 # layer for DECSDM [text]: Table 12-3, "DEC Private Modes for DECRQM, DECRPM, SM, and RM",
 # printed p. 221 (PDF 230), "Sixel display mode DECSDM 80", and no other mention -- the
 # volume does not say which of set and reset turns Sixel scrolling off.
+# Re-fetched 2026-10-20 (lane b117), the sha256 matching, and read on the text layer
+# [text] for the locator port's DSR, printed pp. 203-204 (PDF 213-214): "CSI? 50 n
+# Locator device ready", "CSI? 53 n No locator device", "CSI? 57; 1 n ... Digital's
+# optional mouse". The volume has no DECELR: the text locator is 070-13's.
 
 [sources.vt320-uu-appe]
 key    = "vt320-uu-appe"
@@ -22241,6 +22258,11 @@ group  = "C"
 # Retrieved 2026-10-11 for the V12 Q6 research (round 2026-10-11b). The same bytes as
 # `xterm-button` (external, same url) and as button.c at bccd466; committed so the
 # lines quoted (748-756, 1618-1624, 3060-3136, 5561-5589) can be checked.
+# Read 2026-10-20 (lane b117) for DEC's locator: `SendLocatorPosition` (811-948, event 0
+# for a position out of range, the mask after the transition, the locator turned off by a
+# press while a filter is armed), `GetLocatorPosition` (953-1016, the same on DECRQLP),
+# `InitLocatorFilter` (1019-1124, corners clamped and swapped) and `CheckLocatorPosition`
+# (1127-), and the `DEC_LOCATOR` arm of `SendMousePosition` (771-777).
 
 [sources.xterm-log-bccd466]
 key    = "xterm-log-bccd466"
@@ -29442,3 +29464,4 @@ bytes  = 30213
 status = "external"
 group  = "J"
 # Fetched 2026-10-20 (lane b114). Lines 355-358, the mouse buttons. Read, not copied.
+# Re-fetched 2026-10-20 (lane b117), the sha256 matching: line 359, BTN_SIDE 0x113.

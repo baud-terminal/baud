@@ -3500,7 +3500,7 @@ impl Paint<'_, '_> {
     /// Takes the [`ModeChange`] the caller already holds rather than a `bool`:
     /// degrading a domain type to a primitive and reconstructing it here is
     /// what the audit exists to stop.
-    fn set_tracking(&mut self, level: MouseTracking, change: ModeChange) {
+    pub(crate) fn set_tracking(&mut self, level: MouseTracking, change: ModeChange) {
         self.cold.mouse = match change {
             ModeChange::Set => level,
             ModeChange::Reset => MouseTracking::Off,
@@ -3918,6 +3918,9 @@ impl Paint<'_, '_> {
         }
         self.cold.mouse = MouseTracking::Off;
         self.cold.mouse_encoding = MouseEncoding::X10;
+        // The locator's units, events and rectangle to power-up, the
+        // pointer kept (`Locator::reset`); `DECSTR` keeps them all.
+        self.cold.locator.reset();
         self.cold.terminal = TerminalMode::Ansi;
         self.cold.vt52_row = Vt52Coord::ZERO;
         // DECSACE: STD 070's host_state_init sets "attribute change extent =

@@ -916,6 +916,10 @@ pub struct Cold {
     /// so a release is never reported against a region the program now
     /// listening did not give (`Term::mouse_report`).
     pub(crate) handshake: Handshake,
+    /// DEC's text locator beyond its switch, [`MouseTracking::Locator`]:
+    /// DECELR's units and mode, DECSLE's events, DECEFR's rectangle and
+    /// the pointer `Term::locator` was last given (`crate::locator`).
+    pub(crate) locator: crate::locator::Locator,
     /// **The dynamic colours -- `OSC 10`, `11`, `12`, `17` and `19` -- as five
     /// pairs**, indexed by [`DynamicColor::index`] (foreground, background,
     /// cursor, highlight background and foreground). `defaults` is what the
@@ -1301,9 +1305,12 @@ pub struct Cold {
 // The watch's `carried`, written by a move of rows while a selection's
 // lines are watched, takes the word its count of lines taken back had,
 // which now moves the arm's top line on instead, so it stays at 792.
+// DEC's text locator took it to 832: DECELR's, DECSLE's and DECEFR's
+// state and the pointer, written by those controls and by
+// `Term::locator` and read by them alone, never by a glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 792);
+const _: () = assert!(core::mem::size_of::<Cold>() == 832);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -1635,6 +1642,7 @@ impl Cold {
             defaults: [ColorWord::DEFAULT; DynamicColor::COUNT],
             dynamic: [ColorWord::DEFAULT; DynamicColor::COUNT],
             handshake: Handshake::Idle,
+            locator: crate::locator::Locator::default(),
             terminal: TerminalMode::Ansi,
             vt52_row: Vt52Coord::ZERO,
             str_kind: StrKind::Other,
@@ -4392,7 +4400,8 @@ impl<'b> Term<'b> {
     }
 
     /// What tracking the application asked for: `?9`, `?1000`, `?1001`, `?1002` or
-    /// `?1003`, one level at a time, and off after a reset of any of them.
+    /// `?1003`, or DEC's locator by DECELR, one at a time, and off after a reset
+    /// of any of them or DECELR 0.
     /// It decides which events `Term::mouse_report` lets through; the
     /// encoding a report is written in has no accessor, because
     /// `mouse_report` reads it.
@@ -4576,6 +4585,8 @@ impl<'b> Term<'b> {
         use MouseButton::{Left, Middle, Right, WheelDown, WheelUp};
         let wanted = match (self.cold.mouse, e.kind, e.button) {
             (MouseTracking::Off, ..) => false,
+            // The locator's reports are `Term::locator`'s.
+            (MouseTracking::Locator, ..) => false,
             // "only on button press ... Cb is button-1, where button is 1,
             // 2 or 3": no release, no motion, and no wheel, which xterm drops
             // under `X10_MOUSE` (`EditorButton`, `[[source: xterm-button]]`).
@@ -4688,7 +4699,7 @@ impl<'b> Term<'b> {
     /// it, and the reports that ride on another call -- `?2048` after a
     /// resize or a cell-size change, `?2031` after a theme change -- are
     /// counted and nothing more.
-    fn queue(&mut self, r: Report) -> bool {
+    pub(crate) fn queue(&mut self, r: Report) -> bool {
         let bytes = r.encode(self.cold.replies.c1());
         let b = bytes.as_bytes();
         let at = self.reply_len.index();

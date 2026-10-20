@@ -9,8 +9,9 @@
 //! `[[source: vt510-dsr-kbd]]` for the keyboard, `[[source: vt100-ug-ch3]]`
 //! for DECREQTPARM, and `[[source: xterm-reset]]`'s `report_mod_fkeys` and
 //! `report_fmt_fkeys` for the xterm queries. Each answer says only what is
-//! true of baud: no printer, no user-defined keys, no DEC locator, no macro
-//! memory, one page, one session and a pty with no line errors.
+//! true of baud: no printer, no user-defined keys, a DEC locator that is a
+//! mouse (DECELR), no macro memory, one page, one session and a pty with no
+//! line errors.
 
 use crate::support;
 use baud_core::*;
@@ -82,9 +83,11 @@ fn each_private_status_answers_what_baud_has() {
         // be determined", status 0, ready; no keyboard type, since no value
         // names an unidentified keyboard (Jev's lean, 0.81/0.93).
         (b"\x1b[?26n", b"\x1b[?27;0;0n", "keyboard"),
-        // 070-13: "53 No locator", "57;0 Unknown Locator".
-        (b"\x1b[?55n", b"\x1b[?53n", "locator status"),
-        (b"\x1b[?56n", b"\x1b[?57;0n", "locator type"),
+        // 070-13 p. 15: "?50 Locator ready", "?57;1 Device is Digital
+        // Corporate Mouse": the pointer both drivers feed to DECELR's
+        // locator.
+        (b"\x1b[?55n", b"\x1b[?50n", "locator status"),
+        (b"\x1b[?56n", b"\x1b[?57;1n", "locator type"),
         // p. 5-185: "the number of bytes available for macro definitions
         // divided by 16", and baud has no macro memory.
         (b"\x1b[?62n", b"\x1b[0*{", "macro space"),

@@ -39,6 +39,13 @@ const BTN_MIDDLE: u32 = 0x112;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EventCode(pub u32);
 
+impl EventCode {
+    /// `BTN_SIDE`, 0x113, the first button past the three (`[[source:
+    /// linux-input-event-codes]]` line 359): the one DEC's locator reports
+    /// as its fourth.
+    pub const SIDE: EventCode = EventCode(0x113);
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Button {
     Left,

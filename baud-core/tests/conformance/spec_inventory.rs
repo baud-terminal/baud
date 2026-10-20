@@ -350,6 +350,10 @@ struct Snapshot {
     special: Vec<Option<(u8, u8, u8)>>,
     color_modes: ColorModes,
     pointer: Option<PointerShape>,
+    /// What a press and a release of the pointer report once DECELR
+    /// enables the locator, asked after everything above: DECSLE chooses
+    /// the transitions, and nothing else shows them.
+    locator: Vec<u8>,
 }
 
 /// A prepared terminal: one palette entry set, text on two rows, and the
@@ -477,6 +481,29 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
             let ask = b"\x1b[1;1*y";
             t.write_at(BytePos::ZERO, ask);
             t.feed(BytePos::ZERO, ReadLen::from_index(ask.len()));
+            t.reply().to_vec()
+        },
+        locator: {
+            t.clear_reply();
+            let ask = b"\x1b[1'z";
+            t.write_at(BytePos::ZERO, ask);
+            t.feed(BytePos::ZERO, ReadLen::from_index(ask.len()));
+            let at = Some(LocatorAt {
+                col: Col::ZERO,
+                row: Row::ZERO,
+                px: None,
+            });
+            let held = LocatorButtons::NONE.pressed(LocatorButton::Left);
+            t.locator(LocatorInput {
+                kind: LocatorKind::Press(LocatorButton::Left),
+                at,
+                held,
+            });
+            t.locator(LocatorInput {
+                kind: LocatorKind::Release(LocatorButton::Left),
+                at,
+                held: LocatorButtons::NONE,
+            });
             t.reply().to_vec()
         },
     }

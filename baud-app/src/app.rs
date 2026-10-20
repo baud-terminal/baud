@@ -4,7 +4,8 @@
 use crate::bell::{Bell, Rings, Update, UpdateClock};
 use crate::caret::{Caret, Cycle, Gate, NonBlinking, Owes};
 use crate::gesture::{
-    Kind, Owner, Pressed, Selected, Shift, To, pointer_route, pointer_under, shift_overrides,
+    Kind, Owner, Pressed, Selected, Shift, To, held_after, locator_input, locator_under,
+    pointer_route, pointer_under, shift_overrides,
 };
 use crate::host::{
     FIRST_BYTES, FIRST_COMMIT, FIRST_CONTENT, FIRST_DONE, FIRST_PRESENT, FIRST_TICK,
@@ -25,8 +26,9 @@ use crate::wheel::{Delta, Route, Travel};
 use baud_core::{Depth, Erasure, Looking, Owned, PromptJump, Screen, Term, Zone, grid_stride};
 use baud_domain::{
     CellFlags, Codepoint, Col, Cols, Content, FnKey, HostTime, ImagePx, KeyCode, KeyEvent,
-    KeyEventKind, KeypadMode, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, PackedCell,
-    PointerPx, Row, RowRot, Rows, WinSize,
+    KeyEventKind, KeypadMode, LocatorAt, LocatorButtons, LocatorInput, LocatorKind, Modifiers,
+    MouseButton, MouseEvent, MouseKind, MouseMods, PackedCell, PointerPx, Row, RowRot, Rows,
+    WinSize,
 };
 use baud_font::Px;
 use baud_present_macos::clipboard;
@@ -2682,6 +2684,9 @@ struct Driver {
     /// The button a drag reports: the one that went down, until it comes
     /// up. AppKit's motion events name no button.
     held: Option<MouseButton>,
+    /// Every button physically down, for DEC's locator's `Pb`, kept from
+    /// every press and release the view delivers (`held_after`).
+    buttons: LocatorButtons,
     /// The kind of the key being handled, from `key()` to the `typed()` it
     /// reaches. A printable key goes through the input manager, whose
     /// `text()` and `command()` carry no repeat flag, so `key()` notes it
@@ -7390,6 +7395,26 @@ impl Responder for Driver {
         if event.kind == ViewMouseKind::Down {
             self.app.caret.quiet(host_now());
         }
+        // DEC's locator keeps the pointer whatever takes the event: a move,
+        // a drag or a crossing here, before the scrollbar and links, so a
+        // filter rectangle sees every position; a press and a release once
+        // the route has said whose they are, below.
+        let (kind, button) = (mouse_kind(event.kind), mouse_button(event.button));
+        self.buttons = held_after(self.buttons, kind, button);
+        if !matches!(kind, Kind::Down | Kind::Up) {
+            let at = match event.kind {
+                ViewMouseKind::Exited => None,
+                _ => self.locator_under(event.x, event.y),
+            };
+            let e = LocatorInput {
+                kind: LocatorKind::Moved,
+                at,
+                held: self.buttons,
+            };
+            if self.app.term.locator(e) {
+                self.app.flush_reply();
+            }
+        }
         if self.scrollbar(event) == Took::Yes {
             return;
         }
@@ -7409,7 +7434,6 @@ impl Responder for Driver {
             true => Shift::Held,
             false => Shift::Up,
         };
-        let (kind, button) = (mouse_kind(event.kind), mouse_button(event.button));
         let (to, owner) = pointer_route(
             self.owner,
             kind,
@@ -7417,6 +7441,14 @@ impl Responder for Driver {
             shift_overrides(held, self.app.term.shift_escape(), kind, button),
         );
         self.owner = owner;
+        if matches!(kind, Kind::Down | Kind::Up) {
+            let at = self.locator_under(event.x, event.y);
+            let tracking = self.app.term.mouse_tracking();
+            let e = locator_input((kind, button, to), tracking, at, self.buttons);
+            if self.app.term.locator(e) {
+                self.app.flush_reply();
+            }
+        }
         if to == To::Select {
             self.select(event);
             return;
@@ -8115,6 +8147,7 @@ pub fn run() {
             DockIcon::Ours => icon.clone(),
         },
         held: None,
+        buttons: LocatorButtons::NONE,
         key_kind: KeyEventKind::Press,
         armed: None,
         bar_drag: None,
@@ -9467,6 +9500,12 @@ impl Driver {
         pointer_under((x, y), scale, cell, grid, pad)
     }
 
+    /// The same point for DEC's locator: `None` off the text area.
+    fn locator_under(&self, x: f64, y: f64) -> Option<LocatorAt> {
+        let (scale, cell, grid, pad) = self.pointer_geometry();
+        locator_under((x, y), scale, cell, grid, pad)
+    }
+
     /// What turns a view point into a cell and a pixel.
     fn pointer_geometry(&self) -> PointerGeometry {
         (
@@ -9614,6 +9653,9 @@ fn mouse_button(b: ViewButton) -> Pressed {
         ViewButton::Left => Pressed::Left,
         ViewButton::Middle => Pressed::Middle,
         ViewButton::Right => Pressed::Right,
+        // `NSEvent.buttonNumber` 3, the first past the three: DEC's
+        // locator's fourth.
+        ViewButton::Other(3) => Pressed::Fourth,
         ViewButton::Other(_) => Pressed::Other,
     }
 }

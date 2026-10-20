@@ -671,4 +671,13 @@ pub enum MouseTracking {
     ButtonEvent,
     /// `?1003`
     AnyEvent,
+    /// DEC's text locator, enabled by DECELR (`crate::LocatorOp`): "The
+    /// mouse protocols include DEC Locator mode, enabled by the DECELR CSI
+    /// Ps ; Ps ' z control sequence" (`[[source: ctlseqs]]`), exclusive
+    /// with the five above. A DECSET of any of them replaces it and a
+    /// DECRST of any turns it off, as for the others; DECELR 0 turns off
+    /// whichever is in force, as xterm's `CASE_DECELR` stores `MOUSE_OFF`
+    /// (Jev, ALL_OFF, 0.92 and 0.92). Its reports are `Term::locator`'s, so
+    /// `Term::mouse_report` sends nothing under it.
+    Locator,
 }

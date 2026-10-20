@@ -856,10 +856,9 @@ impl Paint<'_, '_> {
 /// colours (`OSC 13`, `14`) and the Tektronix colours (`OSC 15`, `16`,
 /// `18`) are refused, and xterm gates them with the rest of `OSC 10` to
 /// `19` under those two (`AllocateTermColor` and `ReportColorRequest`,
-/// `[[source: xterm-misc]]` 6456 and 3572); of the mouse, the DEC
-/// locator; of the window, the manipulations and the line count, the
-/// title reports, `OSC 52`'s read and `OSC 3`, DECRQCRA while the embedder
-/// has it off, and `OSC 52`'s write on a storage with no clipboard area,
+/// `[[source: xterm-misc]]` 6456 and 3572); of the window, the
+/// manipulations and the line count, the title reports, `OSC 52`'s read and
+/// `OSC 3`, DECRQCRA while the embedder has it off, and `OSC 52`'s write on a storage with no clipboard area,
 /// which refuses every write. XTCHECKSUM, `SetChecksum`, is honoured
 /// whatever the checksum setting (`Paint::select_checksum`).
 fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
@@ -867,7 +866,7 @@ fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
         AllowCategory::ColorOps => sub == b"GetAnsiColor",
         AllowCategory::PasteControls | AllowCategory::TitleOps => true,
         AllowCategory::FontOps | AllowCategory::TcapOps => false,
-        AllowCategory::MouseOps => sub != b"Locator",
+        AllowCategory::MouseOps => true,
         AllowCategory::WindowOps => match sub {
             b"GetWinState"
             | b"GetWinPosition"

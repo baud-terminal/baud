@@ -585,18 +585,19 @@ fn reply_of(bytes: &[u8], f: impl Fn(&mut Term<'_>)) -> (Vec<u8>, usize) {
 /// xterm's shape:
 /// "XTerm replies with OSC 6 0 ; Pt ST where Pt is a comma-separated list
 /// of the allowed optional runtime feature categories" (`[[source:
-/// ctlseqs]]`), with the query's terminator. Fonts, termcap queries, the
-/// DEC locator, most window operations and the pointer and Tektronix
-/// colours (`OSC 13` to `16` and `18`, which xterm gates under the same
-/// `SetColor` and `GetColor` as `OSC 10`) are refused, so only the title
-/// operations are named.
+/// ctlseqs]]`), with the query's terminator. Fonts, termcap queries,
+/// most window operations and the pointer and Tektronix colours (`OSC 13`
+/// to `16` and `18`, which xterm gates under the same `SetColor` and
+/// `GetColor` as `OSC 10`) are refused, so the mouse and the title
+/// operations are named: every mouse protocol xterm lists, the DEC locator
+/// (DECELR) among them, is honoured.
 #[test]
 fn osc_60_names_the_categories_baud_honours_whole() {
     let (r, n) = reply_of(b"\x1b]60\x07", |_| {});
-    assert_eq!(r, b"\x1b]60;allowTitleOps\x07");
+    assert_eq!(r, b"\x1b]60;allowMouseOps,allowTitleOps\x07");
     assert_eq!(n, 0);
     let (r, _) = reply_of(b"\x1b]60\x1b\\", |_| {});
-    assert_eq!(r, b"\x1b]60;allowTitleOps\x1b\\");
+    assert_eq!(r, b"\x1b]60;allowMouseOps,allowTitleOps\x1b\\");
 }
 
 /// **`OSC 61 ; cat`, XTQDISALLOWED, names the subcategories baud
@@ -620,10 +621,6 @@ SetXprop\x07";
         assert_eq!(reply_of(q.as_bytes(), |_| {}).0, windows, "{name}");
     }
     assert_eq!(
-        reply_of(b"\x1b]61;allowMouseOps\x07", |_| {}).0,
-        b"\x1b]61;Locator\x07"
-    );
-    assert_eq!(
         reply_of(b"\x1b]61;allowFontOps\x07", |_| {}).0,
         b"\x1b]61;SetFont,GetFont\x07"
     );
@@ -632,7 +629,7 @@ SetXprop\x07";
         b"\x1b]61;SetColor,GetColor\x07",
         "OSC 13 to 16 and 18 are refused"
     );
-    for empty in ["allowTitleOps", "allowPasteControls", "1"] {
+    for empty in ["allowTitleOps", "allowMouseOps", "allowPasteControls", "1"] {
         let q = format!("\x1b]61;{empty}\x07");
         let (r, n) = reply_of(q.as_bytes(), |_| {});
         assert_eq!(r, b"\x1b]61\x07", "{empty}");

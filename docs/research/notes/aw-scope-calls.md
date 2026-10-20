@@ -1,6 +1,7 @@
 # AW. The scope calls: printing, the locator, the status line, the keyboard lights, bell volume, the VT525 colours, ReGIS and Tektronix
 
-**Status: 2026-10-20, research only; nothing here is built.** Each section is
+**Status: 2026-10-20, research; section 2, the locator, was built the same
+day (the DECELR rows of `docs/vt-coverage.md`), and the rest is not.** Each section is
 one feature baud reads and drops today: what a user would see if it were
 built, what the governing text says, the options, Jev's lean and a
 recommendation. Scope is the owner's call (TODO.md). Where Jev reached 0.9 in
@@ -150,6 +151,14 @@ pointer events it already takes. Linux app: when its pointer input lands.
 **Jev.** IN, 0.92 and 0.94.
 
 **Recommendation: in.**
+
+**Built 2026-10-20**, in the core and both apps. Five forks the text left
+open went to Jev: DECOM in pixel units counts from the text area
+(PIXELS_ABSOLUTE, 0.96/0.94), DECELR 0 turns off any mouse protocol
+(ALL_OFF, 0.92/0.92), the fourth button is the first past three
+(FIRST_EXTRA, 0.98/0.98), a reversed rectangle is taken as given (lean
+AS_GIVEN, 0.89/0.85 on the second ask), and the wheel scrolls as with no
+protocol (lean AS_UNTRACKED, 0.53/0.38 on the second ask).
 
 ## 3. The status line: DECSSDT and DECSASD
 

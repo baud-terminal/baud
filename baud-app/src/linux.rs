@@ -506,7 +506,7 @@ impl Driver {
     fn pointer(&mut self, p: PointerEvent) {
         use crate::gesture::Pressed;
         use crate::seat::{Input, Owed};
-        use baud_present_wayland::{Button, Press, Scroll};
+        use baud_present_wayland::{Button, EventCode, Press, Scroll};
         let input = match p {
             PointerEvent::Entered(at) => {
                 self.shape = None;
@@ -526,6 +526,7 @@ impl Driver {
                     Button::Left => Pressed::Left,
                     Button::Middle => Pressed::Middle,
                     Button::Right => Pressed::Right,
+                    Button::Other(EventCode::SIDE) => Pressed::Fourth,
                     Button::Other(_) => Pressed::Other,
                 };
                 match press {

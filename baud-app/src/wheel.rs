@@ -120,9 +120,20 @@ pub enum Route {
 /// no selection, so it stays the program's, its Shift bit sent (Jev's
 /// leans, OVERRIDE 0.78/0.94 on the second ask and SELECTION_BUTTONS
 /// 0.80/0.88 then 0.78/0.78).
+///
+/// **DEC's locator takes no wheel**: 070-13 gives it four buttons and no
+/// wheel, so under DECELR the wheel is the screen's, as with no tracking
+/// (Jev's lean, AS_UNTRACKED, 0.73/0.77 then 0.53/0.38). xterm reports X's
+/// buttons 4 and 5, its wheel, as the fourth button's down and as event
+/// 10, "outside filter rectangle" (`SendLocatorPosition`, `[[source:
+/// xterm-button-c]]`), a numbering artifact not followed.
 pub fn route(term: &Term<'_>, mods: MouseMods) -> Route {
     let shifted = mods.has(MouseMods::SHIFT) && term.shift_escape() == ShiftEscape::Override;
-    if term.mouse_tracking() != MouseTracking::Off && !shifted {
+    let tracked = !matches!(
+        term.mouse_tracking(),
+        MouseTracking::Off | MouseTracking::Locator
+    );
+    if tracked && !shifted {
         return Route::Report;
     }
     match (term.screen(), term.alternate_scroll()) {

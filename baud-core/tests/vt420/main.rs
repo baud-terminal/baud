@@ -12,6 +12,7 @@ mod decaln;
 mod erase_colour;
 mod index_columns;
 mod line_starts;
+mod locator;
 mod origin;
 mod presentation;
 mod rect_ops;

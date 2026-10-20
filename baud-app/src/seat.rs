@@ -18,8 +18,8 @@ use crate::keep::{
 use crate::wheel::{Delta, Route, Travel};
 use baud_core::{HistoryMark, Screen, Term};
 use baud_domain::{
-    Col, Cols, EventMillis, ImagePx, Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods,
-    PointerPx, Row, Rows,
+    Col, Cols, EventMillis, ImagePx, LocatorAt, LocatorButtons, LocatorInput, LocatorKind,
+    Modifiers, MouseButton, MouseEvent, MouseKind, MouseMods, PointerPx, Row, Rows,
 };
 use baud_render::{Clip, Highlight, Press, Scrolled, Selection};
 use std::time::Duration;
@@ -146,6 +146,9 @@ pub(crate) struct Seat {
     held: Option<MouseButton>,
     /// The button physically down, for a motion's kind: a drag or a move.
     down: Option<Pressed>,
+    /// Every button physically down, for DEC's locator's `Pb`
+    /// (`gesture::held_after`).
+    buttons: LocatorButtons,
     clicks: Clicks,
     travel: Travel,
     selection: Option<Selection>,
@@ -159,6 +162,7 @@ impl Seat {
             owner: Owner::Free,
             held: None,
             down: None,
+            buttons: LocatorButtons::NONE,
             clicks: Clicks::default(),
             travel: Travel::default(),
             selection: None,
@@ -174,6 +178,12 @@ impl Seat {
     fn under(&self, g: Geometry) -> (Row, Col, PointerPx) {
         let at = self.at.unwrap_or((0.0, 0.0));
         gesture::pointer_under(at, 1.0, g.cell, g.grid, (0, 0))
+    }
+
+    /// Where DEC's locator is: `None` off the surface or its text area.
+    fn locator_at(&self, g: Geometry) -> Option<LocatorAt> {
+        self.at
+            .and_then(|at| gesture::locator_under(at, 1.0, g.cell, g.grid, (0, 0)))
     }
 
     /// **One pointer input**: the wheel to the history, the alternate
@@ -232,6 +242,17 @@ impl Seat {
                 return Owed::Nothing;
             }
         };
+        // DEC's locator keeps the pointer whatever takes the event: a move
+        // or a crossing here, a press or a release once routed, below.
+        self.buttons = gesture::held_after(self.buttons, kind, button);
+        if !matches!(kind, Kind::Down | Kind::Up) {
+            let e = LocatorInput {
+                kind: LocatorKind::Moved,
+                at: self.locator_at(g),
+                held: self.buttons,
+            };
+            crate::reads::input(term, |t| t.locator(e), &mut sink);
+        }
         let held = match mods.has(Modifiers::SHIFT) {
             true => Shift::Held,
             false => Shift::Up,
@@ -243,6 +264,15 @@ impl Seat {
             gesture::shift_overrides(held, term.shift_escape(), kind, button),
         );
         self.owner = owner;
+        if matches!(kind, Kind::Down | Kind::Up) {
+            let e = gesture::locator_input(
+                (kind, button, to),
+                term.mouse_tracking(),
+                self.locator_at(g),
+                self.buttons,
+            );
+            crate::reads::input(term, |t| t.locator(e), &mut sink);
+        }
         let (row, col, px) = self.under(g);
         if to == To::Select {
             let selected = gesture::select(
@@ -576,6 +606,46 @@ mod tests {
             up(Pressed::Left, Ms::of_millis(40)),
             shift,
         );
+    }
+
+    /// **DEC's locator takes the pointer under DECELR** (`gesture.rs`):
+    /// a press and a release report DECLRP at the cell, the held buttons
+    /// after each, the side button as the fourth; Shift still selects and
+    /// reports nothing; a point past the grid is undefined, its coordinates
+    /// omitted; the pointer leaving the surface ends a filter rectangle with
+    /// event 10; and the wheel scrolls the history, as with no protocol.
+    #[test]
+    fn the_locator_takes_the_pointer_under_decelr() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, &b"line\r\n".repeat(30));
+        feed(&mut t, b"\x1b[1'z\x1b[1;3'{");
+        let mut seat = Seat::new();
+        let ms = Ms::of_millis;
+        put(&mut seat, &mut t, Input::Entered(25.0, 15.0), NONE);
+        let (_, sent) = put(&mut seat, &mut t, down(Pressed::Left, ms(10)), NONE);
+        assert_eq!(sent, b"\x1b[2;4;2;3&w");
+        let (_, sent) = put(&mut seat, &mut t, down(Pressed::Fourth, ms(15)), NONE);
+        assert_eq!(sent, b"\x1b[8;12;2;3&w", "the side button is the fourth");
+        put(&mut seat, &mut t, up(Pressed::Fourth, ms(16)), NONE);
+        let (_, sent) = put(&mut seat, &mut t, up(Pressed::Left, ms(20)), NONE);
+        assert_eq!(sent, b"\x1b[3;0;2;3&w");
+        let shift = Modifiers::NONE.with(Modifiers::SHIFT);
+        let (_, sent) = put(&mut seat, &mut t, down(Pressed::Left, ms(30)), shift);
+        assert_eq!(sent, b"", "Shift selects");
+        put(&mut seat, &mut t, up(Pressed::Left, ms(40)), shift);
+        put(&mut seat, &mut t, Input::Moved(250.0, 15.0), NONE);
+        let (_, sent) = put(&mut seat, &mut t, down(Pressed::Right, ms(50)), NONE);
+        assert_eq!(sent, b"\x1b[6;1&w", "past the grid, no coordinates");
+        put(&mut seat, &mut t, up(Pressed::Right, ms(60)), NONE);
+        put(&mut seat, &mut t, Input::Moved(25.0, 15.0), NONE);
+        feed(&mut t, b"\x1b[1;1;6;20'w");
+        let (_, sent) = put(&mut seat, &mut t, Input::Left, NONE);
+        assert_eq!(sent, b"\x1b[10;0&w", "leaving ends the rectangle");
+        put(&mut seat, &mut t, Input::Entered(25.0, 15.0), NONE);
+        let (owed, sent) = put(&mut seat, &mut t, Input::Steps(-2.0), NONE);
+        assert_eq!((owed, sent.as_slice()), (Owed::Frame, &b""[..]));
+        assert_eq!(t.window_back().index(), 2, "the wheel scrolls");
     }
 
     /// **On the alternate screen the wheel is the cursor keys** while

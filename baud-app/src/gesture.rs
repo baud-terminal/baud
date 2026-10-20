@@ -9,8 +9,8 @@
 use crate::readline::{self, Arrow};
 use baud_core::{ClickHow, ClickKeys, Resource, Term};
 use baud_domain::{
-    Col, ImagePx, KeyCode, KeyEvent, Modifiers, MouseButton, MouseTracking, PointerPx, Row, Rows,
-    ShiftEscape,
+    Col, ImagePx, KeyCode, KeyEvent, LocatorAt, LocatorButton, LocatorButtons, LocatorInput,
+    LocatorKind, Modifiers, MouseButton, MouseTracking, PointerPx, Row, Rows, ShiftEscape,
 };
 use baud_render::{Grain, Press, Scrolled, Selection, Span};
 
@@ -33,6 +33,10 @@ pub(crate) enum Pressed {
     Left,
     Middle,
     Right,
+    /// The first button past the three -- macOS's `buttonNumber` 3, the
+    /// Wayland seat's `BTN_SIDE` -- which DEC's locator reports as its
+    /// fourth (Jev, FIRST_EXTRA, 0.98 and 0.98).
+    Fourth,
     Other,
 }
 
@@ -44,9 +48,53 @@ impl Pressed {
             Pressed::Left => MouseButton::Left,
             Pressed::Middle => MouseButton::Middle,
             Pressed::Right => MouseButton::Right,
-            Pressed::Other => MouseButton::None,
+            Pressed::Fourth | Pressed::Other => MouseButton::None,
         }
     }
+
+    /// The button as DEC's locator names it, or `None` past the fourth.
+    fn locator(self) -> Option<LocatorButton> {
+        match self {
+            Pressed::Left => Some(LocatorButton::Left),
+            Pressed::Middle => Some(LocatorButton::Middle),
+            Pressed::Right => Some(LocatorButton::Right),
+            Pressed::Fourth => Some(LocatorButton::Fourth),
+            Pressed::Other => None,
+        }
+    }
+}
+
+/// **The buttons held after an event**, for DEC's locator: "Pb ...
+/// indicating which, if any, of up to 4 buttons are down" (`[[source:
+/// dec-std-070]]` 070-13, DECLRP). Kept by the driver from every press and
+/// release it sees, whoever takes them, so a report carries the state after
+/// its own transition, as xterm's does.
+pub(crate) fn held_after(held: LocatorButtons, kind: Kind, button: Pressed) -> LocatorButtons {
+    match (kind, button.locator()) {
+        (Kind::Down, Some(b)) => held.pressed(b),
+        (Kind::Up, Some(b)) => held.released(b),
+        _ => held,
+    }
+}
+
+/// **One pointer event for DEC's locator** (`Term::locator`): a press or
+/// a release the route gave the child while the locator is the protocol
+/// in force, a move otherwise -- a move, a crossing, or a press the
+/// selection or the scrollbar took, whose position and buttons the core
+/// keeps and reports nothing for.
+pub(crate) fn locator_input(
+    (kind, button, to): (Kind, Pressed, To),
+    tracking: MouseTracking,
+    at: Option<LocatorAt>,
+    held: LocatorButtons,
+) -> LocatorInput {
+    let reported = to == To::Child && tracking == MouseTracking::Locator;
+    let kind = match (kind, button.locator(), reported) {
+        (Kind::Down, Some(b), true) => LocatorKind::Press(b),
+        (Kind::Up, Some(b), true) => LocatorKind::Release(b),
+        _ => LocatorKind::Moved,
+    };
+    LocatorInput { kind, at, held }
 }
 
 /// Where a pointer event goes once the scrollbar and links have passed it:
@@ -167,6 +215,35 @@ pub(crate) fn pointer_under(
     let (col, x) = axis(at.0, pad.0, cell.0, grid.0);
     let (row, y) = axis(at.1, pad.1, cell.1, grid.1);
     (Row::from_index(row), Col::at_index(col), PointerPx { x, y })
+}
+
+/// **The cell and pixel under a point for DEC's locator, or `None`
+/// outside the text area**: [`pointer_under`]'s arithmetic, unclamped. A
+/// mouse report names the edge cell for a pointer over the padding; the
+/// locator says it is outside "the range of defined coordinates", and
+/// reports it with the coordinates omitted (`[[source: dec-std-070]]`
+/// 070-13 § 3.1).
+pub(crate) fn locator_under(
+    at: (f64, f64),
+    scale: f64,
+    cell: (f64, f64),
+    grid: (u16, u16),
+    pad: (u32, u32),
+) -> Option<LocatorAt> {
+    let inside = |p: f64, pad: u32, cell: f64, cells: u16| {
+        let extent = (cell * f64::from(cells)).floor();
+        let px = (p * scale - f64::from(pad)).floor();
+        (0.0..extent).contains(&px)
+    };
+    if !(inside(at.0, pad.0, cell.0, grid.0) && inside(at.1, pad.1, cell.1, grid.1)) {
+        return None;
+    }
+    let (row, col, px) = pointer_under(at, scale, cell, grid, pad);
+    Some(LocatorAt {
+        col,
+        row,
+        px: Some(px),
+    })
 }
 
 /// What a pointer event did to the selection.
@@ -455,6 +532,51 @@ mod route_tests {
             over(E::Conditional, K::Down, B::Middle),
         );
         assert_eq!(t, To::Child);
+    }
+
+    /// **DEC's locator is told a press only when it is the child's under
+    /// DECELR**; a press the selection took, or one under another
+    /// protocol, is a move, which keeps the position and reports nothing.
+    /// The held buttons count every press and release, whoever took it.
+    #[test]
+    fn the_locator_gets_a_press_only_through_the_child_route() {
+        use super::{Pressed as B, held_after, locator_input};
+        use baud_domain::{LocatorButton, LocatorButtons, LocatorKind};
+        let held = held_after(LocatorButtons::NONE, K::Down, B::Right);
+        assert_eq!(held, LocatorButtons::NONE.pressed(LocatorButton::Right));
+        assert_eq!(held_after(held, K::Up, B::Right), LocatorButtons::NONE);
+        assert_eq!(held_after(held, K::Down, B::Other), held, "no fifth");
+        let kind = |to, tracking| locator_input((K::Down, B::Left, to), tracking, None, held).kind;
+        assert_eq!(
+            kind(To::Child, MouseTracking::Locator),
+            LocatorKind::Press(LocatorButton::Left)
+        );
+        assert_eq!(kind(To::Select, MouseTracking::Locator), LocatorKind::Moved);
+        assert_eq!(kind(To::Child, MouseTracking::Normal), LocatorKind::Moved);
+        let other = locator_input(
+            (K::Up, B::Other, To::Child),
+            MouseTracking::Locator,
+            None,
+            held,
+        );
+        assert_eq!(other.kind, LocatorKind::Moved);
+    }
+
+    /// **Off the text area the locator's position is undefined**: over the
+    /// padding, or past the last cell, where a mouse report names the edge
+    /// cell; inside, the same cell and pixel as `pointer_under`.
+    #[test]
+    fn the_locator_s_position_is_undefined_off_the_text_area() {
+        use super::{locator_under, pointer_under};
+        let g = (2.0, (10.0, 20.0), (8, 4), (6, 6));
+        let at = |x, y| locator_under((x, y), g.0, g.1, g.2, g.3);
+        assert_eq!(at(2.0, 2.0), None, "over the padding");
+        assert_eq!(at(43.0, 10.0), None, "past the last column");
+        assert_eq!(at(10.0, 43.0), None, "past the last row");
+        let inside = at(42.9, 42.9).expect("the last cell");
+        let (row, col, px) = pointer_under((42.9, 42.9), g.0, g.1, g.2, g.3);
+        assert_eq!((inside.row, inside.col, inside.px), (row, col, Some(px)));
+        assert_eq!((row.index(), col.index()), (3, 7));
     }
 
     /// **A press decides again**, even over an owner whose release was lost.

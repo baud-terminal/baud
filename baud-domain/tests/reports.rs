@@ -713,6 +713,25 @@ fn report_encodings_fit() {
             },
             b'Q',
         ),
+        (
+            "DECLRP, widest: event 10, every button, the last pixel",
+            Report::Locator(LocatorReport::At {
+                trigger: LocatorTrigger::Outside,
+                buttons: [
+                    LocatorButton::Left,
+                    LocatorButton::Middle,
+                    LocatorButton::Right,
+                    LocatorButton::Fourth,
+                ]
+                .into_iter()
+                .fold(LocatorButtons::NONE, LocatorButtons::pressed),
+                pos: LocatorPos::pixel(PointerPx {
+                    x: ImagePx::of(u16::MAX - 1),
+                    y: ImagePx::of(u16::MAX - 1),
+                }),
+            }),
+            b'w',
+        ),
     ] {
         // **Exhaustive, so this list cannot fall behind the enum again.** A
         // new `Report` variant stops this match compiling, and the edit it
@@ -755,7 +774,8 @@ fn report_encodings_fit() {
             | Report::DisplayedExtent { .. }
             | Report::KeyOption { .. }
             | Report::TitlePosition { .. }
-            | Report::ColorStack { .. } => {}
+            | Report::ColorStack { .. }
+            | Report::Locator(_) => {}
         }
         let b = enc(r);
         assert!(
@@ -821,4 +841,35 @@ fn a_highlight_report_s_mouse_is_a_pixel_under_sgr_pixels_alone() {
     ));
     assert_eq!(widest, b"\x1b[<65535;65535;65535;65535;65535;65535T");
     assert_eq!(widest.len(), Report::MAX_LEN);
+}
+
+/// **DECLRP's three shapes** (`[[source: dec-std-070]]` 070-13 p. 6):
+/// event 0 alone, "If Pe is 0 or omitted, all other parameters shall not
+/// be sent"; the event and buttons with the position undefined, "Pr and Pc
+/// shall be omitted"; and all four, no page, "The page coordinate may be
+/// omitted if the locator is on page one". A pixel at the last value
+/// `ImagePx` holds has no one-based form and is undefined.
+#[test]
+fn declrp_writes_its_three_shapes() {
+    let px = |v| PointerPx {
+        x: ImagePx::of(v),
+        y: ImagePx::of(v),
+    };
+    let at = |pos| {
+        enc(Report::Locator(LocatorReport::At {
+            trigger: LocatorTrigger::Down(LocatorButton::Right),
+            buttons: LocatorButtons::NONE.pressed(LocatorButton::Right),
+            pos,
+        }))
+    };
+    assert_eq!(
+        enc(Report::Locator(LocatorReport::Unavailable)),
+        b"\x1b[0&w"
+    );
+    assert_eq!(at(None), b"\x1b[6;1&w");
+    assert_eq!(
+        at(LocatorPos::pixel(px(u16::MAX - 1))),
+        b"\x1b[6;1;65535;65535&w"
+    );
+    assert_eq!(LocatorPos::pixel(px(u16::MAX)), None);
 }

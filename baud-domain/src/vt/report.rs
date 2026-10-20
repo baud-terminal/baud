@@ -162,6 +162,9 @@ pub enum Report {
     ExtendedCursorPosition { row: OneBased, col: OneBased },
     /// A DEC private status, `CSI ? Ps n` ([`DecReply`]).
     DecStatus(DecReply),
+    /// DECLRP, DEC's locator report ([`LocatorReport`]): `CSI Pe ; Pb ; Pr
+    /// ; Pc & w` (`[[source: dec-std-070]]` 070-13 p. 6, PDF 1021).
+    Locator(LocatorReport),
     /// DECMSR, `CSI 0 * {`: "the number of bytes available for macro
     /// definitions divided by 16" (`[[source: dec-std-070]]` p. 5-185), and
     /// baud has no macro memory.
@@ -927,6 +930,17 @@ impl Report {
                 }
                 e.push(b'n');
             }
+            Report::Locator(r) => {
+                let (v, n) = r.params();
+                for (k, v) in v.iter().take(n).enumerate() {
+                    if k > 0 {
+                        e.push(b';');
+                    }
+                    e.push_num(*v);
+                }
+                e.push(b'&');
+                e.push(b'w');
+            }
             Report::MacroSpace => {
                 e.push_num(0);
                 e.push(b'*');
@@ -1390,10 +1404,15 @@ pub enum DecReply {
     /// the three-parameter form is ctlseqs' VT300 one (Jev's lean, 0.81 and
     /// 0.93, taken).
     KeyboardUnknown,
-    /// `CSI ? 53 n`: "No locator" (070-13).
-    NoLocator,
-    /// `CSI ? 57 ; 0 n`: "Unknown Locator" (070-13).
-    UnknownLocator,
+    /// `CSI ? 50 n`: "Locator ready" (070-13 p. 15, PDF 1030), "a locator
+    /// device is plugged in" -- the embedder's pointer, which both of baud's
+    /// drivers feed to the locator; `[[source: vt3xx-tp]]` p. 203, "Locator
+    /// device ready. The terminal detects a locator device."
+    LocatorReady,
+    /// `CSI ? 57 ; 1 n`: "Device is Digital Corporate Mouse" (070-13), "the
+    /// device as Digital's optional mouse" (`[[source: vt3xx-tp]]` p. 204);
+    /// ctlseqs' "Mouse". The other answer, `57;2`, is a tablet.
+    LocatorMouse,
     /// `CSI ? 73 n` or `CSI ? 70 n`, from the flag.
     DataIntegrity(Integrity),
     /// `CSI ? 83 n`: "not configured for virtual terminals" (070-4).
@@ -1406,8 +1425,8 @@ impl DecReply {
             DecReply::NoPrinter => &[13],
             DecReply::NoUserKeys => &[23],
             DecReply::KeyboardUnknown => &[27, 0, 0],
-            DecReply::NoLocator => &[53],
-            DecReply::UnknownLocator => &[57, 0],
+            DecReply::LocatorReady => &[50],
+            DecReply::LocatorMouse => &[57, 1],
             DecReply::DataIntegrity(Integrity::PowerUp) => &[73],
             DecReply::DataIntegrity(Integrity::Ok) => &[70],
             DecReply::SingleSession => &[83],
