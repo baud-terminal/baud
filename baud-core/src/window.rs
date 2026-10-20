@@ -38,6 +38,20 @@ pub struct WindowOpsRefused(u32);
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct WindowRequestsDropped(u32);
 
+/// A count of the `OSC 3` properties dropped because no window here has
+/// them, as a reading to compare: every name but the window's and the
+/// icon's, and a `UTF8_STRING` value that is not UTF-8.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PropertiesDropped(u32);
+
+impl PropertiesDropped {
+    pub(crate) const FIRST: PropertiesDropped = PropertiesDropped(0);
+
+    pub(crate) fn next(self) -> PropertiesDropped {
+        PropertiesDropped(self.0.wrapping_add(1))
+    }
+}
+
 /// The window requests queued for the embedder since its last drain, the
 /// setting that lets them through, and the two counts of the ones that did
 /// not go.
@@ -63,11 +77,18 @@ impl WindowAsks {
         dropped: WindowRequestsDropped(0),
     };
 
+    /// Count one more operation refused while they are off: a window
+    /// request, or an `OSC 3`, which xterm gates under the same
+    /// `allowWindowOps` (`Paint::set_property`).
+    pub(crate) fn refuse(&mut self) {
+        self.refused = WindowOpsRefused(self.refused.0.wrapping_add(1));
+    }
+
     /// Queue `r`, or count it refused while the operations are off, or
     /// dropped when the queue is full.
     fn ask(&mut self, r: WindowRequest) {
         match (self.ops, self.len.0 < WINDOW_QUEUE) {
-            (WindowOps::Off, _) => self.refused = WindowOpsRefused(self.refused.0.wrapping_add(1)),
+            (WindowOps::Off, _) => self.refuse(),
             (WindowOps::On, false) => {
                 self.dropped = WindowRequestsDropped(self.dropped.0.wrapping_add(1))
             }

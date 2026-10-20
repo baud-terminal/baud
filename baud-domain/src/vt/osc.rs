@@ -72,8 +72,97 @@ pub enum Osc<'a> {
     Allowed(AllowQuery),
     /// `OSC 22 ; Pt`: the pointer's shape, [`PointerRequest`].
     Pointer(PointerRequest),
+    /// `OSC 3 ; prop=value` -- "Set X property on top-level window. Pt
+    /// should be in the form \"prop=value\", or just \"prop\" to delete
+    /// the property" (`[[source: ctlseqs]]`): [`XProperty`].
+    SetProperty(XProperty<'a>),
     /// Recognised as an OSC and not acted on.
     Unsupported,
+}
+
+/// What an `OSC 3` asks of a property: split at the first `=`, as
+/// xterm's `ChangeXprop` splits it with `strchr` (`[[source: xterm-misc]]`),
+/// a bare name deleting it. Only the properties with a counterpart here are
+/// named ([`NamedProperty`]); every other one, an empty `Pt` among them, is
+/// [`XProperty::Unmapped`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum XProperty<'a> {
+    Set(NamedProperty, &'a [u8]),
+    Delete(NamedProperty),
+    Unmapped,
+}
+
+impl<'a> XProperty<'a> {
+    /// `Pt` of an `OSC 3`.
+    pub fn parse(pt: &'a [u8]) -> XProperty<'a> {
+        let (name, value) = match pt.iter().position(|&b| b == b'=') {
+            Some(eq) => (&pt[..eq], Some(&pt[eq + 1..])),
+            None => (pt, None),
+        };
+        match (NamedProperty::of(name), value) {
+            (Some(p), Some(v)) => XProperty::Set(p, v),
+            (Some(p), None) => XProperty::Delete(p),
+            (None, _) => XProperty::Unmapped,
+        }
+    }
+}
+
+/// The X properties `OSC 3` maps: the window's name and its icon's, each
+/// as ICCCM names it (`WM_NAME`, `WM_ICON_NAME`, typed `STRING` by xterm's
+/// write) and as EWMH does (`_NET_WM_NAME`, `_NET_WM_ICON_NAME`, typed
+/// `UTF8_STRING`), `[[source: icccm-2-0]]` chapter 4, "WM_NAME Property"
+/// and "WM_ICON_NAME Property", and `[[source: ewmh-1-5-app]]` 5.1 and 5.3. Matched exactly, as an X atom's name is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NamedProperty {
+    WmName,
+    WmIconName,
+    NetWmName,
+    NetWmIconName,
+}
+
+impl NamedProperty {
+    pub fn of(name: &[u8]) -> Option<NamedProperty> {
+        match name {
+            b"WM_NAME" => Some(NamedProperty::WmName),
+            b"WM_ICON_NAME" => Some(NamedProperty::WmIconName),
+            b"_NET_WM_NAME" => Some(NamedProperty::NetWmName),
+            b"_NET_WM_ICON_NAME" => Some(NamedProperty::NetWmIconName),
+            _ => None,
+        }
+    }
+
+    /// Whether the property names the window or its icon.
+    pub fn names(self) -> NamedLabel {
+        match self {
+            NamedProperty::WmName | NamedProperty::NetWmName => NamedLabel::Window,
+            NamedProperty::WmIconName | NamedProperty::NetWmIconName => NamedLabel::Icon,
+        }
+    }
+
+    /// The encoding the property's type implies: ICCCM's `STRING` is ISO
+    /// 8859-1, EWMH's `UTF8_STRING` UTF-8.
+    pub fn encoding(self) -> PropertyType {
+        match self {
+            NamedProperty::WmName | NamedProperty::WmIconName => PropertyType::String,
+            NamedProperty::NetWmName | NamedProperty::NetWmIconName => PropertyType::Utf8String,
+        }
+    }
+}
+
+/// What a [`NamedProperty`] names.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NamedLabel {
+    Window,
+    Icon,
+}
+
+/// The type a [`NamedProperty`] is written with, and so its encoding.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PropertyType {
+    /// `STRING`: ISO 8859-1.
+    String,
+    /// `UTF8_STRING`: UTF-8, and a value that is not UTF-8 is none.
+    Utf8String,
 }
 
 /// A pointer shape `OSC 22` names: one of the 77 of xterm's table,
@@ -1406,6 +1495,7 @@ impl<'a> Osc<'a> {
                 }
             }
             b"133" => Osc::Semantic(Semantic::parse(rest)),
+            b"3" => Osc::SetProperty(XProperty::parse(rest)),
             b"22" if rest.is_empty() => Osc::Pointer(PointerRequest::Default),
             b"22" => Osc::Pointer(match PointerShape::of(rest) {
                 Some(shape) => PointerRequest::Shape(shape),

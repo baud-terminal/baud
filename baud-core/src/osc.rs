@@ -277,6 +277,53 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// **`OSC 3`: the window's name or its icon's, as the property's type
+    /// reads it**, and every other property counted and dropped (the
+    /// owner's call of 2026-10-20, note AV). `WM_NAME` and `_NET_WM_NAME`
+    /// set the one title, `WM_ICON_NAME` and `_NET_WM_ICON_NAME` the one
+    /// icon name, the last write winning (Jev, ICCCM_AND_EWMH, 0.96/0.98):
+    /// ICCCM's two in ISO 8859-1, the `STRING` xterm writes them as, and
+    /// EWMH's two in UTF-8, their `UTF8_STRING`, a value that is not UTF-8
+    /// being none (Jev, BY_PROPERTY_TYPE, 0.97/1.00). The bytes are taken as
+    /// sent: xterm's `ChangeXprop` goes past `ChangeGroup`, so no
+    /// hexadecimal title mode (`[[source: xterm-misc]]`). A bare name
+    /// deletes the property, which leaves the window or its icon unnamed.
+    /// **Refused and counted while the window operations are off**, as
+    /// xterm gates it under `allowWindowOps` (`AllowWindowOps(xw,
+    /// ewSetXprop)`; Jev's lean, FOLLOWS_WINDOW_OPS, 0.38/0.52).
+    fn set_property(&mut self, p: XProperty<'_>) {
+        if self.strs.window_asks.ops == WindowOps::Off {
+            self.strs.window_asks.refuse();
+            return;
+        }
+        let (name, value) = match p {
+            XProperty::Set(name, value) => (name, value),
+            XProperty::Delete(name) => (name, &b""[..]),
+            XProperty::Unmapped => return self.drop_property(),
+        };
+        let enc = match name.encoding() {
+            PropertyType::String => InputEncoding::Latin1,
+            PropertyType::Utf8String if core::str::from_utf8(value).is_ok() => InputEncoding::Utf8,
+            PropertyType::Utf8String => return self.drop_property(),
+        };
+        match name.names() {
+            NamedLabel::Window => {
+                self.title_len = copy_bounded(self.strs.title, value);
+                self.strs.title_enc = enc;
+            }
+            NamedLabel::Icon => {
+                self.icon_len = copy_bounded(self.strs.icon, value);
+                self.strs.icon_enc = enc;
+            }
+        }
+    }
+
+    /// An `OSC 3` property no window here has, counted as unsupported too.
+    fn drop_property(&mut self) {
+        self.strs.properties_dropped = self.strs.properties_dropped.next();
+        self.unsupported_total += 1;
+    }
+
     /// Keep one body byte for the terminator, counting one past `OSC_MAX`.
     #[inline(always)]
     fn keep_pending(&mut self, b: StreamByte) {
@@ -724,6 +771,7 @@ impl Paint<'_, '_> {
                     }
                 };
             }
+            Osc::SetProperty(p) => self.set_property(p),
             Osc::Unsupported => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;
@@ -744,6 +792,7 @@ impl Paint<'_, '_> {
     fn report_allowed(&mut self, q: AllowQuery, term: StringTerm) {
         let facts = Facts {
             checksum: self.cold.checksum_report,
+            window_ops: self.strs.window_asks.ops,
             clipboard: match self.strs.clip_area.is_empty() {
                 true => Clipboard::Unprovisioned,
                 false => Clipboard::Provisioned,
@@ -857,9 +906,9 @@ impl Paint<'_, '_> {
 /// `18`) are refused, and xterm gates them with the rest of `OSC 10` to
 /// `19` under those two (`AllocateTermColor` and `ReportColorRequest`,
 /// `[[source: xterm-misc]]` 6456 and 3572); of the window, the
-/// manipulations and the line count, the title reports, `OSC 52`'s read and
-/// `OSC 3`, DECRQCRA while the embedder has it off, and `OSC 52`'s write on a storage with no clipboard area,
-/// which refuses every write. XTCHECKSUM, `SetChecksum`, is honoured
+/// manipulations and the line count, the title reports, `OSC 52`'s read,
+/// `OSC 3` and DECRQCRA while the embedder has each off, and `OSC 52`'s
+/// write on a storage with no clipboard area, which refuses every write. XTCHECKSUM, `SetChecksum`, is honoured
 /// whatever the checksum setting (`Paint::select_checksum`).
 fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
     match c {
@@ -878,6 +927,7 @@ fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
             | b"ColumnMode"
             | b"SetChecksum" => true,
             b"GetChecksum" => facts.checksum == ChecksumReport::On,
+            b"SetXprop" => facts.window_ops == WindowOps::On,
             b"SetSelection" => facts.clipboard == Clipboard::Provisioned,
             _ => false,
         },
@@ -888,6 +938,7 @@ fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
 #[derive(Clone, Copy)]
 struct Facts {
     checksum: ChecksumReport,
+    window_ops: WindowOps,
     clipboard: Clipboard,
 }
 

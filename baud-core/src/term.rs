@@ -3,7 +3,7 @@
 use crate::graph::Node;
 use crate::osc::StrKind;
 use crate::storage::{LINK_MAX, MAX_COLS, MAX_ROWS, Storage};
-use crate::window::{WindowOpsRefused, WindowRequestsDropped};
+use crate::window::{PropertiesDropped, WindowOpsRefused, WindowRequestsDropped};
 use baud_domain::*;
 
 /// Which screen buffer is live.
@@ -3489,6 +3489,14 @@ impl<'b> Term<'b> {
     /// off.
     pub fn window_ops_refused(&self) -> WindowOpsRefused {
         self.store.strs.window_asks.refused
+    }
+
+    /// The `OSC 3` properties dropped because no window here has them:
+    /// every property but `WM_NAME`, `_NET_WM_NAME`, `WM_ICON_NAME` and
+    /// `_NET_WM_ICON_NAME`, and a value of one of the last two kinds that is
+    /// not UTF-8. Each counts as unsupported too.
+    pub fn properties_dropped(&self) -> PropertiesDropped {
+        self.store.strs.properties_dropped
     }
 
     /// **The rows a change of width dropped from the oldest end of the

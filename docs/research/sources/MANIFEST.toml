@@ -29640,3 +29640,35 @@ bytes  = 84231
 status = "external"
 group  = "J"
 # Fetched 2026-10-20 (lane b119). Read, not copied.
+
+# The X properties `OSC 3` names that have a counterpart in baud's window, read
+# 2026-10-20 (lane b120): ICCCM's WM_NAME and WM_ICON_NAME (chapter 4, Client
+# Properties) and STRING's ISO Latin-1 (chapter 2, TEXT Properties); EWMH's
+# _NET_WM_NAME and _NET_WM_ICON_NAME (section 5). Each `external`: read and
+# hash-verified against the url, not committed.
+
+[sources.icccm-2-0]
+key    = "icccm-2-0"
+title  = "Inter-Client Communication Conventions Manual, Version 2.0 -- WM_NAME and WM_ICON_NAME (ch. 4, Client Properties); STRING is ISO Latin-1 (ch. 2, TEXT Properties)"
+author = "David Rosenthal; ed. Stuart W. Marks (X Consortium Standard)"
+year   = 1994
+venue  = "X Window System, X Version 11 Release 7.7 documentation"
+url    = "https://www.x.org/releases/X11R7.7/doc/xorg-docs/icccm/icccm.html"
+file   = ""
+sha256 = "24d80b93c02208bd613aad0da3b04b5cee58fd13716ed3a055ebc4e233d8bfc3"
+bytes  = 301859
+status = "external"
+group  = "AK"
+
+[sources.ewmh-1-5-app]
+key    = "ewmh-1-5-app"
+title  = "Extended Window Manager Hints 1.5, section 5, Application Window Properties -- _NET_WM_NAME and _NET_WM_ICON_NAME, UTF8_STRING, used in preference to WM_NAME and WM_ICON_NAME"
+author = "freedesktop.org"
+year   = 2011
+venue  = "specifications.freedesktop.org, wm-spec 1.5"
+url    = "https://specifications.freedesktop.org/wm-spec/1.5/ar01s05.html"
+file   = ""
+sha256 = "566eb714ca312acfc25302b6e413a11c4ea3d550095cdb6de52bda7711c54277"
+bytes  = 46759
+status = "external"
+group  = "AK"

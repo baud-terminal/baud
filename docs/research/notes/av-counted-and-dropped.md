@@ -93,7 +93,8 @@ none the table says so.
 | `?2002`, `?2003`, `?1040`, `?42`, `?38` | counted | ctlseqs DECSET | `out` | **keep**: their rows' reasons |
 | `?10` | counted | ctlseqs: rxvt's toolbar | none | **keep refused**: baud has no toolbar |
 | `?41` | counted | ctlseqs: "more(1) fix (see curses resource)"; xterm's `TabNext` wraps a pending wrap before a tab under it (`[[source: xterm-tabs-c]]` 113-118) | the `?41` row | **built** 2026-10-20: `more_fix.rs` |
-| `OSC 3`, `OSC 15`/`16`/`18`/`115`/`116`/`118`, `OSC 51` | counted | ctlseqs: an X property, the Tektronix window's colours, Emacs's reserve | none | **keep refused**: no X window, no Tektronix window, nothing assigned |
+| `OSC 3` | built 2026-10-20 | ctlseqs: "Set X property on top-level window" | the `OSC 3` row | **built**, the owner's call of 2026-10-20 (below): the window's and the icon's names mapped, every other property counted (`x_property.rs`) |
+| `OSC 15`/`16`/`18`/`115`/`116`/`118`, `OSC 51` | counted | ctlseqs: the Tektronix window's colours, Emacs's reserve | none | **keep refused**: no Tektronix window, nothing assigned |
 | `OSC 46` | counted | ctlseqs line 2133: the log file's name | none | **keep refused**: a remote program naming a file to write |
 | `ESC` with an ECMA-48 C1 function: `B` BPH, `C` NBH, `F` SSA, `G` ESA, `I` HTJ, `K` PLD, `L` PLU, `Q` PU1, `R` PU2, `S` STS, `T` CCH, `U` MW, `` ` `` DMI, `a` INT, `b` EMI, `d` CMD | counted | `[[source: ecma48]]` | none | **ask Jev, one at a time**: CCH (the preceding graphic character and CCH itself "are to be ignored") and DMI/EMI (manual input off and on, the keyboard lock baud has as KAM) are small; PLD/PLU need half-line rendering; the rest act on transmission baud does not do |
 | other `ESC` finals in ANSI mode (`0`-`5`, `:`, `;`, `<`, `?`, `@`, `A`, `Y`, `e`-`m`, `p`-`z`, `{`) and in VT52 mode | counted | private or unassigned; every VT52 form ctlseqs lists is acted on | none | **keep**: no function to act on |
@@ -137,3 +138,23 @@ The rows marked **partial** in `docs/vt-coverage.md` act on part of what
 they name and say which part; they are not counted and are not repeated
 here. Kitty graphics' animation commands are in that file's out-of-scope
 table as "in scope and unbuilt".
+
+## The owner's calls of 2026-10-20
+
+The owner, 2026-10-20, verbatim: "3 46 and 50 all yes, pointer hiding -
+yes , ReGIS - yes". Read against the decisions page's options (TODO.md,
+"DECIDED 2026-10-20"): `OSC 3` is option B, "map the properties with a
+counterpart (window name, icon name), count the rest". The settings take
+the owner's words of 2026-10-19: "i would say on or off, not answer,
+keep it simple" (TODO.md dates this quote OWNER 2026-10-19). This
+overturns this note's "keep refused" for `OSC 3`.
+`OSC 50`, the pointer-hiding mode and ReGIS are recorded by their own
+lanes.
+
+- **`OSC 3`, built 2026-10-20.** `WM_NAME` and `_NET_WM_NAME` set the
+  title, `WM_ICON_NAME` and `_NET_WM_ICON_NAME` the icon name, ICCCM's in
+  ISO 8859-1 and EWMH's in UTF-8 (Jev, ICCCM_AND_EWMH 0.96/0.98 and
+  BY_PROPERTY_TYPE 0.97/1.00, each on a second ask); a bare name deletes;
+  any other name is counted in `Term::properties_dropped`. Refused with
+  the window operations, as xterm's `allowWindowOps` gates it (Jev's
+  lean, FOLLOWS_WINDOW_OPS, 0.38/0.52).

@@ -155,7 +155,7 @@ pub use baud_domain::{PixelSize, ScreenCoord, ScreenPoint, WindowFacts, WindowSt
 pub use clip::ClipboardWrites;
 pub use graph::Node;
 pub use term::{ClickHow, ClickKeys, PromptClick, PromptJump, PromptLine, PromptMark};
-pub use window::{WINDOW_QUEUE, WindowOpsRefused, WindowRequestsDropped};
+pub use window::{PropertiesDropped, WINDOW_QUEUE, WindowOpsRefused, WindowRequestsDropped};
 
 /// What `Owned::with_history` takes beside a depth. Re-exported so a caller
 /// that chooses its scrollback -- which `multibench` must, to hand every core

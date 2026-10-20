@@ -609,13 +609,13 @@ fn osc_60_names_the_categories_baud_honours_whole() {
 /// no category gets an empty list, as xterm's `unparse_disallowed_ops`.
 /// `OSC 52`'s write is refused on a storage with no clipboard area, and
 /// named only there. XTCHECKSUM, `SetChecksum`, is honoured and not named,
-/// whatever the checksum setting.
+/// whatever the checksum setting; `OSC 3`, `SetXprop`, is named only while
+/// the window operations are off.
 #[test]
 fn osc_61_names_what_baud_refuses() {
     let windows: &[u8] = b"\x1b]61;RestoreWin,MinimizeWin,SetWinPosition,\
 SetWinSizePixels,RaiseWin,LowerWin,RefreshWin,SetWinSizeChars,MaximizeWin,\
-FullscreenWin,GetIconTitle,GetWinTitle,SetWinLines,GetSelection,SetSelection,\
-SetXprop\x07";
+FullscreenWin,GetIconTitle,GetWinTitle,SetWinLines,GetSelection,SetSelection\x07";
     for name in ["allowWindowOps", "ALLOWWINDOWOPS", "allowWinOps"] {
         let q = format!("\x1b]61;{name}\x07");
         assert_eq!(reply_of(q.as_bytes(), |_| {}).0, windows, "{name}");
@@ -641,8 +641,7 @@ SetXprop\x07";
     support::feed(&mut t, b"\x1b]52;c;aGk=\x07\x1b]61;allowWindowOps\x07");
     assert_eq!(t.clipboard_writes_refused, 0, "the write was honoured");
     assert!(
-        t.reply()
-            .ends_with(b",SetWinLines,GetSelection,SetXprop\x07"),
+        t.reply().ends_with(b",SetWinLines,GetSelection\x07"),
         "a provisioned clipboard is not refused: {}",
         String::from_utf8_lossy(t.reply())
     );
@@ -658,6 +657,16 @@ SetXprop\x07";
     assert!(
         !r.windows(b"SetChecksum".len()).any(|w| w == b"SetChecksum"),
         "XTCHECKSUM is honoured with the checksum off"
+    );
+    // `OSC 3` is honoured unless the window operations are off, which
+    // refuse it as xterm's `allowWindowOps` does (`x_property.rs`).
+    let (r, _) = reply_of(b"\x1b]61;allowWindowOps\x07", |t| {
+        t.set_window_ops(baud_domain::WindowOps::Off)
+    });
+    assert!(
+        r.ends_with(b",SetSelection,SetXprop\x07"),
+        "OSC 3 refused with the window operations off: {}",
+        String::from_utf8_lossy(&r)
     );
 }
 

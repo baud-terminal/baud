@@ -467,6 +467,9 @@ pub struct StrBuf<'b> {
     /// (`Term::window_requests`). Here for the reason `window` is: only an
     /// XTWINOPS operation reaches it.
     pub(crate) window_asks: crate::window::WindowAsks,
+    /// The `OSC 3` properties dropped (`Term::properties_dropped`): here
+    /// for the reason `window_asks` is.
+    pub(crate) properties_dropped: crate::window::PropertiesDropped,
     /// The special-colour modes `OSC 6` and `OSC 106` turn on
     /// (`Term::color_modes`), the colours being in `palette`: here rather
     /// than in `Cold`, whose size is pinned, as `clip` is; written by those
@@ -536,6 +539,7 @@ impl<'b> StrBuf<'b> {
             renditions: crate::stack::RenditionStack::EMPTY,
             colors: crate::stack::ColorStack::EMPTY,
             window_asks: crate::window::WindowAsks::NONE,
+            properties_dropped: crate::window::PropertiesDropped::FIRST,
             color_modes: ColorModes::NONE,
             shell: crate::prompt::Shell::FRESH,
             shell_other: crate::prompt::Shell::FRESH,
@@ -809,6 +813,7 @@ impl Owned {
                 renditions: crate::stack::RenditionStack::EMPTY,
                 colors: crate::stack::ColorStack::EMPTY,
                 window_asks: crate::window::WindowAsks::NONE,
+                properties_dropped: crate::window::PropertiesDropped::FIRST,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
@@ -867,6 +872,7 @@ impl Owned {
                 renditions: crate::stack::RenditionStack::EMPTY,
                 colors: crate::stack::ColorStack::EMPTY,
                 window_asks: crate::window::WindowAsks::NONE,
+                properties_dropped: crate::window::PropertiesDropped::FIRST,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
