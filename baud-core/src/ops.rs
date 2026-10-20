@@ -1800,6 +1800,8 @@ impl Paint<'_, '_> {
         if self.images.any_placed() {
             self.expire_primary_images(None);
         }
+        // And the prompts on them: a jump to one would land on nothing.
+        self.strs.prompts.forget_before(self.book.top);
     }
 
     /// `CSI ? 3 J`, "Selective Erase Saved Lines, xterm": DECSED over the
@@ -3407,8 +3409,8 @@ impl Paint<'_, '_> {
                 // its rows, and still does not carry a block start across
                 // visits, because what a program left there is not a prompt
                 // the shell will redraw by counting rows.
-                core::mem::swap(&mut self.cold.shell, &mut self.cold.shell_other);
-                self.cold.shell = crate::prompt::Shell::FRESH;
+                core::mem::swap(&mut self.strs.shell, &mut self.strs.shell_other);
+                self.strs.shell = crate::prompt::Shell::FRESH;
                 // **Two surfaces, swapped, nothing copied.** The alternate
                 // screen is its own buffer at the pitch; the view takes it
                 // and the primary rides as `other` until the exit swaps them
@@ -3470,7 +3472,7 @@ impl Paint<'_, '_> {
                 // Restore the primary screen's kitty stack and prompt state;
                 // see the enter arm.
                 core::mem::swap(&mut self.cold.kitty, &mut self.cold.kitty_alt);
-                core::mem::swap(&mut self.cold.shell, &mut self.cold.shell_other);
+                core::mem::swap(&mut self.strs.shell, &mut self.strs.shell_other);
                 // Surface first, then the cursor: `restore` clamps against the
                 // geometry and moves the cursor, and it should be moving over
                 // the screen the application is about to see. A resize taken
@@ -3768,7 +3770,8 @@ impl Paint<'_, '_> {
         // erased, and the shell is at no prompt after one. This is the
         // primary's -- `set_alt_screen` above came back to it -- and the
         // alternate screen's starts fresh on its next entry, as its cells do.
-        self.cold.shell = crate::prompt::Shell::FRESH;
+        self.strs.shell = crate::prompt::Shell::FRESH;
+        self.strs.prompts.clear();
         // **The whole ring, not the window.** Zeroing the counts made the old
         // lines unreadable through the scrollback and left their bytes: a
         // reader of the whole ring (`Term::cells`) still found what the user

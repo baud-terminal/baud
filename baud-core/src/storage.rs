@@ -458,6 +458,17 @@ pub struct StrBuf<'b> {
     /// than in `Cold`, whose size is pinned, as `clip` is; written by those
     /// two and `RIS`, read by the renderer once a rendition is resolved.
     pub(crate) color_modes: ColorModes,
+    /// What the `OSC 133` marks said of the live screen, and of the one
+    /// parked (`prompt.rs`): swapped by `?1049`. Here for the reason
+    /// `clip_area` is: only a mark and a resize reach them.
+    pub(crate) shell: crate::prompt::Shell,
+    pub(crate) shell_other: crate::prompt::Shell,
+    /// The primary's prompts, where each began and how its command ended
+    /// (`baud_domain::PromptLog`): [`Owned`]'s, one entry a ring row, the
+    /// most a ring holds, so the log never fills; none through
+    /// [`StrBuf::new`], under which every prompt is forgotten as it is kept,
+    /// and counted.
+    pub(crate) prompts: PromptLog<'b>,
 }
 
 impl<'b> StrBuf<'b> {
@@ -502,6 +513,9 @@ impl<'b> StrBuf<'b> {
             title_reports_refused: crate::term::TitleReportsRefused::FIRST,
             window_asks: crate::window::WindowAsks::NONE,
             color_modes: ColorModes::NONE,
+            shell: crate::prompt::Shell::FRESH,
+            shell_other: crate::prompt::Shell::FRESH,
+            prompts: PromptLog::new(&mut []),
         }
     }
 }
@@ -550,6 +564,7 @@ pub struct Owned {
     kitty: alloc::boxed::Box<KittyStream>,
     kitty_scratch: alloc::vec::Vec<u8>,
     clip: alloc::vec::Vec<u8>,
+    prompts: alloc::vec::Vec<PromptEntry>,
 }
 
 #[cfg(feature = "alloc")]
@@ -640,6 +655,8 @@ impl Owned {
             // The `OSC 52` areas default absent, provisioned by
             // [`Owned::with_clipboard`].
             clip: vec::Vec::new(),
+            // One prompt a ring row: a log that never fills.
+            prompts: vec![PromptEntry::EMPTY; rows.index() + depth.lines()],
         }
     }
 
@@ -672,6 +689,13 @@ impl Owned {
         self.img_pixels = Pixel::zeroed_vec(budget.pixels);
         self.img_probe = Pixel::zeroed_vec(budget.probe());
         self.kitty_scratch = alloc::vec![0u8; budget.scratch()];
+        self
+    }
+
+    /// A prompt log of `entries`, in place of one a ring row: a smaller
+    /// log forgets its oldest prompts, counted ([`Term::prompts_forgotten`]).
+    pub fn with_prompt_log(mut self, entries: PromptCapacity) -> Owned {
+        self.prompts = alloc::vec![PromptEntry::EMPTY; entries.index()];
         self
     }
 
@@ -756,6 +780,9 @@ impl Owned {
                 title_reports_refused: crate::term::TitleReportsRefused::FIRST,
                 window_asks: crate::window::WindowAsks::NONE,
                 color_modes: ColorModes::NONE,
+                shell: crate::prompt::Shell::FRESH,
+                shell_other: crate::prompt::Shell::FRESH,
+                prompts: PromptLog::new(&mut self.prompts),
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -805,6 +832,9 @@ impl Owned {
                 title_reports_refused: crate::term::TitleReportsRefused::FIRST,
                 window_asks: crate::window::WindowAsks::NONE,
                 color_modes: ColorModes::NONE,
+                shell: crate::prompt::Shell::FRESH,
+                shell_other: crate::prompt::Shell::FRESH,
+                prompts: PromptLog::new(&mut self.prompts),
             },
             ImageStore::new(
                 &mut self.img_pixels,

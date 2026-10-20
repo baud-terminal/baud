@@ -195,6 +195,67 @@ pub enum Zone {
     Output,
 }
 
+/// Where a prompt's first line is, from the live screen: `Back(n)` is the
+/// line `n` lines above the live screen's top, so [`Term::set_window_back`]
+/// with `n` puts it at the window's top, and `Screen(r)` is row `r` of the
+/// live screen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PromptLine {
+    Back(Rows),
+    Screen(Row),
+}
+
+/// One prompt the shell drew on the primary, and how its command ended
+/// ([`Term::prompts`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PromptMark {
+    pub line: PromptLine,
+    pub status: ExitStatus,
+}
+
+/// Which way [`Term::jump_to_prompt`] goes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PromptJump {
+    Previous,
+    Next,
+}
+
+/// What a click on the prompt the shell is at sends, as the command's `A`
+/// asked ([`Term::prompt_click`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PromptClick {
+    pub how: ClickHow,
+    /// The screen row the prompt's block begins on.
+    pub top: Row,
+    /// The newest screen row a later line of the block (`k=s`, `k=c`) began
+    /// on, when it is on the screen.
+    pub later: Option<Row>,
+    /// Where the user's input began (`B` or `I`), when it is on the screen.
+    pub input: Option<(Row, Col)>,
+}
+
+/// How a click at a prompt reaches the shell.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ClickHow {
+    /// `cl=`: as many left or right keys as characters lie between the
+    /// cursor and the click.
+    Keys(ClickKeys),
+    /// kitty's `click_events=`: the click itself, as an SGR mouse report.
+    /// Taken over `cl=` when both are asked, as Ghostty does.
+    Report(ClickEvents),
+}
+
+/// Which keys a `cl=` click sends.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ClickKeys {
+    /// The cursor keys, as the cursor-key mode spells them: the default.
+    Arrows,
+    /// kitty's `special_key=1`: `CSI 1 u` right, `CSI 1 ; 1 u` left.
+    Special,
+    /// The proposal's `move-keys=`, as sent.
+    Sequences(MoveKeys),
+}
+
 /// How the window moved between two rotations; see [`Term::moved_since`]
 /// and [`Term::history_moved_since`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -962,13 +1023,6 @@ pub struct Cold {
     /// reply with: CSI ? flags u".
     pub(crate) kitty: KittyStack,
     pub(crate) kitty_alt: KittyStack,
-    /// What `OSC 133` has said about the live screen: which half of its
-    /// life this is (see [`Zone`]) and where the prompt block the shell is
-    /// at begins (`prompt.rs`). `shell_other` is the parked screen's, and
-    /// the `?1049` transition swaps them -- the kitty stacks' shape, for the
-    /// reason `prompt::Shell` gives.
-    pub(crate) shell: crate::prompt::Shell,
-    pub(crate) shell_other: crate::prompt::Shell,
     /// Where a program put the cursor before it hid it (`placed.rs`):
     /// decided on every `?25l` by looking back at the bytes before it, with
     /// the stream's last 31 bytes before the read kept for that, and read by
@@ -1114,9 +1168,12 @@ pub struct Cold {
 // formats and modifyOtherKeys' mask, fifteen bytes where two were,
 // written by XTMODKEYS, XTFMTKEYS, `CSI > Ps n` and the resets and read by
 // `Term::key` and the queries alone.
+// The prompt marks' two `Shell`s, 32 bytes, moved to `StrBuf` when the
+// `OSC 133` options came in, which took it to 792: a mark and a resize read
+// them, never a glyph.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 824);
+const _: () = assert!(core::mem::size_of::<Cold>() == 792);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -1331,8 +1388,6 @@ impl Cold {
             desig: POWER_UP_DESIGNATIONS,
             restored_shift: None,
             tab_restore: TabRestore::Stopped,
-            shell: crate::prompt::Shell::FRESH,
-            shell_other: crate::prompt::Shell::FRESH,
             placement: crate::placed::Placement::NONE,
             first_erasure: None,
             mouse: MouseTracking::Off,
@@ -2162,7 +2217,7 @@ impl<'b> Term<'b> {
         // The window's last rows a re-cut blanked to the new width only,
         // which the measure reads whole (`Reflowed::blanked`).
         let mut blanked = Rows::ZERO;
-        if cols.index() != old_cols.index() && self.primary_zone() == Zone::Output {
+        if cols.index() != old_cols.index() && self.primary_recuts() {
             let at = self.primary_cursor();
             let cursor = match at {
                 PrimaryCursor::Live | PrimaryCursor::Shared => (self.cy, self.cx.col()),
@@ -2189,6 +2244,10 @@ impl<'b> Term<'b> {
                 true => images.follow_begin(ImageScreen::Primary, floor),
                 false => 0,
             };
+            // **And so do the prompts**, by the same three steps: a jump
+            // lands on the line its prompt was re-cut onto.
+            let prompts = &mut self.store.strs.prompts;
+            let marked = prompts.follow_begin(floor);
             // Whether the reflow visited a line: one that returned before
             // the re-cut visited none, and staged placements it never mapped
             // are still where they were, not gone.
@@ -2198,10 +2257,49 @@ impl<'b> Term<'b> {
             let hist = self.store.book.hist;
             let view = held.map(|b| hist.index().saturating_sub(b.index()));
             let mut landed: Option<Rows> = None;
+            // **And so does the prompt the shell is at, when it is re-cut**
+            // -- under `redraw=0`, or once an `I` line has ended: its block
+            // start, its input and its later line are ring rows, which name
+            // other cells once the rows move. Counted from the oldest
+            // retained row, as the hook counts.
+            let oldest = self.rot.retreat(hist.index(), ring);
+            let shell = match self.cold.screen {
+                Screen::Normal => &self.store.strs.shell,
+                Screen::Alternate => &self.store.strs.shell_other,
+            };
+            let counted = |r: RowRot| {
+                Rows::of_count((r.index() + ring.index() - oldest.index()) % ring.index())
+            };
+            let anchors: [Option<(Rows, Col)>; 3] = match shell.zone {
+                Zone::Prompt => [
+                    Some((counted(shell.block.start()), Col::ZERO)),
+                    match shell.input {
+                        crate::prompt::Input::At { row, col, .. } => Some((counted(row), col)),
+                        crate::prompt::Input::None => None,
+                    },
+                    match shell.secondary {
+                        crate::prompt::Later::At(row) => Some((counted(row), Col::ZERO)),
+                        crate::prompt::Later::None => None,
+                    },
+                ],
+                Zone::Output => [None; 3],
+            };
+            let mut moved: [Option<(Rows, Col)>; 3] = [None; 3];
             let mut hook = |from: Rows, n: Rows, land: &dyn Fn(Rows, Col) -> (Rows, Col)| {
                 visited = true;
                 if staged > 0 {
                     images.follow_line(from, n, land);
+                }
+                if marked > 0 {
+                    prompts.follow_line(floor, from, n, land);
+                }
+                let line = from.index()..from.index() + n.index();
+                for (a, m) in anchors.iter().zip(moved.iter_mut()) {
+                    if let Some((r, c)) = *a {
+                        if line.contains(&r.index()) {
+                            *m = Some(land(r, c));
+                        }
+                    }
                 }
                 if let Some(v) = view {
                     if (from.index()..from.index() + n.index()).contains(&v) {
@@ -2209,8 +2307,8 @@ impl<'b> Term<'b> {
                     }
                 }
             };
-            let follow: Option<Follow<'_>> = match (staged, view) {
-                (0, None) => None,
+            let follow: Option<Follow<'_>> = match (staged, marked, view, anchors) {
+                (0, 0, None, [None, None, None]) => None,
                 _ => Some(&mut hook),
             };
             let r = View::new(
@@ -2237,6 +2335,11 @@ impl<'b> Term<'b> {
                 }
                 (_, false) => self.store.images.follow_cancel(),
             }
+            match (marked, visited) {
+                (0, _) => {}
+                (_, true) => self.store.strs.prompts.follow_end(floor),
+                (_, false) => self.store.strs.prompts.follow_cancel(),
+            }
             // The window over the history, from where its first row landed:
             // lines from the new window top, which is the history's depth past
             // what the re-cut dropped. A line that landed on the live screen
@@ -2249,6 +2352,27 @@ impl<'b> Term<'b> {
                 None => r.hist,
             });
             self.rot = r.rot;
+            // The anchors' rows, from the window's new top line.
+            let top = r.dropped.index() + r.hist.index();
+            let rot_of = |j: Rows| match j.index().checked_sub(top) {
+                Some(y) => r.rot.advance(y, ring),
+                None => r.rot.retreat(top - j.index(), ring),
+            };
+            let shell = match self.cold.screen {
+                Screen::Normal => &mut self.store.strs.shell,
+                Screen::Alternate => &mut self.store.strs.shell_other,
+            };
+            if let Some((j, _)) = moved[0] {
+                shell.block = crate::prompt::PromptBlock::at(rot_of(j));
+            }
+            if let (Some((j, c)), crate::prompt::Input::At { row, col, .. }) =
+                (moved[1], &mut shell.input)
+            {
+                (*row, *col) = (rot_of(j), c);
+            }
+            if let Some((j, _)) = moved[2] {
+                shell.secondary = crate::prompt::Later::At(rot_of(j));
+            }
             blanked = r.blanked;
             self.store.book.hist = r.hist;
             self.store.book.hidden = r.hidden;
@@ -2672,7 +2796,7 @@ impl<'b> Term<'b> {
     /// fresh one on each entry. What decides whether a width change re-cuts
     /// is the primary's: [`Term::primary_zone`].
     pub fn zone(&self) -> Zone {
-        self.cold.shell.zone
+        self.store.strs.shell.zone
     }
 
     /// The **primary's** zone, whichever screen is up: what decides whether
@@ -2682,9 +2806,41 @@ impl<'b> Term<'b> {
     /// re-cutting.
     pub fn primary_zone(&self) -> Zone {
         match self.cold.screen {
-            Screen::Normal => self.cold.shell.zone,
-            Screen::Alternate => self.cold.shell_other.zone,
+            Screen::Normal => self.store.strs.shell.zone,
+            Screen::Alternate => self.store.strs.shell_other.zone,
         }
+    }
+
+    /// Whether a change of width re-cuts the primary: in [`Zone::Output`],
+    /// and at a prompt the shell said it will not redraw -- kitty's
+    /// `redraw=0`, "the shell will not redraw the prompt on resize", under
+    /// which kitty's resize re-wraps the prompt as it does output
+    /// (`[[source: kitty-6d5d0c4-screen]]`, where the rewrap guard returns at once)
+    /// -- or once an `I` input's line has ended, which began the output.
+    fn primary_recuts(&self) -> bool {
+        let (shell, live) = match self.cold.screen {
+            Screen::Normal => (&self.store.strs.shell, true),
+            Screen::Alternate => (&self.store.strs.shell_other, false),
+        };
+        shell.zone == Zone::Output
+            || shell.asks.redraw == Redraw::Never
+            || (live && self.input_line_ended())
+    }
+
+    /// Whether the live screen's `I` input line has ended (`prompt.rs`).
+    fn input_line_ended(&self) -> bool {
+        let crate::prompt::Input::At {
+            row,
+            end: InputEnd::AtEndOfLine,
+            ..
+        } = self.store.strs.shell.input
+        else {
+            return false;
+        };
+        let y = row.retreat(self.rotation().index(), self.ring()).index();
+        let cy = self.cy.index();
+        let v = self.viewport();
+        y > cy || (y..cy).any(|r| v.wrapped(Row::from_index(r)) == Wrap::Ended)
     }
 
     /// The screen row the current prompt block begins on, while the shell
@@ -2696,21 +2852,126 @@ impl<'b> Term<'b> {
     /// started to where the cursor is, moving up that many and erasing
     /// from there (Schaefer, zsh-workers); a terminal that changes that
     /// distance behind its back orphans the prompt's top. The block start
-    /// is kept as a ring row on `Cold`, so this answers under the live
+    /// is kept as a ring row on `StrBuf`, so this answers under the live
     /// rotation rather than from a number that went stale at the first
     /// scroll.
     pub fn prompt_row(&self) -> Option<Row> {
-        if self.cold.shell.zone != Zone::Prompt {
+        if self.store.strs.shell.zone != Zone::Prompt {
             return None;
         }
         let y = self
-            .cold
+            .store
+            .strs
             .shell
             .block
             .start()
             .retreat(self.rotation().index(), self.ring())
             .index();
         (y < self.rows.index()).then(|| Row::from_index(y))
+    }
+
+    /// **The prompts the shell drew on the primary**, oldest first, each
+    /// where its first line is and how its command ended (`OSC 133`'s `D`).
+    /// Only lines the history still holds: an older one was recycled with
+    /// its line.
+    pub fn prompts(&self) -> impl Iterator<Item = PromptMark> + '_ {
+        let book = &self.store.book;
+        let (top, floor) = (
+            book.top,
+            book.top.minus(book.hist).unwrap_or(LineIdx::FIRST),
+        );
+        self.store
+            .strs
+            .prompts
+            .entries()
+            .filter(move |e| e.line() >= floor)
+            .map(move |e| PromptMark {
+                line: match top.since(e.line()) {
+                    Some(n) if n.index() > 0 => PromptLine::Back(n),
+                    _ => PromptLine::Screen(Row::from_index(
+                        e.line().since(top).map_or(0, |r| r.index()),
+                    )),
+                },
+                status: e.status(),
+            })
+    }
+
+    /// Prompts the log let go because it was full, the oldest first: none
+    /// with [`Owned`]'s log, which holds one a ring row, unless
+    /// [`Owned::with_prompt_log`] sized it smaller.
+    pub fn prompts_forgotten(&self) -> PromptsForgotten {
+        self.store.strs.prompts.forgotten()
+    }
+
+    /// **Move the primary's window to the previous or next prompt**, its
+    /// first line at the window's top, as kitty's `scroll_to_prompt` and
+    /// Ghostty's `jump_to_prompt` put it; a prompt on the live screen is the
+    /// live screen. From the window's top line, so the prompts it shows are
+    /// passed over going back. Whether the window moved; never on the
+    /// alternate screen, which keeps no history.
+    pub fn jump_to_prompt(&mut self, to: PromptJump) -> bool {
+        if self.cold.screen != Screen::Normal {
+            return false;
+        }
+        let book = &self.store.book;
+        let back = book.window_back();
+        let top = book.top;
+        let at = top.minus(back).unwrap_or(LineIdx::FIRST);
+        let floor = top.minus(book.hist).unwrap_or(LineIdx::FIRST);
+        let found = match to {
+            PromptJump::Previous => self.store.strs.prompts.before(at, floor),
+            PromptJump::Next => self.store.strs.prompts.after(at),
+        };
+        let Some(e) = found else {
+            return false;
+        };
+        match top.since(e.line()) {
+            Some(n) if n.index() > 0 => self.set_window_back(n),
+            _ => self.window_live(),
+        }
+        self.store.book.window_back() != back
+    }
+
+    /// **What a click on the live screen's prompt sends**, as the command's
+    /// `A` asked: `None` at no prompt, when it asked for neither `cl=` nor
+    /// `click_events=`, when the block's first row is off the screen, or
+    /// once an `I` input's line has ended.
+    pub fn prompt_click(&self) -> Option<PromptClick> {
+        let shell = &self.store.strs.shell;
+        let top = self.prompt_row()?;
+        // An `I` line that has ended began the output: a click there is the
+        // running program's.
+        if self.input_line_ended() {
+            return None;
+        }
+        let asks = shell.asks;
+        let how = match (asks.click_events, asks.click) {
+            (Some(e), _) => ClickHow::Report(e),
+            (None, Some(_)) => ClickHow::Keys(match (asks.move_keys, asks.special_key) {
+                (Some(k), _) => ClickKeys::Sequences(k),
+                (None, SpecialKey::Special) => ClickKeys::Special,
+                (None, SpecialKey::Arrows) => ClickKeys::Arrows,
+            }),
+            (None, None) => return None,
+        };
+        let on_screen = |r: RowRot| {
+            let y = r.retreat(self.rotation().index(), self.ring()).index();
+            (y < self.rows.index()).then(|| Row::from_index(y))
+        };
+        let later = match shell.secondary {
+            crate::prompt::Later::At(r) => on_screen(r),
+            crate::prompt::Later::None => None,
+        };
+        let input = match shell.input {
+            crate::prompt::Input::At { row, col, .. } => on_screen(row).map(|y| (y, col)),
+            crate::prompt::Input::None => None,
+        };
+        Some(PromptClick {
+            how,
+            top,
+            later,
+            input,
+        })
     }
 
     /// `?2004`. Whether pasted text should be bracketed.

@@ -59,14 +59,14 @@ pub enum Osc<'a> {
     ///
     /// **What baud wants them for is not what everyone else wants them
     /// for.** The usual uses are navigation and selection; here the
-    /// load-bearing one is [`Semantic::PromptStart`], because it is the
+    /// load-bearing one is [`Semantic::Command`], because it is the
     /// boundary between the rows an application will redraw and the rows
     /// nobody will. A resize may re-cut the second and must not re-cut
     /// the first: a shell redraws its prompt by counting the rows it
     /// occupies and erasing that many, so changing the count behind its
     /// back leaves the top of the old prompt on screen. See
     /// `docs/research/notes/m-resize-and-reflow.md`.
-    Semantic(Semantic),
+    Semantic(Semantic<'a>),
     /// `OSC 60`, `OSC 61 ; cat`, `OSC 62 ; cat`: xterm's queries of the
     /// features it allows, [`AllowQuery`].
     Allowed(AllowQuery),
@@ -943,76 +943,6 @@ impl Video {
     }
 }
 
-/// The mark an `OSC 133` carries.
-///
-/// The four FinalTerm letters, plus the `P` form iTerm2 and the shells
-/// that follow it emit for a prompt with a kind attached (`OSC 133 ; P ;
-/// k=i`). `P` is a prompt start like `A` is, and reading it as anything
-/// else is how a terminal ends up thinking a shell sends no marks at
-/// all -- the owner's own `zsh` sends `P` and not `A`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Semantic {
-    /// `A`, or `P` with a kind: a prompt line begins here, and the kind
-    /// says which. Only [`PromptKind::Initial`] begins a *block*.
-    PromptStart(PromptKind),
-    /// `B`: the prompt has ended and what follows is what the user typed.
-    CommandStart,
-    /// `C`: the command's output begins here.
-    OutputStart,
-    /// `D`: the command is done.
-    ///
-    /// The exit status `D` may carry is **not** kept. Nothing here acts
-    /// on it, and `docs/vt-coverage.md`'s rule is that a value recorded
-    /// and never read is worse than one not parsed -- it reads as a
-    /// capability. It goes in beside whatever first needs it.
-    CommandDone,
-    /// A mark this terminal does not act on, kept so it is counted rather
-    /// than silently dropped.
-    Other,
-}
-
-/// Which line of a prompt an `A` or `P` mark opens: the `k=` option.
-///
-/// A shell with a multi-line prompt marks *each* line -- kitty's own
-/// zsh integration sends `OSC 133 ; A ; k=s` "just before starting to
-/// draw the PS2 prompt", and fish marks its continuation lines the same
-/// way -- so a terminal that took every mark as the start of a new block
-/// would measure a block from its last line. Ghostty's parser accepts
-/// exactly these four values; the default when `k=` is absent is the
-/// initial line, which is what a bare `A` has always meant.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum PromptKind {
-    /// `k=i`, or no `k=` at all: the first line of a prompt.
-    #[default]
-    Initial,
-    /// `k=s`: a secondary prompt (`PS2`), drawn on a later line of the
-    /// same block.
-    Secondary,
-    /// `k=r`: a right prompt, on the same line as the one before it.
-    Right,
-    /// `k=c`: a continuation line of the primary prompt.
-    Continuation,
-}
-
-impl PromptKind {
-    /// The kind named by the `key=value` fields after the mark letter,
-    /// separated by `;`. Only `k=` is read; `cl=`, `aid=`, `redraw=` and
-    /// `click_events=` pass through unread until something acts on them.
-    fn of(fields: &mut Split<'_>) -> PromptKind {
-        for kv in fields {
-            if let Some(v) = strip(kv, b"k=") {
-                return match v {
-                    b"s" => PromptKind::Secondary,
-                    b"r" => PromptKind::Right,
-                    b"c" => PromptKind::Continuation,
-                    _ => PromptKind::Initial,
-                };
-            }
-        }
-        PromptKind::Initial
-    }
-}
-
 /// An X11 colour specification, as `XParseColor` accepts it.
 ///
 /// `[[source: ctlseqs]]`: "The spec can be a name or RGB specification as per
@@ -1475,18 +1405,7 @@ impl<'a> Osc<'a> {
                     uri,
                 }
             }
-            b"133" => {
-                let mut p = Split::new(rest, b';');
-                match p.next() {
-                    Some(b"A") | Some(b"P") => {
-                        Osc::Semantic(Semantic::PromptStart(PromptKind::of(&mut p)))
-                    }
-                    Some(b"B") => Osc::Semantic(Semantic::CommandStart),
-                    Some(b"C") => Osc::Semantic(Semantic::OutputStart),
-                    Some(b"D") => Osc::Semantic(Semantic::CommandDone),
-                    _ => Osc::Semantic(Semantic::Other),
-                }
-            }
+            b"133" => Osc::Semantic(Semantic::parse(rest)),
             b"22" if rest.is_empty() => Osc::Pointer(PointerRequest::Default),
             b"22" => Osc::Pointer(match PointerShape::of(rest) {
                 Some(shape) => PointerRequest::Shape(shape),

@@ -28947,3 +28947,268 @@ status = "retrieved"
 group  = "BL"
 # Fetched 2026-10-19 (lane b110) for XTWINOPS's window operations, performed by the
 # macOS app's window_later.
+[sources.kitty-shell-integration]
+key    = "kitty-shell-integration"
+title  = "kitty 6d5d0c4, docs/shell-integration.rst -- OSC 133;A redraw=0, special_key=1, click_events=1|2, k=s; D with the exit status"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/docs/shell-integration.rst"
+file   = ""
+sha256 = "7f49470c5ebd39129d47f681fca6fb39cc3d15f893166fdb0f10c595186c2d95"
+bytes  = 19089
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.kitty-6d5d0c4-mouse]
+key    = "kitty-6d5d0c4-mouse"
+title  = "kitty 6d5d0c4, kitty/mouse.c -- move_cursor_to_mouse_if_at_shell_prompt: a click_events press as CSI < 0 ; x ; y M"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/mouse.c"
+file   = ""
+sha256 = "382eef67591a19bedbe87edf87da08e8437e0d80abce68dae88596d3149d0403"
+bytes  = 74077
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.kitty-6d5d0c4-options-definition]
+key    = "kitty-6d5d0c4-options-definition"
+title  = "kitty 6d5d0c4, kitty/options/definition.py -- scroll_to_previous_prompt kitty_mod+z, scroll_to_next_prompt kitty_mod+x"
+author = "Kovid Goyal"
+year   = 2026
+venue  = "kitty"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/6d5d0c440603ad9bdf6dcd599f73f6dde21acb44/kitty/options/definition.py"
+file   = ""
+sha256 = "d121fedddbecbfa0e76aba0e11ecfe1cb11946dd362bc097b83da54093b9a107"
+bytes  = 160774
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.ghostty-semantic-prompt]
+key    = "ghostty-semantic-prompt"
+title  = "Ghostty b58ef1d, src/terminal/osc/parsers/semantic_prompt.zig -- every OSC 133 letter and option; redraw=0|1|last, cl, click_events, special_key"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/b58ef1d678be2747c830bc1b1e6c0a086afecf9a/src/terminal/osc/parsers/semantic_prompt.zig"
+file   = ""
+sha256 = "5d70b90974ddb3abed9eaa28b5046de9b09cf3d1e6de9fd6515bb12f71a07e05"
+bytes  = 43211
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.ghostty-b58ef1d-terminal]
+key    = "ghostty-b58ef1d-terminal"
+title  = "Ghostty b58ef1d, src/terminal/Terminal.zig -- semanticPrompt: A and N do a fresh-line, L the fresh-line itself"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/b58ef1d678be2747c830bc1b1e6c0a086afecf9a/src/terminal/Terminal.zig"
+file   = ""
+sha256 = "dd8e2840da1ab560bcf94c880ff0d9f7a412a52fa141e9a89f5c2308c4ab36a6"
+bytes  = 613945
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.ghostty-b58ef1d-screen]
+key    = "ghostty-b58ef1d-screen"
+title  = "Ghostty b58ef1d, src/terminal/Screen.zig -- clearPromptForRedraw (redraw=last clears the cursor row) and promptClickMove (m, v, w as line)"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/b58ef1d678be2747c830bc1b1e6c0a086afecf9a/src/terminal/Screen.zig"
+file   = ""
+sha256 = "82274434afc3638a1415e8029df0135e74f99477f380398b9fea148b7d50934e"
+bytes  = 444398
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.ghostty-b58ef1d-pagelist]
+key    = "ghostty-b58ef1d-pagelist"
+title  = "Ghostty b58ef1d, src/terminal/PageList.zig -- scrollPrompt: the prompt row becomes the viewport top"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/b58ef1d678be2747c830bc1b1e6c0a086afecf9a/src/terminal/PageList.zig"
+file   = ""
+sha256 = "c7008280a3dafdcafb48779540faa5605544587b92cbef32b2e52eec678506b0"
+bytes  = 731501
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.ghostty-b58ef1d-surface]
+key    = "ghostty-b58ef1d-surface"
+title  = "Ghostty b58ef1d, src/Surface.zig -- maybePromptClick: click_events over cl, CSI < 0 ; x ; y M"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/b58ef1d678be2747c830bc1b1e6c0a086afecf9a/src/Surface.zig"
+file   = ""
+sha256 = "a17e2b6af70214f41d15f63067736e49f3c93bec8b893c99d6fd6984171500a7"
+bytes  = 247204
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.ghostty-b58ef1d-config]
+key    = "ghostty-b58ef1d-config"
+title  = "Ghostty b58ef1d, src/config/Config.zig -- cursor-click-to-move; jump_to_prompt on super+up/down, 'matches Terminal.app', and super+shift+up/down"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/b58ef1d678be2747c830bc1b1e6c0a086afecf9a/src/config/Config.zig"
+file   = ""
+sha256 = "a651b4aa0edb744b35b028ae7fc9cf2887227471665a3665979e9a5515c4d19c"
+bytes  = 431754
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.ghostty-b58ef1d-bash]
+key    = "ghostty-b58ef1d-bash"
+title  = "Ghostty b58ef1d, src/shell-integration/bash/ghostty.bash -- 133;A;redraw=last;cl=line;aid=$BASHPID once, 133;P;k=i in PS1, 133;D;$ret;aid"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/b58ef1d678be2747c830bc1b1e6c0a086afecf9a/src/shell-integration/bash/ghostty.bash"
+file   = ""
+sha256 = "fcab531a49b10a608cee47c687babb29f6bf3dd41821c67d070e5c77eaf5b04b"
+bytes  = 10818
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.ghostty-b58ef1d-zsh]
+key    = "ghostty-b58ef1d-zsh"
+title  = "Ghostty b58ef1d, src/shell-integration/zsh/ghostty-integration -- 133;A;cl=line, 133;P;k=s, 133;B, 133;D;status"
+author = "Mitchell Hashimoto"
+year   = 2026
+venue  = "ghostty"
+url    = "https://raw.githubusercontent.com/ghostty-org/ghostty/b58ef1d678be2747c830bc1b1e6c0a086afecf9a/src/shell-integration/zsh/ghostty-integration"
+file   = ""
+sha256 = "1a2bcb867f06667d5d743221aea42b1d322f3ae402e1a62ba941cba3c5d17f19"
+bytes  = 19396
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.wezterm-shell-integration]
+key    = "wezterm-shell-integration"
+title  = "WezTerm e2a98e1, docs/shell-integration.md -- OSC 133 per the semantic-prompts proposal"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/docs/shell-integration.md"
+file   = ""
+sha256 = "84f21c12d991d034b8e9fc2e635ed4d588709da7c03763c51ff5b30e53e01cf5"
+bytes  = 7703
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.wezterm-scroll-to-prompt]
+key    = "wezterm-scroll-to-prompt"
+title  = "WezTerm e2a98e1, docs/config/lua/keyassignment/ScrollToPrompt.md -- scrolls to the start of a Prompt zone; not bound by default"
+author = "Wez Furlong"
+year   = 2026
+venue  = "wezterm"
+url    = "https://raw.githubusercontent.com/wezterm/wezterm/e2a98e1b8af156988ad0ac778658ac27b60a55fb/docs/config/lua/keyassignment/ScrollToPrompt.md"
+file   = ""
+sha256 = "c540102d5401259ba85090c73eb5f3a499f6864f3fe96dc9b1c536163f41f479"
+bytes  = 1151
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.fish-terminal-compat]
+key    = "fish-terminal-compat"
+title  = "fish 47a8719, doc_src/terminal-compatibility.rst -- 133;A;click_events=1, 133;B, 133;C;cmdline_url, 133;D;status"
+author = "fish-shell developers"
+year   = 2026
+venue  = "fish-shell"
+url    = "https://raw.githubusercontent.com/fish-shell/fish-shell/47a87198f27c0087f12b753477ba6a7c87447461/doc_src/terminal-compatibility.rst"
+file   = ""
+sha256 = "7e1208017a5606a89519c8ffeefbd6d78e7cd44dce84ccb5ff4b3568484c5f6f"
+bytes  = 11688
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.fish-terminal-rs]
+key    = "fish-terminal-rs"
+title  = "fish 47a8719, src/terminal.rs -- osc_133_prompt_start writes 133;A;click_events=1"
+author = "fish-shell developers"
+year   = 2026
+venue  = "fish-shell"
+url    = "https://raw.githubusercontent.com/fish-shell/fish-shell/47a87198f27c0087f12b753477ba6a7c87447461/src/terminal.rs"
+file   = ""
+sha256 = "8be1517358deefc95d6fee6e438b201122c355f01eaea71de113d9640f99c364"
+bytes  = 32210
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.reedline-semantic-prompt]
+key    = "reedline-semantic-prompt"
+title  = "reedline 39db5e3, src/terminal_extensions/semantic_prompt.rs -- Osc133ClickEventsMarkers: 133;A;k=i;click_events=1, 133;A;k=s, 133;P;k=r"
+author = "nushell developers"
+year   = 2026
+venue  = "nushell/reedline"
+url    = "https://raw.githubusercontent.com/nushell/reedline/39db5e3d2ffb75369b3b78d72fc91c9ba1be9938/src/terminal_extensions/semantic_prompt.rs"
+file   = ""
+sha256 = "91317f77e84358c7cec1d68f0cef763e89800a552216c071c1d0dd18a5650e23"
+bytes  = 8924
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.apple-terminal-shortcuts]
+key    = "apple-terminal-shortcuts"
+title  = "Terminal User Guide, Keyboard shortcuts in Terminal on Mac -- Jump to previous mark Command-Up Arrow, next mark Command-Down Arrow; Shift-Command-Up hides the alternate screen"
+author = "Apple"
+year   = 2026
+venue  = "support.apple.com"
+url    = "https://support.apple.com/guide/terminal/keyboard-shortcuts-trmlshtcts/mac"
+file   = ""
+sha256 = "bc028f27639657122796848cbd65d9e4fec3600d478bf71561d57170adfcb24b"
+bytes  = 585199
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.iterm2-doc-shell-integration]
+key    = "iterm2-doc-shell-integration"
+title  = "iTerm2 documentation, Shell Integration -- 'You can navigate marks with Cmd-Shift-Up and Down-arrow keys'"
+author = "George Nachman"
+year   = 2026
+venue  = "iterm2.com"
+url    = "https://iterm2.com/documentation-shell-integration.html"
+file   = ""
+sha256 = "710e55a6a307fc5878b29ae5446d4ca6b166dc705c92710befa70398d0f5ad8d"
+bytes  = 24839
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.
+
+[sources.iterm2-doc-menu-items]
+key    = "iterm2-doc-menu-items"
+title  = "iTerm2 documentation, Menu Items -- Edit > Marks and Annotations > Next/Previous Mark, red for a failing command"
+author = "George Nachman"
+year   = 2026
+venue  = "iterm2.com"
+url    = "https://iterm2.com/documentation-menu-items.html"
+file   = ""
+sha256 = "8b9b90b17a454e256bb04c9defe4bdb3fac822b9892ccd7cee79f0d099ec7856"
+bytes  = 44588
+status = "external"
+group  = "C"
+# Fetched 2026-10-19 (lane b108) for OSC 133's options, statuses, click-to-move and prompt jumps.

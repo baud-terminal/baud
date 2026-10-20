@@ -600,26 +600,12 @@ impl Paint<'_, '_> {
             // `unsupported_total` is the one the conformance inventory asks.
             // They answer different questions and the second was missing.
             // What the marks are acted on for: the prompt block, tracked so
-            // a redraw replaces exactly it (`prompt.rs`), and the zone,
-            // which `Term::resize` reads to leave the block's rows un-cut.
+            // a redraw replaces exactly it, and the zone, which
+            // `Term::resize` reads to leave the block's rows un-cut; the
+            // prompts and their statuses, which navigation reads; and what
+            // the `A` asked of a click (`prompt.rs`).
             Osc::Semantic(mark) => {
-                // Only an initial line begins a block: `k=s`, `k=c` and `k=r`
-                // are later lines of the same one. A mark in the prompt zone
-                // is the shell redrawing the block it has.
-                if matches!(mark, Semantic::PromptStart(PromptKind::Initial)) {
-                    if self.cold.shell.zone == crate::term::Zone::Prompt {
-                        self.replace_prompt_block();
-                    }
-                    self.open_prompt_block();
-                }
-                self.cold.shell.zone = match mark {
-                    Semantic::PromptStart(_) | Semantic::CommandStart => crate::term::Zone::Prompt,
-                    // `D` closes it as `C` does: Enter on an empty line sends
-                    // no `C`, and the `P` after `D` is a fresh prompt, not a
-                    // redraw -- and so is anything a `precmd` prints first.
-                    Semantic::OutputStart | Semantic::CommandDone => crate::term::Zone::Output,
-                    Semantic::Other => self.cold.shell.zone,
-                };
+                self.semantic(mark);
                 self.semantic_marks += 1;
             }
             Osc::SetSpecials(pairs) => {

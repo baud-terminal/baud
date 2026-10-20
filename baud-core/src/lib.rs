@@ -123,6 +123,11 @@ pub use baud_domain::{
     Chan, ClipboardBudget, ClipboardContent, ClipboardRefusals, ClipboardWrite, ColorWord,
     DynamicColor, LinkId, Osc, Selection, Selections, StringTerm, Video, XColor,
 };
+/// `OSC 133`'s vocabulary: how a command ended, what a click at a prompt
+/// sends ([`Term::prompt_click`]), and what a prompt entry holds.
+pub use baud_domain::{
+    ClickEvents, ExitCode, ExitStatus, MoveKeys, PromptCapacity, PromptEntry, PromptsForgotten,
+};
 /// The cluster store's vocabulary: what [`Term::cluster_epoch`] and
 /// [`Term::cluster_sweeps`] return, and the store itself, which a test
 /// drives to read where a cluster lands.
@@ -143,6 +148,7 @@ pub use baud_domain::{PixelSize, ScreenCoord, ScreenPoint, WindowFacts, WindowSt
 /// A reading of how many `OSC 52` writes have been published.
 pub use clip::ClipboardWrites;
 pub use graph::Node;
+pub use term::{ClickHow, ClickKeys, PromptClick, PromptJump, PromptLine, PromptMark};
 pub use window::{WINDOW_QUEUE, WindowOpsRefused, WindowRequestsDropped};
 
 /// What `Owned::with_history` takes beside a depth. Re-exported so a caller

@@ -291,9 +291,10 @@ fn the_prompt_row_is_where_the_mark_was_and_follows_the_screen() {
 #[test]
 fn a_continuation_mark_keeps_the_block_start_where_the_initial_one_put_it() {
     // kitty's zsh integration marks the PS2 line with `A;k=s` and fish
-    // marks its continuation lines; a right prompt is `k=r` on the same
-    // row. None of them begins a new block, so none may move the start --
-    // and a bare `A` is the control that a fresh mark still does.
+    // marks its continuation lines; a right prompt is `P;k=r` on the same
+    // row, the proposal's spelling and reedline's (an `A` would first do a
+    // fresh-line). None of them begins a new block, so none may move the
+    // start -- and a bare `A` is the control that a fresh mark still does.
     support::with_term(
         &WinSize {
             ws_col: 40,
@@ -315,7 +316,7 @@ fn a_continuation_mark_keeps_the_block_start_where_the_initial_one_put_it() {
                 Some(Row::from_index(3)),
                 "k=c is the same block"
             );
-            support::feed(t, b"\x1b]133;A;k=r\x07 right");
+            support::feed(t, b"\x1b]133;P;k=r\x07 right");
             assert_eq!(
                 t.prompt_row(),
                 Some(Row::from_index(3)),
