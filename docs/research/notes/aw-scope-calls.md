@@ -26,7 +26,7 @@ then second; the log is lines 1000-1023 of Jev's decisions log.
 |---|---|---|---|
 | Printing (MC) | a program's print request opens the macOS print panel | **in, through the print panel** | 0.86/0.77, then 0.98/0.98 |
 | DEC text locator | DEC-style forms and menus answer to a click | **in** | 0.92/0.94 |
-| Status line | a program's own status row under the grid | **in**: the window grows a row (0.98/1.00); both line types is the lean, 0.76/0.71 then 0.41/0.56 | below the bar on the types |
+| Status line | a program's own status row under the grid | **in**: the window grows a row; both line types (lean) | row 0.98/1.00, then 0.96/0.98; types 0.76/0.71, then 0.41/0.56 |
 | DECLL keyboard lights | Num, Caps and Scroll lights drawn on the title bar | **in, drawn** (lean) | split, then 0.91/0.65 |
 | Bell volumes | a program can soften or silence the bell, and a margin bell | **in** | 0.96/0.94 |
 | DECAC/DECATC (VT525) | a program sets the default and per-attribute colours by index | **out** (lean) | 0.04/0.32, then 0.14/0.42 |
@@ -68,14 +68,13 @@ DSR `?15` with "no printer" (`[[source: iterm2-7ce037e-vt100terminal]]`
 branch (`[[source: kitty-9710eb4-vt-parser-c]]` 1455-1461;
 `[[source: foot-csi-c-cb27717]]` 2260-2268).
 
-**Safety.** Under any option four things stay refused and counted.
-`CSI 2 i` would type the screen's text back into the program's input, the
-reason the XTWINOPS 20 and 21 title reports are refused. Printer-to-host
-(`CSI 6 i`, `7 i`, `? 8 i`, `? 9 i`) needs a printer that talks back.
-xterm's file dumps and `?46` logging write files a remote program names.
-Printer controller mode hides output from the screen until `CSI 4 i`, as the
-text says. The app would mark a run that is collecting, so the screen going
-quiet is explained.
+**Safety.** Under any option two kinds of request stay refused and counted
+for safety. `CSI 2 i` would type the screen's text back into the program's
+input, the reason the XTWINOPS 20 and 21 title reports are refused. xterm's
+file dumps and `?46` logging write files a remote program names. Printer
+controller mode is built, not refused: it hides output from the screen until
+`CSI 4 i`, as the text says, and the app would mark a run while it collects,
+so the screen going quiet is explained.
 
 **Options.**
 - OUT: as today. DSR `?15` keeps answering "no printer".
@@ -85,6 +84,10 @@ quiet is explained.
   - A print is one job; an autoprint run, `?5 i` to `?4 i`, is one; a
     controller run, `5 i` to `4 i`, is one. There is never a panel a line.
   - DSR `?15` answers from whether macOS lists a printer.
+  - Printer-to-host stays refused and counted: the VT420's sessions,
+    `CSI ? 9 i` and `CSI ? 8 i` (pp. 213-214), and the VT510's `CSI 6 i` and
+    `CSI 7 i`, on its MC page. The print panel sends nothing back. This
+    refusal is part of the option Jev took at 0.98.
   - Linux waits for a print path.
 - IN_COMMAND: xterm's route, a command the user configures, empty by default.
 
@@ -190,6 +193,15 @@ marks 0 "(default)" and `[[source: ctlseqs]]` (2001-2005) marks 1. At power-on,
 takes is an open fork for the build. The second ask put 070-14's to Jev, under
 which nothing changes for anyone until a program asks.
 
+The two texts also set opposite rules for what the line shares with the main
+display. The VT420 (p. 221): with the host-writable line selected, "most of
+the control functions that affect the main display also affect the status
+line", and a list of exceptions follows. 070-14 (§14.2, p. 14-4): "In
+general, controls which affect some portion of the Main Display do not affect
+the contents or the ANSI state of the Status Display", with its exceptions
+noted in that section. Which text governs is an open fork for the build; it
+was not put to Jev.
+
 **What others do.** xterm builds it under its StatusLine window operation,
 "Resize window to provide a VT320-style status line" (`[[source: xterm-man]]`
 3588-3589). Its default `disallowedWindowOps` does not list StatusLine
@@ -213,7 +225,8 @@ row.
 **Building it.** 070-14 calls the host-writable line "a permanent separate
 logical display, that contains its own ANSI text state and settings". So
 the core gains a second, one-row display with its own cursor and state,
-DECSASD routing writes to it, and the VT420's list of exceptions. All three
+DECSASD routing writes to it, and the exceptions of whichever text governs
+(above). All three
 render paths draw a row outside the grid, and both apps grow the window.
 
 **What changes.** DECRQSS answers `$ ~` and `$ }` as valid. xterm's manual
@@ -224,8 +237,9 @@ carry the name today and would gain it.
 types, BOTH leads: 0.76 and 0.71, then 0.41 and 0.56. HOST_WRITABLE's
 probability was 0.10-0.24.
 
-**Recommendation: in.** The window grows a row, as decided by Jev. Both types
-is the lean, below the bar. Refusing the indicator would leave a VT420
+**Recommendation: in.** The window grows a row, Jev's pick at 0.9 in both
+orders, if the owner takes the line in. Both types is the lean, below the
+bar. Refusing the indicator would leave a VT420
 control value unbuilt, which the standing rule asks against. 070-14's "not
 mandatory" permits leaving it out; it does not ask for that.
 
@@ -248,9 +262,10 @@ lists it as "VT100" with the VT510's three LEDs and no gate.
 
 **Sources that conflict.** The VT100 lights on every DECLL; the VT510 only
 under DECKLHIM. xterm's code passes the same `True` for 21-23 as for 1-3,
-`xtermShowLED(screen, op - 20, True)`, where ctlseqs says "Extinguish"
-(`[[source: xterm-reset]]` 5009-5043). The function's definition is outside
-the pinned files, so whether that lights the LED is unverified. iTerm2,
+`xtermShowLED(screen, (Cardinal) (op - 20), True)`, where ctlseqs says
+"Extinguish" (`[[source: xterm-reset]]` 5009-5043). The function's
+definition is outside the pinned files, so whether that lights the LED is
+unverified. iTerm2,
 kitty and foot have none; kitty reports a bare `q` as unknown
 (`[[source: kitty-9710eb4-vt-parser-c]]` 1418).
 
@@ -301,7 +316,7 @@ requirement and xterm is practice.
 types near the right margin, off by default (`marginBell`,
 `[[source: xterm-man]]` 4449-4452). iTerm2, kitty and foot have neither.
 
-**Building it.** The macOS app rings with NSBeep, "Plays the system beep"
+**The owner's bell and the volume.** The macOS app rings with NSBeep, "Plays the system beep"
 (`[[source: apple-nsbeep]]`), which takes no volume. This is the owner's bell
 decision of 2026-10-13, "System sound + Dock bounce (Recommended)". "Low" can
 be built by playing the user's alert sound through NSSound at a lower volume,
@@ -318,6 +333,9 @@ for high and NSSound for low. Linux app: it rings nothing yet.
 **Recommendation: in**, both volumes and the margin bell, on macOS first.
 What rings the margin bell is a fork for the build: the VT520 says "as the
 current position nears the right margin", and xterm rings it on typed keys.
+Jev's 0.96 and 0.94 were given for an IN whose margin bell rings "as typed
+text nears the right margin", xterm's trigger. The request quoted the VT520's
+text but did not offer its reading as a choice.
 
 **Built 2026-10-20 (lane b118).** DEC STD 070 settles the trigger: in
 070-6 § 6.6.5.2 (pp. 6-45 and 6-46, `[[source: dec-std-070]]`) a normal
@@ -352,11 +370,11 @@ VT420 and VT510 manuals have none of it. `[[source: ctlseqs]]` 1954-1984.
 
 **What others do.** xterm acts on DECAC's normal-text pair and stores DECATC
 only when its terminal ID is 525 or more (`[[source: xterm-reset]]`
-5936-5985). Its default identity is set at build time: the manual gives its default
-as a placeholder filled in when xterm is built (`[[source: xterm-man]]`
-3289-3294). The second ask told
-Jev it is a VT420, which the pinned files do not show.
-iTerm2, kitty and foot have none.
+5936-5985). Its default identity is set at build time: the manual gives its
+default as a placeholder filled in when xterm is built (`[[source: xterm-man]]`
+3289-3294). The second ask told Jev it is a VT420, which the pinned files do
+not show, so the 0.14/0.42 lean rests partly on an unpinned premise. iTerm2,
+kitty and foot have none.
 
 **What building it means.** DECATC without DECSTGLT and the two modes would
 be a mode recorded and not acted on. So in is all five: DECAC, DECATC,
@@ -370,7 +388,9 @@ apps follow.
 
 **Jev.** OUT, 0.04 and 0.32. The second ask added that baud already builds
 VT520 controls (DECSCUSR, and the bell volumes above), so "VT420-class" has
-been read as a floor. OUT again, 0.14 and 0.42.
+been read as a floor. OUT again, 0.14 and 0.42. Every ask described IN as
+"all four controls and both modes"; it is three controls and two modes, the
+five above.
 
 **Recommendation: out**, the lean, below the bar. This agrees with note AV,
 which leaves it to the DA-level question (note AP). DECRQSS answering invalid
