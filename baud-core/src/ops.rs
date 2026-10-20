@@ -2305,6 +2305,11 @@ impl Paint<'_, '_> {
             let mut x = self.cx.raw().index();
             loop {
                 if x >= end {
+                    // Past the end is the sentinel: a wrap pending.
+                    if x > end && self.tab_wraps_first() {
+                        x = 0;
+                        continue;
+                    }
                     x = end;
                     break;
                 }
@@ -2317,12 +2322,37 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// **`?41`: a tab at a pending wrap takes the wrap first**, xterm's
+    /// `TabNext` (`[[source: xterm-tabs-c]]` 113-118): with the curses
+    /// resource set, a wrap pending and `DECAWM` set, `xtermIndex`, the
+    /// screen's first column and the wrap reset, and the tab from there.
+    /// So it is `IND` and column 1 even under `DECLRMM`, and the row left
+    /// is not marked as continuing, where xterm's own `WrapLine` marks it:
+    /// more(1)'s next line is a line of its own (Jev's lean,
+    /// XTERM_LITERAL, 0.37/0.11; a second ask split, so the first stands).
+    /// Out of line, so an `HT` that finds no wrap pending reads nothing
+    /// new.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn tab_wraps_first(&mut self) -> bool {
+        let wraps = self.cold.more_fix == baud_domain::MoreFix::On
+            && self.cold.modes.is_set(ModeBit::AutoWrap);
+        if wraps {
+            self.index();
+            self.set_col(CursorCol::moved(Col::ZERO));
+        }
+        wraps
+    }
+
     /// `HT` under a right margin left of the last column, from the column
     /// placed or not, out of line with [`Paint::tab_end`]. A cursor placed
     /// one past the margin that no stop moves keeps its tag.
     #[cold]
     #[inline(never)]
     fn tab_forward_fenced(&mut self, n: Count) {
+        if matches!(self.cursor_at(), CursorAt::Pending(_)) {
+            self.tab_wraps_first();
+        }
         let end = self.tab_end().index();
         let mut x = self.cx.col().index();
         for _ in 0..n.at_least_one().min(self.cols.index()) {
@@ -3257,6 +3287,13 @@ impl Paint<'_, '_> {
             // the wheel's. They were counted and dropped while `BEL` itself
             // rang nothing.
             PrivateMode::BellIsUrgent => self.cold.modes.apply(ModeBit::BellIsUrgent, on),
+            // **`?41` is read by `HT` at a pending wrap** (`Paint::tab_wraps_first`).
+            PrivateMode::MoreFix => {
+                self.cold.more_fix = match change {
+                    ModeChange::Set => baud_domain::MoreFix::On,
+                    ModeChange::Reset => baud_domain::MoreFix::Off,
+                }
+            }
             PrivateMode::PopOnBell => self.cold.modes.apply(ModeBit::PopOnBell, on),
             // `?1001` is the fifth level: "The remaining five modes of the
             // mouse protocols are each enabled (or disabled) by a different
@@ -3711,6 +3748,7 @@ impl Paint<'_, '_> {
         // `?1042` and `?1043` do: ECMA-48's "set the modes into the reset
         // state". `DECSTR` keeps them, as its list names none.
         self.cold.resources = baud_domain::Resources::POWER_ON;
+        self.cold.more_fix = baud_domain::MoreFix::Off;
         // **And the conformance level and the C1 transmission**: DEC STD
         // 070's Device Initialization takes both from NVM (`host_state_init`,
         // "conformance level = LEVEL 4"), which here is the power-up state,
@@ -4241,6 +4279,12 @@ impl Paint<'_, '_> {
             // xterm answers both flags (`MdBool(screen->bellIsUrgent)`,
             // `MdBool(screen->poponbell)`, `[[source: xterm-misc]]`).
             PrivateMode::BellIsUrgent => bit_state(self.cold.modes, ModeBit::BellIsUrgent),
+            // xterm answers the flag, `MdBool(screen->curses)` (`[[source:
+            // xterm-misc]]` 5569-5570).
+            PrivateMode::MoreFix => match self.cold.more_fix {
+                baud_domain::MoreFix::On => ModeState::Set,
+                baud_domain::MoreFix::Off => ModeState::Reset,
+            },
             PrivateMode::PopOnBell => bit_state(self.cold.modes, ModeBit::PopOnBell),
             // xterm answers both (`MdBool(screen->c132)` and, at its VT510
             // level, `MdFlag(xw->flags, NOCLEAR_COLM)`, `[[source:

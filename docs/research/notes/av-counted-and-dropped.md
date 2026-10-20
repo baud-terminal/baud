@@ -22,11 +22,13 @@ is not.
   hexadecimal, and a UTF-8 title under `ESC % @`; the SGR stack
   (`CSI # {`, `CSI # }`) and the rendition report (`CSI # |`); the
   palette stack (`CSI # P`, `CSI # Q`, `CSI # R`).
-- **Built 2026-10-20:** ECMA-48's backward moves HPB and VPB.
+- **Built 2026-10-20:** ECMA-48's backward moves HPB and VPB, and
+  `?41`'s tab after a pending wrap.
 - **Small, to build next** (the text is complete and nothing is the
   owner's): XTCHECKSUM's checksum flags, the pointer-hiding mode, the
   `?30` scrollbar mode, `?41`'s tab after a pending wrap, and OSC 60-62's
   feature lists.
+  mode, the `?30` scrollbar mode, and OSC 60-62's feature lists.
 - **Larger, to build** (whole protocols a VT420-class terminal has): the
   DEC locator, the host-writable status line, and xterm's special colours.
 - **Decisions needed:** the tertiary DA, the bell volumes, the keyboard
@@ -88,7 +90,7 @@ none the table says so.
 | `CSI Ps ^` SIMD | counted | ECMA-48 SIMD against ctlseqs' SD | `out` | **keep**: decided |
 | `?2002`, `?2003`, `?1040`, `?42`, `?38` | counted | ctlseqs DECSET | `out` | **keep**: their rows' reasons |
 | `?10` | counted | ctlseqs: rxvt's toolbar | none | **keep refused**: baud has no toolbar |
-| `?41` | counted | ctlseqs: "more(1) fix (see curses resource)"; xterm's `TabNext` wraps a pending wrap before a tab under it (`[[source: xterm-tabs-c]]` 113-118) | none | **build**: one behaviour of HT, so a timed A/B on the write path |
+| `?41` | counted | ctlseqs: "more(1) fix (see curses resource)"; xterm's `TabNext` wraps a pending wrap before a tab under it (`[[source: xterm-tabs-c]]` 113-118) | the `?41` row | **built** 2026-10-20: `more_fix.rs` |
 | `OSC 3`, `OSC 15`/`16`/`18`/`115`/`116`/`118`, `OSC 51` | counted | ctlseqs: an X property, the Tektronix window's colours, Emacs's reserve | none | **keep refused**: no X window, no Tektronix window, nothing assigned |
 | `OSC 46` | counted | ctlseqs line 2133: the log file's name | none | **keep refused**: a remote program naming a file to write |
 | `ESC` with an ECMA-48 C1 function: `B` BPH, `C` NBH, `F` SSA, `G` ESA, `I` HTJ, `K` PLD, `L` PLU, `Q` PU1, `R` PU2, `S` STS, `T` CCH, `U` MW, `` ` `` DMI, `a` INT, `b` EMI, `d` CMD | counted | `[[source: ecma48]]` | none | **ask Jev, one at a time**: CCH (the preceding graphic character and CCH itself "are to be ignored") and DMI/EMI (manual input off and on, the keyboard lock baud has as KAM) are small; PLD/PLU need half-line rendering; the rest act on transmission baud does not do |

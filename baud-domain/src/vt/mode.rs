@@ -463,6 +463,10 @@ pub enum PrivateMode {
     /// ctlseqs calls `?1049` "the effects of the 1 0 4 7 and 1 0 4 8
     /// modes"; baud's `?1049` keeps its saved cursor in a slot of its own.
     AltScreenClearing,
+    /// `?41`: "more(1) fix (see curses resource)" (`[[source: ctlseqs]]`),
+    /// xterm's curses hack: a tab at a pending wrap takes the wrap first
+    /// ([`MoreFix`]).
+    MoreFix,
     /// `?1048`: "Save cursor as in DECSC", and reset "Restore cursor as in
     /// DECRC" (`[[source: ctlseqs]]`). An action, not a state: `DECRQM`
     /// answers whether a cursor is saved.
@@ -673,6 +677,19 @@ impl Resources {
 /// fields.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum BellIsUrgent {
+    #[default]
+    Off,
+    On,
+}
+
+/// `?41`, xterm's `curses` resource, "more(1) fix" (`[[source: ctlseqs]]`).
+/// The manual's `-cu`: "work around a bug in the more(1) program that
+/// causes it to incorrectly display lines that are exactly the width of
+/// the window and are followed by a line beginning with a tab (the leading
+/// tabs are not displayed)". **Off at power-on**, the resource's default
+/// (`[[source: xterm-man]]`, "The default is \"false\"").
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum MoreFix {
     #[default]
     Off,
     On,
@@ -913,6 +930,7 @@ impl PrivateMode {
             PrivateMode::Resource(Resource::PasteQuoted) => 50,
             PrivateMode::Resource(Resource::PasteLiteralNewline) => 51,
             PrivateMode::AltScreenClearing => 52,
+            PrivateMode::MoreFix => 53,
             // XTSAVE of `?1048` saves the cursor rather than a value, as
             // xterm's `savemodes` does (`Paint::save_private_modes`).
             PrivateMode::SaveCursor
@@ -947,6 +965,7 @@ impl PrivateMode {
             40 => PrivateMode::AllowColumnMode,
             45 => PrivateMode::ReverseWrap,
             47 => PrivateMode::AltScreenLegacy,
+            41 => PrivateMode::MoreFix,
             1047 => PrivateMode::AltScreenClearing,
             1048 => PrivateMode::SaveCursor,
             69 => PrivateMode::LeftRightMargin,

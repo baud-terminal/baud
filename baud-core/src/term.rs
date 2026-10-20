@@ -795,6 +795,10 @@ pub struct Cold {
     /// `alternateScroll` (no `ReallyReset` path names it, `[[source:
     /// xterm-reset]]`'s file). Read by the embedder's wheel, never here.
     pub(crate) alternate_scroll: AlternateScroll,
+    /// `?41`, xterm's more(1) fix ([`MoreFix`]): read by `HT` and `CHT` at a
+    /// pending wrap only. Off at power-on and after `RIS`, kept by
+    /// `DECSTR`, as the xterm resource modes are.
+    pub(crate) more_fix: baud_domain::MoreFix,
     /// XTSHIFTESCAPE, `CSI > Ps s`, kept by both resets as xterm keeps
     /// `shift_escape`. Read by the embedder's pointer, never here.
     pub(crate) shift_escape: ShiftEscape,
@@ -1172,9 +1176,10 @@ pub struct Cold {
 // The prompt marks' two `Shell`s, 32 bytes, moved to `StrBuf` when the
 // `OSC 133` options came in, which took it to 792: a mark and a resize read
 // them, never a glyph.
+// `?41`'s byte took it to 800, read by `HT` at a pending wrap alone.
 // Guarded off `sgr-table`, which adds `sgr: [SgrSlot; NSGR]` and grows it more.
 #[cfg(not(feature = "sgr-table"))]
-const _: () = assert!(core::mem::size_of::<Cold>() == 792);
+const _: () = assert!(core::mem::size_of::<Cold>() == 800);
 
 /// What the reply path keeps between replies: how wide a C1 it writes
 /// (`S7C1T` / `S8C1T`) and the data integrity flag (`baud_domain::Integrity`,
@@ -1395,6 +1400,7 @@ impl Cold {
             mouse_encoding: MouseEncoding::X10,
             mouse_at: None,
             alternate_scroll: AlternateScroll::On,
+            more_fix: baud_domain::MoreFix::Off,
             shift_escape: ShiftEscape::Override,
             defaults: [ColorWord::DEFAULT; DynamicColor::COUNT],
             dynamic: [ColorWord::DEFAULT; DynamicColor::COUNT],
