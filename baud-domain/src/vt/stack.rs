@@ -1,11 +1,12 @@
 //! xterm's stack controls and its title modes (`[[source: ctlseqs]]`):
-//! XTTITLEPOS, which reports the title stack, and XTSMTITLE and XTRMTITLE,
-//! which choose how a program's title is read.
+//! XTTITLEPOS, which reports the title stack; XTPUSHSGR and XTPOPSGR, which
+//! save and restore the rendition; and XTSMTITLE and XTRMTITLE, which
+//! choose how a program's title is read.
 //!
 //! The stacks themselves live in the core. What is here is the grammar:
 //! which control was asked, and what each title mode is.
 
-use crate::{ModeChange, Param};
+use crate::{Attrs, ModeChange, Param, StyleWord};
 
 /// One of xterm's stack controls. **Fieldless**, as [`crate::AreaOp`] is: its
 /// parameters are read where it is performed, so `csi_final` keeps no more
@@ -16,6 +17,106 @@ pub enum StackOp {
     /// Pm # S where Pn is the current index into the title stack, Pm is the
     /// maximum index for the title stack" ([`crate::Report::TitlePosition`]).
     TitlePosition,
+    /// XTPUSHSGR, `CSI Pm # {` and its alias `CSI Pm # p`: "Push video
+    /// attributes onto stack".
+    PushRendition,
+    /// XTPOPSGR, `CSI # }` and its alias `CSI # q`: "Pop video attributes
+    /// from stack".
+    PopRendition,
+}
+
+/// "The stack is limited to 10 levels" (`[[source: ctlseqs]]`, XTPUSHSGR),
+/// xterm's `MAX_SAVED_SGR` (`[[source: xterm-ptyx-h]]`), the colour stack's
+/// depth as well.
+pub const SGR_STACK_DEPTH: usize = 10;
+
+/// Which aspects of the rendition an XTPUSHSGR saved, as xterm's mask holds
+/// them: bit `n - 1` for the SGR group `n` (`[[source: xterm-reset]]`'s
+/// file, `CASE_XTERM_PUSH_SGR`). A bare push saves every aspect, the whole
+/// rendition; a list saves the groups it names.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SgrGroups(u32);
+
+impl SgrGroups {
+    /// "If no parameters are given, all of the video attributes are saved":
+    /// every bit, so a bare push is told from any list, which reaches bit
+    /// 30 at most.
+    pub const ALL: SgrGroups = SgrGroups(u32::MAX);
+    pub const NONE: SgrGroups = SgrGroups(0);
+
+    /// The groups with `p` added: a value from 1 to 31 takes its bit, as
+    /// xterm's `MAX_PUSH_SGR` bounds it, and any other, 0 among them, adds
+    /// nothing. **10 and 11 name no group**: "the optional parameters
+    /// correspond to the SGR encoding", and SGR 10 and 11 are fonts, which
+    /// the text lists no group for. xterm reads them as 30 and 31,
+    /// "deprecated - for compatibility" (`[[source: xterm-reset]]`'s file);
+    /// Jev's lean for that, ALIAS, was 0.94/0.86, below the 0.9 in both
+    /// orders a departure needs, so the text is built.
+    pub fn with(self, p: Param) -> SgrGroups {
+        match p.value() {
+            n @ 1..=31 => SgrGroups(self.0 | 1 << (n - 1)),
+            _ => self,
+        }
+    }
+
+    fn has(self, group: u16) -> bool {
+        self.0 & (1 << (group - 1)) != 0
+    }
+}
+
+/// The rendition XTPOPSGR leaves: `now` with the groups `saved_as` names
+/// taken from `saved`, as xterm's `xtermPopSGR` restores them
+/// (`[[source: xterm-misc]]`). A bare push restores the whole rendition,
+/// what xterm has and what it does not -- an underline colour, a font,
+/// fraktur, overline, framing, the ideogram lines -- which no listed group
+/// names and a list therefore leaves as they are (Jev's lean, NEAREST,
+/// 0.86/0.38).
+///
+/// **5 restores both blink rates**, one aspect by the owner's call of
+/// 2026-10-13 ("Own rate, exclusive"). **4 and 21 restore xterm's two
+/// underline bits** onto baud's one underline style (Jev's lean,
+/// XTERM_BITS, 0.28/0.18): 4 is whether a single or styled underline is
+/// in force, 21 whether a double one is, and with one of them alone the
+/// other keeps its current value.
+pub fn restore_rendition(saved: StyleWord, now: StyleWord, saved_as: SgrGroups) -> StyleWord {
+    if saved_as == SgrGroups::ALL {
+        return saved;
+    }
+    let (was, is) = (saved.attrs(), now.attrs());
+    let mut attrs = is;
+    for (group, bits) in [
+        (1, Attrs::BOLD),
+        (2, Attrs::DIM),
+        (3, Attrs::ITALIC),
+        (5, Attrs::BLINKS),
+        (7, Attrs::REVERSE),
+        (8, Attrs::HIDDEN),
+        (9, Attrs::STRIKE),
+    ] {
+        if saved_as.has(group) {
+            attrs = attrs.without(bits).with(Attrs(was.0 & bits.0));
+        }
+    }
+    let family = |a: Attrs| Attrs(a.0 & Attrs::UNDERLINES.0);
+    let double = |a: Attrs| a.has(Attrs::DOUBLE_UNDERLINE);
+    let underline = match (saved_as.has(4), saved_as.has(21)) {
+        (true, true) => family(was),
+        (true, false) if double(is) => family(is),
+        (true, false) if double(was) => Attrs::NONE,
+        (true, false) => family(was),
+        (false, true) if double(was) => Attrs::DOUBLE_UNDERLINE,
+        (false, true) if double(is) => Attrs::NONE,
+        (false, _) => family(is),
+    };
+    attrs = attrs.without(Attrs::UNDERLINES).with(underline);
+    let mut w = now.with_attrs(attrs);
+    if saved_as.has(30) {
+        w = w.with_fg(saved.fg());
+    }
+    if saved_as.has(31) {
+        w = w.with_bg(saved.bg());
+    }
+    w
 }
 
 /// One of XTSMTITLE's features, by its `Ps`: "Ps = 0 -> Set window/icon
@@ -127,9 +228,82 @@ pub fn decode_hex_title<'o>(hex: &[u8], out: &'o mut [u8]) -> Option<&'o [u8]> {
     Some(&out[..end])
 }
 
+/// What two renditions share, for XTREPORTSGR's "attributes which are
+/// common to all cells": the attributes both have, and each colour and the
+/// font where both agree, else the default. Every aspect baud records, as
+/// DECRQSS's SGR answer carries them (Jev, ALL_COMMON, 0.96/0.98), where
+/// xterm's `xtermReportSGR` keeps its own subset (`[[source: xterm-misc]]`).
+pub fn common_rendition(a: StyleWord, b: StyleWord) -> StyleWord {
+    let same = |x: crate::ColorWord, y: crate::ColorWord| match x == y {
+        true => x,
+        false => crate::ColorWord::DEFAULT,
+    };
+    StyleWord::DEFAULT
+        .with_attrs(Attrs(a.attrs().0 & b.attrs().0))
+        .with_fg(same(a.fg(), b.fg()))
+        .with_bg(same(a.bg(), b.bg()))
+        .with_underline(same(a.underline(), b.underline()))
+        .with_font(match a.font() == b.font() {
+            true => a.font(),
+            false => crate::FontId::PRIMARY,
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Chan, ColorWord};
+
+    fn groups(list: &[u16]) -> SgrGroups {
+        list.iter()
+            .fold(SgrGroups::NONE, |g, &n| g.with(Param::from_raw(n)))
+    }
+
+    #[test]
+    fn a_list_restores_only_the_groups_it_names() {
+        let red = ColorWord::indexed(Chan::from_u8(1));
+        let saved = StyleWord::DEFAULT.with_attrs(Attrs::BOLD).with_fg(red);
+        let now = StyleWord::DEFAULT.with_attrs(Attrs::ITALIC).with_bg(red);
+        let w = restore_rendition(saved, now, groups(&[1, 30]));
+        assert_eq!(w.attrs(), Attrs::BOLD.with(Attrs::ITALIC));
+        assert_eq!((w.fg(), w.bg()), (red, red));
+        assert_eq!(restore_rendition(saved, now, SgrGroups::ALL), saved);
+        assert_eq!(restore_rendition(saved, now, SgrGroups::NONE), now);
+    }
+
+    #[test]
+    fn ten_and_eleven_name_no_group() {
+        assert_eq!(groups(&[10, 11]).0 & groups(&[30, 31]).0, 0);
+        assert_eq!(groups(&[0, 32, 65535]), SgrGroups::NONE);
+    }
+
+    #[test]
+    fn four_and_twenty_one_are_xterms_two_underline_bits() {
+        let u = |a| StyleWord::DEFAULT.with_attrs(a);
+        let single = u(Attrs::UNDERLINE);
+        let curly = u(Attrs::CURLY_UNDERLINE);
+        let double = u(Attrs::DOUBLE_UNDERLINE);
+        let none = StyleWord::DEFAULT;
+        let r = |s, n, g: &[u16]| restore_rendition(s, n, groups(g)).attrs();
+        assert_eq!(r(curly, double, &[4, 21]), Attrs::CURLY_UNDERLINE);
+        assert_eq!(r(curly, none, &[4]), Attrs::CURLY_UNDERLINE);
+        assert_eq!(r(none, single, &[4]), Attrs::NONE);
+        assert_eq!(r(none, double, &[4]), Attrs::DOUBLE_UNDERLINE);
+        assert_eq!(r(double, single, &[4]), Attrs::NONE);
+        assert_eq!(r(double, single, &[21]), Attrs::DOUBLE_UNDERLINE);
+        assert_eq!(r(none, double, &[21]), Attrs::NONE);
+        assert_eq!(r(none, curly, &[21]), Attrs::CURLY_UNDERLINE);
+    }
+
+    #[test]
+    fn five_restores_both_blink_rates() {
+        let saved = StyleWord::DEFAULT.with_attrs(Attrs::RAPID_BLINK);
+        let now = StyleWord::DEFAULT.with_attrs(Attrs::BLINK);
+        assert_eq!(
+            restore_rendition(saved, now, groups(&[5])).attrs(),
+            Attrs::RAPID_BLINK
+        );
+    }
 
     #[test]
     fn a_hex_title_decodes_in_either_case_and_ends_at_a_control() {

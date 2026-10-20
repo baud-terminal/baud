@@ -44,6 +44,7 @@ impl Paint<'_, '_> {
             AreaCall::Attrs(a, how) => self.change_area_attrs(a, how, &p),
             AreaCall::SelectExtent(e) => self.select_attr_extent(e),
             AreaCall::RequestChecksum { id, of } => self.request_area_checksum(id, of),
+            AreaCall::ReportRendition(a) => self.report_area_rendition(a),
         }
     }
 
@@ -471,6 +472,30 @@ impl Paint<'_, '_> {
             }
         }
         self.want_reply(Report::AreaChecksum { id, sum });
+    }
+
+    /// XTREPORTSGR, `CSI Pt ; Pl ; Pb ; Pr # |`: the rendition every cell
+    /// of the rectangle shares (`common_rendition`), answered as an SGR
+    /// sequence through DECRQSS's encoder, so the two answers spell an
+    /// attribute alike. The rectangle is read as DECRQCRA's is, from the
+    /// origin and clamped to the page, each line to its own end; one that
+    /// holds no cell answers `CSI 0 m`, as xterm's answers with no cell
+    /// read (Jev, ANSWER_ZERO, 0.96/0.98).
+    fn report_area_rendition(&mut self, a: Area) {
+        let mut common: Option<StyleWord> = None;
+        if let Some(rect) = self.page_rect(a) {
+            for y in rect.top.index()..=rect.bottom.index() {
+                let r = Row::from_index(y);
+                let Some(right) = self.line_right(r, rect.left, rect.right) else {
+                    continue;
+                };
+                for x in rect.left.index()..=right.index() {
+                    let w = self.word_of(self.view.get(r, Col::at_index(x)).style);
+                    common = Some(common.map_or(w, |c| common_rendition(c, w)));
+                }
+            }
+        }
+        self.report_rendition(common.unwrap_or(StyleWord::DEFAULT));
     }
 
     /// DECBI, `ESC 6`.

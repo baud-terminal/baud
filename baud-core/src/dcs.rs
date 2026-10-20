@@ -288,6 +288,29 @@ impl Paint<'_, '_> {
     }
 }
 
+impl Paint<'_, '_> {
+    /// An SGR sequence for `w`, `CSI 0 ; Ps... m`, XTREPORTSGR's answer:
+    /// built by [`Status::sgr`], the encoder DECRQSS's SGR answer uses, and
+    /// sent whole or dropped and counted as that answer is. The introducer
+    /// follows `S7C1T`/`S8C1T`.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn report_rendition(&mut self, w: StyleWord) {
+        let mut s = Status::new();
+        s.push(self.cold.replies.c1().csi());
+        s.sgr(w);
+        s.push(b"m");
+        let at = self.reply_len.index();
+        match s.bytes() {
+            Some(b) if at + b.len() <= self.reply.len() => {
+                self.reply[at..at + b.len()].copy_from_slice(b);
+                self.reply_len = ByteLen::from_index(at + b.len());
+            }
+            _ => self.reply_overflows += 1,
+        }
+    }
+}
+
 /// A DECRQSS answer, assembled before any of it reaches the reply buffer.
 ///
 /// [`DECRQSS_MAX`] bytes on the stack of a `#[cold]` function, rather than

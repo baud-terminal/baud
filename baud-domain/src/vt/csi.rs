@@ -1068,6 +1068,17 @@ impl Csi {
                 (b'"', b'v') if marker == Marker::Standard => Csi::Query(QueryOp::DisplayedExtent),
                 // XTTITLEPOS, `CSI # S` (`[[source: ctlseqs]]` 664).
                 (b'#', b'S') if marker == Marker::Standard => Csi::Stack(StackOp::TitlePosition),
+                // XTPUSHSGR and XTPOPSGR, `# {` and `# }`, and their aliases
+                // `# p` and `# q`, "used to work around language limitations
+                // of C#" (`[[source: ctlseqs]]` 1525-1568 and 1871-1953);
+                // XTREPORTSGR, `# |`, a rectangle's.
+                (b'#', b'{' | b'p') if marker == Marker::Standard => {
+                    Csi::Stack(StackOp::PushRendition)
+                }
+                (b'#', b'}' | b'q') if marker == Marker::Standard => {
+                    Csi::Stack(StackOp::PopRendition)
+                }
+                (b'#', b'|') if marker == Marker::Standard => Csi::Area(AreaOp::ReportRendition),
                 _ => Csi::Unsupported {
                     marker,
                     final_byte: f,
@@ -1571,6 +1582,8 @@ impl Csi {
             // ctlseqs says VT340, a level this table does not carry.
             SetColumnsPerPage(_) => Level::Vt420,
             // "Level: 4" each (`[[source: dec-std-070]]` pp. 5-169 to 5-179).
+            // XTREPORTSGR is xterm's, on DEC's rectangle.
+            Area(AreaOp::ReportRendition) => Level::Xterm,
             Area(_) | RequestPresentationState => Level::Vt420,
 
             // XTWINOPS is "dtterm, extended by xterm" -- the three reports are

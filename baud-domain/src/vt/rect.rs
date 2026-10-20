@@ -53,6 +53,11 @@ pub enum AreaOp {
     SelectExtent,
     /// DECRQCRA, `CSI Pid ; Pp ; Pt ; Pl ; Pb ; Pr * y`.
     RequestChecksum,
+    /// XTREPORTSGR, `CSI Pt ; Pl ; Pb ; Pr # |` (`[[source: ctlseqs]]`):
+    /// "Report selected graphic rendition ... the attributes which are
+    /// common to all cells in a rectangle". xterm's, read as DEC's
+    /// rectangles are read.
+    ReportRendition,
 }
 
 /// A rectangle operation with its parameters read.
@@ -86,6 +91,8 @@ pub enum AreaCall {
         id: Param,
         of: ChecksumOf,
     },
+    /// Answered with an SGR sequence, `CSI Ps... m`.
+    ReportRendition(Area),
 }
 
 impl AreaOp {
@@ -121,6 +128,9 @@ impl AreaOp {
                     _ => ChecksumOf::Area(Area::from_params(p, ParamIdx::THIRD)),
                 },
             },
+            AreaOp::ReportRendition => {
+                AreaCall::ReportRendition(Area::from_params(p, ParamIdx::FIRST))
+            }
         }
     }
 }

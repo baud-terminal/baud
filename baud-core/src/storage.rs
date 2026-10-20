@@ -456,6 +456,9 @@ pub struct StrBuf<'b> {
     /// (`Term::title_encoding`), decided where each is set.
     pub(crate) title_enc: InputEncoding,
     pub(crate) icon_enc: InputEncoding,
+    /// XTPUSHSGR's stack (`crate::stack`): read by a push and a pop alone,
+    /// so here rather than in `Cold`, whose size is pinned.
+    pub(crate) renditions: crate::stack::RenditionStack,
     /// The window operations queued for the embedder, whether they are on
     /// (`Term::set_window_ops`) and the counts of those that did not go
     /// (`Term::window_requests`). Here for the reason `window` is: only an
@@ -522,6 +525,7 @@ impl<'b> StrBuf<'b> {
             title_modes: TitleModes::DEFAULT,
             title_enc: InputEncoding::Utf8,
             icon_enc: InputEncoding::Utf8,
+            renditions: crate::stack::RenditionStack::EMPTY,
             window_asks: crate::window::WindowAsks::NONE,
             color_modes: ColorModes::NONE,
             shell: crate::prompt::Shell::FRESH,
@@ -792,6 +796,7 @@ impl Owned {
                 title_modes: TitleModes::DEFAULT,
                 title_enc: InputEncoding::Utf8,
                 icon_enc: InputEncoding::Utf8,
+                renditions: crate::stack::RenditionStack::EMPTY,
                 window_asks: crate::window::WindowAsks::NONE,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
@@ -847,6 +852,7 @@ impl Owned {
                 title_modes: TitleModes::DEFAULT,
                 title_enc: InputEncoding::Utf8,
                 icon_enc: InputEncoding::Utf8,
+                renditions: crate::stack::RenditionStack::EMPTY,
                 window_asks: crate::window::WindowAsks::NONE,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,

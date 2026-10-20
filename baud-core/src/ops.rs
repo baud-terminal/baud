@@ -3735,6 +3735,11 @@ impl Paint<'_, '_> {
         // (`[[source: xterm-reset]]`) -- which departs from the text; Jev
         // decided for the text on 2026-10-10 (XT-8), open to the owner's veto.
         self.cold.xtsave = SavedModes::NONE;
+        // **And XTPUSHSGR's stack**, for the same text: nothing is saved
+        // in the initial state. xterm keeps it across both resets, a
+        // departure from the text not followed (Jev's lean, KEEP, 0.84/0.86,
+        // below the 0.9 a departure needs); `DECSTR` keeps it.
+        self.strs.renditions = crate::stack::RenditionStack::EMPTY;
         // **The title modes go back to the default**, xterm's full reset
         // `title_modes = title_modes0` (`[[source: xterm-reset]]`'s file);
         // `DECSTR` keeps them, as xterm's soft reset does.
