@@ -443,9 +443,11 @@ fn the_save_and_restore_do_not_depend_on_where_the_reads_fell() {
 /// The whole range DECSET can name in practice, each against the core's
 /// own behaviour rather than a list: a mode whose `DECRQM` answer a DECSET or
 /// DECRST moves comes back on restore, and a mode that does not move --
-/// unknown, permanent, or read-only -- is counted by both. `?2` is the one
+/// unknown, permanent, or read-only -- is counted by both. `?2` is one
 /// exception the harness cannot drive: its reset enters VT52, where no
-/// `CSI` follows, so it is held to being saved without a count.
+/// `CSI` follows, so it is held to being saved without a count. `?1048` is
+/// the other: an action whose save is the cursor's, held to neither being
+/// counted.
 #[test]
 fn every_mode_decset_changes_is_saved_and_restored_and_no_other_is() {
     let ws = WinSize {
@@ -465,6 +467,16 @@ fn every_mode_decset_changes_is_saved_and_restored_and_no_other_is() {
         if mode == 2 {
             feed_str(&mut t, "\x1b[?2s\x1b[?2r");
             assert_eq!(t.unsupported_param, p, "?2 is saved and restored");
+            continue;
+        }
+        // `?1048` is an action: its save and restore are the cursor's,
+        // DECSC and DECRC (`alt_buffer_modes.rs`), and neither is counted.
+        if mode == 1048 {
+            feed_str(&mut t, "\x1b[?1048s\x1b[?1048r");
+            assert_eq!(
+                t.unsupported_param, p,
+                "?1048 saves and restores the cursor"
+            );
             continue;
         }
         let moves = matches!(was, 1 | 2) && {

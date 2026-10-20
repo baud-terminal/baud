@@ -457,6 +457,16 @@ pub enum PrivateMode {
     /// save or restore the cursor, which `?1049` added precisely because
     /// applications kept getting it wrong.
     AltScreenLegacy,
+    /// `?1047`: the alternate screen as `?47` switches to it, and **cleared
+    /// on the way out** -- "Use Normal Screen Buffer ... Clear the screen
+    /// first if in the Alternate Screen Buffer" (`[[source: ctlseqs]]`).
+    /// ctlseqs calls `?1049` "the effects of the 1 0 4 7 and 1 0 4 8
+    /// modes"; baud's `?1049` keeps its saved cursor in a slot of its own.
+    AltScreenClearing,
+    /// `?1048`: "Save cursor as in DECSC", and reset "Restore cursor as in
+    /// DECRC" (`[[source: ctlseqs]]`). An action, not a state: `DECRQM`
+    /// answers whether a cursor is saved.
+    SaveCursor,
     /// `?1036` metaSendsEscape: Meta prefixes `ESC`.
     ///
     /// **Not `?1034`, which this was.** `[[source: ctlseqs]]` line 995 gives
@@ -834,8 +844,9 @@ impl SavedModes {
 
 impl PrivateMode {
     /// The slot XTSAVE keeps this mode in: **every mode DECSET acts on, and
-    /// no other** -- "Ps values are the same as for DECSET". The named modes
-    /// without one are the nine DECSET cannot change: `?13`, `?14` and
+    /// no other** -- "Ps values are the same as for DECSET" -- but `?1048`,
+    /// whose save is the cursor's (Jev, XTERM_ACTIONS, 0.91/0.94). The named
+    /// modes without one are that and the nine DECSET cannot change: `?13`, `?14` and
     /// `?1020` to `?1023` are read-only (`[[source: ctlseqs]]` marks them
     /// so, and xterm's `savemodes` keeps none of them), and `?1014`,
     /// `?1044` and `?2027` are permanent here. An unnamed mode has none, and DECSET counts it, as a
@@ -901,7 +912,11 @@ impl PrivateMode {
             PrivateMode::Resource(Resource::ClickMovesPoint) => 49,
             PrivateMode::Resource(Resource::PasteQuoted) => 50,
             PrivateMode::Resource(Resource::PasteLiteralNewline) => 51,
-            PrivateMode::Utf8Resource
+            PrivateMode::AltScreenClearing => 52,
+            // XTSAVE of `?1048` saves the cursor rather than a value, as
+            // xterm's `savemodes` does (`Paint::save_private_modes`).
+            PrivateMode::SaveCursor
+            | PrivateMode::Utf8Resource
             | PrivateMode::CjkWidthResource
             | PrivateMode::EmojiWidthResource
             | PrivateMode::PrivateWidthResource
@@ -932,6 +947,8 @@ impl PrivateMode {
             40 => PrivateMode::AllowColumnMode,
             45 => PrivateMode::ReverseWrap,
             47 => PrivateMode::AltScreenLegacy,
+            1047 => PrivateMode::AltScreenClearing,
+            1048 => PrivateMode::SaveCursor,
             69 => PrivateMode::LeftRightMargin,
             80 => PrivateMode::SixelDisplay,
             95 => PrivateMode::NoClearOnColumn,

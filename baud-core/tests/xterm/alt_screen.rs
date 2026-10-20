@@ -203,9 +203,9 @@ fn first_difference(a: &Term<'_>, b: &Term<'_>) -> Option<(usize, String, String
 /// through `Term::scrollback` (read on the alternate screen as well, where it
 /// is still the primary's), and the cursor. `?1049 l` restores it "as in
 /// DECRC", where `?1049 h` saved it; `?47 l` says nothing about it, so it
-/// stays where the alternate screen left it (`[[source: ctlseqs]]`). `?1047`
-/// and `?1048` are not implemented (`docs/vt-coverage.md`'s `?47` row), so
-/// they have no case. Then rows 42-50 are erased on both and the screens
+/// stays where the alternate screen left it (`[[source: ctlseqs]]`), and so
+/// does `?1047 l`, which clears the alternate screen first. Then rows 42-50
+/// are erased on both and the screens
 /// compared again: the rows above test the order, and the rows erased test
 /// that each row's extent came back with it, since an erase stops at the
 /// extent it trusts.
@@ -253,6 +253,7 @@ fn a_scrolled_primary_comes_back_in_the_order_it_left() {
     let modes: &[(&str, &[u8], &[u8], Exit)] = &[
         ("?1049", b"\x1b[?1049h", b"\x1b[?1049l", Exit::Restores),
         ("?47", b"\x1b[?47h", b"\x1b[?47l", Exit::Stays),
+        ("?1047", b"\x1b[?1047h", b"\x1b[?1047l", Exit::Stays),
     ];
     let ws = support::CORPUS;
     let rows = usize::from(ws.ws_row);

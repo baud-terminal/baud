@@ -33,6 +33,9 @@ pub(crate) enum AltSwitch {
     Bare,
     /// `?1049`: the buffer, with DECSC and a clear on entry and DECRC on exit.
     SaveAndClear,
+    /// `?1047`: the buffer, and on the way out the alternate screen cleared
+    /// first, xterm's `srm_OPT_ALTBUF` (`[[source: xterm-reset]]`'s file).
+    ClearOnExit,
 }
 
 /// Whether a synchronised update (`?2026`) is open, for where a `?5` change is
@@ -2901,9 +2904,20 @@ impl Paint<'_, '_> {
     /// DECSC's is. A mode DECSET does not act on is counted, a parameter at a
     /// time, as DECSET's wildcard counts it: unnamed, the read-only `?1020`
     /// to `?1023`, the permanent `?2027` ([`PrivateMode::slot`]).
+    ///
+    /// **`?1048` saves the cursor**, as xterm's `savemodes` runs
+    /// `CursorSave` for it (`[[source: xterm-reset]]`'s file; Jev,
+    /// XTERM_ACTIONS, 0.91/0.94): the mode is an action and has no value
+    /// to keep.
     pub(crate) fn save_private_modes(&mut self, csi: &crate::write::Csi) {
         csi.for_each_param(|p| {
             let m = PrivateMode::from_wire(p);
+            if m == PrivateMode::SaveCursor {
+                if self.cold.resources.is_set(Resource::AltScreenAllowed) {
+                    self.save_or_restore_cursor(ModeChange::Set);
+                }
+                return;
+            }
             let value = match self.private_state(m) {
                 ModeState::Set => Some(ModeChange::Set),
                 ModeState::Reset => Some(ModeChange::Reset),
@@ -2940,6 +2954,13 @@ impl Paint<'_, '_> {
     ) {
         csi.for_each_param(|p| {
             let m = PrivateMode::from_wire(p);
+            // `?1048` restores the cursor, xterm's `restoremodes`.
+            if m == PrivateMode::SaveCursor {
+                if self.cold.resources.is_set(Resource::AltScreenAllowed) {
+                    self.save_or_restore_cursor(ModeChange::Reset);
+                }
+                return;
+            }
             let Some(slot) = m.slot() else {
                 self.unsupported_param += 1;
                 return;
@@ -2961,6 +2982,17 @@ impl Paint<'_, '_> {
                 self.set_private_mode(m, want, node, at);
             }
         });
+    }
+
+    /// DECSC for a set, DECRC for a reset: `?1048`'s two halves, through
+    /// the slot `ESC 7` and `ESC 8` use, a restore with nothing saved
+    /// doing what `ESC 8`'s does.
+    fn save_or_restore_cursor(&mut self, change: ModeChange) {
+        match (change, self.cold.saved) {
+            (ModeChange::Set, _) => self.cold.saved = Some(self.save()),
+            (ModeChange::Reset, Some(s)) => self.restore(Some(s)),
+            (ModeChange::Reset, None) => self.restore_unsaved(),
+        }
     }
 
     /// `?5`, counted where it happens.
@@ -3270,9 +3302,18 @@ impl Paint<'_, '_> {
             // while its titeInhibit is set (`[[source: xterm-reset]]`'s
             // file). Its `tiXtraScroll`, a resource no mode sets and off by
             // default, has no counterpart here.
-            PrivateMode::AltScreen | PrivateMode::AltScreenLegacy
+            PrivateMode::AltScreen
+            | PrivateMode::AltScreenLegacy
+            | PrivateMode::AltScreenClearing
+            | PrivateMode::SaveCursor
                 if !self.cold.resources.is_set(Resource::AltScreenAllowed) => {}
             PrivateMode::AltScreen => self.set_alt_screen(change, AltSwitch::SaveAndClear),
+            PrivateMode::AltScreenClearing => self.set_alt_screen(change, AltSwitch::ClearOnExit),
+            // **`?1048` is DECSC and DECRC**, "Save cursor as in DECSC" and
+            // "Restore cursor as in DECRC" (`[[source: ctlseqs]]`), the one
+            // slot `ESC 7` and `ESC 8` share, as xterm's `CursorSave` and
+            // `CursorRestore` are (`[[source: xterm-reset]]`'s file).
+            PrivateMode::SaveCursor => self.save_or_restore_cursor(change),
             // **`?47` switches buffers and does nothing else.** xterm's
             // `srm_ALTBUF` is `ToAlternate(xw, False)` in and
             // `FromAlternate(xw, False)` out (`xterm-charproc.c`, the
@@ -3460,6 +3501,14 @@ impl Paint<'_, '_> {
                 self.book.alt_top = LineIdx::FIRST;
             }
             (false, Screen::Alternate) => {
+                // **`?1047 l` clears the alternate screen before it leaves**,
+                // "Clear the screen first if in the Alternate Screen Buffer"
+                // (`[[source: ctlseqs]]`), xterm's `ClearScreen` before
+                // `FromAlternate` (`[[source: xterm-reset]]`'s file); the
+                // cursor stays, as it does under `?47`.
+                if how == AltSwitch::ClearOnExit {
+                    self.clear_screen();
+                }
                 // **The editor's images go with the editor's screen.** foot
                 // and ghostty both delete them; the alternate screen keeps no
                 // history, so nothing could scroll back to them, and a shell
@@ -4199,9 +4248,18 @@ impl Paint<'_, '_> {
             // mode switched it, as xterm's `do_dec_rqm` answers `?1047` and
             // `?1049` from `whichBuf`, and `?47` too unless print graphics
             // are configured (`[[source: xterm-misc]]` 5610-5617).
-            PrivateMode::AltScreen | PrivateMode::AltScreenLegacy => match self.cold.screen {
+            PrivateMode::AltScreen
+            | PrivateMode::AltScreenLegacy
+            | PrivateMode::AltScreenClearing => match self.cold.screen {
                 Screen::Alternate => ModeState::Set,
                 Screen::Normal => ModeState::Reset,
+            },
+            // `?1048` answers whether a cursor is saved, xterm's
+            // `MdBool(screen->sc[screen->whichBuf].saved)` (`[[source:
+            // xterm-misc]]` 5716-5717); baud's one slot serves both screens.
+            PrivateMode::SaveCursor => match self.cold.saved {
+                Some(_) => ModeState::Set,
+                None => ModeState::Reset,
             },
             // `?2027`: this core clusters per `[[source: uax29]]` and has no
             // mode that stops it, so `1` would invite an application to try

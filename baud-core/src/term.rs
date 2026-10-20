@@ -1914,7 +1914,10 @@ impl<'b> Term<'b> {
         match (self.cold.screen, self.cold.alt_entry) {
             (Screen::Normal, _) => PrimaryCursor::Live,
             (Screen::Alternate, crate::ops::AltSwitch::SaveAndClear) => PrimaryCursor::Saved,
-            (Screen::Alternate, crate::ops::AltSwitch::Bare) => PrimaryCursor::Shared,
+            (
+                Screen::Alternate,
+                crate::ops::AltSwitch::Bare | crate::ops::AltSwitch::ClearOnExit,
+            ) => PrimaryCursor::Shared,
         }
     }
 
