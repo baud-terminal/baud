@@ -226,9 +226,10 @@ impl Paint<'_, '_> {
             // (`[[source: ctlseqs]]`), so `> Pp ; Pv m` and `> Pp ; Pv f`,
             // every resource. A disabled one is `-1` and modifyOtherKeys'
             // mask `: mask`, as xterm's `do_dcs` writes them (`[[source:
-            // xterm-misc]]`; Jev's lean, XTERM_MINUS_ONE, 0.55/0.82). xterm
-            // spells the format answer `>%d;%dm`, an XTMODKEYS, which would
-            // set the other resource: a departure not followed.
+            // xterm-misc]]`; Jev's lean, XTERM_MINUS_ONE, 0.55/0.82 then
+            // 0.23/0.27). xterm spells the format answer `>%d;%dm`, an
+            // XTMODKEYS, which would set the other resource: a departure not
+            // followed.
             StatusTarget::KeyModify(r) => {
                 let v = self.cold.keys.modify(r);
                 s.push(b"1$r>");

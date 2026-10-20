@@ -272,9 +272,9 @@ fn the_keypad_modifier_and_special_resources_act_at_4() {
 }
 
 /// **The ignore mask factors a modifier out**: `CSI > 4 ; Pv : mask m`, as
-/// xterm parses it (Jev's lean, CODE_FORM, 0.69/0.88), the mask in the
-/// parameter's bits ("a mask of modifier bits to factor out of the
-/// parameter encoding", `[[source: ctlseqs]]`). At levels 1 and 2 a key
+/// xterm parses it (Jev's lean, CODE_FORM, 0.69/0.88 then 0.80/0.89), the
+/// mask in the parameter's bits ("a mask of modifier bits to factor out of
+/// the parameter encoding", `[[source: ctlseqs]]`). At levels 1 and 2 a key
 /// whose only modifier is in the mask is not sent as a sequence, xterm's
 /// `allowedCharModifiers`; with another held it is. At 3, where an
 /// unmodified key is a sequence too, the masked key is sent with the
@@ -289,6 +289,14 @@ fn the_ignore_mask_factors_a_modifier_out() {
     assert_eq!(
         show(&sent(b"\x1b[>4;3:1m", ch('a'), CTRL.with(Modifiers::SHIFT))),
         show(b"\x1b[27;6;97~")
+    );
+    // Shift-Tab at 3 is a Tab with Shift factored out. xterm's Shift-Tab is
+    // the keysym ISO_Left_Tab, not an ordinary key, so its mask never
+    // applies there and it sends `CSI 27 ; 2 ; 9 ~`: an open departure.
+    assert_eq!(
+        show(&sent(b"\x1b[>4;3:1m", KeyCode::Tab, Modifiers::SHIFT)),
+        show(b"\x1b[27;1;9~"),
+        "level 3: Shift-Tab sends an unmodified Tab's bytes"
     );
     let masked = b"\x1b[>4;2:1m";
     assert_eq!(sent(masked, KeyCode::Tab, Modifiers::SHIFT), b"\x1b[Z");
@@ -310,8 +318,9 @@ fn the_ignore_mask_factors_a_modifier_out() {
 
 /// **Each control resets, sets or disables what the text says.** An
 /// omitted `Pv` resets one resource, no parameter at all every one of the
-/// seven (ctlseqs' "all resources", Jev's lean, ALL_SEVEN, 0.76/0.76),
-/// `CSI > Ps n` disables `Ps`, and with no parameter modifyFunctionKeys.
+/// seven (ctlseqs' "all resources", Jev's lean, ALL_SEVEN, 0.76/0.76 then
+/// 0.68/0.76), `CSI > Ps n` disables `Ps`, and with no parameter
+/// modifyFunctionKeys.
 /// DECSTR and RIS put every one back, as xterm's `ReallyReset` does.
 #[test]
 fn the_controls_reset_set_and_disable() {
@@ -375,8 +384,8 @@ fn the_controls_reset_set_and_disable() {
 }
 
 /// **A value no resource documents is refused and counted**, the resource
-/// unchanged (Jev's lean, REFUSE_COUNT, 0.82/0.90), as `CSI > 4 ; 2 f`
-/// already was: modifyOtherKeys past 3, the others past 4,
+/// unchanged (Jev's lean, REFUSE_COUNT, 0.82/0.90 then 0.88/0.86), as
+/// `CSI > 4 ; 2 f` already was: modifyOtherKeys past 3, the others past 4,
 /// modifyKeyboard past its four bits, a format past 1, the reserved
 /// resource 5, a `Pp` that names none, and the mask on any resource but 4.
 #[test]
@@ -411,8 +420,8 @@ fn an_undocumented_value_is_refused_and_counted() {
 /// "For example CSI > 4 : 1 m factors out the shift modifier"
 /// (`[[source: ctlseqs]]`) puts the mask on `Pp`; xterm's parser reads it
 /// only as `Pv`'s sub-parameter, `CSI > 4 ; Pv : mask m`, and baud reads it
-/// as xterm does (Jev's lean, CODE_FORM, 0.80/0.89, below the bar). The
-/// text's form is counted and changes nothing.
+/// as xterm does (Jev's lean, CODE_FORM, 0.69/0.88 then 0.80/0.89, below
+/// the bar). The text's form is counted and changes nothing.
 #[test]
 fn the_texts_mask_example_is_refused_and_counted() {
     support::with_corpus(|t| {

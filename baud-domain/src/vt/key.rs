@@ -172,8 +172,8 @@ impl KeyResource {
     }
 
     /// `Pv` as this resource's value, or `None` for one no text documents
-    /// (Jev's lean, REFUSE_COUNT, 0.82/0.90): `modifyKeyboard`'s four bits,
-    /// 0 to 15; `modifyOtherKeys` 0 to 3; the others 0 to 4
+    /// (Jev's lean, REFUSE_COUNT, 0.82/0.90 then 0.88/0.86): `modifyKeyboard`'s
+    /// four bits, 0 to 15; `modifyOtherKeys` 0 to 3; the others 0 to 4
     /// (`[[source: xterm-man]]`). -1 is reached only by `CSI > Pp n`, "which
     /// cannot be set with the other sequence".
     pub fn value(self, pv: u16) -> Option<ModifyValue> {
@@ -214,7 +214,8 @@ impl ModifyValue {
 pub enum KeySet {
     /// `CSI > m`: "If no parameters are given, all resources are reset to
     /// their initial values" -- all seven, as the text says, where xterm's
-    /// loop takes 1 to 5 (Jev's lean, ALL_SEVEN, 0.76/0.76).
+    /// loop takes 1 to 5 (Jev's lean, ALL_SEVEN, 0.76/0.76 then
+    /// 0.68/0.76).
     ResetAll,
     /// `CSI > Pp m`: "If the second parameter is omitted, the resource is
     /// reset to its initial value."

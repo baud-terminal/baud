@@ -6772,8 +6772,8 @@ enum Shift {
 /// without Shift -- xterm's `shift_buttons` (`[[source: xterm-button-c]]`),
 /// which for baud's bindings is the left button, the one a press selects
 /// with -- and every other press goes to the child with its Shift bit
-/// (Jev's lean, SELECTION_BUTTONS, 0.80/0.88). A move with no button held
-/// is button 1's, as xterm's `MotionButton` reads one.
+/// (Jev's lean, SELECTION_BUTTONS, 0.80/0.88 then 0.78/0.78). A move with
+/// no button held is button 1's, as xterm's `MotionButton` reads one.
 fn shift_overrides(
     held: Shift,
     escape: ShiftEscape,

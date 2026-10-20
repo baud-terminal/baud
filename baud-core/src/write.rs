@@ -160,10 +160,10 @@ impl Csi {
 
     /// Does the sequence define sub-parameters: SGR, and XTMODKEYS (`CSI >
     /// Pp ; Pv m`), whose `[[source: ctlseqs]]` text takes "a single
-    /// subparameter"? Asked only once a `:` arrived. **Open:** the
-    /// XTMODKEYS arm reads that sub-parameter as `Pv`, so `CSI > 4 : 1 m`
-    /// sets level 1 and `CSI > 4 ; 2 : 1 m` level 2, where ctlseqs makes it
-    /// "a mask of modifier bits to factor out" and an omitted `Pv` a reset.
+    /// subparameter"? Asked only once a `:` arrived. XTMODKEYS reads it as
+    /// modifyOtherKeys' mask, `CSI > 4 ; Pv : mask m` (`key_change`);
+    /// ctlseqs' own example, `CSI > 4 : 1 m`, is refused and counted, the
+    /// open departure the XTMODKEYS row of `docs/vt-coverage.md` names.
     /// Inline: a call here made `csi_final` save four more registers on
     /// every entry.
     #[inline(always)]
@@ -1824,13 +1824,13 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
     // allows `03/10` only inside one parameter, never between two, and
     // gives an integer parameter no fractional part. SGR's groups (ISO
     // 8613-6, `38:2::r:g:b`, `4:3`) are read above, and XTMODKEYS takes one
-    // (`CSI > 4 : 1 m`, `[[source: ctlseqs]]`'s modifier mask, read there as
-    // `Pv`: open, see `takes_subs`), as xterm keeps those two and rejects
-    // the rest. Every other sequence read a parameter after `:` as
-    // if `;` had come, so `CSI 1:5 H` was CUP 1;5. Jev leaned to keeping
-    // that at 0.38/0.40, below the bar for a departure, so the text is
-    // built (2026-10-19). One test of the parser's own mask; the rest runs
-    // only once a `:` arrived.
+    // (`CSI > 4 ; Pv : mask m`, `[[source: ctlseqs]]`'s modifier mask, read as
+    // modifyOtherKeys' by `key_change`), as xterm keeps those two and rejects
+    // the rest. Every other sequence read a parameter after `:` as if `;` had
+    // come, so `CSI 1:5 H` was CUP 1;5. Jev leaned to keeping that at
+    // 0.38/0.40, below the bar for a departure, so the text is built
+    // (2026-10-19). One test of the parser's own mask; the rest runs only once
+    // a `:` arrived.
     if csi.has_subs() && !csi.takes_subs(f) {
         p.unsupported_total += 1;
         return;
