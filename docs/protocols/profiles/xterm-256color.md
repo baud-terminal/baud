@@ -11,7 +11,7 @@ This is the entry baud gives its child. Like every profile here it is pinned wit
 | | |
 |---|---|
 | output capabilities | **88** — all handled |
-| input capabilities | 140 — **137 sent**, counted against the pinned terminfo and printed by `the_profiles_input_counts_are_what_baud_can_send`, which pins no number |
+| input capabilities | 140 — **139 sent**, counted against the pinned terminfo and printed by `the_profiles_input_counts_are_what_baud_can_send`, which pins no number |
 | shared with `vt100` | 43 |
 | conformance test | `baud-core/tests/conformance/` → `xterm_256color` |
 | source | `../../research/sources/terminfo/xterm-256color.ti`, `infocmp -x -1`, hash-pinned |

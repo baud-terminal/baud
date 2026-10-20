@@ -18,8 +18,9 @@ pub struct Cap {
 /// **They are the input path, which baud now has.** This doc said "which baud
 /// does not have" and was one of fourteen copies of that sentence, all true when
 /// written and all false since `encode_key` landed. `input_caps.rs` measures how
-/// many of each profile's it can send rather than restating a claim -- 137
-/// of `xterm`'s 140 since the `-x` capture of 2026-10-18.
+/// many of each profile's it can send rather than restating a claim -- 139
+/// of `xterm`'s 140 since its `smkx` and the mouse report were counted
+/// (2026-10-19) -- and `docs/input-coverage.md` names the rest.
 pub fn is_input(name: &str) -> bool {
     name.starts_with('k')
 }

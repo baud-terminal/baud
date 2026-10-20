@@ -158,6 +158,31 @@ created the demand.
 | `?1004` focus reporting | `Term::focus` | **done** — `CSI I` / `CSI O`, sent only while the mode is set. Like the mouse reports above, a report baud generates on its own, not a key it encodes |
 | `?1001` highlight tracking | `mouse_report`, `highlight` | **done** — a tracking level: button 1's press is owed the program's answer, the region the answer starts follows a drag within the program's rows, and the release is reported as `CSI t` or `CSI T`; the macOS app draws `Term::highlight` through the selection's highlight (`tracked_highlight`). The Linux app has no pointer. `tests/xterm/highlight.rs` |
 
+## Terminfo input capabilities baud does not send
+
+An application that reads a terminfo entry learns which bytes each key
+sends there. baud sends xterm's (`TERM=xterm-256color`), and of the ten
+pinned profiles it sends 139 of `xterm`'s 140 input capabilities, 11 of
+`vt100`'s 22, 29 of `rxvt`'s 99, 38 of `nsterm`'s 45, 26 of `dtterm`'s 32
+and 7 of `ansi`'s 8, each profile's `smkx` modes included and the mouse
+report `kmous` prefixes counted. Every one it does not send is named below
+with the reason; `the_unsent_input_capabilities_are_named` requires this
+table to name exactly the ones the encoder does not produce, and each
+profile's count in `docs/protocols/profiles/` to be the measured one.
+
+| profiles | capabilities | why baud does not send them |
+|---|---|---|
+| `xterm` `xterm-16color` `xterm-256color` | `kb2` | the keypad's centre key, Begin, as `SS3 E` under DECCKM. baud sends `CSI E`, the form at `[[source: ctlseqs]]` line 2518; the DECCKM form is the open Begin fork above, under the bar at 0.92 then 0.86 |
+| `vt100` `vt102` `nsterm` | `ka1` `ka3` `kb2` `kc1` `kc3` | the VT220 application keypad, `SS3 p`-`SS3 y`, line 2628's table, which `sunKeyboard` selects in place of line 2498's. Sending both would send two keys for one; choosing between them by a mode (`?1050`-`?1061`) is an owner item on TODO |
+| `vt100` `vt102` | `kf0` `kf5` `kf6` `kf7` `kf9` `kf10` | the same table: the VT100 entry names keypad digits in application mode as function keys |
+| `rxvt` | `ka1` `ka2` `ka3` `kb1` `kb2` `kb3` `kc1` `kc2` `kc3` | the same VT220 application keypad |
+| `dtterm` `rxvt` | `kf1` `kf2` `kf3` `kf4` | `CSI 11 ~`-`CSI 14 ~`, the `oldXtermFKeys` forms line 2548 deprecates; baud sends F1-F4 as `SS3 P`-`SS3 S`, the out row above |
+| `dtterm` `rxvt` | `kfnd` `kslt` | Find and Select, `CSI 1 ~` and `CSI 4 ~`: the DEC column of the "Non-Function Keys" table, whose header row is line 2771, which xterm uses for the X keys of those names. baud has no Find or Select key: neither a Mac keyboard nor its Linux driver delivers one, and kitty's functional table numbers neither. Open, beside Help, Menu and Remove from the same table |
+| `nsterm` | `kLFT3` `kRIT3` | `ESC b` and `ESC f`, Terminal.app's Option-Left and Option-Right as Emacs word motion. baud sends `CSI 1 ; 3 D` and `CSI 1 ; 3 C`, ctlseqs' modifier form |
+| `ansi` | `kich1` | `CSI L`, Insert in the SCO column of the table whose header row is line 2771. baud sends `CSI 2 ~`, the DEC form |
+| `rxvt` | `kDC` `kEND` `kHOM` `kIC` `kNXT` `kPRV` `kDC5` `kDC6` `kEND5` `kEND6` `kHOM5` `kHOM6` `kIC5` `kIC6` `kNXT5` `kNXT6` `kPRV5` `kPRV6` `kel` `kf21` `kf22` `kf23` `kf24` `kf25` `kf26` `kf27` `kf28` `kf29` `kf30` `kf31` `kf32` `kf33` `kf34` `kf35` `kf36` `kf37` `kf38` `kf39` `kf40` `kf41` `kf42` `kf43` `kf44` | rxvt's own modified keys: Shift ends the editing keys' sequence in `$`, Control in `^`, both in `@`, and its F21-F44 are its function keys with those three suffixes. baud sends ctlseqs' `CSI 3 ; 2 ~` form, which an application told `TERM=xterm-256color` reads |
+| `rxvt` | `kLFT` `kRIT` `kUP` `kDN` `kind` `kri` `kLFT5` `kRIT5` `kUP5` `kDN5` `khome` `kend` | rxvt's shifted and controlled arrows, `CSI a`-`CSI d` and `SS3 a`-`SS3 d`, and its Home and End, `CSI 7 ~` and `CSI 8 ~`: rxvt's keyboard, not ctlseqs' |
+
 ## Not in scope yet, and why
 
 * **DECUDK** — user-defined keys. ~~It stops being out once there is an

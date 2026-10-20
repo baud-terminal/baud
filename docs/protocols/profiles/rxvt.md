@@ -9,7 +9,7 @@ VT100 plus much of xterm. Its reset string is `CSI ? 1 ; 3 ; 4 ; 6 l` — a mult
 | | |
 |---|---|
 | output capabilities | **66** — all handled |
-| input capabilities | 99 — **27 sent**, measured against the pinned terminfo by `the_profiles_input_counts_are_what_baud_can_send` |
+| input capabilities | 99 — **29 sent**, measured against the pinned terminfo by `the_profiles_input_counts_are_what_baud_can_send` |
 | shared with `vt100` | 39 |
 | conformance test | `baud-core/tests/conformance/` → `rxvt` |
 | source | `../../research/sources/terminfo/rxvt.ti`, `infocmp -x -1`, hash-pinned |
