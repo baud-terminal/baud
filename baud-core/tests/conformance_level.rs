@@ -148,6 +148,25 @@ fn leaving_vt52_returns_to_level_one_seven_bit() {
     });
 }
 
+/// **`CSI ? 2 l` enters VT52 from every level**, the power-up Level 4
+/// included, so `ESC Z` answers `ESC / Z`. 070-0A p. A-14 (Rev AX11, 1985)
+/// says the control "is only recognized in Level 1 and Level 2", written
+/// when its product table knew only those two, and its own change history
+/// (A.9.1) "changed descriptions and algorithms to allow entry from any
+/// conformance level"; the VT420 guideline lists DECANM among Level 4's
+/// queryable modes, the VT510 and VT520 manuals state no level, and the
+/// VT520 enters VT52 "from VT500 mode" (`[[source: vt520-rm]]` 2.10.1), as
+/// xterm and vttest do. Jev's lean, ANY_LEVEL (0.56/0.76, then 0.74/0.82).
+#[test]
+fn vt52_is_entered_from_every_level() {
+    for level in [&b"61"[..], b"62", b"63", b"64"] {
+        support::with_term(&WS, |t| {
+            support::feed(t, &[b"\x1b[", level, b"\"p\x1b[?2l"].concat());
+            assert_eq!(reply_to(t, b"\x1bZ"), b"\x1b/Z", "{level:?}");
+        });
+    }
+}
+
 /// **`ESC SP N` and `ESC SP L` designate and invoke at Level 3 and 4**:
 /// N puts ASCII back in G0 and G0 in GL, so line drawing designated there
 /// is gone; L puts ISO Latin-1 Supplemental in G1 and G1 in GR, so under
