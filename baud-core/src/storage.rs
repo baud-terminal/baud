@@ -425,6 +425,12 @@ pub struct StrBuf<'b> {
     /// memory: a terminal with no arena still walks a Sixel and refuses it
     /// for its size against an empty arena.
     pub(crate) sixel: &'b mut SixelStream,
+    /// ReGIS (`crate::regis`): the macrograph store, the parser and the
+    /// device state, which persist from one `DCS p` to the next. Behind a
+    /// reference for the reason `sixel` is, and always provisioned: it is
+    /// the protocol's state, about a hundred kilobytes, and a terminal with
+    /// no image memory still reads ReGIS and answers its reports.
+    pub(crate) regis: &'b mut Regis,
     /// The kitty graphics stream (`kitty.rs`): the chunk being read, the
     /// transmission in flight, the decode deferred and the replies owed.
     /// Behind a reference for the reason `sixel` is, and always provisioned:
@@ -501,7 +507,7 @@ pub struct StrBuf<'b> {
 }
 
 impl<'b> StrBuf<'b> {
-    /// Lend the eleven, in the one order that is correct.
+    /// Lend the twelve, in the one order that is correct.
     ///
     /// A constructor rather than public fields, because `Storage::new` is
     /// public and takes a `StrBuf`: without this an embedder outside the crate
@@ -520,6 +526,7 @@ impl<'b> StrBuf<'b> {
         link_len: &'b mut [ByteLen],
         clip: &'b mut [u8],
         sixel: &'b mut SixelStream,
+        regis: &'b mut Regis,
         kitty: &'b mut KittyStream,
         kitty_scratch: &'b mut [u8],
         titles: &'b mut [u8],
@@ -534,6 +541,7 @@ impl<'b> StrBuf<'b> {
             clip_area: clip,
             clip: crate::clip::Clip::NEW,
             sixel,
+            regis,
             kitty,
             kitty_scratch,
             titles,
@@ -599,6 +607,7 @@ pub struct Owned {
     img_places: alloc::vec::Vec<PlacementSlot>,
     img_index: alloc::vec::Vec<PlacementId>,
     sixel: alloc::boxed::Box<SixelStream>,
+    regis: alloc::boxed::Box<Regis>,
     kitty: alloc::boxed::Box<KittyStream>,
     kitty_scratch: alloc::vec::Vec<u8>,
     clip: alloc::vec::Vec<u8>,
@@ -688,6 +697,7 @@ impl Owned {
             img_places: PlacementSlot::zeroed_vec(places),
             img_index: PlacementId::zeroed_index(places),
             sixel: alloc::boxed::Box::new(SixelStream::NEW),
+            regis: alloc::boxed::Box::new(Regis::NEW),
             kitty: alloc::boxed::Box::new(KittyStream::NEW),
             kitty_scratch: vec::Vec::new(),
             // The `OSC 52` areas default absent, provisioned by
@@ -810,6 +820,7 @@ impl Owned {
                 clip_area: &mut self.clip,
                 clip: crate::clip::Clip::NEW,
                 sixel: &mut self.sixel,
+                regis: &mut self.regis,
                 kitty: &mut self.kitty,
                 kitty_scratch: &mut self.kitty_scratch,
                 titles: &mut self.titles,
@@ -871,6 +882,7 @@ impl Owned {
                 clip_area: &mut self.clip,
                 clip: crate::clip::Clip::NEW,
                 sixel: &mut self.sixel,
+                regis: &mut self.regis,
                 kitty: &mut self.kitty,
                 kitty_scratch: &mut self.kitty_scratch,
                 titles: &mut self.titles,

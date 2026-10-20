@@ -374,7 +374,9 @@ pub enum Act {
     Vt52SetRow,
     /// The column byte of `ESC Y`, which completes the address.
     Vt52Address,
-    /// The `q` of a `DCS $ q`: this control string is a DECRQSS.
+    /// The `q` of a `DCS $ q`: this control string is a DECRQSS; the `t`
+    /// of a `DCS $ t`, a DECRSPS; the bare `p` of a `DCS Pn p`, ReGIS. The
+    /// arm reads which byte it was.
     ///
     /// One action, because the body and the accumulator are already `StrPut`
     /// and `StrEnd` -- a DCS payload and an OSC payload are the same bytes
@@ -1182,6 +1184,12 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 // kind and route the body through the `StrPut`/`StrEnd` path,
                 // which now decodes it rather than dropping it.
                 b'q' => edge(Act::SixelStart, Node::SixelStr),
+                // **A bare `p` is ReGIS**, `DCS Pn p` (`[[source: dec-std-070]]`
+                // 070-8 § 8.9.1), after the same numeric parameters, so
+                // `DCS $ p` and `DCS + p` keep their rows. The action is
+                // DECRQSS's, which reads its byte: no new action, so no other
+                // action's encoding moves. The body is a DCS's.
+                b'p' => edge(Act::DcsQuery, Node::DcsStr),
                 // **A Sixel is `DCS Pa;Pb;Ph q` -- a `q` after *numeric
                 // parameters* and no intermediate.** So the parameters `30-3F`
                 // (`0-9 : ; < = > ?`) collect and stay in `Node::Dcs`, and a
@@ -2474,10 +2482,15 @@ mod classes {
         // byte after its `ESC` that is not `\` place the image first
         // (`Act::SixelCut`). 55 -> 56, 2,248 -> 2,342, 67,669 -> 71,712 and
         // 1,805,035 -> 1,945,172 at strides 1 to 4, +7.8% at stride 4.
+        // **ReGIS's `p` after a `DCS`** (2026-10-20): `70` and, under ISO
+        // 8859-1, `F0` in `Dcs` lead to the body as `DcsQuery`, where both
+        // led there as `Consume`. 56 -> 58, 2,342 -> 2,454, 71,712 -> 75,689
+        // and 1,945,172 -> 2,066,297 at strides 1 to 4, +6.2% at stride 4.
+        // The ingest loop's table is one byte wide and does not grow.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 2_342, "stride 2");
-        assert_eq!(three.len(), 71_712, "stride 3");
-        assert_eq!(four.len(), 1_945_172, "stride 4");
+        assert_eq!(two.len(), 2_454, "stride 2");
+        assert_eq!(three.len(), 75_689, "stride 3");
+        assert_eq!(four.len(), 2_066_297, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -3507,8 +3520,9 @@ mod classes {
     // The single shifts' node, `Act::Del` and DECRSPS's `t` made 54, and VT's own action, the line
     // tabulation stop it reaches, parting `0B` from `0A` and `0C`, made 55.
     // A Sixel's body, where `SUB` is a blank sixel and `CAN` places the
-    // image, parting `1A` from `18`, made 56.
-    const CLASSES: usize = 56;
+    // image, parting `1A` from `18`, made 56. ReGIS's `p` after a `DCS`, and
+    // under ISO 8859-1 its GR `F0`, made 58.
+    const CLASSES: usize = 58;
     /// What `write::act` consumes, which is **not** `Act::width()`.
     ///
     /// `width` is the byte length of the *character* an act writes; two acts

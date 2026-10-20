@@ -70,6 +70,7 @@ mod presentation;
 mod prompt;
 mod query;
 mod rect;
+mod regis;
 mod shift;
 mod sixel;
 mod stack;

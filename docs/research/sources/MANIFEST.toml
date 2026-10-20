@@ -429,6 +429,14 @@ group  = "C"
 # locator is on page one", notes 1-3); DECRQLP p. 8 (PDF 1023); DECSLE p. 9 (PDF 1024);
 # DECEFR pp. 10-11 (PDF 1025-1026, notes 1-4); DECLKD § 5.4 (PDF 1028); the locator DSR,
 # ?50 ready, ?57;1 mouse (p. 15, PDF 1030); locator controller mode § 7 (PDF 1031).
+# Read 2026-10-20 for ReGIS (lane b122), the copy whose sha256 matches, on the text
+# layer [text]: 070-8 whole, pp. 8-1 to 8-155 and its index (PDF 748-907), page 8-N
+# at PDF 747+N -- the grammar § 8.4 (PDF 784-804), the Base instructions § 8.5 (PDF
+# 805-841), the extended device § 8.6, the Raster Extensions § 8.7 (PDF 850-868),
+# the Open Extensions § 8.8 (PDF 869-889), the envelope § 8.9.1 (PDF 890-891) and
+# the command complement § 8.10 (PDF 893-902); p. 8-91 (PDF 838) rendered [img] to
+# check the OCR of the vertex list's "a capacity of less than 256 entries", which
+# the page reads too.
 
 [sources.vt510-decsca]
 key    = "vt510-decsca"
@@ -8152,6 +8160,171 @@ group  = "C"
 # "Background Intensity Control" says the VT340's background is an output map
 # location, ReGIS's, which bears on a Sixel's `P2` background (note AN).
 
+[sources.vt3xx-regis-intro]
+key    = "vt3xx-regis-intro"
+title  = "Introduction to ReGIS (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 1)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter1.html"
+file   = "vt3xx-regis-intro.html"
+sha256 = "8de58c542f3fc300f40829143391a52cb3a8a21a42646e146778d7b2fb6a8455"
+bytes  = 53091
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-20 for ReGIS (lane b122): the VT330's and VT340's ReGIS, the
+# device practice beside DEC STD 070-8. Read for the commands, the syntax, the 800 by 480 screen and its default addressing, the
+# four `DCS p` entries ("DCS p or DCS 0p ... Enters ReGIS at the point where ReGIS was
+# last exited", "DCS 1p ... ReGIS begins at a new command", 2 and 3 with command
+# display), and Table 1-2, the power-up defaults: `S(A[0,0][799,479])`, `W(I7)` and
+# `W(F15)` on the VT340, `T(S1)` with its `[9,20]` display and `[8,20]` unit cells.
+
+[sources.vt3xx-write-control]
+key    = "vt3xx-write-control"
+title  = "Write Control Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 3)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter3.html"
+file   = "vt3xx-write-control.html"
+sha256 = "be62e7e9c025ecb5e290aa19f88c1b97d7e93ddca5626fa7cb501c670c056c87"
+bytes  = 74795
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-20 for ReGIS (lane b122): the VT330's and VT340's ReGIS, the
+# device practice beside DEC STD 070-8. Read for the 8-bit pattern memory ("If you specify more than 8 bits, the terminal uses only
+# the last 8 bits ... If you specify less than 8 bits, the terminal repeats as much of
+# your pattern as it can"), the pattern multiplier 1 to 16, the plane mask and the
+# four writing styles.
+
+[sources.vt3xx-position]
+key    = "vt3xx-position"
+title  = "Position Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 4)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter4.html"
+file   = "vt3xx-position.html"
+sha256 = "33fcc026e9f41aca2d2fa2dae146370fb833c0f00e28f2a494e663a8c54b142b"
+bytes  = 35782
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-20 for ReGIS (lane b122): the VT330's and VT340's ReGIS, the
+# device practice beside DEC STD 070-8. Read for "You can save up to 16 positions in a stack".
+
+[sources.vt3xx-vector]
+key    = "vt3xx-vector"
+title  = "Vector Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 5)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter5.html"
+file   = "vt3xx-vector.html"
+sha256 = "2be49313eb1c5831626811902bed9e15f7784398e68ca392cd930b38573abf24"
+bytes  = 34708
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-20 for ReGIS (lane b122): the VT330's and VT340's ReGIS, the
+# device practice beside DEC STD 070-8. Read for the vector command and its stack options.
+
+[sources.vt3xx-curve]
+key    = "vt3xx-curve"
+title  = "Curve Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 6)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter6.html"
+file   = "vt3xx-curve.html"
+sha256 = "b983dd2a1351fa11eadd737dcf37a67bf45b7012b6b59566910abfbf2b466e47"
+bytes  = 45406
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-20 for ReGIS (lane b122): the VT330's and VT340's ReGIS, the
+# device practice beside DEC STD 070-8. Read for circles, arcs and the interpolated curves.
+
+[sources.vt3xx-text]
+key    = "vt3xx-text"
+title  = "Text Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 7)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter7.html"
+file   = "vt3xx-text.html"
+sha256 = "be64bc45e57a14192419c5f68c5a6358c71098a4b3176df8e14b1defd13a840c"
+bytes  = 62925
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-20 for ReGIS (lane b122): the VT330's and VT340's ReGIS, the
+# device practice beside DEC STD 070-8. Read for the stored 8 by 10 character cell, Table 7-3's seventeen standard sizes, the
+# designators of Tables 7-1 and 7-2, `T(H)`'s "option value x 10", `T(M)`'s width
+# limit of 16, the tilt options `T(D<a>,S<n>,D<b>)` and the italic slant ranges.
+
+[sources.vt3xx-load]
+key    = "vt3xx-load"
+title  = "Load Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 8)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter8.html"
+file   = "vt3xx-load.html"
+sha256 = "a6e199ebaaf760d0f23401341547c54e85ac4071bbe151b4d6e7757db2c6d3e9"
+bytes  = 28316
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-20 for ReGIS (lane b122): the VT330's and VT340's ReGIS, the
+# device practice beside DEC STD 070-8. Read for three loadable sets of up to 96 characters, names of ten characters, the
+# 8 by 10 cell and its hex rows.
+
+[sources.vt3xx-macrographs]
+key    = "vt3xx-macrographs"
+title  = "Macrographs (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 9)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter9.html"
+file   = "vt3xx-macrographs.html"
+sha256 = "1e6715b154018520bd376fb1f436c6955585ac7fc94739dc10164d206e70c56c"
+bytes  = 25623
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-20 for ReGIS (lane b122): the VT330's and VT340's ReGIS, the
+# device practice beside DEC STD 070-8. Read for "The VT300 can store at least 10,000 bytes of macrograph data" and "You
+# can nest macrographs up to 16 levels deep. However, a macrograph cannot call itself."
+
+[sources.vt3xx-report]
+key    = "vt3xx-report"
+title  = "Report Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 10)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter10.html"
+file   = "vt3xx-report.html"
+sha256 = "ccd635d00ca0a3ad490952cc4af805fb81323c45254f6a77535620d07b21571c"
+bytes  = 33364
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-20 for ReGIS (lane b122): the VT330's and VT340's ReGIS, the
+# device practice beside DEC STD 070-8. Read for the report formats: the position as "an absolute, bracketed extent", the
+# macrograph report `@=<call letter> ... @;<CR>` ("Reporting the contents of a
+# macrograph may be a security risk"), storage as `"aaaa, tttt"`, `A'<name>'`, the
+# error report `"<N>,<M>"` with Table 10-1's codes 0 to 9, and `R(I)` answered
+# with a carriage return.
+
+[sources.vt3xx-polygon-fill]
+key    = "vt3xx-polygon-fill"
+title  = "Polygon Fill Command (VT330/VT340 Programmer Reference Manual, Volume 2: Graphics Programming, Chapter 11)"
+author = "Digital Equipment Corporation, transcribed by vt100.net"
+year   = 1987
+venue  = "VT330/VT340 Programmer Reference Manual Volume 2: Graphics Programming"
+url    = "https://vt100.net/docs/vt3xx-gp/chapter11.html"
+file   = "vt3xx-polygon-fill.html"
+sha256 = "9affd9db9a33091d808b43407870ed6f49a5b112fa4fdc5179b8a205752e7a0e"
+bytes  = 34330
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-20 for ReGIS (lane b122): the VT330's and VT340's ReGIS, the
+# device practice beside DEC STD 070-8. Read for the polygon fill command.
+
 [sources.css-color-4-hsl]
 key    = "css-color-4-hsl"
 title  = "CSS Color Module Level 4, 7.1 Converting HSL Colors to sRGB -- the hslToRgb sample code"
@@ -14546,6 +14719,30 @@ group  = "C"
 # (3408-3412): lines 541-555 return early on NUL and isspace (a NUL inside a repeat
 # ends the image), accumulate a digit, and let every other byte fall to the code
 # that consumes the number.
+
+[sources.xterm-graphics-regis]
+key    = "xterm-graphics-regis"
+title  = "xterm 411, graphics_regis.c -- xterm's ReGIS interpreter"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "xterm-snapshots, tag xterm-411 @ 9489b205 (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/graphics_regis.c"
+file   = "xterm-graphics_regis.c"
+sha256 = "a14512193dccdf25fb230da82698ceb7b522c45dc6fd892842dfcbb026af8109"
+bytes  = 224643
+status = "retrieved"
+group  = "C"
+# Fetched 2026-10-20 at the commit the other xterm files are pinned to, read as
+# practice for ReGIS (lane b122): `parse_regis` (7651-7754) reinitialises the whole
+# graphics context on `DCS 1p` and `DCS 3p`, where 070-8 § 8.9.1 resynchronises only
+# the parser; it parses a body whole at `ST`, where 070-8 § 8.4.2 acts "when enough
+# characters have been received"; the macrograph report (5795-5818) sends `@=<name>@;`
+# with no contents, where 070-8 § 8.5.7.4.1 prefers the empty report, a carriage
+# return alone; a curve keeps sixteen points (`MAX_INPUT_CURVE_POINTS`, 170), where
+# § 8.4.2 asks for "an unbounded number of points"; `R(E)` answers `"0,0"` always
+# (5650-5671); the text tilt state machine (6366-6403, 6661-6688), D alone the
+# character's, D then S the string's; relative curve points from the last point
+# (6940-6957); a new page filled with the background (`map_regis_graphics_pages`).
 
 [sources.xterm-graphics-c]
 key    = "xterm-graphics-c"

@@ -325,6 +325,7 @@ fn main() {
     let mut img_places = vec![PlacementSlot::EMPTY; places];
     let mut img_index = vec![PlacementId::NONE; PlacementId::index_len(places)];
     let mut sixel = Box::new(SixelStream::NEW);
+    let mut regis = Box::new(baud_domain::Regis::NEW);
     let mut kitty = Box::new(baud_domain::KittyStream::NEW);
     let mut kitty_scratch: Vec<u8> = Vec::new();
     let mut t = Term::new(
@@ -355,6 +356,7 @@ fn main() {
                 &mut link_len,
                 &mut clip,
                 &mut sixel,
+                &mut regis,
                 &mut kitty,
                 &mut kitty_scratch,
                 &mut titles,

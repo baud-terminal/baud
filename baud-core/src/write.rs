@@ -770,14 +770,14 @@ pub(crate) fn act(
             p.vt52_address(col);
             ReadLen::ONE
         }
-        // `$ q` is DECRQSS and `$ t` DECRSPS, whose `Ps` the prefix collected.
+        // `$ q` is DECRQSS and `$ t` DECRSPS, whose `Ps` the prefix
+        // collected; a bare `p` is ReGIS (`crate::regis`), whose `Pn` it
+        // collected.
         Act::DcsQuery => {
-            p.cold.str_kind = match enc
-                .gr_as_gl(StreamByte::from_stream(p.arena[from.index()]))
-                .raw_byte()
-            {
-                b't' => p.restore_start(csi),
-                _ => StrKind::Decrqss,
+            let b = enc.gr_as_gl(StreamByte::from_stream(p.arena[from.index()]));
+            p.cold.str_kind = match b.raw_byte() {
+                b'q' => StrKind::Decrqss,
+                _ => p.dcs_start(b, csi),
             };
             ReadLen::ONE
         }

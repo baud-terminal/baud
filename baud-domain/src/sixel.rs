@@ -1211,7 +1211,7 @@ impl SixelStream {
 
 /// A colour register from RGB percentages (`Pu = 2`): each of `Px`, `Py`, `Pz`
 /// is 0 to 100, scaled to a 0..=255 channel with rounding.
-fn rgb(r: u16, g: u16, b: u16) -> Pixel {
+pub(crate) fn rgb(r: u16, g: u16, b: u16) -> Pixel {
     Pixel::opaque(pct(r), pct(g), pct(b))
 }
 
@@ -1233,7 +1233,7 @@ fn rgb(r: u16, g: u16, b: u16) -> Pixel {
 /// `l - a * max(-1, min(k - 3, 9 - k, 1))` is `(3000 l - s * min(l, 100 - l)
 /// * m) / 3000` percent, which stays within 0..=100, so the channel is that
 /// times 255/100, rounded half up as [`pct`] rounds.
-fn hls(h: u16, l: u16, s: u16) -> Option<Pixel> {
+pub(crate) fn hls(h: u16, l: u16, s: u16) -> Option<Pixel> {
     if h > 360 || l > 100 || s > 100 {
         return None;
     }

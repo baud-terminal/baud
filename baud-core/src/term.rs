@@ -4321,6 +4321,16 @@ impl<'b> Term<'b> {
         &self.store.images
     }
 
+    /// **What ReGIS refused or could not do**, each its own count
+    /// ([`RegisCounts`]): macrographs past their store, their nesting or
+    /// played into themselves, options past six levels, the position stack
+    /// past sixteen, fills past their vertices or abandoned, loads refused,
+    /// invalid address spaces, and the Open Extensions parsed and not acted
+    /// on.
+    pub fn regis_counts(&self) -> baud_domain::RegisCounts {
+        self.store.strs.regis.counts()
+    }
+
     /// **Store an image the embedder decodes and place it at the cursor**,
     /// leaving the cursor where it is. `fill` paints the `width` x `height`
     /// pixels, straight ARGB and row-major, into the arena in place -- the

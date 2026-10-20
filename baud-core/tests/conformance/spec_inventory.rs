@@ -324,6 +324,9 @@ struct Snapshot {
     /// no image memory, so this counter moving is how a Sixel registers as
     /// handled-not-silent -- the image half of `unsupported`.
     images_refused: usize,
+    /// What ReGIS counted: `DCS p` enters ReGIS whatever its body, and an
+    /// empty one draws and answers nothing.
+    regis: baud_domain::RegisCounts,
     palette: Vec<Option<(u8, u8, u8)>>,
     /// `OSC 10`/`11`/`12`, and their resets.
     dynamic: [Option<(u8, u8, u8)>; 5],
@@ -448,6 +451,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         log_file: t.log_file().map(<[u8]>::to_vec),
         bells: t.bells,
         images_refused: t.images().images_refused,
+        regis: t.regis_counts(),
         palette: (0..=255u8).map(|i| t.palette(Chan::from_u8(i))).collect(),
         special: SpecialColor::ALL
             .iter()

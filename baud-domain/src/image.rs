@@ -88,6 +88,12 @@ impl Pixel {
         }
     }
 
+    /// A fully opaque pixel of three bytes, for a table built at compile
+    /// time, where [`Pixel::opaque`]'s channels cannot be made.
+    pub(crate) const fn opaque_bytes(r: u8, g: u8, b: u8) -> Pixel {
+        Pixel(0xFF00_0000 | (r as u32) << 16 | (g as u32) << 8 | b as u32)
+    }
+
     /// A fully opaque pixel of `r`, `g`, `b`.
     pub fn opaque(r: Chan, g: Chan, b: Chan) -> Pixel {
         Pixel::straight(Chan::from_u8(0xFF), r, g, b)

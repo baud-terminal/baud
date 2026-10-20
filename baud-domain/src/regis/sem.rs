@@ -1,0 +1,2242 @@
+//! The instructions: what the keyletters and their arguments do to the
+//! device state, and what they draw.
+
+use super::color::{Comp, REGIS_COLORS, REGIS_DEFAULT_MAP, RegisColor, regis_closest};
+use super::num::RegisNum;
+use super::trig;
+use super::*;
+use crate::image::Pixel;
+use crate::vt::{Charset, Designation, Iso96};
+
+/// What the interpreter refused or could not do, each its own count.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct RegisCounts {
+    /// `DCS p` envelopes entered.
+    pub entered: u32,
+    /// Envelopes that asked for command display (`DCS 2p`, `DCS 3p`),
+    /// which is not built (§ 8.9.1, "not mandatory").
+    pub display_unbuilt: u32,
+    /// A macrograph definition inside a definition or a macrograph, `@.` in
+    /// a macrograph, a definition named by no letter, a stray `@;`.
+    pub macro_errors: u32,
+    /// Invocations refused because the macrograph was already playing.
+    pub macro_recursion: u32,
+    /// Invocations refused past [`MACRO_NESTING`].
+    pub macro_nesting: u32,
+    /// Host characters whose macrographs were cut at [`MACRO_PLAYED`].
+    pub macro_cut: u32,
+    /// Definitions cut short by a full store.
+    pub macro_overflow: u32,
+    /// Options opened past [`OPTION_LEVELS`], each read as a `;`.
+    pub nesting_overflow: u32,
+    /// Saves refused by a full position stack (error 7).
+    pub stack_overflow: u32,
+    /// Restores from an empty position stack (error 8).
+    pub stack_underflow: u32,
+    /// Fill vertices dropped past [`FILL_VERTICES`].
+    pub fill_overflow: u32,
+    /// Fills a `;` or a new keyletter abandoned before their `)`.
+    pub fill_abandoned: u32,
+    /// Characters loaded past an alphabet's extent, into alphabet 0, or of
+    /// a cell size past [`CELL_WIDTH`] by [`CELL_HEIGHT`].
+    pub load_refused: u32,
+    /// `S(A)` with a missing, negative or empty extent: "the command is
+    /// ignored and the address space previously in effect shall be
+    /// maintained" (§ 8.5.1.4.1).
+    pub space_refused: u32,
+    /// Open Extensions (§ 8.8) this interpreter parses and does not act
+    /// on: scrolling, the graphics cursor, hard copy, the clip rectangle,
+    /// scaling, data movement, drawing surfaces, blink, line width,
+    /// microcoded writing, flood, interactive input.
+    pub unbuilt: u32,
+    /// Characters no grammar position takes, and keyletters no instruction
+    /// names (error 1).
+    pub ignored: u32,
+}
+
+/// The imposed coordinate space, `S(A[x1,y1][x2,y2])`: the user's
+/// coordinates of the upper-left and lower-right corners (§ 8.5.1.4.1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RegisSpace {
+    pub x1: RegisNum,
+    pub y1: RegisNum,
+    pub x2: RegisNum,
+    pub y2: RegisNum,
+}
+
+impl RegisSpace {
+    /// `S(A[0,0][799,479])`, the VT300's (`[[source: vt3xx-regis-intro]]` Table 1-2).
+    pub const DEFAULT: RegisSpace = RegisSpace {
+        x1: RegisNum::ZERO,
+        y1: RegisNum::ZERO,
+        x2: RegisNum::int(REGIS_WIDTH - 1),
+        y2: RegisNum::int(REGIS_HEIGHT - 1),
+    };
+
+    /// Device pixels a user unit spans, as a fraction `(num, den)`, the same
+    /// on both axes: § 8.5.1.4.1.2's "The shape (aspect ratio) implied by
+    /// S(A[][]) must be maintained" and "All the area implied by the
+    /// S(A[][]) must be visible", so the scale is the smaller of the two
+    /// axes'. A coordinate's pixel is its distance from the first corner in
+    /// these units: the default maps `[799,479]` to pixel `[799,479]`.
+    fn scale(&self) -> (i128, i128) {
+        let ux = i128::from(self.x2.minus(self.x1).abs().raw());
+        let uy = i128::from(self.y2.minus(self.y1).abs().raw());
+        let (dw, dh) = (i128::from(REGIS_WIDTH - 1), i128::from(REGIS_HEIGHT - 1));
+        // dw / ux against dh / uy, without dividing.
+        if dw * uy <= dh * ux {
+            (dw << 16, ux.max(1))
+        } else {
+            (dh << 16, uy.max(1))
+        }
+    }
+
+    /// `+1` where the coordinate grows rightward (downward), `-1` where it
+    /// grows the other way: § 8.3.1's `SXINC` and `SYINC`.
+    fn signs(&self) -> (i64, i64) {
+        let sx = if self.x2 >= self.x1 { 1 } else { -1 };
+        let sy = if self.y2 >= self.y1 { 1 } else { -1 };
+        (sx, sy)
+    }
+
+    /// A user position on the device, in units of 1/65536 pixel.
+    pub(crate) fn fine(&self, x: RegisNum, y: RegisNum) -> (i64, i64) {
+        let (num, den) = self.scale();
+        let (sx, sy) = self.signs();
+        let dx = i128::from(x.minus(self.x1).raw()) * i128::from(sx);
+        let dy = i128::from(y.minus(self.y1).raw()) * i128::from(sy);
+        let f = |d: i128| -> i64 {
+            let v = d * num / den;
+            v.clamp(-(1i128 << 50), 1i128 << 50) as i64
+        };
+        (f(dx), f(dy))
+    }
+
+    /// A user position's device pixel.
+    pub fn device(&self, x: RegisNum, y: RegisNum) -> RegisPoint {
+        let (fx, fy) = self.fine(x, y);
+        RegisPoint {
+            x: round16(fx),
+            y: round16(fy),
+        }
+    }
+
+    /// A step of `dx`, `dy` device pixels (in 1/65536) as a step of user
+    /// units: what a pixel vector and a standard character size are.
+    fn user_step(&self, dx: i64, dy: i64) -> (RegisNum, RegisNum) {
+        let (num, den) = self.scale();
+        let (sx, sy) = self.signs();
+        let f = |d: i64, s: i64| RegisNum::from_raw(((i128::from(d) * den / num) as i64) * s);
+        (f(dx, sx), f(dy, sy))
+    }
+
+    /// A user length on the device, in 1/65536 pixel.
+    fn device_len(&self, v: RegisNum) -> i64 {
+        let (num, den) = self.scale();
+        (i128::from(v.raw()) * num / den) as i64
+    }
+}
+
+/// A value in 1/65536 to the nearest whole, a half away from zero.
+fn round16(v: i64) -> i32 {
+    let r = if v >= 0 {
+        (v + 0x8000) >> 16
+    } else {
+        -((-v + 0x8000) >> 16)
+    };
+    r.clamp(-(1 << 24), 1 << 24) as i32
+}
+
+/// Fill vertices kept. § 8.5.8.4.1 (p. 8-91) reads "A conforming ReGIS
+/// device must provide for a vertex list with a capacity of less than 256
+/// entries, but note that certain other implementation dependencies ...
+/// could result in many fewer than 256 vertices available to software" --
+/// "less than" in the page itself, where the rest of the sentence reads as
+/// a floor; 4096, since curves and circles make many vertices a point.
+pub const FILL_VERTICES: usize = 4096;
+/// Contours a fill keeps: the outline and its `F(F ...)` sub-polygons.
+pub const FILL_CONTOURS: usize = 64;
+/// Loadable alphabets, numbered 1 to 3: "If loadable alphabets are
+/// provided, at least three must be provided, and they must be numbered 1,
+/// 2, and 3" (§ 8.7.5.4.1).
+pub const ALPHABETS: usize = 3;
+/// An alphabet's most characters, `L(E)`'s 192 (§ 8.7.5.4.3).
+pub const ALPHABET_CHARS: usize = 192;
+/// The widest storage cell: two of the VT300's 8.
+pub const CELL_WIDTH: u8 = 16;
+/// The tallest storage cell.
+pub const CELL_HEIGHT: u8 = 32;
+/// The longest alphabet name: "up to ten characters" (§ 8.7.5.4.2).
+pub const NAME_MAX: usize = 10;
+
+/// A user position.
+type Pt = (RegisNum, RegisNum);
+/// A device position in 1/65536 pixel.
+type Fine = (i64, i64);
+/// Four points of a spline, the segment between the middle two.
+type Seg = (Fine, Fine, Fine, Fine);
+
+/// Whether a thing is on.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum On {
+    No,
+    Yes,
+}
+
+/// Where shading goes (§ 8.8.3.3's suboptions), before it is placed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ShadeDim {
+    Y,
+    X,
+    P,
+}
+
+/// What shading is textured with, before it is resolved to a [`Texture`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ShadeWith {
+    Line(LinePattern, u16),
+    Char {
+        c: u8,
+        alphabet: u8,
+        unit: (i32, i32),
+    },
+}
+
+/// The writing controls (§ 8.5.3, § 8.7.2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Write {
+    mode: WriteMode,
+    negate: Negate,
+    fg: RegisIndex,
+    planes: RegisPlanes,
+    pattern: LinePattern,
+    pattern_mul: u16,
+    pv: RegisNum,
+    shade: On,
+    shade_to: ShadeTo,
+    /// The snapshot shading takes when enabled, and polygon fill uses
+    /// whether or not shading is on (§ 8.7.2.4.2.3).
+    shade_with: Option<ShadeWith>,
+}
+
+impl Write {
+    /// The defaults a valid `S(A)` restores: `W(M1)`, `W(P1)`,
+    /// `W(P(M2))`, `W(V,N0)`, the VT340's `W(I7)`, `W(F15)`, `W(S0)`.
+    const DEFAULT: Write = Write {
+        mode: WriteMode::Overlay,
+        negate: Negate::Off,
+        fg: RegisIndex(7),
+        planes: RegisPlanes::ALL,
+        pattern: LinePattern::SOLID,
+        pattern_mul: 2,
+        pv: RegisNum::ONE,
+        shade: On::No,
+        shade_to: ShadeTo::Row(0),
+        shade_with: None,
+    };
+}
+
+/// The text controls (§ 8.5.6, § 8.7.3).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Text {
+    /// 0 the built-in alphabet, 1 to 3 the loadable ones.
+    alphabet: u8,
+    gl: Charset,
+    gr: Charset,
+    /// The display cell and the unit cell, device pixels.
+    display: (i32, i32),
+    unit: (i32, i32),
+    /// The escapement, user units, always relative.
+    esc: Pt,
+    /// The string's baseline and the character's, degrees.
+    string_dir: i32,
+    char_dir: i32,
+    slant: i32,
+}
+
+impl Text {
+    /// Standard size 1 and the rest of the VT300's defaults, `T(A0)`,
+    /// `T(S1)`, `T(D0)`, `T(I0)`, with escapement one display cell
+    /// rightward, which `escapement` sets in the imposed space.
+    const DEFAULT: Text = Text {
+        alphabet: 0,
+        gl: Charset::Ascii,
+        gr: Charset::Iso96(Iso96::Latin1),
+        display: (9, 20),
+        unit: (8, 20),
+        esc: (RegisNum::int(9), RegisNum::ZERO),
+        string_dir: 0,
+        char_dir: 0,
+        slant: 0,
+    };
+}
+
+/// The VT300's seventeen standard sizes, `[[source: vt3xx-text]]` Table 7-3:
+/// the display cell and the unit cell, device pixels.
+fn standard_size(n: i32) -> Option<((i32, i32), (i32, i32))> {
+    match n {
+        0 => Some(((9, 10), (8, 10))),
+        1 => Some(((9, 20), (8, 20))),
+        2..=16 => Some(((9 * n, 15 * n), (8 * n, 15 * n))),
+        _ => None,
+    }
+}
+
+/// An entry of the position stack.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Saved {
+    At(Pt),
+    /// `P(S)` and `V(S)`: "a dummy entry ... implies NO ELEMENT".
+    Dummy,
+}
+
+/// A loadable alphabet (§ 8.7.5).
+#[derive(Clone)]
+struct Alphabet {
+    extent: u16,
+    w: u8,
+    h: u8,
+    name: [u8; NAME_MAX],
+    name_len: u8,
+    defined: [u32; ALPHABET_CHARS / 32],
+    rows: [[u16; CELL_HEIGHT as usize]; ALPHABET_CHARS],
+}
+
+impl Alphabet {
+    /// "The default extent for each loadable alphabet is 96 characters",
+    /// and the VT300's cell, 8 by 10 (`[[source: vt3xx-load]]`).
+    const NEW: Alphabet = Alphabet {
+        extent: 96,
+        w: 8,
+        h: 10,
+        name: [0; NAME_MAX],
+        name_len: 0,
+        defined: [0; ALPHABET_CHARS / 32],
+        rows: [[0; CELL_HEIGHT as usize]; ALPHABET_CHARS],
+    };
+
+    fn clear(&mut self) {
+        self.defined = [0; ALPHABET_CHARS / 32];
+        self.rows = [[0; CELL_HEIGHT as usize]; ALPHABET_CHARS];
+    }
+}
+
+/// Where a character's code is in an alphabet: "The range of the extent
+/// begins with the space character (code value 2/0) ... The ninety-fifth
+/// character position is code 7/14, the ninety-sixth is 7/15, the
+/// ninety-seventh is 10/0" (§ 8.7.5.4.3).
+fn char_slot(c: u8) -> Option<usize> {
+    match c {
+        0x20..=0x7f => Some(usize::from(c - 0x20)),
+        0xa0..=0xff => Some(usize::from(c - 0xa0) + 96),
+        _ => None,
+    }
+}
+
+/// A curve interpolation in progress (§ 8.5.5.4.2.1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum CurveKind {
+    None,
+    Open,
+    Closed,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Curve {
+    kind: CurveKind,
+    /// The last four points, device pixels in 1/65536.
+    last: [(i64, i64); 4],
+    /// The first three, which a closed curve returns through.
+    first: [(i64, i64); 3],
+    n: usize,
+    start: Pt,
+}
+
+impl Curve {
+    const NONE: Curve = Curve {
+        kind: CurveKind::None,
+        last: [(0, 0); 4],
+        first: [(0, 0); 3],
+        n: 0,
+        start: (RegisNum::ZERO, RegisNum::ZERO),
+    };
+}
+
+/// A fill being defined (§ 8.5.8).
+#[derive(Clone)]
+struct Fill {
+    points: [RegisPoint; FILL_VERTICES],
+    n: usize,
+    ends: [u16; FILL_CONTOURS],
+    nends: usize,
+    full: On,
+    saved: Pt,
+}
+
+impl Fill {
+    const NEW: Fill = Fill {
+        points: [RegisPoint { x: 0, y: 0 }; FILL_VERTICES],
+        n: 0,
+        ends: [0; FILL_CONTOURS],
+        nends: 0,
+        full: On::No,
+        saved: (RegisNum::ZERO, RegisNum::ZERO),
+    };
+
+    fn push(&mut self, p: RegisPoint) -> bool {
+        if self.full == On::Yes {
+            return false;
+        }
+        let contour = self
+            .nends
+            .checked_sub(1)
+            .map_or(0, |i| usize::from(self.ends[i]));
+        if self.n > contour && self.points[self.n - 1] == p {
+            return true;
+        }
+        if self.n == FILL_VERTICES {
+            self.full = On::Yes;
+            return false;
+        }
+        self.points[self.n] = p;
+        self.n += 1;
+        true
+    }
+
+    /// End the contour in progress, if it has a point.
+    fn close(&mut self) {
+        let from = self
+            .nends
+            .checked_sub(1)
+            .map_or(0, |i| usize::from(self.ends[i]));
+        if self.n > from && self.nends < FILL_CONTOURS {
+            self.ends[self.nends] = self.n as u16;
+            self.nends += 1;
+        }
+    }
+}
+
+/// One level of the option nesting: its keyletter and the arguments it has
+/// collected.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Frame {
+    key: u8,
+    num: Option<RegisNum>,
+    digits: [u8; 16],
+    nd: u8,
+    ext: [Extent; 2],
+    next: u8,
+    text: [u8; 12],
+    nt: u8,
+    /// A quoted string arrived before the number: `L(A"name"2)`.
+    text_first: On,
+    /// What a colour group under this frame named (§ 8.6.2.2.2).
+    letter: u8,
+    h: Comp,
+    l: Comp,
+    s: Comp,
+    /// A suboption seen: a letter, for `W(S(X))`, `R(P(I))`, `R(M(x))`.
+    sub: u8,
+}
+
+impl Frame {
+    const EMPTY: Frame = Frame {
+        key: 0,
+        num: None,
+        digits: [0; 16],
+        nd: 0,
+        ext: [Extent {
+            x: Part::Absent,
+            y: Part::Absent,
+        }; 2],
+        next: 0,
+        text: [0; 12],
+        nt: 0,
+        text_first: On::No,
+        letter: 0,
+        h: Comp::Absent,
+        l: Comp::Absent,
+        s: Comp::Absent,
+        sub: 0,
+    };
+
+    fn keyed(k: u8) -> Frame {
+        Frame {
+            key: k,
+            ..Frame::EMPTY
+        }
+    }
+
+    fn color(&self) -> Option<RegisColor> {
+        match self.letter {
+            0 => match (self.h, self.l, self.s) {
+                (Comp::Absent, Comp::Absent, Comp::Absent) => None,
+                (h, l, s) => Some(RegisColor::Hls { h, l, s }),
+            },
+            c => Some(RegisColor::Letter(c)),
+        }
+    }
+
+    fn int(&self) -> Option<i64> {
+        self.num.map(|v| i64::from(v.trunc()))
+    }
+}
+
+/// Which text tilt the `D` and `S` options of one text command have set,
+/// `[[source: vt3xx-text]]`: `T(D<a>)` alone the character's,
+/// `T(D<a>,S<n>)` the string's, `T(D<a>,S<n>,D<b>)` both.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Tilt {
+    Ready,
+    /// A `D`: the characters turned.
+    Chars,
+    /// A `D` then an `S`: the string turned with them.
+    String,
+    /// A `D` after those: the characters turned again.
+    Both,
+}
+
+/// The semantic layer: the device state and the instruction in progress.
+#[derive(Clone)]
+pub(crate) struct Sem {
+    pub(crate) counts: RegisCounts,
+    pub(crate) pos: Pt,
+    pub(crate) space: RegisSpace,
+    pub(crate) map: [Pixel; REGIS_COLORS],
+    pub(crate) bg: RegisIndex,
+    write: Write,
+    /// The writing controls in force for the instruction in progress: the
+    /// persistent ones, and its temporary `W` option's (§ 8.4.3.4).
+    tw: Write,
+    text: Text,
+    saved_text: Option<Text>,
+    stack: [Saved; POSITION_STACK],
+    nstack: usize,
+    alphabets: [Alphabet; ALPHABETS],
+    load: u8,
+    /// The loading character and the row being filled.
+    load_char: Option<usize>,
+    load_row: u8,
+    load_digits: u8,
+    load_value: u32,
+    error: (u8, u8),
+    frames: [Frame; OPTION_LEVELS + 1],
+    depth: usize,
+    // The instruction in progress.
+    phase: u32,
+    arc: Option<RegisNum>,
+    circumferential: On,
+    curve: Curve,
+    fill: Option<Fill>,
+    tilt: Tilt,
+    quote_start: Pt,
+    /// Characters free in the macrograph store, for `R(M(=))`: the layer
+    /// below sets it before each character it hands the lexer.
+    pub(crate) macro_free: usize,
+}
+
+impl Sem {
+    pub(crate) const NEW: Sem = Sem {
+        counts: RegisCounts {
+            entered: 0,
+            display_unbuilt: 0,
+            macro_errors: 0,
+            macro_recursion: 0,
+            macro_nesting: 0,
+            macro_cut: 0,
+            macro_overflow: 0,
+            nesting_overflow: 0,
+            stack_overflow: 0,
+            stack_underflow: 0,
+            fill_overflow: 0,
+            fill_abandoned: 0,
+            load_refused: 0,
+            space_refused: 0,
+            unbuilt: 0,
+            ignored: 0,
+        },
+        pos: (RegisNum::ZERO, RegisNum::ZERO),
+        space: RegisSpace::DEFAULT,
+        map: REGIS_DEFAULT_MAP,
+        bg: RegisIndex::ZERO,
+        write: Write::DEFAULT,
+        tw: Write::DEFAULT,
+        text: Text::DEFAULT,
+        saved_text: None,
+        stack: [Saved::Dummy; POSITION_STACK],
+        nstack: 0,
+        alphabets: [Alphabet::NEW, Alphabet::NEW, Alphabet::NEW],
+        load: 1,
+        load_char: None,
+        load_row: 0,
+        load_digits: 0,
+        load_value: 0,
+        error: (0, 0),
+        frames: [Frame::EMPTY; OPTION_LEVELS + 1],
+        depth: 0,
+        phase: 0,
+        arc: None,
+        circumferential: On::No,
+        curve: Curve::NONE,
+        fill: None,
+        tilt: Tilt::Ready,
+        quote_start: (RegisNum::ZERO, RegisNum::ZERO),
+        macro_free: MACRO_STORE,
+    };
+
+    /// Record an error for `R(E)`: "Only the most recent error code is kept"
+    /// (§ 8.8.5.1).
+    pub(crate) fn error(&mut self, code: u8, c: u8) {
+        if code == 1 {
+            self.counts.ignored += 1;
+        }
+        self.error = (code, c);
+    }
+
+    fn pen(&self) -> RegisPen {
+        let w = &self.tw;
+        RegisPen {
+            mode: w.mode,
+            negate: w.negate,
+            fg: w.fg,
+            bg: self.bg,
+            planes: w.planes,
+            pattern: w.pattern,
+            pattern_mul: w.pattern_mul,
+            shade: match w.shade {
+                On::Yes => Some((w.shade_to, self.texture(w.shade_with))),
+                On::No => None,
+            },
+        }
+    }
+
+    /// The texture a shading snapshot is drawn with.
+    fn texture(&self, with: Option<ShadeWith>) -> Texture {
+        match with {
+            None => Texture::Solid,
+            Some(ShadeWith::Line(p, m)) => Texture::Line(p, m),
+            Some(ShadeWith::Char { c, alphabet, unit }) => {
+                // "only the top square part of the storage cell is applied
+                // in a shading context", at the unit cell's granularity.
+                let mut rows = [0u16; 16];
+                let (bits, w) = self.cell_bits(alphabet, c);
+                let side = w.min(16);
+                for (r, row) in rows.iter_mut().enumerate().take(usize::from(side)) {
+                    *row = bits.get(r).copied().unwrap_or(0);
+                }
+                let scale = (unit.0 / i32::from(w.max(1))).clamp(1, 64) as u16;
+                Texture::Cell { rows, side, scale }
+            }
+        }
+    }
+
+    /// A character's stored cell: a loaded one's rows, or none.
+    fn cell_bits(&self, alphabet: u8, c: u8) -> (&[u16], u8) {
+        match alphabet {
+            1..=3 => {
+                let a = &self.alphabets[usize::from(alphabet - 1)];
+                match char_slot(c) {
+                    Some(i)
+                        if i < usize::from(a.extent)
+                            && a.defined[i / 32] & (1 << (i % 32)) != 0 =>
+                    {
+                        (&a.rows[i][..usize::from(a.h)], a.w)
+                    }
+                    _ => (&[], a.w),
+                }
+            }
+            _ => (&[], 8),
+        }
+    }
+
+    /// The user step a pixel vector `d` takes at multiplier `m`: "pixel
+    /// vector 0 is always to the right, even if the +X direction has been
+    /// defined to be to the left" (§ 8.4.5.3).
+    fn pv_step(&self, d: u8, m: RegisNum) -> Pt {
+        let (dx, dy): (i64, i64) = match d {
+            0 => (1, 0),
+            1 => (1, -1),
+            2 => (0, -1),
+            3 => (-1, -1),
+            4 => (-1, 0),
+            5 => (-1, 1),
+            6 => (0, 1),
+            _ => (1, 1),
+        };
+        let (sx, sy) = self.space.signs();
+        let m = if m == RegisNum::ZERO {
+            RegisNum::ONE
+        } else {
+            m
+        };
+        (
+            RegisNum::from_raw(m.raw() * dx * sx),
+            RegisNum::from_raw(m.raw() * dy * sy),
+        )
+    }
+
+    fn device(&self, p: Pt) -> RegisPoint {
+        self.space.device(p.0, p.1)
+    }
+
+    // ---------------------------------------------------------------
+    // The grammar's events.
+    // ---------------------------------------------------------------
+
+    /// How a digit outside a bracket reads here.
+    pub(crate) fn digit_mode(&self) -> DigitMode {
+        let d = self.depth;
+        let (own, base) = self.owner(d);
+        if d == base {
+            return match own {
+                b'P' | b'V' | b'C' | b'T' | b'S' => DigitMode::Vector,
+                b'F' if base == 0 => DigitMode::Vector,
+                b'L' if base == 0 => DigitMode::Hex,
+                _ => DigitMode::Numeric,
+            };
+        }
+        DigitMode::Numeric
+    }
+
+    /// The instruction whose arguments an event at depth `d` belongs to,
+    /// and the depth its own arguments are at: inside a fill, `F(V ...)`,
+    /// `F(P ...)` and `F(C ...)` take "whatever subarguments that would apply
+    /// at the command level" (§ 8.5.8.4.1), and `F(F(V ...))` does too.
+    fn owner(&self, d: usize) -> (u8, usize) {
+        let k = |i: usize| self.frames[i].key;
+        let vpc = |c: u8| matches!(c, b'V' | b'P' | b'C');
+        if k(0) == b'F' {
+            if d >= 1 && vpc(k(1)) {
+                return (k(1), 1);
+            }
+            if d >= 2 && k(1) == b'F' && vpc(k(2)) {
+                return (k(2), 2);
+            }
+        }
+        (k(0), 0)
+    }
+
+    /// A keyletter at the current level.
+    pub(crate) fn key(&mut self, k: u8, out: &mut dyn RegisOut) {
+        let d = self.depth;
+        if d == 0 {
+            self.end_command(out);
+            self.begin_command(k);
+            return;
+        }
+        self.end_key(d, out);
+        self.frames[d] = Frame::keyed(k);
+    }
+
+    pub(crate) fn open(&mut self, out: &mut dyn RegisOut) {
+        if self.depth == OPTION_LEVELS {
+            // "Recovery from an attempt to exceed allowable recursion depth
+            // is to the highest command level, just as if a semicolon
+            // character had been encountered" (§ 8.4.3.4).
+            self.counts.nesting_overflow += 1;
+            return self.sync(out);
+        }
+        // A fill's option list opens: the position saved. An `F(F(`
+        // sub-polygon opens: the contour before it ends.
+        match (self.depth, self.frames[0].key, self.frames[self.depth].key) {
+            (0, b'F', _) => self.fill_begin(),
+            (1, b'F', b'F') => {
+                if let Some(f) = self.fill.as_mut() {
+                    f.close();
+                }
+            }
+            _ => {}
+        }
+        self.depth += 1;
+        self.frames[self.depth] = Frame::EMPTY;
+    }
+
+    pub(crate) fn close(&mut self, out: &mut dyn RegisOut) {
+        let d = self.depth;
+        if d == 0 {
+            return self.error(1, b')');
+        }
+        self.end_key(d, out);
+        self.end_group(d, out);
+        self.frames[d] = Frame::EMPTY;
+        self.depth = d - 1;
+    }
+
+    /// The synchronising `;`: "the entire parser nesting is to be popped
+    /// ... There is no command keyletter in force after this action"
+    /// (§ 8.4.2 c). The options open settle their state, as "any
+    /// state-saving actions are performed as necessary"; a fill is
+    /// abandoned, "the F command is aborted and no drawing takes place"
+    /// (§ 8.5.8.4.1).
+    pub(crate) fn sync(&mut self, out: &mut dyn RegisOut) {
+        if self.fill.is_some() {
+            self.fill = None;
+            self.counts.fill_abandoned += 1;
+        }
+        while self.depth > 0 {
+            let d = self.depth;
+            self.end_key(d, out);
+            self.frames[d] = Frame::EMPTY;
+            self.depth = d - 1;
+        }
+        self.end_command(out);
+        self.frames[0] = Frame::EMPTY;
+        // "The error report register is cleared when ReGIS is synchronized
+        // by a ";"" (§ 8.8.5.1).
+        self.error = (0, 0);
+    }
+
+    pub(crate) fn comma(&mut self, out: &mut dyn RegisOut) {
+        // In the Load instruction's data a comma ends a row (§ 8.7.5.2).
+        if self.depth == 0 && self.frames[0].key == b'L' {
+            self.load_row_end();
+        }
+        let _ = out;
+    }
+
+    pub(crate) fn number(&mut self, v: RegisNum, digits: &[u8], out: &mut dyn RegisOut) {
+        let d = self.depth;
+        let f = &mut self.frames[d];
+        f.num = Some(v);
+        let n = digits.len().min(16);
+        f.digits[..n].copy_from_slice(&digits[..n]);
+        f.nd = n as u8;
+        // A number between colour groups of `S(M)` names the next entry.
+        let _ = out;
+    }
+
+    pub(crate) fn extent(&mut self, e: Extent, out: &mut dyn RegisOut) {
+        let d = self.depth;
+        let (own, base) = self.owner(d);
+        if d == base {
+            return self.command_extent(own, Dest::of(base), e, out);
+        }
+        let f = &mut self.frames[d];
+        if usize::from(f.next) < f.ext.len() {
+            f.ext[usize::from(f.next)] = e;
+        } else if f.next == 2 {
+            // "contained more than two coordinate pairs" -- error 2.
+            self.error = (2, 0);
+        }
+        let f = &mut self.frames[d];
+        f.next = f.next.saturating_add(1);
+    }
+
+    pub(crate) fn vector(&mut self, v: u8, out: &mut dyn RegisOut) {
+        if v > 7 {
+            return self.error(1, b'0' + v);
+        }
+        let d = self.depth;
+        let (own, base) = self.owner(d);
+        if d != base {
+            return;
+        }
+        match own {
+            b'P' | b'V' | b'C' => {
+                let step = self.pv_step(v, self.tw.pv);
+                let to = (self.pos.0.plus(step.0), self.pos.1.plus(step.1));
+                self.command_point(own, Dest::of(base), to, out);
+            }
+            b'T' => self.text_vector(v),
+            // `S<pv>` scrolls and `F<pv>` floods: Open Extensions.
+            _ => self.counts.unbuilt += 1,
+        }
+    }
+
+    pub(crate) fn hex(&mut self, v: u8, out: &mut dyn RegisOut) {
+        self.load_digit(v);
+        let _ = out;
+    }
+
+    pub(crate) fn quote_begin(&mut self, out: &mut dyn RegisOut) {
+        let d = self.depth;
+        if d == 0 && self.frames[0].key == b'T' {
+            self.quote_start = self.pos;
+        }
+        if d == 0 && self.frames[0].key == b'L' {
+            self.load_row_end();
+            self.load_char = None;
+            self.frames[0].nt = 0;
+        }
+        let f = &mut self.frames[d];
+        f.nt = 0;
+        if f.num.is_none() {
+            f.text_first = On::Yes;
+        }
+        let _ = out;
+    }
+
+    pub(crate) fn quote_char(&mut self, c: u8, out: &mut dyn RegisOut) {
+        let d = self.depth;
+        if d == 0 && self.frames[0].key == b'T' {
+            return self.text_char(c, out);
+        }
+        if d == 0 && self.frames[0].key == b'L' {
+            // "If more than one character is present in a string, the first
+            // is used, and the rest are discarded" (§ 8.7.5.3).
+            if self.frames[0].nt == 0 {
+                self.frames[0].nt = 1;
+                self.load_begin(c);
+            }
+            return;
+        }
+        let f = &mut self.frames[d];
+        if usize::from(f.nt) < f.text.len() {
+            f.text[usize::from(f.nt)] = c;
+            f.nt += 1;
+        }
+    }
+
+    pub(crate) fn quote_end(&mut self, out: &mut dyn RegisOut) {
+        let _ = out;
+    }
+
+    // ---------------------------------------------------------------
+    // Instructions.
+    // ---------------------------------------------------------------
+
+    fn begin_command(&mut self, k: u8) {
+        self.frames[0] = Frame::keyed(k);
+        self.tw = self.write;
+        self.phase = 0;
+        self.arc = None;
+        self.circumferential = On::No;
+        self.curve = Curve::NONE;
+        self.tilt = Tilt::Ready;
+        match k {
+            b'S' | b'W' | b'P' | b'V' | b'C' | b'T' | b'R' | b'F' | b'L' => {}
+            _ => self.error(1, k),
+        }
+    }
+
+    /// The instruction in force ends: at a new keyletter or a `;`.
+    /// "Temporary write options revert to their previous state upon the
+    /// occurrence of a new command keyletter" (§ 8.5.2.4.2), a curve "is
+    /// lost" (§ 8.5.5.4.2.1), and a fill not closed by its `)` draws
+    /// nothing.
+    fn end_command(&mut self, out: &mut dyn RegisOut) {
+        if self.frames[0].key == b'L' {
+            self.load_row_end();
+            self.load_char = None;
+        }
+        if self.fill.is_some() {
+            self.fill = None;
+            self.counts.fill_abandoned += 1;
+        }
+        self.curve = Curve::NONE;
+        self.tw = self.write;
+        self.frames[0] = Frame::EMPTY;
+        let _ = out;
+    }
+
+    /// A bracketed extent given to an instruction at its own level.
+    fn command_extent(&mut self, own: u8, dest: Dest, e: Extent, out: &mut dyn RegisOut) {
+        match own {
+            b'P' | b'V' | b'C' => {
+                let from = match (own, self.curve.kind) {
+                    (b'C', CurveKind::Open | CurveKind::Closed) => self.curve_from(),
+                    _ => self.pos,
+                };
+                let to = (e.x.from(from.0), e.y.from(from.1));
+                self.command_point(own, dest, to, out);
+            }
+            // "Character escapement ... always interpreted as relative to the
+            // current position, even if the provided values are unsigned.
+            // Omitted values are interpreted as spacing of +0" (§ 8.4.5.2).
+            b'T' => {
+                let v = |p: Part| p.value().unwrap_or(RegisNum::ZERO);
+                self.text.esc = (v(e.x), v(e.y));
+            }
+            b'L' => self.load_size(e),
+            // `S[]` scrolls and `F[]` floods: Open Extensions.
+            b'S' | b'F' => self.counts.unbuilt += 1,
+            _ => {}
+        }
+    }
+
+    /// Where the next point of a curve is relative to: the last point.
+    fn curve_from(&self) -> Pt {
+        self.pos
+    }
+
+    /// A position given to `P`, `V` or `C` by a bracket or a pixel vector.
+    fn command_point(&mut self, own: u8, dest: Dest, to: Pt, out: &mut dyn RegisOut) {
+        match own {
+            b'P' => self.pos = to,
+            b'V' => self.line_to(to, dest, out),
+            _ => self.curve_point(to, dest, out),
+        }
+    }
+
+    /// Draw from the position to `to`, which becomes the position; inside
+    /// a fill, the end is a vertex: "These edges are determined by what
+    /// would be drawn by the V and C options were they executed at command
+    /// level" (§ 8.5.8.4.1).
+    fn line_to(&mut self, to: Pt, dest: Dest, out: &mut dyn RegisOut) {
+        let (a, b) = (self.device(self.pos), self.device(to));
+        if dest == Dest::Fill {
+            self.vertex(b);
+        } else {
+            let pen = self.pen();
+            out.line(a, b, &pen, &mut self.phase);
+        }
+        self.pos = to;
+    }
+
+    fn vertex(&mut self, p: RegisPoint) {
+        if let Some(f) = self.fill.as_mut() {
+            if !f.push(p) && f.full == On::Yes {
+                self.counts.fill_overflow += 1;
+            }
+        }
+    }
+
+    fn push(&mut self, s: Saved) {
+        if self.nstack == POSITION_STACK {
+            // "Should stack capacity be exceeded during a save, the current
+            // element ... is not saved, but discarded" -- error 7.
+            self.counts.stack_overflow += 1;
+            self.error = (7, 0);
+            return;
+        }
+        self.stack[self.nstack] = s;
+        self.nstack += 1;
+    }
+
+    fn pop(&mut self) -> Option<Saved> {
+        if self.nstack == 0 {
+            // "Stack underflow will cause NO ELEMENT to be returned" --
+            // error 8.
+            self.counts.stack_underflow += 1;
+            self.error = (8, 0);
+            return None;
+        }
+        self.nstack -= 1;
+        Some(self.stack[self.nstack])
+    }
+
+    // ---------------------------------------------------------------
+    // Curves and circles (§ 8.5.5).
+    // ---------------------------------------------------------------
+
+    fn curve_point(&mut self, to: Pt, dest: Dest, out: &mut dyn RegisOut) {
+        if self.curve.kind != CurveKind::None {
+            return self.curve_add(to, dest, out);
+        }
+        // "The instruction form C[<position>] draws a circle with the
+        // current drawing position as the center and [<position>] a point on
+        // the circumference ... The (C) option inverts the relationship."
+        let (center, edge) = match self.circumferential {
+            On::No => (self.pos, to),
+            On::Yes => (to, self.pos),
+        };
+        let sweep = self.arc.unwrap_or(RegisNum::int(360));
+        let end = self.arc_points(center, edge, sweep, dest, out);
+        // "The drawing position is left at the end point of the arc if the
+        // (C) option was used. Otherwise, the drawing position is left at
+        // the center" (§ 8.5.5.4.1.1).
+        if self.circumferential == On::Yes {
+            self.pos = end;
+        }
+    }
+
+    /// Draw the arc about `center` from `edge` through `sweep` degrees,
+    /// counterclockwise as the viewer sees it for a positive sweep, and
+    /// return its end in user units.
+    fn arc_points(
+        &mut self,
+        center: Pt,
+        edge: Pt,
+        sweep: RegisNum,
+        dest: Dest,
+        out: &mut dyn RegisOut,
+    ) -> Pt {
+        // "Should the absolute value of the specified angle exceed 360
+        // degrees, the value executed will be plus or minus 360 degrees".
+        let lim = RegisNum::int(360).raw();
+        let sweep = sweep.raw().clamp(-lim, lim);
+        let c = self.space.fine(center.0, center.1);
+        let e = self.space.fine(edge.0, edge.1);
+        let (vx, vy) = (e.0 - c.0, e.1 - c.1);
+        let r2 = (vx as i128 * vx as i128 + vy as i128 * vy as i128) >> 32;
+        let r = trig::isqrt(r2.min(u64::MAX as i128) as u64) as i64;
+        // Segments about two pixels long, each at most a few degrees.
+        let len = r * 355 * sweep.abs() / 113 / (360 * 65536) / 2;
+        let n = len.clamp(4, 4096);
+        let pen = self.pen();
+        let mut prev = (c.0 + vx, c.1 + vy);
+        if dest == Dest::Fill {
+            self.vertex(dev_of(prev));
+        }
+        for k in 1..=n {
+            let th = sweep * k / n;
+            let (co, si) = (trig::cos(th), trig::sin(th));
+            // Counterclockwise on a device whose `y` grows downward.
+            let x = c.0 + ((vx as i128 * co as i128 + vy as i128 * si as i128) >> 30) as i64;
+            let y = c.1 + ((-(vx as i128) * si as i128 + vy as i128 * co as i128) >> 30) as i64;
+            if dest == Dest::Fill {
+                self.vertex(dev_of((x, y)));
+            } else {
+                out.line(dev_of(prev), dev_of((x, y)), &pen, &mut self.phase);
+            }
+            prev = (x, y);
+        }
+        let (ux, uy) = self.space.user_step(prev.0 - c.0, prev.1 - c.1);
+        (center.0.plus(ux), center.1.plus(uy))
+    }
+
+    fn curve_begin(&mut self, kind: CurveKind) {
+        let p = self.space.fine(self.pos.0, self.pos.1);
+        self.curve = Curve {
+            kind,
+            last: [p; 4],
+            first: [p; 3],
+            n: 1,
+            start: self.pos,
+        };
+    }
+
+    fn curve_add(&mut self, to: Pt, dest: Dest, out: &mut dyn RegisOut) {
+        let p = self.space.fine(to.0, to.1);
+        let c = &mut self.curve;
+        c.last.copy_within(1.., 0);
+        c.last[3] = p;
+        if c.n < 3 {
+            c.first[c.n] = p;
+        }
+        c.n += 1;
+        let ready = c.n >= 4;
+        let seg = (c.last[0], c.last[1], c.last[2], c.last[3]);
+        if c.kind == CurveKind::Open {
+            self.pos = to;
+        }
+        if ready {
+            self.spline(seg, dest, out);
+        }
+    }
+
+    /// End a curve sequence: an open one has drawn all it draws -- "The
+    /// curve segments from the start to the second point and from the
+    /// penultimate to the last point are not drawn" -- and a closed one
+    /// returns through its first points "so that the closed curve will have
+    /// a continuous first derivative at the end point" (§ 8.5.5.4.2.1).
+    fn curve_end(&mut self, dest: Dest, out: &mut dyn RegisOut) {
+        let c = self.curve;
+        self.curve = Curve::NONE;
+        if c.kind != CurveKind::Closed {
+            return;
+        }
+        // The cyclic sequence's points in order, the ones kept.
+        let n = c.n;
+        if n < 2 {
+            return;
+        }
+        let mut ring = [(0i64, 0i64); 7];
+        let mut m = 0;
+        if n <= 4 {
+            // Every point is in `last`'s tail.
+            for &p in &c.last[4 - n..] {
+                ring[m] = p;
+                m += 1;
+            }
+            for k in 0..n {
+                let a = ring[(k + n - 1) % n];
+                let b = ring[k];
+                let cc = ring[(k + 1) % n];
+                let d = ring[(k + 2) % n];
+                // Segments b -> cc: the ones streaming did not draw, which
+                // for four points is every segment but the second.
+                if n == 4 && k == 1 {
+                    continue;
+                }
+                self.spline((a, b, cc, d), dest, out);
+            }
+        } else {
+            // P(n-3), P(n-2), P(n-1) then P0, P1, P2.
+            let tail = [c.last[1], c.last[2], c.last[3]];
+            ring[..3].copy_from_slice(&tail);
+            ring[3..6].copy_from_slice(&c.first);
+            let segs = [(0, 1, 2, 3), (1, 2, 3, 4), (2, 3, 4, 5)];
+            for (a, b, cc, d) in segs {
+                self.spline((ring[a], ring[b], ring[cc], ring[d]), dest, out);
+            }
+        }
+        self.pos = c.start;
+    }
+
+    /// The segment from `p1` to `p2` of a uniform Catmull-Rom spline through
+    /// `p0` to `p3`: it passes through every point, its slope at a point is
+    /// parallel to the chord of the points either side, four collinear
+    /// points give a straight segment between the middle two, and it is the
+    /// same whichever way the points are given -- § 8.5.5.4.2.1's four
+    /// constraints. The text names no algorithm, and xterm, which keeps
+    /// sixteen points of a curve, departs from its "unbounded number of
+    /// points"; this keeps four and streams.
+    fn spline(&mut self, seg: Seg, dest: Dest, out: &mut dyn RegisOut) {
+        let (p0, p1, p2, p3) = seg;
+        let chord = {
+            let (dx, dy) = ((p2.0 - p1.0) >> 16, (p2.1 - p1.1) >> 16);
+            trig::isqrt((dx * dx + dy * dy).unsigned_abs()) as i64
+        };
+        let n = (chord / 2).clamp(2, 1024);
+        let at = |t: i64, a: i64, b: i64, c: i64, d: i64| -> i64 {
+            // 0.5 * (2b + (-a + c) t + (2a - 5b + 4c - d) t^2 + (-a + 3b - 3c + d) t^3),
+            // t in 1/n.
+            let (a, b, c, d) = (a as i128, b as i128, c as i128, d as i128);
+            let (t, n) = (t as i128, n as i128);
+            let v = 2 * b * n * n * n
+                + (c - a) * t * n * n
+                + (2 * a - 5 * b + 4 * c - d) * t * t * n
+                + (3 * b - a - 3 * c + d) * t * t * t;
+            (v / (2 * n * n * n)) as i64
+        };
+        let pen = self.pen();
+        let mut prev = p1;
+        for k in 1..=n {
+            let p = (at(k, p0.0, p1.0, p2.0, p3.0), at(k, p0.1, p1.1, p2.1, p3.1));
+            if dest == Dest::Fill {
+                self.vertex(dev_of(p));
+            } else {
+                out.line(dev_of(prev), dev_of(p), &pen, &mut self.phase);
+            }
+            prev = p;
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Text (§ 8.5.6, § 8.7.3).
+    // ---------------------------------------------------------------
+
+    /// The display cell's width and height as user steps along the
+    /// baseline and across it, turned by the string's direction.
+    fn turned(&self, along: i64, across: i64) -> Pt {
+        let a = i64::from(self.text.string_dir) * 65536;
+        let (co, si) = (trig::cos(a), trig::sin(a));
+        // Along the baseline is the direction's unit vector; across it,
+        // downward, is that turned clockwise a right angle.
+        let dx = (along as i128 * co as i128 + across as i128 * si as i128) >> 30;
+        let dy = (-(along as i128) * si as i128 + across as i128 * co as i128) >> 30;
+        self.space.user_step(dx as i64, dy as i64)
+    }
+
+    /// The escapement a size option sets: one display cell along the
+    /// string's baseline (§ 8.5.6.1, "If character size options are
+    /// supported, they also set character escapement as a side effect").
+    fn size_escapement(&mut self) {
+        self.text.esc = self.turned(i64::from(self.text.display.0) << 16, 0);
+    }
+
+    /// A text pixel vector: half the display cell, in the direction the
+    /// digit names against the baseline (§ 8.5.6.2, § 8.7.3.2).
+    fn text_vector(&mut self, v: u8) {
+        let (w, h) = (
+            i64::from(self.text.display.0) << 15,
+            i64::from(self.text.display.1) << 15,
+        );
+        let (a, b): (i64, i64) = match v {
+            0 => (w, 0),
+            1 => (w, -h),
+            2 => (0, -h),
+            3 => (-w, -h),
+            4 => (-w, 0),
+            5 => (-w, h),
+            6 => (0, h),
+            _ => (w, h),
+        };
+        let s = self.turned(a, b);
+        self.pos = (self.pos.0.plus(s.0), self.pos.1.plus(s.1));
+    }
+
+    fn text_char(&mut self, c: u8, out: &mut dyn RegisOut) {
+        let esc = self.text.esc;
+        match c {
+            // "The carriage return code resets the drawing position ... to
+            // the value it had at the start of the current quoted text
+            // extent", or "that saved at the most recent LF".
+            0x0d => self.pos = self.quote_start,
+            // "moves the drawing position down one character height unit
+            // ... and saves this new position".
+            0x0a => {
+                let s = self.turned(0, i64::from(self.text.display.1) << 16);
+                self.pos = (self.pos.0.plus(s.0), self.pos.1.plus(s.1));
+                self.quote_start = self.pos;
+            }
+            0x08 => self.pos = (self.pos.0.minus(esc.0), self.pos.1.minus(esc.1)),
+            0x09 => self.pos = (self.pos.0.plus(esc.0), self.pos.1.plus(esc.1)),
+            _ if c < 0x20 || c == 0x7f => {}
+            _ => {
+                self.glyph(c, out);
+                self.pos = (self.pos.0.plus(esc.0), self.pos.1.plus(esc.1));
+            }
+        }
+    }
+
+    fn glyph(&mut self, c: u8, out: &mut dyn RegisOut) {
+        let at = self.device(self.pos);
+        let t = self.text;
+        let pen = self.pen();
+        let source = match t.alphabet {
+            0 => match builtin(t.gl, t.gr, c) {
+                Some(ch) => GlyphSource::Builtin(ch),
+                None => GlyphSource::Error,
+            },
+            a => {
+                let (rows, w) = self.cell_bits(a, c);
+                match rows.is_empty() {
+                    // § 8.7.3.3: "An error character will be displayed for
+                    // ... An attempt to print not-yet-defined characters".
+                    true => GlyphSource::Error,
+                    false => GlyphSource::Loaded { rows, w },
+                }
+            }
+        };
+        let g = RegisGlyph {
+            source,
+            at,
+            unit: t.unit,
+            display: t.display,
+            direction: t.char_dir,
+            slant: t.slant,
+        };
+        out.glyph(&g, &pen);
+    }
+
+    // ---------------------------------------------------------------
+    // Load (§ 8.7.5).
+    // ---------------------------------------------------------------
+
+    fn loading(&mut self) -> Option<&mut Alphabet> {
+        match self.load {
+            1..=3 => Some(&mut self.alphabets[usize::from(self.load - 1)]),
+            _ => None,
+        }
+    }
+
+    fn load_begin(&mut self, c: u8) {
+        let Some(a) = self.loading() else {
+            // "The attributes of the default alphabet (alphabet 0) may not
+            // be modified" -- error 5.
+            self.counts.load_refused += 1;
+            self.error = (5, 0);
+            return;
+        };
+        let ext = usize::from(a.extent);
+        match char_slot(c) {
+            Some(i) if i < ext => {
+                a.rows[i] = [0; CELL_HEIGHT as usize];
+                a.defined[i / 32] |= 1 << (i % 32);
+                self.load_char = Some(i);
+                self.load_row = 0;
+                self.load_digits = 0;
+                self.load_value = 0;
+            }
+            _ => {
+                self.counts.load_refused += 1;
+                self.load_char = None;
+            }
+        }
+    }
+
+    /// A hexadecimal digit of a cell: "Groups of hex digits, each of which
+    /// specify the contents of one scan line ... are separated by commas, or
+    /// by exceeding the maximum number of hex digits needed to specify one
+    /// scan line" (§ 8.7.5.2).
+    fn load_digit(&mut self, v: u8) {
+        if self.load_char.is_none() {
+            return;
+        }
+        let w = self.loading().map_or(8, |a| a.w);
+        let per_row = w.div_ceil(4);
+        self.load_value = (self.load_value << 4) | u32::from(v);
+        self.load_digits += 1;
+        if self.load_digits == per_row {
+            // "if the width of the character cell is not a multiple of four,
+            // any unneeded, low order bits of the last hex digit applied to
+            // that row are discarded".
+            let row = self.load_value >> (u32::from(per_row) * 4 - u32::from(w));
+            self.store_row(row);
+        }
+    }
+
+    /// A row ended by a comma or the cell's end: "If too few digits are
+    /// specified to fill a row, they fill the low order portion of the
+    /// mask, setting the high order portion to zero".
+    fn load_row_end(&mut self) {
+        if self.load_digits > 0 {
+            let w = self.loading().map_or(8, |a| a.w);
+            let row = self.load_value & ((1u32 << w) - 1);
+            self.store_row(row);
+        }
+    }
+
+    fn store_row(&mut self, row: u32) {
+        let (Some(i), r) = (self.load_char, self.load_row) else {
+            return;
+        };
+        if let Some(a) = self.loading() {
+            // "If more lines are specified than will fit in the storage
+            // cell, these extra lines are ignored".
+            if r < a.h {
+                a.rows[i][usize::from(r)] = row as u16;
+            }
+        }
+        self.load_row = r.saturating_add(1);
+        self.load_digits = 0;
+        self.load_value = 0;
+    }
+
+    /// `L[w,h]`: "A bracketed coordinate specifier defines the storage
+    /// size, in bits per character ... The selected alphabet is cleared when
+    /// its storage size is specified" (§ 8.7.5.1); "missing values are
+    /// interpreted as 0" (§ 8.4.5.2), and a size with a zero side is none.
+    fn load_size(&mut self, e: Extent) {
+        let v = |p: Part| p.value().map_or(0, |v| v.trunc());
+        let (w, h) = (v(e.x), v(e.y));
+        if !(1..=i32::from(CELL_WIDTH)).contains(&w) || !(1..=i32::from(CELL_HEIGHT)).contains(&h) {
+            self.counts.load_refused += 1;
+            self.error = (5, 0);
+            return;
+        }
+        match self.loading() {
+            Some(a) => {
+                a.w = w as u8;
+                a.h = h as u8;
+                a.clear();
+            }
+            None => {
+                self.counts.load_refused += 1;
+                self.error = (5, 0);
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Options.
+    // ---------------------------------------------------------------
+
+    /// The key at depth `d` closes, by the next key at its level, its
+    /// group's `)`, or a `;`.
+    fn end_key(&mut self, d: usize, out: &mut dyn RegisOut) {
+        let f = self.frames[d];
+        if f.key == 0 {
+            return;
+        }
+        let (own, base) = self.owner(d);
+        let r = d - base;
+        if r == 0 {
+            return;
+        }
+        let parent = self.frames[d - 1];
+        // The last suboption a key had, which `W(S(X))`, `R(P(I))` and
+        // `R(M(x))` read where their key closes.
+        if r >= 2 {
+            self.frames[d - 1].sub = f.key;
+        }
+        // A colour group's letters: `I(R)`, `I(H120L50S100)`, the groups of
+        // `S(M)`.
+        if self.is_color_group(d) {
+            let p = &mut self.frames[d - 1];
+            let comp = match f.num {
+                Some(v) => Comp::Value(v.trunc()),
+                None => Comp::Named,
+            };
+            match f.key {
+                b'H' => p.h = comp,
+                b'L' => p.l = comp,
+                b'S' => p.s = comp,
+                b'R' | b'G' | b'B' | b'C' | b'Y' | b'M' | b'W' | b'D' => p.letter = f.key,
+                // `S(M1(AR))`: the VT340's "only the color value" -- one
+                // map serves both, so it changes nothing.
+                b'A' => {}
+                _ => self.error(1, f.key),
+            }
+            return;
+        }
+        match own {
+            b'W' => self.write_option(&f, &parent, r, d, Target::Persistent, out),
+            _ if r >= 2 && self.frames[base + 1].key == b'W' => {
+                self.write_option(&f, &parent, r - 1, d, Target::Temporary, out)
+            }
+            b'S' => self.screen_option(&f, &parent, r, out),
+            b'P' | b'V' => self.stack_option(own, &f, r, Dest::of(base), out),
+            b'C' => self.curve_option(&f, r, Dest::of(base), out),
+            b'T' => self.text_option(&f, &parent, r),
+            b'R' => self.report_option(&f, &parent, r, out),
+            b'L' => self.load_option(&f, r),
+            b'F' => self.fill_option(&f, r, d, out),
+            _ => {}
+        }
+    }
+
+    /// Whether the group at `d` is a colour specifier: under `W(I)`,
+    /// `S(I)`, or `S(M)`.
+    fn is_color_group(&self, d: usize) -> bool {
+        if d < 2 {
+            return false;
+        }
+        let parent = self.frames[d - 1].key;
+        let (own, base) = self.owner(d - 1);
+        let r = d - 1 - base;
+        let under_w = own == b'W' || (r >= 2 && self.frames[base + 1].key == b'W');
+        match parent {
+            b'I' => under_w || (own == b'S' && r == 1),
+            b'M' => own == b'S' && r == 1,
+            _ => false,
+        }
+    }
+
+    /// A group's `)`: a fill's option list ends and is drawn, an `F(F ...)`
+    /// sub-polygon's contour ends, a colour group under `S(M)` sets its
+    /// entry.
+    fn end_group(&mut self, d: usize, out: &mut dyn RegisOut) {
+        let parent = self.frames[d - 1].key;
+        if d == 1 && self.frames[0].key == b'F' {
+            return self.fill_draw(out);
+        }
+        if d == 2 && self.frames[0].key == b'F' && parent == b'F' {
+            if let Some(f) = self.fill.as_mut() {
+                f.close();
+            }
+            return;
+        }
+        let (own, base) = self.owner(d - 1);
+        if parent == b'M' && own == b'S' && d - 1 - base == 1 {
+            let p = self.frames[d - 1];
+            if let (Some(i), Some(c)) = (p.int(), p.color()) {
+                if let Some(px) = c.pixel() {
+                    self.map[RegisIndex::wrap(i).slot()] = px;
+                    out.recolor();
+                }
+            }
+            let p = &mut self.frames[d - 1];
+            p.letter = 0;
+            p.h = Comp::Absent;
+            p.l = Comp::Absent;
+            p.s = Comp::Absent;
+        }
+    }
+
+    fn write_option(
+        &mut self,
+        f: &Frame,
+        parent: &Frame,
+        r: usize,
+        d: usize,
+        t: Target,
+        out: &mut dyn RegisOut,
+    ) {
+        let _ = out;
+        let mut w = match t {
+            Target::Persistent => self.write,
+            Target::Temporary => self.tw,
+        };
+        let pk = parent.key;
+        match (r, f.key) {
+            (1, b'V') => w.mode = WriteMode::Overlay,
+            (1, b'R') => w.mode = WriteMode::Replace,
+            (1, b'C') => w.mode = WriteMode::Complement,
+            (1, b'E') => w.mode = WriteMode::Erase,
+            (1, b'N') => {
+                w.negate = match f.int() {
+                    Some(0) | None => Negate::Off,
+                    _ => Negate::On,
+                }
+            }
+            (1, b'F') => {
+                if let Some(n) = f.int() {
+                    w.planes = RegisPlanes::of(n);
+                }
+            }
+            (1, b'I') => {
+                if let Some(c) = f.color() {
+                    if let Some(px) = c.pixel() {
+                        w.fg = regis_closest(&self.map, px);
+                    }
+                } else if let Some(n) = f.int() {
+                    w.fg = RegisIndex::wrap(n);
+                }
+            }
+            // "A value of 0 is taken to be 1" (§ 8.5.3.4.1).
+            (1, b'M') => {
+                if let Some(v) = f.num {
+                    w.pv = if v == RegisNum::ZERO {
+                        RegisNum::ONE
+                    } else {
+                        v.abs()
+                    };
+                }
+            }
+            (1, b'P') => {
+                let digits = &f.digits[..usize::from(f.nd)];
+                if !digits.is_empty() {
+                    w.pattern = pattern_of(digits);
+                }
+            }
+            // `W(P(M<m>))`: "Implementations must provide for multipliers as
+            // large as 16" -- the VT300's "The minimum value is 1, the
+            // maximum value is 16".
+            (2, b'M') if pk == b'P' => {
+                if let Some(n) = f.int() {
+                    w.pattern_mul = n.clamp(1, 16) as u16;
+                }
+            }
+            (1, b'S') => self.shade_option(&mut w, f, d),
+            (2, b'X' | b'Y' | b'P') if pk == b'S' => {
+                // Volatile suboptions, read by `shade_option` from `sub`.
+                self.frames[d - 1].sub = f.key;
+                return;
+            }
+            // `W(A)` blink, `W(L)` line width, `W(W)` microcoded writing:
+            // Open Extensions (§ 8.8.3).
+            (1, b'A' | b'L' | b'W') => self.counts.unbuilt += 1,
+            _ if r >= 2 => {}
+            _ => self.error(1, f.key),
+        }
+        match t {
+            Target::Persistent => {
+                self.write = w;
+                self.tw = w;
+            }
+            Target::Temporary => self.tw = w,
+        }
+    }
+
+    /// `W(S)`: "A numeric argument to the S option is interpreted as a
+    /// boolean switch ... A single quoted character to the S option causes
+    /// the shading pattern to be taken from the ... cell for that character
+    /// ... A bracketed position specifier defines the location to which
+    /// shading will be executed ... If this argument is not specified, the
+    /// current drawing position is assumed" (§ 8.7.2.4.2.3).
+    fn shade_option(&mut self, w: &mut Write, f: &Frame, d: usize) {
+        let dim = match f.sub {
+            b'X' => ShadeDim::X,
+            b'P' => ShadeDim::P,
+            _ => ShadeDim::Y,
+        };
+        let _ = d;
+        let reference = match f.next {
+            0 => self.pos,
+            _ => (f.ext[0].x.from(self.pos.0), f.ext[0].y.from(self.pos.1)),
+        };
+        let at = self.device(reference);
+        let to = match dim {
+            ShadeDim::Y => ShadeTo::Row(at.y),
+            ShadeDim::X => ShadeTo::Column(at.x),
+            ShadeDim::P => ShadeTo::Point(at),
+        };
+        let enable = |w: &mut Write, with: ShadeWith| {
+            w.shade = On::Yes;
+            w.shade_with = Some(with);
+            w.shade_to = to;
+        };
+        if f.nt > 0 {
+            let with = ShadeWith::Char {
+                c: f.text[0],
+                alphabet: self.text.alphabet,
+                unit: self.text.unit,
+            };
+            enable(w, with);
+        } else if let Some(n) = f.int() {
+            match n {
+                0 => w.shade = On::No,
+                _ => enable(w, ShadeWith::Line(w.pattern, w.pattern_mul)),
+            }
+        } else if f.next > 0 {
+            w.shade_to = to;
+        }
+    }
+
+    fn screen_option(&mut self, f: &Frame, parent: &Frame, r: usize, out: &mut dyn RegisOut) {
+        match (r, f.key) {
+            (1, b'A') => self.address(f),
+            (1, b'E') => {
+                // "S(E) clears the position stack ... Shading state ... is
+                // disabled on S(E)"; the VT300 "Stops any curve
+                // interpolation".
+                out.erase(self.bg);
+                self.nstack = 0;
+                self.write.shade = On::No;
+                self.tw.shade = On::No;
+                self.curve = Curve::NONE;
+            }
+            (1, b'I') => {
+                if let Some(c) = f.color() {
+                    if let Some(px) = c.pixel() {
+                        self.bg = regis_closest(&self.map, px);
+                    }
+                } else if let Some(n) = f.int() {
+                    self.bg = RegisIndex::wrap(n);
+                }
+            }
+            // `S(M)` sets its entries as each group closes.
+            (1, b'M') => {}
+            // "Devices must accept and properly execute values of <n> as
+            // large as 2000"; the VT300 takes 32,767.
+            (1, b'T') => {
+                if let Some(n) = f.int() {
+                    out.delay(RegisTicks::of(n.clamp(0, 32_767) as u32));
+                }
+            }
+            // `S(F)`, "image complete": nothing to feed on a screen.
+            (1, b'F') => {}
+            (1, b'W') => {}
+            (1, b'C' | b'H' | b'P' | b'R' | b'S' | b'D' | b'N') => self.counts.unbuilt += 1,
+            (2, _) if parent.key == b'H' || parent.key == b'C' || parent.key == b'S' => {}
+            _ if r >= 2 => {}
+            _ => self.error(1, f.key),
+        }
+    }
+
+    /// `S(A[][])`: valid with two extents whose four parts are present and
+    /// none negative -- "Missing elements inside the brackets cause the
+    /// command to be ignored" and "if the specified address space would
+    /// require absolute negative coordinate values ... the command is
+    /// ignored" -- and an extent of some size each way, which the scale
+    /// divides by. Then the defaults of § 8.5.1.4.1.4 and § 8.7.1.4.1.
+    fn address(&mut self, f: &Frame) {
+        let parts = [f.ext[0].x, f.ext[0].y, f.ext[1].x, f.ext[1].y];
+        let mut v = [RegisNum::ZERO; 4];
+        for (i, p) in parts.iter().enumerate() {
+            match p.value() {
+                Some(n) if !n.is_negative() && f.next >= 2 => v[i] = n,
+                _ => {
+                    self.counts.space_refused += 1;
+                    return;
+                }
+            }
+        }
+        if f.next > 2 {
+            self.error = (2, 0);
+        }
+        if v[0] == v[2] || v[1] == v[3] {
+            self.counts.space_refused += 1;
+            return;
+        }
+        self.space = RegisSpace {
+            x1: v[0],
+            y1: v[1],
+            x2: v[2],
+            y2: v[3],
+        };
+        self.defaults();
+    }
+
+    /// What a valid `S(A)` resets.
+    fn defaults(&mut self) {
+        self.pos = (RegisNum::ZERO, RegisNum::ZERO);
+        self.write = Write::DEFAULT;
+        self.tw = Write::DEFAULT;
+        self.bg = RegisIndex::ZERO;
+        self.nstack = 0;
+        let alphabet_names = self.text;
+        self.text = Text::DEFAULT;
+        let _ = alphabet_names;
+        self.saved_text = None;
+        self.size_escapement();
+        self.load = 1;
+    }
+
+    fn stack_option(&mut self, own: u8, f: &Frame, r: usize, dest: Dest, out: &mut dyn RegisOut) {
+        if r != 1 {
+            return;
+        }
+        match f.key {
+            b'B' => self.push(Saved::At(self.pos)),
+            b'S' => self.push(Saved::Dummy),
+            b'E' => match self.pop() {
+                Some(Saved::At(p)) => match own {
+                    b'V' => self.line_to(p, dest, out),
+                    _ => self.pos = p,
+                },
+                Some(Saved::Dummy) | None => {}
+            },
+            b'W' => {}
+            // `P(P<n>)`, drawing surfaces: an Open Extension.
+            b'P' if own == b'P' => self.counts.unbuilt += 1,
+            k => self.error(1, k),
+        }
+    }
+
+    fn curve_option(&mut self, f: &Frame, r: usize, dest: Dest, out: &mut dyn RegisOut) {
+        if r != 1 {
+            return;
+        }
+        match f.key {
+            b'A' => self.arc = f.num,
+            b'C' => self.circumferential = On::Yes,
+            b'S' => self.curve_begin(CurveKind::Open),
+            b'B' => self.curve_begin(CurveKind::Closed),
+            b'E' => self.curve_end(dest, out),
+            b'W' => {}
+            k => self.error(1, k),
+        }
+    }
+
+    fn text_option(&mut self, f: &Frame, parent: &Frame, r: usize) {
+        if r == 2 && parent.key == b'A' {
+            // `T(A0(L"tail"))` and `T(A0(R"tail"))`, which select only
+            // into alphabet 0: "If the <n> in the last T(A<n>) was not 0,
+            // then the suboption is ignored" (§ 8.7.3.4.1).
+            if self.text.alphabet != 0 || parent.int().is_some_and(|n| n != 0) {
+                return;
+            }
+            let tail = &f.text[..usize::from(f.nt)];
+            if let Some(cs) = designated(tail) {
+                match f.key {
+                    b'L' => self.text.gl = cs,
+                    b'R' => self.text.gr = cs,
+                    _ => {}
+                }
+            }
+            return;
+        }
+        if r != 1 {
+            return;
+        }
+        let n = f.int();
+        match f.key {
+            b'A' => match n {
+                // "If a received value of <integer> exceeds the range
+                // implemented in a device, or <integer> is not specified,
+                // then the option is ignored" -- error 4.
+                Some(n @ 0..=3) => self.text.alphabet = n as u8,
+                Some(_) => self.error = (4, 0),
+                None => {}
+            },
+            b'B' => self.saved_text = Some(self.text),
+            // "If there was no previous B option specified, the default
+            // values for all states are restored" (§ 8.7.3.4.4).
+            b'E' => match self.saved_text {
+                Some(t) => self.text = t,
+                None => {
+                    self.text = Text::DEFAULT;
+                    self.size_escapement();
+                }
+            },
+            // "Orient the baseline of each character at <ang> degrees to the
+            // horizontal ... When used in conjunction with the S option,
+            // string baseline is established" (§ 8.7.3.4.3): `D` alone turns
+            // the characters, `D` then `S` the string with them, and a `D`
+            // after those the characters again, as xterm reads the VT300's
+            // `T(D<a>,S<n>,D<b>)`.
+            b'D' => {
+                self.text.char_dir = n.unwrap_or(0) as i32;
+                self.tilt = match self.tilt {
+                    Tilt::Ready | Tilt::Chars => Tilt::Chars,
+                    Tilt::String | Tilt::Both => Tilt::Both,
+                };
+            }
+            b'S' => {
+                if self.tilt == Tilt::Chars {
+                    self.tilt = Tilt::String;
+                    self.text.string_dir = self.text.char_dir;
+                }
+                if f.next > 0 {
+                    // "Set display cell size in the current screen addressing
+                    // coordinates"; "If either <width> or <height> is
+                    // missing, the missing values default to the values that
+                    // correspond to the ... standard size 1".
+                    let d = self.cell_size(f.ext[0], (9, 20));
+                    self.text.display = d;
+                    self.size_escapement();
+                } else if let Some(n) = f.num {
+                    match standard_size(n.trunc()) {
+                        Some((d, u)) => {
+                            self.text.display = d;
+                            self.text.unit = u;
+                            self.size_escapement();
+                        }
+                        // The VT300's error 9, "Text standard size error".
+                        None => self.error = (9, 0),
+                    }
+                }
+            }
+            b'U' => {
+                if f.next > 0 {
+                    self.text.unit = self.cell_size(f.ext[0], (8, 20));
+                }
+            }
+            // "Set the character height to be half of <number> times the
+            // standard-size-1 cell height, leaving the character width
+            // unchanged" -- ten pixels a unit, the VT300's "option value ×
+            // 10".
+            b'H' => {
+                if let Some(v) = f.num {
+                    let h = ((v.raw() * 10) >> 16).clamp(1, 2560) as i32;
+                    self.text.display.1 = h;
+                    self.text.unit.1 = h;
+                }
+            }
+            b'I' => self.text.slant = n.unwrap_or(0).clamp(-45, 45) as i32,
+            // "Multiply each pixel from the stored character image width by
+            // hint, and each pixel from the stored character height by
+            // vint", the stored cell the VT300's 8 by 10, and the display
+            // cell with it.
+            b'M' => {
+                if f.next > 0 {
+                    let v = |p: Part, d: i32| p.value().map_or(d, |v| v.trunc().clamp(1, 256));
+                    let (hm, vm) = (v(f.ext[0].x, 1).min(16), v(f.ext[0].y, 2));
+                    self.text.unit = (8 * hm, 10 * vm);
+                    self.text.display = (9 * hm, 10 * vm);
+                    self.size_escapement();
+                }
+            }
+            b'W' => {}
+            k => self.error(1, k),
+        }
+    }
+
+    /// A cell size from user units, a missing part the default.
+    fn cell_size(&self, e: Extent, default: (i32, i32)) -> (i32, i32) {
+        let side = |p: Part, d: i32| match p.value() {
+            Some(v) => round16(self.space.device_len(v.abs())).clamp(1, 1 << 14),
+            None => d,
+        };
+        (side(e.x, default.0), side(e.y, default.1))
+    }
+
+    fn report_option(&mut self, f: &Frame, parent: &Frame, r: usize, out: &mut dyn RegisOut) {
+        // "Some forms of the report command define a report for every
+        // suboption letter as well, as is the case with macrograph reports"
+        // (§ 8.5.7.5): `R(M(A)(B))` and `R(M(AB))` answer twice.
+        if r == 2 && parent.key == b'M' {
+            let mut m = *parent;
+            m.sub = f.key;
+            m.key = b'M';
+            self.report(&m, out);
+            return;
+        }
+        if r != 1 {
+            return;
+        }
+        // A macrograph report whose suboptions each answered.
+        if f.key == b'M' && f.sub != 0 {
+            return;
+        }
+        self.report(f, out);
+    }
+
+    fn report(&mut self, f: &Frame, out: &mut dyn RegisOut) {
+        let mut buf = [0u8; 48];
+        let mut n = 0;
+        let put = |s: &[u8], buf: &mut [u8; 48], n: &mut usize| {
+            for &c in s {
+                if *n < buf.len() {
+                    buf[*n] = c;
+                    *n += 1;
+                }
+            }
+        };
+        match (f.key, f.sub) {
+            // "The returned report is a bracketed position specifier of the
+            // form [x,y] representing the current drawing position in the
+            // imposed coordinate system". `R(P(I))` from a device with no
+            // interactive input: § 8.8.5.3's first response, "The normal
+            // bracketed coordinate specifier, just as from the normal R(P)
+            // command. This is the result from a non-interactive device."
+            (b'P', _) => {
+                put(b"[", &mut buf, &mut n);
+                put(decimal(self.pos.0.round()).as_bytes(), &mut buf, &mut n);
+                put(b",", &mut buf, &mut n);
+                put(decimal(self.pos.1.round()).as_bytes(), &mut buf, &mut n);
+                put(b"]", &mut buf, &mut n);
+            }
+            // "R(M(=)) which returns a quoted string of the form
+            // "<free>,<total>"".
+            (b'M', b'=') => {
+                put(b"\"", &mut buf, &mut n);
+                put(decimal(self.macro_free as i32).as_bytes(), &mut buf, &mut n);
+                put(b",", &mut buf, &mut n);
+                put(decimal(MACRO_STORE as i32).as_bytes(), &mut buf, &mut n);
+                put(b"\"", &mut buf, &mut n);
+            }
+            // A macrograph's contents: "Devices are therefore allowed the
+            // freedom to restrict macrograph reports. The preferred fallback
+            // is the empty report, that is, just the terminating CR
+            // character" (§ 8.5.7.4.1), the owner's choice, 2026-10-20.
+            (b'M', _) => {}
+            // "The format of the error report is "n,m"" (§ 8.8.5.1); the
+            // VT300's `"<N>,<M>"`.
+            (b'E', _) => {
+                put(b"\"", &mut buf, &mut n);
+                put(
+                    decimal(i32::from(self.error.0)).as_bytes(),
+                    &mut buf,
+                    &mut n,
+                );
+                put(b",", &mut buf, &mut n);
+                put(
+                    decimal(i32::from(self.error.1)).as_bytes(),
+                    &mut buf,
+                    &mut n,
+                );
+                put(b"\"", &mut buf, &mut n);
+            }
+            // "The format of the report is (A'<name>')" (§ 8.7.4.1).
+            (b'L', _) => {
+                let (name, len) = match self.load {
+                    1..=3 => {
+                        let a = &self.alphabets[usize::from(self.load - 1)];
+                        (a.name, usize::from(a.name_len))
+                    }
+                    _ => ([0; NAME_MAX], 0),
+                };
+                let q: &[u8] = if name[..len].contains(&b'\'') {
+                    b"\""
+                } else {
+                    b"'"
+                };
+                put(b"A", &mut buf, &mut n);
+                put(q, &mut buf, &mut n);
+                put(&name[..len], &mut buf, &mut n);
+                put(q, &mut buf, &mut n);
+            }
+            // `R(I<n>)`: "When the terminal receives R(I), it returns a
+            // carriage return" (`[[source: vt3xx-report]]`); input
+            // mode itself is an Open Extension not built.
+            (b'I', _) => self.counts.unbuilt += 1,
+            // "Requests for unimplemented reports are acknowledged by the
+            // device's returning just a carriage return".
+            _ => {}
+        }
+        // "All reports are terminated by a single carriage return
+        // character" (§ 8.5.7.5).
+        put(b"\r", &mut buf, &mut n);
+        out.reply(&buf[..n]);
+    }
+
+    fn load_option(&mut self, f: &Frame, r: usize) {
+        if r != 1 {
+            return;
+        }
+        match f.key {
+            b'A' => {
+                let name = |s: &mut Sem| {
+                    if f.nt > 0 || f.text_first == On::Yes {
+                        match s.loading() {
+                            Some(a) => {
+                                let n = usize::from(f.nt).min(NAME_MAX);
+                                a.name = [0; NAME_MAX];
+                                a.name[..n].copy_from_slice(&f.text[..n]);
+                                a.name_len = n as u8;
+                            }
+                            None => s.counts.load_refused += 1,
+                        }
+                    }
+                };
+                // "if <name> is specified first, it is associated with the
+                // currently selected set, not necessarily the one specified
+                // by <integer>" (§ 8.7.5.4.2).
+                if f.text_first == On::Yes {
+                    name(self);
+                }
+                match f.int() {
+                    Some(n @ 0..=3) => self.load = n as u8,
+                    // "If a specified value for <integer> exceeds the
+                    // implementation limit, the value is ignored" -- error 4.
+                    Some(_) => self.error = (4, 0),
+                    None => {}
+                }
+                if f.text_first == On::No {
+                    name(self);
+                }
+            }
+            b'E' => match (f.int(), self.loading()) {
+                (Some(n @ 1..=192), Some(a)) => {
+                    a.extent = n as u16;
+                    a.clear();
+                }
+                _ => {
+                    self.counts.load_refused += 1;
+                    self.error = (5, 0);
+                }
+            },
+            k => self.error(1, k),
+        }
+    }
+
+    fn fill_option(&mut self, f: &Frame, r: usize, d: usize, out: &mut dyn RegisOut) {
+        let _ = (d, out);
+        match (r, f.key) {
+            // The edges' keys end their contour; the vertices came as they
+            // were given.
+            (1, b'V' | b'P' | b'C') => {}
+            (1, b'F') => {}
+            (1, b'W') => {}
+            // `F(B)`, flood's boundary: an Open Extension.
+            (1, b'B') => self.counts.unbuilt += 1,
+            (1, k) => self.error(1, k),
+            _ => {}
+        }
+    }
+
+    /// The `(` after `F` opens a fill: the position saved, "and restored at
+    /// the end of an F command, whether any drawing takes place or not"
+    /// (§ 8.5.8.4.1).
+    fn fill_begin(&mut self) {
+        let mut f = Fill::NEW;
+        f.saved = self.pos;
+        self.fill = Some(f);
+    }
+
+    fn fill_draw(&mut self, out: &mut dyn RegisOut) {
+        let Some(mut f) = self.fill.take() else {
+            return;
+        };
+        f.close();
+        if f.nends > 0 {
+            let pen = self.fill_pen();
+            out.fill(&f.points[..f.n], &f.ends[..f.nends], &pen);
+        }
+        self.pos = f.saved;
+    }
+
+    /// A fill's pen: the area texture is the shading snapshot, "An area
+    /// texture is established by invoking shading and disabling it"
+    /// (§ 8.5.8.4.1), solid with none.
+    fn fill_pen(&self) -> RegisPen {
+        let mut p = self.pen();
+        p.shade = Some((ShadeTo::Row(0), self.texture(self.tw.shade_with)));
+        p
+    }
+}
+
+/// Where what a `V` or a `C` makes goes: drawn on the page, or into a
+/// fill's vertex list (§ 8.5.8.4.1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Dest {
+    Page,
+    Fill,
+}
+
+impl Dest {
+    /// A command at depth 0 draws; one inside a fill's option list fills.
+    fn of(base: usize) -> Dest {
+        match base {
+            0 => Dest::Page,
+            _ => Dest::Fill,
+        }
+    }
+}
+
+/// Whose writing controls a `W` changes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Target {
+    Persistent,
+    Temporary,
+}
+
+fn dev_of(p: (i64, i64)) -> RegisPoint {
+    RegisPoint {
+        x: round16(p.0),
+        y: round16(p.1),
+    }
+}
+
+/// `W(P)`'s digits: "If a digit string consists entirely of ones and zeros,
+/// then it is interpreted as a binary pattern specification. Any other
+/// single digit specifies one of the line patterns 2 through 9 ... The last
+/// such digit in a sequence of digits selects the appropriate pattern"
+/// (§ 8.5.3.4.2).
+fn pattern_of(digits: &[u8]) -> LinePattern {
+    if digits.iter().all(|&d| d == b'0' || d == b'1') {
+        return LinePattern::binary(digits);
+    }
+    digits
+        .iter()
+        .rev()
+        .find_map(|&d| match d {
+            b'2'..=b'9' => LinePattern::standard(d - b'0'),
+            _ => None,
+        })
+        .unwrap_or(LinePattern::SOLID)
+}
+
+/// A designating tail (§ 8.5.6.4.1): `0B` and `(B` ASCII, `1A` and `-A`
+/// Latin-1, `0%5` and `)%5` DEC Supplemental; the column-three
+/// intermediates `0` (a 94-set) and `1` (a 96-set), the column-two ones `(`
+/// to `+` and `-` to `/`. A multi-byte, version or revision tail, or an
+/// incomplete one, selects nothing: "An incomplete or illegal tail will be
+/// ignored".
+fn designated(tail: &[u8]) -> Option<Charset> {
+    let (&i, rest) = tail.split_first()?;
+    let set = |rest: &[u8]| -> Option<(Option<StreamByte>, StreamByte)> {
+        match rest {
+            [f] => Some((None, StreamByte::from_stream(*f))),
+            [i2, f] if (0x20..=0x2f).contains(i2) => Some((
+                Some(StreamByte::from_stream(*i2)),
+                StreamByte::from_stream(*f),
+            )),
+            _ => None,
+        }
+    };
+    match i {
+        b'0' | b'(' | b')' | b'*' | b'+' => {
+            let (i2, f) = set(rest)?;
+            Some(Designation::of_94(i2, f).charset())
+        }
+        b'1' | b'-' | b'.' | b'/' => {
+            let (i2, f) = set(rest)?;
+            if i2.is_some() {
+                return None;
+            }
+            Some(Designation::of_96(f).charset())
+        }
+        _ => None,
+    }
+}
+
+/// The character a code of alphabet 0 is: GL through the left set, GR
+/// through the right, by the sets' own tables.
+fn builtin(gl: Charset, gr: Charset, c: u8) -> Option<char> {
+    let (set, b) = match c {
+        0x20..=0x7f => (gl, c),
+        0xa0..=0xff => (gr, c - 0x80),
+        _ => return None,
+    };
+    // A 94-character set has no character at 7/15, nor at 15/15 in GR.
+    if b == 0x7f && !set.is_96() {
+        return None;
+    }
+    let cp = crate::PackedCell::translate(StreamByte::from_stream(b), set);
+    char::from_u32(cp.0)
+}
+
+/// `n` in decimal, a sign before a negative.
+fn decimal(n: i32) -> Decimal {
+    let mut d = Decimal {
+        buf: [0; 12],
+        len: 0,
+    };
+    let mut v = i64::from(n).unsigned_abs();
+    let mut tmp = [0u8; 12];
+    let mut k = 0;
+    loop {
+        tmp[k] = b'0' + (v % 10) as u8;
+        k += 1;
+        v /= 10;
+        if v == 0 {
+            break;
+        }
+    }
+    if n < 0 {
+        d.buf[0] = b'-';
+        d.len = 1;
+    }
+    for i in (0..k).rev() {
+        d.buf[d.len] = tmp[i];
+        d.len += 1;
+    }
+    d
+}
+
+struct Decimal {
+    buf: [u8; 12],
+    len: usize,
+}
+
+impl Decimal {
+    fn as_bytes(&self) -> &[u8] {
+        &self.buf[..self.len]
+    }
+}

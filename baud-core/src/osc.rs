@@ -138,6 +138,9 @@ impl Paint<'_, '_> {
             }
             return self.sixel_put(b);
         }
+        if self.cold.str_kind == StrKind::Regis {
+            return self.regis_put(b);
+        }
         // **An `APC` whose body begins `G` is a kitty graphics command**
         // (`[[source: kitty-graphics]]`, "The graphics escape code": "All
         // graphics escape codes are of the form: <ESC>_G<control
@@ -443,6 +446,9 @@ impl Paint<'_, '_> {
                 self.restore_cursor_information(&data[..n]);
             }
             StrKind::RestoreTabs => self.restore_tab_end(),
+            // ReGIS acts as its body arrives and keeps its state for the
+            // next envelope: nothing is left to do at the end of this one.
+            StrKind::Regis => {}
             StrKind::Other | StrKind::Apc => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;
@@ -1149,6 +1155,9 @@ pub(crate) enum StrKind {
     /// A `DCS 2 $ t`, DECRSPS in DECTABSR's format: each stop is set as its
     /// column arrives (`Paint::restore_tab_put`), so no length limits it.
     RestoreTabs,
+    /// A `DCS Pn p`, ReGIS: each body byte goes to the interpreter as it
+    /// arrives (`crate::regis`), and nothing is kept.
+    Regis,
 }
 
 impl StrKind {

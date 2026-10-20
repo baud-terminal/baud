@@ -18,14 +18,14 @@ and decides nothing.
 
 | status | research sources | other entries | meaning |
 |---|---|---|---|
-| no-grant | 285 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
+| no-grant | 295 | 0 | no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call |
 | unverified | 2 | 2 | licence not established; the owner's call |
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 284 | 25 | redistributable, and its notice is satisfied |
+| kept | 285 | 25 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 807 | 36 | |
+| total | 818 | 36 | |
 
 ## Licence texts in LICENSES/
 
@@ -550,7 +550,7 @@ notice is, and the URL each file was copied from.
 - **Status:** no-grant -- no grant to redistribute was found; moving it out of the tree (`external`) is the owner's call
 - **Licence:** LicenseRef-NoGrant
 - **Notice:** none
-- **Files:** 80
+- **Files:** 90
 
 | file | copied from |
 |---|---|
@@ -561,8 +561,18 @@ notice is, and the URL each file was copied from.
 | [vt220-rm-chapter2.html](docs/research/sources/vt220-rm-chapter2.html) | https://vt100.net/docs/vt220-rm/chapter2.html |
 | [vt220-rm-chapter4.html](docs/research/sources/vt220-rm-chapter4.html) | https://vt100.net/docs/vt220-rm/chapter4.html |
 | [vt320-uu-appendixe.html](docs/research/sources/vt320-uu-appendixe.html) | https://vt100.net/docs/vt320-uu/appendixe.html |
+| [vt3xx-curve.html](docs/research/sources/vt3xx-curve.html) | https://vt100.net/docs/vt3xx-gp/chapter6.html |
+| [vt3xx-load.html](docs/research/sources/vt3xx-load.html) | https://vt100.net/docs/vt3xx-gp/chapter8.html |
+| [vt3xx-macrographs.html](docs/research/sources/vt3xx-macrographs.html) | https://vt100.net/docs/vt3xx-gp/chapter9.html |
+| [vt3xx-polygon-fill.html](docs/research/sources/vt3xx-polygon-fill.html) | https://vt100.net/docs/vt3xx-gp/chapter11.html |
+| [vt3xx-position.html](docs/research/sources/vt3xx-position.html) | https://vt100.net/docs/vt3xx-gp/chapter4.html |
+| [vt3xx-regis-intro.html](docs/research/sources/vt3xx-regis-intro.html) | https://vt100.net/docs/vt3xx-gp/chapter1.html |
+| [vt3xx-report.html](docs/research/sources/vt3xx-report.html) | https://vt100.net/docs/vt3xx-gp/chapter10.html |
 | [vt3xx-screen-control.html](docs/research/sources/vt3xx-screen-control.html) | https://vt100.net/docs/vt3xx-gp/chapter2.html |
 | [vt3xx-sixel.html](docs/research/sources/vt3xx-sixel.html) | https://vt100.net/docs/vt3xx-gp/chapter14.html |
+| [vt3xx-text.html](docs/research/sources/vt3xx-text.html) | https://vt100.net/docs/vt3xx-gp/chapter7.html |
+| [vt3xx-vector.html](docs/research/sources/vt3xx-vector.html) | https://vt100.net/docs/vt3xx-gp/chapter5.html |
+| [vt3xx-write-control.html](docs/research/sources/vt3xx-write-control.html) | https://vt100.net/docs/vt3xx-gp/chapter3.html |
 | [vt420-uu-chapter9.html](docs/research/sources/vt420-uu-chapter9.html) | https://vt100.net/docs/vt420-uu/chapter9.html |
 | [vt510-CHA.html](docs/research/sources/vt510-CHA.html) | https://vt100.net/docs/vt510-rm/CHA.html |
 | [vt510-CHT.html](docs/research/sources/vt510-CHT.html) | https://vt100.net/docs/vt510-rm/CHT.html |
@@ -1852,7 +1862,7 @@ notice is, and the URL each file was copied from.
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** X11
 - **Notice:** [LICENSES/xterm-COPYING.txt](LICENSES/xterm-COPYING.txt)
-- **Files:** 25
+- **Files:** 26
 
 | file | copied from |
 |---|---|
@@ -1864,6 +1874,7 @@ notice is, and the URL each file was copied from.
 | [xterm-cursor.c](docs/research/sources/xterm-cursor.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/cursor.c |
 | [xterm-doublechr.c](docs/research/sources/xterm-doublechr.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/doublechr.c |
 | [xterm-faq.html](docs/research/sources/xterm-faq.html) | https://invisible-island.net/xterm/xterm.faq.html |
+| [xterm-graphics_regis.c](docs/research/sources/xterm-graphics_regis.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/graphics_regis.c |
 | [xterm-graphics_sixel.c](docs/research/sources/xterm-graphics_sixel.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/graphics_sixel.c |
 | [xterm-input.c](docs/research/sources/xterm-input.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/input.c |
 | [xterm-keysym2ucs.c](docs/research/sources/xterm-keysym2ucs.c) | https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/keysym2ucs.c |

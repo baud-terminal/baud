@@ -30,7 +30,7 @@ then second; the log is lines 1000-1023 of Jev's decisions log.
 | DECLL keyboard lights | Num, Caps and Scroll lights drawn on the title bar | **in, drawn** (lean) | split, then 0.91/0.65 |
 | Bell volumes | a program can soften or silence the bell, and a margin bell | **in** | 0.96/0.94 |
 | DECAC/DECATC (VT525) | a program sets the default and per-attribute colours by index | **out** (lean) | 0.04/0.32, then 0.14/0.42 |
-| ReGIS | DEC's vector graphics drawn in the window | **no recommendation**: Jev flips | 0.27/0.43, then IN 0.14 / OUT 0.16 |
+| ReGIS | DEC's vector graphics drawn in the window | **no recommendation**: Jev flips; **in**, the owner's call, 2026-10-20 | 0.27/0.43, then IN 0.14 / OUT 0.16 |
 | Tektronix 4014 | xterm's second, plotting personality | **out** (lean) | 0.84/0.84 |
 
 ## 1. Printing: Media Copy and its modes
@@ -441,12 +441,19 @@ In builds a second graphics language whole, to 070-8; out writes 070-8's own
 "not the intent" as the reason. Tektronix: out, the lean, since it is a
 second terminal personality with no DEC text.
 
+**The owner's call, 2026-10-20**, verbatim: "3 46 and 50 all yes, pointer
+hiding - yes , ReGIS - yes". Read against this section's options (TODO.md,
+"DECIDED 2026-10-20"): ReGIS is in, to DEC STD 070-8, with macrograph
+reports answered empty as 070-8 § 8.5.7.4.1 prefers; Tektronix stays out,
+the lean taken. Lane b122 builds it, a part at a time, `docs/vt-coverage.md`'s
+ReGIS row saying which parts.
+
 ## Found and not fixed
 
-- The out-of-scope row for ReGIS and Tektronix in `docs/vt-coverage.md` gives
-  "Historical; no modern application emits them". Nothing here checked that,
-  and gnuplot is the obvious program to check. The row should carry 070-8's
-  "not the intent" and the owner's call once made.
+- The out-of-scope row for ReGIS and Tektronix in `docs/vt-coverage.md` gave
+  "Historical; no modern application emits them", which nothing here checked.
+  Fixed with the owner's call: ReGIS has its own row, and Tektronix's row
+  gives the lean it was taken on.
 - DECSWBV and DECSMBV: ctlseqs and xterm reverse the DEC manuals' reading of
   0, and the VT510's DECSMBV page names the warning bell (section 5). Built
   by DEC's reading. The VT520's own Section 2.12.7 calls high the default

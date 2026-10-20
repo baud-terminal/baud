@@ -3943,6 +3943,11 @@ impl Paint<'_, '_> {
         // (`[[source: xterm-reset]]`), and a terminal made operational has
         // defined none.
         self.strs.sixel.forget_shared();
+        // **ReGIS to its power-up state**: the device state, the
+        // macrographs and the loaded alphabets, as the VT300 keeps its
+        // defaults "after you power up or reset the terminal"
+        // (`[[source: vt3xx-regis-intro]]`).
+        self.strs.regis.reset();
         // **XTSAVE's cache goes back to empty**: ECMA-48 § 8.3.105 has `RIS`
         // reset "to its initial state, i.e. the state it has after it is made
         // operational" (`[[source: ecma48]]`), and nothing is saved then.
