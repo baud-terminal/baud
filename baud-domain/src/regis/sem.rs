@@ -52,6 +52,8 @@ pub struct RegisCounts {
     /// Characters no grammar position takes, and keyletters no instruction
     /// names (error 1).
     pub ignored: u32,
+    /// Drawings with no page to draw on, the image memory absent or full.
+    pub unpaged: u32,
 }
 
 /// The imposed coordinate space, `S(A[x1,y1][x2,y2])`: the user's
@@ -533,6 +535,13 @@ pub(crate) struct Sem {
     /// Characters free in the macrograph store, for `R(M(=))`: the layer
     /// below sets it before each character it hands the lexer.
     pub(crate) macro_free: usize,
+    /// Page pixels a device pixel spans, `(num, den)`: the 800 by 480
+    /// device fitted to the page with its shape kept (§ 8.5.1.4.1.2), one
+    /// to one on an 800 by 480 page.
+    pub(crate) scale: (i64, i64),
+    /// Where the last line drawn ended, so the next one from there draws
+    /// the joint once.
+    last_end: Option<RegisPoint>,
 }
 
 impl Sem {
@@ -554,6 +563,7 @@ impl Sem {
             space_refused: 0,
             unbuilt: 0,
             ignored: 0,
+            unpaged: 0,
         },
         pos: (RegisNum::ZERO, RegisNum::ZERO),
         space: RegisSpace::DEFAULT,
@@ -582,6 +592,8 @@ impl Sem {
         tilt: Tilt::Ready,
         quote_start: (RegisNum::ZERO, RegisNum::ZERO),
         macro_free: MACRO_STORE,
+        scale: (1, 1),
+        last_end: None,
     };
 
     /// Record an error for `R(E)`: "Only the most recent error code is kept"
@@ -602,7 +614,9 @@ impl Sem {
             bg: self.bg,
             planes: w.planes,
             pattern: w.pattern,
-            pattern_mul: w.pattern_mul,
+            // A pattern element is a device pixel long times its
+            // multiplier, so a dash keeps its length on a larger page.
+            pattern_mul: self.page_len(i32::from(w.pattern_mul)) as u16,
             shade: match w.shade {
                 On::Yes => Some((w.shade_to, self.texture(w.shade_with))),
                 On::No => None,
@@ -614,7 +628,7 @@ impl Sem {
     fn texture(&self, with: Option<ShadeWith>) -> Texture {
         match with {
             None => Texture::Solid,
-            Some(ShadeWith::Line(p, m)) => Texture::Line(p, m),
+            Some(ShadeWith::Line(p, m)) => Texture::Line(p, self.page_len(i32::from(m)) as u16),
             Some(ShadeWith::Char { c, alphabet, unit }) => {
                 // "only the top square part of the storage cell is applied
                 // in a shading context", at the unit cell's granularity.
@@ -624,7 +638,7 @@ impl Sem {
                 for (r, row) in rows.iter_mut().enumerate().take(usize::from(side)) {
                     *row = bits.get(r).copied().unwrap_or(0);
                 }
-                let scale = (unit.0 / i32::from(w.max(1))).clamp(1, 64) as u16;
+                let scale = (self.page_len(unit.0) / i32::from(w.max(1))).clamp(1, 64) as u16;
                 Texture::Cell { rows, side, scale }
             }
         }
@@ -675,8 +689,38 @@ impl Sem {
         )
     }
 
+    /// A user position's page pixel.
     fn device(&self, p: Pt) -> RegisPoint {
-        self.space.device(p.0, p.1)
+        self.page(self.space.fine(p.0, p.1))
+    }
+
+    /// A position on the 800 by 480 device, in 1/65536, as a page pixel:
+    /// the device scaled to the page by [`Sem::scale`], its shape kept.
+    fn page(&self, p: Fine) -> RegisPoint {
+        let (n, d) = (i128::from(self.scale.0), i128::from(self.scale.1));
+        let f = |v: i64| round16((i128::from(v) * n / d).clamp(-(1i128 << 50), 1i128 << 50) as i64);
+        RegisPoint {
+            x: f(p.0),
+            y: f(p.1),
+        }
+    }
+
+    /// A length on the 800 by 480 device as page pixels, at least one.
+    fn page_len(&self, v: i32) -> i32 {
+        (i64::from(v) * self.scale.0 / self.scale.1).clamp(1, 1 << 16) as i32
+    }
+
+    /// Draw a line on the page: a joint with the line before it drawn once
+    /// ([`LineSpan`]), and the pattern stepping on.
+    fn draw(&mut self, a: RegisPoint, b: RegisPoint, close: Close, out: &mut dyn RegisOut) {
+        let span = match (self.last_end == Some(a), close) {
+            (true, Close::Loop) => LineSpan::Inner,
+            (true, Close::Open) => LineSpan::Rest,
+            (false, _) => LineSpan::Whole,
+        };
+        let pen = self.pen();
+        out.line(a, b, &pen, &mut self.phase, span);
+        self.last_end = Some(b);
     }
 
     // ---------------------------------------------------------------
@@ -977,8 +1021,7 @@ impl Sem {
         if dest == Dest::Fill {
             self.vertex(b);
         } else {
-            let pen = self.pen();
-            out.line(a, b, &pen, &mut self.phase);
+            self.draw(a, b, Close::Open, out);
         }
         self.pos = to;
     }
@@ -1060,13 +1103,14 @@ impl Sem {
         let (vx, vy) = (e.0 - c.0, e.1 - c.1);
         let r2 = (vx as i128 * vx as i128 + vy as i128 * vy as i128) >> 32;
         let r = trig::isqrt(r2.min(u64::MAX as i128) as u64) as i64;
-        // Segments about two pixels long, each at most a few degrees.
+        // Segments about two page pixels long, each at most a few degrees.
+        let r = r * self.scale.0 / self.scale.1;
         let len = r * 355 * sweep.abs() / 113 / (360 * 65536) / 2;
         let n = len.clamp(4, 4096);
-        let pen = self.pen();
+        let whole = sweep.abs() == lim;
         let mut prev = (c.0 + vx, c.1 + vy);
         if dest == Dest::Fill {
-            self.vertex(dev_of(prev));
+            self.vertex(self.page(prev));
         }
         for k in 1..=n {
             let th = sweep * k / n;
@@ -1075,9 +1119,13 @@ impl Sem {
             let x = c.0 + ((vx as i128 * co as i128 + vy as i128 * si as i128) >> 30) as i64;
             let y = c.1 + ((-(vx as i128) * si as i128 + vy as i128 * co as i128) >> 30) as i64;
             if dest == Dest::Fill {
-                self.vertex(dev_of((x, y)));
+                self.vertex(self.page((x, y)));
             } else {
-                out.line(dev_of(prev), dev_of((x, y)), &pen, &mut self.phase);
+                let close = match whole && k == n {
+                    true => Close::Loop,
+                    false => Close::Open,
+                };
+                self.draw(self.page(prev), self.page((x, y)), close, out);
             }
             prev = (x, y);
         }
@@ -1178,7 +1226,7 @@ impl Sem {
             let (dx, dy) = ((p2.0 - p1.0) >> 16, (p2.1 - p1.1) >> 16);
             trig::isqrt((dx * dx + dy * dy).unsigned_abs()) as i64
         };
-        let n = (chord / 2).clamp(2, 1024);
+        let n = (chord * self.scale.0 / self.scale.1 / 2).clamp(2, 1024);
         let at = |t: i64, a: i64, b: i64, c: i64, d: i64| -> i64 {
             // 0.5 * (2b + (-a + c) t + (2a - 5b + 4c - d) t^2 + (-a + 3b - 3c + d) t^3),
             // t in 1/n.
@@ -1190,14 +1238,13 @@ impl Sem {
                 + (3 * b - a - 3 * c + d) * t * t * t;
             (v / (2 * n * n * n)) as i64
         };
-        let pen = self.pen();
         let mut prev = p1;
         for k in 1..=n {
             let p = (at(k, p0.0, p1.0, p2.0, p3.0), at(k, p0.1, p1.1, p2.1, p3.1));
             if dest == Dest::Fill {
-                self.vertex(dev_of(p));
+                self.vertex(self.page(p));
             } else {
-                out.line(dev_of(prev), dev_of(p), &pen, &mut self.phase);
+                self.draw(self.page(prev), self.page(p), Close::Open, out);
             }
             prev = p;
         }
@@ -1293,12 +1340,13 @@ impl Sem {
         let g = RegisGlyph {
             source,
             at,
-            unit: t.unit,
-            display: t.display,
+            unit: (self.page_len(t.unit.0), self.page_len(t.unit.1)),
+            display: (self.page_len(t.display.0), self.page_len(t.display.1)),
             direction: t.char_dir,
             slant: t.slant,
         };
         out.glyph(&g, &pen);
+        self.last_end = None;
     }
 
     // ---------------------------------------------------------------
@@ -1385,13 +1433,17 @@ impl Sem {
         self.load_value = 0;
     }
 
-    /// `L[w,h]`: "A bracketed coordinate specifier defines the storage
+    /// `L[h,w]`: "A bracketed coordinate specifier defines the storage
     /// size, in bits per character ... The selected alphabet is cleared when
     /// its storage size is specified" (§ 8.7.5.1); "missing values are
     /// interpreted as 0" (§ 8.4.5.2), and a size with a zero side is none.
+    /// **Height first**, as § 8.8.5.1's error list writes it, "In the syntax
+    /// L[h,w], the height "h" exceeded the implementation limit", the one
+    /// place the text gives the order: decided by Jev 2026-10-20
+    /// (HEIGHT_FIRST, 0.90 and 0.90).
     fn load_size(&mut self, e: Extent) {
         let v = |p: Part| p.value().map_or(0, |v| v.trunc());
-        let (w, h) = (v(e.x), v(e.y));
+        let (h, w) = (v(e.x), v(e.y));
         if !(1..=i32::from(CELL_WIDTH)).contains(&w) || !(1..=i32::from(CELL_HEIGHT)).contains(&h) {
             self.counts.load_refused += 1;
             self.error = (5, 0);
@@ -1654,6 +1706,7 @@ impl Sem {
                 // disabled on S(E)"; the VT300 "Stops any curve
                 // interpolation".
                 out.erase(self.bg);
+                self.last_end = None;
                 self.nstack = 0;
                 self.write.shade = On::No;
                 self.tw.shade = On::No;
@@ -1724,6 +1777,7 @@ impl Sem {
     /// What a valid `S(A)` resets.
     fn defaults(&mut self) {
         self.pos = (RegisNum::ZERO, RegisNum::ZERO);
+        self.last_end = None;
         self.write = Write::DEFAULT;
         self.tw = Write::DEFAULT;
         self.bg = RegisIndex::ZERO;
@@ -1972,7 +2026,10 @@ impl Sem {
                 );
                 put(b"\"", &mut buf, &mut n);
             }
-            // "The format of the report is (A'<name>')" (§ 8.7.4.1).
+            // "The format of the report is (A'<name>')" (§ 8.7.4.1), the
+            // parentheses sent: Jev's lean, 2026-10-20 (PAREN_FORM, 0.34 and
+            // 0.16), the VT330/VT340 manual printing `A'<name>'` and xterm
+            // sending `A<n>'<name>'`.
             (b'L', _) => {
                 let (name, len) = match self.load {
                     1..=3 => {
@@ -1986,10 +2043,11 @@ impl Sem {
                 } else {
                     b"'"
                 };
-                put(b"A", &mut buf, &mut n);
+                put(b"(A", &mut buf, &mut n);
                 put(q, &mut buf, &mut n);
                 put(&name[..len], &mut buf, &mut n);
                 put(q, &mut buf, &mut n);
+                put(b")", &mut buf, &mut n);
             }
             // `R(I<n>)`: "When the terminal receives R(I), it returns a
             // carriage return" (`[[source: vt3xx-report]]`); input
@@ -2087,6 +2145,7 @@ impl Sem {
         if f.nends > 0 {
             let pen = self.fill_pen();
             out.fill(&f.points[..f.n], &f.ends[..f.nends], &pen);
+            self.last_end = None;
         }
         self.pos = f.saved;
     }
@@ -2126,11 +2185,11 @@ enum Target {
     Temporary,
 }
 
-fn dev_of(p: (i64, i64)) -> RegisPoint {
-    RegisPoint {
-        x: round16(p.0),
-        y: round16(p.1),
-    }
+/// Whether a line closes a loop, so its end is the first line's start.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Close {
+    Open,
+    Loop,
 }
 
 /// `W(P)`'s digits: "If a digit string consists entirely of ones and zeros,

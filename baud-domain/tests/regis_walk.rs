@@ -8,8 +8,8 @@
 
 use baud_domain::Regis;
 use baud_domain::{
-    GlyphSource, RegisEntry, RegisGlyph, RegisIndex, RegisNum, RegisOut, RegisPen, RegisPoint,
-    RegisTicks, StreamByte, WriteMode,
+    GlyphSource, LineSpan, RegisEntry, RegisGlyph, RegisIndex, RegisNum, RegisOut, RegisPen,
+    RegisPoint, RegisTicks, StreamByte, WriteMode,
 };
 use proptest::prelude::*;
 
@@ -38,7 +38,7 @@ struct Rec {
 }
 
 impl RegisOut for Rec {
-    fn line(&mut self, a: RegisPoint, b: RegisPoint, pen: &RegisPen, phase: &mut u32) {
+    fn line(&mut self, a: RegisPoint, b: RegisPoint, pen: &RegisPen, phase: &mut u32, _: LineSpan) {
         *phase += 1;
         self.ops.push(Op::Line(a, b));
         self.pens.push(*pen);
@@ -444,7 +444,7 @@ fn the_loading_alphabet_is_reported_by_name() {
     let (_, rec) = run(b"L(A2\"FONT\")R(L)L(A3)R(L)");
     assert_eq!(
         replies(&rec),
-        vec![b"A'FONT'\r".to_vec(), b"A''\r".to_vec()]
+        vec![b"(A'FONT')\r".to_vec(), b"(A'')\r".to_vec()]
     );
 }
 
@@ -755,6 +755,15 @@ fn a_loaded_cell_draws_from_its_alphabet() {
     assert_eq!(g[0].0, Glyph::Loaded(rows, 8));
     // A character not loaded is the error character.
     assert_eq!(g[1].0, Glyph::Error);
+}
+
+#[test]
+fn the_storage_size_is_height_first() {
+    // `L[h,w]`, § 8.8.5.1's order: a cell 4 high and 12 wide takes three
+    // hex digits a row.
+    let (_, rec) = run(b"L(A1)[4,12]'A'ABC,123T(A1)'A'");
+    let g = glyphs(&rec);
+    assert_eq!(g[0].0, Glyph::Loaded(vec![0xabc, 0x123, 0, 0], 12));
 }
 
 #[test]

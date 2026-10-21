@@ -26,11 +26,13 @@
 //! position stack, the fill's vertex list and the loadable alphabets are
 //! all attacker-supplied.
 
+mod canvas;
 mod color;
 mod num;
 mod sem;
 mod trig;
 
+pub use canvas::*;
 pub use color::*;
 pub use num::RegisNum;
 pub use sem::{RegisCounts, RegisSpace};
@@ -346,9 +348,16 @@ pub enum GlyphSource<'a> {
 /// The drawing primitives are in device pixels, already mapped from the
 /// imposed coordinate space and clipped by nothing; a page clips them.
 pub trait RegisOut {
-    /// A line from `a` to `b`, both ends included, through `pen`, the
-    /// pattern stepping on from `phase`.
-    fn line(&mut self, a: RegisPoint, b: RegisPoint, pen: &RegisPen, phase: &mut u32);
+    /// A line from `a` to `b` through `pen`, the pattern stepping on from
+    /// `phase`, its ends drawn as `span` says.
+    fn line(
+        &mut self,
+        a: RegisPoint,
+        b: RegisPoint,
+        pen: &RegisPen,
+        phase: &mut u32,
+        span: LineSpan,
+    );
     /// A filled area: `points` in contours ending at each of `ends`, the
     /// interior by the even-odd rule (§ 8.5.8.4.1).
     fn fill(&mut self, points: &[RegisPoint], ends: &[u16], pen: &RegisPen);
@@ -657,6 +666,12 @@ impl Regis {
         self.sem.counts
     }
 
+    /// `n` drawings had no page to draw on: the caller's image memory is
+    /// absent or full.
+    pub fn unpaged(&mut self, n: usize) {
+        self.sem.counts.unpaged = self.sem.counts.unpaged.saturating_add(n as u32);
+    }
+
     /// The current drawing position, in the imposed space.
     pub fn position(&self) -> (RegisNum, RegisNum) {
         (self.sem.pos.0, self.sem.pos.1)
@@ -665,6 +680,21 @@ impl Regis {
     /// The imposed coordinate space (`S(A)`).
     pub fn space(&self) -> RegisSpace {
         self.sem.space
+    }
+
+    /// The page drawn on is `w` by `h` pixels: the 800 by 480 device is
+    /// fitted into it with its shape kept, as § 8.5.1.4.1.2 fits an imposed
+    /// space into a device -- "The shape (aspect ratio) implied by S(A[][])
+    /// must be maintained" and "All the area implied by the S(A[][]) must be
+    /// visible" -- at its upper-left, "The placement of any subset range
+    /// within the device space is left to the device implementor".
+    pub fn set_page(&mut self, w: i32, h: i32) {
+        let (dw, dh) = (i64::from(REGIS_WIDTH - 1), i64::from(REGIS_HEIGHT - 1));
+        let (pw, ph) = (i64::from(w.max(2) - 1), i64::from(h.max(2) - 1));
+        self.sem.scale = match pw * dh <= ph * dw {
+            true => (pw, dw),
+            false => (ph, dh),
+        };
     }
 
     /// The background index `S(I)` names.

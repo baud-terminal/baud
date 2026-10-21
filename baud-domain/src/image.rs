@@ -431,6 +431,11 @@ pub enum ImageOwner {
     /// as a local one does (kitty's own rule, `[[source: kitty-graphics-c]]`
     /// `filter_refs` and `modify_refs`).
     Kitty(KittyId, KittyNumber),
+    /// A ReGIS page ([`ImageStore::store_page`]): drawn on after it is
+    /// stored, and written over by text a cell at a time rather than freed
+    /// whole, as a Sixel is. It goes with its last placement as a local
+    /// image does.
+    Regis,
 }
 
 /// **Whether a stored image's pixels are all there.** A kitty image is
@@ -728,7 +733,7 @@ impl ImageSlot {
     /// kitty one no id names.
     fn goes_with_placements(self) -> bool {
         match self.owner {
-            ImageOwner::Local => true,
+            ImageOwner::Local | ImageOwner::Regis => true,
             ImageOwner::Kitty(id, _) => id.is_none(),
         }
     }
@@ -1256,11 +1261,16 @@ pub struct ImageStore<'b> {
     /// slot a placement takes, lowered to any slot freed below it.
     free_from: usize,
     /// **How many live placements show a local image**, a Sixel's or the
-    /// embedder's: the ones text written over erases. The gate for
+    /// embedder's, or a ReGIS page: the ones text written over erases, a
+    /// local image whole and a page a cell at a time. The gate for
     /// [`ImageStore::overwrite`], so a screen of kitty placements -- yazi's
     /// preview puts 660, and redraws its file list in the same rows --
     /// pays one compare a write, not a walk of them all.
     local_placed: usize,
+    /// The ReGIS page being drawn and the plane of indices it is drawn
+    /// from ([`ImageStore::link_page`]), so text written over the page
+    /// clears both.
+    page_plane: Option<(ImageId, ImageId)>,
     /// Each screen's [`Reach`], `None` when nothing was placed on it since
     /// the last scan found it empty.
     reach: [Option<Reach>; 2],
@@ -1322,6 +1332,7 @@ impl<'b> ImageStore<'b> {
             live: 0,
             free_from: 0,
             local_placed: 0,
+            page_plane: None,
             reach: [None; 2],
             tallest: ImagePx::ZERO,
             cell_h: ImagePx::ZERO,
@@ -1492,7 +1503,7 @@ impl<'b> ImageStore<'b> {
     fn rows_over(&self, p: PlacementSlot) -> Rows {
         let ch = self.cell_h.index();
         match p.image.index().and_then(|i| self.slots.get(i)) {
-            Some(img) if img.owner == ImageOwner::Local && ch != 0 => {
+            Some(img) if matches!(img.owner, ImageOwner::Local | ImageOwner::Regis) && ch != 0 => {
                 Rows::of_count(img.height.index().div_ceil(ch).max(1))
             }
             _ => p.kitty.shown(),
@@ -2141,11 +2152,139 @@ impl<'b> ImageStore<'b> {
         self.placed += 1;
         self.live = self.live.max(p + 1);
         self.free_from = p + 1;
-        if self.slots[i].owner == ImageOwner::Local {
+        if matches!(self.slots[i].owner, ImageOwner::Local | ImageOwner::Regis) {
             self.local_placed += 1;
         }
         self.widen(screen, line, line.plus(Rows::of_count(1)));
         PlacementId::from_index(p)
+    }
+
+    /// **Store a ReGIS page**: a `width` x `height` image, every pixel
+    /// [`Pixel::CLEAR`], owned by ReGIS ([`ImageOwner::Regis`]) and drawn on
+    /// after it is stored, through [`ImageStore::page_planes`] and
+    /// [`ImageStore::repainted`]. Refused and counted as
+    /// [`ImageStore::store`] refuses.
+    pub fn store_page(&mut self, width: ImagePx, height: ImagePx) -> Option<ImageId> {
+        let (id, px) = self.store(width, height, ImageAlpha::OpaqueOrClear)?;
+        px.fill(Pixel::CLEAR);
+        if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
+            s.owner = ImageOwner::Regis;
+        }
+        Some(id)
+    }
+
+    /// **A page's pixels and its plane's, both lent at once**: two ReGIS
+    /// images, the one shown and the one holding the indices it is drawn
+    /// from. `None` unless both are live ReGIS images.
+    pub fn page_planes(
+        &mut self,
+        page: ImageId,
+        plane: ImageId,
+    ) -> Option<(&mut [Pixel], &mut [u8])> {
+        let a = *self.slots.get(page.index()?)?;
+        let b = *self.slots.get(plane.index()?)?;
+        let regis = |s: &ImageSlot| !s.is_empty() && s.owner == ImageOwner::Regis;
+        if !regis(&a) || !regis(&b) || page == plane {
+            return None;
+        }
+        let (ra, rb) = ((a.start(), a.end()), (b.start(), b.end()));
+        let (lo, hi, page_first) = match ra.0 < rb.0 {
+            true => (ra, rb, true),
+            false => (rb, ra, false),
+        };
+        let (left, right) = self.pixels.split_at_mut(hi.0);
+        let first = &mut left[lo.0..lo.1];
+        let second = &mut right[..hi.1 - hi.0];
+        let (p, q) = match page_first {
+            true => (first, second),
+            false => (second, first),
+        };
+        Some((p, q.as_mut_bytes()))
+    }
+
+    /// **A ReGIS page was drawn on**: the epoch moves, so a renderer's
+    /// texture cache keyed on it uploads the pixels now there.
+    pub fn repainted(&mut self) {
+        self.epoch = self.epoch.bumped();
+    }
+
+    /// The page being drawn is `page`, drawn from the indices in `plane`.
+    pub fn link_page(&mut self, page: ImageId, plane: ImageId) {
+        self.page_plane = Some((page, plane));
+    }
+
+    /// **Text written over a ReGIS page clears the cells it covers**: row
+    /// `row` of the page's cells, columns `[c0, c1)`, back to clear, and the
+    /// indices under them if it is the page being drawn. The VT330 and
+    /// VT340 draw text and graphics into one bitmap, so a character written
+    /// replaces what was drawn in its cell; the rest of the page stays.
+    fn clear_page_cells(
+        &mut self,
+        id: ImageId,
+        row: usize,
+        c0: usize,
+        c1: usize,
+        cw: usize,
+        ch: usize,
+    ) {
+        let Some(s) = id.index().and_then(|i| self.slots.get(i)).copied() else {
+            return;
+        };
+        let (w, h) = (s.width.index(), s.height.index());
+        let (x0, x1) = ((c0 * cw).min(w), (c1 * cw).min(w));
+        let (y0, y1) = ((row * ch).min(h), ((row + 1) * ch).min(h));
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        let at = s.start();
+        for y in y0..y1 {
+            self.pixels[at + y * w + x0..at + y * w + x1].fill(Pixel::CLEAR);
+        }
+        if let Some((page, plane)) = self.page_plane {
+            if page == id {
+                let stride = w.div_ceil(4) * 4;
+                if let Some(p) = plane.index().and_then(|i| self.slots.get(i)).copied() {
+                    let bytes = self.pixels[p.start()..p.end()].as_mut_bytes();
+                    for y in y0..y1 {
+                        if let Some(row) = bytes.get_mut(y * stride + x0..y * stride + x1) {
+                            row.fill(0);
+                        }
+                    }
+                }
+            }
+        }
+        self.epoch = self.epoch.bumped();
+    }
+
+    /// Place a ReGIS page as kitty geometry `place` scales it, at an
+    /// absolute line of `screen` and a column.
+    pub fn place_page(
+        &mut self,
+        id: ImageId,
+        screen: ImageScreen,
+        line: LineIdx,
+        col: Col,
+        place: KittyPlace,
+    ) -> PlacementId {
+        let pid = self.place(id, screen, line, col, ZIndex::ZERO);
+        if let Some(p) = pid_index(pid) {
+            self.placements[p].kitty = place;
+        }
+        pid
+    }
+
+    /// Whether `id` is a live ReGIS image of `width` by `height`.
+    pub fn is_page(&self, id: ImageId, width: ImagePx, height: ImagePx) -> bool {
+        id.index().and_then(|i| self.slots.get(i)).is_some_and(|s| {
+            !s.is_empty() && s.owner == ImageOwner::Regis && s.width == width && s.height == height
+        })
+    }
+
+    /// Whether image `id` has a placement.
+    pub fn is_placed(&self, id: ImageId) -> bool {
+        id.index()
+            .and_then(|i| self.slots.get(i))
+            .is_some_and(|s| !s.is_empty() && s.placements.index() > 0)
     }
 
     /// Remove a placement. If it was the image's last, the image is freed and
@@ -2246,6 +2385,7 @@ impl<'b> ImageStore<'b> {
         self.live = 0;
         self.free_from = 0;
         self.local_placed = 0;
+        self.page_plane = None;
         self.reach = [None; 2];
         self.tallest = ImagePx::ZERO;
         self.probe_size = None;
@@ -2655,7 +2795,7 @@ impl<'b> ImageStore<'b> {
             // erase text must have no effect on graphics"
             // (`[[source: kitty-graphics]]`), and one under the text, at a
             // negative z, is there to be written over.
-            if img.is_empty() || img.owner != ImageOwner::Local {
+            if img.is_empty() || !matches!(img.owner, ImageOwner::Local | ImageOwner::Regis) {
                 continue;
             }
             let rows = img.height.index().div_ceil(ch);
@@ -2665,6 +2805,17 @@ impl<'b> ImageStore<'b> {
             // The write's row `wl` lands in the image's rows, and its column
             // span `[col0, col1)` overlaps the image's `[c0, c0 + cols)`.
             if wl >= l0 && wl < l0 + rows && col1 > c0 && col0 < c0 + cols {
+                if img.owner == ImageOwner::Regis {
+                    self.clear_page_cells(
+                        slot.image,
+                        wl - l0,
+                        col0.saturating_sub(c0),
+                        col1 - c0,
+                        cw,
+                        ch,
+                    );
+                    continue;
+                }
                 self.unplace(PlacementId::from_index(p));
                 freed += 1;
             }
@@ -2696,7 +2847,7 @@ impl<'b> ImageStore<'b> {
             .image
             .index()
             .and_then(|i| self.slots.get(i))
-            .is_some_and(|s| s.owner == ImageOwner::Local);
+            .is_some_and(|s| matches!(s.owner, ImageOwner::Local | ImageOwner::Regis));
         if local {
             self.local_placed = self.local_placed.saturating_sub(1);
         }

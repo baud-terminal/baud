@@ -431,6 +431,9 @@ pub struct StrBuf<'b> {
     /// the protocol's state, about a hundred kilobytes, and a terminal with
     /// no image memory still reads ReGIS and answers its reports.
     pub(crate) regis: &'b mut Regis,
+    /// The page ReGIS draws on (`crate::regis`): which images, anchored
+    /// where. Read only by ReGIS.
+    pub(crate) regis_page: crate::regis::Page,
     /// The kitty graphics stream (`kitty.rs`): the chunk being read, the
     /// transmission in flight, the decode deferred and the replies owed.
     /// Behind a reference for the reason `sixel` is, and always provisioned:
@@ -542,6 +545,7 @@ impl<'b> StrBuf<'b> {
             clip: crate::clip::Clip::NEW,
             sixel,
             regis,
+            regis_page: crate::regis::Page::NONE,
             kitty,
             kitty_scratch,
             titles,
@@ -821,6 +825,7 @@ impl Owned {
                 clip: crate::clip::Clip::NEW,
                 sixel: &mut self.sixel,
                 regis: &mut self.regis,
+                regis_page: crate::regis::Page::NONE,
                 kitty: &mut self.kitty,
                 kitty_scratch: &mut self.kitty_scratch,
                 titles: &mut self.titles,
@@ -883,6 +888,7 @@ impl Owned {
                 clip: crate::clip::Clip::NEW,
                 sixel: &mut self.sixel,
                 regis: &mut self.regis,
+                regis_page: crate::regis::Page::NONE,
                 kitty: &mut self.kitty,
                 kitty_scratch: &mut self.kitty_scratch,
                 titles: &mut self.titles,
