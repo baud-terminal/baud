@@ -3877,9 +3877,20 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// **The whole screen cleared, pictures with it**: DECCOLM's "display
+    /// data to be cleared" (`[[source: dec-std-070]]` p. 5-71), `?1049`'s
+    /// and `?1047`'s clear. The VT330 and VT340 keep text and graphics in
+    /// one bitmap, and xterm's `ClearScreen` clears the graphics over every
+    /// row (`[[source: xterm-scroll]]`'s file, lines 2370-2374), so a Sixel and the ReGIS page lose their
+    /// pixels as ED 2's rows do (`Paint::erase_display`), each row read
+    /// before its rendition is reset, and the kitty placements on the
+    /// screen go as ED 2 takes them.
     pub(crate) fn clear_screen(&mut self) {
         if self.past_edge() {
             self.clear_erased_rows_past_edge(Row::ZERO, Row::from_index(self.rows.index()));
+        }
+        if self.images.any_placed() {
+            self.clear_screen_images();
         }
         for y in 0..self.rows.index() {
             let b = self.blank();
@@ -3887,6 +3898,18 @@ impl Paint<'_, '_> {
             self.cells = self.cells.plus(n.index());
         }
         self.wrote_rows(Row::ZERO, Row::from_index(self.rows.index() - 1));
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn clear_screen_images(&mut self) {
+        let cols = Col::at_index(self.cols.index());
+        for y in 0..self.rows.index() {
+            self.erase_images(Row::from_index(y), Col::ZERO, cols);
+        }
+        if self.images.any_placed() && !self.on_status() {
+            self.kitty_clear();
+        }
     }
 
     /// DECALN: origin mode absolute and the rendition normal, then the
