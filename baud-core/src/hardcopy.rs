@@ -72,6 +72,8 @@ struct Visible<'p, 'a, 'b> {
     map: [Pixel; REGIS_COLORS],
     /// How the page being drawn shows its plane, `S(S)`.
     zoom: RegisZoom,
+    /// The page showing the second surface and its plane, under `S(P1)`.
+    second: Option<(ImageId, ImageId)>,
 }
 
 /// What a picture holds at a pixel of the page.
@@ -180,7 +182,10 @@ impl Visible<'_, '_, '_> {
             if p.owner == ImageOwner::Regis {
                 let at = |v: u32| usize::try_from(v).unwrap_or(usize::MAX);
                 let (x, y) = self.zoom.plane_of(at(sx), at(sy));
-                let plane = imgs.page_indices(p.image);
+                let plane = match self.second {
+                    Some((page, plane)) if page == p.image => imgs.regis_bytes(plane),
+                    _ => imgs.page_indices(p.image),
+                };
                 let index = |plane| RegisCanvas::index_at(plane, view.width, x, y);
                 // A blinking pixel prints its own colour in either phase.
                 let blinks = plane.is_some_and(|pl| RegisCanvas::blinks_at(pl, view.width, x, y));
@@ -321,6 +326,7 @@ impl Paint<'_, '_> {
                 bg,
                 map: *self.strs.regis.colors(),
                 zoom: self.strs.regis.zoom(),
+                second: self.regis_second_shown(),
             };
             let mut n = at;
             let mut lost = 0usize;

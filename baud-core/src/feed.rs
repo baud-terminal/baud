@@ -357,9 +357,11 @@ impl Term<'_> {
             self.store.book.window = crate::storage::HistoryWindow::Live;
         }
         // **A ReGIS envelope this read cancelled takes its cursors with
-        // it**: `CAN`, `SUB` and a stray `ESC` leave the string with no
-        // terminator to say so. Once a read, never a byte.
-        if self.store.strs.regis.is_drawn() {
+        // it**, and displays the first surface again: `CAN`, `SUB` and a
+        // stray `ESC` leave the string with no terminator to say so. Once a
+        // read, never a byte.
+        let regis = &self.store.strs.regis;
+        if regis.is_drawn() || regis.surfaces().1 == baud_domain::RegisSurface::Second {
             self.regis_read_ends();
         }
         // **The fence may lag a line the cursor left, never one it is on**:

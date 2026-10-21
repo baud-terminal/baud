@@ -18,6 +18,7 @@ enum Op {
     Line(RegisPoint, RegisPoint),
     Fill(Vec<RegisPoint>, Vec<u16>),
     Flood(RegisPoint, RegisBound),
+    Surfaces(baud_domain::RegisSurface, baud_domain::RegisSurface),
     Glyph(Glyph, RegisPoint, (i32, i32)),
     Erase(RegisIndex),
     Recolor,
@@ -80,6 +81,9 @@ impl RegisOut for Rec {
     fn input_shown(&mut self) {}
     fn unmark(&mut self, _: RegisRect) {}
     fn scroll(&mut self, _: baud_domain::RegisShift, _: RegisIndex) {}
+    fn surfaces(&mut self, draw: baud_domain::RegisSurface, show: baud_domain::RegisSurface) {
+        self.ops.push(Op::Surfaces(draw, show));
+    }
 }
 
 fn run(body: &[u8]) -> (Box<Regis>, Rec) {

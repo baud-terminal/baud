@@ -80,6 +80,56 @@ impl Page {
     }
 }
 
+/// **The second drawing surface** (070-8 § 8.8.2.1, the VT340's second
+/// "page of graphics page memory"): a plane of indices the page's size,
+/// placed nowhere, shown through the page while `S(P1)` displays it. It is
+/// the screen's (decided by Jev, SCREEN_FIXED, 1.00 and 0.98 on a second
+/// ask): the shell's text, its erases and its scrolling act on the first
+/// surface, the text page it is coupled to, and never reach it. Made when
+/// first drawn on or displayed, and made again, empty, at another size.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Second {
+    plane: ImageId,
+    w: ImagePx,
+    h: ImagePx,
+    /// Where its blinking pixels may be, as [`Page`] keeps its own.
+    blink: Option<RegisRect>,
+}
+
+impl Second {
+    /// None made.
+    pub(crate) const NONE: Second = Second {
+        plane: ImageId::NONE,
+        w: ImagePx::ZERO,
+        h: ImagePx::ZERO,
+        blink: None,
+    };
+
+    /// Whether it is a live plane for a page `w` by `h`.
+    fn fits(self, images: &ImageStore<'_>, w: ImagePx, h: ImagePx) -> bool {
+        self.w == w && self.h == h && images.is_page(self.plane, RegisCanvas::plane_width(w), h)
+    }
+
+    /// The memory it holds back to the arena: a reset's.
+    pub(crate) fn free(&mut self, images: &mut ImageStore<'_>) {
+        if images.is_page(self.plane, RegisCanvas::plane_width(self.w), self.h) {
+            images.free(self.plane);
+        }
+        *self = Second::NONE;
+    }
+}
+
+/// **The plane the page displays and where its blinking pixels may be**:
+/// the first surface's own, or under `S(P1)` the second's, if it fits the
+/// page.
+fn shown_plane(page: Page, second: Second, regis: &Regis, images: &ImageStore<'_>) -> ImageId {
+    match regis.surfaces().1 {
+        RegisSurface::First => page.plane,
+        RegisSurface::Second if second.fits(images, page.w, page.h) => second.plane,
+        RegisSurface::Second => ImageId::NONE,
+    }
+}
+
 /// Where the page for the next drawing must be, and how large: the live
 /// screen's window top, and the text area in pixels, an 800 by 480 page
 /// while no cell size is known.
@@ -133,8 +183,10 @@ impl Paint<'_, '_> {
         }
         let e = RegisEntry::of(Some(csi.params().raw(ParamIdx::FIRST, 0)));
         // An envelope cancelled earlier in this read left its cursors
-        // drawn: they go at the read's end, and before this one draws.
+        // drawn, and maybe the second surface displayed: they go at the
+        // read's end, and before this one draws.
         self.regis_cursor_off();
+        show_first(self.images, self.strs.regis_page, self.strs.regis);
         self.strs.regis.set_encoding(self.cold.str_enc);
         self.regis_run(|regis, out| regis.enter(e, out));
         crate::osc::StrKind::Regis
@@ -209,7 +261,7 @@ impl Paint<'_, '_> {
         let strs = &mut *self.strs;
         draw(
             &mut *self.images,
-            &mut strs.regis_page,
+            (&mut strs.regis_page, strs.regis_second),
             strs.regis,
             want,
             (marks, make),
@@ -281,8 +333,14 @@ impl Paint<'_, '_> {
         let want = self.regis_want();
         // A page the next drawing leaves behind shows its blinking pixels
         // in their own colours from now on.
+        // A page left behind while the second surface is displayed, as a
+        // resize inside an envelope leaves one, shows the first, the
+        // surface the shell's text is on.
         if current(self.images, self.strs.regis_page, want).is_none() {
             settle_blink(self.images, &mut self.strs.regis_page, self.strs.regis);
+            if self.strs.regis.surfaces().1 == RegisSurface::Second {
+                repaint_first(self.images, self.strs.regis_page, self.strs.regis);
+            }
         }
         let regis = &mut *self.strs.regis;
         regis.set_page(i32::from(want.w.raw()), i32::from(want.h.raw()));
@@ -296,6 +354,8 @@ impl Paint<'_, '_> {
             c1: self.cold.replies.c1(),
             images: &mut *self.images,
             page: &mut self.strs.regis_page,
+            second: &mut self.strs.regis_second,
+            surfaces: regis.surfaces(),
             want,
             dirty: None,
             recolor: Recolor::No,
@@ -326,7 +386,10 @@ impl Paint<'_, '_> {
             self.rehook();
         }
         let page = self.strs.regis_page;
-        let whole = recolor == Recolor::Yes || (placed && zoom != RegisZoom::ONE);
+        // A page placed under `S(P1)` shows the second surface, whole.
+        let second = self.strs.regis.surfaces().1 == RegisSurface::Second;
+        let whole = recolor == Recolor::Yes || (placed && (zoom != RegisZoom::ONE || second));
+        let plane = shown_plane(page, self.strs.regis_second, self.strs.regis, self.images);
         let rect = match (whole, dirty) {
             (true, _) => Some(RegisRect {
                 x0: 0,
@@ -341,7 +404,7 @@ impl Paint<'_, '_> {
             let map = *self.strs.regis.colors();
             let blink = self.strs.regis.blink_show();
             self.images
-                .repaint_page(page.shown, page.plane, px_of(rect), |shown, plane| {
+                .repaint_page(page.shown, plane, px_of(rect), |shown, plane| {
                     RegisCanvas::show(plane, page.w, &map, rect, shown, zoom, blink);
                 });
         }
@@ -349,7 +412,7 @@ impl Paint<'_, '_> {
         // the line itself changed: its characters drawn over it again.
         let band = self.strs.regis.display_band();
         if zoom != RegisZoom::ONE && (line || rect.is_some_and(|r| meets(r, band))) {
-            let p = (page.shown, page.plane, page.w, page.h);
+            let p = (page.shown, plane, page.w, page.h);
             paint_display(self.images, self.strs.regis, p);
         }
         if let Some((area, offset)) = hard_copy {
@@ -362,6 +425,15 @@ impl Paint<'_, '_> {
     pub(crate) fn regis_page_px(&self) -> (ImagePx, ImagePx) {
         let w = self.regis_want();
         (w.w, w.h)
+    }
+
+    /// **The page displaying the second surface and that surface's
+    /// plane**, under `S(P1)`: what a hard copy reads the page's indices
+    /// from in place of its own plane.
+    pub(crate) fn regis_second_shown(&self) -> Option<(ImageId, ImageId)> {
+        let page = self.strs.regis_page;
+        let plane = shown_plane(page, self.strs.regis_second, self.strs.regis, self.images);
+        (plane != page.plane && !plane.is_none()).then_some((page.shown, plane))
     }
 
     /// The page the next drawing needs.
@@ -402,6 +474,13 @@ pub(crate) fn want_of(
 /// on the host; otherwise the output cursor inside the envelope and the
 /// input cursor in multiple mode there.
 pub(crate) fn shown_marks(regis: &Regis, inside: RegisEnvelope) -> [Option<RegisCursor>; 2] {
+    // "Both the input cursor and output cursor move to the corresponding
+    // position on the selected page" (`[[source: vt3xx-position]]`): on
+    // a surface not displayed neither is seen.
+    let (drawn, shown) = regis.surfaces();
+    if drawn != shown {
+        return [None, None];
+    }
     let input = regis.input(inside);
     let output = match (inside, input) {
         (RegisEnvelope::Open, RegisInput::Off | RegisInput::Multiple) => regis.output_cursor(),
@@ -544,7 +623,7 @@ fn px_of(r: RegisRect) -> (usize, usize, usize, usize) {
 /// drawing (`RegisCounts::unpaged`).
 pub(crate) fn draw(
     images: &mut ImageStore<'_>,
-    page: &mut Page,
+    (page, second): (&mut Page, Second),
     regis: &mut Regis,
     want: Want,
     (marks, make): ([Option<RegisCursor>; 2], Make),
@@ -559,6 +638,7 @@ pub(crate) fn draw(
     let Some(p) = p else {
         return;
     };
+    let plane = shown_plane(p, second, regis, images);
     let map = regis.colors();
     // Each rectangle a cursor covers is repainted on its own, so the
     // page's lit count moves by what the cursor lights there, and what
@@ -566,7 +646,7 @@ pub(crate) fn draw(
     for m in marks.iter().flatten() {
         m.cover(&mut |r| {
             let r = clip(r, p.w, p.h);
-            images.repaint_page(p.shown, p.plane, px_of(r), |shown, _| {
+            images.repaint_page(p.shown, plane, px_of(r), |shown, _| {
                 m.paint(&mut |x, y, tone| {
                     if x < r.x0 || y < r.y0 || x >= r.x1 || y >= r.y1 {
                         return;
@@ -583,7 +663,7 @@ pub(crate) fn draw(
     }
     regis.set_drawn(RegisDrawn {
         shown: p.shown,
-        plane: p.plane,
+        plane,
         w: p.w,
         h: p.h,
         marks,
@@ -612,34 +692,34 @@ fn live(images: &ImageStore<'_>, p: Page) -> bool {
 /// when none is left in it. Whether anything was repainted.
 fn repaint_blink(
     images: &mut ImageStore<'_>,
-    page: &mut Page,
+    (p, plane, rect): (Page, ImageId, &mut Option<RegisRect>),
     regis: &mut Regis,
     show: RegisBlinkShow,
 ) -> RegisRepainted {
-    let p = *page;
-    let Some(r) = p.blink else {
+    let Some(r) = *rect else {
         return RegisRepainted::No;
     };
-    if !live(images, p) {
-        page.blink = None;
+    let shows = images.is_page(plane, RegisCanvas::plane_width(p.w), p.h);
+    if !live(images, p) || !shows {
+        *rect = None;
         return RegisRepainted::No;
     }
     let map = *regis.colors();
     let zoom = regis.zoom();
     let shown = clip(zoom.shown(r), p.w, p.h);
     let mut left = Blinks::No;
-    images.repaint_page(p.shown, p.plane, px_of(shown), |px, plane| {
+    images.repaint_page(p.shown, plane, px_of(shown), |px, plane| {
         if RegisCanvas::blinks(plane, p.w, r) {
             left = Blinks::Yes;
         }
         RegisCanvas::show(plane, p.w, &map, shown, px, zoom, show);
     });
     if left == Blinks::No {
-        page.blink = None;
+        *rect = None;
     }
     // The command display's line drawn over a magnified page again.
     if zoom != RegisZoom::ONE && meets(shown, regis.display_band()) {
-        paint_display(images, regis, (p.shown, p.plane, p.w, p.h));
+        paint_display(images, regis, (p.shown, plane, p.w, p.h));
     }
     RegisRepainted::Yes
 }
@@ -650,9 +730,39 @@ fn repaint_blink(
 /// new page goes on blinking there ([`place`]).
 fn settle_blink(images: &mut ImageStore<'_>, page: &mut Page, regis: &mut Regis) {
     if regis.blink_phase() == RegisPhase::Hidden {
-        let keep = page.blink;
-        repaint_blink(images, page, regis, RegisBlinkShow::Shown);
-        page.blink = keep;
+        let mut keep = page.blink;
+        let p = *page;
+        repaint_blink(
+            images,
+            (p, p.plane, &mut keep),
+            regis,
+            RegisBlinkShow::Shown,
+        );
+    }
+}
+
+/// **The first surface displayed again as an envelope ends**
+/// ([`Regis::show_first`]): the page shown whole from its own plane.
+pub(crate) fn show_first(images: &mut ImageStore<'_>, page: Page, regis: &mut Regis) {
+    if regis.show_first() == RegisRepainted::No {
+        return;
+    }
+    repaint_first(images, page, regis);
+}
+
+/// **The page shown whole from its own plane**, the first surface's.
+fn repaint_first(images: &mut ImageStore<'_>, page: Page, regis: &mut Regis) {
+    if !live(images, page) {
+        return;
+    }
+    erase(images, regis);
+    let (map, zoom, blink) = (*regis.colors(), regis.zoom(), regis.blink_show());
+    let r = page.whole();
+    images.repaint_page(page.shown, page.plane, px_of(r), |px, plane| {
+        RegisCanvas::show(plane, page.w, &map, r, px, zoom, blink);
+    });
+    if zoom != RegisZoom::ONE {
+        paint_display(images, regis, (page.shown, page.plane, page.w, page.h));
     }
 }
 
@@ -803,6 +913,9 @@ struct Out<'a, 'b> {
     c1: C1Transmit,
     images: &'a mut ImageStore<'b>,
     page: &'a mut Page,
+    second: &'a mut Second,
+    /// The surface drawn on and the one displayed, `P(P)` and `S(P)`.
+    surfaces: (RegisSurface, RegisSurface),
     want: Want,
     dirty: Option<RegisRect>,
     recolor: Recolor,
@@ -823,21 +936,73 @@ impl Out<'_, '_> {
         p
     }
 
-    /// Draw on the page's plane with `f`, and keep what it touched, and
-    /// where it may have drawn blinking pixels when `blink` is on.
-    fn draw(&mut self, blink: RegisBlink, f: impl FnOnce(&mut RegisCanvas<'_>)) {
-        let Some(p) = self.page() else {
-            return;
-        };
-        let Some((_, plane)) = self.images.page_planes(p.shown, p.plane) else {
-            return;
-        };
-        let mut c = RegisCanvas::new(plane, p.w, p.h);
-        f(&mut c);
-        if let (Some(d), RegisBlink::On) = (c.dirty(), blink) {
-            self.page.blink = Some(self.page.blink.map_or(d, |b| union(b, d)));
+    /// **The second surface's plane**, made, empty, if there is none of
+    /// the page's size. `None`, and the drawing counted, without room.
+    fn second_plane(&mut self) -> Option<ImageId> {
+        let (w, h) = (self.want.w, self.want.h);
+        if self.second.fits(self.images, w, h) {
+            return Some(self.second.plane);
         }
-        if let Some(d) = c.dirty() {
+        self.second.free(self.images);
+        let Some(plane) = self.images.store_page(RegisCanvas::plane_width(w), h) else {
+            self.unpaged = self.unpaged.more();
+            return None;
+        };
+        *self.second = Second {
+            plane,
+            w,
+            h,
+            blink: None,
+        };
+        Some(plane)
+    }
+
+    /// Draw on the plane of the surface `P(P)` selects with `f`, and keep
+    /// what it touched where the page displays it, and where it may have
+    /// drawn blinking pixels when `blink` is on. Drawing on the second
+    /// surface while the first is displayed places no page.
+    fn draw(&mut self, blink: RegisBlink, f: impl FnOnce(&mut RegisCanvas<'_>)) {
+        let (on, shown) = self.surfaces;
+        let d = match on {
+            RegisSurface::First => {
+                let Some(p) = self.page() else {
+                    return;
+                };
+                let Some((_, plane)) = self.images.page_planes(p.shown, p.plane) else {
+                    return;
+                };
+                let mut c = RegisCanvas::new(plane, p.w, p.h);
+                f(&mut c);
+                let d = c.dirty();
+                if let (Some(d), RegisBlink::On) = (d, blink) {
+                    self.page.blink = Some(self.page.blink.map_or(d, |b| union(b, d)));
+                }
+                d
+            }
+            RegisSurface::Second => {
+                let (w, h) = (self.want.w, self.want.h);
+                if shown == RegisSurface::Second && self.page().is_none() {
+                    return;
+                }
+                let Some(id) = self.second_plane() else {
+                    return;
+                };
+                let Some(plane) = self.images.regis_bytes_mut(id) else {
+                    return;
+                };
+                let mut c = RegisCanvas::new(plane, w, h);
+                f(&mut c);
+                let d = c.dirty();
+                if let (Some(d), RegisBlink::On) = (d, blink) {
+                    self.second.blink = Some(self.second.blink.map_or(d, |b| union(b, d)));
+                }
+                d
+            }
+        };
+        if on != shown {
+            return;
+        }
+        if let Some(d) = d {
             self.dirty = Some(match self.dirty {
                 Some(o) => RegisRect {
                     x0: o.x0.min(d.x0),
@@ -882,13 +1047,39 @@ impl RegisOut for Out<'_, '_> {
 
     fn erase(&mut self, bg: RegisIndex) {
         self.draw(RegisBlink::Off, |c| c.erase(bg));
-        self.page.blink = None;
+        match self.surfaces.0 {
+            RegisSurface::First => self.page.blink = None,
+            RegisSurface::Second => self.second.blink = None,
+        }
     }
 
     fn scroll(&mut self, by: RegisShift, bg: RegisIndex) {
         self.draw(RegisBlink::Off, |c| c.scroll(by, bg));
-        if self.page.blink.is_some() {
-            self.page.blink = Some(self.page.whole());
+        let whole = RegisRect {
+            x0: 0,
+            y0: 0,
+            x1: i32::from(self.want.w.raw()),
+            y1: i32::from(self.want.h.raw()),
+        };
+        match self.surfaces.0 {
+            RegisSurface::First if self.page.blink.is_some() => self.page.blink = Some(whole),
+            RegisSurface::Second if self.second.blink.is_some() => {
+                self.second.blink = Some(whole);
+            }
+            _ => {}
+        }
+    }
+
+    /// **The surface displayed changed**: the page shows the other plane,
+    /// whole, placed for it if need be, the second made if it is the one.
+    fn surfaces(&mut self, draw: RegisSurface, show: RegisSurface) {
+        let was = self.surfaces.1;
+        self.surfaces = (draw, show);
+        if show == was || self.page().is_none() {
+            return;
+        }
+        if show == RegisSurface::First || self.second_plane().is_some() {
+            self.recolor = Recolor::Yes;
         }
     }
 
@@ -1010,15 +1201,21 @@ impl Term<'_> {
             return RegisRepainted::No;
         }
         regis.set_blink_phase(phase);
-        if self.store.strs.regis_page.blink.is_none() {
+        let strs = &mut self.store.strs;
+        let page = strs.regis_page;
+        let plane = shown_plane(page, strs.regis_second, strs.regis, &self.store.images);
+        let rect = match strs.regis.surfaces().1 {
+            RegisSurface::First => &mut strs.regis_page.blink,
+            RegisSurface::Second => &mut strs.regis_second.blink,
+        };
+        if rect.is_none() {
             return RegisRepainted::No;
         }
-        erase(&mut self.store.images, self.store.strs.regis);
-        let strs = &mut self.store.strs;
+        erase(&mut self.store.images, strs.regis);
         let show = strs.regis.blink_show();
         let done = repaint_blink(
             &mut self.store.images,
-            &mut strs.regis_page,
+            (page, plane, rect),
             strs.regis,
             show,
         );
@@ -1026,16 +1223,23 @@ impl Term<'_> {
         done
     }
 
-    /// **A read's end with a cursor drawn**: if the read left the envelope
-    /// by a cancel, the cursors go, as at `ST` -- the output cursor "only
-    /// appears when the terminal is in ReGIS mode" (`[[source:
-    /// vt3xx-regis-intro]]`). An `ESC` a read ends on is still undecided,
-    /// the envelope open, and keeps them.
+    /// **A read's end with a cursor drawn or the second surface
+    /// displayed**: if the read left the envelope, by a cancel, the
+    /// cursors go -- the output cursor "only appears when the terminal is
+    /// in ReGIS mode" (`[[source: vt3xx-regis-intro]]`) -- and the first
+    /// surface is displayed again ([`Regis::show_first`]); `ST` did both
+    /// as it ended the envelope. An `ESC` a read ends on is still
+    /// undecided, the envelope open, and keeps them. Text written after a
+    /// cancel clears its cells of the first too, and a page it leaves with
+    /// nothing lit is freed only once the first shows
+    /// (`ImageStore::repaint_page`).
     #[cold]
     #[inline(never)]
     pub(crate) fn regis_read_ends(&mut self) {
         if self.regis_inside() == RegisEnvelope::Closed {
             erase(&mut self.store.images, self.store.strs.regis);
+            let strs = &mut self.store.strs;
+            show_first(&mut self.store.images, strs.regis_page, strs.regis);
         }
     }
 
@@ -1058,7 +1262,7 @@ impl Term<'_> {
         let strs = &mut self.store.strs;
         draw(
             &mut self.store.images,
-            &mut strs.regis_page,
+            (&mut strs.regis_page, strs.regis_second),
             strs.regis,
             want,
             (marks, make),

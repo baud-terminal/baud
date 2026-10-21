@@ -417,3 +417,247 @@ fn a_blinking_flood_and_a_blinking_character_blink() {
         assert_eq!(at(t, 10, 10), GRAY50, "the steady boundary");
     });
 }
+
+// The output cursor shows while an envelope waits, at the drawing
+// position: `S(C0)` turns it off where a test reads the page mid-envelope.
+
+#[test]
+fn the_second_surface_shows_only_while_it_is_displayed() {
+    run(b"", |t| {
+        support::feed(t, b"\x1bPpS(C0)W(I2)P(P1)P[0,0]V[9,0]");
+        assert_eq!(pages(t).len(), 0, "drawn on a surface not displayed");
+        support::feed(t, b"S(P1)");
+        assert_eq!(row(t, 0, 0, 10), n_of(10, RED), "displayed");
+        support::feed(t, b"\x1b\\");
+        assert_eq!(row(t, 0, 0, 10), n_of(10, CLEAR), "the first at the end");
+        assert_eq!(t.regis_counts().unbuilt, 0, "P(P) and S(P) are built");
+    });
+}
+
+/// `bytes` fed in one read to the corpus screen, 200 by 50 cells of 10
+/// by 20 pixels.
+fn one_read(bytes: &[u8]) -> Vec<(Vec<u32>, usize, u64)> {
+    let ws = support::CORPUS;
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(8 << 20));
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_cell_size(baud_domain::ImagePx::of(10), baud_domain::ImagePx::of(20));
+    support::feed(&mut t, bytes);
+    pages(&t)
+}
+
+/// An envelope that ends with the empty second displayed, `end` after it
+/// in the same read: the page left showing the first's red line.
+fn the_first_kept_after(end: &[u8]) {
+    let mut bytes = b"\x1bPpS(C0)W(I2)P[0,0]V[9,0]S(P1)".to_vec();
+    bytes.extend_from_slice(end);
+    let p = one_read(&bytes);
+    assert_eq!(p.len(), 1, "the page kept");
+    assert_eq!(p[0].0[..10].to_vec(), n_of(10, RED), "the first shown");
+}
+
+#[test]
+fn text_after_st_on_the_second_keeps_the_first() {
+    the_first_kept_after(b"\x1b\\\x1b[10;10Hx");
+    // The control: no `S(P1)`.
+    let p = one_read(b"\x1bPpS(C0)W(I2)P[0,0]V[9,0]\x1b\\\x1b[10;10Hx");
+    assert_eq!(p[0].0[..10].to_vec(), n_of(10, RED));
+}
+
+#[test]
+fn text_after_a_cancel_on_the_second_keeps_the_first() {
+    the_first_kept_after(b"\x18\x1b[10;10Hx");
+}
+
+#[test]
+fn an_erase_after_st_on_the_second_keeps_the_first() {
+    the_first_kept_after(b"\x1b\\\x1b[10;1H\x1b[2K");
+}
+
+#[test]
+fn text_after_an_escape_that_leaves_the_second_keeps_the_first() {
+    the_first_kept_after(b"\x1b[10;10Hx");
+}
+
+#[test]
+fn an_erase_of_all_of_the_first_frees_the_page_once_the_first_shows() {
+    // The first's line lies on the first text line, and an erase of that
+    // line clears all of it: the page goes, as it goes without `S(P1)`,
+    // once the first is displayed again, by `ST` at once and after a
+    // cancel at the read's end.
+    let erase = b"\x1b[1;1H\x1b[2K";
+    let mut control = b"\x1bPpS(C0)W(I2)P[0,0]V[9,0]\x1b\\".to_vec();
+    control.extend_from_slice(erase);
+    assert_eq!(one_read(&control).len(), 0, "the control");
+    for end in [&b"\x1b\\"[..], b"\x18"] {
+        let mut bytes = b"\x1bPpS(C0)W(I2)P[0,0]V[9,0]S(P1)".to_vec();
+        bytes.extend_from_slice(end);
+        bytes.extend_from_slice(erase);
+        assert_eq!(one_read(&bytes).len(), 0, "{end:?}");
+    }
+}
+
+#[test]
+fn each_surface_keeps_its_own_picture() {
+    let bytes = regis(&[b"S(C0)W(I1)P[0,2]V[9,2]P(P1)W(I2)P[0,0]V[9,0]S(P1)"]);
+    run(&bytes[..bytes.len() - 2], |t| {
+        assert_eq!(row(t, 0, 0, 10), n_of(10, RED));
+        assert_eq!(
+            row(t, 2, 0, 10),
+            n_of(10, CLEAR),
+            "the first's line not shown"
+        );
+        support::feed(t, b"S(P0)");
+        assert_eq!(row(t, 0, 0, 10), n_of(10, CLEAR));
+        assert_eq!(row(t, 2, 0, 10), n_of(10, BLUE));
+        // Values other than 0 and 1 are ignored.
+        support::feed(t, b"S(P2)P(P7)W(I3)P[0,4]V[9,4]");
+        assert_eq!(
+            row(t, 4, 0, 10),
+            n_of(10, CLEAR),
+            "still drawn on the second"
+        );
+        support::feed(t, b"S(P1)");
+        assert_eq!(row(t, 4, 0, 10), n_of(10, GREEN));
+    });
+}
+
+#[test]
+fn the_drawing_surface_persists_and_each_entry_displays_the_first() {
+    run(&regis(&[b"S(C0)P(P1)"]), |t| {
+        support::feed(t, &regis(&[b"W(I2)P[0,0]V[9,0]"]));
+        assert_eq!(
+            pages(t).len(),
+            0,
+            "drawn on the second, the first displayed"
+        );
+        support::feed(t, b"\x1bPpS(P1)");
+        assert_eq!(row(t, 0, 0, 10), n_of(10, RED));
+        // A cancel ends the envelope as ST does.
+        support::feed(t, b"\x18");
+        assert_eq!(row(t, 0, 0, 10), n_of(10, CLEAR));
+    });
+}
+
+#[test]
+fn s_e_erases_the_drawing_surface() {
+    let bytes = regis(&[b"S(C0)W(I2)P[0,0]V[9,0]P(P1)S(E)S(P0)"]);
+    run(&bytes[..bytes.len() - 2], |t| {
+        assert_eq!(row(t, 0, 0, 10), n_of(10, RED), "the first untouched");
+        support::feed(t, b"S(P1)");
+        assert_eq!(row(t, 0, 0, 10), n_of(10, BLACK), "the second erased");
+        assert_eq!(at(t, 400, 300), BLACK);
+    });
+}
+
+#[test]
+fn the_second_surface_is_the_screen_s_and_the_text_scrolls_the_first() {
+    run(
+        &regis(&[b"S(C0)W(I2)P[0,0]V[9,0]P(P1)W(I1)P[0,0]V[9,0]"]),
+        |t| {
+            support::feed(t, b"\x1b[50;1H\n\n\n");
+            support::feed(t, b"\x1bPpS(P1)");
+            let p = pages(t);
+            assert_eq!(p.len(), 2, "the first's page and one at the window's top");
+            assert_eq!(
+                p[0].0[..10].to_vec(),
+                n_of(10, RED),
+                "the first scrolled away"
+            );
+            assert_eq!(
+                p[1].0[..10].to_vec(),
+                n_of(10, BLUE),
+                "the second where it was drawn"
+            );
+        },
+    );
+}
+
+#[test]
+fn the_cursors_show_on_the_displayed_surface_only() {
+    // The output cursor shows while the envelope waits, but not while the
+    // surface drawn on is not displayed.
+    run(b"", |t| {
+        support::feed(t, b"\x1bPpP[0,0]V[1,0]P(P1)P[300,200]");
+        assert_eq!(at(t, 290, 200), CLEAR, "no cursor on the first");
+        support::feed(t, b"S(P1)");
+        assert_ne!(
+            at(t, 290, 200),
+            CLEAR,
+            "the cursor on the second, displayed"
+        );
+    });
+}
+
+#[test]
+fn a_reset_forgets_the_second_surface() {
+    // RIS drops every image: the second surface made again after it is a
+    // plane of its own, and drawing on it leaves the first's alone. A
+    // Sixel first, so the second's slot is the one a new page's plane takes
+    // after the reset.
+    let mut bytes = b"\x1bPq#1!10~\x1b\\".to_vec();
+    bytes.extend(regis(&[b"S(C0)P(P1)W(I1)P[0,2]V[9,2]"]));
+    run(&bytes, |t| {
+        support::feed(t, b"\x1bc");
+        let again = regis(&[b"S(C0)W(I2)P[0,0]V[9,0]P(P1)W(I1)P[0,2]V[9,2]S(P0)"]);
+        support::feed(t, &again[..again.len() - 2]);
+        assert_eq!(row(t, 0, 0, 10), n_of(10, RED));
+        assert_eq!(
+            row(t, 2, 0, 10),
+            n_of(10, CLEAR),
+            "the second's line not on the first"
+        );
+        support::feed(t, b"S(P1)");
+        assert_eq!(row(t, 2, 0, 10), n_of(10, BLUE));
+        assert_eq!(row(t, 0, 0, 10), n_of(10, CLEAR));
+    });
+}
+
+#[test]
+fn a_resize_while_the_second_is_displayed_keeps_the_first() {
+    // The empty second displayed, the read ends inside the envelope, and
+    // the embedder resizes: the first's line is there again at the end.
+    run(b"", |t| {
+        support::feed(t, b"\x1bPpS(C0)W(I2)P[0,0]V[9,0]S(P1)");
+        assert_eq!(row(t, 0, 0, 10), n_of(10, CLEAR), "the empty second shown");
+        let _ = t.resize(&WinSize {
+            ws_col: 150,
+            ws_row: 40,
+        });
+        support::feed(t, b"\x1b\\");
+        assert_eq!(row(t, 0, 0, 10), n_of(10, RED), "the first's line kept");
+    });
+    // With cells, a resize makes a page of another size at the next
+    // drawing: the page it leaves shows the first's line, as the shell's
+    // text page does, and the new page the second, made again empty at the
+    // new size, until the envelope ends.
+    let ws = WinSize {
+        ws_col: 80,
+        ws_row: 24,
+    };
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(8 << 20));
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_cell_size(baud_domain::ImagePx::of(10), baud_domain::ImagePx::of(20));
+    support::feed(&mut t, b"\x1bPpS(C0)W(I2)P[0,0]V[9,0]S(P1)");
+    let _ = t.resize(&WinSize {
+        ws_col: 60,
+        ws_row: 20,
+    });
+    support::feed(&mut t, b"W(I1)P[0,100]V[9,100]");
+    let p = pages(&t);
+    assert_eq!(p.len(), 2);
+    let old = p.iter().find(|q| q.1 == 800).expect("the page left behind");
+    assert_eq!(old.0[..10].to_vec(), n_of(10, RED), "it shows the first");
+    let new = p.iter().find(|q| q.1 == 600).expect("the new page");
+    assert!(new.0.iter().all(|&c| c == CLEAR), "the second, empty");
+    support::feed(&mut t, b"\x1b\\");
+    let p = pages(&t);
+    let new = p.iter().find(|q| q.1 == 600).expect("the new page");
+    let w = new.1;
+    // 600 by 400: the device's 800 by 480 fitted, 599/799 a pixel, so row
+    // 100 is row 75.
+    assert_eq!(
+        new.0[75 * w..75 * w + 7].to_vec(),
+        n_of(7, BLUE),
+        "the first's new line"
+    );
+}

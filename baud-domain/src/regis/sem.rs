@@ -49,8 +49,7 @@ pub struct RegisCounts {
     /// maintained" (§ 8.5.1.4.1).
     pub space_refused: u32,
     /// Open Extensions (§ 8.8) this interpreter parses and does not act
-    /// on: data movement and drawing surfaces (`P(P)`, the VT340's
-    /// `S(P)`); and `S(N)`, which no DEC text here defines.
+    /// on: data movement; and `S(N)`, which no DEC text here defines.
     pub unbuilt: u32,
     /// Characters no grammar position takes, and keyletters no instruction
     /// names (error 1).
@@ -660,6 +659,12 @@ pub(crate) struct Sem {
     bound: RegisBound,
     /// The blink phase pages are shown in ([`super::Regis::set_blink_phase`]).
     pub(crate) blink_phase: RegisPhase,
+    /// The surface drawn on, `P(P)`: "The active graphics page is the same
+    /// page as the last time you exited ReGIS" (`[[source:
+    /// vt3xx-position]]`), the first after a reset.
+    pub(crate) draw_surface: RegisSurface,
+    /// The surface displayed, `S(P)`: the first at each entry and exit.
+    pub(crate) show_surface: RegisSurface,
     /// The instruction's last flood seed, which a relative seed after it
     /// is measured from.
     seed: Option<Pt>,
@@ -735,6 +740,8 @@ impl Sem {
         bound: RegisBound::Seed,
         seed: None,
         blink_phase: RegisPhase::Shown,
+        draw_surface: RegisSurface::First,
+        show_surface: RegisSurface::First,
     };
 
     /// Record an error for `R(E)`: "Only the most recent error code is kept"
@@ -2355,9 +2362,18 @@ impl Sem {
                     y: part(f.ext[0].y),
                 };
             }
-            // `S(P)` the display page, `S(D)` data movement: Open
-            // Extensions (§ 8.8.1). `S(N)`: no DEC text here defines it.
-            (1, b'P' | b'D' | b'N') => self.counts.unbuilt += 1,
+            // `S(P<n>)`: "This option selects which of two possible
+            // graphics pages the terminal displays ... The terminal ignores
+            // values other than 0 and 1" (`[[source: vt3xx-screen-control]]`).
+            (1, b'P') => {
+                if let Some(s) = f.int().and_then(RegisSurface::of) {
+                    self.show_surface = s;
+                    out.surfaces(self.draw_surface, self.show_surface);
+                }
+            }
+            // `S(D)` data movement: an Open Extension (§ 8.8.1). `S(N)`: no
+            // DEC text here defines it.
+            (1, b'D' | b'N') => self.counts.unbuilt += 1,
             (2, _) if parent.key == b'H' || parent.key == b'C' || parent.key == b'S' => {}
             _ if r >= 2 => {}
             _ => self.error(1, f.key),
@@ -2736,8 +2752,17 @@ impl Sem {
                 Some(Saved::Dummy) | None => {}
             },
             b'W' => {}
-            // `P(P<n>)`, drawing surfaces: an Open Extension.
-            b'P' if own == b'P' => self.counts.unbuilt += 1,
+            // `P(P<n>)`: "Programs may select among these separate surfaces
+            // with the P option to the P command" (§ 8.8.2.1); "The
+            // terminal ignores values other than 0 and 1" (`[[source:
+            // vt3xx-position]]`). "All drawing surfaces share the same state
+            // store", the drawing position among it.
+            b'P' if own == b'P' => {
+                if let Some(s) = f.int().and_then(RegisSurface::of) {
+                    self.draw_surface = s;
+                    out.surfaces(self.draw_surface, self.show_surface);
+                }
+            }
             k => self.error(1, k),
         }
     }

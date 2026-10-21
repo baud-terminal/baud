@@ -347,6 +347,29 @@ pub enum Texture {
     },
 }
 
+/// **One of the VT340's two drawing surfaces**, its "two pages of graphics
+/// page memory", `P(P<n>)` choosing the one drawn on and `S(P<n>)` the one
+/// displayed (070-8 § 8.8.2.1; `[[source: vt3xx-position]]`,
+/// `[[source: vt3xx-screen-control]]`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegisSurface {
+    /// The first, on which the shell's text is written too.
+    First,
+    /// The second.
+    Second,
+}
+
+impl RegisSurface {
+    /// `<n>` as a surface: "The terminal ignores values other than 0 and 1".
+    pub fn of(n: i64) -> Option<RegisSurface> {
+        match n {
+            0 => Some(RegisSurface::First),
+            1 => Some(RegisSurface::Second),
+            _ => None,
+        }
+    }
+}
+
 /// `W(A<n>)`: whether what is drawn takes the blink attribute (070-8
 /// § 8.8.3.1).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -666,6 +689,8 @@ pub trait RegisOut {
     fn fill(&mut self, points: &[RegisPoint], ends: &[u16], pen: &RegisPen);
     /// Flood from `seed`, bounded as `bound` says (§ 8.8.6).
     fn flood(&mut self, seed: RegisPoint, bound: RegisBound, pen: &RegisPen);
+    /// The surface drawn on and the one displayed changed (§ 8.8.2.1).
+    fn surfaces(&mut self, draw: RegisSurface, show: RegisSurface);
     /// A character.
     fn glyph(&mut self, g: &RegisGlyph<'_>, pen: &RegisPen);
     /// `S(E)`: the whole page to `bg`.
@@ -1019,6 +1044,10 @@ impl Regis {
             false => Display::Off,
         };
         self.sem.display_col = 0;
+        // "When you enter ReGIS, the currently displayed graphics page is
+        // the same as the previously displayed text page": the first, the
+        // shell's (`[[source: vt3xx-position]]`).
+        self.sem.show_surface = RegisSurface::First;
         if e.resync() {
             self.resync(out);
         }
@@ -1187,6 +1216,27 @@ impl Regis {
     /// The background index `S(I)` names.
     pub fn background(&self) -> RegisIndex {
         self.sem.bg
+    }
+
+    /// The surface drawn on and the one displayed, `P(P)` and `S(P)`.
+    pub fn surfaces(&self) -> (RegisSurface, RegisSurface) {
+        (self.sem.draw_surface, self.sem.show_surface)
+    }
+
+    /// **The first surface displayed again**, as the envelope ends: the
+    /// VT340's "When you exit ReGIS, the displayed text page becomes the
+    /// same as the active text page (if the Page Coupling feature ... is
+    /// enabled)" (`[[source: vt3xx-position]]`), coupling the default
+    /// (`[[source: vt420-uu-ch9]]`, DECPCCM "Coupled. (D)"), and baud's
+    /// text has one page. Whether the displayed surface changed.
+    pub fn show_first(&mut self) -> RegisRepainted {
+        match self.sem.show_surface {
+            RegisSurface::First => RegisRepainted::No,
+            RegisSurface::Second => {
+                self.sem.show_surface = RegisSurface::First;
+                RegisRepainted::Yes
+            }
+        }
     }
 
     /// **The blink phase pages are shown in**, set by the embedder at each

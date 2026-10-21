@@ -439,6 +439,8 @@ pub struct StrBuf<'b> {
     /// The page ReGIS draws on (`crate::regis`): which images, anchored
     /// where. Read only by ReGIS.
     pub(crate) regis_page: crate::regis::Page,
+    /// The second drawing surface (`crate::regis::Second`).
+    pub(crate) regis_second: crate::regis::Second,
     /// The ticks of the `S(T)` delays a held read stopped at, for the
     /// embedder to take (`Term::take_regis_wait`).
     pub(crate) regis_wait: Option<RegisTicks>,
@@ -566,6 +568,7 @@ impl<'b> StrBuf<'b> {
             sixel,
             regis,
             regis_page: crate::regis::Page::NONE,
+            regis_second: crate::regis::Second::NONE,
             regis_wait: None,
             kitty,
             kitty_scratch,
@@ -872,6 +875,7 @@ impl Owned {
                 sixel: &mut self.sixel,
                 regis: &mut self.regis,
                 regis_page: crate::regis::Page::NONE,
+                regis_second: crate::regis::Second::NONE,
                 regis_wait: None,
                 kitty: &mut self.kitty,
                 kitty_scratch: &mut self.kitty_scratch,
@@ -946,6 +950,7 @@ impl Owned {
                 sixel: &mut self.sixel,
                 regis: &mut self.regis,
                 regis_page: crate::regis::Page::NONE,
+                regis_second: crate::regis::Second::NONE,
                 regis_wait: None,
                 kitty: &mut self.kitty,
                 kitty_scratch: &mut self.kitty_scratch,

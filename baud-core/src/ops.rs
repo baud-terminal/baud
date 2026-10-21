@@ -4085,6 +4085,9 @@ impl Paint<'_, '_> {
         // defaults "after you power up or reset the terminal"
         // (`[[source: vt3xx-regis-intro]]`).
         self.strs.regis.reset();
+        // The second drawing surface goes with it, its memory with the
+        // images below; a plane made after the reset is its own.
+        self.strs.regis_second.free(self.images);
         // **The printer to its power-up state** (`print.rs`): an autoprint
         // run's job ends, kept for the embedder, and DECPFF and DECPEX go
         // back to their defaults; the port is the embedder's, and a printer

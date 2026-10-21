@@ -461,3 +461,18 @@ fn a_blinking_pixel_prints_its_own_colour_when_hidden() {
         );
     });
 }
+
+/// **A hard copy prints the surface displayed**: under `S(P1)` the
+/// second's line, and the first's not.
+#[test]
+fn a_hard_copy_prints_the_surface_displayed() {
+    let body = b"\x1bPpP[100,50]V[200,50]P(P1)P[100,100]V[200,100]S(P1)S(H)S(P0)S(H)\x1b\\";
+    run(1 << 20, body, |t| {
+        let j = jobs(t);
+        assert_eq!(j.len(), 2);
+        let (w, _, px) = decode(&j[0]);
+        assert_eq!(ink_box(w, &px), Some((100, 100, 201, 101)), "the second");
+        let (w, _, px) = decode(&j[1]);
+        assert_eq!(ink_box(w, &px), Some((100, 50, 201, 51)), "the first");
+    });
+}

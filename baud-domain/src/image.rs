@@ -415,6 +415,16 @@ impl KittyPlacement {
     }
 }
 
+/// **Which plane the page being drawn shows**: its own, the first
+/// surface's, or another, the second's under ReGIS `S(P1)`, and whether a
+/// clear took its count to 0 while it did.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum PageShows {
+    Own,
+    Other,
+    OtherCleared,
+}
+
 /// **Which protocol stored an image**, because they free it differently.
 /// A Sixel or an embedder's image is freed with its last placement, and text
 /// written over it erases it. A kitty image outlives its placements -- `a=t`
@@ -1316,6 +1326,13 @@ pub struct ImageStore<'b> {
     /// from ([`ImageStore::link_page`]), so text written over the page
     /// clears both.
     page_plane: Option<(ImageId, ImageId)>,
+    /// **Which plane the page being drawn shows**, the last it was
+    /// repainted from ([`ImageStore::repaint_page`]). While it shows
+    /// another, its lit count is that plane's, and a count of 0 says
+    /// nothing of its own plane's picture: text or an erase that clears
+    /// the page then frees neither, and the page is freed when it shows
+    /// its own again with nothing lit.
+    page_shows: PageShows,
     /// How the page being drawn shows its plane, `S(S)`
     /// ([`ImageStore::set_page_zoom`]): scaled, a move of its rows or text
     /// over it moves or clears whole blocks of page pixels.
@@ -1382,6 +1399,7 @@ impl<'b> ImageStore<'b> {
             free_from: 0,
             local_placed: 0,
             page_plane: None,
+            page_shows: PageShows::Own,
             page_zoom: crate::regis::RegisZoom::ONE,
             reach: [None; 2],
             tallest: ImagePx::ZERO,
@@ -2291,6 +2309,14 @@ impl<'b> ImageStore<'b> {
             return;
         };
         paint(px, pl);
+        let was = self.page_shows;
+        if let Some((_, own)) = self.page_plane.filter(|&(p, _)| p == page) {
+            self.page_shows = match (plane == own, was) {
+                (true, _) => PageShows::Own,
+                (false, PageShows::OtherCleared) => PageShows::OtherCleared,
+                (false, _) => PageShows::Other,
+            };
+        }
         let after = self.lit_in(s, rect);
         if let Some(slot) = page.index().and_then(|i| self.slots.get_mut(i)) {
             slot.lit = slot
@@ -2298,6 +2324,11 @@ impl<'b> ImageStore<'b> {
                 .map(|n| n.saturating_sub(before).saturating_add(after));
         }
         self.epoch = self.epoch.bumped();
+        // A clear that would have freed the page while it showed another
+        // plane frees it now, if its own shows nothing.
+        if was == PageShows::OtherCleared && self.page_shows == PageShows::Own {
+            self.free_if_unlit(page);
+        }
     }
 
     /// **Carry a page's lines still on the screen onto the page that
@@ -2368,7 +2399,10 @@ impl<'b> ImageStore<'b> {
             self.slots[i].lit = Some(moved);
         }
         self.unlit(old, left);
+        // The new page shows what the old one showed.
+        let shows = self.page_shows;
         self.link_page(new, plane);
+        self.page_shows = shows;
         self.free_if_unlit(old);
         self.epoch = self.epoch.bumped();
         true
@@ -2410,6 +2444,11 @@ impl<'b> ImageStore<'b> {
         if s.is_empty() || s.owner != ImageOwner::Regis || s.lit != Some(0) {
             return false;
         }
+        if self.page_plane.is_some_and(|(page, _)| page == id) && self.page_shows != PageShows::Own
+        {
+            self.page_shows = PageShows::OtherCleared;
+            return false;
+        }
         if let Some((page, plane)) = self.page_plane {
             if page == id {
                 self.free(plane);
@@ -2424,6 +2463,26 @@ impl<'b> ImageStore<'b> {
         if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
             s.lit = s.lit.map(|n| n.saturating_sub(cleared));
         }
+    }
+
+    /// **A ReGIS image's bytes**, lent: a plane not placed anywhere, such as
+    /// the second drawing surface's. `None` unless `id` is a live ReGIS
+    /// image.
+    pub fn regis_bytes_mut(&mut self, id: ImageId) -> Option<&mut [u8]> {
+        let s = *self.slots.get(id.index()?)?;
+        if s.is_empty() || s.owner != ImageOwner::Regis {
+            return None;
+        }
+        Some(self.pixels[s.start()..s.end()].as_mut_bytes())
+    }
+
+    /// A ReGIS image's bytes, read ([`ImageStore::regis_bytes_mut`]).
+    pub fn regis_bytes(&self, id: ImageId) -> Option<&[u8]> {
+        let s = *self.slots.get(id.index()?)?;
+        if s.is_empty() || s.owner != ImageOwner::Regis {
+            return None;
+        }
+        Some(self.pixels[s.start()..s.end()].as_bytes())
     }
 
     /// **The indices `page` is drawn from**, read: its plane, a byte a
@@ -2444,6 +2503,7 @@ impl<'b> ImageStore<'b> {
     /// The page being drawn is `page`, drawn from the indices in `plane`.
     pub fn link_page(&mut self, page: ImageId, plane: ImageId) {
         self.page_plane = Some((page, plane));
+        self.page_shows = PageShows::Own;
     }
 
     /// **How the page being drawn shows its plane**: the scale `S(S)`
@@ -2669,6 +2729,7 @@ impl<'b> ImageStore<'b> {
         self.free_from = 0;
         self.local_placed = 0;
         self.page_plane = None;
+        self.page_shows = PageShows::Own;
         self.reach = [None; 2];
         self.tallest = ImagePx::ZERO;
         self.probe_size = None;

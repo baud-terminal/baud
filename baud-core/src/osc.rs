@@ -451,7 +451,13 @@ impl Paint<'_, '_> {
             // next envelope; its cursors go with the envelope, "the ReGIS
             // locator will be disabled until ReGIS is re-entered" (070-13
             // § 5.2) and the output cursor shows only "in ReGIS mode".
-            StrKind::Regis => self.regis_cursor_off(),
+            // The first surface is displayed again here, before any text
+            // that follows, as the VT340's coupled pages have it; a cancel
+            // displays it at the read's end (`Term::regis_read_ends`).
+            StrKind::Regis => {
+                self.regis_cursor_off();
+                crate::regis::show_first(self.images, self.strs.regis_page, self.strs.regis);
+            }
             StrKind::LocatorKeys => self.locator_keys_end(),
             StrKind::Other | StrKind::Apc => {
                 self.strings_ignored += 1;
