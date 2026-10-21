@@ -409,6 +409,18 @@ pub const VLNEXT: usize = 14;
 #[cfg(not(target_os = "macos"))]
 pub const VLNEXT: usize = 15;
 
+/// **The `c_cc` entries xterm's paste filter reads for `STTY`**, in
+/// `removeControls`' order (`[[source: xterm-button]]` 2609-2655): VEOF,
+/// VEOL, VERASE, VINTR, VKILL, VQUIT, VSTART, VSTOP, VSUSP, then those the
+/// system has of VDISCARD, VDSUSP, VEOL2, VLNEXT, VREPRINT, VSTATUS, VSWTC
+/// and VWERASE. Darwin's from its header, which the probe holds; glibc's
+/// from its header (`[[source: glibc-2-40-termios-c-cc]]`), which the
+/// probe holds where it runs on Linux.
+#[cfg(target_os = "macos")]
+pub const STTY_CHARS: &[usize] = &[0, 1, 3, 8, 5, 9, 12, 13, 10, 15, 11, 2, 14, 6, 18, 4];
+#[cfg(not(target_os = "macos"))]
+pub const STTY_CHARS: &[usize] = &[4, 11, 2, 0, 3, 1, 8, 9, 10, 13, 16, 15, 12, 7, 14];
+
 /// `_POSIX_VDISABLE`, a control character that is switched off.
 #[cfg(target_os = "macos")]
 pub const POSIX_VDISABLE: u8 = 0xff;
@@ -783,6 +795,35 @@ int main(void) {
     printf("TCSANOW=%lld\n", (long long)TCSANOW);
     printf("MAP_FIXED=%lld\n", (long long)MAP_FIXED);
     printf("getpagesize=%lld\n", (long long)getpagesize());
+    {
+        const int stty[] = {VEOF, VEOL, VERASE, VINTR, VKILL, VQUIT, VSTART, VSTOP, VSUSP,
+#ifdef VDISCARD
+            VDISCARD,
+#endif
+#ifdef VDSUSP
+            VDSUSP,
+#endif
+#ifdef VEOL2
+            VEOL2,
+#endif
+            VLNEXT,
+#ifdef VREPRINT
+            VREPRINT,
+#endif
+#ifdef VSTATUS
+            VSTATUS,
+#endif
+#ifdef VSWTC
+            VSWTC,
+#endif
+#ifdef VWERASE
+            VWERASE,
+#endif
+        };
+        printf("stty.len=%zu\n", sizeof stty / sizeof stty[0]);
+        for (size_t i = 0; i < sizeof stty / sizeof stty[0]; i++)
+            printf("stty.%zu=%d\n", i, stty[i]);
+    }
 #ifdef CLOCK_UPTIME_RAW
     printf("CLOCK_UPTIME_RAW=%lld\n", (long long)CLOCK_UPTIME_RAW);
 #endif
@@ -966,6 +1007,10 @@ int main(void) {
         assert_eq!(h["IUTF8"], i128::from(IUTF8));
         assert_eq!(h["NCCS"], NCCS as i128);
         assert_eq!(h["VLNEXT"], VLNEXT as i128);
+        assert_eq!(h["stty.len"], STTY_CHARS.len() as i128, "STTY's entries");
+        for (i, v) in STTY_CHARS.iter().enumerate() {
+            assert_eq!(h[&format!("stty.{i}")], *v as i128, "STTY's entry {i}");
+        }
         assert_eq!(h["_POSIX_VDISABLE"], i128::from(POSIX_VDISABLE));
         assert_eq!(h["TCSANOW"], i128::from(TCSANOW));
         assert_eq!(h["MAP_FIXED"], i128::from(MAP_FIXED));

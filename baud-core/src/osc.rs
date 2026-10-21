@@ -812,8 +812,9 @@ impl Paint<'_, '_> {
     /// a category is allowed when baud honours every one of its
     /// subcategories, and a category it does not lists those it refuses.
     /// Decided by Jev, 0.98 both orders, over silence and xterm's defaults.
-    /// The paste controls are the embedder's to filter, and the core names
-    /// none and does not claim the category. A malformed query is counted.
+    /// The paste controls are the embedder's to filter: `OSC 61` names
+    /// those it says it replaces, none until it says, and `OSC 60` never
+    /// claims the category. A malformed query is counted.
     fn report_allowed(&mut self, q: AllowQuery, term: StringTerm) {
         let facts = Facts {
             font: match (self.strs.fonts.known(), self.strs.fonts.changes) {
@@ -836,6 +837,7 @@ impl Paint<'_, '_> {
                 (false, Osc52Writes::On) => Clipboard::Provisioned,
                 _ => Clipboard::Unprovisioned,
             },
+            paste: self.strs.window_asks.paste,
         };
         let mut out = AllowList::new(match q {
             AllowQuery::Allowed => b"60",
@@ -962,7 +964,10 @@ impl Paint<'_, '_> {
 fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
     match c {
         AllowCategory::ColorOps => sub == b"GetAnsiColor",
-        AllowCategory::PasteControls | AllowCategory::TitleOps => true,
+        // **The paste controls the embedder replaces**
+        // ([`crate::Term::set_paste_controls`]), none until it says.
+        AllowCategory::PasteControls => !facts.paste.disallows(sub),
+        AllowCategory::TitleOps => true,
         AllowCategory::FontOps => match sub {
             b"GetFont" => facts.font != Fonts::Untold,
             b"SetFont" => facts.font == Fonts::Changeable,
@@ -1006,6 +1011,7 @@ struct Facts {
     window: WindowFacts,
     cell: Cell,
     clipboard: Clipboard,
+    paste: PasteControls,
 }
 
 /// Whether the embedder has told the cell's size (`Term::set_cell_size`),

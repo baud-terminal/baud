@@ -1176,6 +1176,26 @@ impl Pty {
         unsafe { BorrowedFd::borrow_raw(self.master) }
     }
 
+    /// **The tty's special characters**, which a paste replaces as xterm's
+    /// `STTY` does (`paste::FILTER`): the `c_cc` entries
+    /// [`crate::sys::STTY_CHARS`] names, as `tcgetattr` reads them on the
+    /// manager; none when they cannot be read.
+    pub fn specials(&self) -> crate::paste::Specials {
+        let mut t = core::mem::MaybeUninit::<crate::sys::Termios>::uninit();
+        // SAFETY: a termios-sized, termios-aligned block, which the call
+        // fills when it succeeds.
+        if unsafe { crate::sys::tcgetattr(self.master, t.as_mut_ptr()) } != 0 {
+            return crate::paste::Specials::default();
+        }
+        // SAFETY: the call above succeeded, so the block is initialised.
+        let t = unsafe { t.assume_init() };
+        crate::paste::Specials::of(
+            &t.c_cc,
+            crate::sys::STTY_CHARS,
+            crate::paste::Disabled(crate::sys::POSIX_VDISABLE),
+        )
+    }
+
     /// The tty's literal-next character, which a `?2005` paste puts
     /// before each byte: `c_cc[VLNEXT]` as `tcgetattr` reads it on the
     /// manager, or Control-V when it cannot be read or is switched off, as

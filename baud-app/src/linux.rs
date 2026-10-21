@@ -924,7 +924,7 @@ impl Driver {
         self.caret.input(Instant::now());
         self.flush_reply();
         let pty = &self.pty;
-        let form = crate::paste::form(&self.term, || pty.literal_next());
+        let form = crate::paste::form(&self.term, || pty.literal_next(), || pty.specials());
         self.outbox.push(&crate::paste::bytes(text, form));
         self.flush_reply();
     }

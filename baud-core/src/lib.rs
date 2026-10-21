@@ -155,7 +155,7 @@ pub use baud_domain::{FontChanges, FontSize, SizeStep};
 /// The window requests `Term::window_requests` holds, and the setting
 /// `Term::set_window_ops` takes.
 pub use baud_domain::{
-    FullScreen, LogMode, Logging, Maximize, Osc52Writes, SizeAsk, WindowAbilities,
+    FullScreen, LogMode, Logging, Maximize, Osc52Writes, PasteControls, SizeAsk, WindowAbilities,
     WindowManipulation, WindowOps, WindowRequest,
 };
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};

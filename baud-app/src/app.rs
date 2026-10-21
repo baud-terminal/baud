@@ -10128,7 +10128,7 @@ impl Driver {
         // bytes on Darwin -- waited in `write(2)` for the child to read it.
         self.app.flush_reply();
         let pty = &self.app.pty;
-        let form = crate::paste::form(&self.app.term, || pty.literal_next());
+        let form = crate::paste::form(&self.app.term, || pty.literal_next(), || pty.specials());
         self.app.outbox.push(&crate::paste::bytes(&text, form));
         self.app.flush_reply();
     }

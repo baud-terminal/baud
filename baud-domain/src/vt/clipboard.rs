@@ -246,6 +246,56 @@ pub enum Osc52Writes {
     Off,
 }
 
+/// **Which control characters the embedder replaces in a paste**, which
+/// `OSC 61 ; allowPasteControls` names: `Untold` until it says, and the
+/// core claims nothing; `XtermDefault` for xterm's default
+/// `disallowedPasteControls`, "BS,DEL,ENQ,EOT,ESC,NUL,STTY", each
+/// replaced by a space while `allowPasteControls` is false, its default
+/// (`[[source: xterm-man]]`; `removeControls`, `[[source: xterm-button]]`
+/// 2582-2690), where every other C0 control passes unchanged.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PasteControls {
+    #[default]
+    Untold,
+    XtermDefault,
+}
+
+/// xterm's default set: each name, and the byte it is when it is one;
+/// `STTY` is the tty's special characters, read when a paste is sent.
+const XTERM_DISALLOWED: [(&[u8], Option<u8>); 7] = [
+    (b"BS", Some(0x08)),
+    (b"DEL", Some(0x7f)),
+    (b"ENQ", Some(0x05)),
+    (b"EOT", Some(0x04)),
+    (b"ESC", Some(0x1b)),
+    (b"NUL", Some(0x00)),
+    (b"STTY", None),
+];
+
+impl PasteControls {
+    /// Whether the paste-control subcategory `name` is disallowed.
+    pub fn disallows(self, name: &[u8]) -> bool {
+        match self {
+            PasteControls::Untold => false,
+            PasteControls::XtermDefault => XTERM_DISALLOWED.iter().any(|(n, _)| *n == name),
+        }
+    }
+
+    /// Whether a paste replaces `byte` whatever the tty says: one of the
+    /// six named characters.
+    pub fn replaces(self, byte: u8) -> bool {
+        match self {
+            PasteControls::Untold => false,
+            PasteControls::XtermDefault => XTERM_DISALLOWED.iter().any(|(_, b)| *b == Some(byte)),
+        }
+    }
+
+    /// Whether the tty's special characters are replaced too (`STTY`).
+    pub fn stty(self) -> bool {
+        self.disallows(b"STTY")
+    }
+}
+
 /// How much clipboard memory a terminal is given: the largest copy it will
 /// hold, in octets of text.
 ///

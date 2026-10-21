@@ -333,14 +333,19 @@ pub fn set_window_ops(term: &mut baud_core::Term<'_>, ops: baud_domain::WindowOp
 /// Tell the core which window manipulations the driver carries out and
 /// whether it puts a program's `OSC 52` write on the clipboard, so `OSC
 /// 61 ; allowWindowOps` lists what it does not do: `winops::mac_abilities`
-/// or `winops::wayland_abilities`, and `[clipboard] osc52`. One function
-/// for both drivers, called before the first feed.
+/// or `winops::wayland_abilities`, and `[clipboard] osc52`; and the
+/// control characters every paste replaces (`paste::FILTER`), for `OSC 61
+/// ; allowPasteControls`. One function for both drivers, called before the
+/// first feed.
 pub fn set_window_abilities(
     term: &mut baud_core::Term<'_>,
     a: baud_core::WindowAbilities,
     osc52: crate::config::Osc52,
 ) {
     term.set_window_abilities(a);
+    // Every paste goes through `paste.rs`, which replaces xterm's default
+    // controls on both systems, so `OSC 61 ; allowPasteControls` names them.
+    term.set_paste_controls(crate::paste::FILTER);
     term.set_osc52_writes(match osc52 {
         crate::config::Osc52::Write => baud_core::Osc52Writes::On,
         crate::config::Osc52::Off => baud_core::Osc52Writes::Off,
@@ -932,6 +937,12 @@ mod tests {
         );
         let off = ask(crate::winops::mac_abilities(), crate::config::Osc52::Off);
         assert!(off.ends_with(",GetSelection,SetSelection\x07"), "{off}");
+        // The paste controls both drivers' pastes replace, named.
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        super::set_window_abilities(&mut t, crate::winops::mac_abilities(), write);
+        feed(&mut t, b"\x1b]61;allowPasteControls\x07");
+        assert_eq!(t.reply(), b"\x1b]61;NUL,EOT,ENQ,BS,ESC,DEL,STTY\x07");
         // Spelled apart, so this test's own text is not what it finds.
         const CALL: &str = concat!("crate::host::", "set_window_abilities(");
         for (driver, src, policy, osc52) in [

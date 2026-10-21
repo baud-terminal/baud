@@ -985,10 +985,10 @@ tests = ["baud-render/tests/select.rs::a_wrapped_row_joins_the_next_and_a_newlin
 id = "safe-paste"
 area = "input"
 name = "Pastes can't run commands"
-does = "A paste is marked as one for programs that ask, so a line break in it never runs a command and pasted text can't break out of the paste."
+does = "A paste is marked as one for programs that ask, so a line break in it never runs a command and pasted text can't break out of the paste. As in xterm, Escape, Control-C and the other characters your shell treats specially become spaces in a paste."
 status = "built"
 platform = "both"
-tests = ["baud-app/src/paste.rs::a_paste_is_bracketed_when_asked_and_its_line_endings_are_typed_otherwise"]
+tests = ["baud-app/src/paste.rs::a_paste_is_bracketed_when_asked_and_its_line_endings_are_typed_otherwise", "baud-app/src/paste.rs::a_paste_replaces_xterms_default_controls_with_a_space", "baud-core/tests/xterm/osc.rs::osc_61_names_the_paste_controls_the_embedder_replaces"]
 rows = ["vt:`CSI ? 2004 h/l`"]
 chips = ["bracketed paste"]
 

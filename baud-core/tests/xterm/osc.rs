@@ -600,6 +600,23 @@ fn osc_60_names_the_categories_baud_honours_whole() {
     assert_eq!(r, b"\x1b]60;allowMouseOps,allowTitleOps\x1b\\");
 }
 
+/// **`OSC 61 ; allowPasteControls` names what the embedder replaces in a
+/// paste**: nothing until it says, and once it says xterm's default,
+/// xterm's own list, "BS,DEL,ENQ,EOT,ESC,NUL,STTY" (`[[source:
+/// xterm-man]]`), in the order of xterm's table (`OSC 62`'s); `OSC 60`
+/// still does not claim the category.
+#[test]
+fn osc_61_names_the_paste_controls_the_embedder_replaces() {
+    let (r, _) = reply_of(b"\x1b]61;allowPasteControls\x07", |_| {});
+    assert_eq!(r, b"\x1b]61\x07", "untold");
+    let told = |t: &mut Term<'_>| t.set_paste_controls(PasteControls::XtermDefault);
+    let (r, n) = reply_of(b"\x1b]61;allowPasteControls\x07", told);
+    assert_eq!(r, b"\x1b]61;NUL,EOT,ENQ,BS,ESC,DEL,STTY\x07");
+    assert_eq!(n, 0);
+    let (r, _) = reply_of(b"\x1b]60\x07", told);
+    assert_eq!(r, b"\x1b]60;allowMouseOps,allowTitleOps\x07");
+}
+
 /// **`OSC 61 ; cat`, XTQDISALLOWED, names the subcategories baud
 /// refuses**: "the optional
 /// runtime feature subcategories which would be disallowed if the main

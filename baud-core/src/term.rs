@@ -3566,6 +3566,14 @@ impl<'b> Term<'b> {
         self.store.strs.window_asks.clipboard = w;
     }
 
+    /// **Tell the core which control characters the embedder replaces in
+    /// a paste**, so `OSC 61 ; allowPasteControls` names them. Untold, the
+    /// core claims nothing and the list is empty; the core filters no
+    /// paste itself, which never passes through it.
+    pub fn set_paste_controls(&mut self, p: PasteControls) {
+        self.store.strs.window_asks.paste = p;
+    }
+
     /// **The family the embedder draws in**, and whether at the size its
     /// configuration gives: what `OSC 50 ; ?` answers (`crate::font`).
     /// Told at start-up and after every change the embedder makes, a

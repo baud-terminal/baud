@@ -30323,3 +30323,17 @@ bytes  = 120492
 status = "external"
 group  = "J"
 # Fetched 2026-10-21 (lane b131): how compositors and terminals treat a copy without the keyboard. Read, not copied.
+
+[sources.glibc-2-40-termios-c-cc]
+key    = "glibc-2-40-termios-c-cc"
+title  = "glibc 2.40, sysdeps/unix/sysv/linux/bits/termios-c_cc.h -- the c_cc indices, VINTR 0 to VEOL2 16"
+author = "the Free Software Foundation (LGPL-2.1-or-later)"
+year   = 2024
+venue  = "the GNU C Library, glibc-2.40"
+url    = "https://raw.githubusercontent.com/bminor/glibc/glibc-2.40/sysdeps/unix/sysv/linux/bits/termios-c_cc.h"
+file   = ""
+sha256 = "4414ed57966843e0114a112bc96fcca5e6109aa202cf98237e107dc05f8604ec"
+bytes  = 1279
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b131): the Linux indices of the tty special characters a paste replaces (xterm's STTY). Read, not copied.

@@ -14,8 +14,8 @@
 //! ([`WindowOps::Off`]).
 
 use baud_domain::{
-    ByteLen, InputEncoding, ModeChange, Osc52Writes, ParamIdx, Report, TitleMode, TitleModes,
-    WindowAbilities, WindowOp, WindowOps, WindowRequest,
+    ByteLen, InputEncoding, ModeChange, Osc52Writes, ParamIdx, PasteControls, Report, TitleMode,
+    TitleModes, WindowAbilities, WindowOp, WindowOps, WindowRequest,
 };
 
 use crate::paint::Paint;
@@ -66,6 +66,9 @@ pub(crate) struct WindowAsks {
     /// What the embedder does with an `OSC 52` write
     /// ([`crate::Term::set_osc52_writes`]), which `OSC 61` reads.
     pub(crate) clipboard: Osc52Writes,
+    /// What the embedder replaces in a paste
+    /// ([`crate::Term::set_paste_controls`]), which `OSC 61` reads.
+    pub(crate) paste: PasteControls,
     pub(crate) refused: WindowOpsRefused,
     pub(crate) dropped: WindowRequestsDropped,
 }
@@ -81,6 +84,7 @@ impl WindowAsks {
         ops: WindowOps::On,
         abilities: WindowAbilities::NONE,
         clipboard: Osc52Writes::On,
+        paste: PasteControls::Untold,
         refused: WindowOpsRefused(0),
         dropped: WindowRequestsDropped(0),
     };
