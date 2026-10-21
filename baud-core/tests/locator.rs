@@ -65,6 +65,7 @@ enum Step {
 
 fn run(setup: &[u8], steps: &[Step]) -> Vec<String> {
     support::with_term(&WS, |t| {
+        t.set_locator_device(LocatorDevice::Present);
         support::feed(t, setup);
         t.clear_reply();
         steps
@@ -408,6 +409,7 @@ fn a_press_outside_the_rectangle_reports_the_press_first() {
 #[test]
 fn a_one_shot_decelr_reports_one_press_and_disables_the_locator() {
     support::with_term(&WS, |t| {
+        t.set_locator_device(LocatorDevice::Present);
         support::feed(t, b"\x1b[2'z\x1b[1;3'{");
         assert_eq!(t.mouse_tracking(), MouseTracking::Locator);
         assert!(t.locator(press(Left, cell(0, 0), NONE)));
@@ -454,6 +456,7 @@ fn a_request_or_a_press_inside_the_rectangle_leaves_the_locator_on() {
 #[test]
 fn the_locator_and_the_xterm_mouse_reports_do_not_mix() {
     support::with_term(&WS, |t| {
+        t.set_locator_device(LocatorDevice::Present);
         support::feed(t, b"\x1b[?1000h\x1b[1'{");
         assert!(!t.locator(press(Left, cell(0, 0), NONE)));
         support::feed(t, b"\x1b[1'z");
@@ -476,6 +479,7 @@ fn the_locator_and_the_xterm_mouse_reports_do_not_mix() {
 #[test]
 fn a_report_that_does_not_fit_is_dropped_and_a_one_shot_waits() {
     support::with_term(&WS, |t| {
+        t.set_locator_device(LocatorDevice::Present);
         support::feed(t, b"\x1b[2'z\x1b[1'{");
         let before = t.reply_overflows;
         while t.reply_overflows == before {

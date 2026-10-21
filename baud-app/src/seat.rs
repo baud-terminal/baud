@@ -661,6 +661,8 @@ mod tests {
     fn the_locator_takes_the_pointer_under_decelr() {
         let mut owned = Owned::new(&WS);
         let mut t = Term::new(owned.storage(), &WS);
+        // The seat has a pointer, as the driver tells the core.
+        t.set_locator_device(baud_core::LocatorDevice::Present);
         feed(&mut t, &b"line\r\n".repeat(30));
         feed(&mut t, b"\x1b[1'z\x1b[1;3'{");
         let mut seat = Seat::new();
@@ -722,6 +724,8 @@ mod tests {
         };
         let mut owned = Owned::new(&WIDE);
         let mut t = Term::new(owned.storage(), &WIDE);
+        // A pointer, as the drivers tell the core.
+        t.set_locator_device(baud_core::LocatorDevice::Present);
         let mut seat = Seat::new();
         let move_to = |seat: &mut Seat, t: &mut Term<'_>, x: f64| {
             let mut sent = Vec::new();

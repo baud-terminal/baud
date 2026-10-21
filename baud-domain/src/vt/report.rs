@@ -1423,14 +1423,20 @@ pub enum DecReply {
     /// 0.93, taken).
     KeyboardUnknown,
     /// `CSI ? 50 n`: "Locator ready" (070-13 p. 15, PDF 1030), "a locator
-    /// device is plugged in" -- the embedder's pointer, which both of baud's
-    /// drivers feed to the locator; `[[source: vt3xx-tp]]` p. 203, "Locator
-    /// device ready. The terminal detects a locator device."
+    /// device is plugged in" -- the embedder's pointer, once it has said it
+    /// has one ([`LocatorDevice::Present`]); `[[source: vt3xx-tp]]` p. 203,
+    /// "Locator device ready. The terminal detects a locator device."
     LocatorReady,
+    /// `CSI ? 53 n`: "No locator", "no locator is currently plugged in"
+    /// (070-13 p. 15): an embedder that has not said it has a pointer.
+    NoLocator,
     /// `CSI ? 57 ; 1 n`: "Device is Digital Corporate Mouse" (070-13), "the
     /// device as Digital's optional mouse" (`[[source: vt3xx-tp]]` p. 204);
     /// ctlseqs' "Mouse". The other answer, `57;2`, is a tablet.
     LocatorMouse,
+    /// `CSI ? 57 ; 0 n`: "Unknown Locator" (070-13 p. 15), ctlseqs' "Cannot
+    /// identify", the answer it pairs with `?53`: no pointer told.
+    LocatorUnknown,
     /// `CSI ? 73 n` or `CSI ? 70 n`, from the flag.
     DataIntegrity(Integrity),
     /// `CSI ? 83 n`: "not configured for virtual terminals" (070-4).
@@ -1446,7 +1452,9 @@ impl DecReply {
             DecReply::NoUserKeys => &[23],
             DecReply::KeyboardUnknown => &[27, 0, 0],
             DecReply::LocatorReady => &[50],
+            DecReply::NoLocator => &[53],
             DecReply::LocatorMouse => &[57, 1],
+            DecReply::LocatorUnknown => &[57, 0],
             DecReply::DataIntegrity(Integrity::PowerUp) => &[73],
             DecReply::DataIntegrity(Integrity::Ok) => &[70],
             DecReply::SingleSession => &[83],

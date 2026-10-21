@@ -27,6 +27,21 @@ pub enum LocatorOp {
     RequestPosition,
 }
 
+/// Whether the embedder has a pointer to feed the locator (the core's
+/// `Term::locator`): 070-13's "No
+/// locator" against "Locator ready", "a locator device is plugged in"
+/// (p. 15, PDF 1030). **`Absent` until the embedder says**, so a core
+/// embedded with no pointer answers `DSR ?55` with `?53`, "No locator",
+/// and `?56` with `?57;0`, "Unknown Locator", as ctlseqs pairs them, and
+/// DECRQLP and DECEFR with DECLRP's "the locator is unavailable (not
+/// enabled, or physically not present)".
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LocatorDevice {
+    Present,
+    #[default]
+    Absent,
+}
+
 /// DECELR's `Ps` when it enables: "1-Locator reports enabled 2-One shot
 /// (allow one report, then disable)" (070-13 p. 5, PDF 1020).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]

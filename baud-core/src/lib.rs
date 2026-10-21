@@ -155,8 +155,11 @@ pub use baud_domain::{FontChanges, FontSize, SizeStep};
 /// `Term::set_window_ops` takes.
 pub use baud_domain::{FullScreen, LogMode, Logging, Maximize, SizeAsk, WindowOps, WindowRequest};
 pub use baud_domain::{KeyCode, KeyEvent, KeyEventKind, KeypadKey, KittyFlags, Modifiers, PuaKey};
-/// DEC's text locator's vocabulary: what [`Term::locator`] takes.
-pub use baud_domain::{LocatorAt, LocatorButton, LocatorButtons, LocatorInput, LocatorKind};
+/// DEC's text locator's vocabulary: what [`Term::locator`] and
+/// [`Term::set_locator_device`] take.
+pub use baud_domain::{
+    LocatorAt, LocatorButton, LocatorButtons, LocatorDevice, LocatorInput, LocatorKind,
+};
 /// Printing's vocabulary: what [`Term::set_printer`] takes and what
 /// [`Term::print_jobs`], [`Term::print_run`] and [`Term::print_refusals`]
 /// answer.

@@ -1104,6 +1104,9 @@ impl App {
         crate::host::set_widths(&mut term, vs16_width, ambiguous_width);
         crate::host::set_checksum(&mut term, checksum);
         crate::host::set_window_ops(&mut term, window_ops);
+        // AppKit always has a pointer to move: a Mac's trackpad, or the
+        // cursor a mouse or a tablet drives.
+        crate::host::set_locator_device(&mut term, baud_domain::LocatorDevice::Present);
         crate::host::set_logging(&mut term, logging);
         // A printer only where one is listed (`print.rs`; note AW).
         crate::print::set_printer(&mut term, printing, printers_listed());

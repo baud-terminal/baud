@@ -18,7 +18,9 @@ use crate::pointer::{
     At, AxisCode, Button, CursorShape, EventCode, Framing, Gather, Piece, PointerEvent, Press,
 };
 use crate::shm::{Pool, Px};
-use baud_domain::{EventMillis, Focus, KeyEvent, KeyEventKind, Modifiers, premultiply};
+use baud_domain::{
+    EventMillis, Focus, KeyEvent, KeyEventKind, LocatorDevice, Modifiers, premultiply,
+};
 use baud_wayland::{
     Arg, Connection, Event as Wire, Fixed, Handler, Interface, ObjectId, Opcode, Read, Sender,
     protocol,
@@ -550,6 +552,16 @@ impl Window {
                 keys::modifiers(st.mods().effective())
             }
             None => keys::modifiers(self.mods.depressed | self.mods.latched | self.mods.locked),
+        }
+    }
+
+    /// Whether the seat has a pointer: its `capabilities` last named
+    /// `pointer`, "The seat has pointer devices" (`[[source: wayland]]`),
+    /// which the driver tells the core for `DSR ?55` and the locator.
+    pub fn pointer_device(&self) -> LocatorDevice {
+        match self.pointer {
+            Some(_) => LocatorDevice::Present,
+            None => LocatorDevice::Absent,
         }
     }
 

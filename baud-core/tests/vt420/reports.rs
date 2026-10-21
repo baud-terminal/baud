@@ -83,11 +83,11 @@ fn each_private_status_answers_what_baud_has() {
         // be determined", status 0, ready; no keyboard type, since no value
         // names an unidentified keyboard (Jev's lean, 0.81/0.93).
         (b"\x1b[?26n", b"\x1b[?27;0;0n", "keyboard"),
-        // 070-13 p. 15: "?50 Locator ready", "?57;1 Device is Digital
-        // Corporate Mouse": the pointer both drivers feed to DECELR's
-        // locator.
-        (b"\x1b[?55n", b"\x1b[?50n", "locator status"),
-        (b"\x1b[?56n", b"\x1b[?57;1n", "locator type"),
+        // 070-13 p. 15: "?53 No locator", "?57;0 'Unknown Locator'
+        // response": a core no embedder has told of a pointer
+        // (`tests/vt420/locator.rs` has the other half).
+        (b"\x1b[?55n", b"\x1b[?53n", "locator status"),
+        (b"\x1b[?56n", b"\x1b[?57;0n", "locator type"),
         // p. 5-185: "the number of bytes available for macro definitions
         // divided by 16", and baud has no macro memory.
         (b"\x1b[?62n", b"\x1b[0*{", "macro space"),

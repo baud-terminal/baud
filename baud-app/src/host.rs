@@ -330,6 +330,15 @@ pub fn set_window_ops(term: &mut baud_core::Term<'_>, ops: baud_domain::WindowOp
     term.set_window_ops(ops);
 }
 
+/// Tell the core whether there is a pointer for DEC's locator, so `DSR
+/// ?55` answers "Locator ready" only where one is: macOS's, always, and
+/// the Wayland seat's while its capabilities name one. One function for
+/// both drivers, called before the first feed, and on Linux after every
+/// event the window gave.
+pub fn set_locator_device(term: &mut baud_core::Term<'_>, d: baud_domain::LocatorDevice) {
+    term.set_locator_device(d);
+}
+
 /// Tell the core whether a program may log what it sends (`?46`, `OSC
 /// 46`), from `[screen] logging`. One function for both drivers, called
 /// after `Term::new` and before the first feed; each driver writes the log
@@ -871,6 +880,58 @@ mod tests {
                 .count(),
             1,
             "macOS carries it from the config"
+        );
+    }
+
+    /// **Both drivers tell the core whether there is a pointer**, so `DSR
+    /// ?55` says a locator is ready only where one is: macOS once, before
+    /// the first feed, and Linux after each turn's events, from the seat.
+    /// Untold, the core says there is none. The drivers start AppKit or
+    /// Wayland, which no test drives, so their calls are held in the
+    /// source.
+    #[test]
+    fn the_pointer_reaches_the_core_from_both_drivers() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        feed(&mut t, b"\x1b[?55n");
+        assert_eq!(t.reply(), b"\x1b[?53n", "untold: no locator");
+        t.clear_reply();
+        super::set_locator_device(&mut t, baud_domain::LocatorDevice::Present);
+        feed(&mut t, b"\x1b[?55n");
+        assert_eq!(t.reply(), b"\x1b[?50n", "told: ready");
+        // Spelled apart, so this test's own text is not what it finds.
+        const CALL: &str = concat!("crate::host::", "set_locator_device(");
+        for (driver, src, arg) in [
+            (
+                "macOS",
+                include_str!("app.rs"),
+                "&mut term, baud_domain::LocatorDevice::Present);",
+            ),
+            (
+                "Linux",
+                include_str!("linux.rs"),
+                "&mut d.term, d.window.pointer_device());",
+            ),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+            let rest = src.split(CALL).nth(1).expect("the call");
+            assert!(rest.starts_with(arg), "{driver} says what it has");
+        }
+        let linux = include_str!("linux.rs");
+        let events = linux
+            .split_once(concat!("while let Some(e) = ", "d.window.next_event()"))
+            .expect("the event loop")
+            .1;
+        let end = events
+            .find(concat!("Event::Closed => ", "break 'run,"))
+            .expect("its end");
+        assert!(
+            events[end..].find(CALL).is_some_and(|at| at < 400),
+            "Linux tells it straight after the turn's events"
         );
     }
 

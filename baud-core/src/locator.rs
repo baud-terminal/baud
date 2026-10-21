@@ -25,6 +25,8 @@ pub(crate) struct Locator {
     /// corner omitted read it.
     pub(crate) at: Option<LocatorAt>,
     pub(crate) held: LocatorButtons,
+    /// Whether the embedder has a pointer ([`Term::set_locator_device`]).
+    pub(crate) device: LocatorDevice,
 }
 
 impl Locator {
@@ -38,6 +40,7 @@ impl Locator {
         *self = Locator {
             at: self.at,
             held: self.held,
+            device: self.device,
             ..Locator::default()
         };
     }
@@ -114,6 +117,13 @@ fn reported(cold: &mut Cold) {
     }
 }
 
+/// Whether a DECRQLP or a DECEFR finds a locator: enabled by DECELR and
+/// a pointer told. DECLRP's event 0 is "the locator is unavailable (not
+/// enabled, or physically not present)" -- both halves.
+fn available(cold: &Cold) -> bool {
+    cold.mouse == MouseTracking::Locator && cold.locator.device == LocatorDevice::Present
+}
+
 impl Paint<'_, '_> {
     /// DECELR, DECSLE, DECEFR or DECRQLP: its parameters read here, as a
     /// report's are ([`Paint::answer_query`]).
@@ -175,7 +185,7 @@ impl Paint<'_, '_> {
     /// 2). Otherwise a rectangle that does not contain the locator reports
     /// "immediately and de-activate[s]", and one that does is armed.
     fn filter_rectangle(&mut self, corners: FilterCorners) {
-        if self.cold.mouse != MouseTracking::Locator {
+        if !available(self.cold) {
             self.want_reply(Report::Locator(LocatorReport::Unavailable));
             return;
         }
@@ -202,7 +212,7 @@ impl Paint<'_, '_> {
     /// be a bug" (`GetLocatorPosition`, `[[source: xterm-button-c]]`); the
     /// text says no such thing, and the filter stays.
     fn request_locator_position(&mut self) {
-        if self.cold.mouse != MouseTracking::Locator {
+        if !available(self.cold) {
             self.want_reply(Report::Locator(LocatorReport::Unavailable));
             return;
         }
@@ -223,6 +233,21 @@ impl Paint<'_, '_> {
 }
 
 impl Term<'_> {
+    /// **Tell the core whether the embedder has a pointer** to feed
+    /// [`Term::locator`]: `DSR ?55` answers `?50`, "Locator ready", and
+    /// `?56` `?57;1`, a mouse, once it is [`LocatorDevice::Present`], and
+    /// `?53`, "No locator", and `?57;0` until then, a DECRQLP or a DECEFR
+    /// answering DECLRP's "unavailable". The embedder's to say: no
+    /// sequence changes it, `RIS` included.
+    pub fn set_locator_device(&mut self, d: LocatorDevice) {
+        self.cold.locator.device = d;
+    }
+
+    /// What [`Term::set_locator_device`] last set.
+    pub fn locator_device(&self) -> LocatorDevice {
+        self.cold.locator.device
+    }
+
     /// **The pointer, for DEC's text locator**: every move, enter, leave,
     /// press and release the embedder sees, with the buttons held after
     /// it. Returns whether a report went into the reply buffer.

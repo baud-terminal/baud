@@ -524,6 +524,9 @@ pub fn run() {
                 Event::Closed => break 'run,
             }
         }
+        // The seat's pointer comes and goes with its capabilities: told
+        // after the events, before the next read is parsed.
+        crate::host::set_locator_device(&mut d.term, d.window.pointer_device());
         // The step the macOS display link takes a tick, here a turn; its
         // reply goes with the flush below.
         let (decode, shown) = crate::reads::decode_step(&mut d.term);

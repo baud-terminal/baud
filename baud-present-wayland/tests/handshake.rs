@@ -1362,12 +1362,22 @@ fn a_seat_that_loses_its_pointer_releases_it() {
         "capabilities",
         &[Arg::Uint(protocol::wl_seat::capability::KEYBOARD)],
     );
+    assert_eq!(
+        w.pointer_device(),
+        baud_domain::LocatorDevice::Present,
+        "the control: a pointer named"
+    );
     pump(&mut conn, &mut w);
     let r = server.expect("wp_cursor_shape_device_v1", "destroy");
     assert_eq!(Some(r.sender), device);
     let r = server.expect("wl_pointer", "release");
     assert_eq!(r.sender, pointer);
     assert_eq!(pointer_drain(&mut w), [PointerEvent::Left]);
+    assert_eq!(
+        w.pointer_device(),
+        baud_domain::LocatorDevice::Absent,
+        "the driver tells the core there is no locator"
+    );
 }
 
 /// **Below version 5 each event is its own frame**, and without the

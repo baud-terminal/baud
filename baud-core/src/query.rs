@@ -61,8 +61,14 @@ impl Paint<'_, '_> {
             }),
             DecStatus::UserKeys => Report::DecStatus(DecReply::NoUserKeys),
             DecStatus::Keyboard => Report::DecStatus(DecReply::KeyboardUnknown),
-            DecStatus::LocatorStatus => Report::DecStatus(DecReply::LocatorReady),
-            DecStatus::LocatorType => Report::DecStatus(DecReply::LocatorMouse),
+            DecStatus::LocatorStatus => Report::DecStatus(match self.cold.locator.device {
+                LocatorDevice::Present => DecReply::LocatorReady,
+                LocatorDevice::Absent => DecReply::NoLocator,
+            }),
+            DecStatus::LocatorType => Report::DecStatus(match self.cold.locator.device {
+                LocatorDevice::Present => DecReply::LocatorMouse,
+                LocatorDevice::Absent => DecReply::LocatorUnknown,
+            }),
             DecStatus::MacroSpace => Report::MacroSpace,
             // The checksum of the macro definitions, and there are none:
             // the sum of nothing, negated, is 0.

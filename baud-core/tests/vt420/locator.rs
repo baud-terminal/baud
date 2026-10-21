@@ -14,9 +14,44 @@ const WS: WinSize = WinSize {
     ws_col: 20,
 };
 
+/// **A core embedded with no pointer says it has no locator**, and once
+/// the embedder says it has one, that it is ready: 070-13 p. 15, "?53 No
+/// locator", "?50 Locator ready", "?57;0 'Unknown Locator' response",
+/// "?57;1 Device is Digital Corporate Mouse", the pairs ctlseqs gives ("CSI
+/// ? 5 0 n Locator available ... or CSI ? 5 3 n No Locator"). With none,
+/// a DECRQLP and a DECEFR answer DECLRP's "the locator is unavailable (not
+/// enabled, or physically not present)" though DECELR enabled it.
+#[test]
+fn a_core_with_no_pointer_has_no_locator() {
+    let ask = |device: Option<LocatorDevice>, bytes: &[u8]| {
+        support::with_term(&WS, |t| {
+            if let Some(d) = device {
+                t.set_locator_device(d);
+            }
+            support::feed(t, bytes);
+            show(t.reply())
+        })
+    };
+    let none = None;
+    let told = Some(LocatorDevice::Present);
+    assert_eq!(ask(none, b"\x1b[?55n"), show(b"\x1b[?53n"));
+    assert_eq!(ask(none, b"\x1b[?56n"), show(b"\x1b[?57;0n"));
+    assert_eq!(ask(told, b"\x1b[?55n"), show(b"\x1b[?50n"));
+    assert_eq!(ask(told, b"\x1b[?56n"), show(b"\x1b[?57;1n"));
+    let absent = Some(LocatorDevice::Absent);
+    assert_eq!(ask(absent, b"\x1b[?55n"), show(b"\x1b[?53n"), "untold");
+    for q in [&b"\x1b[1'z\x1b['|"[..], b"\x1b[1'z\x1b[1;1;5;5'w"] {
+        assert_eq!(ask(none, q), show(b"\x1b[0&w"), "{}", show(q));
+    }
+    assert_eq!(ask(told, b"\x1b[1'z\x1b['|"), show(b"\x1b[1;0&w"));
+    // RIS keeps what the embedder said.
+    assert_eq!(ask(told, b"\x1bc\x1b[?55n"), show(b"\x1b[?50n"), "RIS");
+}
+
 /// What `bytes` make a fresh terminal send back, and what they counted.
 fn reply(bytes: &[u8]) -> (String, usize) {
     support::with_term(&WS, |t| {
+        t.set_locator_device(LocatorDevice::Present);
         support::feed(t, bytes);
         (show(t.reply()), t.unsupported_param + t.unsupported)
     })
@@ -122,6 +157,7 @@ fn a_one_shot_decelr_is_disabled_by_its_first_report() {
 #[test]
 fn a_dropped_decrqlp_answer_leaves_a_one_shot_decelr_on() {
     support::with_term(&WS, |t| {
+        t.set_locator_device(LocatorDevice::Present);
         support::feed(t, b"\x1b[2'z");
         let before = t.reply_overflows;
         while t.reply_overflows == before {
