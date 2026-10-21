@@ -202,7 +202,6 @@ fn each_erase_clears_the_page_in_its_positions() {
             &[(0, 1, true), (1, 1, false), (3, 2, false), (4, 2, true)],
             "DECERA",
         ),
-        (b"\x1b[2J", &[(0, 0, false), (19, 4, false)], "ED 2"),
         (
             b"\x1b[4;5H\x1b[3P",
             &[(3, 3, true), (4, 3, false), (19, 3, false), (4, 2, true)],
@@ -385,5 +384,91 @@ fn erm_spares_the_page_over_a_guarded_position() {
         for c in 0..6 {
             assert!(!drawn_at(&px, w, c, 0), "ALL: erased at {c}");
         }
+    });
+}
+
+/// The page placed, if one is: its image's pixels lit by a recount, and
+/// the count the store keeps.
+fn page_lit(t: &Term<'_>) -> Option<(usize, Option<u32>)> {
+    let imgs = t.images();
+    let (_, p) = imgs.placements().next()?;
+    let v = imgs.image(p.image)?;
+    let n = v
+        .pixels
+        .iter()
+        .filter(|px| px.bits() != Pixel::CLEAR.bits())
+        .count();
+    Some((n, imgs.lit(p.image)))
+}
+
+/// **A page with nothing left lit is freed**, with the plane it is drawn
+/// from, as a Sixel with no pixel left is: ED 2, enough ELs to clear every
+/// drawn row, and text written over every drawn cell each free it, and
+/// one row short of that keeps it. A drawing after makes a new page.
+#[test]
+fn a_page_with_nothing_lit_is_freed() {
+    let els = |rows: usize| -> Vec<u8> {
+        (1..=rows)
+            .flat_map(|r| format!("\x1b[{r};1H\x1b[2K").into_bytes())
+            .collect()
+    };
+    let text = |rows: usize| -> Vec<u8> {
+        (1..=rows)
+            .flat_map(|r| format!("\x1b[{r};1H{}", "x".repeat(21)).into_bytes())
+            .collect()
+    };
+    let cases: [(Vec<u8>, bool, &str); 5] = [
+        (b"\x1b[2J".to_vec(), false, "ED 2"),
+        (els(4), true, "EL over rows 1 to 4, row 5 still lit"),
+        (els(6), false, "EL over every drawn row"),
+        (text(4), true, "text over rows 1 to 4"),
+        (text(6), false, "text over every drawn cell"),
+    ];
+    for (bytes, kept, what) in cases {
+        term_run(FILL, |t| {
+            let dropped = t.images().images_dropped;
+            support::feed(t, &bytes);
+            assert_eq!(page_lit(t).is_some(), kept, "{what}");
+            if !kept {
+                assert_eq!(
+                    t.images().images_dropped,
+                    dropped + 2,
+                    "{what}: the page and its plane freed"
+                );
+                support::feed(t, FILL);
+                let (n, kept) = page_lit(t).expect("a new page");
+                assert!(n > 0, "{what}: the next drawing shows");
+                assert_eq!(kept, Some(u32::try_from(n).unwrap()), "{what}: its count");
+            }
+        });
+    }
+}
+
+/// **The store's count of a page's lit pixels is a recount's**, after
+/// every kind of write to the page: drawing, complement drawing over what
+/// is there, text over it, the erases, and lines moving in a band.
+#[test]
+fn the_page_s_lit_count_is_kept_exactly() {
+    let steps: &[&[u8]] = &[
+        FILL,
+        b"\x1bPpW(C)F(V[40,20][140,20][140,90][40,90])\x1b\\",
+        b"\x1b[2;3HHello",
+        b"\x1b[3;1H\x1b[K",
+        b"\x1b[1;5H\x1b[3X",
+        b"\x1b[2;1H\x1b[M",
+        b"\x1b[1;1H\x1b[2L",
+        b"\x1b[2;6r\x1b[6;1H\n\n\x1b[r",
+        b"\x1b[4;4H\x1b[2P",
+        b"\x1bPpS(E)\x1b\\",
+        b"\x1b[10;10H\x1b[1J",
+    ];
+    term_run(b"", |t| {
+        for (i, step) in steps.iter().enumerate() {
+            support::feed(t, step);
+            if let Some((n, kept)) = page_lit(t) {
+                assert_eq!(kept, Some(u32::try_from(n).unwrap()), "after step {i}");
+            }
+        }
+        assert!(page_lit(t).is_some(), "S(E) lit every pixel, still placed");
     });
 }

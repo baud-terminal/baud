@@ -104,6 +104,42 @@ fn painted(page: &(Vec<u32>, usize)) -> Vec<(usize, usize, u32)> {
         .collect()
 }
 
+/// **A drawn cursor keeps the page's count of lit pixels a recount's**:
+/// the output cursor between reads, the move that draws it again, a
+/// one-shot's crosshair, a pointer move and the key that ends the input,
+/// and `ST` taking the cursors away. The store frees a page whose count
+/// reaches zero, so a cursor's pixels left out of it free a page that
+/// still shows them.
+#[test]
+fn a_drawn_cursor_keeps_the_page_s_lit_count_exact() {
+    fn kept(t: &Term<'_>, step: &str) {
+        let imgs = t.images();
+        let (_, p) = imgs.placements().next().expect("a page placed");
+        let v = imgs.image(p.image).expect("its image");
+        let n = v
+            .pixels
+            .iter()
+            .filter(|px| px.bits() != Pixel::CLEAR.bits())
+            .count();
+        assert_eq!(imgs.lit(p.image), Some(u32::try_from(n).unwrap()), "{step}");
+    }
+    term(|t| {
+        read(t, b"\x1bPpF(V[0,0][96,0][96,48][0,48])");
+        kept(t, "the output cursor");
+        read(t, b"P[200,100]");
+        kept(t, "the output cursor moved");
+        read(t, b"R(P(I))");
+        assert_eq!(t.regis_input(), RegisInput::OneShot);
+        kept(t, "the crosshair");
+        pointer(t, LocatorKind::Moved, 60, 30);
+        kept(t, "the crosshair moved");
+        key(t, letter('a'), Modifiers::NONE);
+        kept(t, "the input ended");
+        read(t, b"\x1b\\");
+        kept(t, "the cursors gone");
+    });
+}
+
 // ---------------------------------------------------------------------------
 // One-shot mode.
 // ---------------------------------------------------------------------------

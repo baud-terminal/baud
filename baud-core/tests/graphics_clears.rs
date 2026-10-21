@@ -69,8 +69,8 @@ fn deccolm_s_clear_frees_a_sixel() {
     }
 }
 
-/// **DECCOLM's clear leaves the ReGIS page with nothing drawn**, and the
-/// control without it keeps the fill.
+/// **DECCOLM's clear leaves the ReGIS page with nothing drawn**, and a
+/// page with nothing lit is freed; the control without it keeps the fill.
 #[test]
 fn deccolm_s_clear_clears_the_regis_page() {
     term_run(b"\x1b[?40h", |t| {
@@ -78,6 +78,7 @@ fn deccolm_s_clear_clears_the_regis_page() {
         assert!(lit(t) > 0, "the control, drawn");
         support::feed(t, b"\x1b[?3h");
         assert_eq!(lit(t), 0, "cleared with the screen");
+        assert_eq!(placed(t), 0, "and freed");
     });
 }
 

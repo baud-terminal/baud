@@ -289,10 +289,12 @@ impl Paint<'_, '_> {
             return;
         };
         let map = *self.strs.regis.colors();
-        if let Some((shown, plane)) = self.images.page_planes(page.shown, page.plane) {
-            RegisCanvas::show(plane, page.w, &map, rect, shown);
-            self.images.repainted();
-        }
+        let at = |v: i32| usize::try_from(v.max(0)).unwrap_or(0);
+        let px = (at(rect.x0), at(rect.y0), at(rect.x1), at(rect.y1));
+        self.images
+            .repaint_page(page.shown, page.plane, px, |shown, plane| {
+                RegisCanvas::show(plane, page.w, &map, rect, shown);
+            });
     }
 
     /// The page the next drawing needs.
@@ -358,13 +360,20 @@ pub(crate) fn indicated(regis: &Regis, inside: RegisEnvelope) -> Option<(OneBase
 pub(crate) fn erase(images: &mut ImageStore<'_>, regis: &mut Regis) {
     let d = regis.take_drawn();
     let map = regis.colors();
-    let Some((shown, plane)) = images.page_planes(d.shown, d.plane) else {
-        return;
-    };
     for m in d.marks.iter().flatten() {
-        m.cover(&mut |r| RegisCanvas::show(plane, d.w, map, clip(r, d.w, d.h), shown));
+        m.cover(&mut |r| {
+            let r = clip(r, d.w, d.h);
+            images.repaint_page(d.shown, d.plane, px_of(r), |shown, plane| {
+                RegisCanvas::show(plane, d.w, map, r, shown);
+            });
+        });
     }
-    images.repainted();
+}
+
+/// `r`, held to its page, as the `(x0, y0, x1, y1)` a repaint takes.
+fn px_of(r: RegisRect) -> (usize, usize, usize, usize) {
+    let at = |v: i32| usize::try_from(v.max(0)).unwrap_or(0);
+    (at(r.x0), at(r.y0), at(r.x1), at(r.y1))
 }
 
 /// **Draw `marks` into the page's shown image**, the page placed where the
@@ -389,25 +398,28 @@ pub(crate) fn draw(
     let Some(p) = p else {
         return;
     };
-    let Some((shown, _)) = images.page_planes(p.shown, p.plane) else {
-        return;
-    };
     let map = regis.colors();
-    let (w, h) = (i32::from(p.w.raw()), i32::from(p.h.raw()));
+    // Each rectangle a cursor covers is repainted on its own, so the
+    // page's lit count moves by what the cursor lights there, and what
+    // takes it away moves it back (`ImageStore::repaint_page`).
     for m in marks.iter().flatten() {
-        m.paint(&mut |x, y, tone| {
-            if x < 0 || y < 0 || x >= w || y >= h {
-                return;
-            }
-            let (Ok(x), Ok(y)) = (usize::try_from(x), usize::try_from(y)) else {
-                return;
-            };
-            if let Some(o) = shown.get_mut(y * p.w.index() + x) {
-                *o = map[tone.index().slot()];
-            }
+        m.cover(&mut |r| {
+            let r = clip(r, p.w, p.h);
+            images.repaint_page(p.shown, p.plane, px_of(r), |shown, _| {
+                m.paint(&mut |x, y, tone| {
+                    if x < r.x0 || y < r.y0 || x >= r.x1 || y >= r.y1 {
+                        return;
+                    }
+                    let (Ok(x), Ok(y)) = (usize::try_from(x), usize::try_from(y)) else {
+                        return;
+                    };
+                    if let Some(o) = shown.get_mut(y * p.w.index() + x) {
+                        *o = map[tone.index().slot()];
+                    }
+                });
+            });
         });
     }
-    images.repainted();
     regis.set_drawn(RegisDrawn {
         shown: p.shown,
         plane: p.plane,

@@ -747,7 +747,12 @@ pub struct ImageSlot {
     /// How many of a Sixel's or an embedder's pixels are not clear, counted
     /// the first time an erase reaches it and lowered by what each erase
     /// clears, so freeing the image once none is left reads no pixel twice
-    /// ([`ImageStore::erase`]). `None` until counted.
+    /// ([`ImageStore::erase`]). `None` until counted. **A ReGIS page's is
+    /// kept from the start**, zero when stored and moved by every write to
+    /// its pixels by what that write changed in the pixels it touched: a
+    /// repaint ([`ImageStore::repaint_page`]), text over it, an erase, a
+    /// band's move. So a page with nothing left lit is freed without a
+    /// pixel read twice.
     lit: Option<u32>,
 }
 
@@ -1408,6 +1413,14 @@ impl<'b> ImageStore<'b> {
         };
         let (start, end) = (s.start(), s.end());
         *s = ImageSlot::EMPTY;
+        // A slot reused must not be taken for the page being drawn or its
+        // plane, whose indices text written over the page clears.
+        if self
+            .page_plane
+            .is_some_and(|(page, plane)| page.index() == Some(i) || plane.index() == Some(i))
+        {
+            self.page_plane = None;
+        }
         self.release_free(start, end);
     }
 
@@ -2203,13 +2216,14 @@ impl<'b> ImageStore<'b> {
     /// **Store a ReGIS page**: a `width` x `height` image, every pixel
     /// [`Pixel::CLEAR`], owned by ReGIS ([`ImageOwner::Regis`]) and drawn on
     /// after it is stored, through [`ImageStore::page_planes`] and
-    /// [`ImageStore::repainted`]. Refused and counted as
+    /// [`ImageStore::repaint_page`]. Refused and counted as
     /// [`ImageStore::store`] refuses.
     pub fn store_page(&mut self, width: ImagePx, height: ImagePx) -> Option<ImageId> {
         let (id, px) = self.store(width, height, ImageAlpha::OpaqueOrClear)?;
         px.fill(Pixel::CLEAR);
         if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
             s.owner = ImageOwner::Regis;
+            s.lit = Some(0);
         }
         Some(id)
     }
@@ -2243,10 +2257,87 @@ impl<'b> ImageStore<'b> {
         Some((p, q.as_mut_bytes()))
     }
 
-    /// **A ReGIS page was drawn on**: the epoch moves, so a renderer's
-    /// texture cache keyed on it uploads the pixels now there.
-    pub fn repainted(&mut self) {
+    /// **Repaint a ReGIS page from its plane**: `paint` is lent the page's
+    /// pixels and its plane's ([`ImageStore::page_planes`]) and writes the
+    /// page's pixels in `rect`, `(x0, y0, x1, y1)`, and nowhere else. The
+    /// page's lit count moves by what changed in `rect`, counted before and
+    /// after over the pixels the repaint writes anyway, and the epoch moves,
+    /// so a renderer's texture cache keyed on it uploads the pixels now
+    /// there. Nothing unless both are live ReGIS images.
+    pub fn repaint_page(
+        &mut self,
+        page: ImageId,
+        plane: ImageId,
+        rect: (usize, usize, usize, usize),
+        paint: impl FnOnce(&mut [Pixel], &mut [u8]),
+    ) {
+        let Some(s) = page.index().and_then(|i| self.slots.get(i)).copied() else {
+            return;
+        };
+        let before = self.lit_in(s, rect);
+        let Some((px, pl)) = self.page_planes(page, plane) else {
+            return;
+        };
+        paint(px, pl);
+        let after = self.lit_in(s, rect);
+        if let Some(slot) = page.index().and_then(|i| self.slots.get_mut(i)) {
+            slot.lit = slot
+                .lit
+                .map(|n| n.saturating_sub(before).saturating_add(after));
+        }
         self.epoch = self.epoch.bumped();
+    }
+
+    /// How many pixels of image `s` in `(x0, y0, x1, y1)` are not clear.
+    fn lit_in(&self, s: ImageSlot, (x0, y0, x1, y1): (usize, usize, usize, usize)) -> u32 {
+        let (w, h) = (s.width.index(), s.height.index());
+        let (x0, x1, y1) = (x0.min(w), x1.min(w), y1.min(h));
+        let mut n = 0usize;
+        for y in y0.min(y1)..y1 {
+            let row = s.start() + y * w;
+            n += self.pixels[row + x0.min(x1)..row + x1]
+                .iter()
+                .filter(|p| p.alpha().get() != 0)
+                .count();
+        }
+        u32::try_from(n).unwrap_or(u32::MAX)
+    }
+
+    /// **How many pixels of image `id` are lit**, not clear, as the store
+    /// keeps it: a ReGIS page's always, a Sixel's once an erase has reached
+    /// it. `None` for no live image or one not counted yet.
+    pub fn lit(&self, id: ImageId) -> Option<u32> {
+        let s = id.index().and_then(|i| self.slots.get(i))?;
+        match s.is_empty() {
+            true => None,
+            false => s.lit,
+        }
+    }
+
+    /// **Free a ReGIS page with nothing left lit**, and its plane if it is
+    /// the page being drawn: the memory both held goes back to the arena,
+    /// and the next drawing makes a new page. Returns whether it was freed.
+    fn free_if_unlit(&mut self, id: ImageId) -> bool {
+        let Some(s) = id.index().and_then(|i| self.slots.get(i)).copied() else {
+            return false;
+        };
+        if s.is_empty() || s.owner != ImageOwner::Regis || s.lit != Some(0) {
+            return false;
+        }
+        if let Some((page, plane)) = self.page_plane {
+            if page == id {
+                self.free(plane);
+            }
+        }
+        self.free(id);
+        true
+    }
+
+    /// Lower image `id`'s lit count by `cleared`, where it is kept.
+    fn unlit(&mut self, id: ImageId, cleared: u32) {
+        if let Some(s) = id.index().and_then(|i| self.slots.get_mut(i)) {
+            s.lit = s.lit.map(|n| n.saturating_sub(cleared));
+        }
     }
 
     /// The page being drawn is `page`, drawn from the indices in `plane`.
@@ -2862,7 +2953,7 @@ impl<'b> ImageStore<'b> {
             // span `[col0, col1)` overlaps the image's `[c0, c0 + cols)`.
             if wl >= l0 && wl < l0 + rows && col1 > c0 && col0 < c0 + cols {
                 if img.owner == ImageOwner::Regis {
-                    let _ = self.clear_page_cells(
+                    let cleared = self.clear_page_cells(
                         slot.image,
                         wl - l0,
                         col0.saturating_sub(c0),
@@ -2870,6 +2961,10 @@ impl<'b> ImageStore<'b> {
                         cw,
                         ch,
                     );
+                    self.unlit(slot.image, cleared);
+                    if self.free_if_unlit(slot.image) {
+                        freed += 1;
+                    }
                     continue;
                 }
                 self.unplace(PlacementId::from_index(p));
@@ -2957,6 +3052,9 @@ impl<'b> ImageStore<'b> {
                 self.unplace(PlacementId::from_index(p));
                 freed += 1;
             }
+            if self.free_if_unlit(slot.image) {
+                freed += 1;
+            }
         }
         freed
     }
@@ -3001,6 +3099,7 @@ impl<'b> ImageStore<'b> {
                 continue;
             }
             let k = n.index() * ch;
+            let before = self.lit_in(img, (0, y0, w, y1));
             self.shift_rows(img.start(), w, w, (y0, y1), k, way);
             if let Some((page, plane)) = self.page_plane {
                 if page == slot.image {
@@ -3011,6 +3110,11 @@ impl<'b> ImageStore<'b> {
                     }
                 }
             }
+            // The rows the band dropped and brought in, lit before and not
+            // after: the page's count, over the rows the move copied.
+            let after = self.lit_in(img, (0, y0, w, y1));
+            self.unlit(slot.image, before.saturating_sub(after));
+            self.free_if_unlit(slot.image);
             moved = true;
         }
         if moved {
