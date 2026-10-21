@@ -446,7 +446,8 @@ fn a_page_with_nothing_lit_is_freed() {
 
 /// **The store's count of a page's lit pixels is a recount's**, after
 /// every kind of write to the page: drawing, complement drawing over what
-/// is there, text over it, the erases, and lines moving in a band.
+/// is there, text over it, the erases, lines moving in a band, and a
+/// rectangle moving under side margins.
 #[test]
 fn the_page_s_lit_count_is_kept_exactly() {
     let steps: &[&[u8]] = &[
@@ -459,6 +460,7 @@ fn the_page_s_lit_count_is_kept_exactly() {
         b"\x1b[1;1H\x1b[2L",
         b"\x1b[2;6r\x1b[6;1H\n\n\x1b[r",
         b"\x1b[4;4H\x1b[2P",
+        b"\x1b[?69h\x1b[3;12s\x1b[2S\x1b[?69l",
         b"\x1bPpS(E)\x1b\\",
         b"\x1b[10;10H\x1b[1J",
     ];

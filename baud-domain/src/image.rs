@@ -2673,7 +2673,7 @@ impl<'b> ImageStore<'b> {
         hi: LineIdx,
         n: Rows,
     ) -> usize {
-        self.shift_pages(screen, lo, hi, n, BandMove::Down);
+        self.shift_pages(screen, lo, hi, None, n, BandMove::Down);
         let mut n_gone = 0;
         for p in 0..self.live {
             let s = self.placements[p];
@@ -2703,24 +2703,37 @@ impl<'b> ImageStore<'b> {
         n_gone
     }
 
-    /// [`ImageStore::scroll_band`] for a band that is a rectangle: only a
-    /// placement whose anchor column lies in `cols`, inclusive, moved with
-    /// the text, because only the text there moved -- a scroll under side
-    /// margins. **The anchor's column decides, as the anchor's row does for
-    /// a band**: no text says what an image does under a rectangle scroll,
-    /// and ghostty moves only a placement wholly inside the rectangle
-    /// (`[[source: ghostty-d9840f3-graphics-storage]]`, 513-522), a choice
-    /// listed for Jev in the record ("Rectangle scrolling").
+    /// [`ImageStore::scroll_band`] for a band that is a rectangle, the
+    /// columns `cols`, inclusive, of `cell_w`-pixel cells: a scroll under
+    /// side margins, which moves only the character positions between them
+    /// (DECSLRM, `[[source: dec-std-070]]` p. 5-24). **The pictures there
+    /// move and the rest stay**, as the one bitmap of the VT330 and VT340
+    /// would: the ReGIS page's pixels in the rectangle move
+    /// ([`ImageStore::shift_pages`]); a Sixel or an embedder's image wholly
+    /// inside moves by its anchor, as in a band; one across a side margin
+    /// whose anchor row the band moves is split, the part inside the
+    /// margins copied into an image of its own that moves and the rest
+    /// staying, its pixels inside cleared (Jev's lean, SPLIT, 0.71 and
+    /// 0.71). The part moves its whole height by its anchor, as a whole
+    /// image in a band does. Where the arena cannot hold the part, refused
+    /// and counted as [`ImageStore::store`] refuses, the image's own pixels
+    /// inside the margins move within it instead, and only its rows inside
+    /// the band: pixels a move takes past the image's top, moving up, or
+    /// past the band's bottom or the image's, whichever comes first,
+    /// moving down, are lost. The two paths move different rows. A kitty placement keeps the
+    /// text's rule (`ImageStore::scroll_band`).
+    #[allow(clippy::too_many_arguments)]
     pub fn scroll_rect(
         &mut self,
         screen: ImageScreen,
         lo: LineIdx,
         hi: LineIdx,
         cols: (Col, Col),
+        cell_w: ImagePx,
         n: Rows,
         way: BandMove,
     ) -> usize {
-        self.scroll_band_within(screen, lo, hi, Some(cols), n, way)
+        self.scroll_band_within(screen, lo, hi, Some((cols, cell_w.index())), n, way)
     }
 
     fn scroll_band_within(
@@ -2728,18 +2741,21 @@ impl<'b> ImageStore<'b> {
         screen: ImageScreen,
         lo: LineIdx,
         hi: LineIdx,
-        cols: Option<(Col, Col)>,
+        rect: Option<((Col, Col), usize)>,
         n: Rows,
         way: BandMove,
     ) -> usize {
         let Some(r) = self.reach[screen.slot()] else {
             return 0;
         };
-        if cols.is_none() {
-            self.shift_pages(screen, lo, hi, n, way);
-        }
+        let cols = rect.map(|(c, _)| c);
+        let cells = rect.map(|((l, r), cw)| ((l.index(), r.index() + 1), cw));
+        self.shift_pages(screen, lo, hi, cells, n, way);
         if r.last < lo || r.first >= hi {
             return 0;
+        }
+        if let Some(((l, r), cw)) = rect {
+            self.split_across(screen, lo, hi, (l.index(), r.index() + 1), cw, n, way);
         }
         let mut n_gone = 0;
         for p in 0..self.live {
@@ -2754,6 +2770,13 @@ impl<'b> ImageStore<'b> {
             }
             if cols.is_some_and(|(l, r)| s.col < l || s.col > r) {
                 continue;
+            }
+            // Across a side margin: split above (`ImageStore::split_across`),
+            // what stays outside staying.
+            if let Some(((l, r), cw)) = rect {
+                if self.across(s, (l.index(), r.index() + 1), cw) {
+                    continue;
+                }
             }
             let kitty = s
                 .image
@@ -3073,6 +3096,7 @@ impl<'b> ImageStore<'b> {
         screen: ImageScreen,
         lo: LineIdx,
         hi: LineIdx,
+        cells: Option<((usize, usize), usize)>,
         n: Rows,
         way: BandMove,
     ) {
@@ -3095,24 +3119,36 @@ impl<'b> ImageStore<'b> {
             let (w, h) = (img.width.index(), img.height.index());
             let since = |l: LineIdx| l.since(slot.line).map_or(0, |r| r.index());
             let (y0, y1) = ((since(lo) * ch).min(h), (since(hi) * ch).min(h));
-            if y0 >= y1 {
+            // The rectangle's columns of `cw`-pixel cells, from the page's
+            // anchor column, or all of it.
+            let c = slot.col.index();
+            let (x0, x1) = match cells {
+                None => (0, w),
+                Some(((a, b), cw)) => (
+                    (a.saturating_sub(c) * cw).min(w),
+                    (b.saturating_sub(c) * cw).min(w),
+                ),
+            };
+            if y0 >= y1 || x0 >= x1 {
                 continue;
             }
             let k = n.index() * ch;
-            let before = self.lit_in(img, (0, y0, w, y1));
-            self.shift_rows(img.start(), w, w, (y0, y1), k, way);
+            let before = self.lit_in(img, (x0, y0, x1, y1));
+            self.shift_rows(img.start() + x0, w, x1 - x0, (y0, y1), k, way);
             if let Some((page, plane)) = self.page_plane {
                 if page == slot.image {
                     if let Some(pl) = plane.index().and_then(|i| self.slots.get(i)).copied() {
                         let stride = w.div_ceil(4) * 4;
                         let bytes = self.pixels[pl.start()..pl.end()].as_mut_bytes();
-                        shift_byte_rows(bytes, stride, w, (y0, y1), k, way);
+                        if let Some(bytes) = bytes.get_mut(x0..) {
+                            shift_byte_rows(bytes, stride, x1 - x0, (y0, y1), k, way);
+                        }
                     }
                 }
             }
             // The rows the band dropped and brought in, lit before and not
-            // after: the page's count, over the rows the move copied.
-            let after = self.lit_in(img, (0, y0, w, y1));
+            // after: the page's count, over the pixels the move copied.
+            let after = self.lit_in(img, (x0, y0, x1, y1));
             self.unlit(slot.image, before.saturating_sub(after));
             self.free_if_unlit(slot.image);
             moved = true;
@@ -3152,6 +3188,123 @@ impl<'b> ImageStore<'b> {
                 }
             }
         }
+    }
+
+    /// Whether placement `s` shows a Sixel or an embedder's image across a
+    /// side margin of the columns `[l, r1)` of `cw`-pixel cells: some of its
+    /// columns inside and some outside.
+    fn across(&self, s: PlacementSlot, (l, r1): (usize, usize), cw: usize) -> bool {
+        let Some(img) = s.image.index().and_then(|i| self.slots.get(i)) else {
+            return false;
+        };
+        if img.is_empty() || img.owner != ImageOwner::Local || cw == 0 {
+            return false;
+        }
+        let (c0, c1) = (
+            s.col.index(),
+            s.col.index() + img.width.index().div_ceil(cw),
+        );
+        c0 < r1 && c1 > l && (c0 < l || c1 > r1)
+    }
+
+    /// **Split each image across a side margin that a rectangle scroll
+    /// moves**: one whose anchor row is in the band `[lo, hi)` and whose
+    /// columns cross `l` or `r1`. The part inside the margins is copied
+    /// into an image of its own, placed where it was drawn, for the band's
+    /// move to take; the original keeps the rest, its pixels inside cleared,
+    /// and is freed if none is left. A part with nothing lit is not copied.
+    /// The part then moves its whole height by its anchor, as a whole
+    /// image in a band does. Refused for want of a slot or an arena gap
+    /// (counted as [`ImageStore::store`] counts), the original's pixels
+    /// inside the margins move `n` rows `way` within it instead, only its
+    /// rows inside the band: pixels a move takes past the image's top,
+    /// moving up, or past the band's bottom or the image's, whichever
+    /// comes first, moving down, are lost.
+    #[allow(clippy::too_many_arguments)]
+    fn split_across(
+        &mut self,
+        screen: ImageScreen,
+        lo: LineIdx,
+        hi: LineIdx,
+        (l, r1): (usize, usize),
+        cw: usize,
+        n: Rows,
+        way: BandMove,
+    ) {
+        let ch = self.cell_h.index();
+        if ch == 0 || cw == 0 {
+            return;
+        }
+        for p in 0..self.live {
+            let s = self.placements[p];
+            if s.is_empty() || s.screen != screen || s.line < lo || s.line >= hi {
+                continue;
+            }
+            if !self.across(s, (l, r1), cw) {
+                continue;
+            }
+            let Some(i) = s.image.index() else {
+                continue;
+            };
+            let img = self.slots[i];
+            let (w, h, c0) = (img.width.index(), img.height.index(), s.col.index());
+            let (x0, x1) = (((l.max(c0) - c0) * cw).min(w), ((r1 - c0) * cw).min(w));
+            if x0 >= x1 {
+                continue;
+            }
+            let moved = self.lit_in(img, (x0, 0, x1, h));
+            if moved == 0 {
+                continue;
+            }
+            let pw = x1 - x0;
+            let piece = self
+                .store(
+                    ImagePx::of(u16::try_from(pw).unwrap_or(u16::MAX)),
+                    img.height,
+                    img.alpha,
+                )
+                .map(|(id, _)| id);
+            let placed = piece.map(|id| {
+                (
+                    id,
+                    self.place(id, screen, s.line, Col::at_index(l.max(c0)), s.z),
+                )
+            });
+            match placed {
+                Some((id, pid)) if !pid.is_none() => {
+                    let to = id.index().map_or(0, |j| self.slots[j].start());
+                    for y in 0..h {
+                        let from = img.start() + y * w;
+                        self.pixels.copy_within(from + x0..from + x1, to + y * pw);
+                        self.pixels[from + x0..from + x1].fill(Pixel::CLEAR);
+                    }
+                    if let Some(j) = id.index() {
+                        self.slots[j].lit = Some(moved);
+                    }
+                    let left = match img.lit {
+                        Some(k) => k.saturating_sub(moved),
+                        None => self.lit_in(img, (0, 0, w, h)),
+                    };
+                    self.slots[i].lit = Some(left);
+                    if left == 0 {
+                        self.unplace(PlacementId::from_index(p));
+                    }
+                }
+                other => {
+                    if let Some((id, _)) = other {
+                        self.free(id);
+                    }
+                    let since = |x: LineIdx| x.since(s.line).map_or(0, |r| r.index());
+                    let (y0, y1) = ((since(lo) * ch).min(h), (since(hi) * ch).min(h));
+                    self.shift_rows(img.start() + x0, w, pw, (y0, y1), n.index() * ch, way);
+                    if img.lit.is_some() {
+                        let after = self.lit_in(img, (x0, 0, x1, h));
+                        self.unlit(s.image, moved.saturating_sub(after));
+                    }
+                }
+            }
+        }
+        self.epoch = self.epoch.bumped();
     }
 
     fn is_regis(&self, s: PlacementSlot) -> bool {

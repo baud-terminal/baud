@@ -725,8 +725,15 @@ impl Paint<'_, '_> {
             let (screen, top) = self.image_top();
             let lo = top.plus(Rows::of_count(at.index()));
             let hi = top.plus(Rows::of_count(bot.index() + 1));
-            self.images
-                .scroll_rect(screen, lo, hi, (left, right), Rows::of_count(k), way);
+            self.images.scroll_rect(
+                screen,
+                lo,
+                hi,
+                (left, right),
+                self.cell_width,
+                Rows::of_count(k),
+                way,
+            );
         }
         // An open SPA's start moves with the rectangle only when its column
         // is in it: the columns outside the side margins do not move.
