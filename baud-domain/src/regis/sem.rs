@@ -49,9 +49,9 @@ pub struct RegisCounts {
     /// maintained" (§ 8.5.1.4.1).
     pub space_refused: u32,
     /// Open Extensions (§ 8.8) this interpreter parses and does not act
-    /// on: scrolling, hard copy, the clip rectangle, scaling, data
-    /// movement, drawing surfaces, blink, line width, microcoded writing,
-    /// flood.
+    /// on: scrolling, hard copy, scaling, data movement, drawing surfaces
+    /// (`P(P)`, the VT340's `S(P)`), blink, line width, microcoded writing,
+    /// flood; and `S(N)`, which no DEC text here defines.
     pub unbuilt: u32,
     /// Characters no grammar position takes, and keyletters no instruction
     /// names (error 1).
@@ -191,6 +191,40 @@ type Pt = (RegisNum, RegisNum);
 type Fine = (i64, i64);
 /// Four points of a spline, the segment between the middle two.
 type Seg = (Fine, Fine, Fine, Fine);
+
+/// Which side of the clip rectangle drawing is limited to, `S(R<n>)`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ClipMode {
+    /// `n` zero: clipping disabled.
+    Off,
+    /// `n` above zero: the interior, its boundary included.
+    Interior,
+    /// `n` below zero: the exterior, "shielding".
+    Shield,
+}
+
+/// The clip rectangle (§ 8.8.1.4.6): two opposite corners, user
+/// coordinates, which "maintains its position in the coordinate space",
+/// and which side drawing is limited to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Clip {
+    a: Pt,
+    b: Pt,
+    mode: ClipMode,
+}
+
+impl Clip {
+    /// "The default clip area is the extent defined by the last valid S(A)
+    /// or the entire display surface ... The default clip state is
+    /// disabled" (§ 8.8.1.4.6 g).
+    const fn of(space: RegisSpace) -> Clip {
+        Clip {
+            a: (space.x1, space.y1),
+            b: (space.x2, space.y2),
+            mode: ClipMode::Off,
+        }
+    }
+}
 
 /// Whether a thing is on.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -580,6 +614,8 @@ pub(crate) struct Sem {
     pub(crate) cursors: Cursors,
     /// Graphics input, `R(I<n>)` and `R(P(I))`.
     pub(crate) input: Input,
+    /// The clip rectangle, `S(R)`.
+    clip: Clip,
 }
 
 impl Sem {
@@ -642,6 +678,7 @@ impl Sem {
         last_end: None,
         cursors: Cursors::DEFAULT,
         input: Input::NEW,
+        clip: Clip::of(RegisSpace::DEFAULT),
     };
 
     /// Record an error for `R(E)`: "Only the most recent error code is kept"
@@ -669,6 +706,24 @@ impl Sem {
                 On::Yes => Some((w.shade_to, self.texture(w.shade_with))),
                 On::No => None,
             },
+            clip: self.page_clip(),
+        }
+    }
+
+    /// The clip rectangle on the page: its corners' pixels, the boundary
+    /// between them inside it.
+    fn page_clip(&self) -> RegisClip {
+        let (a, b) = (self.device(self.clip.a), self.device(self.clip.b));
+        let r = RegisRect {
+            x0: a.x.min(b.x),
+            y0: a.y.min(b.y),
+            x1: a.x.max(b.x).saturating_add(1),
+            y1: a.y.max(b.y).saturating_add(1),
+        };
+        match self.clip.mode {
+            ClipMode::Off => RegisClip::Off,
+            ClipMode::Interior => RegisClip::Inside(r),
+            ClipMode::Shield => RegisClip::Shield(r),
         }
     }
 
@@ -903,6 +958,9 @@ impl Sem {
         if d == base {
             return self.command_extent(own, Dest::of(base), e, out);
         }
+        if d == 1 && self.frames[0].key == b'S' && self.frames[1].key == b'R' {
+            return self.clip_corner(e);
+        }
         let f = &mut self.frames[d];
         if usize::from(f.next) < f.ext.len() {
             f.ext[usize::from(f.next)] = e;
@@ -1049,6 +1107,40 @@ impl Sem {
             b'S' | b'F' => self.counts.unbuilt += 1,
             _ => {}
         }
+    }
+
+    /// A corner of `S(R[][])`, resolved as it comes: "positional
+    /// specifiers, and may use relative addressing", each from the corner
+    /// before it -- "multiple specifiers have cumulative action" (§ 8.4.5.1)
+    /// -- and the first from the drawing position, which `S(R)` does not
+    /// move: "S(R[ ][+200,+200]) sets the clip rectangle to an extent 200
+    /// square, starting at the current drawing position" (§ 8.8.1.4.6 d).
+    /// "If more than two are present, only the last two are used": the
+    /// frame keeps the last two, as absolute positions. Jev's lean,
+    /// CUMULATIVE, 0.52 and 0.48 on a second ask.
+    fn clip_corner(&mut self, e: Extent) {
+        let f = &mut self.frames[1];
+        let from = match f.next {
+            0 => self.pos,
+            n => {
+                let last = f.ext[usize::from(n.min(2)) - 1];
+                (
+                    last.x.value().unwrap_or(RegisNum::ZERO),
+                    last.y.value().unwrap_or(RegisNum::ZERO),
+                )
+            }
+        };
+        let at = Extent {
+            x: Part::Abs(e.x.from(from.0)),
+            y: Part::Abs(e.y.from(from.1)),
+        };
+        if f.next >= 2 {
+            f.ext[0] = f.ext[1];
+            f.ext[1] = at;
+        } else {
+            f.ext[usize::from(f.next)] = at;
+        }
+        f.next = f.next.saturating_add(1);
     }
 
     /// Where the next point of a curve is relative to: the last point.
@@ -1513,6 +1605,8 @@ impl Sem {
             pattern: LinePattern::SOLID,
             pattern_mul: 1,
             shade: None,
+            // The terminal's own line, no drawing of the program's.
+            clip: RegisClip::Off,
         };
         let ascii = (Charset::Ascii, Charset::Iso96(Iso96::Latin1));
         self.draw_char(u16::from(b), 0, ascii, (at, unit, unit), (0, 0), &pen, out);
@@ -1539,6 +1633,8 @@ impl Sem {
             pattern: LinePattern::SOLID,
             pattern_mul: 1,
             shade: None,
+            // The terminal's own line, no drawing of the program's.
+            clip: RegisClip::Off,
         };
         out.fill(&points, &[4], &pen);
         self.display_col = 0;
@@ -1940,10 +2036,41 @@ impl Sem {
             (1, b'C') => self.cursor_option(f, CursorWhich::Both),
             (2, b'H') if parent.key == b'C' => self.cursor_option(f, CursorWhich::Output),
             (2, b'I') if parent.key == b'C' => self.cursor_option(f, CursorWhich::Input),
-            (1, b'H' | b'P' | b'R' | b'S' | b'D' | b'N') => self.counts.unbuilt += 1,
+            (1, b'R') => self.clip_option(f),
+            // `S(H)` hard copy, `S(P)` the display page, `S(S)` scaling,
+            // `S(D)` data movement: Open Extensions (§ 8.8.1). `S(N)`: no
+            // DEC text here defines it.
+            (1, b'H' | b'P' | b'S' | b'D' | b'N') => self.counts.unbuilt += 1,
             (2, _) if parent.key == b'H' || parent.key == b'C' || parent.key == b'S' => {}
             _ if r >= 2 => {}
             _ => self.error(1, f.key),
+        }
+    }
+
+    /// `S(R<n>[][])`, the clip rectangle (§ 8.8.1.4.6): "Both corners must
+    /// be specified. If only one specifier is present, the extent of the
+    /// clip rectangle is not changed"; "The extent of the clip rectangle
+    /// can be set by an instance of the command without changing the
+    /// enabled state", and the number alone switches it, "If <n> is equal
+    /// to zero, then clipping is disabled", above zero the interior, below
+    /// it the exterior.
+    fn clip_option(&mut self, f: &Frame) {
+        if f.next >= 2 {
+            let p = |e: Extent| {
+                (
+                    e.x.value().unwrap_or(RegisNum::ZERO),
+                    e.y.value().unwrap_or(RegisNum::ZERO),
+                )
+            };
+            self.clip.a = p(f.ext[0]);
+            self.clip.b = p(f.ext[1]);
+        }
+        if let Some(v) = f.num {
+            self.clip.mode = match v {
+                v if v == RegisNum::ZERO => ClipMode::Off,
+                v if v.is_negative() => ClipMode::Shield,
+                _ => ClipMode::Interior,
+            };
         }
     }
 
@@ -2001,6 +2128,9 @@ impl Sem {
         // (§ 8.8.5.2).
         self.cursors = Cursors::DEFAULT;
         self.input.mode = RegisInputMode::OneShot;
+        // "The clip rectangle is set to the range indicated by S(A), and
+        // clipping is disabled" (§ 8.8.1.4.1 d).
+        self.clip = Clip::of(self.space);
     }
 
     /// `S(C ...)` (§ 8.8.1.4.2): at the `C` itself a number turns the

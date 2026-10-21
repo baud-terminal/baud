@@ -356,6 +356,36 @@ pub struct RegisPen {
     pub pattern_mul: u16,
     /// Shading, when enabled: where to, and with what.
     pub shade: Option<(ShadeTo, Texture)>,
+    /// Where it may write (§ 8.8.1.4.6).
+    pub clip: RegisClip,
+}
+
+/// **Where a drawing may write**, `S(R<n>[][])` (070-8 § 8.8.1.4.6): the
+/// whole page, the clip rectangle's interior, "defined to include what
+/// would be drawn as the boundary", or its exterior, "shielding", where
+/// "the boundary is NOT part of the exterior". The rectangle is in page
+/// pixels, its boundary inside it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegisClip {
+    /// Clipping disabled, `S(R0)`: "drawing actions can take place
+    /// everywhere in the display".
+    Off,
+    /// `S(R<n>)`, `n` above zero.
+    Inside(RegisRect),
+    /// `S(R<n>)`, `n` below zero.
+    Shield(RegisRect),
+}
+
+impl RegisClip {
+    /// Whether page pixel `(x, y)` may be written.
+    pub fn allows(self, x: i32, y: i32) -> bool {
+        let inside = |r: RegisRect| x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1;
+        match self {
+            RegisClip::Off => true,
+            RegisClip::Inside(r) => inside(r),
+            RegisClip::Shield(r) => !inside(r),
+        }
+    }
 }
 
 /// A character to draw (§ 8.5.6 and § 8.7.3): its stored cell, where its

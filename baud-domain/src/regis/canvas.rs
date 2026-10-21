@@ -115,7 +115,7 @@ impl<'a> RegisCanvas<'a> {
     /// One pixel, `on` where the pattern (after `W(N)`) has a one: the
     /// writing modes of § 8.7.2.4.1 through the foreground mask.
     fn put(&mut self, x: i32, y: i32, on: bool, pen: &RegisPen) {
-        if x < 0 || y < 0 || x >= self.w || y >= self.h {
+        if x < 0 || y < 0 || x >= self.w || y >= self.h || !pen.clip.allows(x, y) {
             return;
         }
         let i = y as usize * self.stride + x as usize;
