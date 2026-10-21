@@ -135,7 +135,7 @@ created the demand.
 |---|---|---|
 | DECCKM `?1` | `cursor_keys_application` | cursor keys: `CSI A` vs `SS3 A` |
 | LNM `20` | — | Return: `CR` vs `CR LF` |
-| KAM `2` | `keyboard_locked` | every key: while a program has locked the keyboard, a key sends nothing and draws nothing. **partial** -- VT510's Wait indicator waits on a status line (`vt-coverage.md`'s KAM row) |
+| KAM `2` | `keyboard_locked` | every key: while a program has locked the keyboard, a key sends nothing and draws nothing, and the indicator status line shows "Wait" (`vt-coverage.md`'s KAM row). **done** |
 | SRM `12` | `local_echo` | reset, a key is drawn as well as sent, through a parser of the echo's own; set at power-on. **done** -- `baud-core/tests/keyboard_modes.rs` |
 | DECNKM `?66` | `keypad` | the keypad, as DECKPAM/DECKPNM, and `DECRQM` reads it. **done** |
 | DECBKM `?67` | — | Backspace: reset, the default, DEL; set, BS; Control inverts it (xterm's toggle, the kitty legacy table). **done** |

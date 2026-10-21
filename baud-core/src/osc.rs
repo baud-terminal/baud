@@ -716,6 +716,13 @@ impl Paint<'_, '_> {
             // `Term::resize` reads to leave the block's rows un-cut; the
             // prompts and their statuses, which navigation reads; and what
             // the `A` asked of a click (`prompt.rs`).
+            // **A prompt mark names a line of the main display**, which the
+            // status line is not: from the line it is counted and not acted
+            // on (`status.rs`).
+            Osc::Semantic(_) if self.on_status() => {
+                self.strings_ignored += 1;
+                self.unsupported_total += 1;
+            }
             Osc::Semantic(mark) => {
                 self.semantic(mark);
                 self.semantic_marks += 1;
@@ -955,6 +962,11 @@ fn honoured(c: AllowCategory, sub: &[u8], facts: Facts) -> bool {
             | b"SetChecksum" => true,
             b"GetChecksum" => facts.checksum == ChecksumReport::On,
             b"SetXprop" => facts.window_ops == WindowOps::On,
+            // **DECSSDT and DECSASD, whatever the operations say**: with them
+            // off the window keeps its size and the grid gives the line a
+            // row (`status.rs`), where xterm refuses both under
+            // `AllowWindowOps(xw, ewStatusLine)`.
+            b"StatusLine" => true,
             b"SetSelection" => facts.clipboard == Clipboard::Provisioned,
             _ => false,
         },

@@ -60,6 +60,12 @@ impl Term<'_> {
             self.icon_len,
             self.link,
         );
+        // **A read that goes on writing the status line** takes the line's
+        // state back: the terminal between reads is the main display's
+        // (`status.rs`). One compare a read, never a byte.
+        if p.strs.status.active == baud_domain::ActiveDisplay::Status {
+            p.swap_display();
+        }
         // The ASCII-only ladder never leaves `Ground`, so it advances none of
         // these; the graph loop below does.
         #[cfg_attr(feature = "ascii-only", allow(unused_mut, unused_variables))]
@@ -123,6 +129,10 @@ impl Term<'_> {
                     _ => {}
                 }
                 i += 1;
+            }
+            // The status line's end of a read: one compare while none is shown.
+            if p.strs.status.kind != baud_domain::StatusType::None {
+                p.read_ends();
             }
             self.cy = p.cy;
             self.cx = p.cx;
@@ -229,6 +239,10 @@ impl Term<'_> {
         // Written back here rather than kept in `Cold`, which is where it used
         // to live and cost **16% of `cat-scroll`**: this is once a read, and
         // that was once a character.
+        // The status line's end of a read: one compare while none is shown.
+        if p.strs.status.kind != baud_domain::StatusType::None {
+            p.read_ends();
+        }
         self.last_cp = p.last_cp;
         self.cy = p.cy;
         self.cx = p.cx;

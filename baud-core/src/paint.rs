@@ -172,6 +172,10 @@ pub(crate) struct Paint<'a, 'b> {
     /// swap is what buys it back -- two live surfaces mean no park and no
     /// restore, so entering the alternate screen copies nothing.
     pub(crate) other: Surface<'a>,
+    /// **The surface not live of the main display's and the status line's**:
+    /// the line's row while the main display is written, and the main
+    /// display's while the line is (`status.rs`, `Paint::swap_display`).
+    pub(crate) status: Surface<'a>,
     /// The primary ring's bookkeeping: how many rows behind the window are
     /// lines, how many after it were cut by a shorter window. One word.
     pub(crate) book: &'a mut crate::storage::Book<'b>,
@@ -367,6 +371,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             tabs,
             reply,
             alt,
+            status,
             book,
             clusters,
             strs,
@@ -384,6 +389,12 @@ impl<'a, 'b> Paint<'a, 'b> {
         let (vp, used): (&'a mut [PackedCell], &'a mut [RowExtent]) = (vp, used);
         let (acells, aused, arot): (&'a mut [PackedCell], &'a mut [RowExtent], RowRot) =
             (alt.cells, alt.used, alt.rot);
+        let status = Surface {
+            cells: status.cells,
+            used: status.used,
+            ring: Rows::of_count(1),
+            rot: RowRot::NONE,
+        };
         let (view, other) = match cold.screen {
             crate::term::Screen::Normal => (
                 View::new(vp, used, *stride, cols, rows, ring, rot),
@@ -437,6 +448,7 @@ impl<'a, 'b> Paint<'a, 'b> {
             clipboard_writes_refused: 0,
             checksums_refused: 0,
             other,
+            status,
             book,
             clusters,
             style_log,
@@ -1231,6 +1243,9 @@ impl<'a, 'b> Paint<'a, 'b> {
         let mut live = ClusterLive::new();
         live.mark(self.view.ring_cells());
         live.mark(self.other.cells);
+        // The status line's row, or the main display's surface while the
+        // line is written (`status.rs`).
+        live.mark(self.status.cells);
         self.clusters.sweep(&live);
         self.clusters.intern(base, cps)
     }
@@ -1550,7 +1565,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // The cursor's own row is a partial erase either side of it. The whole
         // screen takes its kitty images with it (`Paint::kitty_clear`).
         match e {
-            EraseExtent::All if self.images.any_placed() => self.kitty_clear(),
+            EraseExtent::All if self.images.any_placed() && !self.on_status() => self.kitty_clear(),
             EraseExtent::All => {}
             e => {
                 self.erase_line(e);

@@ -500,6 +500,9 @@ struct App {
     /// (`Term::scrollbar_shown`): hidden, nothing is drawn, nothing takes
     /// a press and the legacy gutter is gone (`Driver::scrollbar_mode`).
     bar_shown: baud_core::ScrollbarShown,
+    /// The status line's rows as the window was last laid out for them
+    /// (`Term::status_rows`, `Driver::status_line`).
+    status_rows: Rows,
     /// Wheel travel not yet a whole line (`wheel.rs`).
     travel: Travel,
     frames: Tally,
@@ -1158,6 +1161,7 @@ impl App {
             pointer: Place::Grid,
             scroller,
             bar_shown: baud_core::ScrollbarShown::Shown,
+            status_rows: Rows::ZERO,
             travel: Travel::default(),
             frames: Tally::default(),
             ticks: Tally::default(),
@@ -1616,6 +1620,7 @@ impl App {
             self.term.window_back(),
             self.term.screen(),
             drawn,
+            self.term.status_rows(),
         ) && pan.value() > 0;
         let lift = if sliding { pan } else { Px::of(0) };
         self.renderer
@@ -1715,6 +1720,21 @@ impl App {
                     let at = y * stride;
                     cell.copies_mem[set][at..at + vcols].copy_from_slice(&src[..vcols]);
                 }
+                // **The status line's row, after the main display's**, at
+                // index `vrows`: the shader draws `vrows` and the line's row
+                // (`Renderer::grid`), its backgrounds from here and its
+                // glyphs from the records `Overlay::status` adds. No slide
+                // runs while it is shown (`slides`), so the leaving row
+                // never wants the index.
+                let lined = match self.term.status_line() {
+                    Some(line) => {
+                        let at = vrows * stride;
+                        let n = vcols.min(line.cells.len());
+                        cell.copies_mem[set][at..at + n].copy_from_slice(&line.cells[..n]);
+                        1
+                    }
+                    None => 0,
+                };
                 // The leaving row: the line just above the window,
                 // `view(back + 1).row(0)`, appended at index `vrows`, where
                 // `slide_rows = 1` maps draw row 0 to it with the identity
@@ -1827,6 +1847,15 @@ impl App {
                         &mut cell.records,
                     );
                 }
+                // The status line's records, its row of the mask marked.
+                cell.exceptions.status(
+                    &mut self.renderer,
+                    &self.term,
+                    cursor,
+                    (view.cols(), view.rows()),
+                    &mut cell.overlay_mem[set][..],
+                    &mut cell.records,
+                );
                 // The trail, thumb and screen fade ride with the records,
                 // drawn after the cell passes: the trail under the thumb, and
                 // the fade last so it veils everything during a switch.
@@ -1866,7 +1895,7 @@ impl App {
                     stride: self.term.stride(),
                     rotation: RowRot::NONE,
                     // One more row when sliding: the appended leaving row.
-                    ring: Rows::of_index(if sliding { vrows + 1 } else { vrows }),
+                    ring: Rows::of_index(vrows + lined + usize::from(sliding)),
                     cursor,
                     cursor_color: self.term.cursor_color_in(self.renderer.video()),
                     highlight,
@@ -2808,6 +2837,9 @@ struct Driver {
     /// (`crate::winops`), as xterm's `RequestMaximize` keeps the frame
     /// it restores.
     saved_frame: Option<crate::winops::Rect>,
+    /// How the status line took its row when it came, the window's or the
+    /// grid's, which its going gives back (`crate::winops::mac_status_change`).
+    status_took: crate::winops::StatusChange,
     /// What the program's window operations did and did not do.
     performed: crate::winops::Performed,
     /// The appearance the palette was last set for under `auto`: `None`
@@ -2909,9 +2941,17 @@ fn window_of(term: &Term<'_>) -> Window {
     }
 }
 
-/// The cursor to draw: the live screen's, while the window is on it.
+/// The cursor to draw: the live screen's, while the window is on it, and
+/// on the status line's row below the grid while DECSASD selects the line
+/// (`Term::status_line`), where the main display's is not drawn.
 fn live_cursor(term: &Term<'_>) -> Option<(Row, Col)> {
-    (term.cursor_visible() && term.window_back().index() == 0).then(|| term.cursor())
+    if term.window_back().index() != 0 {
+        return None;
+    }
+    match term.status_line().and_then(|l| l.cursor) {
+        Some(c) => Some((Row::from_index(term.geometry().1.index()), c)),
+        None => term.cursor_visible().then(|| term.cursor()),
+    }
 }
 
 /// The cursor a trail follows, while the window is on the live screen.
@@ -5436,6 +5476,20 @@ mod trail_cursor_tests {
         assert_eq!(trail_cursor(&t), Some(TrailCursor::Shown(r, c)));
     }
 
+    /// **The cursor is drawn on the status line while DECSASD selects it**,
+    /// on the row below the grid, and on the grid again after.
+    #[test]
+    fn the_cursor_is_drawn_on_the_status_line_while_it_is_selected() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        feed(&mut t, b"\x1b[3;4H\x1b[2$~\x1b[1$}ab");
+        let below = Row::from_index(t.geometry().1.index());
+        assert_eq!(live_cursor(&t), Some((below, Col::at_index(2))));
+        feed(&mut t, b"\x1b[0$}");
+        let (r, c) = cell!(2, 3);
+        assert_eq!(live_cursor(&t), Some((r, c)));
+    }
+
     #[test]
     fn a_placement_is_not_followed_while_looking_back() {
         let mut owned = Owned::new(&WS);
@@ -5829,23 +5883,27 @@ mod ride_tests {
     }
 
     /// The grid slides only under smooth scroll, at the live screen, on the
-    /// primary and on the cell path: every one of the sixteen combinations,
-    /// and the lift is the pan under `ride` and nothing under `stay`.
+    /// primary, on the cell path and with no status line: every one of the
+    /// thirty-two combinations, and the lift is the pan under `ride` and
+    /// nothing under `stay`.
     #[test]
     fn the_grid_slides_only_where_every_gate_says_so() {
         for scroll in [ScrollMode::Smooth, ScrollMode::Normal] {
             for window in [0, 3] {
                 for screen in [Screen::Normal, Screen::Alternate] {
                     for drawn in [SlideDrawn::Cells, SlideDrawn::Other] {
-                        let want = scroll == ScrollMode::Smooth
-                            && window == 0
-                            && screen == Screen::Normal
-                            && drawn == SlideDrawn::Cells;
-                        assert_eq!(
-                            slides(scroll, Rows::of_count(window), screen, drawn),
-                            want,
-                            "{scroll:?} {window} {screen:?} {drawn:?}"
-                        );
+                        for status in [Rows::ZERO, Rows::of_count(1)] {
+                            let want = scroll == ScrollMode::Smooth
+                                && window == 0
+                                && screen == Screen::Normal
+                                && drawn == SlideDrawn::Cells
+                                && status == Rows::ZERO;
+                            assert_eq!(
+                                slides(scroll, Rows::of_count(window), screen, drawn, status),
+                                want,
+                                "{scroll:?} {window} {screen:?} {drawn:?} {status:?}"
+                            );
+                        }
                     }
                 }
             }
@@ -7172,7 +7230,10 @@ impl Driver {
         {
             self.ring_bell(volume);
         }
-        self.window_requests(&asked);
+        // The status line's frame first, so a program's resize in the same
+        // read is measured on the window it leaves (`mac_status_frame`).
+        let left = self.status_line();
+        self.window_requests(&asked, left);
         self.scrollbar_mode();
         self.font_requests(&fonts_asked);
         self.print_next();
@@ -7270,6 +7331,7 @@ impl Driver {
                     && self.app.term.window_back().index() == 0
                     && screen == Screen::Normal
                     && self.app.cell.is_some()
+                    && self.app.term.status_rows() == Rows::ZERO
                 {
                     self.app.slide.retire(n);
                     self.ride_trail(n, screen);
@@ -7589,6 +7651,9 @@ impl Responder for Driver {
             if self.app.term.locator(e) {
                 self.app.flush_reply();
             }
+            if crate::gesture::locator_redraws(&self.app.term) {
+                self.app.pending = Pending::Dirty;
+            }
         }
         if self.scrollbar(event) == Took::Yes {
             return;
@@ -7622,6 +7687,9 @@ impl Responder for Driver {
             let e = locator_input((kind, button, to), tracking, at, self.buttons);
             if self.app.term.locator(e) {
                 self.app.flush_reply();
+            }
+            if crate::gesture::locator_redraws(&self.app.term) {
+                self.app.pending = Pending::Dirty;
             }
         }
         if to == To::Select {
@@ -8336,6 +8404,7 @@ pub fn run() {
         themes: Themes::of(&glass_cfg, theme_choice, floor, &halves),
         display: Display::default(),
         window_facts: baud_core::WindowFacts::UNKNOWN,
+        status_took: crate::winops::StatusChange::Resize,
         saved_frame: None,
         performed: crate::winops::Performed::new(),
         palette_for: None,
@@ -8517,27 +8586,11 @@ impl Driver {
         }
     }
 
-    /// **A program's window operation, performed**: the window as AppKit
-    /// has it now -- its frame and content view, the primary screen's top,
-    /// its screen's visible frame (`[[source: apple-nsscreen-visibleframe]]`),
-    /// minimised or not, in full screen or not (`[[source:
-    /// apple-nswindow-stylemask-fullscreen]]`) -- and the grid, then
-    /// [`crate::winops::mac_batch`]'s calls. Every AppKit call runs once the
-    /// callback that asked has returned (`window_later`), as a page width's
-    /// resize does, so the window is read once and each request measured on
-    /// the window the calls before it leave; a refresh is the next frame
-    /// drawn whole.
-    fn window_requests(&mut self, asked: &[baud_core::WindowRequest]) {
-        use crate::winops::{Full, MacAction, MacWindow, Minimized, Rect};
-        if asked.is_empty() {
-            return;
-        }
-        let Some(w) = self.view.window() else {
-            return;
-        };
-        let Some(mtm) = MainThreadMarker::new() else {
-            return;
-        };
+    /// The macOS window as AppKit has it now, for the window operations'
+    /// policy (`winops.rs`): a program's requests and the status line's
+    /// row.
+    fn mac_window(&self, w: &NSWindow, mtm: MainThreadMarker) -> crate::winops::MacWindow {
+        use crate::winops::{Full, MacWindow, Minimized, Rect};
         let rect = |r: NSRect| Rect {
             x: r.origin.x,
             y: r.origin.y,
@@ -8550,7 +8603,7 @@ impl Driver {
             self.app.bar_shown,
             crate::reveal::widths(Scale(scale)),
         );
-        let at = MacWindow {
+        MacWindow {
             frame: rect(w.frame()),
             content: w.contentView().map_or((0.0, 0.0), |v| {
                 let s = v.frame().size;
@@ -8566,6 +8619,7 @@ impl Driver {
             padding: self.app.padding,
             gutter: f64::from(bar.value()),
             grid: crate::width::Grid::of(&self.app.term),
+            status: self.app.term.status_rows(),
             minimized: match w.isMiniaturized() {
                 true => Minimized::Yes,
                 false => Minimized::No,
@@ -8576,7 +8630,36 @@ impl Driver {
             },
             saved: self.saved_frame,
             host: self.app.sizing.host(),
+        }
+    }
+
+    /// **A program's window operation, performed**: the window as AppKit
+    /// has it now -- its frame and content view, the primary screen's top,
+    /// its screen's visible frame (`[[source: apple-nsscreen-visibleframe]]`),
+    /// minimised or not, in full screen or not (`[[source:
+    /// apple-nswindow-stylemask-fullscreen]]`) -- and the grid, then
+    /// [`crate::winops::mac_batch`]'s calls. Every AppKit call runs once the
+    /// callback that asked has returned (`window_later`), as a page width's
+    /// resize does, so the window is read once and each request measured on
+    /// the window the calls before it leave -- `left`, the window the
+    /// status line's frame leaves, where it queued one; a refresh is the
+    /// next frame drawn whole.
+    fn window_requests(
+        &mut self,
+        asked: &[baud_core::WindowRequest],
+        left: Option<crate::winops::MacWindow>,
+    ) {
+        use crate::winops::MacAction;
+        if asked.is_empty() {
+            return;
+        }
+        let Some(w) = self.view.window() else {
+            return;
         };
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let at = left.unwrap_or_else(|| self.mac_window(&w, mtm));
         let (calls, left) = crate::winops::mac_batch(asked, at);
         self.saved_frame = left.saved;
         for action in calls {
@@ -8685,7 +8768,13 @@ impl Driver {
             self.app.cell.as_ref(),
         );
         if self.app.trail_scroll != crate::config::TrailScroll::Ride
-            || !slides(self.app.scroll, self.app.term.window_back(), screen, drawn)
+            || !slides(
+                self.app.scroll,
+                self.app.term.window_back(),
+                screen,
+                drawn,
+                self.app.term.status_rows(),
+            )
             || self.app.slide.pan().value() == 0
         {
             return;
@@ -9318,6 +9407,47 @@ impl Driver {
         }
     }
 
+    /// **The status line shown or taken away** (DECSSDT, `status.rs` in the
+    /// core), acted on after the read that changed it: the window grows or
+    /// shrinks by the line's row, the grid keeping its rows, so a program
+    /// asking for the size is told the main display's; where the window may
+    /// not change size, or the screen has no room for the row, the grid
+    /// gives the row up, and takes it back when the line goes
+    /// ([`crate::winops::mac_status_change`]). Returns the window the
+    /// line's frame leaves, for this read's window operations.
+    fn status_line(&mut self) -> Option<crate::winops::MacWindow> {
+        use crate::winops::StatusChange;
+        let now = self.app.term.status_rows();
+        if now == self.app.status_rows {
+            return None;
+        }
+        self.app.status_rows = now;
+        self.app.next_damage = Damage::Full;
+        self.app.pending = Pending::Dirty;
+        let (Some(w), Some(mtm)) = (self.view.window(), MainThreadMarker::new()) else {
+            return None;
+        };
+        let at = self.mac_window(&w, mtm);
+        let ops = self.app.term.window_ops();
+        let change = crate::winops::mac_status_change(&at, ops, self.status_took);
+        if now != Rows::ZERO {
+            self.status_took = change;
+        }
+        match change {
+            // The window to the grid's rows and the line's, whose resize
+            // callback then lays out the grid it already has.
+            StatusChange::Resize => {
+                let (frame, left) = crate::winops::mac_status_frame(at);
+                window_later(&w, frame);
+                Some(left)
+            }
+            StatusChange::Relayout => {
+                let _ = self.relayout(self.view.frame().size, self.app.scale);
+                None
+            }
+        }
+    }
+
     /// The grid for a view of `size` points at `scale`, and the terminal,
     /// the child and the frame following it -- on a resize, and on a zoom.
     fn relayout(&mut self, size: NSSize, scale: CGFloat) -> Drew {
@@ -9382,11 +9512,17 @@ impl Driver {
             self.app.tell_pty();
             return Drew::No;
         }
-        let ws = grid_in(
-            (px_w, px_h),
-            self.app.padding * scale,
-            f64::from(bar.value()),
-            (cw, ch),
+        // **The status line's row is the window's, below the grid**: the
+        // grid is what is left, and a program asking for the size is told
+        // it (`Term::status_rows`).
+        let ws = crate::width::less_status(
+            grid_in(
+                (px_w, px_h),
+                self.app.padding * scale,
+                f64::from(bar.value()),
+                (cw, ch),
+            ),
+            self.app.term.status_rows(),
         );
         if (ws.ws_col, ws.ws_row) != (self.app.grid.ws_col, self.app.grid.ws_row) {
             let t_step = Instant::now();
@@ -10624,6 +10760,39 @@ mod tests {
         );
     }
 
+    /// **The window the status line grows to lays out to the grid's rows
+    /// and the line's**: `content_height` with the line inverted through
+    /// `grid_in` and `less_status`, at cell heights across 12-40 px, three
+    /// scales and three paddings, gives the grid back its rows, so the
+    /// resize after the line appears changes nothing a program was told; a
+    /// window that cannot grow gives one row up.
+    #[test]
+    fn the_status_lines_window_lays_out_to_the_grids_rows() {
+        let one = Rows::of_count(1);
+        let mut checked = 0;
+        for rows in [24u16, 50] {
+            for scale in [1.0, 2.0, 3.0] {
+                for pad in [0.0, 4.0, 7.5] {
+                    let mut ch = 12.0;
+                    while ch < 40.0 {
+                        let grid = crate::width::Grid { cols: 80, rows };
+                        let h = crate::width::content_height(grid, one, ch, scale, pad);
+                        let g = grid_in((1200.0, h * scale), pad * scale, 0.0, (10.0, ch));
+                        let main = crate::width::less_status(g, one);
+                        assert_eq!(main.ws_row, rows, "{rows} at {ch} px, {scale}x, {pad}");
+                        // The window as it was, the line shown: a row gone.
+                        let was = crate::width::content_height(grid, Rows::ZERO, ch, scale, pad);
+                        let g = grid_in((1200.0, was * scale), pad * scale, 0.0, (10.0, ch));
+                        assert_eq!(crate::width::less_status(g, one).ws_row, rows - 1);
+                        checked += 1;
+                        ch += 0.61;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 828, "every case ran");
+    }
+
     /// **The window a program's page width asks for lays out to exactly
     /// its columns**: `content_width` inverted through `grid_in`, at cell
     /// widths across 6-20 px, three scales, three paddings and both
@@ -11007,6 +11176,7 @@ mod tests {
                 padding: 8.0,
                 gutter: 0.0,
                 grid: crate::width::Grid { cols: 80, rows: 24 },
+                status: Rows::ZERO,
                 minimized: Minimized::No,
                 full: Full::No,
                 saved: None,
@@ -11065,7 +11235,7 @@ mod tests {
         let request = code
             .split_once(concat!(
                 "fn window_",
-                "requests(&mut self, asked: &[baud_core::WindowRequest]) {"
+                "requests(\n        &mut self,\n        asked: &[baud_core::WindowRequest],\n"
             ))
             .expect("window_requests")
             .1;
@@ -11156,18 +11326,21 @@ impl SlideDrawn {
 
 /// **Whether the frame draws a smooth scroll's slide**: smooth scrolling,
 /// the window at the live screen, the primary -- the alternate screen keeps
-/// no ring and has no leaving row -- and the cell path. The one predicate
-/// the trail's ride and its lift both take.
+/// no ring and has no leaving row -- the cell path, and no status line,
+/// whose row below the grid is no line of the ring and would pan with it.
+/// The one predicate the trail's ride and its lift both take.
 fn slides(
     scroll: crate::config::ScrollMode,
     window: Rows,
     screen: Screen,
     drawn: SlideDrawn,
+    status: Rows,
 ) -> bool {
     scroll == crate::config::ScrollMode::Smooth
         && window.index() == 0
         && screen == Screen::Normal
         && drawn == SlideDrawn::Cells
+        && status == Rows::ZERO
 }
 
 /// The lift a trail is drawn with: the slide's pan when it rides, and
@@ -11511,7 +11684,8 @@ fn grid_for(size: NSSize, scale: CGFloat, cell: (f64, f64)) -> WinSize {
 #[cfg(test)]
 mod scrollbar_mode_tests {
     /// **`?30` reaches the window.** It is AppKit-bound, so the source is
-    /// held: the pump acts on a change after the read's window requests;
+    /// held: the pump acts on a change after the read's window requests,
+    /// which follow the status line's frame;
     /// hidden, the frame is handed no scrollbar and a press in its strip is
     /// cells; and every layout keeps the gutter `?30` leaves
     /// (`shown_gutter`), never the style's alone.
@@ -11523,8 +11697,11 @@ mod scrollbar_mode_tests {
             assert_eq!(SRC.matches(needle).count(), 1, "once: {needle}");
             SRC.find(needle).expect("found")
         };
+        // The status line's frame first, so a request in the same read is
+        // measured on the window it leaves (`mac_status_frame`).
         let requests = once(concat!(
-            "self.window_requests(&asked);\n",
+            "let left = self.status_line();\n",
+            "        self.window_requests(&asked, left);\n",
             "        self.scrollbar_mode();"
         ));
         let pump = once(concat!("    fn pump(&mut self, ", "trigger: Trigger) {"));

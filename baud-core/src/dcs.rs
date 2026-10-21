@@ -232,6 +232,19 @@ impl Paint<'_, '_> {
             // the VT510's DECRQSS ("Select Attribute Change Extent DECSACE
             // *x"): the extent DECCARA and DECRARA use, `0` for the stream,
             // which `1` selects too, and `2` for the rectangle.
+            // **DECSSDT and DECSASD**, "may be queried through DECRQSS"
+            // (`[[source: dec-std-070]]` 070-14 p. 14-9), as the controls
+            // that set them: the type, and the display DECSASD selected.
+            StatusTarget::StatusType => {
+                s.push(b"1$r");
+                s.dec(WireByte::of(self.strs.status.kind.code()));
+                s.push(b"$~");
+            }
+            StatusTarget::ActiveDisplay => {
+                s.push(b"1$r");
+                s.dec(WireByte::of(self.strs.status.active.code()));
+                s.push(b"$}");
+            }
             StatusTarget::AttrExtent => s.push(match self.cold.attr_extent {
                 AttrExtent::Stream => b"1$r0*x",
                 AttrExtent::Rectangle => b"1$r2*x",

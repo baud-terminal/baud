@@ -18,7 +18,7 @@
 // The Linux driver reads the refusal half alone: it resizes no window.
 #![cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
 
-use baud_core::{Term, WidthRequest, WidthRequests, WinSize};
+use baud_core::{Rows, Term, WidthRequest, WidthRequests, WinSize};
 use baud_render::Tally;
 
 /// What the driver can do with its window.
@@ -179,6 +179,25 @@ fn describe(why: Refusal, asked: WidthRequest) -> String {
 /// floor `grid_in` takes lands on `cols` and not one short of it.
 pub fn content_width(grid: Grid, cell_px: f64, scale: f64, padding: f64, gutter_px: f64) -> f64 {
     (f64::from(grid.cols) * cell_px + gutter_px + 0.5) / scale + 2.0 * padding
+}
+
+/// The grid a window of `ws` cells holds with the status line's `status`
+/// rows below it: the rows left, one at least.
+pub fn less_status(ws: WinSize, status: Rows) -> WinSize {
+    let line = u16::try_from(status.index()).unwrap_or(0);
+    WinSize {
+        ws_col: ws.ws_col,
+        ws_row: ws.ws_row.saturating_sub(line).max(1),
+    }
+}
+
+/// The content height, in points, of a window whose grid is `grid.rows`
+/// rows with the status line's `status` below them: `relayout`'s
+/// arithmetic inverted -- the cells and the padding top and bottom -- and
+/// half a pixel more, so the floor `grid_in` takes lands on the rows.
+pub fn content_height(grid: Grid, status: Rows, cell_px: f64, scale: f64, padding: f64) -> f64 {
+    let line = f64::from(u16::try_from(status.index()).unwrap_or(0));
+    ((f64::from(grid.rows) + line) * cell_px + 0.5) / scale + 2.0 * padding
 }
 
 #[cfg(test)]

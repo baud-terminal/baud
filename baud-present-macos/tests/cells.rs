@@ -175,12 +175,14 @@ impl Arms<'_, '_> {
         // window the scene carries.
         let live = t.looking_back(self.back).index() == 0;
         let composition = self.composition.clone().filter(|_| live);
-        let shown = (t.cursor_visible() && live).then(|| {
-            let (r, c) = match &composition {
-                Some(c) => c.cursor(c.width_on(&view)),
-                None => t.cursor(),
-            };
-            (r, c, t.cursor_style())
+        let shown = status_cursor(t, view.rows()).filter(|_| live).or_else(|| {
+            (t.cursor_visible() && live).then(|| {
+                let (r, c) = match &composition {
+                    Some(c) => c.cursor(c.width_on(&view)),
+                    None => t.cursor(),
+                };
+                (r, c, t.cursor_style())
+            })
         });
         self.map.ensure(
             t,
@@ -249,6 +251,16 @@ impl Arms<'_, '_> {
                 );
             }
         }
+        // The status line's records and its row of the mask, as the app
+        // adds them: nothing while no line is shown.
+        self.exceptions.status(
+            &mut self.renderer,
+            t,
+            cursor,
+            (view.cols(), view.rows()),
+            self.overlay_mem,
+            &mut self.records,
+        );
         self.records.extend_from_slice(self.renderer.trail());
         // The plasma blink's glow, from the cursor before the phase's
         // filter, as the app builds it.
@@ -326,6 +338,12 @@ impl Arms<'_, '_> {
             let at = rows * stride;
             copy_for_shader(t, &src[..cols], &mut self.copy_mem[at..at + cols]);
             rows + 1
+        } else if let Some(line) = t.status_line() {
+            // The status line's row after the screen's, as the app copies
+            // it; no slide runs while it is shown.
+            let at = rows * stride;
+            self.copy_mem[at..at + cols].copy_from_slice(&line.cells[..cols]);
+            rows + 1
         } else {
             rows
         };
@@ -333,13 +351,16 @@ impl Arms<'_, '_> {
         // screen -- which keeps no history -- has its cursor whatever
         // window the scene carries.
         let live = t.looking_back(self.back).index() == 0;
-        let cursor = (t.cursor_visible() && live)
-            .then(|| {
-                let (r, c) = match self.composition.as_ref().filter(|_| live) {
-                    Some(c) => c.cursor(c.width_on(&view)),
-                    None => t.cursor(),
-                };
-                (r, c, t.cursor_style())
+        let cursor = status_cursor(t, view.rows())
+            .filter(|_| live)
+            .or_else(|| {
+                (t.cursor_visible() && live).then(|| {
+                    let (r, c) = match self.composition.as_ref().filter(|_| live) {
+                        Some(c) => c.cursor(c.width_on(&view)),
+                        None => t.cursor(),
+                    };
+                    (r, c, t.cursor_style())
+                })
             })
             .filter(|&(_, _, style)| self.renderer.cursor_drawn(style));
         let input = CellInput {
@@ -1141,6 +1162,14 @@ fn blink_phases() -> Vec<(CursorPhase, &'static str)> {
         (ufo(128), "held up"),
         (ufo(190), "setting down"),
     ]
+}
+
+/// The status line's cursor, on the row after the screen's `rows`, while
+/// DECSASD selects the line: the app's rule (`live_cursor`).
+fn status_cursor(t: &Term<'_>, rows: Rows) -> Option<(Row, Col, baud_domain::CursorStyle)> {
+    t.status_line()
+        .and_then(|l| l.cursor)
+        .map(|c| (Row::from_index(rows.index()), c, t.cursor_style()))
 }
 
 fn differing(a: &[u32], b: &[u32]) -> usize {
@@ -6347,4 +6376,48 @@ fn every_precomposed_letter_draws_alike_on_every_arm() {
         "{} letters draw differently across the arms: {split:#?}",
         split.len()
     );
+}
+
+/// **The status line on the cell path is the instance path's**: its row
+/// read from the window copy after the screen's and its glyphs drawn by
+/// records, the indicator in reverse video and the host-writable line with
+/// its cursor on it, pixel for pixel against the instance arm.
+#[test]
+fn the_cell_path_draws_the_status_line_as_the_instance_path_does() {
+    let data = std::fs::read(format!(
+        "{}/../baud-font/tests/fonts/JetBrainsMono-Regular.ttf",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .expect("face");
+    let faces = [Face::parse(&data).expect("parse")];
+    let renderer = Renderer::new(
+        Stack::new(&faces).unwrap(),
+        PxSize::of(14.0).unwrap(),
+        Theme::dark(),
+        Blend::Native,
+        Cols::of_index(usize::from(WS.ws_col)),
+        Rows::of_index(usize::from(WS.ws_row)),
+    )
+    .unwrap();
+    arms!(renderer => arms, t);
+    scene(&mut t);
+    feed(&mut t, b"\x1b[2 q");
+    arms.renderer.fit(&t);
+    let (bare, _) = arms.draw(&mut t);
+    for (open, name) in [
+        (b"\x1b[1$~".as_slice(), "the indicator"),
+        (
+            b"\x1b[2$~\x1b[1$}mail: \x1b[1;31m3\x1b[0m".as_slice(),
+            "the host-writable line, selected",
+        ),
+        (b"\x1b[0$}".as_slice(), "the host-writable line"),
+    ] {
+        feed(&mut t, open);
+        arms.renderer.fit(&t);
+        let (a, _) = arms.draw(&mut t);
+        let c = arms.draw_copied(&mut t);
+        assert_eq!(a.len(), c.len(), "{name}");
+        assert!(a.len() > bare.len(), "{name}: the frame grew a row");
+        assert_eq!(differing(&a, &c), 0, "{name}: the arms disagree");
+    }
 }

@@ -95,6 +95,9 @@ struct Driver {
     font_size: f32,
     font_base: f32,
     configured: Option<(baud_present_wayland::Px, baud_present_wayland::Px)>,
+    /// The status line's rows as the window was last laid out for them
+    /// (`Term::status_rows`, `App::status_line`).
+    status_rows: Rows,
     pty: Pty,
     /// What the child is owed and the kernel has not taken: every write goes
     /// through it, in order (`pty.rs`).
@@ -318,6 +321,7 @@ pub fn run() {
         font_size: cfg.font_size,
         font_base: cfg.font_size,
         configured: None,
+        status_rows: Rows::ZERO,
         pty,
         outbox: Outbox::default(),
         hostlog: crate::hostlog::HostLog::new(crate::pty::start_dir()),
@@ -577,13 +581,12 @@ impl Driver {
     }
 
     /// Whether the cursor blinks now: a style that asks to, the keyboard, and
-    /// a cursor on the screen (`caret.rs`).
+    /// a cursor on the screen or, while DECSASD selects it, on the status
+    /// line (`caret.rs`).
     fn blinks(&self) -> Blinks {
-        crate::caret::blinks(
-            self.term.cursor_style(),
-            self.focus,
-            self.term.cursor_visible().then(|| self.term.cursor()),
-        )
+        let shown = self.term.cursor_visible()
+            || self.term.status_line().is_some_and(|l| l.cursor.is_some());
+        crate::caret::blinks(self.term.cursor_style(), self.focus, shown.then_some(()))
     }
 
     /// One read's worth of the child's output into the core.
@@ -658,6 +661,10 @@ impl Driver {
         // hid (`hide.rs`).
         let act = self.hiding.read(&self.term);
         self.hide_pointer(act);
+        // The status line's size first: `Window::resize` takes it at once,
+        // so a program's resize in the same read is measured on the window
+        // that holds the line and wins.
+        self.status_line();
         for r in asked {
             self.window_request(r);
         }
@@ -912,6 +919,7 @@ impl Driver {
             },
             cell: (m.cell_w.value(), m.cell_h.value()),
             grid: crate::width::Grid::of(&self.term),
+            status: self.term.status_rows(),
         };
         let toggle = |s: Set| match s {
             Set::On => Toggle::Set,
@@ -951,6 +959,52 @@ impl Driver {
                     crate::warn!("{line}");
                 }
             }
+        }
+    }
+
+    /// **The status line shown or taken away** (DECSSDT), after the read
+    /// that changed it and before its window operations: a floating window
+    /// grows or shrinks by the line's
+    /// row, the grid keeping its rows, and its `Configured` lays the grid
+    /// out; where the window cannot change size the grid gives the row up
+    /// or takes it back, laid out again at the size it has
+    /// ([`crate::winops::wayland_status`]).
+    fn status_line(&mut self) {
+        use crate::winops::{Shown, StatusChange};
+        let now = self.term.status_rows();
+        if now == self.status_rows {
+            return;
+        }
+        let was = core::mem::replace(&mut self.status_rows, now);
+        self.damage = Damage::Full;
+        self.pending = Pending::Dirty;
+        let Some((w, h)) = self.configured else {
+            return;
+        };
+        let shown = match self.window.shown() {
+            baud_present_wayland::Shown::Floating => Shown::Floating,
+            baud_present_wayland::Shown::Maximized => Shown::Maximized,
+            baud_present_wayland::Shown::FullScreen => Shown::FullScreen,
+        };
+        let m = self.renderer.metrics();
+        let at = crate::winops::WaylandWindow {
+            size: (w.0, h.0),
+            bounds: self.window.bounds().map(|(bw, bh)| (bw.0, bh.0)),
+            shown,
+            cell: (m.cell_w.value(), m.cell_h.value()),
+            grid: crate::width::Grid::of(&self.term),
+            status: now,
+        };
+        let resized = match crate::winops::wayland_status(shown, self.term.window_ops()) {
+            StatusChange::Resize => {
+                let (x, y) = crate::winops::wayland_status_window(at, was).size;
+                self.window
+                    .resize(baud_present_wayland::Px(x), baud_present_wayland::Px(y))
+            }
+            StatusChange::Relayout => baud_present_wayland::Resize::Bound,
+        };
+        if resized == baud_present_wayland::Resize::Bound {
+            self.configure(w, h);
         }
     }
 
@@ -1022,10 +1076,15 @@ impl Driver {
         });
         let cols = (width.0 / m.cell_w.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_col));
         let rows = (height.0 / m.cell_h.value().max(1)).clamp(1, u32::from(MAX_GRID.ws_row));
-        let ws = WinSize {
-            ws_col: u16::try_from(cols).unwrap_or(u16::MAX),
-            ws_row: u16::try_from(rows).unwrap_or(u16::MAX),
-        };
+        // The status line's row is the window's, below the grid: the grid
+        // is what is left, and the child is told it (`Term::status_rows`).
+        let ws = crate::width::less_status(
+            WinSize {
+                ws_col: u16::try_from(cols).unwrap_or(u16::MAX),
+                ws_row: u16::try_from(rows).unwrap_or(u16::MAX),
+            },
+            self.term.status_rows(),
+        );
         let was = (
             self.term.history_mark(),
             self.term.geometry().0,

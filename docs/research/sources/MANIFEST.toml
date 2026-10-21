@@ -14870,6 +14870,11 @@ group  = "C"
 # parameters", the extent. A printer's text: 070-9 §7.2 has hardcopy ignore P2 too.
 # vt340test's docs/ holds a different file under this manual's number (732,146 bytes,
 # sha256 f1265454...), not this one.
+# Re-fetched 2026-10-20 (lane b124), the sha256 matching, and read on the text layer [text]
+# for the status line: 070-14, Status Display Extension, pp. 14-4 to 14-13 (PDF 1040-1049)
+# -- the three types with No Status Line the factory default, the indicators and the VT340
+# example line, the state kept per display (§14.2.2), the controls' effects (§14.2.3), DECSASD
+# and DECSSDT -- and the device-initialization state, `status_display = NO_STATUS_DISPLAY`.
 
 [sources.vt420-rm]
 key    = "vt420-rm"
@@ -14907,6 +14912,11 @@ group  = "C"
 # printer-to-host and assignment sequences, SGR 0, 1, 2 underline and 5 sent to a printer);
 # Table 11-5, which marks DECPEX's page "(D)"; DSR printer port, p. 239; the VT52 table's
 # ESC ^ _ W X ] V.
+# Re-fetched 2026-10-20 (lane b124), the sha256 matching, and read on the text layer [text]
+# for the status line: pp. 219-221 (PDF 241-243), DECSASD, DECSSDT and the notes on what the
+# host-writable line shares; Notes on DECSC and DECRC, a separate buffer per display, p. 271
+# (PDF 293); Unlocking the Keyboard, the Wait indicator on "the keyboard indicator line at the
+# bottom of the screen" (PDF 102); Table 12-4's `$}` and `$~` (PDF 288).
 
 [sources.vt510-rm-b]
 key    = "vt510-rm-b"

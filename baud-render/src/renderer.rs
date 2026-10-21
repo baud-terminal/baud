@@ -1290,7 +1290,11 @@ pub struct Renderer<'f, 'a> {
     /// colour one; the embedder's (`Renderer::set_emoji_default`).
     emoji: EmojiDefault,
     cols: Cols,
+    /// The rows the frame draws: the main display's and the status line's
+    /// below them, when a program shows one (`Term::status_rows`).
     rows: Rows,
+    /// The main display's rows, the first of `rows`.
+    main: Rows,
     prev: Vec<PackedCell>,
     known: Prev,
     cur: Vec<PackedCell>,
@@ -1597,6 +1601,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             emoji: EmojiDefault::Font,
             cols: Cols::of_index(0),
             rows: Rows::of_index(0),
+            main: Rows::of_index(0),
             prev: Vec::new(),
             known: Prev::Unknown,
             cur: Vec::new(),
@@ -1664,6 +1669,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
             ink_scratch: Vec::new(),
         };
         r.resize(cols, rows);
+        r.main = rows;
         Some(r)
     }
 
@@ -2784,7 +2790,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let ch = i64::from(self.metrics.cell_h.value());
         let cell = |p: Px| ImagePx::of(u16::try_from(p.value()).unwrap_or(u16::MAX));
         let (cell_w, cell_h) = (cell(self.metrics.cell_w), cell(self.metrics.cell_h));
-        let screen_h = self.rows.index() as i64 * ch;
+        let screen_h = self.main.index() as i64 * ch;
         let frame_w = i64::from(self.frame_size().0.value());
         for (_, p) in imgs.placements() {
             if p.screen != origin.screen {
@@ -2852,7 +2858,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
                 let up = term.view(above);
                 (up.row(Row::from_index(0)), up.rendition(Row::from_index(0)))
             });
-            let rows = (0..self.rows.index()).map(|r| {
+            let rows = (0..self.main.index()).map(|r| {
                 let y = Row::from_index(r);
                 (r as i64, vp.row(y), vp.rendition(y))
             });
@@ -3439,11 +3445,53 @@ impl<'f, 'a> Renderer<'f, 'a> {
         self.reach[0] = reach;
     }
 
+    /// The frame fitted to `term`: its main display, and the status line's
+    /// row below it while one is shown.
     pub fn fit(&mut self, term: &Term<'_>) {
-        let (cols, rows) = term.geometry();
+        let (cols, main) = term.geometry();
+        let rows = Rows::of_index(main.index() + term.status_rows().index());
         if cols.index() != self.cols.index() || rows.index() != self.rows.index() {
             self.resize(cols, rows);
         }
+        if main != self.main {
+            self.main = main;
+            self.known = Prev::Unknown;
+        }
+    }
+
+    /// The main display's rows, above the status line's.
+    pub fn main_rows(&self) -> Rows {
+        self.main
+    }
+
+    /// **The status line's row, converted as the instance path converts a
+    /// line**, for the path that draws the grid itself: its glyphs and
+    /// decorations, its cursor's shapes included, at the row below the main
+    /// display. The cell shader draws its backgrounds from the window copy's
+    /// row after the main display's and leaves the rest to these. Nothing
+    /// while no status line is shown.
+    pub fn status_records(
+        &mut self,
+        term: &Term<'_>,
+        cursor: Option<(Row, Col, CursorStyle)>,
+        out: &mut Vec<Instance>,
+    ) {
+        out.clear();
+        self.sized_ready(term);
+        let Some(line) = term.status_line() else {
+            return;
+        };
+        let r = Row::from_index(self.main.index());
+        if r.index() >= self.rows.index() {
+            return;
+        }
+        let range = self.row_cells(r);
+        let n = range.len().min(line.cells.len());
+        self.cur[range.start..range.start + n].copy_from_slice(&line.cells[..n]);
+        self.cur_size[r.index()] = line.rendition;
+        let mut exc = Exceptions::default();
+        self.convert_row(term, r, cursor, &mut exc);
+        out.extend_from_slice(&self.per_row[r.index()]);
     }
 
     /// Reads the terminal and converts the rows that changed since the
@@ -3473,7 +3521,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let mut stamp = self.styles_stamp;
         let sync = self.sync_styles(term, &mut styles, &mut stamp);
         (self.styles, self.styles_stamp) = (styles, stamp);
-        let (cols, rows) = term.geometry();
+        let (cols, rows, main) = (self.cols, self.rows, self.main);
         let ncols = cols.index();
         // Each row read where the core holds it, through the rotation and
         // the ring, `back` lines into the history when the user is looking
@@ -3486,9 +3534,20 @@ impl<'f, 'a> Renderer<'f, 'a> {
         // the program that owns it owns the cursor.
         let back = term.looking_back(back);
         let vp = term.view(back);
-        for r in 0..rows.index() {
+        for r in 0..main.index() {
             self.cur[r * ncols..(r + 1) * ncols].copy_from_slice(vp.row(Row::from_index(r)));
             self.cur_size[r] = vp.rendition(Row::from_index(r));
+        }
+        // **The status line's row, below the main display's**, whatever the
+        // window looks back on: it is no line of the history.
+        let status = term.status_line();
+        if let Some(line) = &status {
+            let r = main.index();
+            if r < rows.index() {
+                let n = ncols.min(line.cells.len());
+                self.cur[r * ncols..r * ncols + n].copy_from_slice(&line.cells[..n]);
+                self.cur_size[r] = line.rendition;
+            }
         }
         // An input method's composition, on the live view: the cells under it
         // converted blank in their own renditions, so their backgrounds stay
@@ -3497,7 +3556,7 @@ impl<'f, 'a> Renderer<'f, 'a> {
         let composition = self
             .composition
             .clone()
-            .filter(|c| back.index() == 0 && c.row.index() < rows.index());
+            .filter(|c| back.index() == 0 && c.row.index() < main.index());
         let mut under = PackedCell::EMPTY;
         if let Some(c) = &composition {
             let (start, end) = c.columns(c.width_on(&vp));
@@ -3516,17 +3575,24 @@ impl<'f, 'a> Renderer<'f, 'a> {
         if self.theme.finds_pictures() {
             self.pictures.find(term, &vp, self.video);
         } else {
-            self.pictures.clear(cols, rows);
+            self.pictures.clear(cols, main);
         }
         // No cursor while looking back: it belongs to the live screen, which
-        // is `back` lines below the window.
-        let live: Cursor = (term.cursor_visible() && back.index() == 0).then(|| {
-            let (r, c) = match &composition {
-                Some(c) => c.cursor(c.width_on(&vp)),
-                None => term.cursor(),
-            };
-            (r, c, term.cursor_style())
-        });
+        // is `back` lines below the window. While DECSASD selects the status
+        // line the cursor is on its row.
+        let on_line = status
+            .and_then(|l| l.cursor)
+            .map(|c| (Row::from_index(main.index()), c, term.cursor_style()));
+        let live: Cursor = match on_line {
+            Some(at) => (back.index() == 0).then_some(at),
+            None => (term.cursor_visible() && back.index() == 0).then(|| {
+                let (r, c) = match &composition {
+                    Some(c) => c.cursor(c.width_on(&vp)),
+                    None => term.cursor(),
+                };
+                (r, c, term.cursor_style())
+            }),
+        };
         self.set_cursor_glow_at(live);
         let cursor: Cursor = live.filter(|&(_, _, style)| self.cursor_drawn(style));
         let opacity = cursor.map_or(Chan::from_u8(0xFF), |(_, _, s)| self.cursor_opacity(s));

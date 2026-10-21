@@ -604,6 +604,15 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn alt_images_moved(&mut self, way: Scroll) {
+        // **The status line keeps no history and moves none of the main
+        // display's lines**: it reads as the alternate screen while it is
+        // written (`status.rs`), so its scroll reaches here, and leaves the
+        // images and their numbering as they are. Here, out of line, and not
+        // in `retire`, whose shape the per-line scroll pays for: the build
+        // with the test there retired 1.07% more instructions on cat-cjk.
+        if self.on_status() {
+            return;
+        }
         let rows = self.rows;
         let blanked = match way {
             Scroll::Up => {
@@ -699,6 +708,10 @@ impl Paint<'_, '_> {
     pub(crate) fn scroll_rect(&mut self, at: Row, n: Count, way: BandMove) {
         let (bot, left, right) = (self.cold.bot, self.cold.left, self.cold.right);
         if at.index() > bot.index() {
+            return;
+        }
+        if self.on_status() {
+            self.status_scrolled();
             return;
         }
         let b = self.blank();
@@ -1382,6 +1395,10 @@ impl Paint<'_, '_> {
             self.scroll_rect(self.cy, n, BandMove::Down);
             return;
         }
+        if self.on_status() {
+            self.status_scrolled();
+            return;
+        }
         let (at, bot) = (self.cy, self.cold.bot);
         let k = n.at_least_one().min(bot.index() + 1 - at.index());
         self.cold
@@ -1416,6 +1433,10 @@ impl Paint<'_, '_> {
         self.set_col(CursorCol::moved(self.cold.left));
         if self.fenced() {
             self.scroll_rect(self.cy, n, BandMove::Up);
+            return;
+        }
+        if self.on_status() {
+            self.status_scrolled();
             return;
         }
         let (at, bot) = (self.cy, self.cold.bot);
@@ -1818,6 +1839,11 @@ impl Paint<'_, '_> {
     /// embedder's window over the history
     /// ([`crate::Term::history_erasures`]).
     pub(crate) fn erase_saved_lines(&mut self) {
+        // The saved lines are the main display's, from the status line too.
+        if self.on_status() {
+            self.on_main(|p| p.erase_saved_lines());
+            return;
+        }
         let keep = Rows::of_count(self.rows.index() + self.book.hidden.index());
         let n = self.on_primary(|v| v.erase_outside(keep));
         self.cells = self.cells.plus(n);
@@ -1850,6 +1876,10 @@ impl Paint<'_, '_> {
     /// erase wipes does: the lines are tested against the watch on a
     /// selection's lines while the primary is up, whose history they are.
     pub(crate) fn selective_erase_saved_lines(&mut self) {
+        if self.on_status() {
+            self.on_main(|p| p.selective_erase_saved_lines());
+            return;
+        }
         let hist = self.book.hist;
         let n = self.on_primary(|v| v.selective_wipe_behind(hist));
         self.cells = self.cells.plus(n);
@@ -2089,6 +2119,10 @@ impl Paint<'_, '_> {
         live.insert(self.style);
         live.mark(self.view.ring_cells());
         live.mark(self.other.cells);
+        // The status line's row and the parked display's rendition: the
+        // line, or the main display while the line is written.
+        live.mark(self.status.cells);
+        live.insert(self.strs.status.parked_style());
         let (mut freed, mut filled, mut tombs) = (0, 0, 0);
         let mut need = 0usize;
         for step in 0..2 * len {
@@ -2884,6 +2918,12 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn single_width_pages(&mut self) {
+        // The page memory is the main display's, both its screens, from
+        // the status line too.
+        if self.on_status() {
+            self.on_main(|p| p.single_width_pages());
+            return;
+        }
         for live in [true, false] {
             for y in 0..self.rows.index() {
                 let r = Row::from_index(y);
@@ -3245,6 +3285,14 @@ impl Paint<'_, '_> {
             // STD 070's algorithm sets `left_right_margins_mode = SETABLE`
             // instead, and xterm leaves the mode as it was, calling that line
             // an error -- both readings in the record, as an open question.
+            // **On the status line, DECCOLM is the main display's**, and
+            // clears the line too: "DECCOLM affects both the Main Display
+            // and the Status Display simultaneously ... Receipt of this
+            // sequence will clear both" (`[[source: dec-std-070]]` 070-14
+            // p. 14-9).
+            PrivateMode::Column132 if self.on_status() => {
+                self.on_main(|p| p.set_private_mode(m, change, node, at));
+            }
             PrivateMode::Column132 => {
                 if !self.cold.modes.is_set(ModeBit::AllowColumnMode) {
                     self.cold.width.refused = self.cold.width.refused.next();
@@ -3257,6 +3305,7 @@ impl Paint<'_, '_> {
                 self.cold.modes.reset(ModeBit::SideMargins);
                 if !self.cold.modes.is_set(ModeBit::NoClearOnColumn) {
                     self.clear_screen();
+                    self.status_column_mode();
                 }
                 self.home();
                 self.ask_width(PageWidth::of_column_mode(change), node);
@@ -3481,6 +3530,9 @@ impl Paint<'_, '_> {
             // and in `CSI ? 2 ; 3 l` it parks after it, so the protocol goes
             // to the node the held rest resumes from rather than over the
             // stop (`WidthAsk::resume`).
+            // "DECANM - ANSI/VT52 Mode: This sequence is ignored if
+            // received in the Status Display" (070-14 p. 14-8).
+            PrivateMode::AnsiMode if self.on_status() => {}
             PrivateMode::AnsiMode => {
                 self.cold.terminal = match change {
                     ModeChange::Set => TerminalMode::Ansi,
@@ -3598,6 +3650,13 @@ impl Paint<'_, '_> {
     /// way out; only `?1049` saves the cursor and clears on the way in and
     /// restores it on the way out.
     fn set_alt_screen(&mut self, change: ModeChange, how: AltSwitch) {
+        // **The alternate screen is the main display's**: from the status
+        // line it switches the main display's screen, and the line stays
+        // selected.
+        if self.on_status() {
+            self.on_main(|p| p.set_alt_screen(change, how));
+            return;
+        }
         // A placement names a position on the screen it was made on, and a
         // switch leaves that screen, clears it or restores a saved cursor
         // (`placed.rs`). The calls that do none of these -- `?47 l` on the
@@ -3846,6 +3905,10 @@ impl Paint<'_, '_> {
 
     /// RIS. **Everything a soft reset does, and the screen as well.**
     pub(crate) fn hard_reset(&mut self) {
+        // **RIS erases and leaves the status line**, "The Status Display will
+        // be erased and exited" (070-14 p. 14-10), to the power-up type,
+        // none: first, so the rest resets the main display.
+        self.reset_status();
         // **`RIS` returns to the normal screen and `DECSTR` does not**, which
         // is why this is here rather than in `soft_reset` -- and **first**,
         // because leaving restores what `?1049 h` saved: the rendition, the
@@ -4193,6 +4256,12 @@ impl Paint<'_, '_> {
     /// DECSTR. **A soft reset stays on the alternate screen and leaves the
     /// cursor where it is.**
     pub(crate) fn soft_reset(&mut self) {
+        // **DECSTR leaves the status line, and does not erase it**: "The
+        // Status Display will be exited, but not erased" (`[[source:
+        // dec-std-070]]` 070-14 p. 14-9), so the rest resets the main
+        // display. DECSCL reaches here too: it "performs a Soft Terminal
+        // Reset". Its own state waiting parked is reset with the rest.
+        self.soft_reset_status();
         // **`DECSTR` does not leave the alternate screen**, and this called
         // `set_alt_screen(Reset)` as its first act. `[[source: ctlseqs]]`'s
         // soft-reset list does not include the screen, and a full-screen

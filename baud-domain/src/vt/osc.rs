@@ -617,8 +617,11 @@ impl AllowCategory {
 
     /// Its subcategories, in xterm's order: `tblColorOps` to
     /// `tblWindowOps` (`[[source: xterm-reset]]`'s file 10470-10620) as a
-    /// default build compiles them, `OPT_STATUS_LINE` being off
-    /// (`[[source: xterm-ptyx-h]]` 800-801).
+    /// default build compiles them, and `StatusLine`, which a default
+    /// build leaves out with `OPT_STATUS_LINE` off (`[[source:
+    /// xterm-ptyx-h]]` 800-801) and an `OPT_STATUS_LINE` build lists last
+    /// (`[[source: xterm-reset]]`'s file, 10609-10610): baud has the status
+    /// line.
     pub fn subcategories(self) -> &'static [&'static [u8]] {
         match self {
             AllowCategory::ColorOps => &[b"SetColor", b"GetColor", b"GetAnsiColor"],
@@ -671,6 +674,7 @@ impl AllowCategory {
                 b"GetSelection",
                 b"SetSelection",
                 b"SetXprop",
+                b"StatusLine",
             ],
         }
     }

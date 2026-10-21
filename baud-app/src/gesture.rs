@@ -77,6 +77,17 @@ pub(crate) fn held_after(held: LocatorButtons, kind: Kind, button: Pressed) -> L
     }
 }
 
+/// **Whether a pointer event owes a frame for DEC's locator**: while the
+/// indicator line is shown, whose locator field the event may have moved
+/// or, after a one-shot report turned the locator off, taken away
+/// (`Term::locator`). 070-14 holds an indicator to 80 ms behind the change
+/// it shows (`[[source: dec-std-070]]` pp. 14-5 and 14-6), and a steady
+/// cursor draws no frame of its own. Both drivers ask it after every
+/// event the locator sees.
+pub(crate) fn locator_redraws(term: &Term<'_>) -> bool {
+    term.status_type() == baud_core::StatusType::Indicator
+}
+
 /// **One pointer event for DEC's locator** (`Term::locator`): a press or
 /// a release the route gave the child while the locator is the protocol
 /// in force, a move otherwise -- a move, a crossing, or a press the

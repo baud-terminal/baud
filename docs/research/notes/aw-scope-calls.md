@@ -9,7 +9,12 @@ built, what the governing text says, the options, Jev's lean and a
 recommendation. Scope is the owner's call (TODO.md). Where Jev reached 0.9 in
 both orders the recommendation is Jev's pick as it stands. Below that it is
 the lean, said as one. XTSMPOINTER, the pointer-hiding mode, was asked
-separately and is not repeated here.
+separately and is not repeated here. **2026-10-20: section 3, the status
+line, was built**, its open forks put to Jev: the line's own character
+sets, 070-14's (SEPARATE, 0.98 and 1.00); DECAWM shared and the pending
+wrap each display's (0.94 and 0.96); no line at power-on, the lean
+(0.78 and 0.86, then 0.80 and 0.92). `docs/record.md`, "The status line:
+DECSSDT and DECSASD".
 
 Every option was put to Jev with a render of it beside today's behaviour.
 Each request quoted the owner's standing rule of 2026-09-25 verbatim, "full
@@ -488,4 +493,5 @@ by the owner's DA pick of 2026-10-15, "Keep ?6c (Recommended)".
 - iTerm2 answers the locator status query "available" with no locator
   (section 2).
 - baud's `OSC 62` window-operation list omits xterm's StatusLine name, which
-  is truthful while there is no status line (section 3).
+  is truthful while there is no status line (section 3). Since 2026-10-20 it
+  names it, the line built.

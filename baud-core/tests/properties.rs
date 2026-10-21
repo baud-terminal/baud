@@ -817,6 +817,41 @@ const ALPHABET: &[Atom] = &[
         stride: 0,
         count: 0,
     },
+    // **The status line** (DECSSDT, DECSASD), last so no atom above moves:
+    // a read that ends on the line swaps the main display back, and the next
+    // swaps the line in again, so what either holds must not depend on where
+    // the reads fell. The write atom is text, a column move, a line feed
+    // that erases the line and an erase, on whichever display is selected.
+    Atom {
+        name: "status-host-on",
+        bytes: b"\x1b[2$~\x1b[1$}",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "status-write",
+        bytes: b"ab\x1b[1mc\x1b[5Gd\ne\x1b[2Gf\x1b[K",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "status-main",
+        bytes: b"\x1b[0$}",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "status-indicator",
+        bytes: b"\x1b[1$~",
+        stride: 0,
+        count: 0,
+    },
+    Atom {
+        name: "status-none",
+        bytes: b"\x1b[0$~",
+        stride: 0,
+        count: 0,
+    },
 ];
 
 /// Either ambiguous-width policy.
@@ -854,7 +889,24 @@ type Seen = (
     Clipped,
     Vec<LineRendition>,
     baud_domain::RegisCounts,
+    Status,
 );
+
+/// The status line as a driver reads it: its type, the display selected,
+/// its cells and its cursor.
+type Status = (
+    StatusType,
+    ActiveDisplay,
+    Option<(Vec<PackedCell>, Option<Col>)>,
+);
+
+fn status(t: &Term<'_>) -> Status {
+    (
+        t.status_type(),
+        t.active_display(),
+        t.status_line().map(|l| (l.cells.to_vec(), l.cursor)),
+    )
+}
 
 /// Every row's line rendition, which the cells do not show -- and the
 /// promise the rendition's bits ride on: a sized row's mark is at least the
@@ -919,6 +971,7 @@ fn drive_at(bytes: &[u8], chunk: usize, a: AmbiguousWidth) -> Seen {
         clipped(&t),
         renditions(&t),
         t.regis_counts(),
+        status(&t),
     )
 }
 
@@ -947,6 +1000,7 @@ fn drive_atomwise(prog: &[usize], a: AmbiguousWidth) -> Seen {
         clipped(&t),
         renditions(&t),
         t.regis_counts(),
+        status(&t),
     )
 }
 
@@ -1003,7 +1057,7 @@ fn the_alphabet_emits_what_it_claims() {
 /// title keeps it.
 #[test]
 fn the_c1_atoms_reach_the_string_arms() {
-    let (_, _, title, _, _, _, _) = drive(&bytes_of(&[atom("osc-c1-utf8")]), 4096);
+    let (_, _, title, _, _, _, _, _) = drive(&bytes_of(&[atom("osc-c1-utf8")]), 4096);
     assert_eq!(title, b"t\x85u", "UTF-8: the 85 is payload");
 
     fed("latin1-osc-nel", &|t| {
@@ -1234,6 +1288,34 @@ fn the_regis_atoms_reach_regis() {
     let mut t = Term::new(owned.storage(), &w);
     support::feed(&mut t, &bytes);
     assert_eq!(t.reply(), b"", "the second envelope is inside the quote");
+}
+
+/// **The status atoms reach the line**, the control the guard atoms have:
+/// the write atom lands on the host-writable line after `status-host-on`,
+/// on the main display after `status-main`, and the indicator shows.
+#[test]
+fn the_status_atoms_reach_the_line() {
+    let bytes = bytes_of(&[atom("status-host-on"), atom("status-write")]);
+    let w = ws();
+    let mut owned = Owned::new(&w);
+    let mut t = Term::new(owned.storage(), &w);
+    support::feed(&mut t, &bytes);
+    let line = t.status_line().expect("the host-writable line");
+    let drawn: Vec<u32> = line
+        .cells
+        .iter()
+        .filter_map(|c| c.content.as_codepoint().map(|cp| cp.value()))
+        .collect();
+    // The line feed erased `abcd`, and the erase after `f` took `e`.
+    assert_eq!(drawn, [u32::from(b'f')]);
+    support::feed(
+        &mut t,
+        &bytes_of(&[atom("status-main"), atom("status-indicator")]),
+    );
+    assert_eq!(t.active_display(), ActiveDisplay::Main);
+    assert_eq!(t.status_type(), StatusType::Indicator);
+    support::feed(&mut t, &bytes_of(&[atom("status-none")]));
+    assert!(t.status_line().is_none());
 }
 
 /// **The guarded-area atoms reach the guard**, the control the C1 atoms

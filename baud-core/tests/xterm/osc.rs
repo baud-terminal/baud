@@ -698,15 +698,18 @@ fn a_malformed_feature_query_is_counted() {
 }
 
 /// **The longest feature reply comes back whole**: `OSC 62 ;
-/// allowWindowOps`, 336 bytes with its `BEL`.
+/// allowWindowOps`, 347 bytes with its `BEL`, `StatusLine` last.
 #[test]
 fn the_longest_feature_reply_fits() {
     let ws = support::CORPUS;
     let mut s = Owned::new(&ws);
     let mut t = Term::new(s.storage(), &ws);
     support::feed(&mut t, b"\x1b]62;allowWindowOps\x07");
-    assert_eq!(t.reply().len(), 336);
-    assert!(t.reply().ends_with(b",SetSelection,SetXprop\x07"));
+    assert_eq!(t.reply().len(), 347);
+    assert!(
+        t.reply()
+            .ends_with(b",SetSelection,SetXprop,StatusLine\x07")
+    );
     assert_eq!(t.reply_overflows, 0);
 }
 

@@ -1120,6 +1120,42 @@ impl Overlay {
         }));
     }
 
+    /// **The status line's row, for the cell path**: drawn by the records
+    /// the instance path converts it to ([`Renderer::status_records`]), and
+    /// its row of the mask -- the one after the main display's `rows`,
+    /// which the window copy holds the line's cells in -- marked `RECORD`,
+    /// and `SIZED` on a line that is not single-width, so the shader draws
+    /// its backgrounds and nothing else of it. Nothing while no status line
+    /// is shown. Called after [`Overlay::ensure`], which clears that row.
+    #[allow(clippy::too_many_arguments)]
+    pub fn status(
+        &mut self,
+        r: &mut Renderer<'_, '_>,
+        term: &Term<'_>,
+        cursor: Option<(Row, Col, CursorStyle)>,
+        (cols, rows): (Cols, Rows),
+        mask: &mut [u8],
+        records: &mut Vec<Instance>,
+    ) {
+        let Some(line) = term.status_line() else {
+            return;
+        };
+        let at = rows.index().saturating_mul(cols.index());
+        let Some(row) = mask.get_mut(at..at.saturating_add(cols.index())) else {
+            return;
+        };
+        let bits = match line.rendition.is_double() {
+            true => MASK_RECORD | MASK_SIZED,
+            false => MASK_RECORD,
+        };
+        for b in row {
+            *b |= bits;
+        }
+        let mut drawn = Vec::new();
+        r.status_records(term, cursor, &mut drawn);
+        records.extend(drawn);
+    }
+
     /// A window's cells that the map does not draw: masked, counted and
     /// drawn by records.
     #[allow(clippy::too_many_arguments)]

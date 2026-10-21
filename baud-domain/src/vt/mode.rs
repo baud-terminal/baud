@@ -922,6 +922,77 @@ impl PageWidth {
     }
 }
 
+/// DECSSDT's status line type, `CSI Ps $ ~` (`[[source: vt420-rm]]` p. 220,
+/// `[[source: dec-std-070]]` 070-14 p. 14-12): "0 No Status Line, 1
+/// Indicator (Local) Status Line, 2 Host Writable (Remote) Status Line".
+///
+/// **An omitted `Ps` is 0**, the VT420's "0 (default)" and 070-14's "If Ps
+/// is omitted, it is assumed to be 0, which will disable the Status
+/// Display"; xterm reads it so too (`zero_if_default(0)`, `[[source:
+/// xterm-reset]]`'s file). ctlseqs' annotation marks 1, a conflict two DEC texts
+/// and the code it documents settle.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum StatusType {
+    /// No status line: 070-14's "(1) No Status Line (factory default)",
+    /// which baud powers up with (Jev's lean, NONE, 0.80 and 0.92).
+    #[default]
+    None,
+    /// The indicator line, the terminal's own state in reverse video.
+    Indicator,
+    /// The host-writable line, a second display of one row.
+    HostWritable,
+}
+
+impl StatusType {
+    /// `Ps`, or `None` for a value neither text gives.
+    pub fn from_param(p: Option<Param>) -> Option<StatusType> {
+        match p.map_or(0, |x| x.0) {
+            0 => Some(StatusType::None),
+            1 => Some(StatusType::Indicator),
+            2 => Some(StatusType::HostWritable),
+            _ => None,
+        }
+    }
+
+    /// The `Ps` DECRQSS answers with.
+    pub const fn code(self) -> u8 {
+        match self {
+            StatusType::None => 0,
+            StatusType::Indicator => 1,
+            StatusType::HostWritable => 2,
+        }
+    }
+}
+
+/// DECSASD's display, `CSI Ps $ }` (`[[source: vt420-rm]]` p. 219,
+/// `[[source: dec-std-070]]` 070-14 p. 14-11): "0 Main Display (default),
+/// 1 Host Writable Status Line".
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ActiveDisplay {
+    #[default]
+    Main,
+    Status,
+}
+
+impl ActiveDisplay {
+    /// `Ps`, an omitted one 0, or `None` for a value neither text gives.
+    pub fn from_param(p: Option<Param>) -> Option<ActiveDisplay> {
+        match p.map_or(0, |x| x.0) {
+            0 => Some(ActiveDisplay::Main),
+            1 => Some(ActiveDisplay::Status),
+            _ => None,
+        }
+    }
+
+    /// The `Ps` DECRQSS answers with.
+    pub const fn code(self) -> u8 {
+        match self {
+            ActiveDisplay::Main => 0,
+            ActiveDisplay::Status => 1,
+        }
+    }
+}
+
 /// A width the core asks the embedder for (`Term::requested_width`): one of
 /// the two pages, or the window's own width, which `RIS` asks back for --
 /// the width the user gave it, as STD 070's `host_state_init` takes the

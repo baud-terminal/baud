@@ -2020,6 +2020,18 @@ pub struct Term<'b> {
 /// `#[must_use]` because the two answers are different facts about the
 /// terminal, and a caller that drops the value renders a grid that disagrees
 /// with the application about its own size.
+/// The status line as [`Term::status_line`] lends it.
+#[derive(Clone, Copy, Debug)]
+pub struct StatusLine<'a> {
+    /// The line's cells, the main display's width.
+    pub cells: &'a [PackedCell],
+    /// Its line rendition: DECDWL and DECDHL act on it as on any line.
+    pub rendition: LineRendition,
+    /// Its cursor's column, while DECSASD selects the line and the line's
+    /// DECTCEM shows it.
+    pub cursor: Option<Col>,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[must_use]
 pub enum Resized {
@@ -2916,6 +2928,7 @@ impl<'b> Term<'b> {
                 self.cell_height,
             ));
         }
+        self.status_resized(old_cols);
         let resized = match over {
             true => Resized::Truncated { cols, rows },
             false => Resized::Ok,
@@ -2966,6 +2979,11 @@ impl<'b> Term<'b> {
             rows.clamp(MAX_ROWS),
         );
         store.book.reach = cols;
+        let room = match store.status.cells.is_empty() {
+            true => crate::status::Room::Declined,
+            false => crate::status::Room::Lent,
+        };
+        store.strs.status = crate::status::Status::power_on(cols, room);
         Term {
             #[cfg(feature = "ceiling-segment-cache")]
             seen: [SegHash::ZERO; crate::feed::SEGS],
@@ -3372,6 +3390,58 @@ impl<'b> Term<'b> {
         (self.cols, self.rows)
     }
 
+    /// DECSSDT's type: no status line, the indicator or the host-writable
+    /// line (`status.rs`).
+    pub fn status_type(&self) -> StatusType {
+        self.store.strs.status.kind
+    }
+
+    /// DECSASD's display: where the host's text goes.
+    pub fn active_display(&self) -> ActiveDisplay {
+        self.store.strs.status.active
+    }
+
+    /// **The rows the status line takes beside the main display**: one
+    /// while either type is shown, else none. Never one of the main
+    /// display's rows, which [`Term::geometry`] counts and a program asking
+    /// for the size is told; an embedder adds this to its window, "On a
+    /// windowed display, the size of the terminal window may change to
+    /// include the status line" (`[[source: dec-std-070]]` 070-14 p.
+    /// 14-5), or takes it from the main display where the window cannot
+    /// grow.
+    pub fn status_rows(&self) -> Rows {
+        match self.store.strs.status.kind {
+            StatusType::None => Rows::ZERO,
+            StatusType::Indicator | StatusType::HostWritable => Rows::of_count(1),
+        }
+    }
+
+    /// **The status line, to draw below the main display**: its cells, the
+    /// main display's width, its line's rendition, and its cursor while
+    /// DECSASD selects it and its own DECTCEM shows it. `None` while no
+    /// status line is shown.
+    pub fn status_line(&self) -> Option<StatusLine<'_>> {
+        if self.status_rows() == Rows::ZERO {
+            return None;
+        }
+        let st = &self.store.strs.status;
+        let cells = self.store.status.cells.get(..self.cols.index())?;
+        let rendition = self
+            .store
+            .status
+            .used
+            .first()
+            .map_or(LineRendition::Single, |u| u.rendition());
+        let cursor = (st.active == ActiveDisplay::Status)
+            .then(|| st.park_cursor(self.cols))
+            .flatten();
+        Some(StatusLine {
+            cells,
+            rendition,
+            cursor,
+        })
+    }
+
     /// How incoming bytes are decoded. `ESC % @` / `ESC % G` select it.
     ///
     /// **This core never changes it**, which is the gap
@@ -3736,9 +3806,12 @@ impl<'b> Term<'b> {
         self.cold.kitty.current()
     }
 
-    /// `?25` DECTCEM. Whether the cursor should be drawn.
+    /// `?25` DECTCEM. Whether the main display's cursor should be drawn:
+    /// while DECSASD selects the status line the cursor is there
+    /// ([`StatusLine::cursor`]), and the main display's is not drawn.
     pub fn cursor_visible(&self) -> bool {
         self.cold.modes.is_set(ModeBit::CursorVisible)
+            && self.store.strs.status.active == ActiveDisplay::Main
     }
 
     /// **Where a program put the cursor before it hid it**, while it is
@@ -5416,9 +5489,11 @@ impl Term<'_> {
     }
 
     /// KAM. Whether a program has locked the keyboard, so [`Term::key`]
-    /// sends nothing. **Exposed, and not drawn yet**: VT510 shows a Wait
-    /// indicator on its keyboard indicator line, and baud has no status line
-    /// to put one on (Jev 2026-10-19, EXPOSE_STATE, 1.00/1.00).
+    /// sends nothing. **Exposed, and drawn on the indicator line**: VT510
+    /// shows a Wait indicator on its keyboard indicator line, which the
+    /// status line's indicator type draws (`status.rs`); with no status
+    /// line the embedder draws it from here, if at all (Jev 2026-10-19,
+    /// EXPOSE_STATE, 1.00/1.00).
     pub fn keyboard_locked(&self) -> bool {
         self.cold.modes.is_set(ModeBit::KeyboardAction)
     }

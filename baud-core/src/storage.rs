@@ -161,6 +161,11 @@ pub struct Storage<'b> {
     /// The per-character loop still never learns which screen is up:
     /// `View` is built **once per read**, over whichever surface is live.
     pub(crate) alt: AltBuf<'b>,
+    /// **The status line's row**, beside the main display and never one of
+    /// its rows: DECSSDT shows it and the host writes it while DECSASD
+    /// selects it (`status.rs`). Lent by [`Storage::with_status_line`];
+    /// without it the line cannot be shown.
+    pub(crate) status: crate::status::StatusBuf<'b>,
     /// The primary ring's bookkeeping; see [`Book`].
     pub(crate) book: Book<'b>,
     /// Bytes the terminal owes the host: the answer to a `DA`, a `DSR`, a
@@ -519,6 +524,9 @@ pub struct StrBuf<'b> {
     /// The printer's state beside it: the port, DECPFF, DECPEX, the run
     /// and the jobs (`print.rs`). Here for the reason `window_asks` is.
     pub(crate) print: crate::print::Printer,
+    /// The status line's type, which display DECSASD selected, and the
+    /// state of the display not live (`status.rs`).
+    pub(crate) status: crate::status::Status,
 }
 
 impl<'b> StrBuf<'b> {
@@ -581,6 +589,10 @@ impl<'b> StrBuf<'b> {
             reflow_dropped: Rows::ZERO,
             print_area: &mut [],
             print: crate::print::Printer::NONE,
+            status: crate::status::Status::power_on(
+                Cols::of_index(1),
+                crate::status::Room::Declined,
+            ),
         }
     }
 }
@@ -612,6 +624,8 @@ pub struct Owned {
     reply: alloc::vec::Vec<u8>,
     alt: alloc::vec::Vec<PackedCell>,
     alt_used: alloc::vec::Vec<RowExtent>,
+    status: alloc::vec::Vec<PackedCell>,
+    status_used: alloc::vec::Vec<RowExtent>,
     clusters: alloc::vec::Vec<ClusterSlot>,
     pending: alloc::vec::Vec<u8>,
     title: alloc::vec::Vec<u8>,
@@ -697,6 +711,10 @@ impl Owned {
             reply: vec![0u8; REPLY],
             alt: vec![PackedCell::EMPTY; span.len()],
             alt_used: vec![RowExtent::ZERO; rows.index()],
+            // The status line's row, at the pitch: the widest the main
+            // display can be.
+            status: vec![PackedCell::EMPTY; stride.index()],
+            status_used: vec![RowExtent::ZERO; 1],
             clusters: vec![ClusterSlot::EMPTY; NCLUSTER],
             pending: vec![0u8; OSC_MAX],
             title: vec![0u8; OSC_MAX],
@@ -877,6 +895,10 @@ impl Owned {
                 reflow_dropped: Rows::ZERO,
                 print_area: &mut self.print,
                 print: crate::print::Printer::NONE,
+                status: crate::status::Status::power_on(
+                    Cols::of_index(1),
+                    crate::status::Room::Declined,
+                ),
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -886,6 +908,10 @@ impl Owned {
             )
             .with_probe(&mut self.img_probe),
         )
+        .with_status_line(crate::status::StatusBuf::new(
+            &mut self.status,
+            &mut self.status_used,
+        ))
     }
 
     /// Lend them all to a `Storage`.
@@ -943,6 +969,10 @@ impl Owned {
                 reflow_dropped: Rows::ZERO,
                 print_area: &mut self.print,
                 print: crate::print::Printer::NONE,
+                status: crate::status::Status::power_on(
+                    Cols::of_index(1),
+                    crate::status::Room::Declined,
+                ),
             },
             ImageStore::new(
                 &mut self.img_pixels,
@@ -952,6 +982,10 @@ impl Owned {
             )
             .with_probe(&mut self.img_probe),
         )
+        .with_status_line(crate::status::StatusBuf::new(
+            &mut self.status,
+            &mut self.status_used,
+        ))
     }
 }
 
@@ -1207,6 +1241,21 @@ impl<'b> Storage<'b> {
         Rows::of_index(self.used.len())
     }
 
+    /// **Lend the status line its row**: at least the pitch of cells and one
+    /// extent, or an empty row to decline it. A storage without one shows no
+    /// status line, and DECSSDT 1 and 2 are counted (`status.rs`).
+    ///
+    /// # Panics
+    /// If `row` is shorter than the pitch or has no extent, and is not empty.
+    pub fn with_status_line(mut self, row: crate::status::StatusBuf<'b>) -> Storage<'b> {
+        assert!(
+            row.cells.is_empty() || row.cells.len() >= self.stride.index() && !row.used.is_empty(),
+            "the status line is shorter than the pitch, or has no extent"
+        );
+        self.status = row;
+        self
+    }
+
     /// # Panics
     /// If any slice is shorter than the geometry needs. Checked once, here,
     /// rather than on every access -- the parser addresses this memory
@@ -1339,6 +1388,7 @@ impl<'b> Storage<'b> {
                 used: alt_used,
                 rot: RowRot::NONE,
             },
+            status: crate::status::StatusBuf::none(),
             book: Book {
                 hist: Rows::ZERO,
                 hidden: Rows::ZERO,

@@ -104,7 +104,8 @@ pub(crate) struct Geometry {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Owed {
     Nothing,
-    /// A frame: the selection, `?1001`'s region or the window moved.
+    /// A frame: the selection, `?1001`'s region, the window or the
+    /// indicator line's locator field moved.
     Frame,
     /// The wheel's cursor keys went out, which the caret counts as input.
     Keys,
@@ -200,6 +201,22 @@ impl Seat {
     /// override (`gesture::pointer_route`); a click to the prompt or
     /// `?2001`. Every byte for the child to `sink`.
     pub(crate) fn input(
+        &mut self,
+        term: &mut Term<'_>,
+        e: Input,
+        mods: Modifiers,
+        g: Geometry,
+        sink: impl FnMut(&[u8]),
+    ) -> Owed {
+        let pointer = !matches!(e, Input::Steps(_) | Input::Distance(_) | Input::Stopped);
+        match self.route(term, e, mods, g, sink) {
+            Owed::Nothing if pointer && gesture::locator_redraws(term) => Owed::Frame,
+            owed => owed,
+        }
+    }
+
+    /// [`Seat::input`]'s routing, before the indicator's frame.
+    fn route(
         &mut self,
         term: &mut Term<'_>,
         e: Input,
@@ -672,6 +689,59 @@ mod tests {
         let (owed, sent) = put(&mut seat, &mut t, Input::Steps(-2.0), NONE);
         assert_eq!((owed, sent.as_slice()), (Owed::Frame, &b""[..]));
         assert_eq!(t.window_back().index(), 2, "the wheel scrolls");
+    }
+
+    /// **The indicator line follows the pointer**: with DECSSDT 1 shown, a
+    /// move under DEC's locator rewrites the line's locator field and owes
+    /// a frame, and so does the move after a one-shot report turned the
+    /// locator off, which takes the field away; with no line a move owes
+    /// none.
+    #[test]
+    fn a_move_redraws_the_indicator_line() {
+        const WIDE: WinSize = WinSize {
+            ws_col: 40,
+            ws_row: 6,
+        };
+        let g = Geometry {
+            cell: (10.0, 10.0),
+            grid: (40, 6),
+        };
+        let line = |t: &Term<'_>| {
+            let cells = t.status_line().map_or(&[][..], |l| l.cells);
+            cells
+                .iter()
+                .map(|c| {
+                    c.content
+                        .as_codepoint()
+                        .and_then(|cp| char::from_u32(cp.value()))
+                        .unwrap_or(' ')
+                })
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        };
+        let mut owned = Owned::new(&WIDE);
+        let mut t = Term::new(owned.storage(), &WIDE);
+        let mut seat = Seat::new();
+        let move_to = |seat: &mut Seat, t: &mut Term<'_>, x: f64| {
+            let mut sent = Vec::new();
+            let owed = seat.input(t, Input::Moved(x, 15.0), NONE, g, |b| {
+                sent.extend_from_slice(b)
+            });
+            t.clear_reply();
+            owed
+        };
+        feed(&mut t, b"\x1b[1'z");
+        assert_eq!(move_to(&mut seat, &mut t, 25.0), Owed::Nothing, "no line");
+        feed(&mut t, b"\x1b[1$~");
+        assert_eq!(move_to(&mut seat, &mut t, 25.0), Owed::Frame);
+        assert!(line(&t).ends_with("[2,3]"), "{:?}", line(&t));
+        assert_eq!(move_to(&mut seat, &mut t, 85.0), Owed::Frame);
+        assert!(line(&t).ends_with("[2,9]"), "{:?}", line(&t));
+        feed(&mut t, b"\x1b[2'z\x1b['|");
+        t.clear_reply();
+        assert_eq!(move_to(&mut seat, &mut t, 95.0), Owed::Frame, "one shot");
+        assert!(!line(&t).contains('['), "{:?}", line(&t));
     }
 
     /// **On the alternate screen the wheel is the cursor keys** while

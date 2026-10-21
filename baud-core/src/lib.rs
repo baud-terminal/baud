@@ -75,6 +75,7 @@ mod regis;
 mod shift;
 mod sixel;
 mod stack;
+mod status;
 mod storage;
 mod term;
 mod vt52;
@@ -101,6 +102,10 @@ pub use baud_domain::Reclaims;
 pub use baud_domain::Resource;
 /// VT52 is a protocol an embedder can be in, so it can be asked about.
 pub use baud_domain::TerminalMode;
+/// The status line's vocabulary: what [`Term::status_type`] and
+/// [`Term::active_display`] answer, and the row an embedder lends it
+/// ([`Storage::with_status_line`]).
+pub use baud_domain::{ActiveDisplay, StatusType};
 /// Mouse reporting's vocabulary: an embedder that cannot name a
 /// `MouseEvent` cannot call [`Term::mouse_report`] -- and since `?1016` an
 /// event carries its pixel position, a `PointerPx` of two `ImagePx`. And
@@ -173,6 +178,8 @@ pub use clip::ClipboardWrites;
 pub use font::{FONT_NAME_MAX, FONT_QUEUE, FontChange, FontsRefused};
 pub use graph::Node;
 pub use logging::LogsRefused;
+pub use status::StatusBuf;
+pub use term::StatusLine;
 pub use term::{ClickHow, ClickKeys, PromptClick, PromptJump, PromptLine, PromptMark};
 pub use window::{PropertiesDropped, WINDOW_QUEUE, WindowOpsRefused, WindowRequestsDropped};
 

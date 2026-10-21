@@ -19,6 +19,7 @@ mod rect_ops;
 mod rect_scroll;
 mod reports;
 mod side_margins;
+mod status_line;
 mod tab_backspace;
 
 /// **No gaps, and the gate stays so that a new one has to say so.**
@@ -46,6 +47,7 @@ fn the_known_vt420_gaps() {
             "rect_scroll.rs",
             "reports.rs",
             "side_margins.rs",
+            "status_line.rs",
             "tab_backspace.rs",
         ],
         &[],

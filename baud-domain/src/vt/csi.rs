@@ -888,6 +888,13 @@ pub enum Csi {
     /// display page", which [`PageWidth::per_page`] reads. Unlike DECCOLM it
     /// "does not clear page memory or reset the scrolling regions".
     SetColumnsPerPage(PageWidth),
+    /// DECSSDT, `CSI Ps $ ~` (`[[source: vt420-rm]]` p. 220,
+    /// `[[source: dec-std-070]]` 070-14 p. 14-12): the status line's type.
+    SelectStatusType(StatusType),
+    /// DECSASD, `CSI Ps $ }` (`[[source: vt420-rm]]` p. 219,
+    /// `[[source: dec-std-070]]` 070-14 p. 14-11): whether text goes to the
+    /// main display or the status line.
+    SelectActiveDisplay(ActiveDisplay),
     /// DECRQM, `CSI Ps $ p` and `CSI ? Ps $ p`. A *question*, answered with
     /// [`Report::ModeStatus`].
     RequestMode {
@@ -1098,6 +1105,27 @@ impl Csi {
                 // control anywhere in `[[source: ctlseqs]]`.
                 (b'$', b'|') if marker == Marker::Standard => {
                     Csi::SetColumnsPerPage(PageWidth::per_page(p.at(ParamIdx::FIRST)))
+                }
+                // DECSSDT and DECSASD, the standard namespace's: no text
+                // gives either a prefix. A `Ps` neither text gives is no
+                // control, and counted.
+                (b'$', b'~') if marker == Marker::Standard => {
+                    match StatusType::from_param(p.at(ParamIdx::FIRST)) {
+                        Some(t) => Csi::SelectStatusType(t),
+                        None => Csi::Unsupported {
+                            marker,
+                            final_byte: f,
+                        },
+                    }
+                }
+                (b'$', b'}') if marker == Marker::Standard => {
+                    match ActiveDisplay::from_param(p.at(ParamIdx::FIRST)) {
+                        Some(d) => Csi::SelectActiveDisplay(d),
+                        None => Csi::Unsupported {
+                            marker,
+                            final_byte: f,
+                        },
+                    }
                 }
                 // The rectangle operations, the standard namespace's alone
                 // (`[[source: ctlseqs]]` and `[[source: dec-std-070]]`
@@ -1678,6 +1706,10 @@ impl Csi {
             // "Levels: 3X (Windowing), 4" (`[[source: dec-std-070]]` p. 5-73);
             // ctlseqs says VT340, a level this table does not carry.
             SetColumnsPerPage(_) => Level::Vt420,
+            // "Levels: 2x, 3, 4" each (`[[source: dec-std-070]]` 070-14
+            // pp. 14-11 and 14-12): "DECSSDT and DECSASD do not work in Level
+            // 1 (VT100 mode)"; the VT420 has them in VT400 mode.
+            SelectStatusType(_) | SelectActiveDisplay(_) => Level::Vt420,
             // "Level: 4" each (`[[source: dec-std-070]]` pp. 5-169 to 5-179).
             // XTREPORTSGR is xterm's, on DEC's rectangle.
             Area(AreaOp::ReportRendition) => Level::Xterm,

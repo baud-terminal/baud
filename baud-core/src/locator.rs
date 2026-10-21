@@ -80,6 +80,19 @@ fn locator_pos(cold: &Cold, rows: Rows, cols: Cols) -> Option<LocatorPos> {
     }
 }
 
+/// The locator's position while DEC locator reporting is enabled, in the
+/// units it reports, line then column: what the status line's Graphics
+/// Input Position Indicator shows, "if some graphic input mode is enabled
+/// through ReGIS, Tektronix, or the Text Locator extension" (`[[source:
+/// dec-std-070]]` 070-14 p. 14-6). `None` while it is off or the position
+/// undefined.
+pub(crate) fn shown(cold: &Cold, rows: Rows, cols: Cols) -> Option<(OneBased, OneBased)> {
+    if cold.mouse != MouseTracking::Locator {
+        return None;
+    }
+    locator_pos(cold, rows, cols).map(|p| (p.row, p.col))
+}
+
 /// The report `trigger` makes now, with the buttons held and the position.
 fn report_of(cold: &Cold, rows: Rows, cols: Cols, trigger: LocatorTrigger) -> Report {
     Report::Locator(LocatorReport::At {
@@ -242,6 +255,8 @@ impl Term<'_> {
     pub fn locator(&mut self, e: LocatorInput) -> bool {
         self.cold.locator.at = e.at;
         self.cold.locator.held = e.held;
+        // The indicator shows where the locator is while it reports.
+        self.redraw_indicator();
         if self.cold.mouse != MouseTracking::Locator {
             return false;
         }

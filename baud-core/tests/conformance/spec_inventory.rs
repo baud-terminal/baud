@@ -307,6 +307,7 @@ struct Snapshot {
     meta_escape: bool,
     /// XTSHIFTESCAPE, which only the embedder's pointer reads.
     shift_escape: ShiftEscape,
+    status: (StatusType, ActiveDisplay),
     /// XTSMPOINTER, which only the embedder's pointer reads.
     pointer_mode: PointerMode,
     /// The font changes `OSC 50` queued for the embedder, and those it
@@ -442,6 +443,7 @@ fn snapshot(extra: &[u8], probe: bool) -> Snapshot {
         auto_repeat: t.auto_repeat(),
         meta_escape: t.meta_sends_escape(),
         shift_escape: t.shift_escape(),
+        status: (t.status_type(), t.active_display()),
         pointer_mode: t.pointer_mode(),
         font_requests: t.font_requests().to_vec(),
         fonts_refused: t.fonts_refused(),
@@ -601,6 +603,11 @@ fn every_spec_csi_form_is_handled_or_counted() {
             "TBC 1 clears the line tabulation stop at the active line, and the \
              prepared state sets none -- \
              tbc_1_clears_the_line_stop_at_the_cursor_and_nothing_else",
+        ),
+        (
+            b"\x1b[1$}",
+            "DECSASD 1 selects nothing with no host-writable status line, \
+             as 070-14 says -- decsasd_selects_the_line_only_when_it_is_host_writable",
         ),
     ];
 

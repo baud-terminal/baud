@@ -1973,6 +1973,8 @@ fn csi_final(p: &mut Paint<'_, '_>, csi: &Csi, f: FinalByte, node: &mut Node, at
         DomCsi::DeleteColumns(c) => p.delete_columns(c),
         DomCsi::SetSideMargins { left, right } => p.set_side_margins(left, right),
         DomCsi::SetColumnsPerPage(w) => p.set_columns_per_page(w, node),
+        DomCsi::SelectStatusType(t) => p.select_status_type(t),
+        DomCsi::SelectActiveDisplay(d) => p.select_active_display(d),
         // **Answered, now that there is a channel.** Each goes through a named
         // `Report`, so the shape is chosen by the variant rather than by the
         // call site -- `docs/vt-coverage.md`'s rule is that answering in the

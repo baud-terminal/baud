@@ -56,6 +56,13 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn sixel_begin(&mut self, aspect: SixelAspect) {
+        // **No image on the status line**: an image is placed on a line of
+        // the main display, which the line is not. The string is kept and
+        // discarded, and counted at its end (`status.rs`).
+        if self.on_status() {
+            self.cold.str_kind = crate::osc::StrKind::Other;
+            return;
+        }
         let shown = self.cold.shown(DynamicColor::Foreground);
         let ink = match shown.as_rgb() {
             Some((r, g, b)) => Pixel::opaque(Chan::from_u8(r), Chan::from_u8(g), Chan::from_u8(b)),
@@ -295,7 +302,8 @@ impl Paint<'_, '_> {
     /// positions on a double line.
     #[inline(always)]
     pub(crate) fn overwrite_images(&mut self, col0: Col, col1: Col) {
-        if !self.images.any_placed() {
+        // The status line's text frees none of the main display's images.
+        if !self.images.any_placed() || self.on_status() {
             return;
         }
         let (screen, line) = self.image_anchor();

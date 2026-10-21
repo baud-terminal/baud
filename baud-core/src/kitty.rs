@@ -20,6 +20,11 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     pub(crate) fn kitty_start(&mut self) {
+        // No image on the status line, as `sixel_begin` has it.
+        if self.on_status() {
+            self.cold.str_kind = StrKind::Other;
+            return;
+        }
         self.cold.str_kind = StrKind::Kitty;
         let s = &mut *self.strs;
         s.kitty.begin(self.images, s.kitty_scratch);

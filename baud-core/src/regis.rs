@@ -81,6 +81,10 @@ impl Paint<'_, '_> {
 
     /// A `DCS Pn p`: enter ReGIS, `Pn` the envelope's first parameter.
     fn regis_start(&mut self, csi: &Csi) -> crate::osc::StrKind {
+        // No ReGIS page on the status line, as `sixel_begin` has it.
+        if self.on_status() {
+            return crate::osc::StrKind::Other;
+        }
         let e = RegisEntry::of(Some(csi.params().raw(ParamIdx::FIRST, 0)));
         self.strs.regis.set_encoding(self.cold.str_enc);
         self.regis_run(|regis, out| regis.enter(e, out));

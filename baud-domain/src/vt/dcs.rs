@@ -61,6 +61,13 @@ pub enum StatusTarget {
     KeyFormat(KeyResource),
     /// `" p` -- DECSCL, the conformance level and the C1 transmission.
     ConformanceLevel,
+    /// `$ ~` -- DECSSDT, the status line's type, and `$ }` -- DECSASD, the
+    /// active display: "The Status Display Type (DECSSDT) and Active Status
+    /// Display (DECSASD) may be queried through DECRQSS" (`[[source:
+    /// dec-std-070]]` 070-14 p. 14-9), and `[[source: vt420-rm]]` Table
+    /// 12-4 lists both.
+    StatusType,
+    ActiveDisplay,
     /// `> t` or `> Ps t` -- XTSMTITLE's string (`[[source: ctlseqs]]`'s
     /// list, "> Pm t -> XTSMTITLE (xterm)"), the title modes. `Ps` names
     /// one of the four, as xterm's `do_dcs` reads it; the answer is every
@@ -83,6 +90,8 @@ impl StatusTarget {
             b"$|" => StatusTarget::ColumnsPerPage,
             b"*x" => StatusTarget::AttrExtent,
             b"\"p" => StatusTarget::ConformanceLevel,
+            b"$~" => StatusTarget::StatusType,
+            b"$}" => StatusTarget::ActiveDisplay,
             [b'>', rest @ ..] => StatusTarget::key_option(rest),
             _ => StatusTarget::Unknown,
         }
