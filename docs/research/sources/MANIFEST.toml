@@ -30567,3 +30567,73 @@ bytes  = 7718
 status = "external"
 group  = "H"
 # Fetched 2026-10-21 (lane b133 fix): practice for baud-present-wayland/src/ime.rs. Read, not copied.
+
+[sources.libx11-xkbbind-c]
+key    = "libx11-xkbbind-c"
+title  = "libX11 1.8.13, src/xkb/XKBBind.c -- XLookupString's Control fallback: with Control held and not consumed and a keysym above 0x7F, the key's other groups at the same state, the first keysym below 0x80 (694-725)"
+author = "the X.Org Foundation and libX11 contributors (MIT-open-group)"
+year   = 2026
+venue  = "xorg/lib/libx11 @ libX11-1.8.13"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/src/xkb/XKBBind.c"
+file   = ""
+sha256 = "0c2163f33ab1ceb8ca7826ed2dce2a1c3734603a28c6008959d766929f89536d"
+bytes  = 23500
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133): Control on a non-Latin layout, the governing text and practice. Read, not copied.
+
+[sources.libx11-xkbuse-c]
+key    = "libx11-xkbuse-c"
+title  = "libX11 1.8.13, src/xkb/XKBUse.c -- XkbLC_ControlFallback on by default (659), off only through _XKB_OPTIONS_ENABLE and _XKB_CONTROL_FALLBACK"
+author = "the X.Org Foundation and libX11 contributors (MIT-open-group)"
+year   = 2026
+venue  = "xorg/lib/libx11 @ libX11-1.8.13"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/src/xkb/XKBUse.c"
+file   = ""
+sha256 = "e4bbe878ad6c3e8e319d54ce900db1da2b562e128e7f84103965f11d6a65118a"
+bytes  = 31098
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133): Control on a non-Latin layout, the governing text and practice. Read, not copied.
+
+[sources.vte-0-80-0-widget]
+key    = "vte-0-80-0-widget"
+title  = "VTE 0.80.0, src/widget.cc -- key_event_translate_ctrlkey: with Control and a keyval at or above 128, groups 0 to 3 at the event's modifiers, the first keyval below 128 (1439-1490)"
+author = "Christian Persch and the VTE contributors (LGPL-3.0-or-later)"
+year   = 2026
+venue  = "GNOME/vte @ 0.80.0"
+url    = "https://gitlab.gnome.org/GNOME/vte/-/raw/0.80.0/src/widget.cc"
+file   = ""
+sha256 = "8667ac14859adb7797505854b1f928f8a778fd1af1403f296402c2bdf90b0548"
+bytes  = 80707
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133): Control on a non-Latin layout, the governing text and practice. Read, not copied.
+
+[sources.kitty-0-43-1-key-encoding]
+key    = "kitty-0-43-1-key-encoding"
+title  = "kitty 0.43.1, kitty/key_encoding.c -- the legacy encoding of Ctrl, Alt and Ctrl+Alt on a key that is not legacy ASCII through the alternate key (394-401)"
+author = "Kovid Goyal (GPL-3.0-only)"
+year   = 2026
+venue  = "kovidgoyal/kitty @ v0.43.1"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.43.1/kitty/key_encoding.c"
+file   = ""
+sha256 = "0f489c37e80f8fcc2c036df68c9b66d74eb16534a3958ea01ad1770a63142374"
+bytes  = 16302
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133): Control on a non-Latin layout, the governing text and practice. Read, not copied.
+
+[sources.xkbproto-control]
+key    = "xkbproto-control"
+title  = "The X Keyboard Extension: Protocol Specification, 'Interpreting the Control Modifier' -- the ASCII table, and 'Control characters for symbols not listed in this table are application-specific'"
+author = "Erik Fortune; the X Consortium"
+year   = 2026
+venue  = "X.Org documentation, kbproto"
+url    = "https://www.x.org/releases/current/doc/kbproto/xkbproto.html"
+file   = ""
+sha256 = "1391bc652c9bcadd37c24eb4d42014e1820e1a50e19dc05c52e7d90dc0898e14"
+bytes  = 647787
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133): Control on a non-Latin layout, the governing text and practice. Read, not copied.

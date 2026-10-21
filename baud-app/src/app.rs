@@ -2338,6 +2338,141 @@ fn decimal(key: &KeyPress) -> baud_domain::KeypadKey {
     }
 }
 
+/// **A Control or Option chord**: the key's identity, folded by the core,
+/// what it typed as its text, its PC-101 character as kitty's base layout
+/// key, and under Control on a key whose identity is not ASCII the
+/// character the layout's own Control layer gives (`control_of`).
+fn chord(key: &KeyPress, m: Modifiers) -> Option<KeyEvent> {
+    let c = key
+        .unmodified
+        .chars()
+        .next()
+        .and_then(|c| Codepoint::new(u32::from(c)))?;
+    let mut e = KeyEvent::press(KeyCode::Char(c), m);
+    e.text = key
+        .characters
+        .chars()
+        .next()
+        .filter(|ch| !ch.is_control())
+        .and_then(|ch| Codepoint::new(u32::from(ch)));
+    // Sent where it differs from the key's own unshifted character, which
+    // `charactersIgnoringModifiers` gives with Shift applied.
+    let own = key.unmodified.chars().flat_map(char::to_lowercase).next();
+    e.base_layout =
+        pc101(key).filter(|&b| Some(b) != own.and_then(|o| Codepoint::new(u32::from(o))));
+    if key.modifiers.control && c.value() > 0x7f {
+        e.control = control_of(&key.characters);
+    }
+    Some(e)
+}
+
+/// **The ASCII key behind what the layout types with Control**: on every
+/// Apple layout probed -- US, Russian, Ukrainian, Hebrew, Greek, Arabic,
+/// Armenian, Georgian, Thai -- the letter and bracket keys' Control layer
+/// types the ASCII control code (Ctrl+С `0x03`), and this names the key
+/// that folds to it:
+/// `@` for NUL, the letter for `0x01`-`0x1a`, `[` to `_` for `0x1b`-`0x1f`,
+/// `?` for DEL; a printable ASCII character is itself, and anything else
+/// none. The XKB protocol leaves Control on a non-ASCII key
+/// "application-specific"; this is the layout's own answer, as libX11's
+/// group fallback is on Linux.
+fn control_of(characters: &str) -> Option<Codepoint> {
+    let c = characters.chars().next()?;
+    let v = u32::from(c);
+    let key = match v {
+        0 => '@',
+        0x01..=0x1a => char::from_u32(v + 0x60)?,
+        0x1b..=0x1f => char::from_u32(v + 0x40)?,
+        0x7f => '?',
+        0x20..=0x7e => c,
+        _ => return None,
+    };
+    Some(Codepoint::from_char(key))
+}
+
+/// **The standard PC-101 layout**, by the Mac's virtual key code: the
+/// `kVK_ANSI_*` codes `[[source: macos-sdk-events-h]]` names by the US
+/// key at each position (lines 197-243) and `kVK_Space` (268), "codes
+/// [that] identify physical keys on a keyboard". kitty's base layout key
+/// is "the key corresponding to the physical key in the standard PC-101
+/// key layout" (`[[source: kitty-keyboard]]`).
+fn pc101(key: &KeyPress) -> Option<Codepoint> {
+    let c = match key.key_code {
+        0x00 => 'a',
+        0x01 => 's',
+        0x02 => 'd',
+        0x03 => 'f',
+        0x04 => 'h',
+        0x05 => 'g',
+        0x06 => 'z',
+        0x07 => 'x',
+        0x08 => 'c',
+        0x09 => 'v',
+        0x0B => 'b',
+        0x0C => 'q',
+        0x0D => 'w',
+        0x0E => 'e',
+        0x0F => 'r',
+        0x10 => 'y',
+        0x11 => 't',
+        0x12 => '1',
+        0x13 => '2',
+        0x14 => '3',
+        0x15 => '4',
+        0x16 => '6',
+        0x17 => '5',
+        0x18 => '=',
+        0x19 => '9',
+        0x1A => '7',
+        0x1B => '-',
+        0x1C => '8',
+        0x1D => '0',
+        0x1E => ']',
+        0x1F => 'o',
+        0x20 => 'u',
+        0x21 => '[',
+        0x22 => 'i',
+        0x23 => 'p',
+        0x25 => 'l',
+        0x26 => 'j',
+        0x27 => '\'',
+        0x28 => 'k',
+        0x29 => ';',
+        0x2A => '\\',
+        0x2B => ',',
+        0x2C => '/',
+        0x2D => 'n',
+        0x2E => 'm',
+        0x2F => '.',
+        0x31 => ' ',
+        0x32 => '`',
+        _ => return None,
+    };
+    Some(Codepoint::from_char(c))
+}
+
+/// **What the input manager's text types**: a key per character, its
+/// lower case as the identity and itself as the text. When the text is
+/// exactly what the keystroke that went to the input manager typed, that
+/// key's PC-101 character rides as kitty's base layout key; an input
+/// method's commit, a paste or a composed character is not that key's.
+fn typed_text(text: &str, keyed: Option<&(String, Codepoint)>) -> Vec<KeyEvent> {
+    let base = keyed
+        .filter(|(typed, _)| typed == text && text.chars().count() == 1)
+        .map(|&(_, b)| b);
+    text.chars()
+        .filter_map(|ch| {
+            let c = Codepoint::new(u32::from(ch))?;
+            let lower = ch.to_lowercase().next().unwrap_or(ch);
+            let identity = Codepoint::new(u32::from(lower)).unwrap_or(c);
+            let mut e = KeyEvent::press(KeyCode::Char(identity), Modifiers::NONE);
+            e.text = Some(c);
+            e.base_layout = base.filter(|&b| b != identity);
+            Some(e)
+        })
+        .collect()
+}
+
 /// The event for a key [`special`] named, carrying `m`.
 ///
 /// **A keypad key carries the text it types**, as the Wayland driver's
@@ -2839,6 +2974,10 @@ struct Driver {
     /// resets it, and only a `text()` from outside a key press -- an input
     /// method committing on a click -- could take it in between.
     key_kind: KeyEventKind,
+    /// What the keystroke handed to the input manager typed and its PC-101
+    /// character, until `text` answers: the base layout key of a key the
+    /// input manager types as itself (`typed_text`).
+    keyed: Option<(String, Codepoint)>,
     /// A Cmd press over a link, until its release: the gesture is the
     /// terminal's, and `crate::link::gesture` says what each event means.
     armed: Option<crate::link::Armed>,
@@ -7771,6 +7910,7 @@ fn pasteboard(polled: Option<(crate::clip::Decision<'_>, Option<String>)>) {
 impl Responder for Driver {
     fn key(&mut self, key: &KeyPress) -> Handled {
         self.key_kind = kind_of(key);
+        self.keyed = None;
         if key.modifiers.command {
             // Menu territory: a key equivalent the menu carries never gets
             // here, and one it does not sends nothing to the child -- but
@@ -7802,26 +7942,16 @@ impl Responder for Driver {
             pressed(code, key, m)
         } else if key.modifiers.control || key.modifiers.option {
             // A control or alt chord: the key's identity, folded by the core.
-            let Some(c) = key
-                .unmodified
-                .chars()
-                .next()
-                .and_then(|c| Codepoint::new(u32::from(c)))
-            else {
+            let Some(e) = chord(key, m) else {
                 return Handled::Consumed;
             };
-            let mut e = KeyEvent::press(KeyCode::Char(c), m);
-            e.text = key
-                .characters
-                .chars()
-                .next()
-                .filter(|ch| !ch.is_control())
-                .and_then(|ch| Codepoint::new(u32::from(ch)));
             e
         } else {
             // The input manager will call `text` or `command`, which stamp
             // the keystroke themselves; a record opened here as well would
-            // be one no write ever completes.
+            // be one no write ever completes. What the key typed and its
+            // PC-101 character wait for `text`, for the base layout key.
+            self.keyed = pc101(key).map(|b| (key.characters.clone(), b));
             return Handled::Interpret;
         };
         self.typed(e);
@@ -7829,16 +7959,10 @@ impl Responder for Driver {
     }
 
     fn text(&mut self, text: &str) {
-        for ch in text.chars() {
-            let Some(c) = Codepoint::new(u32::from(ch)) else {
-                continue;
-            };
-            let lower = ch.to_lowercase().next().unwrap_or(ch);
-            let identity = Codepoint::new(u32::from(lower)).unwrap_or(c);
-            let mut e = KeyEvent::press(KeyCode::Char(identity), Modifiers::NONE);
-            e.text = Some(c);
-            // One record per character: a paste through the input manager
-            // is one `text` and as many keys as it has characters.
+        let keyed = self.keyed.take();
+        // One record per character: a paste through the input manager is
+        // one `text` and as many keys as it has characters.
+        for e in typed_text(text, keyed.as_ref()) {
             self.typed(e);
         }
     }
@@ -8677,6 +8801,7 @@ pub fn run() {
         held: None,
         buttons: LocatorButtons::NONE,
         key_kind: KeyEventKind::Press,
+        keyed: None,
         armed: None,
         bar_drag: None,
         grab: Grab::Free,
@@ -10912,6 +11037,142 @@ mod tests {
             special(&mac_key!(0x47, "\u{f739}", none)),
             Some(KeyCode::Pua(baud_domain::PuaKey::NumLock))
         );
+    }
+
+    /// **Control on a non-Latin Apple layout sends what the layout's
+    /// Control layer types**, and the PC-101 key rides as the base layout
+    /// key: Ctrl+С on Russian, whose Control layer types `0x03` (the
+    /// `UCKeyTranslate` probe of the record), names `c` for Control and is
+    /// `^C` through the core, as Ctrl+ב on Hebrew and Ctrl+ψ on Greek;
+    /// under kitty's disambiguate it is the key itself with its base
+    /// layout key. Option alone is not Control. On US nothing is added,
+    /// Shift held or not.
+    #[test]
+    fn control_on_a_non_latin_mac_layout_is_its_control_layers_key() {
+        use macos_liquid_glass::drawable::Modifiers as Held;
+        let ctrl = Held {
+            control: true,
+            ..Held::default()
+        };
+        let option = Held {
+            option: true,
+            ..Held::default()
+        };
+        let key = |code: u16, chars: &str, plain: &str, held: Held| KeyPress {
+            key_code: code,
+            characters: chars.to_string(),
+            unmodified: plain.to_string(),
+            modifiers: held,
+            repeat: false,
+        };
+        let cp = |c: char| Some(Codepoint::from_char(c));
+        let ws = WinSize {
+            ws_col: 20,
+            ws_row: 4,
+        };
+        let sent = |modes: &[u8], e: KeyEvent| {
+            let mut owned = Owned::new(&ws);
+            let mut t = Term::new(owned.storage(), &ws);
+            t.write_at(baud_domain::BytePos::ZERO, modes);
+            t.feed(
+                baud_domain::BytePos::ZERO,
+                baud_domain::ReadLen::from_index(modes.len()),
+            );
+            t.clear_reply();
+            let mut out = Vec::new();
+            crate::reads::input(&mut t, |t| t.key(e), |b| out.extend_from_slice(b));
+            out
+        };
+        for (code, chars, plain, want) in [
+            (0x08, "\u{3}", "\u{441}", 'c'),
+            (0x08, "\u{3}", "\u{5d1}", 'c'),
+            (0x08, "\u{3}", "\u{3c8}", 'c'),
+        ] {
+            let e = chord(&key(code, chars, plain, ctrl), mods(ctrl)).expect(plain);
+            assert_eq!(
+                e.code,
+                KeyCode::Char(Codepoint::from_char(plain.chars().next().unwrap()))
+            );
+            assert_eq!((e.control, e.base_layout), (cp(want), cp(want)), "{plain}");
+            assert_eq!(
+                sent(b"", e),
+                [u8::try_from(u32::from(want) & 0x1f).unwrap()],
+                "{plain}"
+            );
+        }
+        let es = chord(&key(0x08, "\u{3}", "\u{441}", ctrl), mods(ctrl)).unwrap();
+        assert_eq!(sent(b"\x1b[=5u", es), b"\x1b[1089::99;5u");
+        let alt = chord(&key(0x08, "\u{2260}", "\u{441}", option), mods(option)).unwrap();
+        assert_eq!((alt.control, alt.base_layout), (None, cp('c')));
+        let us = chord(&key(0x08, "\u{3}", "c", ctrl), mods(ctrl)).unwrap();
+        assert_eq!((us.control, us.base_layout), (None, None));
+        let shift = Held {
+            shift: true,
+            ..ctrl
+        };
+        let us_shift = chord(&key(0x08, "\u{3}", "C", shift), mods(shift)).unwrap();
+        assert_eq!(
+            us_shift.base_layout, None,
+            "Shift does not make the key another"
+        );
+        assert_eq!(sent(b"", us), [3]);
+    }
+
+    /// The Control layer's character names the key that folds to it.
+    #[test]
+    fn a_control_layers_character_names_its_key() {
+        for (typed, key) in [
+            ("\u{0}", Some('@')),
+            ("\u{3}", Some('c')),
+            ("\u{1a}", Some('z')),
+            ("\u{1b}", Some('[')),
+            ("\u{1f}", Some('_')),
+            ("\u{7f}", Some('?')),
+            (";", Some(';')),
+            ("\u{5f3}", None),
+            ("", None),
+        ] {
+            assert_eq!(
+                control_of(typed),
+                key.map(Codepoint::from_char),
+                "{typed:?}"
+            );
+        }
+    }
+
+    /// **The Mac's PC-101 table names the 48 printable keys once each**,
+    /// the characters a US PC-101 board types unshifted.
+    #[test]
+    fn the_mac_pc101_table_is_the_101_keys_characters() {
+        let none = macos_liquid_glass::drawable::Modifiers::default();
+        let mut got: Vec<char> = (0..=0x7f)
+            .filter_map(|code| pc101(&mac_key!(code, "", none)))
+            .map(|c| char::from_u32(c.value()).unwrap())
+            .collect();
+        got.sort_unstable();
+        let mut want: Vec<char> = "`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./ "
+            .chars()
+            .collect();
+        want.sort_unstable();
+        assert_eq!(got, want);
+    }
+
+    /// **A key the input manager types as itself carries its base layout
+    /// key; a commit or a paste does not**, and the chord path and the
+    /// input manager's path build their events through these.
+    #[test]
+    fn the_input_managers_text_carries_the_keys_base_layout_key() {
+        let c = Codepoint::from_char('c');
+        let es = typed_text("\u{441}", Some(&("\u{441}".to_string(), c)));
+        assert_eq!(es.len(), 1);
+        assert_eq!(es[0].base_layout, Some(c));
+        let commit = typed_text("\u{6f22}\u{5b57}", Some(&("\u{20}".to_string(), c)));
+        assert!(commit.iter().all(|e| e.base_layout.is_none()));
+        let same = typed_text("c", Some(&("c".to_string(), c)));
+        assert_eq!(same[0].base_layout, None, "the key's own");
+        let src = include_str!("app.rs");
+        assert!(src.contains(concat!("let Some(e) = ", "chord(key, m) else")));
+        assert!(src.contains(concat!("for e in ", "typed_text(text, keyed.as_ref())")));
     }
 
     /// What `key` sends for `k` once `modes` is fed: the event it builds,

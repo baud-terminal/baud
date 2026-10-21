@@ -4,7 +4,7 @@
 //! `Term::key` wants it: a character with its text, or a functional key.
 
 use baud_domain::{Codepoint, FnKey, KeyCode, KeyEvent, KeypadKey, Modifiers};
-use baud_xkb::{Keycode, Keymap, Keysym, State};
+use baud_xkb::{Keycode, Keymap, Keysym, Mods, State};
 
 /// The modifiers `Term::key` cares about, from the real bits: Shift, Lock,
 /// Control, Mod1 (Alt), Mod2 (NumLock), Mod4 (Super).
@@ -60,6 +60,24 @@ pub fn press(state: &State<'_>, keycode: Keycode) -> Option<KeyEvent> {
         Some(KeyCode::Char(Codepoint::from_char(plain)))
     })?;
     let mut e = KeyEvent::press(code, mods);
+    if let KeyCode::Char(id) = code {
+        // kitty's base layout key: the physical key's character "in the
+        // standard PC-101 key layout" (`[[source: kitty-keyboard]]`), sent
+        // where it differs from the key's own unshifted one in the active
+        // layout, as kitty compares it with the key's clean keysym.
+        let mut clean = state.clone();
+        clean.update(Mods::default(), state.group());
+        let own = clean.lookup(keycode).and_then(|l| l.sym.to_char());
+        e.base_layout = pc101(keycode)
+            .filter(|&b| Some(b) != own)
+            .map(Codepoint::from_char)
+            .filter(|&b| b != id);
+        // Control on a key whose character is not ASCII: the key's first
+        // other layout that gives one, libX11's `XkbLC_ControlFallback`.
+        if eff & (1 << 2) != 0 && lookup.consumed & (1 << 2) == 0 && lookup.sym.0 > 0x7f {
+            e.control = control_ascii(state, keycode).map(Codepoint::from_char);
+        }
+    }
     // **A keypad key carries the text it types**, which is how kitty's
     // disambiguate flag tells a digit from a navigation key (`[[source:
     // kitty-keyboard]]`, "all non text keypad keys"): the keymap's text,
@@ -75,6 +93,92 @@ pub fn press(state: &State<'_>, keycode: Keycode) -> Option<KeyEvent> {
             .map(Codepoint::from_char);
     }
     Some(e)
+}
+
+/// **The key's character under Control from another layout**, where the
+/// active layout's is not ASCII, as libX11's `XLookupString` finds it with
+/// `XkbLC_ControlFallback` -- which its `XKBUse.c` turns on by default --
+/// for xterm (`[[source: libx11-xkbbind-c]]` 694-725, `[[source:
+/// libx11-xkbuse-c]]` 659): the key looked up in each other group at the
+/// same modifiers, in order, the first keysym below `0x80` taken. VTE does
+/// the same over groups 0 to 3 (`[[source: vte-0-80-0-widget]]`
+/// 1439-1490). XKB has at most four groups, and a group past a key's own
+/// wraps, so four lookups cover every keymap. On a keymap with no Latin
+/// layout there is none, and the key keeps its letter.
+fn control_ascii(state: &State<'_>, keycode: Keycode) -> Option<char> {
+    (0..4).filter(|&g| g != state.group()).find_map(|g| {
+        let mut st = state.clone();
+        st.update(state.mods(), g);
+        let l = st.lookup(keycode)?;
+        (l.sym != Keysym::NO_SYMBOL && l.sym.0 < 0x80)
+            .then(|| l.sym.to_char())
+            .flatten()
+    })
+}
+
+/// **The standard PC-101 layout**, by XKB keycode (evdev plus 8): the
+/// character each printable key types unshifted on it, the first level of
+/// the pinned US keymap (`baud-xkb/tests/fixtures/keymap-us.xkb`, which
+/// `pc101_is_the_us_keymaps_first_level` holds it to). The ISO key between
+/// left Shift and Z is not on a 101-key board, and the keypad's keys are
+/// kitty's functional keys, not text.
+const PC101: [(u32, char); 48] = [
+    (10, '1'),
+    (11, '2'),
+    (12, '3'),
+    (13, '4'),
+    (14, '5'),
+    (15, '6'),
+    (16, '7'),
+    (17, '8'),
+    (18, '9'),
+    (19, '0'),
+    (20, '-'),
+    (21, '='),
+    (24, 'q'),
+    (25, 'w'),
+    (26, 'e'),
+    (27, 'r'),
+    (28, 't'),
+    (29, 'y'),
+    (30, 'u'),
+    (31, 'i'),
+    (32, 'o'),
+    (33, 'p'),
+    (34, '['),
+    (35, ']'),
+    (38, 'a'),
+    (39, 's'),
+    (40, 'd'),
+    (41, 'f'),
+    (42, 'g'),
+    (43, 'h'),
+    (44, 'j'),
+    (45, 'k'),
+    (46, 'l'),
+    (47, ';'),
+    (48, '\''),
+    (49, '`'),
+    (51, '\\'),
+    (52, 'z'),
+    (53, 'x'),
+    (54, 'c'),
+    (55, 'v'),
+    (56, 'b'),
+    (57, 'n'),
+    (58, 'm'),
+    (59, ','),
+    (60, '.'),
+    (61, '/'),
+    (65, ' '),
+];
+
+/// The key's character on the PC-101 layout, if it is a printable key.
+pub fn pc101(keycode: Keycode) -> Option<char> {
+    PC101
+        .binary_search_by_key(&keycode.0, |&(k, _)| k)
+        .ok()
+        .map(|i| PC101[i].1)
 }
 
 /// **A character typed as text, not as a key**: what a Compose sequence or

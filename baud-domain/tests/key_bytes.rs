@@ -231,6 +231,7 @@ fn the_longest_key_is_forty_bytes_and_comes_back_whole() {
         text: Some(cp(WIDEST)),
         shifted: Some(cp(WIDEST)),
         base_layout: Some(cp(WIDEST)),
+        control: None,
     };
     let got = encode_key(witness, all_flags()).map(|k| k.as_bytes().to_vec());
     assert_eq!(
@@ -291,6 +292,7 @@ fn no_kitty_key_is_longer_than_forty_bytes() {
                         text: field,
                         shifted: field,
                         base_layout: field,
+                        control: field,
                     };
                     for &s in &states {
                         if let Some(k) = encode_key(e, s) {

@@ -214,6 +214,7 @@ fn event_types_are_reported_only_when_enabled() {
         text: None,
         shifted: None,
         base_layout: None,
+        control: None,
     };
     let repeat = KeyEvent {
         code: up,
@@ -222,6 +223,7 @@ fn event_types_are_reported_only_when_enabled() {
         text: None,
         shifted: None,
         base_layout: None,
+        control: None,
     };
 
     // Disambiguate only: a release is silent, a repeat looks like a press.
@@ -350,6 +352,7 @@ fn text_key(
         text: text.map(Codepoint::from_char),
         shifted: shifted.map(Codepoint::from_char),
         base_layout: base.map(Codepoint::from_char),
+        control: None,
     }
 }
 
@@ -743,4 +746,61 @@ fn every_row_of_the_table_is_gated() {
         .collect();
     extra.sort_unstable();
     assert!(extra.is_empty(), "names not in the source: {extra:?}");
+}
+
+/// **Control on a non-Latin key takes the keyboard's ASCII key on the
+/// legacy layer, and only there.** Ctrl+С on a Russian layout, the
+/// platform naming `c` as the key's character under Control
+/// ([`KeyEvent::control`]): `^C` on the base layer; `CSI 27 ; 5 ; 99 ~`
+/// under `modifyOtherKeys` 2, as
+/// xterm's `XLookupString` hands it `c`; the kitty layers report the key
+/// itself, `CSI 1089 ; 5 u`, and its base layout key under flag 4. Alt
+/// alone is not Control, and keeps the Cyrillic letter; no platform
+/// answer keeps today's letter; a fallback with no control form, `;`, is
+/// sent as itself.
+#[test]
+fn control_on_a_non_latin_key_takes_the_keyboards_ascii_key() {
+    let es = '\u{441}';
+    let ctrl = |control: Option<char>, base: Option<char>, mods| KeyEvent {
+        control: control.map(Codepoint::from_char),
+        ..text_key(es, mods, Some(es), None, base)
+    };
+    let c = Some('c');
+    assert_eq!(pressed(b"", ctrl(c, None, Modifiers::CTRL)), b"\x03");
+    assert_eq!(
+        pressed(b"", ctrl(c, None, Modifiers::CTRL.with(Modifiers::ALT))),
+        b"\x1b\x03"
+    );
+    assert_eq!(
+        pressed(b"\x1b[>4;2m", ctrl(c, None, Modifiers::CTRL)),
+        b"\x1b[27;5;99~"
+    );
+    assert_eq!(
+        pressed(b"\x1b[=1u", ctrl(c, None, Modifiers::CTRL)),
+        b"\x1b[1089;5u"
+    );
+    assert_eq!(
+        pressed(b"\x1b[=5u", ctrl(c, c, Modifiers::CTRL)),
+        b"\x1b[1089::99;5u"
+    );
+    assert_eq!(
+        pressed(b"", ctrl(c, None, Modifiers::ALT)),
+        "\x1bс".as_bytes(),
+        "Alt is not Control"
+    );
+    assert_eq!(
+        pressed(b"", ctrl(None, None, Modifiers::CTRL)),
+        "с".as_bytes(),
+        "without the keyboard's answer, the letter"
+    );
+    // A fallback with no control form is sent as itself, as
+    // `XLookupString` builds its string from the keysym it fell back to:
+    // Ctrl+Ж on Russian and Ctrl+Ö on German over a US layout are `;`.
+    for letter in ['\u{436}', 'ö'] {
+        let e = KeyEvent {
+            control: Some(Codepoint::from_char(';')),
+            ..text_key(letter, Modifiers::CTRL, Some(letter), None, None)
+        };
+        assert_eq!(pressed(b"", e), b";", "{letter}");
+    }
 }

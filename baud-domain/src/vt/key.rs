@@ -730,6 +730,18 @@ fn encode_base(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     if e.kind == KeyEventKind::Release {
         return None;
     }
+    // **Control on a key whose own character is not ASCII takes the
+    // keyboard's ASCII one** where the platform named it
+    // ([`KeyEvent::control`]), as xterm's does through `XLookupString`,
+    // which builds its string from the keysym it fell back to: the
+    // identity every legacy form below folds or numbers, and the text a
+    // key with no control form sends.
+    let (code, text) = match (e.code, e.control) {
+        (KeyCode::Char(id), Some(c)) if e.mods.has(Modifiers::CTRL) && id.value() > 0x7f => {
+            (KeyCode::Char(c), Some(c))
+        }
+        (code, _) => (code, e.text),
+    };
     let mut o = KeyBytes::new();
     // **VT52 is a different keyboard, not a different introducer.**
     // `[[source: ctlseqs]]` line 2698: "A VT52 does not have function keys,
@@ -737,8 +749,8 @@ fn encode_base(e: KeyEvent, s: KeyState) -> Option<KeyBytes> {
     // separate table rather than a prefix substitution, and the keys a VT52
     // does not have send nothing.
     let ok = match s.terminal {
-        TerminalMode::Vt52 => vt52(&mut o, e.code, e.mods, e.text, s),
-        TerminalMode::Ansi => ansi(&mut o, e.code, e.mods, e.text, s),
+        TerminalMode::Vt52 => vt52(&mut o, code, e.mods, text, s),
+        TerminalMode::Ansi => ansi(&mut o, code, e.mods, text, s),
     };
     match ok && o.fit == Fit::Whole {
         true => Some(o),

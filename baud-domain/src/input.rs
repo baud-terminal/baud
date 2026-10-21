@@ -872,6 +872,19 @@ pub struct KeyEvent {
     /// emitted only when shift is also in the modifiers.
     pub shifted: Option<Codepoint>,
     pub base_layout: Option<Codepoint>,
+    /// **The key's ASCII character under Control, where the active
+    /// layout's is not ASCII and the keyboard names one**: the keysym
+    /// libX11's `XLookupString` falls back to on Linux, the key's first
+    /// other layout giving one below `0x80` (`XkbLC_ControlFallback`, on
+    /// by default; VTE searches the same way), and the character in the
+    /// layout's own Control layer on macOS, where on every Apple layout
+    /// probed the letter and bracket keys' Control layer types the ASCII
+    /// control code (Ctrl+С `0x03`). Ctrl+С on a Russian layout is then
+    /// `^C`. The XKB protocol leaves Control on a non-ASCII key
+    /// "application-specific", so this is practice, not a rule. Read only
+    /// by the legacy encoding, with Control held and an identity above
+    /// ASCII; the kitty layers report the key itself.
+    pub control: Option<Codepoint>,
 }
 
 impl KeyEvent {
@@ -892,6 +905,7 @@ impl KeyEvent {
             },
             shifted: None,
             base_layout: None,
+            control: None,
         }
     }
 }
