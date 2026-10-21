@@ -2481,3 +2481,165 @@ fn configure_bounds_comes_from_xdg_wm_base_version_4() {
         assert_eq!(w.configure_bounds(), want, "xdg_wm_base {offered}");
     }
 }
+
+/// The keymap the compositor shares, by fixture name.
+fn send_named_keymap(server: &mut Server, keyboard: ObjectId, name: &str) {
+    let keymap = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../baud-xkb/tests/fixtures")
+            .join(name),
+    )
+    .unwrap();
+    let mut kf = tempfile();
+    kf.write_all(&keymap).unwrap();
+    kf.write_all(&[0]).unwrap();
+    server.send(
+        keyboard,
+        "wl_keyboard",
+        "keymap",
+        &[
+            Arg::Uint(protocol::wl_keyboard::keymap_format::XKB_V1),
+            Arg::Fd(kf.as_fd()),
+            Arg::Uint(u32::try_from(keymap.len() + 1).unwrap()),
+        ],
+    );
+}
+
+/// libX11's `en_US.UTF-8` Compose table, as pinned.
+fn en_us_compose() -> baud_xkb::compose::Table {
+    let text = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/research/sources/libx11-1.8.13-compose-en_US.UTF-8.txt"
+    ))
+    .unwrap();
+    baud_xkb::compose::Table::parse(&text, &mut baud_xkb::compose::NoFiles).unwrap()
+}
+
+const KEY_GRAVE: u32 = 41;
+const KEY_APOSTROPHE: u32 = 40;
+const KEY_E: u32 = 18;
+const KEY_A: u32 = 30;
+
+/// **A dead key types nothing, and the letter after it types the two
+/// composed**, over the pinned US International keymap, whose apostrophe
+/// is `dead_acute` and whose backtick is `dead_grave` and, shifted,
+/// `dead_tilde`, and libX11's `en_US.UTF-8` table: `'` `e` is `é`; a dead
+/// key still down when the letter is pressed composes the same, and
+/// neither release reaches the program, nor that of a cancelling key held
+/// through the next sequence; Shift between the two is not part
+/// of the sequence, so `'` Shift+`e` is `É`; `'` `q`, which the table does
+/// not continue, types nothing and the `q` after it is a `q`; a sequence
+/// that composes three codepoints types three characters; and without a
+/// table the dead key is no key at all and the `e` is an `e`.
+#[test]
+fn a_dead_key_composes_with_the_next_letter() {
+    use baud_domain::{KeyEventKind, Modifiers};
+    let (mut conn, mut server, mut w, kb, _) = keyboard_session();
+    send_named_keymap(&mut server, kb, "keymap-us_intl.xkb");
+    pump(&mut conn, &mut w);
+    let tap = |server: &mut Server, code: u32| {
+        key(server, kb, code, PRESSED);
+        key(server, kb, code, RELEASED);
+    };
+    let text = |s: &str| -> Vec<Event> { s.chars().map(|c| Event::Key(keys::typed(c))).collect() };
+    // No table: the dead key is nothing, and the e is an e.
+    tap(&mut server, KEY_APOSTROPHE);
+    tap(&mut server, KEY_E);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        drain(&mut w),
+        [
+            typed('e', Modifiers::NONE, KeyEventKind::Press),
+            typed('e', Modifiers::NONE, KeyEventKind::Release)
+        ]
+    );
+    w.set_compose(Some(en_us_compose()));
+    tap(&mut server, KEY_APOSTROPHE);
+    tap(&mut server, KEY_E);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), text("é"), "' then e");
+    // The dead key still down when the e goes down: one é, no release.
+    key(&mut server, kb, KEY_APOSTROPHE, PRESSED);
+    key(&mut server, kb, KEY_E, PRESSED);
+    key(&mut server, kb, KEY_APOSTROPHE, RELEASED);
+    key(&mut server, kb, KEY_E, RELEASED);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), text("é"), "overlapped");
+    // A cancelling q still down through the next sequence: its release
+    // is swallowed too, as are the others.
+    key(&mut server, kb, KEY_APOSTROPHE, PRESSED);
+    key(&mut server, kb, KEY_Q, PRESSED);
+    key(&mut server, kb, KEY_APOSTROPHE, RELEASED);
+    tap(&mut server, KEY_APOSTROPHE);
+    key(&mut server, kb, KEY_E, PRESSED);
+    key(&mut server, kb, KEY_Q, RELEASED);
+    key(&mut server, kb, KEY_E, RELEASED);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), text("é"), "a cancel held through a sequence");
+    // Shift between: the Shift key is fed and ignored.
+    tap(&mut server, KEY_APOSTROPHE);
+    key(&mut server, kb, KEY_LEFTSHIFT, PRESSED);
+    depressed(&mut server, kb, 1);
+    tap(&mut server, KEY_E);
+    depressed(&mut server, kb, 0);
+    key(&mut server, kb, KEY_LEFTSHIFT, RELEASED);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), text("É"), "' Shift+e");
+    // A cancel swallows its key; the next key is itself.
+    tap(&mut server, KEY_APOSTROPHE);
+    tap(&mut server, KEY_Q);
+    tap(&mut server, KEY_Q);
+    pump(&mut conn, &mut w);
+    assert_eq!(
+        drain(&mut w),
+        [
+            typed('q', Modifiers::NONE, KeyEventKind::Press),
+            typed('q', Modifiers::NONE, KeyEventKind::Release)
+        ],
+        "' q q"
+    );
+    // dead_grave, dead_tilde, A: three codepoints.
+    tap(&mut server, KEY_GRAVE);
+    depressed(&mut server, kb, 1);
+    tap(&mut server, KEY_GRAVE);
+    tap(&mut server, KEY_A);
+    depressed(&mut server, kb, 0);
+    pump(&mut conn, &mut w);
+    assert_eq!(drain(&mut w), text("A\u{303}\u{300}"), "` ~ A");
+    // Held down, neither the dead key nor the composed one repeats.
+    repeat_info(&mut server, kb, 25, 1);
+    key(&mut server, kb, KEY_APOSTROPHE, PRESSED);
+    pump(&mut conn, &mut w);
+    assert_eq!(w.repeat_deadline(), None, "a dead key held");
+    key(&mut server, kb, KEY_E, PRESSED);
+    pump(&mut conn, &mut w);
+    assert_eq!(w.repeat_deadline(), None, "a composed key held");
+    assert_eq!(drain(&mut w), text("é"));
+}
+
+/// **A sequence does not outlive the keyboard**: a dead key, then the
+/// keyboard leaves and comes back, and the e is an e.
+#[test]
+fn a_sequence_ends_when_the_keyboard_leaves() {
+    use baud_domain::{KeyEventKind, Modifiers};
+    let (mut conn, mut server, mut w, kb, surface) = keyboard_session();
+    send_named_keymap(&mut server, kb, "keymap-us_intl.xkb");
+    pump(&mut conn, &mut w);
+    w.set_compose(Some(en_us_compose()));
+    key(&mut server, kb, KEY_APOSTROPHE, PRESSED);
+    key(&mut server, kb, KEY_APOSTROPHE, RELEASED);
+    server.send(
+        kb,
+        "wl_keyboard",
+        "leave",
+        &[Arg::Uint(2), Arg::Object(surface)],
+    );
+    keyboard_enter(&mut server, kb, 3, surface);
+    key(&mut server, kb, KEY_E, PRESSED);
+    pump(&mut conn, &mut w);
+    let keys: Vec<Event> = drain(&mut w)
+        .into_iter()
+        .filter(|e| matches!(e, Event::Key(_)))
+        .collect();
+    assert_eq!(keys, [typed('e', Modifiers::NONE, KeyEventKind::Press)]);
+}

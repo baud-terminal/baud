@@ -25,6 +25,7 @@ use baud_wayland::{
     Arg, Connection, Event as Wire, Fixed, Handler, Interface, ObjectId, Opcode, Read, Sender,
     protocol,
 };
+use baud_xkb::compose::{Compose, Fed, Status, Table};
 use baud_xkb::{Keycode, Keymap, Mods, State};
 use std::collections::VecDeque;
 use std::io;
@@ -166,6 +167,16 @@ struct RepeatInfo {
     delay: Duration,
 }
 
+/// What a press does to a Compose sequence.
+enum Composing {
+    /// Not part of one: the key is the key.
+    Pass,
+    /// A step, or the key that cancelled one: nothing is typed.
+    Held,
+    /// The end: this is typed.
+    Typed(String),
+}
+
 /// The key held down and repeating, and when it next repeats.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Held {
@@ -247,8 +258,14 @@ pub struct Window {
     group: usize,
     repeat: RepeatInfo,
     held: Option<Held>,
-    /// The key a shortcut took, so its release reaches nobody.
-    swallowed: Option<Keycode>,
+    /// The keys a shortcut or a Compose sequence took, so their releases
+    /// reach nobody: more than one, as a dead key may still be down when
+    /// the letter after it is pressed.
+    swallowed: Vec<Keycode>,
+    /// The session's Compose table (`compose.rs`) and where the keys fed so
+    /// far stand in it.
+    compose: Option<Table>,
+    composing: Compose,
     /// The serial of the last key, button or keyboard enter: what a copy's
     /// `set_selection` names, "serial number of the event that triggered
     /// this request" (`[[source: wayland]]`). A program's `OSC 52` has no
@@ -314,7 +331,9 @@ impl Window {
                 delay: Duration::ZERO,
             },
             held: None,
-            swallowed: None,
+            swallowed: Vec::new(),
+            compose: None,
+            composing: Compose::default(),
             serial: None,
             clip: Clip::default(),
             events: VecDeque::new(),
@@ -698,6 +717,42 @@ impl Window {
             }
         }
         self.held = Some(held);
+    }
+
+    /// **The Compose table the keys are fed through**, `None` for none:
+    /// a dead key or `Multi_key` then types nothing until the sequence ends.
+    pub fn set_compose(&mut self, table: Option<Table>) {
+        self.compose = table;
+        self.composing.reset();
+    }
+
+    /// **What a press of `code` does to a Compose sequence**, fed the
+    /// keysym the key produces under the modifiers in force, as foot feeds
+    /// `xkb_state_key_get_one_sym()` (`[[source: foot-2705e36-input]]`
+    /// 1623-1632). A step or a cancel types nothing -- the cancelling key
+    /// is swallowed, "the approach taken by libX11" (`[[source:
+    /// xkbcommon-compose-h]]`, and foot's and kitty's, `[[source:
+    /// kitty-0-43-1-xkb-glfw]]` 721-737) -- and an end types what the
+    /// sequence composed to.
+    fn compose_press(&mut self, code: Keycode) -> Composing {
+        let (Some(km), Some(table)) = (self.keymap.as_ref(), self.compose.as_ref()) else {
+            return Composing::Pass;
+        };
+        let mut st = State::new(km);
+        st.update(self.mods, self.group);
+        if self.composing.feed(table, st.sym(code)) == Fed::Ignored {
+            return Composing::Pass;
+        }
+        match self.composing.status(table) {
+            Status::Nothing => Composing::Pass,
+            Status::Composing | Status::Cancelled => Composing::Held,
+            Status::Composed => Composing::Typed(
+                self.composing
+                    .composed(table)
+                    .map(|c| c.utf8())
+                    .unwrap_or_default(),
+            ),
+        }
     }
 
     /// The clipboard shortcut a press of `code` makes under the modifiers in
@@ -1151,8 +1206,10 @@ impl Handler for Window {
                 if *format == protocol::wl_keyboard::keymap_format::XKB_V1 =>
             {
                 // A new keymap names keys afresh; a key held under the old
-                // one is not one this keymap was asked to repeat.
+                // one is not one this keymap was asked to repeat, and a
+                // sequence begun under it is not this keymap's.
                 self.held = None;
+                self.composing.reset();
                 if let Ok(dup) = fd.try_clone() {
                     self.keymap = Window::keymap_from(dup, *size).ok();
                 }
@@ -1205,9 +1262,30 @@ impl Handler for Window {
                         // no repeat, and its release swallowed.
                         if let Some(sc) = self.shortcut(code) {
                             self.events.push_back(Event::Shortcut(sc));
-                            self.swallowed = Some(code);
+                            self.swallowed.push(code);
                             self.held = None;
+                            self.composing.reset();
                             return;
+                        }
+                        // A Compose sequence takes the key: no key event,
+                        // no repeat, and its release swallowed; at its end
+                        // the composed text is typed, a character at a
+                        // time as the macOS app types an input manager's.
+                        match self.compose_press(code) {
+                            Composing::Pass => {}
+                            Composing::Held => {
+                                self.swallowed.push(code);
+                                self.held = None;
+                                return;
+                            }
+                            Composing::Typed(text) => {
+                                for c in text.chars() {
+                                    self.events.push_back(Event::Key(keys::typed(c)));
+                                }
+                                self.swallowed.push(code);
+                                self.held = None;
+                                return;
+                            }
                         }
                         if let Some(e) = self.key_event(code, KeyEventKind::Press) {
                             self.events.push_back(Event::Key(e));
@@ -1234,8 +1312,8 @@ impl Handler for Window {
                         if self.held.is_some_and(|h| h.key == code) {
                             self.held = None;
                         }
-                        if self.swallowed == Some(code) {
-                            self.swallowed = None;
+                        if let Some(i) = self.swallowed.iter().position(|&k| k == code) {
+                            self.swallowed.swap_remove(i);
                             return;
                         }
                         if let Some(e) = self.key_event(code, KeyEventKind::Release) {
@@ -1260,7 +1338,8 @@ impl Handler for Window {
             // compositor sends a fresh `modifiers` after the next `enter`.
             ("wl_keyboard", "leave", _) => {
                 self.held = None;
-                self.swallowed = None;
+                self.swallowed.clear();
+                self.composing.reset();
                 self.clip.focus_lost(s);
                 self.mods = Mods::default();
                 self.group = 0;

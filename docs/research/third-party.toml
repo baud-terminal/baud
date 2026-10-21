@@ -322,6 +322,12 @@ from    = "https://gitlab.freedesktop.org/xorg/proto/xorgproto/-/raw/6d3907b6d5d
 how     = "fetched"
 sha256  = "64a579d1a0b3347301d87c94698a58ea7933d0ae6ca7e8fdd702fde2ea376301"
 
+[text."libx11-compose.txt"]
+licence = "MIT"
+from    = "the first notice of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/COPYING, verbatim, with a paragraph saying which copied files it covers"
+how     = "built"
+sha256  = "1ed64ec53f01779b150380a49056c607ba05eb4dc44a56eb0b783c1eb265a654"
+
 [text."libx11-xcms.txt"]
 licence = "LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group"
 from    = "the notices at the head of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVC.c (Tektronix's TekHVC notice, which HVCGcC.c, HVCMxC.c and HVCMxVC.c carry too), src/xcms/cmsTrig.c (Tektronix's Xcms notice, which the other ported files carry) and src/xcms/cmsMath.c (The Open Group), with a paragraph saying which ported lines fall under which"
@@ -1256,8 +1262,20 @@ notice  = "LICENSES/libxkbcommon-LICENSE.txt"
 status  = "kept"
 files   = [
   "xkb-keymap-text-format-v1-v2.md",
+  "xkbcommon-compose.h",
   "xkbcommon-keysyms.h",
   "xkbcommon.h",
+]
+
+[upstream.libx11-compose]
+name    = "libX11's Compose tables and Compose(5) (the X.Org Foundation; Oracle)"
+licence = "MIT"
+notice  = "LICENSES/libx11-compose.txt"
+status  = "kept"
+files   = [
+  "libx11-1.8.13-Compose.man",
+  "libx11-1.8.13-compose-el_GR.UTF-8.txt",
+  "libx11-1.8.13-compose-en_US.UTF-8.txt",
 ]
 
 [upstream.xorgproto]
@@ -2177,6 +2195,14 @@ paths    = ["baud-app/src/bell.rs"]
 licence  = "X11"
 notice   = "LICENSES/ncurses-COPYING.txt"
 upstream = "docs/research/sources/terminfo/xterm-256color.ti"
+status   = "kept"
+
+[[tree]]
+what     = "baud-xkb's Compose reader, ported from libxkbcommon's Compose parser and state machine; the grammar in parser.c is itself adapted from libX11's imLcPrs.c under Oki Technosystems Laboratory's and Fuji Xerox's notice"
+paths    = ["baud-xkb/src/compose.rs"]
+licence  = "MIT AND HPND-sell-variant"
+notice   = "LICENSES/libxkbcommon-LICENSE.txt"
+upstream = "https://github.com/xkbcommon/libxkbcommon/blob/xkbcommon-1.13.2/src/compose/parser.c"
 status   = "kept"
 
 [[tree]]

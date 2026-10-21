@@ -1,0 +1,101 @@
+# compose edge.Compose locale xx
+e 2e,2e aae e280a6
+e 61,62,64 0 616264
+e 61,1000041 0 686578
+e 64,65 0 6465
+e 67 0 6731
+e 68,69 0 6869
+e 69,69 0 686f6d65
+e 6a,6b 0 6a6b
+e 6b,6b 6b 6b6b
+e 6c,6d 0 6c6d
+e 6c,6e 0 6c6e
+e 6e,6f 0 41425c2271
+e 6e,70 0 7a7978
+e 71,72 c1 
+e 71,73 c1 78
+e 71,74 0 
+e 71,75 c1 
+e 77,77,77,77,77,77,77,77,77,77 0 74656e
+e 78,79 0 6f6b
+e 78,7a 0 6c656164696e6720737061636573
+e 79,79 e9 c3a9
+e 79,7a 0 c3a9206279206f6374616c
+e 7a,77 c1 78
+e e9,41 0 752d6e616d6573
+e fe50,20 60 
+e fe51 fe51 
+e ff0a,1000007 0 636f6e74726f6c20752d6e616d6573
+e ff20,41,45 c6 c3862d697368
+e ff20,ffe1,61 0 61206d6f64696669657220696e20612073657175656e6365
+e ff80,61 ff80 
+e 100d800,61 0 6120737572726f676174652069732061206b657973796d2068657265
+e 1008ff12,61 0 7866383620756e64657273636f7265
+e 1008ff12,62 0 6279206e756d626572
+t 2e,2e,61 = Ag Ad:aae:e280a6 Ag
+t 2e,ffe0,61 = Ag Ax Ag
+t 2e,ffe1,2e = Ag Ig Ad:aae:e280a6
+t 61,62,64,61 = Ag Ag Ad:0:616264 Ag
+t 61,62,ffe0,61 = Ag Ag Ax Ag
+t 61,1000041,61 = Ag Ad:0:686578 Ag
+t 61,ffe0,61 = Ag Ax Ag
+t 64,65,61 = Ag Ad:0:6465 Ag
+t 64,ffe0,61 = Ag Ax Ag
+t 67,61 = Ad:0:6731 Ag
+t 68,69,61 = Ag Ad:0:6869 Ag
+t 68,ffe0,61 = Ag Ax Ag
+t 69,69,61 = Ag Ad:0:686f6d65 Ag
+t 69,ffe0,61 = Ag Ax Ag
+t 6a,6b,61 = Ag Ad:0:6a6b Ag
+t 6a,ffe0,61 = Ag Ax Ag
+t 6b,6b,61 = Ag Ad:6b:6b6b Ag
+t 6b,ffe0,61 = Ag Ax Ag
+t 6c,6d,61 = Ag Ad:0:6c6d Ag
+t 6c,ffe0,61 = Ag Ax Ag
+t 6c,6e,61 = Ag Ad:0:6c6e Ag
+t 6c,ffe0,61 = Ag Ax Ag
+t 6e,6f,61 = Ag Ad:0:41425c2271 Ag
+t 6e,ffe0,61 = Ag Ax Ag
+t 6e,70,61 = Ag Ad:0:7a7978 Ag
+t 6e,ffe0,61 = Ag Ax Ag
+t 71,72,61 = Ag Ad:c1:c381 Ag
+t 71,ffe0,61 = Ag Ax Ag
+t 71,73,61 = Ag Ad:c1:78 Ag
+t 71,ffe0,61 = Ag Ax Ag
+t 71,74,61 = Ag Ad:0: Ag
+t 71,ffe0,61 = Ag Ax Ag
+t 71,75,61 = Ag Ad:c1: Ag
+t 71,ffe0,61 = Ag Ax Ag
+t 71,ffe1,75 = Ag Ig Ad:c1:
+t 77,77,77,77,77,77,77,77,77,77,61 = Ag Ag Ag Ag Ag Ag Ag Ag Ag Ad:0:74656e Ag
+t 77,77,77,77,77,77,77,77,77,ffe0,61 = Ag Ag Ag Ag Ag Ag Ag Ag Ag Ax Ag
+t 78,79,61 = Ag Ad:0:6f6b Ag
+t 78,ffe0,61 = Ag Ax Ag
+t 78,7a,61 = Ag Ad:0:6c656164696e6720737061636573 Ag
+t 78,ffe0,61 = Ag Ax Ag
+t 79,79,61 = Ag Ad:e9:c3a9 Ag
+t 79,ffe0,61 = Ag Ax Ag
+t 79,7a,61 = Ag Ad:0:c3a9206279206f6374616c Ag
+t 79,ffe0,61 = Ag Ax Ag
+t 7a,77,61 = Ag Ad:c1:78 Ag
+t 7a,ffe0,61 = Ag Ax Ag
+t e9,41,61 = Ag Ad:0:752d6e616d6573 Ag
+t e9,ffe0,61 = Ag Ax Ag
+t fe50,20,61 = Ag Ad:60:60 Ag
+t fe50,ffe0,61 = Ag Ax Ag
+t fe51,61 = Ad:fe51: Ag
+t ff0a,1000007,61 = Ag Ad:0:636f6e74726f6c20752d6e616d6573 Ag
+t ff0a,ffe0,61 = Ag Ax Ag
+t ff20,41,45,61 = Ag Ag Ad:c6:c3862d697368 Ag
+t ff20,41,ffe0,61 = Ag Ag Ax Ag
+t ff20,ffe1,61,61 = Ag Ig Ax Ag
+t ff20,ffe1,ffe0,61 = Ag Ig Ax Ag
+t ff80,61,61 = Ag Ad:ff80:20 Ag
+t ff80,ffe0,61 = Ag Ax Ag
+t 100d800,61,61 = Ag Ad:0:6120737572726f676174652069732061206b657973796d2068657265 Ag
+t 100d800,ffe0,61 = Ag Ax Ag
+t 1008ff12,61,61 = Ag Ad:0:7866383620756e64657273636f7265 Ag
+t 1008ff12,ffe0,61 = Ag Ax Ag
+t 1008ff12,62,61 = Ag Ad:0:6279206e756d626572 Ag
+t 1008ff12,ffe0,61 = Ag Ax Ag
+t 1008ff12,ffe1,62 = Ag Ig Ad:0:6279206e756d626572

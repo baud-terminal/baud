@@ -6,9 +6,7 @@ to reproduce. Run once; the fixtures are committed.
 The library is found by `$LIBXKBCOMMON`, the path of the shared library
 itself, or else by `pkg-config --variable=libdir xkbcommon`; with neither the
 script stops and says so. The committed fixtures came from libxkbcommon
-1.13.2, whose nix output is /nix/store/q68bncwdcfknxhswvhkk6jq3aq6k2pa7-
-libxkbcommon-1.13.2 -- a path, not a dependency, and one the store
-collects."""
+1.13.2; set LIBXKBCOMMON to its libxkbcommon.0.dylib or .so."""
 import ctypes, sys, os, subprocess
 
 
@@ -116,6 +114,96 @@ def run(path, out):
             level = x.xkb_state_key_get_level(st, kc, layout)
             out.write(f"{kc} {sym:x} {u8} {layout} {level}\n")
         x.xkb_state_unref(st)
+# The Compose API, `[[source: xkbcommon-compose-h]]`: a table from a
+# buffer -- no file search, so the answer is the text's alone -- its
+# entries through the iterator, and the state machine fed traces.
+x.xkb_compose_table_new_from_buffer.restype = ctypes.c_void_p
+x.xkb_compose_table_new_from_buffer.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t,
+                                                ctypes.c_char_p, ctypes.c_int, ctypes.c_int]
+x.xkb_compose_table_iterator_new.restype = ctypes.c_void_p
+x.xkb_compose_table_iterator_new.argtypes = [ctypes.c_void_p]
+x.xkb_compose_table_iterator_next.restype = ctypes.c_void_p
+x.xkb_compose_table_iterator_next.argtypes = [ctypes.c_void_p]
+x.xkb_compose_table_iterator_free.argtypes = [ctypes.c_void_p]
+x.xkb_compose_table_entry_sequence.restype = ctypes.POINTER(ctypes.c_uint32)
+x.xkb_compose_table_entry_sequence.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
+x.xkb_compose_table_entry_keysym.restype = ctypes.c_uint32
+x.xkb_compose_table_entry_keysym.argtypes = [ctypes.c_void_p]
+x.xkb_compose_table_entry_utf8.restype = ctypes.c_char_p
+x.xkb_compose_table_entry_utf8.argtypes = [ctypes.c_void_p]
+x.xkb_compose_state_new.restype = ctypes.c_void_p
+x.xkb_compose_state_new.argtypes = [ctypes.c_void_p, ctypes.c_int]
+x.xkb_compose_state_feed.restype = ctypes.c_int
+x.xkb_compose_state_feed.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+x.xkb_compose_state_get_status.restype = ctypes.c_int
+x.xkb_compose_state_get_status.argtypes = [ctypes.c_void_p]
+x.xkb_compose_state_get_utf8.restype = ctypes.c_int
+x.xkb_compose_state_get_utf8.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_size_t]
+x.xkb_compose_state_get_one_sym.restype = ctypes.c_uint32
+x.xkb_compose_state_get_one_sym.argtypes = [ctypes.c_void_p]
+x.xkb_compose_state_reset.argtypes = [ctypes.c_void_p]
+x.xkb_compose_state_unref.argtypes = [ctypes.c_void_p]
+x.xkb_compose_table_unref.argtypes = [ctypes.c_void_p]
+SHIFT_L, F35, KEY_A = 0xffe1, 0xffe0, 0x61
+STATUS = "ngdx"  # NOTHING, COMPOSING, COMPOSED, CANCELLED
+
+
+def compose(path, out, locale):
+    """Every entry of the table, then traces: each sequence and a keysym
+    after it; all but its last keysym, then F35, which continues nothing
+    here, then `a`; and for every sixteenth entry, Shift_L fed after its
+    first keysym."""
+    ctx = x.xkb_context_new(0)
+    text = open(path, "rb").read()
+    t = x.xkb_compose_table_new_from_buffer(ctx, text, len(text), locale.encode(), 1, 0)
+    out.write(f"# compose {os.path.basename(path)} locale {locale}\n")
+    if not t:
+        out.write("table none\n")
+        return
+    it = x.xkb_compose_table_iterator_new(t)
+    entries = []
+    while True:
+        e = x.xkb_compose_table_iterator_next(it)
+        if not e:
+            break
+        n = ctypes.c_size_t()
+        seq = x.xkb_compose_table_entry_sequence(e, ctypes.byref(n))
+        entries.append(([seq[i] for i in range(n.value)], x.xkb_compose_table_entry_keysym(e),
+                        x.xkb_compose_table_entry_utf8(e)))
+    x.xkb_compose_table_iterator_free(it)
+    for seq, sym, u8 in entries:
+        out.write(f"e {','.join(f'{k:x}' for k in seq)} {sym:x} {u8.hex()}\n")
+    st = x.xkb_compose_state_new(t, 0)
+    buf = ctypes.create_string_buffer(512)
+    def trace(feeds):
+        x.xkb_compose_state_reset(st)
+        res = []
+        for k in feeds:
+            fed = x.xkb_compose_state_feed(st, k)
+            s = STATUS[x.xkb_compose_state_get_status(st)]
+            r = ("I" if fed == 0 else "A") + s
+            if s == "d":
+                n = x.xkb_compose_state_get_utf8(st, buf, 512)
+                r += f":{x.xkb_compose_state_get_one_sym(st):x}:{buf.raw[:n].hex()}"
+            res.append(r)
+        out.write(f"t {','.join(f'{k:x}' for k in feeds)} = {' '.join(res)}\n")
+    for i, (seq, _, _) in enumerate(entries):
+        trace(seq + [KEY_A])
+        if len(seq) >= 2:
+            trace(seq[:-1] + [F35, KEY_A])
+            if i % 16 == 0:
+                trace(seq[:1] + [SHIFT_L] + seq[1:])
+    x.xkb_compose_state_unref(st)
+    x.xkb_compose_table_unref(t)
+
+
+if sys.argv[1:2] == ["compose"]:
+    # xkb-oracle.py compose <Compose file> <oracle out> [locale]; the
+    # environment's XLOCALEDIR and HOME are what %S, %L and %H expand to.
+    with open(sys.argv[3], "w") as out:
+        compose(sys.argv[2], out, sys.argv[4] if len(sys.argv) > 4 else "en_US.UTF-8")
+    print("wrote", sys.argv[3])
+    sys.exit(0)
 for path in sys.argv[1:]:
     name = os.path.basename(path)[len("keymap-"):-len(".xkb")]
     with open(os.path.join(os.path.dirname(path), f"oracle-{name}.txt"), "w") as out:

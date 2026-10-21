@@ -30337,3 +30337,149 @@ bytes  = 1279
 status = "external"
 group  = "J"
 # Fetched 2026-10-21 (lane b131): the Linux indices of the tty special characters a paste replaces (xterm's STTY). Read, not copied.
+
+[sources.xkbcommon-compose-h]
+key    = "xkbcommon-compose-h"
+title  = "xkbcommon-compose.h -- the Compose table and state machine API: the format, conflicting sequences, cancellation, the locale search, the feed statuses (libxkbcommon 1.13.2)"
+author = "libxkbcommon contributors"
+year   = 2026
+venue  = "xkbcommon/libxkbcommon (MIT)"
+url    = "https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/include/xkbcommon/xkbcommon-compose.h"
+file   = "xkbcommon-compose.h"
+sha256 = "6e2d985b3653c3674df87731931b98a68e4dcb72d5ff90e457708e8e16ce818d"
+bytes  = 19358
+status = "retrieved"
+group  = "H"
+# Committed 2026-10-21 (lane b133): the governing text for baud-xkb/src/compose.rs.
+
+[sources.libx11-compose-5]
+key    = "libx11-compose-5"
+title  = "Compose(5) -- X client mappings for multi-key input sequences: the file format, include and its % expansions, the search order (libX11 1.8.13, man/Compose.man)"
+author = "Oracle and the X.Org Foundation (MIT)"
+year   = 2026
+venue  = "xorg/lib/libx11 @ libX11-1.8.13"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/man/Compose.man"
+file   = "libx11-1.8.13-Compose.man"
+sha256 = "6901b1cd8a7dab84b96d720db0ee9b10e13bca06da00918edb8253d0e409cfd3"
+bytes  = 5789
+status = "retrieved"
+group  = "H"
+# Committed 2026-10-21 (lane b133): the governing text for baud-xkb/src/compose.rs.
+
+[sources.libx11-compose-en-us]
+key    = "libx11-compose-en-us"
+title  = "libX11 1.8.13's en_US.UTF-8 Compose table, as built: the system table most UTF-8 locales use (nls/en_US.UTF-8/Compose.pre, preprocessed)"
+author = "the X.Org Foundation and libX11 contributors"
+year   = 2026
+venue  = "nixpkgs libx11-1.8.13, share/X11/locale"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/nls/en_US.UTF-8/Compose.pre"
+file   = "libx11-1.8.13-compose-en_US.UTF-8.txt"
+sha256 = "556b31b41770077bef86e67dfc96855d543020cc1a83c6ecbccc5044a8e30a96"
+bytes  = 456142
+status = "retrieved"
+group  = "H"
+# Committed 2026-10-21 (lane b133): the system table a Linux box has under /usr/share/X11/locale, read by
+# baud-xkb/tests/compose.rs with libxkbcommon as the oracle. The url is the source, as built by libX11
+# 1.8.13's nls rules (Compose.pre preprocessed); the copy was taken from the build output
+# /nix/store/iknyacmjgr9ickpc2sljgc54zfzj2d4n-libx11-1.8.13/share/X11/locale/en_US.UTF-8/Compose.
+
+[sources.libx11-compose-el-gr]
+key    = "libx11-compose-el-gr"
+title  = "libX11 1.8.13's el_GR.UTF-8 Compose table, as built: the Greek locale's own table (nls/el_GR.UTF-8/Compose.pre, preprocessed)"
+author = "the X.Org Foundation and libX11 contributors"
+year   = 2026
+venue  = "nixpkgs libx11-1.8.13, share/X11/locale"
+url    = "https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/nls/el_GR.UTF-8/Compose.pre"
+file   = "libx11-1.8.13-compose-el_GR.UTF-8.txt"
+sha256 = "cd39eff9261eeb8580d3256b647917a21a7833194ac4d9652753c8f1726ef380"
+bytes  = 124875
+status = "retrieved"
+group  = "H"
+# Committed 2026-10-21 (lane b133): the system table a Linux box has under /usr/share/X11/locale, read by
+# baud-xkb/tests/compose.rs with libxkbcommon as the oracle. The url is the source, as built by libX11
+# 1.8.13's nls rules (Compose.pre preprocessed); the copy was taken from the build output
+# /nix/store/iknyacmjgr9ickpc2sljgc54zfzj2d4n-libx11-1.8.13/share/X11/locale/el_GR.UTF-8/Compose.
+
+[sources.libxkbcommon-compose-parser-c]
+key    = "libxkbcommon-compose-parser-c"
+title  = "libxkbcommon 1.13.2, src/compose/parser.c -- the Compose grammar, the lexer and its escapes, add_production (prefix and duplicate rules), the error budget, include"
+author = "Ran Benita; Oki Technosystems Laboratory and Fuji Xerox (MIT AND HPND-sell-variant)"
+year   = 2026
+venue  = "xkbcommon/libxkbcommon @ xkbcommon-1.13.2"
+url    = "https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/src/compose/parser.c"
+file   = ""
+sha256 = "d6252e3fe61e20552d7aa5808a76725ccedeefee3113d5bb4d782f4e0a23281a"
+bytes  = 26889
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133): the Compose reader ported from it, or its practice. Read, not copied into the tree.
+
+[sources.libxkbcommon-compose-state-c]
+key    = "libxkbcommon-compose-state-c"
+title  = "libxkbcommon 1.13.2, src/compose/state.c -- xkb_compose_state_feed, get_status, get_utf8 and the modifier test"
+author = "Ran Benita (MIT)"
+year   = 2026
+venue  = "xkbcommon/libxkbcommon @ xkbcommon-1.13.2"
+url    = "https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/src/compose/state.c"
+file   = ""
+sha256 = "7ee3226e43cb216b3742b177f46b16a28cca66722c71b093ab0bf57fbbb5c769"
+bytes  = 4802
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133): the Compose reader ported from it, or its practice. Read, not copied into the tree.
+
+[sources.libxkbcommon-compose-paths-c]
+key    = "libxkbcommon-compose-paths-c"
+title  = "libxkbcommon 1.13.2, src/compose/paths.c -- resolve_name over locale.alias and compose.dir, the XCOMPOSEFILE, XDG and HOME paths, the C and en_US.UTF-8 fallbacks"
+author = "Ran Benita (MIT)"
+year   = 2026
+venue  = "xkbcommon/libxkbcommon @ xkbcommon-1.13.2"
+url    = "https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/src/compose/paths.c"
+file   = ""
+sha256 = "e9824c89ffb87dd6a0ddf0dc5dde96cee1ba24bc196f438a11560c368db60ef7"
+bytes  = 6663
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133): the Compose reader ported from it, or its practice. Read, not copied into the tree.
+
+[sources.libxkbcommon-keysym-c]
+key    = "libxkbcommon-keysym-c"
+title  = "libxkbcommon 1.13.2, src/keysym.c -- xkb_keysym_from_name (the U and 0x forms, the XF86_ retry) and xkb_keysym_is_modifier"
+author = "libxkbcommon contributors (MIT)"
+year   = 2026
+venue  = "xkbcommon/libxkbcommon @ xkbcommon-1.13.2"
+url    = "https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/src/keysym.c"
+file   = ""
+sha256 = "123e3390d443b85c9cc9d1833c168ecda955d1c642fda03881052bb99c3369c5"
+bytes  = 14948
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133): the Compose reader ported from it, or its practice. Read, not copied into the tree.
+
+[sources.libxkbcommon-keysym-utf-c]
+key    = "libxkbcommon-keysym-utf-c"
+title  = "libxkbcommon 1.13.2, src/keysym-utf.c -- xkb_utf32_to_keysym and xkb_keysym_to_utf32"
+author = "libxkbcommon contributors (MIT)"
+year   = 2026
+venue  = "xkbcommon/libxkbcommon @ xkbcommon-1.13.2"
+url    = "https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/src/keysym-utf.c"
+file   = ""
+sha256 = "a66da728a39b440535d9aa62cfc9a46410bd0e54d41d6190ce0aab91a8eee9ef"
+bytes  = 78027
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133): the Compose reader ported from it, or its practice. Read, not copied into the tree.
+
+[sources.kitty-0-43-1-xkb-glfw]
+key    = "kitty-0-43-1-xkb-glfw"
+title  = "kitty 0.43.1, glfw/xkb_glfw.c -- compose_symbol (721-737) and the key handler: Compose fed on a press, the alternate key from a default keymap (595, 922)"
+author = "Kovid Goyal and the GLFW authors (zlib)"
+year   = 2026
+venue  = "kovidgoyal/kitty @ v0.43.1"
+url    = "https://raw.githubusercontent.com/kovidgoyal/kitty/v0.43.1/glfw/xkb_glfw.c"
+file   = ""
+sha256 = "d6123eb120f5b5221084c45a3258c86937fa0e6b4bd4fe37db71beb47c02eb79"
+bytes  = 43781
+status = "external"
+group  = "H"
+# Fetched 2026-10-21 (lane b133): the Compose reader ported from it, or its practice. Read, not copied into the tree.

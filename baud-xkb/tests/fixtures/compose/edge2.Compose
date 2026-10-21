@@ -1,0 +1,11 @@
+# Three more errors, in a file of their own: the edge file is at ten.
+<U123456789> <a> : "nine digits"
+<0x20000000> <a> : "past the keysym range"
+~ <z> <x>	: "a tilde with no name"
+<0x1fffffff> <a> : "the last keysym"
+<U10FFFF> <a> : "the last codepoint"
+<U00FF> <U0100> : "either side of the direct form"
+<U7F> <U1B> : "DEL and ESC"
+<r> <r> : "first"
+<r> <r> : "second, a redefinition"
+<r> <q> : "\x414\x4"

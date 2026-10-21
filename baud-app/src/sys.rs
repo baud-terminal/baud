@@ -450,8 +450,9 @@ pub const TCSANOW: c_int = 0;
 // macOS 15: `AXPrefersNonBlinkingTextInsertionIndicator`. Linking it would
 // fail to load on an older system; looking it up answers null there.
 /// A locale object as `newlocale` hands one out: opaque, freed by
-/// [`freelocale`]. Used to check a locale name before a shell is given it.
-#[cfg(target_os = "macos")]
+/// [`freelocale`]. Used to check a locale name before a shell is given it
+/// on macOS, and on Linux before the Compose search falls back for a
+/// locale its registry does not list.
 pub type Locale = *mut c_void;
 
 /// `newlocale`'s mask for every category. `LANG` feeds them all, and a
@@ -461,6 +462,12 @@ pub type Locale = *mut c_void;
 #[cfg(target_os = "macos")]
 pub const LC_ALL_MASK: c_int = 63;
 
+/// glibc's mask for every category: one bit for each of its twelve, at
+/// the category's number, which skips `__LC_ALL`'s 6 -- the same all
+/// libxkbcommon's `newlocale` asks for.
+#[cfg(not(target_os = "macos"))]
+pub const LC_ALL_MASK: c_int = 0x1fbf;
+
 /// `nl_langinfo`'s item, an `int`.
 #[cfg(target_os = "macos")]
 pub type NlItem = c_int;
@@ -469,11 +476,14 @@ pub type NlItem = c_int;
 #[cfg(target_os = "macos")]
 pub const CODESET: NlItem = 0;
 
-#[cfg(target_os = "macos")]
 unsafe extern "C" {
     pub fn newlocale(mask: c_int, name: *const c_char, base: Locale) -> Locale;
-    pub fn nl_langinfo_l(item: NlItem, locale: Locale) -> *const c_char;
     pub fn freelocale(locale: Locale);
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    pub fn nl_langinfo_l(item: NlItem, locale: Locale) -> *const c_char;
 }
 
 /// CoreFoundation's signed count, a `long`.
@@ -730,6 +740,8 @@ mod tests {
 #include <langinfo.h>
 #include <locale.h>
 #include <xlocale.h>
+#else
+#include <locale.h>
 #endif
 int main(void) {
     printf("winsize.size=%zu\n", sizeof(struct winsize));
@@ -852,6 +864,8 @@ int main(void) {
     printf("mach_task_basic_info.policy=%zu\n", offsetof(struct mach_task_basic_info, policy));
     printf("mach_port_t.size=%zu\n", sizeof(mach_port_t));
 #else
+    printf("locale_t.size=%zu\n", sizeof(locale_t));
+    printf("LC_ALL_MASK=%lld\n", (long long)LC_ALL_MASK);
     printf("NAME_MAX=%lld\n", (long long)NAME_MAX);
     printf("O_PATH=%lld\n", (long long)O_PATH);
     printf("MADV_DONTNEED=%lld\n", (long long)MADV_DONTNEED);
@@ -1045,6 +1059,10 @@ int main(void) {
         }
         #[cfg(not(target_os = "macos"))]
         assert_eq!(h["NAME_MAX"], SHM_NAME_MAX as i128);
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(h["LC_ALL_MASK"], i128::from(LC_ALL_MASK));
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(h["locale_t.size"], size_of::<Locale>() as i128);
         #[cfg(not(target_os = "macos"))]
         assert_eq!(h["O_PATH"], i128::from(O_PATH));
     }

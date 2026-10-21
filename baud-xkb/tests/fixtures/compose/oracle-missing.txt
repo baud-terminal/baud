@@ -1,0 +1,2 @@
+# compose missing.Compose locale xx
+table none

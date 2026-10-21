@@ -1,0 +1,2 @@
+include "%S/../depth.Compose"
+<a> : "a"

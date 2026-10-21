@@ -1,0 +1,2 @@
+# compose depth.Compose locale xx
+table none

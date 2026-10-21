@@ -1,0 +1,2 @@
+# compose nul.Compose locale xx
+table none

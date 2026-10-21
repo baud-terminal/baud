@@ -1,0 +1,52 @@
+# Edge cases for the Compose reader, each beside the rule it exercises.
+include "%S/xx_XX.UTF-8/Compose"
+include "%H/inc.Compose"   # a comment after an include
+<a> <b>		: "ab"
+<a> <b>		: "ab"		# a duplicate, skipped
+<a> <b>		: "AB"		# a redefinition, kept
+<a> <b> <c>	: "abc"		# extends a sequence: the shorter is gone
+<d> <e> <f>	: "def"
+<d> <e>		: "de"		# ends where another goes on: the longer is gone
+<g>		: "g1"		# a sequence of one keysym
+!Ctrl <h> <i>	: "hi"		# modifiers are read and not used
+None <j> <k>	: "jk"
+~Shift Lock <l> <m> : "lm"
+! ~Alt Caps Meta <l> <n> : "ln"
+<n> <o>		: "\x41\102\\\"\x\q"
+<n> <p>		: "\0z\400y\x00x\1234"
+<q> <r>		: Aacute
+<q> <s>		: "x" Aacute
+<q> <t>		: ""
+<q> <u>		: "" Aacute
+<U00E9> <U0041> : "u-names"
+<U000A> <U0007> : "control u-names"
+<U0000> <a>	: "NUL is no keysym: an error"
+<UD800> <a>	: "a surrogate is a keysym here"
+<U110000> <a>	: "past the planes"
+<0x61> <0x1000041> : "hex"
+<XF86_AudioMute> <a> : "xf86 underscore"
+<bogus> <a>	: "an unknown keysym: an error"
+<r> <s>		"no colon"
+<s>		: "unterminated
+<t>		: abc def
+<u>		: "two" "strings"
+<v>		:
+		: "no lhs"
+<w> <w> <w> <w> <w> <w> <w> <w> <w> <w> <w> : "eleven"
+<w> <w> <w> <w> <w> <w> <w> <w> <w> <w> : "ten"
+<x> <y>		: "ok"	# a trailing comment
+   <x> <z>	: "leading spaces"
+<Multi_key> <Shift_L> <a> : "a modifier in a sequence"
+<Multi_key> <A> <E> : "Æ-ish" AE
+<y> <y>		: "é" eacute
+<y> <z>		: "\303\251 by octal"
+<z> <z>		: "bad utf-8 \377"
+Bogus <z> <y>	: "an unknown modifier: an error"
+<z> <w>		: "x" Aacute Agrave
+<0x1008ff12> <b> : "by number"
+<period> <period> : "…" ellipsis
+<KP_Space> <a> : KP_Space
+<dead_acute>	: dead_acute
+<dead_grave> <space> : grave
+include "%L"
+<last> : "no newline at the end"

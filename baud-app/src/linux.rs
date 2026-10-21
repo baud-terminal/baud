@@ -295,13 +295,28 @@ pub fn run() {
         }
     };
     startup_mark("wayland");
-    let window = match Window::open(&mut conn, "baud", "org.baud.terminal") {
+    let mut window = match Window::open(&mut conn, "baud", "org.baud.terminal") {
         Ok(w) => w,
         Err(e) => {
             crate::warn!("wayland: {e:?}");
             std::process::exit(1);
         }
     };
+    // Dead keys and `Multi_key` sequences, from the table the session's
+    // locale names, found where libxkbcommon finds it.
+    match baud_present_wayland::compose::from_session(&crate::pty::locale_installed) {
+        Some(f) => match f.table {
+            Ok(t) => {
+                crate::info!("compose: {}, {} sequences", f.path, t.entries().len());
+                window.set_compose(Some(t));
+            }
+            Err(e) => crate::warn!(
+                "compose: {} makes no table ({e:?}); dead keys type nothing",
+                f.path
+            ),
+        },
+        None => crate::info!("compose: no Compose file found; dead keys type nothing"),
+    }
     let bell = Bell::new(&term, crate::bell::LENGTH);
     let widths = crate::width::Widths::new(&term);
     let clips = crate::clip::Clips::for_wayland(&term);

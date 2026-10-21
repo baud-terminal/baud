@@ -1,0 +1,2 @@
+# compose latin1.Compose locale xx
+table none

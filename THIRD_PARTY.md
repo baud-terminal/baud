@@ -23,9 +23,9 @@ and decides nothing.
 | open | 0 | 9 | an open question, recorded where the file is; the owner's call |
 | copyleft | 26 | 0 | redistributable with its licence text, which is in LICENSES/; keeping it or making it `external` is the owner's call |
 | nc | 1 | 0 | kept verbatim under CC BY-NC-SA 3.0, which allows a verbatim copy that carries its attribution and the licence's URI; its NonCommercial term binds every copy of this file, whatever the repository's licence |
-| kept | 291 | 25 | redistributable, and its notice is satisfied |
+| kept | 295 | 26 | redistributable, and its notice is satisfied |
 | own | 209 | 0 | the owner's work |
-| total | 833 | 36 | |
+| total | 837 | 37 | |
 
 ## Licence texts in LICENSES/
 
@@ -49,6 +49,7 @@ they were built from.
 | [harfbuzz-COPYING.txt](LICENSES/harfbuzz-COPYING.txt) | MIT-Modern-Variant | fetched: https://raw.githubusercontent.com/harfbuzz/harfbuzz/12.3.0/COPYING | ba8f810f2455c2f0 |
 | [highway-LICENSE.txt](LICENSES/highway-LICENSE.txt) | Apache-2.0 OR BSD-3-Clause | fetched: https://raw.githubusercontent.com/google/highway/b93ad441d9cbeb7d7629281992b796a73033996a/LICENSE | 85de9303e7a81f35 |
 | [iterm2-color-schemes-MIT.txt](LICENSES/iterm2-color-schemes-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/99d9701ba3cf4a06d24eea6ca4f25a64656b446b/LICENSE | 2373168614b52749 |
+| [libx11-compose.txt](LICENSES/libx11-compose.txt) | MIT | built: the first notice of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/COPYING, verbatim, with a paragraph saying which copied files it covers | 1ed64ec53f01779b |
 | [libx11-xcms.txt](LICENSES/libx11-xcms.txt) | LicenseRef-Tektronix-TekHVC AND LicenseRef-Tektronix-Xcms AND MIT-open-group | built: the notices at the head of https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/b8d5a7046a98a244ee8ca3c9c07fd617c800dde2/src/xcms/HVC.c (Tektronix's TekHVC notice, which HVCGcC.c, HVCMxC.c and HVCMxVC.c carry too), src/xcms/cmsTrig.c (Tektronix's Xcms notice, which the other ported files carry) and src/xcms/cmsMath.c (The Open Group), with a paragraph saying which ported lines fall under which | e401afaad5a23d6d |
 | [libxkbcommon-LICENSE.txt](LICENSES/libxkbcommon-LICENSE.txt) | MIT AND HPND | fetched: https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/LICENSE | 967e97b28658f003 |
 | [lscolors-MIT.txt](LICENSES/lscolors-MIT.txt) | MIT | fetched: https://raw.githubusercontent.com/sharkdp/lscolors/fd932f838d055990378e3d73fbd5d61185da495e/LICENSE-MIT | f9c4c77baa382800 |
@@ -336,6 +337,14 @@ they were built from.
 - **Notice:** [LICENSES/ncurses-COPYING.txt](LICENSES/ncurses-COPYING.txt)
 - **From:** docs/research/sources/terminfo/xterm-256color.ti
 - **Files:** [baud-app/src/bell.rs](baud-app/src/bell.rs)
+
+### baud-xkb's Compose reader, ported from libxkbcommon's Compose parser and state machine; the grammar in parser.c is itself adapted from libX11's imLcPrs.c under Oki Technosystems Laboratory's and Fuji Xerox's notice
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT AND HPND-sell-variant
+- **Notice:** [LICENSES/libxkbcommon-LICENSE.txt](LICENSES/libxkbcommon-LICENSE.txt)
+- **From:** https://github.com/xkbcommon/libxkbcommon/blob/xkbcommon-1.13.2/src/compose/parser.c
+- **Files:** [baud-xkb/src/compose.rs](baud-xkb/src/compose.rs)
 
 ### baud-xkb's build reads xkbcommon's keysym header into the binary's keysym table
 
@@ -1311,16 +1320,30 @@ notice is, and the URL each file was copied from.
 | [last-resort-LICENSE-3f05565.txt](docs/research/sources/last-resort-LICENSE-3f05565.txt) | https://raw.githubusercontent.com/unicode-org/last-resort-font/3f055651c34e4d3495d176f88eb22826b47d565c/LICENSE |
 | [last-resort-README-3f05565.md](docs/research/sources/last-resort-README-3f05565.md) | https://raw.githubusercontent.com/unicode-org/last-resort-font/3f055651c34e4d3495d176f88eb22826b47d565c/README.md |
 
+### libX11's Compose tables and Compose(5) (the X.Org Foundation; Oracle)
+
+- **Status:** kept -- redistributable, and its notice is satisfied
+- **Licence:** MIT
+- **Notice:** [LICENSES/libx11-compose.txt](LICENSES/libx11-compose.txt)
+- **Files:** 3
+
+| file | copied from |
+|---|---|
+| [libx11-1.8.13-Compose.man](docs/research/sources/libx11-1.8.13-Compose.man) | https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/man/Compose.man |
+| [libx11-1.8.13-compose-el_GR.UTF-8.txt](docs/research/sources/libx11-1.8.13-compose-el_GR.UTF-8.txt) | https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/nls/el_GR.UTF-8/Compose.pre |
+| [libx11-1.8.13-compose-en_US.UTF-8.txt](docs/research/sources/libx11-1.8.13-compose-en_US.UTF-8.txt) | https://gitlab.freedesktop.org/xorg/lib/libx11/-/raw/libX11-1.8.13/nls/en_US.UTF-8/Compose.pre |
+
 ### libxkbcommon
 
 - **Status:** kept -- redistributable, and its notice is satisfied
 - **Licence:** MIT AND HPND
 - **Notice:** [LICENSES/libxkbcommon-LICENSE.txt](LICENSES/libxkbcommon-LICENSE.txt)
-- **Files:** 3
+- **Files:** 4
 
 | file | copied from |
 |---|---|
 | [xkb-keymap-text-format-v1-v2.md](docs/research/sources/xkb-keymap-text-format-v1-v2.md) | https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/doc/keymap-text-format-v1-v2.md |
+| [xkbcommon-compose.h](docs/research/sources/xkbcommon-compose.h) | https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/include/xkbcommon/xkbcommon-compose.h |
 | [xkbcommon-keysyms.h](docs/research/sources/xkbcommon-keysyms.h) | https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/include/xkbcommon/xkbcommon-keysyms.h |
 | [xkbcommon.h](docs/research/sources/xkbcommon.h) | https://raw.githubusercontent.com/xkbcommon/libxkbcommon/xkbcommon-1.13.2/include/xkbcommon/xkbcommon.h |
 

@@ -77,6 +77,20 @@ pub fn press(state: &State<'_>, keycode: Keycode) -> Option<KeyEvent> {
     Some(e)
 }
 
+/// **A character typed as text, not as a key**: what a Compose sequence or
+/// an input method commits, as the macOS app's `text` types what AppKit's
+/// input manager commits -- the character's lower case as the key, the
+/// character as its text, no modifiers.
+pub fn typed(c: char) -> KeyEvent {
+    let identity = c.to_lowercase().next().unwrap_or(c);
+    let mut e = KeyEvent::press(
+        KeyCode::Char(Codepoint::from_char(identity)),
+        Modifiers::NONE,
+    );
+    e.text = Some(Codepoint::from_char(c));
+    e
+}
+
 /// **A key the terminal keeps for itself**: the clipboard's keys as the
 /// Linux desktop binds them, never sent to the program.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

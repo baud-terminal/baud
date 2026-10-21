@@ -13,6 +13,7 @@
 #![deny(unsafe_code)]
 
 pub mod clip;
+pub mod compose;
 pub mod cursor;
 pub mod keys;
 pub mod pointer;

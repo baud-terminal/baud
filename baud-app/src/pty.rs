@@ -7,7 +7,8 @@
 //! `mmap` for the font files, CoreGraphics for the display's scale before
 //! AppKit exists, and
 //! CoreFoundation and `newlocale` for a shell whose environment names no
-//! locale. On macOS the reader thread
+//! locale, and on Linux `newlocale` for the Compose search. On macOS the
+//! reader thread
 //! owns the master's read side for the life of the process and pushes
 //! every `read(2)` -- 4096 bytes at a time, which is what `N_TTY_BUF_SIZE`
 //! and the Darwin clist hand back anyway -- to the main thread over a
@@ -526,6 +527,28 @@ fn is_utf8_locale(name: &str) -> bool {
         freelocale(locale);
         utf8
     }
+}
+
+/// **Whether the system has the locale `name`**: `newlocale` loads it
+/// for every category, as libxkbcommon asks before it gives a locale its
+/// Compose registry does not list the `en_US.UTF-8` table
+/// (`[[source: libxkbcommon-compose-paths-c]]`), so a misspelt or
+/// uninstalled one makes none.
+#[cfg(target_os = "linux")]
+pub fn locale_installed(name: &str) -> bool {
+    use crate::sys::{LC_ALL_MASK, freelocale, newlocale};
+    let Ok(name) = CString::new(name) else {
+        return false;
+    };
+    // SAFETY: `name` is NUL-terminated and outlives the call; a null base
+    // asks for a new object.
+    let locale = unsafe { newlocale(LC_ALL_MASK, name.as_ptr(), core::ptr::null_mut()) };
+    if locale.is_null() {
+        return false;
+    }
+    // SAFETY: `locale` is the live object just made, freed once here.
+    unsafe { freelocale(locale) };
+    true
 }
 
 /// A CoreFoundation string as text: `None` for null, or for one longer than

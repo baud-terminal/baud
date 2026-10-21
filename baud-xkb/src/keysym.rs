@@ -42,6 +42,59 @@ impl Keysym {
         name.parse::<u32>().ok().map(Keysym)
     }
 
+    /// **The keysym a Compose file names**, as `xkb_keysym_from_name()` reads
+    /// one with no flags (`[[source: libxkbcommon-keysym-c]]`): a header
+    /// name, exactly; `U` and one to eight hex digits, the direct form above
+    /// `U+00FF` -- surrogates included, "code points here, not Unicode
+    /// scalars" -- and below it the legacy keysym `xkb_utf32_to_keysym()`
+    /// gives; `0x` and one to eight hex digits, as written, up to
+    /// `0x1fffffff`; and an `XF86_` name tried again without the
+    /// underscore. `NoSymbol` is no keysym. This is not [`Keysym::named`],
+    /// which the keymap reader keeps.
+    pub fn from_xkb_name(name: &str) -> Option<Keysym> {
+        let hex8 = |h: &str| -> Option<u32> {
+            match h.len() {
+                1..=8 if h.bytes().all(|b| b.is_ascii_hexdigit()) => {
+                    u32::from_str_radix(h, 16).ok()
+                }
+                _ => None,
+            }
+        };
+        let k = if let Ok(i) = table::NAMES.binary_search_by(|(n, _)| (*n).cmp(name)) {
+            Keysym(table::NAMES[i].1)
+        } else if let Some(h) = name.strip_prefix('U') {
+            // Below `U+0100`, `xkb_utf32_to_keysym()`
+            // (`[[source: libxkbcommon-keysym-utf-c]]`): Latin-1's
+            // printables are themselves, BackSpace to Clear, Return and
+            // Escape the control keysyms, DEL `Delete`, NUL nothing, and the
+            // rest a legacy keysym where the table has one, else direct.
+            match hex8(h)? {
+                v @ 0x100..=0x10_ffff => Keysym(Keysym::DIRECT + v),
+                v @ (0x20..=0x7e | 0xa0..=0xff) => Keysym(v),
+                v @ (0x08..=0x0b | 0x0d | 0x1b) => Keysym(v | 0xff00),
+                0x7f => Keysym(0xffff),
+                v => char::from_u32(v)
+                    .filter(|&c| c != '\0')
+                    .map_or(Keysym::NO_SYMBOL, Keysym::of_char),
+            }
+        } else if let Some(h) = name.strip_prefix("0x") {
+            Keysym(hex8(h).filter(|&v| v <= 0x1fff_ffff)?)
+        } else if let Some(rest) = name.strip_prefix("XF86_") {
+            return Keysym::from_xkb_name(&alloc::format!("XF86{rest}"));
+        } else {
+            return None;
+        };
+        (k != Keysym::NO_SYMBOL).then_some(k)
+    }
+
+    /// **A modifier key's keysym**, which a Compose sequence does not see:
+    /// `xkb_keysym_is_modifier()`, Shift_L to Hyper_R, ISO_Lock to
+    /// ISO_Level5_Lock, Mode_switch and Num_Lock -- "approximately what
+    /// libX11 does as well" (`[[source: libxkbcommon-compose-state-c]]`).
+    pub fn is_modifier(self) -> bool {
+        matches!(self.0, 0xffe1..=0xffee | 0xfe01..=0xfe13 | 0xff7e | 0xff7f)
+    }
+
     /// The keysym for a codepoint: the legacy keysym where the header names
     /// one, else the direct form.
     pub fn of_char(c: char) -> Keysym {

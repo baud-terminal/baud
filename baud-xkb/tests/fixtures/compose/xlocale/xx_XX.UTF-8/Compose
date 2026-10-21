@@ -1,0 +1,4 @@
+# the locale table the edge file includes
+<a> <b> : "from the locale"
+<k> <k> : "kk" k
+<a> <b> <d> : "abd"

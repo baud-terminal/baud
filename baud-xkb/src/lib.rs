@@ -19,6 +19,7 @@
 extern crate alloc;
 
 pub mod compile;
+pub mod compose;
 pub mod keysym;
 pub mod lex;
 pub mod parse;
