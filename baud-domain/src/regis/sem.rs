@@ -49,7 +49,7 @@ pub struct RegisCounts {
     /// maintained" (§ 8.5.1.4.1).
     pub space_refused: u32,
     /// Open Extensions (§ 8.8) this interpreter parses and does not act
-    /// on: hard copy, scaling, data movement, drawing surfaces
+    /// on: hard copy, data movement, drawing surfaces
     /// (`P(P)`, the VT340's `S(P)`), blink, microcoded writing, flood; and
     /// `S(N)`, which no DEC text here defines.
     pub unbuilt: u32,
@@ -622,6 +622,12 @@ pub(crate) struct Sem {
     glyph_bits: [u64; GLYPH_SIDE * GLYPH_SIDE / 64],
     /// The command display's next column.
     pub(crate) display_col: u8,
+    /// The command display's characters since its line was last erased,
+    /// a byte a column, zero for none: drawn over the page shown while it
+    /// is magnified ([`Sem::display_glyphs`]).
+    display_line: [u8; 80],
+    /// Moved on whenever the command display's line changes.
+    display_gen: u32,
     /// Page pixels a device pixel spans, `(num, den)`: the 800 by 480
     /// device fitted to the page with its shape kept (§ 8.5.1.4.1.2), one
     /// to one on an 800 by 480 page.
@@ -641,6 +647,8 @@ pub(crate) struct Sem {
     /// The pen that drew the last step of the stroke's last line, if that
     /// line drew it ([`LineSpan::Chained`]).
     stroke_end: Option<RegisPen>,
+    /// How the plane is shown, `S(S)`.
+    pub(crate) zoom: RegisZoom,
 }
 
 impl Sem {
@@ -699,6 +707,8 @@ impl Sem {
         wait: 0,
         glyph_bits: [0; GLYPH_SIDE * GLYPH_SIDE / 64],
         display_col: 0,
+        display_line: [0; 80],
+        display_gen: 0,
         scale: (1, 1),
         last_end: None,
         cursors: Cursors::DEFAULT,
@@ -706,6 +716,7 @@ impl Sem {
         clip: Clip::of(RegisSpace::DEFAULT),
         stroke: None,
         stroke_end: None,
+        zoom: RegisZoom::ONE,
     };
 
     /// Record an error for `R(E)`: "Only the most recent error code is kept"
@@ -1619,6 +1630,22 @@ impl Sem {
         out: &mut dyn RegisOut,
     ) {
         self.end_stroke(out);
+        let g = self.char_glyph(c, alphabet, sets, cell, turn, Tally::Yes);
+        out.glyph(&g, pen);
+    }
+
+    /// Character `c`'s glyph at `cell`, turned by `turn`: a built-in one
+    /// drawn by the font, a built-in one with no font counted if `tally`
+    /// says so.
+    fn char_glyph(
+        &mut self,
+        c: u16,
+        alphabet: u8,
+        sets: (Charset, Charset),
+        cell: (RegisPoint, (i32, i32), (i32, i32)),
+        turn: (i32, i32),
+        tally: Tally,
+    ) -> RegisGlyph<'_> {
         let (at, unit, display) = cell;
         let code = u8::try_from(c).ok();
         let builtin_ch = match (alphabet, code) {
@@ -1648,7 +1675,7 @@ impl Sem {
             );
             drawn = Drawn::Yes;
         }
-        if builtin_ch.is_some() && drawn == Drawn::No {
+        if builtin_ch.is_some() && drawn == Drawn::No && tally == Tally::Yes {
             self.counts.unfonted += 1;
         }
         let source = match (alphabet, builtin_ch) {
@@ -1675,15 +1702,14 @@ impl Sem {
                 }
             }
         };
-        let g = RegisGlyph {
+        RegisGlyph {
             source,
             at,
             unit,
             display,
             direction: turn.0,
             slant: turn.1,
-        };
-        out.glyph(&g, pen);
+        }
     }
 
     // ---------------------------------------------------------------
@@ -1705,6 +1731,13 @@ impl Sem {
     /// drawn over. Other ReGIS-settable states have no effect": the text
     /// foreground, index 7, drawn over the page, in the VT300's 80 columns
     /// of ten device pixels. Jev's lean, 2026-10-20, BUILD (0.38 and 0.28).
+    ///
+    /// **Magnified, the line stays on the screen's bottom line**, its
+    /// characters the size they are unmagnified -- "Other ReGIS-settable
+    /// states have no effect" -- drawn over the page shown and not into
+    /// the plane, as the cursors are ([`Sem::display_glyphs`]); the line
+    /// feed's erase clears the plane's pixels shown on the line. Jev's
+    /// lean, OVERLAY, 0.88 and 0.76 on a second ask.
     pub(crate) fn display_char(&mut self, b: u8, out: &mut dyn RegisOut) {
         if b == 0x0a {
             return self.display_erase(out);
@@ -1715,40 +1748,43 @@ impl Sem {
         if self.display_col == 80 {
             self.display_erase(out);
         }
-        let col = i64::from(self.display_col);
-        let at = self.page((col * 10 * 65536, i64::from(REGIS_HEIGHT - 20) * 65536));
-        let unit = (self.page_len(10), self.page_len(20));
-        let pen = RegisPen {
-            mode: WriteMode::Overlay,
-            negate: Negate::Off,
-            fg: RegisIndex(7),
-            bg: self.bg,
-            planes: RegisPlanes::ALL,
-            pattern: LinePattern::SOLID,
-            pattern_mul: 1,
-            shade: None,
-            // The terminal's own line, no drawing of the program's.
-            clip: RegisClip::Off,
-            width: 1,
-        };
+        let col = usize::from(self.display_col);
+        if let Some(c) = self.display_line.get_mut(col) {
+            *c = b;
+        }
+        self.display_gen = self.display_gen.wrapping_add(1);
+        let (at, unit) = self.display_cell(col);
         let ascii = (Charset::Ascii, Charset::Iso96(Iso96::Latin1));
-        self.draw_char(u16::from(b), 0, ascii, (at, unit, unit), (0, 0), &pen, out);
+        match self.zoom == RegisZoom::ONE {
+            true => {
+                let pen = self.display_pen(WriteMode::Overlay);
+                self.draw_char(u16::from(b), 0, ascii, (at, unit, unit), (0, 0), &pen, out);
+            }
+            // Drawn over the page shown; a character with no font counted
+            // here, once.
+            false => {
+                let _ =
+                    self.char_glyph(u16::from(b), 0, ascii, (at, unit, unit), (0, 0), Tally::Yes);
+            }
+        }
         self.display_col += 1;
     }
 
-    /// The command display's line erased to the background.
-    fn display_erase(&mut self, out: &mut dyn RegisOut) {
-        let y0 = i64::from(REGIS_HEIGHT - 20) * 65536;
-        let y1 = i64::from(REGIS_HEIGHT) * 65536;
-        let x1 = i64::from(REGIS_WIDTH) * 65536;
-        let points = [
-            self.page((0, y0)),
-            self.page((x1, y0)),
-            self.page((x1, y1)),
-            self.page((0, y1)),
-        ];
-        let pen = RegisPen {
-            mode: WriteMode::Erase,
+    /// The command display's column `col`: its cell's upper-left on the
+    /// page and its size, ten device pixels by twenty.
+    fn display_cell(&self, col: usize) -> (RegisPoint, (i32, i32)) {
+        let x = i64::try_from(col).unwrap_or(0) * 10 * 65536;
+        let at = self.page((x, i64::from(REGIS_HEIGHT - 20) * 65536));
+        (at, (self.page_len(10), self.page_len(20)))
+    }
+
+    /// The command display's pen: the text foreground, index 7, written
+    /// `mode` over every plane, the clip off -- "The appearance of the
+    /// characters is based only on the output map settings and the image
+    /// that the characters are drawn over".
+    fn display_pen(&self, mode: WriteMode) -> RegisPen {
+        RegisPen {
+            mode,
             negate: Negate::Off,
             fg: RegisIndex(7),
             bg: self.bg,
@@ -1759,9 +1795,74 @@ impl Sem {
             // The terminal's own line, no drawing of the program's.
             clip: RegisClip::Off,
             width: 1,
-        };
+        }
+    }
+
+    /// **The command display's line on the page**, the device's bottom
+    /// twenty rows across its width, in page pixels.
+    pub(crate) fn display_band(&self) -> RegisRect {
+        let a = self.page((0, i64::from(REGIS_HEIGHT - 20) * 65536));
+        let b = self.page((
+            i64::from(REGIS_WIDTH) * 65536,
+            i64::from(REGIS_HEIGHT) * 65536,
+        ));
+        RegisRect {
+            x0: a.x,
+            y0: a.y,
+            x1: b.x,
+            y1: b.y,
+        }
+    }
+
+    /// The command display's line erased to the background, "along with
+    /// any graphic image previously drawn there": magnified, the plane's
+    /// pixels shown on the line, a whole block each.
+    fn display_erase(&mut self, out: &mut dyn RegisOut) {
+        let band = self.display_band();
+        let (zx, zy) = (i32::from(self.zoom.x.max(1)), i32::from(self.zoom.y.max(1)));
+        let (x0, y0, x1, y1) = (
+            band.x0.div_euclid(zx),
+            band.y0.div_euclid(zy),
+            band.x1.saturating_add(zx - 1).div_euclid(zx),
+            band.y1.saturating_add(zy - 1).div_euclid(zy),
+        );
+        let points = [
+            RegisPoint { x: x0, y: y0 },
+            RegisPoint { x: x1, y: y0 },
+            RegisPoint { x: x1, y: y1 },
+            RegisPoint { x: x0, y: y1 },
+        ];
+        let pen = self.display_pen(WriteMode::Erase);
         out.fill(&points, &[4], &pen);
         self.display_col = 0;
+        self.display_line = [0; 80];
+        self.display_gen = self.display_gen.wrapping_add(1);
+    }
+
+    /// **The command display's characters, magnified**: each as a glyph at
+    /// its unscaled page cell, with the pen it is drawn with, to `f`, for
+    /// the page shown; nothing unmagnified, where the plane holds them.
+    /// A character with no font is counted where it was received.
+    pub(crate) fn display_glyphs(&mut self, f: &mut dyn FnMut(&RegisGlyph<'_>, &RegisPen)) {
+        if self.zoom == RegisZoom::ONE {
+            return;
+        }
+        let pen = self.display_pen(WriteMode::Overlay);
+        let ascii = (Charset::Ascii, Charset::Iso96(Iso96::Latin1));
+        for col in 0..self.display_line.len() {
+            let b = self.display_line[col];
+            if b == 0 {
+                continue;
+            }
+            let (at, unit) = self.display_cell(col);
+            let g = self.char_glyph(u16::from(b), 0, ascii, (at, unit, unit), (0, 0), Tally::No);
+            f(&g, &pen);
+        }
+    }
+
+    /// What [`Sem::display_glyphs`] would draw changes when this does.
+    pub(crate) fn display_gen(&self) -> u32 {
+        self.display_gen
     }
 
     // ---------------------------------------------------------------
@@ -2122,14 +2223,23 @@ impl Sem {
 
     fn screen_option(&mut self, f: &Frame, parent: &Frame, r: usize, out: &mut dyn RegisOut) {
         match (r, f.key) {
-            (1, b'A') => self.address(f),
+            (1, b'A') => {
+                let before = self.zoom;
+                self.address(f);
+                if self.zoom != before {
+                    out.recolor();
+                }
+            }
             (1, b'E') => {
                 // "S(E) clears the position stack ... Shading state ... is
                 // disabled on S(E)"; the VT300 "Stops any curve
                 // interpolation".
-                // Every pixel written, every mark with it.
+                // Every pixel written, every mark with it, and the command
+                // display's characters drawn over a magnified page.
                 self.stroke = None;
                 out.erase(self.bg);
+                self.display_line = [0; 80];
+                self.display_gen = self.display_gen.wrapping_add(1);
                 self.last_end = None;
                 self.nstack = 0;
                 self.write.shade = On::No;
@@ -2170,13 +2280,45 @@ impl Sem {
             (2, b'H') if parent.key == b'C' => self.cursor_option(f, CursorWhich::Output),
             (2, b'I') if parent.key == b'C' => self.cursor_option(f, CursorWhich::Input),
             (1, b'R') => self.clip_option(f),
-            // `S(H)` hard copy, `S(P)` the display page, `S(S)` scaling,
-            // `S(D)` data movement: Open Extensions (§ 8.8.1). `S(N)`: no
-            // DEC text here defines it.
-            (1, b'H' | b'P' | b'S' | b'D' | b'N') => self.counts.unbuilt += 1,
+            // `S(S<n>)`: isotropic; its `(X<n>)` and `(Y<n>)` one way each.
+            (1, b'S') => self.scale(f, true, true, out),
+            (2, b'X') if parent.key == b'S' => self.scale(f, true, false, out),
+            (2, b'Y') if parent.key == b'S' => self.scale(f, false, true, out),
+            // `S(H)` hard copy, `S(P)` the display page, `S(D)` data
+            // movement: Open Extensions (§ 8.8.1). `S(N)`: no DEC text here
+            // defines it.
+            (1, b'H' | b'P' | b'D' | b'N') => self.counts.unbuilt += 1,
             (2, _) if parent.key == b'H' || parent.key == b'C' || parent.key == b'S' => {}
             _ if r >= 2 => {}
             _ => self.error(1, f.key),
+        }
+    }
+
+    /// **`S(S<n>)`, the scale the display is shown at** (§ 8.8.1.4.7):
+    /// whole factors, pixel replication being whole pixels, a fraction
+    /// truncated; "Negative values for scaling factors are not allowed",
+    /// and neither is zero, no factor at all, so either changes nothing; "A
+    /// value which exceeds the implementation limit in a device is mapped
+    /// to the implementation limit", [`REGIS_SCALE`]. A change repaints the
+    /// page.
+    fn scale(&mut self, f: &Frame, x: bool, y: bool, out: &mut dyn RegisOut) {
+        let Some(v) = f.num else {
+            return;
+        };
+        let n = v.trunc();
+        if n < 1 {
+            return;
+        }
+        let n = n.min(i32::from(REGIS_SCALE)) as u8;
+        let before = self.zoom;
+        if x {
+            self.zoom.x = n;
+        }
+        if y {
+            self.zoom.y = n;
+        }
+        if self.zoom != before {
+            out.recolor();
         }
     }
 
@@ -2262,8 +2404,10 @@ impl Sem {
         self.cursors = Cursors::DEFAULT;
         self.input.mode = RegisInputMode::OneShot;
         // "The clip rectangle is set to the range indicated by S(A), and
-        // clipping is disabled" (§ 8.8.1.4.1 d).
+        // clipping is disabled" (§ 8.8.1.4.1 d); "Screen scaling is set to
+        // 1" (h).
         self.clip = Clip::of(self.space);
+        self.zoom = RegisZoom::ONE;
     }
 
     /// `S(C ...)` (§ 8.8.1.4.2): at the `C` itself a number turns the
@@ -2401,25 +2545,25 @@ impl Sem {
         at: Fine,
         anchor: Fine,
     ) -> RegisCursor {
-        let p = self.page(at);
+        let p = self.shown(at);
         match style {
             RegisCursorStyle::Crosshair => RegisCursor::crosshair(
                 p,
-                self.page((
+                self.shown((
                     i64::from(REGIS_WIDTH - 1) << 16,
                     i64::from(REGIS_HEIGHT - 1) << 16,
                 )),
             ),
             RegisCursorStyle::Diamond => RegisCursor::diamond(p, self.page_len(10)),
-            RegisCursorStyle::RubberLine => RegisCursor::line(self.page(anchor), p),
-            RegisCursorStyle::RubberRect => RegisCursor::rect(self.page(anchor), p),
+            RegisCursorStyle::RubberLine => RegisCursor::line(self.shown(anchor), p),
+            RegisCursorStyle::RubberRect => RegisCursor::rect(self.shown(anchor), p),
             RegisCursorStyle::Pair => {
                 let o = (
                     at.0 - (i64::from(pair.off.0) << 16),
                     at.1 - (i64::from(pair.off.1) << 16),
                 );
                 RegisCursor::pair(
-                    self.page(o),
+                    self.shown(o),
                     (self.page_len(pair.w), self.page_len(pair.h)),
                     *pair,
                 )
@@ -2427,8 +2571,24 @@ impl Sem {
         }
     }
 
-    /// A page pixel as a position on the device, held to the device.
+    /// Where a position on the device is shown: its page pixel through the
+    /// scale `S(S)` shows the page at. A cursor marks the display, not the
+    /// bitmap, and keeps its size.
+    fn shown(&self, p: Fine) -> RegisPoint {
+        let q = self.page(p);
+        RegisPoint {
+            x: q.x.saturating_mul(i32::from(self.zoom.x)),
+            y: q.y.saturating_mul(i32::from(self.zoom.y)),
+        }
+    }
+
+    /// A page pixel as a position on the device, held to the device: the
+    /// plane's pixel the scale shows there.
     pub(crate) fn device_of_page(&self, x: i32, y: i32) -> Fine {
+        let (x, y) = (
+            x.div_euclid(i32::from(self.zoom.x.max(1))),
+            y.div_euclid(i32::from(self.zoom.y.max(1))),
+        );
         let (n, d) = (i128::from(self.scale.0.max(1)), i128::from(self.scale.1));
         let f = |v: i32, max: i32| -> i64 {
             let v = (i128::from(v) << 16) * d / n;
@@ -2899,6 +3059,13 @@ pub(crate) const NO_CODE: u16 = 0x100;
 /// Whether a font drew a character.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Drawn {
+    No,
+    Yes,
+}
+
+/// Whether a built-in character with no font is counted.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Tally {
     No,
     Yes,
 }

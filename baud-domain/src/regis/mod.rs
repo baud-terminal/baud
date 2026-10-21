@@ -363,6 +363,43 @@ pub struct RegisPen {
     pub width: u16,
 }
 
+/// **How many shown pixels a pixel of the page's plane is**, each way:
+/// `S(S<n>)` (070-8 § 8.8.1.4.7), "Taking the model of pixel replication,
+/// the subargument <n> is treated as a multiplicative scale factor for each
+/// pixel in the display", from the screen's upper-left (Jev's lean,
+/// UPPER_LEFT, 0.88 and 0.86 on a second ask). The plane, the bitmap, is
+/// not changed: "The S(S) option causes the display medium (the bit map,
+/// for example) to become bigger than the display surface".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RegisZoom {
+    pub x: u8,
+    pub y: u8,
+}
+
+impl RegisZoom {
+    /// Unscaled, the default, "restored by the execution of a valid S(A)".
+    pub const ONE: RegisZoom = RegisZoom { x: 1, y: 1 };
+
+    /// The plane's pixel shown at page pixel `(x, y)`.
+    pub fn plane_of(self, x: usize, y: usize) -> (usize, usize) {
+        (
+            x / usize::from(self.x.max(1)),
+            y / usize::from(self.y.max(1)),
+        )
+    }
+
+    /// The page pixels the plane's rectangle `r` is shown over.
+    pub fn shown(self, r: RegisRect) -> RegisRect {
+        let (zx, zy) = (i32::from(self.x.max(1)), i32::from(self.y.max(1)));
+        RegisRect {
+            x0: r.x0.saturating_mul(zx),
+            y0: r.y0.saturating_mul(zy),
+            x1: r.x1.saturating_mul(zx),
+            y1: r.y1.saturating_mul(zy),
+        }
+    }
+}
+
 /// How far a scroll moves the page's pixels, in page pixels: right and
 /// down for positive values.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -370,6 +407,11 @@ pub struct RegisShift {
     pub dx: i32,
     pub dy: i32,
 }
+
+/// The largest scale factor, the implementation limit `S(S)` maps a larger
+/// one to: sixteen (Jev's lean, LIMIT_16, 0.72 and 0.80 on a second ask),
+/// the multiplier 070-8 makes devices provide elsewhere (§ 8.5.3.4.2).
+pub const REGIS_SCALE: u8 = 16;
 
 /// **The widest line, in page pixels**: the width field's largest.
 /// § 8.8.3.2 names no limit -- "W(L2) sets a width twice the nominal
@@ -936,6 +978,31 @@ impl Regis {
     /// The imposed coordinate space (`S(A)`).
     pub fn space(&self) -> RegisSpace {
         self.sem.space
+    }
+
+    /// How the page's plane is shown, `S(S)`.
+    pub fn zoom(&self) -> RegisZoom {
+        self.sem.zoom
+    }
+
+    /// **The command display's characters, while the page is magnified**:
+    /// each a glyph at its unscaled cell on the screen's bottom line, with
+    /// its pen, to `f`, to be drawn over the page shown -- "The last line
+    /// of ReGIS commands received appears on the bottom line of the
+    /// screen" (`[[source: vt3xx-regis-intro]]`). Unmagnified the plane
+    /// holds them and nothing comes.
+    pub fn display_glyphs(&mut self, f: &mut dyn FnMut(&RegisGlyph<'_>, &RegisPen)) {
+        self.sem.display_glyphs(f)
+    }
+
+    /// The command display's line on the page, in page pixels.
+    pub fn display_band(&self) -> RegisRect {
+        self.sem.display_band()
+    }
+
+    /// Moves on whenever the command display's line changes.
+    pub fn display_gen(&self) -> u32 {
+        self.sem.display_gen()
     }
 
     /// The page drawn on is `w` by `h` pixels: the 800 by 480 device is

@@ -1316,6 +1316,10 @@ pub struct ImageStore<'b> {
     /// from ([`ImageStore::link_page`]), so text written over the page
     /// clears both.
     page_plane: Option<(ImageId, ImageId)>,
+    /// How the page being drawn shows its plane, `S(S)`
+    /// ([`ImageStore::set_page_zoom`]): scaled, a move of its rows or text
+    /// over it moves or clears whole blocks of page pixels.
+    page_zoom: crate::regis::RegisZoom,
     /// Each screen's [`Reach`], `None` when nothing was placed on it since
     /// the last scan found it empty.
     reach: [Option<Reach>; 2],
@@ -1378,6 +1382,7 @@ impl<'b> ImageStore<'b> {
             free_from: 0,
             local_placed: 0,
             page_plane: None,
+            page_zoom: crate::regis::RegisZoom::ONE,
             reach: [None; 2],
             tallest: ImagePx::ZERO,
             cell_h: ImagePx::ZERO,
@@ -2320,28 +2325,42 @@ impl<'b> ImageStore<'b> {
             return false;
         }
         let stride = w.div_ceil(4) * 4;
+        // Scaled, the plane moves by the plane rows nearest `dy`, and the
+        // page by the page rows those are shown over, so it stays its plane
+        // shown.
+        let scaled = self.zoomed(old).is_some();
+        let zy = usize::from(self.page_zoom.y.max(1));
+        let dz = match scaled {
+            true => (dy + zy / 2) / zy,
+            false => dy,
+        };
+        let sdy = match scaled {
+            true => dz * zy,
+            false => dy,
+        };
         if let Some(bytes) = self.pixels[pl.start()..pl.end()]
             .as_mut_bytes()
             .get_mut(..h * stride)
         {
-            bytes.copy_within(dy * stride.., 0);
-            bytes[(h - dy) * stride..].fill(0);
+            bytes.copy_within(dz * stride.., 0);
+            bytes[(h - dz) * stride..].fill(0);
             // A wide stroke's marks name where it drew, not where its
             // pixels went.
             for b in bytes.iter_mut() {
                 *b &= !crate::regis::MARK;
             }
         }
-        let moved = self.lit_in(o, (0, dy, w, h));
+        let moved = self.lit_in(o, (0, sdy, w, h));
+        let left = self.lit_in(o, (0, dy, w, h));
         self.pixels
-            .copy_within(o.start() + dy * w..o.end(), n.start());
+            .copy_within(o.start() + sdy * w..o.end(), n.start());
         self.pixels[o.start() + dy * w..o.end()].fill(Pixel::CLEAR);
-        let below = n.start() + (h - dy) * w;
+        let below = n.start() + (h - sdy) * w;
         self.pixels[below..n.end()].fill(Pixel::CLEAR);
         if let Some(i) = new.index() {
             self.slots[i].lit = Some(moved);
         }
-        self.unlit(old, moved);
+        self.unlit(old, left);
         self.link_page(new, plane);
         self.free_if_unlit(old);
         self.epoch = self.epoch.bumped();
@@ -2405,6 +2424,25 @@ impl<'b> ImageStore<'b> {
         self.page_plane = Some((page, plane));
     }
 
+    /// **How the page being drawn shows its plane**: the scale `S(S)`
+    /// sets. Unscaled, a page pixel is its plane pixel and what moves or
+    /// clears one moves or clears the other; scaled, a plane pixel is a
+    /// block of page pixels, and what moves or clears one moves or clears
+    /// its whole block.
+    pub fn set_page_zoom(&mut self, zoom: crate::regis::RegisZoom) {
+        self.page_zoom = zoom;
+    }
+
+    /// The page being drawn and its plane, if it is `id` and is scaled.
+    fn zoomed(&self, id: ImageId) -> Option<(ImageSlot, ImageSlot)> {
+        let (page, plane) = self.page_plane?;
+        if page != id || self.page_zoom == crate::regis::RegisZoom::ONE {
+            return None;
+        }
+        let slot = |i: ImageId| i.index().and_then(|i| self.slots.get(i)).copied();
+        Some((slot(page)?, slot(plane)?))
+    }
+
     /// **Text written over a ReGIS page clears the cells it covers**: row
     /// `row` of the page's cells, columns `[c0, c1)`, back to clear, and the
     /// indices under them if it is the page being drawn. The VT330 and
@@ -2429,6 +2467,31 @@ impl<'b> ImageStore<'b> {
         if x0 >= x1 || y0 >= y1 {
             return 0;
         }
+        // **Scaled, the plane's pixels shown in the cells are cleared**, and
+        // every page pixel they are shown over: the page stays its plane
+        // shown, a block a plane pixel.
+        let scaled = self.zoomed(id);
+        let (x0, y0, x1, y1) = match scaled {
+            Some((_, pl)) => {
+                let z = self.page_zoom;
+                let (zx, zy) = (usize::from(z.x.max(1)), usize::from(z.y.max(1)));
+                let (px0, py0, px1, py1) = (x0 / zx, y0 / zy, x1.div_ceil(zx), y1.div_ceil(zy));
+                let stride = w.div_ceil(4) * 4;
+                let bytes = self.pixels[pl.start()..pl.end()].as_mut_bytes();
+                for y in py0..py1 {
+                    if let Some(r) = bytes.get_mut(y * stride + px0..y * stride + px1.min(w)) {
+                        r.fill(0);
+                    }
+                }
+                (
+                    (px0 * zx).min(w),
+                    (py0 * zy).min(h),
+                    (px1 * zx).min(w),
+                    (py1 * zy).min(h),
+                )
+            }
+            None => (x0, y0, x1, y1),
+        };
         let at = s.start();
         let mut was_lit = 0u32;
         for y in y0..y1 {
@@ -2437,7 +2500,7 @@ impl<'b> ImageStore<'b> {
             was_lit = was_lit.saturating_add(u32::try_from(n).unwrap_or(u32::MAX));
             span.fill(Pixel::CLEAR);
         }
-        if let Some((page, plane)) = self.page_plane {
+        if let Some((page, plane)) = self.page_plane.filter(|_| scaled.is_none()) {
             if page == id {
                 let stride = w.div_ceil(4) * 4;
                 if let Some(p) = plane.index().and_then(|i| self.slots.get(i)).copied() {
@@ -3193,6 +3256,51 @@ impl<'b> ImageStore<'b> {
                 continue;
             }
             let k = n.index() * ch;
+            // **Scaled, the plane's rows shown on the lines move**, by the
+            // plane rows nearest the lines' height, and the page's rows they
+            // are shown over with them: a plane pixel is a block of page
+            // pixels and moves whole.
+            if self.zoomed(slot.image).is_some() {
+                let z = self.page_zoom;
+                let (zx, zy) = (usize::from(z.x.max(1)), usize::from(z.y.max(1)));
+                let (px0, py0) = (x0 / zx, y0 / zy);
+                let (px1, py1) = (x1.div_ceil(zx), y1.div_ceil(zy));
+                let r = (
+                    (px0 * zx).min(x0),
+                    (py0 * zy).min(y0),
+                    (px1 * zx).min(w),
+                    (py1 * zy).min(h),
+                );
+                let before = self.lit_in(img, r);
+                let kz = (k + zy / 2) / zy;
+                if let Some((_, plane)) = self.page_plane {
+                    if let Some(pl) = plane.index().and_then(|i| self.slots.get(i)).copied() {
+                        let stride = w.div_ceil(4) * 4;
+                        let bytes = self.pixels[pl.start()..pl.end()].as_mut_bytes();
+                        if let Some(bytes) = bytes.get_mut(px0..) {
+                            let pw = px1.min(w) - px0;
+                            shift_byte_rows(bytes, stride, pw, (py0, py1), kz, way);
+                            for y in py0..py1 {
+                                if let Some(row) = bytes.get_mut(y * stride..y * stride + pw) {
+                                    for b in row {
+                                        *b &= !crate::regis::MARK;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                self.shift_rows(img.start() + r.0, w, r.2 - r.0, (r.1, r.3), kz * zy, way);
+                let after = self.lit_in(img, r);
+                if let Some(s) = slot.image.index().and_then(|i| self.slots.get_mut(i)) {
+                    s.lit = s
+                        .lit
+                        .map(|n| n.saturating_sub(before).saturating_add(after));
+                }
+                self.free_if_unlit(slot.image);
+                moved = true;
+                continue;
+            }
             let before = self.lit_in(img, (x0, y0, x1, y1));
             self.shift_rows(img.start() + x0, w, x1 - x0, (y0, y1), k, way);
             if let Some((page, plane)) = self.page_plane {

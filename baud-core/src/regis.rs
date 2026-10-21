@@ -257,6 +257,9 @@ impl Paint<'_, '_> {
         let want = self.regis_want();
         let regis = &mut *self.strs.regis;
         regis.set_page(i32::from(want.w.raw()), i32::from(want.h.raw()));
+        // How the page shows its plane, for a carry inside the run and for
+        // text and erases after it (`ImageStore::set_page_zoom`).
+        self.images.set_page_zoom(regis.zoom());
         let mut out = Out {
             reply: &mut *self.reply,
             reply_len: &mut self.reply_len,
@@ -270,36 +273,53 @@ impl Paint<'_, '_> {
             unpaged: Unpaged::None,
         };
         let before = *out.page;
+        let line = regis.display_gen();
         f(regis, &mut out);
+        // Magnified, the command display's line changed is drawn over the
+        // page shown, which it needs placed as a drawing does.
+        let line = regis.display_gen() != line;
+        if line && regis.zoom() != RegisZoom::ONE {
+            let _ = out.page();
+        }
         let (dirty, recolor, unpaged) = (out.dirty, out.recolor, out.unpaged);
         if let Unpaged::Some(n) = unpaged {
             regis.unpaged(n.index());
         }
+        let zoom = regis.zoom();
+        self.images.set_page_zoom(zoom);
         // A new page is placed: text written later in this read may land on
-        // it (`Paint::hooks`).
-        if self.strs.regis_page != before {
+        // it (`Paint::hooks`). Magnified, a carried page shows rows of the
+        // plane that were past the window: it is shown whole again.
+        let placed = self.strs.regis_page != before;
+        if placed {
             self.rehook();
         }
         let page = self.strs.regis_page;
-        let rect = match (recolor, dirty) {
-            (Recolor::Yes, _) => Some(RegisRect {
+        let whole = recolor == Recolor::Yes || (placed && zoom != RegisZoom::ONE);
+        let rect = match (whole, dirty) {
+            (true, _) => Some(RegisRect {
                 x0: 0,
                 y0: 0,
                 x1: i32::from(page.w.raw()),
                 y1: i32::from(page.h.raw()),
             }),
-            (Recolor::No, d) => d,
+            // What was drawn on the plane, where the page shows it.
+            (false, d) => d.map(|d| clip(zoom.shown(d), page.w, page.h)),
         };
-        let Some(rect) = rect else {
-            return;
-        };
-        let map = *self.strs.regis.colors();
-        let at = |v: i32| usize::try_from(v.max(0)).unwrap_or(0);
-        let px = (at(rect.x0), at(rect.y0), at(rect.x1), at(rect.y1));
-        self.images
-            .repaint_page(page.shown, page.plane, px, |shown, plane| {
-                RegisCanvas::show(plane, page.w, &map, rect, shown);
-            });
+        if let Some(rect) = rect {
+            let map = *self.strs.regis.colors();
+            self.images
+                .repaint_page(page.shown, page.plane, px_of(rect), |shown, plane| {
+                    RegisCanvas::show(plane, page.w, &map, rect, shown, zoom);
+                });
+        }
+        // What the repaint showed again on the command display's line, or
+        // the line itself changed: its characters drawn over it again.
+        let band = self.strs.regis.display_band();
+        if zoom != RegisZoom::ONE && (line || rect.is_some_and(|r| meets(r, band))) {
+            let p = (page.shown, page.plane, page.w, page.h);
+            paint_display(self.images, self.strs.regis, p);
+        }
     }
 
     /// The page the next drawing needs.
@@ -371,14 +391,100 @@ pub(crate) fn indicated(regis: &Regis, inside: RegisEnvelope) -> Option<(OneBase
 pub(crate) fn erase(images: &mut ImageStore<'_>, regis: &mut Regis) {
     let d = regis.take_drawn();
     let map = regis.colors();
+    let zoom = regis.zoom();
+    let band = regis.display_band();
+    let mut on_line = Meets::No;
     for m in d.marks.iter().flatten() {
         m.cover(&mut |r| {
             let r = clip(r, d.w, d.h);
             images.repaint_page(d.shown, d.plane, px_of(r), |shown, plane| {
-                RegisCanvas::show(plane, d.w, map, r, shown);
+                RegisCanvas::show(plane, d.w, map, r, shown, zoom);
             });
+            if meets(r, band) {
+                on_line = Meets::Yes;
+            }
         });
     }
+    // A cursor taken away from a magnified command display's line: the
+    // line's characters drawn over it again.
+    if zoom != RegisZoom::ONE && on_line == Meets::Yes {
+        paint_display(images, regis, (d.shown, d.plane, d.w, d.h));
+    }
+}
+
+/// Whether two rectangles meet.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Meets {
+    No,
+    Yes,
+}
+
+/// Whether `a` and `b` share a pixel.
+fn meets(a: RegisRect, b: RegisRect) -> bool {
+    a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1
+}
+
+/// **The command display's line over a magnified page**: the line shown
+/// again from the plane, then each of its characters drawn over it,
+/// unscaled, in the text foreground through the output map, as the
+/// cursors are drawn into the page shown and never into the plane
+/// (`Regis::display_glyphs`). The page's lit count moves by what changed
+/// on the line (`ImageStore::repaint_page`).
+fn paint_display(
+    images: &mut ImageStore<'_>,
+    regis: &mut Regis,
+    (shown, plane, w, h): (ImageId, ImageId, ImagePx, ImagePx),
+) {
+    let band = clip(regis.display_band(), w, h);
+    if band.x0 >= band.x1 || band.y0 >= band.y1 {
+        return;
+    }
+    let map = *regis.colors();
+    let zoom = regis.zoom();
+    let (pw, ph) = (i32::from(w.raw()), i32::from(h.raw()));
+    images.repaint_page(shown, plane, px_of(band), |px, pl| {
+        RegisCanvas::show(pl, w, &map, band, px, zoom);
+        regis.display_glyphs(&mut |g, pen| {
+            let Some(cell) = cell_of(g) else {
+                return;
+            };
+            let colour = map[usize::from(pen.fg.raw() & 0x0f)];
+            cell_pixels(&cell, pw, ph, &mut |x, y, bit| {
+                let on = match pen.negate {
+                    Negate::Off => bit,
+                    Negate::On => !bit,
+                };
+                if !on || x < band.x0 || y < band.y0 || x >= band.x1 || y >= band.y1 {
+                    return;
+                }
+                let (Ok(x), Ok(y)) = (usize::try_from(x), usize::try_from(y)) else {
+                    return;
+                };
+                if let Some(o) = px.get_mut(y * w.index() + x) {
+                    *o = colour;
+                }
+            });
+        });
+    });
+}
+
+/// A glyph as the canvas draws it; `None` for a built-in character with
+/// no font, counted where it was received.
+fn cell_of<'a>(g: &RegisGlyph<'a>) -> Option<CellDraw<'a>> {
+    let bits = match g.source {
+        GlyphSource::Loaded { rows, w } => CellBits::Rows { rows, w },
+        GlyphSource::Builtin { cell: Some(b), .. } => CellBits::Glyph(b),
+        GlyphSource::Builtin { cell: None, .. } => return None,
+        GlyphSource::Error => CellBits::Solid,
+    };
+    Some(CellDraw {
+        bits,
+        at: g.at,
+        unit: g.unit,
+        display: g.display,
+        direction: g.direction,
+        slant: g.slant,
+    })
 }
 
 /// `r`, held to its page, as the `(x0, y0, x1, y1)` a repaint takes.
@@ -635,20 +741,9 @@ impl RegisOut for Out<'_, '_> {
     }
 
     fn glyph(&mut self, g: &RegisGlyph<'_>, pen: &RegisPen) {
-        let bits = match g.source {
-            GlyphSource::Loaded { rows, w } => CellBits::Rows { rows, w },
-            GlyphSource::Builtin { cell: Some(b), .. } => CellBits::Glyph(b),
-            // No font set: counted where it was drawn.
-            GlyphSource::Builtin { cell: None, .. } => return,
-            GlyphSource::Error => CellBits::Solid,
-        };
-        let cell = CellDraw {
-            bits,
-            at: g.at,
-            unit: g.unit,
-            display: g.display,
-            direction: g.direction,
-            slant: g.slant,
+        // No font set: counted where it was drawn.
+        let Some(cell) = cell_of(g) else {
+            return;
         };
         self.draw(|c| c.cell(&cell, pen));
     }

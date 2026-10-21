@@ -1,14 +1,17 @@
 //! **ReGIS's screen and writing controls from the Open Extensions, pixel
 //! for pixel, against `[[source: dec-std-070]]` 070-8 § 8.8.**
 //!
-//! The clip rectangle (§ 8.8.1.4.6), the line width (§ 8.8.3.2) and
-//! the screen's scroll (§ 8.8.1.1, § 8.8.1.2). Pixels are read back from the page and
-//! compared to pixels worked out from the text, never from another
-//! terminal's output; with no cell size the page is the VT340's 800 by 480,
-//! a coordinate a pixel.
+//! The clip rectangle (§ 8.8.1.4.6), the line width (§ 8.8.3.2), the
+//! screen's scroll (§ 8.8.1.1, § 8.8.1.2) and its scale (§ 8.8.1.4.7).
+//! Pixels are read back from the page and compared to pixels worked out
+//! from the text, never from another terminal's output; with no cell size
+//! the page is the VT340's 800 by 480, a coordinate a pixel.
 
 use baud_core::*;
-use baud_domain::{ImageBudget, Pixel};
+use baud_domain::{
+    Col, ImageBudget, ImagePx, LocatorAt, LocatorButton, LocatorButtons, LocatorInput, LocatorKind,
+    Pixel, PointerPx, Row,
+};
 
 mod support;
 
@@ -617,5 +620,373 @@ fn a_scroll_moves_the_indices_keeps_the_count_and_ignores_the_clip() {
     );
     run(b"\x1bPpS[+5]S2\x1b\\", |t| {
         assert_eq!(t.regis_counts().unbuilt, 0)
+    });
+}
+
+// ---------------------------------------------------------------------------
+// `S(S<n>)`, 070-8 § 8.8.1.4.7: "This option is used for devices which can
+// scale images after they are displayed. Taking the model of pixel
+// replication, the subargument <n> is treated as a multiplicative scale
+// factor for each pixel in the display."
+// ---------------------------------------------------------------------------
+
+fn block(x0: usize, x1: usize, y0: usize, y1: usize) -> Vec<(usize, usize)> {
+    (y0..y1)
+        .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+        .collect()
+}
+
+/// Each pixel shown `n` by `n` from the screen's upper-left (Jev's lean,
+/// UPPER_LEFT), `X` and `Y` apart, and the bitmap kept, so `S(S1)` shows
+/// it again: "The display can be rescaled only by respecifying a scale
+/// factor of 1".
+#[test]
+fn scaling_magnifies_from_the_upper_left_and_s_s1_shows_the_bitmap_again() {
+    let base = lit(b"\x1bPpP[100,100]V[110,100]\x1b\\");
+    assert_eq!(base, row(100, 100..=110));
+    assert_eq!(
+        sorted(lit(b"\x1bPpP[100,100]V[110,100]S(S2)\x1b\\")),
+        block(200, 222, 200, 202)
+    );
+    assert_eq!(lit(b"\x1bPpP[100,100]V[110,100]S(S2)S(S1)\x1b\\"), base);
+    assert_eq!(
+        sorted(lit(b"\x1bPpP[100,100]V[110,100]S(S(X2))\x1b\\")),
+        block(200, 222, 100, 101)
+    );
+    assert_eq!(
+        sorted(lit(b"\x1bPpP[100,100]V[110,100]S(S(Y3))\x1b\\")),
+        block(100, 111, 300, 303)
+    );
+}
+
+/// A drawing that runs past the magnified window is shown up to the
+/// page's edge and no further, its lit pixels counted.
+#[test]
+fn a_drawing_past_the_magnified_window_stops_at_the_edge() {
+    // A first drawing places the page, then the one past the edge.
+    run(b"\x1bPpS(S2)P[0,0]V[1,0]P[300,100]V[450,100]\x1b\\", |t| {
+        let (px, w) = page(t);
+        let mut lit: Vec<(usize, usize)> = px
+            .iter()
+            .enumerate()
+            .filter(|(_, &c)| c != Pixel::CLEAR.bits())
+            .map(|(i, _)| (i % w, i / w))
+            .collect();
+        lit.sort_by_key(|&(x, y)| (y, x));
+        let mut want = block(0, 4, 0, 2);
+        want.extend(block(600, 800, 200, 202));
+        assert_eq!(lit, want);
+        let imgs = t.images();
+        let (_, p) = imgs.placements().next().unwrap();
+        assert_eq!(imgs.lit(p.image), u32::try_from(lit.len()).ok());
+    });
+}
+
+/// What is drawn while magnified is drawn on the bitmap, shown magnified;
+/// and a scroll moves the bitmap through the window, "S(S) and S[] then
+/// combine to move a small window through a large display space".
+#[test]
+fn drawing_and_scrolling_while_magnified_work_on_the_bitmap() {
+    assert_eq!(
+        sorted(lit(b"\x1bPpS(S2)P[10,10]V[20,10]\x1b\\")),
+        block(20, 42, 20, 22)
+    );
+    assert_eq!(
+        lit(b"\x1bPpS(S2)P[10,10]V[20,10]S(S1)\x1b\\"),
+        row(10, 10..=20)
+    );
+    // [500,100] is past the window at twice; three hundred units on, it
+    // is in it.
+    assert_eq!(lit(b"\x1bPpP[500,100]V[510,100]S(S2)\x1b\\"), vec![]);
+    assert_eq!(
+        sorted(lit(b"\x1bPpP[500,100]V[510,100]S(S2)S[+300]\x1b\\")),
+        block(400, 422, 200, 202)
+    );
+}
+
+/// "Negative values for scaling factors are not allowed. A value which
+/// exceeds the implementation limit in a device is mapped to the
+/// implementation limit" -- sixteen (Jev's lean, LIMIT_16) -- and "The
+/// default value for scaling factors is 1, and is restored by the
+/// execution of a valid S(A)".
+#[test]
+fn the_limit_the_refusals_and_s_a() {
+    assert_eq!(
+        sorted(lit(b"\x1bPpP[10,10]V[11,10]S(S40)\x1b\\")),
+        block(160, 192, 160, 176)
+    );
+    let two = sorted(lit(b"\x1bPpP[100,100]V[110,100]S(S2)\x1b\\"));
+    assert_eq!(
+        sorted(lit(b"\x1bPpP[100,100]V[110,100]S(S2)S(S-1)\x1b\\")),
+        two
+    );
+    assert_eq!(
+        sorted(lit(b"\x1bPpP[100,100]V[110,100]S(S2)S(S0)\x1b\\")),
+        two
+    );
+    assert_eq!(
+        lit(b"\x1bPpP[100,100]V[110,100]S(S2)S(A[0,0][799,479])\x1b\\"),
+        row(100, 100..=110)
+    );
+    run(b"\x1bPpS(S2)S(S(X3)(Y2))\x1b\\", |t| {
+        assert_eq!(t.regis_counts().unbuilt, 0)
+    });
+}
+
+/// **A magnified page stays the bitmap shown magnified** through what the
+/// terminal does to it: text written over it and erases clear the bitmap
+/// under the cells they cover, a line's move and the window's move take
+/// the bitmap's rows with the page's. After each, the lit count is a
+/// recount, and repainting the whole page from the bitmap (a map entry no
+/// pixel holds changed) changes nothing shown.
+#[test]
+fn a_magnified_page_stays_one_with_its_bitmap() {
+    let ws = WinSize {
+        ws_row: 24,
+        ws_col: 80,
+    };
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(8 << 20));
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_cell_size(baud_domain::ImagePx::of(10), baud_domain::ImagePx::of(20));
+    let steps: &[&[u8]] = &[
+        b"\x1bPpF(V[0,0][300,0][300,200][0,200])S(S2)\x1b\\",
+        b"\x1b[2;3HHello",
+        b"\x1b[4;1H\x1b[K",
+        b"\x1b[1;5H\x1b[3X",
+        b"\x1b[2;1H\x1b[M",
+        b"\x1b[1;1H\x1b[L",
+        b"\x1b[24;1H\n\x1bPpS(S3)P[200,100]V[201,100]\x1b\\",
+        b"\x1b[2;1H\x1b[L",
+        // Rows of the bitmap past the window come into it.
+        b"\x1b[2;1H\x1b[2M",
+    ];
+    let shown = |t: &Term<'_>| -> (Vec<u32>, usize, Option<u32>) {
+        let imgs = t.images();
+        let (_, p) = imgs.placements().last().expect("a page");
+        let v = imgs.image(p.image).expect("its image");
+        let px: Vec<u32> = v.pixels.iter().map(|px| px.bits()).collect();
+        let n = px.iter().filter(|&&c| c != Pixel::CLEAR.bits()).count();
+        (px, n, imgs.lit(p.image))
+    };
+    for (i, step) in steps.iter().enumerate() {
+        support::feed(&mut t, step);
+        let (before, n, kept) = shown(&t);
+        assert!(n > 0, "after step {i}: something lit");
+        assert_eq!(kept, u32::try_from(n).ok(), "after step {i}: the lit count");
+        support::feed(&mut t, b"\x1bPpS(M3(R))\x1b\\");
+        let (after, _, _) = shown(&t);
+        let differ = before.iter().zip(&after).filter(|(a, b)| a != b).count();
+        assert_eq!(differ, 0, "after step {i}: the page left its bitmap");
+    }
+}
+
+/// **A magnified page moves with its lines**: a line inserted above moves
+/// the drawing down a line, the window moving down a line carries it up
+/// one, the bitmap's rows with it.
+#[test]
+fn a_magnified_page_moves_with_its_lines() {
+    let ws = WinSize {
+        ws_row: 24,
+        ws_col: 80,
+    };
+    // Device rows 20 to 29, shown twice over: page rows 40 to 59, the
+    // text's third line.
+    let cases: [(&[u8], std::ops::Range<usize>); 3] = [
+        (b"", 40..60),
+        (b"\x1b[1;1H\x1b[L", 60..80),
+        (b"\x1b[24;1H\n\x1bPpP[390,230]V[390,230]\x1b\\", 20..40),
+    ];
+    for (moves, rows) in cases {
+        let mut owned = Owned::new(&ws).with_images(ImageBudget::of(8 << 20));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(baud_domain::ImagePx::of(10), baud_domain::ImagePx::of(20));
+        support::feed(&mut t, b"\x1bPpF(V[0,20][50,20][50,30][0,30])S(S2)\x1b\\");
+        support::feed(&mut t, moves);
+        let imgs = t.images();
+        let (_, p) = imgs.placements().last().expect("a page");
+        let v = imgs.image(p.image).expect("its image");
+        let w = v.width.index();
+        let gray: Vec<usize> = (0..v.height.index())
+            .filter(|&y| v.pixels[y * w + 10].bits() == GRAY)
+            .collect();
+        assert_eq!(
+            gray,
+            rows.collect::<Vec<_>>(),
+            "{:?}",
+            String::from_utf8_lossy(moves)
+        );
+    }
+}
+
+/// The pointer on a magnified page names the bitmap's pixel under it.
+#[test]
+fn the_input_position_is_the_bitmap_s() {
+    let ws = support::CORPUS;
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(4 << 20));
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_regis_hold(RegisHold::On);
+    support::feed(&mut t, b"\x1bPpS(S2)R(I1)");
+    t.clear_reply();
+    t.locator(LocatorInput {
+        kind: LocatorKind::Press(LocatorButton::Left),
+        at: Some(LocatorAt {
+            col: Col::ZERO,
+            row: Row::ZERO,
+            px: Some(PointerPx {
+                x: baud_domain::ImagePx::of(200),
+                y: baud_domain::ImagePx::of(100),
+            }),
+        }),
+        held: LocatorButtons::NONE.pressed(LocatorButton::Left),
+    });
+    assert_eq!(t.reply(), b"\x1b[241~[100,50]\r");
+}
+
+/// A stand-in for the embedder's font: every character a box round its
+/// cell's edge, so where and how large it is drawn can be read back.
+fn boxes(_: char, w: ImagePx, h: ImagePx, set: &mut dyn FnMut(ImagePx, ImagePx)) {
+    let (w, h) = (w.raw(), h.raw());
+    for y in 0..h {
+        for x in 0..w {
+            if x == 0 || y == 0 || x + 1 == w || y + 1 == h {
+                set(ImagePx::of(x), ImagePx::of(y));
+            }
+        }
+    }
+}
+
+/// `reads` fed one after another to a terminal with the boxes font, then
+/// `f`.
+fn run_font(reads: &[&[u8]], f: impl FnOnce(&mut Term<'_>)) {
+    let ws = support::CORPUS;
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(4 << 20));
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_regis_font(boxes);
+    for r in reads {
+        support::feed(&mut t, r);
+    }
+    f(&mut t);
+}
+
+/// The command display's line, the device's bottom twenty rows: its
+/// pixels as `(x, y, colour)`, clear ones left out.
+fn bottom_line(t: &Term<'_>) -> Vec<(usize, usize, u32)> {
+    let (px, w) = page(t);
+    (460..480)
+        .flat_map(|y| (0..800).map(move |x| (x, y)))
+        .filter(|&(x, y)| px[y * w + x] != CLEAR)
+        .map(|(x, y)| (x, y, px[y * w + x]))
+        .collect()
+}
+
+/// The boxes of columns `cols` on the command display's line, ten device
+/// pixels by twenty each, in `colour`.
+fn line_boxes(cols: std::ops::Range<usize>, colour: u32) -> Vec<(usize, usize, u32)> {
+    let mut v: Vec<(usize, usize, u32)> = (460..480)
+        .flat_map(|y| (cols.start * 10..cols.end * 10).map(move |x| (x, y)))
+        .filter(|&(x, y)| x % 10 == 0 || x % 10 == 9 || y == 460 || y == 479)
+        .map(|(x, y)| (x, y, colour))
+        .collect();
+    v.sort_by_key(|&(x, y, _)| (y, x));
+    v
+}
+
+/// **Magnified, the command display stays on the screen's bottom line**,
+/// its characters the size they are unmagnified: "The last line of ReGIS
+/// commands received appears on the bottom line of the screen", and "The
+/// appearance of the characters is based only on the output map settings
+/// and the image that the characters are drawn over. Other ReGIS-settable
+/// states have no effect" (`[[source: vt3xx-regis-intro]]`; Jev's lean,
+/// OVERLAY).
+#[test]
+fn magnified_the_command_display_stays_on_the_bottom_line() {
+    // Unmagnified: `S(S1)P[1,1]`, eleven characters, eleven boxes.
+    run_font(&[b"\x1bP3pS(S1)P[1,1]\x1b\\"], |t| {
+        assert_eq!(bottom_line(t), line_boxes(0..11, GRAY));
+    });
+    // Magnified twice: the same eleven boxes on the same line.
+    run_font(&[b"\x1bP3pS(S2)P[1,1]\x1b\\"], |t| {
+        assert_eq!(bottom_line(t), line_boxes(0..11, GRAY));
+    });
+    // And sixteen times.
+    run_font(&[b"\x1bP3pS(S16)P[1,1]\x1b\\"], |t| {
+        assert_eq!(bottom_line(t), line_boxes(0..12, GRAY));
+    });
+    // With no font each character is counted once, magnified or not.
+    run(b"\x1bP2pS(S2)P\x1b\\", |t| {
+        assert_eq!(t.regis_counts().unfonted, 6);
+    });
+}
+
+/// "A line feed character makes the terminal erase the ReGIS command
+/// display line, along with any graphic image previously drawn there":
+/// magnified, the drawing shown on the line is the plane's rows the scale
+/// shows there.
+#[test]
+fn magnified_a_line_feed_erases_what_the_bottom_line_shows() {
+    // Plane row 235, shown twice over at page rows 470 and 471.
+    let draw: &[u8] = b"\x1bPpS(S2)W(I2)P[0,235]V[399,235]\x1b\\";
+    run_font(&[draw], |t| {
+        let line = bottom_line(t);
+        assert_eq!(line.len(), 2 * 800);
+        assert!(line.iter().all(|&(_, y, _)| y == 470 || y == 471));
+    });
+    run_font(&[draw, b"\x1bP2p\n\x1b\\"], |t| {
+        let (px, w) = page(t);
+        assert!((460..480).all(|y| (0..800).all(|x| px[y * w + x] == BLACK)));
+    });
+}
+
+/// A line feed takes the magnified line's characters with it: after
+/// `P[1,1]` puts six on the line and the line feed erases it, what is not
+/// the erase's black is the boxes of the six drawn after it, and none of
+/// the old line's.
+#[test]
+fn magnified_a_line_feed_clears_the_line_s_characters() {
+    run_font(&[b"\x1bP3pS(S2)P[1,1]\nP[2,2]\x1b\\"], |t| {
+        let grey: Vec<_> = bottom_line(t)
+            .into_iter()
+            .filter(|p| p.2 != BLACK)
+            .collect();
+        assert_eq!(grey, line_boxes(0..6, GRAY));
+    });
+}
+
+/// The magnified line's characters stay over what is drawn after them,
+/// recolour with the output map, and go with the magnification, the plane
+/// holding only those drawn unmagnified.
+#[test]
+fn the_magnified_line_stays_over_later_drawing_and_goes_with_the_scale() {
+    let line: &[u8] = b"\x1bP3pS(S2)P[1,1]\x1b\\";
+    run_font(&[line, b"\x1bPpW(I2)P[0,235]V[399,235]\x1b\\"], |t| {
+        let (px, w) = page(t);
+        // A box's left edge over the drawing, the drawing in its middle.
+        assert_eq!(px[470 * w], GRAY);
+        assert_ne!(px[470 * w + 5], GRAY);
+        assert_ne!(px[470 * w + 5], CLEAR);
+        assert_eq!(px[470 * w + 200], px[470 * w + 5]);
+    });
+    run_font(&[line, b"\x1bPpP[10,10]V[20,10]S(M7(R))\x1b\\"], |t| {
+        let (px, w) = page(t);
+        let red = px[20 * w + 20];
+        assert_ne!(red, GRAY);
+        assert_eq!(bottom_line(t), line_boxes(0..11, red));
+    });
+    // `S(S2)` drawn unmagnified, the five characters before the scale.
+    run_font(&[line, b"\x1bPpS(S1)\x1b\\"], |t| {
+        assert_eq!(bottom_line(t), line_boxes(0..5, GRAY));
+    });
+    // `S(E)` erases them with the rest of the screen.
+    run_font(&[line, b"\x1bPpS(E)\x1b\\"], |t| {
+        let (px, w) = page(t);
+        assert!((460..480).all(|y| (0..800).all(|x| px[y * w + x] == BLACK)));
+    });
+    // The output cursor drawn over the line while the envelope waits, at
+    // plane pixel 3,233, and taken away at `ST`: the characters under it
+    // drawn again.
+    run_font(&[b"\x1bP3pS(S2)P[1,1]P[3,233]"], |t| {
+        assert_ne!(bottom_line(t), line_boxes(0..19, GRAY), "the cursor");
+        support::feed(t, b"\x1b\\");
+        assert_eq!(bottom_line(t), line_boxes(0..19, GRAY));
     });
 }

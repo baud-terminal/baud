@@ -562,74 +562,34 @@ impl<'a> RegisCanvas<'a> {
     /// to slant backwards" (§ 8.7.3.4.6) -- a row `v` down moves `v tan a`
     /// along the baseline.
     pub fn cell(&mut self, g: &CellDraw<'_>, pen: &RegisPen) {
-        let (uw, uh) = (g.unit.0.max(1), g.unit.1.max(1));
-        let (dw, dh) = (g.display.0.max(1), g.display.1.max(1));
-        let a = i64::from(g.direction) * 65536;
-        let (co, si) = (super::trig::cos(a), super::trig::sin(a));
-        // tan of the slant, in 2^-30.
-        let tan = {
-            let s = i64::from(g.slant.clamp(-45, 45)) * 65536;
-            (super::trig::sin(s) << 30) / super::trig::cos(s).max(1)
-        };
-        // Cell to page: lean, then turn counterclockwise as the viewer
-        // sees it on a page whose `y` grows downward.
-        let to_page = |u: i64, v: i64| -> (i64, i64) {
-            let fu = u + ((v * tan) >> 30);
-            ((fu * co + v * si) >> 30, (-fu * si + v * co) >> 30)
-        };
-        let corners = [
-            to_page(0, 0),
-            to_page(i64::from(dw), 0),
-            to_page(0, i64::from(dh)),
-            to_page(i64::from(dw), i64::from(dh)),
-        ];
-        let (mut x0, mut y0, mut x1, mut y1) = (i64::MAX, i64::MAX, i64::MIN, i64::MIN);
-        for (x, y) in corners {
-            x0 = x0.min(x);
-            y0 = y0.min(y);
-            x1 = x1.max(x);
-            y1 = y1.max(y);
-        }
-        let (sw, sh) = g.bits.size();
-        for py in y0..=y1 {
-            for px in x0..=x1 {
-                let (x, y) = (g.at.x + px as i32, g.at.y + py as i32);
-                if x < 0 || y < 0 || x >= self.w || y >= self.h {
-                    continue;
-                }
-                // Page to cell at the pixel's centre: turn back, unlean.
-                let (cx, cy) = (2 * px + 1, 2 * py + 1);
-                let fu = (cx * co - cy * si) >> 30;
-                let v2 = (cx * si + cy * co) >> 30;
-                let u2 = fu - ((v2 * tan) >> 30);
-                // `u2` and `v2` are twice the cell coordinates.
-                if u2 < 0 || v2 < 0 || u2 >= 2 * i64::from(dw) || v2 >= 2 * i64::from(dh) {
-                    continue;
-                }
-                let (u, v) = ((u2 / 2) as i32, (v2 / 2) as i32);
-                let bit = u < uw && v < uh && g.bits.bit(u * sw / uw, v * sh / uh);
-                let on = match pen.negate {
-                    Negate::Off => bit,
-                    Negate::On => !bit,
-                };
-                self.put(x, y, on, pen);
-            }
-        }
+        let (w, h) = (self.w, self.h);
+        cell_pixels(g, w, h, &mut |x, y, bit| {
+            let on = match pen.negate {
+                Negate::Off => bit,
+                Negate::On => !bit,
+            };
+            self.put(x, y, on, pen);
+        });
     }
 
-    /// The pixels of `r` of a `w`-pixel page as colours through `map` into
-    /// `out`: a pixel never written clear.
+    /// The page pixels of `r` of a `w`-pixel page as colours through `map`
+    /// into `out`, each the plane's pixel `zoom` shows there: a pixel never
+    /// written clear.
     pub fn show(
         plane: &[u8],
         w: crate::image::ImagePx,
         map: &[crate::image::Pixel; REGIS_COLORS],
         r: RegisRect,
         out: &mut [crate::image::Pixel],
+        zoom: RegisZoom,
     ) {
         let (stride, w) = (RegisCanvas::stride(w), w.index());
+        // Held to the page's width: a column past it is the next row's.
+        let x1 = (r.x1.max(0) as usize).min(w);
         for y in r.y0.max(0) as usize..r.y1.max(0) as usize {
-            for x in r.x0.max(0) as usize..r.x1.max(0) as usize {
-                let (Some(&b), Some(o)) = (plane.get(y * stride + x), out.get_mut(y * w + x))
+            for x in r.x0.max(0) as usize..x1 {
+                let (px, py) = zoom.plane_of(x, y);
+                let (Some(&b), Some(o)) = (plane.get(py * stride + px), out.get_mut(y * w + x))
                 else {
                     continue;
                 };
@@ -689,6 +649,61 @@ pub struct CellDraw<'a> {
 }
 
 /// The pixel of step `k` of `steps` along `(dx, dy)` from `a`, rounded.
+/// **Each page pixel of a cell drawn**, `(x, y, bit)`, on a page `w` by
+/// `h`: the cell's bit at the pixel's centre, turned and leant as `g`
+/// says, before any negate.
+pub fn cell_pixels(g: &CellDraw<'_>, w: i32, h: i32, f: &mut dyn FnMut(i32, i32, bool)) {
+    let (uw, uh) = (g.unit.0.max(1), g.unit.1.max(1));
+    let (dw, dh) = (g.display.0.max(1), g.display.1.max(1));
+    let a = i64::from(g.direction) * 65536;
+    let (co, si) = (super::trig::cos(a), super::trig::sin(a));
+    // tan of the slant, in 2^-30.
+    let tan = {
+        let s = i64::from(g.slant.clamp(-45, 45)) * 65536;
+        (super::trig::sin(s) << 30) / super::trig::cos(s).max(1)
+    };
+    // Cell to page: lean, then turn counterclockwise as the viewer
+    // sees it on a page whose `y` grows downward.
+    let to_page = |u: i64, v: i64| -> (i64, i64) {
+        let fu = u + ((v * tan) >> 30);
+        ((fu * co + v * si) >> 30, (-fu * si + v * co) >> 30)
+    };
+    let corners = [
+        to_page(0, 0),
+        to_page(i64::from(dw), 0),
+        to_page(0, i64::from(dh)),
+        to_page(i64::from(dw), i64::from(dh)),
+    ];
+    let (mut x0, mut y0, mut x1, mut y1) = (i64::MAX, i64::MAX, i64::MIN, i64::MIN);
+    for (x, y) in corners {
+        x0 = x0.min(x);
+        y0 = y0.min(y);
+        x1 = x1.max(x);
+        y1 = y1.max(y);
+    }
+    let (sw, sh) = g.bits.size();
+    for py in y0..=y1 {
+        for px in x0..=x1 {
+            let (x, y) = (g.at.x + px as i32, g.at.y + py as i32);
+            if x < 0 || y < 0 || x >= w || y >= h {
+                continue;
+            }
+            // Page to cell at the pixel's centre: turn back, unlean.
+            let (cx, cy) = (2 * px + 1, 2 * py + 1);
+            let fu = (cx * co - cy * si) >> 30;
+            let v2 = (cx * si + cy * co) >> 30;
+            let u2 = fu - ((v2 * tan) >> 30);
+            // `u2` and `v2` are twice the cell coordinates.
+            if u2 < 0 || v2 < 0 || u2 >= 2 * i64::from(dw) || v2 >= 2 * i64::from(dh) {
+                continue;
+            }
+            let (u, v) = ((u2 / 2) as i32, (v2 / 2) as i32);
+            let bit = u < uw && v < uh && g.bits.bit(u * sw / uw, v * sh / uh);
+            f(x, y, bit);
+        }
+    }
+}
+
 /// **The round pen's row `dv`**, `d` pixels across: the columns about
 /// its centre, first and last, of the pixels whose centres are within
 /// `d / 2` of the pen's -- centred on a pixel for an odd `d` and on a
