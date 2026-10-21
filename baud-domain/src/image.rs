@@ -2288,6 +2288,61 @@ impl<'b> ImageStore<'b> {
         self.epoch = self.epoch.bumped();
     }
 
+    /// **Carry a page's lines still on the screen onto the page that
+    /// takes over the screen**: `old`, the page being drawn, whose top line
+    /// has scrolled `dy` pixel rows into the history, and `new`, a page of
+    /// the same size placed at the window's top. Rows `[dy, h)` of `old`
+    /// move to rows `[0, h - dy)` of `new`, and the plane of indices goes
+    /// with them, its rows moved up in place and linked to `new`, so a
+    /// complement drawing reads the pixels shown where it draws -- "complement
+    /// the contents of the pixels present in the image" (070-8
+    /// § 8.7.2.4.1.1) -- and the screen's scrolled contents move away
+    /// beneath the screen-relative coordinates (§ 8.8.1, the scrolling
+    /// model). `old` keeps only its rows in the history, freed if nothing
+    /// is left lit there. Both counts are kept over the rows moved. Nothing
+    /// unless `old` is the page being drawn and the two are live pages of
+    /// one size, and then it returns `false`.
+    pub fn carry_page(&mut self, old: ImageId, new: ImageId, dy: usize) -> bool {
+        let Some((page, plane)) = self.page_plane else {
+            return false;
+        };
+        let slot = |id: ImageId| id.index().and_then(|i| self.slots.get(i)).copied();
+        let (Some(o), Some(n), Some(pl)) = (slot(old), slot(new), slot(plane)) else {
+            return false;
+        };
+        let page_of = |s: ImageSlot| !s.is_empty() && s.owner == ImageOwner::Regis;
+        let same = o.width == n.width && o.height == n.height;
+        if page != old || !page_of(o) || !page_of(n) || !page_of(pl) || !same || old == new {
+            return false;
+        }
+        let (w, h) = (o.width.index(), o.height.index());
+        if dy == 0 || dy >= h {
+            return false;
+        }
+        let stride = w.div_ceil(4) * 4;
+        if let Some(bytes) = self.pixels[pl.start()..pl.end()]
+            .as_mut_bytes()
+            .get_mut(..h * stride)
+        {
+            bytes.copy_within(dy * stride.., 0);
+            bytes[(h - dy) * stride..].fill(0);
+        }
+        let moved = self.lit_in(o, (0, dy, w, h));
+        self.pixels
+            .copy_within(o.start() + dy * w..o.end(), n.start());
+        self.pixels[o.start() + dy * w..o.end()].fill(Pixel::CLEAR);
+        let below = n.start() + (h - dy) * w;
+        self.pixels[below..n.end()].fill(Pixel::CLEAR);
+        if let Some(i) = new.index() {
+            self.slots[i].lit = Some(moved);
+        }
+        self.unlit(old, moved);
+        self.link_page(new, plane);
+        self.free_if_unlit(old);
+        self.epoch = self.epoch.bumped();
+        true
+    }
+
     /// How many pixels of image `s` in `(x0, y0, x1, y1)` are not clear.
     fn lit_in(&self, s: ImageSlot, (x0, y0, x1, y1): (usize, usize, usize, usize)) -> u32 {
         let (w, h) = (s.width.index(), s.height.index());

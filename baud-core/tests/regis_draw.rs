@@ -547,3 +547,115 @@ fn ris_keeps_the_hold_and_the_font() {
     assert_eq!(wait, Some(6), "the hold survives RIS");
     assert_eq!(t.regis_counts().unfonted, 0, "and so does the font");
 }
+
+/// A terminal of 2000 by 1000 pixels of text area, cells 10 by 20, with
+/// room for two pages and a plane.
+fn run_sized(bytes: &[u8], f: impl FnOnce(&mut Term<'_>)) {
+    let ws = support::CORPUS;
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(8 << 20));
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+    support::feed(&mut t, bytes);
+    f(&mut t);
+}
+
+/// **Complement writing reads what is shown where it draws, after a
+/// scroll**: "complement the contents of the pixels present in the image"
+/// (070-8 § 8.7.2.4.1.1), and under the scrolling model the screen's
+/// contents move away beneath its coordinates (§ 8.8.1). A fill over cells
+/// 0 to 19 of lines 1 to 5, the screen scrolled two lines, then a
+/// complement fill over cells 0 to 9 of lines 1 to 10: where the first fill now shows, on
+/// lines 1 to 3, the complement differs from where nothing was drawn. The
+/// page that scrolled keeps only its two lines in the history; the rest
+/// went to the page at the window's top.
+#[test]
+fn complement_reads_the_page_that_scrolled_under_it() {
+    const FILL: &[u8] = b"\x1bPpF(V[0,0][96,0][96,48][0,48])\x1b\\";
+    run_sized(FILL, |t| {
+        support::feed(t, b"\x1b[50;1H\n\n");
+        support::feed(t, b"\x1bPpW(C)F(V[0,0][48,0][48,96][0,96])\x1b\\");
+        let mut p = pages(t);
+        p.sort_by_key(|q| q.3);
+        assert_eq!(p.len(), 2, "the old page and the new");
+        let (old, w, h, old_line) = &p[0];
+        let (new, _, _, new_line) = &p[1];
+        assert_eq!(new_line - old_line, 2, "two lines apart");
+        let at = |px: &[u32], col: usize, row: usize| px[(row * 20 + 10) * w + col * 10 + 5];
+        assert_ne!(
+            at(new, 5, 1),
+            at(new, 5, 7),
+            "over the first fill, the complement of what it drew"
+        );
+        assert_ne!(at(new, 5, 1), 0, "drawn");
+        assert_eq!(at(new, 5, 7), at(new, 5, 8), "where nothing was, alike");
+        assert_ne!(
+            at(new, 15, 1),
+            0,
+            "the first fill carried, past the complement"
+        );
+        assert_eq!(
+            at(new, 5, 4),
+            at(new, 5, 7),
+            "line 5, which the first fill left as it scrolled up, alike"
+        );
+        assert!(
+            (0..40).any(|y| (0..*w).any(|x| old[y * w + x] != 0)),
+            "the old page keeps its lines in the history"
+        );
+        assert!(
+            (40..*h).all(|y| (0..*w).all(|x| old[y * w + x] == 0)),
+            "and nothing on the screen"
+        );
+        let imgs = t.images();
+        for (_, q) in imgs.placements() {
+            let v = imgs.image(q.image).expect("live");
+            let n = v.pixels.iter().filter(|px| px.bits() != 0).count();
+            assert_eq!(
+                imgs.lit(q.image),
+                Some(u32::try_from(n).unwrap()),
+                "each page's count"
+            );
+        }
+    });
+}
+
+/// **A page scrolled wholly into the history carries nothing**: the next
+/// drawing begins a page of its own, and the complement there reads only
+/// the background; the old page keeps all it drew.
+#[test]
+fn a_page_scrolled_wholly_away_carries_nothing() {
+    const FILL: &[u8] = b"\x1bPpF(V[0,0][96,0][96,48][0,48])\x1b\\";
+    run_sized(FILL, |t| {
+        let drawn = painted(&page(t).0, 2000).len();
+        support::feed(t, b"\x1b[50;1H");
+        support::feed(t, &[b'\n'; 60]);
+        support::feed(t, b"\x1bPpW(C)F(V[0,0][96,0][96,96][0,96])\x1b\\");
+        let mut p = pages(t);
+        p.sort_by_key(|q| q.3);
+        assert_eq!(p.len(), 2);
+        assert_eq!(painted(&p[0].0, 2000).len(), drawn, "the old page whole");
+        let new = &p[1].0;
+        let at = |col: usize, row: usize| new[(row * 20 + 10) * 2000 + col * 10 + 5];
+        assert_eq!(at(5, 1), at(5, 7), "the complement of the background alone");
+    });
+}
+
+/// **A carry with no room for the new page is refused once**: the arena
+/// holds one page and its plane and not a second page, so the drawing
+/// after the scroll has no page, one refusal and one drawing counted.
+#[test]
+fn a_carry_with_no_room_is_refused_once() {
+    const FILL: &[u8] = b"\x1bPpF(V[0,0][96,0][96,48][0,48])\x1b\\";
+    let ws = support::CORPUS;
+    let mut owned = Owned::new(&ws).with_images(ImageBudget::of(3 << 20));
+    let mut t = Term::new(owned.storage(), &ws);
+    t.set_cell_size(ImagePx::of(10), ImagePx::of(20));
+    support::feed(&mut t, FILL);
+    assert_eq!(pages(&t).len(), 1, "the control, one page");
+    let (refused, unpaged) = (t.images().images_refused, t.regis_counts().unpaged);
+    support::feed(&mut t, b"\x1b[50;1H\n\n");
+    support::feed(&mut t, b"\x1bPpP[0,0]V[9,0]\x1b\\");
+    assert_eq!(t.images().images_refused, refused + 1, "one refusal");
+    assert_eq!(t.regis_counts().unpaged, unpaged + 1, "one drawing");
+    assert_eq!(pages(&t).len(), 1, "the old page stays");
+}

@@ -21,9 +21,11 @@
 //! of output-map indices (`RegisCanvas`) and shown through the map after
 //! each character. The page scrolls with the lines it sits on, as a Sixel
 //! does; once the window's top line is no longer the page's, the next
-//! drawing begins a new page there and the old one stays where it scrolled,
-//! as the VT300's screen-relative coordinates draw on the screen and its
-//! scrolled contents move away beneath them.
+//! drawing begins a new page there, as the VT300's screen-relative
+//! coordinates draw on the screen and its scrolled contents move away
+//! beneath them. The lines of the old page still on the screen go to the
+//! new page, with the indices they are drawn from, so a complement drawing
+//! reads what is shown; the old page keeps its lines in the history.
 
 use crate::paint::Paint;
 use crate::term::{Screen, Term};
@@ -63,6 +65,9 @@ pub(crate) struct Want {
     line: LineIdx,
     w: ImagePx,
     h: ImagePx,
+    /// The cell height, zero while none is known: how many pixel rows of
+    /// the page a line is.
+    ch: ImagePx,
 }
 
 impl Paint<'_, '_> {
@@ -321,7 +326,13 @@ pub(crate) fn want_of(
         Screen::Alternate => (ImageScreen::Alternate, book.alt_top),
     };
     let (w, h) = regis_page_size(cols, rows, cw, ch);
-    Want { screen, line, w, h }
+    Want {
+        screen,
+        line,
+        w,
+        h,
+        ch,
+    }
 }
 
 /// The cursors to show with the envelope `inside`: while a one-shot input
@@ -465,6 +476,39 @@ fn place(images: &mut ImageStore<'_>, page: &mut Page, w: Want) -> Option<Page> 
     let p = *page;
     if let Some(p) = current(images, p, w) {
         return Some(p);
+    }
+    // **The window moved down over the same screen**: the lines of the
+    // page still on it move to a page at the window's top, its plane
+    // with them, so the next drawing, a complement one included, finds
+    // what is shown where it draws (`ImageStore::carry_page`).
+    let carried = (p.line < w.line).then(|| w.line.since(p.line)).flatten();
+    let dy = carried.map_or(0, |r| r.index().saturating_mul(w.ch.index()));
+    let carry = p.screen == w.screen
+        && p.w == w.w
+        && p.h == w.h
+        && dy > 0
+        && dy < p.h.index()
+        && images.is_page(p.shown, p.w, p.h)
+        && images.is_placed(p.shown)
+        && images.is_page(p.plane, RegisCanvas::plane_width(p.w), p.h);
+    if carry {
+        if let Some(shown) = images.store_page(w.w, w.h) {
+            let pid = images.place_page(shown, w.screen, w.line, Col::ZERO, KittyPlace::NONE);
+            if !pid.is_none() && images.carry_page(p.shown, shown, dy) {
+                *page = Page {
+                    shown,
+                    line: w.line,
+                    ..p
+                };
+                return Some(*page);
+            }
+            images.free(shown);
+        }
+        // No room for the page: the old page's indices go, as without a
+        // carry, and this drawing has no page. The same store again would
+        // be refused again.
+        images.free(p.plane);
+        return None;
     }
     // The page left behind keeps what it shows; its indices go.
     if images.is_page(p.plane, RegisCanvas::plane_width(p.w), p.h) {
