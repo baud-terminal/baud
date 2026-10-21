@@ -168,15 +168,18 @@ impl Paint<'_, '_> {
     /// at `OSC_MAX` ends before the name the cut fell in, which an
     /// even-length cut could make a different name.
     ///
-    /// **XTSETTCAP is refused and counted** (`Term::tcap_sets_refused`),
-    /// because the text does not define it for baud. It names an entry
-    /// for xterm to "retrieve data from the terminal database", and baud
-    /// has none at run time: its core is `no_std` and its entries are
-    /// compiled. And it overrides the name XTGETTCAP uses, where xterm's
-    /// code changes no answer outside its tcap keyboard (`?1050`), which
-    /// baud does not have (`[[source: ctlseqs]]` 535-542;
-    /// `[[source: xterm-xtermcap-c]]` 624-657; note AM, 3 and 8.4). Jev
-    /// leaned to counting it, COUNT_REFUSE, 0.53/0.41.
+    /// **XTSETTCAP is refused and counted** (`Term::tcap_sets_refused`):
+    /// every retrieval takes the text's own failure path. It names an
+    /// entry for xterm to "retrieve data from the terminal database", the
+    /// host's, which xterm's `set_termcap` reads through `setupterm` (or
+    /// `tgetent`). baud consults none, so no retrieval succeeds, and the
+    /// name overrides the one XTGETTCAP uses only "If successful"
+    /// (`[[source: ctlseqs]]` 535-542; `[[source: xterm-xtermcap-c]]`
+    /// 48-51 and 624-657; note AM, 3 and 8.4). xterm's own code, as
+    /// practice, changes no answer outside its tcap keyboard (`?1050`),
+    /// which baud does not have, and never `TN`'s, which answers the
+    /// `termName` resource under every keyboard (`[[source: xterm-misc]]`
+    /// 5225-5226). Jev leaned to counting it, COUNT_REFUSE, 0.53/0.41.
     #[cold]
     #[inline(never)]
     pub(crate) fn tcap_end(&mut self, body: TcapBody) {
