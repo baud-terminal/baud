@@ -496,6 +496,9 @@ pub struct StrBuf<'b> {
     /// the changes queued for the embedder (`crate::font`): here for the
     /// reason `window_asks` is, only an `OSC 50` reaches it.
     pub(crate) fonts: crate::font::FontAsks,
+    /// What XTGETTCAP's `TN` names (`crate::dcs::Tcap`): here for the
+    /// reason `window_asks` is, only a `DCS +` reaches it.
+    pub(crate) tcap: crate::dcs::Tcap,
     /// The special-colour modes `OSC 6` and `OSC 106` turn on
     /// (`Term::color_modes`), the colours being in `palette`: here rather
     /// than in `Cold`, whose size is pinned, as `clip` is; written by those
@@ -585,6 +588,7 @@ impl<'b> StrBuf<'b> {
             properties_dropped: crate::window::PropertiesDropped::FIRST,
             log: crate::logging::Logger::NONE,
             fonts: crate::font::FontAsks::NONE,
+            tcap: crate::dcs::Tcap::UNTOLD,
             color_modes: ColorModes::NONE,
             shell: crate::prompt::Shell::FRESH,
             shell_other: crate::prompt::Shell::FRESH,
@@ -892,6 +896,7 @@ impl Owned {
                 properties_dropped: crate::window::PropertiesDropped::FIRST,
                 log: crate::logging::Logger::NONE,
                 fonts: crate::font::FontAsks::NONE,
+                tcap: crate::dcs::Tcap::UNTOLD,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
@@ -967,6 +972,7 @@ impl Owned {
                 properties_dropped: crate::window::PropertiesDropped::FIRST,
                 log: crate::logging::Logger::NONE,
                 fonts: crate::font::FontAsks::NONE,
+                tcap: crate::dcs::Tcap::UNTOLD,
                 color_modes: ColorModes::NONE,
                 shell: crate::prompt::Shell::FRESH,
                 shell_other: crate::prompt::Shell::FRESH,
@@ -1117,17 +1123,25 @@ pub const NLINK: usize = 128;
 pub const LINK_MAX: usize = 256;
 
 /// How many bytes of reply the core will hold before it starts counting
-/// losses: **the longest single reply**, which is DECTABSR with a stop at
-/// every one of `MAX_COLS` columns, 9,139 bytes (`tab_report_max`), since
-/// 2026-10-19. It was 256, which bounded the longest before it, a `DECRQSS`
+/// losses: **the longest single reply**, which is XTGETTCAP's answer to a
+/// full list, 10,412 bytes (`tcap_reply_max`), since 2026-10-21; before it,
+/// DECTABSR with a stop at every one of `MAX_COLS` columns, 9,139 bytes
+/// (`tab_report_max`), since 2026-10-19. It was 256, which bounded the
+/// longest before those, a `DECRQSS`
 /// rendition string of at most `DECRQSS_MAX` bytes, const-asserted against
 /// this in `dcs.rs`; a DECTABSR at 2048 columns with the default stops is
 /// 1,144 bytes, so 256 would have dropped it whole. Cold: written by a
 /// report, read by the embedder. Several replies from one read can still
 /// exceed it (note AG).
-pub const REPLY: usize = match tab_report_max(MAX_COLS) > 256 {
-    true => tab_report_max(MAX_COLS),
-    false => 256,
+pub const REPLY: usize = {
+    let tabs = match tab_report_max(MAX_COLS) > 256 {
+        true => tab_report_max(MAX_COLS),
+        false => 256,
+    };
+    match tcap_reply_max(OSC_MAX - 1) > tabs {
+        true => tcap_reply_max(OSC_MAX - 1),
+        false => tabs,
+    }
 };
 
 /// How many images can be live at once. Small: a screen shows a handful, the

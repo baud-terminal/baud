@@ -1212,6 +1212,14 @@ const fn one(enc: InputEncoding, node: Node, b: StreamByte) -> Edge {
                 // DECRQSS's, which reads its byte: no new action, so no other
                 // action's encoding moves. The body is a DCS's.
                 b'p' => edge(Act::DcsQuery, Node::DcsStr),
+                // **`+` is XTGETTCAP's and XTSETTCAP's**, `DCS + q Pt ST`
+                // and `DCS + p Pt ST` (`[[source: ctlseqs]]` 535-582). The
+                // action is DECRQSS's, which reads its byte, so no action's
+                // encoding moves; the `q` or `p` after it is the body's
+                // first byte, read at the terminator (`Paint::tcap_end`).
+                // After a parameter it is no XTGETTCAP, as xterm's `do_dcs`
+                // switches on the first byte (`[[source: xterm-misc]]`).
+                b'+' => edge(Act::DcsQuery, Node::DcsStr),
                 // **A Sixel is `DCS Pa;Pb;Ph q` -- a `q` after *numeric
                 // parameters* and no intermediate.** So the parameters `30-3F`
                 // (`0-9 : ; < = > ?`) collect and stay in `Node::Dcs`, and a
@@ -2515,11 +2523,16 @@ mod classes {
         // both led there as `Consume`. 58 -> 59, 2,454 -> 2,505, 75,689 ->
         // 77,196 and 2,066,297 -> 2,106,468 at strides 1 to 4, +1.9% at
         // stride 4; which bytes parted was not decomposed.
+        // **XTGETTCAP's `+` after a `DCS`** (2026-10-21): `2B` and, under
+        // ISO 8859-1, `AB` in `Dcs` lead to the body as `DcsQuery`, where
+        // both led there as `Consume`. 59 -> 61, 2,505 -> 2,621, 77,196 ->
+        // 81,385 and 2,106,468 -> 2,232,041 at strides 1 to 4, +6.0% at
+        // stride 4.
         // The ingest loop's table is one byte wide and does not grow.
         assert_eq!(one.len(), CLASSES, "stride 1");
-        assert_eq!(two.len(), 2_505, "stride 2");
-        assert_eq!(three.len(), 77_196, "stride 3");
-        assert_eq!(four.len(), 2_106_468, "stride 4");
+        assert_eq!(two.len(), 2_621, "stride 2");
+        assert_eq!(three.len(), 81_385, "stride 3");
+        assert_eq!(four.len(), 2_232_041, "stride 4");
         // The *buildable* index is a k-tuple of stride-1 classes, because that
         // is what four independent byte lookups can produce: `CLASSES^k`
         // columns, larger than the true class count and reachable with a
@@ -3559,8 +3572,9 @@ mod classes {
     // A Sixel's body, where `SUB` is a blank sixel and `CAN` places the
     // image, parting `1A` from `18`, made 56. ReGIS's `p` after a `DCS`, and
     // under ISO 8859-1 its GR `F0`, made 58. DECLKD's `w` after `DCS $`,
-    // and its GR `F7`, made 59.
-    const CLASSES: usize = 59;
+    // and its GR `F7`, made 59. XTGETTCAP's `+` after a `DCS`, and its GR
+    // `AB`, made 61.
+    const CLASSES: usize = 61;
     /// What `write::act` consumes, which is **not** `Act::width()`.
     ///
     /// `width` is the byte length of the *character* an act writes; two acts

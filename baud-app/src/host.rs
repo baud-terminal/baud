@@ -352,6 +352,15 @@ pub fn set_window_abilities(
     });
 }
 
+/// Tell the core the `TERM` the child is given ([`crate::bell::TERM`]),
+/// which a program's XTGETTCAP `TN` asks for. One function for both
+/// drivers, called before the first feed.
+pub fn set_term_name(term: &mut baud_core::Term<'_>) {
+    if let Some(name) = baud_core::TermName::new(crate::bell::TERM.as_bytes()) {
+        term.set_term_name(name);
+    }
+}
+
 /// Tell the core whether there is a pointer for DEC's locator, so `DSR
 /// ?55` answers "Locator ready" only where one is: macOS's, always, and
 /// the Wayland seat's while its capabilities name one. One function for
@@ -1028,6 +1037,38 @@ mod tests {
             events[end..].find(CALL).is_some_and(|at| at < 400),
             "Linux tells it straight after the turn's events"
         );
+    }
+
+    /// **Both drivers tell the core the `TERM` the child is given**, so a
+    /// program's XTGETTCAP `TN` names it; untold, the core refuses `TN`.
+    /// The drivers' calls are held in the source, as the pointer's are.
+    #[test]
+    fn the_term_name_reaches_the_core_from_both_drivers() {
+        let ws = WinSize {
+            ws_row: 4,
+            ws_col: 20,
+        };
+        let mut s = Owned::new(&ws);
+        let mut t = Term::new(s.storage(), &ws);
+        // `TN`, hex-encoded.
+        feed(&mut t, b"\x1bP+q544E\x1b\\");
+        assert_eq!(t.reply(), b"\x1bP0+r\x1b\\", "untold: refused");
+        t.clear_reply();
+        super::set_term_name(&mut t);
+        feed(&mut t, b"\x1bP+q544E\x1b\\");
+        let hex: String = crate::bell::TERM
+            .bytes()
+            .map(|b| format!("{b:02X}"))
+            .collect();
+        assert_eq!(t.reply(), format!("\x1bP1+r544E={hex}\x1b\\").as_bytes());
+        assert_eq!(crate::bell::TERM, "xterm-256color");
+        const CALL: &str = concat!("crate::host::", "set_term_name(");
+        for (driver, src) in [
+            ("macOS", include_str!("app.rs")),
+            ("Linux", include_str!("linux.rs")),
+        ] {
+            assert_eq!(src.matches(CALL).count(), 1, "{driver} calls it once");
+        }
     }
 
     /// **`[screen] logging` reaches the core, from both drivers, and each

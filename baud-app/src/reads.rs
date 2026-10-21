@@ -157,7 +157,8 @@ impl Fed {
 /// **The reply buffer is drained after every read**, not once after the
 /// batch, and once before the first, so answers an earlier writer left owed
 /// do not share it with the first read's. It is `REPLY` bytes, the longest
-/// single reply (9,139 since 2026-10-19; it was 256), and the macOS pump fed
+/// single reply (10,412 since 2026-10-21, 9,139 from 2026-10-19; it was
+/// 256), and the macOS pump fed
 /// every read the reader thread had queued and then drained once, so the
 /// answers of all but the first reads were dropped: a burst of `OSC 4`
 /// palette queries, one to each 600 bytes of drawing, had 10 of 256

@@ -321,6 +321,7 @@ pub fn run() {
         crate::winops::wayland_abilities(crate::winops::BoundsEvent::Never),
         cfg.clipboard.osc52,
     );
+    crate::host::set_term_name(&mut term);
     crate::host::set_logging(&mut term, cfg.logging);
     // **No print panel in this driver**: the core is told there is no
     // printer, so DSR `?15` answers "no printer" and a print is ignored and

@@ -1,5 +1,5 @@
-//! DECRQSS, one of the two DCS this core acts on; the other is Sixel
-//! (`sixel.rs`, entered by `Act::SixelStart`).
+//! DECRQSS, and XTGETTCAP below it; Sixel (`sixel.rs`,
+//! entered by `Act::SixelStart`), ReGIS and DECRSPS are elsewhere.
 //!
 //! `[[source: ctlseqs]]` gives `DCS $ q Pt ST` as Request Status String, where
 //! `Pt` names a setting by the tail of the CSI that would set it -- `m` for
@@ -12,8 +12,10 @@
 //! is the half that matters: a DCS body reaching the screen would render an
 //! application's private protocol as glyphs.
 
+use crate::osc::StrKind;
 use crate::paint::Paint;
-use crate::storage::REPLY;
+use crate::storage::{OSC_MAX, REPLY};
+use crate::write::Csi;
 use baud_domain::*;
 
 /// Whether an attribute's `WIRE` code is a sub-parameter, written `4:n`.
@@ -99,7 +101,86 @@ pub const DECRQSS_MAX: usize = {
 // as a build failure rather than a sentence.
 const _: () = assert!(DECRQSS_MAX <= REPLY);
 
+/// The longest XTGETTCAP answer: a list of `OSC_MAX` bytes less its `q`,
+/// every name the shortest and every value the longest one name answers
+/// (`tcap_reply_max`). **The reply buffer holds it**, so a request alone is
+/// never dropped; behind other replies it is sent whole or counted.
+pub const XTGETTCAP_MAX: usize = tcap_reply_max(OSC_MAX - 1);
+const _: () = assert!(XTGETTCAP_MAX <= REPLY);
+
+/// What a `DCS +` reads: the name `TN` answers, the embedder's
+/// (`Term::set_term_name`), which `RIS` keeps.
+pub(crate) struct Tcap {
+    pub(crate) name: TermName,
+}
+
+impl Tcap {
+    pub(crate) const UNTOLD: Tcap = Tcap {
+        name: TermName::UNTOLD,
+    };
+}
+
+/// Whether an XTGETTCAP list reached its terminator whole.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TcapBody {
+    Whole,
+    /// Cut at `OSC_MAX`, and the cut counted in `string_truncations`.
+    Cut,
+}
+
+/// A `DCS +`: XTGETTCAP or XTSETTCAP, which its body's first byte names
+/// at the terminator. **A parameter before the `+` makes it neither**:
+/// xterm's `do_dcs` switches on the string's first byte, so `DCS 1 + q` is
+/// not its `+` case (`[[source: xterm-misc]]`'s file, 5160-5170), and it is
+/// consumed and counted as any DCS no handler reads.
+pub(crate) fn tcap_start(csi: &Csi) -> StrKind {
+    match csi.untouched() {
+        true => StrKind::Tcap,
+        false => StrKind::Other,
+    }
+}
+
 impl Paint<'_, '_> {
+    /// A `DCS +` string's terminator: `q` is XTGETTCAP
+    /// (`[[source: ctlseqs]]` 545-582); any other byte is a DCS no handler
+    /// reads, counted as one.
+    ///
+    /// **XTGETTCAP is answered** by `encode_tcap_reply`, from xterm's table
+    /// and the keys as they would be sent now, whole or not at all: an
+    /// answer that does not fit behind the replies already pending is
+    /// dropped and counted in `reply_overflows`, as DECRQSS's is. A list cut
+    /// at `OSC_MAX` ends before the name the cut fell in, which an
+    /// even-length cut could make a different name.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn tcap_end(&mut self, body: TcapBody) {
+        let n = self.cold.str_len.index().min(self.strs.pending.len());
+        match self.strs.pending[..n].first() {
+            Some(b'q') => {
+                let mut list = &self.strs.pending[1..n];
+                if body == TcapBody::Cut {
+                    let kept = list.iter().rposition(|&b| b == b';').unwrap_or(0);
+                    list = &list[..kept];
+                }
+                let at = self.reply_len.index();
+                match encode_tcap_reply(
+                    list,
+                    self.cold.replies.c1(),
+                    self.cold.key_state(),
+                    self.strs.tcap.name,
+                    &mut self.reply[at..],
+                ) {
+                    Some(len) => self.reply_len = ByteLen::from_index(at + len.index()),
+                    None => self.reply_overflows += 1,
+                }
+            }
+            _ => {
+                self.strings_ignored += 1;
+                self.unsupported_total += 1;
+            }
+        }
+    }
+
     /// Answer a DECRQSS.
     ///
     /// **1 is valid and 0 is invalid, and the DEC manuals say the opposite.**

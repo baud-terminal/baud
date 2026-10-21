@@ -152,6 +152,17 @@ normal tracking's. Where xterm's `button.c` departs from the text, and where
 the text is silent, is in the record, "`?1001` highlight tracking is built to
 the text", with the questions it leaves for Jev.
 
+## Asking which bytes a key sends: XTGETTCAP
+
+A program can ask baud what a key will send, by its terminfo or termcap
+name, rather than trust the terminfo entry: `DCS + q` with the names in
+hex, `;` between them (`[[source: ctlseqs]]` 545-582). baud answers with
+the bytes the key sends in the modes in force, as xterm's own query does,
+so `kcuu1` is `CSI A` and, after DECCKM, `SS3 A`. The names are xterm's
+table, all 319, plus `Co`, `RGB` and `TN`; any other name, the entry's
+output strings and `Ms` among them, is refused as the text says. The row
+in `docs/vt-coverage.md` has the details.
+
 ## Declined
 
 `OSC 52` clipboard **reads** get no reply; see

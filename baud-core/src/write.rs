@@ -244,6 +244,12 @@ impl Csi {
         }
     }
 
+    /// Whether no parameter arrived: no digit and no `;`. A `DCS +` after
+    /// one is not XTGETTCAP (`crate::dcs::tcap_start`).
+    pub(crate) fn untouched(&self) -> bool {
+        self.n == ParamIdx::FIRST && self.p[0].is_none()
+    }
+
     /// The parameters as the domain reads them, for an operation that takes
     /// a list past its fixed ones: DECCARA's and DECRARA's attributes.
     pub(crate) fn params(&self) -> Params<'_> {

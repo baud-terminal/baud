@@ -1073,6 +1073,7 @@ impl App {
         // AppKit always has a pointer to move: a Mac's trackpad, or the
         // cursor a mouse or a tablet drives.
         crate::host::set_locator_device(&mut term, baud_domain::LocatorDevice::Present);
+        crate::host::set_term_name(&mut term);
         crate::host::set_logging(&mut term, logging);
         // A printer only where one is listed (`print.rs`; note AW), and a
         // DSR `?15` held while the list is read again.

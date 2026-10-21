@@ -188,7 +188,12 @@ impl Paint<'_, '_> {
         // `gr_as_gl` maps nothing: the bytes are a character's.
         if matches!(
             self.cold.str_kind,
-            StrKind::Decrqss | StrKind::RestoreCursor | StrKind::RestoreTabs | StrKind::LocatorKeys
+            StrKind::Decrqss
+                | StrKind::RestoreCursor
+                | StrKind::RestoreTabs
+                | StrKind::LocatorKeys
+                | StrKind::Tcap
+                | StrKind::TcapCut
         ) {
             return self.status_data_put(b);
         }
@@ -358,6 +363,11 @@ impl Paint<'_, '_> {
         if self.cold.str_kind == StrKind::RestoreTabs {
             return self.restore_tab_put(b);
         }
+        // A byte past `OSC_MAX` cuts an XTGETTCAP list, which `keep_pending`
+        // counts; the kind remembers it for the terminator.
+        if self.cold.str_kind == StrKind::Tcap && self.cold.str_len.index() == OSC_MAX {
+            self.cold.str_kind = StrKind::TcapCut;
+        }
         self.keep_pending(b);
     }
 
@@ -459,6 +469,8 @@ impl Paint<'_, '_> {
                 crate::regis::show_first(self.images, self.strs.regis_page, self.strs.regis);
             }
             StrKind::LocatorKeys => self.locator_keys_end(),
+            StrKind::Tcap => self.tcap_end(crate::dcs::TcapBody::Whole),
+            StrKind::TcapCut => self.tcap_end(crate::dcs::TcapBody::Cut),
             StrKind::Other | StrKind::Apc => {
                 self.strings_ignored += 1;
                 self.unsupported_total += 1;
@@ -1223,6 +1235,13 @@ pub(crate) enum StrKind {
     /// A `DCS Pc $ w`, DECLKD: the body is kept and loaded at the
     /// terminator (`Paint::locator_keys_end`).
     LocatorKeys,
+    /// A `DCS +`, with no parameter before it: its body, a `q` and then
+    /// the hex list for XTGETTCAP, is kept as a DECRQSS body is and read at
+    /// the terminator (`Paint::tcap_end`).
+    Tcap,
+    /// A `Tcap` body cut at `OSC_MAX`: the name the cut fell in is not the
+    /// name that was sent, so it is refused (`Paint::tcap_end`).
+    TcapCut,
 }
 
 impl StrKind {

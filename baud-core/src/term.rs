@@ -1422,6 +1422,27 @@ pub struct SelectionColors {
 }
 
 impl Cold {
+    /// The state a key is encoded in: `Term::key`'s, and XTGETTCAP's, whose
+    /// answer is what the key would send (`Paint::tcap_end`). One spelling,
+    /// so the two cannot disagree.
+    ///
+    /// Every mode here is the live one; `Term::key` says why each of
+    /// `c1` and `terminal` reads its mode rather than a constant.
+    pub(crate) fn key_state(&self) -> KeyState {
+        KeyState {
+            modes: self.modes,
+            keypad: self.keypad,
+            c1: self.replies.c1(),
+            terminal: self.terminal,
+            encoding: self.encoding,
+            keys: self.keys,
+            kitty: self.kitty.current(),
+            backarrow: self.backarrow,
+            delete: self.delete,
+            num_lock: self.num_lock,
+        }
+    }
+
     /// What `OSC 10`/`11`/`12 ; ?` answers for `which`: the application's
     /// override, else the embedder's default -- `ColorWord::DEFAULT` when
     /// neither exists -- **of the slot shown in that role**, which under `?5`
@@ -5490,19 +5511,15 @@ impl<'b> Term<'b> {
         if e.kind == KeyEventKind::Repeat && !self.cold.modes.is_set(ModeBit::AutoRepeat) {
             return None;
         }
-        let s = KeyState {
-            modes: self.cold.modes,
-            keypad: self.cold.keypad,
-            c1: self.cold.replies.c1(),
-            terminal: self.cold.terminal,
-            encoding: self.cold.encoding,
-            keys: self.cold.keys,
-            kitty: self.cold.kitty.current(),
-            backarrow: self.cold.backarrow,
-            delete: self.cold.delete,
-            num_lock: self.cold.num_lock,
-        };
-        encode_key(e, s)
+        encode_key(e, self.cold.key_state())
+    }
+
+    /// **The terminal description XTGETTCAP's `TN` names**, `TERM` as the
+    /// embedder exports it to the child; a name [`TermName::new`] refuses
+    /// cannot be told. Until one is, `TN` and `name` are refused as names
+    /// the terminal cannot answer. `RIS` keeps it.
+    pub fn set_term_name(&mut self, name: TermName) {
+        self.store.strs.tcap.name = name;
     }
 
     /// Run a key's bytes through the screen as the host's bytes run, in a

@@ -101,6 +101,8 @@ pub use baud_domain::PointerShape;
 pub use baud_domain::Reclaims;
 /// The resources `Term::resource` reads.
 pub use baud_domain::Resource;
+/// What [`Term::set_term_name`] takes: the `TERM` XTGETTCAP's `TN` names.
+pub use baud_domain::TermName;
 /// VT52 is a protocol an embedder can be in, so it can be asked about.
 pub use baud_domain::TerminalMode;
 /// The status line's vocabulary: what [`Term::status_type`] and

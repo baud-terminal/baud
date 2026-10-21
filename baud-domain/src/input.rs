@@ -46,7 +46,7 @@ impl Modifiers {
     /// [`Modifiers::wire`]. The kitty extras are outside it by construction.
     pub const ALL: Modifiers = Modifiers(15);
 
-    pub fn with(self, o: Modifiers) -> Modifiers {
+    pub const fn with(self, o: Modifiers) -> Modifiers {
         Modifiers(self.0 | o.0)
     }
     pub fn without(self, o: Modifiers) -> Modifiers {
@@ -139,7 +139,7 @@ impl FnKey {
     /// `F1` is 1. `None` outside 1..=20, rather than clamping to F20 -- the
     /// wrong function key is worse than none, and this is the same refusal
     /// `DA` makes by under-claiming.
-    pub fn new(n: u8) -> Option<FnKey> {
+    pub const fn new(n: u8) -> Option<FnKey> {
         match n {
             1..=20 => Some(FnKey(n)),
             _ => None,
