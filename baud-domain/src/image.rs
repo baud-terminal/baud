@@ -689,6 +689,40 @@ pub enum KittyFree {
     Data,
 }
 
+/// [`ImageStore::shift_rows`] for a plane of byte indices, `stride` bytes
+/// a row.
+fn shift_byte_rows(
+    bytes: &mut [u8],
+    stride: usize,
+    w: usize,
+    (y0, y1): (usize, usize),
+    k: usize,
+    way: BandMove,
+) {
+    let len = bytes.len();
+    let fits = |y: usize| y * stride + w <= len;
+    match way {
+        BandMove::Up => {
+            for y in y0..y1 {
+                match y + k < y1 && fits(y + k) {
+                    true => bytes.copy_within((y + k) * stride..(y + k) * stride + w, y * stride),
+                    false if fits(y) => bytes[y * stride..y * stride + w].fill(0),
+                    false => {}
+                }
+            }
+        }
+        BandMove::Down => {
+            for y in (y0..y1).rev() {
+                match y >= y0 + k && fits(y) {
+                    true => bytes.copy_within((y - k) * stride..(y - k) * stride + w, y * stride),
+                    false if fits(y) => bytes[y * stride..y * stride + w].fill(0),
+                    false => {}
+                }
+            }
+        }
+    }
+}
+
 /// One image-slot: where a live image's pixels are in the arena, its size, and
 /// how many placements reference it. Empty when [`ImageSlot::width`] is
 /// [`ImagePx::ZERO`] -- a zero-width image is meaningless, the `ClusterSlot`
@@ -710,6 +744,11 @@ pub struct ImageSlot {
     /// The store's epoch when it was stored: which of two images with one
     /// kitty number is the newer.
     born: ImageGen,
+    /// How many of a Sixel's or an embedder's pixels are not clear, counted
+    /// the first time an erase reaches it and lowered by what each erase
+    /// clears, so freeing the image once none is left reads no pixel twice
+    /// ([`ImageStore::erase`]). `None` until counted.
+    lit: Option<u32>,
 }
 
 impl ImageSlot {
@@ -723,6 +762,7 @@ impl ImageSlot {
         owner: ImageOwner::Local,
         state: ImageState::Ready,
         born: ImageGen::ZERO,
+        lit: None,
     };
 
     fn is_empty(self) -> bool {
@@ -1615,6 +1655,7 @@ impl<'b> ImageStore<'b> {
             owner: ImageOwner::Local,
             state: ImageState::Ready,
             born: self.epoch,
+            lit: None,
         };
         self.tallest = self.tallest.max(height);
         Some(ImageId::from_index(slot))
@@ -2218,6 +2259,7 @@ impl<'b> ImageStore<'b> {
     /// indices under them if it is the page being drawn. The VT330 and
     /// VT340 draw text and graphics into one bitmap, so a character written
     /// replaces what was drawn in its cell; the rest of the page stays.
+    /// Returns how many of the pixels it cleared were not clear before.
     fn clear_page_cells(
         &mut self,
         id: ImageId,
@@ -2226,19 +2268,23 @@ impl<'b> ImageStore<'b> {
         c1: usize,
         cw: usize,
         ch: usize,
-    ) {
+    ) -> u32 {
         let Some(s) = id.index().and_then(|i| self.slots.get(i)).copied() else {
-            return;
+            return 0;
         };
         let (w, h) = (s.width.index(), s.height.index());
         let (x0, x1) = ((c0 * cw).min(w), (c1 * cw).min(w));
         let (y0, y1) = ((row * ch).min(h), ((row + 1) * ch).min(h));
         if x0 >= x1 || y0 >= y1 {
-            return;
+            return 0;
         }
         let at = s.start();
+        let mut was_lit = 0u32;
         for y in y0..y1 {
-            self.pixels[at + y * w + x0..at + y * w + x1].fill(Pixel::CLEAR);
+            let span = &mut self.pixels[at + y * w + x0..at + y * w + x1];
+            let n = span.iter().filter(|p| p.alpha().get() != 0).count();
+            was_lit = was_lit.saturating_add(u32::try_from(n).unwrap_or(u32::MAX));
+            span.fill(Pixel::CLEAR);
         }
         if let Some((page, plane)) = self.page_plane {
             if page == id {
@@ -2254,6 +2300,7 @@ impl<'b> ImageStore<'b> {
             }
         }
         self.epoch = self.epoch.bumped();
+        was_lit
     }
 
     /// Place a ReGIS page as kitty geometry `place` scales it, at an
@@ -2535,10 +2582,11 @@ impl<'b> ImageStore<'b> {
         hi: LineIdx,
         n: Rows,
     ) -> usize {
+        self.shift_pages(screen, lo, hi, n, BandMove::Down);
         let mut n_gone = 0;
         for p in 0..self.live {
             let s = self.placements[p];
-            if s.is_empty() || s.screen != screen || s.line >= hi {
+            if s.is_empty() || s.screen != screen || s.line >= hi || self.is_regis(s) {
                 continue;
             }
             let kitty = s
@@ -2596,6 +2644,9 @@ impl<'b> ImageStore<'b> {
         let Some(r) = self.reach[screen.slot()] else {
             return 0;
         };
+        if cols.is_none() {
+            self.shift_pages(screen, lo, hi, n, way);
+        }
         if r.last < lo || r.first >= hi {
             return 0;
         }
@@ -2603,6 +2654,11 @@ impl<'b> ImageStore<'b> {
         for p in 0..self.live {
             let s = self.placements[p];
             if s.is_empty() || s.screen != screen || s.line < lo || s.line >= hi {
+                continue;
+            }
+            // A ReGIS page's rows moved above (`ImageStore::shift_pages`);
+            // under side margins it stays where it is.
+            if self.is_regis(s) {
                 continue;
             }
             if cols.is_some_and(|(l, r)| s.col < l || s.col > r) {
@@ -2806,7 +2862,7 @@ impl<'b> ImageStore<'b> {
             // span `[col0, col1)` overlaps the image's `[c0, c0 + cols)`.
             if wl >= l0 && wl < l0 + rows && col1 > c0 && col0 < c0 + cols {
                 if img.owner == ImageOwner::Regis {
-                    self.clear_page_cells(
+                    let _ = self.clear_page_cells(
                         slot.image,
                         wl - l0,
                         col0.saturating_sub(c0),
@@ -2821,6 +2877,184 @@ impl<'b> ImageStore<'b> {
             }
         }
         freed
+    }
+
+    /// **Clear the graphic pixels a text erase covers**: an erase, a shift
+    /// of characters or a fill at absolute `line`, columns `[col0, col1)`,
+    /// over `cell_w` by `cell_h` pixel cells. The VT330 and VT340 keep text
+    /// and graphics in one bitmap, so a character position the terminal
+    /// erases shows no graphic pixel afterwards; DEC STD 070's B.8.11 leaves
+    /// the interaction to the device (Jev, the erase forks of 2026-10-21).
+    /// A ReGIS page and a Sixel or an embedder's image are cleared in those
+    /// cells, to [`Pixel::CLEAR`]; a Sixel every pixel of which is then clear
+    /// is freed, as text written over it frees it, so a previewer that
+    /// erases its preview frees the image. A kitty image is not touched:
+    /// "The other commands to erase text must have no effect on graphics"
+    /// (`[[source: kitty-graphics]]`). Returns how many placements were
+    /// freed.
+    pub fn erase(
+        &mut self,
+        screen: ImageScreen,
+        line: LineIdx,
+        col0: usize,
+        col1: usize,
+        cell_w: ImagePx,
+        cell_h: ImagePx,
+    ) -> usize {
+        let (cw, ch) = (cell_w.index(), cell_h.index());
+        if self.local_placed == 0 || cw == 0 || ch == 0 || col1 <= col0 {
+            return 0;
+        }
+        let Some(r) = self.reach[screen.slot()] else {
+            return 0;
+        };
+        let below = Rows::of_count(self.tallest.index().div_ceil(ch));
+        if line < r.first || line >= r.last.plus(below) {
+            return 0;
+        }
+        let wl = usize::try_from(line.value()).unwrap_or(usize::MAX);
+        let mut freed = 0;
+        for p in 0..self.live {
+            let slot = self.placements[p];
+            if slot.is_empty() || slot.screen != screen {
+                continue;
+            }
+            let Some(i) = slot.image.index() else {
+                continue;
+            };
+            let img = self.slots[i];
+            if img.is_empty() || !matches!(img.owner, ImageOwner::Local | ImageOwner::Regis) {
+                continue;
+            }
+            let rows = img.height.index().div_ceil(ch);
+            let cols = img.width.index().div_ceil(cw);
+            let l0 = usize::try_from(slot.line.value()).unwrap_or(usize::MAX);
+            let c0 = slot.col.index();
+            if wl < l0 || wl >= l0 + rows || col1 <= c0 || col0 >= c0 + cols {
+                continue;
+            }
+            let lit = match (img.owner, img.lit) {
+                (ImageOwner::Local, None) => {
+                    let n = self.pixels[img.start()..img.end()]
+                        .iter()
+                        .filter(|px| px.alpha().get() != 0)
+                        .count();
+                    Some(u32::try_from(n).unwrap_or(u32::MAX))
+                }
+                (_, lit) => lit,
+            };
+            let cleared = self.clear_page_cells(
+                slot.image,
+                wl - l0,
+                col0.saturating_sub(c0),
+                col1 - c0,
+                cw,
+                ch,
+            );
+            let left = lit.map(|n| n.saturating_sub(cleared));
+            self.slots[i].lit = left;
+            if img.owner == ImageOwner::Local && left == Some(0) {
+                self.unplace(PlacementId::from_index(p));
+                freed += 1;
+            }
+        }
+        freed
+    }
+
+    /// **Move a ReGIS page's pixel rows with the lines a band moved**: the
+    /// lines `[lo, hi)` of `screen` shifted `n` rows `way` -- IL, DL and a
+    /// scroll inside a region -- so the page's rows on those lines go with
+    /// them and the rows brought in blank are cleared, as the VT340 moves
+    /// its bitmap with the text (vt340test, `[[source:
+    /// vt340test-faketextcolor]]`: "Colorized text scrolls down properly
+    /// with the screen. Tested with Esc M (reverse index) and with Esc [ M
+    /// (delete line)"; Jev, MOVE, 1.00 and 1.00). The page stays anchored
+    /// where it is: its rows outside the band do not move.
+    fn shift_pages(
+        &mut self,
+        screen: ImageScreen,
+        lo: LineIdx,
+        hi: LineIdx,
+        n: Rows,
+        way: BandMove,
+    ) {
+        let ch = self.cell_h.index();
+        if ch == 0 || hi <= lo {
+            return;
+        }
+        let mut moved = false;
+        for p in 0..self.live {
+            let slot = self.placements[p];
+            if slot.is_empty() || slot.screen != screen {
+                continue;
+            }
+            let Some(img) = slot.image.index().and_then(|i| self.slots.get(i)).copied() else {
+                continue;
+            };
+            if img.is_empty() || img.owner != ImageOwner::Regis {
+                continue;
+            }
+            let (w, h) = (img.width.index(), img.height.index());
+            let since = |l: LineIdx| l.since(slot.line).map_or(0, |r| r.index());
+            let (y0, y1) = ((since(lo) * ch).min(h), (since(hi) * ch).min(h));
+            if y0 >= y1 {
+                continue;
+            }
+            let k = n.index() * ch;
+            self.shift_rows(img.start(), w, w, (y0, y1), k, way);
+            if let Some((page, plane)) = self.page_plane {
+                if page == slot.image {
+                    if let Some(pl) = plane.index().and_then(|i| self.slots.get(i)).copied() {
+                        let stride = w.div_ceil(4) * 4;
+                        let bytes = self.pixels[pl.start()..pl.end()].as_mut_bytes();
+                        shift_byte_rows(bytes, stride, w, (y0, y1), k, way);
+                    }
+                }
+            }
+            moved = true;
+        }
+        if moved {
+            self.epoch = self.epoch.bumped();
+        }
+    }
+
+    /// Rows `[y0, y1)` of the `w`-pixel image at `at` moved `k` rows
+    /// `way` within that span, the rows left behind cleared.
+    fn shift_rows(
+        &mut self,
+        at: usize,
+        stride: usize,
+        w: usize,
+        (y0, y1): (usize, usize),
+        k: usize,
+        way: BandMove,
+    ) {
+        let row = |y: usize| at + y * stride..at + y * stride + w;
+        match way {
+            BandMove::Up => {
+                for y in y0..y1 {
+                    match y + k < y1 {
+                        true => self.pixels.copy_within(row(y + k), at + y * stride),
+                        false => self.pixels[row(y)].fill(Pixel::CLEAR),
+                    }
+                }
+            }
+            BandMove::Down => {
+                for y in (y0..y1).rev() {
+                    match y >= y0 + k {
+                        true => self.pixels.copy_within(row(y - k), at + y * stride),
+                        false => self.pixels[row(y)].fill(Pixel::CLEAR),
+                    }
+                }
+            }
+        }
+    }
+
+    fn is_regis(&self, s: PlacementSlot) -> bool {
+        s.image
+            .index()
+            .and_then(|i| self.slots.get(i))
+            .is_some_and(|i| i.owner == ImageOwner::Regis)
     }
 
     fn free_slot(&self) -> Option<usize> {

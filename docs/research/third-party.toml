@@ -732,6 +732,7 @@ notice  = "none needed"
 status  = "kept"
 files   = [
   "vt340test-README.md",
+  "vt340test-faketextcolor.md",
   "vt340test-background_select.sh",
   "vt340test-background_select_2.png",
   "vt340test-background_select_2.sh",

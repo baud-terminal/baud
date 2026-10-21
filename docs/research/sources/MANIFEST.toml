@@ -30033,3 +30033,18 @@ status = "external"
 group  = "J"
 # Fetched 2026-10-21 (lane b125) for the horizontal wheel, lines 706-815.
 # Read, not copied.
+
+[sources.vt340test-faketextcolor]
+key    = "vt340test-faketextcolor"
+title  = "vt340test, regis/faketextcolor.md -- ReGIS pixels over text on a real VT340+: 'scrolls down properly ... with Esc M (reverse index) and with Esc [ M (delete line)'; 'Colors are removed from the line when text is shifted left by Esc [ P'"
+author = "hackerb9 and contributors"
+year   = 2026
+venue  = "hackerb9/vt340test at 9485704 (CC0-1.0)"
+url    = "https://raw.githubusercontent.com/hackerb9/vt340test/9485704b827ec6d40109d1955e9e6c6a485a50c2/regis/faketextcolor.md"
+file   = "vt340test-faketextcolor.md"
+sha256 = "16852a7dbcbccc8f26b8be0db0203971272bb41035a7fb428daf153d0e48f908"
+bytes  = 2723
+status = "retrieved"
+group  = "C"
+# Retrieved 2026-10-21 (lane b125) for erasing graphics: the one observation
+# of a DEC device's text and graphics found.

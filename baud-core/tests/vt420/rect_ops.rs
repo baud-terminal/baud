@@ -1026,12 +1026,14 @@ fn rectangle_operations_act_on_the_alternate_screen() {
 }
 
 /// **DECFRA and DECCRA free an image they write over, as text written over
-/// one frees it; DECERA and DECSERA leave it, as ED and EL do.** xterm
-/// clears the graphics under all four (`ScrnFillRectangle`,
-/// `ScrnWipeRectangle`); baud keeps its own split between writing and
-/// erasing.
+/// one frees it; DECERA clears its pixels in the positions it erases,
+/// which here are all of them, so it is freed too**, since 2026-10-21
+/// (Jev, PIXELS; `tests/graphics_erase.rs`). DECSERA leaves an unoccupied
+/// position, the image's here, "Unoccupied character positions are not
+/// affected". xterm clears the graphics under all four
+/// (`ScrnFillRectangle`, `ScrnWipeRectangle`).
 #[test]
-fn a_fill_or_a_copy_over_an_image_frees_it_and_an_erase_does_not() {
+fn a_fill_a_copy_or_decera_over_an_image_frees_it() {
     const TINY: &[u8] = b"\x1bP0;1;0q#0;2;100;0;0~\x1b\\";
     let placed = |ops: &str| {
         let mut s = Owned::new(&WS).with_images(ImageBudget::of(4 * (64 * 48 + 64)));
@@ -1050,8 +1052,13 @@ fn a_fill_or_a_copy_over_an_image_frees_it_and_an_erase_does_not() {
         "and so does a DECCRA onto it"
     );
     assert_eq!(placed("\x1b[42;5;5;5;5$x"), 1, "a fill elsewhere leaves it");
-    assert_eq!(placed("\x1b[3;3;3;3$z"), 1, "DECERA leaves it");
-    assert_eq!(placed("\x1b[3;3;3;3${"), 1, "and DECSERA");
+    assert_eq!(placed("\x1b[3;3;3;3$z"), 0, "DECERA over it clears it");
+    assert_eq!(
+        placed("\x1b[3;3;3;3${"),
+        1,
+        "DECSERA, an unoccupied position"
+    );
+    assert_eq!(placed("\x1b[5;5;5;5$z"), 1, "an erase elsewhere leaves it");
 }
 
 /// **A fill, a copy or an erase on a selection's rows reaches the watch on

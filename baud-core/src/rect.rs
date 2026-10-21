@@ -190,6 +190,7 @@ impl Paint<'_, '_> {
                 };
                 self.view.put(r, c, new);
             }
+            self.erase_images(r, rect.left, right.after());
             self.cells = self.cells.plus(right.index() + 1 - rect.left.index());
         }
         self.area_written(rect.top, rect.bottom);
@@ -225,6 +226,10 @@ impl Paint<'_, '_> {
                 self.view.put(r, c, PackedCell::selectively_erased(was));
                 self.cells = self.cells.plus(1);
             }
+            // The positions erased, as DECSED's (`Paint::selective_wipe`).
+            self.erase_images_where(r, rect.left, right.after(), |c| {
+                c.is_protected() || c.content.is_empty()
+            });
         }
         self.area_written(rect.top, rect.bottom);
     }

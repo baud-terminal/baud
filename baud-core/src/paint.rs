@@ -555,6 +555,7 @@ impl<'a, 'b> Paint<'a, 'b> {
         // `margin = end_of_line(line)`).
         let to = Col::at_index(self.line_cols().index());
         self.view.insert_cells(r, at, n, to, b);
+        self.erase_images(r, at, to);
         self.cells = self.cells.plus(to.index() - at.index());
         self.row_changed_to(r);
     }

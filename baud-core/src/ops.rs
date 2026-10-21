@@ -1491,6 +1491,7 @@ impl Paint<'_, '_> {
             return;
         }
         self.view.delete_cells(r, at, n, to, b);
+        self.erase_images(r, at, to);
         self.cells = self.cells.plus(to.index() - at.index());
         self.row_changed_to(r);
         self.wrote_rows(r, r);
@@ -1507,6 +1508,7 @@ impl Paint<'_, '_> {
             return;
         }
         self.view.insert_cells(r, at, n, to, b);
+        self.erase_images(r, at, to);
         self.cells = self.cells.plus(to.index() - at.index());
         self.row_changed_to(r);
         self.wrote_rows(r, r);
@@ -1521,7 +1523,11 @@ impl Paint<'_, '_> {
     #[inline(always)]
     pub(crate) fn erase_span(&mut self, r: Row, a: Col, b: Col, blank: PackedCell) {
         let n = match self.cold.guards {
-            crate::term::Guards::None => self.view.fill(r, a, b, blank),
+            crate::term::Guards::None => {
+                let n = self.view.fill(r, a, b, blank);
+                self.erase_images(r, a, b);
+                n
+            }
             crate::term::Guards::Marked => self.erase_sparing(r, a, b, blank).index(),
         };
         self.cells = self.cells.plus(n);
@@ -1537,7 +1543,13 @@ impl Paint<'_, '_> {
             true => GuardedErasure::All,
             false => GuardedErasure::Protect,
         };
-        Cols::of_index(self.view.fill_sparing(r, a, b, blank, how))
+        let n = self.view.fill_sparing(r, a, b, blank, how);
+        // A guarded position spared keeps what is drawn over it.
+        match how {
+            GuardedErasure::All => self.erase_images(r, a, b),
+            GuardedErasure::Protect => self.erase_images_where(r, a, b, |c| c.flags.is_guarded()),
+        }
+        Cols::of_index(n)
     }
 
     /// **SPA**: the active position starts a guarded area
@@ -1808,6 +1820,12 @@ impl Paint<'_, '_> {
                 self.cells = self.cells.plus(1);
             }
         }
+        // The positions erased lose what is drawn over them; a protected
+        // one keeps it, and so does an unoccupied one, which the erase does
+        // not touch ("Unoccupied character positions are not affected",
+        // DECSERA; Jev's lean, ERASED_POSITIONS). Judged after the wipe, an
+        // erased position holding a space.
+        self.erase_images_where(r, from, to, |c| c.is_protected() || c.content.is_empty());
         self.row_changed_to(r);
         self.wrote_rows(r, r);
     }

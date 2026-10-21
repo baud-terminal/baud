@@ -288,6 +288,69 @@ impl Paint<'_, '_> {
         }
     }
 
+    /// **Clear the graphic pixels under cells `[a, b)` of row `r`**, which
+    /// an erase or a shift of characters left showing no character there
+    /// (`ImageStore::erase`): ED, EL, ECH, DECERA, the selective erases in
+    /// the positions they erase, and ICH, DCH and IRM's gap over the span
+    /// they shift. DECIC and DECDC leave an image where it is (Jev,
+    /// IMAGES_STAY, 2026-10-19). Gated on `any_placed`, so a stream with no
+    /// image on screen pays one comparison.
+    #[inline(always)]
+    pub(crate) fn erase_images(&mut self, r: Row, a: Col, b: Col) {
+        if self.images.any_placed() {
+            self.erase_images_on(r, a, b);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn erase_images_on(&mut self, r: Row, a: Col, b: Col) {
+        // An erase on the status line clears none of the main display's
+        // pictures, as its text frees none (`overwrite_images`).
+        if self.on_status() {
+            return;
+        }
+        let (screen, top) = self.image_top();
+        let k = 1 + usize::from(self.view.rendition(r).is_double());
+        self.images.erase(
+            screen,
+            top.plus(Rows::of_count(r.index())),
+            a.index() * k,
+            b.index() * k,
+            self.cell_width,
+            self.cell_height,
+        );
+    }
+
+    /// [`Paint::erase_images`] for the cells of `[a, b)` that `kept` leaves
+    /// out, a run at a time: a protected position a selective erase spares,
+    /// a guarded one ERM spares.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn erase_images_where(
+        &mut self,
+        r: Row,
+        a: Col,
+        b: Col,
+        kept: impl Fn(PackedCell) -> bool,
+    ) {
+        if !self.images.any_placed() {
+            return;
+        }
+        let mut x = a.index();
+        while x < b.index() {
+            if kept(self.view.get(r, Col::at_index(x))) {
+                x += 1;
+                continue;
+            }
+            let start = x;
+            while x < b.index() && !kept(self.view.get(r, Col::at_index(x))) {
+                x += 1;
+            }
+            self.erase_images_on(r, Col::at_index(start), Col::at_index(x));
+        }
+    }
+
     /// Free any Sixel a write at the cursor's row over columns `[col0, col1)`
     /// lands on -- text over an image erases it, which is how a previewer
     /// replaces one preview with the next. Without it a previewer's images
