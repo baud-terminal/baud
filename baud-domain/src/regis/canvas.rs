@@ -484,6 +484,51 @@ impl<'a> RegisCanvas<'a> {
         });
     }
 
+    /// **The page's pixels moved `by`**, every plane -- the
+    /// foreground mask "does not affect ... those planes which can be moved
+    /// by screen scrolling (S[])" (§ 8.7.2.4.2.1) -- and what the move
+    /// reveals written in `bg`: data "moved off and erased from the display
+    /// medium" (§ 8.8.1.1), erasing being writing the background (Jev's
+    /// lean, BACKGROUND, 0.48 and 0.64 on a second ask). Neither the clip
+    /// nor a mask holds it back; the whole page is marked drawn, so the
+    /// caller repaints it and recounts what is lit.
+    pub fn scroll(&mut self, by: RegisShift, bg: RegisIndex) {
+        let (dx, dy) = (by.dx, by.dy);
+        let (w, h, stride) = (self.w, self.h, self.stride);
+        let fill = WRITTEN | (bg.raw() & 0x0f);
+        let one = |plane: &mut [u8], y: i32| {
+            let at = y as usize * stride;
+            let sy = i64::from(y) - i64::from(dy);
+            let n = i64::from(w) - i64::from(dx).abs();
+            if sy < 0 || sy >= i64::from(h) || n <= 0 {
+                plane[at..at + w as usize].fill(fill);
+                return;
+            }
+            let (n, from) = (n as usize, sy as usize * stride);
+            if dx >= 0 {
+                let dx = dx as usize;
+                plane.copy_within(from..from + n, at + dx);
+                plane[at..at + dx].fill(fill);
+            } else {
+                let dx = dx.unsigned_abs() as usize;
+                plane.copy_within(from + dx..from + dx + n, at);
+                plane[at + n..at + w as usize].fill(fill);
+            }
+        };
+        // Rows taken from above are written from the bottom, and the other
+        // way, so each is read before it is written.
+        match dy > 0 {
+            true => (0..h).rev().for_each(|y| one(self.plane, y)),
+            false => (0..h).for_each(|y| one(self.plane, y)),
+        }
+        self.mark(RegisRect {
+            x0: 0,
+            y0: 0,
+            x1: w,
+            y1: h,
+        });
+    }
+
     /// A rectangle back to clear: what text written over the page leaves.
     pub fn clear(&mut self, r: RegisRect) {
         let r = RegisRect {

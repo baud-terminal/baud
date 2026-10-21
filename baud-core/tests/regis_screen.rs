@@ -1,7 +1,8 @@
 //! **ReGIS's screen and writing controls from the Open Extensions, pixel
 //! for pixel, against `[[source: dec-std-070]]` 070-8 § 8.8.**
 //!
-//! The clip rectangle (§ 8.8.1.4.6) and the line width (§ 8.8.3.2). Pixels are read back from the page and
+//! The clip rectangle (§ 8.8.1.4.6), the line width (§ 8.8.3.2) and
+//! the screen's scroll (§ 8.8.1.1, § 8.8.1.2). Pixels are read back from the page and
 //! compared to pixels worked out from the text, never from another
 //! terminal's output; with no cell size the page is the VT340's 800 by 480,
 //! a coordinate a pixel.
@@ -463,4 +464,158 @@ fn moved_rows_keep_no_marks() {
             String::from_utf8_lossy(moves)
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// `S[x,y]` and `S<pv>`, 070-8 § 8.8.1.1: under the scrolling model "position
+// arguments specify an address in the display address space which will
+// become the new origin".
+// ---------------------------------------------------------------------------
+
+/// The page's pixel at `(x, y)` after `bytes`.
+fn at(bytes: &[u8], pts: &[(usize, usize)]) -> Vec<u32> {
+    let mut out = Vec::new();
+    run(bytes, |t| {
+        let (px, w) = page(t);
+        out = pts.iter().map(|&(x, y)| px[y * w + x]).collect();
+    });
+    out
+}
+
+const LINE: &[u8] = b"\x1bPpP[100,100]V[110,100]";
+const GRAY: u32 = 0xff87_8787;
+const CLEAR: u32 = 0;
+
+fn scrolled(scroll: &[u8]) -> Vec<(usize, usize)> {
+    let mut b = LINE.to_vec();
+    b.extend_from_slice(scroll);
+    b.extend_from_slice(b"\x1b\\");
+    let mut v = Vec::new();
+    run(&b, |t| {
+        let (px, w) = page(t);
+        v = px
+            .iter()
+            .enumerate()
+            .filter(|(_, &c)| c == GRAY)
+            .map(|(i, _)| (i % w, i / w))
+            .collect();
+    });
+    v
+}
+
+/// "The position you specify becomes the new upper-left corner of the
+/// screen" (`[[source: vt3xx-screen-control]]`): the data move left and up
+/// by the address's distance from the origin, and what they reveal is the
+/// background, "moved off and erased from the display medium" (Jev's lean,
+/// BACKGROUND).
+#[test]
+fn a_scroll_moves_the_page_and_reveals_the_background() {
+    assert_eq!(scrolled(b"S[+50,+20]"), row(80, 50..=60));
+    let px = at(
+        b"\x1bPpP[100,100]V[110,100]S[+50,+20]\x1b\\",
+        &[
+            (100, 100),
+            (0, 0),
+            (749, 459),
+            (750, 0),
+            (799, 459),
+            (0, 460),
+            (799, 479),
+        ],
+    );
+    assert_eq!(px, vec![CLEAR, CLEAR, CLEAR, BLACK, BLACK, BLACK, BLACK]);
+    // The other way: the data move right and down, the left and top
+    // revealed.
+    assert_eq!(scrolled(b"S[-50,-20]"), row(120, 150..=160));
+    let px = at(
+        b"\x1bPpP[100,100]V[110,100]S[-50,-20]\x1b\\",
+        &[(49, 300), (50, 300), (300, 19), (300, 20)],
+    );
+    assert_eq!(px, vec![BLACK, CLEAR, BLACK, CLEAR]);
+}
+
+/// A relative part and an omitted one are measured from the origin, the
+/// address at the screen's upper-left, so the drawing position does not
+/// matter, an absolute part is the address itself, and an omitted part
+/// moves nothing (Jev's lean, FROM_ORIGIN).
+#[test]
+fn a_scroll_is_measured_from_the_origin() {
+    let want = row(80, 50..=60);
+    assert_eq!(scrolled(b"S[50,20]"), want);
+    assert_eq!(scrolled(b"P[300,300]S[+50,+20]"), want);
+    assert_eq!(scrolled(b"S[,+20]"), row(80, 100..=110));
+    assert_eq!(scrolled(b"S[+50]"), row(100, 50..=60));
+    // In a space whose origin is [200,100], [250,120] is fifty units on.
+    assert_eq!(
+        scrolled(b"S(A[200,100][999,579])S[250,120]"),
+        row(80, 50..=60)
+    );
+    // An inverted space: +X is leftward, so the origin fifty units on moves
+    // the data right.
+    assert_eq!(
+        scrolled(b"S(A[799,0][0,479])S[+50,+0]"),
+        row(100, 150..=160)
+    );
+}
+
+/// "Numeric arguments to the Screen control command are treated as pixel
+/// vector specifiers ... executed as a relative bracketed position
+/// argument" (§ 8.8.1.2), at the multiplier `S(W(M))` sets, "the
+/// granularity of the display motion" (§ 8.8.1.4.8); each digit a scroll.
+#[test]
+fn a_pixel_vector_scrolls_a_step_at_the_multiplier() {
+    // Pixel vector 0 is to the right: the origin a pixel right, the data a
+    // pixel left.
+    assert_eq!(scrolled(b"S0"), row(100, 99..=109));
+    assert_eq!(scrolled(b"S00"), row(100, 98..=108));
+    assert_eq!(scrolled(b"S(W(M10))6"), row(90, 100..=110));
+    // The temporary multiplier lasts its command.
+    assert_eq!(scrolled(b"S(W(M10))6S6"), row(89, 100..=110));
+    // The persistent one is W(M)'s.
+    assert_eq!(scrolled(b"W(M5)S4"), row(100, 105..=115));
+}
+
+/// "complement the contents of the pixels present in the image": the
+/// indices move with the pixels, so complement over the moved line turns
+/// it back; the lit count is kept exactly; the drawing position does not
+/// move ("Does not change the coordinate system"); the clip does not hold
+/// the data back, "data that move out of the clip rectangle never
+/// disappear just because of movement out of the clipping rectangle"
+/// (§ 8.8.1.4.6 e).
+#[test]
+fn a_scroll_moves_the_indices_keeps_the_count_and_ignores_the_clip() {
+    run(
+        b"\x1bPpW(C)P[100,100]V[110,100]S[+50,+20]P[50,80]V[60,80]\x1b\\",
+        |t| {
+            let (px, w) = page(t);
+            assert!((50..=60).all(|x| px[80 * w + x] == BLACK), "15 back to 0");
+        },
+    );
+    run(
+        b"\x1bPpF(V[0,0][100,0][100,100][0,100])S[+30,+30]\x1b\\",
+        |t| {
+            let imgs = t.images();
+            let (_, p) = imgs.placements().next().unwrap();
+            let v = imgs.image(p.image).unwrap();
+            let n = v
+                .pixels
+                .iter()
+                .filter(|px| px.bits() != Pixel::CLEAR.bits())
+                .count();
+            assert_eq!(imgs.lit(p.image), u32::try_from(n).ok());
+        },
+    );
+    let mut r = Vec::new();
+    support::with_corpus(|t| {
+        support::feed(t, b"\x1bPpP[123,45]S[+50,+20]S3R(P)\x1b\\");
+        r = t.reply().to_vec();
+    });
+    assert_eq!(r, b"[123,45]\r");
+    assert_eq!(
+        scrolled(b"S(R[90,90][120,110]1)S[+50,+20]"),
+        row(80, 50..=60)
+    );
+    run(b"\x1bPpS[+5]S2\x1b\\", |t| {
+        assert_eq!(t.regis_counts().unbuilt, 0)
+    });
 }

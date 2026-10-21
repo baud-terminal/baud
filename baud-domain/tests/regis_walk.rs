@@ -74,6 +74,7 @@ impl RegisOut for Rec {
     }
     fn input_shown(&mut self) {}
     fn unmark(&mut self, _: RegisRect) {}
+    fn scroll(&mut self, _: baud_domain::RegisShift, _: RegisIndex) {}
 }
 
 fn run(body: &[u8]) -> (Box<Regis>, Rec) {

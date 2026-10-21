@@ -363,6 +363,14 @@ pub struct RegisPen {
     pub width: u16,
 }
 
+/// How far a scroll moves the page's pixels, in page pixels: right and
+/// down for positive values.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RegisShift {
+    pub dx: i32,
+    pub dy: i32,
+}
+
 /// **The widest line, in page pixels**: the width field's largest.
 /// § 8.8.3.2 names no limit -- "W(L2) sets a width twice the nominal
 /// width, W(L3) three times, and so on" -- and none is set short of the
@@ -495,6 +503,9 @@ pub trait RegisOut {
     fn glyph(&mut self, g: &RegisGlyph<'_>, pen: &RegisPen);
     /// `S(E)`: the whole page to `bg`.
     fn erase(&mut self, bg: RegisIndex);
+    /// `S[]` or `S<pv>`, the scrolling model (§ 8.8.1.1): the page's
+    /// pixels moved `by`, what they reveal `bg`.
+    fn scroll(&mut self, by: RegisShift, bg: RegisIndex);
     /// An output map entry changed: every pixel holding it shows the new
     /// colour.
     fn recolor(&mut self);

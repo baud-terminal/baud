@@ -657,6 +657,10 @@ impl RegisOut for Out<'_, '_> {
         self.draw(|c| c.erase(bg));
     }
 
+    fn scroll(&mut self, by: RegisShift, bg: RegisIndex) {
+        self.draw(|c| c.scroll(by, bg));
+    }
+
     fn recolor(&mut self) {
         self.recolor = Recolor::Yes;
     }

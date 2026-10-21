@@ -49,7 +49,7 @@ pub struct RegisCounts {
     /// maintained" (§ 8.5.1.4.1).
     pub space_refused: u32,
     /// Open Extensions (§ 8.8) this interpreter parses and does not act
-    /// on: scrolling, hard copy, scaling, data movement, drawing surfaces
+    /// on: hard copy, scaling, data movement, drawing surfaces
     /// (`P(P)`, the VT340's `S(P)`), blink, microcoded writing, flood; and
     /// `S(N)`, which no DEC text here defines.
     pub unbuilt: u32,
@@ -1066,7 +1066,16 @@ impl Sem {
                 self.command_point(own, Dest::of(base), to, out);
             }
             b'T' => self.text_vector(v),
-            // `S<pv>` scrolls and `F<pv>` floods: Open Extensions.
+            // "Numeric arguments to the Screen control command are treated
+            // as pixel vector specifiers ... executed as a relative
+            // bracketed position argument" (§ 8.8.1.2), at the multiplier
+            // `S(W(M))` sets.
+            b'S' => {
+                let o = self.origin();
+                let step = self.pv_step(v, self.tw.pv);
+                self.scroll_to((o.0.plus(step.0), o.1.plus(step.1)), out);
+            }
+            // `F<pv>` floods: an Open Extension.
             _ => self.counts.unbuilt += 1,
         }
     }
@@ -1181,10 +1190,44 @@ impl Sem {
                 self.text.esc = (v(e.x), v(e.y));
             }
             b'L' => self.load_size(e),
-            // `S[]` scrolls and `F[]` floods: Open Extensions.
-            b'S' | b'F' => self.counts.unbuilt += 1,
+            b'S' => {
+                let o = self.origin();
+                self.scroll_to((e.x.from(o.0), e.y.from(o.1)), out);
+            }
+            // `F[]` floods: an Open Extension.
+            b'F' => self.counts.unbuilt += 1,
             _ => {}
         }
+    }
+
+    /// The display's origin, the address at the screen's upper-left: under
+    /// the scrolling model "display addressing and the display" are coupled
+    /// (§ 8.8.1 b), so it is `S(A)`'s first corner whatever has scrolled.
+    fn origin(&self) -> Pt {
+        (self.space.x1, self.space.y1)
+    }
+
+    /// **`S[]` and `S<pv>`, the scrolling model** (§ 8.8.1.1): "position
+    /// arguments specify an address in the display address space which will
+    /// become the new origin", the data moving and the addresses not --
+    /// "Only the data is offset, not the coordinate system"
+    /// (`[[source: vt3xx-screen-control]]`). The page moves by the origin's
+    /// pixel less the address's, rounded as drawing rounds. A relative or
+    /// omitted part is measured from the origin, not the drawing position
+    /// (Jev's lean, FROM_ORIGIN, 0.86 and 0.88 on a second ask): the
+    /// VT340's "The image moves relative to the screen origin", and
+    /// § 8.8.1.4.8's multiplier setting "the granularity of the display
+    /// motion". The drawing position stays; the line before no longer
+    /// joins the next, its end having moved.
+    fn scroll_to(&mut self, to: Pt, out: &mut dyn RegisOut) {
+        let (o, t) = (self.device(self.origin()), self.device(to));
+        let (dx, dy) = (o.x.saturating_sub(t.x), o.y.saturating_sub(t.y));
+        if dx == 0 && dy == 0 {
+            return;
+        }
+        self.end_stroke(out);
+        self.last_end = None;
+        out.scroll(RegisShift { dx, dy }, self.bg);
     }
 
     /// A corner of `S(R[][])`, resolved as it comes: "positional
