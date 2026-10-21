@@ -8,8 +8,8 @@
 
 use baud_domain::Regis;
 use baud_domain::{
-    GlyphSource, LineSpan, RegisEntry, RegisGlyph, RegisIndex, RegisNum, RegisOut, RegisPen,
-    RegisPoint, RegisRect, RegisTicks, StreamByte, WriteMode,
+    GlyphSource, LineSpan, RegisBound, RegisEntry, RegisGlyph, RegisIndex, RegisNum, RegisOut,
+    RegisPen, RegisPoint, RegisRect, RegisTicks, StreamByte, WriteMode,
 };
 use proptest::prelude::*;
 
@@ -17,6 +17,7 @@ use proptest::prelude::*;
 enum Op {
     Line(RegisPoint, RegisPoint),
     Fill(Vec<RegisPoint>, Vec<u16>),
+    Flood(RegisPoint, RegisBound),
     Glyph(Glyph, RegisPoint, (i32, i32)),
     Erase(RegisIndex),
     Recolor,
@@ -46,6 +47,10 @@ impl RegisOut for Rec {
     }
     fn fill(&mut self, points: &[RegisPoint], ends: &[u16], pen: &RegisPen) {
         self.ops.push(Op::Fill(points.to_vec(), ends.to_vec()));
+        self.pens.push(*pen);
+    }
+    fn flood(&mut self, seed: RegisPoint, bound: RegisBound, pen: &RegisPen) {
+        self.ops.push(Op::Flood(seed, bound));
         self.pens.push(*pen);
     }
     fn glyph(&mut self, g: &RegisGlyph<'_>, pen: &RegisPen) {
@@ -1025,4 +1030,36 @@ proptest! {
         prop_assert!(rec.ops.len() < 1_000_000);
         prop_assert!(r.macro_free() <= 10_000);
     }
+}
+
+#[test]
+fn flood_seeds_accumulate_and_the_position_stays() {
+    // `[10,20][+5]` is 15,20 (§ 8.4.5.1); a flood "does not change" the
+    // drawing position (§ 8.8.6.1).
+    let (r, rec) = run(b"P[100,100]F[+10,+10][+5]0");
+    let floods: Vec<_> = rec
+        .ops
+        .iter()
+        .filter_map(|o| match o {
+            Op::Flood(p, b) => Some((*p, *b)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        floods,
+        vec![
+            (pt(110, 110), RegisBound::Seed),
+            (pt(115, 110), RegisBound::Seed),
+            (pt(116, 110), RegisBound::Seed),
+        ]
+    );
+    assert_eq!(at(&r), (100, 100));
+    // A new instruction measures from the drawing position again.
+    let (_, rec) = run(b"P[100,100]F[+10]F[+10]");
+    let n = rec
+        .ops
+        .iter()
+        .filter(|o| matches!(o, Op::Flood(p, _) if *p == pt(110, 100)))
+        .count();
+    assert_eq!(n, 2);
 }

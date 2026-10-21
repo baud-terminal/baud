@@ -474,6 +474,194 @@ impl<'a> RegisCanvas<'a> {
         }
     }
 
+    /// **A flood from `seed`** (070-8 § 8.8.6): every pixel joined to the
+    /// seed, side by side, through pixels `bound` lets it spread over is
+    /// written with the area texture, the last shading snapshot (§ 8.8.6.4)
+    /// as polygon fill takes it, in the writing mode and foreground in
+    /// force. "The flooded area does not include the boundary", and "A
+    /// boundary need only be connected by diagonally adjacent pixels to
+    /// define closure for Floods", so the flood never steps diagonally.
+    /// The clip limits what is written, not where the flood spreads (Jev's
+    /// lean, WRITES_ONLY, 0.62 and 0.74 on a second ask).
+    ///
+    /// **A pixel the flood has reached carries [`MARK`] until it ends**, so
+    /// each is written once whatever the writing makes of its index, and a
+    /// row is spread into only beside a reached pixel of the row it was
+    /// reached from. `stack` holds rows still to spread into, a range of
+    /// each ([`RegisSpan`]): what a span fills spreads on as one range over
+    /// the row above and one over the row below, each from the first to the
+    /// last column found open beside it, so a row of many short runs costs
+    /// one entry a side and none where nothing is open. Once the stack is full
+    /// the flood goes on by sweeps for an unreached pixel beside a reached
+    /// one, so a stack of any size floods the same pixels.
+    pub fn flood(
+        &mut self,
+        seed: RegisPoint,
+        bound: RegisBound,
+        pen: &RegisPen,
+        stack: &mut [RegisSpan],
+    ) {
+        let (w, h) = (self.w, self.h);
+        if seed.x < 0 || seed.y < 0 || seed.x >= w || seed.y >= h || stack.is_empty() {
+            return;
+        }
+        let s = self.plane[self.at(seed.x, seed.y)] & 0x0f;
+        let bg = pen.bg.raw();
+        let inside = |v: u8| match bound {
+            RegisBound::Seed => v == s,
+            RegisBound::Background => (v == bg) == (s == bg),
+            RegisBound::Index(n) => v != n.raw(),
+        };
+        let open = |c: &RegisCanvas<'_>, x: i32, y: i32| {
+            if x < 0 || y < 0 || x >= w || y >= h {
+                return false;
+            }
+            let b = c.plane[c.at(x, y)];
+            b & MARK == 0 && inside(b & 0x0f)
+        };
+        let marked = |c: &RegisCanvas<'_>, x: i32, y: i32| {
+            x >= 0 && y >= 0 && x < w && y < h && c.plane[c.at(x, y)] & MARK != 0
+        };
+        if !open(self, seed.x, seed.y) {
+            return;
+        }
+        let tex = pen.shade.map_or(Texture::Solid, |(_, t)| t);
+        let mut q = Spans {
+            stack,
+            n: 0,
+            full: Spill::No,
+        };
+        q.push(RegisSpan::seed(seed));
+        // Whether the stack has ever been full, the sweeps under way; where
+        // the last sweep stopped; whether this pass of them found a seed.
+        let mut sweeping = Spill::No;
+        let mut at: Option<RegisPoint> = None;
+        let mut found = Spill::No;
+        let mut reached: Option<RegisRect> = None;
+        loop {
+            while let Some(e) = q.pop() {
+                let y = e.y;
+                if y < 0 || y >= h {
+                    continue;
+                }
+                let source = e.from.parent(y);
+                // What of the rows above and below is open beside the runs
+                // this span fills, each as one range.
+                let (mut up, mut down) = (Range::NONE, Range::NONE);
+                let mut x = e.x0.max(0);
+                while x <= e.x1.min(w - 1) {
+                    let starts = open(self, x, y) && source.is_none_or(|sy| marked(self, x, sy));
+                    if !starts {
+                        x += 1;
+                        continue;
+                    }
+                    let (mut l, mut r) = (x, x);
+                    while open(self, l - 1, y) {
+                        l -= 1;
+                    }
+                    while open(self, r + 1, y) {
+                        r += 1;
+                    }
+                    for xx in l..=r {
+                        let on = Self::texture_on(&tex, xx, y, true, pen);
+                        self.put(xx, y, on, pen);
+                        let i = self.at(xx, y);
+                        self.plane[i] |= MARK;
+                        if open(self, xx, y - 1) {
+                            up = up.with(xx);
+                        }
+                        if open(self, xx, y + 1) {
+                            down = down.with(xx);
+                        }
+                    }
+                    let run = RegisRect {
+                        x0: l,
+                        y0: y,
+                        x1: r + 1,
+                        y1: y + 1,
+                    };
+                    reached = Some(reached.map_or(run, |o| o.union(run)));
+                    x = r + 1;
+                }
+                if let Some((x0, x1)) = up.get() {
+                    q.push(RegisSpan {
+                        y: y - 1,
+                        x0,
+                        x1,
+                        from: SpanFrom::Below,
+                    });
+                }
+                if let Some((x0, x1)) = down.get() {
+                    q.push(RegisSpan {
+                        y: y + 1,
+                        x0,
+                        x1,
+                        from: SpanFrom::Above,
+                    });
+                }
+            }
+            let Some(r) = reached else {
+                break;
+            };
+            if q.full == Spill::Yes {
+                q.full = Spill::No;
+                sweeping = Spill::Yes;
+            }
+            if sweeping == Spill::No {
+                break;
+            }
+            // **A sweep for an unreached pixel beside a reached one**,
+            // resumed where the last stopped, each one found a seed until
+            // the stack is full again; it ends once a pass over everything
+            // reached, from its top, finds none.
+            let (x0, x1) = ((r.x0 - 1).max(0), (r.x1 + 1).min(w));
+            let (y0, y1) = ((r.y0 - 1).max(0), (r.y1 + 1).min(h));
+            let (mut x, mut y) = match at {
+                Some(p) if p.y >= y0 => (p.x.max(x0), p.y),
+                _ => (x0, y0),
+            };
+            loop {
+                if x >= x1 {
+                    x = x0;
+                    y += 1;
+                }
+                if y >= y1 {
+                    if found == Spill::No {
+                        break;
+                    }
+                    found = Spill::No;
+                    (x, y) = (x0, y0);
+                    continue;
+                }
+                if open(self, x, y)
+                    && (marked(self, x - 1, y)
+                        || marked(self, x + 1, y)
+                        || marked(self, x, y - 1)
+                        || marked(self, x, y + 1))
+                {
+                    q.push(RegisSpan::seed(RegisPoint { x, y }));
+                    found = Spill::Yes;
+                }
+                x += 1;
+                if q.n == q.stack.len() {
+                    break;
+                }
+            }
+            at = Some(RegisPoint { x, y });
+            if q.n == 0 {
+                break;
+            }
+        }
+        if let Some(r) = reached {
+            self.unmark(r);
+        }
+    }
+
+    /// The byte of pixel `(x, y)`, which must be on the page.
+    fn at(&self, x: i32, y: i32) -> usize {
+        y as usize * self.stride + x as usize
+    }
+
     /// `S(E)`: every pixel the background, whatever the mask -- "The screen
     /// erase command erases all planes, regardless of the plane select
     /// control setting" (`[[source: vt3xx-write-control]]`).
@@ -802,4 +990,109 @@ fn div_floor(a: i64, b: i64) -> i64 {
 
 fn div_ceil(a: i64, b: i64) -> i64 {
     -div_floor(-a, b)
+}
+
+/// **A row a flood is still to spread into**: row `y` from `x0` to `x1`,
+/// spread into only beside a reached pixel of the row it was reached from,
+/// or anywhere open for a seed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct RegisSpan {
+    pub y: i32,
+    pub x0: i32,
+    pub x1: i32,
+    pub from: SpanFrom,
+}
+
+impl RegisSpan {
+    /// A seed: one pixel, spread from whatever is beside it.
+    fn seed(p: RegisPoint) -> RegisSpan {
+        RegisSpan {
+            y: p.y,
+            x0: p.x,
+            x1: p.x,
+            from: SpanFrom::Seed,
+        }
+    }
+}
+
+/// The row a [`RegisSpan`] was reached from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SpanFrom {
+    /// None: a seed.
+    #[default]
+    Seed,
+    /// The row above.
+    Above,
+    /// The row below.
+    Below,
+}
+
+impl SpanFrom {
+    /// The row reached from, for a span on row `y`.
+    fn parent(self, y: i32) -> Option<i32> {
+        match self {
+            SpanFrom::Seed => None,
+            SpanFrom::Above => Some(y - 1),
+            SpanFrom::Below => Some(y + 1),
+        }
+    }
+}
+
+/// The columns of a row a flood found open beside what it filled: from
+/// the first to the last, empty while none.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Range {
+    x0: i32,
+    x1: i32,
+}
+
+impl Range {
+    const NONE: Range = Range {
+        x0: i32::MAX,
+        x1: i32::MIN,
+    };
+
+    fn with(self, x: i32) -> Range {
+        Range {
+            x0: self.x0.min(x),
+            x1: self.x1.max(x),
+        }
+    }
+
+    fn get(self) -> Option<(i32, i32)> {
+        (self.x0 <= self.x1).then_some((self.x0, self.x1))
+    }
+}
+
+/// A flood's stack of spans, lent, and whether a push has found it full.
+struct Spans<'s> {
+    stack: &'s mut [RegisSpan],
+    n: usize,
+    full: Spill,
+}
+
+impl Spans<'_> {
+    /// One more span, or the stack full and it dropped, for the sweeps.
+    fn push(&mut self, e: RegisSpan) {
+        match self.stack.get_mut(self.n) {
+            Some(slot) => {
+                *slot = e;
+                self.n += 1;
+            }
+            None => self.full = Spill::Yes,
+        }
+    }
+
+    fn pop(&mut self) -> Option<RegisSpan> {
+        self.n = self.n.checked_sub(1)?;
+        Some(self.stack[self.n])
+    }
+}
+
+/// Whether a flood's stack has filled, its sweeps are under way, or a pass
+/// of them found a seed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Spill {
+    No,
+    Yes,
 }

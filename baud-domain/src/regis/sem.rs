@@ -50,7 +50,7 @@ pub struct RegisCounts {
     pub space_refused: u32,
     /// Open Extensions (§ 8.8) this interpreter parses and does not act
     /// on: data movement, drawing surfaces (`P(P)`, the VT340's `S(P)`),
-    /// blink, flood; and `S(N)`, which no DEC text here defines.
+    /// blink; and `S(N)`, which no DEC text here defines.
     pub unbuilt: u32,
     /// Characters no grammar position takes, and keyletters no instruction
     /// names (error 1).
@@ -653,6 +653,11 @@ pub(crate) struct Sem {
     pub(crate) zoom: RegisZoom,
     /// `S(H(P[x,y]))`'s offset, kept until the next or a valid `S(A)`.
     pub(crate) hard_offset: RegisOffset,
+    /// What bounds a flood, `F(B)` (§ 8.8.6.3.1.1).
+    bound: RegisBound,
+    /// The instruction's last flood seed, which a relative seed after it
+    /// is measured from.
+    seed: Option<Pt>,
 }
 
 impl Sem {
@@ -722,6 +727,8 @@ impl Sem {
         stroke_end: None,
         zoom: RegisZoom::ONE,
         hard_offset: RegisOffset::ZERO,
+        bound: RegisBound::Seed,
+        seed: None,
     };
 
     /// Record an error for `R(E)`: "Only the most recent error code is kept"
@@ -1092,8 +1099,12 @@ impl Sem {
                 let step = self.pv_step(v, self.tw.pv);
                 self.scroll_to((o.0.plus(step.0), o.1.plus(step.1)), out);
             }
-            // `F<pv>` floods: an Open Extension.
-            _ => self.counts.unbuilt += 1,
+            // `F<pv>`: a seed a pixel vector step from the last.
+            _ => {
+                let from = self.seed.unwrap_or(self.pos);
+                let step = self.pv_step(v, self.tw.pv);
+                self.flood_seed((from.0.plus(step.0), from.1.plus(step.1)), out);
+            }
         }
     }
 
@@ -1157,6 +1168,7 @@ impl Sem {
     fn begin_command(&mut self, k: u8) {
         self.frames[0] = Frame::keyed(k);
         self.tw = self.write;
+        self.seed = None;
         self.phase = 0;
         self.arc = None;
         self.circumferential = On::No;
@@ -1211,8 +1223,10 @@ impl Sem {
                 let o = self.origin();
                 self.scroll_to((e.x.from(o.0), e.y.from(o.1)), out);
             }
-            // `F[]` floods: an Open Extension.
-            b'F' => self.counts.unbuilt += 1,
+            b'F' => {
+                let from = self.seed.unwrap_or(self.pos);
+                self.flood_seed((e.x.from(from.0), e.y.from(from.1)), out);
+            }
             _ => {}
         }
     }
@@ -2053,8 +2067,9 @@ impl Sem {
         let (own, base) = self.owner(d - 1);
         let r = d - 1 - base;
         let under_w = own == b'W' || (r >= 2 && self.frames[base + 1].key == b'W');
+        let flood = own == b'F' && r == 2 && self.frames[base + 1].key == b'B';
         match parent {
-            b'I' => under_w || (own == b'S' && r == 1),
+            b'I' => under_w || (own == b'S' && r == 1) || flood,
             b'M' => own == b'S' && r == 1,
             _ => false,
         }
@@ -2470,6 +2485,9 @@ impl Sem {
         // 1" (h).
         self.clip = Clip::of(self.space);
         self.zoom = RegisZoom::ONE;
+        // "This default is restored upon execution of a valid S(A)"
+        // (§ 8.8.6.3.1.1).
+        self.bound = RegisBound::Seed;
     }
 
     /// `S(C ...)` (§ 8.8.1.4.2): at the `C` itself a number turns the
@@ -3049,18 +3067,51 @@ impl Sem {
     }
 
     fn fill_option(&mut self, f: &Frame, r: usize, d: usize, out: &mut dyn RegisOut) {
-        let _ = (d, out);
+        let _ = out;
+        let parent = self.frames[d - 1].key;
         match (r, f.key) {
             // The edges' keys end their contour; the vertices came as they
             // were given.
             (1, b'V' | b'P' | b'C') => {}
             (1, b'F') => {}
             (1, b'W') => {}
-            // `F(B)`, flood's boundary: an Open Extension.
-            (1, b'B') => self.counts.unbuilt += 1,
+            // `F(B ...)`, flood's boundary, kept until the next or a valid
+            // `S(A)`: "The border of the flooding operation is as
+            // determined by the last previous F(B()) encountered".
+            (1, b'B') => {}
+            (2, b'F') if parent == b'B' => match f.int() {
+                Some(0) => self.bound = RegisBound::Background,
+                Some(1) | None => self.bound = RegisBound::Seed,
+                Some(_) => self.error(1, f.key),
+            },
+            (2, b'I') if parent == b'B' => {
+                if let Some(c) = f.color() {
+                    if let Some(px) = c.pixel() {
+                        self.bound = RegisBound::Index(regis_closest(&self.map, px));
+                    }
+                } else if let Some(n) = f.int() {
+                    self.bound = RegisBound::Index(RegisIndex::wrap(n));
+                }
+            }
             (1, k) => self.error(1, k),
             _ => {}
         }
+    }
+
+    /// **A flood's seed** (§ 8.8.6.1): "If more than one specifier is
+    /// given, each is executed in turn", a relative part measured from the
+    /// seed before it and the first from the drawing position, as
+    /// "multiple specifiers have cumulative action" (§ 8.4.5.1; Jev's lean,
+    /// CUMULATIVE, 0.42 and 0.46 on a second ask); "The current position
+    /// does not change as the result of any flood operations". The pen is
+    /// a fill's, the texture the last shading snapshot, "even if shading
+    /// has been subsequently disabled by W(S0)" (§ 8.8.6.4).
+    fn flood_seed(&mut self, at: Pt, out: &mut dyn RegisOut) {
+        self.seed = Some(at);
+        self.end_stroke(out);
+        let pen = self.fill_pen();
+        out.flood(self.device(at), self.bound, &pen);
+        self.last_end = None;
     }
 
     /// The `(` after `F` opens a fill: the position saved, "and restored at

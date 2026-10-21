@@ -140,3 +140,150 @@ fn an_entry_over_index_zero_writes_a_clear_pixel_too() {
         assert_ne!(Pixel::CLEAR.bits(), BLACK);
     });
 }
+
+const RED: u32 = 0xffcc_2121;
+const GRAY80: u32 = 0xffcc_cccc;
+
+/// The pixel at `(x, y)`.
+fn at(t: &Term<'_>, x: usize, y: usize) -> u32 {
+    let (px, w) = page(t);
+    px[y * w + x]
+}
+
+/// A square's outline in the foreground, `[10,10]` to `[30,30]`.
+const BOX: &[u8] = b"P[10,10]V[30,10][30,30][10,30][10,10]";
+
+#[test]
+fn a_flood_fills_the_closed_area_and_not_its_boundary() {
+    let bytes = regis(&[BOX, b"W(I2)F[20,20]"]);
+    run(&bytes, |t| {
+        for y in 9..32 {
+            for x in 9..32 {
+                let edge = (x == 10 || x == 30) && (10..=30).contains(&y)
+                    || (y == 10 || y == 30) && (10..=30).contains(&x);
+                let inside = (11..30).contains(&x) && (11..30).contains(&y);
+                let want = match (edge, inside) {
+                    (true, _) => GRAY50,
+                    (_, true) => RED,
+                    _ => CLEAR,
+                };
+                assert_eq!(at(t, x, y), want, "({x},{y})");
+            }
+        }
+        assert_eq!(t.regis_counts().unbuilt, 0, "the flood is built");
+    });
+}
+
+#[test]
+fn a_diagonal_boundary_closes_the_flood() {
+    // A diamond of diagonal lines, its pixels joined only corner to
+    // corner: "A boundary need only be connected by diagonally adjacent
+    // pixels to define closure".
+    let bytes = regis(&[b"P[20,0]V[40,20][20,40][0,20][20,0]W(I2)F[20,20]"]);
+    run(&bytes, |t| {
+        assert_eq!(at(t, 20, 20), RED);
+        assert_eq!(at(t, 20, 2), RED, "the top's inside");
+        for (x, y) in [(0, 0), (40, 0), (0, 40), (40, 40), (5, 5), (35, 35)] {
+            assert_eq!(at(t, x, y), CLEAR, "({x},{y}) outside");
+        }
+    });
+}
+
+#[test]
+fn f1_floods_the_seed_s_index_and_f0_the_seed_s_state() {
+    // A red line on row 5 and a blue one under it on row 6, both
+    // foreground. F1, the default, floods the red alone; F0 every
+    // foreground joined to the seed, and neither the background.
+    let lines: &[u8] = b"W(I2)P[0,5]V[9,5]W(I1)P[0,6]V[9,6]W(I3)";
+    let bytes = regis(&[lines, b"F[0,5]"]);
+    run(&bytes, |t| {
+        assert_eq!(row(t, 5, 0, 10), n_of(10, GREEN));
+        assert_eq!(row(t, 6, 0, 10), n_of(10, BLUE));
+        assert_eq!(at(t, 0, 4), CLEAR);
+    });
+    let bytes = regis(&[lines, b"F(B(F0))[0,5]"]);
+    run(&bytes, |t| {
+        assert_eq!(row(t, 5, 0, 10), n_of(10, GREEN));
+        assert_eq!(row(t, 6, 0, 10), n_of(10, GREEN));
+        assert_eq!(at(t, 0, 4), CLEAR);
+        assert_eq!(at(t, 10, 5), CLEAR);
+    });
+    // From the background under F0: the background, up to any foreground.
+    let bytes = regis(&[BOX, b"W(I1)P[20,20]V[25,20]W(I2)F(B(F0))[12,12]"]);
+    run(&bytes, |t| {
+        assert_eq!(at(t, 12, 12), RED);
+        assert_eq!(at(t, 22, 20), BLUE, "a foreground line inside stays");
+        assert_eq!(at(t, 10, 10), GRAY50);
+        assert_eq!(at(t, 5, 5), CLEAR);
+    });
+}
+
+#[test]
+fn f_b_i_floods_up_to_the_named_index() {
+    // A red outline, a blue line across its inside: bounded by index 2,
+    // the flood takes the background and the blue alike.
+    let body: &[u8] = b"W(I2)P[10,10]V[30,10][30,30][10,30][10,10]W(I1)P[11,20]V[29,20]W(I3)";
+    for bound in [&b"F(B(I2))"[..], b"F(B(I(R)))"] {
+        let bytes = regis(&[body, bound, b"[15,15]"]);
+        run(&bytes, |t| {
+            assert_eq!(at(t, 15, 15), GREEN, "{bound:?}");
+            assert_eq!(at(t, 20, 20), GREEN, "{bound:?}: the blue line");
+            assert_eq!(at(t, 15, 25), GREEN, "{bound:?}: below the line");
+            assert_eq!(at(t, 10, 10), RED, "{bound:?}");
+            assert_eq!(at(t, 5, 5), CLEAR, "{bound:?}");
+        });
+    }
+    // The boundary is kept until the next and a valid S(A) restores F1.
+    let bytes = regis(&[body, b"F(B(I2))S(A[0,0][799,479])W(I3)F[15,15]"]);
+    run(&bytes, |t| {
+        assert_eq!(at(t, 15, 15), GREEN);
+        assert_eq!(at(t, 20, 20), BLUE, "F1: the seed's index only");
+    });
+}
+
+#[test]
+fn a_flood_writes_each_pixel_once() {
+    // Complement inside an outline bounded by index 7: index 0 becomes 15,
+    // itself not 7, so a flood that could reach a pixel twice would turn
+    // it back.
+    let bytes = regis(&[BOX, b"W(C)F(B(I7))[20,20]"]);
+    run(&bytes, |t| {
+        for (x, y) in [(11, 11), (20, 20), (29, 29)] {
+            assert_eq!(at(t, x, y), GRAY80, "({x},{y})");
+        }
+        assert_eq!(at(t, 10, 10), GRAY50);
+    });
+}
+
+#[test]
+fn the_texture_is_the_last_shading_snapshot() {
+    // W(P4,S1) snapshots 10101010 at multiplier 2 and W(S0) turns shading
+    // off; the flood is textured with it, registered to the page's rows,
+    // two on and two off. Overlay leaves the zeros.
+    let bytes = regis(&[BOX, b"W(P4,S1)W(S0,P1)W(I2)F[20,20]"]);
+    run(&bytes, |t| {
+        for y in 11..30 {
+            let want = match (y / 2) % 2 {
+                0 => RED,
+                _ => CLEAR,
+            };
+            assert_eq!(at(t, 20, y), want, "row {y}");
+        }
+    });
+}
+
+#[test]
+fn the_clip_limits_what_a_flood_writes_not_where_it_spreads() {
+    // An outline 0..40 split by a wall at x 20 open below row 30, and a
+    // clip over rows 0 to 25: the flood goes round below the wall, outside
+    // the clip, and writes the right half's rows inside it.
+    let body: &[u8] =
+        b"P[0,0]V[40,0][40,40][0,40][0,0]P[20,0]V[20,30]S(R1[0,0][40,25])W(I2)F[10,10]";
+    let bytes = regis(&[body]);
+    run(&bytes, |t| {
+        assert_eq!(at(t, 10, 10), RED);
+        assert_eq!(at(t, 30, 10), RED, "reached round the wall");
+        assert_eq!(at(t, 10, 35), CLEAR, "outside the clip");
+        assert_eq!(at(t, 30, 26), CLEAR, "outside the clip");
+    });
+}

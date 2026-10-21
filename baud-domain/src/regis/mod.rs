@@ -77,6 +77,10 @@ pub const MACRO_PLAYED: usize = 65_536;
 /// 16 positions in a stack", above § 8.4.5.4's "at least eight positions
 /// deep".
 pub const POSITION_STACK: usize = 16;
+/// **The rows a flood holds waiting to spread into**, a span each, on the
+/// caller's stack: past it the flood sweeps for the rest
+/// ([`RegisCanvas::flood`]), so it bounds memory and not what floods.
+pub const FLOOD_STACK: usize = 1024;
 
 /// What a `DCS Pn p` asks of the interpreter: § 8.9.1's two flags in `Pn`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -343,6 +347,34 @@ pub enum Texture {
     },
 }
 
+/// **What bounds a flood**, `F(B ...)` (070-8 § 8.8.6.3.1.1), read against
+/// the index each pixel holds, a pixel never written holding 0 as
+/// complement writing reads it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RegisBound {
+    /// `F(B(F0))`: "bounded by image areas represented by the background":
+    /// the flood spreads over the pixels in the seed's state, foreground or
+    /// background, as § 8.8.6.4 has the third way, "any change between the
+    /// foreground and the background state" (Jev's lean, SAME_STATE, 0.74
+    /// and 0.38 on a second ask).
+    Background,
+    /// `F(B(F1))`, the default: "any foreground setting different from the
+    /// seed value": the flood spreads over pixels holding the seed's index,
+    /// § 8.8.6.4's second way, "any change in attribute with respect to the
+    /// seed location attribute value" (Jev's lean, SEED_ONLY, 0.56 and then
+    /// SEED_OR_BACKGROUND at 0.08 in the other order, SEED_ONLY the more
+    /// probable averaged over the two, 0.62 against 0.38). **An open
+    /// departure, on the owner's veto list**: § 8.8.6.3.1.1 bounds `F1`
+    /// "by any foreground value different from the seed value, or any
+    /// foreground if the seed location has the background attribute",
+    /// which leaves the background open from a foreground seed; this
+    /// follows § 8.8.6.4 against that sentence.
+    Seed,
+    /// `F(B(I<n>))`: "bounded by parts of the image with the attribute so
+    /// specified".
+    Index(RegisIndex),
+}
+
 /// A bit of the pattern register, an area pattern or a character cell, as
 /// a write reads it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -596,6 +628,8 @@ pub trait RegisOut {
     /// A filled area: `points` in contours ending at each of `ends`, the
     /// interior by the even-odd rule (§ 8.5.8.4.1).
     fn fill(&mut self, points: &[RegisPoint], ends: &[u16], pen: &RegisPen);
+    /// Flood from `seed`, bounded as `bound` says (§ 8.8.6).
+    fn flood(&mut self, seed: RegisPoint, bound: RegisBound, pen: &RegisPen);
     /// A character.
     fn glyph(&mut self, g: &RegisGlyph<'_>, pen: &RegisPen);
     /// `S(E)`: the whole page to `bg`.

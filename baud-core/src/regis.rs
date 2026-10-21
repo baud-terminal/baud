@@ -754,6 +754,11 @@ impl RegisOut for Out<'_, '_> {
         self.draw(|c| c.fill(points, ends, pen));
     }
 
+    fn flood(&mut self, seed: RegisPoint, bound: RegisBound, pen: &RegisPen) {
+        let mut stack = [RegisSpan::default(); FLOOD_STACK];
+        self.draw(|c| c.flood(seed, bound, pen, &mut stack));
+    }
+
     fn glyph(&mut self, g: &RegisGlyph<'_>, pen: &RegisPen) {
         // No font set: counted where it was drawn.
         let Some(cell) = cell_of(g) else {
