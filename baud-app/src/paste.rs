@@ -1,13 +1,16 @@
 //! **What a paste sends**, the same on both drivers: xterm's default control
 //! characters replaced by a space (`FILTER`), the text bracketed as `?2004`
 //! asks, its line breaks as `?2006` says, and each byte quoted with the
-//! tty's literal-next character under `?2005` (`readline.rs`). The
+//! tty's literal-next character under `?2005` (`readline.rs`), in the
+//! encoding the child reads: UTF-8, or under `ESC % @` ISO 8859-1, as
+//! xterm converts a selection outside UTF-8 (`latin1`). The
 //! macOS app pastes the pasteboard with Cmd-V; the Linux driver pastes the
 //! clipboard with Ctrl+Shift+V and xterm's SELECT with the middle button
 //! and Shift+Insert. Pure, so its tests run on every platform.
 
 use crate::readline::{self, Newlines};
 use baud_core::{PasteControls, Resource, Term};
+use baud_domain::{AmbiguousWidth, Classified, Codepoint, InputEncoding, Width};
 
 /// **The control characters a paste replaces: xterm's default**, its
 /// `disallowedPasteControls`, "BS,DEL,ENQ,EOT,ESC,NUL,STTY", each turned
@@ -66,6 +69,11 @@ pub struct Form {
     pub quote: Option<readline::Quote>,
     /// The tty's special characters, which [`FILTER`]'s `STTY` replaces.
     pub specials: Specials,
+    /// The encoding the child reads input in (`ESC % G`, `ESC % @`), and
+    /// the width the terminal gives an ambiguous character, which says
+    /// what a wide one is.
+    pub encoding: InputEncoding,
+    pub ambiguous: AmbiguousWidth,
 }
 
 /// **The form the child's modes give a paste now**, with `literal_next`
@@ -90,6 +98,114 @@ pub fn form(
             true => specials(),
             false => Specials::default(),
         },
+        encoding: term.input_encoding(),
+        ambiguous: term.ambiguous_width(),
+    }
+}
+
+/// **The ASCII a DEC Special Graphics character pastes as**, xterm's
+/// `DECtoASCII` (`[[source: xterm-button-c]]` 1719-1728) for the DEC byte
+/// the code point is drawn from: the corners and the crossing, `j` to `n`,
+/// and the tees, `t` to `w`, `+`; the horizontal line `q` `-`; the
+/// vertical line `x` `|`; and `#` for the rest. Which code point is which
+/// byte is baud's own table (`baud_domain::DEC_GRAPHICS`), the 31 xterm's
+/// `ucs2dec` maps too (`[[source: xterm-fontutils]]` 4870-4922).
+fn dec_to_ascii(dec: Byte) -> Byte {
+    Byte(match dec.0 {
+        b'j'..=b'n' | b't'..=b'w' => b'+',
+        b'q' => b'-',
+        b'x' => b'|',
+        _ => b'#',
+    })
+}
+
+/// A byte of the encoded paste.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct Byte(u8);
+
+/// xterm's `defaultString` resource as it ships, "#" (`[[source:
+/// xterm-reset]]` 517): what a character with no single byte becomes.
+const DEFAULT_STRING: u8 = b'#';
+
+/// **`text` as ISO 8859-1, xterm's way**, `UTF8toLatin1` and then
+/// `removeControls` outside UTF-8 (`[[source: xterm-button-c]]` 1749-1809,
+/// 2662-2686; Jev, XTERM_CONVERT, 0.91/0.94): a code point below 256 is its
+/// own byte, except a C1 control, 0x80 to 0x9F, which is deleted -- a C1
+/// byte is a control to a child reading ISO 8859-1 (`[[source: ecma48]]`
+/// § 5.3, "in an 8-bit code by bit combinations from 08/00 to 09/15";
+/// `[[source: iso8859-1]]`, `<control>`), and 0x9B is CSI, which could end
+/// a bracketed paste early (Jev's lean, DELETE, 0.80/0.88, over a space).
+/// Above 256, a DEC Special Graphics character becomes `DECtoASCII`'s,
+/// one of xterm's DEC Technical internal codes `?`, a character
+/// `AsciiEquivs` names its ASCII (`[[source: xterm-scroll]]` 3699-3735:
+/// dashes and the minus sign `-`, the single quotation marks and the angle
+/// brackets, and the fullwidth forms), and anything else `#`; a wide
+/// character that took no DEC position is followed by a space, so it keeps
+/// its two columns. xterm's `is_UCS_SPECIAL`, U+FFF0 to U+FFFF, is `#`
+/// (`[[source: xterm-ptyx-h]]` 1819).
+pub fn latin1(text: &str, ambiguous: AmbiguousWidth) -> Vec<u8> {
+    let mut out = Vec::with_capacity(text.len());
+    for ch in text.chars() {
+        let v = u32::from(ch);
+        if let Ok(b) = u8::try_from(v) {
+            if !(0x80..=0x9f).contains(&b) {
+                out.push(b);
+            }
+            continue;
+        }
+        if (0xfff0..=0xffff).contains(&v) {
+            out.push(DEFAULT_STRING);
+            continue;
+        }
+        // xterm's `xtermIsInternalCs`: a DEC graphic, `` ` `` to `~`, its
+        // positions 1 to 31 (`xtermIsDecGraphic`, `[[source:
+        // xterm-fontutils-h]]` 157), or one of the seven DEC Technical
+        // codes from `XTERM_PUA`, 0xEEEE (`[[source: xterm-ptyx-h]]` 380).
+        let dec = baud_domain::DEC_GRAPHICS
+            .iter()
+            .zip(b'`'..=b'~')
+            .find_map(|(&u, b)| (u == v).then_some(b));
+        if let Some(b) = dec {
+            out.push(dec_to_ascii(Byte(b)).0);
+            continue;
+        }
+        if (0xeeee..=0xeeee + 6).contains(&v) {
+            out.push(b'?');
+            continue;
+        }
+        match ascii_equivalent(ch) {
+            Some(b) => out.push(b.0),
+            None => out.push(DEFAULT_STRING),
+        }
+        if Classified::of(Codepoint::from_char(ch)).width(ambiguous) == Width::WIDE {
+            out.push(b' ');
+        }
+    }
+    out
+}
+
+/// xterm's `AsciiEquivs`, the characters groff substitutes and their
+/// ASCII, and the fullwidth forms: `None` where it names none.
+fn ascii_equivalent(ch: char) -> Option<Byte> {
+    let v = u32::from(ch);
+    let b = match v {
+        0x2010..=0x2015 | 0x2212 => b'-',
+        0x2018 => b'`',
+        0x2019 => b'\'',
+        0x201c | 0x201d => b'"',
+        0x2329 => b'<',
+        0x232a => b'>',
+        0xff01..=0xff5e => u8::try_from(v - 0xff00 + 0x20).ok()?,
+        _ => return None,
+    };
+    Some(Byte(b))
+}
+
+/// The text's bytes in the encoding the child reads.
+fn encoded(text: &str, form: Form) -> Vec<u8> {
+    match form.encoding {
+        InputEncoding::Utf8 => text.as_bytes().to_vec(),
+        InputEncoding::Latin1 => latin1(text, form.ambiguous),
     }
 }
 
@@ -117,15 +233,15 @@ fn filtered(text: &str, specials: Specials) -> String {
 /// literal-next byte, as xterm quotes the selection and writes the
 /// brackets apart (`[[source: xterm-button]]`).
 pub fn bytes(text: &str, form: Form) -> Vec<u8> {
-    let text = &filtered(text, form.specials);
+    let text = encoded(&filtered(text, form.specials), form);
     match form.bracket {
         Bracket::On => [
             b"\x1b[200~".as_slice(),
-            &readline::quoted(text.as_bytes(), form.quote),
+            &readline::quoted(&text, form.quote),
             b"\x1b[201~",
         ]
         .concat(),
-        Bracket::Off => readline::body(text, form.newlines, form.quote),
+        Bracket::Off => readline::body(&text, form.newlines, form.quote),
     }
 }
 
@@ -143,6 +259,8 @@ mod tests {
             newlines: Newlines::AsReturn,
             quote: None,
             specials: Specials::default(),
+            encoding: InputEncoding::Utf8,
+            ambiguous: AmbiguousWidth::Narrow,
         };
         assert_eq!(
             bytes(forged, form(Bracket::On)),
@@ -168,6 +286,8 @@ mod tests {
             newlines: Newlines::Literal,
             quote: None,
             specials,
+            encoding: InputEncoding::Utf8,
+            ambiguous: AmbiguousWidth::Narrow,
         };
         let text = "\x08\x7f\x05\x04\x1b\x00|\x07\t\n\r\x18\x01\x0e|\x03\x1a\x15x|\u{5d1}\u{1f600}";
         let want = "      |\x07\t\n\r\x18\x01\x0e|   x|\u{5d1}\u{1f600}";
@@ -190,6 +310,54 @@ mod tests {
         assert_eq!(bytes("\x03", bare), b"\x03");
     }
 
+    /// **Under ISO 8859-1 a paste is ISO 8859-1, xterm's way**: a Latin-1
+    /// letter one byte, no byte 0x80 to 0x9F anywhere in the body -- U+201B
+    /// is `#`, not the `E2 80 9B` whose `9B` the child reads as CSI, and a
+    /// bare U+009B is gone, so no end of the brackets is forged -- the DEC
+    /// line-drawing and groff characters their ASCII, a fullwidth letter
+    /// its letter and a space, a wide character `#` and a space, an xterm
+    /// internal DEC Technical code `?`, and `is_UCS_SPECIAL` `#`. The
+    /// control is the same text under UTF-8, sent as it is. Perturbation:
+    /// keep the C1 bytes -- the forged CSI survives and the body check
+    /// fails.
+    #[test]
+    fn a_latin1_paste_is_latin1_with_no_c1_byte() {
+        let form = |encoding| Form {
+            bracket: Bracket::On,
+            newlines: Newlines::Literal,
+            quote: None,
+            specials: Specials::default(),
+            encoding,
+            ambiguous: AmbiguousWidth::Narrow,
+        };
+        let text = "\u{e9}\u{201b}\u{9b}201~x\u{2014}\u{2500}\u{2502}\u{250c}\u{4e00}\u{ff21}\u{eeee}\u{fff9}\u{2019}";
+        let out = bytes(text, form(InputEncoding::Latin1));
+        let body = &out[6..out.len() - 6];
+        assert_eq!(body, b"\xe9#201~x--|+# A ?#'");
+        assert!(
+            !body.iter().any(|b| (0x80..=0x9f).contains(b) || *b == 0x1b),
+            "{body:?}"
+        );
+        let utf8 = bytes(text, form(InputEncoding::Utf8));
+        assert_eq!(&utf8[6..utf8.len() - 6], text.as_bytes());
+    }
+
+    /// **The line breaks and the quoting work on the encoded bytes**: a
+    /// Latin-1 paste's `é` is one quoted byte, and its line break the CR
+    /// typed input sends.
+    #[test]
+    fn a_latin1_paste_is_shaped_and_quoted_by_the_byte() {
+        let form = Form {
+            bracket: Bracket::Off,
+            newlines: Newlines::AsReturn,
+            quote: Some(readline::Quote::LNEXT),
+            specials: Specials::default(),
+            encoding: InputEncoding::Latin1,
+            ambiguous: AmbiguousWidth::Narrow,
+        };
+        assert_eq!(bytes("\u{e9}\n", form), b"\x16\xe9\x16\r");
+    }
+
     /// **`?2005` quotes the text and never a bracket; `?2006` keeps an
     /// unbracketed paste's line breaks.**
     #[test]
@@ -199,6 +367,8 @@ mod tests {
             newlines: Newlines::AsReturn,
             quote: Some(readline::Quote::LNEXT),
             specials: Specials::default(),
+            encoding: InputEncoding::Utf8,
+            ambiguous: AmbiguousWidth::Narrow,
         };
         assert_eq!(
             bytes("ab", quoted),
@@ -209,6 +379,8 @@ mod tests {
             newlines: Newlines::Literal,
             quote: None,
             specials: Specials::default(),
+            encoding: InputEncoding::Utf8,
+            ambiguous: AmbiguousWidth::Narrow,
         };
         assert_eq!(bytes("a\r\nb\n", literal), b"a\r\nb\n".to_vec());
         let typed = Form {
@@ -219,9 +391,10 @@ mod tests {
     }
 
     /// **The form is the child's modes**: power-on is unbracketed, typed
-    /// line breaks and no quoting, and the tty is asked only for its special
-    /// characters; `?2004`, `?2006` and `?2005` each change their part, the
-    /// last asking the tty for its literal-next character.
+    /// line breaks, no quoting and UTF-8, and the tty is asked only for its
+    /// special characters; `?2004`, `?2006` and `?2005` each change their
+    /// part, the last asking the tty for its literal-next character, and
+    /// `ESC % @` the encoding.
     #[test]
     fn the_form_is_the_childs_modes() {
         const WS: WinSize = WinSize {
@@ -239,9 +412,11 @@ mod tests {
                 newlines: Newlines::AsReturn,
                 quote: None,
                 specials: tty(),
+                encoding: InputEncoding::Utf8,
+                ambiguous: AmbiguousWidth::Narrow,
             }
         );
-        let b = b"\x1b[?2004h\x1b[?2006h\x1b[?2005h";
+        let b = b"\x1b[?2004h\x1b[?2006h\x1b[?2005h\x1b%@";
         t.write_at(BytePos::ZERO, b);
         t.feed(BytePos::ZERO, ReadLen::from_index(b.len()));
         assert_eq!(
@@ -251,6 +426,8 @@ mod tests {
                 newlines: Newlines::Literal,
                 quote: Some(readline::Quote(0x16)),
                 specials: tty(),
+                encoding: InputEncoding::Latin1,
+                ambiguous: AmbiguousWidth::Narrow,
             }
         );
     }

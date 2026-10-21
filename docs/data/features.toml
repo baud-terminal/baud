@@ -709,10 +709,10 @@ tests = ["baud-core/tests/text.rs::an_overlong_form_is_rejected", "baud-core/tes
 id = "latin1"
 area = "text"
 name = "Latin-1 for older systems"
-does = "Programs can switch to Latin-1 and back, with the 8-bit controls old software sends, a Latin-1 keyboard and an eight-bit Meta key."
+does = "Programs can switch to Latin-1 and back, with the 8-bit controls old software sends, a Latin-1 keyboard, an eight-bit Meta key, and pastes sent in Latin-1 as xterm sends them, so a pasted quotation mark can never act as a control."
 status = "built"
 platform = "both"
-tests = ["baud-core/tests/encoding/latin1.rs::the_encoding_switches_both_ways", "baud-core/tests/encoding/latin1.rs::eight_bit_osc_and_dcs_work_in_latin1"]
+tests = ["baud-core/tests/encoding/latin1.rs::the_encoding_switches_both_ways", "baud-core/tests/encoding/latin1.rs::eight_bit_osc_and_dcs_work_in_latin1", "baud-app/src/paste.rs::a_latin1_paste_is_latin1_with_no_c1_byte"]
 
 [[feature]]
 id = "line-drawing"

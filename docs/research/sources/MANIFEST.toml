@@ -30733,3 +30733,20 @@ bytes  = 86581
 status = "external"
 group  = "J"
 # Fetched 2026-10-21 (lane b134): the Linux link chord. Read, not copied.
+
+[sources.xterm-fontutils-h]
+key    = "xterm-fontutils-h"
+title  = "xterm patch #411, fontutils.h -- xtermIsDecGraphic (1 to 31), xtermIsDecTechnical (XTERM_PUA to +6) and xtermIsInternalCs (156-158)"
+author = "Thomas E. Dickey"
+year   = 2026
+venue  = "ThomasDickey/xterm-snapshots (X11 licence)"
+url    = "https://raw.githubusercontent.com/ThomasDickey/xterm-snapshots/9489b2056ee51fa9dd6a7087483b9b8f85d6a0c4/fontutils.h"
+file   = ""
+sha256 = "afc52bd89cc6eb448f3e689d3976ac2671b39009b813c4720a7100ccdde8a946"
+bytes  = 8713
+status = "external"
+group  = "J"
+# Fetched 2026-10-21 (lane b134) with fontutils.c at the same commit, re-fetched and
+# hash-verified (`xterm-fontutils`, ucs2dec 4870-4922): which code points
+# UTF8toLatin1 (`xterm-button-c` 1749-1809) turns into DECtoASCII's characters
+# when a paste is converted to ISO 8859-1. Read, not copied.

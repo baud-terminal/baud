@@ -177,12 +177,22 @@ pub enum Newlines {
 /// byte then preceded by `quote` under `?2005`, as xterm turns `\n` into
 /// `\r` and then quotes byte by byte (`_WriteSelectionData` and
 /// `_qWriteSelectionData`, `[[source: xterm-button]]`).
-pub fn body(text: &str, newlines: Newlines, quote: Option<Quote>) -> Vec<u8> {
-    let plain = match newlines {
-        Newlines::AsReturn => text.replace("\r\n", "\r").replace('\n', "\r"),
-        Newlines::Literal => text.to_owned(),
-    };
-    quoted(plain.as_bytes(), quote)
+/// The text is bytes in the encoding the child reads, UTF-8 or ISO
+/// 8859-1, whose line breaks are the same two ASCII bytes in both.
+pub fn body(text: &[u8], newlines: Newlines, quote: Option<Quote>) -> Vec<u8> {
+    let mut plain = Vec::with_capacity(text.len());
+    let mut bytes = text.iter().copied().peekable();
+    while let Some(b) = bytes.next() {
+        match (newlines, b) {
+            (Newlines::AsReturn, b'\r') if bytes.peek() == Some(&b'\n') => {
+                bytes.next();
+                plain.push(b'\r');
+            }
+            (Newlines::AsReturn, b'\n') => plain.push(b'\r'),
+            _ => plain.push(b),
+        }
+    }
+    quoted(&plain, quote)
 }
 
 /// Each byte of `bytes` preceded by `quote`, or `bytes` as they are.
@@ -461,14 +471,14 @@ mod tests {
     /// quotes every byte, a multi-byte character's each byte, after.
     #[test]
     fn a_paste_body_follows_2005_and_2006() {
-        assert_eq!(body("a\nb\r\nc", Newlines::AsReturn, None), b"a\rb\rc");
-        assert_eq!(body("a\nb\r\nc", Newlines::Literal, None), b"a\nb\r\nc");
+        assert_eq!(body(b"a\nb\r\nc", Newlines::AsReturn, None), b"a\rb\rc");
+        assert_eq!(body(b"a\nb\r\nc", Newlines::Literal, None), b"a\nb\r\nc");
         assert_eq!(
-            body("a\nb", Newlines::AsReturn, Some(Quote::LNEXT)),
+            body(b"a\nb", Newlines::AsReturn, Some(Quote::LNEXT)),
             b"\x16a\x16\r\x16b"
         );
         assert_eq!(
-            body("é", Newlines::Literal, Some(Quote::LNEXT)),
+            body("é".as_bytes(), Newlines::Literal, Some(Quote::LNEXT)),
             b"\x16\xc3\x16\xa9"
         );
     }
