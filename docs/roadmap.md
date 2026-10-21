@@ -8,10 +8,10 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 ## Programs just work
 
+- [ ] **Answer programs that ask what the terminal can do** — Programs such as neovim and tmux can ask which bytes each key sends, how many colours there are and which terminal this is; the truecolor answer neovim asks for over ssh is left. *In progress.*
 - [ ] **The remaining xterm settings** — Each of the xterm settings baud does not act on yet is built or has its reason written down. *In progress.*
 - [ ] **A hidden cursor moves with scrolling output** — A cursor a program hid and placed stays on its text while output scrolls.
 - [ ] **A saved cursor follows its text through a resize** — A position a program saved stays on the same text when the window is resized.
-- [ ] **Answer programs that ask what the terminal can do** — neovim and tmux ask the terminal which features it has; baud will answer them directly.
 - [ ] **Choose a terminal generation** — Programs can ask baud to behave as a VT100, VT220 or VT420, and every answer it gives follows that choice.
 - [ ] **Folder, notification and progress messages from programs** — Programs can tell baud the folder they are in, post a desktop notification or show a progress bar.
 - [ ] **More answers to programs' status questions** — More of the questions programs ask about the cursor and the terminal's settings get a true answer.
@@ -65,8 +65,8 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 ## Keyboard, mouse and clipboard
 
+- [ ] **Copy on select** — Selecting text copies it, on by default with a setting to turn it off; choosing the selection colour is left. *In progress.*
 - [ ] **Key releases and modifier keys on macOS** — Programs that ask will learn when a key is let go and when Shift, Control, Option or Command is pressed on its own. The Linux version already sends them. *In progress.*
-- [ ] **Copy on select** — Selecting text copies it, on by default with a setting to turn it off, and the selection colour can be chosen.
 - [ ] **Keyboard lock and local echo** — Two old modes: a program can lock the keyboard, or have typed text shown without waiting for it.
 - [ ] **Keypad and Backspace key modes** — Programs can choose what the keypad and the Backspace key send, as on DEC terminals.
 - [ ] **Plain web addresses become clickable** — Cmd-click opens a web address a program printed as plain text, not only links the program marked.
@@ -135,15 +135,15 @@ being built now; the rest are planned. Nothing here is a promised date.
 
 ## Platforms and settings
 
-- [ ] **Mouse, wheel, selection and paste on Linux** — The Linux version takes keyboard input only so far; the mouse, the wheel, selecting text and pasting come next. *In progress.*
+- [ ] **Cursor trails, blinking text, fades and the scrollbar on Linux** — Blinking text, fades, the scrollbar and the plain cursor trail work on Linux; the fire, plasma and other trail effects are drawn there as the plain trail so far. *In progress.*
 - [ ] **Check Linux on a real screen** — The Linux version has run only headless; next is looking at what it draws on a real display.
-- [ ] **Clipboard and middle-click paste on Linux** — Copy and paste through the desktop's clipboard, the primary selection and middle-click paste.
-- [ ] **Compose key, dead keys and input methods on Linux** — Typing accented letters and composing Chinese, Japanese or Korean text on Linux.
-- [ ] **Cursor trails, blinking text, fades and the scrollbar on Linux** — The drawing code already does all four; the Linux window has to drive them.
 - [ ] **GPU drawing on Linux** — Draw the Linux version on the GPU with Vulkan, as the macOS app draws with Metal.
 - [ ] **Redraw only what changed on Linux** — Send the compositor only the rows that changed, instead of the whole window every frame.
 - [ ] **Smoother frames and pointer shapes on Linux** — Frame timing from the compositor, the right pointer shape over text, and input methods.
-- [ ] **Zoom, links and light and dark on Linux** — Ctrl + and Ctrl - to zoom, clickable links, and following the desktop's light or dark setting.
+- [x] **Clipboard and middle-click paste on Linux** — Copy and paste through the desktop's clipboard, the primary selection and middle-click paste. (2026-10-21)
+- [x] **Compose key, dead keys and input methods on Linux** — Typing accented letters with the Compose key and dead keys, and composing Chinese, Japanese or Korean text through the desktop's input method. (2026-10-21)
+- [x] **Mouse, wheel, selection and paste on Linux** — The mouse in programs, the wheel, selecting text, the scrollbar and pasting, on Linux as on macOS. (2026-10-21)
+- [x] **Zoom, links and light and dark on Linux** — Ctrl + and Ctrl - to zoom, Ctrl-click to open links, and following the desktop's light or dark setting. (2026-10-21)
 - [x] **Linux and macOS give the same shade over the see-through window** — Both systems now round colours through one shared function; before, about half of all colour and transparency combinations came out one step darker on Linux. (2026-10-16)
 - [x] **A baud opened from the Dock starts your shell in your home folder** — It no longer reads a config.toml from whatever folder it started in. Relative font and theme paths are read beside the config file. (2026-10-14)
 - [x] **baud requires macOS 26 and says so on older systems** — On macOS older than 26, baud prints a clear message and exits instead of crashing. (2026-10-13)

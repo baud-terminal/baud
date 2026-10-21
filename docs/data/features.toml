@@ -571,6 +571,7 @@ does = "Ctrl +, Ctrl - and Ctrl 0 zoom one step of the font size at a time, as C
 status = "built"
 platform = "linux"
 tests = ["baud-present-wayland/tests/handshake.rs::the_zoom_keys_are_kept_from_the_program", "baud-app/src/fonts.rs::a_zoom_step_is_a_point_within_the_sizes"]
+shipped = ["F2-06"]
 
 [[feature]]
 id = "colour-emoji"
@@ -941,6 +942,7 @@ does = "On Linux, text you compose with an input method such as IBus or Fcitx is
 status = "built"
 platform = "linux"
 tests = ["baud-present-wayland/tests/handshake.rs::an_input_method_composes_at_the_cursor_and_commits_text", "baud-render/tests/composition.rs::the_input_methods_cursor_is_drawn_where_it_puts_it", "baud-render/tests/composition.rs::the_input_methods_cursor_follows_the_clusters", "baud-app/src/marked.rs::the_input_methods_cursor_lands_on_codepoints"]
+shipped = ["F2-07"]
 
 [[feature]]
 id = "backspace-letter"
@@ -961,7 +963,7 @@ platform = "both"
 tests = ["baud-core/tests/xterm/mouse.rs::decrqm_answers_every_mouse_mode", "baud-core/tests/xterm/mouse.rs::x10_encodes_up_to_223_inclusive", "baud-app/src/seat.rs::alt_is_meta_in_a_report_and_drags_a_block"]
 rows = ["vt:`CSI ? 1000/1002/1003 h/l`", "vt:`CSI ? 1006 h/l`", "vt:`CSI ? 1016 h/l`"]
 chips = ["SGR mouse"]
-shipped = ["2026-10-09-every-mouse-reporting-mode-works-and"]
+shipped = ["2026-10-09-every-mouse-reporting-mode-works-and", "F2-03"]
 
 [[feature]]
 id = "highlight-tracking"
@@ -1009,6 +1011,7 @@ does = "Cmd-C copies the selection and Cmd-V pastes, also on a Hebrew, Russian o
 status = "built"
 platform = "both"
 tests = ["baud-render/tests/select.rs::a_wrapped_row_joins_the_next_and_a_newline_ends_a_row", "baud-present-wayland/tests/handshake.rs::a_copy_offers_text_and_answers_send_through_the_pipe", "baud-present-wayland/tests/handshake.rs::a_paste_reads_the_offer_to_its_end", "baud-present-wayland/tests/handshake.rs::the_primary_copies_and_pastes_on_its_own_protocol", "baud-present-wayland/tests/handshake.rs::the_clipboard_keys_are_kept_from_the_program", "baud-app/src/seat.rs::the_middle_button_pastes_on_its_release", "baud-present-wayland/tests/handshake.rs::the_clipboard_keys_are_found_on_a_cyrillic_layout", "baud-app/src/app.rs::a_command_key_the_menu_missed_still_copies_and_pastes", "baud-app/src/clip.rs::a_finished_selection_goes_to_the_pasteboard_unless_the_key_is_off", "baud-app/src/config.rs::copy_on_select_is_on_unless_it_says_off"]
+shipped = ["F2-11"]
 
 [[feature]]
 id = "safe-paste"
@@ -1699,7 +1702,7 @@ gap = "it has run only on a headless compositor: no bell yet, font sizes are in 
 platform = "linux"
 tests = ["baud-present-wayland/tests/handshake.rs::a_window_opens_shows_a_frame_and_types", "baud-present-wayland/tests/handshake.rs::the_pointer_reports_by_frame_and_takes_its_shape", "baud-app/src/seat.rs::a_tracking_child_gets_the_buttons_and_the_wheel"]
 behind = "the Linux version has run only headless, with no GPU drawing yet."
-roadmap = ["F2-03", "F2-02", "SQ-1.x-06"]
+roadmap = ["F2-02", "SQ-1.x-06"]
 
 [[feature]]
 id = "shell"

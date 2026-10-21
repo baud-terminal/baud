@@ -60,30 +60,33 @@ summary = "The Linux version has run only headless; next is looking at what it d
 [[item]]
 id = "F2-03"
 area = "platforms"
-status = "in_progress"
+status = "done"
+date = "2026-10-21"
 title = "Mouse, wheel, selection and paste on Linux"
-summary = "The Linux version takes keyboard input only so far; the mouse, the wheel, selecting text and pasting come next."
+summary = "The mouse in programs, the wheel, selecting text, the scrollbar and pasting, on Linux as on macOS."
 
 [[item]]
 id = "F2-05"
 area = "platforms"
-status = "planned"
+status = "in_progress"
 title = "Cursor trails, blinking text, fades and the scrollbar on Linux"
-summary = "The drawing code already does all four; the Linux window has to drive them."
+summary = "Blinking text, fades, the scrollbar and the plain cursor trail work on Linux; the fire, plasma and other trail effects are drawn there as the plain trail so far."
 
 [[item]]
 id = "F2-06"
 area = "platforms"
-status = "planned"
+status = "done"
+date = "2026-10-21"
 title = "Zoom, links and light and dark on Linux"
-summary = "Ctrl + and Ctrl - to zoom, clickable links, and following the desktop's light or dark setting."
+summary = "Ctrl + and Ctrl - to zoom, Ctrl-click to open links, and following the desktop's light or dark setting."
 
 [[item]]
 id = "F2-07"
 area = "platforms"
-status = "planned"
+status = "done"
+date = "2026-10-21"
 title = "Compose key, dead keys and input methods on Linux"
-summary = "Typing accented letters and composing Chinese, Japanese or Korean text on Linux."
+summary = "Typing accented letters with the Compose key and dead keys, and composing Chinese, Japanese or Korean text through the desktop's input method."
 
 [[item]]
 id = "F2-08"
@@ -102,7 +105,8 @@ summary = "Frame timing from the compositor, the right pointer shape over text, 
 [[item]]
 id = "F2-11"
 area = "platforms"
-status = "planned"
+status = "done"
+date = "2026-10-21"
 title = "Clipboard and middle-click paste on Linux"
 summary = "Copy and paste through the desktop's clipboard, the primary selection and middle-click paste."
 
@@ -116,9 +120,9 @@ summary = "Hebrew and Arabic lines laid out right to left, with the cursor and s
 [[item]]
 id = "SQ-v1.0-04"
 area = "programs"
-status = "planned"
+status = "in_progress"
 title = "Answer programs that ask what the terminal can do"
-summary = "neovim and tmux ask the terminal which features it has; baud will answer them directly."
+summary = "Programs such as neovim and tmux can ask which bytes each key sends, how many colours there are and which terminal this is; the truecolor answer neovim asks for over ssh is left."
 
 [[item]]
 id = "SQ-v1.0-05"
@@ -137,9 +141,9 @@ summary = "Name a font family and size instead of pointing at a font file. File 
 [[item]]
 id = "SQ-v1.0-07"
 area = "input"
-status = "planned"
+status = "in_progress"
 title = "Copy on select"
-summary = "Selecting text copies it, on by default with a setting to turn it off, and the selection colour can be chosen."
+summary = "Selecting text copies it, on by default with a setting to turn it off; choosing the selection colour is left."
 
 [[item]]
 id = "SQ-v1.0-08"
