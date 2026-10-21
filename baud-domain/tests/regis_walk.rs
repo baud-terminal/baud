@@ -9,7 +9,7 @@
 use baud_domain::Regis;
 use baud_domain::{
     GlyphSource, LineSpan, RegisEntry, RegisGlyph, RegisIndex, RegisNum, RegisOut, RegisPen,
-    RegisPoint, RegisTicks, StreamByte, WriteMode,
+    RegisPoint, RegisRect, RegisTicks, StreamByte, WriteMode,
 };
 use proptest::prelude::*;
 
@@ -73,6 +73,7 @@ impl RegisOut for Rec {
         self.ops.push(Op::Interactive(pos.to_vec()));
     }
     fn input_shown(&mut self) {}
+    fn unmark(&mut self, _: RegisRect) {}
 }
 
 fn run(body: &[u8]) -> (Box<Regis>, Rec) {

@@ -50,8 +50,8 @@ pub struct RegisCounts {
     pub space_refused: u32,
     /// Open Extensions (§ 8.8) this interpreter parses and does not act
     /// on: scrolling, hard copy, scaling, data movement, drawing surfaces
-    /// (`P(P)`, the VT340's `S(P)`), blink, line width, microcoded writing,
-    /// flood; and `S(N)`, which no DEC text here defines.
+    /// (`P(P)`, the VT340's `S(P)`), blink, microcoded writing, flood; and
+    /// `S(N)`, which no DEC text here defines.
     pub unbuilt: u32,
     /// Characters no grammar position takes, and keyletters no instruction
     /// names (error 1).
@@ -150,6 +150,21 @@ impl RegisSpace {
     fn device_len(&self, v: RegisNum) -> i64 {
         let (num, den) = self.scale();
         (i128::from(v.raw()) * num / den) as i64
+    }
+}
+
+/// **A line's width in page pixels**: `W(L<n>)` times the nominal width,
+/// one page pixel, today's line, to the nearest pixel as a coordinate is
+/// -- "Devices that do not support fractions may truncate to the next
+/// lower integer or round to the nearest integer, just as they do for
+/// other numerics" -- at least one, "W(L0) selects the minimum imageable
+/// line width", and at most [`REGIS_LINE_WIDTH`], the width field's
+/// largest.
+fn line_width(n: RegisNum) -> u16 {
+    let most = RegisNum::int(i32::from(REGIS_LINE_WIDTH));
+    match n >= most {
+        true => REGIS_LINE_WIDTH,
+        false => n.round().clamp(1, i32::from(REGIS_LINE_WIDTH)) as u16,
     }
 }
 
@@ -267,11 +282,14 @@ struct Write {
     /// The snapshot shading takes when enabled, and polygon fill uses
     /// whether or not shading is on (§ 8.7.2.4.2.3).
     shade_with: Option<ShadeWith>,
+    /// `W(L<n>)`, the line width in nominal widths (§ 8.8.3.2).
+    width: RegisNum,
 }
 
 impl Write {
     /// The defaults a valid `S(A)` restores: `W(M1)`, `W(P1)`,
-    /// `W(P(M2))`, `W(V,N0)`, the VT340's `W(I7)`, `W(F15)`, `W(S0)`.
+    /// `W(P(M2))`, `W(V,N0)`, the VT340's `W(I7)`, `W(F15)`, `W(S0)`, and
+    /// "Line width is set to nominal", `W(L1)` (§ 8.8.1.4.1 b).
     const DEFAULT: Write = Write {
         mode: WriteMode::Overlay,
         negate: Negate::Off,
@@ -283,6 +301,7 @@ impl Write {
         shade: On::No,
         shade_to: ShadeTo::Row(0),
         shade_with: None,
+        width: RegisNum::ONE,
     };
 }
 
@@ -616,6 +635,12 @@ pub(crate) struct Sem {
     pub(crate) input: Input,
     /// The clip rectangle, `S(R)`.
     clip: Clip,
+    /// The page pixels the wide stroke in progress has marked, to clear
+    /// when it ends ([`RegisOut::unmark`]).
+    stroke: Option<RegisRect>,
+    /// The pen that drew the last step of the stroke's last line, if that
+    /// line drew it ([`LineSpan::Chained`]).
+    stroke_end: Option<RegisPen>,
 }
 
 impl Sem {
@@ -679,6 +704,8 @@ impl Sem {
         cursors: Cursors::DEFAULT,
         input: Input::NEW,
         clip: Clip::of(RegisSpace::DEFAULT),
+        stroke: None,
+        stroke_end: None,
     };
 
     /// Record an error for `R(E)`: "Only the most recent error code is kept"
@@ -707,6 +734,7 @@ impl Sem {
                 On::No => None,
             },
             clip: self.page_clip(),
+            width: line_width(w.width),
         }
     }
 
@@ -815,15 +843,65 @@ impl Sem {
 
     /// Draw a line on the page: a joint with the line before it drawn once
     /// ([`LineSpan`]), and the pattern stepping on.
+    ///
+    /// **A wide line is a stroke while the lines chain**: its pixels carry
+    /// a mark so the pen writes each once, and the marks go when the next
+    /// line does not begin where it ended, or anything else is drawn
+    /// ([`Sem::end_stroke`]).
     fn draw(&mut self, a: RegisPoint, b: RegisPoint, close: Close, out: &mut dyn RegisOut) {
-        let span = match (self.last_end == Some(a), close) {
+        let chained = self.last_end == Some(a);
+        let pen = self.pen();
+        if pen.width <= 1 || !chained {
+            self.end_stroke(out);
+        }
+        let span = match (chained, close) {
+            // A wide stroke's first line draws its first pen whole.
+            _ if pen.width > 1 && self.stroke.is_none() => LineSpan::Whole,
+            // The line before drew this line's first step with this pen.
+            (true, Close::Loop) if pen.width > 1 && self.stroke_end == Some(pen) => {
+                LineSpan::ChainedInner
+            }
+            (true, Close::Open) if pen.width > 1 && self.stroke_end == Some(pen) => {
+                LineSpan::Chained
+            }
             (true, Close::Loop) => LineSpan::Inner,
             (true, Close::Open) => LineSpan::Rest,
             (false, _) => LineSpan::Whole,
         };
-        let pen = self.pen();
+        if pen.width > 1 {
+            let r = i32::from(pen.width) / 2 + 1;
+            let mine = RegisRect {
+                x0: a.x.min(b.x).saturating_sub(r),
+                y0: a.y.min(b.y).saturating_sub(r),
+                x1: a.x.max(b.x).saturating_add(r + 1),
+                y1: a.y.max(b.y).saturating_add(r + 1),
+            };
+            self.stroke = Some(match self.stroke {
+                Some(s) => RegisRect {
+                    x0: s.x0.min(mine.x0),
+                    y0: s.y0.min(mine.y0),
+                    x1: s.x1.max(mine.x1),
+                    y1: s.y1.max(mine.y1),
+                },
+                None => mine,
+            });
+        }
         out.line(a, b, &pen, &mut self.phase, span);
+        // A line of no length draws no step, the line before's last
+        // standing; a loop's closing line does not draw its last.
+        self.stroke_end = match span {
+            _ if span != LineSpan::Whole && a == b => self.stroke_end,
+            LineSpan::Inner | LineSpan::ChainedInner => None,
+            LineSpan::Whole | LineSpan::Rest | LineSpan::Chained => Some(pen),
+        };
         self.last_end = Some(b);
+    }
+
+    /// The wide stroke in progress, if any, ends: its marks go.
+    fn end_stroke(&mut self, out: &mut dyn RegisOut) {
+        if let Some(r) = self.stroke.take() {
+            out.unmark(r);
+        }
     }
 
     // ---------------------------------------------------------------
@@ -1497,6 +1575,7 @@ impl Sem {
         pen: &RegisPen,
         out: &mut dyn RegisOut,
     ) {
+        self.end_stroke(out);
         let (at, unit, display) = cell;
         let code = u8::try_from(c).ok();
         let builtin_ch = match (alphabet, code) {
@@ -1607,6 +1686,7 @@ impl Sem {
             shade: None,
             // The terminal's own line, no drawing of the program's.
             clip: RegisClip::Off,
+            width: 1,
         };
         let ascii = (Charset::Ascii, Charset::Iso96(Iso96::Latin1));
         self.draw_char(u16::from(b), 0, ascii, (at, unit, unit), (0, 0), &pen, out);
@@ -1635,6 +1715,7 @@ impl Sem {
             shade: None,
             // The terminal's own line, no drawing of the program's.
             clip: RegisClip::Off,
+            width: 1,
         };
         out.fill(&points, &[4], &pen);
         self.display_col = 0;
@@ -1929,9 +2010,16 @@ impl Sem {
                 self.frames[d - 1].sub = f.key;
                 return;
             }
-            // `W(A)` blink, `W(L)` line width, `W(W)` microcoded writing:
-            // Open Extensions (§ 8.8.3).
-            (1, b'A' | b'L' | b'W') => self.counts.unbuilt += 1,
+            // "Fractional line widths are allowed"; a negative one is read
+            // as its size, as `W(M)` reads one.
+            (1, b'L') => {
+                if let Some(v) = f.num {
+                    w.width = v.abs();
+                }
+            }
+            // `W(A)` blink, `W(W)` microcoded writing: Open Extensions
+            // (§ 8.8.3).
+            (1, b'A' | b'W') => self.counts.unbuilt += 1,
             _ if r >= 2 => {}
             _ => self.error(1, f.key),
         }
@@ -1996,6 +2084,8 @@ impl Sem {
                 // "S(E) clears the position stack ... Shading state ... is
                 // disabled on S(E)"; the VT300 "Stops any curve
                 // interpolation".
+                // Every pixel written, every mark with it.
+                self.stroke = None;
                 out.erase(self.bg);
                 self.last_end = None;
                 self.nstack = 0;
@@ -2723,6 +2813,7 @@ impl Sem {
         };
         f.close();
         if f.nends > 0 {
+            self.end_stroke(out);
             let pen = self.fill_pen();
             out.fill(&f.points[..f.n], &f.ends[..f.nends], &pen);
             self.last_end = None;

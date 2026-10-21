@@ -683,6 +683,18 @@ impl RegisOut for Out<'_, '_> {
         let _ = place(self.images, self.page, self.want);
     }
 
+    /// A wide stroke's marks cleared on the page drawn now; a page the
+    /// window has moved off lost them when its rows moved
+    /// (`ImageStore::carry_page`), and none is placed for this.
+    fn unmark(&mut self, r: RegisRect) {
+        let Some(p) = current(self.images, *self.page, self.want) else {
+            return;
+        };
+        if let Some((_, plane)) = self.images.page_planes(p.shown, p.plane) {
+            RegisCanvas::new(plane, p.w, p.h).unmark(r);
+        }
+    }
+
     /// `R(P(I))` in multiple mode: the null button's string, `CSI 240 ~`
     /// (`[[source: vt3xx-locator]]` Table 15-1, "If the host requests a
     /// report when none of the buttons are in use, the terminal responds

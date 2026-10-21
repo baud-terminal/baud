@@ -358,7 +358,21 @@ pub struct RegisPen {
     pub shade: Option<(ShadeTo, Texture)>,
     /// Where it may write (§ 8.8.1.4.6).
     pub clip: RegisClip,
+    /// A line's width in page pixels, `W(L)` (§ 8.8.3.2): one, the
+    /// nominal width, to [`REGIS_LINE_WIDTH`].
+    pub width: u16,
 }
+
+/// **The widest line, in page pixels**: the width field's largest.
+/// § 8.8.3.2 names no limit -- "W(L2) sets a width twice the nominal
+/// width, W(L3) three times, and so on" -- and none is set short of the
+/// page (decided by Jev, UNBOUNDED, 0.96 and 0.96): a pen wider than twice
+/// a page's diagonal covers all of it from any pixel of it, so on a page
+/// up to 23,170 pixels a side a line through the page draws the same
+/// pixels as with any wider pen. The pen costs a step its rows on the
+/// page, and a line at most one whole pen held to the page
+/// ([`RegisCanvas::wide_line`]).
+pub const REGIS_LINE_WIDTH: u16 = u16::MAX;
 
 /// **Where a drawing may write**, `S(R<n>[][])` (070-8 § 8.8.1.4.6): the
 /// whole page, the clip rectangle's interior, "defined to include what
@@ -496,6 +510,9 @@ pub trait RegisOut {
     /// on the screen", or a one-shot `R(P(I))`. The caller makes room for
     /// it to be drawn.
     fn input_shown(&mut self);
+    /// A wide stroke has ended: the marks its pixels carry in `r` go
+    /// ([`RegisCanvas::unmark`]), on the page drawn now, if there is one.
+    fn unmark(&mut self, r: RegisRect);
 }
 
 /// Whether the parser is inside a ReGIS envelope, between its `DCS p` and

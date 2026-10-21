@@ -1,7 +1,7 @@
 //! **ReGIS's screen and writing controls from the Open Extensions, pixel
 //! for pixel, against `[[source: dec-std-070]]` 070-8 § 8.8.**
 //!
-//! The clip rectangle (§ 8.8.1.4.6). Pixels are read back from the page and
+//! The clip rectangle (§ 8.8.1.4.6) and the line width (§ 8.8.3.2). Pixels are read back from the page and
 //! compared to pixels worked out from the text, never from another
 //! terminal's output; with no cell size the page is the VT340's 800 by 480,
 //! a coordinate a pixel.
@@ -189,4 +189,278 @@ fn the_clip_is_not_counted_and_does_not_clip_the_command_display() {
         let (px, w) = page(t);
         assert!((460..480).all(|y| (0..800).all(|x| px[y * w + x] == BLACK)));
     });
+}
+
+// ---------------------------------------------------------------------------
+// `W(L<n>)`, 070-8 § 8.8.3.2: "the width or weight of lines and curves. The
+// value <n> is a multiplier of the device's nominal line width."
+// ---------------------------------------------------------------------------
+
+/// The pixels a round pen `d` pixels across covers about `(x, y)`: a pixel
+/// whose centre is within `d / 2` of the pen's centre, the pen centred on
+/// the pixel for an odd `d` and on its upper-left corner for an even one.
+fn pen(x: i64, y: i64, d: i64) -> Vec<(usize, usize)> {
+    let c = (d + 1) % 2;
+    let mut v = Vec::new();
+    for dv in -(d / 2)..=(d - 1) / 2 {
+        for du in -(d / 2)..=(d - 1) / 2 {
+            if (2 * du + c).pow(2) + (2 * dv + c).pow(2) <= d * d {
+                let at = |v: i64| usize::try_from(v).expect("on the page");
+                v.push((at(x + du), at(y + dv)));
+            }
+        }
+    }
+    v
+}
+
+fn sorted(mut v: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+    v.sort_by_key(|&(x, y)| (y, x));
+    v.dedup();
+    v
+}
+
+/// "W(L2) sets a width twice the nominal width, W(L3) three times": the
+/// nominal width is a pixel, and a wider line is a round pen of that many
+/// pixels swept along it (Jev's lean, ROUND).
+#[test]
+fn a_wide_line_is_a_round_pen_swept_along_it() {
+    let got = sorted(lit(b"\x1bPpW(L5)P[100,100]V[120,100]\x1b\\"));
+    let want = sorted((100..=120).flat_map(|x| pen(x, 100, 5)).collect());
+    assert_eq!(got, want);
+    // By hand: rows 99 to 101 from 98 to 122, rows 98 and 102 from 99 to
+    // 121, the pen's corners off.
+    assert_eq!(got.len(), 3 * 25 + 2 * 23);
+    // A diagonal is as wide across as a horizontal: the pen at each pixel
+    // of the one-pixel line.
+    let got = sorted(lit(b"\x1bPpW(L4)P[100,100]V[110,110]\x1b\\"));
+    let want = sorted((0..=10).flat_map(|k| pen(100 + k, 100 + k, 4)).collect());
+    assert_eq!(got, want);
+}
+
+/// W(L1) is today's line, W(L0) "the minimum imageable line width", a
+/// pixel, and a fraction rounds to the nearest: "Devices that do not
+/// support fractions may truncate to the next lower integer or round to
+/// the nearest integer".
+#[test]
+fn nominal_minimum_and_fractions() {
+    let rows = |w: &str| {
+        let b = format!("\x1bPpW(L{w})P[100,100]V[120,100]\x1b\\");
+        let mut ys: Vec<usize> = lit(b.as_bytes()).iter().map(|p| p.1).collect();
+        ys.sort();
+        ys.dedup();
+        ys.len()
+    };
+    let thin = lit(b"\x1bPpP[100,100]V[120,100]\x1b\\");
+    assert_eq!(lit(b"\x1bPpW(L1)P[100,100]V[120,100]\x1b\\"), thin);
+    assert_eq!(rows("0"), 1);
+    assert_eq!(rows("0.4"), 1);
+    assert_eq!(rows("1.5"), 2);
+    assert_eq!(rows("2.4"), 2);
+    assert_eq!(rows("3"), 3);
+    // No limit short of the page: forty is forty.
+    assert_eq!(rows("40"), 40);
+}
+
+/// "W(L2) sets a width twice the nominal width, W(L3) three times, and so
+/// on": § 8.8.3.2 names no widest line, and baud sets none short of the
+/// page (decided by Jev, UNBOUNDED, 0.96 and 0.96). A pen wider than twice
+/// the page's diagonal covers the whole page from any pixel of it.
+#[test]
+fn a_width_has_no_limit_short_of_the_page() {
+    let got = sorted(lit(b"\x1bPpW(L40)P[200,200]V[260,200]\x1b\\"));
+    let want = sorted((200..=260).flat_map(|x| pen(x, 200, 40)).collect());
+    assert_eq!(got, want);
+    for body in [
+        &b"W(L65535)P[400,240]V[+1]"[..],
+        &b"W(L99999)P[0,0]V[799,479]"[..],
+        &b"W(L65535)P[400,240]C[+300]"[..],
+    ] {
+        let mut b = b"\x1bPp".to_vec();
+        b.extend_from_slice(body);
+        b.extend_from_slice(b"\x1b\\");
+        assert_eq!(
+            lit(&b).len(),
+            800 * 480,
+            "{}",
+            String::from_utf8_lossy(body)
+        );
+    }
+}
+
+/// A width changed between two lines of a stroke: the second line's pen
+/// begins at its own first step, the joint the first line's.
+#[test]
+fn a_width_changed_inside_a_stroke_draws_from_the_next_step() {
+    let got = sorted(lit(b"\x1bPpW(L5)P[100,100]V[140,100]W(L9)V[180,100]\x1b\\"));
+    let mut want: Vec<(usize, usize)> = (100..=140).flat_map(|x| pen(x, 100, 5)).collect();
+    want.extend((141..=180).flat_map(|x| pen(x, 100, 9)));
+    assert_eq!(got, sorted(want));
+}
+
+/// **A wide line writes what the round pen at each of its steps writes**,
+/// each pixel at the first step that writes it (§ 8.7.2.4.1): with a line
+/// pattern, overlay and complement write the pen at each step the pattern
+/// has a one, and replace writes each pixel at the first step to cover it,
+/// the foreground on a one and the background on a zero. The steps and
+/// their pattern are the one-pixel line's, drawn alongside.
+#[test]
+fn a_patterned_wide_line_is_the_pen_at_each_step() {
+    // P2 is 11110000, each element two steps long: on for eight, off for
+    // eight.
+    for (opts, path, d) in [
+        ("P2", "P[100,100]V[160,100]", 5),
+        ("P2", "P[100,100]V[150,140][220,90][100,100]", 6),
+        ("C,P2", "P[300,200]C[+60]", 7),
+        (
+            "C,P2",
+            "P[100,300]C(S)[+40,-40][+40,+40][+40,-40][+40,+40]",
+            6,
+        ),
+    ] {
+        let thin = lit(format!("\x1bPpW({opts}){path}\x1b\\").as_bytes());
+        let want = sorted(
+            thin.iter()
+                .flat_map(|&(x, y)| pen(x as i64, y as i64, d))
+                .collect(),
+        );
+        let got = sorted(lit(format!("\x1bPpW({opts},L{d}){path}\x1b\\").as_bytes()));
+        assert!(thin.len() > 20);
+        assert_eq!(got, want, "W({opts},L{d}){path}");
+    }
+    // Replace: the first step to cover a pixel writes it.
+    let colours = |b: &[u8]| {
+        let mut v = Vec::new();
+        run(b, |t| {
+            let (px, w) = page(t);
+            v = px
+                .iter()
+                .enumerate()
+                .filter(|(_, &c)| c != Pixel::CLEAR.bits())
+                .map(|(i, &c)| ((i % w, i / w), c))
+                .collect::<Vec<_>>();
+        });
+        v
+    };
+    let thin = colours(b"\x1bPpW(R,P2)P[100,100]V[160,100]\x1b\\");
+    assert_eq!(thin.len(), 61);
+    let mut want: Vec<((usize, usize), u32)> = Vec::new();
+    for &((x, y), c) in &thin {
+        for p in pen(x as i64, y as i64, 5) {
+            if !want.iter().any(|&(q, _)| q == p) {
+                want.push((p, c));
+            }
+        }
+    }
+    want.sort_by_key(|&((x, y), _)| (y, x));
+    let mut got = colours(b"\x1bPpW(R,P2,L5)P[100,100]V[160,100]\x1b\\");
+    got.sort_by_key(|&((x, y), _)| (y, x));
+    assert!(want.iter().any(|&(_, c)| c == BLACK));
+    assert_eq!(got, want);
+}
+
+/// **Each pixel of a wide stroke is written once**, a polyline's or a
+/// curve's, so complement writing over clear makes every pixel of it
+/// index 15, gray 75%, and none back to 0: "complement the contents of the
+/// pixels present in the image" (§ 8.7.2.4.1.1).
+#[test]
+fn a_wide_stroke_complements_each_pixel_once() {
+    for body in [
+        &b"W(C,L7)P[200,200]V[300,200][250,280][200,200]"[..],
+        &b"W(C,L9)P[300,200]C[+60]"[..],
+        &b"W(C,L6)P[100,300]C(S)[+40,-40][+40,+40][+40,-40][+40,+40]"[..],
+    ] {
+        let mut b = b"\x1bPp".to_vec();
+        b.extend_from_slice(body);
+        b.extend_from_slice(b"\x1b\\");
+        run(&b, |t| {
+            let (px, _) = page(t);
+            let lit: Vec<u32> = px
+                .into_iter()
+                .filter(|&c| c != Pixel::CLEAR.bits())
+                .collect();
+            assert!(lit.len() > 100);
+            assert!(
+                lit.iter().all(|&c| c == 0xffcc_cccc),
+                "{}: a pixel complemented twice",
+                String::from_utf8_lossy(body)
+            );
+        });
+    }
+}
+
+/// A second stroke is a stroke of its own: drawn again over the first, it
+/// complements every pixel back.
+#[test]
+fn a_new_stroke_writes_over_the_last() {
+    run(
+        b"\x1bPpW(C,L5)P[100,100]V[140,100]P[100,100]V[140,100]\x1b\\",
+        |t| {
+            let (px, _) = page(t);
+            let lit: Vec<u32> = px
+                .into_iter()
+                .filter(|&c| c != Pixel::CLEAR.bits())
+                .collect();
+            assert!(lit.len() > 100);
+            assert!(lit.iter().all(|&c| c == BLACK), "15 back to 0");
+        },
+    );
+}
+
+/// "Line width is set to nominal" by a valid S(A) (§ 8.8.1.4.1 b), a
+/// temporary width lasts its command, and W(L) is no longer counted.
+#[test]
+fn the_width_resets_at_s_a_and_a_temporary_one_ends_with_its_command() {
+    let thin = lit(b"\x1bPpP[100,100]V[120,100]\x1b\\");
+    assert_eq!(
+        lit(b"\x1bPpW(L5)S(A[0,0][799,479])P[100,100]V[120,100]\x1b\\"),
+        thin
+    );
+    let t = lit(b"\x1bPpP[100,100]V(W(L3))[120,100]P[100,200]V[120,200]\x1b\\");
+    assert_eq!(t.iter().filter(|p| p.1 == 200).count(), 21);
+    // A pen three across covers its whole square: 99 to 121 on each row.
+    assert_eq!(
+        t.iter().filter(|p| (99..=101).contains(&p.1)).count(),
+        3 * 23
+    );
+    run(b"\x1bPpW(L2)\x1b\\", |t| {
+        assert_eq!(t.regis_counts().unbuilt, 0)
+    });
+}
+
+/// **A stroke's marks do not move with the page's rows**: once lines move
+/// the pixels away, a new stroke over them writes them again. A line
+/// inserted above moves them down a cell; the window moving down a line
+/// carries them up one onto the next drawing's page.
+#[test]
+fn moved_rows_keep_no_marks() {
+    // 80 by 24 cells of 10 by 20: an 800 by 480 page, a coordinate a pixel.
+    let ws = WinSize {
+        ws_row: 24,
+        ws_col: 80,
+    };
+    let cases: [(&[u8], usize); 2] = [(b"\x1b[1;1H\x1b[L", 50), (b"\x1b[24;1H\n", 10)];
+    for (moves, y) in cases {
+        let mut owned = Owned::new(&ws).with_images(ImageBudget::of(8 << 20));
+        let mut t = Term::new(owned.storage(), &ws);
+        t.set_cell_size(baud_domain::ImagePx::of(10), baud_domain::ImagePx::of(20));
+        support::feed(&mut t, b"\x1bPpW(C,L5)P[100,30]V[140,30]\x1b\\");
+        support::feed(&mut t, moves);
+        let again = format!("\x1bPpW(C,L5)P[100,{y}]V[140,{y}]\x1b\\");
+        support::feed(&mut t, again.as_bytes());
+        let imgs = t.images();
+        let (_, p) = imgs.placements().last().expect("a page");
+        let v = imgs.image(p.image).expect("its image");
+        let lit: Vec<u32> = v
+            .pixels
+            .iter()
+            .map(|px| px.bits())
+            .filter(|&c| c != Pixel::CLEAR.bits())
+            .collect();
+        assert!(lit.len() > 100);
+        assert!(
+            lit.iter().all(|&c| c == BLACK),
+            "{}: a pixel the first stroke marked was passed over",
+            String::from_utf8_lossy(moves)
+        );
+    }
 }

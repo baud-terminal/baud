@@ -15,6 +15,12 @@ use super::*;
 
 /// The bit a written pixel carries beside its index.
 pub const WRITTEN: u8 = 0x80;
+/// **The bit a pixel the wide stroke in progress wrote carries**, so a
+/// round pen swept along a polyline or a curve writes each pixel once,
+/// complement writing included, however many of its positions cover it
+/// ([`RegisCanvas::unmark`] clears it when the stroke ends; a move of
+/// the page's rows drops it).
+pub const MARK: u8 = 0x40;
 
 /// A rectangle of the page, `x0..x1` by `y0..y1`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -46,6 +52,12 @@ pub enum LineSpan {
     Rest,
     /// Neither end: the closing segment of a loop.
     Inner,
+    /// [`LineSpan::Rest`], the line before a wide one of the same stroke
+    /// having drawn its last step with the same pen: a wide line's writing
+    /// starts from that pen ([`RegisCanvas::wide_line`]).
+    Chained,
+    /// [`LineSpan::Inner`], after a line as [`LineSpan::Chained`] says.
+    ChainedInner,
 }
 
 /// A page's plane, lent: `w` by `h` pixels, a row `stride` bytes.
@@ -113,10 +125,11 @@ impl<'a> RegisCanvas<'a> {
     }
 
     /// One pixel, `on` where the pattern (after `W(N)`) has a one: the
-    /// writing modes of § 8.7.2.4.1 through the foreground mask.
-    fn put(&mut self, x: i32, y: i32, on: bool, pen: &RegisPen) {
+    /// writing modes of § 8.7.2.4.1 through the foreground mask. Whether
+    /// it was written.
+    fn put(&mut self, x: i32, y: i32, on: bool, pen: &RegisPen) -> bool {
         if x < 0 || y < 0 || x >= self.w || y >= self.h || !pen.clip.allows(x, y) {
-            return;
+            return false;
         }
         let i = y as usize * self.stride + x as usize;
         let old = self.plane[i];
@@ -124,14 +137,14 @@ impl<'a> RegisCanvas<'a> {
         let mask = pen.planes.bits();
         let value = match (pen.mode, on) {
             (WriteMode::Overlay, true) => pen.fg.raw(),
-            (WriteMode::Overlay, false) => return,
+            (WriteMode::Overlay, false) => return false,
             (WriteMode::Replace, true) => pen.fg.raw(),
             (WriteMode::Replace, false) => pen.bg.raw(),
             // "When you use complement writing to write over a pixel, the
             // terminal changes the binary code for that pixel to its opposite
             // value" -- in the planes the mask allows.
             (WriteMode::Complement, true) => !had,
-            (WriteMode::Complement, false) => return,
+            (WriteMode::Complement, false) => return false,
             // "ignore the contents of the pattern register, and Erase each
             // pixel to the background specifier if W(N0) is in force, or write
             // each pixel with the foreground specifier if W(N1)".
@@ -143,6 +156,37 @@ impl<'a> RegisCanvas<'a> {
         let v = (had & !mask) | (value & mask);
         self.plane[i] = WRITTEN | (v & 0x0f);
         self.touch(x, y);
+        true
+    }
+
+    /// One pixel of a wide stroke: written as [`RegisCanvas::put`] writes
+    /// it unless the stroke has written it already, and marked if written.
+    fn stamp(&mut self, x: i32, y: i32, on: bool, pen: &RegisPen) {
+        if x < 0 || y < 0 || x >= self.w || y >= self.h {
+            return;
+        }
+        let i = y as usize * self.stride + x as usize;
+        if self.plane[i] & MARK != 0 {
+            return;
+        }
+        if self.put(x, y, on, pen) {
+            self.plane[i] |= MARK;
+        }
+    }
+
+    /// **The stroke's marks in `r` cleared**: the next stroke writes its
+    /// pixels again. Nothing shown changes.
+    pub fn unmark(&mut self, r: RegisRect) {
+        let (x0, x1) = (r.x0.max(0), r.x1.min(self.w));
+        if x0 >= x1 {
+            return;
+        }
+        for y in r.y0.max(0)..r.y1.min(self.h) {
+            let at = y as usize * self.stride;
+            for b in &mut self.plane[at + x0 as usize..at + x1 as usize] {
+                *b &= !MARK;
+            }
+        }
     }
 
     /// Whether the line pattern has a one at step `i`, after `W(N)`.
@@ -189,6 +233,9 @@ impl<'a> RegisCanvas<'a> {
         phase: &mut u32,
         span: LineSpan,
     ) {
+        if pen.width > 1 {
+            return self.wide_line(a, b, pen, phase, span);
+        }
         let (dx, dy) = (
             i64::from(b.x) - i64::from(a.x),
             i64::from(b.y) - i64::from(a.y),
@@ -196,8 +243,8 @@ impl<'a> RegisCanvas<'a> {
         let steps = dx.abs().max(dy.abs());
         let (k0, k1) = match span {
             LineSpan::Whole => (0, steps),
-            LineSpan::Rest => (1, steps),
-            LineSpan::Inner => (1, steps - 1),
+            LineSpan::Rest | LineSpan::Chained => (1, steps),
+            LineSpan::Inner | LineSpan::ChainedInner => (1, steps - 1),
         };
         if k1 < k0 {
             return;
@@ -218,6 +265,116 @@ impl<'a> RegisCanvas<'a> {
             }
         }
         *phase = start.wrapping_add((k1 - k0 + 1) as u32);
+    }
+
+    /// **A wide line** (§ 8.8.3.2): the round pen `pen.width` pixels
+    /// across at each step of the one-pixel line, as the pattern has that
+    /// step, each pixel written once in the stroke ([`MARK`]); shading from
+    /// the steps themselves. Jev's lean, ROUND, 0.25 and 0.19 on a second
+    /// ask: "the width or weight of lines and curves" the same in every
+    /// direction.
+    ///
+    /// **A step writes only what the pen last written did not cover.** A
+    /// pixel is written at the first step that covers it and writes --
+    /// every step for replace and erase writing, a step the pattern has a
+    /// one for overlay and complement -- and the mark keeps every later
+    /// one off it; so a writing step visits its pen less the pen of the
+    /// writing step before, the line before's last for a line that
+    /// [`LineSpan::Chained`] says ended where this one starts, with the
+    /// same pen. The pixels written are those of the whole pen at every
+    /// step, at a cost of the pen's rows on the page a step, and a line's
+    /// first writing step with no pen before it -- at most one a line --
+    /// visits its whole pen, held to the page, whatever its width.
+    fn wide_line(
+        &mut self,
+        a: RegisPoint,
+        b: RegisPoint,
+        pen: &RegisPen,
+        phase: &mut u32,
+        span: LineSpan,
+    ) {
+        let (dx, dy) = (
+            i64::from(b.x) - i64::from(a.x),
+            i64::from(b.y) - i64::from(a.y),
+        );
+        let steps = dx.abs().max(dy.abs());
+        let (k0, k1) = match span {
+            LineSpan::Whole => (0, steps),
+            LineSpan::Rest | LineSpan::Chained => (1, steps),
+            LineSpan::Inner | LineSpan::ChainedInner => (1, steps - 1),
+        };
+        if k1 < k0 {
+            return;
+        }
+        // The steps whose pen can touch the page.
+        let r = i32::from(pen.width) / 2 + 1;
+        let shifted = RegisPoint {
+            x: a.x.saturating_add(r),
+            y: a.y.saturating_add(r),
+        };
+        let (lo, hi) = clip_steps(shifted, dx, dy, steps, self.w + 2 * r, self.h + 2 * r);
+        let (lo, hi) = (lo.max(k0), hi.min(k1));
+        let start = *phase;
+        let writes = |i: u32| match pen.mode {
+            WriteMode::Replace | WriteMode::Erase => true,
+            WriteMode::Overlay | WriteMode::Complement => Self::pattern_on(pen, i),
+        };
+        // The pen last written, its centre.
+        let mut last = match span {
+            LineSpan::Chained | LineSpan::ChainedInner if writes(start.wrapping_sub(1)) => {
+                Some((i64::from(a.x), i64::from(a.y)))
+            }
+            _ => None,
+        };
+        if lo <= hi {
+            for k in lo..=hi {
+                let (x, y) = at_step(a, dx, dy, steps, k);
+                let i = start.wrapping_add((k - k0) as u32);
+                if let Some((to, tex)) = pen.shade {
+                    self.shade(x, y, to, &tex, pen);
+                }
+                if !writes(i) {
+                    continue;
+                }
+                let at = (i64::from(x), i64::from(y));
+                self.pen_less(at, last, i, pen);
+                last = Some(at);
+            }
+        }
+        *phase = start.wrapping_add((k1 - k0 + 1) as u32);
+    }
+
+    /// The round pen at `at`, less the same pen at `last`, each pixel on
+    /// the page stamped as the pattern has step `i`.
+    fn pen_less(&mut self, at: (i64, i64), last: Option<(i64, i64)>, i: u32, pen: &RegisPen) {
+        let (d, on) = (i64::from(pen.width), Self::pattern_on(pen, i));
+        let (y0, y1) = (
+            (at.1 - d / 2).max(0),
+            (at.1 + (d - 1) / 2).min(i64::from(self.h) - 1),
+        );
+        for y in y0..=y1 {
+            let Some((u0, u1)) = pen_row(d, y - at.1) else {
+                continue;
+            };
+            let (n0, n1) = (at.0 + u0, at.0 + u1);
+            let old =
+                last.and_then(|(lx, ly)| pen_row(d, y - ly).map(|(o0, o1)| (lx + o0, lx + o1)));
+            match old {
+                Some((o0, o1)) if o0 <= n1 && n0 <= o1 => {
+                    self.stamp_span(y, n0, o0 - 1, on, pen);
+                    self.stamp_span(y, o1 + 1, n1, on, pen);
+                }
+                _ => self.stamp_span(y, n0, n1, on, pen),
+            }
+        }
+    }
+
+    /// Row `y`'s pixels `x0..=x1` that are on the page, stamped `on`.
+    fn stamp_span(&mut self, y: i64, x0: i64, x1: i64, on: bool, pen: &RegisPen) {
+        let (x0, x1) = (x0.max(0), x1.min(i64::from(self.w) - 1));
+        for x in x0..=x1 {
+            self.stamp(x as i32, y as i32, on, pen);
+        }
     }
 
     /// Shading from one pixel of a path to its reference: "drawing lines
@@ -487,6 +644,25 @@ pub struct CellDraw<'a> {
 }
 
 /// The pixel of step `k` of `steps` along `(dx, dy)` from `a`, rounded.
+/// **The round pen's row `dv`**, `d` pixels across: the columns about
+/// its centre, first and last, of the pixels whose centres are within
+/// `d / 2` of the pen's -- centred on a pixel for an odd `d` and on a
+/// pixel's upper-left corner for an even one -- or `None` past the pen.
+fn pen_row(d: i64, dv: i64) -> Option<(i64, i64)> {
+    let c = (d + 1) % 2;
+    if dv < -(d / 2) || dv > (d - 1) / 2 {
+        return None;
+    }
+    // `(2 du + c)^2 + (2 dv + c)^2 <= d^2`, solved for `du`.
+    let rem = d * d - (2 * dv + c).pow(2);
+    if rem < 0 {
+        return None;
+    }
+    let du1 = (rem.isqrt() - c).div_euclid(2);
+    let du0 = -du1 - c;
+    (du0 <= du1).then_some((du0, du1))
+}
+
 fn at_step(a: RegisPoint, dx: i64, dy: i64, steps: i64, k: i64) -> (i32, i32) {
     if steps == 0 {
         return (a.x, a.y);

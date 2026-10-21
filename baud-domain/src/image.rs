@@ -2326,6 +2326,11 @@ impl<'b> ImageStore<'b> {
         {
             bytes.copy_within(dy * stride.., 0);
             bytes[(h - dy) * stride..].fill(0);
+            // A wide stroke's marks name where it drew, not where its
+            // pixels went.
+            for b in bytes.iter_mut() {
+                *b &= !crate::regis::MARK;
+            }
         }
         let moved = self.lit_in(o, (0, dy, w, h));
         self.pixels
@@ -3197,6 +3202,14 @@ impl<'b> ImageStore<'b> {
                         let bytes = self.pixels[pl.start()..pl.end()].as_mut_bytes();
                         if let Some(bytes) = bytes.get_mut(x0..) {
                             shift_byte_rows(bytes, stride, x1 - x0, (y0, y1), k, way);
+                            // The rows moved keep no wide stroke's marks.
+                            for y in y0..y1 {
+                                if let Some(row) = bytes.get_mut(y * stride..y * stride + x1 - x0) {
+                                    for b in row {
+                                        *b &= !crate::regis::MARK;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
