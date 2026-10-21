@@ -1437,9 +1437,9 @@ mod tests {
     /// AppKit- and Wayland-bound, so the source is held. Linux resizes for
     /// the line before the requests, as the macOS pump queues the line's
     /// frame before them (`the_scrollbar_mode_reaches_the_window`); every
-    /// locator event the macOS mouse handler feeds is followed by the
-    /// indicator's frame (`crate::gesture::locator_redraws`), as the seat's
-    /// is (`a_move_redraws_the_indicator_line`).
+    /// locator half the macOS mouse handler tells is acted on, its report
+    /// sent and the indicator's frame drawn (`crate::gesture::locator_redraws`),
+    /// as the seat's is (`a_move_redraws_the_indicator_line`).
     #[test]
     fn the_drivers_act_on_the_line_as_the_seams_say() {
         let linux = include_str!("linux.rs");
@@ -1452,22 +1452,26 @@ mod tests {
             )),
             "the line's resize before the requests"
         );
+        // The two halves the mouse handler tells, each acted on: the
+        // seam itself is `the_driver_tells_the_locator_each_half_once`.
         let app = include_str!("app.rs");
-        let fed = concat!(
-            "            if self.app.term.locator(e) {\n",
-            "                self.app.flush_reply();\n",
-            "            }\n"
+        let told = concat!(
+            "        let owed = tell_locator(&mut self.app.term, pointer, half, at, self.buttons);\n",
+            "        self.locator_owed(owed);\n"
         );
-        let drawn = concat!(
-            "            if crate::gesture::locator_redraws(&self.app.term) {\n",
-            "                self.app.pending = Pending::Dirty;\n",
-            "            }\n"
+        assert_eq!(app.matches(told).count(), 2, "two locator halves");
+        let owed = concat!(
+            "        if owed.reply == Reply::Queued {\n",
+            "            self.app.flush_reply();\n",
+            "        }\n",
+            "        if owed.frame == LineFrame::Owed {\n",
+            "            self.app.pending = Pending::Dirty;\n",
+            "        }\n"
         );
-        assert_eq!(app.matches(fed).count(), 2, "two locator events");
         assert_eq!(
-            app.matches(&format!("{fed}{drawn}")).count(),
-            2,
-            "each followed by the indicator's frame"
+            app.matches(owed).count(),
+            1,
+            "the report sent, the frame drawn"
         );
     }
 

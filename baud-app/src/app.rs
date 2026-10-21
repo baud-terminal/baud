@@ -4658,6 +4658,190 @@ mod alt_window_tests {
 }
 
 #[cfg(test)]
+mod locator_tests {
+    use super::tell_locator;
+    use super::{LineFrame, LocatorHalf, LocatorOwed, Reply, To, ViewButton, ViewMouseKind};
+    use baud_core::{LocatorDevice, Owned, Term};
+    use baud_domain::{
+        BytePos, Col, LocatorAt, LocatorButton, LocatorButtons, ReadLen, Row, WinSize,
+    };
+
+    const WS: WinSize = WinSize {
+        ws_col: 40,
+        ws_row: 6,
+    };
+
+    fn feed(t: &mut Term<'_>, bytes: &[u8]) {
+        t.write_at(BytePos::ZERO, bytes);
+        t.feed(BytePos::ZERO, ReadLen::from_index(bytes.len()));
+    }
+
+    fn cell(col: Col, row: Row) -> Option<LocatorAt> {
+        Some(LocatorAt { col, row, px: None })
+    }
+
+    /// The indicator line's text.
+    fn line(t: &Term<'_>) -> String {
+        let cells = t.status_line().map_or(&[][..], |l| l.cells);
+        cells
+            .iter()
+            .map(|c| {
+                c.content
+                    .as_codepoint()
+                    .and_then(|cp| char::from_u32(cp.value()))
+                    .unwrap_or(' ')
+            })
+            .collect::<String>()
+            .trim_end()
+            .to_string()
+    }
+
+    const NOTHING: LocatorOwed = LocatorOwed {
+        reply: Reply::None,
+        frame: LineFrame::None,
+    };
+    const FRAME: LocatorOwed = LocatorOwed {
+        reply: Reply::None,
+        frame: LineFrame::Owed,
+    };
+    const BOTH: LocatorOwed = LocatorOwed {
+        reply: Reply::Queued,
+        frame: LineFrame::Owed,
+    };
+
+    /// **The macOS driver's wiring of DEC's locator**: a move, a drag or a
+    /// crossing is told in the unrouted half and a press or a release only
+    /// in the routed one, so neither is told twice; a press the route gave
+    /// the child reports under DECSLE and one it gave the selection is a
+    /// move; a leave is the position undefined wherever it was, so the
+    /// indicator line's field goes; and the line owes a frame whenever it
+    /// is shown and the locator was told, a report the reply buffer.
+    #[test]
+    fn the_driver_tells_the_locator_each_half_once() {
+        let mut owned = Owned::new(&WS);
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_locator_device(LocatorDevice::Present);
+        let none = LocatorButtons::NONE;
+        let left = none.pressed(LocatorButton::Left);
+        let (moved, down) = (
+            (ViewMouseKind::Moved, ViewButton::Left),
+            (ViewMouseKind::Down, ViewButton::Left),
+        );
+        let un = LocatorHalf::Unrouted;
+        // No line: no frame, and nothing reported before DECELR.
+        assert_eq!(
+            tell_locator(
+                &mut t,
+                moved,
+                un,
+                cell(Col::at_index(2), Row::from_index(4)),
+                none
+            ),
+            NOTHING
+        );
+        feed(&mut t, b"\x1b[1$~\x1b[1;2'z\x1b[1'{");
+        assert_eq!(
+            tell_locator(
+                &mut t,
+                moved,
+                un,
+                cell(Col::at_index(2), Row::from_index(4)),
+                none
+            ),
+            FRAME
+        );
+        assert!(line(&t).ends_with("[5,3]"), "{:?}", line(&t));
+        assert_eq!(
+            tell_locator(
+                &mut t,
+                down,
+                un,
+                cell(Col::at_index(2), Row::from_index(4)),
+                left
+            ),
+            NOTHING
+        );
+        assert_eq!(t.reply(), b"", "a press is not told before the route");
+        let drag = (ViewMouseKind::Dragged, ViewButton::Left);
+        let child = LocatorHalf::Routed(To::Child);
+        assert_eq!(
+            tell_locator(
+                &mut t,
+                drag,
+                child,
+                cell(Col::at_index(3), Row::from_index(4)),
+                left
+            ),
+            NOTHING
+        );
+        assert!(line(&t).ends_with("[5,3]"), "a drag is told unrouted");
+        assert_eq!(
+            tell_locator(
+                &mut t,
+                down,
+                child,
+                cell(Col::at_index(2), Row::from_index(4)),
+                left
+            ),
+            BOTH
+        );
+        assert_eq!(t.reply(), b"\x1b[2;4;5;3&w");
+        t.clear_reply();
+        let select = LocatorHalf::Routed(To::Select);
+        assert_eq!(
+            tell_locator(
+                &mut t,
+                down,
+                select,
+                cell(Col::at_index(6), Row::from_index(1)),
+                left
+            ),
+            FRAME
+        );
+        assert_eq!(t.reply(), b"", "the selection's press reports nothing");
+        assert!(line(&t).ends_with("[2,7]"), "{:?}", line(&t));
+        let exited = (ViewMouseKind::Exited, ViewButton::Left);
+        assert_eq!(
+            tell_locator(
+                &mut t,
+                exited,
+                un,
+                cell(Col::at_index(6), Row::from_index(1)),
+                none
+            ),
+            FRAME
+        );
+        assert!(!line(&t).contains('['), "{:?}", line(&t));
+    }
+
+    /// **A ReGIS cursor the pointer moves owes a frame** with no line
+    /// shown: multiple mode's crosshair follows the pointer inside the
+    /// envelope, drawn into the page, and the move that redraws it is told
+    /// unrouted.
+    #[test]
+    fn a_regis_cursor_the_pointer_moves_owes_a_frame() {
+        let mut owned = Owned::new(&WS).with_images(baud_domain::ImageBudget::of(4 << 20));
+        let mut t = Term::new(owned.storage(), &WS);
+        t.set_locator_device(LocatorDevice::Present);
+        feed(&mut t, b"\x1bPpR(I1)");
+        let at = Some(LocatorAt {
+            col: Col::ZERO,
+            row: Row::ZERO,
+            px: Some(baud_domain::PointerPx {
+                x: baud_domain::ImagePx::of(40),
+                y: baud_domain::ImagePx::of(30),
+            }),
+        });
+        let moved = (ViewMouseKind::Moved, ViewButton::Left);
+        let none = LocatorButtons::NONE;
+        assert_eq!(
+            tell_locator(&mut t, moved, LocatorHalf::Unrouted, at, none),
+            FRAME
+        );
+    }
+}
+
+#[cfg(test)]
 mod resize_selection_tests {
     use super::kept_across_resize;
     use baud_core::{Owned, Term};
@@ -7698,28 +7882,11 @@ impl Responder for Driver {
         // the route has said whose they are, below.
         let (kind, button) = (mouse_kind(event.kind), mouse_button(event.button));
         self.buttons = held_after(self.buttons, kind, button);
-        if !matches!(kind, Kind::Down | Kind::Up) {
-            let at = match event.kind {
-                ViewMouseKind::Exited => None,
-                _ => self.locator_under(event.x, event.y),
-            };
-            let e = LocatorInput {
-                kind: LocatorKind::Moved,
-                at,
-                held: self.buttons,
-            };
-            // A ReGIS cursor the move put under the pointer owes a frame.
-            let drawn = self.app.term.images().generation();
-            if self.app.term.locator(e) {
-                self.app.flush_reply();
-            }
-            if crate::gesture::locator_redraws(&self.app.term) {
-                self.app.pending = Pending::Dirty;
-            }
-            if self.app.term.images().generation() != drawn {
-                self.app.pending = Pending::Dirty;
-            }
-        }
+        let at = self.locator_under(event.x, event.y);
+        let pointer = (event.kind, event.button);
+        let half = LocatorHalf::Unrouted;
+        let owed = tell_locator(&mut self.app.term, pointer, half, at, self.buttons);
+        self.locator_owed(owed);
         if self.scrollbar(event) == Took::Yes {
             return;
         }
@@ -7752,20 +7919,9 @@ impl Responder for Driver {
             shift_overrides(held, self.app.term.shift_escape(), kind, button),
         );
         self.owner = owner;
-        if matches!(kind, Kind::Down | Kind::Up) {
-            let at = self.locator_under(event.x, event.y);
-            let drawn = self.app.term.images().generation();
-            let e = locator_input((kind, button, to), tracking, at, self.buttons);
-            if self.app.term.locator(e) {
-                self.app.flush_reply();
-            }
-            if crate::gesture::locator_redraws(&self.app.term) {
-                self.app.pending = Pending::Dirty;
-            }
-            if self.app.term.images().generation() != drawn {
-                self.app.pending = Pending::Dirty;
-            }
-        }
+        let half = LocatorHalf::Routed(to);
+        let owed = tell_locator(&mut self.app.term, pointer, half, at, self.buttons);
+        self.locator_owed(owed);
         if to == To::Select {
             self.select(event);
             return;
@@ -10015,6 +10171,17 @@ impl Driver {
         pointer_under((x, y), scale, cell, grid, pad)
     }
 
+    /// What telling DEC's locator left owed: its report written, and a
+    /// frame for the indicator line.
+    fn locator_owed(&mut self, owed: LocatorOwed) {
+        if owed.reply == Reply::Queued {
+            self.app.flush_reply();
+        }
+        if owed.frame == LineFrame::Owed {
+            self.app.pending = Pending::Dirty;
+        }
+    }
+
     /// The same point for DEC's locator: `None` off the text area.
     fn locator_under(&self, x: f64, y: f64) -> Option<LocatorAt> {
         let (scale, cell, grid, pad) = self.pointer_geometry();
@@ -10135,6 +10302,94 @@ fn mouse_kind(k: ViewMouseKind) -> Kind {
         ViewMouseKind::Moved => Kind::Moved,
         ViewMouseKind::Dragged => Kind::Dragged,
         ViewMouseKind::Entered | ViewMouseKind::Exited => Kind::Crossed,
+    }
+}
+
+/// Which half of an AppKit pointer event DEC's locator is told: a move, a
+/// drag or a crossing before the scrollbar and the links see it, so a
+/// filter rectangle sees every position; a press or a release once the
+/// route has said whose it is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LocatorHalf {
+    Unrouted,
+    Routed(To),
+}
+
+/// Whether a locator report went into the core's reply buffer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Reply {
+    Queued,
+    None,
+}
+
+/// Whether the indicator line owes a frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LineFrame {
+    Owed,
+    None,
+}
+
+/// What [`tell_locator`] leaves the driver to do.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct LocatorOwed {
+    reply: Reply,
+    frame: LineFrame,
+}
+
+/// **DEC's locator told one AppKit pointer event, in the half `half` is**
+/// (`Term::locator`): a move, a drag or a crossing in the unrouted half, a
+/// press or a release in the routed one, and nothing told in the other.
+/// `at` is the cell under the event, `None` off the text area, and a leave
+/// is `None` wherever it was, the pointer having left the view; `held` the
+/// buttons after it (`held_after`). A press the route gave the selection
+/// is a move to the locator (`locator_input`). The indicator line owes a
+/// frame whenever it is shown and the locator was told (`locator_redraws`).
+fn tell_locator(
+    term: &mut Term<'_>,
+    (view_kind, view_button): (ViewMouseKind, ViewButton),
+    half: LocatorHalf,
+    at: Option<LocatorAt>,
+    held: LocatorButtons,
+) -> LocatorOwed {
+    let (kind, button) = (mouse_kind(view_kind), mouse_button(view_button));
+    let at = match view_kind {
+        ViewMouseKind::Exited => None,
+        _ => at,
+    };
+    let e = match (half, kind) {
+        (LocatorHalf::Unrouted, Kind::Down | Kind::Up) => None,
+        (LocatorHalf::Unrouted, _) => Some(LocatorInput {
+            kind: LocatorKind::Moved,
+            at,
+            held,
+        }),
+        (LocatorHalf::Routed(to), Kind::Down | Kind::Up) => Some(locator_input(
+            (kind, button, to),
+            term.mouse_tracking(),
+            at,
+            held,
+        )),
+        (LocatorHalf::Routed(_), _) => None,
+    };
+    let Some(e) = e else {
+        return LocatorOwed {
+            reply: Reply::None,
+            frame: LineFrame::None,
+        };
+    };
+    // A ReGIS cursor the event moved under the pointer owes a frame too.
+    let drawn = term.images().generation();
+    let reply = match term.locator(e) {
+        true => Reply::Queued,
+        false => Reply::None,
+    };
+    let moved = term.images().generation() != drawn;
+    LocatorOwed {
+        reply,
+        frame: match crate::gesture::locator_redraws(term) || moved {
+            true => LineFrame::Owed,
+            false => LineFrame::None,
+        },
     }
 }
 
