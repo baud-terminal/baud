@@ -135,20 +135,27 @@ impl<'a> RegisCanvas<'a> {
         let old = self.plane[i];
         let had = old & 0x0f;
         let mask = pen.planes.bits();
-        let value = match (pen.mode, on) {
-            (WriteMode::Overlay, true) => pen.fg.raw(),
-            (WriteMode::Overlay, false) => return false,
-            (WriteMode::Replace, true) => pen.fg.raw(),
-            (WriteMode::Replace, false) => pen.bg.raw(),
+        // The pattern's own bit, before `W(N1)` inverted it into `on`.
+        let bit = match (on, pen.negate) {
+            (true, Negate::Off) | (false, Negate::On) => PatternBit::One,
+            _ => PatternBit::Zero,
+        };
+        let micro = pen.micro.get(RegisIndex::of_raw(had), bit);
+        let value = match (micro, pen.mode, on) {
+            (Some(v), _, _) => v.raw(),
+            (None, WriteMode::Overlay, true) => pen.fg.raw(),
+            (None, WriteMode::Overlay, false) => return false,
+            (None, WriteMode::Replace, true) => pen.fg.raw(),
+            (None, WriteMode::Replace, false) => pen.bg.raw(),
             // "When you use complement writing to write over a pixel, the
             // terminal changes the binary code for that pixel to its opposite
             // value" -- in the planes the mask allows.
-            (WriteMode::Complement, true) => !had,
-            (WriteMode::Complement, false) => return false,
+            (None, WriteMode::Complement, true) => !had,
+            (None, WriteMode::Complement, false) => return false,
             // "ignore the contents of the pattern register, and Erase each
             // pixel to the background specifier if W(N0) is in force, or write
             // each pixel with the foreground specifier if W(N1)".
-            (WriteMode::Erase, _) => match pen.negate {
+            (None, WriteMode::Erase, _) => match pen.negate {
                 Negate::Off => pen.bg.raw(),
                 Negate::On => pen.fg.raw(),
             },

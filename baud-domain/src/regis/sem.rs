@@ -50,8 +50,7 @@ pub struct RegisCounts {
     pub space_refused: u32,
     /// Open Extensions (§ 8.8) this interpreter parses and does not act
     /// on: data movement, drawing surfaces (`P(P)`, the VT340's `S(P)`),
-    /// blink, microcoded writing, flood; and `S(N)`, which no DEC text
-    /// here defines.
+    /// blink, flood; and `S(N)`, which no DEC text here defines.
     pub unbuilt: u32,
     /// Characters no grammar position takes, and keyletters no instruction
     /// names (error 1).
@@ -284,6 +283,8 @@ struct Write {
     shade_with: Option<ShadeWith>,
     /// `W(L<n>)`, the line width in nominal widths (§ 8.8.3.2).
     width: RegisNum,
+    /// `W(W)`'s microcoded entries (§ 8.8.3.4).
+    micro: RegisMicro,
 }
 
 impl Write {
@@ -302,6 +303,7 @@ impl Write {
         shade_to: ShadeTo::Row(0),
         shade_with: None,
         width: RegisNum::ONE,
+        micro: RegisMicro::NONE,
     };
 }
 
@@ -749,6 +751,7 @@ impl Sem {
             },
             clip: self.page_clip(),
             width: line_width(w.width),
+            micro: w.micro,
         }
     }
 
@@ -1798,6 +1801,7 @@ impl Sem {
             // The terminal's own line, no drawing of the program's.
             clip: RegisClip::Off,
             width: 1,
+            micro: RegisMicro::NONE,
         }
     }
 
@@ -2102,6 +2106,11 @@ impl Sem {
             Target::Temporary => self.tw,
         };
         let pk = parent.key;
+        // "Any writing mode command overrides all detailed settings"
+        // (§ 8.8.3.4): the five of § 8.7.2.4.1.
+        if r == 1 && matches!(f.key, b'V' | b'R' | b'C' | b'E' | b'N') {
+            w.micro = RegisMicro::NONE;
+        }
         match (r, f.key) {
             (1, b'V') => w.mode = WriteMode::Overlay,
             (1, b'R') => w.mode = WriteMode::Replace,
@@ -2111,6 +2120,18 @@ impl Sem {
                 w.negate = match f.int() {
                     Some(0) | None => Negate::Off,
                     _ => Negate::On,
+                }
+            }
+            // `W(W<i>(P<j>N<k>))`: the entries for old index `i`, an index
+            // past the device's mapped back as every index is (§ 8.6.2.2.1).
+            (1, b'W') => {}
+            (2, b'P' | b'N') if pk == b'W' => {
+                if let (Some(i), Some(v)) = (parent.int(), f.int()) {
+                    let bit = match f.key {
+                        b'P' => PatternBit::One,
+                        _ => PatternBit::Zero,
+                    };
+                    w.micro.load(RegisIndex::wrap(i), bit, RegisIndex::wrap(v));
                 }
             }
             (1, b'F') => {
@@ -2164,9 +2185,8 @@ impl Sem {
                     w.width = v.abs();
                 }
             }
-            // `W(A)` blink, `W(W)` microcoded writing: Open Extensions
-            // (§ 8.8.3).
-            (1, b'A' | b'W') => self.counts.unbuilt += 1,
+            // `W(A)` blink: an Open Extension (§ 8.8.3.1).
+            (1, b'A') => self.counts.unbuilt += 1,
             _ if r >= 2 => {}
             _ => self.error(1, f.key),
         }

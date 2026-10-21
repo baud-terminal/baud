@@ -343,6 +343,59 @@ pub enum Texture {
     },
 }
 
+/// A bit of the pattern register, an area pattern or a character cell, as
+/// a write reads it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PatternBit {
+    Zero,
+    One,
+}
+
+/// **Microcoded writing**, `W(W<i>(P<j>N<k>))` (070-8 § 8.8.3.4): "If a
+/// pixel to be written has value <i> before the write operation, it is
+/// written to value <j> if the next value from the pattern register, area
+/// pattern, or character cell is a 1, or to value <k> if the next masking
+/// value is a 0". An entry per old index and bit; "only those entries
+/// explicitly loaded take effect", the rest writing as the writing mode
+/// does, and "Any writing mode command overrides all detailed settings".
+///
+/// **The bit is the pattern's own, before `W(N1)` inverts it** (Jev's lean,
+/// RAW, 0.20 and 0.36 on a second ask): the loaded entries "override the
+/// last specified write mode control option (R, C, V, N, or E)", the five
+/// modes of § 8.7.2.4.1, `N` among them. **The plane mask still limits the
+/// write** (decided by Jev, MASK_APPLIES, 0.96 and 0.92): `W(F)` enables
+/// "all plane write and erase operations".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RegisMicro {
+    one: [Option<RegisIndex>; REGIS_COLORS],
+    zero: [Option<RegisIndex>; REGIS_COLORS],
+}
+
+impl RegisMicro {
+    /// No entry loaded: every write is the writing mode's.
+    pub const NONE: RegisMicro = RegisMicro {
+        one: [None; REGIS_COLORS],
+        zero: [None; REGIS_COLORS],
+    };
+
+    /// Load the entry for a pixel holding `old` and a pattern bit `bit`.
+    pub fn load(&mut self, old: RegisIndex, bit: PatternBit, value: RegisIndex) {
+        match bit {
+            PatternBit::One => self.one[old.slot()] = Some(value),
+            PatternBit::Zero => self.zero[old.slot()] = Some(value),
+        }
+    }
+
+    /// The value a pixel holding `old` is written to for `bit`, if its
+    /// entry is loaded.
+    pub fn get(&self, old: RegisIndex, bit: PatternBit) -> Option<RegisIndex> {
+        match bit {
+            PatternBit::One => self.one[old.slot()],
+            PatternBit::Zero => self.zero[old.slot()],
+        }
+    }
+}
+
 /// Everything a primitive draws with: the effective writing controls of
 /// the command, resolved to the device.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -361,6 +414,8 @@ pub struct RegisPen {
     /// A line's width in page pixels, `W(L)` (§ 8.8.3.2): one, the
     /// nominal width, to [`REGIS_LINE_WIDTH`].
     pub width: u16,
+    /// The microcoded entries loaded, `W(W)` (§ 8.8.3.4).
+    pub micro: RegisMicro,
 }
 
 /// **How many shown pixels a pixel of the page's plane is**, each way:
