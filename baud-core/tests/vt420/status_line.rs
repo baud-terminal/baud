@@ -543,6 +543,12 @@ fn the_line_leaves_the_main_displays_images_alone() {
         let n = t.images().placements().count();
         assert_eq!(n, 2, "the premise, {}", show(screen));
         support::feed(&mut t, &[HOST, ON, b"over the images\x1b[2J", OFF].concat());
+        assert_eq!(t.images().placements().count(), n, "ED, {}", show(screen));
+        // The selective erases too, over text on the line.
+        support::feed(
+            &mut t,
+            &[HOST, ON, b"\x1b[1Gover\x1b[?2J\x1b[1Gagain\x1b[?2K", OFF].concat(),
+        );
         assert_eq!(t.images().placements().count(), n, "{}", show(screen));
         // A scroll on the line moves none of them up and off.
         support::feed(&mut t, &[ON, b"\n\x1bD\x1b[S", OFF].concat());

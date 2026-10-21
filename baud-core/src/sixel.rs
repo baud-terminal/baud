@@ -305,8 +305,8 @@ impl Paint<'_, '_> {
     #[cold]
     #[inline(never)]
     fn erase_images_on(&mut self, r: Row, a: Col, b: Col) {
-        // An erase on the status line clears none of the main display's
-        // pictures, as its text frees none (`overwrite_images`).
+        // **The status line holds no picture**, and its row is not the
+        // main display's: an erase on it leaves the screen's pictures.
         if self.on_status() {
             return;
         }
