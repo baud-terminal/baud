@@ -160,6 +160,26 @@ fn osc_46_names_the_file_the_next_start_opens() {
     });
 }
 
+/// **Under ISO 8859-1 a GR byte of the path is its 7-bit byte**, as in
+/// every `OSC`: "GR (8-bit) graphic characters in APC, OSC, and PM control
+/// strings will be treated as their 7-bit equivalent (the eighth bit will
+/// be ignored)" (`[[source: dec-std-070]]` 3.5.4.5), ECMA-48 §9 gives a
+/// command string's GR bytes the meanings of 02/00-07/14, and xterm stores
+/// an `OSC` byte as its 7-bit byte outside a UTF-8 title (Jev, FOLD,
+/// 1.00/0.98). Under UTF-8 the path's characters are kept whole.
+#[test]
+fn an_osc_46_path_in_gr_is_its_seven_bit_path_under_latin1() {
+    support::with_term(&WS, |t| {
+        t.set_logging(Logging::On);
+        support::feed(t, b"\x1b%@\x1b]46;/tmp/caf\xe9.log\x1b\\");
+        assert_eq!(t.log_file(), Some(&b"/tmp/cafi.log"[..]));
+        support::feed(t, b"\x1b]46;\xaf\xf4\xed\xf0/a\x07");
+        assert_eq!(t.log_file(), Some(&b"/tmp/a"[..]));
+        support::feed(t, b"\x1b%G\x1b]46;/tmp/caf\xc3\xa9.log\x1b\\");
+        assert_eq!(t.log_file(), Some("/tmp/caf\u{e9}.log".as_bytes()));
+    });
+}
+
 /// **A name beginning `|` is a command, and no start runs one**: xterm
 /// runs it only when built with `ALLOWLOGFILEEXEC` and otherwise rings
 /// and logs nothing (`StartLog`, `[[source: xterm-misc]]`; Jev,

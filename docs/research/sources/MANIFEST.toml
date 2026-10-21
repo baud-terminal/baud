@@ -13106,6 +13106,10 @@ group  = "J"
 # against a fetch of the url, not committed -- a source file at a pinned commit.
 # Read 2026-10-19 (lane b94), the copy whose sha256 matches: ansi_modes, which walks
 # every SM and RM parameter, and its DECSED and DECSEL dispatch (DEC_PROTECT).
+# Read 2026-10-21 (lane b128-indicator-fixes), the copy whose sha256 matches [text]:
+# doparsing's string accumulation, `string_area[...] = (utf8Title ? CharOf(c) :
+# AsciiOf(c))`, "ECMA-48 section 9 recommends parsing controls with a 7-bit table,
+# precluding the use of 8-bit data" -- every OSC byte but a UTF-8 title's is 7-bit.
 
 [sources.urxvt-rxvtfont-5865a43]
 key    = "urxvt-rxvtfont-5865a43"
